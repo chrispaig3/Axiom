@@ -6,8 +6,8 @@
   (let ((msum = (multiply 33 33)))
     (let ((asum = (add 3 3)))
       {
-        (printf "Sum: %d" asum)
-        (printf "Sum: %d" msum)
+        (printf "Sum: %d\n" asum)
+        (printf "Sum: %d\n" msum)
         (printf "Hello, World!" 0)
         0
       }
