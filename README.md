@@ -1,10 +1,11 @@
 # Axiom
 
-**A functional systems programming language that compiles to native code.**
+A functional systems programming language for humans and agents — co‑authored with Qwen3.6 Plus.
+Axiom blends the expressive power of functional programming with the performance and control of systems languages. It uses a clean Lisp‑style S‑expression syntax, a Hindley–Milner‑inspired type system, and an LLVM backend to produce fast, native executables — without a VM, runtime, or garbage collector.
 
-Axiom combines the expressive power of functional programming with the performance and control of systems languages. It uses a Lisp-like S-expression syntax, a Hindley-Milner-inspired type system, and an LLVM backend to produce fast, native executables.
+Axiom is intentionally small, explicit, and transparent. It’s designed not only for developers, but also for agentic programming, where AI systems generate, analyze, and manipulate code. Its uniform structure and predictable semantics make it uniquely easy for agents to understand and work with.
 
-This programming language was co-written by Qwen3.6 Plus, and I find it uniquely positioned for agentic programming.
+Co‑authored with Qwen3.6 Plus, Axiom explores a new frontier: languages built with AI, and built for AI‑assisted development.
 
 ---
 
@@ -15,7 +16,7 @@ This programming language was co-written by Qwen3.6 Plus, and I find it uniquely
 | **Rust's safety** | A strong static type system with algebraic data types, pattern matching, and no null pointers — but with simpler syntax and faster compilation |
 | **C's simplicity** | Direct FFI to C libraries, manual memory control via `malloc`/`free`, and predictable performance — without the decades of legacy baggage |
 | **Python's expressiveness** | First-class functions, lambdas, and a REPL that compiles to native code — not interprets |
-| **Go's pragmatism** | A small, learnable language with a single compilation step — no build systems, no dependency managers, no toolchain sprawl |
+| **Go's pragmatism** | A small, learnable language with a single compilation step — no crazy build systems, no dependency managers, no toolchain sprawl |
 | **Haskell's elegance** | Curried functions, polymorphic data types, and a clean mathematical foundation — without the 30-minute compile times |
 
 ### What makes Axiom different

@@ -4,4 +4,3 @@ target/
 **/*.rs.bk
 # Debugging information for MSVC
 *.pdb
-.DS_Store
