@@ -372,12 +372,6 @@ For C-compatible data layouts:
 (Int String Bool)      ; 3-tuple
 ```
 
-### Type annotations on expressions
-
-```scheme
-(:: (+ 1 2) Int)
-```
-
 ### Type casting
 
 ```scheme
