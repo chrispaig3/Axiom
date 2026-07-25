@@ -193,7 +193,7 @@ Use `let` to introduce local variables:
 
 ```scheme
 (:: compute (-> Int Int))
-(define (compute n)
+(fn (compute n)
   (let ((x (+ n 1))
         (y (* x 2)))
     (+ x y)))
@@ -205,7 +205,7 @@ Bindings are evaluated in order — later bindings can reference earlier ones.
 
 ```scheme
 (:: abs (-> Int Int))
-(define (abs n)
+(fn (abs n)
   (if (< n 0)
       (- 0 n)
       n))
