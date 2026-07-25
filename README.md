@@ -434,62 +434,6 @@ See the [Foreign Function Interface](#foreign-function-interface) section for de
   0)
 ```
 
-### Read from a file
-
-Axiom uses C's stdio for file operations. Declare the FFI bindings, then use them:
-
-```scheme
-(foreign fopen :: (-> String String (* Any)) = "fopen")
-(foreign fclose :: (-> (* Any) Int) = "fclose")
-(foreign fgets :: (-> (* Any) Int (* Any) (* Any)) = "fgets")
-(foreign printf :: (-> String Int) = "printf")
-(foreign malloc :: (-> Int (* Any)) = "malloc")
-(foreign free :: (-> (* Any) ()) = "free")
-
-(:: main Int)
-(fn main
-  (let ((file (fopen "input.txt" "r")))
-    (if (== file 0)
-        (begin
-          (printf "Could not open file\n")
-          1)
-        (let ((buffer (malloc 1024)))
-          (fgets buffer 1024 file)
-          (printf "Read from file\n")
-          (free buffer)
-          (fclose file)
-          0))))
-```
-
-### Make an HTTP request
-
-Axiom can call any C library. Here's how to use `curl` via FFI:
-
-```scheme
-;; FFI bindings for libcurl
-(foreign curl_global_init :: (-> Int Int) = "curl_global_init")
-(foreign curl_easy_init :: (-> (* Any)) = "curl_easy_init")
-(foreign curl_easy_setopt :: (-> (* Any) Int (* Any) (* Any)) = "curl_easy_setopt")
-(foreign curl_easy_perform :: (-> (* Any) Int) = "curl_easy_perform")
-(foreign curl_easy_cleanup :: (-> (* Any) ()) = "curl_easy_cleanup")
-(foreign curl_global_cleanup :: (-> ()) = "curl_global_cleanup")
-(foreign printf :: (-> String Int) = "printf")
-(foreign malloc :: (-> Int (* Any)) = "malloc")
-(foreign free :: (-> (* Any) ()) = "free")
-
-### Exit with a status code
-
-```scheme
-(foreign exit :: (-> Int ()) = "exit")
-(foreign printf :: (-> String Int) = "printf")
-
-(:: main Int)
-(fn main
-  (printf "Something went wrong\n")
-  (exit 1)
-  0)
-```
-
 ### Recursive functions
 
 ```scheme
