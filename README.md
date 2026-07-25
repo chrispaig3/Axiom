@@ -677,7 +677,7 @@ axiom/
 ├── axiom-codegen/      # LLVM codegen
 ├── axiom-cli/          # CLI + REPL
 ├── axiom-errors/       # Error types
-├── tests/              # Test programs
+├── hello_world/        # Sample program
 └── Cargo.toml          # Workspace manifest
 ```
 
