@@ -525,28 +525,6 @@ Axiom can call any C library. Here's how to use `curl` via FFI:
 
 Note: Pattern matching codegen is still being implemented. The type checker validates `case` expressions, but the generated code evaluates all branches sequentially. Full pattern matching with proper branching is in progress.
 
-### Memory allocation
-
-```scheme
-(foreign malloc :: (-> Int (* Any)) = "malloc")
-(foreign free :: (-> (* Any) ()) = "free")
-(foreign memset :: (-> (* Any) Int Int (* Any)) = "memset")
-(foreign printf :: (-> String Int) = "printf")
-
-(:: main Int)
-(fn main
-  (let ((ptr (malloc 64)))
-    (if (== ptr 0)
-        (begin
-          (printf "Allocation failed\n")
-          1)
-        (memset ptr 0 64)
-        ; ... use ptr ...
-        (free ptr)
-        (printf "Memory allocated and freed\n")
-        0)))
-```
-
 ---
 
 ## CLI Commands
