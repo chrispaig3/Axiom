@@ -139,7 +139,7 @@ Functions are the heart of Axiom. Every function has an optional type signature 
   (+ x y))
 
 ; Definition using 'define' (classic style)
-(define (add x y)
+(fn (add x y)
   (+ x y))
 
 ; Multi-statement body with braces
@@ -282,7 +282,7 @@ The `(a)` after the type name is a type parameter — like generics in other lan
 
 ```scheme
 (:: fromMaybe (-> Int (Maybe Int) Int))
-(define (fromMaybe default val)
+(fn (fromMaybe default val)
   (case val
     ((Nothing) default)
     ((Just x) x)))
@@ -459,13 +459,13 @@ See the [Foreign Function Interface](#foreign-function-interface) section for de
   (Just a))
 
 (:: fromMaybe (-> Int (Maybe Int) Int))
-(define (fromMaybe default val)
+(fn (fromMaybe default val)
   (case val
     ((Nothing) default)
     ((Just x) x)))
 
 (:: main Int)
-(define main
+(fn main
   (fromMaybe 0 (Just 42)))
 ```
 
