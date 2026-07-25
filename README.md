@@ -1,6 +1,6 @@
 # Axiom
 
-<img width="1536" height="1024" alt="Image" src="https://github.com/user-attachments/assets/38a9afb6-3570-4797-ba57-488e004f4e66" />
+<img width="1333" height="900" alt="Image" src="https://github.com/user-attachments/assets/38a9afb6-3570-4797-ba57-488e004f4e66" />
 
 A functional systems programming language for humans and agents — co‑authored with Qwen3.6 Plus.
 Axiom blends the expressive power of functional programming with the performance and control of systems languages. It uses a clean Lisp‑style S‑expression syntax, a Hindley–Milner‑inspired type system, and an LLVM backend to produce fast, native executables — without a VM, runtime, or garbage collector.
