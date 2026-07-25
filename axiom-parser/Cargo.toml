@@ -1,0 +1,9 @@
+[package]
+name = "axiom-parser"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+axiom-ast.workspace = true
+axiom-lexer.workspace = true
+thiserror.workspace = true

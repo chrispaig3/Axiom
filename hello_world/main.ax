@@ -1,0 +1,22 @@
+(foreign printf :: (-> String (-> Int Int)) = "printf")
+
+(:: main Int)
+
+(fn (main)
+  (let ((msum = (multiply 33 33)))
+    (let ((asum = (add 3 3)))
+      {
+        (printf "Sum: %d" asum)
+        (printf "Sum: %d" msum)
+        (printf "Hello, World!" 0)
+        0
+      }
+    )
+  )
+)
+
+(:: add (-> Int (-> Int Int)))
+(fn (add x y) (+ x y))
+
+(:: multiply (-> Int (-> Int Int)))
+(fn (multiply x y) (* x y)) 

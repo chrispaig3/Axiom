@@ -1,0 +1,9 @@
+[package]
+name = "axiom-sema"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+axiom-ast.workspace = true
+axiom-parser.workspace = true
+thiserror.workspace = true

@@ -1,0 +1,729 @@
+use axiom_ast::ast::*;
+use axiom_ast::span::{Span, Ident};
+
+#[derive(Debug, thiserror::Error)]
+pub enum SemError {
+    #[error("undefined variable `{name}`")]
+    UndefinedVariable { name: String, span: Span },
+    #[error("undefined type `{name}`")]
+    UndefinedType { name: String, span: Span },
+    #[error("undefined constructor `{name}`")]
+    UndefinedConstructor { name: String, span: Span },
+    #[error("type mismatch: expected {expected}, found {found}")]
+    TypeMismatch { expected: String, found: String, span: Span },
+    #[error("pattern not exhaustive")]
+    NonExhaustive { span: Span },
+    #[error("duplicate definition `{name}`")]
+    DuplicateDefinition { name: String, span: Span },
+    #[error("field `{field}` not found on type `{ty}`")]
+    FieldNotFound { field: String, ty: String, span: Span },
+    #[error("{message}")]
+    Message { message: String, span: Span },
+}
+
+impl SemError {
+    pub fn span(&self) -> Span {
+        match self {
+            SemError::UndefinedVariable { span, .. } => *span,
+            SemError::UndefinedType { span, .. } => *span,
+            SemError::UndefinedConstructor { span, .. } => *span,
+            SemError::TypeMismatch { span, .. } => *span,
+            SemError::NonExhaustive { span } => *span,
+            SemError::DuplicateDefinition { span, .. } => *span,
+            SemError::FieldNotFound { span, .. } => *span,
+            SemError::Message { span, .. } => *span,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TypeId {
+    TVar(String),
+    TCon(String, Vec<TypeId>),
+    TArr(Box<TypeId>, Box<TypeId>),
+    TTuple(Vec<TypeId>),
+    TList(Box<TypeId>),
+    TPtr(Box<TypeId>, bool),
+    TForall(Vec<String>, Box<TypeId>),
+}
+
+impl std::fmt::Display for TypeId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TypeId::TVar(name) => write!(f, "{}", name),
+            TypeId::TCon(name, args) => {
+                if args.is_empty() {
+                    write!(f, "{}", name)
+                } else {
+                    write!(f, "{}", name)?;
+                    for arg in args {
+                        write!(f, " {}", arg)?;
+                    }
+                    Ok(())
+                }
+            }
+            TypeId::TArr(a, b) => write!(f, "({} -> {})", a, b),
+            TypeId::TTuple(types) => {
+                write!(f, "(")?;
+                for (i, t) in types.iter().enumerate() {
+                    if i > 0 { write!(f, ", ")?; }
+                    write!(f, "{}", t)?;
+                }
+                write!(f, ")")
+            }
+            TypeId::TList(inner) => write!(f, "[{}]", inner),
+            TypeId::TPtr(inner, mut_) => {
+                if *mut_ {
+                    write!(f, "*mut {}", inner)
+                } else {
+                    write!(f, "*{}", inner)
+                }
+            }
+            TypeId::TForall(vars, inner) => {
+                write!(f, "forall {}. ", vars.join(", "))?;
+                write!(f, "{}", inner)
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct VarInfo {
+    pub ty: TypeId,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub struct DataConInfo {
+    pub name: String,
+    pub ty: TypeId,
+    pub data_type: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct DataTypeInfo {
+    pub name: String,
+    pub tyvars: Vec<String>,
+    pub constructors: Vec<DataConInfo>,
+}
+
+#[derive(Debug, Clone)]
+pub struct StructInfo {
+    pub name: String,
+    pub fields: Vec<(String, TypeId)>,
+}
+
+#[derive(Debug, Clone)]
+pub struct FnInfo {
+    pub name: String,
+    pub ty: TypeId,
+}
+
+#[derive(Debug, Clone)]
+pub struct ClassInfo {
+    pub name: String,
+    pub methods: Vec<(String, TypeId)>,
+}
+
+pub struct TypeChecker {
+    pub scope: Vec<(String, VarInfo)>,
+    pub data_types: Vec<DataTypeInfo>,
+    pub structs: Vec<StructInfo>,
+    pub functions: Vec<FnInfo>,
+    pub classes: Vec<ClassInfo>,
+    pub errors: Vec<SemError>,
+    pub type_counter: usize,
+}
+
+impl TypeChecker {
+    pub fn new() -> Self {
+        let mut tc = Self {
+            scope: Vec::new(),
+            data_types: Vec::new(),
+            structs: Vec::new(),
+            functions: Vec::new(),
+            classes: Vec::new(),
+            errors: Vec::new(),
+            type_counter: 0,
+        };
+
+        let int_ty = TypeId::TCon("Int".to_string(), vec![]);
+        let bool_ty = TypeId::TCon("Bool".to_string(), vec![]);
+        let int_int = TypeId::TArr(Box::new(int_ty.clone()), Box::new(int_ty.clone()));
+        let int_int_int = TypeId::TArr(Box::new(int_ty.clone()), Box::new(int_int.clone()));
+
+        for op in &["+", "-", "*", "/", "%"] {
+            tc.functions.push(FnInfo {
+                name: op.to_string(),
+                ty: int_int_int.clone(),
+            });
+        }
+
+        for op in &["==", "!=", "<", ">", "<=", ">="] {
+            tc.functions.push(FnInfo {
+                name: op.to_string(),
+                ty: TypeId::TArr(Box::new(int_ty.clone()), Box::new(TypeId::TArr(Box::new(int_ty.clone()), Box::new(bool_ty.clone())))),
+            });
+        }
+
+        for op in &["&&", "||"] {
+            tc.functions.push(FnInfo {
+                name: op.to_string(),
+                ty: TypeId::TArr(Box::new(bool_ty.clone()), Box::new(TypeId::TArr(Box::new(bool_ty.clone()), Box::new(bool_ty.clone())))),
+            });
+        }
+
+        tc
+    }
+
+    pub fn check(&mut self, module: &Module) -> Result<(), Vec<SemError>> {
+        self.collect_declarations(module);
+        self.check_decls(&module.decls);
+
+        if self.errors.is_empty() {
+            Ok(())
+        } else {
+            Err(std::mem::take(&mut self.errors))
+        }
+    }
+
+    fn collect_declarations(&mut self, module: &Module) {
+        for decl in &module.decls {
+            match decl {
+                Decl::DData { name, tyvars, constructors, .. } => {
+                    let mut con_infos = Vec::new();
+                    for con in constructors {
+                        let mut field_tys = Vec::new();
+                        for ft in &con.fields {
+                            field_tys.push(self.type_to_id(ft));
+                        }
+                        let con_ty = if field_tys.is_empty() {
+                            TypeId::TCon(name.name.clone(), vec![])
+                        } else {
+                            let mut arr_ty = TypeId::TCon(name.name.clone(), tyvars.iter().map(|v| TypeId::TVar(v.clone())).collect());
+                            for ft in field_tys.into_iter().rev() {
+                                arr_ty = TypeId::TArr(Box::new(ft), Box::new(arr_ty));
+                            }
+                            arr_ty
+                        };
+                        con_infos.push(DataConInfo {
+                            name: con.name.name.clone(),
+                            ty: con_ty,
+                            data_type: name.name.clone(),
+                        });
+                    }
+                    self.data_types.push(DataTypeInfo {
+                        name: name.name.clone(),
+                        tyvars: tyvars.clone(),
+                        constructors: con_infos,
+                    });
+                }
+                Decl::DStruct { name, fields, .. } => {
+                    let struct_fields: Vec<(String, TypeId)> = fields.iter()
+                        .map(|f| (f.name.name.clone(), self.type_to_id(&f.ty)))
+                        .collect();
+                    self.structs.push(StructInfo {
+                        name: name.name.clone(),
+                        fields: struct_fields,
+                    });
+                }
+                Decl::DSig { name, ty } => {
+                    self.functions.push(FnInfo {
+                        name: name.name.clone(),
+                        ty: self.type_to_id(ty),
+                    });
+                }
+                Decl::DClass { name, methods, .. } => {
+                    let method_tys: Vec<(String, TypeId)> = methods.iter()
+                        .map(|m| (m.name.name.clone(), self.type_to_id(&m.ty)))
+                        .collect();
+                    self.classes.push(ClassInfo {
+                        name: name.name.clone(),
+                        methods: method_tys,
+                    });
+                }
+                Decl::DFn { name, .. } => {
+                    if !self.functions.iter().any(|f| f.name == name.name) {
+                        self.functions.push(FnInfo {
+                            name: name.name.clone(),
+                            ty: TypeId::TVar(format!("_fn_{}", self.type_counter)),
+                        });
+                        self.type_counter += 1;
+                    }
+                }
+                Decl::DForeign { name, ty, .. } => {
+                    self.functions.push(FnInfo {
+                        name: name.name.clone(),
+                        ty: self.type_to_id(ty),
+                    });
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn check_decls(&mut self, decls: &[Decl]) {
+        for decl in decls {
+            match decl {
+                Decl::DSig { name, ty } => {
+                    let ty_id = self.type_to_id(ty);
+                    self.scope.push((
+                        name.name.clone(),
+                        VarInfo { ty: ty_id, span: name.span },
+                    ));
+                }
+                Decl::DFn { name, params, body } => {
+                    let sig_ty = self.functions.iter()
+                        .find(|f| f.name == name.name)
+                        .map(|f| f.ty.clone());
+
+                    self.push_scope();
+                    let param_types: Vec<TypeId> = if let Some(TypeId::TArr(_, _)) = &sig_ty {
+                        let mut types = Vec::new();
+                        let mut current = sig_ty.as_ref().unwrap();
+                        for _ in 0..params.len() {
+                            if let TypeId::TArr(param_ty, rest) = current {
+                                types.push(param_ty.as_ref().clone());
+                                current = rest.as_ref();
+                            } else {
+                                break;
+                            }
+                        }
+                        types
+                    } else {
+                        vec![TypeId::TCon("Int".to_string(), vec![]); params.len()]
+                    };
+
+                    let mut actual_param_types: Vec<TypeId> = Vec::new();
+                    for (i, pat) in params.iter().enumerate() {
+                        let ty = param_types.get(i).cloned()
+                            .unwrap_or(TypeId::TVar(format!("_t{}", self.type_counter)));
+                        self.type_counter += 1;
+                        actual_param_types.push(ty.clone());
+                        self.check_pattern_with_type(pat, &ty);
+                    }
+                    let body_ty = self.check_expr(body);
+                    self.pop_scope();
+
+                    // Build the actual function type from parameters and body
+                    let mut fn_ty = body_ty;
+                    for param_ty in actual_param_types.into_iter().rev() {
+                        fn_ty = TypeId::TArr(Box::new(param_ty), Box::new(fn_ty));
+                    }
+
+                    // Update the function's type in self.functions
+                    if let Some(fn_info) = self.functions.iter_mut().find(|f| f.name == name.name) {
+                        fn_info.ty = fn_ty;
+                    }
+                }
+                Decl::DForeign { name, ty, .. } => {
+                    let ty_id = self.type_to_id(ty);
+                    self.scope.push((
+                        name.name.clone(),
+                        VarInfo { ty: ty_id, span: name.span },
+                    ));
+                }
+                Decl::DInstance { methods, .. } => {
+                    for (_, body) in methods {
+                        self.check_expr(body);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn check_expr(&mut self, expr: &Expr) -> TypeId {
+        match expr {
+            Expr::EVar(ident) => self.check_var(ident),
+            Expr::ELit(lit) => self.check_literal(lit),
+            Expr::EApp(func, arg) => {
+                let func_ty = self.check_expr(func);
+                let _arg_ty = self.check_expr(arg);
+                match func_ty {
+                    TypeId::TArr(_param_ty, ret_ty) => {
+                        *ret_ty
+                    }
+                    _ => {
+                        self.errors.push(SemError::TypeMismatch {
+                            expected: "function type".to_string(),
+                            found: format!("{}", func_ty),
+                            span: expr.span(),
+                        });
+                        TypeId::TVar(format!("_t{}", self.type_counter))
+                    }
+                }
+            }
+            Expr::ELam(patterns, body) => {
+                self.push_scope();
+                for pat in patterns {
+                    self.check_pattern(pat);
+                }
+                let body_ty = self.check_expr(body);
+                self.pop_scope();
+                let param_ty = TypeId::TTuple(vec![]);
+                TypeId::TArr(Box::new(param_ty), Box::new(body_ty))
+            }
+            Expr::ELet(bindings, body) => {
+                self.push_scope();
+                for (pat, init) in bindings {
+                    let _init_ty = self.check_expr(init);
+                    self.check_pattern(pat);
+                }
+                let body_ty = self.check_expr(body);
+                self.pop_scope();
+                body_ty
+            }
+            Expr::EIf(cond, then_expr, else_expr) => {
+                let cond_ty = self.check_expr(cond);
+                if cond_ty != TypeId::TCon("Bool".to_string(), vec![]) {
+                    self.errors.push(SemError::TypeMismatch {
+                        expected: "Bool".to_string(),
+                        found: format!("{}", cond_ty),
+                        span: cond.span(),
+                    });
+                }
+                let then_ty = self.check_expr(then_expr);
+                let else_ty = self.check_expr(else_expr);
+                if then_ty != else_ty {
+                    self.errors.push(SemError::TypeMismatch {
+                        expected: format!("{}", then_ty),
+                        found: format!("{}", else_ty),
+                        span: else_expr.span(),
+                    });
+                }
+                then_ty
+            }
+            Expr::ECase(target, arms) => {
+                self.check_expr(target);
+                let mut arm_ty = TypeId::TVar(format!("_t{}", self.type_counter));
+                for (pat, body) in arms {
+                    self.push_scope();
+                    self.check_pattern(pat);
+                    arm_ty = self.check_expr(body);
+                    self.pop_scope();
+                }
+                arm_ty
+            }
+            Expr::ECond(branches, else_branch) => {
+                let mut result_ty = TypeId::TVar(format!("_t{}", self.type_counter));
+                for (cond, body) in branches {
+                    let cond_ty = self.check_expr(cond);
+                    if cond_ty != TypeId::TCon("Bool".to_string(), vec![]) {
+                        self.errors.push(SemError::TypeMismatch {
+                            expected: "Bool".to_string(),
+                            found: format!("{}", cond_ty),
+                            span: cond.span(),
+                        });
+                    }
+                    result_ty = self.check_expr(body);
+                }
+                if let Some(else_body) = else_branch {
+                    let else_ty = self.check_expr(else_body);
+                    if else_ty != result_ty {
+                        self.errors.push(SemError::TypeMismatch {
+                            expected: format!("{}", result_ty),
+                            found: format!("{}", else_ty),
+                            span: else_body.span(),
+                        });
+                    }
+                }
+                result_ty
+            }
+            Expr::EBegin(exprs) => {
+                let mut last_ty = TypeId::TTuple(vec![]);
+                for e in exprs {
+                    last_ty = self.check_expr(e);
+                }
+                last_ty
+            }
+            Expr::ETuple(elements) => {
+                let types: Vec<TypeId> = elements.iter().map(|e| self.check_expr(e)).collect();
+                TypeId::TTuple(types)
+            }
+            Expr::EList(elements) => {
+                let mut elem_ty = TypeId::TVar(format!("_t{}", self.type_counter));
+                for elem in elements {
+                    let t = self.check_expr(elem);
+                    elem_ty = t;
+                }
+                TypeId::TList(Box::new(elem_ty))
+            }
+            Expr::EInfix(left, _op, right) => {
+                let _left_ty = self.check_expr(left);
+                let _right_ty = self.check_expr(right);
+                TypeId::TVar(format!("_t{}", self.type_counter))
+            }
+            Expr::ETypeSig(inner, ty) => {
+                let _inner_ty = self.check_expr(inner);
+                self.type_to_id(ty)
+            }
+            Expr::ECast(inner, ty) => {
+                self.check_expr(inner);
+                self.type_to_id(ty)
+            }
+            Expr::EAlloc(ty, count) => {
+                if let Some(count_expr) = count {
+                    self.check_expr(count_expr);
+                }
+                TypeId::TPtr(Box::new(self.type_to_id(ty)), true)
+            }
+            Expr::ESizeof(_) => TypeId::TCon("Int".to_string(), vec![]),
+            Expr::EAlignof(_) => TypeId::TCon("Int".to_string(), vec![]),
+            Expr::EGrouped(inner) => self.check_expr(inner),
+            Expr::EHandle(body, _, handler) => {
+                self.check_expr(body);
+                self.check_expr(handler)
+            }
+            Expr::ERegion(_, body) => {
+                self.check_expr(body)
+            }
+            Expr::EConsume(e) => {
+                self.check_expr(e)
+            }
+            Expr::EError(_) => TypeId::TVar(format!("_t{}", self.type_counter)),
+        }
+    }
+
+    fn check_var(&mut self, ident: &Ident) -> TypeId {
+        for (name, info) in self.scope.iter().rev() {
+            if name == &ident.name {
+                return info.ty.clone();
+            }
+        }
+
+        for fn_info in &self.functions {
+            if fn_info.name == ident.name {
+                return fn_info.ty.clone();
+            }
+        }
+
+        for data_type in &self.data_types {
+            for con in &data_type.constructors {
+                if con.name == ident.name {
+                    return con.ty.clone();
+                }
+            }
+        }
+
+        self.errors.push(SemError::UndefinedVariable {
+            name: ident.name.clone(),
+            span: ident.span,
+        });
+
+        TypeId::TVar(format!("_t{}", self.type_counter))
+    }
+
+    fn check_literal(&self, lit: &Literal) -> TypeId {
+        match lit {
+            Literal::LInt(_) => TypeId::TCon("Int".to_string(), vec![]),
+            Literal::LFloat(_) => TypeId::TCon("Float".to_string(), vec![]),
+            Literal::LBool(_) => TypeId::TCon("Bool".to_string(), vec![]),
+            Literal::LChar(_) => TypeId::TCon("Char".to_string(), vec![]),
+            Literal::LStr(_) => TypeId::TCon("String".to_string(), vec![]),
+        }
+    }
+
+    fn check_pattern(&mut self, pat: &Pattern) {
+        match pat {
+            Pattern::PVar(ident) => {
+                self.scope.push((
+                    ident.name.clone(),
+                    VarInfo {
+                        ty: TypeId::TVar(format!("_t{}", self.type_counter)),
+                        span: ident.span,
+                    },
+                ));
+                self.type_counter += 1;
+            }
+            Pattern::PCon(_ident, args) => {
+                for arg in args {
+                    self.check_pattern(arg);
+                }
+            }
+            Pattern::PTuple(pats) => {
+                for pat in pats {
+                    self.check_pattern(pat);
+                }
+            }
+            Pattern::PList(pats) => {
+                for pat in pats {
+                    self.check_pattern(pat);
+                }
+            }
+            Pattern::PWildcard | Pattern::PLit(_) => {}
+        }
+    }
+
+    fn check_pattern_with_type(&mut self, pat: &Pattern, ty: &TypeId) {
+        match pat {
+            Pattern::PVar(ident) => {
+                self.scope.push((
+                    ident.name.clone(),
+                    VarInfo {
+                        ty: ty.clone(),
+                        span: ident.span,
+                    },
+                ));
+            }
+            Pattern::PCon(_ident, args) => {
+                for arg in args {
+                    self.check_pattern_with_type(arg, ty);
+                }
+            }
+            Pattern::PTuple(pats) => {
+                for pat in pats {
+                    self.check_pattern_with_type(pat, ty);
+                }
+            }
+            Pattern::PList(pats) => {
+                for pat in pats {
+                    self.check_pattern_with_type(pat, ty);
+                }
+            }
+            Pattern::PWildcard | Pattern::PLit(_) => {}
+        }
+    }
+
+    fn type_to_id(&self, ty: &Type) -> TypeId {
+        match ty {
+            Type::TVar(name) => TypeId::TVar(name.clone()),
+            Type::TCon(ident, args) => {
+                let arg_ids: Vec<TypeId> = args.iter().map(|a| self.type_to_id(a)).collect();
+                TypeId::TCon(ident.name.clone(), arg_ids)
+            }
+            Type::TArr(from, to) => {
+                TypeId::TArr(Box::new(self.type_to_id(from)), Box::new(self.type_to_id(to)))
+            }
+            Type::TTuple(types) => {
+                TypeId::TTuple(types.iter().map(|t| self.type_to_id(t)).collect())
+            }
+            Type::TList(inner) => {
+                TypeId::TList(Box::new(self.type_to_id(inner)))
+            }
+            Type::TPtr(inner, mutable) => {
+                TypeId::TPtr(Box::new(self.type_to_id(inner)), *mutable)
+            }
+            Type::TForall(vars, inner) => {
+                TypeId::TForall(vars.clone(), Box::new(self.type_to_id(inner)))
+            }
+            Type::TEffect(inner, _effects) => {
+                self.type_to_id(inner)
+            }
+            Type::TRegion(inner, name) => {
+                TypeId::TCon(name.name.clone(), vec![self.type_to_id(inner)])
+            }
+            Type::TLinear(inner) => {
+                TypeId::TCon("Linear".to_string(), vec![self.type_to_id(inner)])
+            }
+        }
+    }
+
+    fn push_scope(&mut self) {
+        self.scope.push(("__scope__".to_string(), VarInfo {
+            ty: TypeId::TTuple(vec![]),
+            span: Span::dummy(),
+        }));
+    }
+
+    fn pop_scope(&mut self) {
+        while let Some((name, _)) = self.scope.pop() {
+            if name == "__scope__" {
+                break;
+            }
+        }
+    }
+
+    pub fn check_single_expr(&mut self, expr: &Expr) -> Result<TypeId, Vec<SemError>> {
+        self.errors.clear();
+        let ty = self.check_expr(expr);
+        if self.errors.is_empty() {
+            Ok(ty)
+        } else {
+            Err(std::mem::take(&mut self.errors))
+        }
+    }
+
+    pub fn register_decl(&mut self, decl: &Decl) {
+        match decl {
+            Decl::DData { name, tyvars, constructors, .. } => {
+                let mut con_infos = Vec::new();
+                for con in constructors {
+                    let mut field_tys = Vec::new();
+                    for ft in &con.fields {
+                        field_tys.push(self.type_to_id(ft));
+                    }
+                    let con_ty = if field_tys.is_empty() {
+                        TypeId::TCon(name.name.clone(), vec![])
+                    } else {
+                        let mut arr_ty = TypeId::TCon(name.name.clone(), tyvars.iter().map(|v| TypeId::TVar(v.clone())).collect());
+                        for ft in field_tys.into_iter().rev() {
+                            arr_ty = TypeId::TArr(Box::new(ft), Box::new(arr_ty));
+                        }
+                        arr_ty
+                    };
+                    con_infos.push(DataConInfo {
+                        name: con.name.name.clone(),
+                        ty: con_ty,
+                        data_type: name.name.clone(),
+                    });
+                }
+                self.data_types.push(DataTypeInfo {
+                    name: name.name.clone(),
+                    tyvars: tyvars.clone(),
+                    constructors: con_infos,
+                });
+            }
+            Decl::DSig { name, ty } => {
+                let ty_id = self.type_to_id(ty);
+                self.functions.push(FnInfo {
+                    name: name.name.clone(),
+                    ty: ty_id.clone(),
+                });
+                self.scope.push((
+                    name.name.clone(),
+                    VarInfo { ty: ty_id, span: name.span },
+                ));
+            }
+            Decl::DFn { name, params, body } => {
+                if !self.functions.iter().any(|f| f.name == name.name) {
+                    self.functions.push(FnInfo {
+                        name: name.name.clone(),
+                        ty: TypeId::TVar(format!("_fn_{}", self.type_counter)),
+                    });
+                    self.type_counter += 1;
+                }
+                self.push_scope();
+                for pat in params {
+                    self.check_pattern(pat);
+                }
+                self.check_expr(body);
+                self.pop_scope();
+            }
+            Decl::DStruct { name, fields, .. } => {
+                let struct_fields: Vec<(String, TypeId)> = fields.iter()
+                    .map(|f| (f.name.name.clone(), self.type_to_id(&f.ty)))
+                    .collect();
+                self.structs.push(StructInfo {
+                    name: name.name.clone(),
+                    fields: struct_fields,
+                });
+            }
+            _ => {}
+        }
+    }
+
+    pub fn lookup_type(&self, name: &str) -> Option<TypeId> {
+        for (n, info) in self.scope.iter().rev() {
+            if n == name {
+                return Some(info.ty.clone());
+            }
+        }
+        for fn_info in &self.functions {
+            if fn_info.name == name {
+                return Some(fn_info.ty.clone());
+            }
+        }
+        None
+    }
+}
