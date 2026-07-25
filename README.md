@@ -49,7 +49,7 @@ sudo apt install llvm clang
 ### Build the compiler
 
 ```bash
-git clone <repo>
+git clone https://github.com/chrispaig3/Axiom
 cd axiom
 cargo build --release
 ```
