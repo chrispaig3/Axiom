@@ -459,27 +459,6 @@ Axiom uses C's stdio for file operations. Declare the FFI bindings, then use the
           0))))
 ```
 
-### Write to a file
-
-```scheme
-(foreign fopen :: (-> String String (* Any)) = "fopen")
-(foreign fputs :: (-> String (* Any) Int) = "fputs")
-(foreign fclose :: (-> (* Any) Int) = "fclose")
-(foreign printf :: (-> String Int) = "printf")
-
-(:: main Int)
-(fn main
-  (let ((file (fopen "output.txt" "w")))
-    (if (== file 0)
-        (begin
-          (printf "Could not open file\n")
-          1)
-        (fputs "Hello from Axiom!\n" file)
-        (fclose file)
-        (printf "File written successfully\n")
-        0)))
-```
-
 ### Make an HTTP request
 
 Axiom can call any C library. Here's how to use `curl` via FFI:
