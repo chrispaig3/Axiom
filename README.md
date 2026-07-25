@@ -428,23 +428,6 @@ See the [Foreign Function Interface](#foreign-function-interface) section for de
   0)
 ```
 
-### Recursive functions
-
-```scheme
-(foreign printf :: (-> String Int) = "printf")
-
-(:: factorial (-> Int Int))
-(fn (factorial n)
-  (if (<= n 1)
-      1
-      (* n (factorial (- n 1)))))
-
-(:: main Int)
-(fn main
-  (printf "5! = %d\n" (factorial 5))
-  0)
-```
-
 ### Working with data types
 
 ```scheme
