@@ -139,7 +139,7 @@ Functions are the heart of Axiom. Every function has an optional type signature 
   (+ x y))
 
 ; Definition using 'define' (classic style)
-(fn (add x y)
+(define (add x y)
   (+ x y))
 
 ; Multi-statement body with braces
