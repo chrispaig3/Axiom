@@ -35,6 +35,30 @@ pub enum IrInst {
     Cast { dest: IrValue, src: IrValue, target_ty: TypeId },
     Sizeof { dest: IrValue, ty: TypeId },
     Alignof { dest: IrValue, ty: TypeId },
+
+    /// Heap-allocate `size` bytes via the runtime allocator and bind the
+    /// resulting address to `dest`, represented (like every other value in
+    /// this IR) as a plain `i64`. This is the one primitive Axiom's `data`
+    /// constructors are built from: every constructor value - nullary or
+    /// not - is a heap-boxed block whose first word is a tag (see
+    /// [`StoreOffset`](IrInst::StoreOffset)/[`LoadOffset`](IrInst::LoadOffset)
+    /// for how the tag and fields are written/read). Boxing *every*
+    /// constructor uniformly, including zero-argument ones, means pattern
+    /// matching never needs two different runtime representations for the
+    /// same `data` type depending on which constructor produced a given
+    /// value.
+    HeapAlloc { dest: IrValue, size: IrValue },
+    /// Store `value` at byte offset `offset` from the address held in
+    /// `ptr` (itself an `i64`, per [`HeapAlloc`](IrInst::HeapAlloc)).
+    /// Offset `0` is always a constructor's tag; offset `8 * (1 + i)` is
+    /// its `i`-th field (every field is stored as a plain 8-byte `i64`
+    /// word, matching this IR's existing "everything is `i64`" model -
+    /// pointers to other boxed values are just `i64` addresses, so nested/
+    /// recursive `data` types (`List`, `Tree`, ...) need no special case).
+    StoreOffset { ptr: IrValue, offset: i64, value: IrValue },
+    /// Load an `i64` from byte offset `offset` from the address held in
+    /// `ptr`. The inverse of [`StoreOffset`](IrInst::StoreOffset).
+    LoadOffset { dest: IrValue, ptr: IrValue, offset: i64 },
 }
 
 #[derive(Debug, Clone)]

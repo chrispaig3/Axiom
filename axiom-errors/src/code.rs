@@ -7,6 +7,7 @@
 /// * `AX2xxx` - parsing / syntax
 /// * `AX3xxx` - semantic analysis / type checking
 /// * `AX4xxx` - IR lowering, codegen, and the native toolchain
+/// * `AX5xxx` - module/import resolution
 ///
 /// This is intentionally modeled after `rustc`'s `E0308`-style codes: a
 /// stable, greppable identifier that survives message wording changes,
@@ -121,6 +122,11 @@ registry! {
         "semantic error",
         "A semantic rule was violated in a way that doesn't fit a more specific\n\
          diagnostic code; see the message for details."),
+    CONSTRUCTOR_ARITY => ("AX3009", "constructor-arity-mismatch",
+        "constructor arity mismatch",
+        "A data constructor was applied (or matched in a pattern) with the wrong\n\
+         number of arguments. Check the constructor's `data` declaration for how\n\
+         many fields it actually has."),
 
     // ---- AX4xxx: lowering / codegen / toolchain ----
     MISSING_MAIN => ("AX4001", "missing-main",
@@ -141,6 +147,16 @@ registry! {
          executable. This error means one of those external commands could not\n\
          be run or exited unsuccessfully; check that LLVM (`llc`) and a C\n\
          compiler (`cc`) are installed and on your `PATH`."),
+
+    // ---- AX5xxx: module resolution ----
+    MODULE_NOT_FOUND => ("AX5001", "module-not-found",
+        "cannot resolve import",
+        "An `(import Mod.Sub ...)` declaration names a module path that doesn't\n\
+         correspond to any file on disk. Module paths are resolved relative to\n\
+         the entry file's own directory (the file passed to `check`/`build`/\n\
+         `run`/`emit-llvm`), not the directory of whichever file wrote the\n\
+         `(import ...)`: `Mod.Sub` looks for `Mod/Sub.ax` next to (or below)\n\
+         the entry file, from every file in the program alike."),
 }
 
 /// Look up full metadata for a stable code string such as `"AX3001"`.

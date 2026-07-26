@@ -41,6 +41,7 @@ Codes are namespaced by compiler stage:
 | `AX2xxx` | Parsing / syntax |
 | `AX3xxx` | Semantic analysis / type checking |
 | `AX4xxx` | IR lowering, codegen, and the native toolchain |
+| `AX5xxx` | Module/import resolution |
 
 Codes are stable across wording changes, so you can grep for them in CI,
 pattern-match on them in editor tooling, or look them up directly:

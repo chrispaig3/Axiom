@@ -399,6 +399,33 @@ impl Parser {
 
         if self.check(TokenKind::LParen) {
             self.advance();
+
+            // A constructor pattern is written exactly like a constructor
+            // *application* expression - `(Just x)`, `(Cons h t)`,
+            // `(Nothing)` - with the constructor name as the very first
+            // thing inside the parens, not as a separately-parenthesized
+            // pattern. Without this check, falling straight through to the
+            // generic "N patterns in parens => tuple" reading below turns
+            // `(Just x)` into a 2-tuple of two *variable* patterns named
+            // `Just` and `x` - `PCon` never gets produced at all for the
+            // s-expression constructor-pattern syntax every `case` example
+            // in the language actually uses, and `(Nothing)` (zero-arg
+            // constructor) degenerates to a plain 1-tuple-unwrapped
+            // `PVar("Nothing")`. This mirrors the constructor-name
+            // convention `looks_like_tyvar_list` also relies on: a real
+            // Axiom identifier used as a constructor is always
+            // capitalized, so `is_constructor_ident` alone is enough to
+            // disambiguate from a tuple pattern's first element.
+            if self.is_constructor_ident() {
+                let ident = self.parse_ident()?;
+                let mut args = Vec::new();
+                while !self.check(TokenKind::RParen) && !self.at_eof() {
+                    args.push(self.parse_pattern()?);
+                }
+                self.expect(TokenKind::RParen)?;
+                return Ok(Pattern::PCon(ident, args));
+            }
+
             let mut patterns = Vec::new();
             while !self.check(TokenKind::RParen) && !self.at_eof() {
                 patterns.push(self.parse_pattern()?);
@@ -484,7 +511,7 @@ impl Parser {
                 self.advance();
                 let mut types = Vec::new();
                 while !self.check(TokenKind::RParen) && !self.at_eof() {
-                    types.push(self.parse_type()?);
+                    types.push(self.parse_type_atom()?);
                 }
                 self.expect(TokenKind::RParen)?;
                 if types.len() < 2 {
@@ -505,15 +532,63 @@ impl Parser {
                 return Ok(Type::unit());
             }
 
+            // A parenthesized group headed by a capitalized type name is a
+            // type *application* - `(Maybe Int)`, `(List a)`, `(Tree a)` -
+            // with the name as the head and everything else in the parens
+            // as its arguments, exactly like a constructor application
+            // *expression* `(Just 42)` parses (head first, args after)
+            // rather than "N sibling types in parens = a tuple". This is
+            // checked once, here, rather than by having the bare-ident
+            // case in `parse_type_atom` greedily gather trailing types as
+            // its own arguments (the previous approach): that made a
+            // bare, *unparenthesized* custom type name anywhere in a
+            // sibling-type list - an arrow's parameter list (`(->
+            // Ordering Int)`), a tuple, a constructor's field list -
+            // silently swallow the *next* sibling slot as if it were an
+            // argument to the first, e.g. `(-> Ordering Int)` parsed as a
+            // single type `Ordering applied to Int` instead of two types,
+            // which then tripped "-> requires at least two types" even
+            // though two types were written. Requiring an application's
+            // own parens (as every such type already is written
+            // throughout the language) means a bare name in a sibling
+            // list is always exactly one complete type slot.
+            if self.is_constructor_ident() {
+                let ident = self.parse_ident()?;
+                let mut args = Vec::new();
+                while !self.check(TokenKind::RParen) && !self.at_eof() {
+                    args.push(self.parse_type_atom()?);
+                }
+                self.expect(TokenKind::RParen)?;
+                return Ok(Type::TCon(ident, args));
+            }
+
             let mut types = Vec::new();
             while !self.check(TokenKind::RParen) && !self.at_eof() {
-                types.push(self.parse_type()?);
+                types.push(self.parse_type_atom()?);
             }
             self.expect(TokenKind::RParen)?;
             if types.len() == 1 {
                 return Ok(types.into_iter().next().unwrap());
             }
             return Ok(Type::TTuple(types));
+        }
+
+        self.parse_type_atom()
+    }
+
+    /// Parse exactly one standalone type "slot": a fully self-delimited
+    /// type that never reaches past its own tokens to swallow a sibling
+    /// slot in whatever list is calling this (an arrow's parameter list,
+    /// a tuple, a constructor's field list, a type application's
+    /// argument list, ...). A bare, capitalized type name here always has
+    /// zero arguments - applying it to arguments requires wrapping the
+    /// whole application in its own parens (see `parse_type`'s
+    /// constructor-application branch above), which is how every such
+    /// type is actually written in practice (`(Maybe Int)`, never bare
+    /// `Maybe Int`).
+    fn parse_type_atom(&mut self) -> ParseResult<Type> {
+        if self.check(TokenKind::LParen) {
+            return self.parse_type();
         }
 
         if self.check(TokenKind::LBracket) {
@@ -525,13 +600,13 @@ impl Parser {
 
         if self.check(TokenKind::Star) {
             self.advance();
-            let inner = self.parse_type()?;
+            let inner = self.parse_type_atom()?;
             return Ok(Type::ptr(inner, false));
         }
 
         if self.check(TokenKind::Linear) {
             self.advance();
-            let inner = self.parse_type()?;
+            let inner = self.parse_type_atom()?;
             return Ok(Type::linear(inner));
         }
 
@@ -547,22 +622,10 @@ impl Parser {
                 return Ok(Type::TVar(ident.name));
             }
 
-            let mut args = Vec::new();
-            while !self.check(TokenKind::RParen) && !self.check(TokenKind::DoubleColon)
-                && !self.check(TokenKind::Eq) && !self.at_eof()
-                && !self.check(TokenKind::Bang) {
-                let next = self.parse_type_atom()?;
-                args.push(next);
-            }
-
-            return Ok(Type::TCon(ident, args));
+            return Ok(Type::TCon(ident, vec![]));
         }
 
         self.parse_primitive_type()
-    }
-
-    fn parse_type_atom(&mut self) -> ParseResult<Type> {
-        self.parse_type()
     }
 
     fn parse_primitive_type(&mut self) -> ParseResult<Type> {
@@ -1160,6 +1223,19 @@ impl Parser {
         } else {
             false
         }
+    }
+
+    /// Is the current token an identifier written in the constructor-name
+    /// convention (capitalized), e.g. `Just`, `Nothing`, `Cons`? Used by
+    /// [`parse_pattern`](Self::parse_pattern) to tell a constructor
+    /// pattern's head apart from a tuple pattern's first element.
+    fn is_constructor_ident(&self) -> bool {
+        if let Some(token) = self.tokens.get(self.pos) {
+            if let TokenKind::Ident(name) = &token.kind {
+                return name.chars().next().map_or(false, |c| c.is_uppercase());
+            }
+        }
+        false
     }
 
     fn check(&self, kind: TokenKind) -> bool {

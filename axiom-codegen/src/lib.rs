@@ -513,6 +513,44 @@ impl LlvmCodeGen {
                     self.ssa_values.insert(name.clone(), (result_reg, TypeId::TCon("I64".to_string(), vec![])));
                 }
             }
+            IrInst::HeapAlloc { dest, size } => {
+                let size_val = self.value_to_llvm(size)?;
+                // `malloc` is declared to return `ptr`, so the call itself
+                // must say `ptr` too (LLVM requires a call site's type to
+                // match the callee's declared signature) - then
+                // immediately convert to `i64` so every later
+                // Store/LoadOffset on this value can keep treating it as
+                // the same plain integer address every other IR value
+                // already is.
+                let ptr_reg = self.new_local_reg();
+                writeln!(self.output, "  {} = call ptr @malloc(i64 {})", ptr_reg, size_val).unwrap();
+                let addr_reg = self.new_local_reg();
+                writeln!(self.output, "  {} = ptrtoint ptr {} to i64", addr_reg, ptr_reg).unwrap();
+                if let IrValue::Local(name) = dest {
+                    self.ssa_values.insert(name.clone(), (addr_reg, TypeId::TCon("I64".to_string(), vec![])));
+                }
+            }
+            IrInst::StoreOffset { ptr, offset, value } => {
+                let ptr_val = self.value_to_llvm(ptr)?;
+                let val_str = self.value_to_llvm(value)?;
+                let addr_reg = self.new_local_reg();
+                writeln!(self.output, "  {} = add i64 {}, {}", addr_reg, ptr_val, offset).unwrap();
+                let field_ptr_reg = self.new_local_reg();
+                writeln!(self.output, "  {} = inttoptr i64 {} to ptr", field_ptr_reg, addr_reg).unwrap();
+                writeln!(self.output, "  store i64 {}, ptr {}", val_str, field_ptr_reg).unwrap();
+            }
+            IrInst::LoadOffset { dest, ptr, offset } => {
+                let ptr_val = self.value_to_llvm(ptr)?;
+                let addr_reg = self.new_local_reg();
+                writeln!(self.output, "  {} = add i64 {}, {}", addr_reg, ptr_val, offset).unwrap();
+                let field_ptr_reg = self.new_local_reg();
+                writeln!(self.output, "  {} = inttoptr i64 {} to ptr", field_ptr_reg, addr_reg).unwrap();
+                let result_reg = self.new_local_reg();
+                writeln!(self.output, "  {} = load i64, ptr {}", result_reg, field_ptr_reg).unwrap();
+                if let IrValue::Local(name) = dest {
+                    self.ssa_values.insert(name.clone(), (result_reg, TypeId::TCon("I64".to_string(), vec![])));
+                }
+            }
         }
 
         Ok(())

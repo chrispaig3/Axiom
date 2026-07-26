@@ -1,4 +1,6 @@
+use std::collections::HashSet;
 use std::fs;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use axiom_lexer::Lexer;
@@ -128,7 +130,7 @@ fn main() {
             }
         }
         Commands::EmitLlvm { input, output } => {
-            if let Err(e) = emit_llvm(&input, output.as_deref()) {
+            if let Err(e) = emit_llvm(&input, output.as_deref(), format) {
                 eprintln!("{}", e);
                 std::process::exit(1);
             }
@@ -187,6 +189,271 @@ fn print_diagnostics(diags: Vec<Diagnostic>, filename: &str, source: &str, forma
     eprint!("{}", rendered);
 }
 
+/// Tracks every source file that ended up contributing declarations to a
+/// compilation - the entry file plus every transitively `(import ...)`ed
+/// module - indexed by the same `file_id` [`axiom_ast::span::Span`]
+/// already carries end to end (the lexer stamps every span it produces
+/// with the `file_id` it was constructed with; see `axiom-lexer`). This is
+/// what lets [`print_diagnostics_multi`] point a diagnostic produced by
+/// type-checking a *merged*, multi-file AST back at the specific file and
+/// source text it actually came from, instead of always (incorrectly)
+/// rendering it against the entry file's text.
+struct FileRegistry {
+    /// `(display_path, source)`, indexed by `file_id`.
+    files: Vec<(String, String)>,
+}
+
+impl FileRegistry {
+    fn new() -> Self {
+        Self { files: Vec::new() }
+    }
+
+    /// Register a file's text and return the `file_id` it was assigned
+    /// (always the next sequential id, starting at `0` for the first file
+    /// added - callers add the entry file first for exactly this reason).
+    fn add(&mut self, path: String, source: String) -> usize {
+        let id = self.files.len();
+        self.files.push((path, source));
+        id
+    }
+
+    fn get(&self, file_id: usize) -> (&str, &str) {
+        match self.files.get(file_id) {
+            Some((path, source)) => (path.as_str(), source.as_str()),
+            // Every span in a merged AST was produced by lexing one of
+            // this registry's own files, so a truly out-of-range
+            // `file_id` should never happen; falling back to the entry
+            // file (id `0`) rather than panicking means a diagnostic
+            // still renders *somewhere* useful even if that invariant is
+            // ever violated by a future bug.
+            None => {
+                let (path, source) = &self.files[0];
+                (path.as_str(), source.as_str())
+            }
+        }
+    }
+}
+
+/// Like [`print_diagnostics`], but for a diagnostic list that may span
+/// more than one file (i.e. any diagnostic from type-checking a module
+/// that pulled in `(import ...)`ed declarations from other files). Each
+/// diagnostic is rendered individually against the specific file its own
+/// primary span's `file_id` names, via `registry`, instead of one shared
+/// filename/source for the whole batch - the single-file renderers in
+/// `axiom-errors` are otherwise unchanged and still called exactly once
+/// per diagnostic.
+///
+/// **Known limitation:** this only re-homes a diagnostic by its *primary*
+/// span's file. A diagnostic's *secondary* spans (right now, only
+/// `SemError::DuplicateDefinition`'s "first defined here") are rendered by
+/// `axiom-errors` against that same primary file's source text - correct
+/// when both spans are in the same file (the common case: two definitions
+/// in one file), but if `helper` is defined once in an imported file and
+/// redefined in the file that imports it, the "first defined here" label
+/// will be computed against the *wrong* file's source text (whichever
+/// file the primary "redefined here" span is in), since `axiom-errors`'s
+/// renderers take one shared `(filename, source)` pair per diagnostic, not
+/// one per label. Fixing this properly means threading per-label file
+/// resolution through `render_human`/`render_ai`/`render_json` themselves;
+/// out of scope here since every *other* diagnostic in the compiler only
+/// ever has secondary spans in the same file as its primary span.
+fn print_diagnostics_multi(diags: &[Diagnostic], registry: &FileRegistry, format: DiagnosticFormat) {
+    for diag in diags {
+        let file_id = diag.primary_span().map(|s| s.file_id).unwrap_or(0);
+        let (filename, source) = registry.get(file_id);
+        print_diagnostics(vec![diag.clone()], filename, source, format);
+    }
+}
+
+/// The declared name of a top-level `Decl`, for import name-filtering
+/// (`(import Mod (a b))`) and duplicate-definition namespacing - `None`
+/// for decls with no single name of their own (`DImport`, `DInstance`).
+fn decl_name(decl: &axiom_ast::ast::Decl) -> Option<&str> {
+    use axiom_ast::ast::Decl;
+    match decl {
+        Decl::DData { name, .. }
+        | Decl::DStruct { name, .. }
+        | Decl::DUnion { name, .. }
+        | Decl::DType { name, .. }
+        | Decl::DClass { name, .. }
+        | Decl::DSig { name, .. }
+        | Decl::DFn { name, .. }
+        | Decl::DForeign { name, .. }
+        | Decl::DEffect { name, .. } => Some(&name.name),
+        Decl::DInstance { .. } | Decl::DImport { .. } => None,
+    }
+}
+
+/// Turn a dotted module path (`Mod.Sub.Path`, i.e. `(import Mod.Sub.Path
+/// ...)`) into the relative file path it names: each segment becomes a
+/// directory component and the whole thing gets a `.ax` extension -
+/// `Mod.Sub` resolves to `Mod/Sub.ax`. Resolved relative to the
+/// *importing* file's own directory (see `resolve_imports_into`), not the
+/// entry file's, so `A` importing `B` importing `C` finds `C` next to `B`
+/// even if `A` lives somewhere else entirely.
+fn module_rel_path(module: &[axiom_ast::span::Ident]) -> PathBuf {
+    let mut path = PathBuf::new();
+    for segment in module {
+        path.push(&segment.name);
+    }
+    path.set_extension("ax");
+    path
+}
+
+/// Lex and parse one module file in isolation (no import resolution of
+/// its own imports - that's `resolve_imports_into`'s job, so a file's
+/// *own* diagnostics are always printed before its imports are even
+/// looked at), printing diagnostics against `path`/its own source on
+/// failure exactly like the entry file's lex/parse stage does.
+fn parse_module_file(path: &Path, file_id: usize, format: DiagnosticFormat) -> Result<axiom_ast::Module, String> {
+    let display = path.display().to_string();
+    let source = fs::read_to_string(path)
+        .map_err(|e| format!("cannot read imported module '{}': {}", display, e))?;
+
+    let mut lexer = Lexer::new(&source, file_id);
+    let tokens = match lexer.tokenize() {
+        Ok(tokens) => tokens,
+        Err(e) => {
+            print_diagnostics(vec![e.to_diagnostic()], &display, &source, format);
+            return Err(format!("failed to parse imported module '{}' due to a lexer error", display));
+        }
+    };
+
+    let mut parser = Parser::new(tokens);
+    let module = match parser.parse_module() {
+        Ok(module) => module,
+        Err(e) => {
+            print_diagnostics(vec![e.to_diagnostic()], &display, &source, format);
+            return Err(format!("failed to parse imported module '{}' due to a syntax error", display));
+        }
+    };
+
+    Ok(module)
+}
+
+/// Recursively resolve `imports` (a module's `Module.imports`, i.e. its
+/// own top-level `(import ...)` decls), appending every declaration they
+/// bring in to `out`, in import order. `root_dir` is always the *entry*
+/// file's directory - fixed for the whole resolution, not recomputed per
+/// importing file - so every module path in the program is resolved
+/// relative to one consistent project root regardless of how deeply
+/// nested the file that wrote a given `(import ...)` is. (An earlier
+/// version resolved each file's imports relative to *that file's own*
+/// directory, which meant `A` importing `B` importing `C` looked for `C`
+/// next to `B` instead of next to `A` - surprising for the overwhelmingly
+/// common layout where every module path is meant relative to one project
+/// root, so a submodule can import another top-level module by the same
+/// path the entry file would use.) `visited` dedups diamond imports (two
+/// different files importing the same third file) by canonicalized path,
+/// so a shared module's declarations are only merged once no matter how
+/// many other modules import it.
+fn resolve_imports_into(
+    root_dir: &Path,
+    imports: &[axiom_ast::ast::Decl],
+    format: DiagnosticFormat,
+    registry: &mut FileRegistry,
+    visited: &mut HashSet<PathBuf>,
+    out: &mut Vec<axiom_ast::ast::Decl>,
+) -> Result<(), String> {
+    use axiom_ast::ast::Decl;
+
+    for import in imports {
+        let Decl::DImport { module, names } = import else { continue };
+
+        let dotted = module.iter().map(|i| i.name.clone()).collect::<Vec<_>>().join(".");
+        let rel_path = module_rel_path(module);
+        let path = root_dir.join(&rel_path);
+
+        if !path.is_file() {
+            let diag = Diagnostic::error(
+                &axiom_errors::code::MODULE_NOT_FOUND,
+                format!("cannot resolve import `{}`", dotted),
+            )
+            .with_help(format!(
+                "expected to find '{}' relative to '{}'",
+                rel_path.display(),
+                root_dir.display()
+            ));
+            // No source span exists for an unresolvable import (the
+            // problem is that we can't even find the *other* file, not
+            // anything about text already in hand) - `check`/`ai`/`json`
+            // all still render a codeless-span diagnostic fine (AXDL
+            // prints `-` in place of a location, see `docs/diagnostics.md`).
+            print_diagnostics(vec![diag], "<import>", "", format);
+            return Err(format!("cannot resolve import `{}`: no such file '{}'", dotted, path.display()));
+        }
+
+        let canonical = path.canonicalize().unwrap_or_else(|_| path.clone());
+        if !visited.insert(canonical) {
+            // Already merged (either directly, or as some other module's
+            // own transitive import) - a diamond import, not a cycle
+            // error: importing the same module twice (directly or
+            // indirectly) is completely ordinary and should just be a
+            // no-op the second time.
+            continue;
+        }
+
+        let file_id = registry.add(path.display().to_string(), String::new());
+        let imported_module = parse_module_file(&path, file_id, format)?;
+        // Backfill the real source text now that we know it parsed -
+        // `parse_module_file` already read it once; re-reading here
+        // keeps `parse_module_file` self-contained (it prints its own
+        // diagnostics against the file it just read) without needing to
+        // thread the source string back out through its `Result`.
+        if let Ok(source) = fs::read_to_string(&path) {
+            registry.files[file_id].1 = source;
+        }
+
+        // Resolve this module's *own* imports (still relative to
+        // `root_dir`, not `path`) before appending its decls, so
+        // transitive imports always land before the things that depend
+        // on them in `out` (cosmetic - `axiom-sema`'s two-pass checker
+        // doesn't care about declaration order - but it keeps
+        // `--dump`-style output and mental models straightforward).
+        resolve_imports_into(root_dir, &imported_module.imports, format, registry, visited, out)?;
+
+        if names.is_empty() {
+            out.extend(imported_module.decls);
+        } else {
+            let wanted: HashSet<&str> = names.iter().map(|i| i.name.as_str()).collect();
+            out.extend(
+                imported_module.decls.into_iter()
+                    .filter(|d| decl_name(d).map_or(false, |n| wanted.contains(n))),
+            );
+        }
+    }
+
+    Ok(())
+}
+
+/// Entry point for import resolution: given the already-parsed entry
+/// module, merge every transitively `(import ...)`ed file's declarations
+/// into it. A no-op (and doesn't touch `registry` beyond the entry file
+/// already registered by the caller) when the entry file has no imports.
+fn resolve_imports(entry_path: &Path, module: &mut axiom_ast::Module, format: DiagnosticFormat, registry: &mut FileRegistry) -> Result<(), String> {
+    if module.imports.is_empty() {
+        return Ok(());
+    }
+
+    let base_dir = entry_path.parent().map(|p| p.to_path_buf()).unwrap_or_else(|| PathBuf::from("."));
+    let mut visited = HashSet::new();
+    if let Ok(canonical) = entry_path.canonicalize() {
+        visited.insert(canonical);
+    }
+
+    let mut imported_decls = Vec::new();
+    resolve_imports_into(&base_dir, &module.imports, format, registry, &mut visited, &mut imported_decls)?;
+
+    // Imported declarations first, then the entry file's own - purely
+    // for readability of anything that dumps `module.decls` back out;
+    // `axiom-sema`'s two-pass checker (collect every declaration, then
+    // check every body) doesn't care about order either way, so this
+    // can't change which programs type-check.
+    imported_decls.extend(std::mem::take(&mut module.decls));
+    module.decls = imported_decls;
+    Ok(())
+}
+
 /// Run the lexer, parser and type checker on `source`, printing any
 /// diagnostics in `format`. Returns the checked AST and type checker on
 /// success. This is shared by `build` and `check` so the two commands can
@@ -195,11 +462,24 @@ fn print_diagnostics(diags: Vec<Diagnostic>, filename: &str, source: &str, forma
 /// When `announce` is set, prints a `[stage/5]` progress line immediately
 /// before each stage actually runs (not all up front) so a failure in an
 /// early stage doesn't misleadingly claim later stages happened too.
-fn analyze(input: &str, source: &str, format: DiagnosticFormat, announce: bool) -> Result<(axiom_ast::Module, TypeChecker), String> {
+///
+/// Resolves `(import ...)` declarations (see `resolve_imports`) between
+/// parsing and type-checking: every file that ends up contributing
+/// declarations - the entry file plus every transitively imported module
+/// - is tracked in the returned [`FileRegistry`] so that a type error
+/// anywhere in the merged program is still reported against the actual
+/// file and source line it came from, not always against `input` - and so
+/// that callers needing to attribute *their own* per-declaration output
+/// back to the right file (e.g. `axiom symbols`, see `collect_symbol_facts`)
+/// can do the same instead of only `analyze` itself being multi-file-aware.
+fn analyze(input: &str, source: &str, format: DiagnosticFormat, announce: bool) -> Result<(axiom_ast::Module, TypeChecker, FileRegistry), String> {
+    let mut registry = FileRegistry::new();
+    let entry_file_id = registry.add(input.to_string(), source.to_string());
+
     if announce {
         println!("[1/5] Lexing...");
     }
-    let mut lexer = Lexer::new(source, 0);
+    let mut lexer = Lexer::new(source, entry_file_id);
     let tokens = match lexer.tokenize() {
         Ok(tokens) => tokens,
         Err(e) => {
@@ -212,7 +492,7 @@ fn analyze(input: &str, source: &str, format: DiagnosticFormat, announce: bool) 
         println!("[2/5] Parsing...");
     }
     let mut parser = Parser::new(tokens);
-    let ast = match parser.parse_module() {
+    let mut ast = match parser.parse_module() {
         Ok(ast) => ast,
         Err(e) => {
             print_diagnostics(vec![e.to_diagnostic()], input, source, format);
@@ -220,23 +500,27 @@ fn analyze(input: &str, source: &str, format: DiagnosticFormat, announce: bool) 
         }
     };
 
+    if !ast.imports.is_empty() {
+        if announce {
+            println!("[2/5] Resolving imports...");
+        }
+        resolve_imports(Path::new(input), &mut ast, format, &mut registry)?;
+    }
+
     if announce {
         println!("[3/5] Type checking...");
     }
     let mut type_checker = TypeChecker::new();
     match type_checker.check(&ast) {
-        Ok(()) => Ok((ast, type_checker)),
+        Ok(()) => Ok((ast, type_checker, registry)),
         Err(errors) => {
             let diags: Vec<Diagnostic> = errors.iter().map(|e| e.to_diagnostic()).collect();
             // Cascade-dedup once up front so the count in the summary line
             // matches exactly what gets printed, instead of the old
             // behavior of reporting a raw (and often inflated) error count.
-            // `print_diagnostics` is handed the already-deduped list
-            // directly (bypassing `axiom_errors::render`'s own internal
-            // dedup) so we don't do the (harmless but wasteful) work twice.
             let diags = axiom_errors::dedup(diags);
             let shown = diags.len();
-            print_diagnostics(diags, input, source, format);
+            print_diagnostics_multi(&diags, &registry, format);
             Err(format!(
                 "compilation failed due to {} previous error{}",
                 shown,
@@ -250,7 +534,7 @@ fn build(input: &str, output: &str, emit_llvm: bool, _opt: u8, format: Diagnosti
     let source = fs::read_to_string(input)
         .map_err(|e| format!("Failed to read file '{}': {}", input, e))?;
 
-    let (ast, type_checker) = analyze(input, &source, format, true)?;
+    let (ast, type_checker, _registry) = analyze(input, &source, format, true)?;
 
     println!("[4/5] Generating IR...");
     let mut ir_gen = IrGen::new();
@@ -438,50 +722,70 @@ fn collect_symbol_facts(module: &axiom_ast::Module, tc: &TypeChecker) -> Vec<Sym
 /// type) plus a `file:line:col` location using the exact same
 /// [`SourceMap`](axiom_errors::SourceMap) AXDL and AXSYM both use, rather
 /// than a raw, human-meaningless character offset.
-fn render_symbols_human(facts: &[SymbolFact], filename: &str, source: &str) -> String {
+///
+/// `filename`/`source` are for exactly the one fact being rendered (see
+/// `render_symbols_multi` below) - a program with `(import ...)`ed
+/// declarations can have facts from several different files in the same
+/// `facts` list, so there is no single "the" filename/source for a whole
+/// batch of facts the way there was before imports existed.
+fn render_symbols_human(f: &SymbolFact, filename: &str, source: &str) -> String {
     let map = axiom_errors::SourceMap::new(source);
-    let mut out = String::new();
-    for f in facts {
-        let loc = match f.span {
-            Some(span) => {
-                let (start, _) = map.span_range(source, span.start, span.end.max(span.start));
-                format!("{}:{}:{}", filename, start.0, start.1)
-            }
-            None => "builtin".to_string(),
-        };
-        out.push_str(&format!(
-            "{:<8} {:<20} {:<40} [{}]\n",
-            format!("{:?}", f.kind),
-            f.name,
-            f.ty,
-            loc
-        ));
-    }
-    out
+    let loc = match f.span {
+        Some(span) => {
+            let (start, _) = map.span_range(source, span.start, span.end.max(span.start));
+            format!("{}:{}:{}", filename, start.0, start.1)
+        }
+        None => "builtin".to_string(),
+    };
+    format!(
+        "{:<8} {:<20} {:<40} [{}]\n",
+        format!("{:?}", f.kind),
+        f.name,
+        f.ty,
+        loc
+    )
 }
 
-fn render_symbols_json(facts: &[SymbolFact], filename: &str, source: &str) -> String {
+fn render_symbols_json(f: &SymbolFact, filename: &str, source: &str) -> String {
     let map = axiom_errors::SourceMap::new(source);
+    let loc = match f.span {
+        Some(span) => {
+            let (start, end) = map.span_range(source, span.start, span.end.max(span.start));
+            format!(
+                "\"file\":\"{}\",\"span\":{{\"start\":{{\"line\":{},\"col\":{}}},\"end\":{{\"line\":{},\"col\":{}}}}},",
+                axiom_errors::json_escape(filename), start.0, start.1, end.0, end.1
+            )
+        }
+        None => String::new(),
+    };
+    format!(
+        "{{\"kind\":\"{:?}\",\"name\":\"{}\",{}\"type\":\"{}\",\"meta\":[{}]}}\n",
+        f.kind,
+        axiom_errors::json_escape(&f.name),
+        loc,
+        axiom_errors::json_escape(&f.ty),
+        f.meta.iter().map(|m| format!("\"{}\"", axiom_errors::json_escape(m))).collect::<Vec<_>>().join(",")
+    )
+}
+
+/// Render every fact against the specific file its own span's `file_id`
+/// names (via `registry`), exactly like [`print_diagnostics_multi`] does
+/// for diagnostics - so `axiom symbols` on a program with `(import ...)`s
+/// reports each imported declaration's true file and location instead of
+/// always attributing every fact to the entry file, regardless of which
+/// file actually declared it. Facts with no span (builtin operators) don't
+/// reference a filename/source at all, so which file's text they're
+/// nominally rendered "against" is irrelevant for them.
+fn render_symbols_multi(facts: &[SymbolFact], registry: &FileRegistry, format: DiagnosticFormat) -> String {
     let mut out = String::new();
     for f in facts {
-        let loc = match f.span {
-            Some(span) => {
-                let (start, end) = map.span_range(source, span.start, span.end.max(span.start));
-                format!(
-                    "\"file\":\"{}\",\"span\":{{\"start\":{{\"line\":{},\"col\":{}}},\"end\":{{\"line\":{},\"col\":{}}}}},",
-                    axiom_errors::json_escape(filename), start.0, start.1, end.0, end.1
-                )
-            }
-            None => String::new(),
-        };
-        out.push_str(&format!(
-            "{{\"kind\":\"{:?}\",\"name\":\"{}\",{}\"type\":\"{}\",\"meta\":[{}]}}\n",
-            f.kind,
-            axiom_errors::json_escape(&f.name),
-            loc,
-            axiom_errors::json_escape(&f.ty),
-            f.meta.iter().map(|m| format!("\"{}\"", axiom_errors::json_escape(m))).collect::<Vec<_>>().join(",")
-        ));
+        let file_id = f.span.map(|s| s.file_id).unwrap_or(0);
+        let (filename, source) = registry.get(file_id);
+        out.push_str(&match format {
+            DiagnosticFormat::Ai => axiom_errors::render_symbols_ai(std::slice::from_ref(f), filename, source),
+            DiagnosticFormat::Json => render_symbols_json(f, filename, source),
+            DiagnosticFormat::Human => render_symbols_human(f, filename, source),
+        });
     }
     out
 }
@@ -490,36 +794,25 @@ fn symbols(input: &str, format: DiagnosticFormat) -> Result<(), String> {
     let source = fs::read_to_string(input)
         .map_err(|e| format!("Failed to read file '{}': {}", input, e))?;
 
-    let (ast, type_checker) = analyze(input, &source, format, false)?;
+    let (ast, type_checker, registry) = analyze(input, &source, format, false)?;
     let facts = collect_symbol_facts(&ast, &type_checker);
 
-    let rendered = match format {
-        DiagnosticFormat::Ai => axiom_errors::render_symbols_ai(&facts, input, &source),
-        DiagnosticFormat::Json => render_symbols_json(&facts, input, &source),
-        DiagnosticFormat::Human => render_symbols_human(&facts, input, &source),
-    };
-    print!("{}", rendered);
+    print!("{}", render_symbols_multi(&facts, &registry, format));
     Ok(())
 }
 
-fn emit_llvm(input: &str, output: Option<&str>) -> Result<(), String> {
+fn emit_llvm(input: &str, output: Option<&str>, format: DiagnosticFormat) -> Result<(), String> {
     let source = fs::read_to_string(input)
         .map_err(|e| format!("Failed to read file '{}': {}", input, e))?;
 
-    let mut lexer = Lexer::new(&source, 0);
-    let tokens = lexer.tokenize()
-        .map_err(|e| format!("Lexer error: {}", e))?;
-
-    let mut parser = Parser::new(tokens);
-    let ast = parser.parse_module()
-        .map_err(|e| format!("Parser error: {}", e))?;
-
-    let mut type_checker = TypeChecker::new();
-    type_checker.check(&ast)
-        .map_err(|errors| {
-            let msgs: Vec<String> = errors.iter().map(|e| format!("{}", e)).collect();
-            msgs.join("\n")
-        })?;
+    // Previously this hand-duplicated `analyze`'s lex/parse/typecheck
+    // pipeline with its own bare `format!("{}", e)`/`.join("\n")` error
+    // handling instead of going through `Diagnostic`/`print_diagnostics` -
+    // meaning `emit-llvm` alone, of every subcommand, never honored
+    // `--diagnostic-format`, never got AXDL/JSON output, and (since it
+    // never called `analyze`) could never resolve `(import ...)`
+    // declarations either. Calling `analyze` fixes all three at once.
+    let (ast, type_checker, _registry) = analyze(input, &source, format, false)?;
 
     let mut ir_gen = IrGen::new();
     let ir_module = ir_gen.generate(&ast, &type_checker);

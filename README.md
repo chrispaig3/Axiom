@@ -297,6 +297,53 @@ Patterns can match constructors, literals, tuples, lists, and wildcards:
   (_ "anything else"))
 ```
 
+#### Algebraic data types: how they actually run
+
+Every value of a `data` type - nullary constructors like `Nothing` included -
+is a heap-allocated, tagged block: word `0` is an integer tag identifying
+which constructor built it, and words `1..` are its fields, one 8-byte word
+each. This one uniform representation (rather than, say, an unboxed integer
+for nullary constructors and a pointer for everything else) is what lets
+`case` compare *any* constructor pattern against *any* value of that type
+the same way, and it's what makes recursive types - `List`, `Tree` - work
+with no special-casing at all: a field that's itself another `data` value
+is just another 8-byte word holding that value's own heap address.
+
+```scheme
+(data List (a)
+  (Nil)
+  (Cons a (List a)))
+
+(:: sum (-> (List Int) Int))
+(fn (sum lst)
+  (case lst
+    ((Nil) 0)
+    ((Cons h t) (+ h (sum t)))))
+
+(:: main Int)
+(fn main
+  (sum (Cons 1 (Cons 2 (Cons 3 (Nil))))))   ; => 6
+```
+
+Current limitations, honestly stated:
+
+- **Exhaustiveness and arity are checked** (missing constructors and
+  wrong-arity constructor patterns are compile errors - `AX3005`/`AX3009`),
+  but **nested constructor patterns are not** - `((Cons h (Cons h2 t)) ...)`
+  parses and type-checks, but only `h` gets bound; the inner `(Cons h2 t)`
+  is neither compared against the tail's tag nor destructured. Only the
+  outermost `PVar` sub-patterns of a `PCon` arm are bound to real fields.
+- **Tuple and list patterns inside `case` are accepted but never compared**
+  - they behave like a wildcard (always match) - because tuples and lists
+  have no runtime representation of their own yet (see the status table).
+- There is no garbage collection or reference counting: every constructor
+  application `malloc`s and nothing ever `free`s it. Fine for short-lived
+  CLI programs and this README's examples; not something to build a
+  long-running server on yet.
+- Struct/union **field access** (`.field`-style reads) still has no
+  expression syntax at all, independent of `data` - see the Structs/Unions
+  sections below for what does and doesn't work there.
+
 ### Structs
 
 For C-compatible data layouts:
@@ -446,7 +493,64 @@ See the [Foreign Function Interface](#foreign-function-interface) section for de
   (fromMaybe 0 (Just 42)))
 ```
 
-Note: Pattern matching codegen is still being implemented. The type checker validates `case` expressions, but the generated code evaluates all branches sequentially. Full pattern matching with proper branching is in progress.
+Note: constructor patterns now compile to real branching code (see
+[Algebraic data types: how they actually run](#algebraic-data-types-how-they-actually-run)) -
+each arm's constructor tag is checked in order and only a matching arm's
+body actually runs. Nested constructor patterns and tuple/list patterns
+inside `case` are still unimplemented (same section).
+
+---
+
+## Modules and imports
+
+Split a program across files with `(import Mod.Sub ...)`:
+
+```scheme
+; Math/Ops.ax
+(:: square (-> Int Int))
+(fn (square x) (* x x))
+```
+
+```scheme
+; main.ax
+(import Math.Ops (square))       ; only bring in `square`
+; (import Math.Ops)               would bring in every top-level decl
+
+(:: main Int)
+(fn main (square 5))
+```
+
+```bash
+./target/release/axiom run main.ax
+```
+
+How it works:
+
+- A dotted module path maps directly to a file path: `Math.Ops` resolves
+  to `Math/Ops.ax`, **always relative to the entry file's own directory**
+  (the file you passed to `check`/`build`/`run`/`emit-llvm`) - not to
+  whichever file happens to contain the `(import ...)`, so a deeply nested
+  module can still `(import Math.Ops)` using the same path the entry file
+  would.
+- `(import Mod.Sub)` with no name list brings in every top-level
+  declaration from that file; `(import Mod.Sub (a b))` brings in only the
+  named declarations (functions, `data`/`struct`/`union`/`type` decls,
+  `foreign` bindings, ...).
+- Imports are transitive (`A` imports `B` imports `C` brings `C`'s
+  declarations into `A` too) and diamond-safe (two different modules both
+  importing `C` merges `C` exactly once, not twice).
+- There's no namespacing or qualified names yet - an imported declaration
+  joins the importing module's flat top-level namespace exactly as if it
+  had been pasted in, so two files defining the same name is a normal
+  `AX3006` duplicate-definition error, not a "which one did you mean"
+  ambiguity.
+- A module path that doesn't resolve to a real file is `AX5001` (`axiom
+  explain AX5001`), reported before type-checking even starts.
+- Diagnostics from an imported file's own contents (a type error inside
+  `Math/Ops.ax`, say) are reported against `Math/Ops.ax`'s real file path
+  and line/column, not the entry file's - every diagnostic in a
+  multi-file build is attributed to the actual file and source text it
+  came from, in every one of the `human`/`ai`/`json` formats.
 
 ---
 
@@ -632,9 +736,9 @@ Source (.ax)
 | brace blocks | **Complete** | `{ expr1 expr2 ... }` — modern sequencing, returns last value |
 | fn keyword | **Complete** | Modern alias for `define` |
 | FFI | **Complete** | Call any C function with `foreign` declarations |
-| ADTs / data types | **Partial** | Declarations and type checking work; constructor codegen pending |
-| Structs / unions | **Partial** | Declarations and LLVM emission work; field access pending |
-| Pattern matching (`case`) | **Partial** | Parsed and type-checked; codegen pending |
+| ADTs / data types | **Complete** | Constructors (nullary and with fields, including recursive types like `List`/`Tree`) compile to heap-boxed tagged values; see [Algebraic data types](#algebraic-data-types-how-they-actually-run) |
+| Structs / unions | **Partial** | Declarations and LLVM emission work; field-access expression syntax still pending |
+| Pattern matching (`case`) | **Functional** | Constructor patterns (nullary and with-field), variables, wildcards, and literals (against non-`data` scrutinees) all compare and bind correctly, plus non-exhaustiveness/arity/undefined-constructor diagnostics; nested constructor patterns and tuple/list patterns aren't compared yet (see [Algebraic data types](#algebraic-data-types-how-they-actually-run)) |
 | Lambda | **Partial** | Parsed and type-checked; codegen pending |
 | Lists | **Partial** | Syntax and type checking; runtime representation pending |
 | Tuples | **Partial** | Syntax and type checking; codegen pending |
@@ -642,7 +746,7 @@ Source (.ax)
 | Effect annotations | **Parsed only** | `handle`, `IO`, `Pure`, etc. |
 | Region syntax | **Parsed only** | `region r body` |
 | Linear types | **Parsed only** | `linear T`, `consume` |
-| Imports | **Stub** | Parsed, not resolved |
+| Imports | **Functional** | `(import Mod.Sub ...)` resolves and merges declarations from other files; see [Modules and imports](#modules-and-imports) |
 
 ---
 

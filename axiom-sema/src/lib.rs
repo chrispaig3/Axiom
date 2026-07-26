@@ -10,10 +10,12 @@ pub enum SemError {
     UndefinedType { name: String, span: Span, suggestion: Option<String> },
     #[error("undefined constructor `{name}`")]
     UndefinedConstructor { name: String, span: Span, suggestion: Option<String> },
+    #[error("constructor `{name}` expects {expected} argument(s), found {found}")]
+    ConstructorArity { name: String, expected: usize, found: usize, span: Span },
     #[error("type mismatch: expected {expected}, found {found}")]
     TypeMismatch { expected: String, found: String, span: Span },
-    #[error("pattern not exhaustive")]
-    NonExhaustive { span: Span },
+    #[error("non-exhaustive pattern match: missing {}", missing.join(", "))]
+    NonExhaustive { span: Span, missing: Vec<String> },
     #[error("duplicate definition `{name}`")]
     DuplicateDefinition { name: String, span: Span, first_span: Span },
     #[error("field `{field}` not found on type `{ty}`")]
@@ -28,8 +30,9 @@ impl SemError {
             SemError::UndefinedVariable { span, .. } => *span,
             SemError::UndefinedType { span, .. } => *span,
             SemError::UndefinedConstructor { span, .. } => *span,
+            SemError::ConstructorArity { span, .. } => *span,
             SemError::TypeMismatch { span, .. } => *span,
-            SemError::NonExhaustive { span } => *span,
+            SemError::NonExhaustive { span, .. } => *span,
             SemError::DuplicateDefinition { span, .. } => *span,
             SemError::FieldNotFound { span, .. } => *span,
             SemError::Message { span, .. } => *span,
@@ -84,6 +87,14 @@ impl SemError {
                 };
                 d
             }
+            SemError::ConstructorArity { expected, found, .. } => {
+                Diagnostic::error(&code::CONSTRUCTOR_ARITY, self.to_string())
+                    .with_primary(span, format!("{} argument(s) provided here", found))
+                    .with_help(format!(
+                        "this constructor takes exactly {} field(s); add or remove arguments to match",
+                        expected
+                    ))
+            }
             SemError::TypeMismatch { expected, found, .. } => {
                 // The heading (`self.to_string()`) already states
                 // `expected X, found Y`; the primary label only needs to
@@ -92,9 +103,12 @@ impl SemError {
                 Diagnostic::error(&code::TYPE_MISMATCH, self.to_string())
                     .with_primary(span, format!("this has type `{}`, expected `{}`", found, expected))
             }
-            SemError::NonExhaustive { .. } => {
+            SemError::NonExhaustive { missing, .. } => {
                 Diagnostic::error(&code::NON_EXHAUSTIVE, self.to_string())
-                    .with_primary(span, "this `case` does not cover every possibility")
+                    .with_primary(
+                        span,
+                        format!("this `case` does not cover: {}", missing.join(", ")),
+                    )
                     .with_help("add the missing arms, or a wildcard `_` arm to catch the rest")
             }
             SemError::DuplicateDefinition { name, first_span, .. } => {
@@ -571,14 +585,51 @@ impl TypeChecker {
                 if then_ty.is_error() { else_ty } else { then_ty }
             }
             Expr::ECase(target, arms) => {
-                self.check_expr(target);
+                let target_ty = self.check_expr(target);
                 let mut arm_ty = TypeId::TVar(format!("_t{}", self.type_counter));
+                let mut covered: std::collections::HashSet<String> = std::collections::HashSet::new();
+                let mut has_catchall = false;
                 for (pat, body) in arms {
                     self.push_scope();
-                    self.check_pattern(pat);
+                    // Type-directed: validates that `PCon` names are real
+                    // constructors (with the right arity) instead of the
+                    // old `check_pattern`, which just walked the pattern
+                    // shape and bound every `PVar` to an unconstrained
+                    // fresh type variable with no relationship to the
+                    // constructor's actual field types.
+                    self.check_pattern_with_type(pat, &target_ty);
+                    match pat {
+                        Pattern::PCon(ident, _) => {
+                            covered.insert(ident.name.clone());
+                        }
+                        Pattern::PWildcard | Pattern::PVar(_) => has_catchall = true,
+                        _ => {}
+                    }
                     arm_ty = self.check_expr(body);
                     self.pop_scope();
                 }
+
+                // Exhaustiveness: only checkable when the scrutinee's type
+                // is concretely a known `data` type (poisoned/`TVar`
+                // scrutinees can't be judged either way, so they're
+                // silently skipped rather than guessed at).
+                if !has_catchall {
+                    if let TypeId::TCon(name, _) = &target_ty {
+                        if let Some(dt) = self.data_types.iter().find(|d| &d.name == name) {
+                            let missing: Vec<String> = dt.constructors.iter()
+                                .map(|c| c.name.clone())
+                                .filter(|n| !covered.contains(n))
+                                .collect();
+                            if !missing.is_empty() {
+                                self.errors.push(SemError::NonExhaustive {
+                                    span: target.span(),
+                                    missing,
+                                });
+                            }
+                        }
+                    }
+                }
+
                 arm_ty
             }
             Expr::ECond(branches, else_branch) => {
@@ -716,37 +767,68 @@ impl TypeChecker {
         }
     }
 
-    fn check_pattern(&mut self, pat: &Pattern) {
-        match pat {
-            Pattern::PVar(ident) => {
-                self.scope.push((
-                    ident.name.clone(),
-                    VarInfo {
-                        ty: TypeId::TVar(format!("_t{}", self.type_counter)),
-                        span: ident.span,
-                    },
-                ));
-                self.type_counter += 1;
-            }
-            Pattern::PCon(_ident, args) => {
-                for arg in args {
-                    self.check_pattern(arg);
+    /// Find the data type and constructor (if any) named `name`.
+    fn find_constructor(&self, name: &str) -> Option<(&DataTypeInfo, &DataConInfo)> {
+        for dt in &self.data_types {
+            for con in &dt.constructors {
+                if con.name == name {
+                    return Some((dt, con));
                 }
             }
-            Pattern::PTuple(pats) => {
-                for pat in pats {
-                    self.check_pattern(pat);
-                }
-            }
-            Pattern::PList(pats) => {
-                for pat in pats {
-                    self.check_pattern(pat);
-                }
-            }
-            Pattern::PWildcard | Pattern::PLit(_) => {}
         }
+        None
     }
 
+    /// Decompose a constructor's curried arrow type (`F1 -> F2 -> ... ->
+    /// TheType`) into its individual field types, in order. Empty for a
+    /// nullary constructor (whose `ty` is just `TCon(TheType, ..)` with no
+    /// `TArr` at all).
+    fn constructor_field_types(con_ty: &TypeId) -> Vec<TypeId> {
+        let mut fields = Vec::new();
+        let mut current = con_ty;
+        while let TypeId::TArr(param, rest) = current {
+            fields.push((**param).clone());
+            current = rest;
+        }
+        fields
+    }
+
+    /// Bind every name introduced by `pat` into the current scope with a
+    /// fresh, unconstrained type - used where there's no expected type to
+    /// check against (lambda/`let` parameters). Delegates to
+    /// [`check_pattern_with_type`](Self::check_pattern_with_type) so a
+    /// `PCon` pattern here still gets the same constructor
+    /// identity/arity validation as a `case` arm does, rather than a
+    /// second, duplicated (and previously non-validating) tree walk.
+    fn check_pattern(&mut self, pat: &Pattern) {
+        let fresh = TypeId::TVar(format!("_t{}", self.type_counter));
+        self.type_counter += 1;
+        self.check_pattern_with_type(pat, &fresh);
+    }
+
+    /// Bind every name introduced by `pat`, checking it against the
+    /// expected type `ty` where that's meaningful:
+    ///
+    /// * `PCon(name, args)` - `name` must be a real data constructor
+    ///   ([`SemError::UndefinedConstructor`] if not, with a "did you
+    ///   mean" suggestion), `args.len()` must equal the constructor's
+    ///   declared arity ([`SemError::ConstructorArity`] if not), and each
+    ///   `arg` is recursively checked against that field's *actual*
+    ///   declared type rather than being left as an unconstrained
+    ///   variable - so `(case v ((Just x) (+ x 1)))` gives `x` the real
+    ///   field type instead of a fresh, meaningless `TVar`. If `ty` is
+    ///   already known concretely and doesn't name the constructor's own
+    ///   data type, that's also a [`SemError::TypeMismatch`] (matching a
+    ///   `Maybe` constructor against a scrutinee already known to be some
+    ///   other type).
+    /// * `PTuple`/`PList` - binds element patterns against the expected
+    ///   element type(s) when `ty` is a matching `TTuple`/`TList`, falling
+    ///   back to a fresh variable per element otherwise (arity mismatch,
+    ///   or `ty` not concretely known yet).
+    /// * `PVar` - binds directly to `ty`.
+    /// * `PWildcard`/`PLit` - introduce no bindings and need no further
+    ///   checking (a literal pattern's own type is implicit in the
+    ///   literal itself).
     fn check_pattern_with_type(&mut self, pat: &Pattern, ty: &TypeId) {
         match pat {
             Pattern::PVar(ident) => {
@@ -758,19 +840,78 @@ impl TypeChecker {
                     },
                 ));
             }
-            Pattern::PCon(_ident, args) => {
-                for arg in args {
-                    self.check_pattern_with_type(arg, ty);
+            Pattern::PCon(ident, args) => {
+                let found = self.find_constructor(&ident.name)
+                    .map(|(dt, con)| (dt.name.clone(), con.ty.clone()));
+                match found {
+                    Some((data_type_name, con_ty)) => {
+                        if let TypeId::TCon(scrutinee_name, _) = ty {
+                            if scrutinee_name != &data_type_name {
+                                self.errors.push(SemError::TypeMismatch {
+                                    expected: scrutinee_name.clone(),
+                                    found: data_type_name.clone(),
+                                    span: ident.span,
+                                });
+                            }
+                        }
+
+                        let field_types = Self::constructor_field_types(&con_ty);
+                        if field_types.len() != args.len() {
+                            self.errors.push(SemError::ConstructorArity {
+                                name: ident.name.clone(),
+                                expected: field_types.len(),
+                                found: args.len(),
+                                span: ident.span,
+                            });
+                        }
+
+                        for (i, arg) in args.iter().enumerate() {
+                            match field_types.get(i) {
+                                Some(field_ty) => self.check_pattern_with_type(arg, field_ty),
+                                None => self.check_pattern(arg),
+                            }
+                        }
+                    }
+                    None => {
+                        let suggestion = suggest_closest(
+                            &ident.name,
+                            self.data_types
+                                .iter()
+                                .flat_map(|dt| dt.constructors.iter().map(|c| c.name.as_str())),
+                        );
+                        self.errors.push(SemError::UndefinedConstructor {
+                            name: ident.name.clone(),
+                            span: ident.span,
+                            suggestion,
+                        });
+                        for arg in args {
+                            self.check_pattern(arg);
+                        }
+                    }
                 }
             }
             Pattern::PTuple(pats) => {
+                if let TypeId::TTuple(elem_tys) = ty {
+                    if elem_tys.len() == pats.len() {
+                        for (pat, elem_ty) in pats.iter().zip(elem_tys.iter()) {
+                            self.check_pattern_with_type(pat, elem_ty);
+                        }
+                        return;
+                    }
+                }
                 for pat in pats {
-                    self.check_pattern_with_type(pat, ty);
+                    self.check_pattern(pat);
                 }
             }
             Pattern::PList(pats) => {
+                if let TypeId::TList(elem_ty) = ty {
+                    for pat in pats {
+                        self.check_pattern_with_type(pat, elem_ty);
+                    }
+                    return;
+                }
                 for pat in pats {
-                    self.check_pattern_with_type(pat, ty);
+                    self.check_pattern(pat);
                 }
             }
             Pattern::PWildcard | Pattern::PLit(_) => {}
