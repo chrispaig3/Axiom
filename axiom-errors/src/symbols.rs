@@ -263,7 +263,13 @@ mod tests {
 
     #[test]
     fn ai_alias_without_tyvars_has_no_meta() {
-        let fact = SymbolFact::new(SymbolKind::Alias, "Int", Some(Span::new(0, 3, 0)), "Int", None);
+        let fact = SymbolFact::new(
+            SymbolKind::Alias,
+            "Int",
+            Some(Span::new(0, 3, 0)),
+            "Int",
+            None,
+        );
         let out = render_symbols_ai(&[fact], "main.ax", &" ".repeat(20));
         assert!(out.contains("A Int main.ax:1:1-4 \"Int\""));
         assert!(!out.contains('#'));

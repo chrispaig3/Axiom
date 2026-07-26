@@ -105,7 +105,9 @@ impl IrGen {
                         fields: ir_fields,
                     });
                 }
-                Decl::DFn { name, params, body, .. } => {
+                Decl::DFn {
+                    name, params, body, ..
+                } => {
                     let func = self.gen_function(name, params, body, type_checker);
                     self.module.functions.push(func);
                 }
@@ -230,6 +232,169 @@ impl IrGen {
         }
 
         IrValue::Local(ptr_local)
+    }
+
+    /// Generate IR to check sub-patterns of a `PCon` arm or
+    /// elements of a `PTuple`/`PList` arm against the fields
+    /// of a boxed constructor or tuple/list value.
+    ///
+    /// `target_val` is the pointer (as an `i64` local) to the
+    /// boxed block whose fields should be extracted and compared.
+    /// `pats` are the sub-patterns to match against the fields.
+    /// `field_offset` is the byte offset of the first field
+    /// within `target_val` (`1 * 8` for `PCon` arms, `0` for
+    /// tuples/lists). Each subsequent sub-pattern uses the
+    /// next offset (`field_offset + i * 8`).
+    ///
+    /// Each sub-pattern that requires a runtime comparison
+    /// (`PLit`, nested `PCon`, nested `PTuple`/`PList`) emits
+    /// a check block that either falls through to the next
+    /// sub-pattern on match or branches to `next_check` on
+    /// failure. `PVar` bindings and `PWildcard` skips are
+    /// emitted inline without branching. `PCon` sub-patterns
+    /// trigger recursive calls that handle the inner
+    /// constructor's own sub-patterns.
+    ///
+    /// Variable bindings from `PVar` sub-patterns are added
+    /// to `arm_map`.
+    fn gen_sub_pattern_checks(
+        &mut self,
+        func: &mut IrFunction,
+        target_val: IrValue,
+        pats: &[Pattern],
+        type_checker: &TypeChecker,
+        next_check: String,
+        arm_map: &mut HashMap<String, String>,
+        field_offset: i64,
+    ) {
+        let i64_ty = TypeId::TCon("I64".to_string(), vec![]);
+
+        for (field_idx, arg_pat) in pats.iter().enumerate() {
+            let offset = field_offset + (field_idx as i64) * 8;
+            let field_local = self.new_local();
+            self.emit_to_func(
+                func,
+                IrInst::LoadOffset {
+                    dest: IrValue::Local(field_local.clone()),
+                    ptr: target_val.clone(),
+                    offset,
+                },
+            );
+
+            match arg_pat {
+                Pattern::PVar(ident) => {
+                    let arg_alloca = format!("_alloca_{}", ident.name);
+                    func.locals.push((ident.name.clone(), i64_ty.clone()));
+                    self.emit_to_func(
+                        func,
+                        IrInst::Alloca {
+                            dest: IrValue::Local(arg_alloca.clone()),
+                            ty: i64_ty.clone(),
+                        },
+                    );
+                    self.emit_to_func(
+                        func,
+                        IrInst::Store {
+                            ptr: IrValue::Local(arg_alloca.clone()),
+                            value: IrValue::Local(field_local),
+                        },
+                    );
+                    arm_map.insert(ident.name.clone(), arg_alloca);
+                }
+                Pattern::PWildcard => {}
+                Pattern::PLit(lit) => {
+                    let lit_val = self.gen_literal(lit);
+                    let cmp_dest = self.new_local();
+                    self.emit_to_func(
+                        func,
+                        IrInst::Eq {
+                            dest: IrValue::Local(cmp_dest.clone()),
+                            lhs: IrValue::Local(field_local.clone()),
+                            rhs: lit_val,
+                        },
+                    );
+                    let cont = self.new_block_label();
+                    self.emit_to_func(
+                        func,
+                        IrInst::CondBr {
+                            cond: IrValue::Local(cmp_dest),
+                            then_target: cont.clone(),
+                            else_target: next_check.clone(),
+                        },
+                    );
+                    func.blocks.push(IrBlock {
+                        label: cont.clone(),
+                        insts: Vec::new(),
+                    });
+                    self.current_block = Some(cont);
+                }
+                Pattern::PCon(ident, nested_args) => {
+                    match find_constructor(type_checker, &ident.name) {
+                        Some((tag, _arity)) => {
+                            let cmp_dest = self.new_local();
+                            self.emit_to_func(
+                                func,
+                                IrInst::Eq {
+                                    dest: IrValue::Local(cmp_dest.clone()),
+                                    lhs: IrValue::Local(field_local.clone()),
+                                    rhs: IrValue::Const(IrConst::Int(tag, i64_ty.clone())),
+                                },
+                            );
+                            let cont = self.new_block_label();
+                            self.emit_to_func(
+                                func,
+                                IrInst::CondBr {
+                                    cond: IrValue::Local(cmp_dest),
+                                    then_target: cont.clone(),
+                                    else_target: next_check.clone(),
+                                },
+                            );
+                            func.blocks.push(IrBlock {
+                                label: cont.clone(),
+                                insts: Vec::new(),
+                            });
+                            self.current_block = Some(cont);
+                            self.gen_sub_pattern_checks(
+                                func,
+                                IrValue::Local(field_local),
+                                nested_args,
+                                type_checker,
+                                next_check.clone(),
+                                arm_map,
+                                1,
+                            );
+                            return;
+                        }
+                        None => {
+                            // Undefined constructor: skip comparison
+                            // (sema already reported the error).
+                            self.gen_sub_pattern_checks(
+                                func,
+                                IrValue::Local(field_local),
+                                nested_args,
+                                type_checker,
+                                next_check.clone(),
+                                arm_map,
+                                1,
+                            );
+                            return;
+                        }
+                    }
+                }
+                Pattern::PTuple(pats) | Pattern::PList(pats) => {
+                    self.gen_sub_pattern_checks(
+                        func,
+                        IrValue::Local(field_local),
+                        pats,
+                        type_checker,
+                        next_check.clone(),
+                        arm_map,
+                        0,
+                    );
+                    return;
+                }
+            }
+        }
     }
 
     /// Compile a lambda expression as a named IR function in the
@@ -899,51 +1064,19 @@ impl IrGen {
                                     });
                                     self.current_block = Some(arm_label.clone());
 
-                                    // Bind each `PVar` field sub-pattern to
-                                    // the actual field extracted from the
-                                    // scrutinee's boxed payload (word `1 +
-                                    // i`), not to the whole scrutinee value
-                                    // - `(case v ((Just x) x))` now binds
-                                    // `x` to the argument `Just` was
-                                    // constructed with. Non-`PVar`
-                                    // sub-patterns (nested constructors,
-                                    // literals, wildcards) are left
-                                    // unbound and uncompared: nested
-                                    // pattern matching one level deep isn't
-                                    // implemented yet, matching this
-                                    // generator's other documented
-                                    // pattern-matching limitations.
-                                    for (field_idx, arg_pat) in args.iter().enumerate() {
-                                        if let Pattern::PVar(arg_ident) = arg_pat {
-                                            let field_local = self.new_local();
-                                            self.emit_to_func(
-                                                func,
-                                                IrInst::LoadOffset {
-                                                    dest: IrValue::Local(field_local.clone()),
-                                                    ptr: target_val.clone(),
-                                                    offset: ((1 + field_idx) * 8) as i64,
-                                                },
-                                            );
-                                            let arg_alloca = format!("_alloca_{}", arg_ident.name);
-                                            func.locals
-                                                .push((arg_ident.name.clone(), i64_ty.clone()));
-                                            self.emit_to_func(
-                                                func,
-                                                IrInst::Alloca {
-                                                    dest: IrValue::Local(arg_alloca.clone()),
-                                                    ty: i64_ty.clone(),
-                                                },
-                                            );
-                                            self.emit_to_func(
-                                                func,
-                                                IrInst::Store {
-                                                    ptr: IrValue::Local(arg_alloca.clone()),
-                                                    value: IrValue::Local(field_local),
-                                                },
-                                            );
-                                            arm_map.insert(arg_ident.name.clone(), arg_alloca);
-                                        }
-                                    }
+                                    // Non-`PVar` sub-patterns (nested constructors,
+                                    // literals, tuples, lists) are handled by
+                                    // `gen_sub_pattern_checks` which implements
+                                    // recursive matching.
+                                    self.gen_sub_pattern_checks(
+                                        func,
+                                        target_val.clone(),
+                                        args,
+                                        type_checker,
+                                        merge_label.clone(),
+                                        &mut arm_map,
+                                        8,
+                                    );
                                 }
                                 None => unconditional_arm(self, func),
                             }
@@ -971,11 +1104,6 @@ impl IrGen {
                         }
                         Pattern::PWildcard => unconditional_arm(self, func),
                         Pattern::PLit(lit) => {
-                            // Literal patterns compare the scrutinee's raw
-                            // value directly - never the boxed-constructor
-                            // tag - since a `PLit` arm only ever appears
-                            // when matching a plain `Int`/`Bool`/`Char`
-                            // scrutinee, which is never heap-boxed.
                             func.blocks.push(IrBlock {
                                 label: check_label.clone(),
                                 insts: Vec::new(),
@@ -1007,22 +1135,30 @@ impl IrGen {
                             });
                             self.current_block = Some(arm_label.clone());
                         }
-                        Pattern::PTuple(_) | Pattern::PList(_) => {
-                            // Tuples/lists have no runtime representation
-                            // at all yet (see the README's Implementation
-                            // Status table), so there is nothing to
-                            // compare against here yet either. Previously
-                            // this fell into a catch-all that emitted an
-                            // unconditional `Br` to `next_check` - i.e. the
-                            // arm was silently *dead code*, never taken no
-                            // matter what. Falling through to the arm
-                            // instead (same as a wildcard) is the more
-                            // useful of two still-wrong options for an
-                            // unimplemented feature: it at least lets
-                            // single-arm `case`s over a tuple/list "work"
-                            // (by definitely running that one arm) instead
-                            // of unconditionally skipping every such arm.
-                            unconditional_arm(self, func);
+                        Pattern::PTuple(pats) | Pattern::PList(pats) => {
+                            func.blocks.push(IrBlock {
+                                label: check_label.clone(),
+                                insts: vec![IrInst::Br {
+                                    target: arm_label.clone(),
+                                }],
+                            });
+                            self.current_block = Some(arm_label.clone());
+
+                            func.blocks.push(IrBlock {
+                                label: arm_label.clone(),
+                                insts: Vec::new(),
+                            });
+                            self.current_block = Some(arm_label.clone());
+
+                            self.gen_sub_pattern_checks(
+                                func,
+                                target_val.clone(),
+                                pats,
+                                type_checker,
+                                merge_label.clone(),
+                                &mut arm_map,
+                                0,
+                            );
                         }
                     }
 
@@ -1213,7 +1349,10 @@ impl IrGen {
                 let value_val =
                     self.gen_expr_to_func_with_allocas(func, value, alloca_map, type_checker);
                 let i64_ty = TypeId::TCon("I64".to_string(), vec![]);
-                if type_checker.find_union_field_by_name(&field_ident.name).is_some() {
+                if type_checker
+                    .find_union_field_by_name(&field_ident.name)
+                    .is_some()
+                {
                     self.emit_to_func(
                         func,
                         IrInst::StoreOffset {
@@ -1274,12 +1413,23 @@ impl IrGen {
             }
             Expr::EUnionCon(union_name, field_name, value) => {
                 let i64_ty = TypeId::TCon("I64".to_string(), vec![]);
-                if let Some(ui) = type_checker.unions.iter().find(|u| u.name == union_name.name) {
-                    let field_info = ui.fields.iter().find(|(fname, _)| fname == &field_name.name);
+                if let Some(ui) = type_checker
+                    .unions
+                    .iter()
+                    .find(|u| u.name == union_name.name)
+                {
+                    let field_info = ui
+                        .fields
+                        .iter()
+                        .find(|(fname, _)| fname == &field_name.name);
                     match field_info {
                         Some((_, _fty)) => {
-                            let value_val =
-                                self.gen_expr_to_func_with_allocas(func, value, alloca_map, type_checker);
+                            let value_val = self.gen_expr_to_func_with_allocas(
+                                func,
+                                value,
+                                alloca_map,
+                                type_checker,
+                            );
                             let union_size = 8i64;
                             let ptr_local = self.new_local();
                             self.emit_to_func(
@@ -1299,9 +1449,7 @@ impl IrGen {
                             );
                             IrValue::Local(ptr_local)
                         }
-                        None => {
-                            IrValue::Const(IrConst::Int(0, i64_ty))
-                        }
+                        None => IrValue::Const(IrConst::Int(0, i64_ty)),
                     }
                 } else {
                     IrValue::Const(IrConst::Int(0, i64_ty))

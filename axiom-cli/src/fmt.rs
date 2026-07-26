@@ -48,7 +48,9 @@ fn format_decl(decl: &Decl, out: &mut String, state: &mut FormatState) {
         Decl::DSig { name, ty, .. } => {
             write!(out, "(:: {} {})", name, format_type(ty)).unwrap();
         }
-        Decl::DFn { name, params, body, .. } => {
+        Decl::DFn {
+            name, params, body, ..
+        } => {
             format_function_decl(name, params, body, out, state);
         }
         Decl::DData {
@@ -90,7 +92,9 @@ fn format_decl(decl: &Decl, out: &mut String, state: &mut FormatState) {
             }
             write!(out, " {})", format_type(alias)).unwrap();
         }
-        Decl::DForeign { name, ty, source, .. } => {
+        Decl::DForeign {
+            name, ty, source, ..
+        } => {
             write!(
                 out,
                 "(foreign {} :: {} = \"{}\")",
@@ -126,10 +130,14 @@ fn format_decl(decl: &Decl, out: &mut String, state: &mut FormatState) {
         } => {
             format_class_decl(name, tyvar, superclasses, methods, out, state);
         }
-        Decl::DInstance { class, ty, methods, .. } => {
+        Decl::DInstance {
+            class, ty, methods, ..
+        } => {
             format_instance_decl(class, ty, methods, out, state);
         }
-        Decl::DEffect { name, operations, .. } => {
+        Decl::DEffect {
+            name, operations, ..
+        } => {
             format_effect_decl(name, operations, out, state);
         }
     }
@@ -831,25 +839,25 @@ fn format_expr(expr: &Expr, out: &mut String, state: &mut FormatState) {
                 format_expr(arg, out, state);
             }
         }
-Expr::ESetField(base, field_ident, value) => {
-             out.push_str("(set-field ");
-             format_expr(base, out, state);
-             out.push(' ');
-             out.push_str(&field_ident.name);
-             out.push(' ');
-             format_expr(value, out, state);
-             out.push(')');
-         }
-         Expr::EUnionCon(union_name, field_name, value) => {
-             out.push_str("(union ");
-             out.push_str(&union_name.name);
-             out.push(' ');
-             out.push_str(&field_name.name);
-             out.push(' ');
-             format_expr(value, out, state);
-             out.push(')');
-         }
-         Expr::EError(msg, _) => {
+        Expr::ESetField(base, field_ident, value) => {
+            out.push_str("(set-field ");
+            format_expr(base, out, state);
+            out.push(' ');
+            out.push_str(&field_ident.name);
+            out.push(' ');
+            format_expr(value, out, state);
+            out.push(')');
+        }
+        Expr::EUnionCon(union_name, field_name, value) => {
+            out.push_str("(union ");
+            out.push_str(&union_name.name);
+            out.push(' ');
+            out.push_str(&field_name.name);
+            out.push(' ');
+            format_expr(value, out, state);
+            out.push(')');
+        }
+        Expr::EError(msg, _) => {
             write!(out, "_{}", msg).unwrap();
         }
     }

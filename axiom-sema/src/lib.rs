@@ -199,7 +199,10 @@ impl SemError {
     }
 }
 
-fn expr_contains_foreign_call(expr: &Expr, foreign_names: &std::collections::HashSet<String>) -> bool {
+fn expr_contains_foreign_call(
+    expr: &Expr,
+    foreign_names: &std::collections::HashSet<String>,
+) -> bool {
     match expr {
         Expr::EVar(ident) => foreign_names.contains(&ident.name),
         Expr::EApp(func, arg) => {
@@ -232,9 +235,15 @@ fn expr_contains_foreign_call(expr: &Expr, foreign_names: &std::collections::Has
                 .map(|e| expr_contains_foreign_call(e, foreign_names))
                 .unwrap_or(false)
         }
-        Expr::EBegin(es) => es.iter().any(|e| expr_contains_foreign_call(e, foreign_names)),
-        Expr::ETuple(es) => es.iter().any(|e| expr_contains_foreign_call(e, foreign_names)),
-        Expr::EList(es) => es.iter().any(|e| expr_contains_foreign_call(e, foreign_names)),
+        Expr::EBegin(es) => es
+            .iter()
+            .any(|e| expr_contains_foreign_call(e, foreign_names)),
+        Expr::ETuple(es) => es
+            .iter()
+            .any(|e| expr_contains_foreign_call(e, foreign_names)),
+        Expr::EList(es) => es
+            .iter()
+            .any(|e| expr_contains_foreign_call(e, foreign_names)),
         Expr::EInfix(l, _, r) => {
             expr_contains_foreign_call(l, foreign_names)
                 || expr_contains_foreign_call(r, foreign_names)
@@ -255,9 +264,9 @@ fn expr_contains_foreign_call(expr: &Expr, foreign_names: &std::collections::Has
         Expr::ERegion(_, e) => expr_contains_foreign_call(e, foreign_names),
         Expr::EConsume(e) => expr_contains_foreign_call(e, foreign_names),
         Expr::EField(e, _) => expr_contains_foreign_call(e, foreign_names),
-        Expr::EStructCon(_, args) => {
-            args.iter().any(|e| expr_contains_foreign_call(e, foreign_names))
-        }
+        Expr::EStructCon(_, args) => args
+            .iter()
+            .any(|e| expr_contains_foreign_call(e, foreign_names)),
         Expr::ESetField(base, _, value) => {
             expr_contains_foreign_call(base, foreign_names)
                 || expr_contains_foreign_call(value, foreign_names)
@@ -725,7 +734,9 @@ impl TypeChecker {
                         self.type_counter += 1;
                     }
                 }
-                Decl::DForeign { name, ty, source, .. } => {
+                Decl::DForeign {
+                    name, ty, source, ..
+                } => {
                     let mut info = FnInfo::new(name.name.clone(), self.type_to_id(ty));
                     info.foreign_symbol = Some(source.clone());
                     self.functions.push(info);
@@ -777,7 +788,13 @@ impl TypeChecker {
                         },
                     ));
                 }
-                Decl::DFn { name, params, body, axtags, .. } => {
+                Decl::DFn {
+                    name,
+                    params,
+                    body,
+                    axtags,
+                    ..
+                } => {
                     let sig_ty = self
                         .functions
                         .iter()
@@ -1254,47 +1271,43 @@ impl TypeChecker {
                 TypeId::TCon("I64".to_string(), vec![])
             }
             Expr::EStructCon(name, args) => {
-                    let si = self
-                        .structs
-                        .iter()
-                        .find(|s| s.name == name.name)
-                        .cloned();
-                    match si {
-                        Some(si) => {
-                            if args.len() != si.fields.len() {
-                                self.errors.push(SemError::Message {
-                                    message: format!(
-                                        "struct `{}` expects {} field(s), found {}",
-                                        name.name,
-                                        si.fields.len(),
-                                        args.len(),
-                                    ),
-                                    span: expr.span(),
-                                });
-                                return TypeId::TError;
-                            }
-                            for (i, arg) in args.iter().enumerate() {
-                                let arg_ty = self.check_expr(arg);
-                                let expected_ty = si.fields[i].1.clone();
-                                if !arg_ty.compatible_with(&expected_ty) {
-                                    self.errors.push(SemError::TypeMismatch {
-                                        expected: format!("{}", expected_ty),
-                                        found: format!("{}", arg_ty),
-                                        span: arg.span(),
-                                    });
-                                }
-                            }
-                            self.type_to_id(&Type::TCon(name.clone(), vec![]))
-                        }
-                        None => {
-                            self.errors.push(SemError::UndefinedType {
-                                name: name.name.clone(),
-                                span: name.span,
-                                suggestion: None,
+                let si = self.structs.iter().find(|s| s.name == name.name).cloned();
+                match si {
+                    Some(si) => {
+                        if args.len() != si.fields.len() {
+                            self.errors.push(SemError::Message {
+                                message: format!(
+                                    "struct `{}` expects {} field(s), found {}",
+                                    name.name,
+                                    si.fields.len(),
+                                    args.len(),
+                                ),
+                                span: expr.span(),
                             });
-                            TypeId::TError
+                            return TypeId::TError;
                         }
+                        for (i, arg) in args.iter().enumerate() {
+                            let arg_ty = self.check_expr(arg);
+                            let expected_ty = si.fields[i].1.clone();
+                            if !arg_ty.compatible_with(&expected_ty) {
+                                self.errors.push(SemError::TypeMismatch {
+                                    expected: format!("{}", expected_ty),
+                                    found: format!("{}", arg_ty),
+                                    span: arg.span(),
+                                });
+                            }
+                        }
+                        self.type_to_id(&Type::TCon(name.clone(), vec![]))
                     }
+                    None => {
+                        self.errors.push(SemError::UndefinedType {
+                            name: name.name.clone(),
+                            span: name.span,
+                            suggestion: None,
+                        });
+                        TypeId::TError
+                    }
+                }
             }
             Expr::EUnionCon(union_name, field_name, value) => {
                 let ui = self
@@ -1304,7 +1317,10 @@ impl TypeChecker {
                     .cloned();
                 match ui {
                     Some(ui) => {
-                        let field_info = ui.fields.iter().find(|(fname, _)| fname == &field_name.name);
+                        let field_info = ui
+                            .fields
+                            .iter()
+                            .find(|(fname, _)| fname == &field_name.name);
                         match field_info {
                             Some((_, fty)) => {
                                 let value_ty = self.check_expr(value);
@@ -1336,61 +1352,61 @@ impl TypeChecker {
                     }
                 }
             }
-                Expr::ESetField(base, field_ident, value) => {
-                    let base_ty = self.check_expr(base);
-                    if let TypeId::TCon(struct_name, _) = &base_ty {
-                        let field_info = self
-                            .structs
-                            .iter()
-                            .find(|s| s.name == *struct_name)
-                            .cloned()
-                            .and_then(|si| {
-                                si.fields
-                                    .iter()
-                                    .find(|(fname, _)| fname == &field_ident.name)
-                                    .map(|(fname, fty)| (fname.clone(), fty.clone()))
-                            })
-                            .or_else(|| {
-                                self.unions
-                                    .iter()
-                                    .find(|u| u.name == *struct_name)
-                                    .cloned()
-                                    .and_then(|ui| {
-                                        ui.fields
-                                            .iter()
-                                            .find(|(fname, _)| fname == &field_ident.name)
-                                            .map(|(fname, fty)| (fname.clone(), fty.clone()))
-                                    })
-                            });
-                        match field_info {
-                            Some((_, fty)) => {
-                                let value_ty = self.check_expr(value);
-                                if !value_ty.compatible_with(&fty) {
-                                    self.errors.push(SemError::TypeMismatch {
-                                        expected: format!("{}", fty),
-                                        found: format!("{}", value_ty),
-                                        span: value.span(),
-                                    });
-                                }
-                            }
-                            None => {
-                                self.errors.push(SemError::FieldNotFound {
-                                    field: field_ident.name.clone(),
-                                    ty: struct_name.clone(),
-                                    span: field_ident.span,
+            Expr::ESetField(base, field_ident, value) => {
+                let base_ty = self.check_expr(base);
+                if let TypeId::TCon(struct_name, _) = &base_ty {
+                    let field_info = self
+                        .structs
+                        .iter()
+                        .find(|s| s.name == *struct_name)
+                        .cloned()
+                        .and_then(|si| {
+                            si.fields
+                                .iter()
+                                .find(|(fname, _)| fname == &field_ident.name)
+                                .map(|(fname, fty)| (fname.clone(), fty.clone()))
+                        })
+                        .or_else(|| {
+                            self.unions
+                                .iter()
+                                .find(|u| u.name == *struct_name)
+                                .cloned()
+                                .and_then(|ui| {
+                                    ui.fields
+                                        .iter()
+                                        .find(|(fname, _)| fname == &field_ident.name)
+                                        .map(|(fname, fty)| (fname.clone(), fty.clone()))
+                                })
+                        });
+                    match field_info {
+                        Some((_, fty)) => {
+                            let value_ty = self.check_expr(value);
+                            if !value_ty.compatible_with(&fty) {
+                                self.errors.push(SemError::TypeMismatch {
+                                    expected: format!("{}", fty),
+                                    found: format!("{}", value_ty),
+                                    span: value.span(),
                                 });
                             }
                         }
-                    } else {
-                        self.errors.push(SemError::TypeMismatch {
-                            expected: "struct".to_string(),
-                            found: format!("{}", base_ty),
-                            span: base.span(),
-                        });
+                        None => {
+                            self.errors.push(SemError::FieldNotFound {
+                                field: field_ident.name.clone(),
+                                ty: struct_name.clone(),
+                                span: field_ident.span,
+                            });
+                        }
                     }
-                    TypeId::TCon("I64".to_string(), vec![])
+                } else {
+                    self.errors.push(SemError::TypeMismatch {
+                        expected: "struct".to_string(),
+                        found: format!("{}", base_ty),
+                        span: base.span(),
+                    });
                 }
-                Expr::EError(_, _) => TypeId::TVar(format!("_t{}", self.type_counter)),
+                TypeId::TCon("I64".to_string(), vec![])
+            }
+            Expr::EError(_, _) => TypeId::TVar(format!("_t{}", self.type_counter)),
         }
     }
 
@@ -1716,7 +1732,9 @@ impl TypeChecker {
                     },
                 ));
             }
-            Decl::DFn { name, params, body, .. } => {
+            Decl::DFn {
+                name, params, body, ..
+            } => {
                 if !self.functions.iter().any(|f| f.name == name.name) {
                     self.functions.push(FnInfo::new(
                         name.name.clone(),
@@ -1741,7 +1759,9 @@ impl TypeChecker {
                     fields: struct_fields,
                 });
             }
-            Decl::DForeign { name, ty, source, .. } => {
+            Decl::DForeign {
+                name, ty, source, ..
+            } => {
                 let mut info = FnInfo::new(name.name.clone(), self.type_to_id(ty));
                 info.foreign_symbol = Some(source.clone());
                 self.functions.push(info);
@@ -2000,7 +2020,9 @@ mod tests {
 ;@axiom:effect(io)
 (fn main 0)"#,
         );
-        assert!(errors.iter().any(|e| matches!(e, SemError::AxtagMismatch { name, .. } if name == "main")));
+        assert!(errors
+            .iter()
+            .any(|e| matches!(e, SemError::AxtagMismatch { name, .. } if name == "main")));
     }
 
     #[test]
@@ -2011,7 +2033,9 @@ mod tests {
 ;@axiom:pure
 (fn main (printf "hello"))"#,
         );
-        assert!(errors.iter().any(|e| matches!(e, SemError::AxtagMismatch { name, .. } if name == "main")));
+        assert!(errors
+            .iter()
+            .any(|e| matches!(e, SemError::AxtagMismatch { name, .. } if name == "main")));
     }
 
     #[test]

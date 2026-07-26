@@ -809,7 +809,11 @@ fn collect_symbol_facts(
             std::collections::hash_map::Entry::Occupied(mut e) => {
                 let old = e.get().clone();
                 let new_nid = nid.clone().or(old.0);
-                let new_meta = if axtag_meta.is_empty() { old.1 } else { axtag_meta };
+                let new_meta = if axtag_meta.is_empty() {
+                    old.1
+                } else {
+                    axtag_meta
+                };
                 e.insert((new_nid, new_meta));
             }
             std::collections::hash_map::Entry::Vacant(e) => {
@@ -1048,7 +1052,8 @@ fn render_symbols_json(f: &SymbolFact, filename: &str, source: &str) -> String {
         axiom_errors::json_escape(&f.name),
         loc,
         axiom_errors::json_escape(&f.ty),
-        f.nid.as_ref()
+        f.nid
+            .as_ref()
             .map(|n| format!("\"nid\":\"{}\",", axiom_errors::json_escape(n)))
             .unwrap_or_default(),
         f.meta

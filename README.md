@@ -328,14 +328,15 @@ is just another 8-byte word holding that value's own heap address.
 Current limitations, honestly stated:
 
 - **Exhaustiveness and arity are checked** (missing constructors and
-  wrong-arity constructor patterns are compile errors - `AX3005`/`AX3009`),
-  but **nested constructor patterns are not** - `((Cons h (Cons h2 t)) ...)`
-  parses and type-checks, but only `h` gets bound; the inner `(Cons h2 t)`
-  is neither compared against the tail's tag nor destructured. Only the
-  outermost `PVar` sub-patterns of a `PCon` arm are bound to real fields.
-- **Tuple and list patterns inside `case` are accepted but never compared**
-  - they behave like a wildcard (always match) - because tuples and lists
-  have no runtime representation of their own yet (see the status table).
+  wrong-arity constructor patterns are compile errors - `AX3005`/`AX3009`).
+- **Nested constructor patterns work** - `((Cons h (Cons h2 t)) ...)`
+  correctly matches and binds all three variables. Inner constructor tags
+  are checked recursively and fields are extracted at each level.
+- **Tuple and list patterns inside `case` now compare elements**
+  - `PTuple` and `PList` patterns check each element at the correct
+  offset and branch to the next arm on a mismatch, just like `PCon`
+  arms. Tuples and lists are heap-allocated blocks with elements stored
+  at contiguous 8-byte offsets (no tag word).
 - There is no garbage collection or reference counting: every constructor
   application `malloc`s and nothing ever `free`s it. Fine for short-lived
   CLI programs and this README's examples; not something to build a
@@ -497,7 +498,7 @@ Note: constructor patterns now compile to real branching code (see
 [Algebraic data types: how they actually run](#algebraic-data-types-how-they-actually-run)) -
 each arm's constructor tag is checked in order and only a matching arm's
 body actually runs. Nested constructor patterns and tuple/list patterns
-inside `case` are still unimplemented (same section).
+inside `case` work correctly (see the limitations below).
 
 ---
 
@@ -744,7 +745,7 @@ Source (.ax)
 | FFI | **Complete** | Call any C function with `foreign` declarations |
 | ADTs / data types | **Complete** | Constructors (nullary and with fields, including recursive types like `List`/`Tree`) compile to heap-boxed tagged values; see [Algebraic data types](#algebraic-data-types-how-they-actually-run) |
 | Structs / unions | **Complete** | Declarations, LLVM emission, field access (`.field`), struct construction (`(StructName expr1 expr2 ...)`), `mut` fields, and field mutation (`(set-field expr field value)`) all work |
-| Pattern matching (`case`) | **Functional** | Constructor patterns (nullary and with-field), variables, wildcards, and literals (against non-`data` scrutinees) all compare and bind correctly, plus non-exhaustiveness/arity/undefined-constructor diagnostics; nested constructor patterns and tuple/list patterns aren't compared yet (see [Algebraic data types](#algebraic-data-types-how-they-actually-run)) |
+| Pattern matching (`case`) | **Complete** | Constructor patterns (nullary and with-field), variables, wildcards, literals, nested constructor patterns, and tuple/list patterns all compare and bind correctly, plus non-exhaustiveness/arity/undefined-constructor diagnostics |
 | Lambda | **Partial** | Parsed and type-checked; codegen pending |
 | Lists | **Partial** | Syntax and type checking; runtime representation pending |
 | Tuples | **Partial** | Syntax and type checking; codegen pending |

@@ -576,10 +576,7 @@ impl Lexer {
         }
         let tag_content: String = self.source[tag_start..self.pos].iter().collect();
 
-        Token::new(
-            TokenKind::Axtag(tag_content),
-            self.span(start),
-        )
+        Token::new(TokenKind::Axtag(tag_content), self.span(start))
     }
 
     fn consume_block_comment(&mut self) -> Result<(), LexerError> {

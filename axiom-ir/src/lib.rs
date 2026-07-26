@@ -261,14 +261,14 @@ impl Default for IrModule {
 }
 
 impl IrModule {
-pub fn new() -> Self {
-            Self {
-                functions: Vec::new(),
-                structs: Vec::new(),
-                enums: Vec::new(),
-                unions: Vec::new(),
-                globals: Vec::new(),
-                extern_funcs: Vec::new(),
-            }
+    pub fn new() -> Self {
+        Self {
+            functions: Vec::new(),
+            structs: Vec::new(),
+            enums: Vec::new(),
+            unions: Vec::new(),
+            globals: Vec::new(),
+            extern_funcs: Vec::new(),
         }
+    }
 }
