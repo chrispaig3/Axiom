@@ -1,4 +1,4 @@
-use crate::{IrBlock, IrConst, IrFunction, IrInst, IrModule, IrStruct, IrValue, TypeId};
+use crate::{IrBlock, IrConst, IrFunction, IrInst, IrModule, IrStruct, IrUnion, IrValue, TypeId};
 use axiom_ast::ast::*;
 use axiom_ast::span::Ident;
 use axiom_sema::TypeChecker;
@@ -92,6 +92,17 @@ impl IrGen {
                         fields: ir_fields,
                         packed,
                         align,
+                    });
+                }
+                Decl::DUnion { name, fields, .. } => {
+                    let ir_fields: Vec<(String, TypeId)> = fields
+                        .iter()
+                        .map(|f| (f.name.name.clone(), self.type_to_id(&f.ty)))
+                        .collect();
+
+                    self.module.unions.push(IrUnion {
+                        name: name.name.clone(),
+                        fields: ir_fields,
                     });
                 }
                 Decl::DFn { name, params, body, .. } => {
@@ -492,6 +503,35 @@ impl IrGen {
                                 },
                             );
                         }
+                        return IrValue::Local(ptr_local);
+                    }
+                    // Union construction: `(Value 42)` where `Value`
+                    // is a known union name with exactly one field.
+                    // Allocate space and store the value at offset 0.
+                    if let Some(ui) = type_checker.unions.iter().find(|u| u.name == ident.name) {
+                        if ui.fields.len() != 1 || all_args.len() != 1 {
+                            return IrValue::Const(IrConst::Int(
+                                0,
+                                TypeId::TCon("I64".to_string(), vec![]),
+                            ));
+                        }
+                        let i64_ty = TypeId::TCon("I64".to_string(), vec![]);
+                        let ptr_local = self.new_local();
+                        self.emit_to_func(
+                            func,
+                            IrInst::HeapAlloc {
+                                dest: IrValue::Local(ptr_local.clone()),
+                                size: IrValue::Const(IrConst::Int(8, i64_ty.clone())),
+                            },
+                        );
+                        self.emit_to_func(
+                            func,
+                            IrInst::StoreOffset {
+                                ptr: IrValue::Local(ptr_local.clone()),
+                                offset: 0,
+                                value: all_args[0].clone(),
+                            },
+                        );
                         return IrValue::Local(ptr_local);
                     }
                 }
@@ -1136,7 +1176,20 @@ impl IrGen {
                 let base_val =
                     self.gen_expr_to_func_with_allocas(func, base, alloca_map, type_checker);
                 let i64_ty = TypeId::TCon("I64".to_string(), vec![]);
-                if let Some((_struct_name, field_index, _field_ty)) =
+                if let Some((_union_name, _field_ty)) =
+                    type_checker.find_union_field_by_name(&field_ident.name)
+                {
+                    let result_reg = self.new_local();
+                    self.emit_to_func(
+                        func,
+                        IrInst::LoadOffset {
+                            dest: IrValue::Local(result_reg.clone()),
+                            ptr: base_val,
+                            offset: 0,
+                        },
+                    );
+                    IrValue::Local(result_reg)
+                } else if let Some((_struct_name, field_index, _field_ty)) =
                     type_checker.find_struct_field_by_name(&field_ident.name)
                 {
                     let offset = (field_index * 8) as i64;
@@ -1160,7 +1213,17 @@ impl IrGen {
                 let value_val =
                     self.gen_expr_to_func_with_allocas(func, value, alloca_map, type_checker);
                 let i64_ty = TypeId::TCon("I64".to_string(), vec![]);
-                if let Some((_struct_name, field_index, _field_ty)) =
+                if type_checker.find_union_field_by_name(&field_ident.name).is_some() {
+                    self.emit_to_func(
+                        func,
+                        IrInst::StoreOffset {
+                            ptr: base_val,
+                            offset: 0,
+                            value: value_val,
+                        },
+                    );
+                    IrValue::Const(IrConst::Int(0, i64_ty))
+                } else if let Some((_struct_name, field_index, _field_ty)) =
                     type_checker.find_struct_field_by_name(&field_ident.name)
                 {
                     let offset = (field_index * 8) as i64;
@@ -1205,6 +1268,41 @@ impl IrGen {
                         );
                     }
                     IrValue::Local(ptr_local)
+                } else {
+                    IrValue::Const(IrConst::Int(0, i64_ty))
+                }
+            }
+            Expr::EUnionCon(union_name, field_name, value) => {
+                let i64_ty = TypeId::TCon("I64".to_string(), vec![]);
+                if let Some(ui) = type_checker.unions.iter().find(|u| u.name == union_name.name) {
+                    let field_info = ui.fields.iter().find(|(fname, _)| fname == &field_name.name);
+                    match field_info {
+                        Some((_, _fty)) => {
+                            let value_val =
+                                self.gen_expr_to_func_with_allocas(func, value, alloca_map, type_checker);
+                            let union_size = 8i64;
+                            let ptr_local = self.new_local();
+                            self.emit_to_func(
+                                func,
+                                IrInst::HeapAlloc {
+                                    dest: IrValue::Local(ptr_local.clone()),
+                                    size: IrValue::Const(IrConst::Int(union_size, i64_ty.clone())),
+                                },
+                            );
+                            self.emit_to_func(
+                                func,
+                                IrInst::StoreOffset {
+                                    ptr: IrValue::Local(ptr_local.clone()),
+                                    offset: 0,
+                                    value: value_val,
+                                },
+                            );
+                            IrValue::Local(ptr_local)
+                        }
+                        None => {
+                            IrValue::Const(IrConst::Int(0, i64_ty))
+                        }
+                    }
                 } else {
                     IrValue::Const(IrConst::Int(0, i64_ty))
                 }

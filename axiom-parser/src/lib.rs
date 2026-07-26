@@ -956,6 +956,10 @@ pub fn parse_module(&mut self) -> ParseResult<Module> {
                 return self.parse_struct_con();
             }
 
+            if self.check(TokenKind::Union) {
+                return self.parse_union_con();
+            }
+
             if self.check(TokenKind::RParen) {
                 self.advance();
                 return Ok(Expr::ETuple(vec![]));
@@ -1294,6 +1298,15 @@ pub fn parse_module(&mut self) -> ParseResult<Module> {
         }
         self.expect(TokenKind::RParen)?;
         Ok(Expr::EStructCon(name, args))
+    }
+
+    fn parse_union_con(&mut self) -> ParseResult<Expr> {
+        self.expect(TokenKind::Union)?;
+        let name = self.parse_ident()?;
+        let field_name = self.parse_ident()?;
+        let value = self.parse_expr()?;
+        self.expect(TokenKind::RParen)?;
+        Ok(Expr::EUnionCon(name, field_name, Box::new(value)))
     }
 
     fn parse_string_literal(&mut self) -> ParseResult<String> {

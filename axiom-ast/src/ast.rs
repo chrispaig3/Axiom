@@ -152,6 +152,7 @@ pub enum Expr {
     EField(Box<Expr>, Ident),
     EStructCon(Ident, Vec<Expr>),
     ESetField(Box<Expr>, Ident, Box<Expr>),
+    EUnionCon(Ident, Ident, Box<Expr>),
     EError(String, Span),
 }
 
@@ -185,6 +186,7 @@ impl Expr {
             Expr::EField(e, _) => e.span(),
             Expr::EStructCon(name, _) => name.span,
             Expr::ESetField(e, _, _) => e.span(),
+            Expr::EUnionCon(name, _, _) => name.span,
             Expr::EError(_, span) => *span,
         }
     }
