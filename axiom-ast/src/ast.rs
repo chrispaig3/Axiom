@@ -94,7 +94,12 @@ pub enum Pattern {
 #[derive(Debug, Clone)]
 pub enum Expr {
     EVar(Ident),
-    ELit(Literal),
+    /// Carries the literal token's real span. Previously this variant had
+    /// no span field at all and `Expr::span()` fell back to
+    /// `Span::dummy()` (byte/char 0), which meant any diagnostic anchored
+    /// on a literal - e.g. an `if` condition that's a bare `Int` literal -
+    /// silently rendered at `:1:1` instead of its real location.
+    ELit(Literal, Span),
     EApp(Box<Expr>, Box<Expr>),
     ELam(Vec<Pattern>, Box<Expr>),
     ELet(Vec<(Pattern, Expr)>, Box<Expr>),
@@ -107,21 +112,21 @@ pub enum Expr {
     EInfix(Box<Expr>, String, Box<Expr>),
     ETypeSig(Box<Expr>, Type),
     ECast(Box<Expr>, Type),
-    EAlloc(Type, Option<Box<Expr>>),
-    ESizeof(Type),
-    EAlignof(Type),
+    EAlloc(Type, Option<Box<Expr>>, Span),
+    ESizeof(Type, Span),
+    EAlignof(Type, Span),
     EGrouped(Box<Expr>),
     EHandle(Box<Expr>, Vec<Effect>, Box<Expr>),
     ERegion(Ident, Box<Expr>),
     EConsume(Box<Expr>),
-    EError(String),
+    EError(String, Span),
 }
 
 impl Expr {
     pub fn span(&self) -> Span {
         match self {
             Expr::EVar(id) => id.span,
-            Expr::ELit(_) => Span::dummy(),
+            Expr::ELit(_, span) => *span,
             Expr::EApp(e, _) => e.span(),
             Expr::ELam(_, e) => e.span(),
             Expr::ELet(_, e) => e.span(),
@@ -134,14 +139,14 @@ impl Expr {
             Expr::EInfix(l, _, _) => l.span(),
             Expr::ETypeSig(e, _) => e.span(),
             Expr::ECast(e, _) => e.span(),
-            Expr::EAlloc(_, _) => Span::dummy(),
-            Expr::ESizeof(_) => Span::dummy(),
-            Expr::EAlignof(_) => Span::dummy(),
+            Expr::EAlloc(_, _, span) => *span,
+            Expr::ESizeof(_, span) => *span,
+            Expr::EAlignof(_, span) => *span,
             Expr::EGrouped(e) => e.span(),
             Expr::EHandle(e, _, _) => e.span(),
             Expr::ERegion(_, e) => e.span(),
             Expr::EConsume(e) => e.span(),
-            Expr::EError(_) => Span::dummy(),
+            Expr::EError(_, span) => *span,
         }
     }
 }

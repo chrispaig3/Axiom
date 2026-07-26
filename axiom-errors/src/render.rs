@@ -60,7 +60,6 @@ pub fn dedup(diags: Vec<Diagnostic>) -> Vec<Diagnostic> {
 /// colored, with the offending source line quoted and underlined, plus
 /// notes and help text. Modeled closely on `rustc`/`ariadne` output.
 pub fn render_human(diags: &[Diagnostic], filename: &str, source: &str) -> String {
-    let map = SourceMap::new(source);
     let mut out = String::new();
 
     for diag in diags {
@@ -133,7 +132,6 @@ pub fn render_human(diags: &[Diagnostic], filename: &str, source: &str) -> Strin
         out.push_str(&String::from_utf8_lossy(&buf));
     }
 
-    let _ = map; // reserved for future multi-line snippet features
     out
 }
 
@@ -165,13 +163,20 @@ pub fn render_ai(diags: &[Diagnostic], filename: &str, source: &str) -> String {
     out
 }
 
-/// Clamp a `(start, end)` byte range into valid, non-empty bounds within
-/// `source`. Spans that land exactly at end-of-file (e.g. "unexpected EOF"
-/// diagnostics) previously produced an empty, out-of-bounds range that
-/// `ariadne` could not render a snippet for at all - this keeps such
-/// diagnostics anchored to the last real character instead of going blank.
+/// Clamp a `(start, end)` *character* range into valid, non-empty bounds
+/// within `source`. Spans that land exactly at end-of-file (e.g.
+/// "unexpected EOF" diagnostics) previously produced an empty,
+/// out-of-bounds range that `ariadne` could not render a snippet for at
+/// all - this keeps such diagnostics anchored to the last real character
+/// instead of going blank.
+///
+/// `ariadne::Source` indexes by character (not byte), matching Axiom's own
+/// spans (see [`SourceMap`]'s doc comment), so this clamps against a
+/// character count rather than `source.len()` (byte length) - using the
+/// byte length here would under-clamp for any source containing multi-byte
+/// UTF-8 characters.
 fn clamp_span(source: &str, start: usize, end: usize) -> (usize, usize) {
-    let len = source.len();
+    let len = source.chars().count();
     if len == 0 {
         return (0, 1);
     }
@@ -282,7 +287,9 @@ fn json_escape(s: &str) -> String {
 fn json_span(map: &SourceMap, source: &str, span: axiom_ast::span::Span) -> String {
     let (start, end) = map.span_range(source, span.start, span.end.max(span.start));
     format!(
-        "{{\"start\":{{\"line\":{},\"col\":{}}},\"end\":{{\"line\":{},\"col\":{}}},\"byte_start\":{},\"byte_end\":{}}}",
+        // `char_start`/`char_end` (not byte offsets): Axiom spans are
+        // character-index-based end to end, see `SourceMap`'s doc comment.
+        "{{\"start\":{{\"line\":{},\"col\":{}}},\"end\":{{\"line\":{},\"col\":{}}},\"char_start\":{},\"char_end\":{}}}",
         start.0, start.1, end.0, end.1, span.start, span.end
     )
 }
@@ -305,7 +312,18 @@ fn json_line(diag: &Diagnostic, filename: &str, source: &str, map: &SourceMap) -
             json_escape(&label.message)
         ));
     }
-    s.push_str("\"notes\":[");
+    s.push_str("\"related\":[");
+    for (i, label) in diag.secondary.iter().enumerate() {
+        if i > 0 {
+            s.push(',');
+        }
+        s.push_str(&format!(
+            "{{\"span\":{},\"label\":\"{}\"}}",
+            json_span(map, source, label.span),
+            json_escape(&label.message)
+        ));
+    }
+    s.push_str("],\"notes\":[");
     for (i, n) in diag.notes.iter().enumerate() {
         if i > 0 {
             s.push(',');

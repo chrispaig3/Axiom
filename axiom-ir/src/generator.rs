@@ -109,7 +109,7 @@ impl IrGen {
 
     fn gen_expr_to_func_with_allocas(&mut self, func: &mut IrFunction, expr: &Expr, alloca_map: &mut HashMap<String, String>, type_checker: &TypeChecker) -> IrValue {
         match expr {
-            Expr::ELit(lit) => self.gen_literal(lit),
+            Expr::ELit(lit, _) => self.gen_literal(lit),
             Expr::EVar(ident) => {
                 for (idx, dt) in type_checker.data_types.iter().enumerate() {
                     for (cidx, con) in dt.constructors.iter().enumerate() {
@@ -494,7 +494,7 @@ impl IrGen {
 
                 IrValue::Local(dest)
             }
-            Expr::ESizeof(ty) => {
+            Expr::ESizeof(ty, _) => {
                 let dest = self.new_local();
                 let resolved_ty = self.type_to_id(ty);
                 self.emit_to_func(func, IrInst::Sizeof {
@@ -503,7 +503,7 @@ impl IrGen {
                 });
                 IrValue::Local(dest)
             }
-            Expr::EAlignof(ty) => {
+            Expr::EAlignof(ty, _) => {
                 let dest = self.new_local();
                 let resolved_ty = self.type_to_id(ty);
                 self.emit_to_func(func, IrInst::Alignof {

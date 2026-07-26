@@ -50,10 +50,27 @@ producing 2-3 more "errors" that were really just echoes of the first one.
 
 Axiom's type checker now propagates a `TypeId::TError` **poison** type
 after reporting a failure, and every downstream check treats a poisoned
-type as "already explained, don't check again." Diagnostics can also be
-tagged with a `group` key; [`axiom_errors::dedup`] drops every
-diagnostic after the first one in a given group before anything is
-rendered. Concretely:
+type as "already explained, don't check again" (`is_error()` guards at
+every `TypeMismatch` call site in `axiom-sema`). This is the actual,
+exercised mechanism behind every cascade fix today.
+
+Separately, `Diagnostic` also supports tagging a diagnostic with a
+`group` key via `.with_group(...)`, and [`axiom_errors::dedup`] drops
+every diagnostic after the first one in a given group before anything is
+rendered. This is generic plumbing for a *different* kind of cascade -
+one where a truly separate `Diagnostic` was already constructed and needs
+suppressing after the fact, rather than being prevented from firing in
+the first place - and is not currently used by any lexer/parser/sema call
+site (poisoning covers the one cascade case that exists today, so nothing
+needs it yet). It's kept because a purely span/type-based guard isn't
+always available (e.g. two diagnostics from unrelated compiler stages that
+are nonetheless both consequences of the same root cause); reach for it
+only when you have a concrete cascade that poisoning/guards can't prevent,
+and give the group key enough specificity that it can't accidentally merge
+two genuinely distinct errors (e.g. never group solely by diagnostic code -
+two different undefined variables must not collapse into one report).
+
+Concretely, poisoning today makes this:
 
 ```lisp
 (:: main Int)
@@ -127,6 +144,18 @@ an LLM agent burns reading compiler output. The design rationale:
 | `!"note"` | An additional note |
 | `?"msg"` or `?LOC:"msg"~>"replacement"` | A help suggestion; the `~>` form is machine-applicable |
 
+**Parsing note:** `"msg"` and `"replacement"` are always emitted using
+Rust's `Debug`-style string escaping (embedded `"`, `\`, and newlines are
+backslash-escaped), so a diagnostic is guaranteed to stay on exactly one
+line and every quoted field has an unambiguous end. However, the message
+or replacement text itself is *not* forbidden from containing the literal
+two-character sequence `~>` (e.g. a diagnostic about arrow types). A
+correct consumer must therefore parse each quoted field as a proper
+escaped string (find the matching unescaped closing `"`) and only look for
+the `~>` separator in the unquoted gap *between* the two quoted fields -
+never do a naive whole-line `str.split("~>")`, which can misfire if `~>`
+appears inside the message itself.
+
 ### Example
 
 Source:
@@ -158,8 +187,15 @@ diagnostic is also available as one JSON object per line (not a JSON
 array, so output can be streamed):
 
 ```json
-{"severity":"error","code":"AX3001","slug":"undefined-variable","message":"undefined variable `helpr`","file":"main.ax","span":{"start":{"line":6,"col":4},"end":{"line":6,"col":9},"byte_start":73,"byte_end":78},"label":"no binding named `helpr` in scope","notes":[],"help":["a similarly named binding `helper` is in scope; did you mean this?"]}
+{"severity":"error","code":"AX3001","slug":"undefined-variable","message":"undefined variable `helpr`","file":"main.ax","span":{"start":{"line":6,"col":4},"end":{"line":6,"col":9},"char_start":84,"char_end":89},"label":"no binding named `helpr` in scope","related":[],"notes":[],"help":["a similarly named binding `helper` is in scope; did you mean this?"]}
 ```
+
+`char_start`/`char_end` are **character offsets**, not byte offsets:
+Axiom's lexer tokenizes a `Vec<char>`, so every span everywhere in the
+compiler (and therefore every renderer) is character-indexed end to end.
+For source containing only ASCII text the two coincide; for source with
+multi-byte UTF-8 characters, only the character offsets are meaningful -
+do not use these fields as byte indices into the file.
 
 ## Adding a new diagnostic
 
@@ -171,6 +207,12 @@ array, so output can be streamed):
    `axiom-parser`, or `axiom-sema`) and implement/extend `to_diagnostic()`
    to build a `Diagnostic` using the new code, a primary span, and a
    helpful suggestion.
-3. If the new error can be a downstream consequence of another error,
-   give it (and the error(s) that cause it) a shared `.with_group(...)`
-   key so cascades collapse into a single reported diagnostic.
+3. If the new error can be a downstream consequence of another error in
+   `axiom-sema`, prefer the poisoning pattern: return/propagate
+   `TypeId::TError` from the failing check instead of a fresh placeholder,
+   and guard every later comparison with `.is_error()` so a poisoned value
+   never triggers a second, redundant diagnostic (see `EApp`/`EIf`/`ECond`
+   in `axiom-sema/src/lib.rs` for the pattern). Only reach for
+   `.with_group(...)` + `dedup()` when poisoning genuinely can't apply
+   (e.g. the cascade spans multiple compiler stages), and pick a group key
+   specific enough that it can never merge two unrelated errors.

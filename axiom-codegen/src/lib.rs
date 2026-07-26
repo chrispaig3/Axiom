@@ -663,6 +663,14 @@ impl LlvmCodeGen {
         }
     }
 
+    // Both `type_size` and `type_align` are written as fully exhaustive
+    // matches (one arm per `TypeId` variant, no wildcard `_`) deliberately:
+    // a wildcard arm would silently swallow any *new* `TypeId` variant
+    // added in the future (as happened with `TypeId::TError`, which was
+    // added in axiom-sema without the compiler ever flagging these two
+    // functions, because `_ => 8` accepted it by accident). Forcing an
+    // explicit arm means the next new variant fails to compile here until
+    // someone decides what its size/align actually is.
     fn type_size(&self, ty: &TypeId) -> i64 {
         match ty {
             TypeId::TCon(name, _) => match name.as_str() {
@@ -675,7 +683,14 @@ impl LlvmCodeGen {
             },
             TypeId::TPtr(_, _) => 8,
             TypeId::TList(inner) => self.type_size(inner),
-            _ => 8,
+            TypeId::TArr(_, _) => 8,
+            TypeId::TTuple(_) => 8,
+            TypeId::TVar(_) => 8,
+            TypeId::TForall(_, inner) => self.type_size(inner),
+            // Only reachable on an AST that already failed semantic
+            // analysis; codegen never actually runs on such an AST (see
+            // `type_to_llvm`'s matching arm for the same rationale).
+            TypeId::TError => 8,
         }
     }
 
@@ -691,7 +706,11 @@ impl LlvmCodeGen {
             },
             TypeId::TPtr(_, _) => 8,
             TypeId::TList(inner) => self.type_align(inner),
-            _ => 8,
+            TypeId::TArr(_, _) => 8,
+            TypeId::TTuple(_) => 8,
+            TypeId::TVar(_) => 8,
+            TypeId::TForall(_, inner) => self.type_align(inner),
+            TypeId::TError => 8,
         }
     }
 

@@ -5,7 +5,7 @@ use axiom_errors::{code, Diagnostic};
 
 #[derive(Debug, thiserror::Error)]
 pub enum ParseError {
-    #[error("expected {expected}, found {found}")]
+    #[error("expected {expected}, found `{found}`")]
     UnexpectedToken { expected: String, found: String, span: Span },
     /// `span` points at the last token before end-of-file, so the report
     /// still lands on real source text instead of nowhere (previously this
@@ -31,12 +31,9 @@ impl ParseError {
         let span = self.span();
         match self {
             ParseError::UnexpectedToken { expected, found, .. } => {
-                Diagnostic::error(
-                    &code::UNEXPECTED_TOKEN,
-                    format!("expected {}, found `{}`", expected, found),
-                )
-                .with_primary(span, format!("found `{}` here", found))
-                .with_help(format!("Axiom expected {} at this position", expected))
+                Diagnostic::error(&code::UNEXPECTED_TOKEN, self.to_string())
+                    .with_primary(span, format!("found `{}` here", found))
+                    .with_help(format!("Axiom expected {} at this position", expected))
             }
             ParseError::UnexpectedEof { .. } => {
                 Diagnostic::error(&code::UNEXPECTED_EOF, self.to_string())
@@ -708,7 +705,7 @@ impl Parser {
             if let Expr::EVar(ident) = &first {
                 if ident.name == "-" && args.len() == 1 {
                     return Ok(Expr::EInfix(
-                        Box::new(Expr::ELit(Literal::LInt(0))),
+                        Box::new(Expr::ELit(Literal::LInt(0), ident.span)),
                         "-".to_string(),
                         Box::new(args.into_iter().next().unwrap()),
                     ));
@@ -749,13 +746,13 @@ impl Parser {
             let expr = self.parse_expr()?;
             Ok(Expr::EGrouped(Box::new(expr)))
         } else if self.check(TokenKind::Underscore) {
-            self.advance();
-            Ok(Expr::ELam(vec![Pattern::PWildcard], Box::new(Expr::EError("hole".to_string()))))
+            let token = self.advance();
+            Ok(Expr::ELam(vec![Pattern::PWildcard], Box::new(Expr::EError("hole".to_string(), token.span))))
         } else if self.check(TokenKind::Minus) && !in_parens {
-            self.advance();
+            let token = self.advance();
             let expr = self.parse_expr()?;
             Ok(Expr::EInfix(
-                Box::new(Expr::ELit(Literal::LInt(0))),
+                Box::new(Expr::ELit(Literal::LInt(0), token.span)),
                 "-".to_string(),
                 Box::new(expr),
             ))
@@ -765,35 +762,35 @@ impl Parser {
         } else if self.check(TokenKind::IntLiteral(0)) {
             let token = self.advance();
             if let TokenKind::IntLiteral(n) = token.kind {
-                Ok(Expr::ELit(Literal::LInt(n)))
+                Ok(Expr::ELit(Literal::LInt(n), token.span))
             } else {
                 unreachable!()
             }
         } else if self.check(TokenKind::FloatLiteral(0.0)) {
             let token = self.advance();
             if let TokenKind::FloatLiteral(n) = token.kind {
-                Ok(Expr::ELit(Literal::LFloat(n)))
+                Ok(Expr::ELit(Literal::LFloat(n), token.span))
             } else {
                 unreachable!()
             }
         } else if self.check(TokenKind::BoolLiteral(true)) || self.check(TokenKind::BoolLiteral(false)) {
             let token = self.advance();
             if let TokenKind::BoolLiteral(b) = token.kind {
-                Ok(Expr::ELit(Literal::LBool(b)))
+                Ok(Expr::ELit(Literal::LBool(b), token.span))
             } else {
                 unreachable!()
             }
         } else if self.check(TokenKind::StringLiteral(String::new())) {
             let token = self.advance();
             if let TokenKind::StringLiteral(s) = token.kind {
-                Ok(Expr::ELit(Literal::LStr(s)))
+                Ok(Expr::ELit(Literal::LStr(s), token.span))
             } else {
                 unreachable!()
             }
         } else if self.check(TokenKind::CharLiteral('\0')) {
             let token = self.advance();
             if let TokenKind::CharLiteral(c) = token.kind {
-                Ok(Expr::ELit(Literal::LChar(c)))
+                Ok(Expr::ELit(Literal::LChar(c), token.span))
             } else {
                 unreachable!()
             }
@@ -950,7 +947,7 @@ impl Parser {
     }
 
     fn parse_alloc(&mut self) -> ParseResult<Expr> {
-        self.expect(TokenKind::Alloc)?;
+        let start = self.expect(TokenKind::Alloc)?.span;
         let ty = self.parse_type()?;
         let count = if !self.check(TokenKind::RParen) {
             Some(Box::new(self.parse_expr()?))
@@ -958,21 +955,21 @@ impl Parser {
             None
         };
         self.expect(TokenKind::RParen)?;
-        Ok(Expr::EAlloc(ty, count))
+        Ok(Expr::EAlloc(ty, count, start))
     }
 
     fn parse_sizeof(&mut self) -> ParseResult<Expr> {
-        self.expect(TokenKind::Sizeof)?;
+        let start = self.expect(TokenKind::Sizeof)?.span;
         let ty = self.parse_type()?;
         self.expect(TokenKind::RParen)?;
-        Ok(Expr::ESizeof(ty))
+        Ok(Expr::ESizeof(ty, start))
     }
 
     fn parse_alignof(&mut self) -> ParseResult<Expr> {
-        self.expect(TokenKind::Alignof)?;
+        let start = self.expect(TokenKind::Alignof)?.span;
         let ty = self.parse_type()?;
         self.expect(TokenKind::RParen)?;
-        Ok(Expr::EAlignof(ty))
+        Ok(Expr::EAlignof(ty, start))
     }
 
     fn parse_cast(&mut self) -> ParseResult<Expr> {
@@ -1132,6 +1129,16 @@ impl Parser {
         let kind_str = format!("{}", kind);
         if self.check(kind) {
             Ok(self.advance())
+        } else if self.at_eof() {
+            // Distinguish "ran out of tokens entirely" (AX2002, e.g. an
+            // unbalanced `(`) from "found a real, but wrong, token"
+            // (AX2001). Previously every EOF-while-expecting-a-token case
+            // was folded into `UnexpectedToken { found: "EOF", .. }`,
+            // which left `ParseError::UnexpectedEof`/`AX2002` completely
+            // dead code that could never actually be emitted.
+            Err(ParseError::UnexpectedEof {
+                span: self.current_span(),
+            })
         } else {
             Err(ParseError::UnexpectedToken {
                 expected: kind_str,

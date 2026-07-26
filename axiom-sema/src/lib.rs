@@ -15,7 +15,7 @@ pub enum SemError {
     #[error("pattern not exhaustive")]
     NonExhaustive { span: Span },
     #[error("duplicate definition `{name}`")]
-    DuplicateDefinition { name: String, span: Span },
+    DuplicateDefinition { name: String, span: Span, first_span: Span },
     #[error("field `{field}` not found on type `{ty}`")]
     FieldNotFound { field: String, ty: String, span: Span },
     #[error("{message}")]
@@ -85,18 +85,22 @@ impl SemError {
                 d
             }
             SemError::TypeMismatch { expected, found, .. } => {
+                // The heading (`self.to_string()`) already states
+                // `expected X, found Y`; the primary label only needs to
+                // point at *where* - repeating expected/found a second
+                // time in a note added no new information.
                 Diagnostic::error(&code::TYPE_MISMATCH, self.to_string())
-                    .with_primary(span, format!("this has type `{}`", found))
-                    .with_note(format!("expected `{}`, found `{}`", expected, found))
+                    .with_primary(span, format!("this has type `{}`, expected `{}`", found, expected))
             }
             SemError::NonExhaustive { .. } => {
                 Diagnostic::error(&code::NON_EXHAUSTIVE, self.to_string())
                     .with_primary(span, "this `case` does not cover every possibility")
                     .with_help("add the missing arms, or a wildcard `_` arm to catch the rest")
             }
-            SemError::DuplicateDefinition { name, .. } => {
+            SemError::DuplicateDefinition { name, first_span, .. } => {
                 Diagnostic::error(&code::DUPLICATE_DEFINITION, self.to_string())
                     .with_primary(span, format!("`{}` redefined here", name))
+                    .with_secondary(*first_span, format!("`{}` first defined here", name))
                     .with_help("rename one of the definitions, or remove the duplicate")
             }
             SemError::FieldNotFound { field, ty, .. } => {
@@ -302,6 +306,7 @@ impl TypeChecker {
     }
 
     pub fn check(&mut self, module: &Module) -> Result<(), Vec<SemError>> {
+        self.check_duplicate_definitions(&module.decls);
         self.collect_declarations(module);
         self.check_decls(&module.decls);
 
@@ -309,6 +314,47 @@ impl TypeChecker {
             Ok(())
         } else {
             Err(std::mem::take(&mut self.errors))
+        }
+    }
+
+    /// Detect a name defined more than once within the same namespace at
+    /// module scope. Previously `AX3006`/`SemError::DuplicateDefinition`
+    /// was declared but never actually constructed anywhere - two
+    /// top-level `(define (f ...) ...)`s with the same name, or two
+    /// `data`/`struct`/`union`/`type` declarations with the same name,
+    /// silently compiled with the *second* one clobbering the first's
+    /// entry (see `collect_declarations`'s `DFn`/`DForeign`/`DData` arms),
+    /// with no diagnostic at all.
+    ///
+    /// Functions and types are checked as two separate namespaces (a
+    /// function and a type may share a name), and a `(:: name Type)`
+    /// signature is deliberately *not* treated as a definition here - a
+    /// signature followed by exactly one matching `define`/`fn`/`foreign`
+    /// is the normal, expected pattern, not a duplicate.
+    fn check_duplicate_definitions(&mut self, decls: &[Decl]) {
+        let mut values: std::collections::HashMap<String, Span> = std::collections::HashMap::new();
+        let mut types: std::collections::HashMap<String, Span> = std::collections::HashMap::new();
+
+        for decl in decls {
+            let (namespace, name): (&mut std::collections::HashMap<String, Span>, &Ident) = match decl {
+                Decl::DFn { name, .. } => (&mut values, name),
+                Decl::DForeign { name, .. } => (&mut values, name),
+                Decl::DData { name, .. } => (&mut types, name),
+                Decl::DStruct { name, .. } => (&mut types, name),
+                Decl::DUnion { name, .. } => (&mut types, name),
+                Decl::DType { name, .. } => (&mut types, name),
+                _ => continue,
+            };
+
+            if let Some(first_span) = namespace.get(&name.name) {
+                self.errors.push(SemError::DuplicateDefinition {
+                    name: name.name.clone(),
+                    span: name.span,
+                    first_span: *first_span,
+                });
+            } else {
+                namespace.insert(name.name.clone(), name.span);
+            }
         }
     }
 
@@ -461,7 +507,7 @@ impl TypeChecker {
     fn check_expr(&mut self, expr: &Expr) -> TypeId {
         match expr {
             Expr::EVar(ident) => self.check_var(ident),
-            Expr::ELit(lit) => self.check_literal(lit),
+            Expr::ELit(lit, _) => self.check_literal(lit),
             Expr::EApp(func, arg) => {
                 let func_ty = self.check_expr(func);
                 let _arg_ty = self.check_expr(arg);
@@ -592,14 +638,14 @@ impl TypeChecker {
                 self.check_expr(inner);
                 self.type_to_id(ty)
             }
-            Expr::EAlloc(ty, count) => {
+            Expr::EAlloc(ty, count, _) => {
                 if let Some(count_expr) = count {
                     self.check_expr(count_expr);
                 }
                 TypeId::TPtr(Box::new(self.type_to_id(ty)), true)
             }
-            Expr::ESizeof(_) => TypeId::TCon("Int".to_string(), vec![]),
-            Expr::EAlignof(_) => TypeId::TCon("Int".to_string(), vec![]),
+            Expr::ESizeof(_, _) => TypeId::TCon("Int".to_string(), vec![]),
+            Expr::EAlignof(_, _) => TypeId::TCon("Int".to_string(), vec![]),
             Expr::EGrouped(inner) => self.check_expr(inner),
             Expr::EHandle(body, _, handler) => {
                 self.check_expr(body);
@@ -611,7 +657,7 @@ impl TypeChecker {
             Expr::EConsume(e) => {
                 self.check_expr(e)
             }
-            Expr::EError(_) => TypeId::TVar(format!("_t{}", self.type_counter)),
+            Expr::EError(_, _) => TypeId::TVar(format!("_t{}", self.type_counter)),
         }
     }
 

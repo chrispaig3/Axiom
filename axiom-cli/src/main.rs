@@ -157,8 +157,18 @@ fn explain(code: Option<&str>, list: bool) {
 
 /// Render a batch of diagnostics for one file in the requested format and
 /// print to stderr, deduplicating cascades first.
+/// Render and print diagnostics that the caller has *already*
+/// cascade-deduplicated (or that are known to be a single diagnostic, e.g.
+/// a lexer/parser error). Calls the format-specific renderers directly
+/// rather than the top-level `axiom_errors::render`, which always dedups
+/// internally - callers that already deduped (to compute an accurate "N
+/// errors" count) would otherwise pay for a second, redundant pass.
 fn print_diagnostics(diags: Vec<Diagnostic>, filename: &str, source: &str, format: DiagnosticFormat) {
-    let rendered = axiom_errors::render(diags, filename, source, format);
+    let rendered = match format {
+        DiagnosticFormat::Human => axiom_errors::render_human(&diags, filename, source),
+        DiagnosticFormat::Ai => axiom_errors::render_ai(&diags, filename, source),
+        DiagnosticFormat::Json => axiom_errors::render_json(&diags, filename, source),
+    };
     eprint!("{}", rendered);
 }
 
@@ -166,7 +176,14 @@ fn print_diagnostics(diags: Vec<Diagnostic>, filename: &str, source: &str, forma
 /// diagnostics in `format`. Returns the checked AST and type checker on
 /// success. This is shared by `build` and `check` so the two commands can
 /// never drift apart in how they report errors.
-fn analyze(input: &str, source: &str, format: DiagnosticFormat) -> Result<(axiom_ast::Module, TypeChecker), String> {
+///
+/// When `announce` is set, prints a `[stage/5]` progress line immediately
+/// before each stage actually runs (not all up front) so a failure in an
+/// early stage doesn't misleadingly claim later stages happened too.
+fn analyze(input: &str, source: &str, format: DiagnosticFormat, announce: bool) -> Result<(axiom_ast::Module, TypeChecker), String> {
+    if announce {
+        println!("[1/5] Lexing...");
+    }
     let mut lexer = Lexer::new(source, 0);
     let tokens = match lexer.tokenize() {
         Ok(tokens) => tokens,
@@ -176,6 +193,9 @@ fn analyze(input: &str, source: &str, format: DiagnosticFormat) -> Result<(axiom
         }
     };
 
+    if announce {
+        println!("[2/5] Parsing...");
+    }
     let mut parser = Parser::new(tokens);
     let ast = match parser.parse_module() {
         Ok(ast) => ast,
@@ -185,6 +205,9 @@ fn analyze(input: &str, source: &str, format: DiagnosticFormat) -> Result<(axiom
         }
     };
 
+    if announce {
+        println!("[3/5] Type checking...");
+    }
     let mut type_checker = TypeChecker::new();
     match type_checker.check(&ast) {
         Ok(()) => Ok((ast, type_checker)),
@@ -193,6 +216,9 @@ fn analyze(input: &str, source: &str, format: DiagnosticFormat) -> Result<(axiom
             // Cascade-dedup once up front so the count in the summary line
             // matches exactly what gets printed, instead of the old
             // behavior of reporting a raw (and often inflated) error count.
+            // `print_diagnostics` is handed the already-deduped list
+            // directly (bypassing `axiom_errors::render`'s own internal
+            // dedup) so we don't do the (harmless but wasteful) work twice.
             let diags = axiom_errors::dedup(diags);
             let shown = diags.len();
             print_diagnostics(diags, input, source, format);
@@ -209,10 +235,7 @@ fn build(input: &str, output: &str, emit_llvm: bool, _opt: u8, format: Diagnosti
     let source = fs::read_to_string(input)
         .map_err(|e| format!("Failed to read file '{}': {}", input, e))?;
 
-    println!("[1/5] Lexing...");
-    println!("[2/5] Parsing...");
-    println!("[3/5] Type checking...");
-    let (ast, type_checker) = analyze(input, &source, format)?;
+    let (ast, type_checker) = analyze(input, &source, format, true)?;
 
     println!("[4/5] Generating IR...");
     let mut ir_gen = IrGen::new();
@@ -294,7 +317,7 @@ fn check(input: &str, format: DiagnosticFormat) -> Result<(), String> {
     let source = fs::read_to_string(input)
         .map_err(|e| format!("Failed to read file '{}': {}", input, e))?;
 
-    analyze(input, &source, format)?;
+    analyze(input, &source, format, false)?;
     Ok(())
 }
 

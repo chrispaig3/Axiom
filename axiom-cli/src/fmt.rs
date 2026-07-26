@@ -450,7 +450,7 @@ fn format_literal(lit: &Literal, out: &mut String) {
 
 fn is_simple_expr(expr: &Expr) -> bool {
     match expr {
-        Expr::EVar(_) | Expr::ELit(_) => true,
+        Expr::EVar(_) | Expr::ELit(_, _) => true,
         Expr::EApp(f, a) => is_simple_expr(f) && is_simple_expr(a),
         Expr::EInfix(l, _, r) => is_simple_expr(l) && is_simple_expr(r),
         Expr::ETuple(items) => items.iter().all(is_simple_expr),
@@ -462,7 +462,7 @@ fn is_simple_expr(expr: &Expr) -> bool {
 fn format_expr(expr: &Expr, out: &mut String, state: &mut FormatState) {
     match expr {
         Expr::EVar(ident) => out.push_str(&ident.name),
-        Expr::ELit(lit) => format_literal(lit, out),
+        Expr::ELit(lit, _) => format_literal(lit, out),
         Expr::EApp(_, _) => {
             format_app(expr, out, state);
         }
@@ -691,7 +691,7 @@ fn format_expr(expr: &Expr, out: &mut String, state: &mut FormatState) {
             format_expr(inner, out, state);
             out.push(')');
         }
-        Expr::EAlloc(ty, count) => {
+        Expr::EAlloc(ty, count, _) => {
             out.push_str("(alloc ");
             out.push_str(&format_type(ty));
             if let Some(c) = count {
@@ -700,10 +700,10 @@ fn format_expr(expr: &Expr, out: &mut String, state: &mut FormatState) {
             }
             out.push(')');
         }
-        Expr::ESizeof(ty) => {
+        Expr::ESizeof(ty, _) => {
             write!(out, "(sizeof {})", format_type(ty)).unwrap();
         }
-        Expr::EAlignof(ty) => {
+        Expr::EAlignof(ty, _) => {
             write!(out, "(alignof {})", format_type(ty)).unwrap();
         }
         Expr::EGrouped(inner) => {
@@ -736,7 +736,7 @@ fn format_expr(expr: &Expr, out: &mut String, state: &mut FormatState) {
             format_expr(inner, out, state);
             out.push(')');
         }
-        Expr::EError(msg) => {
+        Expr::EError(msg, _) => {
             write!(out, "_{}", msg).unwrap();
         }
     }

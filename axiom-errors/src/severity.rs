@@ -3,7 +3,7 @@
 /// Mirrors the tiers used by rustc/clang so that Axiom's diagnostics feel
 /// familiar: a compilation only fails because of `Error`s, everything else
 /// is advisory.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Severity {
     Help,
     Note,
