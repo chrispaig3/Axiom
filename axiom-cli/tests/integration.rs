@@ -532,3 +532,31 @@ fn axdl_undefined_variable_includes_machine_applicable_fix() {
     assert!(line.contains("~>"), "machine fix missing: {}", line);
     assert!(line.contains("helper"), "suggestion missing: {}", line);
 }
+
+/// Option type: exhaustive match over Some/None works correctly.
+#[test]
+fn run_option_pattern_matching_works() {
+    let dir = scratch_dir("run-option");
+    write_source(
+        &dir,
+        "main.ax",
+        "(:: main Int)\n(fn main (match (Some 42) ((Some x) x) ((None) 0)))\n",
+    );
+    let out = run_axiom(&["run", "main.ax"], &dir);
+    assert_eq!(out.status.code(), Some(42), "stderr: {}", stderr(&out));
+}
+
+/// Option type: non-exhaustive match is rejected with a helpful diagnostic.
+#[test]
+fn non_exhaustive_option_match_is_rejected() {
+    let dir = scratch_dir("check-option-nonexhaustive");
+    write_source(
+        &dir,
+        "main.ax",
+        "(:: main Int)\n(fn main (match (Some 1) ((Some x) x)))\n",
+    );
+    let out = run_axiom(&["--diagnostic-format=ai", "check", "main.ax"], &dir);
+    assert!(!out.status.success());
+    let err = stderr(&out);
+    assert!(err.contains("AX3005"), "missing non-exhaustive code: {}", err);
+}

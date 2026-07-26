@@ -297,6 +297,14 @@ Patterns can match constructors, literals, tuples, lists, and wildcards:
   (_ "anything else"))
 ```
 
+The built-in `Option` type provides safe null handling without exceptions:
+
+```scheme
+(match (Some 42)
+  ((Some v) v)
+  ((None) 0))
+```
+
 #### Algebraic data types: how they actually run
 
 Every value of a `data` type - nullary constructors like `Nothing` included -
@@ -451,6 +459,26 @@ See the [Foreign Function Interface](#foreign-function-interface) section for de
 (data Maybe (a) (Nothing) (Just a))
 (data Ordering (LT) (EQ) (GT))
 (data List (a) (Nil) (Cons a (List a)))
+```
+
+### Built-in types
+
+`Option` is a built-in generic type with `Some` and `None` constructors,
+always available without a `data` declaration. It works with `match`
+for safe null handling:
+
+```scheme
+(:: safe_div (-> Int Int Int))
+(fn (safe_div a b)
+  (match b
+    ((0) (None))
+    (_ (Some (/ a b)))))
+
+(:: main Int)
+(fn main
+  (match (safe_div 10 2)
+    ((Some x) x)
+    ((None) 0)))
 ```
 
 ### Built-in operators (always available)
@@ -745,7 +773,7 @@ Source (.ax)
 | FFI | **Complete** | Call any C function with `foreign` declarations |
 | ADTs / data types | **Complete** | Constructors (nullary and with fields, including recursive types like `List`/`Tree`) compile to heap-boxed tagged values; see [Algebraic data types](#algebraic-data-types-how-they-actually-run) |
 | Structs / unions | **Complete** | Declarations, LLVM emission, field access (`.field`), struct construction (`(StructName expr1 expr2 ...)`), `mut` fields, and field mutation (`(set-field expr field value)`) all work |
-| Pattern matching (`match`) | **Complete** | Constructor patterns (nullary and with-field), variables, wildcards, literals, nested constructor patterns, and tuple/list patterns all compare and bind correctly, plus non-exhaustiveness/arity/undefined-constructor diagnostics |
+| Pattern matching (`match`) | **Complete** | Constructor patterns (nullary and with-field), variables, wildcards, literals, nested constructor patterns, and tuple/list patterns all compare and bind correctly, plus non-exhaustiveness/arity/undefined-constructor diagnostics. Built-in `Option` type with `Some`/`None` constructors. |
 | Lambda | **Partial** | Parsed and type-checked; codegen pending |
 | Lists | **Partial** | Syntax and type checking; runtime representation pending |
 | Tuples | **Partial** | Syntax and type checking; codegen pending |

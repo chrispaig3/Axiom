@@ -589,6 +589,32 @@ impl TypeChecker {
             ));
         }
 
+        tc.data_types.push(DataTypeInfo {
+            name: "Option".to_string(),
+            tyvars: vec!["a".to_string()],
+            constructors: vec![
+                DataConInfo {
+                    name: "Some".to_string(),
+                    ty: TypeId::TArr(
+                        Box::new(TypeId::TVar("a".to_string())),
+                        Box::new(TypeId::TCon(
+                            "Option".to_string(),
+                            vec![TypeId::TVar("a".to_string())],
+                        )),
+                    ),
+                    data_type: "Option".to_string(),
+                },
+                DataConInfo {
+                    name: "None".to_string(),
+                    ty: TypeId::TCon(
+                        "Option".to_string(),
+                        vec![TypeId::TVar("a".to_string())],
+                    ),
+                    data_type: "Option".to_string(),
+                },
+            ],
+        });
+
         tc
     }
 
@@ -2046,5 +2072,41 @@ mod tests {
 (fn main (+ 1 2))"#
         )
         .is_ok());
+    }
+
+    #[test]
+    fn exhaustive_match_over_option_type_checks_ok() {
+        assert!(check(
+            r#"(:: main Int)
+(fn main (match (Some 1) ((Some x) x) ((None) 0)))"#
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn non_exhaustive_match_over_option_type_is_an_error() {
+        let errors = check_err(
+            r#"(:: main Int)
+(fn main (match (Some 1) ((Some x) x)))"#,
+        );
+        assert!(errors.iter().any(|e| matches!(e, SemError::NonExhaustive { missing, .. } if missing == &["None".to_string()])));
+    }
+
+    #[test]
+    fn wildcard_arm_makes_option_match_exhaustive() {
+        assert!(check(
+            r#"(:: main Int)
+(fn main (match (Some 1) ((Some x) x) (_ 0)))"#
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn some_constructor_with_wrong_arity_is_an_error() {
+        let errors = check_err(
+            r#"(:: main Int)
+(fn main (match (Some 1) ((Some x y) x) ((None) 0)))"#,
+        );
+        assert!(errors.iter().any(|e| matches!(e, SemError::ConstructorArity { name, expected: 1, found: 2, .. } if name == "Some")));
     }
 }
