@@ -224,10 +224,13 @@ already knew" waste AXDL was built to avoid, just for the success case
 instead of the failure case.
 
 `axiom symbols <file>` runs the same lexer -> parser -> type-checker
-pipeline as `check`, then prints one fact per top-level name the checker
-collected: every `define`/`fn`, every `foreign` binding, every `data`
-type and its constructors, every `struct`/`union`, and every `class`.
-Like diagnostics, it honors `--diagnostic-format`:
+pipeline as `check` (including resolving `(import ...)`s, see
+`docs/diagnostics.md`'s multi-file notes below), then prints one fact per
+top-level name the checker collected: every `define`/`fn`, every
+`foreign` binding, every `data` type and its constructors, every
+`struct`/`union` (with its exact field shapes and layout attributes),
+every `type` alias, and every `class`. Like diagnostics, it honors
+`--diagnostic-format`:
 
 ```bash
 # Dense AXSYM notation, one line per symbol
@@ -238,6 +241,10 @@ Like diagnostics, it honors `--diagnostic-format`:
 
 # Aligned table for humans (the default)
 ./target/release/axiom symbols main.ax
+
+# Also list Axiom's dozen always-in-scope built-in operators (+, ==, &&, ...),
+# which are omitted by default (see the `-`/builtins row below)
+./target/release/axiom --diagnostic-format=ai symbols main.ax --builtins
 ```
 
 ### Grammar
@@ -250,10 +257,22 @@ Like diagnostics, it honors `--diagnostic-format`:
 |---|---|
 | `KIND` | One letter: `F` function, `X` foreign binding, `D` data type, `C` constructor, `S` struct, `U` union, `A` type alias, `L` class |
 | `NAME` | The declared name, exactly as written |
-| `FILE:LOC` | Same `file:line:col[-col\|:line:col]` addressing as AXDL, via the same [`SourceMap`](../axiom-errors/src/source_map.rs) |
-| `-` | In place of `FILE:LOC`, for names with no source span at all (Axiom's dozen built-in operators: `+`, `==`, `&&`, ...) - kept distinct from a real location rather than fabricating `0:0`, so a consumer can tell "always in scope" apart from "declared here" |
+| `FILE:LOC` | Same `file:line:col[-col\|:line:col]` addressing as AXDL, via the same [`SourceMap`](../axiom-errors/src/source_map.rs) - for a program with `(import ...)`s, `FILE` is the *actual* file that declared this symbol (an imported module's own file), not always the entry file, exactly like AXDL's own multi-file attribution |
+| `-` | In place of `FILE:LOC`, for names with no source span at all - in practice, only Axiom's dozen built-in operators (`+`, `==`, `&&`, ...), which `axiom symbols` omits entirely unless `--builtins` is passed (they never change, so printing them on every call is exactly the restating-what's-already-known token waste this notation exists to avoid) |
 | `"TYPE"` | Axiom's own curried type syntax, quoted (it can itself contain `->`/parens, so quoting keeps the line's field boundaries unambiguous the same way AXDL quotes messages) |
-| `#key=value` | Kind-specific metadata: a data type's constructor list (`#ctors=Nothing,Just`), a constructor's owning type (`#of=Maybe`), a struct's field count (`#fields=2`), a class's method count (`#methods=3`) |
+| `#key=value` | Kind-specific metadata (see below) |
+
+Metadata keys actually emitted today:
+
+| Key | Kinds | Meaning |
+|---|---|---|
+| `ctors` | `D` | Comma-separated constructor names, e.g. `#ctors=Nothing,Just` |
+| `of` | `C` | The constructor's owning data type, e.g. `#of=Maybe` |
+| `fields` | `S`, `U` | `name:Type,name:Type,...` - the actual field shapes, not just a count, e.g. `#fields=x:Int,y:Int` |
+| `packed` / `repr=C` / `align=N` | `S` | The struct's layout attribute, when it has a non-default one |
+| `methods` | `L` | `name:Type,name:Type,...` for the class's methods, same shape as `fields` |
+| `symbol` | `X` | The real linked C symbol name from `(foreign name :: Type = "c_symbol")`, e.g. `#symbol=printf` - not always the same as `NAME` |
+| `tyvars` | `A` | Comma-separated type parameters, e.g. `#tyvars=a,b`, omitted when there are none |
 
 `KIND` letters are deliberately disjoint from [`Severity::sigil`](../axiom-errors/src/severity.rs)'s `E`/`W`/`N`/`H`, so the first character of a line is never ambiguous about which notation (or which command) produced it even if AXDL and AXSYM output were ever concatenated into one stream.
 
@@ -268,19 +287,24 @@ Source:
   (Nothing)
   (Just a))
 
+(struct Point
+  (x : Int)
+  (y : Int))
+
 (:: add (-> Int Int Int))
 (fn (add x y)
   (+ x y))
 ```
 
-AXSYM output (`--diagnostic-format=ai symbols`):
+AXSYM output (`--diagnostic-format=ai symbols`, builtins omitted by default):
 
 ```
-X printf main.ax:1:10-16 "(String -> Int)"
+X printf main.ax:1:10-16 "(String -> Int)" #symbol=printf
+F add main.ax:11:5-8 "(Int -> (Int -> Int))"
 D Maybe main.ax:3:7-12 "data Maybe" #ctors=Nothing,Just
-C Nothing - "Maybe" #of=Maybe
-C Just - "(a -> Maybe a)" #of=Maybe
-F add main.ax:7:5-8 "(Int -> (Int -> Int))"
+C Nothing main.ax:4:4-11 "Maybe" #of=Maybe
+C Just main.ax:5:4-8 "(a -> Maybe a)" #of=Maybe
+S Point main.ax:7:9-14 "struct Point" #fields=x:Int,y:Int
 ```
 
 An agent asked to "add a function that formats a `Maybe Int`" can now

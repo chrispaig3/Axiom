@@ -581,9 +581,15 @@ How it works:
 # Render diagnostics in Axiom's AI-optimized notation (see docs/diagnostics.md)
 ./target/release/axiom --diagnostic-format=ai check source.ax
 
-# List every top-level symbol (functions, types, constructors, ...) and
-# its type in Axiom's AI-optimized "AXSYM" notation (see docs/diagnostics.md)
+# List every top-level symbol (functions, types, constructors, structs,
+# unions, aliases, classes, ...) and its type/shape in Axiom's AI-optimized
+# "AXSYM" notation (see docs/diagnostics.md); resolves (import ...) too, and
+# attributes each symbol to the file that actually declared it
 ./target/release/axiom --diagnostic-format=ai symbols source.ax
+
+# Same, but also include the dozen always-in-scope built-in operators
+# (omitted by default to keep output minimal)
+./target/release/axiom --diagnostic-format=ai symbols source.ax --builtins
 ```
 
 See [`docs/diagnostics.md`](docs/diagnostics.md) for the full agent-facing

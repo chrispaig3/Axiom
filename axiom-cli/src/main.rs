@@ -5,7 +5,7 @@ use std::process::Command;
 
 use axiom_lexer::Lexer;
 use axiom_parser::{Parser, DeclOrExpr};
-use axiom_sema::TypeChecker;
+use axiom_sema::{TypeChecker, TypeId};
 use axiom_ir::generator::IrGen;
 use axiom_codegen::LlvmCodeGen;
 use axiom_errors::{Diagnostic, DiagnosticFormat, SymbolFact, SymbolKind};
@@ -81,6 +81,15 @@ enum Commands {
     /// line, and `human` (the default) prints an aligned table.
     Symbols {
         input: String,
+        /// Also list the dozen always-in-scope built-in operators (`+`,
+        /// `==`, `&&`, ...). Omitted by default: they never change, an
+        /// agent almost always already knows Axiom's fixed operator set
+        /// from the language docs, and printing all of them on *every*
+        /// `axiom symbols` call is exactly the kind of restating-what's-
+        /// already-known token waste AXSYM exists to avoid (see
+        /// `docs/diagnostics.md`).
+        #[arg(long)]
+        builtins: bool,
     },
     /// Print a full explanation for a diagnostic code, e.g. `axiom explain AX3001`
     Explain {
@@ -123,8 +132,8 @@ fn main() {
                 println!("OK");
             }
         }
-        Commands::Symbols { input } => {
-            if let Err(e) = symbols(&input, format) {
+        Commands::Symbols { input, builtins } => {
+            if let Err(e) = symbols(&input, format, builtins) {
                 eprintln!("{}", e);
                 std::process::exit(1);
             }
@@ -632,13 +641,42 @@ fn check(input: &str, format: DiagnosticFormat) -> Result<(), String> {
 /// top-level declaration (Axiom's dozen built-in operators) simply gets
 /// `span: None` - the AXSYM renderer prints `-` for those rather than a
 /// fabricated location.
-fn collect_symbol_facts(module: &axiom_ast::Module, tc: &TypeChecker) -> Vec<SymbolFact> {
+/// A struct/union's `repr`/`packed`/`align` attribute, formatted as one
+/// `#`-meta value (`packed`, `repr=C`, or `align=16`) - `None` for the
+/// default (no attribute) layout. Layout attributes affect a type's ABI,
+/// so surfacing them is the difference between an agent knowing a type's
+/// exact wire/FFI shape from one AXSYM line versus having to re-read the
+/// declaration to find out it even has a non-default layout at all.
+fn repr_meta(repr: &Option<axiom_ast::ast::TypeRepr>) -> Option<String> {
+    use axiom_ast::ast::TypeRepr;
+    match repr {
+        None => None,
+        Some(TypeRepr::Packed) => Some("packed".to_string()),
+        Some(TypeRepr::C) => Some("repr=C".to_string()),
+        Some(TypeRepr::Align(n)) => Some(format!("align={}", n)),
+    }
+}
+
+/// Format a struct/union's fields (or a class's methods) as
+/// `name:Type,name:Type,...` for a `#fields=`/`#methods=` meta value - the
+/// actual shapes, not just a count, so an agent can see a type's exact
+/// layout (or a class's exact method set) from the AXSYM line alone.
+fn fields_meta(fields: &[(String, TypeId)]) -> String {
+    fields.iter()
+        .map(|(name, ty)| format!("{}:{}", name, ty))
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+fn collect_symbol_facts(module: &axiom_ast::Module, tc: &TypeChecker, include_builtins: bool) -> Vec<SymbolFact> {
     use axiom_ast::ast::Decl;
     use std::collections::HashMap;
 
     let mut fn_spans: HashMap<&str, axiom_ast::span::Span> = HashMap::new();
     let mut type_spans: HashMap<&str, axiom_ast::span::Span> = HashMap::new();
     let mut class_spans: HashMap<&str, axiom_ast::span::Span> = HashMap::new();
+    let mut ctor_spans: HashMap<&str, axiom_ast::span::Span> = HashMap::new();
+    let mut struct_reprs: HashMap<&str, &Option<axiom_ast::ast::TypeRepr>> = HashMap::new();
 
     for decl in &module.decls {
         match decl {
@@ -650,8 +688,22 @@ fn collect_symbol_facts(module: &axiom_ast::Module, tc: &TypeChecker) -> Vec<Sym
             Decl::DSig { name, .. } => { fn_spans.insert(&name.name, name.span); }
             Decl::DFn { name, .. } => { fn_spans.entry(&name.name).or_insert(name.span); }
             Decl::DForeign { name, .. } => { fn_spans.entry(&name.name).or_insert(name.span); }
-            Decl::DData { name, .. } => { type_spans.insert(&name.name, name.span); }
-            Decl::DStruct { name, .. } => { type_spans.insert(&name.name, name.span); }
+            Decl::DData { name, constructors, .. } => {
+                type_spans.insert(&name.name, name.span);
+                // `DataConInfo` (the `TypeChecker`-side record) has no
+                // span of its own - only the AST's own `DataCon` does -
+                // so constructor locations have to come from here, not
+                // from `tc.data_types`, or every constructor would
+                // render with no location at all (indistinguishable from
+                // an actual builtin in the AXSYM/human output).
+                for con in constructors {
+                    ctor_spans.insert(&con.name.name, con.name.span);
+                }
+            }
+            Decl::DStruct { name, repr, .. } => {
+                type_spans.insert(&name.name, name.span);
+                struct_reprs.insert(&name.name, repr);
+            }
             Decl::DUnion { name, .. } => { type_spans.insert(&name.name, name.span); }
             Decl::DType { name, .. } => { type_spans.insert(&name.name, name.span); }
             Decl::DClass { name, .. } => { class_spans.insert(&name.name, name.span); }
@@ -662,13 +714,19 @@ fn collect_symbol_facts(module: &axiom_ast::Module, tc: &TypeChecker) -> Vec<Sym
     let mut facts = Vec::new();
 
     for f in &tc.functions {
-        let kind = match module.decls.iter().any(
-            |d| matches!(d, Decl::DForeign { name, .. } if name.name == f.name),
-        ) {
-            true => SymbolKind::Foreign,
-            false => SymbolKind::Fn,
-        };
-        facts.push(SymbolFact::new(kind, &f.name, fn_spans.get(f.name.as_str()).copied(), f.ty.to_string()));
+        if f.is_builtin && !include_builtins {
+            continue;
+        }
+        let kind = if f.foreign_symbol.is_some() { SymbolKind::Foreign } else { SymbolKind::Fn };
+        let mut fact = SymbolFact::new(kind, &f.name, fn_spans.get(f.name.as_str()).copied(), f.ty.to_string());
+        if let Some(symbol) = &f.foreign_symbol {
+            // The real linked C symbol - e.g. `(foreign printf :: ... =
+            // "printf")` surfaces `#symbol=printf` explicitly rather than
+            // making an agent assume the Axiom-side name and the linked
+            // symbol always match (they don't have to).
+            fact = fact.with_meta(format!("symbol={}", symbol));
+        }
+        facts.push(fact);
     }
 
     for d in &tc.data_types {
@@ -685,22 +743,49 @@ fn collect_symbol_facts(module: &axiom_ast::Module, tc: &TypeChecker) -> Vec<Sym
         facts.push(fact);
         for c in &d.constructors {
             facts.push(
-                SymbolFact::new(SymbolKind::Ctor, &c.name, None, c.ty.to_string())
+                SymbolFact::new(SymbolKind::Ctor, &c.name, ctor_spans.get(c.name.as_str()).copied(), c.ty.to_string())
                     .with_meta(format!("of={}", c.data_type)),
             );
         }
     }
 
     for s in &tc.structs {
+        let mut fact = SymbolFact::new(
+            SymbolKind::Struct,
+            &s.name,
+            type_spans.get(s.name.as_str()).copied(),
+            format!("struct {}", s.name),
+        )
+        .with_meta(format!("fields={}", fields_meta(&s.fields)));
+        if let Some(repr) = repr_meta(struct_reprs.get(s.name.as_str()).copied().unwrap_or(&None)) {
+            fact = fact.with_meta(repr);
+        }
+        facts.push(fact);
+    }
+
+    for u in &tc.unions {
         facts.push(
             SymbolFact::new(
-                SymbolKind::Struct,
-                &s.name,
-                type_spans.get(s.name.as_str()).copied(),
-                format!("struct {}", s.name),
+                SymbolKind::Union,
+                &u.name,
+                type_spans.get(u.name.as_str()).copied(),
+                format!("union {}", u.name),
             )
-            .with_meta(format!("fields={}", s.fields.len())),
+            .with_meta(format!("fields={}", fields_meta(&u.fields))),
         );
+    }
+
+    for a in &tc.aliases {
+        let mut fact = SymbolFact::new(
+            SymbolKind::Alias,
+            &a.name,
+            type_spans.get(a.name.as_str()).copied(),
+            format!("{}", a.target),
+        );
+        if !a.tyvars.is_empty() {
+            fact = fact.with_meta(format!("tyvars={}", a.tyvars.join(",")));
+        }
+        facts.push(fact);
     }
 
     for c in &tc.classes {
@@ -711,7 +796,7 @@ fn collect_symbol_facts(module: &axiom_ast::Module, tc: &TypeChecker) -> Vec<Sym
                 class_spans.get(c.name.as_str()).copied(),
                 format!("class {}", c.name),
             )
-            .with_meta(format!("methods={}", c.methods.len())),
+            .with_meta(format!("methods={}", fields_meta(&c.methods))),
         );
     }
 
@@ -790,12 +875,12 @@ fn render_symbols_multi(facts: &[SymbolFact], registry: &FileRegistry, format: D
     out
 }
 
-fn symbols(input: &str, format: DiagnosticFormat) -> Result<(), String> {
+fn symbols(input: &str, format: DiagnosticFormat, include_builtins: bool) -> Result<(), String> {
     let source = fs::read_to_string(input)
         .map_err(|e| format!("Failed to read file '{}': {}", input, e))?;
 
     let (ast, type_checker, registry) = analyze(input, &source, format, false)?;
-    let facts = collect_symbol_facts(&ast, &type_checker);
+    let facts = collect_symbol_facts(&ast, &type_checker, include_builtins);
 
     print!("{}", render_symbols_multi(&facts, &registry, format));
     Ok(())

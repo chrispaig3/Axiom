@@ -256,10 +256,57 @@ pub struct StructInfo {
     pub fields: Vec<(String, TypeId)>,
 }
 
+/// A `union` declaration. Structurally identical to [`StructInfo`] today
+/// (a union is just a struct whose fields overlap at codegen time rather
+/// than being laid out sequentially) - kept as its own type rather than
+/// reusing `StructInfo` so `TypeChecker.unions` can't accidentally be
+/// confused with `TypeChecker.structs` by callers that care about the
+/// distinction (e.g. `axiom symbols`'s `SymbolKind::Union` vs
+/// `SymbolKind::Struct`), even though nothing here currently checks that
+/// distinction any more deeply than that.
+#[derive(Debug, Clone)]
+pub struct UnionInfo {
+    pub name: String,
+    pub fields: Vec<(String, TypeId)>,
+}
+
+/// A `type` alias declaration: `name`'s type parameters and the type it
+/// stands for.
+#[derive(Debug, Clone)]
+pub struct TypeAliasInfo {
+    pub name: String,
+    pub tyvars: Vec<String>,
+    pub target: TypeId,
+}
+
 #[derive(Debug, Clone)]
 pub struct FnInfo {
     pub name: String,
     pub ty: TypeId,
+    /// The C symbol name from a `(foreign name :: Type = "c_symbol")`
+    /// declaration, if this binding came from one - `None` for an
+    /// ordinary `define`/`fn`/`::` signature. Surfaced by `axiom symbols`
+    /// so an agent can see the real linked symbol without re-reading the
+    /// source (see `axiom-cli`'s `collect_symbol_facts`).
+    pub foreign_symbol: Option<String>,
+    /// `true` for one of the dozen always-in-scope built-in operators
+    /// (`+`, `==`, `&&`, ...) registered in [`TypeChecker::new`], `false`
+    /// for anything that came from an actual declaration in source. Lets
+    /// a consumer (e.g. `axiom symbols`) distinguish "defined in this
+    /// program" from "always in scope" without hardcoding the operator
+    /// name list itself - the one place that list already exists is
+    /// `TypeChecker::new`.
+    pub is_builtin: bool,
+}
+
+impl FnInfo {
+    fn new(name: impl Into<String>, ty: TypeId) -> Self {
+        Self { name: name.into(), ty, foreign_symbol: None, is_builtin: false }
+    }
+
+    fn builtin(name: impl Into<String>, ty: TypeId) -> Self {
+        Self { name: name.into(), ty, foreign_symbol: None, is_builtin: true }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -272,6 +319,8 @@ pub struct TypeChecker {
     pub scope: Vec<(String, VarInfo)>,
     pub data_types: Vec<DataTypeInfo>,
     pub structs: Vec<StructInfo>,
+    pub unions: Vec<UnionInfo>,
+    pub aliases: Vec<TypeAliasInfo>,
     pub functions: Vec<FnInfo>,
     pub classes: Vec<ClassInfo>,
     pub errors: Vec<SemError>,
@@ -284,6 +333,8 @@ impl TypeChecker {
             scope: Vec::new(),
             data_types: Vec::new(),
             structs: Vec::new(),
+            unions: Vec::new(),
+            aliases: Vec::new(),
             functions: Vec::new(),
             classes: Vec::new(),
             errors: Vec::new(),
@@ -296,24 +347,21 @@ impl TypeChecker {
         let int_int_int = TypeId::TArr(Box::new(int_ty.clone()), Box::new(int_int.clone()));
 
         for op in &["+", "-", "*", "/", "%"] {
-            tc.functions.push(FnInfo {
-                name: op.to_string(),
-                ty: int_int_int.clone(),
-            });
+            tc.functions.push(FnInfo::builtin(*op, int_int_int.clone()));
         }
 
         for op in &["==", "!=", "<", ">", "<=", ">="] {
-            tc.functions.push(FnInfo {
-                name: op.to_string(),
-                ty: TypeId::TArr(Box::new(int_ty.clone()), Box::new(TypeId::TArr(Box::new(int_ty.clone()), Box::new(bool_ty.clone())))),
-            });
+            tc.functions.push(FnInfo::builtin(
+                *op,
+                TypeId::TArr(Box::new(int_ty.clone()), Box::new(TypeId::TArr(Box::new(int_ty.clone()), Box::new(bool_ty.clone())))),
+            ));
         }
 
         for op in &["&&", "||"] {
-            tc.functions.push(FnInfo {
-                name: op.to_string(),
-                ty: TypeId::TArr(Box::new(bool_ty.clone()), Box::new(TypeId::TArr(Box::new(bool_ty.clone()), Box::new(bool_ty.clone())))),
-            });
+            tc.functions.push(FnInfo::builtin(
+                *op,
+                TypeId::TArr(Box::new(bool_ty.clone()), Box::new(TypeId::TArr(Box::new(bool_ty.clone()), Box::new(bool_ty.clone())))),
+            ));
         }
 
         tc
@@ -413,10 +461,7 @@ impl TypeChecker {
                     });
                 }
                 Decl::DSig { name, ty } => {
-                    self.functions.push(FnInfo {
-                        name: name.name.clone(),
-                        ty: self.type_to_id(ty),
-                    });
+                    self.functions.push(FnInfo::new(name.name.clone(), self.type_to_id(ty)));
                 }
                 Decl::DClass { name, methods, .. } => {
                     let method_tys: Vec<(String, TypeId)> = methods.iter()
@@ -429,17 +474,29 @@ impl TypeChecker {
                 }
                 Decl::DFn { name, .. } => {
                     if !self.functions.iter().any(|f| f.name == name.name) {
-                        self.functions.push(FnInfo {
-                            name: name.name.clone(),
-                            ty: TypeId::TVar(format!("_fn_{}", self.type_counter)),
-                        });
+                        self.functions.push(FnInfo::new(name.name.clone(), TypeId::TVar(format!("_fn_{}", self.type_counter))));
                         self.type_counter += 1;
                     }
                 }
-                Decl::DForeign { name, ty, .. } => {
-                    self.functions.push(FnInfo {
+                Decl::DForeign { name, ty, source } => {
+                    let mut info = FnInfo::new(name.name.clone(), self.type_to_id(ty));
+                    info.foreign_symbol = Some(source.clone());
+                    self.functions.push(info);
+                }
+                Decl::DUnion { name, fields, .. } => {
+                    let union_fields: Vec<(String, TypeId)> = fields.iter()
+                        .map(|f| (f.name.name.clone(), self.type_to_id(&f.ty)))
+                        .collect();
+                    self.unions.push(UnionInfo {
                         name: name.name.clone(),
-                        ty: self.type_to_id(ty),
+                        fields: union_fields,
+                    });
+                }
+                Decl::DType { name, tyvars, alias } => {
+                    self.aliases.push(TypeAliasInfo {
+                        name: name.name.clone(),
+                        tyvars: tyvars.clone(),
+                        target: self.type_to_id(alias),
                     });
                 }
                 _ => {}
@@ -1009,10 +1066,7 @@ impl TypeChecker {
             }
             Decl::DSig { name, ty } => {
                 let ty_id = self.type_to_id(ty);
-                self.functions.push(FnInfo {
-                    name: name.name.clone(),
-                    ty: ty_id.clone(),
-                });
+                self.functions.push(FnInfo::new(name.name.clone(), ty_id.clone()));
                 self.scope.push((
                     name.name.clone(),
                     VarInfo { ty: ty_id, span: name.span },
@@ -1020,10 +1074,7 @@ impl TypeChecker {
             }
             Decl::DFn { name, params, body } => {
                 if !self.functions.iter().any(|f| f.name == name.name) {
-                    self.functions.push(FnInfo {
-                        name: name.name.clone(),
-                        ty: TypeId::TVar(format!("_fn_{}", self.type_counter)),
-                    });
+                    self.functions.push(FnInfo::new(name.name.clone(), TypeId::TVar(format!("_fn_{}", self.type_counter))));
                     self.type_counter += 1;
                 }
                 self.push_scope();
@@ -1040,6 +1091,27 @@ impl TypeChecker {
                 self.structs.push(StructInfo {
                     name: name.name.clone(),
                     fields: struct_fields,
+                });
+            }
+            Decl::DForeign { name, ty, source } => {
+                let mut info = FnInfo::new(name.name.clone(), self.type_to_id(ty));
+                info.foreign_symbol = Some(source.clone());
+                self.functions.push(info);
+            }
+            Decl::DUnion { name, fields, .. } => {
+                let union_fields: Vec<(String, TypeId)> = fields.iter()
+                    .map(|f| (f.name.name.clone(), self.type_to_id(&f.ty)))
+                    .collect();
+                self.unions.push(UnionInfo {
+                    name: name.name.clone(),
+                    fields: union_fields,
+                });
+            }
+            Decl::DType { name, tyvars, alias } => {
+                self.aliases.push(TypeAliasInfo {
+                    name: name.name.clone(),
+                    tyvars: tyvars.clone(),
+                    target: self.type_to_id(alias),
                 });
             }
             _ => {}
