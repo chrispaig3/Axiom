@@ -70,7 +70,7 @@ enum Commands {
     },
     /// Print every top-level symbol Axiom's type checker collected for a
     /// file (functions, foreign bindings, data types, constructors,
-    /// structs, unions, and type classes) along with its inferred/declared
+    /// structs, unions, and traits) along with its inferred/declared
     /// type. Honors `--diagnostic-format`: `ai` emits one AXSYM line per
     /// symbol (see `docs/diagnostics.md`), `json` emits one JSON object per
     /// line, and `human` (the default) prints an aligned table.
@@ -291,7 +291,7 @@ fn print_diagnostics_multi(
 
 /// The declared name of a top-level `Decl`, for import name-filtering
 /// (`(import Mod (a b))`) and duplicate-definition namespacing - `None`
-/// for decls with no single name of their own (`DImport`, `DInstance`).
+/// for decls with no single name of their own (`DImport`, `DImpl`).
 fn decl_name(decl: &axiom_ast::ast::Decl) -> Option<&str> {
     use axiom_ast::ast::Decl;
     match decl {
@@ -299,12 +299,12 @@ fn decl_name(decl: &axiom_ast::ast::Decl) -> Option<&str> {
         | Decl::DStruct { name, .. }
         | Decl::DUnion { name, .. }
         | Decl::DType { name, .. }
-        | Decl::DClass { name, .. }
+        | Decl::DTrait { name, .. }
         | Decl::DSig { name, .. }
         | Decl::DFn { name, .. }
         | Decl::DForeign { name, .. }
         | Decl::DEffect { name, .. } => Some(&name.name),
-        Decl::DInstance { .. } | Decl::DImport { .. } => None,
+        Decl::DImpl { .. } | Decl::DImport { .. } => None,
     }
 }
 
@@ -731,10 +731,10 @@ fn repr_meta(repr: &Option<axiom_ast::ast::TypeRepr>) -> Option<String> {
     }
 }
 
-/// Format a struct/union's fields (or a class's methods) as
+/// Format a struct/union's fields (or a trait's methods) as
 /// `name:Type,name:Type,...` for a `#fields=`/`#methods=` meta value - the
 /// actual shapes, not just a count, so an agent can see a type's exact
-/// layout (or a class's exact method set) from the AXSYM line alone.
+/// layout (or a trait's exact method set) from the AXSYM line alone.
 fn fields_meta(fields: &[(String, TypeId)]) -> String {
     fields
         .iter()
@@ -750,7 +750,7 @@ fn fields_meta(fields: &[(String, TypeId)]) -> String {
 ///
 /// Locations are recovered by name from `module.decls` rather than
 /// threaded through `TypeChecker` itself: the checker's `functions` /
-/// `data_types` / `structs` / `classes` vectors exist to answer "what is
+/// `data_types` / `structs` / `traits` vectors exist to answer "what is
 /// `foo`'s type", not "where is `foo`", so a fact with no matching
 /// top-level declaration (Axiom's dozen built-in operators) simply gets
 /// `span: None` - the AXSYM renderer prints `-` for those rather than a
@@ -765,7 +765,7 @@ fn collect_symbol_facts(
 
     let mut fn_spans: HashMap<&str, axiom_ast::span::Span> = HashMap::new();
     let mut type_spans: HashMap<&str, axiom_ast::span::Span> = HashMap::new();
-    let mut class_spans: HashMap<&str, axiom_ast::span::Span> = HashMap::new();
+    let mut trait_spans: HashMap<&str, axiom_ast::span::Span> = HashMap::new();
     let mut ctor_spans: HashMap<&str, axiom_ast::span::Span> = HashMap::new();
     let mut struct_reprs: HashMap<&str, &Option<axiom_ast::ast::TypeRepr>> = HashMap::new();
 
@@ -793,7 +793,7 @@ fn collect_symbol_facts(
             Decl::DType {
                 name, nid, axtags, ..
             } => (name, nid, axtags),
-            Decl::DClass {
+            Decl::DTrait {
                 name, nid, axtags, ..
             } => (name, nid, axtags),
             _ => continue,
@@ -862,8 +862,8 @@ fn collect_symbol_facts(
             Decl::DType { name, .. } => {
                 type_spans.insert(&name.name, name.span);
             }
-            Decl::DClass { name, .. } => {
-                class_spans.insert(&name.name, name.span);
+            Decl::DTrait { name, .. } => {
+                trait_spans.insert(&name.name, name.span);
             }
             _ => {}
         }
@@ -986,16 +986,16 @@ fn collect_symbol_facts(
         facts.push(fact);
     }
 
-    for c in &tc.classes {
+    for t in &tc.traits {
         let mut fact = SymbolFact::new(
-            SymbolKind::Class,
-            &c.name,
-            class_spans.get(c.name.as_str()).copied(),
-            format!("class {}", c.name),
-            decl_meta.get(c.name.as_str()).and_then(|(n, _)| n.clone()),
+            SymbolKind::Trait,
+            &t.name,
+            trait_spans.get(t.name.as_str()).copied(),
+            format!("trait {}", t.name),
+            decl_meta.get(t.name.as_str()).and_then(|(n, _)| n.clone()),
         )
-        .with_meta(format!("methods={}", fields_meta(&c.methods)));
-        if let Some((_, axtags)) = decl_meta.get(c.name.as_str()) {
+        .with_meta(format!("methods={}", fields_meta(&t.methods)));
+        if let Some((_, axtags)) = decl_meta.get(t.name.as_str()) {
             for m in axtags {
                 fact = fact.with_meta(m.clone());
             }

@@ -26,8 +26,8 @@ pub enum TokenKind {
     Union,    // (union Name (field...))
     Type,     // (type Name (tyvars...) alias)
     Newtype,  // (newtype Name (tyvars...) ctor inner)
-    Class,    // (class (Name tv) (super...) (method...))
-    Instance, // (instance (Class Type) (method...))
+    Trait,   // (trait (Name tv) (super...) (method...))
+    Impl,    // (impl (Trait Type) (method...))
     Import,   // (import module (names...))
     Foreign,  // (foreign name type "symbol")
     Pub,      // (pub decl)
@@ -144,8 +144,8 @@ impl fmt::Display for TokenKind {
             TokenKind::Union => write!(f, "union"),
             TokenKind::Type => write!(f, "type"),
             TokenKind::Newtype => write!(f, "newtype"),
-            TokenKind::Class => write!(f, "class"),
-            TokenKind::Instance => write!(f, "instance"),
+            TokenKind::Trait => write!(f, "trait"),
+            TokenKind::Impl => write!(f, "impl"),
             TokenKind::Import => write!(f, "import"),
             TokenKind::Foreign => write!(f, "foreign"),
             TokenKind::Pub => write!(f, "pub"),

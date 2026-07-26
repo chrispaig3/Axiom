@@ -247,18 +247,20 @@ pub enum Decl {
         nid: Option<String>,
         axtags: Vec<Axtag>,
     },
-    DClass {
+    DTrait {
         name: Ident,
         tyvar: String,
-        superclasses: Vec<Type>,
-        methods: Vec<ClassMethod>,
+        supertraits: Vec<Type>,
+        methods: Vec<TraitMethod>,
+        effects: Vec<Effect>,
         nid: Option<String>,
         axtags: Vec<Axtag>,
     },
-    DInstance {
-        class: Ident,
+    DImpl {
+        trait_name: Ident,
         ty: Type,
         methods: Vec<(Ident, Expr)>,
+        effects: Vec<Effect>,
         nid: Option<String>,
         axtags: Vec<Axtag>,
     },
@@ -340,10 +342,11 @@ pub struct Field {
 }
 
 #[derive(Debug, Clone)]
-pub struct ClassMethod {
+pub struct TraitMethod {
     pub name: Ident,
     pub ty: Type,
     pub default: Option<Expr>,
+    pub effects: Vec<Effect>,
 }
 
 // ============================================================
@@ -381,13 +384,13 @@ impl Decl {
                 out.push_str("DType:");
                 out.push_str(&name.name);
             }
-            Decl::DClass { name, .. } => {
-                out.push_str("DClass:");
+            Decl::DTrait { name, .. } => {
+                out.push_str("DTrait:");
                 out.push_str(&name.name);
             }
-            Decl::DInstance { class, .. } => {
-                out.push_str("DInstance:");
-                out.push_str(&class.name);
+            Decl::DImpl { trait_name, .. } => {
+                out.push_str("DImpl:");
+                out.push_str(&trait_name.name);
             }
             Decl::DSig { name, .. } => {
                 out.push_str("DSig:");

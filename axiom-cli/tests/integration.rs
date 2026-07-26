@@ -357,7 +357,7 @@ fn axsym_reports_all_declaration_kinds() {
 (struct Point (x : Int) (y : Int))
 (union Value (asInt : I64) (asFloat : F64))
 (type StringList () = [String])
-(class (Eq a))
+(trait (Eq a))
 "#,
     );
     let out = run_axiom(&["--diagnostic-format=ai", "symbols", "main.ax"], &dir);
@@ -370,7 +370,7 @@ fn axsym_reports_all_declaration_kinds() {
     assert!(text.lines().any(|l| l.starts_with("S Point ")));
     assert!(text.lines().any(|l| l.starts_with("U Value ")));
     assert!(text.lines().any(|l| l.starts_with("A StringList ")));
-    assert!(text.lines().any(|l| l.starts_with("L Eq ")));
+    assert!(text.lines().any(|l| l.starts_with("T Eq ")));
 }
 
 /// AXSYM spot-check: struct field shapes and layout attributes appear as

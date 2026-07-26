@@ -46,8 +46,8 @@ pub enum SymbolKind {
     Union,
     /// A `type` alias.
     Alias,
-    /// A `class` (type class) declaration.
-    Class,
+    /// A `trait` declaration.
+    Trait,
 }
 
 impl SymbolKind {
@@ -61,7 +61,7 @@ impl SymbolKind {
             SymbolKind::Struct => "S",
             SymbolKind::Union => "U",
             SymbolKind::Alias => "A",
-            SymbolKind::Class => "L",
+            SymbolKind::Trait => "T",
         }
     }
 }
@@ -276,17 +276,17 @@ mod tests {
     }
 
     #[test]
-    fn ai_class_with_methods() {
+    fn ai_trait_with_methods() {
         let fact = SymbolFact::new(
-            SymbolKind::Class,
+            SymbolKind::Trait,
             "Eq",
             Some(Span::new(9, 11, 0)),
-            "class Eq",
+            "trait Eq",
             None,
         )
         .with_meta("methods===:(a -> a -> Bool)");
         let out = render_symbols_ai(&[fact], "main.ax", &" ".repeat(20));
-        assert!(out.contains("L Eq main.ax:1:10-12 \"class Eq\" #methods===:(a -> a -> Bool)"));
+        assert!(out.contains("T Eq main.ax:1:10-12 \"trait Eq\" #methods===:(a -> a -> Bool)"));
     }
 
     #[test]
@@ -375,7 +375,7 @@ mod tests {
             SymbolKind::Struct,
             SymbolKind::Union,
             SymbolKind::Alias,
-            SymbolKind::Class,
+            SymbolKind::Trait,
         ] {
             let letter = kind.letter();
             assert!(!matches!(letter, "E" | "W" | "N" | "H"));

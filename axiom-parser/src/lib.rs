@@ -152,13 +152,13 @@ impl Parser {
                 *n = Some(nid);
                 *a = axtags;
             }
-            Decl::DClass {
+            Decl::DTrait {
                 nid: n, axtags: a, ..
             } => {
                 *n = Some(nid);
                 *a = axtags;
             }
-            Decl::DInstance {
+            Decl::DImpl {
                 nid: n, axtags: a, ..
             } => {
                 *n = Some(nid);
@@ -239,10 +239,10 @@ impl Parser {
             self.parse_type_alias()?
         } else if self.check(TokenKind::Newtype) {
             self.parse_newtype()?
-        } else if self.check(TokenKind::Class) {
-            self.parse_class()?
-        } else if self.check(TokenKind::Instance) {
-            self.parse_instance()?
+        } else if self.check(TokenKind::Trait) {
+            self.parse_trait()?
+        } else if self.check(TokenKind::Impl) {
+            self.parse_impl()?
         } else if self.check(TokenKind::Import) {
             self.parse_import()?
         } else if self.check(TokenKind::Foreign) {
@@ -479,18 +479,41 @@ impl Parser {
         })
     }
 
-    fn parse_class(&mut self) -> ParseResult<Decl> {
-        self.expect(TokenKind::Class)?;
+    fn parse_trait(&mut self) -> ParseResult<Decl> {
+        self.expect(TokenKind::Trait)?;
         self.expect(TokenKind::LParen)?;
         let name = self.parse_ident()?;
         let tyvar = self.parse_tyvar()?;
         self.expect(TokenKind::RParen)?;
 
-        let mut superclasses = Vec::new();
+        let mut supertraits = Vec::new();
         if self.check(TokenKind::LParen) {
             self.advance();
             while !self.check(TokenKind::RParen) && !self.at_eof() {
-                superclasses.push(self.parse_type()?);
+                supertraits.push(self.parse_type()?);
+            }
+            self.expect(TokenKind::RParen)?;
+        }
+
+        let mut effects = Vec::new();
+        if self.check(TokenKind::LParen) {
+            self.advance();
+            while !self.check(TokenKind::RParen) && !self.at_eof() {
+                if self.check(TokenKind::IO) {
+                    self.advance();
+                    effects.push(Effect::IO);
+                } else if self.check(TokenKind::Pure) {
+                    self.advance();
+                    effects.push(Effect::Pure);
+                } else if self.check(TokenKind::Mut) {
+                    self.advance();
+                    effects.push(Effect::Mut);
+                } else if self.check(TokenKind::Div) {
+                    self.advance();
+                    effects.push(Effect::Div);
+                } else if self.is_ident() {
+                    effects.push(Effect::Custom(self.parse_ident()?));
+                }
             }
             self.expect(TokenKind::RParen)?;
         }
@@ -508,31 +531,78 @@ impl Parser {
                 } else {
                     None
                 };
-                methods.push(ClassMethod {
+                let mut method_effects = Vec::new();
+                if self.check(TokenKind::LParen) {
+                    self.advance();
+                    while !self.check(TokenKind::RParen) && !self.at_eof() {
+                        if self.check(TokenKind::IO) {
+                            self.advance();
+                            method_effects.push(Effect::IO);
+                        } else if self.check(TokenKind::Pure) {
+                            self.advance();
+                            method_effects.push(Effect::Pure);
+                        } else if self.check(TokenKind::Mut) {
+                            self.advance();
+                            method_effects.push(Effect::Mut);
+                        } else if self.check(TokenKind::Div) {
+                            self.advance();
+                            method_effects.push(Effect::Div);
+                        } else if self.is_ident() {
+                            method_effects.push(Effect::Custom(self.parse_ident()?));
+                        }
+                    }
+                    self.expect(TokenKind::RParen)?;
+                }
+                methods.push(TraitMethod {
                     name: method_name,
                     ty: method_ty,
                     default,
+                    effects: method_effects,
                 });
             }
             self.expect(TokenKind::RParen)?;
         }
 
-        Ok(Decl::DClass {
+        Ok(Decl::DTrait {
             name,
             tyvar,
-            superclasses,
+            supertraits,
             methods,
+            effects,
             nid: None,
             axtags: Vec::new(),
         })
     }
 
-    fn parse_instance(&mut self) -> ParseResult<Decl> {
-        self.expect(TokenKind::Instance)?;
+    fn parse_impl(&mut self) -> ParseResult<Decl> {
+        self.expect(TokenKind::Impl)?;
         self.expect(TokenKind::LParen)?;
-        let class = self.parse_ident()?;
+        let trait_name = self.parse_ident()?;
         let ty = self.parse_type()?;
         self.expect(TokenKind::RParen)?;
+
+        let mut effects = Vec::new();
+        if self.check(TokenKind::LParen) {
+            self.advance();
+            while !self.check(TokenKind::RParen) && !self.at_eof() {
+                if self.check(TokenKind::IO) {
+                    self.advance();
+                    effects.push(Effect::IO);
+                } else if self.check(TokenKind::Pure) {
+                    self.advance();
+                    effects.push(Effect::Pure);
+                } else if self.check(TokenKind::Mut) {
+                    self.advance();
+                    effects.push(Effect::Mut);
+                } else if self.check(TokenKind::Div) {
+                    self.advance();
+                    effects.push(Effect::Div);
+                } else if self.is_ident() {
+                    effects.push(Effect::Custom(self.parse_ident()?));
+                }
+            }
+            self.expect(TokenKind::RParen)?;
+        }
 
         let mut methods = Vec::new();
         if self.check(TokenKind::Where) {
@@ -548,10 +618,11 @@ impl Parser {
             self.expect(TokenKind::RParen)?;
         }
 
-        Ok(Decl::DInstance {
-            class,
+        Ok(Decl::DImpl {
+            trait_name,
             ty,
             methods,
+            effects,
             nid: None,
             axtags: Vec::new(),
         })
@@ -1612,8 +1683,8 @@ impl Parser {
                     | TokenKind::Union
                     | TokenKind::Type
                     | TokenKind::Newtype
-                    | TokenKind::Class
-                    | TokenKind::Instance
+                    | TokenKind::Trait
+                    | TokenKind::Impl
                     | TokenKind::Import
                     | TokenKind::Foreign
                     | TokenKind::Effect
@@ -1633,8 +1704,8 @@ impl Parser {
                             | TokenKind::Union
                             | TokenKind::Type
                             | TokenKind::Newtype
-                            | TokenKind::Class
-                            | TokenKind::Instance
+                            | TokenKind::Trait
+                            | TokenKind::Impl
                             | TokenKind::Import
                             | TokenKind::Foreign
                             | TokenKind::Effect

@@ -121,19 +121,20 @@ fn format_decl(decl: &Decl, out: &mut String, state: &mut FormatState) {
             }
             out.push(')');
         }
-        Decl::DClass {
+        Decl::DTrait {
             name,
             tyvar,
-            superclasses,
+            supertraits,
             methods,
+            effects,
             ..
         } => {
-            format_class_decl(name, tyvar, superclasses, methods, out, state);
+            format_trait_decl(name, tyvar, supertraits, methods, effects, out, state);
         }
-        Decl::DInstance {
-            class, ty, methods, ..
+        Decl::DImpl {
+            trait_name, ty, methods, effects, ..
         } => {
-            format_instance_decl(class, ty, methods, out, state);
+            format_impl_decl(trait_name, ty, methods, effects, out, state);
         }
         Decl::DEffect {
             name, operations, ..
@@ -290,23 +291,35 @@ fn format_union_decl(
     out.push(')');
 }
 
-fn format_class_decl(
+fn format_trait_decl(
     name: &Ident,
     tyvar: &str,
-    superclasses: &[Type],
-    methods: &[ClassMethod],
+    supertraits: &[Type],
+    methods: &[TraitMethod],
+    effects: &[Effect],
     out: &mut String,
     state: &mut FormatState,
 ) {
-    out.push_str("(class (");
+    out.push_str("(trait (");
     out.push_str(&name.name);
     out.push(' ');
     out.push_str(tyvar);
     out.push(')');
-    if !superclasses.is_empty() {
+    if !effects.is_empty() {
+        out.push(' ');
+        out.push('(');
+        for (i, e) in effects.iter().enumerate() {
+            if i > 0 {
+                out.push(' ');
+            }
+            out.push_str(&format!("{}", e));
+        }
+        out.push(')');
+    }
+    if !supertraits.is_empty() {
         out.push('\n');
         state.push_indent();
-        for s in superclasses {
+        for s in supertraits {
             out.push_str(&state.indent_str());
             out.push_str(&format_type(s));
         }
@@ -318,6 +331,17 @@ fn format_class_decl(
         for m in methods {
             out.push_str(&state.indent_str());
             write!(out, "({} {}", m.name.name, format_type(&m.ty)).unwrap();
+            if !m.effects.is_empty() {
+                out.push(' ');
+                out.push('(');
+                for (i, e) in m.effects.iter().enumerate() {
+                    if i > 0 {
+                        out.push(' ');
+                    }
+                    out.push_str(&format!("{}", e));
+                }
+                out.push(')');
+            }
             if let Some(default) = &m.default {
                 out.push('\n');
                 state.push_indent();
@@ -332,18 +356,30 @@ fn format_class_decl(
     out.push(')');
 }
 
-fn format_instance_decl(
-    class: &Ident,
+fn format_impl_decl(
+    trait_name: &Ident,
     ty: &Type,
     methods: &[(Ident, Expr)],
+    effects: &[Effect],
     out: &mut String,
     state: &mut FormatState,
 ) {
-    out.push_str("(instance (");
-    out.push_str(&class.name);
+    out.push_str("(impl (");
+    out.push_str(&trait_name.name);
     out.push(' ');
     out.push_str(&format_type(ty));
     out.push(')');
+    if !effects.is_empty() {
+        out.push(' ');
+        out.push('(');
+        for (i, e) in effects.iter().enumerate() {
+            if i > 0 {
+                out.push(' ');
+            }
+            out.push_str(&format!("{}", e));
+        }
+        out.push(')');
+    }
     if !methods.is_empty() {
         out.push('\n');
         state.push_indent();

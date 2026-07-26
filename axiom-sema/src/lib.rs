@@ -517,9 +517,10 @@ impl FnInfo {
 }
 
 #[derive(Debug, Clone)]
-pub struct ClassInfo {
+pub struct TraitInfo {
     pub name: String,
     pub methods: Vec<(String, TypeId)>,
+    pub effects: Vec<axiom_ast::ast::Effect>,
 }
 
 pub struct TypeChecker {
@@ -529,7 +530,7 @@ pub struct TypeChecker {
     pub unions: Vec<UnionInfo>,
     pub aliases: Vec<TypeAliasInfo>,
     pub functions: Vec<FnInfo>,
-    pub classes: Vec<ClassInfo>,
+    pub traits: Vec<TraitInfo>,
     pub errors: Vec<SemError>,
     pub type_counter: usize,
 }
@@ -549,7 +550,7 @@ impl TypeChecker {
             unions: Vec::new(),
             aliases: Vec::new(),
             functions: Vec::new(),
-            classes: Vec::new(),
+            traits: Vec::new(),
             errors: Vec::new(),
             type_counter: 0,
         };
@@ -741,14 +742,20 @@ impl TypeChecker {
                     self.functions
                         .push(FnInfo::new(name.name.clone(), self.type_to_id(ty)));
                 }
-                Decl::DClass { name, methods, .. } => {
+                Decl::DTrait {
+                    name,
+                    methods,
+                    effects,
+                    ..
+                } => {
                     let method_tys: Vec<(String, TypeId)> = methods
                         .iter()
                         .map(|m| (m.name.name.clone(), self.type_to_id(&m.ty)))
                         .collect();
-                    self.classes.push(ClassInfo {
+                    self.traits.push(TraitInfo {
                         name: name.name.clone(),
                         methods: method_tys,
+                        effects: effects.clone(),
                     });
                 }
                 Decl::DFn { name, .. } => {
@@ -906,7 +913,7 @@ impl TypeChecker {
                         },
                     ));
                 }
-                Decl::DInstance { methods, .. } => {
+                Decl::DImpl { methods, .. } => {
                     for (_, body) in methods {
                         self.check_expr(body);
                     }
