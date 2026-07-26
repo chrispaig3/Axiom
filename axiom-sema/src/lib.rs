@@ -1274,13 +1274,20 @@ impl TypeChecker {
             }
             Expr::ELam(patterns, body) => {
                 self.push_scope();
+                let mut param_tys: Vec<TypeId> = Vec::new();
                 for pat in patterns {
-                    self.check_pattern(pat);
+                    let fresh = TypeId::TVar(format!("_t{}", self.type_counter));
+                    self.type_counter += 1;
+                    self.check_pattern_with_type(pat, &fresh);
+                    param_tys.push(fresh);
                 }
                 let body_ty = self.check_expr(body);
                 self.pop_scope();
-                let param_ty = TypeId::TTuple(vec![]);
-                TypeId::TArr(Box::new(param_ty), Box::new(body_ty))
+                let mut ty = body_ty;
+                for param_ty in param_tys.into_iter().rev() {
+                    ty = TypeId::TArr(Box::new(param_ty), Box::new(ty));
+                }
+                ty
             }
             Expr::ELet(bindings, body) => {
                 self.push_scope();

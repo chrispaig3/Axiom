@@ -1,8 +1,8 @@
 use crate::{IrBlock, IrConst, IrFunction, IrInst, IrModule, IrStruct, IrUnion, IrValue, TypeId};
 use axiom_ast::ast::*;
-use axiom_ast::span::Ident;
+use axiom_ast::span::{Ident, Span};
 use axiom_sema::TypeChecker;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 pub struct IrGen {
     module: IrModule,
@@ -406,31 +406,157 @@ impl IrGen {
         }
     }
 
+        fn collect_captured_vars(
+        expr: &Expr,
+        lambda_params: &[String],
+        outer_alloca_map: &HashMap<String, String>,
+        out: &mut Vec<String>,
+        seen: &mut HashSet<String>,
+    ) {
+        match expr {
+            Expr::EVar(ident) => {
+                let name = ident.name.clone();
+                if !lambda_params.contains(&name)
+                    && outer_alloca_map.contains_key(&name)
+                    && !seen.contains(&name)
+                {
+                    seen.insert(name.clone());
+                    out.push(name);
+                }
+            }
+            Expr::EApp(func, arg) => {
+                Self::collect_captured_vars(func, lambda_params, outer_alloca_map, out, seen);
+                Self::collect_captured_vars(arg, lambda_params, outer_alloca_map, out, seen);
+            }
+            Expr::ELam(_, body) => {
+                let _ = body;
+            }
+            Expr::ELet(bindings, body) => {
+                for (_, e) in bindings {
+                    Self::collect_captured_vars(e, lambda_params, outer_alloca_map, out, seen);
+                }
+                Self::collect_captured_vars(body, lambda_params, outer_alloca_map, out, seen);
+            }
+            Expr::EIf(_, t, e) => {
+                Self::collect_captured_vars(t, lambda_params, outer_alloca_map, out, seen);
+                Self::collect_captured_vars(e, lambda_params, outer_alloca_map, out, seen);
+            }
+            Expr::EMatch(target, arms) => {
+                Self::collect_captured_vars(target, lambda_params, outer_alloca_map, out, seen);
+                for (_, e) in arms {
+                    Self::collect_captured_vars(e, lambda_params, outer_alloca_map, out, seen);
+                }
+            }
+            Expr::ECond(branches, else_) => {
+                for (c, e) in branches {
+                    Self::collect_captured_vars(c, lambda_params, outer_alloca_map, out, seen);
+                    Self::collect_captured_vars(e, lambda_params, outer_alloca_map, out, seen);
+                }
+                if let Some(e) = else_ {
+                    Self::collect_captured_vars(e, lambda_params, outer_alloca_map, out, seen);
+                }
+            }
+            Expr::EBegin(es) | Expr::ETuple(es) | Expr::EList(es) => {
+                for e in es {
+                    Self::collect_captured_vars(e, lambda_params, outer_alloca_map, out, seen);
+                }
+            }
+            Expr::EInfix(l, _, r) => {
+                Self::collect_captured_vars(l, lambda_params, outer_alloca_map, out, seen);
+                Self::collect_captured_vars(r, lambda_params, outer_alloca_map, out, seen);
+            }
+            Expr::ETypeSig(e, _)
+            | Expr::ECast(e, _)
+            | Expr::EGrouped(e)
+            | Expr::ERegion(_, e)
+            | Expr::EConsume(e)
+            | Expr::EField(e, _) => {
+                Self::collect_captured_vars(e, lambda_params, outer_alloca_map, out, seen);
+            }
+            Expr::EAlloc(_, init, _) => {
+                if let Some(e) = init {
+                    Self::collect_captured_vars(e, lambda_params, outer_alloca_map, out, seen);
+                }
+            }
+            Expr::ESetField(base, _, value) => {
+                Self::collect_captured_vars(base, lambda_params, outer_alloca_map, out, seen);
+                Self::collect_captured_vars(value, lambda_params, outer_alloca_map, out, seen);
+            }
+            Expr::EUnionCon(_, _, value) => {
+                Self::collect_captured_vars(value, lambda_params, outer_alloca_map, out, seen);
+            }
+            Expr::EStructCon(_, args) => {
+                for e in args {
+                    Self::collect_captured_vars(e, lambda_params, outer_alloca_map, out, seen);
+                }
+            }
+            Expr::ELit(_, _)
+            | Expr::ESizeof(_, _)
+            | Expr::EAlignof(_, _)
+            | Expr::EError(_, _) => {}
+            Expr::EHandle(body, _, after) => {
+                Self::collect_captured_vars(body, lambda_params, outer_alloca_map, out, seen);
+                Self::collect_captured_vars(after, lambda_params, outer_alloca_map, out, seen);
+            }
+        }
+    }
+
     /// Compile a lambda expression as a named IR function in the
     /// module so it can be passed as a first-class value or called
     /// directly. Parameters are always `I64`; non-`PVar` patterns
     /// are not yet supported for lambda parameters. Free variables
-    /// captured from the enclosing scope are not yet supported
-    /// (a known limitation).
+    /// captured from the enclosing scope are supported via a
+    /// heap-allocated closure struct: the lambda function receives
+    /// captured values as extra leading parameters and the closure
+    /// struct bundles the function pointer with the captured values.
     fn gen_lambda(
         &mut self,
         params: &[Pattern],
         body: &Expr,
         type_checker: &mut TypeChecker,
+        outer_alloca_map: &mut HashMap<String, String>,
+        func: &mut IrFunction,
     ) -> IrValue {
         self.lambda_counter += 1;
         let lambda_name = format!("_lambda_{}", self.lambda_counter);
 
-        let lambda_params: Vec<(String, TypeId)> = params
+        // Collect captured variable names from the body.
+        let mut captured_vars: Vec<String> = Vec::new();
+        let mut seen = HashSet::new();
+        Self::collect_captured_vars(
+            body,
+            &[],
+            outer_alloca_map,
+            &mut captured_vars,
+            &mut seen,
+        );
+
+        let lambda_param_names: Vec<String> = params
             .iter()
             .filter_map(|p| {
                 if let Pattern::PVar(ident) = p {
-                    Some((ident.name.clone(), TypeId::TCon("I64".to_string(), vec![])))
+                    Some(ident.name.clone())
                 } else {
                     None
                 }
             })
             .collect();
+
+        // Lambda param order: captures first (i64), then lambda params (i64).
+        let mut lambda_params: Vec<(String, TypeId)> = Vec::new();
+        for cap_name in &captured_vars {
+            let cap_type = type_checker
+                .scope
+                .iter()
+                .rev()
+                .find(|(name, _)| name == cap_name)
+                .map(|(_, vi)| vi.ty.clone())
+                .unwrap_or(TypeId::TCon("I64".to_string(), vec![]));
+            lambda_params.push((cap_name.clone(), cap_type));
+        }
+        for pname in &lambda_param_names {
+            lambda_params.push((pname.clone(), TypeId::TCon("I64".to_string(), vec![])));
+        }
 
         let lambda_return = TypeId::TCon("I64".to_string(), vec![]);
 
@@ -450,7 +576,31 @@ impl IrGen {
         });
 
         let mut lambda_alloca_map: HashMap<String, String> = HashMap::new();
-        for (pname, pty) in &lambda_params {
+
+        // Alloca + store for captured params.
+        for (pname, pty) in lambda_params.iter().take(captured_vars.len()) {
+            let alloca_name = format!("_captured_{}", pname);
+            lambda_func.locals.push((pname.clone(), pty.clone()));
+            self.emit_to_func(
+                &mut lambda_func,
+                IrInst::Alloca {
+                    dest: IrValue::Local(alloca_name.clone()),
+                    ty: pty.clone(),
+                },
+            );
+            self.emit_to_func(
+                &mut lambda_func,
+                IrInst::Store {
+                    ptr: IrValue::Local(alloca_name.clone()),
+                    value: IrValue::Local(pname.clone()),
+                },
+            );
+            lambda_alloca_map.insert(pname.clone(), alloca_name);
+        }
+
+        // Alloca + store for normal lambda params.
+        let capture_count = captured_vars.len();
+        for (_i, (pname, pty)) in lambda_params.iter().enumerate().skip(capture_count) {
             let alloca_name = format!("_alloca_{}", pname);
             lambda_func.locals.push((pname.clone(), pty.clone()));
             self.emit_to_func(
@@ -485,7 +635,63 @@ impl IrGen {
 
         self.module.functions.push(lambda_func);
 
-        IrValue::Global(lambda_name)
+        if captured_vars.is_empty() {
+            IrValue::Global(lambda_name)
+        } else {
+            // Build a closure struct on the heap: [i64; 1 + captures.len()]
+            // layout: [func_ptr, captured_1, captured_2, ...]
+            let i64_ty = TypeId::TCon("I64".to_string(), vec![]);
+            let closure_size = ((1 + captured_vars.len()) * 8) as i64;
+            let closure_ptr = self.new_local();
+            self.emit_to_func(
+                func,
+                IrInst::HeapAlloc {
+                    dest: IrValue::Local(closure_ptr.clone()),
+                    size: IrValue::Const(IrConst::Int(closure_size, i64_ty.clone())),
+                },
+            );
+            // Store function pointer at offset 0.
+            self.emit_to_func(
+                func,
+                IrInst::StoreOffset {
+                    ptr: IrValue::Local(closure_ptr.clone()),
+                    offset: 0,
+                    value: IrValue::Global(lambda_name.clone()),
+                },
+            );
+            // Store each captured value at offset 8 * (1 + i).
+            for (i, cap_name) in captured_vars.iter().enumerate() {
+                if let Some(alloca_name) = outer_alloca_map.get(cap_name) {
+                    let cap_value = IrValue::Local(alloca_name.clone());
+                    self.emit_to_func(
+                        func,
+                        IrInst::StoreOffset {
+                            ptr: IrValue::Local(closure_ptr.clone()),
+                            offset: ((i + 1) * 8) as i64,
+                            value: cap_value,
+                        },
+                    );
+                } else {
+                    // Captured variable not in outer alloca_map;
+                    // emit a load from the outer scope's alloca and store it.
+                    let cap_value = self.gen_expr_to_func_with_allocas(
+                        func,
+                        &Expr::EVar(Ident::new(cap_name, Span::dummy())),
+                        outer_alloca_map,
+                        type_checker,
+                    );
+                    self.emit_to_func(
+                        func,
+                        IrInst::StoreOffset {
+                            ptr: IrValue::Local(closure_ptr.clone()),
+                            offset: ((i + 1) * 8) as i64,
+                            value: cap_value,
+                        },
+                    );
+                }
+            }
+            IrValue::Local(closure_ptr)
+        }
     }
 
     fn gen_expr_to_func_with_allocas(
@@ -711,23 +917,41 @@ impl IrGen {
                 }
 
                 if let Expr::ELam(params, body) = current {
-                    let lambda_val = self.gen_lambda(params, body, type_checker);
-                    let lambda_name;
-                    if let IrValue::Global(name) = lambda_val {
-                        lambda_name = name;
-                    } else {
-                        lambda_name = "unknown".to_string();
-                    }
-
+                    let lambda_val =
+                        self.gen_lambda(params, body, type_checker, alloca_map, func);
                     let dest = self.new_local();
-                    self.emit_to_func(
-                        func,
-                        IrInst::Call {
-                            dest: IrValue::Local(dest.clone()),
-                            func: lambda_name,
-                            args: all_args,
-                        },
-                    );
+                    match lambda_val {
+                        IrValue::Global(name) => {
+                            self.emit_to_func(
+                                func,
+                                IrInst::Call {
+                                    dest: IrValue::Local(dest.clone()),
+                                    func: name,
+                                    args: all_args,
+                                },
+                            );
+                        }
+                        IrValue::Local(closure_ptr) => {
+                            self.emit_to_func(
+                                func,
+                                IrInst::ClosureCall {
+                                    dest: IrValue::Local(dest.clone()),
+                                    closure: IrValue::Local(closure_ptr),
+                                    normal_args: all_args,
+                                },
+                            );
+                        }
+                        IrValue::Const(_) => {
+                            self.emit_to_func(
+                                func,
+                                IrInst::Call {
+                                    dest: IrValue::Local(dest.clone()),
+                                    func: "unknown".to_string(),
+                                    args: all_args,
+                                },
+                            );
+                        }
+                    }
                     return IrValue::Local(dest);
                 }
 
@@ -1256,7 +1480,7 @@ impl IrGen {
             Expr::EGrouped(inner) => {
                 self.gen_expr_to_func_with_allocas(func, inner, alloca_map, type_checker)
             }
-            Expr::ELam(params, body) => self.gen_lambda(params, body, type_checker),
+            Expr::ELam(params, body) => self.gen_lambda(params, body, type_checker, alloca_map, func),
             Expr::ETuple(elements) => {
                 let i64_ty = TypeId::TCon("I64".to_string(), vec![]);
                 let tuple_size = (elements.len() * 8) as i64;
