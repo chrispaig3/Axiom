@@ -91,6 +91,8 @@ fn is_operator_char(ch: char) -> bool {
     )
 }
 
+const AXTAG_PREFIX: &[char] = &[';', '@', 'a', 'x', 'i', 'o', 'm', ':'];
+
 pub struct Lexer {
     source: Vec<char>,
     source_str: String,
@@ -120,7 +122,12 @@ impl Lexer {
             }
 
             if ch == ';' {
-                self.consume_line_comment();
+                if self.source[self.pos..].starts_with(AXTAG_PREFIX) {
+                    let tag = self.consume_axtag();
+                    tokens.push(tag);
+                } else {
+                    self.consume_line_comment();
+                }
                 continue;
             }
 
@@ -541,6 +548,37 @@ impl Lexer {
         while self.pos < self.source.len() && self.source[self.pos] != '\n' {
             self.pos += 1;
         }
+    }
+
+    /// Consume an AXTAG comment of the form `;@axiom:<key>(<value>)` and
+    /// return it as a [`TokenKind::Axtag`] token so the parser can attach
+    /// it to the declaration that follows.  The `;@axiom:` prefix is
+    /// already consumed by the caller; this method reads the rest of the
+    /// line, parses the `<key>(<value>)` or bare `<key>` form, and
+    /// returns the token.  The line comment terminator (`\n` or end of
+    /// input) is also consumed.
+    fn consume_axtag(&mut self) -> Token {
+        // Skip `;@axiom:` — the caller has already positioned `pos` at the `;`
+        // and confirmed the prefix matches.
+        // Advance past `;` first (already done by the caller's check on `;`).
+        // Actually the caller checks `starts_with(";@axiom:")` starting at `pos`,
+        // so we need to skip the full prefix.
+        let start = self.pos;
+        // Skip `;@axiom:` (7 chars: `;` `@` `a` `x` `i` `o` `m` `:`)
+        debug_assert!(self.source[self.pos..].starts_with(AXTAG_PREFIX));
+        self.pos += 8; // length of ";@axiom:"
+
+        // Read the rest of the line (up to `\n` or EOF).
+        let tag_start = self.pos;
+        while self.pos < self.source.len() && self.source[self.pos] != '\n' {
+            self.pos += 1;
+        }
+        let tag_content: String = self.source[tag_start..self.pos].iter().collect();
+
+        Token::new(
+            TokenKind::Axtag(tag_content),
+            self.span(start),
+        )
     }
 
     fn consume_block_comment(&mut self) -> Result<(), LexerError> {

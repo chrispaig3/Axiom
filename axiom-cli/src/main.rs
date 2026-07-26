@@ -769,6 +769,55 @@ fn collect_symbol_facts(
     let mut ctor_spans: HashMap<&str, axiom_ast::span::Span> = HashMap::new();
     let mut struct_reprs: HashMap<&str, &Option<axiom_ast::ast::TypeRepr>> = HashMap::new();
 
+    let mut decl_meta: HashMap<String, (Option<String>, Vec<String>)> = HashMap::new();
+    for decl in &module.decls {
+        let (name, nid, axtags) = match decl {
+            Decl::DSig {
+                name, nid, axtags, ..
+            } => (name, nid, axtags),
+            Decl::DFn {
+                name, nid, axtags, ..
+            } => (name, nid, axtags),
+            Decl::DForeign {
+                name, nid, axtags, ..
+            } => (name, nid, axtags),
+            Decl::DData {
+                name, nid, axtags, ..
+            } => (name, nid, axtags),
+            Decl::DStruct {
+                name, nid, axtags, ..
+            } => (name, nid, axtags),
+            Decl::DUnion {
+                name, nid, axtags, ..
+            } => (name, nid, axtags),
+            Decl::DType {
+                name, nid, axtags, ..
+            } => (name, nid, axtags),
+            Decl::DClass {
+                name, nid, axtags, ..
+            } => (name, nid, axtags),
+            _ => continue,
+        };
+        let axtag_meta: Vec<String> = axtags
+            .iter()
+            .filter_map(|a| match &a.value {
+                Some(v) if !v.is_empty() => Some(format!("{}={}", a.key, v)),
+                _ => Some(a.key.clone()),
+            })
+            .collect();
+        match decl_meta.entry(name.name.clone()) {
+            std::collections::hash_map::Entry::Occupied(mut e) => {
+                let old = e.get().clone();
+                let new_nid = nid.clone().or(old.0);
+                let new_meta = if axtag_meta.is_empty() { old.1 } else { axtag_meta };
+                e.insert((new_nid, new_meta));
+            }
+            std::collections::hash_map::Entry::Vacant(e) => {
+                e.insert((nid.clone(), axtag_meta));
+            }
+        }
+    }
+
     for decl in &module.decls {
         match decl {
             // A `(:: name Type)` signature is the most useful anchor for a
@@ -832,13 +881,15 @@ fn collect_symbol_facts(
             &f.name,
             fn_spans.get(f.name.as_str()).copied(),
             f.ty.to_string(),
+            decl_meta.get(f.name.as_str()).and_then(|(n, _)| n.clone()),
         );
         if let Some(symbol) = &f.foreign_symbol {
-            // The real linked C symbol - e.g. `(foreign printf :: ... =
-            // "printf")` surfaces `#symbol=printf` explicitly rather than
-            // making an agent assume the Axiom-side name and the linked
-            // symbol always match (they don't have to).
             fact = fact.with_meta(format!("symbol={}", symbol));
+        }
+        if let Some((_, axtags)) = decl_meta.get(f.name.as_str()) {
+            for m in axtags {
+                fact = fact.with_meta(m.clone());
+            }
         }
         facts.push(fact);
     }
@@ -850,9 +901,15 @@ fn collect_symbol_facts(
             &d.name,
             type_spans.get(d.name.as_str()).copied(),
             format!("data {}", d.name),
+            decl_meta.get(d.name.as_str()).and_then(|(n, _)| n.clone()),
         );
         if !ctor_names.is_empty() {
             fact = fact.with_meta(format!("ctors={}", ctor_names.join(",")));
+        }
+        if let Some((_, axtags)) = decl_meta.get(d.name.as_str()) {
+            for m in axtags {
+                fact = fact.with_meta(m.clone());
+            }
         }
         facts.push(fact);
         for c in &d.constructors {
@@ -862,6 +919,7 @@ fn collect_symbol_facts(
                     &c.name,
                     ctor_spans.get(c.name.as_str()).copied(),
                     c.ty.to_string(),
+                    None,
                 )
                 .with_meta(format!("of={}", c.data_type)),
             );
@@ -874,24 +932,35 @@ fn collect_symbol_facts(
             &s.name,
             type_spans.get(s.name.as_str()).copied(),
             format!("struct {}", s.name),
+            decl_meta.get(s.name.as_str()).and_then(|(n, _)| n.clone()),
         )
         .with_meta(format!("fields={}", fields_meta(&s.fields)));
         if let Some(repr) = repr_meta(struct_reprs.get(s.name.as_str()).copied().unwrap_or(&None)) {
             fact = fact.with_meta(repr);
         }
+        if let Some((_, axtags)) = decl_meta.get(s.name.as_str()) {
+            for m in axtags {
+                fact = fact.with_meta(m.clone());
+            }
+        }
         facts.push(fact);
     }
 
     for u in &tc.unions {
-        facts.push(
-            SymbolFact::new(
-                SymbolKind::Union,
-                &u.name,
-                type_spans.get(u.name.as_str()).copied(),
-                format!("union {}", u.name),
-            )
-            .with_meta(format!("fields={}", fields_meta(&u.fields))),
-        );
+        let mut fact = SymbolFact::new(
+            SymbolKind::Union,
+            &u.name,
+            type_spans.get(u.name.as_str()).copied(),
+            format!("union {}", u.name),
+            decl_meta.get(u.name.as_str()).and_then(|(n, _)| n.clone()),
+        )
+        .with_meta(format!("fields={}", fields_meta(&u.fields)));
+        if let Some((_, axtags)) = decl_meta.get(u.name.as_str()) {
+            for m in axtags {
+                fact = fact.with_meta(m.clone());
+            }
+        }
+        facts.push(fact);
     }
 
     for a in &tc.aliases {
@@ -900,23 +969,34 @@ fn collect_symbol_facts(
             &a.name,
             type_spans.get(a.name.as_str()).copied(),
             format!("{}", a.target),
+            decl_meta.get(a.name.as_str()).and_then(|(n, _)| n.clone()),
         );
         if !a.tyvars.is_empty() {
             fact = fact.with_meta(format!("tyvars={}", a.tyvars.join(",")));
+        }
+        if let Some((_, axtags)) = decl_meta.get(a.name.as_str()) {
+            for m in axtags {
+                fact = fact.with_meta(m.clone());
+            }
         }
         facts.push(fact);
     }
 
     for c in &tc.classes {
-        facts.push(
-            SymbolFact::new(
-                SymbolKind::Class,
-                &c.name,
-                class_spans.get(c.name.as_str()).copied(),
-                format!("class {}", c.name),
-            )
-            .with_meta(format!("methods={}", fields_meta(&c.methods))),
-        );
+        let mut fact = SymbolFact::new(
+            SymbolKind::Class,
+            &c.name,
+            class_spans.get(c.name.as_str()).copied(),
+            format!("class {}", c.name),
+            decl_meta.get(c.name.as_str()).and_then(|(n, _)| n.clone()),
+        )
+        .with_meta(format!("methods={}", fields_meta(&c.methods)));
+        if let Some((_, axtags)) = decl_meta.get(c.name.as_str()) {
+            for m in axtags {
+                fact = fact.with_meta(m.clone());
+            }
+        }
+        facts.push(fact);
     }
 
     facts
@@ -963,11 +1043,14 @@ fn render_symbols_json(f: &SymbolFact, filename: &str, source: &str) -> String {
         None => String::new(),
     };
     format!(
-        "{{\"kind\":\"{:?}\",\"name\":\"{}\",{}\"type\":\"{}\",\"meta\":[{}]}}\n",
+        "{{\"kind\":\"{:?}\",\"name\":\"{}\",{}\"type\":\"{}\",{}\"meta\":[{}]}}\n",
         f.kind,
         axiom_errors::json_escape(&f.name),
         loc,
         axiom_errors::json_escape(&f.ty),
+        f.nid.as_ref()
+            .map(|n| format!("\"nid\":\"{}\",", axiom_errors::json_escape(n)))
+            .unwrap_or_default(),
         f.meta
             .iter()
             .map(|m| format!("\"{}\"", axiom_errors::json_escape(m)))

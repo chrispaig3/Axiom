@@ -74,15 +74,9 @@ impl SymbolKind {
 pub struct SymbolFact {
     pub kind: SymbolKind,
     pub name: String,
-    /// `None` for built-in operators (`+`, `==`, ...) that have no source
-    /// span at all.
     pub span: Option<Span>,
     pub ty: String,
-    /// Extra `#key=value` metadata, e.g. a data type's constructor list
-    /// (`#ctors=Nothing,Just`) or a struct's field count (`#fields=2`).
-    /// Kept as pre-formatted `key=value` strings (no `#` prefix - the
-    /// renderer adds that) so callers don't need a second enum just to
-    /// describe a handful of ad hoc annotations.
+    pub nid: Option<String>,
     pub meta: Vec<String>,
 }
 
@@ -92,14 +86,21 @@ impl SymbolFact {
         name: impl Into<String>,
         span: Option<Span>,
         ty: impl Into<String>,
+        nid: Option<String>,
     ) -> Self {
         Self {
             kind,
             name: name.into(),
             span,
             ty: ty.into(),
+            nid,
             meta: Vec::new(),
         }
+    }
+
+    pub fn with_nid(mut self, nid: impl Into<String>) -> Self {
+        self.nid = Some(nid.into());
+        self
     }
 
     pub fn with_meta(mut self, meta: impl Into<String>) -> Self {
@@ -141,6 +142,9 @@ fn render_symbol_line(fact: &SymbolFact, filename: &str, source: &str, map: &Sou
         }
     }
     write!(line, " {:?}", fact.ty).ok();
+    if let Some(nid) = &fact.nid {
+        write!(line, " @{}", nid).ok();
+    }
     for m in &fact.meta {
         write!(line, " #{}", m).ok();
     }
@@ -160,6 +164,7 @@ mod tests {
             "add",
             Some(Span::new(5, 8, 0)),
             "(Int -> (Int -> Int))",
+            None,
         );
         let out = render_symbols_ai(
             &[fact],
@@ -176,6 +181,7 @@ mod tests {
             "printf",
             Some(Span::new(10, 16, 0)),
             "(String -> Int)",
+            None,
         )
         .with_meta("symbol=printf");
         let out = render_symbols_ai(&[fact], "main.ax", &" ".repeat(20));
@@ -189,6 +195,7 @@ mod tests {
             "Maybe",
             Some(Span::new(7, 12, 0)),
             "data Maybe",
+            None,
         )
         .with_meta("ctors=Nothing,Just");
         let out = render_symbols_ai(&[fact], "main.ax", &" ".repeat(20));
@@ -202,6 +209,7 @@ mod tests {
             "Just",
             Some(Span::new(17, 21, 0)),
             "(a -> Maybe a)",
+            None,
         )
         .with_meta("of=Maybe");
         let out = render_symbols_ai(&[fact], "main.ax", &" ".repeat(22));
@@ -215,6 +223,7 @@ mod tests {
             "Point",
             Some(Span::new(9, 14, 0)),
             "struct Point",
+            None,
         )
         .with_meta("fields=x:Int,y:Int")
         .with_meta("repr=C");
@@ -231,6 +240,7 @@ mod tests {
             "Value",
             Some(Span::new(0, 5, 0)),
             "union Value",
+            None,
         )
         .with_meta("fields=asInt:I64,asFloat:F64");
         let out = render_symbols_ai(&[fact], "main.ax", &" ".repeat(20));
@@ -244,6 +254,7 @@ mod tests {
             "StringList",
             Some(Span::new(0, 10, 0)),
             "[String]",
+            None,
         )
         .with_meta("tyvars=a,b");
         let out = render_symbols_ai(&[fact], "main.ax", &" ".repeat(20));
@@ -252,7 +263,7 @@ mod tests {
 
     #[test]
     fn ai_alias_without_tyvars_has_no_meta() {
-        let fact = SymbolFact::new(SymbolKind::Alias, "Int", Some(Span::new(0, 3, 0)), "Int");
+        let fact = SymbolFact::new(SymbolKind::Alias, "Int", Some(Span::new(0, 3, 0)), "Int", None);
         let out = render_symbols_ai(&[fact], "main.ax", &" ".repeat(20));
         assert!(out.contains("A Int main.ax:1:1-4 \"Int\""));
         assert!(!out.contains('#'));
@@ -265,6 +276,7 @@ mod tests {
             "Eq",
             Some(Span::new(9, 11, 0)),
             "class Eq",
+            None,
         )
         .with_meta("methods===:(a -> a -> Bool)");
         let out = render_symbols_ai(&[fact], "main.ax", &" ".repeat(20));
@@ -273,14 +285,14 @@ mod tests {
 
     #[test]
     fn ai_builtin_prints_dash() {
-        let fact = SymbolFact::new(SymbolKind::Fn, "+", None, "(Int -> (Int -> Int))");
+        let fact = SymbolFact::new(SymbolKind::Fn, "+", None, "(Int -> (Int -> Int))", None);
         let out = render_symbols_ai(&[fact], "main.ax", "");
         assert!(out.contains("F + - \"(Int -> (Int -> Int))\""));
     }
 
     #[test]
     fn ai_utf8_location() {
-        let fact = SymbolFact::new(SymbolKind::Fn, "hé", Some(Span::new(0, 2, 0)), "Int");
+        let fact = SymbolFact::new(SymbolKind::Fn, "hé", Some(Span::new(0, 2, 0)), "Int", None);
         let out = render_symbols_ai(&[fact], "main.ax", "héllo");
         assert!(out.contains("F hé main.ax:1:1-3 \"Int\""));
     }
@@ -292,6 +304,7 @@ mod tests {
             "S",
             Some(Span::new(0, 1, 0)),
             "struct S",
+            None,
         )
         .with_meta("fields=a:Int")
         .with_meta("align=8")
@@ -301,6 +314,49 @@ mod tests {
         assert!(line.contains("#fields=a:Int"));
         assert!(line.contains("#align=8"));
         assert!(line.contains("#packed"));
+    }
+
+    #[test]
+    fn ai_symbol_with_nid() {
+        let fact = SymbolFact::new(
+            SymbolKind::Fn,
+            "add",
+            Some(Span::new(5, 8, 0)),
+            "(Int -> (Int -> Int))",
+            Some("abcd1234".to_string()),
+        );
+        let out = render_symbols_ai(&[fact], "main.ax", &" ".repeat(20));
+        assert!(out.contains("F add main.ax:1:6-9 \"(Int -> (Int -> Int))\" @abcd1234"));
+    }
+
+    #[test]
+    fn ai_symbol_without_nid_has_no_at_sign() {
+        let fact = SymbolFact::new(
+            SymbolKind::Fn,
+            "add",
+            Some(Span::new(5, 8, 0)),
+            "(Int -> (Int -> Int))",
+            None,
+        );
+        let out = render_symbols_ai(&[fact], "main.ax", &" ".repeat(20));
+        assert!(!out.contains('@'));
+    }
+
+    #[test]
+    fn ai_symbol_with_axtag_metadata() {
+        let fact = SymbolFact::new(
+            SymbolKind::Fn,
+            "read",
+            Some(Span::new(0, 4, 0)),
+            "(-> String)",
+            None,
+        )
+        .with_meta("effect=io")
+        .with_meta("pure");
+        let out = render_symbols_ai(&[fact], "main.ax", &" ".repeat(20));
+        let line = out.trim_end();
+        assert!(line.contains("#effect=io"));
+        assert!(line.contains("#pure"));
     }
 
     #[test]

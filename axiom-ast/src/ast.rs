@@ -206,48 +206,80 @@ pub enum Decl {
         tyvars: Vec<String>,
         constructors: Vec<DataCon>,
         deriving: Vec<Ident>,
+        /// Content-derived stable node ID: a short hash of
+        /// `(kind, name, enclosing-module-path)`. Present for
+        /// declarations that have a name and a stable identity
+        /// across edits elsewhere in the file (unlike character-offset
+        /// spans, which rot when an unrelated edit shifts them).
+        nid: Option<String>,
+        /// AXTAGS - source-embedded agent metadata preserved from
+        /// `;@axiom:<key>(<value>)` comments immediately above this
+        /// declaration. The compiler validates what it can (e.g. an
+        /// `effect(io)` claim against actual FFI calls in the body)
+        /// and surfaces accepted tags as `#`-metadata on AXSYM lines.
+        axtags: Vec<Axtag>,
     },
     DStruct {
         name: Ident,
         tyvars: Vec<String>,
         fields: Vec<Field>,
         repr: Option<TypeRepr>,
+        nid: Option<String>,
+        axtags: Vec<Axtag>,
     },
     DUnion {
         name: Ident,
         tyvars: Vec<String>,
         fields: Vec<Field>,
+        nid: Option<String>,
+        axtags: Vec<Axtag>,
     },
     DType {
         name: Ident,
         tyvars: Vec<String>,
         alias: Type,
+        nid: Option<String>,
+        axtags: Vec<Axtag>,
     },
     DClass {
         name: Ident,
         tyvar: String,
         superclasses: Vec<Type>,
         methods: Vec<ClassMethod>,
+        nid: Option<String>,
+        axtags: Vec<Axtag>,
     },
     DInstance {
         class: Ident,
         ty: Type,
         methods: Vec<(Ident, Expr)>,
+        nid: Option<String>,
+        axtags: Vec<Axtag>,
     },
     DSig {
         name: Ident,
         ty: Type,
+        nid: Option<String>,
+        axtags: Vec<Axtag>,
     },
     DFn {
         name: Ident,
         params: Vec<Pattern>,
         body: Expr,
+        nid: Option<String>,
+        axtags: Vec<Axtag>,
     },
     DForeign {
         name: Ident,
         ty: Type,
         source: String,
+        nid: Option<String>,
+        axtags: Vec<Axtag>,
     },
+    /// An `(import Mod.Sub ...)` declaration: module-path resolution,
+    /// not a named declaration that participates in NID/AXTAG
+    /// indexing (imports don't carry source-stable identities and
+    /// can't have agent-authored tags attached to them).
     DImport {
         module: Vec<Ident>,
         names: Vec<Ident>,
@@ -255,7 +287,30 @@ pub enum Decl {
     DEffect {
         name: Ident,
         operations: Vec<EffectOp>,
+        nid: Option<String>,
+        axtags: Vec<Axtag>,
     },
+}
+
+/// A source-embedded agent metadata tag preserved from the source
+/// for the compiler to surface and (where possible) validate.
+///
+/// Syntax: `;@axiom:<key>(<value>)` on the line immediately above
+/// a declaration. The `;` line-comment prefix is consumed by the
+/// lexer; the `@axiom:` marker distinguishes AXTAGS from ordinary
+/// comments that the lexer discards entirely.  `(<value>)` is
+/// optional - a bare `;@axiom:<key>` (no parentheses) is treated
+/// as a flag tag with an empty value.
+///
+/// Examples recognised by the parser:
+/// - `;@axiom:effect(io)`      → Axtag { key: "effect", value: Some("io") }
+/// - `;@axiom:pure()`           → Axtag { key: "pure", value: Some("") }
+/// - `;@axiom:no_refactor`      → Axtag { key: "no_refactor", value: None }
+/// - `;@axiom:owned(region=0)`  → Axtag { key: "owned", value: Some("region=0") }
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Axtag {
+    pub key: String,
+    pub value: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -294,4 +349,59 @@ pub struct Module {
     pub imports: Vec<Decl>,
     pub decls: Vec<Decl>,
     pub span: Span,
+}
+
+impl Decl {
+    /// Return a short key string identifying this declaration
+    /// for NID generation.  The key is a combination of the
+    /// declaration kind and its name, which is sufficient for
+    /// a content-derived stable ID (renaming changes the NID,
+    /// whitespace/formatting changes do not).
+    pub fn nid_key(&self, out: &mut String) {
+        match self {
+            Decl::DData { name, .. } => {
+                out.push_str("DData:");
+                out.push_str(&name.name);
+            }
+            Decl::DStruct { name, .. } => {
+                out.push_str("DStruct:");
+                out.push_str(&name.name);
+            }
+            Decl::DUnion { name, .. } => {
+                out.push_str("DUnion:");
+                out.push_str(&name.name);
+            }
+            Decl::DType { name, .. } => {
+                out.push_str("DType:");
+                out.push_str(&name.name);
+            }
+            Decl::DClass { name, .. } => {
+                out.push_str("DClass:");
+                out.push_str(&name.name);
+            }
+            Decl::DInstance { class, .. } => {
+                out.push_str("DInstance:");
+                out.push_str(&class.name);
+            }
+            Decl::DSig { name, .. } => {
+                out.push_str("DSig:");
+                out.push_str(&name.name);
+            }
+            Decl::DFn { name, .. } => {
+                out.push_str("DFn:");
+                out.push_str(&name.name);
+            }
+            Decl::DForeign { name, .. } => {
+                out.push_str("DForeign:");
+                out.push_str(&name.name);
+            }
+            Decl::DEffect { name, .. } => {
+                out.push_str("DEffect:");
+                out.push_str(&name.name);
+            }
+            Decl::DImport { .. } => {
+                out.push_str("DImport");
+            }
+        }
+    }
 }

@@ -94,11 +94,11 @@ impl IrGen {
                         align,
                     });
                 }
-                Decl::DFn { name, params, body } => {
+                Decl::DFn { name, params, body, .. } => {
                     let func = self.gen_function(name, params, body, type_checker);
                     self.module.functions.push(func);
                 }
-                Decl::DSig { name, ty } => {
+                Decl::DSig { name, ty, .. } => {
                     let _ = (name, ty);
                 }
                 _ => {}

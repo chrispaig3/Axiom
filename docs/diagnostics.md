@@ -349,42 +349,35 @@ obvious immediately. See `axiom-parser/src/lib.rs`'s `parse_tyvars`/
    (e.g. the cascade spans multiple compiler stages), and pick a group key
    specific enough that it can never merge two unrelated errors.
 
-## Roadmap: stable node addresses and source-embedded tags
+## Stable node IDs and source-embedded tags
 
-AXDL and AXSYM both address locations the same way an editor does -
-`file:line:col`. That's fine for a single request/response turn, but it
-quietly rots: an agent that captured a `file:line:col` from one AXDL/AXSYM
-line, then made an *unrelated* edit earlier in the file, now holds a
-stale coordinate for everything below the edit. The next two notations
-this family is designed to grow into both exist to fix that, and are
-deliberately scoped out of the current implementation rather than
-half-built:
+Both NID and AXTAG are now implemented.
 
-* **NID (stable node ID).** Every declaration a future `axiom` could
-  assign a content-derived ID - e.g. a short hash of `(kind, name,
-  enclosing-module-path)` - that survives edits elsewhere in the file and
-  small reformatting, unlike a character offset. AXSYM lines would grow an
-  optional `@NID` field alongside `FILE:LOC`; AXDL's related-span (`^`)
-  fields could reference a NID instead of re-deriving a location once
-  `FILE:LOC` has gone stale between an agent's read and its write. This is
-  *not* "line numbers with extra steps" - the whole point is a coordinate
-  that is stable exactly when `file:line:col` is not.
+* **NID (stable node ID).** Every named declaration gets a content-derived
+  ID - a short hash of `(kind, name)` - that survives edits elsewhere in
+  the file and small reformatting, unlike a character offset. AXSYM lines
+  emit an optional `@NID` field after the type. This is *not* "line numbers
+  with extra steps" - the whole point is a coordinate that is stable exactly
+  when `file:line:col` is not.
+
 * **AXTAG (source-embedded agent metadata).** A reserved comment form -
   `;@axiom:<key>(<value>)` immediately above a declaration - for
-  agent-authored, compiler-checked intent: effect claims, ownership/region
-  notes, "do not auto-refactor" markers. Unlike a bare comment, the lexer
-  would preserve it as trivia attached to the following declaration (not
-  discarded), sema would validate whatever it can (e.g. an `effect(io)`
-  claim against actual FFI calls in the body) and *emit a normal AXDL
-  diagnostic* if a tag and the code it annotates disagree, and `axiom
-  symbols` would surface accepted tags as `#`-metadata on the
-  corresponding AXSYM line. This turns "the agent's stated intent" into
-  something the compiler round-trips and checks, instead of a comment
-  string no tool ever reads back.
+  agent-authored, compiler-checked intent. The lexer preserves AXTAG tokens
+  as trivia attached to the following declaration, the parser attaches them
+  to the AST, and `axiom symbols` surfaces accepted tags as `#`-metadata
+  on the corresponding AXSYM line (e.g. `#effect=io`, `#pure`).
 
-Both are listed here rather than implemented because they change what the
-compiler stores (persistent per-declaration IDs; lexer trivia that
-survives past tokenization instead of being dropped) rather than just how
-already-computed facts are printed, and deserve their own design pass
-once AXDL/AXSYM have real usage to validate the two-notation split
-against.
+  Sema validates what it can: `effect(io)` claims are checked against
+  actual foreign calls in the body, and `pure` claims are checked against
+  foreign calls. Mismatches emit a normal `AX3010` / `axtag-mismatch`
+  warning so an agent can correct the annotation instead of silently
+  trusting it. Other tags (`no_refactor`, `owned(region=N)`, etc.) are
+  preserved and emitted but not yet validated.
+
+Example AXSYM output with NID and AXTAG metadata:
+
+```
+F add main.ax:1:6-9 "(Int -> (Int -> Int))" @a1b2c3d4e5f6a1b2
+X printf main.ax:1:10-16 "(String -> Int)" #symbol=printf @c3d4e5f6a1b2
+D Maybe main.ax:3:7-12 "data Maybe" #ctors=Nothing,Just @e5f6a1b2c3d4
+```

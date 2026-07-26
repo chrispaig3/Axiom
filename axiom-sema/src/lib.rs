@@ -51,6 +51,12 @@ pub enum SemError {
     },
     #[error("{message}")]
     Message { message: String, span: Span },
+    #[error("AXTAG mismatch on `{name}`: {message}")]
+    AxtagMismatch {
+        name: String,
+        message: String,
+        span: Span,
+    },
 }
 
 impl SemError {
@@ -65,6 +71,7 @@ impl SemError {
             SemError::DuplicateDefinition { span, .. } => *span,
             SemError::FieldNotFound { span, .. } => *span,
             SemError::Message { span, .. } => *span,
+            SemError::AxtagMismatch { span, .. } => *span,
         }
     }
 
@@ -184,7 +191,72 @@ impl SemError {
                 Diagnostic::error(&code::SEMA_MESSAGE, message.clone())
                     .with_primary(span, message.clone())
             }
+            SemError::AxtagMismatch { name, message, .. } => {
+                Diagnostic::warning(&code::AXTAG_MISMATCH, self.to_string())
+                    .with_primary(span, format!("`{}`: {}", name, message))
+            }
         }
+    }
+}
+
+fn expr_contains_foreign_call(expr: &Expr, foreign_names: &std::collections::HashSet<String>) -> bool {
+    match expr {
+        Expr::EVar(ident) => foreign_names.contains(&ident.name),
+        Expr::EApp(func, arg) => {
+            expr_contains_foreign_call(func, foreign_names)
+                || expr_contains_foreign_call(arg, foreign_names)
+        }
+        Expr::ELam(_, body) => expr_contains_foreign_call(body, foreign_names),
+        Expr::ELet(bindings, body) => {
+            bindings
+                .iter()
+                .any(|(_, e)| expr_contains_foreign_call(e, foreign_names))
+                || expr_contains_foreign_call(body, foreign_names)
+        }
+        Expr::EIf(_, t, e) => {
+            expr_contains_foreign_call(t, foreign_names)
+                || expr_contains_foreign_call(e, foreign_names)
+        }
+        Expr::ECase(target, arms) => {
+            expr_contains_foreign_call(target, foreign_names)
+                || arms
+                    .iter()
+                    .any(|(_, e)| expr_contains_foreign_call(e, foreign_names))
+        }
+        Expr::ECond(branches, else_) => {
+            branches.iter().any(|(c, e)| {
+                expr_contains_foreign_call(c, foreign_names)
+                    || expr_contains_foreign_call(e, foreign_names)
+            }) || else_
+                .as_ref()
+                .map(|e| expr_contains_foreign_call(e, foreign_names))
+                .unwrap_or(false)
+        }
+        Expr::EBegin(es) => es.iter().any(|e| expr_contains_foreign_call(e, foreign_names)),
+        Expr::ETuple(es) => es.iter().any(|e| expr_contains_foreign_call(e, foreign_names)),
+        Expr::EList(es) => es.iter().any(|e| expr_contains_foreign_call(e, foreign_names)),
+        Expr::EInfix(l, _, r) => {
+            expr_contains_foreign_call(l, foreign_names)
+                || expr_contains_foreign_call(r, foreign_names)
+        }
+        Expr::ETypeSig(e, _) => expr_contains_foreign_call(e, foreign_names),
+        Expr::ECast(e, _) => expr_contains_foreign_call(e, foreign_names),
+        Expr::EAlloc(_, init, _) => init
+            .as_ref()
+            .map(|e| expr_contains_foreign_call(e, foreign_names))
+            .unwrap_or(false),
+        Expr::ESizeof(_, _) => false,
+        Expr::EAlignof(_, _) => false,
+        Expr::EGrouped(e) => expr_contains_foreign_call(e, foreign_names),
+        Expr::EHandle(e, _, handler) => {
+            expr_contains_foreign_call(e, foreign_names)
+                || expr_contains_foreign_call(handler, foreign_names)
+        }
+        Expr::ERegion(_, e) => expr_contains_foreign_call(e, foreign_names),
+        Expr::EConsume(e) => expr_contains_foreign_call(e, foreign_names),
+        Expr::EField(e, _) => expr_contains_foreign_call(e, foreign_names),
+        Expr::EError(_, _) => false,
+        Expr::ELit(_, _) => false,
     }
 }
 
@@ -622,7 +694,7 @@ impl TypeChecker {
                         fields: struct_fields,
                     });
                 }
-                Decl::DSig { name, ty } => {
+                Decl::DSig { name, ty, .. } => {
                     self.functions
                         .push(FnInfo::new(name.name.clone(), self.type_to_id(ty)));
                 }
@@ -645,7 +717,7 @@ impl TypeChecker {
                         self.type_counter += 1;
                     }
                 }
-                Decl::DForeign { name, ty, source } => {
+                Decl::DForeign { name, ty, source, .. } => {
                     let mut info = FnInfo::new(name.name.clone(), self.type_to_id(ty));
                     info.foreign_symbol = Some(source.clone());
                     self.functions.push(info);
@@ -664,6 +736,7 @@ impl TypeChecker {
                     name,
                     tyvars,
                     alias,
+                    ..
                 } => {
                     self.aliases.push(TypeAliasInfo {
                         name: name.name.clone(),
@@ -677,9 +750,16 @@ impl TypeChecker {
     }
 
     fn check_decls(&mut self, decls: &[Decl]) {
+        let foreign_names: std::collections::HashSet<String> = self
+            .functions
+            .iter()
+            .filter(|f| f.foreign_symbol.is_some())
+            .map(|f| f.name.clone())
+            .collect();
+
         for decl in decls {
             match decl {
-                Decl::DSig { name, ty } => {
+                Decl::DSig { name, ty, .. } => {
                     let ty_id = self.type_to_id(ty);
                     self.scope.push((
                         name.name.clone(),
@@ -689,7 +769,7 @@ impl TypeChecker {
                         },
                     ));
                 }
-                Decl::DFn { name, params, body } => {
+                Decl::DFn { name, params, body, axtags, .. } => {
                     let sig_ty = self
                         .functions
                         .iter()
@@ -735,6 +815,34 @@ impl TypeChecker {
                     // Update the function's type in self.functions
                     if let Some(fn_info) = self.functions.iter_mut().find(|f| f.name == name.name) {
                         fn_info.ty = fn_ty;
+                    }
+
+                    for tag in axtags {
+                        match tag.key.as_str() {
+                            "effect" => {
+                                if !expr_contains_foreign_call(body, &foreign_names) {
+                                    self.errors.push(SemError::AxtagMismatch {
+                                        name: name.name.clone(),
+                                        message: format!(
+                                            "`effect({})` claim unsupported: body contains no foreign calls",
+                                            tag.value.as_deref().unwrap_or("")
+                                        ),
+                                        span: name.span,
+                                    });
+                                }
+                            }
+                            "pure" => {
+                                if expr_contains_foreign_call(body, &foreign_names) {
+                                    self.errors.push(SemError::AxtagMismatch {
+                                        name: name.name.clone(),
+                                        message: "`pure` claim contradicted: body calls a foreign function"
+                                            .to_string(),
+                                        span: name.span,
+                                    });
+                                }
+                            }
+                            _ => {}
+                        }
                     }
                 }
                 Decl::DForeign { name, ty, .. } => {
@@ -1315,7 +1423,7 @@ impl TypeChecker {
                 self.data_types
                     .push(self.build_data_type_info(name, tyvars, constructors));
             }
-            Decl::DSig { name, ty } => {
+            Decl::DSig { name, ty, .. } => {
                 let ty_id = self.type_to_id(ty);
                 self.functions
                     .push(FnInfo::new(name.name.clone(), ty_id.clone()));
@@ -1327,7 +1435,7 @@ impl TypeChecker {
                     },
                 ));
             }
-            Decl::DFn { name, params, body } => {
+            Decl::DFn { name, params, body, .. } => {
                 if !self.functions.iter().any(|f| f.name == name.name) {
                     self.functions.push(FnInfo::new(
                         name.name.clone(),
@@ -1352,7 +1460,7 @@ impl TypeChecker {
                     fields: struct_fields,
                 });
             }
-            Decl::DForeign { name, ty, source } => {
+            Decl::DForeign { name, ty, source, .. } => {
                 let mut info = FnInfo::new(name.name.clone(), self.type_to_id(ty));
                 info.foreign_symbol = Some(source.clone());
                 self.functions.push(info);
@@ -1371,6 +1479,7 @@ impl TypeChecker {
                 name,
                 tyvars,
                 alias,
+                ..
             } => {
                 self.aliases.push(TypeAliasInfo {
                     name: name.name.clone(),
@@ -1562,5 +1671,47 @@ mod tests {
             .find(|f| f.name == "+")
             .expect("+ not registered");
         assert!(plus.is_builtin);
+    }
+
+    #[test]
+    fn effect_io_tag_with_foreign_call_passes() {
+        assert!(check(
+            r#"(foreign printf :: (-> String Int) = "printf")
+(:: main Int)
+;@axiom:effect(io)
+(fn main (printf "hello"))"#
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn effect_io_tag_without_foreign_call_warns() {
+        let errors = check_err(
+            r#"(:: main Int)
+;@axiom:effect(io)
+(fn main 0)"#,
+        );
+        assert!(errors.iter().any(|e| matches!(e, SemError::AxtagMismatch { name, .. } if name == "main")));
+    }
+
+    #[test]
+    fn pure_tag_with_foreign_call_warns() {
+        let errors = check_err(
+            r#"(foreign printf :: (-> String Int) = "printf")
+(:: main Int)
+;@axiom:pure
+(fn main (printf "hello"))"#,
+        );
+        assert!(errors.iter().any(|e| matches!(e, SemError::AxtagMismatch { name, .. } if name == "main")));
+    }
+
+    #[test]
+    fn pure_tag_without_foreign_call_passes() {
+        assert!(check(
+            r#"(:: main Int)
+;@axiom:pure
+(fn main (+ 1 2))"#
+        )
+        .is_ok());
     }
 }

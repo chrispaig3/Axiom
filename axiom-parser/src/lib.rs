@@ -2,6 +2,8 @@ use axiom_ast::ast::*;
 use axiom_ast::span::{Ident, Span};
 use axiom_ast::token::{Token, TokenKind};
 use axiom_errors::{code, Diagnostic};
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 
 #[derive(Debug, thiserror::Error)]
 pub enum ParseError {
@@ -67,7 +69,110 @@ impl Parser {
         Self { tokens, pos: 0 }
     }
 
-    pub fn parse_module(&mut self) -> ParseResult<Module> {
+    /// Collect any AXTAG tokens (`TokenKind::Axtag`) that immediately
+    /// precede the current position in the token stream.  AXTAGs must
+    /// appear directly above a declaration with no intervening
+    /// non-AXTAG tokens or blank lines.  Collection stops at the first
+    /// non-AXTAG token.
+    fn collect_axtags(&mut self) -> Vec<Token> {
+        let mut axtags = Vec::new();
+        while let Some(token) = self.tokens.get(self.pos) {
+            match &token.kind {
+                TokenKind::Axtag(_) => {
+                    axtags.push(token.clone());
+                    self.pos += 1;
+                }
+                TokenKind::Eof => break,
+                _ => break,
+            }
+        }
+        axtags
+    }
+
+/// Generate a stable content-derived node ID for a declaration.
+/// The ID is a short hex hash of the declaration's kind and
+/// name, making it stable across formatting-only edits but
+/// sensitive to renames.
+fn generate_nid(decl: &Decl) -> String {
+    let mut s = String::new();
+    decl.nid_key(&mut s);
+    let mut hasher = DefaultHasher::new();
+    s.hash(&mut hasher);
+    format!("{:016x}", hasher.finish())
+}
+
+/// Parse raw AXTAG tokens into structured [`Axtag`] values.
+fn parse_axtag_tokens(tokens: &[Token]) -> Vec<Axtag> {
+    tokens
+        .iter()
+        .filter_map(|t| {
+            if let TokenKind::Axtag(content) = &t.kind {
+                let (key, value) = if let Some(parens_start) = content.find('(') {
+                    let key = content[..parens_start].to_string();
+                    let close = content.rfind(')').unwrap_or(content.len());
+                    let val = content[parens_start + 1..close].to_string();
+                    (key, Some(val))
+                } else {
+                    (content.to_string(), None)
+                };
+                Some(Axtag { key, value })
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
+/// Attach a content-derived NID and parsed AXTAGs to a mutable
+/// declaration reference.  The caller is responsible for not
+/// calling this on `DImport` declarations.
+fn attach_nid_and_axtags(decl: &mut Decl, nid: String, axtags: Vec<Axtag>) {
+    match decl {
+        Decl::DData { nid: n, axtags: a, .. } => {
+            *n = Some(nid);
+            *a = axtags;
+        }
+        Decl::DStruct { nid: n, axtags: a, .. } => {
+            *n = Some(nid);
+            *a = axtags;
+        }
+        Decl::DUnion { nid: n, axtags: a, .. } => {
+            *n = Some(nid);
+            *a = axtags;
+        }
+        Decl::DType { nid: n, axtags: a, .. } => {
+            *n = Some(nid);
+            *a = axtags;
+        }
+        Decl::DClass { nid: n, axtags: a, .. } => {
+            *n = Some(nid);
+            *a = axtags;
+        }
+        Decl::DInstance { nid: n, axtags: a, .. } => {
+            *n = Some(nid);
+            *a = axtags;
+        }
+        Decl::DSig { nid: n, axtags: a, .. } => {
+            *n = Some(nid);
+            *a = axtags;
+        }
+        Decl::DFn { nid: n, axtags: a, .. } => {
+            *n = Some(nid);
+            *a = axtags;
+        }
+        Decl::DForeign { nid: n, axtags: a, .. } => {
+            *n = Some(nid);
+            *a = axtags;
+        }
+        Decl::DEffect { nid: n, axtags: a, .. } => {
+            *n = Some(nid);
+            *a = axtags;
+        }
+        Decl::DImport { .. } => {}
+    }
+}
+
+pub fn parse_module(&mut self) -> ParseResult<Module> {
         let start = self.current_span();
         let mut imports = Vec::new();
         let mut decls = Vec::new();
@@ -98,9 +203,11 @@ impl Parser {
     }
 
     pub fn parse_decl(&mut self) -> ParseResult<Decl> {
+        let axtags = self.collect_axtags();
+
         self.expect(TokenKind::LParen)?;
 
-        let decl = if self.check(TokenKind::Define) || self.check(TokenKind::Fn) {
+        let mut decl = if self.check(TokenKind::Define) || self.check(TokenKind::Fn) {
             self.parse_define()?
         } else if self.check(TokenKind::Data) {
             self.parse_data()?
@@ -138,6 +245,14 @@ impl Parser {
         };
 
         self.expect(TokenKind::RParen)?;
+
+        // Imports don't get NIDs or AXTAGS.
+        if !matches!(decl, Decl::DImport { .. }) {
+            let nid = Self::generate_nid(&decl);
+            let parsed_axtags = Self::parse_axtag_tokens(&axtags);
+            Self::attach_nid_and_axtags(&mut decl, nid, parsed_axtags);
+        }
+
         Ok(decl)
     }
 
@@ -154,7 +269,13 @@ impl Parser {
             }
             self.expect(TokenKind::RParen)?;
             let body = self.parse_body_exprs()?;
-            Ok(Decl::DFn { name, params, body })
+            Ok(Decl::DFn {
+                name,
+                params,
+                body,
+                nid: None,
+                axtags: Vec::new(),
+            })
         } else {
             let name = self.parse_ident()?;
             self.eat(TokenKind::Eq);
@@ -163,6 +284,8 @@ impl Parser {
                 name,
                 params: vec![],
                 body,
+                nid: None,
+                axtags: Vec::new(),
             })
         }
     }
@@ -171,7 +294,12 @@ impl Parser {
         self.expect(TokenKind::DoubleColon)?;
         let name = self.parse_ident()?;
         let ty = self.parse_type()?;
-        Ok(Decl::DSig { name, ty })
+        Ok(Decl::DSig {
+            name,
+            ty,
+            nid: None,
+            axtags: Vec::new(),
+        })
     }
 
     fn parse_data(&mut self) -> ParseResult<Decl> {
@@ -212,6 +340,8 @@ impl Parser {
             tyvars,
             constructors,
             deriving,
+            nid: None,
+            axtags: Vec::new(),
         })
     }
 
@@ -260,6 +390,8 @@ impl Parser {
             tyvars,
             fields,
             repr,
+            nid: None,
+            axtags: Vec::new(),
         })
     }
 
@@ -287,6 +419,8 @@ impl Parser {
             name,
             tyvars,
             fields,
+            nid: None,
+            axtags: Vec::new(),
         })
     }
 
@@ -300,6 +434,8 @@ impl Parser {
             name,
             tyvars,
             alias,
+            nid: None,
+            axtags: Vec::new(),
         })
     }
 
@@ -318,6 +454,8 @@ impl Parser {
                 fields: vec![inner_type],
             }],
             deriving: Vec::new(),
+            nid: None,
+            axtags: Vec::new(),
         })
     }
 
@@ -364,6 +502,8 @@ impl Parser {
             tyvar,
             superclasses,
             methods,
+            nid: None,
+            axtags: Vec::new(),
         })
     }
 
@@ -388,7 +528,13 @@ impl Parser {
             self.expect(TokenKind::RParen)?;
         }
 
-        Ok(Decl::DInstance { class, ty, methods })
+        Ok(Decl::DInstance {
+            class,
+            ty,
+            methods,
+            nid: None,
+            axtags: Vec::new(),
+        })
     }
 
     fn parse_import(&mut self) -> ParseResult<Decl> {
@@ -420,7 +566,13 @@ impl Parser {
         let ty = self.parse_type()?;
         self.expect(TokenKind::Eq)?;
         let source = self.parse_string_literal()?;
-        Ok(Decl::DForeign { name, ty, source })
+        Ok(Decl::DForeign {
+            name,
+            ty,
+            source,
+            nid: None,
+            axtags: Vec::new(),
+        })
     }
 
     fn parse_effect(&mut self) -> ParseResult<Decl> {
@@ -443,7 +595,12 @@ impl Parser {
         }
         self.expect(TokenKind::RParen)?;
 
-        Ok(Decl::DEffect { name, operations })
+        Ok(Decl::DEffect {
+            name,
+            operations,
+            nid: None,
+            axtags: Vec::new(),
+        })
     }
 
     fn parse_pattern(&mut self) -> ParseResult<Pattern> {

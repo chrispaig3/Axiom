@@ -115,6 +115,11 @@ pub enum TokenKind {
 
     // Special
     Comment,
+    /// A source-embedded agent metadata tag: `;@axiom:<key>(<value>)`.
+    /// Unlike ordinary line comments that the lexer discards, AXTAG
+    /// tokens are preserved as trivia so the parser can attach them
+    /// to the declaration that follows.
+    Axtag(String),
     Eof,
 }
 
@@ -220,6 +225,7 @@ impl fmt::Display for TokenKind {
             TokenKind::LBrace => write!(f, "{{"),
             TokenKind::RBrace => write!(f, "}}"),
             TokenKind::Comment => write!(f, "; comment"),
+            TokenKind::Axtag(s) => write!(f, ";@axiom:{}", s),
             TokenKind::Eof => write!(f, "EOF"),
         }
     }

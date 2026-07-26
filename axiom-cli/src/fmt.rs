@@ -45,10 +45,10 @@ impl FormatState {
 
 fn format_decl(decl: &Decl, out: &mut String, state: &mut FormatState) {
     match decl {
-        Decl::DSig { name, ty } => {
+        Decl::DSig { name, ty, .. } => {
             write!(out, "(:: {} {})", name, format_type(ty)).unwrap();
         }
-        Decl::DFn { name, params, body } => {
+        Decl::DFn { name, params, body, .. } => {
             format_function_decl(name, params, body, out, state);
         }
         Decl::DData {
@@ -56,6 +56,7 @@ fn format_decl(decl: &Decl, out: &mut String, state: &mut FormatState) {
             tyvars,
             constructors,
             deriving,
+            ..
         } => {
             format_data_decl(name, tyvars, constructors, deriving, out, state);
         }
@@ -64,6 +65,7 @@ fn format_decl(decl: &Decl, out: &mut String, state: &mut FormatState) {
             tyvars,
             fields,
             repr,
+            ..
         } => {
             format_struct_decl(name, tyvars, fields, repr, out, state);
         }
@@ -71,6 +73,7 @@ fn format_decl(decl: &Decl, out: &mut String, state: &mut FormatState) {
             name,
             tyvars,
             fields,
+            ..
         } => {
             format_union_decl(name, tyvars, fields, out, state);
         }
@@ -78,6 +81,7 @@ fn format_decl(decl: &Decl, out: &mut String, state: &mut FormatState) {
             name,
             tyvars,
             alias,
+            ..
         } => {
             write!(out, "(type {}", name.name).unwrap();
             if !tyvars.is_empty() {
@@ -86,7 +90,7 @@ fn format_decl(decl: &Decl, out: &mut String, state: &mut FormatState) {
             }
             write!(out, " {})", format_type(alias)).unwrap();
         }
-        Decl::DForeign { name, ty, source } => {
+        Decl::DForeign { name, ty, source, .. } => {
             write!(
                 out,
                 "(foreign {} :: {} = \"{}\")",
@@ -118,13 +122,14 @@ fn format_decl(decl: &Decl, out: &mut String, state: &mut FormatState) {
             tyvar,
             superclasses,
             methods,
+            ..
         } => {
             format_class_decl(name, tyvar, superclasses, methods, out, state);
         }
-        Decl::DInstance { class, ty, methods } => {
+        Decl::DInstance { class, ty, methods, .. } => {
             format_instance_decl(class, ty, methods, out, state);
         }
-        Decl::DEffect { name, operations } => {
+        Decl::DEffect { name, operations, .. } => {
             format_effect_decl(name, operations, out, state);
         }
     }
