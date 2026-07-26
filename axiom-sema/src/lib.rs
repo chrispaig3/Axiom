@@ -169,7 +169,7 @@ impl SemError {
                 Diagnostic::error(&code::NON_EXHAUSTIVE, self.to_string())
                     .with_primary(
                         span,
-                        format!("this `case` does not cover: {}", missing.join(", ")),
+                        format!("this `match` does not cover: {}", missing.join(", ")),
                     )
                     .with_help("add the missing arms, or a wildcard `_` arm to catch the rest")
             }
@@ -220,7 +220,7 @@ fn expr_contains_foreign_call(
             expr_contains_foreign_call(t, foreign_names)
                 || expr_contains_foreign_call(e, foreign_names)
         }
-        Expr::ECase(target, arms) => {
+        Expr::EMatch(target, arms) => {
             expr_contains_foreign_call(target, foreign_names)
                 || arms
                     .iter()
@@ -344,7 +344,7 @@ impl TypeId {
     /// constructor's field type (e.g. `Node :: (Tree a) -> a -> (Tree a)
     /// -> Tree a`) is bound to a pattern variable exactly as written,
     /// tyvar and all, never substituted with the scrutinee's actual type
-    /// argument - so a recursive call like `(sumTree l)` inside `(case t
+    /// argument - so a recursive call like `(sumTree l)` inside `(match t
     /// ((Node l v r) ...))` sees `l`'s type as `(Tree a)`, not `(Tree
     /// Int)`, even when `t : Tree Int`. Plain structural equality
     /// (`PartialEq`) would call that a mismatch against a signature
@@ -655,7 +655,7 @@ impl TypeChecker {
     /// Every constructor's outer type is `TCon(name, tyvars-as-TVars)`,
     /// *including* nullary constructors: `Nil`'s type is `List a`, not
     /// bare `List` with the type parameter silently dropped. Dropping it
-    /// for the nullary case (the bug this replaced) was invisible for a
+    /// for the nullary match (the bug this replaced) was invisible for a
     /// long time because nothing ever compared a nullary constructor's
     /// type against anything - it only became observable once
     /// `Expr::EApp` started actually checking argument types against
@@ -1108,7 +1108,7 @@ impl TypeChecker {
                     then_ty
                 }
             }
-            Expr::ECase(target, arms) => {
+            Expr::EMatch(target, arms) => {
                 let target_ty = self.check_expr(target);
                 let mut arm_ty = TypeId::TVar(format!("_t{}", self.type_counter));
                 let mut covered: std::collections::HashSet<String> =
@@ -1531,7 +1531,7 @@ impl TypeChecker {
     /// check against (lambda/`let` parameters). Delegates to
     /// [`check_pattern_with_type`](Self::check_pattern_with_type) so a
     /// `PCon` pattern here still gets the same constructor
-    /// identity/arity validation as a `case` arm does, rather than a
+    /// identity/arity validation as a `match` arm does, rather than a
     /// second, duplicated (and previously non-validating) tree walk.
     fn check_pattern(&mut self, pat: &Pattern) {
         let fresh = TypeId::TVar(format!("_t{}", self.type_counter));
@@ -1548,7 +1548,7 @@ impl TypeChecker {
     ///   declared arity ([`SemError::ConstructorArity`] if not), and each
     ///   `arg` is recursively checked against that field's *actual*
     ///   declared type rather than being left as an unconstrained
-    ///   variable - so `(case v ((Just x) (+ x 1)))` gives `x` the real
+    ///   variable - so `(match v ((Just x) (+ x 1)))` gives `x` the real
     ///   field type instead of a fresh, meaningless `TVar`. If `ty` is
     ///   already known concretely and doesn't name the constructor's own
     ///   data type, that's also a [`SemError::TypeMismatch`] (matching a
@@ -1830,11 +1830,11 @@ mod tests {
     }
 
     #[test]
-    fn exhaustive_case_over_a_data_type_checks_ok() {
+    fn exhaustive_match_over_a_data_type_checks_ok() {
         assert!(check(
             "(data Maybe (a) (Nothing) (Just a))\n\
              (:: main Int)\n\
-             (fn main (case (Just 1) ((Nothing) 0) ((Just x) x)))"
+             (fn main (match (Just 1) ((Nothing) 0) ((Just x) x)))"
         )
         .is_ok());
     }
@@ -1843,23 +1843,23 @@ mod tests {
     /// diagnostic long before anything actually constructed one - this is
     /// the first test that would catch that regressing again.
     #[test]
-    fn non_exhaustive_case_over_a_data_type_is_an_error() {
+    fn non_exhaustive_match_over_a_data_type_is_an_error() {
         let errors = check_err(
             "(data Maybe (a) (Nothing) (Just a))\n\
              (:: main Int)\n\
-             (fn main (case (Just 1) ((Just x) x)))",
+             (fn main (match (Just 1) ((Just x) x)))",
         );
         assert!(errors.iter().any(|e| matches!(e, SemError::NonExhaustive { missing, .. } if missing == &["Nothing".to_string()])));
     }
 
-    /// A wildcard arm makes any `case` exhaustive regardless of which
+    /// A wildcard arm makes any `match` exhaustive regardless of which
     /// constructors are explicitly covered.
     #[test]
-    fn wildcard_arm_makes_case_exhaustive() {
+    fn wildcard_arm_makes_match_exhaustive() {
         assert!(check(
             "(data Maybe (a) (Nothing) (Just a))\n\
              (:: main Int)\n\
-             (fn main (case (Just 1) ((Nothing) 0) (_ 1)))"
+             (fn main (match (Just 1) ((Nothing) 0) (_ 1)))"
         )
         .is_ok());
     }
@@ -1869,7 +1869,7 @@ mod tests {
         let errors = check_err(
             "(data Maybe (a) (Nothing) (Just a))\n\
              (:: main Int)\n\
-             (fn main (case (Just 1) ((Nothing) 0) ((Just x y) x)))",
+             (fn main (match (Just 1) ((Nothing) 0) ((Just x y) x)))",
         );
         assert!(errors.iter().any(|e| matches!(e, SemError::ConstructorArity { name, expected: 1, found: 2, .. } if name == "Just")));
     }
@@ -1879,7 +1879,7 @@ mod tests {
         let errors = check_err(
             "(data Maybe (a) (Nothing) (Just a))\n\
              (:: main Int)\n\
-             (fn main (case (Just 1) ((Nothign) 0) ((Just x) x)))",
+             (fn main (match (Just 1) ((Nothign) 0) ((Just x) x)))",
         );
         assert!(errors.iter().any(|e| matches!(
             e,

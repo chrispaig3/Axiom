@@ -278,12 +278,12 @@ Define custom types with constructors:
 
 The `(a)` after the type name is a type parameter — like generics in other languages.
 
-### Pattern matching with `case`
+### Pattern matching with `match`
 
 ```scheme
 (:: fromMaybe (-> Int (Maybe Int) Int))
 (fn (fromMaybe default val)
-  (case val
+  (match val
     ((Nothing) default)
     ((Just x) x)))
 ```
@@ -291,7 +291,7 @@ The `(a)` after the type name is a type parameter — like generics in other lan
 Patterns can match constructors, literals, tuples, lists, and wildcards:
 
 ```scheme
-(case x
+(match x
   (42 "the answer")
   ((Cons head tail) head)
   (_ "anything else"))
@@ -304,7 +304,7 @@ is a heap-allocated, tagged block: word `0` is an integer tag identifying
 which constructor built it, and words `1..` are its fields, one 8-byte word
 each. This one uniform representation (rather than, say, an unboxed integer
 for nullary constructors and a pointer for everything else) is what lets
-`case` compare *any* constructor pattern against *any* value of that type
+`match` compare *any* constructor pattern against *any* value of that type
 the same way, and it's what makes recursive types - `List`, `Tree` - work
 with no special-casing at all: a field that's itself another `data` value
 is just another 8-byte word holding that value's own heap address.
@@ -316,7 +316,7 @@ is just another 8-byte word holding that value's own heap address.
 
 (:: sum (-> (List Int) Int))
 (fn (sum lst)
-  (case lst
+  (match lst
     ((Nil) 0)
     ((Cons h t) (+ h (sum t)))))
 
@@ -332,7 +332,7 @@ Current limitations, honestly stated:
 - **Nested constructor patterns work** - `((Cons h (Cons h2 t)) ...)`
   correctly matches and binds all three variables. Inner constructor tags
   are checked recursively and fields are extracted at each level.
-- **Tuple and list patterns inside `case` now compare elements**
+- **Tuple and list patterns inside `match` now compare elements**
   - `PTuple` and `PList` patterns check each element at the correct
   offset and branch to the next arm on a mismatch, just like `PCon`
   arms. Tuples and lists are heap-allocated blocks with elements stored
@@ -485,7 +485,7 @@ See the [Foreign Function Interface](#foreign-function-interface) section for de
 
 (:: fromMaybe (-> Int (Maybe Int) Int))
 (fn (fromMaybe default val)
-  (case val
+  (match val
     ((Nothing) default)
     ((Just x) x)))
 
@@ -498,7 +498,7 @@ Note: constructor patterns now compile to real branching code (see
 [Algebraic data types: how they actually run](#algebraic-data-types-how-they-actually-run)) -
 each arm's constructor tag is checked in order and only a matching arm's
 body actually runs. Nested constructor patterns and tuple/list patterns
-inside `case` work correctly (see the limitations below).
+inside `match` work correctly (see the limitations below).
 
 ---
 
@@ -745,7 +745,7 @@ Source (.ax)
 | FFI | **Complete** | Call any C function with `foreign` declarations |
 | ADTs / data types | **Complete** | Constructors (nullary and with fields, including recursive types like `List`/`Tree`) compile to heap-boxed tagged values; see [Algebraic data types](#algebraic-data-types-how-they-actually-run) |
 | Structs / unions | **Complete** | Declarations, LLVM emission, field access (`.field`), struct construction (`(StructName expr1 expr2 ...)`), `mut` fields, and field mutation (`(set-field expr field value)`) all work |
-| Pattern matching (`case`) | **Complete** | Constructor patterns (nullary and with-field), variables, wildcards, literals, nested constructor patterns, and tuple/list patterns all compare and bind correctly, plus non-exhaustiveness/arity/undefined-constructor diagnostics |
+| Pattern matching (`match`) | **Complete** | Constructor patterns (nullary and with-field), variables, wildcards, literals, nested constructor patterns, and tuple/list patterns all compare and bind correctly, plus non-exhaustiveness/arity/undefined-constructor diagnostics |
 | Lambda | **Partial** | Parsed and type-checked; codegen pending |
 | Lists | **Partial** | Syntax and type checking; runtime representation pending |
 | Tuples | **Partial** | Syntax and type checking; codegen pending |

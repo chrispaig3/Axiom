@@ -640,7 +640,7 @@ impl Parser {
             // generic "N patterns in parens => tuple" reading below turns
             // `(Just x)` into a 2-tuple of two *variable* patterns named
             // `Just` and `x` - `PCon` never gets produced at all for the
-            // s-expression constructor-pattern syntax every `case` example
+            // s-expression constructor-pattern syntax every `match` example
             // in the language actually uses, and `(Nothing)` (zero-arg
             // constructor) degenerates to a plain 1-tuple-unwrapped
             // `PVar("Nothing")`. This mirrors the constructor-name
@@ -936,8 +936,8 @@ impl Parser {
                 return self.parse_if();
             }
 
-            if self.check(TokenKind::Case) {
-                return self.parse_case();
+            if self.check(TokenKind::Match) {
+                return self.parse_match();
             }
 
             if self.check(TokenKind::Handle) {
@@ -1193,8 +1193,8 @@ impl Parser {
         ))
     }
 
-    fn parse_case(&mut self) -> ParseResult<Expr> {
-        self.expect(TokenKind::Case)?;
+    fn parse_match(&mut self) -> ParseResult<Expr> {
+        self.expect(TokenKind::Match)?;
         let target = self.parse_expr()?;
 
         let mut arms = Vec::new();
@@ -1206,7 +1206,7 @@ impl Parser {
             arms.push((pattern, body));
         }
         self.expect(TokenKind::RParen)?;
-        Ok(Expr::ECase(Box::new(target), arms))
+        Ok(Expr::EMatch(Box::new(target), arms))
     }
 
     fn parse_body_exprs(&mut self) -> ParseResult<Expr> {
@@ -1676,17 +1676,17 @@ mod tests {
 
     fn parse_pattern_ok(source: &str) -> Pattern {
         // A pattern only ever appears nested inside some other
-        // construct, never as a standalone top-level form - `case` is
+        // construct, never as a standalone top-level form - `match` is
         // the simplest one that puts a pattern in an easily-extracted
         // position.
         let module = parse_ok(&format!(
-            "(:: main Int)\n(fn main (case 0 (({}) 1)))",
+            "(:: main Int)\n(fn main (match 0 (({}) 1)))",
             source
         ));
         match &module.decls[1] {
             Decl::DFn { body, .. } => match body {
-                Expr::ECase(_, arms) => arms[0].0.clone(),
-                other => panic!("expected ECase, got {:?}", other),
+                Expr::EMatch(_, arms) => arms[0].0.clone(),
+                other => panic!("expected EMatch, got {:?}", other),
             },
             other => panic!("expected DFn, got {:?}", other),
         }
@@ -1770,7 +1770,7 @@ mod tests {
     /// A parenthesized type application (`(Maybe Int)`) must still parse
     /// as one applied type, not as a 2-tuple of two standalone types -
     /// the fix for the bug above must not regress this, much more common,
-    /// case.
+    /// `match`.
     #[test]
     fn parenthesized_type_application_parses_as_tcon_with_args() {
         let module = parse_ok("(:: main (Maybe Int))\n(fn main 0)");

@@ -639,8 +639,8 @@ fn format_expr(expr: &Expr, out: &mut String, state: &mut FormatState) {
             out.push_str(&state.indent_str());
             out.push(')');
         }
-        Expr::ECase(target, arms) => {
-            out.push_str("(case ");
+        Expr::EMatch(target, arms) => {
+            out.push_str("(match ");
             format_expr(target, out, state);
             out.push('\n');
             state.push_indent();

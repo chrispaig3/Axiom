@@ -343,7 +343,7 @@ impl Lexer {
             "let" => TokenKind::Let,
             "if" => TokenKind::If,
             "cond" => TokenKind::Cond,
-            "case" => TokenKind::Case,
+            "match" => TokenKind::Match,
             "fn" => TokenKind::Fn,
             "data" => TokenKind::Data,
             "struct" => TokenKind::Struct,

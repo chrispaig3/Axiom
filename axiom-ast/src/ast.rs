@@ -134,7 +134,7 @@ pub enum Expr {
     ELam(Vec<Pattern>, Box<Expr>),
     ELet(Vec<(Pattern, Expr)>, Box<Expr>),
     EIf(Box<Expr>, Box<Expr>, Box<Expr>),
-    ECase(Box<Expr>, Vec<(Pattern, Expr)>),
+    EMatch(Box<Expr>, Vec<(Pattern, Expr)>),
     ECond(Vec<(Expr, Expr)>, Option<Box<Expr>>),
     EBegin(Vec<Expr>),
     ETuple(Vec<Expr>),
@@ -165,7 +165,7 @@ impl Expr {
             Expr::ELam(_, e) => e.span(),
             Expr::ELet(_, e) => e.span(),
             Expr::EIf(c, _, _) => c.span(),
-            Expr::ECase(e, _) => e.span(),
+            Expr::EMatch(e, _) => e.span(),
             Expr::ECond(branches, _) => branches
                 .first()
                 .map(|(e, _)| e.span())

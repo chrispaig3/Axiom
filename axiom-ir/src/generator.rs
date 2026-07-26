@@ -25,7 +25,7 @@ pub struct IrGen {
 ///   constructor).
 ///
 /// Both constructor *construction* (`EVar`/`EApp`, see
-/// [`IrGen::gen_construct`]) and constructor *matching* (`ECase`) call
+/// [`IrGen::gen_construct`]) and constructor *matching* (`EMatch`) call
 /// this, so a value built with one tag is always compared against that
 /// exact same tag - there is exactly one place in the generator that
 /// decides what a constructor's tag is.
@@ -933,7 +933,7 @@ impl IrGen {
                 }
                 self.gen_expr_to_func_with_allocas(func, body, alloca_map, type_checker)
             }
-            Expr::ECase(target, arms) => {
+            Expr::EMatch(target, arms) => {
                 let target_val =
                     self.gen_expr_to_func_with_allocas(func, target, alloca_map, type_checker);
                 let i64_ty = TypeId::TCon("I64".to_string(), vec![]);
@@ -952,7 +952,7 @@ impl IrGen {
                 // and every arm agrees on what a given constructor's tag is
                 // because both this and construction (`gen_construct`) go
                 // through the one shared `find_constructor` lookup. Only
-                // emitted when at least one arm actually needs it: a `case`
+                // emitted when at least one arm actually needs it: a `match`
                 // over a plain `Int`/`Bool` scrutinee with only
                 // `PLit`/`PVar`/`PWildcard` arms has nothing to unbox.
                 let needs_tag = arms.iter().any(|(pat, _)| {

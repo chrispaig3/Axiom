@@ -79,7 +79,7 @@ fn check_rejects_an_undefined_variable_with_the_right_code() {
 
 /// End-to-end regression test for the ADT/pattern-matching work: a
 /// recursive `data List` built and summed via real heap-boxed
-/// constructors and real branching `case` codegen, not just type-checked.
+/// constructors and real branching `match` codegen, not just type-checked.
 #[test]
 fn run_executes_recursive_adt_pattern_matching_correctly() {
     let dir = scratch_dir("run-list-sum");
@@ -88,7 +88,7 @@ fn run_executes_recursive_adt_pattern_matching_correctly() {
         "main.ax",
         "(data List (a)\n  (Nil)\n  (Cons a (List a)))\n\
          (:: sum (-> (List Int) Int))\n\
-         (fn (sum lst)\n  (case lst\n    ((Nil) 0)\n    ((Cons h t) (+ h (sum t)))))\n\
+          (fn (sum lst)\n  (match lst\n    ((Nil) 0)\n    ((Cons h t) (+ h (sum t)))))\n\
          (:: main Int)\n\
          (fn main (sum (Cons 1 (Cons 2 (Cons 3 (Nil))))))\n",
     );
@@ -108,7 +108,7 @@ fn run_executes_maybe_pattern_matching_correctly() {
         "main.ax",
         "(data Maybe (a)\n  (Nothing)\n  (Just a))\n\
          (:: fromMaybe (-> Int (Maybe Int) Int))\n\
-         (fn (fromMaybe default val)\n  (case val\n    ((Nothing) default)\n    ((Just x) x)))\n\
+          (fn (fromMaybe default val)\n  (match val\n    ((Nothing) default)\n    ((Just x) x)))\n\
          (:: main Int)\n\
          (fn main (+ (fromMaybe 100 (Nothing)) (fromMaybe 100 (Just 42))))\n",
     );
@@ -117,14 +117,14 @@ fn run_executes_maybe_pattern_matching_correctly() {
 }
 
 #[test]
-fn non_exhaustive_case_is_rejected_before_codegen() {
+fn non_exhaustive_match_is_rejected_before_codegen() {
     let dir = scratch_dir("check-non-exhaustive");
     write_source(
         &dir,
         "main.ax",
         "(data Maybe (a)\n  (Nothing)\n  (Just a))\n\
          (:: main Int)\n\
-         (fn main (case (Just 1) ((Just x) x)))\n",
+          (fn main (match (Just 1) ((Just x) x)))\n",
     );
     let out = run_axiom(&["--diagnostic-format=ai", "check", "main.ax"], &dir);
     assert!(!out.status.success());
@@ -280,14 +280,14 @@ fn axdl_duplicate_definition_has_secondary_span() {
     assert!(line.contains(" ^"), "secondary span missing: {}", line);
 }
 
-/// AXDL spot-check: non-exhaustive case includes a help suggestion.
+/// AXDL spot-check: non-exhaustive match includes a help suggestion.
 #[test]
 fn axdl_non_exhaustive_has_help() {
     let dir = scratch_dir("axdl-nonexhaustive");
     write_source(
         &dir,
         "main.ax",
-        "(data Bool (True) (False))\n(:: main Int)\n(fn main (case true ((True) 1)))\n",
+        "(data Bool (True) (False))\n(:: main Int)\n(fn main (match true ((True) 1)))\n",
     );
     let out = run_axiom(&["--diagnostic-format=ai", "check", "main.ax"], &dir);
     assert!(!out.status.success());

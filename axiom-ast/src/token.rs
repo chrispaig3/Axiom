@@ -19,7 +19,7 @@ pub enum TokenKind {
     Let,      // (let ((x val)...) body)
     If,       // (if cond then else)
     Cond,     // (cond (test body)... (else body))
-    Case,     // (case expr (pattern body)...)
+    Match,    // (match expr (pattern body)...)
     Fn,       // (fn (name args...) body) - modern alias for define
     Data,     // (data Name (tyvars...) (constructor...))
     Struct,   // (struct Name (field...) )
@@ -137,7 +137,7 @@ impl fmt::Display for TokenKind {
             TokenKind::Let => write!(f, "let"),
             TokenKind::If => write!(f, "if"),
             TokenKind::Cond => write!(f, "cond"),
-            TokenKind::Case => write!(f, "case"),
+            TokenKind::Match => write!(f, "match"),
             TokenKind::Fn => write!(f, "fn"),
             TokenKind::Data => write!(f, "data"),
             TokenKind::Struct => write!(f, "struct"),

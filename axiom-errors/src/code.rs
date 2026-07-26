@@ -107,7 +107,7 @@ registry! {
          context (a function parameter, `if` branch, `let` binding, etc.)."),
     NON_EXHAUSTIVE => ("AX3005", "non-exhaustive-match",
         "non-exhaustive pattern match",
-        "A `case` expression does not cover every possible constructor/value of\n\
+        "A `match` expression does not cover every possible constructor/value of\n\
          the scrutinee's type. Add the missing arms or a wildcard `_` arm."),
     DUPLICATE_DEFINITION => ("AX3006", "duplicate-definition",
         "duplicate definition",
