@@ -57,6 +57,11 @@ pub enum SemError {
         message: String,
         span: Span,
     },
+    #[error("effect mismatch: {message}")]
+    EffectMismatch {
+        message: String,
+        span: Span,
+    },
 }
 
 impl SemError {
@@ -72,6 +77,7 @@ impl SemError {
             SemError::FieldNotFound { span, .. } => *span,
             SemError::Message { span, .. } => *span,
             SemError::AxtagMismatch { span, .. } => *span,
+            SemError::EffectMismatch { span, .. } => *span,
         }
     }
 
@@ -195,89 +201,112 @@ impl SemError {
                 Diagnostic::warning(&code::AXTAG_MISMATCH, self.to_string())
                     .with_primary(span, format!("`{}`: {}", name, message))
             }
+            SemError::EffectMismatch { message, .. } => {
+                Diagnostic::error(&code::EFFECT_MISMATCH, self.to_string())
+                    .with_primary(span, message.clone())
+            }
         }
     }
 }
 
-fn expr_contains_foreign_call(
+fn collect_effects(
+    checker: &TypeChecker,
     expr: &Expr,
-    foreign_names: &std::collections::HashSet<String>,
-) -> bool {
+) -> Vec<axiom_ast::ast::Effect> {
+    use std::collections::HashSet;
+    let mut set = HashSet::new();
+    collect_effects_into(checker, expr, &mut set);
+    let mut v: Vec<_> = set.into_iter().collect();
+    v.sort_by(|a, b| format!("{}", a).cmp(&format!("{}", b)));
+    v
+}
+
+fn collect_effects_into(
+    checker: &TypeChecker,
+    expr: &Expr,
+    out: &mut std::collections::HashSet<axiom_ast::ast::Effect>,
+) {
     match expr {
-        Expr::EVar(ident) => foreign_names.contains(&ident.name),
-        Expr::EApp(func, arg) => {
-            expr_contains_foreign_call(func, foreign_names)
-                || expr_contains_foreign_call(arg, foreign_names)
+        Expr::EVar(ident) => {
+            if checker.functions.iter().any(|f| f.name == ident.name && f.foreign_symbol.is_some()) {
+                out.insert(axiom_ast::ast::Effect::IO);
+            }
         }
-        Expr::ELam(_, body) => expr_contains_foreign_call(body, foreign_names),
+        Expr::EApp(func, arg) => {
+            collect_effects_into(checker, func, out);
+            collect_effects_into(checker, arg, out);
+        }
+        Expr::ELam(_, body) => collect_effects_into(checker, body, out),
         Expr::ELet(bindings, body) => {
-            bindings
-                .iter()
-                .any(|(_, e)| expr_contains_foreign_call(e, foreign_names))
-                || expr_contains_foreign_call(body, foreign_names)
+            for (_, e) in bindings {
+                collect_effects_into(checker, e, out);
+            }
+            collect_effects_into(checker, body, out);
         }
         Expr::EIf(_, t, e) => {
-            expr_contains_foreign_call(t, foreign_names)
-                || expr_contains_foreign_call(e, foreign_names)
+            collect_effects_into(checker, t, out);
+            collect_effects_into(checker, e, out);
         }
         Expr::EMatch(target, arms) => {
-            expr_contains_foreign_call(target, foreign_names)
-                || arms
-                    .iter()
-                    .any(|(_, e)| expr_contains_foreign_call(e, foreign_names))
+            collect_effects_into(checker, target, out);
+            for (_, e) in arms {
+                collect_effects_into(checker, e, out);
+            }
         }
         Expr::ECond(branches, else_) => {
-            branches.iter().any(|(c, e)| {
-                expr_contains_foreign_call(c, foreign_names)
-                    || expr_contains_foreign_call(e, foreign_names)
-            }) || else_
-                .as_ref()
-                .map(|e| expr_contains_foreign_call(e, foreign_names))
-                .unwrap_or(false)
+            for (c, e) in branches {
+                collect_effects_into(checker, c, out);
+                collect_effects_into(checker, e, out);
+            }
+            if let Some(e) = else_ {
+                collect_effects_into(checker, e, out);
+            }
         }
-        Expr::EBegin(es) => es
-            .iter()
-            .any(|e| expr_contains_foreign_call(e, foreign_names)),
-        Expr::ETuple(es) => es
-            .iter()
-            .any(|e| expr_contains_foreign_call(e, foreign_names)),
-        Expr::EList(es) => es
-            .iter()
-            .any(|e| expr_contains_foreign_call(e, foreign_names)),
+        Expr::EBegin(es) | Expr::ETuple(es) | Expr::EList(es) => {
+            for e in es {
+                collect_effects_into(checker, e, out);
+            }
+        }
         Expr::EInfix(l, _, r) => {
-            expr_contains_foreign_call(l, foreign_names)
-                || expr_contains_foreign_call(r, foreign_names)
+            collect_effects_into(checker, l, out);
+            collect_effects_into(checker, r, out);
         }
-        Expr::ETypeSig(e, _) => expr_contains_foreign_call(e, foreign_names),
-        Expr::ECast(e, _) => expr_contains_foreign_call(e, foreign_names),
-        Expr::EAlloc(_, init, _) => init
-            .as_ref()
-            .map(|e| expr_contains_foreign_call(e, foreign_names))
-            .unwrap_or(false),
-        Expr::ESizeof(_, _) => false,
-        Expr::EAlignof(_, _) => false,
-        Expr::EGrouped(e) => expr_contains_foreign_call(e, foreign_names),
-        Expr::EHandle(e, _, handler) => {
-            expr_contains_foreign_call(e, foreign_names)
-                || expr_contains_foreign_call(handler, foreign_names)
+        Expr::ETypeSig(e, _) | Expr::ECast(e, _) | Expr::EGrouped(e) => {
+            collect_effects_into(checker, e, out);
         }
-        Expr::ERegion(_, e) => expr_contains_foreign_call(e, foreign_names),
-        Expr::EConsume(e) => expr_contains_foreign_call(e, foreign_names),
-        Expr::EField(e, _) => expr_contains_foreign_call(e, foreign_names),
-        Expr::EStructCon(_, args) => args
-            .iter()
-            .any(|e| expr_contains_foreign_call(e, foreign_names)),
+        Expr::EAlloc(_, init, _) => {
+            out.insert(axiom_ast::ast::Effect::Alloc);
+            if let Some(e) = init {
+                collect_effects_into(checker, e, out);
+            }
+        }
+        Expr::ESizeof(_, _) | Expr::EAlignof(_, _) | Expr::EError(_, _) => {}
+        Expr::ELit(_, _) => {}
+        Expr::EHandle(body, handled, _handler) => {
+            let mut body_effects = std::collections::HashSet::new();
+            collect_effects_into(checker, body, &mut body_effects);
+            for e in body_effects {
+                if !handled.contains(&e) {
+                    out.insert(e);
+                }
+            }
+        }
+        Expr::ERegion(_, e) => collect_effects_into(checker, e, out),
+        Expr::EConsume(e) => collect_effects_into(checker, e, out),
+        Expr::EField(e, _) => collect_effects_into(checker, e, out),
+        Expr::EStructCon(_, args) => {
+            for e in args {
+                collect_effects_into(checker, e, out);
+            }
+        }
         Expr::ESetField(base, _, value) => {
-            expr_contains_foreign_call(base, foreign_names)
-                || expr_contains_foreign_call(value, foreign_names)
+            collect_effects_into(checker, base, out);
+            collect_effects_into(checker, value, out);
+            out.insert(axiom_ast::ast::Effect::Mut);
         }
-        Expr::EUnionCon(_, _, value) => expr_contains_foreign_call(value, foreign_names),
-        Expr::EError(_, _) => false,
-        Expr::ELit(_, _) => false,
+        Expr::EUnionCon(_, _, value) => collect_effects_into(checker, value, out),
     }
 }
-
-/// Find the closest match to `name` among `candidates` using Levenshtein
 /// distance, for "did you mean `foo`?" suggestions. Only returns a match
 /// that's close enough to plausibly be a typo (distance <= 2, and no more
 /// than half the length of the shorter string) so we don't suggest
@@ -322,6 +351,7 @@ pub enum TypeId {
     TList(Box<TypeId>),
     TPtr(Box<TypeId>, bool),
     TForall(Vec<String>, Box<TypeId>),
+    TEffect(Box<TypeId>, Vec<axiom_ast::ast::Effect>),
     /// A "poison" type produced after an error has already been reported
     /// for this expression (e.g. an undefined variable). Poison types are
     /// deliberately treated as compatible with everything downstream so
@@ -379,7 +409,45 @@ impl TypeId {
             (TypeId::TPtr(a, m1), TypeId::TPtr(b, m2)) => m1 == m2 && a.compatible_with(b),
             (TypeId::TForall(_, a), _) => a.compatible_with(other),
             (_, TypeId::TForall(_, b)) => self.compatible_with(b),
+            (TypeId::TEffect(a, effs1), TypeId::TEffect(b, effs2)) => {
+                effs1 == effs2 && a.compatible_with(b)
+            }
             _ => self == other,
+        }
+    }
+
+    /// Remove the given effects from a type, stripping `TEffect` wrappers
+    /// whose effect set is a subset of `handled`. Used by `handle` to
+    /// produce the handler's result type.
+    pub fn strip_effects(ty: &TypeId, handled: &[axiom_ast::ast::Effect]) -> TypeId {
+        match ty {
+            TypeId::TEffect(inner, effs) => {
+                let remaining: Vec<axiom_ast::ast::Effect> = effs
+                    .iter()
+                    .filter(|e| !handled.contains(e))
+                    .cloned()
+                    .collect();
+                if remaining.is_empty() {
+                    Self::strip_effects(inner, handled)
+                } else {
+                    TypeId::TEffect(Box::new(Self::strip_effects(inner, handled)), remaining)
+                }
+            }
+            TypeId::TArr(a, b) => TypeId::TArr(
+                Box::new(Self::strip_effects(a, handled)),
+                Box::new(Self::strip_effects(b, handled)),
+            ),
+            TypeId::TTuple(types) => TypeId::TTuple(
+                types.iter().map(|t| Self::strip_effects(t, handled)).collect(),
+            ),
+            TypeId::TList(inner) => TypeId::TList(Box::new(Self::strip_effects(inner, handled))),
+            TypeId::TPtr(inner, mutable) => {
+                TypeId::TPtr(Box::new(Self::strip_effects(inner, handled)), *mutable)
+            }
+            TypeId::TForall(vars, inner) => {
+                TypeId::TForall(vars.clone(), Box::new(Self::strip_effects(inner, handled)))
+            }
+            _ => ty.clone(),
         }
     }
 }
@@ -423,6 +491,13 @@ impl std::fmt::Display for TypeId {
                 write!(f, "forall {}. ", vars.join(", "))?;
                 write!(f, "{}", inner)
             }
+            TypeId::TEffect(inner, effects) => {
+                write!(f, "({}", inner)?;
+                for e in effects {
+                    write!(f, " {}", e)?;
+                }
+                write!(f, ")")
+            }
         }
     }
 }
@@ -438,6 +513,15 @@ pub struct DataConInfo {
     pub name: String,
     pub ty: TypeId,
     pub data_type: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct FnInfo {
+    pub name: String,
+    pub ty: TypeId,
+    pub foreign_symbol: Option<String>,
+    pub is_builtin: bool,
+    pub effects: Vec<axiom_ast::ast::Effect>,
 }
 
 #[derive(Debug, Clone)]
@@ -476,26 +560,6 @@ pub struct TypeAliasInfo {
     pub target: TypeId,
 }
 
-#[derive(Debug, Clone)]
-pub struct FnInfo {
-    pub name: String,
-    pub ty: TypeId,
-    /// The C symbol name from a `(foreign name :: Type = "c_symbol")`
-    /// declaration, if this binding came from one - `None` for an
-    /// ordinary `define`/`fn`/`::` signature. Surfaced by `axiom symbols`
-    /// so an agent can see the real linked symbol without re-reading the
-    /// source (see `axiom-cli`'s `collect_symbol_facts`).
-    pub foreign_symbol: Option<String>,
-    /// `true` for one of the dozen always-in-scope built-in operators
-    /// (`+`, `==`, `&&`, ...) registered in [`TypeChecker::new`], `false`
-    /// for anything that came from an actual declaration in source. Lets
-    /// a consumer (e.g. `axiom symbols`) distinguish "defined in this
-    /// program" from "always in scope" without hardcoding the operator
-    /// name list itself - the one place that list already exists is
-    /// `TypeChecker::new`.
-    pub is_builtin: bool,
-}
-
 impl FnInfo {
     fn new(name: impl Into<String>, ty: TypeId) -> Self {
         Self {
@@ -503,6 +567,7 @@ impl FnInfo {
             ty,
             foreign_symbol: None,
             is_builtin: false,
+            effects: Vec::new(),
         }
     }
 
@@ -512,6 +577,7 @@ impl FnInfo {
             ty,
             foreign_symbol: None,
             is_builtin: true,
+            effects: Vec::new(),
         }
     }
 }
@@ -802,13 +868,6 @@ impl TypeChecker {
     }
 
     fn check_decls(&mut self, decls: &[Decl]) {
-        let foreign_names: std::collections::HashSet<String> = self
-            .functions
-            .iter()
-            .filter(|f| f.foreign_symbol.is_some())
-            .map(|f| f.name.clone())
-            .collect();
-
         for decl in decls {
             match decl {
                 Decl::DSig { name, ty, .. } => {
@@ -878,23 +937,45 @@ impl TypeChecker {
                     for tag in axtags {
                         match tag.key.as_str() {
                             "effect" => {
-                                if !expr_contains_foreign_call(body, &foreign_names) {
+                                let declared: Vec<axiom_ast::ast::Effect> = match tag.value.as_deref() {
+                                    Some("io") => vec![axiom_ast::ast::Effect::IO],
+                                    Some("pure") => vec![axiom_ast::ast::Effect::Pure],
+                                    Some("mut") => vec![axiom_ast::ast::Effect::Mut],
+                                    Some("div") => vec![axiom_ast::ast::Effect::Div],
+                                    Some("alloc") => vec![axiom_ast::ast::Effect::Alloc],
+                                    Some(other) => vec![axiom_ast::ast::Effect::Custom(
+                                        Ident::new(other, Span::dummy()),
+                                    )],
+                                    None => vec![],
+                                };
+                                let actual = collect_effects(self, body);
+                                let mut missing = Vec::new();
+                                for e in &declared {
+                                    if !actual.contains(e) {
+                                        missing.push(format!("{}", e));
+                                    }
+                                }
+                                if !missing.is_empty() {
                                     self.errors.push(SemError::AxtagMismatch {
                                         name: name.name.clone(),
                                         message: format!(
-                                            "`effect({})` claim unsupported: body contains no foreign calls",
-                                            tag.value.as_deref().unwrap_or("")
+                                            "`effect({})` claim unsupported: missing {}",
+                                            tag.value.as_deref().unwrap_or(""),
+                                            missing.join(", ")
                                         ),
                                         span: name.span,
                                     });
                                 }
                             }
                             "pure" => {
-                                if expr_contains_foreign_call(body, &foreign_names) {
+                                let actual = collect_effects(self, body);
+                                if !actual.is_empty() {
                                     self.errors.push(SemError::AxtagMismatch {
                                         name: name.name.clone(),
-                                        message: "`pure` claim contradicted: body calls a foreign function"
-                                            .to_string(),
+                                        message: format!(
+                                            "`pure` claim contradicted: body performs {}",
+                                            actual.iter().map(|e| format!("{}", e)).collect::<Vec<_>>().join(", ")
+                                        ),
                                         span: name.span,
                                     });
                                 }
@@ -1262,9 +1343,19 @@ impl TypeChecker {
             Expr::ESizeof(_, _) => TypeId::TCon("Int".to_string(), vec![]),
             Expr::EAlignof(_, _) => TypeId::TCon("Int".to_string(), vec![]),
             Expr::EGrouped(inner) => self.check_expr(inner),
-            Expr::EHandle(body, _, handler) => {
-                self.check_expr(body);
-                self.check_expr(handler)
+            Expr::EHandle(body, handled, handler) => {
+                let body_ty = self.check_expr(body);
+                self.check_expr(handler);
+                let actual = collect_effects(self, body);
+                for e in &actual {
+                    if !handled.contains(e) {
+                        self.errors.push(SemError::EffectMismatch {
+                            message: format!("unhandled effect `{}`", e),
+                            span: body.span(),
+                        });
+                    }
+                }
+                TypeId::strip_effects(&body_ty, handled)
             }
             Expr::ERegion(_, body) => self.check_expr(body),
             Expr::EConsume(e) => self.check_expr(e),
@@ -1704,7 +1795,10 @@ impl TypeChecker {
             Type::TForall(vars, inner) => {
                 TypeId::TForall(vars.clone(), Box::new(self.type_to_id(inner)))
             }
-            Type::TEffect(inner, _effects) => self.type_to_id(inner),
+            Type::TEffect(inner, effects) => TypeId::TEffect(
+                Box::new(self.type_to_id(inner)),
+                effects.clone(),
+            ),
             Type::TRegion(inner, name) => {
                 TypeId::TCon(name.name.clone(), vec![self.type_to_id(inner)])
             }
@@ -2115,5 +2209,57 @@ mod tests {
 (fn main (match (Some 1) ((Some x y) x) ((None) 0)))"#,
         );
         assert!(errors.iter().any(|e| matches!(e, SemError::ConstructorArity { name, expected: 1, found: 2, .. } if name == "Some")));
+    }
+
+    #[test]
+    fn handle_strips_declared_effects_from_body_type() {
+        let source = r#"(foreign printf :: (-> String Int) = "printf")
+(:: main Int)
+(fn main
+  (handle (printf "hello") (IO) 0))"#;
+        assert!(check(source).is_ok(), "handle should strip declared effects");
+    }
+
+    #[test]
+    fn handle_without_effects_propagates_body_effects() {
+        let source = r#"(foreign printf :: (-> String Int) = "printf")
+(:: main Int)
+(fn main
+  (handle (printf "hello") () 0))"#;
+        let errors = check_err(source);
+        assert!(errors
+            .iter()
+            .any(|e| matches!(e, SemError::EffectMismatch { .. })));
+    }
+
+    #[test]
+    fn effect_io_tag_with_alloc_also_passes() {
+        assert!(check(
+            r#"(foreign printf :: (-> String Int) = "printf")
+(:: main Int)
+;@axiom:effect(io)
+(fn main (let ((_ (alloc Int 1))) (printf "hello")))"#
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn pure_tag_with_alloc_fails() {
+        let errors = check_err(
+            r#"(:: main Int)
+;@axiom:pure
+(fn main (alloc Int 1))"#,
+        );
+        assert!(errors
+            .iter()
+            .any(|e| matches!(e, SemError::AxtagMismatch { name, .. } if name == "main")));
+    }
+
+    #[test]
+    fn effect_collects_alloc() {
+        let source = r#"(:: main Int)
+;@axiom:effect(alloc)
+(fn main (alloc Int 1))"#;
+        assert!(check(source).is_ok());
     }
 }

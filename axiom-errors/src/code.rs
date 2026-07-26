@@ -133,6 +133,10 @@ registry! {
          (e.g. `effect(io)`, `pure`) that the body does not support. The\n\
          compiler validates tags it can and reports mismatches so an agent\n\
          can correct the annotation instead of silently trusting it."),
+    EFFECT_MISMATCH => ("AX3011", "effect-mismatch",
+        "effect mismatch",
+        "This expression performs effects that are not declared in its\n\
+         signature or not handled by the enclosing `handle` expression."),
 
     // ---- AX4xxx: lowering / codegen / toolchain ----
     MISSING_MAIN => ("AX4001", "missing-main",

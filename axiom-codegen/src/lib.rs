@@ -1002,6 +1002,7 @@ impl LlvmCodeGen {
             // unreachable in practice and just needs to satisfy
             // exhaustiveness.
             TypeId::TError => "i64".to_string(),
+            TypeId::TEffect(inner, _) => self.type_to_llvm(inner),
         }
     }
 
@@ -1033,6 +1034,7 @@ impl LlvmCodeGen {
             // analysis; codegen never actually runs on such an AST (see
             // `type_to_llvm`'s matching arm for the same rationale).
             TypeId::TError => 8,
+            TypeId::TEffect(inner, _) => self.type_size(inner),
         }
     }
 
@@ -1053,6 +1055,7 @@ impl LlvmCodeGen {
             TypeId::TVar(_) => 8,
             TypeId::TForall(_, inner) => self.type_align(inner),
             TypeId::TError => 8,
+            TypeId::TEffect(inner, _) => self.type_align(inner),
         }
     }
 

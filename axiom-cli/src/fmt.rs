@@ -418,12 +418,18 @@ fn format_effect_decl(
         state.push_indent();
         for op in operations {
             out.push_str(&state.indent_str());
-            write!(out, "({}", op.name.name).unwrap();
-            for p in &op.params {
-                out.push(' ');
-                out.push_str(&format_type(p));
-            }
-            write!(out, " {})", format_type(&op.return_type)).unwrap();
+            write!(out, "({} :: ", op.name.name).unwrap();
+            let ty: Type = if op.params.is_empty() {
+                op.return_type.clone()
+            } else {
+                let mut result = op.return_type.clone();
+                for param in op.params.iter().rev() {
+                    result = Type::arr(param.clone(), result);
+                }
+                result
+            };
+            out.push_str(&format_type(&ty));
+            out.push(')');
         }
         state.pop_indent();
     }

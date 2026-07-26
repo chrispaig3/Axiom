@@ -431,6 +431,61 @@ Traits support:
 - **Default methods** — `(where (method :: type = default_body))`
 - **Effects** — traits and methods can carry effect annotations
 
+### Effects
+
+Axiom tracks side effects at the type level. Effects are checked by the compiler, so you know exactly what a function does.
+
+Built-in effects:
+
+| Effect | Meaning |
+|---|---|
+| `IO` | Calls foreign functions (C FFI) |
+| `Pure` | No side effects |
+| `Alloc` | Heap allocation (`alloc`) |
+| `Mut` | Mutable state (`set-field`) |
+| `Div` | Divergence (infinite loops) |
+
+Declare an effect type:
+
+```scheme
+(effect Console
+  (print :: (-> String ())))
+```
+
+Annotate a function with its effects using AXTAG metadata:
+
+```scheme
+;@axiom:effect(io)
+(fn main (printf "hello"))
+```
+
+The compiler validates that the body actually performs the declared effects.
+
+Handle effects with `handle`:
+
+```scheme
+(handle body (effects...) handler)
+```
+
+`handle` runs `body`, intercepting the declared `effects` via `handler`. Effects not listed propagate out.
+
+```scheme
+; A handler that catches IO and returns a default value
+(handle (printf "hello") (IO) 0)
+```
+
+Effect annotations are also supported on traits and implementations:
+
+```scheme
+(trait (Console a)
+  where
+    (print :: (-> String a)))
+
+(impl (Console IO)
+  where
+    (print (lambda (s) (printf "%s\n" s))))
+```
+
 ---
 
 ## Type System
@@ -818,7 +873,7 @@ Source (.ax)
 | Tuples | **Partial** | Syntax and type checking; codegen pending |
 | Type classes | **Replaced** | Renamed to traits; see [Traits](#traits) |
 | Traits | **Complete** | Declarations, supertraits, effects, default methods, implementations (`impl`) |
-| Effect annotations | **Parsed only** | `handle`, `IO`, `Pure`, etc. |
+| Effects | **Complete** | Effect declarations, `handle` expressions, effect checking (`IO`, `Pure`, `Alloc`, `Mut`, `Div`), AXTAG validation |
 | Region syntax | **Parsed only** | `region r body` |
 | Linear types | **Parsed only** | `linear T`, `consume` |
 | Imports | **Functional** | `(import Mod.Sub ...)` resolves and merges declarations from other files; see [Modules and imports](#modules-and-imports) |

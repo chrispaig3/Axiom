@@ -678,10 +678,11 @@ impl Parser {
             self.expect(TokenKind::DoubleColon)?;
             let op_ty = self.parse_type()?;
             self.expect(TokenKind::RParen)?;
+            let (params, return_type) = Self::flatten_arrow_type(op_ty);
             operations.push(EffectOp {
                 name: op_name,
-                params: Vec::new(),
-                return_type: op_ty,
+                params,
+                return_type,
             });
         }
         self.expect(TokenKind::RParen)?;
@@ -692,6 +693,16 @@ impl Parser {
             nid: None,
             axtags: Vec::new(),
         })
+    }
+
+    fn flatten_arrow_type(ty: Type) -> (Vec<Type>, Type) {
+        let mut params = Vec::new();
+        let mut current = ty;
+        while let Type::TArr(param, ret) = current {
+            params.push(*param);
+            current = *ret;
+        }
+        (params, current)
     }
 
     fn parse_pattern(&mut self) -> ParseResult<Pattern> {
@@ -1318,7 +1329,7 @@ impl Parser {
             }
             self.expect(TokenKind::RParen)?;
         }
-        let handler = Expr::ETuple(vec![]);
+        let handler = self.parse_expr()?;
         self.expect(TokenKind::RParen)?;
         Ok(Expr::EHandle(Box::new(body), effects, Box::new(handler)))
     }
