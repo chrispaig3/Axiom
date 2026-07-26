@@ -124,6 +124,12 @@ pub struct IrModule {
     pub extern_funcs: Vec<(String, Vec<TypeId>, TypeId)>,
 }
 
+impl Default for IrModule {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl IrModule {
     pub fn new() -> Self {
         Self {

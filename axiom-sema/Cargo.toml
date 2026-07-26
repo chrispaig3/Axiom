@@ -8,3 +8,6 @@ axiom-ast.workspace = true
 axiom-parser.workspace = true
 axiom-errors.workspace = true
 thiserror.workspace = true
+
+[dev-dependencies]
+axiom-lexer.workspace = true

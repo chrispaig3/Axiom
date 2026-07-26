@@ -51,6 +51,12 @@ fn constructor_arity(ty: &TypeId) -> usize {
     n
 }
 
+impl Default for IrGen {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl IrGen {
     pub fn new() -> Self {
         Self {
@@ -94,7 +100,7 @@ impl IrGen {
             }
         }
 
-        std::mem::replace(&mut self.module, IrModule::new())
+        std::mem::take(&mut self.module)
     }
 
     fn gen_function(&mut self, name: &Ident, params: &[Pattern], body: &Expr, type_checker: &TypeChecker) -> IrFunction {
@@ -240,13 +246,9 @@ impl IrGen {
             Expr::EApp(_func_expr, _arg_expr) => {
                 let mut all_args: Vec<IrValue> = Vec::new();
                 let mut current = expr;
-                loop {
-                    if let Expr::EApp(inner_func, inner_arg) = current {
-                        all_args.push(self.gen_expr_to_func_with_allocas(func, inner_arg, alloca_map, type_checker));
-                        current = inner_func.as_ref();
-                    } else {
-                        break;
-                    }
+                while let Expr::EApp(inner_func, inner_arg) = current {
+                    all_args.push(self.gen_expr_to_func_with_allocas(func, inner_arg, alloca_map, type_checker));
+                    current = inner_func.as_ref();
                 }
                 all_args.reverse();
 

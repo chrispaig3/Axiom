@@ -117,7 +117,7 @@ impl Lexer {
             }
 
             if ch == '\'' {
-                if self.peek().map_or(false, |c| c != ' ' && c != '(' && c != '[') {
+                if self.peek().is_some_and(|c| c != ' ' && c != '(' && c != '[') {
                     tokens.push(self.consume_char()?);
                 } else {
                     self.push_token(&mut tokens, TokenKind::Quote);
@@ -130,7 +130,7 @@ impl Lexer {
                 continue;
             }
 
-            if ch.is_ascii_digit() || (ch == '.' && self.peek().map_or(false, |c| c.is_ascii_digit())) {
+            if ch.is_ascii_digit() || (ch == '.' && self.peek().is_some_and(|c| c.is_ascii_digit())) {
                 tokens.push(self.consume_number()?);
                 continue;
             }
@@ -210,7 +210,7 @@ impl Lexer {
                     }
                 }
                 '.' => {
-                    if self.peek().map_or(false, |c| c.is_ascii_digit()) {
+                    if self.peek().is_some_and(|c| c.is_ascii_digit()) {
                         tokens.push(self.consume_number()?);
                     } else {
                         self.push_token(&mut tokens, TokenKind::Dot);
@@ -285,11 +285,18 @@ impl Lexer {
         let start = self.pos;
         while self.pos < self.source.len() {
             let ch = self.source[self.pos];
-            if ch.is_alphanumeric() || ch == '_' || ch == '\'' {
-                self.pos += 1;
-            } else if is_operator_char(ch) && self.pos == start {
-                self.pos += 1;
-            } else if is_operator_char(ch) && is_operator_char(self.source[self.pos - 1]) {
+            // An identifier continues through ordinary name characters,
+            // or through operator characters glued onto the front/middle
+            // of it (e.g. `+1` as a single token boundary case, or an
+            // identifier immediately followed by an operator run) - three
+            // separate conditions worth naming even though they all take
+            // the same action, so a future change to just one of them
+            // doesn't have to be teased apart from the other two first.
+            let continues_identifier = ch.is_alphanumeric()
+                || ch == '_'
+                || ch == '\''
+                || (is_operator_char(ch) && (self.pos == start || is_operator_char(self.source[self.pos - 1])));
+            if continues_identifier {
                 self.pos += 1;
             } else {
                 break;
@@ -371,7 +378,7 @@ impl Lexer {
             if ch.is_ascii_digit() || ch == '_' {
                 self.pos += 1;
             } else if ch == '.' && !is_float {
-                if self.peek().map_or(false, |c| c.is_ascii_digit()) {
+                if self.peek().is_some_and(|c| c.is_ascii_digit()) {
                     is_float = true;
                     self.pos += 1;
                 } else {
@@ -498,5 +505,117 @@ impl Lexer {
             }
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn kinds(source: &str) -> Vec<TokenKind> {
+        let mut lexer = Lexer::new(source, 0);
+        lexer.tokenize().unwrap().into_iter().map(|t| t.kind).collect()
+    }
+
+    #[test]
+    fn tokenizes_a_simple_call() {
+        assert_eq!(
+            kinds("(+ 1 2)"),
+            vec![
+                TokenKind::LParen,
+                TokenKind::Plus,
+                TokenKind::IntLiteral(1),
+                TokenKind::IntLiteral(2),
+                TokenKind::RParen,
+                TokenKind::Eof,
+            ]
+        );
+    }
+
+    #[test]
+    fn tokenizes_keywords_distinctly_from_identifiers() {
+        assert_eq!(
+            kinds("(fn foo)"),
+            vec![
+                TokenKind::LParen,
+                TokenKind::Fn,
+                TokenKind::Ident("foo".to_string()),
+                TokenKind::RParen,
+                TokenKind::Eof,
+            ]
+        );
+    }
+
+    #[test]
+    fn tokenizes_constructor_and_type_variable_idents() {
+        // Regression guard for the parser-level constructor-pattern and
+        // bare-type-application fixes: both rely on the *lexer* already
+        // treating `Just`/`a` as plain `Ident` tokens (capitalization is
+        // a parser-level convention, not a lexer-level token kind), so a
+        // future lexer change that started distinguishing them at the
+        // token level would silently break both fixes without this test
+        // ever touching the parser at all.
+        assert_eq!(
+            kinds("Just a"),
+            vec![
+                TokenKind::Ident("Just".to_string()),
+                TokenKind::Ident("a".to_string()),
+                TokenKind::Eof,
+            ]
+        );
+    }
+
+    #[test]
+    fn tokenizes_string_and_char_literals_with_escapes() {
+        assert_eq!(
+            kinds(r#" "a\nb" 'x' "#),
+            vec![
+                TokenKind::StringLiteral("a\nb".to_string()),
+                TokenKind::CharLiteral('x'),
+                TokenKind::Eof,
+            ]
+        );
+    }
+
+    #[test]
+    fn tokenizes_numbers() {
+        // `-5` lexes as a standalone `Minus` token followed by `5` -
+        // negative literals aren't a distinct lexer concept, unary minus
+        // is a parser-level construct applied to a positive literal (this
+        // is what actually happens today; documented here so a change to
+        // either layer has to consciously decide to touch this contract).
+        assert_eq!(
+            kinds("-5 2.5"),
+            vec![TokenKind::Minus, TokenKind::IntLiteral(5), TokenKind::FloatLiteral(2.5), TokenKind::Eof]
+        );
+    }
+
+    #[test]
+    fn line_and_block_comments_are_skipped() {
+        assert_eq!(
+            kinds("1 ; a line comment\n2 #| a\nblock comment |# 3"),
+            vec![
+                TokenKind::IntLiteral(1),
+                TokenKind::IntLiteral(2),
+                TokenKind::IntLiteral(3),
+                TokenKind::Eof,
+            ]
+        );
+    }
+
+    #[test]
+    fn unterminated_string_is_a_lexer_error() {
+        let mut lexer = Lexer::new("\"unterminated", 0);
+        assert!(matches!(lexer.tokenize(), Err(LexerError::UnterminatedString { .. })));
+    }
+
+    #[test]
+    fn spans_carry_the_file_id_they_were_lexed_with() {
+        // The whole multi-file diagnostic-attribution system (see
+        // `axiom-cli`'s `FileRegistry`) depends on every span the lexer
+        // produces carrying the `file_id` it was constructed with.
+        let mut lexer = Lexer::new("(+ 1 2)", 7);
+        let tokens = lexer.tokenize().unwrap();
+        assert!(tokens.iter().all(|t| t.span.file_id == 7));
     }
 }

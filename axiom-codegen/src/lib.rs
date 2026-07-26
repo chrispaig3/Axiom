@@ -14,6 +14,12 @@ pub struct LlvmCodeGen {
     string_ids: HashMap<String, usize>,
 }
 
+impl Default for LlvmCodeGen {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl LlvmCodeGen {
     pub fn new() -> Self {
         Self {
@@ -167,7 +173,7 @@ impl LlvmCodeGen {
             }
         }
 
-        if !ir_func.blocks.last().map_or(false, |b| {
+        if !ir_func.blocks.last().is_some_and(|b| {
             b.insts.iter().any(|i| matches!(i, IrInst::Ret { .. } | IrInst::Br { .. } | IrInst::CondBr { .. }))
         }) {
             if ir_func.return_type == TypeId::TCon("Void".to_string(), vec![]) {
@@ -604,7 +610,7 @@ impl LlvmCodeGen {
                         let llvm_ty = self.type_to_llvm(ty);
                         Ok((format!("{}", n), llvm_ty))
                     }
-                    IrConst::Bool(b) => Ok((format!("{}", if *b { "true" } else { "false" }), "i1".to_string())),
+                    IrConst::Bool(b) => Ok(((if *b { "true" } else { "false" }).to_string(), "i1".to_string())),
                     IrConst::Null => Ok(("null".to_string(), "ptr".to_string())),
                     IrConst::Str(s) => {
                         let id = self.string_ids.get(s).unwrap_or(&0);
@@ -619,7 +625,7 @@ impl LlvmCodeGen {
         match const_val {
             IrConst::Int(n, _) => format!("{}", n),
             IrConst::Float(n, _) => format!("{}", n),
-            IrConst::Bool(b) => format!("{}", if *b { "true" } else { "false" }),
+            IrConst::Bool(b) => (if *b { "true" } else { "false" }).to_string(),
             IrConst::Null => "null".to_string(),
             IrConst::Str(s) => {
                 let id = self.string_ids.get(s).unwrap_or(&0);

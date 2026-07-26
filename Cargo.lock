@@ -134,6 +134,7 @@ version = "0.1.0"
 dependencies = [
  "axiom-ast",
  "axiom-errors",
+ "axiom-lexer",
  "axiom-parser",
  "thiserror",
 ]

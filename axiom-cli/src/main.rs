@@ -118,12 +118,13 @@ fn main() {
                 std::process::exit(1);
             }
         }
-        Commands::Run { input, args } => {
-            if let Err(e) = run(&input, &args, format) {
+        Commands::Run { input, args } => match run(&input, &args, format) {
+            Ok(code) => std::process::exit(code),
+            Err(e) => {
                 eprintln!("{}", e);
                 std::process::exit(1);
             }
-        }
+        },
         Commands::Check { input } => {
             if let Err(e) = check(&input, format) {
                 eprintln!("{}", e);
@@ -427,7 +428,7 @@ fn resolve_imports_into(
             let wanted: HashSet<&str> = names.iter().map(|i| i.name.as_str()).collect();
             out.extend(
                 imported_module.decls.into_iter()
-                    .filter(|d| decl_name(d).map_or(false, |n| wanted.contains(n))),
+                    .filter(|d| decl_name(d).is_some_and(|n| wanted.contains(n))),
             );
         }
     }
@@ -474,11 +475,11 @@ fn resolve_imports(entry_path: &Path, module: &mut axiom_ast::Module, format: Di
 ///
 /// Resolves `(import ...)` declarations (see `resolve_imports`) between
 /// parsing and type-checking: every file that ends up contributing
-/// declarations - the entry file plus every transitively imported module
-/// - is tracked in the returned [`FileRegistry`] so that a type error
+/// declarations (the entry file plus every transitively imported module)
+/// is tracked in the returned [`FileRegistry`], so that a type error
 /// anywhere in the merged program is still reported against the actual
-/// file and source line it came from, not always against `input` - and so
-/// that callers needing to attribute *their own* per-declaration output
+/// file and source line it came from, not always against `input`, and so
+/// that callers needing to attribute their own per-declaration output
 /// back to the right file (e.g. `axiom symbols`, see `collect_symbol_facts`)
 /// can do the same instead of only `analyze` itself being multi-file-aware.
 fn analyze(input: &str, source: &str, format: DiagnosticFormat, announce: bool) -> Result<(axiom_ast::Module, TypeChecker, FileRegistry), String> {
@@ -600,7 +601,21 @@ fn build(input: &str, output: &str, emit_llvm: bool, _opt: u8, format: Diagnosti
     Ok(())
 }
 
-fn run(input: &str, args: &[String], format: DiagnosticFormat) -> Result<(), String> {
+/// Build and run `input`, returning the *program's own* exit code - not
+/// just whether it happened to be zero.
+///
+/// Previously this returned `Result<(), String>` and treated any nonzero
+/// exit as a CLI-level failure (`Err(format!("Program exited with
+/// status: {status}"))`), which `main` then printed and replaced with a
+/// flat `std::process::exit(1)` - so `axiom run prog.ax` could never
+/// surface `prog.ax`'s own exit code as `$?` for anything other than `0`,
+/// even though returning a meaningful nonzero `Int` from `main` is
+/// completely ordinary (every multi-value regression test written for
+/// this compiler does exactly that). `Err` is now reserved for genuine
+/// CLI-level failures: the build itself failing, the resulting binary
+/// failing to spawn at all, or the process being killed by a signal
+/// (which has no numeric exit code to propagate).
+fn run(input: &str, args: &[String], format: DiagnosticFormat) -> Result<i32, String> {
     let output = "axiom_temp_output";
     build(input, output, false, 0, format)?;
 
@@ -614,11 +629,7 @@ fn run(input: &str, args: &[String], format: DiagnosticFormat) -> Result<(), Str
 
     fs::remove_file(output).ok();
 
-    if !status.success() {
-        return Err(format!("Program exited with status: {}", status));
-    }
-
-    Ok(())
+    status.code().ok_or_else(|| format!("Program terminated by signal: {}", status))
 }
 
 fn check(input: &str, format: DiagnosticFormat) -> Result<(), String> {
@@ -629,18 +640,6 @@ fn check(input: &str, format: DiagnosticFormat) -> Result<(), String> {
     Ok(())
 }
 
-/// Collect every top-level symbol `axiom-sema` recorded for `module` into
-/// the notation-agnostic [`SymbolFact`] list that all three renderers
-/// share, then print it in `format`. See `axiom_errors::symbols` for the
-/// AXSYM grammar and rationale.
-///
-/// Locations are recovered by name from `module.decls` rather than
-/// threaded through `TypeChecker` itself: the checker's `functions` /
-/// `data_types` / `structs` / `classes` vectors exist to answer "what is
-/// `foo`'s type", not "where is `foo`", so a fact with no matching
-/// top-level declaration (Axiom's dozen built-in operators) simply gets
-/// `span: None` - the AXSYM renderer prints `-` for those rather than a
-/// fabricated location.
 /// A struct/union's `repr`/`packed`/`align` attribute, formatted as one
 /// `#`-meta value (`packed`, `repr=C`, or `align=16`) - `None` for the
 /// default (no attribute) layout. Layout attributes affect a type's ABI,
@@ -668,6 +667,18 @@ fn fields_meta(fields: &[(String, TypeId)]) -> String {
         .join(",")
 }
 
+/// Collect every top-level symbol `axiom-sema` recorded for `module` into
+/// the notation-agnostic [`SymbolFact`] list that all three renderers
+/// share, then print it in `format`. See `axiom_errors::symbols` for the
+/// AXSYM grammar and rationale.
+///
+/// Locations are recovered by name from `module.decls` rather than
+/// threaded through `TypeChecker` itself: the checker's `functions` /
+/// `data_types` / `structs` / `classes` vectors exist to answer "what is
+/// `foo`'s type", not "where is `foo`", so a fact with no matching
+/// top-level declaration (Axiom's dozen built-in operators) simply gets
+/// `span: None` - the AXSYM renderer prints `-` for those rather than a
+/// fabricated location.
 fn collect_symbol_facts(module: &axiom_ast::Module, tc: &TypeChecker, include_builtins: bool) -> Vec<SymbolFact> {
     use axiom_ast::ast::Decl;
     use std::collections::HashMap;
@@ -1484,7 +1495,7 @@ fn compile_and_run_repl(llvm_ir: &str) -> Option<String> {
         .arg("-o")
         .arg(&obj_path)
         .status()
-        .map_or(false, |s| s.success())
+        .is_ok_and(|s| s.success())
     {
         fs::remove_file(temp_ll).ok();
         return None;
@@ -1495,7 +1506,7 @@ fn compile_and_run_repl(llvm_ir: &str) -> Option<String> {
         .arg("-o")
         .arg(temp_out)
         .status()
-        .map_or(false, |s| s.success())
+        .is_ok_and(|s| s.success())
     {
         fs::remove_file(&obj_path).ok();
         fs::remove_file(temp_ll).ok();

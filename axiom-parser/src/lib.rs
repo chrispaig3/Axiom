@@ -618,7 +618,7 @@ impl Parser {
                 return Ok(Type::region(Type::TCon(ident, vec![]), region_name));
             }
 
-            if ident.name.chars().next().map_or(false, |c| c.is_lowercase()) {
+            if ident.name.chars().next().is_some_and(|c| c.is_lowercase()) {
                 return Ok(Type::TVar(ident.name));
             }
 
@@ -1128,7 +1128,7 @@ impl Parser {
             match self.tokens.get(i).map(|t| &t.kind) {
                 Some(TokenKind::RParen) => return true,
                 Some(TokenKind::Ident(name))
-                    if name.chars().next().map_or(false, |c| c.is_lowercase()) =>
+                    if name.chars().next().is_some_and(|c| c.is_lowercase()) =>
                 {
                     i += 1;
                 }
@@ -1216,7 +1216,7 @@ impl Parser {
     fn is_tyvar(&self) -> bool {
         if let Some(token) = self.tokens.get(self.pos) {
             if let TokenKind::Ident(name) = &token.kind {
-                name.chars().next().map_or(false, |c| c.is_lowercase())
+                name.chars().next().is_some_and(|c| c.is_lowercase())
             } else {
                 false
             }
@@ -1232,7 +1232,7 @@ impl Parser {
     fn is_constructor_ident(&self) -> bool {
         if let Some(token) = self.tokens.get(self.pos) {
             if let TokenKind::Ident(name) = &token.kind {
-                return name.chars().next().map_or(false, |c| c.is_uppercase());
+                return name.chars().next().is_some_and(|c| c.is_uppercase());
             }
         }
         false
@@ -1355,4 +1355,197 @@ impl Parser {
 pub enum DeclOrExpr {
     Decl(Decl),
     Expr(Expr),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axiom_ast::ast::Pattern;
+    use axiom_lexer::Lexer;
+
+    fn parse_ok(source: &str) -> Module {
+        let mut lexer = Lexer::new(source, 0);
+        let tokens = lexer.tokenize().expect("lex failed");
+        Parser::new(tokens).parse_module().expect("parse failed")
+    }
+
+    fn parse_pattern_ok(source: &str) -> Pattern {
+        // A pattern only ever appears nested inside some other
+        // construct, never as a standalone top-level form - `case` is
+        // the simplest one that puts a pattern in an easily-extracted
+        // position.
+        let module = parse_ok(&format!("(:: main Int)\n(fn main (case 0 (({}) 1)))", source));
+        match &module.decls[1] {
+            Decl::DFn { body, .. } => match body {
+                Expr::ECase(_, arms) => arms[0].0.clone(),
+                other => panic!("expected ECase, got {:?}", other),
+            },
+            other => panic!("expected DFn, got {:?}", other),
+        }
+    }
+
+    /// Regression test for the bug where constructor patterns like
+    /// `(Just x)` parsed as `PTuple([PVar("Just"), PVar("x")])` (two bare
+    /// variables) instead of `PCon("Just", [PVar("x")])`, because the
+    /// parenthesized-pattern branch never special-cased a
+    /// capitalized head the way constructor *expressions* already did.
+    /// See `parse_pattern`'s constructor-application-shaped branch.
+    #[test]
+    fn constructor_pattern_with_args_parses_as_pcon_not_ptuple() {
+        match parse_pattern_ok("Just x") {
+            Pattern::PCon(ident, args) => {
+                assert_eq!(ident.name, "Just");
+                assert_eq!(args.len(), 1);
+                assert!(matches!(&args[0], Pattern::PVar(v) if v.name == "x"));
+            }
+            other => panic!("expected PCon, got {:?}", other),
+        }
+    }
+
+    /// Regression test for the companion bug: a *nullary* constructor
+    /// pattern like `(Nothing)` degenerated to a bare `PVar("Nothing")`
+    /// (the parenthesized-pattern branch's "exactly one sub-pattern ->
+    /// unwrap it" rule), which happened to limp along in codegen (which
+    /// matched constructors by name for both `PCon` and `PVar`) but broke
+    /// outright once `axiom-sema` started distinguishing "matches a real
+    /// constructor" from "catch-all variable binding" for exhaustiveness
+    /// checking.
+    #[test]
+    fn nullary_constructor_pattern_parses_as_pcon_with_no_args() {
+        match parse_pattern_ok("Nothing") {
+            Pattern::PCon(ident, args) => {
+                assert_eq!(ident.name, "Nothing");
+                assert!(args.is_empty());
+            }
+            other => panic!("expected PCon, got {:?}", other),
+        }
+    }
+
+    /// A genuine tuple pattern (lowercase elements, no constructor-name
+    /// head) must still parse as `PTuple`, not get swept into the new
+    /// constructor-pattern branch.
+    #[test]
+    fn tuple_pattern_of_variables_still_parses_as_ptuple() {
+        match parse_pattern_ok("x y") {
+            Pattern::PTuple(pats) => assert_eq!(pats.len(), 2),
+            other => panic!("expected PTuple, got {:?}", other),
+        }
+    }
+
+    /// Regression test for the bug where a bare (unparenthesized) custom
+    /// type name inside a sibling-type list - most visibly an arrow
+    /// type's parameter list - greedily consumed the *next* sibling slot
+    /// as if it were its own type argument: `(-> Ordering Int)` parsed as
+    /// one type (`Ordering` applied to `Int`) instead of two, which then
+    /// tripped "-> requires at least two types" even though two types
+    /// were written. See `parse_type`'s constructor-application branch
+    /// and `parse_type_atom`'s doc comment.
+    #[test]
+    fn bare_custom_type_in_arrow_list_does_not_swallow_its_sibling() {
+        let module = parse_ok("(:: describe (-> Ordering Int))\n(:: main Int)\n(fn main 0)");
+        match &module.decls[0] {
+            Decl::DSig { ty, .. } => match ty {
+                Type::TArr(from, to) => {
+                    assert!(matches!(from.as_ref(), Type::TCon(name, args) if name.name == "Ordering" && args.is_empty()));
+                    assert!(matches!(to.as_ref(), Type::TCon(name, args) if name.name == "Int" && args.is_empty()));
+                }
+                other => panic!("expected TArr, got {:?}", other),
+            },
+            other => panic!("expected DSig, got {:?}", other),
+        }
+    }
+
+    /// A parenthesized type application (`(Maybe Int)`) must still parse
+    /// as one applied type, not as a 2-tuple of two standalone types -
+    /// the fix for the bug above must not regress this, much more common,
+    /// case.
+    #[test]
+    fn parenthesized_type_application_parses_as_tcon_with_args() {
+        let module = parse_ok("(:: main (Maybe Int))\n(fn main 0)");
+        match &module.decls[0] {
+            Decl::DSig { ty, .. } => match ty {
+                Type::TCon(name, args) => {
+                    assert_eq!(name.name, "Maybe");
+                    assert_eq!(args.len(), 1);
+                    assert!(matches!(&args[0], Type::TCon(inner, _) if inner.name == "Int"));
+                }
+                other => panic!("expected TCon, got {:?}", other),
+            },
+            other => panic!("expected DSig, got {:?}", other),
+        }
+    }
+
+    /// Regression test for the sibling bug in `parse_tyvars`: a `data`
+    /// type's parenthesized type-parameter list (`(a)`, `()`, `(a b)`)
+    /// was previously indistinguishable from its first constructor/field
+    /// group, since both start with a bare `(`. See `looks_like_tyvar_list`.
+    #[test]
+    fn data_type_parameter_list_is_not_mistaken_for_a_constructor() {
+        let module = parse_ok("(data Maybe (a)\n  (Nothing)\n  (Just a))\n(:: main Int)\n(fn main 0)");
+        match &module.decls[0] {
+            Decl::DData { tyvars, constructors, .. } => {
+                assert_eq!(tyvars.as_slice(), ["a"]);
+                assert_eq!(constructors.len(), 2);
+                assert_eq!(constructors[0].name.name, "Nothing");
+                assert_eq!(constructors[1].name.name, "Just");
+            }
+            other => panic!("expected DData, got {:?}", other),
+        }
+    }
+
+    /// A `data` type with *no* type parameters must not have its first
+    /// nullary constructor mistaken for an (empty) type-parameter list -
+    /// the disambiguation in `looks_like_tyvar_list` has to fail
+    /// gracefully for a capitalized constructor name too.
+    #[test]
+    fn data_type_with_no_parameters_and_nullary_constructors() {
+        let module = parse_ok("(data Ordering\n  (LT)\n  (EQ)\n  (GT))\n(:: main Int)\n(fn main 0)");
+        match &module.decls[0] {
+            Decl::DData { tyvars, constructors, .. } => {
+                assert!(tyvars.is_empty());
+                assert_eq!(constructors.len(), 3);
+            }
+            other => panic!("expected DData, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn type_alias_with_empty_parameter_list_parses() {
+        let module = parse_ok("(type StringList () = [String])\n(:: main Int)\n(fn main 0)");
+        match &module.decls[0] {
+            Decl::DType { tyvars, .. } => assert!(tyvars.is_empty()),
+            other => panic!("expected DType, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn import_with_and_without_name_filter_parses() {
+        let module = parse_ok("(import Math.Ops (square cube))\n(import Data.List)\n(:: main Int)\n(fn main 0)");
+        match &module.imports[0] {
+            Decl::DImport { module: path, names } => {
+                assert_eq!(path.iter().map(|i| i.name.as_str()).collect::<Vec<_>>(), ["Math", "Ops"]);
+                assert_eq!(names.iter().map(|i| i.name.as_str()).collect::<Vec<_>>(), ["square", "cube"]);
+            }
+            other => panic!("expected DImport, got {:?}", other),
+        }
+        match &module.imports[1] {
+            Decl::DImport { module: path, names } => {
+                assert_eq!(path.iter().map(|i| i.name.as_str()).collect::<Vec<_>>(), ["Data", "List"]);
+                assert!(names.is_empty());
+            }
+            other => panic!("expected DImport, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn struct_with_packed_attribute_parses() {
+        let module = parse_ok("(struct Point packed\n  (x : Int)\n  (y : Int))\n(:: main Int)\n(fn main 0)");
+        match &module.decls[0] {
+            Decl::DStruct { fields, repr, .. } => {
+                assert_eq!(fields.len(), 2);
+                assert!(matches!(repr, Some(TypeRepr::Packed)));
+            }
+            other => panic!("expected DStruct, got {:?}", other),
+        }
+    }
 }
