@@ -383,6 +383,7 @@ impl Lexer {
             "Pure" => TokenKind::Pure,
             "IO" => TokenKind::IO,
             "Mut" => TokenKind::Mut,
+            "mut" => TokenKind::Mut,
             "Div" => TokenKind::Div,
             "I8" => TokenKind::I8,
             "I16" => TokenKind::I16,

@@ -373,10 +373,10 @@ pub fn parse_module(&mut self) -> ParseResult<Module> {
         let mut fields = Vec::new();
         while self.check(TokenKind::LParen) {
             self.advance();
+            let mutable = self.eat(TokenKind::Mut);
             let field_name = self.parse_ident()?;
             self.expect(TokenKind::Colon)?;
             let field_ty = self.parse_type()?;
-            let mutable = false;
             fields.push(Field {
                 name: field_name,
                 ty: field_ty,
@@ -403,10 +403,10 @@ pub fn parse_module(&mut self) -> ParseResult<Module> {
         let mut fields = Vec::new();
         while self.check(TokenKind::LParen) {
             self.advance();
+            let mutable = self.eat(TokenKind::Mut);
             let field_name = self.parse_ident()?;
             self.expect(TokenKind::Colon)?;
             let field_ty = self.parse_type()?;
-            let mutable = false;
             fields.push(Field {
                 name: field_name,
                 ty: field_ty,
@@ -952,6 +952,10 @@ pub fn parse_module(&mut self) -> ParseResult<Module> {
                 return self.parse_type_sig_expr();
             }
 
+            if self.check(TokenKind::Struct) {
+                return self.parse_struct_con();
+            }
+
             if self.check(TokenKind::RParen) {
                 self.advance();
                 return Ok(Expr::ETuple(vec![]));
@@ -1279,6 +1283,17 @@ pub fn parse_module(&mut self) -> ParseResult<Module> {
         let ty = self.parse_type()?;
         self.expect(TokenKind::RParen)?;
         Ok(Expr::ETypeSig(Box::new(expr), ty))
+    }
+
+    fn parse_struct_con(&mut self) -> ParseResult<Expr> {
+        self.expect(TokenKind::Struct)?;
+        let name = self.parse_ident()?;
+        let mut args = Vec::new();
+        while !self.check(TokenKind::RParen) && !self.at_eof() {
+            args.push(self.parse_expr()?);
+        }
+        self.expect(TokenKind::RParen)?;
+        Ok(Expr::EStructCon(name, args))
     }
 
     fn parse_string_literal(&mut self) -> ParseResult<String> {

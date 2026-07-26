@@ -462,6 +462,38 @@ impl IrGen {
                             return self.gen_construct(func, tag, all_args);
                         }
                     }
+                    // Struct construction: `(Point 1 2)` where `Point`
+                    // is a known struct name. Allocate space and store
+                    // each field at the appropriate offset (no tag word).
+                    if let Some(si) = type_checker.structs.iter().find(|s| s.name == ident.name) {
+                        if si.fields.len() != all_args.len() {
+                            return IrValue::Const(IrConst::Int(
+                                0,
+                                TypeId::TCon("I64".to_string(), vec![]),
+                            ));
+                        }
+                        let i64_ty = TypeId::TCon("I64".to_string(), vec![]);
+                        let struct_size = (si.fields.len() * 8) as i64;
+                        let ptr_local = self.new_local();
+                        self.emit_to_func(
+                            func,
+                            IrInst::HeapAlloc {
+                                dest: IrValue::Local(ptr_local.clone()),
+                                size: IrValue::Const(IrConst::Int(struct_size, i64_ty.clone())),
+                            },
+                        );
+                        for (i, arg) in all_args.into_iter().enumerate() {
+                            self.emit_to_func(
+                                func,
+                                IrInst::StoreOffset {
+                                    ptr: IrValue::Local(ptr_local.clone()),
+                                    offset: (i * 8) as i64,
+                                    value: arg,
+                                },
+                            );
+                        }
+                        return IrValue::Local(ptr_local);
+                    }
                 }
 
                 if let Expr::ELam(params, body) = current {
@@ -1107,7 +1139,7 @@ impl IrGen {
                 if let Some((_struct_name, field_index, _field_ty)) =
                     type_checker.find_struct_field_by_name(&field_ident.name)
                 {
-                    let offset = ((1 + field_index) * 8) as i64;
+                    let offset = (field_index * 8) as i64;
                     let result_reg = self.new_local();
                     self.emit_to_func(
                         func,
@@ -1118,6 +1150,61 @@ impl IrGen {
                         },
                     );
                     IrValue::Local(result_reg)
+                } else {
+                    IrValue::Const(IrConst::Int(0, i64_ty))
+                }
+            }
+            Expr::ESetField(base, field_ident, value) => {
+                let base_val =
+                    self.gen_expr_to_func_with_allocas(func, base, alloca_map, type_checker);
+                let value_val =
+                    self.gen_expr_to_func_with_allocas(func, value, alloca_map, type_checker);
+                let i64_ty = TypeId::TCon("I64".to_string(), vec![]);
+                if let Some((_struct_name, field_index, _field_ty)) =
+                    type_checker.find_struct_field_by_name(&field_ident.name)
+                {
+                    let offset = (field_index * 8) as i64;
+                    self.emit_to_func(
+                        func,
+                        IrInst::StoreOffset {
+                            ptr: base_val,
+                            offset,
+                            value: value_val,
+                        },
+                    );
+                    IrValue::Const(IrConst::Int(0, i64_ty))
+                } else {
+                    IrValue::Const(IrConst::Int(0, i64_ty))
+                }
+            }
+            Expr::EStructCon(name, args) => {
+                let i64_ty = TypeId::TCon("I64".to_string(), vec![]);
+                if let Some(si) = type_checker.structs.iter().find(|s| s.name == name.name) {
+                    if si.fields.len() != args.len() {
+                        return IrValue::Const(IrConst::Int(0, i64_ty));
+                    }
+                    let struct_size = (si.fields.len() * 8) as i64;
+                    let ptr_local = self.new_local();
+                    self.emit_to_func(
+                        func,
+                        IrInst::HeapAlloc {
+                            dest: IrValue::Local(ptr_local.clone()),
+                            size: IrValue::Const(IrConst::Int(struct_size, i64_ty.clone())),
+                        },
+                    );
+                    for (i, arg) in args.into_iter().enumerate() {
+                        let val =
+                            self.gen_expr_to_func_with_allocas(func, arg, alloca_map, type_checker);
+                        self.emit_to_func(
+                            func,
+                            IrInst::StoreOffset {
+                                ptr: IrValue::Local(ptr_local.clone()),
+                                offset: (i * 8) as i64,
+                                value: val,
+                            },
+                        );
+                    }
+                    IrValue::Local(ptr_local)
                 } else {
                     IrValue::Const(IrConst::Int(0, i64_ty))
                 }

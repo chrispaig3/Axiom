@@ -150,6 +150,8 @@ pub enum Expr {
     ERegion(Ident, Box<Expr>),
     EConsume(Box<Expr>),
     EField(Box<Expr>, Ident),
+    EStructCon(Ident, Vec<Expr>),
+    ESetField(Box<Expr>, Ident, Box<Expr>),
     EError(String, Span),
 }
 
@@ -181,6 +183,8 @@ impl Expr {
             Expr::ERegion(_, e) => e.span(),
             Expr::EConsume(e) => e.span(),
             Expr::EField(e, _) => e.span(),
+            Expr::EStructCon(name, _) => name.span,
+            Expr::ESetField(e, _, _) => e.span(),
             Expr::EError(_, span) => *span,
         }
     }

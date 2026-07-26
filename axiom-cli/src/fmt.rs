@@ -821,6 +821,25 @@ fn format_expr(expr: &Expr, out: &mut String, state: &mut FormatState) {
             out.push('.');
             out.push_str(&field_ident.name);
         }
+        Expr::EStructCon(name, args) => {
+            out.push_str(&name.name);
+            out.push(' ');
+            for (i, arg) in args.iter().enumerate() {
+                if i > 0 {
+                    out.push(' ');
+                }
+                format_expr(arg, out, state);
+            }
+        }
+        Expr::ESetField(base, field_ident, value) => {
+            out.push_str("(set-field ");
+            format_expr(base, out, state);
+            out.push(' ');
+            out.push_str(&field_ident.name);
+            out.push(' ');
+            format_expr(value, out, state);
+            out.push(')');
+        }
         Expr::EError(msg, _) => {
             write!(out, "_{}", msg).unwrap();
         }

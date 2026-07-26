@@ -255,6 +255,13 @@ fn expr_contains_foreign_call(expr: &Expr, foreign_names: &std::collections::Has
         Expr::ERegion(_, e) => expr_contains_foreign_call(e, foreign_names),
         Expr::EConsume(e) => expr_contains_foreign_call(e, foreign_names),
         Expr::EField(e, _) => expr_contains_foreign_call(e, foreign_names),
+        Expr::EStructCon(_, args) => {
+            args.iter().any(|e| expr_contains_foreign_call(e, foreign_names))
+        }
+        Expr::ESetField(base, _, value) => {
+            expr_contains_foreign_call(base, foreign_names)
+                || expr_contains_foreign_call(value, foreign_names)
+        }
         Expr::EError(_, _) => false,
         Expr::ELit(_, _) => false,
     }
@@ -865,11 +872,72 @@ impl TypeChecker {
         }
     }
 
+    /// Check if `expr` is a struct construction: a variable
+    /// reference to a known struct name, possibly applied to
+    /// arguments via nested `EApp`. Returns `(struct_name,
+    /// args)` if so, or `None` otherwise.
+    fn find_struct_con(&self, expr: &Expr) -> Option<(Ident, Vec<Expr>)> {
+        let mut args = Vec::new();
+        let mut current = expr;
+        loop {
+            match current {
+                Expr::EApp(func, arg) => {
+                    args.push(arg.as_ref().clone());
+                    current = func;
+                }
+                Expr::EVar(ident) => {
+                    if self.structs.iter().any(|s| s.name == ident.name) {
+                        args.reverse();
+                        return Some((ident.clone(), args));
+                    }
+                    return None;
+                }
+                _ => return None,
+            }
+        }
+    }
+
     fn check_expr(&mut self, expr: &Expr) -> TypeId {
         match expr {
             Expr::EVar(ident) => self.check_var(ident),
             Expr::ELit(lit, _) => self.check_literal(lit),
             Expr::EApp(func, arg) => {
+                // Check for struct construction first:
+                // `(Point 1 2)` where `Point` is a known struct name.
+                if let Some((struct_ident, con_args)) = self.find_struct_con(expr) {
+                    let si = self
+                        .structs
+                        .iter()
+                        .find(|s| s.name == struct_ident.name)
+                        .cloned();
+                    if let Some(si) = si {
+                        if con_args.len() != si.fields.len() {
+                            self.errors.push(SemError::Message {
+                                message: format!(
+                                    "struct `{}` expects {} field(s), found {}",
+                                    struct_ident.name,
+                                    si.fields.len(),
+                                    con_args.len(),
+                                ),
+                                span: expr.span(),
+                            });
+                            return TypeId::TError;
+                        }
+                        for (i, con_arg) in con_args.iter().enumerate() {
+                            let arg_ty = self.check_expr(con_arg);
+                            let expected_ty = si.fields[i].1.clone();
+                            if !arg_ty.compatible_with(&expected_ty) {
+                                self.errors.push(SemError::TypeMismatch {
+                                    expected: format!("{}", expected_ty),
+                                    found: format!("{}", arg_ty),
+                                    span: con_arg.span(),
+                                });
+                            }
+                        }
+                        return self.type_to_id(&Type::TCon(struct_ident, vec![]));
+                    }
+                }
+
                 let func_ty = self.check_expr(func);
                 let arg_ty = self.check_expr(arg);
                 match func_ty {
@@ -926,8 +994,8 @@ impl TypeChecker {
             Expr::ELet(bindings, body) => {
                 self.push_scope();
                 for (pat, init) in bindings {
-                    let _init_ty = self.check_expr(init);
-                    self.check_pattern(pat);
+                    let init_ty = self.check_expr(init);
+                    self.check_pattern_with_type(pat, &init_ty);
                 }
                 let body_ty = self.check_expr(body);
                 self.pop_scope();
@@ -1122,7 +1190,104 @@ impl TypeChecker {
                 }
                 TypeId::TCon("I64".to_string(), vec![])
             }
-            Expr::EError(_, _) => TypeId::TVar(format!("_t{}", self.type_counter)),
+            Expr::EStructCon(name, args) => {
+                    let si = self
+                        .structs
+                        .iter()
+                        .find(|s| s.name == name.name)
+                        .cloned();
+                    match si {
+                        Some(si) => {
+                            if args.len() != si.fields.len() {
+                                self.errors.push(SemError::Message {
+                                    message: format!(
+                                        "struct `{}` expects {} field(s), found {}",
+                                        name.name,
+                                        si.fields.len(),
+                                        args.len(),
+                                    ),
+                                    span: expr.span(),
+                                });
+                                return TypeId::TError;
+                            }
+                            for (i, arg) in args.iter().enumerate() {
+                                let arg_ty = self.check_expr(arg);
+                                let expected_ty = si.fields[i].1.clone();
+                                if !arg_ty.compatible_with(&expected_ty) {
+                                    self.errors.push(SemError::TypeMismatch {
+                                        expected: format!("{}", expected_ty),
+                                        found: format!("{}", arg_ty),
+                                        span: arg.span(),
+                                    });
+                                }
+                            }
+                            self.type_to_id(&Type::TCon(name.clone(), vec![]))
+                        }
+                        None => {
+                            self.errors.push(SemError::UndefinedType {
+                                name: name.name.clone(),
+                                span: name.span,
+                                suggestion: None,
+                            });
+                            TypeId::TError
+                        }
+                    }
+            }
+                Expr::ESetField(base, field_ident, value) => {
+                    let base_ty = self.check_expr(base);
+                    if let TypeId::TCon(struct_name, _) = &base_ty {
+                        let field_info = self
+                            .structs
+                            .iter()
+                            .find(|s| s.name == *struct_name)
+                            .cloned()
+                            .and_then(|si| {
+                                si.fields
+                                    .iter()
+                                    .find(|(fname, _)| fname == &field_ident.name)
+                                    .map(|(fname, fty)| (fname.clone(), fty.clone()))
+                            })
+                            .or_else(|| {
+                                self.unions
+                                    .iter()
+                                    .find(|u| u.name == *struct_name)
+                                    .cloned()
+                                    .and_then(|ui| {
+                                        ui.fields
+                                            .iter()
+                                            .find(|(fname, _)| fname == &field_ident.name)
+                                            .map(|(fname, fty)| (fname.clone(), fty.clone()))
+                                    })
+                            });
+                        match field_info {
+                            Some((_, fty)) => {
+                                let value_ty = self.check_expr(value);
+                                if !value_ty.compatible_with(&fty) {
+                                    self.errors.push(SemError::TypeMismatch {
+                                        expected: format!("{}", fty),
+                                        found: format!("{}", value_ty),
+                                        span: value.span(),
+                                    });
+                                }
+                            }
+                            None => {
+                                self.errors.push(SemError::FieldNotFound {
+                                    field: field_ident.name.clone(),
+                                    ty: struct_name.clone(),
+                                    span: field_ident.span,
+                                });
+                            }
+                        }
+                    } else {
+                        self.errors.push(SemError::TypeMismatch {
+                            expected: "struct".to_string(),
+                            found: format!("{}", base_ty),
+                            span: base.span(),
+                        });
+                    }
+                    TypeId::TCon("I64".to_string(), vec![])
+                }
+                Expr::EError(_, _) => TypeId::TVar(format!("_t{}", self.type_counter)),
         }
     }
 

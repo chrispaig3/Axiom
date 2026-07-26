@@ -743,7 +743,7 @@ Source (.ax)
 | fn keyword | **Complete** | Modern alias for `define` |
 | FFI | **Complete** | Call any C function with `foreign` declarations |
 | ADTs / data types | **Complete** | Constructors (nullary and with fields, including recursive types like `List`/`Tree`) compile to heap-boxed tagged values; see [Algebraic data types](#algebraic-data-types-how-they-actually-run) |
-| Structs / unions | **Partial** | Declarations and LLVM emission work; field-access expression syntax still pending |
+| Structs / unions | **Complete** | Declarations, LLVM emission, field access (`.field`), struct construction (`(StructName expr1 expr2 ...)`), `mut` fields, and field mutation (`(set-field expr field value)`) all work |
 | Pattern matching (`case`) | **Functional** | Constructor patterns (nullary and with-field), variables, wildcards, and literals (against non-`data` scrutinees) all compare and bind correctly, plus non-exhaustiveness/arity/undefined-constructor diagnostics; nested constructor patterns and tuple/list patterns aren't compared yet (see [Algebraic data types](#algebraic-data-types-how-they-actually-run)) |
 | Lambda | **Partial** | Parsed and type-checked; codegen pending |
 | Lists | **Partial** | Syntax and type checking; runtime representation pending |
