@@ -1,14 +1,23 @@
 # Axiom — Agent Instructions
 
-## 1. Diagnostic Priority: Always Use `ai` Format First
+## 1. Always Use `axiom diagnostics=ai` First
 
-When diagnosing compiler output, **always start with the `ai` diagnostic format** before looking at any other output.
+When running *any* Axiom compiler command, always pass the AI-optimized diagnostic format:
 
 ```bash
-axiom build --input <file> --diagnostic-format ai
+axiom diagnostics=ai <command> <args>
 ```
 
-The `ai` renderer (`DiagnosticFormat::Ai`) produces one dense, greppable, colorless line per diagnostic with no re-rendered source text. It is designed to minimize tokens consumed by an LLM agent reading compiler output. The `human` renderer is for human consumption and should only be consulted when the `ai` output is insufficient.
+This is shorthand for `--diagnostic-format=ai` on every `axiom` subcommand (build, check, symbols, run, emit-llvm, etc.). It uses the AXDL (Axiom eXchange Diagnostic Line) renderer, which produces one dense, greppable, colorless line per diagnostic with no re-rendered source text — designed to minimize tokens consumed by an LLM agent.
+
+```bash
+# Examples
+axiom diagnostics=ai check source.ax
+axiom diagnostics=ai build --input source.ax --output myprog
+axiom diagnostics=ai symbols source.ax
+```
+
+The `human` renderer is for human consumption only; use it only when the `ai` output is insufficient.
 
 ### Key `ai` format details
 
@@ -146,4 +155,4 @@ Use `.with_group(...)` on `Diagnostic` when a single root cause produces multipl
 ### Compiler-as-trusted-tool
 
 - Because Axiom is designed for agentic programming, agents must treat compiler output as authoritative. When the `ai` diagnostic format reports an error, do not attempt to work around it by modifying source to hide the diagnostic. Fix the root cause.
-- When an agent generates Axiom source code, it must compile cleanly with `--diagnostic-format ai` and produce zero errors before the code is considered valid.
+- When an agent generates Axiom source code, it must compile cleanly with `axiom diagnostics=ai check` and produce zero errors before the code is considered valid.
