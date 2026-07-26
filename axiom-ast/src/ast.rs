@@ -1,4 +1,4 @@
-use crate::span::{Span, Ident};
+use crate::span::{Ident, Span};
 use std::fmt;
 
 // ============================================================
@@ -49,21 +49,51 @@ pub enum Type {
 }
 
 impl Type {
-    pub fn unit() -> Self { Type::TTuple(vec![]) }
-    pub fn int() -> Self { Type::TCon(Ident::new("Int", Span::dummy()), vec![]) }
-    pub fn bool() -> Self { Type::TCon(Ident::new("Bool", Span::dummy()), vec![]) }
-    pub fn string() -> Self { Type::TCon(Ident::new("String", Span::dummy()), vec![]) }
-    pub fn float() -> Self { Type::TCon(Ident::new("Float", Span::dummy()), vec![]) }
-    pub fn double() -> Self { Type::TCon(Ident::new("Double", Span::dummy()), vec![]) }
-    pub fn char() -> Self { Type::TCon(Ident::new("Char", Span::dummy()), vec![]) }
-    pub fn void() -> Self { Type::TCon(Ident::new("Void", Span::dummy()), vec![]) }
-    pub fn any() -> Self { Type::TCon(Ident::new("Any", Span::dummy()), vec![]) }
-    pub fn list(inner: Type) -> Self { Type::TList(Box::new(inner)) }
-    pub fn ptr(inner: Type, mutable: bool) -> Self { Type::TPtr(Box::new(inner), mutable) }
-    pub fn arr(from: Type, to: Type) -> Self { Type::TArr(Box::new(from), Box::new(to)) }
-    pub fn linear(inner: Type) -> Self { Type::TLinear(Box::new(inner)) }
-    pub fn region(inner: Type, name: Ident) -> Self { Type::TRegion(Box::new(inner), name) }
-    pub fn effect(inner: Type, effects: Vec<Effect>) -> Self { Type::TEffect(Box::new(inner), effects) }
+    pub fn unit() -> Self {
+        Type::TTuple(vec![])
+    }
+    pub fn int() -> Self {
+        Type::TCon(Ident::new("Int", Span::dummy()), vec![])
+    }
+    pub fn bool() -> Self {
+        Type::TCon(Ident::new("Bool", Span::dummy()), vec![])
+    }
+    pub fn string() -> Self {
+        Type::TCon(Ident::new("String", Span::dummy()), vec![])
+    }
+    pub fn float() -> Self {
+        Type::TCon(Ident::new("Float", Span::dummy()), vec![])
+    }
+    pub fn double() -> Self {
+        Type::TCon(Ident::new("Double", Span::dummy()), vec![])
+    }
+    pub fn char() -> Self {
+        Type::TCon(Ident::new("Char", Span::dummy()), vec![])
+    }
+    pub fn void() -> Self {
+        Type::TCon(Ident::new("Void", Span::dummy()), vec![])
+    }
+    pub fn any() -> Self {
+        Type::TCon(Ident::new("Any", Span::dummy()), vec![])
+    }
+    pub fn list(inner: Type) -> Self {
+        Type::TList(Box::new(inner))
+    }
+    pub fn ptr(inner: Type, mutable: bool) -> Self {
+        Type::TPtr(Box::new(inner), mutable)
+    }
+    pub fn arr(from: Type, to: Type) -> Self {
+        Type::TArr(Box::new(from), Box::new(to))
+    }
+    pub fn linear(inner: Type) -> Self {
+        Type::TLinear(Box::new(inner))
+    }
+    pub fn region(inner: Type, name: Ident) -> Self {
+        Type::TRegion(Box::new(inner), name)
+    }
+    pub fn effect(inner: Type, effects: Vec<Effect>) -> Self {
+        Type::TEffect(Box::new(inner), effects)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -133,7 +163,10 @@ impl Expr {
             Expr::ELet(_, e) => e.span(),
             Expr::EIf(c, _, _) => c.span(),
             Expr::ECase(e, _) => e.span(),
-            Expr::ECond(branches, _) => branches.first().map(|(e, _)| e.span()).unwrap_or(Span::dummy()),
+            Expr::ECond(branches, _) => branches
+                .first()
+                .map(|(e, _)| e.span())
+                .unwrap_or(Span::dummy()),
             Expr::EBegin(es) => es.first().map(|e| e.span()).unwrap_or(Span::dummy()),
             Expr::ETuple(es) => es.first().map(|e| e.span()).unwrap_or(Span::dummy()),
             Expr::EList(es) => es.first().map(|e| e.span()).unwrap_or(Span::dummy()),

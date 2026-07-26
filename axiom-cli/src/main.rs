@@ -3,12 +3,12 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use axiom_lexer::Lexer;
-use axiom_parser::{Parser, DeclOrExpr};
-use axiom_sema::{TypeChecker, TypeId};
-use axiom_ir::generator::IrGen;
 use axiom_codegen::LlvmCodeGen;
 use axiom_errors::{Diagnostic, DiagnosticFormat, SymbolFact, SymbolKind};
+use axiom_ir::generator::IrGen;
+use axiom_lexer::Lexer;
+use axiom_parser::{DeclOrExpr, Parser};
+use axiom_sema::{TypeChecker, TypeId};
 
 mod fmt;
 
@@ -46,14 +46,9 @@ enum Commands {
         opt: u8,
     },
     /// Run a source file directly
-    Run {
-        input: String,
-        args: Vec<String>,
-    },
+    Run { input: String, args: Vec<String> },
     /// Check syntax and types
-    Check {
-        input: String,
-    },
+    Check { input: String },
     /// Emit LLVM IR only
     EmitLlvm {
         input: String,
@@ -112,7 +107,12 @@ fn main() {
     });
 
     match cli.command {
-        Commands::Build { input, output, emit_llvm, opt } => {
+        Commands::Build {
+            input,
+            output,
+            emit_llvm,
+            opt,
+        } => {
             if let Err(e) = build(&input, &output, emit_llvm, opt, format) {
                 eprintln!("{}", e);
                 std::process::exit(1);
@@ -164,7 +164,12 @@ fn explain(code: Option<&str>, list: bool) {
     if list || code.is_none() {
         println!("{}", "Known Axiom diagnostic codes:".bold().bright_cyan());
         for info in axiom_errors::code::ALL {
-            println!("  {}  {}  ({})", info.code.bright_yellow(), info.title, info.slug);
+            println!(
+                "  {}  {}  ({})",
+                info.code.bright_yellow(),
+                info.title,
+                info.slug
+            );
         }
         if code.is_none() && !list {
             println!("\nUsage: axiom explain <CODE>");
@@ -190,7 +195,12 @@ fn explain(code: Option<&str>, list: bool) {
 /// rather than the top-level `axiom_errors::render`, which always dedups
 /// internally - callers that already deduped (to compute an accurate "N
 /// errors" count) would otherwise pay for a second, redundant pass.
-fn print_diagnostics(diags: Vec<Diagnostic>, filename: &str, source: &str, format: DiagnosticFormat) {
+fn print_diagnostics(
+    diags: Vec<Diagnostic>,
+    filename: &str,
+    source: &str,
+    format: DiagnosticFormat,
+) {
     let rendered = match format {
         DiagnosticFormat::Human => axiom_errors::render_human(&diags, filename, source),
         DiagnosticFormat::Ai => axiom_errors::render_ai(&diags, filename, source),
@@ -267,7 +277,11 @@ impl FileRegistry {
 /// resolution through `render_human`/`render_ai`/`render_json` themselves;
 /// out of scope here since every *other* diagnostic in the compiler only
 /// ever has secondary spans in the same file as its primary span.
-fn print_diagnostics_multi(diags: &[Diagnostic], registry: &FileRegistry, format: DiagnosticFormat) {
+fn print_diagnostics_multi(
+    diags: &[Diagnostic],
+    registry: &FileRegistry,
+    format: DiagnosticFormat,
+) {
     for diag in diags {
         let file_id = diag.primary_span().map(|s| s.file_id).unwrap_or(0);
         let (filename, source) = registry.get(file_id);
@@ -315,7 +329,11 @@ fn module_rel_path(module: &[axiom_ast::span::Ident]) -> PathBuf {
 /// *own* diagnostics are always printed before its imports are even
 /// looked at), printing diagnostics against `path`/its own source on
 /// failure exactly like the entry file's lex/parse stage does.
-fn parse_module_file(path: &Path, file_id: usize, format: DiagnosticFormat) -> Result<axiom_ast::Module, String> {
+fn parse_module_file(
+    path: &Path,
+    file_id: usize,
+    format: DiagnosticFormat,
+) -> Result<axiom_ast::Module, String> {
     let display = path.display().to_string();
     let source = fs::read_to_string(path)
         .map_err(|e| format!("cannot read imported module '{}': {}", display, e))?;
@@ -325,7 +343,10 @@ fn parse_module_file(path: &Path, file_id: usize, format: DiagnosticFormat) -> R
         Ok(tokens) => tokens,
         Err(e) => {
             print_diagnostics(vec![e.to_diagnostic()], &display, &source, format);
-            return Err(format!("failed to parse imported module '{}' due to a lexer error", display));
+            return Err(format!(
+                "failed to parse imported module '{}' due to a lexer error",
+                display
+            ));
         }
     };
 
@@ -334,7 +355,10 @@ fn parse_module_file(path: &Path, file_id: usize, format: DiagnosticFormat) -> R
         Ok(module) => module,
         Err(e) => {
             print_diagnostics(vec![e.to_diagnostic()], &display, &source, format);
-            return Err(format!("failed to parse imported module '{}' due to a syntax error", display));
+            return Err(format!(
+                "failed to parse imported module '{}' due to a syntax error",
+                display
+            ));
         }
     };
 
@@ -368,9 +392,15 @@ fn resolve_imports_into(
     use axiom_ast::ast::Decl;
 
     for import in imports {
-        let Decl::DImport { module, names } = import else { continue };
+        let Decl::DImport { module, names } = import else {
+            continue;
+        };
 
-        let dotted = module.iter().map(|i| i.name.clone()).collect::<Vec<_>>().join(".");
+        let dotted = module
+            .iter()
+            .map(|i| i.name.clone())
+            .collect::<Vec<_>>()
+            .join(".");
         let rel_path = module_rel_path(module);
         let path = root_dir.join(&rel_path);
 
@@ -390,7 +420,11 @@ fn resolve_imports_into(
             // all still render a codeless-span diagnostic fine (AXDL
             // prints `-` in place of a location, see `docs/diagnostics.md`).
             print_diagnostics(vec![diag], "<import>", "", format);
-            return Err(format!("cannot resolve import `{}`: no such file '{}'", dotted, path.display()));
+            return Err(format!(
+                "cannot resolve import `{}`: no such file '{}'",
+                dotted,
+                path.display()
+            ));
         }
 
         let canonical = path.canonicalize().unwrap_or_else(|_| path.clone());
@@ -420,14 +454,23 @@ fn resolve_imports_into(
         // on them in `out` (cosmetic - `axiom-sema`'s two-pass checker
         // doesn't care about declaration order - but it keeps
         // `--dump`-style output and mental models straightforward).
-        resolve_imports_into(root_dir, &imported_module.imports, format, registry, visited, out)?;
+        resolve_imports_into(
+            root_dir,
+            &imported_module.imports,
+            format,
+            registry,
+            visited,
+            out,
+        )?;
 
         if names.is_empty() {
             out.extend(imported_module.decls);
         } else {
             let wanted: HashSet<&str> = names.iter().map(|i| i.name.as_str()).collect();
             out.extend(
-                imported_module.decls.into_iter()
+                imported_module
+                    .decls
+                    .into_iter()
                     .filter(|d| decl_name(d).is_some_and(|n| wanted.contains(n))),
             );
         }
@@ -440,19 +483,34 @@ fn resolve_imports_into(
 /// module, merge every transitively `(import ...)`ed file's declarations
 /// into it. A no-op (and doesn't touch `registry` beyond the entry file
 /// already registered by the caller) when the entry file has no imports.
-fn resolve_imports(entry_path: &Path, module: &mut axiom_ast::Module, format: DiagnosticFormat, registry: &mut FileRegistry) -> Result<(), String> {
+fn resolve_imports(
+    entry_path: &Path,
+    module: &mut axiom_ast::Module,
+    format: DiagnosticFormat,
+    registry: &mut FileRegistry,
+) -> Result<(), String> {
     if module.imports.is_empty() {
         return Ok(());
     }
 
-    let base_dir = entry_path.parent().map(|p| p.to_path_buf()).unwrap_or_else(|| PathBuf::from("."));
+    let base_dir = entry_path
+        .parent()
+        .map(|p| p.to_path_buf())
+        .unwrap_or_else(|| PathBuf::from("."));
     let mut visited = HashSet::new();
     if let Ok(canonical) = entry_path.canonicalize() {
         visited.insert(canonical);
     }
 
     let mut imported_decls = Vec::new();
-    resolve_imports_into(&base_dir, &module.imports, format, registry, &mut visited, &mut imported_decls)?;
+    resolve_imports_into(
+        &base_dir,
+        &module.imports,
+        format,
+        registry,
+        &mut visited,
+        &mut imported_decls,
+    )?;
 
     // Imported declarations first, then the entry file's own - purely
     // for readability of anything that dumps `module.decls` back out;
@@ -482,7 +540,12 @@ fn resolve_imports(entry_path: &Path, module: &mut axiom_ast::Module, format: Di
 /// that callers needing to attribute their own per-declaration output
 /// back to the right file (e.g. `axiom symbols`, see `collect_symbol_facts`)
 /// can do the same instead of only `analyze` itself being multi-file-aware.
-fn analyze(input: &str, source: &str, format: DiagnosticFormat, announce: bool) -> Result<(axiom_ast::Module, TypeChecker, FileRegistry), String> {
+fn analyze(
+    input: &str,
+    source: &str,
+    format: DiagnosticFormat,
+    announce: bool,
+) -> Result<(axiom_ast::Module, TypeChecker, FileRegistry), String> {
     let mut registry = FileRegistry::new();
     let entry_file_id = registry.add(input.to_string(), source.to_string());
 
@@ -540,9 +603,15 @@ fn analyze(input: &str, source: &str, format: DiagnosticFormat, announce: bool) 
     }
 }
 
-fn build(input: &str, output: &str, emit_llvm: bool, opt: u8, format: DiagnosticFormat) -> Result<(), String> {
-    let source = fs::read_to_string(input)
-        .map_err(|e| format!("Failed to read file '{}': {}", input, e))?;
+fn build(
+    input: &str,
+    output: &str,
+    emit_llvm: bool,
+    opt: u8,
+    format: DiagnosticFormat,
+) -> Result<(), String> {
+    let source =
+        fs::read_to_string(input).map_err(|e| format!("Failed to read file '{}': {}", input, e))?;
 
     let (ast, mut type_checker, _registry) = analyze(input, &source, format, true)?;
 
@@ -552,8 +621,11 @@ fn build(input: &str, output: &str, emit_llvm: bool, opt: u8, format: Diagnostic
 
     let has_main = ir_module.functions.iter().any(|f| f.name == "main");
     if !has_main {
-        let diag = Diagnostic::error(&axiom_errors::code::MISSING_MAIN, "no `main` function found")
-            .with_help("add `(:: main Int)` and `(define main ...)` as the program entry point");
+        let diag = Diagnostic::error(
+            &axiom_errors::code::MISSING_MAIN,
+            "no `main` function found",
+        )
+        .with_help("add `(:: main Int)` and `(define main ...)` as the program entry point");
         print_diagnostics(vec![diag], input, &source, format);
         return Err("compilation failed: missing entry point".to_string());
     }
@@ -563,8 +635,7 @@ fn build(input: &str, output: &str, emit_llvm: bool, opt: u8, format: Diagnostic
     let llvm_ir = codegen.compile(&ir_module)?;
 
     let ll_path = format!("{}.ll", output);
-    fs::write(&ll_path, &llvm_ir)
-        .map_err(|e| format!("Failed to write LLVM IR: {}", e))?;
+    fs::write(&ll_path, &llvm_ir).map_err(|e| format!("Failed to write LLVM IR: {}", e))?;
 
     if emit_llvm {
         println!("LLVM IR written to {}", ll_path);
@@ -625,17 +696,20 @@ fn run(input: &str, args: &[String], format: DiagnosticFormat) -> Result<i32, St
         cmd.arg(arg);
     }
 
-    let status = cmd.status()
+    let status = cmd
+        .status()
         .map_err(|e| format!("Failed to run program: {}", e))?;
 
     fs::remove_file(output).ok();
 
-    status.code().ok_or_else(|| format!("Program terminated by signal: {}", status))
+    status
+        .code()
+        .ok_or_else(|| format!("Program terminated by signal: {}", status))
 }
 
 fn check(input: &str, format: DiagnosticFormat) -> Result<(), String> {
-    let source = fs::read_to_string(input)
-        .map_err(|e| format!("Failed to read file '{}': {}", input, e))?;
+    let source =
+        fs::read_to_string(input).map_err(|e| format!("Failed to read file '{}': {}", input, e))?;
 
     analyze(input, &source, format, false)?;
     Ok(())
@@ -662,7 +736,8 @@ fn repr_meta(repr: &Option<axiom_ast::ast::TypeRepr>) -> Option<String> {
 /// actual shapes, not just a count, so an agent can see a type's exact
 /// layout (or a class's exact method set) from the AXSYM line alone.
 fn fields_meta(fields: &[(String, TypeId)]) -> String {
-    fields.iter()
+    fields
+        .iter()
         .map(|(name, ty)| format!("{}:{}", name, ty))
         .collect::<Vec<_>>()
         .join(",")
@@ -680,7 +755,11 @@ fn fields_meta(fields: &[(String, TypeId)]) -> String {
 /// top-level declaration (Axiom's dozen built-in operators) simply gets
 /// `span: None` - the AXSYM renderer prints `-` for those rather than a
 /// fabricated location.
-fn collect_symbol_facts(module: &axiom_ast::Module, tc: &TypeChecker, include_builtins: bool) -> Vec<SymbolFact> {
+fn collect_symbol_facts(
+    module: &axiom_ast::Module,
+    tc: &TypeChecker,
+    include_builtins: bool,
+) -> Vec<SymbolFact> {
     use axiom_ast::ast::Decl;
     use std::collections::HashMap;
 
@@ -697,10 +776,18 @@ fn collect_symbol_facts(module: &axiom_ast::Module, tc: &TypeChecker, include_bu
             // definition and states the type the fact is about), so it
             // takes priority; `entry` leaves an existing `DFn`/`DForeign`
             // span alone only if the signature is missing.
-            Decl::DSig { name, .. } => { fn_spans.insert(&name.name, name.span); }
-            Decl::DFn { name, .. } => { fn_spans.entry(&name.name).or_insert(name.span); }
-            Decl::DForeign { name, .. } => { fn_spans.entry(&name.name).or_insert(name.span); }
-            Decl::DData { name, constructors, .. } => {
+            Decl::DSig { name, .. } => {
+                fn_spans.insert(&name.name, name.span);
+            }
+            Decl::DFn { name, .. } => {
+                fn_spans.entry(&name.name).or_insert(name.span);
+            }
+            Decl::DForeign { name, .. } => {
+                fn_spans.entry(&name.name).or_insert(name.span);
+            }
+            Decl::DData {
+                name, constructors, ..
+            } => {
                 type_spans.insert(&name.name, name.span);
                 // `DataConInfo` (the `TypeChecker`-side record) has no
                 // span of its own - only the AST's own `DataCon` does -
@@ -716,9 +803,15 @@ fn collect_symbol_facts(module: &axiom_ast::Module, tc: &TypeChecker, include_bu
                 type_spans.insert(&name.name, name.span);
                 struct_reprs.insert(&name.name, repr);
             }
-            Decl::DUnion { name, .. } => { type_spans.insert(&name.name, name.span); }
-            Decl::DType { name, .. } => { type_spans.insert(&name.name, name.span); }
-            Decl::DClass { name, .. } => { class_spans.insert(&name.name, name.span); }
+            Decl::DUnion { name, .. } => {
+                type_spans.insert(&name.name, name.span);
+            }
+            Decl::DType { name, .. } => {
+                type_spans.insert(&name.name, name.span);
+            }
+            Decl::DClass { name, .. } => {
+                class_spans.insert(&name.name, name.span);
+            }
             _ => {}
         }
     }
@@ -729,8 +822,17 @@ fn collect_symbol_facts(module: &axiom_ast::Module, tc: &TypeChecker, include_bu
         if f.is_builtin && !include_builtins {
             continue;
         }
-        let kind = if f.foreign_symbol.is_some() { SymbolKind::Foreign } else { SymbolKind::Fn };
-        let mut fact = SymbolFact::new(kind, &f.name, fn_spans.get(f.name.as_str()).copied(), f.ty.to_string());
+        let kind = if f.foreign_symbol.is_some() {
+            SymbolKind::Foreign
+        } else {
+            SymbolKind::Fn
+        };
+        let mut fact = SymbolFact::new(
+            kind,
+            &f.name,
+            fn_spans.get(f.name.as_str()).copied(),
+            f.ty.to_string(),
+        );
         if let Some(symbol) = &f.foreign_symbol {
             // The real linked C symbol - e.g. `(foreign printf :: ... =
             // "printf")` surfaces `#symbol=printf` explicitly rather than
@@ -755,8 +857,13 @@ fn collect_symbol_facts(module: &axiom_ast::Module, tc: &TypeChecker, include_bu
         facts.push(fact);
         for c in &d.constructors {
             facts.push(
-                SymbolFact::new(SymbolKind::Ctor, &c.name, ctor_spans.get(c.name.as_str()).copied(), c.ty.to_string())
-                    .with_meta(format!("of={}", c.data_type)),
+                SymbolFact::new(
+                    SymbolKind::Ctor,
+                    &c.name,
+                    ctor_spans.get(c.name.as_str()).copied(),
+                    c.ty.to_string(),
+                )
+                .with_meta(format!("of={}", c.data_type)),
             );
         }
     }
@@ -861,7 +968,11 @@ fn render_symbols_json(f: &SymbolFact, filename: &str, source: &str) -> String {
         axiom_errors::json_escape(&f.name),
         loc,
         axiom_errors::json_escape(&f.ty),
-        f.meta.iter().map(|m| format!("\"{}\"", axiom_errors::json_escape(m))).collect::<Vec<_>>().join(",")
+        f.meta
+            .iter()
+            .map(|m| format!("\"{}\"", axiom_errors::json_escape(m)))
+            .collect::<Vec<_>>()
+            .join(",")
     )
 }
 
@@ -873,13 +984,19 @@ fn render_symbols_json(f: &SymbolFact, filename: &str, source: &str) -> String {
 /// file actually declared it. Facts with no span (builtin operators) don't
 /// reference a filename/source at all, so which file's text they're
 /// nominally rendered "against" is irrelevant for them.
-fn render_symbols_multi(facts: &[SymbolFact], registry: &FileRegistry, format: DiagnosticFormat) -> String {
+fn render_symbols_multi(
+    facts: &[SymbolFact],
+    registry: &FileRegistry,
+    format: DiagnosticFormat,
+) -> String {
     let mut out = String::new();
     for f in facts {
         let file_id = f.span.map(|s| s.file_id).unwrap_or(0);
         let (filename, source) = registry.get(file_id);
         out.push_str(&match format {
-            DiagnosticFormat::Ai => axiom_errors::render_symbols_ai(std::slice::from_ref(f), filename, source),
+            DiagnosticFormat::Ai => {
+                axiom_errors::render_symbols_ai(std::slice::from_ref(f), filename, source)
+            }
             DiagnosticFormat::Json => render_symbols_json(f, filename, source),
             DiagnosticFormat::Human => render_symbols_human(f, filename, source),
         });
@@ -888,8 +1005,8 @@ fn render_symbols_multi(facts: &[SymbolFact], registry: &FileRegistry, format: D
 }
 
 fn symbols(input: &str, format: DiagnosticFormat, include_builtins: bool) -> Result<(), String> {
-    let source = fs::read_to_string(input)
-        .map_err(|e| format!("Failed to read file '{}': {}", input, e))?;
+    let source =
+        fs::read_to_string(input).map_err(|e| format!("Failed to read file '{}': {}", input, e))?;
 
     let (ast, type_checker, registry) = analyze(input, &source, format, false)?;
     let facts = collect_symbol_facts(&ast, &type_checker, include_builtins);
@@ -899,8 +1016,8 @@ fn symbols(input: &str, format: DiagnosticFormat, include_builtins: bool) -> Res
 }
 
 fn emit_llvm(input: &str, output: Option<&str>, format: DiagnosticFormat) -> Result<(), String> {
-    let source = fs::read_to_string(input)
-        .map_err(|e| format!("Failed to read file '{}': {}", input, e))?;
+    let source =
+        fs::read_to_string(input).map_err(|e| format!("Failed to read file '{}': {}", input, e))?;
 
     // Previously this hand-duplicated `analyze`'s lex/parse/typecheck
     // pipeline with its own bare `format!("{}", e)`/`.join("\n")` error
@@ -919,8 +1036,7 @@ fn emit_llvm(input: &str, output: Option<&str>, format: DiagnosticFormat) -> Res
 
     match output {
         Some(path) => {
-            fs::write(path, &llvm_ir)
-                .map_err(|e| format!("Failed to write LLVM IR: {}", e))?;
+            fs::write(path, &llvm_ir).map_err(|e| format!("Failed to write LLVM IR: {}", e))?;
             println!("LLVM IR written to {}", path);
         }
         None => println!("{}", llvm_ir),
@@ -930,30 +1046,44 @@ fn emit_llvm(input: &str, output: Option<&str>, format: DiagnosticFormat) -> Res
 }
 
 fn fmt(input: &str, check: bool) -> Result<(), String> {
-    let source = fs::read_to_string(input)
-        .map_err(|e| format!("Failed to read file '{}': {}", input, e))?;
+    let source =
+        fs::read_to_string(input).map_err(|e| format!("Failed to read file '{}': {}", input, e))?;
 
     let mut lexer = Lexer::new(&source, 0);
-    let tokens = lexer.tokenize()
+    let tokens = lexer
+        .tokenize()
         .map_err(|e| format!("Lexer error: {}", e))?;
 
     let mut parser = Parser::new(tokens);
-    let ast = parser.parse_module()
+    let ast = parser
+        .parse_module()
         .map_err(|e| format!("Parser error: {}", e))?;
 
     let formatted = fmt::format_module(&ast);
 
     if check {
         if source == formatted {
-            println!("{} {} is already formatted", "OK:".bright_green().bold(), input.bright_white());
+            println!(
+                "{} {} is already formatted",
+                "OK:".bright_green().bold(),
+                input.bright_white()
+            );
         } else {
-            println!("{} {} needs formatting", "Error:".bright_red().bold(), input.bright_white());
+            println!(
+                "{} {} needs formatting",
+                "Error:".bright_red().bold(),
+                input.bright_white()
+            );
             std::process::exit(1);
         }
     } else {
         fs::write(input, &formatted)
             .map_err(|e| format!("Failed to write formatted file: {}", e))?;
-        println!("{} {} formatted", "OK:".bright_green().bold(), input.bright_white());
+        println!(
+            "{} {} formatted",
+            "OK:".bright_green().bold(),
+            input.bright_white()
+        );
     }
 
     Ok(())
@@ -999,8 +1129,12 @@ fn repl(no_banner: bool) {
     }
 
     loop {
-        let prompt = format!("{} {} ", "axiom>".bright_blue().bold(), state.line_count + 1);
-        
+        let prompt = format!(
+            "{} {} ",
+            "axiom>".bright_blue().bold(),
+            state.line_count + 1
+        );
+
         match rl.readline(&prompt) {
             Ok(line) => {
                 let line = line.trim().to_string();
@@ -1037,13 +1171,38 @@ fn repl(no_banner: bool) {
 }
 
 fn print_banner() {
-    println!("{}", "╔═══════════════════════════════════════════════════════════╗".bright_cyan());
-    println!("{}", "║                                                           ║".bright_cyan());
-    println!("{}", format!("║   Axiom v{} - Functional Systems Language              ║", env!("CARGO_PKG_VERSION")).bright_cyan());
-    println!("{}", "║                                                           ║".bright_cyan());
-    println!("{}", "║   Type :help for commands, :quit to exit                 ║".bright_cyan());
-    println!("{}", "║                                                           ║".bright_cyan());
-    println!("{}", "╚═══════════════════════════════════════════════════════════╝".bright_cyan());
+    println!(
+        "{}",
+        "╔═══════════════════════════════════════════════════════════╗".bright_cyan()
+    );
+    println!(
+        "{}",
+        "║                                                           ║".bright_cyan()
+    );
+    println!(
+        "{}",
+        format!(
+            "║   Axiom v{} - Functional Systems Language              ║",
+            env!("CARGO_PKG_VERSION")
+        )
+        .bright_cyan()
+    );
+    println!(
+        "{}",
+        "║                                                           ║".bright_cyan()
+    );
+    println!(
+        "{}",
+        "║   Type :help for commands, :quit to exit                 ║".bright_cyan()
+    );
+    println!(
+        "{}",
+        "║                                                           ║".bright_cyan()
+    );
+    println!(
+        "{}",
+        "╚═══════════════════════════════════════════════════════════╝".bright_cyan()
+    );
     println!();
 }
 
@@ -1061,8 +1220,11 @@ fn handle_command(line: &str, state: &mut ReplState) {
         ":llvm" => cmd_llvm(&parts[1..].join(" "), state),
         ":time" => cmd_time(&parts[1..].join(" "), state),
         _ => {
-            println!("{} Unknown command '{}'. Type :help for available commands.", 
-                "Error:".bright_red().bold(), cmd.bright_yellow());
+            println!(
+                "{} Unknown command '{}'. Type :help for available commands.",
+                "Error:".bright_red().bold(),
+                cmd.bright_yellow()
+            );
         }
     }
 }
@@ -1070,19 +1232,49 @@ fn handle_command(line: &str, state: &mut ReplState) {
 fn show_help() {
     println!();
     println!("{}", "Available Commands:".bold().bright_cyan());
-    println!("  {}     Show this help message", ":help, :h, ?".bright_green());
+    println!(
+        "  {}     Show this help message",
+        ":help, :h, ?".bright_green()
+    );
     println!("  {}      Exit the REPL", ":quit, :q, :exit".bright_green());
-    println!("  {} <expr>  Show the type of an expression", ":type, :t".bright_green());
-    println!("  {} <file>  Load a file into the REPL", ":load, :l".bright_green());
-    println!("  {}        Reset the REPL state", ":reset, :r".bright_green());
-    println!("  {}       Show all definitions in scope", ":defs, :d".bright_green());
-    println!("  {} <expr>  Show generated LLVM IR", ":llvm".bright_green());
-    println!("  {} <expr>  Time expression evaluation", ":time".bright_green());
+    println!(
+        "  {} <expr>  Show the type of an expression",
+        ":type, :t".bright_green()
+    );
+    println!(
+        "  {} <file>  Load a file into the REPL",
+        ":load, :l".bright_green()
+    );
+    println!(
+        "  {}        Reset the REPL state",
+        ":reset, :r".bright_green()
+    );
+    println!(
+        "  {}       Show all definitions in scope",
+        ":defs, :d".bright_green()
+    );
+    println!(
+        "  {} <expr>  Show generated LLVM IR",
+        ":llvm".bright_green()
+    );
+    println!(
+        "  {} <expr>  Time expression evaluation",
+        ":time".bright_green()
+    );
     println!();
     println!("{}", "Tips:".bold().bright_cyan());
-    println!("  • Define functions: {}", "(define (add x y) (+ x y))".bright_white());
-    println!("  • Type signatures: {}", "(:: add (-> Int Int Int))".bright_white());
-    println!("  • Data types: {}", "(data Maybe (a) (Nothing) (Just a))".bright_white());
+    println!(
+        "  • Define functions: {}",
+        "(define (add x y) (+ x y))".bright_white()
+    );
+    println!(
+        "  • Type signatures: {}",
+        "(:: add (-> Int Int Int))".bright_white()
+    );
+    println!(
+        "  • Data types: {}",
+        "(data Maybe (a) (Nothing) (Just a))".bright_white()
+    );
     println!("  • Expressions are evaluated and results shown");
     println!("  • Use ; for line comments");
     println!("  • Use arrow keys for history, Ctrl+C to cancel input");
@@ -1119,7 +1311,11 @@ fn cmd_type(expr_str: &str, state: &mut ReplState) {
 
     match tc.check_single_expr(&expr) {
         Ok(ty) => {
-            println!("{} : {}", expr_str.bright_white(), ty.to_string().bright_cyan());
+            println!(
+                "{} : {}",
+                expr_str.bright_white(),
+                ty.to_string().bright_cyan()
+            );
         }
         Err(errors) => {
             for error in &errors {
@@ -1162,7 +1358,11 @@ fn cmd_load(file: &str, state: &mut ReplState) {
                     state.declarations.push('\n');
                     // Merge the type checker state
                     merge_type_checker(&tc, state);
-                    println!("{} Loaded '{}'", "OK:".bright_green().bold(), file.bright_white());
+                    println!(
+                        "{} Loaded '{}'",
+                        "OK:".bright_green().bold(),
+                        file.bright_white()
+                    );
                 }
                 Err(errors) => {
                     for error in &errors {
@@ -1186,22 +1386,32 @@ fn cmd_reset(state: &mut ReplState) {
 
 fn cmd_defs(state: &mut ReplState) {
     println!("{}", "Definitions in scope:".bold().bright_cyan());
-    
+
     let mut tc = TypeChecker::new();
     re_register_decls(&state.declarations, &mut tc);
-    
+
     for fn_info in &tc.functions {
         if !fn_info.name.starts_with("__") && !fn_info.name.starts_with("_fn_") {
-            println!("  {} : {}", fn_info.name.bright_white(), fn_info.ty.to_string().bright_cyan());
+            println!(
+                "  {} : {}",
+                fn_info.name.bright_white(),
+                fn_info.ty.to_string().bright_cyan()
+            );
         }
     }
-    
+
     for dt in &tc.data_types {
-        println!("  data {} with {} constructors", 
-            dt.name.bright_white(), 
-            dt.constructors.len());
+        println!(
+            "  data {} with {} constructors",
+            dt.name.bright_white(),
+            dt.constructors.len()
+        );
         for con in &dt.constructors {
-            println!("    {} : {}", con.name.bright_green(), con.ty.to_string().bright_cyan());
+            println!(
+                "    {} : {}",
+                con.name.bright_green(),
+                con.ty.to_string().bright_cyan()
+            );
         }
     }
 }
@@ -1233,14 +1443,14 @@ fn cmd_llvm(expr_str: &str, state: &mut ReplState) {
     match result {
         Some(DeclOrExpr::Decl(_decl)) => {
             let wrapper = format!("{}\n{}", state.declarations, expr_str);
-let mut lexer = Lexer::new(&wrapper, 0);
-                    if let Ok(tokens) = lexer.tokenize() {
-let mut parser = Parser::new(tokens);
-                        if let Ok(ast) = parser.parse_module() {
-                            let mut tc2 = TypeChecker::new();
-                            if tc2.check(&ast).is_ok() {
-                                let mut ir_gen = IrGen::new();
-                                let ir_module = ir_gen.generate(&ast, &mut tc2);
+            let mut lexer = Lexer::new(&wrapper, 0);
+            if let Ok(tokens) = lexer.tokenize() {
+                let mut parser = Parser::new(tokens);
+                if let Ok(ast) = parser.parse_module() {
+                    let mut tc2 = TypeChecker::new();
+                    if tc2.check(&ast).is_ok() {
+                        let mut ir_gen = IrGen::new();
+                        let ir_module = ir_gen.generate(&ast, &mut tc2);
 
                         let mut codegen = LlvmCodeGen::new();
                         if let Ok(llvm_ir) = codegen.compile(&ir_module) {
@@ -1254,7 +1464,7 @@ let mut parser = Parser::new(tokens);
         Some(DeclOrExpr::Expr(expr)) => {
             let mut tc = TypeChecker::new();
             re_register_decls(&state.declarations, &mut tc);
-            
+
             if let Ok(ty) = tc.check_single_expr(&expr) {
                 let wrapper = format!(
                     "(foreign printf :: (-> String Int Int) = \"printf\")\n(foreign puts :: (-> String Int) = \"puts\")\n{}\n(:: __repl_result (-> Int {}))\n(define (__repl_result _dummy) {})\n(:: main Int)\n(define main {{ (printf \"%ld\\n\" (__repl_result 0)) 0 }})",
@@ -1263,16 +1473,16 @@ let mut parser = Parser::new(tokens);
                     expr_str,
                 );
 
-let mut lexer = Lexer::new(&wrapper, 0);
-                    if let Ok(tokens) = lexer.tokenize() {
-                        let mut parser = Parser::new(tokens);
-                        if let Ok(ast) = parser.parse_module() {
-                            let mut tc2 = TypeChecker::new();
-                            if tc2.check(&ast).is_ok() {
-                                let mut ir_gen = IrGen::new();
-                                let ir_module = ir_gen.generate(&ast, &mut tc2);
+                let mut lexer = Lexer::new(&wrapper, 0);
+                if let Ok(tokens) = lexer.tokenize() {
+                    let mut parser = Parser::new(tokens);
+                    if let Ok(ast) = parser.parse_module() {
+                        let mut tc2 = TypeChecker::new();
+                        if tc2.check(&ast).is_ok() {
+                            let mut ir_gen = IrGen::new();
+                            let ir_module = ir_gen.generate(&ast, &mut tc2);
 
-                                let mut codegen = LlvmCodeGen::new();
+                            let mut codegen = LlvmCodeGen::new();
                             if let Ok(llvm_ir) = codegen.compile(&ir_module) {
                                 println!("{}", "Generated LLVM IR:".bold().bright_cyan());
                                 println!("{}", llvm_ir);
@@ -1319,7 +1529,11 @@ fn cmd_time(expr_str: &str, state: &mut ReplState) {
             let duration = start.elapsed();
             println!("{} {:?}", "Time:".bright_yellow(), duration);
             if let axiom_ast::ast::Decl::DFn { name, .. } = &decl {
-                println!("{} {} defined", "OK:".bright_green().bold(), name.name.bright_white());
+                println!(
+                    "{} {} defined",
+                    "OK:".bright_green().bold(),
+                    name.name.bright_white()
+                );
             } else {
                 println!("{}", "OK".bright_green().bold());
             }
@@ -1330,8 +1544,12 @@ fn cmd_time(expr_str: &str, state: &mut ReplState) {
 
             match tc.check_single_expr(&expr) {
                 Ok(ty) => {
-                    println!("{} : {}", "type".bright_yellow(), ty.to_string().bright_cyan());
-                    
+                    println!(
+                        "{} : {}",
+                        "type".bright_yellow(),
+                        ty.to_string().bright_cyan()
+                    );
+
                     let wrapper = generate_repl_wrapper(&state.declarations, expr_str, &ty);
 
                     let mut lexer = Lexer::new(&wrapper, 0);
@@ -1340,7 +1558,7 @@ fn cmd_time(expr_str: &str, state: &mut ReplState) {
                         if let Ok(ast) = parser.parse_module() {
                             let mut tc2 = TypeChecker::new();
                             if tc2.check(&ast).is_ok() {
-let mut ir_gen = IrGen::new();
+                                let mut ir_gen = IrGen::new();
                                 let ir_module = ir_gen.generate(&ast, &mut tc2);
 
                                 let mut codegen = LlvmCodeGen::new();
@@ -1348,9 +1566,13 @@ let mut ir_gen = IrGen::new();
                                     let start = std::time::Instant::now();
                                     let result = compile_and_run_repl(&llvm_ir);
                                     let duration = start.elapsed();
-                                    
+
                                     if let Some(value) = result {
-                                        println!("{} {}", "result".bright_green(), value.bright_white());
+                                        println!(
+                                            "{} {}",
+                                            "result".bright_green(),
+                                            value.bright_white()
+                                        );
                                     }
                                     println!("{} {:?}", "Time:".bright_yellow(), duration);
                                 }
@@ -1392,17 +1614,29 @@ fn process_input(input: &str, state: &mut ReplState) {
         Some(DeclOrExpr::Decl(decl)) => {
             let mut tc = TypeChecker::new();
             re_register_decls(&state.declarations, &mut tc);
-            
+
             state.type_checker.register_decl(&decl);
             state.declarations.push_str(input);
             state.declarations.push('\n');
 
             if let axiom_ast::ast::Decl::DFn { name, .. } = &decl {
-                println!("{} {} defined", "OK:".bright_green().bold(), name.name.bright_white());
+                println!(
+                    "{} {} defined",
+                    "OK:".bright_green().bold(),
+                    name.name.bright_white()
+                );
             } else if let axiom_ast::ast::Decl::DData { name, .. } = &decl {
-                println!("{} data {} defined", "OK:".bright_green().bold(), name.name.bright_white());
+                println!(
+                    "{} data {} defined",
+                    "OK:".bright_green().bold(),
+                    name.name.bright_white()
+                );
             } else if let axiom_ast::ast::Decl::DSig { name, .. } = &decl {
-                println!("{} {} defined", "OK:".bright_green().bold(), name.name.bright_white());
+                println!(
+                    "{} {} defined",
+                    "OK:".bright_green().bold(),
+                    name.name.bright_white()
+                );
             } else {
                 println!("{}", "OK".bright_green().bold());
             }
@@ -1413,8 +1647,12 @@ fn process_input(input: &str, state: &mut ReplState) {
 
             match tc.check_single_expr(&expr) {
                 Ok(ty) => {
-                    println!("{} : {}", "type".bright_yellow(), ty.to_string().bright_cyan());
-                    
+                    println!(
+                        "{} : {}",
+                        "type".bright_yellow(),
+                        ty.to_string().bright_cyan()
+                    );
+
                     let wrapper = generate_repl_wrapper(&state.declarations, input, &ty);
 
                     let mut lexer = Lexer::new(&wrapper, 0);
@@ -1430,7 +1668,11 @@ fn process_input(input: &str, state: &mut ReplState) {
                                 if let Ok(llvm_ir) = codegen.compile(&ir_module) {
                                     let result = compile_and_run_repl(&llvm_ir);
                                     if let Some(value) = result {
-                                        println!("{} {}", "result".bright_green(), value.bright_white());
+                                        println!(
+                                            "{} {}",
+                                            "result".bright_green(),
+                                            value.bright_white()
+                                        );
                                     }
                                 }
                             }
@@ -1486,11 +1728,11 @@ fn generate_repl_wrapper(declarations: &str, input: &str, ty: &axiom_sema::TypeI
 fn compile_and_run_repl(llvm_ir: &str) -> Option<String> {
     let temp_ll = "axiom_repl_temp.ll";
     let temp_out = "axiom_repl_temp";
-    
+
     if fs::write(temp_ll, llvm_ir).is_err() {
         return None;
     }
-    
+
     let obj_path = format!("{}.o", temp_out);
     if !Command::new("llc")
         .arg(temp_ll)
@@ -1503,7 +1745,7 @@ fn compile_and_run_repl(llvm_ir: &str) -> Option<String> {
         fs::remove_file(temp_ll).ok();
         return None;
     }
-    
+
     if !Command::new("cc")
         .arg(&obj_path)
         .arg("-o")
@@ -1515,14 +1757,13 @@ fn compile_and_run_repl(llvm_ir: &str) -> Option<String> {
         fs::remove_file(temp_ll).ok();
         return None;
     }
-    
-    let output = Command::new(format!("./{}", temp_out))
-        .output();
-    
+
+    let output = Command::new(format!("./{}", temp_out)).output();
+
     fs::remove_file(&obj_path).ok();
     fs::remove_file(temp_ll).ok();
     fs::remove_file(temp_out).ok();
-    
+
     if let Ok(out) = output {
         let stdout = String::from_utf8_lossy(&out.stdout);
         let trimmed = stdout.trim().to_string();
@@ -1533,7 +1774,7 @@ fn compile_and_run_repl(llvm_ir: &str) -> Option<String> {
             return Some(format!("{}", code));
         }
     }
-    
+
     None
 }
 

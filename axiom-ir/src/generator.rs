@@ -1,7 +1,7 @@
+use crate::{IrBlock, IrConst, IrFunction, IrInst, IrModule, IrStruct, IrValue, TypeId};
 use axiom_ast::ast::*;
 use axiom_ast::span::Ident;
 use axiom_sema::TypeChecker;
-use crate::{IrModule, IrFunction, IrBlock, IrInst, IrValue, IrConst, IrStruct, TypeId};
 use std::collections::HashMap;
 
 pub struct IrGen {
@@ -72,7 +72,9 @@ impl IrGen {
     pub fn generate(&mut self, ast_module: &Module, type_checker: &mut TypeChecker) -> IrModule {
         for decl in &ast_module.decls {
             match decl {
-                Decl::DStruct { name, fields, repr, .. } => {
+                Decl::DStruct {
+                    name, fields, repr, ..
+                } => {
                     let packed = matches!(repr, Some(TypeRepr::Packed));
                     let align = if let Some(TypeRepr::Align(n)) = repr {
                         Some(*n)
@@ -80,7 +82,8 @@ impl IrGen {
                         None
                     };
 
-                    let ir_fields: Vec<(String, TypeId)> = fields.iter()
+                    let ir_fields: Vec<(String, TypeId)> = fields
+                        .iter()
                         .map(|f| (f.name.name.clone(), self.type_to_id(&f.ty)))
                         .collect();
 
@@ -105,14 +108,23 @@ impl IrGen {
         std::mem::take(&mut self.module)
     }
 
-    fn gen_function(&mut self, name: &Ident, params: &[Pattern], body: &Expr, type_checker: &mut TypeChecker) -> IrFunction {
-        let params: Vec<(String, TypeId)> = params.iter().filter_map(|p| {
-            if let Pattern::PVar(ident) = p {
-                Some((ident.name.clone(), TypeId::TCon("I64".to_string(), vec![])))
-            } else {
-                None
-            }
-        }).collect();
+    fn gen_function(
+        &mut self,
+        name: &Ident,
+        params: &[Pattern],
+        body: &Expr,
+        type_checker: &mut TypeChecker,
+    ) -> IrFunction {
+        let params: Vec<(String, TypeId)> = params
+            .iter()
+            .filter_map(|p| {
+                if let Pattern::PVar(ident) = p {
+                    Some((ident.name.clone(), TypeId::TCon("I64".to_string(), vec![])))
+                } else {
+                    None
+                }
+            })
+            .collect();
 
         let return_type = TypeId::TCon("I64".to_string(), vec![]);
 
@@ -137,20 +149,32 @@ impl IrGen {
         for (pname, pty) in &params {
             let alloca_name = format!("_alloca_{}", pname);
             func.locals.push((pname.clone(), pty.clone()));
-            self.emit_to_func(&mut func, IrInst::Alloca {
-                dest: IrValue::Local(alloca_name.clone()),
-                ty: pty.clone(),
-            });
-            self.emit_to_func(&mut func, IrInst::Store {
-                ptr: IrValue::Local(alloca_name.clone()),
-                value: IrValue::Local(pname.clone()),
-            });
+            self.emit_to_func(
+                &mut func,
+                IrInst::Alloca {
+                    dest: IrValue::Local(alloca_name.clone()),
+                    ty: pty.clone(),
+                },
+            );
+            self.emit_to_func(
+                &mut func,
+                IrInst::Store {
+                    ptr: IrValue::Local(alloca_name.clone()),
+                    value: IrValue::Local(pname.clone()),
+                },
+            );
             alloca_map.insert(pname.clone(), alloca_name);
         }
 
-        let body_val = self.gen_expr_to_func_with_allocas(&mut func, body, &mut alloca_map, type_checker);
+        let body_val =
+            self.gen_expr_to_func_with_allocas(&mut func, body, &mut alloca_map, type_checker);
 
-        self.emit_to_func(&mut func, IrInst::Ret { value: Some(body_val) });
+        self.emit_to_func(
+            &mut func,
+            IrInst::Ret {
+                value: Some(body_val),
+            },
+        );
 
         func
     }
@@ -168,21 +192,30 @@ impl IrGen {
         let size = ((1 + args.len()) * 8) as i64;
         let ptr_local = self.new_local();
 
-        self.emit_to_func(func, IrInst::HeapAlloc {
-            dest: IrValue::Local(ptr_local.clone()),
-            size: IrValue::Const(IrConst::Int(size, i64_ty.clone())),
-        });
-        self.emit_to_func(func, IrInst::StoreOffset {
-            ptr: IrValue::Local(ptr_local.clone()),
-            offset: 0,
-            value: IrValue::Const(IrConst::Int(tag, i64_ty.clone())),
-        });
-        for (i, arg) in args.into_iter().enumerate() {
-            self.emit_to_func(func, IrInst::StoreOffset {
+        self.emit_to_func(
+            func,
+            IrInst::HeapAlloc {
+                dest: IrValue::Local(ptr_local.clone()),
+                size: IrValue::Const(IrConst::Int(size, i64_ty.clone())),
+            },
+        );
+        self.emit_to_func(
+            func,
+            IrInst::StoreOffset {
                 ptr: IrValue::Local(ptr_local.clone()),
-                offset: ((1 + i) * 8) as i64,
-                value: arg,
-            });
+                offset: 0,
+                value: IrValue::Const(IrConst::Int(tag, i64_ty.clone())),
+            },
+        );
+        for (i, arg) in args.into_iter().enumerate() {
+            self.emit_to_func(
+                func,
+                IrInst::StoreOffset {
+                    ptr: IrValue::Local(ptr_local.clone()),
+                    offset: ((1 + i) * 8) as i64,
+                    value: arg,
+                },
+            );
         }
 
         IrValue::Local(ptr_local)
@@ -194,17 +227,25 @@ impl IrGen {
     /// are not yet supported for lambda parameters. Free variables
     /// captured from the enclosing scope are not yet supported
     /// (a known limitation).
-    fn gen_lambda(&mut self, params: &[Pattern], body: &Expr, type_checker: &mut TypeChecker) -> IrValue {
+    fn gen_lambda(
+        &mut self,
+        params: &[Pattern],
+        body: &Expr,
+        type_checker: &mut TypeChecker,
+    ) -> IrValue {
         self.lambda_counter += 1;
         let lambda_name = format!("_lambda_{}", self.lambda_counter);
 
-        let lambda_params: Vec<(String, TypeId)> = params.iter().filter_map(|p| {
-            if let Pattern::PVar(ident) = p {
-                Some((ident.name.clone(), TypeId::TCon("I64".to_string(), vec![])))
-            } else {
-                None
-            }
-        }).collect();
+        let lambda_params: Vec<(String, TypeId)> = params
+            .iter()
+            .filter_map(|p| {
+                if let Pattern::PVar(ident) = p {
+                    Some((ident.name.clone(), TypeId::TCon("I64".to_string(), vec![])))
+                } else {
+                    None
+                }
+            })
+            .collect();
 
         let lambda_return = TypeId::TCon("I64".to_string(), vec![]);
 
@@ -227,26 +268,48 @@ impl IrGen {
         for (pname, pty) in &lambda_params {
             let alloca_name = format!("_alloca_{}", pname);
             lambda_func.locals.push((pname.clone(), pty.clone()));
-            self.emit_to_func(&mut lambda_func, IrInst::Alloca {
-                dest: IrValue::Local(alloca_name.clone()),
-                ty: pty.clone(),
-            });
-            self.emit_to_func(&mut lambda_func, IrInst::Store {
-                ptr: IrValue::Local(alloca_name.clone()),
-                value: IrValue::Local(pname.clone()),
-            });
+            self.emit_to_func(
+                &mut lambda_func,
+                IrInst::Alloca {
+                    dest: IrValue::Local(alloca_name.clone()),
+                    ty: pty.clone(),
+                },
+            );
+            self.emit_to_func(
+                &mut lambda_func,
+                IrInst::Store {
+                    ptr: IrValue::Local(alloca_name.clone()),
+                    value: IrValue::Local(pname.clone()),
+                },
+            );
             lambda_alloca_map.insert(pname.clone(), alloca_name);
         }
 
-        let body_val = self.gen_expr_to_func_with_allocas(&mut lambda_func, body, &mut lambda_alloca_map, type_checker);
-        self.emit_to_func(&mut lambda_func, IrInst::Ret { value: Some(body_val) });
+        let body_val = self.gen_expr_to_func_with_allocas(
+            &mut lambda_func,
+            body,
+            &mut lambda_alloca_map,
+            type_checker,
+        );
+        self.emit_to_func(
+            &mut lambda_func,
+            IrInst::Ret {
+                value: Some(body_val),
+            },
+        );
 
         self.module.functions.push(lambda_func);
 
         IrValue::Global(lambda_name)
     }
 
-    fn gen_expr_to_func_with_allocas(&mut self, func: &mut IrFunction, expr: &Expr, alloca_map: &mut HashMap<String, String>, type_checker: &mut TypeChecker) -> IrValue {
+    fn gen_expr_to_func_with_allocas(
+        &mut self,
+        func: &mut IrFunction,
+        expr: &Expr,
+        alloca_map: &mut HashMap<String, String>,
+        type_checker: &mut TypeChecker,
+    ) -> IrValue {
         match expr {
             Expr::ELit(lit, _) => self.gen_literal(lit),
             Expr::EVar(ident) => {
@@ -265,14 +328,19 @@ impl IrGen {
                 }
                 if let Some(alloca_name) = alloca_map.get(&ident.name) {
                     let dest = self.new_local();
-                    let _ty = func.locals.iter()
+                    let _ty = func
+                        .locals
+                        .iter()
                         .find(|(n, _)| n == &ident.name)
                         .map(|(_, t)| t.clone())
                         .unwrap_or(TypeId::TCon("I64".to_string(), vec![]));
-                    self.emit_to_func(func, IrInst::Load {
-                        dest: IrValue::Local(dest.clone()),
-                        ptr: IrValue::Local(alloca_name.clone()),
-                    });
+                    self.emit_to_func(
+                        func,
+                        IrInst::Load {
+                            dest: IrValue::Local(dest.clone()),
+                            ptr: IrValue::Local(alloca_name.clone()),
+                        },
+                    );
                     IrValue::Local(dest)
                 } else {
                     IrValue::Local(ident.name.clone())
@@ -284,20 +352,76 @@ impl IrGen {
                 let dest = self.new_local();
 
                 let inst = match op.as_str() {
-                    "+" => IrInst::Add { dest: IrValue::Local(dest.clone()), lhs, rhs },
-                    "-" => IrInst::Sub { dest: IrValue::Local(dest.clone()), lhs, rhs },
-                    "*" => IrInst::Mul { dest: IrValue::Local(dest.clone()), lhs, rhs },
-                    "/" => IrInst::Div { dest: IrValue::Local(dest.clone()), lhs, rhs },
-                    "%" => IrInst::Mod { dest: IrValue::Local(dest.clone()), lhs, rhs },
-                    "==" => IrInst::Eq { dest: IrValue::Local(dest.clone()), lhs, rhs },
-                    "!=" => IrInst::Neq { dest: IrValue::Local(dest.clone()), lhs, rhs },
-                    "<" => IrInst::Lt { dest: IrValue::Local(dest.clone()), lhs, rhs },
-                    ">" => IrInst::Gt { dest: IrValue::Local(dest.clone()), lhs, rhs },
-                    "<=" => IrInst::Le { dest: IrValue::Local(dest.clone()), lhs, rhs },
-                    ">=" => IrInst::Ge { dest: IrValue::Local(dest.clone()), lhs, rhs },
-                    "&&" => IrInst::And { dest: IrValue::Local(dest.clone()), lhs, rhs },
-                    "||" => IrInst::Or { dest: IrValue::Local(dest.clone()), lhs, rhs },
-                    _ => IrInst::Add { dest: IrValue::Local(dest.clone()), lhs, rhs },
+                    "+" => IrInst::Add {
+                        dest: IrValue::Local(dest.clone()),
+                        lhs,
+                        rhs,
+                    },
+                    "-" => IrInst::Sub {
+                        dest: IrValue::Local(dest.clone()),
+                        lhs,
+                        rhs,
+                    },
+                    "*" => IrInst::Mul {
+                        dest: IrValue::Local(dest.clone()),
+                        lhs,
+                        rhs,
+                    },
+                    "/" => IrInst::Div {
+                        dest: IrValue::Local(dest.clone()),
+                        lhs,
+                        rhs,
+                    },
+                    "%" => IrInst::Mod {
+                        dest: IrValue::Local(dest.clone()),
+                        lhs,
+                        rhs,
+                    },
+                    "==" => IrInst::Eq {
+                        dest: IrValue::Local(dest.clone()),
+                        lhs,
+                        rhs,
+                    },
+                    "!=" => IrInst::Neq {
+                        dest: IrValue::Local(dest.clone()),
+                        lhs,
+                        rhs,
+                    },
+                    "<" => IrInst::Lt {
+                        dest: IrValue::Local(dest.clone()),
+                        lhs,
+                        rhs,
+                    },
+                    ">" => IrInst::Gt {
+                        dest: IrValue::Local(dest.clone()),
+                        lhs,
+                        rhs,
+                    },
+                    "<=" => IrInst::Le {
+                        dest: IrValue::Local(dest.clone()),
+                        lhs,
+                        rhs,
+                    },
+                    ">=" => IrInst::Ge {
+                        dest: IrValue::Local(dest.clone()),
+                        lhs,
+                        rhs,
+                    },
+                    "&&" => IrInst::And {
+                        dest: IrValue::Local(dest.clone()),
+                        lhs,
+                        rhs,
+                    },
+                    "||" => IrInst::Or {
+                        dest: IrValue::Local(dest.clone()),
+                        lhs,
+                        rhs,
+                    },
+                    _ => IrInst::Add {
+                        dest: IrValue::Local(dest.clone()),
+                        lhs,
+                        rhs,
+                    },
                 };
 
                 self.emit_to_func(func, inst);
@@ -307,7 +431,12 @@ impl IrGen {
                 let mut all_args: Vec<IrValue> = Vec::new();
                 let mut current = expr;
                 while let Expr::EApp(inner_func, inner_arg) = current {
-                    all_args.push(self.gen_expr_to_func_with_allocas(func, inner_arg, alloca_map, type_checker));
+                    all_args.push(self.gen_expr_to_func_with_allocas(
+                        func,
+                        inner_arg,
+                        alloca_map,
+                        type_checker,
+                    ));
                     current = inner_func.as_ref();
                 }
                 all_args.reverse();
@@ -335,30 +464,33 @@ impl IrGen {
                     }
                 }
 
-if let Expr::ELam(params, body) = current {
-                     let lambda_val = self.gen_lambda(params, body, type_checker);
-                     let lambda_name;
-                     if let IrValue::Global(name) = lambda_val {
-                         lambda_name = name;
-                     } else {
-                         lambda_name = "unknown".to_string();
-                     }
+                if let Expr::ELam(params, body) = current {
+                    let lambda_val = self.gen_lambda(params, body, type_checker);
+                    let lambda_name;
+                    if let IrValue::Global(name) = lambda_val {
+                        lambda_name = name;
+                    } else {
+                        lambda_name = "unknown".to_string();
+                    }
 
-                     let dest = self.new_local();
-                     self.emit_to_func(func, IrInst::Call {
-                         dest: IrValue::Local(dest.clone()),
-                         func: lambda_name,
-                         args: all_args,
-                     });
-                     return IrValue::Local(dest);
-                 }
+                    let dest = self.new_local();
+                    self.emit_to_func(
+                        func,
+                        IrInst::Call {
+                            dest: IrValue::Local(dest.clone()),
+                            func: lambda_name,
+                            args: all_args,
+                        },
+                    );
+                    return IrValue::Local(dest);
+                }
 
-                 let func_name;
-                 if let Expr::EVar(ident) = current {
-                     func_name = ident.name.clone();
-                 } else {
-                     func_name = "unknown".to_string();
-                 }
+                let func_name;
+                if let Expr::EVar(ident) = current {
+                    func_name = ident.name.clone();
+                } else {
+                    func_name = "unknown".to_string();
+                }
 
                 let dest = self.new_local();
 
@@ -366,19 +498,71 @@ if let Expr::ELam(params, body) = current {
                     let lhs = all_args[0].clone();
                     let rhs = all_args[1].clone();
                     let inst = match func_name.as_str() {
-                        "+" => Some(IrInst::Add { dest: IrValue::Local(dest.clone()), lhs, rhs }),
-                        "-" => Some(IrInst::Sub { dest: IrValue::Local(dest.clone()), lhs, rhs }),
-                        "*" => Some(IrInst::Mul { dest: IrValue::Local(dest.clone()), lhs, rhs }),
-                        "/" => Some(IrInst::Div { dest: IrValue::Local(dest.clone()), lhs, rhs }),
-                        "%" => Some(IrInst::Mod { dest: IrValue::Local(dest.clone()), lhs, rhs }),
-                        "==" => Some(IrInst::Eq { dest: IrValue::Local(dest.clone()), lhs, rhs }),
-                        "!=" => Some(IrInst::Neq { dest: IrValue::Local(dest.clone()), lhs, rhs }),
-                        "<" => Some(IrInst::Lt { dest: IrValue::Local(dest.clone()), lhs, rhs }),
-                        ">" => Some(IrInst::Gt { dest: IrValue::Local(dest.clone()), lhs, rhs }),
-                        "<=" => Some(IrInst::Le { dest: IrValue::Local(dest.clone()), lhs, rhs }),
-                        ">=" => Some(IrInst::Ge { dest: IrValue::Local(dest.clone()), lhs, rhs }),
-                        "&&" => Some(IrInst::And { dest: IrValue::Local(dest.clone()), lhs, rhs }),
-                        "||" => Some(IrInst::Or { dest: IrValue::Local(dest.clone()), lhs, rhs }),
+                        "+" => Some(IrInst::Add {
+                            dest: IrValue::Local(dest.clone()),
+                            lhs,
+                            rhs,
+                        }),
+                        "-" => Some(IrInst::Sub {
+                            dest: IrValue::Local(dest.clone()),
+                            lhs,
+                            rhs,
+                        }),
+                        "*" => Some(IrInst::Mul {
+                            dest: IrValue::Local(dest.clone()),
+                            lhs,
+                            rhs,
+                        }),
+                        "/" => Some(IrInst::Div {
+                            dest: IrValue::Local(dest.clone()),
+                            lhs,
+                            rhs,
+                        }),
+                        "%" => Some(IrInst::Mod {
+                            dest: IrValue::Local(dest.clone()),
+                            lhs,
+                            rhs,
+                        }),
+                        "==" => Some(IrInst::Eq {
+                            dest: IrValue::Local(dest.clone()),
+                            lhs,
+                            rhs,
+                        }),
+                        "!=" => Some(IrInst::Neq {
+                            dest: IrValue::Local(dest.clone()),
+                            lhs,
+                            rhs,
+                        }),
+                        "<" => Some(IrInst::Lt {
+                            dest: IrValue::Local(dest.clone()),
+                            lhs,
+                            rhs,
+                        }),
+                        ">" => Some(IrInst::Gt {
+                            dest: IrValue::Local(dest.clone()),
+                            lhs,
+                            rhs,
+                        }),
+                        "<=" => Some(IrInst::Le {
+                            dest: IrValue::Local(dest.clone()),
+                            lhs,
+                            rhs,
+                        }),
+                        ">=" => Some(IrInst::Ge {
+                            dest: IrValue::Local(dest.clone()),
+                            lhs,
+                            rhs,
+                        }),
+                        "&&" => Some(IrInst::And {
+                            dest: IrValue::Local(dest.clone()),
+                            lhs,
+                            rhs,
+                        }),
+                        "||" => Some(IrInst::Or {
+                            dest: IrValue::Local(dest.clone()),
+                            lhs,
+                            rhs,
+                        }),
                         _ => None,
                     };
                     if let Some(inst) = inst {
@@ -387,55 +571,83 @@ if let Expr::ELam(params, body) = current {
                     }
                 }
 
-                self.emit_to_func(func, IrInst::Call {
-                    dest: IrValue::Local(dest.clone()),
-                    func: func_name,
-                    args: all_args,
-                });
+                self.emit_to_func(
+                    func,
+                    IrInst::Call {
+                        dest: IrValue::Local(dest.clone()),
+                        func: func_name,
+                        args: all_args,
+                    },
+                );
 
                 IrValue::Local(dest)
             }
             Expr::EIf(cond, then_expr, else_expr) => {
-                let cond_val = self.gen_expr_to_func_with_allocas(func, cond, alloca_map, type_checker);
+                let cond_val =
+                    self.gen_expr_to_func_with_allocas(func, cond, alloca_map, type_checker);
                 let then_label = self.new_block_label();
                 let else_label = self.new_block_label();
                 let merge_label = self.new_block_label();
                 let result_alloca = self.new_local();
 
-                self.emit_to_func(func, IrInst::Alloca {
-                    dest: IrValue::Local(result_alloca.clone()),
-                    ty: TypeId::TCon("I64".to_string(), vec![]),
-                });
+                self.emit_to_func(
+                    func,
+                    IrInst::Alloca {
+                        dest: IrValue::Local(result_alloca.clone()),
+                        ty: TypeId::TCon("I64".to_string(), vec![]),
+                    },
+                );
 
-                self.emit_to_func(func, IrInst::CondBr {
-                    cond: cond_val,
-                    then_target: then_label.clone(),
-                    else_target: else_label.clone(),
-                });
+                self.emit_to_func(
+                    func,
+                    IrInst::CondBr {
+                        cond: cond_val,
+                        then_target: then_label.clone(),
+                        else_target: else_label.clone(),
+                    },
+                );
 
                 func.blocks.push(IrBlock {
                     label: then_label.clone(),
                     insts: Vec::new(),
                 });
                 self.current_block = Some(then_label.clone());
-                let then_val = self.gen_expr_to_func_with_allocas(func, then_expr, alloca_map, type_checker);
-                self.emit_to_func(func, IrInst::Store {
-                    ptr: IrValue::Local(result_alloca.clone()),
-                    value: then_val,
-                });
-                self.emit_to_func(func, IrInst::Br { target: merge_label.clone() });
+                let then_val =
+                    self.gen_expr_to_func_with_allocas(func, then_expr, alloca_map, type_checker);
+                self.emit_to_func(
+                    func,
+                    IrInst::Store {
+                        ptr: IrValue::Local(result_alloca.clone()),
+                        value: then_val,
+                    },
+                );
+                self.emit_to_func(
+                    func,
+                    IrInst::Br {
+                        target: merge_label.clone(),
+                    },
+                );
 
                 func.blocks.push(IrBlock {
                     label: else_label.clone(),
                     insts: Vec::new(),
                 });
                 self.current_block = Some(else_label.clone());
-                let else_val = self.gen_expr_to_func_with_allocas(func, else_expr, alloca_map, type_checker);
-                self.emit_to_func(func, IrInst::Store {
-                    ptr: IrValue::Local(result_alloca.clone()),
-                    value: else_val,
-                });
-                self.emit_to_func(func, IrInst::Br { target: merge_label.clone() });
+                let else_val =
+                    self.gen_expr_to_func_with_allocas(func, else_expr, alloca_map, type_checker);
+                self.emit_to_func(
+                    func,
+                    IrInst::Store {
+                        ptr: IrValue::Local(result_alloca.clone()),
+                        value: else_val,
+                    },
+                );
+                self.emit_to_func(
+                    func,
+                    IrInst::Br {
+                        target: merge_label.clone(),
+                    },
+                );
 
                 func.blocks.push(IrBlock {
                     label: merge_label.clone(),
@@ -444,39 +656,58 @@ if let Expr::ELam(params, body) = current {
                 self.current_block = Some(merge_label.clone());
 
                 let load_dest = self.new_local();
-                self.emit_to_func(func, IrInst::Load {
-                    dest: IrValue::Local(load_dest.clone()),
-                    ptr: IrValue::Local(result_alloca),
-                });
+                self.emit_to_func(
+                    func,
+                    IrInst::Load {
+                        dest: IrValue::Local(load_dest.clone()),
+                        ptr: IrValue::Local(result_alloca),
+                    },
+                );
                 IrValue::Local(load_dest)
             }
             Expr::ELet(bindings, body) => {
                 for (pat, init) in bindings {
                     if let Pattern::PVar(ident) = pat {
-                        let value = self.gen_expr_to_func_with_allocas(func, init, alloca_map, type_checker);
+                        let value = self.gen_expr_to_func_with_allocas(
+                            func,
+                            init,
+                            alloca_map,
+                            type_checker,
+                        );
                         let alloca_name = format!("_alloca_{}", ident.name);
-                        func.locals.push((ident.name.clone(), TypeId::TCon("I64".to_string(), vec![])));
-                        self.emit_to_func(func, IrInst::Alloca {
-                            dest: IrValue::Local(alloca_name.clone()),
-                            ty: TypeId::TCon("I64".to_string(), vec![]),
-                        });
-                        self.emit_to_func(func, IrInst::Store {
-                            ptr: IrValue::Local(alloca_name.clone()),
-                            value,
-                        });
+                        func.locals
+                            .push((ident.name.clone(), TypeId::TCon("I64".to_string(), vec![])));
+                        self.emit_to_func(
+                            func,
+                            IrInst::Alloca {
+                                dest: IrValue::Local(alloca_name.clone()),
+                                ty: TypeId::TCon("I64".to_string(), vec![]),
+                            },
+                        );
+                        self.emit_to_func(
+                            func,
+                            IrInst::Store {
+                                ptr: IrValue::Local(alloca_name.clone()),
+                                value,
+                            },
+                        );
                         alloca_map.insert(ident.name.clone(), alloca_name);
                     }
                 }
                 self.gen_expr_to_func_with_allocas(func, body, alloca_map, type_checker)
             }
             Expr::ECase(target, arms) => {
-                let target_val = self.gen_expr_to_func_with_allocas(func, target, alloca_map, type_checker);
+                let target_val =
+                    self.gen_expr_to_func_with_allocas(func, target, alloca_map, type_checker);
                 let i64_ty = TypeId::TCon("I64".to_string(), vec![]);
                 let result_alloca = self.new_local();
-                self.emit_to_func(func, IrInst::Alloca {
-                    dest: IrValue::Local(result_alloca.clone()),
-                    ty: i64_ty.clone(),
-                });
+                self.emit_to_func(
+                    func,
+                    IrInst::Alloca {
+                        dest: IrValue::Local(result_alloca.clone()),
+                        ty: i64_ty.clone(),
+                    },
+                );
 
                 // Load the scrutinee's tag *once*, up front, rather than
                 // re-deriving "is this a constructor value" per arm - every
@@ -492,11 +723,14 @@ if let Expr::ELam(params, body) = current {
                 });
                 let tag_val = if needs_tag {
                     let tag_local = self.new_local();
-                    self.emit_to_func(func, IrInst::LoadOffset {
-                        dest: IrValue::Local(tag_local.clone()),
-                        ptr: target_val.clone(),
-                        offset: 0,
-                    });
+                    self.emit_to_func(
+                        func,
+                        IrInst::LoadOffset {
+                            dest: IrValue::Local(tag_local.clone()),
+                            ptr: target_val.clone(),
+                            offset: 0,
+                        },
+                    );
                     Some(IrValue::Local(tag_local))
                 } else {
                     None
@@ -511,7 +745,12 @@ if let Expr::ELam(params, body) = current {
                 }
 
                 if !check_labels.is_empty() {
-                    self.emit_to_func(func, IrInst::Br { target: check_labels[0].clone() });
+                    self.emit_to_func(
+                        func,
+                        IrInst::Br {
+                            target: check_labels[0].clone(),
+                        },
+                    );
                 }
 
                 for (i, (pat, body)) in arms.iter().enumerate() {
@@ -534,10 +773,21 @@ if let Expr::ELam(params, body) = current {
                     // already-reported-invalid program into something
                     // that miscompares against a tag that doesn't exist.
                     let unconditional_arm = |gen: &mut Self, func: &mut IrFunction| {
-                        func.blocks.push(IrBlock { label: check_label.clone(), insts: Vec::new() });
+                        func.blocks.push(IrBlock {
+                            label: check_label.clone(),
+                            insts: Vec::new(),
+                        });
                         gen.current_block = Some(check_label.clone());
-                        gen.emit_to_func(func, IrInst::Br { target: arm_label.clone() });
-                        func.blocks.push(IrBlock { label: arm_label.clone(), insts: Vec::new() });
+                        gen.emit_to_func(
+                            func,
+                            IrInst::Br {
+                                target: arm_label.clone(),
+                            },
+                        );
+                        func.blocks.push(IrBlock {
+                            label: arm_label.clone(),
+                            insts: Vec::new(),
+                        });
                         gen.current_block = Some(arm_label.clone());
                     };
 
@@ -545,22 +795,36 @@ if let Expr::ELam(params, body) = current {
                         Pattern::PCon(ident, args) => {
                             match find_constructor(type_checker, &ident.name) {
                                 Some((tag, _arity)) => {
-                                    func.blocks.push(IrBlock { label: check_label.clone(), insts: Vec::new() });
+                                    func.blocks.push(IrBlock {
+                                        label: check_label.clone(),
+                                        insts: Vec::new(),
+                                    });
                                     self.current_block = Some(check_label.clone());
 
                                     let cmp_dest = self.new_local();
-                                    self.emit_to_func(func, IrInst::Eq {
-                                        dest: IrValue::Local(cmp_dest.clone()),
-                                        lhs: tag_val.clone().expect("needs_tag scan above must have found this arm"),
-                                        rhs: IrValue::Const(IrConst::Int(tag, i64_ty.clone())),
-                                    });
-                                    self.emit_to_func(func, IrInst::CondBr {
-                                        cond: IrValue::Local(cmp_dest),
-                                        then_target: arm_label.clone(),
-                                        else_target: next_check,
-                                    });
+                                    self.emit_to_func(
+                                        func,
+                                        IrInst::Eq {
+                                            dest: IrValue::Local(cmp_dest.clone()),
+                                            lhs: tag_val.clone().expect(
+                                                "needs_tag scan above must have found this arm",
+                                            ),
+                                            rhs: IrValue::Const(IrConst::Int(tag, i64_ty.clone())),
+                                        },
+                                    );
+                                    self.emit_to_func(
+                                        func,
+                                        IrInst::CondBr {
+                                            cond: IrValue::Local(cmp_dest),
+                                            then_target: arm_label.clone(),
+                                            else_target: next_check,
+                                        },
+                                    );
 
-                                    func.blocks.push(IrBlock { label: arm_label.clone(), insts: Vec::new() });
+                                    func.blocks.push(IrBlock {
+                                        label: arm_label.clone(),
+                                        insts: Vec::new(),
+                                    });
                                     self.current_block = Some(arm_label.clone());
 
                                     // Bind each `PVar` field sub-pattern to
@@ -580,21 +844,31 @@ if let Expr::ELam(params, body) = current {
                                     for (field_idx, arg_pat) in args.iter().enumerate() {
                                         if let Pattern::PVar(arg_ident) = arg_pat {
                                             let field_local = self.new_local();
-                                            self.emit_to_func(func, IrInst::LoadOffset {
-                                                dest: IrValue::Local(field_local.clone()),
-                                                ptr: target_val.clone(),
-                                                offset: ((1 + field_idx) * 8) as i64,
-                                            });
+                                            self.emit_to_func(
+                                                func,
+                                                IrInst::LoadOffset {
+                                                    dest: IrValue::Local(field_local.clone()),
+                                                    ptr: target_val.clone(),
+                                                    offset: ((1 + field_idx) * 8) as i64,
+                                                },
+                                            );
                                             let arg_alloca = format!("_alloca_{}", arg_ident.name);
-                                            func.locals.push((arg_ident.name.clone(), i64_ty.clone()));
-                                            self.emit_to_func(func, IrInst::Alloca {
-                                                dest: IrValue::Local(arg_alloca.clone()),
-                                                ty: i64_ty.clone(),
-                                            });
-                                            self.emit_to_func(func, IrInst::Store {
-                                                ptr: IrValue::Local(arg_alloca.clone()),
-                                                value: IrValue::Local(field_local),
-                                            });
+                                            func.locals
+                                                .push((arg_ident.name.clone(), i64_ty.clone()));
+                                            self.emit_to_func(
+                                                func,
+                                                IrInst::Alloca {
+                                                    dest: IrValue::Local(arg_alloca.clone()),
+                                                    ty: i64_ty.clone(),
+                                                },
+                                            );
+                                            self.emit_to_func(
+                                                func,
+                                                IrInst::Store {
+                                                    ptr: IrValue::Local(arg_alloca.clone()),
+                                                    value: IrValue::Local(field_local),
+                                                },
+                                            );
                                             arm_map.insert(arg_ident.name.clone(), arg_alloca);
                                         }
                                     }
@@ -607,14 +881,20 @@ if let Expr::ELam(params, body) = current {
 
                             let var_alloca = format!("_alloca_{}", ident.name);
                             func.locals.push((ident.name.clone(), i64_ty.clone()));
-                            self.emit_to_func(func, IrInst::Alloca {
-                                dest: IrValue::Local(var_alloca.clone()),
-                                ty: i64_ty.clone(),
-                            });
-                            self.emit_to_func(func, IrInst::Store {
-                                ptr: IrValue::Local(var_alloca.clone()),
-                                value: target_val.clone(),
-                            });
+                            self.emit_to_func(
+                                func,
+                                IrInst::Alloca {
+                                    dest: IrValue::Local(var_alloca.clone()),
+                                    ty: i64_ty.clone(),
+                                },
+                            );
+                            self.emit_to_func(
+                                func,
+                                IrInst::Store {
+                                    ptr: IrValue::Local(var_alloca.clone()),
+                                    value: target_val.clone(),
+                                },
+                            );
                             arm_map.insert(ident.name.clone(), var_alloca);
                         }
                         Pattern::PWildcard => unconditional_arm(self, func),
@@ -624,23 +904,35 @@ if let Expr::ELam(params, body) = current {
                             // tag - since a `PLit` arm only ever appears
                             // when matching a plain `Int`/`Bool`/`Char`
                             // scrutinee, which is never heap-boxed.
-                            func.blocks.push(IrBlock { label: check_label.clone(), insts: Vec::new() });
+                            func.blocks.push(IrBlock {
+                                label: check_label.clone(),
+                                insts: Vec::new(),
+                            });
                             self.current_block = Some(check_label.clone());
 
                             let lit_val = self.gen_literal(lit);
                             let cmp_dest = self.new_local();
-                            self.emit_to_func(func, IrInst::Eq {
-                                dest: IrValue::Local(cmp_dest.clone()),
-                                lhs: target_val.clone(),
-                                rhs: lit_val,
-                            });
-                            self.emit_to_func(func, IrInst::CondBr {
-                                cond: IrValue::Local(cmp_dest),
-                                then_target: arm_label.clone(),
-                                else_target: next_check,
-                            });
+                            self.emit_to_func(
+                                func,
+                                IrInst::Eq {
+                                    dest: IrValue::Local(cmp_dest.clone()),
+                                    lhs: target_val.clone(),
+                                    rhs: lit_val,
+                                },
+                            );
+                            self.emit_to_func(
+                                func,
+                                IrInst::CondBr {
+                                    cond: IrValue::Local(cmp_dest),
+                                    then_target: arm_label.clone(),
+                                    else_target: next_check,
+                                },
+                            );
 
-                            func.blocks.push(IrBlock { label: arm_label.clone(), insts: Vec::new() });
+                            func.blocks.push(IrBlock {
+                                label: arm_label.clone(),
+                                insts: Vec::new(),
+                            });
                             self.current_block = Some(arm_label.clone());
                         }
                         Pattern::PTuple(_) | Pattern::PList(_) => {
@@ -662,12 +954,21 @@ if let Expr::ELam(params, body) = current {
                         }
                     }
 
-                    let body_val = self.gen_expr_to_func_with_allocas(func, body, &mut arm_map, type_checker);
-                    self.emit_to_func(func, IrInst::Store {
-                        ptr: IrValue::Local(result_alloca.clone()),
-                        value: body_val,
-                    });
-                    self.emit_to_func(func, IrInst::Br { target: merge_label.clone() });
+                    let body_val =
+                        self.gen_expr_to_func_with_allocas(func, body, &mut arm_map, type_checker);
+                    self.emit_to_func(
+                        func,
+                        IrInst::Store {
+                            ptr: IrValue::Local(result_alloca.clone()),
+                            value: body_val,
+                        },
+                    );
+                    self.emit_to_func(
+                        func,
+                        IrInst::Br {
+                            target: merge_label.clone(),
+                        },
+                    );
                 }
 
                 func.blocks.push(IrBlock {
@@ -677,16 +978,21 @@ if let Expr::ELam(params, body) = current {
                 self.current_block = Some(merge_label.clone());
 
                 let load_dest = self.new_local();
-                self.emit_to_func(func, IrInst::Load {
-                    dest: IrValue::Local(load_dest.clone()),
-                    ptr: IrValue::Local(result_alloca),
-                });
+                self.emit_to_func(
+                    func,
+                    IrInst::Load {
+                        dest: IrValue::Local(load_dest.clone()),
+                        ptr: IrValue::Local(result_alloca),
+                    },
+                );
                 IrValue::Local(load_dest)
             }
             Expr::EBegin(exprs) => {
-                let mut last_val = IrValue::Const(IrConst::Int(0, TypeId::TCon("I64".to_string(), vec![])));
+                let mut last_val =
+                    IrValue::Const(IrConst::Int(0, TypeId::TCon("I64".to_string(), vec![])));
                 for e in exprs {
-                    last_val = self.gen_expr_to_func_with_allocas(func, e, alloca_map, type_checker);
+                    last_val =
+                        self.gen_expr_to_func_with_allocas(func, e, alloca_map, type_checker);
                 }
                 last_val
             }
@@ -695,49 +1001,67 @@ if let Expr::ELam(params, body) = current {
                 let dest = self.new_local();
                 let target_ty = self.type_to_id(target_type);
 
-                self.emit_to_func(func, IrInst::Cast {
-                    dest: IrValue::Local(dest.clone()),
-                    src,
-                    target_ty,
-                });
+                self.emit_to_func(
+                    func,
+                    IrInst::Cast {
+                        dest: IrValue::Local(dest.clone()),
+                        src,
+                        target_ty,
+                    },
+                );
 
                 IrValue::Local(dest)
             }
             Expr::ESizeof(ty, _) => {
                 let dest = self.new_local();
                 let resolved_ty = self.type_to_id(ty);
-                self.emit_to_func(func, IrInst::Sizeof {
-                    dest: IrValue::Local(dest.clone()),
-                    ty: resolved_ty,
-                });
+                self.emit_to_func(
+                    func,
+                    IrInst::Sizeof {
+                        dest: IrValue::Local(dest.clone()),
+                        ty: resolved_ty,
+                    },
+                );
                 IrValue::Local(dest)
             }
             Expr::EAlignof(ty, _) => {
                 let dest = self.new_local();
                 let resolved_ty = self.type_to_id(ty);
-                self.emit_to_func(func, IrInst::Alignof {
-                    dest: IrValue::Local(dest.clone()),
-                    ty: resolved_ty,
-                });
+                self.emit_to_func(
+                    func,
+                    IrInst::Alignof {
+                        dest: IrValue::Local(dest.clone()),
+                        ty: resolved_ty,
+                    },
+                );
                 IrValue::Local(dest)
             }
-            Expr::EGrouped(inner) => self.gen_expr_to_func_with_allocas(func, inner, alloca_map, type_checker),
+            Expr::EGrouped(inner) => {
+                self.gen_expr_to_func_with_allocas(func, inner, alloca_map, type_checker)
+            }
             Expr::ELam(params, body) => self.gen_lambda(params, body, type_checker),
             Expr::ETuple(elements) => {
                 let i64_ty = TypeId::TCon("I64".to_string(), vec![]);
                 let tuple_size = (elements.len() * 8) as i64;
                 let ptr_local = self.new_local();
-                self.emit_to_func(func, IrInst::HeapAlloc {
-                    dest: IrValue::Local(ptr_local.clone()),
-                    size: IrValue::Const(IrConst::Int(tuple_size, i64_ty.clone())),
-                });
+                self.emit_to_func(
+                    func,
+                    IrInst::HeapAlloc {
+                        dest: IrValue::Local(ptr_local.clone()),
+                        size: IrValue::Const(IrConst::Int(tuple_size, i64_ty.clone())),
+                    },
+                );
                 for (i, elem) in elements.iter().enumerate() {
-                    let val = self.gen_expr_to_func_with_allocas(func, elem, alloca_map, type_checker);
-                    self.emit_to_func(func, IrInst::StoreOffset {
-                        ptr: IrValue::Local(ptr_local.clone()),
-                        offset: (i * 8) as i64,
-                        value: val,
-                    });
+                    let val =
+                        self.gen_expr_to_func_with_allocas(func, elem, alloca_map, type_checker);
+                    self.emit_to_func(
+                        func,
+                        IrInst::StoreOffset {
+                            ptr: IrValue::Local(ptr_local.clone()),
+                            offset: (i * 8) as i64,
+                            value: val,
+                        },
+                    );
                 }
                 IrValue::Local(ptr_local)
             }
@@ -745,17 +1069,24 @@ if let Expr::ELam(params, body) = current {
                 let i64_ty = TypeId::TCon("I64".to_string(), vec![]);
                 let list_size = (items.len() * 8) as i64;
                 let ptr_local = self.new_local();
-                self.emit_to_func(func, IrInst::HeapAlloc {
-                    dest: IrValue::Local(ptr_local.clone()),
-                    size: IrValue::Const(IrConst::Int(list_size, i64_ty.clone())),
-                });
+                self.emit_to_func(
+                    func,
+                    IrInst::HeapAlloc {
+                        dest: IrValue::Local(ptr_local.clone()),
+                        size: IrValue::Const(IrConst::Int(list_size, i64_ty.clone())),
+                    },
+                );
                 for (i, item) in items.iter().enumerate() {
-                    let val = self.gen_expr_to_func_with_allocas(func, item, alloca_map, type_checker);
-                    self.emit_to_func(func, IrInst::StoreOffset {
-                        ptr: IrValue::Local(ptr_local.clone()),
-                        offset: (i * 8) as i64,
-                        value: val,
-                    });
+                    let val =
+                        self.gen_expr_to_func_with_allocas(func, item, alloca_map, type_checker);
+                    self.emit_to_func(
+                        func,
+                        IrInst::StoreOffset {
+                            ptr: IrValue::Local(ptr_local.clone()),
+                            offset: (i * 8) as i64,
+                            value: val,
+                        },
+                    );
                 }
                 IrValue::Local(ptr_local)
             }
@@ -770,16 +1101,22 @@ if let Expr::ELam(params, body) = current {
                 self.gen_expr_to_func_with_allocas(func, e, alloca_map, type_checker)
             }
             Expr::EField(base, field_ident) => {
-                let base_val = self.gen_expr_to_func_with_allocas(func, base, alloca_map, type_checker);
+                let base_val =
+                    self.gen_expr_to_func_with_allocas(func, base, alloca_map, type_checker);
                 let i64_ty = TypeId::TCon("I64".to_string(), vec![]);
-                if let Some((_struct_name, field_index, _field_ty)) = type_checker.find_struct_field_by_name(&field_ident.name) {
+                if let Some((_struct_name, field_index, _field_ty)) =
+                    type_checker.find_struct_field_by_name(&field_ident.name)
+                {
                     let offset = ((1 + field_index) * 8) as i64;
                     let result_reg = self.new_local();
-                    self.emit_to_func(func, IrInst::LoadOffset {
-                        dest: IrValue::Local(result_reg.clone()),
-                        ptr: base_val,
-                        offset,
-                    });
+                    self.emit_to_func(
+                        func,
+                        IrInst::LoadOffset {
+                            dest: IrValue::Local(result_reg.clone()),
+                            ptr: base_val,
+                            offset,
+                        },
+                    );
                     IrValue::Local(result_reg)
                 } else {
                     IrValue::Const(IrConst::Int(0, i64_ty))
@@ -791,53 +1128,55 @@ if let Expr::ELam(params, body) = current {
 
     fn gen_literal(&self, lit: &Literal) -> IrValue {
         match lit {
-            Literal::LInt(n) => IrValue::Const(IrConst::Int(*n, TypeId::TCon("I64".to_string(), vec![]))),
-            Literal::LFloat(n) => IrValue::Const(IrConst::Float(*n, TypeId::TCon("F64".to_string(), vec![]))),
+            Literal::LInt(n) => {
+                IrValue::Const(IrConst::Int(*n, TypeId::TCon("I64".to_string(), vec![])))
+            }
+            Literal::LFloat(n) => {
+                IrValue::Const(IrConst::Float(*n, TypeId::TCon("F64".to_string(), vec![])))
+            }
             Literal::LBool(b) => IrValue::Const(IrConst::Bool(*b)),
-            Literal::LChar(c) => IrValue::Const(IrConst::Int(*c as i64, TypeId::TCon("U8".to_string(), vec![]))),
+            Literal::LChar(c) => IrValue::Const(IrConst::Int(
+                *c as i64,
+                TypeId::TCon("U8".to_string(), vec![]),
+            )),
             Literal::LStr(s) => IrValue::Const(IrConst::Str(s.clone())),
         }
     }
 
     fn type_to_id(&self, ty: &Type) -> TypeId {
         match ty {
-            Type::TCon(ident, _) => {
-                match ident.name.as_str() {
-                    "Int" | "Integer" => TypeId::TCon("Int".to_string(), vec![]),
-                    "Float" => TypeId::TCon("Float".to_string(), vec![]),
-                    "Double" => TypeId::TCon("Double".to_string(), vec![]),
-                    "Bool" => TypeId::TCon("Bool".to_string(), vec![]),
-                    "Char" => TypeId::TCon("Char".to_string(), vec![]),
-                    "String" => TypeId::TCon("String".to_string(), vec![]),
-                    "Void" => TypeId::TCon("Void".to_string(), vec![]),
-                    "Any" => TypeId::TCon("Any".to_string(), vec![]),
-                    "I8" => TypeId::TCon("I8".to_string(), vec![]),
-                    "I16" => TypeId::TCon("I16".to_string(), vec![]),
-                    "I32" => TypeId::TCon("I32".to_string(), vec![]),
-                    "I64" => TypeId::TCon("I64".to_string(), vec![]),
-                    "I128" => TypeId::TCon("I128".to_string(), vec![]),
-                    "Isize" => TypeId::TCon("Isize".to_string(), vec![]),
-                    "U8" => TypeId::TCon("U8".to_string(), vec![]),
-                    "U16" => TypeId::TCon("U16".to_string(), vec![]),
-                    "U32" => TypeId::TCon("U32".to_string(), vec![]),
-                    "U64" => TypeId::TCon("U64".to_string(), vec![]),
-                    "U128" => TypeId::TCon("U128".to_string(), vec![]),
-                    "Usize" => TypeId::TCon("Usize".to_string(), vec![]),
-                    "F32" => TypeId::TCon("F32".to_string(), vec![]),
-                    "F64" => TypeId::TCon("F64".to_string(), vec![]),
-                    _ => TypeId::TCon(ident.name.clone(), vec![]),
-                }
-            }
-            Type::TPtr(inner, mutable) => {
-                TypeId::TPtr(Box::new(self.type_to_id(inner)), *mutable)
-            }
-            Type::TList(inner) => {
-                TypeId::TList(Box::new(self.type_to_id(inner)))
-            }
+            Type::TCon(ident, _) => match ident.name.as_str() {
+                "Int" | "Integer" => TypeId::TCon("Int".to_string(), vec![]),
+                "Float" => TypeId::TCon("Float".to_string(), vec![]),
+                "Double" => TypeId::TCon("Double".to_string(), vec![]),
+                "Bool" => TypeId::TCon("Bool".to_string(), vec![]),
+                "Char" => TypeId::TCon("Char".to_string(), vec![]),
+                "String" => TypeId::TCon("String".to_string(), vec![]),
+                "Void" => TypeId::TCon("Void".to_string(), vec![]),
+                "Any" => TypeId::TCon("Any".to_string(), vec![]),
+                "I8" => TypeId::TCon("I8".to_string(), vec![]),
+                "I16" => TypeId::TCon("I16".to_string(), vec![]),
+                "I32" => TypeId::TCon("I32".to_string(), vec![]),
+                "I64" => TypeId::TCon("I64".to_string(), vec![]),
+                "I128" => TypeId::TCon("I128".to_string(), vec![]),
+                "Isize" => TypeId::TCon("Isize".to_string(), vec![]),
+                "U8" => TypeId::TCon("U8".to_string(), vec![]),
+                "U16" => TypeId::TCon("U16".to_string(), vec![]),
+                "U32" => TypeId::TCon("U32".to_string(), vec![]),
+                "U64" => TypeId::TCon("U64".to_string(), vec![]),
+                "U128" => TypeId::TCon("U128".to_string(), vec![]),
+                "Usize" => TypeId::TCon("Usize".to_string(), vec![]),
+                "F32" => TypeId::TCon("F32".to_string(), vec![]),
+                "F64" => TypeId::TCon("F64".to_string(), vec![]),
+                _ => TypeId::TCon(ident.name.clone(), vec![]),
+            },
+            Type::TPtr(inner, mutable) => TypeId::TPtr(Box::new(self.type_to_id(inner)), *mutable),
+            Type::TList(inner) => TypeId::TList(Box::new(self.type_to_id(inner))),
             Type::TTuple(_) => TypeId::TTuple(vec![]),
-            Type::TArr(from, to) => {
-                TypeId::TArr(Box::new(self.type_to_id(from)), Box::new(self.type_to_id(to)))
-            }
+            Type::TArr(from, to) => TypeId::TArr(
+                Box::new(self.type_to_id(from)),
+                Box::new(self.type_to_id(to)),
+            ),
             Type::TVar(name) => TypeId::TVar(name.clone()),
             Type::TForall(_, inner) => self.type_to_id(inner),
             Type::TEffect(inner, _) => self.type_to_id(inner),

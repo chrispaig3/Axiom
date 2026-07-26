@@ -67,7 +67,11 @@ fn check_accepts_a_well_typed_program() {
 #[test]
 fn check_rejects_an_undefined_variable_with_the_right_code() {
     let dir = scratch_dir("check-undefined-var");
-    write_source(&dir, "main.ax", "(:: main Int)\n(fn main (+ 1 doesNotExist))\n");
+    write_source(
+        &dir,
+        "main.ax",
+        "(:: main Int)\n(fn main (+ 1 doesNotExist))\n",
+    );
     let out = run_axiom(&["--diagnostic-format=ai", "check", "main.ax"], &dir);
     assert!(!out.status.success());
     assert!(stderr(&out).contains("AX3001"), "stderr: {}", stderr(&out));
@@ -152,7 +156,11 @@ fn run_resolves_and_executes_a_multi_file_import() {
 #[test]
 fn missing_import_is_a_clean_diagnostic_not_a_panic() {
     let dir = scratch_dir("check-missing-import");
-    write_source(&dir, "main.ax", "(import Nope.Nowhere)\n(:: main Int)\n(fn main 0)\n");
+    write_source(
+        &dir,
+        "main.ax",
+        "(import Nope.Nowhere)\n(:: main Int)\n(fn main 0)\n",
+    );
     let out = run_axiom(&["--diagnostic-format=ai", "check", "main.ax"], &dir);
     assert!(!out.status.success());
     assert!(stderr(&out).contains("AX5001"), "stderr: {}", stderr(&out));
@@ -164,13 +172,29 @@ fn missing_import_is_a_clean_diagnostic_not_a_panic() {
 #[test]
 fn diagnostic_in_an_imported_file_is_attributed_to_that_file() {
     let dir = scratch_dir("check-cross-file-diag");
-    write_source(&dir, "Broken.ax", "(:: broken (-> Int Int))\n(fn (broken x) (+ x undefinedThing))\n");
-    write_source(&dir, "main.ax", "(import Broken)\n(:: main Int)\n(fn main (broken 1))\n");
+    write_source(
+        &dir,
+        "Broken.ax",
+        "(:: broken (-> Int Int))\n(fn (broken x) (+ x undefinedThing))\n",
+    );
+    write_source(
+        &dir,
+        "main.ax",
+        "(import Broken)\n(:: main Int)\n(fn main (broken 1))\n",
+    );
     let out = run_axiom(&["--diagnostic-format=ai", "check", "main.ax"], &dir);
     assert!(!out.status.success());
     let err = stderr(&out);
-    assert!(err.contains("Broken.ax"), "stderr should mention Broken.ax: {}", err);
-    assert!(!err.contains("main.ax:"), "stderr should not attribute the error to main.ax: {}", err);
+    assert!(
+        err.contains("Broken.ax"),
+        "stderr should mention Broken.ax: {}",
+        err
+    );
+    assert!(
+        !err.contains("main.ax:"),
+        "stderr should not attribute the error to main.ax: {}",
+        err
+    );
 }
 
 /// AXSYM output for a simple program: spot-check the grammar rather than
@@ -180,17 +204,34 @@ fn diagnostic_in_an_imported_file_is_attributed_to_that_file() {
 #[test]
 fn symbols_command_lists_declared_functions_and_omits_builtins_by_default() {
     let dir = scratch_dir("symbols-basic");
-    write_source(&dir, "main.ax", "(:: add (-> Int Int Int))\n(fn (add x y) (+ x y))\n(:: main Int)\n(fn main 0)\n");
+    write_source(
+        &dir,
+        "main.ax",
+        "(:: add (-> Int Int Int))\n(fn (add x y) (+ x y))\n(:: main Int)\n(fn main 0)\n",
+    );
 
     let out = run_axiom(&["--diagnostic-format=ai", "symbols", "main.ax"], &dir);
     assert!(out.status.success(), "stderr: {}", stderr(&out));
     let text = stdout(&out);
-    assert!(text.lines().any(|l| l.starts_with("F add ")), "missing `add`: {}", text);
-    assert!(!text.lines().any(|l| l.starts_with("F + ")), "builtins should be omitted by default: {}", text);
+    assert!(
+        text.lines().any(|l| l.starts_with("F add ")),
+        "missing `add`: {}",
+        text
+    );
+    assert!(
+        !text.lines().any(|l| l.starts_with("F + ")),
+        "builtins should be omitted by default: {}",
+        text
+    );
 
-    let out_with_builtins = run_axiom(&["--diagnostic-format=ai", "symbols", "main.ax", "--builtins"], &dir);
+    let out_with_builtins = run_axiom(
+        &["--diagnostic-format=ai", "symbols", "main.ax", "--builtins"],
+        &dir,
+    );
     assert!(out_with_builtins.status.success());
-    assert!(stdout(&out_with_builtins).lines().any(|l| l.starts_with("F + ")));
+    assert!(stdout(&out_with_builtins)
+        .lines()
+        .any(|l| l.starts_with("F + ")));
 }
 
 #[test]
@@ -204,13 +245,290 @@ fn fmt_check_flags_an_unformatted_file() {
 
 #[test]
 fn explain_prints_details_for_a_known_code() {
-    let out = Command::new(axiom_bin()).args(["explain", "AX3005"]).output().unwrap();
+    let out = Command::new(axiom_bin())
+        .args(["explain", "AX3005"])
+        .output()
+        .unwrap();
     assert!(out.status.success());
     assert!(stdout(&out).contains("non-exhaustive"));
 }
 
 #[test]
 fn explain_reports_an_unknown_code_as_an_error_not_a_panic() {
-    let out = Command::new(axiom_bin()).args(["explain", "AX9999"]).output().unwrap();
+    let out = Command::new(axiom_bin())
+        .args(["explain", "AX9999"])
+        .output()
+        .unwrap();
     assert!(!out.status.success());
+}
+
+/// AXDL spot-check: duplicate definition produces a secondary span (`^`)
+/// in the single-line AI output.
+#[test]
+fn axdl_duplicate_definition_has_secondary_span() {
+    let dir = scratch_dir("axdl-duplicate");
+    write_source(
+        &dir,
+        "main.ax",
+        "(:: helper (-> Int Int))\n(fn (helper x) x)\n(:: helper (-> Int Int))\n(fn (helper x) (+ x 1))\n",
+    );
+    let out = run_axiom(&["--diagnostic-format=ai", "check", "main.ax"], &dir);
+    assert!(!out.status.success());
+    let err = stderr(&out);
+    let line = err.lines().find(|l| l.contains("AX3006")).unwrap();
+    assert!(line.starts_with("E AX3006 "), "line: {}", line);
+    assert!(line.contains(" ^"), "secondary span missing: {}", line);
+}
+
+/// AXDL spot-check: non-exhaustive case includes a help suggestion.
+#[test]
+fn axdl_non_exhaustive_has_help() {
+    let dir = scratch_dir("axdl-nonexhaustive");
+    write_source(
+        &dir,
+        "main.ax",
+        "(data Bool (True) (False))\n(:: main Int)\n(fn main (case true ((True) 1)))\n",
+    );
+    let out = run_axiom(&["--diagnostic-format=ai", "check", "main.ax"], &dir);
+    assert!(!out.status.success());
+    let err = stderr(&out);
+    let line = err.lines().find(|l| l.contains("AX3005")).unwrap();
+    assert!(line.contains(" ?\""), "help prefix missing: {}", line);
+}
+
+/// AXDL spot-check: a type mismatch is rendered in one line with no extra
+/// newlines.
+#[test]
+fn axdl_type_mismatch_is_dense_single_line() {
+    let dir = scratch_dir("axdl-typemismatch");
+    write_source(
+        &dir,
+        "main.ax",
+        r#"#| multi-byte: héllo |#
+(:: main Int)
+(fn main (if true 1 "no"))
+"#,
+    );
+    let out = run_axiom(&["--diagnostic-format=ai", "check", "main.ax"], &dir);
+    assert!(!out.status.success());
+    let err = stderr(&out);
+    let lines: Vec<&str> = err.lines().collect();
+    let first = lines.iter().find(|l| l.starts_with('E')).unwrap();
+    assert!(first.contains("AX3004"), "line: {}", first);
+    assert!(first.contains(" type-mismatch "), "line: {}", first);
+}
+
+/// AXDL spot-check: JSON Lines output contains char_start/char_end (character
+/// offsets, not byte offsets) and is one object per line.
+#[test]
+fn axdl_json_format_is_valid_json_lines() {
+    let dir = scratch_dir("axdl-json");
+    write_source(
+        &dir,
+        "main.ax",
+        r#"#| héllo |#
+(:: main Int)
+(fn main (+ 1 u))
+"#,
+    );
+    let out = run_axiom(&["--diagnostic-format=json", "check", "main.ax"], &dir);
+    assert!(!out.status.success());
+    let err = stderr(&out);
+    let lines: Vec<&str> = err.lines().collect();
+    assert!(!lines.is_empty());
+    let line = lines[0];
+    // Validate JSON-like structure via string checks.
+    assert!(line.contains("\"code\":\"AX3001\""));
+    assert!(line.contains("\"severity\":\"error\""));
+    assert!(line.contains("\"char_start\":"));
+    assert!(line.contains("\"char_end\":"));
+}
+
+/// AXSYM spot-check: a program that declares every visible symbol kind should
+/// produce one line per kind.
+#[test]
+fn axsym_reports_all_declaration_kinds() {
+    let dir = scratch_dir("axsym-all-kinds");
+    write_source(
+        &dir,
+        "main.ax",
+        r#"(foreign printf :: (-> String Int) = "printf")
+(data Maybe (a) (Nothing) (Just a))
+(struct Point (x : Int) (y : Int))
+(union Value (asInt : I64) (asFloat : F64))
+(type StringList () = [String])
+(class (Eq a))
+"#,
+    );
+    let out = run_axiom(&["--diagnostic-format=ai", "symbols", "main.ax"], &dir);
+    assert!(out.status.success(), "stderr: {}", stderr(&out));
+    let text = stdout(&out);
+    assert!(text.lines().any(|l| l.starts_with("X printf ")));
+    assert!(text.lines().any(|l| l.starts_with("D Maybe ")));
+    assert!(text.lines().any(|l| l.starts_with("C Nothing ")));
+    assert!(text.lines().any(|l| l.starts_with("C Just ")));
+    assert!(text.lines().any(|l| l.starts_with("S Point ")));
+    assert!(text.lines().any(|l| l.starts_with("U Value ")));
+    assert!(text.lines().any(|l| l.starts_with("A StringList ")));
+    assert!(text.lines().any(|l| l.starts_with("L Eq ")));
+}
+
+/// AXSYM spot-check: struct field shapes and layout attributes appear as
+/// `#fields=` and `#repr=C`/`#packed`/`#align=N` metadata.
+#[test]
+fn axsym_struct_metadata_includes_fields_and_repr() {
+    let dir = scratch_dir("axsym-struct-meta");
+    write_source(
+        &dir,
+        "main.ax",
+        "(struct Point packed (x : Int) (y : Int))\n(:: main Int)\n(fn main 0)\n",
+    );
+    let out = run_axiom(&["--diagnostic-format=ai", "symbols", "main.ax"], &dir);
+    assert!(out.status.success(), "stderr: {}", stderr(&out));
+    let text = stdout(&out);
+    assert!(text.contains("#fields=x:Int,y:Int"), "text: {}", text);
+    assert!(text.contains("#packed"), "text: {}", text);
+}
+
+/// AXSYM spot-check: data type constructors list under `#ctors=`.
+#[test]
+fn axsym_data_type_ctors_metadata() {
+    let dir = scratch_dir("axsym-ctors");
+    write_source(
+        &dir,
+        "main.ax",
+        "(data Ordering (LT) (EQ) (GT))\n(:: main Int)\n(fn main 0)\n",
+    );
+    let out = run_axiom(&["--diagnostic-format=ai", "symbols", "main.ax"], &dir);
+    assert!(out.status.success(), "stderr: {}", stderr(&out));
+    let text = stdout(&out);
+    assert!(text.contains("D Ordering "));
+    assert!(text.contains("#ctors=LT,EQ,GT"), "text: {}", text);
+}
+
+/// AXSYM spot-check: type alias `#tyvars` is present when there are params and
+/// absent when there are none.
+#[test]
+fn axsym_type_alias_tyvars_metadata() {
+    let dir = scratch_dir("axsym-tyvars");
+    write_source(
+        &dir,
+        "main.ax",
+        "(type StringList () = [String])\n(type Pair (a b) = (a b))\n(:: main Int)\n(fn main 0)\n",
+    );
+    let out = run_axiom(&["--diagnostic-format=ai", "symbols", "main.ax"], &dir);
+    assert!(out.status.success(), "stderr: {}", stderr(&out));
+    let text = stdout(&out);
+    assert!(text.contains("A StringList "), "text: {}", text);
+    assert!(text.contains("A Pair "), "text: {}", text);
+    assert!(text.contains("#tyvars=a,b"), "text: {}", text);
+    assert!(
+        !text
+            .lines()
+            .any(|l| l.starts_with("A StringList") && l.contains("#tyvars")),
+        "StringList should not have #tyvars: {}",
+        text
+    );
+}
+
+/// AXSYM spot-check: JSON Lines output is valid JSON per symbol.
+#[test]
+fn axsym_json_format_is_one_object_per_line() {
+    let dir = scratch_dir("axsym-json");
+    write_source(
+        &dir,
+        "main.ax",
+        "(data Maybe (a) (Nothing) (Just a))\n(:: main Int)\n(fn main 0)\n",
+    );
+    let out = run_axiom(&["--diagnostic-format=json", "symbols", "main.ax"], &dir);
+    assert!(out.status.success(), "stderr: {}", stderr(&out));
+    for line in stdout(&out).lines() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        assert!(line.starts_with('{'), "not JSON: {}", line);
+        assert!(line.contains("\"kind\""), "missing kind: {}", line);
+        assert!(line.contains("\"name\""), "missing name: {}", line);
+        assert!(line.contains("\"type\""), "missing type: {}", line);
+    }
+}
+
+/// AXSYM spot-check: multi-file attribution shows the true declaring file.
+#[test]
+fn axsym_multi_file_attribution() {
+    let dir = scratch_dir("axsym-multifile");
+    std::fs::create_dir_all(dir.join("Math")).unwrap();
+    write_source(
+        &dir,
+        "Math/Ops.ax",
+        "(:: square (-> Int Int))\n(fn (square x) (* x x))\n",
+    );
+    write_source(
+        &dir,
+        "main.ax",
+        "(import Math.Ops)\n(:: main Int)\n(fn main (square 5))\n",
+    );
+    let out = run_axiom(&["--diagnostic-format=ai", "symbols", "main.ax"], &dir);
+    assert!(out.status.success(), "stderr: {}", stderr(&out));
+    let text = stdout(&out);
+    assert!(
+        text.lines().any(|l| l.starts_with("F square Math/Ops.ax:")),
+        "square should be attributed to Math/Ops.ax: {}",
+        text
+    );
+    assert!(
+        text.lines().any(|l| l.starts_with("F main main.ax:")),
+        "main should be attributed to main.ax: {}",
+        text
+    );
+}
+
+/// AXSYM spot-check: `--builtins` lists the fixed operator set in all formats.
+#[test]
+fn axsym_builtins_appear_when_requested() {
+    let dir = scratch_dir("axsym-builtins");
+    write_source(&dir, "main.ax", "(:: main Int)\n(fn main 0)\n");
+    let out = run_axiom(
+        &["--diagnostic-format=ai", "symbols", "main.ax", "--builtins"],
+        &dir,
+    );
+    assert!(out.status.success(), "stderr: {}", stderr(&out));
+    let text = stdout(&out);
+    assert!(text.lines().any(|l| l.starts_with("F + ")));
+    assert!(text.lines().any(|l| l.starts_with("F == ")));
+}
+
+/// AXSYM spot-check: human format prints an aligned table with file locations.
+#[test]
+fn axsym_human_format_is_an_aligned_table() {
+    let dir = scratch_dir("axsym-human");
+    write_source(
+        &dir,
+        "main.ax",
+        "(:: add (-> Int Int Int))\n(fn (add x y) (+ x y))\n",
+    );
+    let out = run_axiom(&["symbols", "main.ax"], &dir);
+    assert!(out.status.success(), "stderr: {}", stderr(&out));
+    let text = stdout(&out);
+    assert!(text.contains("Fn"), "missing kind column: {}", text);
+    assert!(text.contains("add"), "missing name column: {}", text);
+    assert!(text.contains("main.ax:1:5"), "missing location: {}", text);
+}
+
+/// AXDL spot-check: machine-applicable suggestion (`~>`) appears in AI output
+/// for an undefined variable with a "did you mean" suggestion.
+#[test]
+fn axdl_undefined_variable_includes_machine_applicable_fix() {
+    let dir = scratch_dir("axdl-suggestion");
+    write_source(
+        &dir,
+        "main.ax",
+        "(:: helper (-> Int Int))\n(fn (helper x) x)\n(:: main Int)\n(fn main (helpr 5))\n",
+    );
+    let out = run_axiom(&["--diagnostic-format=ai", "check", "main.ax"], &dir);
+    assert!(!out.status.success());
+    let err = stderr(&out);
+    let line = err.lines().find(|l| l.contains("AX3001")).unwrap();
+    assert!(line.contains("~>"), "machine fix missing: {}", line);
+    assert!(line.contains("helper"), "suggestion missing: {}", line);
 }

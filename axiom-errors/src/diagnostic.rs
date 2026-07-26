@@ -99,7 +99,12 @@ impl Diagnostic {
         self
     }
 
-    pub fn with_suggestion(mut self, message: impl Into<String>, span: Span, replacement: impl Into<String>) -> Self {
+    pub fn with_suggestion(
+        mut self,
+        message: impl Into<String>,
+        span: Span,
+        replacement: impl Into<String>,
+    ) -> Self {
         self.helps.push(Suggestion {
             message: message.into(),
             span: Some(span),

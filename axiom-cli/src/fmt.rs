@@ -51,16 +51,34 @@ fn format_decl(decl: &Decl, out: &mut String, state: &mut FormatState) {
         Decl::DFn { name, params, body } => {
             format_function_decl(name, params, body, out, state);
         }
-        Decl::DData { name, tyvars, constructors, deriving } => {
+        Decl::DData {
+            name,
+            tyvars,
+            constructors,
+            deriving,
+        } => {
             format_data_decl(name, tyvars, constructors, deriving, out, state);
         }
-        Decl::DStruct { name, tyvars, fields, repr } => {
+        Decl::DStruct {
+            name,
+            tyvars,
+            fields,
+            repr,
+        } => {
             format_struct_decl(name, tyvars, fields, repr, out, state);
         }
-        Decl::DUnion { name, tyvars, fields } => {
+        Decl::DUnion {
+            name,
+            tyvars,
+            fields,
+        } => {
             format_union_decl(name, tyvars, fields, out, state);
         }
-        Decl::DType { name, tyvars, alias } => {
+        Decl::DType {
+            name,
+            tyvars,
+            alias,
+        } => {
             write!(out, "(type {}", name.name).unwrap();
             if !tyvars.is_empty() {
                 out.push(' ');
@@ -69,7 +87,14 @@ fn format_decl(decl: &Decl, out: &mut String, state: &mut FormatState) {
             write!(out, " {})", format_type(alias)).unwrap();
         }
         Decl::DForeign { name, ty, source } => {
-            write!(out, "(foreign {} :: {} = \"{}\")", name, format_type(ty), source).unwrap();
+            write!(
+                out,
+                "(foreign {} :: {} = \"{}\")",
+                name,
+                format_type(ty),
+                source
+            )
+            .unwrap();
         }
         Decl::DImport { module, names } => {
             out.push_str("(import");
@@ -88,7 +113,12 @@ fn format_decl(decl: &Decl, out: &mut String, state: &mut FormatState) {
             }
             out.push(')');
         }
-        Decl::DClass { name, tyvar, superclasses, methods } => {
+        Decl::DClass {
+            name,
+            tyvar,
+            superclasses,
+            methods,
+        } => {
             format_class_decl(name, tyvar, superclasses, methods, out, state);
         }
         Decl::DInstance { class, ty, methods } => {
@@ -100,7 +130,13 @@ fn format_decl(decl: &Decl, out: &mut String, state: &mut FormatState) {
     }
 }
 
-fn format_function_decl(name: &Ident, params: &[Pattern], body: &Expr, out: &mut String, state: &mut FormatState) {
+fn format_function_decl(
+    name: &Ident,
+    params: &[Pattern],
+    body: &Expr,
+    out: &mut String,
+    state: &mut FormatState,
+) {
     out.push_str("(define (");
     out.push_str(&name.name);
     for p in params {
@@ -125,7 +161,14 @@ fn format_function_decl(name: &Ident, params: &[Pattern], body: &Expr, out: &mut
     }
 }
 
-fn format_data_decl(name: &Ident, tyvars: &[String], constructors: &[DataCon], deriving: &[Ident], out: &mut String, state: &mut FormatState) {
+fn format_data_decl(
+    name: &Ident,
+    tyvars: &[String],
+    constructors: &[DataCon],
+    deriving: &[Ident],
+    out: &mut String,
+    state: &mut FormatState,
+) {
     out.push_str("(data ");
     out.push_str(&name.name);
     if !tyvars.is_empty() {
@@ -169,7 +212,14 @@ fn format_data_decl(name: &Ident, tyvars: &[String], constructors: &[DataCon], d
     }
 }
 
-fn format_struct_decl(name: &Ident, tyvars: &[String], fields: &[Field], repr: &Option<TypeRepr>, out: &mut String, state: &mut FormatState) {
+fn format_struct_decl(
+    name: &Ident,
+    tyvars: &[String],
+    fields: &[Field],
+    repr: &Option<TypeRepr>,
+    out: &mut String,
+    state: &mut FormatState,
+) {
     out.push_str("(struct ");
     out.push_str(&name.name);
     if !tyvars.is_empty() {
@@ -199,7 +249,13 @@ fn format_struct_decl(name: &Ident, tyvars: &[String], fields: &[Field], repr: &
     out.push(')');
 }
 
-fn format_union_decl(name: &Ident, tyvars: &[String], fields: &[Field], out: &mut String, state: &mut FormatState) {
+fn format_union_decl(
+    name: &Ident,
+    tyvars: &[String],
+    fields: &[Field],
+    out: &mut String,
+    state: &mut FormatState,
+) {
     out.push_str("(union ");
     out.push_str(&name.name);
     if !tyvars.is_empty() {
@@ -221,7 +277,14 @@ fn format_union_decl(name: &Ident, tyvars: &[String], fields: &[Field], out: &mu
     out.push(')');
 }
 
-fn format_class_decl(name: &Ident, tyvar: &str, superclasses: &[Type], methods: &[ClassMethod], out: &mut String, state: &mut FormatState) {
+fn format_class_decl(
+    name: &Ident,
+    tyvar: &str,
+    superclasses: &[Type],
+    methods: &[ClassMethod],
+    out: &mut String,
+    state: &mut FormatState,
+) {
     out.push_str("(class (");
     out.push_str(&name.name);
     out.push(' ');
@@ -256,7 +319,13 @@ fn format_class_decl(name: &Ident, tyvar: &str, superclasses: &[Type], methods: 
     out.push(')');
 }
 
-fn format_instance_decl(class: &Ident, ty: &Type, methods: &[(Ident, Expr)], out: &mut String, state: &mut FormatState) {
+fn format_instance_decl(
+    class: &Ident,
+    ty: &Type,
+    methods: &[(Ident, Expr)],
+    out: &mut String,
+    state: &mut FormatState,
+) {
     out.push_str("(instance (");
     out.push_str(&class.name);
     out.push(' ');
@@ -287,7 +356,12 @@ fn format_instance_decl(class: &Ident, ty: &Type, methods: &[(Ident, Expr)], out
     out.push(')');
 }
 
-fn format_effect_decl(name: &Ident, operations: &[EffectOp], out: &mut String, state: &mut FormatState) {
+fn format_effect_decl(
+    name: &Ident,
+    operations: &[EffectOp],
+    out: &mut String,
+    state: &mut FormatState,
+) {
     out.push_str("(effect ");
     out.push_str(&name.name);
     if !operations.is_empty() {

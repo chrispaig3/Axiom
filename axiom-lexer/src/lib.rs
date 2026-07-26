@@ -1,5 +1,5 @@
-use axiom_ast::token::{Token, TokenKind};
 use axiom_ast::span::Span;
+use axiom_ast::token::{Token, TokenKind};
 use axiom_errors::{code, Diagnostic};
 
 /// Every variant now carries the [`Span`] where it occurred; previously the
@@ -48,11 +48,14 @@ impl LexerError {
                     .with_primary(span, "string literal starts here but is never closed")
                     .with_help("add a closing `\"`, or escape an embedded quote as `\\\"`")
             }
-            LexerError::UnterminatedChar { .. } => {
-                Diagnostic::error(&code::UNTERMINATED_CHAR, self.to_string())
-                    .with_primary(span, "character literal starts here but is never closed")
-                    .with_help("character literals must contain exactly one character, e.g. `'a'` or `'\\n'`")
-            }
+            LexerError::UnterminatedChar { .. } => Diagnostic::error(
+                &code::UNTERMINATED_CHAR,
+                self.to_string(),
+            )
+            .with_primary(span, "character literal starts here but is never closed")
+            .with_help(
+                "character literals must contain exactly one character, e.g. `'a'` or `'\\n'`",
+            ),
             LexerError::InvalidNumber { text, .. } => {
                 Diagnostic::error(&code::INVALID_NUMBER, self.to_string())
                     .with_primary(span, format!("`{}` cannot be parsed as Int or Float", text))
@@ -68,7 +71,24 @@ impl LexerError {
 }
 
 fn is_operator_char(ch: char) -> bool {
-    matches!(ch, '+' | '-' | '*' | '/' | '%' | '^' | '=' | '<' | '>' | '!' | '&' | '|' | '.' | '?' | '~' | '@')
+    matches!(
+        ch,
+        '+' | '-'
+            | '*'
+            | '/'
+            | '%'
+            | '^'
+            | '='
+            | '<'
+            | '>'
+            | '!'
+            | '&'
+            | '|'
+            | '.'
+            | '?'
+            | '~'
+            | '@'
+    )
 }
 
 pub struct Lexer {
@@ -117,7 +137,10 @@ impl Lexer {
             }
 
             if ch == '\'' {
-                if self.peek().is_some_and(|c| c != ' ' && c != '(' && c != '[') {
+                if self
+                    .peek()
+                    .is_some_and(|c| c != ' ' && c != '(' && c != '[')
+                {
                     tokens.push(self.consume_char()?);
                 } else {
                     self.push_token(&mut tokens, TokenKind::Quote);
@@ -130,7 +153,8 @@ impl Lexer {
                 continue;
             }
 
-            if ch.is_ascii_digit() || (ch == '.' && self.peek().is_some_and(|c| c.is_ascii_digit())) {
+            if ch.is_ascii_digit() || (ch == '.' && self.peek().is_some_and(|c| c.is_ascii_digit()))
+            {
                 tokens.push(self.consume_number()?);
                 continue;
             }
@@ -252,10 +276,12 @@ impl Lexer {
                         self.push_token(&mut tokens, TokenKind::Pipe);
                     }
                 }
-                _ => return Err(LexerError::UnexpectedChar {
-                    ch,
-                    span: Span::new(self.pos, self.pos + 1, self.file_id),
-                }),
+                _ => {
+                    return Err(LexerError::UnexpectedChar {
+                        ch,
+                        span: Span::new(self.pos, self.pos + 1, self.file_id),
+                    })
+                }
             }
         }
 
@@ -295,7 +321,8 @@ impl Lexer {
             let continues_identifier = ch.is_alphanumeric()
                 || ch == '_'
                 || ch == '\''
-                || (is_operator_char(ch) && (self.pos == start || is_operator_char(self.source[self.pos - 1])));
+                || (is_operator_char(ch)
+                    && (self.pos == start || is_operator_char(self.source[self.pos - 1])));
             if continues_identifier {
                 self.pos += 1;
             } else {
@@ -389,17 +416,26 @@ impl Lexer {
             }
         }
 
-        let num_str: String = self.source[start..self.pos].iter().filter(|&&c| c != '_').collect();
+        let num_str: String = self.source[start..self.pos]
+            .iter()
+            .filter(|&&c| c != '_')
+            .collect();
 
         if is_float {
             match num_str.parse::<f64>() {
                 Ok(n) => Ok(Token::new(TokenKind::FloatLiteral(n), self.span(start))),
-                Err(_) => Err(LexerError::InvalidNumber { text: num_str, span: self.span(start) }),
+                Err(_) => Err(LexerError::InvalidNumber {
+                    text: num_str,
+                    span: self.span(start),
+                }),
             }
         } else {
             match num_str.parse::<i64>() {
                 Ok(n) => Ok(Token::new(TokenKind::IntLiteral(n), self.span(start))),
-                Err(_) => Err(LexerError::InvalidNumber { text: num_str, span: self.span(start) }),
+                Err(_) => Err(LexerError::InvalidNumber {
+                    text: num_str,
+                    span: self.span(start),
+                }),
             }
         }
     }
@@ -414,7 +450,9 @@ impl Lexer {
             if ch == '\\' {
                 self.pos += 1;
                 if self.pos >= self.source.len() {
-                    return Err(LexerError::UnterminatedString { span: self.span(start) });
+                    return Err(LexerError::UnterminatedString {
+                        span: self.span(start),
+                    });
                 }
                 let esc = self.source[self.pos];
                 match esc {
@@ -425,22 +463,29 @@ impl Lexer {
                     '"' => value.push('"'),
                     '\'' => value.push('\''),
                     '0' => value.push('\0'),
-                    _ => return Err(LexerError::InvalidEscape {
-                        ch: esc,
-                        span: Span::new(self.pos - 1, self.pos + 1, self.file_id),
-                    }),
+                    _ => {
+                        return Err(LexerError::InvalidEscape {
+                            ch: esc,
+                            span: Span::new(self.pos - 1, self.pos + 1, self.file_id),
+                        })
+                    }
                 }
                 self.pos += 1;
             } else if ch == '"' {
                 self.pos += 1;
-                return Ok(Token::new(TokenKind::StringLiteral(value), self.span(start)));
+                return Ok(Token::new(
+                    TokenKind::StringLiteral(value),
+                    self.span(start),
+                ));
             } else {
                 value.push(ch);
                 self.pos += 1;
             }
         }
 
-        Err(LexerError::UnterminatedString { span: self.span(start) })
+        Err(LexerError::UnterminatedString {
+            span: self.span(start),
+        })
     }
 
     fn consume_char(&mut self) -> Result<Token, LexerError> {
@@ -448,13 +493,17 @@ impl Lexer {
         self.pos += 1;
 
         if self.pos >= self.source.len() {
-            return Err(LexerError::UnterminatedChar { span: self.span(start) });
+            return Err(LexerError::UnterminatedChar {
+                span: self.span(start),
+            });
         }
 
         let ch = if self.source[self.pos] == '\\' {
             self.pos += 1;
             if self.pos >= self.source.len() {
-                return Err(LexerError::UnterminatedChar { span: self.span(start) });
+                return Err(LexerError::UnterminatedChar {
+                    span: self.span(start),
+                });
             }
             match self.source[self.pos] {
                 'n' => '\n',
@@ -464,10 +513,12 @@ impl Lexer {
                 '\'' => '\'',
                 '"' => '"',
                 '0' => '\0',
-                _ => return Err(LexerError::InvalidEscape {
-                    ch: self.source[self.pos],
-                    span: Span::new(self.pos - 1, self.pos + 1, self.file_id),
-                }),
+                _ => {
+                    return Err(LexerError::InvalidEscape {
+                        ch: self.source[self.pos],
+                        span: Span::new(self.pos - 1, self.pos + 1, self.file_id),
+                    })
+                }
             }
         } else {
             self.source[self.pos]
@@ -476,7 +527,9 @@ impl Lexer {
         self.pos += 1;
 
         if self.pos >= self.source.len() || self.source[self.pos] != '\'' {
-            return Err(LexerError::UnterminatedChar { span: self.span(start) });
+            return Err(LexerError::UnterminatedChar {
+                span: self.span(start),
+            });
         }
         self.pos += 1;
 
@@ -514,7 +567,12 @@ mod tests {
 
     fn kinds(source: &str) -> Vec<TokenKind> {
         let mut lexer = Lexer::new(source, 0);
-        lexer.tokenize().unwrap().into_iter().map(|t| t.kind).collect()
+        lexer
+            .tokenize()
+            .unwrap()
+            .into_iter()
+            .map(|t| t.kind)
+            .collect()
     }
 
     #[test]
@@ -586,7 +644,12 @@ mod tests {
         // either layer has to consciously decide to touch this contract).
         assert_eq!(
             kinds("-5 2.5"),
-            vec![TokenKind::Minus, TokenKind::IntLiteral(5), TokenKind::FloatLiteral(2.5), TokenKind::Eof]
+            vec![
+                TokenKind::Minus,
+                TokenKind::IntLiteral(5),
+                TokenKind::FloatLiteral(2.5),
+                TokenKind::Eof
+            ]
         );
     }
 
@@ -606,7 +669,10 @@ mod tests {
     #[test]
     fn unterminated_string_is_a_lexer_error() {
         let mut lexer = Lexer::new("\"unterminated", 0);
-        assert!(matches!(lexer.tokenize(), Err(LexerError::UnterminatedString { .. })));
+        assert!(matches!(
+            lexer.tokenize(),
+            Err(LexerError::UnterminatedString { .. })
+        ));
     }
 
     #[test]

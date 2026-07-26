@@ -45,7 +45,7 @@ impl LlvmCodeGen {
         // Collect and emit string constants first
         let mut str_id = 0;
         let mut strings: Vec<(usize, String)> = Vec::new();
-        
+
         for func in &ir_module.functions {
             for block in &func.blocks {
                 for inst in &block.insts {
@@ -72,11 +72,17 @@ impl LlvmCodeGen {
                 }
             }
         }
-        
+
         for (id, s) in &strings {
             let escaped = escape_llvm_string(s);
-            writeln!(self.output, "@str_{} = private unnamed_addr constant [{} x i8] c\"{}\\00\", align 1",
-                id, s.len() + 1, escaped).unwrap();
+            writeln!(
+                self.output,
+                "@str_{} = private unnamed_addr constant [{} x i8] c\"{}\\00\", align 1",
+                id,
+                s.len() + 1,
+                escaped
+            )
+            .unwrap();
         }
         if !strings.is_empty() {
             writeln!(self.output).unwrap();
@@ -114,31 +120,36 @@ impl LlvmCodeGen {
         self.type_counter += 1;
         self.struct_types.insert(ir_struct.name.clone(), type_id);
 
-        let fields: Vec<String> = ir_struct.fields.iter()
+        let fields: Vec<String> = ir_struct
+            .fields
+            .iter()
             .map(|(_, ty)| self.type_to_llvm(ty))
             .collect();
 
         let packed = if ir_struct.packed { "<{ " } else { "{ " };
         let packed_end = if ir_struct.packed { " }>" } else { " }" };
 
-        writeln!(self.output, "%struct.{} = type {}{}{}",
+        writeln!(
+            self.output,
+            "%struct.{} = type {}{}{}",
             type_id,
             packed,
             fields.join(", "),
             packed_end,
-        ).unwrap();
+        )
+        .unwrap();
     }
 
     fn declare_global(&mut self, global: &IrGlobal) {
         let _ty = self.type_to_llvm(&global.ty);
         let value = self.const_to_llvm(&global.value);
-        let const_str = if global.is_const { "constant" } else { "global" };
+        let const_str = if global.is_const {
+            "constant"
+        } else {
+            "global"
+        };
 
-        writeln!(self.output, "@{} = {} {}",
-            global.name,
-            const_str,
-            value,
-        ).unwrap();
+        writeln!(self.output, "@{} = {} {}", global.name, const_str, value,).unwrap();
     }
 
     fn define_function(&mut self, ir_func: &IrFunction) -> Result<(), String> {
@@ -146,7 +157,9 @@ impl LlvmCodeGen {
         self.locals.clear();
         self.ssa_values.clear();
 
-        let params: Vec<String> = ir_func.params.iter()
+        let params: Vec<String> = ir_func
+            .params
+            .iter()
             .map(|(name, ty)| {
                 let llvm_ty = self.type_to_llvm(ty);
                 format!("{} %{}", llvm_ty, name)
@@ -159,11 +172,14 @@ impl LlvmCodeGen {
             self.type_to_llvm(&ir_func.return_type)
         };
 
-        writeln!(self.output, "define {} @{}({}) {{",
+        writeln!(
+            self.output,
+            "define {} @{}({}) {{",
             return_type,
             ir_func.name,
             params.join(", "),
-        ).unwrap();
+        )
+        .unwrap();
 
         for block in &ir_func.blocks {
             writeln!(self.output, "{}:", block.label).unwrap();
@@ -174,12 +190,22 @@ impl LlvmCodeGen {
         }
 
         if !ir_func.blocks.last().is_some_and(|b| {
-            b.insts.iter().any(|i| matches!(i, IrInst::Ret { .. } | IrInst::Br { .. } | IrInst::CondBr { .. }))
+            b.insts.iter().any(|i| {
+                matches!(
+                    i,
+                    IrInst::Ret { .. } | IrInst::Br { .. } | IrInst::CondBr { .. }
+                )
+            })
         }) {
             if ir_func.return_type == TypeId::TCon("Void".to_string(), vec![]) {
                 writeln!(self.output, "  ret void").unwrap();
             } else {
-                writeln!(self.output, "  ret {} 0", self.type_to_llvm(&ir_func.return_type)).unwrap();
+                writeln!(
+                    self.output,
+                    "  ret {} 0",
+                    self.type_to_llvm(&ir_func.return_type)
+                )
+                .unwrap();
             }
         }
 
@@ -196,7 +222,12 @@ impl LlvmCodeGen {
                     if let Some((alloca_name, ty)) = self.locals.get(name) {
                         let llvm_ty = self.type_to_llvm(ty);
                         let const_val = self.const_to_llvm(value);
-                        writeln!(self.output, "  store {} {}, ptr {}", llvm_ty, const_val, alloca_name).unwrap();
+                        writeln!(
+                            self.output,
+                            "  store {} {}, ptr {}",
+                            llvm_ty, const_val, alloca_name
+                        )
+                        .unwrap();
                     }
                 }
             }
@@ -204,117 +235,221 @@ impl LlvmCodeGen {
                 let lhs_val = self.value_to_llvm(lhs)?;
                 let rhs_val = self.value_to_llvm(rhs)?;
                 let result_reg = self.new_local_reg();
-                writeln!(self.output, "  {} = add i64 {}, {}", result_reg, lhs_val, rhs_val).unwrap();
+                writeln!(
+                    self.output,
+                    "  {} = add i64 {}, {}",
+                    result_reg, lhs_val, rhs_val
+                )
+                .unwrap();
                 if let IrValue::Local(name) = dest {
-                    self.ssa_values.insert(name.clone(), (result_reg, TypeId::TCon("I64".to_string(), vec![])));
+                    self.ssa_values.insert(
+                        name.clone(),
+                        (result_reg, TypeId::TCon("I64".to_string(), vec![])),
+                    );
                 }
             }
             IrInst::Sub { dest, lhs, rhs } => {
                 let lhs_val = self.value_to_llvm(lhs)?;
                 let rhs_val = self.value_to_llvm(rhs)?;
                 let result_reg = self.new_local_reg();
-                writeln!(self.output, "  {} = sub i64 {}, {}", result_reg, lhs_val, rhs_val).unwrap();
+                writeln!(
+                    self.output,
+                    "  {} = sub i64 {}, {}",
+                    result_reg, lhs_val, rhs_val
+                )
+                .unwrap();
                 if let IrValue::Local(name) = dest {
-                    self.ssa_values.insert(name.clone(), (result_reg, TypeId::TCon("I64".to_string(), vec![])));
+                    self.ssa_values.insert(
+                        name.clone(),
+                        (result_reg, TypeId::TCon("I64".to_string(), vec![])),
+                    );
                 }
             }
             IrInst::Mul { dest, lhs, rhs } => {
                 let lhs_val = self.value_to_llvm(lhs)?;
                 let rhs_val = self.value_to_llvm(rhs)?;
                 let result_reg = self.new_local_reg();
-                writeln!(self.output, "  {} = mul i64 {}, {}", result_reg, lhs_val, rhs_val).unwrap();
+                writeln!(
+                    self.output,
+                    "  {} = mul i64 {}, {}",
+                    result_reg, lhs_val, rhs_val
+                )
+                .unwrap();
                 if let IrValue::Local(name) = dest {
-                    self.ssa_values.insert(name.clone(), (result_reg, TypeId::TCon("I64".to_string(), vec![])));
+                    self.ssa_values.insert(
+                        name.clone(),
+                        (result_reg, TypeId::TCon("I64".to_string(), vec![])),
+                    );
                 }
             }
             IrInst::Div { dest, lhs, rhs } => {
                 let lhs_val = self.value_to_llvm(lhs)?;
                 let rhs_val = self.value_to_llvm(rhs)?;
                 let result_reg = self.new_local_reg();
-                writeln!(self.output, "  {} = sdiv i64 {}, {}", result_reg, lhs_val, rhs_val).unwrap();
+                writeln!(
+                    self.output,
+                    "  {} = sdiv i64 {}, {}",
+                    result_reg, lhs_val, rhs_val
+                )
+                .unwrap();
                 if let IrValue::Local(name) = dest {
-                    self.ssa_values.insert(name.clone(), (result_reg, TypeId::TCon("I64".to_string(), vec![])));
+                    self.ssa_values.insert(
+                        name.clone(),
+                        (result_reg, TypeId::TCon("I64".to_string(), vec![])),
+                    );
                 }
             }
             IrInst::Mod { dest, lhs, rhs } => {
                 let lhs_val = self.value_to_llvm(lhs)?;
                 let rhs_val = self.value_to_llvm(rhs)?;
                 let result_reg = self.new_local_reg();
-                writeln!(self.output, "  {} = srem i64 {}, {}", result_reg, lhs_val, rhs_val).unwrap();
+                writeln!(
+                    self.output,
+                    "  {} = srem i64 {}, {}",
+                    result_reg, lhs_val, rhs_val
+                )
+                .unwrap();
                 if let IrValue::Local(name) = dest {
-                    self.ssa_values.insert(name.clone(), (result_reg, TypeId::TCon("I64".to_string(), vec![])));
+                    self.ssa_values.insert(
+                        name.clone(),
+                        (result_reg, TypeId::TCon("I64".to_string(), vec![])),
+                    );
                 }
             }
             IrInst::And { dest, lhs, rhs } => {
                 let lhs_val = self.value_to_llvm(lhs)?;
                 let rhs_val = self.value_to_llvm(rhs)?;
                 let result_reg = self.new_local_reg();
-                writeln!(self.output, "  {} = and i64 {}, {}", result_reg, lhs_val, rhs_val).unwrap();
+                writeln!(
+                    self.output,
+                    "  {} = and i64 {}, {}",
+                    result_reg, lhs_val, rhs_val
+                )
+                .unwrap();
                 if let IrValue::Local(name) = dest {
-                    self.ssa_values.insert(name.clone(), (result_reg, TypeId::TCon("I64".to_string(), vec![])));
+                    self.ssa_values.insert(
+                        name.clone(),
+                        (result_reg, TypeId::TCon("I64".to_string(), vec![])),
+                    );
                 }
             }
             IrInst::Or { dest, lhs, rhs } => {
                 let lhs_val = self.value_to_llvm(lhs)?;
                 let rhs_val = self.value_to_llvm(rhs)?;
                 let result_reg = self.new_local_reg();
-                writeln!(self.output, "  {} = or i64 {}, {}", result_reg, lhs_val, rhs_val).unwrap();
+                writeln!(
+                    self.output,
+                    "  {} = or i64 {}, {}",
+                    result_reg, lhs_val, rhs_val
+                )
+                .unwrap();
                 if let IrValue::Local(name) = dest {
-                    self.ssa_values.insert(name.clone(), (result_reg, TypeId::TCon("I64".to_string(), vec![])));
+                    self.ssa_values.insert(
+                        name.clone(),
+                        (result_reg, TypeId::TCon("I64".to_string(), vec![])),
+                    );
                 }
             }
             IrInst::Eq { dest, lhs, rhs } => {
                 let lhs_val = self.value_to_llvm(lhs)?;
                 let rhs_val = self.value_to_llvm(rhs)?;
                 let result_reg = self.new_local_reg();
-                writeln!(self.output, "  {} = icmp eq i64 {}, {}", result_reg, lhs_val, rhs_val).unwrap();
+                writeln!(
+                    self.output,
+                    "  {} = icmp eq i64 {}, {}",
+                    result_reg, lhs_val, rhs_val
+                )
+                .unwrap();
                 if let IrValue::Local(name) = dest {
-                    self.ssa_values.insert(name.clone(), (result_reg, TypeId::TCon("Bool".to_string(), vec![])));
+                    self.ssa_values.insert(
+                        name.clone(),
+                        (result_reg, TypeId::TCon("Bool".to_string(), vec![])),
+                    );
                 }
             }
             IrInst::Neq { dest, lhs, rhs } => {
                 let lhs_val = self.value_to_llvm(lhs)?;
                 let rhs_val = self.value_to_llvm(rhs)?;
                 let result_reg = self.new_local_reg();
-                writeln!(self.output, "  {} = icmp ne i64 {}, {}", result_reg, lhs_val, rhs_val).unwrap();
+                writeln!(
+                    self.output,
+                    "  {} = icmp ne i64 {}, {}",
+                    result_reg, lhs_val, rhs_val
+                )
+                .unwrap();
                 if let IrValue::Local(name) = dest {
-                    self.ssa_values.insert(name.clone(), (result_reg, TypeId::TCon("Bool".to_string(), vec![])));
+                    self.ssa_values.insert(
+                        name.clone(),
+                        (result_reg, TypeId::TCon("Bool".to_string(), vec![])),
+                    );
                 }
             }
             IrInst::Lt { dest, lhs, rhs } => {
                 let lhs_val = self.value_to_llvm(lhs)?;
                 let rhs_val = self.value_to_llvm(rhs)?;
                 let result_reg = self.new_local_reg();
-                writeln!(self.output, "  {} = icmp slt i64 {}, {}", result_reg, lhs_val, rhs_val).unwrap();
+                writeln!(
+                    self.output,
+                    "  {} = icmp slt i64 {}, {}",
+                    result_reg, lhs_val, rhs_val
+                )
+                .unwrap();
                 if let IrValue::Local(name) = dest {
-                    self.ssa_values.insert(name.clone(), (result_reg, TypeId::TCon("Bool".to_string(), vec![])));
+                    self.ssa_values.insert(
+                        name.clone(),
+                        (result_reg, TypeId::TCon("Bool".to_string(), vec![])),
+                    );
                 }
             }
             IrInst::Gt { dest, lhs, rhs } => {
                 let lhs_val = self.value_to_llvm(lhs)?;
                 let rhs_val = self.value_to_llvm(rhs)?;
                 let result_reg = self.new_local_reg();
-                writeln!(self.output, "  {} = icmp sgt i64 {}, {}", result_reg, lhs_val, rhs_val).unwrap();
+                writeln!(
+                    self.output,
+                    "  {} = icmp sgt i64 {}, {}",
+                    result_reg, lhs_val, rhs_val
+                )
+                .unwrap();
                 if let IrValue::Local(name) = dest {
-                    self.ssa_values.insert(name.clone(), (result_reg, TypeId::TCon("Bool".to_string(), vec![])));
+                    self.ssa_values.insert(
+                        name.clone(),
+                        (result_reg, TypeId::TCon("Bool".to_string(), vec![])),
+                    );
                 }
             }
             IrInst::Le { dest, lhs, rhs } => {
                 let lhs_val = self.value_to_llvm(lhs)?;
                 let rhs_val = self.value_to_llvm(rhs)?;
                 let result_reg = self.new_local_reg();
-                writeln!(self.output, "  {} = icmp sle i64 {}, {}", result_reg, lhs_val, rhs_val).unwrap();
+                writeln!(
+                    self.output,
+                    "  {} = icmp sle i64 {}, {}",
+                    result_reg, lhs_val, rhs_val
+                )
+                .unwrap();
                 if let IrValue::Local(name) = dest {
-                    self.ssa_values.insert(name.clone(), (result_reg, TypeId::TCon("Bool".to_string(), vec![])));
+                    self.ssa_values.insert(
+                        name.clone(),
+                        (result_reg, TypeId::TCon("Bool".to_string(), vec![])),
+                    );
                 }
             }
             IrInst::Ge { dest, lhs, rhs } => {
                 let lhs_val = self.value_to_llvm(lhs)?;
                 let rhs_val = self.value_to_llvm(rhs)?;
                 let result_reg = self.new_local_reg();
-                writeln!(self.output, "  {} = icmp sge i64 {}, {}", result_reg, lhs_val, rhs_val).unwrap();
+                writeln!(
+                    self.output,
+                    "  {} = icmp sge i64 {}, {}",
+                    result_reg, lhs_val, rhs_val
+                )
+                .unwrap();
                 if let IrValue::Local(name) = dest {
-                    self.ssa_values.insert(name.clone(), (result_reg, TypeId::TCon("Bool".to_string(), vec![])));
+                    self.ssa_values.insert(
+                        name.clone(),
+                        (result_reg, TypeId::TCon("Bool".to_string(), vec![])),
+                    );
                 }
             }
             IrInst::Not { dest, src } => {
@@ -322,7 +457,10 @@ impl LlvmCodeGen {
                 let result_reg = self.new_local_reg();
                 writeln!(self.output, "  {} = xor i1 {}, true", result_reg, src_val).unwrap();
                 if let IrValue::Local(name) = dest {
-                    self.ssa_values.insert(name.clone(), (result_reg, TypeId::TCon("Bool".to_string(), vec![])));
+                    self.ssa_values.insert(
+                        name.clone(),
+                        (result_reg, TypeId::TCon("Bool".to_string(), vec![])),
+                    );
                 }
             }
             IrInst::Neg { dest, src } => {
@@ -330,73 +468,128 @@ impl LlvmCodeGen {
                 let result_reg = self.new_local_reg();
                 writeln!(self.output, "  {} = sub i64 0, {}", result_reg, src_val).unwrap();
                 if let IrValue::Local(name) = dest {
-                    self.ssa_values.insert(name.clone(), (result_reg, TypeId::TCon("I64".to_string(), vec![])));
+                    self.ssa_values.insert(
+                        name.clone(),
+                        (result_reg, TypeId::TCon("I64".to_string(), vec![])),
+                    );
                 }
             }
             IrInst::BitAnd { dest, lhs, rhs } => {
                 let lhs_val = self.value_to_llvm(lhs)?;
                 let rhs_val = self.value_to_llvm(rhs)?;
                 let result_reg = self.new_local_reg();
-                writeln!(self.output, "  {} = and i64 {}, {}", result_reg, lhs_val, rhs_val).unwrap();
+                writeln!(
+                    self.output,
+                    "  {} = and i64 {}, {}",
+                    result_reg, lhs_val, rhs_val
+                )
+                .unwrap();
                 if let IrValue::Local(name) = dest {
-                    self.ssa_values.insert(name.clone(), (result_reg, TypeId::TCon("I64".to_string(), vec![])));
+                    self.ssa_values.insert(
+                        name.clone(),
+                        (result_reg, TypeId::TCon("I64".to_string(), vec![])),
+                    );
                 }
             }
             IrInst::BitOr { dest, lhs, rhs } => {
                 let lhs_val = self.value_to_llvm(lhs)?;
                 let rhs_val = self.value_to_llvm(rhs)?;
                 let result_reg = self.new_local_reg();
-                writeln!(self.output, "  {} = or i64 {}, {}", result_reg, lhs_val, rhs_val).unwrap();
+                writeln!(
+                    self.output,
+                    "  {} = or i64 {}, {}",
+                    result_reg, lhs_val, rhs_val
+                )
+                .unwrap();
                 if let IrValue::Local(name) = dest {
-                    self.ssa_values.insert(name.clone(), (result_reg, TypeId::TCon("I64".to_string(), vec![])));
+                    self.ssa_values.insert(
+                        name.clone(),
+                        (result_reg, TypeId::TCon("I64".to_string(), vec![])),
+                    );
                 }
             }
             IrInst::BitXor { dest, lhs, rhs } => {
                 let lhs_val = self.value_to_llvm(lhs)?;
                 let rhs_val = self.value_to_llvm(rhs)?;
                 let result_reg = self.new_local_reg();
-                writeln!(self.output, "  {} = xor i64 {}, {}", result_reg, lhs_val, rhs_val).unwrap();
+                writeln!(
+                    self.output,
+                    "  {} = xor i64 {}, {}",
+                    result_reg, lhs_val, rhs_val
+                )
+                .unwrap();
                 if let IrValue::Local(name) = dest {
-                    self.ssa_values.insert(name.clone(), (result_reg, TypeId::TCon("I64".to_string(), vec![])));
+                    self.ssa_values.insert(
+                        name.clone(),
+                        (result_reg, TypeId::TCon("I64".to_string(), vec![])),
+                    );
                 }
             }
             IrInst::Shl { dest, lhs, rhs } => {
                 let lhs_val = self.value_to_llvm(lhs)?;
                 let rhs_val = self.value_to_llvm(rhs)?;
                 let result_reg = self.new_local_reg();
-                writeln!(self.output, "  {} = shl i64 {}, {}", result_reg, lhs_val, rhs_val).unwrap();
+                writeln!(
+                    self.output,
+                    "  {} = shl i64 {}, {}",
+                    result_reg, lhs_val, rhs_val
+                )
+                .unwrap();
                 if let IrValue::Local(name) = dest {
-                    self.ssa_values.insert(name.clone(), (result_reg, TypeId::TCon("I64".to_string(), vec![])));
+                    self.ssa_values.insert(
+                        name.clone(),
+                        (result_reg, TypeId::TCon("I64".to_string(), vec![])),
+                    );
                 }
             }
             IrInst::Shr { dest, lhs, rhs } => {
                 let lhs_val = self.value_to_llvm(lhs)?;
                 let rhs_val = self.value_to_llvm(rhs)?;
                 let result_reg = self.new_local_reg();
-                writeln!(self.output, "  {} = ashr i64 {}, {}", result_reg, lhs_val, rhs_val).unwrap();
+                writeln!(
+                    self.output,
+                    "  {} = ashr i64 {}, {}",
+                    result_reg, lhs_val, rhs_val
+                )
+                .unwrap();
                 if let IrValue::Local(name) = dest {
-                    self.ssa_values.insert(name.clone(), (result_reg, TypeId::TCon("I64".to_string(), vec![])));
+                    self.ssa_values.insert(
+                        name.clone(),
+                        (result_reg, TypeId::TCon("I64".to_string(), vec![])),
+                    );
                 }
             }
             IrInst::Load { dest, ptr } => {
                 let ptr_val = self.value_to_ptr(ptr)?;
                 if let IrValue::Local(dest_name) = dest {
                     let ty = if let IrValue::Local(ptr_name) = ptr {
-                        self.locals.get(ptr_name).map(|(_, t)| t.clone())
+                        self.locals
+                            .get(ptr_name)
+                            .map(|(_, t)| t.clone())
                             .unwrap_or(TypeId::TCon("I64".to_string(), vec![]))
                     } else {
                         TypeId::TCon("I64".to_string(), vec![])
                     };
                     let llvm_ty = self.type_to_llvm(&ty);
                     let result_reg = self.new_local_reg();
-                    writeln!(self.output, "  {} = load {}, ptr {}", result_reg, llvm_ty, ptr_val).unwrap();
+                    writeln!(
+                        self.output,
+                        "  {} = load {}, ptr {}",
+                        result_reg, llvm_ty, ptr_val
+                    )
+                    .unwrap();
                     self.ssa_values.insert(dest_name.clone(), (result_reg, ty));
                 }
             }
             IrInst::Store { ptr, value } => {
                 let ptr_val = self.value_to_ptr(ptr)?;
                 let (val_str, ty_str) = self.value_to_typed_string(value)?;
-                writeln!(self.output, "  store {} {}, ptr {}", ty_str, val_str, ptr_val).unwrap();
+                writeln!(
+                    self.output,
+                    "  store {} {}, ptr {}",
+                    ty_str, val_str, ptr_val
+                )
+                .unwrap();
             }
             IrInst::Alloca { dest, ty } => {
                 let llvm_ty = self.type_to_llvm(ty);
@@ -411,40 +604,46 @@ impl LlvmCodeGen {
                 }
             }
             IrInst::Call { dest, func, args } => {
-                let arg_values: Vec<String> = args.iter()
-                    .map(|a| {
-                        match a {
-                            IrValue::Const(IrConst::Int(n, _)) => format!("i64 {}", n),
-                            IrValue::Const(IrConst::Float(n, _)) => format!("double {}", n),
-                            IrValue::Const(IrConst::Bool(b)) => format!("i1 {}", if *b { "true" } else { "false" }),
-                            IrValue::Const(IrConst::Null) => "ptr null".to_string(),
-                            IrValue::Const(IrConst::Str(s)) => {
-                                let id = self.string_ids.get(s).unwrap_or(&0);
-                                format!("ptr @str_{}", id)
-                            }
-                            IrValue::Local(name) => {
-                                if let Some((reg, ty)) = self.ssa_values.get(name) {
-                                    let llvm_ty = self.type_to_llvm(ty);
-                                    format!("{} {}", llvm_ty, reg)
-                                } else if let Some((reg, ty)) = self.locals.get(name) {
-                                    let llvm_ty = self.type_to_llvm(ty);
-                                    if reg.starts_with("%_t") {
-                                        format!("{} {}", llvm_ty, reg)
-                                    } else {
-                                        format!("{} %{}", llvm_ty, name)
-                                    }
-                                } else {
-                                    format!("i64 %{}", name)
-                                }
-                            }
-                            IrValue::Global(name) => format!("ptr @{}", name),
+                let arg_values: Vec<String> = args
+                    .iter()
+                    .map(|a| match a {
+                        IrValue::Const(IrConst::Int(n, _)) => format!("i64 {}", n),
+                        IrValue::Const(IrConst::Float(n, _)) => format!("double {}", n),
+                        IrValue::Const(IrConst::Bool(b)) => {
+                            format!("i1 {}", if *b { "true" } else { "false" })
                         }
+                        IrValue::Const(IrConst::Null) => "ptr null".to_string(),
+                        IrValue::Const(IrConst::Str(s)) => {
+                            let id = self.string_ids.get(s).unwrap_or(&0);
+                            format!("ptr @str_{}", id)
+                        }
+                        IrValue::Local(name) => {
+                            if let Some((reg, ty)) = self.ssa_values.get(name) {
+                                let llvm_ty = self.type_to_llvm(ty);
+                                format!("{} {}", llvm_ty, reg)
+                            } else if let Some((reg, ty)) = self.locals.get(name) {
+                                let llvm_ty = self.type_to_llvm(ty);
+                                if reg.starts_with("%_t") {
+                                    format!("{} {}", llvm_ty, reg)
+                                } else {
+                                    format!("{} %{}", llvm_ty, name)
+                                }
+                            } else {
+                                format!("i64 %{}", name)
+                            }
+                        }
+                        IrValue::Global(name) => format!("ptr @{}", name),
                     })
                     .collect();
 
                 if let IrValue::Local(name) = dest {
                     let result_reg = self.new_local_reg();
-                    let func_name = if func.chars().any(|c| matches!(c, '+' | '-' | '*' | '/' | '%' | '<' | '>' | '=' | '!' | '&' | '|' | '^')) {
+                    let func_name = if func.chars().any(|c| {
+                        matches!(
+                            c,
+                            '+' | '-' | '*' | '/' | '%' | '<' | '>' | '=' | '!' | '&' | '|' | '^'
+                        )
+                    }) {
                         format!(r#"@"{}""#, func)
                     } else {
                         format!("@{}", func)
@@ -457,18 +656,24 @@ impl LlvmCodeGen {
 
                     let is_variadic = func == "printf";
                     if is_variadic {
-                        writeln!(self.output, "  {} = call i32 (ptr, ...) {}({})",
+                        writeln!(
+                            self.output,
+                            "  {} = call i32 (ptr, ...) {}({})",
                             result_reg,
                             func_name,
                             arg_values.join(", "),
-                        ).unwrap();
+                        )
+                        .unwrap();
                     } else {
-                        writeln!(self.output, "  {} = call {} {}({})",
+                        writeln!(
+                            self.output,
+                            "  {} = call {} {}({})",
                             result_reg,
                             ret_ty,
                             func_name,
                             arg_values.join(", "),
-                        ).unwrap();
+                        )
+                        .unwrap();
                     }
                     let ret_type = if ret_ty == "i1" {
                         TypeId::TCon("Bool".to_string(), vec![])
@@ -489,18 +694,36 @@ impl LlvmCodeGen {
             IrInst::Br { target } => {
                 writeln!(self.output, "  br label %{}", target).unwrap();
             }
-            IrInst::CondBr { cond, then_target, else_target } => {
+            IrInst::CondBr {
+                cond,
+                then_target,
+                else_target,
+            } => {
                 let cond_val = self.value_to_llvm(cond)?;
-                writeln!(self.output, "  br i1 {}, label %{}, label %{}",
-                    cond_val, then_target, else_target).unwrap();
+                writeln!(
+                    self.output,
+                    "  br i1 {}, label %{}, label %{}",
+                    cond_val, then_target, else_target
+                )
+                .unwrap();
             }
-            IrInst::Cast { dest, src, target_ty } => {
+            IrInst::Cast {
+                dest,
+                src,
+                target_ty,
+            } => {
                 let src_val = self.value_to_llvm(src)?;
                 let target_llvm = self.type_to_llvm(target_ty);
                 let result_reg = self.new_local_reg();
-                writeln!(self.output, "  {} = trunc i64 {} to {}", result_reg, src_val, target_llvm).unwrap();
+                writeln!(
+                    self.output,
+                    "  {} = trunc i64 {} to {}",
+                    result_reg, src_val, target_llvm
+                )
+                .unwrap();
                 if let IrValue::Local(name) = dest {
-                    self.ssa_values.insert(name.clone(), (result_reg, target_ty.clone()));
+                    self.ssa_values
+                        .insert(name.clone(), (result_reg, target_ty.clone()));
                 }
             }
             IrInst::Sizeof { dest, ty } => {
@@ -508,7 +731,10 @@ impl LlvmCodeGen {
                 let result_reg = self.new_local_reg();
                 writeln!(self.output, "  {} = add i64 0, {}", result_reg, size).unwrap();
                 if let IrValue::Local(name) = dest {
-                    self.ssa_values.insert(name.clone(), (result_reg, TypeId::TCon("I64".to_string(), vec![])));
+                    self.ssa_values.insert(
+                        name.clone(),
+                        (result_reg, TypeId::TCon("I64".to_string(), vec![])),
+                    );
                 }
             }
             IrInst::Alignof { dest, ty } => {
@@ -516,7 +742,10 @@ impl LlvmCodeGen {
                 let result_reg = self.new_local_reg();
                 writeln!(self.output, "  {} = add i64 0, {}", result_reg, align).unwrap();
                 if let IrValue::Local(name) = dest {
-                    self.ssa_values.insert(name.clone(), (result_reg, TypeId::TCon("I64".to_string(), vec![])));
+                    self.ssa_values.insert(
+                        name.clone(),
+                        (result_reg, TypeId::TCon("I64".to_string(), vec![])),
+                    );
                 }
             }
             IrInst::HeapAlloc { dest, size } => {
@@ -529,32 +758,78 @@ impl LlvmCodeGen {
                 // the same plain integer address every other IR value
                 // already is.
                 let ptr_reg = self.new_local_reg();
-                writeln!(self.output, "  {} = call ptr @malloc(i64 {})", ptr_reg, size_val).unwrap();
+                writeln!(
+                    self.output,
+                    "  {} = call ptr @malloc(i64 {})",
+                    ptr_reg, size_val
+                )
+                .unwrap();
                 let addr_reg = self.new_local_reg();
-                writeln!(self.output, "  {} = ptrtoint ptr {} to i64", addr_reg, ptr_reg).unwrap();
+                writeln!(
+                    self.output,
+                    "  {} = ptrtoint ptr {} to i64",
+                    addr_reg, ptr_reg
+                )
+                .unwrap();
                 if let IrValue::Local(name) = dest {
-                    self.ssa_values.insert(name.clone(), (addr_reg, TypeId::TCon("I64".to_string(), vec![])));
+                    self.ssa_values.insert(
+                        name.clone(),
+                        (addr_reg, TypeId::TCon("I64".to_string(), vec![])),
+                    );
                 }
             }
             IrInst::StoreOffset { ptr, offset, value } => {
                 let ptr_val = self.value_to_llvm(ptr)?;
                 let val_str = self.value_to_llvm(value)?;
                 let addr_reg = self.new_local_reg();
-                writeln!(self.output, "  {} = add i64 {}, {}", addr_reg, ptr_val, offset).unwrap();
+                writeln!(
+                    self.output,
+                    "  {} = add i64 {}, {}",
+                    addr_reg, ptr_val, offset
+                )
+                .unwrap();
                 let field_ptr_reg = self.new_local_reg();
-                writeln!(self.output, "  {} = inttoptr i64 {} to ptr", field_ptr_reg, addr_reg).unwrap();
-                writeln!(self.output, "  store i64 {}, ptr {}", val_str, field_ptr_reg).unwrap();
+                writeln!(
+                    self.output,
+                    "  {} = inttoptr i64 {} to ptr",
+                    field_ptr_reg, addr_reg
+                )
+                .unwrap();
+                writeln!(
+                    self.output,
+                    "  store i64 {}, ptr {}",
+                    val_str, field_ptr_reg
+                )
+                .unwrap();
             }
             IrInst::LoadOffset { dest, ptr, offset } => {
                 let ptr_val = self.value_to_llvm(ptr)?;
                 let addr_reg = self.new_local_reg();
-                writeln!(self.output, "  {} = add i64 {}, {}", addr_reg, ptr_val, offset).unwrap();
+                writeln!(
+                    self.output,
+                    "  {} = add i64 {}, {}",
+                    addr_reg, ptr_val, offset
+                )
+                .unwrap();
                 let field_ptr_reg = self.new_local_reg();
-                writeln!(self.output, "  {} = inttoptr i64 {} to ptr", field_ptr_reg, addr_reg).unwrap();
+                writeln!(
+                    self.output,
+                    "  {} = inttoptr i64 {} to ptr",
+                    field_ptr_reg, addr_reg
+                )
+                .unwrap();
                 let result_reg = self.new_local_reg();
-                writeln!(self.output, "  {} = load i64, ptr {}", result_reg, field_ptr_reg).unwrap();
+                writeln!(
+                    self.output,
+                    "  {} = load i64, ptr {}",
+                    result_reg, field_ptr_reg
+                )
+                .unwrap();
                 if let IrValue::Local(name) = dest {
-                    self.ssa_values.insert(name.clone(), (result_reg, TypeId::TCon("I64".to_string(), vec![])));
+                    self.ssa_values.insert(
+                        name.clone(),
+                        (result_reg, TypeId::TCon("I64".to_string(), vec![])),
+                    );
                 }
             }
         }
@@ -600,24 +875,25 @@ impl LlvmCodeGen {
                 }
             }
             IrValue::Global(name) => Ok((format!("@{}", name), "ptr".to_string())),
-            IrValue::Const(const_val) => {
-                match const_val {
-                    IrConst::Int(n, ty) => {
-                        let llvm_ty = self.type_to_llvm(ty);
-                        Ok((format!("{}", n), llvm_ty))
-                    }
-                    IrConst::Float(n, ty) => {
-                        let llvm_ty = self.type_to_llvm(ty);
-                        Ok((format!("{}", n), llvm_ty))
-                    }
-                    IrConst::Bool(b) => Ok(((if *b { "true" } else { "false" }).to_string(), "i1".to_string())),
-                    IrConst::Null => Ok(("null".to_string(), "ptr".to_string())),
-                    IrConst::Str(s) => {
-                        let id = self.string_ids.get(s).unwrap_or(&0);
-                        Ok((format!("ptr @str_{}", id), "ptr".to_string()))
-                    }
+            IrValue::Const(const_val) => match const_val {
+                IrConst::Int(n, ty) => {
+                    let llvm_ty = self.type_to_llvm(ty);
+                    Ok((format!("{}", n), llvm_ty))
                 }
-            }
+                IrConst::Float(n, ty) => {
+                    let llvm_ty = self.type_to_llvm(ty);
+                    Ok((format!("{}", n), llvm_ty))
+                }
+                IrConst::Bool(b) => Ok((
+                    (if *b { "true" } else { "false" }).to_string(),
+                    "i1".to_string(),
+                )),
+                IrConst::Null => Ok(("null".to_string(), "ptr".to_string())),
+                IrConst::Str(s) => {
+                    let id = self.string_ids.get(s).unwrap_or(&0);
+                    Ok((format!("ptr @str_{}", id), "ptr".to_string()))
+                }
+            },
         }
     }
 

@@ -87,8 +87,19 @@ pub struct SymbolFact {
 }
 
 impl SymbolFact {
-    pub fn new(kind: SymbolKind, name: impl Into<String>, span: Option<Span>, ty: impl Into<String>) -> Self {
-        Self { kind, name: name.into(), span, ty: ty.into(), meta: Vec::new() }
+    pub fn new(
+        kind: SymbolKind,
+        name: impl Into<String>,
+        span: Option<Span>,
+        ty: impl Into<String>,
+    ) -> Self {
+        Self {
+            kind,
+            name: name.into(),
+            span,
+            ty: ty.into(),
+            meta: Vec::new(),
+        }
     }
 
     pub fn with_meta(mut self, meta: impl Into<String>) -> Self {
@@ -135,4 +146,177 @@ fn render_symbol_line(fact: &SymbolFact, filename: &str, source: &str, map: &Sou
     }
 
     line
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axiom_ast::span::Span;
+
+    #[test]
+    fn ai_fn_without_meta() {
+        let fact = SymbolFact::new(
+            SymbolKind::Fn,
+            "add",
+            Some(Span::new(5, 8, 0)),
+            "(Int -> (Int -> Int))",
+        );
+        let out = render_symbols_ai(
+            &[fact],
+            "main.ax",
+            "(:: add (-> Int Int Int))\n(fn (add x y) (+ x y))\n",
+        );
+        assert!(out.contains("F add main.ax:1:6-9 \"(Int -> (Int -> Int))\""));
+    }
+
+    #[test]
+    fn ai_foreign_with_symbol_meta() {
+        let fact = SymbolFact::new(
+            SymbolKind::Foreign,
+            "printf",
+            Some(Span::new(10, 16, 0)),
+            "(String -> Int)",
+        )
+        .with_meta("symbol=printf");
+        let out = render_symbols_ai(&[fact], "main.ax", &" ".repeat(20));
+        assert!(out.contains("X printf main.ax:1:11-17 \"(String -> Int)\" #symbol=printf"));
+    }
+
+    #[test]
+    fn ai_data_with_ctors() {
+        let fact = SymbolFact::new(
+            SymbolKind::Data,
+            "Maybe",
+            Some(Span::new(7, 12, 0)),
+            "data Maybe",
+        )
+        .with_meta("ctors=Nothing,Just");
+        let out = render_symbols_ai(&[fact], "main.ax", &" ".repeat(20));
+        assert!(out.contains("D Maybe main.ax:1:8-13 \"data Maybe\" #ctors=Nothing,Just"));
+    }
+
+    #[test]
+    fn ai_constructor_with_of() {
+        let fact = SymbolFact::new(
+            SymbolKind::Ctor,
+            "Just",
+            Some(Span::new(17, 21, 0)),
+            "(a -> Maybe a)",
+        )
+        .with_meta("of=Maybe");
+        let out = render_symbols_ai(&[fact], "main.ax", &" ".repeat(22));
+        assert!(out.contains("C Just main.ax:1:18-22 \"(a -> Maybe a)\" #of=Maybe"));
+    }
+
+    #[test]
+    fn ai_struct_with_fields_and_repr() {
+        let fact = SymbolFact::new(
+            SymbolKind::Struct,
+            "Point",
+            Some(Span::new(9, 14, 0)),
+            "struct Point",
+        )
+        .with_meta("fields=x:Int,y:Int")
+        .with_meta("repr=C");
+        let out = render_symbols_ai(&[fact], "main.ax", &" ".repeat(20));
+        assert!(
+            out.contains("S Point main.ax:1:10-15 \"struct Point\" #fields=x:Int,y:Int #repr=C")
+        );
+    }
+
+    #[test]
+    fn ai_union_with_fields() {
+        let fact = SymbolFact::new(
+            SymbolKind::Union,
+            "Value",
+            Some(Span::new(0, 5, 0)),
+            "union Value",
+        )
+        .with_meta("fields=asInt:I64,asFloat:F64");
+        let out = render_symbols_ai(&[fact], "main.ax", &" ".repeat(20));
+        assert!(out.contains("U Value main.ax:1:1-6 \"union Value\" #fields=asInt:I64,asFloat:F64"));
+    }
+
+    #[test]
+    fn ai_alias_with_tyvars() {
+        let fact = SymbolFact::new(
+            SymbolKind::Alias,
+            "StringList",
+            Some(Span::new(0, 10, 0)),
+            "[String]",
+        )
+        .with_meta("tyvars=a,b");
+        let out = render_symbols_ai(&[fact], "main.ax", &" ".repeat(20));
+        assert!(out.contains("A StringList main.ax:1:1-11 \"[String]\" #tyvars=a,b"));
+    }
+
+    #[test]
+    fn ai_alias_without_tyvars_has_no_meta() {
+        let fact = SymbolFact::new(SymbolKind::Alias, "Int", Some(Span::new(0, 3, 0)), "Int");
+        let out = render_symbols_ai(&[fact], "main.ax", &" ".repeat(20));
+        assert!(out.contains("A Int main.ax:1:1-4 \"Int\""));
+        assert!(!out.contains('#'));
+    }
+
+    #[test]
+    fn ai_class_with_methods() {
+        let fact = SymbolFact::new(
+            SymbolKind::Class,
+            "Eq",
+            Some(Span::new(9, 11, 0)),
+            "class Eq",
+        )
+        .with_meta("methods===:(a -> a -> Bool)");
+        let out = render_symbols_ai(&[fact], "main.ax", &" ".repeat(20));
+        assert!(out.contains("L Eq main.ax:1:10-12 \"class Eq\" #methods===:(a -> a -> Bool)"));
+    }
+
+    #[test]
+    fn ai_builtin_prints_dash() {
+        let fact = SymbolFact::new(SymbolKind::Fn, "+", None, "(Int -> (Int -> Int))");
+        let out = render_symbols_ai(&[fact], "main.ax", "");
+        assert!(out.contains("F + - \"(Int -> (Int -> Int))\""));
+    }
+
+    #[test]
+    fn ai_utf8_location() {
+        let fact = SymbolFact::new(SymbolKind::Fn, "hé", Some(Span::new(0, 2, 0)), "Int");
+        let out = render_symbols_ai(&[fact], "main.ax", "héllo");
+        assert!(out.contains("F hé main.ax:1:1-3 \"Int\""));
+    }
+
+    #[test]
+    fn ai_multiple_metadata_keys_order() {
+        let fact = SymbolFact::new(
+            SymbolKind::Struct,
+            "S",
+            Some(Span::new(0, 1, 0)),
+            "struct S",
+        )
+        .with_meta("fields=a:Int")
+        .with_meta("align=8")
+        .with_meta("packed");
+        let out = render_symbols_ai(&[fact], "main.ax", &" ".repeat(20));
+        let line = out.trim_end();
+        assert!(line.contains("#fields=a:Int"));
+        assert!(line.contains("#align=8"));
+        assert!(line.contains("#packed"));
+    }
+
+    #[test]
+    fn ai_kind_letters_disjoint_from_severity_sigils() {
+        for kind in [
+            SymbolKind::Fn,
+            SymbolKind::Foreign,
+            SymbolKind::Data,
+            SymbolKind::Ctor,
+            SymbolKind::Struct,
+            SymbolKind::Union,
+            SymbolKind::Alias,
+            SymbolKind::Class,
+        ] {
+            let letter = kind.letter();
+            assert!(!matches!(letter, "E" | "W" | "N" | "H"));
+        }
+    }
 }

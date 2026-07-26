@@ -9,11 +9,19 @@ pub struct Span {
 
 impl Span {
     pub fn new(start: usize, end: usize, file_id: usize) -> Self {
-        Self { start, end, file_id }
+        Self {
+            start,
+            end,
+            file_id,
+        }
     }
 
     pub fn dummy() -> Self {
-        Self { start: 0, end: 0, file_id: 0 }
+        Self {
+            start: 0,
+            end: 0,
+            file_id: 0,
+        }
     }
 }
 
@@ -25,7 +33,10 @@ pub struct Ident {
 
 impl Ident {
     pub fn new(name: &str, span: Span) -> Self {
-        Self { name: name.to_string(), span }
+        Self {
+            name: name.to_string(),
+            span,
+        }
     }
 }
 

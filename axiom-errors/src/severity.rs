@@ -45,3 +45,31 @@ impl Severity {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sigils_are_disjoint_from_symbol_kind_letters() {
+        for sev in [
+            Severity::Error,
+            Severity::Warning,
+            Severity::Note,
+            Severity::Help,
+        ] {
+            assert!(!matches!(
+                sev.sigil(),
+                'F' | 'X' | 'D' | 'C' | 'S' | 'U' | 'A' | 'L'
+            ));
+        }
+    }
+
+    #[test]
+    fn labels_match_severity() {
+        assert_eq!(Severity::Error.label(), "error");
+        assert_eq!(Severity::Warning.label(), "warning");
+        assert_eq!(Severity::Note.label(), "note");
+        assert_eq!(Severity::Help.label(), "help");
+    }
+}

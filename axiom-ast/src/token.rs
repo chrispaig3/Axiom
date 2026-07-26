@@ -14,51 +14,73 @@ pub enum TokenKind {
     Ident(String),
 
     // Keywords
-    Define,     // (define name body) or (define (name args...) body)
-    Lambda,     // (lambda (args...) body)
-    Let,        // (let ((x val)...) body)
-    If,         // (if cond then else)
-    Cond,       // (cond (test body)... (else body))
-    Case,       // (case expr (pattern body)...)
-    Fn,         // (fn (name args...) body) - modern alias for define
-    Data,       // (data Name (tyvars...) (constructor...))
-    Struct,     // (struct Name (field...) )
-    Union,      // (union Name (field...))
-    Type,       // (type Name (tyvars...) alias)
-    Newtype,    // (newtype Name (tyvars...) ctor inner)
-    Class,      // (class (Name tv) (super...) (method...))
-    Instance,   // (instance (Class Type) (method...))
-    Import,     // (import module (names...))
-    Foreign,    // (foreign name type "symbol")
-    Pub,        // (pub decl)
-    Deriving,   // (deriving Class...)
-    Where,      // for class/instance method bodies
-    Effect,     // (effect Name (op...))
-    Handle,     // (handle body (handler...))
-    Region,     // (region name body)
-    Linear,     // linear type marker
-    Consume,    // (consume expr)
-    Packed,     // packed struct modifier
-    Repr,       // repr(C) struct modifier
-    Align,      // align(N) struct modifier
-    Alloc,      // (alloc Type) or (alloc Type count)
-    Sizeof,     // (sizeof Type)
-    Alignof,    // (alignof Type)
-    Cast,       // (cast Type expr)
+    Define,   // (define name body) or (define (name args...) body)
+    Lambda,   // (lambda (args...) body)
+    Let,      // (let ((x val)...) body)
+    If,       // (if cond then else)
+    Cond,     // (cond (test body)... (else body))
+    Case,     // (case expr (pattern body)...)
+    Fn,       // (fn (name args...) body) - modern alias for define
+    Data,     // (data Name (tyvars...) (constructor...))
+    Struct,   // (struct Name (field...) )
+    Union,    // (union Name (field...))
+    Type,     // (type Name (tyvars...) alias)
+    Newtype,  // (newtype Name (tyvars...) ctor inner)
+    Class,    // (class (Name tv) (super...) (method...))
+    Instance, // (instance (Class Type) (method...))
+    Import,   // (import module (names...))
+    Foreign,  // (foreign name type "symbol")
+    Pub,      // (pub decl)
+    Deriving, // (deriving Class...)
+    Where,    // for class/instance method bodies
+    Effect,   // (effect Name (op...))
+    Handle,   // (handle body (handler...))
+    Region,   // (region name body)
+    Linear,   // linear type marker
+    Consume,  // (consume expr)
+    Packed,   // packed struct modifier
+    Repr,     // repr(C) struct modifier
+    Align,    // align(N) struct modifier
+    Alloc,    // (alloc Type) or (alloc Type count)
+    Sizeof,   // (sizeof Type)
+    Alignof,  // (alignof Type)
+    Cast,     // (cast Type expr)
 
     // Type keywords
-    Int, Integer, Float, Double, Bool, Char, String, Unit, Any,
-    I8, I16, I32, I64, I128, Isize,
-    U8, U16, U32, U64, U128, Usize,
-    F32, F64,
+    Int,
+    Integer,
+    Float,
+    Double,
+    Bool,
+    Char,
+    String,
+    Unit,
+    Any,
+    I8,
+    I16,
+    I32,
+    I64,
+    I128,
+    Isize,
+    U8,
+    U16,
+    U32,
+    U64,
+    U128,
+    Usize,
+    F32,
+    F64,
     Void,
-    Pure, IO, Mut, Div,
+    Pure,
+    IO,
+    Mut,
+    Div,
 
     // Operators
-    RArrow,       // ->
-    DoubleArrow,  // =>
-    DoubleColon,  // ::
-    Colon,        // :
+    RArrow,      // ->
+    DoubleArrow, // =>
+    DoubleColon, // ::
+    Colon,       // :
     Plus,
     Minus,
     Star,
@@ -76,12 +98,12 @@ pub enum TokenKind {
     Dot,
     Comma,
     Underscore,
-    Quote,        // '
-    At,           // @
-    Amp,          // &
-    Pipe,         // |
-    AndAnd,       // &&
-    PipePipe,     // ||
+    Quote,    // '
+    At,       // @
+    Amp,      // &
+    Pipe,     // |
+    AndAnd,   // &&
+    PipePipe, // ||
 
     // Delimiters
     LParen,

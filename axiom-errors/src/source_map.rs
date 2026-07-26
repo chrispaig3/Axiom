@@ -58,8 +58,16 @@ impl SourceMap {
     }
 
     /// The full 1-based `(line, col)` -> `(line, col)` range for a span.
-    pub fn span_range(&self, source: &str, start: usize, end: usize) -> ((usize, usize), (usize, usize)) {
-        (self.line_col(source, start), self.line_col(source, end.max(start)))
+    pub fn span_range(
+        &self,
+        source: &str,
+        start: usize,
+        end: usize,
+    ) -> ((usize, usize), (usize, usize)) {
+        (
+            self.line_col(source, start),
+            self.line_col(source, end.max(start)),
+        )
     }
 
     /// Extract the raw text of the line a character offset falls on,
@@ -77,5 +85,106 @@ impl SourceMap {
             .map(|&e| e.saturating_sub(1).max(start))
             .unwrap_or(self.len);
         source.chars().skip(start).take(end - start).collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn empty_source_has_one_line() {
+        let map = SourceMap::new("");
+        assert_eq!(map.line_col("", 0), (1, 1));
+        assert_eq!(map.span_range("", 0, 0), ((1, 1), (1, 1)));
+    }
+
+    #[test]
+    fn single_line_source() {
+        let map = SourceMap::new("hello");
+        assert_eq!(map.line_col("hello", 0), (1, 1));
+        assert_eq!(map.line_col("hello", 4), (1, 5));
+        assert_eq!(map.line_col("hello", 5), (1, 6));
+    }
+
+    #[test]
+    fn multi_line_source() {
+        let src = "ab\ncd\nef";
+        let map = SourceMap::new(src);
+        // line 1: a(0) b(1)
+        assert_eq!(map.line_col(src, 0), (1, 1));
+        assert_eq!(map.line_col(src, 1), (1, 2));
+        // line 2: c(3) d(4)
+        assert_eq!(map.line_col(src, 3), (2, 1));
+        assert_eq!(map.line_col(src, 4), (2, 2));
+        // line 3: e(6) f(7)
+        assert_eq!(map.line_col(src, 6), (3, 1));
+        assert_eq!(map.line_col(src, 7), (3, 2));
+    }
+
+    #[test]
+    fn utf8_multibyte_characters() {
+        // ë is 2 bytes, but 1 char
+        let src = "héllo\nwörld";
+        let map = SourceMap::new(src);
+        // h(0) é(1) l(2) l(3) o(4)
+        assert_eq!(map.line_col(src, 0), (1, 1));
+        assert_eq!(map.line_col(src, 1), (1, 2)); // é at char index 1
+        assert_eq!(map.line_col(src, 4), (1, 5));
+        // line 2
+        assert_eq!(map.line_col(src, 6), (2, 1)); // w after newline
+        assert_eq!(map.line_col(src, 7), (2, 2)); // ö
+        assert_eq!(map.line_col(src, 11), (2, 6));
+    }
+
+    #[test]
+    fn span_range_same_line() {
+        let src = "hello world";
+        let map = SourceMap::new(src);
+        let ((s_l, s_c), (e_l, e_c)) = map.span_range(src, 0, 4);
+        assert_eq!((s_l, s_c), (1, 1));
+        assert_eq!((e_l, e_c), (1, 5));
+    }
+
+    #[test]
+    fn span_range_crosses_lines() {
+        let src = "ab\ncd\n";
+        let map = SourceMap::new(src);
+        let ((s_l, s_c), (e_l, e_c)) = map.span_range(src, 1, 5);
+        assert_eq!((s_l, s_c), (1, 2));
+        assert_eq!((e_l, e_c), (2, 3));
+    }
+
+    #[test]
+    fn utf8_span_range() {
+        let src = "αβγ\nδεζ";
+        let map = SourceMap::new(src);
+        // α(0) β(1) γ(2) newline(3) δ(4) ε(5) ζ(6)
+        let ((s_l, s_c), (e_l, e_c)) = map.span_range(src, 1, 5);
+        assert_eq!((s_l, s_c), (1, 2));
+        assert_eq!((e_l, e_c), (2, 2));
+    }
+
+    #[test]
+    fn line_text() {
+        let src = "hello\nworld";
+        let map = SourceMap::new(src);
+        assert_eq!(map.line_text(src, 0), "hello");
+        assert_eq!(map.line_text(src, 6), "world");
+    }
+
+    #[test]
+    fn line_text_utf8() {
+        let src = "héllo\nwörld";
+        let map = SourceMap::new(src);
+        assert_eq!(map.line_text(src, 0), "héllo");
+        assert_eq!(map.line_text(src, 6), "wörld");
+    }
+
+    #[test]
+    fn offsets_past_eof_clamp() {
+        let src = "hi";
+        let map = SourceMap::new(src);
+        assert_eq!(map.line_col(src, 100), (1, 3)); // clamps to last+1
     }
 }

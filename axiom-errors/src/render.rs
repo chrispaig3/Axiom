@@ -78,8 +78,8 @@ pub fn render_human(diags: &[Diagnostic], filename: &str, source: &str) -> Strin
             .unwrap_or_default();
         let heading = format!("{}{}", code_tag, diag.message);
 
-        let mut report = Report::build(diag.severity.ariadne_kind(), filename, anchor)
-            .with_message(heading);
+        let mut report =
+            Report::build(diag.severity.ariadne_kind(), filename, anchor).with_message(heading);
 
         if let Some(label) = &diag.primary {
             let (start, end) = clamp_span(source, label.span.start, label.span.end);
@@ -345,4 +345,223 @@ fn json_line(diag: &Diagnostic, filename: &str, source: &str, map: &SourceMap) -
     }
     s.push_str("]}");
     s
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::code::CodeInfo;
+    use crate::diagnostic::Diagnostic;
+    use crate::severity::Severity;
+    use crate::source_map::SourceMap;
+    use axiom_ast::span::Span;
+
+    const DUMMY_CODE: CodeInfo = CodeInfo {
+        code: "AX9999",
+        slug: "test-code",
+        title: "test title",
+        explain: "test explain",
+    };
+
+    #[test]
+    fn json_escape_quotes_and_backslashes_and_newlines() {
+        assert_eq!(json_escape("hello"), "hello");
+        assert_eq!(json_escape("he\"llo"), "he\\\"llo");
+        assert_eq!(json_escape("he\\llo"), "he\\\\llo");
+        assert_eq!(json_escape("he\nllo"), "he\\nllo");
+    }
+
+    #[test]
+    fn fmt_span_zero_width_is_line_col() {
+        let map = SourceMap::new("abc\ndef");
+        let span = Span::new(0, 0, 0);
+        assert_eq!(fmt_span(&map, "abc\ndef", span), "1:1");
+    }
+
+    #[test]
+    fn fmt_span_same_line_range() {
+        let map = SourceMap::new("hello");
+        let span = Span::new(1, 3, 0);
+        assert_eq!(fmt_span(&map, "hello", span), "1:2-4");
+    }
+
+    #[test]
+    fn fmt_span_crosses_lines() {
+        let map = SourceMap::new("ab\ncd\n");
+        let span = Span::new(1, 4, 0);
+        assert_eq!(fmt_span(&map, "ab\ncd\n", span), "1:2-2:2");
+    }
+
+    #[test]
+    fn fmt_span_utf8() {
+        let map = SourceMap::new("αβγδε");
+        // character indices: α=0, β=1, γ=2, δ=3, ε=4
+        let span = Span::new(1, 3, 0);
+        assert_eq!(fmt_span(&map, "αβγδε", span), "1:2-4");
+    }
+
+    #[test]
+    fn render_ai_line_basic_error() {
+        let diag = Diagnostic::error(&DUMMY_CODE, "something broke")
+            .with_primary(Span::new(0, 5, 0), "here is the problem");
+        let out = render_ai(&[diag], "test.ax", "abcde fghij");
+        let line = out.trim_end();
+        assert!(line.starts_with("E AX9999 test.ax:1:1-6"));
+        assert!(line.contains(" test-code"));
+        assert!(line.contains(" \"something broke\""));
+    }
+
+    #[test]
+    fn render_ai_is_exactly_one_line_per_diagnostic() {
+        let diags = vec![
+            Diagnostic::error(&DUMMY_CODE, "first").with_primary(Span::new(0, 1, 0), ""),
+            Diagnostic::error(&DUMMY_CODE, "second").with_primary(Span::new(2, 3, 0), ""),
+        ];
+        let out = render_ai(&diags, "f.ax", "0123456789");
+        let lines: Vec<&str> = out.lines().collect();
+        assert_eq!(lines.len(), 2);
+        assert!(lines[0].contains(" \"first\""));
+        assert!(lines[1].contains(" \"second\""));
+    }
+
+    #[test]
+    fn render_ai_includes_slug_even_when_code_is_omitted() {
+        let diag = Diagnostic::new(Severity::Warning, &DUMMY_CODE, "watch out")
+            .with_primary(Span::new(0, 1, 0), "");
+        let out = render_ai(&[diag], "f.ax", "01");
+        assert!(out.contains("W AX9999 f.ax:1:1-2 test-code \"watch out\""));
+    }
+
+    #[test]
+    fn render_ai_no_primary_span_uses_dash() {
+        let diag = Diagnostic::new(Severity::Note, &DUMMY_CODE, "note here");
+        let out = render_ai(&[diag], "f.ax", "");
+        assert!(out.contains("N AX9999 f.ax:- test-code \"note here\""));
+    }
+
+    #[test]
+    fn render_ai_secondary_spans() {
+        let diag = Diagnostic::error(&DUMMY_CODE, "dup")
+            .with_primary(Span::new(0, 3, 0), "here")
+            .with_secondary(Span::new(1, 4, 0), "first here");
+        let out = render_ai(&[diag], "f.ax", "abcd efgh ijkl");
+        let line = out.trim_end();
+        assert!(line.contains(" ^1:2-5:\"first here\""));
+    }
+
+    #[test]
+    fn render_ai_notes() {
+        let diag = Diagnostic::error(&DUMMY_CODE, "oops")
+            .with_primary(Span::new(0, 1, 0), "")
+            .with_note("this is a note");
+        let out = render_ai(&[diag], "f.ax", "01");
+        assert!(out.contains(" !\"this is a note\""));
+    }
+
+    #[test]
+    fn render_ai_help_without_replacement() {
+        let diag = Diagnostic::error(&DUMMY_CODE, "oops")
+            .with_primary(Span::new(0, 1, 0), "")
+            .with_help("try this instead");
+        let out = render_ai(&[diag], "f.ax", "01");
+        assert!(out.contains(" ?\"try this instead\""));
+    }
+
+    #[test]
+    fn render_ai_help_with_replacement() {
+        let diag = Diagnostic::error(&DUMMY_CODE, "oops").with_suggestion(
+            "fix it",
+            Span::new(0, 1, 0),
+            "fix",
+        );
+        let out = render_ai(&[diag], "f.ax", "01");
+        assert!(out.contains(" ?1:1-2:\"fix it\"~>\"fix\""));
+    }
+
+    #[test]
+    fn render_ai_machine_fix_with_colon_in_message() {
+        let diag = Diagnostic::error(&DUMMY_CODE, "oops").with_suggestion(
+            "use colon: ok",
+            Span::new(0, 1, 0),
+            "repl",
+        );
+        let out = render_ai(&[diag], "f.ax", "01");
+        // colon in message must not be confused with span separator
+        assert!(out.contains(" ?1:1-2:\"use colon: ok\"~>\"repl\""));
+    }
+
+    #[test]
+    fn render_ai_message_with_newline_stays_on_one_line() {
+        let diag =
+            Diagnostic::error(&DUMMY_CODE, "line1\nline2").with_primary(Span::new(0, 1, 0), "");
+        let out = render_ai(&[diag], "f.ax", "01");
+        let lines: Vec<&str> = out.lines().collect();
+        assert_eq!(lines.len(), 1);
+    }
+
+    #[test]
+    fn dedup_suppresses_later_groups() {
+        let a = Diagnostic::error(&DUMMY_CODE, "a").with_group("g1");
+        let b = Diagnostic::error(&DUMMY_CODE, "b").with_group("g1");
+        let c = Diagnostic::error(&DUMMY_CODE, "c");
+        let out = dedup(vec![a, b, c]);
+        assert_eq!(out.len(), 2);
+        assert_eq!(out[0].message, "a");
+        assert_eq!(out[1].message, "c");
+    }
+
+    #[test]
+    fn diagnostic_format_parse_accepts_aliases() {
+        assert_eq!(
+            DiagnosticFormat::parse("human"),
+            Some(DiagnosticFormat::Human)
+        );
+        assert_eq!(DiagnosticFormat::parse("ai"), Some(DiagnosticFormat::Ai));
+        assert_eq!(
+            DiagnosticFormat::parse("json"),
+            Some(DiagnosticFormat::Json)
+        );
+        assert_eq!(DiagnosticFormat::parse("agent"), Some(DiagnosticFormat::Ai));
+        assert_eq!(
+            DiagnosticFormat::parse("compact"),
+            Some(DiagnosticFormat::Ai)
+        );
+        assert_eq!(
+            DiagnosticFormat::parse("rustc"),
+            Some(DiagnosticFormat::Human)
+        );
+        assert_eq!(DiagnosticFormat::parse("unknown"), None);
+    }
+
+    #[test]
+    fn render_json_produces_valid_json_lines() {
+        let diag = Diagnostic::error(&DUMMY_CODE, "test")
+            .with_primary(Span::new(0, 1, 0), "label")
+            .with_secondary(Span::new(2, 3, 0), "related")
+            .with_note("note1")
+            .with_help("help1");
+        let out = render_json(&[diag], "f.ax", "012345");
+        let line = out.lines().next().unwrap();
+        assert!(line.contains("\"severity\":\"error\""));
+        assert!(line.contains("\"code\":\"AX9999\""));
+        assert!(line.contains("\"slug\":\"test-code\""));
+        assert!(line.contains("\"message\":\"test\""));
+        assert!(line.contains("\"file\":\"f.ax\""));
+        assert!(line.contains("\"label\":\"label\""));
+        assert!(line.contains("\"related\":[{"));
+        assert!(line.contains("\"notes\":[\"note1\"]"));
+        assert!(line.contains("\"help\":[\"help1\"]"));
+    }
+
+    #[test]
+    fn render_json_char_offsets_are_characters_not_bytes() {
+        let source = "héllo"; // h=0, é=1, l=2, l=3, o=4 (é is 2 bytes)
+        let diag = Diagnostic::error(&DUMMY_CODE, "test").with_primary(Span::new(1, 3, 0), "");
+        let out = render_json(&[diag], "f.ax", source);
+        let line = out.lines().next().unwrap();
+        assert!(line.contains("\"start\":{\"line\":1,\"col\":2}"));
+        assert!(line.contains("\"end\":{\"line\":1,\"col\":4}"));
+        assert!(line.contains("\"char_start\":1"));
+        assert!(line.contains("\"char_end\":3"));
+    }
 }

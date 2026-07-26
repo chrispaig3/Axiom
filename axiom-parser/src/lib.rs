@@ -1,12 +1,16 @@
-use axiom_ast::token::{Token, TokenKind};
 use axiom_ast::ast::*;
-use axiom_ast::span::{Span, Ident};
+use axiom_ast::span::{Ident, Span};
+use axiom_ast::token::{Token, TokenKind};
 use axiom_errors::{code, Diagnostic};
 
 #[derive(Debug, thiserror::Error)]
 pub enum ParseError {
     #[error("expected {expected}, found `{found}`")]
-    UnexpectedToken { expected: String, found: String, span: Span },
+    UnexpectedToken {
+        expected: String,
+        found: String,
+        span: Span,
+    },
     /// `span` points at the last token before end-of-file, so the report
     /// still lands on real source text instead of nowhere (previously this
     /// variant carried no span at all and rendered as a zero-width
@@ -30,16 +34,19 @@ impl ParseError {
     pub fn to_diagnostic(&self) -> Diagnostic {
         let span = self.span();
         match self {
-            ParseError::UnexpectedToken { expected, found, .. } => {
-                Diagnostic::error(&code::UNEXPECTED_TOKEN, self.to_string())
-                    .with_primary(span, format!("found `{}` here", found))
-                    .with_help(format!("Axiom expected {} at this position", expected))
-            }
-            ParseError::UnexpectedEof { .. } => {
-                Diagnostic::error(&code::UNEXPECTED_EOF, self.to_string())
-                    .with_primary(span, "file ends here while a form is still open")
-                    .with_help("count `(`/`[`/`{` against `)`/`]`/`}` working backward from the end of the file")
-            }
+            ParseError::UnexpectedToken {
+                expected, found, ..
+            } => Diagnostic::error(&code::UNEXPECTED_TOKEN, self.to_string())
+                .with_primary(span, format!("found `{}` here", found))
+                .with_help(format!("Axiom expected {} at this position", expected)),
+            ParseError::UnexpectedEof { .. } => Diagnostic::error(
+                &code::UNEXPECTED_EOF,
+                self.to_string(),
+            )
+            .with_primary(span, "file ends here while a form is still open")
+            .with_help(
+                "count `(`/`[`/`{` against `)`/`]`/`}` working backward from the end of the file",
+            ),
             ParseError::Message { message, .. } => {
                 Diagnostic::error(&code::PARSE_MESSAGE, message.clone())
                     .with_primary(span, message.clone())
@@ -83,7 +90,11 @@ impl Parser {
             }
         }
 
-        Ok(Module { imports, decls, span: start })
+        Ok(Module {
+            imports,
+            decls,
+            span: start,
+        })
     }
 
     pub fn parse_decl(&mut self) -> ParseResult<Decl> {
@@ -177,7 +188,10 @@ impl Parser {
                 fields.push(self.parse_type()?);
             }
             self.expect(TokenKind::RParen)?;
-            constructors.push(DataCon { name: con_name, fields });
+            constructors.push(DataCon {
+                name: con_name,
+                fields,
+            });
         }
 
         let deriving = if self.check(TokenKind::Deriving) {
@@ -193,7 +207,12 @@ impl Parser {
             Vec::new()
         };
 
-        Ok(Decl::DData { name, tyvars, constructors, deriving })
+        Ok(Decl::DData {
+            name,
+            tyvars,
+            constructors,
+            deriving,
+        })
     }
 
     fn parse_struct(&mut self) -> ParseResult<Decl> {
@@ -202,7 +221,10 @@ impl Parser {
         let tyvars = self.parse_tyvars();
 
         let mut repr = None;
-        if self.check(TokenKind::Packed) || self.check(TokenKind::Repr) || self.check(TokenKind::Align) {
+        if self.check(TokenKind::Packed)
+            || self.check(TokenKind::Repr)
+            || self.check(TokenKind::Align)
+        {
             if self.eat(TokenKind::Packed) {
                 repr = Some(TypeRepr::Packed);
             } else if self.eat(TokenKind::Repr) {
@@ -225,11 +247,20 @@ impl Parser {
             self.expect(TokenKind::Colon)?;
             let field_ty = self.parse_type()?;
             let mutable = false;
-            fields.push(Field { name: field_name, ty: field_ty, mutable });
+            fields.push(Field {
+                name: field_name,
+                ty: field_ty,
+                mutable,
+            });
             self.expect(TokenKind::RParen)?;
         }
 
-        Ok(Decl::DStruct { name, tyvars, fields, repr })
+        Ok(Decl::DStruct {
+            name,
+            tyvars,
+            fields,
+            repr,
+        })
     }
 
     fn parse_union(&mut self) -> ParseResult<Decl> {
@@ -244,11 +275,19 @@ impl Parser {
             self.expect(TokenKind::Colon)?;
             let field_ty = self.parse_type()?;
             let mutable = false;
-            fields.push(Field { name: field_name, ty: field_ty, mutable });
+            fields.push(Field {
+                name: field_name,
+                ty: field_ty,
+                mutable,
+            });
             self.expect(TokenKind::RParen)?;
         }
 
-        Ok(Decl::DUnion { name, tyvars, fields })
+        Ok(Decl::DUnion {
+            name,
+            tyvars,
+            fields,
+        })
     }
 
     fn parse_type_alias(&mut self) -> ParseResult<Decl> {
@@ -257,7 +296,11 @@ impl Parser {
         let tyvars = self.parse_tyvars();
         self.expect(TokenKind::Eq)?;
         let alias = self.parse_type()?;
-        Ok(Decl::DType { name, tyvars, alias })
+        Ok(Decl::DType {
+            name,
+            tyvars,
+            alias,
+        })
     }
 
     fn parse_newtype(&mut self) -> ParseResult<Decl> {
@@ -270,7 +313,10 @@ impl Parser {
         Ok(Decl::DData {
             name,
             tyvars,
-            constructors: vec![DataCon { name: constructor, fields: vec![inner_type] }],
+            constructors: vec![DataCon {
+                name: constructor,
+                fields: vec![inner_type],
+            }],
             deriving: Vec::new(),
         })
     }
@@ -304,12 +350,21 @@ impl Parser {
                 } else {
                     None
                 };
-                methods.push(ClassMethod { name: method_name, ty: method_ty, default });
+                methods.push(ClassMethod {
+                    name: method_name,
+                    ty: method_ty,
+                    default,
+                });
             }
             self.expect(TokenKind::RParen)?;
         }
 
-        Ok(Decl::DClass { name, tyvar, superclasses, methods })
+        Ok(Decl::DClass {
+            name,
+            tyvar,
+            superclasses,
+            methods,
+        })
     }
 
     fn parse_instance(&mut self) -> ParseResult<Decl> {
@@ -810,7 +865,10 @@ impl Parser {
             Ok(Expr::EGrouped(Box::new(expr)))
         } else if self.check(TokenKind::Underscore) {
             let token = self.advance();
-            Ok(Expr::ELam(vec![Pattern::PWildcard], Box::new(Expr::EError("hole".to_string(), token.span))))
+            Ok(Expr::ELam(
+                vec![Pattern::PWildcard],
+                Box::new(Expr::EError("hole".to_string(), token.span)),
+            ))
         } else if self.check(TokenKind::Minus) && !in_parens {
             let token = self.advance();
             let expr = self.parse_expr()?;
@@ -836,7 +894,9 @@ impl Parser {
             } else {
                 unreachable!()
             }
-        } else if self.check(TokenKind::BoolLiteral(true)) || self.check(TokenKind::BoolLiteral(false)) {
+        } else if self.check(TokenKind::BoolLiteral(true))
+            || self.check(TokenKind::BoolLiteral(false))
+        {
             let token = self.advance();
             if let TokenKind::BoolLiteral(b) = token.kind {
                 Ok(Expr::ELit(Literal::LBool(b), token.span))
@@ -857,14 +917,14 @@ impl Parser {
             } else {
                 unreachable!()
             }
-} else if self.is_ident() {
-             let ident = self.parse_ident()?;
-             let mut expr = Expr::EVar(ident);
-             while self.eat(TokenKind::Dot) {
-                 let field_name = self.parse_ident()?;
-                 expr = Expr::EField(Box::new(expr), field_name);
-             }
-             Ok(expr)
+        } else if self.is_ident() {
+            let ident = self.parse_ident()?;
+            let mut expr = Expr::EVar(ident);
+            while self.eat(TokenKind::Dot) {
+                let field_name = self.parse_ident()?;
+                expr = Expr::EField(Box::new(expr), field_name);
+            }
+            Ok(expr)
         } else if self.check(TokenKind::Plus)
             || self.check(TokenKind::Star)
             || self.check(TokenKind::Slash)
@@ -878,9 +938,13 @@ impl Parser {
             || self.check(TokenKind::Ge)
             || self.check(TokenKind::Bang)
             || self.check(TokenKind::AndAnd)
-            || self.check(TokenKind::PipePipe) {
+            || self.check(TokenKind::PipePipe)
+        {
             let token = self.advance();
-            Ok(Expr::EVar(Ident::new(&format!("{}", token.kind), token.span)))
+            Ok(Expr::EVar(Ident::new(
+                &format!("{}", token.kind),
+                token.span,
+            )))
         } else {
             Err(ParseError::UnexpectedToken {
                 expected: "expression".to_string(),
@@ -937,7 +1001,11 @@ impl Parser {
         let then_expr = self.parse_expr()?;
         let else_expr = self.parse_expr()?;
         self.expect(TokenKind::RParen)?;
-        Ok(Expr::EIf(Box::new(cond), Box::new(then_expr), Box::new(else_expr)))
+        Ok(Expr::EIf(
+            Box::new(cond),
+            Box::new(then_expr),
+            Box::new(else_expr),
+        ))
     }
 
     fn parse_case(&mut self) -> ParseResult<Expr> {
@@ -1201,11 +1269,13 @@ impl Parser {
             TokenKind::Mut => "Mut".to_string(),
             TokenKind::Div => "Div".to_string(),
             TokenKind::Fn => "fn".to_string(),
-            _ => return Err(ParseError::UnexpectedToken {
-                expected: "identifier".to_string(),
-                found: format!("{}", token.kind),
-                span: token.span,
-            }),
+            _ => {
+                return Err(ParseError::UnexpectedToken {
+                    expected: "identifier".to_string(),
+                    found: format!("{}", token.kind),
+                    span: token.span,
+                })
+            }
         };
         Ok(Ident::new(&name, token.span))
     }
@@ -1319,26 +1389,51 @@ impl Parser {
         self.pos >= self.tokens.len() - 1
             || matches!(
                 self.tokens.get(self.pos),
-                Some(Token { kind: TokenKind::Eof, .. })
+                Some(Token {
+                    kind: TokenKind::Eof,
+                    ..
+                })
             )
     }
 
     pub fn is_decl_start(&self) -> bool {
         if let Some(token) = self.tokens.get(self.pos) {
-            if matches!(token.kind,
-                TokenKind::Define | TokenKind::Fn | TokenKind::Data | TokenKind::Struct | TokenKind::Union
-                | TokenKind::Type | TokenKind::Newtype | TokenKind::Class | TokenKind::Instance
-                | TokenKind::Import | TokenKind::Foreign | TokenKind::Effect | TokenKind::DoubleColon
+            if matches!(
+                token.kind,
+                TokenKind::Define
+                    | TokenKind::Fn
+                    | TokenKind::Data
+                    | TokenKind::Struct
+                    | TokenKind::Union
+                    | TokenKind::Type
+                    | TokenKind::Newtype
+                    | TokenKind::Class
+                    | TokenKind::Instance
+                    | TokenKind::Import
+                    | TokenKind::Foreign
+                    | TokenKind::Effect
+                    | TokenKind::DoubleColon
             ) {
                 return true;
             }
             // Check for parenthesized declarations like (:: ...) or (define ...)
             if token.kind == TokenKind::LParen {
                 if let Some(next) = self.tokens.get(self.pos + 1) {
-                    return matches!(next.kind,
-                        TokenKind::Define | TokenKind::Fn | TokenKind::Data | TokenKind::Struct | TokenKind::Union
-                        | TokenKind::Type | TokenKind::Newtype | TokenKind::Class | TokenKind::Instance
-                        | TokenKind::Import | TokenKind::Foreign | TokenKind::Effect | TokenKind::DoubleColon
+                    return matches!(
+                        next.kind,
+                        TokenKind::Define
+                            | TokenKind::Fn
+                            | TokenKind::Data
+                            | TokenKind::Struct
+                            | TokenKind::Union
+                            | TokenKind::Type
+                            | TokenKind::Newtype
+                            | TokenKind::Class
+                            | TokenKind::Instance
+                            | TokenKind::Import
+                            | TokenKind::Foreign
+                            | TokenKind::Effect
+                            | TokenKind::DoubleColon
                     );
                 }
             }
@@ -1379,7 +1474,10 @@ mod tests {
         // construct, never as a standalone top-level form - `case` is
         // the simplest one that puts a pattern in an easily-extracted
         // position.
-        let module = parse_ok(&format!("(:: main Int)\n(fn main (case 0 (({}) 1)))", source));
+        let module = parse_ok(&format!(
+            "(:: main Int)\n(fn main (case 0 (({}) 1)))",
+            source
+        ));
         match &module.decls[1] {
             Decl::DFn { body, .. } => match body {
                 Expr::ECase(_, arms) => arms[0].0.clone(),
@@ -1451,8 +1549,12 @@ mod tests {
         match &module.decls[0] {
             Decl::DSig { ty, .. } => match ty {
                 Type::TArr(from, to) => {
-                    assert!(matches!(from.as_ref(), Type::TCon(name, args) if name.name == "Ordering" && args.is_empty()));
-                    assert!(matches!(to.as_ref(), Type::TCon(name, args) if name.name == "Int" && args.is_empty()));
+                    assert!(
+                        matches!(from.as_ref(), Type::TCon(name, args) if name.name == "Ordering" && args.is_empty())
+                    );
+                    assert!(
+                        matches!(to.as_ref(), Type::TCon(name, args) if name.name == "Int" && args.is_empty())
+                    );
                 }
                 other => panic!("expected TArr, got {:?}", other),
             },
@@ -1486,9 +1588,14 @@ mod tests {
     /// group, since both start with a bare `(`. See `looks_like_tyvar_list`.
     #[test]
     fn data_type_parameter_list_is_not_mistaken_for_a_constructor() {
-        let module = parse_ok("(data Maybe (a)\n  (Nothing)\n  (Just a))\n(:: main Int)\n(fn main 0)");
+        let module =
+            parse_ok("(data Maybe (a)\n  (Nothing)\n  (Just a))\n(:: main Int)\n(fn main 0)");
         match &module.decls[0] {
-            Decl::DData { tyvars, constructors, .. } => {
+            Decl::DData {
+                tyvars,
+                constructors,
+                ..
+            } => {
                 assert_eq!(tyvars.as_slice(), ["a"]);
                 assert_eq!(constructors.len(), 2);
                 assert_eq!(constructors[0].name.name, "Nothing");
@@ -1504,9 +1611,14 @@ mod tests {
     /// gracefully for a capitalized constructor name too.
     #[test]
     fn data_type_with_no_parameters_and_nullary_constructors() {
-        let module = parse_ok("(data Ordering\n  (LT)\n  (EQ)\n  (GT))\n(:: main Int)\n(fn main 0)");
+        let module =
+            parse_ok("(data Ordering\n  (LT)\n  (EQ)\n  (GT))\n(:: main Int)\n(fn main 0)");
         match &module.decls[0] {
-            Decl::DData { tyvars, constructors, .. } => {
+            Decl::DData {
+                tyvars,
+                constructors,
+                ..
+            } => {
                 assert!(tyvars.is_empty());
                 assert_eq!(constructors.len(), 3);
             }
@@ -1525,17 +1637,34 @@ mod tests {
 
     #[test]
     fn import_with_and_without_name_filter_parses() {
-        let module = parse_ok("(import Math.Ops (square cube))\n(import Data.List)\n(:: main Int)\n(fn main 0)");
+        let module = parse_ok(
+            "(import Math.Ops (square cube))\n(import Data.List)\n(:: main Int)\n(fn main 0)",
+        );
         match &module.imports[0] {
-            Decl::DImport { module: path, names } => {
-                assert_eq!(path.iter().map(|i| i.name.as_str()).collect::<Vec<_>>(), ["Math", "Ops"]);
-                assert_eq!(names.iter().map(|i| i.name.as_str()).collect::<Vec<_>>(), ["square", "cube"]);
+            Decl::DImport {
+                module: path,
+                names,
+            } => {
+                assert_eq!(
+                    path.iter().map(|i| i.name.as_str()).collect::<Vec<_>>(),
+                    ["Math", "Ops"]
+                );
+                assert_eq!(
+                    names.iter().map(|i| i.name.as_str()).collect::<Vec<_>>(),
+                    ["square", "cube"]
+                );
             }
             other => panic!("expected DImport, got {:?}", other),
         }
         match &module.imports[1] {
-            Decl::DImport { module: path, names } => {
-                assert_eq!(path.iter().map(|i| i.name.as_str()).collect::<Vec<_>>(), ["Data", "List"]);
+            Decl::DImport {
+                module: path,
+                names,
+            } => {
+                assert_eq!(
+                    path.iter().map(|i| i.name.as_str()).collect::<Vec<_>>(),
+                    ["Data", "List"]
+                );
                 assert!(names.is_empty());
             }
             other => panic!("expected DImport, got {:?}", other),
@@ -1544,7 +1673,8 @@ mod tests {
 
     #[test]
     fn struct_with_packed_attribute_parses() {
-        let module = parse_ok("(struct Point packed\n  (x : Int)\n  (y : Int))\n(:: main Int)\n(fn main 0)");
+        let module =
+            parse_ok("(struct Point packed\n  (x : Int)\n  (y : Int))\n(:: main Int)\n(fn main 0)");
         match &module.decls[0] {
             Decl::DStruct { fields, repr, .. } => {
                 assert_eq!(fields.len(), 2);

@@ -1,25 +1,54 @@
 use axiom_ast::ast::*;
-use axiom_ast::span::{Span, Ident};
+use axiom_ast::span::{Ident, Span};
 use axiom_errors::{code, Diagnostic};
 
 #[derive(Debug, thiserror::Error)]
 pub enum SemError {
     #[error("undefined variable `{name}`")]
-    UndefinedVariable { name: String, span: Span, suggestion: Option<String> },
+    UndefinedVariable {
+        name: String,
+        span: Span,
+        suggestion: Option<String>,
+    },
     #[error("undefined type `{name}`")]
-    UndefinedType { name: String, span: Span, suggestion: Option<String> },
+    UndefinedType {
+        name: String,
+        span: Span,
+        suggestion: Option<String>,
+    },
     #[error("undefined constructor `{name}`")]
-    UndefinedConstructor { name: String, span: Span, suggestion: Option<String> },
+    UndefinedConstructor {
+        name: String,
+        span: Span,
+        suggestion: Option<String>,
+    },
     #[error("constructor `{name}` expects {expected} argument(s), found {found}")]
-    ConstructorArity { name: String, expected: usize, found: usize, span: Span },
+    ConstructorArity {
+        name: String,
+        expected: usize,
+        found: usize,
+        span: Span,
+    },
     #[error("type mismatch: expected {expected}, found {found}")]
-    TypeMismatch { expected: String, found: String, span: Span },
+    TypeMismatch {
+        expected: String,
+        found: String,
+        span: Span,
+    },
     #[error("non-exhaustive pattern match: missing {}", missing.join(", "))]
     NonExhaustive { span: Span, missing: Vec<String> },
     #[error("duplicate definition `{name}`")]
-    DuplicateDefinition { name: String, span: Span, first_span: Span },
+    DuplicateDefinition {
+        name: String,
+        span: Span,
+        first_span: Span,
+    },
     #[error("field `{field}` not found on type `{ty}`")]
-    FieldNotFound { field: String, ty: String, span: Span },
+    FieldNotFound {
+        field: String,
+        ty: String,
+        span: Span,
+    },
     #[error("{message}")]
     Message { message: String, span: Span },
 }
@@ -45,12 +74,17 @@ impl SemError {
     pub fn to_diagnostic(&self) -> Diagnostic {
         let span = self.span();
         match self {
-            SemError::UndefinedVariable { name, suggestion, .. } => {
+            SemError::UndefinedVariable {
+                name, suggestion, ..
+            } => {
                 let mut d = Diagnostic::error(&code::UNDEFINED_VARIABLE, self.to_string())
                     .with_primary(span, format!("no binding named `{}` in scope", name));
                 d = match suggestion {
                     Some(s) => d.with_suggestion(
-                        format!("a similarly named binding `{}` is in scope; did you mean this?", s),
+                        format!(
+                            "a similarly named binding `{}` is in scope; did you mean this?",
+                            s
+                        ),
                         span,
                         s.clone(),
                     ),
@@ -61,47 +95,68 @@ impl SemError {
                 };
                 d
             }
-            SemError::UndefinedType { name, suggestion, .. } => {
+            SemError::UndefinedType {
+                name, suggestion, ..
+            } => {
                 let mut d = Diagnostic::error(&code::UNDEFINED_TYPE, self.to_string())
                     .with_primary(span, format!("no type named `{}` is visible here", name));
                 d = match suggestion {
                     Some(s) => d.with_suggestion(
-                        format!("a similarly named type `{}` is visible; did you mean this?", s),
+                        format!(
+                            "a similarly named type `{}` is visible; did you mean this?",
+                            s
+                        ),
                         span,
                         s.clone(),
                     ),
-                    None => d.with_help("check for typos, or a missing `data`/`struct`/`type` declaration"),
+                    None => d.with_help(
+                        "check for typos, or a missing `data`/`struct`/`type` declaration",
+                    ),
                 };
                 d
             }
-            SemError::UndefinedConstructor { name, suggestion, .. } => {
+            SemError::UndefinedConstructor {
+                name, suggestion, ..
+            } => {
                 let mut d = Diagnostic::error(&code::UNDEFINED_CONSTRUCTOR, self.to_string())
-                    .with_primary(span, format!("no constructor named `{}` is visible here", name));
+                    .with_primary(
+                        span,
+                        format!("no constructor named `{}` is visible here", name),
+                    );
                 d = match suggestion {
                     Some(s) => d.with_suggestion(
-                        format!("a similarly named constructor `{}` is visible; did you mean this?", s),
+                        format!(
+                            "a similarly named constructor `{}` is visible; did you mean this?",
+                            s
+                        ),
                         span,
                         s.clone(),
                     ),
-                    None => d.with_help("check the `data` declaration for the correct constructor name"),
+                    None => {
+                        d.with_help("check the `data` declaration for the correct constructor name")
+                    }
                 };
                 d
             }
-            SemError::ConstructorArity { expected, found, .. } => {
-                Diagnostic::error(&code::CONSTRUCTOR_ARITY, self.to_string())
-                    .with_primary(span, format!("{} argument(s) provided here", found))
-                    .with_help(format!(
-                        "this constructor takes exactly {} field(s); add or remove arguments to match",
-                        expected
-                    ))
-            }
-            SemError::TypeMismatch { expected, found, .. } => {
+            SemError::ConstructorArity {
+                expected, found, ..
+            } => Diagnostic::error(&code::CONSTRUCTOR_ARITY, self.to_string())
+                .with_primary(span, format!("{} argument(s) provided here", found))
+                .with_help(format!(
+                    "this constructor takes exactly {} field(s); add or remove arguments to match",
+                    expected
+                )),
+            SemError::TypeMismatch {
+                expected, found, ..
+            } => {
                 // The heading (`self.to_string()`) already states
                 // `expected X, found Y`; the primary label only needs to
                 // point at *where* - repeating expected/found a second
                 // time in a note added no new information.
-                Diagnostic::error(&code::TYPE_MISMATCH, self.to_string())
-                    .with_primary(span, format!("this has type `{}`, expected `{}`", found, expected))
+                Diagnostic::error(&code::TYPE_MISMATCH, self.to_string()).with_primary(
+                    span,
+                    format!("this has type `{}`, expected `{}`", found, expected),
+                )
             }
             SemError::NonExhaustive { missing, .. } => {
                 Diagnostic::error(&code::NON_EXHAUSTIVE, self.to_string())
@@ -111,19 +166,23 @@ impl SemError {
                     )
                     .with_help("add the missing arms, or a wildcard `_` arm to catch the rest")
             }
-            SemError::DuplicateDefinition { name, first_span, .. } => {
-                Diagnostic::error(&code::DUPLICATE_DEFINITION, self.to_string())
-                    .with_primary(span, format!("`{}` redefined here", name))
-                    .with_secondary(*first_span, format!("`{}` first defined here", name))
-                    .with_help("rename one of the definitions, or remove the duplicate")
-            }
+            SemError::DuplicateDefinition {
+                name, first_span, ..
+            } => Diagnostic::error(&code::DUPLICATE_DEFINITION, self.to_string())
+                .with_primary(span, format!("`{}` redefined here", name))
+                .with_secondary(*first_span, format!("`{}` first defined here", name))
+                .with_help("rename one of the definitions, or remove the duplicate"),
             SemError::FieldNotFound { field, ty, .. } => {
                 Diagnostic::error(&code::FIELD_NOT_FOUND, self.to_string())
                     .with_primary(span, format!("no field `{}` on `{}`", field, ty))
-                    .with_help(format!("check the field name and the definition of `{}`", ty))
+                    .with_help(format!(
+                        "check the field name and the definition of `{}`",
+                        ty
+                    ))
             }
             SemError::Message { message, .. } => {
-                Diagnostic::error(&code::SEMA_MESSAGE, message.clone()).with_primary(span, message.clone())
+                Diagnostic::error(&code::SEMA_MESSAGE, message.clone())
+                    .with_primary(span, message.clone())
             }
         }
     }
@@ -256,7 +315,9 @@ impl std::fmt::Display for TypeId {
             TypeId::TTuple(types) => {
                 write!(f, "(")?;
                 for (i, t) in types.iter().enumerate() {
-                    if i > 0 { write!(f, ", ")?; }
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
                     write!(f, "{}", t)?;
                 }
                 write!(f, ")")
@@ -348,11 +409,21 @@ pub struct FnInfo {
 
 impl FnInfo {
     fn new(name: impl Into<String>, ty: TypeId) -> Self {
-        Self { name: name.into(), ty, foreign_symbol: None, is_builtin: false }
+        Self {
+            name: name.into(),
+            ty,
+            foreign_symbol: None,
+            is_builtin: false,
+        }
     }
 
     fn builtin(name: impl Into<String>, ty: TypeId) -> Self {
-        Self { name: name.into(), ty, foreign_symbol: None, is_builtin: true }
+        Self {
+            name: name.into(),
+            ty,
+            foreign_symbol: None,
+            is_builtin: true,
+        }
     }
 }
 
@@ -406,14 +477,26 @@ impl TypeChecker {
         for op in &["==", "!=", "<", ">", "<=", ">="] {
             tc.functions.push(FnInfo::builtin(
                 *op,
-                TypeId::TArr(Box::new(int_ty.clone()), Box::new(TypeId::TArr(Box::new(int_ty.clone()), Box::new(bool_ty.clone())))),
+                TypeId::TArr(
+                    Box::new(int_ty.clone()),
+                    Box::new(TypeId::TArr(
+                        Box::new(int_ty.clone()),
+                        Box::new(bool_ty.clone()),
+                    )),
+                ),
             ));
         }
 
         for op in &["&&", "||"] {
             tc.functions.push(FnInfo::builtin(
                 *op,
-                TypeId::TArr(Box::new(bool_ty.clone()), Box::new(TypeId::TArr(Box::new(bool_ty.clone()), Box::new(bool_ty.clone())))),
+                TypeId::TArr(
+                    Box::new(bool_ty.clone()),
+                    Box::new(TypeId::TArr(
+                        Box::new(bool_ty.clone()),
+                        Box::new(bool_ty.clone()),
+                    )),
+                ),
             ));
         }
 
@@ -451,15 +534,16 @@ impl TypeChecker {
         let mut types: std::collections::HashMap<String, Span> = std::collections::HashMap::new();
 
         for decl in decls {
-            let (namespace, name): (&mut std::collections::HashMap<String, Span>, &Ident) = match decl {
-                Decl::DFn { name, .. } => (&mut values, name),
-                Decl::DForeign { name, .. } => (&mut values, name),
-                Decl::DData { name, .. } => (&mut types, name),
-                Decl::DStruct { name, .. } => (&mut types, name),
-                Decl::DUnion { name, .. } => (&mut types, name),
-                Decl::DType { name, .. } => (&mut types, name),
-                _ => continue,
-            };
+            let (namespace, name): (&mut std::collections::HashMap<String, Span>, &Ident) =
+                match decl {
+                    Decl::DFn { name, .. } => (&mut values, name),
+                    Decl::DForeign { name, .. } => (&mut values, name),
+                    Decl::DData { name, .. } => (&mut types, name),
+                    Decl::DStruct { name, .. } => (&mut types, name),
+                    Decl::DUnion { name, .. } => (&mut types, name),
+                    Decl::DType { name, .. } => (&mut types, name),
+                    _ => continue,
+                };
 
             if let Some(first_span) = namespace.get(&name.name) {
                 self.errors.push(SemError::DuplicateDefinition {
@@ -489,7 +573,12 @@ impl TypeChecker {
     /// parameter types (see `compatible_with`'s call sites): `(Cons 3
     /// (Nil))` would report "expected `List a`, found `List`" for its
     /// second argument even though the program is completely correct.
-    fn build_data_type_info(&self, name: &Ident, tyvars: &[String], constructors: &[axiom_ast::ast::DataCon]) -> DataTypeInfo {
+    fn build_data_type_info(
+        &self,
+        name: &Ident,
+        tyvars: &[String],
+        constructors: &[axiom_ast::ast::DataCon],
+    ) -> DataTypeInfo {
         let type_args: Vec<TypeId> = tyvars.iter().map(|v| TypeId::TVar(v.clone())).collect();
         let mut con_infos = Vec::new();
         for con in constructors {
@@ -514,11 +603,18 @@ impl TypeChecker {
     fn collect_declarations(&mut self, module: &Module) {
         for decl in &module.decls {
             match decl {
-                Decl::DData { name, tyvars, constructors, .. } => {
-                    self.data_types.push(self.build_data_type_info(name, tyvars, constructors));
+                Decl::DData {
+                    name,
+                    tyvars,
+                    constructors,
+                    ..
+                } => {
+                    self.data_types
+                        .push(self.build_data_type_info(name, tyvars, constructors));
                 }
                 Decl::DStruct { name, fields, .. } => {
-                    let struct_fields: Vec<(String, TypeId)> = fields.iter()
+                    let struct_fields: Vec<(String, TypeId)> = fields
+                        .iter()
                         .map(|f| (f.name.name.clone(), self.type_to_id(&f.ty)))
                         .collect();
                     self.structs.push(StructInfo {
@@ -527,10 +623,12 @@ impl TypeChecker {
                     });
                 }
                 Decl::DSig { name, ty } => {
-                    self.functions.push(FnInfo::new(name.name.clone(), self.type_to_id(ty)));
+                    self.functions
+                        .push(FnInfo::new(name.name.clone(), self.type_to_id(ty)));
                 }
                 Decl::DClass { name, methods, .. } => {
-                    let method_tys: Vec<(String, TypeId)> = methods.iter()
+                    let method_tys: Vec<(String, TypeId)> = methods
+                        .iter()
                         .map(|m| (m.name.name.clone(), self.type_to_id(&m.ty)))
                         .collect();
                     self.classes.push(ClassInfo {
@@ -540,7 +638,10 @@ impl TypeChecker {
                 }
                 Decl::DFn { name, .. } => {
                     if !self.functions.iter().any(|f| f.name == name.name) {
-                        self.functions.push(FnInfo::new(name.name.clone(), TypeId::TVar(format!("_fn_{}", self.type_counter))));
+                        self.functions.push(FnInfo::new(
+                            name.name.clone(),
+                            TypeId::TVar(format!("_fn_{}", self.type_counter)),
+                        ));
                         self.type_counter += 1;
                     }
                 }
@@ -550,7 +651,8 @@ impl TypeChecker {
                     self.functions.push(info);
                 }
                 Decl::DUnion { name, fields, .. } => {
-                    let union_fields: Vec<(String, TypeId)> = fields.iter()
+                    let union_fields: Vec<(String, TypeId)> = fields
+                        .iter()
                         .map(|f| (f.name.name.clone(), self.type_to_id(&f.ty)))
                         .collect();
                     self.unions.push(UnionInfo {
@@ -558,7 +660,11 @@ impl TypeChecker {
                         fields: union_fields,
                     });
                 }
-                Decl::DType { name, tyvars, alias } => {
+                Decl::DType {
+                    name,
+                    tyvars,
+                    alias,
+                } => {
                     self.aliases.push(TypeAliasInfo {
                         name: name.name.clone(),
                         tyvars: tyvars.clone(),
@@ -577,11 +683,16 @@ impl TypeChecker {
                     let ty_id = self.type_to_id(ty);
                     self.scope.push((
                         name.name.clone(),
-                        VarInfo { ty: ty_id, span: name.span },
+                        VarInfo {
+                            ty: ty_id,
+                            span: name.span,
+                        },
                     ));
                 }
                 Decl::DFn { name, params, body } => {
-                    let sig_ty = self.functions.iter()
+                    let sig_ty = self
+                        .functions
+                        .iter()
                         .find(|f| f.name == name.name)
                         .map(|f| f.ty.clone());
 
@@ -604,7 +715,9 @@ impl TypeChecker {
 
                     let mut actual_param_types: Vec<TypeId> = Vec::new();
                     for (i, pat) in params.iter().enumerate() {
-                        let ty = param_types.get(i).cloned()
+                        let ty = param_types
+                            .get(i)
+                            .cloned()
                             .unwrap_or(TypeId::TVar(format!("_t{}", self.type_counter)));
                         self.type_counter += 1;
                         actual_param_types.push(ty.clone());
@@ -628,7 +741,10 @@ impl TypeChecker {
                     let ty_id = self.type_to_id(ty);
                     self.scope.push((
                         name.name.clone(),
-                        VarInfo { ty: ty_id, span: name.span },
+                        VarInfo {
+                            ty: ty_id,
+                            span: name.span,
+                        },
                     ));
                 }
                 Decl::DInstance { methods, .. } => {
@@ -711,7 +827,9 @@ impl TypeChecker {
             }
             Expr::EIf(cond, then_expr, else_expr) => {
                 let cond_ty = self.check_expr(cond);
-                if !cond_ty.is_error() && !cond_ty.compatible_with(&TypeId::TCon("Bool".to_string(), vec![])) {
+                if !cond_ty.is_error()
+                    && !cond_ty.compatible_with(&TypeId::TCon("Bool".to_string(), vec![]))
+                {
                     self.errors.push(SemError::TypeMismatch {
                         expected: "Bool".to_string(),
                         found: format!("{}", cond_ty),
@@ -720,19 +838,25 @@ impl TypeChecker {
                 }
                 let then_ty = self.check_expr(then_expr);
                 let else_ty = self.check_expr(else_expr);
-                if !then_ty.is_error() && !else_ty.is_error() && !then_ty.compatible_with(&else_ty) {
+                if !then_ty.is_error() && !else_ty.is_error() && !then_ty.compatible_with(&else_ty)
+                {
                     self.errors.push(SemError::TypeMismatch {
                         expected: format!("{}", then_ty),
                         found: format!("{}", else_ty),
                         span: else_expr.span(),
                     });
                 }
-                if then_ty.is_error() { else_ty } else { then_ty }
+                if then_ty.is_error() {
+                    else_ty
+                } else {
+                    then_ty
+                }
             }
             Expr::ECase(target, arms) => {
                 let target_ty = self.check_expr(target);
                 let mut arm_ty = TypeId::TVar(format!("_t{}", self.type_counter));
-                let mut covered: std::collections::HashSet<String> = std::collections::HashSet::new();
+                let mut covered: std::collections::HashSet<String> =
+                    std::collections::HashSet::new();
                 let mut has_catchall = false;
                 for (pat, body) in arms {
                     self.push_scope();
@@ -761,7 +885,9 @@ impl TypeChecker {
                 if !has_catchall {
                     if let TypeId::TCon(name, _) = &target_ty {
                         if let Some(dt) = self.data_types.iter().find(|d| &d.name == name) {
-                            let missing: Vec<String> = dt.constructors.iter()
+                            let missing: Vec<String> = dt
+                                .constructors
+                                .iter()
                                 .map(|c| c.name.clone())
                                 .filter(|n| !covered.contains(n))
                                 .collect();
@@ -793,7 +919,10 @@ impl TypeChecker {
                 }
                 if let Some(else_body) = else_branch {
                     let else_ty = self.check_expr(else_body);
-                    if !result_ty.is_error() && !else_ty.is_error() && !else_ty.compatible_with(&result_ty) {
+                    if !result_ty.is_error()
+                        && !else_ty.is_error()
+                        && !else_ty.compatible_with(&result_ty)
+                    {
                         self.errors.push(SemError::TypeMismatch {
                             expected: format!("{}", result_ty),
                             found: format!("{}", else_ty),
@@ -848,12 +977,8 @@ impl TypeChecker {
                 self.check_expr(body);
                 self.check_expr(handler)
             }
-            Expr::ERegion(_, body) => {
-                self.check_expr(body)
-            }
-            Expr::EConsume(e) => {
-                self.check_expr(e)
-            }
+            Expr::ERegion(_, body) => self.check_expr(body),
+            Expr::EConsume(e) => self.check_expr(e),
             Expr::EField(base, field_ident) => {
                 let base_ty = self.check_expr(base);
                 if let TypeId::TCon(struct_name, _) = &base_ty {
@@ -1044,7 +1169,8 @@ impl TypeChecker {
                 ));
             }
             Pattern::PCon(ident, args) => {
-                let found = self.find_constructor(&ident.name)
+                let found = self
+                    .find_constructor(&ident.name)
                     .map(|(dt, con)| (dt.name.clone(), con.ty.clone()));
                 match found {
                     Some((data_type_name, con_ty)) => {
@@ -1128,24 +1254,19 @@ impl TypeChecker {
                 let arg_ids: Vec<TypeId> = args.iter().map(|a| self.type_to_id(a)).collect();
                 TypeId::TCon(ident.name.clone(), arg_ids)
             }
-            Type::TArr(from, to) => {
-                TypeId::TArr(Box::new(self.type_to_id(from)), Box::new(self.type_to_id(to)))
-            }
+            Type::TArr(from, to) => TypeId::TArr(
+                Box::new(self.type_to_id(from)),
+                Box::new(self.type_to_id(to)),
+            ),
             Type::TTuple(types) => {
                 TypeId::TTuple(types.iter().map(|t| self.type_to_id(t)).collect())
             }
-            Type::TList(inner) => {
-                TypeId::TList(Box::new(self.type_to_id(inner)))
-            }
-            Type::TPtr(inner, mutable) => {
-                TypeId::TPtr(Box::new(self.type_to_id(inner)), *mutable)
-            }
+            Type::TList(inner) => TypeId::TList(Box::new(self.type_to_id(inner))),
+            Type::TPtr(inner, mutable) => TypeId::TPtr(Box::new(self.type_to_id(inner)), *mutable),
             Type::TForall(vars, inner) => {
                 TypeId::TForall(vars.clone(), Box::new(self.type_to_id(inner)))
             }
-            Type::TEffect(inner, _effects) => {
-                self.type_to_id(inner)
-            }
+            Type::TEffect(inner, _effects) => self.type_to_id(inner),
             Type::TRegion(inner, name) => {
                 TypeId::TCon(name.name.clone(), vec![self.type_to_id(inner)])
             }
@@ -1156,10 +1277,13 @@ impl TypeChecker {
     }
 
     fn push_scope(&mut self) {
-        self.scope.push(("__scope__".to_string(), VarInfo {
-            ty: TypeId::TTuple(vec![]),
-            span: Span::dummy(),
-        }));
+        self.scope.push((
+            "__scope__".to_string(),
+            VarInfo {
+                ty: TypeId::TTuple(vec![]),
+                span: Span::dummy(),
+            },
+        ));
     }
 
     fn pop_scope(&mut self) {
@@ -1182,20 +1306,33 @@ impl TypeChecker {
 
     pub fn register_decl(&mut self, decl: &Decl) {
         match decl {
-            Decl::DData { name, tyvars, constructors, .. } => {
-                self.data_types.push(self.build_data_type_info(name, tyvars, constructors));
+            Decl::DData {
+                name,
+                tyvars,
+                constructors,
+                ..
+            } => {
+                self.data_types
+                    .push(self.build_data_type_info(name, tyvars, constructors));
             }
             Decl::DSig { name, ty } => {
                 let ty_id = self.type_to_id(ty);
-                self.functions.push(FnInfo::new(name.name.clone(), ty_id.clone()));
+                self.functions
+                    .push(FnInfo::new(name.name.clone(), ty_id.clone()));
                 self.scope.push((
                     name.name.clone(),
-                    VarInfo { ty: ty_id, span: name.span },
+                    VarInfo {
+                        ty: ty_id,
+                        span: name.span,
+                    },
                 ));
             }
             Decl::DFn { name, params, body } => {
                 if !self.functions.iter().any(|f| f.name == name.name) {
-                    self.functions.push(FnInfo::new(name.name.clone(), TypeId::TVar(format!("_fn_{}", self.type_counter))));
+                    self.functions.push(FnInfo::new(
+                        name.name.clone(),
+                        TypeId::TVar(format!("_fn_{}", self.type_counter)),
+                    ));
                     self.type_counter += 1;
                 }
                 self.push_scope();
@@ -1206,7 +1343,8 @@ impl TypeChecker {
                 self.pop_scope();
             }
             Decl::DStruct { name, fields, .. } => {
-                let struct_fields: Vec<(String, TypeId)> = fields.iter()
+                let struct_fields: Vec<(String, TypeId)> = fields
+                    .iter()
                     .map(|f| (f.name.name.clone(), self.type_to_id(&f.ty)))
                     .collect();
                 self.structs.push(StructInfo {
@@ -1220,7 +1358,8 @@ impl TypeChecker {
                 self.functions.push(info);
             }
             Decl::DUnion { name, fields, .. } => {
-                let union_fields: Vec<(String, TypeId)> = fields.iter()
+                let union_fields: Vec<(String, TypeId)> = fields
+                    .iter()
                     .map(|f| (f.name.name.clone(), self.type_to_id(&f.ty)))
                     .collect();
                 self.unions.push(UnionInfo {
@@ -1228,7 +1367,11 @@ impl TypeChecker {
                     fields: union_fields,
                 });
             }
-            Decl::DType { name, tyvars, alias } => {
+            Decl::DType {
+                name,
+                tyvars,
+                alias,
+            } => {
                 self.aliases.push(TypeAliasInfo {
                     name: name.name.clone(),
                     tyvars: tyvars.clone(),
@@ -1338,7 +1481,9 @@ mod tests {
     #[test]
     fn undefined_variable_is_an_error() {
         let errors = check_err("(:: main Int)\n(fn main (+ 1 notARealVariable))");
-        assert!(errors.iter().any(|e| matches!(e, SemError::UndefinedVariable { name, .. } if name == "notARealVariable")));
+        assert!(errors.iter().any(
+            |e| matches!(e, SemError::UndefinedVariable { name, .. } if name == "notARealVariable")
+        ));
     }
 
     #[test]
@@ -1348,14 +1493,20 @@ mod tests {
              (:: helper (-> Int Int))\n(fn (helper x) (+ x 1))\n\
              (:: main Int)\n(fn main (helper 1))",
         );
-        assert!(errors.iter().any(|e| matches!(e, SemError::DuplicateDefinition { name, .. } if name == "helper")));
+        assert!(errors
+            .iter()
+            .any(|e| matches!(e, SemError::DuplicateDefinition { name, .. } if name == "helper")));
     }
 
     #[test]
     fn if_branches_of_different_types_is_an_error() {
-        let errors = check_err(r#"(:: main Int)
-(fn main (if true 1 "no"))"#);
-        assert!(errors.iter().any(|e| matches!(e, SemError::TypeMismatch { .. })));
+        let errors = check_err(
+            r#"(:: main Int)
+(fn main (if true 1 "no"))"#,
+        );
+        assert!(errors
+            .iter()
+            .any(|e| matches!(e, SemError::TypeMismatch { .. })));
     }
 
     #[test]
@@ -1370,7 +1521,8 @@ mod tests {
         let tokens = lexer.tokenize().unwrap();
         let module = Parser::new(tokens).parse_module().unwrap();
         let mut tc = TypeChecker::new();
-        tc.check(&module).expect("expected this program to check cleanly");
+        tc.check(&module)
+            .expect("expected this program to check cleanly");
         assert_eq!(tc.structs.len(), 1);
         assert_eq!(tc.structs[0].fields.len(), 2);
         assert_eq!(tc.unions.len(), 1);
@@ -1390,8 +1542,13 @@ mod tests {
         let tokens = lexer.tokenize().unwrap();
         let module = Parser::new(tokens).parse_module().unwrap();
         let mut tc = TypeChecker::new();
-        tc.check(&module).expect("expected this program to check cleanly");
-        let printf = tc.functions.iter().find(|f| f.name == "printf").expect("printf not registered");
+        tc.check(&module)
+            .expect("expected this program to check cleanly");
+        let printf = tc
+            .functions
+            .iter()
+            .find(|f| f.name == "printf")
+            .expect("printf not registered");
         assert_eq!(printf.foreign_symbol.as_deref(), Some("printf"));
         assert!(!printf.is_builtin);
     }
@@ -1399,7 +1556,11 @@ mod tests {
     #[test]
     fn builtin_operators_are_flagged_as_builtin() {
         let tc = TypeChecker::new();
-        let plus = tc.functions.iter().find(|f| f.name == "+").expect("+ not registered");
+        let plus = tc
+            .functions
+            .iter()
+            .find(|f| f.name == "+")
+            .expect("+ not registered");
         assert!(plus.is_builtin);
     }
 }

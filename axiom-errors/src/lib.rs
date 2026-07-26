@@ -35,7 +35,12 @@ pub use symbols::{render_symbols_ai, SymbolFact, SymbolKind};
 
 /// Render a batch of diagnostics with cascade-deduplication already applied,
 /// in the requested format. This is the one function most callers need.
-pub fn render(diags: Vec<Diagnostic>, filename: &str, source: &str, format: DiagnosticFormat) -> String {
+pub fn render(
+    diags: Vec<Diagnostic>,
+    filename: &str,
+    source: &str,
+    format: DiagnosticFormat,
+) -> String {
     let diags = dedup(diags);
     match format {
         DiagnosticFormat::Human => render_human(&diags, filename, source),
@@ -47,10 +52,5 @@ pub fn render(diags: Vec<Diagnostic>, filename: &str, source: &str, format: Diag
 /// Format the full `axiom explain <CODE>` output for a code, or `None` if
 /// the code is unknown.
 pub fn explain(code: &str) -> Option<String> {
-    lookup(code).map(|info| {
-        format!(
-            "{} - {}\n\n{}\n",
-            info.code, info.title, info.explain
-        )
-    })
+    lookup(code).map(|info| format!("{} - {}\n\n{}\n", info.code, info.title, info.explain))
 }
