@@ -392,6 +392,45 @@ For C-compatible data layouts:
 (type StringList () = [String])
 ```
 
+### Traits
+
+Define interfaces with typed methods:
+
+```scheme
+; A trait with one method
+(trait (Eq a)
+  where
+    (eq :: (-> a a Bool)))
+
+; A trait with multiple methods and supertraits
+(trait (Ord a)
+  (Eq a)
+  where
+    (cmp :: (-> a a Int))
+    (lt :: (-> a a Bool))
+    (gt :: (-> a a Bool))))
+```
+
+Implement a trait for a specific type:
+
+```scheme
+(impl (Eq Int)
+  where
+    ((eq (lambda (x y) (== x y)))))
+
+(impl (Ord Int)
+  where
+    ((cmp (lambda (x y) (if (== x y) 0 (if (< x y) (- 0 1) 1)))))
+    ((lt (lambda (x y) (< x y))))
+    ((gt (lambda (x y) (> x y))))))
+```
+
+Traits support:
+- **Type parameters** — `(trait (Eq a) ...)` binds `a` for all method signatures
+- **Supertraits** — `(trait (Ord a) (Eq a) ...)` requires `Eq` to be implemented too
+- **Default methods** — `(where (method :: type = default_body))`
+- **Effects** — traits and methods can carry effect annotations
+
 ---
 
 ## Type System
@@ -777,7 +816,8 @@ Source (.ax)
 | Lambda | **Partial** | Parsed and type-checked; codegen pending |
 | Lists | **Partial** | Syntax and type checking; runtime representation pending |
 | Tuples | **Partial** | Syntax and type checking; codegen pending |
-| Type classes | **Stub** | Parsed, not enforced |
+| Type classes | **Replaced** | Renamed to traits; see [Traits](#traits) |
+| Traits | **Complete** | Declarations, supertraits, effects, default methods, implementations (`impl`) |
 | Effect annotations | **Parsed only** | `handle`, `IO`, `Pure`, etc. |
 | Region syntax | **Parsed only** | `region r body` |
 | Linear types | **Parsed only** | `linear T`, `consume` |
