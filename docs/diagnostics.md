@@ -1,10 +1,25 @@
-# Axiom Diagnostics
+# Axiom Diagnostics & Agent Notations
 
-Axiom's compiler diagnostics are built around one goal: **tell you why,
-not just where.** A location without an explanation forces every
-developer (human or AI agent) to re-derive the reasoning the compiler
-already had. This document describes the diagnostic architecture, the
-human-readable report format, and Axiom's AI-optimized notation ("AXDL").
+Axiom's compiler output is built around one goal: **tell an agent what it
+needs to know to act, in as few tokens as possible.** A location without
+an explanation forces every developer (human or AI agent) to re-derive
+the reasoning the compiler already had; a signature the agent has to
+re-parse out of pretty-printed prose is tokens spent re-deriving a fact
+the compiler already computed exactly. This document describes two
+members of the same notation family:
+
+* **AXDL** (Axiom eXchange Diagnostic Line) - what went wrong, and where,
+  and how to fix it. One line per diagnostic.
+* **AXSYM** (Axiom eXchange Symbol Line) - what a file *successfully*
+  declares, and what its type is. One line per symbol.
+
+Both exist because an agent's two most common compiler-facing questions -
+"why did this fail" and "what does this already provide" - deserve the
+same design treatment: dense, greppable, colorless, one-line-per-fact,
+with locations addressed identically across both notations. Neither
+notation is a general "tag everything" scheme; each is scoped to exactly
+one question so a consumer never has to guess which fields a given line
+might contain.
 
 All diagnostics flow through a single structured type,
 [`axiom_errors::Diagnostic`](../axiom-errors/src/diagnostic.rs), produced
@@ -197,6 +212,98 @@ For source containing only ASCII text the two coincide; for source with
 multi-byte UTF-8 characters, only the character offsets are meaningful -
 do not use these fields as byte indices into the file.
 
+## AXSYM: symbol/type notation (`axiom symbols`)
+
+AXDL only fires when something is wrong. It has nothing to say about
+Axiom's other constant agent-facing question: *"what does this file
+already declare, and what type does it have?"* Answering that today
+without tooling means an agent re-reads the whole file and re-derives
+every signature by eye - exactly the "re-derive what the compiler
+already knew" waste AXDL was built to avoid, just for the success case
+instead of the failure case.
+
+`axiom symbols <file>` runs the same lexer -> parser -> type-checker
+pipeline as `check`, then prints one fact per top-level name the checker
+collected: every `define`/`fn`, every `foreign` binding, every `data`
+type and its constructors, every `struct`/`union`, and every `class`.
+Like diagnostics, it honors `--diagnostic-format`:
+
+```bash
+# Dense AXSYM notation, one line per symbol
+./target/release/axiom --diagnostic-format=ai symbols main.ax
+
+# JSON Lines, one object per symbol
+./target/release/axiom --diagnostic-format=json symbols main.ax
+
+# Aligned table for humans (the default)
+./target/release/axiom symbols main.ax
+```
+
+### Grammar
+
+```
+<KIND> <NAME> <FILE>:<LOC>|- "<TYPE>" [#<key>=<value>]*
+```
+
+| Field | Meaning |
+|---|---|
+| `KIND` | One letter: `F` function, `X` foreign binding, `D` data type, `C` constructor, `S` struct, `U` union, `A` type alias, `L` class |
+| `NAME` | The declared name, exactly as written |
+| `FILE:LOC` | Same `file:line:col[-col\|:line:col]` addressing as AXDL, via the same [`SourceMap`](../axiom-errors/src/source_map.rs) |
+| `-` | In place of `FILE:LOC`, for names with no source span at all (Axiom's dozen built-in operators: `+`, `==`, `&&`, ...) - kept distinct from a real location rather than fabricating `0:0`, so a consumer can tell "always in scope" apart from "declared here" |
+| `"TYPE"` | Axiom's own curried type syntax, quoted (it can itself contain `->`/parens, so quoting keeps the line's field boundaries unambiguous the same way AXDL quotes messages) |
+| `#key=value` | Kind-specific metadata: a data type's constructor list (`#ctors=Nothing,Just`), a constructor's owning type (`#of=Maybe`), a struct's field count (`#fields=2`), a class's method count (`#methods=3`) |
+
+`KIND` letters are deliberately disjoint from [`Severity::sigil`](../axiom-errors/src/severity.rs)'s `E`/`W`/`N`/`H`, so the first character of a line is never ambiguous about which notation (or which command) produced it even if AXDL and AXSYM output were ever concatenated into one stream.
+
+### Example
+
+Source:
+
+```lisp
+(foreign printf :: (-> String Int) = "printf")
+
+(data Maybe (a)
+  (Nothing)
+  (Just a))
+
+(:: add (-> Int Int Int))
+(fn (add x y)
+  (+ x y))
+```
+
+AXSYM output (`--diagnostic-format=ai symbols`):
+
+```
+X printf main.ax:1:10-16 "(String -> Int)"
+D Maybe main.ax:3:7-12 "data Maybe" #ctors=Nothing,Just
+C Nothing - "Maybe" #of=Maybe
+C Just - "(a -> Maybe a)" #of=Maybe
+F add main.ax:7:5-8 "(Int -> (Int -> Int))"
+```
+
+An agent asked to "add a function that formats a `Maybe Int`" can now
+`grep '^D Maybe'`/`grep '^C '` for the exact constructor set and
+`grep '^X printf'` for the exact FFI signature, instead of paying to
+re-read and re-parse the whole file just to recover facts the type
+checker already has in hand.
+
+### Why this found a real parser bug
+
+Building AXSYM immediately exposed that `(data Maybe (a) (Nothing) (Just
+a))` - the README's own example - was parsing `(a)` as a *third,
+spurious nullary constructor named `a`* instead of a type-parameter list,
+because `parse_tyvars` only recognized bare, unparenthesized type
+variables. Every parenthesized-tyvar example in the README (which is all
+of them) was affected, and `(type StringList () = [String])` failed to
+parse at all. This is exactly the payoff a dense, greppable success-path
+notation is supposed to deliver: the moment "what does this file
+actually declare" became one `grep`-able line per symbol instead of
+prose an agent (or a human) has to re-derive by eye, a real correctness
+bug that pretty-printed output had been silently absorbing became
+obvious immediately. See `axiom-parser/src/lib.rs`'s `parse_tyvars`/
+`looks_like_tyvar_list` for the fix.
+
 ## Adding a new diagnostic
 
 1. Add a `CodeInfo` entry to the `registry!` macro invocation in
@@ -216,3 +323,43 @@ do not use these fields as byte indices into the file.
    `.with_group(...)` + `dedup()` when poisoning genuinely can't apply
    (e.g. the cascade spans multiple compiler stages), and pick a group key
    specific enough that it can never merge two unrelated errors.
+
+## Roadmap: stable node addresses and source-embedded tags
+
+AXDL and AXSYM both address locations the same way an editor does -
+`file:line:col`. That's fine for a single request/response turn, but it
+quietly rots: an agent that captured a `file:line:col` from one AXDL/AXSYM
+line, then made an *unrelated* edit earlier in the file, now holds a
+stale coordinate for everything below the edit. The next two notations
+this family is designed to grow into both exist to fix that, and are
+deliberately scoped out of the current implementation rather than
+half-built:
+
+* **NID (stable node ID).** Every declaration a future `axiom` could
+  assign a content-derived ID - e.g. a short hash of `(kind, name,
+  enclosing-module-path)` - that survives edits elsewhere in the file and
+  small reformatting, unlike a character offset. AXSYM lines would grow an
+  optional `@NID` field alongside `FILE:LOC`; AXDL's related-span (`^`)
+  fields could reference a NID instead of re-deriving a location once
+  `FILE:LOC` has gone stale between an agent's read and its write. This is
+  *not* "line numbers with extra steps" - the whole point is a coordinate
+  that is stable exactly when `file:line:col` is not.
+* **AXTAG (source-embedded agent metadata).** A reserved comment form -
+  `;@axiom:<key>(<value>)` immediately above a declaration - for
+  agent-authored, compiler-checked intent: effect claims, ownership/region
+  notes, "do not auto-refactor" markers. Unlike a bare comment, the lexer
+  would preserve it as trivia attached to the following declaration (not
+  discarded), sema would validate whatever it can (e.g. an `effect(io)`
+  claim against actual FFI calls in the body) and *emit a normal AXDL
+  diagnostic* if a tag and the code it annotates disagree, and `axiom
+  symbols` would surface accepted tags as `#`-metadata on the
+  corresponding AXSYM line. This turns "the agent's stated intent" into
+  something the compiler round-trips and checks, instead of a comment
+  string no tool ever reads back.
+
+Both are listed here rather than implemented because they change what the
+compiler stores (persistent per-declaration IDs; lexer trivia that
+survives past tokenization instead of being dropped) rather than just how
+already-computed facts are printed, and deserve their own design pass
+once AXDL/AXSYM have real usage to validate the two-notation split
+against.

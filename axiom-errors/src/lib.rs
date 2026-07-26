@@ -24,12 +24,14 @@ pub mod diagnostic;
 pub mod render;
 pub mod severity;
 pub mod source_map;
+pub mod symbols;
 
 pub use code::{lookup, CodeInfo};
 pub use diagnostic::{Diagnostic, Label, Suggestion};
-pub use render::{dedup, render_ai, render_human, render_json, DiagnosticFormat};
+pub use render::{dedup, json_escape, render_ai, render_human, render_json, DiagnosticFormat};
 pub use severity::Severity;
 pub use source_map::SourceMap;
+pub use symbols::{render_symbols_ai, SymbolFact, SymbolKind};
 
 /// Render a batch of diagnostics with cascade-deduplication already applied,
 /// in the requested format. This is the one function most callers need.

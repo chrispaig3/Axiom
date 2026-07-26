@@ -185,7 +185,11 @@ fn clamp_span(source: &str, start: usize, end: usize) -> (usize, usize) {
     (start, end)
 }
 
-fn fmt_span(map: &SourceMap, source: &str, span: axiom_ast::span::Span) -> String {
+/// Format a span as `line:col` or `line:col-col` or `line:col-line:col`.
+/// Shared by every AXDL-family renderer (diagnostics *and* the AXSYM
+/// symbol/type notation in [`crate::symbols`]) so every one of Axiom's
+/// agent-facing notations addresses source locations identically.
+pub fn fmt_span(map: &SourceMap, source: &str, span: axiom_ast::span::Span) -> String {
     let (start, end) = map.span_range(source, span.start, span.end.max(span.start));
     if start == end {
         format!("{}:{}", start.0, start.1)
@@ -271,7 +275,9 @@ pub fn render_json(diags: &[Diagnostic], filename: &str, source: &str) -> String
     out
 }
 
-fn json_escape(s: &str) -> String {
+/// Escape a string for embedding in a JSON string literal (used by every
+/// JSON Lines renderer in this crate, including [`crate::symbols`]'s).
+pub fn json_escape(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for c in s.chars() {
         match c {

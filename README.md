@@ -476,11 +476,16 @@ Note: Pattern matching codegen is still being implemented. The type checker vali
 
 # Render diagnostics in Axiom's AI-optimized notation (see docs/diagnostics.md)
 ./target/release/axiom --diagnostic-format=ai check source.ax
+
+# List every top-level symbol (functions, types, constructors, ...) and
+# its type in Axiom's AI-optimized "AXSYM" notation (see docs/diagnostics.md)
+./target/release/axiom --diagnostic-format=ai symbols source.ax
 ```
 
-See [`docs/diagnostics.md`](docs/diagnostics.md) for the full diagnostics
-architecture: stable error codes (`AX####`), cascade suppression, the
-human report format, and the AI-optimized "AXDL" notation.
+See [`docs/diagnostics.md`](docs/diagnostics.md) for the full agent-facing
+notation architecture: stable error codes (`AX####`), cascade suppression,
+the human report format, the AI-optimized "AXDL" diagnostic notation, and
+the AI-optimized "AXSYM" symbol/type notation.
 
 ---
 

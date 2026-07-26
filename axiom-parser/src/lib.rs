@@ -1001,7 +1001,48 @@ impl Parser {
         }
     }
 
+    /// Parse a type-parameter list. Axiom's own documented syntax always
+    /// wraps it in parens right after the type/struct/union/alias name -
+    /// `()` for none, `(a)` for one, `(a b)` for several (see the README's
+    /// `Maybe`/`List`/`Tree`/`type StringList () = ...` examples) - but
+    /// that immediately following `(` is *also* how the very next thing
+    /// after it (the first constructor of a `data`, or the first field of
+    /// a `struct`/`union`) begins, e.g. `(data Ordering (LT) (EQ) (GT))`
+    /// has *no* type parameters at all before its first nullary
+    /// constructor `(LT)`.
+    ///
+    /// [`looks_like_tyvar_list`](Self::looks_like_tyvar_list) disambiguates
+    /// by scanning past the `(`: a real tyvar list is zero or more
+    /// lowercase identifiers followed immediately by `)`, with nothing
+    /// else in between. A constructor name is conventionally capitalized
+    /// (`Nothing`, `Just`, `LT`, ...) so it never matches the "all
+    /// lowercase" scan, and a struct/union field like `(x : Int)` fails
+    /// the scan the moment it hits `:` instead of `)`. Without this,
+    /// every parenthesized-tyvar example in the README - which is all of
+    /// them - either silently dropped its type parameters (turning the
+    /// first constructor into a bogus extra one, e.g. `Maybe`'s `(a)`
+    /// becoming a fake nullary constructor named `a`) or, for `type`
+    /// aliases, failed to parse at all (`(type StringList () = ...)`
+    /// choked on `expect(Eq)` because `()` was never consumed).
     fn parse_tyvars(&mut self) -> Vec<String> {
+        if self.check(TokenKind::LParen) && self.looks_like_tyvar_list() {
+            self.advance(); // consume '('
+            let mut tyvars = Vec::new();
+            while self.is_tyvar() {
+                if let TokenKind::Ident(name) = &self.tokens[self.pos].kind {
+                    tyvars.push(name.clone());
+                }
+                self.advance();
+            }
+            if self.check(TokenKind::RParen) {
+                self.advance(); // consume ')' - guaranteed present by the lookahead above
+            }
+            return tyvars;
+        }
+
+        // Defensive fallback for bare, unparenthesized tyvars with no
+        // surrounding `(...)` at all (not part of Axiom's documented
+        // syntax, but harmless to keep accepting if it ever shows up).
         let mut tyvars = Vec::new();
         while self.is_tyvar() {
             if let TokenKind::Ident(name) = &self.tokens[self.pos].kind {
@@ -1010,6 +1051,27 @@ impl Parser {
             self.advance();
         }
         tyvars
+    }
+
+    /// Lookahead-only check: does the `(...)` starting at the current
+    /// token (which must be `LParen`) contain *only* zero or more
+    /// lowercase identifiers before the matching `)`? See
+    /// [`parse_tyvars`](Self::parse_tyvars) for why this is exactly the
+    /// condition that distinguishes a type-parameter list from the first
+    /// constructor/field group. Does not consume any tokens.
+    fn looks_like_tyvar_list(&self) -> bool {
+        let mut i = self.pos + 1;
+        loop {
+            match self.tokens.get(i).map(|t| &t.kind) {
+                Some(TokenKind::RParen) => return true,
+                Some(TokenKind::Ident(name))
+                    if name.chars().next().map_or(false, |c| c.is_lowercase()) =>
+                {
+                    i += 1;
+                }
+                _ => return false,
+            }
+        }
     }
 
     fn parse_tyvar(&mut self) -> ParseResult<String> {

@@ -6,7 +6,7 @@ use axiom_parser::{Parser, DeclOrExpr};
 use axiom_sema::TypeChecker;
 use axiom_ir::generator::IrGen;
 use axiom_codegen::LlvmCodeGen;
-use axiom_errors::{Diagnostic, DiagnosticFormat};
+use axiom_errors::{Diagnostic, DiagnosticFormat, SymbolFact, SymbolKind};
 
 mod fmt;
 
@@ -71,6 +71,15 @@ enum Commands {
         #[arg(long)]
         check: bool,
     },
+    /// Print every top-level symbol Axiom's type checker collected for a
+    /// file (functions, foreign bindings, data types, constructors,
+    /// structs, unions, and type classes) along with its inferred/declared
+    /// type. Honors `--diagnostic-format`: `ai` emits one AXSYM line per
+    /// symbol (see `docs/diagnostics.md`), `json` emits one JSON object per
+    /// line, and `human` (the default) prints an aligned table.
+    Symbols {
+        input: String,
+    },
     /// Print a full explanation for a diagnostic code, e.g. `axiom explain AX3001`
     Explain {
         /// Diagnostic code, with or without the `AX` prefix (e.g. `AX3001` or `3001`)
@@ -110,6 +119,12 @@ fn main() {
                 std::process::exit(1);
             } else {
                 println!("OK");
+            }
+        }
+        Commands::Symbols { input } => {
+            if let Err(e) = symbols(&input, format) {
+                eprintln!("{}", e);
+                std::process::exit(1);
             }
         }
         Commands::EmitLlvm { input, output } => {
@@ -318,6 +333,172 @@ fn check(input: &str, format: DiagnosticFormat) -> Result<(), String> {
         .map_err(|e| format!("Failed to read file '{}': {}", input, e))?;
 
     analyze(input, &source, format, false)?;
+    Ok(())
+}
+
+/// Collect every top-level symbol `axiom-sema` recorded for `module` into
+/// the notation-agnostic [`SymbolFact`] list that all three renderers
+/// share, then print it in `format`. See `axiom_errors::symbols` for the
+/// AXSYM grammar and rationale.
+///
+/// Locations are recovered by name from `module.decls` rather than
+/// threaded through `TypeChecker` itself: the checker's `functions` /
+/// `data_types` / `structs` / `classes` vectors exist to answer "what is
+/// `foo`'s type", not "where is `foo`", so a fact with no matching
+/// top-level declaration (Axiom's dozen built-in operators) simply gets
+/// `span: None` - the AXSYM renderer prints `-` for those rather than a
+/// fabricated location.
+fn collect_symbol_facts(module: &axiom_ast::Module, tc: &TypeChecker) -> Vec<SymbolFact> {
+    use axiom_ast::ast::Decl;
+    use std::collections::HashMap;
+
+    let mut fn_spans: HashMap<&str, axiom_ast::span::Span> = HashMap::new();
+    let mut type_spans: HashMap<&str, axiom_ast::span::Span> = HashMap::new();
+    let mut class_spans: HashMap<&str, axiom_ast::span::Span> = HashMap::new();
+
+    for decl in &module.decls {
+        match decl {
+            // A `(:: name Type)` signature is the most useful anchor for a
+            // function's location (it's usually right above the
+            // definition and states the type the fact is about), so it
+            // takes priority; `entry` leaves an existing `DFn`/`DForeign`
+            // span alone only if the signature is missing.
+            Decl::DSig { name, .. } => { fn_spans.insert(&name.name, name.span); }
+            Decl::DFn { name, .. } => { fn_spans.entry(&name.name).or_insert(name.span); }
+            Decl::DForeign { name, .. } => { fn_spans.entry(&name.name).or_insert(name.span); }
+            Decl::DData { name, .. } => { type_spans.insert(&name.name, name.span); }
+            Decl::DStruct { name, .. } => { type_spans.insert(&name.name, name.span); }
+            Decl::DUnion { name, .. } => { type_spans.insert(&name.name, name.span); }
+            Decl::DType { name, .. } => { type_spans.insert(&name.name, name.span); }
+            Decl::DClass { name, .. } => { class_spans.insert(&name.name, name.span); }
+            _ => {}
+        }
+    }
+
+    let mut facts = Vec::new();
+
+    for f in &tc.functions {
+        let kind = match module.decls.iter().any(
+            |d| matches!(d, Decl::DForeign { name, .. } if name.name == f.name),
+        ) {
+            true => SymbolKind::Foreign,
+            false => SymbolKind::Fn,
+        };
+        facts.push(SymbolFact::new(kind, &f.name, fn_spans.get(f.name.as_str()).copied(), f.ty.to_string()));
+    }
+
+    for d in &tc.data_types {
+        let ctor_names: Vec<String> = d.constructors.iter().map(|c| c.name.clone()).collect();
+        let mut fact = SymbolFact::new(
+            SymbolKind::Data,
+            &d.name,
+            type_spans.get(d.name.as_str()).copied(),
+            format!("data {}", d.name),
+        );
+        if !ctor_names.is_empty() {
+            fact = fact.with_meta(format!("ctors={}", ctor_names.join(",")));
+        }
+        facts.push(fact);
+        for c in &d.constructors {
+            facts.push(
+                SymbolFact::new(SymbolKind::Ctor, &c.name, None, c.ty.to_string())
+                    .with_meta(format!("of={}", c.data_type)),
+            );
+        }
+    }
+
+    for s in &tc.structs {
+        facts.push(
+            SymbolFact::new(
+                SymbolKind::Struct,
+                &s.name,
+                type_spans.get(s.name.as_str()).copied(),
+                format!("struct {}", s.name),
+            )
+            .with_meta(format!("fields={}", s.fields.len())),
+        );
+    }
+
+    for c in &tc.classes {
+        facts.push(
+            SymbolFact::new(
+                SymbolKind::Class,
+                &c.name,
+                class_spans.get(c.name.as_str()).copied(),
+                format!("class {}", c.name),
+            )
+            .with_meta(format!("methods={}", c.methods.len())),
+        );
+    }
+
+    facts
+}
+
+/// Human table: same three facts as every other renderer (kind, name,
+/// type) plus a `file:line:col` location using the exact same
+/// [`SourceMap`](axiom_errors::SourceMap) AXDL and AXSYM both use, rather
+/// than a raw, human-meaningless character offset.
+fn render_symbols_human(facts: &[SymbolFact], filename: &str, source: &str) -> String {
+    let map = axiom_errors::SourceMap::new(source);
+    let mut out = String::new();
+    for f in facts {
+        let loc = match f.span {
+            Some(span) => {
+                let (start, _) = map.span_range(source, span.start, span.end.max(span.start));
+                format!("{}:{}:{}", filename, start.0, start.1)
+            }
+            None => "builtin".to_string(),
+        };
+        out.push_str(&format!(
+            "{:<8} {:<20} {:<40} [{}]\n",
+            format!("{:?}", f.kind),
+            f.name,
+            f.ty,
+            loc
+        ));
+    }
+    out
+}
+
+fn render_symbols_json(facts: &[SymbolFact], filename: &str, source: &str) -> String {
+    let map = axiom_errors::SourceMap::new(source);
+    let mut out = String::new();
+    for f in facts {
+        let loc = match f.span {
+            Some(span) => {
+                let (start, end) = map.span_range(source, span.start, span.end.max(span.start));
+                format!(
+                    "\"file\":\"{}\",\"span\":{{\"start\":{{\"line\":{},\"col\":{}}},\"end\":{{\"line\":{},\"col\":{}}}}},",
+                    axiom_errors::json_escape(filename), start.0, start.1, end.0, end.1
+                )
+            }
+            None => String::new(),
+        };
+        out.push_str(&format!(
+            "{{\"kind\":\"{:?}\",\"name\":\"{}\",{}\"type\":\"{}\",\"meta\":[{}]}}\n",
+            f.kind,
+            axiom_errors::json_escape(&f.name),
+            loc,
+            axiom_errors::json_escape(&f.ty),
+            f.meta.iter().map(|m| format!("\"{}\"", axiom_errors::json_escape(m))).collect::<Vec<_>>().join(",")
+        ));
+    }
+    out
+}
+
+fn symbols(input: &str, format: DiagnosticFormat) -> Result<(), String> {
+    let source = fs::read_to_string(input)
+        .map_err(|e| format!("Failed to read file '{}': {}", input, e))?;
+
+    let (ast, type_checker) = analyze(input, &source, format, false)?;
+    let facts = collect_symbol_facts(&ast, &type_checker);
+
+    let rendered = match format {
+        DiagnosticFormat::Ai => axiom_errors::render_symbols_ai(&facts, input, &source),
+        DiagnosticFormat::Json => render_symbols_json(&facts, input, &source),
+        DiagnosticFormat::Human => render_symbols_human(&facts, input, &source),
+    };
+    print!("{}", rendered);
     Ok(())
 }
 
