@@ -119,6 +119,7 @@ pub enum Expr {
     EHandle(Box<Expr>, Vec<Effect>, Box<Expr>),
     ERegion(Ident, Box<Expr>),
     EConsume(Box<Expr>),
+    EField(Box<Expr>, Ident),
     EError(String, Span),
 }
 
@@ -146,6 +147,7 @@ impl Expr {
             Expr::EHandle(e, _, _) => e.span(),
             Expr::ERegion(_, e) => e.span(),
             Expr::EConsume(e) => e.span(),
+            Expr::EField(e, _) => e.span(),
             Expr::EError(_, span) => *span,
         }
     }

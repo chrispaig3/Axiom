@@ -540,15 +540,15 @@ fn analyze(input: &str, source: &str, format: DiagnosticFormat, announce: bool) 
     }
 }
 
-fn build(input: &str, output: &str, emit_llvm: bool, _opt: u8, format: DiagnosticFormat) -> Result<(), String> {
+fn build(input: &str, output: &str, emit_llvm: bool, opt: u8, format: DiagnosticFormat) -> Result<(), String> {
     let source = fs::read_to_string(input)
         .map_err(|e| format!("Failed to read file '{}': {}", input, e))?;
 
-    let (ast, type_checker, _registry) = analyze(input, &source, format, true)?;
+    let (ast, mut type_checker, _registry) = analyze(input, &source, format, true)?;
 
     println!("[4/5] Generating IR...");
     let mut ir_gen = IrGen::new();
-    let ir_module = ir_gen.generate(&ast, &type_checker);
+    let ir_module = ir_gen.generate(&ast, &mut type_checker);
 
     let has_main = ir_module.functions.iter().any(|f| f.name == "main");
     if !has_main {
@@ -577,6 +577,7 @@ fn build(input: &str, output: &str, emit_llvm: bool, _opt: u8, format: Diagnosti
         .arg("-filetype=obj")
         .arg("-o")
         .arg(&obj_path)
+        .arg(format!("-O{}", opt.clamp(0, 3)))
         .status()
         .map_err(|e| format!("Failed to run llc: {}", e))?;
 
@@ -908,10 +909,10 @@ fn emit_llvm(input: &str, output: Option<&str>, format: DiagnosticFormat) -> Res
     // `--diagnostic-format`, never got AXDL/JSON output, and (since it
     // never called `analyze`) could never resolve `(import ...)`
     // declarations either. Calling `analyze` fixes all three at once.
-    let (ast, type_checker, _registry) = analyze(input, &source, format, false)?;
+    let (ast, mut type_checker, _registry) = analyze(input, &source, format, false)?;
 
     let mut ir_gen = IrGen::new();
-    let ir_module = ir_gen.generate(&ast, &type_checker);
+    let ir_module = ir_gen.generate(&ast, &mut type_checker);
 
     let mut codegen = LlvmCodeGen::new();
     let llvm_ir = codegen.compile(&ir_module)?;
@@ -1232,14 +1233,15 @@ fn cmd_llvm(expr_str: &str, state: &mut ReplState) {
     match result {
         Some(DeclOrExpr::Decl(_decl)) => {
             let wrapper = format!("{}\n{}", state.declarations, expr_str);
-            let mut lexer = Lexer::new(&wrapper, 0);
-            if let Ok(tokens) = lexer.tokenize() {
-                let mut parser = Parser::new(tokens);
-                if let Ok(ast) = parser.parse_module() {
-                    let mut tc = TypeChecker::new();
-                    if tc.check(&ast).is_ok() {
-                        let mut ir_gen = IrGen::new();
-                        let ir_module = ir_gen.generate(&ast, &tc);
+let mut lexer = Lexer::new(&wrapper, 0);
+                    if let Ok(tokens) = lexer.tokenize() {
+let mut parser = Parser::new(tokens);
+                        if let Ok(ast) = parser.parse_module() {
+                            let mut tc2 = TypeChecker::new();
+                            if tc2.check(&ast).is_ok() {
+                                let mut ir_gen = IrGen::new();
+                                let ir_module = ir_gen.generate(&ast, &mut tc2);
+
                         let mut codegen = LlvmCodeGen::new();
                         if let Ok(llvm_ir) = codegen.compile(&ir_module) {
                             println!("{}", "Generated LLVM IR:".bold().bright_cyan());
@@ -1261,15 +1263,16 @@ fn cmd_llvm(expr_str: &str, state: &mut ReplState) {
                     expr_str,
                 );
 
-                let mut lexer = Lexer::new(&wrapper, 0);
-                if let Ok(tokens) = lexer.tokenize() {
-                    let mut parser = Parser::new(tokens);
-                    if let Ok(ast) = parser.parse_module() {
-                        let mut tc = TypeChecker::new();
-                        if tc.check(&ast).is_ok() {
-                            let mut ir_gen = IrGen::new();
-                            let ir_module = ir_gen.generate(&ast, &tc);
-                            let mut codegen = LlvmCodeGen::new();
+let mut lexer = Lexer::new(&wrapper, 0);
+                    if let Ok(tokens) = lexer.tokenize() {
+                        let mut parser = Parser::new(tokens);
+                        if let Ok(ast) = parser.parse_module() {
+                            let mut tc2 = TypeChecker::new();
+                            if tc2.check(&ast).is_ok() {
+                                let mut ir_gen = IrGen::new();
+                                let ir_module = ir_gen.generate(&ast, &mut tc2);
+
+                                let mut codegen = LlvmCodeGen::new();
                             if let Ok(llvm_ir) = codegen.compile(&ir_module) {
                                 println!("{}", "Generated LLVM IR:".bold().bright_cyan());
                                 println!("{}", llvm_ir);
@@ -1337,8 +1340,8 @@ fn cmd_time(expr_str: &str, state: &mut ReplState) {
                         if let Ok(ast) = parser.parse_module() {
                             let mut tc2 = TypeChecker::new();
                             if tc2.check(&ast).is_ok() {
-                                let mut ir_gen = IrGen::new();
-                                let ir_module = ir_gen.generate(&ast, &tc2);
+let mut ir_gen = IrGen::new();
+                                let ir_module = ir_gen.generate(&ast, &mut tc2);
 
                                 let mut codegen = LlvmCodeGen::new();
                                 if let Ok(llvm_ir) = codegen.compile(&ir_module) {
@@ -1421,7 +1424,7 @@ fn process_input(input: &str, state: &mut ReplState) {
                             let mut tc2 = TypeChecker::new();
                             if tc2.check(&ast).is_ok() {
                                 let mut ir_gen = IrGen::new();
-                                let ir_module = ir_gen.generate(&ast, &tc2);
+                                let ir_module = ir_gen.generate(&ast, &mut tc2);
 
                                 let mut codegen = LlvmCodeGen::new();
                                 if let Ok(llvm_ir) = codegen.compile(&ir_module) {

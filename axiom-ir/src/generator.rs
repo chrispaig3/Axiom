@@ -8,6 +8,7 @@ pub struct IrGen {
     module: IrModule,
     local_counter: usize,
     block_counter: usize,
+    lambda_counter: usize,
     current_block: Option<String>,
 }
 
@@ -63,11 +64,12 @@ impl IrGen {
             module: IrModule::new(),
             local_counter: 0,
             block_counter: 0,
+            lambda_counter: 0,
             current_block: None,
         }
     }
 
-    pub fn generate(&mut self, ast_module: &Module, type_checker: &TypeChecker) -> IrModule {
+    pub fn generate(&mut self, ast_module: &Module, type_checker: &mut TypeChecker) -> IrModule {
         for decl in &ast_module.decls {
             match decl {
                 Decl::DStruct { name, fields, repr, .. } => {
@@ -103,7 +105,7 @@ impl IrGen {
         std::mem::take(&mut self.module)
     }
 
-    fn gen_function(&mut self, name: &Ident, params: &[Pattern], body: &Expr, type_checker: &TypeChecker) -> IrFunction {
+    fn gen_function(&mut self, name: &Ident, params: &[Pattern], body: &Expr, type_checker: &mut TypeChecker) -> IrFunction {
         let params: Vec<(String, TypeId)> = params.iter().filter_map(|p| {
             if let Pattern::PVar(ident) = p {
                 Some((ident.name.clone(), TypeId::TCon("I64".to_string(), vec![])))
@@ -186,7 +188,65 @@ impl IrGen {
         IrValue::Local(ptr_local)
     }
 
-    fn gen_expr_to_func_with_allocas(&mut self, func: &mut IrFunction, expr: &Expr, alloca_map: &mut HashMap<String, String>, type_checker: &TypeChecker) -> IrValue {
+    /// Compile a lambda expression as a named IR function in the
+    /// module so it can be passed as a first-class value or called
+    /// directly. Parameters are always `I64`; non-`PVar` patterns
+    /// are not yet supported for lambda parameters. Free variables
+    /// captured from the enclosing scope are not yet supported
+    /// (a known limitation).
+    fn gen_lambda(&mut self, params: &[Pattern], body: &Expr, type_checker: &mut TypeChecker) -> IrValue {
+        self.lambda_counter += 1;
+        let lambda_name = format!("_lambda_{}", self.lambda_counter);
+
+        let lambda_params: Vec<(String, TypeId)> = params.iter().filter_map(|p| {
+            if let Pattern::PVar(ident) = p {
+                Some((ident.name.clone(), TypeId::TCon("I64".to_string(), vec![])))
+            } else {
+                None
+            }
+        }).collect();
+
+        let lambda_return = TypeId::TCon("I64".to_string(), vec![]);
+
+        let mut lambda_func = IrFunction {
+            name: lambda_name.clone(),
+            params: lambda_params.clone(),
+            return_type: lambda_return,
+            blocks: Vec::new(),
+            locals: Vec::new(),
+        };
+
+        let entry_label = self.new_block_label();
+        self.current_block = Some(entry_label.clone());
+        lambda_func.blocks.push(IrBlock {
+            label: entry_label.clone(),
+            insts: Vec::new(),
+        });
+
+        let mut lambda_alloca_map: HashMap<String, String> = HashMap::new();
+        for (pname, pty) in &lambda_params {
+            let alloca_name = format!("_alloca_{}", pname);
+            lambda_func.locals.push((pname.clone(), pty.clone()));
+            self.emit_to_func(&mut lambda_func, IrInst::Alloca {
+                dest: IrValue::Local(alloca_name.clone()),
+                ty: pty.clone(),
+            });
+            self.emit_to_func(&mut lambda_func, IrInst::Store {
+                ptr: IrValue::Local(alloca_name.clone()),
+                value: IrValue::Local(pname.clone()),
+            });
+            lambda_alloca_map.insert(pname.clone(), alloca_name);
+        }
+
+        let body_val = self.gen_expr_to_func_with_allocas(&mut lambda_func, body, &mut lambda_alloca_map, type_checker);
+        self.emit_to_func(&mut lambda_func, IrInst::Ret { value: Some(body_val) });
+
+        self.module.functions.push(lambda_func);
+
+        IrValue::Global(lambda_name)
+    }
+
+    fn gen_expr_to_func_with_allocas(&mut self, func: &mut IrFunction, expr: &Expr, alloca_map: &mut HashMap<String, String>, type_checker: &mut TypeChecker) -> IrValue {
         match expr {
             Expr::ELit(lit, _) => self.gen_literal(lit),
             Expr::EVar(ident) => {
@@ -275,35 +335,30 @@ impl IrGen {
                     }
                 }
 
-                if let Expr::ELam(params, body) = current {
-                    let mut inline_map = alloca_map.clone();
-                    let param_values: Vec<IrValue> = all_args;
-                    for (i, pat) in params.iter().enumerate() {
-                        if let Pattern::PVar(ident) = pat {
-                            let val = param_values.get(i).cloned()
-                                .unwrap_or(IrValue::Const(IrConst::Int(0, TypeId::TCon("I64".to_string(), vec![]))));
-                            let alloca_name = format!("_alloca_{}", ident.name);
-                            func.locals.push((ident.name.clone(), TypeId::TCon("I64".to_string(), vec![])));
-                            self.emit_to_func(func, IrInst::Alloca {
-                                dest: IrValue::Local(alloca_name.clone()),
-                                ty: TypeId::TCon("I64".to_string(), vec![]),
-                            });
-                            self.emit_to_func(func, IrInst::Store {
-                                ptr: IrValue::Local(alloca_name.clone()),
-                                value: val,
-                            });
-                            inline_map.insert(ident.name.clone(), alloca_name);
-                        }
-                    }
-                    return self.gen_expr_to_func_with_allocas(func, body, &mut inline_map, type_checker);
-                }
+if let Expr::ELam(params, body) = current {
+                     let lambda_val = self.gen_lambda(params, body, type_checker);
+                     let lambda_name;
+                     if let IrValue::Global(name) = lambda_val {
+                         lambda_name = name;
+                     } else {
+                         lambda_name = "unknown".to_string();
+                     }
 
-                let func_name;
-                if let Expr::EVar(ident) = current {
-                    func_name = ident.name.clone();
-                } else {
-                    func_name = "unknown".to_string();
-                }
+                     let dest = self.new_local();
+                     self.emit_to_func(func, IrInst::Call {
+                         dest: IrValue::Local(dest.clone()),
+                         func: lambda_name,
+                         args: all_args,
+                     });
+                     return IrValue::Local(dest);
+                 }
+
+                 let func_name;
+                 if let Expr::EVar(ident) = current {
+                     func_name = ident.name.clone();
+                 } else {
+                     func_name = "unknown".to_string();
+                 }
 
                 let dest = self.new_local();
 
@@ -667,6 +722,69 @@ impl IrGen {
                 IrValue::Local(dest)
             }
             Expr::EGrouped(inner) => self.gen_expr_to_func_with_allocas(func, inner, alloca_map, type_checker),
+            Expr::ELam(params, body) => self.gen_lambda(params, body, type_checker),
+            Expr::ETuple(elements) => {
+                let i64_ty = TypeId::TCon("I64".to_string(), vec![]);
+                let tuple_size = (elements.len() * 8) as i64;
+                let ptr_local = self.new_local();
+                self.emit_to_func(func, IrInst::HeapAlloc {
+                    dest: IrValue::Local(ptr_local.clone()),
+                    size: IrValue::Const(IrConst::Int(tuple_size, i64_ty.clone())),
+                });
+                for (i, elem) in elements.iter().enumerate() {
+                    let val = self.gen_expr_to_func_with_allocas(func, elem, alloca_map, type_checker);
+                    self.emit_to_func(func, IrInst::StoreOffset {
+                        ptr: IrValue::Local(ptr_local.clone()),
+                        offset: (i * 8) as i64,
+                        value: val,
+                    });
+                }
+                IrValue::Local(ptr_local)
+            }
+            Expr::EList(items) => {
+                let i64_ty = TypeId::TCon("I64".to_string(), vec![]);
+                let list_size = (items.len() * 8) as i64;
+                let ptr_local = self.new_local();
+                self.emit_to_func(func, IrInst::HeapAlloc {
+                    dest: IrValue::Local(ptr_local.clone()),
+                    size: IrValue::Const(IrConst::Int(list_size, i64_ty.clone())),
+                });
+                for (i, item) in items.iter().enumerate() {
+                    let val = self.gen_expr_to_func_with_allocas(func, item, alloca_map, type_checker);
+                    self.emit_to_func(func, IrInst::StoreOffset {
+                        ptr: IrValue::Local(ptr_local.clone()),
+                        offset: (i * 8) as i64,
+                        value: val,
+                    });
+                }
+                IrValue::Local(ptr_local)
+            }
+            Expr::EHandle(body, _, handler) => {
+                let _ = handler;
+                self.gen_expr_to_func_with_allocas(func, body, alloca_map, type_checker)
+            }
+            Expr::ERegion(_, body) => {
+                self.gen_expr_to_func_with_allocas(func, body, alloca_map, type_checker)
+            }
+            Expr::EConsume(e) => {
+                self.gen_expr_to_func_with_allocas(func, e, alloca_map, type_checker)
+            }
+            Expr::EField(base, field_ident) => {
+                let base_val = self.gen_expr_to_func_with_allocas(func, base, alloca_map, type_checker);
+                let i64_ty = TypeId::TCon("I64".to_string(), vec![]);
+                if let Some((_struct_name, field_index, _field_ty)) = type_checker.find_struct_field_by_name(&field_ident.name) {
+                    let offset = ((1 + field_index) * 8) as i64;
+                    let result_reg = self.new_local();
+                    self.emit_to_func(func, IrInst::LoadOffset {
+                        dest: IrValue::Local(result_reg.clone()),
+                        ptr: base_val,
+                        offset,
+                    });
+                    IrValue::Local(result_reg)
+                } else {
+                    IrValue::Const(IrConst::Int(0, i64_ty))
+                }
+            }
             _ => IrValue::Const(IrConst::Int(0, TypeId::TCon("I64".to_string(), vec![]))),
         }
     }

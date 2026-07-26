@@ -854,6 +854,46 @@ impl TypeChecker {
             Expr::EConsume(e) => {
                 self.check_expr(e)
             }
+            Expr::EField(base, field_ident) => {
+                let base_ty = self.check_expr(base);
+                if let TypeId::TCon(struct_name, _) = &base_ty {
+                    let mut found = false;
+                    for si in &self.structs {
+                        if si.name == *struct_name {
+                            for (fname, fty) in &si.fields {
+                                if fname == &field_ident.name {
+                                    found = true;
+                                    return fty.clone();
+                                }
+                            }
+                        }
+                    }
+                    for ui in &self.unions {
+                        if ui.name == *struct_name {
+                            for (fname, fty) in &ui.fields {
+                                if fname == &field_ident.name {
+                                    found = true;
+                                    return fty.clone();
+                                }
+                            }
+                        }
+                    }
+                    if !found {
+                        self.errors.push(SemError::FieldNotFound {
+                            field: field_ident.name.clone(),
+                            ty: struct_name.clone(),
+                            span: field_ident.span,
+                        });
+                    }
+                } else {
+                    self.errors.push(SemError::TypeMismatch {
+                        expected: "struct".to_string(),
+                        found: format!("{}", base_ty),
+                        span: base.span(),
+                    });
+                }
+                TypeId::TCon("I64".to_string(), vec![])
+            }
             Expr::EError(_, _) => TypeId::TVar(format!("_t{}", self.type_counter)),
         }
     }
@@ -919,6 +959,58 @@ impl TypeChecker {
             for con in &dt.constructors {
                 if con.name == name {
                     return Some((dt, con));
+                }
+            }
+        }
+        None
+    }
+
+    /// Look up a struct field's byte offset within its struct type,
+    /// returning `(struct_type_name, field_index, field_type)`.
+    /// Used by the IR generator to emit `LoadOffset`/`StoreOffset`
+    /// instructions for struct field access. Returns `None` when
+    /// the base expression doesn't resolve to a known struct type
+    /// or the field name doesn't exist in that struct.
+    fn find_struct_field(&self, base_ty: &TypeId, field_name: &str) -> Option<(String, usize, TypeId)> {
+        if let TypeId::TCon(struct_name, _) = base_ty {
+            for si in &self.structs {
+                if si.name == *struct_name {
+                    for (idx, (fname, fty)) in si.fields.iter().enumerate() {
+                        if fname == field_name {
+                            return Some((struct_name.clone(), idx, fty.clone()));
+                        }
+                    }
+                }
+            }
+            for ui in &self.unions {
+                if ui.name == *struct_name {
+                    for (idx, (fname, fty)) in ui.fields.iter().enumerate() {
+                        if fname == field_name {
+                            return Some((struct_name.clone(), idx, fty.clone()));
+                        }
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    /// Search all known struct and union types for a field with the
+    /// given name, returning the first match's `(struct_name, field_index, field_type)`.
+    /// Used by the IR generator for field access when the base
+    /// expression's type can't be re-queried (e.g. inside `gen_expr_to_func_with_allocas`).
+    pub fn find_struct_field_by_name(&self, field_name: &str) -> Option<(String, usize, TypeId)> {
+        for si in &self.structs {
+            for (idx, (fname, fty)) in si.fields.iter().enumerate() {
+                if fname == field_name {
+                    return Some((si.name.clone(), idx, fty.clone()));
+                }
+            }
+        }
+        for ui in &self.unions {
+            for (idx, (fname, fty)) in ui.fields.iter().enumerate() {
+                if fname == field_name {
+                    return Some((ui.name.clone(), idx, fty.clone()));
                 }
             }
         }

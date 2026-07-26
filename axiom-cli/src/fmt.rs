@@ -455,6 +455,7 @@ fn is_simple_expr(expr: &Expr) -> bool {
         Expr::EInfix(l, _, r) => is_simple_expr(l) && is_simple_expr(r),
         Expr::ETuple(items) => items.iter().all(is_simple_expr),
         Expr::EList(items) => items.iter().all(is_simple_expr),
+        Expr::EField(base, _) => is_simple_expr(base),
         _ => false,
     }
 }
@@ -735,6 +736,11 @@ fn format_expr(expr: &Expr, out: &mut String, state: &mut FormatState) {
             out.push_str("(consume ");
             format_expr(inner, out, state);
             out.push(')');
+        }
+        Expr::EField(base, field_ident) => {
+            format_expr(base, out, state);
+            out.push('.');
+            out.push_str(&field_ident.name);
         }
         Expr::EError(msg, _) => {
             write!(out, "_{}", msg).unwrap();

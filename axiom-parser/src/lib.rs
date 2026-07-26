@@ -857,9 +857,14 @@ impl Parser {
             } else {
                 unreachable!()
             }
-        } else if self.is_ident() {
-            let ident = self.parse_ident()?;
-            Ok(Expr::EVar(ident))
+} else if self.is_ident() {
+             let ident = self.parse_ident()?;
+             let mut expr = Expr::EVar(ident);
+             while self.eat(TokenKind::Dot) {
+                 let field_name = self.parse_ident()?;
+                 expr = Expr::EField(Box::new(expr), field_name);
+             }
+             Ok(expr)
         } else if self.check(TokenKind::Plus)
             || self.check(TokenKind::Star)
             || self.check(TokenKind::Slash)

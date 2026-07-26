@@ -695,7 +695,7 @@ impl LlvmCodeGen {
                 format!("[{} x {}]", 0, self.type_to_llvm(inner))
             }
             TypeId::TArr(_, _) => "ptr".to_string(),
-            TypeId::TTuple(_) => "void".to_string(),
+            TypeId::TTuple(_) => "i64".to_string(),
             TypeId::TVar(_) => "i64".to_string(),
             TypeId::TForall(_, inner) => self.type_to_llvm(inner),
             // TError only appears on an AST that already failed semantic
