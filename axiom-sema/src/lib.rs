@@ -857,12 +857,10 @@ impl TypeChecker {
             Expr::EField(base, field_ident) => {
                 let base_ty = self.check_expr(base);
                 if let TypeId::TCon(struct_name, _) = &base_ty {
-                    let mut found = false;
                     for si in &self.structs {
                         if si.name == *struct_name {
                             for (fname, fty) in &si.fields {
                                 if fname == &field_ident.name {
-                                    found = true;
                                     return fty.clone();
                                 }
                             }
@@ -872,19 +870,16 @@ impl TypeChecker {
                         if ui.name == *struct_name {
                             for (fname, fty) in &ui.fields {
                                 if fname == &field_ident.name {
-                                    found = true;
                                     return fty.clone();
                                 }
                             }
                         }
                     }
-                    if !found {
-                        self.errors.push(SemError::FieldNotFound {
-                            field: field_ident.name.clone(),
-                            ty: struct_name.clone(),
-                            span: field_ident.span,
-                        });
-                    }
+                    self.errors.push(SemError::FieldNotFound {
+                        field: field_ident.name.clone(),
+                        ty: struct_name.clone(),
+                        span: field_ident.span,
+                    });
                 } else {
                     self.errors.push(SemError::TypeMismatch {
                         expected: "struct".to_string(),
@@ -959,36 +954,6 @@ impl TypeChecker {
             for con in &dt.constructors {
                 if con.name == name {
                     return Some((dt, con));
-                }
-            }
-        }
-        None
-    }
-
-    /// Look up a struct field's byte offset within its struct type,
-    /// returning `(struct_type_name, field_index, field_type)`.
-    /// Used by the IR generator to emit `LoadOffset`/`StoreOffset`
-    /// instructions for struct field access. Returns `None` when
-    /// the base expression doesn't resolve to a known struct type
-    /// or the field name doesn't exist in that struct.
-    fn find_struct_field(&self, base_ty: &TypeId, field_name: &str) -> Option<(String, usize, TypeId)> {
-        if let TypeId::TCon(struct_name, _) = base_ty {
-            for si in &self.structs {
-                if si.name == *struct_name {
-                    for (idx, (fname, fty)) in si.fields.iter().enumerate() {
-                        if fname == field_name {
-                            return Some((struct_name.clone(), idx, fty.clone()));
-                        }
-                    }
-                }
-            }
-            for ui in &self.unions {
-                if ui.name == *struct_name {
-                    for (idx, (fname, fty)) in ui.fields.iter().enumerate() {
-                        if fname == field_name {
-                            return Some((struct_name.clone(), idx, fty.clone()));
-                        }
-                    }
                 }
             }
         }
