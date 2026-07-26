@@ -1,6 +1,6 @@
 use axiom_ir::*;
 use axiom_sema::TypeId;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt::Write;
 
 pub struct LlvmCodeGen {
@@ -12,6 +12,7 @@ pub struct LlvmCodeGen {
     locals: HashMap<String, (String, TypeId)>,
     ssa_values: HashMap<String, (String, TypeId)>,
     string_ids: HashMap<String, usize>,
+    extern_decls: HashSet<String>,
 }
 
 impl Default for LlvmCodeGen {
@@ -31,6 +32,7 @@ impl LlvmCodeGen {
             locals: HashMap::new(),
             ssa_values: HashMap::new(),
             string_ids: HashMap::new(),
+            extern_decls: HashSet::new(),
         }
     }
 
@@ -40,6 +42,20 @@ impl LlvmCodeGen {
         writeln!(self.output).unwrap();
 
         self.declare_extern_funcs();
+
+        for (name, params, ret) in &ir_module.extern_funcs {
+            if self.extern_decls.insert(name.clone()) {
+                let params_str = params
+                    .iter()
+                    .map(|t| self.type_to_llvm(t))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let ret_str = self.type_to_llvm(ret);
+                writeln!(self.output, "declare {} @{}({})", ret_str, name, params_str)
+                    .unwrap();
+            }
+        }
+
         writeln!(self.output).unwrap();
 
         // Collect and emit string constants first
@@ -106,13 +122,19 @@ impl LlvmCodeGen {
     }
 
     fn declare_extern_funcs(&mut self) {
-        writeln!(self.output, "declare i32 @printf(ptr, ...)").unwrap();
-        writeln!(self.output, "declare i32 @puts(ptr)").unwrap();
-        writeln!(self.output, "declare ptr @malloc(i64)").unwrap();
-        writeln!(self.output, "declare void @free(ptr)").unwrap();
-        writeln!(self.output, "declare ptr @memset(ptr, i32, i64)").unwrap();
-        writeln!(self.output, "declare ptr @memcpy(ptr, ptr, i64)").unwrap();
-        writeln!(self.output, "declare void @exit(i32)").unwrap();
+        let hardcoded = [
+            ("printf", "i32", "ptr, ..."),
+            ("puts", "i32", "ptr"),
+            ("malloc", "ptr", "i64"),
+            ("free", "void", "ptr"),
+            ("memset", "ptr", "ptr, i32, i64"),
+            ("memcpy", "ptr", "ptr, ptr, i64"),
+            ("exit", "void", "i32"),
+        ];
+        for (name, ret, params) in &hardcoded {
+            writeln!(self.output, "declare {} @{}({})", ret, name, params).unwrap();
+            self.extern_decls.insert(name.to_string());
+        }
     }
 
     fn declare_struct(&mut self, ir_struct: &IrStruct) {
