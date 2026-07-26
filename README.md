@@ -470,7 +470,17 @@ Note: Pattern matching codegen is still being implemented. The type checker vali
 
 # Start interactive REPL
 ./target/release/axiom repl
+
+# Look up a diagnostic code
+./target/release/axiom explain AX3001
+
+# Render diagnostics in Axiom's AI-optimized notation (see docs/diagnostics.md)
+./target/release/axiom --diagnostic-format=ai check source.ax
 ```
+
+See [`docs/diagnostics.md`](docs/diagnostics.md) for the full diagnostics
+architecture: stable error codes (`AX####`), cascade suppression, the
+human report format, and the AI-optimized "AXDL" notation.
 
 ---
 

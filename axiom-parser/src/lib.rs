@@ -1,13 +1,18 @@
 use axiom_ast::token::{Token, TokenKind};
 use axiom_ast::ast::*;
 use axiom_ast::span::{Span, Ident};
+use axiom_errors::{code, Diagnostic};
 
 #[derive(Debug, thiserror::Error)]
 pub enum ParseError {
     #[error("expected {expected}, found {found}")]
     UnexpectedToken { expected: String, found: String, span: Span },
+    /// `span` points at the last token before end-of-file, so the report
+    /// still lands on real source text instead of nowhere (previously this
+    /// variant carried no span at all and rendered as a zero-width
+    /// `Span::dummy()` at byte 0).
     #[error("unexpected end of file")]
-    UnexpectedEof,
+    UnexpectedEof { span: Span },
     #[error("{message}")]
     Message { message: String, span: Span },
 }
@@ -16,8 +21,32 @@ impl ParseError {
     pub fn span(&self) -> Span {
         match self {
             ParseError::UnexpectedToken { span, .. } => *span,
-            ParseError::UnexpectedEof => Span::dummy(),
+            ParseError::UnexpectedEof { span } => *span,
             ParseError::Message { span, .. } => *span,
+        }
+    }
+
+    /// Convert into a renderer-agnostic [`Diagnostic`].
+    pub fn to_diagnostic(&self) -> Diagnostic {
+        let span = self.span();
+        match self {
+            ParseError::UnexpectedToken { expected, found, .. } => {
+                Diagnostic::error(
+                    &code::UNEXPECTED_TOKEN,
+                    format!("expected {}, found `{}`", expected, found),
+                )
+                .with_primary(span, format!("found `{}` here", found))
+                .with_help(format!("Axiom expected {} at this position", expected))
+            }
+            ParseError::UnexpectedEof { .. } => {
+                Diagnostic::error(&code::UNEXPECTED_EOF, self.to_string())
+                    .with_primary(span, "file ends here while a form is still open")
+                    .with_help("count `(`/`[`/`{` against `)`/`]`/`}` working backward from the end of the file")
+            }
+            ParseError::Message { message, .. } => {
+                Diagnostic::error(&code::PARSE_MESSAGE, message.clone())
+                    .with_primary(span, message.clone())
+            }
         }
     }
 }

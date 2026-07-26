@@ -1,6 +1,8 @@
 [package]
 name = "axiom-errors"
-version = "0.1.0"
-edition = "2021"
+version.workspace = true
+edition.workspace = true
 
 [dependencies]
+axiom-ast.workspace = true
+ariadne.workspace = true

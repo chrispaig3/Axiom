@@ -73,6 +73,7 @@ dependencies = [
  "ariadne",
  "axiom-ast",
  "axiom-codegen",
+ "axiom-errors",
  "axiom-ir",
  "axiom-lexer",
  "axiom-parser",
@@ -95,6 +96,10 @@ dependencies = [
 [[package]]
 name = "axiom-errors"
 version = "0.1.0"
+dependencies = [
+ "ariadne",
+ "axiom-ast",
+]
 
 [[package]]
 name = "axiom-ir"
@@ -109,6 +114,7 @@ name = "axiom-lexer"
 version = "0.1.0"
 dependencies = [
  "axiom-ast",
+ "axiom-errors",
  "thiserror",
 ]
 
@@ -117,6 +123,7 @@ name = "axiom-parser"
 version = "0.1.0"
 dependencies = [
  "axiom-ast",
+ "axiom-errors",
  "axiom-lexer",
  "thiserror",
 ]
@@ -126,6 +133,7 @@ name = "axiom-sema"
 version = "0.1.0"
 dependencies = [
  "axiom-ast",
+ "axiom-errors",
  "axiom-parser",
  "thiserror",
 ]

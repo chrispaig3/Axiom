@@ -1,18 +1,70 @@
 use axiom_ast::token::{Token, TokenKind};
 use axiom_ast::span::Span;
+use axiom_errors::{code, Diagnostic};
 
+/// Every variant now carries the [`Span`] where it occurred; previously the
+/// CLI reported all lexer errors at a hardcoded byte offset of `0`, which
+/// meant the location shown to the user was almost always wrong.
 #[derive(Debug, thiserror::Error)]
 pub enum LexerError {
-    #[error("Unexpected character '{0}'")]
-    UnexpectedChar(char),
-    #[error("Unterminated string literal")]
-    UnterminatedString,
-    #[error("Unterminated char literal")]
-    UnterminatedChar,
-    #[error("Invalid number literal")]
-    InvalidNumber,
-    #[error("Invalid escape sequence")]
-    InvalidEscape,
+    #[error("unexpected character `{ch}`")]
+    UnexpectedChar { ch: char, span: Span },
+    #[error("unterminated string literal")]
+    UnterminatedString { span: Span },
+    #[error("unterminated char literal")]
+    UnterminatedChar { span: Span },
+    #[error("invalid number literal `{text}`")]
+    InvalidNumber { text: String, span: Span },
+    #[error("invalid escape sequence `\\{ch}`")]
+    InvalidEscape { ch: char, span: Span },
+}
+
+impl LexerError {
+    pub fn span(&self) -> Span {
+        match self {
+            LexerError::UnexpectedChar { span, .. } => *span,
+            LexerError::UnterminatedString { span, .. } => *span,
+            LexerError::UnterminatedChar { span, .. } => *span,
+            LexerError::InvalidNumber { span, .. } => *span,
+            LexerError::InvalidEscape { span, .. } => *span,
+        }
+    }
+
+    /// Convert into a renderer-agnostic [`Diagnostic`], with a code and a
+    /// tailored help message for each lexical failure mode.
+    pub fn to_diagnostic(&self) -> Diagnostic {
+        let span = self.span();
+        match self {
+            LexerError::UnexpectedChar { ch, .. } => {
+                Diagnostic::error(&code::UNEXPECTED_CHAR, self.to_string())
+                    .with_primary(span, format!("`{}` is not valid here", ch))
+                    .with_help(
+                        "identifiers may contain letters, digits, `_`, and `'`; \
+                         operators are built from `+ - * / % ^ = < > ! & | . ? ~ @`",
+                    )
+            }
+            LexerError::UnterminatedString { .. } => {
+                Diagnostic::error(&code::UNTERMINATED_STRING, self.to_string())
+                    .with_primary(span, "string literal starts here but is never closed")
+                    .with_help("add a closing `\"`, or escape an embedded quote as `\\\"`")
+            }
+            LexerError::UnterminatedChar { .. } => {
+                Diagnostic::error(&code::UNTERMINATED_CHAR, self.to_string())
+                    .with_primary(span, "character literal starts here but is never closed")
+                    .with_help("character literals must contain exactly one character, e.g. `'a'` or `'\\n'`")
+            }
+            LexerError::InvalidNumber { text, .. } => {
+                Diagnostic::error(&code::INVALID_NUMBER, self.to_string())
+                    .with_primary(span, format!("`{}` cannot be parsed as Int or Float", text))
+                    .with_help("check for a value that overflows i64/f64 or a malformed exponent")
+            }
+            LexerError::InvalidEscape { .. } => {
+                Diagnostic::error(&code::INVALID_ESCAPE, self.to_string())
+                    .with_primary(span, "unrecognized escape sequence")
+                    .with_help("valid escapes are \\n \\t \\r \\\\ \\\" \\' \\0")
+            }
+        }
+    }
 }
 
 fn is_operator_char(ch: char) -> bool {
@@ -200,7 +252,10 @@ impl Lexer {
                         self.push_token(&mut tokens, TokenKind::Pipe);
                     }
                 }
-                _ => return Err(LexerError::UnexpectedChar(ch)),
+                _ => return Err(LexerError::UnexpectedChar {
+                    ch,
+                    span: Span::new(self.pos, self.pos + 1, self.file_id),
+                }),
             }
         }
 
@@ -332,12 +387,12 @@ impl Lexer {
         if is_float {
             match num_str.parse::<f64>() {
                 Ok(n) => Ok(Token::new(TokenKind::FloatLiteral(n), self.span(start))),
-                Err(_) => Err(LexerError::InvalidNumber),
+                Err(_) => Err(LexerError::InvalidNumber { text: num_str, span: self.span(start) }),
             }
         } else {
             match num_str.parse::<i64>() {
                 Ok(n) => Ok(Token::new(TokenKind::IntLiteral(n), self.span(start))),
-                Err(_) => Err(LexerError::InvalidNumber),
+                Err(_) => Err(LexerError::InvalidNumber { text: num_str, span: self.span(start) }),
             }
         }
     }
@@ -352,7 +407,7 @@ impl Lexer {
             if ch == '\\' {
                 self.pos += 1;
                 if self.pos >= self.source.len() {
-                    return Err(LexerError::UnterminatedString);
+                    return Err(LexerError::UnterminatedString { span: self.span(start) });
                 }
                 let esc = self.source[self.pos];
                 match esc {
@@ -363,7 +418,10 @@ impl Lexer {
                     '"' => value.push('"'),
                     '\'' => value.push('\''),
                     '0' => value.push('\0'),
-                    _ => return Err(LexerError::InvalidEscape),
+                    _ => return Err(LexerError::InvalidEscape {
+                        ch: esc,
+                        span: Span::new(self.pos - 1, self.pos + 1, self.file_id),
+                    }),
                 }
                 self.pos += 1;
             } else if ch == '"' {
@@ -375,7 +433,7 @@ impl Lexer {
             }
         }
 
-        Err(LexerError::UnterminatedString)
+        Err(LexerError::UnterminatedString { span: self.span(start) })
     }
 
     fn consume_char(&mut self) -> Result<Token, LexerError> {
@@ -383,13 +441,13 @@ impl Lexer {
         self.pos += 1;
 
         if self.pos >= self.source.len() {
-            return Err(LexerError::UnterminatedChar);
+            return Err(LexerError::UnterminatedChar { span: self.span(start) });
         }
 
         let ch = if self.source[self.pos] == '\\' {
             self.pos += 1;
             if self.pos >= self.source.len() {
-                return Err(LexerError::UnterminatedChar);
+                return Err(LexerError::UnterminatedChar { span: self.span(start) });
             }
             match self.source[self.pos] {
                 'n' => '\n',
@@ -399,7 +457,10 @@ impl Lexer {
                 '\'' => '\'',
                 '"' => '"',
                 '0' => '\0',
-                _ => return Err(LexerError::InvalidEscape),
+                _ => return Err(LexerError::InvalidEscape {
+                    ch: self.source[self.pos],
+                    span: Span::new(self.pos - 1, self.pos + 1, self.file_id),
+                }),
             }
         } else {
             self.source[self.pos]
@@ -408,7 +469,7 @@ impl Lexer {
         self.pos += 1;
 
         if self.pos >= self.source.len() || self.source[self.pos] != '\'' {
-            return Err(LexerError::UnterminatedChar);
+            return Err(LexerError::UnterminatedChar { span: self.span(start) });
         }
         self.pos += 1;
 

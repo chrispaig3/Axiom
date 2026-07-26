@@ -654,6 +654,12 @@ impl LlvmCodeGen {
             TypeId::TTuple(_) => "void".to_string(),
             TypeId::TVar(_) => "i64".to_string(),
             TypeId::TForall(_, inner) => self.type_to_llvm(inner),
+            // TError only appears on an AST that already failed semantic
+            // analysis; codegen never actually runs on such an AST (the
+            // CLI bails out after printing diagnostics), so this arm is
+            // unreachable in practice and just needs to satisfy
+            // exhaustiveness.
+            TypeId::TError => "i64".to_string(),
         }
     }
 

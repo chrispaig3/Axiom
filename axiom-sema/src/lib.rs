@@ -1,14 +1,15 @@
 use axiom_ast::ast::*;
 use axiom_ast::span::{Span, Ident};
+use axiom_errors::{code, Diagnostic};
 
 #[derive(Debug, thiserror::Error)]
 pub enum SemError {
     #[error("undefined variable `{name}`")]
-    UndefinedVariable { name: String, span: Span },
+    UndefinedVariable { name: String, span: Span, suggestion: Option<String> },
     #[error("undefined type `{name}`")]
-    UndefinedType { name: String, span: Span },
+    UndefinedType { name: String, span: Span, suggestion: Option<String> },
     #[error("undefined constructor `{name}`")]
-    UndefinedConstructor { name: String, span: Span },
+    UndefinedConstructor { name: String, span: Span, suggestion: Option<String> },
     #[error("type mismatch: expected {expected}, found {found}")]
     TypeMismatch { expected: String, found: String, span: Span },
     #[error("pattern not exhaustive")]
@@ -34,6 +35,116 @@ impl SemError {
             SemError::Message { span, .. } => *span,
         }
     }
+
+    /// Convert into a renderer-agnostic [`Diagnostic`], including
+    /// "did you mean `foo`?" suggestions computed from names actually in
+    /// scope (see [`TypeChecker::suggest_name`]).
+    pub fn to_diagnostic(&self) -> Diagnostic {
+        let span = self.span();
+        match self {
+            SemError::UndefinedVariable { name, suggestion, .. } => {
+                let mut d = Diagnostic::error(&code::UNDEFINED_VARIABLE, self.to_string())
+                    .with_primary(span, format!("no binding named `{}` in scope", name));
+                d = match suggestion {
+                    Some(s) => d.with_suggestion(
+                        format!("a similarly named binding `{}` is in scope; did you mean this?", s),
+                        span,
+                        s.clone(),
+                    ),
+                    None => d.with_help(
+                        "variables must be defined (via `define`/`fn`, a `let` binding, or a \
+                         lambda parameter) before they are used; check for typos",
+                    ),
+                };
+                d
+            }
+            SemError::UndefinedType { name, suggestion, .. } => {
+                let mut d = Diagnostic::error(&code::UNDEFINED_TYPE, self.to_string())
+                    .with_primary(span, format!("no type named `{}` is visible here", name));
+                d = match suggestion {
+                    Some(s) => d.with_suggestion(
+                        format!("a similarly named type `{}` is visible; did you mean this?", s),
+                        span,
+                        s.clone(),
+                    ),
+                    None => d.with_help("check for typos, or a missing `data`/`struct`/`type` declaration"),
+                };
+                d
+            }
+            SemError::UndefinedConstructor { name, suggestion, .. } => {
+                let mut d = Diagnostic::error(&code::UNDEFINED_CONSTRUCTOR, self.to_string())
+                    .with_primary(span, format!("no constructor named `{}` is visible here", name));
+                d = match suggestion {
+                    Some(s) => d.with_suggestion(
+                        format!("a similarly named constructor `{}` is visible; did you mean this?", s),
+                        span,
+                        s.clone(),
+                    ),
+                    None => d.with_help("check the `data` declaration for the correct constructor name"),
+                };
+                d
+            }
+            SemError::TypeMismatch { expected, found, .. } => {
+                Diagnostic::error(&code::TYPE_MISMATCH, self.to_string())
+                    .with_primary(span, format!("this has type `{}`", found))
+                    .with_note(format!("expected `{}`, found `{}`", expected, found))
+            }
+            SemError::NonExhaustive { .. } => {
+                Diagnostic::error(&code::NON_EXHAUSTIVE, self.to_string())
+                    .with_primary(span, "this `case` does not cover every possibility")
+                    .with_help("add the missing arms, or a wildcard `_` arm to catch the rest")
+            }
+            SemError::DuplicateDefinition { name, .. } => {
+                Diagnostic::error(&code::DUPLICATE_DEFINITION, self.to_string())
+                    .with_primary(span, format!("`{}` redefined here", name))
+                    .with_help("rename one of the definitions, or remove the duplicate")
+            }
+            SemError::FieldNotFound { field, ty, .. } => {
+                Diagnostic::error(&code::FIELD_NOT_FOUND, self.to_string())
+                    .with_primary(span, format!("no field `{}` on `{}`", field, ty))
+                    .with_help(format!("check the field name and the definition of `{}`", ty))
+            }
+            SemError::Message { message, .. } => {
+                Diagnostic::error(&code::SEMA_MESSAGE, message.clone()).with_primary(span, message.clone())
+            }
+        }
+    }
+}
+
+/// Find the closest match to `name` among `candidates` using Levenshtein
+/// distance, for "did you mean `foo`?" suggestions. Only returns a match
+/// that's close enough to plausibly be a typo (distance <= 2, and no more
+/// than half the length of the shorter string) so we don't suggest
+/// nonsense for genuinely unrelated names.
+fn suggest_closest<'a>(name: &str, candidates: impl Iterator<Item = &'a str>) -> Option<String> {
+    let mut best: Option<(&str, usize)> = None;
+    for candidate in candidates {
+        if candidate == name || candidate.starts_with("__") {
+            continue;
+        }
+        let dist = levenshtein(name, candidate);
+        let threshold = (name.len().min(candidate.len()) / 2).max(1).min(2);
+        if dist <= threshold && best.map_or(true, |(_, d)| dist < d) {
+            best = Some((candidate, dist));
+        }
+    }
+    best.map(|(s, _)| s.to_string())
+}
+
+fn levenshtein(a: &str, b: &str) -> usize {
+    let a: Vec<char> = a.chars().collect();
+    let b: Vec<char> = b.chars().collect();
+    let mut prev: Vec<usize> = (0..=b.len()).collect();
+    let mut curr = vec![0usize; b.len() + 1];
+    for i in 1..=a.len() {
+        curr[0] = i;
+        for j in 1..=b.len() {
+            let cost = if a[i - 1] == b[j - 1] { 0 } else { 1 };
+            curr[j] = (prev[j] + 1).min(curr[j - 1] + 1).min(prev[j - 1] + cost);
+        }
+        std::mem::swap(&mut prev, &mut curr);
+    }
+    prev[b.len()]
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -45,11 +156,25 @@ pub enum TypeId {
     TList(Box<TypeId>),
     TPtr(Box<TypeId>, bool),
     TForall(Vec<String>, Box<TypeId>),
+    /// A "poison" type produced after an error has already been reported
+    /// for this expression (e.g. an undefined variable). Poison types are
+    /// deliberately treated as compatible with everything downstream so
+    /// that one root-cause error doesn't cascade into a wall of unrelated
+    /// type-mismatch errors about the same expression - the single
+    /// biggest source of noisy, confusing diagnostics before this change.
+    TError,
+}
+
+impl TypeId {
+    pub fn is_error(&self) -> bool {
+        matches!(self, TypeId::TError)
+    }
 }
 
 impl std::fmt::Display for TypeId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            TypeId::TError => write!(f, "{{unknown}}"),
             TypeId::TVar(name) => write!(f, "{}", name),
             TypeId::TCon(name, args) => {
                 if args.is_empty() {
@@ -344,13 +469,18 @@ impl TypeChecker {
                     TypeId::TArr(_param_ty, ret_ty) => {
                         *ret_ty
                     }
+                    // Don't report "expected function type" when `func_ty`
+                    // is already a poison type from an earlier error (e.g.
+                    // calling an undefined variable): that would just be a
+                    // second, redundant error about the same root cause.
+                    TypeId::TError => TypeId::TError,
                     _ => {
                         self.errors.push(SemError::TypeMismatch {
                             expected: "function type".to_string(),
                             found: format!("{}", func_ty),
                             span: expr.span(),
                         });
-                        TypeId::TVar(format!("_t{}", self.type_counter))
+                        TypeId::TError
                     }
                 }
             }
@@ -376,7 +506,7 @@ impl TypeChecker {
             }
             Expr::EIf(cond, then_expr, else_expr) => {
                 let cond_ty = self.check_expr(cond);
-                if cond_ty != TypeId::TCon("Bool".to_string(), vec![]) {
+                if !cond_ty.is_error() && cond_ty != TypeId::TCon("Bool".to_string(), vec![]) {
                     self.errors.push(SemError::TypeMismatch {
                         expected: "Bool".to_string(),
                         found: format!("{}", cond_ty),
@@ -385,14 +515,14 @@ impl TypeChecker {
                 }
                 let then_ty = self.check_expr(then_expr);
                 let else_ty = self.check_expr(else_expr);
-                if then_ty != else_ty {
+                if !then_ty.is_error() && !else_ty.is_error() && then_ty != else_ty {
                     self.errors.push(SemError::TypeMismatch {
                         expected: format!("{}", then_ty),
                         found: format!("{}", else_ty),
                         span: else_expr.span(),
                     });
                 }
-                then_ty
+                if then_ty.is_error() { else_ty } else { then_ty }
             }
             Expr::ECase(target, arms) => {
                 self.check_expr(target);
@@ -409,7 +539,7 @@ impl TypeChecker {
                 let mut result_ty = TypeId::TVar(format!("_t{}", self.type_counter));
                 for (cond, body) in branches {
                     let cond_ty = self.check_expr(cond);
-                    if cond_ty != TypeId::TCon("Bool".to_string(), vec![]) {
+                    if !cond_ty.is_error() && cond_ty != TypeId::TCon("Bool".to_string(), vec![]) {
                         self.errors.push(SemError::TypeMismatch {
                             expected: "Bool".to_string(),
                             found: format!("{}", cond_ty),
@@ -420,7 +550,7 @@ impl TypeChecker {
                 }
                 if let Some(else_body) = else_branch {
                     let else_ty = self.check_expr(else_body);
-                    if else_ty != result_ty {
+                    if !result_ty.is_error() && !else_ty.is_error() && else_ty != result_ty {
                         self.errors.push(SemError::TypeMismatch {
                             expected: format!("{}", result_ty),
                             found: format!("{}", else_ty),
@@ -506,12 +636,28 @@ impl TypeChecker {
             }
         }
 
+        let suggestion = suggest_closest(
+            &ident.name,
+            self.scope
+                .iter()
+                .map(|(n, _)| n.as_str())
+                .chain(self.functions.iter().map(|f| f.name.as_str()))
+                .chain(
+                    self.data_types
+                        .iter()
+                        .flat_map(|dt| dt.constructors.iter().map(|c| c.name.as_str())),
+                ),
+        );
+
         self.errors.push(SemError::UndefinedVariable {
             name: ident.name.clone(),
             span: ident.span,
+            suggestion,
         });
 
-        TypeId::TVar(format!("_t{}", self.type_counter))
+        // Poison: every downstream use of this value is suppressed from
+        // producing further cascading errors (see `TypeId::TError`).
+        TypeId::TError
     }
 
     fn check_literal(&self, lit: &Literal) -> TypeId {

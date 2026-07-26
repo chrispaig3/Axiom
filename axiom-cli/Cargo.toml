@@ -14,6 +14,7 @@ axiom-parser.workspace = true
 axiom-sema.workspace = true
 axiom-ir.workspace = true
 axiom-codegen.workspace = true
+axiom-errors.workspace = true
 ariadne.workspace = true
 clap = { version = "4.4", features = ["derive"] }
 rustyline.workspace = true

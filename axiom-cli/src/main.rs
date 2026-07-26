@@ -6,10 +6,10 @@ use axiom_parser::{Parser, DeclOrExpr};
 use axiom_sema::TypeChecker;
 use axiom_ir::generator::IrGen;
 use axiom_codegen::LlvmCodeGen;
+use axiom_errors::{Diagnostic, DiagnosticFormat};
 
 mod fmt;
 
-use ariadne::{Label, Report, ReportKind, Source};
 use clap::{Parser as ClapParser, Subcommand};
 use colored::Colorize;
 use rustyline::error::ReadlineError;
@@ -18,8 +18,14 @@ use rustyline::DefaultEditor;
 #[derive(ClapParser)]
 #[command(name = "axiom")]
 #[command(about = "Axiom Compiler - A functional systems programming language")]
-#[command(version = "3.0.0")]
+#[command(version)]
 struct Cli {
+    /// How to render diagnostics: `human` (default, Rust-style reports),
+    /// `ai` (Axiom's dense AI-optimized notation, see `docs/diagnostics.md`),
+    /// or `json` (JSON Lines, one diagnostic object per line).
+    #[arg(long, global = true, default_value = "human")]
+    diagnostic_format: String,
+
     #[command(subcommand)]
     command: Commands,
 }
@@ -65,26 +71,41 @@ enum Commands {
         #[arg(long)]
         check: bool,
     },
+    /// Print a full explanation for a diagnostic code, e.g. `axiom explain AX3001`
+    Explain {
+        /// Diagnostic code, with or without the `AX` prefix (e.g. `AX3001` or `3001`)
+        code: Option<String>,
+        /// List every known diagnostic code
+        #[arg(long)]
+        list: bool,
+    },
 }
 
 fn main() {
     let cli = Cli::parse();
+    let format = DiagnosticFormat::parse(&cli.diagnostic_format).unwrap_or_else(|| {
+        eprintln!(
+            "warning: unknown --diagnostic-format '{}', falling back to 'human' (valid: human, ai, json)",
+            cli.diagnostic_format
+        );
+        DiagnosticFormat::Human
+    });
 
     match cli.command {
         Commands::Build { input, output, emit_llvm, opt } => {
-            if let Err(e) = build(&input, &output, emit_llvm, opt) {
+            if let Err(e) = build(&input, &output, emit_llvm, opt, format) {
                 eprintln!("{}", e);
                 std::process::exit(1);
             }
         }
         Commands::Run { input, args } => {
-            if let Err(e) = run(&input, &args) {
+            if let Err(e) = run(&input, &args, format) {
                 eprintln!("{}", e);
                 std::process::exit(1);
             }
         }
         Commands::Check { input } => {
-            if let Err(e) = check(&input) {
+            if let Err(e) = check(&input, format) {
                 eprintln!("{}", e);
                 std::process::exit(1);
             } else {
@@ -106,97 +127,92 @@ fn main() {
                 std::process::exit(1);
             }
         }
+        Commands::Explain { code, list } => {
+            explain(code.as_deref(), list);
+        }
     }
 }
 
-fn report_lexer_error(source: &str, filename: &str, message: &str, pos: usize) {
-    let end = (pos + 1).min(source.len());
-    Report::build(ReportKind::Error, filename, 0)
-        .with_message(format!("Lexer error: {}", message))
-        .with_label(Label::new((filename, pos..end)))
-        .finish()
-        .print((filename, Source::from(source)))
-        .unwrap();
-}
-
-fn report_parse_error(source: &str, filename: &str, message: &str, span: axiom_ast::span::Span) {
-    let end = span.end.max(span.start + 1);
-    Report::build(ReportKind::Error, filename, 0)
-        .with_message(format!("Parse error: {}", message))
-        .with_label(Label::new((filename, span.start..end)))
-        .with_help("Check the Axiom language documentation for correct syntax")
-        .finish()
-        .print((filename, Source::from(source)))
-        .unwrap();
-}
-
-fn report_type_error(source: &str, filename: &str, message: &str, span: axiom_ast::span::Span, help: Option<&str>) {
-    let end = span.end.max(span.start + 1);
-    let mut report = Report::build(ReportKind::Error, filename, 0)
-        .with_message(format!("Type error: {}", message))
-        .with_label(Label::new((filename, span.start..end)));
-
-    if let Some(help) = help {
-        report = report.with_help(help);
+fn explain(code: Option<&str>, list: bool) {
+    if list || code.is_none() {
+        println!("{}", "Known Axiom diagnostic codes:".bold().bright_cyan());
+        for info in axiom_errors::code::ALL {
+            println!("  {}  {}  ({})", info.code.bright_yellow(), info.title, info.slug);
+        }
+        if code.is_none() && !list {
+            println!("\nUsage: axiom explain <CODE>");
+        }
+        return;
     }
-
-    report.finish().print((filename, Source::from(source))).unwrap();
+    let code = code.unwrap();
+    match axiom_errors::explain(code) {
+        Some(text) => println!("{}", text),
+        None => {
+            eprintln!("error: unknown diagnostic code '{}'", code);
+            eprintln!("run `axiom explain --list` to see all known codes");
+            std::process::exit(1);
+        }
+    }
 }
 
-fn build(input: &str, output: &str, emit_llvm: bool, _opt: u8) -> Result<(), String> {
-    let source = fs::read_to_string(input)
-        .map_err(|e| format!("Failed to read file '{}': {}", input, e))?;
+/// Render a batch of diagnostics for one file in the requested format and
+/// print to stderr, deduplicating cascades first.
+fn print_diagnostics(diags: Vec<Diagnostic>, filename: &str, source: &str, format: DiagnosticFormat) {
+    let rendered = axiom_errors::render(diags, filename, source, format);
+    eprint!("{}", rendered);
+}
 
-    println!("[1/5] Lexing...");
-    let mut lexer = Lexer::new(&source, 0);
+/// Run the lexer, parser and type checker on `source`, printing any
+/// diagnostics in `format`. Returns the checked AST and type checker on
+/// success. This is shared by `build` and `check` so the two commands can
+/// never drift apart in how they report errors.
+fn analyze(input: &str, source: &str, format: DiagnosticFormat) -> Result<(axiom_ast::Module, TypeChecker), String> {
+    let mut lexer = Lexer::new(source, 0);
     let tokens = match lexer.tokenize() {
         Ok(tokens) => tokens,
         Err(e) => {
-            report_lexer_error(&source, input, &format!("{}", e), 0);
-            return Err("Compilation failed due to previous error.".to_string());
+            print_diagnostics(vec![e.to_diagnostic()], input, source, format);
+            return Err("compilation failed due to a lexer error".to_string());
         }
     };
 
-    println!("[2/5] Parsing...");
     let mut parser = Parser::new(tokens);
     let ast = match parser.parse_module() {
         Ok(ast) => ast,
         Err(e) => {
-            report_parse_error(&source, input, &format!("{}", e), e.span());
-            return Err("Compilation failed due to previous error.".to_string());
+            print_diagnostics(vec![e.to_diagnostic()], input, source, format);
+            return Err("compilation failed due to a syntax error".to_string());
         }
     };
 
-    println!("[3/5] Type checking...");
     let mut type_checker = TypeChecker::new();
     match type_checker.check(&ast) {
-        Ok(()) => {}
+        Ok(()) => Ok((ast, type_checker)),
         Err(errors) => {
-            for error in &errors {
-                let span = error.span();
-                let msg = format!("{}", error);
-                
-                let help: Option<&str> = match error {
-                    axiom_sema::SemError::UndefinedVariable { name, .. } => {
-                        if name.chars().next().map_or(false, |c| c.is_uppercase()) {
-                            Some("Did you mean to use a type constructor? Type constructors must be used with their full type signature.")
-                        } else {
-                            Some("Variables must be defined before use. Check for typos or missing function definitions.")
-                        }
-                    }
-                    axiom_sema::SemError::TypeMismatch { expected: _, found: _, .. } => {
-                        None
-                    }
-                    _ => None,
-                };
-
-                report_type_error(&source, input, &msg, span, help);
-            }
-            return Err(format!("Compilation failed due to {} previous error{}.", 
-                errors.len(), 
-                if errors.len() == 1 { "" } else { "s" }));
+            let diags: Vec<Diagnostic> = errors.iter().map(|e| e.to_diagnostic()).collect();
+            // Cascade-dedup once up front so the count in the summary line
+            // matches exactly what gets printed, instead of the old
+            // behavior of reporting a raw (and often inflated) error count.
+            let diags = axiom_errors::dedup(diags);
+            let shown = diags.len();
+            print_diagnostics(diags, input, source, format);
+            Err(format!(
+                "compilation failed due to {} previous error{}",
+                shown,
+                if shown == 1 { "" } else { "s" }
+            ))
         }
     }
+}
+
+fn build(input: &str, output: &str, emit_llvm: bool, _opt: u8, format: DiagnosticFormat) -> Result<(), String> {
+    let source = fs::read_to_string(input)
+        .map_err(|e| format!("Failed to read file '{}': {}", input, e))?;
+
+    println!("[1/5] Lexing...");
+    println!("[2/5] Parsing...");
+    println!("[3/5] Type checking...");
+    let (ast, type_checker) = analyze(input, &source, format)?;
 
     println!("[4/5] Generating IR...");
     let mut ir_gen = IrGen::new();
@@ -204,7 +220,10 @@ fn build(input: &str, output: &str, emit_llvm: bool, _opt: u8) -> Result<(), Str
 
     let has_main = ir_module.functions.iter().any(|f| f.name == "main");
     if !has_main {
-        return Err("No `main` function found. A `main` function is required as the program entry point.".to_string());
+        let diag = Diagnostic::error(&axiom_errors::code::MISSING_MAIN, "no `main` function found")
+            .with_help("add `(:: main Int)` and `(define main ...)` as the program entry point");
+        print_diagnostics(vec![diag], input, &source, format);
+        return Err("compilation failed: missing entry point".to_string());
     }
 
     println!("[5/5] Generating LLVM IR...");
@@ -250,9 +269,9 @@ fn build(input: &str, output: &str, emit_llvm: bool, _opt: u8) -> Result<(), Str
     Ok(())
 }
 
-fn run(input: &str, args: &[String]) -> Result<(), String> {
+fn run(input: &str, args: &[String], format: DiagnosticFormat) -> Result<(), String> {
     let output = "axiom_temp_output";
-    build(input, output, false, 0)?;
+    build(input, output, false, 0, format)?;
 
     let mut cmd = Command::new(format!("./{}", output));
     for arg in args {
@@ -271,58 +290,11 @@ fn run(input: &str, args: &[String]) -> Result<(), String> {
     Ok(())
 }
 
-fn check(input: &str) -> Result<(), String> {
+fn check(input: &str, format: DiagnosticFormat) -> Result<(), String> {
     let source = fs::read_to_string(input)
         .map_err(|e| format!("Failed to read file '{}': {}", input, e))?;
 
-    let mut lexer = Lexer::new(&source, 0);
-    let tokens = match lexer.tokenize() {
-        Ok(tokens) => tokens,
-        Err(e) => {
-            report_lexer_error(&source, input, &format!("{}", e), 0);
-            return Err("Check failed due to previous error.".to_string());
-        }
-    };
-
-    let mut parser = Parser::new(tokens);
-    let ast = match parser.parse_module() {
-        Ok(ast) => ast,
-        Err(e) => {
-            report_parse_error(&source, input, &format!("{}", e), e.span());
-            return Err("Check failed due to previous error.".to_string());
-        }
-    };
-
-    let mut type_checker = TypeChecker::new();
-    match type_checker.check(&ast) {
-        Ok(()) => {}
-        Err(errors) => {
-            for error in &errors {
-                let span = error.span();
-                let msg = format!("{}", error);
-                
-                let help: Option<&str> = match error {
-                    axiom_sema::SemError::UndefinedVariable { name, .. } => {
-                        if name.chars().next().map_or(false, |c| c.is_uppercase()) {
-                            Some("Did you mean to use a type constructor? Type constructors must be used with their full type signature.")
-                        } else {
-                            Some("Variables must be defined before use. Check for typos or missing function definitions.")
-                        }
-                    }
-                    axiom_sema::SemError::TypeMismatch { expected: _, found: _, .. } => {
-                        None
-                    }
-                    _ => None,
-                };
-
-                report_type_error(&source, input, &msg, span, help);
-            }
-            return Err(format!("Check failed due to {} previous error{}.", 
-                errors.len(), 
-                if errors.len() == 1 { "" } else { "s" }));
-        }
-    }
-
+    analyze(input, &source, format)?;
     Ok(())
 }
 
@@ -473,7 +445,7 @@ fn repl(no_banner: bool) {
 fn print_banner() {
     println!("{}", "╔═══════════════════════════════════════════════════════════╗".bright_cyan());
     println!("{}", "║                                                           ║".bright_cyan());
-    println!("{}", "║   Axiom v0.2.0 - Functional Systems Language              ║".bright_cyan());
+    println!("{}", format!("║   Axiom v{} - Functional Systems Language              ║", env!("CARGO_PKG_VERSION")).bright_cyan());
     println!("{}", "║                                                           ║".bright_cyan());
     println!("{}", "║   Type :help for commands, :quit to exit                 ║".bright_cyan());
     println!("{}", "║                                                           ║".bright_cyan());

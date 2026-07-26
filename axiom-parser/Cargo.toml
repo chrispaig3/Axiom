@@ -6,4 +6,5 @@ edition.workspace = true
 [dependencies]
 axiom-ast.workspace = true
 axiom-lexer.workspace = true
+axiom-errors.workspace = true
 thiserror.workspace = true

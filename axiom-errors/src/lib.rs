@@ -1,65 +1,54 @@
-/// A diagnostic error that can be reported with rich context
-pub struct AxiomError {
-    pub title: String,
-    pub span_start: usize,
-    pub span_end: usize,
-    pub notes: Vec<String>,
-    pub helps: Vec<String>,
-}
+//! Axiom's structured diagnostics engine.
+//!
+//! Every error/warning/note produced anywhere in the Axiom pipeline
+//! (lexer, parser, semantic analysis, codegen, toolchain invocation) is
+//! represented as a [`Diagnostic`] - a severity, a stable [`code::CodeInfo`],
+//! a message, a primary span, and optional secondary spans/notes/help.
+//!
+//! From that single structured representation, this crate can render two
+//! very different outputs:
+//!
+//! * [`render::render_human`] - a Rust-style report with quoted source,
+//!   underlines, colors, and "help" footers, for people reading a terminal.
+//! * [`render::render_ai`] - a dense, single-line-per-diagnostic notation
+//!   (see `docs/diagnostics.md`) purpose-built to be cheap for an LLM to
+//!   read: no re-rendered source text, no ANSI codes, no box-drawing, and
+//!   stable machine-parseable fields.
+//!
+//! Having one model feed both renderers means the two output modes can
+//! never disagree about *what* went wrong, only about how verbosely it's
+//! presented.
 
-impl AxiomError {
-    pub fn new(title: impl Into<String>) -> Self {
-        Self {
-            title: title.into(),
-            span_start: 0,
-            span_end: 0,
-            notes: Vec::new(),
-            helps: Vec::new(),
-        }
-    }
+pub mod code;
+pub mod diagnostic;
+pub mod render;
+pub mod severity;
+pub mod source_map;
 
-    pub fn with_span(mut self, start: usize, end: usize) -> Self {
-        self.span_start = start;
-        self.span_end = end;
-        self
-    }
+pub use code::{lookup, CodeInfo};
+pub use diagnostic::{Diagnostic, Label, Suggestion};
+pub use render::{dedup, render_ai, render_human, render_json, DiagnosticFormat};
+pub use severity::Severity;
+pub use source_map::SourceMap;
 
-    pub fn with_note(mut self, note: impl Into<String>) -> Self {
-        self.notes.push(note.into());
-        self
-    }
-
-    pub fn with_help(mut self, help: impl Into<String>) -> Self {
-        self.helps.push(help.into());
-        self
-    }
-}
-
-/// A collection of errors
-pub struct ErrorBuffer {
-    pub errors: Vec<AxiomError>,
-}
-
-impl ErrorBuffer {
-    pub fn new() -> Self {
-        Self { errors: Vec::new() }
-    }
-
-    pub fn push(&mut self, error: AxiomError) {
-        self.errors.push(error);
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.errors.is_empty()
-    }
-
-    pub fn len(&self) -> usize {
-        self.errors.len()
+/// Render a batch of diagnostics with cascade-deduplication already applied,
+/// in the requested format. This is the one function most callers need.
+pub fn render(diags: Vec<Diagnostic>, filename: &str, source: &str, format: DiagnosticFormat) -> String {
+    let diags = dedup(diags);
+    match format {
+        DiagnosticFormat::Human => render_human(&diags, filename, source),
+        DiagnosticFormat::Ai => render_ai(&diags, filename, source),
+        DiagnosticFormat::Json => render_json(&diags, filename, source),
     }
 }
 
-impl Default for ErrorBuffer {
-    fn default() -> Self {
-        Self::new()
-    }
+/// Format the full `axiom explain <CODE>` output for a code, or `None` if
+/// the code is unknown.
+pub fn explain(code: &str) -> Option<String> {
+    lookup(code).map(|info| {
+        format!(
+            "{} - {}\n\n{}\n",
+            info.code, info.title, info.explain
+        )
+    })
 }
