@@ -221,6 +221,22 @@ fn collect_effects(
     v
 }
 
+/// Like `collect_effects`, but does not strip effects handled
+/// by `handle` expressions. Used for AXTAG validation where we
+/// need to know if the body *performs* an effect at all, regardless
+/// of whether it is contained by `handle`.
+fn collect_effects_all(
+    checker: &TypeChecker,
+    expr: &Expr,
+) -> Vec<axiom_ast::ast::Effect> {
+    use std::collections::HashSet;
+    let mut set = HashSet::new();
+    collect_effects_all_into(checker, expr, &mut set);
+    let mut v: Vec<_> = set.into_iter().collect();
+    v.sort_by(|a, b| format!("{}", a).cmp(&format!("{}", b)));
+    v
+}
+
 fn collect_effects_into(
     checker: &TypeChecker,
     expr: &Expr,
@@ -305,6 +321,87 @@ fn collect_effects_into(
             out.insert(axiom_ast::ast::Effect::Mut);
         }
         Expr::EUnionCon(_, _, value) => collect_effects_into(checker, value, out),
+    }
+}
+
+fn collect_effects_all_into(
+    checker: &TypeChecker,
+    expr: &Expr,
+    out: &mut std::collections::HashSet<axiom_ast::ast::Effect>,
+) {
+    match expr {
+        Expr::EVar(ident) => {
+            if checker.functions.iter().any(|f| f.name == ident.name && f.foreign_symbol.is_some()) {
+                out.insert(axiom_ast::ast::Effect::IO);
+            }
+        }
+        Expr::EApp(func, arg) => {
+            collect_effects_all_into(checker, func, out);
+            collect_effects_all_into(checker, arg, out);
+        }
+        Expr::ELam(_, body) => collect_effects_all_into(checker, body, out),
+        Expr::ELet(bindings, body) => {
+            for (_, e) in bindings {
+                collect_effects_all_into(checker, e, out);
+            }
+            collect_effects_all_into(checker, body, out);
+        }
+        Expr::EIf(_, t, e) => {
+            collect_effects_all_into(checker, t, out);
+            collect_effects_all_into(checker, e, out);
+        }
+        Expr::EMatch(target, arms) => {
+            collect_effects_all_into(checker, target, out);
+            for (_, e) in arms {
+                collect_effects_all_into(checker, e, out);
+            }
+        }
+        Expr::ECond(branches, else_) => {
+            for (c, e) in branches {
+                collect_effects_all_into(checker, c, out);
+                collect_effects_all_into(checker, e, out);
+            }
+            if let Some(e) = else_ {
+                collect_effects_all_into(checker, e, out);
+            }
+        }
+        Expr::EBegin(es) | Expr::ETuple(es) | Expr::EList(es) => {
+            for e in es {
+                collect_effects_all_into(checker, e, out);
+            }
+        }
+        Expr::EInfix(l, _, r) => {
+            collect_effects_all_into(checker, l, out);
+            collect_effects_all_into(checker, r, out);
+        }
+        Expr::ETypeSig(e, _) | Expr::ECast(e, _) | Expr::EGrouped(e) => {
+            collect_effects_all_into(checker, e, out);
+        }
+        Expr::EAlloc(_, init, _) => {
+            out.insert(axiom_ast::ast::Effect::Alloc);
+            if let Some(e) = init {
+                collect_effects_all_into(checker, e, out);
+            }
+        }
+        Expr::ESizeof(_, _) | Expr::EAlignof(_, _) | Expr::EError(_, _) => {}
+        Expr::ELit(_, _) => {}
+        Expr::EHandle(body, _, _handler) => {
+            collect_effects_all_into(checker, body, out);
+        }
+        Expr::ERegion(_, e) => collect_effects_all_into(checker, e, out),
+        Expr::EConsume(e) => collect_effects_all_into(checker, e, out),
+        Expr::EField(e, _) => collect_effects_all_into(checker, e, out),
+        Expr::EStructCon(_, args) => {
+            for e in args {
+                collect_effects_all_into(checker, e, out);
+            }
+        }
+        Expr::ESetField(base, _, value) => {
+            collect_effects_all_into(checker, base, out);
+            collect_effects_all_into(checker, value, out);
+            out.insert(axiom_ast::ast::Effect::Mut);
+        }
+        Expr::EUnionCon(_, _, value) => collect_effects_all_into(checker, value, out),
     }
 }
 /// distance, for "did you mean `foo`?" suggestions. Only returns a match
@@ -948,7 +1045,7 @@ impl TypeChecker {
                                     )],
                                     None => vec![],
                                 };
-                                let actual = collect_effects(self, body);
+                                let actual = collect_effects_all(self, body);
                                 let mut missing = Vec::new();
                                 for e in &declared {
                                     if !actual.contains(e) {
@@ -968,7 +1065,7 @@ impl TypeChecker {
                                 }
                             }
                             "pure" => {
-                                let actual = collect_effects(self, body);
+                                let actual = collect_effects_all(self, body);
                                 if !actual.is_empty() {
                                     self.errors.push(SemError::AxtagMismatch {
                                         name: name.name.clone(),
@@ -2256,10 +2353,25 @@ mod tests {
     }
 
     #[test]
-    fn effect_collects_alloc() {
-        let source = r#"(:: main Int)
-;@axiom:effect(alloc)
-(fn main (alloc Int 1))"#;
-        assert!(check(source).is_ok());
+    fn effect_io_tag_with_handle_containing_io_passes() {
+        let source = r#"(foreign printf :: (-> String Int) = "printf")
+(:: main Int)
+;@axiom:effect(io)
+(fn main
+  (handle (printf "hello") (IO) 0))"#;
+        assert!(check(source).is_ok(), "effect(io) should be satisfied when IO is handled internally");
+    }
+
+    #[test]
+    fn pure_tag_with_handle_containing_io_fails() {
+        let source = r#"(foreign printf :: (-> String Int) = "printf")
+(:: main Int)
+;@axiom:pure
+(fn main
+  (handle (printf "hello") (IO) 0))"#;
+        let errors = check_err(source);
+        assert!(errors
+            .iter()
+            .any(|e| matches!(e, SemError::AxtagMismatch { name, .. } if name == "main")));
     }
 }
