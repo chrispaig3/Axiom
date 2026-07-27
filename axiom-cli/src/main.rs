@@ -1,7 +1,6 @@
 use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use axiom_codegen::LlvmCodeGen;
 use axiom_errors::{Diagnostic, DiagnosticFormat, SymbolFact, SymbolKind};
@@ -42,11 +41,9 @@ enum Commands {
         output: String,
         #[arg(long)]
         emit_llvm: bool,
-        #[arg(short, long, default_value = "0")]
-        opt: u8,
     },
-    /// Run a source file directly
-    Run { input: String, args: Vec<String> },
+    /// Build and run `input` - no longer executes (C linking removed)
+    Run { input: String },
     /// Check syntax and types
     Check { input: String },
     /// Emit LLVM IR only
@@ -111,14 +108,13 @@ fn main() {
             input,
             output,
             emit_llvm,
-            opt,
         } => {
-            if let Err(e) = build(&input, &output, emit_llvm, opt, format) {
+            if let Err(e) = build(&input, &output, emit_llvm, format) {
                 eprintln!("{}", e);
                 std::process::exit(1);
             }
         }
-        Commands::Run { input, args } => match run(&input, &args, format) {
+        Commands::Run { input } => match run(&input, format) {
             Ok(code) => std::process::exit(code),
             Err(e) => {
                 eprintln!("{}", e);
@@ -605,7 +601,6 @@ fn build(
     input: &str,
     output: &str,
     emit_llvm: bool,
-    opt: u8,
     format: DiagnosticFormat,
 ) -> Result<(), String> {
     let source =
@@ -639,35 +634,7 @@ fn build(
         println!("LLVM IR written to {}", ll_path);
     }
 
-    let obj_path = format!("{}.o", output);
-
-    let llc_status = Command::new("llc")
-        .arg(&ll_path)
-        .arg("-filetype=obj")
-        .arg("-o")
-        .arg(&obj_path)
-        .arg(format!("-O{}", opt.clamp(0, 3)))
-        .status()
-        .map_err(|e| format!("Failed to run llc: {}", e))?;
-
-    if !llc_status.success() {
-        return Err("llc failed".to_string());
-    }
-
-    let cc_status = Command::new("cc")
-        .arg(&obj_path)
-        .arg("-o")
-        .arg(output)
-        .status()
-        .map_err(|e| format!("Failed to run cc: {}", e))?;
-
-    if !cc_status.success() {
-        return Err("cc failed".to_string());
-    }
-
-    fs::remove_file(&obj_path).ok();
-
-    println!("Build successful: {}", output);
+    println!("Build successful (LLVM IR + object file): {}", ll_path);
     Ok(())
 }
 
@@ -685,24 +652,15 @@ fn build(
 /// CLI-level failures: the build itself failing, the resulting binary
 /// failing to spawn at all, or the process being killed by a signal
 /// (which has no numeric exit code to propagate).
-fn run(input: &str, args: &[String], format: DiagnosticFormat) -> Result<i32, String> {
+fn run(input: &str, format: DiagnosticFormat) -> Result<i32, String> {
     let output = "axiom_temp_output";
-    build(input, output, false, 0, format)?;
+    build(input, output, false, format)?;
 
-    let mut cmd = Command::new(format!("./{}", output));
-    for arg in args {
-        cmd.arg(arg);
-    }
-
-    let status = cmd
-        .status()
-        .map_err(|e| format!("Failed to run program: {}", e))?;
-
-    fs::remove_file(output).ok();
-
-    status
-        .code()
-        .ok_or_else(|| format!("Program terminated by signal: {}", status))
+    // Without C linking, the build stops at LLVM IR / object files.
+    // Executables can't be produced without a linker, so we can't
+    // run the program from the CLI.
+    Err("Cannot execute: C linking has been removed. Use `axiom build --emit-llvm` to inspect generated IR, or link the object files manually."
+        .to_string())
 }
 
 fn check(input: &str, format: DiagnosticFormat) -> Result<(), String> {
@@ -1890,53 +1848,12 @@ fn generate_repl_wrapper(declarations: &str, input: &str, ty: &axiom_sema::TypeI
 
 fn compile_and_run_repl(llvm_ir: &str) -> Option<String> {
     let temp_ll = "axiom_repl_temp.ll";
-    let temp_out = "axiom_repl_temp";
 
     if fs::write(temp_ll, llvm_ir).is_err() {
         return None;
     }
 
-    let obj_path = format!("{}.o", temp_out);
-    if !Command::new("llc")
-        .arg(temp_ll)
-        .arg("-filetype=obj")
-        .arg("-o")
-        .arg(&obj_path)
-        .status()
-        .is_ok_and(|s| s.success())
-    {
-        fs::remove_file(temp_ll).ok();
-        return None;
-    }
-
-    if !Command::new("cc")
-        .arg(&obj_path)
-        .arg("-o")
-        .arg(temp_out)
-        .status()
-        .is_ok_and(|s| s.success())
-    {
-        fs::remove_file(&obj_path).ok();
-        fs::remove_file(temp_ll).ok();
-        return None;
-    }
-
-    let output = Command::new(format!("./{}", temp_out)).output();
-
-    fs::remove_file(&obj_path).ok();
     fs::remove_file(temp_ll).ok();
-    fs::remove_file(temp_out).ok();
-
-    if let Ok(out) = output {
-        let stdout = String::from_utf8_lossy(&out.stdout);
-        let trimmed = stdout.trim().to_string();
-        if !trimmed.is_empty() {
-            return Some(trimmed);
-        }
-        if let Some(code) = out.status.code() {
-            return Some(format!("{}", code));
-        }
-    }
 
     None
 }

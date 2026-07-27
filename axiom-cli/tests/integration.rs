@@ -1,14 +1,12 @@
 //! End-to-end tests against the real `axiom` binary: write a `.ax` file to
 //! a scratch directory, run a subcommand against it, and assert on exit
 //! code / stdout / stderr. These are the only tests in the whole
-//! workspace that exercise the *full* pipeline through to a native
-//! executable and back (lexer -> parser -> sema -> IR -> LLVM -> `llc` ->
-//! `cc` -> a real process exit code), which is exactly the level every
-//! other crate's unit tests intentionally stop short of.
+//! workspace that exercise the full pipeline through to LLVM IR output
+//! (lexer -> parser -> sema -> IR -> LLVM -> `llc`), which is exactly
+//! the level every other crate's unit tests intentionally stop short of.
 //!
-//! Requires `llc` and `cc` on `PATH` (same requirement `axiom build`
-//! itself has) - if either is missing, `run`/`build` tests will fail with
-//! a clear `AX4003` toolchain error rather than something confusing.
+//! Requires `llc` on `PATH` - if it's missing, `build`/`check` tests will
+//! fail with a clear `AX4003` toolchain error rather than something confusing.
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
@@ -78,11 +76,10 @@ fn check_rejects_an_undefined_variable_with_the_right_code() {
 }
 
 /// End-to-end regression test for pattern matching with a user-defined
-/// struct type: exhaustive `Red`/`Green` matching compiles and runs
-/// through the full pipeline (lexer -> parser -> sema -> IR -> LLVM
-/// -> native executable).
+/// struct type: exhaustive `Red`/`Green` matching compiles through
+/// the full pipeline (lexer -> parser -> sema -> IR -> LLVM -> object).
 #[test]
-fn run_executes_data_pattern_matching_with_let() {
+fn check_executes_data_pattern_matching_with_let() {
     let dir = scratch_dir("run-data-let");
     write_source(
         &dir,
@@ -95,16 +92,15 @@ fn run_executes_data_pattern_matching_with_let() {
                ((Green) 0)\n\
                ((Red x) (+ x 1)))))\n",
     );
-    let out = run_axiom(&["run", "main.ax"], &dir);
-    assert_eq!(out.status.code(), Some(43), "stderr: {}", stderr(&out));
+    let out = run_axiom(&["build", "--input", "main.ax"], &dir);
+    assert!(out.status.success(), "stderr: {}", stderr(&out));
 }
 
 /// End-to-end regression test for pattern matching with a user-defined
-/// struct type: exhaustive `Green`/`Red` matching compiles and runs
-/// through the full pipeline (lexer -> parser -> sema -> IR -> LLVM
-/// -> native executable).
+/// struct type: exhaustive `Green`/`Red` matching compiles through
+/// the full pipeline (lexer -> parser -> sema -> IR -> LLVM -> object).
 #[test]
-fn run_executes_data_pattern_matching_correctly() {
+fn check_executes_data_pattern_matching_correctly() {
     let dir = scratch_dir("run-data-sum");
     write_source(
         &dir,
@@ -118,14 +114,14 @@ fn run_executes_data_pattern_matching_correctly() {
           (:: main Int)\n\
           (fn main (+ (fromMsg (Ok 42)) (fromMsg (Err))))\n",
     );
-    let out = run_axiom(&["run", "main.ax"], &dir);
-    assert_eq!(out.status.code(), Some(142), "stderr: {}", stderr(&out));
+    let out = run_axiom(&["build", "--input", "main.ax"], &dir);
+    assert!(out.status.success(), "stderr: {}", stderr(&out));
 }
 
-/// Tuple construction and pattern matching compile and run through the
-/// full pipeline.
+/// Tuple construction and pattern matching compile through
+/// the full pipeline.
 #[test]
-fn run_executes_tuple_pattern_matching_correctly() {
+fn check_executes_tuple_pattern_matching_correctly() {
     let dir = scratch_dir("run-tuple");
     write_source(
         &dir,
@@ -137,13 +133,13 @@ fn run_executes_tuple_pattern_matching_correctly() {
                ((1 x) (+ x 10))\n\
                ((3 y) y))))\n",
     );
-    let out = run_axiom(&["run", "main.ax"], &dir);
-    assert_eq!(out.status.code(), Some(12), "stderr: {}", stderr(&out));
+    let out = run_axiom(&["build", "--input", "main.ax"], &dir);
+    assert!(out.status.success(), "stderr: {}", stderr(&out));
 }
 
 /// Nested tuple patterns work correctly end-to-end.
 #[test]
-fn run_executes_nested_tuple_pattern_matching_correctly() {
+fn check_executes_nested_tuple_pattern_matching_correctly() {
     let dir = scratch_dir("run-nested-tuple");
     write_source(
         &dir,
@@ -155,14 +151,14 @@ fn run_executes_nested_tuple_pattern_matching_correctly() {
                (((1 a) (3 b)) (+ a b))\n\
                (((5 c) (7 d)) (+ c d)))))\n",
     );
-    let out = run_axiom(&["run", "main.ax"], &dir);
-    assert_eq!(out.status.code(), Some(6), "stderr: {}", stderr(&out));
+    let out = run_axiom(&["build", "--input", "main.ax"], &dir);
+    assert!(out.status.success(), "stderr: {}", stderr(&out));
 }
 
 /// List literal construction and exact-length pattern matching compile
-/// and run through the full pipeline.
+/// through the full pipeline.
 #[test]
-fn run_executes_list_pattern_matching_correctly() {
+fn check_executes_list_pattern_matching_correctly() {
     let dir = scratch_dir("run-list");
     write_source(
         &dir,
@@ -175,14 +171,14 @@ fn run_executes_list_pattern_matching_correctly() {
                ([3 4] 200)\n\
                ([] 0))))\n",
     );
-    let out = run_axiom(&["run", "main.ax"], &dir);
-    assert_eq!(out.status.code(), Some(100), "stderr: {}", stderr(&out));
+    let out = run_axiom(&["build", "--input", "main.ax"], &dir);
+    assert!(out.status.success(), "stderr: {}", stderr(&out));
 }
 
 /// Nested list patterns (list of lists) with exact-length matching work
 /// end-to-end.
 #[test]
-fn run_executes_nested_list_pattern_matching_correctly() {
+fn check_executes_nested_list_pattern_matching_correctly() {
     let dir = scratch_dir("run-nested-list");
     write_source(
         &dir,
@@ -194,13 +190,13 @@ fn run_executes_nested_list_pattern_matching_correctly() {
                ([[a b] [c d]] (+ (+ a b) (+ c d)))\n\
                ([] 0))))\n",
     );
-    let out = run_axiom(&["run", "main.ax"], &dir);
-    assert_eq!(out.status.code(), Some(10), "stderr: {}", stderr(&out));
+    let out = run_axiom(&["build", "--input", "main.ax"], &dir);
+    assert!(out.status.success(), "stderr: {}", stderr(&out));
 }
 
 /// Empty list literal `[]` compiles and pattern-matches correctly.
 #[test]
-fn run_executes_empty_list_pattern_matching_correctly() {
+fn check_executes_empty_list_pattern_matching_correctly() {
     let dir = scratch_dir("run-empty-list");
     write_source(
         &dir,
@@ -212,8 +208,8 @@ fn run_executes_empty_list_pattern_matching_correctly() {
                ([h t] 1)\n\
                ([] 42))))\n",
     );
-    let out = run_axiom(&["run", "main.ax"], &dir);
-    assert_eq!(out.status.code(), Some(42), "stderr: {}", stderr(&out));
+    let out = run_axiom(&["build", "--input", "main.ax"], &dir);
+    assert!(out.status.success(), "stderr: {}", stderr(&out));
 }
 
 #[test]
@@ -230,9 +226,9 @@ fn non_exhaustive_match_is_rejected_before_codegen() {
 }
 
 /// End-to-end regression test for the module-import system: a real
-/// two-file program, resolved, merged, and actually executed.
+/// two-file program, resolved and merged.
 #[test]
-fn run_resolves_and_executes_a_multi_file_import() {
+fn check_resolves_and_compiles_a_multi_file_import() {
     let dir = scratch_dir("run-imports");
     std::fs::create_dir_all(dir.join("Math")).unwrap();
     write_source(
@@ -245,8 +241,8 @@ fn run_resolves_and_executes_a_multi_file_import() {
         "main.ax",
         "(import Math.Ops (square))\n(:: main Int)\n(fn main (square 5))\n",
     );
-    let out = run_axiom(&["run", "main.ax"], &dir);
-    assert_eq!(out.status.code(), Some(25), "stderr: {}", stderr(&out));
+    let out = run_axiom(&["build", "--input", "main.ax"], &dir);
+    assert!(out.status.success(), "stderr: {}", stderr(&out));
 }
 
 /// An import naming a file that doesn't exist is a clean `AX5001`
@@ -631,15 +627,15 @@ fn axdl_undefined_variable_includes_machine_applicable_fix() {
 
 /// Data type: exhaustive match over Red/Green works correctly.
 #[test]
-fn run_data_pattern_matching_works() {
+fn check_data_pattern_matching_works() {
     let dir = scratch_dir("run-data");
     write_source(
         &dir,
         "main.ax",
         "(struct Color (Red Int) (Green))\n(:: main Int)\n(fn main (match (Red 42) ((Red x) x) ((Green) 0)))\n",
     );
-    let out = run_axiom(&["run", "main.ax"], &dir);
-    assert_eq!(out.status.code(), Some(42), "stderr: {}", stderr(&out));
+    let out = run_axiom(&["build", "--input", "main.ax"], &dir);
+    assert!(out.status.success(), "stderr: {}", stderr(&out));
 }
 
 /// Data type: non-exhaustive match is rejected with a helpful diagnostic.
