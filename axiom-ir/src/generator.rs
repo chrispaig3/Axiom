@@ -315,7 +315,7 @@ impl IrGen {
 
             match arg_pat {
                 Pattern::PVar(ident) => {
-                    let arg_alloca = format!("_alloca_{}", ident.name);
+                    let arg_alloca = self.new_local();
                     func.locals.push((ident.name.clone(), i64_ty.clone()));
                     self.emit_to_func(
                         func,
@@ -413,7 +413,7 @@ impl IrGen {
                         }
                     }
                 }
-                Pattern::PTuple(pats) | Pattern::PList(pats) => {
+                Pattern::PTuple(pats) => {
                     self.gen_sub_pattern_checks(
                         func,
                         IrValue::Local(field_local),
@@ -423,7 +423,52 @@ impl IrGen {
                         arm_map,
                         0,
                     );
-                    return;
+                }
+                Pattern::PList(pats) => {
+                    let len_local = self.new_local();
+                    self.emit_to_func(
+                        func,
+                        IrInst::LoadOffset {
+                            dest: IrValue::Local(len_local.clone()),
+                            ptr: IrValue::Local(field_local.clone()),
+                            offset: 0,
+                        },
+                    );
+                    let expected_len =
+                        IrValue::Const(IrConst::Int(pats.len() as i64, i64_ty.clone()));
+                    let cmp_dest = self.new_local();
+                    self.emit_to_func(
+                        func,
+                        IrInst::Eq {
+                            dest: IrValue::Local(cmp_dest.clone()),
+                            lhs: IrValue::Local(len_local),
+                            rhs: expected_len,
+                        },
+                    );
+                    let list_ok = self.new_block_label();
+                    self.emit_to_func(
+                        func,
+                        IrInst::CondBr {
+                            cond: IrValue::Local(cmp_dest),
+                            then_target: list_ok.clone(),
+                            else_target: next_check.clone(),
+                        },
+                    );
+                    func.blocks.push(IrBlock {
+                        label: list_ok.clone(),
+                        insts: Vec::new(),
+                    });
+                    self.current_block = Some(list_ok);
+
+                    self.gen_sub_pattern_checks(
+                        func,
+                        IrValue::Local(field_local),
+                        pats,
+                        type_checker,
+                        next_check.clone(),
+                        arm_map,
+                        8,
+                    );
                 }
             }
         }
@@ -1158,7 +1203,7 @@ impl IrGen {
                             alloca_map,
                             type_checker,
                         );
-                        let alloca_name = format!("_alloca_{}", ident.name);
+                        let alloca_name = self.new_local();
                         func.locals
                             .push((ident.name.clone(), TypeId::TCon("I64".to_string(), vec![])));
                         self.emit_to_func(
@@ -1331,7 +1376,7 @@ impl IrGen {
                         Pattern::PVar(ident) => {
                             unconditional_arm(self, func);
 
-                            let var_alloca = format!("_alloca_{}", ident.name);
+                            let var_alloca = self.new_local();
                             func.locals.push((ident.name.clone(), i64_ty.clone()));
                             self.emit_to_func(
                                 func,
@@ -1382,14 +1427,14 @@ impl IrGen {
                             });
                             self.current_block = Some(arm_label.clone());
                         }
-                        Pattern::PTuple(pats) | Pattern::PList(pats) => {
+                        Pattern::PTuple(pats) => {
                             func.blocks.push(IrBlock {
                                 label: check_label.clone(),
                                 insts: vec![IrInst::Br {
                                     target: arm_label.clone(),
                                 }],
                             });
-                            self.current_block = Some(arm_label.clone());
+                            self.current_block = Some(check_label.clone());
 
                             func.blocks.push(IrBlock {
                                 label: arm_label.clone(),
@@ -1402,9 +1447,61 @@ impl IrGen {
                                 target_val.clone(),
                                 pats,
                                 type_checker,
-                                merge_label.clone(),
+                                next_check.clone(),
                                 &mut arm_map,
                                 0,
+                            );
+                        }
+                        Pattern::PList(pats) => {
+                            func.blocks.push(IrBlock {
+                                label: check_label.clone(),
+                                insts: Vec::new(),
+                            });
+                            self.current_block = Some(check_label.clone());
+
+                            let len_local = self.new_local();
+                            self.emit_to_func(
+                                func,
+                                IrInst::LoadOffset {
+                                    dest: IrValue::Local(len_local.clone()),
+                                    ptr: target_val.clone(),
+                                    offset: 0,
+                                },
+                            );
+                            let expected_len =
+                                IrValue::Const(IrConst::Int(pats.len() as i64, i64_ty.clone()));
+                            let cmp_dest = self.new_local();
+                            self.emit_to_func(
+                                func,
+                                IrInst::Eq {
+                                    dest: IrValue::Local(cmp_dest.clone()),
+                                    lhs: IrValue::Local(len_local),
+                                    rhs: expected_len,
+                                },
+                            );
+                            self.emit_to_func(
+                                func,
+                                IrInst::CondBr {
+                                    cond: IrValue::Local(cmp_dest),
+                                    then_target: arm_label.clone(),
+                                    else_target: next_check.clone(),
+                                },
+                            );
+
+                            func.blocks.push(IrBlock {
+                                label: arm_label.clone(),
+                                insts: Vec::new(),
+                            });
+                            self.current_block = Some(arm_label.clone());
+
+                            self.gen_sub_pattern_checks(
+                                func,
+                                target_val.clone(),
+                                pats,
+                                type_checker,
+                                next_check.clone(),
+                                &mut arm_map,
+                                8,
                             );
                         }
                     }
@@ -1524,13 +1621,21 @@ impl IrGen {
             }
             Expr::EList(items) => {
                 let i64_ty = TypeId::TCon("I64".to_string(), vec![]);
-                let list_size = (items.len() * 8) as i64;
+                let list_size = ((1 + items.len()) * 8) as i64;
                 let ptr_local = self.new_local();
                 self.emit_to_func(
                     func,
                     IrInst::HeapAlloc {
                         dest: IrValue::Local(ptr_local.clone()),
                         size: IrValue::Const(IrConst::Int(list_size, i64_ty.clone())),
+                    },
+                );
+                self.emit_to_func(
+                    func,
+                    IrInst::StoreOffset {
+                        ptr: IrValue::Local(ptr_local.clone()),
+                        offset: 0,
+                        value: IrValue::Const(IrConst::Int(items.len() as i64, i64_ty.clone())),
                     },
                 );
                 for (i, item) in items.iter().enumerate() {
@@ -1540,7 +1645,7 @@ impl IrGen {
                         func,
                         IrInst::StoreOffset {
                             ptr: IrValue::Local(ptr_local.clone()),
-                            offset: (i * 8) as i64,
+                            offset: ((1 + i) * 8) as i64,
                             value: val,
                         },
                     );

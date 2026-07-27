@@ -116,6 +116,100 @@ fn run_executes_option_pattern_matching_correctly() {
     assert_eq!(out.status.code(), Some(142), "stderr: {}", stderr(&out));
 }
 
+/// Tuple construction and pattern matching compile and run through the
+/// full pipeline.
+#[test]
+fn run_executes_tuple_pattern_matching_correctly() {
+    let dir = scratch_dir("run-tuple");
+    write_source(
+        &dir,
+        "main.ax",
+        "(:: main Int)\n\
+         (fn main\n\
+           (let ((t (1, 2)))\n\
+             (match t\n\
+               ((1 x) (+ x 10))\n\
+               ((3 y) y))))\n",
+    );
+    let out = run_axiom(&["run", "main.ax"], &dir);
+    assert_eq!(out.status.code(), Some(12), "stderr: {}", stderr(&out));
+}
+
+/// Nested tuple patterns work correctly end-to-end.
+#[test]
+fn run_executes_nested_tuple_pattern_matching_correctly() {
+    let dir = scratch_dir("run-nested-tuple");
+    write_source(
+        &dir,
+        "main.ax",
+        "(:: main Int)\n\
+         (fn main\n\
+           (let ((t ((1, 2), (3, 4))))\n\
+             (match t\n\
+               (((1 a) (3 b)) (+ a b))\n\
+               (((5 c) (7 d)) (+ c d)))))\n",
+    );
+    let out = run_axiom(&["run", "main.ax"], &dir);
+    assert_eq!(out.status.code(), Some(6), "stderr: {}", stderr(&out));
+}
+
+/// List literal construction and exact-length pattern matching compile
+/// and run through the full pipeline.
+#[test]
+fn run_executes_list_pattern_matching_correctly() {
+    let dir = scratch_dir("run-list");
+    write_source(
+        &dir,
+        "main.ax",
+        "(:: main Int)\n\
+         (fn main\n\
+           (let ((lst [1 2]))\n\
+             (match lst\n\
+               ([1 2] 100)\n\
+               ([3 4] 200)\n\
+               ([] 0))))\n",
+    );
+    let out = run_axiom(&["run", "main.ax"], &dir);
+    assert_eq!(out.status.code(), Some(100), "stderr: {}", stderr(&out));
+}
+
+/// Nested list patterns (list of lists) with exact-length matching work
+/// end-to-end.
+#[test]
+fn run_executes_nested_list_pattern_matching_correctly() {
+    let dir = scratch_dir("run-nested-list");
+    write_source(
+        &dir,
+        "main.ax",
+        "(:: main Int)\n\
+         (fn main\n\
+           (let ((lst [[1 2] [3 4]]))\n\
+             (match lst\n\
+               ([[a b] [c d]] (+ (+ a b) (+ c d)))\n\
+               ([] 0))))\n",
+    );
+    let out = run_axiom(&["run", "main.ax"], &dir);
+    assert_eq!(out.status.code(), Some(10), "stderr: {}", stderr(&out));
+}
+
+/// Empty list literal `[]` compiles and pattern-matches correctly.
+#[test]
+fn run_executes_empty_list_pattern_matching_correctly() {
+    let dir = scratch_dir("run-empty-list");
+    write_source(
+        &dir,
+        "main.ax",
+        "(:: main Int)\n\
+         (fn main\n\
+           (let ((lst []))\n\
+             (match lst\n\
+               ([h t] 1)\n\
+               ([] 42))))\n",
+    );
+    let out = run_axiom(&["run", "main.ax"], &dir);
+    assert_eq!(out.status.code(), Some(42), "stderr: {}", stderr(&out));
+}
+
 #[test]
 fn non_exhaustive_match_is_rejected_before_codegen() {
     let dir = scratch_dir("check-non-exhaustive");

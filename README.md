@@ -847,8 +847,8 @@ Source (.ax)
 | Structs / unions | **Complete** | Declarations, LLVM emission, field access (`.field`), struct construction (`(StructName expr1 expr2 ...)`), `mut` fields, and field mutation (`(set-field expr field value)`) all work |
 | Pattern matching (`match`) | **Complete** | Constructor patterns (nullary and with-field), variables, wildcards, literals, nested constructor patterns, and tuple/list patterns all compare and bind correctly, plus non-exhaustiveness/arity/undefined-constructor diagnostics. Built-in `Option` type with `Some`/`None` constructors. |
 | Lambda | **Complete** | Parsed, type-checked, and codegen (closures with captured vars) |
-| Lists | **Partial** | Syntax and type checking; runtime representation pending |
-| Tuples | **Partial** | Syntax and type checking; codegen pending |
+| Lists | **Complete** | Syntax, type checking, heap-allocated length-tracked blocks, exact-length pattern matching, nested patterns |
+| Tuples | **Complete** | Syntax, type checking, heap-allocated contiguous blocks, pattern matching, nested patterns |
 | Type classes | **Replaced** | Renamed to traits; see [Traits](#traits) |
 | Traits | **Complete** | Declarations, supertraits, effects, default methods, implementations (`impl`) |
 | Effects | **Complete** | Effect declarations, `handle` expressions, effect checking (`IO`, `Pure`, `Alloc`, `Mut`, `Div`), AXTAG validation |
