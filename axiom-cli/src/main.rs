@@ -67,7 +67,7 @@ enum Commands {
     },
     /// Print every top-level symbol Axiom's type checker collected for a
     /// file (functions, data types, constructors,
-    /// structs, unions, and traits) along with its inferred/declared
+    /// structs, and traits) along with its inferred/declared
     /// type. Honors `--diagnostic-format`: `ai` emits one AXSYM line per
     /// symbol (see `docs/diagnostics.md`), `json` emits one JSON object per
     /// line, and `human` (the default) prints an aligned table.
@@ -292,7 +292,6 @@ fn decl_name(decl: &axiom_ast::ast::Decl) -> Option<&str> {
     use axiom_ast::ast::Decl;
     match decl {
         Decl::DStruct { name, .. }
-        | Decl::DUnion { name, .. }
         | Decl::DType { name, .. }
         | Decl::DTrait { name, .. }
         | Decl::DSig { name, .. }
@@ -671,7 +670,7 @@ fn check(input: &str, format: DiagnosticFormat) -> Result<(), String> {
     Ok(())
 }
 
-/// A struct/union's `packed`/`align` attribute, formatted as one
+/// A struct's `packed`/`align` attribute, formatted as one
 /// `#`-meta value (`packed` or `align=16`) - `None` for the
 /// default (no attribute) layout. Layout attributes affect a type's
 /// ABI,
@@ -687,7 +686,7 @@ fn repr_meta(repr: &Option<axiom_ast::ast::TypeRepr>) -> Option<String> {
     }
 }
 
-/// Format a struct/union's fields (or a trait's methods) as
+/// Format a struct's fields (or a trait's methods) as
 /// `name:Type,name:Type,...` for a `#fields=`/`#methods=` meta value - the
 /// actual shapes, not just a count, so an agent can see a type's exact
 /// layout (or a trait's exact method set) from the AXSYM line alone.
@@ -736,9 +735,6 @@ fn collect_symbol_facts(
                 name, nid, axtags, ..
             } => (name, nid, axtags),
             Decl::DStruct {
-                name, nid, axtags, ..
-            } => (name, nid, axtags),
-            Decl::DUnion {
                 name, nid, axtags, ..
             } => (name, nid, axtags),
             Decl::DType {
@@ -801,9 +797,6 @@ fn collect_symbol_facts(
                     ctor_spans.insert(&sv.name.name, sv.name.span);
                 }
                 struct_reprs.insert(&name.name, repr);
-            }
-            Decl::DUnion { name, .. } => {
-                type_spans.insert(&name.name, name.span);
             }
             Decl::DType { name, .. } => {
                 type_spans.insert(&name.name, name.span);
@@ -918,23 +911,6 @@ fn collect_symbol_facts(
             }
             facts.push(fact);
         }
-    }
-
-    for u in &tc.unions {
-        let mut fact = SymbolFact::new(
-            SymbolKind::Union,
-            &u.name,
-            type_spans.get(u.name.as_str()).copied(),
-            format!("union {}", u.name),
-            decl_meta.get(u.name.as_str()).and_then(|(n, _)| n.clone()),
-        )
-        .with_meta(format!("fields={}", fields_meta(&u.fields)));
-        if let Some((_, axtags)) = decl_meta.get(u.name.as_str()) {
-            for m in axtags {
-                fact = fact.with_meta(m.clone());
-            }
-        }
-        facts.push(fact);
     }
 
     for a in &tc.aliases {

@@ -94,8 +94,8 @@ registry! {
          in the file (Axiom does not forward-reference local bindings)."),
     UNDEFINED_TYPE => ("AX3002", "undefined-type",
         "undefined type",
-        "This type name does not refer to any built-in type, `data`, `struct`,\n\
-         `union`, or `type` alias visible in this module."),
+"This type name does not refer to any built-in type, `data`, `struct`,\n\
+          or `type` alias visible in this module."),
     UNDEFINED_CONSTRUCTOR => ("AX3003", "undefined-constructor",
         "undefined constructor",
         "This name was used as a data constructor (applied like `(Foo x y)` or\n\
@@ -115,9 +115,9 @@ registry! {
          of the definitions or remove the duplicate."),
     FIELD_NOT_FOUND => ("AX3007", "field-not-found",
         "field not found",
-        "The named field does not exist on the given `struct`/`union` type.\n\
-         Check the field name for typos or that you're accessing the right\n\
-         type."),
+"The named field does not exist on the given `struct` type.\n\
+          Check the field name for typos or that you're accessing the right\n\
+          type."),
     SEMA_MESSAGE => ("AX3008", "semantic-error",
         "semantic error",
         "A semantic rule was violated in a way that doesn't fit a more specific\n\

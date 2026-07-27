@@ -134,12 +134,6 @@ impl Parser {
                 *n = Some(nid);
                 *a = axtags;
             }
-            Decl::DUnion {
-                nid: n, axtags: a, ..
-            } => {
-                *n = Some(nid);
-                *a = axtags;
-            }
             Decl::DType {
                 nid: n, axtags: a, ..
             } => {
@@ -219,8 +213,6 @@ impl Parser {
             self.parse_fn()?
         } else if self.check(TokenKind::Struct) {
             self.parse_struct()?
-        } else if self.check(TokenKind::Union) {
-            self.parse_union()?
         } else if self.check(TokenKind::Type) {
             self.parse_type_alias()?
         } else if self.check(TokenKind::Newtype) {
@@ -439,35 +431,6 @@ impl Parser {
             tyvars,
             variants,
             repr,
-            nid: None,
-            axtags: Vec::new(),
-        })
-    }
-
-    fn parse_union(&mut self) -> ParseResult<Decl> {
-        self.expect(TokenKind::Union)?;
-        let name = self.parse_ident()?;
-        let tyvars = self.parse_tyvars();
-
-        let mut fields = Vec::new();
-        while self.check(TokenKind::LParen) {
-            self.advance();
-            let mutable = self.eat(TokenKind::Mut);
-            let field_name = self.parse_ident()?;
-            self.expect(TokenKind::Colon)?;
-            let field_ty = self.parse_type()?;
-            fields.push(Field {
-                name: field_name,
-                ty: field_ty,
-                mutable,
-            });
-            self.expect(TokenKind::RParen)?;
-        }
-
-        Ok(Decl::DUnion {
-            name,
-            tyvars,
-            fields,
             nid: None,
             axtags: Vec::new(),
         })
@@ -1063,10 +1026,6 @@ while !self.check(TokenKind::RParen) && !self.at_eof() {
                 return self.parse_struct_con();
             }
 
-            if self.check(TokenKind::Union) {
-                return self.parse_union_con();
-            }
-
             if self.check(TokenKind::RParen) {
                 self.advance();
                 return Ok(Expr::ETuple(vec![]));
@@ -1404,36 +1363,7 @@ while !self.check(TokenKind::RParen) && !self.at_eof() {
         Ok(Expr::EStructCon(name, args))
     }
 
-    fn parse_union_con(&mut self) -> ParseResult<Expr> {
-        self.expect(TokenKind::Union)?;
-        let name = self.parse_ident()?;
-        let field_name = self.parse_ident()?;
-        let value = self.parse_expr()?;
-        self.expect(TokenKind::RParen)?;
-        Ok(Expr::EUnionCon(name, field_name, Box::new(value)))
-    }
-
     /// Parse a type-parameter list. Axiom's own documented syntax always
-    /// wraps it in parens right after the type/struct/union/alias name -
-    /// `()` for none, `(a)` for one, `(a b)` for several (see the README's
-    /// `Maybe`/`List`/`Tree`/`type StringList () = ...` examples) - but
-    /// that immediately following `(` is *also* how the very next thing
-    /// after it (the first constructor of a `data`, or the first field of
-    /// a `struct`/`union`) begins, e.g. `(struct Ordering (LT) (EQ) (GT))`
-    /// has *no* type parameters at all before its first nullary
-    /// constructor `(LT)`.
-    ///
-    /// [`looks_like_tyvar_list`](Self::looks_like_tyvar_list) disambiguates
-    /// by scanning past the `(`: a real tyvar list is zero or more
-    /// lowercase identifiers followed immediately by `)`, with nothing
-    /// else in between. A constructor name is conventionally capitalized
-    /// (`None`, `Some`, `LT`, ...) so it never matches the "all
-    /// lowercase" scan, and a struct/union field like `(x : Int)` fails
-    /// the scan the moment it hits `:` instead of `)`. Without this,
-    /// every parenthesized-tyvar example in the README - which is all of
-    /// them - either silently dropped its type parameters (turning the
-    /// first constructor into a bogus extra one) or, for `type`
-    /// aliases, failed to parse at all.
     fn parse_tyvars(&mut self) -> Vec<String> {
         if self.check(TokenKind::LParen) && self.looks_like_tyvar_list() {
             self.advance(); // consume '('
@@ -1675,7 +1605,6 @@ while !self.check(TokenKind::RParen) && !self.at_eof() {
                 token.kind,
                 TokenKind::Fn
                     | TokenKind::Struct
-                    | TokenKind::Union
                     | TokenKind::Type
                     | TokenKind::Newtype
                     | TokenKind::Trait
@@ -1693,7 +1622,6 @@ while !self.check(TokenKind::RParen) && !self.at_eof() {
                         next.kind,
                         TokenKind::Fn
                             | TokenKind::Struct
-                            | TokenKind::Union
                             | TokenKind::Type
                             | TokenKind::Newtype
                             | TokenKind::Trait

@@ -318,9 +318,9 @@ Current limitations, honestly stated:
   application `malloc`s and nothing ever `free`s it. Fine for short-lived
   CLI programs and this README's examples; not something to build a
   long-running server on yet.
-- Struct/union **field access** (`.field`-style reads) still has no
-  expression syntax at all — see the Structs/Unions
-  sections below for what does and doesn't work there.
+- Struct field access (`.field`-style reads) still has no
+  expression syntax at all — see the Structs
+  section below for what does and doesn't work there.
 
 ### Structs
 
@@ -340,14 +340,6 @@ For non-default data layouts:
 ; Aligned to 16 bytes
 (struct AlignedData align(16)
   (data : I64))
-```
-
-### Unions
-
-```scheme
-(union Value
-  (asInt : I64)
-  (asFloat : F64))
 ```
 
 ### Type aliases
@@ -585,7 +577,7 @@ How it works:
   would.
 - `(import Mod.Sub)` with no name list brings in every top-level
   declaration from that file; `(import Mod.Sub (a b))` brings in only the
-named declarations (functions, `struct`/`union`/`type` decls).
+ named declarations (functions, `struct`/`type` decls).
 - Imports are transitive (`A` imports `B` imports `C` brings `C`'s
   declarations into `A` too) and diamond-safe (two different modules both
   importing `C` merges `C` exactly once, not twice).
@@ -632,7 +624,7 @@ named declarations (functions, `struct`/`union`/`type` decls).
 ./target/release/axiom --diagnostic-format=ai check source.ax
 
 # List every top-level symbol (functions, types, constructors, structs,
-# unions, aliases, classes, ...) and its type/shape in Axiom's AI-optimized
+# aliases, traits, ...) and its type/shape in Axiom's AI-optimized
 # "AXSYM" notation (see docs/diagnostics.md); resolves (import ...) too, and
 # attributes each symbol to the file that actually declared it
 ./target/release/axiom --diagnostic-format=ai symbols source.ax
@@ -761,7 +753,7 @@ Source (.ax)
 | brace blocks | **Complete** | `{ expr1 expr2 ... }` — modern sequencing, returns last value |
 | fn keyword | **Complete** | Modern function declaration keyword (replaces `define`) |
 | ADTs / struct types | **Complete** | Constructors (nullary and with fields, including recursive types like `Tree`) compile to heap-boxed tagged values; see [Algebraic data types](#algebraic-data-types-how-they-actually-run) |
-| Structs / unions | **Complete** | Declarations, LLVM emission, field access (`.field`), struct construction (`(StructName expr1 expr2 ...)`), `mut` fields, and field mutation (`(set-field expr field value)`) all work |
+| Structs | **Complete** | Declarations, LLVM emission, field access (`.field`), struct construction (`(StructName expr1 expr2 ...)`), `mut` fields, and field mutation (`(set-field expr field value)`) all work |
 | Pattern matching (`match`) | **Complete** | Constructor patterns (nullary and with-field), variables, wildcards, literals, nested constructor patterns, and tuple/list patterns all compare and bind correctly, plus non-exhaustiveness/arity/undefined-constructor diagnostics. |
 | Lambda | **Complete** | Parsed, type-checked, and codegen (closures with captured vars) |
 | Lists | **Complete** | Syntax, type checking, heap-allocated length-tracked blocks, exact-length pattern matching, nested patterns |

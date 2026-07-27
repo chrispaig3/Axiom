@@ -149,7 +149,6 @@ pub enum Expr {
     EField(Box<Expr>, Ident),
     EStructCon(Ident, Vec<Expr>),
     ESetField(Box<Expr>, Ident, Box<Expr>),
-    EUnionCon(Ident, Ident, Box<Expr>),
     EError(String, Span),
 }
 
@@ -183,7 +182,6 @@ impl Expr {
             Expr::EField(e, _) => e.span(),
             Expr::EStructCon(name, _) => name.span,
             Expr::ESetField(e, _, _) => e.span(),
-            Expr::EUnionCon(name, _, _) => name.span,
             Expr::EError(_, span) => *span,
         }
     }
@@ -215,13 +213,6 @@ pub enum Decl {
         tyvars: Vec<String>,
         variants: Vec<StructVariant>,
         repr: Option<TypeRepr>,
-        nid: Option<String>,
-        axtags: Vec<Axtag>,
-    },
-    DUnion {
-        name: Ident,
-        tyvars: Vec<String>,
-        fields: Vec<Field>,
         nid: Option<String>,
         axtags: Vec<Axtag>,
     },
@@ -377,31 +368,6 @@ impl Decl {
                         TypeRepr::Align(n) => write!(out, "align={}", n).unwrap(),
                     }
                     out.push('}');
-                }
-            }
-            Decl::DUnion {
-                name,
-                tyvars,
-                fields,
-                ..
-            } => {
-                out.push_str("DUnion:");
-                out.push_str(&name.name);
-                out.push('(');
-                for tv in tyvars {
-                    out.push_str(tv);
-                    out.push(',');
-                }
-                out.push(')');
-                for f in fields {
-                    out.push('(');
-                    if f.mutable {
-                        out.push_str("mut ");
-                    }
-                    out.push_str(&f.name.name);
-                    out.push(':');
-                    Self::fmt_type_nid(out, &f.ty);
-                    out.push(')');
                 }
             }
             Decl::DType {

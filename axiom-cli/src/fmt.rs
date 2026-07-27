@@ -62,14 +62,6 @@ fn format_decl(decl: &Decl, out: &mut String, state: &mut FormatState) {
         } => {
             format_struct_decl(name, tyvars, variants, repr, out, state);
         }
-        Decl::DUnion {
-            name,
-            tyvars,
-            fields,
-            ..
-        } => {
-            format_union_decl(name, tyvars, fields, out, state);
-        }
         Decl::DType {
             name,
             tyvars,
@@ -208,34 +200,6 @@ fn format_struct_decl(
             out.push(')');
             state.pop_indent();
         }
-    }
-    out.push(')');
-}
-
-fn format_union_decl(
-    name: &Ident,
-    tyvars: &[String],
-    fields: &[Field],
-    out: &mut String,
-    state: &mut FormatState,
-) {
-    out.push_str("(union ");
-    out.push_str(&name.name);
-    if !tyvars.is_empty() {
-        out.push(' ');
-        format_type_vars(tyvars, out);
-    }
-    if !fields.is_empty() {
-        out.push('\n');
-        state.push_indent();
-        for f in fields {
-            out.push_str(&state.indent_str());
-            write!(out, "({} {})", f.name.name, format_type(&f.ty)).unwrap();
-            if f.mutable {
-                out.push_str(" mut");
-            }
-        }
-        state.pop_indent();
     }
     out.push(')');
 }
@@ -835,15 +799,6 @@ fn format_expr(expr: &Expr, out: &mut String, state: &mut FormatState) {
             format_expr(base, out, state);
             out.push(' ');
             out.push_str(&field_ident.name);
-            out.push(' ');
-            format_expr(value, out, state);
-            out.push(')');
-        }
-        Expr::EUnionCon(union_name, field_name, value) => {
-            out.push_str("(union ");
-            out.push_str(&union_name.name);
-            out.push(' ');
-            out.push_str(&field_name.name);
             out.push(' ');
             format_expr(value, out, state);
             out.push(')');

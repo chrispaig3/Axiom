@@ -321,7 +321,6 @@ fn collect_effects_into(
             collect_effects_into(checker, value, out);
             out.insert(axiom_ast::ast::Effect::Mut);
         }
-        Expr::EUnionCon(_, _, value) => collect_effects_into(checker, value, out),
     }
 }
 
@@ -398,7 +397,6 @@ fn collect_effects_all_into(
             collect_effects_all_into(checker, value, out);
             out.insert(axiom_ast::ast::Effect::Mut);
         }
-        Expr::EUnionCon(_, _, value) => collect_effects_all_into(checker, value, out),
     }
 }
 /// distance, for "did you mean `foo`?" suggestions. Only returns a match
@@ -632,20 +630,6 @@ pub struct FnInfo {
     pub effects: Vec<axiom_ast::ast::Effect>,
 }
 
-/// A `union` declaration. Structurally identical to [`StructInfo`] today
-/// (a union is just a struct whose fields overlap at codegen time rather
-/// than being laid out sequentially) - kept as its own type rather than
-/// reusing `StructInfo` so `TypeChecker.unions` can't accidentally be
-/// confused with `TypeChecker.structs` by callers that care about the
-/// distinction (e.g. `axiom symbols`'s `SymbolKind::Union` vs
-/// `SymbolKind::Struct`), even though nothing here currently checks that
-/// distinction any more deeply than that.
-#[derive(Debug, Clone)]
-pub struct UnionInfo {
-    pub name: String,
-    pub fields: Vec<(String, TypeId)>,
-}
-
 /// A `type` alias declaration: `name`'s type parameters and the type it
 /// stands for.
 #[derive(Debug, Clone)]
@@ -686,7 +670,6 @@ pub struct TypeChecker {
     pub scope: Vec<(String, VarInfo)>,
     pub consumed_linear: std::collections::HashSet<String>,
     pub structs: Vec<StructInfo>,
-    pub unions: Vec<UnionInfo>,
     pub aliases: Vec<TypeAliasInfo>,
     pub functions: Vec<FnInfo>,
     pub traits: Vec<TraitInfo>,
@@ -706,7 +689,6 @@ impl TypeChecker {
             scope: Vec::new(),
             consumed_linear: std::collections::HashSet::new(),
             structs: Vec::new(),
-            unions: Vec::new(),
             aliases: Vec::new(),
             functions: Vec::new(),
             traits: Vec::new(),
@@ -768,7 +750,7 @@ impl TypeChecker {
     /// module scope. Previously `AX3006`/`SemError::DuplicateDefinition`
     /// was declared but never actually constructed anywhere - two
     /// top-level `(fn (f ...) ...)`s with the same name, or two
-    /// `data`/`struct`/`union`/`type` declarations with the same name,
+    /// `data`/`struct`/`type` declarations with the same name,
     /// silently compiled with the *second* one clobbering the first's
     /// entry (see `collect_declarations`'s `DFn`/`DData` arms),
     /// with no diagnostic at all.
@@ -787,7 +769,6 @@ impl TypeChecker {
                 match decl {
                     Decl::DFn { name, .. } => (&mut values, name),
                     Decl::DStruct { name, .. } => (&mut types, name),
-                    Decl::DUnion { name, .. } => (&mut types, name),
                     Decl::DType { name, .. } => (&mut types, name),
                     _ => continue,
                 };
@@ -861,16 +842,6 @@ impl TypeChecker {
                         ));
                         self.type_counter += 1;
                     }
-                }
-                Decl::DUnion { name, fields, .. } => {
-                    let union_fields: Vec<(String, TypeId)> = fields
-                        .iter()
-                        .map(|f| (f.name.name.clone(), self.type_to_id(&f.ty)))
-                        .collect();
-                    self.unions.push(UnionInfo {
-                        name: name.name.clone(),
-                        fields: union_fields,
-                    });
                 }
                 Decl::DType {
                     name,
@@ -1020,10 +991,6 @@ impl TypeChecker {
         }
     }
 
-    /// Check if `expr` is a struct/variant construction: a variable
-    /// reference to a known struct name or variant name, possibly
-    /// applied to arguments via nested `EApp`. Returns
-    /// `(struct_name, args)` if so, or `None` otherwise.
     fn find_struct_con(&self, expr: &Expr) -> Option<(Ident, Vec<Expr>)> {
         let mut args = Vec::new();
         let mut current = expr;
@@ -1042,34 +1009,6 @@ impl TypeChecker {
                     {
                         args.reverse();
                         return Some((ident.clone(), args));
-                    }
-                    return None;
-                }
-                _ => return None,
-            }
-        }
-    }
-
-    /// Check if `expr` is a union construction: a variable
-    /// reference to a known union name with exactly one argument,
-    /// where the union has exactly one field. Returns `(union_name,
-    /// arg)` if so, or `None` otherwise.
-    fn find_union_con(&self, expr: &Expr) -> Option<(Ident, Expr)> {
-        let mut arg = None;
-        let mut current = expr;
-        loop {
-            match current {
-                Expr::EApp(func, arg_expr) => {
-                    if arg.is_some() {
-                        return None;
-                    }
-                    arg = Some(arg_expr.clone());
-                    current = func;
-                }
-                Expr::EVar(ident) => {
-                    if self.unions.iter().any(|u| u.name == ident.name) {
-                        let arg = *arg?;
-                        return Some((ident.clone(), arg));
                     }
                     return None;
                 }
@@ -1135,40 +1074,6 @@ impl TypeChecker {
                             Ident::new(&si_name, Span::dummy()),
                             type_args,
                         ));
-                    }
-                }
-
-                // Check for union construction: `(Value 42)` where
-                // `Value` is a known union name with exactly one field.
-                if let Some((union_ident, con_arg)) = self.find_union_con(expr) {
-                    let ui = self
-                        .unions
-                        .iter()
-                        .find(|u| u.name == union_ident.name)
-                        .cloned();
-                    if let Some(ui) = ui {
-                        if ui.fields.len() != 1 {
-                            self.errors.push(SemError::Message {
-                                message: format!(
-                                    "union `{}` has {} fields, use `(Union {} field value)` to specify which field",
-                                    union_ident.name,
-                                    ui.fields.len(),
-                                    union_ident.name,
-                                ),
-                                span: expr.span(),
-                            });
-                            return TypeId::TError;
-                        }
-                        let arg_ty = self.check_expr(&con_arg);
-                        let expected_ty = ui.fields[0].1.clone();
-                        if !arg_ty.compatible_with(&expected_ty) {
-                            self.errors.push(SemError::TypeMismatch {
-                                expected: format!("{}", expected_ty),
-                                found: format!("{}", arg_ty),
-                                span: con_arg.span(),
-                            });
-                        }
-                        return self.type_to_id(&Type::TCon(union_ident, vec![]));
                     }
                 }
 
@@ -1426,15 +1331,6 @@ impl TypeChecker {
                             }
                         }
                     }
-                    for ui in &self.unions {
-                        if ui.name == *struct_name {
-                            for (fname, fty) in &ui.fields {
-                                if fname == &field_ident.name {
-                                    return fty.clone();
-                                }
-                            }
-                        }
-                    }
                     self.errors.push(SemError::FieldNotFound {
                         field: field_ident.name.clone(),
                         ty: struct_name.clone(),
@@ -1499,49 +1395,6 @@ impl TypeChecker {
                     }
                 }
             }
-            Expr::EUnionCon(union_name, field_name, value) => {
-                let ui = self
-                    .unions
-                    .iter()
-                    .find(|u| u.name == union_name.name)
-                    .cloned();
-                match ui {
-                    Some(ui) => {
-                        let field_info = ui
-                            .fields
-                            .iter()
-                            .find(|(fname, _)| fname == &field_name.name);
-                        match field_info {
-                            Some((_, fty)) => {
-                                let value_ty = self.check_expr(value);
-                                if !value_ty.compatible_with(fty) {
-                                    self.errors.push(SemError::TypeMismatch {
-                                        expected: format!("{}", fty),
-                                        found: format!("{}", value_ty),
-                                        span: value.span(),
-                                    });
-                                }
-                            }
-                            None => {
-                                self.errors.push(SemError::FieldNotFound {
-                                    field: field_name.name.clone(),
-                                    ty: union_name.name.clone(),
-                                    span: field_name.span,
-                                });
-                            }
-                        }
-                        self.type_to_id(&Type::TCon(union_name.clone(), vec![]))
-                    }
-                    None => {
-                        self.errors.push(SemError::UndefinedType {
-                            name: union_name.name.clone(),
-                            span: union_name.span,
-                            suggestion: None,
-                        });
-                        TypeId::TError
-                    }
-                }
-            }
             Expr::ESetField(base, field_ident, value) => {
                 let base_ty = self.check_expr(base);
                 if let TypeId::TCon(struct_name, _) = &base_ty {
@@ -1557,18 +1410,6 @@ impl TypeChecker {
                                     .find(|(fname, _)| fname == &field_ident.name)
                                     .map(|(fname, fty)| (fname.clone(), fty.clone()))
                             })
-                        })
-                        .or_else(|| {
-                            self.unions
-                                .iter()
-                                .find(|u| u.name == *struct_name)
-                                .cloned()
-                                .and_then(|ui| {
-                                    ui.fields
-                                        .iter()
-                                        .find(|(fname, _)| fname == &field_ident.name)
-                                        .map(|(fname, fty)| (fname.clone(), fty.clone()))
-                                })
                         });
                     match field_info {
                         Some((_, fty)) => {
@@ -1715,19 +1556,6 @@ impl TypeChecker {
                     if fname == field_name {
                         return Some((si.name.clone(), sv.name.clone(), idx, fty.clone()));
                     }
-                }
-            }
-        }
-        None
-    }
-
-    /// Search all known union types for a field with the
-    /// given name, returning `(union_name, field_type)` if found.
-    pub fn find_union_field_by_name(&self, field_name: &str) -> Option<(String, TypeId)> {
-        for ui in &self.unions {
-            for (fname, fty) in &ui.fields {
-                if fname == field_name {
-                    return Some((ui.name.clone(), fty.clone()));
                 }
             }
         }
@@ -2004,16 +1832,6 @@ impl TypeChecker {
                     variants: struct_variants,
                 });
             }
-            Decl::DUnion { name, fields, .. } => {
-                let union_fields: Vec<(String, TypeId)> = fields
-                    .iter()
-                    .map(|f| (f.name.name.clone(), self.type_to_id(&f.ty)))
-                    .collect();
-                self.unions.push(UnionInfo {
-                    name: name.name.clone(),
-                    fields: union_fields,
-                });
-            }
             Decl::DType {
                 name,
                 tyvars,
@@ -2153,10 +1971,9 @@ mod tests {
     }
 
     #[test]
-    fn struct_and_union_and_type_alias_declarations_are_tracked() {
+    fn struct_and_type_alias_declarations_are_tracked() {
         let mut lexer = Lexer::new(
             "(struct Point (x : Int) (y : Int))\n\
-             (union Value (asInt : I64) (asFloat : F64))\n\
              (type StringList () = [String])\n\
              (:: main Int)\n(fn main 0)",
             0,
@@ -2169,38 +1986,8 @@ mod tests {
         assert_eq!(tc.structs.len(), 1);
         assert_eq!(tc.structs[0].variants.len(), 1);
         assert_eq!(tc.structs[0].variants[0].fields.len(), 2);
-        assert_eq!(tc.unions.len(), 1);
-        assert_eq!(tc.unions[0].fields.len(), 2);
         assert_eq!(tc.aliases.len(), 1);
         assert_eq!(tc.aliases[0].name, "StringList");
-    }
-
-    #[test]
-    fn union_construction_checks_field_type() {
-        let mut lexer = Lexer::new(
-            "(union Value (asInt : Int) (asFloat : F64))\n\
-             (:: main Int)\n(fn main (union Value asInt 42))",
-            0,
-        );
-        let tokens = lexer.tokenize().unwrap();
-        let module = Parser::new(tokens).parse_module().unwrap();
-        let mut tc = TypeChecker::new();
-        tc.check(&module)
-            .expect("expected this program to check cleanly");
-    }
-
-    #[test]
-    fn union_construction_rejects_wrong_field_type() {
-        let mut lexer = Lexer::new(
-            "(union Value (asInt : Int) (asFloat : F64))\n\
-             (:: main Int)\n(fn main (union Value asInt \"hello\"))",
-            0,
-        );
-        let tokens = lexer.tokenize().unwrap();
-        let module = Parser::new(tokens).parse_module().unwrap();
-        let mut tc = TypeChecker::new();
-        let result = tc.check(&module);
-        assert!(result.is_err());
     }
 
     #[test]

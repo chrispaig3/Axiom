@@ -448,7 +448,6 @@ fn axsym_reports_all_declaration_kinds() {
         "main.ax",
         r#"(struct Tree (a) (Leaf) (Node a (Tree a) (Tree a)))
 (struct Point (x : Int) (y : Int))
-(union Value (asInt : I64) (asFloat : F64))
 (type StringList () = [String])
 (trait (Eq a))
 "#,
@@ -460,7 +459,6 @@ fn axsym_reports_all_declaration_kinds() {
     assert!(text.lines().any(|l| l.starts_with("C Leaf ")));
     assert!(text.lines().any(|l| l.starts_with("C Node ")));
     assert!(text.lines().any(|l| l.starts_with("S Point ")));
-    assert!(text.lines().any(|l| l.starts_with("U Value ")));
     assert!(text.lines().any(|l| l.starts_with("A StringList ")));
     assert!(text.lines().any(|l| l.starts_with("T Eq ")));
 }
