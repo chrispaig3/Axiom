@@ -32,7 +32,7 @@ use axiom_ast::span::Span;
 /// disambiguated by which command produced it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SymbolKind {
-    /// A `define`/`fn` function binding.
+    /// A `fn` function binding.
     Fn,
     /// A `foreign` FFI binding.
     Foreign,

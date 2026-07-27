@@ -221,8 +221,8 @@ impl Parser {
 
         self.expect(TokenKind::LParen)?;
 
-        let mut decl = if self.check(TokenKind::Define) || self.check(TokenKind::Fn) {
-            self.parse_define()?
+        let mut decl = if self.check(TokenKind::Fn) {
+            self.parse_fn()?
         } else if self.check(TokenKind::Struct) {
             self.parse_struct()?
         } else if self.check(TokenKind::Union) {
@@ -268,8 +268,7 @@ impl Parser {
         Ok(decl)
     }
 
-    fn parse_define(&mut self) -> ParseResult<Decl> {
-        self.eat(TokenKind::Define);
+    fn parse_fn(&mut self) -> ParseResult<Decl> {
         self.eat(TokenKind::Fn);
 
         if self.check(TokenKind::LParen) {
@@ -1732,8 +1731,7 @@ impl Parser {
         if let Some(token) = self.tokens.get(self.pos) {
             if matches!(
                 token.kind,
-                TokenKind::Define
-                    | TokenKind::Fn
+                TokenKind::Fn
                     | TokenKind::Struct
                     | TokenKind::Union
                     | TokenKind::Type
@@ -1747,13 +1745,12 @@ impl Parser {
             ) {
                 return true;
             }
-            // Check for parenthesized declarations like (:: ...) or (define ...)
+            // Check for parenthesized declarations like (:: ...) or (fn ...)
             if token.kind == TokenKind::LParen {
                 if let Some(next) = self.tokens.get(self.pos + 1) {
                     return matches!(
                         next.kind,
-                        TokenKind::Define
-                            | TokenKind::Fn
+                        TokenKind::Fn
                             | TokenKind::Struct
                             | TokenKind::Union
                             | TokenKind::Type

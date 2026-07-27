@@ -14,7 +14,6 @@ pub enum TokenKind {
     Ident(String),
 
     // Keywords
-    Define,   // (define name body) or (define (name args...) body)
     Lambda,   // (lambda (args...) body)
     Let,      // (let ((x val)...) body)
     If,       // (if cond then else)
@@ -131,7 +130,6 @@ impl fmt::Display for TokenKind {
             TokenKind::StringLiteral(s) => write!(f, "\"{}\"", s),
             TokenKind::CharLiteral(c) => write!(f, "'{}'", c),
             TokenKind::Ident(s) => write!(f, "{}", s),
-            TokenKind::Define => write!(f, "define"),
             TokenKind::Lambda => write!(f, "lambda"),
             TokenKind::Let => write!(f, "let"),
             TokenKind::If => write!(f, "if"),

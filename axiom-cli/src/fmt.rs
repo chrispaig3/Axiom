@@ -146,7 +146,7 @@ fn format_function_decl(
     out: &mut String,
     state: &mut FormatState,
 ) {
-    out.push_str("(define (");
+    out.push_str("(fn (");
     out.push_str(&name.name);
     for p in params {
         out.push(' ');

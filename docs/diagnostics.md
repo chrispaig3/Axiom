@@ -90,7 +90,7 @@ Concretely, poisoning today makes this:
 
 ```lisp
 (:: main Int)
-(define main (foo 1 2) 0)
+(fn main (foo 1 2) 0)
 ```
 
 now reports exactly **one** diagnostic (`foo` is undefined), instead of
@@ -178,10 +178,10 @@ Source:
 
 ```lisp
 (:: helper (-> Int Int))
-(define (helper x) (+ x 1))
+(fn (helper x) (+ x 1))
 
 (:: main Int)
-(define main
+(fn main
   (helpr 5))
 ```
 
@@ -226,7 +226,7 @@ instead of the failure case.
 `axiom symbols <file>` runs the same lexer -> parser -> type-checker
 pipeline as `check` (including resolving `(import ...)`s, see
 `docs/diagnostics.md`'s multi-file notes below), then prints one fact per
-top-level name the checker collected: every `define`/`fn`, every
+top-level name the checker collected: every `fn`, every
 `foreign` binding, every multi-variant `struct` type and its
 constructors (variants), every `struct`/`union` single-variant product
 (with its exact field shapes and layout attributes), every `type` alias,

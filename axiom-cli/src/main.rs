@@ -624,7 +624,7 @@ fn build(
             &axiom_errors::code::MISSING_MAIN,
             "no `main` function found",
         )
-        .with_help("add `(:: main Int)` and `(define main ...)` as the program entry point");
+        .with_help("add `(:: main Int)` and `(fn main ...)` as the program entry point");
         print_diagnostics(vec![diag], input, &source, format);
         return Err("compilation failed: missing entry point".to_string());
     }
@@ -1367,7 +1367,7 @@ fn show_help() {
     println!("{}", "Tips:".bold().bright_cyan());
     println!(
         "  • Define functions: {}",
-        "(define (add x y) (+ x y))".bright_white()
+        "(fn (add x y) (+ x y))".bright_white()
     );
     println!(
         "  • Type signatures: {}",
@@ -1572,7 +1572,7 @@ fn cmd_llvm(expr_str: &str, state: &mut ReplState) {
 
             if let Ok(ty) = tc.check_single_expr(&expr) {
                 let wrapper = format!(
-                    "(foreign printf :: (-> String Int Int) = \"printf\")\n(foreign puts :: (-> String Int) = \"puts\")\n{}\n(:: __repl_result (-> Int {}))\n(define (__repl_result _dummy) {})\n(:: main Int)\n(define main {{ (printf \"%ld\\n\" (__repl_result 0)) 0 }})",
+                    "(foreign printf :: (-> String Int Int) = \"printf\")\n(foreign puts :: (-> String Int) = \"puts\")\n{}\n(:: __repl_result (-> Int {}))\n(fn (__repl_result _dummy) {})\n(:: main Int)\n(fn main {{ (printf \"%ld\\n\" (__repl_result 0)) 0 }})",
                     state.declarations,
                     ty,
                     expr_str,
@@ -1800,7 +1800,7 @@ fn generate_repl_wrapper(declarations: &str, input: &str, ty: &axiom_sema::TypeI
     match type_str.as_str() {
         "Int" | "I64" | "U64" | "Isize" | "Usize" => {
             format!(
-                "(foreign printf :: (-> String Int Int) = \"printf\")\n(foreign puts :: (-> String Int) = \"puts\")\n{}\n(:: __repl_result (-> Int Int))\n(define (__repl_result _dummy) {})\n(:: main Int)\n(define main {{ (printf \"%ld\\n\" (__repl_result 0)) 0 }})",
+                "(foreign printf :: (-> String Int Int) = \"printf\")\n(foreign puts :: (-> String Int) = \"puts\")\n{}\n(:: __repl_result (-> Int Int))\n(fn (__repl_result _dummy) {})\n(:: main Int)\n(fn main {{ (printf \"%ld\\n\" (__repl_result 0)) 0 }})",
                 declarations,
                 input,
             )
@@ -1808,21 +1808,21 @@ fn generate_repl_wrapper(declarations: &str, input: &str, ty: &axiom_sema::TypeI
         "Bool" => {
             let wrapped_input = format!("(if {} 1 0)", input);
             format!(
-                "(foreign printf :: (-> String Int Int) = \"printf\")\n(foreign puts :: (-> String Int) = \"puts\")\n{}\n(:: __repl_result (-> Int Int))\n(define (__repl_result _dummy) {})\n(:: main Int)\n(define main {{ (if (== (__repl_result 0) 0) {{ (puts \"false\") 0 }} {{ (puts \"true\") 0 }}) 0 }})",
+                "(foreign printf :: (-> String Int Int) = \"printf\")\n(foreign puts :: (-> String Int) = \"puts\")\n{}\n(:: __repl_result (-> Int Int))\n(fn (__repl_result _dummy) {})\n(:: main Int)\n(fn main {{ (if (== (__repl_result 0) 0) {{ (puts \"false\") 0 }} {{ (puts \"true\") 0 }}) 0 }})",
                 declarations,
                 wrapped_input,
             )
         }
         "Char" => {
             format!(
-                "(foreign printf :: (-> String Int Int) = \"printf\")\n(foreign puts :: (-> String Int) = \"puts\")\n{}\n(:: __repl_result (-> Int Int))\n(define (__repl_result _dummy) {})\n(:: main Int)\n(define main {{ (printf \"%c\\n\" (__repl_result 0)) 0 }})",
+                "(foreign printf :: (-> String Int Int) = \"printf\")\n(foreign puts :: (-> String Int) = \"puts\")\n{}\n(:: __repl_result (-> Int Int))\n(fn (__repl_result _dummy) {})\n(:: main Int)\n(fn main {{ (printf \"%c\\n\" (__repl_result 0)) 0 }})",
                 declarations,
                 input,
             )
         }
         _ => {
             format!(
-                "(foreign printf :: (-> String Int Int) = \"printf\")\n(foreign puts :: (-> String Int) = \"puts\")\n{}\n(:: __repl_result (-> Int Int))\n(define (__repl_result _dummy) {})\n(:: main Int)\n(define main {{ (printf \"%ld\\n\" (__repl_result 0)) 0 }})",
+                "(foreign printf :: (-> String Int Int) = \"printf\")\n(foreign puts :: (-> String Int) = \"puts\")\n{}\n(:: __repl_result (-> Int Int))\n(fn (__repl_result _dummy) {})\n(:: main Int)\n(fn main {{ (printf \"%ld\\n\" (__repl_result 0)) 0 }})",
                 declarations,
                 input,
             )

@@ -138,10 +138,6 @@ Functions are the heart of Axiom. Every function has an optional type signature 
 (fn (add x y)
   (+ x y))
 
-; Definition using 'define' (classic style)
-(define (add x y)
-  (+ x y))
-
 ; Multi-statement body with braces
 (fn (verbose-add x y)
   { (printf "adding %d + %d\n" x y)
@@ -523,7 +519,7 @@ Axiom has no standard library. System operations are done through FFI bindings t
 
 See the [Foreign Function Interface](#foreign-function-interface) section for details.
 
-### Common struct types (define as needed)
+### Common struct types
 
 ```scheme
 (struct Tree (Leaf) (Node Int (Tree Int) (Tree Int)))
@@ -711,7 +707,7 @@ The REPL compiles expressions to native code — it doesn't interpret them. This
 axiom> 1 (:: add (-> Int Int Int))
 OK: add defined
 
-axiom> 2 (define (add x y) (+ x y))
+axiom> 2 (fn (add x y) (+ x y))
 OK: add defined
 
 axiom> 3 (add 3 4)
@@ -817,7 +813,7 @@ Source (.ax)
 | if expressions | **Complete** | Proper branching with result values |
 | begin blocks | **Removed** | Replaced by `{ }` brace blocks and implicit sequencing |
 | brace blocks | **Complete** | `{ expr1 expr2 ... }` — modern sequencing, returns last value |
-| fn keyword | **Complete** | Modern alias for `define` |
+| fn keyword | **Complete** | Modern function declaration keyword (replaces `define`) |
 | FFI | **Complete** | Call any C function with `foreign` declarations |
 | ADTs / struct types | **Complete** | Constructors (nullary and with fields, including recursive types like `Tree`) compile to heap-boxed tagged values; see [Algebraic data types](#algebraic-data-types-how-they-actually-run) |
 | Structs / unions | **Complete** | Declarations, LLVM emission, field access (`.field`), struct construction (`(StructName expr1 expr2 ...)`), `mut` fields, and field mutation (`(set-field expr field value)`) all work |
@@ -828,7 +824,6 @@ Source (.ax)
 | Type classes | **Replaced** | Renamed to traits; see [Traits](#traits) |
 | Traits | **Complete** | Declarations, supertraits, effects, default methods, implementations (`impl`) |
 | Effects | **Complete** | Effect declarations, `handle` expressions, effect checking (`IO`, `Pure`, `Alloc`, `Mut`, `Div`), AXTAG validation |
-| Region syntax | **Parsed only** | `region r body` |
 | Linear types | **Implemented** | `linear T`, `consume` |
 | Imports | **Functional** | `(import Mod.Sub ...)` resolves and merges declarations from other files; see [Modules and imports](#modules-and-imports) |
 

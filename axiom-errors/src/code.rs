@@ -89,7 +89,7 @@ registry! {
     UNDEFINED_VARIABLE => ("AX3001", "undefined-variable",
         "undefined variable",
         "No binding with this name is in scope: not a local `let`/`lambda`\n\
-         parameter, not a top-level `define`/`fn`, and not a data constructor.\n\
+         parameter,           not a top-level `fn`, and not a data constructor.\n\
          Check for typos, missing imports, or a definition that appears later\n\
          in the file (Axiom does not forward-reference local bindings)."),
     UNDEFINED_TYPE => ("AX3002", "undefined-type",
@@ -149,7 +149,7 @@ registry! {
         "no `main` function",
         "An executable Axiom program needs exactly one top-level function named\n\
          `main` to serve as the entry point. Add `(:: main Int)` and\n\
-         `(define main ...)`, or use `axiom check`/`emit-llvm` if you only want\n\
+          `(fn main ...)`, or use `axiom check`/`emit-llvm` if you only want\n\
          to analyze a library-style module."),
     CODEGEN_FAILURE => ("AX4002", "codegen-failure",
         "code generation failed",

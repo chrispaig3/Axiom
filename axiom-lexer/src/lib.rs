@@ -338,7 +338,6 @@ impl Lexer {
         }
         let name: String = self.source[start..self.pos].iter().collect();
         let kind = match name.as_str() {
-            "define" => TokenKind::Define,
             "lambda" => TokenKind::Lambda,
             "let" => TokenKind::Let,
             "if" => TokenKind::If,

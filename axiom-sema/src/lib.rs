@@ -105,7 +105,7 @@ impl SemError {
                         s.clone(),
                     ),
                     None => d.with_help(
-                        "variables must be defined (via `define`/`fn`, a `let` binding, or a \
+                        "variables must be defined (via `fn`, a `let` binding, or a \
                          lambda parameter) before they are used; check for typos",
                     ),
                 };
@@ -786,7 +786,7 @@ impl TypeChecker {
     /// Detect a name defined more than once within the same namespace at
     /// module scope. Previously `AX3006`/`SemError::DuplicateDefinition`
     /// was declared but never actually constructed anywhere - two
-    /// top-level `(define (f ...) ...)`s with the same name, or two
+    /// top-level `(fn (f ...) ...)`s with the same name, or two
     /// `data`/`struct`/`union`/`type` declarations with the same name,
     /// silently compiled with the *second* one clobbering the first's
     /// entry (see `collect_declarations`'s `DFn`/`DForeign`/`DData` arms),
@@ -795,7 +795,7 @@ impl TypeChecker {
     /// Functions and types are checked as two separate namespaces (a
     /// function and a type may share a name), and a `(:: name Type)`
     /// signature is deliberately *not* treated as a definition here - a
-    /// signature followed by exactly one matching `define`/`fn`/`foreign`
+    /// signature followed by exactly one matching `fn`/`foreign`
     /// is the normal, expected pattern, not a duplicate.
     fn check_duplicate_definitions(&mut self, decls: &[Decl]) {
         let mut values: std::collections::HashMap<String, Span> = std::collections::HashMap::new();
