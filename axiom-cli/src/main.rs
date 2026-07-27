@@ -765,6 +765,7 @@ fn collect_symbol_facts(
     let mut fn_spans: HashMap<&str, axiom_ast::span::Span> = HashMap::new();
     let mut type_spans: HashMap<&str, axiom_ast::span::Span> = HashMap::new();
     let mut trait_spans: HashMap<&str, axiom_ast::span::Span> = HashMap::new();
+    let mut effect_spans: HashMap<&str, axiom_ast::span::Span> = HashMap::new();
     let mut ctor_spans: HashMap<&str, axiom_ast::span::Span> = HashMap::new();
     let mut struct_reprs: HashMap<&str, &Option<axiom_ast::ast::TypeRepr>> = HashMap::new();
 
@@ -792,6 +793,10 @@ fn collect_symbol_facts(
             Decl::DTrait {
                 name, nid, axtags, ..
             } => (name, nid, axtags),
+            Decl::DEffect {
+                name, nid, axtags, ..
+            } => (name, nid, axtags),
+            Decl::DImpl { .. } => continue,
             _ => continue,
         };
         let axtag_meta: Vec<String> = axtags
@@ -854,6 +859,13 @@ fn collect_symbol_facts(
             }
             Decl::DTrait { name, .. } => {
                 trait_spans.insert(&name.name, name.span);
+            }
+            Decl::DEffect { name, .. } => {
+                effect_spans.insert(&name.name, name.span);
+            }
+            Decl::DImpl { .. } => {
+                // DImpl has no simple name for span lookup;
+                // trait_name + ty serves as its key.
             }
             _ => {}
         }
@@ -1000,6 +1012,59 @@ fn collect_symbol_facts(
         facts.push(fact);
     }
 
+    let mut effect_facts = Vec::new();
+    for decl in &module.decls {
+        if let Decl::DEffect {
+            name, ..
+        } = decl
+        {
+            let ty_str = format!(
+                "effect {}",
+                name.name
+            );
+            let mut fact = SymbolFact::new(
+                SymbolKind::Effect,
+                &name.name,
+                effect_spans.get(name.name.as_str()).copied(),
+                ty_str,
+                decl_meta.get(name.name.as_str()).and_then(|(n, _)| n.clone()),
+            );
+            if let Some((_, axtags)) = decl_meta.get(name.name.as_str()) {
+                for m in axtags {
+                    fact = fact.with_meta(m.clone());
+                }
+            }
+            effect_facts.push(fact);
+        }
+    }
+
+    let mut impl_facts = Vec::new();
+    for decl in &module.decls {
+        if let Decl::DImpl {
+            trait_name, ty, ..
+        } = decl
+        {
+            let mut label = String::new();
+            label.push_str("impl ");
+            label.push_str(&trait_name.name);
+            label.push_str(" for ");
+            Decl::fmt_type_nid(&mut label, ty);
+            let mut fact = SymbolFact::new(
+                SymbolKind::Impl,
+                &label,
+                trait_name.span.into(),
+                label.clone(),
+                None,
+            );
+            if let Some((_, axtags)) = decl_meta.get(&trait_name.name) {
+                for m in axtags {
+                    fact = fact.with_meta(m.clone());
+                }
+            }
+            impl_facts.push(fact);
+        }
+    }
+
     for t in &tc.traits {
         let mut fact = SymbolFact::new(
             SymbolKind::Trait,
@@ -1015,6 +1080,13 @@ fn collect_symbol_facts(
             }
         }
         facts.push(fact);
+    }
+
+    for f in effect_facts {
+        facts.push(f);
+    }
+    for f in impl_facts {
+        facts.push(f);
     }
 
     facts

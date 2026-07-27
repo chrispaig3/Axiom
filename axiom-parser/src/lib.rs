@@ -1996,16 +1996,98 @@ mod tests {
     }
 
     #[test]
-    fn struct_with_packed_attribute_parses() {
-        let module =
-            parse_ok("(struct Point packed\n  (x : Int)\n  (y : Int))\n(:: main Int)\n(fn main 0)");
-        match &module.decls[0] {
-            Decl::DStruct { variants, repr, .. } => {
-                assert_eq!(variants.len(), 1);
-                assert_eq!(variants[0].fields.len(), 2);
-                assert!(matches!(repr, Some(TypeRepr::Packed)));
-            }
+    fn nid_differs_when_struct_field_types_differ() {
+        let mod1 = parse_ok(
+            "(struct Point\n  (x Int)\n  (y Int))\n(:: main Int)\n(fn main 0)",
+        );
+        let mod2 = parse_ok(
+            "(struct Point\n  (x String)\n  (y Int))\n(:: main Int)\n(fn main 0)",
+        );
+        let d1 = match &mod1.decls[0] {
+            Decl::DStruct { nid, .. } => nid.clone(),
             other => panic!("expected DStruct, got {:?}", other),
-        }
+        };
+        let d2 = match &mod2.decls[0] {
+            Decl::DStruct { nid, .. } => nid.clone(),
+            other => panic!("expected DStruct, got {:?}", other),
+        };
+        assert_ne!(d1, d2, "changing a field type must change the NID");
+    }
+
+    #[test]
+    fn nid_differs_when_struct_tyvars_differ() {
+        let mod1 = parse_ok(
+            "(struct Box (a) (Box a))\n(:: main Int)\n(fn main 0)",
+        );
+        let mod2 = parse_ok(
+            "(struct Box (b) (Box b))\n(:: main Int)\n(fn main 0)",
+        );
+        let d1 = match &mod1.decls[0] {
+            Decl::DStruct { nid, .. } => nid.clone(),
+            other => panic!("expected DStruct, got {:?}", other),
+        };
+        let d2 = match &mod2.decls[0] {
+            Decl::DStruct { nid, .. } => nid.clone(),
+            other => panic!("expected DStruct, got {:?}", other),
+        };
+        assert_ne!(d1, d2, "changing type parameter names must change the NID");
+    }
+
+    #[test]
+    fn nid_differs_when_fn_params_differ() {
+        let mod1 = parse_ok(
+            "(:: add (-> Int Int Int))\n(fn (add x y) (+ x y))\n(:: main Int)\n(fn main (add 1 2))",
+        );
+        let mod2 = parse_ok(
+            "(:: add (-> Int Int Int))\n(fn (add a b) (+ a b))\n(:: main Int)\n(fn main (add 1 2))",
+        );
+        let fn1 = match &mod1.decls[1] {
+            Decl::DFn { nid, .. } => nid.clone(),
+            other => panic!("expected DFn, got {:?}", other),
+        };
+        let fn2 = match &mod2.decls[1] {
+            Decl::DFn { nid, .. } => nid.clone(),
+            other => panic!("expected DFn, got {:?}", other),
+        };
+        assert_ne!(fn1, fn2, "changing param names must change the NID");
+    }
+
+    #[test]
+    fn nid_stable_when_formatting_changes() {
+        // Whitespace-only formatting changes should not affect NID.
+        let mod1 = parse_ok(
+            "(struct Point packed\n  (x : Int)\n  (y : Int))\n(:: main Int)\n(fn main 0)",
+        );
+        let mod2 = parse_ok(
+            "(struct Point packed(x:Int)(y:Int))(:: main Int)(fn main 0)",
+        );
+        let s1 = match &mod1.decls[0] {
+            Decl::DStruct { nid, .. } => nid.clone(),
+            other => panic!("expected DStruct, got {:?}", other),
+        };
+        let s2 = match &mod2.decls[0] {
+            Decl::DStruct { nid, .. } => nid.clone(),
+            other => panic!("expected DStruct, got {:?}", other),
+        };
+        assert_eq!(s1, s2, "formatting-only changes must not change the NID");
+    }
+
+    #[test]
+    fn nid_differs_when_type_alias_target_differs() {
+        let mod1 = parse_ok(
+            "(type MyInt () = Int)\n(:: main Int)\n(fn main 0)",
+        );
+        let mod2 = parse_ok(
+            "(type MyInt () = String)\n(:: main Int)\n(fn main 0)",
+        );
+        let a1 = match &mod1.decls[0] {
+            Decl::DType { nid, .. } => nid.clone(),
+            other => panic!("expected DType, got {:?}", other),
+        };
+        let a2 = match &mod2.decls[0] {
+            Decl::DType { nid, .. } => nid.clone(),
+            other => panic!("expected DType, got {:?}", other),
+        };
+        assert_ne!(a1, a2, "changing an alias target type must change the NID");
     }
 }

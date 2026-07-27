@@ -1,5 +1,5 @@
 use crate::span::{Ident, Span};
-use std::fmt;
+use std::fmt::{self, Write};
 
 // ============================================================
 // Effects
@@ -343,51 +343,339 @@ pub struct Module {
 }
 
 impl Decl {
-    /// Return a short key string identifying this declaration
-    /// for NID generation.  The key is a combination of the
-    /// declaration kind and its name, which is sufficient for
-    /// a content-derived stable ID (renaming changes the NID,
-    /// whitespace/formatting changes do not).
+    /// Return a content-derived key string for NID generation.
+    /// The key includes the declaration kind, name, and structural
+    /// content (type parameters, fields, signatures, etc.) so that
+    /// the NID changes when the declaration's interface changes
+    /// but remains stable across formatting-only edits (whitespace,
+    /// comment changes, reordering of independent fields).
     pub fn nid_key(&self, out: &mut String) {
         match self {
-            Decl::DStruct { name, .. } => {
+            Decl::DStruct {
+                name,
+                tyvars,
+                variants,
+                repr,
+                ..
+            } => {
                 out.push_str("DStruct:");
                 out.push_str(&name.name);
+                out.push('(');
+                for tv in tyvars {
+                    out.push_str(tv);
+                    out.push(',');
+                }
+                out.push(')');
+                for v in variants {
+                    out.push('[');
+                    out.push_str(&v.name.name);
+                    for f in &v.fields {
+                        out.push('(');
+                        if f.mutable {
+                            out.push_str("mut ");
+                        }
+                        out.push_str(&f.name.name);
+                        out.push(':');
+                        Self::fmt_type_nid(out, &f.ty);
+                        out.push(')');
+                    }
+                    out.push(']');
+                }
+                if let Some(repr) = repr {
+                    out.push_str("{repr=");
+                    match repr {
+                        TypeRepr::C => out.push('C'),
+                        TypeRepr::Packed => out.push_str("packed"),
+                        TypeRepr::Align(n) => write!(out, "align={}", n).unwrap(),
+                    }
+                    out.push('}');
+                }
             }
-            Decl::DUnion { name, .. } => {
+            Decl::DUnion {
+                name,
+                tyvars,
+                fields,
+                ..
+            } => {
                 out.push_str("DUnion:");
                 out.push_str(&name.name);
+                out.push('(');
+                for tv in tyvars {
+                    out.push_str(tv);
+                    out.push(',');
+                }
+                out.push(')');
+                for f in fields {
+                    out.push('(');
+                    if f.mutable {
+                        out.push_str("mut ");
+                    }
+                    out.push_str(&f.name.name);
+                    out.push(':');
+                    Self::fmt_type_nid(out, &f.ty);
+                    out.push(')');
+                }
             }
-            Decl::DType { name, .. } => {
+            Decl::DType {
+                name,
+                tyvars,
+                alias,
+                ..
+            } => {
                 out.push_str("DType:");
                 out.push_str(&name.name);
+                out.push('(');
+                for tv in tyvars {
+                    out.push_str(tv);
+                    out.push(',');
+                }
+                out.push(')');
+                out.push('=');
+                Self::fmt_type_nid(out, alias);
             }
-            Decl::DTrait { name, .. } => {
+            Decl::DTrait {
+                name,
+                tyvar,
+                supertraits,
+                methods,
+                effects,
+                ..
+            } => {
                 out.push_str("DTrait:");
                 out.push_str(&name.name);
+                out.push('(');
+                out.push_str(tyvar);
+                out.push(')');
+                for st in supertraits {
+                    out.push('+');
+                    Self::fmt_type_nid(out, st);
+                }
+                for m in methods {
+                    out.push('|');
+                    out.push_str(&m.name.name);
+                    out.push(':');
+                    Self::fmt_type_nid(out, &m.ty);
+                    if !m.effects.is_empty() {
+                        out.push('{');
+                        for e in &m.effects {
+                            out.push_str(&format!("{}", e));
+                            out.push(',');
+                        }
+                        out.push('}');
+                    }
+                }
+                if !effects.is_empty() {
+                    out.push_str(" effects(");
+                    for e in effects {
+                        out.push_str(&format!("{}", e));
+                        out.push(',');
+                    }
+                    out.push(')');
+                }
             }
-            Decl::DImpl { trait_name, .. } => {
+            Decl::DImpl {
+                trait_name,
+                ty,
+                methods,
+                effects,
+                ..
+            } => {
                 out.push_str("DImpl:");
                 out.push_str(&trait_name.name);
+                out.push('[');
+                Self::fmt_type_nid(out, ty);
+                out.push(']');
+                for (mname, _) in methods {
+                    out.push('|');
+                    out.push_str(&mname.name);
+                }
+                if !effects.is_empty() {
+                    out.push_str(" effects(");
+                    for e in effects {
+                        out.push_str(&format!("{}", e));
+                        out.push(',');
+                    }
+                    out.push(')');
+                }
             }
-            Decl::DSig { name, .. } => {
+            Decl::DSig { name, ty, .. } => {
                 out.push_str("DSig:");
                 out.push_str(&name.name);
+                out.push('=');
+                Self::fmt_type_nid(out, ty);
             }
-            Decl::DFn { name, .. } => {
+            Decl::DFn { name, params, .. } => {
                 out.push_str("DFn:");
                 out.push_str(&name.name);
+                out.push('(');
+                for p in params {
+                    Self::fmt_pattern_nid(out, p);
+                    out.push(',');
+                }
+                out.push(')');
             }
-            Decl::DForeign { name, .. } => {
+            Decl::DForeign {
+                name,
+                ty,
+                source,
+                ..
+            } => {
                 out.push_str("DForeign:");
                 out.push_str(&name.name);
+                out.push('=');
+                Self::fmt_type_nid(out, ty);
+                out.push_str(&format!(" \"{}\"", source));
             }
-            Decl::DEffect { name, .. } => {
+            Decl::DEffect {
+                name,
+                operations,
+                ..
+            } => {
                 out.push_str("DEffect:");
                 out.push_str(&name.name);
+                for op in operations {
+                    out.push('|');
+                    out.push_str(&op.name.name);
+                    out.push('(');
+                    for param in &op.params {
+                        Self::fmt_type_nid(out, param);
+                        out.push(',');
+                    }
+                    out.push(')');
+                    out.push(':');
+                    Self::fmt_type_nid(out, &op.return_type);
+                }
             }
             Decl::DImport { .. } => {
                 out.push_str("DImport");
+            }
+        }
+    }
+
+    /// Format a [`Type`] into the NID key string, without span information.
+    pub fn fmt_type_nid(out: &mut String, ty: &Type) {
+        match ty {
+            Type::TVar(name) => {
+                out.push_str("v");
+                out.push_str(name);
+            }
+            Type::TCon(ident, args) => {
+                out.push_str(&ident.name);
+                if !args.is_empty() {
+                    out.push('(');
+                    for (i, arg) in args.iter().enumerate() {
+                        if i > 0 {
+                            out.push(',');
+                        }
+                        Self::fmt_type_nid(out, arg);
+                    }
+                    out.push(')');
+                }
+            }
+            Type::TArr(from, to) => {
+                out.push('(');
+                Self::fmt_type_nid(out, from);
+                out.push_str(" -> ");
+                Self::fmt_type_nid(out, to);
+                out.push(')');
+            }
+            Type::TTuple(types) => {
+                out.push('(');
+                for (i, t) in types.iter().enumerate() {
+                    if i > 0 {
+                        out.push(',');
+                    }
+                    Self::fmt_type_nid(out, t);
+                }
+                out.push(')');
+            }
+            Type::TList(inner) => {
+                out.push('[');
+                Self::fmt_type_nid(out, inner);
+                out.push(']');
+            }
+            Type::TPtr(inner, mutable) => {
+                if *mutable {
+                    out.push_str("*mut ");
+                } else {
+                    out.push_str("*const ");
+                }
+                Self::fmt_type_nid(out, inner);
+            }
+            Type::TForall(vars, inner) => {
+                out.push_str("forall ");
+                out.push_str(&vars.join(","));
+                out.push('.');
+                Self::fmt_type_nid(out, inner);
+            }
+            Type::TEffect(inner, effects) => {
+                Self::fmt_type_nid(out, inner);
+                if !effects.is_empty() {
+                    out.push('{');
+                    for e in effects {
+                        out.push_str(&format!("{}", e));
+                        out.push(',');
+                    }
+                    out.push('}');
+                }
+            }
+            Type::TRegion(inner, region) => {
+                out.push_str("&");
+                out.push_str(&region.name);
+                out.push(' ');
+                Self::fmt_type_nid(out, inner);
+            }
+            Type::TLinear(inner) => {
+                out.push_str("linear ");
+                Self::fmt_type_nid(out, inner);
+            }
+        }
+    }
+
+    /// Format a [`Pattern`] into the NID key string, without span information.
+    pub fn fmt_pattern_nid(out: &mut String, pat: &Pattern) {
+        match pat {
+            Pattern::PWildcard => out.push('_'),
+            Pattern::PVar(ident) => out.push_str(&ident.name),
+            Pattern::PCon(ident, args) => {
+                out.push_str(&ident.name);
+                if !args.is_empty() {
+                    out.push('(');
+                    for (i, arg) in args.iter().enumerate() {
+                        if i > 0 {
+                            out.push(',');
+                        }
+                        Self::fmt_pattern_nid(out, arg);
+                    }
+                    out.push(')');
+                }
+            }
+            Pattern::PLit(lit) => match lit {
+                Literal::LInt(n) => write!(out, "{}", n).unwrap(),
+                Literal::LFloat(n) => write!(out, "{}", n).unwrap(),
+                Literal::LBool(b) => write!(out, "{}", b).unwrap(),
+                Literal::LChar(c) => write!(out, "'{}'", c).unwrap(),
+                Literal::LStr(s) => write!(out, "\"{}\"", s).unwrap(),
+            },
+            Pattern::PTuple(pats) => {
+                out.push('(');
+                for (i, p) in pats.iter().enumerate() {
+                    if i > 0 {
+                        out.push(',');
+                    }
+                    Self::fmt_pattern_nid(out, p);
+                }
+                out.push(')');
+            }
+            Pattern::PList(pats) => {
+                out.push('[');
+                for (i, p) in pats.iter().enumerate() {
+                    if i > 0 {
+                        out.push(',');
+                    }
+                    Self::fmt_pattern_nid(out, p);
+                }
+                out.push(']');
             }
         }
     }

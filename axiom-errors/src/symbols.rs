@@ -48,6 +48,10 @@ pub enum SymbolKind {
     Alias,
     /// A `trait` declaration.
     Trait,
+    /// An `effect` declaration.
+    Effect,
+    /// An `impl` declaration.
+    Impl,
 }
 
 impl SymbolKind {
@@ -62,6 +66,8 @@ impl SymbolKind {
             SymbolKind::Union => "U",
             SymbolKind::Alias => "A",
             SymbolKind::Trait => "T",
+            SymbolKind::Effect => "V",
+            SymbolKind::Impl => "I",
         }
     }
 }
@@ -376,6 +382,8 @@ mod tests {
             SymbolKind::Union,
             SymbolKind::Alias,
             SymbolKind::Trait,
+            SymbolKind::Effect,
+            SymbolKind::Impl,
         ] {
             let letter = kind.letter();
             assert!(!matches!(letter, "E" | "W" | "N" | "H"));

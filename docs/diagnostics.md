@@ -256,7 +256,7 @@ and every `class`. Like diagnostics, it honors
 
 | Field | Meaning |
 |---|---|
-| `KIND` | One letter: `F` function, `X` foreign binding, `D` ADT type, `C` constructor, `S` struct, `U` union, `A` type alias, `L` class |
+| `KIND` | One letter: `F` function, `X` foreign binding, `D` ADT type, `C` constructor, `S` struct, `U` union, `A` type alias, `T` trait, `E` effect, `I` impl |
 | `NAME` | The declared name, exactly as written |
 | `FILE:LOC` | Same `file:line:col[-col\|:line:col]` addressing as AXDL, via the same [`SourceMap`](../axiom-errors/src/source_map.rs) - for a program with `(import ...)`s, `FILE` is the *actual* file that declared this symbol (an imported module's own file), not always the entry file, exactly like AXDL's own multi-file attribution |
 | `-` | In place of `FILE:LOC`, for names with no source span at all - in practice, only Axiom's dozen built-in operators (`+`, `==`, `&&`, ...), which `axiom symbols` omits entirely unless `--builtins` is passed (they never change, so printing them on every call is exactly the restating-what's-already-known token waste this notation exists to avoid) |
@@ -271,9 +271,9 @@ Metadata keys actually emitted today:
 | `of` | `C` | The constructor's owning struct type (ADT), e.g. `#of=Color` |
 | `fields` | `S`, `U` | `name:Type,name:Type,...` - the actual field shapes, not just a count, e.g. `#fields=x:Int,y:Int` |
 | `packed` / `repr=C` / `align=N` | `S` | The struct's layout attribute, when it has a non-default one |
-| `methods` | `L` | `name:Type,name:Type,...` for the class's methods, same shape as `fields` |
+| `methods` | `T`, `I` | `name:Type,name:Type,...` for the class's methods (as class/trait) or impl's trait's methods, same shape as `fields` |
 | `symbol` | `X` | The real linked C symbol name from `(foreign name :: Type = "c_symbol")`, e.g. `#symbol=printf` - not always the same as `NAME` |
-| `tyvars` | `A` | Comma-separated type parameters, e.g. `#tyvars=a,b`, omitted when there are none |
+| `tyvars` | `A`, `D`, `S`, `U`, `T` | Comma-separated type parameters, e.g. `#tyvars=a,b`, omitted when there are none |
 
 `KIND` letters are deliberately disjoint from [`Severity::sigil`](../axiom-errors/src/severity.rs)'s `E`/`W`/`N`/`H`, so the first character of a line is never ambiguous about which notation (or which command) produced it even if AXDL and AXSYM output were ever concatenated into one stream.
 
@@ -346,11 +346,14 @@ parse with an extra bogus constructor. See `axiom-parser/src/lib.rs`'s
 Both NID and AXTAG are now implemented.
 
 * **NID (stable node ID).** Every named declaration gets a content-derived
-  ID - a short hash of `(kind, name)` - that survives edits elsewhere in
-  the file and small reformatting, unlike a character offset. AXSYM lines
-  emit an optional `@NID` field after the type. This is *not* "line numbers
-  with extra steps" - the whole point is a coordinate that is stable exactly
-  when `file:line:col` is not.
+   ID - a short hash of the declaration kind, name, and structural
+   content (type parameters, field types, signatures). This makes NIDs
+   sensitive to interface changes (renaming a field, changing a type
+   parameter, etc.) while remaining stable across formatting-only edits
+   (whitespace, comment changes, reordering of independent fields).
+   AXSYM lines emit an optional `@NID` field after the type. This is
+   *not* "line numbers with extra steps" - the whole point is a
+   coordinate that is stable exactly when `file:line:col` is not.
 
 * **AXTAG (source-embedded agent metadata).** A reserved comment form -
   `;@axiom:<key>(<value>)` immediately above a declaration - for
