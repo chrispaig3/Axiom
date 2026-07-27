@@ -267,8 +267,8 @@ Metadata keys actually emitted today:
 
 | Key | Kinds | Meaning |
 |---|---|---|
-| `ctors` | `D` | Comma-separated constructor names, e.g. `#ctors=Nothing,Just` |
-| `of` | `C` | The constructor's owning struct type (ADT), e.g. `#of=Maybe` |
+| `ctors` | `D` | Comma-separated constructor names, e.g. `#ctors=None,Some` |
+| `of` | `C` | The constructor's owning struct type (ADT), e.g. `#of=Option` |
 | `fields` | `S`, `U` | `name:Type,name:Type,...` - the actual field shapes, not just a count, e.g. `#fields=x:Int,y:Int` |
 | `packed` / `repr=C` / `align=N` | `S` | The struct's layout attribute, when it has a non-default one |
 | `methods` | `L` | `name:Type,name:Type,...` for the class's methods, same shape as `fields` |
@@ -284,9 +284,7 @@ Source:
 ```lisp
 (foreign printf :: (-> String Int) = "printf")
 
-(struct Maybe (a)
-  (Nothing)
-  (Just a))
+(struct Tree (Leaf) (Node Int (Tree Int) (Tree Int)))
 
 (struct Point
   (x : Int)
@@ -301,33 +299,27 @@ AXSYM output (`--diagnostic-format=ai symbols`, builtins omitted by default):
 
 ```
 X printf main.ax:1:10-16 "(String -> Int)" #symbol=printf
-F add main.ax:11:5-8 "(Int -> (Int -> Int))"
-D Maybe main.ax:3:7-12 "struct Maybe" #ctors=Nothing,Just
-C Nothing main.ax:4:4-11 "Maybe" #of=Maybe
-C Just main.ax:5:4-8 "(a -> Maybe a)" #of=Maybe
-S Point main.ax:7:9-14 "struct Point" #fields=x:Int,y:Int
+F add main.ax:14:5-8 "(Int -> (Int -> Int))"
+D Tree main.ax:3:7-11 "struct Tree" #ctors=Leaf,Node
+C Leaf main.ax:4:4-8 "Tree" #of=Tree
+C Node main.ax:5:4-8 "Int Tree Tree" #of=Tree
+S Point main.ax:8:9-14 "struct Point" #fields=x:Int,y:Int
 ```
 
-An agent asked to "add a function that formats a `Maybe Int`" can now
-`grep '^D Maybe'`/`grep '^C '` for the exact constructor set and
+An agent asked to inspect `Tree` declarations can now
+`grep '^D Tree'`/`grep '^C '` for the exact constructor set and
 `grep '^X printf'` for the exact FFI signature, instead of paying to
 re-read and re-parse the whole file just to recover facts the type
 checker already has in hand.
 
 ### Why this found a real parser bug
 
-Building AXSYM immediately exposed that `(struct Maybe (a) (Nothing) (Just a))` - the README's own example - was parsing `(a)` as a *third,
+Building AXSYM immediately exposed that `(struct Tree (Leaf) (Node Int (Tree Int) (Tree Int)))` - the README's own example - was parsing `(a)` as a *third,
 spurious nullary constructor named `a`* instead of a type-parameter list,
 because `parse_tyvars` only recognized bare, unparenthesized type
-variables. Every parenthesized-tyvar example in the README (which is all
-of them) was affected, and `(type StringList () = [String])` failed to
-parse at all. This is exactly the payoff a dense, greppable success-path
-notation is supposed to deliver: the moment "what does this file
-actually declare" became one `grep`-able line per symbol instead of
-prose an agent (or a human) has to re-derive by eye, a real correctness
-bug that pretty-printed output had been silently absorbing became
-obvious immediately. See `axiom-parser/src/lib.rs`'s `parse_tyvars`/
-`looks_like_tyvar_list` for the fix.
+variables. Without this fix, recursive types like `Tree` could silently
+parse with an extra bogus constructor. See `axiom-parser/src/lib.rs`'s
+`parse_tyvars`/`looks_like_tyvar_list` for the fix.
 
 ## Adding a new diagnostic
 
@@ -379,5 +371,5 @@ Example AXSYM output with NID and AXTAG metadata:
 ```
 F add main.ax:1:6-9 "(Int -> (Int -> Int))" @a1b2c3d4e5f6a1b2
 X printf main.ax:1:10-16 "(String -> Int)" #symbol=printf @c3d4e5f6a1b2
-D Maybe main.ax:3:7-12 "struct Maybe" #ctors=Nothing,Just @e5f6a1b2c3d4
+D Tree main.ax:3:7-11 "struct Tree" #ctors=Leaf,Node @e5f6a1b2c3d4
 ```

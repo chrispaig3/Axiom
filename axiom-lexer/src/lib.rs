@@ -641,17 +641,10 @@ mod tests {
 
     #[test]
     fn tokenizes_constructor_and_type_variable_idents() {
-        // Regression guard for the parser-level constructor-pattern and
-        // bare-type-application fixes: both rely on the *lexer* already
-        // treating `Just`/`a` as plain `Ident` tokens (capitalization is
-        // a parser-level convention, not a lexer-level token kind), so a
-        // future lexer change that started distinguishing them at the
-        // token level would silently break both fixes without this test
-        // ever touching the parser at all.
         assert_eq!(
-            kinds("Just a"),
+            kinds("Some a"),
             vec![
-                TokenKind::Ident("Just".to_string()),
+                TokenKind::Ident("Some".to_string()),
                 TokenKind::Ident("a".to_string()),
                 TokenKind::Eof,
             ]

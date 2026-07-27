@@ -718,8 +718,8 @@ impl IrGen {
         match expr {
             Expr::ELit(lit, _) => self.gen_literal(lit),
             Expr::EVar(ident) => {
-                // A *bare* reference to a nullary constructor (`Nothing`,
-                // `Nil`, ...) constructs its (fieldless) boxed value
+                // A *bare* reference to a nullary constructor (`None`,
+                // `Leaf`, ...) constructs its (fieldless) boxed value
                 // directly. A non-nullary constructor referenced bare
                 // (not applied to any arguments) falls through to the
                 // ordinary variable-lookup path below, same as before -
@@ -846,11 +846,11 @@ impl IrGen {
                 }
                 all_args.reverse();
 
-                // `(Just 42)`/`(Cons h t)`-style constructor application:
+                // `(Some 42)`/`(Node a b)`-style constructor application:
                 // build the real heap-boxed value instead of falling
                 // through to the generic `Call` path below, which would
                 // otherwise emit a call to a function literally named
-                // after the constructor (e.g. `@Just`) that is never
+                // after the constructor (e.g. `@Some`) that is never
                 // declared anywhere - invalid LLVM IR that fails at the
                 // `llc`/`cc` stage instead of at a compiler diagnostic.
                 // Only handled when the argument count matches the

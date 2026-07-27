@@ -1375,7 +1375,7 @@ fn show_help() {
     );
     println!(
         "  • Data types: {}",
-        "(struct Maybe (a) (Nothing) (Just a))".bright_white()
+        "(struct Tree (Leaf) (Node Int (Tree Int) (Tree Int)))".bright_white()
     );
     println!("  • Expressions are evaluated and results shown");
     println!("  • Use ; for line comments");

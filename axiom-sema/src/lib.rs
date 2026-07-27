@@ -1764,11 +1764,11 @@ impl TypeChecker {
     ///   declared arity ([`SemError::ConstructorArity`] if not), and each
     ///   `arg` is recursively checked against that field's *actual*
     ///   declared type rather than being left as an unconstrained
-    ///   variable - so `(match v ((Just x) (+ x 1)))` gives `x` the real
+    ///   variable - so `(match v ((Some x) (+ x 1)))` gives `x` the real
     ///   field type instead of a fresh, meaningless `TVar`. If `ty` is
     ///   already known concretely and doesn't name the constructor's own
     ///   data type, that's also a [`SemError::TypeMismatch`] (matching a
-    ///   `Maybe` constructor against a scrutinee already known to be some
+    ///   `Option` constructor against a scrutinee already known to be some
     ///   other type).
     /// * `PTuple`/`PList` - binds element patterns against the expected
     ///   element type(s) when `ty` is a matching `TTuple`/`TList`, falling
@@ -2060,34 +2060,26 @@ mod tests {
     #[test]
     fn exhaustive_match_over_a_data_type_checks_ok() {
         assert!(check(
-            "(struct Maybe (a) (Nothing) (Just a))\n\
-             (:: main Int)\n\
-             (fn main (match (Just 1) ((Nothing) 0) ((Just x) x)))"
+            "(:: main Int)\n\
+             (fn main (match (Some 1) ((None) 0) ((Some x) x)))"
         )
         .is_ok());
     }
 
-    /// Regression test: `SemError::NonExhaustive`/`AX3005` existed as a
-    /// diagnostic long before anything actually constructed one - this is
-    /// the first test that would catch that regressing again.
     #[test]
     fn non_exhaustive_match_over_a_data_type_is_an_error() {
         let errors = check_err(
-            "(struct Maybe (a) (Nothing) (Just a))\n\
-             (:: main Int)\n\
-             (fn main (match (Just 1) ((Just x) x)))",
+            "(:: main Int)\n\
+             (fn main (match (Some 1) ((Some x) x)))",
         );
-        assert!(errors.iter().any(|e| matches!(e, SemError::NonExhaustive { missing, .. } if missing == &["Nothing".to_string()])));
+        assert!(errors.iter().any(|e| matches!(e, SemError::NonExhaustive { missing, .. } if missing == &["None".to_string()])));
     }
 
-    /// A wildcard arm makes any `match` exhaustive regardless of which
-    /// constructors are explicitly covered.
     #[test]
     fn wildcard_arm_makes_match_exhaustive() {
         assert!(check(
-            "(struct Maybe (a) (Nothing) (Just a))\n\
-             (:: main Int)\n\
-             (fn main (match (Just 1) ((Nothing) 0) (_ 1)))"
+            "(:: main Int)\n\
+             (fn main (match (Some 1) ((None) 0) (_ 1)))"
         )
         .is_ok());
     }
@@ -2095,24 +2087,22 @@ mod tests {
     #[test]
     fn constructor_pattern_with_wrong_arity_is_an_error() {
         let errors = check_err(
-            "(struct Maybe (a) (Nothing) (Just a))\n\
-             (:: main Int)\n\
-             (fn main (match (Just 1) ((Nothing) 0) ((Just x y) x)))",
+            "(:: main Int)\n\
+             (fn main (match (Some 1) ((None) 0) ((Some x y) x)))",
         );
-        assert!(errors.iter().any(|e| matches!(e, SemError::ConstructorArity { name, expected: 1, found: 2, .. } if name == "Just")));
+        assert!(errors.iter().any(|e| matches!(e, SemError::ConstructorArity { name, expected: 1, found: 2, .. } if name == "Some")));
     }
 
     #[test]
     fn undefined_constructor_in_pattern_is_an_error_with_a_suggestion() {
         let errors = check_err(
-            "(struct Maybe (a) (Nothing) (Just a))\n\
-             (:: main Int)\n\
-             (fn main (match (Just 1) ((Nothign) 0) ((Just x) x)))",
+            "(:: main Int)\n\
+             (fn main (match (Some 1) ((Somen) 0) ((Some x) x)))",
         );
         assert!(errors.iter().any(|e| matches!(
             e,
             SemError::UndefinedConstructor { name, suggestion: Some(s), .. }
-                if name == "Nothign" && s == "Nothing"
+                if name == "Somen" && s == "Some"
         )));
     }
 

@@ -77,40 +77,40 @@ fn check_rejects_an_undefined_variable_with_the_right_code() {
     assert!(stderr(&out).contains("AX3001"), "stderr: {}", stderr(&out));
 }
 
-/// End-to-end regression test for the ADT/pattern-matching work: a
-/// recursive `data List` built and summed via real heap-boxed
-/// constructors and real branching `match` codegen, not just type-checked.
+/// End-to-end regression test for pattern matching with the built-in
+/// `Option` type: exhaustive `Some`/`None` matching compiles and runs
+/// through the full pipeline (lexer -> parser -> sema -> IR -> LLVM
+/// -> native executable).
 #[test]
-fn run_executes_recursive_adt_pattern_matching_correctly() {
-    let dir = scratch_dir("run-list-sum");
+fn run_executes_option_pattern_matching_with_let() {
+    let dir = scratch_dir("run-option-let");
     write_source(
         &dir,
         "main.ax",
-        "(struct List (a)\n  (Nil)\n  (Cons a (List a)))\n\
-         (:: sum (-> (List Int) Int))\n\
-          (fn (sum lst)\n  (match lst\n    ((Nil) 0)\n    ((Cons h t) (+ h (sum t)))))\n\
-         (:: main Int)\n\
-         (fn main (sum (Cons 1 (Cons 2 (Cons 3 (Nil))))))\n",
+        "(:: main Int)\n\
+         (fn main\n\
+           (let ((val (Some 42)))\n\
+             (match val\n\
+               ((Some x) (+ x 1))\n\
+               ((None) 0))))\n",
     );
     let out = run_axiom(&["run", "main.ax"], &dir);
-    assert_eq!(out.status.code(), Some(6), "stderr: {}", stderr(&out));
+    assert_eq!(out.status.code(), Some(43), "stderr: {}", stderr(&out));
 }
 
-/// Same idea for `Maybe`, specifically exercising a *nullary* constructor
-/// (`Nothing`) alongside a constructor with a field (`Just x`), since the
-/// two are boxed identically but constructed/matched slightly differently
-/// in the generator.
+/// Exhaustive match over the built-in `Option` type (`Some`/`None`),
+/// exercising nullary + unary variant branches through real heap-boxed
+/// constructor codegen.
 #[test]
-fn run_executes_maybe_pattern_matching_correctly() {
-    let dir = scratch_dir("run-maybe");
+fn run_executes_option_pattern_matching_correctly() {
+    let dir = scratch_dir("run-option-sum");
     write_source(
         &dir,
         "main.ax",
-        "(struct Maybe (a)\n  (Nothing)\n  (Just a))\n\
-         (:: fromMaybe (-> Int (Maybe Int) Int))\n\
-          (fn (fromMaybe default val)\n  (match val\n    ((Nothing) default)\n    ((Just x) x)))\n\
+        "(:: fromMaybe (-> Int (Option Int) Int))\n\
+           (fn (fromMaybe default val)\n  (match val\n    ((None) default)\n    ((Some x) x)))\n\
          (:: main Int)\n\
-         (fn main (+ (fromMaybe 100 (Nothing)) (fromMaybe 100 (Just 42))))\n",
+           (fn main (+ (fromMaybe 100 (None)) (fromMaybe 100 (Some 42))))\n",
     );
     let out = run_axiom(&["run", "main.ax"], &dir);
     assert_eq!(out.status.code(), Some(142), "stderr: {}", stderr(&out));
@@ -122,9 +122,7 @@ fn non_exhaustive_match_is_rejected_before_codegen() {
     write_source(
         &dir,
         "main.ax",
-        "(struct Maybe (a)\n  (Nothing)\n  (Just a))\n\
-         (:: main Int)\n\
-          (fn main (match (Just 1) ((Just x) x)))\n",
+        "(:: main Int)\n(fn main (match (Some 1) ((Some x) x)))\n",
     );
     let out = run_axiom(&["--diagnostic-format=ai", "check", "main.ax"], &dir);
     assert!(!out.status.success());
@@ -353,7 +351,7 @@ fn axsym_reports_all_declaration_kinds() {
         &dir,
         "main.ax",
         r#"(foreign printf :: (-> String Int) = "printf")
-(struct Maybe (a) (Nothing) (Just a))
+(struct Tree (a) (Leaf) (Node a (Tree a) (Tree a)))
 (struct Point (x : Int) (y : Int))
 (union Value (asInt : I64) (asFloat : F64))
 (type StringList () = [String])
@@ -364,9 +362,9 @@ fn axsym_reports_all_declaration_kinds() {
     assert!(out.status.success(), "stderr: {}", stderr(&out));
     let text = stdout(&out);
     assert!(text.lines().any(|l| l.starts_with("X printf ")));
-    assert!(text.lines().any(|l| l.starts_with("D Maybe ")));
-    assert!(text.lines().any(|l| l.starts_with("C Nothing ")));
-    assert!(text.lines().any(|l| l.starts_with("C Just ")));
+    assert!(text.lines().any(|l| l.starts_with("D Tree ")));
+    assert!(text.lines().any(|l| l.starts_with("C Leaf ")));
+    assert!(text.lines().any(|l| l.starts_with("C Node ")));
     assert!(text.lines().any(|l| l.starts_with("S Point ")));
     assert!(text.lines().any(|l| l.starts_with("U Value ")));
     assert!(text.lines().any(|l| l.starts_with("A StringList ")));
@@ -438,7 +436,7 @@ fn axsym_json_format_is_one_object_per_line() {
     write_source(
         &dir,
         "main.ax",
-        "(struct Maybe (a) (Nothing) (Just a))\n(:: main Int)\n(fn main 0)\n",
+        "(struct Tree (a) (Leaf) (Node a (Tree a) (Tree a)))\n(:: main Int)\n(fn main 0)\n",
     );
     let out = run_axiom(&["--diagnostic-format=json", "symbols", "main.ax"], &dir);
     assert!(out.status.success(), "stderr: {}", stderr(&out));

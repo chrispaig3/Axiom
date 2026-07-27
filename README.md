@@ -254,20 +254,8 @@ Function bodies, `let` bodies, `if` branches, and `lambda` bodies also support i
 Define custom types with constructors:
 
 ```scheme
-; Optional value
-(struct Maybe (a)
-  (Nothing)
-  (Just a))
-
-; Linked list
-(struct List (a)
-  (Nil)
-  (Cons a (List a)))
-
 ; Binary tree
-(struct Tree (a)
-  (Leaf)
-  (Node (Tree a) a (Tree a)))
+(struct Tree (Leaf) (Node Int (Tree Int) (Tree Int)))
 
 ; Ordering result
 (struct Ordering
@@ -280,12 +268,14 @@ The `(a)` after the type name is a type parameter — like generics in other lan
 
 ### Pattern matching with `match`
 
+The built-in `Option` type provides safe null handling without exceptions:
+
 ```scheme
-(:: fromMaybe (-> Int (Maybe Int) Int))
+(:: fromMaybe (-> Int (Option Int) Int))
 (fn (fromMaybe default val)
   (match val
-    ((Nothing) default)
-    ((Just x) x)))
+    ((None) default)
+    ((Some x) x)))
 ```
 
 Patterns can match constructors, literals, tuples, lists, and wildcards:
@@ -293,51 +283,41 @@ Patterns can match constructors, literals, tuples, lists, and wildcards:
 ```scheme
 (match x
   (42 "the answer")
-  ((Cons head tail) head)
+  (([a b]) (+ a b))
   (_ "anything else"))
-```
-
-The built-in `Option` type provides safe null handling without exceptions:
-
-```scheme
-(match (Some 42)
-  ((Some v) v)
-  ((None) 0))
 ```
 
 #### Algebraic data types: how they actually run
 
-Every value of a `struct` type - nullary constructors like `Nothing` included -
+Every value of a `struct` type - nullary constructors like `Leaf` included -
 is a heap-allocated, tagged block: word `0` is an integer tag identifying
 which constructor built it, and words `1..` are its fields, one 8-byte word
 each. This one uniform representation (rather than, say, an unboxed integer
 for nullary constructors and a pointer for everything else) is what lets
 `match` compare *any* constructor pattern against *any* value of that type
-the same way, and it's what makes recursive types - `List`, `Tree` - work
+the same way, and it's what makes recursive types - `Tree`, `Option` - work
 with no special-casing at all: a field that's itself another struct value
 is just another 8-byte word holding that value's own heap address.
 
 ```scheme
-(struct List (a)
-  (Nil)
-  (Cons a (List a)))
+(struct Tree (Leaf) (Node Int (Tree Int) (Tree Int)))
 
-(:: sum (-> (List Int) Int))
-(fn (sum lst)
-  (match lst
-    ((Nil) 0)
-    ((Cons h t) (+ h (sum t)))))
+(:: sum (-> (Tree Int) Int))
+(fn (sum t)
+  (match t
+    ((Leaf) 0)
+    ((Node n left right) (+ n (+ (sum left) (sum right))))))
 
 (:: main Int)
 (fn main
-  (sum (Cons 1 (Cons 2 (Cons 3 (Nil))))))   ; => 6
+  (sum (Node 10 (Node 5 Leaf Leaf) (Node 15 Leaf Leaf))))   ; => 30
 ```
 
 Current limitations, honestly stated:
 
 - **Exhaustiveness and arity are checked** (missing constructors and
   wrong-arity constructor patterns are compile errors - `AX3005`/`AX3009`).
-- **Nested constructor patterns work** - `((Cons h (Cons h2 t)) ...)`
+- **Nested constructor patterns work** - `((Node _ (Node _ left right) _))`
   correctly matches and binds all three variables. Inner constructor tags
   are checked recursively and fields are extracted at each level.
 - **Tuple and list patterns inside `match` now compare elements**
@@ -550,9 +530,11 @@ See the [Foreign Function Interface](#foreign-function-interface) section for de
 ### Common struct types (define as needed)
 
 ```scheme
-(struct Maybe (a) (Nothing) (Just a))
-(struct Ordering (LT) (EQ) (GT))
-(struct List (a) (Nil) (Cons a (List a)))
+(struct Tree (Leaf) (Node Int (Tree Int) (Tree Int)))
+(struct Ordering
+  (LT)
+  (EQ)
+  (GT))
 ```
 
 ### Built-in types
@@ -601,19 +583,15 @@ for safe null handling:
 ### Working with struct types
 
 ```scheme
-(struct Maybe (a)
-  (Nothing)
-  (Just a))
-
-(:: fromMaybe (-> Int (Maybe Int) Int))
+(:: fromMaybe (-> Int (Option Int) Int))
 (fn (fromMaybe default val)
   (match val
-    ((Nothing) default)
-    ((Just x) x)))
+    ((None) default)
+    ((Some x) x)))
 
 (:: main Int)
 (fn main
-  (fromMaybe 0 (Just 42)))
+  (fromMaybe 0 (Some 42)))
 ```
 
 Note: constructor patterns now compile to real branching code (see
@@ -865,7 +843,7 @@ Source (.ax)
 | brace blocks | **Complete** | `{ expr1 expr2 ... }` — modern sequencing, returns last value |
 | fn keyword | **Complete** | Modern alias for `define` |
 | FFI | **Complete** | Call any C function with `foreign` declarations |
-| ADTs / struct types | **Complete** | Constructors (nullary and with fields, including recursive types like `List`/`Tree`) compile to heap-boxed tagged values; see [Algebraic data types](#algebraic-data-types-how-they-actually-run) |
+| ADTs / struct types | **Complete** | Constructors (nullary and with fields, including recursive types like `Tree`) compile to heap-boxed tagged values; see [Algebraic data types](#algebraic-data-types-how-they-actually-run) |
 | Structs / unions | **Complete** | Declarations, LLVM emission, field access (`.field`), struct construction (`(StructName expr1 expr2 ...)`), `mut` fields, and field mutation (`(set-field expr field value)`) all work |
 | Pattern matching (`match`) | **Complete** | Constructor patterns (nullary and with-field), variables, wildcards, literals, nested constructor patterns, and tuple/list patterns all compare and bind correctly, plus non-exhaustiveness/arity/undefined-constructor diagnostics. Built-in `Option` type with `Some`/`None` constructors. |
 | Lambda | **Complete** | Parsed, type-checked, and codegen (closures with captured vars) |

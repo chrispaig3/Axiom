@@ -765,17 +765,14 @@ impl Parser {
             self.advance();
 
             // A constructor pattern is written exactly like a constructor
-            // *application* expression - `(Just x)`, `(Cons h t)`,
-            // `(Nothing)` - with the constructor name as the very first
-            // thing inside the parens, not as a separately-parenthesized
-            // pattern. Without this check, falling straight through to the
+            // *application* expression - `(Some x)`, `(Node a b)` -
+            // with the constructor name as the very first thing inside the
+            // parens. Without this check, falling straight through to the
             // generic "N patterns in parens => tuple" reading below turns
-            // `(Just x)` into a 2-tuple of two *variable* patterns named
-            // `Just` and `x` - `PCon` never gets produced at all for the
+            // `(Some x)` into a 2-tuple of two *variable* patterns named
+            // `Some` and `x` - `PCon` never gets produced at all for the
             // s-expression constructor-pattern syntax every `match` example
-            // in the language actually uses, and `(Nothing)` (zero-arg
-            // constructor) degenerates to a plain 1-tuple-unwrapped
-            // `PVar("Nothing")`. This mirrors the constructor-name
+            // in the language actually uses. This mirrors the constructor-name
             // convention `looks_like_tyvar_list` also relies on: a real
             // Axiom identifier used as a constructor is always
             // capitalized, so `is_constructor_ident` alone is enough to
@@ -900,11 +897,11 @@ impl Parser {
             // type *application* - `(Maybe Int)`, `(List a)`, `(Tree a)` -
             // with the name as the head and everything else in the parens
             // as its arguments, exactly like a constructor application
-            // *expression* `(Just 42)` parses (head first, args after)
-            // rather than "N sibling types in parens = a tuple". This is
-            // checked once, here, rather than by having the bare-ident
-            // case in `parse_type_atom` greedily gather trailing types as
-            // its own arguments (the previous approach): that made a
+            // expression parses (head first, args after) rather than
+            // "N sibling types in parens = a tuple". This is checked once,
+            // here, rather than by having the bare-ident case in
+            // `parse_type_atom` greedily gather trailing types as its own
+            // arguments (the previous approach): that made a
             // bare, *unparenthesized* custom type name anywhere in a
             // sibling-type list - an arrow's parameter list (`(->
             // Ordering Int)`), a tuple, a constructor's field list -
@@ -1488,15 +1485,13 @@ impl Parser {
     /// by scanning past the `(`: a real tyvar list is zero or more
     /// lowercase identifiers followed immediately by `)`, with nothing
     /// else in between. A constructor name is conventionally capitalized
-    /// (`Nothing`, `Just`, `LT`, ...) so it never matches the "all
+    /// (`None`, `Some`, `LT`, ...) so it never matches the "all
     /// lowercase" scan, and a struct/union field like `(x : Int)` fails
     /// the scan the moment it hits `:` instead of `)`. Without this,
     /// every parenthesized-tyvar example in the README - which is all of
     /// them - either silently dropped its type parameters (turning the
-    /// first constructor into a bogus extra one, e.g. `Maybe`'s `(a)`
-    /// becoming a fake nullary constructor named `a`) or, for `type`
-    /// aliases, failed to parse at all (`(type StringList () = ...)`
-    /// choked on `expect(Eq)` because `()` was never consumed).
+    /// first constructor into a bogus extra one) or, for `type`
+    /// aliases, failed to parse at all.
     fn parse_tyvars(&mut self) -> Vec<String> {
         if self.check(TokenKind::LParen) && self.looks_like_tyvar_list() {
             self.advance(); // consume '('
@@ -1638,7 +1633,7 @@ impl Parser {
     }
 
     /// Is the current token an identifier written in the constructor-name
-    /// convention (capitalized), e.g. `Just`, `Nothing`, `Cons`? Used by
+    /// convention (capitalized), e.g. `Some`, `None`, `Leaf`? Used by
     /// [`parse_pattern`](Self::parse_pattern) to tell a constructor
     /// pattern's head apart from a tuple pattern's first element.
     fn is_constructor_ident(&self) -> bool {
@@ -1823,16 +1818,16 @@ mod tests {
     }
 
     /// Regression test for the bug where constructor patterns like
-    /// `(Just x)` parsed as `PTuple([PVar("Just"), PVar("x")])` (two bare
-    /// variables) instead of `PCon("Just", [PVar("x")])`, because the
+    /// `(Some x)` parsed as `PTuple([PVar("Some"), PVar("x")])` (two bare
+    /// variables) instead of `PCon("Some", [PVar("x")])`, because the
     /// parenthesized-pattern branch never special-cased a
     /// capitalized head the way constructor *expressions* already did.
     /// See `parse_pattern`'s constructor-application-shaped branch.
     #[test]
     fn constructor_pattern_with_args_parses_as_pcon_not_ptuple() {
-        match parse_pattern_ok("Just x") {
+        match parse_pattern_ok("Some x") {
             Pattern::PCon(ident, args) => {
-                assert_eq!(ident.name, "Just");
+                assert_eq!(ident.name, "Some");
                 assert_eq!(args.len(), 1);
                 assert!(matches!(&args[0], Pattern::PVar(v) if v.name == "x"));
             }
@@ -1841,7 +1836,7 @@ mod tests {
     }
 
     /// Regression test for the companion bug: a *nullary* constructor
-    /// pattern like `(Nothing)` degenerated to a bare `PVar("Nothing")`
+    /// pattern like `(None)` degenerated to a bare `PVar("None")`
     /// (the parenthesized-pattern branch's "exactly one sub-pattern ->
     /// unwrap it" rule), which happened to limp along in codegen (which
     /// matched constructors by name for both `PCon` and `PVar`) but broke
@@ -1850,9 +1845,9 @@ mod tests {
     /// checking.
     #[test]
     fn nullary_constructor_pattern_parses_as_pcon_with_no_args() {
-        match parse_pattern_ok("Nothing") {
+        match parse_pattern_ok("None") {
             Pattern::PCon(ident, args) => {
-                assert_eq!(ident.name, "Nothing");
+                assert_eq!(ident.name, "None");
                 assert!(args.is_empty());
             }
             other => panic!("expected PCon, got {:?}", other),
@@ -1897,17 +1892,17 @@ mod tests {
         }
     }
 
-    /// A parenthesized type application (`(Maybe Int)`) must still parse
+    /// A parenthesized type application (`(Option Int)`) must still parse
     /// as one applied type, not as a 2-tuple of two standalone types -
     /// the fix for the bug above must not regress this, much more common,
     /// `match`.
     #[test]
     fn parenthesized_type_application_parses_as_tcon_with_args() {
-        let module = parse_ok("(:: main (Maybe Int))\n(fn main 0)");
+        let module = parse_ok("(:: main (Option Int))\n(fn main 0)");
         match &module.decls[0] {
             Decl::DSig { ty, .. } => match ty {
                 Type::TCon(name, args) => {
-                    assert_eq!(name.name, "Maybe");
+                    assert_eq!(name.name, "Option");
                     assert_eq!(args.len(), 1);
                     assert!(matches!(&args[0], Type::TCon(inner, _) if inner.name == "Int"));
                 }
@@ -1923,16 +1918,17 @@ mod tests {
     /// group, since both start with a bare `(`. See `looks_like_tyvar_list`.
     #[test]
     fn data_type_parameter_list_is_not_mistaken_for_a_constructor() {
-        let module =
-            parse_ok("(struct Maybe (a)\n  (Nothing)\n  (Just a))\n(:: main Int)\n(fn main 0)");
+        let module = parse_ok(
+            "(struct Tree (Leaf) (Node Int (Tree Int) (Tree Int)))\n(:: main Int)\n(fn main 0)",
+        );
         match &module.decls[0] {
             Decl::DStruct {
                 tyvars, variants, ..
             } => {
-                assert_eq!(tyvars.as_slice(), ["a"]);
+                assert!(tyvars.is_empty());
                 assert_eq!(variants.len(), 2);
-                assert_eq!(variants[0].name.name, "Nothing");
-                assert_eq!(variants[1].name.name, "Just");
+                assert_eq!(variants[0].name.name, "Leaf");
+                assert_eq!(variants[1].name.name, "Node");
             }
             other => panic!("expected DStruct, got {:?}", other),
         }
