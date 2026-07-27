@@ -1,4 +1,6 @@
-use crate::{IrBlock, IrConst, IrFunction, IrInst, IrModule, IrStruct, IrUnion, IrValue, TypeId};
+use crate::{
+    IrBlock, IrConst, IrEnum, IrFunction, IrInst, IrModule, IrStruct, IrUnion, IrValue, TypeId,
+};
 use axiom_ast::ast::*;
 use axiom_ast::span::{Ident, Span};
 use axiom_sema::TypeChecker;
@@ -12,44 +14,34 @@ pub struct IrGen {
     current_block: Option<String>,
 }
 
-/// Look up a data constructor by name across every `data` type the type
-/// checker collected, returning:
+/// Look up a struct variant by name across every `struct`
+/// type the type checker collected, returning:
 ///
-/// * a globally-unique integer tag (`data_type_index * 100 +
-///   constructor_index_within_that_type`) - unique across every
-///   constructor in the program, not just within one `data` type, so two
-///   different `data` types' constructors can never compare equal by
-///   accident during pattern matching;
-/// * its arity, decomposed from the constructor's curried arrow type
-///   (`Field1 -> Field2 -> ... -> TheType`; zero `TArr`s means a nullary
-///   constructor).
+/// * a globally-unique integer tag (`struct_index * 100 +
+///   variant_index_within_that_struct`) - unique across every
+///   variant in the program, not just within one `struct` type,
+///   so two different `struct` types' variants can never compare
+///   equal by accident during pattern matching;
+/// * its arity, decomposed from the variant's field types
+///   (each field is an `i64` word, so the arity is just the
+///   number of fields).
 ///
-/// Both constructor *construction* (`EVar`/`EApp`, see
-/// [`IrGen::gen_construct`]) and constructor *matching* (`EMatch`) call
+/// Both variant *construction* (`EVar`/`EApp`, see
+/// [`IrGen::gen_construct`]) and variant *matching* (`EMatch`) call
 /// this, so a value built with one tag is always compared against that
 /// exact same tag - there is exactly one place in the generator that
-/// decides what a constructor's tag is.
+/// decides what a variant's tag is.
 fn find_constructor(type_checker: &TypeChecker, name: &str) -> Option<(i64, usize)> {
-    for (idx, dt) in type_checker.data_types.iter().enumerate() {
-        for (cidx, con) in dt.constructors.iter().enumerate() {
-            if con.name == name {
-                let tag = (idx * 100 + cidx) as i64;
-                let arity = constructor_arity(&con.ty);
+    for (idx, si) in type_checker.structs.iter().enumerate() {
+        for (vidx, sv) in si.variants.iter().enumerate() {
+            if sv.name == name {
+                let tag = (idx * 100 + vidx) as i64;
+                let arity = sv.fields.len();
                 return Some((tag, arity));
             }
         }
     }
     None
-}
-
-fn constructor_arity(ty: &TypeId) -> usize {
-    let mut n = 0;
-    let mut current = ty;
-    while let TypeId::TArr(_, rest) = current {
-        n += 1;
-        current = rest;
-    }
-    n
 }
 
 impl Default for IrGen {
@@ -73,7 +65,11 @@ impl IrGen {
         for decl in &ast_module.decls {
             match decl {
                 Decl::DStruct {
-                    name, fields, repr, ..
+                    name,
+                    tyvars: _,
+                    variants,
+                    repr,
+                    ..
                 } => {
                     let packed = matches!(repr, Some(TypeRepr::Packed));
                     let align = if let Some(TypeRepr::Align(n)) = repr {
@@ -82,17 +78,42 @@ impl IrGen {
                         None
                     };
 
-                    let ir_fields: Vec<(String, TypeId)> = fields
-                        .iter()
-                        .map(|f| (f.name.name.clone(), self.type_to_id(&f.ty)))
-                        .collect();
-
-                    self.module.structs.push(IrStruct {
-                        name: name.name.clone(),
-                        fields: ir_fields,
-                        packed,
-                        align,
-                    });
+                    // Single-variant struct (product type): generate as IrStruct
+                    // Multi-variant struct (ADT): generate each variant as an IrEnum entry
+                    if variants.len() == 1 {
+                        let fields: Vec<(String, TypeId)> = variants[0]
+                            .fields
+                            .iter()
+                            .map(|f| (f.name.name.clone(), self.type_to_id(&f.ty)))
+                            .collect();
+                        self.module.structs.push(IrStruct {
+                            name: name.name.clone(),
+                            fields,
+                            packed,
+                            align,
+                        });
+                    } else {
+                        // Multi-variant ADT: generate as IrEnum
+                        let enum_variants: Vec<(String, Option<TypeId>)> = variants
+                            .iter()
+                            .map(|sv| {
+                                if sv.fields.is_empty() {
+                                    (sv.name.name.clone(), None)
+                                } else {
+                                    // For variants with fields, use the first field's type
+                                    // as the variant's type (for tagged union representation)
+                                    let field_ty = self.type_to_id(&sv.fields[0].ty);
+                                    (sv.name.name.clone(), Some(field_ty))
+                                }
+                            })
+                            .collect();
+                        let tag_type = TypeId::TCon("I64".to_string(), vec![]);
+                        self.module.enums.push(IrEnum {
+                            name: name.name.clone(),
+                            variants: enum_variants,
+                            tag_type,
+                        });
+                    }
                 }
                 Decl::DUnion { name, fields, .. } => {
                     let ir_fields: Vec<(String, TypeId)> = fields
@@ -118,7 +139,9 @@ impl IrGen {
                         params.push(*param);
                         current = *rest;
                     }
-                    self.module.extern_funcs.push((name.name.clone(), params, current));
+                    self.module
+                        .extern_funcs
+                        .push((name.name.clone(), params, current));
                 }
                 Decl::DSig { name, ty, .. } => {
                     let _ = (name, ty);
@@ -406,7 +429,7 @@ impl IrGen {
         }
     }
 
-        fn collect_captured_vars(
+    fn collect_captured_vars(
         expr: &Expr,
         lambda_params: &[String],
         outer_alloca_map: &HashMap<String, String>,
@@ -490,10 +513,7 @@ impl IrGen {
                     Self::collect_captured_vars(e, lambda_params, outer_alloca_map, out, seen);
                 }
             }
-            Expr::ELit(_, _)
-            | Expr::ESizeof(_, _)
-            | Expr::EAlignof(_, _)
-            | Expr::EError(_, _) => {}
+            Expr::ELit(_, _) | Expr::ESizeof(_, _) | Expr::EAlignof(_, _) | Expr::EError(_, _) => {}
             Expr::EHandle(body, _, after) => {
                 Self::collect_captured_vars(body, lambda_params, outer_alloca_map, out, seen);
                 Self::collect_captured_vars(after, lambda_params, outer_alloca_map, out, seen);
@@ -523,13 +543,7 @@ impl IrGen {
         // Collect captured variable names from the body.
         let mut captured_vars: Vec<String> = Vec::new();
         let mut seen = HashSet::new();
-        Self::collect_captured_vars(
-            body,
-            &[],
-            outer_alloca_map,
-            &mut captured_vars,
-            &mut seen,
-        );
+        Self::collect_captured_vars(body, &[], outer_alloca_map, &mut captured_vars, &mut seen);
 
         let lambda_param_names: Vec<String> = params
             .iter()
@@ -857,14 +871,15 @@ impl IrGen {
                     // is a known struct name. Allocate space and store
                     // each field at the appropriate offset (no tag word).
                     if let Some(si) = type_checker.structs.iter().find(|s| s.name == ident.name) {
-                        if si.fields.len() != all_args.len() {
+                        let sv = si.variants.first().unwrap();
+                        if sv.fields.len() != all_args.len() {
                             return IrValue::Const(IrConst::Int(
                                 0,
                                 TypeId::TCon("I64".to_string(), vec![]),
                             ));
                         }
                         let i64_ty = TypeId::TCon("I64".to_string(), vec![]);
-                        let struct_size = (si.fields.len() * 8) as i64;
+                        let struct_size = (sv.fields.len() * 8) as i64;
                         let ptr_local = self.new_local();
                         self.emit_to_func(
                             func,
@@ -917,8 +932,7 @@ impl IrGen {
                 }
 
                 if let Expr::ELam(params, body) = current {
-                    let lambda_val =
-                        self.gen_lambda(params, body, type_checker, alloca_map, func);
+                    let lambda_val = self.gen_lambda(params, body, type_checker, alloca_map, func);
                     let dest = self.new_local();
                     match lambda_val {
                         IrValue::Global(name) => {
@@ -1480,7 +1494,9 @@ impl IrGen {
             Expr::EGrouped(inner) => {
                 self.gen_expr_to_func_with_allocas(func, inner, alloca_map, type_checker)
             }
-            Expr::ELam(params, body) => self.gen_lambda(params, body, type_checker, alloca_map, func),
+            Expr::ELam(params, body) => {
+                self.gen_lambda(params, body, type_checker, alloca_map, func)
+            }
             Expr::ETuple(elements) => {
                 let i64_ty = TypeId::TCon("I64".to_string(), vec![]);
                 let tuple_size = (elements.len() * 8) as i64;
@@ -1558,7 +1574,7 @@ impl IrGen {
                         },
                     );
                     IrValue::Local(result_reg)
-                } else if let Some((_struct_name, field_index, _field_ty)) =
+                } else if let Some((_struct_name, _variant_name, field_index, _field_ty)) =
                     type_checker.find_struct_field_by_name(&field_ident.name)
                 {
                     let offset = (field_index * 8) as i64;
@@ -1595,7 +1611,7 @@ impl IrGen {
                         },
                     );
                     IrValue::Const(IrConst::Int(0, i64_ty))
-                } else if let Some((_struct_name, field_index, _field_ty)) =
+                } else if let Some((_struct_name, _variant_name, field_index, _field_ty)) =
                     type_checker.find_struct_field_by_name(&field_ident.name)
                 {
                     let offset = (field_index * 8) as i64;
@@ -1615,10 +1631,11 @@ impl IrGen {
             Expr::EStructCon(name, args) => {
                 let i64_ty = TypeId::TCon("I64".to_string(), vec![]);
                 if let Some(si) = type_checker.structs.iter().find(|s| s.name == name.name) {
-                    if si.fields.len() != args.len() {
+                    let sv = si.variants.first().unwrap();
+                    if sv.fields.len() != args.len() {
                         return IrValue::Const(IrConst::Int(0, i64_ty));
                     }
-                    let struct_size = (si.fields.len() * 8) as i64;
+                    let struct_size = (sv.fields.len() * 8) as i64;
                     let ptr_local = self.new_local();
                     self.emit_to_func(
                         func,

@@ -8,6 +8,7 @@ pub struct LlvmCodeGen {
     type_counter: usize,
     local_counter: usize,
     struct_types: HashMap<String, usize>,
+    enum_types: HashMap<String, usize>,
     current_func: Option<String>,
     locals: HashMap<String, (String, TypeId)>,
     ssa_values: HashMap<String, (String, TypeId)>,
@@ -28,6 +29,7 @@ impl LlvmCodeGen {
             type_counter: 0,
             local_counter: 0,
             struct_types: HashMap::new(),
+            enum_types: HashMap::new(),
             current_func: None,
             locals: HashMap::new(),
             ssa_values: HashMap::new(),
@@ -51,8 +53,7 @@ impl LlvmCodeGen {
                     .collect::<Vec<_>>()
                     .join(", ");
                 let ret_str = self.type_to_llvm(ret);
-                writeln!(self.output, "declare {} @{}({})", ret_str, name, params_str)
-                    .unwrap();
+                writeln!(self.output, "declare {} @{}({})", ret_str, name, params_str).unwrap();
             }
         }
 
@@ -109,6 +110,11 @@ impl LlvmCodeGen {
         }
         writeln!(self.output).unwrap();
 
+        for ir_enum in &ir_module.enums {
+            self.declare_enum(ir_enum);
+        }
+        writeln!(self.output).unwrap();
+
         for global in &ir_module.globals {
             self.declare_global(global);
         }
@@ -158,6 +164,35 @@ impl LlvmCodeGen {
             packed,
             fields.join(", "),
             packed_end,
+        )
+        .unwrap();
+    }
+
+    fn declare_enum(&mut self, ir_enum: &IrEnum) {
+        let type_id = self.type_counter;
+        self.type_counter += 1;
+        self.enum_types.insert(ir_enum.name.clone(), type_id);
+
+        let variant_types: Vec<String> = ir_enum
+            .variants
+            .iter()
+            .map(|(_, opt_ty)| match opt_ty {
+                Some(ty) => self.type_to_llvm(ty),
+                None => "i64".to_string(),
+            })
+            .collect();
+
+        writeln!(
+            self.output,
+            "%union.{} = type {{ {} }}",
+            type_id,
+            variant_types.join(", "),
+        )
+        .unwrap();
+        writeln!(
+            self.output,
+            "%struct.{} = type {{ i64, %union.{} }}",
+            type_id, type_id,
         )
         .unwrap();
     }
@@ -861,7 +896,10 @@ impl LlvmCodeGen {
             } => {
                 let captures_len = captures.len();
                 let closure_size = ((1 + captures_len) * 8) as i64;
-                let size_val = IrValue::Const(IrConst::Int(closure_size, TypeId::TCon("I64".to_string(), vec![])));
+                let size_val = IrValue::Const(IrConst::Int(
+                    closure_size,
+                    TypeId::TCon("I64".to_string(), vec![]),
+                ));
                 let size_llvm = self.value_to_llvm(&size_val)?;
                 let ptr_reg = self.new_local_reg();
                 writeln!(
@@ -890,7 +928,9 @@ impl LlvmCodeGen {
                     writeln!(
                         self.output,
                         "  {} = add i64 {}, {}",
-                        offset_reg, addr_reg, ((i + 1) * 8) as i64
+                        offset_reg,
+                        addr_reg,
+                        ((i + 1) * 8) as i64
                     )
                     .unwrap();
                     let field_ptr_reg = self.new_local_reg();
@@ -933,7 +973,9 @@ impl LlvmCodeGen {
                     writeln!(
                         self.output,
                         "  {} = add i64 {}, {}",
-                        offset_reg, closure_llvm, ((cap_idx + 1) * 8) as i64
+                        offset_reg,
+                        closure_llvm,
+                        ((cap_idx + 1) * 8) as i64
                     )
                     .unwrap();
                     let field_ptr_reg = self.new_local_reg();
@@ -960,8 +1002,13 @@ impl LlvmCodeGen {
                 writeln!(
                     self.output,
                     "  {} = call i64 {}({})",
-                    dest_reg, func_ptr_llvm,
-                    args_llvm.iter().map(|a| format!("i64 %{}", a)).collect::<Vec<_>>().join(", ")
+                    dest_reg,
+                    func_ptr_llvm,
+                    args_llvm
+                        .iter()
+                        .map(|a| format!("i64 %{}", a))
+                        .collect::<Vec<_>>()
+                        .join(", ")
                 )
                 .unwrap();
                 if let IrValue::Local(name) = dest {
@@ -1099,6 +1146,8 @@ impl LlvmCodeGen {
                 "Any" | "String" => "ptr".to_string(),
                 _ => {
                     if let Some(type_id) = self.struct_types.get(name) {
+                        format!("%struct.{}", type_id)
+                    } else if let Some(type_id) = self.enum_types.get(name) {
                         format!("%struct.{}", type_id)
                     } else {
                         "i64".to_string()

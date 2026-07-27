@@ -295,8 +295,7 @@ fn print_diagnostics_multi(
 fn decl_name(decl: &axiom_ast::ast::Decl) -> Option<&str> {
     use axiom_ast::ast::Decl;
     match decl {
-        Decl::DData { name, .. }
-        | Decl::DStruct { name, .. }
+        Decl::DStruct { name, .. }
         | Decl::DUnion { name, .. }
         | Decl::DType { name, .. }
         | Decl::DTrait { name, .. }
@@ -781,9 +780,6 @@ fn collect_symbol_facts(
             Decl::DForeign {
                 name, nid, axtags, ..
             } => (name, nid, axtags),
-            Decl::DData {
-                name, nid, axtags, ..
-            } => (name, nid, axtags),
             Decl::DStruct {
                 name, nid, axtags, ..
             } => (name, nid, axtags),
@@ -838,22 +834,16 @@ fn collect_symbol_facts(
             Decl::DForeign { name, .. } => {
                 fn_spans.entry(&name.name).or_insert(name.span);
             }
-            Decl::DData {
-                name, constructors, ..
+            Decl::DStruct {
+                name,
+                variants,
+                repr,
+                ..
             } => {
                 type_spans.insert(&name.name, name.span);
-                // `DataConInfo` (the `TypeChecker`-side record) has no
-                // span of its own - only the AST's own `DataCon` does -
-                // so constructor locations have to come from here, not
-                // from `tc.data_types`, or every constructor would
-                // render with no location at all (indistinguishable from
-                // an actual builtin in the AXSYM/human output).
-                for con in constructors {
-                    ctor_spans.insert(&con.name.name, con.name.span);
+                for sv in variants {
+                    ctor_spans.insert(&sv.name.name, sv.name.span);
                 }
-            }
-            Decl::DStruct { name, repr, .. } => {
-                type_spans.insert(&name.name, name.span);
                 struct_reprs.insert(&name.name, repr);
             }
             Decl::DUnion { name, .. } => {
@@ -898,56 +888,80 @@ fn collect_symbol_facts(
         facts.push(fact);
     }
 
-    for d in &tc.data_types {
-        let ctor_names: Vec<String> = d.constructors.iter().map(|c| c.name.clone()).collect();
-        let mut fact = SymbolFact::new(
-            SymbolKind::Data,
-            &d.name,
-            type_spans.get(d.name.as_str()).copied(),
-            format!("data {}", d.name),
-            decl_meta.get(d.name.as_str()).and_then(|(n, _)| n.clone()),
-        );
-        if !ctor_names.is_empty() {
-            fact = fact.with_meta(format!("ctors={}", ctor_names.join(",")));
-        }
-        if let Some((_, axtags)) = decl_meta.get(d.name.as_str()) {
-            for m in axtags {
-                fact = fact.with_meta(m.clone());
-            }
-        }
-        facts.push(fact);
-        for c in &d.constructors {
-            facts.push(
-                SymbolFact::new(
-                    SymbolKind::Ctor,
-                    &c.name,
-                    ctor_spans.get(c.name.as_str()).copied(),
-                    c.ty.to_string(),
-                    None,
-                )
-                .with_meta(format!("of={}", c.data_type)),
-            );
-        }
-    }
-
     for s in &tc.structs {
-        let mut fact = SymbolFact::new(
-            SymbolKind::Struct,
-            &s.name,
-            type_spans.get(s.name.as_str()).copied(),
-            format!("struct {}", s.name),
-            decl_meta.get(s.name.as_str()).and_then(|(n, _)| n.clone()),
-        )
-        .with_meta(format!("fields={}", fields_meta(&s.fields)));
-        if let Some(repr) = repr_meta(struct_reprs.get(s.name.as_str()).copied().unwrap_or(&None)) {
-            fact = fact.with_meta(repr);
-        }
-        if let Some((_, axtags)) = decl_meta.get(s.name.as_str()) {
-            for m in axtags {
-                fact = fact.with_meta(m.clone());
+        let is_adt = s.variants.len() > 1;
+        if is_adt {
+            let ctor_names: Vec<String> = s.variants.iter().map(|sv| sv.name.clone()).collect();
+            let mut fact = SymbolFact::new(
+                SymbolKind::Data,
+                &s.name,
+                type_spans.get(s.name.as_str()).copied(),
+                format!("struct {}", s.name),
+                decl_meta.get(s.name.as_str()).and_then(|(n, _)| n.clone()),
+            )
+            .with_meta(format!("ctors={}", ctor_names.join(",")));
+            if let Some((_, axtags)) = decl_meta.get(s.name.as_str()) {
+                for m in axtags {
+                    fact = fact.with_meta(m.clone());
+                }
             }
+            facts.push(fact);
         }
-        facts.push(fact);
+
+        for sv in &s.variants {
+            let mut fact = SymbolFact::new(
+                SymbolKind::Ctor,
+                &sv.name,
+                ctor_spans.get(sv.name.as_str()).copied(),
+                format!("struct {}", s.name),
+                decl_meta.get(s.name.as_str()).and_then(|(n, _)| n.clone()),
+            )
+            .with_meta(format!("of={}", s.name));
+            if !sv.fields.is_empty() {
+                let field_strs: Vec<String> = sv
+                    .fields
+                    .iter()
+                    .map(|(n, t)| format!("{}:{}", n, t))
+                    .collect();
+                fact = fact.with_meta(format!("fields={}", field_strs.join(",")));
+            }
+            if let Some((_, axtags)) = decl_meta.get(s.name.as_str()) {
+                for m in axtags {
+                    fact = fact.with_meta(m.clone());
+                }
+            }
+            facts.push(fact);
+        }
+
+        if !is_adt {
+            let mut fact = SymbolFact::new(
+                SymbolKind::Struct,
+                &s.name,
+                type_spans.get(s.name.as_str()).copied(),
+                format!("struct {}", s.name),
+                decl_meta.get(s.name.as_str()).and_then(|(n, _)| n.clone()),
+            )
+            .with_meta(format!(
+                "fields={}",
+                s.variants
+                    .iter()
+                    .flat_map(|sv| sv.fields.iter())
+                    .map(|(n, t)| format!("{}:{}", n, t))
+                    .collect::<Vec<_>>()
+                    .join(",")
+            ));
+            if let Some(repr) =
+                repr_meta(struct_reprs.get(s.name.as_str()).copied().unwrap_or(&None))
+            {
+                fact = fact.with_meta(repr);
+            }
+            if let Some((_, axtags)) = decl_meta.get(s.name.as_str()) {
+                for m in axtags {
+                    fact = fact.with_meta(m.clone());
+                }
+            }
+            facts.push(fact);
+        }
     }
 
     for u in &tc.unions {
@@ -1361,7 +1375,7 @@ fn show_help() {
     );
     println!(
         "  • Data types: {}",
-        "(data Maybe (a) (Nothing) (Just a))".bright_white()
+        "(struct Maybe (a) (Nothing) (Just a))".bright_white()
     );
     println!("  • Expressions are evaluated and results shown");
     println!("  • Use ; for line comments");
@@ -1488,18 +1502,21 @@ fn cmd_defs(state: &mut ReplState) {
         }
     }
 
-    for dt in &tc.data_types {
-        println!(
-            "  data {} with {} constructors",
-            dt.name.bright_white(),
-            dt.constructors.len()
-        );
-        for con in &dt.constructors {
+    for s in &tc.structs {
+        for sv in &s.variants {
             println!(
-                "    {} : {}",
-                con.name.bright_green(),
-                con.ty.to_string().bright_cyan()
+                "  struct {} variant {} with {} field(s)",
+                s.name.bright_white(),
+                sv.name.bright_green(),
+                sv.fields.len()
             );
+            for (fname, fty) in &sv.fields {
+                println!(
+                    "    {} : {}",
+                    fname.bright_green(),
+                    fty.to_string().bright_cyan()
+                );
+            }
         }
     }
 }
@@ -1713,9 +1730,9 @@ fn process_input(input: &str, state: &mut ReplState) {
                     "OK:".bright_green().bold(),
                     name.name.bright_white()
                 );
-            } else if let axiom_ast::ast::Decl::DData { name, .. } = &decl {
+            } else if let axiom_ast::ast::Decl::DStruct { name, .. } = &decl {
                 println!(
-                    "{} data {} defined",
+                    "{} struct {} defined",
                     "OK:".bright_green().bold(),
                     name.name.bright_white()
                 );

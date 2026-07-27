@@ -227,9 +227,10 @@ instead of the failure case.
 pipeline as `check` (including resolving `(import ...)`s, see
 `docs/diagnostics.md`'s multi-file notes below), then prints one fact per
 top-level name the checker collected: every `define`/`fn`, every
-`foreign` binding, every `data` type and its constructors, every
-`struct`/`union` (with its exact field shapes and layout attributes),
-every `type` alias, and every `class`. Like diagnostics, it honors
+`foreign` binding, every multi-variant `struct` type and its
+constructors (variants), every `struct`/`union` single-variant product
+(with its exact field shapes and layout attributes), every `type` alias,
+and every `class`. Like diagnostics, it honors
 `--diagnostic-format`:
 
 ```bash
@@ -255,7 +256,7 @@ every `type` alias, and every `class`. Like diagnostics, it honors
 
 | Field | Meaning |
 |---|---|
-| `KIND` | One letter: `F` function, `X` foreign binding, `D` data type, `C` constructor, `S` struct, `U` union, `A` type alias, `L` class |
+| `KIND` | One letter: `F` function, `X` foreign binding, `D` ADT type, `C` constructor, `S` struct, `U` union, `A` type alias, `L` class |
 | `NAME` | The declared name, exactly as written |
 | `FILE:LOC` | Same `file:line:col[-col\|:line:col]` addressing as AXDL, via the same [`SourceMap`](../axiom-errors/src/source_map.rs) - for a program with `(import ...)`s, `FILE` is the *actual* file that declared this symbol (an imported module's own file), not always the entry file, exactly like AXDL's own multi-file attribution |
 | `-` | In place of `FILE:LOC`, for names with no source span at all - in practice, only Axiom's dozen built-in operators (`+`, `==`, `&&`, ...), which `axiom symbols` omits entirely unless `--builtins` is passed (they never change, so printing them on every call is exactly the restating-what's-already-known token waste this notation exists to avoid) |
@@ -267,7 +268,7 @@ Metadata keys actually emitted today:
 | Key | Kinds | Meaning |
 |---|---|---|
 | `ctors` | `D` | Comma-separated constructor names, e.g. `#ctors=Nothing,Just` |
-| `of` | `C` | The constructor's owning data type, e.g. `#of=Maybe` |
+| `of` | `C` | The constructor's owning struct type (ADT), e.g. `#of=Maybe` |
 | `fields` | `S`, `U` | `name:Type,name:Type,...` - the actual field shapes, not just a count, e.g. `#fields=x:Int,y:Int` |
 | `packed` / `repr=C` / `align=N` | `S` | The struct's layout attribute, when it has a non-default one |
 | `methods` | `L` | `name:Type,name:Type,...` for the class's methods, same shape as `fields` |
@@ -283,7 +284,7 @@ Source:
 ```lisp
 (foreign printf :: (-> String Int) = "printf")
 
-(data Maybe (a)
+(struct Maybe (a)
   (Nothing)
   (Just a))
 
@@ -301,7 +302,7 @@ AXSYM output (`--diagnostic-format=ai symbols`, builtins omitted by default):
 ```
 X printf main.ax:1:10-16 "(String -> Int)" #symbol=printf
 F add main.ax:11:5-8 "(Int -> (Int -> Int))"
-D Maybe main.ax:3:7-12 "data Maybe" #ctors=Nothing,Just
+D Maybe main.ax:3:7-12 "struct Maybe" #ctors=Nothing,Just
 C Nothing main.ax:4:4-11 "Maybe" #of=Maybe
 C Just main.ax:5:4-8 "(a -> Maybe a)" #of=Maybe
 S Point main.ax:7:9-14 "struct Point" #fields=x:Int,y:Int
@@ -315,8 +316,7 @@ checker already has in hand.
 
 ### Why this found a real parser bug
 
-Building AXSYM immediately exposed that `(data Maybe (a) (Nothing) (Just
-a))` - the README's own example - was parsing `(a)` as a *third,
+Building AXSYM immediately exposed that `(struct Maybe (a) (Nothing) (Just a))` - the README's own example - was parsing `(a)` as a *third,
 spurious nullary constructor named `a`* instead of a type-parameter list,
 because `parse_tyvars` only recognized bare, unparenthesized type
 variables. Every parenthesized-tyvar example in the README (which is all
@@ -379,5 +379,5 @@ Example AXSYM output with NID and AXTAG metadata:
 ```
 F add main.ax:1:6-9 "(Int -> (Int -> Int))" @a1b2c3d4e5f6a1b2
 X printf main.ax:1:10-16 "(String -> Int)" #symbol=printf @c3d4e5f6a1b2
-D Maybe main.ax:3:7-12 "data Maybe" #ctors=Nothing,Just @e5f6a1b2c3d4
+D Maybe main.ax:3:7-12 "struct Maybe" #ctors=Nothing,Just @e5f6a1b2c3d4
 ```

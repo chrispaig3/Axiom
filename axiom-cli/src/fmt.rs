@@ -53,23 +53,14 @@ fn format_decl(decl: &Decl, out: &mut String, state: &mut FormatState) {
         } => {
             format_function_decl(name, params, body, out, state);
         }
-        Decl::DData {
-            name,
-            tyvars,
-            constructors,
-            deriving,
-            ..
-        } => {
-            format_data_decl(name, tyvars, constructors, deriving, out, state);
-        }
         Decl::DStruct {
             name,
             tyvars,
-            fields,
+            variants,
             repr,
             ..
         } => {
-            format_struct_decl(name, tyvars, fields, repr, out, state);
+            format_struct_decl(name, tyvars, variants, repr, out, state);
         }
         Decl::DUnion {
             name,
@@ -132,7 +123,11 @@ fn format_decl(decl: &Decl, out: &mut String, state: &mut FormatState) {
             format_trait_decl(name, tyvar, supertraits, methods, effects, out, state);
         }
         Decl::DImpl {
-            trait_name, ty, methods, effects, ..
+            trait_name,
+            ty,
+            methods,
+            effects,
+            ..
         } => {
             format_impl_decl(trait_name, ty, methods, effects, out, state);
         }
@@ -175,61 +170,10 @@ fn format_function_decl(
     }
 }
 
-fn format_data_decl(
-    name: &Ident,
-    tyvars: &[String],
-    constructors: &[DataCon],
-    deriving: &[Ident],
-    out: &mut String,
-    state: &mut FormatState,
-) {
-    out.push_str("(data ");
-    out.push_str(&name.name);
-    if !tyvars.is_empty() {
-        out.push(' ');
-        format_type_vars(tyvars, out);
-    }
-
-    if constructors.is_empty() {
-        out.push(')');
-    } else if constructors.len() == 1 && constructors[0].fields.is_empty() {
-        write!(out, " ({})", constructors[0].name.name).unwrap();
-        if !deriving.is_empty() {
-            out.push_str(" (deriving");
-            for d in deriving {
-                write!(out, " {}", d.name).unwrap();
-            }
-            out.push(')');
-        }
-        out.push(')');
-    } else {
-        for con in constructors {
-            out.push('\n');
-            state.push_indent();
-            out.push_str(&state.indent_str());
-            write!(out, "({}", con.name.name).unwrap();
-            for ty in &con.fields {
-                out.push(' ');
-                out.push_str(&format_type(ty));
-            }
-            out.push(')');
-            state.pop_indent();
-        }
-        if !deriving.is_empty() {
-            out.push_str(" (deriving");
-            for d in deriving {
-                write!(out, " {}", d.name).unwrap();
-            }
-            out.push(')');
-        }
-        out.push(')');
-    }
-}
-
 fn format_struct_decl(
     name: &Ident,
     tyvars: &[String],
-    fields: &[Field],
+    variants: &[StructVariant],
     repr: &Option<TypeRepr>,
     out: &mut String,
     state: &mut FormatState,
@@ -248,17 +192,35 @@ fn format_struct_decl(
             TypeRepr::Align(n) => write!(out, "align({})", n).unwrap(),
         }
     }
-    if !fields.is_empty() {
-        out.push('\n');
-        state.push_indent();
-        for f in fields {
-            out.push_str(&state.indent_str());
-            write!(out, "({} {})", f.name.name, format_type(&f.ty)).unwrap();
-            if f.mutable {
-                out.push_str(" mut");
+    if variants.len() == 1 {
+        // Single-variant struct: fields directly
+        let fields = &variants[0].fields;
+        if !fields.is_empty() {
+            out.push('\n');
+            state.push_indent();
+            for f in fields {
+                out.push_str(&state.indent_str());
+                write!(out, "({} {})", f.name.name, format_type(&f.ty)).unwrap();
+                if f.mutable {
+                    out.push_str(" mut");
+                }
             }
+            state.pop_indent();
         }
-        state.pop_indent();
+    } else {
+        // Multi-variant struct: each variant is a group
+        for sv in variants {
+            out.push('\n');
+            state.push_indent();
+            out.push_str(&state.indent_str());
+            write!(out, "({}", sv.name.name).unwrap();
+            for f in &sv.fields {
+                out.push(' ');
+                write!(out, "({} {})", f.name.name, format_type(&f.ty)).unwrap();
+            }
+            out.push(')');
+            state.pop_indent();
+        }
     }
     out.push(')');
 }

@@ -21,13 +21,12 @@ pub enum TokenKind {
     Cond,     // (cond (test body)... (else body))
     Match,    // (match expr (pattern body)...)
     Fn,       // (fn (name args...) body) - modern alias for define
-    Data,     // (data Name (tyvars...) (constructor...))
     Struct,   // (struct Name (field...) )
     Union,    // (union Name (field...))
     Type,     // (type Name (tyvars...) alias)
     Newtype,  // (newtype Name (tyvars...) ctor inner)
-    Trait,   // (trait (Name tv) (super...) (method...))
-    Impl,    // (impl (Trait Type) (method...))
+    Trait,    // (trait (Name tv) (super...) (method...))
+    Impl,     // (impl (Trait Type) (method...))
     Import,   // (import module (names...))
     Foreign,  // (foreign name type "symbol")
     Pub,      // (pub decl)
@@ -139,7 +138,6 @@ impl fmt::Display for TokenKind {
             TokenKind::Cond => write!(f, "cond"),
             TokenKind::Match => write!(f, "match"),
             TokenKind::Fn => write!(f, "fn"),
-            TokenKind::Data => write!(f, "data"),
             TokenKind::Struct => write!(f, "struct"),
             TokenKind::Union => write!(f, "union"),
             TokenKind::Type => write!(f, "type"),

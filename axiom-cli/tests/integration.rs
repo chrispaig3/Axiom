@@ -86,7 +86,7 @@ fn run_executes_recursive_adt_pattern_matching_correctly() {
     write_source(
         &dir,
         "main.ax",
-        "(data List (a)\n  (Nil)\n  (Cons a (List a)))\n\
+        "(struct List (a)\n  (Nil)\n  (Cons a (List a)))\n\
          (:: sum (-> (List Int) Int))\n\
           (fn (sum lst)\n  (match lst\n    ((Nil) 0)\n    ((Cons h t) (+ h (sum t)))))\n\
          (:: main Int)\n\
@@ -106,7 +106,7 @@ fn run_executes_maybe_pattern_matching_correctly() {
     write_source(
         &dir,
         "main.ax",
-        "(data Maybe (a)\n  (Nothing)\n  (Just a))\n\
+        "(struct Maybe (a)\n  (Nothing)\n  (Just a))\n\
          (:: fromMaybe (-> Int (Maybe Int) Int))\n\
           (fn (fromMaybe default val)\n  (match val\n    ((Nothing) default)\n    ((Just x) x)))\n\
          (:: main Int)\n\
@@ -122,7 +122,7 @@ fn non_exhaustive_match_is_rejected_before_codegen() {
     write_source(
         &dir,
         "main.ax",
-        "(data Maybe (a)\n  (Nothing)\n  (Just a))\n\
+        "(struct Maybe (a)\n  (Nothing)\n  (Just a))\n\
          (:: main Int)\n\
           (fn main (match (Just 1) ((Just x) x)))\n",
     );
@@ -287,7 +287,7 @@ fn axdl_non_exhaustive_has_help() {
     write_source(
         &dir,
         "main.ax",
-        "(data Bool (True) (False))\n(:: main Int)\n(fn main (match true ((True) 1)))\n",
+        "(struct Bool (True) (False))\n(:: main Int)\n(fn main (match true ((True) 1)))\n",
     );
     let out = run_axiom(&["--diagnostic-format=ai", "check", "main.ax"], &dir);
     assert!(!out.status.success());
@@ -353,7 +353,7 @@ fn axsym_reports_all_declaration_kinds() {
         &dir,
         "main.ax",
         r#"(foreign printf :: (-> String Int) = "printf")
-(data Maybe (a) (Nothing) (Just a))
+(struct Maybe (a) (Nothing) (Just a))
 (struct Point (x : Int) (y : Int))
 (union Value (asInt : I64) (asFloat : F64))
 (type StringList () = [String])
@@ -397,7 +397,7 @@ fn axsym_data_type_ctors_metadata() {
     write_source(
         &dir,
         "main.ax",
-        "(data Ordering (LT) (EQ) (GT))\n(:: main Int)\n(fn main 0)\n",
+        "(struct Ordering (LT) (EQ) (GT))\n(:: main Int)\n(fn main 0)\n",
     );
     let out = run_axiom(&["--diagnostic-format=ai", "symbols", "main.ax"], &dir);
     assert!(out.status.success(), "stderr: {}", stderr(&out));
@@ -438,7 +438,7 @@ fn axsym_json_format_is_one_object_per_line() {
     write_source(
         &dir,
         "main.ax",
-        "(data Maybe (a) (Nothing) (Just a))\n(:: main Int)\n(fn main 0)\n",
+        "(struct Maybe (a) (Nothing) (Just a))\n(:: main Int)\n(fn main 0)\n",
     );
     let out = run_axiom(&["--diagnostic-format=json", "symbols", "main.ax"], &dir);
     assert!(out.status.success(), "stderr: {}", stderr(&out));
@@ -558,5 +558,9 @@ fn non_exhaustive_option_match_is_rejected() {
     let out = run_axiom(&["--diagnostic-format=ai", "check", "main.ax"], &dir);
     assert!(!out.status.success());
     let err = stderr(&out);
-    assert!(err.contains("AX3005"), "missing non-exhaustive code: {}", err);
+    assert!(
+        err.contains("AX3005"),
+        "missing non-exhaustive code: {}",
+        err
+    );
 }

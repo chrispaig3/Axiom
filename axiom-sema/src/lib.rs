@@ -58,10 +58,7 @@ pub enum SemError {
         span: Span,
     },
     #[error("effect mismatch: {message}")]
-    EffectMismatch {
-        message: String,
-        span: Span,
-    },
+    EffectMismatch { message: String, span: Span },
 }
 
 impl SemError {
@@ -209,10 +206,7 @@ impl SemError {
     }
 }
 
-fn collect_effects(
-    checker: &TypeChecker,
-    expr: &Expr,
-) -> Vec<axiom_ast::ast::Effect> {
+fn collect_effects(checker: &TypeChecker, expr: &Expr) -> Vec<axiom_ast::ast::Effect> {
     use std::collections::HashSet;
     let mut set = HashSet::new();
     collect_effects_into(checker, expr, &mut set);
@@ -225,10 +219,7 @@ fn collect_effects(
 /// by `handle` expressions. Used for AXTAG validation where we
 /// need to know if the body *performs* an effect at all, regardless
 /// of whether it is contained by `handle`.
-fn collect_effects_all(
-    checker: &TypeChecker,
-    expr: &Expr,
-) -> Vec<axiom_ast::ast::Effect> {
+fn collect_effects_all(checker: &TypeChecker, expr: &Expr) -> Vec<axiom_ast::ast::Effect> {
     use std::collections::HashSet;
     let mut set = HashSet::new();
     collect_effects_all_into(checker, expr, &mut set);
@@ -244,7 +235,11 @@ fn collect_effects_into(
 ) {
     match expr {
         Expr::EVar(ident) => {
-            if checker.functions.iter().any(|f| f.name == ident.name && f.foreign_symbol.is_some()) {
+            if checker
+                .functions
+                .iter()
+                .any(|f| f.name == ident.name && f.foreign_symbol.is_some())
+            {
                 out.insert(axiom_ast::ast::Effect::IO);
             }
         }
@@ -331,7 +326,11 @@ fn collect_effects_all_into(
 ) {
     match expr {
         Expr::EVar(ident) => {
-            if checker.functions.iter().any(|f| f.name == ident.name && f.foreign_symbol.is_some()) {
+            if checker
+                .functions
+                .iter()
+                .any(|f| f.name == ident.name && f.foreign_symbol.is_some())
+            {
                 out.insert(axiom_ast::ast::Effect::IO);
             }
         }
@@ -535,7 +534,10 @@ impl TypeId {
                 Box::new(Self::strip_effects(b, handled)),
             ),
             TypeId::TTuple(types) => TypeId::TTuple(
-                types.iter().map(|t| Self::strip_effects(t, handled)).collect(),
+                types
+                    .iter()
+                    .map(|t| Self::strip_effects(t, handled))
+                    .collect(),
             ),
             TypeId::TList(inner) => TypeId::TList(Box::new(Self::strip_effects(inner, handled))),
             TypeId::TPtr(inner, mutable) => {
@@ -606,10 +608,16 @@ pub struct VarInfo {
 }
 
 #[derive(Debug, Clone)]
-pub struct DataConInfo {
+pub struct StructInfo {
     pub name: String,
-    pub ty: TypeId,
-    pub data_type: String,
+    pub tyvars: Vec<String>,
+    pub variants: Vec<StructVariant>,
+}
+
+#[derive(Debug, Clone)]
+pub struct StructVariant {
+    pub name: String,
+    pub fields: Vec<(String, TypeId)>,
 }
 
 #[derive(Debug, Clone)]
@@ -619,19 +627,6 @@ pub struct FnInfo {
     pub foreign_symbol: Option<String>,
     pub is_builtin: bool,
     pub effects: Vec<axiom_ast::ast::Effect>,
-}
-
-#[derive(Debug, Clone)]
-pub struct DataTypeInfo {
-    pub name: String,
-    pub tyvars: Vec<String>,
-    pub constructors: Vec<DataConInfo>,
-}
-
-#[derive(Debug, Clone)]
-pub struct StructInfo {
-    pub name: String,
-    pub fields: Vec<(String, TypeId)>,
 }
 
 /// A `union` declaration. Structurally identical to [`StructInfo`] today
@@ -688,7 +683,6 @@ pub struct TraitInfo {
 
 pub struct TypeChecker {
     pub scope: Vec<(String, VarInfo)>,
-    pub data_types: Vec<DataTypeInfo>,
     pub structs: Vec<StructInfo>,
     pub unions: Vec<UnionInfo>,
     pub aliases: Vec<TypeAliasInfo>,
@@ -708,7 +702,6 @@ impl TypeChecker {
     pub fn new() -> Self {
         let mut tc = Self {
             scope: Vec::new(),
-            data_types: Vec::new(),
             structs: Vec::new(),
             unions: Vec::new(),
             aliases: Vec::new(),
@@ -753,28 +746,17 @@ impl TypeChecker {
             ));
         }
 
-        tc.data_types.push(DataTypeInfo {
+        tc.structs.push(StructInfo {
             name: "Option".to_string(),
             tyvars: vec!["a".to_string()],
-            constructors: vec![
-                DataConInfo {
+            variants: vec![
+                StructVariant {
                     name: "Some".to_string(),
-                    ty: TypeId::TArr(
-                        Box::new(TypeId::TVar("a".to_string())),
-                        Box::new(TypeId::TCon(
-                            "Option".to_string(),
-                            vec![TypeId::TVar("a".to_string())],
-                        )),
-                    ),
-                    data_type: "Option".to_string(),
+                    fields: vec![("value".to_string(), TypeId::TVar("a".to_string()))],
                 },
-                DataConInfo {
+                StructVariant {
                     name: "None".to_string(),
-                    ty: TypeId::TCon(
-                        "Option".to_string(),
-                        vec![TypeId::TVar("a".to_string())],
-                    ),
-                    data_type: "Option".to_string(),
+                    fields: vec![],
                 },
             ],
         });
@@ -817,7 +799,6 @@ impl TypeChecker {
                 match decl {
                     Decl::DFn { name, .. } => (&mut values, name),
                     Decl::DForeign { name, .. } => (&mut values, name),
-                    Decl::DData { name, .. } => (&mut types, name),
                     Decl::DStruct { name, .. } => (&mut types, name),
                     Decl::DUnion { name, .. } => (&mut types, name),
                     Decl::DType { name, .. } => (&mut types, name),
@@ -836,69 +817,33 @@ impl TypeChecker {
         }
     }
 
-    /// Build the [`DataTypeInfo`] for one `data` declaration, including
-    /// every constructor's curried field-arrow type. Shared by
-    /// `collect_declarations` and `register_decl` (previously this logic
-    /// was copy-pasted between the two almost verbatim, which is exactly
-    /// how a bug fix applied to one could - and did - miss the other).
-    ///
-    /// Every constructor's outer type is `TCon(name, tyvars-as-TVars)`,
-    /// *including* nullary constructors: `Nil`'s type is `List a`, not
-    /// bare `List` with the type parameter silently dropped. Dropping it
-    /// for the nullary match (the bug this replaced) was invisible for a
-    /// long time because nothing ever compared a nullary constructor's
-    /// type against anything - it only became observable once
-    /// `Expr::EApp` started actually checking argument types against
-    /// parameter types (see `compatible_with`'s call sites): `(Cons 3
-    /// (Nil))` would report "expected `List a`, found `List`" for its
-    /// second argument even though the program is completely correct.
-    fn build_data_type_info(
-        &self,
-        name: &Ident,
-        tyvars: &[String],
-        constructors: &[axiom_ast::ast::DataCon],
-    ) -> DataTypeInfo {
-        let type_args: Vec<TypeId> = tyvars.iter().map(|v| TypeId::TVar(v.clone())).collect();
-        let mut con_infos = Vec::new();
-        for con in constructors {
-            let field_tys: Vec<TypeId> = con.fields.iter().map(|ft| self.type_to_id(ft)).collect();
-            let mut con_ty = TypeId::TCon(name.name.clone(), type_args.clone());
-            for ft in field_tys.into_iter().rev() {
-                con_ty = TypeId::TArr(Box::new(ft), Box::new(con_ty));
-            }
-            con_infos.push(DataConInfo {
-                name: con.name.name.clone(),
-                ty: con_ty,
-                data_type: name.name.clone(),
-            });
-        }
-        DataTypeInfo {
-            name: name.name.clone(),
-            tyvars: tyvars.to_vec(),
-            constructors: con_infos,
-        }
-    }
-
     fn collect_declarations(&mut self, module: &Module) {
         for decl in &module.decls {
             match decl {
-                Decl::DData {
+                Decl::DStruct {
                     name,
                     tyvars,
-                    constructors,
+                    variants,
                     ..
                 } => {
-                    self.data_types
-                        .push(self.build_data_type_info(name, tyvars, constructors));
-                }
-                Decl::DStruct { name, fields, .. } => {
-                    let struct_fields: Vec<(String, TypeId)> = fields
+                    let struct_variants: Vec<StructVariant> = variants
                         .iter()
-                        .map(|f| (f.name.name.clone(), self.type_to_id(&f.ty)))
+                        .map(|v| {
+                            let variant_fields: Vec<(String, TypeId)> = v
+                                .fields
+                                .iter()
+                                .map(|f| (f.name.name.clone(), self.type_to_id(&f.ty)))
+                                .collect();
+                            StructVariant {
+                                name: v.name.name.clone(),
+                                fields: variant_fields,
+                            }
+                        })
                         .collect();
                     self.structs.push(StructInfo {
                         name: name.name.clone(),
-                        fields: struct_fields,
+                        tyvars: tyvars.clone(),
+                        variants: struct_variants,
                     });
                 }
                 Decl::DSig { name, ty, .. } => {
@@ -1034,17 +979,18 @@ impl TypeChecker {
                     for tag in axtags {
                         match tag.key.as_str() {
                             "effect" => {
-                                let declared: Vec<axiom_ast::ast::Effect> = match tag.value.as_deref() {
-                                    Some("io") => vec![axiom_ast::ast::Effect::IO],
-                                    Some("pure") => vec![axiom_ast::ast::Effect::Pure],
-                                    Some("mut") => vec![axiom_ast::ast::Effect::Mut],
-                                    Some("div") => vec![axiom_ast::ast::Effect::Div],
-                                    Some("alloc") => vec![axiom_ast::ast::Effect::Alloc],
-                                    Some(other) => vec![axiom_ast::ast::Effect::Custom(
-                                        Ident::new(other, Span::dummy()),
-                                    )],
-                                    None => vec![],
-                                };
+                                let declared: Vec<axiom_ast::ast::Effect> =
+                                    match tag.value.as_deref() {
+                                        Some("io") => vec![axiom_ast::ast::Effect::IO],
+                                        Some("pure") => vec![axiom_ast::ast::Effect::Pure],
+                                        Some("mut") => vec![axiom_ast::ast::Effect::Mut],
+                                        Some("div") => vec![axiom_ast::ast::Effect::Div],
+                                        Some("alloc") => vec![axiom_ast::ast::Effect::Alloc],
+                                        Some(other) => vec![axiom_ast::ast::Effect::Custom(
+                                            Ident::new(other, Span::dummy()),
+                                        )],
+                                        None => vec![],
+                                    };
                                 let actual = collect_effects_all(self, body);
                                 let mut missing = Vec::new();
                                 for e in &declared {
@@ -1071,7 +1017,11 @@ impl TypeChecker {
                                         name: name.name.clone(),
                                         message: format!(
                                             "`pure` claim contradicted: body performs {}",
-                                            actual.iter().map(|e| format!("{}", e)).collect::<Vec<_>>().join(", ")
+                                            actual
+                                                .iter()
+                                                .map(|e| format!("{}", e))
+                                                .collect::<Vec<_>>()
+                                                .join(", ")
                                         ),
                                         span: name.span,
                                     });
@@ -1101,10 +1051,10 @@ impl TypeChecker {
         }
     }
 
-    /// Check if `expr` is a struct construction: a variable
-    /// reference to a known struct name, possibly applied to
-    /// arguments via nested `EApp`. Returns `(struct_name,
-    /// args)` if so, or `None` otherwise.
+    /// Check if `expr` is a struct/variant construction: a variable
+    /// reference to a known struct name or variant name, possibly
+    /// applied to arguments via nested `EApp`. Returns
+    /// `(struct_name, args)` if so, or `None` otherwise.
     fn find_struct_con(&self, expr: &Expr) -> Option<(Ident, Vec<Expr>)> {
         let mut args = Vec::new();
         let mut current = expr;
@@ -1115,7 +1065,12 @@ impl TypeChecker {
                     current = func;
                 }
                 Expr::EVar(ident) => {
-                    if self.structs.iter().any(|s| s.name == ident.name) {
+                    if self.structs.iter().any(|s| s.name == ident.name)
+                        || self
+                            .structs
+                            .iter()
+                            .any(|s| s.variants.iter().any(|sv| sv.name == ident.name))
+                    {
                         args.reverse();
                         return Some((ident.clone(), args));
                     }
@@ -1159,21 +1114,37 @@ impl TypeChecker {
             Expr::EVar(ident) => self.check_var(ident),
             Expr::ELit(lit, _) => self.check_literal(lit),
             Expr::EApp(func, arg) => {
-                // Check for struct construction first:
-                // `(Point 1 2)` where `Point` is a known struct name.
+                // Check for struct/variant construction first:
+                // `(Point 1 2)` where `Point` is a known struct or
+                // variant name.
                 if let Some((struct_ident, con_args)) = self.find_struct_con(expr) {
-                    let si = self
-                        .structs
-                        .iter()
-                        .find(|s| s.name == struct_ident.name)
-                        .cloned();
-                    if let Some(si) = si {
-                        if con_args.len() != si.fields.len() {
+                    let found = self.structs.iter().find_map(|si| {
+                        if si.name == struct_ident.name {
+                            // Single-variant struct: use the struct's
+                            // first (and typically only) variant.
+                            si.variants.first().map(|sv| (si, sv))
+                        } else {
+                            // Multi-variant struct: find the matching variant.
+                            si.variants
+                                .iter()
+                                .find(|sv| sv.name == struct_ident.name)
+                                .map(|sv| (si, sv))
+                        }
+                    });
+                    if let Some((si, sv)) = found {
+                        let si_name = si.name.clone();
+                        let sv_name = sv.name.clone();
+                        let sv_fields: Vec<_> =
+                            sv.fields.iter().map(|(_, fty)| fty.clone()).collect();
+                        let type_args: Vec<Type> =
+                            si.tyvars.iter().map(|v| Type::TVar(v.clone())).collect();
+                        if con_args.len() != sv_fields.len() {
                             self.errors.push(SemError::Message {
                                 message: format!(
-                                    "struct `{}` expects {} field(s), found {}",
-                                    struct_ident.name,
-                                    si.fields.len(),
+                                    "struct `{}` variant `{}` expects {} field(s), found {}",
+                                    si_name,
+                                    sv_name,
+                                    sv_fields.len(),
                                     con_args.len(),
                                 ),
                                 span: expr.span(),
@@ -1182,7 +1153,7 @@ impl TypeChecker {
                         }
                         for (i, con_arg) in con_args.iter().enumerate() {
                             let arg_ty = self.check_expr(con_arg);
-                            let expected_ty = si.fields[i].1.clone();
+                            let expected_ty = sv_fields[i].clone();
                             if !arg_ty.compatible_with(&expected_ty) {
                                 self.errors.push(SemError::TypeMismatch {
                                     expected: format!("{}", expected_ty),
@@ -1191,7 +1162,10 @@ impl TypeChecker {
                                 });
                             }
                         }
-                        return self.type_to_id(&Type::TCon(struct_ident, vec![]));
+                        return self.type_to_id(&Type::TCon(
+                            Ident::new(&si_name, Span::dummy()),
+                            type_args,
+                        ));
                     }
                 }
 
@@ -1358,11 +1332,17 @@ impl TypeChecker {
                 // silently skipped rather than guessed at).
                 if !has_catchall {
                     if let TypeId::TCon(name, _) = &target_ty {
-                        if let Some(dt) = self.data_types.iter().find(|d| &d.name == name) {
-                            let missing: Vec<String> = dt
-                                .constructors
+                        if let Some(si) = self.structs.iter().find(|s| &s.name == name) {
+                            let mut covered = std::collections::HashSet::new();
+                            for (pat, _) in arms {
+                                if let Pattern::PCon(ident, _) = pat {
+                                    covered.insert(ident.name.clone());
+                                }
+                            }
+                            let missing: Vec<String> = si
+                                .variants
                                 .iter()
-                                .map(|c| c.name.clone())
+                                .map(|v| v.name.clone())
                                 .filter(|n| !covered.contains(n))
                                 .collect();
                             if !missing.is_empty() {
@@ -1468,9 +1448,11 @@ impl TypeChecker {
                 if let TypeId::TCon(struct_name, _) = &base_ty {
                     for si in &self.structs {
                         if si.name == *struct_name {
-                            for (fname, fty) in &si.fields {
-                                if fname == &field_ident.name {
-                                    return fty.clone();
+                            for sv in &si.variants {
+                                for (fname, fty) in &sv.fields {
+                                    if fname == &field_ident.name {
+                                        return fty.clone();
+                                    }
                                 }
                             }
                         }
@@ -1499,15 +1481,26 @@ impl TypeChecker {
                 TypeId::TCon("I64".to_string(), vec![])
             }
             Expr::EStructCon(name, args) => {
-                let si = self.structs.iter().find(|s| s.name == name.name).cloned();
-                match si {
-                    Some(si) => {
-                        if args.len() != si.fields.len() {
+                // Find the struct that contains a variant with this name.
+                let found = self.structs.iter().find_map(|si| {
+                    let variant = si.variants.iter().find(|sv| sv.name == name.name)?;
+                    Some((si, variant))
+                });
+                match found {
+                    Some((si, sv)) => {
+                        let si_name = si.name.clone();
+                        let sv_name = sv.name.clone();
+                        let sv_fields: Vec<_> =
+                            sv.fields.iter().map(|(_, fty)| fty.clone()).collect();
+                        let type_args: Vec<Type> =
+                            si.tyvars.iter().map(|v| Type::TVar(v.clone())).collect();
+                        if args.len() != sv_fields.len() {
                             self.errors.push(SemError::Message {
                                 message: format!(
-                                    "struct `{}` expects {} field(s), found {}",
-                                    name.name,
-                                    si.fields.len(),
+                                    "struct `{}` variant `{}` expects {} field(s), found {}",
+                                    si_name,
+                                    sv_name,
+                                    sv_fields.len(),
                                     args.len(),
                                 ),
                                 span: expr.span(),
@@ -1516,7 +1509,7 @@ impl TypeChecker {
                         }
                         for (i, arg) in args.iter().enumerate() {
                             let arg_ty = self.check_expr(arg);
-                            let expected_ty = si.fields[i].1.clone();
+                            let expected_ty = sv_fields[i].clone();
                             if !arg_ty.compatible_with(&expected_ty) {
                                 self.errors.push(SemError::TypeMismatch {
                                     expected: format!("{}", expected_ty),
@@ -1525,7 +1518,7 @@ impl TypeChecker {
                                 });
                             }
                         }
-                        self.type_to_id(&Type::TCon(name.clone(), vec![]))
+                        self.type_to_id(&Type::TCon(Ident::new(&si_name, Span::dummy()), type_args))
                     }
                     None => {
                         self.errors.push(SemError::UndefinedType {
@@ -1589,10 +1582,12 @@ impl TypeChecker {
                         .find(|s| s.name == *struct_name)
                         .cloned()
                         .and_then(|si| {
-                            si.fields
-                                .iter()
-                                .find(|(fname, _)| fname == &field_ident.name)
-                                .map(|(fname, fty)| (fname.clone(), fty.clone()))
+                            si.variants.iter().find_map(|sv| {
+                                sv.fields
+                                    .iter()
+                                    .find(|(fname, _)| fname == &field_ident.name)
+                                    .map(|(fname, fty)| (fname.clone(), fty.clone()))
+                            })
                         })
                         .or_else(|| {
                             self.unions
@@ -1651,10 +1646,17 @@ impl TypeChecker {
             }
         }
 
-        for data_type in &self.data_types {
-            for con in &data_type.constructors {
-                if con.name == ident.name {
-                    return con.ty.clone();
+        for si in &self.structs {
+            for sv in &si.variants {
+                if sv.name == ident.name {
+                    let type_args: Vec<TypeId> =
+                        si.tyvars.iter().map(|v| TypeId::TVar(v.clone())).collect();
+                    let con_ty = TypeId::TCon(si.name.clone(), type_args);
+                    let mut ty = con_ty;
+                    for field_ty in sv.fields.iter().rev() {
+                        ty = TypeId::TArr(Box::new(field_ty.1.clone()), Box::new(ty));
+                    }
+                    return ty;
                 }
             }
         }
@@ -1666,9 +1668,9 @@ impl TypeChecker {
                 .map(|(n, _)| n.as_str())
                 .chain(self.functions.iter().map(|f| f.name.as_str()))
                 .chain(
-                    self.data_types
+                    self.structs
                         .iter()
-                        .flat_map(|dt| dt.constructors.iter().map(|c| c.name.as_str())),
+                        .flat_map(|si| si.variants.iter().map(|sv| sv.name.as_str())),
                 ),
         );
 
@@ -1693,34 +1695,34 @@ impl TypeChecker {
         }
     }
 
-    /// Find the data type and constructor (if any) named `name`.
-    fn find_constructor(&self, name: &str) -> Option<(&DataTypeInfo, &DataConInfo)> {
-        for dt in &self.data_types {
-            for con in &dt.constructors {
-                if con.name == name {
-                    return Some((dt, con));
+    /// Find the struct and variant (if any) named `name`.
+    fn find_constructor(&self, name: &str) -> Option<(&StructInfo, &StructVariant)> {
+        for si in &self.structs {
+            for sv in &si.variants {
+                if sv.name == name {
+                    return Some((si, sv));
                 }
             }
         }
         None
     }
 
-    /// Search all known struct and union types for a field with the
-    /// given name, returning the first match's `(struct_name, field_index, field_type)`.
+    /// Search all known struct types for a field with the
+    /// given name, returning the first match's
+    /// `(struct_name, variant_name, field_index, field_type)`.
     /// Used by the IR generator for field access when the base
-    /// expression's type can't be re-queried (e.g. inside `gen_expr_to_func_with_allocas`).
-    pub fn find_struct_field_by_name(&self, field_name: &str) -> Option<(String, usize, TypeId)> {
+    /// expression's type can't be re-queried (e.g. inside
+    /// `gen_expr_to_func_with_allocas`).
+    pub fn find_struct_field_by_name(
+        &self,
+        field_name: &str,
+    ) -> Option<(String, String, usize, TypeId)> {
         for si in &self.structs {
-            for (idx, (fname, fty)) in si.fields.iter().enumerate() {
-                if fname == field_name {
-                    return Some((si.name.clone(), idx, fty.clone()));
-                }
-            }
-        }
-        for ui in &self.unions {
-            for (idx, (fname, fty)) in ui.fields.iter().enumerate() {
-                if fname == field_name {
-                    return Some((ui.name.clone(), idx, fty.clone()));
+            for sv in &si.variants {
+                for (idx, (fname, fty)) in sv.fields.iter().enumerate() {
+                    if fname == field_name {
+                        return Some((si.name.clone(), sv.name.clone(), idx, fty.clone()));
+                    }
                 }
             }
         }
@@ -1738,20 +1740,6 @@ impl TypeChecker {
             }
         }
         None
-    }
-
-    /// Decompose a constructor's curried arrow type (`F1 -> F2 -> ... ->
-    /// TheType`) into its individual field types, in order. Empty for a
-    /// nullary constructor (whose `ty` is just `TCon(TheType, ..)` with no
-    /// `TArr` at all).
-    fn constructor_field_types(con_ty: &TypeId) -> Vec<TypeId> {
-        let mut fields = Vec::new();
-        let mut current = con_ty;
-        while let TypeId::TArr(param, rest) = current {
-            fields.push((**param).clone());
-            current = rest;
-        }
-        fields
     }
 
     /// Bind every name introduced by `pat` into the current scope with a
@@ -1804,9 +1792,9 @@ impl TypeChecker {
             Pattern::PCon(ident, args) => {
                 let found = self
                     .find_constructor(&ident.name)
-                    .map(|(dt, con)| (dt.name.clone(), con.ty.clone()));
+                    .map(|(si, sv)| (si.name.clone(), sv.name.clone(), sv.fields.clone()));
                 match found {
-                    Some((data_type_name, con_ty)) => {
+                    Some((data_type_name, _variant_name, variant_fields)) => {
                         if let TypeId::TCon(scrutinee_name, _) = ty {
                             if scrutinee_name != &data_type_name {
                                 self.errors.push(SemError::TypeMismatch {
@@ -1817,7 +1805,10 @@ impl TypeChecker {
                             }
                         }
 
-                        let field_types = Self::constructor_field_types(&con_ty);
+                        let field_types = variant_fields
+                            .iter()
+                            .map(|(_, fty)| fty.clone())
+                            .collect::<Vec<_>>();
                         if field_types.len() != args.len() {
                             self.errors.push(SemError::ConstructorArity {
                                 name: ident.name.clone(),
@@ -1837,9 +1828,9 @@ impl TypeChecker {
                     None => {
                         let suggestion = suggest_closest(
                             &ident.name,
-                            self.data_types
+                            self.structs
                                 .iter()
-                                .flat_map(|dt| dt.constructors.iter().map(|c| c.name.as_str())),
+                                .flat_map(|si| si.variants.iter().map(|sv| sv.name.as_str())),
                         );
                         self.errors.push(SemError::UndefinedConstructor {
                             name: ident.name.clone(),
@@ -1899,10 +1890,9 @@ impl TypeChecker {
             Type::TForall(vars, inner) => {
                 TypeId::TForall(vars.clone(), Box::new(self.type_to_id(inner)))
             }
-            Type::TEffect(inner, effects) => TypeId::TEffect(
-                Box::new(self.type_to_id(inner)),
-                effects.clone(),
-            ),
+            Type::TEffect(inner, effects) => {
+                TypeId::TEffect(Box::new(self.type_to_id(inner)), effects.clone())
+            }
             Type::TRegion(inner, name) => {
                 TypeId::TCon(name.name.clone(), vec![self.type_to_id(inner)])
             }
@@ -1942,15 +1932,6 @@ impl TypeChecker {
 
     pub fn register_decl(&mut self, decl: &Decl) {
         match decl {
-            Decl::DData {
-                name,
-                tyvars,
-                constructors,
-                ..
-            } => {
-                self.data_types
-                    .push(self.build_data_type_info(name, tyvars, constructors));
-            }
             Decl::DSig { name, ty, .. } => {
                 let ty_id = self.type_to_id(ty);
                 self.functions
@@ -1980,14 +1961,30 @@ impl TypeChecker {
                 self.check_expr(body);
                 self.pop_scope();
             }
-            Decl::DStruct { name, fields, .. } => {
-                let struct_fields: Vec<(String, TypeId)> = fields
+            Decl::DStruct {
+                name,
+                tyvars,
+                variants,
+                ..
+            } => {
+                let struct_variants: Vec<StructVariant> = variants
                     .iter()
-                    .map(|f| (f.name.name.clone(), self.type_to_id(&f.ty)))
+                    .map(|v| {
+                        let variant_fields: Vec<(String, TypeId)> = v
+                            .fields
+                            .iter()
+                            .map(|f| (f.name.name.clone(), self.type_to_id(&f.ty)))
+                            .collect();
+                        StructVariant {
+                            name: v.name.name.clone(),
+                            fields: variant_fields,
+                        }
+                    })
                     .collect();
                 self.structs.push(StructInfo {
                     name: name.name.clone(),
-                    fields: struct_fields,
+                    tyvars: tyvars.clone(),
+                    variants: struct_variants,
                 });
             }
             Decl::DForeign {
@@ -2063,7 +2060,7 @@ mod tests {
     #[test]
     fn exhaustive_match_over_a_data_type_checks_ok() {
         assert!(check(
-            "(data Maybe (a) (Nothing) (Just a))\n\
+            "(struct Maybe (a) (Nothing) (Just a))\n\
              (:: main Int)\n\
              (fn main (match (Just 1) ((Nothing) 0) ((Just x) x)))"
         )
@@ -2076,7 +2073,7 @@ mod tests {
     #[test]
     fn non_exhaustive_match_over_a_data_type_is_an_error() {
         let errors = check_err(
-            "(data Maybe (a) (Nothing) (Just a))\n\
+            "(struct Maybe (a) (Nothing) (Just a))\n\
              (:: main Int)\n\
              (fn main (match (Just 1) ((Just x) x)))",
         );
@@ -2088,7 +2085,7 @@ mod tests {
     #[test]
     fn wildcard_arm_makes_match_exhaustive() {
         assert!(check(
-            "(data Maybe (a) (Nothing) (Just a))\n\
+            "(struct Maybe (a) (Nothing) (Just a))\n\
              (:: main Int)\n\
              (fn main (match (Just 1) ((Nothing) 0) (_ 1)))"
         )
@@ -2098,7 +2095,7 @@ mod tests {
     #[test]
     fn constructor_pattern_with_wrong_arity_is_an_error() {
         let errors = check_err(
-            "(data Maybe (a) (Nothing) (Just a))\n\
+            "(struct Maybe (a) (Nothing) (Just a))\n\
              (:: main Int)\n\
              (fn main (match (Just 1) ((Nothing) 0) ((Just x y) x)))",
         );
@@ -2108,7 +2105,7 @@ mod tests {
     #[test]
     fn undefined_constructor_in_pattern_is_an_error_with_a_suggestion() {
         let errors = check_err(
-            "(data Maybe (a) (Nothing) (Just a))\n\
+            "(struct Maybe (a) (Nothing) (Just a))\n\
              (:: main Int)\n\
              (fn main (match (Just 1) ((Nothign) 0) ((Just x) x)))",
         );
@@ -2164,8 +2161,9 @@ mod tests {
         let mut tc = TypeChecker::new();
         tc.check(&module)
             .expect("expected this program to check cleanly");
-        assert_eq!(tc.structs.len(), 1);
-        assert_eq!(tc.structs[0].fields.len(), 2);
+        assert_eq!(tc.structs.len(), 2);
+        assert_eq!(tc.structs[1].variants.len(), 1);
+        assert_eq!(tc.structs[1].variants[0].fields.len(), 2);
         assert_eq!(tc.unions.len(), 1);
         assert_eq!(tc.unions[0].fields.len(), 2);
         assert_eq!(tc.aliases.len(), 1);
@@ -2321,7 +2319,10 @@ mod tests {
 (:: main Int)
 (fn main
   (handle (printf "hello") (IO) 0))"#;
-        assert!(check(source).is_ok(), "handle should strip declared effects");
+        assert!(
+            check(source).is_ok(),
+            "handle should strip declared effects"
+        );
     }
 
     #[test]
@@ -2366,7 +2367,10 @@ mod tests {
 ;@axiom:effect(io)
 (fn main
   (handle (printf "hello") (IO) 0))"#;
-        assert!(check(source).is_ok(), "effect(io) should be satisfied when IO is handled internally");
+        assert!(
+            check(source).is_ok(),
+            "effect(io) should be satisfied when IO is handled internally"
+        );
     }
 
     #[test]

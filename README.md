@@ -249,28 +249,28 @@ Function bodies, `let` bodies, `if` branches, and `lambda` bodies also support i
   0)
 ```
 
-### Data types (Algebraic Data Types)
+### Struct types (Algebraic Data Types)
 
 Define custom types with constructors:
 
 ```scheme
 ; Optional value
-(data Maybe (a)
+(struct Maybe (a)
   (Nothing)
   (Just a))
 
 ; Linked list
-(data List (a)
+(struct List (a)
   (Nil)
   (Cons a (List a)))
 
 ; Binary tree
-(data Tree (a)
+(struct Tree (a)
   (Leaf)
   (Node (Tree a) a (Tree a)))
 
 ; Ordering result
-(data Ordering
+(struct Ordering
   (LT)
   (EQ)
   (GT))
@@ -307,18 +307,18 @@ The built-in `Option` type provides safe null handling without exceptions:
 
 #### Algebraic data types: how they actually run
 
-Every value of a `data` type - nullary constructors like `Nothing` included -
+Every value of a `struct` type - nullary constructors like `Nothing` included -
 is a heap-allocated, tagged block: word `0` is an integer tag identifying
 which constructor built it, and words `1..` are its fields, one 8-byte word
 each. This one uniform representation (rather than, say, an unboxed integer
 for nullary constructors and a pointer for everything else) is what lets
 `match` compare *any* constructor pattern against *any* value of that type
 the same way, and it's what makes recursive types - `List`, `Tree` - work
-with no special-casing at all: a field that's itself another `data` value
+with no special-casing at all: a field that's itself another struct value
 is just another 8-byte word holding that value's own heap address.
 
 ```scheme
-(data List (a)
+(struct List (a)
   (Nil)
   (Cons a (List a)))
 
@@ -350,7 +350,7 @@ Current limitations, honestly stated:
   CLI programs and this README's examples; not something to build a
   long-running server on yet.
 - Struct/union **field access** (`.field`-style reads) still has no
-  expression syntax at all, independent of `data` - see the Structs/Unions
+  expression syntax at all — see the Structs/Unions
   sections below for what does and doesn't work there.
 
 ### Structs
@@ -547,18 +547,18 @@ Axiom has no standard library. System operations are done through FFI bindings t
 
 See the [Foreign Function Interface](#foreign-function-interface) section for details.
 
-### Common data types (define as needed)
+### Common struct types (define as needed)
 
 ```scheme
-(data Maybe (a) (Nothing) (Just a))
-(data Ordering (LT) (EQ) (GT))
-(data List (a) (Nil) (Cons a (List a)))
+(struct Maybe (a) (Nothing) (Just a))
+(struct Ordering (LT) (EQ) (GT))
+(struct List (a) (Nil) (Cons a (List a)))
 ```
 
 ### Built-in types
 
 `Option` is a built-in generic type with `Some` and `None` constructors,
-always available without a `data` declaration. It works with `match`
+always available without a `struct` declaration. It works with `match`
 for safe null handling:
 
 ```scheme
@@ -598,10 +598,10 @@ for safe null handling:
   0)
 ```
 
-### Working with data types
+### Working with struct types
 
 ```scheme
-(data Maybe (a)
+(struct Maybe (a)
   (Nothing)
   (Just a))
 
@@ -657,7 +657,7 @@ How it works:
   would.
 - `(import Mod.Sub)` with no name list brings in every top-level
   declaration from that file; `(import Mod.Sub (a b))` brings in only the
-  named declarations (functions, `data`/`struct`/`union`/`type` decls,
+  named declarations (functions, `struct`/`union`/`type` decls,
   `foreign` bindings, ...).
 - Imports are transitive (`A` imports `B` imports `C` brings `C`'s
   declarations into `A` too) and diamond-safe (two different modules both
@@ -865,7 +865,7 @@ Source (.ax)
 | brace blocks | **Complete** | `{ expr1 expr2 ... }` — modern sequencing, returns last value |
 | fn keyword | **Complete** | Modern alias for `define` |
 | FFI | **Complete** | Call any C function with `foreign` declarations |
-| ADTs / data types | **Complete** | Constructors (nullary and with fields, including recursive types like `List`/`Tree`) compile to heap-boxed tagged values; see [Algebraic data types](#algebraic-data-types-how-they-actually-run) |
+| ADTs / struct types | **Complete** | Constructors (nullary and with fields, including recursive types like `List`/`Tree`) compile to heap-boxed tagged values; see [Algebraic data types](#algebraic-data-types-how-they-actually-run) |
 | Structs / unions | **Complete** | Declarations, LLVM emission, field access (`.field`), struct construction (`(StructName expr1 expr2 ...)`), `mut` fields, and field mutation (`(set-field expr field value)`) all work |
 | Pattern matching (`match`) | **Complete** | Constructor patterns (nullary and with-field), variables, wildcards, literals, nested constructor patterns, and tuple/list patterns all compare and bind correctly, plus non-exhaustiveness/arity/undefined-constructor diagnostics. Built-in `Option` type with `Some`/`None` constructors. |
 | Lambda | **Complete** | Parsed, type-checked, and codegen (closures with captured vars) |

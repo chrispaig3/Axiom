@@ -128,12 +128,6 @@ impl Parser {
     /// calling this on `DImport` declarations.
     fn attach_nid_and_axtags(decl: &mut Decl, nid: String, axtags: Vec<Axtag>) {
         match decl {
-            Decl::DData {
-                nid: n, axtags: a, ..
-            } => {
-                *n = Some(nid);
-                *a = axtags;
-            }
             Decl::DStruct {
                 nid: n, axtags: a, ..
             } => {
@@ -229,8 +223,6 @@ impl Parser {
 
         let mut decl = if self.check(TokenKind::Define) || self.check(TokenKind::Fn) {
             self.parse_define()?
-        } else if self.check(TokenKind::Data) {
-            self.parse_data()?
         } else if self.check(TokenKind::Struct) {
             self.parse_struct()?
         } else if self.check(TokenKind::Union) {
@@ -322,49 +314,6 @@ impl Parser {
         })
     }
 
-    fn parse_data(&mut self) -> ParseResult<Decl> {
-        self.expect(TokenKind::Data)?;
-        let name = self.parse_ident()?;
-        let tyvars = self.parse_tyvars();
-
-        let mut constructors = Vec::new();
-        while self.check(TokenKind::LParen) {
-            self.advance();
-            let con_name = self.parse_ident()?;
-            let mut fields = Vec::new();
-            while !self.check(TokenKind::RParen) && !self.at_eof() {
-                fields.push(self.parse_type()?);
-            }
-            self.expect(TokenKind::RParen)?;
-            constructors.push(DataCon {
-                name: con_name,
-                fields,
-            });
-        }
-
-        let deriving = if self.check(TokenKind::Deriving) {
-            self.advance();
-            self.expect(TokenKind::LParen)?;
-            let mut classes = Vec::new();
-            while !self.check(TokenKind::RParen) && !self.at_eof() {
-                classes.push(self.parse_ident()?);
-            }
-            self.expect(TokenKind::RParen)?;
-            classes
-        } else {
-            Vec::new()
-        };
-
-        Ok(Decl::DData {
-            name,
-            tyvars,
-            constructors,
-            deriving,
-            nid: None,
-            axtags: Vec::new(),
-        })
-    }
-
     fn parse_struct(&mut self) -> ParseResult<Decl> {
         self.expect(TokenKind::Struct)?;
         let name = self.parse_ident()?;
@@ -390,25 +339,122 @@ impl Parser {
             }
         }
 
-        let mut fields = Vec::new();
-        while self.check(TokenKind::LParen) {
-            self.advance();
-            let mutable = self.eat(TokenKind::Mut);
-            let field_name = self.parse_ident()?;
-            self.expect(TokenKind::Colon)?;
-            let field_ty = self.parse_type()?;
-            fields.push(Field {
-                name: field_name,
-                ty: field_ty,
-                mutable,
-            });
-            self.expect(TokenKind::RParen)?;
+        // Determine if this is single-variant (fields) or multi-variant (struct/enum-like).
+        // Peek at the first LParen group: if it contains a colon at the top level,
+        // it's a field definition (single-variant); otherwise it's a variant definition.
+        let mut variants = Vec::new();
+        if self.check(TokenKind::LParen) {
+            let saved_pos = self.pos;
+            self.advance(); // consume LParen
+            let is_field = if !self.check(TokenKind::RParen) {
+                // Check if first token is an ident followed by a colon
+                if matches!(
+                    self.tokens.get(self.pos).map(|t| &t.kind),
+                    Some(TokenKind::Ident(_))
+                ) {
+                    self.advance(); // consume ident
+                    self.check(TokenKind::Colon)
+                } else {
+                    false
+                }
+            } else {
+                false
+            };
+            self.pos = saved_pos; // backtrack
+
+            if is_field {
+                // Single-variant struct: all groups are (name : type) fields
+                let mut fields = Vec::new();
+                while self.check(TokenKind::LParen) {
+                    self.advance();
+                    let mutable = self.eat(TokenKind::Mut);
+                    let field_name = self.parse_ident()?;
+                    self.expect(TokenKind::Colon)?;
+                    let field_ty = self.parse_type()?;
+                    fields.push(Field {
+                        name: field_name,
+                        ty: field_ty,
+                        mutable,
+                    });
+                    self.expect(TokenKind::RParen)?;
+                }
+                variants.push(StructVariant {
+                    name: name.clone(),
+                    fields,
+                });
+            } else {
+                // Multi-variant struct: each group is a variant (VariantName [fields...])
+                while self.check(TokenKind::LParen) {
+                    self.advance();
+                    let variant_name = self.parse_ident()?;
+                    let mut fields = Vec::new();
+                    while !self.check(TokenKind::RParen) && !self.at_eof() {
+                        if self.check(TokenKind::LParen) {
+                            // Peek inside to determine if this is a named field
+                            // (name : type) or a positional type.
+                            let saved_pos = self.pos;
+                            self.advance(); // consume LParen
+                            let is_named_field = if !self.check(TokenKind::RParen)
+                                && matches!(
+                                    self.tokens.get(self.pos).map(|t| &t.kind),
+                                    Some(TokenKind::Ident(_))
+                                ) {
+                                self.advance(); // consume ident
+                                self.check(TokenKind::Colon)
+                            } else {
+                                false
+                            };
+                            self.pos = saved_pos; // backtrack
+
+                            if is_named_field {
+                                self.advance(); // consume LParen
+                                let field_name = self.parse_ident()?;
+                                self.expect(TokenKind::Colon)?;
+                                let field_ty = self.parse_type()?;
+                                fields.push(Field {
+                                    name: field_name,
+                                    ty: field_ty,
+                                    mutable: false,
+                                });
+                                self.expect(TokenKind::RParen)?;
+                            } else {
+                                // Positional field type
+                                let field_ty = self.parse_type()?;
+                                fields.push(Field {
+                                    name: Ident::new(
+                                        &format!("_field_{}", fields.len()),
+                                        Span::dummy(),
+                                    ),
+                                    ty: field_ty,
+                                    mutable: false,
+                                });
+                            }
+                        } else {
+                            // Positional field type (bare identifier or type)
+                            let field_ty = self.parse_type()?;
+                            fields.push(Field {
+                                name: Ident::new(
+                                    &format!("_field_{}", fields.len()),
+                                    Span::dummy(),
+                                ),
+                                ty: field_ty,
+                                mutable: false,
+                            });
+                        }
+                    }
+                    self.expect(TokenKind::RParen)?;
+                    variants.push(StructVariant {
+                        name: variant_name,
+                        fields,
+                    });
+                }
+            }
         }
 
         Ok(Decl::DStruct {
             name,
             tyvars,
-            fields,
+            variants,
             repr,
             nid: None,
             axtags: Vec::new(),
@@ -466,14 +512,18 @@ impl Parser {
         self.expect(TokenKind::Eq)?;
         let constructor = self.parse_ident()?;
         let inner_type = self.parse_type()?;
-        Ok(Decl::DData {
+        Ok(Decl::DStruct {
             name,
             tyvars,
-            constructors: vec![DataCon {
+            variants: vec![StructVariant {
                 name: constructor,
-                fields: vec![inner_type],
+                fields: vec![Field {
+                    name: Ident::new("value", Span::dummy()),
+                    ty: inner_type,
+                    mutable: false,
+                }],
             }],
-            deriving: Vec::new(),
+            repr: None,
             nid: None,
             axtags: Vec::new(),
         })
@@ -1430,7 +1480,7 @@ impl Parser {
     /// `Maybe`/`List`/`Tree`/`type StringList () = ...` examples) - but
     /// that immediately following `(` is *also* how the very next thing
     /// after it (the first constructor of a `data`, or the first field of
-    /// a `struct`/`union`) begins, e.g. `(data Ordering (LT) (EQ) (GT))`
+    /// a `struct`/`union`) begins, e.g. `(struct Ordering (LT) (EQ) (GT))`
     /// has *no* type parameters at all before its first nullary
     /// constructor `(LT)`.
     ///
@@ -1689,7 +1739,6 @@ impl Parser {
                 token.kind,
                 TokenKind::Define
                     | TokenKind::Fn
-                    | TokenKind::Data
                     | TokenKind::Struct
                     | TokenKind::Union
                     | TokenKind::Type
@@ -1710,7 +1759,6 @@ impl Parser {
                         next.kind,
                         TokenKind::Define
                             | TokenKind::Fn
-                            | TokenKind::Data
                             | TokenKind::Struct
                             | TokenKind::Union
                             | TokenKind::Type
@@ -1869,47 +1917,43 @@ mod tests {
         }
     }
 
-    /// Regression test for the sibling bug in `parse_tyvars`: a `data`
+    /// Regression test for the sibling bug in `parse_tyvars`: a `struct`
     /// type's parenthesized type-parameter list (`(a)`, `()`, `(a b)`)
     /// was previously indistinguishable from its first constructor/field
     /// group, since both start with a bare `(`. See `looks_like_tyvar_list`.
     #[test]
     fn data_type_parameter_list_is_not_mistaken_for_a_constructor() {
         let module =
-            parse_ok("(data Maybe (a)\n  (Nothing)\n  (Just a))\n(:: main Int)\n(fn main 0)");
+            parse_ok("(struct Maybe (a)\n  (Nothing)\n  (Just a))\n(:: main Int)\n(fn main 0)");
         match &module.decls[0] {
-            Decl::DData {
-                tyvars,
-                constructors,
-                ..
+            Decl::DStruct {
+                tyvars, variants, ..
             } => {
                 assert_eq!(tyvars.as_slice(), ["a"]);
-                assert_eq!(constructors.len(), 2);
-                assert_eq!(constructors[0].name.name, "Nothing");
-                assert_eq!(constructors[1].name.name, "Just");
+                assert_eq!(variants.len(), 2);
+                assert_eq!(variants[0].name.name, "Nothing");
+                assert_eq!(variants[1].name.name, "Just");
             }
-            other => panic!("expected DData, got {:?}", other),
+            other => panic!("expected DStruct, got {:?}", other),
         }
     }
 
-    /// A `data` type with *no* type parameters must not have its first
-    /// nullary constructor mistaken for an (empty) type-parameter list -
+    /// A `struct` type with *no* type parameters must not have its first
+    /// nullary variant mistaken for an (empty) type-parameter list -
     /// the disambiguation in `looks_like_tyvar_list` has to fail
-    /// gracefully for a capitalized constructor name too.
+    /// gracefully for a capitalized variant name too.
     #[test]
     fn data_type_with_no_parameters_and_nullary_constructors() {
         let module =
-            parse_ok("(data Ordering\n  (LT)\n  (EQ)\n  (GT))\n(:: main Int)\n(fn main 0)");
+            parse_ok("(struct Ordering\n  (LT)\n  (EQ)\n  (GT))\n(:: main Int)\n(fn main 0)");
         match &module.decls[0] {
-            Decl::DData {
-                tyvars,
-                constructors,
-                ..
+            Decl::DStruct {
+                tyvars, variants, ..
             } => {
                 assert!(tyvars.is_empty());
-                assert_eq!(constructors.len(), 3);
+                assert_eq!(variants.len(), 3);
             }
-            other => panic!("expected DData, got {:?}", other),
+            other => panic!("expected DStruct, got {:?}", other),
         }
     }
 
@@ -1963,8 +2007,9 @@ mod tests {
         let module =
             parse_ok("(struct Point packed\n  (x : Int)\n  (y : Int))\n(:: main Int)\n(fn main 0)");
         match &module.decls[0] {
-            Decl::DStruct { fields, repr, .. } => {
-                assert_eq!(fields.len(), 2);
+            Decl::DStruct { variants, repr, .. } => {
+                assert_eq!(variants.len(), 1);
+                assert_eq!(variants[0].fields.len(), 2);
                 assert!(matches!(repr, Some(TypeRepr::Packed)));
             }
             other => panic!("expected DStruct, got {:?}", other),

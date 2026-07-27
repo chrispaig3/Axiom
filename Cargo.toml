@@ -30,3 +30,10 @@ ariadne = "0.4"
 rustyline = "14"
 colored = "2"
 dirs = "5"
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = "symbols"
+panic = "abort"

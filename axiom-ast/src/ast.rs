@@ -206,29 +206,17 @@ pub enum Literal {
 // ============================================================
 
 #[derive(Debug, Clone)]
+pub struct StructVariant {
+    pub name: Ident,
+    pub fields: Vec<Field>,
+}
+
+#[derive(Debug, Clone)]
 pub enum Decl {
-    DData {
-        name: Ident,
-        tyvars: Vec<String>,
-        constructors: Vec<DataCon>,
-        deriving: Vec<Ident>,
-        /// Content-derived stable node ID: a short hash of
-        /// `(kind, name, enclosing-module-path)`. Present for
-        /// declarations that have a name and a stable identity
-        /// across edits elsewhere in the file (unlike character-offset
-        /// spans, which rot when an unrelated edit shifts them).
-        nid: Option<String>,
-        /// AXTAGS - source-embedded agent metadata preserved from
-        /// `;@axiom:<key>(<value>)` comments immediately above this
-        /// declaration. The compiler validates what it can (e.g. an
-        /// `effect(io)` claim against actual FFI calls in the body)
-        /// and surfaces accepted tags as `#`-metadata on AXSYM lines.
-        axtags: Vec<Axtag>,
-    },
     DStruct {
         name: Ident,
         tyvars: Vec<String>,
-        fields: Vec<Field>,
+        variants: Vec<StructVariant>,
         repr: Option<TypeRepr>,
         nid: Option<String>,
         axtags: Vec<Axtag>,
@@ -329,12 +317,6 @@ pub struct EffectOp {
 }
 
 #[derive(Debug, Clone)]
-pub struct DataCon {
-    pub name: Ident,
-    pub fields: Vec<Type>,
-}
-
-#[derive(Debug, Clone)]
 pub struct Field {
     pub name: Ident,
     pub ty: Type,
@@ -368,10 +350,6 @@ impl Decl {
     /// whitespace/formatting changes do not).
     pub fn nid_key(&self, out: &mut String) {
         match self {
-            Decl::DData { name, .. } => {
-                out.push_str("DData:");
-                out.push_str(&name.name);
-            }
             Decl::DStruct { name, .. } => {
                 out.push_str("DStruct:");
                 out.push_str(&name.name);
