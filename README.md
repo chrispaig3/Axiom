@@ -268,17 +268,13 @@ The `(a)` after the type name is a type parameter — like generics in other lan
 
 ### Pattern matching with `match`
 
-The built-in `Option` type provides safe null handling without exceptions:
+Patterns can match constructors, literals, tuples, lists, and wildcards:
 
 ```scheme
-(:: fromMaybe (-> Int (Option Int) Int))
-(fn (fromMaybe default val)
-  (match val
-    ((None) default)
-    ((Some x) x)))
+(match val
+  ((Green) 0)
+  ((Red x) (+ x 1)))
 ```
-
-Patterns can match constructors, literals, tuples, lists, and wildcards:
 
 ```scheme
 (match x
@@ -295,7 +291,7 @@ which constructor built it, and words `1..` are its fields, one 8-byte word
 each. This one uniform representation (rather than, say, an unboxed integer
 for nullary constructors and a pointer for everything else) is what lets
 `match` compare *any* constructor pattern against *any* value of that type
-the same way, and it's what makes recursive types - `Tree`, `Option` - work
+the same way, and it's what makes recursive types - `Tree` - work
 with no special-casing at all: a field that's itself another struct value
 is just another 8-byte word holding that value's own heap address.
 
@@ -537,26 +533,6 @@ See the [Foreign Function Interface](#foreign-function-interface) section for de
   (GT))
 ```
 
-### Built-in types
-
-`Option` is a built-in generic type with `Some` and `None` constructors,
-always available without a `struct` declaration. It works with `match`
-for safe null handling:
-
-```scheme
-(:: safe_div (-> Int Int Int))
-(fn (safe_div a b)
-  (match b
-    ((0) (None))
-    (_ (Some (/ a b)))))
-
-(:: main Int)
-(fn main
-  (match (safe_div 10 2)
-    ((Some x) x)
-    ((None) 0)))
-```
-
 ### Built-in operators (always available)
 
 | Operator | Signature |
@@ -583,15 +559,15 @@ for safe null handling:
 ### Working with struct types
 
 ```scheme
-(:: fromMaybe (-> Int (Option Int) Int))
+(:: fromMaybe (-> Int (Color Int) Int))
 (fn (fromMaybe default val)
   (match val
-    ((None) default)
-    ((Some x) x)))
+    ((Green) default)
+    ((Red x) x)))
 
 (:: main Int)
 (fn main
-  (fromMaybe 0 (Some 42)))
+  (fromMaybe 0 (Red 42)))
 ```
 
 Note: constructor patterns now compile to real branching code (see
@@ -845,7 +821,7 @@ Source (.ax)
 | FFI | **Complete** | Call any C function with `foreign` declarations |
 | ADTs / struct types | **Complete** | Constructors (nullary and with fields, including recursive types like `Tree`) compile to heap-boxed tagged values; see [Algebraic data types](#algebraic-data-types-how-they-actually-run) |
 | Structs / unions | **Complete** | Declarations, LLVM emission, field access (`.field`), struct construction (`(StructName expr1 expr2 ...)`), `mut` fields, and field mutation (`(set-field expr field value)`) all work |
-| Pattern matching (`match`) | **Complete** | Constructor patterns (nullary and with-field), variables, wildcards, literals, nested constructor patterns, and tuple/list patterns all compare and bind correctly, plus non-exhaustiveness/arity/undefined-constructor diagnostics. Built-in `Option` type with `Some`/`None` constructors. |
+| Pattern matching (`match`) | **Complete** | Constructor patterns (nullary and with-field), variables, wildcards, literals, nested constructor patterns, and tuple/list patterns all compare and bind correctly, plus non-exhaustiveness/arity/undefined-constructor diagnostics. |
 | Lambda | **Complete** | Parsed, type-checked, and codegen (closures with captured vars) |
 | Lists | **Complete** | Syntax, type checking, heap-allocated length-tracked blocks, exact-length pattern matching, nested patterns |
 | Tuples | **Complete** | Syntax, type checking, heap-allocated contiguous blocks, pattern matching, nested patterns |

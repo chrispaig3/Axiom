@@ -38,7 +38,7 @@ pub enum SymbolKind {
     Foreign,
     /// A `data` algebraic data type (the type itself, not its constructors).
     Data,
-    /// A single constructor of a `data` type, e.g. `Some` in `Option`.
+    /// A single constructor of a `data` type, e.g. `Red` in `Color`.
     Ctor,
     /// A `struct` declaration.
     Struct,
@@ -192,28 +192,28 @@ mod tests {
     fn ai_data_with_ctors() {
         let fact = SymbolFact::new(
             SymbolKind::Data,
-            "Option",
+            "Color",
             Some(Span::new(7, 13, 0)),
-            "struct Option",
+            "struct Color",
             None,
         )
-        .with_meta("ctors=None,Some");
+        .with_meta("ctors=Red,Green");
         let out = render_symbols_ai(&[fact], "main.ax", &" ".repeat(20));
-        assert!(out.contains("D Option main.ax:1:8-14 \"struct Option\" #ctors=None,Some"));
+        assert!(out.contains("D Color main.ax:1:8-14 \"struct Color\" #ctors=Red,Green"));
     }
 
     #[test]
     fn ai_constructor_with_of() {
         let fact = SymbolFact::new(
             SymbolKind::Ctor,
-            "Some",
-            Some(Span::new(17, 21, 0)),
-            "(a -> Option a)",
+            "Red",
+            Some(Span::new(17, 20, 0)),
+            "(a -> Color a)",
             None,
         )
-        .with_meta("of=Option");
+        .with_meta("of=Color");
         let out = render_symbols_ai(&[fact], "main.ax", &" ".repeat(22));
-        assert!(out.contains("C Some main.ax:1:18-22 \"(a -> Option a)\" #of=Option"));
+        assert!(out.contains("C Red main.ax:1:18-21 \"(a -> Color a)\" #of=Color"));
     }
 
     #[test]

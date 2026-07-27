@@ -1892,17 +1892,17 @@ mod tests {
         }
     }
 
-    /// A parenthesized type application (`(Option Int)`) must still parse
+    /// A parenthesized type application (`(Tree Int)`) must still parse
     /// as one applied type, not as a 2-tuple of two standalone types -
     /// the fix for the bug above must not regress this, much more common,
     /// `match`.
     #[test]
     fn parenthesized_type_application_parses_as_tcon_with_args() {
-        let module = parse_ok("(:: main (Option Int))\n(fn main 0)");
+        let module = parse_ok("(:: main (Tree Int))\n(fn main 0)");
         match &module.decls[0] {
             Decl::DSig { ty, .. } => match ty {
                 Type::TCon(name, args) => {
-                    assert_eq!(name.name, "Option");
+                    assert_eq!(name.name, "Tree");
                     assert_eq!(args.len(), 1);
                     assert!(matches!(&args[0], Type::TCon(inner, _) if inner.name == "Int"));
                 }

@@ -746,21 +746,6 @@ impl TypeChecker {
             ));
         }
 
-        tc.structs.push(StructInfo {
-            name: "Option".to_string(),
-            tyvars: vec!["a".to_string()],
-            variants: vec![
-                StructVariant {
-                    name: "Some".to_string(),
-                    fields: vec![("value".to_string(), TypeId::TVar("a".to_string()))],
-                },
-                StructVariant {
-                    name: "None".to_string(),
-                    fields: vec![],
-                },
-            ],
-        });
-
         tc
     }
 
@@ -1764,11 +1749,11 @@ impl TypeChecker {
     ///   declared arity ([`SemError::ConstructorArity`] if not), and each
     ///   `arg` is recursively checked against that field's *actual*
     ///   declared type rather than being left as an unconstrained
-    ///   variable - so `(match v ((Some x) (+ x 1)))` gives `x` the real
+    ///   variable - so `(match v ((Red x) (+ x 1)))` gives `x` the real
     ///   field type instead of a fresh, meaningless `TVar`. If `ty` is
     ///   already known concretely and doesn't name the constructor's own
     ///   data type, that's also a [`SemError::TypeMismatch`] (matching a
-    ///   `Option` constructor against a scrutinee already known to be some
+    ///   constructor against a scrutinee already known to be some
     ///   other type).
     /// * `PTuple`/`PList` - binds element patterns against the expected
     ///   element type(s) when `ty` is a matching `TTuple`/`TList`, falling
@@ -2060,8 +2045,9 @@ mod tests {
     #[test]
     fn exhaustive_match_over_a_data_type_checks_ok() {
         assert!(check(
-            "(:: main Int)\n\
-             (fn main (match (Some 1) ((None) 0) ((Some x) x)))"
+            "(struct Color (Red Int) (Green Int))\n\
+             (:: main Int)\n\
+             (fn main (match (Red 1) ((Green _) 1) ((Red x) x)))"
         )
         .is_ok());
     }
@@ -2069,17 +2055,19 @@ mod tests {
     #[test]
     fn non_exhaustive_match_over_a_data_type_is_an_error() {
         let errors = check_err(
-            "(:: main Int)\n\
-             (fn main (match (Some 1) ((Some x) x)))",
+            "(struct Color (Red Int) (Green Int))\n\
+             (:: main Int)\n\
+             (fn main (match (Red 1) ((Red x) x)))",
         );
-        assert!(errors.iter().any(|e| matches!(e, SemError::NonExhaustive { missing, .. } if missing == &["None".to_string()])));
+        assert!(errors.iter().any(|e| matches!(e, SemError::NonExhaustive { missing, .. } if missing == &["Green".to_string()])));
     }
 
     #[test]
     fn wildcard_arm_makes_match_exhaustive() {
         assert!(check(
-            "(:: main Int)\n\
-             (fn main (match (Some 1) ((None) 0) (_ 1)))"
+            "(struct Color (Red Int) (Green Int))\n\
+             (:: main Int)\n\
+             (fn main (match (Red 1) ((Green _) 0) (_ 1)))"
         )
         .is_ok());
     }
@@ -2087,22 +2075,24 @@ mod tests {
     #[test]
     fn constructor_pattern_with_wrong_arity_is_an_error() {
         let errors = check_err(
-            "(:: main Int)\n\
-             (fn main (match (Some 1) ((None) 0) ((Some x y) x)))",
+            "(struct Color (Red Int) (Green Int))\n\
+             (:: main Int)\n\
+             (fn main (match (Red 1) ((Green _) 0) ((Red x y) x)))",
         );
-        assert!(errors.iter().any(|e| matches!(e, SemError::ConstructorArity { name, expected: 1, found: 2, .. } if name == "Some")));
+        assert!(errors.iter().any(|e| matches!(e, SemError::ConstructorArity { name, expected: 1, found: 2, .. } if name == "Red")));
     }
 
     #[test]
     fn undefined_constructor_in_pattern_is_an_error_with_a_suggestion() {
         let errors = check_err(
-            "(:: main Int)\n\
-             (fn main (match (Some 1) ((Somen) 0) ((Some x) x)))",
+            "(struct Color (Red Int) (Green Int))\n\
+             (:: main Int)\n\
+             (fn main (match (Red 1) ((Redn) 0) ((Red x) x)))",
         );
         assert!(errors.iter().any(|e| matches!(
             e,
             SemError::UndefinedConstructor { name, suggestion: Some(s), .. }
-                if name == "Somen" && s == "Some"
+                if name == "Redn" && s == "Red"
         )));
     }
 
@@ -2151,9 +2141,9 @@ mod tests {
         let mut tc = TypeChecker::new();
         tc.check(&module)
             .expect("expected this program to check cleanly");
-        assert_eq!(tc.structs.len(), 2);
-        assert_eq!(tc.structs[1].variants.len(), 1);
-        assert_eq!(tc.structs[1].variants[0].fields.len(), 2);
+        assert_eq!(tc.structs.len(), 1);
+        assert_eq!(tc.structs[0].variants.len(), 1);
+        assert_eq!(tc.structs[0].variants[0].fields.len(), 2);
         assert_eq!(tc.unions.len(), 1);
         assert_eq!(tc.unions[0].fields.len(), 2);
         assert_eq!(tc.aliases.len(), 1);
@@ -2265,42 +2255,6 @@ mod tests {
 (fn main (+ 1 2))"#
         )
         .is_ok());
-    }
-
-    #[test]
-    fn exhaustive_match_over_option_type_checks_ok() {
-        assert!(check(
-            r#"(:: main Int)
-(fn main (match (Some 1) ((Some x) x) ((None) 0)))"#
-        )
-        .is_ok());
-    }
-
-    #[test]
-    fn non_exhaustive_match_over_option_type_is_an_error() {
-        let errors = check_err(
-            r#"(:: main Int)
-(fn main (match (Some 1) ((Some x) x)))"#,
-        );
-        assert!(errors.iter().any(|e| matches!(e, SemError::NonExhaustive { missing, .. } if missing == &["None".to_string()])));
-    }
-
-    #[test]
-    fn wildcard_arm_makes_option_match_exhaustive() {
-        assert!(check(
-            r#"(:: main Int)
-(fn main (match (Some 1) ((Some x) x) (_ 0)))"#
-        )
-        .is_ok());
-    }
-
-    #[test]
-    fn some_constructor_with_wrong_arity_is_an_error() {
-        let errors = check_err(
-            r#"(:: main Int)
-(fn main (match (Some 1) ((Some x y) x) ((None) 0)))"#,
-        );
-        assert!(errors.iter().any(|e| matches!(e, SemError::ConstructorArity { name, expected: 1, found: 2, .. } if name == "Some")));
     }
 
     #[test]

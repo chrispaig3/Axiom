@@ -77,40 +77,46 @@ fn check_rejects_an_undefined_variable_with_the_right_code() {
     assert!(stderr(&out).contains("AX3001"), "stderr: {}", stderr(&out));
 }
 
-/// End-to-end regression test for pattern matching with the built-in
-/// `Option` type: exhaustive `Some`/`None` matching compiles and runs
+/// End-to-end regression test for pattern matching with a user-defined
+/// struct type: exhaustive `Red`/`Green` matching compiles and runs
 /// through the full pipeline (lexer -> parser -> sema -> IR -> LLVM
 /// -> native executable).
 #[test]
-fn run_executes_option_pattern_matching_with_let() {
-    let dir = scratch_dir("run-option-let");
+fn run_executes_data_pattern_matching_with_let() {
+    let dir = scratch_dir("run-data-let");
     write_source(
         &dir,
         "main.ax",
-        "(:: main Int)\n\
+        "(struct Color (Red Int) (Green))\n\
+         (:: main Int)\n\
          (fn main\n\
-           (let ((val (Some 42)))\n\
+           (let ((val (Red 42)))\n\
              (match val\n\
-               ((Some x) (+ x 1))\n\
-               ((None) 0))))\n",
+               ((Green) 0)\n\
+               ((Red x) (+ x 1)))))\n",
     );
     let out = run_axiom(&["run", "main.ax"], &dir);
     assert_eq!(out.status.code(), Some(43), "stderr: {}", stderr(&out));
 }
 
-/// Exhaustive match over the built-in `Option` type (`Some`/`None`),
-/// exercising nullary + unary variant branches through real heap-boxed
-/// constructor codegen.
+/// End-to-end regression test for pattern matching with a user-defined
+/// struct type: exhaustive `Green`/`Red` matching compiles and runs
+/// through the full pipeline (lexer -> parser -> sema -> IR -> LLVM
+/// -> native executable).
 #[test]
-fn run_executes_option_pattern_matching_correctly() {
-    let dir = scratch_dir("run-option-sum");
+fn run_executes_data_pattern_matching_correctly() {
+    let dir = scratch_dir("run-data-sum");
     write_source(
         &dir,
         "main.ax",
-        "(:: fromMaybe (-> Int (Option Int) Int))\n\
-           (fn (fromMaybe default val)\n  (match val\n    ((None) default)\n    ((Some x) x)))\n\
-         (:: main Int)\n\
-           (fn main (+ (fromMaybe 100 (None)) (fromMaybe 100 (Some 42))))\n",
+         "(struct Msg (Ok Int) (Err))\n\
+          (:: fromMsg (-> Msg Int))\n\
+          (fn (fromMsg m)\n\
+            (match m\n\
+              ((Ok x) x)\n\
+              ((Err) 100)))\n\
+          (:: main Int)\n\
+          (fn main (+ (fromMsg (Ok 42)) (fromMsg (Err))))\n",
     );
     let out = run_axiom(&["run", "main.ax"], &dir);
     assert_eq!(out.status.code(), Some(142), "stderr: {}", stderr(&out));
@@ -216,7 +222,7 @@ fn non_exhaustive_match_is_rejected_before_codegen() {
     write_source(
         &dir,
         "main.ax",
-        "(:: main Int)\n(fn main (match (Some 1) ((Some x) x)))\n",
+        "(struct Msg (Ok Int) (Err))\n(:: main Int)\n(fn main (match (Ok 1) ((Ok x) x)))\n",
     );
     let out = run_axiom(&["--diagnostic-format=ai", "check", "main.ax"], &dir);
     assert!(!out.status.success());
@@ -625,27 +631,27 @@ fn axdl_undefined_variable_includes_machine_applicable_fix() {
     assert!(line.contains("helper"), "suggestion missing: {}", line);
 }
 
-/// Option type: exhaustive match over Some/None works correctly.
+/// Data type: exhaustive match over Red/Green works correctly.
 #[test]
-fn run_option_pattern_matching_works() {
-    let dir = scratch_dir("run-option");
+fn run_data_pattern_matching_works() {
+    let dir = scratch_dir("run-data");
     write_source(
         &dir,
         "main.ax",
-        "(:: main Int)\n(fn main (match (Some 42) ((Some x) x) ((None) 0)))\n",
+        "(struct Color (Red Int) (Green))\n(:: main Int)\n(fn main (match (Red 42) ((Red x) x) ((Green) 0)))\n",
     );
     let out = run_axiom(&["run", "main.ax"], &dir);
     assert_eq!(out.status.code(), Some(42), "stderr: {}", stderr(&out));
 }
 
-/// Option type: non-exhaustive match is rejected with a helpful diagnostic.
+/// Data type: non-exhaustive match is rejected with a helpful diagnostic.
 #[test]
-fn non_exhaustive_option_match_is_rejected() {
-    let dir = scratch_dir("check-option-nonexhaustive");
+fn non_exhaustive_data_match_is_rejected() {
+    let dir = scratch_dir("check-data-nonexhaustive");
     write_source(
         &dir,
         "main.ax",
-        "(:: main Int)\n(fn main (match (Some 1) ((Some x) x)))\n",
+        "(struct Color (Red Int) (Green))\n(:: main Int)\n(fn main (match (Red 1) ((Red x) x)))\n",
     );
     let out = run_axiom(&["--diagnostic-format=ai", "check", "main.ax"], &dir);
     assert!(!out.status.success());

@@ -268,7 +268,7 @@ Metadata keys actually emitted today:
 | Key | Kinds | Meaning |
 |---|---|---|
 | `ctors` | `D` | Comma-separated constructor names, e.g. `#ctors=None,Some` |
-| `of` | `C` | The constructor's owning struct type (ADT), e.g. `#of=Option` |
+| `of` | `C` | The constructor's owning struct type (ADT), e.g. `#of=Color` |
 | `fields` | `S`, `U` | `name:Type,name:Type,...` - the actual field shapes, not just a count, e.g. `#fields=x:Int,y:Int` |
 | `packed` / `repr=C` / `align=N` | `S` | The struct's layout attribute, when it has a non-default one |
 | `methods` | `L` | `name:Type,name:Type,...` for the class's methods, same shape as `fields` |
