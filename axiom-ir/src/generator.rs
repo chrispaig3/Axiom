@@ -1872,7 +1872,7 @@ impl IrGen {
                 TypeId::TCon(name.name.clone(), vec![self.type_to_id(inner)])
             }
             Type::TLinear(inner) => {
-                TypeId::TCon("Linear".to_string(), vec![self.type_to_id(inner)])
+                TypeId::TLinear(Box::new(self.type_to_id(inner)))
             }
         }
     }

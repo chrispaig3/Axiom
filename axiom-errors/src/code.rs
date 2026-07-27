@@ -137,6 +137,12 @@ registry! {
         "effect mismatch",
         "This expression performs effects that are not declared in its\n\
          signature or not handled by the enclosing `handle` expression."),
+    LINEAR_TYPE_VIOLATION => ("AX3012", "linear-type-violation",
+        "linear type violation",
+        "A value of linear type must be consumed exactly once. Linear\n\
+         values cannot be duplicated or left unconsumed. Each linear\n\
+         argument to a function is consumed by that call, and each\n\
+         linear binding must be used before it goes out of scope."),
 
     // ---- AX4xxx: lowering / codegen / toolchain ----
     MISSING_MAIN => ("AX4001", "missing-main",

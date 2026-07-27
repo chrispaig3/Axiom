@@ -1169,6 +1169,7 @@ impl LlvmCodeGen {
             // exhaustiveness.
             TypeId::TError => "i64".to_string(),
             TypeId::TEffect(inner, _) => self.type_to_llvm(inner),
+            TypeId::TLinear(inner) => self.type_to_llvm(inner),
         }
     }
 
@@ -1201,6 +1202,7 @@ impl LlvmCodeGen {
             // `type_to_llvm`'s matching arm for the same rationale).
             TypeId::TError => 8,
             TypeId::TEffect(inner, _) => self.type_size(inner),
+            TypeId::TLinear(inner) => self.type_size(inner),
         }
     }
 
@@ -1222,6 +1224,7 @@ impl LlvmCodeGen {
             TypeId::TForall(_, inner) => self.type_align(inner),
             TypeId::TError => 8,
             TypeId::TEffect(inner, _) => self.type_align(inner),
+            TypeId::TLinear(inner) => self.type_align(inner),
         }
     }
 

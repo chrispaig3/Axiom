@@ -26,7 +26,7 @@ Co‑authored with Qwen3.6 Plus, Axiom explores a new frontier: languages built 
 - **S-expression syntax** — Code is data. Every program is a tree of lists. This makes macros, code generation, and AST manipulation trivial.
 - **Prefix operators** — `(+ x y)` instead of `x + y`. Operators are just functions. Uniform syntax means fewer parsing edge cases.
 - **LLVM native compilation** — Programs compile to machine code, not bytecode. No VM, no JIT overhead, no runtime.
-- **Work-in-progress ambition** — The parser already recognizes effects, regions, linear types, and type classes. The foundation is being laid for a language that can express memory safety, effect tracking, and zero-cost abstractions — all at the type level.
+- **Linear types** — Linear types are implemented for agent actions and external effects, enforcing single-use semantics and consumption tracking at the type level.
 
 ---
 
@@ -829,7 +829,7 @@ Source (.ax)
 | Traits | **Complete** | Declarations, supertraits, effects, default methods, implementations (`impl`) |
 | Effects | **Complete** | Effect declarations, `handle` expressions, effect checking (`IO`, `Pure`, `Alloc`, `Mut`, `Div`), AXTAG validation |
 | Region syntax | **Parsed only** | `region r body` |
-| Linear types | **Parsed only** | `linear T`, `consume` |
+| Linear types | **Implemented** | `linear T`, `consume` |
 | Imports | **Functional** | `(import Mod.Sub ...)` resolves and merges declarations from other files; see [Modules and imports](#modules-and-imports) |
 
 ---

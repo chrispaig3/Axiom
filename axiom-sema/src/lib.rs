@@ -59,6 +59,11 @@ pub enum SemError {
     },
     #[error("effect mismatch: {message}")]
     EffectMismatch { message: String, span: Span },
+    #[error("linear type violation: {message}")]
+    LinearTypeViolation {
+        message: String,
+        span: Span,
+    },
 }
 
 impl SemError {
@@ -75,6 +80,7 @@ impl SemError {
             SemError::Message { span, .. } => *span,
             SemError::AxtagMismatch { span, .. } => *span,
             SemError::EffectMismatch { span, .. } => *span,
+            SemError::LinearTypeViolation { span, .. } => *span,
         }
     }
 
@@ -201,6 +207,14 @@ impl SemError {
             SemError::EffectMismatch { message, .. } => {
                 Diagnostic::error(&code::EFFECT_MISMATCH, self.to_string())
                     .with_primary(span, message.clone())
+            }
+            SemError::LinearTypeViolation { message, .. } => {
+                Diagnostic::error(&code::LINEAR_TYPE_VIOLATION, self.to_string())
+                    .with_primary(span, message.clone())
+                    .with_help(
+                        "linear values must be consumed exactly once; \
+                         do not duplicate or leave them unused",
+                    )
             }
         }
     }
@@ -448,6 +462,7 @@ pub enum TypeId {
     TPtr(Box<TypeId>, bool),
     TForall(Vec<String>, Box<TypeId>),
     TEffect(Box<TypeId>, Vec<axiom_ast::ast::Effect>),
+    TLinear(Box<TypeId>),
     /// A "poison" type produced after an error has already been reported
     /// for this expression (e.g. an undefined variable). Poison types are
     /// deliberately treated as compatible with everything downstream so
@@ -508,6 +523,7 @@ impl TypeId {
             (TypeId::TEffect(a, effs1), TypeId::TEffect(b, effs2)) => {
                 effs1 == effs2 && a.compatible_with(b)
             }
+            (TypeId::TLinear(a), TypeId::TLinear(b)) => a.compatible_with(b),
             _ => self == other,
         }
     }
@@ -545,6 +561,9 @@ impl TypeId {
             }
             TypeId::TForall(vars, inner) => {
                 TypeId::TForall(vars.clone(), Box::new(Self::strip_effects(inner, handled)))
+            }
+            TypeId::TLinear(inner) => {
+                TypeId::TLinear(Box::new(Self::strip_effects(inner, handled)))
             }
             _ => ty.clone(),
         }
@@ -597,6 +616,7 @@ impl std::fmt::Display for TypeId {
                 }
                 write!(f, ")")
             }
+            TypeId::TLinear(inner) => write!(f, "linear {}", inner),
         }
     }
 }
@@ -683,6 +703,7 @@ pub struct TraitInfo {
 
 pub struct TypeChecker {
     pub scope: Vec<(String, VarInfo)>,
+    pub consumed_linear: std::collections::HashSet<String>,
     pub structs: Vec<StructInfo>,
     pub unions: Vec<UnionInfo>,
     pub aliases: Vec<TypeAliasInfo>,
@@ -702,6 +723,7 @@ impl TypeChecker {
     pub fn new() -> Self {
         let mut tc = Self {
             scope: Vec::new(),
+            consumed_linear: std::collections::HashSet::new(),
             structs: Vec::new(),
             unions: Vec::new(),
             aliases: Vec::new(),
@@ -1621,13 +1643,36 @@ impl TypeChecker {
     fn check_var(&mut self, ident: &Ident) -> TypeId {
         for (name, info) in self.scope.iter().rev() {
             if name == &ident.name {
+                if self.is_linear_type(&info.ty) {
+                    if !self.consumed_linear.insert(name.clone()) {
+                        self.errors.push(SemError::LinearTypeViolation {
+                            message: format!(
+                                "linear value `{}` used more than once",
+                                name
+                            ),
+                            span: ident.span,
+                        });
+                    }
+                }
                 return info.ty.clone();
             }
         }
 
         for fn_info in &self.functions {
             if fn_info.name == ident.name {
-                return fn_info.ty.clone();
+                let ty = fn_info.ty.clone();
+                if self.is_linear_type(&ty) {
+                    if !self.consumed_linear.insert(ident.name.clone()) {
+                        self.errors.push(SemError::LinearTypeViolation {
+                            message: format!(
+                                "linear value `{}` used more than once",
+                                ident.name
+                            ),
+                            span: ident.span,
+                        });
+                    }
+                }
+                return ty;
             }
         }
 
@@ -1725,6 +1770,21 @@ impl TypeChecker {
             }
         }
         None
+    }
+
+    /// Check whether a type is or contains a linear type annotation.
+    /// Used to determine whether a value must be consumed exactly once.
+    fn is_linear_type(&self, ty: &TypeId) -> bool {
+        matches!(ty, TypeId::TLinear(_))
+            || match ty {
+                TypeId::TArr(a, b) => self.is_linear_type(a) || self.is_linear_type(b),
+                TypeId::TTuple(types) => types.iter().any(|t| self.is_linear_type(t)),
+                TypeId::TList(inner) => self.is_linear_type(inner),
+                TypeId::TPtr(inner, _) => self.is_linear_type(inner),
+                TypeId::TEffect(inner, _) => self.is_linear_type(inner),
+                TypeId::TForall(_, inner) => self.is_linear_type(inner),
+                _ => false,
+            }
     }
 
     /// Bind every name introduced by `pat` into the current scope with a
@@ -1882,7 +1942,7 @@ impl TypeChecker {
                 TypeId::TCon(name.name.clone(), vec![self.type_to_id(inner)])
             }
             Type::TLinear(inner) => {
-                TypeId::TCon("Linear".to_string(), vec![self.type_to_id(inner)])
+                TypeId::TLinear(Box::new(self.type_to_id(inner)))
             }
         }
     }
@@ -1898,9 +1958,19 @@ impl TypeChecker {
     }
 
     fn pop_scope(&mut self) {
-        while let Some((name, _)) = self.scope.pop() {
+        while let Some((name, info)) = self.scope.pop() {
             if name == "__scope__" {
                 break;
+            }
+            if self.is_linear_type(&info.ty) && !self.consumed_linear.contains(&name) {
+                self.errors.push(SemError::LinearTypeViolation {
+                    message: format!(
+                        "linear value `{}` is unused and will be dropped \
+                         without being consumed",
+                        name
+                    ),
+                    span: info.span,
+                });
             }
         }
     }
@@ -2328,5 +2398,36 @@ mod tests {
         assert!(errors
             .iter()
             .any(|e| matches!(e, SemError::AxtagMismatch { name, .. } if name == "main")));
+    }
+
+    #[test]
+    fn linear_type_annotation_is_recognized() {
+        assert!(check(
+            r#"(:: main (linear Int))
+(fn main (let ((x (consume 42))) x))"#
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn linear_value_used_twice_is_an_error() {
+        let errors = check_err(
+            r#"(:: foo (-> (linear Int) Int))
+(fn (foo x) (+ x x))"#,
+        );
+        assert!(errors
+            .iter()
+            .any(|e| matches!(e, SemError::LinearTypeViolation { .. })));
+    }
+
+    #[test]
+    fn linear_parameter_unused_is_an_error() {
+        let errors = check_err(
+            r#"(:: foo (-> (linear Int) Int))
+(fn (foo x) 0)"#,
+        );
+        assert!(errors
+            .iter()
+            .any(|e| matches!(e, SemError::LinearTypeViolation { .. })));
     }
 }
