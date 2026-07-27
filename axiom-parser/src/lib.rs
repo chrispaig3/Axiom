@@ -170,12 +170,6 @@ impl Parser {
                 *n = Some(nid);
                 *a = axtags;
             }
-            Decl::DForeign {
-                nid: n, axtags: a, ..
-            } => {
-                *n = Some(nid);
-                *a = axtags;
-            }
             Decl::DEffect {
                 nid: n, axtags: a, ..
             } => {
@@ -237,8 +231,6 @@ impl Parser {
             self.parse_impl()?
         } else if self.check(TokenKind::Import) {
             self.parse_import()?
-        } else if self.check(TokenKind::Foreign) {
-            self.parse_foreign()?
         } else if self.check(TokenKind::Effect) {
             self.parse_effect()?
         } else if self.check(TokenKind::Pub) {
@@ -319,17 +311,9 @@ impl Parser {
         let tyvars = self.parse_tyvars();
 
         let mut repr = None;
-        if self.check(TokenKind::Packed)
-            || self.check(TokenKind::Repr)
-            || self.check(TokenKind::Align)
-        {
+        if self.check(TokenKind::Packed) || self.check(TokenKind::Align) {
             if self.eat(TokenKind::Packed) {
                 repr = Some(TypeRepr::Packed);
-            } else if self.eat(TokenKind::Repr) {
-                self.expect(TokenKind::LParen)?;
-                self.expect(TokenKind::Ident("C".to_string()))?;
-                self.expect(TokenKind::RParen)?;
-                repr = Some(TypeRepr::C);
             } else if self.eat(TokenKind::Align) {
                 self.expect(TokenKind::LParen)?;
                 let n = self.parse_int_literal()?;
@@ -548,10 +532,7 @@ impl Parser {
         if self.check(TokenKind::LParen) {
             self.advance();
             while !self.check(TokenKind::RParen) && !self.at_eof() {
-                if self.check(TokenKind::IO) {
-                    self.advance();
-                    effects.push(Effect::IO);
-                } else if self.check(TokenKind::Pure) {
+                if self.check(TokenKind::Pure) {
                     self.advance();
                     effects.push(Effect::Pure);
                 } else if self.check(TokenKind::Mut) {
@@ -583,14 +564,11 @@ impl Parser {
                 let mut method_effects = Vec::new();
                 if self.check(TokenKind::LParen) {
                     self.advance();
-                    while !self.check(TokenKind::RParen) && !self.at_eof() {
-                        if self.check(TokenKind::IO) {
-                            self.advance();
-                            method_effects.push(Effect::IO);
-                        } else if self.check(TokenKind::Pure) {
-                            self.advance();
-                            method_effects.push(Effect::Pure);
-                        } else if self.check(TokenKind::Mut) {
+while !self.check(TokenKind::RParen) && !self.at_eof() {
+                if self.check(TokenKind::Pure) {
+                    self.advance();
+                    effects.push(Effect::Pure);
+                } else if self.check(TokenKind::Mut) {
                             self.advance();
                             method_effects.push(Effect::Mut);
                         } else if self.check(TokenKind::Div) {
@@ -634,10 +612,7 @@ impl Parser {
         if self.check(TokenKind::LParen) {
             self.advance();
             while !self.check(TokenKind::RParen) && !self.at_eof() {
-                if self.check(TokenKind::IO) {
-                    self.advance();
-                    effects.push(Effect::IO);
-                } else if self.check(TokenKind::Pure) {
+                if self.check(TokenKind::Pure) {
                     self.advance();
                     effects.push(Effect::Pure);
                 } else if self.check(TokenKind::Mut) {
@@ -697,22 +672,6 @@ impl Parser {
         };
 
         Ok(Decl::DImport { module, names })
-    }
-
-    fn parse_foreign(&mut self) -> ParseResult<Decl> {
-        self.expect(TokenKind::Foreign)?;
-        let name = self.parse_ident()?;
-        self.expect(TokenKind::DoubleColon)?;
-        let ty = self.parse_type()?;
-        self.expect(TokenKind::Eq)?;
-        let source = self.parse_string_literal()?;
-        Ok(Decl::DForeign {
-            name,
-            ty,
-            source,
-            nid: None,
-            axtags: Vec::new(),
-        })
     }
 
     fn parse_effect(&mut self) -> ParseResult<Decl> {
@@ -1357,10 +1316,7 @@ impl Parser {
         if self.check(TokenKind::LParen) {
             self.advance();
             while !self.check(TokenKind::RParen) && !self.at_eof() {
-                if self.check(TokenKind::IO) {
-                    self.advance();
-                    effects.push(Effect::IO);
-                } else if self.check(TokenKind::Pure) {
+                if self.check(TokenKind::Pure) {
                     self.advance();
                     effects.push(Effect::Pure);
                 } else if self.check(TokenKind::Mut) {
@@ -1455,19 +1411,6 @@ impl Parser {
         let value = self.parse_expr()?;
         self.expect(TokenKind::RParen)?;
         Ok(Expr::EUnionCon(name, field_name, Box::new(value)))
-    }
-
-    fn parse_string_literal(&mut self) -> ParseResult<String> {
-        let token = self.expect(TokenKind::StringLiteral(String::new()))?;
-        if let TokenKind::StringLiteral(s) = token.kind {
-            Ok(s)
-        } else {
-            Err(ParseError::UnexpectedToken {
-                expected: "string literal".to_string(),
-                found: self.current_kind_str(),
-                span: token.span,
-            })
-        }
     }
 
     /// Parse a type-parameter list. Axiom's own documented syntax always
@@ -1596,7 +1539,6 @@ impl Parser {
             TokenKind::F32 => "F32".to_string(),
             TokenKind::F64 => "F64".to_string(),
             TokenKind::Pure => "Pure".to_string(),
-            TokenKind::IO => "IO".to_string(),
             TokenKind::Mut => "Mut".to_string(),
             TokenKind::Div => "Div".to_string(),
             TokenKind::Fn => "fn".to_string(),
@@ -1739,7 +1681,6 @@ impl Parser {
                     | TokenKind::Trait
                     | TokenKind::Impl
                     | TokenKind::Import
-                    | TokenKind::Foreign
                     | TokenKind::Effect
                     | TokenKind::DoubleColon
             ) {
@@ -1758,7 +1699,6 @@ impl Parser {
                             | TokenKind::Trait
                             | TokenKind::Impl
                             | TokenKind::Import
-                            | TokenKind::Foreign
                             | TokenKind::Effect
                             | TokenKind::DoubleColon
                     );

@@ -69,7 +69,7 @@ enum Commands {
         check: bool,
     },
     /// Print every top-level symbol Axiom's type checker collected for a
-    /// file (functions, foreign bindings, data types, constructors,
+    /// file (functions, data types, constructors,
     /// structs, unions, and traits) along with its inferred/declared
     /// type. Honors `--diagnostic-format`: `ai` emits one AXSYM line per
     /// symbol (see `docs/diagnostics.md`), `json` emits one JSON object per
@@ -301,7 +301,6 @@ fn decl_name(decl: &axiom_ast::ast::Decl) -> Option<&str> {
         | Decl::DTrait { name, .. }
         | Decl::DSig { name, .. }
         | Decl::DFn { name, .. }
-        | Decl::DForeign { name, .. }
         | Decl::DEffect { name, .. } => Some(&name.name),
         Decl::DImpl { .. } | Decl::DImport { .. } => None,
     }
@@ -714,18 +713,18 @@ fn check(input: &str, format: DiagnosticFormat) -> Result<(), String> {
     Ok(())
 }
 
-/// A struct/union's `repr`/`packed`/`align` attribute, formatted as one
-/// `#`-meta value (`packed`, `repr=C`, or `align=16`) - `None` for the
-/// default (no attribute) layout. Layout attributes affect a type's ABI,
+/// A struct/union's `packed`/`align` attribute, formatted as one
+/// `#`-meta value (`packed` or `align=16`) - `None` for the
+/// default (no attribute) layout. Layout attributes affect a type's
+/// ABI,
 /// so surfacing them is the difference between an agent knowing a type's
-/// exact wire/FFI shape from one AXSYM line versus having to re-read the
+/// ABI layout from one AXSYM line versus having to re-read the
 /// declaration to find out it even has a non-default layout at all.
 fn repr_meta(repr: &Option<axiom_ast::ast::TypeRepr>) -> Option<String> {
     use axiom_ast::ast::TypeRepr;
     match repr {
         None => None,
         Some(TypeRepr::Packed) => Some("packed".to_string()),
-        Some(TypeRepr::C) => Some("repr=C".to_string()),
         Some(TypeRepr::Align(n)) => Some(format!("align={}", n)),
     }
 }
@@ -778,9 +777,6 @@ fn collect_symbol_facts(
             Decl::DFn {
                 name, nid, axtags, ..
             } => (name, nid, axtags),
-            Decl::DForeign {
-                name, nid, axtags, ..
-            } => (name, nid, axtags),
             Decl::DStruct {
                 name, nid, axtags, ..
             } => (name, nid, axtags),
@@ -828,15 +824,12 @@ fn collect_symbol_facts(
             // A `(:: name Type)` signature is the most useful anchor for a
             // function's location (it's usually right above the
             // definition and states the type the fact is about), so it
-            // takes priority; `entry` leaves an existing `DFn`/`DForeign`
+            // takes priority; `entry` leaves an existing `DFn`
             // span alone only if the signature is missing.
             Decl::DSig { name, .. } => {
                 fn_spans.insert(&name.name, name.span);
             }
             Decl::DFn { name, .. } => {
-                fn_spans.entry(&name.name).or_insert(name.span);
-            }
-            Decl::DForeign { name, .. } => {
                 fn_spans.entry(&name.name).or_insert(name.span);
             }
             Decl::DStruct {
@@ -877,11 +870,7 @@ fn collect_symbol_facts(
         if f.is_builtin && !include_builtins {
             continue;
         }
-        let kind = if f.foreign_symbol.is_some() {
-            SymbolKind::Foreign
-        } else {
-            SymbolKind::Fn
-        };
+        let kind = SymbolKind::Fn;
         let mut fact = SymbolFact::new(
             kind,
             &f.name,
@@ -889,9 +878,6 @@ fn collect_symbol_facts(
             f.ty.to_string(),
             decl_meta.get(f.name.as_str()).and_then(|(n, _)| n.clone()),
         );
-        if let Some(symbol) = &f.foreign_symbol {
-            fact = fact.with_meta(format!("symbol={}", symbol));
-        }
         if let Some((_, axtags)) = decl_meta.get(f.name.as_str()) {
             for m in axtags {
                 fact = fact.with_meta(m.clone());
@@ -1644,7 +1630,7 @@ fn cmd_llvm(expr_str: &str, state: &mut ReplState) {
 
             if let Ok(ty) = tc.check_single_expr(&expr) {
                 let wrapper = format!(
-                    "(foreign printf :: (-> String Int Int) = \"printf\")\n(foreign puts :: (-> String Int) = \"puts\")\n{}\n(:: __repl_result (-> Int {}))\n(fn (__repl_result _dummy) {})\n(:: main Int)\n(fn main {{ (printf \"%ld\\n\" (__repl_result 0)) 0 }})",
+                    "{}\n(:: __repl_result (-> Int {}))\n(fn (__repl_result _dummy) {})\n(:: main Int)\n(fn main {{ 0 }})",
                     state.declarations,
                     ty,
                     expr_str,
@@ -1872,7 +1858,7 @@ fn generate_repl_wrapper(declarations: &str, input: &str, ty: &axiom_sema::TypeI
     match type_str.as_str() {
         "Int" | "I64" | "U64" | "Isize" | "Usize" => {
             format!(
-                "(foreign printf :: (-> String Int Int) = \"printf\")\n(foreign puts :: (-> String Int) = \"puts\")\n{}\n(:: __repl_result (-> Int Int))\n(fn (__repl_result _dummy) {})\n(:: main Int)\n(fn main {{ (printf \"%ld\\n\" (__repl_result 0)) 0 }})",
+                "{}\n(:: __repl_result (-> Int Int))\n(fn (__repl_result _dummy) {})\n(:: main Int)\n(fn main {{ (__repl_result 0) }})",
                 declarations,
                 input,
             )
@@ -1880,21 +1866,21 @@ fn generate_repl_wrapper(declarations: &str, input: &str, ty: &axiom_sema::TypeI
         "Bool" => {
             let wrapped_input = format!("(if {} 1 0)", input);
             format!(
-                "(foreign printf :: (-> String Int Int) = \"printf\")\n(foreign puts :: (-> String Int) = \"puts\")\n{}\n(:: __repl_result (-> Int Int))\n(fn (__repl_result _dummy) {})\n(:: main Int)\n(fn main {{ (if (== (__repl_result 0) 0) {{ (puts \"false\") 0 }} {{ (puts \"true\") 0 }}) 0 }})",
+                "{}\n(:: __repl_result (-> Int Int))\n(fn (__repl_result _dummy) {})\n(:: main Int)\n(fn main {{ (__repl_result 0) }})",
                 declarations,
                 wrapped_input,
             )
         }
         "Char" => {
             format!(
-                "(foreign printf :: (-> String Int Int) = \"printf\")\n(foreign puts :: (-> String Int) = \"puts\")\n{}\n(:: __repl_result (-> Int Int))\n(fn (__repl_result _dummy) {})\n(:: main Int)\n(fn main {{ (printf \"%c\\n\" (__repl_result 0)) 0 }})",
+                "{}\n(:: __repl_result (-> Int Int))\n(fn (__repl_result _dummy) {})\n(:: main Int)\n(fn main {{ (__repl_result 0) }})",
                 declarations,
                 input,
             )
         }
         _ => {
             format!(
-                "(foreign printf :: (-> String Int Int) = \"printf\")\n(foreign puts :: (-> String Int) = \"puts\")\n{}\n(:: __repl_result (-> Int Int))\n(fn (__repl_result _dummy) {})\n(:: main Int)\n(fn main {{ (printf \"%ld\\n\" (__repl_result 0)) 0 }})",
+                "{}\n(:: __repl_result (-> Int Int))\n(fn (__repl_result _dummy) {})\n(:: main Int)\n(fn main {{ (__repl_result 0) }})",
                 declarations,
                 input,
             )

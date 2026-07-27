@@ -16,7 +16,6 @@ Co‑authored with Qwen3.6 Plus, Axiom explores a new frontier: languages built 
 | If you like... | Axiom gives you... |
 |---|---|
 | **Rust's safety** | A strong static type system with algebraic data types, pattern matching, and no null pointers — but with simpler syntax and faster compilation |
-| **C's simplicity** | Direct FFI to C libraries, manual memory control via `malloc`/`free`, and predictable performance — without the decades of legacy baggage |
 | **Python's expressiveness** | First-class functions, lambdas, and a REPL that compiles to native code — not interprets |
 | **Go's pragmatism** | A small, learnable language with a single compilation step — no crazy build systems, no messy dependency managers, no toolchain sprawl |
 | **Haskell's elegance** | Curried functions, polymorphic data types, and a clean mathematical foundation — without the 30-minute compile times |
@@ -67,11 +66,9 @@ The binary is at `./target/release/axiom`.
 Create a file called `hello.ax`:
 
 ```scheme
-(foreign printf :: (-> String Int) = "printf")
-
 (:: main Int)
 (fn main
-  (printf "Hello, Axiom!\n")
+  (print "Hello, Axiom!\n")
   0)
 ```
 
@@ -327,7 +324,7 @@ Current limitations, honestly stated:
 
 ### Structs
 
-For C-compatible data layouts:
+For non-default data layouts:
 
 ```scheme
 ; Basic struct
@@ -339,11 +336,6 @@ For C-compatible data layouts:
 (struct PackedPoint packed
   (x : Int)
   (y : Int))
-
-; C-compatible layout
-(struct CPoint repr(C)
-  (x : I32)
-  (y : I32))
 
 ; Aligned to 16 bytes
 (struct AlignedData align(16)
@@ -411,7 +403,6 @@ Built-in effects:
 
 | Effect | Meaning |
 |---|---|
-| `IO` | Calls foreign functions (C FFI) |
 | `Pure` | No side effects |
 | `Alloc` | Heap allocation (`alloc`) |
 | `Mut` | Mutable state (`set-field`) |
@@ -427,7 +418,7 @@ Declare an effect type:
 Annotate a function with its effects using AXTAG metadata:
 
 ```scheme
-;@axiom:effect(io)
+;@axiom:effect(alloc)
 (fn main (printf "hello"))
 ```
 
@@ -442,8 +433,8 @@ Handle effects with `handle`:
 `handle` runs `body`, intercepting the declared `effects` via `handler`. Effects not listed propagate out.
 
 ```scheme
-; A handler that catches IO and returns a default value
-(handle (printf "hello") (IO) 0)
+; A handler that catches alloc and returns a default value
+(handle (printf "hello") (Alloc) 0)
 ```
 
 Effect annotations are also supported on traits and implementations:
@@ -453,7 +444,7 @@ Effect annotations are also supported on traits and implementations:
   where
     (print :: (-> String a)))
 
-(impl (Console IO)
+(impl (Console alloc)
   where
     (print (lambda (s) (printf "%s\n" s))))
 ```
@@ -502,22 +493,9 @@ Effect annotations are also supported on traits and implementations:
 
 ---
 
-## Built-ins and FFI
+## Built-ins
 
-Axiom has no standard library. System operations are done through FFI bindings to C, which you declare in your code.
-
-### FFI bindings
-
-```scheme
-(foreign printf :: (-> String Int) = "printf")
-(foreign malloc :: (-> Int (* Any)) = "malloc")
-(foreign free :: (-> (* Any) ()) = "free")
-(foreign memset :: (-> (* Any) Int Int (* Any)) = "memset")
-(foreign memcpy :: (-> (* Any) (* Any) Int (* Any) (* Any)) = "memcpy")
-(foreign exit :: (-> Int ()) = "exit")
-```
-
-See the [Foreign Function Interface](#foreign-function-interface) section for details.
+Axiom has no standard library. System operations are not built-in; they can be implemented through language primitives and external linking.
 
 ### Common struct types
 
@@ -543,12 +521,12 @@ See the [Foreign Function Interface](#foreign-function-interface) section for de
 
 ### Print to stdout
 
-```scheme
-(foreign printf :: (-> String Int) = "printf")
+Use `print` for standard output:
 
+```scheme
 (:: main Int)
 (fn main
-  (printf "Formatted: %d\n" 42)
+  (print "Formatted: Hello\n")
   0)
 ```
 
@@ -607,8 +585,7 @@ How it works:
   would.
 - `(import Mod.Sub)` with no name list brings in every top-level
   declaration from that file; `(import Mod.Sub (a b))` brings in only the
-  named declarations (functions, `struct`/`union`/`type` decls,
-  `foreign` bindings, ...).
+named declarations (functions, `struct`/`union`/`type` decls).
 - Imports are transitive (`A` imports `B` imports `C` brings `C`'s
   declarations into `A` too) and diamond-safe (two different modules both
   importing `C` merges `C` exactly once, not twice).
@@ -736,37 +713,6 @@ The REPL accumulates definitions — functions you define persist across inputs.
 
 ---
 
-## Foreign Function Interface
-
-Axiom can call any C function. Declare it with `foreign`:
-
-```scheme
-(foreign name :: (-> ReturnType Param1 Param2 ...) = "c_symbol_name")
-```
-
-Examples:
-
-```scheme
-; printf from stdio.h
-(foreign printf :: (-> String Int) = "printf")
-
-; malloc from stdlib.h
-(foreign malloc :: (-> Int (* Any)) = "malloc")
-
-; A custom C function
-(foreign my_c_function :: (-> Int String Int) = "my_c_function")
-```
-
-The string after `=` is the symbol name as it appears in the C library. For most C library functions, this is the same as the Axiom name.
-
-When compiling, you may need to link additional libraries:
-
-```bash
-cc output.o -lcurl -lssl -lcrypto -o program
-```
-
----
-
 ## Compiler Architecture
 
 ```
@@ -814,7 +760,6 @@ Source (.ax)
 | begin blocks | **Removed** | Replaced by `{ }` brace blocks and implicit sequencing |
 | brace blocks | **Complete** | `{ expr1 expr2 ... }` — modern sequencing, returns last value |
 | fn keyword | **Complete** | Modern function declaration keyword (replaces `define`) |
-| FFI | **Complete** | Call any C function with `foreign` declarations |
 | ADTs / struct types | **Complete** | Constructors (nullary and with fields, including recursive types like `Tree`) compile to heap-boxed tagged values; see [Algebraic data types](#algebraic-data-types-how-they-actually-run) |
 | Structs / unions | **Complete** | Declarations, LLVM emission, field access (`.field`), struct construction (`(StructName expr1 expr2 ...)`), `mut` fields, and field mutation (`(set-field expr field value)`) all work |
 | Pattern matching (`match`) | **Complete** | Constructor patterns (nullary and with-field), variables, wildcards, literals, nested constructor patterns, and tuple/list patterns all compare and bind correctly, plus non-exhaustiveness/arity/undefined-constructor diagnostics. |

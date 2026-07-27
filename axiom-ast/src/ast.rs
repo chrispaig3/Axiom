@@ -8,7 +8,6 @@ use std::fmt::{self, Write};
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Effect {
     Pure,
-    IO,
     Alloc,
     Mut,
     Div,
@@ -20,7 +19,6 @@ impl fmt::Display for Effect {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Effect::Pure => write!(f, "Pure"),
-            Effect::IO => write!(f, "IO"),
             Effect::Alloc => write!(f, "Alloc"),
             Effect::Mut => write!(f, "Mut"),
             Effect::Div => write!(f, "Div"),
@@ -98,7 +96,6 @@ impl Type {
 
 #[derive(Debug, Clone)]
 pub enum TypeRepr {
-    C,
     Packed,
     Align(usize),
 }
@@ -258,20 +255,13 @@ pub enum Decl {
         nid: Option<String>,
         axtags: Vec<Axtag>,
     },
-    DFn {
+DFn {
         name: Ident,
         params: Vec<Pattern>,
         body: Expr,
         nid: Option<String>,
         axtags: Vec<Axtag>,
-    },
-    DForeign {
-        name: Ident,
-        ty: Type,
-        source: String,
-        nid: Option<String>,
-        axtags: Vec<Axtag>,
-    },
+      },
     /// An `(import Mod.Sub ...)` declaration: module-path resolution,
     /// not a named declaration that participates in NID/AXTAG
     /// indexing (imports don't carry source-stable identities and
@@ -299,7 +289,6 @@ pub enum Decl {
 /// as a flag tag with an empty value.
 ///
 /// Examples recognised by the parser:
-/// - `;@axiom:effect(io)`      → Axtag { key: "effect", value: Some("io") }
 /// - `;@axiom:pure()`           → Axtag { key: "pure", value: Some("") }
 /// - `;@axiom:no_refactor`      → Axtag { key: "no_refactor", value: None }
 /// - `;@axiom:owned(region=0)`  → Axtag { key: "owned", value: Some("region=0") }
@@ -384,7 +373,6 @@ impl Decl {
                 if let Some(repr) = repr {
                     out.push_str("{repr=");
                     match repr {
-                        TypeRepr::C => out.push('C'),
                         TypeRepr::Packed => out.push_str("packed"),
                         TypeRepr::Align(n) => write!(out, "align={}", n).unwrap(),
                     }
@@ -513,18 +501,6 @@ impl Decl {
                     out.push(',');
                 }
                 out.push(')');
-            }
-            Decl::DForeign {
-                name,
-                ty,
-                source,
-                ..
-            } => {
-                out.push_str("DForeign:");
-                out.push_str(&name.name);
-                out.push('=');
-                Self::fmt_type_nid(out, ty);
-                out.push_str(&format!(" \"{}\"", source));
             }
             Decl::DEffect {
                 name,

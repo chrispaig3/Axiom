@@ -27,7 +27,6 @@ pub enum TokenKind {
     Trait,    // (trait (Name tv) (super...) (method...))
     Impl,     // (impl (Trait Type) (method...))
     Import,   // (import module (names...))
-    Foreign,  // (foreign name type "symbol")
     Pub,      // (pub decl)
     Deriving, // (deriving Class...)
     Where,    // for class/instance method bodies
@@ -37,7 +36,6 @@ pub enum TokenKind {
     Linear,   // linear type marker
     Consume,  // (consume expr)
     Packed,   // packed struct modifier
-    Repr,     // repr(C) struct modifier
     Align,    // align(N) struct modifier
     Alloc,    // (alloc Type) or (alloc Type count)
     Sizeof,   // (sizeof Type)
@@ -70,7 +68,6 @@ pub enum TokenKind {
     F64,
     Void,
     Pure,
-    IO,
     Mut,
     Div,
 
@@ -143,7 +140,6 @@ impl fmt::Display for TokenKind {
             TokenKind::Trait => write!(f, "trait"),
             TokenKind::Impl => write!(f, "impl"),
             TokenKind::Import => write!(f, "import"),
-            TokenKind::Foreign => write!(f, "foreign"),
             TokenKind::Pub => write!(f, "pub"),
             TokenKind::Deriving => write!(f, "deriving"),
             TokenKind::Where => write!(f, "where"),
@@ -153,7 +149,6 @@ impl fmt::Display for TokenKind {
             TokenKind::Linear => write!(f, "linear"),
             TokenKind::Consume => write!(f, "consume"),
             TokenKind::Packed => write!(f, "packed"),
-            TokenKind::Repr => write!(f, "repr"),
             TokenKind::Align => write!(f, "align"),
             TokenKind::Alloc => write!(f, "alloc"),
             TokenKind::Sizeof => write!(f, "sizeof"),
@@ -184,7 +179,6 @@ impl fmt::Display for TokenKind {
             TokenKind::F64 => write!(f, "F64"),
             TokenKind::Void => write!(f, "Void"),
             TokenKind::Pure => write!(f, "Pure"),
-            TokenKind::IO => write!(f, "IO"),
             TokenKind::Mut => write!(f, "Mut"),
             TokenKind::Div => write!(f, "Div"),
             TokenKind::RArrow => write!(f, "->"),

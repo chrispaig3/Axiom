@@ -34,8 +34,6 @@ use axiom_ast::span::Span;
 pub enum SymbolKind {
     /// A `fn` function binding.
     Fn,
-    /// A `foreign` FFI binding.
-    Foreign,
     /// A `data` algebraic data type (the type itself, not its constructors).
     Data,
     /// A single constructor of a `data` type, e.g. `Red` in `Color`.
@@ -59,7 +57,6 @@ impl SymbolKind {
     pub fn letter(self) -> &'static str {
         match self {
             SymbolKind::Fn => "F",
-            SymbolKind::Foreign => "X",
             SymbolKind::Data => "D",
             SymbolKind::Ctor => "C",
             SymbolKind::Struct => "S",
@@ -181,20 +178,6 @@ mod tests {
     }
 
     #[test]
-    fn ai_foreign_with_symbol_meta() {
-        let fact = SymbolFact::new(
-            SymbolKind::Foreign,
-            "printf",
-            Some(Span::new(10, 16, 0)),
-            "(String -> Int)",
-            None,
-        )
-        .with_meta("symbol=printf");
-        let out = render_symbols_ai(&[fact], "main.ax", &" ".repeat(20));
-        assert!(out.contains("X printf main.ax:1:11-17 \"(String -> Int)\" #symbol=printf"));
-    }
-
-    #[test]
     fn ai_data_with_ctors() {
         let fact = SymbolFact::new(
             SymbolKind::Data,
@@ -232,10 +215,10 @@ mod tests {
             None,
         )
         .with_meta("fields=x:Int,y:Int")
-        .with_meta("repr=C");
+        .with_meta("packed");
         let out = render_symbols_ai(&[fact], "main.ax", &" ".repeat(20));
         assert!(
-            out.contains("S Point main.ax:1:10-15 \"struct Point\" #fields=x:Int,y:Int #repr=C")
+            out.contains("S Point main.ax:1:10-15 \"struct Point\" #fields=x:Int,y:Int #packed")
         );
     }
 
@@ -375,7 +358,6 @@ mod tests {
     fn ai_kind_letters_disjoint_from_severity_sigils() {
         for kind in [
             SymbolKind::Fn,
-            SymbolKind::Foreign,
             SymbolKind::Data,
             SymbolKind::Ctor,
             SymbolKind::Struct,

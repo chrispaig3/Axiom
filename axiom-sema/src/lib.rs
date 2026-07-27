@@ -248,15 +248,7 @@ fn collect_effects_into(
     out: &mut std::collections::HashSet<axiom_ast::ast::Effect>,
 ) {
     match expr {
-        Expr::EVar(ident) => {
-            if checker
-                .functions
-                .iter()
-                .any(|f| f.name == ident.name && f.foreign_symbol.is_some())
-            {
-                out.insert(axiom_ast::ast::Effect::IO);
-            }
-        }
+        Expr::EVar(_) => {}
         Expr::EApp(func, arg) => {
             collect_effects_into(checker, func, out);
             collect_effects_into(checker, arg, out);
@@ -339,15 +331,7 @@ fn collect_effects_all_into(
     out: &mut std::collections::HashSet<axiom_ast::ast::Effect>,
 ) {
     match expr {
-        Expr::EVar(ident) => {
-            if checker
-                .functions
-                .iter()
-                .any(|f| f.name == ident.name && f.foreign_symbol.is_some())
-            {
-                out.insert(axiom_ast::ast::Effect::IO);
-            }
-        }
+        Expr::EVar(_) => {}
         Expr::EApp(func, arg) => {
             collect_effects_all_into(checker, func, out);
             collect_effects_all_into(checker, arg, out);
@@ -644,7 +628,6 @@ pub struct StructVariant {
 pub struct FnInfo {
     pub name: String,
     pub ty: TypeId,
-    pub foreign_symbol: Option<String>,
     pub is_builtin: bool,
     pub effects: Vec<axiom_ast::ast::Effect>,
 }
@@ -677,7 +660,6 @@ impl FnInfo {
         Self {
             name: name.into(),
             ty,
-            foreign_symbol: None,
             is_builtin: false,
             effects: Vec::new(),
         }
@@ -687,7 +669,6 @@ impl FnInfo {
         Self {
             name: name.into(),
             ty,
-            foreign_symbol: None,
             is_builtin: true,
             effects: Vec::new(),
         }
@@ -789,13 +770,13 @@ impl TypeChecker {
     /// top-level `(fn (f ...) ...)`s with the same name, or two
     /// `data`/`struct`/`union`/`type` declarations with the same name,
     /// silently compiled with the *second* one clobbering the first's
-    /// entry (see `collect_declarations`'s `DFn`/`DForeign`/`DData` arms),
+    /// entry (see `collect_declarations`'s `DFn`/`DData` arms),
     /// with no diagnostic at all.
     ///
     /// Functions and types are checked as two separate namespaces (a
     /// function and a type may share a name), and a `(:: name Type)`
     /// signature is deliberately *not* treated as a definition here - a
-    /// signature followed by exactly one matching `fn`/`foreign`
+    /// signature followed by exactly one matching `fn`
     /// is the normal, expected pattern, not a duplicate.
     fn check_duplicate_definitions(&mut self, decls: &[Decl]) {
         let mut values: std::collections::HashMap<String, Span> = std::collections::HashMap::new();
@@ -805,7 +786,6 @@ impl TypeChecker {
             let (namespace, name): (&mut std::collections::HashMap<String, Span>, &Ident) =
                 match decl {
                     Decl::DFn { name, .. } => (&mut values, name),
-                    Decl::DForeign { name, .. } => (&mut values, name),
                     Decl::DStruct { name, .. } => (&mut types, name),
                     Decl::DUnion { name, .. } => (&mut types, name),
                     Decl::DType { name, .. } => (&mut types, name),
@@ -881,13 +861,6 @@ impl TypeChecker {
                         ));
                         self.type_counter += 1;
                     }
-                }
-                Decl::DForeign {
-                    name, ty, source, ..
-                } => {
-                    let mut info = FnInfo::new(name.name.clone(), self.type_to_id(ty));
-                    info.foreign_symbol = Some(source.clone());
-                    self.functions.push(info);
                 }
                 Decl::DUnion { name, fields, .. } => {
                     let union_fields: Vec<(String, TypeId)> = fields
@@ -988,7 +961,6 @@ impl TypeChecker {
                             "effect" => {
                                 let declared: Vec<axiom_ast::ast::Effect> =
                                     match tag.value.as_deref() {
-                                        Some("io") => vec![axiom_ast::ast::Effect::IO],
                                         Some("pure") => vec![axiom_ast::ast::Effect::Pure],
                                         Some("mut") => vec![axiom_ast::ast::Effect::Mut],
                                         Some("div") => vec![axiom_ast::ast::Effect::Div],
@@ -1037,16 +1009,6 @@ impl TypeChecker {
                             _ => {}
                         }
                     }
-                }
-                Decl::DForeign { name, ty, .. } => {
-                    let ty_id = self.type_to_id(ty);
-                    self.scope.push((
-                        name.name.clone(),
-                        VarInfo {
-                            ty: ty_id,
-                            span: name.span,
-                        },
-                    ));
                 }
                 Decl::DImpl { methods, .. } => {
                     for (_, body) in methods {
@@ -2042,13 +2004,6 @@ impl TypeChecker {
                     variants: struct_variants,
                 });
             }
-            Decl::DForeign {
-                name, ty, source, ..
-            } => {
-                let mut info = FnInfo::new(name.name.clone(), self.type_to_id(ty));
-                info.foreign_symbol = Some(source.clone());
-                self.functions.push(info);
-            }
             Decl::DUnion { name, fields, .. } => {
                 let union_fields: Vec<(String, TypeId)> = fields
                     .iter()
@@ -2249,28 +2204,6 @@ mod tests {
     }
 
     #[test]
-    fn foreign_binding_tracks_its_linked_symbol_name() {
-        let mut lexer = Lexer::new(
-            r#"(foreign printf :: (-> String Int) = "printf")
-(:: main Int)
-(fn main 0)"#,
-            0,
-        );
-        let tokens = lexer.tokenize().unwrap();
-        let module = Parser::new(tokens).parse_module().unwrap();
-        let mut tc = TypeChecker::new();
-        tc.check(&module)
-            .expect("expected this program to check cleanly");
-        let printf = tc
-            .functions
-            .iter()
-            .find(|f| f.name == "printf")
-            .expect("printf not registered");
-        assert_eq!(printf.foreign_symbol.as_deref(), Some("printf"));
-        assert!(!printf.is_builtin);
-    }
-
-    #[test]
     fn builtin_operators_are_flagged_as_builtin() {
         let tc = TypeChecker::new();
         let plus = tc
@@ -2282,35 +2215,11 @@ mod tests {
     }
 
     #[test]
-    fn effect_io_tag_with_foreign_call_passes() {
-        assert!(check(
-            r#"(foreign printf :: (-> String Int) = "printf")
-(:: main Int)
-;@axiom:effect(io)
-(fn main (printf "hello"))"#
-        )
-        .is_ok());
-    }
-
-    #[test]
     fn effect_io_tag_without_foreign_call_warns() {
         let errors = check_err(
             r#"(:: main Int)
-;@axiom:effect(io)
+;@axiom:effect(pure)
 (fn main 0)"#,
-        );
-        assert!(errors
-            .iter()
-            .any(|e| matches!(e, SemError::AxtagMismatch { name, .. } if name == "main")));
-    }
-
-    #[test]
-    fn pure_tag_with_foreign_call_warns() {
-        let errors = check_err(
-            r#"(foreign printf :: (-> String Int) = "printf")
-(:: main Int)
-;@axiom:pure
-(fn main (printf "hello"))"#,
         );
         assert!(errors
             .iter()
@@ -2329,10 +2238,9 @@ mod tests {
 
     #[test]
     fn handle_strips_declared_effects_from_body_type() {
-        let source = r#"(foreign printf :: (-> String Int) = "printf")
-(:: main Int)
+        let source = r#"(:: main Int)
 (fn main
-  (handle (printf "hello") (IO) 0))"#;
+  (handle 0 (Pure) 0))"#;
         assert!(
             check(source).is_ok(),
             "handle should strip declared effects"
@@ -2341,10 +2249,9 @@ mod tests {
 
     #[test]
     fn handle_without_effects_propagates_body_effects() {
-        let source = r#"(foreign printf :: (-> String Int) = "printf")
-(:: main Int)
+        let source = r#"(:: main Int)
 (fn main
-  (handle (printf "hello") () 0))"#;
+  (handle (alloc Int 1) () 0))"#;
         let errors = check_err(source);
         assert!(errors
             .iter()
@@ -2352,14 +2259,15 @@ mod tests {
     }
 
     #[test]
-    fn effect_io_tag_with_alloc_also_passes() {
-        assert!(check(
-            r#"(foreign printf :: (-> String Int) = "printf")
-(:: main Int)
-;@axiom:effect(io)
-(fn main (let ((_ (alloc Int 1))) (printf "hello")))"#
-        )
-        .is_ok());
+    fn effect_pure_tag_with_alloc_fails() {
+        let errors = check_err(
+            r#"(:: main Int)
+;@axiom:effect(pure)
+(fn main (let ((_ (alloc Int 1))) 0))"#
+        );
+        assert!(errors
+            .iter()
+            .any(|e| matches!(e, SemError::AxtagMismatch { name, .. } if name == "main")));
     }
 
     #[test]
@@ -2375,29 +2283,11 @@ mod tests {
     }
 
     #[test]
-    fn effect_io_tag_with_handle_containing_io_passes() {
-        let source = r#"(foreign printf :: (-> String Int) = "printf")
-(:: main Int)
-;@axiom:effect(io)
-(fn main
-  (handle (printf "hello") (IO) 0))"#;
-        assert!(
-            check(source).is_ok(),
-            "effect(io) should be satisfied when IO is handled internally"
-        );
-    }
-
-    #[test]
-    fn pure_tag_with_handle_containing_io_fails() {
-        let source = r#"(foreign printf :: (-> String Int) = "printf")
-(:: main Int)
-;@axiom:pure
-(fn main
-  (handle (printf "hello") (IO) 0))"#;
-        let errors = check_err(source);
-        assert!(errors
-            .iter()
-            .any(|e| matches!(e, SemError::AxtagMismatch { name, .. } if name == "main")));
+    fn effect_alloc_tag_with_alloc_passes() {
+        let source = r#"(:: main Int)
+;@axiom:effect(alloc)
+(fn main (alloc Int 1))"#;
+        assert!(check(source).is_ok());
     }
 
     #[test]

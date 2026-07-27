@@ -83,18 +83,6 @@ fn format_decl(decl: &Decl, out: &mut String, state: &mut FormatState) {
             }
             write!(out, " {})", format_type(alias)).unwrap();
         }
-        Decl::DForeign {
-            name, ty, source, ..
-        } => {
-            write!(
-                out,
-                "(foreign {} :: {} = \"{}\")",
-                name,
-                format_type(ty),
-                source
-            )
-            .unwrap();
-        }
         Decl::DImport { module, names } => {
             out.push_str("(import");
             for m in module {
@@ -187,7 +175,6 @@ fn format_struct_decl(
     if let Some(r) = repr {
         out.push(' ');
         match r {
-            TypeRepr::C => out.push_str("repr(C)"),
             TypeRepr::Packed => out.push_str("packed"),
             TypeRepr::Align(n) => write!(out, "align({})", n).unwrap(),
         }

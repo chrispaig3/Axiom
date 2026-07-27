@@ -256,7 +256,7 @@ and every `class`. Like diagnostics, it honors
 
 | Field | Meaning |
 |---|---|
-| `KIND` | One letter: `F` function, `X` foreign binding, `D` ADT type, `C` constructor, `S` struct, `U` union, `A` type alias, `T` trait, `E` effect, `I` impl |
+| `KIND` | One letter: `F` function, `D` ADT type, `C` constructor, `S` struct, `U` union, `A` type alias, `T` trait, `E` effect, `I` impl |
 | `NAME` | The declared name, exactly as written |
 | `FILE:LOC` | Same `file:line:col[-col\|:line:col]` addressing as AXDL, via the same [`SourceMap`](../axiom-errors/src/source_map.rs) - for a program with `(import ...)`s, `FILE` is the *actual* file that declared this symbol (an imported module's own file), not always the entry file, exactly like AXDL's own multi-file attribution |
 | `-` | In place of `FILE:LOC`, for names with no source span at all - in practice, only Axiom's dozen built-in operators (`+`, `==`, `&&`, ...), which `axiom symbols` omits entirely unless `--builtins` is passed (they never change, so printing them on every call is exactly the restating-what's-already-known token waste this notation exists to avoid) |
@@ -270,9 +270,8 @@ Metadata keys actually emitted today:
 | `ctors` | `D` | Comma-separated constructor names, e.g. `#ctors=None,Some` |
 | `of` | `C` | The constructor's owning struct type (ADT), e.g. `#of=Color` |
 | `fields` | `S`, `U` | `name:Type,name:Type,...` - the actual field shapes, not just a count, e.g. `#fields=x:Int,y:Int` |
-| `packed` / `repr=C` / `align=N` | `S` | The struct's layout attribute, when it has a non-default one |
+| `packed` / `align=N` | `S` | The struct's layout attribute, when it has a non-default one |
 | `methods` | `T`, `I` | `name:Type,name:Type,...` for the class's methods (as class/trait) or impl's trait's methods, same shape as `fields` |
-| `symbol` | `X` | The real linked C symbol name from `(foreign name :: Type = "c_symbol")`, e.g. `#symbol=printf` - not always the same as `NAME` |
 | `tyvars` | `A`, `D`, `S`, `U`, `T` | Comma-separated type parameters, e.g. `#tyvars=a,b`, omitted when there are none |
 
 `KIND` letters are deliberately disjoint from [`Severity::sigil`](../axiom-errors/src/severity.rs)'s `E`/`W`/`N`/`H`, so the first character of a line is never ambiguous about which notation (or which command) produced it even if AXDL and AXSYM output were ever concatenated into one stream.
@@ -282,7 +281,6 @@ Metadata keys actually emitted today:
 Source:
 
 ```lisp
-(foreign printf :: (-> String Int) = "printf")
 
 (struct Tree (Leaf) (Node Int (Tree Int) (Tree Int)))
 
@@ -298,12 +296,11 @@ Source:
 AXSYM output (`--diagnostic-format=ai symbols`, builtins omitted by default):
 
 ```
-X printf main.ax:1:10-16 "(String -> Int)" #symbol=printf
-F add main.ax:14:5-8 "(Int -> (Int -> Int))"
-D Tree main.ax:3:7-11 "struct Tree" #ctors=Leaf,Node
-C Leaf main.ax:4:4-8 "Tree" #of=Tree
-C Node main.ax:5:4-8 "Int Tree Tree" #of=Tree
-S Point main.ax:8:9-14 "struct Point" #fields=x:Int,y:Int
+F add main.ax:12:5-8 "(Int -> (Int -> Int))"
+D Tree main.ax:2:7-11 "struct Tree" #ctors=Leaf,Node
+C Leaf main.ax:3:4-8 "Tree" #of=Tree
+C Node main.ax:4:4-8 "Int Tree Tree" #of=Tree
+S Point main.ax:7:9-14 "struct Point" #fields=x:Int,y:Int
 ```
 
 An agent asked to inspect `Tree` declarations can now
@@ -360,19 +357,17 @@ Both NID and AXTAG are now implemented.
   agent-authored, compiler-checked intent. The lexer preserves AXTAG tokens
   as trivia attached to the following declaration, the parser attaches them
   to the AST, and `axiom symbols` surfaces accepted tags as `#`-metadata
-  on the corresponding AXSYM line (e.g. `#effect=io`, `#pure`).
-
-  Sema validates what it can: `effect(io)` claims are checked against
-  actual foreign calls in the body, and `pure` claims are checked against
-  foreign calls. Mismatches emit a normal `AX3010` / `axtag-mismatch`
-  warning so an agent can correct the annotation instead of silently
-  trusting it. Other tags (`no_refactor`, `owned(region=N)`, etc.) are
-  preserved and emitted but not yet validated.
+  Sema validates what it can: `effect(alloc)`, `effect(pure)`,
+  `effect(mut)`, and `effect(div)` claims are checked against
+  actual effects in the body. Mismatches emit a normal `AX3010` /
+  `axtag-mismatch` warning so an agent can correct the annotation
+  instead of silently trusting it. Other tags (`no_refactor`,
+  `owned(region=N)`, etc.) are preserved and emitted but not yet
+  validated.
 
 Example AXSYM output with NID and AXTAG metadata:
 
 ```
 F add main.ax:1:6-9 "(Int -> (Int -> Int))" @a1b2c3d4e5f6a1b2
-X printf main.ax:1:10-16 "(String -> Int)" #symbol=printf @c3d4e5f6a1b2
 D Tree main.ax:3:7-11 "struct Tree" #ctors=Leaf,Node @e5f6a1b2c3d4
 ```

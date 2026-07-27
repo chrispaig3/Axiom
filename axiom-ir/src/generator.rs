@@ -132,17 +132,6 @@ impl IrGen {
                     let func = self.gen_function(name, params, body, type_checker);
                     self.module.functions.push(func);
                 }
-                Decl::DForeign { name, ty, .. } => {
-                    let mut params = Vec::new();
-                    let mut current = self.type_to_id(ty);
-                    while let TypeId::TArr(param, rest) = current {
-                        params.push(*param);
-                        current = *rest;
-                    }
-                    self.module
-                        .extern_funcs
-                        .push((name.name.clone(), params, current));
-                }
                 Decl::DSig { name, ty, .. } => {
                     let _ = (name, ty);
                 }

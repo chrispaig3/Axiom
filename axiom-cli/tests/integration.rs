@@ -450,8 +450,7 @@ fn axsym_reports_all_declaration_kinds() {
     write_source(
         &dir,
         "main.ax",
-        r#"(foreign printf :: (-> String Int) = "printf")
-(struct Tree (a) (Leaf) (Node a (Tree a) (Tree a)))
+        r#"(struct Tree (a) (Leaf) (Node a (Tree a) (Tree a)))
 (struct Point (x : Int) (y : Int))
 (union Value (asInt : I64) (asFloat : F64))
 (type StringList () = [String])
@@ -461,7 +460,6 @@ fn axsym_reports_all_declaration_kinds() {
     let out = run_axiom(&["--diagnostic-format=ai", "symbols", "main.ax"], &dir);
     assert!(out.status.success(), "stderr: {}", stderr(&out));
     let text = stdout(&out);
-    assert!(text.lines().any(|l| l.starts_with("X printf ")));
     assert!(text.lines().any(|l| l.starts_with("D Tree ")));
     assert!(text.lines().any(|l| l.starts_with("C Leaf ")));
     assert!(text.lines().any(|l| l.starts_with("C Node ")));
@@ -472,7 +470,7 @@ fn axsym_reports_all_declaration_kinds() {
 }
 
 /// AXSYM spot-check: struct field shapes and layout attributes appear as
-/// `#fields=` and `#repr=C`/`#packed`/`#align=N` metadata.
+/// `#fields=` and `#packed`/`#align=N` metadata.
 #[test]
 fn axsym_struct_metadata_includes_fields_and_repr() {
     let dir = scratch_dir("axsym-struct-meta");
