@@ -73,6 +73,7 @@ impl MacroExpander {
             Expr::EField(base, field) => {
                 Expr::EField(Box::new(self.expand_expr(base)), field.clone())
             }
+            Expr::EPrintln(e) => Expr::EPrintln(Box::new(self.expand_expr(e))),
             Expr::ESetField(base, field, value) => Expr::ESetField(
                 Box::new(self.expand_expr(base)),
                 field.clone(),

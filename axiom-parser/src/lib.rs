@@ -1047,11 +1047,15 @@ while !self.check(TokenKind::RParen) && !self.at_eof() {
                 return self.parse_alignof();
             }
 
-            if self.check(TokenKind::Cast) {
-                return self.parse_cast();
-            }
+if self.check(TokenKind::Cast) {
+                 return self.parse_cast();
+             }
 
-            if self.check(TokenKind::DoubleColon) {
+             if self.check(TokenKind::Println) {
+                 return self.parse_println();
+             }
+
+             if self.check(TokenKind::DoubleColon) {
                 return self.parse_type_sig_expr();
             }
 
@@ -1379,6 +1383,13 @@ while !self.check(TokenKind::RParen) && !self.at_eof() {
         let expr = self.parse_expr()?;
         self.expect(TokenKind::RParen)?;
         Ok(Expr::ECast(Box::new(expr), target_ty))
+    }
+
+    fn parse_println(&mut self) -> ParseResult<Expr> {
+        self.expect(TokenKind::Println)?;
+        let expr = self.parse_expr()?;
+        self.expect(TokenKind::RParen)?;
+        Ok(Expr::EPrintln(Box::new(expr)))
     }
 
     fn parse_type_sig_expr(&mut self) -> ParseResult<Expr> {

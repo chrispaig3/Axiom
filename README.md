@@ -136,7 +136,7 @@ Functions are the heart of Axiom. Every function has an optional type signature 
 
 ; Multi-statement body with braces
 (fn (verbose-add x y)
-  { (printf "adding %d + %d\n" x y) ; calls C's printf
+  { (println "adding numbers") ; Axiom's own println keyword
     (+ x y) })
 
 ; A constant (function with no parameters)
@@ -224,8 +224,8 @@ When you need to evaluate multiple expressions in order, use braces:
 
 ```scheme
 {
-  (printf "Starting...\n") ; calls C's printf
-  (printf "Working...\n")  ; calls C's printf
+  (println "Starting...") ; Axiom's own println keyword
+  (println "Working...")  ; Axiom's own println keyword
   0
 }
 ```
@@ -236,8 +236,8 @@ Function bodies, `let` bodies, `if` branches, and `lambda` bodies also support i
 
 ```scheme
 (fn main
-  (printf "Starting...\n") ; calls C's printf
-  (printf "Working...\n")  ; calls C's printf
+  (println "Starting...") ; Axiom's own println keyword
+  (println "Working...")  ; Axiom's own println keyword
   0)
 ```
 
@@ -410,7 +410,7 @@ Annotate a function with its effects using AXTAG metadata:
 
 ```scheme
 ;@axiom:effect(alloc)
-(fn main (printf "hello")) ; calls C's printf
+(fn main (println "hello")) ; Axiom's own println keyword
 ```
 
 The compiler validates that the body actually performs the declared effects.
@@ -425,7 +425,7 @@ Handle effects with `handle`:
 
 ```scheme
 ; A handler that catches alloc and returns a default value
-(handle (printf "hello") (Alloc) 0) ; calls C's printf
+(handle (println "hello") (Alloc) 0) ; Axiom's own println keyword
 ```
 
 Effect annotations are also supported on traits and implementations:
@@ -437,7 +437,7 @@ Effect annotations are also supported on traits and implementations:
 
 (impl (Console alloc)
   where
-    (print (lambda (s) (printf "%s\n" s))))
+    (println "hello"))
 ```
 
 ---
@@ -512,13 +512,13 @@ Axiom has no standard library. System operations are not built-in; they can be i
 
 ### Print to stdout
 
-Axiom has no built-in `print` function. For output, call C's `printf` directly:
+Axiom has a built-in `println` keyword for output:
 
 ```scheme
 (:: main Int)
 (fn main
-  (printf "Formatted: Hello\n")
-  0)
+  (println "Hello, Axiom!"))
+```
 ```
 
 ### Working with struct types

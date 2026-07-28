@@ -40,6 +40,7 @@ impl LlvmCodeGen {
         writeln!(self.output, "; Axiom compiled LLVM IR").unwrap();
         writeln!(self.output, "target triple = \"arm64-apple-macosx14.0.0\"").unwrap();
         writeln!(self.output, "declare ptr @malloc(i64)").unwrap();
+        writeln!(self.output, "declare i64 @println(ptr)").unwrap();
         writeln!(self.output).unwrap();
 
         writeln!(self.output).unwrap();
@@ -680,27 +681,12 @@ impl LlvmCodeGen {
                         _ => "i64",
                     };
 
-                    let is_variadic = func == "printf";
-                    if is_variadic {
-                        writeln!(
-                            self.output,
-                            "  {} = call i32 (ptr, ...) {}({})",
-                            result_reg,
-                            func_name,
-                            arg_values.join(", "),
-                        )
-                        .unwrap();
-                    } else {
-                        writeln!(
-                            self.output,
-                            "  {} = call {} {}({})",
-                            result_reg,
-                            ret_ty,
-                            func_name,
-                            arg_values.join(", "),
-                        )
-                        .unwrap();
-                    }
+                    writeln!(
+                        self.output,
+                        "  {} = call {} {}({})",
+                        result_reg, ret_ty, func_name, arg_values.join(", "),
+                    )
+                    .unwrap();
                     let ret_type = if ret_ty == "i1" {
                         TypeId::TCon("Bool".to_string(), vec![])
                     } else {
@@ -984,6 +970,22 @@ impl LlvmCodeGen {
                     self.ssa_values.insert(
                         name.clone(),
                         (dest_reg, TypeId::TCon("I64".to_string(), vec![])),
+                    );
+                }
+            }
+            IrInst::Println { dest, value } => {
+                let val_str = self.value_to_llvm(value)?;
+                let result_reg = self.new_local_reg();
+                writeln!(
+                    self.output,
+                    "  {} = call i64 @println({})",
+                    result_reg, val_str
+                )
+                .unwrap();
+                if let IrValue::Local(name) = dest {
+                    self.ssa_values.insert(
+                        name.clone(),
+                        (result_reg, TypeId::TCon("Void".to_string(), vec![])),
                     );
                 }
             }

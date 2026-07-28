@@ -155,6 +155,8 @@ pub enum Expr {
     EUnquote(Box<Expr>),
     /// `,@expr` — unquote-splicing (splice list into quasiquote)
     EUnquoteSplicing(Box<Expr>),
+    /// (println expr) — print a string to stdout
+    EPrintln(Box<Expr>),
     EError(String, Span),
 }
 
@@ -230,6 +232,7 @@ impl Expr {
             Expr::EBacktick(e) => e.span(),
             Expr::EUnquote(e) => e.span(),
             Expr::EUnquoteSplicing(e) => e.span(),
+            Expr::EPrintln(e) => e.span(),
         }
     }
 }

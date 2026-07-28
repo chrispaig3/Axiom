@@ -42,6 +42,7 @@ pub enum TokenKind {
     Cast,     // (cast Type expr)
     Defmacro, // (defmacro name (params...) body)
     Macro,    // (macro name (params...) body) - alias for defmacro
+    Println,  // (println expr)
 
     // Quasiquoting
     Backtick, // ` - quasiquote
@@ -161,6 +162,7 @@ impl fmt::Display for TokenKind {
             TokenKind::Cast => write!(f, "cast"),
             TokenKind::Defmacro => write!(f, "defmacro"),
             TokenKind::Macro => write!(f, "macro"),
+            TokenKind::Println => write!(f, "println"),
             TokenKind::Backtick => write!(f, "`"),
             TokenKind::Unquote => write!(f, ","),
             TokenKind::UnquoteSplicing => write!(f, ",@"),

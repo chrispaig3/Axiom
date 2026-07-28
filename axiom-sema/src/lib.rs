@@ -299,7 +299,7 @@ fn collect_effects_into(
         }
         Expr::ESizeof(_, _) | Expr::EAlignof(_, _) | Expr::EError(_, _) => {}
         Expr::ELit(_, _) => {}
-        Expr::EBacktick(_) | Expr::EUnquote(_) | Expr::EUnquoteSplicing(_) => {}
+        Expr::EBacktick(_) | Expr::EUnquote(_) | Expr::EUnquoteSplicing(_) | Expr::EPrintln(_) => {}
         Expr::EHandle(body, handled, _handler) => {
             let mut body_effects = std::collections::HashSet::new();
             collect_effects_into(checker, body, &mut body_effects);
@@ -382,7 +382,7 @@ fn collect_effects_all_into(
         }
         Expr::ESizeof(_, _) | Expr::EAlignof(_, _) | Expr::EError(_, _) => {}
         Expr::ELit(_, _) => {}
-        Expr::EBacktick(_) | Expr::EUnquote(_) | Expr::EUnquoteSplicing(_) => {}
+        Expr::EBacktick(_) | Expr::EUnquote(_) | Expr::EUnquoteSplicing(_) | Expr::EPrintln(_) => {}
         Expr::EHandle(body, _, _handler) => {
             collect_effects_all_into(checker, body, out);
         }
@@ -732,6 +732,13 @@ impl TypeChecker {
                 ),
             ));
         }
+
+        let string_ty = TypeId::TCon("String".to_string(), vec![]);
+        let string_void = TypeId::TArr(
+            Box::new(string_ty),
+            Box::new(TypeId::TCon("Void".to_string(), vec![])),
+        );
+        tc.functions.push(FnInfo::builtin("println", string_void));
 
         tc
     }
@@ -1447,6 +1454,7 @@ impl TypeChecker {
             | Expr::EUnquoteSplicing(_) => {
                 TypeId::TVar(format!("_t{}", self.type_counter))
             }
+            Expr::EPrintln(e) => self.check_expr(e),
         }
     }
 

@@ -519,7 +519,7 @@ impl IrGen {
             | Expr::EField(e, _) => {
                 Self::collect_captured_vars(e, lambda_params, outer_alloca_map, out, seen);
             }
-            Expr::EAlloc(_, init, _) => {
+Expr::EAlloc(_, init, _) => {
                 if let Some(e) = init {
                     Self::collect_captured_vars(e, lambda_params, outer_alloca_map, out, seen);
                 }
@@ -539,7 +539,8 @@ impl IrGen {
             | Expr::EError(_, _)
             | Expr::EBacktick(_)
             | Expr::EUnquote(_)
-            | Expr::EUnquoteSplicing(_) => {}
+            | Expr::EUnquoteSplicing(_)
+            | Expr::EPrintln(_) => {}
             Expr::EHandle(body, _, after) => {
                 Self::collect_captured_vars(body, lambda_params, outer_alloca_map, out, seen);
                 Self::collect_captured_vars(after, lambda_params, outer_alloca_map, out, seen);
@@ -1691,6 +1692,18 @@ impl IrGen {
                 } else {
                     IrValue::Const(IrConst::Int(0, i64_ty))
                 }
+            }
+            Expr::EPrintln(e) => {
+                let val = self.gen_expr_to_func_with_allocas(func, e, alloca_map, type_checker);
+                let dest = self.new_local();
+                self.emit_to_func(
+                    func,
+                    IrInst::Println {
+                        dest: IrValue::Local(dest.clone()),
+                        value: val,
+                    },
+                );
+                IrValue::Local(dest)
             }
             _ => IrValue::Const(IrConst::Int(0, TypeId::TCon("I64".to_string(), vec![]))),
         }

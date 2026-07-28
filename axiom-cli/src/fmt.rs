@@ -812,10 +812,15 @@ fn format_expr(expr: &Expr, out: &mut String, state: &mut FormatState) {
             format_expr(value, out, state);
             out.push(')');
         }
-        Expr::EError(msg, _) => {
-            write!(out, "_{}", msg).unwrap();
-        }
-        Expr::EBacktick(sub) => {
+Expr::EError(msg, _) => {
+             write!(out, "_{}", msg).unwrap();
+         }
+         Expr::EPrintln(e) => {
+             out.push_str("(println ");
+             format_expr(e, out, state);
+             out.push(')');
+         }
+         Expr::EBacktick(sub) => {
             out.push('`');
             format_expr(sub, out, state);
         }

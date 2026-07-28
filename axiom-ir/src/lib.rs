@@ -200,10 +200,17 @@ pub enum IrInst {
     /// callee function signature has `captures` parameters first
     /// (the captured values are loaded from the closure struct),
     /// then `normal_args`.
-    ClosureCall {
+ClosureCall {
         dest: IrValue,
         closure: IrValue,
         normal_args: Vec<IrValue>,
+    },
+    /// Print a string expression to stdout followed by a newline.
+    /// Generated as a call to the Axiom runtime `@println` function,
+    /// not C's `printf` — this is Axiom's own standalone IO keyword.
+    Println {
+        dest: IrValue,
+        value: IrValue,
     },
 }
 
