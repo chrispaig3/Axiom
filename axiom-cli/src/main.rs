@@ -3,8 +3,6 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use axiom_ast::ast::{Decl, MacroDef};
-use axiom_macros::MacroExpander;
 use axiom_codegen::LlvmCodeGen;
 use axiom_errors::{Diagnostic, DiagnosticFormat, SymbolFact, SymbolKind};
 use axiom_ir::generator::IrGen;
@@ -44,9 +42,11 @@ enum Commands {
         output: String,
         #[arg(long)]
         emit_llvm: bool,
+        #[arg(short, long, default_value = "0")]
+        opt: u8,
     },
-    /// Build and run `input`
-    Run { input: String },
+    /// Run a source file directly
+    Run { input: String, args: Vec<String> },
     /// Check syntax and types
     Check { input: String },
     /// Emit LLVM IR only
@@ -69,8 +69,8 @@ enum Commands {
         check: bool,
     },
     /// Print every top-level symbol Axiom's type checker collected for a
-    /// file (functions, data types, constructors,
-    /// structs, and traits) along with its inferred/declared
+    /// file (functions, foreign bindings, data types, constructors,
+    /// structs, unions, and traits) along with its inferred/declared
     /// type. Honors `--diagnostic-format`: `ai` emits one AXSYM line per
     /// symbol (see `docs/diagnostics.md`), `json` emits one JSON object per
     /// line, and `human` (the default) prints an aligned table.
@@ -111,13 +111,14 @@ fn main() {
             input,
             output,
             emit_llvm,
+            opt,
         } => {
-            if let Err(e) = build(&input, &output, emit_llvm, format) {
+            if let Err(e) = build(&input, &output, emit_llvm, opt, format) {
                 eprintln!("{}", e);
                 std::process::exit(1);
             }
         }
-        Commands::Run { input } => match run(&input, format) {
+        Commands::Run { input, args } => match run(&input, &args, format) {
             Ok(code) => std::process::exit(code),
             Err(e) => {
                 eprintln!("{}", e);
@@ -294,13 +295,15 @@ fn print_diagnostics_multi(
 fn decl_name(decl: &axiom_ast::ast::Decl) -> Option<&str> {
     use axiom_ast::ast::Decl;
     match decl {
-        Decl::DStruct { name, .. }
+        Decl::DData { name, .. }
+        | Decl::DStruct { name, .. }
+        | Decl::DUnion { name, .. }
         | Decl::DType { name, .. }
         | Decl::DTrait { name, .. }
         | Decl::DSig { name, .. }
         | Decl::DFn { name, .. }
+        | Decl::DForeign { name, .. }
         | Decl::DEffect { name, .. } => Some(&name.name),
-        Decl::DMacro { name, .. } => Some(&name.name),
         Decl::DImpl { .. } | Decl::DImport { .. } => None,
     }
 }
@@ -577,135 +580,6 @@ fn analyze(
         resolve_imports(Path::new(input), &mut ast, format, &mut registry)?;
     }
 
-    {
-        if announce {
-            println!("[2.5/5] Expanding macros...");
-        }
-        let mut expander = MacroExpander::new();
-        expander.register_macros(&ast.decls);
-        let mut expanded_decls = Vec::new();
-        for decl in &ast.decls {
-            match decl {
-                Decl::DFn {
-                    name,
-                    params,
-                    body,
-                    nid,
-                    axtags,
-                } => {
-                    let expanded_body = expander.expand_expr(body);
-                    expanded_decls.push(Decl::DFn {
-                        name: name.clone(),
-                        params: params.clone(),
-                        body: expanded_body,
-                        nid: nid.clone(),
-                        axtags: axtags.clone(),
-                    });
-                }
-                Decl::DSig {
-                    name,
-                    ty,
-                    nid,
-                    axtags,
-                } => expanded_decls.push(Decl::DSig {
-                    name: name.clone(),
-                    ty: ty.clone(),
-                    nid: nid.clone(),
-                    axtags: axtags.clone(),
-                }),
-                Decl::DStruct {
-                    name,
-                    tyvars,
-                    variants,
-                    repr,
-                    nid,
-                    axtags,
-                } => expanded_decls.push(Decl::DStruct {
-                    name: name.clone(),
-                    tyvars: tyvars.clone(),
-                    variants: variants.clone(),
-                    repr: repr.clone(),
-                    nid: nid.clone(),
-                    axtags: axtags.clone(),
-                }),
-                Decl::DType {
-                    name,
-                    tyvars,
-                    alias,
-                    nid,
-                    axtags,
-                } => expanded_decls.push(Decl::DType {
-                    name: name.clone(),
-                    tyvars: tyvars.clone(),
-                    alias: alias.clone(),
-                    nid: nid.clone(),
-                    axtags: axtags.clone(),
-                }),
-                Decl::DTrait {
-                    name,
-                    tyvar,
-                    supertraits,
-                    methods,
-                    effects,
-                    nid,
-                    axtags,
-                } => expanded_decls.push(Decl::DTrait {
-                    name: name.clone(),
-                    tyvar: tyvar.clone(),
-                    supertraits: supertraits.clone(),
-                    methods: methods.clone(),
-                    effects: effects.clone(),
-                    nid: nid.clone(),
-                    axtags: axtags.clone(),
-                }),
-                Decl::DImpl {
-                    trait_name,
-                    ty,
-                    methods,
-                    effects,
-                    nid,
-                    axtags,
-                } => expanded_decls.push(Decl::DImpl {
-                    trait_name: trait_name.clone(),
-                    ty: ty.clone(),
-                    methods: methods.clone(),
-                    effects: effects.clone(),
-                    nid: nid.clone(),
-                    axtags: axtags.clone(),
-                }),
-                Decl::DEffect {
-                    name,
-                    operations,
-                    nid,
-                    axtags,
-                } => expanded_decls.push(Decl::DEffect {
-                    name: name.clone(),
-                    operations: operations.clone(),
-                    nid: nid.clone(),
-                    axtags: axtags.clone(),
-                }),
-                Decl::DImport { module, names } => expanded_decls.push(Decl::DImport {
-                    module: module.clone(),
-                    names: names.clone(),
-                }),
-                Decl::DMacro { name, def } => {
-                    let expanded_body = expander.expand_expr(&def.body);
-                    expanded_decls.push(Decl::DMacro {
-                        name: name.clone(),
-                        def: MacroDef {
-                            name: name.clone(),
-                            params: def.params.clone(),
-                            body: expanded_body,
-                            doc: def.doc.clone(),
-                            axtags: def.axtags.clone(),
-                        },
-                    });
-                }
-            }
-        }
-        ast.decls = expanded_decls;
-    }
-
     if announce {
         println!("[3/5] Type checking...");
     }
@@ -733,6 +607,7 @@ fn build(
     input: &str,
     output: &str,
     emit_llvm: bool,
+    opt: u8,
     format: DiagnosticFormat,
 ) -> Result<(), String> {
     let source =
@@ -750,7 +625,7 @@ fn build(
             &axiom_errors::code::MISSING_MAIN,
             "no `main` function found",
         )
-        .with_help("add `(:: main Int)` and `(fn main ...)` as the program entry point");
+        .with_help("add `(:: main Int)` and `(define main ...)` as the program entry point");
         print_diagnostics(vec![diag], input, &source, format);
         return Err("compilation failed: missing entry point".to_string());
     }
@@ -764,48 +639,37 @@ fn build(
 
     if emit_llvm {
         println!("LLVM IR written to {}", ll_path);
-        println!("Build successful: {}", ll_path);
-        return Ok(());
     }
 
     let obj_path = format!("{}.o", output);
+
     let llc_status = Command::new("llc")
-        .args(["-filetype=obj", &ll_path, "-o", &obj_path])
+        .arg(&ll_path)
+        .arg("-filetype=obj")
+        .arg("-o")
+        .arg(&obj_path)
+        .arg(format!("-O{}", opt.clamp(0, 3)))
         .status()
         .map_err(|e| format!("Failed to run llc: {}", e))?;
 
     if !llc_status.success() {
-        return Err("llc failed to compile LLVM IR to object file".to_string());
+        return Err("llc failed".to_string());
     }
 
-    println!("Object file written to {}", obj_path);
-
-    let exe_path = output.to_string();
-    let runtime_c = Path::new("runtime.c");
-    let runtime_obj = "runtime.o";
-    let cc_args: Vec<&str> = if runtime_c.exists() {
-        let cc_runtime = Command::new("cc")
-            .args(["-c", "runtime.c", "-o", runtime_obj])
-            .status()
-            .map_err(|e| format!("Failed to compile runtime: {}", e))?;
-        if !cc_runtime.success() {
-            return Err("failed to compile Axiom runtime".to_string());
-        }
-        vec![runtime_obj, &obj_path, "-o", &exe_path]
-    } else {
-        vec![&obj_path, "-o", &exe_path]
-    };
     let cc_status = Command::new("cc")
-        .args(&cc_args)
+        .arg(&obj_path)
+        .arg("-o")
+        .arg(output)
         .status()
         .map_err(|e| format!("Failed to run cc: {}", e))?;
 
     if !cc_status.success() {
-        return Err("cc failed to link object file to executable".to_string());
+        return Err("cc failed".to_string());
     }
 
-    println!("Executable written to {}", exe_path);
-    println!("Build successful: {}", exe_path);
+    fs::remove_file(&obj_path).ok();
+
+    println!("Build successful: {}", output);
     Ok(())
 }
 
@@ -823,17 +687,24 @@ fn build(
 /// CLI-level failures: the build itself failing, the resulting binary
 /// failing to spawn at all, or the process being killed by a signal
 /// (which has no numeric exit code to propagate).
-fn run(input: &str, format: DiagnosticFormat) -> Result<i32, String> {
+fn run(input: &str, args: &[String], format: DiagnosticFormat) -> Result<i32, String> {
     let output = "axiom_temp_output";
-    build(input, output, false, format)?;
+    build(input, output, false, 0, format)?;
 
-    let exe_path = format!("./{}", output);
-    let status = Command::new(&exe_path)
+    let mut cmd = Command::new(format!("./{}", output));
+    for arg in args {
+        cmd.arg(arg);
+    }
+
+    let status = cmd
         .status()
-        .map_err(|e| format!("Failed to execute {}: {}", exe_path, e))?;
+        .map_err(|e| format!("Failed to run program: {}", e))?;
 
-    let code = status.code().ok_or_else(|| "program killed by signal".to_string())?;
-    Ok(code)
+    fs::remove_file(output).ok();
+
+    status
+        .code()
+        .ok_or_else(|| format!("Program terminated by signal: {}", status))
 }
 
 fn check(input: &str, format: DiagnosticFormat) -> Result<(), String> {
@@ -844,23 +715,23 @@ fn check(input: &str, format: DiagnosticFormat) -> Result<(), String> {
     Ok(())
 }
 
-/// A struct's `packed`/`align` attribute, formatted as one
-/// `#`-meta value (`packed` or `align=16`) - `None` for the
-/// default (no attribute) layout. Layout attributes affect a type's
-/// ABI,
+/// A struct/union's `repr`/`packed`/`align` attribute, formatted as one
+/// `#`-meta value (`packed`, `repr=C`, or `align=16`) - `None` for the
+/// default (no attribute) layout. Layout attributes affect a type's ABI,
 /// so surfacing them is the difference between an agent knowing a type's
-/// ABI layout from one AXSYM line versus having to re-read the
+/// exact wire/FFI shape from one AXSYM line versus having to re-read the
 /// declaration to find out it even has a non-default layout at all.
 fn repr_meta(repr: &Option<axiom_ast::ast::TypeRepr>) -> Option<String> {
     use axiom_ast::ast::TypeRepr;
     match repr {
         None => None,
         Some(TypeRepr::Packed) => Some("packed".to_string()),
+        Some(TypeRepr::C) => Some("repr=C".to_string()),
         Some(TypeRepr::Align(n)) => Some(format!("align={}", n)),
     }
 }
 
-/// Format a struct's fields (or a trait's methods) as
+/// Format a struct/union's fields (or a trait's methods) as
 /// `name:Type,name:Type,...` for a `#fields=`/`#methods=` meta value - the
 /// actual shapes, not just a count, so an agent can see a type's exact
 /// layout (or a trait's exact method set) from the AXSYM line alone.
@@ -895,7 +766,6 @@ fn collect_symbol_facts(
     let mut fn_spans: HashMap<&str, axiom_ast::span::Span> = HashMap::new();
     let mut type_spans: HashMap<&str, axiom_ast::span::Span> = HashMap::new();
     let mut trait_spans: HashMap<&str, axiom_ast::span::Span> = HashMap::new();
-    let mut effect_spans: HashMap<&str, axiom_ast::span::Span> = HashMap::new();
     let mut ctor_spans: HashMap<&str, axiom_ast::span::Span> = HashMap::new();
     let mut struct_reprs: HashMap<&str, &Option<axiom_ast::ast::TypeRepr>> = HashMap::new();
 
@@ -908,7 +778,16 @@ fn collect_symbol_facts(
             Decl::DFn {
                 name, nid, axtags, ..
             } => (name, nid, axtags),
+            Decl::DForeign {
+                name, nid, axtags, ..
+            } => (name, nid, axtags),
+            Decl::DData {
+                name, nid, axtags, ..
+            } => (name, nid, axtags),
             Decl::DStruct {
+                name, nid, axtags, ..
+            } => (name, nid, axtags),
+            Decl::DUnion {
                 name, nid, axtags, ..
             } => (name, nid, axtags),
             Decl::DType {
@@ -917,10 +796,6 @@ fn collect_symbol_facts(
             Decl::DTrait {
                 name, nid, axtags, ..
             } => (name, nid, axtags),
-            Decl::DEffect {
-                name, nid, axtags, ..
-            } => (name, nid, axtags),
-            Decl::DImpl { .. } => continue,
             _ => continue,
         };
         let axtag_meta: Vec<String> = axtags
@@ -952,7 +827,7 @@ fn collect_symbol_facts(
             // A `(:: name Type)` signature is the most useful anchor for a
             // function's location (it's usually right above the
             // definition and states the type the fact is about), so it
-            // takes priority; `entry` leaves an existing `DFn`
+            // takes priority; `entry` leaves an existing `DFn`/`DForeign`
             // span alone only if the signature is missing.
             Decl::DSig { name, .. } => {
                 fn_spans.insert(&name.name, name.span);
@@ -960,30 +835,35 @@ fn collect_symbol_facts(
             Decl::DFn { name, .. } => {
                 fn_spans.entry(&name.name).or_insert(name.span);
             }
-            Decl::DStruct {
-                name,
-                variants,
-                repr,
-                ..
+            Decl::DForeign { name, .. } => {
+                fn_spans.entry(&name.name).or_insert(name.span);
+            }
+            Decl::DData {
+                name, constructors, ..
             } => {
                 type_spans.insert(&name.name, name.span);
-                for sv in variants {
-                    ctor_spans.insert(&sv.name.name, sv.name.span);
+                // `DataConInfo` (the `TypeChecker`-side record) has no
+                // span of its own - only the AST's own `DataCon` does -
+                // so constructor locations have to come from here, not
+                // from `tc.data_types`, or every constructor would
+                // render with no location at all (indistinguishable from
+                // an actual builtin in the AXSYM/human output).
+                for con in constructors {
+                    ctor_spans.insert(&con.name.name, con.name.span);
                 }
+            }
+            Decl::DStruct { name, repr, .. } => {
+                type_spans.insert(&name.name, name.span);
                 struct_reprs.insert(&name.name, repr);
+            }
+            Decl::DUnion { name, .. } => {
+                type_spans.insert(&name.name, name.span);
             }
             Decl::DType { name, .. } => {
                 type_spans.insert(&name.name, name.span);
             }
             Decl::DTrait { name, .. } => {
                 trait_spans.insert(&name.name, name.span);
-            }
-            Decl::DEffect { name, .. } => {
-                effect_spans.insert(&name.name, name.span);
-            }
-            Decl::DImpl { .. } => {
-                // DImpl has no simple name for span lookup;
-                // trait_name + ty serves as its key.
             }
             _ => {}
         }
@@ -995,7 +875,11 @@ fn collect_symbol_facts(
         if f.is_builtin && !include_builtins {
             continue;
         }
-        let kind = SymbolKind::Fn;
+        let kind = if f.foreign_symbol.is_some() {
+            SymbolKind::Foreign
+        } else {
+            SymbolKind::Fn
+        };
         let mut fact = SymbolFact::new(
             kind,
             &f.name,
@@ -1003,6 +887,9 @@ fn collect_symbol_facts(
             f.ty.to_string(),
             decl_meta.get(f.name.as_str()).and_then(|(n, _)| n.clone()),
         );
+        if let Some(symbol) = &f.foreign_symbol {
+            fact = fact.with_meta(format!("symbol={}", symbol));
+        }
         if let Some((_, axtags)) = decl_meta.get(f.name.as_str()) {
             for m in axtags {
                 fact = fact.with_meta(m.clone());
@@ -1011,80 +898,73 @@ fn collect_symbol_facts(
         facts.push(fact);
     }
 
+    for d in &tc.data_types {
+        let ctor_names: Vec<String> = d.constructors.iter().map(|c| c.name.clone()).collect();
+        let mut fact = SymbolFact::new(
+            SymbolKind::Data,
+            &d.name,
+            type_spans.get(d.name.as_str()).copied(),
+            format!("data {}", d.name),
+            decl_meta.get(d.name.as_str()).and_then(|(n, _)| n.clone()),
+        );
+        if !ctor_names.is_empty() {
+            fact = fact.with_meta(format!("ctors={}", ctor_names.join(",")));
+        }
+        if let Some((_, axtags)) = decl_meta.get(d.name.as_str()) {
+            for m in axtags {
+                fact = fact.with_meta(m.clone());
+            }
+        }
+        facts.push(fact);
+        for c in &d.constructors {
+            facts.push(
+                SymbolFact::new(
+                    SymbolKind::Ctor,
+                    &c.name,
+                    ctor_spans.get(c.name.as_str()).copied(),
+                    c.ty.to_string(),
+                    None,
+                )
+                .with_meta(format!("of={}", c.data_type)),
+            );
+        }
+    }
+
     for s in &tc.structs {
-        let is_adt = s.variants.len() > 1;
-        if is_adt {
-            let ctor_names: Vec<String> = s.variants.iter().map(|sv| sv.name.clone()).collect();
-            let mut fact = SymbolFact::new(
-                SymbolKind::Data,
-                &s.name,
-                type_spans.get(s.name.as_str()).copied(),
-                format!("struct {}", s.name),
-                decl_meta.get(s.name.as_str()).and_then(|(n, _)| n.clone()),
-            )
-            .with_meta(format!("ctors={}", ctor_names.join(",")));
-            if let Some((_, axtags)) = decl_meta.get(s.name.as_str()) {
-                for m in axtags {
-                    fact = fact.with_meta(m.clone());
-                }
-            }
-            facts.push(fact);
+        let mut fact = SymbolFact::new(
+            SymbolKind::Struct,
+            &s.name,
+            type_spans.get(s.name.as_str()).copied(),
+            format!("struct {}", s.name),
+            decl_meta.get(s.name.as_str()).and_then(|(n, _)| n.clone()),
+        )
+        .with_meta(format!("fields={}", fields_meta(&s.fields)));
+        if let Some(repr) = repr_meta(struct_reprs.get(s.name.as_str()).copied().unwrap_or(&None)) {
+            fact = fact.with_meta(repr);
         }
+        if let Some((_, axtags)) = decl_meta.get(s.name.as_str()) {
+            for m in axtags {
+                fact = fact.with_meta(m.clone());
+            }
+        }
+        facts.push(fact);
+    }
 
-        for sv in &s.variants {
-            let mut fact = SymbolFact::new(
-                SymbolKind::Ctor,
-                &sv.name,
-                ctor_spans.get(sv.name.as_str()).copied(),
-                format!("struct {}", s.name),
-                decl_meta.get(s.name.as_str()).and_then(|(n, _)| n.clone()),
-            )
-            .with_meta(format!("of={}", s.name));
-            if !sv.fields.is_empty() {
-                let field_strs: Vec<String> = sv
-                    .fields
-                    .iter()
-                    .map(|(n, t)| format!("{}:{}", n, t))
-                    .collect();
-                fact = fact.with_meta(format!("fields={}", field_strs.join(",")));
+    for u in &tc.unions {
+        let mut fact = SymbolFact::new(
+            SymbolKind::Union,
+            &u.name,
+            type_spans.get(u.name.as_str()).copied(),
+            format!("union {}", u.name),
+            decl_meta.get(u.name.as_str()).and_then(|(n, _)| n.clone()),
+        )
+        .with_meta(format!("fields={}", fields_meta(&u.fields)));
+        if let Some((_, axtags)) = decl_meta.get(u.name.as_str()) {
+            for m in axtags {
+                fact = fact.with_meta(m.clone());
             }
-            if let Some((_, axtags)) = decl_meta.get(s.name.as_str()) {
-                for m in axtags {
-                    fact = fact.with_meta(m.clone());
-                }
-            }
-            facts.push(fact);
         }
-
-        if !is_adt {
-            let mut fact = SymbolFact::new(
-                SymbolKind::Struct,
-                &s.name,
-                type_spans.get(s.name.as_str()).copied(),
-                format!("struct {}", s.name),
-                decl_meta.get(s.name.as_str()).and_then(|(n, _)| n.clone()),
-            )
-            .with_meta(format!(
-                "fields={}",
-                s.variants
-                    .iter()
-                    .flat_map(|sv| sv.fields.iter())
-                    .map(|(n, t)| format!("{}:{}", n, t))
-                    .collect::<Vec<_>>()
-                    .join(",")
-            ));
-            if let Some(repr) =
-                repr_meta(struct_reprs.get(s.name.as_str()).copied().unwrap_or(&None))
-            {
-                fact = fact.with_meta(repr);
-            }
-            if let Some((_, axtags)) = decl_meta.get(s.name.as_str()) {
-                for m in axtags {
-                    fact = fact.with_meta(m.clone());
-                }
-            }
-            facts.push(fact);
-        }
+        facts.push(fact);
     }
 
     for a in &tc.aliases {
@@ -1106,59 +986,6 @@ fn collect_symbol_facts(
         facts.push(fact);
     }
 
-    let mut effect_facts = Vec::new();
-    for decl in &module.decls {
-        if let Decl::DEffect {
-            name, ..
-        } = decl
-        {
-            let ty_str = format!(
-                "effect {}",
-                name.name
-            );
-            let mut fact = SymbolFact::new(
-                SymbolKind::Effect,
-                &name.name,
-                effect_spans.get(name.name.as_str()).copied(),
-                ty_str,
-                decl_meta.get(name.name.as_str()).and_then(|(n, _)| n.clone()),
-            );
-            if let Some((_, axtags)) = decl_meta.get(name.name.as_str()) {
-                for m in axtags {
-                    fact = fact.with_meta(m.clone());
-                }
-            }
-            effect_facts.push(fact);
-        }
-    }
-
-    let mut impl_facts = Vec::new();
-    for decl in &module.decls {
-        if let Decl::DImpl {
-            trait_name, ty, ..
-        } = decl
-        {
-            let mut label = String::new();
-            label.push_str("impl ");
-            label.push_str(&trait_name.name);
-            label.push_str(" for ");
-            Decl::fmt_type_nid(&mut label, ty);
-            let mut fact = SymbolFact::new(
-                SymbolKind::Impl,
-                &label,
-                trait_name.span.into(),
-                label.clone(),
-                None,
-            );
-            if let Some((_, axtags)) = decl_meta.get(&trait_name.name) {
-                for m in axtags {
-                    fact = fact.with_meta(m.clone());
-                }
-            }
-            impl_facts.push(fact);
-        }
-    }
-
     for t in &tc.traits {
         let mut fact = SymbolFact::new(
             SymbolKind::Trait,
@@ -1174,13 +1001,6 @@ fn collect_symbol_facts(
             }
         }
         facts.push(fact);
-    }
-
-    for f in effect_facts {
-        facts.push(f);
-    }
-    for f in impl_facts {
-        facts.push(f);
     }
 
     facts
@@ -1533,7 +1353,7 @@ fn show_help() {
     println!("{}", "Tips:".bold().bright_cyan());
     println!(
         "  • Define functions: {}",
-        "(fn (add x y) (+ x y))".bright_white()
+        "(define (add x y) (+ x y))".bright_white()
     );
     println!(
         "  • Type signatures: {}",
@@ -1541,7 +1361,7 @@ fn show_help() {
     );
     println!(
         "  • Data types: {}",
-        "(struct Tree (Leaf) (Node Int (Tree Int) (Tree Int)))".bright_white()
+        "(data Maybe (a) (Nothing) (Just a))".bright_white()
     );
     println!("  • Expressions are evaluated and results shown");
     println!("  • Use ; for line comments");
@@ -1668,21 +1488,18 @@ fn cmd_defs(state: &mut ReplState) {
         }
     }
 
-    for s in &tc.structs {
-        for sv in &s.variants {
+    for dt in &tc.data_types {
+        println!(
+            "  data {} with {} constructors",
+            dt.name.bright_white(),
+            dt.constructors.len()
+        );
+        for con in &dt.constructors {
             println!(
-                "  struct {} variant {} with {} field(s)",
-                s.name.bright_white(),
-                sv.name.bright_green(),
-                sv.fields.len()
+                "    {} : {}",
+                con.name.bright_green(),
+                con.ty.to_string().bright_cyan()
             );
-            for (fname, fty) in &sv.fields {
-                println!(
-                    "    {} : {}",
-                    fname.bright_green(),
-                    fty.to_string().bright_cyan()
-                );
-            }
         }
     }
 }
@@ -1738,7 +1555,7 @@ fn cmd_llvm(expr_str: &str, state: &mut ReplState) {
 
             if let Ok(ty) = tc.check_single_expr(&expr) {
                 let wrapper = format!(
-                    "{}\n(:: __repl_result (-> Int {}))\n(fn (__repl_result _dummy) {})\n(:: main Int)\n(fn main {{ 0 }})",
+                    "(foreign printf :: (-> String Int Int) = \"printf\")\n(foreign puts :: (-> String Int) = \"puts\")\n{}\n(:: __repl_result (-> Int {}))\n(define (__repl_result _dummy) {})\n(:: main Int)\n(define main {{ (printf \"%ld\\n\" (__repl_result 0)) 0 }})",
                     state.declarations,
                     ty,
                     expr_str,
@@ -1896,9 +1713,9 @@ fn process_input(input: &str, state: &mut ReplState) {
                     "OK:".bright_green().bold(),
                     name.name.bright_white()
                 );
-            } else if let axiom_ast::ast::Decl::DStruct { name, .. } = &decl {
+            } else if let axiom_ast::ast::Decl::DData { name, .. } = &decl {
                 println!(
-                    "{} struct {} defined",
+                    "{} data {} defined",
                     "OK:".bright_green().bold(),
                     name.name.bright_white()
                 );
@@ -1966,7 +1783,7 @@ fn generate_repl_wrapper(declarations: &str, input: &str, ty: &axiom_sema::TypeI
     match type_str.as_str() {
         "Int" | "I64" | "U64" | "Isize" | "Usize" => {
             format!(
-                "{}\n(:: __repl_result (-> Int Int))\n(fn (__repl_result _dummy) {})\n(:: main Int)\n(fn main {{ (__repl_result 0) }})",
+                "(foreign printf :: (-> String Int Int) = \"printf\")\n(foreign puts :: (-> String Int) = \"puts\")\n{}\n(:: __repl_result (-> Int Int))\n(define (__repl_result _dummy) {})\n(:: main Int)\n(define main {{ (printf \"%ld\\n\" (__repl_result 0)) 0 }})",
                 declarations,
                 input,
             )
@@ -1974,21 +1791,21 @@ fn generate_repl_wrapper(declarations: &str, input: &str, ty: &axiom_sema::TypeI
         "Bool" => {
             let wrapped_input = format!("(if {} 1 0)", input);
             format!(
-                "{}\n(:: __repl_result (-> Int Int))\n(fn (__repl_result _dummy) {})\n(:: main Int)\n(fn main {{ (__repl_result 0) }})",
+                "(foreign printf :: (-> String Int Int) = \"printf\")\n(foreign puts :: (-> String Int) = \"puts\")\n{}\n(:: __repl_result (-> Int Int))\n(define (__repl_result _dummy) {})\n(:: main Int)\n(define main {{ (if (== (__repl_result 0) 0) {{ (puts \"false\") 0 }} {{ (puts \"true\") 0 }}) 0 }})",
                 declarations,
                 wrapped_input,
             )
         }
         "Char" => {
             format!(
-                "{}\n(:: __repl_result (-> Int Int))\n(fn (__repl_result _dummy) {})\n(:: main Int)\n(fn main {{ (__repl_result 0) }})",
+                "(foreign printf :: (-> String Int Int) = \"printf\")\n(foreign puts :: (-> String Int) = \"puts\")\n{}\n(:: __repl_result (-> Int Int))\n(define (__repl_result _dummy) {})\n(:: main Int)\n(define main {{ (printf \"%c\\n\" (__repl_result 0)) 0 }})",
                 declarations,
                 input,
             )
         }
         _ => {
             format!(
-                "{}\n(:: __repl_result (-> Int Int))\n(fn (__repl_result _dummy) {})\n(:: main Int)\n(fn main {{ (__repl_result 0) }})",
+                "(foreign printf :: (-> String Int Int) = \"printf\")\n(foreign puts :: (-> String Int) = \"puts\")\n{}\n(:: __repl_result (-> Int Int))\n(define (__repl_result _dummy) {})\n(:: main Int)\n(define main {{ (printf \"%ld\\n\" (__repl_result 0)) 0 }})",
                 declarations,
                 input,
             )
@@ -1998,12 +1815,53 @@ fn generate_repl_wrapper(declarations: &str, input: &str, ty: &axiom_sema::TypeI
 
 fn compile_and_run_repl(llvm_ir: &str) -> Option<String> {
     let temp_ll = "axiom_repl_temp.ll";
+    let temp_out = "axiom_repl_temp";
 
     if fs::write(temp_ll, llvm_ir).is_err() {
         return None;
     }
 
+    let obj_path = format!("{}.o", temp_out);
+    if !Command::new("llc")
+        .arg(temp_ll)
+        .arg("-filetype=obj")
+        .arg("-o")
+        .arg(&obj_path)
+        .status()
+        .is_ok_and(|s| s.success())
+    {
+        fs::remove_file(temp_ll).ok();
+        return None;
+    }
+
+    if !Command::new("cc")
+        .arg(&obj_path)
+        .arg("-o")
+        .arg(temp_out)
+        .status()
+        .is_ok_and(|s| s.success())
+    {
+        fs::remove_file(&obj_path).ok();
+        fs::remove_file(temp_ll).ok();
+        return None;
+    }
+
+    let output = Command::new(format!("./{}", temp_out)).output();
+
+    fs::remove_file(&obj_path).ok();
     fs::remove_file(temp_ll).ok();
+    fs::remove_file(temp_out).ok();
+
+    if let Ok(out) = output {
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        let trimmed = stdout.trim().to_string();
+        if !trimmed.is_empty() {
+            return Some(trimmed);
+        }
+        if let Some(code) = out.status.code() {
+            return Some(format!("{}", code));
+        }
+    }
 
     None
 }

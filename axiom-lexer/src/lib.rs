@@ -168,7 +168,7 @@ impl Lexer {
 
             match ch {
                 '"' => tokens.push(self.consume_string()?),
-                '`' => self.push_token(&mut tokens, TokenKind::Backtick),
+                '`' => self.push_token(&mut tokens, TokenKind::Quote),
                 '$' => self.push_token(&mut tokens, TokenKind::Bang),
                 '+' => self.push_token(&mut tokens, TokenKind::Plus),
                 '%' => self.push_token(&mut tokens, TokenKind::Percent),
@@ -338,18 +338,22 @@ impl Lexer {
         }
         let name: String = self.source[start..self.pos].iter().collect();
         let kind = match name.as_str() {
+            "define" => TokenKind::Define,
             "lambda" => TokenKind::Lambda,
             "let" => TokenKind::Let,
             "if" => TokenKind::If,
             "cond" => TokenKind::Cond,
             "match" => TokenKind::Match,
             "fn" => TokenKind::Fn,
+            "data" => TokenKind::Data,
             "struct" => TokenKind::Struct,
+            "union" => TokenKind::Union,
             "type" => TokenKind::Type,
             "newtype" => TokenKind::Newtype,
             "trait" => TokenKind::Trait,
             "impl" => TokenKind::Impl,
             "import" => TokenKind::Import,
+            "foreign" => TokenKind::Foreign,
             "pub" => TokenKind::Pub,
             "deriving" => TokenKind::Deriving,
             "where" => TokenKind::Where,
@@ -358,15 +362,13 @@ impl Lexer {
             "region" => TokenKind::Region,
             "linear" => TokenKind::Linear,
             "consume" => TokenKind::Consume,
-"packed" => TokenKind::Packed,
-              "println" => TokenKind::Println,
-              "align" => TokenKind::Align,
+            "packed" => TokenKind::Packed,
+            "repr" => TokenKind::Repr,
+            "align" => TokenKind::Align,
             "alloc" => TokenKind::Alloc,
             "sizeof" => TokenKind::Sizeof,
             "alignof" => TokenKind::Alignof,
             "cast" => TokenKind::Cast,
-            "defmacro" => TokenKind::Defmacro,
-            "macro" => TokenKind::Macro,
             "true" => TokenKind::BoolLiteral(true),
             "false" => TokenKind::BoolLiteral(false),
             "Int" => TokenKind::Int,
@@ -379,6 +381,7 @@ impl Lexer {
             "Any" => TokenKind::Any,
             "Void" => TokenKind::Void,
             "Pure" => TokenKind::Pure,
+            "IO" => TokenKind::IO,
             "Mut" => TokenKind::Mut,
             "mut" => TokenKind::Mut,
             "Div" => TokenKind::Div,
@@ -639,10 +642,17 @@ mod tests {
 
     #[test]
     fn tokenizes_constructor_and_type_variable_idents() {
+        // Regression guard for the parser-level constructor-pattern and
+        // bare-type-application fixes: both rely on the *lexer* already
+        // treating `Just`/`a` as plain `Ident` tokens (capitalization is
+        // a parser-level convention, not a lexer-level token kind), so a
+        // future lexer change that started distinguishing them at the
+        // token level would silently break both fixes without this test
+        // ever touching the parser at all.
         assert_eq!(
-            kinds("Some a"),
+            kinds("Just a"),
             vec![
-                TokenKind::Ident("Some".to_string()),
+                TokenKind::Ident("Just".to_string()),
                 TokenKind::Ident("a".to_string()),
                 TokenKind::Eof,
             ]

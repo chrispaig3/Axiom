@@ -1,6 +1,6 @@
 use axiom_ir::*;
 use axiom_sema::TypeId;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt::Write;
 
 pub struct LlvmCodeGen {
@@ -8,11 +8,11 @@ pub struct LlvmCodeGen {
     type_counter: usize,
     local_counter: usize,
     struct_types: HashMap<String, usize>,
-    enum_types: HashMap<String, usize>,
     current_func: Option<String>,
     locals: HashMap<String, (String, TypeId)>,
     ssa_values: HashMap<String, (String, TypeId)>,
     string_ids: HashMap<String, usize>,
+    extern_decls: HashSet<String>,
 }
 
 impl Default for LlvmCodeGen {
@@ -28,20 +28,33 @@ impl LlvmCodeGen {
             type_counter: 0,
             local_counter: 0,
             struct_types: HashMap::new(),
-            enum_types: HashMap::new(),
             current_func: None,
             locals: HashMap::new(),
             ssa_values: HashMap::new(),
             string_ids: HashMap::new(),
+            extern_decls: HashSet::new(),
         }
     }
 
     pub fn compile(&mut self, ir_module: &IrModule) -> Result<String, String> {
         writeln!(self.output, "; Axiom compiled LLVM IR").unwrap();
         writeln!(self.output, "target triple = \"arm64-apple-macosx14.0.0\"").unwrap();
-        writeln!(self.output, "declare ptr @malloc(i64)").unwrap();
-        writeln!(self.output, "declare i64 @println(ptr)").unwrap();
         writeln!(self.output).unwrap();
+
+        self.declare_extern_funcs();
+
+        for (name, params, ret) in &ir_module.extern_funcs {
+            if self.extern_decls.insert(name.clone()) {
+                let params_str = params
+                    .iter()
+                    .map(|t| self.type_to_llvm(t))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let ret_str = self.type_to_llvm(ret);
+                writeln!(self.output, "declare {} @{}({})", ret_str, name, params_str)
+                    .unwrap();
+            }
+        }
 
         writeln!(self.output).unwrap();
 
@@ -52,17 +65,14 @@ impl LlvmCodeGen {
         for func in &ir_module.functions {
             for block in &func.blocks {
                 for inst in &block.insts {
-                    let args: Vec<&IrValue> = match inst {
-                        IrInst::Call { args, .. } => args.iter().collect(),
-                        IrInst::Println { value, .. } => vec![value],
-                        _ => continue,
-                    };
-                    for arg in args {
-                        if let IrValue::Const(IrConst::Str(s)) = arg {
-                            if !self.string_ids.contains_key(s) {
-                                self.string_ids.insert(s.clone(), str_id);
-                                strings.push((str_id, s.clone()));
-                                str_id += 1;
+                    if let IrInst::Call { args, .. } = inst {
+                        for arg in args {
+                            if let IrValue::Const(IrConst::Str(s)) = arg {
+                                if !self.string_ids.contains_key(s) {
+                                    self.string_ids.insert(s.clone(), str_id);
+                                    strings.push((str_id, s.clone()));
+                                    str_id += 1;
+                                }
                             }
                         }
                     }
@@ -99,11 +109,6 @@ impl LlvmCodeGen {
         }
         writeln!(self.output).unwrap();
 
-        for ir_enum in &ir_module.enums {
-            self.declare_enum(ir_enum);
-        }
-        writeln!(self.output).unwrap();
-
         for global in &ir_module.globals {
             self.declare_global(global);
         }
@@ -114,6 +119,22 @@ impl LlvmCodeGen {
         }
 
         Ok(self.output.clone())
+    }
+
+    fn declare_extern_funcs(&mut self) {
+        let hardcoded = [
+            ("printf", "i32", "ptr, ..."),
+            ("puts", "i32", "ptr"),
+            ("malloc", "ptr", "i64"),
+            ("free", "void", "ptr"),
+            ("memset", "ptr", "ptr, i32, i64"),
+            ("memcpy", "ptr", "ptr, ptr, i64"),
+            ("exit", "void", "i32"),
+        ];
+        for (name, ret, params) in &hardcoded {
+            writeln!(self.output, "declare {} @{}({})", ret, name, params).unwrap();
+            self.extern_decls.insert(name.to_string());
+        }
     }
 
     fn declare_struct(&mut self, ir_struct: &IrStruct) {
@@ -137,35 +158,6 @@ impl LlvmCodeGen {
             packed,
             fields.join(", "),
             packed_end,
-        )
-        .unwrap();
-    }
-
-    fn declare_enum(&mut self, ir_enum: &IrEnum) {
-        let type_id = self.type_counter;
-        self.type_counter += 1;
-        self.enum_types.insert(ir_enum.name.clone(), type_id);
-
-        let variant_types: Vec<String> = ir_enum
-            .variants
-            .iter()
-            .map(|(_, opt_ty)| match opt_ty {
-                Some(ty) => self.type_to_llvm(ty),
-                None => "i64".to_string(),
-            })
-            .collect();
-
-        writeln!(
-            self.output,
-            "%union.{} = type {{ {} }}",
-            type_id,
-            variant_types.join(", "),
-        )
-        .unwrap();
-        writeln!(
-            self.output,
-            "%struct.{} = type {{ i64, %union.{} }}",
-            type_id, type_id,
         )
         .unwrap();
     }
@@ -684,12 +676,27 @@ impl LlvmCodeGen {
                         _ => "i64",
                     };
 
-                    writeln!(
-                        self.output,
-                        "  {} = call {} {}({})",
-                        result_reg, ret_ty, func_name, arg_values.join(", "),
-                    )
-                    .unwrap();
+                    let is_variadic = func == "printf";
+                    if is_variadic {
+                        writeln!(
+                            self.output,
+                            "  {} = call i32 (ptr, ...) {}({})",
+                            result_reg,
+                            func_name,
+                            arg_values.join(", "),
+                        )
+                        .unwrap();
+                    } else {
+                        writeln!(
+                            self.output,
+                            "  {} = call {} {}({})",
+                            result_reg,
+                            ret_ty,
+                            func_name,
+                            arg_values.join(", "),
+                        )
+                        .unwrap();
+                    }
                     let ret_type = if ret_ty == "i1" {
                         TypeId::TCon("Bool".to_string(), vec![])
                     } else {
@@ -847,151 +854,6 @@ impl LlvmCodeGen {
                     );
                 }
             }
-            IrInst::ClosureAlloc {
-                dest,
-                func_ptr,
-                captures,
-            } => {
-                let captures_len = captures.len();
-                let closure_size = ((1 + captures_len) * 8) as i64;
-                let size_val = IrValue::Const(IrConst::Int(
-                    closure_size,
-                    TypeId::TCon("I64".to_string(), vec![]),
-                ));
-                let size_llvm = self.value_to_llvm(&size_val)?;
-                let ptr_reg = self.new_local_reg();
-                writeln!(
-                    self.output,
-                    "  {} = call ptr @malloc(i64 {})",
-                    ptr_reg, size_llvm
-                )
-                .unwrap();
-                let addr_reg = self.new_local_reg();
-                writeln!(
-                    self.output,
-                    "  {} = ptrtoint ptr {} to i64",
-                    addr_reg, ptr_reg
-                )
-                .unwrap();
-                let func_ptr_llvm = self.value_to_llvm(func_ptr)?;
-                writeln!(
-                    self.output,
-                    "  store i64 {}, ptr {}",
-                    func_ptr_llvm, addr_reg
-                )
-                .unwrap();
-                for (i, cap) in captures.iter().enumerate() {
-                    let cap_llvm = self.value_to_llvm(cap)?;
-                    let offset_reg = self.new_local_reg();
-                    writeln!(
-                        self.output,
-                        "  {} = add i64 {}, {}",
-                        offset_reg,
-                        addr_reg,
-                        ((i + 1) * 8) as i64
-                    )
-                    .unwrap();
-                    let field_ptr_reg = self.new_local_reg();
-                    writeln!(
-                        self.output,
-                        "  {} = inttoptr i64 {} to ptr",
-                        field_ptr_reg, offset_reg
-                    )
-                    .unwrap();
-                    writeln!(
-                        self.output,
-                        "  store i64 {}, ptr {}",
-                        cap_llvm, field_ptr_reg
-                    )
-                    .unwrap();
-                }
-                if let IrValue::Local(name) = dest {
-                    self.ssa_values.insert(
-                        name.clone(),
-                        (addr_reg, TypeId::TCon("I64".to_string(), vec![])),
-                    );
-                }
-            }
-            IrInst::ClosureCall {
-                dest,
-                closure,
-                normal_args,
-            } => {
-                let closure_llvm = self.value_to_llvm(closure)?;
-                let func_ptr_reg = self.new_local_reg();
-                writeln!(
-                    self.output,
-                    "  {} = load i64, ptr {}",
-                    func_ptr_reg, closure_llvm
-                )
-                .unwrap();
-                let mut args_llvm = Vec::new();
-                for cap_idx in 0.. {
-                    let offset_reg = self.new_local_reg();
-                    writeln!(
-                        self.output,
-                        "  {} = add i64 {}, {}",
-                        offset_reg,
-                        closure_llvm,
-                        ((cap_idx + 1) * 8) as i64
-                    )
-                    .unwrap();
-                    let field_ptr_reg = self.new_local_reg();
-                    writeln!(
-                        self.output,
-                        "  {} = inttoptr i64 {} to ptr",
-                        field_ptr_reg, offset_reg
-                    )
-                    .unwrap();
-                    let load_reg = self.new_local_reg();
-                    writeln!(
-                        self.output,
-                        "  {} = load i64, ptr {}",
-                        load_reg, field_ptr_reg
-                    )
-                    .unwrap();
-                    args_llvm.push(load_reg);
-                }
-                for arg in normal_args {
-                    args_llvm.push(self.value_to_llvm(arg)?);
-                }
-                let func_ptr_llvm = format!("%{}", func_ptr_reg);
-                let dest_reg = self.new_local_reg();
-                writeln!(
-                    self.output,
-                    "  {} = call i64 {}({})",
-                    dest_reg,
-                    func_ptr_llvm,
-                    args_llvm
-                        .iter()
-                        .map(|a| format!("i64 %{}", a))
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                )
-                .unwrap();
-                if let IrValue::Local(name) = dest {
-                    self.ssa_values.insert(
-                        name.clone(),
-                        (dest_reg, TypeId::TCon("I64".to_string(), vec![])),
-                    );
-                }
-            }
-            IrInst::Println { dest, value } => {
-                let val_str = self.value_to_llvm(value)?;
-                let result_reg = self.new_local_reg();
-                writeln!(
-                    self.output,
-                    "  {} = call i64 @println({})",
-                    result_reg, val_str
-                )
-                .unwrap();
-                if let IrValue::Local(name) = dest {
-                    self.ssa_values.insert(
-                        name.clone(),
-                        (result_reg, TypeId::TCon("I64".to_string(), vec![])),
-                    );
-                }
-            }
         }
 
         Ok(())
@@ -1121,8 +983,6 @@ impl LlvmCodeGen {
                 _ => {
                     if let Some(type_id) = self.struct_types.get(name) {
                         format!("%struct.{}", type_id)
-                    } else if let Some(type_id) = self.enum_types.get(name) {
-                        format!("%struct.{}", type_id)
                     } else {
                         "i64".to_string()
                     }
@@ -1143,7 +1003,6 @@ impl LlvmCodeGen {
             // exhaustiveness.
             TypeId::TError => "i64".to_string(),
             TypeId::TEffect(inner, _) => self.type_to_llvm(inner),
-            TypeId::TLinear(inner) => self.type_to_llvm(inner),
         }
     }
 
@@ -1176,7 +1035,6 @@ impl LlvmCodeGen {
             // `type_to_llvm`'s matching arm for the same rationale).
             TypeId::TError => 8,
             TypeId::TEffect(inner, _) => self.type_size(inner),
-            TypeId::TLinear(inner) => self.type_size(inner),
         }
     }
 
@@ -1198,7 +1056,6 @@ impl LlvmCodeGen {
             TypeId::TForall(_, inner) => self.type_align(inner),
             TypeId::TError => 8,
             TypeId::TEffect(inner, _) => self.type_align(inner),
-            TypeId::TLinear(inner) => self.type_align(inner),
         }
     }
 

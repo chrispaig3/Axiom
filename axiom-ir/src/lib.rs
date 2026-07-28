@@ -182,36 +182,6 @@ pub enum IrInst {
         ptr: IrValue,
         offset: i64,
     },
-    /// Allocate a closure struct on the heap for a lambda that
-    /// captures variables from its enclosing scope. The closure
-    /// struct layout is: word 0 = function pointer (`i64`),
-    /// subsequent words = captured `i64` values in declaration
-    /// order. `captures` holds the values to store after the
-    /// function pointer. `dest` receives the address of the
-    /// allocated closure struct.
-    ClosureAlloc {
-        dest: IrValue,
-        func_ptr: IrValue,
-        captures: Vec<IrValue>,
-    },
-    /// Call a lambda through a closure struct. `closure` is the
-    /// heap address of the closure struct; `normal_args` are the
-    /// arguments the caller passes (not the captured values). The
-    /// callee function signature has `captures` parameters first
-    /// (the captured values are loaded from the closure struct),
-    /// then `normal_args`.
-ClosureCall {
-        dest: IrValue,
-        closure: IrValue,
-        normal_args: Vec<IrValue>,
-    },
-    /// Print a string expression to stdout followed by a newline.
-    /// Generated as a call to the Axiom runtime `@println` function,
-    /// not C's `printf` — this is Axiom's own standalone IO keyword.
-    Println {
-        dest: IrValue,
-        value: IrValue,
-    },
 }
 
 #[derive(Debug, Clone)]
@@ -261,6 +231,12 @@ pub struct IrEnum {
 }
 
 #[derive(Debug, Clone)]
+pub struct IrUnion {
+    pub name: String,
+    pub fields: Vec<(String, TypeId)>,
+}
+
+#[derive(Debug, Clone)]
 pub struct IrGlobal {
     pub name: String,
     pub ty: TypeId,
@@ -273,7 +249,9 @@ pub struct IrModule {
     pub functions: Vec<IrFunction>,
     pub structs: Vec<IrStruct>,
     pub enums: Vec<IrEnum>,
+    pub unions: Vec<IrUnion>,
     pub globals: Vec<IrGlobal>,
+    pub extern_funcs: Vec<(String, Vec<TypeId>, TypeId)>,
 }
 
 impl Default for IrModule {
@@ -288,7 +266,9 @@ impl IrModule {
             functions: Vec::new(),
             structs: Vec::new(),
             enums: Vec::new(),
+            unions: Vec::new(),
             globals: Vec::new(),
+            extern_funcs: Vec::new(),
         }
     }
 }

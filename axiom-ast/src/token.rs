@@ -14,18 +14,22 @@ pub enum TokenKind {
     Ident(String),
 
     // Keywords
+    Define,   // (define name body) or (define (name args...) body)
     Lambda,   // (lambda (args...) body)
     Let,      // (let ((x val)...) body)
     If,       // (if cond then else)
     Cond,     // (cond (test body)... (else body))
     Match,    // (match expr (pattern body)...)
     Fn,       // (fn (name args...) body) - modern alias for define
+    Data,     // (data Name (tyvars...) (constructor...))
     Struct,   // (struct Name (field...) )
+    Union,    // (union Name (field...))
     Type,     // (type Name (tyvars...) alias)
     Newtype,  // (newtype Name (tyvars...) ctor inner)
-    Trait,    // (trait (Name tv) (super...) (method...))
-    Impl,     // (impl (Trait Type) (method...))
+    Trait,   // (trait (Name tv) (super...) (method...))
+    Impl,    // (impl (Trait Type) (method...))
     Import,   // (import module (names...))
+    Foreign,  // (foreign name type "symbol")
     Pub,      // (pub decl)
     Deriving, // (deriving Class...)
     Where,    // for class/instance method bodies
@@ -35,19 +39,12 @@ pub enum TokenKind {
     Linear,   // linear type marker
     Consume,  // (consume expr)
     Packed,   // packed struct modifier
+    Repr,     // repr(C) struct modifier
     Align,    // align(N) struct modifier
     Alloc,    // (alloc Type) or (alloc Type count)
     Sizeof,   // (sizeof Type)
     Alignof,  // (alignof Type)
     Cast,     // (cast Type expr)
-    Defmacro, // (defmacro name (params...) body)
-    Macro,    // (macro name (params...) body) - alias for defmacro
-    Println,  // (println expr)
-
-    // Quasiquoting
-    Backtick, // ` - quasiquote
-    Unquote,  // , - unquote
-    UnquoteSplicing, // ,@ - unquote-splicing
 
     // Type keywords
     Int,
@@ -75,6 +72,7 @@ pub enum TokenKind {
     F64,
     Void,
     Pure,
+    IO,
     Mut,
     Div,
 
@@ -134,18 +132,22 @@ impl fmt::Display for TokenKind {
             TokenKind::StringLiteral(s) => write!(f, "\"{}\"", s),
             TokenKind::CharLiteral(c) => write!(f, "'{}'", c),
             TokenKind::Ident(s) => write!(f, "{}", s),
+            TokenKind::Define => write!(f, "define"),
             TokenKind::Lambda => write!(f, "lambda"),
             TokenKind::Let => write!(f, "let"),
             TokenKind::If => write!(f, "if"),
             TokenKind::Cond => write!(f, "cond"),
             TokenKind::Match => write!(f, "match"),
             TokenKind::Fn => write!(f, "fn"),
+            TokenKind::Data => write!(f, "data"),
             TokenKind::Struct => write!(f, "struct"),
+            TokenKind::Union => write!(f, "union"),
             TokenKind::Type => write!(f, "type"),
             TokenKind::Newtype => write!(f, "newtype"),
             TokenKind::Trait => write!(f, "trait"),
             TokenKind::Impl => write!(f, "impl"),
             TokenKind::Import => write!(f, "import"),
+            TokenKind::Foreign => write!(f, "foreign"),
             TokenKind::Pub => write!(f, "pub"),
             TokenKind::Deriving => write!(f, "deriving"),
             TokenKind::Where => write!(f, "where"),
@@ -155,17 +157,12 @@ impl fmt::Display for TokenKind {
             TokenKind::Linear => write!(f, "linear"),
             TokenKind::Consume => write!(f, "consume"),
             TokenKind::Packed => write!(f, "packed"),
+            TokenKind::Repr => write!(f, "repr"),
             TokenKind::Align => write!(f, "align"),
             TokenKind::Alloc => write!(f, "alloc"),
             TokenKind::Sizeof => write!(f, "sizeof"),
             TokenKind::Alignof => write!(f, "alignof"),
             TokenKind::Cast => write!(f, "cast"),
-            TokenKind::Defmacro => write!(f, "defmacro"),
-            TokenKind::Macro => write!(f, "macro"),
-            TokenKind::Println => write!(f, "println"),
-            TokenKind::Backtick => write!(f, "`"),
-            TokenKind::Unquote => write!(f, ","),
-            TokenKind::UnquoteSplicing => write!(f, ",@"),
             TokenKind::Int => write!(f, "Int"),
             TokenKind::Integer => write!(f, "Integer"),
             TokenKind::Float => write!(f, "Float"),
@@ -191,6 +188,7 @@ impl fmt::Display for TokenKind {
             TokenKind::F64 => write!(f, "F64"),
             TokenKind::Void => write!(f, "Void"),
             TokenKind::Pure => write!(f, "Pure"),
+            TokenKind::IO => write!(f, "IO"),
             TokenKind::Mut => write!(f, "Mut"),
             TokenKind::Div => write!(f, "Div"),
             TokenKind::RArrow => write!(f, "->"),

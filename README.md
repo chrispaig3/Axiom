@@ -16,6 +16,7 @@ Co‑authored with Qwen3.6 Plus, Axiom explores a new frontier: languages built 
 | If you like... | Axiom gives you... |
 |---|---|
 | **Rust's safety** | A strong static type system with algebraic data types, pattern matching, and no null pointers — but with simpler syntax and faster compilation |
+| **C's simplicity** | Direct FFI to C libraries, manual memory control via `malloc`/`free`, and predictable performance — without the decades of legacy baggage |
 | **Python's expressiveness** | First-class functions, lambdas, and a REPL that compiles to native code — not interprets |
 | **Go's pragmatism** | A small, learnable language with a single compilation step — no crazy build systems, no messy dependency managers, no toolchain sprawl |
 | **Haskell's elegance** | Curried functions, polymorphic data types, and a clean mathematical foundation — without the 30-minute compile times |
@@ -25,7 +26,7 @@ Co‑authored with Qwen3.6 Plus, Axiom explores a new frontier: languages built 
 - **S-expression syntax** — Code is data. Every program is a tree of lists. This makes macros, code generation, and AST manipulation trivial.
 - **Prefix operators** — `(+ x y)` instead of `x + y`. Operators are just functions. Uniform syntax means fewer parsing edge cases.
 - **LLVM native compilation** — Programs compile to machine code, not bytecode. No VM, no JIT overhead, no runtime.
-- **Linear types** — Linear types are implemented for agent actions and external effects, enforcing single-use semantics and consumption tracking at the type level.
+- **Work-in-progress ambition** — The parser already recognizes effects, regions, linear types, and type classes. The foundation is being laid for a language that can express memory safety, effect tracking, and zero-cost abstractions — all at the type level.
 
 ---
 
@@ -34,7 +35,8 @@ Co‑authored with Qwen3.6 Plus, Axiom explores a new frontier: languages built 
 ### Prerequisites
 
 - **Rust 1.70+** — to build the compiler
-- **LLVM** — `llc` must be on your PATH (LLVM IR → object file)
+- **LLVM** — `llc` must be on your PATH (for code generation)
+- **A C compiler** — `cc`, `clang`, or `gcc` on your PATH (for final linking)
 
 On macOS:
 ```bash
@@ -43,7 +45,7 @@ brew install llvm
 
 On Ubuntu/Debian:
 ```bash
-sudo apt install llvm
+sudo apt install llvm clang
 ```
 
 ### Build the compiler
@@ -65,9 +67,11 @@ The binary is at `./target/release/axiom`.
 Create a file called `hello.ax`:
 
 ```scheme
+(foreign printf :: (-> String Int) = "printf")
+
 (:: main Int)
 (fn main
-  (print "Hello, Axiom!\n")
+  (printf "Hello, Axiom!\n")
   0)
 ```
 
@@ -87,7 +91,7 @@ Compile it:
 Every Axiom program needs a `main` function that returns `Int`. The compiler pipeline:
 
 ```
-Source (.ax) → Lexer → Parser → Type Checker → IR → LLVM IR → llc → Executable
+Source (.ax) → Lexer → Parser → Type Checker → IR → LLVM IR → llc → cc → Executable
 ```
 
 ---
@@ -134,9 +138,13 @@ Functions are the heart of Axiom. Every function has an optional type signature 
 (fn (add x y)
   (+ x y))
 
+; Definition using 'define' (classic style)
+(define (add x y)
+  (+ x y))
+
 ; Multi-statement body with braces
 (fn (verbose-add x y)
-  { (println "adding numbers") ; Axiom's own println keyword
+  { (printf "adding %d + %d\n" x y)
     (+ x y) })
 
 ; A constant (function with no parameters)
@@ -224,8 +232,8 @@ When you need to evaluate multiple expressions in order, use braces:
 
 ```scheme
 {
-  (println "Starting...") ; Axiom's own println keyword
-  (println "Working...")  ; Axiom's own println keyword
+  (printf "Starting...\n")
+  (printf "Working...\n")
   0
 }
 ```
@@ -236,21 +244,33 @@ Function bodies, `let` bodies, `if` branches, and `lambda` bodies also support i
 
 ```scheme
 (fn main
-  (println "Starting...") ; Axiom's own println keyword
-  (println "Working...")  ; Axiom's own println keyword
+  (printf "Starting...\n")
+  (printf "Working...\n")
   0)
 ```
 
-### Struct types (Algebraic Data Types)
+### Data types (Algebraic Data Types)
 
 Define custom types with constructors:
 
 ```scheme
+; Optional value
+(data Maybe (a)
+  (Nothing)
+  (Just a))
+
+; Linked list
+(data List (a)
+  (Nil)
+  (Cons a (List a)))
+
 ; Binary tree
-(struct Tree (Leaf) (Node Int (Tree Int) (Tree Int)))
+(data Tree (a)
+  (Leaf)
+  (Node (Tree a) a (Tree a)))
 
 ; Ordering result
-(struct Ordering
+(data Ordering
   (LT)
   (EQ)
   (GT))
@@ -260,52 +280,64 @@ The `(a)` after the type name is a type parameter — like generics in other lan
 
 ### Pattern matching with `match`
 
-Patterns can match constructors, literals, tuples, lists, and wildcards:
-
 ```scheme
-(match val
-  ((Green) 0)
-  ((Red x) (+ x 1)))
+(:: fromMaybe (-> Int (Maybe Int) Int))
+(fn (fromMaybe default val)
+  (match val
+    ((Nothing) default)
+    ((Just x) x)))
 ```
+
+Patterns can match constructors, literals, tuples, lists, and wildcards:
 
 ```scheme
 (match x
   (42 "the answer")
-  (([a b]) (+ a b))
+  ((Cons head tail) head)
   (_ "anything else"))
+```
+
+The built-in `Option` type provides safe null handling without exceptions:
+
+```scheme
+(match (Some 42)
+  ((Some v) v)
+  ((None) 0))
 ```
 
 #### Algebraic data types: how they actually run
 
-Every value of a `struct` type - nullary constructors like `Leaf` included -
+Every value of a `data` type - nullary constructors like `Nothing` included -
 is a heap-allocated, tagged block: word `0` is an integer tag identifying
 which constructor built it, and words `1..` are its fields, one 8-byte word
 each. This one uniform representation (rather than, say, an unboxed integer
 for nullary constructors and a pointer for everything else) is what lets
 `match` compare *any* constructor pattern against *any* value of that type
-the same way, and it's what makes recursive types - `Tree` - work
-with no special-casing at all: a field that's itself another struct value
+the same way, and it's what makes recursive types - `List`, `Tree` - work
+with no special-casing at all: a field that's itself another `data` value
 is just another 8-byte word holding that value's own heap address.
 
 ```scheme
-(struct Tree (Leaf) (Node Int (Tree Int) (Tree Int)))
+(data List (a)
+  (Nil)
+  (Cons a (List a)))
 
-(:: sum (-> (Tree Int) Int))
-(fn (sum t)
-  (match t
-    ((Leaf) 0)
-    ((Node n left right) (+ n (+ (sum left) (sum right))))))
+(:: sum (-> (List Int) Int))
+(fn (sum lst)
+  (match lst
+    ((Nil) 0)
+    ((Cons h t) (+ h (sum t)))))
 
 (:: main Int)
 (fn main
-  (sum (Node 10 (Node 5 Leaf Leaf) (Node 15 Leaf Leaf))))   ; => 30
+  (sum (Cons 1 (Cons 2 (Cons 3 (Nil))))))   ; => 6
 ```
 
 Current limitations, honestly stated:
 
 - **Exhaustiveness and arity are checked** (missing constructors and
   wrong-arity constructor patterns are compile errors - `AX3005`/`AX3009`).
-- **Nested constructor patterns work** - `((Node _ (Node _ left right) _))`
+- **Nested constructor patterns work** - `((Cons h (Cons h2 t)) ...)`
   correctly matches and binds all three variables. Inner constructor tags
   are checked recursively and fields are extracted at each level.
 - **Tuple and list patterns inside `match` now compare elements**
@@ -317,13 +349,13 @@ Current limitations, honestly stated:
   application `malloc`s and nothing ever `free`s it. Fine for short-lived
   CLI programs and this README's examples; not something to build a
   long-running server on yet.
-- Struct field access (`.field`-style reads) still has no
-  expression syntax at all — see the Structs
-  section below for what does and doesn't work there.
+- Struct/union **field access** (`.field`-style reads) still has no
+  expression syntax at all, independent of `data` - see the Structs/Unions
+  sections below for what does and doesn't work there.
 
 ### Structs
 
-For non-default data layouts:
+For C-compatible data layouts:
 
 ```scheme
 ; Basic struct
@@ -336,9 +368,22 @@ For non-default data layouts:
   (x : Int)
   (y : Int))
 
+; C-compatible layout
+(struct CPoint repr(C)
+  (x : I32)
+  (y : I32))
+
 ; Aligned to 16 bytes
 (struct AlignedData align(16)
   (data : I64))
+```
+
+### Unions
+
+```scheme
+(union Value
+  (asInt : I64)
+  (asFloat : F64))
 ```
 
 ### Type aliases
@@ -394,6 +439,7 @@ Built-in effects:
 
 | Effect | Meaning |
 |---|---|
+| `IO` | Calls foreign functions (C FFI) |
 | `Pure` | No side effects |
 | `Alloc` | Heap allocation (`alloc`) |
 | `Mut` | Mutable state (`set-field`) |
@@ -409,8 +455,8 @@ Declare an effect type:
 Annotate a function with its effects using AXTAG metadata:
 
 ```scheme
-;@axiom:effect(alloc)
-(fn main (println "hello")) ; Axiom's own println keyword
+;@axiom:effect(io)
+(fn main (printf "hello"))
 ```
 
 The compiler validates that the body actually performs the declared effects.
@@ -424,8 +470,8 @@ Handle effects with `handle`:
 `handle` runs `body`, intercepting the declared `effects` via `handler`. Effects not listed propagate out.
 
 ```scheme
-; A handler that catches alloc and returns a default value
-(handle (println "hello") (Alloc) 0) ; Axiom's own println keyword
+; A handler that catches IO and returns a default value
+(handle (printf "hello") (IO) 0)
 ```
 
 Effect annotations are also supported on traits and implementations:
@@ -435,9 +481,9 @@ Effect annotations are also supported on traits and implementations:
   where
     (print :: (-> String a)))
 
-(impl (Console alloc)
+(impl (Console IO)
   where
-    (println "hello"))
+    (print (lambda (s) (printf "%s\n" s))))
 ```
 
 ---
@@ -484,18 +530,49 @@ Effect annotations are also supported on traits and implementations:
 
 ---
 
-## Built-ins
+## Built-ins and FFI
 
-Axiom has no standard library. System operations are not built-in; they can be implemented through language primitives and external linking.
+Axiom has no standard library. System operations are done through FFI bindings to C, which you declare in your code.
 
-### Common struct types
+### FFI bindings
 
 ```scheme
-(struct Tree (Leaf) (Node Int (Tree Int) (Tree Int)))
-(struct Ordering
-  (LT)
-  (EQ)
-  (GT))
+(foreign printf :: (-> String Int) = "printf")
+(foreign malloc :: (-> Int (* Any)) = "malloc")
+(foreign free :: (-> (* Any) ()) = "free")
+(foreign memset :: (-> (* Any) Int Int (* Any)) = "memset")
+(foreign memcpy :: (-> (* Any) (* Any) Int (* Any) (* Any)) = "memcpy")
+(foreign exit :: (-> Int ()) = "exit")
+```
+
+See the [Foreign Function Interface](#foreign-function-interface) section for details.
+
+### Common data types (define as needed)
+
+```scheme
+(data Maybe (a) (Nothing) (Just a))
+(data Ordering (LT) (EQ) (GT))
+(data List (a) (Nil) (Cons a (List a)))
+```
+
+### Built-in types
+
+`Option` is a built-in generic type with `Some` and `None` constructors,
+always available without a `data` declaration. It works with `match`
+for safe null handling:
+
+```scheme
+(:: safe_div (-> Int Int Int))
+(fn (safe_div a b)
+  (match b
+    ((0) (None))
+    (_ (Some (/ a b)))))
+
+(:: main Int)
+(fn main
+  (match (safe_div 10 2)
+    ((Some x) x)
+    ((None) 0)))
 ```
 
 ### Built-in operators (always available)
@@ -512,27 +589,31 @@ Axiom has no standard library. System operations are not built-in; they can be i
 
 ### Print to stdout
 
-Axiom has a built-in `println` keyword for output:
-
 ```scheme
+(foreign printf :: (-> String Int) = "printf")
+
 (:: main Int)
 (fn main
-  (println "Hello, Axiom!"))
-```
+  (printf "Formatted: %d\n" 42)
+  0)
 ```
 
-### Working with struct types
+### Working with data types
 
 ```scheme
-(:: fromMaybe (-> Int (Color Int) Int))
+(data Maybe (a)
+  (Nothing)
+  (Just a))
+
+(:: fromMaybe (-> Int (Maybe Int) Int))
 (fn (fromMaybe default val)
   (match val
-    ((Green) default)
-    ((Red x) x)))
+    ((Nothing) default)
+    ((Just x) x)))
 
 (:: main Int)
 (fn main
-  (fromMaybe 0 (Red 42)))
+  (fromMaybe 0 (Just 42)))
 ```
 
 Note: constructor patterns now compile to real branching code (see
@@ -576,7 +657,8 @@ How it works:
   would.
 - `(import Mod.Sub)` with no name list brings in every top-level
   declaration from that file; `(import Mod.Sub (a b))` brings in only the
- named declarations (functions, `struct`/`type` decls).
+  named declarations (functions, `data`/`struct`/`union`/`type` decls,
+  `foreign` bindings, ...).
 - Imports are transitive (`A` imports `B` imports `C` brings `C`'s
   declarations into `A` too) and diamond-safe (two different modules both
   importing `C` merges `C` exactly once, not twice).
@@ -623,7 +705,7 @@ How it works:
 ./target/release/axiom --diagnostic-format=ai check source.ax
 
 # List every top-level symbol (functions, types, constructors, structs,
-# aliases, traits, ...) and its type/shape in Axiom's AI-optimized
+# unions, aliases, classes, ...) and its type/shape in Axiom's AI-optimized
 # "AXSYM" notation (see docs/diagnostics.md); resolves (import ...) too, and
 # attributes each symbol to the file that actually declared it
 ./target/release/axiom --diagnostic-format=ai symbols source.ax
@@ -675,7 +757,7 @@ The REPL compiles expressions to native code — it doesn't interpret them. This
 axiom> 1 (:: add (-> Int Int Int))
 OK: add defined
 
-axiom> 2 (fn (add x y) (+ x y))
+axiom> 2 (define (add x y) (+ x y))
 OK: add defined
 
 axiom> 3 (add 3 4)
@@ -704,6 +786,37 @@ The REPL accumulates definitions — functions you define persist across inputs.
 
 ---
 
+## Foreign Function Interface
+
+Axiom can call any C function. Declare it with `foreign`:
+
+```scheme
+(foreign name :: (-> ReturnType Param1 Param2 ...) = "c_symbol_name")
+```
+
+Examples:
+
+```scheme
+; printf from stdio.h
+(foreign printf :: (-> String Int) = "printf")
+
+; malloc from stdlib.h
+(foreign malloc :: (-> Int (* Any)) = "malloc")
+
+; A custom C function
+(foreign my_c_function :: (-> Int String Int) = "my_c_function")
+```
+
+The string after `=` is the symbol name as it appears in the C library. For most C library functions, this is the same as the Axiom name.
+
+When compiling, you may need to link additional libraries:
+
+```bash
+cc output.o -lcurl -lssl -lcrypto -o program
+```
+
+---
+
 ## Compiler Architecture
 
 ```
@@ -722,7 +835,7 @@ Source (.ax)
 [4/5] IR Generator → Three-address code with basic blocks
     │
     ▼
-[5/5] LLVM CodeGen → LLVM IR text → llc → executable
+[5/5] LLVM CodeGen → LLVM IR text → llc → .o → cc → executable
 ```
 
 ### Crate structure
@@ -748,18 +861,21 @@ Source (.ax)
 | Operators (prefix) | **Complete** | All arithmetic, comparison, logical (`+`, `-`, `*`, `/`, `%`, `==`, `!=`, `<`, `>`, `<=`, `>=`, `&&`, `\|\|`) |
 | Let bindings | **Complete** | Variable resolution, sequential evaluation |
 | if expressions | **Complete** | Proper branching with result values |
+| begin blocks | **Removed** | Replaced by `{ }` brace blocks and implicit sequencing |
 | brace blocks | **Complete** | `{ expr1 expr2 ... }` — modern sequencing, returns last value |
-| fn keyword | **Complete** | Modern function declaration keyword (replaces `define`) |
-| ADTs / struct types | **Complete** | Constructors (nullary and with fields, including recursive types like `Tree`) compile to heap-boxed tagged values; see [Algebraic data types](#algebraic-data-types-how-they-actually-run) |
-| Structs | **Complete** | Declarations, LLVM emission, field access (`.field`), struct construction (`(StructName expr1 expr2 ...)`), `mut` fields, and field mutation (`(set-field expr field value)`) all work |
-| Pattern matching (`match`) | **Complete** | Constructor patterns (nullary and with-field), variables, wildcards, literals, nested constructor patterns, and tuple/list patterns all compare and bind correctly, plus non-exhaustiveness/arity/undefined-constructor diagnostics. |
-| Lambda | **Complete** | Parsed, type-checked, and codegen (closures with captured vars) |
-| Lists | **Complete** | Syntax, type checking, heap-allocated length-tracked blocks, exact-length pattern matching, nested patterns |
-| Tuples | **Complete** | Syntax, type checking, heap-allocated contiguous blocks, pattern matching, nested patterns |
+| fn keyword | **Complete** | Modern alias for `define` |
+| FFI | **Complete** | Call any C function with `foreign` declarations |
+| ADTs / data types | **Complete** | Constructors (nullary and with fields, including recursive types like `List`/`Tree`) compile to heap-boxed tagged values; see [Algebraic data types](#algebraic-data-types-how-they-actually-run) |
+| Structs / unions | **Complete** | Declarations, LLVM emission, field access (`.field`), struct construction (`(StructName expr1 expr2 ...)`), `mut` fields, and field mutation (`(set-field expr field value)`) all work |
+| Pattern matching (`match`) | **Complete** | Constructor patterns (nullary and with-field), variables, wildcards, literals, nested constructor patterns, and tuple/list patterns all compare and bind correctly, plus non-exhaustiveness/arity/undefined-constructor diagnostics. Built-in `Option` type with `Some`/`None` constructors. |
+| Lambda | **Partial** | Parsed and type-checked; codegen pending |
+| Lists | **Partial** | Syntax and type checking; runtime representation pending |
+| Tuples | **Partial** | Syntax and type checking; codegen pending |
 | Type classes | **Replaced** | Renamed to traits; see [Traits](#traits) |
 | Traits | **Complete** | Declarations, supertraits, effects, default methods, implementations (`impl`) |
 | Effects | **Complete** | Effect declarations, `handle` expressions, effect checking (`IO`, `Pure`, `Alloc`, `Mut`, `Div`), AXTAG validation |
-| Linear types | **Implemented** | `linear T`, `consume` |
+| Region syntax | **Parsed only** | `region r body` |
+| Linear types | **Parsed only** | `linear T`, `consume` |
 | Imports | **Functional** | `(import Mod.Sub ...)` resolves and merges declarations from other files; see [Modules and imports](#modules-and-imports) |
 
 ---
@@ -793,6 +909,7 @@ axiom/
 ├── axiom-codegen/      # LLVM codegen
 ├── axiom-cli/          # CLI + REPL
 ├── axiom-errors/       # Error types
+├── hello_world/        # Sample program
 └── Cargo.toml          # Workspace manifest
 ```
 

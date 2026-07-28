@@ -89,13 +89,13 @@ registry! {
     UNDEFINED_VARIABLE => ("AX3001", "undefined-variable",
         "undefined variable",
         "No binding with this name is in scope: not a local `let`/`lambda`\n\
-         parameter,           not a top-level `fn`, and not a data constructor.\n\
+         parameter, not a top-level `define`/`fn`, and not a data constructor.\n\
          Check for typos, missing imports, or a definition that appears later\n\
          in the file (Axiom does not forward-reference local bindings)."),
     UNDEFINED_TYPE => ("AX3002", "undefined-type",
         "undefined type",
-"This type name does not refer to any built-in type, `data`, `struct`,\n\
-          or `type` alias visible in this module."),
+        "This type name does not refer to any built-in type, `data`, `struct`,\n\
+         `union`, or `type` alias visible in this module."),
     UNDEFINED_CONSTRUCTOR => ("AX3003", "undefined-constructor",
         "undefined constructor",
         "This name was used as a data constructor (applied like `(Foo x y)` or\n\
@@ -115,9 +115,9 @@ registry! {
          of the definitions or remove the duplicate."),
     FIELD_NOT_FOUND => ("AX3007", "field-not-found",
         "field not found",
-"The named field does not exist on the given `struct` type.\n\
-          Check the field name for typos or that you're accessing the right\n\
-          type."),
+        "The named field does not exist on the given `struct`/`union` type.\n\
+         Check the field name for typos or that you're accessing the right\n\
+         type."),
     SEMA_MESSAGE => ("AX3008", "semantic-error",
         "semantic error",
         "A semantic rule was violated in a way that doesn't fit a more specific\n\
@@ -130,26 +130,20 @@ registry! {
     AXTAG_MISMATCH => ("AX3010", "axtag-mismatch",
         "agent metadata mismatch",
         "A `;@axiom:<key>(<value>)` tag on this declaration makes a claim\n\
-(e.g. `effect(alloc)`, `pure`) that the body does not support. The\n\
-          compiler validates tags it can and reports mismatches so an agent\n\
-          can correct the annotation instead of silently trusting it."),
+         (e.g. `effect(io)`, `pure`) that the body does not support. The\n\
+         compiler validates tags it can and reports mismatches so an agent\n\
+         can correct the annotation instead of silently trusting it."),
     EFFECT_MISMATCH => ("AX3011", "effect-mismatch",
         "effect mismatch",
         "This expression performs effects that are not declared in its\n\
          signature or not handled by the enclosing `handle` expression."),
-    LINEAR_TYPE_VIOLATION => ("AX3012", "linear-type-violation",
-        "linear type violation",
-        "A value of linear type must be consumed exactly once. Linear\n\
-         values cannot be duplicated or left unconsumed. Each linear\n\
-         argument to a function is consumed by that call, and each\n\
-         linear binding must be used before it goes out of scope."),
 
     // ---- AX4xxx: lowering / codegen / toolchain ----
     MISSING_MAIN => ("AX4001", "missing-main",
         "no `main` function",
         "An executable Axiom program needs exactly one top-level function named\n\
          `main` to serve as the entry point. Add `(:: main Int)` and\n\
-          `(fn main ...)`, or use `axiom check`/`emit-llvm` if you only want\n\
+         `(define main ...)`, or use `axiom check`/`emit-llvm` if you only want\n\
          to analyze a library-style module."),
     CODEGEN_FAILURE => ("AX4002", "codegen-failure",
         "code generation failed",

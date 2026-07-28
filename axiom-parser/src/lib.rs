@@ -128,7 +128,19 @@ impl Parser {
     /// calling this on `DImport` declarations.
     fn attach_nid_and_axtags(decl: &mut Decl, nid: String, axtags: Vec<Axtag>) {
         match decl {
+            Decl::DData {
+                nid: n, axtags: a, ..
+            } => {
+                *n = Some(nid);
+                *a = axtags;
+            }
             Decl::DStruct {
+                nid: n, axtags: a, ..
+            } => {
+                *n = Some(nid);
+                *a = axtags;
+            }
+            Decl::DUnion {
                 nid: n, axtags: a, ..
             } => {
                 *n = Some(nid);
@@ -164,13 +176,18 @@ impl Parser {
                 *n = Some(nid);
                 *a = axtags;
             }
+            Decl::DForeign {
+                nid: n, axtags: a, ..
+            } => {
+                *n = Some(nid);
+                *a = axtags;
+            }
             Decl::DEffect {
                 nid: n, axtags: a, ..
             } => {
                 *n = Some(nid);
                 *a = axtags;
             }
-            Decl::DMacro { .. } => {}
             Decl::DImport { .. } => {}
         }
     }
@@ -210,12 +227,14 @@ impl Parser {
 
         self.expect(TokenKind::LParen)?;
 
-        let mut decl = if self.check(TokenKind::Fn) {
-            self.parse_fn()?
-        } else if self.check(TokenKind::Defmacro) {
-            self.parse_macro()?
+        let mut decl = if self.check(TokenKind::Define) || self.check(TokenKind::Fn) {
+            self.parse_define()?
+        } else if self.check(TokenKind::Data) {
+            self.parse_data()?
         } else if self.check(TokenKind::Struct) {
             self.parse_struct()?
+        } else if self.check(TokenKind::Union) {
+            self.parse_union()?
         } else if self.check(TokenKind::Type) {
             self.parse_type_alias()?
         } else if self.check(TokenKind::Newtype) {
@@ -226,6 +245,8 @@ impl Parser {
             self.parse_impl()?
         } else if self.check(TokenKind::Import) {
             self.parse_import()?
+        } else if self.check(TokenKind::Foreign) {
+            self.parse_foreign()?
         } else if self.check(TokenKind::Effect) {
             self.parse_effect()?
         } else if self.check(TokenKind::Pub) {
@@ -255,7 +276,8 @@ impl Parser {
         Ok(decl)
     }
 
-    fn parse_fn(&mut self) -> ParseResult<Decl> {
+    fn parse_define(&mut self) -> ParseResult<Decl> {
+        self.eat(TokenKind::Define);
         self.eat(TokenKind::Fn);
 
         if self.check(TokenKind::LParen) {
@@ -288,36 +310,6 @@ impl Parser {
         }
     }
 
-    fn parse_macro(&mut self) -> ParseResult<Decl> {
-        self.eat(TokenKind::Defmacro);
-
-        let name = self.parse_ident()?;
-        let params = if self.check(TokenKind::LParen) {
-            self.advance();
-            let mut params = Vec::new();
-            while !self.check(TokenKind::RParen) && !self.at_eof() {
-                params.push(self.parse_pattern()?);
-            }
-            self.expect(TokenKind::RParen)?;
-            params
-        } else {
-            Vec::new()
-        };
-
-        let body = self.parse_body_exprs()?;
-
-        Ok(Decl::DMacro {
-            name: name.clone(),
-            def: MacroDef {
-                name,
-                params,
-                body,
-                doc: None,
-                axtags: Vec::new(),
-            },
-        })
-    }
-
     fn parse_sig(&mut self) -> ParseResult<Decl> {
         self.expect(TokenKind::DoubleColon)?;
         let name = self.parse_ident()?;
@@ -330,15 +322,66 @@ impl Parser {
         })
     }
 
+    fn parse_data(&mut self) -> ParseResult<Decl> {
+        self.expect(TokenKind::Data)?;
+        let name = self.parse_ident()?;
+        let tyvars = self.parse_tyvars();
+
+        let mut constructors = Vec::new();
+        while self.check(TokenKind::LParen) {
+            self.advance();
+            let con_name = self.parse_ident()?;
+            let mut fields = Vec::new();
+            while !self.check(TokenKind::RParen) && !self.at_eof() {
+                fields.push(self.parse_type()?);
+            }
+            self.expect(TokenKind::RParen)?;
+            constructors.push(DataCon {
+                name: con_name,
+                fields,
+            });
+        }
+
+        let deriving = if self.check(TokenKind::Deriving) {
+            self.advance();
+            self.expect(TokenKind::LParen)?;
+            let mut classes = Vec::new();
+            while !self.check(TokenKind::RParen) && !self.at_eof() {
+                classes.push(self.parse_ident()?);
+            }
+            self.expect(TokenKind::RParen)?;
+            classes
+        } else {
+            Vec::new()
+        };
+
+        Ok(Decl::DData {
+            name,
+            tyvars,
+            constructors,
+            deriving,
+            nid: None,
+            axtags: Vec::new(),
+        })
+    }
+
     fn parse_struct(&mut self) -> ParseResult<Decl> {
         self.expect(TokenKind::Struct)?;
         let name = self.parse_ident()?;
         let tyvars = self.parse_tyvars();
 
         let mut repr = None;
-        if self.check(TokenKind::Packed) || self.check(TokenKind::Align) {
+        if self.check(TokenKind::Packed)
+            || self.check(TokenKind::Repr)
+            || self.check(TokenKind::Align)
+        {
             if self.eat(TokenKind::Packed) {
                 repr = Some(TypeRepr::Packed);
+            } else if self.eat(TokenKind::Repr) {
+                self.expect(TokenKind::LParen)?;
+                self.expect(TokenKind::Ident("C".to_string()))?;
+                self.expect(TokenKind::RParen)?;
+                repr = Some(TypeRepr::C);
             } else if self.eat(TokenKind::Align) {
                 self.expect(TokenKind::LParen)?;
                 let n = self.parse_int_literal()?;
@@ -347,123 +390,55 @@ impl Parser {
             }
         }
 
-        // Determine if this is single-variant (fields) or multi-variant (struct/enum-like).
-        // Peek at the first LParen group: if it contains a colon at the top level,
-        // it's a field definition (single-variant); otherwise it's a variant definition.
-        let mut variants = Vec::new();
-        if self.check(TokenKind::LParen) {
-            let saved_pos = self.pos;
-            self.advance(); // consume LParen
-            let is_field = if !self.check(TokenKind::RParen) {
-                // Check if first token is an ident followed by a colon
-                if matches!(
-                    self.tokens.get(self.pos).map(|t| &t.kind),
-                    Some(TokenKind::Ident(_))
-                ) {
-                    self.advance(); // consume ident
-                    self.check(TokenKind::Colon)
-                } else {
-                    false
-                }
-            } else {
-                false
-            };
-            self.pos = saved_pos; // backtrack
-
-            if is_field {
-                // Single-variant struct: all groups are (name : type) fields
-                let mut fields = Vec::new();
-                while self.check(TokenKind::LParen) {
-                    self.advance();
-                    let mutable = self.eat(TokenKind::Mut);
-                    let field_name = self.parse_ident()?;
-                    self.expect(TokenKind::Colon)?;
-                    let field_ty = self.parse_type()?;
-                    fields.push(Field {
-                        name: field_name,
-                        ty: field_ty,
-                        mutable,
-                    });
-                    self.expect(TokenKind::RParen)?;
-                }
-                variants.push(StructVariant {
-                    name: name.clone(),
-                    fields,
-                });
-            } else {
-                // Multi-variant struct: each group is a variant (VariantName [fields...])
-                while self.check(TokenKind::LParen) {
-                    self.advance();
-                    let variant_name = self.parse_ident()?;
-                    let mut fields = Vec::new();
-                    while !self.check(TokenKind::RParen) && !self.at_eof() {
-                        if self.check(TokenKind::LParen) {
-                            // Peek inside to determine if this is a named field
-                            // (name : type) or a positional type.
-                            let saved_pos = self.pos;
-                            self.advance(); // consume LParen
-                            let is_named_field = if !self.check(TokenKind::RParen)
-                                && matches!(
-                                    self.tokens.get(self.pos).map(|t| &t.kind),
-                                    Some(TokenKind::Ident(_))
-                                ) {
-                                self.advance(); // consume ident
-                                self.check(TokenKind::Colon)
-                            } else {
-                                false
-                            };
-                            self.pos = saved_pos; // backtrack
-
-                            if is_named_field {
-                                self.advance(); // consume LParen
-                                let field_name = self.parse_ident()?;
-                                self.expect(TokenKind::Colon)?;
-                                let field_ty = self.parse_type()?;
-                                fields.push(Field {
-                                    name: field_name,
-                                    ty: field_ty,
-                                    mutable: false,
-                                });
-                                self.expect(TokenKind::RParen)?;
-                            } else {
-                                // Positional field type
-                                let field_ty = self.parse_type()?;
-                                fields.push(Field {
-                                    name: Ident::new(
-                                        &format!("_field_{}", fields.len()),
-                                        Span::dummy(),
-                                    ),
-                                    ty: field_ty,
-                                    mutable: false,
-                                });
-                            }
-                        } else {
-                            // Positional field type (bare identifier or type)
-                            let field_ty = self.parse_type()?;
-                            fields.push(Field {
-                                name: Ident::new(
-                                    &format!("_field_{}", fields.len()),
-                                    Span::dummy(),
-                                ),
-                                ty: field_ty,
-                                mutable: false,
-                            });
-                        }
-                    }
-                    self.expect(TokenKind::RParen)?;
-                    variants.push(StructVariant {
-                        name: variant_name,
-                        fields,
-                    });
-                }
-            }
+        let mut fields = Vec::new();
+        while self.check(TokenKind::LParen) {
+            self.advance();
+            let mutable = self.eat(TokenKind::Mut);
+            let field_name = self.parse_ident()?;
+            self.expect(TokenKind::Colon)?;
+            let field_ty = self.parse_type()?;
+            fields.push(Field {
+                name: field_name,
+                ty: field_ty,
+                mutable,
+            });
+            self.expect(TokenKind::RParen)?;
         }
 
         Ok(Decl::DStruct {
             name,
             tyvars,
-            variants,
+            fields,
             repr,
+            nid: None,
+            axtags: Vec::new(),
+        })
+    }
+
+    fn parse_union(&mut self) -> ParseResult<Decl> {
+        self.expect(TokenKind::Union)?;
+        let name = self.parse_ident()?;
+        let tyvars = self.parse_tyvars();
+
+        let mut fields = Vec::new();
+        while self.check(TokenKind::LParen) {
+            self.advance();
+            let mutable = self.eat(TokenKind::Mut);
+            let field_name = self.parse_ident()?;
+            self.expect(TokenKind::Colon)?;
+            let field_ty = self.parse_type()?;
+            fields.push(Field {
+                name: field_name,
+                ty: field_ty,
+                mutable,
+            });
+            self.expect(TokenKind::RParen)?;
+        }
+
+        Ok(Decl::DUnion {
+            name,
+            tyvars,
+            fields,
             nid: None,
             axtags: Vec::new(),
         })
@@ -491,18 +466,14 @@ impl Parser {
         self.expect(TokenKind::Eq)?;
         let constructor = self.parse_ident()?;
         let inner_type = self.parse_type()?;
-        Ok(Decl::DStruct {
+        Ok(Decl::DData {
             name,
             tyvars,
-            variants: vec![StructVariant {
+            constructors: vec![DataCon {
                 name: constructor,
-                fields: vec![Field {
-                    name: Ident::new("value", Span::dummy()),
-                    ty: inner_type,
-                    mutable: false,
-                }],
+                fields: vec![inner_type],
             }],
-            repr: None,
+            deriving: Vec::new(),
             nid: None,
             axtags: Vec::new(),
         })
@@ -528,7 +499,10 @@ impl Parser {
         if self.check(TokenKind::LParen) {
             self.advance();
             while !self.check(TokenKind::RParen) && !self.at_eof() {
-                if self.check(TokenKind::Pure) {
+                if self.check(TokenKind::IO) {
+                    self.advance();
+                    effects.push(Effect::IO);
+                } else if self.check(TokenKind::Pure) {
                     self.advance();
                     effects.push(Effect::Pure);
                 } else if self.check(TokenKind::Mut) {
@@ -560,11 +534,14 @@ impl Parser {
                 let mut method_effects = Vec::new();
                 if self.check(TokenKind::LParen) {
                     self.advance();
-while !self.check(TokenKind::RParen) && !self.at_eof() {
-                if self.check(TokenKind::Pure) {
-                    self.advance();
-                    effects.push(Effect::Pure);
-                } else if self.check(TokenKind::Mut) {
+                    while !self.check(TokenKind::RParen) && !self.at_eof() {
+                        if self.check(TokenKind::IO) {
+                            self.advance();
+                            method_effects.push(Effect::IO);
+                        } else if self.check(TokenKind::Pure) {
+                            self.advance();
+                            method_effects.push(Effect::Pure);
+                        } else if self.check(TokenKind::Mut) {
                             self.advance();
                             method_effects.push(Effect::Mut);
                         } else if self.check(TokenKind::Div) {
@@ -608,7 +585,10 @@ while !self.check(TokenKind::RParen) && !self.at_eof() {
         if self.check(TokenKind::LParen) {
             self.advance();
             while !self.check(TokenKind::RParen) && !self.at_eof() {
-                if self.check(TokenKind::Pure) {
+                if self.check(TokenKind::IO) {
+                    self.advance();
+                    effects.push(Effect::IO);
+                } else if self.check(TokenKind::Pure) {
                     self.advance();
                     effects.push(Effect::Pure);
                 } else if self.check(TokenKind::Mut) {
@@ -670,6 +650,22 @@ while !self.check(TokenKind::RParen) && !self.at_eof() {
         Ok(Decl::DImport { module, names })
     }
 
+    fn parse_foreign(&mut self) -> ParseResult<Decl> {
+        self.expect(TokenKind::Foreign)?;
+        let name = self.parse_ident()?;
+        self.expect(TokenKind::DoubleColon)?;
+        let ty = self.parse_type()?;
+        self.expect(TokenKind::Eq)?;
+        let source = self.parse_string_literal()?;
+        Ok(Decl::DForeign {
+            name,
+            ty,
+            source,
+            nid: None,
+            axtags: Vec::new(),
+        })
+    }
+
     fn parse_effect(&mut self) -> ParseResult<Decl> {
         self.expect(TokenKind::Effect)?;
         let name = self.parse_ident()?;
@@ -719,14 +715,17 @@ while !self.check(TokenKind::RParen) && !self.at_eof() {
             self.advance();
 
             // A constructor pattern is written exactly like a constructor
-            // *application* expression - `(Some x)`, `(Node a b)` -
-            // with the constructor name as the very first thing inside the
-            // parens. Without this check, falling straight through to the
+            // *application* expression - `(Just x)`, `(Cons h t)`,
+            // `(Nothing)` - with the constructor name as the very first
+            // thing inside the parens, not as a separately-parenthesized
+            // pattern. Without this check, falling straight through to the
             // generic "N patterns in parens => tuple" reading below turns
-            // `(Some x)` into a 2-tuple of two *variable* patterns named
-            // `Some` and `x` - `PCon` never gets produced at all for the
+            // `(Just x)` into a 2-tuple of two *variable* patterns named
+            // `Just` and `x` - `PCon` never gets produced at all for the
             // s-expression constructor-pattern syntax every `match` example
-            // in the language actually uses. This mirrors the constructor-name
+            // in the language actually uses, and `(Nothing)` (zero-arg
+            // constructor) degenerates to a plain 1-tuple-unwrapped
+            // `PVar("Nothing")`. This mirrors the constructor-name
             // convention `looks_like_tyvar_list` also relies on: a real
             // Axiom identifier used as a constructor is always
             // capitalized, so `is_constructor_ident` alone is enough to
@@ -851,11 +850,11 @@ while !self.check(TokenKind::RParen) && !self.at_eof() {
             // type *application* - `(Maybe Int)`, `(List a)`, `(Tree a)` -
             // with the name as the head and everything else in the parens
             // as its arguments, exactly like a constructor application
-            // expression parses (head first, args after) rather than
-            // "N sibling types in parens = a tuple". This is checked once,
-            // here, rather than by having the bare-ident case in
-            // `parse_type_atom` greedily gather trailing types as its own
-            // arguments (the previous approach): that made a
+            // *expression* `(Just 42)` parses (head first, args after)
+            // rather than "N sibling types in parens = a tuple". This is
+            // checked once, here, rather than by having the bare-ident
+            // case in `parse_type_atom` greedily gather trailing types as
+            // its own arguments (the previous approach): that made a
             // bare, *unparenthesized* custom type name anywhere in a
             // sibling-type list - an arrow's parameter list (`(->
             // Ordering Int)`), a tuple, a constructor's field list -
@@ -1047,20 +1046,20 @@ while !self.check(TokenKind::RParen) && !self.at_eof() {
                 return self.parse_alignof();
             }
 
-if self.check(TokenKind::Cast) {
-                 return self.parse_cast();
-             }
+            if self.check(TokenKind::Cast) {
+                return self.parse_cast();
+            }
 
-             if self.check(TokenKind::Println) {
-                 return self.parse_println();
-             }
-
-             if self.check(TokenKind::DoubleColon) {
+            if self.check(TokenKind::DoubleColon) {
                 return self.parse_type_sig_expr();
             }
 
             if self.check(TokenKind::Struct) {
                 return self.parse_struct_con();
+            }
+
+            if self.check(TokenKind::Union) {
+                return self.parse_union_con();
             }
 
             if self.check(TokenKind::RParen) {
@@ -1131,10 +1130,6 @@ if self.check(TokenKind::Cast) {
             self.advance();
             let expr = self.parse_expr()?;
             Ok(Expr::EGrouped(Box::new(expr)))
-        } else if self.check(TokenKind::Backtick) {
-            self.advance();
-            let expr = self.parse_expr()?;
-            Ok(Expr::EBacktick(Box::new(expr)))
         } else if self.check(TokenKind::Underscore) {
             let token = self.advance();
             Ok(Expr::ELam(
@@ -1316,7 +1311,10 @@ if self.check(TokenKind::Cast) {
         if self.check(TokenKind::LParen) {
             self.advance();
             while !self.check(TokenKind::RParen) && !self.at_eof() {
-                if self.check(TokenKind::Pure) {
+                if self.check(TokenKind::IO) {
+                    self.advance();
+                    effects.push(Effect::IO);
+                } else if self.check(TokenKind::Pure) {
                     self.advance();
                     effects.push(Effect::Pure);
                 } else if self.check(TokenKind::Mut) {
@@ -1385,13 +1383,6 @@ if self.check(TokenKind::Cast) {
         Ok(Expr::ECast(Box::new(expr), target_ty))
     }
 
-    fn parse_println(&mut self) -> ParseResult<Expr> {
-        self.expect(TokenKind::Println)?;
-        let expr = self.parse_expr()?;
-        self.expect(TokenKind::RParen)?;
-        Ok(Expr::EPrintln(Box::new(expr)))
-    }
-
     fn parse_type_sig_expr(&mut self) -> ParseResult<Expr> {
         self.expect(TokenKind::DoubleColon)?;
         let expr = self.parse_expr()?;
@@ -1411,7 +1402,51 @@ if self.check(TokenKind::Cast) {
         Ok(Expr::EStructCon(name, args))
     }
 
+    fn parse_union_con(&mut self) -> ParseResult<Expr> {
+        self.expect(TokenKind::Union)?;
+        let name = self.parse_ident()?;
+        let field_name = self.parse_ident()?;
+        let value = self.parse_expr()?;
+        self.expect(TokenKind::RParen)?;
+        Ok(Expr::EUnionCon(name, field_name, Box::new(value)))
+    }
+
+    fn parse_string_literal(&mut self) -> ParseResult<String> {
+        let token = self.expect(TokenKind::StringLiteral(String::new()))?;
+        if let TokenKind::StringLiteral(s) = token.kind {
+            Ok(s)
+        } else {
+            Err(ParseError::UnexpectedToken {
+                expected: "string literal".to_string(),
+                found: self.current_kind_str(),
+                span: token.span,
+            })
+        }
+    }
+
     /// Parse a type-parameter list. Axiom's own documented syntax always
+    /// wraps it in parens right after the type/struct/union/alias name -
+    /// `()` for none, `(a)` for one, `(a b)` for several (see the README's
+    /// `Maybe`/`List`/`Tree`/`type StringList () = ...` examples) - but
+    /// that immediately following `(` is *also* how the very next thing
+    /// after it (the first constructor of a `data`, or the first field of
+    /// a `struct`/`union`) begins, e.g. `(data Ordering (LT) (EQ) (GT))`
+    /// has *no* type parameters at all before its first nullary
+    /// constructor `(LT)`.
+    ///
+    /// [`looks_like_tyvar_list`](Self::looks_like_tyvar_list) disambiguates
+    /// by scanning past the `(`: a real tyvar list is zero or more
+    /// lowercase identifiers followed immediately by `)`, with nothing
+    /// else in between. A constructor name is conventionally capitalized
+    /// (`Nothing`, `Just`, `LT`, ...) so it never matches the "all
+    /// lowercase" scan, and a struct/union field like `(x : Int)` fails
+    /// the scan the moment it hits `:` instead of `)`. Without this,
+    /// every parenthesized-tyvar example in the README - which is all of
+    /// them - either silently dropped its type parameters (turning the
+    /// first constructor into a bogus extra one, e.g. `Maybe`'s `(a)`
+    /// becoming a fake nullary constructor named `a`) or, for `type`
+    /// aliases, failed to parse at all (`(type StringList () = ...)`
+    /// choked on `expect(Eq)` because `()` was never consumed).
     fn parse_tyvars(&mut self) -> Vec<String> {
         if self.check(TokenKind::LParen) && self.looks_like_tyvar_list() {
             self.advance(); // consume '('
@@ -1517,6 +1552,7 @@ if self.check(TokenKind::Cast) {
             TokenKind::F32 => "F32".to_string(),
             TokenKind::F64 => "F64".to_string(),
             TokenKind::Pure => "Pure".to_string(),
+            TokenKind::IO => "IO".to_string(),
             TokenKind::Mut => "Mut".to_string(),
             TokenKind::Div => "Div".to_string(),
             TokenKind::Fn => "fn".to_string(),
@@ -1552,7 +1588,7 @@ if self.check(TokenKind::Cast) {
     }
 
     /// Is the current token an identifier written in the constructor-name
-    /// convention (capitalized), e.g. `Some`, `None`, `Leaf`? Used by
+    /// convention (capitalized), e.g. `Just`, `Nothing`, `Cons`? Used by
     /// [`parse_pattern`](Self::parse_pattern) to tell a constructor
     /// pattern's head apart from a tuple pattern's first element.
     fn is_constructor_ident(&self) -> bool {
@@ -1651,34 +1687,40 @@ if self.check(TokenKind::Cast) {
         if let Some(token) = self.tokens.get(self.pos) {
             if matches!(
                 token.kind,
-                TokenKind::Fn
+                TokenKind::Define
+                    | TokenKind::Fn
+                    | TokenKind::Data
                     | TokenKind::Struct
+                    | TokenKind::Union
                     | TokenKind::Type
                     | TokenKind::Newtype
                     | TokenKind::Trait
                     | TokenKind::Impl
                     | TokenKind::Import
+                    | TokenKind::Foreign
                     | TokenKind::Effect
                     | TokenKind::DoubleColon
-                    | TokenKind::Defmacro
             ) {
                 return true;
             }
-            // Check for parenthesized declarations like (:: ...) or (fn ...)
+            // Check for parenthesized declarations like (:: ...) or (define ...)
             if token.kind == TokenKind::LParen {
                 if let Some(next) = self.tokens.get(self.pos + 1) {
                     return matches!(
                         next.kind,
-                        TokenKind::Fn
+                        TokenKind::Define
+                            | TokenKind::Fn
+                            | TokenKind::Data
                             | TokenKind::Struct
+                            | TokenKind::Union
                             | TokenKind::Type
                             | TokenKind::Newtype
                             | TokenKind::Trait
                             | TokenKind::Impl
                             | TokenKind::Import
+                            | TokenKind::Foreign
                             | TokenKind::Effect
                             | TokenKind::DoubleColon
-                            | TokenKind::Defmacro
                     );
                 }
             }
@@ -1733,16 +1775,16 @@ mod tests {
     }
 
     /// Regression test for the bug where constructor patterns like
-    /// `(Some x)` parsed as `PTuple([PVar("Some"), PVar("x")])` (two bare
-    /// variables) instead of `PCon("Some", [PVar("x")])`, because the
+    /// `(Just x)` parsed as `PTuple([PVar("Just"), PVar("x")])` (two bare
+    /// variables) instead of `PCon("Just", [PVar("x")])`, because the
     /// parenthesized-pattern branch never special-cased a
     /// capitalized head the way constructor *expressions* already did.
     /// See `parse_pattern`'s constructor-application-shaped branch.
     #[test]
     fn constructor_pattern_with_args_parses_as_pcon_not_ptuple() {
-        match parse_pattern_ok("Some x") {
+        match parse_pattern_ok("Just x") {
             Pattern::PCon(ident, args) => {
-                assert_eq!(ident.name, "Some");
+                assert_eq!(ident.name, "Just");
                 assert_eq!(args.len(), 1);
                 assert!(matches!(&args[0], Pattern::PVar(v) if v.name == "x"));
             }
@@ -1751,7 +1793,7 @@ mod tests {
     }
 
     /// Regression test for the companion bug: a *nullary* constructor
-    /// pattern like `(None)` degenerated to a bare `PVar("None")`
+    /// pattern like `(Nothing)` degenerated to a bare `PVar("Nothing")`
     /// (the parenthesized-pattern branch's "exactly one sub-pattern ->
     /// unwrap it" rule), which happened to limp along in codegen (which
     /// matched constructors by name for both `PCon` and `PVar`) but broke
@@ -1760,9 +1802,9 @@ mod tests {
     /// checking.
     #[test]
     fn nullary_constructor_pattern_parses_as_pcon_with_no_args() {
-        match parse_pattern_ok("None") {
+        match parse_pattern_ok("Nothing") {
             Pattern::PCon(ident, args) => {
-                assert_eq!(ident.name, "None");
+                assert_eq!(ident.name, "Nothing");
                 assert!(args.is_empty());
             }
             other => panic!("expected PCon, got {:?}", other),
@@ -1807,17 +1849,17 @@ mod tests {
         }
     }
 
-    /// A parenthesized type application (`(Tree Int)`) must still parse
+    /// A parenthesized type application (`(Maybe Int)`) must still parse
     /// as one applied type, not as a 2-tuple of two standalone types -
     /// the fix for the bug above must not regress this, much more common,
     /// `match`.
     #[test]
     fn parenthesized_type_application_parses_as_tcon_with_args() {
-        let module = parse_ok("(:: main (Tree Int))\n(fn main 0)");
+        let module = parse_ok("(:: main (Maybe Int))\n(fn main 0)");
         match &module.decls[0] {
             Decl::DSig { ty, .. } => match ty {
                 Type::TCon(name, args) => {
-                    assert_eq!(name.name, "Tree");
+                    assert_eq!(name.name, "Maybe");
                     assert_eq!(args.len(), 1);
                     assert!(matches!(&args[0], Type::TCon(inner, _) if inner.name == "Int"));
                 }
@@ -1827,44 +1869,47 @@ mod tests {
         }
     }
 
-    /// Regression test for the sibling bug in `parse_tyvars`: a `struct`
+    /// Regression test for the sibling bug in `parse_tyvars`: a `data`
     /// type's parenthesized type-parameter list (`(a)`, `()`, `(a b)`)
     /// was previously indistinguishable from its first constructor/field
     /// group, since both start with a bare `(`. See `looks_like_tyvar_list`.
     #[test]
     fn data_type_parameter_list_is_not_mistaken_for_a_constructor() {
-        let module = parse_ok(
-            "(struct Tree (Leaf) (Node Int (Tree Int) (Tree Int)))\n(:: main Int)\n(fn main 0)",
-        );
+        let module =
+            parse_ok("(data Maybe (a)\n  (Nothing)\n  (Just a))\n(:: main Int)\n(fn main 0)");
         match &module.decls[0] {
-            Decl::DStruct {
-                tyvars, variants, ..
+            Decl::DData {
+                tyvars,
+                constructors,
+                ..
             } => {
-                assert!(tyvars.is_empty());
-                assert_eq!(variants.len(), 2);
-                assert_eq!(variants[0].name.name, "Leaf");
-                assert_eq!(variants[1].name.name, "Node");
+                assert_eq!(tyvars.as_slice(), ["a"]);
+                assert_eq!(constructors.len(), 2);
+                assert_eq!(constructors[0].name.name, "Nothing");
+                assert_eq!(constructors[1].name.name, "Just");
             }
-            other => panic!("expected DStruct, got {:?}", other),
+            other => panic!("expected DData, got {:?}", other),
         }
     }
 
-    /// A `struct` type with *no* type parameters must not have its first
-    /// nullary variant mistaken for an (empty) type-parameter list -
+    /// A `data` type with *no* type parameters must not have its first
+    /// nullary constructor mistaken for an (empty) type-parameter list -
     /// the disambiguation in `looks_like_tyvar_list` has to fail
-    /// gracefully for a capitalized variant name too.
+    /// gracefully for a capitalized constructor name too.
     #[test]
     fn data_type_with_no_parameters_and_nullary_constructors() {
         let module =
-            parse_ok("(struct Ordering\n  (LT)\n  (EQ)\n  (GT))\n(:: main Int)\n(fn main 0)");
+            parse_ok("(data Ordering\n  (LT)\n  (EQ)\n  (GT))\n(:: main Int)\n(fn main 0)");
         match &module.decls[0] {
-            Decl::DStruct {
-                tyvars, variants, ..
+            Decl::DData {
+                tyvars,
+                constructors,
+                ..
             } => {
                 assert!(tyvars.is_empty());
-                assert_eq!(variants.len(), 3);
+                assert_eq!(constructors.len(), 3);
             }
-            other => panic!("expected DStruct, got {:?}", other),
+            other => panic!("expected DData, got {:?}", other),
         }
     }
 
@@ -1914,98 +1959,15 @@ mod tests {
     }
 
     #[test]
-    fn nid_differs_when_struct_field_types_differ() {
-        let mod1 = parse_ok(
-            "(struct Point\n  (x Int)\n  (y Int))\n(:: main Int)\n(fn main 0)",
-        );
-        let mod2 = parse_ok(
-            "(struct Point\n  (x String)\n  (y Int))\n(:: main Int)\n(fn main 0)",
-        );
-        let d1 = match &mod1.decls[0] {
-            Decl::DStruct { nid, .. } => nid.clone(),
+    fn struct_with_packed_attribute_parses() {
+        let module =
+            parse_ok("(struct Point packed\n  (x : Int)\n  (y : Int))\n(:: main Int)\n(fn main 0)");
+        match &module.decls[0] {
+            Decl::DStruct { fields, repr, .. } => {
+                assert_eq!(fields.len(), 2);
+                assert!(matches!(repr, Some(TypeRepr::Packed)));
+            }
             other => panic!("expected DStruct, got {:?}", other),
-        };
-        let d2 = match &mod2.decls[0] {
-            Decl::DStruct { nid, .. } => nid.clone(),
-            other => panic!("expected DStruct, got {:?}", other),
-        };
-        assert_ne!(d1, d2, "changing a field type must change the NID");
-    }
-
-    #[test]
-    fn nid_differs_when_struct_tyvars_differ() {
-        let mod1 = parse_ok(
-            "(struct Box (a) (Box a))\n(:: main Int)\n(fn main 0)",
-        );
-        let mod2 = parse_ok(
-            "(struct Box (b) (Box b))\n(:: main Int)\n(fn main 0)",
-        );
-        let d1 = match &mod1.decls[0] {
-            Decl::DStruct { nid, .. } => nid.clone(),
-            other => panic!("expected DStruct, got {:?}", other),
-        };
-        let d2 = match &mod2.decls[0] {
-            Decl::DStruct { nid, .. } => nid.clone(),
-            other => panic!("expected DStruct, got {:?}", other),
-        };
-        assert_ne!(d1, d2, "changing type parameter names must change the NID");
-    }
-
-    #[test]
-    fn nid_differs_when_fn_params_differ() {
-        let mod1 = parse_ok(
-            "(:: add (-> Int Int Int))\n(fn (add x y) (+ x y))\n(:: main Int)\n(fn main (add 1 2))",
-        );
-        let mod2 = parse_ok(
-            "(:: add (-> Int Int Int))\n(fn (add a b) (+ a b))\n(:: main Int)\n(fn main (add 1 2))",
-        );
-        let fn1 = match &mod1.decls[1] {
-            Decl::DFn { nid, .. } => nid.clone(),
-            other => panic!("expected DFn, got {:?}", other),
-        };
-        let fn2 = match &mod2.decls[1] {
-            Decl::DFn { nid, .. } => nid.clone(),
-            other => panic!("expected DFn, got {:?}", other),
-        };
-        assert_ne!(fn1, fn2, "changing param names must change the NID");
-    }
-
-    #[test]
-    fn nid_stable_when_formatting_changes() {
-        // Whitespace-only formatting changes should not affect NID.
-        let mod1 = parse_ok(
-            "(struct Point packed\n  (x : Int)\n  (y : Int))\n(:: main Int)\n(fn main 0)",
-        );
-        let mod2 = parse_ok(
-            "(struct Point packed(x:Int)(y:Int))(:: main Int)(fn main 0)",
-        );
-        let s1 = match &mod1.decls[0] {
-            Decl::DStruct { nid, .. } => nid.clone(),
-            other => panic!("expected DStruct, got {:?}", other),
-        };
-        let s2 = match &mod2.decls[0] {
-            Decl::DStruct { nid, .. } => nid.clone(),
-            other => panic!("expected DStruct, got {:?}", other),
-        };
-        assert_eq!(s1, s2, "formatting-only changes must not change the NID");
-    }
-
-    #[test]
-    fn nid_differs_when_type_alias_target_differs() {
-        let mod1 = parse_ok(
-            "(type MyInt () = Int)\n(:: main Int)\n(fn main 0)",
-        );
-        let mod2 = parse_ok(
-            "(type MyInt () = String)\n(:: main Int)\n(fn main 0)",
-        );
-        let a1 = match &mod1.decls[0] {
-            Decl::DType { nid, .. } => nid.clone(),
-            other => panic!("expected DType, got {:?}", other),
-        };
-        let a2 = match &mod2.decls[0] {
-            Decl::DType { nid, .. } => nid.clone(),
-            other => panic!("expected DType, got {:?}", other),
-        };
-        assert_ne!(a1, a2, "changing an alias target type must change the NID");
+        }
     }
 }

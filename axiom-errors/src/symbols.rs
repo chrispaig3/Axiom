@@ -32,22 +32,22 @@ use axiom_ast::span::Span;
 /// disambiguated by which command produced it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SymbolKind {
-    /// A `fn` function binding.
+    /// A `define`/`fn` function binding.
     Fn,
+    /// A `foreign` FFI binding.
+    Foreign,
     /// A `data` algebraic data type (the type itself, not its constructors).
     Data,
-    /// A single constructor of a `data` type, e.g. `Red` in `Color`.
+    /// A single constructor of a `data` type, e.g. `Just` in `Maybe`.
     Ctor,
     /// A `struct` declaration.
     Struct,
+    /// A `union` declaration.
+    Union,
     /// A `type` alias.
     Alias,
     /// A `trait` declaration.
     Trait,
-    /// An `effect` declaration.
-    Effect,
-    /// An `impl` declaration.
-    Impl,
 }
 
 impl SymbolKind {
@@ -55,13 +55,13 @@ impl SymbolKind {
     pub fn letter(self) -> &'static str {
         match self {
             SymbolKind::Fn => "F",
+            SymbolKind::Foreign => "X",
             SymbolKind::Data => "D",
             SymbolKind::Ctor => "C",
             SymbolKind::Struct => "S",
+            SymbolKind::Union => "U",
             SymbolKind::Alias => "A",
             SymbolKind::Trait => "T",
-            SymbolKind::Effect => "V",
-            SymbolKind::Impl => "I",
         }
     }
 }
@@ -175,31 +175,45 @@ mod tests {
     }
 
     #[test]
+    fn ai_foreign_with_symbol_meta() {
+        let fact = SymbolFact::new(
+            SymbolKind::Foreign,
+            "printf",
+            Some(Span::new(10, 16, 0)),
+            "(String -> Int)",
+            None,
+        )
+        .with_meta("symbol=printf");
+        let out = render_symbols_ai(&[fact], "main.ax", &" ".repeat(20));
+        assert!(out.contains("X printf main.ax:1:11-17 \"(String -> Int)\" #symbol=printf"));
+    }
+
+    #[test]
     fn ai_data_with_ctors() {
         let fact = SymbolFact::new(
             SymbolKind::Data,
-            "Color",
-            Some(Span::new(7, 13, 0)),
-            "struct Color",
+            "Maybe",
+            Some(Span::new(7, 12, 0)),
+            "data Maybe",
             None,
         )
-        .with_meta("ctors=Red,Green");
+        .with_meta("ctors=Nothing,Just");
         let out = render_symbols_ai(&[fact], "main.ax", &" ".repeat(20));
-        assert!(out.contains("D Color main.ax:1:8-14 \"struct Color\" #ctors=Red,Green"));
+        assert!(out.contains("D Maybe main.ax:1:8-13 \"data Maybe\" #ctors=Nothing,Just"));
     }
 
     #[test]
     fn ai_constructor_with_of() {
         let fact = SymbolFact::new(
             SymbolKind::Ctor,
-            "Red",
-            Some(Span::new(17, 20, 0)),
-            "(a -> Color a)",
+            "Just",
+            Some(Span::new(17, 21, 0)),
+            "(a -> Maybe a)",
             None,
         )
-        .with_meta("of=Color");
+        .with_meta("of=Maybe");
         let out = render_symbols_ai(&[fact], "main.ax", &" ".repeat(22));
-        assert!(out.contains("C Red main.ax:1:18-21 \"(a -> Color a)\" #of=Color"));
+        assert!(out.contains("C Just main.ax:1:18-22 \"(a -> Maybe a)\" #of=Maybe"));
     }
 
     #[test]
@@ -212,11 +226,25 @@ mod tests {
             None,
         )
         .with_meta("fields=x:Int,y:Int")
-        .with_meta("packed");
+        .with_meta("repr=C");
         let out = render_symbols_ai(&[fact], "main.ax", &" ".repeat(20));
         assert!(
-            out.contains("S Point main.ax:1:10-15 \"struct Point\" #fields=x:Int,y:Int #packed")
+            out.contains("S Point main.ax:1:10-15 \"struct Point\" #fields=x:Int,y:Int #repr=C")
         );
+    }
+
+    #[test]
+    fn ai_union_with_fields() {
+        let fact = SymbolFact::new(
+            SymbolKind::Union,
+            "Value",
+            Some(Span::new(0, 5, 0)),
+            "union Value",
+            None,
+        )
+        .with_meta("fields=asInt:I64,asFloat:F64");
+        let out = render_symbols_ai(&[fact], "main.ax", &" ".repeat(20));
+        assert!(out.contains("U Value main.ax:1:1-6 \"union Value\" #fields=asInt:I64,asFloat:F64"));
     }
 
     #[test]
@@ -341,13 +369,13 @@ mod tests {
     fn ai_kind_letters_disjoint_from_severity_sigils() {
         for kind in [
             SymbolKind::Fn,
+            SymbolKind::Foreign,
             SymbolKind::Data,
             SymbolKind::Ctor,
             SymbolKind::Struct,
+            SymbolKind::Union,
             SymbolKind::Alias,
             SymbolKind::Trait,
-            SymbolKind::Effect,
-            SymbolKind::Impl,
         ] {
             let letter = kind.letter();
             assert!(!matches!(letter, "E" | "W" | "N" | "H"));

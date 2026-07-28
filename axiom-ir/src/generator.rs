@@ -1,10 +1,8 @@
-use crate::{
-    IrBlock, IrConst, IrEnum, IrFunction, IrInst, IrModule, IrStruct, IrValue, TypeId,
-};
+use crate::{IrBlock, IrConst, IrFunction, IrInst, IrModule, IrStruct, IrUnion, IrValue, TypeId};
 use axiom_ast::ast::*;
-use axiom_ast::span::{Ident, Span};
+use axiom_ast::span::Ident;
 use axiom_sema::TypeChecker;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 pub struct IrGen {
     module: IrModule,
@@ -14,34 +12,44 @@ pub struct IrGen {
     current_block: Option<String>,
 }
 
-/// Look up a struct variant by name across every `struct`
-/// type the type checker collected, returning:
+/// Look up a data constructor by name across every `data` type the type
+/// checker collected, returning:
 ///
-/// * a globally-unique integer tag (`struct_index * 100 +
-///   variant_index_within_that_struct`) - unique across every
-///   variant in the program, not just within one `struct` type,
-///   so two different `struct` types' variants can never compare
-///   equal by accident during pattern matching;
-/// * its arity, decomposed from the variant's field types
-///   (each field is an `i64` word, so the arity is just the
-///   number of fields).
+/// * a globally-unique integer tag (`data_type_index * 100 +
+///   constructor_index_within_that_type`) - unique across every
+///   constructor in the program, not just within one `data` type, so two
+///   different `data` types' constructors can never compare equal by
+///   accident during pattern matching;
+/// * its arity, decomposed from the constructor's curried arrow type
+///   (`Field1 -> Field2 -> ... -> TheType`; zero `TArr`s means a nullary
+///   constructor).
 ///
-/// Both variant *construction* (`EVar`/`EApp`, see
-/// [`IrGen::gen_construct`]) and variant *matching* (`EMatch`) call
+/// Both constructor *construction* (`EVar`/`EApp`, see
+/// [`IrGen::gen_construct`]) and constructor *matching* (`EMatch`) call
 /// this, so a value built with one tag is always compared against that
 /// exact same tag - there is exactly one place in the generator that
-/// decides what a variant's tag is.
+/// decides what a constructor's tag is.
 fn find_constructor(type_checker: &TypeChecker, name: &str) -> Option<(i64, usize)> {
-    for (idx, si) in type_checker.structs.iter().enumerate() {
-        for (vidx, sv) in si.variants.iter().enumerate() {
-            if sv.name == name {
-                let tag = (idx * 100 + vidx) as i64;
-                let arity = sv.fields.len();
+    for (idx, dt) in type_checker.data_types.iter().enumerate() {
+        for (cidx, con) in dt.constructors.iter().enumerate() {
+            if con.name == name {
+                let tag = (idx * 100 + cidx) as i64;
+                let arity = constructor_arity(&con.ty);
                 return Some((tag, arity));
             }
         }
     }
     None
+}
+
+fn constructor_arity(ty: &TypeId) -> usize {
+    let mut n = 0;
+    let mut current = ty;
+    while let TypeId::TArr(_, rest) = current {
+        n += 1;
+        current = rest;
+    }
+    n
 }
 
 impl Default for IrGen {
@@ -65,11 +73,7 @@ impl IrGen {
         for decl in &ast_module.decls {
             match decl {
                 Decl::DStruct {
-                    name,
-                    tyvars: _,
-                    variants,
-                    repr,
-                    ..
+                    name, fields, repr, ..
                 } => {
                     let packed = matches!(repr, Some(TypeRepr::Packed));
                     let align = if let Some(TypeRepr::Align(n)) = repr {
@@ -78,48 +82,43 @@ impl IrGen {
                         None
                     };
 
-                    // Single-variant struct (product type): generate as IrStruct
-                    // Multi-variant struct (ADT): generate each variant as an IrEnum entry
-                    if variants.len() == 1 {
-                        let fields: Vec<(String, TypeId)> = variants[0]
-                            .fields
-                            .iter()
-                            .map(|f| (f.name.name.clone(), self.type_to_id(&f.ty)))
-                            .collect();
-                        self.module.structs.push(IrStruct {
-                            name: name.name.clone(),
-                            fields,
-                            packed,
-                            align,
-                        });
-                    } else {
-                        // Multi-variant ADT: generate as IrEnum
-                        let enum_variants: Vec<(String, Option<TypeId>)> = variants
-                            .iter()
-                            .map(|sv| {
-                                if sv.fields.is_empty() {
-                                    (sv.name.name.clone(), None)
-                                } else {
-                                    // For variants with fields, use the first field's type
-                                    // as the variant's type (for tagged union representation)
-                                    let field_ty = self.type_to_id(&sv.fields[0].ty);
-                                    (sv.name.name.clone(), Some(field_ty))
-                                }
-                            })
-                            .collect();
-                        let tag_type = TypeId::TCon("I64".to_string(), vec![]);
-                        self.module.enums.push(IrEnum {
-                            name: name.name.clone(),
-                            variants: enum_variants,
-                            tag_type,
-                        });
-                    }
+                    let ir_fields: Vec<(String, TypeId)> = fields
+                        .iter()
+                        .map(|f| (f.name.name.clone(), self.type_to_id(&f.ty)))
+                        .collect();
+
+                    self.module.structs.push(IrStruct {
+                        name: name.name.clone(),
+                        fields: ir_fields,
+                        packed,
+                        align,
+                    });
+                }
+                Decl::DUnion { name, fields, .. } => {
+                    let ir_fields: Vec<(String, TypeId)> = fields
+                        .iter()
+                        .map(|f| (f.name.name.clone(), self.type_to_id(&f.ty)))
+                        .collect();
+
+                    self.module.unions.push(IrUnion {
+                        name: name.name.clone(),
+                        fields: ir_fields,
+                    });
                 }
                 Decl::DFn {
                     name, params, body, ..
                 } => {
                     let func = self.gen_function(name, params, body, type_checker);
                     self.module.functions.push(func);
+                }
+                Decl::DForeign { name, ty, .. } => {
+                    let mut params = Vec::new();
+                    let mut current = self.type_to_id(ty);
+                    while let TypeId::TArr(param, rest) = current {
+                        params.push(*param);
+                        current = *rest;
+                    }
+                    self.module.extern_funcs.push((name.name.clone(), params, current));
                 }
                 Decl::DSig { name, ty, .. } => {
                     let _ = (name, ty);
@@ -293,7 +292,7 @@ impl IrGen {
 
             match arg_pat {
                 Pattern::PVar(ident) => {
-                    let arg_alloca = self.new_local();
+                    let arg_alloca = format!("_alloca_{}", ident.name);
                     func.locals.push((ident.name.clone(), i64_ty.clone()));
                     self.emit_to_func(
                         func,
@@ -391,7 +390,7 @@ impl IrGen {
                         }
                     }
                 }
-                Pattern::PTuple(pats) => {
+                Pattern::PTuple(pats) | Pattern::PList(pats) => {
                     self.gen_sub_pattern_checks(
                         func,
                         IrValue::Local(field_local),
@@ -401,149 +400,8 @@ impl IrGen {
                         arm_map,
                         0,
                     );
+                    return;
                 }
-                Pattern::PList(pats) => {
-                    let len_local = self.new_local();
-                    self.emit_to_func(
-                        func,
-                        IrInst::LoadOffset {
-                            dest: IrValue::Local(len_local.clone()),
-                            ptr: IrValue::Local(field_local.clone()),
-                            offset: 0,
-                        },
-                    );
-                    let expected_len =
-                        IrValue::Const(IrConst::Int(pats.len() as i64, i64_ty.clone()));
-                    let cmp_dest = self.new_local();
-                    self.emit_to_func(
-                        func,
-                        IrInst::Eq {
-                            dest: IrValue::Local(cmp_dest.clone()),
-                            lhs: IrValue::Local(len_local),
-                            rhs: expected_len,
-                        },
-                    );
-                    let list_ok = self.new_block_label();
-                    self.emit_to_func(
-                        func,
-                        IrInst::CondBr {
-                            cond: IrValue::Local(cmp_dest),
-                            then_target: list_ok.clone(),
-                            else_target: next_check.clone(),
-                        },
-                    );
-                    func.blocks.push(IrBlock {
-                        label: list_ok.clone(),
-                        insts: Vec::new(),
-                    });
-                    self.current_block = Some(list_ok);
-
-                    self.gen_sub_pattern_checks(
-                        func,
-                        IrValue::Local(field_local),
-                        pats,
-                        type_checker,
-                        next_check.clone(),
-                        arm_map,
-                        8,
-                    );
-                }
-            }
-        }
-    }
-
-    fn collect_captured_vars(
-        expr: &Expr,
-        lambda_params: &[String],
-        outer_alloca_map: &HashMap<String, String>,
-        out: &mut Vec<String>,
-        seen: &mut HashSet<String>,
-    ) {
-        match expr {
-            Expr::EVar(ident) => {
-                let name = ident.name.clone();
-                if !lambda_params.contains(&name)
-                    && outer_alloca_map.contains_key(&name)
-                    && !seen.contains(&name)
-                {
-                    seen.insert(name.clone());
-                    out.push(name);
-                }
-            }
-            Expr::EApp(func, arg) => {
-                Self::collect_captured_vars(func, lambda_params, outer_alloca_map, out, seen);
-                Self::collect_captured_vars(arg, lambda_params, outer_alloca_map, out, seen);
-            }
-            Expr::ELam(_, body) => {
-                let _ = body;
-            }
-            Expr::ELet(bindings, body) => {
-                for (_, e) in bindings {
-                    Self::collect_captured_vars(e, lambda_params, outer_alloca_map, out, seen);
-                }
-                Self::collect_captured_vars(body, lambda_params, outer_alloca_map, out, seen);
-            }
-            Expr::EIf(_, t, e) => {
-                Self::collect_captured_vars(t, lambda_params, outer_alloca_map, out, seen);
-                Self::collect_captured_vars(e, lambda_params, outer_alloca_map, out, seen);
-            }
-            Expr::EMatch(target, arms) => {
-                Self::collect_captured_vars(target, lambda_params, outer_alloca_map, out, seen);
-                for (_, e) in arms {
-                    Self::collect_captured_vars(e, lambda_params, outer_alloca_map, out, seen);
-                }
-            }
-            Expr::ECond(branches, else_) => {
-                for (c, e) in branches {
-                    Self::collect_captured_vars(c, lambda_params, outer_alloca_map, out, seen);
-                    Self::collect_captured_vars(e, lambda_params, outer_alloca_map, out, seen);
-                }
-                if let Some(e) = else_ {
-                    Self::collect_captured_vars(e, lambda_params, outer_alloca_map, out, seen);
-                }
-            }
-            Expr::EBegin(es) | Expr::ETuple(es) | Expr::EList(es) => {
-                for e in es {
-                    Self::collect_captured_vars(e, lambda_params, outer_alloca_map, out, seen);
-                }
-            }
-            Expr::EInfix(l, _, r) => {
-                Self::collect_captured_vars(l, lambda_params, outer_alloca_map, out, seen);
-                Self::collect_captured_vars(r, lambda_params, outer_alloca_map, out, seen);
-            }
-            Expr::ETypeSig(e, _)
-            | Expr::ECast(e, _)
-            | Expr::EGrouped(e)
-            | Expr::ERegion(_, e)
-            | Expr::EConsume(e)
-            | Expr::EField(e, _) => {
-                Self::collect_captured_vars(e, lambda_params, outer_alloca_map, out, seen);
-            }
-Expr::EAlloc(_, init, _) => {
-                if let Some(e) = init {
-                    Self::collect_captured_vars(e, lambda_params, outer_alloca_map, out, seen);
-                }
-            }
-            Expr::ESetField(base, _, value) => {
-                Self::collect_captured_vars(base, lambda_params, outer_alloca_map, out, seen);
-                Self::collect_captured_vars(value, lambda_params, outer_alloca_map, out, seen);
-            }
-            Expr::EStructCon(_, args) => {
-                for e in args {
-                    Self::collect_captured_vars(e, lambda_params, outer_alloca_map, out, seen);
-                }
-            }
-            Expr::ELit(_, _)
-            | Expr::ESizeof(_, _)
-            | Expr::EAlignof(_, _)
-            | Expr::EError(_, _)
-            | Expr::EBacktick(_)
-            | Expr::EUnquote(_)
-            | Expr::EUnquoteSplicing(_)
-            | Expr::EPrintln(_) => {}
-            Expr::EHandle(body, _, after) => {
-                Self::collect_captured_vars(body, lambda_params, outer_alloca_map, out, seen);
-                Self::collect_captured_vars(after, lambda_params, outer_alloca_map, out, seen);
             }
         }
     }
@@ -552,52 +410,27 @@ Expr::EAlloc(_, init, _) => {
     /// module so it can be passed as a first-class value or called
     /// directly. Parameters are always `I64`; non-`PVar` patterns
     /// are not yet supported for lambda parameters. Free variables
-    /// captured from the enclosing scope are supported via a
-    /// heap-allocated closure struct: the lambda function receives
-    /// captured values as extra leading parameters and the closure
-    /// struct bundles the function pointer with the captured values.
+    /// captured from the enclosing scope are not yet supported
+    /// (a known limitation).
     fn gen_lambda(
         &mut self,
         params: &[Pattern],
         body: &Expr,
         type_checker: &mut TypeChecker,
-        outer_alloca_map: &mut HashMap<String, String>,
-        func: &mut IrFunction,
     ) -> IrValue {
         self.lambda_counter += 1;
         let lambda_name = format!("_lambda_{}", self.lambda_counter);
 
-        // Collect captured variable names from the body.
-        let mut captured_vars: Vec<String> = Vec::new();
-        let mut seen = HashSet::new();
-        Self::collect_captured_vars(body, &[], outer_alloca_map, &mut captured_vars, &mut seen);
-
-        let lambda_param_names: Vec<String> = params
+        let lambda_params: Vec<(String, TypeId)> = params
             .iter()
             .filter_map(|p| {
                 if let Pattern::PVar(ident) = p {
-                    Some(ident.name.clone())
+                    Some((ident.name.clone(), TypeId::TCon("I64".to_string(), vec![])))
                 } else {
                     None
                 }
             })
             .collect();
-
-        // Lambda param order: captures first (i64), then lambda params (i64).
-        let mut lambda_params: Vec<(String, TypeId)> = Vec::new();
-        for cap_name in &captured_vars {
-            let cap_type = type_checker
-                .scope
-                .iter()
-                .rev()
-                .find(|(name, _)| name == cap_name)
-                .map(|(_, vi)| vi.ty.clone())
-                .unwrap_or(TypeId::TCon("I64".to_string(), vec![]));
-            lambda_params.push((cap_name.clone(), cap_type));
-        }
-        for pname in &lambda_param_names {
-            lambda_params.push((pname.clone(), TypeId::TCon("I64".to_string(), vec![])));
-        }
 
         let lambda_return = TypeId::TCon("I64".to_string(), vec![]);
 
@@ -617,31 +450,7 @@ Expr::EAlloc(_, init, _) => {
         });
 
         let mut lambda_alloca_map: HashMap<String, String> = HashMap::new();
-
-        // Alloca + store for captured params.
-        for (pname, pty) in lambda_params.iter().take(captured_vars.len()) {
-            let alloca_name = format!("_captured_{}", pname);
-            lambda_func.locals.push((pname.clone(), pty.clone()));
-            self.emit_to_func(
-                &mut lambda_func,
-                IrInst::Alloca {
-                    dest: IrValue::Local(alloca_name.clone()),
-                    ty: pty.clone(),
-                },
-            );
-            self.emit_to_func(
-                &mut lambda_func,
-                IrInst::Store {
-                    ptr: IrValue::Local(alloca_name.clone()),
-                    value: IrValue::Local(pname.clone()),
-                },
-            );
-            lambda_alloca_map.insert(pname.clone(), alloca_name);
-        }
-
-        // Alloca + store for normal lambda params.
-        let capture_count = captured_vars.len();
-        for (_i, (pname, pty)) in lambda_params.iter().enumerate().skip(capture_count) {
+        for (pname, pty) in &lambda_params {
             let alloca_name = format!("_alloca_{}", pname);
             lambda_func.locals.push((pname.clone(), pty.clone()));
             self.emit_to_func(
@@ -676,63 +485,7 @@ Expr::EAlloc(_, init, _) => {
 
         self.module.functions.push(lambda_func);
 
-        if captured_vars.is_empty() {
-            IrValue::Global(lambda_name)
-        } else {
-            // Build a closure struct on the heap: [i64; 1 + captures.len()]
-            // layout: [func_ptr, captured_1, captured_2, ...]
-            let i64_ty = TypeId::TCon("I64".to_string(), vec![]);
-            let closure_size = ((1 + captured_vars.len()) * 8) as i64;
-            let closure_ptr = self.new_local();
-            self.emit_to_func(
-                func,
-                IrInst::HeapAlloc {
-                    dest: IrValue::Local(closure_ptr.clone()),
-                    size: IrValue::Const(IrConst::Int(closure_size, i64_ty.clone())),
-                },
-            );
-            // Store function pointer at offset 0.
-            self.emit_to_func(
-                func,
-                IrInst::StoreOffset {
-                    ptr: IrValue::Local(closure_ptr.clone()),
-                    offset: 0,
-                    value: IrValue::Global(lambda_name.clone()),
-                },
-            );
-            // Store each captured value at offset 8 * (1 + i).
-            for (i, cap_name) in captured_vars.iter().enumerate() {
-                if let Some(alloca_name) = outer_alloca_map.get(cap_name) {
-                    let cap_value = IrValue::Local(alloca_name.clone());
-                    self.emit_to_func(
-                        func,
-                        IrInst::StoreOffset {
-                            ptr: IrValue::Local(closure_ptr.clone()),
-                            offset: ((i + 1) * 8) as i64,
-                            value: cap_value,
-                        },
-                    );
-                } else {
-                    // Captured variable not in outer alloca_map;
-                    // emit a load from the outer scope's alloca and store it.
-                    let cap_value = self.gen_expr_to_func_with_allocas(
-                        func,
-                        &Expr::EVar(Ident::new(cap_name, Span::dummy())),
-                        outer_alloca_map,
-                        type_checker,
-                    );
-                    self.emit_to_func(
-                        func,
-                        IrInst::StoreOffset {
-                            ptr: IrValue::Local(closure_ptr.clone()),
-                            offset: ((i + 1) * 8) as i64,
-                            value: cap_value,
-                        },
-                    );
-                }
-            }
-            IrValue::Local(closure_ptr)
-        }
+        IrValue::Global(lambda_name)
     }
 
     fn gen_expr_to_func_with_allocas(
@@ -745,8 +498,8 @@ Expr::EAlloc(_, init, _) => {
         match expr {
             Expr::ELit(lit, _) => self.gen_literal(lit),
             Expr::EVar(ident) => {
-                // A *bare* reference to a nullary constructor (`None`,
-                // `Leaf`, ...) constructs its (fieldless) boxed value
+                // A *bare* reference to a nullary constructor (`Nothing`,
+                // `Nil`, ...) constructs its (fieldless) boxed value
                 // directly. A non-nullary constructor referenced bare
                 // (not applied to any arguments) falls through to the
                 // ordinary variable-lookup path below, same as before -
@@ -873,11 +626,11 @@ Expr::EAlloc(_, init, _) => {
                 }
                 all_args.reverse();
 
-                // `(Some 42)`/`(Node a b)`-style constructor application:
+                // `(Just 42)`/`(Cons h t)`-style constructor application:
                 // build the real heap-boxed value instead of falling
                 // through to the generic `Call` path below, which would
                 // otherwise emit a call to a function literally named
-                // after the constructor (e.g. `@Some`) that is never
+                // after the constructor (e.g. `@Just`) that is never
                 // declared anywhere - invalid LLVM IR that fails at the
                 // `llc`/`cc` stage instead of at a compiler diagnostic.
                 // Only handled when the argument count matches the
@@ -898,15 +651,14 @@ Expr::EAlloc(_, init, _) => {
                     // is a known struct name. Allocate space and store
                     // each field at the appropriate offset (no tag word).
                     if let Some(si) = type_checker.structs.iter().find(|s| s.name == ident.name) {
-                        let sv = si.variants.first().unwrap();
-                        if sv.fields.len() != all_args.len() {
+                        if si.fields.len() != all_args.len() {
                             return IrValue::Const(IrConst::Int(
                                 0,
                                 TypeId::TCon("I64".to_string(), vec![]),
                             ));
                         }
                         let i64_ty = TypeId::TCon("I64".to_string(), vec![]);
-                        let struct_size = (sv.fields.len() * 8) as i64;
+                        let struct_size = (si.fields.len() * 8) as i64;
                         let ptr_local = self.new_local();
                         self.emit_to_func(
                             func,
@@ -927,43 +679,55 @@ Expr::EAlloc(_, init, _) => {
                         }
                         return IrValue::Local(ptr_local);
                     }
+                    // Union construction: `(Value 42)` where `Value`
+                    // is a known union name with exactly one field.
+                    // Allocate space and store the value at offset 0.
+                    if let Some(ui) = type_checker.unions.iter().find(|u| u.name == ident.name) {
+                        if ui.fields.len() != 1 || all_args.len() != 1 {
+                            return IrValue::Const(IrConst::Int(
+                                0,
+                                TypeId::TCon("I64".to_string(), vec![]),
+                            ));
+                        }
+                        let i64_ty = TypeId::TCon("I64".to_string(), vec![]);
+                        let ptr_local = self.new_local();
+                        self.emit_to_func(
+                            func,
+                            IrInst::HeapAlloc {
+                                dest: IrValue::Local(ptr_local.clone()),
+                                size: IrValue::Const(IrConst::Int(8, i64_ty.clone())),
+                            },
+                        );
+                        self.emit_to_func(
+                            func,
+                            IrInst::StoreOffset {
+                                ptr: IrValue::Local(ptr_local.clone()),
+                                offset: 0,
+                                value: all_args[0].clone(),
+                            },
+                        );
+                        return IrValue::Local(ptr_local);
+                    }
                 }
 
                 if let Expr::ELam(params, body) = current {
-                    let lambda_val = self.gen_lambda(params, body, type_checker, alloca_map, func);
-                    let dest = self.new_local();
-                    match lambda_val {
-                        IrValue::Global(name) => {
-                            self.emit_to_func(
-                                func,
-                                IrInst::Call {
-                                    dest: IrValue::Local(dest.clone()),
-                                    func: name,
-                                    args: all_args,
-                                },
-                            );
-                        }
-                        IrValue::Local(closure_ptr) => {
-                            self.emit_to_func(
-                                func,
-                                IrInst::ClosureCall {
-                                    dest: IrValue::Local(dest.clone()),
-                                    closure: IrValue::Local(closure_ptr),
-                                    normal_args: all_args,
-                                },
-                            );
-                        }
-                        IrValue::Const(_) => {
-                            self.emit_to_func(
-                                func,
-                                IrInst::Call {
-                                    dest: IrValue::Local(dest.clone()),
-                                    func: "unknown".to_string(),
-                                    args: all_args,
-                                },
-                            );
-                        }
+                    let lambda_val = self.gen_lambda(params, body, type_checker);
+                    let lambda_name;
+                    if let IrValue::Global(name) = lambda_val {
+                        lambda_name = name;
+                    } else {
+                        lambda_name = "unknown".to_string();
                     }
+
+                    let dest = self.new_local();
+                    self.emit_to_func(
+                        func,
+                        IrInst::Call {
+                            dest: IrValue::Local(dest.clone()),
+                            func: lambda_name,
+                            args: all_args,
+                        },
+                    );
                     return IrValue::Local(dest);
                 }
 
@@ -1156,7 +920,7 @@ Expr::EAlloc(_, init, _) => {
                             alloca_map,
                             type_checker,
                         );
-                        let alloca_name = self.new_local();
+                        let alloca_name = format!("_alloca_{}", ident.name);
                         func.locals
                             .push((ident.name.clone(), TypeId::TCon("I64".to_string(), vec![])));
                         self.emit_to_func(
@@ -1329,7 +1093,7 @@ Expr::EAlloc(_, init, _) => {
                         Pattern::PVar(ident) => {
                             unconditional_arm(self, func);
 
-                            let var_alloca = self.new_local();
+                            let var_alloca = format!("_alloca_{}", ident.name);
                             func.locals.push((ident.name.clone(), i64_ty.clone()));
                             self.emit_to_func(
                                 func,
@@ -1380,14 +1144,14 @@ Expr::EAlloc(_, init, _) => {
                             });
                             self.current_block = Some(arm_label.clone());
                         }
-                        Pattern::PTuple(pats) => {
+                        Pattern::PTuple(pats) | Pattern::PList(pats) => {
                             func.blocks.push(IrBlock {
                                 label: check_label.clone(),
                                 insts: vec![IrInst::Br {
                                     target: arm_label.clone(),
                                 }],
                             });
-                            self.current_block = Some(check_label.clone());
+                            self.current_block = Some(arm_label.clone());
 
                             func.blocks.push(IrBlock {
                                 label: arm_label.clone(),
@@ -1400,61 +1164,9 @@ Expr::EAlloc(_, init, _) => {
                                 target_val.clone(),
                                 pats,
                                 type_checker,
-                                next_check.clone(),
+                                merge_label.clone(),
                                 &mut arm_map,
                                 0,
-                            );
-                        }
-                        Pattern::PList(pats) => {
-                            func.blocks.push(IrBlock {
-                                label: check_label.clone(),
-                                insts: Vec::new(),
-                            });
-                            self.current_block = Some(check_label.clone());
-
-                            let len_local = self.new_local();
-                            self.emit_to_func(
-                                func,
-                                IrInst::LoadOffset {
-                                    dest: IrValue::Local(len_local.clone()),
-                                    ptr: target_val.clone(),
-                                    offset: 0,
-                                },
-                            );
-                            let expected_len =
-                                IrValue::Const(IrConst::Int(pats.len() as i64, i64_ty.clone()));
-                            let cmp_dest = self.new_local();
-                            self.emit_to_func(
-                                func,
-                                IrInst::Eq {
-                                    dest: IrValue::Local(cmp_dest.clone()),
-                                    lhs: IrValue::Local(len_local),
-                                    rhs: expected_len,
-                                },
-                            );
-                            self.emit_to_func(
-                                func,
-                                IrInst::CondBr {
-                                    cond: IrValue::Local(cmp_dest),
-                                    then_target: arm_label.clone(),
-                                    else_target: next_check.clone(),
-                                },
-                            );
-
-                            func.blocks.push(IrBlock {
-                                label: arm_label.clone(),
-                                insts: Vec::new(),
-                            });
-                            self.current_block = Some(arm_label.clone());
-
-                            self.gen_sub_pattern_checks(
-                                func,
-                                target_val.clone(),
-                                pats,
-                                type_checker,
-                                next_check.clone(),
-                                &mut arm_map,
-                                8,
                             );
                         }
                     }
@@ -1544,9 +1256,7 @@ Expr::EAlloc(_, init, _) => {
             Expr::EGrouped(inner) => {
                 self.gen_expr_to_func_with_allocas(func, inner, alloca_map, type_checker)
             }
-            Expr::ELam(params, body) => {
-                self.gen_lambda(params, body, type_checker, alloca_map, func)
-            }
+            Expr::ELam(params, body) => self.gen_lambda(params, body, type_checker),
             Expr::ETuple(elements) => {
                 let i64_ty = TypeId::TCon("I64".to_string(), vec![]);
                 let tuple_size = (elements.len() * 8) as i64;
@@ -1574,21 +1284,13 @@ Expr::EAlloc(_, init, _) => {
             }
             Expr::EList(items) => {
                 let i64_ty = TypeId::TCon("I64".to_string(), vec![]);
-                let list_size = ((1 + items.len()) * 8) as i64;
+                let list_size = (items.len() * 8) as i64;
                 let ptr_local = self.new_local();
                 self.emit_to_func(
                     func,
                     IrInst::HeapAlloc {
                         dest: IrValue::Local(ptr_local.clone()),
                         size: IrValue::Const(IrConst::Int(list_size, i64_ty.clone())),
-                    },
-                );
-                self.emit_to_func(
-                    func,
-                    IrInst::StoreOffset {
-                        ptr: IrValue::Local(ptr_local.clone()),
-                        offset: 0,
-                        value: IrValue::Const(IrConst::Int(items.len() as i64, i64_ty.clone())),
                     },
                 );
                 for (i, item) in items.iter().enumerate() {
@@ -1598,7 +1300,7 @@ Expr::EAlloc(_, init, _) => {
                         func,
                         IrInst::StoreOffset {
                             ptr: IrValue::Local(ptr_local.clone()),
-                            offset: ((1 + i) * 8) as i64,
+                            offset: (i * 8) as i64,
                             value: val,
                         },
                     );
@@ -1619,7 +1321,20 @@ Expr::EAlloc(_, init, _) => {
                 let base_val =
                     self.gen_expr_to_func_with_allocas(func, base, alloca_map, type_checker);
                 let i64_ty = TypeId::TCon("I64".to_string(), vec![]);
-                if let Some((_struct_name, _variant_name, field_index, _field_ty)) =
+                if let Some((_union_name, _field_ty)) =
+                    type_checker.find_union_field_by_name(&field_ident.name)
+                {
+                    let result_reg = self.new_local();
+                    self.emit_to_func(
+                        func,
+                        IrInst::LoadOffset {
+                            dest: IrValue::Local(result_reg.clone()),
+                            ptr: base_val,
+                            offset: 0,
+                        },
+                    );
+                    IrValue::Local(result_reg)
+                } else if let Some((_struct_name, field_index, _field_ty)) =
                     type_checker.find_struct_field_by_name(&field_ident.name)
                 {
                     let offset = (field_index * 8) as i64;
@@ -1643,7 +1358,20 @@ Expr::EAlloc(_, init, _) => {
                 let value_val =
                     self.gen_expr_to_func_with_allocas(func, value, alloca_map, type_checker);
                 let i64_ty = TypeId::TCon("I64".to_string(), vec![]);
-                if let Some((_struct_name, _variant_name, field_index, _field_ty)) =
+                if type_checker
+                    .find_union_field_by_name(&field_ident.name)
+                    .is_some()
+                {
+                    self.emit_to_func(
+                        func,
+                        IrInst::StoreOffset {
+                            ptr: base_val,
+                            offset: 0,
+                            value: value_val,
+                        },
+                    );
+                    IrValue::Const(IrConst::Int(0, i64_ty))
+                } else if let Some((_struct_name, field_index, _field_ty)) =
                     type_checker.find_struct_field_by_name(&field_ident.name)
                 {
                     let offset = (field_index * 8) as i64;
@@ -1663,11 +1391,10 @@ Expr::EAlloc(_, init, _) => {
             Expr::EStructCon(name, args) => {
                 let i64_ty = TypeId::TCon("I64".to_string(), vec![]);
                 if let Some(si) = type_checker.structs.iter().find(|s| s.name == name.name) {
-                    let sv = si.variants.first().unwrap();
-                    if sv.fields.len() != args.len() {
+                    if si.fields.len() != args.len() {
                         return IrValue::Const(IrConst::Int(0, i64_ty));
                     }
-                    let struct_size = (sv.fields.len() * 8) as i64;
+                    let struct_size = (si.fields.len() * 8) as i64;
                     let ptr_local = self.new_local();
                     self.emit_to_func(
                         func,
@@ -1693,17 +1420,49 @@ Expr::EAlloc(_, init, _) => {
                     IrValue::Const(IrConst::Int(0, i64_ty))
                 }
             }
-            Expr::EPrintln(e) => {
-                let val = self.gen_expr_to_func_with_allocas(func, e, alloca_map, type_checker);
-                let dest = self.new_local();
-                self.emit_to_func(
-                    func,
-                    IrInst::Println {
-                        dest: IrValue::Local(dest.clone()),
-                        value: val,
-                    },
-                );
-                IrValue::Local(dest)
+            Expr::EUnionCon(union_name, field_name, value) => {
+                let i64_ty = TypeId::TCon("I64".to_string(), vec![]);
+                if let Some(ui) = type_checker
+                    .unions
+                    .iter()
+                    .find(|u| u.name == union_name.name)
+                {
+                    let field_info = ui
+                        .fields
+                        .iter()
+                        .find(|(fname, _)| fname == &field_name.name);
+                    match field_info {
+                        Some((_, _fty)) => {
+                            let value_val = self.gen_expr_to_func_with_allocas(
+                                func,
+                                value,
+                                alloca_map,
+                                type_checker,
+                            );
+                            let union_size = 8i64;
+                            let ptr_local = self.new_local();
+                            self.emit_to_func(
+                                func,
+                                IrInst::HeapAlloc {
+                                    dest: IrValue::Local(ptr_local.clone()),
+                                    size: IrValue::Const(IrConst::Int(union_size, i64_ty.clone())),
+                                },
+                            );
+                            self.emit_to_func(
+                                func,
+                                IrInst::StoreOffset {
+                                    ptr: IrValue::Local(ptr_local.clone()),
+                                    offset: 0,
+                                    value: value_val,
+                                },
+                            );
+                            IrValue::Local(ptr_local)
+                        }
+                        None => IrValue::Const(IrConst::Int(0, i64_ty)),
+                    }
+                } else {
+                    IrValue::Const(IrConst::Int(0, i64_ty))
+                }
             }
             _ => IrValue::Const(IrConst::Int(0, TypeId::TCon("I64".to_string(), vec![]))),
         }
@@ -1767,7 +1526,7 @@ Expr::EAlloc(_, init, _) => {
                 TypeId::TCon(name.name.clone(), vec![self.type_to_id(inner)])
             }
             Type::TLinear(inner) => {
-                TypeId::TLinear(Box::new(self.type_to_id(inner)))
+                TypeId::TCon("Linear".to_string(), vec![self.type_to_id(inner)])
             }
         }
     }

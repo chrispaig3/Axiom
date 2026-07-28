@@ -90,7 +90,7 @@ Concretely, poisoning today makes this:
 
 ```lisp
 (:: main Int)
-(fn main (foo 1 2) 0)
+(define main (foo 1 2) 0)
 ```
 
 now reports exactly **one** diagnostic (`foo` is undefined), instead of
@@ -178,10 +178,10 @@ Source:
 
 ```lisp
 (:: helper (-> Int Int))
-(fn (helper x) (+ x 1))
+(define (helper x) (+ x 1))
 
 (:: main Int)
-(fn main
+(define main
   (helpr 5))
 ```
 
@@ -226,11 +226,10 @@ instead of the failure case.
 `axiom symbols <file>` runs the same lexer -> parser -> type-checker
 pipeline as `check` (including resolving `(import ...)`s, see
 `docs/diagnostics.md`'s multi-file notes below), then prints one fact per
-top-level name the checker collected: every `fn`, every
-multi-variant `struct` type and its
-constructors (variants), every `struct` single-variant product
-(with its exact field shapes and layout attributes), every `type` alias,
-and every trait. Like diagnostics, it honors
+top-level name the checker collected: every `define`/`fn`, every
+`foreign` binding, every `data` type and its constructors, every
+`struct`/`union` (with its exact field shapes and layout attributes),
+every `type` alias, and every `class`. Like diagnostics, it honors
 `--diagnostic-format`:
 
 ```bash
@@ -256,7 +255,7 @@ and every trait. Like diagnostics, it honors
 
 | Field | Meaning |
 |---|---|
-| `KIND` | One letter: `F` function, `D` ADT type, `C` constructor, `S` struct, `A` type alias, `T` trait, `E` effect, `I` impl |
+| `KIND` | One letter: `F` function, `X` foreign binding, `D` data type, `C` constructor, `S` struct, `U` union, `A` type alias, `L` class |
 | `NAME` | The declared name, exactly as written |
 | `FILE:LOC` | Same `file:line:col[-col\|:line:col]` addressing as AXDL, via the same [`SourceMap`](../axiom-errors/src/source_map.rs) - for a program with `(import ...)`s, `FILE` is the *actual* file that declared this symbol (an imported module's own file), not always the entry file, exactly like AXDL's own multi-file attribution |
 | `-` | In place of `FILE:LOC`, for names with no source span at all - in practice, only Axiom's dozen built-in operators (`+`, `==`, `&&`, ...), which `axiom symbols` omits entirely unless `--builtins` is passed (they never change, so printing them on every call is exactly the restating-what's-already-known token waste this notation exists to avoid) |
@@ -267,12 +266,13 @@ Metadata keys actually emitted today:
 
 | Key | Kinds | Meaning |
 |---|---|---|
-| `ctors` | `D` | Comma-separated constructor names, e.g. `#ctors=None,Some` |
-| `of` | `C` | The constructor's owning struct type (ADT), e.g. `#of=Color` |
-| `fields` | `S` | `name:Type,name:Type,...` - the actual field shapes, not just a count, e.g. `#fields=x:Int,y:Int` |
-| `packed` / `align=N` | `S` | The struct's layout attribute, when it has a non-default one |
-| `methods` | `T`, `I` | `name:Type,name:Type,...` for the class's methods (as class/trait) or impl's trait's methods, same shape as `fields` |
-| `tyvars` | `A`, `D`, `S`, `T` | Comma-separated type parameters, e.g. `#tyvars=a,b`, omitted when there are none |
+| `ctors` | `D` | Comma-separated constructor names, e.g. `#ctors=Nothing,Just` |
+| `of` | `C` | The constructor's owning data type, e.g. `#of=Maybe` |
+| `fields` | `S`, `U` | `name:Type,name:Type,...` - the actual field shapes, not just a count, e.g. `#fields=x:Int,y:Int` |
+| `packed` / `repr=C` / `align=N` | `S` | The struct's layout attribute, when it has a non-default one |
+| `methods` | `L` | `name:Type,name:Type,...` for the class's methods, same shape as `fields` |
+| `symbol` | `X` | The real linked C symbol name from `(foreign name :: Type = "c_symbol")`, e.g. `#symbol=printf` - not always the same as `NAME` |
+| `tyvars` | `A` | Comma-separated type parameters, e.g. `#tyvars=a,b`, omitted when there are none |
 
 `KIND` letters are deliberately disjoint from [`Severity::sigil`](../axiom-errors/src/severity.rs)'s `E`/`W`/`N`/`H`, so the first character of a line is never ambiguous about which notation (or which command) produced it even if AXDL and AXSYM output were ever concatenated into one stream.
 
@@ -281,8 +281,11 @@ Metadata keys actually emitted today:
 Source:
 
 ```lisp
+(foreign printf :: (-> String Int) = "printf")
 
-(struct Tree (Leaf) (Node Int (Tree Int) (Tree Int)))
+(data Maybe (a)
+  (Nothing)
+  (Just a))
 
 (struct Point
   (x : Int)
@@ -296,27 +299,35 @@ Source:
 AXSYM output (`--diagnostic-format=ai symbols`, builtins omitted by default):
 
 ```
-F add main.ax:12:5-8 "(Int -> (Int -> Int))"
-D Tree main.ax:2:7-11 "struct Tree" #ctors=Leaf,Node
-C Leaf main.ax:3:4-8 "Tree" #of=Tree
-C Node main.ax:4:4-8 "Int Tree Tree" #of=Tree
+X printf main.ax:1:10-16 "(String -> Int)" #symbol=printf
+F add main.ax:11:5-8 "(Int -> (Int -> Int))"
+D Maybe main.ax:3:7-12 "data Maybe" #ctors=Nothing,Just
+C Nothing main.ax:4:4-11 "Maybe" #of=Maybe
+C Just main.ax:5:4-8 "(a -> Maybe a)" #of=Maybe
 S Point main.ax:7:9-14 "struct Point" #fields=x:Int,y:Int
 ```
 
-An agent asked to inspect `Tree` declarations can now
-`grep '^D Tree'`/`grep '^C '` for the exact constructor set and
-`grep '^S Point'` for the exact field shapes, instead of paying to
+An agent asked to "add a function that formats a `Maybe Int`" can now
+`grep '^D Maybe'`/`grep '^C '` for the exact constructor set and
+`grep '^X printf'` for the exact FFI signature, instead of paying to
 re-read and re-parse the whole file just to recover facts the type
 checker already has in hand.
 
 ### Why this found a real parser bug
 
-Building AXSYM immediately exposed that `(struct Tree (Leaf) (Node Int (Tree Int) (Tree Int)))` - the README's own example - was parsing `(a)` as a *third,
+Building AXSYM immediately exposed that `(data Maybe (a) (Nothing) (Just
+a))` - the README's own example - was parsing `(a)` as a *third,
 spurious nullary constructor named `a`* instead of a type-parameter list,
 because `parse_tyvars` only recognized bare, unparenthesized type
-variables. Without this fix, recursive types like `Tree` could silently
-parse with an extra bogus constructor. See `axiom-parser/src/lib.rs`'s
-`parse_tyvars`/`looks_like_tyvar_list` for the fix.
+variables. Every parenthesized-tyvar example in the README (which is all
+of them) was affected, and `(type StringList () = [String])` failed to
+parse at all. This is exactly the payoff a dense, greppable success-path
+notation is supposed to deliver: the moment "what does this file
+actually declare" became one `grep`-able line per symbol instead of
+prose an agent (or a human) has to re-derive by eye, a real correctness
+bug that pretty-printed output had been silently absorbing became
+obvious immediately. See `axiom-parser/src/lib.rs`'s `parse_tyvars`/
+`looks_like_tyvar_list` for the fix.
 
 ## Adding a new diagnostic
 
@@ -343,31 +354,30 @@ parse with an extra bogus constructor. See `axiom-parser/src/lib.rs`'s
 Both NID and AXTAG are now implemented.
 
 * **NID (stable node ID).** Every named declaration gets a content-derived
-   ID - a short hash of the declaration kind, name, and structural
-   content (type parameters, field types, signatures). This makes NIDs
-   sensitive to interface changes (renaming a field, changing a type
-   parameter, etc.) while remaining stable across formatting-only edits
-   (whitespace, comment changes, reordering of independent fields).
-   AXSYM lines emit an optional `@NID` field after the type. This is
-   *not* "line numbers with extra steps" - the whole point is a
-   coordinate that is stable exactly when `file:line:col` is not.
+  ID - a short hash of `(kind, name)` - that survives edits elsewhere in
+  the file and small reformatting, unlike a character offset. AXSYM lines
+  emit an optional `@NID` field after the type. This is *not* "line numbers
+  with extra steps" - the whole point is a coordinate that is stable exactly
+  when `file:line:col` is not.
 
 * **AXTAG (source-embedded agent metadata).** A reserved comment form -
   `;@axiom:<key>(<value>)` immediately above a declaration - for
   agent-authored, compiler-checked intent. The lexer preserves AXTAG tokens
   as trivia attached to the following declaration, the parser attaches them
   to the AST, and `axiom symbols` surfaces accepted tags as `#`-metadata
-  Sema validates what it can: `effect(alloc)`, `effect(pure)`,
-  `effect(mut)`, and `effect(div)` claims are checked against
-  actual effects in the body. Mismatches emit a normal `AX3010` /
-  `axtag-mismatch` warning so an agent can correct the annotation
-  instead of silently trusting it. Other tags (`no_refactor`,
-  `owned(region=N)`, etc.) are preserved and emitted but not yet
-  validated.
+  on the corresponding AXSYM line (e.g. `#effect=io`, `#pure`).
+
+  Sema validates what it can: `effect(io)` claims are checked against
+  actual foreign calls in the body, and `pure` claims are checked against
+  foreign calls. Mismatches emit a normal `AX3010` / `axtag-mismatch`
+  warning so an agent can correct the annotation instead of silently
+  trusting it. Other tags (`no_refactor`, `owned(region=N)`, etc.) are
+  preserved and emitted but not yet validated.
 
 Example AXSYM output with NID and AXTAG metadata:
 
 ```
 F add main.ax:1:6-9 "(Int -> (Int -> Int))" @a1b2c3d4e5f6a1b2
-D Tree main.ax:3:7-11 "struct Tree" #ctors=Leaf,Node @e5f6a1b2c3d4
+X printf main.ax:1:10-16 "(String -> Int)" #symbol=printf @c3d4e5f6a1b2
+D Maybe main.ax:3:7-12 "data Maybe" #ctors=Nothing,Just @e5f6a1b2c3d4
 ```
