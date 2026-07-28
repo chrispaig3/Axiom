@@ -227,10 +227,10 @@ instead of the failure case.
 pipeline as `check` (including resolving `(import ...)`s, see
 `docs/diagnostics.md`'s multi-file notes below), then prints one fact per
 top-level name the checker collected: every `fn`, every
-`foreign` binding, every multi-variant `struct` type and its
+multi-variant `struct` type and its
 constructors (variants), every `struct` single-variant product
 (with its exact field shapes and layout attributes), every `type` alias,
-and every `class`. Like diagnostics, it honors
+and every trait. Like diagnostics, it honors
 `--diagnostic-format`:
 
 ```bash
@@ -305,7 +305,7 @@ S Point main.ax:7:9-14 "struct Point" #fields=x:Int,y:Int
 
 An agent asked to inspect `Tree` declarations can now
 `grep '^D Tree'`/`grep '^C '` for the exact constructor set and
-`grep '^X printf'` for the exact FFI signature, instead of paying to
+`grep '^S Point'` for the exact field shapes, instead of paying to
 re-read and re-parse the whole file just to recover facts the type
 checker already has in hand.
 

@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 use axiom_ast::ast::{Decl, MacroDef};
 use axiom_macros::MacroExpander;
@@ -44,7 +45,7 @@ enum Commands {
         #[arg(long)]
         emit_llvm: bool,
     },
-    /// Build and run `input` - no longer executes (C linking removed)
+    /// Build and run `input`
     Run { input: String },
     /// Check syntax and types
     Check { input: String },
@@ -763,9 +764,34 @@ fn build(
 
     if emit_llvm {
         println!("LLVM IR written to {}", ll_path);
+        println!("Build successful: {}", ll_path);
+        return Ok(());
     }
 
-    println!("Build successful (LLVM IR + object file): {}", ll_path);
+    let obj_path = format!("{}.o", output);
+    let llc_status = Command::new("llc")
+        .args(["-filetype=obj", &ll_path, "-o", &obj_path])
+        .status()
+        .map_err(|e| format!("Failed to run llc: {}", e))?;
+
+    if !llc_status.success() {
+        return Err("llc failed to compile LLVM IR to object file".to_string());
+    }
+
+    println!("Object file written to {}", obj_path);
+
+    let exe_path = output.to_string();
+    let cc_status = Command::new("cc")
+        .args([&obj_path, "-o", &exe_path])
+        .status()
+        .map_err(|e| format!("Failed to run cc: {}", e))?;
+
+    if !cc_status.success() {
+        return Err("cc failed to link object file to executable".to_string());
+    }
+
+    println!("Executable written to {}", exe_path);
+    println!("Build successful: {}", exe_path);
     Ok(())
 }
 
@@ -787,11 +813,13 @@ fn run(input: &str, format: DiagnosticFormat) -> Result<i32, String> {
     let output = "axiom_temp_output";
     build(input, output, false, format)?;
 
-    // Without C linking, the build stops at LLVM IR / object files.
-    // Executables can't be produced without a linker, so we can't
-    // run the program from the CLI.
-    Err("Cannot execute: C linking has been removed. Use `axiom build --emit-llvm` to inspect generated IR, or link the object files manually."
-        .to_string())
+    let exe_path = format!("./{}", output);
+    let status = Command::new(&exe_path)
+        .status()
+        .map_err(|e| format!("Failed to execute {}: {}", exe_path, e))?;
+
+    let code = status.code().ok_or_else(|| "program killed by signal".to_string())?;
+    Ok(code)
 }
 
 fn check(input: &str, format: DiagnosticFormat) -> Result<(), String> {

@@ -34,8 +34,7 @@ Co‑authored with Qwen3.6 Plus, Axiom explores a new frontier: languages built 
 ### Prerequisites
 
 - **Rust 1.70+** — to build the compiler
-- **LLVM** — `llc` must be on your PATH (for code generation)
-- **A C compiler** — `cc`, `clang`, or `gcc` on your PATH (for final linking)
+- **LLVM** — `llc` must be on your PATH (LLVM IR → object file)
 
 On macOS:
 ```bash
@@ -44,7 +43,7 @@ brew install llvm
 
 On Ubuntu/Debian:
 ```bash
-sudo apt install llvm clang
+sudo apt install llvm
 ```
 
 ### Build the compiler
@@ -88,7 +87,7 @@ Compile it:
 Every Axiom program needs a `main` function that returns `Int`. The compiler pipeline:
 
 ```
-Source (.ax) → Lexer → Parser → Type Checker → IR → LLVM IR → llc → cc → Executable
+Source (.ax) → Lexer → Parser → Type Checker → IR → LLVM IR → llc → Executable
 ```
 
 ---
@@ -137,7 +136,7 @@ Functions are the heart of Axiom. Every function has an optional type signature 
 
 ; Multi-statement body with braces
 (fn (verbose-add x y)
-  { (printf "adding %d + %d\n" x y)
+  { (printf "adding %d + %d\n" x y) ; calls C's printf
     (+ x y) })
 
 ; A constant (function with no parameters)
@@ -225,8 +224,8 @@ When you need to evaluate multiple expressions in order, use braces:
 
 ```scheme
 {
-  (printf "Starting...\n")
-  (printf "Working...\n")
+  (printf "Starting...\n") ; calls C's printf
+  (printf "Working...\n")  ; calls C's printf
   0
 }
 ```
@@ -237,8 +236,8 @@ Function bodies, `let` bodies, `if` branches, and `lambda` bodies also support i
 
 ```scheme
 (fn main
-  (printf "Starting...\n")
-  (printf "Working...\n")
+  (printf "Starting...\n") ; calls C's printf
+  (printf "Working...\n")  ; calls C's printf
   0)
 ```
 
@@ -411,7 +410,7 @@ Annotate a function with its effects using AXTAG metadata:
 
 ```scheme
 ;@axiom:effect(alloc)
-(fn main (printf "hello"))
+(fn main (printf "hello")) ; calls C's printf
 ```
 
 The compiler validates that the body actually performs the declared effects.
@@ -426,7 +425,7 @@ Handle effects with `handle`:
 
 ```scheme
 ; A handler that catches alloc and returns a default value
-(handle (printf "hello") (Alloc) 0)
+(handle (printf "hello") (Alloc) 0) ; calls C's printf
 ```
 
 Effect annotations are also supported on traits and implementations:
@@ -513,12 +512,12 @@ Axiom has no standard library. System operations are not built-in; they can be i
 
 ### Print to stdout
 
-Use `print` for standard output:
+Axiom has no built-in `print` function. For output, call C's `printf` directly:
 
 ```scheme
 (:: main Int)
 (fn main
-  (print "Formatted: Hello\n")
+  (printf "Formatted: Hello\n")
   0)
 ```
 
@@ -723,7 +722,7 @@ Source (.ax)
 [4/5] IR Generator → Three-address code with basic blocks
     │
     ▼
-[5/5] LLVM CodeGen → LLVM IR text → llc → .o → cc → executable
+[5/5] LLVM CodeGen → LLVM IR text → llc → executable
 ```
 
 ### Crate structure
@@ -749,7 +748,6 @@ Source (.ax)
 | Operators (prefix) | **Complete** | All arithmetic, comparison, logical (`+`, `-`, `*`, `/`, `%`, `==`, `!=`, `<`, `>`, `<=`, `>=`, `&&`, `\|\|`) |
 | Let bindings | **Complete** | Variable resolution, sequential evaluation |
 | if expressions | **Complete** | Proper branching with result values |
-| begin blocks | **Removed** | Replaced by `{ }` brace blocks and implicit sequencing |
 | brace blocks | **Complete** | `{ expr1 expr2 ... }` — modern sequencing, returns last value |
 | fn keyword | **Complete** | Modern function declaration keyword (replaces `define`) |
 | ADTs / struct types | **Complete** | Constructors (nullary and with fields, including recursive types like `Tree`) compile to heap-boxed tagged values; see [Algebraic data types](#algebraic-data-types-how-they-actually-run) |

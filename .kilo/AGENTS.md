@@ -40,7 +40,7 @@ A single root-cause error may produce cascading downstream errors. The compiler 
 Axiom follows a classic multi-phase compiler pipeline. Each phase is a separate crate with a well-defined interface:
 
 ```
-Source (.ax) → axiom-lexer → axiom-parser → axiom-sema → axiom-ir → axiom-codegen → LLVM IR → llc → cc → Executable
+Source (.ax) → axiom-lexer → axiom-parser → axiom-sema → axiom-ir → axiom-codegen → LLVM IR → llc → Executable
 ```
 
 | Crate | Responsibility |
@@ -149,7 +149,7 @@ Use `.with_group(...)` on `Diagnostic` when a single root cause produces multipl
 
 ### Toolchain safety
 
-- The native toolchain invocation (`llc`, `cc`) passes user-controlled file paths. Sanitize paths to prevent command injection or path traversal.
+- The native toolchain invocation (`llc`) passes user-controlled file paths. Sanitize paths to prevent command injection or path traversal.
 - Never pass unsanitized user input to shell commands. Use `std::process::Command` with explicit argument vectors, not shell strings.
 
 ### Compiler-as-trusted-tool
