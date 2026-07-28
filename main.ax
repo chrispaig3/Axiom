@@ -1,8 +1,0 @@
-(:: main Int)
-
-(fn (main) ({
-	(println "ET Phone Home!")
-	(println "Hello, World!")
-}))
-
-

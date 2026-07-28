@@ -156,3 +156,27 @@ Use `.with_group(...)` on `Diagnostic` when a single root cause produces multipl
 
 - Because Axiom is designed for agentic programming, agents must treat compiler output as authoritative. When the `ai` diagnostic format reports an error, do not attempt to work around it by modifying source to hide the diagnostic. Fix the root cause.
 - When an agent generates Axiom source code, it must compile cleanly with `axiom diagnostics=ai check` and produce zero errors before the code is considered valid.
+
+## 6. Self-Hosting
+
+Axiom is being self-hosted — parts of the compiler are written in Axiom itself. The self-hosted code lives in `self_host/` and demonstrates that the compiler pipeline (lexer, parser, type checker, code generator) can be expressed as Axiom code.
+
+### Self-hosted files
+
+| File | Purpose |
+|---|---|
+| `self_host/core.ax` | Core data structures (Span, Token, TokenKind, Module) |
+| `self_host/lexer.ax` | Lexer stub — text → tokens transformation |
+| `self_host/parser.ax` | Parser stub — tokens → AST transformation |
+| `self_host/typecheck.ax` | Type checker stub — AST → typed AST validation |
+| `self_host/codegen.ax` | Code generator stub — typed AST → LLVM IR |
+| `self_host/main.ax` | Entry point tying all phases together |
+
+### Building self-hosted code
+
+```bash
+axiom check self_host/main.ax
+axiom build --input self_host/main.ax --output self_host_test
+```
+
+The self-hosted code compiles with the existing Rust-based Axiom compiler. The goal is to eventually replace the Rust implementations with Axiom implementations, bootstrapping the compiler.

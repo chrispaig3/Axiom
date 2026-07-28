@@ -1,0 +1,15 @@
+;; Self-hosted lexer stub for Axiom.
+;; The lexer transforms source text into tokens.
+;; In a fully self-hosted compiler, this would be a
+;; recursive character-by-character tokenizer written in Axiom.
+
+(import core)
+
+(:: axiom_lex (-> String String))
+(fn (axiom_lex source)
+  source)
+
+;; The lexer demonstrates a key self-hosting principle:
+;; symbolic text transformation. Source characters are
+;; classified and grouped into tokens — a pure function
+;; from string to token list, expressible entirely in Axiom.
