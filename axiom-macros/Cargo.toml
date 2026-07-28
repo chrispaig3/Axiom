@@ -1,0 +1,8 @@
+[package]
+name = "axiom-macros"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+axiom-ast = { path = "../axiom-ast" }
+axiom-errors = { path = "../axiom-errors" }

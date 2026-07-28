@@ -149,7 +149,51 @@ pub enum Expr {
     EField(Box<Expr>, Ident),
     EStructCon(Ident, Vec<Expr>),
     ESetField(Box<Expr>, Ident, Box<Expr>),
+    /// `` `expr `` — quasiquote template
+    EBacktick(Box<Expr>),
+    /// `,expr` — unquote (evaluated hole in quasiquote)
+    EUnquote(Box<Expr>),
+    /// `,@expr` — unquote-splicing (splice list into quasiquote)
+    EUnquoteSplicing(Box<Expr>),
     EError(String, Span),
+}
+
+// ============================================================
+// Macro definitions
+// ============================================================
+
+/// A source-level macro definition.
+///
+/// Syntax:
+/// ```scheme
+/// (defmacro name (param1 param2 ...)
+///   body...)
+/// ```
+///
+/// The body is a single expression (typically using backtick
+/// quasiquoting to construct the expansion template).
+#[derive(Debug, Clone)]
+pub struct MacroDef {
+    pub name: Ident,
+    pub params: Vec<Pattern>,
+    pub body: Expr,
+    pub doc: Option<String>,
+    pub axtags: Vec<Axtag>,
+}
+
+// ============================================================
+// Quasiquoting (temporary AST nodes, consumed by macro expansion)
+// ============================================================
+
+/// `` `expr `` — quasiquote: template with holes for evaluation
+#[derive(Debug, Clone)]
+pub enum QuasiquoteForm {
+    /// `` `expr `` — template (quoted structure, except for unquote holes)
+    Quasiquote(Box<Expr>),
+    /// `,expr` — unquote: evaluate and splice value into template
+    Unquote(Box<Expr>),
+    /// `,@expr` — unquote-splicing: evaluate and splice list of values
+    UnquoteSplicing(Box<Expr>),
 }
 
 impl Expr {
@@ -183,6 +227,9 @@ impl Expr {
             Expr::EStructCon(name, _) => name.span,
             Expr::ESetField(e, _, _) => e.span(),
             Expr::EError(_, span) => *span,
+            Expr::EBacktick(e) => e.span(),
+            Expr::EUnquote(e) => e.span(),
+            Expr::EUnquoteSplicing(e) => e.span(),
         }
     }
 }
@@ -266,6 +313,10 @@ DFn {
         operations: Vec<EffectOp>,
         nid: Option<String>,
         axtags: Vec<Axtag>,
+    },
+    DMacro {
+        name: Ident,
+        def: MacroDef,
     },
 }
 
@@ -487,6 +538,9 @@ impl Decl {
                     out.push(':');
                     Self::fmt_type_nid(out, &op.return_type);
                 }
+            }
+            Decl::DMacro { .. } => {
+                out.push_str("DMacro");
             }
             Decl::DImport { .. } => {
                 out.push_str("DImport");

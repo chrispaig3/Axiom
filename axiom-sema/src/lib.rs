@@ -299,6 +299,7 @@ fn collect_effects_into(
         }
         Expr::ESizeof(_, _) | Expr::EAlignof(_, _) | Expr::EError(_, _) => {}
         Expr::ELit(_, _) => {}
+        Expr::EBacktick(_) | Expr::EUnquote(_) | Expr::EUnquoteSplicing(_) => {}
         Expr::EHandle(body, handled, _handler) => {
             let mut body_effects = std::collections::HashSet::new();
             collect_effects_into(checker, body, &mut body_effects);
@@ -381,6 +382,7 @@ fn collect_effects_all_into(
         }
         Expr::ESizeof(_, _) | Expr::EAlignof(_, _) | Expr::EError(_, _) => {}
         Expr::ELit(_, _) => {}
+        Expr::EBacktick(_) | Expr::EUnquote(_) | Expr::EUnquoteSplicing(_) => {}
         Expr::EHandle(body, _, _handler) => {
             collect_effects_all_into(checker, body, out);
         }
@@ -1440,6 +1442,11 @@ impl TypeChecker {
                 TypeId::TCon("I64".to_string(), vec![])
             }
             Expr::EError(_, _) => TypeId::TVar(format!("_t{}", self.type_counter)),
+            Expr::EBacktick(_)
+            | Expr::EUnquote(_)
+            | Expr::EUnquoteSplicing(_) => {
+                TypeId::TVar(format!("_t{}", self.type_counter))
+            }
         }
     }
 

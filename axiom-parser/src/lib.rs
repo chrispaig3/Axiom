@@ -170,6 +170,7 @@ impl Parser {
                 *n = Some(nid);
                 *a = axtags;
             }
+            Decl::DMacro { .. } => {}
             Decl::DImport { .. } => {}
         }
     }
@@ -211,6 +212,8 @@ impl Parser {
 
         let mut decl = if self.check(TokenKind::Fn) {
             self.parse_fn()?
+        } else if self.check(TokenKind::Defmacro) {
+            self.parse_macro()?
         } else if self.check(TokenKind::Struct) {
             self.parse_struct()?
         } else if self.check(TokenKind::Type) {
@@ -283,6 +286,36 @@ impl Parser {
                 axtags: Vec::new(),
             })
         }
+    }
+
+    fn parse_macro(&mut self) -> ParseResult<Decl> {
+        self.eat(TokenKind::Defmacro);
+
+        let name = self.parse_ident()?;
+        let params = if self.check(TokenKind::LParen) {
+            self.advance();
+            let mut params = Vec::new();
+            while !self.check(TokenKind::RParen) && !self.at_eof() {
+                params.push(self.parse_pattern()?);
+            }
+            self.expect(TokenKind::RParen)?;
+            params
+        } else {
+            Vec::new()
+        };
+
+        let body = self.parse_body_exprs()?;
+
+        Ok(Decl::DMacro {
+            name: name.clone(),
+            def: MacroDef {
+                name,
+                params,
+                body,
+                doc: None,
+                axtags: Vec::new(),
+            },
+        })
     }
 
     fn parse_sig(&mut self) -> ParseResult<Decl> {
@@ -1094,6 +1127,10 @@ while !self.check(TokenKind::RParen) && !self.at_eof() {
             self.advance();
             let expr = self.parse_expr()?;
             Ok(Expr::EGrouped(Box::new(expr)))
+        } else if self.check(TokenKind::Backtick) {
+            self.advance();
+            let expr = self.parse_expr()?;
+            Ok(Expr::EBacktick(Box::new(expr)))
         } else if self.check(TokenKind::Underscore) {
             let token = self.advance();
             Ok(Expr::ELam(
@@ -1612,6 +1649,7 @@ while !self.check(TokenKind::RParen) && !self.at_eof() {
                     | TokenKind::Import
                     | TokenKind::Effect
                     | TokenKind::DoubleColon
+                    | TokenKind::Defmacro
             ) {
                 return true;
             }
@@ -1629,6 +1667,7 @@ while !self.check(TokenKind::RParen) && !self.at_eof() {
                             | TokenKind::Import
                             | TokenKind::Effect
                             | TokenKind::DoubleColon
+                            | TokenKind::Defmacro
                     );
                 }
             }

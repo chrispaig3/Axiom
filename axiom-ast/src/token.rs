@@ -40,6 +40,13 @@ pub enum TokenKind {
     Sizeof,   // (sizeof Type)
     Alignof,  // (alignof Type)
     Cast,     // (cast Type expr)
+    Defmacro, // (defmacro name (params...) body)
+    Macro,    // (macro name (params...) body) - alias for defmacro
+
+    // Quasiquoting
+    Backtick, // ` - quasiquote
+    Unquote,  // , - unquote
+    UnquoteSplicing, // ,@ - unquote-splicing
 
     // Type keywords
     Int,
@@ -152,6 +159,11 @@ impl fmt::Display for TokenKind {
             TokenKind::Sizeof => write!(f, "sizeof"),
             TokenKind::Alignof => write!(f, "alignof"),
             TokenKind::Cast => write!(f, "cast"),
+            TokenKind::Defmacro => write!(f, "defmacro"),
+            TokenKind::Macro => write!(f, "macro"),
+            TokenKind::Backtick => write!(f, "`"),
+            TokenKind::Unquote => write!(f, ","),
+            TokenKind::UnquoteSplicing => write!(f, ",@"),
             TokenKind::Int => write!(f, "Int"),
             TokenKind::Integer => write!(f, "Integer"),
             TokenKind::Float => write!(f, "Float"),

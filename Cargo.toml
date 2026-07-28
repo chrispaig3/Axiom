@@ -8,6 +8,7 @@ members = [
     "axiom-codegen",
     "axiom-cli",
     "axiom-errors",
+    "axiom-macros",
 ]
 resolver = "2"
 
@@ -25,6 +26,7 @@ axiom-sema = { path = "axiom-sema" }
 axiom-ir = { path = "axiom-ir" }
 axiom-codegen = { path = "axiom-codegen" }
 axiom-errors = { path = "axiom-errors" }
+axiom-macros = { path = "axiom-macros" }
 thiserror = "1.0"
 ariadne = "0.4"
 rustyline = "14"

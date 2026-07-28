@@ -2,6 +2,8 @@ use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use axiom_ast::ast::{Decl, MacroDef};
+use axiom_macros::MacroExpander;
 use axiom_codegen::LlvmCodeGen;
 use axiom_errors::{Diagnostic, DiagnosticFormat, SymbolFact, SymbolKind};
 use axiom_ir::generator::IrGen;
@@ -297,6 +299,7 @@ fn decl_name(decl: &axiom_ast::ast::Decl) -> Option<&str> {
         | Decl::DSig { name, .. }
         | Decl::DFn { name, .. }
         | Decl::DEffect { name, .. } => Some(&name.name),
+        Decl::DMacro { name, .. } => Some(&name.name),
         Decl::DImpl { .. } | Decl::DImport { .. } => None,
     }
 }
@@ -571,6 +574,135 @@ fn analyze(
             println!("[2/5] Resolving imports...");
         }
         resolve_imports(Path::new(input), &mut ast, format, &mut registry)?;
+    }
+
+    {
+        if announce {
+            println!("[2.5/5] Expanding macros...");
+        }
+        let mut expander = MacroExpander::new();
+        expander.register_macros(&ast.decls);
+        let mut expanded_decls = Vec::new();
+        for decl in &ast.decls {
+            match decl {
+                Decl::DFn {
+                    name,
+                    params,
+                    body,
+                    nid,
+                    axtags,
+                } => {
+                    let expanded_body = expander.expand_expr(body);
+                    expanded_decls.push(Decl::DFn {
+                        name: name.clone(),
+                        params: params.clone(),
+                        body: expanded_body,
+                        nid: nid.clone(),
+                        axtags: axtags.clone(),
+                    });
+                }
+                Decl::DSig {
+                    name,
+                    ty,
+                    nid,
+                    axtags,
+                } => expanded_decls.push(Decl::DSig {
+                    name: name.clone(),
+                    ty: ty.clone(),
+                    nid: nid.clone(),
+                    axtags: axtags.clone(),
+                }),
+                Decl::DStruct {
+                    name,
+                    tyvars,
+                    variants,
+                    repr,
+                    nid,
+                    axtags,
+                } => expanded_decls.push(Decl::DStruct {
+                    name: name.clone(),
+                    tyvars: tyvars.clone(),
+                    variants: variants.clone(),
+                    repr: repr.clone(),
+                    nid: nid.clone(),
+                    axtags: axtags.clone(),
+                }),
+                Decl::DType {
+                    name,
+                    tyvars,
+                    alias,
+                    nid,
+                    axtags,
+                } => expanded_decls.push(Decl::DType {
+                    name: name.clone(),
+                    tyvars: tyvars.clone(),
+                    alias: alias.clone(),
+                    nid: nid.clone(),
+                    axtags: axtags.clone(),
+                }),
+                Decl::DTrait {
+                    name,
+                    tyvar,
+                    supertraits,
+                    methods,
+                    effects,
+                    nid,
+                    axtags,
+                } => expanded_decls.push(Decl::DTrait {
+                    name: name.clone(),
+                    tyvar: tyvar.clone(),
+                    supertraits: supertraits.clone(),
+                    methods: methods.clone(),
+                    effects: effects.clone(),
+                    nid: nid.clone(),
+                    axtags: axtags.clone(),
+                }),
+                Decl::DImpl {
+                    trait_name,
+                    ty,
+                    methods,
+                    effects,
+                    nid,
+                    axtags,
+                } => expanded_decls.push(Decl::DImpl {
+                    trait_name: trait_name.clone(),
+                    ty: ty.clone(),
+                    methods: methods.clone(),
+                    effects: effects.clone(),
+                    nid: nid.clone(),
+                    axtags: axtags.clone(),
+                }),
+                Decl::DEffect {
+                    name,
+                    operations,
+                    nid,
+                    axtags,
+                } => expanded_decls.push(Decl::DEffect {
+                    name: name.clone(),
+                    operations: operations.clone(),
+                    nid: nid.clone(),
+                    axtags: axtags.clone(),
+                }),
+                Decl::DImport { module, names } => expanded_decls.push(Decl::DImport {
+                    module: module.clone(),
+                    names: names.clone(),
+                }),
+                Decl::DMacro { name, def } => {
+                    let expanded_body = expander.expand_expr(&def.body);
+                    expanded_decls.push(Decl::DMacro {
+                        name: name.clone(),
+                        def: MacroDef {
+                            name: name.clone(),
+                            params: def.params.clone(),
+                            body: expanded_body,
+                            doc: def.doc.clone(),
+                            axtags: def.axtags.clone(),
+                        },
+                    });
+                }
+            }
+        }
+        ast.decls = expanded_decls;
     }
 
     if announce {

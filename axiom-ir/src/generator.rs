@@ -533,7 +533,13 @@ impl IrGen {
                     Self::collect_captured_vars(e, lambda_params, outer_alloca_map, out, seen);
                 }
             }
-            Expr::ELit(_, _) | Expr::ESizeof(_, _) | Expr::EAlignof(_, _) | Expr::EError(_, _) => {}
+            Expr::ELit(_, _)
+            | Expr::ESizeof(_, _)
+            | Expr::EAlignof(_, _)
+            | Expr::EError(_, _)
+            | Expr::EBacktick(_)
+            | Expr::EUnquote(_)
+            | Expr::EUnquoteSplicing(_) => {}
             Expr::EHandle(body, _, after) => {
                 Self::collect_captured_vars(body, lambda_params, outer_alloca_map, out, seen);
                 Self::collect_captured_vars(after, lambda_params, outer_alloca_map, out, seen);

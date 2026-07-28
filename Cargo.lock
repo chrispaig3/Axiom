@@ -76,6 +76,7 @@ dependencies = [
  "axiom-errors",
  "axiom-ir",
  "axiom-lexer",
+ "axiom-macros",
  "axiom-parser",
  "axiom-sema",
  "clap",
@@ -116,6 +117,14 @@ dependencies = [
  "axiom-ast",
  "axiom-errors",
  "thiserror",
+]
+
+[[package]]
+name = "axiom-macros"
+version = "0.1.0"
+dependencies = [
+ "axiom-ast",
+ "axiom-errors",
 ]
 
 [[package]]

@@ -116,6 +116,15 @@ fn format_decl(decl: &Decl, out: &mut String, state: &mut FormatState) {
         } => {
             format_effect_decl(name, operations, out, state);
         }
+        Decl::DMacro { name, def } => {
+            write!(out, "(defmacro {} (", name.name).unwrap();
+            for param in def.params.iter() {
+                format_pattern(param, out);
+            }
+            write!(out, ") ").unwrap();
+            format_expr(&def.body, out, state);
+            out.push(')');
+        }
     }
 }
 
@@ -805,6 +814,18 @@ fn format_expr(expr: &Expr, out: &mut String, state: &mut FormatState) {
         }
         Expr::EError(msg, _) => {
             write!(out, "_{}", msg).unwrap();
+        }
+        Expr::EBacktick(sub) => {
+            out.push('`');
+            format_expr(sub, out, state);
+        }
+        Expr::EUnquote(sub) => {
+            out.push(',');
+            format_expr(sub, out, state);
+        }
+        Expr::EUnquoteSplicing(sub) => {
+            out.push_str(",@");
+            format_expr(sub, out, state);
         }
     }
 }

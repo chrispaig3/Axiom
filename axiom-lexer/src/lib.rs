@@ -168,7 +168,7 @@ impl Lexer {
 
             match ch {
                 '"' => tokens.push(self.consume_string()?),
-                '`' => self.push_token(&mut tokens, TokenKind::Quote),
+                '`' => self.push_token(&mut tokens, TokenKind::Backtick),
                 '$' => self.push_token(&mut tokens, TokenKind::Bang),
                 '+' => self.push_token(&mut tokens, TokenKind::Plus),
                 '%' => self.push_token(&mut tokens, TokenKind::Percent),
@@ -364,6 +364,8 @@ impl Lexer {
             "sizeof" => TokenKind::Sizeof,
             "alignof" => TokenKind::Alignof,
             "cast" => TokenKind::Cast,
+            "defmacro" => TokenKind::Defmacro,
+            "macro" => TokenKind::Macro,
             "true" => TokenKind::BoolLiteral(true),
             "false" => TokenKind::BoolLiteral(false),
             "Int" => TokenKind::Int,
