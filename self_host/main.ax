@@ -1,0 +1,25 @@
+;; Axiom self_host entry point.
+;; This file demonstrates that Axiom can express
+;; its own compiler pipeline — lexer, parser, type
+;; checker, and code generator — as Axiom code.
+
+(import core)
+(import lexer)
+(import parser)
+(import typecheck)
+(import codegen)
+
+(:: compile (-> String String))
+(fn (compile source)
+  {
+    (let ((tokens (axiom_lex source)))
+      (let ((ast (axiom_parse tokens)))
+        (let ((ok (axiom_check ast)))
+          (if ok
+            (axiom_codegen ast)
+            "type check failed"))))
+  })
+
+(:: main Int)
+(fn (main)
+  0)
