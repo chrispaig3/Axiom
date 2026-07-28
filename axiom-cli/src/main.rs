@@ -781,8 +781,22 @@ fn build(
     println!("Object file written to {}", obj_path);
 
     let exe_path = output.to_string();
+    let runtime_c = Path::new("runtime.c");
+    let runtime_obj = "runtime.o";
+    let cc_args: Vec<&str> = if runtime_c.exists() {
+        let cc_runtime = Command::new("cc")
+            .args(["-c", "runtime.c", "-o", runtime_obj])
+            .status()
+            .map_err(|e| format!("Failed to compile runtime: {}", e))?;
+        if !cc_runtime.success() {
+            return Err("failed to compile Axiom runtime".to_string());
+        }
+        vec![runtime_obj, &obj_path, "-o", &exe_path]
+    } else {
+        vec![&obj_path, "-o", &exe_path]
+    };
     let cc_status = Command::new("cc")
-        .args([&obj_path, "-o", &exe_path])
+        .args(&cc_args)
         .status()
         .map_err(|e| format!("Failed to run cc: {}", e))?;
 

@@ -52,14 +52,17 @@ impl LlvmCodeGen {
         for func in &ir_module.functions {
             for block in &func.blocks {
                 for inst in &block.insts {
-                    if let IrInst::Call { args, .. } = inst {
-                        for arg in args {
-                            if let IrValue::Const(IrConst::Str(s)) = arg {
-                                if !self.string_ids.contains_key(s) {
-                                    self.string_ids.insert(s.clone(), str_id);
-                                    strings.push((str_id, s.clone()));
-                                    str_id += 1;
-                                }
+                    let args: Vec<&IrValue> = match inst {
+                        IrInst::Call { args, .. } => args.iter().collect(),
+                        IrInst::Println { value, .. } => vec![value],
+                        _ => continue,
+                    };
+                    for arg in args {
+                        if let IrValue::Const(IrConst::Str(s)) = arg {
+                            if !self.string_ids.contains_key(s) {
+                                self.string_ids.insert(s.clone(), str_id);
+                                strings.push((str_id, s.clone()));
+                                str_id += 1;
                             }
                         }
                     }
@@ -985,7 +988,7 @@ impl LlvmCodeGen {
                 if let IrValue::Local(name) = dest {
                     self.ssa_values.insert(
                         name.clone(),
-                        (result_reg, TypeId::TCon("Void".to_string(), vec![])),
+                        (result_reg, TypeId::TCon("I64".to_string(), vec![])),
                     );
                 }
             }
