@@ -1,4 +1,8 @@
 {
   "$schema": "https://app.kilo.ai/config.json",
   "snapshot": true,
+  "autoupdate": true,
+  "compaction": {
+    "auto": true,
+  }
 }
