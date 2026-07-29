@@ -28,6 +28,14 @@ Co‑authored with Qwen3.6 Plus, Axiom explores a new frontier: languages built 
 - **LLVM native compilation** — Programs compile to machine code, not bytecode. No VM, no JIT overhead, no runtime.
 - **Work-in-progress ambition** — The parser already recognizes effects, regions, linear types, and type classes. The foundation is being laid for a language that can express memory safety, effect tracking, and zero-cost abstractions — all at the type level.
 
+### Agent-facing notation
+
+Axiom is built for agents as first-class users. Three notations make this possible:
+
+- **AXSYM** — A dense, one-line-per-symbol notation that tells an agent exactly what a file declares and the type of each symbol. Run `axiom symbols` to see it. No re-reading files, no re-deriving signatures by eye.
+- **NID** — Stable node IDs: content-derived hashes of `(kind, name)` that survive edits and reformatting, unlike line numbers. Every named declaration gets one automatically.
+- **AXTAG** — Source-embedded agent metadata via `;@axiom:<key>(<value>)` comments above declarations. The compiler validates these (e.g., `effect(io)` claims are checked against actual foreign calls), so agents can annotate intent and trust the compiler to verify it.
+
 ---
 
 ## Installation
