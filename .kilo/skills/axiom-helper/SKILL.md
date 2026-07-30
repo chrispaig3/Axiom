@@ -5,19 +5,20 @@ description: Guides for working with the Axiom compiler, ensuring correctness (p
 
 # Axiom Helper — Agent Skill
 
-## 1. Compiler invocation: always use `axiom diagnostics=ai`
+## 1. Compiler invocation: always use `axiom --diagnostic-format=ai`
 
 Every Axiom compiler command must pass the AI-optimized diagnostic format:
 
 ```bash
-axiom diagnostics=ai check source.ax
-axiom diagnostics=ai build --input source.ax --output myprog
-axiom diagnostics=ai symbols source.ax
-axiom diagnostics=ai run source.ax
-axiom diagnostics=ai emit-llvm source.ax -o output.ll
+axiom --diagnostic-format=ai check source.ax
+axiom --diagnostic-format=ai build --input source.ax --output myprog
+axiom --diagnostic-format=ai symbols source.ax
+axiom --diagnostic-format=ai run source.ax
+axiom --diagnostic-format=ai emit-llvm source.ax -o output.ll
 ```
 
-This is shorthand for `--diagnostic-format=ai` on every subcommand. It produces one dense, greppable, colorless AXDL line per diagnostic — no re-rendered source text, no ANSI codes, no Unicode box drawing. The `human` renderer is for human consumption only; use it only when `ai` output is insufficient.
+`--diagnostic-format` is a global option, so it goes before the
+subcommand. It produces one dense, greppable, colorless AXDL line per diagnostic — no re-rendered source text, no ANSI codes, no Unicode box drawing. The `human` renderer is for human consumption only; use it only when `ai` output is insufficient.
 
 ## 2. Project structure at a glance
 
@@ -54,7 +55,7 @@ AXTAG metadata (`;@axiom:<key>(<value>)` comments above declarations) is compile
 When writing or reviewing Axiom source:
 - Always pair `;@axiom:effect(io)` with actual `foreign` calls or `handle` expressions.
 - Never annotate a function as `pure` if it calls a `foreign` function.
-- Use `axiom diagnostics=ai symbols source.ax` to verify which AXTAG metadata was accepted (`#effect=io`, `#pure`, etc.).
+- Use `axiom --diagnostic-format=ai symbols source.ax` to verify which AXTAG metadata was accepted (`#effect=io`, `#pure`, etc.).
 
 ### 3.2 Check pattern matching exhaustiveness
 
@@ -120,9 +121,16 @@ AXDL lines follow this grammar:
 
 **Parsing pitfall**: `"msg"` and `"replacement"` are Rust `Debug`-style escaped strings. A correct consumer must parse each quoted field as a proper escaped string and only look for `~>` in the unquoted gap *between* fields — never do a naive `str.split("~>")`, which can misfire if `~>` appears inside the message itself.
 
-### 4.2 FFI safety
+### 4.2 Standard library and FFI safety
 
-Axiom has no standard library. All system operations are through FFI bindings declared with `foreign`:
+Axiom has a standard library written in Axiom (`stdlib/`: `Sys`, `Mem`,
+`Str`, `Fmt`, `IO`), built on the freestanding primitives
+`__syscall0`-`__syscall6`, `__load8`/`__store8`, `__load64`/`__store64`,
+`__alloc`, and `__addr`. Prefer it: `(import IO)` and `println` rather
+than a `foreign` binding to `printf`. Generated code calls no libc
+function, and `scripts/check-freestanding.sh` enforces that.
+
+`foreign` is still supported for calling genuine C libraries:
 
 ```scheme
 (foreign printf :: (-> String Int) = "printf")
@@ -157,22 +165,22 @@ If you are adding a new diagnostic site and find yourself grouping multiple diag
 
 ```bash
 # Check syntax and types (no code generation) — MUST use diagnostics=ai
-axiom diagnostics=ai check source.ax
+axiom --diagnostic-format=ai check source.ax
 
 # Compile to native executable
-axiom diagnostics=ai build --input source.ax --output program
+axiom --diagnostic-format=ai build --input source.ax --output program
 
 # Emit LLVM IR to stdout
-axiom diagnostics=ai emit-llvm source.ax
+axiom --diagnostic-format=ai emit-llvm source.ax
 
 # Emit LLVM IR to a file
-axiom diagnostics=ai emit-llvm source.ax -o output.ll
+axiom --diagnostic-format=ai emit-llvm source.ax -o output.ll
 
 # Compile and run immediately
-axiom diagnostics=ai run source.ax
+axiom --diagnostic-format=ai run source.ax
 
 # Start interactive REPL
-axiom diagnostics=ai repl
+axiom --diagnostic-format=ai repl
 
 # Look up a diagnostic code
 axiom explain AX3001
@@ -181,18 +189,18 @@ axiom explain AX3001
 axiom explain --list
 
 # List every top-level symbol and its type (AXSYM notation)
-axiom diagnostics=ai symbols source.ax
+axiom --diagnostic-format=ai symbols source.ax
 
 # Same, including always-in-scope built-in operators
-axiom diagnostics=ai symbols source.ax --builtins
+axiom --diagnostic-format=ai symbols source.ax --builtins
 
 # Verify AXTAG annotations are accepted
-axiom diagnostics=ai symbols source.ax | grep '@'
+axiom --diagnostic-format=ai symbols source.ax | grep '@'
 ```
 
 ### 5.2 Use AXSYM to understand a codebase without re-reading it
 
-`axiom diagnostics=ai symbols source.ax` produces one line per top-level declaration:
+`axiom --diagnostic-format=ai symbols source.ax` produces one line per top-level declaration:
 
 | KIND | Meaning |
 |---|---|
@@ -307,7 +315,7 @@ When you encounter an error code in AXDL output:
 1. Run `axiom explain AX####` (e.g., `axiom explain AX3001`) to get the full explanation.
 2. If the explanation mentions a suggestion with a replacement, apply it programmatically — do not parse the English prose.
 3. For cascade suppression: if multiple diagnostics share the same group key, fix only the first (root cause).
-4. Verify the fix by re-running `axiom diagnostics=ai check source.ax` and confirming zero errors.
+4. Verify the fix by re-running `axiom --diagnostic-format=ai check source.ax` and confirming zero errors.
 
 ### 5.7 Testing and validation
 

@@ -1,0 +1,103 @@
+; Mem - raw memory operations, in Axiom.
+;
+; These are the functions that used to require `foreign` bindings to
+; `malloc`/`memcpy`/`memset`. They are now ordinary Axiom loops over the
+; `__alloc`/`__load8`/`__store8` primitives, which means they are
+; type-checked, span-checked, and steppable like any other Axiom code,
+; and a compiled program needs no libc.
+;
+; Addresses are plain `Int`s. That is deliberately unsafe at this layer -
+; it is the layer where Axiom's type system stops and the machine
+; begins - and every safe abstraction above it (`Str`, `Buf`) is
+; responsible for never handing out an address a caller could misuse.
+
+; Allocate `bytes` bytes of zeroed memory and return its address.
+;
+; Memory comes from the arena the compiler emits (a bump allocator over
+; `mmap`), so allocation is a pointer bump in the common case and there
+; is no `free`: an Axiom process reclaims everything at exit. That is
+; the right trade for a compiler, and the wrong one for a long-running
+; server - which is why this is `memAlloc` and not `new`, and why the
+; allocator itself is replaceable (define `axiom_alloc` and the backend
+; defers to it).
+(:: memAlloc (-> Int Int))
+(fn (memAlloc bytes)
+  (__alloc bytes))
+
+; Copy `count` bytes from `src` to `dst`. Returns `dst`.
+;
+; Copies forwards, so overlapping ranges are only safe when
+; `dst <= src`; `memMove` is not provided yet rather than being
+; provided wrongly.
+(:: memCopy (-> Int Int Int Int))
+(fn (memCopy dst src count)
+  (memCopyFrom dst src count 0))
+
+(:: memCopyFrom (-> Int Int Int Int Int))
+(fn (memCopyFrom dst src count i)
+  (if (>= i count)
+      dst
+      {
+        (__store8 dst i (__load8 src i))
+        (memCopyFrom dst src count (+ i 1))
+      }))
+
+; Set `count` bytes at `addr` to `value` (low 8 bits). Returns `addr`.
+(:: memSet (-> Int Int Int Int))
+(fn (memSet addr value count)
+  (memSetFrom addr value count 0))
+
+(:: memSetFrom (-> Int Int Int Int Int))
+(fn (memSetFrom addr value count i)
+  (if (>= i count)
+      addr
+      {
+        (__store8 addr i value)
+        (memSetFrom addr value count (+ i 1))
+      }))
+
+; Compare `count` bytes. 0 if equal, otherwise the signed difference of
+; the first differing byte pair (so the result orders like `memcmp`).
+(:: memCmp (-> Int Int Int Int))
+(fn (memCmp a b count)
+  (memCmpFrom a b count 0))
+
+(:: memCmpFrom (-> Int Int Int Int Int))
+(fn (memCmpFrom a b count i)
+  (if (>= i count)
+      0
+      (let ((x (__load8 a i))
+            (y (__load8 b i)))
+        (if (== x y)
+            (memCmpFrom a b count (+ i 1))
+            (- x y)))))
+
+; ------------------------------------------------------------------
+; Word-granular access
+;
+; Offsets here are in *words* (8 bytes), not bytes, because the things
+; built on them - the `Str` header, `Buf`, and every `data` value the
+; compiler boxes - are arrays of machine words.
+; ------------------------------------------------------------------
+
+(:: memGetWord (-> Int Int Int))
+(fn (memGetWord addr index)
+  (__load64 addr index))
+
+(:: memSetWord (-> Int Int Int Int))
+(fn (memSetWord addr index value)
+  {
+    (__store64 addr index value)
+    addr
+  })
+
+(:: memGetByte (-> Int Int Int))
+(fn (memGetByte addr index)
+  (__load8 addr index))
+
+(:: memPutByte (-> Int Int Int Int))
+(fn (memPutByte addr index value)
+  {
+    (__store8 addr index value)
+    addr
+  })

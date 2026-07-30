@@ -1,0 +1,104 @@
+; Fmt - number formatting, in Axiom.
+;
+; This module is what replaced `printf`. Formatting an integer used to
+; mean a `foreign` binding to a C variadic function - a construct Axiom's
+; type system cannot describe and its effect analysis cannot see through.
+; Doing it in Axiom instead is about 40 lines, is fully type-checked, and
+; leaves nothing for a C library to do.
+
+(import Mem)
+(import Str)
+
+; Decimal digits in `n`, counting a leading `-` and treating 0 as one
+; digit.
+(:: fmtIntWidth (-> Int Int))
+(fn (fmtIntWidth n)
+  (if (< n 0)
+      (+ 1 (fmtIntWidth (- 0 n)))
+      (if (< n 10)
+          1
+          (+ 1 (fmtIntWidth (/ n 10))))))
+
+; `n` in base 10 as a `Str`.
+;
+; Digits are written back-to-front into an exactly-sized buffer, which
+; avoids both a reverse pass and the "how big should the scratch buffer
+; be" guess that the C version needed.
+;
+; `Int` is 64-bit and two's complement, so the most negative value has no
+; positive counterpart; it is special-cased rather than silently
+; overflowing on negation.
+(:: fmtInt (-> Int Int))
+(fn (fmtInt n)
+  (if (== n (- 0 9223372036854775807))
+      (strFromLit (__addr "-9223372036854775808"))
+      (if (< n 0)
+          (strConcat (strFromLit (__addr "-")) (fmtNat (- 0 n)))
+          (fmtNat n))))
+
+; `n` (assumed non-negative) in base 10.
+(:: fmtNat (-> Int Int))
+(fn (fmtNat n)
+  (let ((width (fmtIntWidth n)))
+    (let ((out (strAlloc width)))
+      {
+        (fmtDigits (strData out) n (- width 1))
+        out
+      })))
+
+; Write `n`'s decimal digits into `buf` ending at index `at`, working
+; right to left.
+(:: fmtDigits (-> Int Int Int Int))
+(fn (fmtDigits buf n at)
+  (let ((digit (+ 48 (% n 10))))
+    {
+      (__store8 buf at digit)
+      (if (< n 10)
+          buf
+          (fmtDigits buf (/ n 10) (- at 1)))
+    }))
+
+; `n` in base 16, lower case, no `0x` prefix, no leading zeros.
+;
+; Used for addresses and bit patterns in compiler diagnostics, where
+; decimal is unreadable.
+(:: fmtHex (-> Int Int))
+(fn (fmtHex n)
+  (if (== n 0)
+      (strFromLit (__addr "0"))
+      (let ((width (fmtHexWidth n 0)))
+        (let ((out (strAlloc width)))
+          {
+            (fmtHexDigits (strData out) n (- width 1))
+            out
+          }))))
+
+(:: fmtHexWidth (-> Int Int Int))
+(fn (fmtHexWidth n acc)
+  (if (== n 0)
+      acc
+      (fmtHexWidth (/ n 16) (+ acc 1))))
+
+(:: fmtHexDigits (-> Int Int Int Int))
+(fn (fmtHexDigits buf n at)
+  (let ((nibble (% n 16)))
+    (let ((digit (if (< nibble 10) (+ 48 nibble) (+ 87 nibble))))
+      {
+        (__store8 buf at digit)
+        (if (< n 16)
+            buf
+            (fmtHexDigits buf (/ n 16) (- at 1)))
+      })))
+
+; `s` padded on the left with spaces to at least `width` bytes.
+(:: fmtPadLeft (-> Int Int Int))
+(fn (fmtPadLeft s width)
+  (let ((len (strLen s)))
+    (if (>= len width)
+        s
+        (let ((out (strAlloc width)))
+          {
+            (memSet (strData out) 32 (- width len))
+            (memCopy (+ (strData out) (- width len)) (strData s) len)
+            out
+          }))))

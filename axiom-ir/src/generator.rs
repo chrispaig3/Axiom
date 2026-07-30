@@ -2,7 +2,7 @@ use crate::{IrBlock, IrConst, IrFunction, IrInst, IrModule, IrStruct, IrUnion, I
 use axiom_ast::ast::*;
 use axiom_ast::span::Ident;
 use axiom_sema::TypeChecker;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 pub struct IrGen {
     module: IrModule,
@@ -10,6 +10,16 @@ pub struct IrGen {
     block_counter: usize,
     lambda_counter: usize,
     current_block: Option<String>,
+    /// Top-level functions declared with no parameters.
+    ///
+    /// A bare `foo` where `foo` is nullary has to lower to a *call*,
+    /// not to a variable read: there is no local named `foo`, so
+    /// reading one produced LLVM referencing an undefined value and
+    /// failed at `llc` rather than at a diagnostic. Nullary functions
+    /// are how Axiom source expresses a named constant (there is no
+    /// `const` declaration), so the standard library's syscall-number
+    /// and flag tables depend on this.
+    nullary_fns: HashSet<String>,
 }
 
 /// Look up a data constructor by name across every `data` type the type
@@ -66,10 +76,24 @@ impl IrGen {
             block_counter: 0,
             lambda_counter: 0,
             current_block: None,
+            nullary_fns: HashSet::new(),
         }
     }
 
     pub fn generate(&mut self, ast_module: &Module, type_checker: &mut TypeChecker) -> IrModule {
+        // Collected up front, before any body is lowered, so a
+        // nullary function can be referenced by a function defined
+        // above it (declaration order is not significant in Axiom -
+        // `axiom-sema`'s checker is two-pass for the same reason).
+        self.nullary_fns = ast_module
+            .decls
+            .iter()
+            .filter_map(|d| match d {
+                Decl::DFn { name, params, .. } if params.is_empty() => Some(name.name.clone()),
+                _ => None,
+            })
+            .collect();
+
         for decl in &ast_module.decls {
             match decl {
                 Decl::DStruct {
@@ -118,7 +142,9 @@ impl IrGen {
                         params.push(*param);
                         current = *rest;
                     }
-                    self.module.extern_funcs.push((name.name.clone(), params, current));
+                    self.module
+                        .extern_funcs
+                        .push((name.name.clone(), params, current));
                 }
                 Decl::DSig { name, ty, .. } => {
                     let _ = (name, ty);
@@ -266,6 +292,11 @@ impl IrGen {
     ///
     /// Variable bindings from `PVar` sub-patterns are added
     /// to `arm_map`.
+    // One parameter per piece of the match being compiled (target
+    // value, pattern, success/failure labels, field offset, ...);
+    // grouping them into a struct would add a type whose only purpose
+    // is to be destructured immediately at the single call site.
+    #[allow(clippy::too_many_arguments)]
     fn gen_sub_pattern_checks(
         &mut self,
         func: &mut IrFunction,
@@ -412,6 +443,91 @@ impl IrGen {
     /// are not yet supported for lambda parameters. Free variables
     /// captured from the enclosing scope are not yet supported
     /// (a known limitation).
+    /// Lower a call to one of Axiom's freestanding primitives (see
+    /// `axiom_sema::PRIMITIVES`) to the IR instruction that
+    /// implements it, returning `None` if `name` is not a primitive.
+    ///
+    /// An arity mismatch also returns `None` rather than emitting
+    /// something wrong: semantic analysis has already reported the
+    /// mismatch against the primitive's declared type, so falling
+    /// through to the generic call path keeps the "one diagnostic,
+    /// no invalid IR" contract instead of inventing a second failure
+    /// mode further down the pipeline.
+    fn gen_primitive(
+        &mut self,
+        func: &mut IrFunction,
+        name: &str,
+        args: &[IrValue],
+        dest: &str,
+    ) -> Option<IrValue> {
+        let dest_val = IrValue::Local(dest.to_string());
+        let inst = match (name, args.len()) {
+            // `(__syscallN num a1 .. aN)`: the first argument is
+            // always the syscall number.
+            (
+                "__syscall0" | "__syscall1" | "__syscall2" | "__syscall3" | "__syscall4"
+                | "__syscall5" | "__syscall6",
+                n,
+            ) if n >= 1 => {
+                let expected = name
+                    .strip_prefix("__syscall")
+                    .and_then(|d| d.parse::<usize>().ok())
+                    .map(|d| d + 1)?;
+                if n != expected {
+                    return None;
+                }
+                IrInst::Syscall {
+                    dest: dest_val.clone(),
+                    num: args[0].clone(),
+                    args: args[1..].to_vec(),
+                }
+            }
+            ("__load8", 2) => IrInst::LoadIdx {
+                dest: dest_val.clone(),
+                ptr: args[0].clone(),
+                index: args[1].clone(),
+            },
+            ("__store8", 3) => IrInst::StoreIdx {
+                ptr: args[0].clone(),
+                index: args[1].clone(),
+                value: args[2].clone(),
+            },
+            ("__load64", 2) => IrInst::LoadWordIdx {
+                dest: dest_val.clone(),
+                ptr: args[0].clone(),
+                index: args[1].clone(),
+            },
+            ("__store64", 3) => IrInst::StoreWordIdx {
+                ptr: args[0].clone(),
+                index: args[1].clone(),
+                value: args[2].clone(),
+            },
+            ("__alloc", 1) => IrInst::HeapAlloc {
+                dest: dest_val.clone(),
+                size: args[0].clone(),
+            },
+            ("__addr", 1) => IrInst::AddrOf {
+                dest: dest_val.clone(),
+                value: args[0].clone(),
+            },
+            _ => return None,
+        };
+        // The store-shaped primitives have no result; they still
+        // evaluate to something, and `0` keeps them usable in
+        // sequencing position (`{ (__store8 p i c) ... }`) exactly
+        // like their `Int`-returning declared type says.
+        let is_store = matches!(inst, IrInst::StoreIdx { .. } | IrInst::StoreWordIdx { .. });
+        self.emit_to_func(func, inst);
+        if is_store {
+            Some(IrValue::Const(IrConst::Int(
+                0,
+                TypeId::TCon("I64".to_string(), vec![]),
+            )))
+        } else {
+            Some(dest_val)
+        }
+    }
+
     fn gen_lambda(
         &mut self,
         params: &[Pattern],
@@ -524,6 +640,17 @@ impl IrGen {
                         IrInst::Load {
                             dest: IrValue::Local(dest.clone()),
                             ptr: IrValue::Local(alloca_name.clone()),
+                        },
+                    );
+                    IrValue::Local(dest)
+                } else if self.nullary_fns.contains(&ident.name) {
+                    let dest = self.new_local();
+                    self.emit_to_func(
+                        func,
+                        IrInst::Call {
+                            dest: IrValue::Local(dest.clone()),
+                            func: ident.name.clone(),
+                            args: Vec::new(),
                         },
                     );
                     IrValue::Local(dest)
@@ -815,6 +942,15 @@ impl IrGen {
                         self.emit_to_func(func, inst);
                         return IrValue::Local(dest);
                     }
+                }
+
+                // Freestanding primitives lower to dedicated
+                // instructions, not to a call: there is no function
+                // named `__syscall3` anywhere to call, and emitting
+                // one would produce LLVM IR that fails at link time
+                // instead of at a diagnostic.
+                if let Some(val) = self.gen_primitive(func, &func_name, &all_args, &dest) {
+                    return val;
                 }
 
                 self.emit_to_func(
@@ -1403,7 +1539,7 @@ impl IrGen {
                             size: IrValue::Const(IrConst::Int(struct_size, i64_ty.clone())),
                         },
                     );
-                    for (i, arg) in args.into_iter().enumerate() {
+                    for (i, arg) in args.iter().enumerate() {
                         let val =
                             self.gen_expr_to_func_with_allocas(func, arg, alloca_map, type_checker);
                         self.emit_to_func(

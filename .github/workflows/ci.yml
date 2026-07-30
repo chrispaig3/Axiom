@@ -1,0 +1,110 @@
+name: CI
+
+# Staged so that a cheap failure is reported before an expensive one:
+# formatting and lints gate the test job, and the test job gates the
+# cross-platform matrix. Every job needs `llc` and a linker, because the
+# interesting tests compile and *run* Axiom programs rather than only
+# type-checking them - a syscall lowering that assembles but returns the
+# wrong value is exactly the class of bug a type-check-only CI misses.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  # A build that differs between two runs of the same source is a
+  # reproducibility bug; keep the environment from contributing to one.
+  RUSTFLAGS: -D warnings
+
+jobs:
+  lint:
+    name: Format and lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all --check
+      - run: cargo clippy --all-targets --all-features -- -D warnings
+
+  test:
+    name: Tests (${{ matrix.name }})
+    needs: lint
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x86_64
+            os: ubuntu-latest
+          - name: linux-aarch64
+            os: ubuntu-24.04-arm
+          - name: darwin-aarch64
+            os: macos-14
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      # `llc` is not on the default PATH on either runner image, and the
+      # compiler shells out to it by name.
+      - name: Install LLVM tools (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y llvm clang
+          echo "$(llvm-config --bindir)" >> "$GITHUB_PATH"
+      - name: Install LLVM tools (macOS)
+        if: runner.os == 'macOS'
+        run: echo "$(brew --prefix llvm)/bin" >> "$GITHUB_PATH"
+      - run: llc --version
+
+      - name: Unit and integration tests
+        run: cargo test --release --all
+
+      # The Rust test suite already runs the standard-library golden
+      # cases, but running them through the script as well keeps the
+      # script - which is what a contributor uses locally - from rotting.
+      - name: Standard-library golden tests
+        run: ./scripts/run-stdlib-tests.sh
+
+      - name: Freestanding check
+        run: ./scripts/check-freestanding.sh
+
+  cross:
+    name: Cross-target codegen
+    needs: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: |
+          sudo apt-get update
+          sudo apt-get install -y llvm clang
+          echo "$(llvm-config --bindir)" >> "$GITHUB_PATH"
+      # Every target's IR must at least assemble from a single host: the
+      # standard library picks syscall numbers by target, and a typo in a
+      # platform module is otherwise invisible until someone builds on
+      # that platform.
+      - name: Assemble every target from one host
+        run: ./scripts/check-cross-targets.sh
+
+  reproducible:
+    name: Reproducible build
+    needs: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: |
+          sudo apt-get update
+          sudo apt-get install -y llvm clang
+          echo "$(llvm-config --bindir)" >> "$GITHUB_PATH"
+      - name: Byte-identical output from two independent runs
+        run: ./scripts/check-reproducible.sh

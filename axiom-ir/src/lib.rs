@@ -182,6 +182,145 @@ pub enum IrInst {
         ptr: IrValue,
         offset: i64,
     },
+
+    // ========================================================
+    // Freestanding primitives
+    //
+    // The five instructions below are what let Axiom's standard
+    // library be written *in Axiom* rather than bound to C: raw
+    // OS entry (`Syscall`), dynamically-indexed memory access at
+    // byte and word granularity (`LoadIdx`/`StoreIdx` - the
+    // existing `LoadOffset`/`StoreOffset` only take a *constant*
+    // offset, which is enough for `data`/`struct` fields but not
+    // for strings, buffers, or growable arrays), and taking the
+    // address of a value (`AddrOf`, needed to hand a string
+    // literal to a syscall).
+    //
+    // None of them reference libc. See `axiom_codegen::Target`
+    // for the per-platform syscall ABI each one lowers to.
+    // ========================================================
+    /// A raw operating-system call. `num` is the syscall number
+    /// (already platform-encoded - on Darwin that includes the
+    /// `0x2000000` Unix class bit) and `args` holds up to six
+    /// integer arguments; `dest` receives the raw return value.
+    ///
+    /// This is the single primitive that every effectful stdlib
+    /// operation (`write`, `read`, `open`, `close`, `exit`,
+    /// `mmap`) is built from, and the reason Axiom needs no C FFI
+    /// for I/O.
+    Syscall {
+        dest: IrValue,
+        num: IrValue,
+        args: Vec<IrValue>,
+    },
+    /// `dest = zext i8 *(ptr + index)`: load one byte at a
+    /// *runtime* index. `index` is a byte offset, not scaled.
+    LoadIdx {
+        dest: IrValue,
+        ptr: IrValue,
+        index: IrValue,
+    },
+    /// `*(i8*)(ptr + index) = trunc i8 value`.
+    StoreIdx {
+        ptr: IrValue,
+        index: IrValue,
+        value: IrValue,
+    },
+    /// `dest = *(i64*)(ptr + index * 8)`: load one machine word at
+    /// a runtime *word* index (the `* 8` scaling is applied here so
+    /// Axiom-level array code can index in elements, not bytes).
+    LoadWordIdx {
+        dest: IrValue,
+        ptr: IrValue,
+        index: IrValue,
+    },
+    /// `*(i64*)(ptr + index * 8) = value`.
+    StoreWordIdx {
+        ptr: IrValue,
+        index: IrValue,
+        value: IrValue,
+    },
+    /// `dest = ptrtoint(value)`: the address of a value as a plain
+    /// integer. Only meaningful for values that are already
+    /// pointers at the LLVM level - string constants and globals -
+    /// and used to pass a string literal's bytes to a syscall.
+    AddrOf {
+        dest: IrValue,
+        value: IrValue,
+    },
+}
+
+impl IrInst {
+    /// Every string constant this instruction mentions. Used by
+    /// codegen to emit the `@str_N` globals *before* any
+    /// instruction refers to them.
+    ///
+    /// Written as an exhaustive match on purpose: a new
+    /// instruction variant that can carry an `IrConst::Str` must
+    /// fail to compile here until it is accounted for, rather
+    /// than silently referencing an `@str_` global that was never
+    /// emitted (which is what happened when string collection
+    /// only looked at `Call` arguments).
+    pub fn string_consts(&self) -> Vec<&str> {
+        fn of(v: &IrValue) -> Option<&str> {
+            match v {
+                IrValue::Const(IrConst::Str(s)) => Some(s.as_str()),
+                _ => None,
+            }
+        }
+        match self {
+            IrInst::Const { value, .. } => match value {
+                IrConst::Str(s) => vec![s.as_str()],
+                _ => Vec::new(),
+            },
+            IrInst::Call { args, .. } => args.iter().filter_map(of).collect(),
+            IrInst::Syscall { num, args, .. } => std::iter::once(num)
+                .chain(args.iter())
+                .filter_map(of)
+                .collect(),
+            IrInst::AddrOf { value, .. } => of(value).into_iter().collect(),
+            IrInst::Ret { value } => value.as_ref().and_then(of).into_iter().collect(),
+            IrInst::Store { ptr, value } => [ptr, value].into_iter().filter_map(of).collect(),
+            IrInst::StoreOffset { ptr, value, .. } => {
+                [ptr, value].into_iter().filter_map(of).collect()
+            }
+            IrInst::StoreIdx { ptr, index, value } | IrInst::StoreWordIdx { ptr, index, value } => {
+                [ptr, index, value].into_iter().filter_map(of).collect()
+            }
+            IrInst::LoadIdx { ptr, index, .. } | IrInst::LoadWordIdx { ptr, index, .. } => {
+                [ptr, index].into_iter().filter_map(of).collect()
+            }
+            IrInst::Load { ptr, .. } => of(ptr).into_iter().collect(),
+            IrInst::LoadOffset { ptr, .. } => of(ptr).into_iter().collect(),
+            IrInst::Add { lhs, rhs, .. }
+            | IrInst::Sub { lhs, rhs, .. }
+            | IrInst::Mul { lhs, rhs, .. }
+            | IrInst::Div { lhs, rhs, .. }
+            | IrInst::Mod { lhs, rhs, .. }
+            | IrInst::And { lhs, rhs, .. }
+            | IrInst::Or { lhs, rhs, .. }
+            | IrInst::Eq { lhs, rhs, .. }
+            | IrInst::Neq { lhs, rhs, .. }
+            | IrInst::Lt { lhs, rhs, .. }
+            | IrInst::Gt { lhs, rhs, .. }
+            | IrInst::Le { lhs, rhs, .. }
+            | IrInst::Ge { lhs, rhs, .. }
+            | IrInst::BitAnd { lhs, rhs, .. }
+            | IrInst::BitOr { lhs, rhs, .. }
+            | IrInst::BitXor { lhs, rhs, .. }
+            | IrInst::Shl { lhs, rhs, .. }
+            | IrInst::Shr { lhs, rhs, .. } => [lhs, rhs].into_iter().filter_map(of).collect(),
+            IrInst::Not { src, .. } | IrInst::Neg { src, .. } | IrInst::Cast { src, .. } => {
+                of(src).into_iter().collect()
+            }
+            IrInst::HeapAlloc { size, .. } => of(size).into_iter().collect(),
+            IrInst::CondBr { cond, .. } => of(cond).into_iter().collect(),
+            IrInst::Alloca { .. }
+            | IrInst::Br { .. }
+            | IrInst::Sizeof { .. }
+            | IrInst::Alignof { .. } => Vec::new(),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -269,6 +408,98 @@ impl IrModule {
             unions: Vec::new(),
             globals: Vec::new(),
             extern_funcs: Vec::new(),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn i64_ty() -> TypeId {
+        TypeId::TCon("I64".to_string(), vec![])
+    }
+
+    fn s(text: &str) -> IrValue {
+        IrValue::Const(IrConst::Str(text.to_string()))
+    }
+
+    #[test]
+    fn string_constants_are_found_in_every_instruction_that_can_carry_one() {
+        // Codegen emits `@str_N` globals from this list, so an
+        // instruction missing from it produces IR that references a
+        // global which was never defined - an `llc` failure rather than
+        // a diagnostic. `AddrOf` and `Syscall` are the cases that
+        // regressed when only `Call` was scanned.
+        let cases: Vec<(IrInst, Vec<&str>)> = vec![
+            (
+                IrInst::AddrOf {
+                    dest: IrValue::Local("d".into()),
+                    value: s("addr"),
+                },
+                vec!["addr"],
+            ),
+            (
+                IrInst::Syscall {
+                    dest: IrValue::Local("d".into()),
+                    num: IrValue::Const(IrConst::Int(1, i64_ty())),
+                    args: vec![s("arg")],
+                },
+                vec!["arg"],
+            ),
+            (
+                IrInst::Call {
+                    dest: IrValue::Local("d".into()),
+                    func: "f".into(),
+                    args: vec![s("call")],
+                },
+                vec!["call"],
+            ),
+            (
+                IrInst::Const {
+                    dest: IrValue::Local("d".into()),
+                    value: IrConst::Str("konst".into()),
+                },
+                vec!["konst"],
+            ),
+            (
+                IrInst::StoreIdx {
+                    ptr: s("ptr"),
+                    index: IrValue::Const(IrConst::Int(0, i64_ty())),
+                    value: s("val"),
+                },
+                vec!["ptr", "val"],
+            ),
+            (
+                IrInst::Ret {
+                    value: Some(s("r")),
+                },
+                vec!["r"],
+            ),
+        ];
+
+        for (inst, expected) in cases {
+            assert_eq!(inst.string_consts(), expected, "{:?}", inst);
+        }
+    }
+
+    #[test]
+    fn instructions_without_strings_report_none() {
+        let insts = vec![
+            IrInst::Alloca {
+                dest: IrValue::Local("a".into()),
+                ty: i64_ty(),
+            },
+            IrInst::Br { target: "b".into() },
+            IrInst::Add {
+                dest: IrValue::Local("d".into()),
+                lhs: IrValue::Const(IrConst::Int(1, i64_ty())),
+                rhs: IrValue::Const(IrConst::Int(2, i64_ty())),
+            },
+            IrInst::Ret { value: None },
+        ];
+        for inst in insts {
+            assert!(inst.string_consts().is_empty(), "{:?}", inst);
         }
     }
 }

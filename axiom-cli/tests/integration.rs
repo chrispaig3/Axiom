@@ -558,5 +558,9 @@ fn non_exhaustive_option_match_is_rejected() {
     let out = run_axiom(&["--diagnostic-format=ai", "check", "main.ax"], &dir);
     assert!(!out.status.success());
     let err = stderr(&out);
-    assert!(err.contains("AX3005"), "missing non-exhaustive code: {}", err);
+    assert!(
+        err.contains("AX3005"),
+        "missing non-exhaustive code: {}",
+        err
+    );
 }

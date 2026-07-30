@@ -58,10 +58,7 @@ pub enum SemError {
         span: Span,
     },
     #[error("effect mismatch: {message}")]
-    EffectMismatch {
-        message: String,
-        span: Span,
-    },
+    EffectMismatch { message: String, span: Span },
 }
 
 impl SemError {
@@ -209,10 +206,7 @@ impl SemError {
     }
 }
 
-fn collect_effects(
-    checker: &TypeChecker,
-    expr: &Expr,
-) -> Vec<axiom_ast::ast::Effect> {
+fn collect_effects(checker: &TypeChecker, expr: &Expr) -> Vec<axiom_ast::ast::Effect> {
     use std::collections::HashSet;
     let mut set = HashSet::new();
     collect_effects_into(checker, expr, &mut set);
@@ -228,8 +222,21 @@ fn collect_effects_into(
 ) {
     match expr {
         Expr::EVar(ident) => {
-            if checker.functions.iter().any(|f| f.name == ident.name && f.foreign_symbol.is_some()) {
-                out.insert(axiom_ast::ast::Effect::IO);
+            // A name is effectful either because it is a foreign
+            // binding (the historical case) or because it is a
+            // primitive declared with effects - `__syscall1` and
+            // friends are the whole reason the standard library can
+            // do I/O without a foreign binding, so an
+            // `;@axiom:effect(io)` claim on a function whose body
+            // only calls syscalls has to validate exactly as it did
+            // when that function called `printf`.
+            if let Some(f) = checker.functions.iter().find(|f| f.name == ident.name) {
+                if f.foreign_symbol.is_some() {
+                    out.insert(axiom_ast::ast::Effect::IO);
+                }
+                for e in &f.effects {
+                    out.insert(e.clone());
+                }
             }
         }
         Expr::EApp(func, arg) => {
@@ -438,7 +445,10 @@ impl TypeId {
                 Box::new(Self::strip_effects(b, handled)),
             ),
             TypeId::TTuple(types) => TypeId::TTuple(
-                types.iter().map(|t| Self::strip_effects(t, handled)).collect(),
+                types
+                    .iter()
+                    .map(|t| Self::strip_effects(t, handled))
+                    .collect(),
             ),
             TypeId::TList(inner) => TypeId::TList(Box::new(Self::strip_effects(inner, handled))),
             TypeId::TPtr(inner, mutable) => {
@@ -560,6 +570,53 @@ pub struct TypeAliasInfo {
     pub target: TypeId,
 }
 
+/// The names of Axiom's freestanding primitives, together with how
+/// many arguments each takes and whether calling it is an I/O
+/// effect.
+///
+/// These are the operations the standard library cannot express in
+/// terms of anything else, and are the replacement for what used to
+/// require a C foreign binding: raw syscalls, byte- and
+/// word-granular memory access at a runtime index, taking the
+/// address of a literal, and requesting heap memory. Everything
+/// else in the standard library - string handling, formatting,
+/// buffered I/O, growable arrays - is ordinary Axiom code written on
+/// top of these.
+///
+/// Each entry is `(name, arity, is_io)`. All arguments and results
+/// are `Int`; the primitives are deliberately untyped beyond that,
+/// because they are the layer where Axiom's type system stops and
+/// the machine begins. Safe, typed wrappers are the standard
+/// library's job (`stdlib/Mem.ax`, `stdlib/IO.ax`).
+pub const PRIMITIVES: &[(&str, usize, bool)] = &[
+    // Raw syscalls, by argument count (excluding the syscall
+    // number, which is the first parameter of each).
+    ("__syscall0", 1, true),
+    ("__syscall1", 2, true),
+    ("__syscall2", 3, true),
+    ("__syscall3", 4, true),
+    ("__syscall4", 5, true),
+    ("__syscall5", 6, true),
+    ("__syscall6", 7, true),
+    // `(__load8 base index)` -> byte at `base + index`.
+    ("__load8", 2, false),
+    // `(__store8 base index value)` -> 0.
+    ("__store8", 3, false),
+    // `(__load64 base index)` -> word at `base + index * 8`.
+    ("__load64", 2, false),
+    // `(__store64 base index value)` -> 0.
+    ("__store64", 3, false),
+    // `(__alloc bytes)` -> address of `bytes` fresh zeroed bytes.
+    ("__alloc", 1, false),
+];
+
+/// `(__addr s)` -> the address of string literal `s`'s bytes.
+///
+/// Kept out of [`PRIMITIVES`] because it is the one primitive whose
+/// argument is not an `Int`: it takes a `String`, which is exactly
+/// what makes it useful (handing a literal's bytes to `write`).
+pub const PRIM_ADDR: &str = "__addr";
+
 impl FnInfo {
     fn new(name: impl Into<String>, ty: TypeId) -> Self {
         Self {
@@ -578,6 +635,20 @@ impl FnInfo {
             foreign_symbol: None,
             is_builtin: true,
             effects: Vec::new(),
+        }
+    }
+
+    fn builtin_with_effects(
+        name: impl Into<String>,
+        ty: TypeId,
+        effects: Vec<axiom_ast::ast::Effect>,
+    ) -> Self {
+        Self {
+            name: name.into(),
+            ty,
+            foreign_symbol: None,
+            is_builtin: true,
+            effects,
         }
     }
 }
@@ -608,6 +679,37 @@ impl Default for TypeChecker {
 }
 
 impl TypeChecker {
+    /// Put every entry of [`PRIMITIVES`] (plus [`PRIM_ADDR`]) in
+    /// scope as a builtin function.
+    ///
+    /// Driven off the `PRIMITIVES` table rather than written out
+    /// one-by-one so that adding a primitive is a single-line change
+    /// that cannot drift out of sync with the IR lowering, which
+    /// reads the same table.
+    fn register_primitives(&mut self) {
+        let int_ty = TypeId::TCon("Int".to_string(), vec![]);
+        for (name, arity, is_io) in PRIMITIVES {
+            let mut ty = int_ty.clone();
+            for _ in 0..*arity {
+                ty = TypeId::TArr(Box::new(int_ty.clone()), Box::new(ty));
+            }
+            let effects = if *is_io {
+                vec![axiom_ast::ast::Effect::IO]
+            } else {
+                Vec::new()
+            };
+            self.functions
+                .push(FnInfo::builtin_with_effects(*name, ty, effects));
+        }
+        self.functions.push(FnInfo::builtin(
+            PRIM_ADDR,
+            TypeId::TArr(
+                Box::new(TypeId::TCon("String".to_string(), vec![])),
+                Box::new(int_ty),
+            ),
+        ));
+    }
+
     pub fn new() -> Self {
         let mut tc = Self {
             scope: Vec::new(),
@@ -656,6 +758,8 @@ impl TypeChecker {
             ));
         }
 
+        tc.register_primitives();
+
         tc.data_types.push(DataTypeInfo {
             name: "Option".to_string(),
             tyvars: vec!["a".to_string()],
@@ -673,10 +777,7 @@ impl TypeChecker {
                 },
                 DataConInfo {
                     name: "None".to_string(),
-                    ty: TypeId::TCon(
-                        "Option".to_string(),
-                        vec![TypeId::TVar("a".to_string())],
-                    ),
+                    ty: TypeId::TCon("Option".to_string(), vec![TypeId::TVar("a".to_string())]),
                     data_type: "Option".to_string(),
                 },
             ],
@@ -688,6 +789,7 @@ impl TypeChecker {
     pub fn check(&mut self, module: &Module) -> Result<(), Vec<SemError>> {
         self.check_duplicate_definitions(&module.decls);
         self.collect_declarations(module);
+        self.infer_effects(&module.decls);
         self.check_decls(&module.decls);
 
         if self.errors.is_empty() {
@@ -867,6 +969,58 @@ impl TypeChecker {
         }
     }
 
+    /// Infer each function's effects from its body, transitively.
+    ///
+    /// Without this, effect analysis only saw effects a function
+    /// performed *itself* - a direct `foreign` call or syscall - so a
+    /// function that did its I/O by calling another Axiom function
+    /// looked pure. That was tolerable when every effect entered the
+    /// program through a `foreign` binding at the point of use, and is
+    /// not once there is a standard library: `println` calls `writeStr`
+    /// calls `sysWriteFd` calls `__syscall3`, and an
+    /// `;@axiom:effect(io)` claim on the caller of any of those has to
+    /// validate.
+    ///
+    /// Implemented as a fixpoint rather than a topological walk because
+    /// Axiom has no declaration-order requirement and mutual recursion
+    /// is legal: each round recomputes every function's effects from
+    /// the effects known so far, and effects only ever grow, so the
+    /// iteration is monotone and terminates in at most one round per
+    /// function (call-graph depth in practice). Recursive functions
+    /// converge on the first round in which their callees stop
+    /// changing.
+    fn infer_effects(&mut self, decls: &[Decl]) {
+        let bodies: Vec<(String, &Expr)> = decls
+            .iter()
+            .filter_map(|d| match d {
+                Decl::DFn { name, body, .. } => Some((name.name.clone(), body)),
+                _ => None,
+            })
+            .collect();
+
+        // One extra round beyond the number of functions can never be
+        // needed (each round propagates at least one call-graph edge),
+        // and the bound guarantees termination even if a future change
+        // makes `collect_effects` non-monotone.
+        for _ in 0..=bodies.len() {
+            let mut changed = false;
+            for (name, body) in &bodies {
+                let inferred = collect_effects(self, body);
+                if let Some(info) = self.functions.iter_mut().find(|f| &f.name == name) {
+                    for e in inferred {
+                        if !info.effects.contains(&e) {
+                            info.effects.push(e);
+                            changed = true;
+                        }
+                    }
+                }
+            }
+            if !changed {
+                break;
+            }
+        }
+    }
+
     fn check_decls(&mut self, decls: &[Decl]) {
         for decl in decls {
             match decl {
@@ -937,17 +1091,18 @@ impl TypeChecker {
                     for tag in axtags {
                         match tag.key.as_str() {
                             "effect" => {
-                                let declared: Vec<axiom_ast::ast::Effect> = match tag.value.as_deref() {
-                                    Some("io") => vec![axiom_ast::ast::Effect::IO],
-                                    Some("pure") => vec![axiom_ast::ast::Effect::Pure],
-                                    Some("mut") => vec![axiom_ast::ast::Effect::Mut],
-                                    Some("div") => vec![axiom_ast::ast::Effect::Div],
-                                    Some("alloc") => vec![axiom_ast::ast::Effect::Alloc],
-                                    Some(other) => vec![axiom_ast::ast::Effect::Custom(
-                                        Ident::new(other, Span::dummy()),
-                                    )],
-                                    None => vec![],
-                                };
+                                let declared: Vec<axiom_ast::ast::Effect> =
+                                    match tag.value.as_deref() {
+                                        Some("io") => vec![axiom_ast::ast::Effect::IO],
+                                        Some("pure") => vec![axiom_ast::ast::Effect::Pure],
+                                        Some("mut") => vec![axiom_ast::ast::Effect::Mut],
+                                        Some("div") => vec![axiom_ast::ast::Effect::Div],
+                                        Some("alloc") => vec![axiom_ast::ast::Effect::Alloc],
+                                        Some(other) => vec![axiom_ast::ast::Effect::Custom(
+                                            Ident::new(other, Span::dummy()),
+                                        )],
+                                        None => vec![],
+                                    };
                                 let actual = collect_effects(self, body);
                                 let mut missing = Vec::new();
                                 for e in &declared {
@@ -974,7 +1129,11 @@ impl TypeChecker {
                                         name: name.name.clone(),
                                         message: format!(
                                             "`pure` claim contradicted: body performs {}",
-                                            actual.iter().map(|e| format!("{}", e)).collect::<Vec<_>>().join(", ")
+                                            actual
+                                                .iter()
+                                                .map(|e| format!("{}", e))
+                                                .collect::<Vec<_>>()
+                                                .join(", ")
                                         ),
                                         span: name.span,
                                     });
@@ -1795,10 +1954,9 @@ impl TypeChecker {
             Type::TForall(vars, inner) => {
                 TypeId::TForall(vars.clone(), Box::new(self.type_to_id(inner)))
             }
-            Type::TEffect(inner, effects) => TypeId::TEffect(
-                Box::new(self.type_to_id(inner)),
-                effects.clone(),
-            ),
+            Type::TEffect(inner, effects) => {
+                TypeId::TEffect(Box::new(self.type_to_id(inner)), effects.clone())
+            }
             Type::TRegion(inner, name) => {
                 TypeId::TCon(name.name.clone(), vec![self.type_to_id(inner)])
             }
@@ -1949,6 +2107,90 @@ mod tests {
 
     fn check_err(source: &str) -> Vec<SemError> {
         check(source).expect_err("expected type-checking to fail")
+    }
+
+    #[test]
+    fn every_primitive_is_in_scope_with_its_declared_arity() {
+        // The primitives are what let the standard library exist
+        // without C bindings; a missing one is an `undefined variable`
+        // at the bottom of the stdlib, and a wrong arity is a type
+        // error that only shows up in whichever module happens to use
+        // it. Driving this from the same table the IR lowering reads
+        // keeps the two in step.
+        let tc = TypeChecker::new();
+        for (name, arity, _) in PRIMITIVES {
+            let info = tc
+                .functions
+                .iter()
+                .find(|f| &f.name == name)
+                .unwrap_or_else(|| panic!("primitive `{}` is not in scope", name));
+            let mut count = 0;
+            let mut ty = &info.ty;
+            while let TypeId::TArr(_, rest) = ty {
+                count += 1;
+                ty = rest;
+            }
+            assert_eq!(count, *arity, "primitive `{}` arity", name);
+            assert!(info.is_builtin, "primitive `{}` is not a builtin", name);
+        }
+        assert!(tc.functions.iter().any(|f| f.name == PRIM_ADDR));
+    }
+
+    #[test]
+    fn a_syscall_is_an_io_effect_without_any_foreign_binding() {
+        // Before the primitives existed, the only way to be effectful
+        // was to call a `foreign` function, so an `effect(io)` claim on
+        // a syscall-only body would have been rejected as unsupported.
+        assert!(check(
+            "(:: w (-> Int Int))\n\
+             ;@axiom:effect(io)\n\
+             (fn (w fd) (__syscall3 1 fd 0 0))\n\
+             (:: main Int)\n\
+             (fn (main) 0)"
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn a_pure_claim_is_rejected_when_the_body_reaches_a_syscall_indirectly() {
+        // Effects propagate through calls: `outer` performs I/O even
+        // though the syscall is two levels down. Without transitive
+        // inference this program type-checked, which made every
+        // `pure` claim above the standard library meaningless.
+        let errors = check_err(
+            "(:: inner (-> Int Int))\n\
+             (fn (inner fd) (__syscall3 1 fd 0 0))\n\
+             (:: middle (-> Int Int))\n\
+             (fn (middle fd) (inner fd))\n\
+             (:: outer (-> Int Int))\n\
+             ;@axiom:pure\n\
+             (fn (outer fd) (middle fd))\n\
+             (:: main Int)\n\
+             (fn (main) 0)",
+        );
+        assert!(
+            errors
+                .iter()
+                .any(|e| matches!(e, SemError::AxtagMismatch { name, .. } if name == "outer")),
+            "expected a pure-claim mismatch on `outer`, got {:?}",
+            errors
+        );
+    }
+
+    #[test]
+    fn effect_inference_terminates_on_mutual_recursion() {
+        // The fixpoint is bounded by the function count, but mutual
+        // recursion is the case that would spin forever if the
+        // iteration were not monotone.
+        assert!(check(
+            "(:: ping (-> Int Int))\n\
+             (fn (ping n) (if (== n 0) 0 (pong (- n 1))))\n\
+             (:: pong (-> Int Int))\n\
+             (fn (pong n) (ping n))\n\
+             (:: main Int)\n\
+             (fn (main) (ping 3))"
+        )
+        .is_ok());
     }
 
     #[test]
@@ -2217,7 +2459,10 @@ mod tests {
 (:: main Int)
 (fn main
   (handle (printf "hello") (IO) 0))"#;
-        assert!(check(source).is_ok(), "handle should strip declared effects");
+        assert!(
+            check(source).is_ok(),
+            "handle should strip declared effects"
+        );
     }
 
     #[test]

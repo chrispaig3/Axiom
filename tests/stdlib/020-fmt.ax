@@ -1,0 +1,24 @@
+; Integer formatting, which used to require a variadic C `printf`.
+(import IO)
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  {
+    (printlnInt 0)
+    (printlnInt 7)
+    (printlnInt 10)
+    (printlnInt 99)
+    (printlnInt 100)
+    (printlnInt 123456789)
+    (printlnInt (- 0 1))
+    (printlnInt (- 0 4096))
+    (printlnInt 9223372036854775807)
+    (printlnInt (- 0 9223372036854775807))
+    (println (fmtHex 0))
+    (println (fmtHex 255))
+    (println (fmtHex 48879))
+    (println (fmtPadLeft (fmtInt 42) 6))
+    (println (fmtPadLeft (fmtInt 1234567) 3))
+    0
+  })

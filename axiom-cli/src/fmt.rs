@@ -132,7 +132,11 @@ fn format_decl(decl: &Decl, out: &mut String, state: &mut FormatState) {
             format_trait_decl(name, tyvar, supertraits, methods, effects, out, state);
         }
         Decl::DImpl {
-            trait_name, ty, methods, effects, ..
+            trait_name,
+            ty,
+            methods,
+            effects,
+            ..
         } => {
             format_impl_decl(trait_name, ty, methods, effects, out, state);
         }
