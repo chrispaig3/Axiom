@@ -1,0 +1,265 @@
+; Vec - a growable array of machine words, in Axiom.
+;
+; A `Vec` is the address of a three-word header:
+;
+;     word 0 : len  - number of live elements
+;     word 1 : cap  - elements the data block can hold
+;     word 2 : data - address of cap * 8 bytes of element storage
+;
+; Elements are machine words. Because Axiom's representation is uniform -
+; every value is one 64-bit word - the same `Vec` code stores `Int`s,
+; `Str` handles, and boxed `data` values with no monomorphisation, which
+; is why the element type is `Int` rather than a type parameter: a
+; parameter would buy type safety the caller does not get anyway once it
+; puts a `Str` handle (also an `Int`) in.
+;
+; The header is mutated in place, so a `Vec` handle is stable for the
+; lifetime of the vector: only `data` is ever reallocated, and it lives
+; behind the header. That is the property `Intern` depends on, and it is
+; why the mutating operations here can be called in statement position.
+; They still *return* the handle, so that code written today stays correct
+; if the header ever has to move (a shrinking or arena-compacting
+; implementation would move it).
+;
+; LEAK ON GROWTH: there is no `free` - memory comes from the backend's
+; `mmap` bump allocator and is reclaimed only at process exit - so
+; doubling the data block abandons the old one. Pushing n elements into a
+; vector that starts empty therefore touches about 2n words of storage
+; and leaves n of them unreachable. For a compiler process that is the
+; right trade (see `Mem.memAlloc`); for anything long-running it is not,
+; and the fix is an allocator with `free`, not a change here.
+
+(import Mem)
+
+; ------------------------------------------------------------------
+; Construction
+; ------------------------------------------------------------------
+
+; The capacity `vecNew` starts with.
+;
+; Eight, because the vectors a compiler creates most often - an argument
+; list, a scope frame, a constructor's field list - are small enough that
+; eight never grows, and the header plus eight words is 88 bytes, which
+; is a single bump of the allocator. Starting at 1 or 2 would make those
+; cases pay two or three reallocations each, and every reallocation leaks
+; (see the module comment).
+(:: vecDefaultCap Int)
+(fn (vecDefaultCap) 8)
+
+; An empty `Vec` with `vecDefaultCap` capacity.
+(:: vecNew Int)
+(fn (vecNew)
+  (vecWithCapacity vecDefaultCap))
+
+; An empty `Vec` that can hold at least `cap` elements without growing.
+;
+; `cap` is clamped up to 1 rather than honoured as 0. A zero capacity
+; would be a real trap here: growth is `cap * 2`, and doubling zero is
+; zero, so a zero-capacity vector would recurse forever the first time it
+; was pushed to. Clamping at the constructor means `vecGrownCap` can rely
+; on `cap >= 1` and needs no special case.
+(:: vecWithCapacity (-> Int Int))
+(fn (vecWithCapacity cap)
+  (let ((n (if (< cap 1) 1 cap))
+        (v (memAlloc 24)))
+    {
+      (memSetWord v 0 0)
+      (memSetWord v 1 n)
+      (memSetWord v 2 (memAlloc (* n 8)))
+      v
+    }))
+
+; ------------------------------------------------------------------
+; Accessors
+; ------------------------------------------------------------------
+
+(:: vecLen (-> Int Int))
+(fn (vecLen v)
+  (memGetWord v 0))
+
+(:: vecCap (-> Int Int))
+(fn (vecCap v)
+  (memGetWord v 1))
+
+; The address of the element block.
+;
+; Exposed because `Intern` and any other module that wants to walk a
+; vector without paying a bounds check per element needs it, and because
+; hiding it would be pretend safety: the handle is an `Int`, so a caller
+; that wants the data pointer can already read word 2 itself.
+(:: vecData (-> Int Int))
+(fn (vecData v)
+  (memGetWord v 2))
+
+; The element at `i`, or 0 when `i` is out of range.
+;
+; Out of range answers 0 rather than trapping, matching `Str.strByte`:
+; the callers that matter want a total accessor with a sentinel, and
+; Axiom has no way to signal failure that does not either allocate (the
+; builtin `Option` works, but every `data` value is heap-boxed, so an
+; `Option`-returning getter allocates on every read) or abort the
+; process. A caller that stores 0 as a real element and needs to tell it
+; from "absent" must check `vecLen` first; that is the honest cost of
+; this choice, and it is stated rather than hidden.
+(:: vecGet (-> Int Int Int))
+(fn (vecGet v i)
+  (if (< i 0)
+      0
+      (if (>= i (vecLen v))
+          0
+          (memGetWord (vecData v) i))))
+
+; Overwrite the element at `i`. Returns the handle.
+;
+; Out-of-range writes are ignored rather than growing the vector: a
+; caller that meant to append should say `vecPush`, and silently
+; extending on a stray index turns an off-by-one into a slow leak instead
+; of a wrong answer that `vecLen` makes visible.
+(:: vecSet (-> Int Int Int Int))
+(fn (vecSet v i x)
+  (if (< i 0)
+      v
+      (if (>= i (vecLen v))
+          v
+          {
+            (memSetWord (vecData v) i x)
+            v
+          })))
+
+; ------------------------------------------------------------------
+; Growth
+; ------------------------------------------------------------------
+
+; Ensure `v` can hold `need` elements, reallocating if it cannot.
+; Returns the handle.
+(:: vecReserve (-> Int Int Int))
+(fn (vecReserve v need)
+  (if (<= need (vecCap v))
+      v
+      (vecReserveExactly v (vecGrownCap (vecCap v) need))))
+
+; The first power-of-two multiple of `cap` that reaches `need`.
+;
+; Growth factor 2, not 1.5. The usual argument for 1.5 is that it lets an
+; allocator reuse the blocks freed by earlier growth steps; with a bump
+; allocator and no `free` there is nothing to reuse, so the only thing
+; 1.5 buys is more reallocations and more leaked blocks. 2 keeps the
+; total bytes copied across n pushes under 2n and the number of
+; reallocations at log2(n).
+;
+; Terminates because `vecWithCapacity` guarantees `cap >= 1`.
+(:: vecGrownCap (-> Int Int Int))
+(fn (vecGrownCap cap need)
+  (if (>= cap need)
+      cap
+      (vecGrownCap (* cap 2) need)))
+
+; Move `v`'s elements into a fresh block of exactly `newCap` elements.
+;
+; Only `len` elements are copied, not `cap`: the words past `len` are
+; unreachable through `vecGet`, so copying them would be pure cost. The
+; new block comes from `memAlloc`, which zeroes, so the tail is 0 rather
+; than whatever the arena last held there.
+(:: vecReserveExactly (-> Int Int Int))
+(fn (vecReserveExactly v newCap)
+  (let ((bigger (memAlloc (* newCap 8))))
+    {
+      (memCopy bigger (vecData v) (* (vecLen v) 8))
+      (memSetWord v 2 bigger)
+      (memSetWord v 1 newCap)
+      v
+    }))
+
+; ------------------------------------------------------------------
+; Stack operations
+; ------------------------------------------------------------------
+
+; Append `x`. Returns the handle - the same one, with this
+; representation; see the module comment for why it is returned anyway.
+;
+; `vecData` is read *after* `vecReserve` runs, because reserving may have
+; replaced the data pointer. Reading it into a `let` before the reserve
+; would write the element into the abandoned block, and the bug would be
+; invisible until the vector happened to grow.
+(:: vecPush (-> Int Int Int))
+(fn (vecPush v x)
+  (let ((len (vecLen v)))
+    {
+      (vecReserve v (+ len 1))
+      (memSetWord (vecData v) len x)
+      (memSetWord v 0 (+ len 1))
+      v
+    }))
+
+; Remove and return the last element, or 0 if `v` is empty.
+;
+; 0-on-empty is ambiguous with a stored 0, for the reason given on
+; `vecGet`. Callers that can push 0 must guard with `vecLen`.
+;
+; Capacity is not reduced: shrinking would reallocate and leak the larger
+; block, so a vector used as a stack settles at its high-water mark and
+; then stops allocating entirely, which is what a recursive-descent
+; parser wants.
+(:: vecPop (-> Int Int))
+(fn (vecPop v)
+  (let ((len (vecLen v)))
+    (if (== len 0)
+        0
+        (let ((top (memGetWord (vecData v) (- len 1))))
+          {
+            (memSetWord v 0 (- len 1))
+            top
+          }))))
+
+; The last element without removing it, or 0 if `v` is empty.
+(:: vecLast (-> Int Int))
+(fn (vecLast v)
+  (vecGet v (- (vecLen v) 1)))
+
+; Drop every element, keeping the capacity. Returns the handle.
+;
+; The data block is deliberately not zeroed. Nothing can observe the
+; stale words - `vecGet` and `vecSum` are both gated on `len` - so
+; zeroing would be O(cap) of work to make a debugger's view prettier.
+; Keeping the capacity is the point: a `Vec` reused as scratch across
+; many iterations allocates once in total.
+(:: vecClear (-> Int Int))
+(fn (vecClear v)
+  (memSetWord v 0 0))
+
+; ------------------------------------------------------------------
+; Bulk reads
+; ------------------------------------------------------------------
+
+; The sum of every element.
+;
+; Exists so a test can check a whole vector's contents with one printed
+; number instead of one per element. A sum is a weak check on its own -
+; any bug that permutes elements passes - so tests pair it with indexed
+; reads at the boundaries. `vecHash` is the position-sensitive companion
+; for when order matters.
+(:: vecSum (-> Int Int))
+(fn (vecSum v)
+  (vecSumFrom v 0 0))
+
+(:: vecSumFrom (-> Int Int Int Int))
+(fn (vecSumFrom v i acc)
+  (if (>= i (vecLen v))
+      acc
+      (vecSumFrom v (+ i 1) (+ acc (vecGet v i)))))
+
+; A position-sensitive digest of the whole vector.
+;
+; `h * 31 + x` per element, reduced mod a prime small enough that
+; `h * 31` cannot overflow `Int` (10^9 * 31 < 2^63). Unlike `vecSum` this
+; changes when elements are reordered, which is what makes it usable as
+; the single assertion in a test that cares about order.
+(:: vecHash (-> Int Int))
+(fn (vecHash v)
+  (vecHashFrom v 0 1))
+
+(:: vecHashFrom (-> Int Int Int Int))
+(fn (vecHashFrom v i h)
+  (if (>= i (vecLen v))
+      h
+      (vecHashFrom v (+ i 1) (% (+ (* h 31) (vecGet v i)) 1000000007))))
