@@ -1,0 +1,1062 @@
+# Axiom Language Reference
+
+A friendly, comprehensive guide to the Axiom programming language — a functional systems language that compiles to native code via LLVM, with no VM, runtime, or garbage collector.
+
+---
+
+## Table of Contents
+
+1. [Hello, Axiom!](#hello-axiom)
+2. [Syntax Basics](#syntax-basics)
+3. [Comments](#comments)
+4. [Literals](#literals)
+5. [Identifiers and Keywords](#identifiers-and-keywords)
+6. [Types](#types)
+7. [Functions](#functions)
+8. [Operators](#operators)
+9. [Let Bindings](#let-bindings)
+10. [Conditionals](#conditionals)
+11. [Pattern Matching](#pattern-matching)
+12. [Algebraic Data Types](#algebraic-data-types)
+13. [Structs](#structs)
+14. [Type Aliases](#type-aliases)
+15. [Traits](#traits)
+16. [Effects](#effects)
+17. [Handle Expressions](#handle-expressions)
+18. [Modules and Imports](#modules-and-imports)
+19. [Foreign Function Interface](#foreign-function-interface)
+20. [Memory Primitives](#memory-primitives)
+21. [Standard Library](#standard-library)
+22. [AXTAG Metadata](#axtag-metadata)
+23. [Linear Types and Consume](#linear-types-and-consume)
+24. [Removed Features](#removed-features)
+25. [The REPL](#the-repl)
+26. [CLI Commands](#cli-commands)
+27. [Compiler Pipeline](#compiler-pipeline)
+
+---
+
+## Hello, Axiom!
+
+Every Axiom program needs a `main` function that returns `Int`. Here is the smallest possible program:
+
+```scheme
+(import IO)
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  {
+    (printlnLit (__addr "Hello, Axiom!"))
+    0
+  })
+```
+
+Run it:
+
+```bash
+axiom run hello.ax
+```
+
+That's it. No headers, no build system, no runtime. The `IO` module is part of Axiom's own standard library — compiled programs call no C function at all.
+
+---
+
+## Syntax Basics
+
+Axiom uses **S-expressions** — everything is wrapped in parentheses. This takes a moment to get used to, but the payoff is a language with almost no syntax rules to memorize.
+
+### The General Form
+
+```scheme
+(keyword arg1 arg2 ...)
+```
+
+Every expression is a list. The first element is always a keyword or operator, and the rest are arguments. There are no precedence rules to memorize — parentheses make the structure explicit.
+
+### Whitespace
+
+Whitespace (spaces, tabs, newlines) separates tokens. It is not significant beyond that — you can format your code however you like.
+
+---
+
+## Comments
+
+```scheme
+; This is a line comment
+
+#| This is a block comment.
+   They can nest: #| inner |# |#
+```
+
+Line comments start with `;`. Block comments use `#| ... |#` and can nest arbitrarily.
+
+---
+
+## Literals
+
+```scheme
+42              ; Integer (64-bit)
+3.14            ; Float (64-bit)
+.5              ; Float (leading dot allowed)
+1_000_000       ; Underscore separators for readability
+true            ; Boolean
+false           ; Boolean
+"hello world"   ; String
+'x'             ; Character
+```
+
+### String Escape Sequences
+
+| Sequence | Meaning |
+|---|---|
+| `\n` | Newline |
+| `\t` | Tab |
+| `\r` | Carriage return |
+| `\\` | Backslash |
+| `\"` | Double quote |
+| `\'` | Single quote |
+| `\0` | Null byte |
+
+---
+
+## Identifiers and Keywords
+
+### Identifiers
+
+Names are lowercase by convention:
+
+```scheme
+myVariable
+compute_sum
+->
+```
+
+### Keywords
+
+These words are reserved and cannot be used as identifiers:
+
+| Keyword | Purpose |
+|---|---|
+| `define` | Define a function (classic style) |
+| `fn` | Define a function (modern style, alias for `define`) |
+| `lambda` | Anonymous function |
+| `let` | Local variable binding |
+| `if` | Conditional expression |
+| `cond` | Multi-branch conditional |
+| `match` | Pattern matching |
+| `data` | Algebraic data type |
+| `struct` | Product type with named fields |
+| `type` | Type alias |
+| `newtype` | Newtype wrapper |
+| `trait` | Interface / type class |
+| `impl` | Trait implementation |
+| `import` | Import a module |
+| `foreign` | Declare a C function |
+| `pub` | Public visibility |
+| `deriving` | Derive a trait for a data type |
+| `where` | Trait method bodies |
+| `effect` | Declare an effect type |
+| `handle` | Handle effects |
+| `linear` | Linear type marker |
+| `consume` | Consume a linear value |
+| `packed` | Packed struct modifier |
+| `repr` | Struct layout modifier (`repr(C)`) |
+| `align` | Struct alignment modifier |
+| `alloc` | Allocate memory |
+| `sizeof` | Size of a type |
+| `alignof` | Alignment of a type |
+| `cast` | Type cast |
+
+### Removed Keywords
+
+These words are reserved but no longer have a grammar rule. Using them reports a helpful error with advice on what to write instead:
+
+| Keyword | Replacement |
+|---|---|
+| `union` | Use `data` for a tagged sum or `struct` for a product |
+| `region` | Delete the `region` wrapper; lifetimes are inferred |
+
+---
+
+## Types
+
+### Primitive Types
+
+| Type | Description |
+|---|---|
+| `Int` | 64-bit signed integer |
+| `Float` | 64-bit floating point |
+| `Bool` | Boolean (`true` / `false`) |
+| `Char` | Character (8-bit) |
+| `String` | String (pointer) |
+| `Unit` / `()` | Unit (no value) |
+| `Void` | Void |
+| `Any` | Generic pointer |
+
+### Sized Integers and Floats
+
+| Type | Size |
+|---|---|
+| `I8`, `I16`, `I32`, `I64`, `I128` | Signed integers |
+| `U8`, `U16`, `U32`, `U64`, `U128` | Unsigned integers |
+| `Isize`, `Usize` | Pointer-sized integers |
+| `F32`, `F64` | Floating point |
+
+### Compound Types
+
+```scheme
+(-> Int Int)           ; Function: Int -> Int
+(-> Int Int Int)       ; Curried: Int -> Int -> Int
+(* Int)                ; Pointer to Int
+[Int]                  ; List of Int
+(Int String Bool)      ; 3-tuple
+```
+
+### Type Variables and Polymorphism
+
+```scheme
+(data Maybe (a)
+  (Nothing)
+  (Just a))
+```
+
+The `(a)` after the type name introduces a type parameter. Types can be polymorphic — the same `Maybe` can hold any type.
+
+### Type Signatures
+
+Every function has an optional type signature declared with `::`:
+
+```scheme
+(:: add (-> Int Int Int))
+```
+
+This says `add` is a function that takes two `Int`s and returns an `Int`. The `(-> A B C)` syntax means a function that takes `A`, then `B`, and returns `C`. It is curried — you can partially apply it.
+
+### Effect Types
+
+Functions can carry effect annotations that the compiler checks:
+
+```scheme
+;@axiom:effect(io)
+(fn main (printf "hello"))
+```
+
+The compiler validates that the body actually performs the declared effects.
+
+---
+
+## Functions
+
+Functions are the heart of Axiom. Every function has an optional type signature and a definition.
+
+### Modern `fn` Style
+
+```scheme
+(:: add (-> Int Int Int))
+(fn (add x y)
+  (+ x y))
+```
+
+### Classic `define` Style
+
+```scheme
+(:: add (-> Int Int Int))
+(define (add x y)
+  (+ x y))
+```
+
+Both styles are identical. `fn` is the modern alias for `define`.
+
+### Multi-Parameter Functions
+
+```scheme
+(:: add3 (-> Int Int Int Int))
+(fn (add3 x y z)
+  (+ x (+ y z)))
+```
+
+### Functions with No Parameters
+
+```scheme
+(:: answer Int)
+(fn answer 42)
+```
+
+### Multi-Statement Bodies
+
+Use braces for sequencing:
+
+```scheme
+(fn (verbose-add x y)
+  { (printf "adding %d + %d\n" x y)
+    (+ x y) })
+```
+
+The value of a brace block is the value of its last expression. Single expressions in braces are unwrapped automatically — `{ 42 }` is just `42`.
+
+Function bodies, `let` bodies, `if` branches, and `lambda` bodies also support **implicit sequencing** without braces:
+
+```scheme
+(fn main
+  (printf "Starting...\n")
+  (printf "Working...\n")
+  0)
+```
+
+### Lambda (Anonymous Functions)
+
+```scheme
+(lambda (x) (+ x 1))
+
+(lambda (x y) (+ x y))
+
+(lambda (_) 42)    ; Ignoring a parameter with wildcard
+```
+
+### Partial Application
+
+Because functions are curried, you can partially apply them:
+
+```scheme
+(:: add (-> Int Int Int))
+(fn (add x y) (+ x y))
+
+(:: addFive (-> Int Int))
+(define addFive (add 5))    ; addFive is now a function that adds 5
+```
+
+---
+
+## Operators
+
+All operators are **prefix** — they go before their arguments, just like any other function.
+
+```scheme
+(+ 1 2)             ; 3
+(- 10 3)            ; 7
+(* 4 5)             ; 20
+(/ 10 2)            ; 5
+(% 10 3)            ; 1
+
+(== 1 2)            ; false
+(!= 1 2)            ; true
+(< 1 2)             ; true
+(> 1 2)             ; false
+(<= 1 2)            ; true
+(>= 1 2)            ; true
+
+(&& true false)     ; false
+(|| true false)     ; true
+
+(- 5)               ; -5 (negation, unary)
+```
+
+---
+
+## Let Bindings
+
+Use `let` to introduce local variables:
+
+```scheme
+(fn (compute n)
+  (let ((x (+ n 1))
+        (y (* x 2)))
+    (+ x y)))
+```
+
+Bindings are evaluated **in order** — later bindings can reference earlier ones.
+
+### Sequential Let Bindings
+
+You can also write `let` bindings sequentially:
+
+```scheme
+(let ((x 1))
+  (let ((y (+ x 1)))
+    (+ x y)))
+```
+
+---
+
+## Conditionals
+
+### `if` Expressions
+
+```scheme
+(:: abs (-> Int Int))
+(fn (abs n)
+  (if (< n 0)
+      (- 0 n)
+      n))
+```
+
+`if` is an expression — it returns a value. Both branches are required.
+
+### `cond` — Multi-Branch Conditional
+
+```scheme
+(:: classify (-> Int String))
+(fn (classify n)
+  (cond ((< n 0) "negative")
+        ((== n 0) "zero")
+        ((> n 0) "positive")))
+```
+
+Each branch is a `(test body)` pair. The first matching branch wins. An optional `else` clause can be added as the last argument.
+
+---
+
+## Pattern Matching
+
+`match` is one of Axiom's most powerful features. It lets you destructure values by their shape.
+
+### Basic Matching
+
+```scheme
+(:: fromMaybe (-> Int (Maybe Int) Int))
+(fn (fromMaybe default val)
+  (match val
+    ((Nothing) default)
+    ((Just x) x)))
+```
+
+### Matching Constructors with Fields
+
+```scheme
+(match val
+  ((Cons h t) h)
+  ((Nil) 0))
+```
+
+### Matching Literals
+
+```scheme
+(match x
+  (42 "the answer")
+  (_ "anything else"))
+```
+
+### Nested Patterns
+
+```scheme
+(match lst
+  ((Cons h (Cons h2 t)) ...)
+  ((Nil) ...))
+```
+
+### Wildcard Pattern
+
+Use `_` to match anything and ignore the value:
+
+```scheme
+(match val
+  ((Just x) x)
+  (_ 0))
+```
+
+### Exhaustiveness Checking
+
+Axiom checks at compile time that every constructor of the matched type is covered. Missing constructors are a compile error (`AX3005`).
+
+```scheme
+;; Correct: all constructors covered
+(match val
+  ((Nothing) default)
+  ((Just x) x))
+
+;; Incorrect: Missing Nothing arm — compile error AX3005
+(match val
+  ((Just x) x))
+```
+
+### The Built-in `Option` Type
+
+Axiom provides a built-in `Option` type with `Some` and `None` constructors, always available without a `data` declaration:
+
+```scheme
+(:: safeDiv (-> Int Int Int))
+(fn (safeDiv a b)
+  (match b
+    ((0) (None))
+    (_ (Some (/ a b)))))
+
+(:: main Int)
+(fn main
+  (match (safeDiv 10 2)
+    ((Some x) x)
+    ((None) 0)))
+```
+
+---
+
+## Algebraic Data Types
+
+Define custom types with constructors:
+
+```scheme
+; Optional value
+(data Maybe (a)
+  (Nothing)
+  (Just a))
+
+; Linked list
+(data List (a)
+  (Nil)
+  (Cons a (List a)))
+
+; Binary tree
+(data Tree (a)
+  (Leaf)
+  (Node (Tree a) a (Tree a)))
+
+; Ordering result
+(data Ordering
+  (LT)
+  (EQ)
+  (GT))
+```
+
+The `(a)` after the type name is a type parameter — like generics in other languages.
+
+### How ADTs Actually Run
+
+Every value of a `data` type — nullary constructors like `Nothing` included — is a heap-allocated, tagged block. Word 0 is an integer tag identifying which constructor built it, and words 1.. are its fields, one 8-byte word each. This uniform representation is what lets `match` compare any constructor pattern against any value of that type the same way.
+
+### Deriving Traits
+
+You can automatically derive trait implementations for data types:
+
+```scheme
+(data Maybe (a)
+  (Nothing)
+  (Just a))
+(deriving Eq)
+```
+
+---
+
+## Structs
+
+Products of named fields:
+
+```scheme
+; Basic struct
+(struct Point
+  (x : Int)
+  (y : Int))
+
+; Packed (no padding)
+(struct PackedPoint packed
+  (x : Int)
+  (y : Int))
+
+; C-compatible layout
+(struct CPoint repr(C)
+  (x : I32)
+  (y : I32))
+
+; Aligned to 16 bytes
+(struct AlignedData align(16)
+  (data : I64))
+```
+
+Struct fields can be mutable:
+
+```scheme
+(struct Counter mut
+  (count : Int))
+```
+
+---
+
+## Type Aliases
+
+```scheme
+(type StringList () = [String])
+```
+
+A type alias gives a name to an existing type. It does not create a new type — `StringList` and `[String]` are interchangeable.
+
+---
+
+## Traits
+
+Traits define interfaces with typed methods — similar to type classes in Haskell or protocols in Swift.
+
+### Declaring a Trait
+
+```scheme
+; A trait with one method
+(trait (Eq a)
+  where
+    (eq :: (-> a a Bool)))
+
+; A trait with multiple methods and supertraits
+(trait (Ord a)
+  (Eq a)
+  where
+    (cmp :: (-> a a Int))
+    (lt :: (-> a a Bool))
+    (gt :: (-> a a Bool)))
+```
+
+### Implementing a Trait
+
+```scheme
+(impl (Eq Int)
+  where
+    ((eq (lambda (x y) (== x y)))))
+
+(impl (Ord Int)
+  where
+    ((cmp (lambda (x y) (if (== x y) 0 (if (< x y) (- 0 1) 1)))))
+    ((lt (lambda (x y) (< x y))))
+    ((gt (lambda (x y) (> x y)))))
+```
+
+### Traits Support
+
+- **Type parameters** — `(trait (Eq a) ...)` binds `a` for all method signatures
+- **Supertraits** — `(trait (Ord a) (Eq a) ...)` requires `Eq` to be implemented too
+- **Default methods** — `(where (method :: type = default_body))`
+- **Effects** — traits and methods can carry effect annotations
+
+---
+
+## Effects
+
+Axiom tracks side effects at the type level. Effects are checked by the compiler, so you know exactly what a function does.
+
+### Built-in Effects
+
+| Effect | Meaning |
+|---|---|
+| `IO` | Calls foreign functions (C FFI) |
+| `Pure` | No side effects |
+| `Alloc` | Heap allocation (`alloc`) |
+| `Mut` | Mutable state (`set-field`) |
+| `Div` | Divergence (infinite loops) |
+
+### Declaring an Effect Type
+
+```scheme
+(effect Console
+  (print :: (-> String ())))
+```
+
+### Annotating Functions with Effects
+
+Use AXTAG metadata above the function declaration:
+
+```scheme
+;@axiom:effect(io)
+(fn main (printf "hello"))
+```
+
+The compiler validates that the body actually performs the declared effects.
+
+### Handling Effects
+
+Use `handle` to intercept effects:
+
+```scheme
+; A handler that catches IO and returns a default value
+(handle (printf "hello") (IO) 0)
+```
+
+`handle` runs `body`, intercepting the declared `effects` via `handler`. Effects not listed propagate out.
+
+---
+
+## Modules and Imports
+
+Split a program across files with `(import Mod.Sub ...)`:
+
+```scheme
+; Math/Ops.ax
+(:: square (-> Int Int))
+(fn (square x) (* x x))
+```
+
+```scheme
+; main.ax
+(import Math.Ops (square))    ; only bring in `square`
+; (import Math.Ops)            ; would bring in every top-level decl
+
+(:: main Int)
+(fn main (square 5))
+```
+
+### How Imports Work
+
+- A dotted module path maps directly to a file path: `Math.Ops` resolves to `Math/Ops.ax`, always relative to the entry file's own directory.
+- `(import Mod.Sub)` with no name list brings in every top-level declaration.
+- `(import Mod.Sub (a b))` brings in only the named declarations.
+- Imports are transitive (`A` imports `B` imports `C` brings `C`'s declarations into `A` too) and diamond-safe (two different modules both importing `C` merges `C` exactly once).
+- There is no namespacing or qualified names yet — an imported declaration joins the importing module's flat top-level namespace.
+- A module path that doesn't resolve to a real file is `AX5001`.
+
+---
+
+## Foreign Function Interface
+
+Axiom does not *need* C for standard-library work (see [Standard Library](#standard-library)), but it can still call any C function. Declare it with `foreign`:
+
+```scheme
+(foreign printf :: (-> String Int) = "printf")
+(foreign malloc :: (-> Int (* Any)) = "malloc")
+(foreign free :: (-> (* Any) ()) = "free")
+```
+
+The string after `=` is the symbol name as it appears in the C library. For most C library functions, this is the same as the Axiom name.
+
+When compiling, you may need to link additional libraries:
+
+```bash
+cc output.o -lcurl -lssl -lcrypto -o program
+```
+
+---
+
+## Memory Primitives
+
+The standard library is built on these low-level primitives, and so is any code that needs to talk to the machine directly. They are the layer where the type system stops — every argument and result is an `Int`.
+
+| Primitive | Meaning |
+|---|---|
+| `(__syscall0 n)` ... `(__syscall6 n a1 ... a6)` | Raw syscall |
+| `(__load8 base i)` / `(__store8 base i v)` | Byte at `base + i` |
+| `(__load64 base i)` / `(__store64 base i v)` | Machine word at `base + i * 8` |
+| `(__alloc bytes)` | Address of `bytes` fresh zeroed bytes |
+| `(__addr "literal")` | Address of a string literal's bytes |
+
+Syscall numbers are not built into the compiler — they live in `stdlib/Sys/Platform.<os>[-<arch>].ax`, and the module resolver picks the file matching `--target`.
+
+### Allocation
+
+```scheme
+(:: memAlloc (-> Int Int))
+(fn (memAlloc bytes)
+  (__alloc bytes))
+```
+
+Memory comes from the backend's `mmap`-backed bump allocator. There is no `free` — an Axiom process reclaims everything at exit. The allocator itself is replaceable by defining `axiom_alloc`.
+
+---
+
+## Standard Library
+
+Axiom ships a standard library written **in Axiom**. It reaches the operating system through raw syscalls, not through C, so a compiled Axiom program contains no call to libc.
+
+### Modules at a Glance
+
+| Module | Provides |
+|---|---|
+| `Sys` | `sysWriteFd`, `sysReadFd`, `sysOpenPath`, `sysCloseFd`, `sysSeek`, `sysExitWith`, `sysFailed`, `sysErrno`, `stdin`/`stdout`/`stderr` |
+| `Mem` | `memAlloc`, `memCopy`, `memSet`, `memCmp`, `memGetByte`/`memPutByte`, `memGetWord`/`memSetWord` |
+| `Str` | `strFromLit`, `strAlloc`, `strLen`, `strByte`, `strCmp`, `strEq`, `strSlice`, `strDup`, `strConcat`, `strFindByte`, `strStartsWith`, `strCStr` |
+| `Fmt` | `fmtInt`, `fmtHex`, `fmtPadLeft`, `fmtIntWidth` |
+| `IO` | `print`, `println`, `printLit`, `printlnLit`, `printInt`, `printlnInt`, `eprint`, `eprintln`, `writeStr`, `readUpTo`, `readAll`, `readFile`, `readFileLit`, `exit`, `die` |
+
+### A `Str` Is...
+
+A `Str` is a length-prefixed, NUL-terminated string. It is the address of a two-word header:
+
+- Word 0: length in bytes
+- Word 1: address of the bytes
+
+The bytes are always NUL-terminated in addition to being length-counted. This means `strCStr` can hand a path straight to a syscall without copying, and a `Str` can contain a NUL byte.
+
+---
+
+## AXTAG Metadata
+
+AXTAGs are source-embedded agent metadata preserved from `;@axiom:<key>(<value>)` comments immediately above a declaration. The compiler validates what it can and surfaces accepted tags as `#`-metadata on AXSYM lines.
+
+### Syntax
+
+```scheme
+;@axiom:effect(io)
+(fn main (printf "hello"))
+
+;@axiom:pure()
+(fn pureFn (x) (* x x))
+
+;@axiom:no_refactor
+(def legacyFn ...)
+
+;@axiom:owned(arena=frame)
+(defn ownedFn ...)
+```
+
+### Common AXTAG Keys
+
+| Key | Meaning |
+|---|---|
+| `effect(io)` | Declares that the function performs I/O |
+| `pure` | Declares that the function has no side effects |
+| `no_refactor` | Hints that the declaration should not be modified by automated refactoring |
+| `owned(arena=frame)` | Specifies ownership semantics for linear types |
+
+The compiler validates `effect(io)` claims against actual foreign calls in the body, and `pure` claims against the absence of foreign calls. Mismatches emit a warning (`AX3010`).
+
+---
+
+## Linear Types and Consume
+
+Axiom supports linear types — types where values have exactly one owner and cannot be duplicated or discarded.
+
+### Linear Type Marker
+
+```scheme
+(linear T)
+```
+
+A linear type `T` enforces that values of type `T` are used exactly once.
+
+### Consume
+
+```scheme
+(consume expr)
+```
+
+The `consume` expression takes ownership of a linear value, signaling that it will no longer be used after this point. This is the mechanism for deterministic destruction — when a linear value is consumed, its memory is reclaimed at that point rather than at process exit.
+
+---
+
+## Removed Features
+
+These features existed in earlier versions of Axiom but have been removed. The keywords remain reserved and will report a helpful error if used.
+
+### `union` — Removed
+
+C interoperability is no longer a goal, and an untagged union has no meaning under linear types. Use `data` for a tagged sum or `struct` for a product.
+
+### `region` — Removed
+
+Allocation lifetime is inferred from where a value is created and how far it escapes, not written by hand. Delete the `region` wrapper and keep its body.
+
+---
+
+## The REPL
+
+The REPL compiles expressions to native code — it doesn't interpret them. This means you get real performance even in interactive mode.
+
+```bash
+axiom repl
+```
+
+### REPL Commands
+
+| Command | Aliases | What it does |
+|---|---|---|
+| `:help` | `:h`, `?` | Show all commands |
+| `:quit` | `:q`, `:exit` | Exit the REPL |
+| `:type <expr>` | `:t <expr>` | Show the type of an expression |
+| `:load <file>` | `:l <file>` | Load a file into the REPL |
+| `:reset` | `:r` | Clear all definitions |
+| `:defs` | `:d` | Show all definitions in scope |
+| `:llvm <expr>` | — | Show the generated LLVM IR |
+| `:time <expr>` | — | Time how long an expression takes |
+
+### Example Session
+
+```
+axiom> 1 (:: add (-> Int Int Int))
+OK: add defined
+
+axiom> 2 (define (add x y) (+ x y))
+OK: add defined
+
+axiom> 3 (add 3 4)
+type : Int
+result 7
+```
+
+The REPL accumulates definitions — functions you define persist across inputs. History is saved between sessions.
+
+---
+
+## CLI Commands
+
+### Checking and Building
+
+```bash
+# Check syntax and types (no code generation)
+axiom check source.ax
+
+# Compile to a native executable
+axiom build --input source.ax --output program
+
+# Emit LLVM IR to stdout
+axiom emit-llvm source.ax
+
+# Emit LLVM IR to a file
+axiom emit-llvm source.ax -o output.ll
+
+# Compile and run immediately
+axiom run source.ax
+```
+
+### Using the AI-Optimized Format
+
+For machine-readable output, always use `--diagnostic-format=ai`:
+
+```bash
+axiom --diagnostic-format=ai check source.ax
+axiom --diagnostic-format=ai build --input source.ax --output program
+axiom --diagnostic-format=ai symbols source.ax
+```
+
+See [docs/diagnostics.md](diagnostics.md) for the full AXDL and AXSYM notation reference.
+
+### Symbol Listing
+
+```bash
+# List every top-level symbol and its type
+axiom symbols source.ax
+
+# Also include built-in operators
+axiom symbols source.ax --builtins
+```
+
+### Diagnostic Lookup
+
+```bash
+# Look up a diagnostic code
+axiom explain AX3001
+
+# List all known diagnostic codes
+axiom explain --list
+```
+
+---
+
+## Compiler Pipeline
+
+```
+Source (.ax) → Lexer → Parser → Type Checker → IR → LLVM IR → llc → cc → Executable
+```
+
+### Crate Structure
+
+| Crate | Purpose |
+|---|---|
+| `axiom-ast` | AST, token, and span definitions |
+| `axiom-lexer` | Tokenizer |
+| `axiom-parser` | S-expression parser |
+| `axiom-sema` | Name resolution, type checking, effects |
+| `axiom-ir` | IR definitions and lowering |
+| `axiom-codegen` | LLVM emission, target/syscall ABI |
+| `axiom-cli` | Driver, REPL, `fmt`, `symbols` |
+| `axiom-errors` | Diagnostics, AXDL/AXSYM rendering |
+
+---
+
+## Cross-Compilation
+
+Use `--target` to select the platform:
+
+```bash
+axiom --target=linux-x86_64 emit-llvm main.ax -o main.ll
+```
+
+Supported targets: `darwin-aarch64`, `darwin-x86_64`, `linux-aarch64`, `linux-x86_64`. Defaults to the host.
+
+---
+
+## Optimisation
+
+Axiom has no loop construct — iteration is written as recursion. At `--opt 0` (the default) each iteration costs a stack frame. `--opt 1` and above run LLVM's mid-level passes, which turn self-tail-recursion into a real loop:
+
+```bash
+axiom build --input main.ax --output main --opt 2
+```
+
+Use `--opt 2` for anything that iterates over a large input.
+
+---
+
+## Tips and Patterns
+
+### Writing a Function with I/O
+
+```scheme
+(import IO)
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  {
+    (printlnLit (__addr "Hello from Axiom!"))
+    0
+  })
+```
+
+### Using `let` for Intermediate Values
+
+```scheme
+(fn (compute n)
+  (let ((x (+ n 1))
+        (y (* x 2)))
+    (+ x y)))
+```
+
+### Pattern Matching on ADTs
+
+```scheme
+(data Maybe (a)
+  (Nothing)
+  (Just a))
+
+(:: safeDiv (-> Int Int Int))
+(fn (safeDiv a b)
+  (match b
+    ((0) (None))
+    (_ (Some (/ a b)))))
+```
+
+### Building a List
+
+```scheme
+(data List (a)
+  (Nil)
+  (Cons a (List a)))
+
+(:: sum (-> (List Int) Int))
+(fn (sum lst)
+  (match lst
+    ((Nil) 0)
+    ((Cons h t) (+ h (sum t)))))
+
+(:: main Int)
+(fn main
+  (sum (Cons 1 (Cons 2 (Cons 3 (Nil))))))   ; => 6
+```
+
+### Using the Standard Library
+
+```scheme
+(import IO)
+(import Str)
+(import Fmt)
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  {
+    (printlnInt 42)
+    (println (strConcat (strFromLit (__addr "sum=")) (fmtInt (+ 1 2))))
+    0
+  })
+```
+
+---
+
+## Further Reading
+
+- [Diagnostics & Agent Notations](diagnostics.md) — AXDL, AXSYM, NID, AXTAG reference
+- [Self-Hosting](self-hosting.md) — plan to replace the Rust compiler with Axiom
+- [v1 Roadmap](v1-roadmap.md) — what is done, what is left, and what blocks what
+- [README](../README.md) — project overview and installation guide
