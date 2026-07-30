@@ -3,7 +3,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use axiom_codegen::LlvmCodeGen;
+use axiom_codegen::{LlvmCodeGen, Target};
 use axiom_errors::{Diagnostic, DiagnosticFormat, SymbolFact, SymbolKind};
 use axiom_ir::generator::IrGen;
 use axiom_lexer::Lexer;
@@ -28,8 +28,33 @@ struct Cli {
     #[arg(long, global = true, default_value = "human")]
     diagnostic_format: String,
 
+    /// Which platform to generate code for: `darwin-aarch64`,
+    /// `darwin-x86_64`, `linux-aarch64`, or `linux-x86_64`.
+    /// Defaults to the host. Also selects platform-specific
+    /// standard-library modules (`Foo.<os>.ax` in preference to
+    /// `Foo.ax`), so cross-compiling picks up the right syscall
+    /// numbers without any conditional compilation in the language.
+    #[arg(long, global = true)]
+    target: Option<String>,
+
     #[command(subcommand)]
     command: Commands,
+}
+
+/// The target for this compiler run.
+///
+/// Set exactly once, from `--target` (or the host default) before any
+/// compilation starts, and read from the several places that build a
+/// code generator or resolve a module path. A process-wide value
+/// rather than a parameter threaded through every function because
+/// `axiom` is a single-shot process: one invocation compiles for one
+/// target, and the REPL's several independent codegen sites would
+/// otherwise each need the same value plumbed through unrelated
+/// signatures.
+static TARGET: std::sync::OnceLock<Target> = std::sync::OnceLock::new();
+
+fn target() -> Target {
+    *TARGET.get_or_init(Target::host)
 }
 
 #[derive(Subcommand)]
@@ -105,6 +130,30 @@ fn main() {
         );
         DiagnosticFormat::Human
     });
+
+    // An unknown `--target` is a hard error, not a warning that falls
+    // back to the host: silently generating host code for a
+    // cross-compile request would produce a binary that looks correct
+    // and cannot run.
+    if let Some(name) = &cli.target {
+        match Target::parse(name) {
+            Some(t) => {
+                let _ = TARGET.set(t);
+            }
+            None => {
+                eprintln!(
+                    "error: unknown --target '{}' (valid: {})",
+                    name,
+                    Target::all()
+                        .iter()
+                        .map(|t| t.name())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                );
+                std::process::exit(2);
+            }
+        }
+    }
 
     match cli.command {
         Commands::Build {
@@ -324,6 +373,95 @@ fn module_rel_path(module: &[axiom_ast::span::Ident]) -> PathBuf {
     path
 }
 
+/// The relative file names `Mod.Sub` may live in, most specific first.
+///
+/// Beyond the plain `Mod/Sub.ax`, a module may be provided in a
+/// *platform-specific* file - `Mod/Sub.linux-x86_64.ax`, or
+/// `Mod/Sub.linux.ax` for a whole OS - and the most specific one that
+/// exists wins. This is how the standard library supplies syscall
+/// numbers (which differ per OS, and are BSD-class-encoded on Darwin)
+/// without conditional compilation in the language and without a
+/// syscall table baked into the compiler: `stdlib/Sys/Platform.linux.ax`
+/// and `stdlib/Sys/Platform.darwin.ax` are two ordinary Axiom files,
+/// and `(import Sys.Platform)` picks the right one for `--target`.
+fn module_rel_path_candidates(module: &[axiom_ast::span::Ident], target: Target) -> Vec<PathBuf> {
+    let base = module_rel_path(module);
+    let stem = base.with_extension("");
+    let (os, arch) = match target {
+        Target::DarwinAarch64 => ("darwin", "aarch64"),
+        Target::DarwinX86_64 => ("darwin", "x86_64"),
+        Target::LinuxAarch64 => ("linux", "aarch64"),
+        Target::LinuxX86_64 => ("linux", "x86_64"),
+    };
+    vec![
+        stem.with_extension(format!("{}-{}.ax", os, arch)),
+        stem.with_extension(format!("{}.ax", os)),
+        base,
+    ]
+}
+
+/// Every directory a module path is looked up in, in order.
+///
+/// The entry file's own directory always comes first, so a project can
+/// shadow a standard-library module with its own file of the same name.
+/// After that come `AXIOM_PATH` entries (colon-separated, for vendored
+/// or generated code), then the standard library itself.
+///
+/// The standard library is located by `AXIOM_STDLIB` if set, and
+/// otherwise relative to the compiler binary: `<exe>/../stdlib` for an
+/// installed layout (`bin/axiom` next to `stdlib/`) and
+/// `<exe>/../../stdlib` for a Cargo build tree (`target/release/axiom`
+/// with `stdlib/` at the repository root). Both are probed because a
+/// developer running `cargo run` and a user running an installed
+/// compiler must both find the same standard library without extra
+/// configuration.
+fn module_search_dirs(entry_dir: &Path) -> Vec<PathBuf> {
+    let mut dirs = vec![entry_dir.to_path_buf()];
+
+    if let Ok(extra) = std::env::var("AXIOM_PATH") {
+        for part in extra.split(':').filter(|p| !p.is_empty()) {
+            dirs.push(PathBuf::from(part));
+        }
+    }
+
+    if let Ok(stdlib) = std::env::var("AXIOM_STDLIB") {
+        if !stdlib.is_empty() {
+            dirs.push(PathBuf::from(stdlib));
+        }
+    } else if let Ok(exe) = std::env::current_exe() {
+        if let Some(bin_dir) = exe.parent() {
+            dirs.push(bin_dir.join("../stdlib"));
+            dirs.push(bin_dir.join("../../stdlib"));
+        }
+    }
+
+    dirs
+}
+
+/// Resolve a dotted module path to a file, or `None` if no candidate
+/// exists in any search directory.
+///
+/// Returns the matching path together with the *relative* candidate
+/// names that were tried, so an unresolved import can report what it
+/// looked for rather than just that it failed.
+fn resolve_module_path(
+    module: &[axiom_ast::span::Ident],
+    entry_dir: &Path,
+    target: Target,
+) -> Result<PathBuf, (Vec<PathBuf>, Vec<PathBuf>)> {
+    let candidates = module_rel_path_candidates(module, target);
+    let dirs = module_search_dirs(entry_dir);
+    for dir in &dirs {
+        for rel in &candidates {
+            let path = dir.join(rel);
+            if path.is_file() {
+                return Ok(path);
+            }
+        }
+    }
+    Err((candidates, dirs))
+}
+
 /// Lex and parse one module file in isolation (no import resolution of
 /// its own imports - that's `resolve_imports_into`'s job, so a file's
 /// *own* diagnostics are always printed before its imports are even
@@ -401,31 +539,35 @@ fn resolve_imports_into(
             .map(|i| i.name.clone())
             .collect::<Vec<_>>()
             .join(".");
-        let rel_path = module_rel_path(module);
-        let path = root_dir.join(&rel_path);
-
-        if !path.is_file() {
-            let diag = Diagnostic::error(
-                &axiom_errors::code::MODULE_NOT_FOUND,
-                format!("cannot resolve import `{}`", dotted),
-            )
-            .with_help(format!(
-                "expected to find '{}' relative to '{}'",
-                rel_path.display(),
-                root_dir.display()
-            ));
-            // No source span exists for an unresolvable import (the
-            // problem is that we can't even find the *other* file, not
-            // anything about text already in hand) - `check`/`ai`/`json`
-            // all still render a codeless-span diagnostic fine (AXDL
-            // prints `-` in place of a location, see `docs/diagnostics.md`).
-            print_diagnostics(vec![diag], "<import>", "", format);
-            return Err(format!(
-                "cannot resolve import `{}`: no such file '{}'",
-                dotted,
-                path.display()
-            ));
-        }
+        let path = match resolve_module_path(module, root_dir, target()) {
+            Ok(path) => path,
+            Err((candidates, dirs)) => {
+                let diag = Diagnostic::error(
+                    &axiom_errors::code::MODULE_NOT_FOUND,
+                    format!("cannot resolve import `{}`", dotted),
+                )
+                .with_help(format!(
+                    "looked for {} in {}",
+                    candidates
+                        .iter()
+                        .map(|c| format!("'{}'", c.display()))
+                        .collect::<Vec<_>>()
+                        .join(" or "),
+                    dirs.iter()
+                        .map(|d| format!("'{}'", d.display()))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ));
+                // No source span exists for an unresolvable import (the
+                // problem is that we can't even find the *other* file,
+                // not anything about text already in hand) -
+                // `check`/`ai`/`json` all still render a codeless-span
+                // diagnostic fine (AXDL prints `-` in place of a
+                // location, see `docs/diagnostics.md`).
+                print_diagnostics(vec![diag], "<import>", "", format);
+                return Err(format!("cannot resolve import `{}`", dotted));
+            }
+        };
 
         let canonical = path.canonicalize().unwrap_or_else(|_| path.clone());
         if !visited.insert(canonical) {
@@ -631,7 +773,7 @@ fn build(
     }
 
     println!("[5/5] Generating LLVM IR...");
-    let mut codegen = LlvmCodeGen::new();
+    let mut codegen = LlvmCodeGen::for_target(target());
     let llvm_ir = codegen.compile(&ir_module)?;
 
     let ll_path = format!("{}.ll", output);
@@ -642,6 +784,7 @@ fn build(
     }
 
     let obj_path = format!("{}.o", output);
+    let ll_path = run_llvm_opt(&ll_path, opt)?;
 
     let llc_status = Command::new("llc")
         .arg(&ll_path)
@@ -671,6 +814,50 @@ fn build(
 
     println!("Build successful: {}", output);
     Ok(())
+}
+
+/// Run LLVM's optimiser over the emitted IR, returning the path to
+/// optimise (unchanged at `-O0`, or a new `.opt.ll` otherwise).
+///
+/// `llc`'s own `-O` flag only tunes instruction selection; it does not
+/// run the mid-level passes. That distinction is not cosmetic for
+/// Axiom, because Axiom has no loop construct: iteration is written as
+/// recursion, and it is `opt`'s scalar-promotion-plus-tail-call passes
+/// that turn a self-tail-recursive function into a loop. Without them,
+/// a recursive loop consumes one stack frame per iteration and dies at
+/// a few hundred thousand iterations - which a compiler scanning a
+/// large source file reaches easily.
+///
+/// A missing `opt` is a warning, not an error: the compiler still
+/// produces a working binary through `llc` alone, just one that cannot
+/// iterate deeply. Failing the build would make `opt` a hard
+/// dependency of every Axiom installation for a benefit that only some
+/// programs need.
+fn run_llvm_opt(ll_path: &str, opt: u8) -> Result<String, String> {
+    if opt == 0 {
+        return Ok(ll_path.to_string());
+    }
+
+    let opt_path = format!("{}.opt.ll", ll_path.trim_end_matches(".ll"));
+    let status = Command::new("opt")
+        .arg(format!("-O{}", opt.clamp(1, 3)))
+        .arg(ll_path)
+        .arg("-S")
+        .arg("-o")
+        .arg(&opt_path)
+        .status();
+
+    match status {
+        Ok(s) if s.success() => Ok(opt_path),
+        Ok(_) => Err("opt failed".to_string()),
+        Err(_) => {
+            eprintln!(
+                "warning: `opt` not found on PATH; building without mid-level optimisation \
+                 (deeply recursive code may exhaust the stack)"
+            );
+            Ok(ll_path.to_string())
+        }
+    }
 }
 
 /// Build and run `input`, returning the *program's own* exit code - not
@@ -800,9 +987,9 @@ fn collect_symbol_facts(
         };
         let axtag_meta: Vec<String> = axtags
             .iter()
-            .filter_map(|a| match &a.value {
-                Some(v) if !v.is_empty() => Some(format!("{}={}", a.key, v)),
-                _ => Some(a.key.clone()),
+            .map(|a| match &a.value {
+                Some(v) if !v.is_empty() => format!("{}={}", a.key, v),
+                _ => a.key.clone(),
             })
             .collect();
         match decl_meta.entry(name.name.clone()) {
@@ -1119,7 +1306,7 @@ fn emit_llvm(input: &str, output: Option<&str>, format: DiagnosticFormat) -> Res
     let mut ir_gen = IrGen::new();
     let ir_module = ir_gen.generate(&ast, &mut type_checker);
 
-    let mut codegen = LlvmCodeGen::new();
+    let mut codegen = LlvmCodeGen::for_target(target());
     let llvm_ir = codegen.compile(&ir_module)?;
 
     match output {
@@ -1540,7 +1727,7 @@ fn cmd_llvm(expr_str: &str, state: &mut ReplState) {
                         let mut ir_gen = IrGen::new();
                         let ir_module = ir_gen.generate(&ast, &mut tc2);
 
-                        let mut codegen = LlvmCodeGen::new();
+                        let mut codegen = LlvmCodeGen::for_target(target());
                         if let Ok(llvm_ir) = codegen.compile(&ir_module) {
                             println!("{}", "Generated LLVM IR:".bold().bright_cyan());
                             println!("{}", llvm_ir);
@@ -1570,7 +1757,7 @@ fn cmd_llvm(expr_str: &str, state: &mut ReplState) {
                             let mut ir_gen = IrGen::new();
                             let ir_module = ir_gen.generate(&ast, &mut tc2);
 
-                            let mut codegen = LlvmCodeGen::new();
+                            let mut codegen = LlvmCodeGen::for_target(target());
                             if let Ok(llvm_ir) = codegen.compile(&ir_module) {
                                 println!("{}", "Generated LLVM IR:".bold().bright_cyan());
                                 println!("{}", llvm_ir);
@@ -1649,7 +1836,7 @@ fn cmd_time(expr_str: &str, state: &mut ReplState) {
                                 let mut ir_gen = IrGen::new();
                                 let ir_module = ir_gen.generate(&ast, &mut tc2);
 
-                                let mut codegen = LlvmCodeGen::new();
+                                let mut codegen = LlvmCodeGen::for_target(target());
                                 if let Ok(llvm_ir) = codegen.compile(&ir_module) {
                                     let start = std::time::Instant::now();
                                     let result = compile_and_run_repl(&llvm_ir);
@@ -1752,7 +1939,7 @@ fn process_input(input: &str, state: &mut ReplState) {
                                 let mut ir_gen = IrGen::new();
                                 let ir_module = ir_gen.generate(&ast, &mut tc2);
 
-                                let mut codegen = LlvmCodeGen::new();
+                                let mut codegen = LlvmCodeGen::for_target(target());
                                 if let Ok(llvm_ir) = codegen.compile(&ir_module) {
                                     let result = compile_and_run_repl(&llvm_ir);
                                     if let Some(value) = result {

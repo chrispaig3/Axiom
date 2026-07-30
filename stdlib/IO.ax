@@ -1,0 +1,180 @@
+; IO - console and file I/O, in Axiom.
+;
+; The whole module is Axiom code over `Sys`, which is Axiom code over the
+; `__syscallN` primitive. Nothing here binds to C, which is what makes
+; `println` a standard-library function rather than a `printf` wrapper.
+;
+; Functions that touch the outside world carry `;@axiom:effect(io)`, and
+; the compiler validates those claims against the syscalls actually
+; reachable from each body - so an `io`-tagged function that stopped
+; doing I/O, or an untagged one that started, is a compile error rather
+; than a stale comment.
+
+(import Sys)
+(import Str)
+(import Fmt)
+
+; ------------------------------------------------------------------
+; Writing
+; ------------------------------------------------------------------
+
+; Write all of `s` to `fd`, returning the number of bytes written or a
+; negative errno.
+;
+; Loops until the whole string is out: a single `write` is permitted to
+; transfer fewer bytes than asked (a pipe with a full buffer, a signal),
+; and treating a short write as success is the classic way to silently
+; truncate output.
+(:: writeStr (-> Int Int Int))
+;@axiom:effect(io)
+(fn (writeStr fd s)
+  (writeAll fd (strData s) (strLen s) 0))
+
+(:: writeAll (-> Int Int Int Int Int))
+;@axiom:effect(io)
+(fn (writeAll fd buf count done)
+  (if (>= done count)
+      done
+      (let ((n (sysWriteFd fd (+ buf done) (- count done))))
+        (if (< n 1)
+            (if (< n 0) n done)
+            (writeAll fd buf count (+ done n))))))
+
+(:: print (-> Int Int))
+;@axiom:effect(io)
+(fn (print s)
+  (writeStr stdout s))
+
+(:: println (-> Int Int))
+;@axiom:effect(io)
+(fn (println s)
+  {
+    (writeStr stdout s)
+    (writeStr stdout (strFromLit (__addr "\n")))
+  })
+
+; Print a NUL-terminated literal directly: `(printLit (__addr "hi"))`.
+;
+; Saves building a `Str` header for the extremely common case of
+; printing a constant.
+(:: printLit (-> Int Int))
+;@axiom:effect(io)
+(fn (printLit cstr)
+  (writeAll stdout cstr (cstrLen cstr 0) 0))
+
+(:: printlnLit (-> Int Int))
+;@axiom:effect(io)
+(fn (printlnLit cstr)
+  {
+    (printLit cstr)
+    (printLit (__addr "\n"))
+  })
+
+(:: printInt (-> Int Int))
+;@axiom:effect(io)
+(fn (printInt n)
+  (print (fmtInt n)))
+
+(:: printlnInt (-> Int Int))
+;@axiom:effect(io)
+(fn (printlnInt n)
+  (println (fmtInt n)))
+
+; Write to standard error - for diagnostics, which must not be captured
+; by a caller redirecting stdout.
+(:: eprint (-> Int Int))
+;@axiom:effect(io)
+(fn (eprint s)
+  (writeStr stderr s))
+
+(:: eprintln (-> Int Int))
+;@axiom:effect(io)
+(fn (eprintln s)
+  {
+    (writeStr stderr s)
+    (writeStr stderr (strFromLit (__addr "\n")))
+  })
+
+; ------------------------------------------------------------------
+; Reading
+; ------------------------------------------------------------------
+
+; Read up to `count` bytes from `fd` into a fresh `Str`.
+;
+; The result's length is what was actually read, so end-of-file is an
+; empty `Str` rather than a sentinel the caller has to remember to check.
+; A read error returns an empty `Str` too; `readFile` distinguishes the
+; cases where it matters.
+(:: readUpTo (-> Int Int Int))
+;@axiom:effect(io)
+(fn (readUpTo fd count)
+  (let ((s (strAlloc count)))
+    (let ((n (sysReadFd fd (strData s) count)))
+      (if (< n 0)
+          (strAlloc 0)
+          (strSlice s 0 n)))))
+
+; Read `fd` to end of file, growing a buffer as needed.
+;
+; Doubling on each refill keeps the total copying linear in the file
+; size. `chunk` is the initial capacity; files smaller than it cost
+; exactly one allocation and one `read`.
+(:: readAll (-> Int Int Int))
+;@axiom:effect(io)
+(fn (readAll fd chunk)
+  (readAllInto fd (strAlloc chunk) 0 chunk))
+
+(:: readAllInto (-> Int Int Int Int Int))
+;@axiom:effect(io)
+(fn (readAllInto fd buf len cap)
+  (if (>= len cap)
+      (let ((bigger (strAlloc (* cap 2))))
+        {
+          (memCopy (strData bigger) (strData buf) len)
+          (readAllInto fd bigger len (* cap 2))
+        })
+      (let ((n (sysReadFd fd (+ (strData buf) len) (- cap len))))
+        (if (< n 1)
+            (strSlice buf 0 len)
+            (readAllInto fd buf (+ len n) cap)))))
+
+; The whole contents of the file at NUL-terminated path `cstr`, or an
+; empty `Str` if it cannot be opened.
+;
+; Callers that must distinguish "empty file" from "no such file" should
+; use `sysOpenPath` directly; this is the convenience form, and it is
+; the one a compiler driver wants for reading a source file.
+(:: readFileLit (-> Int Int))
+;@axiom:effect(io)
+(fn (readFileLit cstr)
+  (let ((fd (sysOpenPath cstr oRdonly)))
+    (if (sysFailed fd)
+        (strAlloc 0)
+        (let ((contents (readAll fd 65536)))
+          {
+            (sysCloseFd fd)
+            contents
+          }))))
+
+(:: readFile (-> Int Int))
+;@axiom:effect(io)
+(fn (readFile path)
+  (readFileLit (strCStr path)))
+
+; ------------------------------------------------------------------
+; Process exit
+; ------------------------------------------------------------------
+
+(:: exit (-> Int Int))
+;@axiom:effect(io)
+(fn (exit code)
+  (sysExitWith code))
+
+; Print `s` to standard error and exit with `code`. Never returns.
+(:: die (-> Int Int Int))
+;@axiom:effect(io)
+(fn (die s code)
+  {
+    (eprintln s)
+    (exit code)
+  })

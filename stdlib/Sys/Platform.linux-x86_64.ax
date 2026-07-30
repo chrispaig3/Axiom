@@ -1,0 +1,50 @@
+; Sys.Platform - Linux/x86-64 syscall numbers and flags.
+;
+; Selected by the `.linux-x86_64.ax` filename suffix when compiling for
+; `--target=linux-x86_64`. Linux numbers the syscall table per
+; architecture, so this file and `Platform.linux-aarch64.ax` share an OS
+; but not a single number - which is exactly why module selection is
+; `os-arch` before `os` (see the compiler's module resolution).
+;
+; Numbers from the kernel's `arch/x86/entry/syscalls/syscall_64.tbl`.
+
+(:: sysRead Int)
+(fn (sysRead) 0)
+
+(:: sysWrite Int)
+(fn (sysWrite) 1)
+
+(:: sysOpen Int)
+(fn (sysOpen) 2)
+
+(:: sysClose Int)
+(fn (sysClose) 3)
+
+; exit_group, not exit: `exit` terminates the calling thread only, which
+; leaves a multi-threaded process alive with no way to notice. 231 is
+; correct for a single-threaded program too.
+(:: sysExit Int)
+(fn (sysExit) 231)
+
+(:: sysLseek Int)
+(fn (sysLseek) 8)
+
+; x86-64 still has plain `open`.
+(:: openNeedsDirFd Int)
+(fn (openNeedsDirFd) 0)
+
+(:: atFdCwd Int)
+(fn (atFdCwd) 0)
+
+(:: oRdonly Int)
+(fn (oRdonly) 0)
+
+; O_WRONLY | O_CREAT | O_TRUNC = 0x1 | 0x40 | 0x200
+(:: oWronlyCreateTrunc Int)
+(fn (oWronlyCreateTrunc) 577)
+
+(:: seekEnd Int)
+(fn (seekEnd) 2)
+
+(:: seekSet Int)
+(fn (seekSet) 0)

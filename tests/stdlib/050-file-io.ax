@@ -1,0 +1,24 @@
+; Round-trip a file through the syscall layer: open, write, close,
+; reopen, read to EOF, close.
+(import IO)
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let ((path (__addr "axiom-stdlib-test.tmp")))
+    (let ((fd (sysOpenPath path oWronlyCreateTrunc)))
+      (if (sysFailed fd)
+          (die (strFromLit (__addr "open for write failed")) 1)
+          {
+            (writeStr fd (strFromLit (__addr "line one\nline two\n")))
+            (sysCloseFd fd)
+            (let ((contents (readFileLit path)))
+              {
+                (printlnInt (strLen contents))
+                (print contents)
+                (printlnInt (strFindByte contents 10 0))
+                (println (strSlice contents 0 8))
+                (printlnInt (strLen (readFileLit (__addr "no-such-file-here"))))
+                0
+              })
+          }))))

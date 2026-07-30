@@ -1,0 +1,26 @@
+; Raw memory: allocation, copying, filling, comparison.
+(import IO)
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let ((a (memAlloc 8))
+        (b (memAlloc 8)))
+    {
+      (printlnInt (memGetByte a 0))
+      (memPutByte a 0 65)
+      (memPutByte a 1 66)
+      (memPutByte a 2 67)
+      (printlnInt (memGetByte a 2))
+      (memCopy b a 3)
+      (printlnInt (memCmp a b 3))
+      (memPutByte b 2 68)
+      (printlnInt (memCmp a b 3))
+      (printlnInt (memCmp b a 3))
+      (memSet a 0 8)
+      (printlnInt (memGetByte a 1))
+      (memSetWord a 0 123456789)
+      (printlnInt (memGetWord a 0))
+      (printlnInt (memGetWord a 1))
+      0
+    }))

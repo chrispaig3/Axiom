@@ -75,13 +75,21 @@ The binary is at `./target/release/axiom`.
 Create a file called `hello.ax`:
 
 ```scheme
-(foreign printf :: (-> String Int) = "printf")
+(import IO)
 
 (:: main Int)
-(fn main
-  (printf "Hello, Axiom!\n")
-  0)
+;@axiom:effect(io)
+(fn (main)
+  {
+    (printlnLit (__addr "Hello, Axiom!"))
+    0
+  })
 ```
+
+`IO` is part of Axiom's own standard library - the compiled binary calls
+no C function at all. The `;@axiom:effect(io)` tag is checked: the
+compiler verifies that `main` really does perform I/O, and would reject
+the claim if it did not.
 
 Run it:
 ```bash
@@ -538,22 +546,96 @@ Effect annotations are also supported on traits and implementations:
 
 ---
 
-## Built-ins and FFI
+## Standard library
 
-Axiom has no standard library. System operations are done through FFI bindings to C, which you declare in your code.
-
-### FFI bindings
+Axiom ships a standard library written **in Axiom**. It reaches the
+operating system through raw syscalls, not through C, so a compiled
+Axiom program contains no call to libc - not for printing, not for
+allocation, not for file I/O. `foreign` bindings still work and are
+still supported (see
+[Foreign Function Interface](#foreign-function-interface)), but nothing
+in the standard library needs them.
 
 ```scheme
-(foreign printf :: (-> String Int) = "printf")
-(foreign malloc :: (-> Int (* Any)) = "malloc")
-(foreign free :: (-> (* Any) ()) = "free")
-(foreign memset :: (-> (* Any) Int Int (* Any)) = "memset")
-(foreign memcpy :: (-> (* Any) (* Any) Int (* Any) (* Any)) = "memcpy")
-(foreign exit :: (-> Int ()) = "exit")
+(import IO)
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  {
+    (printlnLit (__addr "hello, world"))
+    (printlnInt 42)
+    (println (strConcat (strFromLit (__addr "sum=")) (fmtInt (+ 1 2))))
+    0
+  })
 ```
 
-See the [Foreign Function Interface](#foreign-function-interface) section for details.
+### Modules
+
+| Module | Provides |
+|---|---|
+| `Sys` | `sysWriteFd`, `sysReadFd`, `sysOpenPath`, `sysCloseFd`, `sysSeek`, `sysExitWith`, `sysFailed`, `sysErrno`, `stdin`/`stdout`/`stderr` |
+| `Mem` | `memAlloc`, `memCopy`, `memSet`, `memCmp`, `memGetByte`/`memPutByte`, `memGetWord`/`memSetWord` |
+| `Str` | `strFromLit`, `strAlloc`, `strLen`, `strByte`, `strCmp`, `strEq`, `strSlice`, `strDup`, `strConcat`, `strFindByte`, `strStartsWith`, `strCStr` |
+| `Fmt` | `fmtInt`, `fmtHex`, `fmtPadLeft`, `fmtIntWidth` |
+| `IO` | `print`, `println`, `printLit`, `printlnLit`, `printInt`, `printlnInt`, `eprint`, `eprintln`, `writeStr`, `readUpTo`, `readAll`, `readFile`, `readFileLit`, `exit`, `die` |
+
+A `Str` is a length-prefixed, NUL-terminated string: slicing shares
+storage, and `strCStr` hands the bytes to a syscall without copying.
+
+The library is found automatically - `AXIOM_STDLIB` overrides its
+location, and `AXIOM_PATH` (colon-separated) adds further module search
+directories. A module in the entry file's own directory always wins, so
+a project can shadow a standard-library module with its own.
+
+### Freestanding primitives
+
+The standard library is built on these, and so is any code that needs to
+talk to the machine directly. They are the layer where the type system
+stops: every argument and result is an `Int`, and a safe, typed wrapper
+around them is the standard library's job.
+
+| Primitive | Meaning |
+|---|---|
+| `(__syscall0 n)` ... `(__syscall6 n a1 ... a6)` | Raw syscall. Returns the result, or `-errno` on failure, on every platform |
+| `(__load8 base i)` / `(__store8 base i v)` | Byte at `base + i` |
+| `(__load64 base i)` / `(__store64 base i v)` | Machine word at `base + i * 8` |
+| `(__alloc bytes)` | Address of `bytes` fresh zeroed bytes |
+| `(__addr "literal")` | Address of a string literal's bytes |
+
+Syscall numbers are *not* built into the compiler: they live in
+`stdlib/Sys/Platform.<os>[-<arch>].ax`, and the module resolver picks the
+file matching `--target`. Adding a syscall is a standard-library change.
+
+### Targets
+
+`--target` selects the platform to generate code for, and with it both
+the syscall ABI and which platform modules the standard library
+resolves to:
+
+```bash
+axiom --target=linux-x86_64 emit-llvm main.ax -o main.ll
+```
+
+Supported: `darwin-aarch64`, `darwin-x86_64`, `linux-aarch64`,
+`linux-x86_64`. Defaults to the host.
+
+### Optimisation and recursion depth
+
+Axiom has no loop construct: iteration is written as recursion. At
+`--opt 0` (the default) each iteration costs a stack frame, which caps
+loops at a few hundred thousand iterations. `--opt 1` and above run
+LLVM's mid-level passes, which turn self-tail-recursion into a real
+loop:
+
+```bash
+axiom build --input main.ax --output main --opt 2
+```
+
+Use `--opt 2` for anything that iterates over a large input. Non-tail
+recursion remains bounded by the stack either way.
+
+## Built-ins
 
 ### Common data types (define as needed)
 
@@ -598,12 +680,36 @@ for safe null handling:
 ### Print to stdout
 
 ```scheme
-(foreign printf :: (-> String Int) = "printf")
+(import IO)
 
 (:: main Int)
-(fn main
-  (printf "Formatted: %d\n" 42)
-  0)
+;@axiom:effect(io)
+(fn (main)
+  {
+    (printlnLit (__addr "a literal"))
+    (printlnInt 42)
+    (println (strConcat (strFromLit (__addr "formatted: ")) (fmtInt 42)))
+    0
+  })
+```
+
+No `foreign` binding and no `printf`: `IO` is Axiom code over the
+syscall primitives.
+
+### Read a file
+
+```scheme
+(import IO)
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let ((contents (readFileLit (__addr "input.txt"))))
+    {
+      (printlnInt (strLen contents))
+      (print contents)
+      0
+    }))
 ```
 
 ### Working with data types
@@ -796,7 +902,9 @@ The REPL accumulates definitions — functions you define persist across inputs.
 
 ## Foreign Function Interface
 
-Axiom can call any C function. Declare it with `foreign`:
+Axiom does not *need* C for standard-library work any more - see
+[Standard library](#standard-library) - but it can still call any C
+function. Declare it with `foreign`:
 
 ```scheme
 (foreign name :: (-> ReturnType Param1 Param2 ...) = "c_symbol_name")
@@ -872,7 +980,12 @@ Source (.ax)
 | begin blocks | **Removed** | Replaced by `{ }` brace blocks and implicit sequencing |
 | brace blocks | **Complete** | `{ expr1 expr2 ... }` — modern sequencing, returns last value |
 | fn keyword | **Complete** | Modern alias for `define` |
-| FFI | **Complete** | Call any C function with `foreign` declarations |
+| FFI | **Complete, no longer required** | Call any C function with `foreign` declarations. The standard library no longer uses it: see [Standard library](#standard-library) |
+| Standard library | **Functional** | `Sys`, `Mem`, `Str`, `Fmt`, `IO`, written in Axiom over syscall primitives. No `Vec`/`Map` yet |
+| Syscalls | **Complete** | `__syscall0`-`__syscall6` on Darwin and Linux, x86-64 and AArch64; errors normalised to `-errno` on every platform |
+| Allocation | **Complete** | `mmap`-backed bump allocator emitted by the backend, overridable by defining `axiom_alloc`. No `free` - memory is reclaimed at process exit |
+| Cross-compilation | **Functional** | `--target` selects ABI and platform stdlib modules; codegen verified for all four targets |
+| Self-hosting | **In progress** | Foundations landed; see [docs/self-hosting.md](docs/self-hosting.md) for the measured gap analysis and plan |
 | ADTs / data types | **Complete** | Constructors (nullary and with fields, including recursive types like `List`/`Tree`) compile to heap-boxed tagged values; see [Algebraic data types](#algebraic-data-types-how-they-actually-run) |
 | Structs / unions | **Complete** | Declarations, LLVM emission, field access (`.field`), struct construction (`(StructName expr1 expr2 ...)`), `mut` fields, and field mutation (`(set-field expr field value)`) all work |
 | Pattern matching (`match`) | **Complete** | Constructor patterns (nullary and with-field), variables, wildcards, literals, nested constructor patterns, and tuple/list patterns all compare and bind correctly, plus non-exhaustiveness/arity/undefined-constructor diagnostics. Built-in `Option` type with `Some`/`None` constructors. |
@@ -881,7 +994,8 @@ Source (.ax)
 | Tuples | **Partial** | Syntax and type checking; codegen pending |
 | Type classes | **Replaced** | Renamed to traits; see [Traits](#traits) |
 | Traits | **Complete** | Declarations, supertraits, effects, default methods, implementations (`impl`) |
-| Effects | **Complete** | Effect declarations, `handle` expressions, effect checking (`IO`, `Pure`, `Alloc`, `Mut`, `Div`), AXTAG validation |
+| Effects | **Complete** | Effect declarations, `handle` expressions, effect checking (`IO`, `Pure`, `Alloc`, `Mut`, `Div`), AXTAG validation. Effects propagate transitively through calls, so a claim on a caller is checked against what its callees do |
+| Loops | **Missing** | Iteration is recursion; `--opt 1`+ turns tail recursion into a loop, and without it deep loops exhaust the stack |
 | Region syntax | **Parsed only** | `region r body` |
 | Linear types | **Parsed only** | `linear T`, `consume` |
 | Imports | **Functional** | `(import Mod.Sub ...)` resolves and merges declarations from other files; see [Modules and imports](#modules-and-imports) |

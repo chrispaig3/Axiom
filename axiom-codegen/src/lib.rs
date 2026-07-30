@@ -1,7 +1,21 @@
+pub mod target;
+
+pub use target::Target;
+
 use axiom_ir::*;
 use axiom_sema::TypeId;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write;
+
+/// The name of the allocator every `HeapAlloc` lowers to.
+///
+/// Codegen emits a freestanding `mmap`-backed bump allocator under
+/// this name *unless* the program being compiled defines an Axiom
+/// function of the same name, in which case the Axiom definition
+/// wins. That is the seam that lets the allocator itself be
+/// reimplemented in Axiom (`stdlib/Mem.ax`) without the backend
+/// having to know whether it has been.
+pub const ALLOC_SYMBOL: &str = "axiom_alloc";
 
 pub struct LlvmCodeGen {
     output: String,
@@ -13,6 +27,14 @@ pub struct LlvmCodeGen {
     ssa_values: HashMap<String, (String, TypeId)>,
     string_ids: HashMap<String, usize>,
     extern_decls: HashSet<String>,
+    target: Target,
+    /// The LLVM return type of the function currently being emitted.
+    ///
+    /// Needed because IR values carry their own width (comparisons
+    /// produce `i1`) while every Axiom function returns a machine word,
+    /// so `ret` has to widen a boolean rather than emit `ret i1` from
+    /// an `i64` function - which LLVM rejects outright.
+    current_ret_ty: String,
 }
 
 impl Default for LlvmCodeGen {
@@ -23,6 +45,12 @@ impl Default for LlvmCodeGen {
 
 impl LlvmCodeGen {
     pub fn new() -> Self {
+        Self::for_target(Target::host())
+    }
+
+    /// A code generator that emits code for `target` rather than for
+    /// the host.
+    pub fn for_target(target: Target) -> Self {
         Self {
             output: String::new(),
             type_counter: 0,
@@ -33,15 +61,21 @@ impl LlvmCodeGen {
             ssa_values: HashMap::new(),
             string_ids: HashMap::new(),
             extern_decls: HashSet::new(),
+            target,
+            current_ret_ty: "i64".to_string(),
         }
+    }
+
+    pub fn target(&self) -> Target {
+        self.target
     }
 
     pub fn compile(&mut self, ir_module: &IrModule) -> Result<String, String> {
         writeln!(self.output, "; Axiom compiled LLVM IR").unwrap();
-        writeln!(self.output, "target triple = \"arm64-apple-macosx14.0.0\"").unwrap();
+        writeln!(self.output, "target triple = \"{}\"", self.target.triple()).unwrap();
         writeln!(self.output).unwrap();
 
-        self.declare_extern_funcs();
+        self.declare_extern_funcs(ir_module);
 
         for (name, params, ret) in &ir_module.extern_funcs {
             if self.extern_decls.insert(name.clone()) {
@@ -51,29 +85,31 @@ impl LlvmCodeGen {
                     .collect::<Vec<_>>()
                     .join(", ");
                 let ret_str = self.type_to_llvm(ret);
-                writeln!(self.output, "declare {} @{}({})", ret_str, name, params_str)
-                    .unwrap();
+                writeln!(self.output, "declare {} @{}({})", ret_str, name, params_str).unwrap();
             }
         }
 
         writeln!(self.output).unwrap();
 
-        // Collect and emit string constants first
+        // Collect and emit string constants first. Every
+        // instruction is asked what strings it mentions (see
+        // `IrInst::string_consts`) rather than only `Call`: a
+        // string reachable from any other instruction - e.g. the
+        // `(__addr "...")` that hands a literal's bytes to a
+        // syscall - still needs its `@str_N` global emitted here,
+        // and an uncollected one silently referenced a
+        // non-existent global.
         let mut str_id = 0;
         let mut strings: Vec<(usize, String)> = Vec::new();
 
         for func in &ir_module.functions {
             for block in &func.blocks {
                 for inst in &block.insts {
-                    if let IrInst::Call { args, .. } = inst {
-                        for arg in args {
-                            if let IrValue::Const(IrConst::Str(s)) = arg {
-                                if !self.string_ids.contains_key(s) {
-                                    self.string_ids.insert(s.clone(), str_id);
-                                    strings.push((str_id, s.clone()));
-                                    str_id += 1;
-                                }
-                            }
+                    for s in inst.string_consts() {
+                        if !self.string_ids.contains_key(s) {
+                            self.string_ids.insert(s.to_string(), str_id);
+                            strings.push((str_id, s.to_string()));
+                            str_id += 1;
                         }
                     }
                 }
@@ -104,6 +140,15 @@ impl LlvmCodeGen {
             writeln!(self.output).unwrap();
         }
 
+        // The compiler-emitted allocator is skipped when the program
+        // supplies its own `axiom_alloc` (an Axiom-native allocator
+        // in the standard library), which would otherwise be a
+        // duplicate symbol.
+        let alloc_defined_in_axiom = ir_module.functions.iter().any(|f| f.name == ALLOC_SYMBOL);
+        if !alloc_defined_in_axiom {
+            self.emit_bump_allocator();
+        }
+
         for ir_struct in &ir_module.structs {
             self.declare_struct(ir_struct);
         }
@@ -121,7 +166,21 @@ impl LlvmCodeGen {
         Ok(self.output.clone())
     }
 
-    fn declare_extern_funcs(&mut self) {
+    /// Declare the libc functions a `foreign` binding may refer to
+    /// without its own declaration.
+    ///
+    /// Nothing the compiler *generates* calls these any more - memory
+    /// comes from Axiom's own allocator and I/O from syscalls - so they
+    /// exist purely so that pre-existing `(foreign printf ...)`-style
+    /// code keeps linking during the migration away from C bindings.
+    /// An unused `declare` contributes no undefined symbol, so this
+    /// costs a freestanding program nothing.
+    ///
+    /// A name defined by the program being compiled wins: Axiom's own
+    /// standard library defines `exit`, and emitting a libc `declare`
+    /// for a name that also has a definition is an invalid-module error
+    /// from `llc` rather than a diagnostic.
+    fn declare_extern_funcs(&mut self, ir_module: &IrModule) {
         let hardcoded = [
             ("printf", "i32", "ptr, ..."),
             ("puts", "i32", "ptr"),
@@ -132,6 +191,9 @@ impl LlvmCodeGen {
             ("exit", "void", "i32"),
         ];
         for (name, ret, params) in &hardcoded {
+            if ir_module.functions.iter().any(|f| f.name == *name) {
+                continue;
+            }
             writeln!(self.output, "declare {} @{}({})", ret, name, params).unwrap();
             self.extern_decls.insert(name.to_string());
         }
@@ -193,6 +255,7 @@ impl LlvmCodeGen {
         } else {
             self.type_to_llvm(&ir_func.return_type)
         };
+        self.current_ret_ty = return_type.clone();
 
         writeln!(
             self.output,
@@ -708,7 +771,22 @@ impl LlvmCodeGen {
             IrInst::Ret { value } => {
                 if let Some(val) = value {
                     let (val_str, ty_str) = self.value_to_typed_string(val)?;
-                    writeln!(self.output, "  ret {} {}", ty_str, val_str).unwrap();
+                    let ret_ty = self.current_ret_ty.clone();
+                    // A function whose body ends in a comparison
+                    // produces an `i1`, but every Axiom function
+                    // returns a machine word. Widen rather than
+                    // emitting a `ret` whose type contradicts the
+                    // function signature: LLVM rejects the latter at
+                    // `llc` time, which surfaces as an opaque backend
+                    // error instead of working code.
+                    if ty_str != ret_ty && ty_str == "i1" && ret_ty == "i64" {
+                        let widened = self.new_local_reg();
+                        writeln!(self.output, "  {} = zext i1 {} to i64", widened, val_str)
+                            .unwrap();
+                        writeln!(self.output, "  ret i64 {}", widened).unwrap();
+                    } else {
+                        writeln!(self.output, "  ret {} {}", ty_str, val_str).unwrap();
+                    }
                 } else {
                     writeln!(self.output, "  ret void").unwrap();
                 }
@@ -721,11 +799,30 @@ impl LlvmCodeGen {
                 then_target,
                 else_target,
             } => {
-                let cond_val = self.value_to_llvm(cond)?;
+                let (cond_val, cond_ty) = self.value_to_typed_string(cond)?;
+                // A condition is an `i1` when it came from a
+                // comparison in the same function, but a machine word
+                // when it came from *calling* a `Bool`-returning
+                // function (every Axiom function returns a word). Test
+                // the word against zero rather than assuming `i1`:
+                // assuming it made every `(if (someBoolFn x) ...)`
+                // fail in the backend.
+                let cond_i1 = if cond_ty == "i1" {
+                    cond_val
+                } else {
+                    let reg = self.new_local_reg();
+                    writeln!(
+                        self.output,
+                        "  {} = icmp ne {} {}, 0",
+                        reg, cond_ty, cond_val
+                    )
+                    .unwrap();
+                    reg
+                };
                 writeln!(
                     self.output,
                     "  br i1 {}, label %{}, label %{}",
-                    cond_val, then_target, else_target
+                    cond_i1, then_target, else_target
                 )
                 .unwrap();
             }
@@ -772,25 +869,17 @@ impl LlvmCodeGen {
             }
             IrInst::HeapAlloc { dest, size } => {
                 let size_val = self.value_to_llvm(size)?;
-                // `malloc` is declared to return `ptr`, so the call itself
-                // must say `ptr` too (LLVM requires a call site's type to
-                // match the callee's declared signature) - then
-                // immediately convert to `i64` so every later
-                // Store/LoadOffset on this value can keep treating it as
-                // the same plain integer address every other IR value
-                // already is.
-                let ptr_reg = self.new_local_reg();
-                writeln!(
-                    self.output,
-                    "  {} = call ptr @malloc(i64 {})",
-                    ptr_reg, size_val
-                )
-                .unwrap();
+                // Allocation goes through Axiom's own allocator, not
+                // `malloc`: a compiled program must not need libc for
+                // its own data (see `emit_bump_allocator`). The
+                // allocator returns a plain `i64` address, matching
+                // this IR's "every value is an `i64`" model, so no
+                // `ptrtoint` is needed at the call site any more.
                 let addr_reg = self.new_local_reg();
                 writeln!(
                     self.output,
-                    "  {} = ptrtoint ptr {} to i64",
-                    addr_reg, ptr_reg
+                    "  {} = call i64 @{}(i64 {})",
+                    addr_reg, ALLOC_SYMBOL, size_val
                 )
                 .unwrap();
                 if let IrValue::Local(name) = dest {
@@ -854,9 +943,219 @@ impl LlvmCodeGen {
                     );
                 }
             }
+            IrInst::Syscall { dest, num, args } => {
+                let num_val = self.value_to_llvm(num)?;
+                // The asm template has a fixed arity of six
+                // arguments on every target (see
+                // `Target::syscall_asm`), so pad with zeros rather
+                // than emitting one template per argument count.
+                let mut arg_vals = Vec::with_capacity(6);
+                for a in args.iter().take(6) {
+                    arg_vals.push(self.value_to_llvm(a)?);
+                }
+                while arg_vals.len() < 6 {
+                    arg_vals.push("0".to_string());
+                }
+                let (body, constraints) = self.target.syscall_asm();
+                let result_reg = self.new_local_reg();
+                let operands = std::iter::once(num_val)
+                    .chain(arg_vals)
+                    .map(|v| format!("i64 {}", v))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                writeln!(
+                    self.output,
+                    "  {} = call i64 asm sideeffect \"{}\", \"{}\"({})",
+                    result_reg, body, constraints, operands
+                )
+                .unwrap();
+                if let IrValue::Local(name) = dest {
+                    self.ssa_values.insert(
+                        name.clone(),
+                        (result_reg, TypeId::TCon("I64".to_string(), vec![])),
+                    );
+                }
+            }
+            IrInst::LoadIdx { dest, ptr, index } => {
+                let byte_ptr = self.emit_byte_gep(ptr, index, 1)?;
+                let loaded = self.new_local_reg();
+                writeln!(self.output, "  {} = load i8, ptr {}", loaded, byte_ptr).unwrap();
+                let result_reg = self.new_local_reg();
+                writeln!(self.output, "  {} = zext i8 {} to i64", result_reg, loaded).unwrap();
+                if let IrValue::Local(name) = dest {
+                    self.ssa_values.insert(
+                        name.clone(),
+                        (result_reg, TypeId::TCon("I64".to_string(), vec![])),
+                    );
+                }
+            }
+            IrInst::StoreIdx { ptr, index, value } => {
+                let byte_ptr = self.emit_byte_gep(ptr, index, 1)?;
+                let val = self.value_to_llvm(value)?;
+                let truncated = self.new_local_reg();
+                writeln!(self.output, "  {} = trunc i64 {} to i8", truncated, val).unwrap();
+                writeln!(self.output, "  store i8 {}, ptr {}", truncated, byte_ptr).unwrap();
+            }
+            IrInst::LoadWordIdx { dest, ptr, index } => {
+                let word_ptr = self.emit_byte_gep(ptr, index, 8)?;
+                let result_reg = self.new_local_reg();
+                writeln!(self.output, "  {} = load i64, ptr {}", result_reg, word_ptr).unwrap();
+                if let IrValue::Local(name) = dest {
+                    self.ssa_values.insert(
+                        name.clone(),
+                        (result_reg, TypeId::TCon("I64".to_string(), vec![])),
+                    );
+                }
+            }
+            IrInst::StoreWordIdx { ptr, index, value } => {
+                let word_ptr = self.emit_byte_gep(ptr, index, 8)?;
+                let val = self.value_to_llvm(value)?;
+                writeln!(self.output, "  store i64 {}, ptr {}", val, word_ptr).unwrap();
+            }
+            IrInst::AddrOf { dest, value } => {
+                let (val, ty) = self.value_to_typed_string(value)?;
+                let result_reg = self.new_local_reg();
+                if ty == "ptr" {
+                    // String constants already render as
+                    // `ptr @str_N`, so the type prefix is part of
+                    // `val` and must not be repeated.
+                    let stripped = val.strip_prefix("ptr ").unwrap_or(&val).to_string();
+                    writeln!(
+                        self.output,
+                        "  {} = ptrtoint ptr {} to i64",
+                        result_reg, stripped
+                    )
+                    .unwrap();
+                } else {
+                    // Already an integer address (every heap value
+                    // in this IR is a plain `i64`): a no-op copy
+                    // keeps the instruction total and avoids
+                    // special cases at every use site.
+                    writeln!(self.output, "  {} = add i64 {}, 0", result_reg, val).unwrap();
+                }
+                if let IrValue::Local(name) = dest {
+                    self.ssa_values.insert(
+                        name.clone(),
+                        (result_reg, TypeId::TCon("I64".to_string(), vec![])),
+                    );
+                }
+            }
         }
 
         Ok(())
+    }
+
+    /// Emit the address computation shared by the four indexed
+    /// memory instructions: `ptr + index * scale`, as an LLVM `ptr`.
+    ///
+    /// `ptr` is a plain `i64` address (this IR has no pointer type),
+    /// so the arithmetic is done in integers and converted once at
+    /// the end rather than round-tripping through `getelementptr`.
+    fn emit_byte_gep(
+        &mut self,
+        ptr: &IrValue,
+        index: &IrValue,
+        scale: i64,
+    ) -> Result<String, String> {
+        let base = self.value_to_llvm(ptr)?;
+        let idx = self.value_to_llvm(index)?;
+        let scaled = if scale == 1 {
+            idx
+        } else {
+            let reg = self.new_local_reg();
+            writeln!(self.output, "  {} = mul i64 {}, {}", reg, idx, scale).unwrap();
+            reg
+        };
+        let addr = self.new_local_reg();
+        writeln!(self.output, "  {} = add i64 {}, {}", addr, base, scaled).unwrap();
+        let as_ptr = self.new_local_reg();
+        writeln!(self.output, "  {} = inttoptr i64 {} to ptr", as_ptr, addr).unwrap();
+        Ok(as_ptr)
+    }
+
+    /// Emit the freestanding bump allocator that `HeapAlloc` calls.
+    ///
+    /// Memory comes straight from `mmap`, never from `malloc`, so a
+    /// compiled Axiom program has no libc dependency for its own
+    /// data. Chunks are never returned to the OS: this is an arena,
+    /// which is the right trade for a compiler process that exits
+    /// after one run, and it is deliberately overridable - defining
+    /// `axiom_alloc` in Axiom replaces it wholesale (see
+    /// [`ALLOC_SYMBOL`]).
+    fn emit_bump_allocator(&mut self) {
+        let (body, constraints) = self.target.syscall_asm();
+        let mmap = self.target.sys_mmap();
+        let exit = self.target.sys_exit();
+        let flags = self.target.map_private_anon();
+        // 1 MiB chunks: large enough that the slow path is rare in
+        // compiler-shaped workloads, small enough not to commit
+        // pointless address space in a `hello world`.
+        const CHUNK: i64 = 1024 * 1024;
+
+        let out = &mut self.output;
+        writeln!(out, "@__axiom_bump = internal global i64 0").unwrap();
+        writeln!(out, "@__axiom_bump_end = internal global i64 0").unwrap();
+        writeln!(out).unwrap();
+        writeln!(out, "define i64 @{}(i64 %size) {{", ALLOC_SYMBOL).unwrap();
+        writeln!(out, "entry:").unwrap();
+        // Round the request up to 16 bytes so every returned
+        // address stays 16-byte aligned (the strictest alignment
+        // any Axiom value needs, and what both ABIs expect).
+        writeln!(out, "  %padded = add i64 %size, 15").unwrap();
+        writeln!(out, "  %sz = and i64 %padded, -16").unwrap();
+        writeln!(out, "  %cur = load i64, ptr @__axiom_bump").unwrap();
+        writeln!(out, "  %next = add i64 %cur, %sz").unwrap();
+        writeln!(out, "  %end = load i64, ptr @__axiom_bump_end").unwrap();
+        writeln!(out, "  %fits = icmp ule i64 %next, %end").unwrap();
+        writeln!(out, "  br i1 %fits, label %fast, label %refill").unwrap();
+        writeln!(out, "fast:").unwrap();
+        writeln!(out, "  store i64 %next, ptr @__axiom_bump").unwrap();
+        writeln!(out, "  ret i64 %cur").unwrap();
+        writeln!(out, "refill:").unwrap();
+        // A request bigger than a chunk gets its own mapping,
+        // rounded up to a 64 KiB boundary (a page on every
+        // supported target, and the largest of them).
+        writeln!(out, "  %big = icmp ugt i64 %sz, {}", CHUNK).unwrap();
+        writeln!(out, "  %rounded0 = add i64 %sz, 65535").unwrap();
+        writeln!(out, "  %rounded = and i64 %rounded0, -65536").unwrap();
+        writeln!(
+            out,
+            "  %chunk = select i1 %big, i64 %rounded, i64 {}",
+            CHUNK
+        )
+        .unwrap();
+        writeln!(
+            out,
+            "  %addr = call i64 asm sideeffect \"{}\", \"{}\"(i64 {}, i64 0, i64 %chunk, i64 3, i64 {}, i64 -1, i64 0)",
+            body, constraints, mmap, flags
+        )
+        .unwrap();
+        // Failure detection has to cover both conventions: Linux
+        // returns `-errno` (a huge unsigned value), Darwin returns
+        // a small positive errno with the carry flag set - which
+        // inline asm cannot read - so a low address stands in for
+        // it. Either way the result is not a usable mapping, and
+        // continuing would corrupt memory silently.
+        writeln!(out, "  %failed_low = icmp ult i64 %addr, 4096").unwrap();
+        writeln!(out, "  %failed_neg = icmp ugt i64 %addr, -4096").unwrap();
+        writeln!(out, "  %failed = or i1 %failed_low, %failed_neg").unwrap();
+        writeln!(out, "  br i1 %failed, label %oom, label %mapped").unwrap();
+        writeln!(out, "mapped:").unwrap();
+        writeln!(out, "  %new_bump = add i64 %addr, %sz").unwrap();
+        writeln!(out, "  store i64 %new_bump, ptr @__axiom_bump").unwrap();
+        writeln!(out, "  %new_end = add i64 %addr, %chunk").unwrap();
+        writeln!(out, "  store i64 %new_end, ptr @__axiom_bump_end").unwrap();
+        writeln!(out, "  ret i64 %addr").unwrap();
+        writeln!(out, "oom:").unwrap();
+        writeln!(
+            out,
+            "  call i64 asm sideeffect \"{}\", \"{}\"(i64 {}, i64 70, i64 0, i64 0, i64 0, i64 0, i64 0)",
+            body, constraints, exit
+        )
+        .unwrap();
+        writeln!(out, "  unreachable").unwrap();
+        writeln!(out, "}}").unwrap();
+        writeln!(out).unwrap();
     }
 
     fn value_to_llvm(&self, value: &IrValue) -> Result<String, String> {
@@ -1087,4 +1386,277 @@ fn escape_llvm_string(s: &str) -> String {
         }
     }
     escaped
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn i64_ty() -> TypeId {
+        TypeId::TCon("I64".to_string(), vec![])
+    }
+
+    /// A one-function module whose body is `insts` followed by
+    /// `ret 0`, for exercising a single instruction's lowering.
+    fn module_with(insts: Vec<IrInst>) -> IrModule {
+        let mut m = IrModule::new();
+        let mut all = insts;
+        all.push(IrInst::Ret {
+            value: Some(IrValue::Const(IrConst::Int(0, i64_ty()))),
+        });
+        m.functions.push(IrFunction {
+            name: "main".to_string(),
+            params: Vec::new(),
+            return_type: i64_ty(),
+            blocks: vec![IrBlock {
+                label: "entry".to_string(),
+                insts: all,
+            }],
+            locals: Vec::new(),
+        });
+        m
+    }
+
+    fn compile(target: Target, insts: Vec<IrInst>) -> String {
+        LlvmCodeGen::for_target(target)
+            .compile(&module_with(insts))
+            .expect("codegen succeeds")
+    }
+
+    #[test]
+    fn module_header_names_the_requested_target() {
+        for t in Target::all() {
+            let ir = compile(*t, Vec::new());
+            assert!(
+                ir.contains(&format!("target triple = \"{}\"", t.triple())),
+                "{} triple missing",
+                t.name()
+            );
+        }
+    }
+
+    #[test]
+    fn syscall_lowers_to_the_targets_asm_with_seven_operands() {
+        // Every target's template takes the number plus six arguments,
+        // so a two-argument syscall must be padded rather than emitted
+        // with a shorter operand list - a mismatch between operand
+        // count and constraint count is an LLVM verifier error.
+        let ir = compile(
+            Target::LinuxX86_64,
+            vec![IrInst::Syscall {
+                dest: IrValue::Local("r".to_string()),
+                num: IrValue::Const(IrConst::Int(1, i64_ty())),
+                args: vec![
+                    IrValue::Const(IrConst::Int(2, i64_ty())),
+                    IrValue::Const(IrConst::Int(3, i64_ty())),
+                ],
+            }],
+        );
+        // Skipping the allocator's own `mmap` syscall, which the
+        // backend emits into every module ahead of user code.
+        let line = ir
+            .lines()
+            .find(|l| l.contains("asm sideeffect") && l.contains("(i64 1,"))
+            .expect("the module's own syscall was emitted");
+        assert!(line.contains("\"syscall\""), "{}", line);
+        let operands = line
+            .rsplit_once('(')
+            .expect("operand list")
+            .1
+            .trim_end_matches(')');
+        assert_eq!(
+            operands, "i64 1, i64 2, i64 3, i64 0, i64 0, i64 0, i64 0",
+            "operand list must be the number plus six padded arguments"
+        );
+    }
+
+    #[test]
+    fn syscall_newlines_are_llvm_escapes_not_raw_bytes() {
+        // The Darwin templates are multi-instruction. Emitting a real
+        // newline (or worse, a NUL from a mis-escaped `\0A` in Rust
+        // source) produces an .ll file that no longer parses - and in
+        // the NUL case, one that silently truncates the asm so the
+        // error-negation branch disappears.
+        let ir = compile(
+            Target::DarwinAarch64,
+            vec![IrInst::Syscall {
+                dest: IrValue::Local("r".to_string()),
+                num: IrValue::Const(IrConst::Int(1, i64_ty())),
+                args: Vec::new(),
+            }],
+        );
+        assert!(!ir.contains('\0'), "generated IR contains a NUL byte");
+        let line = ir
+            .lines()
+            .find(|l| l.contains("asm sideeffect") && l.contains("(i64 1,"))
+            .expect("the module's own syscall was emitted");
+        assert!(line.contains(r"\0A"), "{}", line);
+        assert!(line.contains("neg x0, x0"), "{}", line);
+    }
+
+    #[test]
+    fn heap_alloc_calls_axioms_allocator_and_never_malloc() {
+        let ir = compile(
+            Target::LinuxX86_64,
+            vec![IrInst::HeapAlloc {
+                dest: IrValue::Local("p".to_string()),
+                size: IrValue::Const(IrConst::Int(24, i64_ty())),
+            }],
+        );
+        assert!(
+            ir.contains(&format!("call i64 @{}(i64 24)", ALLOC_SYMBOL)),
+            "{}",
+            ir
+        );
+        assert!(
+            !ir.contains("call ptr @malloc"),
+            "allocation still goes through libc"
+        );
+    }
+
+    #[test]
+    fn the_emitted_allocator_uses_mmap_and_no_libc() {
+        let ir = compile(Target::LinuxX86_64, Vec::new());
+        assert!(ir.contains(&format!("define i64 @{}(i64 %size)", ALLOC_SYMBOL)));
+        assert!(
+            ir.contains(&format!("i64 {},", Target::LinuxX86_64.sys_mmap())),
+            "allocator does not call mmap"
+        );
+        assert!(ir.contains("@__axiom_bump"), "no bump pointer");
+    }
+
+    #[test]
+    fn an_axiom_defined_allocator_replaces_the_emitted_one() {
+        // The standard library is allowed to provide its own
+        // `axiom_alloc`; emitting the built-in one as well would be a
+        // duplicate symbol, so the built-in must step aside.
+        let mut m = module_with(Vec::new());
+        m.functions.push(IrFunction {
+            name: ALLOC_SYMBOL.to_string(),
+            params: vec![("size".to_string(), i64_ty())],
+            return_type: i64_ty(),
+            blocks: vec![IrBlock {
+                label: "entry".to_string(),
+                insts: vec![IrInst::Ret {
+                    value: Some(IrValue::Const(IrConst::Int(0, i64_ty()))),
+                }],
+            }],
+            locals: Vec::new(),
+        });
+        let ir = LlvmCodeGen::for_target(Target::LinuxX86_64)
+            .compile(&m)
+            .expect("codegen succeeds");
+        assert_eq!(
+            ir.matches(&format!("define i64 @{}", ALLOC_SYMBOL)).count(),
+            1,
+            "allocator defined twice:\n{}",
+            ir
+        );
+        assert!(
+            !ir.contains("@__axiom_bump"),
+            "built-in allocator emitted anyway"
+        );
+    }
+
+    #[test]
+    fn byte_access_narrows_and_widens_explicitly() {
+        let ir = compile(
+            Target::LinuxX86_64,
+            vec![
+                IrInst::StoreIdx {
+                    ptr: IrValue::Local("p".to_string()),
+                    index: IrValue::Const(IrConst::Int(3, i64_ty())),
+                    value: IrValue::Const(IrConst::Int(65, i64_ty())),
+                },
+                IrInst::LoadIdx {
+                    dest: IrValue::Local("b".to_string()),
+                    ptr: IrValue::Local("p".to_string()),
+                    index: IrValue::Const(IrConst::Int(3, i64_ty())),
+                },
+            ],
+        );
+        assert!(ir.contains("trunc i64 65 to i8"), "{}", ir);
+        assert!(ir.contains("store i8"), "{}", ir);
+        assert!(ir.contains("load i8"), "{}", ir);
+        assert!(ir.contains("zext i8"), "{}", ir);
+    }
+
+    #[test]
+    fn word_access_scales_the_index_by_eight() {
+        // `__load64`/`__store64` index in words, not bytes: dropping the
+        // scale would alias every element onto the first byte of the
+        // block and silently corrupt any `Str` header or array.
+        let ir = compile(
+            Target::LinuxX86_64,
+            vec![IrInst::LoadWordIdx {
+                dest: IrValue::Local("w".to_string()),
+                ptr: IrValue::Local("p".to_string()),
+                index: IrValue::Local("i".to_string()),
+            }],
+        );
+        assert!(ir.contains("mul i64 %i, 8"), "{}", ir);
+        assert!(ir.contains("load i64"), "{}", ir);
+    }
+
+    #[test]
+    fn string_literals_reachable_only_from_new_instructions_are_still_emitted() {
+        // `AddrOf` was the first instruction to reference a string
+        // outside a `Call`, and string collection used to only look at
+        // calls - producing IR that referenced an `@str_N` global that
+        // was never defined.
+        let ir = compile(
+            Target::LinuxX86_64,
+            vec![IrInst::AddrOf {
+                dest: IrValue::Local("a".to_string()),
+                value: IrValue::Const(IrConst::Str("hi".to_string())),
+            }],
+        );
+        assert!(
+            ir.contains("@str_0 = private unnamed_addr constant"),
+            "{}",
+            ir
+        );
+        assert!(ir.contains("ptrtoint ptr @str_0 to i64"), "{}", ir);
+    }
+
+    #[test]
+    fn a_boolean_result_is_widened_to_the_functions_word_return_type() {
+        let ir = compile(
+            Target::LinuxX86_64,
+            vec![
+                IrInst::Lt {
+                    dest: IrValue::Local("c".to_string()),
+                    lhs: IrValue::Const(IrConst::Int(1, i64_ty())),
+                    rhs: IrValue::Const(IrConst::Int(2, i64_ty())),
+                },
+                IrInst::Ret {
+                    value: Some(IrValue::Local("c".to_string())),
+                },
+            ],
+        );
+        assert!(ir.contains("zext i1"), "{}", ir);
+        assert!(!ir.contains("ret i1"), "{}", ir);
+    }
+
+    #[test]
+    fn a_word_condition_is_compared_against_zero_before_branching() {
+        // A condition that came from calling a `Bool`-returning Axiom
+        // function arrives as a word, and `br i1 <word>` is invalid.
+        let ir = compile(
+            Target::LinuxX86_64,
+            vec![
+                IrInst::Call {
+                    dest: IrValue::Local("c".to_string()),
+                    func: "isEmpty".to_string(),
+                    args: Vec::new(),
+                },
+                IrInst::CondBr {
+                    cond: IrValue::Local("c".to_string()),
+                    then_target: "t".to_string(),
+                    else_target: "e".to_string(),
+                },
+            ],
+        );
+        assert!(ir.contains("icmp ne i64"), "{}", ir);
+    }
 }

@@ -1,0 +1,182 @@
+; Str - length-prefixed strings, in Axiom.
+;
+; A `Str` is the address of a two-word header:
+;
+;     word 0 : length in bytes
+;     word 1 : address of the bytes
+;
+; The bytes are always NUL-terminated *in addition* to being
+; length-counted. Carrying the length makes slicing, comparison, and
+; concatenation O(1) in the length rather than requiring a scan, and
+; makes a `Str` able to contain a NUL; keeping the terminator means
+; `strCStr` can hand a path straight to `Sys.sysOpenPath` without
+; copying. Both properties matter for a compiler: source text is sliced
+; constantly, and file paths cross the syscall boundary constantly.
+;
+; String *literals* in Axiom source are NUL-terminated byte arrays with
+; no length word, so `strFromLit` is the bridge from a literal to a
+; `Str` - it scans once for the length and then shares the literal's
+; bytes without copying.
+
+(import Mem)
+
+; ------------------------------------------------------------------
+; Construction
+; ------------------------------------------------------------------
+
+; Wrap `len` bytes at `bytes` as a `Str` without copying.
+;
+; The caller keeps responsibility for `bytes` outliving the `Str` and
+; for the NUL terminator at `bytes[len]`. Every other constructor in
+; this module goes through here.
+(:: strWrap (-> Int Int Int))
+(fn (strWrap bytes len)
+  (let ((s (memAlloc 16)))
+    {
+      (memSetWord s 0 len)
+      (memSetWord s 1 bytes)
+      s
+    }))
+
+; A `Str` over freshly allocated, zeroed space for `len` bytes.
+;
+; `len + 1` bytes are reserved so the NUL terminator never overwrites
+; payload; the allocator zeroes, so the terminator is already in place.
+(:: strAlloc (-> Int Int))
+(fn (strAlloc len)
+  (strWrap (memAlloc (+ len 1)) len))
+
+; A `Str` sharing the bytes of a NUL-terminated literal.
+;
+; Use as `(strFromLit (__addr "hello"))`. Cost is one scan for the
+; length; the bytes themselves are never copied, so a literal used as a
+; `Str` costs 16 bytes of header and nothing else.
+(:: strFromLit (-> Int Int))
+(fn (strFromLit cstr)
+  (strWrap cstr (cstrLen cstr 0)))
+
+; Length of NUL-terminated bytes at `addr`, scanning from `i`.
+(:: cstrLen (-> Int Int Int))
+(fn (cstrLen addr i)
+  (if (== (__load8 addr i) 0)
+      i
+      (cstrLen addr (+ i 1))))
+
+; ------------------------------------------------------------------
+; Accessors
+; ------------------------------------------------------------------
+
+(:: strLen (-> Int Int))
+(fn (strLen s)
+  (memGetWord s 0))
+
+(:: strData (-> Int Int))
+(fn (strData s)
+  (memGetWord s 1))
+
+; The byte at `i`, or 0 when `i` is out of range.
+;
+; Out-of-range reads return 0 rather than trapping because the callers
+; that matter - a lexer's lookahead - want "one past the end" to behave
+; like an end-of-input sentinel, and NUL is already that sentinel here.
+(:: strByte (-> Int Int Int))
+(fn (strByte s i)
+  (if (< i 0)
+      0
+      (if (>= i (strLen s))
+          0
+          (__load8 (strData s) i))))
+
+; The bytes of `s` as a NUL-terminated address, for handing to a
+; syscall.
+;
+; Free: every `Str` this module builds is already NUL-terminated.
+(:: strCStr (-> Int Int))
+(fn (strCStr s)
+  (strData s))
+
+(:: strIsEmpty (-> Int Bool))
+(fn (strIsEmpty s)
+  (== (strLen s) 0))
+
+; ------------------------------------------------------------------
+; Comparison
+; ------------------------------------------------------------------
+
+; 0 when equal; otherwise negative if `a` sorts before `b`, positive if
+; after - lexicographic by unsigned byte, with a shorter prefix sorting
+; first.
+(:: strCmp (-> Int Int Int))
+(fn (strCmp a b)
+  (let ((la (strLen a))
+        (lb (strLen b)))
+    (let ((shared (if (< la lb) la lb)))
+      (let ((diff (memCmp (strData a) (strData b) shared)))
+        (if (!= diff 0) diff (- la lb))))))
+
+(:: strEq (-> Int Int Bool))
+(fn (strEq a b)
+  (== (strCmp a b) 0))
+
+; ------------------------------------------------------------------
+; Slicing and joining
+; ------------------------------------------------------------------
+
+; The `count` bytes of `s` starting at `start`, sharing `s`'s storage.
+;
+; A slice is *not* NUL-terminated unless it happens to end where `s`
+; does, so `strCStr` must not be called on one; `strDup` produces an
+; owned, terminated copy when that is needed. Sharing rather than
+; copying is the whole point - a tokenizer that copied every lexeme
+; would allocate once per token.
+;
+; `start` and `count` are clamped to `s`, so an out-of-range slice is
+; empty rather than a read of unrelated memory.
+(:: strSlice (-> Int Int Int Int))
+(fn (strSlice s start count)
+  (let ((len (strLen s)))
+    (let ((from (if (< start 0) 0 (if (> start len) len start))))
+      (let ((avail (- len from)))
+        (let ((n (if (< count 0) 0 (if (> count avail) avail count))))
+          (strWrap (+ (strData s) from) n))))))
+
+; An owned, NUL-terminated copy of `s`.
+(:: strDup (-> Int Int))
+(fn (strDup s)
+  (let ((len (strLen s)))
+    (let ((out (strAlloc len)))
+      {
+        (memCopy (strData out) (strData s) len)
+        out
+      })))
+
+(:: strConcat (-> Int Int Int))
+(fn (strConcat a b)
+  (let ((la (strLen a))
+        (lb (strLen b)))
+    (let ((out (strAlloc (+ la lb))))
+      {
+        (memCopy (strData out) (strData a) la)
+        (memCopy (+ (strData out) la) (strData b) lb)
+        out
+      })))
+
+; ------------------------------------------------------------------
+; Searching
+; ------------------------------------------------------------------
+
+; Index of the first `byte` at or after `from`, or -1.
+(:: strFindByte (-> Int Int Int Int))
+(fn (strFindByte s byte from)
+  (if (>= from (strLen s))
+      (- 0 1)
+      (if (== (strByte s from) byte)
+          from
+          (strFindByte s byte (+ from 1)))))
+
+(:: strStartsWith (-> Int Int Bool))
+(fn (strStartsWith s prefix)
+  (let ((lp (strLen prefix)))
+    (if (> lp (strLen s))
+        false
+        (== (memCmp (strData s) (strData prefix) lp) 0))))

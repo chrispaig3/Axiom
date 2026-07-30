@@ -1,0 +1,111 @@
+; Sys - portable syscall wrappers.
+;
+; The lowest portable layer of Axiom's standard library. Everything here
+; is written in Axiom on top of the `__syscallN` primitives; there is no
+; C binding anywhere in this file, and none anywhere above it.
+;
+; Per-platform numbers and flags come from `Sys.Platform`, which the
+; compiler resolves to the right `Sys/Platform.<os>[-<arch>].ax` for the
+; target being compiled for. Branching on a *capability* exposed by that
+; module (`openNeedsDirFd`) rather than on an OS name keeps this file
+; from growing a platform list.
+;
+; Return values are raw kernel results, not exceptions: a successful
+; result as-is, or `-errno` on failure. That convention holds on every
+; supported platform because the backend's Darwin syscall sequence
+; normalises Darwin's carry-flag/positive-errno protocol into a negative
+; result (see `axiom_codegen::Target::syscall_asm`), so `sysFailed` is a
+; single portable comparison rather than a per-OS special case.
+
+(import Sys.Platform)
+
+; ------------------------------------------------------------------
+; File descriptors
+; ------------------------------------------------------------------
+
+(:: stdin Int)
+(fn (stdin) 0)
+
+(:: stdout Int)
+(fn (stdout) 1)
+
+(:: stderr Int)
+(fn (stderr) 2)
+
+; ------------------------------------------------------------------
+; Core operations
+; ------------------------------------------------------------------
+
+; write(fd, buf, count) -> bytes written, or a negative/errno result.
+(:: sysWriteFd (-> Int Int Int Int))
+;@axiom:effect(io)
+(fn (sysWriteFd fd buf count)
+  (__syscall3 sysWrite fd buf count))
+
+; read(fd, buf, count) -> bytes read, 0 at end of file.
+(:: sysReadFd (-> Int Int Int Int))
+;@axiom:effect(io)
+(fn (sysReadFd fd buf count)
+  (__syscall3 sysRead fd buf count))
+
+; open(path, flags) -> fd, or an error result.
+;
+; `path` is the address of NUL-terminated bytes - `(__addr "file.txt")`
+; for a literal, or `strCStr` for a computed string.
+;
+; Newly created files get mode 0644. The mode argument is ignored unless
+; the flags contain `O_CREAT`, but passing 0 - as an earlier version did -
+; creates files with *no* permissions at all, which then cannot be read
+; back even by the process that just wrote them.
+(:: sysOpenPath (-> Int Int Int))
+;@axiom:effect(io)
+(fn (sysOpenPath path flags)
+  (sysOpenPathMode path flags 420))
+
+; open(path, flags, mode), for callers that need a specific mode.
+(:: sysOpenPathMode (-> Int Int Int Int))
+;@axiom:effect(io)
+(fn (sysOpenPathMode path flags mode)
+  (if (== openNeedsDirFd 1)
+      (__syscall4 sysOpen atFdCwd path flags mode)
+      (__syscall3 sysOpen path flags mode)))
+
+(:: sysCloseFd (-> Int Int))
+;@axiom:effect(io)
+(fn (sysCloseFd fd)
+  (__syscall1 sysClose fd))
+
+; lseek(fd, offset, whence) -> resulting absolute offset.
+(:: sysSeek (-> Int Int Int Int))
+;@axiom:effect(io)
+(fn (sysSeek fd offset whence)
+  (__syscall3 sysLseek fd offset whence))
+
+; Terminate the process. Never returns; the `0` afterwards exists only
+; because every Axiom expression has a value.
+(:: sysExitWith (-> Int Int))
+;@axiom:effect(io)
+(fn (sysExitWith code)
+  {
+    (__syscall1 sysExit code)
+    0
+  })
+
+; ------------------------------------------------------------------
+; Error handling
+; ------------------------------------------------------------------
+
+; True when a syscall result denotes failure.
+;
+; One comparison suffices on every platform: see the note at the top of
+; this file about how Darwin's carry-flag convention is normalised in
+; the backend. `-errno` is always negative, and no successful result of
+; any syscall this library exposes ever is.
+(:: sysFailed (-> Int Bool))
+(fn (sysFailed result)
+  (< result 0))
+
+; The errno behind a failed result, or 0 if it did not fail.
+(:: sysErrno (-> Int Int))
+(fn (sysErrno result)
+  (if (< result 0) (- 0 result) 0))
