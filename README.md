@@ -16,7 +16,6 @@ Co‑authored with Qwen3.6 Plus, Axiom explores a new frontier: languages built 
 | If you like... | Axiom gives you... |
 |---|---|
 | **Rust's safety** | A strong static type system with algebraic data types, pattern matching, and no null pointers — but with simpler syntax and faster compilation |
-| **C's simplicity** | Direct FFI to C libraries, manual memory control via `malloc`/`free`, and predictable performance — without the decades of legacy baggage |
 | **Python's expressiveness** | First-class functions, lambdas, and a REPL that compiles to native code — not interprets |
 | **Go's pragmatism** | A small, learnable language with a single compilation step — no crazy build systems, no messy dependency managers, no toolchain sprawl |
 | **Haskell's elegance** | Curried functions, polymorphic data types, and a clean mathematical foundation — without the 30-minute compile times |
