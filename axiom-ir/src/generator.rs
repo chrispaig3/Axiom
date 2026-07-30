@@ -1,6 +1,4 @@
-use crate::{
-    IrBlock, IrConst, IrFunction, IrInst, IrModule, IrStruct, IrValue, TypeId, MATCH_FAIL_SYMBOL,
-};
+use crate::{IrBlock, IrConst, IrFunction, IrInst, IrModule, IrStruct, IrValue, TypeId};
 use axiom_ast::ast::*;
 use axiom_ast::span::Ident;
 use axiom_sema::TypeChecker;
@@ -11,9 +9,6 @@ pub struct IrGen {
     local_counter: usize,
     block_counter: usize,
     lambda_counter: usize,
-    /// Distinguishes stack slots that share a source-level name. See
-    /// [`IrGen::new_alloca`].
-    alloca_counter: usize,
     current_block: Option<String>,
     /// Top-level functions declared with no parameters.
     ///
@@ -30,18 +25,11 @@ pub struct IrGen {
 /// Look up a data constructor by name across every `data` type the type
 /// checker collected, returning:
 ///
-/// * a globally-unique integer tag - unique across every constructor in
-///   the program, not just within one `data` type, so two different
-///   `data` types' constructors can never compare equal by accident
-///   during pattern matching. The tag is a running count over
-///   `(data type, constructor)` pairs in declaration order, which is
-///   unique unconditionally. It was previously `data_type_index * 100 +
-///   constructor_index`, which aliases as soon as any one `data` type
-///   declares 100 constructors: constructor 100 of type *n* and
-///   constructor 0 of type *n+1* both get tag `100n + 100`, and a
-///   `match` on one would then take the other's arm. 100 constructors is
-///   not an absurd number for a self-hosted compiler's token or AST
-///   node type, which is exactly the program this compiler has to build;
+/// * a globally-unique integer tag (`data_type_index * 100 +
+///   constructor_index_within_that_type`) - unique across every
+///   constructor in the program, not just within one `data` type, so two
+///   different `data` types' constructors can never compare equal by
+///   accident during pattern matching;
 /// * its arity, decomposed from the constructor's curried arrow type
 ///   (`Field1 -> Field2 -> ... -> TheType`; zero `TArr`s means a nullary
 ///   constructor).
@@ -52,27 +40,17 @@ pub struct IrGen {
 /// exact same tag - there is exactly one place in the generator that
 /// decides what a constructor's tag is.
 fn find_constructor(type_checker: &TypeChecker, name: &str) -> Option<(i64, usize)> {
-    let mut tag: i64 = 0;
-    for dt in type_checker.data_types.iter() {
-        for con in dt.constructors.iter() {
+    for (idx, dt) in type_checker.data_types.iter().enumerate() {
+        for (cidx, con) in dt.constructors.iter().enumerate() {
             if con.name == name {
-                return Some((tag, constructor_arity(&con.ty)));
+                let tag = (idx * 100 + cidx) as i64;
+                let arity = constructor_arity(&con.ty);
+                return Some((tag, arity));
             }
-            tag += 1;
         }
     }
     None
 }
-
-/// Byte offset of a constructor block's first field.
-///
-/// A `data` value is `[tag, field0, field1, ...]` with one 8-byte word
-/// each, so fields start one word in. Naming it stops the two pattern
-/// paths from disagreeing: the outer scrutinee's fields were read from 8
-/// while a *nested* constructor's were read from 1, which is not even
-/// word-aligned - every nested field read was 7 bytes short and
-/// straddled two fields.
-const CON_FIELD_BASE: i64 = 8;
 
 fn constructor_arity(ty: &TypeId) -> usize {
     let mut n = 0;
@@ -97,7 +75,6 @@ impl IrGen {
             local_counter: 0,
             block_counter: 0,
             lambda_counter: 0,
-            alloca_counter: 0,
             current_block: None,
             nullary_fns: HashSet::new(),
         }
@@ -207,7 +184,7 @@ impl IrGen {
         let mut alloca_map: HashMap<String, String> = HashMap::new();
 
         for (pname, pty) in &params {
-            let alloca_name = self.new_alloca(pname);
+            let alloca_name = format!("_alloca_{}", pname);
             func.locals.push((pname.clone(), pty.clone()));
             self.emit_to_func(
                 &mut func,
@@ -335,7 +312,7 @@ impl IrGen {
 
             match arg_pat {
                 Pattern::PVar(ident) => {
-                    let arg_alloca = self.new_alloca(&ident.name);
+                    let arg_alloca = format!("_alloca_{}", ident.name);
                     func.locals.push((ident.name.clone(), i64_ty.clone()));
                     self.emit_to_func(
                         func,
@@ -383,29 +360,12 @@ impl IrGen {
                 Pattern::PCon(ident, nested_args) => {
                     match find_constructor(type_checker, &ident.name) {
                         Some((tag, _arity)) => {
-                            // `field_local` is the *address* of the nested
-                            // constructor block, not its tag. Comparing it
-                            // against `tag` directly - as this did - is a
-                            // pointer/tag confusion that is false for every
-                            // reachable heap address, so a nested
-                            // constructor pattern could only ever fail to
-                            // match. The tag has to be loaded out of word 0
-                            // first, exactly as the outer scrutinee's is.
-                            let nested_tag = self.new_local();
-                            self.emit_to_func(
-                                func,
-                                IrInst::LoadOffset {
-                                    dest: IrValue::Local(nested_tag.clone()),
-                                    ptr: IrValue::Local(field_local.clone()),
-                                    offset: 0,
-                                },
-                            );
                             let cmp_dest = self.new_local();
                             self.emit_to_func(
                                 func,
                                 IrInst::Eq {
                                     dest: IrValue::Local(cmp_dest.clone()),
-                                    lhs: IrValue::Local(nested_tag),
+                                    lhs: IrValue::Local(field_local.clone()),
                                     rhs: IrValue::Const(IrConst::Int(tag, i64_ty.clone())),
                                 },
                             );
@@ -430,8 +390,9 @@ impl IrGen {
                                 type_checker,
                                 next_check.clone(),
                                 arm_map,
-                                CON_FIELD_BASE,
+                                1,
                             );
+                            return;
                         }
                         None => {
                             // Undefined constructor: skip comparison
@@ -443,8 +404,9 @@ impl IrGen {
                                 type_checker,
                                 next_check.clone(),
                                 arm_map,
-                                CON_FIELD_BASE,
+                                1,
                             );
+                            return;
                         }
                     }
                 }
@@ -458,6 +420,7 @@ impl IrGen {
                         arm_map,
                         0,
                     );
+                    return;
                 }
             }
         }
@@ -584,14 +547,6 @@ impl IrGen {
             locals: Vec::new(),
         };
 
-        // Lowering the lambda body repoints the emission cursor at the
-        // lambda's own blocks. The enclosing function's cursor must be
-        // put back before returning: `emit_to_func` resolves the cursor
-        // against the function it is handed, so leaving it pointing into
-        // the lambda made every later instruction of the *enclosing*
-        // function unemittable.
-        let saved_block = self.current_block.take();
-
         let entry_label = self.new_block_label();
         self.current_block = Some(entry_label.clone());
         lambda_func.blocks.push(IrBlock {
@@ -601,7 +556,7 @@ impl IrGen {
 
         let mut lambda_alloca_map: HashMap<String, String> = HashMap::new();
         for (pname, pty) in &lambda_params {
-            let alloca_name = self.new_alloca(pname);
+            let alloca_name = format!("_alloca_{}", pname);
             lambda_func.locals.push((pname.clone(), pty.clone()));
             self.emit_to_func(
                 &mut lambda_func,
@@ -634,7 +589,6 @@ impl IrGen {
         );
 
         self.module.functions.push(lambda_func);
-        self.current_block = saved_block;
 
         IrValue::Global(lambda_name)
     }
@@ -775,35 +729,18 @@ impl IrGen {
                 IrValue::Local(dest)
             }
             Expr::EApp(_func_expr, _arg_expr) => {
-                // Flatten the curried application spine into a flat
-                // argument list. The spine is walked outermost-first, so it
-                // yields arguments in reverse; reversing the collected
-                // *expressions* before lowering any of them is what makes
-                // evaluation left-to-right. Lowering during the walk and
-                // reversing the resulting values afterwards - as this did -
-                // produces the right argument order with the wrong
-                // evaluation order, so in
-                // `(f (print "a") (print "b"))` the emitted instructions
-                // printed `b` first while `f` still received them the
-                // right way round. Argument order is now the source order
-                // for both.
-                let mut arg_exprs: Vec<&Expr> = Vec::new();
+                let mut all_args: Vec<IrValue> = Vec::new();
                 let mut current = expr;
                 while let Expr::EApp(inner_func, inner_arg) = current {
-                    arg_exprs.push(inner_arg.as_ref());
-                    current = inner_func.as_ref();
-                }
-                arg_exprs.reverse();
-
-                let mut all_args: Vec<IrValue> = Vec::with_capacity(arg_exprs.len());
-                for arg_expr in arg_exprs {
                     all_args.push(self.gen_expr_to_func_with_allocas(
                         func,
-                        arg_expr,
+                        inner_arg,
                         alloca_map,
                         type_checker,
                     ));
+                    current = inner_func.as_ref();
                 }
+                all_args.reverse();
 
                 // `(Just 42)`/`(Cons h t)`-style constructor application:
                 // build the real heap-boxed value instead of falling
@@ -1079,7 +1016,7 @@ impl IrGen {
                             alloca_map,
                             type_checker,
                         );
-                        let alloca_name = self.new_alloca(&ident.name);
+                        let alloca_name = format!("_alloca_{}", ident.name);
                         func.locals
                             .push((ident.name.clone(), TypeId::TCon("I64".to_string(), vec![])));
                         self.emit_to_func(
@@ -1142,19 +1079,6 @@ impl IrGen {
                 };
 
                 let merge_label = self.new_block_label();
-                // Where a scrutinee that matched no arm goes.
-                //
-                // It used to go to `merge_label`, which then *loaded the
-                // result slot* - a slot nothing had stored to. A `match`
-                // that fell off the end therefore produced whatever was
-                // on the stack and carried on, silently. Sema's
-                // exhaustiveness check is what normally prevents this, so
-                // reaching the block means either a gap in that check or
-                // an arm whose sub-pattern failed after its tag matched
-                // (`(Just 0)` against `(Just 1)`), which is *not* covered
-                // by constructor exhaustiveness at all and so is reachable
-                // in a program sema accepts today.
-                let fail_label = self.new_block_label();
                 let mut arm_labels: Vec<String> = Vec::new();
                 let mut check_labels: Vec<String> = Vec::new();
                 for _ in arms {
@@ -1179,7 +1103,7 @@ impl IrGen {
                     let next_check = if i < arms.len() - 1 {
                         check_labels[i + 1].clone()
                     } else {
-                        fail_label.clone()
+                        merge_label.clone()
                     };
 
                     // Emit an unconditional-match check block: no
@@ -1235,7 +1159,7 @@ impl IrGen {
                                         IrInst::CondBr {
                                             cond: IrValue::Local(cmp_dest),
                                             then_target: arm_label.clone(),
-                                            else_target: next_check.clone(),
+                                            else_target: next_check,
                                         },
                                     );
 
@@ -1249,23 +1173,14 @@ impl IrGen {
                                     // literals, tuples, lists) are handled by
                                     // `gen_sub_pattern_checks` which implements
                                     // recursive matching.
-                                    // A sub-pattern that fails must fall
-                                    // through to the *next arm*, not to the
-                                    // merge block: the tag matching only
-                                    // establishes the constructor, and a
-                                    // later arm may well match the fields.
-                                    // Sending it to merge made
-                                    // `((Just 0) a) ((Just n) b)` yield
-                                    // uninitialised memory for `(Just 1)`
-                                    // instead of `b`.
                                     self.gen_sub_pattern_checks(
                                         func,
                                         target_val.clone(),
                                         args,
                                         type_checker,
-                                        next_check.clone(),
+                                        merge_label.clone(),
                                         &mut arm_map,
-                                        CON_FIELD_BASE,
+                                        8,
                                     );
                                 }
                                 None => unconditional_arm(self, func),
@@ -1274,7 +1189,7 @@ impl IrGen {
                         Pattern::PVar(ident) => {
                             unconditional_arm(self, func);
 
-                            let var_alloca = self.new_alloca(&ident.name);
+                            let var_alloca = format!("_alloca_{}", ident.name);
                             func.locals.push((ident.name.clone(), i64_ty.clone()));
                             self.emit_to_func(
                                 func,
@@ -1345,7 +1260,7 @@ impl IrGen {
                                 target_val.clone(),
                                 pats,
                                 type_checker,
-                                next_check.clone(),
+                                merge_label.clone(),
                                 &mut arm_map,
                                 0,
                             );
@@ -1359,36 +1274,6 @@ impl IrGen {
                         IrInst::Store {
                             ptr: IrValue::Local(result_alloca.clone()),
                             value: body_val,
-                        },
-                    );
-                    self.emit_to_func(
-                        func,
-                        IrInst::Br {
-                            target: merge_label.clone(),
-                        },
-                    );
-                }
-
-                // The no-arm-matched block. Calls a runtime trap that
-                // exits with a distinguishable status rather than falling
-                // into `merge` and reading the never-written result slot.
-                // Emitted unconditionally when there is at least one arm,
-                // because it is a branch target: whether it is *reachable*
-                // depends on the arms, and an unreachable block is free,
-                // whereas a dangling label is invalid IR.
-                if !arms.is_empty() {
-                    func.blocks.push(IrBlock {
-                        label: fail_label.clone(),
-                        insts: Vec::new(),
-                    });
-                    self.current_block = Some(fail_label.clone());
-                    let trap_dest = self.new_local();
-                    self.emit_to_func(
-                        func,
-                        IrInst::Call {
-                            dest: IrValue::Local(trap_dest),
-                            func: MATCH_FAIL_SYMBOL.to_string(),
-                            args: Vec::new(),
                         },
                     );
                     self.emit_to_func(
@@ -1666,61 +1551,17 @@ impl IrGen {
         }
     }
 
-    /// Append `inst` to the block the emission cursor names.
-    ///
-    /// The cursor is a *label*, not a reference, so it can name a block
-    /// that does not belong to `func` - and it did: `gen_lambda` used to
-    /// leave the cursor pointing at the lambda's entry block, after which
-    /// every remaining instruction of the enclosing function, including
-    /// its `Ret`, was dropped on the floor and the function silently
-    /// returned the codegen fallback of `0`. That is a miscompilation
-    /// rather than a build failure, which is the worst class of bug this
-    /// file can have, so the case is now loud instead of silent.
-    ///
-    /// Reaching the panic means a lowering routine repointed the cursor
-    /// without restoring it. It is unreachable from any input - malformed
-    /// source produces a diagnostic long before here - so it is an
-    /// internal invariant, not input validation.
     fn emit_to_func(&mut self, func: &mut IrFunction, inst: IrInst) {
-        let Some(ref label) = self.current_block else {
-            return;
-        };
-        match func.blocks.iter_mut().find(|b| &b.label == label) {
-            Some(block) => block.insts.push(inst),
-            None => panic!(
-                "internal compiler error: IR emission cursor names block `{}`, \
-                 which is not a block of function `{}`. A lowering routine \
-                 repointed `current_block` without restoring it.",
-                label, func.name
-            ),
+        if let Some(ref label) = self.current_block {
+            if let Some(block) = func.blocks.iter_mut().find(|b| &b.label == label) {
+                block.insts.push(inst);
+            }
         }
     }
 
     fn new_local(&mut self) -> String {
         let name = format!("_local_{}", self.local_counter);
         self.local_counter += 1;
-        name
-    }
-
-    /// Mint a unique stack-slot name for a source-level binding.
-    ///
-    /// The slot name used to be `_alloca_{source name}` verbatim, which
-    /// collides whenever one function binds the same name twice - two
-    /// `match` arms that both bind `x`, or a `let` shadowing a parameter.
-    /// The result was two `%_alloca_x = alloca i64` lines in one function
-    /// and a hard `llc` failure (`multiple definition of local value
-    /// named '_alloca_x'`). Shadowing is ordinary in this language and
-    /// tail-call lowering reassigns parameter slots, so uniqueness cannot
-    /// be left to the source program.
-    ///
-    /// The source name is kept in the slot name because it is the only
-    /// thing that makes emitted IR readable when debugging a lowering
-    /// bug; the counter suffix is what makes it correct. The
-    /// `_alloca_` prefix is load-bearing - `axiom-codegen` keys the
-    /// stack-slot register naming off it.
-    fn new_alloca(&mut self, source_name: &str) -> String {
-        let name = format!("_alloca_{}_{}", source_name, self.alloca_counter);
-        self.alloca_counter += 1;
         name
     }
 
