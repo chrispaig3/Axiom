@@ -2092,11 +2092,18 @@ fn compile_and_run_repl(llvm_ir: &str) -> Option<String> {
     }
 
     let obj_path = format!("{}.o", temp_out);
+    // `LLC_RELOCATION_ARGS` is required on every `llc` invocation in the
+    // project, and this one was missing it, so the REPL reproduced the
+    // exact PIE relocation failure `build` was fixed for - and failed
+    // *silently*, because this function reports failure by returning
+    // `None`. Invisible on Darwin, which is position-independent
+    // unconditionally, which is why it was not noticed here either.
     if !Command::new("llc")
         .arg(temp_ll)
         .arg("-filetype=obj")
         .arg("-o")
         .arg(&obj_path)
+        .args(LLC_RELOCATION_ARGS)
         .status()
         .is_ok_and(|s| s.success())
     {
