@@ -44,7 +44,6 @@ pub enum Type {
     TPtr(Box<Type>, bool),
     TForall(Vec<String>, Box<Type>),
     TEffect(Box<Type>, Vec<Effect>),
-    TRegion(Box<Type>, Ident),
     TLinear(Box<Type>),
 }
 
@@ -87,9 +86,6 @@ impl Type {
     }
     pub fn linear(inner: Type) -> Self {
         Type::TLinear(Box::new(inner))
-    }
-    pub fn region(inner: Type, name: Ident) -> Self {
-        Type::TRegion(Box::new(inner), name)
     }
     pub fn effect(inner: Type, effects: Vec<Effect>) -> Self {
         Type::TEffect(Box::new(inner), effects)
@@ -147,12 +143,10 @@ pub enum Expr {
     EAlignof(Type, Span),
     EGrouped(Box<Expr>),
     EHandle(Box<Expr>, Vec<Effect>, Box<Expr>),
-    ERegion(Ident, Box<Expr>),
     EConsume(Box<Expr>),
     EField(Box<Expr>, Ident),
     EStructCon(Ident, Vec<Expr>),
     ESetField(Box<Expr>, Ident, Box<Expr>),
-    EUnionCon(Ident, Ident, Box<Expr>),
     EError(String, Span),
 }
 
@@ -181,12 +175,10 @@ impl Expr {
             Expr::EAlignof(_, span) => *span,
             Expr::EGrouped(e) => e.span(),
             Expr::EHandle(e, _, _) => e.span(),
-            Expr::ERegion(_, e) => e.span(),
             Expr::EConsume(e) => e.span(),
             Expr::EField(e, _) => e.span(),
             Expr::EStructCon(name, _) => name.span,
             Expr::ESetField(e, _, _) => e.span(),
-            Expr::EUnionCon(name, _, _) => name.span,
             Expr::EError(_, span) => *span,
         }
     }
@@ -230,13 +222,6 @@ pub enum Decl {
         tyvars: Vec<String>,
         fields: Vec<Field>,
         repr: Option<TypeRepr>,
-        nid: Option<String>,
-        axtags: Vec<Axtag>,
-    },
-    DUnion {
-        name: Ident,
-        tyvars: Vec<String>,
-        fields: Vec<Field>,
         nid: Option<String>,
         axtags: Vec<Axtag>,
     },
@@ -314,7 +299,7 @@ pub enum Decl {
 /// - `;@axiom:effect(io)`      → Axtag { key: "effect", value: Some("io") }
 /// - `;@axiom:pure()`           → Axtag { key: "pure", value: Some("") }
 /// - `;@axiom:no_refactor`      → Axtag { key: "no_refactor", value: None }
-/// - `;@axiom:owned(region=0)`  → Axtag { key: "owned", value: Some("region=0") }
+/// - `;@axiom:owned(arena=frame)` → Axtag { key: "owned", value: Some("arena=frame") }
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Axtag {
     pub key: String,
@@ -374,10 +359,6 @@ impl Decl {
             }
             Decl::DStruct { name, .. } => {
                 out.push_str("DStruct:");
-                out.push_str(&name.name);
-            }
-            Decl::DUnion { name, .. } => {
-                out.push_str("DUnion:");
                 out.push_str(&name.name);
             }
             Decl::DType { name, .. } => {

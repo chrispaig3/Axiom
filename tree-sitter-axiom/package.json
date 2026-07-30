@@ -1,0 +1,14 @@
+{
+  "name": "tree-sitter-axiom",
+  "version": "0.1.0",
+  "description": "Tree-sitter grammar for the Axiom programming language",
+  "license": "MIT",
+  "main": "bindings/node",
+  "tree-sitter": [
+    {
+      "scope": "source.axiom",
+      "file-types": ["ax"],
+      "injection-regex": "^axiom$"
+    }
+  ]
+}

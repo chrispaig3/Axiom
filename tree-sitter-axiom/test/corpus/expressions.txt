@@ -1,0 +1,242 @@
+================================================================
+application, and an operator as an ordinary head
+================================================================
+
+(:: f Int)
+(fn (f) (g (+ 1 2) x))
+
+----------------------------------------------------------------
+
+(source_file
+  (type_signature
+    (identifier)
+    (builtin_type))
+  (function_definition
+    (identifier)
+    (application
+      (identifier)
+      (application
+        (identifier)
+        (integer_literal)
+        (integer_literal))
+      (identifier))))
+
+================================================================
+let with several bindings
+================================================================
+
+(:: f Int)
+(fn (f)
+  (let ((x 1)
+        (y (+ x 2)))
+    (+ x y)))
+
+----------------------------------------------------------------
+
+(source_file
+  (type_signature
+    (identifier)
+    (builtin_type))
+  (function_definition
+    (identifier)
+    (let_expression
+      (let_binding
+        (identifier)
+        (integer_literal))
+      (let_binding
+        (identifier)
+        (application
+          (identifier)
+          (identifier)
+          (integer_literal)))
+      (application
+        (identifier)
+        (identifier)
+        (identifier)))))
+
+================================================================
+if and cond
+================================================================
+
+(:: f (-> Int Int))
+(fn (f n)
+  (cond
+    ((< n 0) (if true 1 2))
+    (else 0)))
+
+----------------------------------------------------------------
+
+(source_file
+  (type_signature
+    (identifier)
+    (function_type
+      (builtin_type)
+      (builtin_type)))
+  (function_definition
+    (identifier)
+    (identifier)
+    (cond_expression
+      (cond_clause
+        (application
+          (identifier)
+          (identifier)
+          (integer_literal))
+        (if_expression
+          (boolean_literal)
+          (integer_literal)
+          (integer_literal)))
+      (cond_clause
+        (integer_literal)))))
+
+================================================================
+match with nested constructor patterns and a wildcard
+================================================================
+
+(:: f (-> (List Int) Int))
+(fn (f xs)
+  (match xs
+    ((Cons h (Cons h2 t)) h2)
+    ((Cons _ t) 0)
+    ((Nil) 0)))
+
+----------------------------------------------------------------
+
+(source_file
+  (type_signature
+    (identifier)
+    (function_type
+      (type_constructor
+        (constructor_identifier)
+        (builtin_type))
+      (builtin_type)))
+  (function_definition
+    (identifier)
+    (identifier)
+    (match_expression
+      (identifier)
+      (match_arm
+        (constructor_pattern
+          (constructor_identifier)
+          (identifier)
+          (constructor_pattern
+            (constructor_identifier)
+            (identifier)
+            (identifier)))
+        (identifier))
+      (match_arm
+        (constructor_pattern
+          (constructor_identifier)
+          (wildcard_pattern)
+          (identifier))
+        (integer_literal))
+      (match_arm
+        (constructor_pattern
+          (constructor_identifier))
+        (integer_literal)))))
+
+================================================================
+brace block sequences expressions
+================================================================
+
+(:: main Int)
+(fn (main)
+  {
+    (println x)
+    0
+  })
+
+----------------------------------------------------------------
+
+(source_file
+  (type_signature
+    (identifier)
+    (builtin_type))
+  (function_definition
+    (identifier)
+    (block
+      (application
+        (identifier)
+        (identifier))
+      (integer_literal))))
+
+================================================================
+lambda
+================================================================
+
+(:: f Int)
+(fn (f) (lambda (x y) (+ x y)))
+
+----------------------------------------------------------------
+
+(source_file
+  (type_signature
+    (identifier)
+    (builtin_type))
+  (function_definition
+    (identifier)
+    (lambda
+      (identifier)
+      (identifier)
+      (application
+        (identifier)
+        (identifier)
+        (identifier)))))
+
+================================================================
+inline type ascription shares the signature form
+================================================================
+
+(:: f Int)
+(fn (f) (:: (g 1) Int))
+
+----------------------------------------------------------------
+
+(source_file
+  (type_signature
+    (identifier)
+    (builtin_type))
+  (function_definition
+    (identifier)
+    (type_signature
+      (application
+        (identifier)
+        (integer_literal))
+      (builtin_type))))
+
+================================================================
+string escapes and character literals
+================================================================
+
+(:: f Int)
+(fn (f) (println "a\tb\n\"c\"" '\n' 'x'))
+
+----------------------------------------------------------------
+
+(source_file
+  (type_signature
+    (identifier)
+    (builtin_type))
+  (function_definition
+    (identifier)
+    (application
+      (identifier)
+      (string_literal)
+      (character_literal)
+      (character_literal))))
+
+================================================================
+digit separators
+================================================================
+
+(:: f Int)
+(fn (f) 1_000_000)
+
+----------------------------------------------------------------
+
+(source_file
+  (type_signature
+    (identifier)
+    (builtin_type))
+  (function_definition
+    (identifier)
+    (integer_literal)))

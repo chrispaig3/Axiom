@@ -1,0 +1,48 @@
+================================================================
+union declaration is consumed as one removed form
+================================================================
+
+(union Value
+  (asInt : I64)
+  (asFloat : F64))
+(:: main Int)
+(fn (main) 0)
+
+----------------------------------------------------------------
+
+(source_file
+  (removed_form
+    (removed_keyword)
+    (identifier)
+    (field_declaration
+      (identifier)
+      (builtin_type))
+    (field_declaration
+      (identifier)
+      (builtin_type)))
+  (type_signature
+    (identifier)
+    (builtin_type))
+  (function_definition
+    (identifier)
+    (integer_literal)))
+
+================================================================
+region expression is consumed as one removed form
+================================================================
+
+(:: main Int)
+(fn (main) (region r 0))
+
+----------------------------------------------------------------
+
+(source_file
+  (type_signature
+    (identifier)
+    (builtin_type))
+  (function_definition
+    (identifier)
+    (removed_form
+      (removed_keyword)
+      (identifier)
+      (integer_literal))))

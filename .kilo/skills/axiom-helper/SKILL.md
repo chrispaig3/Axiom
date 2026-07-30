@@ -145,7 +145,7 @@ When generating or reviewing FFI code:
 
 ### 4.3 Memory safety discipline
 
-Axiom uses manual memory control (`malloc`/`free`). The compiler itself must never introduce memory unsafety. All FFI calls must be wrapped in safe abstractions. In generated code, ensure that every `malloc` has a corresponding `free` path.
+Axiom source has no `malloc` and no `free`: allocation goes through the backend's `mmap`-backed bump allocator (overridable by defining `axiom_alloc`), and `union` and `region` have been removed from the language - both are still reserved words and report `AX2004`. `foreign` bindings to C allocators are only for genuine C interop, and every such call must be wrapped in a safe abstraction.
 
 ### 4.4 Handle input validation at every pipeline stage
 
@@ -209,7 +209,6 @@ axiom --diagnostic-format=ai symbols source.ax | grep '@'
 | `D` | Data type |
 | `C` | Constructor |
 | `S` | Struct |
-| `U` | Union |
 | `A` | Type alias |
 | `L` | Class (trait) |
 

@@ -346,7 +346,6 @@ fn decl_name(decl: &axiom_ast::ast::Decl) -> Option<&str> {
     match decl {
         Decl::DData { name, .. }
         | Decl::DStruct { name, .. }
-        | Decl::DUnion { name, .. }
         | Decl::DType { name, .. }
         | Decl::DTrait { name, .. }
         | Decl::DSig { name, .. }
@@ -745,6 +744,36 @@ fn analyze(
     }
 }
 
+/// Arguments that pin `llc`'s relocation model to position-independent
+/// code.
+///
+/// These are not optional, and the reason is worth recording because the
+/// bug they fix is invisible on macOS and invisible at `-O2`.
+///
+/// `llc`'s default relocation model for ELF targets is `static`. Every
+/// mainstream Linux distribution, meanwhile, links PIE by default. A
+/// static-model object that takes the address of a global emits
+/// `R_X86_64_32S` - an absolute 32-bit relocation - which the linker
+/// rejects with "relocation R_X86_64_32S against `.bss' can not be used
+/// when making a PIE object". Axiom always has such a global: the
+/// bump allocator's `@__axiom_bump` cursor.
+///
+/// Two things conspired to hide this. At `-O2` the x86 backend happens
+/// to pick PC-relative addressing anyway, so only `-O0` builds fail -
+/// and `axiom run` is exactly the `-O0` path. And Darwin is
+/// position-independent unconditionally, so a macOS developer never
+/// reproduces it. The result was a compiler that could not build an
+/// allocating program on Linux x86-64 at `-O0` while every local check
+/// passed.
+///
+/// Passing the model explicitly rather than emitting a `PIC Level`
+/// module flag is deliberate: `llc` ignores that flag. It was measured -
+/// an otherwise identical module with `!"PIC Level", i32 2` still
+/// assembles to `R_X86_64_32S`. Only the command-line option works, so
+/// every `llc` invocation in the project must carry it, including the
+/// ones in `scripts/`.
+const LLC_RELOCATION_ARGS: &[&str] = &["-relocation-model=pic"];
+
 fn build(
     input: &str,
     output: &str,
@@ -784,14 +813,57 @@ fn build(
     }
 
     let obj_path = format!("{}.o", output);
-    let ll_path = run_llvm_opt(&ll_path, opt)?;
+    let opt_ll_path = run_llvm_opt(&ll_path, opt)?;
 
+    // Intermediates to delete on the way out, whether or not the build
+    // succeeded.
+    //
+    // Previously only the object file was cleaned up and the `.ll` was
+    // left behind unconditionally, which made `axiom run` drop an
+    // `axiom_temp_output.ll` into whatever directory it was invoked from -
+    // it deletes the executable it created but had nothing to delete the
+    // IR with. It also made `--emit-llvm` almost meaningless, since the
+    // flag only controlled whether a line was printed; the file appeared
+    // either way.
+    //
+    // `run_llvm_opt` returns a *different* path at `--opt 1` and above
+    // (`<output>.opt.ll`), so both have to be tracked or the higher
+    // optimisation levels leak a file the default level does not.
+    let mut intermediates = vec![obj_path.clone()];
+    if opt_ll_path != ll_path {
+        intermediates.push(opt_ll_path.clone());
+    }
+    if !emit_llvm {
+        intermediates.push(ll_path.clone());
+    }
+
+    let result = assemble_and_link(&opt_ll_path, &obj_path, output, opt);
+
+    for path in &intermediates {
+        fs::remove_file(path).ok();
+    }
+
+    result?;
+
+    println!("Build successful: {}", output);
+    Ok(())
+}
+
+/// Assemble `ll_path` to an object and link it into `output`.
+///
+/// Split out of `build` so that the intermediate files `build` created are
+/// cleaned up on *every* path out, including the two failure paths. Inlined,
+/// an `llc` or `cc` failure returned early and left the `.ll` and possibly
+/// the `.o` behind - which is the case where the leftovers are most annoying,
+/// because a failed build is exactly when someone reruns the command.
+fn assemble_and_link(ll_path: &str, obj_path: &str, output: &str, opt: u8) -> Result<(), String> {
     let llc_status = Command::new("llc")
-        .arg(&ll_path)
+        .arg(ll_path)
         .arg("-filetype=obj")
         .arg("-o")
-        .arg(&obj_path)
+        .arg(obj_path)
         .arg(format!("-O{}", opt.clamp(0, 3)))
+        .args(LLC_RELOCATION_ARGS)
         .status()
         .map_err(|e| format!("Failed to run llc: {}", e))?;
 
@@ -800,7 +872,7 @@ fn build(
     }
 
     let cc_status = Command::new("cc")
-        .arg(&obj_path)
+        .arg(obj_path)
         .arg("-o")
         .arg(output)
         .status()
@@ -810,9 +882,6 @@ fn build(
         return Err("cc failed".to_string());
     }
 
-    fs::remove_file(&obj_path).ok();
-
-    println!("Build successful: {}", output);
     Ok(())
 }
 
@@ -974,9 +1043,6 @@ fn collect_symbol_facts(
             Decl::DStruct {
                 name, nid, axtags, ..
             } => (name, nid, axtags),
-            Decl::DUnion {
-                name, nid, axtags, ..
-            } => (name, nid, axtags),
             Decl::DType {
                 name, nid, axtags, ..
             } => (name, nid, axtags),
@@ -1042,9 +1108,6 @@ fn collect_symbol_facts(
             Decl::DStruct { name, repr, .. } => {
                 type_spans.insert(&name.name, name.span);
                 struct_reprs.insert(&name.name, repr);
-            }
-            Decl::DUnion { name, .. } => {
-                type_spans.insert(&name.name, name.span);
             }
             Decl::DType { name, .. } => {
                 type_spans.insert(&name.name, name.span);
@@ -1130,23 +1193,6 @@ fn collect_symbol_facts(
             fact = fact.with_meta(repr);
         }
         if let Some((_, axtags)) = decl_meta.get(s.name.as_str()) {
-            for m in axtags {
-                fact = fact.with_meta(m.clone());
-            }
-        }
-        facts.push(fact);
-    }
-
-    for u in &tc.unions {
-        let mut fact = SymbolFact::new(
-            SymbolKind::Union,
-            &u.name,
-            type_spans.get(u.name.as_str()).copied(),
-            format!("union {}", u.name),
-            decl_meta.get(u.name.as_str()).and_then(|(n, _)| n.clone()),
-        )
-        .with_meta(format!("fields={}", fields_meta(&u.fields)));
-        if let Some((_, axtags)) = decl_meta.get(u.name.as_str()) {
             for m in axtags {
                 fact = fact.with_meta(m.clone());
             }
@@ -1328,6 +1374,43 @@ fn fmt(input: &str, check: bool) -> Result<(), String> {
     let tokens = lexer
         .tokenize()
         .map_err(|e| format!("Lexer error: {}", e))?;
+
+    // Refuse rather than destroy.
+    //
+    // `format_module` regenerates source from the AST, and comments never
+    // reach the AST - the lexer drops them so no later stage has to skip
+    // them. The result was that `axiom fmt` deleted every comment in the
+    // file it formatted, silently and in place. Every file in `stdlib/`
+    // would have lost its documentation to a single invocation, and
+    // nothing would have reported it: `fmt` is the one part of the CLI
+    // with no CI gate, precisely because its output does not currently
+    // round-trip.
+    //
+    // Detecting the condition is exact rather than heuristic: the lexer
+    // now records the span of each comment it discarded, so this is a
+    // count of what would actually be lost, not a guess from scanning for
+    // `;` outside of string literals.
+    //
+    // The real fix is trivia preservation - attaching comments to the
+    // syntax they precede and re-emitting them - which is also what an LSP
+    // needs before it can rewrite source. Until then, failing loudly is
+    // the only behaviour that does not lose a user's work.
+    let discarded = lexer.comment_spans().len();
+    if discarded > 0 {
+        return Err(format!(
+            "{} contains {} comment{} that the formatter cannot preserve, so it \
+             refuses to rewrite the file.\n\
+             \n\
+             `fmt` regenerates source from the syntax tree, and comments are not \
+             part of the tree. Formatting would delete them.\n\
+             \n\
+             Comment-preserving formatting needs trivia support in the lexer and \
+             parser; see docs/v1-roadmap.md.",
+            input,
+            discarded,
+            if discarded == 1 { "" } else { "s" },
+        ));
+    }
 
     let mut parser = Parser::new(tokens);
     let ast = parser

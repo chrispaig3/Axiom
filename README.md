@@ -108,6 +108,25 @@ Every Axiom program needs a `main` function that returns `Int`. The compiler pip
 Source (.ax) → Lexer → Parser → Type Checker → IR → LLVM IR → llc → cc → Executable
 ```
 
+### A larger example
+
+[game_of_life/](game_of_life/) is Conway's Game of Life in pure Axiom: the
+biggest Axiom program in the tree, and the one that shows what the language
+can and cannot do today. Life is Turing-complete, so a working
+implementation settles that Axiom can express arbitrary computation — and
+because Axiom has no loop form, no mutable locals, and no closures that
+survive code generation, it has to do so with recursion over immutable
+algebraic data and nothing else.
+
+```bash
+AXIOM_STDLIB=stdlib ./target/release/axiom run game_of_life/main.ax
+```
+
+Its README records the measurements, including the allocator behaviour that
+drives the [v1 roadmap](docs/v1-roadmap.md), and the two bugs that the
+demo's position-sensitive board digest caught but a population count would
+not have.
+
 ---
 
 ## Language Guide
@@ -363,13 +382,13 @@ Current limitations, honestly stated:
   application `malloc`s and nothing ever `free`s it. Fine for short-lived
   CLI programs and this README's examples; not something to build a
   long-running server on yet.
-- Struct/union **field access** (`.field`-style reads) still has no
-  expression syntax at all, independent of `data` - see the Structs/Unions
-  sections below for what does and doesn't work there.
+- Struct **field access** (`.field`-style reads) still has no expression
+  syntax at all, independent of `data` - see the Structs section below for
+  what does and doesn't work there.
 
 ### Structs
 
-For C-compatible data layouts:
+Products of named fields:
 
 ```scheme
 ; Basic struct
@@ -390,14 +409,6 @@ For C-compatible data layouts:
 ; Aligned to 16 bytes
 (struct AlignedData align(16)
   (data : I64))
-```
-
-### Unions
-
-```scheme
-(union Value
-  (asInt : I64)
-  (asFloat : F64))
 ```
 
 ### Type aliases
@@ -769,7 +780,7 @@ How it works:
   would.
 - `(import Mod.Sub)` with no name list brings in every top-level
   declaration from that file; `(import Mod.Sub (a b))` brings in only the
-  named declarations (functions, `data`/`struct`/`union`/`type` decls,
+  named declarations (functions, `data`/`struct`/`type` decls,
   `foreign` bindings, ...).
 - Imports are transitive (`A` imports `B` imports `C` brings `C`'s
   declarations into `A` too) and diamond-safe (two different modules both
@@ -817,7 +828,7 @@ How it works:
 ./target/release/axiom --diagnostic-format=ai check source.ax
 
 # List every top-level symbol (functions, types, constructors, structs,
-# unions, aliases, classes, ...) and its type/shape in Axiom's AI-optimized
+# aliases, traits, ...) and its type/shape in Axiom's AI-optimized
 # "AXSYM" notation (see docs/diagnostics.md); resolves (import ...) too, and
 # attributes each symbol to the file that actually declared it
 ./target/release/axiom --diagnostic-format=ai symbols source.ax
@@ -981,21 +992,25 @@ Source (.ax)
 | FFI | **Complete, no longer required** | Call any C function with `foreign` declarations. The standard library no longer uses it: see [Standard library](#standard-library) |
 | Standard library | **Functional** | `Sys`, `Mem`, `Str`, `Fmt`, `IO`, written in Axiom over syscall primitives. No `Vec`/`Map` yet |
 | Syscalls | **Complete** | `__syscall0`-`__syscall6` on Darwin and Linux, x86-64 and AArch64; errors normalised to `-errno` on every platform |
-| Allocation | **Complete** | `mmap`-backed bump allocator emitted by the backend, overridable by defining `axiom_alloc`. No `free` - memory is reclaimed at process exit |
+| Allocation | **Functional, unbounded** | `mmap`-backed bump allocator emitted by the backend, overridable by defining `axiom_alloc`. No `free` - memory is reclaimed at process exit, so memory use tracks *total* allocations rather than live data. Measured at 76,000x the live set for a 2000-generation loop; see [game_of_life/README.md](game_of_life/README.md) and the memory model design in [docs/v1-roadmap.md](docs/v1-roadmap.md) |
 | Cross-compilation | **Functional** | `--target` selects ABI and platform stdlib modules; codegen verified for all four targets |
 | Self-hosting | **In progress** | Foundations landed; see [docs/self-hosting.md](docs/self-hosting.md) for the measured gap analysis and plan |
 | ADTs / data types | **Complete** | Constructors (nullary and with fields, including recursive types like `List`/`Tree`) compile to heap-boxed tagged values; see [Algebraic data types](#algebraic-data-types-how-they-actually-run) |
-| Structs / unions | **Complete** | Declarations, LLVM emission, field access (`.field`), struct construction (`(StructName expr1 expr2 ...)`), `mut` fields, and field mutation (`(set-field expr field value)`) all work |
+| Structs | **Complete** | Declarations, LLVM emission, field access (`.field`), struct construction (`(StructName expr1 expr2 ...)`), `mut` fields, and field mutation (`(set-field expr field value)`) all work |
 | Pattern matching (`match`) | **Complete** | Constructor patterns (nullary and with-field), variables, wildcards, literals, nested constructor patterns, and tuple/list patterns all compare and bind correctly, plus non-exhaustiveness/arity/undefined-constructor diagnostics. Built-in `Option` type with `Some`/`None` constructors. |
 | Lambda | **Partial** | Parsed and type-checked; codegen pending |
 | Lists | **Partial** | Syntax and type checking; runtime representation pending |
 | Tuples | **Partial** | Syntax and type checking; codegen pending |
 | Type classes | **Replaced** | Renamed to traits; see [Traits](#traits) |
+| Unions | **Removed** | C interoperability is not a goal, and an untagged union has no meaning under linear types. Use `data` for a tagged sum or `struct` for a product. `union` stays reserved and reports `AX2004` |
+| Region syntax | **Removed** | Allocation lifetime is inferred, not written by hand. `region` stays reserved and reports `AX2004` |
 | Traits | **Complete** | Declarations, supertraits, effects, default methods, implementations (`impl`) |
 | Effects | **Complete** | Effect declarations, `handle` expressions, effect checking (`IO`, `Pure`, `Alloc`, `Mut`, `Div`), AXTAG validation. Effects propagate transitively through calls, so a claim on a caller is checked against what its callees do |
 | Loops | **Missing** | Iteration is recursion; `--opt 1`+ turns tail recursion into a loop, and without it deep loops exhaust the stack |
-| Region syntax | **Parsed only** | `region r body` |
-| Linear types | **Parsed only** | `linear T`, `consume` |
+| Linear types | **Parsed only** | `linear T`, `consume`. The ownership facts they express are what the planned memory model needs; see [docs/v1-roadmap.md](docs/v1-roadmap.md) |
+| Macros | **Not started** | Design and tier decision (pattern-based vs procedural) in [docs/v1-roadmap.md](docs/v1-roadmap.md) |
+| Concurrency | **Not started** | Depends on the memory model; design in [docs/v1-roadmap.md](docs/v1-roadmap.md) |
+| Editor support | **Functional** | [tree-sitter grammar](tree-sitter-axiom/) with highlighting queries, verified against every `.ax` file in the repo. No LSP yet |
 | Imports | **Functional** | `(import Mod.Sub ...)` resolves and merges declarations from other files; see [Modules and imports](#modules-and-imports) |
 
 ---
@@ -1021,17 +1036,50 @@ Help: Both branches of `if` must have the same type.
 
 ```
 axiom/
-├── axiom-ast/          # AST definitions
+├── axiom-ast/          # AST, token, and span definitions
 ├── axiom-lexer/        # Tokenizer
-├── axiom-parser/       # Parser
-├── axiom-sema/         # Type checker
-├── axiom-ir/           # IR + generator
-├── axiom-codegen/      # LLVM codegen
-├── axiom-cli/          # CLI + REPL
-├── axiom-errors/       # Error types
-├── hello_world/        # Sample program
+├── axiom-parser/       # S-expression parser
+├── axiom-sema/         # Name resolution, type checking, effects
+├── axiom-ir/           # IR definitions and lowering
+├── axiom-codegen/      # LLVM emission, target/syscall ABI
+├── axiom-cli/          # Driver, REPL, `fmt`, `symbols`
+├── axiom-errors/       # Diagnostics, AXDL/AXSYM rendering
+├── stdlib/             # Standard library, written in Axiom
+├── game_of_life/       # Turing-completeness proof and memory profile
+├── tree-sitter-axiom/  # Editor grammar, queries, corpus
+├── tests/stdlib/       # Golden tests: compiled, run, output compared
+├── scripts/            # CI gates, each runnable locally
+├── docs/               # diagnostics.md, self-hosting.md, v1-roadmap.md
 └── Cargo.toml          # Workspace manifest
 ```
+
+Every CI gate is a script in `scripts/`, so a contributor runs locally
+exactly what CI runs:
+
+```bash
+cargo test --release --all           # unit, integration, golden suites
+./scripts/run-stdlib-tests.sh        # stdlib, compiled and run
+./scripts/check-freestanding.sh      # no libc in the IR or the binary
+./scripts/check-cross-targets.sh     # every target assembles, at -O0 and -O2,
+                                     # with no absolute relocations
+./scripts/check-reproducible.sh      # two runs produce identical IR
+./scripts/check-game-of-life.sh      # the demo, against golden output
+./scripts/check-tree-sitter.sh       # grammar accepts every .ax in the repo
+```
+
+---
+
+## Roadmap
+
+[docs/v1-roadmap.md](docs/v1-roadmap.md) is the plan to v1: what is done,
+what is left, and — the part that determines the schedule — which items
+actually block which. The headline result is that most of the remaining
+work is *not* parallelizable: the macro system, concurrency, the HTTP
+library, and the LSP all depend on the memory model, and the LSP depends on
+self-hosting.
+
+[docs/self-hosting.md](docs/self-hosting.md) is the measured gap analysis
+for replacing the Rust compiler with one written in Axiom.
 
 ---
 

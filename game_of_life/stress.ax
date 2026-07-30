@@ -1,0 +1,83 @@
+; The same simulation, sized to measure rather than to look at.
+;
+; `main.ax` exists to be read and to be checked against a golden file.
+; This exists to answer one question with a number: what does a program
+; that allocates every value and frees nothing actually cost?
+;
+; It prints only the final population, so the measurement is of the
+; simulation and not of string formatting. Run it under a memory profiler:
+;
+;   AXIOM_STDLIB=stdlib axiom build --input game_of_life/stress.ax \
+;     --output /tmp/life-stress --opt 2
+;   /usr/bin/time -l /tmp/life-stress
+;
+; The numbers this produced, and what they imply for the memory model,
+; are recorded in ./README.md. They are the reason `--opt 2` appears in
+; that command: at `-O0` the recursion in `stepRow` is not turned into a
+; branch and the stack, not the heap, is what runs out first.
+
+(import IO)
+(import Life)
+
+; A deterministic seed pattern: a cheap coordinate hash, so the board is
+; dense enough to be a real workload and identical on every run and every
+; platform.
+;
+; The multipliers are chosen coprime to the modulus, which is not a
+; detail. The obvious first attempt here was a textbook linear
+; congruential generator, `(r * 31 + c) * 1103515245 + 12345`, taken
+; `mod 3` - and it seeded *every* cell alive, because both 1103515245 and
+; 12345 are themselves divisible by 3, so the expression is identically
+; zero in that modulus. The board still evolved correctly (a completely
+; full board dies out in two generations, which is what it did), so the
+; simulation gave no hint that the input was degenerate; only the reported
+; starting population did. Hence `pop0` is printed rather than assumed.
+(:: seedBit (-> Int Int Int))
+(fn (seedBit r c)
+  (% (+ (+ (* r 37) (* c 17)) (* (* r c) 7)) 5))
+
+(:: seedRow (-> Int Int Int (List Cell)))
+(fn (seedRow r c w)
+  (if (>= c w)
+    (Nil)
+    (Cons (if (< (seedBit r c) 2) (Alive) (Dead))
+          (seedRow r (+ c 1) w))))
+
+(:: seedBoard (-> Int Int Int (List (List Cell))))
+(fn (seedBoard r h w)
+  (if (>= r h)
+    (Nil)
+    (Cons (seedRow r 0 w) (seedBoard (+ r 1) h w))))
+
+; Advance `n` generations, discarding every intermediate board. Tail
+; recursive, so the generation count is bounded by the heap and not by
+; the stack once the optimiser has run.
+(:: advance (-> (List (List Cell)) Int (List (List Cell))))
+(fn (advance board n)
+  (if (<= n 0)
+    board
+    (advance (step board) (- n 1))))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let ((side 24)
+        (gens 20))
+    {
+      (print (strFromLit (__addr "cells   ")))
+      (printlnInt (* side side))
+      (print (strFromLit (__addr "gens    ")))
+      (printlnInt gens)
+      (print (strFromLit (__addr "pop0    ")))
+      (printlnInt (population (seedBoard 0 side side)))
+      (print (strFromLit (__addr "popN    ")))
+      (printlnInt (population (advance (seedBoard 0 side side) gens)))
+      ; The digest, not the population, is what actually pins the
+      ; simulation: on this seed the population is constant across all
+      ; twenty generations even though every generation differs.
+      (print (strFromLit (__addr "hash0   ")))
+      (printlnInt (boardHash (seedBoard 0 side side)))
+      (print (strFromLit (__addr "hashN   ")))
+      (printlnInt (boardHash (advance (seedBoard 0 side side) gens)))
+      0
+    }))

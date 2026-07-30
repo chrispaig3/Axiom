@@ -84,6 +84,23 @@ registry! {
         "syntax error",
         "A syntax rule was violated in a way that doesn't fit a more specific\n\
          diagnostic code; see the message for details."),
+    REMOVED_CONSTRUCT => ("AX2004", "removed-construct",
+        "removed language construct",
+        "This form was part of an earlier version of Axiom and no longer exists.\n\
+         The keyword is still reserved so that old source gets this explanation\n\
+         instead of being silently reinterpreted as an ordinary identifier.\n\
+         \n\
+         `union` is gone because C interoperability is no longer a goal of the\n\
+         language. An untagged union cannot be pattern-matched safely and has no\n\
+         meaning under linear typing, where every value has exactly one owner and\n\
+         one type. Use `data` for a tagged sum, whose variants the compiler can\n\
+         check for exhaustiveness, or `struct` for a product.\n\
+         \n\
+         `region` is gone because memory is no longer scoped by an explicit\n\
+         source-level block. Allocation lifetime is inferred: a value's arena is\n\
+         determined by where it is created and how far it escapes, and it is\n\
+         dropped deterministically at the end of that arena. Delete the `region`\n\
+         wrapper; the body is the program."),
 
     // ---- AX3xxx: semantic analysis ----
     UNDEFINED_VARIABLE => ("AX3001", "undefined-variable",
@@ -95,7 +112,7 @@ registry! {
     UNDEFINED_TYPE => ("AX3002", "undefined-type",
         "undefined type",
         "This type name does not refer to any built-in type, `data`, `struct`,\n\
-         `union`, or `type` alias visible in this module."),
+         or `type` alias visible in this module."),
     UNDEFINED_CONSTRUCTOR => ("AX3003", "undefined-constructor",
         "undefined constructor",
         "This name was used as a data constructor (applied like `(Foo x y)` or\n\
@@ -115,9 +132,8 @@ registry! {
          of the definitions or remove the duplicate."),
     FIELD_NOT_FOUND => ("AX3007", "field-not-found",
         "field not found",
-        "The named field does not exist on the given `struct`/`union` type.\n\
-         Check the field name for typos or that you're accessing the right\n\
-         type."),
+        "The named field does not exist on the given `struct` type. Check the\n\
+         field name for typos or that you're accessing the right type."),
     SEMA_MESSAGE => ("AX3008", "semantic-error",
         "semantic error",
         "A semantic rule was violated in a way that doesn't fit a more specific\n\

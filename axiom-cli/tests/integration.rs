@@ -355,7 +355,6 @@ fn axsym_reports_all_declaration_kinds() {
         r#"(foreign printf :: (-> String Int) = "printf")
 (data Maybe (a) (Nothing) (Just a))
 (struct Point (x : Int) (y : Int))
-(union Value (asInt : I64) (asFloat : F64))
 (type StringList () = [String])
 (trait (Eq a))
 "#,
@@ -368,7 +367,6 @@ fn axsym_reports_all_declaration_kinds() {
     assert!(text.lines().any(|l| l.starts_with("C Nothing ")));
     assert!(text.lines().any(|l| l.starts_with("C Just ")));
     assert!(text.lines().any(|l| l.starts_with("S Point ")));
-    assert!(text.lines().any(|l| l.starts_with("U Value ")));
     assert!(text.lines().any(|l| l.starts_with("A StringList ")));
     assert!(text.lines().any(|l| l.starts_with("T Eq ")));
 }
@@ -562,5 +560,223 @@ fn non_exhaustive_option_match_is_rejected() {
         err.contains("AX3005"),
         "missing non-exhaustive code: {}",
         err
+    );
+}
+
+// ---------------------------------------------------------------
+// Removed constructs
+//
+// `union` and `region` are gone from the grammar but still reserved
+// in the lexer, so that source written against an older Axiom gets an
+// explanation instead of a misleading downstream error. These tests pin
+// that behaviour: the interesting assertion is not that the program is
+// rejected - it would be rejected either way - but that it is rejected
+// with `AX2004` naming the construct, rather than `AX3001` naming a
+// symbol the author never wrote.
+// ---------------------------------------------------------------
+
+#[test]
+fn union_declaration_reports_its_removal() {
+    let dir = scratch_dir("removed-union-decl");
+    write_source(
+        &dir,
+        "main.ax",
+        "(union Value (asInt : Int) (asFloat : F64))\n(:: main Int)\n(fn main 0)\n",
+    );
+    let out = run_axiom(&["--diagnostic-format=ai", "check", "main.ax"], &dir);
+    assert!(!out.status.success());
+    let err = stderr(&out);
+    assert!(err.contains("AX2004"), "stderr: {}", err);
+    assert!(err.contains("removed-construct"), "stderr: {}", err);
+    // The report must point at the replacement, since that is the only
+    // part a reader can act on.
+    assert!(err.contains("data"), "stderr: {}", err);
+}
+
+#[test]
+fn region_expression_reports_its_removal() {
+    let dir = scratch_dir("removed-region-expr");
+    write_source(&dir, "main.ax", "(:: main Int)\n(fn main (region r 0))\n");
+    let out = run_axiom(&["--diagnostic-format=ai", "check", "main.ax"], &dir);
+    assert!(!out.status.success());
+    let err = stderr(&out);
+    assert!(err.contains("AX2004"), "stderr: {}", err);
+    assert!(err.contains("region"), "stderr: {}", err);
+}
+
+#[test]
+fn explain_documents_the_removed_construct_code() {
+    let dir = scratch_dir("removed-explain");
+    let out = run_axiom(&["explain", "AX2004"], &dir);
+    assert!(out.status.success(), "stderr: {}", stderr(&out));
+    let text = stdout(&out);
+    assert!(text.contains("union"), "stdout: {}", text);
+    assert!(text.contains("region"), "stdout: {}", text);
+}
+
+// ---------------------------------------------------------------
+// Intermediate file hygiene
+//
+// `build` writes an `.ll`, an optional `.opt.ll`, and an `.o` on the way
+// to an executable. Only the `.o` used to be cleaned up, so `axiom run`
+// left an `axiom_temp_output.ll` in whatever directory it was invoked
+// from - it deleted the executable it made but had nothing to delete the
+// IR with. These tests pin the whole set, because the leak was invisible
+// in every existing test: they all run in scratch directories nobody
+// looks at afterwards.
+// ---------------------------------------------------------------
+
+/// Names of every entry in `dir`, sorted, for comparing against an
+/// expected set. Sorted so the assertion does not depend on readdir order.
+fn dir_entries(dir: &Path) -> Vec<String> {
+    let mut names: Vec<String> = std::fs::read_dir(dir)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    names.sort();
+    names
+}
+
+#[test]
+fn run_leaves_no_intermediate_files_behind() {
+    let dir = scratch_dir("hygiene-run");
+    write_source(&dir, "main.ax", "(:: main Int)\n(fn (main) 0)\n");
+    let out = run_axiom(&["run", "main.ax"], &dir);
+    assert!(out.status.success(), "stderr: {}", stderr(&out));
+    assert_eq!(
+        dir_entries(&dir),
+        vec!["main.ax".to_string()],
+        "`run` should leave only the source it was given"
+    );
+}
+
+#[test]
+fn build_leaves_only_the_executable() {
+    let dir = scratch_dir("hygiene-build");
+    write_source(&dir, "main.ax", "(:: main Int)\n(fn (main) 0)\n");
+    let out = run_axiom(&["build", "--input", "main.ax", "--output", "prog"], &dir);
+    assert!(out.status.success(), "stderr: {}", stderr(&out));
+    assert_eq!(
+        dir_entries(&dir),
+        vec!["main.ax".to_string(), "prog".to_string()],
+    );
+}
+
+#[test]
+fn build_at_higher_opt_does_not_leak_the_optimised_ir() {
+    // `run_llvm_opt` returns a different path at `--opt 1` and above, so
+    // this level leaks a file the default level does not. Skipped rather
+    // than failed when `opt` is absent, since the compiler treats a
+    // missing `opt` as a warning and proceeds without it - in which case
+    // there is no `.opt.ll` to leak and nothing to assert.
+    let dir = scratch_dir("hygiene-opt");
+    write_source(&dir, "main.ax", "(:: main Int)\n(fn (main) 0)\n");
+    let out = run_axiom(
+        &[
+            "build", "--input", "main.ax", "--output", "prog", "--opt", "2",
+        ],
+        &dir,
+    );
+    assert!(out.status.success(), "stderr: {}", stderr(&out));
+    assert_eq!(
+        dir_entries(&dir),
+        vec!["main.ax".to_string(), "prog".to_string()],
+    );
+}
+
+#[test]
+fn build_with_emit_llvm_keeps_the_ir() {
+    // The complement of the tests above: `--emit-llvm` is the way to ask
+    // for the IR, and it has to actually produce a file. Before the
+    // cleanup change the flag only controlled whether a line was printed,
+    // so this asserts the flag now means something.
+    let dir = scratch_dir("hygiene-emit");
+    write_source(&dir, "main.ax", "(:: main Int)\n(fn (main) 0)\n");
+    let out = run_axiom(
+        &[
+            "build",
+            "--input",
+            "main.ax",
+            "--output",
+            "prog",
+            "--emit-llvm",
+        ],
+        &dir,
+    );
+    assert!(out.status.success(), "stderr: {}", stderr(&out));
+    assert_eq!(
+        dir_entries(&dir),
+        vec![
+            "main.ax".to_string(),
+            "prog".to_string(),
+            "prog.ll".to_string(),
+        ],
+    );
+}
+
+// ---------------------------------------------------------------
+// Formatter data loss
+//
+// `fmt` regenerates source from the syntax tree, and comments never reach
+// the tree - the lexer discards them so no later stage has to skip them.
+// Formatting a commented file therefore used to delete every comment in
+// it, in place, with a success message. These tests pin the refusal.
+// ---------------------------------------------------------------
+
+#[test]
+fn fmt_refuses_to_rewrite_a_file_with_comments() {
+    let dir = scratch_dir("fmt-comments");
+    let source = "; a comment worth keeping\n(:: main Int)\n(fn (main) 0)\n";
+    let path = write_source(&dir, "main.ax", source);
+
+    let out = run_axiom(&["fmt", "main.ax"], &dir);
+    assert!(
+        !out.status.success(),
+        "fmt should refuse; stdout: {}",
+        stdout(&out)
+    );
+
+    // The refusal is only worth anything if the file really is untouched.
+    assert_eq!(
+        std::fs::read_to_string(&path).unwrap(),
+        source,
+        "fmt must not modify a file it cannot round-trip"
+    );
+}
+
+#[test]
+fn fmt_still_formats_a_file_without_comments() {
+    // The guard must not disable the formatter outright, or it would be a
+    // regression dressed up as a fix.
+    let dir = scratch_dir("fmt-no-comments");
+    let path = write_source(&dir, "main.ax", "(:: main Int)\n(fn   (main)   0)\n");
+
+    let out = run_axiom(&["fmt", "main.ax"], &dir);
+    assert!(out.status.success(), "stderr: {}", stderr(&out));
+
+    let formatted = std::fs::read_to_string(&path).unwrap();
+    assert!(
+        formatted.contains("main"),
+        "formatted output lost the program: {}",
+        formatted
+    );
+}
+
+#[test]
+fn fmt_counts_axtags_as_preserved() {
+    // AXTAGs look like comments but are real tokens and do survive
+    // formatting, so they must not trigger the refusal - otherwise every
+    // file carrying agent metadata becomes unformattable.
+    let dir = scratch_dir("fmt-axtag");
+    write_source(
+        &dir,
+        "main.ax",
+        "(:: main Int)\n;@axiom:pure\n(fn (main) 0)\n",
+    );
+    let out = run_axiom(&["fmt", "main.ax"], &dir);
+    assert!(
+        out.status.success(),
+        "an AXTAG is not a discarded comment; stderr: {}",
+        stderr(&out)
     );
 }

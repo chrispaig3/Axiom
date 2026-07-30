@@ -228,7 +228,7 @@ pipeline as `check` (including resolving `(import ...)`s, see
 `docs/diagnostics.md`'s multi-file notes below), then prints one fact per
 top-level name the checker collected: every `define`/`fn`, every
 `foreign` binding, every `data` type and its constructors, every
-`struct`/`union` (with its exact field shapes and layout attributes),
+`struct` (with its exact field shapes and layout attributes),
 every `type` alias, and every `class`. Like diagnostics, it honors
 `--diagnostic-format`:
 
@@ -255,7 +255,7 @@ every `type` alias, and every `class`. Like diagnostics, it honors
 
 | Field | Meaning |
 |---|---|
-| `KIND` | One letter: `F` function, `X` foreign binding, `D` data type, `C` constructor, `S` struct, `U` union, `A` type alias, `L` class |
+| `KIND` | One letter: `F` function, `X` foreign binding, `D` data type, `C` constructor, `S` struct, `A` type alias, `L` class |
 | `NAME` | The declared name, exactly as written |
 | `FILE:LOC` | Same `file:line:col[-col\|:line:col]` addressing as AXDL, via the same [`SourceMap`](../axiom-errors/src/source_map.rs) - for a program with `(import ...)`s, `FILE` is the *actual* file that declared this symbol (an imported module's own file), not always the entry file, exactly like AXDL's own multi-file attribution |
 | `-` | In place of `FILE:LOC`, for names with no source span at all - in practice, only Axiom's dozen built-in operators (`+`, `==`, `&&`, ...), which `axiom symbols` omits entirely unless `--builtins` is passed (they never change, so printing them on every call is exactly the restating-what's-already-known token waste this notation exists to avoid) |
@@ -371,7 +371,7 @@ Both NID and AXTAG are now implemented.
   actual foreign calls in the body, and `pure` claims are checked against
   foreign calls. Mismatches emit a normal `AX3010` / `axtag-mismatch`
   warning so an agent can correct the annotation instead of silently
-  trusting it. Other tags (`no_refactor`, `owned(region=N)`, etc.) are
+  trusting it. Other tags (`no_refactor`, `owned(arena=frame)`, etc.) are
   preserved and emitted but not yet validated.
 
 Example AXSYM output with NID and AXTAG metadata:

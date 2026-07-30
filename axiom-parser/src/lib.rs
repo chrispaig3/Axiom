@@ -1,6 +1,6 @@
 use axiom_ast::ast::*;
 use axiom_ast::span::{Ident, Span};
-use axiom_ast::token::{Token, TokenKind};
+use axiom_ast::token::{RemovedKeyword, Token, TokenKind};
 use axiom_errors::{code, Diagnostic};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
@@ -21,6 +21,16 @@ pub enum ParseError {
     UnexpectedEof { span: Span },
     #[error("{message}")]
     Message { message: String, span: Span },
+    /// A keyword that the lexer still recognises but the grammar no
+    /// longer has a rule for.
+    ///
+    /// This is a distinct variant rather than a `Message` because the
+    /// three things a reader needs - what was found, why it is gone, and
+    /// what to write instead - are structured data on
+    /// [`RemovedKeyword`], and flattening them into a prose string here
+    /// would mean re-deriving them in every renderer.
+    #[error("`{}` is no longer part of Axiom", keyword.spelling())]
+    Removed { keyword: RemovedKeyword, span: Span },
 }
 
 impl ParseError {
@@ -29,6 +39,7 @@ impl ParseError {
             ParseError::UnexpectedToken { span, .. } => *span,
             ParseError::UnexpectedEof { span } => *span,
             ParseError::Message { span, .. } => *span,
+            ParseError::Removed { span, .. } => *span,
         }
     }
 
@@ -53,6 +64,12 @@ impl ParseError {
                 Diagnostic::error(&code::PARSE_MESSAGE, message.clone())
                     .with_primary(span, message.clone())
             }
+            ParseError::Removed { keyword, .. } => Diagnostic::error(
+                &code::REMOVED_CONSTRUCT,
+                format!("`{}` is no longer part of Axiom", keyword.spelling()),
+            )
+            .with_primary(span, keyword.rationale())
+            .with_help(keyword.replacement()),
         }
     }
 }
@@ -140,12 +157,6 @@ impl Parser {
                 *n = Some(nid);
                 *a = axtags;
             }
-            Decl::DUnion {
-                nid: n, axtags: a, ..
-            } => {
-                *n = Some(nid);
-                *a = axtags;
-            }
             Decl::DType {
                 nid: n, axtags: a, ..
             } => {
@@ -227,14 +238,24 @@ impl Parser {
 
         self.expect(TokenKind::LParen)?;
 
+        // Removed keywords are checked before anything else so the report
+        // names the construct rather than complaining that a declaration
+        // keyword was expected. `union` used to be a declaration keyword,
+        // and to a reader porting old source, "expected declaration
+        // keyword, found `union`" is actively misleading.
+        if let Some(keyword) = self.current_removed_keyword() {
+            return Err(ParseError::Removed {
+                keyword,
+                span: self.current_span(),
+            });
+        }
+
         let mut decl = if self.check(TokenKind::Define) || self.check(TokenKind::Fn) {
             self.parse_define()?
         } else if self.check(TokenKind::Data) {
             self.parse_data()?
         } else if self.check(TokenKind::Struct) {
             self.parse_struct()?
-        } else if self.check(TokenKind::Union) {
-            self.parse_union()?
         } else if self.check(TokenKind::Type) {
             self.parse_type_alias()?
         } else if self.check(TokenKind::Newtype) {
@@ -410,35 +431,6 @@ impl Parser {
             tyvars,
             fields,
             repr,
-            nid: None,
-            axtags: Vec::new(),
-        })
-    }
-
-    fn parse_union(&mut self) -> ParseResult<Decl> {
-        self.expect(TokenKind::Union)?;
-        let name = self.parse_ident()?;
-        let tyvars = self.parse_tyvars();
-
-        let mut fields = Vec::new();
-        while self.check(TokenKind::LParen) {
-            self.advance();
-            let mutable = self.eat(TokenKind::Mut);
-            let field_name = self.parse_ident()?;
-            self.expect(TokenKind::Colon)?;
-            let field_ty = self.parse_type()?;
-            fields.push(Field {
-                name: field_name,
-                ty: field_ty,
-                mutable,
-            });
-            self.expect(TokenKind::RParen)?;
-        }
-
-        Ok(Decl::DUnion {
-            name,
-            tyvars,
-            fields,
             nid: None,
             axtags: Vec::new(),
         })
@@ -927,11 +919,6 @@ impl Parser {
         if self.is_ident() {
             let ident = self.parse_ident()?;
 
-            if self.eat(TokenKind::At) {
-                let region_name = self.parse_ident()?;
-                return Ok(Type::region(Type::TCon(ident, vec![]), region_name));
-            }
-
             if ident.name.chars().next().is_some_and(|c| c.is_lowercase()) {
                 return Ok(Type::TVar(ident.name));
             }
@@ -1006,6 +993,16 @@ impl Parser {
         if self.check(TokenKind::LParen) {
             self.advance();
 
+            // `(region r body)` and `(Union T field v)` were both
+            // parenthesised expression forms; catching them here keeps the
+            // report specific instead of degrading to "expected expression".
+            if let Some(keyword) = self.current_removed_keyword() {
+                return Err(ParseError::Removed {
+                    keyword,
+                    span: self.current_span(),
+                });
+            }
+
             if self.check(TokenKind::Lambda) {
                 return self.parse_lambda();
             }
@@ -1024,10 +1021,6 @@ impl Parser {
 
             if self.check(TokenKind::Handle) {
                 return self.parse_handle();
-            }
-
-            if self.check(TokenKind::Region) {
-                return self.parse_region();
             }
 
             if self.check(TokenKind::Consume) {
@@ -1056,10 +1049,6 @@ impl Parser {
 
             if self.check(TokenKind::Struct) {
                 return self.parse_struct_con();
-            }
-
-            if self.check(TokenKind::Union) {
-                return self.parse_union_con();
             }
 
             if self.check(TokenKind::RParen) {
@@ -1334,14 +1323,6 @@ impl Parser {
         Ok(Expr::EHandle(Box::new(body), effects, Box::new(handler)))
     }
 
-    fn parse_region(&mut self) -> ParseResult<Expr> {
-        self.expect(TokenKind::Region)?;
-        let name = self.parse_ident()?;
-        let body = self.parse_expr()?;
-        self.expect(TokenKind::RParen)?;
-        Ok(Expr::ERegion(name, Box::new(body)))
-    }
-
     fn parse_consume(&mut self) -> ParseResult<Expr> {
         self.expect(TokenKind::Consume)?;
         let expr = self.parse_expr()?;
@@ -1400,15 +1381,6 @@ impl Parser {
         }
         self.expect(TokenKind::RParen)?;
         Ok(Expr::EStructCon(name, args))
-    }
-
-    fn parse_union_con(&mut self) -> ParseResult<Expr> {
-        self.expect(TokenKind::Union)?;
-        let name = self.parse_ident()?;
-        let field_name = self.parse_ident()?;
-        let value = self.parse_expr()?;
-        self.expect(TokenKind::RParen)?;
-        Ok(Expr::EUnionCon(name, field_name, Box::new(value)))
     }
 
     fn parse_string_literal(&mut self) -> ParseResult<String> {
@@ -1664,6 +1636,20 @@ impl Parser {
         }
     }
 
+    /// The removed keyword at the cursor, if there is one.
+    ///
+    /// Checked at the head of both `parse_decl` and the parenthesised
+    /// expression dispatch: those are the only two positions where a
+    /// removed keyword could ever have been legal, so a `Removed` token
+    /// anywhere else is genuinely just an unexpected token and is better
+    /// reported as one.
+    fn current_removed_keyword(&self) -> Option<RemovedKeyword> {
+        match self.tokens.get(self.pos).map(|t| &t.kind) {
+            Some(TokenKind::Removed(keyword)) => Some(*keyword),
+            _ => None,
+        }
+    }
+
     fn current_kind_str(&self) -> String {
         if let Some(token) = self.tokens.get(self.pos) {
             format!("{}", token.kind)
@@ -1691,7 +1677,6 @@ impl Parser {
                     | TokenKind::Fn
                     | TokenKind::Data
                     | TokenKind::Struct
-                    | TokenKind::Union
                     | TokenKind::Type
                     | TokenKind::Newtype
                     | TokenKind::Trait
@@ -1712,7 +1697,6 @@ impl Parser {
                             | TokenKind::Fn
                             | TokenKind::Data
                             | TokenKind::Struct
-                            | TokenKind::Union
                             | TokenKind::Type
                             | TokenKind::Newtype
                             | TokenKind::Trait

@@ -370,12 +370,6 @@ pub struct IrEnum {
 }
 
 #[derive(Debug, Clone)]
-pub struct IrUnion {
-    pub name: String,
-    pub fields: Vec<(String, TypeId)>,
-}
-
-#[derive(Debug, Clone)]
 pub struct IrGlobal {
     pub name: String,
     pub ty: TypeId,
@@ -388,7 +382,6 @@ pub struct IrModule {
     pub functions: Vec<IrFunction>,
     pub structs: Vec<IrStruct>,
     pub enums: Vec<IrEnum>,
-    pub unions: Vec<IrUnion>,
     pub globals: Vec<IrGlobal>,
     pub extern_funcs: Vec<(String, Vec<TypeId>, TypeId)>,
 }
@@ -405,7 +398,6 @@ impl IrModule {
             functions: Vec::new(),
             structs: Vec::new(),
             enums: Vec::new(),
-            unions: Vec::new(),
             globals: Vec::new(),
             extern_funcs: Vec::new(),
         }

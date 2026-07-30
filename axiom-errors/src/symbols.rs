@@ -42,8 +42,6 @@ pub enum SymbolKind {
     Ctor,
     /// A `struct` declaration.
     Struct,
-    /// A `union` declaration.
-    Union,
     /// A `type` alias.
     Alias,
     /// A `trait` declaration.
@@ -59,7 +57,6 @@ impl SymbolKind {
             SymbolKind::Data => "D",
             SymbolKind::Ctor => "C",
             SymbolKind::Struct => "S",
-            SymbolKind::Union => "U",
             SymbolKind::Alias => "A",
             SymbolKind::Trait => "T",
         }
@@ -234,20 +231,6 @@ mod tests {
     }
 
     #[test]
-    fn ai_union_with_fields() {
-        let fact = SymbolFact::new(
-            SymbolKind::Union,
-            "Value",
-            Some(Span::new(0, 5, 0)),
-            "union Value",
-            None,
-        )
-        .with_meta("fields=asInt:I64,asFloat:F64");
-        let out = render_symbols_ai(&[fact], "main.ax", &" ".repeat(20));
-        assert!(out.contains("U Value main.ax:1:1-6 \"union Value\" #fields=asInt:I64,asFloat:F64"));
-    }
-
-    #[test]
     fn ai_alias_with_tyvars() {
         let fact = SymbolFact::new(
             SymbolKind::Alias,
@@ -373,7 +356,6 @@ mod tests {
             SymbolKind::Data,
             SymbolKind::Ctor,
             SymbolKind::Struct,
-            SymbolKind::Union,
             SymbolKind::Alias,
             SymbolKind::Trait,
         ] {

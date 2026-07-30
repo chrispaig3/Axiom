@@ -1,0 +1,137 @@
+; Conway's Game of Life, run to a fixed number of generations.
+;
+; Build and run:
+;   AXIOM_STDLIB=stdlib axiom --diagnostic-format=ai run game_of_life/main.ax
+;
+; The output is deterministic and checked against `expected.out`, which is
+; what makes this a regression test and not just a demo. The two patterns
+; were picked because they fail differently if the rules or the boundary
+; condition are wrong:
+;
+;   - A **blinker** has period 2. If `stepCell` is wrong it dies or
+;     freezes; if it is right it oscillates forever. Two generations are
+;     enough to see the period, and generation 2 must equal generation 0.
+;   - A **glider** has period 4 and *translates*. It is the pattern that
+;     catches an off-by-one in `neighbours` or in the border handling,
+;     because a glider that reaches the edge of a board with a live border
+;     will corrupt instead of sailing off.
+
+(import IO)
+(import Life)
+(import Render)
+
+; ---------------------------------------------------------------
+; Board construction
+;
+; No literal syntax is involved: `[...]` type-checks but has no runtime
+; representation, so boards are built from `Cons`/`Nil` directly. It is
+; verbose, and being verbose here is the point - this is the ergonomics
+; gap that the built-in list runtime is supposed to close.
+; ---------------------------------------------------------------
+
+; A row of `w` dead cells.
+(:: deadRow (-> Int (List Cell)))
+(fn (deadRow w)
+  (if (<= w 0)
+    (Nil)
+    (Cons (Dead) (deadRow (- w 1)))))
+
+; Set one cell of a row, returning a new row. Out-of-range indices leave
+; the row unchanged, so pattern setup cannot silently write off the end.
+(:: rowSet (-> (List Cell) Int Cell (List Cell)))
+(fn (rowSet row i v)
+  (match row
+    ((Nil) (Nil))
+    ((Cons h t)
+     (if (== i 0)
+       (Cons v t)
+       (Cons h (rowSet t (- i 1) v))))))
+
+(:: boardSet (-> (List (List Cell)) Int Int Cell (List (List Cell))))
+(fn (boardSet board r c v)
+  (match board
+    ((Nil) (Nil))
+    ((Cons row rest)
+     (if (== r 0)
+       (Cons (rowSet row c v) rest)
+       (Cons row (boardSet rest (- r 1) c v))))))
+
+(:: emptyBoard (-> Int Int (List (List Cell))))
+(fn (emptyBoard h w)
+  (if (<= h 0)
+    (Nil)
+    (Cons (deadRow w) (emptyBoard (- h 1) w))))
+
+(:: setAlive (-> (List (List Cell)) Int Int (List (List Cell))))
+(fn (setAlive board r c)
+  (boardSet board r c (Alive)))
+
+; ---------------------------------------------------------------
+; Patterns
+; ---------------------------------------------------------------
+
+; A vertical blinker in the middle of a 5x5 board:
+;
+;   . . . . .
+;   . . # . .
+;   . . # . .
+;   . . # . .
+;   . . . . .
+(:: blinker (List (List Cell)))
+(fn (blinker)
+  (setAlive (setAlive (setAlive (emptyBoard 5 5) 1 2) 2 2) 3 2))
+
+; A glider near the top-left of an 8x8 board, travelling down and right:
+;
+;   . # . . . . . .
+;   . . # . . . . .
+;   # # # . . . . .
+(:: glider (List (List Cell)))
+(fn (glider)
+  (setAlive
+    (setAlive
+      (setAlive (setAlive (setAlive (emptyBoard 8 8) 0 1) 1 2) 2 0)
+      2 1)
+    2 2))
+
+; ---------------------------------------------------------------
+; Driving the simulation
+;
+; `runFrom` is the loop, and it is a loop written as recursion because
+; Axiom has no loop form. It is in tail position, so `--opt 1` and above
+; turn it into a real branch; at `-O0` it costs one frame per generation,
+; which for the generation counts used here is irrelevant.
+; ---------------------------------------------------------------
+
+(:: showGen (-> Int (List (List Cell)) Int))
+;@axiom:effect(io)
+(fn (showGen g board)
+  {
+    (print (strFromLit (__addr "gen ")))
+    (printInt g)
+    (print (strFromLit (__addr "  pop ")))
+    (printlnInt (population board))
+    (print (renderBoard board))
+    0
+  })
+
+(:: runFrom (-> (List (List Cell)) Int Int Int))
+;@axiom:effect(io)
+(fn (runFrom board g last)
+  (if (> g last)
+    0
+    {
+      (showGen g board)
+      (runFrom (step board) (+ g 1) last)
+    }))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  {
+    (println (strFromLit (__addr "== blinker (period 2) ==")))
+    (runFrom (blinker) 0 2)
+    (println (strFromLit (__addr "== glider (period 4, translates) ==")))
+    (runFrom (glider) 0 4)
+    0
+  })

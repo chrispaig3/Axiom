@@ -1,0 +1,43 @@
+; Turning a board into text.
+;
+; Split from `Life.ax` so the core stays free of I/O: nothing in `Life.ax`
+; performs an effect, and the AXTAG checker can confirm that
+; (`axiom symbols game_of_life/Life.ax` reports no `#effect=io`). Only
+; `main.ax` writes to a file descriptor, and only through this module's
+; output.
+
+(import Str)
+(import Life)
+
+; A board line, built by appending one character per cell.
+;
+; `strConcat` allocates a fresh string per call, so rendering a row of
+; width `w` allocates `w` intermediate strings that are immediately dead.
+; That is quadratic in the row width and is the single largest source of
+; garbage in the program. It is written the obvious way on purpose: a
+; string builder would need either a growable buffer or mutable state,
+; and Axiom has neither yet, so this is what the language currently
+; forces and therefore what the demo should show.
+(:: renderRow (-> (List Cell) Int))
+(fn (renderRow row)
+  (match row
+    ((Nil) (strFromLit (__addr "")))
+    ((Cons h t)
+     (strConcat
+       (match h
+         ((Alive) (strFromLit (__addr "#")))
+         ((Dead) (strFromLit (__addr "."))))
+       (renderRow t)))))
+
+; The whole board as one string with a trailing newline per row, so a
+; caller makes exactly one write syscall per board instead of one per
+; row. Cheap to do and it keeps the golden output stable regardless of
+; how the OS interleaves writes.
+(:: renderBoard (-> (List (List Cell)) Int))
+(fn (renderBoard board)
+  (match board
+    ((Nil) (strFromLit (__addr "")))
+    ((Cons r rest)
+     (strConcat
+       (strConcat (renderRow r) (strFromLit (__addr "\n")))
+       (renderBoard rest)))))

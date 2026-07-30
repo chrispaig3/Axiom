@@ -4,3 +4,10 @@ target/
 **/*.rs.bk
 # Debugging information for MSVC
 *.pdb
+
+# tree-sitter build artifacts and the locally installed CLI
+tree-sitter-axiom/node_modules/
+tree-sitter-axiom/*.dylib
+tree-sitter-axiom/*.so
+tree-sitter-axiom/*.dll
+tree-sitter-axiom/package-lock.json

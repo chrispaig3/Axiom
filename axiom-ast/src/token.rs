@@ -23,7 +23,6 @@ pub enum TokenKind {
     Fn,       // (fn (name args...) body) - modern alias for define
     Data,     // (data Name (tyvars...) (constructor...))
     Struct,   // (struct Name (field...) )
-    Union,    // (union Name (field...))
     Type,     // (type Name (tyvars...) alias)
     Newtype,  // (newtype Name (tyvars...) ctor inner)
     Trait,    // (trait (Name tv) (super...) (method...))
@@ -35,7 +34,6 @@ pub enum TokenKind {
     Where,    // for class/instance method bodies
     Effect,   // (effect Name (op...))
     Handle,   // (handle body (handler...))
-    Region,   // (region name body)
     Linear,   // linear type marker
     Consume,  // (consume expr)
     Packed,   // packed struct modifier
@@ -113,6 +111,19 @@ pub enum TokenKind {
     LBrace,
     RBrace,
 
+    /// A keyword from an earlier version of the language that no longer
+    /// has a grammar rule.
+    ///
+    /// These stay reserved on purpose. If `union` simply became an
+    /// ordinary identifier, `(union Value (i : Int))` would parse as a
+    /// call to an undefined function and report `AX3001
+    /// undefined-variable` pointing at `union` - a diagnostic that
+    /// describes the symptom and hides the cause. Keeping the word
+    /// reserved lets the parser say what actually happened and what to
+    /// write instead. The alternative, deleting the word outright, is
+    /// only correct once no Axiom source in the world still contains it.
+    Removed(RemovedKeyword),
+
     // Special
     Comment,
     /// A source-embedded agent metadata tag: `;@axiom:<key>(<value>)`.
@@ -141,7 +152,6 @@ impl fmt::Display for TokenKind {
             TokenKind::Fn => write!(f, "fn"),
             TokenKind::Data => write!(f, "data"),
             TokenKind::Struct => write!(f, "struct"),
-            TokenKind::Union => write!(f, "union"),
             TokenKind::Type => write!(f, "type"),
             TokenKind::Newtype => write!(f, "newtype"),
             TokenKind::Trait => write!(f, "trait"),
@@ -153,7 +163,6 @@ impl fmt::Display for TokenKind {
             TokenKind::Where => write!(f, "where"),
             TokenKind::Effect => write!(f, "effect"),
             TokenKind::Handle => write!(f, "handle"),
-            TokenKind::Region => write!(f, "region"),
             TokenKind::Linear => write!(f, "linear"),
             TokenKind::Consume => write!(f, "consume"),
             TokenKind::Packed => write!(f, "packed"),
@@ -224,9 +233,79 @@ impl fmt::Display for TokenKind {
             TokenKind::RBracket => write!(f, "]"),
             TokenKind::LBrace => write!(f, "{{"),
             TokenKind::RBrace => write!(f, "}}"),
+            TokenKind::Removed(kw) => write!(f, "{}", kw.spelling()),
             TokenKind::Comment => write!(f, "; comment"),
             TokenKind::Axtag(s) => write!(f, ";@axiom:{}", s),
             TokenKind::Eof => write!(f, "EOF"),
+        }
+    }
+}
+
+/// The removed keywords, each paired with the advice a reader needs.
+///
+/// Both were removed for the same underlying reason - they encoded
+/// assumptions the language no longer makes - but the replacements are
+/// different enough that a single generic "that's gone" message would be
+/// useless. Keeping the guidance next to the variant means the parser has
+/// nothing to decide: it reports the keyword it found and the keyword's
+/// own advice.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RemovedKeyword {
+    /// `(union Name (field : Type)...)`.
+    ///
+    /// Untagged unions existed to match C's `union` layout. C
+    /// interoperability is no longer a goal, and an untagged union is
+    /// unrepresentable in a language where every value has one owner and
+    /// one type: reading a field other than the one last written is
+    /// undefined, so there is no exhaustiveness to check and no drop to
+    /// schedule.
+    Union,
+    /// `(region name body)`.
+    ///
+    /// Regions made allocation lifetime a syntactic property, which put
+    /// the burden of naming and nesting scopes on the author and made
+    /// every signature that touched allocated data carry a region
+    /// parameter. Arenas are now inferred from where a value is created
+    /// and how far it escapes, so the annotation carries no information
+    /// the compiler does not already have.
+    Region,
+}
+
+impl RemovedKeyword {
+    /// The source spelling, which is also what the lexer matched on.
+    pub fn spelling(self) -> &'static str {
+        match self {
+            RemovedKeyword::Union => "union",
+            RemovedKeyword::Region => "region",
+        }
+    }
+
+    /// Why the construct is gone. Phrased as a statement about the
+    /// language, not about the parser's expectations.
+    pub fn rationale(self) -> &'static str {
+        match self {
+            RemovedKeyword::Union => {
+                "`union` was removed: C interoperability is no longer a goal, and an \
+                 untagged union has no meaning under linear types"
+            }
+            RemovedKeyword::Region => {
+                "`region` was removed: allocation lifetime is inferred from where a \
+                 value is created and how far it escapes, not written by hand"
+            }
+        }
+    }
+
+    /// What to write instead.
+    pub fn replacement(self) -> &'static str {
+        match self {
+            RemovedKeyword::Union => {
+                "use `data` for a tagged sum whose variants the compiler can check \
+                 for exhaustiveness, or `struct` for a product of fields"
+            }
+            RemovedKeyword::Region => {
+                "delete the `region` wrapper and keep its body; values are dropped \
+                 deterministically at the end of the arena they belong to"
+            }
         }
     }
 }

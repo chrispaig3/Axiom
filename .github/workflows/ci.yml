@@ -51,16 +51,25 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       # `llc` is not on the default PATH on either runner image, and the
-      # compiler shells out to it by name.
+      # compiler shells out to it by name. `llvm-readobj` comes from the
+      # same package and is what the cross-target gate uses to reject
+      # non-position-independent objects.
       - name: Install LLVM tools (Linux)
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y llvm clang
           echo "$(llvm-config --bindir)" >> "$GITHUB_PATH"
+      # `brew --prefix <formula>` prints the path a formula *would* be
+      # installed at and exits zero even when it is absent, so the
+      # previous one-liner appended a non-existent directory to PATH and
+      # reported success. The failure then surfaced one step later as
+      # `llc: command not found`. Install first, then resolve the prefix.
       - name: Install LLVM tools (macOS)
         if: runner.os == 'macOS'
-        run: echo "$(brew --prefix llvm)/bin" >> "$GITHUB_PATH"
+        run: |
+          brew install llvm
+          echo "$(brew --prefix llvm)/bin" >> "$GITHUB_PATH"
       - run: llc --version
 
       - name: Unit and integration tests
@@ -74,6 +83,32 @@ jobs:
 
       - name: Freestanding check
         run: ./scripts/check-freestanding.sh
+
+      # The largest pure-Axiom program in the tree, checked against golden
+      # output at both optimisation levels. It runs in the matrix rather
+      # than in a single-host job because it is the only test that
+      # exercises recursion depth and allocation volume on real hardware,
+      # and both are platform-sensitive.
+      - name: Game of Life
+        run: ./scripts/check-game-of-life.sh
+
+  grammar:
+    name: Tree-sitter grammar
+    needs: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      # The grammar has to accept every `.ax` file in the repository, so the
+      # compiler has to be built to produce nothing - but the check parses
+      # the standard library and the demos, which are checked in, so only
+      # the tree-sitter CLI is actually needed.
+      - run: npm install --prefix tree-sitter-axiom --no-save tree-sitter-cli
+      - run: ./scripts/check-tree-sitter.sh
 
   cross:
     name: Cross-target codegen

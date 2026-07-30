@@ -1,5 +1,5 @@
 use axiom_ast::span::Span;
-use axiom_ast::token::{Token, TokenKind};
+use axiom_ast::token::{RemovedKeyword, Token, TokenKind};
 use axiom_errors::{code, Diagnostic};
 
 /// Every variant now carries the [`Span`] where it occurred; previously the
@@ -98,6 +98,24 @@ pub struct Lexer {
     source_str: String,
     pos: usize,
     file_id: usize,
+    /// Spans of the ordinary line comments this lexer discarded.
+    ///
+    /// Comments are not tokens: they are dropped so that no downstream
+    /// stage has to skip them. But dropping them without trace made one
+    /// tool silently destructive - `axiom fmt` regenerates source from the
+    /// AST, and since comments never reach the AST, formatting a file
+    /// deleted every comment in it. A formatter that quietly discards
+    /// documentation is worse than no formatter.
+    ///
+    /// Recording the spans here rather than threading trivia through the
+    /// token stream is deliberately the smaller change: it lets `fmt`
+    /// refuse to write a file it cannot round-trip, without touching the
+    /// grammar. Real trivia preservation - which `fmt` needs to become
+    /// useful, and which an LSP needs for anything that rewrites source -
+    /// is the larger follow-up this makes visible instead of hiding.
+    ///
+    /// AXTAGs are excluded because they *are* tokens and do survive.
+    comment_spans: Vec<Span>,
 }
 
 impl Lexer {
@@ -107,7 +125,14 @@ impl Lexer {
             source_str: source.to_string(),
             pos: 0,
             file_id,
+            comment_spans: Vec::new(),
         }
+    }
+
+    /// Spans of the ordinary comments discarded during `tokenize`, in
+    /// source order. Empty until `tokenize` has run.
+    pub fn comment_spans(&self) -> &[Span] {
+        &self.comment_spans
     }
 
     pub fn tokenize(&mut self) -> Result<Vec<Token>, LexerError> {
@@ -347,7 +372,6 @@ impl Lexer {
             "fn" => TokenKind::Fn,
             "data" => TokenKind::Data,
             "struct" => TokenKind::Struct,
-            "union" => TokenKind::Union,
             "type" => TokenKind::Type,
             "newtype" => TokenKind::Newtype,
             "trait" => TokenKind::Trait,
@@ -359,7 +383,6 @@ impl Lexer {
             "where" => TokenKind::Where,
             "effect" => TokenKind::Effect,
             "handle" => TokenKind::Handle,
-            "region" => TokenKind::Region,
             "linear" => TokenKind::Linear,
             "consume" => TokenKind::Consume,
             "packed" => TokenKind::Packed,
@@ -369,6 +392,12 @@ impl Lexer {
             "sizeof" => TokenKind::Sizeof,
             "alignof" => TokenKind::Alignof,
             "cast" => TokenKind::Cast,
+            // Reserved-but-removed. Recognising them here rather than
+            // letting them fall through to `Ident` is what allows the
+            // parser to explain the removal instead of reporting an
+            // undefined name; see `RemovedKeyword`.
+            "union" => TokenKind::Removed(RemovedKeyword::Union),
+            "region" => TokenKind::Removed(RemovedKeyword::Region),
             "true" => TokenKind::BoolLiteral(true),
             "false" => TokenKind::BoolLiteral(false),
             "Int" => TokenKind::Int,
@@ -545,10 +574,12 @@ impl Lexer {
     }
 
     fn consume_line_comment(&mut self) {
+        let start = self.pos;
         self.pos += 1;
         while self.pos < self.source.len() && self.source[self.pos] != '\n' {
             self.pos += 1;
         }
+        self.comment_spans.push(self.span(start));
     }
 
     /// Consume an AXTAG comment of the form `;@axiom:<key>(<value>)` and

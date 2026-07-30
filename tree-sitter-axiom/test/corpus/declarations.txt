@@ -1,0 +1,173 @@
+================================================================
+signature and function definition
+================================================================
+
+(:: add (-> Int Int Int))
+(fn (add x y)
+  (+ x y))
+
+----------------------------------------------------------------
+
+(source_file
+  (type_signature
+    (identifier)
+    (function_type
+      (builtin_type)
+      (builtin_type)
+      (builtin_type)))
+  (function_definition
+    (identifier)
+    (identifier)
+    (identifier)
+    (application
+      (identifier)
+      (identifier)
+      (identifier))))
+
+================================================================
+nullary function is a named constant
+================================================================
+
+(:: stdout Int)
+(fn (stdout) 1)
+
+----------------------------------------------------------------
+
+(source_file
+  (type_signature
+    (identifier)
+    (builtin_type))
+  (function_definition
+    (identifier)
+    (integer_literal)))
+
+================================================================
+data declaration with type parameters
+================================================================
+
+(data List (a)
+  (Nil)
+  (Cons a (List a)))
+
+----------------------------------------------------------------
+
+(source_file
+  (data_declaration
+    (identifier)
+    (type_parameters
+      (type_variable))
+    (data_constructor
+      (constructor_identifier))
+    (data_constructor
+      (constructor_identifier)
+      (type_variable)
+      (type_constructor
+        (constructor_identifier)
+        (type_variable)))))
+
+================================================================
+data declaration with no type parameters
+================================================================
+
+(data Cell
+  (Dead)
+  (Alive))
+
+----------------------------------------------------------------
+
+(source_file
+  (data_declaration
+    (identifier)
+    (data_constructor
+      (constructor_identifier))
+    (data_constructor
+      (constructor_identifier))))
+
+================================================================
+struct with layout modifiers and a mutable field
+================================================================
+
+(struct Point repr(C)
+  (x : Int)
+  (mut y : Int))
+
+----------------------------------------------------------------
+
+(source_file
+  (struct_declaration
+    (identifier)
+    (struct_modifier
+      (identifier))
+    (field_declaration
+      (identifier)
+      (builtin_type))
+    (field_declaration
+      (identifier)
+      (builtin_type))))
+
+================================================================
+type alias
+================================================================
+
+(type StringList () = [String])
+
+----------------------------------------------------------------
+
+(source_file
+  (type_alias
+    (identifier)
+    (type_parameters)
+    (list_type
+      (builtin_type))))
+
+================================================================
+foreign binding
+================================================================
+
+(foreign printf :: (-> String Int) = "printf")
+
+----------------------------------------------------------------
+
+(source_file
+  (foreign_declaration
+    (identifier)
+    (function_type
+      (builtin_type)
+      (builtin_type))
+    (string_literal)))
+
+================================================================
+import with and without a name list
+================================================================
+
+(import Math.Ops (square cube))
+(import IO)
+
+----------------------------------------------------------------
+
+(source_file
+  (import
+    (module_path)
+    (identifier)
+    (identifier))
+  (import
+    (module_path)))
+
+================================================================
+axtag above a declaration
+================================================================
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main) 0)
+
+----------------------------------------------------------------
+
+(source_file
+  (type_signature
+    (identifier)
+    (builtin_type))
+  (axtag)
+  (function_definition
+    (identifier)
+    (integer_literal)))
