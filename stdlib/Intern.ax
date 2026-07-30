@@ -1,0 +1,364 @@
+; Intern - a string interner, in Axiom.
+;
+; An interner maps string *content* to a small dense `Int` id, and the id
+; back to a string. That is the whole point of it: after interning, two
+; strings are equal exactly when their ids are equal, so a compiler's
+; scope lookups, keyword tests, and duplicate-definition checks become
+; integer comparisons instead of byte-by-byte ones, and every later table
+; can be keyed by a dense `Int` - which is what `Map` wants.
+;
+; An `Intern` is the address of a three-word header:
+;
+;     word 0 : strs  - a `Vec` of `Str` handles, indexed by id
+;     word 1 : cap   - table slots, always a power of two
+;     word 2 : table - address of cap words, each holding `id + 1`
+;
+; WHY SLOTS HOLD `id + 1`. Ids are dense and start at 0, so 0 is a valid
+; id and cannot double as "empty". Storing `id + 1` makes 0 mean empty,
+; and `memAlloc` zeroes, so a fresh table needs no initialisation pass and
+; no separate state array. `Map` cannot use this trick - its keys are
+; arbitrary `Int`s, so it has no spare value - which is why it pays for a
+; third array and this does not.
+;
+; NO DELETE, DELIBERATELY, so no tombstones. Un-interning is not a
+; meaningful operation: an id handed out once may be stored anywhere, and
+; taking it back would either invalidate those copies or leave a hole in
+; the dense id space that `internLookup` could not answer for. So the
+; empty/occupied distinction is the only one the table needs. `Map`'s
+; tombstone machinery is absent here because it is not needed, not
+; because it was forgotten.
+;
+; WHY THIS DOES NOT REUSE `Map`. `Map`'s keys are `Int`s compared with
+; `==`; interning needs keys compared with `strEq`, and Axiom cannot pass
+; a comparison function as an argument - function values type-check and
+; then emit invalid LLVM (blocker B1 in docs/self-hosting.md). The
+; alternative that does not need function values is `Map` from content
+; hash to id, but that is wrong: two distinct strings with the same hash
+; would be one `Map` key, and the second would silently get the first's
+; id. Fixing that needs a `Vec` of ids per bucket, i.e. a chained map
+; built on top of an open-addressed one. A purpose-built table that
+; compares with `strEq` is smaller and exact, so that is what this is.
+; The `Map` import is for the hash constants and `mapRoundUpPow2`, which
+; are genuinely shared.
+;
+; STRINGS ARE NOT COPIED. `internIntern` stores the caller's `Str` handle,
+; so the bytes must outlive the interner and must not change. That is the
+; right default for the intended caller - a lexer interning lexemes that
+; are `strSlice`s of a source buffer it holds for the whole compilation -
+; because copying would allocate once per token to no purpose. A caller
+; that cannot promise stable bytes should intern `(strDup s)`.
+;
+; LEAK ON GROWTH: rehashing abandons the old table, and `Vec` abandons its
+; old element block. See `Vec`'s module comment.
+
+(import Mem)
+(import Str)
+(import Vec)
+(import Map)
+
+; ------------------------------------------------------------------
+; Hashing string content
+;
+; A polynomial hash mod `mapHashPrime`: h = (h * M + byte) mod P over the
+; bytes, seeded. This is the string analogue of `Map`'s multiply-mod-prime
+; integer hash and it is chosen for the same reasons - it needs only
+; `+ * %`, since Axiom has no `^` or `>>` (see the long note in `Map`), and
+; a polynomial hash mod a prime with a random multiplier is a provably
+; almost-universal family rather than an empirically good mixer. The
+; multiplier is fixed rather than per-process for the determinism reason
+; given in `Map`.
+;
+; Bounds: `h` is always less than P < 2^31 and M < 2^31, so `h * M` is
+; under 2^62 and cannot overflow a signed 64-bit `Int` even with a byte
+; added.
+;
+; The length is not folded in at the end, and does not need to be: a
+; polynomial hash already separates strings of different lengths, because
+; appending a byte multiplies the accumulated value by M. Folding `strLen`
+; in as well would be one more multiply for no additional separation, so
+; it is left out rather than added as a reflex.
+;
+; There *is* one extra multiply at the end, for a different reason. In the
+; bare recurrence the final byte is added without being multiplied, so two
+; strings differing only in their last byte have hashes differing by
+; exactly that byte difference - which means `x1`, `x2`, ... `x9`, or any
+; family of identifiers distinguished by a trailing digit, land in nine
+; *consecutive* slots. For a table masked by a power of two and probed
+; linearly, that is a guaranteed cluster, and identifiers ending in digits
+; are not a hypothetical input for a compiler. `internFinishHash` runs the
+; accumulator through one more multiply so that a last-byte difference is
+; spread across the whole word like any other.
+; ------------------------------------------------------------------
+
+; The multiplier. Odd, no small factors, and under `mapHashPrime` so that
+; the product bound above holds.
+(:: internStrMul Int)
+(fn (internStrMul) 1099087573)
+
+; The starting value. Any non-zero seed does; a zero seed would make every
+; string of leading NULs hash to 0 regardless of length.
+(:: internHashSeed Int)
+(fn (internHashSeed) 1234567891)
+
+(:: internHashStr (-> Int Int))
+(fn (internHashStr s)
+  (internFinishHash (internHashFrom s 0 internHashSeed)))
+
+; One final multiply, so that the last byte of the string is mixed rather
+; than merely added. See the note above on trailing digits.
+(:: internFinishHash (-> Int Int))
+(fn (internFinishHash h)
+  (% (* h internStrMul) mapHashPrime))
+
+(:: internHashFrom (-> Int Int Int Int))
+(fn (internHashFrom s i h)
+  (if (>= i (strLen s))
+      h
+      (internHashFrom s
+                      (+ i 1)
+                      (% (+ (* h internStrMul) (strByte s i))
+                         mapHashPrime))))
+
+; The slot `s` probes first, in [0, cap).
+;
+; The `< 0` guard is here for the same reason as `Map.mapSlotOf`'s: `%` is
+; `srem` and preserves the sign of its left operand, and a negative index
+; would be a wild store rather than a wrong answer. `internHashStr` cannot
+; return a negative value, and the guard costs one compare.
+(:: internSlotOf (-> Int Int Int))
+(fn (internSlotOf s cap)
+  (let ((h (% (internHashStr s) cap)))
+    (if (< h 0)
+        (+ h cap)
+        h)))
+
+; ------------------------------------------------------------------
+; Construction
+; ------------------------------------------------------------------
+
+; Slots in a fresh interner. 64 rather than `Map`'s 8: an interner is a
+; single long-lived table per compilation rather than one of thousands of
+; small ones, so the interesting cost is rehashing a table that is going
+; to hold thousands of identifiers, not the footprint of an empty one.
+(:: internDefaultCap Int)
+(fn (internDefaultCap) 64)
+
+; `internDefaultCap` is a *slot* count, so it is passed straight to
+; `internAllocTable` and not through `internWithCapacity`, which takes a
+; *string* count and doubles it. Routing it through the latter would make
+; a fresh interner 128 slots while its own documentation said 64.
+(:: internNew Int)
+(fn (internNew)
+  (internAllocTable internDefaultCap))
+
+; An interner sized so `want` distinct strings fit without rehashing.
+;
+; Doubled before rounding up, because the load factor below is 0.5; see
+; `Map.mapWithCapacity`, which makes the same promise for the same reason.
+(:: internWithCapacity (-> Int Int))
+(fn (internWithCapacity want)
+  (internAllocTable (mapRoundUpPow2 (* (if (< want 1) 1 want) 2))))
+
+; A header over a `Vec` and a zeroed table of `cap` words.
+;
+; The `Vec` is given `cap` elements of room even though only `cap / 2`
+; strings will be interned before the next rehash, because the `Vec` is
+; the one structure here that survives a rehash untouched, so sizing it
+; generously costs one allocation and saves a growth step.
+(:: internAllocTable (-> Int Int))
+(fn (internAllocTable cap)
+  (let ((it (memAlloc 24)))
+    {
+      (memSetWord it 0 (vecWithCapacity cap))
+      (memSetWord it 1 cap)
+      (memSetWord it 2 (memAlloc (* cap 8)))
+      it
+    }))
+
+; ------------------------------------------------------------------
+; Accessors
+; ------------------------------------------------------------------
+
+; The `Vec` of interned strings, indexed by id.
+;
+; Exposed because it *is* the id-to-string mapping, and a caller that
+; wants to walk every interned string in id order should read it directly
+; rather than call `internLookup` in a loop and pay a bounds check per
+; string.
+(:: internStrs (-> Int Int))
+(fn (internStrs it)
+  (memGetWord it 0))
+
+(:: internCap (-> Int Int))
+(fn (internCap it)
+  (memGetWord it 1))
+
+(:: internTable (-> Int Int))
+(fn (internTable it)
+  (memGetWord it 2))
+
+; How many distinct strings have been interned. Ids are exactly
+; 0..internCount-1, with no gaps - that is what "dense" means here, and it
+; is what lets a caller size a side table by `internCount` and index it by
+; id.
+(:: internCount (-> Int Int))
+(fn (internCount it)
+  (vecLen (internStrs it)))
+
+; The string with id `id`, or an empty `Str` if `id` was never handed out.
+;
+; An empty `Str` rather than 0: 0 is not a valid `Str` handle, and
+; returning it would turn a caller's off-by-one into a null dereference
+; inside `strLen` instead of a visible empty string. The cost is a 17-byte
+; allocation on a path that only a buggy caller takes.
+(:: internLookup (-> Int Int Int))
+(fn (internLookup it id)
+  (if (< id 0)
+      (strAlloc 0)
+      (if (>= id (internCount it))
+          (strAlloc 0)
+          (vecGet (internStrs it) id))))
+
+; ------------------------------------------------------------------
+; Lookup
+; ------------------------------------------------------------------
+
+; The id of a string equal in content to `s`, or -1 if none.
+;
+; Comparison is `strEq`, not handle identity - that is the entire point.
+; Two `Str` handles built separately from the same bytes are different
+; `Int`s and must still find the same id.
+;
+; The scan stops at the first empty slot, which proves absence because an
+; id is always placed at or after its home slot within an unbroken run of
+; occupied slots, and nothing is ever removed. `left` bounds the scan at
+; `cap` so that a load factor bug shows up as a wrong answer rather than
+; as a hang.
+;
+; Nested `if`s with one comparison each, rather than `&&` or a
+; `Bool`-returning helper, for the code generation reasons documented at
+; length above `Map`'s probe loops.
+(:: internFind (-> Int Int Int))
+(fn (internFind it s)
+  (internFindFrom it s (internSlotOf s (internCap it)) (internCap it)))
+
+(:: internFindFrom (-> Int Int Int Int Int))
+(fn (internFindFrom it s i left)
+  (if (<= left 0)
+      (- 0 1)
+      (let ((cell (memGetWord (internTable it) i)))
+        (if (== cell 0)
+            (- 0 1)
+            (if (strEq (vecGet (internStrs it) (- cell 1)) s)
+                (- cell 1)
+                (internFindFrom it
+                                s
+                                (internNextSlot i (internCap it))
+                                (- left 1)))))))
+
+(:: internNextSlot (-> Int Int Int))
+(fn (internNextSlot i cap)
+  (if (>= (+ i 1) cap)
+      0
+      (+ i 1)))
+
+; ------------------------------------------------------------------
+; Interning
+; ------------------------------------------------------------------
+
+; True when the table should be rehashed before another string is added.
+;
+; Load factor 0.5, as in `Map`, and for the same probe-count reason. It is
+; `internCount` and not a separate counter because nothing is ever
+; removed, so live entries and occupied slots are the same number - the
+; one simplification that having no delete actually buys.
+(:: internNeedsGrow (-> Int Bool))
+(fn (internNeedsGrow it)
+  (>= (* (internCount it) 2) (internCap it)))
+
+; The id for `s`, interning it if its content is new.
+;
+; RETURNS THE ID ONLY, NOT `(handle, id)`. Axiom has no tuples at runtime,
+; and the two honest ways out are to return one of the pair and make the
+; caller track the other, or to guarantee the handle never moves. This
+; takes the second: the header is mutated in place, and every operation
+; that reallocates - the table here, the `Vec`'s element block - replaces
+; a pointer *inside* the header rather than the header itself. So an
+; `Intern` handle is valid for the life of the interner and a caller needs
+; to keep only the id. The cost is that this design cannot ever move the
+; header, which rules out a compacting or copying arena; that is written
+; down here because it is a real constraint on future work and not
+; obvious from the signatures.
+(:: internIntern (-> Int Int Int))
+(fn (internIntern it s)
+  (let ((existing (internFind it s)))
+    (if (>= existing 0)
+        existing
+        {
+          ; Grow first, so the id is placed into a table that is already
+          ; under its load factor. Growing afterwards could leave the
+          ; table with no empty slot for the next `internFind` to stop
+          ; at.
+          (if (internNeedsGrow it)
+              (internRehash it (* (internCap it) 2))
+              it)
+          (internAdd it s)
+        })))
+
+; Append `s` with the next id and place that id in the table. Returns the
+; id.
+;
+; The id is `vecLen` *before* the push, which is what makes ids dense: the
+; nth distinct string interned gets id n.
+(:: internAdd (-> Int Int Int))
+(fn (internAdd it s)
+  (let ((id (internCount it)))
+    {
+      (vecPush (internStrs it) s)
+      (internPlace it id (internSlotOf s (internCap it)) (internCap it))
+      id
+    }))
+
+; Write `id + 1` into the first empty slot at or after `i`.
+;
+; No key comparison happens here: `internIntern` has already established
+; that the content is absent, so the first empty slot is the right one.
+(:: internPlace (-> Int Int Int Int Int))
+(fn (internPlace it id i left)
+  (if (<= left 0)
+      it
+      (if (== (memGetWord (internTable it) i) 0)
+          (memSetWord (internTable it) i (+ id 1))
+          (internPlace it id (internNextSlot i (internCap it)) (- left 1)))))
+
+; ------------------------------------------------------------------
+; Rehashing
+; ------------------------------------------------------------------
+
+; Rebuild the table at `newCap` slots. Returns the handle.
+;
+; The old table is never read. Because ids are dense and the `Vec` holds
+; every interned string in id order, the entire table can be regenerated
+; by walking ids 0..count-1 - so unlike `Map.mapRehash` there is no need
+; to capture the old array first, and no chance of copying a stale slot.
+; Having a dense id space pays for itself here.
+(:: internRehash (-> Int Int Int))
+(fn (internRehash it newCap)
+  {
+    (memSetWord it 1 newCap)
+    (memSetWord it 2 (memAlloc (* newCap 8)))
+    (internReplaceFrom it 0)
+  })
+
+(:: internReplaceFrom (-> Int Int Int))
+(fn (internReplaceFrom it id)
+  (if (>= id (internCount it))
+      it
+      {
+        (internPlace it
+                     id
+                     (internSlotOf (vecGet (internStrs it) id)
+                                   (internCap it))
+                     (internCap it))
+        (internReplaceFrom it (+ id 1))
+      }))

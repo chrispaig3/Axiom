@@ -788,17 +788,30 @@ impl Parser {
             }
         }
 
+        // A bare identifier is a variable pattern, full stop.
+        //
+        // This used to also accept a prefix-application form, `Name(p ...)`,
+        // treating any identifier followed by `(` as a constructor pattern.
+        // Axiom has no prefix-application syntax anywhere else - every
+        // application, in expressions and in patterns alike, is the
+        // s-expression `(f x)` handled above - and admitting it here broke
+        // the *nested* constructor patterns the language does have, because
+        // the lookahead is greedy and cannot tell a following sibling
+        // pattern from an argument list. In `(Cons h (Cons h2 t))` the
+        // variable `h` swallowed `(Cons h2 t)` as its own argument list,
+        // yielding `PCon(Cons, [PCon(h, [PCon(Cons, [h2, t])])])` and the
+        // nonsense diagnostic pair
+        //
+        //     E AX3009 constructor `Cons` expects 2 argument(s), found 1
+        //     E AX3003 undefined constructor `h`
+        //
+        // for a pattern that is correct. No `.ax` file in the repository
+        // used the prefix form, and `tree-sitter-axiom/grammar.js` never
+        // admitted it (`_pattern` offers only wildcard, literal,
+        // identifier, `constructor_pattern`, tuple and list), so the
+        // grammar and the parser now agree where they previously did not.
         if self.is_ident() {
             let ident = self.parse_ident()?;
-            if self.check(TokenKind::LParen) {
-                self.advance();
-                let mut args = Vec::new();
-                while !self.check(TokenKind::RParen) && !self.at_eof() {
-                    args.push(self.parse_pattern()?);
-                }
-                self.expect(TokenKind::RParen)?;
-                return Ok(Pattern::PCon(ident, args));
-            }
             return Ok(Pattern::PVar(ident));
         }
 

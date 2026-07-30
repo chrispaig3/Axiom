@@ -1,0 +1,172 @@
+; Intern: content-keyed identity, dense ids, and survival across rehashes.
+;
+; The property that matters, and the one an interner exists for, is that
+; two `Str` handles built *separately* from the same bytes get the same
+; id. So the same content is interned here four ways - as a literal, as
+; `strConcat` of two halves, as a `strSlice` out of an unrelated longer
+; string, and as a `strDup` - and all four must return the id the literal
+; got, with `internCount` never moving. The test also prints the two
+; handles' inequality, so the golden file records that they really were
+; different `Int`s and not the same one twice.
+;
+; The remaining cases are there to break a wrong implementation:
+;
+;   - "ae", "ah" and "ba" all satisfy `(internSlotOf s 16) == 0`, so in a
+;     16-slot table they form a three-long probe run; each is then
+;     re-interned to prove the run is walked and not just written;
+;   - 100 generated strings force two rehashes, after which every one of
+;     the 100 is re-interned and looked up, so a rehash that dropped or
+;     duplicated an entry cannot pass;
+;   - the empty string is interned, since a zero-length key is the case a
+;     hash loop is most likely to get wrong;
+;   - ids below 0 and past the end are looked up.
+;
+; HOW THE COLLIDING STRINGS WERE FOUND. A reimplementation of
+; `internHashStr` in a scratch script enumerated every two- and
+; three-letter lowercase string, bucketed each by
+; `internHashStr(s) % 16`, and took the first bucket with three entries;
+; the Axiom `internHashStr` was then checked to agree with the script on
+; those three and on "alpha", "beta" and "". The three hashes are
+; 872500672, 2022279744 and 1477607168 - entirely different - so this is
+; a collision in the table index only, which is what linear probing has
+; to survive.
+(import IO)
+(import Intern)
+
+; `Bool` as a printable digit.
+(:: itBit (-> Bool Int))
+(fn (itBit b)
+  (if b 1 0))
+
+; The nth generated name: "id0", "id1", ...
+;
+; Built with `fmtInt` rather than written out because 100 literals would
+; not fit in a readable test, and because a generated name is a fresh
+; `Str` handle every time it is called - which is exactly the condition
+; the re-interning check below needs.
+(:: itName (-> Int Int))
+(fn (itName n)
+  (strConcat (strFromLit (__addr "id")) (fmtInt n)))
+
+; Intern "id{lo}" .. "id{hi-1}".
+(:: itInternRange (-> Int Int Int Int))
+(fn (itInternRange it lo hi)
+  (if (>= lo hi)
+      it
+      {
+        (internIntern it (itName lo))
+        (itInternRange it (+ lo 1) hi)
+      }))
+
+; Count the n in [lo, hi) for which re-interning "id{n}" - from a freshly
+; built handle - returns the id it was first given, `n`, *and* looking that
+; id up gives back equal content. The caller compares the result against
+; `hi - lo`, so one lost, duplicated, or misfiled entry out of a hundred
+; fails the test.
+;
+; Two conditions per element, written as nested `Int`-returning `if`s:
+; `&&` miscompiles when its operands are comparisons, and a `Bool` may not
+; be the value of an `if`. See the note above `Map`'s probe loops.
+(:: itCountRoundTrip (-> Int Int Int Int))
+(fn (itCountRoundTrip it lo hi)
+  (if (>= lo hi)
+      0
+      (+ (if (== (internIntern it (itName lo)) lo)
+             (if (strEq (internLookup it lo) (itName lo)) 1 0)
+             0)
+         (itCountRoundTrip it (+ lo 1) hi))))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let ((it (internNew))
+        (col (internWithCapacity 8))
+        (big (internNew))
+        (alpha (strFromLit (__addr "alpha")))
+        (built (strConcat (strFromLit (__addr "al"))
+                          (strFromLit (__addr "pha"))))
+        (haystack (strFromLit (__addr "not-alpha-either"))))
+    {
+      ; --- a fresh interner ---
+      (printlnInt (internCount it))                    ; 0
+      (printlnInt (internCap it))                      ; 64
+      (printlnInt (internFind it alpha))               ; -1: nothing yet
+      (printlnInt (strLen (internLookup it 0)))        ; 0: empty, not a crash
+
+      ; --- distinct strings get distinct, dense ids ---
+      (printlnInt (internIntern it alpha))             ; 0
+      (printlnInt (internIntern it (strFromLit (__addr "beta"))))   ; 1
+      (printlnInt (internIntern it (strFromLit (__addr "gamma"))))  ; 2
+      (printlnInt (internCount it))                    ; 3
+
+      ; --- THE POINT: equal content, four unrelated handles, one id ---
+      ; The handles differ...
+      (printlnInt (itBit (== alpha built)))            ; 0: different Ints
+      ; ...but the ids do not.
+      (printlnInt (internIntern it built))             ; 0
+      (printlnInt (internIntern it (strSlice haystack 4 5)))        ; 0
+      (printlnInt (internIntern it (strDup built)))    ; 0
+      (printlnInt (internIntern it alpha))             ; 0
+      (printlnInt (internCount it))                    ; 3: nothing added
+      (printlnInt (internCap it))                      ; 64: no rehash
+
+      ; --- and a *different* slice of the same haystack does not ---
+      (printlnInt (internIntern it (strSlice haystack 0 3)))        ; 3: "not"
+      (printlnInt (internCount it))                    ; 4
+
+      ; --- id -> string round trip ---
+      (println (internLookup it 0))                    ; alpha
+      (println (internLookup it 1))                    ; beta
+      (println (internLookup it 2))                    ; gamma
+      (println (internLookup it 3))                    ; not
+      (printlnInt (itBit (strEq (internLookup it 0) built)))        ; 1
+
+      ; --- out-of-range ids ---
+      (printlnInt (strLen (internLookup it 4)))        ; 0: one past the end
+      (printlnInt (strLen (internLookup it (- 0 1))))  ; 0
+      (printlnInt (strLen (internLookup it 100000)))   ; 0
+
+      ; --- the empty string is an ordinary key ---
+      (printlnInt (internIntern it (strFromLit (__addr ""))))       ; 4
+      (printlnInt (internCount it))                    ; 5
+      (printlnInt (internIntern it (strSlice haystack 0 0)))        ; 4: again
+      (printlnInt (internCount it))                    ; 5
+      (printlnInt (strLen (internLookup it 4)))        ; 0: and it is empty
+
+      ; --- a string that was never interned ---
+      (printlnInt (internFind it (strFromLit (__addr "delta"))))    ; -1
+      (printlnInt (internFind it (strFromLit (__addr "alph"))))     ; -1: prefix
+      (printlnInt (internFind it (strFromLit (__addr "alphaa"))))   ; -1: extension
+      (printlnInt (internCount it))                    ; 5: find never adds
+
+      ; --- three strings sharing one table index ---
+      (printlnInt (internCap col))                     ; 16
+      (printlnInt (internSlotOf (strFromLit (__addr "ae")) 16))     ; 0
+      (printlnInt (internSlotOf (strFromLit (__addr "ah")) 16))     ; 0
+      (printlnInt (internSlotOf (strFromLit (__addr "ba")) 16))     ; 0
+      (printlnInt (internIntern col (strFromLit (__addr "ae"))))    ; 0
+      (printlnInt (internIntern col (strFromLit (__addr "ah"))))    ; 1
+      (printlnInt (internIntern col (strFromLit (__addr "ba"))))    ; 2
+      (printlnInt (internCount col))                   ; 3
+      (printlnInt (internCap col))                     ; 16: no rehash yet
+      ; Re-intern each, from fresh handles, so the whole probe run is
+      ; walked rather than only its first slot.
+      (printlnInt (internIntern col (strFromLit (__addr "ae"))))    ; 0
+      (printlnInt (internIntern col (strFromLit (__addr "ah"))))    ; 1
+      (printlnInt (internIntern col (strFromLit (__addr "ba"))))    ; 2
+      (printlnInt (internCount col))                   ; 3: still three
+      (println (internLookup col 2))                   ; ba
+
+      ; --- 100 strings, two rehashes: 64 -> 128 -> 256 ---
+      (itInternRange big 0 100)
+      (printlnInt (internCount big))                   ; 100
+      (printlnInt (internCap big))                     ; 256
+      (printlnInt (itCountRoundTrip big 0 100))        ; 100: none lost
+      (printlnInt (internCount big))                   ; 100: none re-added
+      (println (internLookup big 0))                   ; id0
+      (println (internLookup big 99))                  ; id99
+      (printlnInt (internFind big (strFromLit (__addr "id7"))))     ; 7
+      (printlnInt (internFind big (strFromLit (__addr "id100"))))   ; -1
+      (printlnInt (strLen (internLookup big 100)))     ; 0
+      0
+    }))

@@ -149,6 +149,20 @@ impl LlvmCodeGen {
             self.emit_bump_allocator();
         }
 
+        // Emitted only when some `match` actually branches to it, so a
+        // program with no fallible match does not carry the symbol and the
+        // freestanding-IR gate has nothing extra to account for.
+        let needs_match_fail = ir_module.functions.iter().any(|f| {
+            f.blocks.iter().any(|b| {
+                b.insts
+                    .iter()
+                    .any(|i| matches!(i, IrInst::Call { func, .. } if func == MATCH_FAIL_SYMBOL))
+            })
+        });
+        if needs_match_fail && !ir_module.functions.iter().any(|f| f.name == MATCH_FAIL_SYMBOL) {
+            self.emit_match_fail();
+        }
+
         for ir_struct in &ir_module.structs {
             self.declare_struct(ir_struct);
         }
@@ -826,18 +840,40 @@ impl LlvmCodeGen {
                 )
                 .unwrap();
             }
+            // A cast used to be emitted unconditionally as
+            // `trunc i64 %src to <target>`, which is only ever valid for
+            // one of the cases it was asked to handle. `trunc` to an equal
+            // or wider type is rejected by `llc` outright ("result type
+            // must be smaller than operand type"), and `trunc` between an
+            // integer and a pointer or a float is not even the right
+            // opcode - so widening, pointer and floating-point casts all
+            // produced invalid modules. The source type was already
+            // recorded, it simply was not consulted.
             IrInst::Cast {
                 dest,
                 src,
                 target_ty,
             } => {
-                let src_val = self.value_to_llvm(src)?;
+                let (src_val, src_llvm) = self.value_to_typed_string(src)?;
                 let target_llvm = self.type_to_llvm(target_ty);
                 let result_reg = self.new_local_reg();
+
+                if src_llvm == target_llvm {
+                    // Nothing to emit: alias the destination to the source
+                    // register. Emitting a same-type conversion would be
+                    // invalid whichever opcode were chosen.
+                    if let IrValue::Local(name) = dest {
+                        self.ssa_values
+                            .insert(name.clone(), (src_val, target_ty.clone()));
+                    }
+                    return Ok(());
+                }
+
+                let op = Self::cast_opcode(&src_llvm, &target_llvm, self.value_is_unsigned(src));
                 writeln!(
                     self.output,
-                    "  {} = trunc i64 {} to {}",
-                    result_reg, src_val, target_llvm
+                    "  {} = {} {} {} to {}",
+                    result_reg, op, src_llvm, src_val, target_llvm
                 )
                 .unwrap();
                 if let IrValue::Local(name) = dest {
@@ -1158,6 +1194,36 @@ impl LlvmCodeGen {
         writeln!(out).unwrap();
     }
 
+    /// Emit [`MATCH_FAIL_SYMBOL`]: exit the process when a `match`
+    /// matched no arm.
+    ///
+    /// Status 71 is `EX_OSERR` from `sysexits.h`, chosen because it is
+    /// distinct from the allocator's out-of-memory 70 (`EX_OSFILE`) so the
+    /// two traps are told apart by exit status alone, without a message.
+    /// Writing a message would need `Sys`/`IO`, which are Axiom modules
+    /// this backend cannot call into - the backend has no way to name an
+    /// Axiom function that the program may not have imported.
+    ///
+    /// The declared return type is `i64` so the call site is an ordinary
+    /// value-producing call and needs no special case in `emit_inst`; it
+    /// never returns.
+    fn emit_match_fail(&mut self) {
+        let (body, constraints) = self.target.syscall_asm();
+        let exit = self.target.sys_exit();
+        let out = &mut self.output;
+        writeln!(out, "define i64 @{}() {{", MATCH_FAIL_SYMBOL).unwrap();
+        writeln!(out, "entry:").unwrap();
+        writeln!(
+            out,
+            "  call i64 asm sideeffect \"{}\", \"{}\"(i64 {}, i64 71, i64 0, i64 0, i64 0, i64 0, i64 0)",
+            body, constraints, exit
+        )
+        .unwrap();
+        writeln!(out, "  unreachable").unwrap();
+        writeln!(out, "}}").unwrap();
+        writeln!(out).unwrap();
+    }
+
     fn value_to_llvm(&self, value: &IrValue) -> Result<String, String> {
         match value {
             IrValue::Local(name) => {
@@ -1175,6 +1241,82 @@ impl LlvmCodeGen {
             }
             IrValue::Global(name) => Ok(format!("@{}", name)),
             IrValue::Const(const_val) => Ok(self.const_to_llvm_value(const_val)),
+        }
+    }
+
+    /// Is this value's own type an unsigned integer?
+    ///
+    /// Anything whose type is not recorded is treated as signed, matching
+    /// Axiom's default `Int`. Every value the generator produces today is
+    /// `I64`, so this only becomes load-bearing for casts written against
+    /// the explicitly-sized types.
+    fn value_is_unsigned(&self, value: &IrValue) -> bool {
+        match value {
+            IrValue::Const(IrConst::Int(_, ty)) => is_unsigned_int_ty(ty),
+            IrValue::Local(name) => self
+                .ssa_values
+                .get(name)
+                .or_else(|| self.locals.get(name))
+                .is_some_and(|(_, ty)| is_unsigned_int_ty(ty)),
+            _ => false,
+        }
+    }
+
+    /// Choose the LLVM conversion opcode for `src_llvm -> target_llvm`.
+    ///
+    /// `src_unsigned` selects between the sign-extending and
+    /// zero-extending widenings, and between the signed and unsigned
+    /// integer/floating-point conversions. It describes the *source*,
+    /// which is the operand whose bits are being reinterpreted: widening a
+    /// `U8` to an `I64` must zero-extend even though the target is signed,
+    /// and widening an `I8` to a `U64` must sign-extend even though the
+    /// target is not.
+    ///
+    /// Narrowing is `trunc` regardless of signedness - it discards high
+    /// bits either way - which is why the previous unconditional `trunc`
+    /// was correct for the one case it was tested on.
+    fn cast_opcode(src_llvm: &str, target_llvm: &str, src_unsigned: bool) -> &'static str {
+        let src_kind = llvm_type_kind(src_llvm);
+        let target_kind = llvm_type_kind(target_llvm);
+        match (src_kind, target_kind) {
+            (LlvmKind::Int(a), LlvmKind::Int(b)) => {
+                if b < a {
+                    "trunc"
+                } else if src_unsigned {
+                    "zext"
+                } else {
+                    "sext"
+                }
+            }
+            (LlvmKind::Int(_), LlvmKind::Float(_)) => {
+                if src_unsigned {
+                    "uitofp"
+                } else {
+                    "sitofp"
+                }
+            }
+            (LlvmKind::Float(_), LlvmKind::Int(_)) => {
+                if src_unsigned {
+                    "fptoui"
+                } else {
+                    "fptosi"
+                }
+            }
+            (LlvmKind::Float(a), LlvmKind::Float(b)) => {
+                if b < a {
+                    "fptrunc"
+                } else {
+                    "fpext"
+                }
+            }
+            (LlvmKind::Int(_), LlvmKind::Ptr) => "inttoptr",
+            (LlvmKind::Ptr, LlvmKind::Int(_)) => "ptrtoint",
+            // Opaque pointers make pointer-to-pointer a no-op, but the
+            // equal-type case is handled by the caller, so reaching here
+            // means an aggregate or an unmodelled type. `bitcast` is the
+            // only same-size reinterpretation available and is what the
+            // previous code would have wanted.
+            _ => "bitcast",
         }
     }
 
@@ -1367,6 +1509,34 @@ impl LlvmCodeGen {
     pub fn get_output(&self) -> &str {
         &self.output
     }
+}
+
+/// Coarse classification of an emitted LLVM type name, enough to pick a
+/// conversion opcode. Widths are carried so narrowing and widening can be
+/// told apart.
+#[derive(PartialEq, Eq)]
+enum LlvmKind {
+    Int(u32),
+    Float(u32),
+    Ptr,
+    Other,
+}
+
+fn llvm_type_kind(name: &str) -> LlvmKind {
+    match name {
+        "ptr" => LlvmKind::Ptr,
+        "float" => LlvmKind::Float(32),
+        "double" => LlvmKind::Float(64),
+        _ => match name.strip_prefix('i').and_then(|w| w.parse::<u32>().ok()) {
+            Some(width) => LlvmKind::Int(width),
+            None => LlvmKind::Other,
+        },
+    }
+}
+
+fn is_unsigned_int_ty(ty: &TypeId) -> bool {
+    matches!(ty, TypeId::TCon(name, _)
+        if matches!(name.as_str(), "U8" | "U16" | "U32" | "U64" | "U128" | "Usize"))
 }
 
 fn escape_llvm_string(s: &str) -> String {

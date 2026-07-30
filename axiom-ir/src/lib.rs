@@ -2,6 +2,20 @@ pub mod generator;
 
 pub use axiom_sema::TypeId;
 
+/// Runtime trap invoked when a `match` matches no arm.
+///
+/// Defined here rather than in `axiom-codegen` because both sides need
+/// the name and the dependency runs ir -> codegen: the generator emits
+/// the call, and codegen emits the definition on demand the same way it
+/// does for [`crate::ALLOC_SYMBOL`]'s counterpart in that crate.
+///
+/// A program that reaches it is one sema should have rejected, with one
+/// exception that is reachable today: constructor exhaustiveness does not
+/// consider *sub*-patterns, so `(match m ((Just 0) a))` type-checks and
+/// has no arm for `(Just 1)`. Trapping makes that a diagnosable exit
+/// status instead of a silent read of an uninitialised stack slot.
+pub const MATCH_FAIL_SYMBOL: &str = "__axiom_match_fail";
+
 #[derive(Debug, Clone)]
 pub enum IrInst {
     Const {
