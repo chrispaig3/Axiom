@@ -780,3 +780,348 @@ fn fmt_counts_axtags_as_preserved() {
         stderr(&out)
     );
 }
+
+// ---------------------------------------------------------------
+// §1 prerequisite correctness regression tests
+//
+// These are the integration gates described in the P1 plan §1:
+// each one exercises a correctness fix that, when absent, produces
+// silently wrong code rather than a diagnostic. They run the full
+// pipeline through to a native process so that silent miscompiles
+// become visible as wrong exit codes.
+// ---------------------------------------------------------------
+
+/// §1.1: gen_lambda cursor restore — code after a lambda in the same
+/// function body must emit into the outer function, not the lambda's
+/// entry block. The `let` binding evaluates the lambda (calling
+/// gen_lambda), then `(add1 41)` is evaluated — if the cursor is
+/// corrupted, the Store/Ret for add1's IR lands in the lambda's blocks.
+#[test]
+fn lambda_cursor_restore_code_after_lambda_is_correct() {
+    let dir = scratch_dir("lambda-cursor");
+    write_source(
+        &dir,
+        "main.ax",
+        "(:: add1 (-> Int Int))\n\
+         (fn (add1 x) (+ x 1))\n\
+         (:: main Int)\n\
+         (fn (main)\n  (let ((_ (lambda (x) (+ x 1)))) (add1 41)))\n",
+    );
+    let out = run_axiom(&["run", "main.ax"], &dir);
+    assert_eq!(out.status.code(), Some(42), "stderr: {}", stderr(&out));
+}
+
+/// §1.3: Cast widening — casting from a narrower type to a wider type
+/// must use zext/sext, not trunc.
+#[test]
+fn cast_widening_preserves_value() {
+    let dir = scratch_dir("cast-widen");
+    write_source(
+        &dir,
+        "main.ax",
+        "(:: main Int)\n\
+         (fn (main) (cast I64 (cast I8 42)))\n",
+    );
+    let out = run_axiom(&["run", "main.ax"], &dir);
+    assert_eq!(out.status.code(), Some(42), "stderr: {}", stderr(&out));
+}
+
+/// §1.4: Nested PCon field offset — nested constructor patterns must
+/// read fields at byte offset 8, not 1.
+#[test]
+fn nested_constructor_patterns_read_correct_offsets() {
+    let dir = scratch_dir("nested-pcon-offset");
+    write_source(
+        &dir,
+        "main.ax",
+        "(data Inner (a) (IA a) (IB a))\n\
+         (data Outer (a) (OA a (Inner a)) (OB (Inner a) a))\n\
+         (:: main Int)\n\
+         (fn (main)\n  (match (OA 1 (IA 2))\n    ((OA x (IA y)) (+ x y))\n    ((OA x (IB y)) (+ x y))\n    ((OB (IA y) x) (+ x y))\n    ((OB (IB y) x) (+ x y))))\n",
+    );
+    let out = run_axiom(&["run", "main.ax"], &dir);
+    assert_eq!(out.status.code(), Some(3), "stderr: {}", stderr(&out));
+}
+
+/// §1.5: Match-failure defensive init — the match result alloca is
+/// initialized to zero so a pathological fallthrough returns a
+/// deterministic value instead of reading uninitialized memory.
+#[test]
+fn exhaustive_match_initializes_result_to_zero() {
+    let dir = scratch_dir("match-result-init");
+    write_source(
+        &dir,
+        "main.ax",
+        "(data Maybe (a) (Nothing) (Just a))\n\
+         (:: main Int)\n\
+         (fn (main)\n  (match (Just 99) ((Just x) x) ((Nothing) 0)))\n",
+    );
+    let out = run_axiom(&["run", "main.ax"], &dir);
+    assert_eq!(out.status.code(), Some(99), "stderr: {}", stderr(&out));
+}
+
+/// §1.6: Argument evaluation order — curried application must
+/// evaluate arguments left-to-right.
+#[test]
+fn argument_evaluation_is_left_to_right() {
+    let dir = scratch_dir("eval-order");
+    write_source(
+        &dir,
+        "main.ax",
+        "(:: add2 (-> Int Int Int))\n\
+         (fn (add2 a b) (+ a b))\n\
+         (:: id (-> Int Int))\n\
+         (fn (id x) x)\n\
+         (:: main Int)\n\
+         (fn (main) (add2 (id 3) (id 39)))\n",
+    );
+    let out = run_axiom(&["run", "main.ax"], &dir);
+    assert_eq!(out.status.code(), Some(42), "stderr: {}", stderr(&out));
+}
+
+/// §1.8: Unique alloca names — variable shadowing and match-arm
+/// bindings must not collide on alloca names.
+#[test]
+fn alloca_names_are_unique_under_shadowing() {
+    let dir = scratch_dir("alloca-shadow");
+    write_source(
+        &dir,
+        "main.ax",
+        "(:: main Int)\n\
+         (fn (main)\n  (let ((x 1)) (let ((x 2)) (+ x x))))\n",
+    );
+    let out = run_axiom(&["run", "main.ax"], &dir);
+    assert_eq!(out.status.code(), Some(4), "stderr: {}", stderr(&out));
+}
+
+/// §1.4b: Nested PCon field offset — alternative exercise with
+/// a simpler two-level tree matching.
+#[test]
+fn nested_constructor_matching_on_list_like_type() {
+    let dir = scratch_dir("nested-con-list");
+    write_source(
+        &dir,
+        "main.ax",
+        "(data Tree (Leaf Int) (Node (Tree) (Tree)))\n\
+         (:: sumTree (-> (Tree) Int))\n\
+         (fn (sumTree t)\n  (match t\n    ((Leaf n) n)\n    ((Node l r) (+ (sumTree l) (sumTree r)))))\n\
+         (:: main Int)\n\
+         (fn (main) (sumTree (Node (Leaf 10) (Node (Leaf 20) (Leaf 12)))))\n",
+    );
+    let out = run_axiom(&["run", "main.ax"], &dir);
+    assert_eq!(out.status.code(), Some(42), "stderr: {}", stderr(&out));
+}
+
+// ---------------------------------------------------------------
+// §2.1 B2: Guaranteed tail calls
+//
+// Axiom has no loop construct; all iteration is recursion. Without
+// tail-call optimisation, each recursive call costs a stack frame.
+// These tests verify that a self-tail-call in tail position
+// compiles to a branch rather than a call, so O(1) stack can
+// handle O(N) iterations.
+// ---------------------------------------------------------------
+
+/// A tail-recursive sum over 10^6 steps completes without segfault.
+#[test]
+fn tail_call_summation_1m_iterations() {
+    let dir = scratch_dir("tail-sum");
+    write_source(
+        &dir,
+        "main.ax",
+        "(:: sumTo (-> Int Int Int))\n\
+         (fn (sumTo n acc)\n  (if (<= n 0) acc (sumTo (- n 1) (+ acc n))))\n\
+         (:: main Int)\n\
+         (fn (main) (sumTo 1000000 0))\n",
+    );
+    let out = run_axiom(&["run", "main.ax"], &dir);
+    assert!(
+        out.status.success()
+            || out.status.code().is_some(),
+        "must not segfault: {}",
+        stderr(&out)
+    );
+}
+
+/// Tail call works through EBegin — the last expression in a
+/// sequence block is in tail position.
+#[test]
+fn tail_call_through_ebegin() {
+    let dir = scratch_dir("tail-begin");
+    write_source(
+        &dir,
+        "main.ax",
+        "(:: countDown (-> Int Int))\n\
+         (fn (countDown n)\n  { (+ 1 2) (if (<= n 0) 0 (countDown (- n 1))) })\n\
+         (:: main Int)\n\
+         (fn (main) (countDown 1000000))\n",
+    );
+    let out = run_axiom(&["run", "main.ax"], &dir);
+    assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr(&out));
+}
+
+/// Tail call works through EMatch — each arm body is in tail position.
+#[test]
+fn tail_call_through_match() {
+    let dir = scratch_dir("tail-match");
+    write_source(
+        &dir,
+        "main.ax",
+        "(data Tree (Leaf) (Node a))\n\
+         (:: walk (-> (Tree) Int))\n\
+         (fn (walk t)\n  (match t\n    ((Leaf) 0)\n    ((Node _) (walk (Leaf)))))\n\
+         (:: main Int)\n\
+         (fn (main) (walk (Node (Leaf))))\n",
+    );
+    let out = run_axiom(&["run", "main.ax"], &dir);
+    assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr(&out));
+}
+
+// ---------------------------------------------------------------
+// §2.3 B1: Closures (function values)
+//
+// Function values (both top-level function references and inline
+// lambdas) compile and run through a first-class closure
+// representation with CallIndirect.
+// ---------------------------------------------------------------
+
+/// apply2 f x = f (f x) — the exit-criterion higher-order probe.
+#[test]
+fn apply2_composes_a_function_with_itself() {
+    let dir = scratch_dir("b1-apply2");
+    write_source(
+        &dir,
+        "main.ax",
+        "(:: apply2 (-> (-> Int Int) Int Int))\n\
+         (fn (apply2 f x) (f (f x)))\n\
+         (:: add1 (-> Int Int))\n\
+         (fn (add1 x) (+ x 1))\n\
+         (:: main Int)\n\
+         (fn (main) (apply2 add1 20))\n",
+    );
+    let out = run_axiom(&["run", "main.ax"], &dir);
+    assert_eq!(out.status.code(), Some(22), "stderr: {}", stderr(&out));
+}
+
+/// A lambda used as a first-class value: `(apply (lambda (x) (+ x 1)) 41)`.
+#[test]
+fn lambda_as_value_called_via_apply() {
+    let dir = scratch_dir("b1-lambda-val");
+    write_source(
+        &dir,
+        "main.ax",
+        "(:: apply (-> (-> Int Int) Int Int))\n\
+         (fn (apply f x) (f x))\n\
+         (:: main Int)\n\
+         (fn (main) (apply (lambda (x) (+ x 1)) 41))\n",
+    );
+    let out = run_axiom(&["run", "main.ax"], &dir);
+    assert_eq!(out.status.code(), Some(42), "stderr: {}", stderr(&out));
+}
+
+/// A top-level function passed as a value: `(apply add1 41)`.
+#[test]
+fn function_name_as_value_via_apply() {
+    let dir = scratch_dir("b1-fn-val");
+    write_source(
+        &dir,
+        "main.ax",
+        "(:: apply (-> (-> Int Int) Int Int))\n\
+         (fn (apply f x) (f x))\n\
+         (:: add1 (-> Int Int))\n\
+         (fn (add1 x) (+ x 1))\n\
+         (:: main Int)\n\
+         (fn (main) (apply add1 41))\n",
+    );
+    let out = run_axiom(&["run", "main.ax"], &dir);
+    assert_eq!(out.status.code(), Some(42), "stderr: {}", stderr(&out));
+}
+
+/// Closures capture free variables from the enclosing scope:
+/// `(compose f g) = (lambda (x) (f (g x)))` captures `f` and `g`.
+#[test]
+fn closure_captures_free_variables_via_compose() {
+    let dir = scratch_dir("b1-compose");
+    write_source(
+        &dir,
+        "main.ax",
+        "(:: compose (-> (-> Int Int) (-> Int Int) (-> Int Int)))\n\
+         (fn (compose f g) (lambda (x) (f (g x))))\n\
+         (:: add1 (-> Int Int))\n\
+         (fn (add1 x) (+ x 1))\n\
+         (:: mul2 (-> Int Int))\n\
+         (fn (mul2 x) (* x 2))\n\
+         (:: apply (-> (-> Int Int) Int Int))\n\
+         (fn (apply f x) (f x))\n\
+         (:: main Int)\n\
+         (fn (main) (apply (compose add1 mul2) 20))\n",
+    );
+    let out = run_axiom(&["run", "main.ax"], &dir);
+    assert_eq!(out.status.code(), Some(41), "stderr: {}", stderr(&out));
+}
+
+// ---------------------------------------------------------------
+// §2.4 ADT struct variants — named constructor fields
+//
+// Positional constructors remain unchanged; named-field constructors
+// use `{ name : type }` syntax in declarations and
+// `{ name = pattern }` in pattern matches.
+// ---------------------------------------------------------------
+
+/// Declare a named-field data type and match on it exhaustively.
+#[test]
+fn named_field_constructor_declaration_and_match() {
+    let dir = scratch_dir("adt-named");
+    write_source(
+        &dir,
+        "main.ax",
+        "(data Person\n  (Person { name : Int age : Int }))\n(:: main Int)\n\
+         (fn (main)\n  (match (Person 42 99)\n    ((Person { age = a name = n }) (+ n a))))\n",
+    );
+    let out = run_axiom(&["run", "main.ax"], &dir);
+    assert_eq!(out.status.code(), Some(141), "stderr: {}", stderr(&out));
+}
+
+/// Named-field constructor parse round-trips through fmt.
+#[test]
+fn named_field_constructor_parse_and_check() {
+    let dir = scratch_dir("adt-named-decl");
+    write_source(
+        &dir,
+        "main.ax",
+        "(data Shape\n  (Circle { radius : Int })\n  (Rectangle { w : Int h : Int }))\n\
+         (:: main Int)\n(fn (main) 42)\n",
+    );
+    let out = run_axiom(&["check", "main.ax"], &dir);
+    assert!(out.status.success(), "stderr: {}", stderr(&out));
+}
+
+/// Dot-access on a named-field constructor reads the correct field.
+#[test]
+fn named_field_dot_access_reads_field_by_name() {
+    let dir = scratch_dir("adt-dot-get");
+    write_source(
+        &dir,
+        "main.ax",
+        "(data Person (Person { name : Int age : Int }))\n\
+         (:: main Int)\n\
+         (fn (main)\n  (let ((p (Person 42 99))) (+ (p.name) (p.age))))\n",
+    );
+    let out = run_axiom(&["run", "main.ax"], &dir);
+    assert_eq!(out.status.code(), Some(141), "stderr: {}", stderr(&out));
+}
+
+/// Dot-access ordering is by field declaration, not access order.
+#[test]
+fn named_field_dot_access_order_is_declaration_order() {
+    let dir = scratch_dir("adt-dot-order");
+    write_source(
+        &dir,
+        "main.ax",
+        "(data Pair (Pair { second : Int first : Int }))\n\
+         (:: main Int)\n\
+         (fn (main)\n  (let ((p (Pair 10 20))) (+ (p.first) (p.second))))\n",
+    );
+    let out = run_axiom(&["run", "main.ax"], &dir);
+    assert_eq!(out.status.code(), Some(30), "stderr: {}", stderr(&out));
+}

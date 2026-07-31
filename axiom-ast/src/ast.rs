@@ -108,6 +108,7 @@ pub enum Pattern {
     PWildcard,
     PVar(Ident),
     PCon(Ident, Vec<Pattern>),
+    PConNamed(Ident, Vec<(Ident, Pattern)>),
     PLit(Literal),
     PTuple(Vec<Pattern>),
     PList(Vec<Pattern>),
@@ -262,6 +263,18 @@ pub enum Decl {
         nid: Option<String>,
         axtags: Vec<Axtag>,
     },
+    /// A compile-time macro: `(macro (name . params) body)`.
+    /// The `params` are a single pattern tree (dotted list) parsed
+    /// as a flat `Pattern` – matching occurs against the call-site
+    /// argument list, and every `PVar` in the pattern is substituted
+    /// into `body` during expansion.
+    DMacro {
+        name: Ident,
+        params: Pattern,
+        body: Expr,
+        nid: Option<String>,
+        axtags: Vec<Axtag>,
+    },
     DForeign {
         name: Ident,
         ty: Type,
@@ -314,9 +327,31 @@ pub struct EffectOp {
 }
 
 #[derive(Debug, Clone)]
+pub enum ConFields {
+    Positional(Vec<Type>),
+    Named(Vec<Field>),
+}
+
+#[derive(Debug, Clone)]
 pub struct DataCon {
     pub name: Ident,
-    pub fields: Vec<Type>,
+    pub con_fields: ConFields,
+}
+
+impl DataCon {
+    pub fn field_types(&self) -> Vec<&Type> {
+        match &self.con_fields {
+            ConFields::Positional(tys) => tys.iter().collect(),
+            ConFields::Named(fields) => fields.iter().map(|f| &f.ty).collect(),
+        }
+    }
+
+    pub fn is_nullary(&self) -> bool {
+        match &self.con_fields {
+            ConFields::Positional(tys) => tys.is_empty(),
+            ConFields::Named(fields) => fields.is_empty(),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -383,6 +418,10 @@ impl Decl {
             }
             Decl::DForeign { name, .. } => {
                 out.push_str("DForeign:");
+                out.push_str(&name.name);
+            }
+            Decl::DMacro { name, .. } => {
+                out.push_str("DMacro:");
                 out.push_str(&name.name);
             }
             Decl::DEffect { name, .. } => {

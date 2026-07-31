@@ -199,6 +199,12 @@ impl Parser {
                 *n = Some(nid);
                 *a = axtags;
             }
+            Decl::DMacro {
+                nid: n, axtags: a, ..
+            } => {
+                *n = Some(nid);
+                *a = axtags;
+            }
             Decl::DImport { .. } => {}
         }
     }
@@ -254,6 +260,8 @@ impl Parser {
             self.parse_define()?
         } else if self.check(TokenKind::Data) {
             self.parse_data()?
+        } else if self.check(TokenKind::Macro) {
+            self.parse_macro()?
         } else if self.check(TokenKind::Struct) {
             self.parse_struct()?
         } else if self.check(TokenKind::Type) {
@@ -352,14 +360,35 @@ impl Parser {
         while self.check(TokenKind::LParen) {
             self.advance();
             let con_name = self.parse_ident()?;
-            let mut fields = Vec::new();
-            while !self.check(TokenKind::RParen) && !self.at_eof() {
-                fields.push(self.parse_type()?);
-            }
+            let con_fields = if self.check(TokenKind::LBrace) {
+                self.advance();
+                let mut named = Vec::new();
+                while !self.check(TokenKind::RBrace) && !self.at_eof() {
+                    let field_name = self.parse_ident()?;
+                    self.expect(TokenKind::Colon)?;
+                    let field_ty = self.parse_type()?;
+                    named.push(Field {
+                        name: field_name,
+                        ty: field_ty,
+                        mutable: false,
+                    });
+                    if self.check(TokenKind::Comma) {
+                        self.advance();
+                    }
+                }
+                self.expect(TokenKind::RBrace)?;
+                ConFields::Named(named)
+            } else {
+                let mut fields = Vec::new();
+                while !self.check(TokenKind::RParen) && !self.at_eof() {
+                    fields.push(self.parse_type()?);
+                }
+                ConFields::Positional(fields)
+            };
             self.expect(TokenKind::RParen)?;
             constructors.push(DataCon {
                 name: con_name,
-                fields,
+                con_fields,
             });
         }
 
@@ -463,7 +492,7 @@ impl Parser {
             tyvars,
             constructors: vec![DataCon {
                 name: constructor,
-                fields: vec![inner_type],
+                con_fields: ConFields::Positional(vec![inner_type]),
             }],
             deriving: Vec::new(),
             nid: None,
@@ -687,6 +716,30 @@ impl Parser {
         })
     }
 
+    fn parse_macro(&mut self) -> ParseResult<Decl> {
+        self.expect(TokenKind::Macro)?;
+        self.expect(TokenKind::LParen)?;
+        let name = self.parse_ident()?;
+        let mut params = Vec::new();
+        while !self.check(TokenKind::RParen) && !self.at_eof() {
+            params.push(self.parse_pattern()?);
+        }
+        self.expect(TokenKind::RParen)?;
+        let body = self.parse_expr()?;
+        let param_pattern = if params.len() == 1 {
+            params.into_iter().next().unwrap()
+        } else {
+            Pattern::PTuple(params)
+        };
+        Ok(Decl::DMacro {
+            name,
+            params: param_pattern,
+            body,
+            nid: None,
+            axtags: Vec::new(),
+        })
+    }
+
     fn flatten_arrow_type(ty: Type) -> (Vec<Type>, Type) {
         let mut params = Vec::new();
         let mut current = ty;
@@ -724,6 +777,22 @@ impl Parser {
             // disambiguate from a tuple pattern's first element.
             if self.is_constructor_ident() {
                 let ident = self.parse_ident()?;
+                if self.check(TokenKind::LBrace) {
+                    self.advance();
+                    let mut named_args = Vec::new();
+                    while !self.check(TokenKind::RBrace) && !self.at_eof() {
+                        let field_name = self.parse_ident()?;
+                        self.expect(TokenKind::Eq)?;
+                        let field_pat = self.parse_pattern()?;
+                        named_args.push((field_name, field_pat));
+                        if self.check(TokenKind::Comma) {
+                            self.advance();
+                        }
+                    }
+                    self.expect(TokenKind::RBrace)?;
+                    self.expect(TokenKind::RParen)?;
+                    return Ok(Pattern::PConNamed(ident, named_args));
+                }
                 let mut args = Vec::new();
                 while !self.check(TokenKind::RParen) && !self.at_eof() {
                     args.push(self.parse_pattern()?);
@@ -790,7 +859,9 @@ impl Parser {
 
         if self.is_ident() {
             let ident = self.parse_ident()?;
-            if self.check(TokenKind::LParen) {
+            if ident.name.chars().next().is_some_and(|c| c.is_uppercase())
+                && self.check(TokenKind::LParen)
+            {
                 self.advance();
                 let mut args = Vec::new();
                 while !self.check(TokenKind::RParen) && !self.at_eof() {
@@ -1533,8 +1604,9 @@ impl Parser {
                     expected: "identifier".to_string(),
                     found: format!("{}", token.kind),
                     span: token.span,
-                })
-            }
+        })
+    }
+
         };
         Ok(Ident::new(&name, token.span))
     }
@@ -1803,6 +1875,17 @@ mod tests {
         match parse_pattern_ok("x y") {
             Pattern::PTuple(pats) => assert_eq!(pats.len(), 2),
             other => panic!("expected PTuple, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn nested_constructor_pattern_has_correct_arity() {
+        match parse_pattern_ok("OA x (IA y)") {
+            Pattern::PCon(ident, args) => {
+                assert_eq!(ident.name, "OA");
+                assert_eq!(args.len(), 2, "expected 2 sub-patterns, got {:?}", args);
+            }
+            other => panic!("expected PCon, got {:?}", other),
         }
     }
 

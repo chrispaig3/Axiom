@@ -371,6 +371,7 @@ impl Lexer {
             "match" => TokenKind::Match,
             "fn" => TokenKind::Fn,
             "data" => TokenKind::Data,
+            "macro" => TokenKind::Macro,
             "struct" => TokenKind::Struct,
             "type" => TokenKind::Type,
             "newtype" => TokenKind::Newtype,

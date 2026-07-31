@@ -22,6 +22,7 @@ pub enum TokenKind {
     Match,    // (match expr (pattern body)...)
     Fn,       // (fn (name args...) body) - modern alias for define
     Data,     // (data Name (tyvars...) (constructor...))
+    Macro,    // (macro (name . params) body)
     Struct,   // (struct Name (field...) )
     Type,     // (type Name (tyvars...) alias)
     Newtype,  // (newtype Name (tyvars...) ctor inner)
@@ -151,6 +152,7 @@ impl fmt::Display for TokenKind {
             TokenKind::Match => write!(f, "match"),
             TokenKind::Fn => write!(f, "fn"),
             TokenKind::Data => write!(f, "data"),
+            TokenKind::Macro => write!(f, "macro"),
             TokenKind::Struct => write!(f, "struct"),
             TokenKind::Type => write!(f, "type"),
             TokenKind::Newtype => write!(f, "newtype"),

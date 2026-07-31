@@ -123,6 +123,11 @@ pub enum IrInst {
         func: String,
         args: Vec<IrValue>,
     },
+    CallIndirect {
+        dest: IrValue,
+        ptr: IrValue,
+        args: Vec<IrValue>,
+    },
     Ret {
         value: Option<IrValue>,
     },
@@ -181,6 +186,17 @@ pub enum IrInst {
         dest: IrValue,
         ptr: IrValue,
         offset: i64,
+    },
+    /// Save the current bump-allocator waterline into `dest` so that
+    /// allocations made between this mark and a subsequent `ArenaReset`
+    /// can be rolled back (reclaimed).
+    ArenaMark {
+        dest: IrValue,
+    },
+    /// Roll the bump-allocator waterline back to `ptr`, reclaiming
+    /// every allocation that happened since the matching `ArenaMark`.
+    ArenaReset {
+        ptr: IrValue,
     },
 
     // ========================================================
@@ -274,6 +290,7 @@ impl IrInst {
                 _ => Vec::new(),
             },
             IrInst::Call { args, .. } => args.iter().filter_map(of).collect(),
+            IrInst::CallIndirect { args, .. } => args.iter().filter_map(of).collect(),
             IrInst::Syscall { num, args, .. } => std::iter::once(num)
                 .chain(args.iter())
                 .filter_map(of)
@@ -318,7 +335,9 @@ impl IrInst {
             IrInst::Alloca { .. }
             | IrInst::Br { .. }
             | IrInst::Sizeof { .. }
-            | IrInst::Alignof { .. } => Vec::new(),
+            | IrInst::Alignof { .. }
+            | IrInst::ArenaMark { .. }
+            | IrInst::ArenaReset { .. } => Vec::new(),
         }
     }
 }
@@ -328,6 +347,10 @@ pub enum IrValue {
     Local(String),
     Global(String),
     Const(IrConst),
+    /// Nullary constructor immediate — carries the raw tag
+    /// without a heap allocation. Distinguished from `Const`
+    /// so boxing logic can decide whether to wrap it.
+    Tag(i64),
 }
 
 #[derive(Debug, Clone)]

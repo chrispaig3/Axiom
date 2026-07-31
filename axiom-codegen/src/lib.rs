@@ -718,6 +718,7 @@ impl LlvmCodeGen {
                             }
                         }
                         IrValue::Global(name) => format!("ptr @{}", name),
+                        IrValue::Tag(t) => format!("i64 {}", t),
                     })
                     .collect();
 
@@ -766,6 +767,62 @@ impl LlvmCodeGen {
                         TypeId::TCon("I64".to_string(), vec![])
                     };
                     self.ssa_values.insert(name.clone(), (result_reg, ret_type));
+                }
+            }
+            IrInst::CallIndirect { dest, ptr, args } => {
+                let func_ptr = self.value_to_llvm(ptr)?;
+                let arg_values: Vec<String> = args
+                    .iter()
+                    .map(|a| match a {
+                        IrValue::Const(IrConst::Int(n, _)) => format!("i64 {}", n),
+                        IrValue::Const(IrConst::Float(n, _)) => format!("double {}", n),
+                        IrValue::Const(IrConst::Bool(b)) => {
+                            format!("i1 {}", if *b { "true" } else { "false" })
+                        }
+                        IrValue::Const(IrConst::Null) => "ptr null".to_string(),
+                        IrValue::Const(IrConst::Str(s)) => {
+                            let id = self.string_ids.get(s).unwrap_or(&0);
+                            format!("ptr @str_{}", id)
+                        }
+                        IrValue::Local(name) => {
+                            if let Some((reg, ty)) = self.ssa_values.get(name) {
+                                let llvm_ty = self.type_to_llvm(ty);
+                                format!("{} {}", llvm_ty, reg)
+                            } else if let Some((reg, ty)) = self.locals.get(name) {
+                                let llvm_ty = self.type_to_llvm(ty);
+                                if reg.starts_with("%_t") {
+                                    format!("{} {}", llvm_ty, reg)
+                                } else {
+                                    format!("{} %{}", llvm_ty, name)
+                                }
+                            } else {
+                                format!("i64 %{}", name)
+                            }
+                        }
+                        IrValue::Global(name) => format!("ptr @{}", name),
+                        IrValue::Tag(t) => format!("i64 {}", t),
+                    })
+                    .collect();
+                if let IrValue::Local(name) = dest {
+                    let result_reg = self.new_local_reg();
+                    let callee_reg = self.new_local_reg();
+                    writeln!(
+                        self.output,
+                        "  {} = inttoptr i64 {} to ptr",
+                        callee_reg, func_ptr
+                    )
+                    .unwrap();
+                    let arg_str = arg_values.join(", ");
+                    writeln!(
+                        self.output,
+                        "  {} = call i64 {}({})",
+                        result_reg, callee_reg, arg_str
+                    )
+                    .unwrap();
+                    self.ssa_values.insert(
+                        name.clone(),
+                        (result_reg, TypeId::TCon("I64".to_string(), vec![])),
+                    );
                 }
             }
             IrInst::Ret { value } => {
@@ -831,15 +888,47 @@ impl LlvmCodeGen {
                 src,
                 target_ty,
             } => {
-                let src_val = self.value_to_llvm(src)?;
+                let (src_val, src_ty_str) = self.value_to_typed_string(src)?;
                 let target_llvm = self.type_to_llvm(target_ty);
                 let result_reg = self.new_local_reg();
-                writeln!(
-                    self.output,
-                    "  {} = trunc i64 {} to {}",
-                    result_reg, src_val, target_llvm
-                )
-                .unwrap();
+
+                let src_bits = llvm_type_bits(&src_ty_str);
+                let tgt_bits = llvm_type_bits(&target_llvm);
+
+                if src_bits == tgt_bits {
+                    writeln!(
+                        self.output,
+                        "  {} = add {} 0, {}",
+                        result_reg, target_llvm, src_val
+                    )
+                    .unwrap();
+                } else if src_bits < tgt_bits {
+                    let ext = if src_ty_str.starts_with('i')
+                        && target_llvm.starts_with('i')
+                    {
+                        if src_ty_str == "i1" {
+                            "zext"
+                        } else {
+                            "sext"
+                        }
+                    } else {
+                        "zext"
+                    };
+                    writeln!(
+                        self.output,
+                        "  {} = {} {} {} to {}",
+                        result_reg, ext, src_ty_str, src_val, target_llvm
+                    )
+                    .unwrap();
+                } else {
+                    writeln!(
+                        self.output,
+                        "  {} = trunc {} {} to {}",
+                        result_reg, src_ty_str, src_val, target_llvm
+                    )
+                    .unwrap();
+                }
+
                 if let IrValue::Local(name) = dest {
                     self.ssa_values
                         .insert(name.clone(), (result_reg, target_ty.clone()));
@@ -888,6 +977,30 @@ impl LlvmCodeGen {
                         (addr_reg, TypeId::TCon("I64".to_string(), vec![])),
                     );
                 }
+            }
+            IrInst::ArenaMark { dest } => {
+                let result_reg = self.new_local_reg();
+                writeln!(
+                    self.output,
+                    "  {} = load i64, ptr @__axiom_bump",
+                    result_reg
+                )
+                .unwrap();
+                if let IrValue::Local(name) = dest {
+                    self.ssa_values.insert(
+                        name.clone(),
+                        (result_reg, TypeId::TCon("I64".to_string(), vec![])),
+                    );
+                }
+            }
+            IrInst::ArenaReset { ptr } => {
+                let ptr_val = self.value_to_llvm(ptr)?;
+                writeln!(
+                    self.output,
+                    "  store i64 {}, ptr @__axiom_bump",
+                    ptr_val
+                )
+                .unwrap();
             }
             IrInst::StoreOffset { ptr, offset, value } => {
                 let ptr_val = self.value_to_llvm(ptr)?;
@@ -1160,6 +1273,7 @@ impl LlvmCodeGen {
 
     fn value_to_llvm(&self, value: &IrValue) -> Result<String, String> {
         match value {
+            IrValue::Tag(t) => Ok(format!("{}", t)),
             IrValue::Local(name) => {
                 if let Some((reg, _)) = self.ssa_values.get(name) {
                     Ok(reg.clone())
@@ -1195,6 +1309,7 @@ impl LlvmCodeGen {
                     Ok((format!("%{}", name), "i64".to_string()))
                 }
             }
+            IrValue::Tag(t) => Ok((format!("{}", t), "i64".to_string())),
             IrValue::Global(name) => Ok((format!("@{}", name), "ptr".to_string())),
             IrValue::Const(const_val) => match const_val {
                 IrConst::Int(n, ty) => {
@@ -1233,6 +1348,7 @@ impl LlvmCodeGen {
 
     fn value_to_ptr(&self, value: &IrValue) -> Result<String, String> {
         match value {
+            IrValue::Tag(_) => Err("Cannot get pointer to tag".to_string()),
             IrValue::Local(name) => {
                 if let Some((alloca_name, _)) = self.locals.get(name) {
                     Ok(alloca_name.clone())
@@ -1658,5 +1774,18 @@ mod tests {
             ],
         );
         assert!(ir.contains("icmp ne i64"), "{}", ir);
+    }
+}
+
+fn llvm_type_bits(ty: &str) -> u32 {
+    match ty {
+        "i1" => 1,
+        "i8" => 8,
+        "i16" => 16,
+        "i32" | "float" => 32,
+        "i64" | "double" | "ptr" => 64,
+        "i128" => 128,
+        "void" => 0,
+        _ => 64,
     }
 }

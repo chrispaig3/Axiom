@@ -521,6 +521,7 @@ pub struct DataConInfo {
     pub name: String,
     pub ty: TypeId,
     pub data_type: String,
+    pub field_names: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone)]
@@ -592,6 +593,9 @@ pub const PRIMITIVES: &[(&str, usize, bool)] = &[
     ("__store64", 3, false),
     // `(__alloc bytes)` -> address of `bytes` fresh zeroed bytes.
     ("__alloc", 1, false),
+    // Arena watermark: save / restore bump-allocator position.
+    ("__axiom_arena_mark", 0, false),
+    ("__axiom_arena_reset", 1, false),
 ];
 
 /// `(__addr s)` -> the address of string literal `s`'s bytes.
@@ -756,11 +760,13 @@ impl TypeChecker {
                         )),
                     ),
                     data_type: "Option".to_string(),
+                    field_names: None,
                 },
                 DataConInfo {
                     name: "None".to_string(),
                     ty: TypeId::TCon("Option".to_string(), vec![TypeId::TVar("a".to_string())]),
                     data_type: "Option".to_string(),
+                    field_names: None,
                 },
             ],
         });
@@ -847,15 +853,23 @@ impl TypeChecker {
         let type_args: Vec<TypeId> = tyvars.iter().map(|v| TypeId::TVar(v.clone())).collect();
         let mut con_infos = Vec::new();
         for con in constructors {
-            let field_tys: Vec<TypeId> = con.fields.iter().map(|ft| self.type_to_id(ft)).collect();
+            let field_tys: Vec<TypeId> = match &con.con_fields {
+                ConFields::Positional(tys) => tys.iter().map(|ft| self.type_to_id(ft)).collect(),
+                ConFields::Named(fields) => fields.iter().map(|f| self.type_to_id(&f.ty)).collect(),
+            };
             let mut con_ty = TypeId::TCon(name.name.clone(), type_args.clone());
             for ft in field_tys.into_iter().rev() {
                 con_ty = TypeId::TArr(Box::new(ft), Box::new(con_ty));
             }
+            let field_names = match &con.con_fields {
+                ConFields::Named(fields) => Some(fields.iter().map(|f| f.name.name.clone()).collect()),
+                ConFields::Positional(_) => None,
+            };
             con_infos.push(DataConInfo {
                 name: con.name.name.clone(),
                 ty: con_ty,
                 data_type: name.name.clone(),
+                field_names,
             });
         }
         DataTypeInfo {
@@ -1245,12 +1259,20 @@ impl TypeChecker {
             }
             Expr::ELam(patterns, body) => {
                 self.push_scope();
+                let mut ptypes: Vec<TypeId> = Vec::new();
                 for pat in patterns {
-                    self.check_pattern(pat);
+                    let fresh = TypeId::TVar(format!("_t{}", self.type_counter));
+                    self.type_counter += 1;
+                    ptypes.push(fresh.clone());
+                    self.check_pattern_with_type(pat, &fresh);
                 }
                 let body_ty = self.check_expr(body);
                 self.pop_scope();
-                let param_ty = TypeId::TTuple(vec![]);
+                let param_ty = match ptypes.len() {
+                    0 => TypeId::TTuple(vec![]),
+                    1 => ptypes.into_iter().next().unwrap(),
+                    _ => TypeId::TTuple(ptypes),
+                };
                 TypeId::TArr(Box::new(param_ty), Box::new(body_ty))
             }
             Expr::ELet(bindings, body) => {
@@ -1306,7 +1328,7 @@ impl TypeChecker {
                     // constructor's actual field types.
                     self.check_pattern_with_type(pat, &target_ty);
                     match pat {
-                        Pattern::PCon(ident, _) => {
+                        Pattern::PCon(ident, _) | Pattern::PConNamed(ident, _) => {
                             covered.insert(ident.name.clone());
                         }
                         Pattern::PWildcard | Pattern::PVar(_) => has_catchall = true,
@@ -1428,9 +1450,9 @@ impl TypeChecker {
             Expr::EConsume(e) => self.check_expr(e),
             Expr::EField(base, field_ident) => {
                 let base_ty = self.check_expr(base);
-                if let TypeId::TCon(struct_name, _) = &base_ty {
+                if let TypeId::TCon(type_name, _) = &base_ty {
                     for si in &self.structs {
-                        if si.name == *struct_name {
+                        if si.name == *type_name {
                             for (fname, fty) in &si.fields {
                                 if fname == &field_ident.name {
                                     return fty.clone();
@@ -1438,14 +1460,19 @@ impl TypeChecker {
                             }
                         }
                     }
+                    if let Some((_dt_name, _idx, fty)) =
+                        self.find_data_field_by_name(&field_ident.name)
+                    {
+                        return fty;
+                    }
                     self.errors.push(SemError::FieldNotFound {
                         field: field_ident.name.clone(),
-                        ty: struct_name.clone(),
+                        ty: type_name.clone(),
                         span: field_ident.span,
                     });
                 } else {
                     self.errors.push(SemError::TypeMismatch {
-                        expected: "struct".to_string(),
+                        expected: "struct or data type".to_string(),
                         found: format!("{}", base_ty),
                         span: base.span(),
                     });
@@ -1493,11 +1520,11 @@ impl TypeChecker {
             }
             Expr::ESetField(base, field_ident, value) => {
                 let base_ty = self.check_expr(base);
-                if let TypeId::TCon(struct_name, _) = &base_ty {
+                if let TypeId::TCon(type_name, _) = &base_ty {
                     let field_info = self
                         .structs
                         .iter()
-                        .find(|s| s.name == *struct_name)
+                        .find(|s| s.name == *type_name)
                         .cloned()
                         .and_then(|si| {
                             si.fields
@@ -1505,7 +1532,13 @@ impl TypeChecker {
                                 .find(|(fname, _)| fname == &field_ident.name)
                                 .map(|(fname, fty)| (fname.clone(), fty.clone()))
                         });
-                    match field_info {
+                    let data_field_info = if field_info.is_none() {
+                        self.find_data_field_by_name(&field_ident.name)
+                            .map(|(_, _, fty)| (field_ident.name.clone(), fty))
+                    } else {
+                        None
+                    };
+                    match field_info.or(data_field_info) {
                         Some((_, fty)) => {
                             let value_ty = self.check_expr(value);
                             if !value_ty.compatible_with(&fty) {
@@ -1519,14 +1552,14 @@ impl TypeChecker {
                         None => {
                             self.errors.push(SemError::FieldNotFound {
                                 field: field_ident.name.clone(),
-                                ty: struct_name.clone(),
+                                ty: type_name.clone(),
                                 span: field_ident.span,
                             });
                         }
                     }
                 } else {
                     self.errors.push(SemError::TypeMismatch {
-                        expected: "struct".to_string(),
+                        expected: "struct or data type".to_string(),
                         found: format!("{}", base_ty),
                         span: base.span(),
                     });
@@ -1619,6 +1652,23 @@ impl TypeChecker {
         None
     }
 
+    pub fn find_data_field_by_name(&self, field_name: &str) -> Option<(String, usize, TypeId)> {
+        for dt in &self.data_types {
+            for con in &dt.constructors {
+                if let Some(field_names) = &con.field_names {
+                    for (idx, fnm) in field_names.iter().enumerate() {
+                        if fnm == field_name {
+                            let field_types = Self::constructor_field_types(&con.ty);
+                            let fty = field_types.get(idx).cloned().unwrap_or(TypeId::TCon("I64".to_string(), vec![]));
+                            return Some((dt.name.clone(), idx, fty));
+                        }
+                    }
+                }
+            }
+        }
+        None
+    }
+
     /// Decompose a constructor's curried arrow type (`F1 -> F2 -> ... ->
     /// TheType`) into its individual field types, in order. Empty for a
     /// nullary constructor (whose `ty` is just `TCon(TheType, ..)` with no
@@ -1685,40 +1735,28 @@ impl TypeChecker {
                     .find_constructor(&ident.name)
                     .map(|(dt, con)| (dt.name.clone(), con.ty.clone()));
                 match found {
-                    Some((data_type_name, con_ty)) => {
-                        if let TypeId::TCon(scrutinee_name, _) = ty {
-                            if scrutinee_name != &data_type_name {
-                                self.errors.push(SemError::TypeMismatch {
-                                    expected: scrutinee_name.clone(),
-                                    found: data_type_name.clone(),
-                                    span: ident.span,
-                                });
-                            }
-                        }
-
+                    Some((_data_type_name, con_ty)) => {
                         let field_types = Self::constructor_field_types(&con_ty);
                         if field_types.len() != args.len() {
                             self.errors.push(SemError::ConstructorArity {
                                 name: ident.name.clone(),
+                                span: ident.span,
                                 expected: field_types.len(),
                                 found: args.len(),
-                                span: ident.span,
                             });
                         }
-
                         for (i, arg) in args.iter().enumerate() {
-                            match field_types.get(i) {
-                                Some(field_ty) => self.check_pattern_with_type(arg, field_ty),
-                                None => self.check_pattern(arg),
+                            if let Some(ft) = field_types.get(i) {
+                                self.check_pattern_with_type(arg, ft);
+                            } else {
+                                self.check_pattern(arg);
                             }
                         }
                     }
                     None => {
                         let suggestion = suggest_closest(
                             &ident.name,
-                            self.data_types
-                                .iter()
-                                .flat_map(|dt| dt.constructors.iter().map(|c| c.name.as_str())),
+                            self.data_types.iter().flat_map(|dt| dt.constructors.iter().map(|c| c.name.as_str())),
                         );
                         self.errors.push(SemError::UndefinedConstructor {
                             name: ident.name.clone(),
@@ -1727,6 +1765,60 @@ impl TypeChecker {
                         });
                         for arg in args {
                             self.check_pattern(arg);
+                        }
+                    }
+                }
+            }
+            Pattern::PConNamed(ident, named_args) => {
+                let found = self
+                    .find_constructor(&ident.name)
+                    .map(|(dt, con)| (dt.name.clone(), con.ty.clone(), con.field_names.clone()));
+                match found {
+                    Some((data_type_name, con_ty, Some(field_names))) => {
+                        let field_types = Self::constructor_field_types(&con_ty);
+                        for (fname, fpat) in named_args {
+                            if let Some(idx) = field_names.iter().position(|n| n == &fname.name) {
+                                if idx < field_types.len() {
+                                    self.check_pattern_with_type(fpat, &field_types[idx]);
+                                } else {
+                                    self.errors.push(SemError::FieldNotFound {
+                                        field: fname.name.clone(),
+                                        ty: data_type_name.clone(),
+                                        span: fname.span,
+                                    });
+                                    self.check_pattern(fpat);
+                                }
+                            } else {
+                                self.errors.push(SemError::FieldNotFound {
+                                    field: fname.name.clone(),
+                                    ty: data_type_name.clone(),
+                                    span: fname.span,
+                                });
+                                self.check_pattern(fpat);
+                            }
+                        }
+                    }
+                    Some((data_type_name, _, None)) => {
+                        self.errors.push(SemError::UndefinedConstructor {
+                            name: ident.name.clone(),
+                            span: ident.span,
+                            suggestion: Some(format!(
+                                "constructor `{}` of type `{}` has no named fields",
+                                ident.name, data_type_name
+                            )),
+                        });
+                        for (_, fpat) in named_args {
+                            self.check_pattern(fpat);
+                        }
+                    }
+                    _ => {
+                        self.errors.push(SemError::UndefinedConstructor {
+                            name: ident.name.clone(),
+                            span: ident.span,
+                            suggestion: None,
+                        });
+                        for (_, fpat) in named_args {
+                            self.check_pattern(fpat);
                         }
                     }
                 }

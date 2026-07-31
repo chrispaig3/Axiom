@@ -351,7 +351,8 @@ fn decl_name(decl: &axiom_ast::ast::Decl) -> Option<&str> {
         | Decl::DSig { name, .. }
         | Decl::DFn { name, .. }
         | Decl::DForeign { name, .. }
-        | Decl::DEffect { name, .. } => Some(&name.name),
+        | Decl::DEffect { name, .. }
+        | Decl::DMacro { name, .. } => Some(&name.name),
         Decl::DImpl { .. } | Decl::DImport { .. } => None,
     }
 }
@@ -720,6 +721,8 @@ fn analyze(
         }
         resolve_imports(Path::new(input), &mut ast, format, &mut registry)?;
     }
+
+    expand_macros(&mut ast);
 
     if announce {
         println!("[3/5] Type checking...");
@@ -2157,8 +2160,185 @@ fn re_register_decls(source: &str, tc: &mut TypeChecker) {
     }
 }
 
+mod expander {
+    use axiom_ast::ast::*;
+    use axiom_ast::Module;
+    use axiom_ast::span::Span;
+    use std::collections::HashMap;
+
+    pub fn expand_macros(module: &mut Module) {
+        let mut macros: HashMap<String, (Pattern, Expr)> = HashMap::new();
+        let mut remaining_decls: Vec<Decl> = Vec::new();
+
+        for decl in module.decls.drain(..) {
+            if let Decl::DMacro { name, params, body, .. } = decl {
+                macros.insert(name.name.clone(), (params, body));
+            } else {
+                remaining_decls.push(decl);
+            }
+        }
+        module.decls = remaining_decls;
+
+        for decl in &mut module.decls {
+            if let Decl::DFn { body, .. } = decl {
+                expand_expr(body, &macros);
+            }
+        }
+    }
+
+    fn expand_expr(expr: &mut Expr, macros: &HashMap<String, (Pattern, Expr)>) {
+        let name = extract_macro_call_name(expr);
+        if let Some(name) = name {
+            if let Some((params, body)) = macros.get(&name) {
+                let args = collect_args(expr);
+                if let Ok(substitutions) = match_pattern(params, &args) {
+                    *expr = substitute(&substitutions, body);
+                    expand_expr(expr, macros);
+                    return;
+                }
+            }
+        }
+
+        match expr {
+            Expr::EApp(func, arg) => {
+                expand_expr(func, macros);
+                expand_expr(arg, macros);
+            }
+            Expr::EIf(cond, then_expr, else_expr) => {
+                expand_expr(cond, macros);
+                expand_expr(then_expr, macros);
+                expand_expr(else_expr, macros);
+            }
+            Expr::ELet(bindings, body) => {
+                for (_, init) in bindings.iter_mut() {
+                    expand_expr(init, macros);
+                }
+                expand_expr(body, macros);
+            }
+            Expr::EBegin(exprs) => {
+                for e in exprs.iter_mut() {
+                    expand_expr(e, macros);
+                }
+            }
+            Expr::EMatch(target, arms) => {
+                expand_expr(target, macros);
+                for (_, body) in arms.iter_mut() {
+                    expand_expr(body, macros);
+                }
+            }
+            Expr::EInfix(left, _, right) => {
+                expand_expr(left, macros);
+                expand_expr(right, macros);
+            }
+            Expr::ECast(inner, _)
+            | Expr::EConsume(inner)
+            | Expr::EGrouped(inner)
+            | Expr::EField(inner, _) => {
+                expand_expr(inner, macros);
+            }
+            Expr::ETuple(elems) | Expr::EList(elems) => {
+                for e in elems {
+                    expand_expr(e, macros);
+                }
+            }
+            Expr::ESetField(base, _, value) | Expr::EHandle(base, _, value) => {
+                expand_expr(base, macros);
+                expand_expr(value, macros);
+            }
+            Expr::ELam(_, inner) => expand_expr(inner, macros),
+            Expr::EAlloc(_, Some(init), _) => {
+                expand_expr(init, macros);
+            }
+            Expr::EAlloc(..) => {}
+            _ => {}
+        }
+    }
+
+    fn extract_macro_call_name(expr: &Expr) -> Option<String> {
+        let mut current = expr;
+        while let Expr::EApp(func, _) = current {
+            current = func;
+        }
+        if let Expr::EVar(ident) = current {
+            return Some(ident.name.clone());
+        }
+        None
+    }
+
+    fn collect_args(expr: &Expr) -> Vec<Expr> {
+        let mut args = Vec::new();
+        let mut current = expr;
+        while let Expr::EApp(func, arg) = current {
+            args.push((**arg).clone());
+            current = func;
+        }
+        args.reverse();
+        args
+    }
+
+    fn match_pattern(pattern: &Pattern, args: &[Expr]) -> Result<HashMap<String, Expr>, ()> {
+        let mut bindings: HashMap<String, Expr> = HashMap::new();
+        match pattern {
+            Pattern::PVar(ident) => {
+                if args.is_empty() {
+                    bindings.insert(ident.name.clone(), Expr::ELit(Literal::LInt(0), Span::dummy()));
+                } else if args.len() == 1 {
+                    bindings.insert(ident.name.clone(), args[0].clone());
+                } else {
+                    bindings.insert(ident.name.clone(), Expr::EBegin(args.to_vec()));
+                }
+            }
+            Pattern::PTuple(pats) => {
+                for (i, pat) in pats.iter().enumerate() {
+                    if i < args.len() {
+                        let sub = match_pattern(pat, &args[i..i + 1])?;
+                        bindings.extend(sub);
+                    }
+                }
+            }
+            _ => return Err(()),
+        }
+        Ok(bindings)
+    }
+
+    fn substitute(bindings: &HashMap<String, Expr>, template: &Expr) -> Expr {
+        match template {
+            Expr::EVar(ident) => {
+                bindings.get(&ident.name).cloned().unwrap_or(template.clone())
+            }
+            Expr::EApp(func, arg) => {
+                Expr::EApp(
+                    Box::new(substitute(bindings, func)),
+                    Box::new(substitute(bindings, arg)),
+                )
+            }
+            Expr::EIf(cond, t, e) => {
+                Expr::EIf(
+                    Box::new(substitute(bindings, cond)),
+                    Box::new(substitute(bindings, t)),
+                    Box::new(substitute(bindings, e)),
+                )
+            }
+            Expr::EBegin(exprs) => {
+                Expr::EBegin(exprs.iter().map(|e| substitute(bindings, e)).collect())
+            }
+            Expr::EInfix(left, op, right) => {
+                Expr::EInfix(
+                    Box::new(substitute(bindings, left)),
+                    op.clone(),
+                    Box::new(substitute(bindings, right)),
+                )
+            }
+            _ => template.clone(),
+        }
+    }
+}
+
+use expander::expand_macros;
+
 fn merge_type_checker(_source_tc: &TypeChecker, state: &mut ReplState) {
     // Simple approach: re-parse all declarations
     state.type_checker = TypeChecker::new();
     re_register_decls(&state.declarations, &mut state.type_checker);
 }
+

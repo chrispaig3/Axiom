@@ -137,6 +137,13 @@ fn format_decl(decl: &Decl, out: &mut String, state: &mut FormatState) {
         } => {
             format_effect_decl(name, operations, out, state);
         }
+        Decl::DMacro { name, params, body, .. } => {
+            write!(out, "(macro ({} ", name.name).unwrap();
+            format_pattern(params, out);
+            write!(out, ") ").unwrap();
+            format_expr(body, out, state);
+            out.push(')');
+        }
     }
 }
 
@@ -188,7 +195,7 @@ fn format_data_decl(
 
     if constructors.is_empty() {
         out.push(')');
-    } else if constructors.len() == 1 && constructors[0].fields.is_empty() {
+    } else if constructors.len() == 1 && constructors[0].is_nullary() {
         write!(out, " ({})", constructors[0].name.name).unwrap();
         if !deriving.is_empty() {
             out.push_str(" (deriving");
@@ -204,7 +211,7 @@ fn format_data_decl(
             state.push_indent();
             out.push_str(&state.indent_str());
             write!(out, "({}", con.name.name).unwrap();
-            for ty in &con.fields {
+            for ty in con.field_types() {
                 out.push(' ');
                 out.push_str(&format_type(ty));
             }
@@ -508,6 +515,21 @@ fn format_pattern(pat: &Pattern, out: &mut String) {
                 }
                 out.push(')');
             }
+        }
+        Pattern::PConNamed(name, args) => {
+            out.push('(');
+            out.push_str(&name.name);
+            out.push_str(" {");
+            for (i, (fname, fpat)) in args.iter().enumerate() {
+                if i > 0 {
+                    out.push_str(", ");
+                }
+                out.push_str(&fname.name);
+                out.push_str(" = ");
+                format_pattern(fpat, out);
+            }
+            out.push('}');
+            out.push(')');
         }
         Pattern::PTuple(pats) => {
             out.push('(');
