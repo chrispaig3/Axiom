@@ -220,11 +220,34 @@
                 (pOk (mkDSig name 0) endPos)))))))
 
 ; ------------------------------------------------------------------
-; Parse (import Module (names...))
+; Parse a dotted module path: Ident ('.' Ident)*
+;
+; The dotted form is preserved verbatim in the returned Str (`Sys.Platform`
+; stays `Sys.Platform`); translating it to a file path is the resolver's
+; job, not the parser's.
+; ------------------------------------------------------------------
+(pub :: parseModPath (-> Int Int Int))
+(pub fn (parseModPath tokens pos)
+  (let ((nr (parseIdentName tokens pos)))
+    (if (== (memGetWord nr 0) 0) nr
+        (parseModPathRest tokens (memGetWord nr 2) (memGetWord nr 1)))))
+
+(pub :: parseModPathRest (-> Int Int Int Int))
+(pub fn (parseModPathRest tokens pos acc)
+  (if (peekIs tokens pos TK_DOT)
+      (let ((nr (parseIdentName tokens (advance pos))))
+        (if (== (memGetWord nr 0) 0) nr
+            (parseModPathRest tokens (memGetWord nr 2)
+              (strConcat (strConcat acc (strFromLit (__addr ".")))
+                         (memGetWord nr 1)))))
+      (pOk acc pos)))
+
+; ------------------------------------------------------------------
+; Parse (import Module (names...)) / (import Mod.Sub)
 ; ------------------------------------------------------------------
 (pub :: parseImportDecl (-> Int Int Int))
 (pub fn (parseImportDecl tokens pos)
-  (let ((mr (parseIdentName tokens pos)))
+  (let ((mr (parseModPath tokens pos)))
     (if (== (memGetWord mr 0) 0) mr
         (let ((modName (memGetWord mr 1))
               (nextPos (memGetWord mr 2)))
@@ -435,58 +458,73 @@
   (pErr pos)))
 
 ; ------------------------------------------------------------------
-; Parse (let ((name val) ...) body) — single-binding for now.
+; Parse (let ((n1 v1) (n2 v2) ...) body)
+;
+; Multi-binding `let` is desugared into nested single-binding lets:
+;
+;   (let ((a 1) (b 2)) body)  =>  (let ((a 1)) (let ((b 2)) body))
+;
+; That keeps TAG_E_LET at one binding per node, so codegen needs no
+; change, and it is exactly the sequential-evaluation semantics `let`
+; already has: a later binding may refer to an earlier one.
+;
+; Bindings are collected left to right, then folded right to left so the
+; first binding ends up outermost.
+;
+; The body is a sequence of one or more expressions, implicitly
+; sequenced. `(let ((c ...)) (check c) c)` is common: the leading calls
+; run for effect and the last expression is the value. A single-expression
+; body is used directly; two or more are wrapped in TAG_E_BEGIN, which
+; codegen already lowers as a sequence whose value is the last element.
 ; ------------------------------------------------------------------
 (pub :: parseLetExpr (-> Int Int Int))
 (pub fn (parseLetExpr tokens pos)
-  (if (peekIs tokens pos TK_LPAREN)                              ; enter ((name val) ...)
-      (let ((bindList (advance pos)))
-        (if (peekIs tokens bindList TK_LPAREN)                    ; enter (name val)
-            (let ((inner (advance bindList)))
-              (let ((nr (parseIdentName tokens inner)))
-                (if (== (memGetWord nr 0) 0) nr
-                    (let ((name (memGetWord nr 1))
-                          (afterName (memGetWord nr 2)))
-                      (let ((valR (parseExpr tokens afterName)))
-                        (if (== (memGetWord valR 0) 0) valR
-                            (let ((val (memGetWord valR 1))
-                                  (afterVal (memGetWord valR 2)))
-                              (if (peekIs tokens afterVal TK_RPAREN)  ; close (name val)
-                                  (let ((afterBind (advance afterVal)))
-                                    (if (peekIs tokens afterBind TK_RPAREN)  ; close ((name val))
-                                        (let ((bodyPos (advance afterBind)))
-                                          (let ((bodyR (parseExpr tokens bodyPos)))
-                                            (if (== (memGetWord bodyR 0) 0) bodyR
-                                                (let ((body (memGetWord bodyR 1))
-                                                      (afterBody (memGetWord bodyR 2)))
-                                                  (if (peekIs tokens afterBody TK_RPAREN)  ; close outer
-                                                      (pOk (mkELet name val body) (advance afterBody))
-                                                      (pErr afterBody))))))
-                                        (pErr afterBind)))
-                                  (pErr afterVal)))))))))
-            (pErr bindList)))
+  (if (peekIs tokens pos TK_LPAREN)                    ; enter ((n v) ...)
+      (let ((br (parseBindPairs tokens (advance pos) vecNew)))
+        (if (== (memGetWord br 0) 0) br
+            (let ((binds (memGetWord br 1))
+                  (afterBinds (memGetWord br 2)))
+              ; parseExprList consumes the closing paren of the let form.
+              (let ((bodyR (parseExprList tokens afterBinds vecNew)))
+                (if (== (memGetWord bodyR 0) 0) bodyR
+                    (let ((exprs (memGetWord bodyR 1))
+                          (afterBody (memGetWord bodyR 2)))
+                      (if (== (vecLen exprs) 0)
+                          (pErr afterBinds)             ; (let (...)) has no value
+                          (let ((body (if (== (vecLen exprs) 1)
+                                          (vecGet exprs 0)
+                                          (mkEBegin exprs))))
+                            (pOk (foldLets binds body (- (vecLen binds) 1))
+                                 afterBody)))))))))
   (pErr pos)))
 
-; Parse ((name val) ...) within let, returning a Vec of (name, val) pairs or a single name.
-; For now, handle single-binding let and return the value expression (not the name).
-(pub :: parseLetBindings (-> Int Int Int))
-(pub fn (parseLetBindings tokens pos)
+; Parse the binding list ((n1 v1) (n2 v2) ...), returning a Vec of
+; binding pairs carried as TAG_NIL nodes with a=name and b=value.
+(pub :: parseBindPairs (-> Int Int Int Int))
+(pub fn (parseBindPairs tokens pos acc)
   (if (peekIs tokens pos TK_RPAREN)
-      (pOk 0 (advance pos))
+      (pOk acc (advance pos))
   (if (peekIs tokens pos TK_LPAREN)
-      (let ((inner (advance pos)))
-        (let ((nr (parseIdentName tokens inner)))
-          (if (== (memGetWord nr 0) 0) nr
-              (let ((name (memGetWord nr 1))
-                    (afterName (memGetWord nr 2)))
-                (let ((valR (parseExpr tokens afterName)))
-                  (if (== (memGetWord valR 0) 0) valR
-                      (let ((val (memGetWord valR 1))
-                            (afterVal (memGetWord valR 2)))
-                        (if (peekIs tokens afterVal TK_RPAREN)
-                            (pOk val (advance afterVal))    ; return value expr, name comes via parseLetExpr
-                            (pErr afterVal)))))))))
+      (let ((nr (parseIdentName tokens (advance pos))))
+        (if (== (memGetWord nr 0) 0) nr
+            (let ((name (memGetWord nr 1)))
+              (let ((valR (parseExpr tokens (memGetWord nr 2))))
+                (if (== (memGetWord valR 0) 0) valR
+                    (let ((val (memGetWord valR 1))
+                          (afterVal (memGetWord valR 2)))
+                      (if (peekIs tokens afterVal TK_RPAREN)     ; close (n v)
+                          (parseBindPairs tokens (advance afterVal)
+                            (vecPush acc (mkNode TAG_NIL name val 0)))
+                          (pErr afterVal))))))))
   (pErr pos))))
+
+; Fold binding pairs [0..i] around `body`, innermost binding first.
+(pub :: foldLets (-> Int Int Int Int))
+(pub fn (foldLets binds body i)
+  (if (< i 0)
+      body
+      (let ((b (vecGet binds i)))
+        (foldLets binds (mkELet (nodeA b) (nodeB b) body) (- i 1)))))
 
 ; ------------------------------------------------------------------
 ; Parse (if test then else)

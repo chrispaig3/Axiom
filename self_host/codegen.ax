@@ -5,6 +5,7 @@
 (import Mem)
 (import Str)
 (import Vec)
+(import Sys)
 (import parser)
 
 ; ------------------------------------------------------------------
@@ -60,12 +61,13 @@
 ; Field 5 = argVec (Vec of Int, temp storage during EApp flattening)
 ; Field 6 = symnames (Vec of Int, symbol table — bound variable names)
 ; Field 7 = symregs (Vec of Int, symbol table — bound variable register strings)
+; Field 8 = decls (Int, module declarations for re-scanning before emit)
 ; ------------------------------------------------------------------
-(pub struct CG (lines : Int) (tmp : Int) (result : Int) (types : Int) (tagN : Int) (argVec : Int) (symnames : Int) (symregs : Int))
+(pub struct CG (lines : Int) (tmp : Int) (result : Int) (types : Int) (tagN : Int) (argVec : Int) (symnames : Int) (symregs : Int) (decls : Int))
 
 (pub :: newCG Int)
 (pub fn (newCG)
-  (CG vecNew 0 (strFromLit (__addr "")) vecNew 0 vecNew vecNew vecNew))
+  (CG vecNew 0 (strFromLit (__addr "")) vecNew 0 vecNew vecNew vecNew 0))
 
 (pub :: emitLine (-> Int Int Int))
 (pub fn (emitLine cg line)
@@ -175,18 +177,133 @@
           }))))
 
 ; ------------------------------------------------------------------
+; Import resolution: recursively collect declarations from all modules.
+;
+; Two contracts drive the shape of this code.
+;
+; `Sys.readFile` takes a raw NUL-terminated char*, not a `Str` handle,
+; because it hands the pointer straight to `sysOpenPath`. Every path
+; therefore crosses the boundary via `strCStr`. Paths built by
+; `strConcat` are already NUL-terminated (`strAlloc` reserves len+1 and
+; the allocator zeroes), so no extra terminator work is needed. Passing
+; a `Str` handle here silently opens garbage and reports every module
+; as missing.
+;
+; `readFile` reports failure as an empty `Str`, never as 0, so
+; `strLen == 0` is the "not found" test.
+;
+; Resolution is diamond-safe: a `seen` Vec of module names ensures each
+; module contributes its declarations exactly once. The import graph is
+; a DAG with heavily shared nodes -- core, Mem, Str and Vec are each
+; reached by several paths -- and emitting a module twice would produce
+; duplicate LLVM symbol definitions. Marking a module seen *before*
+; recursing into it also makes an import cycle terminate.
+; ------------------------------------------------------------------
+
+; An owned copy of `s` with every '.' turned into '/', mapping a dotted
+; module path onto a relative file path: Sys.Platform -> Sys/Platform.
+; `strDup` gives an owned, NUL-terminated buffer, so rewriting the bytes
+; in place cannot disturb the original.
+(pub :: modPathToFile (-> Int Int))
+(pub fn (modPathToFile s)
+  (let ((out (strDup s)))
+    {
+      (dotsToSlashes (strData out) 0 (strLen out))
+      out
+    }))
+
+(pub :: dotsToSlashes (-> Int Int Int Int))
+(pub fn (dotsToSlashes p i n)
+  (if (>= i n)
+      0
+      {
+        (if (== (__load8 p i) 46) (__store8 p i 47) 0)
+        (dotsToSlashes p (+ i 1) n)
+      }))
+
+; Source text of module `name`, searching self_host/ then stdlib/.
+; Returns 0 when the module resolves to no readable file.
+(pub :: readModuleSrc (-> Int Int))
+(pub fn (readModuleSrc name)
+  (let ((base (cat2 (modPathToFile name) (strFromLit (__addr ".ax")))))
+    (let ((selfSrc (readFile (strCStr (cat2 (strFromLit (__addr "self_host/")) base)))))
+      (if (!= (strLen selfSrc) 0)
+          selfSrc
+          (let ((stdSrc (readFile (strCStr (cat2 (strFromLit (__addr "stdlib/")) base)))))
+            (if (!= (strLen stdSrc) 0)
+                stdSrc
+                0))))))
+
+; Declaration Vec for module source `src`, or 0 if absent or unparsable.
+(pub :: parseModuleSrc (-> Int Int))
+(pub fn (parseModuleSrc src)
+  (if (== src 0)
+      0
+      (let ((pr (parseModule (lex src))))
+        (if (== (memGetWord pr 0) 0)
+            0
+            (memGetWord pr 1)))))
+
+(pub :: seenHas (-> Int Int Bool))
+(pub fn (seenHas seen name)
+  (seenHasIn seen name 0))
+
+(pub :: seenHasIn (-> Int Int Int Bool))
+(pub fn (seenHasIn seen name i)
+  (if (>= i (vecLen seen))
+      false
+      (if (strEq (vecGet seen i) name)
+          true
+          (seenHasIn seen name (+ i 1)))))
+
+(pub :: resolveImports (-> Int Int))
+(pub fn (resolveImports decls)
+  (resolveDecls decls vecNew vecNew 0))
+
+; Append every non-import declaration reachable from `decls` onto `acc`,
+; depth-first so that a module's dependencies land ahead of it.
+;
+; `acc` and `seen` are threaded rather than rebuilt: `vecPush` mutates in
+; place and returns the same handle, so both stay stable across the whole
+; traversal and siblings observe each other's additions.
+(pub :: resolveDecls (-> Int Int Int Int Int))
+(pub fn (resolveDecls decls acc seen i)
+  (if (>= i (vecLen decls)) acc
+      (let ((first (vecGet decls i)))
+        (if (== (nodeTag first) TAG_D_IMPORT)
+            (let ((name (memGetWord first 1)))
+              (if (seenHas seen name)
+                  (resolveDecls decls acc seen (+ i 1))
+                  {
+                    (vecPush seen name)
+                    (let ((modDecls (parseModuleSrc (readModuleSrc name))))
+                      ; An unresolvable module is skipped rather than
+                      ; dereferenced: `parseModuleSrc` yields 0, and
+                      ; `vecLen` on 0 would fault.
+                      (resolveDecls decls
+                                    (if (== modDecls 0)
+                                        acc
+                                        (resolveDecls modDecls acc seen 0))
+                                    seen
+                                    (+ i 1)))
+                  }))
+            (resolveDecls decls (vecPush acc first) seen (+ i 1))))))
+
+; ------------------------------------------------------------------
 ; Module emission.
 ; ------------------------------------------------------------------
 (pub :: emitModule (-> Int Int Int))
 (pub fn (emitModule decls target)
-  (let ((cg (newCG)))
-    (let ((cg0 (scanDecls decls cg 0)))
-      (let ((ttHeader (cat3 (strFromLit (__addr "target triple = \"")) target (strFromLit (__addr "\"")))))
-        (let ((cg1 (emitLine cg0 ttHeader)))
-          (let ((cg2 (emitLine cg1 (strFromLit (__addr "")))))
-            (let ((cg3 (emitLine cg2 (strFromLit (__addr "declare ptr @axiom_alloc(i64)")))))
-              (let ((cg4 (emitLine cg3 (strFromLit (__addr "")))))
-                (emitModuleTail decls cg4 0)))))))))
+  (let ((allDecls (resolveImports decls)))
+    (let ((cg (newCG)))
+      (let ((cg0 (scanDecls allDecls cg 0)))
+        (let ((cg0b (memSetWord cg0 8 allDecls)))
+          (let ((ttHeader (cat3 (strFromLit (__addr "target triple = \"")) target (strFromLit (__addr "\"")))))
+            (let ((cg1 (emitLine cg0b ttHeader)))
+              (let ((cg2 (emitLine cg1 (strFromLit (__addr "")))))
+                (let ((cg3 (emitLine cg2 (strFromLit (__addr "declare ptr @axiom_alloc(i64)")))))
+                  (let ((cg4 (emitLine cg3 (strFromLit (__addr "")))))
+                    (emitModuleTail allDecls cg4 0)))))))))))
 
 (pub :: emitModuleTail (-> Int Int Int Int))
 (pub fn (emitModuleTail decls cg i)
@@ -226,10 +343,12 @@
                                   (strFromLit (__addr "("))
                                   paramStr)
                             (strFromLit (__addr ") {")))))
-        (let ((cg1 (emitLine cg hdr)))   ; use cg, not memSetWord return value
-          (let ((cg2 (emitExpr body cg1)))
-            (let ((ret (cat3 (strFromLit (__addr "  ret i64 ")) (strDup (memGetWord cg2 2)) (strFromLit (__addr "")))))
-              (emitLine (emitLine cg2 ret) (strFromLit (__addr "}"))))))))))
+        (let ((cg1 (emitLine cg hdr)))
+          ; Re-scan declarations to ensure types Vec is fresh before emitting body
+          (let ((cg1b (scanDecls (memGetWord cg1 8) cg1 0)))
+            (let ((cg2 (emitExpr body cg1b)))
+              (let ((ret (cat3 (strFromLit (__addr "  ret i64 ")) (strDup (memGetWord cg2 2)) (strFromLit (__addr "")))))
+                (emitLine (emitLine cg2 ret) (strFromLit (__addr "}")))))))))))
 
 (pub :: emitParams (-> Int Int Int Int))
 (pub fn (emitParams params cg i)
