@@ -229,7 +229,7 @@ pipeline as `check` (including resolving `(import ...)`s, see
 top-level name the checker collected: every `define`/`fn`, every
 `foreign` binding, every `data` type and its constructors, every
 `struct` (with its exact field shapes and layout attributes),
-every `type` alias, and every `class`. Like diagnostics, it honors
+every `type` alias, and every trait. Like diagnostics, it honors
 `--diagnostic-format`:
 
 ```bash
@@ -255,7 +255,7 @@ every `type` alias, and every `class`. Like diagnostics, it honors
 
 | Field | Meaning |
 |---|---|
-| `KIND` | One letter: `F` function, `X` foreign binding, `D` data type, `C` constructor, `S` struct, `A` type alias, `L` class |
+| `KIND` | One letter: `F` function, `X` foreign binding, `D` data type, `C` constructor, `S` struct, `A` type alias, `T` trait |
 | `NAME` | The declared name, exactly as written |
 | `FILE:LOC` | Same `file:line:col[-col\|:line:col]` addressing as AXDL, via the same [`SourceMap`](../axiom-errors/src/source_map.rs) - for a program with `(import ...)`s, `FILE` is the *actual* file that declared this symbol (an imported module's own file), not always the entry file, exactly like AXDL's own multi-file attribution |
 | `-` | In place of `FILE:LOC`, for names with no source span at all - in practice, only Axiom's dozen built-in operators (`+`, `==`, `&&`, ...), which `axiom symbols` omits entirely unless `--builtins` is passed (they never change, so printing them on every call is exactly the restating-what's-already-known token waste this notation exists to avoid) |
@@ -268,9 +268,9 @@ Metadata keys actually emitted today:
 |---|---|---|
 | `ctors` | `D` | Comma-separated constructor names, e.g. `#ctors=Nothing,Just` |
 | `of` | `C` | The constructor's owning data type, e.g. `#of=Maybe` |
-| `fields` | `S`, `U` | `name:Type,name:Type,...` - the actual field shapes, not just a count, e.g. `#fields=x:Int,y:Int` |
+| `fields` | `S` | `name:Type,name:Type,...` - the actual field shapes, not just a count, e.g. `#fields=x:Int,y:Int` |
 | `packed` / `repr=C` / `align=N` | `S` | The struct's layout attribute, when it has a non-default one |
-| `methods` | `L` | `name:Type,name:Type,...` for the class's methods, same shape as `fields` |
+| `methods` | `T` | `name:Type,name:Type,...` for the trait's methods, same shape as `fields` |
 | `symbol` | `X` | The real linked C symbol name from `(foreign name :: Type = "c_symbol")`, e.g. `#symbol=printf` - not always the same as `NAME` |
 | `tyvars` | `A` | Comma-separated type parameters, e.g. `#tyvars=a,b`, omitted when there are none |
 

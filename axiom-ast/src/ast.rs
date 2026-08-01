@@ -225,6 +225,7 @@ pub enum Decl {
         /// `effect(io)` claim against actual FFI calls in the body)
         /// and surfaces accepted tags as `#`-metadata on AXSYM lines.
         axtags: Vec<Axtag>,
+        module_path: Option<String>,
     },
     DStruct {
         name: Ident,
@@ -233,6 +234,7 @@ pub enum Decl {
         repr: Option<TypeRepr>,
         nid: Option<String>,
         axtags: Vec<Axtag>,
+        module_path: Option<String>,
     },
     DType {
         name: Ident,
@@ -240,6 +242,7 @@ pub enum Decl {
         alias: Type,
         nid: Option<String>,
         axtags: Vec<Axtag>,
+        module_path: Option<String>,
     },
     DTrait {
         name: Ident,
@@ -249,6 +252,7 @@ pub enum Decl {
         effects: Vec<Effect>,
         nid: Option<String>,
         axtags: Vec<Axtag>,
+        module_path: Option<String>,
     },
     DImpl {
         trait_name: Ident,
@@ -257,12 +261,14 @@ pub enum Decl {
         effects: Vec<Effect>,
         nid: Option<String>,
         axtags: Vec<Axtag>,
+        module_path: Option<String>,
     },
     DSig {
         name: Ident,
         ty: Type,
         nid: Option<String>,
         axtags: Vec<Axtag>,
+        module_path: Option<String>,
     },
     DFn {
         name: Ident,
@@ -270,6 +276,7 @@ pub enum Decl {
         body: Expr,
         nid: Option<String>,
         axtags: Vec<Axtag>,
+        module_path: Option<String>,
     },
     /// A compile-time macro: `(macro (name . params) body)`.
     /// The `params` are a single pattern tree (dotted list) parsed
@@ -282,6 +289,7 @@ pub enum Decl {
         body: Expr,
         nid: Option<String>,
         axtags: Vec<Axtag>,
+        module_path: Option<String>,
     },
     DForeign {
         name: Ident,
@@ -289,6 +297,7 @@ pub enum Decl {
         source: String,
         nid: Option<String>,
         axtags: Vec<Axtag>,
+        module_path: Option<String>,
     },
     /// An `(import Mod.Sub ...)` declaration: module-path resolution,
     /// not a named declaration that participates in NID/AXTAG
@@ -303,6 +312,7 @@ pub enum Decl {
         operations: Vec<EffectOp>,
         nid: Option<String>,
         axtags: Vec<Axtag>,
+        module_path: Option<String>,
     },
 }
 

@@ -48,6 +48,7 @@ pub struct IrGen {
     /// and flag tables depend on this.
     nullary_fns: HashSet<String>,
     all_fns: HashSet<String>,
+    current_fn_has_raw: bool,
 }
 
 /// Look up a data constructor by name across every `data` type the type
@@ -282,6 +283,7 @@ impl IrGen {
             tag_alloca_names: HashSet::new(),
             nullary_fns: HashSet::new(),
             all_fns: HashSet::new(),
+            current_fn_has_raw: false,
         }
     }
 
@@ -318,10 +320,15 @@ impl IrGen {
             let mut tag: i64 = 0;
             for dt in &type_checker.data_types {
                 let _all_nullary = dt.constructors.iter().all(|c| constructor_arity(&c.ty) == 0);
-                for _ in &dt.constructors {
+                for con in &dt.constructors {
                     if false /* all_nullary */ {
                         tags.insert(tag);
                     }
+                    let arity = constructor_arity(&con.ty);
+                    while self.module.tag_arities.len() <= tag as usize {
+                        self.module.tag_arities.push(0);
+                    }
+                    self.module.tag_arities[tag as usize] = arity;
                     tag += 1;
                 }
             }
@@ -458,6 +465,8 @@ impl IrGen {
                 .collect(),
             arena_mark: None,
         };
+
+        self.current_fn_has_raw = false;
 
         let body_val =
             self.gen_expr_to_func_with_allocas(&mut func, body, &mut alloca_map, type_checker, Some(&tc));
@@ -894,9 +903,12 @@ impl IrGen {
                 index: args[1].clone(),
                 value: args[2].clone(),
             },
-            ("__alloc", 1) => IrInst::HeapAlloc {
-                dest: dest_val.clone(),
-                size: args[0].clone(),
+            ("__alloc", 1) => {
+                self.current_fn_has_raw = true;
+                IrInst::HeapAlloc {
+                    dest: dest_val.clone(),
+                    size: args[0].clone(),
+                }
             },
             ("__addr", 1) => IrInst::AddrOf {
                 dest: dest_val.clone(),
@@ -1213,6 +1225,32 @@ impl IrGen {
                     current = inner_func.as_ref();
                 }
                 arg_exprs.reverse();
+
+                let is_self_tail = tail_ctx.and_then(|tc| {
+                    if let Expr::EVar(ident) | Expr::EQualified(_, ident) = current {
+                        if ident.name == tc.func_name {
+                            Some(tc)
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                });
+
+                let arena_mark: Option<String> = if is_self_tail.is_some() && !self.current_fn_has_raw {
+                    let mark = self.new_local();
+                    self.emit_to_func(
+                        func,
+                        IrInst::ArenaMark {
+                            dest: IrValue::Local(mark.clone()),
+                        },
+                    );
+                    Some(mark)
+                } else {
+                    None
+                };
+
                 let mut all_args: Vec<IrValue> = Vec::new();
                 for arg in &arg_exprs {
                     all_args.push(self.gen_expr_to_func_with_allocas(
@@ -1406,6 +1444,64 @@ impl IrGen {
                 // instead of at a diagnostic.
                 if let Some(val) = self.gen_primitive(func, &func_name, &all_args, &dest) {
                     return val;
+                }
+
+                if let (Some(tc), Some(mark)) = (is_self_tail, &arena_mark) {
+                    let arena_end = self.new_local();
+                    self.emit_to_func(
+                        func,
+                        IrInst::ArenaMark {
+                            dest: IrValue::Local(arena_end.clone()),
+                        },
+                    );
+                    self.emit_to_func(
+                        func,
+                        IrInst::ArenaReset {
+                            ptr: IrValue::Local(mark.clone()),
+                        },
+                    );
+                    let mut compacted_args: Vec<IrValue> = Vec::new();
+                    let mut compact_results: Vec<IrValue> = Vec::new();
+                    for _ in &all_args {
+                        let res = self.new_local();
+                        compact_results.push(IrValue::Local(res));
+                    }
+                    self.emit_to_func(
+                        func,
+                        IrInst::ArenaCompact {
+                            mark: IrValue::Local(mark.clone()),
+                            arena_end: IrValue::Local(arena_end),
+                            roots: all_args.clone(),
+                            results: compact_results.clone(),
+                        },
+                    );
+                    for result in &compact_results {
+                        compacted_args.push(result.clone());
+                    }
+                    for (i, arg_val) in compacted_args.iter().enumerate() {
+                        if i < tc.param_names.len() {
+                            if let Some(alloca) = alloca_map.get(&tc.param_names[i]) {
+                                let store_val = self.box_if_tag(func, arg_val);
+                                self.emit_to_func(
+                                    func,
+                                    IrInst::Store {
+                                        ptr: IrValue::Local(alloca.clone()),
+                                        value: store_val,
+                                    },
+                                );
+                            }
+                        }
+                    }
+                    self.emit_to_func(
+                        func,
+                        IrInst::Br {
+                            target: tc.entry_label.clone(),
+                        },
+                    );
+                    return IrValue::Const(IrConst::Int(
+                        0,
+                        TypeId::TCon("I64".to_string(), vec![]),
+                    ));
                 }
 
                 if let Some(tc) = tail_ctx {
@@ -1930,6 +2026,12 @@ impl IrGen {
                         },
                     );
                 }
+
+                let trap_label = self.new_block_label();
+                func.blocks.push(IrBlock {
+                    label: trap_label.clone(),
+                    insts: vec![IrInst::Unreachable],
+                });
 
                 func.blocks.push(IrBlock {
                     label: merge_label.clone(),

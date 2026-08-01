@@ -583,10 +583,14 @@ in the standard library needs them.
 
 | Module | Provides |
 |---|---|
-| `Sys` | `sysWriteFd`, `sysReadFd`, `sysOpenPath`, `sysCloseFd`, `sysSeek`, `sysExitWith`, `sysFailed`, `sysErrno`, `stdin`/`stdout`/`stderr` |
+| `Pre` | `when`, `unless`, `cond2`, `cond3` (conditional macros) |
 | `Mem` | `memAlloc`, `memCopy`, `memSet`, `memCmp`, `memGetByte`/`memPutByte`, `memGetWord`/`memSetWord` |
 | `Str` | `strFromLit`, `strAlloc`, `strLen`, `strByte`, `strCmp`, `strEq`, `strSlice`, `strDup`, `strConcat`, `strFindByte`, `strStartsWith`, `strCStr` |
+| `Vec` | `vecNew`, `vecPush`, `vecPop`, `vecGet`, `vecSet`, `vecLen`, `vecCap`, `vecReserve`, `vecClear` |
+| `Map` | `mapNew`, `mapHas`, `mapGet`, `mapInsert`, `mapRemove`, `mapLen`, `mapCap`, `mapNew`, `mapRehash` (open-addressing `Int→Int` hash map) |
 | `Fmt` | `fmtInt`, `fmtHex`, `fmtPadLeft`, `fmtIntWidth` |
+| `Intern` | `internNew`, `internIntern`, `internFind`, `internLookup`, `internCount` (string interner) |
+| `Sys` | `sysWriteFd`, `sysReadFd`, `sysOpenPath`, `sysCloseFd`, `sysSeek`, `sysExitWith`, `sysFailed`, `sysErrno`, `stdin`/`stdout`/`stderr` |
 | `IO` | `print`, `println`, `printLit`, `printlnLit`, `printInt`, `printlnInt`, `eprint`, `eprintln`, `writeStr`, `readUpTo`, `readAll`, `readFile`, `readFileLit`, `exit`, `die` |
 
 A `Str` is a length-prefixed, NUL-terminated string: slicing shares
@@ -661,7 +665,7 @@ always available without a `data` declaration. It works with `match`
 for safe null handling:
 
 ```scheme
-(:: safe_div (-> Int Int Int))
+(:: safe_div (-> Int Int (Option Int)))
 (fn (safe_div a b)
   (match b
     ((0) (None))
@@ -990,7 +994,7 @@ Source (.ax)
 | brace blocks | **Complete** | `{ expr1 expr2 ... }` — modern sequencing, returns last value |
 | fn keyword | **Complete** | Modern alias for `define` |
 | FFI | **Complete, no longer required** | Call any C function with `foreign` declarations. The standard library no longer uses it: see [Standard library](#standard-library) |
-| Standard library | **Functional** | `Sys`, `Mem`, `Str`, `Fmt`, `IO`, written in Axiom over syscall primitives. No `Vec`/`Map` yet |
+| Standard library | **Functional** | `Pre`, `Mem`, `Str`, `Vec`, `Map`, `Fmt`, `Intern`, `Sys`, `IO`, written in Axiom over syscall primitives |
 | Syscalls | **Complete** | `__syscall0`-`__syscall6` on Darwin and Linux, x86-64 and AArch64; errors normalised to `-errno` on every platform |
 | Allocation | **Functional, unbounded** | `mmap`-backed bump allocator emitted by the backend, overridable by defining `axiom_alloc`. No `free` - memory is reclaimed at process exit, so memory use tracks *total* allocations rather than live data. Measured at 76,000x the live set for a 2000-generation loop; see [game_of_life/README.md](game_of_life/README.md) and the memory model design in [docs/v1-roadmap.md](docs/v1-roadmap.md) |
 | Cross-compilation | **Functional** | `--target` selects ABI and platform stdlib modules; codegen verified for all four targets |

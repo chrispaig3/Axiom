@@ -81,7 +81,8 @@ HTTP first produces a blocking library that has to be discarded.
 
 **The LSP is last, and this is the least negotiable edge.** An LSP is
 mostly maps and closures: a symbol index, an incremental cache, a table of
-request handlers. Axiom today has neither a hash map (`B3`) nor function
+request handlers. Axiom today has `Vec`/`Map`/`Intern` (which compile but
+lack golden tests and scale validation), but still no function
 values that survive code generation (`B1`), and no way for two modules to
 define the same name (`B4`). It is also the largest program that would be
 written in Axiom, which makes it the worst possible vehicle for
@@ -106,7 +107,7 @@ they unblock everything downstream.
 | `union` removed, `region` removed | `AX2004` with migration advice; 3 regression tests |
 | Turing-completeness demonstrated | [game_of_life/](../game_of_life/), verified against an independent implementation |
 | Editor grammar | [tree-sitter-axiom/](../tree-sitter-axiom/), 18/18 repo files, ~18 MB/s |
-| Freestanding stdlib | `Sys`, `Mem`, `Str`, `Fmt`, `IO` over syscalls; no libc |
+| Freestanding stdlib | `Pre`, `Mem`, `Str`, `Vec`, `Map`, `Fmt`, `Intern`, `Sys`, `IO` over syscalls; no libc |
 | Reproducible builds | byte-identical IR across runs, gated in CI |
 
 Reproduce all of it:
@@ -180,7 +181,8 @@ hold. The ones on the critical path here:
 - **B1** — function values do not survive codegen. A higher-order function
   type-checks and emits invalid LLVM.
 - **B2** — recursion depth depends on `--opt`. Correctness must not.
-- **B3** — no `Vec`, no `Map`, no interner.
+- **B3** — `Vec`, `Map`, and `Intern` exist (in `stdlib/`) and compile
+  cleanly. Golden tests and scale validation are the remaining work.
 - **B4** — one flat namespace across all modules.
 - **S1** — every constructor, including nullary ones, is a heap block.
 
@@ -417,7 +419,7 @@ parallel.
 | Phase | Items | Exit criterion |
 |---|---|---|
 | **P0** *(done)* | Green CI; `union`/`region` removed; Game of Life; tree-sitter grammar | All seven gates green on all four targets |
-| **P1** | `B2` tail calls · `B3` `Vec`/`Map`/`Intern` · `B1` closures · ADT struct variants | 10⁷-iteration tail loop at `-O0`; higher-order probe runs; struct variants match exhaustively |
+| **P1** | `B2` tail calls · `B3` `Vec`/`Map`/`Intern` golden tests and scale validation · `B1` closures · ADT struct variants | 10⁷-iteration tail loop at `-O0`; higher-order probe runs; struct variants match exhaustively |
 | **P2** | Memory model (§4.1) · `S1` unboxed nullary constructors | `stress.ax` at 2000 generations within 2× of 20 generations |
 | **P3** | Macro system (§4.2) · `B4` namespacing · concurrency (§4.4) | Hygiene test suite passes; two modules define the same name; `parMap` is order-deterministic |
 | **P4** | Self-hosting phases 2–5 · HTTP library (§4.5) | `stage2 == stage3`; HTTP server serves a request under load |

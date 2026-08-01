@@ -80,7 +80,7 @@ axiom/
 ├── axiom-codegen/      LLVM IR emitter
 ├── axiom-cli/          CLI entry point, REPL
 ├── axiom-errors/       Diagnostic types, rendering, code lookup, SymbolFact
-├── stdlib/             Standard library written in Axiom (Sys, Mem, Str, Fmt, IO)
+├── stdlib/             Standard library written in Axiom (Pre, Mem, Str, Vec, Map, Fmt, Intern, Sys, IO)
 ├── game_of_life/       Conway's Game of Life — the largest Axiom program in the tree
 ├── tree-sitter-axiom/  Editor grammar for syntax highlighting and structural editing
 ├── tests/stdlib/       Golden tests: compile, run, compare output
@@ -143,7 +143,7 @@ Source (.ax) → Lexer → Parser → Type Checker → IR → LLVM IR → llc �
 | Change LLVM emission | `axiom-codegen/src/lib.rs` |
 | Add a CLI command | `axiom-cli/src/lib.rs` |
 | Add a diagnostic code | `axiom-errors/src/code.rs` |
-| Add a stdlib function | `stdlib/` (e.g. `IO.ax`, `Mem.ax`, `Str.ax`) |
+| Add a stdlib function | `stdlib/` (e.g. `IO.ax`, `Mem.ax`, `Str.ax`, `Vec.ax`, `Map.ax`, `Fmt.ax`, `Intern.ax`, `Pre.ax`) |
 | Add a new syntax feature | `tree-sitter-axiom/grammar.js` + parser + ast + lexer |
 
 ---
@@ -323,7 +323,7 @@ When adding a new compiler error or warning, follow these steps:
 
 The standard library is written entirely in Axiom — no C bindings needed. When adding a new stdlib function:
 
-1. **Add it to the appropriate module** in `stdlib/` (e.g. `IO.ax`, `Mem.ax`, `Str.ax`, `Fmt.ax`).
+1. **Add it to the appropriate module** in `stdlib/` (e.g. `IO.ax`, `Mem.ax`, `Str.ax`, `Vec.ax`, `Map.ax`, `Fmt.ax`, `Intern.ax`, `Pre.ax`).
 2. **Use `::` for the type signature** and `fn` for the definition.
 3. **If the function performs I/O**, annotate it with `;@axiom:effect(io)`.
 4. **If the function allocates memory**, note that memory comes from the backend's bump allocator and is reclaimed at process exit.

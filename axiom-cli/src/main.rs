@@ -606,15 +606,48 @@ fn resolve_imports_into(
         )?;
 
         if names.is_empty() {
-            out.extend(imported_module.decls);
+            let module_path = dotted.clone();
+            for mut decl in imported_module.decls {
+                match &mut decl {
+                    Decl::DData { module_path: m, .. }
+                    | Decl::DStruct { module_path: m, .. }
+                    | Decl::DType { module_path: m, .. }
+                    | Decl::DTrait { module_path: m, .. }
+                    | Decl::DImpl { module_path: m, .. }
+                    | Decl::DSig { module_path: m, .. }
+                    | Decl::DFn { module_path: m, .. }
+                    | Decl::DMacro { module_path: m, .. }
+                    | Decl::DForeign { module_path: m, .. }
+                    | Decl::DEffect { module_path: m, .. } => {
+                        *m = Some(module_path.clone());
+                    }
+                    _ => {}
+                }
+                out.push(decl);
+            }
         } else {
             let wanted: HashSet<&str> = names.iter().map(|i| i.name.as_str()).collect();
-            out.extend(
-                imported_module
-                    .decls
-                    .into_iter()
-                    .filter(|d| decl_name(d).is_some_and(|n| wanted.contains(n))),
-            );
+            let module_path = dotted.clone();
+            for mut decl in imported_module.decls.into_iter()
+                .filter(|d| decl_name(d).is_some_and(|n| wanted.contains(n)))
+            {
+                match &mut decl {
+                    Decl::DData { module_path: m, .. }
+                    | Decl::DStruct { module_path: m, .. }
+                    | Decl::DType { module_path: m, .. }
+                    | Decl::DTrait { module_path: m, .. }
+                    | Decl::DImpl { module_path: m, .. }
+                    | Decl::DSig { module_path: m, .. }
+                    | Decl::DFn { module_path: m, .. }
+                    | Decl::DMacro { module_path: m, .. }
+                    | Decl::DForeign { module_path: m, .. }
+                    | Decl::DEffect { module_path: m, .. } => {
+                        *m = Some(module_path.clone());
+                    }
+                    _ => {}
+                }
+                out.push(decl);
+            }
         }
     }
 

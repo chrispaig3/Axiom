@@ -149,6 +149,24 @@ impl LlvmCodeGen {
             self.emit_bump_allocator();
         }
 
+        if !ir_module.tag_arities.is_empty() {
+            // The tag arities table and compact helper are infrastructure
+            // for the P2 memory model. They are emitted only when an
+            // ArenaCompact instruction is actually used by the program.
+            // Emitting them unconditionally changes LLVM code layout in
+            // ways that affect deterministic-golden-test output even
+            // though the helper is never called.
+            let uses_compact = ir_module.functions.iter().any(|f| {
+                f.blocks.iter().any(|b| {
+                    b.insts.iter().any(|inst| matches!(inst, IrInst::ArenaCompact { .. }))
+                })
+            });
+            if uses_compact {
+                self.emit_tag_arities_table(ir_module);
+                self.emit_arena_compact_helper(ir_module);
+            }
+        }
+
         for ir_struct in &ir_module.structs {
             self.declare_struct(ir_struct);
         }
@@ -865,6 +883,9 @@ impl LlvmCodeGen {
             IrInst::Br { target } => {
                 writeln!(self.output, "  br label %{}", target).unwrap();
             }
+            IrInst::Unreachable => {
+                writeln!(self.output, "  unreachable").unwrap();
+            }
             IrInst::CondBr {
                 cond,
                 then_target,
@@ -1015,6 +1036,31 @@ impl LlvmCodeGen {
                     ptr_val
                 )
                 .unwrap();
+            }
+            IrInst::ArenaCompact {
+                mark,
+                arena_end,
+                roots,
+                results,
+            } => {
+                let mark_val = self.value_to_llvm(mark)?;
+                let arena_end_val = self.value_to_llvm(arena_end)?;
+                for (i, root) in roots.iter().enumerate() {
+                    let root_val = self.value_to_llvm(root)?;
+                    let result_reg = self.new_local_reg();
+                    writeln!(
+                        self.output,
+                        "  {} = call i64 @__axiom_arena_compact_one(i64 {}, i64 {}, i64 {})",
+                        result_reg, root_val, mark_val, arena_end_val
+                    )
+                    .unwrap();
+                    if let IrValue::Local(name) = &results[i] {
+                        self.ssa_values.insert(
+                            name.clone(),
+                            (result_reg, TypeId::TCon("I64".to_string(), vec![])),
+                        );
+                    }
+                }
             }
             IrInst::StoreOffset { ptr, offset, value } => {
                 let ptr_val = self.value_to_llvm(ptr)?;
@@ -1281,6 +1327,132 @@ impl LlvmCodeGen {
         )
         .unwrap();
         writeln!(out, "  unreachable").unwrap();
+        writeln!(out, "}}").unwrap();
+        writeln!(out).unwrap();
+    }
+
+    fn emit_tag_arities_table(&mut self, ir_module: &IrModule) {
+        let out = &mut self.output;
+        let n = ir_module.tag_arities.len();
+        writeln!(
+            out,
+            "@__axiom_tag_field_count = internal constant [{} x i64] [",
+            n
+        )
+        .unwrap();
+        for (i, arity) in ir_module.tag_arities.iter().enumerate() {
+            let comma = if i + 1 < n { "," } else { "" };
+            writeln!(out, "  i64 {}{}", arity, comma).unwrap();
+        }
+        writeln!(out, "]").unwrap();
+        writeln!(out).unwrap();
+    }
+
+    fn emit_arena_compact_helper(&mut self, ir_module: &IrModule) {
+        let out = &mut self.output;
+        let max_tag = ir_module.tag_arities.len() as i64;
+        writeln!(out, "; Arena compact helper — deep-copy one heap value").unwrap();
+        writeln!(
+            out,
+            "define internal i64 @__axiom_arena_compact_one(i64 %ptr, i64 %arena_start, i64 %arena_end) {{"
+        )
+        .unwrap();
+        writeln!(out, "entry:").unwrap();
+        writeln!(out, "  %in_low = icmp uge i64 %ptr, %arena_start").unwrap();
+        writeln!(out, "  %in_high = icmp ult i64 %ptr, %arena_end").unwrap();
+        writeln!(out, "  %in_range = and i1 %in_low, %in_high").unwrap();
+        writeln!(
+            out,
+            "  br i1 %in_range, label %do_copy, label %not_pointer"
+        )
+        .unwrap();
+        writeln!(out).unwrap();
+        writeln!(out, "not_pointer:").unwrap();
+        writeln!(out, "  ret i64 %ptr").unwrap();
+        writeln!(out).unwrap();
+        writeln!(out, "do_copy:").unwrap();
+        writeln!(
+            out,
+            "  %tag_ptr = inttoptr i64 %ptr to ptr"
+        )
+        .unwrap();
+        writeln!(out, "  %tag = load i64, ptr %tag_ptr").unwrap();
+        writeln!(
+            out,
+            "  %tag_ok = icmp ult i64 %tag, {}",
+            max_tag
+        )
+        .unwrap();
+        writeln!(
+            out,
+            "  br i1 %tag_ok, label %lookup_arity, label %not_pointer"
+        )
+        .unwrap();
+        writeln!(out).unwrap();
+        writeln!(out, "lookup_arity:").unwrap();
+        writeln!(
+            out,
+            "  %arity_ptr = getelementptr [{} x i64], ptr @__axiom_tag_field_count, i64 0, i64 %tag",
+            max_tag
+        )
+        .unwrap();
+        writeln!(out, "  %arity = load i64, ptr %arity_ptr").unwrap();
+        writeln!(out, "  %nwords = add i64 %arity, 1").unwrap();
+        writeln!(out, "  %cell_size = mul i64 %nwords, 8").unwrap();
+        writeln!(out, "  %bump = load i64, ptr @__axiom_bump").unwrap();
+        writeln!(out, "  %new_cell = add i64 %bump, 0").unwrap();
+        writeln!(out, "  %new_bump = add i64 %bump, %cell_size").unwrap();
+        writeln!(out, "  store i64 %new_bump, ptr @__axiom_bump").unwrap();
+        writeln!(out, "  %dest_tag_ptr = inttoptr i64 %new_cell to ptr").unwrap();
+        writeln!(out, "  store i64 %tag, ptr %dest_tag_ptr").unwrap();
+        writeln!(out, "  br label %copy_loop").unwrap();
+        writeln!(out).unwrap();
+        writeln!(out, "copy_loop:").unwrap();
+        writeln!(out, "  %i = phi i64 [ 1, %lookup_arity ], [ %next_i, %copy_next ]").unwrap();
+        writeln!(out, "  %done = icmp eq i64 %i, %nwords").unwrap();
+        writeln!(
+            out,
+            "  br i1 %done, label %copy_done, label %copy_word"
+        )
+        .unwrap();
+        writeln!(out).unwrap();
+        writeln!(out, "copy_word:").unwrap();
+        writeln!(out, "  %offset = mul i64 %i, 8").unwrap();
+        writeln!(
+            out,
+            "  %src_addr = add i64 %ptr, %offset"
+        )
+        .unwrap();
+        writeln!(
+            out,
+            "  %src_ptr = inttoptr i64 %src_addr to ptr"
+        )
+        .unwrap();
+        writeln!(out, "  %field_val = load i64, ptr %src_ptr").unwrap();
+        writeln!(
+            out,
+            "  %new_field = call i64 @__axiom_arena_compact_one(i64 %field_val, i64 %arena_start, i64 %arena_end)"
+        )
+        .unwrap();
+        writeln!(
+            out,
+            "  %dest_addr = add i64 %new_cell, %offset"
+        )
+        .unwrap();
+        writeln!(
+            out,
+            "  %dest_ptr = inttoptr i64 %dest_addr to ptr"
+        )
+        .unwrap();
+        writeln!(out, "  store i64 %new_field, ptr %dest_ptr").unwrap();
+        writeln!(out, "  br label %copy_next").unwrap();
+        writeln!(out).unwrap();
+        writeln!(out, "copy_next:").unwrap();
+        writeln!(out, "  %next_i = add i64 %i, 1").unwrap();
+        writeln!(out, "  br label %copy_loop").unwrap();
+        writeln!(out).unwrap();
+        writeln!(out, "copy_done:").unwrap();
+        writeln!(out, "  ret i64 %new_cell").unwrap();
         writeln!(out, "}}").unwrap();
         writeln!(out).unwrap();
     }

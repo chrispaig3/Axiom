@@ -324,6 +324,7 @@ impl Parser {
                 body,
                 nid: None,
                 axtags: Vec::new(),
+                module_path: None,
             })
         } else {
             let name = self.parse_ident()?;
@@ -335,6 +336,7 @@ impl Parser {
                 body,
                 nid: None,
                 axtags: Vec::new(),
+                module_path: None,
             })
         }
     }
@@ -348,6 +350,7 @@ impl Parser {
             ty,
             nid: None,
             axtags: Vec::new(),
+            module_path: None,
         })
     }
 
@@ -412,6 +415,7 @@ impl Parser {
             deriving,
             nid: None,
             axtags: Vec::new(),
+            module_path: None,
         })
     }
 
@@ -462,6 +466,7 @@ impl Parser {
             repr,
             nid: None,
             axtags: Vec::new(),
+            module_path: None,
         })
     }
 
@@ -477,6 +482,7 @@ impl Parser {
             alias,
             nid: None,
             axtags: Vec::new(),
+            module_path: None,
         })
     }
 
@@ -497,6 +503,7 @@ impl Parser {
             deriving: Vec::new(),
             nid: None,
             axtags: Vec::new(),
+            module_path: None,
         })
     }
 
@@ -592,6 +599,7 @@ impl Parser {
             effects,
             nid: None,
             axtags: Vec::new(),
+            module_path: None,
         })
     }
 
@@ -646,6 +654,7 @@ impl Parser {
             effects,
             nid: None,
             axtags: Vec::new(),
+            module_path: None,
         })
     }
 
@@ -684,6 +693,7 @@ impl Parser {
             source,
             nid: None,
             axtags: Vec::new(),
+            module_path: None,
         })
     }
 
@@ -713,6 +723,7 @@ impl Parser {
             operations,
             nid: None,
             axtags: Vec::new(),
+            module_path: None,
         })
     }
 
@@ -737,6 +748,7 @@ impl Parser {
             body,
             nid: None,
             axtags: Vec::new(),
+            module_path: None,
         })
     }
 

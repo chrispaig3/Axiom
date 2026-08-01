@@ -815,28 +815,30 @@ impl TypeChecker {
     /// signature followed by exactly one matching `define`/`fn`/`foreign`
     /// is the normal, expected pattern, not a duplicate.
     fn check_duplicate_definitions(&mut self, decls: &[Decl]) {
-        let mut values: std::collections::HashMap<String, Span> = std::collections::HashMap::new();
-        let mut types: std::collections::HashMap<String, Span> = std::collections::HashMap::new();
+        let mut values: std::collections::HashMap<String, (Span, Option<String>)> = std::collections::HashMap::new();
+        let mut types: std::collections::HashMap<String, (Span, Option<String>)> = std::collections::HashMap::new();
 
         for decl in decls {
-            let (namespace, name): (&mut std::collections::HashMap<String, Span>, &Ident) =
+            let (namespace, name, module_path): (&mut std::collections::HashMap<String, (Span, Option<String>)>, &Ident, &Option<String>) =
                 match decl {
-                    Decl::DFn { name, .. } => (&mut values, name),
-                    Decl::DForeign { name, .. } => (&mut values, name),
-                    Decl::DData { name, .. } => (&mut types, name),
-                    Decl::DStruct { name, .. } => (&mut types, name),
-                    Decl::DType { name, .. } => (&mut types, name),
+                    Decl::DFn { name, module_path, .. } => (&mut values, name, module_path),
+                    Decl::DForeign { name, module_path, .. } => (&mut values, name, module_path),
+                    Decl::DData { name, module_path, .. } => (&mut types, name, module_path),
+                    Decl::DStruct { name, module_path, .. } => (&mut types, name, module_path),
+                    Decl::DType { name, module_path, .. } => (&mut types, name, module_path),
                     _ => continue,
                 };
 
-            if let Some(first_span) = namespace.get(&name.name) {
-                self.errors.push(SemError::DuplicateDefinition {
-                    name: name.name.clone(),
-                    span: name.span,
-                    first_span: *first_span,
-                });
+            if let Some((first_span, first_module)) = namespace.get(&name.name) {
+                if module_path == first_module {
+                    self.errors.push(SemError::DuplicateDefinition {
+                        name: name.name.clone(),
+                        span: name.span,
+                        first_span: *first_span,
+                    });
+                }
             } else {
-                namespace.insert(name.name.clone(), name.span);
+                namespace.insert(name.name.clone(), (name.span, module_path.clone()));
             }
         }
     }

@@ -59,8 +59,9 @@ That layer is now gone:
   backend emits an `mmap`-backed bump allocator, and a program that
   defines `axiom_alloc` itself replaces it - the seam that lets the
   allocator move into Axiom later without another backend change.
-- **A standard library in Axiom** (`stdlib/`): `Sys`, `Mem`, `Str`,
-  `Fmt`, `IO`, with per-platform syscall tables under `Sys/`.
+- **A standard library in Axiom** (`stdlib/`): `Pre`, `Mem`, `Str`,
+  `Vec`, `Map`, `Fmt`, `Intern`, `Sys`, `IO`, with per-platform
+  syscall tables under `Sys/`.
 - **Module resolution with a search path** and target-specific file
   selection (`Foo.linux-x86_64.ax` before `Foo.linux.ax` before
   `Foo.ax`), so platform differences live in Axiom source rather than in
@@ -110,12 +111,17 @@ depends on an optimisation flag, non-tail recursion is still bounded,
 and `opt` becomes a de-facto dependency. Axiom needs either guaranteed
 tail calls in the IR or an explicit loop form.
 
-**B3. No hash map, no growable array, no interner.** The Rust compiler
+**B3. Hash map, growable array, and interner exist but are untested at
+scale.** `Vec` (growable array of `Int`), `Map` (open-addressing
+`Int→Int` hash map with delete support), and `Intern` (string interner)
+are now implemented in `stdlib/` and compile cleanly. The Rust compiler
 uses `HashMap`/`HashSet`/`Vec` throughout (scopes, string interning,
-diamond-import dedup, constructor tables). The standard library has
-`Str` and raw memory, and nothing else. Nothing blocks writing them in
-Axiom now that memory primitives exist; it is unwritten work, and it is
-on the critical path for the type checker.
+diamond-import dedup, constructor tables). The Axiom implementations
+exist and type-check, but they lack golden tests and have not been
+exercised at the scale a self-hosted compiler would demand. Writing and
+exercising those tests, and ensuring the data structures meet the
+performance requirements of a 13,000-line compiler's type checker, is
+the remaining work on this item.
 
 **B4. One flat namespace across all modules.** Imports merge
 declarations into a single global namespace with no qualification; two
@@ -197,9 +203,9 @@ once phase 0 lands.
 ### Phase 0 - Foundations (done)
 
 Freestanding primitives, target/syscall ABI, Axiom-owned allocator,
-`stdlib/{Sys,Mem,Str,Fmt,IO}`, module search path with per-target
-selection, transitive effect inference, golden/freestanding/cross-target/
-reproducibility gates in CI.
+`stdlib/{Pre,Mem,Str,Vec,Map,Fmt,Intern,Sys,IO}`, module search path
+with per-target selection, transitive effect inference,
+golden/freestanding/cross-target/reproducibility gates in CI.
 
 *Exit criteria met:* a pure-Axiom program prints, formats integers,
 manipulates strings, reads and writes files, and exits with a chosen
@@ -210,7 +216,7 @@ status, calling no libc function, on four targets.
 | Item | Work | Exit criteria |
 |---|---|---|
 | B2 | Guaranteed tail calls in the IR (self-call → parameter reassignment + branch), independent of `opt` | 10-million-iteration tail-recursive loop at `-O0`; stdlib loops keep constant stack |
-| B3 | `Vec`, `Map` (open addressing), `Intern` in Axiom | Golden tests; 10⁵-element insert/lookup within 2× of the Rust equivalent |
+| B3 | `Vec`, `Map` (open addressing), `Intern` — golden tests and scale validation | Golden tests for all three; 10⁵-element insert/lookup within 2× of the Rust equivalent |
 | B1 | Function values: representation decision, indirect call in IR and codegen | Higher-order probe from §2.1 compiles and runs; closure capture tested |
 | B4 | Namespacing proposal, then implementation | Two modules define the same name without collision; existing programs unaffected |
 
