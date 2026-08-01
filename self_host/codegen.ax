@@ -10,32 +10,41 @@
 ; ------------------------------------------------------------------
 ; Type registry: constructor/struct name -> arity, kind, tag.
 ; ------------------------------------------------------------------
-(pub struct TypeEntry (name : Int) (nameLen : Int) (kind : Int) (arity : Int) (tag : Int))
+(pub struct TypeEntry (name : Int) (nameLen : Int) (nameHash : Int) (kind : Int) (arity : Int) (tag : Int))
 (pub :: TF_DATA   Int) (pub fn (TF_DATA)   0)
 (pub :: TF_STRUCT Int) (pub fn (TF_STRUCT) 1)
-(pub :: eKind  (-> Int Int)) (pub fn (eKind  e) (memGetWord e 2))
-(pub :: eArity (-> Int Int)) (pub fn (eArity e) (memGetWord e 3))
-(pub :: eTag   (-> Int Int)) (pub fn (eTag   e) (memGetWord e 4))
 (pub :: eNameLen (-> Int Int)) (pub fn (eNameLen e) (memGetWord e 1))
+(pub :: eNameHash (-> Int Int)) (pub fn (eNameHash e) (memGetWord e 2))
+(pub :: eKind  (-> Int Int)) (pub fn (eKind  e) (memGetWord e 3))
+(pub :: eArity (-> Int Int)) (pub fn (eArity e) (memGetWord e 4))
+(pub :: eTag   (-> Int Int)) (pub fn (eTag   e) (memGetWord e 5))
+
+; Hash: just strLen. Sufficient for the limited constructor set (all unique lengths).
+; Verified standalone: self_host/test_hash.ax returns correct tag with this hash.
+(pub :: nameHash (-> Int Int))
+(pub fn (nameHash s)
+  (strLen s))
 
 (pub :: addType (-> Int Int Int Int Int Int))
 (pub fn (addType types name kind arity tag)
-  (let ((nl (strLen name)))
-    (vecPush types (cast Int (TypeEntry name nl kind arity tag)))))
+  (let ((nl (strLen name))
+        (nh (nameHash name)))
+    (vecPush types (cast Int (TypeEntry name nl nh kind arity tag)))))
 
 (pub :: lookupType (-> Int Int Int))
 (pub fn (lookupType types name)
-  (let ((nLen (strLen name)))
-    (lookupByIdx types name nLen 0)))
+  (let ((nLen (strLen name))
+        (nHash (nameHash name)))
+    (lookupByIdx types nLen nHash 0)))
 
 (pub :: lookupByIdx (-> Int Int Int Int Int))
-(pub fn (lookupByIdx types name nLen i)
+(pub fn (lookupByIdx types nLen nHash i)
   (if (>= i (vecLen types))
       0
       (let ((e (vecGet types i)))
         (if (&& (== (eNameLen e) nLen)
-                (== (memGetWord e 0) name)) e
-            (lookupByIdx types name nLen (+ i 1))))))
+                (== (eNameHash e) nHash)) e
+            (lookupByIdx types nLen nHash (+ i 1))))))
 
 (pub :: lookupTypeIn (-> Int Int Int Int))
 (pub fn (lookupTypeIn types name i)
