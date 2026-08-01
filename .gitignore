@@ -2,6 +2,8 @@
 target/
 # Backup files
 **/*.rs.bk
+**/*.rs.bak
+**/*.bak
 # Debugging information for MSVC
 *.pdb
 
