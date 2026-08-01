@@ -675,18 +675,40 @@ Split a program across files with `(import Mod.Sub ...)`:
 
 ```scheme
 ; Math/Ops.ax
-(:: square (-> Int Int))
-(fn (square x) (* x x))
+(pub :: square (-> Int Int))
+(pub fn (square x) (* x x))
 ```
 
 ```scheme
 ; main.ax
 (import Math.Ops (square))    ; only bring in `square`
-; (import Math.Ops)            ; would bring in every top-level decl
+; (import Math.Ops)            ; would bring in every pub decl
 
 (:: main Int)
 (fn main (square 5))
 ```
+
+### Visibility
+
+All declarations are **private by default** — they are only visible within the defining file. Mark a declaration with `pub` to make it importable from other modules:
+
+```scheme
+(pub :: square (-> Int Int))  ; public — importable
+(pub fn (square x) (* x x))   ; public — importable
+
+(:: helper (-> Int Int))      ; private — only visible in this file
+(fn (helper x) (+ x 1))       ; private — only visible in this file
+```
+
+The `pub` keyword goes before the declaration keyword, inside the same parenthesized form:
+
+| Private | Public |
+|---|---|
+| `(:: name type)` | `(pub :: name type)` |
+| `(fn (name args) body)` | `(pub fn (name args) body)` |
+| `(data Name ...)` | `(pub data Name ...)` |
+| `(struct Name ...)` | `(pub struct Name ...)` |
+| `(macro (name pat) body)` | `(pub macro (name pat) body)` |
 
 ### How Imports Work
 
@@ -972,7 +994,7 @@ Supported targets: `darwin-aarch64`, `darwin-x86_64`, `linux-aarch64`, `linux-x8
 
 ## Optimisation
 
-Axiom has no loop construct — iteration is written as recursion. At `--opt 0` (the default) each iteration costs a stack frame. `--opt 1` and above run LLVM's mid-level passes, which turn self-tail-recursion into a real loop:
+Axiom has no loop construct — iteration is written as recursion. At `--opt 0` each iteration costs a stack frame. `--opt 1` (the default) and above run LLVM's mid-level passes, which turn self-tail-recursion into a real loop:
 
 ```bash
 axiom build --input main.ax --output main --opt 2

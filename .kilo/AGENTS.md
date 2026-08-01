@@ -163,14 +163,23 @@ Axiom is being self-hosted — parts of the compiler are written in Axiom itself
 
 ### Self-hosted files
 
+All declarations are **private by default**. Use `pub` to export:
+
+```scheme
+(pub :: vecNew Int)
+(pub fn (vecNew) (vecWithCapacity (vecDefaultCap)))
+```
+
 | File | Purpose |
 |---|---|
-| `self_host/core.ax` | Core data structures (Span, Token, TokenKind, Module) |
-| `self_host/lexer.ax` | Lexer stub — text → tokens transformation |
-| `self_host/parser.ax` | Parser stub — tokens → AST transformation |
-| `self_host/typecheck.ax` | Type checker stub — AST → typed AST validation |
-| `self_host/codegen.ax` | Code generator stub — typed AST → LLVM IR |
+| `self_host/core.ax` | Core data structures (Span, Token, TokenKind) |
+| `self_host/lexer.ax` | Tokenizer — text → tokens |
+| `self_host/parser.ax` | Parser — tokens → AST |
+| `self_host/typecheck.ax` | Type checker — AST → typed AST |
+| `self_host/codegen.ax` | Code generator — typed AST → LLVM IR |
 | `self_host/main.ax` | Entry point tying all phases together |
+
+See `docs/reference.md#visibility` for the full `pub` syntax.
 
 ### Building self-hosted code
 

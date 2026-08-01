@@ -204,7 +204,7 @@ current Linux distribution links PIE by default; and Axiom always has a
 `.bss` global, the bump allocator's `@__axiom_bump` cursor.
 
 Two things hid it. At `-O2` the x86 backend picks PC-relative addressing
-anyway, so only `-O0` fails — and `axiom run` is the `-O0` path. And
+anyway, so only `-O0` fails — and `axiom run` previously used the `-O0` path.
 Darwin is position-independent unconditionally, so it cannot be reproduced
 on macOS at all. Measured directly:
 
