@@ -422,8 +422,8 @@ impl LlvmCodeGen {
                 }
             }
             IrInst::And { dest, lhs, rhs } => {
-                let lhs_val = self.value_to_llvm(lhs)?;
-                let rhs_val = self.value_to_llvm(rhs)?;
+                let lhs_val = self.value_to_i64(lhs)?;
+                let rhs_val = self.value_to_i64(rhs)?;
                 let result_reg = self.new_local_reg();
                 writeln!(
                     self.output,
@@ -439,8 +439,8 @@ impl LlvmCodeGen {
                 }
             }
             IrInst::Or { dest, lhs, rhs } => {
-                let lhs_val = self.value_to_llvm(lhs)?;
-                let rhs_val = self.value_to_llvm(rhs)?;
+                let lhs_val = self.value_to_i64(lhs)?;
+                let rhs_val = self.value_to_i64(rhs)?;
                 let result_reg = self.new_local_reg();
                 writeln!(
                     self.output,
@@ -1440,6 +1440,22 @@ impl LlvmCodeGen {
             }
             IrValue::Global(name) => Ok(format!("@{}", name)),
             IrValue::Const(const_val) => Ok(self.const_to_llvm_value(const_val)),
+        }
+    }
+
+    /// Return the register name for `value`, inserting a `zext i1 … to i64`
+    /// when the tracked type is `i1`.  Callers that need a machine word
+    /// (e.g. `and i64`) call this instead of `value_to_llvm` so that a
+    /// comparison result (`Bool`) is widened before it enters a word-level
+    /// operation.
+    fn value_to_i64(&mut self, value: &IrValue) -> Result<String, String> {
+        let (reg, llvm_ty) = self.value_to_typed_string(value)?;
+        if llvm_ty == "i1" {
+            let widened = self.new_local_reg();
+            writeln!(self.output, "  {} = zext i1 {} to i64", widened, reg).unwrap();
+            Ok(widened)
+        } else {
+            Ok(reg)
         }
     }
 

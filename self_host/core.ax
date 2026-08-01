@@ -1,0 +1,86 @@
+; core.ax — compiler data structures shared by every phase.
+;
+; Axiom's uniform representation means every value is a machine word.
+; Struct pointers, constructor tags, string pointers, and spans are all
+; `Int` at this layer. The field-type annotations name the logical type
+; for the human reader and the type checker; the codegen treats every
+; field as an 8-byte slot.
+
+(import Mem)
+(import Str)
+
+; ------------------------------------------------------------------
+; Span: a half-open [start, end) range of byte offsets into a source
+; file. End may equal start for a zero-width span (e.g. EOF token).
+; ------------------------------------------------------------------
+(struct Span (start : Int) (end : Int))
+
+(:: mkSpan (-> Int Int Int))
+(fn (mkSpan start end)
+  (Span start end))
+
+; ------------------------------------------------------------------
+; TokenKind — nullary constructors, one per token shape.
+; Every value is just a tag; the lexeme string lives in the Token struct.
+; ------------------------------------------------------------------
+(data TokenKind
+  (TK_LPAREN)       ; (
+  (TK_RPAREN)       ; )
+  (TK_IDENT)        ; identifier or keyword
+  (TK_INT)          ; integer literal
+  (TK_STRING)       ; string literal
+  (TK_COLON)        ; :
+  (TK_DOUBLE_COLON) ; ::
+  (TK_RARROW)       ; ->
+  (TK_DOT)          ; .
+  (TK_QUOTE)        ; '
+  (TK_LBRACE)       ; {
+  (TK_RBRACE)       ; }
+  (TK_SEMI)         ; ; (line comment)
+  (TK_EOF)
+  (TK_ERROR))
+
+; ------------------------------------------------------------------
+; Token: the product of lexing a single lexical item.
+;   kind   — TokenKind tag
+;   lexeme — Str (shared with source wherever possible)
+;   span   — Span (byte range in source)
+; ------------------------------------------------------------------
+(struct Token (kind : TokenKind) (lexeme : Int) (span : Int))
+
+(:: mkToken (-> TokenKind Int Int Int))
+(fn (mkToken kind lexeme span)
+  (Token kind lexeme span))
+
+; Token accessors for readability.
+(:: tokenKind   (-> Int TokenKind))
+(fn (tokenKind   t)
+  (cast TokenKind (memGetWord t 0)))
+(:: tokenLexeme (-> Int Int)) (fn (tokenLexeme t) (memGetWord t 1))
+(:: tokenSpan   (-> Int Int)) (fn (tokenSpan   t) (memGetWord t 2))
+(:: spanStart   (-> Int Int)) (fn (spanStart   s) (memGetWord s 0))
+(:: spanEnd     (-> Int Int)) (fn (spanEnd     s) (memGetWord s 1))
+
+; ------------------------------------------------------------------
+; Convert a decimal digit Str to Int. Returns 0 on non-digit.
+; ------------------------------------------------------------------
+(:: strToInt (-> Int Int))
+(fn (strToInt s)
+  (strToIntFrom s 0 0))
+
+(:: strToIntFrom (-> Int Int Int Int))
+(fn (strToIntFrom s i acc)
+  (if (>= i (strLen s))
+      acc
+      (let ((ch (strByte s i)))
+        (if (&& (>= ch 48) (<= ch 57))
+            (strToIntFrom s (+ i 1) (+ (* acc 10) (- ch 48)))
+            acc))))
+
+; ------------------------------------------------------------------
+; Token list — linked list built during lexing.
+; Built back-to-front for O(1) cons, then reversed once at the end.
+; ------------------------------------------------------------------
+(data TokenList
+  (TKNil)
+  (TKCons Int Int))

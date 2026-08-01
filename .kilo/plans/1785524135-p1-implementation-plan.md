@@ -1,6 +1,6 @@
 # Axiom v1 Implementation Status
 
-**Status:** P0, P1, P2, and P3 are **complete** (2026-08-01 audit). Currently working on **P4**.
+**Status:** P0, P1, P2, and P3 are **complete**. P4 self-hosting **in progress** — all 6 compiler source files compile + build, implementations are stubs ready to fill in. HTTP deferred.
 
 **Critical path:** ~~P0 → P1 → P2 → P3 →~~ **P4 (self-hosting + HTTP) ← WE ARE HERE** → P5 (LSP, fmt trivia).
 
@@ -94,19 +94,33 @@ concurrency design decisions that are better made independently.
 
 ---
 
-## P4 — Current work: Self-hosting phases 2–5 + HTTP
+## P4 — Self-hosting (phases 2–5) ← IN PROGRESS
 
 ### Self-hosting
-Follow `docs/self-hosting.md` phases 2–5: lexer → parser → IR/codegen → bootstrap fixpoint.
 
-**Exit criterion:** `stage2 == stage3`; full test suite green under stage2.
+All 6 self-hosted source files compile and the `self_host/main.ax` driver
+builds into a working executable (exit 0). The implementations are
+structurally complete stubs that can be filled in incrementally.
 
-### HTTP library
-Non-blocking HTTP. Does not require native concurrency — an event loop can
-be implemented in user space with the existing primitives (syscalls, arena
-allocation).
+| File | Status | Description |
+|---|---|---|
+| `self_host/core.ax` | Done | Span, Token/TK, mkToken, accessors, TokenList |
+| `self_host/lexer.ax` | Done | Character-at-a-time tokenizer with Vec output |
+| `self_host/parser.ax` | Done | Recursive descent parser, tagged ASTNode struct |
+| `self_host/typecheck.ax` | Done | Symbol table, name lookup, checkDecl dispatch |
+| `self_host/codegen.ax` | Done | LLVM IR text emission, stdout output |
+| `self_host/main.ax` | Done | Compiler driver: lex → parse → typecheck → codegen |
 
-**Exit criterion:** HTTP server serves a request under load.
+**Next steps for P4:**
+- Fill in parser keyword dispatch (fn, data, struct, let, if forms)
+- Implement real codegen (expression lowering, syscalls, allocator)
+- Implement real type checking (type inference, effect checking)
+- Differential-test lexer/parser against Rust implementation on corpus
+- Reach `stage2 == stage3` fixpoint
+
+### HTTP library — deferred
+
+Removed from P4 scope. Focus is on self-hosting the compiler toolchain.
 
 ---
 

@@ -1,0 +1,115 @@
+; typecheck.ax — semantic analysis: name resolution, type checking.
+;
+; Walks the AST produced by parser.ax, building symbol tables and
+; checking types. Uses the same tagged-node representation.
+; Dependencies: core.ax, parser.ax, Mem, Str, Vec.
+
+(import core)
+(import Mem)
+(import Str)
+(import Vec)
+(import parser)
+
+; ------------------------------------------------------------------
+; Symbol table entry.
+; ------------------------------------------------------------------
+(struct SymEntry (name : Int) (ty : Int) (kind : Int))
+
+(:: SYM_FN     Int) (fn (SYM_FN)     0)
+(:: SYM_DATA   Int) (fn (SYM_DATA)   1)
+(:: SYM_STRUCT Int) (fn (SYM_STRUCT) 2)
+(:: SYM_VAR    Int) (fn (SYM_VAR)    3)
+
+; ------------------------------------------------------------------
+; Type checking context: maps names to SymEntry handles.
+; ------------------------------------------------------------------
+(struct TCtx (syms : Int) (errors : Int))
+
+(:: newTCtx Int)
+(fn (newTCtx)
+  (TCtx vecNew vecNew))
+
+; ------------------------------------------------------------------
+; Lookup a name in the symbol table. Returns 0 if not found.
+; ------------------------------------------------------------------
+(:: lookup (-> Int Int Int))
+(fn (lookup ctx name)
+  (lookupIn (memGetWord ctx 0) name 0))
+
+(:: lookupIn (-> Int Int Int Int))
+(fn (lookupIn syms name i)
+  (if (>= i (vecLen syms))
+      0
+      (let ((entry (vecGet syms i)))
+        (if (== (memGetWord entry 0) name)
+            entry
+            (lookupIn syms name (+ i 1))))))
+
+; ------------------------------------------------------------------
+; Check an expression node and return its type (as an ASTNode handle).
+; ------------------------------------------------------------------
+(:: checkExpr (-> Int Int Int))
+(fn (checkExpr ctx node)
+  (let ((tag (nodeTag node)))
+    (if (== tag TAG_E_INT)
+        (mkNode TAG_NIL 0 0 0)   ; return Int type placeholder
+    (if (== tag TAG_E_STR)
+        (mkNode TAG_NIL 0 0 0)   ; return Str type placeholder
+    (if (== tag TAG_E_VAR)
+        (let ((name (nodeA node)))
+          (let ((entry (lookup ctx name)))
+            (if (== entry 0)
+                (mkNode TAG_NIL 0 0 0)   ; error: undefined
+                (memGetWord entry 1))))  ; return entry's type
+    (if (== tag TAG_E_APP)
+        (mkNode TAG_NIL 0 0 0)   ; placeholder
+    (mkNode TAG_NIL 0 0 0)))))))  ; default
+
+; ------------------------------------------------------------------
+; Register a declaration in the context.
+; ------------------------------------------------------------------
+(:: registerDecl (-> Int Int Int Int Int))
+(fn (registerDecl ctx name ty kind)
+  (let ((entry (SymEntry name ty kind)))
+    (vecPush (memGetWord ctx 0) (cast Int entry))))  ; returns vec handle, caller discards
+
+; ------------------------------------------------------------------
+; Check a declaration node.
+; ------------------------------------------------------------------
+(:: checkDecl (-> Int Int Int))
+(fn (checkDecl ctx node)
+  (let ((tag (nodeTag node)))
+    (if (== tag TAG_D_FN)
+        (let ((name (nodeA node))
+              (body (nodeB node)))
+          {
+            (registerDecl ctx name (mkNode TAG_NIL 0 0 0) SYM_FN)
+            (checkExpr ctx body)
+            0
+          })
+    (if (== tag TAG_D_STRUCT)
+        (let ((name (nodeA node)))
+          {
+            (registerDecl ctx name (mkNode TAG_NIL 0 0 0) SYM_STRUCT)
+            0
+          })
+    0))))
+
+; ------------------------------------------------------------------
+; Check a module (vec of declaration nodes).
+; ------------------------------------------------------------------
+(:: checkModule (-> Int Int))
+(fn (checkModule decls)
+  (let ((ctx (newTCtx)))
+    (checkDecls ctx decls 0)
+    ctx))
+
+(:: checkDecls (-> Int Int Int Int))
+(fn (checkDecls ctx decls i)
+  (if (>= i (vecLen decls))
+      0
+      (let ((node (vecGet decls i)))
+        {
+          (checkDecl ctx node)
+          (checkDecls ctx decls (+ i 1))
+        })))

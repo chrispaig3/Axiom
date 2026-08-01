@@ -1,0 +1,407 @@
+; codegen.ax — LLVM IR text emitter.
+;
+; Dependencies: core.ax, parser.ax, Mem, Str, Vec.
+
+(import core)
+(import Mem)
+(import Str)
+(import Vec)
+(import parser)
+
+; ------------------------------------------------------------------
+; CG state: output buffer + temp counter + last result.
+; ------------------------------------------------------------------
+(struct CG (lines : Int) (tmp : Int) (result : Int))
+
+(:: newCG Int)
+(fn (newCG)
+  (CG vecNew 0 (strFromLit (__addr ""))))
+
+(:: emitLine (-> Int Int Int))
+(fn (emitLine cg line)
+  {
+    (vecPush (memGetWord cg 0) (strDup line))
+    cg
+  })
+
+(:: allocReg (-> Int Int))
+(fn (allocReg cg)
+  (let ((n (memGetWord cg 1)))
+    {
+      (memSetWord cg 1 (+ n 1))
+      n
+    }))
+
+(:: setResult (-> Int Int Int))
+(fn (setResult cg reg)
+  {
+    (memSetWord cg 2 reg)
+    cg
+  })
+
+; ------------------------------------------------------------------
+; Integer formatting (minimal).
+; ------------------------------------------------------------------
+(:: fmtInt (-> Int Int))
+(fn (fmtInt n)
+  (if (< n 10)
+      (let ((ch (strAlloc 1)))
+        {
+          (__store8 (strData ch) 0 (+ n 48))
+          ch
+        })
+      (let ((prefix (fmtInt (/ n 10))))
+        (let ((suffix (strAlloc 1)))
+          {
+            (__store8 (strData suffix) 0 (+ (% n 10) 48))
+            (strConcat prefix suffix)
+          }))))
+
+; ------------------------------------------------------------------
+; Render accumulated lines into one string.
+; ------------------------------------------------------------------
+(:: renderCG (-> Int Int))
+(fn (renderCG cg)
+  (let ((lines (memGetWord cg 0)))
+    (renderFrom lines 0 (strFromLit (__addr "")))))
+
+(:: renderFrom (-> Int Int Int Int))
+(fn (renderFrom lines i acc)
+  (if (>= i (vecLen lines))
+      acc
+      (renderFrom lines (+ i 1)
+        (strConcat (strConcat acc (vecGet lines i))
+                   (strFromLit (__addr "\n"))))))
+
+; ------------------------------------------------------------------
+; Helper: concatenate two strings.
+; ------------------------------------------------------------------
+(:: cat2 (-> Int Int Int))
+(fn (cat2 a b)
+  (strConcat a b))
+
+(:: cat3 (-> Int Int Int Int))
+(fn (cat3 a b c)
+  (strConcat (strConcat a b) c))
+
+(:: cat4 (-> Int Int Int Int Int))
+(fn (cat4 a b c d)
+  (let ((ab (strConcat a b)))
+    (strConcat (strConcat ab c) d)))
+
+; ------------------------------------------------------------------
+; Helpers: make LLVM values. reg argument is an Int (fmtInt result).
+; ------------------------------------------------------------------
+(:: regStr (-> Int Int))
+(fn (regStr n)
+  (cat2 (strFromLit (__addr "%t")) (fmtInt n)))
+
+(:: constStr (-> Int Int))
+(fn (constStr n)
+  (fmtInt n))
+
+; ------------------------------------------------------------------
+; Module emission.
+; ------------------------------------------------------------------
+(:: emitModule (-> Int Int Int))
+(fn (emitModule decls target)
+  (let ((cg (newCG)))
+    (let ((cg1 (emitLine cg (strFromLit (__addr "target triple = \"x86_64-unknown-linux-gnu\"")))))
+      (let ((cg2 (emitLine cg1 (strFromLit (__addr "")))))
+        (let ((cg3 (emitDecls decls cg2 0)))
+          (renderCG cg3))))))
+
+(:: emitDecls (-> Int Int Int Int))
+(fn (emitDecls decls cg i)
+  (if (>= i (vecLen decls))
+      cg
+      (let ((node (vecGet decls i))
+            (next (emitDecl decls cg i node)))
+        (emitDecls decls next (+ i 1)))))
+
+(:: emitDecl (-> Int Int Int Int Int))
+(fn (emitDecl decls cg i node)
+  (let ((tag (nodeTag node)))
+    (if (== tag TAG_D_FN)
+        (emitFnDef decls cg i node)
+    cg)))
+
+; ------------------------------------------------------------------
+; Emit a function definition.
+; ------------------------------------------------------------------
+(:: emitFnDef (-> Int Int Int Int Int))
+(fn (emitFnDef decls cg i node)
+  (let ((name (nodeA node))
+        (body (nodeB node)))
+    (let ((headerTmp (cat3
+           (strFromLit (__addr "define i64 @"))
+           (strDup name)
+           (strFromLit (__addr "() {")))))
+      (let ((cg1 (emitLine cg headerTmp)))
+        (let ((cg2 (emitExpr body cg1)))
+          (let ((resultReg (memGetWord cg2 2)))
+            (let ((retTmp (cat3
+                   (strFromLit (__addr "  ret i64 "))
+                   (strDup resultReg)
+                   (strFromLit (__addr "")))))
+              (let ((cg3 (emitLine cg2 retTmp)))
+                (emitLine cg3 (strFromLit (__addr "}")))))))))))
+
+; ------------------------------------------------------------------
+; Expression lowering.
+; ------------------------------------------------------------------
+(:: emitExpr (-> Int Int Int))
+(fn (emitExpr node cg)
+  (let ((tag (nodeTag node)))
+    (if (== tag TAG_E_INT)
+        (emitInt node cg)
+    (if (== tag TAG_E_VAR)
+        (emitVar node cg)
+    (if (== tag TAG_E_APP)
+        (emitApp node cg)
+    (if (== tag TAG_E_LET)
+        (emitLet node cg)
+    (if (== tag TAG_E_IF)
+        (emitIf node cg)
+    (if (== tag TAG_E_BEGIN)
+        (emitBegin node cg)
+    (if (== tag TAG_E_LAM)
+        (emitLam node cg)
+    (emitDefault node cg))))))))))
+
+; ------------------------------------------------------------------
+; E_Int.
+; ------------------------------------------------------------------
+(:: emitInt (-> Int Int Int))
+(fn (emitInt node cg)
+  (let ((val (nodeA node)))
+    {
+      (memSetWord cg 2 (constStr val))
+      cg
+    }))
+
+; ------------------------------------------------------------------
+; E_Var: reference to global function → emit call later.
+; For now, return the name as result.
+; ------------------------------------------------------------------
+(:: emitVar (-> Int Int Int))
+(fn (emitVar node cg)
+  (let ((name (nodeA node)))
+    {
+      (memSetWord cg 2 name)
+      cg
+    }))
+
+; ------------------------------------------------------------------
+; E_App: function application.
+; For binary ops like (+ a b), emit LLVM instruction.
+; For general calls, emit call instruction.
+; ------------------------------------------------------------------
+(:: emitApp (-> Int Int Int))
+(fn (emitApp node cg)
+  (let ((fnNode (nodeA node))
+        (argNode (nodeB node)))
+    (if (== (nodeTag fnNode) TAG_E_VAR)
+        (let ((fnName (nodeA fnNode)))
+          (emitKnownCall fnName argNode cg))
+        (emitDefault node cg))))
+
+; Dispatch on known function names.
+(:: emitKnownCall (-> Int Int Int Int))
+(fn (emitKnownCall fnName argNode cg)
+  (if (strEq fnName (strFromLit (__addr "+")))
+      (emitBinOpAdd argNode cg)
+  (if (strEq fnName (strFromLit (__addr "-")))
+      (emitBinOpSub argNode cg)
+  (if (strEq fnName (strFromLit (__addr "*")))
+      (emitBinOpMul argNode cg)
+  (if (strEq fnName (strFromLit (__addr "/")))
+      (emitBinOpDiv argNode cg)
+  (if (strEq fnName (strFromLit (__addr "==")))
+      (emitCmpOp (strFromLit (__addr "eq")) argNode cg)
+  (if (strEq fnName (strFromLit (__addr "!=")))
+      (emitCmpOp (strFromLit (__addr "ne")) argNode cg)
+  (if (strEq fnName (strFromLit (__addr "<")))
+      (emitCmpOp (strFromLit (__addr "slt")) argNode cg)
+  (if (strEq fnName (strFromLit (__addr ">")))
+      (emitCmpOp (strFromLit (__addr "sgt")) argNode cg)
+  (if (strEq fnName (strFromLit (__addr "<=")))
+      (emitCmpOp (strFromLit (__addr "sle")) argNode cg)
+  (if (strEq fnName (strFromLit (__addr ">=")))
+      (emitCmpOp (strFromLit (__addr "sge")) argNode cg)
+  (if (strEq fnName (strFromLit (__addr "%")))
+      (emitBinOpRem argNode cg)
+  (emitUserCall fnName argNode cg)))))))))))))
+
+; ------------------------------------------------------------------
+; Binary ops.
+; ------------------------------------------------------------------
+(:: emitBinOpAdd (-> Int Int Int))
+(fn (emitBinOpAdd argNode cg)
+  (emitBinOp (strFromLit (__addr "add")) argNode cg))
+
+(:: emitBinOpSub (-> Int Int Int))
+(fn (emitBinOpSub argNode cg)
+  (emitBinOp (strFromLit (__addr "sub")) argNode cg))
+
+(:: emitBinOpMul (-> Int Int Int))
+(fn (emitBinOpMul argNode cg)
+  (emitBinOp (strFromLit (__addr "mul")) argNode cg))
+
+(:: emitBinOpDiv (-> Int Int Int))
+(fn (emitBinOpDiv argNode cg)
+  (emitBinOp (strFromLit (__addr "sdiv")) argNode cg))
+
+(:: emitBinOpRem (-> Int Int Int))
+(fn (emitBinOpRem argNode cg)
+  (emitBinOp (strFromLit (__addr "srem")) argNode cg))
+
+(:: emitBinOp (-> Int Int Int Int))
+(fn (emitBinOp opName argNode cg)
+  (let ((lhsNode (nodeA argNode))
+        (rhsNode (nodeB argNode)))
+    (let ((cg1 (emitExpr lhsNode cg)))
+      (let ((lhsReg (memGetWord cg1 2)))
+        (let ((cg2 (emitExpr rhsNode cg1)))
+          (let ((rhsReg (memGetWord cg2 2)))
+            (let ((resultN (allocReg cg2)))
+              (let ((result (regStr resultN)))
+                (let ((inst (cat3 (cat2 (strFromLit (__addr "  ")) result)
+                                  (cat2 (strFromLit (__addr " = "))
+                                        (cat4 opName
+                                              (strFromLit (__addr " i64 "))
+                                              (strDup lhsReg)
+                                              (strFromLit (__addr ", "))))
+                                  (strDup rhsReg))))
+                  {
+                    (emitLine cg2 inst)
+                    (memSetWord cg2 2 result)
+                    cg2
+                  })))))))))
+
+; ------------------------------------------------------------------
+; Comparison ops: emit icmp + zext to i64.
+; %tmp = icmp eq i64 %lhs, %rhs
+; %result = zext i1 %tmp to i64
+; ------------------------------------------------------------------
+(:: emitCmpOp (-> Int Int Int Int))
+(fn (emitCmpOp cmpKind argNode cg)
+  (let ((lhsNode (nodeA argNode))
+        (rhsNode (nodeB argNode)))
+    (let ((cg1 (emitExpr lhsNode cg)))
+      (let ((lhsReg (memGetWord cg1 2)))
+        (let ((cg2 (emitExpr rhsNode cg1)))
+          (let ((rhsReg (memGetWord cg2 2)))
+            (let ((cmpN (allocReg cg2)))
+              (let ((cmpReg (regStr cmpN)))
+                (let ((cmpInst (cat3 (cat2 (strFromLit (__addr "  ")) cmpReg)
+                                     (strFromLit (__addr " = icmp "))
+                                     (cat4 cmpKind
+                                           (strFromLit (__addr " i64 "))
+                                           (strDup lhsReg)
+                                           (cat2 (strFromLit (__addr ", "))
+                                                 (strDup rhsReg))))))
+                  (let ((cg3 (emitLine cg2 cmpInst)))
+                    (let ((zN (allocReg cg3)))
+                      (let ((zReg (regStr zN)))
+                        (let ((zInst (cat4 (cat2 (strFromLit (__addr "  ")) zReg)
+                                           (strFromLit (__addr " = zext i1 "))
+                                           (strDup cmpReg)
+                                           (strFromLit (__addr " to i64")))))
+                          {
+                            (emitLine cg3 zInst)
+                            (memSetWord cg3 2 zReg)
+                            cg3
+                          })))))))))))))
+
+; ------------------------------------------------------------------
+; User function call: call i64 @func(i64 %a, ...)
+; ------------------------------------------------------------------
+(:: emitUserCall (-> Int Int Int Int))
+(fn (emitUserCall fnName argNode cg)
+  (let ((argsCg (emitArgs argNode cg)))
+    (let ((allArgs (memGetWord argsCg 2)))
+      (let ((resultN (allocReg argsCg)))
+        (let ((result (regStr resultN)))
+          (let ((callPart (cat3 (cat2 (strFromLit (__addr "  ")) result)
+                                (strFromLit (__addr " = call i64 @"))
+                                (strDup fnName))))
+            (let ((inst (cat3 callPart (strFromLit (__addr "(i64 "))
+                              (cat2 (strDup allArgs) (strFromLit (__addr ")"))))))
+              {
+                (emitLine argsCg inst)
+                (memSetWord argsCg 2 result)
+                argsCg
+              })))))))
+
+; Collect arguments: recursively walk E_App chain, emit each, concat reg names.
+(:: emitArgs (-> Int Int Int))
+(fn (emitArgs argNode cg)
+  (if (== (nodeTag argNode) TAG_E_APP)
+      (let ((lhs (nodeA argNode))
+            (rhs (nodeB argNode)))
+        (let ((cg1 (emitExpr lhs cg)))
+          (let ((lhsReg (memGetWord cg1 2)))
+            (let ((restCg (emitArgs rhs cg1)))
+              (let ((restRegs (memGetWord restCg 2)))
+                {
+                  (memSetWord restCg 2
+                    (cat3 (strDup lhsReg) (strFromLit (__addr ", "))
+                          (strDup restRegs)))
+                  restCg
+                })))))
+      (let ((cg1 (emitExpr argNode cg)))
+        {
+          (memSetWord cg1 2 (strDup (memGetWord cg1 2)))
+          cg1
+        })))
+
+; ------------------------------------------------------------------
+; E_Let: just evaluate body for now.
+; ------------------------------------------------------------------
+(:: emitLet (-> Int Int Int))
+(fn (emitLet node cg)
+  (let ((body (nodeB node)))
+    (emitExpr body cg)))
+
+; ------------------------------------------------------------------
+; E_If: simplified — evaluate then-branch.
+; ------------------------------------------------------------------
+(:: emitIf (-> Int Int Int))
+(fn (emitIf node cg)
+  (let ((thenNode (nodeB node)))
+    (emitExpr thenNode cg)))
+
+; ------------------------------------------------------------------
+; E_Begin: sequence — last value is result.
+; ------------------------------------------------------------------
+(:: emitBegin (-> Int Int Int))
+(fn (emitBegin node cg)
+  (let ((exprs (nodeA node)))
+    (emitSeq exprs cg 0)))
+
+(:: emitSeq (-> Int Int Int Int))
+(fn (emitSeq exprs cg i)
+  (if (>= i (vecLen exprs))
+      cg
+      (emitSeq exprs (emitExpr (vecGet exprs i) cg) (+ i 1))))
+
+; ------------------------------------------------------------------
+; E_Lam: placeholder.
+; ------------------------------------------------------------------
+(:: emitLam (-> Int Int Int))
+(fn (emitLam node cg)
+  {
+    (memSetWord cg 2 (strFromLit (__addr "0")))
+    cg
+  })
+
+; ------------------------------------------------------------------
+; Default: emit nothing, result = 0.
+; ------------------------------------------------------------------
+(:: emitDefault (-> Int Int Int))
+(fn (emitDefault node cg)
+  {
+    (memSetWord cg 2 (strFromLit (__addr "0")))
+    cg
+  })

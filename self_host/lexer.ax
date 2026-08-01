@@ -1,0 +1,198 @@
+; lexer.ax — character-at-a-time tokenizer.
+;
+; Dependencies: core.ax (Span, Token, TokenKind), Mem, Str, Vec.
+
+(import core)
+(import Mem)
+(import Str)
+(import Vec)
+
+; ------------------------------------------------------------------
+; Character predicates.
+; ------------------------------------------------------------------
+
+(:: isDigit (-> Int Bool))
+(fn (isDigit ch)
+  (if (>= ch 48)
+      (<= ch 57)
+      false))
+
+(:: isAlpha (-> Int Bool))
+(fn (isAlpha ch)
+  (if (>= ch 65)
+      (if (<= ch 90) true
+      (if (>= ch 97)
+          (<= ch 122)
+          false))
+      false))
+
+(:: isIdentStart (-> Int Bool))
+(fn (isIdentStart ch)
+  (if (isAlpha ch) true (if (== ch 95) true (if (== ch 43) true (if (== ch 45) true (if (== ch 42) true (if (== ch 47) true (if (== ch 37) true (if (== ch 60) true (if (== ch 62) true (if (== ch 61) true (if (== ch 33) true (if (== ch 38) true (if (== ch 124) true (if (== ch 63) true false)))))))))))))))
+
+(:: isIdentChar (-> Int Bool))
+(fn (isIdentChar ch)
+  (if (isAlpha ch) true (if (isDigit ch) true (if (== ch 95) true (if (== ch 45) true (if (== ch 33) true (if (== ch 63) true (if (== ch 42) true (if (== ch 43) true (if (== ch 47) true (if (== ch 60) true (if (== ch 62) true (if (== ch 61) true (if (== ch 37) true (if (== ch 38) true (if (== ch 124) true (if (== ch 39) true false)))))))))))))))))
+
+(:: isSpace (-> Int Bool))
+(fn (isSpace ch)
+  (if (== ch 32) true
+  (if (== ch 10) true
+  (if (== ch 13) true
+  (if (== ch 9)  true
+  false)))))
+
+; ------------------------------------------------------------------
+; Skip whitespace and comments.
+; ------------------------------------------------------------------
+
+(:: skipWhitespace (-> Int Int Int Int))
+(fn (skipWhitespace src pos len)
+  (if (>= pos len)
+      pos
+      (let ((ch (strByte src pos)))
+        (if (isSpace ch)
+            (skipWhitespace src (+ pos 1) len)
+        (if (== ch 59)
+            (skipLineComment src (+ pos 1) len)
+        pos)))))
+
+(:: skipLineComment (-> Int Int Int Int))
+(fn (skipLineComment src pos len)
+  (if (>= pos len)
+      pos
+      (let ((ch (strByte src pos)))
+        (if (== ch 10)
+            (skipWhitespace src (+ pos 1) len)
+        (skipLineComment src (+ pos 1) len)))))
+
+; ------------------------------------------------------------------
+; Emit a token.
+; ------------------------------------------------------------------
+
+(:: emitToken (-> TokenKind Int Int Int Int Int))
+(fn (emitToken kind start end tokens src)
+  (let ((lex (strSlice src start (- end start))))
+    (vecPush tokens (mkToken kind lex (mkSpan start end)))))
+
+; ------------------------------------------------------------------
+; Skip helpers.
+; ------------------------------------------------------------------
+
+(:: skipIdent (-> Int Int Int Int))
+(fn (skipIdent src pos len)
+  (if (>= pos len)
+      pos
+      (let ((ch (strByte src pos)))
+        (if (isIdentChar ch)
+            (skipIdent src (+ pos 1) len)
+        pos))))
+
+(:: skipDigits (-> Int Int Int Int))
+(fn (skipDigits src pos len)
+  (if (>= pos len)
+      pos
+      (let ((ch (strByte src pos)))
+        (if (isDigit ch)
+            (skipDigits src (+ pos 1) len)
+        pos))))
+
+(:: scanStringEnd (-> Int Int Int Int))
+(fn (scanStringEnd src pos len)
+  (if (>= pos len)
+      pos
+      (let ((ch (strByte src pos)))
+        (if (== ch 34)
+            (+ pos 1)
+        (if (== ch 10)
+            pos
+        (scanStringEnd src (+ pos 1) len))))))
+
+; ------------------------------------------------------------------
+; Main lexer loop.
+; ------------------------------------------------------------------
+
+(:: lexTokens (-> Int Int Int Int Int))
+(fn (lexTokens src pos len tokens)
+  (if (>= pos len)
+      (emitToken TK_EOF pos pos tokens src)
+      (dispatchChar src pos len tokens (strByte src pos))))
+
+(:: dispatchChar (-> Int Int Int Int Int Int))
+(fn (dispatchChar src pos len tokens ch)
+  (if (== ch 45)
+      (if (&& (< (+ pos 1) len) (== (strByte src (+ pos 1)) 62))
+          (lexTokens src (+ pos 2) len (emitToken TK_RARROW pos (+ pos 2) tokens src))
+          (parseIdentToken src pos len tokens))
+(if (== ch 58)
+      (if (&& (< (+ pos 1) len) (== (strByte src (+ pos 1)) 58))
+          (lexTokens src (+ pos 2) len (emitToken TK_DOUBLE_COLON pos (+ pos 2) tokens src))
+          (lexTokens src (+ pos 1) len (emitToken TK_COLON pos (+ pos 1) tokens src)))
+(if (isDigit ch)
+      (let ((ep (skipDigits src (+ pos 1) len)))
+        (lexTokens src ep len (emitToken TK_INT pos ep tokens src)))
+(if (isIdentStart ch)
+      (let ((ep (skipIdent src (+ pos 1) len)))
+        (lexTokens src ep len (emitToken TK_IDENT pos ep tokens src)))
+(if (== ch 34)
+      (let ((ep (scanStringEnd src (+ pos 1) len)))
+        (let ((kind (if (< ep len) TK_STRING TK_ERROR)))
+          (lexTokens src ep len (emitToken kind pos ep tokens src))))
+(if (== ch 40)
+      (lexTokens src (+ pos 1) len (emitToken TK_LPAREN pos (+ pos 1) tokens src))
+(if (== ch 41)
+      (lexTokens src (+ pos 1) len (emitToken TK_RPAREN pos (+ pos 1) tokens src))
+(if (== ch 46)
+      (lexTokens src (+ pos 1) len (emitToken TK_DOT pos (+ pos 1) tokens src))
+(if (== ch 39)
+      (lexTokens src (+ pos 1) len (emitToken TK_QUOTE pos (+ pos 1) tokens src))
+(if (== ch 123)
+      (lexTokens src (+ pos 1) len (emitToken TK_LBRACE pos (+ pos 1) tokens src))
+(if (== ch 125)
+      (lexTokens src (+ pos 1) len (emitToken TK_RBRACE pos (+ pos 1) tokens src))
+(if (isSpace ch)
+      (lexTokens src (+ pos 1) len tokens)
+(if (== ch 59)
+      (lexTokens src (skipWhitespace src pos len) len tokens)
+(lexTokens src (+ pos 1) len tokens)))))))))))))))
+
+(:: parseIdentToken (-> Int Int Int Int Int))
+(fn (parseIdentToken src pos len tokens)
+  (let ((ep (skipIdent src (+ pos 1) len)))
+    (lexTokens src ep len (emitToken TK_IDENT pos ep tokens src))))
+
+; ------------------------------------------------------------------
+; Reverse a Vec.
+; ------------------------------------------------------------------
+
+(:: vecSwap (-> Int Int Int Int))
+(fn (vecSwap v i j)
+  (let ((vi (vecGet v i))
+        (vj (vecGet v j)))
+    {
+      (vecSet v i vj)
+      (vecSet v j vi)
+      v
+    }))
+
+(:: vecReverseIn (-> Int Int Int Int))
+(fn (vecReverseIn v i j)
+  (if (>= i j)
+      v
+      (vecReverseIn (vecSwap v i j) (+ i 1) (- j 1))))
+
+(:: vecReverse (-> Int Int))
+(fn (vecReverse v)
+  (let ((len (vecLen v)))
+    (if (<= len 1)
+        v
+        (vecReverseIn v 0 (- len 1)))))
+
+; ------------------------------------------------------------------
+; Public lexer interface.
+; ------------------------------------------------------------------
+
+(:: lex (-> Int Int))
+(fn (lex src)
+  (let ((tokens (lexTokens src 0 (strLen src) vecNew)))
+    (vecReverse tokens)))
