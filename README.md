@@ -7,7 +7,7 @@ Axiom blends the expressive power of functional programming with the performance
 
 Axiom is intentionally small, explicit, and transparent. It’s designed not only for developers, but also for agentic programming, where AI systems generate, analyze, and manipulate code. Its uniform structure and predictable semantics make it uniquely easy for agents to understand and work with.
 
-Co‑authored with Qwen3.6 Plus, Axiom explores a new frontier: languages built with AI, and built for AI‑assisted development.
+Axiom explores a new frontier: languages built with AI, and built for AI‑assisted development.
 
 ---
 
