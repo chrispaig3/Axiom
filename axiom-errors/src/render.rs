@@ -259,6 +259,11 @@ fn render_ai_line(diag: &Diagnostic, filename: &str, source: &str, map: &SourceM
         }
     }
 
+    // expansion backtrace: &"call site" per entry
+    for entry in &diag.expansion_backtrace {
+        write!(line, " &{:?}", entry).ok();
+    }
+
     line
 }
 

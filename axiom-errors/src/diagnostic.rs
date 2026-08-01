@@ -45,6 +45,11 @@ pub struct Diagnostic {
     /// with an earlier-emitted diagnostic are suppressed by
     /// [`crate::render::dedup`].
     pub group: Option<String>,
+    /// Chain of macro expansions this diagnostic's source span passed
+    /// through, from outermost to innermost. Each entry is a human-readable
+    /// description of the macro call site, e.g. `"main.ax:3:10 (or ...)"`.
+    /// Empty when the diagnostic originates from unexpanded user code.
+    pub expansion_backtrace: Vec<String>,
 }
 
 impl Diagnostic {
@@ -58,6 +63,7 @@ impl Diagnostic {
             notes: Vec::new(),
             helps: Vec::new(),
             group: None,
+            expansion_backtrace: Vec::new(),
         }
     }
 
@@ -118,6 +124,15 @@ impl Diagnostic {
     /// dropped by [`crate::render::dedup`] before rendering.
     pub fn with_group(mut self, group: impl Into<String>) -> Self {
         self.group = Some(group.into());
+        self
+    }
+
+    /// Record a chain of macro expansions this diagnostic's span passed
+    /// through. The first entry is the outermost expansion (the call site
+    /// closest to user code), the last is the innermost (the final
+    /// expansion before the diagnostic was produced).
+    pub fn with_expansion_backtrace(mut self, backtrace: Vec<String>) -> Self {
+        self.expansion_backtrace = backtrace;
         self
     }
 

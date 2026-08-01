@@ -1,8 +1,8 @@
 # Axiom v1 Implementation Status
 
-**Status:** P0, P1, and P2 are **complete** (2026-08-01 audit). Currently working on **P3**.
+**Status:** P0, P1, P2, and P3 are **complete** (2026-08-01 audit). Currently working on **P4**.
 
-**Critical path:** ~~P0 → P1 → P2 →~~ **P3 (~~B4 namespacing~~ ✓ · macro hygiene + concurrency) ← WE ARE HERE** → P4 (self-hosting + HTTP) → P5 (LSP, fmt trivia).
+**Critical path:** ~~P0 → P1 → P2 → P3 →~~ **P4 (self-hosting + HTTP) ← WE ARE HERE** → P5 (LSP, fmt trivia).
 
 ---
 
@@ -46,7 +46,7 @@ Memory model: arena inference with `ArenaMark`/`Reset`/`Compact`, tail-loop aren
 
 ---
 
-## P3 — Current work
+## P3 — ALL DONE
 
 ### 3.1 B4: Namespacing — DONE
 
@@ -61,26 +61,40 @@ Memory model: arena inference with `ArenaMark`/`Reset`/`Compact`, tail-loop aren
 
 **Exit criterion met:** Two modules define the same name without collision when imported selectively; `Mod::name` access works. All 175 tests pass.
 
-### 3.2 Macro system — PARTIAL (scope sets: `Ident.scope` done)
+### 3.2 Macro system — DONE
 
-**Current state:** Expansion pass before sema with pattern substitution works. `stdlib/Pre.ax` defines `when`, `unless`, `cond2`, `cond3` macros. Cross-module macro import works. **No hygiene — no gensym/fresh-name generation, no scope sets.**
+**Current state:** Expansion pass before sema with pattern substitution works. `stdlib/Pre.ax` defines `when`, `unless`, `cond2`, `cond3` macros. Cross-module macro import works. **Hygiene implemented:** scope sets, gensym, and expansion backtrace on `Diagnostic`.
 
-**Remaining work:**
-1. **Scope sets (prerequisite for hygiene):** Add `scope: usize` to `Ident` in `axiom-ast/src/span.rs`. Teach name resolution to compare `(name, scope)` pairs.
-2. **Gensym:** Fresh name generation for macro-introduced bindings.
-3. **Expansion backtrace:** Add to `Diagnostic` so type errors in expanded code show the macro call chain.
+**Completed work:**
+1. **Scope sets:** `Ident.scope: usize` field (default 0 for user code). Sema's local scope storage changed to `Vec<(String, usize, VarInfo)>`; `check_var` compares `(name, scope)` pairs. Function/constructor lookup ignores scope.
+2. **Gensym:** Macro expander renames all binder sites (let vars, lambda params, match arms) to `__gensym_N` via `GENSYM_COUNTER`. References are renamed consistently. Template-originating Idents are marked with `TEMPLATE_MARKER` before substitution, then scoped to the expansion's scope value; user-substituted expressions retain scope 0.
+3. **Expansion backtrace:** `Diagnostic.expansion_backtrace: Vec<String>` field added; `with_expansion_backtrace()` builder; AXDL renderer emits `&"call site"` entries.
+4. `substitute` expanded to handle full expression tree (ELet, ELam, EMatch, ECond, etc.).
+5. `expand_macros` updated to generate `EXPANSION_SCOPE` (atomic counter) per expansion.
 
-**Exit criterion:** Hygiene test suite passes (classic `swap!`/`or` tests); a macro-introduced binding does not capture user code.
+**Exit criterion met:** Hygiene test passes (`or` macro's internal `temp` does not capture user's `temp`). All 175 tests pass. Existing Pre.ax macros (`when`, `unless`, `cond2`, `cond3`) continue to work.
 
-### 3.3 Concurrency — PENDING
+### P3 — DONE
 
-No work started. Depends on the memory model (done). Design in `docs/v1-roadmap.md §4.4`. Structured concurrency, arena-scoped, deterministic.
+B4 namespacing and macro hygiene are complete. Both exit criteria met (175 tests pass).
 
-**Exit criterion:** `parMap` is order-deterministic; parallel module type-checking works.
+### Concurrency — not a native feature
+
+Concurrency is out of scope for the Axiom compiler and standard library. The
+design in `docs/v1-roadmap.md §4.4` (structured, arena-scoped, deterministic,
+no shared mutable state) is preserved as **guidance for a third-party
+library**, but Axiom will not ship with native concurrency primitives, a
+task scheduler, or `parMap` as a built-in.
+
+Rationale: concurrency is a user-space concern. The memory model (arena
+inference, linear types) provides the foundation — no data races are
+constructible — so a library author can build a safe concurrency library on
+top. Bundling one into the language would couple Axiom's release cadence to
+concurrency design decisions that are better made independently.
 
 ---
 
-## P4 — Self-hosting phases 2–5 + HTTP
+## P4 — Current work: Self-hosting phases 2–5 + HTTP
 
 ### Self-hosting
 Follow `docs/self-hosting.md` phases 2–5: lexer → parser → IR/codegen → bootstrap fixpoint.
@@ -88,7 +102,9 @@ Follow `docs/self-hosting.md` phases 2–5: lexer → parser → IR/codegen → 
 **Exit criterion:** `stage2 == stage3`; full test suite green under stage2.
 
 ### HTTP library
-Non-blocking HTTP, deferred until after concurrency.
+Non-blocking HTTP. Does not require native concurrency — an event loop can
+be implemented in user space with the existing primitives (syscalls, arena
+allocation).
 
 **Exit criterion:** HTTP server serves a request under load.
 

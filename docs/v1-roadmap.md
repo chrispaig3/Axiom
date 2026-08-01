@@ -37,22 +37,18 @@ to produce a large amount of code that does not work.
               │            └────────┬─────────┘            │
               │                     │                      │
               ▼                     ▼                      ▼
-     ┌───────────────────────────────────────────────────────────────┐
-     │  Memory model: arena inference + deterministic drop           │
-     └──────────────────────────────┬────────────────────────────────┘
-                                    │
-              ┌─────────────────────┼─────────────────────┐
-              ▼                     ▼                     ▼
-     ┌────────────────┐   ┌──────────────────┐  ┌──────────────────┐
-     │ Macro system   │   │ Concurrency      │  │ B4 namespacing   │
-     └────────┬───────┘   └────────┬─────────┘  └────────┬─────────┘
-              │                    │                     │
-              │                    ▼                     │
-              │           ┌──────────────────┐            │
-              │           │ HTTP library     │            │
-              │           └──────────────────┘            │
-              │                                           │
-              └──────────────┬────────────────────────────┘
+      ┌───────────────────────────────────────────────────────────────┐
+      │  Memory model: arena inference + deterministic drop           │
+      └──────────────────────────────┬────────────────────────────────┘
+                                     │
+               ┌─────────────────────┼─────────────────────┐
+               ▼                     ▼                     ▼
+      ┌────────────────┐   ┌──────────────────┐  ┌──────────────────┐
+      │ Macro system   │   │ HTTP library     │  │ B4 namespacing   │
+      └────────┬───────┘   └────────┬─────────┘  └────────┬─────────┘
+               │                    │                     │
+               │                    │                     │
+               └──────────────┬─────┴─────────────────────┘
                              ▼
                     ┌──────────────────┐
                     │ Self-hosting     │
@@ -73,11 +69,12 @@ that cost is unbounded — see §2.2 for the measurement. Writing the
 expander first means writing it against an allocator it will have to be
 rewritten for.
 
-**HTTP depends on concurrency depends on the memory model.** A
-non-blocking HTTP library is an event loop plus per-connection state. Both
-require concurrency primitives; concurrency requires knowing which arena a
-value belongs to before two tasks can share or hand off a value. Writing
-HTTP first produces a blocking library that has to be discarded.
+**HTTP depends on the memory model, not on native concurrency.** A
+non-blocking HTTP library is an event loop plus per-connection state. An
+event loop can be implemented in user space with the existing syscall
+primitives; it does not require native concurrency. The memory model
+provides the safety guarantees (no data races) that make a user-space
+concurrency library sound.
 
 **The LSP is last, and this is the least negotiable edge.** An LSP is
 mostly maps and closures: a symbol index, an incremental cache, a table of
@@ -361,35 +358,39 @@ Item 2 interacts with the memory model and should land with it; the
 allocation it removes is a large fraction of what the §2.2 measurement is
 measuring.
 
-### 4.4 Concurrency — structured, arena-scoped
+### 4.4 Concurrency — delegated to third-party libraries
 
-**Requirements.** Deterministic; linear-type-safe; region-free;
-arena-aware; suitable for parallel compilation and agent workloads.
+Concurrency is not a native feature of Axiom. The design below is preserved
+as guidance for a future third-party library, but the compiler and standard
+library will not ship with native concurrency primitives, a task scheduler,
+or constructors like `parMap`.
 
-**The shape.** Structured concurrency with no shared mutable state. Axiom
-has no mutable aliasing to begin with, so data races are not constructible;
-what needs designing is the arena discipline at task boundaries and the
-determinism guarantee.
+**Rationale.** Axiom's memory model (arena inference, linear types) already
+prevents data races by construction — no mutable aliasing is constructible.
+A library author can build a safe, structured concurrency library on top of
+this foundation without language-level support. Bundling concurrency into
+the language would couple Axiom's release cadence to concurrency design
+decisions that are better made independently, and would add surface area to
+the compiler for a feature used by a subset of programs.
 
-- Each task gets its own arena. A task's allocations are reclaimed when it
-  joins.
-- A value handed to a task is either copied into that task's arena or moved
-  (if linear). Moving is the interesting case and is what makes linear
-  types load-bearing rather than decorative.
+**Design guidance (for a third-party library).**
+
+- Structured concurrency with no shared mutable state.
+- Each task gets its own arena, reclaimed at join.
+- Values handed to a task are copied or moved (linear types make moves safe).
 - Results are moved into the parent arena at join.
-- **Determinism** means results are combined in a fixed order regardless of
-  completion order — `parMap` returns results in argument order, not
-  arrival order. Scheduling is free to be nondeterministic; observable
-  behaviour is not.
-
-Parallel compilation is the driving use case and the natural first test:
-independent modules type-check in independent arenas with no shared state.
+- Determinism: results combined in argument order (`parMap`), independent of
+  completion order. Scheduling may be nondeterministic; observable behaviour
+  is not.
+- Driving use case: parallel compilation (independent modules type-check in
+  independent arenas with no shared state).
 
 ### 4.5 HTTP library — deferred on purpose
 
 Small, resilient, non-blocking, pure Axiom. It needs, in order: `Vec` and
-`Map` (`B3`) for headers and routing; the concurrency model (§4.4) for an
-event loop; and non-blocking syscalls, which are new `Sys` surface
+`Map` (`B3`) for headers and routing; an event loop (implementable in user
+space with existing syscall primitives — native concurrency is not
+required); and non-blocking syscalls, which are new `Sys` surface
 (`epoll`/`kqueue`) with a per-platform module — the pattern
 `stdlib/Sys/Platform.*.ax` already establishes.
 
@@ -421,7 +422,7 @@ parallel.
 | **P0** *(done)* | Green CI; `union`/`region` removed; Game of Life; tree-sitter grammar | All seven gates green on all four targets |
 | **P1** | `B2` tail calls · `B3` `Vec`/`Map`/`Intern` golden tests and scale validation · `B1` closures · ADT struct variants | 10⁷-iteration tail loop at `-O0`; higher-order probe runs; struct variants match exhaustively |
 | **P2** | Memory model (§4.1) · `S1` unboxed nullary constructors | `stress.ax` at 2000 generations within 2× of 20 generations |
-| **P3** | Macro system (§4.2) · ~~`B4` namespacing~~ **(DONE)** · concurrency (§4.4) | Hygiene test suite passes; `parMap` is order-deterministic |
+| **P3** | Macro system (§4.2) — hygiene done · ~~`B4` namespacing~~ **(DONE)** | Hygiene test passes; two modules define the same name without collision |
 | **P4** | Self-hosting phases 2–5 · HTTP library (§4.5) | `stage2 == stage3`; HTTP server serves a request under load |
 | **P5** | LSP (§4.6) · trivia preservation for `fmt` (§2.3) · benchmarking · docs | Completion and diagnostics in a real editor; `fmt` round-trips every file in the repo, gated in CI; published performance profile |
 

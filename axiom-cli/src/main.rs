@@ -2200,6 +2200,125 @@ mod expander {
     use axiom_ast::span::Span;
     use axiom_ast::Module;
     use std::collections::HashMap;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    static EXPANSION_SCOPE: AtomicUsize = AtomicUsize::new(1);
+    static GENSYM_COUNTER: AtomicUsize = AtomicUsize::new(0);
+
+    const TEMPLATE_MARKER: usize = usize::MAX;
+
+    fn mark_template_idents(expr: &mut Expr) {
+        match expr {
+            Expr::EVar(ident) => {
+                ident.scope = TEMPLATE_MARKER;
+            }
+            Expr::EApp(func, arg) => {
+                mark_template_idents(func);
+                mark_template_idents(arg);
+            }
+            Expr::EIf(cond, t, e) => {
+                mark_template_idents(cond);
+                mark_template_idents(t);
+                mark_template_idents(e);
+            }
+            Expr::EBegin(exprs) => {
+                for e in exprs {
+                    mark_template_idents(e);
+                }
+            }
+            Expr::ELet(bindings, body) => {
+                for (pat, init) in bindings.iter_mut() {
+                    mark_template_idents(init);
+                    mark_template_pattern(pat);
+                }
+                mark_template_idents(body);
+            }
+            Expr::ELam(params, body) => {
+                for p in params.iter_mut() {
+                    mark_template_pattern(p);
+                }
+                mark_template_idents(body);
+            }
+            Expr::EMatch(target, arms) => {
+                mark_template_idents(target);
+                for (pat, body) in arms.iter_mut() {
+                    mark_template_pattern(pat);
+                    mark_template_idents(body);
+                }
+            }
+            Expr::EInfix(left, _, right) => {
+                mark_template_idents(left);
+                mark_template_idents(right);
+            }
+            Expr::ECast(inner, _)
+            | Expr::EConsume(inner)
+            | Expr::EGrouped(inner)
+            | Expr::EField(inner, _) => {
+                mark_template_idents(inner);
+            }
+            Expr::ETuple(elems) | Expr::EList(elems) => {
+                for e in elems {
+                    mark_template_idents(e);
+                }
+            }
+            Expr::ESetField(base, _, value) | Expr::EHandle(base, _, value) => {
+                mark_template_idents(base);
+                mark_template_idents(value);
+            }
+            Expr::EAlloc(_, Some(init), _) => {
+                mark_template_idents(init);
+            }
+            Expr::ETypeSig(inner, _) | Expr::ESplice(inner) => {
+                mark_template_idents(inner);
+            }
+            Expr::EStructCon(_, args) => {
+                for a in args {
+                    mark_template_idents(a);
+                }
+            }
+            Expr::ECond(branches, else_expr) => {
+                for (c, b) in branches {
+                    mark_template_idents(c);
+                    mark_template_idents(b);
+                }
+                if let Some(e) = else_expr {
+                    mark_template_idents(e);
+                }
+            }
+            Expr::EQualified(_, _)
+            | Expr::ELit(..)
+            | Expr::ESizeof(..)
+            | Expr::EAlignof(..)
+            | Expr::EError(..)
+            | Expr::EAlloc(..)
+            | Expr::EQuasiquote(..)
+            | Expr::EUnquote(..) => {}
+        }
+    }
+
+    fn mark_template_pattern(pat: &mut Pattern) {
+        match pat {
+            Pattern::PVar(ident) => {
+                ident.scope = TEMPLATE_MARKER;
+            }
+            Pattern::PTuple(pats) | Pattern::PList(pats) => {
+                for p in pats {
+                    mark_template_pattern(p);
+                }
+            }
+            Pattern::PCon(_, args) => {
+                for a in args {
+                    mark_template_pattern(a);
+                }
+            }
+            Pattern::PConNamed(_, named) => {
+                for (_, p) in named {
+                    mark_template_pattern(p);
+                }
+            }
+            Pattern::PWildcard | Pattern::PLit(_) => {}
+        }
+    }
 
     pub fn expand_macros(module: &mut Module) {
         let mut macros: HashMap<String, (Pattern, Expr)> = HashMap::new();
@@ -2230,7 +2349,12 @@ mod expander {
             if let Some((params, body)) = macros.get(&name) {
                 let args = collect_args(expr);
                 if let Ok(substitutions) = match_pattern(params, &args) {
-                    *expr = substitute(&substitutions, body);
+                    let scope = EXPANSION_SCOPE.fetch_add(1, Ordering::Relaxed);
+                    let mut template = body.clone();
+                    mark_template_idents(&mut template);
+                    let mut expanded = substitute(&substitutions, &template);
+                    gensym_and_scope(&mut expanded, scope);
+                    *expr = expanded;
                     expand_expr(expr, macros);
                     return;
                 }
@@ -2365,10 +2489,306 @@ mod expander {
                 op.clone(),
                 Box::new(substitute(bindings, right)),
             ),
+            Expr::ELet(bindings_in, body) => {
+                let new_bindings: Vec<(Pattern, Expr)> = bindings_in
+                    .iter()
+                    .map(|(pat, init)| (pat.clone(), substitute(bindings, init)))
+                    .collect();
+                Expr::ELet(new_bindings, Box::new(substitute(bindings, body)))
+            }
+            Expr::ELam(params, inner) => {
+                Expr::ELam(params.clone(), Box::new(substitute(bindings, inner)))
+            }
+            Expr::EMatch(target, arms) => {
+                let new_arms: Vec<(Pattern, Expr)> = arms
+                    .iter()
+                    .map(|(pat, body)| (pat.clone(), substitute(bindings, body)))
+                    .collect();
+                Expr::EMatch(Box::new(substitute(bindings, target)), new_arms)
+            }
+            Expr::ECast(inner, t) => Expr::ECast(Box::new(substitute(bindings, inner)), t.clone()),
+            Expr::EConsume(inner) => Expr::EConsume(Box::new(substitute(bindings, inner))),
+            Expr::EGrouped(inner) => Expr::EGrouped(Box::new(substitute(bindings, inner))),
+            Expr::EField(inner, f) => {
+                Expr::EField(Box::new(substitute(bindings, inner)), f.clone())
+            }
+            Expr::ETuple(elems) => {
+                Expr::ETuple(elems.iter().map(|e| substitute(bindings, e)).collect())
+            }
+            Expr::EList(elems) => {
+                Expr::EList(elems.iter().map(|e| substitute(bindings, e)).collect())
+            }
+            Expr::ESetField(inner, f, val) => Expr::ESetField(
+                Box::new(substitute(bindings, inner)),
+                f.clone(),
+                Box::new(substitute(bindings, val)),
+            ),
+            Expr::EHandle(inner, effs, handler) => Expr::EHandle(
+                Box::new(substitute(bindings, inner)),
+                effs.clone(),
+                Box::new(substitute(bindings, handler)),
+            ),
+            Expr::EAlloc(t, Some(init), s) => {
+                Expr::EAlloc(t.clone(), Some(Box::new(substitute(bindings, init))), *s)
+            }
+            Expr::EAlloc(..) => template.clone(),
+            Expr::ETypeSig(inner, t) => {
+                Expr::ETypeSig(Box::new(substitute(bindings, inner)), t.clone())
+            }
+            Expr::EStructCon(ident, args) => Expr::EStructCon(
+                ident.clone(),
+                args.iter().map(|a| substitute(bindings, a)).collect(),
+            ),
+            Expr::EQualified(_, _) => template.clone(),
             Expr::EQuasiquote(inner) => substitute(bindings, inner),
             Expr::EUnquote(inner) => substitute(bindings, inner),
             Expr::ESplice(inner) => Expr::ESplice(Box::new(substitute(bindings, inner))),
-            _ => template.clone(),
+            Expr::ECond(branches, else_expr) => {
+                let new_branches: Vec<(Expr, Expr)> = branches
+                    .iter()
+                    .map(|(c, b)| (substitute(bindings, c), substitute(bindings, b)))
+                    .collect();
+                let new_else = else_expr
+                    .as_ref()
+                    .map(|e| Box::new(substitute(bindings, e)));
+                Expr::ECond(new_branches, new_else)
+            }
+            Expr::ESizeof(..) | Expr::EAlignof(..) | Expr::EError(..) | Expr::ELit(..) => {
+                template.clone()
+            }
+        }
+    }
+
+    fn gensym_and_scope(expr: &mut Expr, scope: usize) {
+        let mut renames: HashMap<String, String> = HashMap::new();
+        collect_gensym_renames(expr, &mut renames);
+        apply_gensym_renames(expr, &renames, scope);
+    }
+
+    fn collect_gensym_renames(expr: &mut Expr, renames: &mut HashMap<String, String>) {
+        match expr {
+            Expr::ELet(bindings, body) => {
+                for (pat, init) in bindings.iter_mut() {
+                    collect_gensym_renames(init, renames);
+                    collect_pattern_renames(pat, renames);
+                }
+                collect_gensym_renames(body, renames);
+            }
+            Expr::ELam(params, body) => {
+                for pat in params.iter_mut() {
+                    collect_pattern_renames(pat, renames);
+                }
+                collect_gensym_renames(body, renames);
+            }
+            Expr::EMatch(target, arms) => {
+                collect_gensym_renames(target, renames);
+                for (pat, body) in arms.iter_mut() {
+                    collect_pattern_renames(pat, renames);
+                    collect_gensym_renames(body, renames);
+                }
+            }
+            Expr::EApp(func, arg) => {
+                collect_gensym_renames(func, renames);
+                collect_gensym_renames(arg, renames);
+            }
+            Expr::EIf(cond, t, e) => {
+                collect_gensym_renames(cond, renames);
+                collect_gensym_renames(t, renames);
+                collect_gensym_renames(e, renames);
+            }
+            Expr::EBegin(exprs) => {
+                for e in exprs {
+                    collect_gensym_renames(e, renames);
+                }
+            }
+            Expr::EInfix(left, _, right) => {
+                collect_gensym_renames(left, renames);
+                collect_gensym_renames(right, renames);
+            }
+            Expr::ECast(inner, _)
+            | Expr::EConsume(inner)
+            | Expr::EGrouped(inner)
+            | Expr::EField(inner, _) => {
+                collect_gensym_renames(inner, renames);
+            }
+            Expr::ETuple(elems) | Expr::EList(elems) => {
+                for e in elems {
+                    collect_gensym_renames(e, renames);
+                }
+            }
+            Expr::ESetField(base, _, value) | Expr::EHandle(base, _, value) => {
+                collect_gensym_renames(base, renames);
+                collect_gensym_renames(value, renames);
+            }
+            Expr::EAlloc(_, Some(init), _) => {
+                collect_gensym_renames(init, renames);
+            }
+            Expr::ETypeSig(inner, _) | Expr::ESplice(inner) => {
+                collect_gensym_renames(inner, renames);
+            }
+            Expr::EStructCon(_, args) => {
+                for a in args {
+                    collect_gensym_renames(a, renames);
+                }
+            }
+            Expr::ECond(branches, else_expr) => {
+                for (c, b) in branches {
+                    collect_gensym_renames(c, renames);
+                    collect_gensym_renames(b, renames);
+                }
+                if let Some(e) = else_expr {
+                    collect_gensym_renames(e, renames);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn collect_pattern_renames(pat: &mut Pattern, renames: &mut HashMap<String, String>) {
+        match pat {
+            Pattern::PVar(ident) => {
+                if !renames.contains_key(&ident.name) {
+                    let n = GENSYM_COUNTER.fetch_add(1, Ordering::Relaxed);
+                    renames.insert(ident.name.clone(), format!("__gensym_{}", n));
+                }
+            }
+            Pattern::PTuple(pats) | Pattern::PList(pats) => {
+                for p in pats {
+                    collect_pattern_renames(p, renames);
+                }
+            }
+            Pattern::PCon(_, args) => {
+                for a in args {
+                    collect_pattern_renames(a, renames);
+                }
+            }
+            Pattern::PConNamed(_, named) => {
+                for (_, p) in named {
+                    collect_pattern_renames(p, renames);
+                }
+            }
+            Pattern::PWildcard | Pattern::PLit(_) => {}
+        }
+    }
+
+    fn apply_gensym_renames(expr: &mut Expr, renames: &HashMap<String, String>, scope: usize) {
+        match expr {
+            Expr::EVar(ident) => {
+                if let Some(new_name) = renames.get(&ident.name) {
+                    ident.name = new_name.clone();
+                }
+                if ident.scope == TEMPLATE_MARKER {
+                    ident.scope = scope;
+                }
+            }
+            Expr::ELet(bindings, body) => {
+                for (pat, init) in bindings.iter_mut() {
+                    apply_gensym_renames(init, renames, scope);
+                    apply_pattern_renames(pat, renames, scope);
+                }
+                apply_gensym_renames(body, renames, scope);
+            }
+            Expr::ELam(params, body) => {
+                for pat in params.iter_mut() {
+                    apply_pattern_renames(pat, renames, scope);
+                }
+                apply_gensym_renames(body, renames, scope);
+            }
+            Expr::EMatch(target, arms) => {
+                apply_gensym_renames(target, renames, scope);
+                for (pat, body) in arms.iter_mut() {
+                    apply_pattern_renames(pat, renames, scope);
+                    apply_gensym_renames(body, renames, scope);
+                }
+            }
+            Expr::EApp(func, arg) => {
+                apply_gensym_renames(func, renames, scope);
+                apply_gensym_renames(arg, renames, scope);
+            }
+            Expr::EIf(cond, t, e) => {
+                apply_gensym_renames(cond, renames, scope);
+                apply_gensym_renames(t, renames, scope);
+                apply_gensym_renames(e, renames, scope);
+            }
+            Expr::EBegin(exprs) => {
+                for e in exprs {
+                    apply_gensym_renames(e, renames, scope);
+                }
+            }
+            Expr::EInfix(left, _, right) => {
+                apply_gensym_renames(left, renames, scope);
+                apply_gensym_renames(right, renames, scope);
+            }
+            Expr::ECast(inner, _)
+            | Expr::EConsume(inner)
+            | Expr::EGrouped(inner)
+            | Expr::EField(inner, _) => {
+                apply_gensym_renames(inner, renames, scope);
+            }
+            Expr::ETuple(elems) | Expr::EList(elems) => {
+                for e in elems {
+                    apply_gensym_renames(e, renames, scope);
+                }
+            }
+            Expr::ESetField(base, _, value) | Expr::EHandle(base, _, value) => {
+                apply_gensym_renames(base, renames, scope);
+                apply_gensym_renames(value, renames, scope);
+            }
+            Expr::EAlloc(_, Some(init), _) => {
+                apply_gensym_renames(init, renames, scope);
+            }
+            Expr::ETypeSig(inner, _) | Expr::ESplice(inner) => {
+                apply_gensym_renames(inner, renames, scope);
+            }
+            Expr::EStructCon(_, args) => {
+                for a in args {
+                    apply_gensym_renames(a, renames, scope);
+                }
+            }
+            Expr::ECond(branches, else_expr) => {
+                for (c, b) in branches {
+                    apply_gensym_renames(c, renames, scope);
+                    apply_gensym_renames(b, renames, scope);
+                }
+                if let Some(e) = else_expr {
+                    apply_gensym_renames(e, renames, scope);
+                }
+            }
+            Expr::EQualified(_, _)
+            | Expr::ELit(..)
+            | Expr::ESizeof(..)
+            | Expr::EAlignof(..)
+            | Expr::EError(..)
+            | Expr::EAlloc(..)
+            | Expr::EQuasiquote(..)
+            | Expr::EUnquote(..) => {}
+        }
+    }
+
+    fn apply_pattern_renames(pat: &mut Pattern, renames: &HashMap<String, String>, scope: usize) {
+        match pat {
+            Pattern::PVar(ident) => {
+                if let Some(new_name) = renames.get(&ident.name) {
+                    ident.name = new_name.clone();
+                }
+                ident.scope = scope;
+            }
+            Pattern::PTuple(pats) | Pattern::PList(pats) => {
+                for p in pats {
+                    apply_pattern_renames(p, renames, scope);
+                }
+            }
+            Pattern::PCon(_, args) => {
+                for a in args {
+                    apply_pattern_renames(a, renames, scope);
+                }
+            }
+            Pattern::PConNamed(_, named) => {
+                for (_, p) in named {
+                    apply_pattern_renames(p, renames, scope);
+                }
+            }
+            Pattern::PWildcard | Pattern::PLit(_) => {}
         }
     }
 }

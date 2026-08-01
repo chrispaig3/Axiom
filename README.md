@@ -1012,8 +1012,8 @@ Source (.ax)
 | Effects | **Complete** | Effect declarations, `handle` expressions, effect checking (`IO`, `Pure`, `Alloc`, `Mut`, `Div`), AXTAG validation. Effects propagate transitively through calls, so a claim on a caller is checked against what its callees do |
 | Loops | **Missing** | Iteration is recursion; `--opt 1`+ turns tail recursion into a loop, and without it deep loops exhaust the stack |
 | Linear types | **Parsed only** | `linear T`, `consume`. The ownership facts they express are what the planned memory model needs; see [docs/v1-roadmap.md](docs/v1-roadmap.md) |
-| Macros | **Partial** | Pattern-substitution expansion before sema; `stdlib/Pre.ax` defines `when`, `unless`, `cond2`, `cond3`; cross-module macro import works; hygiene via scope sets + gensym pending |
-| Concurrency | **Not started** | Depends on the memory model; design in [docs/v1-roadmap.md](docs/v1-roadmap.md) |
+| Macros | **Complete** | Pattern-substitution expansion before sema with hygiene (scope sets + gensym); `stdlib/Pre.ax` defines `when`, `unless`, `cond2`, `cond3`; cross-module macro import works; expansion backtrace on diagnostics |
+| Concurrency | **Delegated** | Not a native feature; external/third-party library concern. The memory model (arena inference, linear types) provides the safety foundation. Design in [docs/v1-roadmap.md §4.4](docs/v1-roadmap.md) |
 | Editor support | **Functional** | [tree-sitter grammar](tree-sitter-axiom/) with highlighting queries, verified against every `.ax` file in the repo. No LSP yet |
 | Imports | **Functional** | `(import Mod.Sub ...)` resolves and merges declarations from other files; qualified access via `Mod::name` disambiguates; see [Modules and imports](#modules-and-imports) |
 
@@ -1078,7 +1078,7 @@ cargo test --release --all           # unit, integration, golden suites
 [docs/v1-roadmap.md](docs/v1-roadmap.md) is the plan to v1: what is done,
 what is left, and — the part that determines the schedule — which items
 actually block which. The headline result is that most of the remaining
-work is *not* parallelizable: the macro system, concurrency, the HTTP
+work is *not* parallelizable: the macro system, the HTTP
 library, and the LSP all depend on the memory model, and the LSP depends on
 self-hosting.
 

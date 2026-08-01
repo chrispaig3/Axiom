@@ -671,7 +671,7 @@ pub struct TraitInfo {
 }
 
 pub struct TypeChecker {
-    pub scope: Vec<(String, VarInfo)>,
+    pub scope: Vec<(String, usize, VarInfo)>,
     pub data_types: Vec<DataTypeInfo>,
     pub structs: Vec<StructInfo>,
     pub aliases: Vec<TypeAliasInfo>,
@@ -1094,6 +1094,7 @@ impl TypeChecker {
                     let ty_id = self.type_to_id(ty);
                     self.scope.push((
                         name.name.clone(),
+                        name.scope,
                         VarInfo {
                             ty: ty_id,
                             span: name.span,
@@ -1218,6 +1219,7 @@ impl TypeChecker {
                     let ty_id = self.type_to_id(ty);
                     self.scope.push((
                         name.name.clone(),
+                        name.scope,
                         VarInfo {
                             ty: ty_id,
                             span: name.span,
@@ -1661,8 +1663,8 @@ impl TypeChecker {
     }
 
     fn check_var(&mut self, ident: &Ident) -> TypeId {
-        for (name, info) in self.scope.iter().rev() {
-            if name == &ident.name {
+        for (name, scope, info) in self.scope.iter().rev() {
+            if name == &ident.name && *scope == ident.scope {
                 return info.ty.clone();
             }
         }
@@ -1685,7 +1687,7 @@ impl TypeChecker {
             &ident.name,
             self.scope
                 .iter()
-                .map(|(n, _)| n.as_str())
+                .map(|(n, _, _)| n.as_str())
                 .chain(self.functions.iter().map(|f| f.name.as_str()))
                 .chain(
                     self.data_types
@@ -1864,6 +1866,7 @@ impl TypeChecker {
             Pattern::PVar(ident) => {
                 self.scope.push((
                     ident.name.clone(),
+                    ident.scope,
                     VarInfo {
                         ty: ty.clone(),
                         span: ident.span,
@@ -2024,6 +2027,7 @@ impl TypeChecker {
     fn push_scope(&mut self) {
         self.scope.push((
             "__scope__".to_string(),
+            0,
             VarInfo {
                 ty: TypeId::TTuple(vec![]),
                 span: Span::dummy(),
@@ -2032,7 +2036,7 @@ impl TypeChecker {
     }
 
     fn pop_scope(&mut self) {
-        while let Some((name, _)) = self.scope.pop() {
+        while let Some((name, _, _)) = self.scope.pop() {
             if name == "__scope__" {
                 break;
             }
@@ -2077,6 +2081,7 @@ impl TypeChecker {
                 self.functions.push(info);
                 self.scope.push((
                     name.name.clone(),
+                    name.scope,
                     VarInfo {
                         ty: ty_id,
                         span: name.span,
@@ -2157,7 +2162,7 @@ impl TypeChecker {
     }
 
     pub fn lookup_type(&self, name: &str) -> Option<TypeId> {
-        for (n, info) in self.scope.iter().rev() {
+        for (n, _, info) in self.scope.iter().rev() {
             if n == name {
                 return Some(info.ty.clone());
             }
