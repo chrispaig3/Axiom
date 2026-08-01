@@ -1125,3 +1125,51 @@ fn named_field_dot_access_order_is_declaration_order() {
     let out = run_axiom(&["run", "main.ax"], &dir);
     assert_eq!(out.status.code(), Some(30), "stderr: {}", stderr(&out));
 }
+
+// ---------------------------------------------------------------
+// §4.1 P3: Macros
+//
+// Basic syntax-rules-style macros with pattern-variable substitution.
+// Cross-module macro import works via `(import Pre (when))`.
+// ---------------------------------------------------------------
+
+/// `(macro (double x) (+ x x))` — single-parameter macro.
+#[test]
+fn macro_single_param_expands_and_evaluates() {
+    let dir = scratch_dir("macro-single");
+    write_source(
+        &dir,
+        "main.ax",
+        "(macro (double x) (+ x x))\n(:: main Int)\n(fn (main) (double 21))\n",
+    );
+    let out = run_axiom(&["run", "main.ax"], &dir);
+    assert_eq!(out.status.code(), Some(42), "stderr: {}", stderr(&out));
+}
+
+/// `(macro (when test body) (if test body 0))` — multi-param macro.
+#[test]
+fn macro_multi_param_expands_via_if_with_zero_else() {
+    let dir = scratch_dir("macro-multi");
+    write_source(
+        &dir,
+        "main.ax",
+        "(macro (when test body) (if test body 0))\n\
+         (:: main Int)\n\
+         (fn (main) (when (== 1 1) 42))\n",
+    );
+    let out = run_axiom(&["run", "main.ax"], &dir);
+    assert_eq!(out.status.code(), Some(42), "stderr: {}", stderr(&out));
+}
+
+/// Cross-module import: `(import Pre (when))` works.
+#[test]
+fn macro_cross_module_import_from_prelude_works() {
+    let dir = scratch_dir("macro-import");
+    write_source(
+        &dir,
+        "main.ax",
+        "(import Pre (when))\n(:: main Int)\n(fn (main) (when (== 1 1) 42))\n",
+    );
+    let out = run_axiom(&["run", "main.ax"], &dir);
+    assert_eq!(out.status.code(), Some(42), "stderr: {}", stderr(&out));
+}

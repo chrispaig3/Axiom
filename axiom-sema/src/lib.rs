@@ -310,6 +310,19 @@ fn collect_effects_into(
             collect_effects_into(checker, value, out);
             out.insert(axiom_ast::ast::Effect::Mut);
         }
+        Expr::EQuasiquote(inner)
+        | Expr::EUnquote(inner)
+        | Expr::ESplice(inner) => collect_effects_into(checker, inner, out),
+        Expr::EQualified(_, name) => {
+            if let Some(f) = checker.functions.iter().find(|f| f.name == name.name) {
+                if f.foreign_symbol.is_some() {
+                    out.insert(axiom_ast::ast::Effect::IO);
+                }
+                for e in &f.effects {
+                    out.insert(e.clone());
+                }
+            }
+        }
     }
 }
 /// distance, for "did you mean `foo`?" suggestions. Only returns a match
@@ -1567,6 +1580,10 @@ impl TypeChecker {
                 TypeId::TCon("I64".to_string(), vec![])
             }
             Expr::EError(_, _) => TypeId::TVar(format!("_t{}", self.type_counter)),
+            Expr::EQualified(_, name) => self.check_var(name),
+            Expr::EQuasiquote(inner)
+            | Expr::EUnquote(inner)
+            | Expr::ESplice(inner) => self.check_expr(inner),
         }
     }
 

@@ -347,10 +347,12 @@ pub enum IrValue {
     Local(String),
     Global(String),
     Const(IrConst),
-    /// Nullary constructor immediate — carries the raw tag
-    /// without a heap allocation. Distinguished from `Const`
-    /// so boxing logic can decide whether to wrap it.
-    Tag(i64),
+    /// Nullary constructor immediate — carries a local SSA register
+    /// name whose value *is* the raw constructor tag.  The codegen
+    /// emits the register directly without wrapping it in a
+    /// `LoadOffset` / `inttoptr`, so the match comparison sees the
+    /// tag rather than a pointer to a boxed block.
+    Tag(String),
 }
 
 #[derive(Debug, Clone)]

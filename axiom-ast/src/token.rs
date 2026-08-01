@@ -98,6 +98,8 @@ pub enum TokenKind {
     Comma,
     Underscore,
     Quote,    // '
+    Backtick, // `
+    CommaAt,  // ,@
     At,       // @
     Amp,      // &
     Pipe,     // |
@@ -224,6 +226,8 @@ impl fmt::Display for TokenKind {
             TokenKind::Comma => write!(f, ","),
             TokenKind::Underscore => write!(f, "_"),
             TokenKind::Quote => write!(f, "'"),
+            TokenKind::Backtick => write!(f, "`"),
+            TokenKind::CommaAt => write!(f, ",@"),
             TokenKind::At => write!(f, "@"),
             TokenKind::Amp => write!(f, "&"),
             TokenKind::Pipe => write!(f, "|"),

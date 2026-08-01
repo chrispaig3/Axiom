@@ -2259,7 +2259,7 @@ mod expander {
         while let Expr::EApp(func, _) = current {
             current = func;
         }
-        if let Expr::EVar(ident) = current {
+        if let Expr::EVar(ident) | Expr::EQualified(_, ident) = current {
             return Some(ident.name.clone());
         }
         None
@@ -2329,6 +2329,9 @@ mod expander {
                     Box::new(substitute(bindings, right)),
                 )
             }
+            Expr::EQuasiquote(inner) => substitute(bindings, inner),
+            Expr::EUnquote(inner) => substitute(bindings, inner),
+            Expr::ESplice(inner) => Expr::ESplice(Box::new(substitute(bindings, inner))),
             _ => template.clone(),
         }
     }

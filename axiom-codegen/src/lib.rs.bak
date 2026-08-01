@@ -718,14 +718,7 @@ impl LlvmCodeGen {
                             }
                         }
                         IrValue::Global(name) => format!("ptr @{}", name),
-                        IrValue::Tag(name) => {
-                            if let Some((reg, ty)) = self.ssa_values.get(name) {
-                                let llvm_ty = self.type_to_llvm(ty);
-                                format!("{} {}", llvm_ty, reg)
-                            } else {
-                                format!("i64 %{}", name)
-                            }
-                        }
+                        IrValue::Tag(t) => format!("i64 {}", t),
                     })
                     .collect();
 
@@ -807,14 +800,7 @@ impl LlvmCodeGen {
                             }
                         }
                         IrValue::Global(name) => format!("ptr @{}", name),
-                        IrValue::Tag(name) => {
-                            if let Some((reg, ty)) = self.ssa_values.get(name) {
-                                let llvm_ty = self.type_to_llvm(ty);
-                                format!("{} {}", llvm_ty, reg)
-                            } else {
-                                format!("i64 %{}", name)
-                            }
-                        }
+                        IrValue::Tag(t) => format!("i64 {}", t),
                     })
                     .collect();
                 if let IrValue::Local(name) = dest {
@@ -1287,7 +1273,8 @@ impl LlvmCodeGen {
 
     fn value_to_llvm(&self, value: &IrValue) -> Result<String, String> {
         match value {
-            IrValue::Tag(name) | IrValue::Local(name) => {
+            IrValue::Tag(t) => Ok(format!("{}", t)),
+            IrValue::Local(name) => {
                 if let Some((reg, _)) = self.ssa_values.get(name) {
                     Ok(reg.clone())
                 } else if let Some((alloca_reg, _)) = self.locals.get(name) {
@@ -1307,7 +1294,7 @@ impl LlvmCodeGen {
 
     fn value_to_typed_string(&self, value: &IrValue) -> Result<(String, String), String> {
         match value {
-            IrValue::Tag(name) | IrValue::Local(name) => {
+            IrValue::Local(name) => {
                 if let Some((reg, ty)) = self.ssa_values.get(name) {
                     let llvm_ty = self.type_to_llvm(ty);
                     Ok((reg.clone(), llvm_ty))
@@ -1322,6 +1309,7 @@ impl LlvmCodeGen {
                     Ok((format!("%{}", name), "i64".to_string()))
                 }
             }
+            IrValue::Tag(t) => Ok((format!("{}", t), "i64".to_string())),
             IrValue::Global(name) => Ok((format!("@{}", name), "ptr".to_string())),
             IrValue::Const(const_val) => match const_val {
                 IrConst::Int(n, ty) => {

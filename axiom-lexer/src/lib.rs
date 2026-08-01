@@ -193,13 +193,22 @@ impl Lexer {
 
             match ch {
                 '"' => tokens.push(self.consume_string()?),
-                '`' => self.push_token(&mut tokens, TokenKind::Quote),
+                '`' => self.push_token(&mut tokens, TokenKind::Backtick),
                 '$' => self.push_token(&mut tokens, TokenKind::Bang),
                 '+' => self.push_token(&mut tokens, TokenKind::Plus),
                 '%' => self.push_token(&mut tokens, TokenKind::Percent),
                 '^' => self.push_token(&mut tokens, TokenKind::Caret),
                 '@' => self.push_token(&mut tokens, TokenKind::At),
-                ',' => self.push_token(&mut tokens, TokenKind::Comma),
+                ',' => {
+                    if self.pos < self.source.len()
+                        && self.source[self.pos] == '@'
+                    {
+                        self.pos += 1;
+                        self.push_token(&mut tokens, TokenKind::CommaAt);
+                    } else {
+                        self.push_token(&mut tokens, TokenKind::Comma);
+                    }
+                }
                 '_' => self.push_token(&mut tokens, TokenKind::Underscore),
                 '(' => self.push_token(&mut tokens, TokenKind::LParen),
                 ')' => self.push_token(&mut tokens, TokenKind::RParen),

@@ -873,6 +873,25 @@ fn format_expr(expr: &Expr, out: &mut String, state: &mut FormatState) {
         Expr::EError(msg, _) => {
             write!(out, "_{}", msg).unwrap();
         }
+        Expr::EQuasiquote(inner) => {
+            out.push('`');
+            format_expr(inner, out, state);
+        }
+        Expr::EUnquote(inner) => {
+            out.push(',');
+            format_expr(inner, out, state);
+        }
+        Expr::EQualified(path, name) => {
+            for seg in path.iter() {
+                out.push_str(&seg.name);
+                out.push_str("::");
+            }
+            out.push_str(&name.name);
+        }
+        Expr::ESplice(inner) => {
+            out.push_str(",@");
+            format_expr(inner, out, state);
+        }
     }
 }
 

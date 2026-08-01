@@ -1129,18 +1129,6 @@ impl Parser {
 
             let first = self.parse_expr_inner(true)?;
 
-            if self.check(TokenKind::Comma) {
-                let mut elements = vec![first];
-                while self.eat(TokenKind::Comma) {
-                    if self.check(TokenKind::RParen) {
-                        break;
-                    }
-                    elements.push(self.parse_expr()?);
-                }
-                self.expect(TokenKind::RParen)?;
-                return Ok(Expr::ETuple(elements));
-            }
-
             let mut args = Vec::new();
             while !self.check(TokenKind::RParen) && !self.at_eof() {
                 args.push(self.parse_expr_inner(true)?);
@@ -1190,6 +1178,18 @@ impl Parser {
             self.advance();
             let expr = self.parse_expr()?;
             Ok(Expr::EGrouped(Box::new(expr)))
+        } else if self.check(TokenKind::Backtick) {
+            self.advance();
+            let expr = self.parse_expr()?;
+            Ok(Expr::EQuasiquote(Box::new(expr)))
+        } else if self.check(TokenKind::Comma) {
+            self.advance();
+            let expr = self.parse_expr()?;
+            Ok(Expr::EUnquote(Box::new(expr)))
+        } else if self.check(TokenKind::CommaAt) {
+            self.advance();
+            let expr = self.parse_expr()?;
+            Ok(Expr::ESplice(Box::new(expr)))
         } else if self.check(TokenKind::Underscore) {
             let token = self.advance();
             Ok(Expr::ELam(
@@ -1250,6 +1250,16 @@ impl Parser {
             while self.eat(TokenKind::Dot) {
                 let field_name = self.parse_ident()?;
                 expr = Expr::EField(Box::new(expr), field_name);
+            }
+            if self.check(TokenKind::DoubleColon) {
+                if let Expr::EVar(first) = expr {
+                    let mut path = vec![first];
+                    while self.eat(TokenKind::DoubleColon) {
+                        path.push(self.parse_ident()?);
+                    }
+                    let name = path.pop().unwrap();
+                    expr = Expr::EQualified(path, name);
+                }
             }
             Ok(expr)
         } else if self.check(TokenKind::Plus)

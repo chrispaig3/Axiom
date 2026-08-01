@@ -32,6 +32,11 @@ pub struct IrGen {
     /// These are stored as immediates (no heap allocation) because every
     /// value of the type is a simple tag — there are no boxed fields.
     nullary_tags: HashSet<i64>,
+    /// Alloca names whose stored value is a raw constructor tag
+    /// (from an all-nullary `data` type).  When `EVar` loads them
+    /// it returns `IrValue::Tag` so that the match machinery can
+    /// skip the box-unbox round-trip.
+    tag_alloca_names: HashSet<String>,
     /// Top-level functions declared with no parameters.
     ///
     /// A bare `foo` where `foo` is nullary has to lower to a *call*,
@@ -274,6 +279,7 @@ impl IrGen {
             current_block: None,
             entry_block: None,
             nullary_tags: HashSet::new(),
+            tag_alloca_names: HashSet::new(),
             nullary_fns: HashSet::new(),
             all_fns: HashSet::new(),
         }
@@ -304,11 +310,16 @@ impl IrGen {
 
         self.nullary_tags = {
             let mut tags: HashSet<i64> = HashSet::new();
+            // S1: unboxed nullary constructors — disabled for now.
+            // When enabled, uncomment the loop below to populate tags
+            // for all-nullary data types.  The per-alloca Tag tracking
+            // (`tag_alloca_names`, `IrValue::Tag`, `box_if_tag`) is
+            // already wired; only the tag-set population is off.
             let mut tag: i64 = 0;
             for dt in &type_checker.data_types {
-                let all_nullary = dt.constructors.iter().all(|c| constructor_arity(&c.ty) == 0);
+                let _all_nullary = dt.constructors.iter().all(|c| constructor_arity(&c.ty) == 0);
                 for _ in &dt.constructors {
-                    if all_nullary {
+                    if false /* all_nullary */ {
                         tags.insert(tag);
                     }
                     tag += 1;
@@ -421,7 +432,7 @@ impl IrGen {
                     value: IrValue::Local(pname.clone()),
                 },
             );
-            alloca_map.insert(pname.clone(), alloca_name);
+            alloca_map.insert(pname.clone(), alloca_name.clone());
         }
 
         let body_header = self.new_block_label();
@@ -471,8 +482,56 @@ impl IrGen {
     /// `data` type regardless of which constructor produced it (see
     /// [`find_constructor`] and the module-level `HeapAlloc` docs in
     /// `axiom-ir`'s `lib.rs`).
+    fn box_if_tag(&mut self, func: &mut IrFunction, value: &IrValue) -> IrValue {
+        let i64_ty = TypeId::TCon("I64".to_string(), vec![]);
+        if let IrValue::Const(IrConst::Int(tag, _)) = value {
+            if self.nullary_tags.contains(tag) {
+                let box_ptr = self.new_local();
+                self.emit_to_func(
+                    func,
+                    IrInst::HeapAlloc {
+                        dest: IrValue::Local(box_ptr.clone()),
+                        size: IrValue::Const(IrConst::Int(8, i64_ty.clone())),
+                    },
+                );
+                self.emit_to_func(
+                    func,
+                    IrInst::StoreOffset {
+                        ptr: IrValue::Local(box_ptr.clone()),
+                        offset: 0,
+                        value: IrValue::Const(IrConst::Int(*tag, i64_ty.clone())),
+                    },
+                );
+                return IrValue::Local(box_ptr);
+            }
+        }
+        if let IrValue::Tag(_) = value {
+            let box_ptr = self.new_local();
+            self.emit_to_func(
+                func,
+                IrInst::HeapAlloc {
+                    dest: IrValue::Local(box_ptr.clone()),
+                    size: IrValue::Const(IrConst::Int(8, i64_ty.clone())),
+                },
+            );
+            self.emit_to_func(
+                func,
+                IrInst::StoreOffset {
+                    ptr: IrValue::Local(box_ptr.clone()),
+                    offset: 0,
+                    value: value.clone(),
+                },
+            );
+            return IrValue::Local(box_ptr);
+        }
+        value.clone()
+    }
+
     fn gen_construct(&mut self, func: &mut IrFunction, tag: i64, args: Vec<IrValue>) -> IrValue {
         let i64_ty = TypeId::TCon("I64".to_string(), vec![]);
+        if args.is_empty() && self.nullary_tags.contains(&tag) {
+            return IrValue::Const(IrConst::Int(tag, i64_ty));
+        }
         let size = ((1 + args.len()) * 8) as i64;
         let ptr_local = self.new_local();
 
@@ -492,12 +551,35 @@ impl IrGen {
             },
         );
         for (i, arg) in args.into_iter().enumerate() {
+            let needs_box = matches!(&arg, IrValue::Const(IrConst::Int(val, _)) if self.nullary_tags.contains(val));
+            let arg_val = if needs_box {
+                let val = if let IrValue::Const(IrConst::Int(v, _)) = arg { v } else { unreachable!() };
+                let box_ptr = self.new_local();
+                self.emit_to_func(
+                    func,
+                    IrInst::HeapAlloc {
+                        dest: IrValue::Local(box_ptr.clone()),
+                        size: IrValue::Const(IrConst::Int(8, i64_ty.clone())),
+                    },
+                );
+                self.emit_to_func(
+                    func,
+                    IrInst::StoreOffset {
+                        ptr: IrValue::Local(box_ptr.clone()),
+                        offset: 0,
+                        value: IrValue::Const(IrConst::Int(val, i64_ty.clone())),
+                    },
+                );
+                IrValue::Local(box_ptr)
+            } else {
+                arg
+            };
             self.emit_to_func(
                 func,
                 IrInst::StoreOffset {
                     ptr: IrValue::Local(ptr_local.clone()),
                     offset: ((1 + i) * 8) as i64,
-                    value: arg,
+                    value: arg_val,
                 },
             );
         }
@@ -963,7 +1045,7 @@ impl IrGen {
     ) -> IrValue {
         match expr {
             Expr::ELit(lit, _) => self.gen_literal(lit),
-            Expr::EVar(ident) => {
+        Expr::EVar(ident) | Expr::EQualified(_, ident) => {
                 // A *bare* reference to a nullary constructor (`Nothing`,
                 // `Nil`, ...) constructs its (fieldless) boxed value
                 // directly. A non-nullary constructor referenced bare
@@ -992,7 +1074,11 @@ impl IrGen {
                             ptr: IrValue::Local(alloca_name.clone()),
                         },
                     );
-                    IrValue::Local(dest)
+                    if self.tag_alloca_names.contains(alloca_name) {
+                        IrValue::Tag(dest)
+                    } else {
+                        IrValue::Local(dest)
+                    }
                 } else if self.nullary_fns.contains(&ident.name) {
                     let dest = self.new_local();
                     self.emit_to_func(
@@ -1153,7 +1239,7 @@ impl IrGen {
                 // case is no worse than before and avoids generating a
                 // *third*, different kind of wrong code for an
                 // already-diagnosed program.
-                if let Expr::EVar(ident) = current {
+                if let Expr::EVar(ident) | Expr::EQualified(_, ident) = current {
                     if let Some((tag, arity)) = find_constructor(type_checker, &ident.name) {
                         if arity == all_args.len() {
                             return self.gen_construct(func, tag, all_args);
@@ -1185,7 +1271,7 @@ impl IrGen {
                                 IrInst::StoreOffset {
                                     ptr: IrValue::Local(ptr_local.clone()),
                                     offset: (i * 8) as i64,
-                                    value: arg,
+                    value: arg,
                                 },
                             );
                         }
@@ -1212,19 +1298,23 @@ impl IrGen {
                         0,
                         IrValue::Const(IrConst::Int(0, TypeId::TCon("I64".to_string(), vec![]))),
                     );
+                    let boxed_lambda_args: Vec<IrValue> = lambda_args
+                        .iter()
+                        .map(|a| self.box_if_tag(func, a))
+                        .collect();
                     self.emit_to_func(
                         func,
                         IrInst::Call {
                             dest: IrValue::Local(dest.clone()),
                             func: lambda_name,
-                            args: lambda_args,
+                            args: boxed_lambda_args,
                         },
                     );
                     return IrValue::Local(dest);
                 }
 
                 let func_name;
-                if let Expr::EVar(ident) = current {
+                if let Expr::EVar(ident) | Expr::EQualified(_, ident) = current {
                     func_name = ident.name.clone();
                 } else {
                     func_name = "unknown".to_string();
@@ -1323,11 +1413,12 @@ impl IrGen {
                         for (i, arg_val) in all_args.iter().enumerate() {
                             if i < tc.param_names.len() {
                                 if let Some(alloca) = alloca_map.get(&tc.param_names[i]) {
+                                    let store_val = self.box_if_tag(func, arg_val);
                                     self.emit_to_func(
                                         func,
                                         IrInst::Store {
                                             ptr: IrValue::Local(alloca.clone()),
-                                            value: arg_val.clone(),
+                                            value: store_val,
                                         },
                                     );
                                 }
@@ -1346,7 +1437,7 @@ impl IrGen {
                     }
                 }
 
-                if let Expr::EVar(ident) = current {
+                if let Expr::EVar(ident) | Expr::EQualified(_, ident) = current {
                     if let Some(alloca_name) = alloca_map.get(&ident.name) {
                         let closure_val = self.new_local();
                         self.emit_to_func(
@@ -1367,12 +1458,16 @@ impl IrGen {
                         );
                         let mut indirect_args = all_args;
                         indirect_args.insert(0, IrValue::Local(closure_val));
+                        let boxed_args: Vec<IrValue> = indirect_args
+                            .iter()
+                            .map(|a| self.box_if_tag(func, a))
+                            .collect();
                         self.emit_to_func(
                             func,
                             IrInst::CallIndirect {
                                 dest: IrValue::Local(dest.clone()),
                                 ptr: IrValue::Local(fn_ptr),
-                                args: indirect_args,
+                                args: boxed_args,
                             },
                         );
                         return IrValue::Local(dest);
@@ -1386,12 +1481,16 @@ impl IrGen {
                         IrValue::Const(IrConst::Int(0, TypeId::TCon("I64".to_string(), vec![]))),
                     );
                 }
+                let boxed_args: Vec<IrValue> = call_args
+                    .iter()
+                    .map(|a| self.box_if_tag(func, a))
+                    .collect();
                 self.emit_to_func(
                     func,
                     IrInst::Call {
                         dest: IrValue::Local(dest.clone()),
                         func: func_name,
-                        args: call_args,
+                        args: boxed_args,
                     },
                 );
 
@@ -1490,6 +1589,8 @@ impl IrGen {
                             type_checker,
                             None,
                         );
+                        let is_tag = matches!(&value, IrValue::Const(IrConst::Int(tag, _)) if self.nullary_tags.contains(tag))
+                            || matches!(&value, IrValue::Tag(_));
                         let alloca_name = self.new_alloca(&ident.name);
                         func.locals
                             .push((ident.name.clone(), TypeId::TCon("I64".to_string(), vec![])));
@@ -1507,7 +1608,10 @@ impl IrGen {
                                 value,
                             },
                         );
-                        alloca_map.insert(ident.name.clone(), alloca_name);
+                        alloca_map.insert(ident.name.clone(), alloca_name.clone());
+                        if is_tag {
+                            self.tag_alloca_names.insert(alloca_name);
+                        }
                     }
                 }
                 self.gen_expr_to_func_with_allocas(func, body, alloca_map, type_checker, None)
@@ -1545,16 +1649,26 @@ impl IrGen {
                     matches!(pat, Pattern::PCon(ident, ..) | Pattern::PConNamed(ident, ..) if find_constructor(type_checker, &ident.name).is_some())
                 });
                 let tag_val = if needs_tag {
-                    let tag_local = self.new_local();
-                    self.emit_to_func(
-                        func,
-                        IrInst::LoadOffset {
-                            dest: IrValue::Local(tag_local.clone()),
-                            ptr: target_val.clone(),
-                            offset: 0,
-                        },
-                    );
-                    Some(IrValue::Local(tag_local))
+                    if let IrValue::Tag(name) = &target_val {
+                        Some(IrValue::Tag(name.clone()))
+                    } else if let IrValue::Const(IrConst::Int(t, _)) = &target_val {
+                        if self.nullary_tags.contains(t) {
+                            Some(target_val.clone())
+                        } else {
+                            None
+                        }
+                    } else {
+                        let tag_local = self.new_local();
+                        self.emit_to_func(
+                            func,
+                            IrInst::LoadOffset {
+                                dest: IrValue::Local(tag_local.clone()),
+                                ptr: target_val.clone(),
+                                offset: 0,
+                            },
+                        );
+                        Some(IrValue::Local(tag_local))
+                    }
                 } else {
                     None
                 };
