@@ -1,5 +1,4 @@
 ; codegen.ax — LLVM IR text emitter.
-;
 ; Dependencies: core.ax, parser.ax, Mem, Str, Vec.
 
 (import core)
@@ -9,20 +8,53 @@
 (import parser)
 
 ; ------------------------------------------------------------------
-; CG state: output buffer + temp counter + last result.
+; Type registry: constructor/struct name -> arity, kind, tag.
 ; ------------------------------------------------------------------
-(pub struct CG (lines : Int) (tmp : Int) (result : Int))
+(pub struct TypeEntry (name : Int) (kind : Int) (arity : Int) (tag : Int))
+(pub :: TF_DATA   Int) (pub fn (TF_DATA)   0)
+(pub :: TF_STRUCT Int) (pub fn (TF_STRUCT) 1)
+(pub :: eKind  (-> Int Int)) (pub fn (eKind  e) (memGetWord e 1))
+(pub :: eArity (-> Int Int)) (pub fn (eArity e) (memGetWord e 2))
+(pub :: eTag   (-> Int Int)) (pub fn (eTag   e) (memGetWord e 3))
+
+(pub :: addType (-> Int Int Int Int Int Int))
+(pub fn (addType types name kind arity tag)
+  (vecPush types (cast Int (TypeEntry name kind arity tag))))
+
+(pub :: lookupType (-> Int Int Int))
+(pub fn (lookupType types name)
+  (lookupTypeIn types name 0))
+
+(pub :: lookupTypeIn (-> Int Int Int Int))
+(pub fn (lookupTypeIn types name i)
+  (if (>= i (vecLen types))
+      0
+      (let ((e (vecGet types i)))
+        (if (strEq (memGetWord e 0) name) e
+            (lookupTypeIn types name (+ i 1))))))
+
+; ------------------------------------------------------------------
+; CG state: output buffer + temp counter + last result + type registry.
+; Field 0 = lines (Vec of Str)
+; Field 1 = tmp (Int, register counter)
+; Field 2 = result (Str, current result value)
+; Field 3 = types (Vec of TypeEntry, constructor/struct registry)
+; Field 4 = tagN (Int, next data constructor tag)
+; Field 5 = argVec (Vec of Int, temp storage during EApp flattening)
+; ------------------------------------------------------------------
+(pub struct CG (lines : Int) (tmp : Int) (result : Int) (types : Int) (tagN : Int) (argVec : Int))
 
 (pub :: newCG Int)
 (pub fn (newCG)
-  (CG vecNew 0 (strFromLit (__addr ""))))
+  (CG vecNew 0 (strFromLit (__addr "")) vecNew 0 vecNew))
 
 (pub :: emitLine (-> Int Int Int))
 (pub fn (emitLine cg line)
-  {
-    (vecPush (memGetWord cg 0) (strDup line))
-    cg
-  })
+  (let ((updated (vecPush (memGetWord cg 0) (strDup line))))
+    {
+      (memSetWord cg 0 updated)
+      cg
+    }))
 
 (pub :: allocReg (-> Int Int))
 (pub fn (allocReg cg)
@@ -32,15 +64,8 @@
       n
     }))
 
-(pub :: setResult (-> Int Int Int))
-(pub fn (setResult cg reg)
-  {
-    (memSetWord cg 2 reg)
-    cg
-  })
-
 ; ------------------------------------------------------------------
-; Integer formatting (minimal).
+; Integer formatting.
 ; ------------------------------------------------------------------
 (pub :: fmtInt (-> Int Int))
 (pub fn (fmtInt n)
@@ -64,41 +89,71 @@
 (pub fn (renderCG cg)
   (let ((lines (memGetWord cg 0)))
     (renderFrom lines 0 (strFromLit (__addr "")))))
-
 (pub :: renderFrom (-> Int Int Int Int))
 (pub fn (renderFrom lines i acc)
   (if (>= i (vecLen lines))
       acc
-      (renderFrom lines (+ i 1)
-        (strConcat (strConcat acc (vecGet lines i))
-                   (strFromLit (__addr "\n"))))))
+      (let ((line (vecGet lines i)))
+        (renderFrom lines (+ i 1)
+          (strConcat acc (strConcat line (strFromLit (__addr "\n"))))))))
 
 ; ------------------------------------------------------------------
-; Helper: concatenate two strings.
+; String helpers.
 ; ------------------------------------------------------------------
 (pub :: cat2 (-> Int Int Int))
-(pub fn (cat2 a b)
-  (strConcat a b))
+(pub fn (cat2 a b) (strConcat a b))
 
 (pub :: cat3 (-> Int Int Int Int))
-(pub fn (cat3 a b c)
-  (strConcat (strConcat a b) c))
+(pub fn (cat3 a b c) (strConcat (strConcat a b) c))
 
 (pub :: cat4 (-> Int Int Int Int Int))
 (pub fn (cat4 a b c d)
-  (let ((ab (strConcat a b)))
-    (strConcat (strConcat ab c) d)))
+  (strConcat (strConcat a (strConcat b c)) d))
 
-; ------------------------------------------------------------------
-; Helpers: make LLVM values. reg argument is an Int (fmtInt result).
-; ------------------------------------------------------------------
 (pub :: regStr (-> Int Int))
-(pub fn (regStr n)
-  (cat2 (strFromLit (__addr "%t")) (fmtInt n)))
+(pub fn (regStr n) (cat2 (strFromLit (__addr "%t")) (fmtInt n)))
 
 (pub :: constStr (-> Int Int))
-(pub fn (constStr n)
-  (fmtInt n))
+(pub fn (constStr n) (fmtInt n))
+
+; ------------------------------------------------------------------
+; Pre-scan declarations: build the type registry.
+; ------------------------------------------------------------------
+(pub :: scanDecls (-> Int Int Int Int))
+(pub fn (scanDecls decls cg i)
+  (if (>= i (vecLen decls)) cg
+      (scanDecls decls (scanOne (vecGet decls i) cg) (+ i 1))))
+
+(pub :: scanOne (-> Int Int Int))
+(pub fn (scanOne node cg)
+  (let ((tag (nodeTag node)))
+    (if (== tag TAG_D_DATA)
+        (let ((name (nodeA node))
+              (ctors (nodeB node)))
+          (scanCtors ctors cg 0))
+    (if (== tag TAG_D_STRUCT)
+        (let ((name (nodeA node))
+              (fields (nodeB node))
+              (types (memGetWord cg 3)))
+          {
+            (memSetWord cg 3 (addType types name TF_STRUCT (vecLen fields) 0))
+            cg
+          })
+    cg))))
+
+(pub :: scanCtors (-> Int Int Int Int))
+(pub fn (scanCtors ctors cg i)
+  (if (>= i (vecLen ctors)) cg
+      (let ((node (vecGet ctors i)))
+        (let ((n (nodeA node))
+              (a (nodeB node))
+              (t (memGetWord cg 4))
+              (types (memGetWord cg 3)))
+          {
+            (memSetWord cg 4 (+ t 1))
+            (memSetWord cg 3 (addType types n TF_DATA a (- t 1)))
+            (scanCtors ctors cg (+ i 1))
+          }))))
 
 ; ------------------------------------------------------------------
 ; Module emission.
@@ -106,275 +161,349 @@
 (pub :: emitModule (-> Int Int Int))
 (pub fn (emitModule decls target)
   (let ((cg (newCG)))
-    (let ((cg1 (emitLine cg (strFromLit (__addr "target triple = \"x86_64-unknown-linux-gnu\"")))))
-      (let ((cg2 (emitLine cg1 (strFromLit (__addr "")))))
-        (let ((cg3 (emitDecls decls cg2 0)))
-          (renderCG cg3))))))
+    (let ((cg0 (scanDecls decls cg 0)))
+      (let ((cg1 (emitLine cg0 (strFromLit (__addr "target triple = \"x86_64-unknown-linux-gnu\"")))))
+        (let ((cg2 (emitLine cg1 (strFromLit (__addr "")))))
+          (let ((cg3 (emitLine cg2 (strFromLit (__addr "declare ptr @axiom_alloc(i64)")))))
+            (let ((cg4 (emitLine cg3 (strFromLit (__addr "")))))
+              (emitModuleTail decls cg4 0))))))))
 
+(pub :: emitModuleTail (-> Int Int Int Int))
+(pub fn (emitModuleTail decls cg i)
+  (let ((nextCg (if (>= i (vecLen decls))
+                    cg
+                    (emitDecl (vecGet decls i) cg))))
+    (if (>= i (vecLen decls))
+        (renderCG nextCg)
+        (emitModuleTail decls nextCg (+ i 1)))))
+
+; ------------------------------------------------------------------
+; Declaration emission.
+; ------------------------------------------------------------------
 (pub :: emitDecls (-> Int Int Int Int))
 (pub fn (emitDecls decls cg i)
-  (if (>= i (vecLen decls))
-      cg
-      (let ((node (vecGet decls i))
-            (next (emitDecl decls cg i node)))
-        (emitDecls decls next (+ i 1)))))
+  (if (>= i (vecLen decls)) cg
+      (emitDecls decls (emitDecl (vecGet decls i) cg) (+ i 1))))
 
-(pub :: emitDecl (-> Int Int Int Int Int))
-(pub fn (emitDecl decls cg i node)
-  (let ((tag (nodeTag node)))
-    (if (== tag TAG_D_FN)
-        (emitFnDef decls cg i node)
-    cg)))
+(pub :: emitDecl (-> Int Int Int))
+(pub fn (emitDecl node cg)
+  (if (== (nodeTag node) TAG_D_FN)
+      (emitFnDef node cg)
+      cg))
 
 ; ------------------------------------------------------------------
-; Emit a function definition.
+; Function definition.
 ; ------------------------------------------------------------------
-(pub :: emitFnDef (-> Int Int Int Int Int))
-(pub fn (emitFnDef decls cg i node)
+(pub :: emitFnDef (-> Int Int Int))
+(pub fn (emitFnDef node cg)
   (let ((name (nodeA node))
         (body (nodeB node)))
-    (let ((headerTmp (cat3
-           (strFromLit (__addr "define i64 @"))
-           (strDup name)
-           (strFromLit (__addr "() {")))))
-      (let ((cg1 (emitLine cg headerTmp)))
+    (let ((hdr (cat3 (strFromLit (__addr "define i64 @")) (strDup name) (strFromLit (__addr "() {")))))
+      (let ((cg1 (emitLine cg hdr)))
         (let ((cg2 (emitExpr body cg1)))
-          (let ((resultReg (memGetWord cg2 2)))
-            (let ((retTmp (cat3
-                   (strFromLit (__addr "  ret i64 "))
-                   (strDup resultReg)
-                   (strFromLit (__addr "")))))
-              (let ((cg3 (emitLine cg2 retTmp)))
-                (emitLine cg3 (strFromLit (__addr "}")))))))))))
+          (let ((ret (cat3 (strFromLit (__addr "  ret i64 ")) (strDup (memGetWord cg2 2)) (strFromLit (__addr "")))))
+            (emitLine (emitLine cg2 ret) (strFromLit (__addr "}")))))))))
 
 ; ------------------------------------------------------------------
-; Expression lowering.
+; Expression dispatch.
 ; ------------------------------------------------------------------
 (pub :: emitExpr (-> Int Int Int))
 (pub fn (emitExpr node cg)
   (let ((tag (nodeTag node)))
-    (if (== tag TAG_E_INT)
-        (emitInt node cg)
-    (if (== tag TAG_E_VAR)
-        (emitVar node cg)
-    (if (== tag TAG_E_APP)
-        (emitApp node cg)
-    (if (== tag TAG_E_LET)
-        (emitLet node cg)
-    (if (== tag TAG_E_IF)
-        (emitIf node cg)
-    (if (== tag TAG_E_BEGIN)
-        (emitBegin node cg)
-    (if (== tag TAG_E_LAM)
-        (emitLam node cg)
-    (emitDefault node cg))))))))))
+    (if (== tag TAG_E_INT)   (emitInt node cg)
+    (if (== tag TAG_E_VAR)   (emitVar node cg)
+    (if (== tag TAG_E_APP)   (emitApp node cg)
+    (if (== tag TAG_E_LET)   (emitLet node cg)
+    (if (== tag TAG_E_IF)    (emitIf node cg)
+    (if (== tag TAG_E_BEGIN) (emitBegin node cg)
+    (emitDefault node cg)))))))))
 
-; ------------------------------------------------------------------
-; E_Int.
-; ------------------------------------------------------------------
+; E_Int
 (pub :: emitInt (-> Int Int Int))
 (pub fn (emitInt node cg)
-  (let ((val (nodeA node)))
+  (let ((v (nodeA node)))
     {
-      (memSetWord cg 2 (constStr val))
+      (memSetWord cg 2 (constStr v))
       cg
     }))
 
-; ------------------------------------------------------------------
-; E_Var: reference to global function → emit call later.
-; For now, return the name as result.
-; ------------------------------------------------------------------
+; E_Var: nullary data constructors return their tag constant.
 (pub :: emitVar (-> Int Int Int))
 (pub fn (emitVar node cg)
-  (let ((name (nodeA node)))
-    {
-      (memSetWord cg 2 name)
-      cg
-    }))
+  (let ((name (nodeA node))
+        (entry (lookupType (memGetWord cg 3) name)))
+    (if (== entry 0)
+        (let ((x (strDup name)))
+          {
+            (memSetWord cg 2 x)
+            cg
+          })
+        (if (&& (== (eKind entry) TF_DATA) (== (eArity entry) 0))
+            (let ((tagVal (eTag entry)))
+              {
+                (memSetWord cg 2 (constStr tagVal))
+                cg
+              })
+            (let ((y (strDup name)))
+              {
+                (memSetWord cg 2 y)
+                cg
+              })))))
 
 ; ------------------------------------------------------------------
-; E_App: function application.
-; For binary ops like (+ a b), emit LLVM instruction.
-; For general calls, emit call instruction.
+; E_App: flatten chain, dispatch.
 ; ------------------------------------------------------------------
 (pub :: emitApp (-> Int Int Int))
 (pub fn (emitApp node cg)
+  {
+    (memSetWord cg 5 vecNew)
+    (walkAppChain node cg)
+  })
+
+(pub :: walkAppChain (-> Int Int Int))
+(pub fn (walkAppChain node cg)
   (let ((fnNode (nodeA node))
         (argNode (nodeB node)))
+    {
+      (vecPush (memGetWord cg 5) argNode)
+    }
     (if (== (nodeTag fnNode) TAG_E_VAR)
-        (let ((fnName (nodeA fnNode)))
-          (emitKnownCall fnName argNode cg))
-        (emitDefault node cg))))
+        (dispatchCall (nodeA fnNode) cg)
+    (if (== (nodeTag fnNode) TAG_E_APP)
+        (walkAppChain fnNode cg)
+        (let ((z 0))
+          {
+            (memSetWord cg 2 (constStr z))
+            cg
+          })))))
 
-; Dispatch on known function names.
-(pub :: emitKnownCall (-> Int Int Int Int))
-(pub fn (emitKnownCall fnName argNode cg)
-  (if (strEq fnName (strFromLit (__addr "+")))
-      (emitBinOpAdd argNode cg)
-  (if (strEq fnName (strFromLit (__addr "-")))
-      (emitBinOpSub argNode cg)
-  (if (strEq fnName (strFromLit (__addr "*")))
-      (emitBinOpMul argNode cg)
-  (if (strEq fnName (strFromLit (__addr "/")))
-      (emitBinOpDiv argNode cg)
-  (if (strEq fnName (strFromLit (__addr "==")))
-      (emitCmpOp (strFromLit (__addr "eq")) argNode cg)
-  (if (strEq fnName (strFromLit (__addr "!=")))
-      (emitCmpOp (strFromLit (__addr "ne")) argNode cg)
-  (if (strEq fnName (strFromLit (__addr "<")))
-      (emitCmpOp (strFromLit (__addr "slt")) argNode cg)
-  (if (strEq fnName (strFromLit (__addr ">")))
-      (emitCmpOp (strFromLit (__addr "sgt")) argNode cg)
-  (if (strEq fnName (strFromLit (__addr "<=")))
-      (emitCmpOp (strFromLit (__addr "sle")) argNode cg)
-  (if (strEq fnName (strFromLit (__addr ">=")))
-      (emitCmpOp (strFromLit (__addr "sge")) argNode cg)
-  (if (strEq fnName (strFromLit (__addr "%")))
-      (emitBinOpRem argNode cg)
-  (emitUserCall fnName argNode cg)))))))))))))
+; Dispatch after flattening.
+(pub :: dispatchCall (-> Int Int Int))
+(pub fn (dispatchCall fnName cg)
+  (let ((revArgs (memGetWord cg 5))
+        (args (reverseVec revArgs))
+        (types (memGetWord cg 3))
+        (entry (lookupType types fnName)))
+    (if (== entry 0)
+        (emitCall fnName args cg)
+        (emitConstructor fnName args (eKind entry) (eArity entry) (eTag entry) cg))))
 
-; ------------------------------------------------------------------
-; Binary ops.
-; ------------------------------------------------------------------
-(pub :: emitBinOpAdd (-> Int Int Int))
-(pub fn (emitBinOpAdd argNode cg)
-  (emitBinOp (strFromLit (__addr "add")) argNode cg))
+(pub :: reverseVec (-> Int Int))
+(pub fn (reverseVec v)
+  (reverseInto v (- (vecLen v) 1) vecNew))
 
-(pub :: emitBinOpSub (-> Int Int Int))
-(pub fn (emitBinOpSub argNode cg)
-  (emitBinOp (strFromLit (__addr "sub")) argNode cg))
+(pub :: reverseInto (-> Int Int Int Int))
+(pub fn (reverseInto v i acc)
+  (if (< i 0) acc
+      (reverseInto v (- i 1) (vecPush acc (vecGet v i)))))
 
-(pub :: emitBinOpMul (-> Int Int Int))
-(pub fn (emitBinOpMul argNode cg)
-  (emitBinOp (strFromLit (__addr "mul")) argNode cg))
+; Emit regular call: check binops/comparisons first.
+(pub :: emitCall (-> Int Int Int Int))
+(pub fn (emitCall fnName args cg)
+  (if (|| (== (vecLen args) 1) (== (vecLen args) 2))
+      (emitCallN fnName args cg)
+      (emitCallN fnName args cg)))
 
-(pub :: emitBinOpDiv (-> Int Int Int))
-(pub fn (emitBinOpDiv argNode cg)
-  (emitBinOp (strFromLit (__addr "sdiv")) argNode cg))
-
-(pub :: emitBinOpRem (-> Int Int Int))
-(pub fn (emitBinOpRem argNode cg)
-  (emitBinOp (strFromLit (__addr "srem")) argNode cg))
-
-(pub :: emitBinOp (-> Int Int Int Int))
-(pub fn (emitBinOp opName argNode cg)
-  (let ((lhsNode (nodeA argNode))
-        (rhsNode (nodeB argNode)))
-    (let ((cg1 (emitExpr lhsNode cg)))
-      (let ((lhsReg (memGetWord cg1 2)))
-        (let ((cg2 (emitExpr rhsNode cg1)))
-          (let ((rhsReg (memGetWord cg2 2)))
-            (let ((resultN (allocReg cg2)))
-              (let ((result (regStr resultN)))
-                (let ((inst (cat3 (cat2 (strFromLit (__addr "  ")) result)
-                                  (cat2 (strFromLit (__addr " = "))
-                                        (cat4 opName
-                                              (strFromLit (__addr " i64 "))
-                                              (strDup lhsReg)
-                                              (strFromLit (__addr ", "))))
-                                  (strDup rhsReg))))
+(pub :: emitCallN (-> Int Int Int Int))
+(pub fn (emitCallN fnName args cg)
+  (let ((argStrCg (emitArgsList args cg 0)))
+    (let ((argStr (memGetWord argStrCg 2))
+          (rn (allocReg argStrCg)))
+      (let ((r (regStr rn)))
+        (if (== (vecLen args) 2)
+            (if (isBinop fnName)
+                (let ((inst (cat3 (cat2 (strFromLit (__addr "  ")) r)
+                                  (strFromLit (__addr " = "))
+                                  (cat4 (binopToLLVM fnName)
+                                        (strFromLit (__addr " i64 "))
+                                        argStr
+                                        (strFromLit (__addr ""))))))
                   {
-                    (emitLine cg2 inst)
-                    (memSetWord cg2 2 result)
-                    cg2
-                  })))))))))
-
-; ------------------------------------------------------------------
-; Comparison ops: emit icmp + zext to i64.
-; %tmp = icmp eq i64 %lhs, %rhs
-; %result = zext i1 %tmp to i64
-; ------------------------------------------------------------------
-(pub :: emitCmpOp (-> Int Int Int Int))
-(pub fn (emitCmpOp cmpKind argNode cg)
-  (let ((lhsNode (nodeA argNode))
-        (rhsNode (nodeB argNode)))
-    (let ((cg1 (emitExpr lhsNode cg)))
-      (let ((lhsReg (memGetWord cg1 2)))
-        (let ((cg2 (emitExpr rhsNode cg1)))
-          (let ((rhsReg (memGetWord cg2 2)))
-            (let ((cmpN (allocReg cg2)))
-              (let ((cmpReg (regStr cmpN)))
-                (let ((cmpInst (cat3 (cat2 (strFromLit (__addr "  ")) cmpReg)
-                                     (strFromLit (__addr " = icmp "))
-                                     (cat4 cmpKind
-                                           (strFromLit (__addr " i64 "))
-                                           (strDup lhsReg)
-                                           (cat2 (strFromLit (__addr ", "))
-                                                 (strDup rhsReg))))))
-                  (let ((cg3 (emitLine cg2 cmpInst)))
-                    (let ((zN (allocReg cg3)))
-                      (let ((zReg (regStr zN)))
-                        (let ((zInst (cat4 (cat2 (strFromLit (__addr "  ")) zReg)
-                                           (strFromLit (__addr " = zext i1 "))
-                                           (strDup cmpReg)
-                                           (strFromLit (__addr " to i64")))))
-                          {
-                            (emitLine cg3 zInst)
-                            (memSetWord cg3 2 zReg)
-                            cg3
-                          })))))))))))))
-
-; ------------------------------------------------------------------
-; User function call: call i64 @func(i64 %a, ...)
-; ------------------------------------------------------------------
-(pub :: emitUserCall (-> Int Int Int Int))
-(pub fn (emitUserCall fnName argNode cg)
-  (let ((argsCg (emitArgs argNode cg)))
-    (let ((allArgs (memGetWord argsCg 2)))
-      (let ((resultN (allocReg argsCg)))
-        (let ((result (regStr resultN)))
-          (let ((callPart (cat3 (cat2 (strFromLit (__addr "  ")) result)
-                                (strFromLit (__addr " = call i64 @"))
-                                (strDup fnName))))
-            (let ((inst (cat3 callPart (strFromLit (__addr "(i64 "))
-                              (cat2 (strDup allArgs) (strFromLit (__addr ")"))))))
+                    (emitLine argStrCg inst)
+                    (memSetWord argStrCg 2 r)
+                    argStrCg
+                  })
+            (if (isCmpOp fnName)
+                (emitCmp fnName r argStr argStrCg)
+            (let ((callInst (cat3 (cat3 (cat2 (strFromLit (__addr "  ")) r)
+                                        (strFromLit (__addr " = call i64 @"))
+                                        (strDup fnName))
+                                  (strFromLit (__addr "(i64 "))
+                                  (cat2 argStr (strFromLit (__addr ")"))))))
               {
-                (emitLine argsCg inst)
-                (memSetWord argsCg 2 result)
-                argsCg
+                (emitLine argStrCg callInst)
+                (memSetWord argStrCg 2 r)
+                argStrCg
+              })))
+            (let ((callInst (cat3 (cat3 (cat2 (strFromLit (__addr "  ")) r)
+                                        (strFromLit (__addr " = call i64 @"))
+                                        (strDup fnName))
+                                  (strFromLit (__addr "(i64 "))
+                                  (cat2 argStr (strFromLit (__addr ")"))))))
+              {
+                (emitLine argStrCg callInst)
+                (memSetWord argStrCg 2 r)
+                argStrCg
+              }))))))
+
+(pub :: isBinop (-> Int Bool))
+(pub fn (isBinop nm)
+  (if (strEq nm (strFromLit (__addr "+"))) true
+  (if (strEq nm (strFromLit (__addr "-"))) true
+  (if (strEq nm (strFromLit (__addr "*"))) true
+  (if (strEq nm (strFromLit (__addr "/"))) true
+  (if (strEq nm (strFromLit (__addr "%"))) true
+  (if (strEq nm (strFromLit (__addr "&&"))) true
+  (if (strEq nm (strFromLit (__addr "||"))) true
+  false))))))))
+
+(pub :: binopToLLVM (-> Int Int))
+(pub fn (binopToLLVM nm)
+  (if (strEq nm (strFromLit (__addr "+"))) (strFromLit (__addr "add"))
+  (if (strEq nm (strFromLit (__addr "-"))) (strFromLit (__addr "sub"))
+  (if (strEq nm (strFromLit (__addr "*"))) (strFromLit (__addr "mul"))
+  (if (strEq nm (strFromLit (__addr "/"))) (strFromLit (__addr "sdiv"))
+  (if (strEq nm (strFromLit (__addr "%"))) (strFromLit (__addr "srem"))
+  (if (strEq nm (strFromLit (__addr "&&"))) (strFromLit (__addr "and"))
+  (if (strEq nm (strFromLit (__addr "||"))) (strFromLit (__addr "or"))
+  (strFromLit (__addr "add"))))))))))
+
+(pub :: isCmpOp (-> Int Bool))
+(pub fn (isCmpOp nm)
+  (if (strEq nm (strFromLit (__addr "=="))) true
+  (if (strEq nm (strFromLit (__addr "!="))) true
+  (if (strEq nm (strFromLit (__addr "<")))  true
+  (if (strEq nm (strFromLit (__addr ">")))  true
+  (if (strEq nm (strFromLit (__addr "<="))) true
+  (if (strEq nm (strFromLit (__addr ">="))) true
+  false)))))))
+
+(pub :: cmpToLLVM (-> Int Int))
+(pub fn (cmpToLLVM nm)
+  (if (strEq nm (strFromLit (__addr "=="))) (strFromLit (__addr "eq"))
+  (if (strEq nm (strFromLit (__addr "!="))) (strFromLit (__addr "ne"))
+  (if (strEq nm (strFromLit (__addr "<")))  (strFromLit (__addr "slt"))
+  (if (strEq nm (strFromLit (__addr ">")))  (strFromLit (__addr "sgt"))
+  (if (strEq nm (strFromLit (__addr "<="))) (strFromLit (__addr "sle"))
+  (if (strEq nm (strFromLit (__addr ">="))) (strFromLit (__addr "sge"))
+  (strFromLit (__addr "eq")))))))))
+
+(pub :: emitCmp (-> Int Int Int Int Int))
+(pub fn (emitCmp fnName r argStr cg)
+  (let ((cmpKind (cmpToLLVM fnName))
+        (cmpN (allocReg cg)))
+    (let ((cmpR (regStr cmpN)))
+      (let ((cmpInst (cat3 (cat2 (strFromLit (__addr "  ")) cmpR)
+                           (strFromLit (__addr " = icmp "))
+                           (cat4 cmpKind
+                                 (strFromLit (__addr " i64 "))
+                                 argStr
+                                 (strFromLit (__addr ""))))))
+        (let ((cg1 (emitLine cg cmpInst))
+              (zN (allocReg cg)))
+          (let ((zR (regStr zN)))
+            (let ((zI (cat4 (cat2 (strFromLit (__addr "  ")) zR)
+                            (strFromLit (__addr " = zext i1 "))
+                            cmpR
+                            (strFromLit (__addr " to i64")))))
+              {
+                (emitLine cg1 zI)
+                (memSetWord cg1 2 zR)
+                cg1
               })))))))
 
-; Collect arguments: recursively walk E_App chain, emit each, concat reg names.
-(pub :: emitArgs (-> Int Int Int))
-(pub fn (emitArgs argNode cg)
-  (if (== (nodeTag argNode) TAG_E_APP)
-      (let ((lhs (nodeA argNode))
-            (rhs (nodeB argNode)))
-        (let ((cg1 (emitExpr lhs cg)))
-          (let ((lhsReg (memGetWord cg1 2)))
-            (let ((restCg (emitArgs rhs cg1)))
-              (let ((restRegs (memGetWord restCg 2)))
-                {
-                  (memSetWord restCg 2
-                    (cat3 (strDup lhsReg) (strFromLit (__addr ", "))
-                          (strDup restRegs)))
-                  restCg
-                })))))
-      (let ((cg1 (emitExpr argNode cg)))
-        {
-          (memSetWord cg1 2 (strDup (memGetWord cg1 2)))
-          cg1
-        })))
+; Emit argument expressions from a Vec, building comma-separated reg string.
+(pub :: emitArgsList (-> Int Int Int Int))
+(pub fn (emitArgsList args cg i)
+  (if (>= i (vecLen args))
+      {
+        (memSetWord cg 2 (strFromLit (__addr "")))
+        cg
+      }
+      (let ((node (vecGet args i)))
+        (let ((cg1 (emitExpr node cg)))
+          (let ((reg (strDup (memGetWord cg1 2))))
+            (let ((restCg (emitArgsList args cg1 (+ i 1))))
+              (let ((rest (memGetWord restCg 2)))
+                (if (== (strLen rest) 0)
+                    {
+                      (memSetWord restCg 2 reg)
+                      restCg
+                    }
+                    {
+                      (memSetWord restCg 2 (cat3 reg (strFromLit (__addr ", ")) rest))
+                      restCg
+                    }))))))))
 
 ; ------------------------------------------------------------------
-; E_Let: just evaluate body for now.
+; Constructor emission: alloc + field stores.
+; ------------------------------------------------------------------
+(pub :: emitConstructor (-> Int Int Int Int Int Int Int))
+(pub fn (emitConstructor fnName args kind arity ctorTag cg)
+  (if (&& (== kind TF_DATA) (== arity 0))
+      {
+        (memSetWord cg 2 (constStr ctorTag))
+        cg
+      }
+      (if (&& (== kind TF_STRUCT) (== arity 0))
+          {
+            (memSetWord cg 2 (constStr 0))
+            cg
+          }
+          (let ((size (if (== kind TF_DATA) (* (+ arity 1) 8) (* arity 8))))
+            (let ((ptrN (allocReg cg)))
+              (let ((ptr (regStr ptrN)))
+                (let ((allocInst (cat3 (cat2 (strFromLit (__addr "  ")) ptr)
+                                       (strFromLit (__addr " = call ptr @axiom_alloc(i64 "))
+                                       (cat2 (constStr size) (strFromLit (__addr ")"))))))
+                  (let ((cg1 (emitLine cg allocInst)))
+                    (let ((cg2 (if (== kind TF_DATA)
+                                   (let ((tagInst (cat4 (strFromLit (__addr "  store i64 "))
+                                                        (constStr ctorTag)
+                                                        (strFromLit (__addr ", ptr "))
+                                                        ptr)))
+                                     (emitLine cg1 tagInst))
+                                   cg1)))
+                      (let ((cg3 (emitFieldStores cg2 ptr args 0)))
+                        (let ((rn (allocReg cg3)))
+                          (let ((r (regStr rn)))
+                            (let ((pti (cat4 (cat2 (strFromLit (__addr "  ")) r)
+                                             (strFromLit (__addr " = ptrtoint ptr "))
+                                             ptr
+                                             (strFromLit (__addr " to i64")))))
+                              {
+                                (emitLine cg3 pti)
+                                (memSetWord cg3 2 r)
+                                cg3
+                              })))))))))))))
+
+(pub :: emitFieldStores (-> Int Int Int Int Int))
+(pub fn (emitFieldStores cg ptr args i)
+  (if (>= i (vecLen args)) cg
+      (let ((argNode (vecGet args i)))
+        (let ((cg1 (emitExpr argNode cg)))
+          (let ((reg (strDup (memGetWord cg1 2)))
+                (gepN (allocReg cg1)))
+            (let ((gep (regStr gepN)))
+              (let ((gepInst (cat4 (cat2 (strFromLit (__addr "  ")) gep)
+                                   (strFromLit (__addr " = getelementptr i64, ptr "))
+                                   ptr
+                                   (cat3 (strFromLit (__addr ", i32 ")) (constStr i) (strFromLit (__addr ""))))))
+                (let ((cg2 (emitLine cg1 gepInst)))
+                  (let ((si (cat4 (strFromLit (__addr "  store i64 ")) reg (strFromLit (__addr ", ptr ")) gep)))
+                    (emitFieldStores (emitLine cg2 si) ptr args (+ i 1)))))))))))
+
+; ------------------------------------------------------------------
+; E_Let / E_If / E_Begin.
 ; ------------------------------------------------------------------
 (pub :: emitLet (-> Int Int Int))
 (pub fn (emitLet node cg)
-  (let ((body (nodeB node)))
-    (emitExpr body cg)))
+  (emitExpr (nodeB node) cg))
 
-; ------------------------------------------------------------------
-; E_If: simplified — evaluate then-branch.
-; ------------------------------------------------------------------
 (pub :: emitIf (-> Int Int Int))
 (pub fn (emitIf node cg)
-  (let ((thenNode (nodeB node)))
-    (emitExpr thenNode cg)))
+  (emitExpr (nodeB node) cg))
 
-; ------------------------------------------------------------------
-; E_Begin: sequence — last value is result.
-; ------------------------------------------------------------------
 (pub :: emitBegin (-> Int Int Int))
 (pub fn (emitBegin node cg)
   (let ((exprs (nodeA node)))
@@ -382,23 +511,9 @@
 
 (pub :: emitSeq (-> Int Int Int Int))
 (pub fn (emitSeq exprs cg i)
-  (if (>= i (vecLen exprs))
-      cg
+  (if (>= i (vecLen exprs)) cg
       (emitSeq exprs (emitExpr (vecGet exprs i) cg) (+ i 1))))
 
-; ------------------------------------------------------------------
-; E_Lam: placeholder.
-; ------------------------------------------------------------------
-(pub :: emitLam (-> Int Int Int))
-(pub fn (emitLam node cg)
-  {
-    (memSetWord cg 2 (strFromLit (__addr "0")))
-    cg
-  })
-
-; ------------------------------------------------------------------
-; Default: emit nothing, result = 0.
-; ------------------------------------------------------------------
 (pub :: emitDefault (-> Int Int Int))
 (pub fn (emitDefault node cg)
   {

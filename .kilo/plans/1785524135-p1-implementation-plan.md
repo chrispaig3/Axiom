@@ -1,8 +1,8 @@
 # Axiom v1 Implementation Status
 
-**Status:** P0, P1, P2, and P3 are **complete**. P4 self-hosting **in progress** — all 6 compiler source files compile + build, implementations are stubs ready to fill in. HTTP deferred.
+**Status:** P0, P1, P2, and P3 are **complete**. P4 self-hosting **in progress** — parser now handles all decl forms (data/struct/macro), codegen restructured with type registry + constructor support + multi-arg dispatch. One Vec stale-handle bug blocks codegen output >2 lines. HTTP deferred.
 
-**Critical path:** ~~P0 → P1 → P2 → P3 →~~ **P4 (self-hosting + HTTP) ← WE ARE HERE** → P5 (LSP, fmt trivia).
+**Critical path:** ~~P0 → P1 → P2 → P3 →~~ **P4 (self-hosting) ← WE ARE HERE** → P5 (LSP, fmt trivia).
 
 ---
 
@@ -98,23 +98,34 @@ concurrency design decisions that are better made independently.
 
 ### Self-hosting
 
-All 6 self-hosted source files compile and the `self_host/main.ax` driver
-builds into a working executable (exit 0). The implementations are
-structurally complete stubs that can be filled in incrementally.
+All 6 self-hosted source files compile and build. Parser now handles `data`, `struct`, and `macro` declarations instead of skipping them. Codegen restructured with type registry, multi-arg call flattening, and constructor support (heap alloc + GEP field stores). Known Vec stale-handle bug in `emitLine` prevents emitting >2 lines of LLVM IR without string corruption.
 
 | File | Status | Description |
 |---|---|---|
 | `self_host/core.ax` | Done | Span, Token/TK, mkToken, accessors, TokenList |
 | `self_host/lexer.ax` | Done | Character-at-a-time tokenizer with Vec output |
-| `self_host/parser.ax` | Done | Recursive descent parser, tagged ASTNode struct |
-| `self_host/typecheck.ax` | Done | Symbol table, name lookup, checkDecl dispatch |
-| `self_host/codegen.ax` | Done | LLVM IR text emission, stdout output |
-| `self_host/main.ax` | Done | Compiler driver: lex → parse → typecheck → codegen |
+| `self_host/parser.ax` | Done | Recursive descent parser. **Now parses `data`, `struct`, `macro` decls.** Has `TAG_CTOR`/`TAG_FIELD` nodes for constructor metadata. |
+| `self_host/typecheck.ax` | Done | Symbol table, name lookup, checkDecl dispatch (basic). |
+| `self_host/codegen.ax` | Done | LLVM IR text emission. **Restructured:** type registry (`TypeEntry`), `scanDecls` pre-scan, multi-arg `EApp` flattening via `walkAppChain`, constructor emission via `emitAllocAndStore` with GEP-based field stores. Nullary data constructors return tag constants. Binary op/comparison dispatch unified in `emitCallN`. **Bug:** `emitLine` discards `vecPush` return value; after ~2+ pushes the CG[0] Vec handle goes stale, corrupting `renderCG` output. |
+| `self_host/main.ax` | Basic | Compiler driver stub. Needs file/stdin I/O and CLI args. |
 
-**Next steps for P4:**
-- Fill in parser keyword dispatch (fn, data, struct, let, if forms)
-- Implement real codegen (expression lowering, syscalls, allocator)
-- Implement real type checking (type inference, effect checking)
+### Critical bug fixes — DONE
+
+- **Heisenbug in `axiom-ir`** (commit `922ca12`): `IrValue::Tag` values were mishandled when passed as boxed arguments to constructors. The ALLOCA+StoreOffset path assumed only `IrValue::Const(Int)` would hit the nullary-tag boxing branch, but `IrValue::Tag` also needs boxing. Fixed `needs_box` to catch `IrValue::Tag(_)`, and `store_val` now matches both variants. Also added `tag_alloca_names` tracking for pattern-matched `Tag` bindings so tag-carrying allocas don't get incorrectly SSA-promoted.
+- **Lexer cleanup:** Reduced `self_host/lexer.ax` from 40+ lines of dead code down to its minimal working core. Removed stale helper functions that were masking the heisenbug's root cause.
+
+**Verification:** `test_heisenbug.ax` — lexing a single `)` character, extracting token kind/length into a data constructor for arithmetic — now returns correct deterministic output instead of intermittent garbage.
+
+### Current blockers
+
+1. **`emitLine` stale Vec handle:** `vecPush` may return a new handle when the Vec outgrows its initial capacity. `emitLine` calls `vecPush` inside a `{...}` block and discards the return value, so CG[0] points to a stale Vec after growth. Fix: capture the return value and `memSetWord cg 0` it. Same issue in `scanOne` for the types Vec at CG[3].
+2. **Main driver:** `main.ax` hardcodes a test input. Needs stdin/file I/O.
+
+### Next steps for P4:
+- Fix Vec stale handle in `emitLine` and type registry paths
+- Implement stdin I/O in `main.ax`
+- Test codegen output for self_host source files
+- Implement module import resolution
 - Differential-test lexer/parser against Rust implementation on corpus
 - Reach `stage2 == stage3` fixpoint
 

@@ -32,6 +32,8 @@
 (pub :: TAG_D_STRUCT Int)  (pub fn (TAG_D_STRUCT) 13)
 (pub :: TAG_D_IMPORT Int)  (pub fn (TAG_D_IMPORT) 14)
 (pub :: TAG_D_MACRO Int)   (pub fn (TAG_D_MACRO) 15)
+(pub :: TAG_CTOR Int)     (pub fn (TAG_CTOR) 20)
+(pub :: TAG_FIELD Int)    (pub fn (TAG_FIELD) 21)
 
 (pub :: nodeTag (-> Int Int))   (pub fn (nodeTag n) (memGetWord n 0))
 (pub :: nodeA   (-> Int Int))   (pub fn (nodeA   n) (memGetWord n 1))
@@ -50,6 +52,11 @@
 (pub :: mkDFn   (-> Int Int Int))         (pub fn (mkDFn n b)    (mkNode TAG_D_FN n b 0))
 (pub :: mkDSig  (-> Int Int Int))         (pub fn (mkDSig n t)   (mkNode TAG_D_SIG n t 0))
 (pub :: mkDImport (-> Int Int Int))       (pub fn (mkDImport m ns) (mkNode TAG_D_IMPORT m ns 0))
+(pub :: mkDData (-> Int Int Int))         (pub fn (mkDData n cs)   (mkNode TAG_D_DATA n cs 0))
+(pub :: mkDStruct (-> Int Int Int))        (pub fn (mkDStruct n fs) (mkNode TAG_D_STRUCT n fs 0))
+(pub :: mkDMacro (-> Int Int Int))         (pub fn (mkDMacro n b)  (mkNode TAG_D_MACRO n b 0))
+(pub :: mkCtor (-> Int Int Int))           (pub fn (mkCtor n a)    (mkNode TAG_CTOR n a 0))
+(pub :: mkField (-> Int Int Int))          (pub fn (mkField n t)   (mkNode TAG_FIELD n t 0))
 
 ; ------------------------------------------------------------------
 ; Parse result.
@@ -188,15 +195,15 @@
               (parseTopForm tokens (advance pos))
           (if (kwEq name (kwFn))
               (parseFnDecl tokens (advance pos) name)
-          (if (kwEq name (kwData))
-              (skipParens tokens (advance pos) 1)   ; TODO: real data parsing
-          (if (kwEq name (kwStruct))
-              (skipParens tokens (advance pos) 1)   ; TODO: real struct parsing
-          (if (kwEq name (kwImport))
-              (parseImportDecl tokens (advance pos))
-          (if (kwEq name (kwMacro))
-              (skipParens tokens (advance pos) 1)   ; TODO: real macro parsing
-          (skipParens tokens pos 1)))))))))             ; unknown form, skip
+  (if (kwEq name (kwData))
+      (parseDataDecl tokens (advance pos))
+  (if (kwEq name (kwStruct))
+      (parseStructDecl tokens (advance pos))
+  (if (kwEq name (kwImport))
+      (parseImportDecl tokens (advance pos))
+  (if (kwEq name (kwMacro))
+      (parseMacroDecl tokens (advance pos))
+  (skipParens tokens pos 1)))))))))             ; unknown form, skip
   (skipParens tokens pos 1))))                         ; non-keyword form, skip
 
 ; ------------------------------------------------------------------
@@ -232,6 +239,111 @@
               (if (peekIs tokens nextPos TK_RPAREN)
                   (pOk (mkDImport modName vecNew) (advance nextPos))
                   (pErr nextPos)))))))
+
+; ------------------------------------------------------------------
+; Parse (data Name (Ctor1 ...) (Ctor2) ...)
+; ------------------------------------------------------------------
+(pub :: parseDataDecl (-> Int Int Int))
+(pub fn (parseDataDecl tokens pos)
+  (let ((nr (parseIdentName tokens pos)))
+    (if (== (memGetWord nr 0) 0) nr
+        (let ((name (memGetWord nr 1))
+              (nextPos (memGetWord nr 2)))
+          (parseConstructors tokens nextPos name vecNew)))))
+
+(pub :: parseConstructors (-> Int Int Int Int Int))
+(pub fn (parseConstructors tokens pos dataName acc)
+  (if (peekIs tokens pos TK_RPAREN)
+      (pOk (mkDData dataName acc) (advance pos))
+  (if (peekIs tokens pos TK_LPAREN)
+      (let ((r (parseOneCtor tokens (advance pos))))
+        (if (== (memGetWord r 0) 0) r
+            (let ((ctor (memGetWord r 1))
+                  (nextPos (memGetWord r 2)))
+              (parseConstructors tokens nextPos dataName (vecPush acc ctor)))))
+  (pErr pos))))
+
+(pub :: parseOneCtor (-> Int Int Int))
+(pub fn (parseOneCtor tokens pos)
+  (let ((nr (parseIdentName tokens pos)))
+    (if (== (memGetWord nr 0) 0) nr
+        (let ((ctorName (memGetWord nr 1))
+              (nextPos (memGetWord nr 2)))
+          (if (peekIs tokens nextPos TK_RPAREN)
+              (pOk (mkCtor ctorName 0) (advance nextPos))
+              (let ((arity 0))
+                (parseFieldTypes tokens nextPos arity ctorName)))))))
+
+(pub :: parseFieldTypes (-> Int Int Int Int Int))
+(pub fn (parseFieldTypes tokens pos arity ctorName)
+  (if (peekIs tokens pos TK_RPAREN)
+      (pOk (mkCtor ctorName arity) (advance pos))
+  (if (peekIs tokens pos TK_IDENT)
+      (parseFieldTypes tokens (advance pos) (+ arity 1) ctorName)
+  (if (peekIs tokens pos TK_LPAREN)
+      (let ((afterSkip (skipParens tokens (advance pos) 1)))
+        (if (== (memGetWord afterSkip 0) 0) afterSkip
+            (parseFieldTypes tokens (memGetWord afterSkip 2) (+ arity 1) ctorName)))
+  (pErr pos)))))
+
+; ------------------------------------------------------------------
+; Parse (struct Name (field1 : Type1) (field2 : Type2) ...)
+; ------------------------------------------------------------------
+(pub :: parseStructDecl (-> Int Int Int))
+(pub fn (parseStructDecl tokens pos)
+  (let ((nr (parseIdentName tokens pos)))
+    (if (== (memGetWord nr 0) 0) nr
+        (let ((name (memGetWord nr 1))
+              (nextPos (memGetWord nr 2)))
+          (parseFields tokens nextPos name vecNew)))))
+
+(pub :: parseFields (-> Int Int Int Int Int))
+(pub fn (parseFields tokens pos structName acc)
+  (if (peekIs tokens pos TK_RPAREN)
+      (pOk (mkDStruct structName acc) (advance pos))
+  (if (peekIs tokens pos TK_LPAREN)
+      (let ((r (parseOneField tokens (advance pos))))
+        (if (== (memGetWord r 0) 0) r
+            (let ((field (memGetWord r 1))
+                  (nextPos (memGetWord r 2)))
+              (parseFields tokens nextPos structName (vecPush acc field)))))
+  (pErr pos))))
+
+(pub :: parseOneField (-> Int Int Int))
+(pub fn (parseOneField tokens pos)
+  (let ((nr (parseIdentName tokens pos)))
+    (if (== (memGetWord nr 0) 0) nr
+        (let ((fieldName (memGetWord nr 1))
+              (nextPos (memGetWord nr 2)))
+          (let ((afterSkip (skipParens tokens nextPos 1)))
+            (if (== (memGetWord afterSkip 0) 0) afterSkip
+                (let ((afterForm (memGetWord afterSkip 2)))
+                  (pOk (mkField fieldName 0) afterForm))))))))
+
+; ------------------------------------------------------------------
+; Parse (macro Name (args...) body)
+; ------------------------------------------------------------------
+(pub :: parseMacroDecl (-> Int Int Int))
+(pub fn (parseMacroDecl tokens pos)
+  (let ((nr (parseIdentName tokens pos)))
+    (if (== (memGetWord nr 0) 0) nr
+        (let ((macName (memGetWord nr 1))
+              (nextPos (memGetWord nr 2)))
+          (let ((paramsR (parseIdentList tokens (advance nextPos) vecNew)))
+            (if (== (memGetWord paramsR 0) 0) paramsR
+                (let ((params (memGetWord paramsR 1))
+                      (afterParams (memGetWord paramsR 2)))
+                  (if (== params 0)  ; skip if no ident list matched
+                      (let ((afterSkip (skipParens tokens nextPos 1)))
+                        (if (== (memGetWord afterSkip 0) 0) afterSkip
+                            (pOk (mkDMacro macName 0) (memGetWord afterSkip 2))))
+                  (let ((bodyR (parseExpr tokens afterParams)))
+                    (if (== (memGetWord bodyR 0) 0) bodyR
+                        (let ((body (memGetWord bodyR 1))
+                              (afterBody (memGetWord bodyR 2)))
+                          (if (peekIs tokens afterBody TK_RPAREN)
+                              (pOk (mkDMacro macName body) (advance afterBody))
+                              (pErr afterBody)))))))))))))
 
 ; ------------------------------------------------------------------
 ; Parse (fn (name args...) body) at top level.

@@ -1,7 +1,4 @@
 ; main.ax — self-hosted Axiom compiler entry point.
-;
-; Ties together the compiler pipeline: lex → parse → typecheck → codegen.
-; Dependencies: core.ax, lexer.ax, parser.ax, typecheck.ax, codegen.ax.
 
 (import core)
 (import Mem)
@@ -13,29 +10,25 @@
 (import typecheck)
 (import codegen)
 
-; ------------------------------------------------------------------
-; Compile source text, return LLVM IR Str.
-; ------------------------------------------------------------------
-(pub :: compileString (-> Int Int))
-(pub fn (compileString src)
-  (let ((tokens (lex src)))
-    (let ((pr (parseModule tokens)))
-      (if (== (memGetWord pr 0) 0)
-          (strFromLit (__addr "; parse error\n"))
-          (let ((decls (memGetWord pr 1)))
-            (let ((ctx (checkModule decls)))
-              (emitModule decls 0)))))))
-
-; ------------------------------------------------------------------
-; Write a Str to stdout.
-; ------------------------------------------------------------------
 (pub :: writeStdout (-> Int Int))
-(pub fn (writeStdout s)
-  (sysWriteFd 1 (strData s) (strLen s)))
+(pub fn (writeStdout s) (sysWriteFd 1 (strData s) (strLen s)))
 
-; ------------------------------------------------------------------
-; Entry point.
-; ------------------------------------------------------------------
 (pub :: main Int)
 (pub fn (main)
-  0)
+  (let ((src (strFromLit (__addr "(struct Foo (x : Int)) (fn (bar) 42)"))))
+    (let ((tokens (lex src)))
+      (let ((pr (parseModule tokens)))
+        (if (== (memGetWord pr 0) 0)
+            (sysWriteFd 2 (strData (strFromLit (__addr "PFAIL\n"))) 6)
+            (let ((decls (memGetWord pr 1))
+                  (cg (newCG))
+                  (c1 (scanDecls decls cg 0))
+                  (c2 (emitLine c1 (strFromLit (__addr "HDR1"))))
+                  (c3 (emitLine c2 (strFromLit (__addr ""))))
+                  (c4 (emitLine c3 (strFromLit (__addr "HDR3"))))
+                  (c5 (emitLine c4 (strFromLit (__addr ""))))
+                  (c6 (emitModuleTail decls c5 0))
+                  (out (renderCG c6)))
+              (writeStdout out)
+              0))))
+    0))
