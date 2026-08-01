@@ -47,7 +47,7 @@ Every Axiom program needs a `main` function that returns `Int`. Here is the smal
 ;@axiom:effect(io)
 (fn (main)
   {
-    (printlnLit (__addr "Hello, Axiom!"))
+    (println (strFromLit (__addr "Hello, Axiom!")))
     0
   })
 ```
@@ -1015,7 +1015,7 @@ Use `--opt 2` for anything that iterates over a large input.
 ;@axiom:effect(io)
 (fn (main)
   {
-    (printlnLit (__addr "Hello from Axiom!"))
+    (println (strFromLit (__addr "Hello from Axiom!")))
     0
   })
 ```

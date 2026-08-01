@@ -79,7 +79,7 @@ Create a file called `hello.ax`:
 ;@axiom:effect(io)
 (fn (main)
   {
-    (printlnLit (__addr "Hello, Axiom!"))
+    (println (strFromLit (__addr "Hello, Axiom!")))
     0
   })
 ```
@@ -572,7 +572,7 @@ in the standard library needs them.
 ;@axiom:effect(io)
 (fn (main)
   {
-    (printlnLit (__addr "hello, world"))
+    (println (strFromLit (__addr "hello, world")))
     (printlnInt 42)
     (println (strConcat (strFromLit (__addr "sum=")) (fmtInt (+ 1 2))))
     0
@@ -699,7 +699,7 @@ for safe null handling:
 ;@axiom:effect(io)
 (fn (main)
   {
-    (printlnLit (__addr "a literal"))
+    (println (strFromLit (__addr "a literal")))
     (printlnInt 42)
     (println (strConcat (strFromLit (__addr "formatted: ")) (fmtInt 42)))
     0
@@ -1053,7 +1053,7 @@ axiom/
 ├── tree-sitter-axiom/  # Editor grammar, queries, corpus
 ├── tests/stdlib/       # Golden tests: compiled, run, output compared
 ├── scripts/            # CI gates, each runnable locally
-├── docs/               # diagnostics.md, self-hosting.md, v1-roadmap.md
+├── docs/               # diagnostics.md, reference.md, self-hosting.md, v1-roadmap.md
 └── Cargo.toml          # Workspace manifest
 ```
 

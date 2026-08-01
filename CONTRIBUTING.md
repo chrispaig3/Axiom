@@ -58,7 +58,7 @@ echo '(import IO)
 (:: main Int)
 ;@axiom:effect(io)
 (fn (main)
-  { (printlnLit (__addr "Hello from Axiom!"))
+  { (println (strFromLit (__addr "Hello from Axiom!")))
     0 })' > hello.ax
 
 ./target/release/axiom run hello.ax
@@ -78,8 +78,8 @@ axiom/
 ├── axiom-sema/         Two-pass type checker (name resolution + effect analysis)
 ├── axiom-ir/           IR definitions and generator
 ├── axiom-codegen/      LLVM IR emitter
-├── axiom-cli/          CLI entry point, REPL
-├── axiom-errors/       Diagnostic types, rendering, code lookup, SymbolFact
+├── axiom-cli/          CLI entry point, REPL, fmt, symbols
+├── axiom-errors/       Diagnostics, AXDL/AXSYM rendering, code lookup, SymbolFact
 ├── stdlib/             Standard library written in Axiom (Pre, Mem, Str, Vec, Map, Fmt, Intern, Sys, IO)
 ├── game_of_life/       Conway's Game of Life — the largest Axiom program in the tree
 ├── tree-sitter-axiom/  Editor grammar for syntax highlighting and structural editing
@@ -387,7 +387,7 @@ When contributing, remember:
 
 ### Before you start
 
-1. **Read the [README](../README.md)** for the project overview.
+1. **Read the [README](README.md)** for the project overview.
 2. **Read [docs/reference.md](docs/reference.md)** for the language reference.
 3. **Read [docs/diagnostics.md](docs/diagnostics.md)** for the diagnostic and symbol notation system.
 4. **Read [docs/v1-roadmap.md](docs/v1-roadmap.md)** for what's planned and what blocks what.
@@ -433,11 +433,11 @@ If you're unsure about how something works or where to make a change, open an is
 
 | Resource | Description |
 |---|---|
-| [README](../README.md) | Project overview, installation, quick start |
-| [docs/reference.md](reference.md) | Comprehensive Axiom language reference |
-| [docs/diagnostics.md](diagnostics.md) | AXDL, AXSYM, NID, AXTAG notation reference |
-| [docs/self-hosting.md](self-hosting.md) | Plan to replace the Rust compiler with Axiom |
-| [docs/v1-roadmap.md](v1-roadmap.md) | Roadmap to v1 — what's done, what's left |
+| [README](README.md) | Project overview, installation, quick start |
+| [docs/reference.md](docs/reference.md) | Comprehensive Axiom language reference |
+| [docs/diagnostics.md](docs/diagnostics.md) | AXDL, AXSYM, NID, AXTAG notation reference |
+| [docs/self-hosting.md](docs/self-hosting.md) | Plan to replace the Rust compiler with Axiom |
+| [docs/v1-roadmap.md](docs/v1-roadmap.md) | Roadmap to v1 — what's done, what's left |
 | [tree-sitter-axiom/](tree-sitter-axiom/) | Editor grammar for syntax highlighting |
 | [game_of_life/](game_of_life/) | Conway's Game of Life — the largest Axiom program |
 
@@ -445,29 +445,35 @@ If you're unsure about how something works or where to make a change, open an is
 
 ## Implementation Status
 
-| Feature | Status |
-|---|---|
-| Functions & types | **Complete** |
-| Operators (prefix) | **Complete** |
-| Let bindings | **Complete** |
-| if expressions | **Complete** |
-| brace blocks | **Complete** |
-| fn keyword | **Complete** |
-| FFI | **Complete** |
-| Standard library | **Functional** |
-| Syscalls | **Complete** |
-| ADTs / data types | **Complete** |
-| Structs | **Complete** |
-| Pattern matching (`match`) | **Complete** |
-| Traits | **Complete** |
-| Effects | **Complete** |
-| Imports | **Functional** |
-| Loops | **Missing** (use recursion + `--opt`) |
-| Linear types | **Parsed only** |
-| Macros | **Not started** |
-| Concurrency | **Not started** |
-| Self-hosting | **In progress** |
-| Editor support (LSP) | **Not started** |
+| Feature | Status | Notes |
+|---|---|---|
+| Functions & types | **Complete** | Curried, polymorphic signatures, proper return values |
+| Operators (prefix) | **Complete** | All arithmetic, comparison, logical |
+| Let bindings | **Complete** | Variable resolution, sequential evaluation |
+| if expressions | **Complete** | Proper branching with result values |
+| begin blocks | **Removed** | Replaced by `{ }` brace blocks and implicit sequencing |
+| brace blocks | **Complete** | Modern sequencing, returns last value |
+| fn keyword | **Complete** | Modern alias for `define` |
+| FFI | **Complete** | Call any C function with `foreign` declarations (stdlib no longer uses it) |
+| Standard library | **Functional** | `Pre`, `Mem`, `Str`, `Vec`, `Map`, `Fmt`, `Intern`, `Sys`, `IO`, written in Axiom over syscall primitives |
+| Syscalls | **Complete** | `__syscall0`-`__syscall6` on Darwin and Linux, x86-64 and AArch64 |
+| Allocation | **Functional, unbounded** | `mmap`-backed bump allocator; no `free` |
+| Cross-compilation | **Functional** | `--target` selects ABI and platform stdlib modules |
+| Self-hosting | **In progress** | Foundations landed; see [docs/self-hosting.md](docs/self-hosting.md) |
+| ADTs / data types | **Complete** | Constructors (nullary and with fields), recursive types, match exhaustiveness |
+| Structs | **Complete** | Declarations, LLVM emission, field access, construction, `mut` fields, mutation |
+| Pattern matching (`match`) | **Complete** | Constructor patterns, variables, wildcards, literals, nested patterns, exhaustiveness/arity diagnostics |
+| Lambda | **Partial** | Parsed and type-checked; codegen pending |
+| Lists | **Partial** | Syntax and type checking; runtime representation pending |
+| Tuples | **Partial** | Syntax and type checking; codegen pending |
+| Traits | **Complete** | Declarations, supertraits, effects, default methods, implementations (`impl`) |
+| Effects | **Complete** | Effect declarations, `handle` expressions, effect checking, AXTAG validation, transitive inference |
+| Loops | **Missing** | Iteration is recursion; `--opt 1`+ turns tail recursion into a loop |
+| Linear types | **Parsed only** | `linear T`, `consume` — the ownership facts the memory model needs |
+| Macros | **Complete** | Pattern-substitution expansion before sema with hygiene |
+| Concurrency | **Delegated** | External/third-party library concern; memory model provides safety foundation |
+| Editor support | **Functional** | Tree-sitter grammar with highlighting queries; no LSP yet |
+| Imports | **Functional** | `(import Mod.Sub ...)` with transitive/diamond-safe resolution, qualified access |
 
 ---
 
