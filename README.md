@@ -108,26 +108,7 @@ Every Axiom program needs a `main` function that returns `Int`. The compiler pip
 Source (.ax) → Lexer → Parser → Type Checker → IR → LLVM IR → llc → cc → Executable
 ```
 
-### A larger example
 
-[game_of_life/](game_of_life/) is Conway's Game of Life in pure Axiom: the
-biggest Axiom program in the tree, and the one that shows what the language
-can and cannot do today. Life is Turing-complete, so a working
-implementation settles that Axiom can express arbitrary computation — and
-because Axiom has no loop form, no mutable locals, and no closures that
-survive code generation, it has to do so with recursion over immutable
-algebraic data and nothing else.
-
-```bash
-AXIOM_STDLIB=stdlib ./target/release/axiom run game_of_life/main.ax
-```
-
-Its README records the measurements, including the allocator behaviour that
-drives the [v1 roadmap](docs/v1-roadmap.md), and the two bugs that the
-demo's position-sensitive board digest caught but a population count would
-not have.
-
----
 
 ## Language Guide
 
@@ -996,7 +977,7 @@ Source (.ax)
 | FFI | **Complete, no longer required** | Call any C function with `foreign` declarations. The standard library no longer uses it: see [Standard library](#standard-library) |
 | Standard library | **Functional** | `Pre`, `Mem`, `Str`, `Vec`, `Map`, `Fmt`, `Intern`, `Sys`, `IO`, written in Axiom over syscall primitives |
 | Syscalls | **Complete** | `__syscall0`-`__syscall6` on Darwin and Linux, x86-64 and AArch64; errors normalised to `-errno` on every platform |
-| Allocation | **Functional, unbounded** | `mmap`-backed bump allocator emitted by the backend, overridable by defining `axiom_alloc`. No `free` - memory is reclaimed at process exit, so memory use tracks *total* allocations rather than live data. Measured at 76,000x the live set for a 2000-generation loop; see [game_of_life/README.md](game_of_life/README.md) and the memory model design in [docs/v1-roadmap.md](docs/v1-roadmap.md) |
+| Allocation | **Functional, unbounded** | `mmap`-backed bump allocator emitted by the backend, overridable by defining `axiom_alloc`. No `free` - memory is reclaimed at process exit, so memory use tracks *total* allocations rather than live data. Measured at 76,000x the live set for a 2000-generation loop; see the memory model design in [docs/v1-roadmap.md](docs/v1-roadmap.md) |
 | Cross-compilation | **Functional** | `--target` selects ABI and platform stdlib modules; codegen verified for all four targets |
 | Self-hosting | **In progress** | Foundations landed; see [docs/self-hosting.md](docs/self-hosting.md) for the measured gap analysis and plan |
 | ADTs / data types | **Complete** | Constructors (nullary and with fields, including recursive types like `List`/`Tree`) compile to heap-boxed tagged values; see [Algebraic data types](#algebraic-data-types-how-they-actually-run) |
@@ -1049,7 +1030,6 @@ axiom/
 ├── axiom-cli/          # Driver, REPL, `fmt`, `symbols`
 ├── axiom-errors/       # Diagnostics, AXDL/AXSYM rendering
 ├── stdlib/             # Standard library, written in Axiom
-├── game_of_life/       # Turing-completeness proof and memory profile
 ├── tree-sitter-axiom/  # Editor grammar, queries, corpus
 ├── tests/stdlib/       # Golden tests: compiled, run, output compared
 ├── scripts/            # CI gates, each runnable locally
@@ -1067,7 +1047,6 @@ cargo test --release --all           # unit, integration, golden suites
 ./scripts/check-cross-targets.sh     # every target assembles, at -O0 and -O2,
                                      # with no absolute relocations
 ./scripts/check-reproducible.sh      # two runs produce identical IR
-./scripts/check-game-of-life.sh      # the demo, against golden output
 ./scripts/check-tree-sitter.sh       # grammar accepts every .ax in the repo
 ```
 

@@ -102,7 +102,7 @@ they unblock everything downstream.
 |---|---|
 | CI green on all four targets | §3 below; two root-caused failures fixed |
 | `union` removed, `region` removed | `AX2004` with migration advice; 3 regression tests |
-| Turing-completeness demonstrated | [game_of_life/](../game_of_life/), verified against an independent implementation |
+
 | Editor grammar | [tree-sitter-axiom/](../tree-sitter-axiom/), 18/18 repo files, ~18 MB/s |
 | Freestanding stdlib | `Pre`, `Mem`, `Str`, `Vec`, `Map`, `Fmt`, `Intern`, `Sys`, `IO` over syscalls; no libc |
 | Reproducible builds | byte-identical IR across runs, gated in CI |
@@ -115,31 +115,11 @@ cargo test --release --all
 ./scripts/check-freestanding.sh
 ./scripts/check-cross-targets.sh
 ./scripts/check-reproducible.sh
-./scripts/check-game-of-life.sh
+
 ./scripts/check-tree-sitter.sh
 ```
 
-### 2.2 The measurement that drives the schedule
 
-The Game of Life demo exists to produce one number. A 24×24 board, one
-board live at any moment (~10 KiB), `--opt 2`:
-
-| Generations | Peak RSS | Overhead vs live set |
-|---:|---:|---:|
-| 10 | 5.2 MiB | ~500× |
-| 80 | 31.8 MiB | ~3,000× |
-| 2000 | 744 MiB | ~76,000× |
-
-Linear in generations, flat in live data. The allocator is a bump pointer
-over `mmap` with no reclamation, so memory use tracks *total allocations*
-rather than reachable data. Reproduce with
-[game_of_life/stress.ax](../game_of_life/stress.ax); the method is in
-[game_of_life/README.md](../game_of_life/README.md).
-
-This is not a pathological program. It is a loop that builds a value from
-the previous value, which is the shape of every compiler pass, every
-request handler, and every macro expansion. It is why the memory model is
-the hinge of this roadmap rather than one item on a list.
 
 ### 2.3 `axiom fmt` cannot round-trip source
 
@@ -277,9 +257,7 @@ turns the §2.2 number from linear into constant, and it establishes the
 watermark machinery the other two need. Then the second, since linear
 types are already in the surface syntax. Treat the third as optional.
 
-**Acceptance criterion.** `game_of_life/stress.ax` at 2000 generations
-uses O(1) memory in the generation count: peak RSS within 2× of the same
-program at 20 generations. The current ratio is 82×.
+
 
 **What this does not do.** Nothing here reclaims a cycle, and nothing here
 reclaims a value whose lifetime genuinely outlives every arena. Both are
@@ -305,7 +283,7 @@ to.
 **Recommendation: tier 1 for v1.** Axiom is an S-expression language, so
 pattern matching on syntax is a natural fit and covers the stated use
 cases — deriving instances, eliminating the boilerplate that
-[game_of_life/main.ax](../game_of_life/main.ax) is full of, and generating
+the current stdlib is full of, and generating
 the repetitive parts of a self-hosted compiler. Tier 2 should not be
 smuggled in as an implementation detail of tier 1; it is a change to the
 compiler's threat model and needs a sandbox and an explicit decision.
@@ -342,7 +320,7 @@ distinguishing feature.
 
 Axiom already has Rust-style ADTs: tagged sums, recursive types, nested
 constructor patterns, and compile-time exhaustiveness checking. That is
-verified — `game_of_life/` is built on it. The actual gap against Rust is
+verified. The actual gap against Rust is
 narrow:
 
 1. **Struct variants.** Rust's `enum Shape { Circle { r: f64 } }` has no
@@ -419,7 +397,7 @@ parallel.
 
 | Phase | Items | Exit criterion |
 |---|---|---|
-| **P0** *(done)* | Green CI; `union`/`region` removed; Game of Life; tree-sitter grammar | All seven gates green on all four targets |
+| **P0** *(done)* | Green CI; `union`/`region` removed; tree-sitter grammar | All seven gates green on all four targets |
 | **P1** | `B2` tail calls · `B3` `Vec`/`Map`/`Intern` golden tests and scale validation · `B1` closures · ADT struct variants | 10⁷-iteration tail loop at `-O0`; higher-order probe runs; struct variants match exhaustively |
 | **P2** | Memory model (§4.1) · `S1` unboxed nullary constructors | `stress.ax` at 2000 generations within 2× of 20 generations |
 | **P3** | Macro system (§4.2) — hygiene done · ~~`B4` namespacing~~ **(DONE)** | Hygiene test passes; two modules define the same name without collision |

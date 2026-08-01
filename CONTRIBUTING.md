@@ -81,7 +81,6 @@ axiom/
 ├── axiom-cli/          CLI entry point, REPL, fmt, symbols
 ├── axiom-errors/       Diagnostics, AXDL/AXSYM rendering, code lookup, SymbolFact
 ├── stdlib/             Standard library written in Axiom (Pre, Mem, Str, Vec, Map, Fmt, Intern, Sys, IO)
-├── game_of_life/       Conway's Game of Life — the largest Axiom program in the tree
 ├── tree-sitter-axiom/  Editor grammar for syntax highlighting and structural editing
 ├── tests/stdlib/       Golden tests: compile, run, compare output
 ├── scripts/            CI gates, each runnable locally
@@ -223,15 +222,7 @@ Verify that two independent runs produce byte-identical IR:
 ./scripts/check-reproducible.sh
 ```
 
-### Game of Life
 
-Run the largest Axiom program in the tree against golden output at both optimisation levels:
-
-```bash
-./scripts/check-game-of-life.sh
-```
-
-### Tree-sitter grammar
 
 Verify that the grammar accepts every `.ax` file in the repository:
 
@@ -439,7 +430,6 @@ If you're unsure about how something works or where to make a change, open an is
 | [docs/self-hosting.md](docs/self-hosting.md) | Plan to replace the Rust compiler with Axiom |
 | [docs/v1-roadmap.md](docs/v1-roadmap.md) | Roadmap to v1 — what's done, what's left |
 | [tree-sitter-axiom/](tree-sitter-axiom/) | Editor grammar for syntax highlighting |
-| [game_of_life/](game_of_life/) | Conway's Game of Life — the largest Axiom program |
 
 ---
 
