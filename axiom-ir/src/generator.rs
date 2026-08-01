@@ -537,12 +537,14 @@ impl IrGen {
             Some(&tc),
         );
 
-        self.emit_to_func(
-            &mut func,
-            IrInst::Ret {
-                value: Some(body_val),
-            },
-        );
+        if !self.current_block_has_terminator(&func) {
+            self.emit_to_func(
+                &mut func,
+                IrInst::Ret {
+                    value: Some(body_val),
+                },
+            );
+        }
 
         self.entry_block = None;
 
@@ -1743,19 +1745,22 @@ impl IrGen {
                     type_checker,
                     tail_ctx,
                 );
-                self.emit_to_func(
-                    func,
-                    IrInst::Store {
-                        ptr: IrValue::Local(result_alloca.clone()),
-                        value: then_val,
-                    },
-                );
-                self.emit_to_func(
-                    func,
-                    IrInst::Br {
-                        target: merge_label.clone(),
-                    },
-                );
+                let then_terminated = self.current_block_has_terminator(func);
+                if !then_terminated {
+                    self.emit_to_func(
+                        func,
+                        IrInst::Store {
+                            ptr: IrValue::Local(result_alloca.clone()),
+                            value: then_val,
+                        },
+                    );
+                    self.emit_to_func(
+                        func,
+                        IrInst::Br {
+                            target: merge_label.clone(),
+                        },
+                    );
+                }
 
                 func.blocks.push(IrBlock {
                     label: else_label.clone(),
@@ -1769,35 +1774,45 @@ impl IrGen {
                     type_checker,
                     tail_ctx,
                 );
-                self.emit_to_func(
-                    func,
-                    IrInst::Store {
-                        ptr: IrValue::Local(result_alloca.clone()),
-                        value: else_val,
-                    },
-                );
-                self.emit_to_func(
-                    func,
-                    IrInst::Br {
-                        target: merge_label.clone(),
-                    },
-                );
+                let else_terminated = self.current_block_has_terminator(func);
+                if !else_terminated {
+                    self.emit_to_func(
+                        func,
+                        IrInst::Store {
+                            ptr: IrValue::Local(result_alloca.clone()),
+                            value: else_val,
+                        },
+                    );
+                    self.emit_to_func(
+                        func,
+                        IrInst::Br {
+                            target: merge_label.clone(),
+                        },
+                    );
+                }
 
-                func.blocks.push(IrBlock {
-                    label: merge_label.clone(),
-                    insts: Vec::new(),
-                });
-                self.current_block = Some(merge_label.clone());
+                if then_terminated && else_terminated {
+                    IrValue::Const(IrConst::Int(
+                        0,
+                        TypeId::TCon("I64".to_string(), vec![]),
+                    ))
+                } else {
+                    func.blocks.push(IrBlock {
+                        label: merge_label.clone(),
+                        insts: Vec::new(),
+                    });
+                    self.current_block = Some(merge_label.clone());
 
-                let load_dest = self.new_local();
-                self.emit_to_func(
-                    func,
-                    IrInst::Load {
-                        dest: IrValue::Local(load_dest.clone()),
-                        ptr: IrValue::Local(result_alloca),
-                    },
-                );
-                IrValue::Local(load_dest)
+                    let load_dest = self.new_local();
+                    self.emit_to_func(
+                        func,
+                        IrInst::Load {
+                            dest: IrValue::Local(load_dest.clone()),
+                            ptr: IrValue::Local(result_alloca),
+                        },
+                    );
+                    IrValue::Local(load_dest)
+                }
             }
             Expr::ELet(bindings, body) => {
                 for (pat, init) in bindings {
@@ -2568,11 +2583,32 @@ impl IrGen {
                         Some(idx) => target_block.insts.insert(idx, inst),
                         None => target_block.insts.push(inst),
                     }
+                } else if !matches!(&inst, IrInst::Alloca { .. })
+                    && target_block
+                        .insts
+                        .last()
+                        .map_or(false, |i| matches!(i, IrInst::Br { .. } | IrInst::CondBr { .. } | IrInst::Ret { .. }))
+                {
+                    // skip: block already has a terminator
                 } else {
                     target_block.insts.push(inst);
                 }
             }
         }
+    }
+
+    fn current_block_has_terminator(&self, func: &IrFunction) -> bool {
+        if let Some(label) = &self.current_block {
+            if let Some(block) = func.blocks.iter().find(|b| &b.label == label) {
+                return block.insts.last().map_or(false, |inst| {
+                    matches!(
+                        inst,
+                        IrInst::Br { .. } | IrInst::CondBr { .. } | IrInst::Ret { .. }
+                    )
+                });
+            }
+        }
+        false
     }
 
     fn new_alloca(&mut self, name: &str) -> String {

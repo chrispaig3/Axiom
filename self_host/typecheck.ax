@@ -81,7 +81,8 @@
   (let ((tag (nodeTag node)))
     (if (== tag TAG_D_FN)
         (let ((name (nodeA node))
-              (body (nodeB node)))
+              (params (nodeB node))
+              (body (nodeC node)))
           {
             (registerDecl ctx name (mkNode TAG_NIL 0 0 0) SYM_FN)
             (checkExpr ctx body)

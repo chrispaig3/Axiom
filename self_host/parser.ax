@@ -49,7 +49,7 @@
 (pub :: mkELet (-> Int Int Int Int))      (pub fn (mkELet n v b) (mkNode TAG_E_LET n v b))
 (pub :: mkEIf  (-> Int Int Int Int))      (pub fn (mkEIf  t c a) (mkNode TAG_E_IF  t c a))
 (pub :: mkEBegin (-> Int Int))            (pub fn (mkEBegin xs)  (mkNode TAG_E_BEGIN xs 0 0))
-(pub :: mkDFn   (-> Int Int Int))         (pub fn (mkDFn n b)    (mkNode TAG_D_FN n b 0))
+(pub :: mkDFn   (-> Int Int Int Int))     (pub fn (mkDFn n p b)  (mkNode TAG_D_FN n p b))
 (pub :: mkDSig  (-> Int Int Int))         (pub fn (mkDSig n t)   (mkNode TAG_D_SIG n t 0))
 (pub :: mkDImport (-> Int Int Int))       (pub fn (mkDImport m ns) (mkNode TAG_D_IMPORT m ns 0))
 (pub :: mkDData (-> Int Int Int))         (pub fn (mkDData n cs)   (mkNode TAG_D_DATA n cs 0))
@@ -358,13 +358,14 @@
                     (afterName (memGetWord nr 2)))
                 (let ((paramsR (parseIdentList tokens afterName vecNew)))
                   (if (== (memGetWord paramsR 0) 0) paramsR
-                      (let ((afterParams (memGetWord paramsR 2)))
+                      (let ((params (memGetWord paramsR 1))
+                            (afterParams (memGetWord paramsR 2)))
                         (let ((bodyR (parseExpr tokens afterParams)))
                           (if (== (memGetWord bodyR 0) 0) bodyR
                               (let ((body (memGetWord bodyR 1))
                                     (afterBody (memGetWord bodyR 2)))
                                 (if (peekIs tokens afterBody TK_RPAREN)
-                                    (pOk (mkDFn fnName body) (advance afterBody))
+                                    (pOk (mkDFn fnName params body) (advance afterBody))
                                     (pErr afterBody))))))))))))
   (pErr pos)))
 
@@ -434,27 +435,40 @@
   (pErr pos)))
 
 ; ------------------------------------------------------------------
-; Parse (let ((name val) ...) body)
+; Parse (let ((name val) ...) body) — single-binding for now.
 ; ------------------------------------------------------------------
 (pub :: parseLetExpr (-> Int Int Int))
 (pub fn (parseLetExpr tokens pos)
-  (if (peekIs tokens pos TK_LPAREN)
+  (if (peekIs tokens pos TK_LPAREN)                              ; enter ((name val) ...)
       (let ((bindList (advance pos)))
-        (let ((bindR (parseLetBindings tokens bindList)))
-          (if (== (memGetWord bindR 0) 0) bindR
-              (let ((bindings (memGetWord bindR 1))
-                    (afterBind (memGetWord bindR 2)))
-                (let ((bodyR (parseExpr tokens afterBind)))
-                  (if (== (memGetWord bodyR 0) 0) bodyR
-                      (let ((body (memGetWord bodyR 1))
-                            (afterBody (memGetWord bodyR 2)))
-                        (if (peekIs tokens afterBody TK_RPAREN)
-                            (pOk (mkELet bindings 0 body) (advance afterBody))
-                            (pErr afterBody)))))))))
+        (if (peekIs tokens bindList TK_LPAREN)                    ; enter (name val)
+            (let ((inner (advance bindList)))
+              (let ((nr (parseIdentName tokens inner)))
+                (if (== (memGetWord nr 0) 0) nr
+                    (let ((name (memGetWord nr 1))
+                          (afterName (memGetWord nr 2)))
+                      (let ((valR (parseExpr tokens afterName)))
+                        (if (== (memGetWord valR 0) 0) valR
+                            (let ((val (memGetWord valR 1))
+                                  (afterVal (memGetWord valR 2)))
+                              (if (peekIs tokens afterVal TK_RPAREN)  ; close (name val)
+                                  (let ((afterBind (advance afterVal)))
+                                    (if (peekIs tokens afterBind TK_RPAREN)  ; close ((name val))
+                                        (let ((bodyPos (advance afterBind)))
+                                          (let ((bodyR (parseExpr tokens bodyPos)))
+                                            (if (== (memGetWord bodyR 0) 0) bodyR
+                                                (let ((body (memGetWord bodyR 1))
+                                                      (afterBody (memGetWord bodyR 2)))
+                                                  (if (peekIs tokens afterBody TK_RPAREN)  ; close outer
+                                                      (pOk (mkELet name val body) (advance afterBody))
+                                                      (pErr afterBody))))))
+                                        (pErr afterBind)))
+                                  (pErr afterVal)))))))))
+            (pErr bindList)))
   (pErr pos)))
 
 ; Parse ((name val) ...) within let, returning a Vec of (name, val) pairs or a single name.
-; For now, just handle single-binding let.
+; For now, handle single-binding let and return the value expression (not the name).
 (pub :: parseLetBindings (-> Int Int Int))
 (pub fn (parseLetBindings tokens pos)
   (if (peekIs tokens pos TK_RPAREN)
@@ -470,7 +484,7 @@
                       (let ((val (memGetWord valR 1))
                             (afterVal (memGetWord valR 2)))
                         (if (peekIs tokens afterVal TK_RPAREN)
-                            (pOk name (advance afterVal))
+                            (pOk val (advance afterVal))    ; return value expr, name comes via parseLetExpr
                             (pErr afterVal)))))))))
   (pErr pos))))
 

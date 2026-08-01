@@ -23,15 +23,19 @@
 
 (pub :: lookupType (-> Int Int Int))
 (pub fn (lookupType types name)
-  (lookupTypeIn types name 0))
+  (lookupByIdx types name 0))
 
-(pub :: lookupTypeIn (-> Int Int Int Int))
-(pub fn (lookupTypeIn types name i)
+(pub :: lookupByIdx (-> Int Int Int Int))
+(pub fn (lookupByIdx types name i)
   (if (>= i (vecLen types))
       0
       (let ((e (vecGet types i)))
-        (if (strEq (memGetWord e 0) name) e
-            (lookupTypeIn types name (+ i 1))))))
+        (if (== (memGetWord e 0) name) e
+            (lookupByIdx types name (+ i 1))))))
+
+(pub :: lookupTypeIn (-> Int Int Int Int))
+(pub fn (lookupTypeIn types name i)
+  (lookupType types name))
 
 ; ------------------------------------------------------------------
 ; CG state: output buffer + temp counter + last result + type registry.
@@ -162,11 +166,12 @@
 (pub fn (emitModule decls target)
   (let ((cg (newCG)))
     (let ((cg0 (scanDecls decls cg 0)))
-      (let ((cg1 (emitLine cg0 (strFromLit (__addr "target triple = \"x86_64-unknown-linux-gnu\"")))))
-        (let ((cg2 (emitLine cg1 (strFromLit (__addr "")))))
-          (let ((cg3 (emitLine cg2 (strFromLit (__addr "declare ptr @axiom_alloc(i64)")))))
-            (let ((cg4 (emitLine cg3 (strFromLit (__addr "")))))
-              (emitModuleTail decls cg4 0))))))))
+      (let ((ttHeader (cat3 (strFromLit (__addr "target triple = \"")) target (strFromLit (__addr "\"")))))
+        (let ((cg1 (emitLine cg0 ttHeader)))
+          (let ((cg2 (emitLine cg1 (strFromLit (__addr "")))))
+            (let ((cg3 (emitLine cg2 (strFromLit (__addr "declare ptr @axiom_alloc(i64)")))))
+              (let ((cg4 (emitLine cg3 (strFromLit (__addr "")))))
+                (emitModuleTail decls cg4 0)))))))))
 
 (pub :: emitModuleTail (-> Int Int Int Int))
 (pub fn (emitModuleTail decls cg i)
@@ -197,12 +202,29 @@
 (pub :: emitFnDef (-> Int Int Int))
 (pub fn (emitFnDef node cg)
   (let ((name (nodeA node))
-        (body (nodeB node)))
-    (let ((hdr (cat3 (strFromLit (__addr "define i64 @")) (strDup name) (strFromLit (__addr "() {")))))
-      (let ((cg1 (emitLine cg hdr)))
-        (let ((cg2 (emitExpr body cg1)))
-          (let ((ret (cat3 (strFromLit (__addr "  ret i64 ")) (strDup (memGetWord cg2 2)) (strFromLit (__addr "")))))
-            (emitLine (emitLine cg2 ret) (strFromLit (__addr "}")))))))))
+        (params (nodeB node))
+        (body (nodeC node)))
+    (let ((paramStr (emitParams params cg 0))
+          (_ (memSetWord cg 1 0)))     ; reset register counter in-place
+      (let ((hdr (strConcat (cat4 (strFromLit (__addr "define i64 @"))
+                                  (strDup name)
+                                  (strFromLit (__addr "("))
+                                  paramStr)
+                            (strFromLit (__addr ") {")))))
+        (let ((cg1 (emitLine cg hdr)))   ; use cg, not memSetWord return value
+          (let ((cg2 (emitExpr body cg1)))
+            (let ((ret (cat3 (strFromLit (__addr "  ret i64 ")) (strDup (memGetWord cg2 2)) (strFromLit (__addr "")))))
+              (emitLine (emitLine cg2 ret) (strFromLit (__addr "}"))))))))))
+
+(pub :: emitParams (-> Int Int Int Int))
+(pub fn (emitParams params cg i)
+  (if (>= i (vecLen params))
+      (strFromLit (__addr ""))
+      (let ((pname (vecGet params i))
+            (rest (emitParams params cg (+ i 1))))
+        (if (== (strLen rest) 0)
+            (cat3 (strFromLit (__addr "i64 %")) (strDup pname) (strFromLit (__addr "")))
+            (cat3 (cat3 (strFromLit (__addr "i64 %")) (strDup pname) (strFromLit (__addr ", "))) rest (strFromLit (__addr "")))))))
 
 ; ------------------------------------------------------------------
 ; Expression dispatch.
@@ -227,28 +249,27 @@
       cg
     }))
 
-; E_Var: nullary data constructors return their tag constant.
+; E_Var: emit register reference (%name) or nullary constructor tag constant.
 (pub :: emitVar (-> Int Int Int))
 (pub fn (emitVar node cg)
-  (let ((name (nodeA node))
-        (entry (lookupType (memGetWord cg 3) name)))
-    (if (== entry 0)
-        (let ((x (strDup name)))
-          {
-            (memSetWord cg 2 x)
-            cg
-          })
-        (if (&& (== (eKind entry) TF_DATA) (== (eArity entry) 0))
-            (let ((tagVal (eTag entry)))
+  (let ((name (nodeA node)))
+    (let ((entry (lookupType (memGetWord cg 3) name)))
+      (if (== entry 0)
+          (let ((x (cat2 (strFromLit (__addr "%")) (strDup name))))
+            {
+              (memSetWord cg 2 x)
+              cg
+            })
+          (if (== (eArity entry) 0)
               {
-                (memSetWord cg 2 (constStr tagVal))
+                (memSetWord cg 2 (constStr (eTag entry)))
                 cg
-              })
-            (let ((y (strDup name)))
-              {
-                (memSetWord cg 2 y)
-                cg
-              })))))
+              }
+              (let ((z 0))
+                {
+                  (memSetWord cg 2 (constStr z))
+                  cg
+                }))))))
 
 ; ------------------------------------------------------------------
 ; E_App: flatten chain, dispatch.
@@ -498,11 +519,64 @@
 ; ------------------------------------------------------------------
 (pub :: emitLet (-> Int Int Int))
 (pub fn (emitLet node cg)
-  (emitExpr (nodeB node) cg))
+  (let ((name (nodeA node))
+        (valExpr (nodeB node))
+        (body (nodeC node)))
+    (let ((cg1 (emitExpr valExpr cg)))
+      ; emit body, using val's result is in cg1.result
+      (emitExpr body cg1))))
 
 (pub :: emitIf (-> Int Int Int))
 (pub fn (emitIf node cg)
-  (emitExpr (nodeB node) cg))
+  (let ((testExpr (nodeA node))
+        (thenExpr (nodeB node))
+        (elseExpr (nodeC node)))
+    (let ((cg1 (emitExpr testExpr cg)))
+      (let ((testReg (strDup (memGetWord cg1 2)))
+            (cmpN (allocReg cg1)))
+        (let ((thenLbl (allocReg cg1))
+              (elseLbl (allocReg cg1)))
+          (let ((mergeLbl (allocReg cg1)))
+            (let ((cmpR (regStr cmpN))
+                  (thenB (cat2 (strFromLit (__addr "label_")) (fmtInt thenLbl)))
+                  (elseB (cat2 (strFromLit (__addr "label_")) (fmtInt elseLbl)))
+                  (mergeB (cat2 (strFromLit (__addr "label_")) (fmtInt mergeLbl))))
+              (let ((cmpInst (strConcat (strConcat (strConcat (strConcat (strFromLit (__addr "  ")) cmpR)
+                                                                (strFromLit (__addr " = icmp ne i64 ")))
+                                                     testReg)
+                                        (strFromLit (__addr ", 0"))))
+                    (brThen (strConcat (strConcat (strConcat (strFromLit (__addr "  br i1 ")) cmpR)
+                                                  (strFromLit (__addr ", label %")))
+                                       thenB))
+                    (brElse (strConcat (strFromLit (__addr ", label %")) elseB)))
+                (let ((brInst (strConcat brThen brElse)))
+                  (let ((cg2 (emitLine (emitLine cg1 cmpInst) brInst)))
+                    (let ((cg3 (emitLine cg2 (cat2 thenB (strFromLit (__addr ":"))))))
+                      (let ((cg4 (emitExpr thenExpr cg3)))
+                        (let ((thenVal (strDup (memGetWord cg4 2))))
+                          (let ((brMerge (strConcat (strFromLit (__addr "  br label %")) mergeB)))
+                            (let ((cg5 (emitLine cg4 brMerge)))
+                              (let ((cg6 (emitLine cg5 (cat2 elseB (strFromLit (__addr ":"))))))
+                                (let ((cg7 (emitExpr elseExpr cg6)))
+                                  (let ((elseVal (strDup (memGetWord cg7 2))))
+                                    (let ((cg8 (emitLine cg7 (strConcat (strFromLit (__addr "  br label %")) mergeB))))
+                                      (let ((cg9 (emitLine cg8 (cat2 mergeB (strFromLit (__addr ":"))))))
+                                        (let ((phiN (allocReg cg9)))
+                                          (let ((phiR (regStr phiN)))
+                                            (let ((phiHead (strConcat (strConcat (strConcat (strFromLit (__addr "  ")) phiR)
+                                                                                   (strFromLit (__addr " = phi i64 [ ")))
+                                                                      thenVal))
+                                                  (phiThen (strConcat (strConcat (strFromLit (__addr ", %")) thenB)
+                                                                      (strFromLit (__addr "], ["))))
+                                                  (phiElse (strConcat (strConcat elseVal (strFromLit (__addr ", %")))
+                                                                      elseB))
+                                                  (phiTail (strFromLit (__addr "]")))
+                                                  (phiInst (strConcat (strConcat (strConcat phiHead phiThen) phiElse) phiTail)))
+                                              {
+                                                (emitLine cg9 phiInst)
+                                                (memSetWord cg9 2 phiR)
+                                                cg9
+                                              })))))))))))))))))))))))
 
 (pub :: emitBegin (-> Int Int Int))
 (pub fn (emitBegin node cg)
