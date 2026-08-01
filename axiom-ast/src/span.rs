@@ -29,6 +29,7 @@ impl Span {
 pub struct Ident {
     pub name: String,
     pub span: Span,
+    pub scope: usize,
 }
 
 impl Ident {
@@ -36,6 +37,15 @@ impl Ident {
         Self {
             name: name.to_string(),
             span,
+            scope: 0,
+        }
+    }
+
+    pub fn with_scope(name: &str, span: Span, scope: usize) -> Self {
+        Self {
+            name: name.to_string(),
+            span,
+            scope,
         }
     }
 }

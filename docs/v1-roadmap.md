@@ -183,7 +183,7 @@ hold. The ones on the critical path here:
 - **B2** — recursion depth depends on `--opt`. Correctness must not.
 - **B3** — `Vec`, `Map`, and `Intern` exist (in `stdlib/`) and compile
   cleanly. Golden tests and scale validation are the remaining work.
-- **B4** — one flat namespace across all modules.
+- **B4** — namespacing: `Mod::name` qualified access works; two modules can define the same name without collision. **(DONE)**
 - **S1** — every constructor, including nullary ones, is a heap block.
 
 ---
@@ -421,7 +421,7 @@ parallel.
 | **P0** *(done)* | Green CI; `union`/`region` removed; Game of Life; tree-sitter grammar | All seven gates green on all four targets |
 | **P1** | `B2` tail calls · `B3` `Vec`/`Map`/`Intern` golden tests and scale validation · `B1` closures · ADT struct variants | 10⁷-iteration tail loop at `-O0`; higher-order probe runs; struct variants match exhaustively |
 | **P2** | Memory model (§4.1) · `S1` unboxed nullary constructors | `stress.ax` at 2000 generations within 2× of 20 generations |
-| **P3** | Macro system (§4.2) · `B4` namespacing · concurrency (§4.4) | Hygiene test suite passes; two modules define the same name; `parMap` is order-deterministic |
+| **P3** | Macro system (§4.2) · ~~`B4` namespacing~~ **(DONE)** · concurrency (§4.4) | Hygiene test suite passes; `parMap` is order-deterministic |
 | **P4** | Self-hosting phases 2–5 · HTTP library (§4.5) | `stage2 == stage3`; HTTP server serves a request under load |
 | **P5** | LSP (§4.6) · trivia preservation for `fmt` (§2.3) · benchmarking · docs | Completion and diagnostics in a real editor; `fmt` round-trips every file in the repo, gated in CI; published performance profile |
 

@@ -48,6 +48,11 @@ pub struct IrGen {
     /// and flag tables depend on this.
     nullary_fns: HashSet<String>,
     all_fns: HashSet<String>,
+    /// Maps bare function names to their mangled LLVM symbol names.
+    /// Functions from the entry module (module_path==None) are stored
+    /// with the bare name as both key and value. Functions from imported
+    /// modules use `module$name` as the value, keyed by bare `name`.
+    fn_mangle_map: HashMap<String, String>,
     current_fn_has_raw: bool,
 }
 
@@ -104,10 +109,7 @@ fn constructor_arity(ty: &TypeId) -> usize {
     n
 }
 
-fn constructor_field_names(
-    type_checker: &TypeChecker,
-    con_name: &str,
-) -> Option<Vec<String>> {
+fn constructor_field_names(type_checker: &TypeChecker, con_name: &str) -> Option<Vec<String>> {
     for dt in &type_checker.data_types {
         for con in &dt.constructors {
             if con.name == con_name {
@@ -143,7 +145,9 @@ fn free_variables(body: &Expr, params: &[Pattern]) -> Vec<String> {
 fn collect_free(expr: &Expr, bound: &mut HashSet<String>, out: &mut Vec<String>) {
     match expr {
         Expr::EVar(ident) => {
-            if !bound.contains(&ident.name) && !out.contains(&ident.name) && !is_builtin(&ident.name)
+            if !bound.contains(&ident.name)
+                && !out.contains(&ident.name)
+                && !is_builtin(&ident.name)
             {
                 out.push(ident.name.clone());
             }
@@ -198,7 +202,9 @@ fn collect_free(expr: &Expr, bound: &mut HashSet<String>, out: &mut Vec<String>)
                 collect_free(e, bound, out);
             }
         }
-        Expr::ECast(inner, _) | Expr::EConsume(inner) | Expr::EGrouped(inner)
+        Expr::ECast(inner, _)
+        | Expr::EConsume(inner)
+        | Expr::EGrouped(inner)
         | Expr::ETypeSig(inner, _) => {
             collect_free(inner, bound, out);
         }
@@ -238,9 +244,18 @@ fn collect_free(expr: &Expr, bound: &mut HashSet<String>, out: &mut Vec<String>)
 fn is_builtin(name: &str) -> bool {
     matches!(
         name,
-        "+" | "-" | "*" | "/" | "%"
-            | "==" | "!=" | "<" | ">" | "<=" | ">="
-            | "&&" | "||"
+        "+" | "-"
+            | "*"
+            | "/"
+            | "%"
+            | "=="
+            | "!="
+            | "<"
+            | ">"
+            | "<="
+            | ">="
+            | "&&"
+            | "||"
             | "memAlloc"
             | "memSetWord"
             | "memGetWord"
@@ -283,8 +298,23 @@ impl IrGen {
             tag_alloca_names: HashSet::new(),
             nullary_fns: HashSet::new(),
             all_fns: HashSet::new(),
+            fn_mangle_map: HashMap::new(),
             current_fn_has_raw: false,
         }
+    }
+
+    fn mangle_name(name: &str, module_path: &Option<String>) -> String {
+        match module_path {
+            Some(m) => format!("{}${}", m, name),
+            None => name.to_string(),
+        }
+    }
+
+    fn mangled_name_for(&self, bare: &str) -> String {
+        self.fn_mangle_map
+            .get(bare)
+            .cloned()
+            .unwrap_or_else(|| bare.to_string())
     }
 
     pub fn generate(&mut self, ast_module: &Module, type_checker: &mut TypeChecker) -> IrModule {
@@ -296,7 +326,19 @@ impl IrGen {
             .decls
             .iter()
             .filter_map(|d| match d {
-                Decl::DFn { name, params, .. } if params.is_empty() => Some(name.name.clone()),
+                Decl::DFn {
+                    name,
+                    params,
+                    module_path,
+                    ..
+                } if params.is_empty() => {
+                    let mangled = Self::mangle_name(&name.name, module_path);
+                    if !self.fn_mangle_map.contains_key(&name.name) {
+                        self.fn_mangle_map
+                            .insert(name.name.clone(), mangled.clone());
+                    }
+                    Some(mangled)
+                }
                 _ => None,
             })
             .collect();
@@ -305,7 +347,15 @@ impl IrGen {
             .decls
             .iter()
             .filter_map(|d| match d {
-                Decl::DFn { name, .. } => Some(name.name.clone()),
+                Decl::DFn {
+                    name, module_path, ..
+                } => {
+                    let mangled = Self::mangle_name(&name.name, module_path);
+                    self.fn_mangle_map
+                        .entry(name.name.clone())
+                        .or_insert_with(|| mangled.clone());
+                    Some(mangled)
+                }
                 _ => None,
             })
             .collect();
@@ -319,9 +369,14 @@ impl IrGen {
             // already wired; only the tag-set population is off.
             let mut tag: i64 = 0;
             for dt in &type_checker.data_types {
-                let _all_nullary = dt.constructors.iter().all(|c| constructor_arity(&c.ty) == 0);
+                let _all_nullary = dt
+                    .constructors
+                    .iter()
+                    .all(|c| constructor_arity(&c.ty) == 0);
                 for con in &dt.constructors {
-                    if false /* all_nullary */ {
+                    if false
+                    /* all_nullary */
+                    {
                         tags.insert(tag);
                     }
                     let arity = constructor_arity(&con.ty);
@@ -360,9 +415,13 @@ impl IrGen {
                     });
                 }
                 Decl::DFn {
-                    name, params, body, ..
+                    name,
+                    params,
+                    body,
+                    module_path,
+                    ..
                 } => {
-                    let func = self.gen_function(name, params, body, type_checker);
+                    let func = self.gen_function(name, params, body, type_checker, module_path);
                     self.module.functions.push(func);
                 }
                 Decl::DForeign { name, ty, .. } => {
@@ -392,9 +451,13 @@ impl IrGen {
         params: &[Pattern],
         body: &Expr,
         type_checker: &mut TypeChecker,
+        module_path: &Option<String>,
     ) -> IrFunction {
         let mut fn_params: Vec<(String, TypeId)> = Vec::new();
-        fn_params.push(("_closure".to_string(), TypeId::TCon("I64".to_string(), vec![])));
+        fn_params.push((
+            "_closure".to_string(),
+            TypeId::TCon("I64".to_string(), vec![]),
+        ));
         for p in params {
             if let Pattern::PVar(ident) = p {
                 fn_params.push((ident.name.clone(), TypeId::TCon("I64".to_string(), vec![])));
@@ -403,8 +466,10 @@ impl IrGen {
 
         let return_type = TypeId::TCon("I64".to_string(), vec![]);
 
+        let mangled = Self::mangle_name(&name.name, module_path);
+
         let mut func = IrFunction {
-            name: name.name.clone(),
+            name: mangled,
             params: fn_params.clone(),
             return_type,
             blocks: Vec::new(),
@@ -468,8 +533,13 @@ impl IrGen {
 
         self.current_fn_has_raw = false;
 
-        let body_val =
-            self.gen_expr_to_func_with_allocas(&mut func, body, &mut alloca_map, type_checker, Some(&tc));
+        let body_val = self.gen_expr_to_func_with_allocas(
+            &mut func,
+            body,
+            &mut alloca_map,
+            type_checker,
+            Some(&tc),
+        );
 
         self.emit_to_func(
             &mut func,
@@ -562,7 +632,11 @@ impl IrGen {
         for (i, arg) in args.into_iter().enumerate() {
             let needs_box = matches!(&arg, IrValue::Const(IrConst::Int(val, _)) if self.nullary_tags.contains(val));
             let arg_val = if needs_box {
-                let val = if let IrValue::Const(IrConst::Int(v, _)) = arg { v } else { unreachable!() };
+                let val = if let IrValue::Const(IrConst::Int(v, _)) = arg {
+                    v
+                } else {
+                    unreachable!()
+                };
                 let box_ptr = self.new_local();
                 self.emit_to_func(
                     func,
@@ -756,12 +830,19 @@ impl IrGen {
                     }
                 }
                 Pattern::PConNamed(ident, named_args) => {
-                    let positional_args: Vec<Pattern> = if let Some(field_names) = constructor_field_names(type_checker, &ident.name) {
-                        field_names.iter().map(|fnm| {
-                            named_args.iter().find(|(n, _)| &n.name == fnm)
-                                .map(|(_, p)| p.clone())
-                                .unwrap_or(Pattern::PWildcard)
-                        }).collect()
+                    let positional_args: Vec<Pattern> = if let Some(field_names) =
+                        constructor_field_names(type_checker, &ident.name)
+                    {
+                        field_names
+                            .iter()
+                            .map(|fnm| {
+                                named_args
+                                    .iter()
+                                    .find(|(n, _)| &n.name == fnm)
+                                    .map(|(_, p)| p.clone())
+                                    .unwrap_or(Pattern::PWildcard)
+                            })
+                            .collect()
                     } else {
                         named_args.iter().map(|(_, p)| p.clone()).collect()
                     };
@@ -909,7 +990,7 @@ impl IrGen {
                     dest: dest_val.clone(),
                     size: args[0].clone(),
                 }
-            },
+            }
             ("__addr", 1) => IrInst::AddrOf {
                 dest: dest_val.clone(),
                 value: args[0].clone(),
@@ -926,7 +1007,10 @@ impl IrGen {
         // evaluate to something, and `0` keeps them usable in
         // sequencing position (`{ (__store8 p i c) ... }`) exactly
         // like their `Int`-returning declared type says.
-        let is_store = matches!(inst, IrInst::StoreIdx { .. } | IrInst::StoreWordIdx { .. } | IrInst::ArenaReset { .. });
+        let is_store = matches!(
+            inst,
+            IrInst::StoreIdx { .. } | IrInst::StoreWordIdx { .. } | IrInst::ArenaReset { .. }
+        );
         self.emit_to_func(func, inst);
         if is_store {
             Some(IrValue::Const(IrConst::Int(
@@ -950,7 +1034,10 @@ impl IrGen {
         let free_vars = free_variables(body, params);
 
         let mut lambda_params: Vec<(String, TypeId)> = Vec::new();
-        lambda_params.push(("_closure".to_string(), TypeId::TCon("I64".to_string(), vec![])));
+        lambda_params.push((
+            "_closure".to_string(),
+            TypeId::TCon("I64".to_string(), vec![]),
+        ));
         for p in params {
             if let Pattern::PVar(ident) = p {
                 lambda_params.push((ident.name.clone(), TypeId::TCon("I64".to_string(), vec![])));
@@ -998,32 +1085,34 @@ impl IrGen {
         }
 
         for (i, fv) in free_vars.iter().enumerate() {
-                let ld = self.new_local();
-                self.emit_to_func(
-                    &mut lambda_func,
-                    IrInst::LoadOffset {
-                        dest: IrValue::Local(ld.clone()),
-                        ptr: IrValue::Local("_closure".to_string()),
-                        offset: 8 * (1 + i as i64),
-                    },
-                );
-                let fv_alloca = self.new_alloca(fv);
-                lambda_func.locals.push((fv.clone(), TypeId::TCon("I64".to_string(), vec![])));
-                self.emit_to_func(
-                    &mut lambda_func,
-                    IrInst::Alloca {
-                        dest: IrValue::Local(fv_alloca.clone()),
-                        ty: TypeId::TCon("I64".to_string(), vec![]),
-                    },
-                );
-                self.emit_to_func(
-                    &mut lambda_func,
-                    IrInst::Store {
-                        ptr: IrValue::Local(fv_alloca.clone()),
-                        value: IrValue::Local(ld),
-                    },
-                );
-                lambda_alloca_map.insert(fv.clone(), fv_alloca);
+            let ld = self.new_local();
+            self.emit_to_func(
+                &mut lambda_func,
+                IrInst::LoadOffset {
+                    dest: IrValue::Local(ld.clone()),
+                    ptr: IrValue::Local("_closure".to_string()),
+                    offset: 8 * (1 + i as i64),
+                },
+            );
+            let fv_alloca = self.new_alloca(fv);
+            lambda_func
+                .locals
+                .push((fv.clone(), TypeId::TCon("I64".to_string(), vec![])));
+            self.emit_to_func(
+                &mut lambda_func,
+                IrInst::Alloca {
+                    dest: IrValue::Local(fv_alloca.clone()),
+                    ty: TypeId::TCon("I64".to_string(), vec![]),
+                },
+            );
+            self.emit_to_func(
+                &mut lambda_func,
+                IrInst::Store {
+                    ptr: IrValue::Local(fv_alloca.clone()),
+                    value: IrValue::Local(ld),
+                },
+            );
+            lambda_alloca_map.insert(fv.clone(), fv_alloca);
         }
 
         let body_val = self.gen_expr_to_func_with_allocas(
@@ -1057,7 +1146,19 @@ impl IrGen {
     ) -> IrValue {
         match expr {
             Expr::ELit(lit, _) => self.gen_literal(lit),
-        Expr::EVar(ident) | Expr::EQualified(_, ident) => {
+            Expr::EVar(ident) | Expr::EQualified(_, ident) => {
+                let fn_lookup_name = match expr {
+                    Expr::EQualified(path, _) => {
+                        let module = path
+                            .iter()
+                            .map(|i| i.name.as_str())
+                            .collect::<Vec<_>>()
+                            .join("$");
+                        format!("{}${}", module, ident.name)
+                    }
+                    _ => self.mangled_name_for(&ident.name),
+                };
+
                 // A *bare* reference to a nullary constructor (`Nothing`,
                 // `Nil`, ...) constructs its (fieldless) boxed value
                 // directly. A non-nullary constructor referenced bare
@@ -1091,13 +1192,13 @@ impl IrGen {
                     } else {
                         IrValue::Local(dest)
                     }
-                } else if self.nullary_fns.contains(&ident.name) {
+                } else if self.nullary_fns.contains(&fn_lookup_name) {
                     let dest = self.new_local();
                     self.emit_to_func(
                         func,
                         IrInst::Call {
                             dest: IrValue::Local(dest.clone()),
-                            func: ident.name.clone(),
+                            func: fn_lookup_name.clone(),
                             args: vec![IrValue::Const(IrConst::Int(
                                 0,
                                 TypeId::TCon("I64".to_string(), vec![]),
@@ -1105,7 +1206,7 @@ impl IrGen {
                         },
                     );
                     IrValue::Local(dest)
-                } else if self.all_fns.contains(&ident.name) {
+                } else if self.all_fns.contains(&fn_lookup_name) {
                     let i64_ty = TypeId::TCon("I64".to_string(), vec![]);
                     let closure_addr = self.new_local();
                     self.emit_to_func(
@@ -1120,7 +1221,7 @@ impl IrGen {
                         func,
                         IrInst::AddrOf {
                             dest: IrValue::Local(fn_addr.clone()),
-                            value: IrValue::Global(ident.name.clone()),
+                            value: IrValue::Global(fn_lookup_name.clone()),
                         },
                     );
                     self.emit_to_func(
@@ -1133,12 +1234,14 @@ impl IrGen {
                     );
                     IrValue::Local(closure_addr)
                 } else {
-                    IrValue::Local(ident.name.clone())
+                    IrValue::Local(fn_lookup_name)
                 }
             }
             Expr::EInfix(left, op, right) => {
-                let lhs = self.gen_expr_to_func_with_allocas(func, left, alloca_map, type_checker, None);
-                let rhs = self.gen_expr_to_func_with_allocas(func, right, alloca_map, type_checker, None);
+                let lhs =
+                    self.gen_expr_to_func_with_allocas(func, left, alloca_map, type_checker, None);
+                let rhs =
+                    self.gen_expr_to_func_with_allocas(func, right, alloca_map, type_checker, None);
                 let dest = self.new_local();
 
                 let inst = match op.as_str() {
@@ -1238,18 +1341,19 @@ impl IrGen {
                     }
                 });
 
-                let arena_mark: Option<String> = if is_self_tail.is_some() && !self.current_fn_has_raw {
-                    let mark = self.new_local();
-                    self.emit_to_func(
-                        func,
-                        IrInst::ArenaMark {
-                            dest: IrValue::Local(mark.clone()),
-                        },
-                    );
-                    Some(mark)
-                } else {
-                    None
-                };
+                let arena_mark: Option<String> =
+                    if is_self_tail.is_some() && !self.current_fn_has_raw {
+                        let mark = self.new_local();
+                        self.emit_to_func(
+                            func,
+                            IrInst::ArenaMark {
+                                dest: IrValue::Local(mark.clone()),
+                            },
+                        );
+                        Some(mark)
+                    } else {
+                        None
+                    };
 
                 let mut all_args: Vec<IrValue> = Vec::new();
                 for arg in &arg_exprs {
@@ -1309,7 +1413,7 @@ impl IrGen {
                                 IrInst::StoreOffset {
                                     ptr: IrValue::Local(ptr_local.clone()),
                                     offset: (i * 8) as i64,
-                    value: arg,
+                                    value: arg,
                                 },
                             );
                         }
@@ -1352,10 +1456,21 @@ impl IrGen {
                 }
 
                 let func_name;
-                if let Expr::EVar(ident) | Expr::EQualified(_, ident) = current {
+                let call_name;
+                if let Expr::EQualified(path, ident) = current {
                     func_name = ident.name.clone();
+                    let module = path
+                        .iter()
+                        .map(|i| i.name.as_str())
+                        .collect::<Vec<_>>()
+                        .join("$");
+                    call_name = format!("{}${}", module, ident.name);
+                } else if let Expr::EVar(ident) = current {
+                    func_name = ident.name.clone();
+                    call_name = self.mangled_name_for(&ident.name);
                 } else {
                     func_name = "unknown".to_string();
+                    call_name = "unknown".to_string();
                 }
 
                 let dest = self.new_local();
@@ -1571,21 +1686,19 @@ impl IrGen {
                 }
 
                 let mut call_args = all_args;
-                if self.all_fns.contains(&func_name) || func_name.starts_with("_lambda_") {
+                if self.all_fns.contains(&call_name) || call_name.starts_with("_lambda_") {
                     call_args.insert(
                         0,
                         IrValue::Const(IrConst::Int(0, TypeId::TCon("I64".to_string(), vec![]))),
                     );
                 }
-                let boxed_args: Vec<IrValue> = call_args
-                    .iter()
-                    .map(|a| self.box_if_tag(func, a))
-                    .collect();
+                let boxed_args: Vec<IrValue> =
+                    call_args.iter().map(|a| self.box_if_tag(func, a)).collect();
                 self.emit_to_func(
                     func,
                     IrInst::Call {
                         dest: IrValue::Local(dest.clone()),
-                        func: func_name,
+                        func: call_name,
                         args: boxed_args,
                     },
                 );
@@ -1622,8 +1735,13 @@ impl IrGen {
                     insts: Vec::new(),
                 });
                 self.current_block = Some(then_label.clone());
-                let then_val =
-                    self.gen_expr_to_func_with_allocas(func, then_expr, alloca_map, type_checker, tail_ctx);
+                let then_val = self.gen_expr_to_func_with_allocas(
+                    func,
+                    then_expr,
+                    alloca_map,
+                    type_checker,
+                    tail_ctx,
+                );
                 self.emit_to_func(
                     func,
                     IrInst::Store {
@@ -1643,8 +1761,13 @@ impl IrGen {
                     insts: Vec::new(),
                 });
                 self.current_block = Some(else_label.clone());
-                let else_val =
-                    self.gen_expr_to_func_with_allocas(func, else_expr, alloca_map, type_checker, tail_ctx);
+                let else_val = self.gen_expr_to_func_with_allocas(
+                    func,
+                    else_expr,
+                    alloca_map,
+                    type_checker,
+                    tail_ctx,
+                );
                 self.emit_to_func(
                     func,
                     IrInst::Store {
@@ -1713,8 +1836,13 @@ impl IrGen {
                 self.gen_expr_to_func_with_allocas(func, body, alloca_map, type_checker, None)
             }
             Expr::EMatch(target, arms) => {
-                let target_val =
-                    self.gen_expr_to_func_with_allocas(func, target, alloca_map, type_checker, None);
+                let target_val = self.gen_expr_to_func_with_allocas(
+                    func,
+                    target,
+                    alloca_map,
+                    type_checker,
+                    None,
+                );
                 let i64_ty = TypeId::TCon("I64".to_string(), vec![]);
                 let result_alloca = self.new_local();
                 self.emit_to_func(
@@ -1899,12 +2027,19 @@ impl IrGen {
                             arm_map.insert(ident.name.clone(), var_alloca);
                         }
                         Pattern::PConNamed(ident, named_args) => {
-                            let positional_args: Vec<Pattern> = if let Some(field_names) = constructor_field_names(type_checker, &ident.name) {
-                                field_names.iter().map(|fnm| {
-                                    named_args.iter().find(|(n, _)| &n.name == fnm)
-                                        .map(|(_, p)| p.clone())
-                                        .unwrap_or(Pattern::PWildcard)
-                                }).collect()
+                            let positional_args: Vec<Pattern> = if let Some(field_names) =
+                                constructor_field_names(type_checker, &ident.name)
+                            {
+                                field_names
+                                    .iter()
+                                    .map(|fnm| {
+                                        named_args
+                                            .iter()
+                                            .find(|(n, _)| &n.name == fnm)
+                                            .map(|(_, p)| p.clone())
+                                            .unwrap_or(Pattern::PWildcard)
+                                    })
+                                    .collect()
                             } else {
                                 named_args.iter().map(|(_, p)| p.clone()).collect()
                             };
@@ -1920,7 +2055,9 @@ impl IrGen {
                                         func,
                                         IrInst::Eq {
                                             dest: IrValue::Local(cmp_dest.clone()),
-                                            lhs: tag_val.clone().expect("needs_tag scan above must have found this arm"),
+                                            lhs: tag_val.clone().expect(
+                                                "needs_tag scan above must have found this arm",
+                                            ),
                                             rhs: IrValue::Const(IrConst::Int(tag, i64_ty.clone())),
                                         },
                                     );
@@ -2010,8 +2147,13 @@ impl IrGen {
                         }
                     }
 
-                    let body_val =
-                        self.gen_expr_to_func_with_allocas(func, body, &mut arm_map, type_checker, tail_ctx);
+                    let body_val = self.gen_expr_to_func_with_allocas(
+                        func,
+                        body,
+                        &mut arm_map,
+                        type_checker,
+                        tail_ctx,
+                    );
                     self.emit_to_func(
                         func,
                         IrInst::Store {
@@ -2060,7 +2202,8 @@ impl IrGen {
                 last_val
             }
             Expr::ECast(inner, target_type) => {
-                let src = self.gen_expr_to_func_with_allocas(func, inner, alloca_map, type_checker, None);
+                let src =
+                    self.gen_expr_to_func_with_allocas(func, inner, alloca_map, type_checker, None);
                 let dest = self.new_local();
                 let target_ty = self.type_to_id(target_type);
 
@@ -2172,8 +2315,13 @@ impl IrGen {
                     },
                 );
                 for (i, elem) in elements.iter().enumerate() {
-                    let val =
-                        self.gen_expr_to_func_with_allocas(func, elem, alloca_map, type_checker, None);
+                    let val = self.gen_expr_to_func_with_allocas(
+                        func,
+                        elem,
+                        alloca_map,
+                        type_checker,
+                        None,
+                    );
                     self.emit_to_func(
                         func,
                         IrInst::StoreOffset {
@@ -2197,8 +2345,13 @@ impl IrGen {
                     },
                 );
                 for (i, item) in items.iter().enumerate() {
-                    let val =
-                        self.gen_expr_to_func_with_allocas(func, item, alloca_map, type_checker, None);
+                    let val = self.gen_expr_to_func_with_allocas(
+                        func,
+                        item,
+                        alloca_map,
+                        type_checker,
+                        None,
+                    );
                     self.emit_to_func(
                         func,
                         IrInst::StoreOffset {
@@ -2305,8 +2458,13 @@ impl IrGen {
                         },
                     );
                     for (i, arg) in args.iter().enumerate() {
-                        let val =
-                            self.gen_expr_to_func_with_allocas(func, arg, alloca_map, type_checker, None);
+                        let val = self.gen_expr_to_func_with_allocas(
+                            func,
+                            arg,
+                            alloca_map,
+                            type_checker,
+                            None,
+                        );
                         self.emit_to_func(
                             func,
                             IrInst::StoreOffset {
@@ -2393,9 +2551,14 @@ impl IrGen {
         if let Some(label) = target_label {
             if let Some(block) = func.blocks.iter_mut().find(|b| &b.label == label) {
                 let target_block = block;
-                if matches!(&inst, IrInst::Alloca { .. }) && target_block.label != self.current_block.as_deref().unwrap_or("") {
+                if matches!(&inst, IrInst::Alloca { .. })
+                    && target_block.label != self.current_block.as_deref().unwrap_or("")
+                {
                     let term_idx = target_block.insts.iter().position(|i| {
-                        matches!(i, IrInst::Br { .. } | IrInst::CondBr { .. } | IrInst::Ret { .. })
+                        matches!(
+                            i,
+                            IrInst::Br { .. } | IrInst::CondBr { .. } | IrInst::Ret { .. }
+                        )
                     });
                     match term_idx {
                         Some(idx) => target_block.insts.insert(idx, inst),

@@ -789,11 +789,11 @@ How it works:
 - Imports are transitive (`A` imports `B` imports `C` brings `C`'s
   declarations into `A` too) and diamond-safe (two different modules both
   importing `C` merges `C` exactly once, not twice).
-- There's no namespacing or qualified names yet - an imported declaration
-  joins the importing module's flat top-level namespace exactly as if it
-  had been pasted in, so two files defining the same name is a normal
-  `AX3006` duplicate-definition error, not a "which one did you mean"
-  ambiguity.
+- Qualified access is supported: `Mod::name` resolves to `name` declared in
+  `Mod`. Two modules can define the same name without collision when only
+  one is imported unqualified, or when the ambiguous name is accessed via
+  `Mod::name`. Imported declarations still join the importing module's flat
+  top-level namespace by default.
 - A module path that doesn't resolve to a real file is `AX5001` (`axiom
   explain AX5001`), reported before type-checking even starts.
 - Diagnostics from an imported file's own contents (a type error inside
@@ -1012,10 +1012,10 @@ Source (.ax)
 | Effects | **Complete** | Effect declarations, `handle` expressions, effect checking (`IO`, `Pure`, `Alloc`, `Mut`, `Div`), AXTAG validation. Effects propagate transitively through calls, so a claim on a caller is checked against what its callees do |
 | Loops | **Missing** | Iteration is recursion; `--opt 1`+ turns tail recursion into a loop, and without it deep loops exhaust the stack |
 | Linear types | **Parsed only** | `linear T`, `consume`. The ownership facts they express are what the planned memory model needs; see [docs/v1-roadmap.md](docs/v1-roadmap.md) |
-| Macros | **Not started** | Design and tier decision (pattern-based vs procedural) in [docs/v1-roadmap.md](docs/v1-roadmap.md) |
+| Macros | **Partial** | Pattern-substitution expansion before sema; `stdlib/Pre.ax` defines `when`, `unless`, `cond2`, `cond3`; cross-module macro import works; hygiene via scope sets + gensym pending |
 | Concurrency | **Not started** | Depends on the memory model; design in [docs/v1-roadmap.md](docs/v1-roadmap.md) |
 | Editor support | **Functional** | [tree-sitter grammar](tree-sitter-axiom/) with highlighting queries, verified against every `.ax` file in the repo. No LSP yet |
-| Imports | **Functional** | `(import Mod.Sub ...)` resolves and merges declarations from other files; see [Modules and imports](#modules-and-imports) |
+| Imports | **Functional** | `(import Mod.Sub ...)` resolves and merges declarations from other files; qualified access via `Mod::name` disambiguates; see [Modules and imports](#modules-and-imports) |
 
 ---
 

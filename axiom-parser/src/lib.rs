@@ -1626,9 +1626,8 @@ impl Parser {
                     expected: "identifier".to_string(),
                     found: format!("{}", token.kind),
                     span: token.span,
-        })
-    }
-
+                })
+            }
         };
         Ok(Ident::new(&name, token.span))
     }

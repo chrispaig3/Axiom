@@ -936,8 +936,7 @@ fn tail_call_summation_1m_iterations() {
     );
     let out = run_axiom(&["run", "main.ax"], &dir);
     assert!(
-        out.status.success()
-            || out.status.code().is_some(),
+        out.status.success() || out.status.code().is_some(),
         "must not segfault: {}",
         stderr(&out)
     );

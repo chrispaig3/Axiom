@@ -628,7 +628,9 @@ fn resolve_imports_into(
         } else {
             let wanted: HashSet<&str> = names.iter().map(|i| i.name.as_str()).collect();
             let module_path = dotted.clone();
-            for mut decl in imported_module.decls.into_iter()
+            for mut decl in imported_module
+                .decls
+                .into_iter()
                 .filter(|d| decl_name(d).is_some_and(|n| wanted.contains(n)))
             {
                 match &mut decl {
@@ -2195,8 +2197,8 @@ fn re_register_decls(source: &str, tc: &mut TypeChecker) {
 
 mod expander {
     use axiom_ast::ast::*;
-    use axiom_ast::Module;
     use axiom_ast::span::Span;
+    use axiom_ast::Module;
     use std::collections::HashMap;
 
     pub fn expand_macros(module: &mut Module) {
@@ -2204,7 +2206,10 @@ mod expander {
         let mut remaining_decls: Vec<Decl> = Vec::new();
 
         for decl in module.decls.drain(..) {
-            if let Decl::DMacro { name, params, body, .. } = decl {
+            if let Decl::DMacro {
+                name, params, body, ..
+            } = decl
+            {
                 macros.insert(name.name.clone(), (params, body));
             } else {
                 remaining_decls.push(decl);
@@ -2314,7 +2319,10 @@ mod expander {
         match pattern {
             Pattern::PVar(ident) => {
                 if args.is_empty() {
-                    bindings.insert(ident.name.clone(), Expr::ELit(Literal::LInt(0), Span::dummy()));
+                    bindings.insert(
+                        ident.name.clone(),
+                        Expr::ELit(Literal::LInt(0), Span::dummy()),
+                    );
                 } else if args.len() == 1 {
                     bindings.insert(ident.name.clone(), args[0].clone());
                 } else {
@@ -2336,32 +2344,27 @@ mod expander {
 
     fn substitute(bindings: &HashMap<String, Expr>, template: &Expr) -> Expr {
         match template {
-            Expr::EVar(ident) => {
-                bindings.get(&ident.name).cloned().unwrap_or(template.clone())
-            }
-            Expr::EApp(func, arg) => {
-                Expr::EApp(
-                    Box::new(substitute(bindings, func)),
-                    Box::new(substitute(bindings, arg)),
-                )
-            }
-            Expr::EIf(cond, t, e) => {
-                Expr::EIf(
-                    Box::new(substitute(bindings, cond)),
-                    Box::new(substitute(bindings, t)),
-                    Box::new(substitute(bindings, e)),
-                )
-            }
+            Expr::EVar(ident) => bindings
+                .get(&ident.name)
+                .cloned()
+                .unwrap_or(template.clone()),
+            Expr::EApp(func, arg) => Expr::EApp(
+                Box::new(substitute(bindings, func)),
+                Box::new(substitute(bindings, arg)),
+            ),
+            Expr::EIf(cond, t, e) => Expr::EIf(
+                Box::new(substitute(bindings, cond)),
+                Box::new(substitute(bindings, t)),
+                Box::new(substitute(bindings, e)),
+            ),
             Expr::EBegin(exprs) => {
                 Expr::EBegin(exprs.iter().map(|e| substitute(bindings, e)).collect())
             }
-            Expr::EInfix(left, op, right) => {
-                Expr::EInfix(
-                    Box::new(substitute(bindings, left)),
-                    op.clone(),
-                    Box::new(substitute(bindings, right)),
-                )
-            }
+            Expr::EInfix(left, op, right) => Expr::EInfix(
+                Box::new(substitute(bindings, left)),
+                op.clone(),
+                Box::new(substitute(bindings, right)),
+            ),
             Expr::EQuasiquote(inner) => substitute(bindings, inner),
             Expr::EUnquote(inner) => substitute(bindings, inner),
             Expr::ESplice(inner) => Expr::ESplice(Box::new(substitute(bindings, inner))),
@@ -2377,4 +2380,3 @@ fn merge_type_checker(_source_tc: &TypeChecker, state: &mut ReplState) {
     state.type_checker = TypeChecker::new();
     re_register_decls(&state.declarations, &mut state.type_checker);
 }
-

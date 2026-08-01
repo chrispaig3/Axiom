@@ -237,7 +237,7 @@ Dotted module paths map directly to file paths relative to the entry file's dire
 
 Key facts:
 - Imports are transitive and diamond-safe (merged exactly once).
-- There is no namespacing or qualified names — imported declarations join the flat top-level namespace.
+- Qualified access via `Mod::name` is supported. By default, imported declarations join the flat top-level namespace, but `Mod::name` disambiguates when the same name exists in multiple modules.
 - A module path that doesn't resolve to a real file is `AX5001`.
 - Diagnostics from imported files are attributed to the actual file, not the entry file.
 

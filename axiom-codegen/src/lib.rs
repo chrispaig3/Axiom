@@ -158,7 +158,9 @@ impl LlvmCodeGen {
             // though the helper is never called.
             let uses_compact = ir_module.functions.iter().any(|f| {
                 f.blocks.iter().any(|b| {
-                    b.insts.iter().any(|inst| matches!(inst, IrInst::ArenaCompact { .. }))
+                    b.insts
+                        .iter()
+                        .any(|inst| matches!(inst, IrInst::ArenaCompact { .. }))
                 })
             });
             if uses_compact {
@@ -938,9 +940,7 @@ impl LlvmCodeGen {
                     )
                     .unwrap();
                 } else if src_bits < tgt_bits {
-                    let ext = if src_ty_str.starts_with('i')
-                        && target_llvm.starts_with('i')
-                    {
+                    let ext = if src_ty_str.starts_with('i') && target_llvm.starts_with('i') {
                         if src_ty_str == "i1" {
                             "zext"
                         } else {
@@ -1030,12 +1030,7 @@ impl LlvmCodeGen {
             }
             IrInst::ArenaReset { ptr } => {
                 let ptr_val = self.value_to_llvm(ptr)?;
-                writeln!(
-                    self.output,
-                    "  store i64 {}, ptr @__axiom_bump",
-                    ptr_val
-                )
-                .unwrap();
+                writeln!(self.output, "  store i64 {}, ptr @__axiom_bump", ptr_val).unwrap();
             }
             IrInst::ArenaCompact {
                 mark,
@@ -1361,28 +1356,15 @@ impl LlvmCodeGen {
         writeln!(out, "  %in_low = icmp uge i64 %ptr, %arena_start").unwrap();
         writeln!(out, "  %in_high = icmp ult i64 %ptr, %arena_end").unwrap();
         writeln!(out, "  %in_range = and i1 %in_low, %in_high").unwrap();
-        writeln!(
-            out,
-            "  br i1 %in_range, label %do_copy, label %not_pointer"
-        )
-        .unwrap();
+        writeln!(out, "  br i1 %in_range, label %do_copy, label %not_pointer").unwrap();
         writeln!(out).unwrap();
         writeln!(out, "not_pointer:").unwrap();
         writeln!(out, "  ret i64 %ptr").unwrap();
         writeln!(out).unwrap();
         writeln!(out, "do_copy:").unwrap();
-        writeln!(
-            out,
-            "  %tag_ptr = inttoptr i64 %ptr to ptr"
-        )
-        .unwrap();
+        writeln!(out, "  %tag_ptr = inttoptr i64 %ptr to ptr").unwrap();
         writeln!(out, "  %tag = load i64, ptr %tag_ptr").unwrap();
-        writeln!(
-            out,
-            "  %tag_ok = icmp ult i64 %tag, {}",
-            max_tag
-        )
-        .unwrap();
+        writeln!(out, "  %tag_ok = icmp ult i64 %tag, {}", max_tag).unwrap();
         writeln!(
             out,
             "  br i1 %tag_ok, label %lookup_arity, label %not_pointer"
@@ -1408,42 +1390,26 @@ impl LlvmCodeGen {
         writeln!(out, "  br label %copy_loop").unwrap();
         writeln!(out).unwrap();
         writeln!(out, "copy_loop:").unwrap();
-        writeln!(out, "  %i = phi i64 [ 1, %lookup_arity ], [ %next_i, %copy_next ]").unwrap();
-        writeln!(out, "  %done = icmp eq i64 %i, %nwords").unwrap();
         writeln!(
             out,
-            "  br i1 %done, label %copy_done, label %copy_word"
+            "  %i = phi i64 [ 1, %lookup_arity ], [ %next_i, %copy_next ]"
         )
         .unwrap();
+        writeln!(out, "  %done = icmp eq i64 %i, %nwords").unwrap();
+        writeln!(out, "  br i1 %done, label %copy_done, label %copy_word").unwrap();
         writeln!(out).unwrap();
         writeln!(out, "copy_word:").unwrap();
         writeln!(out, "  %offset = mul i64 %i, 8").unwrap();
-        writeln!(
-            out,
-            "  %src_addr = add i64 %ptr, %offset"
-        )
-        .unwrap();
-        writeln!(
-            out,
-            "  %src_ptr = inttoptr i64 %src_addr to ptr"
-        )
-        .unwrap();
+        writeln!(out, "  %src_addr = add i64 %ptr, %offset").unwrap();
+        writeln!(out, "  %src_ptr = inttoptr i64 %src_addr to ptr").unwrap();
         writeln!(out, "  %field_val = load i64, ptr %src_ptr").unwrap();
         writeln!(
             out,
             "  %new_field = call i64 @__axiom_arena_compact_one(i64 %field_val, i64 %arena_start, i64 %arena_end)"
         )
         .unwrap();
-        writeln!(
-            out,
-            "  %dest_addr = add i64 %new_cell, %offset"
-        )
-        .unwrap();
-        writeln!(
-            out,
-            "  %dest_ptr = inttoptr i64 %dest_addr to ptr"
-        )
-        .unwrap();
+        writeln!(out, "  %dest_addr = add i64 %new_cell, %offset").unwrap();
+        writeln!(out, "  %dest_ptr = inttoptr i64 %dest_addr to ptr").unwrap();
         writeln!(out, "  store i64 %new_field, ptr %dest_ptr").unwrap();
         writeln!(out, "  br label %copy_next").unwrap();
         writeln!(out).unwrap();

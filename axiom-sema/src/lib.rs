@@ -310,9 +310,9 @@ fn collect_effects_into(
             collect_effects_into(checker, value, out);
             out.insert(axiom_ast::ast::Effect::Mut);
         }
-        Expr::EQuasiquote(inner)
-        | Expr::EUnquote(inner)
-        | Expr::ESplice(inner) => collect_effects_into(checker, inner, out),
+        Expr::EQuasiquote(inner) | Expr::EUnquote(inner) | Expr::ESplice(inner) => {
+            collect_effects_into(checker, inner, out)
+        }
         Expr::EQualified(_, name) => {
             if let Some(f) = checker.functions.iter().find(|f| f.name == name.name) {
                 if f.foreign_symbol.is_some() {
@@ -535,6 +535,7 @@ pub struct DataConInfo {
     pub ty: TypeId,
     pub data_type: String,
     pub field_names: Option<Vec<String>>,
+    pub module: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -544,6 +545,7 @@ pub struct FnInfo {
     pub foreign_symbol: Option<String>,
     pub is_builtin: bool,
     pub effects: Vec<axiom_ast::ast::Effect>,
+    pub module: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -551,12 +553,14 @@ pub struct DataTypeInfo {
     pub name: String,
     pub tyvars: Vec<String>,
     pub constructors: Vec<DataConInfo>,
+    pub module: Option<String>,
 }
 
 #[derive(Debug, Clone)]
 pub struct StructInfo {
     pub name: String,
     pub fields: Vec<(String, TypeId)>,
+    pub module: Option<String>,
 }
 
 /// A `type` alias declaration: `name`'s type parameters and the type it
@@ -566,6 +570,7 @@ pub struct TypeAliasInfo {
     pub name: String,
     pub tyvars: Vec<String>,
     pub target: TypeId,
+    pub module: Option<String>,
 }
 
 /// The names of Axiom's freestanding primitives, together with how
@@ -626,6 +631,7 @@ impl FnInfo {
             foreign_symbol: None,
             is_builtin: false,
             effects: Vec::new(),
+            module: None,
         }
     }
 
@@ -636,6 +642,7 @@ impl FnInfo {
             foreign_symbol: None,
             is_builtin: true,
             effects: Vec::new(),
+            module: None,
         }
     }
 
@@ -650,6 +657,7 @@ impl FnInfo {
             foreign_symbol: None,
             is_builtin: true,
             effects,
+            module: None,
         }
     }
 }
@@ -659,6 +667,7 @@ pub struct TraitInfo {
     pub name: String,
     pub methods: Vec<(String, TypeId)>,
     pub effects: Vec<axiom_ast::ast::Effect>,
+    pub module: Option<String>,
 }
 
 pub struct TypeChecker {
@@ -774,14 +783,17 @@ impl TypeChecker {
                     ),
                     data_type: "Option".to_string(),
                     field_names: None,
+                    module: None,
                 },
                 DataConInfo {
                     name: "None".to_string(),
                     ty: TypeId::TCon("Option".to_string(), vec![TypeId::TVar("a".to_string())]),
                     data_type: "Option".to_string(),
                     field_names: None,
+                    module: None,
                 },
             ],
+            module: None,
         });
 
         tc
@@ -815,19 +827,34 @@ impl TypeChecker {
     /// signature followed by exactly one matching `define`/`fn`/`foreign`
     /// is the normal, expected pattern, not a duplicate.
     fn check_duplicate_definitions(&mut self, decls: &[Decl]) {
-        let mut values: std::collections::HashMap<String, (Span, Option<String>)> = std::collections::HashMap::new();
-        let mut types: std::collections::HashMap<String, (Span, Option<String>)> = std::collections::HashMap::new();
+        let mut values: std::collections::HashMap<String, (Span, Option<String>)> =
+            std::collections::HashMap::new();
+        let mut types: std::collections::HashMap<String, (Span, Option<String>)> =
+            std::collections::HashMap::new();
 
         for decl in decls {
-            let (namespace, name, module_path): (&mut std::collections::HashMap<String, (Span, Option<String>)>, &Ident, &Option<String>) =
-                match decl {
-                    Decl::DFn { name, module_path, .. } => (&mut values, name, module_path),
-                    Decl::DForeign { name, module_path, .. } => (&mut values, name, module_path),
-                    Decl::DData { name, module_path, .. } => (&mut types, name, module_path),
-                    Decl::DStruct { name, module_path, .. } => (&mut types, name, module_path),
-                    Decl::DType { name, module_path, .. } => (&mut types, name, module_path),
-                    _ => continue,
-                };
+            let (namespace, name, module_path): (
+                &mut std::collections::HashMap<String, (Span, Option<String>)>,
+                &Ident,
+                &Option<String>,
+            ) = match decl {
+                Decl::DFn {
+                    name, module_path, ..
+                } => (&mut values, name, module_path),
+                Decl::DForeign {
+                    name, module_path, ..
+                } => (&mut values, name, module_path),
+                Decl::DData {
+                    name, module_path, ..
+                } => (&mut types, name, module_path),
+                Decl::DStruct {
+                    name, module_path, ..
+                } => (&mut types, name, module_path),
+                Decl::DType {
+                    name, module_path, ..
+                } => (&mut types, name, module_path),
+                _ => continue,
+            };
 
             if let Some((first_span, first_module)) = namespace.get(&name.name) {
                 if module_path == first_module {
@@ -864,6 +891,7 @@ impl TypeChecker {
         name: &Ident,
         tyvars: &[String],
         constructors: &[axiom_ast::ast::DataCon],
+        module_path: Option<String>,
     ) -> DataTypeInfo {
         let type_args: Vec<TypeId> = tyvars.iter().map(|v| TypeId::TVar(v.clone())).collect();
         let mut con_infos = Vec::new();
@@ -877,7 +905,9 @@ impl TypeChecker {
                 con_ty = TypeId::TArr(Box::new(ft), Box::new(con_ty));
             }
             let field_names = match &con.con_fields {
-                ConFields::Named(fields) => Some(fields.iter().map(|f| f.name.name.clone()).collect()),
+                ConFields::Named(fields) => {
+                    Some(fields.iter().map(|f| f.name.name.clone()).collect())
+                }
                 ConFields::Positional(_) => None,
             };
             con_infos.push(DataConInfo {
@@ -885,12 +915,14 @@ impl TypeChecker {
                 ty: con_ty,
                 data_type: name.name.clone(),
                 field_names,
+                module: module_path.clone(),
             });
         }
         DataTypeInfo {
             name: name.name.clone(),
             tyvars: tyvars.to_vec(),
             constructors: con_infos,
+            module: module_path,
         }
     }
 
@@ -901,12 +933,22 @@ impl TypeChecker {
                     name,
                     tyvars,
                     constructors,
+                    module_path,
                     ..
                 } => {
-                    self.data_types
-                        .push(self.build_data_type_info(name, tyvars, constructors));
+                    self.data_types.push(self.build_data_type_info(
+                        name,
+                        tyvars,
+                        constructors,
+                        module_path.clone(),
+                    ));
                 }
-                Decl::DStruct { name, fields, .. } => {
+                Decl::DStruct {
+                    name,
+                    fields,
+                    module_path,
+                    ..
+                } => {
                     let struct_fields: Vec<(String, TypeId)> = fields
                         .iter()
                         .map(|f| (f.name.name.clone(), self.type_to_id(&f.ty)))
@@ -914,16 +956,24 @@ impl TypeChecker {
                     self.structs.push(StructInfo {
                         name: name.name.clone(),
                         fields: struct_fields,
+                        module: module_path.clone(),
                     });
                 }
-                Decl::DSig { name, ty, .. } => {
-                    self.functions
-                        .push(FnInfo::new(name.name.clone(), self.type_to_id(ty)));
+                Decl::DSig {
+                    name,
+                    ty,
+                    module_path,
+                    ..
+                } => {
+                    let mut info = FnInfo::new(name.name.clone(), self.type_to_id(ty));
+                    info.module = module_path.clone();
+                    self.functions.push(info);
                 }
                 Decl::DTrait {
                     name,
                     methods,
                     effects,
+                    module_path,
                     ..
                 } => {
                     let method_tys: Vec<(String, TypeId)> = methods
@@ -934,34 +984,50 @@ impl TypeChecker {
                         name: name.name.clone(),
                         methods: method_tys,
                         effects: effects.clone(),
+                        module: module_path.clone(),
                     });
                 }
-                Decl::DFn { name, .. } => {
-                    if !self.functions.iter().any(|f| f.name == name.name) {
-                        self.functions.push(FnInfo::new(
+                Decl::DFn {
+                    name, module_path, ..
+                } => {
+                    if !self
+                        .functions
+                        .iter()
+                        .any(|f| f.name == name.name && f.module == *module_path)
+                    {
+                        let mut info = FnInfo::new(
                             name.name.clone(),
                             TypeId::TVar(format!("_fn_{}", self.type_counter)),
-                        ));
+                        );
+                        info.module = module_path.clone();
+                        self.functions.push(info);
                         self.type_counter += 1;
                     }
                 }
                 Decl::DForeign {
-                    name, ty, source, ..
+                    name,
+                    ty,
+                    source,
+                    module_path,
+                    ..
                 } => {
                     let mut info = FnInfo::new(name.name.clone(), self.type_to_id(ty));
                     info.foreign_symbol = Some(source.clone());
+                    info.module = module_path.clone();
                     self.functions.push(info);
                 }
                 Decl::DType {
                     name,
                     tyvars,
                     alias,
+                    module_path,
                     ..
                 } => {
                     self.aliases.push(TypeAliasInfo {
                         name: name.name.clone(),
                         tyvars: tyvars.clone(),
                         target: self.type_to_id(alias),
+                        module: module_path.clone(),
                     });
                 }
                 _ => {}
@@ -1039,12 +1105,13 @@ impl TypeChecker {
                     params,
                     body,
                     axtags,
+                    module_path,
                     ..
                 } => {
                     let sig_ty = self
                         .functions
                         .iter()
-                        .find(|f| f.name == name.name)
+                        .find(|f| f.name == name.name && f.module == *module_path)
                         .map(|f| f.ty.clone());
 
                     self.push_scope();
@@ -1084,7 +1151,11 @@ impl TypeChecker {
                     }
 
                     // Update the function's type in self.functions
-                    if let Some(fn_info) = self.functions.iter_mut().find(|f| f.name == name.name) {
+                    if let Some(fn_info) = self
+                        .functions
+                        .iter_mut()
+                        .find(|f| f.name == name.name && f.module == *module_path)
+                    {
                         fn_info.ty = fn_ty;
                     }
 
@@ -1176,7 +1247,7 @@ impl TypeChecker {
                     args.push(arg.as_ref().clone());
                     current = func;
                 }
-                Expr::EVar(ident) => {
+                Expr::EVar(ident) | Expr::EQualified(_, ident) => {
                     if self.structs.iter().any(|s| s.name == ident.name) {
                         args.reverse();
                         return Some((ident.clone(), args));
@@ -1582,10 +1653,10 @@ impl TypeChecker {
                 TypeId::TCon("I64".to_string(), vec![])
             }
             Expr::EError(_, _) => TypeId::TVar(format!("_t{}", self.type_counter)),
-            Expr::EQualified(_, name) => self.check_var(name),
-            Expr::EQuasiquote(inner)
-            | Expr::EUnquote(inner)
-            | Expr::ESplice(inner) => self.check_expr(inner),
+            Expr::EQualified(path, name) => self.check_qualified_var(path, name),
+            Expr::EQuasiquote(inner) | Expr::EUnquote(inner) | Expr::ESplice(inner) => {
+                self.check_expr(inner)
+            }
         }
     }
 
@@ -1634,6 +1705,53 @@ impl TypeChecker {
         TypeId::TError
     }
 
+    fn check_qualified_var(&mut self, path: &[Ident], name: &Ident) -> TypeId {
+        let module: String = path
+            .iter()
+            .map(|i| i.name.as_str())
+            .collect::<Vec<_>>()
+            .join(".");
+
+        for fn_info in &self.functions {
+            if fn_info.name == name.name && fn_info.module.as_deref() == Some(&module) {
+                return fn_info.ty.clone();
+            }
+        }
+
+        for data_type in &self.data_types {
+            if data_type.module.as_deref() == Some(&module) {
+                for con in &data_type.constructors {
+                    if con.name == name.name {
+                        return con.ty.clone();
+                    }
+                }
+            }
+        }
+
+        let dotted = format!("{}::{}", &module, &name.name);
+        let suggestion = suggest_closest(
+            &name.name,
+            self.functions
+                .iter()
+                .filter(|f| f.module.as_deref() == Some(&module))
+                .map(|f| f.name.as_str())
+                .chain(
+                    self.data_types
+                        .iter()
+                        .filter(|dt| dt.module.as_deref() == Some(&module))
+                        .flat_map(|dt| dt.constructors.iter().map(|c| c.name.as_str())),
+                ),
+        );
+
+        self.errors.push(SemError::UndefinedVariable {
+            name: dotted,
+            span: name.span,
+            suggestion,
+        });
+
+        TypeId::TError
+    }
+
     fn check_literal(&self, lit: &Literal) -> TypeId {
         match lit {
             Literal::LInt(_) => TypeId::TCon("Int".to_string(), vec![]),
@@ -1678,7 +1796,10 @@ impl TypeChecker {
                     for (idx, fnm) in field_names.iter().enumerate() {
                         if fnm == field_name {
                             let field_types = Self::constructor_field_types(&con.ty);
-                            let fty = field_types.get(idx).cloned().unwrap_or(TypeId::TCon("I64".to_string(), vec![]));
+                            let fty = field_types
+                                .get(idx)
+                                .cloned()
+                                .unwrap_or(TypeId::TCon("I64".to_string(), vec![]));
                             return Some((dt.name.clone(), idx, fty));
                         }
                     }
@@ -1775,7 +1896,9 @@ impl TypeChecker {
                     None => {
                         let suggestion = suggest_closest(
                             &ident.name,
-                            self.data_types.iter().flat_map(|dt| dt.constructors.iter().map(|c| c.name.as_str())),
+                            self.data_types
+                                .iter()
+                                .flat_map(|dt| dt.constructors.iter().map(|c| c.name.as_str())),
                         );
                         self.errors.push(SemError::UndefinedConstructor {
                             name: ident.name.clone(),
@@ -1932,15 +2055,26 @@ impl TypeChecker {
                 name,
                 tyvars,
                 constructors,
+                module_path,
                 ..
             } => {
-                self.data_types
-                    .push(self.build_data_type_info(name, tyvars, constructors));
+                self.data_types.push(self.build_data_type_info(
+                    name,
+                    tyvars,
+                    constructors,
+                    module_path.clone(),
+                ));
             }
-            Decl::DSig { name, ty, .. } => {
+            Decl::DSig {
+                name,
+                ty,
+                module_path,
+                ..
+            } => {
                 let ty_id = self.type_to_id(ty);
-                self.functions
-                    .push(FnInfo::new(name.name.clone(), ty_id.clone()));
+                let mut info = FnInfo::new(name.name.clone(), ty_id.clone());
+                info.module = module_path.clone();
+                self.functions.push(info);
                 self.scope.push((
                     name.name.clone(),
                     VarInfo {
@@ -1950,13 +2084,23 @@ impl TypeChecker {
                 ));
             }
             Decl::DFn {
-                name, params, body, ..
+                name,
+                params,
+                body,
+                module_path,
+                ..
             } => {
-                if !self.functions.iter().any(|f| f.name == name.name) {
-                    self.functions.push(FnInfo::new(
+                if !self
+                    .functions
+                    .iter()
+                    .any(|f| f.name == name.name && f.module == *module_path)
+                {
+                    let mut info = FnInfo::new(
                         name.name.clone(),
                         TypeId::TVar(format!("_fn_{}", self.type_counter)),
-                    ));
+                    );
+                    info.module = module_path.clone();
+                    self.functions.push(info);
                     self.type_counter += 1;
                 }
                 self.push_scope();
@@ -1966,7 +2110,12 @@ impl TypeChecker {
                 self.check_expr(body);
                 self.pop_scope();
             }
-            Decl::DStruct { name, fields, .. } => {
+            Decl::DStruct {
+                name,
+                fields,
+                module_path,
+                ..
+            } => {
                 let struct_fields: Vec<(String, TypeId)> = fields
                     .iter()
                     .map(|f| (f.name.name.clone(), self.type_to_id(&f.ty)))
@@ -1974,25 +2123,33 @@ impl TypeChecker {
                 self.structs.push(StructInfo {
                     name: name.name.clone(),
                     fields: struct_fields,
+                    module: module_path.clone(),
                 });
             }
             Decl::DForeign {
-                name, ty, source, ..
+                name,
+                ty,
+                source,
+                module_path,
+                ..
             } => {
                 let mut info = FnInfo::new(name.name.clone(), self.type_to_id(ty));
                 info.foreign_symbol = Some(source.clone());
+                info.module = module_path.clone();
                 self.functions.push(info);
             }
             Decl::DType {
                 name,
                 tyvars,
                 alias,
+                module_path,
                 ..
             } => {
                 self.aliases.push(TypeAliasInfo {
                     name: name.name.clone(),
                     tyvars: tyvars.clone(),
                     target: self.type_to_id(alias),
+                    module: module_path.clone(),
                 });
             }
             _ => {}

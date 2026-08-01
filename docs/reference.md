@@ -694,7 +694,7 @@ Split a program across files with `(import Mod.Sub ...)`:
 - `(import Mod.Sub)` with no name list brings in every top-level declaration.
 - `(import Mod.Sub (a b))` brings in only the named declarations.
 - Imports are transitive (`A` imports `B` imports `C` brings `C`'s declarations into `A` too) and diamond-safe (two different modules both importing `C` merges `C` exactly once).
-- There is no namespacing or qualified names yet — an imported declaration joins the importing module's flat top-level namespace.
+- Qualified access is supported: `Mod::name` resolves to `name` declared in `Mod`. Imported declarations still join the importing module's flat top-level namespace by default; use `Mod::name` to disambiguate when the same name exists in multiple modules.
 - A module path that doesn't resolve to a real file is `AX5001`.
 
 ---

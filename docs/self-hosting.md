@@ -123,12 +123,13 @@ exercising those tests, and ensuring the data structures meet the
 performance requirements of a 13,000-line compiler's type checker, is
 the remaining work on this item.
 
-**B4. One flat namespace across all modules.** Imports merge
-declarations into a single global namespace with no qualification; two
-modules cannot both define `new`. A 13,000-line compiler split across
-~20 modules will collide constantly. This is a language-level decision
-(qualified names, or per-module namespaces) and needs a compatibility
-proposal before it is implemented.
+**B4. One flat namespace across all modules. (RESOLVED)** Qualified
+access via `Mod::name` is supported. Same-named declarations from
+different modules coexist without collision. Two modules can both define
+`new`; ambiguous names are disambiguated with `Mod::name`. The
+language-level decision is qualified names, and it is implemented in
+`sema` (module tracking on info structs, `check_qualified_var` for
+`EQualified` resolution) and `ir` (name mangling, `fn_mangle_map`).
 
 ### 2.2 Serious but workable
 
@@ -218,7 +219,7 @@ status, calling no libc function, on four targets.
 | B2 | Guaranteed tail calls in the IR (self-call → parameter reassignment + branch), independent of `opt` | 10-million-iteration tail-recursive loop at `-O0`; stdlib loops keep constant stack |
 | B3 | `Vec`, `Map` (open addressing), `Intern` — golden tests and scale validation | Golden tests for all three; 10⁵-element insert/lookup within 2× of the Rust equivalent |
 | B1 | Function values: representation decision, indirect call in IR and codegen | Higher-order probe from §2.1 compiles and runs; closure capture tested |
-| B4 | Namespacing proposal, then implementation | Two modules define the same name without collision; existing programs unaffected |
+| B4 | Namespacing: qualified access `Mod::name` (DONE) | Two modules define the same name without collision; `Mod::name` access works; existing programs unaffected |
 
 ### Phase 2 - Frontend in Axiom
 
@@ -284,7 +285,7 @@ driver last).
 | Correctness depends on `--opt` (B2) | Treat guaranteed tail calls as phase-1 blocking work; until then, CI runs the golden suite at both `-O0` and `--opt 2` |
 | Bump allocator makes a long-running Axiom program leak by design (S1) | Document as compiler-process-only; keep `axiom_alloc` overridable so a real allocator can be dropped in from Axiom |
 | Inline assembly is per-target and unverifiable by the type system | `scripts/check-cross-targets.sh` assembles every target on every CI run; the CI matrix *runs* the suite on Linux x86-64, Linux AArch64, and macOS ARM |
-| Flat namespace (B4) forces sweeping renames late in the port | Resolve B4 in phase 1, before there is Axiom code to rename |
+| Flat namespace (B4) forces sweeping renames late in the port | (RESOLVED) B4 implemented with qualified access before any Axiom code was written |
 | A regression in diagnostics is invisible to output-only tests | Byte-for-byte AXDL comparison is the acceptance criterion for phase 3 |
 
 ## 6. Rollback

@@ -137,7 +137,9 @@ fn format_decl(decl: &Decl, out: &mut String, state: &mut FormatState) {
         } => {
             format_effect_decl(name, operations, out, state);
         }
-        Decl::DMacro { name, params, body, .. } => {
+        Decl::DMacro {
+            name, params, body, ..
+        } => {
             write!(out, "(macro ({} ", name.name).unwrap();
             format_pattern(params, out);
             write!(out, ") ").unwrap();

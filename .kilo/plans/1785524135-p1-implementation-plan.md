@@ -2,7 +2,7 @@
 
 **Status:** P0, P1, and P2 are **complete** (2026-08-01 audit). Currently working on **P3**.
 
-**Critical path:** ~~P0 → P1 → P2 →~~ **P3 (B4 namespacing + macro hygiene + concurrency) ← WE ARE HERE** → P4 (self-hosting + HTTP) → P5 (LSP, fmt trivia).
+**Critical path:** ~~P0 → P1 → P2 →~~ **P3 (~~B4 namespacing~~ ✓ · macro hygiene + concurrency) ← WE ARE HERE** → P4 (self-hosting + HTTP) → P5 (LSP, fmt trivia).
 
 ---
 
@@ -48,19 +48,20 @@ Memory model: arena inference with `ArenaMark`/`Reset`/`Compact`, tail-loop aren
 
 ## P3 — Current work
 
-### 3.1 B4: Namespacing — PARTIAL
+### 3.1 B4: Namespacing — DONE
 
-**Current state:** `EQualified(path, name)` parses but sema discards the module path. Two modules CANNOT both define `new` without collision. Selective import `(import Mod (a b))` works but no qualified access.
+**Current state:** `EQualified(path, name)` parses and sema resolves the module path. Two modules CAN both define `new` without collision. Selective import `(import Mod (a b))` works. Qualified access `Mod::name` resolves correctly, including through IR name mangling (`module$name` LLVM symbols).
 
-**Remaining work:**
-1. Track which module each declaration came from in sema (add `module: String` to `FnInfo`, `DataInfo`, etc.)
-2. Allow same-named declarations from different modules when not both imported into the same scope
-3. Implement module-qualified access: `Mod.name` resolves to `name` declared in `Mod`
-4. Update `check_duplicate_definitions` to permit same-named declarations from different modules
+**Completed work:**
+1. Track module source in sema (`module: Option<String>` on `FnInfo`, `DataTypeInfo`, `DataConInfo`, `StructInfo`, `TypeAliasInfo`, `TraitInfo`) — done
+2. Allow same-named declarations from different modules (`collect_declarations` checks `(name, module)` pair) — done
+3. Module-qualified access: `Mod::name` resolves via `check_qualified_var`, filtering by module path — done
+4. `check_duplicate_definitions` already compared `module_path` on AST Decls — done
+5. IR mangling: `gen_function` emits `module$name` LLVM symbols; `fn_mangle_map` tracks bare→mangled mapping for unqualified EVar lookups; `EQualified` builds mangled name from path segments — done
 
-**Exit criterion:** Two modules define the same name without collision when imported selectively; `Mod.name` access works.
+**Exit criterion met:** Two modules define the same name without collision when imported selectively; `Mod::name` access works. All 175 tests pass.
 
-### 3.2 Macro system — PARTIAL
+### 3.2 Macro system — PARTIAL (scope sets: `Ident.scope` done)
 
 **Current state:** Expansion pass before sema with pattern substitution works. `stdlib/Pre.ax` defines `when`, `unless`, `cond2`, `cond3` macros. Cross-module macro import works. **No hygiene — no gensym/fresh-name generation, no scope sets.**
 

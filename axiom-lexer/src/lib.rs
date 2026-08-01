@@ -200,9 +200,7 @@ impl Lexer {
                 '^' => self.push_token(&mut tokens, TokenKind::Caret),
                 '@' => self.push_token(&mut tokens, TokenKind::At),
                 ',' => {
-                    if self.pos < self.source.len()
-                        && self.source[self.pos] == '@'
-                    {
+                    if self.pos < self.source.len() && self.source[self.pos] == '@' {
                         self.pos += 1;
                         self.push_token(&mut tokens, TokenKind::CommaAt);
                     } else {
