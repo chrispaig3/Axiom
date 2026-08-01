@@ -10,28 +10,32 @@
 ; ------------------------------------------------------------------
 ; Type registry: constructor/struct name -> arity, kind, tag.
 ; ------------------------------------------------------------------
-(pub struct TypeEntry (name : Int) (kind : Int) (arity : Int) (tag : Int))
+(pub struct TypeEntry (name : Int) (nameLen : Int) (kind : Int) (arity : Int) (tag : Int))
 (pub :: TF_DATA   Int) (pub fn (TF_DATA)   0)
 (pub :: TF_STRUCT Int) (pub fn (TF_STRUCT) 1)
-(pub :: eKind  (-> Int Int)) (pub fn (eKind  e) (memGetWord e 1))
-(pub :: eArity (-> Int Int)) (pub fn (eArity e) (memGetWord e 2))
-(pub :: eTag   (-> Int Int)) (pub fn (eTag   e) (memGetWord e 3))
+(pub :: eKind  (-> Int Int)) (pub fn (eKind  e) (memGetWord e 2))
+(pub :: eArity (-> Int Int)) (pub fn (eArity e) (memGetWord e 3))
+(pub :: eTag   (-> Int Int)) (pub fn (eTag   e) (memGetWord e 4))
+(pub :: eNameLen (-> Int Int)) (pub fn (eNameLen e) (memGetWord e 1))
 
 (pub :: addType (-> Int Int Int Int Int Int))
 (pub fn (addType types name kind arity tag)
-  (vecPush types (cast Int (TypeEntry name kind arity tag))))
+  (let ((nl (strLen name)))
+    (vecPush types (cast Int (TypeEntry name nl kind arity tag)))))
 
 (pub :: lookupType (-> Int Int Int))
 (pub fn (lookupType types name)
-  (lookupByIdx types name 0))
+  (let ((nLen (strLen name)))
+    (lookupByIdx types name nLen 0)))
 
-(pub :: lookupByIdx (-> Int Int Int Int))
-(pub fn (lookupByIdx types name i)
+(pub :: lookupByIdx (-> Int Int Int Int Int))
+(pub fn (lookupByIdx types name nLen i)
   (if (>= i (vecLen types))
       0
       (let ((e (vecGet types i)))
-        (if (== (memGetWord e 0) name) e
-            (lookupByIdx types name (+ i 1))))))
+        (if (&& (== (eNameLen e) nLen)
+                (== (memGetWord e 0) name)) e
+            (lookupByIdx types name nLen (+ i 1))))))
 
 (pub :: lookupTypeIn (-> Int Int Int Int))
 (pub fn (lookupTypeIn types name i)
@@ -45,12 +49,14 @@
 ; Field 3 = types (Vec of TypeEntry, constructor/struct registry)
 ; Field 4 = tagN (Int, next data constructor tag)
 ; Field 5 = argVec (Vec of Int, temp storage during EApp flattening)
+; Field 6 = symnames (Vec of Int, symbol table — bound variable names)
+; Field 7 = symregs (Vec of Int, symbol table — bound variable register strings)
 ; ------------------------------------------------------------------
-(pub struct CG (lines : Int) (tmp : Int) (result : Int) (types : Int) (tagN : Int) (argVec : Int))
+(pub struct CG (lines : Int) (tmp : Int) (result : Int) (types : Int) (tagN : Int) (argVec : Int) (symnames : Int) (symregs : Int))
 
 (pub :: newCG Int)
 (pub fn (newCG)
-  (CG vecNew 0 (strFromLit (__addr "")) vecNew 0 vecNew))
+  (CG vecNew 0 (strFromLit (__addr "")) vecNew 0 vecNew vecNew vecNew))
 
 (pub :: emitLine (-> Int Int Int))
 (pub fn (emitLine cg line)
@@ -250,26 +256,47 @@
     }))
 
 ; E_Var: emit register reference (%name) or nullary constructor tag constant.
+; Checks symbol table first (let-bound variables), then type registry (constructors).
 (pub :: emitVar (-> Int Int Int))
 (pub fn (emitVar node cg)
   (let ((name (nodeA node)))
-    (let ((entry (lookupType (memGetWord cg 3) name)))
-      (if (== entry 0)
-          (let ((x (cat2 (strFromLit (__addr "%")) (strDup name))))
-            {
-              (memSetWord cg 2 x)
-              cg
-            })
-          (if (== (eArity entry) 0)
-              {
-                (memSetWord cg 2 (constStr (eTag entry)))
-                cg
-              }
-              (let ((z 0))
-                {
-                  (memSetWord cg 2 (constStr z))
-                  cg
-                }))))))
+    (let ((symReg (lookupSym cg name)))
+      (if (!= symReg 0)
+          {
+            (memSetWord cg 2 (strDup symReg))
+            cg
+          }
+          (let ((entry (lookupType (memGetWord cg 3) name)))
+            (if (== entry 0)
+                (let ((x (cat2 (strFromLit (__addr "%")) (strDup name))))
+                  {
+                    (memSetWord cg 2 x)
+                    cg
+                  })
+                (if (== (eArity entry) 0)
+                    {
+                      (memSetWord cg 2 (constStr (eTag entry)))
+                      cg
+                    }
+                    (let ((z 0))
+                      {
+                        (memSetWord cg 2 (constStr z))
+                        cg
+                      }))))))))
+
+(pub :: lookupSym (-> Int Int Int))
+(pub fn (lookupSym cg name)
+  (let ((syms (memGetWord cg 6))
+        (regs (memGetWord cg 7)))
+    (lookupSymIn syms regs name (- (vecLen syms) 1))))
+
+(pub :: lookupSymIn (-> Int Int Int Int Int))
+(pub fn (lookupSymIn syms regs name i)
+  (if (< i 0)
+      0
+      (if (strEq (vecGet syms i) name)
+          (vecGet regs i)
+          (lookupSymIn syms regs name (- i 1)))))
 
 ; ------------------------------------------------------------------
 ; E_App: flatten chain, dispatch.
@@ -302,12 +329,22 @@
 (pub :: dispatchCall (-> Int Int Int))
 (pub fn (dispatchCall fnName cg)
   (let ((revArgs (memGetWord cg 5))
-        (args (reverseVec revArgs))
-        (types (memGetWord cg 3))
-        (entry (lookupType types fnName)))
-    (if (== entry 0)
-        (emitCall fnName args cg)
-        (emitConstructor fnName args (eKind entry) (eArity entry) (eTag entry) cg))))
+        (args (reverseVec revArgs)))
+    ; cast is a no-op at the i64 level — just evaluate and return the
+    ; last argument's value directly, avoiding an undefined @cast call.
+    (if (isCastName fnName)
+        (let ((lastArg (vecGet args (- (vecLen args) 1))))
+          (emitExpr lastArg cg))
+        (let ((types (memGetWord cg 3))
+              (entry (lookupType types fnName)))
+          (if (== entry 0)
+              (emitCall fnName args cg)
+              (emitConstructor fnName args (eKind entry) (eArity entry) (eTag entry) cg))))))
+
+(pub :: isCastName (-> Int Bool))
+(pub fn (isCastName nm)
+  (strEq nm (strFromLit (__addr "cast"))))
+
 
 (pub :: reverseVec (-> Int Int))
 (pub fn (reverseVec v)
@@ -523,8 +560,14 @@
         (valExpr (nodeB node))
         (body (nodeC node)))
     (let ((cg1 (emitExpr valExpr cg)))
-      ; emit body, using val's result is in cg1.result
-      (emitExpr body cg1))))
+      (let ((valReg (strDup (memGetWord cg1 2)))
+            (newSyms (vecPush (memGetWord cg1 6) name))
+            (newRegs (vecPush (memGetWord cg1 7) valReg)))
+        {
+          (memSetWord cg1 6 newSyms)
+          (memSetWord cg1 7 newRegs)
+        }
+        (emitExpr body cg1)))))
 
 (pub :: emitIf (-> Int Int Int))
 (pub fn (emitIf node cg)
