@@ -160,6 +160,7 @@
 (pub :: kwMatch Int) (pub fn (kwMatch) (strFromLit (__addr "match")))
 (pub :: kwImport Int)(pub fn (kwImport)(strFromLit (__addr "import")))
 (pub :: kwMacro Int) (pub fn (kwMacro) (strFromLit (__addr "macro")))
+(pub :: kwPub   Int) (pub fn (kwPub)   (strFromLit (__addr "pub")))
 
 (pub :: kwEq (-> Int Int Bool))
 (pub fn (kwEq name lit)
@@ -183,6 +184,8 @@
   (if (peekIs tokens pos TK_IDENT)
       (let ((kw (vecGet tokens pos)))
         (let ((name (tokenLexeme kw)))
+          (if (kwEq name (kwPub))
+              (parseTopForm tokens (advance pos))
           (if (kwEq name (kwFn))
               (parseFnDecl tokens (advance pos) name)
           (if (kwEq name (kwData))
@@ -193,7 +196,7 @@
               (parseImportDecl tokens (advance pos))
           (if (kwEq name (kwMacro))
               (skipParens tokens (advance pos) 1)   ; TODO: real macro parsing
-          (skipParens tokens pos 1))))))))             ; unknown form, skip
+          (skipParens tokens pos 1)))))))))             ; unknown form, skip
   (skipParens tokens pos 1))))                         ; non-keyword form, skip
 
 ; ------------------------------------------------------------------
@@ -284,6 +287,8 @@
   (if (peekIs tokens pos TK_IDENT)
       (let ((kw (vecGet tokens pos)))
         (let ((name (tokenLexeme kw)))
+          (if (kwEq name (kwPub))
+              (parseInner tokens (advance pos))
           (if (kwEq name (kwFn))
               (parseLamExpr tokens (advance pos))
           (if (kwEq name (kwLet))
@@ -292,7 +297,7 @@
               (parseIfExpr tokens (advance pos))
           (if (kwEq name (kwMatch))
               (parseMatchExpr tokens (advance pos))
-          (parseAppForm tokens pos)))))))
+          (parseAppForm tokens pos))))))))
   (if (peekIs tokens pos TK_RPAREN)
       (pOk 0 (advance pos))
   (parseAppForm tokens pos))))

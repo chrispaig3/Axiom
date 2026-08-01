@@ -114,12 +114,13 @@
 
 (pub :: lexTokens (-> Int Int Int Int Int))
 (pub fn (lexTokens src pos len tokens)
-  (if (>= pos len)
-      (emitToken TK_EOF pos pos tokens src)
-      (dispatchChar src pos len tokens (strByte src pos))))
+  (let ((ch (if (>= pos len) 0 (strByte src pos))))
+    (dispatchChar src pos len tokens ch)))
 
 (pub :: dispatchChar (-> Int Int Int Int Int Int))
 (pub fn (dispatchChar src pos len tokens ch)
+  (if (>= pos len)
+      (emitToken TK_EOF pos pos tokens src)
   (if (== ch 45)
       (if (&& (< (+ pos 1) len) (== (strByte src (+ pos 1)) 62))
           (lexTokens src (+ pos 2) len (emitToken TK_RARROW pos (+ pos 2) tokens src))
@@ -154,45 +155,16 @@
       (lexTokens src (+ pos 1) len tokens)
 (if (== ch 59)
       (lexTokens src (skipWhitespace src pos len) len tokens)
-(lexTokens src (+ pos 1) len tokens)))))))))))))))
+(lexTokens src (+ pos 1) len tokens))))))))))))))))
 
 (pub :: parseIdentToken (-> Int Int Int Int Int))
 (pub fn (parseIdentToken src pos len tokens)
   (let ((ep (skipIdent src (+ pos 1) len)))
     (lexTokens src ep len (emitToken TK_IDENT pos ep tokens src))))
 
-; ------------------------------------------------------------------
-; Reverse a Vec.
-; ------------------------------------------------------------------
-
-(pub :: vecSwap (-> Int Int Int Int))
-(pub fn (vecSwap v i j)
-  (let ((vi (vecGet v i))
-        (vj (vecGet v j)))
-    {
-      (vecSet v i vj)
-      (vecSet v j vi)
-      v
-    }))
-
-(pub :: vecReverseIn (-> Int Int Int Int))
-(pub fn (vecReverseIn v i j)
-  (if (>= i j)
-      v
-      (vecReverseIn (vecSwap v i j) (+ i 1) (- j 1))))
-
-(pub :: vecReverse (-> Int Int))
-(pub fn (vecReverse v)
-  (let ((len (vecLen v)))
-    (if (<= len 1)
-        v
-        (vecReverseIn v 0 (- len 1)))))
-
-; ------------------------------------------------------------------
 ; Public lexer interface.
 ; ------------------------------------------------------------------
 
 (pub :: lex (-> Int Int))
 (pub fn (lex src)
-  (let ((tokens (lexTokens src 0 (strLen src) vecNew)))
-    (vecReverse tokens)))
+  (lexTokens src 0 (strLen src) (vecNew)))

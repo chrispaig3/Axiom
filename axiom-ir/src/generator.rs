@@ -616,13 +616,9 @@ impl IrGen {
             },
         );
         for (i, arg) in args.into_iter().enumerate() {
-            let needs_box = matches!(&arg, IrValue::Const(IrConst::Int(val, _)) if self.nullary_tags.contains(val));
+            let needs_box = matches!(&arg, IrValue::Const(IrConst::Int(val, _)) if self.nullary_tags.contains(val))
+                || matches!(&arg, IrValue::Tag(_));
             let arg_val = if needs_box {
-                let val = if let IrValue::Const(IrConst::Int(v, _)) = arg {
-                    v
-                } else {
-                    unreachable!()
-                };
                 let box_ptr = self.new_local();
                 self.emit_to_func(
                     func,
@@ -631,12 +627,19 @@ impl IrGen {
                         size: IrValue::Const(IrConst::Int(8, i64_ty.clone())),
                     },
                 );
+                let store_val = match &arg {
+                    IrValue::Const(IrConst::Int(val, _)) => {
+                        IrValue::Const(IrConst::Int(*val, i64_ty.clone()))
+                    }
+                    IrValue::Tag(name) => IrValue::Tag(name.clone()),
+                    _ => unreachable!(),
+                };
                 self.emit_to_func(
                     func,
                     IrInst::StoreOffset {
                         ptr: IrValue::Local(box_ptr.clone()),
                         offset: 0,
-                        value: IrValue::Const(IrConst::Int(val, i64_ty.clone())),
+                        value: store_val,
                     },
                 );
                 IrValue::Local(box_ptr)
@@ -2022,6 +2025,9 @@ impl IrGen {
                                     value: target_val.clone(),
                                 },
                             );
+                            if matches!(&target_val, IrValue::Tag(_)) {
+                                self.tag_alloca_names.insert(var_alloca.clone());
+                            }
                             arm_map.insert(ident.name.clone(), var_alloca);
                         }
                         Pattern::PConNamed(ident, named_args) => {
