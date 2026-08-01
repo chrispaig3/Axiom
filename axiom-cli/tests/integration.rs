@@ -140,7 +140,7 @@ fn run_resolves_and_executes_a_multi_file_import() {
     write_source(
         &dir,
         "Math/Ops.ax",
-        "(:: square (-> Int Int))\n(fn (square x) (* x x))\n",
+        "(pub :: square (-> Int Int))\n(pub fn (square x) (* x x))\n",
     );
     write_source(
         &dir,
@@ -175,7 +175,7 @@ fn diagnostic_in_an_imported_file_is_attributed_to_that_file() {
     write_source(
         &dir,
         "Broken.ax",
-        "(:: broken (-> Int Int))\n(fn (broken x) (+ x undefinedThing))\n",
+        "(pub :: broken (-> Int Int))\n(pub fn (broken x) (+ x undefinedThing))\n",
     );
     write_source(
         &dir,
@@ -459,7 +459,7 @@ fn axsym_multi_file_attribution() {
     write_source(
         &dir,
         "Math/Ops.ax",
-        "(:: square (-> Int Int))\n(fn (square x) (* x x))\n",
+        "(pub :: square (-> Int Int))\n(pub fn (square x) (* x x))\n",
     );
     write_source(
         &dir,

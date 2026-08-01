@@ -10,8 +10,8 @@
 (import Vec)
 
 ; Push `x`, `x+1`, ... until the vector holds `upto` elements.
-(:: pushRange (-> Int Int Int))
-(fn (pushRange v upto)
+(pub :: pushRange (-> Int Int Int))
+(pub fn (pushRange v upto)
   (if (>= (vecLen v) upto)
       v
       {
@@ -21,9 +21,9 @@
 
 ; Pop `n` times, printing each result, so "pop to empty" is checked
 ; element by element rather than by a single summary number.
-(:: popTimes (-> Int Int Int))
+(pub :: popTimes (-> Int Int Int))
 ;@axiom:effect(io)
-(fn (popTimes v n)
+(pub fn (popTimes v n)
   (if (<= n 0)
       v
       {
@@ -31,9 +31,9 @@
         (popTimes v (- n 1))
       }))
 
-(:: main Int)
+(pub :: main Int)
 ;@axiom:effect(io)
-(fn (main)
+(pub fn (main)
   (let ((v (vecNew))
         (small (vecWithCapacity 1))
         (zeroCap (vecWithCapacity 0)))

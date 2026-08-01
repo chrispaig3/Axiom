@@ -16,8 +16,8 @@
 ; ------------------------------------------------------------------
 ; Compile source text, return LLVM IR Str.
 ; ------------------------------------------------------------------
-(:: compileString (-> Int Int))
-(fn (compileString src)
+(pub :: compileString (-> Int Int))
+(pub fn (compileString src)
   (let ((tokens (lex src)))
     (let ((pr (parseModule tokens)))
       (if (== (memGetWord pr 0) 0)
@@ -29,13 +29,13 @@
 ; ------------------------------------------------------------------
 ; Write a Str to stdout.
 ; ------------------------------------------------------------------
-(:: writeStdout (-> Int Int))
-(fn (writeStdout s)
+(pub :: writeStdout (-> Int Int))
+(pub fn (writeStdout s)
   (sysWriteFd 1 (strData s) (strLen s)))
 
 ; ------------------------------------------------------------------
 ; Entry point.
 ; ------------------------------------------------------------------
-(:: main Int)
-(fn (main)
+(pub :: main Int)
+(pub fn (main)
   0)

@@ -280,9 +280,7 @@ impl Parser {
             self.parse_effect()?
         } else if self.check(TokenKind::Pub) {
             self.advance();
-            let inner = self.parse_decl()?;
-            self.expect(TokenKind::RParen)?;
-            return Ok(inner);
+            self.parse_pub_decl()?
         } else if self.check(TokenKind::DoubleColon) {
             self.parse_sig()?
         } else {
@@ -305,6 +303,62 @@ impl Parser {
         Ok(decl)
     }
 
+    /// Parse a `pub`-marked declaration.  `pub` has already been
+    /// consumed; the next token is the declaration keyword.
+    fn parse_pub_decl(&mut self) -> ParseResult<Decl> {
+        let axtags = self.collect_axtags();
+        let mut decl = if self.check(TokenKind::Define) || self.check(TokenKind::Fn) {
+            self.parse_define()?
+        } else if self.check(TokenKind::Data) {
+            self.parse_data()?
+        } else if self.check(TokenKind::Macro) {
+            self.parse_macro()?
+        } else if self.check(TokenKind::Struct) {
+            self.parse_struct()?
+        } else if self.check(TokenKind::Type) {
+            self.parse_type_alias()?
+        } else if self.check(TokenKind::Newtype) {
+            self.parse_newtype()?
+        } else if self.check(TokenKind::Trait) {
+            self.parse_trait()?
+        } else if self.check(TokenKind::Impl) {
+            self.parse_impl()?
+        } else if self.check(TokenKind::Import) {
+            self.parse_import()?
+        } else if self.check(TokenKind::Foreign) {
+            self.parse_foreign()?
+        } else if self.check(TokenKind::Effect) {
+            self.parse_effect()?
+        } else if self.check(TokenKind::DoubleColon) {
+            self.parse_sig()?
+        } else {
+            return Err(ParseError::UnexpectedToken {
+                expected: "declaration keyword".to_string(),
+                found: self.current_kind_str(),
+                span: self.current_span(),
+            });
+        };
+        match &mut decl {
+            Decl::DFn { vis, .. }
+            | Decl::DData { vis, .. }
+            | Decl::DStruct { vis, .. }
+            | Decl::DType { vis, .. }
+            | Decl::DTrait { vis, .. }
+            | Decl::DImpl { vis, .. }
+            | Decl::DSig { vis, .. }
+            | Decl::DMacro { vis, .. }
+            | Decl::DForeign { vis, .. }
+            | Decl::DEffect { vis, .. } => *vis = Visibility::Pub,
+            _ => {}
+        }
+        if !matches!(decl, Decl::DImport { .. }) {
+            let nid = Self::generate_nid(&decl);
+            let parsed_axtags = Self::parse_axtag_tokens(&axtags);
+            Self::attach_nid_and_axtags(&mut decl, nid, parsed_axtags);
+        }
+        Ok(decl)
+    }
+
     fn parse_define(&mut self) -> ParseResult<Decl> {
         self.eat(TokenKind::Define);
         self.eat(TokenKind::Fn);
@@ -322,6 +376,7 @@ impl Parser {
                 name,
                 params,
                 body,
+                vis: Visibility::Private,
                 nid: None,
                 axtags: Vec::new(),
                 module_path: None,
@@ -334,6 +389,7 @@ impl Parser {
                 name,
                 params: vec![],
                 body,
+                vis: Visibility::Private,
                 nid: None,
                 axtags: Vec::new(),
                 module_path: None,
@@ -348,6 +404,7 @@ impl Parser {
         Ok(Decl::DSig {
             name,
             ty,
+            vis: Visibility::Private,
             nid: None,
             axtags: Vec::new(),
             module_path: None,
@@ -413,6 +470,7 @@ impl Parser {
             tyvars,
             constructors,
             deriving,
+            vis: Visibility::Private,
             nid: None,
             axtags: Vec::new(),
             module_path: None,
@@ -464,6 +522,7 @@ impl Parser {
             tyvars,
             fields,
             repr,
+            vis: Visibility::Private,
             nid: None,
             axtags: Vec::new(),
             module_path: None,
@@ -480,6 +539,7 @@ impl Parser {
             name,
             tyvars,
             alias,
+            vis: Visibility::Private,
             nid: None,
             axtags: Vec::new(),
             module_path: None,
@@ -501,6 +561,7 @@ impl Parser {
                 con_fields: ConFields::Positional(vec![inner_type]),
             }],
             deriving: Vec::new(),
+            vis: Visibility::Private,
             nid: None,
             axtags: Vec::new(),
             module_path: None,
@@ -597,6 +658,7 @@ impl Parser {
             supertraits,
             methods,
             effects,
+            vis: Visibility::Private,
             nid: None,
             axtags: Vec::new(),
             module_path: None,
@@ -652,6 +714,7 @@ impl Parser {
             ty,
             methods,
             effects,
+            vis: Visibility::Private,
             nid: None,
             axtags: Vec::new(),
             module_path: None,
@@ -691,6 +754,7 @@ impl Parser {
             name,
             ty,
             source,
+            vis: Visibility::Private,
             nid: None,
             axtags: Vec::new(),
             module_path: None,
@@ -721,6 +785,7 @@ impl Parser {
         Ok(Decl::DEffect {
             name,
             operations,
+            vis: Visibility::Private,
             nid: None,
             axtags: Vec::new(),
             module_path: None,
@@ -746,6 +811,7 @@ impl Parser {
             name,
             params: param_pattern,
             body,
+            vis: Visibility::Private,
             nid: None,
             axtags: Vec::new(),
             module_path: None,

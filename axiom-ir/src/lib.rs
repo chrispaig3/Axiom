@@ -220,11 +220,17 @@ pub enum IrInst {
     /// waterline, argument evaluation bumps it forward, and
     /// `ArenaCompact` moves the live args down to the saved waterline
     /// so they survive the `ArenaReset` that follows.
+    ///
+    /// `needs_compact` has one `bool` per root; true means the root
+    /// IS a tagged constructor cell and MUST be deep-copied, false
+    /// means the root is a raw struct pointer / immediate that should
+    /// pass through untouched.
     ArenaCompact {
         mark: IrValue,
         arena_end: IrValue,
         roots: Vec<IrValue>,
         results: Vec<IrValue>,
+        needs_compact: Vec<bool>,
     },
 
     // ========================================================

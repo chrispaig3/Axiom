@@ -4,16 +4,16 @@
 
 ;; when — conditionally evaluate body
 ;; (when test body) -> (if test body 0)
-(macro (when test body) (if test body 0))
+(pub macro (when test body) (if test body 0))
 
 ;; unless — evaluate body unless test is true  
 ;; (unless test body) -> (if test 0 body)
-(macro (unless test body) (if test 0 body))
+(pub macro (unless test body) (if test 0 body))
 
 ;; cond2 — two-condition branching plus else
 ;; (cond2 t1 b1 t2 b2 els) -> (if t1 b1 (if t2 b2 els))
-(macro (cond2 t1 b1 t2 b2 els) (if t1 b1 (if t2 b2 els)))
+(pub macro (cond2 t1 b1 t2 b2 els) (if t1 b1 (if t2 b2 els)))
 
 ;; cond3 — three-condition branching plus else
 ;; (cond3 t1 b1 t2 b2 t3 b3 els) -> (if t1 b1 (if t2 b2 (if t3 b3 els)))
-(macro (cond3 t1 b1 t2 b2 t3 b3 els) (if t1 b1 (if t2 b2 (if t3 b3 els))))
+(pub macro (cond3 t1 b1 t2 b2 t3 b3 els) (if t1 b1 (if t2 b2 (if t3 b3 els))))

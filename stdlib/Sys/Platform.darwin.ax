@@ -18,49 +18,49 @@
 ; both architectures.
 
 ; read(fd, buf, count) - BSD 3
-(:: sysRead Int)
-(fn (sysRead) 33554435)
+(pub :: sysRead Int)
+(pub fn (sysRead) 33554435)
 
 ; write(fd, buf, count) - BSD 4
-(:: sysWrite Int)
-(fn (sysWrite) 33554436)
+(pub :: sysWrite Int)
+(pub fn (sysWrite) 33554436)
 
 ; open(path, flags, mode) - BSD 5
-(:: sysOpen Int)
-(fn (sysOpen) 33554437)
+(pub :: sysOpen Int)
+(pub fn (sysOpen) 33554437)
 
 ; close(fd) - BSD 6
-(:: sysClose Int)
-(fn (sysClose) 33554438)
+(pub :: sysClose Int)
+(pub fn (sysClose) 33554438)
 
 ; exit(status) - BSD 1
-(:: sysExit Int)
-(fn (sysExit) 33554433)
+(pub :: sysExit Int)
+(pub fn (sysExit) 33554433)
 
 ; lseek(fd, offset, whence) - BSD 199
-(:: sysLseek Int)
-(fn (sysLseek) 33554631)
+(pub :: sysLseek Int)
+(pub fn (sysLseek) 33554631)
 
 ; Darwin has a real `open`, so no `openat` indirection is needed.
 ; `Sys.ax` branches on this rather than on an OS name, so adding a
 ; platform never means editing portable code.
-(:: openNeedsDirFd Int)
-(fn (openNeedsDirFd) 0)
+(pub :: openNeedsDirFd Int)
+(pub fn (openNeedsDirFd) 0)
 
 ; Unused on Darwin (see `openNeedsDirFd`), but defined so that
 ; `Sys.ax` type-checks against every platform module.
-(:: atFdCwd Int)
-(fn (atFdCwd) 0)
+(pub :: atFdCwd Int)
+(pub fn (atFdCwd) 0)
 
-(:: oRdonly Int)
-(fn (oRdonly) 0)
+(pub :: oRdonly Int)
+(pub fn (oRdonly) 0)
 
 ; O_WRONLY | O_CREAT | O_TRUNC = 0x0001 | 0x0200 | 0x0400
-(:: oWronlyCreateTrunc Int)
-(fn (oWronlyCreateTrunc) 1537)
+(pub :: oWronlyCreateTrunc Int)
+(pub fn (oWronlyCreateTrunc) 1537)
 
-(:: seekEnd Int)
-(fn (seekEnd) 2)
+(pub :: seekEnd Int)
+(pub fn (seekEnd) 2)
 
-(:: seekSet Int)
-(fn (seekSet) 0)
+(pub :: seekSet Int)
+(pub fn (seekSet) 0)

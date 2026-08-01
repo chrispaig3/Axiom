@@ -43,12 +43,12 @@
 ; is a single bump of the allocator. Starting at 1 or 2 would make those
 ; cases pay two or three reallocations each, and every reallocation leaks
 ; (see the module comment).
-(:: vecDefaultCap Int)
-(fn (vecDefaultCap) 8)
+(pub :: vecDefaultCap Int)
+(pub fn (vecDefaultCap) 8)
 
 ; An empty `Vec` with `vecDefaultCap` capacity.
-(:: vecNew Int)
-(fn (vecNew)
+(pub :: vecNew Int)
+(pub fn (vecNew)
   (vecWithCapacity vecDefaultCap))
 
 ; An empty `Vec` that can hold at least `cap` elements without growing.
@@ -58,8 +58,8 @@
 ; zero, so a zero-capacity vector would recurse forever the first time it
 ; was pushed to. Clamping at the constructor means `vecGrownCap` can rely
 ; on `cap >= 1` and needs no special case.
-(:: vecWithCapacity (-> Int Int))
-(fn (vecWithCapacity cap)
+(pub :: vecWithCapacity (-> Int Int))
+(pub fn (vecWithCapacity cap)
   (let ((n (if (< cap 1) 1 cap))
         (v (memAlloc 24)))
     {
@@ -73,12 +73,12 @@
 ; Accessors
 ; ------------------------------------------------------------------
 
-(:: vecLen (-> Int Int))
-(fn (vecLen v)
+(pub :: vecLen (-> Int Int))
+(pub fn (vecLen v)
   (memGetWord v 0))
 
-(:: vecCap (-> Int Int))
-(fn (vecCap v)
+(pub :: vecCap (-> Int Int))
+(pub fn (vecCap v)
   (memGetWord v 1))
 
 ; The address of the element block.
@@ -87,8 +87,8 @@
 ; vector without paying a bounds check per element needs it, and because
 ; hiding it would be pretend safety: the handle is an `Int`, so a caller
 ; that wants the data pointer can already read word 2 itself.
-(:: vecData (-> Int Int))
-(fn (vecData v)
+(pub :: vecData (-> Int Int))
+(pub fn (vecData v)
   (memGetWord v 2))
 
 ; The element at `i`, or 0 when `i` is out of range.
@@ -101,8 +101,8 @@
 ; process. A caller that stores 0 as a real element and needs to tell it
 ; from "absent" must check `vecLen` first; that is the honest cost of
 ; this choice, and it is stated rather than hidden.
-(:: vecGet (-> Int Int Int))
-(fn (vecGet v i)
+(pub :: vecGet (-> Int Int Int))
+(pub fn (vecGet v i)
   (if (< i 0)
       0
       (if (>= i (vecLen v))
@@ -115,8 +115,8 @@
 ; caller that meant to append should say `vecPush`, and silently
 ; extending on a stray index turns an off-by-one into a slow leak instead
 ; of a wrong answer that `vecLen` makes visible.
-(:: vecSet (-> Int Int Int Int))
-(fn (vecSet v i x)
+(pub :: vecSet (-> Int Int Int Int))
+(pub fn (vecSet v i x)
   (if (< i 0)
       v
       (if (>= i (vecLen v))
@@ -132,8 +132,8 @@
 
 ; Ensure `v` can hold `need` elements, reallocating if it cannot.
 ; Returns the handle.
-(:: vecReserve (-> Int Int Int))
-(fn (vecReserve v need)
+(pub :: vecReserve (-> Int Int Int))
+(pub fn (vecReserve v need)
   (if (<= need (vecCap v))
       v
       (vecReserveExactly v (vecGrownCap (vecCap v) need))))
@@ -148,8 +148,8 @@
 ; reallocations at log2(n).
 ;
 ; Terminates because `vecWithCapacity` guarantees `cap >= 1`.
-(:: vecGrownCap (-> Int Int Int))
-(fn (vecGrownCap cap need)
+(pub :: vecGrownCap (-> Int Int Int))
+(pub fn (vecGrownCap cap need)
   (if (>= cap need)
       cap
       (vecGrownCap (* cap 2) need)))
@@ -160,8 +160,8 @@
 ; unreachable through `vecGet`, so copying them would be pure cost. The
 ; new block comes from `memAlloc`, which zeroes, so the tail is 0 rather
 ; than whatever the arena last held there.
-(:: vecReserveExactly (-> Int Int Int))
-(fn (vecReserveExactly v newCap)
+(pub :: vecReserveExactly (-> Int Int Int))
+(pub fn (vecReserveExactly v newCap)
   (let ((bigger (memAlloc (* newCap 8))))
     {
       (memCopy bigger (vecData v) (* (vecLen v) 8))
@@ -181,8 +181,8 @@
 ; replaced the data pointer. Reading it into a `let` before the reserve
 ; would write the element into the abandoned block, and the bug would be
 ; invisible until the vector happened to grow.
-(:: vecPush (-> Int Int Int))
-(fn (vecPush v x)
+(pub :: vecPush (-> Int Int Int))
+(pub fn (vecPush v x)
   (let ((len (vecLen v)))
     {
       (vecReserve v (+ len 1))
@@ -200,8 +200,8 @@
 ; block, so a vector used as a stack settles at its high-water mark and
 ; then stops allocating entirely, which is what a recursive-descent
 ; parser wants.
-(:: vecPop (-> Int Int))
-(fn (vecPop v)
+(pub :: vecPop (-> Int Int))
+(pub fn (vecPop v)
   (let ((len (vecLen v)))
     (if (== len 0)
         0
@@ -212,8 +212,8 @@
           }))))
 
 ; The last element without removing it, or 0 if `v` is empty.
-(:: vecLast (-> Int Int))
-(fn (vecLast v)
+(pub :: vecLast (-> Int Int))
+(pub fn (vecLast v)
   (vecGet v (- (vecLen v) 1)))
 
 ; Drop every element, keeping the capacity. Returns the handle.
@@ -223,8 +223,8 @@
 ; zeroing would be O(cap) of work to make a debugger's view prettier.
 ; Keeping the capacity is the point: a `Vec` reused as scratch across
 ; many iterations allocates once in total.
-(:: vecClear (-> Int Int))
-(fn (vecClear v)
+(pub :: vecClear (-> Int Int))
+(pub fn (vecClear v)
   (memSetWord v 0 0))
 
 ; ------------------------------------------------------------------
@@ -238,12 +238,12 @@
 ; any bug that permutes elements passes - so tests pair it with indexed
 ; reads at the boundaries. `vecHash` is the position-sensitive companion
 ; for when order matters.
-(:: vecSum (-> Int Int))
-(fn (vecSum v)
+(pub :: vecSum (-> Int Int))
+(pub fn (vecSum v)
   (vecSumFrom v 0 0))
 
-(:: vecSumFrom (-> Int Int Int Int))
-(fn (vecSumFrom v i acc)
+(pub :: vecSumFrom (-> Int Int Int Int))
+(pub fn (vecSumFrom v i acc)
   (if (>= i (vecLen v))
       acc
       (vecSumFrom v (+ i 1) (+ acc (vecGet v i)))))
@@ -254,12 +254,12 @@
 ; `h * 31` cannot overflow `Int` (10^9 * 31 < 2^63). Unlike `vecSum` this
 ; changes when elements are reordered, which is what makes it usable as
 ; the single assertion in a test that cares about order.
-(:: vecHash (-> Int Int))
-(fn (vecHash v)
+(pub :: vecHash (-> Int Int))
+(pub fn (vecHash v)
   (vecHashFrom v 0 1))
 
-(:: vecHashFrom (-> Int Int Int Int))
-(fn (vecHashFrom v i h)
+(pub :: vecHashFrom (-> Int Int Int Int))
+(pub fn (vecHashFrom v i h)
   (if (>= i (vecLen v))
       h
       (vecHashFrom v (+ i 1) (% (+ (* h 31) (vecGet v i)) 1000000007))))

@@ -13,17 +13,17 @@
 ; Span: a half-open [start, end) range of byte offsets into a source
 ; file. End may equal start for a zero-width span (e.g. EOF token).
 ; ------------------------------------------------------------------
-(struct Span (start : Int) (end : Int))
+(pub struct Span (start : Int) (end : Int))
 
-(:: mkSpan (-> Int Int Int))
-(fn (mkSpan start end)
+(pub :: mkSpan (-> Int Int Int))
+(pub fn (mkSpan start end)
   (Span start end))
 
 ; ------------------------------------------------------------------
 ; TokenKind — nullary constructors, one per token shape.
 ; Every value is just a tag; the lexeme string lives in the Token struct.
 ; ------------------------------------------------------------------
-(data TokenKind
+(pub data TokenKind
   (TK_LPAREN)       ; (
   (TK_RPAREN)       ; )
   (TK_IDENT)        ; identifier or keyword
@@ -46,30 +46,30 @@
 ;   lexeme — Str (shared with source wherever possible)
 ;   span   — Span (byte range in source)
 ; ------------------------------------------------------------------
-(struct Token (kind : TokenKind) (lexeme : Int) (span : Int))
+(pub struct Token (kind : TokenKind) (lexeme : Int) (span : Int))
 
-(:: mkToken (-> TokenKind Int Int Int))
-(fn (mkToken kind lexeme span)
+(pub :: mkToken (-> TokenKind Int Int Int))
+(pub fn (mkToken kind lexeme span)
   (Token kind lexeme span))
 
 ; Token accessors for readability.
-(:: tokenKind   (-> Int TokenKind))
-(fn (tokenKind   t)
+(pub :: tokenKind   (-> Int TokenKind))
+(pub fn (tokenKind   t)
   (cast TokenKind (memGetWord t 0)))
-(:: tokenLexeme (-> Int Int)) (fn (tokenLexeme t) (memGetWord t 1))
-(:: tokenSpan   (-> Int Int)) (fn (tokenSpan   t) (memGetWord t 2))
-(:: spanStart   (-> Int Int)) (fn (spanStart   s) (memGetWord s 0))
-(:: spanEnd     (-> Int Int)) (fn (spanEnd     s) (memGetWord s 1))
+(pub :: tokenLexeme (-> Int Int)) (fn (tokenLexeme t) (memGetWord t 1))
+(pub :: tokenSpan   (-> Int Int)) (fn (tokenSpan   t) (memGetWord t 2))
+(pub :: spanStart   (-> Int Int)) (fn (spanStart   s) (memGetWord s 0))
+(pub :: spanEnd     (-> Int Int)) (fn (spanEnd     s) (memGetWord s 1))
 
 ; ------------------------------------------------------------------
 ; Convert a decimal digit Str to Int. Returns 0 on non-digit.
 ; ------------------------------------------------------------------
-(:: strToInt (-> Int Int))
-(fn (strToInt s)
+(pub :: strToInt (-> Int Int))
+(pub fn (strToInt s)
   (strToIntFrom s 0 0))
 
-(:: strToIntFrom (-> Int Int Int Int))
-(fn (strToIntFrom s i acc)
+(pub :: strToIntFrom (-> Int Int Int Int))
+(pub fn (strToIntFrom s i acc)
   (if (>= i (strLen s))
       acc
       (let ((ch (strByte s i)))
@@ -81,6 +81,6 @@
 ; Token list — linked list built during lexing.
 ; Built back-to-front for O(1) cons, then reversed once at the end.
 ; ------------------------------------------------------------------
-(data TokenList
+(pub data TokenList
   (TKNil)
   (TKCons Int Int))

@@ -29,8 +29,8 @@
 ; The caller keeps responsibility for `bytes` outliving the `Str` and
 ; for the NUL terminator at `bytes[len]`. Every other constructor in
 ; this module goes through here.
-(:: strWrap (-> Int Int Int))
-(fn (strWrap bytes len)
+(pub :: strWrap (-> Int Int Int))
+(pub fn (strWrap bytes len)
   (let ((s (memAlloc 16)))
     {
       (memSetWord s 0 len)
@@ -42,8 +42,8 @@
 ;
 ; `len + 1` bytes are reserved so the NUL terminator never overwrites
 ; payload; the allocator zeroes, so the terminator is already in place.
-(:: strAlloc (-> Int Int))
-(fn (strAlloc len)
+(pub :: strAlloc (-> Int Int))
+(pub fn (strAlloc len)
   (strWrap (memAlloc (+ len 1)) len))
 
 ; A `Str` sharing the bytes of a NUL-terminated literal.
@@ -51,13 +51,13 @@
 ; Use as `(strFromLit (__addr "hello"))`. Cost is one scan for the
 ; length; the bytes themselves are never copied, so a literal used as a
 ; `Str` costs 16 bytes of header and nothing else.
-(:: strFromLit (-> Int Int))
-(fn (strFromLit cstr)
+(pub :: strFromLit (-> Int Int))
+(pub fn (strFromLit cstr)
   (strWrap cstr (cstrLen cstr 0)))
 
 ; Length of NUL-terminated bytes at `addr`, scanning from `i`.
-(:: cstrLen (-> Int Int Int))
-(fn (cstrLen addr i)
+(pub :: cstrLen (-> Int Int Int))
+(pub fn (cstrLen addr i)
   (if (== (__load8 addr i) 0)
       i
       (cstrLen addr (+ i 1))))
@@ -66,12 +66,12 @@
 ; Accessors
 ; ------------------------------------------------------------------
 
-(:: strLen (-> Int Int))
-(fn (strLen s)
+(pub :: strLen (-> Int Int))
+(pub fn (strLen s)
   (memGetWord s 0))
 
-(:: strData (-> Int Int))
-(fn (strData s)
+(pub :: strData (-> Int Int))
+(pub fn (strData s)
   (memGetWord s 1))
 
 ; The byte at `i`, or 0 when `i` is out of range.
@@ -79,8 +79,8 @@
 ; Out-of-range reads return 0 rather than trapping because the callers
 ; that matter - a lexer's lookahead - want "one past the end" to behave
 ; like an end-of-input sentinel, and NUL is already that sentinel here.
-(:: strByte (-> Int Int Int))
-(fn (strByte s i)
+(pub :: strByte (-> Int Int Int))
+(pub fn (strByte s i)
   (if (< i 0)
       0
       (if (>= i (strLen s))
@@ -91,12 +91,12 @@
 ; syscall.
 ;
 ; Free: every `Str` this module builds is already NUL-terminated.
-(:: strCStr (-> Int Int))
-(fn (strCStr s)
+(pub :: strCStr (-> Int Int))
+(pub fn (strCStr s)
   (strData s))
 
-(:: strIsEmpty (-> Int Bool))
-(fn (strIsEmpty s)
+(pub :: strIsEmpty (-> Int Bool))
+(pub fn (strIsEmpty s)
   (== (strLen s) 0))
 
 ; ------------------------------------------------------------------
@@ -106,16 +106,16 @@
 ; 0 when equal; otherwise negative if `a` sorts before `b`, positive if
 ; after - lexicographic by unsigned byte, with a shorter prefix sorting
 ; first.
-(:: strCmp (-> Int Int Int))
-(fn (strCmp a b)
+(pub :: strCmp (-> Int Int Int))
+(pub fn (strCmp a b)
   (let ((la (strLen a))
         (lb (strLen b)))
     (let ((shared (if (< la lb) la lb)))
       (let ((diff (memCmp (strData a) (strData b) shared)))
         (if (!= diff 0) diff (- la lb))))))
 
-(:: strEq (-> Int Int Bool))
-(fn (strEq a b)
+(pub :: strEq (-> Int Int Bool))
+(pub fn (strEq a b)
   (== (strCmp a b) 0))
 
 ; ------------------------------------------------------------------
@@ -132,8 +132,8 @@
 ;
 ; `start` and `count` are clamped to `s`, so an out-of-range slice is
 ; empty rather than a read of unrelated memory.
-(:: strSlice (-> Int Int Int Int))
-(fn (strSlice s start count)
+(pub :: strSlice (-> Int Int Int Int))
+(pub fn (strSlice s start count)
   (let ((len (strLen s)))
     (let ((from (if (< start 0) 0 (if (> start len) len start))))
       (let ((avail (- len from)))
@@ -141,8 +141,8 @@
           (strWrap (+ (strData s) from) n))))))
 
 ; An owned, NUL-terminated copy of `s`.
-(:: strDup (-> Int Int))
-(fn (strDup s)
+(pub :: strDup (-> Int Int))
+(pub fn (strDup s)
   (let ((len (strLen s)))
     (let ((out (strAlloc len)))
       {
@@ -150,8 +150,8 @@
         out
       })))
 
-(:: strConcat (-> Int Int Int))
-(fn (strConcat a b)
+(pub :: strConcat (-> Int Int Int))
+(pub fn (strConcat a b)
   (let ((la (strLen a))
         (lb (strLen b)))
     (let ((out (strAlloc (+ la lb))))
@@ -166,16 +166,16 @@
 ; ------------------------------------------------------------------
 
 ; Index of the first `byte` at or after `from`, or -1.
-(:: strFindByte (-> Int Int Int Int))
-(fn (strFindByte s byte from)
+(pub :: strFindByte (-> Int Int Int Int))
+(pub fn (strFindByte s byte from)
   (if (>= from (strLen s))
       (- 0 1)
       (if (== (strByte s from) byte)
           from
           (strFindByte s byte (+ from 1)))))
 
-(:: strStartsWith (-> Int Int Bool))
-(fn (strStartsWith s prefix)
+(pub :: strStartsWith (-> Int Int Bool))
+(pub fn (strStartsWith s prefix)
   (let ((lp (strLen prefix)))
     (if (> lp (strLen s))
         false

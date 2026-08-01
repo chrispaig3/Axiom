@@ -1,9 +1,9 @@
 ; The string layer: length-prefixed, NUL-terminated, slice-by-sharing.
 (import IO)
 
-(:: main Int)
+(pub :: main Int)
 ;@axiom:effect(io)
-(fn (main)
+(pub fn (main)
   (let ((hello (strFromLit (__addr "hello")))
         (world (strFromLit (__addr "world"))))
     {

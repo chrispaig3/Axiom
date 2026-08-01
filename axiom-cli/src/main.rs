@@ -7,6 +7,7 @@ use axiom_codegen::{LlvmCodeGen, Target};
 use axiom_errors::{Diagnostic, DiagnosticFormat, SymbolFact, SymbolKind};
 use axiom_ir::generator::IrGen;
 use axiom_lexer::Lexer;
+use axiom_ast::ast::Visibility;
 use axiom_parser::{DeclOrExpr, Parser};
 use axiom_sema::{TypeChecker, TypeId};
 
@@ -67,7 +68,7 @@ enum Commands {
         output: String,
         #[arg(long)]
         emit_llvm: bool,
-        #[arg(short, long, default_value = "0")]
+        #[arg(short, long, default_value = "1")]
         opt: u8,
     },
     /// Run a source file directly
@@ -608,6 +609,23 @@ fn resolve_imports_into(
         if names.is_empty() {
             let module_path = dotted.clone();
             for mut decl in imported_module.decls {
+                // Only import public declarations
+                if !matches!(
+                    &decl,
+                    Decl::DFn { vis: Visibility::Pub, .. }
+                        | Decl::DData { vis: Visibility::Pub, .. }
+                        | Decl::DStruct { vis: Visibility::Pub, .. }
+                        | Decl::DType { vis: Visibility::Pub, .. }
+                        | Decl::DTrait { vis: Visibility::Pub, .. }
+                        | Decl::DImpl { vis: Visibility::Pub, .. }
+                        | Decl::DSig { vis: Visibility::Pub, .. }
+                        | Decl::DMacro { vis: Visibility::Pub, .. }
+                        | Decl::DForeign { vis: Visibility::Pub, .. }
+                        | Decl::DEffect { vis: Visibility::Pub, .. }
+                        | Decl::DImport { .. }
+                ) {
+                    continue;
+                }
                 match &mut decl {
                     Decl::DData { module_path: m, .. }
                     | Decl::DStruct { module_path: m, .. }

@@ -1,9 +1,9 @@
 ; The freestanding "hello world": no `foreign`, no libc, no printf.
 (import IO)
 
-(:: main Int)
+(pub :: main Int)
 ;@axiom:effect(io)
-(fn (main)
+(pub fn (main)
   {
     (printlnLit (__addr "hello, world"))
     (println (strFromLit (__addr "and hello again")))

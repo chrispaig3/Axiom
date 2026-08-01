@@ -8,43 +8,43 @@
 ;
 ; Numbers from the kernel's `arch/x86/entry/syscalls/syscall_64.tbl`.
 
-(:: sysRead Int)
-(fn (sysRead) 0)
+(pub :: sysRead Int)
+(pub fn (sysRead) 0)
 
-(:: sysWrite Int)
-(fn (sysWrite) 1)
+(pub :: sysWrite Int)
+(pub fn (sysWrite) 1)
 
-(:: sysOpen Int)
-(fn (sysOpen) 2)
+(pub :: sysOpen Int)
+(pub fn (sysOpen) 2)
 
-(:: sysClose Int)
-(fn (sysClose) 3)
+(pub :: sysClose Int)
+(pub fn (sysClose) 3)
 
 ; exit_group, not exit: `exit` terminates the calling thread only, which
 ; leaves a multi-threaded process alive with no way to notice. 231 is
 ; correct for a single-threaded program too.
-(:: sysExit Int)
-(fn (sysExit) 231)
+(pub :: sysExit Int)
+(pub fn (sysExit) 231)
 
-(:: sysLseek Int)
-(fn (sysLseek) 8)
+(pub :: sysLseek Int)
+(pub fn (sysLseek) 8)
 
 ; x86-64 still has plain `open`.
-(:: openNeedsDirFd Int)
-(fn (openNeedsDirFd) 0)
+(pub :: openNeedsDirFd Int)
+(pub fn (openNeedsDirFd) 0)
 
-(:: atFdCwd Int)
-(fn (atFdCwd) 0)
+(pub :: atFdCwd Int)
+(pub fn (atFdCwd) 0)
 
-(:: oRdonly Int)
-(fn (oRdonly) 0)
+(pub :: oRdonly Int)
+(pub fn (oRdonly) 0)
 
 ; O_WRONLY | O_CREAT | O_TRUNC = 0x1 | 0x40 | 0x200
-(:: oWronlyCreateTrunc Int)
-(fn (oWronlyCreateTrunc) 577)
+(pub :: oWronlyCreateTrunc Int)
+(pub fn (oWronlyCreateTrunc) 577)
 
-(:: seekEnd Int)
-(fn (seekEnd) 2)
+(pub :: seekEnd Int)
+(pub fn (seekEnd) 2)
 
-(:: seekSet Int)
-(fn (seekSet) 0)
+(pub :: seekSet Int)
+(pub fn (seekSet) 0)

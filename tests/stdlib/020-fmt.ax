@@ -1,9 +1,9 @@
 ; Integer formatting, which used to require a variadic C `printf`.
 (import IO)
 
-(:: main Int)
+(pub :: main Int)
 ;@axiom:effect(io)
-(fn (main)
+(pub fn (main)
   {
     (printlnInt 0)
     (printlnInt 7)

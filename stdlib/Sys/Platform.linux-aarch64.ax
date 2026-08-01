@@ -5,45 +5,45 @@
 ; `include/uapi/asm-generic/unistd.h` table that AArch64 uses, and are
 ; deliberately *not* shared with x86-64, which has its own table.
 
-(:: sysRead Int)
-(fn (sysRead) 63)
+(pub :: sysRead Int)
+(pub fn (sysRead) 63)
 
-(:: sysWrite Int)
-(fn (sysWrite) 64)
+(pub :: sysWrite Int)
+(pub fn (sysWrite) 64)
 
 ; AArch64's generic syscall table has no plain `open` at all - only
 ; `openat` (56). `Sys.ax` adapts by prepending a directory fd when
 ; `openNeedsDirFd` says to, so nothing above this file has to know.
-(:: sysOpen Int)
-(fn (sysOpen) 56)
+(pub :: sysOpen Int)
+(pub fn (sysOpen) 56)
 
-(:: sysClose Int)
-(fn (sysClose) 57)
+(pub :: sysClose Int)
+(pub fn (sysClose) 57)
 
 ; exit_group (94), not exit (93) - see the x86-64 module for why.
-(:: sysExit Int)
-(fn (sysExit) 94)
+(pub :: sysExit Int)
+(pub fn (sysExit) 94)
 
-(:: sysLseek Int)
-(fn (sysLseek) 62)
+(pub :: sysLseek Int)
+(pub fn (sysLseek) 62)
 
-(:: openNeedsDirFd Int)
-(fn (openNeedsDirFd) 1)
+(pub :: openNeedsDirFd Int)
+(pub fn (openNeedsDirFd) 1)
 
 ; AT_FDCWD is -100: resolve a relative path against the current
 ; working directory.
-(:: atFdCwd Int)
-(fn (atFdCwd) (- 0 100))
+(pub :: atFdCwd Int)
+(pub fn (atFdCwd) (- 0 100))
 
-(:: oRdonly Int)
-(fn (oRdonly) 0)
+(pub :: oRdonly Int)
+(pub fn (oRdonly) 0)
 
 ; O_WRONLY | O_CREAT | O_TRUNC = 0x1 | 0x40 | 0x200
-(:: oWronlyCreateTrunc Int)
-(fn (oWronlyCreateTrunc) 577)
+(pub :: oWronlyCreateTrunc Int)
+(pub fn (oWronlyCreateTrunc) 577)
 
-(:: seekEnd Int)
-(fn (seekEnd) 2)
+(pub :: seekEnd Int)
+(pub fn (seekEnd) 2)
 
-(:: seekSet Int)
-(fn (seekSet) 0)
+(pub :: seekSet Int)
+(pub fn (seekSet) 0)

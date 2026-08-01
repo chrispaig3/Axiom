@@ -12,77 +12,77 @@
 ; ------------------------------------------------------------------
 ; AST node: tagged union. tag + a,b,c fields. Unused = 0.
 ; ------------------------------------------------------------------
-(struct ASTNode (tag : Int) (a : Int) (b : Int) (c : Int))
+(pub struct ASTNode (tag : Int) (a : Int) (b : Int) (c : Int))
 
 ; Node tags.
-(:: TAG_NIL Int)       (fn (TAG_NIL) 0)
-(:: TAG_E_INT Int)     (fn (TAG_E_INT) 1)
-(:: TAG_E_STR Int)     (fn (TAG_E_STR) 2)
-(:: TAG_E_VAR Int)     (fn (TAG_E_VAR) 3)
-(:: TAG_E_APP Int)     (fn (TAG_E_APP) 4)
-(:: TAG_E_LAM Int)     (fn (TAG_E_LAM) 5)
-(:: TAG_E_LET Int)     (fn (TAG_E_LET) 6)
-(:: TAG_E_IF Int)      (fn (TAG_E_IF) 7)
-(:: TAG_E_BEGIN Int)   (fn (TAG_E_BEGIN) 8)
-(:: TAG_E_QUOTE Int)   (fn (TAG_E_QUOTE) 9)
-(:: TAG_E_MATCH Int)   (fn (TAG_E_MATCH) 16)
-(:: TAG_D_FN Int)      (fn (TAG_D_FN) 10)
-(:: TAG_D_SIG Int)     (fn (TAG_D_SIG) 11)
-(:: TAG_D_DATA Int)    (fn (TAG_D_DATA) 12)
-(:: TAG_D_STRUCT Int)  (fn (TAG_D_STRUCT) 13)
-(:: TAG_D_IMPORT Int)  (fn (TAG_D_IMPORT) 14)
-(:: TAG_D_MACRO Int)   (fn (TAG_D_MACRO) 15)
+(pub :: TAG_NIL Int)       (fn (TAG_NIL) 0)
+(pub :: TAG_E_INT Int)     (fn (TAG_E_INT) 1)
+(pub :: TAG_E_STR Int)     (fn (TAG_E_STR) 2)
+(pub :: TAG_E_VAR Int)     (fn (TAG_E_VAR) 3)
+(pub :: TAG_E_APP Int)     (fn (TAG_E_APP) 4)
+(pub :: TAG_E_LAM Int)     (fn (TAG_E_LAM) 5)
+(pub :: TAG_E_LET Int)     (fn (TAG_E_LET) 6)
+(pub :: TAG_E_IF Int)      (fn (TAG_E_IF) 7)
+(pub :: TAG_E_BEGIN Int)   (fn (TAG_E_BEGIN) 8)
+(pub :: TAG_E_QUOTE Int)   (fn (TAG_E_QUOTE) 9)
+(pub :: TAG_E_MATCH Int)   (fn (TAG_E_MATCH) 16)
+(pub :: TAG_D_FN Int)      (fn (TAG_D_FN) 10)
+(pub :: TAG_D_SIG Int)     (fn (TAG_D_SIG) 11)
+(pub :: TAG_D_DATA Int)    (fn (TAG_D_DATA) 12)
+(pub :: TAG_D_STRUCT Int)  (fn (TAG_D_STRUCT) 13)
+(pub :: TAG_D_IMPORT Int)  (fn (TAG_D_IMPORT) 14)
+(pub :: TAG_D_MACRO Int)   (fn (TAG_D_MACRO) 15)
 
-(:: nodeTag (-> Int Int))   (fn (nodeTag n) (memGetWord n 0))
-(:: nodeA   (-> Int Int))   (fn (nodeA   n) (memGetWord n 1))
-(:: nodeB   (-> Int Int))   (fn (nodeB   n) (memGetWord n 2))
-(:: nodeC   (-> Int Int))   (fn (nodeC   n) (memGetWord n 3))
+(pub :: nodeTag (-> Int Int))   (fn (nodeTag n) (memGetWord n 0))
+(pub :: nodeA   (-> Int Int))   (fn (nodeA   n) (memGetWord n 1))
+(pub :: nodeB   (-> Int Int))   (fn (nodeB   n) (memGetWord n 2))
+(pub :: nodeC   (-> Int Int))   (fn (nodeC   n) (memGetWord n 3))
 
-(:: mkNode (-> Int Int Int Int Int))  (fn (mkNode t a b c) (ASTNode t a b c))
-(:: mkEInt (-> Int Int))              (fn (mkEInt v)     (mkNode TAG_E_INT v 0 0))
-(:: mkEStr (-> Int Int))              (fn (mkEStr s)     (mkNode TAG_E_STR s 0 0))
-(:: mkEVar (-> Int Int))              (fn (mkEVar n)     (mkNode TAG_E_VAR n 0 0))
-(:: mkEApp (-> Int Int Int))          (fn (mkEApp f x)   (mkNode TAG_E_APP f x 0))
-(:: mkELam (-> Int Int Int))          (fn (mkELam p b)   (mkNode TAG_E_LAM p b 0))
-(:: mkELet (-> Int Int Int Int))      (fn (mkELet n v b) (mkNode TAG_E_LET n v b))
-(:: mkEIf  (-> Int Int Int Int))      (fn (mkEIf  t c a) (mkNode TAG_E_IF  t c a))
-(:: mkEBegin (-> Int Int))            (fn (mkEBegin xs)  (mkNode TAG_E_BEGIN xs 0 0))
-(:: mkDFn   (-> Int Int Int))         (fn (mkDFn n b)    (mkNode TAG_D_FN n b 0))
-(:: mkDSig  (-> Int Int Int))         (fn (mkDSig n t)   (mkNode TAG_D_SIG n t 0))
-(:: mkDImport (-> Int Int Int))       (fn (mkDImport m ns) (mkNode TAG_D_IMPORT m ns 0))
+(pub :: mkNode (-> Int Int Int Int Int))  (fn (mkNode t a b c) (ASTNode t a b c))
+(pub :: mkEInt (-> Int Int))              (fn (mkEInt v)     (mkNode TAG_E_INT v 0 0))
+(pub :: mkEStr (-> Int Int))              (fn (mkEStr s)     (mkNode TAG_E_STR s 0 0))
+(pub :: mkEVar (-> Int Int))              (fn (mkEVar n)     (mkNode TAG_E_VAR n 0 0))
+(pub :: mkEApp (-> Int Int Int))          (fn (mkEApp f x)   (mkNode TAG_E_APP f x 0))
+(pub :: mkELam (-> Int Int Int))          (fn (mkELam p b)   (mkNode TAG_E_LAM p b 0))
+(pub :: mkELet (-> Int Int Int Int))      (fn (mkELet n v b) (mkNode TAG_E_LET n v b))
+(pub :: mkEIf  (-> Int Int Int Int))      (fn (mkEIf  t c a) (mkNode TAG_E_IF  t c a))
+(pub :: mkEBegin (-> Int Int))            (fn (mkEBegin xs)  (mkNode TAG_E_BEGIN xs 0 0))
+(pub :: mkDFn   (-> Int Int Int))         (fn (mkDFn n b)    (mkNode TAG_D_FN n b 0))
+(pub :: mkDSig  (-> Int Int Int))         (fn (mkDSig n t)   (mkNode TAG_D_SIG n t 0))
+(pub :: mkDImport (-> Int Int Int))       (fn (mkDImport m ns) (mkNode TAG_D_IMPORT m ns 0))
 
 ; ------------------------------------------------------------------
 ; Parse result.
 ; ------------------------------------------------------------------
-(struct PResult (ok : Int) (value : Int) (pos : Int))
+(pub struct PResult (ok : Int) (value : Int) (pos : Int))
 
-(:: pOk (-> Int Int Int))     (fn (pOk v p) (PResult 1 v p))
-(:: pErr (-> Int Int))        (fn (pErr p)   (PResult 0 0 p))
+(pub :: pOk (-> Int Int Int))     (fn (pOk v p) (PResult 1 v p))
+(pub :: pErr (-> Int Int))        (fn (pErr p)   (PResult 0 0 p))
 
 ; ------------------------------------------------------------------
 ; Token helpers.
 ; ------------------------------------------------------------------
-(:: kindInt (-> TokenKind Int))
-(fn (kindInt k) (cast Int k))
+(pub :: kindInt (-> TokenKind Int))
+(pub fn (kindInt k) (cast Int k))
 
-(:: peekToken (-> Int Int Int))
-(fn (peekToken tokens pos)
+(pub :: peekToken (-> Int Int Int))
+(pub fn (peekToken tokens pos)
   (if (>= pos (vecLen tokens)) 0 (vecGet tokens pos)))
 
-(:: peekIs (-> Int Int TokenKind Bool))
-(fn (peekIs tokens pos kind)
+(pub :: peekIs (-> Int Int TokenKind Bool))
+(pub fn (peekIs tokens pos kind)
   (let ((t (peekToken tokens pos)))
     (if (== t 0)
         (== (kindInt TK_EOF) (kindInt kind))
         (== (kindInt (tokenKind t)) (kindInt kind)))))
 
-(:: advance (-> Int Int)) (fn (advance p) (+ p 1))
+(pub :: advance (-> Int Int)) (fn (advance p) (+ p 1))
 
 ; ------------------------------------------------------------------
 ; Skip to matching close-paren. depth starts at 1.
 ; ------------------------------------------------------------------
-(:: skipParens (-> Int Int Int Int))
-(fn (skipParens tokens pos depth)
+(pub :: skipParens (-> Int Int Int Int))
+(pub fn (skipParens tokens pos depth)
   (if (>= pos (vecLen tokens)) (pErr pos)
   (if (peekIs tokens pos TK_RPAREN)
       (if (== depth 1) (pOk 0 (advance pos))
@@ -94,8 +94,8 @@
 ; ------------------------------------------------------------------
 ; Parse literals.
 ; ------------------------------------------------------------------
-(:: parseLit (-> Int Int Int))
-(fn (parseLit tokens pos)
+(pub :: parseLit (-> Int Int Int))
+(pub fn (parseLit tokens pos)
   (if (peekIs tokens pos TK_INT)
       (let ((t (vecGet tokens pos)))
         (pOk (mkEInt (strToInt (tokenLexeme t))) (advance pos)))
@@ -104,8 +104,8 @@
         (pOk (mkEStr (tokenLexeme t)) (advance pos)))
   (pErr pos))))
 
-(:: parseIdentRef (-> Int Int Int))
-(fn (parseIdentRef tokens pos)
+(pub :: parseIdentRef (-> Int Int Int))
+(pub fn (parseIdentRef tokens pos)
   (if (peekIs tokens pos TK_IDENT)
       (let ((t (vecGet tokens pos)))
         (pOk (mkEVar (tokenLexeme t)) (advance pos)))
@@ -114,8 +114,8 @@
 ; ------------------------------------------------------------------
 ; Parse an identifier token, returning the lexeme Str handle.
 ; ------------------------------------------------------------------
-(:: parseIdentName (-> Int Int Int))
-(fn (parseIdentName tokens pos)
+(pub :: parseIdentName (-> Int Int Int))
+(pub fn (parseIdentName tokens pos)
   (if (peekIs tokens pos TK_IDENT)
       (let ((t (vecGet tokens pos)))
         (pOk (tokenLexeme t) (advance pos)))
@@ -124,8 +124,8 @@
 ; ------------------------------------------------------------------
 ; Parse a list of identifiers until ), returning a Vec of Str handles.
 ; ------------------------------------------------------------------
-(:: parseIdentList (-> Int Int Int Int))
-(fn (parseIdentList tokens pos acc)
+(pub :: parseIdentList (-> Int Int Int Int))
+(pub fn (parseIdentList tokens pos acc)
   (if (peekIs tokens pos TK_RPAREN)
       (pOk acc (advance pos))
   (if (peekIs tokens pos TK_IDENT)
@@ -137,8 +137,8 @@
 ; ------------------------------------------------------------------
 ; Parse an expression list until ), returning a Vec of Expr handles.
 ; ------------------------------------------------------------------
-(:: parseExprList (-> Int Int Int Int))
-(fn (parseExprList tokens pos acc)
+(pub :: parseExprList (-> Int Int Int Int))
+(pub fn (parseExprList tokens pos acc)
   (if (peekIs tokens pos TK_RPAREN)
       (pOk acc (advance pos))
   (if (peekIs tokens pos TK_EOF)
@@ -152,33 +152,33 @@
 ; ------------------------------------------------------------------
 ; Keyword string literals for comparison.
 ; ------------------------------------------------------------------
-(:: kwFn    Int) (fn (kwFn)    (strFromLit (__addr "fn")))
-(:: kwData  Int) (fn (kwData)  (strFromLit (__addr "data")))
-(:: kwStruct Int)(fn (kwStruct)(strFromLit (__addr "struct")))
-(:: kwLet   Int) (fn (kwLet)   (strFromLit (__addr "let")))
-(:: kwIf    Int) (fn (kwIf)    (strFromLit (__addr "if")))
-(:: kwMatch Int) (fn (kwMatch) (strFromLit (__addr "match")))
-(:: kwImport Int)(fn (kwImport)(strFromLit (__addr "import")))
-(:: kwMacro Int) (fn (kwMacro) (strFromLit (__addr "macro")))
-(:: kwBegin Int) (fn (kwBegin) (strFromLit (__addr "begin")))
+(pub :: kwFn    Int) (fn (kwFn)    (strFromLit (__addr "fn")))
+(pub :: kwData  Int) (fn (kwData)  (strFromLit (__addr "data")))
+(pub :: kwStruct Int)(fn (kwStruct)(strFromLit (__addr "struct")))
+(pub :: kwLet   Int) (fn (kwLet)   (strFromLit (__addr "let")))
+(pub :: kwIf    Int) (fn (kwIf)    (strFromLit (__addr "if")))
+(pub :: kwMatch Int) (fn (kwMatch) (strFromLit (__addr "match")))
+(pub :: kwImport Int)(fn (kwImport)(strFromLit (__addr "import")))
+(pub :: kwMacro Int) (fn (kwMacro) (strFromLit (__addr "macro")))
+(pub :: kwBegin Int) (fn (kwBegin) (strFromLit (__addr "begin")))
 
-(:: kwEq (-> Int Int Bool))
-(fn (kwEq name lit)
+(pub :: kwEq (-> Int Int Bool))
+(pub fn (kwEq name lit)
   (strEq name lit))
 
 ; ------------------------------------------------------------------
 ; Top-level declaration parse: (keyword ...)
 ; ------------------------------------------------------------------
-(:: parseDecl (-> Int Int Int))
-(fn (parseDecl tokens pos)
+(pub :: parseDecl (-> Int Int Int))
+(pub fn (parseDecl tokens pos)
   (if (peekIs tokens pos TK_EOF)
       (pOk 0 pos)
   (if (peekIs tokens pos TK_LPAREN)
       (parseTopForm tokens (advance pos))
   (pErr pos))))
 
-(:: parseTopForm (-> Int Int Int))
-(fn (parseTopForm tokens pos)
+(pub :: parseTopForm (-> Int Int Int))
+(pub fn (parseTopForm tokens pos)
   (if (peekIs tokens pos TK_DOUBLE_COLON)
       (parseSigDecl tokens (advance pos))
   (if (peekIs tokens pos TK_IDENT)
@@ -200,8 +200,8 @@
 ; ------------------------------------------------------------------
 ; Parse (:: name (-> ...))
 ; ------------------------------------------------------------------
-(:: parseSigDecl (-> Int Int Int))
-(fn (parseSigDecl tokens pos)
+(pub :: parseSigDecl (-> Int Int Int))
+(pub fn (parseSigDecl tokens pos)
   (let ((nr (parseIdentName tokens pos)))
     (if (== (memGetWord nr 0) 0) nr
         (let ((name (memGetWord nr 1))
@@ -213,8 +213,8 @@
 ; ------------------------------------------------------------------
 ; Parse (import Module (names...))
 ; ------------------------------------------------------------------
-(:: parseImportDecl (-> Int Int Int))
-(fn (parseImportDecl tokens pos)
+(pub :: parseImportDecl (-> Int Int Int))
+(pub fn (parseImportDecl tokens pos)
   (let ((mr (parseIdentName tokens pos)))
     (if (== (memGetWord mr 0) 0) mr
         (let ((modName (memGetWord mr 1))
@@ -234,8 +234,8 @@
 ; ------------------------------------------------------------------
 ; Parse (fn (name args...) body) at top level.
 ; ------------------------------------------------------------------
-(:: parseFnDecl (-> Int Int Int Int))
-(fn (parseFnDecl tokens pos kwName)
+(pub :: parseFnDecl (-> Int Int Int Int))
+(pub fn (parseFnDecl tokens pos kwName)
   (if (peekIs tokens pos TK_LPAREN)
       (let ((headerStart (advance pos)))
         (let ((nr (parseIdentName tokens headerStart)))
@@ -257,8 +257,8 @@
 ; ------------------------------------------------------------------
 ; Expression parsing.
 ; ------------------------------------------------------------------
-(:: parseExpr (-> Int Int Int))
-(fn (parseExpr tokens pos)
+(pub :: parseExpr (-> Int Int Int))
+(pub fn (parseExpr tokens pos)
   (if (peekIs tokens pos TK_INT)
       (parseLit tokens pos)
   (if (peekIs tokens pos TK_STRING)
@@ -274,14 +274,14 @@
 ; ------------------------------------------------------------------
 ; Parse an S-expression: dispatch on first token.
 ; ------------------------------------------------------------------
-(:: parseSExpr (-> Int Int Int))
-(fn (parseSExpr tokens pos)
+(pub :: parseSExpr (-> Int Int Int))
+(pub fn (parseSExpr tokens pos)
   (if (peekIs tokens pos TK_LPAREN)
       (parseInner tokens (advance pos))
   (pErr pos)))
 
-(:: parseInner (-> Int Int Int))
-(fn (parseInner tokens pos)
+(pub :: parseInner (-> Int Int Int))
+(pub fn (parseInner tokens pos)
   (if (peekIs tokens pos TK_IDENT)
       (let ((kw (vecGet tokens pos)))
         (let ((name (tokenLexeme kw)))
@@ -303,8 +303,8 @@
 ; ------------------------------------------------------------------
 ; Parse (fn (args...) body) as lambda expression.
 ; ------------------------------------------------------------------
-(:: parseLamExpr (-> Int Int Int))
-(fn (parseLamExpr tokens pos)
+(pub :: parseLamExpr (-> Int Int Int))
+(pub fn (parseLamExpr tokens pos)
   (if (peekIs tokens pos TK_LPAREN)
       (let ((paramsR (parseIdentList tokens (advance pos) vecNew)))
         (if (== (memGetWord paramsR 0) 0) paramsR
@@ -322,8 +322,8 @@
 ; ------------------------------------------------------------------
 ; Parse (let ((name val) ...) body)
 ; ------------------------------------------------------------------
-(:: parseLetExpr (-> Int Int Int))
-(fn (parseLetExpr tokens pos)
+(pub :: parseLetExpr (-> Int Int Int))
+(pub fn (parseLetExpr tokens pos)
   (if (peekIs tokens pos TK_LPAREN)
       (let ((bindList (advance pos)))
         (let ((bindR (parseLetBindings tokens bindList)))
@@ -341,8 +341,8 @@
 
 ; Parse ((name val) ...) within let, returning a Vec of (name, val) pairs or a single name.
 ; For now, just handle single-binding let.
-(:: parseLetBindings (-> Int Int Int))
-(fn (parseLetBindings tokens pos)
+(pub :: parseLetBindings (-> Int Int Int))
+(pub fn (parseLetBindings tokens pos)
   (if (peekIs tokens pos TK_RPAREN)
       (pOk 0 (advance pos))
   (if (peekIs tokens pos TK_LPAREN)
@@ -363,8 +363,8 @@
 ; ------------------------------------------------------------------
 ; Parse (if test then else)
 ; ------------------------------------------------------------------
-(:: parseIfExpr (-> Int Int Int))
-(fn (parseIfExpr tokens pos)
+(pub :: parseIfExpr (-> Int Int Int))
+(pub fn (parseIfExpr tokens pos)
   (let ((testR (parseExpr tokens pos)))
     (if (== (memGetWord testR 0) 0) testR
         (let ((test (memGetWord testR 1))
@@ -384,8 +384,8 @@
 ; ------------------------------------------------------------------
 ; Parse (match scrutinee (pat body) ...)
 ; ------------------------------------------------------------------
-(:: parseMatchExpr (-> Int Int Int))
-(fn (parseMatchExpr tokens pos)
+(pub :: parseMatchExpr (-> Int Int Int))
+(pub fn (parseMatchExpr tokens pos)
   (let ((scrutR (parseExpr tokens pos)))
     (if (== (memGetWord scrutR 0) 0) scrutR
         (let ((scrut (memGetWord scrutR 1))
@@ -398,8 +398,8 @@
                       (pOk (mkNode TAG_E_MATCH scrut arms 0) (advance afterArms))
                       (pErr afterArms)))))))))
 
-(:: parseMatchArms (-> Int Int Int Int))
-(fn (parseMatchArms tokens pos acc)
+(pub :: parseMatchArms (-> Int Int Int Int))
+(pub fn (parseMatchArms tokens pos acc)
   (if (peekIs tokens pos TK_RPAREN)
       (pOk acc (advance pos))
   (if (peekIs tokens pos TK_LPAREN)
@@ -411,8 +411,8 @@
   (pErr pos))))
 
 ; Parse (pat body) — for now, skip pat and parse body.
-(:: parseMatchArm (-> Int Int Int))
-(fn (parseMatchArm tokens pos)
+(pub :: parseMatchArm (-> Int Int Int))
+(pub fn (parseMatchArm tokens pos)
   (let ((patR (parseExpr tokens pos)))
     (if (== (memGetWord patR 0) 0) patR
         (let ((afterPat (memGetWord patR 2)))
@@ -427,12 +427,12 @@
 ; ------------------------------------------------------------------
 ; Parse { expr1 expr2 ... }
 ; ------------------------------------------------------------------
-(:: parseBlock (-> Int Int Int))
-(fn (parseBlock tokens pos)
+(pub :: parseBlock (-> Int Int Int))
+(pub fn (parseBlock tokens pos)
   (parseBlockBody tokens pos vecNew))
 
-(:: parseBlockBody (-> Int Int Int Int))
-(fn (parseBlockBody tokens pos acc)
+(pub :: parseBlockBody (-> Int Int Int Int))
+(pub fn (parseBlockBody tokens pos acc)
   (if (peekIs tokens pos TK_RBRACE)
       (pOk (mkEBegin acc) (advance pos))
   (if (peekIs tokens pos TK_EOF)
@@ -445,16 +445,16 @@
 ; ------------------------------------------------------------------
 ; Function application: (f args...)
 ; ------------------------------------------------------------------
-(:: parseAppForm (-> Int Int Int))
-(fn (parseAppForm tokens pos)
+(pub :: parseAppForm (-> Int Int Int))
+(pub fn (parseAppForm tokens pos)
   (let ((r (parseExpr tokens pos)))
     (if (== (memGetWord r 0) 0) r
         (let ((fnExpr (memGetWord r 1))
               (nextPos (memGetWord r 2)))
           (parseArgs tokens nextPos fnExpr)))))
 
-(:: parseArgs (-> Int Int Int Int))
-(fn (parseArgs tokens pos fnExpr)
+(pub :: parseArgs (-> Int Int Int Int))
+(pub fn (parseArgs tokens pos fnExpr)
   (if (peekIs tokens pos TK_RPAREN)
       (pOk fnExpr (advance pos))
   (if (peekIs tokens pos TK_EOF)
@@ -468,8 +468,8 @@
 ; ------------------------------------------------------------------
 ; Parse declarations until EOF.
 ; ------------------------------------------------------------------
-(:: parseDecls (-> Int Int Int Int))
-(fn (parseDecls tokens pos acc)
+(pub :: parseDecls (-> Int Int Int Int))
+(pub fn (parseDecls tokens pos acc)
   (let ((r (parseDecl tokens pos)))
     (if (== (memGetWord r 0) 0) r
         (let ((val (memGetWord r 1))
@@ -481,7 +481,7 @@
 ; ------------------------------------------------------------------
 ; Top-level: parse a module.
 ; ------------------------------------------------------------------
-(:: parseModule (-> Int Int))
-(fn (parseModule tokens)
+(pub :: parseModule (-> Int Int))
+(pub fn (parseModule tokens)
   (let ((r (parseDecls tokens 0 vecNew)))
     r))

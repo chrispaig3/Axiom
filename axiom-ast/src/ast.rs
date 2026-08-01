@@ -2,6 +2,24 @@ use crate::span::{Ident, Span};
 use std::fmt;
 
 // ============================================================
+// Visibility
+// ============================================================
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Visibility {
+    /// Accessible from other modules via `(import ...)`.
+    Pub,
+    /// Only accessible within the defining module.
+    Private,
+}
+
+impl Visibility {
+    pub fn is_pub(&self) -> bool {
+        matches!(self, Visibility::Pub)
+    }
+}
+
+// ============================================================
 // Effects
 // ============================================================
 
@@ -213,6 +231,7 @@ pub enum Decl {
         tyvars: Vec<String>,
         constructors: Vec<DataCon>,
         deriving: Vec<Ident>,
+        vis: Visibility,
         /// Content-derived stable node ID: a short hash of
         /// `(kind, name, enclosing-module-path)`. Present for
         /// declarations that have a name and a stable identity
@@ -232,6 +251,7 @@ pub enum Decl {
         tyvars: Vec<String>,
         fields: Vec<Field>,
         repr: Option<TypeRepr>,
+        vis: Visibility,
         nid: Option<String>,
         axtags: Vec<Axtag>,
         module_path: Option<String>,
@@ -240,6 +260,7 @@ pub enum Decl {
         name: Ident,
         tyvars: Vec<String>,
         alias: Type,
+        vis: Visibility,
         nid: Option<String>,
         axtags: Vec<Axtag>,
         module_path: Option<String>,
@@ -250,6 +271,7 @@ pub enum Decl {
         supertraits: Vec<Type>,
         methods: Vec<TraitMethod>,
         effects: Vec<Effect>,
+        vis: Visibility,
         nid: Option<String>,
         axtags: Vec<Axtag>,
         module_path: Option<String>,
@@ -259,6 +281,7 @@ pub enum Decl {
         ty: Type,
         methods: Vec<(Ident, Expr)>,
         effects: Vec<Effect>,
+        vis: Visibility,
         nid: Option<String>,
         axtags: Vec<Axtag>,
         module_path: Option<String>,
@@ -266,6 +289,7 @@ pub enum Decl {
     DSig {
         name: Ident,
         ty: Type,
+        vis: Visibility,
         nid: Option<String>,
         axtags: Vec<Axtag>,
         module_path: Option<String>,
@@ -274,6 +298,7 @@ pub enum Decl {
         name: Ident,
         params: Vec<Pattern>,
         body: Expr,
+        vis: Visibility,
         nid: Option<String>,
         axtags: Vec<Axtag>,
         module_path: Option<String>,
@@ -287,6 +312,7 @@ pub enum Decl {
         name: Ident,
         params: Pattern,
         body: Expr,
+        vis: Visibility,
         nid: Option<String>,
         axtags: Vec<Axtag>,
         module_path: Option<String>,
@@ -295,6 +321,7 @@ pub enum Decl {
         name: Ident,
         ty: Type,
         source: String,
+        vis: Visibility,
         nid: Option<String>,
         axtags: Vec<Axtag>,
         module_path: Option<String>,
@@ -310,6 +337,7 @@ pub enum Decl {
     DEffect {
         name: Ident,
         operations: Vec<EffectOp>,
+        vis: Visibility,
         nid: Option<String>,
         axtags: Vec<Axtag>,
         module_path: Option<String>,

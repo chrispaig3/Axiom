@@ -2,9 +2,9 @@
 ; reopen, read to EOF, close.
 (import IO)
 
-(:: main Int)
+(pub :: main Int)
 ;@axiom:effect(io)
-(fn (main)
+(pub fn (main)
   (let ((path (__addr "axiom-stdlib-test.tmp")))
     (let ((fd (sysOpenPath path oWronlyCreateTrunc)))
       (if (sysFailed fd)

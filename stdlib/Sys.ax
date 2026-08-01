@@ -23,29 +23,29 @@
 ; File descriptors
 ; ------------------------------------------------------------------
 
-(:: stdin Int)
-(fn (stdin) 0)
+(pub :: stdin Int)
+(pub fn (stdin) 0)
 
-(:: stdout Int)
-(fn (stdout) 1)
+(pub :: stdout Int)
+(pub fn (stdout) 1)
 
-(:: stderr Int)
-(fn (stderr) 2)
+(pub :: stderr Int)
+(pub fn (stderr) 2)
 
 ; ------------------------------------------------------------------
 ; Core operations
 ; ------------------------------------------------------------------
 
 ; write(fd, buf, count) -> bytes written, or a negative/errno result.
-(:: sysWriteFd (-> Int Int Int Int))
+(pub :: sysWriteFd (-> Int Int Int Int))
 ;@axiom:effect(io)
-(fn (sysWriteFd fd buf count)
+(pub fn (sysWriteFd fd buf count)
   (__syscall3 sysWrite fd buf count))
 
 ; read(fd, buf, count) -> bytes read, 0 at end of file.
-(:: sysReadFd (-> Int Int Int Int))
+(pub :: sysReadFd (-> Int Int Int Int))
 ;@axiom:effect(io)
-(fn (sysReadFd fd buf count)
+(pub fn (sysReadFd fd buf count)
   (__syscall3 sysRead fd buf count))
 
 ; open(path, flags) -> fd, or an error result.
@@ -57,35 +57,35 @@
 ; the flags contain `O_CREAT`, but passing 0 - as an earlier version did -
 ; creates files with *no* permissions at all, which then cannot be read
 ; back even by the process that just wrote them.
-(:: sysOpenPath (-> Int Int Int))
+(pub :: sysOpenPath (-> Int Int Int))
 ;@axiom:effect(io)
-(fn (sysOpenPath path flags)
+(pub fn (sysOpenPath path flags)
   (sysOpenPathMode path flags 420))
 
 ; open(path, flags, mode), for callers that need a specific mode.
-(:: sysOpenPathMode (-> Int Int Int Int))
+(pub :: sysOpenPathMode (-> Int Int Int Int))
 ;@axiom:effect(io)
-(fn (sysOpenPathMode path flags mode)
+(pub fn (sysOpenPathMode path flags mode)
   (if (== openNeedsDirFd 1)
       (__syscall4 sysOpen atFdCwd path flags mode)
       (__syscall3 sysOpen path flags mode)))
 
-(:: sysCloseFd (-> Int Int))
+(pub :: sysCloseFd (-> Int Int))
 ;@axiom:effect(io)
-(fn (sysCloseFd fd)
+(pub fn (sysCloseFd fd)
   (__syscall1 sysClose fd))
 
 ; lseek(fd, offset, whence) -> resulting absolute offset.
-(:: sysSeek (-> Int Int Int Int))
+(pub :: sysSeek (-> Int Int Int Int))
 ;@axiom:effect(io)
-(fn (sysSeek fd offset whence)
+(pub fn (sysSeek fd offset whence)
   (__syscall3 sysLseek fd offset whence))
 
 ; Terminate the process. Never returns; the `0` afterwards exists only
 ; because every Axiom expression has a value.
-(:: sysExitWith (-> Int Int))
+(pub :: sysExitWith (-> Int Int))
 ;@axiom:effect(io)
-(fn (sysExitWith code)
+(pub fn (sysExitWith code)
   {
     (__syscall1 sysExit code)
     0
@@ -101,11 +101,11 @@
 ; this file about how Darwin's carry-flag convention is normalised in
 ; the backend. `-errno` is always negative, and no successful result of
 ; any syscall this library exposes ever is.
-(:: sysFailed (-> Int Bool))
-(fn (sysFailed result)
+(pub :: sysFailed (-> Int Bool))
+(pub fn (sysFailed result)
   (< result 0))
 
 ; The errno behind a failed result, or 0 if it did not fail.
-(:: sysErrno (-> Int Int))
-(fn (sysErrno result)
+(pub :: sysErrno (-> Int Int))
+(pub fn (sysErrno result)
   (if (< result 0) (- 0 result) 0))

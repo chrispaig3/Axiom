@@ -11,8 +11,8 @@
 
 ; Decimal digits in `n`, counting a leading `-` and treating 0 as one
 ; digit.
-(:: fmtIntWidth (-> Int Int))
-(fn (fmtIntWidth n)
+(pub :: fmtIntWidth (-> Int Int))
+(pub fn (fmtIntWidth n)
   (if (< n 0)
       (+ 1 (fmtIntWidth (- 0 n)))
       (if (< n 10)
@@ -28,8 +28,8 @@
 ; `Int` is 64-bit and two's complement, so the most negative value has no
 ; positive counterpart; it is special-cased rather than silently
 ; overflowing on negation.
-(:: fmtInt (-> Int Int))
-(fn (fmtInt n)
+(pub :: fmtInt (-> Int Int))
+(pub fn (fmtInt n)
   (if (== n (- 0 9223372036854775807))
       (strFromLit (__addr "-9223372036854775808"))
       (if (< n 0)
@@ -37,8 +37,8 @@
           (fmtNat n))))
 
 ; `n` (assumed non-negative) in base 10.
-(:: fmtNat (-> Int Int))
-(fn (fmtNat n)
+(pub :: fmtNat (-> Int Int))
+(pub fn (fmtNat n)
   (let ((width (fmtIntWidth n)))
     (let ((out (strAlloc width)))
       {
@@ -48,8 +48,8 @@
 
 ; Write `n`'s decimal digits into `buf` ending at index `at`, working
 ; right to left.
-(:: fmtDigits (-> Int Int Int Int))
-(fn (fmtDigits buf n at)
+(pub :: fmtDigits (-> Int Int Int Int))
+(pub fn (fmtDigits buf n at)
   (let ((digit (+ 48 (% n 10))))
     {
       (__store8 buf at digit)
@@ -62,8 +62,8 @@
 ;
 ; Used for addresses and bit patterns in compiler diagnostics, where
 ; decimal is unreadable.
-(:: fmtHex (-> Int Int))
-(fn (fmtHex n)
+(pub :: fmtHex (-> Int Int))
+(pub fn (fmtHex n)
   (if (== n 0)
       (strFromLit (__addr "0"))
       (let ((width (fmtHexWidth n 0)))
@@ -73,14 +73,14 @@
             out
           }))))
 
-(:: fmtHexWidth (-> Int Int Int))
-(fn (fmtHexWidth n acc)
+(pub :: fmtHexWidth (-> Int Int Int))
+(pub fn (fmtHexWidth n acc)
   (if (== n 0)
       acc
       (fmtHexWidth (/ n 16) (+ acc 1))))
 
-(:: fmtHexDigits (-> Int Int Int Int))
-(fn (fmtHexDigits buf n at)
+(pub :: fmtHexDigits (-> Int Int Int Int))
+(pub fn (fmtHexDigits buf n at)
   (let ((nibble (% n 16)))
     (let ((digit (if (< nibble 10) (+ 48 nibble) (+ 87 nibble))))
       {
@@ -91,8 +91,8 @@
       })))
 
 ; `s` padded on the left with spaces to at least `width` bytes.
-(:: fmtPadLeft (-> Int Int Int))
-(fn (fmtPadLeft s width)
+(pub :: fmtPadLeft (-> Int Int Int))
+(pub fn (fmtPadLeft s width)
   (let ((len (strLen s)))
     (if (>= len width)
         s

@@ -11,14 +11,14 @@
 ; Character predicates.
 ; ------------------------------------------------------------------
 
-(:: isDigit (-> Int Bool))
-(fn (isDigit ch)
+(pub :: isDigit (-> Int Bool))
+(pub fn (isDigit ch)
   (if (>= ch 48)
       (<= ch 57)
       false))
 
-(:: isAlpha (-> Int Bool))
-(fn (isAlpha ch)
+(pub :: isAlpha (-> Int Bool))
+(pub fn (isAlpha ch)
   (if (>= ch 65)
       (if (<= ch 90) true
       (if (>= ch 97)
@@ -26,16 +26,16 @@
           false))
       false))
 
-(:: isIdentStart (-> Int Bool))
-(fn (isIdentStart ch)
+(pub :: isIdentStart (-> Int Bool))
+(pub fn (isIdentStart ch)
   (if (isAlpha ch) true (if (== ch 95) true (if (== ch 43) true (if (== ch 45) true (if (== ch 42) true (if (== ch 47) true (if (== ch 37) true (if (== ch 60) true (if (== ch 62) true (if (== ch 61) true (if (== ch 33) true (if (== ch 38) true (if (== ch 124) true (if (== ch 63) true false)))))))))))))))
 
-(:: isIdentChar (-> Int Bool))
-(fn (isIdentChar ch)
+(pub :: isIdentChar (-> Int Bool))
+(pub fn (isIdentChar ch)
   (if (isAlpha ch) true (if (isDigit ch) true (if (== ch 95) true (if (== ch 45) true (if (== ch 33) true (if (== ch 63) true (if (== ch 42) true (if (== ch 43) true (if (== ch 47) true (if (== ch 60) true (if (== ch 62) true (if (== ch 61) true (if (== ch 37) true (if (== ch 38) true (if (== ch 124) true (if (== ch 39) true false)))))))))))))))))
 
-(:: isSpace (-> Int Bool))
-(fn (isSpace ch)
+(pub :: isSpace (-> Int Bool))
+(pub fn (isSpace ch)
   (if (== ch 32) true
   (if (== ch 10) true
   (if (== ch 13) true
@@ -46,8 +46,8 @@
 ; Skip whitespace and comments.
 ; ------------------------------------------------------------------
 
-(:: skipWhitespace (-> Int Int Int Int))
-(fn (skipWhitespace src pos len)
+(pub :: skipWhitespace (-> Int Int Int Int))
+(pub fn (skipWhitespace src pos len)
   (if (>= pos len)
       pos
       (let ((ch (strByte src pos)))
@@ -57,8 +57,8 @@
             (skipLineComment src (+ pos 1) len)
         pos)))))
 
-(:: skipLineComment (-> Int Int Int Int))
-(fn (skipLineComment src pos len)
+(pub :: skipLineComment (-> Int Int Int Int))
+(pub fn (skipLineComment src pos len)
   (if (>= pos len)
       pos
       (let ((ch (strByte src pos)))
@@ -70,8 +70,8 @@
 ; Emit a token.
 ; ------------------------------------------------------------------
 
-(:: emitToken (-> TokenKind Int Int Int Int Int))
-(fn (emitToken kind start end tokens src)
+(pub :: emitToken (-> TokenKind Int Int Int Int Int))
+(pub fn (emitToken kind start end tokens src)
   (let ((lex (strSlice src start (- end start))))
     (vecPush tokens (mkToken kind lex (mkSpan start end)))))
 
@@ -79,8 +79,8 @@
 ; Skip helpers.
 ; ------------------------------------------------------------------
 
-(:: skipIdent (-> Int Int Int Int))
-(fn (skipIdent src pos len)
+(pub :: skipIdent (-> Int Int Int Int))
+(pub fn (skipIdent src pos len)
   (if (>= pos len)
       pos
       (let ((ch (strByte src pos)))
@@ -88,8 +88,8 @@
             (skipIdent src (+ pos 1) len)
         pos))))
 
-(:: skipDigits (-> Int Int Int Int))
-(fn (skipDigits src pos len)
+(pub :: skipDigits (-> Int Int Int Int))
+(pub fn (skipDigits src pos len)
   (if (>= pos len)
       pos
       (let ((ch (strByte src pos)))
@@ -97,8 +97,8 @@
             (skipDigits src (+ pos 1) len)
         pos))))
 
-(:: scanStringEnd (-> Int Int Int Int))
-(fn (scanStringEnd src pos len)
+(pub :: scanStringEnd (-> Int Int Int Int))
+(pub fn (scanStringEnd src pos len)
   (if (>= pos len)
       pos
       (let ((ch (strByte src pos)))
@@ -112,14 +112,14 @@
 ; Main lexer loop.
 ; ------------------------------------------------------------------
 
-(:: lexTokens (-> Int Int Int Int Int))
-(fn (lexTokens src pos len tokens)
+(pub :: lexTokens (-> Int Int Int Int Int))
+(pub fn (lexTokens src pos len tokens)
   (if (>= pos len)
       (emitToken TK_EOF pos pos tokens src)
       (dispatchChar src pos len tokens (strByte src pos))))
 
-(:: dispatchChar (-> Int Int Int Int Int Int))
-(fn (dispatchChar src pos len tokens ch)
+(pub :: dispatchChar (-> Int Int Int Int Int Int))
+(pub fn (dispatchChar src pos len tokens ch)
   (if (== ch 45)
       (if (&& (< (+ pos 1) len) (== (strByte src (+ pos 1)) 62))
           (lexTokens src (+ pos 2) len (emitToken TK_RARROW pos (+ pos 2) tokens src))
@@ -156,8 +156,8 @@
       (lexTokens src (skipWhitespace src pos len) len tokens)
 (lexTokens src (+ pos 1) len tokens)))))))))))))))
 
-(:: parseIdentToken (-> Int Int Int Int Int))
-(fn (parseIdentToken src pos len tokens)
+(pub :: parseIdentToken (-> Int Int Int Int Int))
+(pub fn (parseIdentToken src pos len tokens)
   (let ((ep (skipIdent src (+ pos 1) len)))
     (lexTokens src ep len (emitToken TK_IDENT pos ep tokens src))))
 
@@ -165,8 +165,8 @@
 ; Reverse a Vec.
 ; ------------------------------------------------------------------
 
-(:: vecSwap (-> Int Int Int Int))
-(fn (vecSwap v i j)
+(pub :: vecSwap (-> Int Int Int Int))
+(pub fn (vecSwap v i j)
   (let ((vi (vecGet v i))
         (vj (vecGet v j)))
     {
@@ -175,14 +175,14 @@
       v
     }))
 
-(:: vecReverseIn (-> Int Int Int Int))
-(fn (vecReverseIn v i j)
+(pub :: vecReverseIn (-> Int Int Int Int))
+(pub fn (vecReverseIn v i j)
   (if (>= i j)
       v
       (vecReverseIn (vecSwap v i j) (+ i 1) (- j 1))))
 
-(:: vecReverse (-> Int Int))
-(fn (vecReverse v)
+(pub :: vecReverse (-> Int Int))
+(pub fn (vecReverse v)
   (let ((len (vecLen v)))
     (if (<= len 1)
         v
@@ -192,7 +192,7 @@
 ; Public lexer interface.
 ; ------------------------------------------------------------------
 
-(:: lex (-> Int Int))
-(fn (lex src)
+(pub :: lex (-> Int Int))
+(pub fn (lex src)
   (let ((tokens (lexTokens src 0 (strLen src) vecNew)))
     (vecReverse tokens)))

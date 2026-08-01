@@ -1,9 +1,9 @@
 ; `exit` is Axiom's, not libc's: a raw exit_group/exit syscall.
 (import IO)
 
-(:: main Int)
+(pub :: main Int)
 ;@axiom:effect(io)
-(fn (main)
+(pub fn (main)
   {
     (printlnLit (__addr "exiting with 42"))
     (exit 42)

@@ -34,14 +34,14 @@
 
 ; `Bool` as a printable digit. There is no `printBool`, and adding one
 ; belongs in `IO`, not in a test.
-(:: mtBit (-> Bool Int))
-(fn (mtBit b)
+(pub :: mtBit (-> Bool Int))
+(pub fn (mtBit b)
   (if b 1 0))
 
 ; Insert `k -> k*10` for k in [lo, hi). Recursion, because there is no
 ; loop and no function value to fold with.
-(:: mtInsertRange (-> Int Int Int Int))
-(fn (mtInsertRange m lo hi)
+(pub :: mtInsertRange (-> Int Int Int Int))
+(pub fn (mtInsertRange m lo hi)
   (if (>= lo hi)
       m
       {
@@ -53,8 +53,8 @@
 ; of keys that do. A single number that must equal `hi - lo` is a
 ; stronger assertion than a handful of spot checks, and it localises
 ; nothing - which is why the spot checks are also kept.
-(:: mtCountIntact (-> Int Int Int Int))
-(fn (mtCountIntact m lo hi)
+(pub :: mtCountIntact (-> Int Int Int Int))
+(pub fn (mtCountIntact m lo hi)
   (if (>= lo hi)
       0
       (+ (if (== (mapGet m lo (- 0 1)) (* lo 10)) 1 0)
@@ -69,8 +69,8 @@
 ; counter in `mapFindFrom` turns that into a wrong answer rather than a
 ; hang, so the assertion after this runs is that lookups are still
 ; *right*, not merely that the program terminated.
-(:: mtChurn (-> Int Int Int Int))
-(fn (mtChurn m key n)
+(pub :: mtChurn (-> Int Int Int Int))
+(pub fn (mtChurn m key n)
   (if (<= n 0)
       m
       {
@@ -79,9 +79,9 @@
         (mtChurn m key (- n 1))
       }))
 
-(:: main Int)
+(pub :: main Int)
 ;@axiom:effect(io)
-(fn (main)
+(pub fn (main)
   (let ((m (mapNew))
         (c (mapWithCapacity 8))
         (x (mapNew)))

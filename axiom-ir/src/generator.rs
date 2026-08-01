@@ -362,21 +362,17 @@ impl IrGen {
 
         self.nullary_tags = {
             let mut tags: HashSet<i64> = HashSet::new();
-            // S1: unboxed nullary constructors — disabled for now.
-            // When enabled, uncomment the loop below to populate tags
-            // for all-nullary data types.  The per-alloca Tag tracking
-            // (`tag_alloca_names`, `IrValue::Tag`, `box_if_tag`) is
-            // already wired; only the tag-set population is off.
+            // S1: unboxed nullary constructors.
+            // For all-nullary data types, constructors are immediate tags
+            // instead of heap-allocated boxes.
             let mut tag: i64 = 0;
             for dt in &type_checker.data_types {
-                let _all_nullary = dt
+                let all_nullary = dt
                     .constructors
                     .iter()
                     .all(|c| constructor_arity(&c.ty) == 0);
                 for con in &dt.constructors {
-                    if false
-                    /* all_nullary */
-                    {
+                    if all_nullary {
                         tags.insert(tag);
                     }
                     let arity = constructor_arity(&con.ty);
@@ -553,57 +549,47 @@ impl IrGen {
         func
     }
 
-    /// Build a heap-boxed constructor value: `HeapAlloc` a block of `(1 +
-    /// args.len()) * 8` bytes, `StoreOffset` the tag into word 0, then
-    /// `StoreOffset` each argument into words `1..`. Every `data`
-    /// constructor - nullary or not - goes through this one path, so
-    /// there is exactly one runtime representation for a value of a given
-    /// `data` type regardless of which constructor produced it (see
-    /// [`find_constructor`] and the module-level `HeapAlloc` docs in
-    /// `axiom-ir`'s `lib.rs`).
-    fn box_if_tag(&mut self, func: &mut IrFunction, value: &IrValue) -> IrValue {
-        let i64_ty = TypeId::TCon("I64".to_string(), vec![]);
-        if let IrValue::Const(IrConst::Int(tag, _)) = value {
-            if self.nullary_tags.contains(tag) {
-                let box_ptr = self.new_local();
-                self.emit_to_func(
-                    func,
-                    IrInst::HeapAlloc {
-                        dest: IrValue::Local(box_ptr.clone()),
-                        size: IrValue::Const(IrConst::Int(8, i64_ty.clone())),
-                    },
-                );
-                self.emit_to_func(
-                    func,
-                    IrInst::StoreOffset {
-                        ptr: IrValue::Local(box_ptr.clone()),
-                        offset: 0,
-                        value: IrValue::Const(IrConst::Int(*tag, i64_ty.clone())),
-                    },
-                );
-                return IrValue::Local(box_ptr);
+    /// Ensure a value is in boxed form for contexts that require a heap
+    /// pointer (struct fields, function arguments in the current ABI).
+    ///
+    /// With S1 enabled, nullary constructors are immediate tags and do
+    /// NOT need boxing — they pass through as-is.
+    fn box_if_tag(&mut self, _func: &mut IrFunction, value: &IrValue) -> IrValue {
+        // Non-nullary constructor values are already boxed (heap pointers).
+        // Nullary tags (S1) are immediates — no boxing needed.
+        // `IrValue::Tag` only appears for all-nullary data types whose
+        // allocas track raw constructor tags, so they should also pass
+        // through unboxed.
+        value.clone()
+    }
+
+    /// Returns `true` when a parameter's type is a `data`-type constructor
+    /// (i.e. its `TCon` name is NOT `"I64"` and NOT a `struct`), so the
+    /// arena compactor must deep-copy it.  Raw struct pointers like `Vec`,
+    /// `Str`, and `Span` are *not* constructors — their heap headers have
+    /// no tag word and the compactor would corrupt them.
+    fn is_constructor_type(
+        locals: &Vec<(String, TypeId)>,
+        param_name: &str,
+        structs: &Vec<IrStruct>,
+    ) -> bool {
+        for (name, ty) in locals {
+            if name != param_name {
+                continue;
+            }
+            if let TypeId::TCon(tname, _) = ty {
+                if tname == "I64" {
+                    return false;
+                }
+                for s in structs {
+                    if s.name == *tname {
+                        return false;
+                    }
+                }
+                return true;
             }
         }
-        if let IrValue::Tag(_) = value {
-            let box_ptr = self.new_local();
-            self.emit_to_func(
-                func,
-                IrInst::HeapAlloc {
-                    dest: IrValue::Local(box_ptr.clone()),
-                    size: IrValue::Const(IrConst::Int(8, i64_ty.clone())),
-                },
-            );
-            self.emit_to_func(
-                func,
-                IrInst::StoreOffset {
-                    ptr: IrValue::Local(box_ptr.clone()),
-                    offset: 0,
-                    value: value.clone(),
-                },
-            );
-            return IrValue::Local(box_ptr);
-        }
-        value.clone()
+        false
     }
 
     fn gen_construct(&mut self, func: &mut IrFunction, tag: i64, args: Vec<IrValue>) -> IrValue {
@@ -1577,9 +1563,20 @@ impl IrGen {
                     );
                     let mut compacted_args: Vec<IrValue> = Vec::new();
                     let mut compact_results: Vec<IrValue> = Vec::new();
-                    for _ in &all_args {
+                    let mut needs_compact: Vec<bool> = Vec::new();
+                    for (i, _) in all_args.iter().enumerate() {
                         let res = self.new_local();
                         compact_results.push(IrValue::Local(res));
+                        // Only compact constructor-typed roots.
+                        // Struct pointers (Vec, Str, Span, etc.) and
+                        // immediates are passed through unchanged.
+                        let is_ctor = i < tc.param_names.len()
+                            && Self::is_constructor_type(
+                                &func.locals,
+                                &tc.param_names[i],
+                                &self.module.structs,
+                            );
+                        needs_compact.push(is_ctor);
                     }
                     self.emit_to_func(
                         func,
@@ -1588,6 +1585,7 @@ impl IrGen {
                             arena_end: IrValue::Local(arena_end),
                             roots: all_args.clone(),
                             results: compact_results.clone(),
+                            needs_compact,
                         },
                     );
                     for result in &compact_results {

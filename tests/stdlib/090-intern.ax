@@ -34,8 +34,8 @@
 (import Intern)
 
 ; `Bool` as a printable digit.
-(:: itBit (-> Bool Int))
-(fn (itBit b)
+(pub :: itBit (-> Bool Int))
+(pub fn (itBit b)
   (if b 1 0))
 
 ; The nth generated name: "id0", "id1", ...
@@ -44,13 +44,13 @@
 ; not fit in a readable test, and because a generated name is a fresh
 ; `Str` handle every time it is called - which is exactly the condition
 ; the re-interning check below needs.
-(:: itName (-> Int Int))
-(fn (itName n)
+(pub :: itName (-> Int Int))
+(pub fn (itName n)
   (strConcat (strFromLit (__addr "id")) (fmtInt n)))
 
 ; Intern "id{lo}" .. "id{hi-1}".
-(:: itInternRange (-> Int Int Int Int))
-(fn (itInternRange it lo hi)
+(pub :: itInternRange (-> Int Int Int Int))
+(pub fn (itInternRange it lo hi)
   (if (>= lo hi)
       it
       {
@@ -67,8 +67,8 @@
 ; Two conditions per element, written as nested `Int`-returning `if`s:
 ; `&&` miscompiles when its operands are comparisons, and a `Bool` may not
 ; be the value of an `if`. See the note above `Map`'s probe loops.
-(:: itCountRoundTrip (-> Int Int Int Int))
-(fn (itCountRoundTrip it lo hi)
+(pub :: itCountRoundTrip (-> Int Int Int Int))
+(pub fn (itCountRoundTrip it lo hi)
   (if (>= lo hi)
       0
       (+ (if (== (internIntern it (itName lo)) lo)
@@ -76,9 +76,9 @@
              0)
          (itCountRoundTrip it (+ lo 1) hi))))
 
-(:: main Int)
+(pub :: main Int)
 ;@axiom:effect(io)
-(fn (main)
+(pub fn (main)
   (let ((it (internNew))
         (col (internWithCapacity 8))
         (big (internNew))

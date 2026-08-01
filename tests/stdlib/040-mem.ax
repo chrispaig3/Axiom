@@ -1,9 +1,9 @@
 ; Raw memory: allocation, copying, filling, comparison.
 (import IO)
 
-(:: main Int)
+(pub :: main Int)
 ;@axiom:effect(io)
-(fn (main)
+(pub fn (main)
   (let ((a (memAlloc 8))
         (b (memAlloc 8)))
     {

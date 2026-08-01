@@ -1037,18 +1037,35 @@ impl LlvmCodeGen {
                 arena_end,
                 roots,
                 results,
+                needs_compact,
             } => {
                 let mark_val = self.value_to_llvm(mark)?;
                 let arena_end_val = self.value_to_llvm(arena_end)?;
                 for (i, root) in roots.iter().enumerate() {
                     let root_val = self.value_to_llvm(root)?;
                     let result_reg = self.new_local_reg();
-                    writeln!(
-                        self.output,
-                        "  {} = call i64 @__axiom_arena_compact_one(i64 {}, i64 {}, i64 {})",
-                        result_reg, root_val, mark_val, arena_end_val
-                    )
-                    .unwrap();
+                    if i < needs_compact.len() && needs_compact[i] {
+                        writeln!(
+                            self.output,
+                            "  {} = call i64 @__axiom_arena_compact_one(i64 {}, i64 {}, i64 {})",
+                            result_reg, root_val, mark_val, arena_end_val
+                        )
+                        .unwrap();
+                    } else {
+                        // raw struct pointer or immediate — pass through
+                        writeln!(
+                            self.output,
+                            "  ; arena-compact skip (not a constructor cell)"
+                        )
+                        .unwrap();
+                        let root_reg = self.value_to_llvm(root)?;
+                        writeln!(
+                            self.output,
+                            "  {} = add i64 {}, 0",
+                            result_reg, root_reg
+                        )
+                        .unwrap();
+                    }
                     if let IrValue::Local(name) = &results[i] {
                         self.ssa_values.insert(
                             name.clone(),
