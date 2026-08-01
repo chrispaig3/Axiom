@@ -79,7 +79,7 @@ Create a file called `hello.ax`:
 ;@axiom:effect(io)
 (fn (main)
   {
-    (println (strFromLit (__addr "Hello, Axiom!")))
+    (printlnLit (__addr "Hello from Axiom!"))
     0
   })
 ```
