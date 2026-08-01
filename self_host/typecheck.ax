@@ -15,10 +15,10 @@
 ; ------------------------------------------------------------------
 (pub struct SymEntry (name : Int) (ty : Int) (kind : Int))
 
-(pub :: SYM_FN     Int) (fn (SYM_FN)     0)
-(pub :: SYM_DATA   Int) (fn (SYM_DATA)   1)
-(pub :: SYM_STRUCT Int) (fn (SYM_STRUCT) 2)
-(pub :: SYM_VAR    Int) (fn (SYM_VAR)    3)
+(pub :: SYM_FN     Int) (pub fn (SYM_FN)     0)
+(pub :: SYM_DATA   Int) (pub fn (SYM_DATA)   1)
+(pub :: SYM_STRUCT Int) (pub fn (SYM_STRUCT) 2)
+(pub :: SYM_VAR    Int) (pub fn (SYM_VAR)    3)
 
 ; ------------------------------------------------------------------
 ; Type checking context: maps names to SymEntry handles.

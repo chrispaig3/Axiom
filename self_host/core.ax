@@ -56,10 +56,10 @@
 (pub :: tokenKind   (-> Int TokenKind))
 (pub fn (tokenKind   t)
   (cast TokenKind (memGetWord t 0)))
-(pub :: tokenLexeme (-> Int Int)) (fn (tokenLexeme t) (memGetWord t 1))
-(pub :: tokenSpan   (-> Int Int)) (fn (tokenSpan   t) (memGetWord t 2))
-(pub :: spanStart   (-> Int Int)) (fn (spanStart   s) (memGetWord s 0))
-(pub :: spanEnd     (-> Int Int)) (fn (spanEnd     s) (memGetWord s 1))
+(pub :: tokenLexeme (-> Int Int)) (pub fn (tokenLexeme t) (memGetWord t 1))
+(pub :: tokenSpan   (-> Int Int)) (pub fn (tokenSpan   t) (memGetWord t 2))
+(pub :: spanStart   (-> Int Int)) (pub fn (spanStart   s) (memGetWord s 0))
+(pub :: spanEnd     (-> Int Int)) (pub fn (spanEnd     s) (memGetWord s 1))
 
 ; ------------------------------------------------------------------
 ; Convert a decimal digit Str to Int. Returns 0 on non-digit.
