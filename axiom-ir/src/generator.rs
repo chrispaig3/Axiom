@@ -8,7 +8,6 @@ pub struct TailContext {
     pub func_name: String,
     pub entry_label: String,
     pub param_names: Vec<String>,
-    pub arena_mark: Option<String>,
 }
 
 pub struct IrGen {
@@ -32,11 +31,6 @@ pub struct IrGen {
     /// These are stored as immediates (no heap allocation) because every
     /// value of the type is a simple tag — there are no boxed fields.
     nullary_tags: HashSet<i64>,
-    /// Alloca names whose stored value is a raw constructor tag
-    /// (from an all-nullary `data` type).  When `EVar` loads them
-    /// it returns `IrValue::Tag` so that the match machinery can
-    /// skip the box-unbox round-trip.
-    tag_alloca_names: HashSet<String>,
     /// Top-level functions declared with no parameters.
     ///
     /// A bare `foo` where `foo` is nullary has to lower to a *call*,
@@ -48,12 +42,13 @@ pub struct IrGen {
     /// and flag tables depend on this.
     nullary_fns: HashSet<String>,
     all_fns: HashSet<String>,
+    /// Declared parameter count per mangled top-level function name.
+    fn_arity: HashMap<String, usize>,
     /// Maps bare function names to their mangled LLVM symbol names.
     /// Functions from the entry module (module_path==None) are stored
     /// with the bare name as both key and value. Functions from imported
     /// modules use `module$name` as the value, keyed by bare `name`.
     fn_mangle_map: HashMap<String, String>,
-    current_fn_has_raw: bool,
 }
 
 /// Look up a data constructor by name across every `data` type the type
@@ -295,11 +290,36 @@ impl IrGen {
             current_block: None,
             entry_block: None,
             nullary_tags: HashSet::new(),
-            tag_alloca_names: HashSet::new(),
             nullary_fns: HashSet::new(),
             all_fns: HashSet::new(),
+            fn_arity: HashMap::new(),
             fn_mangle_map: HashMap::new(),
-            current_fn_has_raw: false,
+        }
+    }
+
+    /// Bind a bare name to the mangled symbol an unqualified reference
+    /// should reach.
+    ///
+    /// A definition in the entry file always wins. Imported declarations
+    /// join the same flat namespace, and the resolved declaration list
+    /// puts a module's dependencies ahead of the file that imported them,
+    /// so first-writer-wins handed the bare name to whichever import
+    /// happened to be resolved first - an imported `label` shadowed the
+    /// entry file's own `label`, and the only way to call the local one
+    /// was to qualify it, which is backwards. Between two imports the
+    /// first still wins, and `Mod::name` is how a caller says which.
+
+    fn record_bare_name(
+        map: &mut HashMap<String, String>,
+        bare: &str,
+        mangled: &str,
+        module_path: &Option<String>,
+    ) {
+        if module_path.is_none() {
+            map.insert(bare.to_string(), mangled.to_string());
+        } else {
+            map.entry(bare.to_string())
+                .or_insert_with(|| mangled.to_string());
         }
     }
 
@@ -333,10 +353,12 @@ impl IrGen {
                     ..
                 } if params.is_empty() => {
                     let mangled = Self::mangle_name(&name.name, module_path);
-                    if !self.fn_mangle_map.contains_key(&name.name) {
-                        self.fn_mangle_map
-                            .insert(name.name.clone(), mangled.clone());
-                    }
+                    Self::record_bare_name(
+                        &mut self.fn_mangle_map,
+                        &name.name,
+                        &mangled,
+                        module_path,
+                    );
                     Some(mangled)
                 }
                 _ => None,
@@ -351,11 +373,33 @@ impl IrGen {
                     name, module_path, ..
                 } => {
                     let mangled = Self::mangle_name(&name.name, module_path);
-                    self.fn_mangle_map
-                        .entry(name.name.clone())
-                        .or_insert_with(|| mangled.clone());
+                    Self::record_bare_name(
+                        &mut self.fn_mangle_map,
+                        &name.name,
+                        &mangled,
+                        module_path,
+                    );
                     Some(mangled)
                 }
+                _ => None,
+            })
+            .collect();
+
+        // How many parameters each top-level function actually declares.
+        // A call site can supply more arguments than that - `((adder 10)
+        // 5)` is one application spine over a function of one parameter -
+        // and the surplus has to be applied to whatever the call returns
+        // rather than folded into the direct call. See `gen_over_apply`.
+        self.fn_arity = ast_module
+            .decls
+            .iter()
+            .filter_map(|d| match d {
+                Decl::DFn {
+                    name,
+                    params,
+                    module_path,
+                    ..
+                } => Some((Self::mangle_name(&name.name, module_path), params.len())),
                 _ => None,
             })
             .collect();
@@ -524,10 +568,7 @@ impl IrGen {
                 .skip(1) // skip _closure
                 .map(|(n, _)| n.clone())
                 .collect(),
-            arena_mark: None,
         };
-
-        self.current_fn_has_raw = false;
 
         let body_val = self.gen_expr_to_func_with_allocas(
             &mut func,
@@ -551,47 +592,89 @@ impl IrGen {
         func
     }
 
-    /// Ensure a value is in boxed form for contexts that require a heap
-    /// pointer (struct fields, function arguments in the current ABI).
-    ///
-    /// With S1 enabled, nullary constructors are immediate tags and do
-    /// NOT need boxing — they pass through as-is.
+    /// Every Axiom value is one machine word: a heap pointer for a
+    /// constructor with fields, an immediate tag for a nullary
+    /// constructor of an all-nullary `data` type, an integer otherwise.
+    /// Nothing needs a representation change to cross a field, argument,
+    /// or return boundary, which is what makes polymorphism free here.
     fn box_if_tag(&mut self, _func: &mut IrFunction, value: &IrValue) -> IrValue {
-        // Non-nullary constructor values are already boxed (heap pointers).
-        // Nullary tags (S1) are immediates — no boxing needed.
-        // `IrValue::Tag` only appears for all-nullary data types whose
-        // allocas track raw constructor tags, so they should also pass
-        // through unboxed.
         value.clone()
     }
 
-    /// Returns `true` when a parameter's type is a `data`-type constructor
-    /// (i.e. its `TCon` name is NOT `"I64"` and NOT a `struct`), so the
-    /// arena compactor must deep-copy it.  Raw struct pointers like `Vec`,
-    /// `Str`, and `Span` are *not* constructors — their heap headers have
-    /// no tag word and the compactor would corrupt them.
-    fn is_constructor_type(
-        locals: &Vec<(String, TypeId)>,
-        param_name: &str,
-        structs: &Vec<IrStruct>,
-    ) -> bool {
-        for (name, ty) in locals {
-            if name != param_name {
-                continue;
-            }
-            if let TypeId::TCon(tname, _) = ty {
-                if tname == "I64" {
-                    return false;
-                }
-                for s in structs {
-                    if s.name == *tname {
-                        return false;
-                    }
-                }
-                return true;
-            }
+    /// `&&` and `||` rewritten as the `if` they mean, or `None` for any
+    /// other operator.
+    ///
+    /// Both used to lower to a bitwise `and`/`or` of two already-evaluated
+    /// operands. That gives the right answer for 0/1 values but evaluates
+    /// the right-hand side unconditionally, which makes the guard idiom -
+    /// `(&& (< i n) (== (strByte s i) c))`, `(&& (!= p 0) (load p))` -
+    /// read past the end or through a null pointer even though the guard
+    /// says it must not. Every language that spells these `&&`/`||`
+    /// short-circuits, and code is written on that assumption whether or
+    /// not a manual says so.
+    ///
+    /// `if` already lowers to a branch and a result slot, so routing
+    /// through it means there is exactly one place where a conditional
+    /// value is built.
+    fn short_circuit_as_if(left: &Expr, op: &str, right: &Expr) -> Option<Expr> {
+        let lit = |b: bool| Expr::ELit(Literal::LBool(b), left.span());
+        match op {
+            "&&" => Some(Expr::EIf(
+                Box::new(left.clone()),
+                Box::new(right.clone()),
+                Box::new(lit(false)),
+            )),
+            "||" => Some(Expr::EIf(
+                Box::new(left.clone()),
+                Box::new(lit(true)),
+                Box::new(right.clone()),
+            )),
+            _ => None,
         }
-        false
+    }
+
+    /// Apply `args` to `callee`, one at a time, through the closure
+    /// representation: word 0 of a closure record is the code pointer and
+    /// the record itself is the environment passed as the hidden first
+    /// parameter.
+    ///
+    /// One argument per step rather than all at once, because each step
+    /// may yield another closure - `(((f a) b) c)` over a chain of
+    /// single-parameter lambdas - and only the callee knows how many it
+    /// wanted. A multi-parameter lambda applied to all its arguments at
+    /// once still arrives here one at a time, which costs an indirect
+    /// call per argument and is the price of not tracking arities through
+    /// values; it is correct, which the previous behaviour was not.
+    fn gen_over_apply(
+        &mut self,
+        func: &mut IrFunction,
+        callee: IrValue,
+        args: Vec<IrValue>,
+    ) -> IrValue {
+        let mut current = callee;
+        for arg in args {
+            let fn_ptr = self.new_local();
+            self.emit_to_func(
+                func,
+                IrInst::LoadOffset {
+                    dest: IrValue::Local(fn_ptr.clone()),
+                    ptr: current.clone(),
+                    offset: 0,
+                },
+            );
+            let result = self.new_local();
+            let boxed = self.box_if_tag(func, &arg);
+            self.emit_to_func(
+                func,
+                IrInst::CallIndirect {
+                    dest: IrValue::Local(result.clone()),
+                    ptr: IrValue::Local(fn_ptr),
+                    args: vec![current, boxed],
+                },
+            );
+            current = IrValue::Local(result);
+        }
+        current
     }
 
     fn gen_construct(&mut self, func: &mut IrFunction, tag: i64, args: Vec<IrValue>) -> IrValue {
@@ -617,43 +700,27 @@ impl IrGen {
                 value: IrValue::Const(IrConst::Int(tag, i64_ty.clone())),
             },
         );
+        // Fields are stored exactly as the argument evaluated: one machine
+        // word, whatever it denotes. In particular an unboxed nullary tag
+        // is stored as the immediate it is.
+        //
+        // An earlier version boxed a field whose value was an integer
+        // constant that happened to appear in `nullary_tags`, so that a
+        // nested pattern could always load word 0 of the field. That test
+        // asks about a *value* a question only a *type* can answer:
+        // `(Mk 2 2)` stored a heap pointer in place of the integer 2 as
+        // soon as any all-nullary `data` type in the program owned tag 2,
+        // and `(+ a b)` then added a pointer. Matching decides boxedness
+        // from the constructor named in the pattern instead - see
+        // `gen_sub_pattern_checks` - which is static and cannot collide
+        // with a payload value.
         for (i, arg) in args.into_iter().enumerate() {
-            let needs_box = matches!(&arg, IrValue::Const(IrConst::Int(val, _)) if self.nullary_tags.contains(val))
-                || matches!(&arg, IrValue::Tag(_));
-            let arg_val = if needs_box {
-                let box_ptr = self.new_local();
-                self.emit_to_func(
-                    func,
-                    IrInst::HeapAlloc {
-                        dest: IrValue::Local(box_ptr.clone()),
-                        size: IrValue::Const(IrConst::Int(8, i64_ty.clone())),
-                    },
-                );
-                let store_val = match &arg {
-                    IrValue::Const(IrConst::Int(val, _)) => {
-                        IrValue::Const(IrConst::Int(*val, i64_ty.clone()))
-                    }
-                    IrValue::Tag(name) => IrValue::Tag(name.clone()),
-                    _ => unreachable!(),
-                };
-                self.emit_to_func(
-                    func,
-                    IrInst::StoreOffset {
-                        ptr: IrValue::Local(box_ptr.clone()),
-                        offset: 0,
-                        value: store_val,
-                    },
-                );
-                IrValue::Local(box_ptr)
-            } else {
-                arg
-            };
             self.emit_to_func(
                 func,
                 IrInst::StoreOffset {
                     ptr: IrValue::Local(ptr_local.clone()),
                     offset: ((1 + i) * 8) as i64,
-                    value: arg_val,
+                    value: arg,
                 },
             );
         }
@@ -763,21 +830,31 @@ impl IrGen {
                 Pattern::PCon(ident, nested_args) => {
                     match find_constructor(type_checker, &ident.name) {
                         Some((tag, _arity)) => {
-                            let inner_tag_local = self.new_local();
-                            self.emit_to_func(
-                                func,
-                                IrInst::LoadOffset {
-                                    dest: IrValue::Local(inner_tag_local.clone()),
-                                    ptr: IrValue::Local(field_local.clone()),
-                                    offset: 0,
-                                },
-                            );
+                            // Where the tag lives is a property of the
+                            // constructor, not of the value: an unboxed
+                            // nullary constructor *is* its tag, so the
+                            // field holds it directly and loading word 0
+                            // would dereference a small integer.
+                            let observed_tag = if self.nullary_tags.contains(&tag) {
+                                IrValue::Local(field_local.clone())
+                            } else {
+                                let inner_tag_local = self.new_local();
+                                self.emit_to_func(
+                                    func,
+                                    IrInst::LoadOffset {
+                                        dest: IrValue::Local(inner_tag_local.clone()),
+                                        ptr: IrValue::Local(field_local.clone()),
+                                        offset: 0,
+                                    },
+                                );
+                                IrValue::Local(inner_tag_local)
+                            };
                             let cmp_dest = self.new_local();
                             self.emit_to_func(
                                 func,
                                 IrInst::Eq {
                                     dest: IrValue::Local(cmp_dest.clone()),
-                                    lhs: IrValue::Local(inner_tag_local),
+                                    lhs: observed_tag,
                                     rhs: IrValue::Const(IrConst::Int(tag, i64_ty.clone())),
                                 },
                             );
@@ -839,21 +916,31 @@ impl IrGen {
                     };
                     match find_constructor(type_checker, &ident.name) {
                         Some((tag, _arity)) => {
-                            let inner_tag_local = self.new_local();
-                            self.emit_to_func(
-                                func,
-                                IrInst::LoadOffset {
-                                    dest: IrValue::Local(inner_tag_local.clone()),
-                                    ptr: IrValue::Local(field_local.clone()),
-                                    offset: 0,
-                                },
-                            );
+                            // Where the tag lives is a property of the
+                            // constructor, not of the value: an unboxed
+                            // nullary constructor *is* its tag, so the
+                            // field holds it directly and loading word 0
+                            // would dereference a small integer.
+                            let observed_tag = if self.nullary_tags.contains(&tag) {
+                                IrValue::Local(field_local.clone())
+                            } else {
+                                let inner_tag_local = self.new_local();
+                                self.emit_to_func(
+                                    func,
+                                    IrInst::LoadOffset {
+                                        dest: IrValue::Local(inner_tag_local.clone()),
+                                        ptr: IrValue::Local(field_local.clone()),
+                                        offset: 0,
+                                    },
+                                );
+                                IrValue::Local(inner_tag_local)
+                            };
                             let cmp_dest = self.new_local();
                             self.emit_to_func(
                                 func,
                                 IrInst::Eq {
                                     dest: IrValue::Local(cmp_dest.clone()),
-                                    lhs: IrValue::Local(inner_tag_local),
+                                    lhs: observed_tag,
                                     rhs: IrValue::Const(IrConst::Int(tag, i64_ty.clone())),
                                 },
                             );
@@ -975,13 +1062,10 @@ impl IrGen {
                 index: args[1].clone(),
                 value: args[2].clone(),
             },
-            ("__alloc", 1) => {
-                self.current_fn_has_raw = true;
-                IrInst::HeapAlloc {
-                    dest: dest_val.clone(),
-                    size: args[0].clone(),
-                }
-            }
+            ("__alloc", 1) => IrInst::HeapAlloc {
+                dest: dest_val.clone(),
+                size: args[0].clone(),
+            },
             ("__addr", 1) => IrInst::AddrOf {
                 dest: dest_val.clone(),
                 value: args[0].clone(),
@@ -1140,11 +1224,16 @@ impl IrGen {
             Expr::EVar(ident) | Expr::EQualified(_, ident) => {
                 let fn_lookup_name = match expr {
                     Expr::EQualified(path, _) => {
+                        // Dotted, matching `mangle_name`: a symbol from
+                        // module `Sys.Platform` is `Sys.Platform$name`.
+                        // Joining the path with `$` instead spelled it
+                        // `Sys$Platform$name` and called a symbol that is
+                        // never defined.
                         let module = path
                             .iter()
                             .map(|i| i.name.as_str())
                             .collect::<Vec<_>>()
-                            .join("$");
+                            .join(".");
                         format!("{}${}", module, ident.name)
                     }
                     _ => self.mangled_name_for(&ident.name),
@@ -1178,11 +1267,7 @@ impl IrGen {
                             ptr: IrValue::Local(alloca_name.clone()),
                         },
                     );
-                    if self.tag_alloca_names.contains(alloca_name) {
-                        IrValue::Tag(dest)
-                    } else {
-                        IrValue::Local(dest)
-                    }
+                    IrValue::Local(dest)
                 } else if self.nullary_fns.contains(&fn_lookup_name) {
                     let dest = self.new_local();
                     self.emit_to_func(
@@ -1229,6 +1314,15 @@ impl IrGen {
                 }
             }
             Expr::EInfix(left, op, right) => {
+                if let Some(desugared) = Self::short_circuit_as_if(left, op, right) {
+                    return self.gen_expr_to_func_with_allocas(
+                        func,
+                        &desugared,
+                        alloca_map,
+                        type_checker,
+                        None,
+                    );
+                }
                 let lhs =
                     self.gen_expr_to_func_with_allocas(func, left, alloca_map, type_checker, None);
                 let rhs =
@@ -1320,31 +1414,26 @@ impl IrGen {
                 }
                 arg_exprs.reverse();
 
-                let is_self_tail = tail_ctx.and_then(|tc| {
+                // `(&& a b)` in prefix form is the same operator as the
+                // infix spelling and gets the same short-circuit
+                // treatment. Intercepted here, before the arguments are
+                // lowered, because lowering them is exactly what must not
+                // happen unconditionally.
+                if arg_exprs.len() == 2 {
                     if let Expr::EVar(ident) | Expr::EQualified(_, ident) = current {
-                        if ident.name == tc.func_name {
-                            Some(tc)
-                        } else {
-                            None
+                        if let Some(desugared) =
+                            Self::short_circuit_as_if(arg_exprs[0], &ident.name, arg_exprs[1])
+                        {
+                            return self.gen_expr_to_func_with_allocas(
+                                func,
+                                &desugared,
+                                alloca_map,
+                                type_checker,
+                                None,
+                            );
                         }
-                    } else {
-                        None
                     }
-                });
-
-                let arena_mark: Option<String> =
-                    if is_self_tail.is_some() && !self.current_fn_has_raw {
-                        let mark = self.new_local();
-                        self.emit_to_func(
-                            func,
-                            IrInst::ArenaMark {
-                                dest: IrValue::Local(mark.clone()),
-                            },
-                        );
-                        Some(mark)
-                    } else {
-                        None
-                    };
+                }
 
                 let mut all_args: Vec<IrValue> = Vec::new();
                 for arg in &arg_exprs {
@@ -1454,7 +1543,7 @@ impl IrGen {
                         .iter()
                         .map(|i| i.name.as_str())
                         .collect::<Vec<_>>()
-                        .join("$");
+                        .join(".");
                     call_name = format!("{}${}", module, ident.name);
                 } else if let Expr::EVar(ident) = current {
                     func_name = ident.name.clone();
@@ -1552,76 +1641,33 @@ impl IrGen {
                     return val;
                 }
 
-                if let (Some(tc), Some(mark)) = (is_self_tail, &arena_mark) {
-                    let arena_end = self.new_local();
-                    self.emit_to_func(
-                        func,
-                        IrInst::ArenaMark {
-                            dest: IrValue::Local(arena_end.clone()),
-                        },
-                    );
-                    self.emit_to_func(
-                        func,
-                        IrInst::ArenaReset {
-                            ptr: IrValue::Local(mark.clone()),
-                        },
-                    );
-                    let mut compacted_args: Vec<IrValue> = Vec::new();
-                    let mut compact_results: Vec<IrValue> = Vec::new();
-                    let mut needs_compact: Vec<bool> = Vec::new();
-                    for (i, _) in all_args.iter().enumerate() {
-                        let res = self.new_local();
-                        compact_results.push(IrValue::Local(res));
-                        // Only compact constructor-typed roots.
-                        // Struct pointers (Vec, Str, Span, etc.) and
-                        // immediates are passed through unchanged.
-                        let is_ctor = i < tc.param_names.len()
-                            && Self::is_constructor_type(
-                                &func.locals,
-                                &tc.param_names[i],
-                                &self.module.structs,
-                            );
-                        needs_compact.push(is_ctor);
-                    }
-                    self.emit_to_func(
-                        func,
-                        IrInst::ArenaCompact {
-                            mark: IrValue::Local(mark.clone()),
-                            arena_end: IrValue::Local(arena_end),
-                            roots: all_args.clone(),
-                            results: compact_results.clone(),
-                            needs_compact,
-                        },
-                    );
-                    for result in &compact_results {
-                        compacted_args.push(result.clone());
-                    }
-                    for (i, arg_val) in compacted_args.iter().enumerate() {
-                        if i < tc.param_names.len() {
-                            if let Some(alloca) = alloca_map.get(&tc.param_names[i]) {
-                                let store_val = self.box_if_tag(func, arg_val);
-                                self.emit_to_func(
-                                    func,
-                                    IrInst::Store {
-                                        ptr: IrValue::Local(alloca.clone()),
-                                        value: store_val,
-                                    },
-                                );
-                            }
-                        }
-                    }
-                    self.emit_to_func(
-                        func,
-                        IrInst::Br {
-                            target: tc.entry_label.clone(),
-                        },
-                    );
-                    return IrValue::Const(IrConst::Int(
-                        0,
-                        TypeId::TCon("I64".to_string(), vec![]),
-                    ));
-                }
-
+                // A self tail call becomes parameter reassignment plus a
+                // branch to the entry label, which is what keeps an
+                // iterative Axiom function on constant stack at `-O0`
+                // (B2). It deliberately does *not* reset the bump
+                // allocator to a mark taken before the call: an earlier
+                // version did, and it corrupted memory. Resetting is only
+                // sound if everything the iteration allocated is either
+                // dead or reachable from a root the compactor can trace,
+                // and `is_constructor_type` can trace nothing but
+                // `data`-typed roots - a raw struct pointer (`Vec`,
+                // `Str`, `CG`) has no tag word to walk. Any loop whose
+                // body allocated into a structure held behind such a
+                // pointer therefore had that memory freed under it and
+                // then overwritten by the next iteration. The
+                // self-hosted compiler's `scanDecls` hit exactly this:
+                // per-iteration `TypeEntry` cells and the grown `Vec`
+                // block were reclaimed while the `CG` struct still
+                // pointed at them, and the resulting garbage registry
+                // segfaulted `lookupByIdx`.
+                //
+                // Reclaiming per-iteration garbage is worth doing, but it
+                // needs a real tracing story, not a partial one. Until
+                // then a loop leaks into the arena, which is the
+                // allocator's documented model anyway (docs/self-hosting
+                // §2.2 S1). The explicit `__axiom_arena_mark` /
+                // `__axiom_arena_reset` primitives remain available for
+                // callers willing to prove the lifetime themselves.
                 if let Some(tc) = tail_ctx {
                     if func_name == tc.func_name {
                         for (i, arg_val) in all_args.iter().enumerate() {
@@ -1685,6 +1731,39 @@ impl IrGen {
                             },
                         );
                         return IrValue::Local(dest);
+                    }
+                }
+
+                // More arguments than the callee declares means the extra
+                // ones apply to what it *returns*, which is a closure.
+                // `((adder 10) 5)` is one application spine, and folding
+                // it into `@adder(0, 10, 5)` passes 5 to a function that
+                // takes one parameter and never performs the second
+                // application at all - the caller gets the closure record
+                // back and prints its address.
+                if let Some(&arity) = self.fn_arity.get(&call_name) {
+                    if all_args.len() > arity {
+                        let direct: Vec<IrValue> = all_args[..arity].to_vec();
+                        let surplus: Vec<IrValue> = all_args[arity..].to_vec();
+                        let mut call_args = direct;
+                        call_args.insert(
+                            0,
+                            IrValue::Const(IrConst::Int(
+                                0,
+                                TypeId::TCon("I64".to_string(), vec![]),
+                            )),
+                        );
+                        let boxed: Vec<IrValue> =
+                            call_args.iter().map(|a| self.box_if_tag(func, a)).collect();
+                        self.emit_to_func(
+                            func,
+                            IrInst::Call {
+                                dest: IrValue::Local(dest.clone()),
+                                func: call_name,
+                                args: boxed,
+                            },
+                        );
+                        return self.gen_over_apply(func, IrValue::Local(dest), surplus);
                     }
                 }
 
@@ -1792,10 +1871,7 @@ impl IrGen {
                 }
 
                 if then_terminated && else_terminated {
-                    IrValue::Const(IrConst::Int(
-                        0,
-                        TypeId::TCon("I64".to_string(), vec![]),
-                    ))
+                    IrValue::Const(IrConst::Int(0, TypeId::TCon("I64".to_string(), vec![])))
                 } else {
                     func.blocks.push(IrBlock {
                         label: merge_label.clone(),
@@ -1824,8 +1900,6 @@ impl IrGen {
                             type_checker,
                             None,
                         );
-                        let is_tag = matches!(&value, IrValue::Const(IrConst::Int(tag, _)) if self.nullary_tags.contains(tag))
-                            || matches!(&value, IrValue::Tag(_));
                         let alloca_name = self.new_alloca(&ident.name);
                         func.locals
                             .push((ident.name.clone(), TypeId::TCon("I64".to_string(), vec![])));
@@ -1844,9 +1918,6 @@ impl IrGen {
                             },
                         );
                         alloca_map.insert(ident.name.clone(), alloca_name.clone());
-                        if is_tag {
-                            self.tag_alloca_names.insert(alloca_name);
-                        }
                     }
                 }
                 self.gen_expr_to_func_with_allocas(func, body, alloca_map, type_checker, None)
@@ -1888,29 +1959,34 @@ impl IrGen {
                 let needs_tag = arms.iter().any(|(pat, _)| {
                     matches!(pat, Pattern::PCon(ident, ..) | Pattern::PConNamed(ident, ..) if find_constructor(type_checker, &ident.name).is_some())
                 });
-                let tag_val = if needs_tag {
-                    if let IrValue::Tag(name) = &target_val {
-                        Some(IrValue::Tag(name.clone()))
-                    } else if let IrValue::Const(IrConst::Int(t, _)) = &target_val {
-                        if self.nullary_tags.contains(t) {
-                            Some(target_val.clone())
-                        } else {
-                            None
-                        }
-                    } else {
-                        let tag_local = self.new_local();
-                        self.emit_to_func(
-                            func,
-                            IrInst::LoadOffset {
-                                dest: IrValue::Local(tag_local.clone()),
-                                ptr: target_val.clone(),
-                                offset: 0,
-                            },
-                        );
-                        Some(IrValue::Local(tag_local))
-                    }
-                } else {
+                // Whether the scrutinee carries its tag inline is decided by
+                // the constructors the *arms* name, not by inspecting the
+                // scrutinee value. All arms of a well-typed `match` name
+                // constructors of one `data` type, so they agree, and this
+                // works for a scrutinee of any provenance - a parameter, a
+                // field, a call result - where sniffing the `IrValue` only
+                // ever recognised a literal or a locally tracked alloca and
+                // silently dereferenced everything else.
+                let immediate_tag = arms.iter().any(|(pat, _)| {
+                    matches!(pat, Pattern::PCon(ident, ..) | Pattern::PConNamed(ident, ..)
+                        if find_constructor(type_checker, &ident.name)
+                            .is_some_and(|(tag, _)| self.nullary_tags.contains(&tag)))
+                });
+                let tag_val = if !needs_tag {
                     None
+                } else if immediate_tag {
+                    Some(target_val.clone())
+                } else {
+                    let tag_local = self.new_local();
+                    self.emit_to_func(
+                        func,
+                        IrInst::LoadOffset {
+                            dest: IrValue::Local(tag_local.clone()),
+                            ptr: target_val.clone(),
+                            offset: 0,
+                        },
+                    );
+                    Some(IrValue::Local(tag_local))
                 };
 
                 let merge_label = self.new_block_label();
@@ -1994,7 +2070,7 @@ impl IrGen {
                                         IrInst::CondBr {
                                             cond: IrValue::Local(cmp_dest),
                                             then_target: arm_label.clone(),
-                                            else_target: next_check,
+                                            else_target: next_check.clone(),
                                         },
                                     );
 
@@ -2008,12 +2084,22 @@ impl IrGen {
                                     // literals, tuples, lists) are handled by
                                     // `gen_sub_pattern_checks` which implements
                                     // recursive matching.
+                                    //
+                                    // A sub-pattern that fails falls through to
+                                    // `next_check` - the *next arm* - not to
+                                    // `merge_label`. Sending it to the merge block
+                                    // would abandon the whole `match` the moment an
+                                    // outer tag matched but an inner one did not, so
+                                    // `((Cons a (Nil)) ...)` followed by
+                                    // `((Cons a b) ...)` would answer with the
+                                    // result slot's initial 0 on a two-element list
+                                    // instead of taking the second arm.
                                     self.gen_sub_pattern_checks(
                                         func,
                                         target_val.clone(),
                                         args,
                                         type_checker,
-                                        merge_label.clone(),
+                                        next_check.clone(),
                                         &mut arm_map,
                                         8,
                                     );
@@ -2040,9 +2126,6 @@ impl IrGen {
                                     value: target_val.clone(),
                                 },
                             );
-                            if matches!(&target_val, IrValue::Tag(_)) {
-                                self.tag_alloca_names.insert(var_alloca.clone());
-                            }
                             arm_map.insert(ident.name.clone(), var_alloca);
                         }
                         Pattern::PConNamed(ident, named_args) => {
@@ -2085,7 +2168,7 @@ impl IrGen {
                                         IrInst::CondBr {
                                             cond: IrValue::Local(cmp_dest),
                                             then_target: arm_label.clone(),
-                                            else_target: next_check,
+                                            else_target: next_check.clone(),
                                         },
                                     );
                                     func.blocks.push(IrBlock {
@@ -2098,7 +2181,7 @@ impl IrGen {
                                         target_val.clone(),
                                         &positional_args,
                                         type_checker,
-                                        merge_label.clone(),
+                                        next_check.clone(),
                                         &mut arm_map,
                                         8,
                                     );
@@ -2159,7 +2242,7 @@ impl IrGen {
                                 target_val.clone(),
                                 pats,
                                 type_checker,
-                                merge_label.clone(),
+                                next_check.clone(),
                                 &mut arm_map,
                                 0,
                             );
@@ -2584,10 +2667,12 @@ impl IrGen {
                         None => target_block.insts.push(inst),
                     }
                 } else if !matches!(&inst, IrInst::Alloca { .. })
-                    && target_block
-                        .insts
-                        .last()
-                        .map_or(false, |i| matches!(i, IrInst::Br { .. } | IrInst::CondBr { .. } | IrInst::Ret { .. }))
+                    && target_block.insts.last().map_or(false, |i| {
+                        matches!(
+                            i,
+                            IrInst::Br { .. } | IrInst::CondBr { .. } | IrInst::Ret { .. }
+                        )
+                    })
                 {
                     // skip: block already has a terminator
                 } else {

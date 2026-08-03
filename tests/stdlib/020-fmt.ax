@@ -14,7 +14,17 @@
     (printlnInt (- 0 1))
     (printlnInt (- 0 4096))
     (printlnInt 9223372036854775807)
+    ; The largest magnitude and the two values either side of the
+    ; negation boundary. `(- 0 max)` is `min + 1`, not `min`: `min` has no
+    ; literal spelling, so it is reached by overflowing `max + 1`.
+    ;
+    ; Both lines used to print `-9223372036854775808`. `fmtInt` guarded
+    ; the no-positive-counterpart case with `(== n (- 0 max))`, which
+    ; names `min + 1`, so `min + 1` got `min`'s digits and `min` itself
+    ; fell through to negating-a-negative and never terminated.
     (printlnInt (- 0 9223372036854775807))
+    (printlnInt (+ 9223372036854775807 1))
+    (printlnInt (fmtIntWidth (+ 9223372036854775807 1)))
     (println (fmtHex 0))
     (println (fmtHex 255))
     (println (fmtHex 48879))

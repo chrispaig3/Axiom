@@ -87,18 +87,22 @@ hard it blocks the bootstrap.
 
 ### 2.1 Blockers
 
-**B1. Function values do not survive code generation.** A
-higher-order function type-checks and then emits invalid LLVM:
+**B1. Function values. (RESOLVED)** The representation is a closure
+record: word 0 is the code pointer, words 1.. are the captured values,
+and the record itself is passed as the callee's hidden first parameter.
+Building that record already worked; calling it did not. An application
+spine was flattened into a single direct call, so `((adder 10) 5)`
+became `@adder(0, 10, 5)` — five handed to a one-parameter function,
+the second application never performed, and the closure's *address*
+returned as the answer. A call now applies as many arguments as the
+callee declares and passes the surplus through `CallIndirect` on the
+returned closure, one at a time, since each step may yield another
+closure.
 
-```scheme
-(:: apply2 (-> (-> Int Int) (-> Int Int)))
-(fn (apply2 f x) (f (f x)))
-```
-→ `call i64 @apply2(i64 %inc, i64 1)` referencing an undefined `%inc`;
-`llc` fails. A compiler can be written first-order, but the diagnostics
-layer, visitor passes, and any table of handlers want closures. Fixing
-this needs a representation decision (function pointer vs. closure
-record) and indirect-call support in the IR.
+Verified end to end by `tests/stdlib/140-function-values.ax`: capture,
+multi-argument capture, curried nesting (`(((add3 1) 2) 3)`), a closure
+as an argument, an inline `lambda`, a top-level function used as a
+value, and a closure stored in and recovered from a `data` constructor.
 
 **B2. Deep recursion is stack-bounded, and Axiom has no loop.**
 Measured on an 8 MiB stack: a tail-recursive counter survives 200,000
@@ -216,10 +220,20 @@ status, calling no libc function, on four targets.
 
 | Item | Work | Exit criteria |
 |---|---|---|
-| B2 | Guaranteed tail calls in the IR (self-call → parameter reassignment + branch), independent of `opt` | 10-million-iteration tail-recursive loop at `-O0`; stdlib loops keep constant stack |
+| B2 | Guaranteed tail calls in the IR (self-call → parameter reassignment + branch), independent of `opt` (DONE) | 10-million-iteration tail-recursive loop at `-O0`; stdlib loops keep constant stack |
 | B3 | `Vec`, `Map` (open addressing), `Intern` — golden tests and scale validation | Golden tests for all three; 10⁵-element insert/lookup within 2× of the Rust equivalent |
-| B1 | Function values: representation decision, indirect call in IR and codegen | Higher-order probe from §2.1 compiles and runs; closure capture tested |
+| B1 | Function values: representation decision, indirect call in IR and codegen (DONE) | Higher-order probe from §2.1 compiles and runs; closure capture tested |
 | B4 | Namespacing: qualified access `Mod::name` (DONE) | Two modules define the same name without collision; `Mod::name` access works; existing programs unaffected |
+
+B2's loop conversion is in place and holds at `-O0`. It does *not*
+reclaim what an iteration allocated: an earlier version reset the bump
+allocator to a mark taken before the self call, which is sound only if
+every live object is reachable from a root the compactor can trace, and
+it can trace nothing but `data`-typed roots — a raw struct pointer has
+no tag word to walk. Loops that allocated into a `Vec` behind a struct
+field had that memory freed under them. A loop now leaks into the arena,
+which is the allocator's documented model (§2.2 S1); reclaiming it needs
+a real tracing story. `tests/stdlib/110-tail-loop-alloc.ax` covers this.
 
 ### Phase 2 - Frontend in Axiom
 

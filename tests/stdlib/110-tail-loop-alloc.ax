@@ -1,0 +1,76 @@
+; A self tail call must not reclaim what the iteration allocated.
+;
+; Iteration in Axiom is recursion, and a self tail call is lowered to
+; parameter reassignment plus a branch so the loop keeps constant stack
+; (docs/self-hosting §2.1 B2). An earlier lowering also reset the bump
+; allocator to a mark taken before the call, deep-copying the arguments
+; forward to keep them alive. That is only sound if every live object is
+; reachable from an argument the copier can trace, and it can trace
+; nothing but `data`-typed roots: a raw struct pointer has no tag word to
+; walk. So a loop that allocated into a structure held behind a struct
+; pointer had that memory freed under it and overwritten by the next
+; iteration.
+;
+; This case is that shape exactly, and it is the reduced form of what
+; broke the self-hosted compiler's `scanDecls`: per-iteration cells
+; pushed into a `Vec` that only a struct field points at. Every cell
+; carries a self-describing payload, so a reclaimed-and-reused cell
+; reads back as something other than `(i, i*i)` rather than merely
+; looking odd.
+(import IO)
+(import Mem)
+(import Vec)
+
+(pub struct Box (cells : Int) (pushed : Int))
+
+; A fresh 2-word cell holding `(i, i*i)`, appended to `box`'s vector.
+; Returns `box`, so the caller can thread it through a tail call.
+(pub :: addCell (-> Int Int Int))
+(pub fn (addCell box i)
+  (let ((cell (memAlloc 16)))
+    {
+      (memSetWord cell 0 i)
+      (memSetWord cell 1 (* i i))
+      (vecPush (memGetWord box 0) cell)
+      (memSetWord box 1 (+ (memGetWord box 1) 1))
+      box
+    }))
+
+; The loop under test: self tail call, allocating body, and the only
+; path to the new memory runs through `box`'s first field.
+;
+; `upto` is well past `vecDefaultCap`, so the vector reallocates several
+; times inside the loop and the data block itself becomes memory the
+; iteration allocated and the loop must keep.
+(pub :: fillCells (-> Int Int Int Int))
+(pub fn (fillCells box i upto)
+  (if (>= i upto)
+      box
+      (fillCells (addCell box i) (+ i 1) upto)))
+
+; Number of cells that still read back as `(i, i*i)`.
+(pub :: intactFrom (-> Int Int Int Int))
+(pub fn (intactFrom cells i acc)
+  (if (>= i (vecLen cells))
+      acc
+      (let ((cell (vecGet cells i)))
+        (intactFrom cells (+ i 1)
+          (if (&& (== (memGetWord cell 0) i)
+                  (== (memGetWord cell 1) (* i i)))
+              (+ acc 1)
+              acc)))))
+
+(pub :: main Int)
+;@axiom:effect(io)
+(pub fn (main)
+  (let ((box (cast Int (Box (vecNew) 0)))
+        (filled (fillCells box 0 40)))
+    {
+      (printlnInt (memGetWord filled 1))                  ; 40: pushes counted
+      (printlnInt (vecLen (memGetWord filled 0)))         ; 40: cells retained
+      (printlnInt (vecCap (memGetWord filled 0)))         ; 64: 8 -> 16 -> 32 -> 64
+      (printlnInt (intactFrom (memGetWord filled 0) 0 0)) ; 40: none reclaimed
+      (printlnInt (memGetWord (vecGet (memGetWord filled 0) 0) 0))   ; 0
+      (printlnInt (memGetWord (vecGet (memGetWord filled 0) 39) 1))  ; 1521 = 39*39
+      0
+    }))

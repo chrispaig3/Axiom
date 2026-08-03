@@ -1,0 +1,83 @@
+; Pattern matching against the two runtime shapes a `data` value can take.
+;
+; A constructor with fields is a heap block whose word 0 is the tag. A
+; nullary constructor of an all-nullary type is the tag itself, with no
+; block at all. Matching therefore has to know, per constructor, where to
+; look for the tag — and it has to know it from the *constructor named in
+; the pattern*, which is static, not by inspecting the value, which is
+; ambiguous: one machine word cannot say whether it means an integer, a
+; tag, or a pointer.
+;
+; Every case here failed at some point by getting that wrong, and each
+; fails loudly rather than subtly — a wrong answer here is a pointer, not
+; an off-by-one.
+(import IO)
+
+(data Color (Red) (Green) (Blue))   ; all nullary: values are bare tags
+(data Item (Wrap Color Int))        ; a block: tag, then two fields
+(data L (Nil) (Cons Int L))         ; mixed: `Nil` is a block, like `Cons`
+(data Pair (Mk Int Int))
+
+; A nested pattern that fails must fall through to the *next arm*, not
+; out of the `match`. `(Cons a (Nil))` rejecting a two-element list has
+; to leave `(Cons a b)` a chance to take it.
+(pub :: firstTwo (-> L Int))
+(pub fn (firstTwo l)
+  (match l
+    ((Cons a (Cons b t)) (+ a b))
+    ((Cons a (Nil)) a)
+    ((Nil) 0)))
+
+; The scrutinee is a parameter, so its shape cannot be read off the
+; expression that built it — only off `Red`/`Green`/`Blue`.
+(pub :: rank (-> Color Int))
+(pub fn (rank c)
+  (match c
+    ((Red) 1)
+    ((Green) 2)
+    ((Blue) 3)))
+
+; An unboxed tag stored in a field of a boxed constructor: `describe`
+; must compare the field word itself, not load word 0 of it.
+(pub :: describe (-> Item Int))
+(pub fn (describe it)
+  (match it
+    ((Wrap (Red) n) (+ 100 n))
+    ((Wrap (Green) n) (+ 200 n))
+    ((Wrap (Blue) n) (+ 300 n))))
+
+; Plain integers that collide numerically with `Color`'s tags. Nothing
+; about the value 2 says whether it is the integer 2 or a constructor,
+; so a representation decision made by looking at it gets this wrong.
+(pub :: addPair (-> Pair Int))
+(pub fn (addPair p)
+  (match p ((Mk a b) (+ a b))))
+
+(pub :: main Int)
+;@axiom:effect(io)
+(pub fn (main)
+  {
+    ; --- nested-pattern fallthrough ---
+    (printlnInt (firstTwo (Cons 10 (Cons 20 (Nil)))))  ; 30: first arm
+    (printlnInt (firstTwo (Cons 7 (Nil))))             ; 7: second arm
+    (printlnInt (firstTwo (Nil)))                      ; 0: third arm
+
+    ; --- an all-nullary value crossing a call boundary ---
+    (printlnInt (rank (Red)))                          ; 1
+    (printlnInt (rank (Green)))                        ; 2
+    (printlnInt (rank (Blue)))                         ; 3
+
+    ; --- an unboxed tag as a field of a boxed constructor ---
+    (printlnInt (describe (Wrap (Red) 1)))             ; 101
+    (printlnInt (describe (Wrap (Green) 2)))           ; 202
+    (printlnInt (describe (Wrap (Blue) 3)))            ; 303
+
+    ; --- integer payloads on tag-numbered values ---
+    (printlnInt (addPair (Mk 1 1)))                    ; 2
+    (printlnInt (addPair (Mk 2 2)))                    ; 4
+    (printlnInt (addPair (Mk 3 4)))                    ; 7
+
+    ; --- a bare tag through a let, then matched again ---
+    (printlnInt (let ((c (Green))) (rank c)))          ; 2
+    0
+  })

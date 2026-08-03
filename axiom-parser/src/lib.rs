@@ -1323,21 +1323,34 @@ impl Parser {
                 unreachable!()
             }
         } else if self.is_ident() {
-            let ident = self.parse_ident()?;
-            let mut expr = Expr::EVar(ident);
+            // A dotted chain of identifiers is either field access
+            // (`p.x.y`) or a module path (`Sys.Platform::sysRead`), and
+            // which one is only known at the end: `::` makes it a module
+            // path. So collect the chain first and decide after.
+            //
+            // Committing to `EField` as each dot is consumed - as this
+            // did - makes a module path of more than one segment
+            // unparseable. The `::` branch could only rewrite a bare
+            // `EVar`, so `Sys.Platform::sysRead` fell through with the
+            // `::` unconsumed and reported "expected expression, found
+            // `::`", even though dotted module names are exactly what
+            // `import Sys.Platform` creates.
+            let mut chain = vec![self.parse_ident()?];
             while self.eat(TokenKind::Dot) {
-                let field_name = self.parse_ident()?;
-                expr = Expr::EField(Box::new(expr), field_name);
+                chain.push(self.parse_ident()?);
             }
             if self.check(TokenKind::DoubleColon) {
-                if let Expr::EVar(first) = expr {
-                    let mut path = vec![first];
-                    while self.eat(TokenKind::DoubleColon) {
-                        path.push(self.parse_ident()?);
-                    }
-                    let name = path.pop().unwrap();
-                    expr = Expr::EQualified(path, name);
+                let mut path = chain;
+                while self.eat(TokenKind::DoubleColon) {
+                    path.push(self.parse_ident()?);
                 }
+                let name = path.pop().unwrap();
+                return Ok(Expr::EQualified(path, name));
+            }
+            let mut fields = chain.into_iter();
+            let mut expr = Expr::EVar(fields.next().unwrap());
+            for field_name in fields {
+                expr = Expr::EField(Box::new(expr), field_name);
             }
             Ok(expr)
         } else if self.check(TokenKind::Plus)

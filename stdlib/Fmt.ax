@@ -9,15 +9,30 @@
 (import Mem)
 (import Str)
 
+; True for the one `Int` that is its own negation: the most negative
+; value, whose magnitude does not fit in an `Int`. Zero negates to itself
+; too, so it is excluded.
+;
+; This is the test to use rather than comparing against a literal. Axiom
+; has no literal for the most negative `Int` - writing its digits is an
+; overflowing positive literal - and the obvious stand-in,
+; `(- 0 9223372036854775807)`, is one *greater* than it. Code guarded that
+; way looks correct and never fires.
+(pub :: intIsMostNegative (-> Int Bool))
+(pub fn (intIsMostNegative n)
+  (&& (< n 0) (== (- 0 n) n)))
+
 ; Decimal digits in `n`, counting a leading `-` and treating 0 as one
 ; digit.
 (pub :: fmtIntWidth (-> Int Int))
 (pub fn (fmtIntWidth n)
-  (if (< n 0)
-      (+ 1 (fmtIntWidth (- 0 n)))
-      (if (< n 10)
-          1
-          (+ 1 (fmtIntWidth (/ n 10))))))
+  (if (intIsMostNegative n)
+      20                                  ; "-9223372036854775808"
+      (if (< n 0)
+          (+ 1 (fmtIntWidth (- 0 n)))
+          (if (< n 10)
+              1
+              (+ 1 (fmtIntWidth (/ n 10)))))))
 
 ; `n` in base 10 as a `Str`.
 ;
@@ -26,11 +41,17 @@
 ; be" guess that the C version needed.
 ;
 ; `Int` is 64-bit and two's complement, so the most negative value has no
-; positive counterpart; it is special-cased rather than silently
-; overflowing on negation.
+; positive counterpart. Negating it yields itself, so every path that
+; formats `|n|` - `fmtNat`, and `fmtIntWidth` inside it - recurses
+; forever on that one input. It has exactly one spelling, so it is
+; answered outright.
+;
+; Detected with `intIsMostNegative`, not by comparing against a literal:
+; the guard here used to read `(== n (- 0 9223372036854775807))`, which
+; is `MIN + 1` and therefore never true of `MIN` itself.
 (pub :: fmtInt (-> Int Int))
 (pub fn (fmtInt n)
-  (if (== n (- 0 9223372036854775807))
+  (if (intIsMostNegative n)
       (strFromLit (__addr "-9223372036854775808"))
       (if (< n 0)
           (strConcat (strFromLit (__addr "-")) (fmtNat (- 0 n)))

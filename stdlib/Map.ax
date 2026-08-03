@@ -342,41 +342,26 @@
       0
       (+ i 1)))
 
-; WHY THERE IS NO `mapSlotHoldsKey` HELPER, AND NO `&&` ANYWHERE.
+; WHY THE PROBE LOOPS TEST ONE CONDITION PER `if`.
 ;
-; The natural way to write the probe test is
+; Not a compiler workaround, though it was: this file used to carry a
+; note saying `&&` could not take a comparison operand and that a `Bool`
+; must never be the value of an `if`. Both were real - the first emitted
+; `and i64` over an `i1` and failed in `llc`, the second stored one byte
+; into a word-sized slot and read seven bytes of stale frame back, which
+; is how an early version of this file silently lost 11 of 40 keys - and
+; both are fixed. `&&` and `||` now short-circuit, and a `Bool` is
+; widened to a machine word wherever it is stored. See
+; `tests/stdlib/130-booleans.ax`, which fails against a compiler with
+; either bug.
 ;
-;     (&& (== (mapStateAt m i) mapStateLive) (== (mapKeyAt m i) key))
-;
-; and the natural fallback, once `&&` turns out not to work, is a
-; `Bool`-returning helper `(if (== state live) (== key k) false)`.
-; Neither is usable, and both fail *silently*, so the shape of the two
-; probe loops below - conditions nested directly in the `Int`-returning
-; `if` that needs them, one comparison per condition - is not a style
-; preference. It is the only shape that compiles correctly today.
-;
-;   1. `&&` and `||` do not survive code generation when an operand is a
-;      comparison. `IrInst::And` unconditionally emits `and i64`, so an
-;      `i1` from an `icmp` yields LLVM that `llc` rejects outright:
-;      "'%_t623' defined with type 'i1' but expected 'i64'". This one at
-;      least fails loudly. It happens to work when both operands are
-;      `Bool`-typed *parameters*, because those are passed as `i64`,
-;      which is why it is not a type error.
-;
-;   2. A `Bool` must never be the value of an `if` expression. The result
-;      slot of an `if` is always `alloca i64`, but a `Bool`-typed branch
-;      emits `store i1`, which writes one byte; the merge point then does
-;      `load i64` and reads seven bytes of uninitialised stack. The
-;      answer is whatever the frame happened to contain, so the same
-;      function returns the right answer in a small program and `true`
-;      unconditionally in a large one. This is how the first version of
-;      this file silently lost 11 of 40 keys: colliding keys compared
-;      "equal", so an insert overwrote an unrelated live entry.
-;
-; A `Bool` produced *directly* by a comparison or a call is fine - that
-; path emits `zext i1 ... to i64` and the caller tests `icmp ne i64 0` -
-; which is why `mapHas` and `mapNeedsGrow` may return `Bool` and nothing
-; else here does.
+; What is left is a genuine three-way distinction that no two-way
+; conjunction expresses: a slot is empty, live, or a tombstone, and the
+; three demand different actions. Empty ends the probe, live compares the
+; key, and a tombstone continues past it - collapsing the last two into
+; `(&& live (== key k))` would make a tombstone answer "not this slot"
+; and stop the scan the same way empty does, losing every entry displaced
+; past a removed one.
 
 ; The slot holding `key`, or -1 if `key` is absent.
 ;

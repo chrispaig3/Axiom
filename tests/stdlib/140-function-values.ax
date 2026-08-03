@@ -1,0 +1,66 @@
+; Function values: closures, currying, and indirect calls.
+;
+; A function value is a two-word record - code pointer, then captured
+; environment - and calling one loads word 0 and calls through it with
+; the record as the hidden first argument. Building that record already
+; worked; *calling* it did not.
+;
+; `((adder 10) 5)` is a single application spine over a function of one
+; parameter. Lowering flattened the spine and emitted one direct call,
+; `@adder(0, 10, 5)`, which passes 5 to a function that takes one
+; argument and never performs the second application. The caller got the
+; closure record back and saw its address where the answer belonged - a
+; plausible-looking large integer, not a crash.
+;
+; Every case here therefore applies more arguments than the callee
+; declares, which is the shape that was mis-lowered.
+(import IO)
+
+; One capture, applied in a second step.
+(pub :: adder (-> Int (-> Int Int)))
+(pub fn (adder n) (lambda (x) (+ x n)))
+
+; Two captures from a two-parameter function.
+(pub :: scaler (-> Int Int (-> Int Int)))
+(pub fn (scaler a b) (lambda (x) (* x (+ a b))))
+
+; Nested lambdas: each application yields another closure, so the
+; surplus arguments cannot be applied in one step.
+(pub :: add3 (-> Int (-> Int (-> Int Int))))
+(pub fn (add3 a) (lambda (b) (lambda (c) (+ a (+ b c)))))
+
+; A function value as an ordinary parameter, called indirectly.
+(pub :: applyTo (-> (-> Int Int) Int Int))
+(pub fn (applyTo f v) (f v))
+
+; A top-level function used as a value - no capture, but still passed
+; and called through the same parameter position.
+(pub :: double (-> Int Int))
+(pub fn (double x) (* x 2))
+
+(pub :: twice (-> (-> Int Int) Int Int))
+(pub fn (twice f x) (f (f x)))
+
+; A closure surviving a round trip through a heap-allocated constructor.
+(pub data Held (Hold (-> Int Int)))
+
+(pub :: runHeld (-> Held Int Int))
+(pub fn (runHeld h v)
+  (match h ((Hold f) (f v))))
+
+(pub :: main Int)
+;@axiom:effect(io)
+(pub fn (main)
+  {
+    (printlnInt ((adder 10) 5))                  ; 15
+    (printlnInt ((adder 0) 7))                   ; 7: capture of 0, not "no capture"
+    (printlnInt ((scaler 2 3) 10))               ; 50
+    (printlnInt (((add3 1) 2) 3))                ; 6
+    (printlnInt (applyTo (adder 100) 5))         ; 105: closure as an argument
+    (printlnInt (applyTo (lambda (x) (- x 1)) 10)) ; 9: lambda written inline
+    (printlnInt (applyTo double 21))             ; 42: named function as a value
+    (printlnInt (twice double 3))                ; 12: called twice indirectly
+    (printlnInt (twice (adder 5) 0))             ; 10: closure called twice
+    (printlnInt (runHeld (Hold (adder 100)) 5))  ; 105: through a constructor
+    0
+  })

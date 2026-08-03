@@ -1,0 +1,35 @@
+; Qualified access against modules whose path has more than one segment.
+;
+; `(import Sys.Platform)` creates a module named `Sys.Platform`, and
+; `Mod::name` is how a caller disambiguates when several modules export
+; the same name. Those two features did not compose: after `Sys`, the
+; parser consumed `.Platform` as *field access* and only rewrote a bare
+; identifier into a module path when `::` arrived, so a dotted module
+; name reported "expected expression, found `::`" - unparseable, with a
+; diagnostic pointing at syntax that is documented to work.
+;
+; Behind that, the IR joined the path segments with `$` while name
+; mangling and the type checker both use `.`, so even once it parsed,
+; `Q.Inner::label` would have called `Q$Inner$label` - a symbol nothing
+; defines.
+;
+; `label` is deliberately defined three times, so an unqualified call
+; could not stand in for any of the qualified ones.
+(import IO)
+(import Q.Inner)
+(import Q.Other)
+
+(pub :: label (-> Int Int))
+(pub fn (label x) (+ x 1))
+
+(pub :: main Int)
+;@axiom:effect(io)
+(pub fn (main)
+  {
+    (printlnInt (label 10))            ; 11: this file's own
+    (printlnInt (Q.Inner::label 10))   ; 110
+    (printlnInt (Q.Other::label 10))   ; 210
+    (printlnInt (Q.Other::viaInner 10)); 110: qualified call from inside a module
+    (printlnInt (Q.Inner::only))       ; 7: a nullary function, qualified
+    0
+  })

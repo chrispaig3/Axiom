@@ -1,0 +1,7 @@
+; A module reached by a dotted path, so `Q.Inner::label` is the only way
+; to name its `label` unambiguously once the entry file defines one too.
+(pub :: label (-> Int Int))
+(pub fn (label x) (+ x 100))
+
+(pub :: only Int)
+(pub fn (only) 7)

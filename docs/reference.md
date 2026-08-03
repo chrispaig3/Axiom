@@ -352,6 +352,16 @@ All operators are **prefix** — they go before their arguments, just like any o
 (- 5)               ; -5 (negation, unary)
 ```
 
+`&&` and `||` short-circuit: the right-hand operand is evaluated only
+when the left one does not already decide the answer. This is what makes
+a guard mean what it looks like — `(&& (< i n) (== (strByte s i) c))`
+never reads `s` at `i` unless `i` is in range.
+
+`Int` is 64-bit and two's complement. Negation of the most negative
+value yields itself rather than a positive number, which is why
+`Fmt.intIsMostNegative` exists: there is no literal for that value, and
+`(- 0 9223372036854775807)` is one greater than it.
+
 ---
 
 ## Let Bindings

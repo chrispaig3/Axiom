@@ -689,10 +689,24 @@ impl LlvmCodeGen {
             IrInst::Store { ptr, value } => {
                 let ptr_val = self.value_to_ptr(ptr)?;
                 let (val_str, ty_str) = self.value_to_typed_string(value)?;
+                // Store what the *slot* holds, not what the value happens
+                // to be. A comparison yields `i1`, and an `if` whose arms
+                // are comparisons stores into the expression's result
+                // slot, which is `alloca i64` like every Axiom local. A
+                // bare `store i1` there writes one byte and leaves seven
+                // untouched, so the matching `load i64` reads whatever the
+                // frame last held - right in a small program, arbitrary in
+                // a large one. Widening here is what makes a `Bool`-valued
+                // `if` mean the same thing in both.
+                let slot_ty = self.pointee_llvm_type(ptr);
+                let stored = match &slot_ty {
+                    Some(want) if *want != ty_str => self.coerce_int(&val_str, &ty_str, want),
+                    _ => (val_str, ty_str),
+                };
                 writeln!(
                     self.output,
                     "  store {} {}, ptr {}",
-                    ty_str, val_str, ptr_val
+                    stored.1, stored.0, ptr_val
                 )
                 .unwrap();
             }
@@ -1059,12 +1073,8 @@ impl LlvmCodeGen {
                         )
                         .unwrap();
                         let root_reg = self.value_to_llvm(root)?;
-                        writeln!(
-                            self.output,
-                            "  {} = add i64 {}, 0",
-                            result_reg, root_reg
-                        )
-                        .unwrap();
+                        writeln!(self.output, "  {} = add i64 {}, 0", result_reg, root_reg)
+                            .unwrap();
                     }
                     if let IrValue::Local(name) = &results[i] {
                         self.ssa_values.insert(
@@ -1527,6 +1537,51 @@ impl LlvmCodeGen {
                 format!("ptr @str_{}", id)
             }
         }
+    }
+
+    /// The LLVM type a store through `ptr` must supply, when `ptr` names
+    /// an `alloca` this function emitted and whose element type is
+    /// therefore known. `None` for anything else - a global, a computed
+    /// address, a name introduced before its `alloca` - where the value's
+    /// own type is the only information available and coercing would be
+    /// guessing.
+    fn pointee_llvm_type(&self, ptr: &IrValue) -> Option<String> {
+        match ptr {
+            IrValue::Local(name) => self.locals.get(name).map(|(_, ty)| self.type_to_llvm(ty)),
+            _ => None,
+        }
+    }
+
+    /// `value` widened or narrowed to `want`, as `(register, type)`.
+    ///
+    /// Widening a comparison result is `zext`, never `sext`: `i1 true`
+    /// sign-extends to -1, and Axiom's `true` is 1. Wider-to-narrower is
+    /// `trunc`. Anything that is not an integer pair is left alone rather
+    /// than reinterpreted, since a bad guess there is a silent
+    /// miscompile and the caller's original type is at least honest.
+    fn coerce_int(&mut self, val: &str, from: &str, want: &str) -> (String, String) {
+        let (from_bits, want_bits) = (llvm_type_bits(from), llvm_type_bits(want));
+        let both_ints = from.starts_with('i') && want.starts_with('i');
+        if !both_ints || from_bits == want_bits {
+            return (val.to_string(), from.to_string());
+        }
+        let op = if from_bits < want_bits {
+            if from == "i1" {
+                "zext"
+            } else {
+                "sext"
+            }
+        } else {
+            "trunc"
+        };
+        let reg = self.new_local_reg();
+        writeln!(
+            self.output,
+            "  {} = {} {} {} to {}",
+            reg, op, from, val, want
+        )
+        .unwrap();
+        (reg, want.to_string())
     }
 
     fn value_to_ptr(&self, value: &IrValue) -> Result<String, String> {

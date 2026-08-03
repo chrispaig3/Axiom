@@ -1,0 +1,69 @@
+; Booleans: short-circuit evaluation, and `Bool` as a value.
+;
+; Two things have to hold, and neither is visible from a small
+; hand-checked example.
+;
+; `&&` and `||` must not evaluate their right-hand side when the left one
+; already decides the answer. The guard idiom depends on it - `(&& (< i
+; n) (== (strByte s i) c))` reads past the end otherwise - and so does
+; every reader who has met these operators in any other language.
+;
+; A `Bool` must survive being the value of an expression. A comparison
+; produces a one-bit value; every Axiom local is a machine word. An `if`
+; whose arms are comparisons stores into a word-sized slot, and storing
+; one bit there leaves seven bytes holding whatever the frame last had.
+; That reads back correctly on a clean stack and arbitrarily on a dirty
+; one, which is why `dirty` runs first here: without it this file passes
+; against a compiler that gets it wrong.
+(import IO)
+(import Str)
+
+; Records that it ran. If short-circuiting works, it never does.
+(pub :: loud (-> Int Bool))
+;@axiom:effect(io)
+(pub fn (loud x)
+  {
+    (println (strFromLit (__addr "EVALUATED")))
+    (> x 0)
+  })
+
+; A `Bool` that is the value of an `if`, not the direct result of a
+; comparison - the shape that used to store one byte into eight.
+(pub :: bothZero (-> Int Int Bool))
+(pub fn (bothZero a b)
+  (if (== a 0) (== b 0) false))
+
+; Leave a frame full of non-zero words for `bothZero` to be laid over.
+(pub :: dirty (-> Int Int))
+(pub fn (dirty n)
+  (let ((a (* n 111111)) (b (* n 222222)) (c (* n 333333)) (d (* n 444444))
+        (e (* n 555555)) (f (* n 666666)) (g (* n 777777)) (h (* n 888888)))
+    (+ a (+ b (+ c (+ d (+ e (+ f (+ g h)))))))))
+
+(pub :: main Int)
+;@axiom:effect(io)
+(pub fn (main)
+  {
+    (printlnInt (dirty 7))                            ; 27999972
+
+    ; --- a Bool-valued `if`, read back as a whole word ---
+    (printlnInt (if (bothZero 0 0) 1 0))              ; 1
+    (printlnInt (if (bothZero 0 5) 1 0))              ; 0
+    (printlnInt (if (bothZero 5 0) 1 0))              ; 0
+    (printlnInt (if (bothZero 5 5) 1 0))              ; 0
+
+    ; --- short circuit: `loud` must stay silent in both ---
+    (printlnInt (if (&& false (loud 1)) 1 0))         ; 0
+    (printlnInt (if (|| true (loud 2)) 1 0))          ; 1
+
+    ; --- and must still run when the answer depends on it ---
+    (printlnInt (if (&& true (> 3 1)) 1 0))           ; 1
+    (printlnInt (if (|| false (> 1 3)) 1 0))          ; 0
+
+    ; --- both operands as comparisons, the `i1`/`i64` mixing case ---
+    (printlnInt (if (&& (== 1 1) (== 2 2)) 1 0))      ; 1
+    (printlnInt (if (&& (== 1 1) (== 2 3)) 1 0))      ; 0
+    (printlnInt (if (|| (== 1 2) (== 2 2)) 1 0))      ; 1
+    (printlnInt (if (|| (== 1 2) (== 2 3)) 1 0))      ; 0
+    0
+  })
