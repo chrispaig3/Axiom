@@ -1367,6 +1367,10 @@ impl Parser {
             || self.check(TokenKind::Bang)
             || self.check(TokenKind::AndAnd)
             || self.check(TokenKind::PipePipe)
+            || self.check(TokenKind::Amp)
+            || self.check(TokenKind::Pipe)
+            || self.check(TokenKind::Shl)
+            || self.check(TokenKind::Shr)
         {
             let token = self.advance();
             Ok(Expr::EVar(Ident::new(

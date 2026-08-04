@@ -1,0 +1,63 @@
+; Bitwise operators: `&`, `|`, `^`, `<<`, `>>`.
+;
+; The IR and the LLVM backend carried `BitAnd`/`BitOr`/`BitXor`/`Shl`/
+; `Shr` from the beginning, and the lexer already produced `&`, `|` and
+; `^` tokens - but nothing ever connected them to syntax, so all five
+; were unreachable. A language with `__load8` and `__syscall6` but no way
+; to mask an address or pack a field cannot write its own allocator,
+; which is what these were needed for.
+;
+; `>>` is arithmetic, matching `Int` being signed. On every supported
+; target a userspace address is far below 2^63, so address arithmetic
+; sees no difference between arithmetic and logical shift.
+(import IO)
+
+; The three things an allocator actually does with them: round an
+; address to a boundary, pack a size beside some flags, and take it
+; apart again.
+(pub :: alignUp (-> Int Int Int))
+(pub fn (alignUp n to)
+  (& (+ n (- to 1)) (- 0 to)))
+
+(pub :: packHeader (-> Int Int Int))
+(pub fn (packHeader size flags)
+  (| (<< size 3) flags))
+
+(pub :: headerSize (-> Int Int))
+(pub fn (headerSize h) (>> h 3))
+
+(pub :: headerFlags (-> Int Int))
+(pub fn (headerFlags h) (& h 7))
+
+(pub :: main Int)
+;@axiom:effect(io)
+(pub fn (main)
+  {
+    (printlnInt (& 12 10))                 ; 8
+    (printlnInt (| 12 10))                 ; 14
+    (printlnInt (^ 12 10))                 ; 6
+    (printlnInt (^ 255 255))               ; 0
+    (printlnInt (<< 1 10))                 ; 1024
+    (printlnInt (<< 3 62))                 ; bits 62 and 63: negative, not overflow
+    (printlnInt (>> 1024 3))               ; 128
+    (printlnInt (>> (- 0 1024) 3))         ; -128: arithmetic, sign preserved
+    (printlnInt (>> (- 0 1) 63))           ; -1: all-ones stays all-ones
+
+    ; --- alignment ---
+    (printlnInt (alignUp 1 16))            ; 16
+    (printlnInt (alignUp 16 16))           ; 16
+    (printlnInt (alignUp 17 16))           ; 32
+    (printlnInt (alignUp 0 16))            ; 0
+
+    ; --- header packing, round-tripped ---
+    (printlnInt (packHeader 208 2))        ; 1666
+    (printlnInt (headerSize (packHeader 208 2)))   ; 208
+    (printlnInt (headerFlags (packHeader 208 2)))  ; 2
+    (printlnInt (headerSize (packHeader 1048576 5)))  ; 1048576
+    (printlnInt (headerFlags (packHeader 1048576 5))) ; 5
+
+    ; --- masks built from shifts ---
+    (printlnInt (& 255 (- (<< 1 4) 1)))    ; 15
+    (printlnInt (| (<< 1 0) (| (<< 1 3) (<< 1 7))))  ; 137
+    0
+  })

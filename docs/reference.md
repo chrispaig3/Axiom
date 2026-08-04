@@ -1,6 +1,6 @@
 # Axiom Language Reference
 
-A friendly, comprehensive guide to the Axiom programming language — a functional systems language that compiles to native code via LLVM, with no VM, runtime, or garbage collector.
+A friendly, comprehensive guide to the Axiom programming language — a functional systems language that compiles to native code via LLVM, with no VM and no runtime. Memory comes from an `mmap`-backed bump allocator by default; `--gc` swaps in a tracing collector for programs that need peak memory to track live data.
 
 ---
 
@@ -351,6 +351,17 @@ All operators are **prefix** — they go before their arguments, just like any o
 
 (- 5)               ; -5 (negation, unary)
 ```
+
+```scheme
+(& 12 10)           ; 8   bitwise and
+(| 12 10)           ; 14  bitwise or
+(^ 12 10)           ; 6   bitwise xor
+(<< 1 10)           ; 1024
+(>> 1024 3)         ; 128
+```
+
+`>>` is arithmetic, so the sign bit is preserved: `(>> -1024 3)` is
+`-128`.
 
 `&&` and `||` short-circuit: the right-hand operand is evaluated only
 when the left one does not already decide the answer. This is what makes
@@ -934,6 +945,33 @@ axiom emit-llvm source.ax -o output.ll
 # Compile and run immediately
 axiom run source.ax
 ```
+
+### Choosing a Memory Manager
+
+```bash
+# Default: an mmap-backed bump allocator. Nothing is ever freed, so peak
+# memory is proportional to *total* allocation. Right for a process that
+# exits in milliseconds, and it costs nothing at runtime.
+axiom build --input source.ax --output program
+
+# A conservative mark-sweep collector, so peak memory tracks *live* data.
+# Pays a collection pause whenever the current mapping fills.
+axiom --gc build --input source.ax --output program
+```
+
+Both are freestanding — neither calls libc. `--gc` is a global flag, so
+it goes before the subcommand, and it applies to `run` and `emit-llvm`
+too.
+
+The collector is conservative: it treats any word that could be a
+pointer to a live object as one, because Axiom values are untyped machine
+words at runtime. An integer that happens to equal a live object's
+address keeps that object alive. It never moves anything, so pointer
+identity holds.
+
+`__axiom_arena_mark` and `__axiom_arena_reset` belong to the bump
+allocator and are a compile error under `--gc`: a tracing collector
+reclaims by reachability and has no waterline to roll back to.
 
 ### Using the AI-Optimized Format
 

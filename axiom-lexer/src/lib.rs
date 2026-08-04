@@ -250,6 +250,10 @@ impl Lexer {
                         let start = self.pos;
                         self.pos += 2;
                         tokens.push(Token::new(TokenKind::Le, self.span(start)));
+                    } else if self.peek() == Some('<') {
+                        let start = self.pos;
+                        self.pos += 2;
+                        tokens.push(Token::new(TokenKind::Shl, self.span(start)));
                     } else {
                         self.push_token(&mut tokens, TokenKind::Lt);
                     }
@@ -259,6 +263,10 @@ impl Lexer {
                         let start = self.pos;
                         self.pos += 2;
                         tokens.push(Token::new(TokenKind::Ge, self.span(start)));
+                    } else if self.peek() == Some('>') {
+                        let start = self.pos;
+                        self.pos += 2;
+                        tokens.push(Token::new(TokenKind::Shr, self.span(start)));
                     } else {
                         self.push_token(&mut tokens, TokenKind::Gt);
                     }

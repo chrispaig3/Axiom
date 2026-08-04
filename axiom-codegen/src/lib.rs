@@ -1,3 +1,4 @@
+pub mod gc;
 pub mod target;
 
 pub use target::Target;
@@ -35,6 +36,17 @@ pub struct LlvmCodeGen {
     /// so `ret` has to widen a boolean rather than emit `ret i1` from
     /// an `i64` function - which LLVM rejects outright.
     current_ret_ty: String,
+    /// Emit the tracing collector instead of the bump allocator.
+    ///
+    /// Off by default. A bump allocator is the right trade for a
+    /// short-lived process that exits before it can care - which is most
+    /// of what Axiom compiles today - and it costs nothing at runtime.
+    /// The collector is for programs whose peak memory has to track live
+    /// data rather than total allocation.
+    gc: bool,
+    /// Whether the collector was actually emitted for this module, which
+    /// is what decides if `main` has to record the stack base.
+    gc_active: bool,
 }
 
 impl Default for LlvmCodeGen {
@@ -63,7 +75,15 @@ impl LlvmCodeGen {
             extern_decls: HashSet::new(),
             target,
             current_ret_ty: "i64".to_string(),
+            gc: false,
+            gc_active: false,
         }
+    }
+
+    /// Emit the tracing collector rather than the bump allocator.
+    pub fn with_gc(mut self, on: bool) -> Self {
+        self.gc = on;
+        self
     }
 
     pub fn target(&self) -> Target {
@@ -146,28 +166,16 @@ impl LlvmCodeGen {
         // duplicate symbol.
         let alloc_defined_in_axiom = ir_module.functions.iter().any(|f| f.name == ALLOC_SYMBOL);
         if !alloc_defined_in_axiom {
-            self.emit_bump_allocator();
-        }
-
-        if !ir_module.tag_arities.is_empty() {
-            // The tag arities table and compact helper are infrastructure
-            // for the P2 memory model. They are emitted only when an
-            // ArenaCompact instruction is actually used by the program.
-            // Emitting them unconditionally changes LLVM code layout in
-            // ways that affect deterministic-golden-test output even
-            // though the helper is never called.
-            let uses_compact = ir_module.functions.iter().any(|f| {
-                f.blocks.iter().any(|b| {
-                    b.insts
-                        .iter()
-                        .any(|inst| matches!(inst, IrInst::ArenaCompact { .. }))
-                })
-            });
-            if uses_compact {
-                self.emit_tag_arities_table(ir_module);
-                self.emit_arena_compact_helper(ir_module);
+            if self.gc {
+                writeln!(self.output, "declare ptr @llvm.frameaddress.p0(i32)").unwrap();
+                writeln!(self.output).unwrap();
+                let text = crate::gc::GcEmitter::new(self.target).emit();
+                self.output.push_str(&text);
+            } else {
+                self.emit_bump_allocator();
             }
         }
+        self.gc_active = self.gc && !alloc_defined_in_axiom;
 
         for ir_struct in &ir_module.structs {
             self.declare_struct(ir_struct);
@@ -286,8 +294,30 @@ impl LlvmCodeGen {
         )
         .unwrap();
 
-        for block in &ir_func.blocks {
+        let record_stack_base = self.gc_active && ir_func.name == "main";
+        for (bi, block) in ir_func.blocks.iter().enumerate() {
             writeln!(self.output, "{}:", block.label).unwrap();
+
+            // The root scan runs from the current stack pointer up to
+            // here. `llvm.frameaddress` rather than the stack pointer,
+            // because by the time any instruction of `main` runs the
+            // prologue has already moved SP *below* main's own locals -
+            // recording it there would leave them outside the scanned
+            // range. Asking for the frame address also forces the
+            // function to keep a frame pointer, which is what makes it
+            // meaningful at higher optimisation levels.
+            if record_stack_base && bi == 0 {
+                let fp = self.new_local_reg();
+                writeln!(
+                    self.output,
+                    "  {} = call ptr @llvm.frameaddress.p0(i32 0)",
+                    fp
+                )
+                .unwrap();
+                let fpi = self.new_local_reg();
+                writeln!(self.output, "  {} = ptrtoint ptr {} to i64", fpi, fp).unwrap();
+                writeln!(self.output, "  store i64 {}, ptr @__axiom_stack_base", fpi).unwrap();
+            }
 
             for inst in &block.insts {
                 self.emit_inst(inst)?;
@@ -1027,14 +1057,53 @@ impl LlvmCodeGen {
                     );
                 }
             }
+            IrInst::ArenaMark { .. } | IrInst::ArenaReset { .. } if self.gc_active => {
+                // The waterline these save and restore belongs to the
+                // bump allocator. Under the collector there is no
+                // waterline, and "free everything allocated since here"
+                // is not a request a tracing collector can honour - the
+                // objects in that range are exactly the ones it decides
+                // about by reachability. Silently ignoring the call
+                // would leave a program that asked for memory back and
+                // did not get it; honouring it would free live objects.
+                return Err(
+                    "`__axiom_arena_mark` and `__axiom_arena_reset` are bump-allocator \
+                     primitives and cannot be used with `--gc`: the collector reclaims by \
+                     reachability, so there is no waterline to roll back to. Drop the \
+                     explicit arena calls, or build without `--gc`."
+                        .to_string(),
+                );
+            }
             IrInst::ArenaMark { dest } => {
+                // A mark is the whole allocator position, not just the
+                // waterline: `@__axiom_bump` alone is meaningless once
+                // allocation has moved to a different chunk, because
+                // `@__axiom_bump_end` still describes the newer one.
+                // Restoring the old bump against the new end let the fast
+                // path succeed on an address in neither chunk - and when
+                // the mark was taken before the first chunk existed, it
+                // handed out address 0.
+                //
+                // The pair lives in a two-word cell so marks can nest.
+                // It is allocated *before* the position is read, so the
+                // cell itself sits below the mark and is still there to
+                // be read when the reset happens.
+                let cell = self.new_local_reg();
+                writeln!(self.output, "  {} = call i64 @axiom_alloc(i64 16)", cell).unwrap();
+                let bump = self.new_local_reg();
+                writeln!(self.output, "  {} = load i64, ptr @__axiom_bump", bump).unwrap();
+                let end = self.new_local_reg();
+                writeln!(self.output, "  {} = load i64, ptr @__axiom_bump_end", end).unwrap();
+                let p0 = self.new_local_reg();
+                writeln!(self.output, "  {} = inttoptr i64 {} to ptr", p0, cell).unwrap();
+                writeln!(self.output, "  store i64 {}, ptr {}", bump, p0).unwrap();
+                let a1 = self.new_local_reg();
+                writeln!(self.output, "  {} = add i64 {}, 8", a1, cell).unwrap();
+                let p1 = self.new_local_reg();
+                writeln!(self.output, "  {} = inttoptr i64 {} to ptr", p1, a1).unwrap();
+                writeln!(self.output, "  store i64 {}, ptr {}", end, p1).unwrap();
                 let result_reg = self.new_local_reg();
-                writeln!(
-                    self.output,
-                    "  {} = load i64, ptr @__axiom_bump",
-                    result_reg
-                )
-                .unwrap();
+                writeln!(self.output, "  {} = add i64 {}, 0", result_reg, cell).unwrap();
                 if let IrValue::Local(name) = dest {
                     self.ssa_values.insert(
                         name.clone(),
@@ -1043,46 +1112,24 @@ impl LlvmCodeGen {
                 }
             }
             IrInst::ArenaReset { ptr } => {
+                // Restore both halves of the position saved by `ArenaMark`.
+                // If allocation moved to a newer chunk since the mark, that
+                // chunk is abandoned rather than reused - a leak, which is
+                // what an arena does anyway, and the alternative is handing
+                // out addresses that belong to no mapping.
                 let ptr_val = self.value_to_llvm(ptr)?;
-                writeln!(self.output, "  store i64 {}, ptr @__axiom_bump", ptr_val).unwrap();
-            }
-            IrInst::ArenaCompact {
-                mark,
-                arena_end,
-                roots,
-                results,
-                needs_compact,
-            } => {
-                let mark_val = self.value_to_llvm(mark)?;
-                let arena_end_val = self.value_to_llvm(arena_end)?;
-                for (i, root) in roots.iter().enumerate() {
-                    let root_val = self.value_to_llvm(root)?;
-                    let result_reg = self.new_local_reg();
-                    if i < needs_compact.len() && needs_compact[i] {
-                        writeln!(
-                            self.output,
-                            "  {} = call i64 @__axiom_arena_compact_one(i64 {}, i64 {}, i64 {})",
-                            result_reg, root_val, mark_val, arena_end_val
-                        )
-                        .unwrap();
-                    } else {
-                        // raw struct pointer or immediate — pass through
-                        writeln!(
-                            self.output,
-                            "  ; arena-compact skip (not a constructor cell)"
-                        )
-                        .unwrap();
-                        let root_reg = self.value_to_llvm(root)?;
-                        writeln!(self.output, "  {} = add i64 {}, 0", result_reg, root_reg)
-                            .unwrap();
-                    }
-                    if let IrValue::Local(name) = &results[i] {
-                        self.ssa_values.insert(
-                            name.clone(),
-                            (result_reg, TypeId::TCon("I64".to_string(), vec![])),
-                        );
-                    }
-                }
+                let p0 = self.new_local_reg();
+                writeln!(self.output, "  {} = inttoptr i64 {} to ptr", p0, ptr_val).unwrap();
+                let bump = self.new_local_reg();
+                writeln!(self.output, "  {} = load i64, ptr {}", bump, p0).unwrap();
+                let a1 = self.new_local_reg();
+                writeln!(self.output, "  {} = add i64 {}, 8", a1, ptr_val).unwrap();
+                let p1 = self.new_local_reg();
+                writeln!(self.output, "  {} = inttoptr i64 {} to ptr", p1, a1).unwrap();
+                let end = self.new_local_reg();
+                writeln!(self.output, "  {} = load i64, ptr {}", end, p1).unwrap();
+                writeln!(self.output, "  store i64 {}, ptr @__axiom_bump", bump).unwrap();
+                writeln!(self.output, "  store i64 {}, ptr @__axiom_bump_end", end).unwrap();
             }
             IrInst::StoreOffset { ptr, offset, value } => {
                 let ptr_val = self.value_to_llvm(ptr)?;
@@ -1349,103 +1396,6 @@ impl LlvmCodeGen {
         )
         .unwrap();
         writeln!(out, "  unreachable").unwrap();
-        writeln!(out, "}}").unwrap();
-        writeln!(out).unwrap();
-    }
-
-    fn emit_tag_arities_table(&mut self, ir_module: &IrModule) {
-        let out = &mut self.output;
-        let n = ir_module.tag_arities.len();
-        writeln!(
-            out,
-            "@__axiom_tag_field_count = internal constant [{} x i64] [",
-            n
-        )
-        .unwrap();
-        for (i, arity) in ir_module.tag_arities.iter().enumerate() {
-            let comma = if i + 1 < n { "," } else { "" };
-            writeln!(out, "  i64 {}{}", arity, comma).unwrap();
-        }
-        writeln!(out, "]").unwrap();
-        writeln!(out).unwrap();
-    }
-
-    fn emit_arena_compact_helper(&mut self, ir_module: &IrModule) {
-        let out = &mut self.output;
-        let max_tag = ir_module.tag_arities.len() as i64;
-        writeln!(out, "; Arena compact helper — deep-copy one heap value").unwrap();
-        writeln!(
-            out,
-            "define internal i64 @__axiom_arena_compact_one(i64 %ptr, i64 %arena_start, i64 %arena_end) {{"
-        )
-        .unwrap();
-        writeln!(out, "entry:").unwrap();
-        writeln!(out, "  %in_low = icmp uge i64 %ptr, %arena_start").unwrap();
-        writeln!(out, "  %in_high = icmp ult i64 %ptr, %arena_end").unwrap();
-        writeln!(out, "  %in_range = and i1 %in_low, %in_high").unwrap();
-        writeln!(out, "  br i1 %in_range, label %do_copy, label %not_pointer").unwrap();
-        writeln!(out).unwrap();
-        writeln!(out, "not_pointer:").unwrap();
-        writeln!(out, "  ret i64 %ptr").unwrap();
-        writeln!(out).unwrap();
-        writeln!(out, "do_copy:").unwrap();
-        writeln!(out, "  %tag_ptr = inttoptr i64 %ptr to ptr").unwrap();
-        writeln!(out, "  %tag = load i64, ptr %tag_ptr").unwrap();
-        writeln!(out, "  %tag_ok = icmp ult i64 %tag, {}", max_tag).unwrap();
-        writeln!(
-            out,
-            "  br i1 %tag_ok, label %lookup_arity, label %not_pointer"
-        )
-        .unwrap();
-        writeln!(out).unwrap();
-        writeln!(out, "lookup_arity:").unwrap();
-        writeln!(
-            out,
-            "  %arity_ptr = getelementptr [{} x i64], ptr @__axiom_tag_field_count, i64 0, i64 %tag",
-            max_tag
-        )
-        .unwrap();
-        writeln!(out, "  %arity = load i64, ptr %arity_ptr").unwrap();
-        writeln!(out, "  %nwords = add i64 %arity, 1").unwrap();
-        writeln!(out, "  %cell_size = mul i64 %nwords, 8").unwrap();
-        writeln!(out, "  %bump = load i64, ptr @__axiom_bump").unwrap();
-        writeln!(out, "  %new_cell = add i64 %bump, 0").unwrap();
-        writeln!(out, "  %new_bump = add i64 %bump, %cell_size").unwrap();
-        writeln!(out, "  store i64 %new_bump, ptr @__axiom_bump").unwrap();
-        writeln!(out, "  %dest_tag_ptr = inttoptr i64 %new_cell to ptr").unwrap();
-        writeln!(out, "  store i64 %tag, ptr %dest_tag_ptr").unwrap();
-        writeln!(out, "  br label %copy_loop").unwrap();
-        writeln!(out).unwrap();
-        writeln!(out, "copy_loop:").unwrap();
-        writeln!(
-            out,
-            "  %i = phi i64 [ 1, %lookup_arity ], [ %next_i, %copy_next ]"
-        )
-        .unwrap();
-        writeln!(out, "  %done = icmp eq i64 %i, %nwords").unwrap();
-        writeln!(out, "  br i1 %done, label %copy_done, label %copy_word").unwrap();
-        writeln!(out).unwrap();
-        writeln!(out, "copy_word:").unwrap();
-        writeln!(out, "  %offset = mul i64 %i, 8").unwrap();
-        writeln!(out, "  %src_addr = add i64 %ptr, %offset").unwrap();
-        writeln!(out, "  %src_ptr = inttoptr i64 %src_addr to ptr").unwrap();
-        writeln!(out, "  %field_val = load i64, ptr %src_ptr").unwrap();
-        writeln!(
-            out,
-            "  %new_field = call i64 @__axiom_arena_compact_one(i64 %field_val, i64 %arena_start, i64 %arena_end)"
-        )
-        .unwrap();
-        writeln!(out, "  %dest_addr = add i64 %new_cell, %offset").unwrap();
-        writeln!(out, "  %dest_ptr = inttoptr i64 %dest_addr to ptr").unwrap();
-        writeln!(out, "  store i64 %new_field, ptr %dest_ptr").unwrap();
-        writeln!(out, "  br label %copy_next").unwrap();
-        writeln!(out).unwrap();
-        writeln!(out, "copy_next:").unwrap();
-        writeln!(out, "  %next_i = add i64 %i, 1").unwrap();
-        writeln!(out, "  br label %copy_loop").unwrap();
-        writeln!(out).unwrap();
-        writeln!(out, "copy_done:").unwrap();
-        writeln!(out, "  ret i64 %new_cell").unwrap();
         writeln!(out, "}}").unwrap();
         writeln!(out).unwrap();
     }

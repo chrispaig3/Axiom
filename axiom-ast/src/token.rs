@@ -94,6 +94,8 @@ pub enum TokenKind {
     Gt,
     Le,
     Ge,
+    Shl, // <<
+    Shr, // >>
     Dot,
     Comma,
     Underscore,
@@ -222,6 +224,8 @@ impl fmt::Display for TokenKind {
             TokenKind::Gt => write!(f, ">"),
             TokenKind::Le => write!(f, "<="),
             TokenKind::Ge => write!(f, ">="),
+            TokenKind::Shl => write!(f, "<<"),
+            TokenKind::Shr => write!(f, ">>"),
             TokenKind::Dot => write!(f, "."),
             TokenKind::Comma => write!(f, ","),
             TokenKind::Underscore => write!(f, "_"),

@@ -195,42 +195,16 @@ pub enum IrInst {
     },
     /// Roll the bump-allocator waterline back to `ptr`, reclaiming
     /// every allocation that happened since the matching `ArenaMark`.
+    ///
+    /// Reclaiming, not collecting: nothing is traced, copied, or kept.
+    /// The caller asserts that no value allocated since the mark is
+    /// still reachable, and nothing checks that assertion. Emitted only
+    /// for the `__axiom_arena_reset` primitive, where a programmer has
+    /// written it deliberately - never inserted automatically, because
+    /// no analysis in the compiler can establish the precondition. See
+    /// `docs/self-hosting.md` §2.2 S1.
     ArenaReset {
         ptr: IrValue,
-    },
-    /// Deep-copy heap values from above `mark` into a contiguous region
-    /// starting at `mark`, setting `@__axiom_bump = mark + total_live`.
-    /// `roots` are the heap pointers to preserve; `results` receive the
-    /// relocated pointers (one per root, in the same order).
-    ///
-    /// `arena_end` is the value `@__axiom_bump` held *before* the
-    /// arena was reset to `mark`: the copy routine uses the range
-    /// `[mark, arena_end)` to decide which field values are heap
-    /// pointers that need recursive copying vs. immediates that are
-    /// copied as-is.
-    ///
-    /// The copy is recursive: every field reachable from a root, whose
-    /// value falls in the range `[mark, arena_end)` (i.e. was
-    /// allocated during the current iteration), is itself copied.
-    /// Fields outside that range — immediates, pointers into older
-    /// generations, and function references — are left as is.
-    ///
-    /// This is the copy-at-boundary step described in the v1 memory
-    /// model: before a self-tail-call, `ArenaMark` captures the
-    /// waterline, argument evaluation bumps it forward, and
-    /// `ArenaCompact` moves the live args down to the saved waterline
-    /// so they survive the `ArenaReset` that follows.
-    ///
-    /// `needs_compact` has one `bool` per root; true means the root
-    /// IS a tagged constructor cell and MUST be deep-copied, false
-    /// means the root is a raw struct pointer / immediate that should
-    /// pass through untouched.
-    ArenaCompact {
-        mark: IrValue,
-        arena_end: IrValue,
-        roots: Vec<IrValue>,
-        results: Vec<IrValue>,
-        needs_compact: Vec<bool>,
     },
 
     // ========================================================
@@ -378,8 +352,7 @@ impl IrInst {
             | IrInst::Sizeof { .. }
             | IrInst::Alignof { .. }
             | IrInst::ArenaMark { .. }
-            | IrInst::ArenaReset { .. }
-            | IrInst::ArenaCompact { .. } => Vec::new(),
+            | IrInst::ArenaReset { .. } => Vec::new(),
         }
     }
 }
@@ -451,11 +424,6 @@ pub struct IrModule {
     pub enums: Vec<IrEnum>,
     pub globals: Vec<IrGlobal>,
     pub extern_funcs: Vec<(String, Vec<TypeId>, TypeId)>,
-    /// `tag_arities[tag]` is the number of fields (arity) of the
-    /// constructor whose globally-unique tag is `tag`.  The vector is
-    /// populated in the order [`find_constructor`] assigns tags:
-    /// flat-walk of every `data` type's constructor list.
-    pub tag_arities: Vec<usize>,
 }
 
 impl Default for IrModule {
@@ -472,7 +440,6 @@ impl IrModule {
             enums: Vec::new(),
             globals: Vec::new(),
             extern_funcs: Vec::new(),
-            tag_arities: Vec::new(),
         }
     }
 }

@@ -144,6 +144,70 @@ constructor per token and per AST node; with a bump allocator and no
 Acceptable for a single-shot compiler process, and worth revisiting
 before anything long-running is written in Axiom.
 
+*The collector, and why it is shaped the way it is.* `--gc` replaces the
+bump allocator with a conservative, non-moving mark-sweep collector, so
+peak memory tracks live data instead of total allocation. Measured on
+`tests/stdlib/170-gc.ax`, which churns garbage while holding a list
+alive:
+
+| churned | bump allocator | `--gc` |
+|---|---:|---:|
+| 25 MB | 32 MB | 3.2 MB |
+| 100 MB | 96 MB | 3.2 MB |
+| 400 MB | 352 MB | 3.2 MB |
+
+The self-hosted compiler compiling `self_host/main.ax` goes from 482 MB
+to 8.7 MB, and emits byte-identical output.
+
+*Conservative*, because Axiom has one runtime representation: every value
+is a machine word, and nothing distinguishes the integer 8 from an
+address. A precise collector needs a pointer map per object, which that
+model cannot supply — `data` cells carry a tag but their fields are
+still bare words, and everything else comes from `__alloc`, which is
+untyped by contract (`Str` puts a byte pointer in word 0, `Vec` puts a
+length). Guessing conservatively costs only false retention.
+
+*Non-moving*, because conservatism forbids relocation: rewriting a word
+that turned out to be an integer is silent corruption. It also preserves
+pointer identity, which the standard library relies on — `vecPush`
+returns the handle it was given.
+
+Two things the design needed that were not obvious up front. **Interior
+pointers must resolve**: `Str.strSlice` shares storage rather than
+copying, so every token's text points into the middle of a module's
+source buffer, and once the source handle dies those are the only
+references it has. Accepting only block starts freed those buffers and
+the self-hosted compiler emitted functions with garbage for names. Each
+chunk therefore carries an object-start bitmap, and a candidate is
+resolved by walking it backwards, bounded by that chunk's largest
+object. **Free runs must coalesce**: without it a freed block keeps its
+old size forever, so a loop whose allocations grow — building a string
+by repeated concatenation, as `renderCG` does — can never reuse
+anything. Coalescing plus splitting on reuse took the self-hosted
+compiler from 402 MB to 8.7 MB.
+
+The collector is emitted as LLVM text (`axiom-codegen/src/gc.rs`) rather
+than written in Axiom, because it needs mutable global state and
+unrestricted loops, and it is marked `optnone`: it is hand-written
+machine-level code reading exact addresses through pointers conjured
+from integers, and at `-O1` the optimiser rewrote it into something that
+could not find its own chunk header.
+
+It replaced an `ArenaCompact` instruction that tried to copy a loop
+iteration's live values down to a saved waterline. That was removed
+rather than finished — driven from a harness it misidentified a `Vec`
+header as a constructor cell, wrote past the end of its chunk, had no
+forwarding pointers or cycle handling, and could not see `Str` or `Vec`
+at all, which is what had corrupted `scanDecls`.
+
+`__axiom_arena_mark` and `__axiom_arena_reset` remain for the bump
+allocator: save the allocator position, later restore it, reclaiming
+everything since. They are sound because the *programmer* asserts
+nothing allocated since the mark is still reachable; nothing checks it,
+and the compiler never inserts them. Under `--gc` they are a compile
+error — a tracing collector decides by reachability and has no waterline
+to roll back to. `tests/stdlib/160-arena.ax` covers them.
+
 **S2. No first-class strings in the language.** A literal is a
 NUL-terminated byte array with no length. `Str` fixes this in the
 library, but source-level string handling still goes through

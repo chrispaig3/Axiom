@@ -38,6 +38,14 @@ struct Cli {
     #[arg(long, global = true)]
     target: Option<String>,
 
+    /// Manage memory with a tracing collector instead of the default
+    /// bump allocator, so peak memory tracks live data rather than
+    /// total allocation. Costs a mark-sweep pause whenever the current
+    /// mapping fills; worth it for a long-running or allocation-heavy
+    /// program, pointless for one that exits in milliseconds.
+    #[arg(long, global = true)]
+    gc: bool,
+
     #[command(subcommand)]
     command: Commands,
 }
@@ -56,6 +64,14 @@ static TARGET: std::sync::OnceLock<Target> = std::sync::OnceLock::new();
 
 fn target() -> Target {
     *TARGET.get_or_init(Target::host)
+}
+
+/// Whether this run manages memory with the collector. Set once from
+/// `--gc`, for the same reason `TARGET` is.
+static GC: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+
+fn gc_enabled() -> bool {
+    *GC.get_or_init(|| false)
 }
 
 #[derive(Subcommand)]
@@ -136,6 +152,8 @@ fn main() {
     // back to the host: silently generating host code for a
     // cross-compile request would produce a binary that looks correct
     // and cannot run.
+    let _ = GC.set(cli.gc);
+
     if let Some(name) = &cli.target {
         match Target::parse(name) {
             Some(t) => {
@@ -858,7 +876,7 @@ fn build(
     }
 
     println!("[5/5] Generating LLVM IR...");
-    let mut codegen = LlvmCodeGen::for_target(target());
+    let mut codegen = LlvmCodeGen::for_target(target()).with_gc(gc_enabled());
     let llvm_ir = codegen.compile(&ir_module)?;
 
     let ll_path = format!("{}.ll", output);
@@ -1408,7 +1426,7 @@ fn emit_llvm(input: &str, output: Option<&str>, format: DiagnosticFormat) -> Res
     let mut ir_gen = IrGen::new();
     let ir_module = ir_gen.generate(&ast, &mut type_checker);
 
-    let mut codegen = LlvmCodeGen::for_target(target());
+    let mut codegen = LlvmCodeGen::for_target(target()).with_gc(gc_enabled());
     let llvm_ir = codegen.compile(&ir_module)?;
 
     match output {
@@ -1866,7 +1884,7 @@ fn cmd_llvm(expr_str: &str, state: &mut ReplState) {
                         let mut ir_gen = IrGen::new();
                         let ir_module = ir_gen.generate(&ast, &mut tc2);
 
-                        let mut codegen = LlvmCodeGen::for_target(target());
+                        let mut codegen = LlvmCodeGen::for_target(target()).with_gc(gc_enabled());
                         if let Ok(llvm_ir) = codegen.compile(&ir_module) {
                             println!("{}", "Generated LLVM IR:".bold().bright_cyan());
                             println!("{}", llvm_ir);
@@ -1896,7 +1914,7 @@ fn cmd_llvm(expr_str: &str, state: &mut ReplState) {
                             let mut ir_gen = IrGen::new();
                             let ir_module = ir_gen.generate(&ast, &mut tc2);
 
-                            let mut codegen = LlvmCodeGen::for_target(target());
+                            let mut codegen = LlvmCodeGen::for_target(target()).with_gc(gc_enabled());
                             if let Ok(llvm_ir) = codegen.compile(&ir_module) {
                                 println!("{}", "Generated LLVM IR:".bold().bright_cyan());
                                 println!("{}", llvm_ir);
@@ -1975,7 +1993,7 @@ fn cmd_time(expr_str: &str, state: &mut ReplState) {
                                 let mut ir_gen = IrGen::new();
                                 let ir_module = ir_gen.generate(&ast, &mut tc2);
 
-                                let mut codegen = LlvmCodeGen::for_target(target());
+                                let mut codegen = LlvmCodeGen::for_target(target()).with_gc(gc_enabled());
                                 if let Ok(llvm_ir) = codegen.compile(&ir_module) {
                                     let start = std::time::Instant::now();
                                     let result = compile_and_run_repl(&llvm_ir);
@@ -2078,7 +2096,7 @@ fn process_input(input: &str, state: &mut ReplState) {
                                 let mut ir_gen = IrGen::new();
                                 let ir_module = ir_gen.generate(&ast, &mut tc2);
 
-                                let mut codegen = LlvmCodeGen::for_target(target());
+                                let mut codegen = LlvmCodeGen::for_target(target()).with_gc(gc_enabled());
                                 if let Ok(llvm_ir) = codegen.compile(&ir_module) {
                                     let result = compile_and_run_repl(&llvm_ir);
                                     if let Some(value) = result {

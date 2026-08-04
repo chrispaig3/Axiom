@@ -736,7 +736,18 @@ impl TypeChecker {
         let int_int = TypeId::TArr(Box::new(int_ty.clone()), Box::new(int_ty.clone()));
         let int_int_int = TypeId::TArr(Box::new(int_ty.clone()), Box::new(int_int.clone()));
 
-        for op in &["+", "-", "*", "/", "%"] {
+        // Bitwise operators are `Int -> Int -> Int` like the arithmetic
+        // ones. `>>` is arithmetic (sign-preserving), matching `Int`
+        // being signed; on these targets a userspace address is well
+        // below 2^63, so address arithmetic sees no difference.
+        //
+        // Without these, Axiom cannot express an allocator: packing a
+        // size and a mark bit into a header word, masking an address to
+        // an alignment boundary, and indexing a bitmap all need them.
+        // The IR and the LLVM backend have carried `BitAnd`/`BitOr`/
+        // `BitXor`/`Shl`/`Shr` all along; nothing had ever connected
+        // them to syntax.
+        for op in &["+", "-", "*", "/", "%", "&", "|", "^", "<<", ">>"] {
             tc.functions.push(FnInfo::builtin(*op, int_int_int.clone()));
         }
 

@@ -141,6 +141,42 @@ impl Target {
         }
     }
 
+    /// Inline asm reading the current stack pointer, as
+    /// `(body, constraints)`.
+    ///
+    /// A conservative root scan needs the live end of the machine
+    /// stack. There is no portable LLVM intrinsic for "the stack
+    /// pointer right now" - `llvm.stacksave` is close but is defined in
+    /// terms of dynamic allocas - so it is read directly, which is one
+    /// instruction on both architectures.
+    pub fn stack_ptr_asm(self) -> (&'static str, &'static str) {
+        match self {
+            Target::DarwinAarch64 | Target::LinuxAarch64 => ("mov $0, sp", "=r"),
+            // AT&T order: source first.
+            Target::DarwinX86_64 | Target::LinuxX86_64 => ("movq %rsp, $0", "=r"),
+        }
+    }
+
+    /// A clobber list naming every callee-saved integer register.
+    ///
+    /// Used as the constraint of an empty `asm sideeffect`, which forces
+    /// the compiler to spill those registers into the current frame
+    /// before it. That matters because a conservative scan can only see
+    /// what is in memory: a heap pointer whose only copy is in a
+    /// callee-saved register is invisible to it, and the object would be
+    /// collected while still live. Spilling them into the frame - which
+    /// is inside the scanned range - is what makes the scan complete.
+    pub fn callee_saved_clobbers(self) -> &'static str {
+        match self {
+            Target::DarwinAarch64 | Target::LinuxAarch64 => {
+                "~{x19},~{x20},~{x21},~{x22},~{x23},~{x24},~{x25},~{x26},~{x27},~{x28},~{memory}"
+            }
+            Target::DarwinX86_64 | Target::LinuxX86_64 => {
+                "~{rbx},~{r12},~{r13},~{r14},~{r15},~{memory}"
+            }
+        }
+    }
+
     /// The LLVM inline-assembly body and constraint string that
     /// performs a syscall on this target.
     ///

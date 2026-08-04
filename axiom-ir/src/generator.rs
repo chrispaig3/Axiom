@@ -415,15 +415,10 @@ impl IrGen {
                     .constructors
                     .iter()
                     .all(|c| constructor_arity(&c.ty) == 0);
-                for con in &dt.constructors {
+                for _ in &dt.constructors {
                     if all_nullary {
                         tags.insert(tag);
                     }
-                    let arity = constructor_arity(&con.ty);
-                    while self.module.tag_arities.len() <= tag as usize {
-                        self.module.tag_arities.push(0);
-                    }
-                    self.module.tag_arities[tag as usize] = arity;
                     tag += 1;
                 }
             }
@@ -1252,6 +1247,22 @@ impl IrGen {
                         return self.gen_construct(func, tag, Vec::new());
                     }
                 }
+
+                // A zero-argument primitive is spelled `(__axiom_arena_mark)`,
+                // which is a bare variable reference and not an application,
+                // so it never reaches the primitive lowering in the `EApp`
+                // arm. It used to fall through to the ordinary variable path
+                // and emit `%__axiom_arena_mark` - a value nothing defines -
+                // which `opt` rejects. Every other primitive takes at least
+                // one argument, so this is the only one that could go wrong,
+                // and it went wrong for the whole time it has existed.
+                if !alloca_map.contains_key(&ident.name) {
+                    let dest = self.new_local();
+                    if let Some(val) = self.gen_primitive(func, &ident.name, &[], &dest) {
+                        return val;
+                    }
+                }
+
                 if let Some(alloca_name) = alloca_map.get(&ident.name) {
                     let dest = self.new_local();
                     let _ty = func
@@ -1351,6 +1362,31 @@ impl IrGen {
                         rhs,
                     },
                     "%" => IrInst::Mod {
+                        dest: IrValue::Local(dest.clone()),
+                        lhs,
+                        rhs,
+                    },
+                    "&" => IrInst::BitAnd {
+                        dest: IrValue::Local(dest.clone()),
+                        lhs,
+                        rhs,
+                    },
+                    "|" => IrInst::BitOr {
+                        dest: IrValue::Local(dest.clone()),
+                        lhs,
+                        rhs,
+                    },
+                    "^" => IrInst::BitXor {
+                        dest: IrValue::Local(dest.clone()),
+                        lhs,
+                        rhs,
+                    },
+                    "<<" => IrInst::Shl {
+                        dest: IrValue::Local(dest.clone()),
+                        lhs,
+                        rhs,
+                    },
+                    ">>" => IrInst::Shr {
                         dest: IrValue::Local(dest.clone()),
                         lhs,
                         rhs,
@@ -1580,6 +1616,31 @@ impl IrGen {
                             rhs,
                         }),
                         "%" => Some(IrInst::Mod {
+                            dest: IrValue::Local(dest.clone()),
+                            lhs,
+                            rhs,
+                        }),
+                        "&" => Some(IrInst::BitAnd {
+                            dest: IrValue::Local(dest.clone()),
+                            lhs,
+                            rhs,
+                        }),
+                        "|" => Some(IrInst::BitOr {
+                            dest: IrValue::Local(dest.clone()),
+                            lhs,
+                            rhs,
+                        }),
+                        "^" => Some(IrInst::BitXor {
+                            dest: IrValue::Local(dest.clone()),
+                            lhs,
+                            rhs,
+                        }),
+                        "<<" => Some(IrInst::Shl {
+                            dest: IrValue::Local(dest.clone()),
+                            lhs,
+                            rhs,
+                        }),
+                        ">>" => Some(IrInst::Shr {
                             dest: IrValue::Local(dest.clone()),
                             lhs,
                             rhs,
