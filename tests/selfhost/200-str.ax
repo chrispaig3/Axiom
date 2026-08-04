@@ -1,0 +1,6 @@
+; expect 42
+(import Str)
+(:: main Int)
+(fn (main)
+  (let ((s (strFromLit (__addr "hello"))))
+    (+ (strLen s) 37)))

@@ -1,0 +1,106 @@
+#!/usr/bin/env bash
+# Compile every case in tests/selfhost with the *self-hosted* compiler,
+# assemble it, run it, and check its exit status.
+#
+# This is the only gate that exercises stage1 end to end. `cargo test`
+# and the stdlib suite both check the Rust compiler; nothing else notices
+# when the Axiom one emits LLVM that `llc` rejects, or emits code that
+# assembles and computes the wrong answer.
+#
+# Each case declares its expected exit status on the first line as
+# `; expect N`. Exit status is the whole answer - stage1 has no way to
+# print yet - so cases must return something distinguishable, and 0 is
+# avoided as an expected value since it is also what a silent failure
+# looks like.
+#
+# Usage:
+#   scripts/check-self-host.sh          # every case
+#   scripts/check-self-host.sh 050      # one case, by name prefix
+
+set -uo pipefail
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$repo_root"
+
+axiom="${AXIOM:-$repo_root/target/release/axiom}"
+if [[ ! -x "$axiom" ]]; then
+  echo "building the compiler first (no binary at $axiom)" >&2
+  cargo build --release
+fi
+
+export AXIOM_STDLIB="$repo_root/stdlib"
+
+filter="${1:-}"
+work="$(mktemp -d)"
+trap 'rm -rf "$work"' EXIT
+
+# stage1 resolves `(import Foo)` by reading `self_host/Foo.ax` or
+# `stdlib/Foo.ax` relative to its working directory, so those have to be
+# reachable from where it runs. Without them every import silently
+# resolves to nothing and the emitted module is missing every function it
+# calls - which looks like a codegen bug and is not one.
+ln -s "$repo_root/stdlib" "$work/stdlib"
+ln -s "$repo_root/self_host" "$work/self_host"
+
+# stage1: the Axiom compiler, compiled by the Rust one.
+if ! "$axiom" build --input self_host/main.ax --output "$work/stage1" >"$work/build.log" 2>&1; then
+  echo "FAIL: could not build stage1" >&2
+  tail -20 "$work/build.log" >&2
+  exit 1
+fi
+
+passed=0
+failed=0
+
+for case_file in tests/selfhost/*.ax; do
+  name="$(basename "$case_file" .ax)"
+  if [[ -n "$filter" && "$name" != "$filter"* ]]; then
+    continue
+  fi
+
+  want="$(sed -n '1s/^; expect \([0-9]*\).*/\1/p' "$case_file")"
+  if [[ -z "$want" ]]; then
+    echo "SKIP $name (no '; expect N' on the first line)"
+    continue
+  fi
+
+  # stage1 reads `in.ax` from the working directory and writes LLVM to
+  # stdout. It has no argument parsing yet.
+  cp "$case_file" "$work/in.ax"
+  if ! (cd "$work" && ./stage1 >out.ll 2>stage1.err); then
+    echo "FAIL $name (stage1 rejected it)"
+    sed 's/^/    /' "$work/stage1.err" | head -3
+    failed=$((failed + 1))
+    continue
+  fi
+
+  if ! llc -filetype=obj "$work/out.ll" -o "$work/out.o" 2>"$work/llc.err"; then
+    echo "FAIL $name (llc rejected the emitted IR)"
+    grep -m2 "error" "$work/llc.err" | sed 's/^/    /'
+    failed=$((failed + 1))
+    continue
+  fi
+
+  if ! cc "$work/out.o" -o "$work/prog" -e _main 2>"$work/cc.err"; then
+    echo "FAIL $name (link failed)"
+    head -3 "$work/cc.err" | sed 's/^/    /'
+    failed=$((failed + 1))
+    continue
+  fi
+
+  # From `$work`, so a case that opens `in.ax` finds the one it was
+  # compiled from rather than nothing.
+  (cd "$work" && ./prog)
+  got=$?
+  if [[ "$got" == "$want" ]]; then
+    echo "ok   $name"
+    passed=$((passed + 1))
+  else
+    echo "FAIL $name (exit $got, want $want)"
+    failed=$((failed + 1))
+  fi
+done
+
+echo
+echo "$passed passed, $failed failed"
+[[ "$failed" == 0 ]]

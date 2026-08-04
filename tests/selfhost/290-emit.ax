@@ -1,0 +1,14 @@
+; expect 42
+(import Str)
+(import Vec)
+(import Mem)
+(import lexer)
+(import parser)
+(import codegen)
+(:: main Int)
+(fn (main)
+  (let ((pr (parseModule (lex (strFromLit (__addr "(fn (f) 1)"))))))
+    (if (== (memGetWord pr 0) 0)
+        7
+        (let ((out (emitModule (memGetWord pr 1) (strFromLit (__addr "t")))))
+          (if (> (strLen out) 10) 42 8)))))

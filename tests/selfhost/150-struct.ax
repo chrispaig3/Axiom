@@ -1,0 +1,6 @@
+; expect 42
+(struct P (x : Int) (y : Int))
+(:: main Int)
+(fn (main)
+  (let ((p (P 40 2)))
+    (+ (__load64 p 0) (__load64 p 1))))

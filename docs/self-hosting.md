@@ -299,6 +299,63 @@ field had that memory freed under them. A loop now leaks into the arena,
 which is the allocator's documented model (§2.2 S1); reclaiming it needs
 a real tracing story. `tests/stdlib/110-tail-loop-alloc.ax` covers this.
 
+### Phases 2-5 - the fixpoint is reached
+
+**The Axiom compiler compiles itself, and reproduces itself exactly.**
+
+```
+stage0  the Rust compiler in this repository        - trusted
+stage1  the Axiom compiler, built by stage0
+stage2  the Axiom compiler, built by stage1
+stage3  the Axiom compiler, built by stage2
+```
+
+`stage2` and `stage3` are byte-identical, as objects and as emitted IR.
+`scripts/check-bootstrap.sh` runs the whole ladder and checks it, and
+also compiles and runs a program through each stage - two compilers can
+agree byte-for-byte on their own source and still both be wrong.
+
+`scripts/check-self-host.sh` is the conformance gate: 27 cases in
+`tests/selfhost/`, each compiled by stage1, assembled, linked, and
+checked by exit status. What it covers, all working: integer arithmetic
+and comparisons, `let`, `if`, `{}` blocks, multi-argument calls and
+recursion, `data` and `struct` construction, `match` with field binding,
+short-circuit `&&`/`||`, nullary functions, `true`/`false`, string
+literals, the freestanding primitives including `__syscallN`, file I/O,
+and `import` with target-specific module selection.
+
+Thirteen of the fifteen modules in `stdlib/` and `self_host/` compile
+through stage1 into assembling LLVM, including `self_host/main.ax`
+itself at 7,135 lines.
+
+*What the self-hosted compiler still does not do.* It emits unmangled
+names, so two modules that export the same name collide -
+`stdlib/IO.ax` and `stdlib/Sys.ax` both define `readFile`, and compiling
+`IO.ax` is an invalid redefinition. It has no macro expansion, so
+`stdlib/Pre.ax`, which is nothing but macros, does not parse. It does no
+type checking - `self_host/typecheck.ax` is a stub - so a program stage0
+would reject with a diagnostic, stage1 compiles into whatever the code
+happens to mean. It emits for darwin-aarch64 only. And the driver reads
+`in.ax` from the working directory and writes to stdout, with no
+argument parsing.
+
+None of those is on the bootstrap path, which is why the fixpoint holds
+without them; all of them are between here and replacing stage0.
+
+*Bugs found and fixed getting here*, each of which had made the emitted
+code wrong rather than absent: call arguments lost their type after the
+first; name lookup compared string *lengths*, so `(+ a b)` found a
+one-letter `struct` in the type registry and was emitted as a
+construction; the symbol table was never cleared between functions, so a
+`let`-bound name shadowed a later function's parameter; `phi` nodes
+named the block a branch *started* in rather than the one that reached
+the merge, which is wrong whenever an arm contains a nested `if`;
+constructor tags started at -1 and `fmtInt` rendered -1 as `/`; the
+lexer had no escape handling, so `"c\""` ended at the middle quote; and
+`&&`/`||` did not short-circuit, which crashed the compiler on its own
+source, since `isNullaryFn` reads a field that only exists once the
+declaration is known to be a function.
+
 ### Phase 2 - Frontend in Axiom
 
 Lexer, then parser, then AST, each with golden tests against the Rust

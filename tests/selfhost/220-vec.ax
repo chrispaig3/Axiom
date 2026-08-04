@@ -1,0 +1,6 @@
+; expect 42
+(import Vec)
+(:: main Int)
+(fn (main)
+  (let ((v (vecNew)))
+    { (vecPush v 20) (vecPush v 22) (+ (vecGet v 0) (vecGet v 1)) }))

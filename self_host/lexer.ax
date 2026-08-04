@@ -97,16 +97,22 @@
             (skipDigits src (+ pos 1) len)
         pos))))
 
+; A backslash escapes whatever follows it, so an escaped quote does not
+; end the literal. Without this, `"c\""` ended at the middle quote and
+; the rest of the file lexed as garbage - which is exactly what a
+; compiler emitting LLVM has to write.
 (pub :: scanStringEnd (-> Int Int Int Int))
 (pub fn (scanStringEnd src pos len)
   (if (>= pos len)
       pos
       (let ((ch (strByte src pos)))
+        (if (== ch 92)
+            (scanStringEnd src (+ pos 2) len)
         (if (== ch 34)
             (+ pos 1)
         (if (== ch 10)
             pos
-        (scanStringEnd src (+ pos 1) len))))))
+        (scanStringEnd src (+ pos 1) len)))))))
 
 ; ------------------------------------------------------------------
 ; Main lexer loop.

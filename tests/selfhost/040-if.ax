@@ -1,0 +1,5 @@
+; expect 42
+(:: pick (-> Int Int))
+(fn (pick n) (if (> n 10) 42 7))
+(:: main Int)
+(fn (main) (pick 20))

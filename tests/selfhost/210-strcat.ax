@@ -1,0 +1,7 @@
+; expect 42
+(import Str)
+(:: main Int)
+(fn (main)
+  (let ((a (strFromLit (__addr "abc")))
+        (b (strFromLit (__addr "de"))))
+    (+ (strLen (strConcat a b)) 37)))

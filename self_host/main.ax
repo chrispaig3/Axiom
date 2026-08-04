@@ -13,13 +13,27 @@
 (pub :: writeStdout (-> Int Int))
 (pub fn (writeStdout s) (sysWriteFd 1 (strData s) (strLen s)))
 
+; Exit status is the driver's answer, not a byte count: 0 on success, 1
+; when the source could not be read, 2 when it could not be parsed. The
+; previous version returned whatever `writeStdout` did, so a successful
+; run exited with the length of its own output.
 (pub :: main Int)
 (pub fn (main)
-  (let ((src (readFile (__addr "self_host/main.ax"))))
-    (let ((tokens (lex src)))
-      (let ((pr (parseModule tokens)))
-        (if (== (memGetWord pr 0) 0)
-            (sysWriteFd 2 (strData (strFromLit (__addr "PFAIL\n"))) 6)
-            (let ((decls (memGetWord pr 1)))
-              (let ((out (emitModule decls (strFromLit (__addr "arm64-apple-macosx14.0.0")))))
-                (writeStdout out))))))))
+  (let ((src (readFile (__addr "in.ax"))))
+    (if (== (strLen src) 0)
+        (die (strFromLit (__addr "cannot read in.ax\n")) 1)
+        (let ((pr (parseModule (lex src))))
+          (if (== (memGetWord pr 0) 0)
+              (die (strFromLit (__addr "parse failed\n")) 2)
+              (let ((decls (memGetWord pr 1))
+                    (out (emitModule decls (strFromLit (__addr "arm64-apple-macosx14.0.0"))))
+                    (_ (writeStdout out)))
+                0))))))
+
+(pub :: die (-> Int Int Int))
+(pub fn (die msg code)
+  {
+    (sysWriteFd 2 (strData msg) (strLen msg))
+    (sysExitWith code)
+    code
+  })

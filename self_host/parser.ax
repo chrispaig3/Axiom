@@ -26,6 +26,8 @@
 (pub :: TAG_E_BEGIN Int)   (pub fn (TAG_E_BEGIN) 8)
 (pub :: TAG_E_QUOTE Int)   (pub fn (TAG_E_QUOTE) 9)
 (pub :: TAG_E_MATCH Int)   (pub fn (TAG_E_MATCH) 16)
+; One arm of a `match`: word 1 is the pattern, word 2 the body.
+(pub :: TAG_M_ARM Int)     (pub fn (TAG_M_ARM) 17)
 (pub :: TAG_D_FN Int)      (pub fn (TAG_D_FN) 10)
 (pub :: TAG_D_SIG Int)     (pub fn (TAG_D_SIG) 11)
 (pub :: TAG_D_DATA Int)    (pub fn (TAG_D_DATA) 12)
@@ -564,10 +566,13 @@
                       (pOk (mkNode TAG_E_MATCH scrut arms 0) (advance afterArms))
                       (pErr afterArms)))))))))
 
+; Stops *at* the closing paren without consuming it: `parseMatchExpr`
+; expects to find it and consume it itself. Consuming it here made every
+; `match` a parse error, since the caller then demanded a second one.
 (pub :: parseMatchArms (-> Int Int Int Int))
 (pub fn (parseMatchArms tokens pos acc)
   (if (peekIs tokens pos TK_RPAREN)
-      (pOk acc (advance pos))
+      (pOk acc pos)
   (if (peekIs tokens pos TK_LPAREN)
       (let ((armR (parseMatchArm tokens (advance pos))))
         (if (== (memGetWord armR 0) 0) armR
@@ -576,18 +581,22 @@
               (parseMatchArms tokens afterArm (vecPush acc arm)))))
   (pErr pos))))
 
-; Parse (pat body) — for now, skip pat and parse body.
+; Parse `(pat body)`.
+;
+; The pattern is kept. It used to be parsed and thrown away, which left
+; codegen with a list of bodies and no way to tell which one applied.
 (pub :: parseMatchArm (-> Int Int Int))
 (pub fn (parseMatchArm tokens pos)
   (let ((patR (parseExpr tokens pos)))
     (if (== (memGetWord patR 0) 0) patR
-        (let ((afterPat (memGetWord patR 2)))
+        (let ((pat (memGetWord patR 1))
+              (afterPat (memGetWord patR 2)))
           (let ((bodyR (parseExpr tokens afterPat)))
             (if (== (memGetWord bodyR 0) 0) bodyR
                 (let ((body (memGetWord bodyR 1))
                       (afterBody (memGetWord bodyR 2)))
                   (if (peekIs tokens afterBody TK_RPAREN)
-                      (pOk body (advance afterBody))
+                      (pOk (mkNode TAG_M_ARM pat body 0) (advance afterBody))
                       (pErr afterBody)))))))))
 
 ; ------------------------------------------------------------------

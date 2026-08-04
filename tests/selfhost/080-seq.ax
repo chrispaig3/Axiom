@@ -1,0 +1,3 @@
+; expect 42
+(:: main Int)
+(fn (main) { (+ 1 1) (* 2 2) 42 })

@@ -1,0 +1,5 @@
+; expect 42
+(:: f (-> Int Int Int Int))
+(fn (f a b c) (+ a (+ b c)))
+(:: main Int)
+(fn (main) (f 20 15 7))

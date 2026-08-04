@@ -1,0 +1,6 @@
+; expect 42
+(import Sys)
+(:: main Int)
+(fn (main)
+  (let ((fd (sysOpenPath (__addr "in.ax") oRdonly)))
+    (if (> fd 2) 42 (if (< fd 0) 7 8))))

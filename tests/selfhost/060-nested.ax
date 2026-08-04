@@ -1,0 +1,7 @@
+; expect 42
+(:: dbl (-> Int Int))
+(fn (dbl x) (* x 2))
+(:: inc (-> Int Int))
+(fn (inc x) (+ x 1))
+(:: main Int)
+(fn (main) (dbl (inc (dbl 10))))

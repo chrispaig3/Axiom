@@ -1,0 +1,5 @@
+; expect 42
+(:: answer Int)
+(fn (answer) 42)
+(:: main Int)
+(fn (main) answer)
