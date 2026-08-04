@@ -1768,6 +1768,19 @@ fn escape_llvm_string(s: &str) -> String {
     escaped
 }
 
+fn llvm_type_bits(ty: &str) -> u32 {
+    match ty {
+        "i1" => 1,
+        "i8" => 8,
+        "i16" => 16,
+        "i32" | "float" => 32,
+        "i64" | "double" | "ptr" => 64,
+        "i128" => 128,
+        "void" => 0,
+        _ => 64,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2032,11 +2045,7 @@ mod tests {
             ir
         );
         // Passed by header, as one machine word.
-        assert!(
-            ir.contains("i64 ptrtoint (ptr @strhdr_0 to i64)"),
-            "{}",
-            ir
-        );
+        assert!(ir.contains("i64 ptrtoint (ptr @strhdr_0 to i64)"), "{}", ir);
     }
 
     #[test]
@@ -2078,18 +2087,5 @@ mod tests {
             ],
         );
         assert!(ir.contains("icmp ne i64"), "{}", ir);
-    }
-}
-
-fn llvm_type_bits(ty: &str) -> u32 {
-    match ty {
-        "i1" => 1,
-        "i8" => 8,
-        "i16" => 16,
-        "i32" | "float" => 32,
-        "i64" | "double" | "ptr" => 64,
-        "i128" => 128,
-        "void" => 0,
-        _ => 64,
     }
 }

@@ -722,68 +722,210 @@ fn build_with_emit_llvm_keeps_the_ir() {
 // ---------------------------------------------------------------
 // Formatter data loss
 //
-// `fmt` regenerates source from the syntax tree, and comments never reach
-// the tree - the lexer discards them so no later stage has to skip them.
-// Formatting a commented file therefore used to delete every comment in
-// it, in place, with a success message. These tests pin the refusal.
+// `fmt` regenerates source from the syntax tree, so anything that is not
+// in the tree, or that the printer spells differently from the parser,
+// is lost on the first invocation - silently, in place, with a success
+// message. It had six such losses at once. Each test below pins one of
+// them by asserting on the *content* of the rewritten file.
+//
+// That distinction is the point. The two tests that used to live here
+// asserted only an exit status, which is why they stayed green while the
+// formatter deleted the very thing one of them was named after.
 // ---------------------------------------------------------------
 
-#[test]
-fn fmt_refuses_to_rewrite_a_file_with_comments() {
-    let dir = scratch_dir("fmt-comments");
-    let source = "; a comment worth keeping\n(:: main Int)\n(fn (main) 0)\n";
+/// Format `source` and return the rewritten file.
+fn format_to_string(name: &str, source: &str) -> String {
+    let dir = scratch_dir(name);
     let path = write_source(&dir, "main.ax", source);
-
     let out = run_axiom(&["fmt", "main.ax"], &dir);
     assert!(
-        !out.status.success(),
-        "fmt should refuse; stdout: {}",
-        stdout(&out)
-    );
-
-    // The refusal is only worth anything if the file really is untouched.
-    assert_eq!(
-        std::fs::read_to_string(&path).unwrap(),
+        out.status.success(),
+        "fmt failed on:\n{}\nstdout: {}\nstderr: {}",
         source,
-        "fmt must not modify a file it cannot round-trip"
+        stdout(&out),
+        stderr(&out)
     );
+    std::fs::read_to_string(&path).unwrap()
 }
 
 #[test]
-fn fmt_still_formats_a_file_without_comments() {
-    // The guard must not disable the formatter outright, or it would be a
-    // regression dressed up as a fix.
-    let dir = scratch_dir("fmt-no-comments");
-    let path = write_source(&dir, "main.ax", "(:: main Int)\n(fn   (main)   0)\n");
-
-    let out = run_axiom(&["fmt", "main.ax"], &dir);
-    assert!(out.status.success(), "stderr: {}", stderr(&out));
-
-    let formatted = std::fs::read_to_string(&path).unwrap();
+fn fmt_preserves_comments() {
+    let formatted = format_to_string(
+        "fmt-comments",
+        "; a comment worth keeping\n(:: main Int)\n(fn (main) 0)\n",
+    );
     assert!(
-        formatted.contains("main"),
-        "formatted output lost the program: {}",
+        formatted.contains("; a comment worth keeping"),
+        "formatting deleted the comment: {}",
         formatted
     );
 }
 
 #[test]
-fn fmt_counts_axtags_as_preserved() {
-    // AXTAGs look like comments but are real tokens and do survive
-    // formatting, so they must not trigger the refusal - otherwise every
-    // file carrying agent metadata becomes unformattable.
-    let dir = scratch_dir("fmt-axtag");
-    write_source(
-        &dir,
-        "main.ax",
-        "(:: main Int)\n;@axiom:pure\n(fn (main) 0)\n",
+fn fmt_preserves_a_trailing_comment_on_its_own_line() {
+    // A comment that annotates the line it sits on must not migrate onto
+    // a different construct. It used to be emitted after whatever was
+    // formatted when it reached the front of the queue, which put an
+    // annotation forty lines away from what it annotated.
+    let formatted = format_to_string(
+        "fmt-trailing",
+        "(:: main Int)\n(fn (main) 0)  ; stays here\n(:: other Int)\n(fn (other) 1)\n",
     );
-    let out = run_axiom(&["fmt", "main.ax"], &dir);
+    let line = formatted
+        .lines()
+        .find(|l| l.contains("; stays here"))
+        .unwrap_or_else(|| panic!("comment lost: {}", formatted));
     assert!(
-        out.status.success(),
-        "an AXTAG is not a discarded comment; stderr: {}",
-        stderr(&out)
+        line.contains("main"),
+        "trailing comment migrated off its construct: {}",
+        line
     );
+}
+
+#[test]
+fn fmt_preserves_block_comments() {
+    // Block comments were not recorded by the lexer at all, so they were
+    // invisible even to the guard that refused to format commented files.
+    let formatted = format_to_string(
+        "fmt-block-comment",
+        "#| a block comment |#\n(:: main Int)\n(fn (main) 0)\n",
+    );
+    assert!(
+        formatted.contains("a block comment"),
+        "formatting deleted the block comment: {}",
+        formatted
+    );
+}
+
+#[test]
+fn fmt_preserves_axtags() {
+    // AXTAGs are real tokens rather than discarded comments, which meant
+    // the comment guard never counted them - so they were deleted without
+    // even the refusal that protected ordinary comments. They are
+    // compiler-checked metadata, so losing one changes what the compiler
+    // verifies about the file.
+    let formatted = format_to_string("fmt-axtag", "(:: main Int)\n;@axiom:pure\n(fn (main) 0)\n");
+    assert!(
+        formatted.contains(";@axiom:pure"),
+        "formatting deleted the AXTAG: {}",
+        formatted
+    );
+}
+
+#[test]
+fn fmt_preserves_imports() {
+    // Imports are parsed into `Module::imports`, and the formatter walked
+    // only `Module::decls` - so every `(import ...)` line was dropped and
+    // the formatted file no longer compiled.
+    let formatted = format_to_string("fmt-imports", "(import IO)\n(:: main Int)\n(fn (main) 0)\n");
+    assert!(
+        formatted.contains("(import IO)"),
+        "formatting deleted the import: {}",
+        formatted
+    );
+}
+
+#[test]
+fn fmt_preserves_a_dotted_import_path() {
+    let formatted = format_to_string(
+        "fmt-dotted-import",
+        "(import Sys.Platform)\n(:: main Int)\n(fn (main) 0)\n",
+    );
+    assert!(
+        formatted.contains("(import Sys.Platform)"),
+        "a dotted module path was split into separate segments: {}",
+        formatted
+    );
+}
+
+#[test]
+fn fmt_preserves_pub() {
+    // Dropping `pub` does not change how the file parses, so nothing
+    // downstream complains - it just removes every name the module
+    // exported, and importers fail against names still visibly present.
+    let formatted = format_to_string("fmt-pub", "(pub :: main Int)\n(pub fn (main) 0)\n");
+    assert_eq!(
+        formatted.matches("pub").count(),
+        2,
+        "formatting dropped a `pub` marker: {}",
+        formatted
+    );
+}
+
+#[test]
+fn fmt_preserves_nullary_constructor_patterns() {
+    // `((Red) 1)` printed as `(Red 1)` is a *variable* pattern that binds
+    // anything, so the first arm matched every value and every later arm
+    // became unreachable. The program still compiled and still ran - it
+    // just returned the first arm's answer for every input.
+    let formatted = format_to_string(
+        "fmt-nullary-pattern",
+        "(data Color (Red) (Green))\n(:: f (-> Color Int))\n\
+         (fn (f c)\n  (match c\n    ((Red) 1)\n    ((Green) 2)))\n",
+    );
+    assert!(
+        formatted.contains("((Red) 1)"),
+        "a nullary constructor pattern became a catch-all variable: {}",
+        formatted
+    );
+}
+
+#[test]
+fn fmt_preserves_named_constructor_fields() {
+    // Printing named fields through `field_types()` erased the names,
+    // demoting a struct variant to a positional one - after which every
+    // `s.r` and every `(Rect { w, h })` pattern failed to resolve.
+    let formatted = format_to_string("fmt-named-fields", "(data Shape (Circle { r : Int }))\n");
+    assert!(
+        formatted.contains('{') && formatted.contains('r'),
+        "named constructor fields were flattened to positional: {}",
+        formatted
+    );
+}
+
+#[test]
+fn fmt_preserves_uncurried_signatures() {
+    let formatted = format_to_string(
+        "fmt-arrow",
+        "(:: add (-> Int Int Int))\n(fn (add x y) (+ x y))\n",
+    );
+    assert!(
+        formatted.contains("(-> Int Int Int)"),
+        "the signature grew a level of currying: {}",
+        formatted
+    );
+}
+
+#[test]
+fn fmt_preserves_string_escapes() {
+    // The lexer stores the decoded value, so re-emitting it verbatim
+    // turns a source `\\d` into the escape `\d`, which is not one - the
+    // formatted file no longer lexes.
+    let formatted = format_to_string("fmt-escapes", "(:: s Str)\n(fn (s) \"a\\\\d\\nb\")\n");
+    assert!(
+        formatted.contains("\\\\d") && formatted.contains("\\n"),
+        "string escapes were not re-escaped: {}",
+        formatted
+    );
+}
+
+#[test]
+fn fmt_emits_fn_rather_than_define() {
+    let formatted = format_to_string("fmt-fn", "(:: main Int)\n(fn   (main)   0)\n");
+    assert!(
+        formatted.contains("(fn (main)") && !formatted.contains("define"),
+        "formatting rewrote `fn` into the legacy `define` spelling: {}",
+        formatted
+    );
+}
+
+#[test]
+fn fmt_is_idempotent() {
+    let source = "; header\n(import IO)\n\n;@axiom:pure\n(pub :: main Int)\n\
+                  (pub fn (main)\n  (let ((x 1))\n    x))\n";
+    let once = format_to_string("fmt-idem-1", source);
+    let twice = format_to_string("fmt-idem-2", &once);
+    assert_eq!(once, twice, "formatting is not a fixed point");
 }
 
 // ---------------------------------------------------------------

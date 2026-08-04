@@ -149,8 +149,8 @@ impl GcEmitter {
         self.bitmap_ops();
         self.chunk_of();
         self.find_object();
-        self.from_bump();
-        self.from_free();
+        self.emit_from_bump();
+        self.emit_from_free();
         self.mark_ops();
         self.flush_run();
         self.sweep();
@@ -494,8 +494,8 @@ impl GcEmitter {
     ///
     /// Bump memory is always fresh mapping, never recycled - the bump
     /// pointer only moves forward - so it is already zero and needs no
-    /// clearing. Recycled memory does; see `from_free`.
-    fn from_bump(&mut self) {
+    /// clearing. Recycled memory does; see `emit_from_free`.
+    fn emit_from_bump(&mut self) {
         let (body, cons) = self.target.syscall_asm();
         let exit = self.target.sys_exit();
         let _ = (body, cons, exit);
@@ -548,7 +548,7 @@ impl GcEmitter {
     /// takes the NUL terminator on trust, and `vecReserveExactly`
     /// documents the tail past `len` reading as 0 rather than as
     /// whatever the arena last held.
-    fn from_free(&mut self) {
+    fn emit_from_free(&mut self) {
         self.l("define internal i64 @__axiom_gc_from_free(i64 %n) {");
         self.l("entry:");
         self.l("  %pv = alloca i64");

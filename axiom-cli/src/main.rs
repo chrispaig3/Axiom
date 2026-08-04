@@ -3,11 +3,11 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use axiom_ast::ast::Visibility;
 use axiom_codegen::{LlvmCodeGen, Target};
 use axiom_errors::{Diagnostic, DiagnosticFormat, SymbolFact, SymbolKind};
 use axiom_ir::generator::IrGen;
 use axiom_lexer::Lexer;
-use axiom_ast::ast::Visibility;
 use axiom_parser::{DeclOrExpr, Parser};
 use axiom_sema::{TypeChecker, TypeId};
 
@@ -654,17 +654,37 @@ fn resolve_imports_into(
                 // Only import public declarations
                 if !matches!(
                     &decl,
-                    Decl::DFn { vis: Visibility::Pub, .. }
-                        | Decl::DData { vis: Visibility::Pub, .. }
-                        | Decl::DStruct { vis: Visibility::Pub, .. }
-                        | Decl::DType { vis: Visibility::Pub, .. }
-                        | Decl::DTrait { vis: Visibility::Pub, .. }
-                        | Decl::DImpl { vis: Visibility::Pub, .. }
-                        | Decl::DSig { vis: Visibility::Pub, .. }
-                        | Decl::DMacro { vis: Visibility::Pub, .. }
-                        | Decl::DForeign { vis: Visibility::Pub, .. }
-                        | Decl::DEffect { vis: Visibility::Pub, .. }
-                        | Decl::DImport { .. }
+                    Decl::DFn {
+                        vis: Visibility::Pub,
+                        ..
+                    } | Decl::DData {
+                        vis: Visibility::Pub,
+                        ..
+                    } | Decl::DStruct {
+                        vis: Visibility::Pub,
+                        ..
+                    } | Decl::DType {
+                        vis: Visibility::Pub,
+                        ..
+                    } | Decl::DTrait {
+                        vis: Visibility::Pub,
+                        ..
+                    } | Decl::DImpl {
+                        vis: Visibility::Pub,
+                        ..
+                    } | Decl::DSig {
+                        vis: Visibility::Pub,
+                        ..
+                    } | Decl::DMacro {
+                        vis: Visibility::Pub,
+                        ..
+                    } | Decl::DForeign {
+                        vis: Visibility::Pub,
+                        ..
+                    } | Decl::DEffect {
+                        vis: Visibility::Pub,
+                        ..
+                    } | Decl::DImport { .. }
                 ) {
                     continue;
                 }
@@ -1464,6 +1484,98 @@ fn emit_llvm(input: &str, output: Option<&str>, format: DiagnosticFormat) -> Res
     Ok(())
 }
 
+/// Format `text` once more and return the result together with the
+/// comments it contains, or an error if it no longer lexes or parses.
+fn reformat(text: &str) -> Result<(String, Vec<String>), String> {
+    let mut lexer = Lexer::new(text, 0);
+    let tokens = lexer
+        .tokenize()
+        .map_err(|e| format!("formatted output no longer lexes: {}", e))?;
+    let chars: Vec<char> = text.chars().collect();
+    let comments = fmt::collect_comments(&chars, lexer.comment_spans());
+    let texts = comments.iter().map(|c| c.text.clone()).collect();
+
+    let mut parser = Parser::new(tokens);
+    let ast = parser
+        .parse_module()
+        .map_err(|e| format!("formatted output no longer parses: {}", e))?;
+
+    Ok((fmt::format_module(&ast, &chars, comments), texts))
+}
+
+/// Refuse to write output that is not a faithful reformatting of the
+/// input.
+///
+/// Three properties, each of which has been violated in practice:
+///
+/// - the output still parses (it did not, once `(import ...)` was gone);
+/// - it carries exactly the comments the input carried, in order;
+/// - formatting it again is a no-op, which is what detects a construct
+///   being rewritten into a second spelling of itself.
+fn verify_round_trip(input: &str, source: &str, formatted: &str) -> Result<(), String> {
+    let mut lexer = Lexer::new(source, 0);
+    let tokens = lexer
+        .tokenize()
+        .map_err(|e| format!("Lexer error: {}", e))?;
+    drop(tokens);
+    let chars: Vec<char> = source.chars().collect();
+    let before: Vec<String> = fmt::collect_comments(&chars, lexer.comment_spans())
+        .iter()
+        .map(|c| c.text.clone())
+        .collect();
+
+    let (again, after) = reformat(formatted).map_err(|e| {
+        format!(
+            "{} was not rewritten: {}.\n\nThis is a formatter bug; please report it \
+             with the input file.",
+            input, e
+        )
+    })?;
+
+    if before != after {
+        let lost: Vec<&String> = before.iter().filter(|c| !after.contains(c)).collect();
+        return Err(format!(
+            "{} was not rewritten: formatting would change its comments \
+             ({} before, {} after).{}\n\nThis is a formatter bug; please report it \
+             with the input file.",
+            input,
+            before.len(),
+            after.len(),
+            if lost.is_empty() {
+                String::new()
+            } else {
+                format!("\n\nFirst comment lost: {}", lost[0])
+            },
+        ));
+    }
+
+    if again != formatted {
+        // Point at the first line that differs. "Formatting is not
+        // idempotent" on its own gives a reporter nothing to reduce, and
+        // the difference is usually a single construct being rewritten
+        // into a second spelling of itself.
+        let (pass1, pass2): (Vec<&str>, Vec<&str>) =
+            (formatted.lines().collect(), again.lines().collect());
+        let at = (0..pass1.len().max(pass2.len()))
+            .find(|i| pass1.get(*i) != pass2.get(*i))
+            .unwrap_or(0);
+        return Err(format!(
+            "{} was not rewritten: formatting is not idempotent, so the result \
+             would change again on the next run.\n\n\
+             First difference at line {} of the formatted output:\n\
+             \x20 pass 1: {}\n\
+             \x20 pass 2: {}\n\n\
+             This is a formatter bug; please report it with the input file.",
+            input,
+            at + 1,
+            pass1.get(at).unwrap_or(&"<end of file>"),
+            pass2.get(at).unwrap_or(&"<end of file>"),
+        ));
+    }
+
+    Ok(())
+}
+
 fn fmt(input: &str, check: bool) -> Result<(), String> {
     let source =
         fs::read_to_string(input).map_err(|e| format!("Failed to read file '{}': {}", input, e))?;
@@ -1473,49 +1585,39 @@ fn fmt(input: &str, check: bool) -> Result<(), String> {
         .tokenize()
         .map_err(|e| format!("Lexer error: {}", e))?;
 
-    // Refuse rather than destroy.
-    //
-    // `format_module` regenerates source from the AST, and comments never
-    // reach the AST - the lexer drops them so no later stage has to skip
-    // them. The result was that `axiom fmt` deleted every comment in the
-    // file it formatted, silently and in place. Every file in `stdlib/`
-    // would have lost its documentation to a single invocation, and
-    // nothing would have reported it: `fmt` is the one part of the CLI
-    // with no CI gate, precisely because its output does not currently
-    // round-trip.
-    //
-    // Detecting the condition is exact rather than heuristic: the lexer
-    // now records the span of each comment it discarded, so this is a
-    // count of what would actually be lost, not a guess from scanning for
-    // `;` outside of string literals.
-    //
-    // The real fix is trivia preservation - attaching comments to the
-    // syntax they precede and re-emitting them - which is also what an LSP
-    // needs before it can rewrite source. Until then, failing loudly is
-    // the only behaviour that does not lose a user's work.
-    let discarded = lexer.comment_spans().len();
-    if discarded > 0 {
-        return Err(format!(
-            "{} contains {} comment{} that the formatter cannot preserve, so it \
-             refuses to rewrite the file.\n\
-             \n\
-             `fmt` regenerates source from the syntax tree, and comments are not \
-             part of the tree. Formatting would delete them.\n\
-             \n\
-             Comment-preserving formatting needs trivia support in the lexer and \
-             parser; see docs/v1-roadmap.md.",
-            input,
-            discarded,
-            if discarded == 1 { "" } else { "s" },
-        ));
-    }
+    // Comments are recovered from the spans the lexer recorded as it
+    // discarded them, and re-emitted by walking the tree and the comment
+    // list together. `fmt` used to refuse any file containing a comment,
+    // because regenerating source from a tree that never held them
+    // deleted every one - which made the formatter unusable on all 70
+    // `.ax` files in this repo.
+    let chars: Vec<char> = source.chars().collect();
+    let comments = fmt::collect_comments(&chars, lexer.comment_spans());
 
     let mut parser = Parser::new(tokens);
     let ast = parser
         .parse_module()
         .map_err(|e| format!("Parser error: {}", e))?;
 
-    let formatted = fmt::format_module(&ast);
+    let formatted = fmt::format_module(&ast, &chars, comments);
+
+    // Verify rather than trust.
+    //
+    // A formatter's one hard obligation is that it does not change what
+    // the file means, and this one has broken that obligation in six
+    // distinct ways - dropping `(import ...)`, `pub`, AXTAGs and block
+    // comments, and rewriting `fn` into `define` and `(-> a b c)` into
+    // its curried spelling. Every one of them was silent, and the two
+    // that a test covered were covered by tests that asserted only the
+    // exit status.
+    //
+    // So the check is a property of the output, not a list of the bugs
+    // found so far: re-lex the formatted text and require that it holds
+    // exactly the comments the input held, then re-format it and require
+    // a fixed point. Idempotence is what catches a construct being
+    // rewritten into a different spelling of itself, since the second
+    // pass would rewrite it again.
+    verify_round_trip(input, &source, &formatted)?;
 
     if check {
         if source == formatted {
@@ -1938,7 +2040,8 @@ fn cmd_llvm(expr_str: &str, state: &mut ReplState) {
                             let mut ir_gen = IrGen::new();
                             let ir_module = ir_gen.generate(&ast, &mut tc2);
 
-                            let mut codegen = LlvmCodeGen::for_target(target()).with_gc(gc_enabled());
+                            let mut codegen =
+                                LlvmCodeGen::for_target(target()).with_gc(gc_enabled());
                             if let Ok(llvm_ir) = codegen.compile(&ir_module) {
                                 println!("{}", "Generated LLVM IR:".bold().bright_cyan());
                                 println!("{}", llvm_ir);
@@ -1984,7 +2087,7 @@ fn cmd_time(expr_str: &str, state: &mut ReplState) {
             state.declarations.push('\n');
             let duration = start.elapsed();
             println!("{} {:?}", "Time:".bright_yellow(), duration);
-            if let axiom_ast::ast::Decl::DFn { name, .. } = &decl {
+            if let axiom_ast::ast::Decl::DFn { name, .. } = &*decl {
                 println!(
                     "{} {} defined",
                     "OK:".bright_green().bold(),
@@ -2017,7 +2120,8 @@ fn cmd_time(expr_str: &str, state: &mut ReplState) {
                                 let mut ir_gen = IrGen::new();
                                 let ir_module = ir_gen.generate(&ast, &mut tc2);
 
-                                let mut codegen = LlvmCodeGen::for_target(target()).with_gc(gc_enabled());
+                                let mut codegen =
+                                    LlvmCodeGen::for_target(target()).with_gc(gc_enabled());
                                 if let Ok(llvm_ir) = codegen.compile(&ir_module) {
                                     let start = std::time::Instant::now();
                                     let result = compile_and_run_repl(&llvm_ir);
@@ -2075,19 +2179,19 @@ fn process_input(input: &str, state: &mut ReplState) {
             state.declarations.push_str(input);
             state.declarations.push('\n');
 
-            if let axiom_ast::ast::Decl::DFn { name, .. } = &decl {
+            if let axiom_ast::ast::Decl::DFn { name, .. } = &*decl {
                 println!(
                     "{} {} defined",
                     "OK:".bright_green().bold(),
                     name.name.bright_white()
                 );
-            } else if let axiom_ast::ast::Decl::DData { name, .. } = &decl {
+            } else if let axiom_ast::ast::Decl::DData { name, .. } = &*decl {
                 println!(
                     "{} data {} defined",
                     "OK:".bright_green().bold(),
                     name.name.bright_white()
                 );
-            } else if let axiom_ast::ast::Decl::DSig { name, .. } = &decl {
+            } else if let axiom_ast::ast::Decl::DSig { name, .. } = &*decl {
                 println!(
                     "{} {} defined",
                     "OK:".bright_green().bold(),
@@ -2120,7 +2224,8 @@ fn process_input(input: &str, state: &mut ReplState) {
                                 let mut ir_gen = IrGen::new();
                                 let ir_module = ir_gen.generate(&ast, &mut tc2);
 
-                                let mut codegen = LlvmCodeGen::for_target(target()).with_gc(gc_enabled());
+                                let mut codegen =
+                                    LlvmCodeGen::for_target(target()).with_gc(gc_enabled());
                                 if let Ok(llvm_ir) = codegen.compile(&ir_module) {
                                     let result = compile_and_run_repl(&llvm_ir);
                                     if let Some(value) = result {

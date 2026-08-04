@@ -79,15 +79,14 @@ impl ParseError {
             )
             .with_primary(span, keyword.rationale())
             .with_help(keyword.replacement()),
-            ParseError::RecursionLimit { limit, .. } => Diagnostic::error(
-                &code::RECURSION_LIMIT,
-                self.to_string(),
-            )
-            .with_primary(span, format!("nesting reaches {} levels here", limit))
-            .with_help(
-                "rewrite the form as a `let` chain, a `{}` block, or a balanced tree; \
+            ParseError::RecursionLimit { limit, .. } => {
+                Diagnostic::error(&code::RECURSION_LIMIT, self.to_string())
+                    .with_primary(span, format!("nesting reaches {} levels here", limit))
+                    .with_help(
+                        "rewrite the form as a `let` chain, a `{}` block, or a balanced tree; \
                  hand-written code does not reach this limit, generated code can",
-            ),
+                    )
+            }
         }
     }
 }
@@ -2030,7 +2029,7 @@ impl Parser {
     pub fn parse_decl_or_expr(&mut self) -> Result<DeclOrExpr, ParseError> {
         if self.is_decl_start() {
             let decl = self.parse_decl()?;
-            Ok(DeclOrExpr::Decl(decl))
+            Ok(DeclOrExpr::Decl(Box::new(decl)))
         } else {
             let expr = self.parse_expr()?;
             Ok(DeclOrExpr::Expr(expr))
@@ -2038,8 +2037,11 @@ impl Parser {
     }
 }
 
+/// `Decl` is boxed because it is several times the size of `Expr`, and an
+/// unboxed enum is as large as its largest variant - every `DeclOrExpr`
+/// moved, including the common `Expr` case, would pay for the `Decl` one.
 pub enum DeclOrExpr {
-    Decl(Decl),
+    Decl(Box<Decl>),
     Expr(Expr),
 }
 

@@ -629,6 +629,7 @@ impl Lexer {
     }
 
     fn consume_block_comment(&mut self) -> Result<(), LexerError> {
+        let start = self.pos;
         self.pos += 2;
         let mut depth = 1;
         while self.pos < self.source.len() && depth > 0 {
@@ -642,6 +643,12 @@ impl Lexer {
                 self.pos += 1;
             }
         }
+        // Record block comments alongside line comments. Only line
+        // comments used to be recorded, so a `#| ... |#` block was
+        // invisible to the formatter's "would this lose a comment?"
+        // check - meaning `fmt` deleted block comments without even the
+        // refusal that protected line comments.
+        self.comment_spans.push(self.span(start));
         Ok(())
     }
 }

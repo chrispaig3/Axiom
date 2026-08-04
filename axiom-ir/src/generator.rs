@@ -326,7 +326,6 @@ impl IrGen {
     /// entry file's own `label`, and the only way to call the local one
     /// was to qualify it, which is backwards. Between two imports the
     /// first still wins, and `Mod::name` is how a caller says which.
-
     fn record_bare_name(
         map: &mut HashMap<String, String>,
         bare: &str,
@@ -1945,23 +1944,20 @@ impl IrGen {
             Expr::EAssign(target, value) => {
                 let value_val =
                     self.gen_expr_to_func_with_allocas(func, value, alloca_map, type_checker, None);
-                match alloca_map.get(&target.name) {
-                    Some(alloca_name) => {
-                        let boxed = self.box_if_tag(func, &value_val);
-                        self.emit_to_func(
-                            func,
-                            IrInst::Store {
-                                ptr: IrValue::Local(alloca_name.clone()),
-                                value: boxed,
-                            },
-                        );
-                    }
-                    // Unreachable: `axiom-sema` rejects an assignment to
-                    // a name that is not a mutable local, and only
-                    // locals get allocas. Emitting nothing is the safe
-                    // failure here - codegen never runs on a module that
-                    // produced diagnostics.
-                    None => {}
+                // A name with no alloca is unreachable: `axiom-sema`
+                // rejects an assignment to anything that is not a mutable
+                // local, and only locals get allocas. Emitting nothing is
+                // the safe failure here - codegen never runs on a module
+                // that produced diagnostics.
+                if let Some(alloca_name) = alloca_map.get(&target.name) {
+                    let boxed = self.box_if_tag(func, &value_val);
+                    self.emit_to_func(
+                        func,
+                        IrInst::Store {
+                            ptr: IrValue::Local(alloca_name.clone()),
+                            value: boxed,
+                        },
+                    );
                 }
                 value_val
             }
@@ -2846,7 +2842,7 @@ impl IrGen {
                         None => target_block.insts.push(inst),
                     }
                 } else if !matches!(&inst, IrInst::Alloca { .. })
-                    && target_block.insts.last().map_or(false, |i| {
+                    && target_block.insts.last().is_some_and(|i| {
                         matches!(
                             i,
                             IrInst::Br { .. } | IrInst::CondBr { .. } | IrInst::Ret { .. }
@@ -2864,7 +2860,7 @@ impl IrGen {
     fn current_block_has_terminator(&self, func: &IrFunction) -> bool {
         if let Some(label) = &self.current_block {
             if let Some(block) = func.blocks.iter().find(|b| &b.label == label) {
-                return block.insts.last().map_or(false, |inst| {
+                return block.insts.last().is_some_and(|inst| {
                     matches!(
                         inst,
                         IrInst::Br { .. } | IrInst::CondBr { .. } | IrInst::Ret { .. }

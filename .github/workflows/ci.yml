@@ -84,13 +84,26 @@ jobs:
       - name: Freestanding check
         run: ./scripts/check-freestanding.sh
 
-      # The largest pure-Axiom program in the tree, checked against golden
-      # output at both optimisation levels. It runs in the matrix rather
-      # than in a single-host job because it is the only test that
-      # exercises recursion depth and allocation volume on real hardware,
-      # and both are platform-sensitive.
-      - name: Game of Life
-        run: ./scripts/check-game-of-life.sh
+      # The only gate that exercises stage1 end to end. It runs in the
+      # matrix rather than on a single host because it compiles, assembles
+      # and *runs* the output of the self-hosted compiler, and both the
+      # syscall numbers and the object format are platform-specific.
+      #
+      # This replaces a `Game of Life` step that invoked
+      # `scripts/check-game-of-life.sh`. That script was removed in
+      # 720a0d5 along with the sample it ran, but the step referencing it
+      # was not, so every run of this job failed on a missing file - which
+      # is why "CI green on all four targets" needs re-establishing rather
+      # than citing.
+      - name: Self-hosted compiler conformance
+        run: ./scripts/check-self-host.sh
+
+      # `fmt` is the tool that had no gate, and it had six independent
+      # ways of silently destroying a source file. This formats a copy of
+      # the whole repository and re-runs the suites against it, so a
+      # formatter change that alters what a program means fails here.
+      - name: Formatter round-trip
+        run: ./scripts/check-fmt.sh
 
   grammar:
     name: Tree-sitter grammar
@@ -128,6 +141,25 @@ jobs:
       # that platform.
       - name: Assemble every target from one host
         run: ./scripts/check-cross-targets.sh
+
+  bootstrap:
+    name: Self-hosting fixpoint
+    needs: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: |
+          sudo apt-get update
+          sudo apt-get install -y llvm clang
+          echo "$(llvm-config --bindir)" >> "$GITHUB_PATH"
+      # `stage2 == stage3` is the criterion the whole self-hosting effort
+      # is aimed at, and the script that checks it was in the tree but
+      # wired into nothing - so a regression in it would have been found
+      # by whoever next ran it by hand.
+      - name: stage2 and stage3 are byte-identical
+        run: ./scripts/check-bootstrap.sh
 
   reproducible:
     name: Reproducible build

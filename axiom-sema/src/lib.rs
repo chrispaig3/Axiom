@@ -753,6 +753,14 @@ impl Default for TypeChecker {
     }
 }
 
+/// Where a name was first defined, and which module it came from.
+///
+/// Keyed by name; the `Span` is the first definition's location and the
+/// `Option<String>` its module path, which is what distinguishes a
+/// genuine redefinition from the same name arriving twice through two
+/// import paths.
+type DefinitionTable = std::collections::HashMap<String, (Span, Option<String>)>;
+
 impl TypeChecker {
     /// Put every entry of [`PRIMITIVES`] (plus [`PRIM_ADDR`]) in
     /// scope as a builtin function.
@@ -904,34 +912,29 @@ impl TypeChecker {
     /// signature followed by exactly one matching `define`/`fn`/`foreign`
     /// is the normal, expected pattern, not a duplicate.
     fn check_duplicate_definitions(&mut self, decls: &[Decl]) {
-        let mut values: std::collections::HashMap<String, (Span, Option<String>)> =
-            std::collections::HashMap::new();
-        let mut types: std::collections::HashMap<String, (Span, Option<String>)> =
-            std::collections::HashMap::new();
+        let mut values: DefinitionTable = std::collections::HashMap::new();
+        let mut types: DefinitionTable = std::collections::HashMap::new();
 
         for decl in decls {
-            let (namespace, name, module_path): (
-                &mut std::collections::HashMap<String, (Span, Option<String>)>,
-                &Ident,
-                &Option<String>,
-            ) = match decl {
-                Decl::DFn {
-                    name, module_path, ..
-                } => (&mut values, name, module_path),
-                Decl::DForeign {
-                    name, module_path, ..
-                } => (&mut values, name, module_path),
-                Decl::DData {
-                    name, module_path, ..
-                } => (&mut types, name, module_path),
-                Decl::DStruct {
-                    name, module_path, ..
-                } => (&mut types, name, module_path),
-                Decl::DType {
-                    name, module_path, ..
-                } => (&mut types, name, module_path),
-                _ => continue,
-            };
+            let (namespace, name, module_path): (&mut DefinitionTable, &Ident, &Option<String>) =
+                match decl {
+                    Decl::DFn {
+                        name, module_path, ..
+                    } => (&mut values, name, module_path),
+                    Decl::DForeign {
+                        name, module_path, ..
+                    } => (&mut values, name, module_path),
+                    Decl::DData {
+                        name, module_path, ..
+                    } => (&mut types, name, module_path),
+                    Decl::DStruct {
+                        name, module_path, ..
+                    } => (&mut types, name, module_path),
+                    Decl::DType {
+                        name, module_path, ..
+                    } => (&mut types, name, module_path),
+                    _ => continue,
+                };
 
             if let Some((first_span, first_module)) = namespace.get(&name.name) {
                 if module_path == first_module {
@@ -1866,7 +1869,7 @@ impl TypeChecker {
             }
         }
 
-        let dotted = format!("{}::{}", &module, &name.name);
+        let dotted = format!("{}::{}", module, name.name);
         let suggestion = suggest_closest(
             &name.name,
             self.functions

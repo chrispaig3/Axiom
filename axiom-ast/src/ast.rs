@@ -471,6 +471,42 @@ pub struct Module {
 }
 
 impl Decl {
+    /// The declaration's visibility, or `Private` for the forms that do
+    /// not carry one (`import`).
+    pub fn visibility(&self) -> &Visibility {
+        match self {
+            Decl::DData { vis, .. }
+            | Decl::DStruct { vis, .. }
+            | Decl::DType { vis, .. }
+            | Decl::DTrait { vis, .. }
+            | Decl::DImpl { vis, .. }
+            | Decl::DSig { vis, .. }
+            | Decl::DFn { vis, .. }
+            | Decl::DMacro { vis, .. }
+            | Decl::DForeign { vis, .. }
+            | Decl::DEffect { vis, .. } => vis,
+            Decl::DImport { .. } => &Visibility::Private,
+        }
+    }
+
+    /// The AXTAGs attached to this declaration, or an empty slice for the
+    /// forms that cannot carry them (`import`).
+    pub fn axtags(&self) -> &[Axtag] {
+        match self {
+            Decl::DData { axtags, .. }
+            | Decl::DStruct { axtags, .. }
+            | Decl::DType { axtags, .. }
+            | Decl::DTrait { axtags, .. }
+            | Decl::DImpl { axtags, .. }
+            | Decl::DSig { axtags, .. }
+            | Decl::DFn { axtags, .. }
+            | Decl::DMacro { axtags, .. }
+            | Decl::DForeign { axtags, .. }
+            | Decl::DEffect { axtags, .. } => axtags,
+            Decl::DImport { .. } => &[],
+        }
+    }
+
     /// Return a short key string identifying this declaration
     /// for NID generation.  The key is a combination of the
     /// declaration kind and its name, which is sufficient for

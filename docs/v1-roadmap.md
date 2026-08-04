@@ -99,7 +99,9 @@ they unblock everything downstream.
 
 | | Evidence |
 |---|---|
-| CI green on all four targets | §3 below; two root-caused failures fixed |
+| CI green on all four targets | §3 below; two root-caused failures fixed. Re-checked and **was not green** — see §2.5 — for two further reasons, both now fixed |
+| `fmt` round-trips every file | §2.3; 70/70, gated by `scripts/check-fmt.sh` |
+| Self-hosting fixpoint `stage2 == stage3` | `scripts/check-bootstrap.sh`, now run in CI (§2.5) |
 | `union` removed, `region` removed | `AX2004` with migration advice; 3 regression tests |
 
 | Editor grammar | [tree-sitter-axiom/](../tree-sitter-axiom/), 70/70 repo files, ~18 MB/s. The 18/18 this used to claim was true when the repo had 18 `.ax` files; the gate then silently skipped for want of its CLI while the real figure fell to 27/70. See the risk table |
@@ -114,39 +116,67 @@ cargo test --release --all
 ./scripts/check-freestanding.sh
 ./scripts/check-cross-targets.sh
 ./scripts/check-reproducible.sh
-
 ./scripts/check-tree-sitter.sh
+./scripts/check-self-host.sh
+./scripts/check-bootstrap.sh
+./scripts/check-fmt.sh
 ```
 
+All eight gates and `cargo test --release --all` pass, and
+`cargo clippy --all-targets --all-features -- -D warnings` is clean.
 
 
-### 2.3 `axiom fmt` cannot round-trip source
 
-Found while checking this work and worth stating separately, because it is
-a data-loss bug rather than a missing feature.
+### 2.3 `axiom fmt` round-trips source — and did not, in six ways
 
-`fmt` regenerates source from the syntax tree. Comments never reach the
-tree — the lexer discards them so that no later stage has to skip them — so
-formatting a file *deleted every comment in it*, in place, and printed a
-success message. Every file in `stdlib/` would have lost its documentation
-to one invocation. It went unnoticed because `fmt` is the only part of the
-CLI with no CI gate, which is itself a consequence of its output not
-round-tripping.
+`fmt` was the one part of the CLI with no CI gate, and it had six
+independent ways of silently destroying a source file. Formatting any of
+the 70 `.ax` files in this repository lost something, and every loss was
+reported as a successful format.
 
-Two things changed. The lexer now records the span of every comment it
-discards, so the condition is detected exactly rather than by scanning for
-`;` outside string literals. And `fmt` refuses to rewrite a file it cannot
-round-trip, reporting the count and the reason, instead of succeeding
-destructively. Three regression tests pin it, including one asserting the
-file is byte-identical afterwards and one asserting that AXTAGs — which are
-real tokens and do survive — still format.
+| Loss | Consequence |
+|---|---|
+| Every `(import ...)` declaration | Imports live in `Module::imports`; the printer walked only `Module::decls`. The formatted file no longer compiled |
+| Every `pub` marker | The module's entire export surface. Parses fine, so nothing complains until an importer fails against a name still visibly present in the file |
+| Every AXTAG | Real tokens, so the comment guard never counted them — the one category deleted without even a refusal. They are compiler-checked metadata |
+| Every block comment | The lexer recorded spans for line comments only, so `#\| ... \|#` was invisible to the guard too |
+| `((Red) 1)` → `(Red 1)` | A nullary constructor pattern becomes a *variable* pattern that binds anything. The first arm matches every value and every later arm is unreachable. Compiles, runs, returns the first arm's answer for every input |
+| `(Circle { r : Int })` → `(Circle Int)` | A struct variant demoted to positional; every `s.r` and every named pattern then fails to resolve |
 
-`fmt` is consequently unusable on almost every real file, which is the
-truth it was previously hiding. The fix is trivia preservation: attach
-comments to the syntax they precede and re-emit them. It is scheduled with
-the LSP work in **P5** rather than earlier, because the LSP needs the same
-machinery for every operation that rewrites source, and building it twice
-would be waste.
+plus three spelling changes that were not losses but were not
+round-trips either: `fn` rewritten to the legacy `define`, `(-> a b c)`
+re-emitted curried as `(-> a (-> b c))` — growing a paren level per
+parameter on every run — and `(let ((x 1)))` rewritten to `(let ((x = 1)))`,
+a spelling that appears nowhere in the corpus and that the self-hosted
+parser does not implement, so formatting a file broke the bootstrap.
+
+Two of these had tests. Both tests asserted only an exit status, which is
+why `fmt_counts_axtags_as_preserved` stayed green while the AXTAG it was
+named after was being deleted.
+
+**What changed.** Comments are now recovered from the spans the lexer
+records as it discards them, and re-emitted by walking the tree and the
+comment list together in source order: own-line comments are emitted
+above the construct that followed them, trailing comments back onto the
+line they annotated. A trailing comment is only re-attached to a
+construct the formatter kept on one line, which is what makes the result
+a fixed point — a one-line source construct that the printer breaks
+across several lines would otherwise move its comment on every run.
+
+`fmt` also verifies its own output before writing: the result must
+re-parse, carry exactly the comments the input carried, and be a fixed
+point under a second formatting pass. That check is a property rather
+than a list of the bugs above, and it is what refuses rather than
+destroys when a construct is still printed wrongly.
+
+All 70 files now format. The gate is `scripts/check-fmt.sh`, which
+formats a copy of the whole repository and re-runs the standard-library
+and self-hosting suites against it — because the nullary-pattern bug
+produced a program that parsed, compiled and ran, and only a behavioural
+check could see it.
+
+Trivia preservation is consequently **done** rather than scheduled for
+P5. The LSP still needs the same machinery, and can reuse it.
 
 ### 2.4 Open blockers, unchanged
 
@@ -171,6 +201,35 @@ hold. The ones on the critical path here:
   `Map`. See [self-hosting.md §2.1 B3](self-hosting.md#21-blockers).
 - **B4** — namespacing: `Mod::name` qualified access works; two modules can define the same name without collision. **(DONE)**
 - **S1** — every constructor, including nullary ones, is a heap block.
+
+---
+
+### 2.5 CI was not green, and could not have been
+
+The claim in §2.1 that CI was green on all four targets did not hold when
+re-checked, for two reasons that were each enough on their own.
+
+**The `lint` job failed on eleven clippy warnings.** It runs
+`cargo clippy --all-targets --all-features -- -D warnings`, and eleven
+warnings were present on a clean checkout. Every other job declares
+`needs: lint`, so the entire pipeline was blocked behind it — no test job,
+no matrix, no cross-target check ever ran. All eleven are now fixed.
+
+**The `test` matrix ran a script that does not exist.** The final step
+invoked `scripts/check-game-of-life.sh`, which was removed in 720a0d5
+along with the sample it ran; the step referencing it was not. Every run
+of that job would have failed on a missing file — on all three matrix
+platforms.
+
+Two gates were also present in the tree and wired into nothing:
+`check-self-host.sh`, the only gate that exercises stage1 end to end, and
+`check-bootstrap.sh`, which checks the `stage2 == stage3` fixpoint that
+the whole self-hosting effort is aimed at. Both now run in CI. Both pass;
+the fixpoint is reached.
+
+This is the same failure the risk table already names — a gate that
+cannot fail, or does not run, reports success without checking anything —
+appearing in the workflow file rather than in a script.
 
 ---
 
@@ -424,7 +483,7 @@ parallel.
 | **P2** | Memory model (§4.1) · `S1` unboxed nullary constructors | `stress.ax` at 2000 generations within 2× of 20 generations |
 | **P3** | Macro system (§4.2) — hygiene done · ~~`B4` namespacing~~ **(DONE)** | Hygiene test passes; two modules define the same name without collision |
 | **P4** | Self-hosting phases 2–5 · HTTP library (§4.5) | `stage2 == stage3`; HTTP server serves a request under load |
-| **P5** | LSP (§4.6) · trivia preservation for `fmt` (§2.3) · benchmarking · docs | Completion and diagnostics in a real editor; `fmt` round-trips every file in the repo, gated in CI; published performance profile |
+| **P5** | LSP (§4.6) · ~~trivia preservation for `fmt`~~ **(DONE, §2.3)** · benchmarking · docs | Completion and diagnostics in a real editor; ~~`fmt` round-trips every file in the repo, gated in CI~~ ✓ 70/70, gated by `check-fmt.sh`; published performance profile |
 
 **On effort.** P1 is weeks. P2 is the research risk and could be a month
 or several depending on which option in §4.1 proves sufficient. P3–P5 are
@@ -443,6 +502,8 @@ completing together is not a plan.
 | Macros degrade diagnostics | Expansion backtrace in `Diagnostic` is part of the macro work, not a follow-up |
 | The LSP is started early "in parallel" and blocks on missing language features | The dependency edges in §1 are the schedule; the tree-sitter grammar covers editor basics meanwhile |
 | A gate passes while the property it protects is broken — as happened for PIE relocations | Every new gate gets a negative test proving it fails when it should. Done for the relocation and grammar gates |
-| A tool with no CI gate is silently broken, as `fmt` was | Either gate it or make it fail loudly. `fmt` now refuses rather than destroying; the remaining ungated surfaces are `repl` and `explain` |
+| A tool with no CI gate is silently broken, as `fmt` was | Either gate it or make it fail loudly. `fmt` now verifies its own output before writing and is gated by `check-fmt.sh`, which checks behaviour — it formats a copy of the repo and re-runs the suites — because the worst of its six bugs produced a program that parsed, compiled and ran, and returned the wrong answer. The remaining ungated surfaces are `repl` and `explain` |
+| A step in the workflow file refers to a script that no longer exists, so a job fails for a reason unrelated to the code | Gates are scripts in `scripts/`, and CI steps only invoke them. The `Game of Life` step outlived its script by one commit and failed every matrix run until it was noticed here (§2.5) |
+| A lint job that gates every other job fails, so nothing downstream ever runs | `needs: lint` means a clippy warning stops the whole pipeline. Keep `cargo clippy -- -D warnings` clean; eleven warnings had accumulated and blocked CI entirely (§2.5) |
 | A gate that *skips* when its tool is missing is the same failure wearing a different hat | `check-tree-sitter.sh` exited 0 when the tree-sitter CLI was absent — which is every machine that has not run its `npm install` — so it reported success without checking anything. It hid two live breakages: the grammar rejected every `struct` with fields, and so most of `self_host/`, taking the corpus from a claimed 18/18 to an actual 27/70; and the highlight-query step named `game_of_life/Life.ax`, deleted in 720a0d5. Both fixed, and the gate now fails rather than skips unless `AXIOM_TREE_SITTER_OPTIONAL=1` is set |
 | Removing `union`/`region` breaks unknown external code | Both stay reserved and report `AX2004` with the replacement, rather than being silently reinterpreted |
