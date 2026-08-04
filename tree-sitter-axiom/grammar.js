@@ -99,6 +99,17 @@ module.exports = grammar({
     // separately because the generator reports conflicts between the
     // specific rules that collide, not between their parents.
     [$.type_parameters, $.application],
+    // `(struct Point (x : Int))`: after `struct Point`, a `(` followed by
+    // a name begins a type parameter list *and* a field declaration, and
+    // the two only diverge at the `:` two tokens later. As long as the
+    // parameters were the `type_variable` *token*, the choice fell to the
+    // lexer, which cannot see that far - so every `struct` with fields
+    // failed to parse, and with them most of `self_host/`. Spelling the
+    // parameters as `identifier` (see `type_parameters`) moves the
+    // decision to the parser, and this declares the ambiguity it then
+    // has to resolve: `(struct P (x))` is a parameter list or a
+    // construction whose argument is `(x)`.
+    [$.type_parameters, $._expression],
     // `(handle body (foo) handler)`: is `(foo)` a one-element custom effect
     // list, or is it an application that serves as the handler? Nothing in
     // the form settles it, and the language itself is ambiguous here -
@@ -178,7 +189,7 @@ module.exports = grammar({
       $.import,
       $.foreign_declaration,
       $.effect_declaration,
-      $.pub_declaration,
+      $.macro_declaration,
     ),
 
     // `(:: subject Type)`
@@ -196,7 +207,7 @@ module.exports = grammar({
     // top-level signature's subject is always a bare identifier:
     // `(type_signature subject: (identifier))`.
     type_signature: $ => seq(
-      '(', '::', field('subject', $._expression), field('type', $._type), ')',
+      '(', optional(field('visibility', 'pub')), '::', field('subject', $._expression), field('type', $._type), ')',
     ),
 
     // `(fn (name params...) body)` or `(define name body)`.
@@ -206,7 +217,7 @@ module.exports = grammar({
     // every reason to highlight them identically.
     function_definition: $ => seq(
       '(',
-      choice('fn', 'define'),
+      optional(field('visibility', 'pub')), choice('fn', 'define'),
       choice(
         // `(fn (name p1 p2) body)` - the parenthesised form, which is
         // also how a nullary function is written: `(fn (main) ...)`.
@@ -220,7 +231,7 @@ module.exports = grammar({
 
     // `(data Name (tyvars...) (Ctor field...)... (deriving C...))`
     data_declaration: $ => seq(
-      '(', 'data',
+      '(', optional(field('visibility', 'pub')), 'data',
       field('name', $.identifier),
       optional(field('type_parameters', $.type_parameters)),
       repeat(field('constructor', $.data_constructor)),
@@ -239,17 +250,45 @@ module.exports = grammar({
     // `'(' identifier ')'` and the generator rejects the grammar - and the
     // available workarounds, a precedence or a declared conflict, would
     // both guess at something the compiler decides by case.
-    type_parameters: $ => seq('(', repeat($.type_variable), ')'),
+    // The parameters are spelled with `identifier` and aliased, not with
+    // the `type_variable` token, so that `(` + name is the *same* token
+    // sequence whether this turns out to be a type parameter list or a
+    // field declaration. As two distinct tokens the choice fell to the
+    // lexer, which cannot see the `:` two tokens ahead that actually
+    // decides it - so `(struct Point (x : Int))` committed to a type
+    // parameter list and failed on the `:`. One token lets the declared
+    // conflict below defer the decision to the parser, which can.
+    type_parameters: $ => seq('(', repeat(alias($.identifier, $.type_variable)), ')'),
 
+    // `(Just a)` or `(Circle { r : Int })`. The braced form is a struct
+    // variant: fields are named, and a pattern may then bind them by
+    // name and in any order.
     data_constructor: $ => seq(
-      '(', field('name', $.constructor_identifier), repeat(field('field', $._type)), ')',
+      '(',
+      field('name', $.constructor_identifier),
+      choice(
+        repeat(field('field', $._type)),
+        seq('{', repeat(seq(field('field', $.named_field), optional(','))), '}'),
+      ),
+      ')',
+    ),
+
+    named_field: $ => seq(field('name', $.identifier), ':', field('type', $._type)),
+
+    // `(macro (name params...) body)` - pattern-free template macros,
+    // which is all `stdlib/Pre.ax` uses.
+    macro_declaration: $ => seq(
+      '(', optional(field('visibility', 'pub')), 'macro',
+      '(', field('name', $.identifier), repeat(field('parameter', $.identifier)), ')',
+      repeat(field('body', $._expression)),
+      ')',
     ),
 
     deriving_clause: $ => seq('(', 'deriving', repeat($.identifier), ')'),
 
     // `(struct Name modifier? (field : Type)...)`
     struct_declaration: $ => seq(
-      '(', 'struct',
+      '(', optional(field('visibility', 'pub')), 'struct',
       field('name', $.identifier),
       optional(field('type_parameters', $.type_parameters)),
       repeat(field('modifier', $.struct_modifier)),
@@ -276,7 +315,7 @@ module.exports = grammar({
     // `(type Name (tyvars...) = Type)`. The `=` is optional in the
     // parser, so it is optional here.
     type_alias: $ => seq(
-      '(', 'type',
+      '(', optional(field('visibility', 'pub')), 'type',
       field('name', $.identifier),
       optional(field('type_parameters', $.type_parameters)),
       optional('='),
@@ -285,7 +324,7 @@ module.exports = grammar({
     ),
 
     newtype_declaration: $ => seq(
-      '(', 'newtype',
+      '(', optional(field('visibility', 'pub')), 'newtype',
       field('name', $.identifier),
       optional(field('type_parameters', $.type_parameters)),
       field('constructor', $.identifier),
@@ -295,7 +334,7 @@ module.exports = grammar({
 
     // `(trait (Name tv) (supertraits...) (method...))`
     trait_declaration: $ => seq(
-      '(', 'trait',
+      '(', optional(field('visibility', 'pub')), 'trait',
       '(', field('name', $.identifier), optional(field('type_parameter', $.identifier)), ')',
       repeat(choice(
         field('effects', $.effect_clause),
@@ -316,7 +355,7 @@ module.exports = grammar({
     effect_clause: $ => seq('(', 'effect', repeat($.effect), ')'),
 
     impl_declaration: $ => seq(
-      '(', 'impl',
+      '(', optional(field('visibility', 'pub')), 'impl',
       '(', field('trait', $.identifier), field('type', $._type), ')',
       repeat(field('member', $.impl_method)),
       ')',
@@ -331,7 +370,7 @@ module.exports = grammar({
 
     // `(import Mod.Sub)` or `(import Mod.Sub (a b))`
     import: $ => seq(
-      '(', 'import',
+      '(', optional(field('visibility', 'pub')), 'import',
       field('module', $.module_path),
       optional(seq('(', repeat(field('name', $.identifier)), ')')),
       ')',
@@ -345,7 +384,7 @@ module.exports = grammar({
 
     // `(foreign name :: Type = "symbol")`
     foreign_declaration: $ => seq(
-      '(', 'foreign',
+      '(', optional(field('visibility', 'pub')), 'foreign',
       field('name', $.identifier),
       '::',
       field('type', $._type),
@@ -355,7 +394,7 @@ module.exports = grammar({
     ),
 
     effect_declaration: $ => seq(
-      '(', 'effect',
+      '(', optional(field('visibility', 'pub')), 'effect',
       field('name', $.identifier),
       repeat(field('operation', $.effect_operation)),
       ')',
@@ -365,7 +404,6 @@ module.exports = grammar({
       '(', field('name', $.identifier), repeat(field('parameter', $._type)), ')',
     ),
 
-    pub_declaration: $ => seq('(', 'pub', field('declaration', $._declaration), ')'),
 
     // -----------------------------------------------------------------
     // Removed constructs
@@ -503,8 +541,25 @@ module.exports = grammar({
     wildcard_pattern: _ => '_',
 
     // `(Cons h t)`, and nested: `(Cons h (Cons h2 t))`.
+    // `(Just x)`, or the struct-variant form `(Rect { w = w, h })`.
+    //
+    // In the braced form a field may be bound explicitly (`w = pat`) or
+    // punned (`w`, meaning `w = w`), the order need not match the
+    // declaration, and a field the pattern does not name is simply not
+    // bound.
     constructor_pattern: $ => seq(
-      '(', field('constructor', $.constructor_identifier), repeat(field('argument', $._pattern)), ')',
+      '(',
+      field('constructor', $.constructor_identifier),
+      choice(
+        repeat(field('argument', $._pattern)),
+        seq('{', repeat(seq(field('field', $.field_pattern), optional(','))), '}'),
+      ),
+      ')',
+    ),
+
+    field_pattern: $ => seq(
+      field('name', $.identifier),
+      optional(seq('=', field('pattern', $._pattern))),
     ),
 
     tuple_pattern: $ => seq(
@@ -522,7 +577,10 @@ module.exports = grammar({
       $.identifier,
       $.lambda,
       $.let_expression,
+      $.qualified_identifier,
       $.if_expression,
+      $.while_expression,
+      $.set_expression,
       $.cond_expression,
       $.match_expression,
       $.handle_expression,
@@ -556,11 +614,36 @@ module.exports = grammar({
       ')',
     ),
 
+    // `mut` marks the binding assignable by `set`. Optional, and
+    // absent means immutable, which is the default in the language.
     let_binding: $ => seq(
-      '(', field('pattern', $._pattern), field('value', $._expression), ')',
+      '(',
+      optional(field('mutable', 'mut')),
+      field('pattern', $._pattern),
+      field('value', $._expression),
+      ')',
     ),
 
     if_expression: $ => seq('(', 'if', repeat(field('operand', $._expression)), ')'),
+
+    // `Mod::name`, and `Mod.Sub::name` - the dotted path is already a
+    // single identifier token, because `.` continues an identifier.
+    qualified_identifier: $ => prec(2, seq(
+      field('module', $.identifier), '::', field('name', $.identifier),
+    )),
+
+    while_expression: $ => seq(
+      '(', 'while',
+      field('condition', $._expression),
+      repeat(field('body', $._expression)),
+      ')',
+    ),
+
+    // The target is an identifier, not an expression: `set` names a
+    // slot rather than computing a place.
+    set_expression: $ => seq(
+      '(', 'set', field('target', $.identifier), field('value', $._expression), ')',
+    ),
 
     cond_expression: $ => seq(
       '(', 'cond', repeat(field('clause', $.cond_clause)), ')',

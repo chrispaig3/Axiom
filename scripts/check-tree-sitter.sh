@@ -34,10 +34,25 @@ if [[ -x "$repo_root/tree-sitter-axiom/node_modules/.bin/tree-sitter" ]]; then
   ts="$repo_root/tree-sitter-axiom/node_modules/.bin/tree-sitter"
 elif command -v tree-sitter > /dev/null 2>&1; then
   ts="$(command -v tree-sitter)"
-else
-  echo "skip: tree-sitter CLI not found"
-  echo "      install with: npm install --prefix tree-sitter-axiom tree-sitter-cli"
+elif [[ "${AXIOM_TREE_SITTER_OPTIONAL:-0}" == 1 ]]; then
+  echo "skip: tree-sitter CLI not found (AXIOM_TREE_SITTER_OPTIONAL=1)"
   exit 0
+else
+  # Failing rather than skipping, deliberately.
+  #
+  # This exited 0 when the CLI was missing, which is the state of any
+  # machine that has not run the npm install below - so on a developer
+  # machine the gate reported success without checking anything. It hid
+  # two real breakages at once: the grammar rejected every `struct` with
+  # fields (and so most of `self_host/`), and the highlight-query step
+  # named a file that had been deleted. Both would have been caught the
+  # day they landed.
+  #
+  # Set AXIOM_TREE_SITTER_OPTIONAL=1 to skip on purpose.
+  echo "error: tree-sitter CLI not found; cannot verify the grammar" >&2
+  echo "       install with: npm install --prefix tree-sitter-axiom tree-sitter-cli" >&2
+  echo "       or set AXIOM_TREE_SITTER_OPTIONAL=1 to skip this gate" >&2
+  exit 1
 fi
 
 echo "using $ts"
@@ -79,7 +94,13 @@ fi
 
 echo
 echo "--- highlight queries compile ---"
-# A query with a nonexistent node name fails at load time. Running it over
-# one real file is enough to prove it loads against the current node types.
-"$ts" query queries/highlights.scm ../game_of_life/Life.ax > /dev/null
-echo "ok   queries/highlights.scm"
+# A query with a nonexistent node name fails at load time, so running it
+# proves it still loads against the current node types.
+#
+# Run over the whole corpus rather than one named file. The previous
+# version named `../game_of_life/Life.ax`, which was deleted with the rest
+# of that sample; the step had been failing on a missing file ever since,
+# and nothing noticed because this script exits 0 when the CLI is absent -
+# which it is on any machine that has not run the npm install above.
+"$ts" query queries/highlights.scm "${sources[@]}" > /dev/null
+echo "ok   queries/highlights.scm over ${#sources[@]} files"

@@ -1250,6 +1250,14 @@ impl Parser {
                 return self.parse_if();
             }
 
+            if self.check(TokenKind::While) {
+                return self.parse_while();
+            }
+
+            if self.check(TokenKind::Set) {
+                return self.parse_set();
+            }
+
             if self.check(TokenKind::Match) {
                 return self.parse_match();
             }
@@ -1492,6 +1500,11 @@ impl Parser {
         let mut bindings = Vec::new();
         while self.check(TokenKind::LParen) {
             self.advance();
+            // `(mut x 0)` marks the binding assignable by `set`.
+            // Immutable is the default, so a binding that is never
+            // reassigned needs no annotation and code that does not use
+            // `set` reads exactly as it did before.
+            let mutable = self.eat(TokenKind::Mut);
             let pattern = if self.is_ident() {
                 let ident = self.parse_ident()?;
                 Pattern::PVar(ident)
@@ -1504,13 +1517,53 @@ impl Parser {
             self.eat(TokenKind::Eq);
             let expr = self.parse_expr()?;
             self.expect(TokenKind::RParen)?;
-            bindings.push((pattern, expr));
+            bindings.push(LetBinding {
+                pat: pattern,
+                init: expr,
+                mutable,
+            });
         }
         self.expect(TokenKind::RParen)?;
 
         let body = self.parse_body_exprs()?;
         self.expect(TokenKind::RParen)?;
         Ok(Expr::ELet(bindings, Box::new(body)))
+    }
+
+    /// `(while cond body...)`.
+    ///
+    /// The body takes any number of expressions, like a function body,
+    /// because a loop that updates two variables is the common case and
+    /// requiring `{}` around it would be noise. `parse_body_exprs`
+    /// wraps them in an `EBegin`, so one expression stays one
+    /// expression.
+    fn parse_while(&mut self) -> ParseResult<Expr> {
+        self.expect(TokenKind::While)?;
+        let cond = self.parse_expr()?;
+        let body = self.parse_body_exprs()?;
+        self.expect(TokenKind::RParen)?;
+        Ok(Expr::EWhile(Box::new(cond), Box::new(body)))
+    }
+
+    /// `(set x expr)`.
+    ///
+    /// The target is parsed as a plain identifier rather than an
+    /// expression so that `(set (f x) 1)` is a syntax error naming what
+    /// is wrong, instead of type-checking its way to a confusing report
+    /// about a non-assignable expression.
+    fn parse_set(&mut self) -> ParseResult<Expr> {
+        self.expect(TokenKind::Set)?;
+        if !self.is_ident() {
+            return Err(ParseError::UnexpectedToken {
+                expected: "the name of a `mut` binding".to_string(),
+                found: self.current_kind_str(),
+                span: self.current_span(),
+            });
+        }
+        let target = self.parse_ident()?;
+        let value = self.parse_expr()?;
+        self.expect(TokenKind::RParen)?;
+        Ok(Expr::EAssign(target, Box::new(value)))
     }
 
     fn parse_if(&mut self) -> ParseResult<Expr> {

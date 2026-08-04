@@ -78,10 +78,9 @@ concurrency library sound.
 
 **The LSP is last, and this is the least negotiable edge.** An LSP is
 mostly maps and closures: a symbol index, an incremental cache, a table of
-request handlers. Axiom today has `Vec`/`Map`/`Intern` (which compile but
-lack golden tests and scale validation), but still no function
-values that survive code generation (`B1`), and no way for two modules to
-define the same name (`B4`). It is also the largest program that would be
+request handlers. Axiom today has `Vec`/`Map`/`Intern` (golden-tested and
+validated at 10⁵; `Map`'s throughput is the open part), function values
+(`B1`) and namespacing (`B4`). It is also the largest program that would be
 written in Axiom, which makes it the worst possible vehicle for
 discovering that the language cannot express something. Self-hosting the
 compiler first is the cheaper way to find that out, because the compiler
@@ -103,7 +102,7 @@ they unblock everything downstream.
 | CI green on all four targets | §3 below; two root-caused failures fixed |
 | `union` removed, `region` removed | `AX2004` with migration advice; 3 regression tests |
 
-| Editor grammar | [tree-sitter-axiom/](../tree-sitter-axiom/), 18/18 repo files, ~18 MB/s |
+| Editor grammar | [tree-sitter-axiom/](../tree-sitter-axiom/), 70/70 repo files, ~18 MB/s. The 18/18 this used to claim was true when the repo had 18 `.ax` files; the gate then silently skipped for want of its CLI while the real figure fell to 27/70. See the risk table |
 | Freestanding stdlib | `Pre`, `Mem`, `Str`, `Vec`, `Map`, `Fmt`, `Intern`, `Sys`, `IO` over syscalls; no libc |
 | Reproducible builds | byte-identical IR across runs, gated in CI |
 
@@ -155,9 +154,13 @@ would be waste.
 [self-hosting.md §2](self-hosting.md#2-capability-gaps-measured) all still
 hold. The ones on the critical path here:
 
-- **B1** — function values do not survive codegen. A higher-order function
-  type-checks and emits invalid LLVM.
-- **B2** — recursion depth depends on `--opt`. Correctness must not.
+- **B1** — function values. **(DONE)** Closure record, indirect call;
+  `tests/stdlib/140-function-values.ax`.
+- **B2** — recursion depth no longer depends on `--opt`: tail calls are
+  guaranteed in the IR, and `while` (S5) gives an explicit loop that
+  runs 10⁷ iterations in constant stack at `-O0`. *Non*-tail recursion
+  is still bounded, measured at 60,000–80,000 frames on an 8 MiB
+  stack.
 - **B3** — `Vec`, `Map`, and `Intern` are golden-tested and validated at
   10⁵ (`tests/stdlib/200-scale.ax`) and benchmarked at 10⁶
   (`scripts/bench-datastructures.sh`). `Intern` is *faster* than the
@@ -417,7 +420,7 @@ parallel.
 | Phase | Items | Exit criterion |
 |---|---|---|
 | **P0** *(done)* | Green CI; `union`/`region` removed; tree-sitter grammar | All seven gates green on all four targets |
-| **P1** | `B2` tail calls · `B3` `Vec`/`Map`/`Intern` golden tests and scale validation · `B1` closures · ADT struct variants | 10⁷-iteration tail loop at `-O0`; higher-order probe runs; struct variants match exhaustively |
+| **P1** *(done, except `Map` throughput)* | `B2` tail calls · `B3` `Vec`/`Map`/`Intern` golden tests and scale validation · `B1` closures · ADT struct variants | 10⁷-iteration loop at `-O0` ✓; higher-order probe runs ✓; struct variants match exhaustively, by name and punned ✓; `Map` is 14× Rust and blocks on P2's allocator, not on `Map` |
 | **P2** | Memory model (§4.1) · `S1` unboxed nullary constructors | `stress.ax` at 2000 generations within 2× of 20 generations |
 | **P3** | Macro system (§4.2) — hygiene done · ~~`B4` namespacing~~ **(DONE)** | Hygiene test passes; two modules define the same name without collision |
 | **P4** | Self-hosting phases 2–5 · HTTP library (§4.5) | `stage2 == stage3`; HTTP server serves a request under load |
@@ -441,4 +444,5 @@ completing together is not a plan.
 | The LSP is started early "in parallel" and blocks on missing language features | The dependency edges in §1 are the schedule; the tree-sitter grammar covers editor basics meanwhile |
 | A gate passes while the property it protects is broken — as happened for PIE relocations | Every new gate gets a negative test proving it fails when it should. Done for the relocation and grammar gates |
 | A tool with no CI gate is silently broken, as `fmt` was | Either gate it or make it fail loudly. `fmt` now refuses rather than destroying; the remaining ungated surfaces are `repl` and `explain` |
+| A gate that *skips* when its tool is missing is the same failure wearing a different hat | `check-tree-sitter.sh` exited 0 when the tree-sitter CLI was absent — which is every machine that has not run its `npm install` — so it reported success without checking anything. It hid two live breakages: the grammar rejected every `struct` with fields, and so most of `self_host/`, taking the corpus from a claimed 18/18 to an actual 27/70; and the highlight-query step named `game_of_life/Life.ax`, deleted in 720a0d5. Both fixed, and the gate now fails rather than skips unless `AXIOM_TREE_SITTER_OPTIONAL=1` is set |
 | Removing `union`/`region` breaks unknown external code | Both stay reserved and report `AX2004` with the replacement, rather than being silently reinterpreted |

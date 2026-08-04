@@ -3,7 +3,7 @@
 <img width="1500" height="1024" alt="Image" src="https://github.com/user-attachments/assets/38a9afb6-3570-4797-ba57-488e004f4e66" />
 
 A functional systems programming language for humans and agents.
-Axiom blends the expressive power of functional programming with the performance and control of systems languages. It uses a clean Lisp‑style S‑expression syntax, a Hindley–Milner‑inspired type system, and an LLVM backend to produce fast, native executables — without a VM, runtime, or garbage collector.
+Axiom blends the expressive power of functional programming with the performance and control of systems languages. It uses a clean Lisp‑style S‑expression syntax, a Hindley–Milner‑inspired type system, and an LLVM backend to produce fast, native executables — with no VM and no runtime. Memory comes from an `mmap`-backed bump allocator by default; `--gc` swaps in a tracing collector for programs that need peak memory to track live data.
 
 Axiom is intentionally small, explicit, and transparent. It’s designed not only for developers, but also for agentic programming, where AI systems generate, analyze, and manipulate code. Its uniform structure and predictable semantics make it uniquely easy for agents to understand and work with.
 
@@ -79,15 +79,19 @@ Create a file called `hello.ax`:
 ;@axiom:effect(io)
 (fn (main)
   {
-    (printlnLit (__addr "Hello from Axiom!"))
+    (println "Hello from Axiom!")
     0
   })
 ```
 
 `IO` is part of Axiom's own standard library - the compiled binary calls
-no C function at all. The `;@axiom:effect(io)` tag is checked: the
-compiler verifies that `main` really does perform I/O, and would reject
-the claim if it did not.
+no C function at all, not for printing, not for allocation, not for file
+I/O. The `;@axiom:effect(io)` tag is checked: the compiler verifies that
+`main` really does perform I/O, and would reject the claim if it did not.
+
+That `"Hello from Axiom!"` is a **first-class string**, not a `char*`
+needing conversion. It goes straight into `println`, and its length is
+known at compile time — see [Strings](#strings).
 
 Run it:
 ```bash
@@ -140,6 +144,74 @@ false           ; Boolean
 
 String escape sequences: `\n`, `\t`, `\r`, `\\`, `\"`, `\'`, `\0`
 
+### Strings
+
+A string literal **is** a string. No wrapper, no conversion, no
+allocation:
+
+```scheme
+(import IO)
+(import Str)
+
+(println "Hello, Axiom!")
+(strLen "Hello")                    ; 5
+(strConcat "sum=" (fmtInt 42))      ; "sum=42"
+(strSlice "abcdef" 2 3)             ; "cde"
+(strEq "abc" "abc")                 ; true
+```
+
+The compiler emits two globals per literal — the bytes, and a two-word
+header holding the length and the byte address, which is exactly the
+layout `Str.strWrap` builds at run time:
+
+```llvm
+@str_0    = private unnamed_addr constant [14 x i8] c"Hello, Axiom!\00"
+@strhdr_0 = private unnamed_addr constant { i64, ptr } { i64 13, ptr @str_0 }
+```
+
+The literal evaluates to the header's address, so a literal and a
+constructed `Str` are the same thing to every consumer. Its **length is
+a compile-time constant**, which means `(strLen "Hello")` is a load
+rather than a scan, and a literal costs no allocation at all.
+
+The bytes stay NUL-terminated as well as length-counted, so a literal
+can still be handed to a syscall or a C function that wants a C string.
+`__addr` reaches them:
+
+```scheme
+"hello"                             ; the Str
+(__addr "hello")                    ; its bytes, as an address
+```
+
+<details>
+<summary>What this replaced</summary>
+
+Every string in every program used to be written like this:
+
+```scheme
+(println (strFromLit (__addr "Hello, Axiom!")))
+```
+
+`__addr` took the literal's address and `strFromLit` scanned it with
+`cstrLen` to recover a length the compiler already knew. There were 350
+such sites across `stdlib/`, `self_host/` and the tests; all are now
+plain literals.
+
+`strFromLit` still exists, for NUL-terminated bytes that genuinely
+arrive without a length — from a syscall buffer, say. Applied to a
+literal it is merely redundant: `(strFromLit (__addr "hi"))` and `"hi"`
+are the same value.
+
+</details>
+
+> **A `String` is a machine word.** Every Axiom value is one word, and a
+> `String` is the address of a `Str` header, so `String` and `Int` are
+> interchangeable. That is what lets a literal be stored in a `Vec`,
+> used as a `Map` key, or read by the `Int`-typed accessors that
+> implement `Str`. The cost is that `(+ 1 "hi")` type-checks — it adds
+> one to an address — the same latitude the language gives every other
+> handle.
+
 ### Functions
 
 Functions are the heart of Axiom. Every function has an optional type signature and a definition.
@@ -157,8 +229,8 @@ Functions are the heart of Axiom. Every function has an optional type signature 
   (+ x y))
 
 ; Multi-statement body with braces
-(fn (verbose-add x y)
-  { (printf "adding %d + %d\n" x y)
+(fn (verboseAdd x y)
+  { (println (strConcat "adding " (fmtInt x)))
     (+ x y) })
 
 ; A constant (function with no parameters)
@@ -215,6 +287,45 @@ Use `let` to introduce local variables:
 
 Bindings are evaluated in order — later bindings can reference earlier ones.
 
+### Mutable bindings and `while`
+
+A binding is immutable unless marked `mut`. `set` assigns to one, and
+`while` loops while its condition holds:
+
+```scheme
+(:: sumTo (-> Int Int))
+(fn (sumTo n)
+  (let ((mut i 0)
+        (mut acc 0))
+    {
+      (while (< i n)
+        (set acc (+ acc i))
+        (set i (+ i 1)))
+      acc
+    }))
+```
+
+The `while` body takes any number of expressions, so a loop that updates
+two variables needs no extra brackets. The form evaluates to `0` — a
+loop that ran zero times has no last iteration to take a value from.
+
+Assigning to a binding that is not `mut` is a compile error, and the
+report points at the *declaration*, because that is where the fix goes:
+
+```
+Error: [AX3012] cannot assign to immutable binding `x`
+ 5 │   (let ((x 0))
+   │          ┬
+   │          ╰── `x` is bound here
+ 6 │     { (set x 1) ... }
+   │            ┬
+   │            ╰── `x` cannot be assigned
+```
+
+`set` takes a bare name, not an arbitrary place expression: a local is
+the only thing with a slot to store into. Structure fields go through
+`memSetWord`, which is what `Vec` and `Map` do.
+
 ### Conditionals
 
 ```scheme
@@ -246,8 +357,8 @@ When you need to evaluate multiple expressions in order, use braces:
 
 ```scheme
 {
-  (printf "Starting...\n")
-  (printf "Working...\n")
+  (println "Starting...")
+  (println "Working...")
   0
 }
 ```
@@ -258,8 +369,8 @@ Function bodies, `let` bodies, `if` branches, and `lambda` bodies also support i
 
 ```scheme
 (fn main
-  (printf "Starting...\n")
-  (printf "Working...\n")
+  (println "Starting...")
+  (println "Working...")
   0)
 ```
 
@@ -292,6 +403,49 @@ Define custom types with constructors:
 
 The `(a)` after the type name is a type parameter — like generics in other languages.
 
+### Struct variants
+
+A constructor's fields can be named rather than positional:
+
+```scheme
+(data Shape
+  (Circle { r : Int })
+  (Rect { w : Int, h : Int })
+  (Point))
+```
+
+Values are built positionally, in declaration order — `(Circle 7)`,
+`(Rect 3 4)` — and read back by name, either through field access or in
+a pattern:
+
+```scheme
+(fn (area s)
+  (match s
+    ((Circle { r })    (* 3 (* r r)))
+    ((Rect { w, h })   (* w h))
+    ((Point)           0)))
+```
+
+`{ w, h }` is punning: it means `{ w = w, h = h }`. Named patterns buy
+three things a positional pattern cannot:
+
+| | |
+|---|---|
+| **Order independence** | `{ h = h, w = w }` binds what its names say. Reordering two same-typed fields in a declaration cannot silently swap them at every match site. |
+| **Partiality** | A field the arm does not name is simply not bound — no `_` placeholder to keep in step with the constructor's arity. |
+| **Punning** | `{ w, h }` rather than `{ w = w, h = h }`. |
+
+Named patterns nest, and mix with explicit binding:
+
+```scheme
+(match x
+  ((Wrap { inner = (Rect { w, h }), tag = t }) (+ (* w h) t))
+  ((Wrap { tag = t })                          t))
+```
+
+Positional patterns keep working on the same type; named fields add a
+spelling rather than replacing one.
+
 ### Pattern matching with `match`
 
 ```scheme
@@ -321,15 +475,26 @@ The built-in `Option` type provides safe null handling without exceptions:
 
 #### Algebraic data types: how they actually run
 
-Every value of a `data` type - nullary constructors like `Nothing` included -
-is a heap-allocated, tagged block: word `0` is an integer tag identifying
-which constructor built it, and words `1..` are its fields, one 8-byte word
-each. This one uniform representation (rather than, say, an unboxed integer
-for nullary constructors and a pointer for everything else) is what lets
-`match` compare *any* constructor pattern against *any* value of that type
-the same way, and it's what makes recursive types - `List`, `Tree` - work
-with no special-casing at all: a field that's itself another `data` value
-is just another 8-byte word holding that value's own heap address.
+A `data` value takes one of two runtime shapes:
+
+- A constructor **with fields** is a heap block: word `0` is an integer
+  tag saying which constructor built it, and words `1..` are its fields,
+  one 8-byte word each.
+- A nullary constructor of an **all-nullary type** — `(data Color (Red)
+  (Green) (Blue))` — *is* its tag. No block, no allocation.
+
+The second shape is why an enum costs nothing. It also means matching
+has to know where the tag lives, and it takes that from the constructor
+*named in the pattern*, which is static — not by inspecting the value,
+which is ambiguous, since one machine word cannot say whether it means
+an integer, a tag, or a pointer.
+
+A mixed type keeps the uniform shape: in `(data L (Nil) (Cons Int L))`,
+`Nil` is a block like `Cons`, because a value of `L` has to be matchable
+the same way whichever constructor built it. That uniformity is also
+what makes recursive types work with no special-casing: a field that is
+itself a `data` value is just another 8-byte word holding that value's
+address.
 
 ```scheme
 (data List (a)
@@ -347,7 +512,7 @@ is just another 8-byte word holding that value's own heap address.
   (sum (Cons 1 (Cons 2 (Cons 3 (Nil))))))   ; => 6
 ```
 
-Current limitations, honestly stated:
+What works, and what to know:
 
 - **Exhaustiveness and arity are checked** (missing constructors and
   wrong-arity constructor patterns are compile errors - `AX3005`/`AX3009`).
@@ -359,13 +524,16 @@ Current limitations, honestly stated:
   offset and branch to the next arm on a mismatch, just like `PCon`
   arms. Tuples and lists are heap-allocated blocks with elements stored
   at contiguous 8-byte offsets (no tag word).
-- There is no garbage collection or reference counting: every constructor
-  application `malloc`s and nothing ever `free`s it. Fine for short-lived
-  CLI programs and this README's examples; not something to build a
-  long-running server on yet.
-- Struct **field access** (`.field`-style reads) still has no expression
-  syntax at all, independent of `data` - see the Structs section below for
-  what does and doesn't work there.
+- **Named fields per variant** work - see [Struct variants](#struct-variants).
+- **Allocation** comes from an `mmap`-backed bump allocator, not `malloc`,
+  and by default nothing is ever freed, so memory use tracks *total*
+  allocations rather than live data. `--gc` swaps in a tracing collector
+  and makes peak memory track the live set instead: on
+  `tests/stdlib/170-gc.ax`, 400 MB churned goes from 352 MB to 3.2 MB.
+  Neither is the end state - see the memory model in
+  [docs/v1-roadmap.md](docs/v1-roadmap.md).
+- **Field access by name** works on `data` and `struct` alike: `s.r`
+  reads a field of a value whose constructor declared one.
 
 ### Structs
 
@@ -445,10 +613,10 @@ Built-in effects:
 
 | Effect | Meaning |
 |---|---|
-| `IO` | Calls foreign functions (C FFI) |
+| `IO` | Reaches the outside world — a syscall, or a `foreign` call |
 | `Pure` | No side effects |
 | `Alloc` | Heap allocation (`alloc`) |
-| `Mut` | Mutable state (`set-field`) |
+| `Mut` | Mutable state (`set` on a `mut` binding, field mutation) |
 | `Div` | Divergence (infinite loops) |
 
 Declare an effect type:
@@ -462,7 +630,7 @@ Annotate a function with its effects using AXTAG metadata:
 
 ```scheme
 ;@axiom:effect(io)
-(fn main (printf "hello"))
+(fn main (println "hello"))
 ```
 
 The compiler validates that the body actually performs the declared effects.
@@ -477,7 +645,7 @@ Handle effects with `handle`:
 
 ```scheme
 ; A handler that catches IO and returns a default value
-(handle (printf "hello") (IO) 0)
+(handle (println "hello") (IO) 0)
 ```
 
 Effect annotations are also supported on traits and implementations:
@@ -489,7 +657,7 @@ Effect annotations are also supported on traits and implementations:
 
 (impl (Console IO)
   where
-    (print (lambda (s) (printf "%s\n" s))))
+    (print (lambda (s) (println s))))
 ```
 
 ---
@@ -504,7 +672,7 @@ Effect annotations are also supported on traits and implementations:
 | `Float` | 64-bit floating point | `f64` |
 | `Bool` | Boolean | `i1` |
 | `Char` | Character | `i8` |
-| `String` | String (pointer) | `ptr` |
+| `String` | A `Str` handle - the address of a `{ length, bytes }` header. Interchangeable with `Int`; see [Strings](#strings) | `i64` |
 | `Unit` / `()` | Unit (no value) | `void` |
 | `Void` | Void | `void` |
 | `Any` | Generic pointer | `ptr` |
@@ -566,16 +734,22 @@ in the standard library needs them.
 |---|---|
 | `Pre` | `when`, `unless`, `cond2`, `cond3` (conditional macros) |
 | `Mem` | `memAlloc`, `memCopy`, `memSet`, `memCmp`, `memGetByte`/`memPutByte`, `memGetWord`/`memSetWord` |
-| `Str` | `strFromLit`, `strAlloc`, `strLen`, `strByte`, `strCmp`, `strEq`, `strSlice`, `strDup`, `strConcat`, `strFindByte`, `strStartsWith`, `strCStr` |
+| `Str` | `strLen`, `strByte`, `strCmp`, `strEq`, `strSlice`, `strDup`, `strConcat`, `strFindByte`, `strStartsWith`, `strCStr`, `strAlloc`, `strFromLit`. String *literals* are already `Str` values — see [Strings](#strings) |
 | `Vec` | `vecNew`, `vecPush`, `vecPop`, `vecGet`, `vecSet`, `vecLen`, `vecCap`, `vecReserve`, `vecClear` |
 | `Map` | `mapNew`, `mapHas`, `mapGet`, `mapInsert`, `mapRemove`, `mapLen`, `mapCap`, `mapNew`, `mapRehash` (open-addressing `Int→Int` hash map) |
 | `Fmt` | `fmtInt`, `fmtHex`, `fmtPadLeft`, `fmtIntWidth` |
 | `Intern` | `internNew`, `internIntern`, `internFind`, `internLookup`, `internCount` (string interner) |
-| `Sys` | `sysWriteFd`, `sysReadFd`, `sysOpenPath`, `sysCloseFd`, `sysSeek`, `sysExitWith`, `sysFailed`, `sysErrno`, `stdin`/`stdout`/`stderr` |
-| `IO` | `print`, `println`, `printLit`, `printlnLit`, `printInt`, `printlnInt`, `eprint`, `eprintln`, `writeStr`, `readUpTo`, `readAll`, `readFile`, `readFileLit`, `exit`, `die` |
+| `Sys` | `sysWriteFd`, `sysReadFd`, `sysOpenPath`, `sysCloseFd`, `sysSeek`, `sysExitWith`, `sysFailed`, `sysErrno`, `sysReadFile`, `stdin`/`stdout`/`stderr` |
+| `IO` | `print`, `println`, `printInt`, `printlnInt`, `eprint`, `eprintln`, `writeStr`, `readUpTo`, `readAll`, `readFile`, `exit`, `die`, and the raw-address variants `printLit`, `printlnLit`, `readFileLit` |
 
 A `Str` is a length-prefixed, NUL-terminated string: slicing shares
 storage, and `strCStr` hands the bytes to a syscall without copying.
+
+The `Lit` names take a raw NUL-terminated address rather than a `Str`.
+They are rarely what you want now that a literal is a `Str` —
+`(println "hi")` is both shorter and cheaper than
+`(printlnLit (__addr "hi"))` — but they remain the way to print bytes
+that arrived without a length, such as a syscall buffer.
 
 The library is found automatically - `AXIOM_STDLIB` overrides its
 location, and `AXIOM_PATH` (colon-separated) adds further module search
@@ -616,18 +790,35 @@ Supported: `darwin-aarch64`, `darwin-x86_64`, `linux-aarch64`,
 
 ### Optimisation and recursion depth
 
-Axiom has no loop construct: iteration is written as recursion. At
-`--opt 0` (the default) each iteration costs a stack frame, which caps
-loops at a few hundred thousand iterations. `--opt 1` and above run
-LLVM's mid-level passes, which turn self-tail-recursion into a real
-loop:
+Iteration has three spellings, and only one of them is bounded:
+
+| | Depth at `-O0` |
+|---|---|
+| `while` | Unbounded — it is a real loop. 10⁷ iterations in constant stack |
+| Tail recursion | Unbounded — guaranteed in the IR, not dependent on `--opt` |
+| **Non-tail** recursion | **Bounded**: 60,000–80,000 frames on an 8 MiB stack |
+
+So the shape to avoid at scale is a fold whose combining step happens
+*after* the recursive call:
+
+```scheme
+; Bounded: the `+` runs after the call, so every level keeps a frame.
+(fn (count v i hi)
+  (if (>= i hi) 0 (+ (vecGet v i) (count v (+ i 1) hi))))
+
+; Unbounded: an accumulator makes the call a tail call.
+(fn (count v i hi acc)
+  (if (>= i hi) acc (count v (+ i 1) hi (+ acc (vecGet v i)))))
+```
+
+`--opt 1` and above additionally run LLVM's mid-level passes:
 
 ```bash
 axiom build --input main.ax --output main --opt 2
 ```
 
-Use `--opt 2` for anything that iterates over a large input. Non-tail
-recursion remains bounded by the stack either way.
+Worth using for anything hot, but no longer needed for *correctness* —
+that was true when tail-call elimination depended on the optimiser.
 
 ## Built-ins
 
@@ -698,7 +889,7 @@ syscall primitives.
 (:: main Int)
 ;@axiom:effect(io)
 (fn (main)
-  (let ((contents (readFileLit (__addr "input.txt"))))
+  (let ((contents (readFile "input.txt")))
     {
       (printlnInt (strLen contents))
       (print contents)
@@ -906,9 +1097,15 @@ function. Declare it with `foreign`:
 
 Examples:
 
+> **Passing strings to C.** A `String` is a `Str` handle, not a `char*`,
+> so it cannot be handed to a C function directly. Use `(__addr "...")`
+> for a literal or `strCStr` for a computed `Str` - both yield the
+> NUL-terminated bytes a C function expects.
+
 ```scheme
-; printf from stdio.h
-(foreign printf :: (-> String Int) = "printf")
+; printf from stdio.h. Call as (printf (__addr "hi\n")) - the parameter
+; is the address of the bytes, not a Str handle.
+(foreign printf :: (-> Int Int) = "printf")
 
 ; malloc from stdlib.h
 (foreign malloc :: (-> Int (* Any)) = "malloc")
@@ -975,15 +1172,17 @@ Source (.ax)
 | brace blocks | **Complete** | `{ expr1 expr2 ... }` — modern sequencing, returns last value |
 | fn keyword | **Complete** | Modern alias for `define` |
 | FFI | **Complete, no longer required** | Call any C function with `foreign` declarations. The standard library no longer uses it: see [Standard library](#standard-library) |
-| Standard library | **Functional** | `Pre`, `Mem`, `Str`, `Vec`, `Map`, `Fmt`, `Intern`, `Sys`, `IO`, written in Axiom over syscall primitives |
+| Standard library | **Functional** | `Pre`, `Mem`, `Str`, `Vec`, `Map`, `Fmt`, `Intern`, `Sys`, `IO`, written in Axiom over syscall primitives. `Vec`/`Map`/`Intern` are golden-tested and validated at 10⁵ elements; against Rust at 10⁶, `Intern` is *faster* (0.75×), `Vec` is 2.5×, and `Map` is 14× — six sevenths of which is table growth against the bump allocator, not hashing. `scripts/bench-datastructures.sh` |
 | Syscalls | **Complete** | `__syscall0`-`__syscall6` on Darwin and Linux, x86-64 and AArch64; errors normalised to `-errno` on every platform |
-| Allocation | **Functional, unbounded** | `mmap`-backed bump allocator emitted by the backend, overridable by defining `axiom_alloc`. No `free` - memory is reclaimed at process exit, so memory use tracks *total* allocations rather than live data. Measured at 76,000x the live set for a 2000-generation loop; see the memory model design in [docs/v1-roadmap.md](docs/v1-roadmap.md) |
+| Allocation | **Functional; unbounded by default** | `mmap`-backed bump allocator emitted by the backend, overridable by defining `axiom_alloc`. No `free`, so memory tracks *total* allocations. `--gc` swaps in a conservative non-moving mark-sweep collector and makes peak memory track the live set: 400 MB churned goes from 352 MB to 3.2 MB. Neither is the end state; see the memory model in [docs/v1-roadmap.md](docs/v1-roadmap.md) |
 | Cross-compilation | **Functional** | `--target` selects ABI and platform stdlib modules; codegen verified for all four targets |
-| Self-hosting | **In progress** | Foundations landed; see [docs/self-hosting.md](docs/self-hosting.md) for the measured gap analysis and plan |
+| Self-hosting | **Fixpoint reached** | The Axiom compiler compiles itself and reproduces itself byte-for-byte (`stage2 == stage3`, as objects and as IR), gated by `scripts/check-bootstrap.sh`. It is not yet a replacement for the Rust compiler — no type checking, one target, unmangled names. See [docs/self-hosting.md](docs/self-hosting.md) |
 | ADTs / data types | **Complete** | Constructors (nullary and with fields, including recursive types like `List`/`Tree`) compile to heap-boxed tagged values; see [Algebraic data types](#algebraic-data-types-how-they-actually-run) |
-| Structs | **Complete** | Declarations, LLVM emission, field access (`.field`), struct construction (`(StructName expr1 expr2 ...)`), `mut` fields, and field mutation (`(set-field expr field value)`) all work |
+| Structs | **Complete** | Declarations, LLVM emission, field access (`.field`), construction (`(StructName expr1 expr2 ...)`), `mut` fields, field mutation |
+| Struct variants | **Complete** | Named fields per `data` constructor, matchable by name and in any order, with field punning (`{ w, h }`) and partial patterns. `tests/stdlib/210-struct-variants.ax` |
+| String literals | **Complete** | A literal *is* a `Str`: a static `{ length, bytes }` header, length known at compile time, no allocation and no runtime scan. See [Strings](#strings) |
 | Pattern matching (`match`) | **Complete** | Constructor patterns (nullary and with-field), variables, wildcards, literals, nested constructor patterns, and tuple/list patterns all compare and bind correctly, plus non-exhaustiveness/arity/undefined-constructor diagnostics. Built-in `Option` type with `Some`/`None` constructors. |
-| Lambda | **Partial** | Parsed and type-checked; codegen pending |
+| Lambda / function values | **Complete** | Closure record (code pointer + captures), passed as the callee's hidden first parameter; curried application, closures in `data` fields. `tests/stdlib/140-function-values.ax` |
 | Lists | **Partial** | Syntax and type checking; runtime representation pending |
 | Tuples | **Partial** | Syntax and type checking; codegen pending |
 | Type classes | **Replaced** | Renamed to traits; see [Traits](#traits) |
@@ -991,29 +1190,55 @@ Source (.ax)
 | Region syntax | **Removed** | Allocation lifetime is inferred, not written by hand. `region` stays reserved and reports `AX2004` |
 | Traits | **Complete** | Declarations, supertraits, effects, default methods, implementations (`impl`) |
 | Effects | **Complete** | Effect declarations, `handle` expressions, effect checking (`IO`, `Pure`, `Alloc`, `Mut`, `Div`), AXTAG validation. Effects propagate transitively through calls, so a claim on a caller is checked against what its callees do |
-| Loops | **Missing** | Iteration is recursion; `--opt 1`+ turns tail recursion into a loop, and without it deep loops exhaust the stack |
+| Loops | **Complete** | `while` plus `mut` local bindings and `set`; 10⁷ iterations in constant stack at `-O0`. Tail calls are guaranteed in the IR independently of `--opt`. Non-tail recursion is still stack-bounded at 60,000–80,000 frames |
 | Linear types | **Parsed only** | `linear T`, `consume`. The ownership facts they express are what the planned memory model needs; see [docs/v1-roadmap.md](docs/v1-roadmap.md) |
 | Macros | **Complete** | Pattern-substitution expansion before sema with hygiene (scope sets + gensym); `stdlib/Pre.ax` defines `when`, `unless`, `cond2`, `cond3`; cross-module macro import works; expansion backtrace on diagnostics |
 | Concurrency | **Delegated** | Not a native feature; external/third-party library concern. The memory model (arena inference, linear types) provides the safety foundation. Design in [docs/v1-roadmap.md §4.4](docs/v1-roadmap.md) |
-| Editor support | **Functional** | [tree-sitter grammar](tree-sitter-axiom/) with highlighting queries, verified against every `.ax` file in the repo. No LSP yet |
+| Editor support | **Functional** | [tree-sitter grammar](tree-sitter-axiom/) with highlighting queries, gated against all 70 `.ax` files in the repo and a 22-case tree-shape corpus. No LSP yet |
 | Imports | **Functional** | `(import Mod.Sub ...)` resolves and merges declarations from other files; qualified access via `Mod::name` disambiguates; see [Modules and imports](#modules-and-imports) |
 
 ---
 
 ## Error Messages
 
-Axiom uses pretty diagnostics with source snippets:
+Axiom uses pretty diagnostics with source snippets, each carrying a
+stable code you can look up:
 
 ```
-Error: Type error: expected Int, found Bool
-  ╭─[source.ax:5:10]
-  │
-5 │   (if x (+ 1 2) "wrong")
-  │          ───┬──
-  │             ╰──── expected Int, found Bool
-──╯
-Help: Both branches of `if` must have the same type.
+Error: [AX3004] type mismatch: expected Int, found Bool
+   ╭─[err.ax:3:20]
+   │
+ 3 │   (if true (+ 1 2) false))
+   │                    ──┬──
+   │                      ╰──── this has type `Bool`, expected `Int`
+   │
+   │ Help: run `axiom explain AX3004` for a full explanation
+───╯
 ```
+
+Codes are namespaced by pipeline stage — `AX1xxx` lexer, `AX2xxx`
+parser, `AX3xxx` semantics, `AX4xxx` codegen, `AX5xxx` modules — and are
+stable across wording changes, so they can be grepped and matched on.
+`axiom explain --list` prints them all.
+
+For agents and tooling, `--diagnostic-format=ai` renders the same
+diagnostic as one dense, colourless, greppable line — no re-printed
+source, no box drawing:
+
+```
+E AX3004 err.ax:3:20-25 type-mismatch "type mismatch: expected Int, found Bool"
+```
+
+Where a fix is machine-applicable it travels with the diagnostic. `set`
+on an immutable binding, for instance, points at the *declaration* and
+supplies the replacement text:
+
+```
+E AX3012 main.ax:6:12-13 assign-to-immutable "cannot assign to immutable binding `x`"
+  ^5:10-11:"`x` is bound here" ?5:10-11:"declare it mutable: `(mut x ...)`"~>"mut x"
+```
+
+See [docs/diagnostics.md](docs/diagnostics.md) for the full grammar.
 
 ---
 
@@ -1031,7 +1256,9 @@ axiom/
 ├── axiom-errors/       # Diagnostics, AXDL/AXSYM rendering
 ├── stdlib/             # Standard library, written in Axiom
 ├── tree-sitter-axiom/  # Editor grammar, queries, corpus
+├── self_host/          # The Axiom compiler, written in Axiom
 ├── tests/stdlib/       # Golden tests: compiled, run, output compared
+├── tests/selfhost/     # Conformance cases run through the Axiom compiler
 ├── scripts/            # CI gates, each runnable locally
 ├── docs/               # diagnostics.md, reference.md, self-hosting.md, v1-roadmap.md
 └── Cargo.toml          # Workspace manifest
@@ -1043,11 +1270,35 @@ exactly what CI runs:
 ```bash
 cargo test --release --all           # unit, integration, golden suites
 ./scripts/run-stdlib-tests.sh        # stdlib, compiled and run
+./scripts/check-self-host.sh         # conformance suite under the Axiom compiler
+./scripts/check-bootstrap.sh         # stage1 -> stage2 -> stage3, byte-identical
 ./scripts/check-freestanding.sh      # no libc in the IR or the binary
 ./scripts/check-cross-targets.sh     # every target assembles, at -O0 and -O2,
-                                     # with no absolute relocations
+                                     # with no PIE-hostile relocations
 ./scripts/check-reproducible.sh      # two runs produce identical IR
 ./scripts/check-tree-sitter.sh       # grammar accepts every .ax in the repo
+```
+
+`check-tree-sitter.sh` needs the tree-sitter CLI
+(`npm install --prefix tree-sitter-axiom tree-sitter-cli`) and *fails*
+without it rather than skipping — set `AXIOM_TREE_SITTER_OPTIONAL=1` to
+skip deliberately. It used to exit 0 when the CLI was absent, which
+meant it reported success without checking anything.
+
+The relocation gate can check itself, because a gate whose verdict is
+never tested is how a broken one goes unnoticed:
+
+```bash
+./scripts/check-cross-targets.sh --self-test   # the relocation rules, on known input
+```
+
+And a measurement rather than a gate — wall-clock against the Rust
+equivalents, since a timing threshold on a shared CI runner is a flaky
+test:
+
+```bash
+./scripts/bench-datastructures.sh              # Vec/Map/Intern vs Rust
+./scripts/bench-datastructures.sh --fx --check # fast hasher, enforce the 2x bound
 ```
 
 ---

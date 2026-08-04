@@ -156,8 +156,26 @@ fn collect_free(expr: &Expr, bound: &mut HashSet<String>, out: &mut Vec<String>)
             }
             collect_free(body, &mut inner_bound, out);
         }
+        Expr::EWhile(cond, body) => {
+            collect_free(cond, bound, out);
+            collect_free(body, bound, out);
+        }
+        // The assignment target is a free occurrence too: a closure that
+        // only ever *writes* a captured variable still has to capture
+        // it, and omitting it here would leave the store writing into a
+        // slot the closure does not own.
+        Expr::EAssign(target, value) => {
+            if !bound.contains(&target.name)
+                && !out.contains(&target.name)
+                && !is_builtin(&target.name)
+            {
+                out.push(target.name.clone());
+            }
+            collect_free(value, bound, out);
+        }
         Expr::ELet(bindings, body) => {
-            for (pat, init) in bindings {
+            for b in bindings {
+                let (pat, init) = (&b.pat, &b.init);
                 collect_free(init, bound, out);
                 if let Pattern::PVar(ident) = pat {
                     let mut inner_bound = bound.clone();
@@ -1848,6 +1866,105 @@ impl IrGen {
 
                 IrValue::Local(dest)
             }
+            // `(while cond body)`.
+            //
+            // Three blocks: the condition is re-evaluated on every
+            // iteration, so it needs a block of its own to jump back to
+            // rather than being computed once before the loop.
+            //
+            //     br header
+            //   header: <cond>; condbr cond, body, exit
+            //   body:   <body>; br header
+            //   exit:
+            //
+            // No result slot, unlike `EIf`: the form is `0`, so there is
+            // nothing to merge from two paths. `tail_ctx` is deliberately
+            // not threaded into either sub-expression - a self-call in a
+            // loop body is not in tail position, and converting it to a
+            // jump would skip the remaining iterations.
+            Expr::EWhile(cond, body) => {
+                let header_label = self.new_block_label();
+                let body_label = self.new_block_label();
+                let exit_label = self.new_block_label();
+
+                self.emit_to_func(
+                    func,
+                    IrInst::Br {
+                        target: header_label.clone(),
+                    },
+                );
+
+                func.blocks.push(IrBlock {
+                    label: header_label.clone(),
+                    insts: Vec::new(),
+                });
+                self.current_block = Some(header_label.clone());
+                let cond_val =
+                    self.gen_expr_to_func_with_allocas(func, cond, alloca_map, type_checker, None);
+                self.emit_to_func(
+                    func,
+                    IrInst::CondBr {
+                        cond: cond_val,
+                        then_target: body_label.clone(),
+                        else_target: exit_label.clone(),
+                    },
+                );
+
+                func.blocks.push(IrBlock {
+                    label: body_label.clone(),
+                    insts: Vec::new(),
+                });
+                self.current_block = Some(body_label.clone());
+                self.gen_expr_to_func_with_allocas(func, body, alloca_map, type_checker, None);
+                // A body ending in `return` has already terminated its
+                // block; emitting the back-edge after it would make two
+                // terminators, which `llc` rejects.
+                if !self.current_block_has_terminator(func) {
+                    self.emit_to_func(
+                        func,
+                        IrInst::Br {
+                            target: header_label.clone(),
+                        },
+                    );
+                }
+
+                func.blocks.push(IrBlock {
+                    label: exit_label.clone(),
+                    insts: Vec::new(),
+                });
+                self.current_block = Some(exit_label);
+                IrValue::Const(IrConst::Int(0, TypeId::TCon("I64".to_string(), vec![])))
+            }
+            // `(set x v)` - store into the slot `x` already has.
+            //
+            // Every `let` binding is an `alloca` (see the `ELet` arm), so
+            // assignment needs no new representation: it is the same
+            // `Store` the binding's initialiser emitted. Reads are
+            // already `Load`s from that slot, so a later read sees the
+            // new value without any further machinery.
+            Expr::EAssign(target, value) => {
+                let value_val =
+                    self.gen_expr_to_func_with_allocas(func, value, alloca_map, type_checker, None);
+                match alloca_map.get(&target.name) {
+                    Some(alloca_name) => {
+                        let boxed = self.box_if_tag(func, &value_val);
+                        self.emit_to_func(
+                            func,
+                            IrInst::Store {
+                                ptr: IrValue::Local(alloca_name.clone()),
+                                value: boxed,
+                            },
+                        );
+                    }
+                    // Unreachable: `axiom-sema` rejects an assignment to
+                    // a name that is not a mutable local, and only
+                    // locals get allocas. Emitting nothing is the safe
+                    // failure here - codegen never runs on a module that
+                    // produced diagnostics.
+                    None => {}
+                }
+                value_val
+            }
             Expr::EIf(cond, then_expr, else_expr) => {
                 let cond_val =
                     self.gen_expr_to_func_with_allocas(func, cond, alloca_map, type_checker, None);
@@ -1952,7 +2069,8 @@ impl IrGen {
                 }
             }
             Expr::ELet(bindings, body) => {
-                for (pat, init) in bindings {
+                for b in bindings {
+                    let (pat, init) = (&b.pat, &b.init);
                     if let Pattern::PVar(ident) = pat {
                         let value = self.gen_expr_to_func_with_allocas(
                             func,

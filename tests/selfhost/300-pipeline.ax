@@ -9,7 +9,7 @@
 (import codegen)
 (:: main Int)
 (fn (main)
-  (let ((src (readFile (__addr "in.ax"))))
+  (let ((src (sysReadFile (__addr "in.ax"))))
     (if (== (strLen src) 0)
         7
         (let ((pr (parseModule (lex src))))

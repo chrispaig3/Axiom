@@ -19,7 +19,7 @@
 ; run exited with the length of its own output.
 (pub :: main Int)
 (pub fn (main)
-  (let ((src (readFile (__addr "in.ax"))))
+  (let ((src (sysReadFile (__addr "in.ax"))))
     (if (== (strLen src) 0)
         (die "cannot read in.ax\n" 1)
         (let ((pr (parseModule (lex src))))

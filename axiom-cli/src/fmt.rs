@@ -611,8 +611,12 @@ fn format_expr(expr: &Expr, out: &mut String, state: &mut FormatState) {
         Expr::ELet(bindings, body) => {
             out.push_str("(let (");
             if bindings.len() == 1 {
-                let (pat, init) = &bindings[0];
-                out.push('(');
+                let (pat, init) = (&bindings[0].pat, &bindings[0].init);
+                if bindings[0].mutable {
+                    out.push_str("(mut ");
+                } else {
+                    out.push('(');
+                }
                 format_pattern(pat, out);
                 out.push_str(" = ");
                 if is_simple_expr(init) {
@@ -630,12 +634,13 @@ fn format_expr(expr: &Expr, out: &mut String, state: &mut FormatState) {
             } else {
                 out.push('\n');
                 state.push_indent();
-                for (i, (pat, init)) in bindings.iter().enumerate() {
+                for (i, b) in bindings.iter().enumerate() {
+                    let (pat, init) = (&b.pat, &b.init);
                     if i > 0 {
                         out.push('\n');
                     }
                     out.push_str(&state.indent_str());
-                    out.push('(');
+                    out.push_str(if b.mutable { "(mut " } else { "(" });
                     format_pattern(pat, out);
                     out.push_str(" = ");
                     format_expr(init, out, state);
@@ -653,6 +658,23 @@ fn format_expr(expr: &Expr, out: &mut String, state: &mut FormatState) {
             state.pop_indent();
             out.push('\n');
             out.push_str(&state.indent_str());
+            out.push(')');
+        }
+        Expr::EWhile(cond, body) => {
+            out.push_str("(while ");
+            format_expr(cond, out, state);
+            out.push('\n');
+            state.push_indent();
+            out.push_str(&state.indent_str());
+            format_expr(body, out, state);
+            state.pop_indent();
+            out.push(')');
+        }
+        Expr::EAssign(target, value) => {
+            out.push_str("(set ");
+            out.push_str(&target.name);
+            out.push(' ');
+            format_expr(value, out, state);
             out.push(')');
         }
         Expr::EIf(cond, then, else_) => {

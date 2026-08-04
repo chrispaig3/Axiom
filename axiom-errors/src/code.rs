@@ -166,6 +166,19 @@ registry! {
         "effect mismatch",
         "This expression performs effects that are not declared in its\n\
          signature or not handled by the enclosing `handle` expression."),
+    ASSIGN_TO_IMMUTABLE => ("AX3012", "assign-to-immutable",
+        "cannot assign to an immutable binding",
+        "`set` stores into a local, and a local is assignable only if it was\n\
+         introduced as `(let ((mut x ...)) ...)`. Immutable is the default, so\n\
+         a binding that is never reassigned needs no annotation and cannot be\n\
+         changed by accident.\n\
+         \n\
+         Add `mut` at the declaration, or - usually better - compute the value\n\
+         you want with a `let` rather than mutating one you already have.\n\
+         \n\
+         Only a whole local can be assigned. Function parameters, pattern\n\
+         bindings and top-level declarations are never mutable, and structure\n\
+         fields are written with `memSetWord` instead."),
 
     // ---- AX4xxx: lowering / codegen / toolchain ----
     MISSING_MAIN => ("AX4001", "missing-main",

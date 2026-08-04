@@ -313,7 +313,8 @@
 ;
 ; Two contracts drive the shape of this code.
 ;
-; `Sys.readFile` takes a raw NUL-terminated char*, not a `Str` handle,
+; `Sys.sysReadFile` takes a raw NUL-terminated char*, not a `Str`
+; handle,
 ; because it hands the pointer straight to `sysOpenPath`. Every path
 ; therefore crosses the boundary via `strCStr`. Paths built by
 ; `strConcat` are already NUL-terminated (`strAlloc` reserves len+1 and
@@ -321,7 +322,7 @@
 ; a `Str` handle here silently opens garbage and reports every module
 ; as missing.
 ;
-; `readFile` reports failure as an empty `Str`, never as 0, so
+; `sysReadFile` reports failure as an empty `Str`, never as 0, so
 ; `strLen == 0` is the "not found" test.
 ;
 ; Resolution is diamond-safe: a `seen` Vec of module names ensures each
@@ -373,10 +374,10 @@
 (pub :: tryModuleFile (-> Int Int Int))
 (pub fn (tryModuleFile stem suffix)
   (let ((base (cat2 stem suffix)))
-    (let ((selfSrc (readFile (strCStr (cat2 "self_host/" base)))))
+    (let ((selfSrc (sysReadFile (strCStr (cat2 "self_host/" base)))))
       (if (!= (strLen selfSrc) 0)
           selfSrc
-          (let ((stdSrc (readFile (strCStr (cat2 "stdlib/" base)))))
+          (let ((stdSrc (sysReadFile (strCStr (cat2 "stdlib/" base)))))
             (if (!= (strLen stdSrc) 0)
                 stdSrc
                 0))))))

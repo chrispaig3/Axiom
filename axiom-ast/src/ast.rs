@@ -147,8 +147,22 @@ pub enum Expr {
     ELit(Literal, Span),
     EApp(Box<Expr>, Box<Expr>),
     ELam(Vec<Pattern>, Box<Expr>),
-    ELet(Vec<(Pattern, Expr)>, Box<Expr>),
+    ELet(Vec<LetBinding>, Box<Expr>),
     EIf(Box<Expr>, Box<Expr>, Box<Expr>),
+    /// `(while cond body...)` - evaluate `body` while `cond` holds.
+    ///
+    /// The body is an `EBegin`, so a loop with several statements needs
+    /// no extra bracket. The whole form evaluates to `0`: a loop that
+    /// ran zero times has no last iteration to take a value from, and
+    /// inventing one would make the type depend on a runtime condition.
+    EWhile(Box<Expr>, Box<Expr>),
+    /// `(set x expr)` - store into an existing `mut` local.
+    ///
+    /// Restricted to a bare name rather than an arbitrary place
+    /// expression: a local is the only thing with a slot to store into.
+    /// Structure fields are mutated through `memSetWord`, which is what
+    /// `Vec` and `Map` already do.
+    EAssign(Ident, Box<Expr>),
     EMatch(Box<Expr>, Vec<(Pattern, Expr)>),
     ECond(Vec<(Expr, Expr)>, Option<Box<Expr>>),
     EBegin(Vec<Expr>),
@@ -206,6 +220,8 @@ impl Expr {
             Expr::EQualified(path, name) => path.first().map(|i| i.span).unwrap_or(name.span),
             Expr::EStructCon(name, _) => name.span,
             Expr::ESetField(e, _, _) => e.span(),
+            Expr::EWhile(cond, _) => cond.span(),
+            Expr::EAssign(name, _) => name.span,
             Expr::EError(_, span) => *span,
         }
     }
@@ -376,6 +392,34 @@ pub struct EffectOp {
 pub enum ConFields {
     Positional(Vec<Type>),
     Named(Vec<Field>),
+}
+
+/// One binding of a `let`.
+///
+/// A struct rather than the `(Pattern, Expr)` pair this used to be, so
+/// that adding `mutable` broke every site that consumes a binding
+/// instead of silently defaulting them. The alternative - a
+/// `Pattern::PMutVar` variant - would have been quietly skipped by the
+/// dozen `if let Pattern::PVar(..)` tests in IR lowering, and a `mut`
+/// binding that lowers to nothing is a miscompile rather than an error.
+#[derive(Debug, Clone)]
+pub struct LetBinding {
+    pub pat: Pattern,
+    pub init: Expr,
+    /// Written `(mut x init)`. Only a mutable binding may be the target
+    /// of `set`; the check is in `axiom-sema`.
+    pub mutable: bool,
+}
+
+impl LetBinding {
+    /// An ordinary, immutable binding.
+    pub fn new(pat: Pattern, init: Expr) -> Self {
+        Self {
+            pat,
+            init,
+            mutable: false,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]

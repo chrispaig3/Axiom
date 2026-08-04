@@ -115,6 +115,13 @@ depends on an optimisation flag, non-tail recursion is still bounded,
 and `opt` becomes a de-facto dependency. Axiom needs either guaranteed
 tail calls in the IR or an explicit loop form.
 
+*Both now exist.* Tail calls are guaranteed in the IR, and `while` (S5)
+gives an explicit loop that runs 10⁷ iterations in constant stack at
+`-O0`. What remains bounded is *non*-tail recursion, measured at
+60,000–80,000 frames on an 8 MiB stack — so a fold written as
+`(+ (f i) (loop (+ i 1)))` still caps input size, and the two
+replacements for it are an accumulator parameter or `while`.
+
 **B3. Hash map, growable array, and interner: correct at scale;
 `Map` misses the throughput criterion, and the reason is measured.**
 `Vec` (growable array of `Int`), `Map` (open-addressing `Int→Int` hash
@@ -270,8 +277,27 @@ formats and carries a source map. Reproducing AXDL byte-for-byte in
 Axiom needs `Str` formatting facilities the library does not have yet
 (padding exists; escaping and quoting do not).
 
-**S5. No `while`, no mutable local bindings.** Mutation goes through
-`memSetWord` on an allocated cell. Workable, verbose.
+**S5. `while` and mutable local bindings. (RESOLVED)** A `let` binding
+marked `mut` is assignable with `set`, and `while` loops while its
+condition holds:
+
+```scheme
+(let ((mut i 0) (mut acc 0))
+  { (while (< i n) (set acc (+ acc i)) (set i (+ i 1))) acc })
+```
+
+Immutable stays the default, so nothing that does not use `set` changes
+meaning, and `set` on a binding without `mut` is `AX3012` with a
+machine-applicable fix at the *declaration*. Parameters and pattern
+bindings are never mutable.
+
+The representation needed nothing new: every `let` binding was already
+an `alloca` and every read a load, so assignment is the same `store` the
+initialiser emits. `while` is the new part - a branch back to a
+condition block - and it is a real loop, running 10⁷ iterations in
+constant stack at `-O0`. Covered by `tests/stdlib/220-while-mut.ax`,
+which includes a 10⁶-iteration loop that non-tail recursion could not
+survive.
 
 ### 2.3 Non-issues, confirmed
 

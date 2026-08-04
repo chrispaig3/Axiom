@@ -73,6 +73,8 @@ pub enum TokenKind {
     Pure,
     IO,
     Mut,
+    While,
+    Set,
     Div,
 
     // Operators
@@ -205,6 +207,8 @@ impl fmt::Display for TokenKind {
             TokenKind::Pure => write!(f, "Pure"),
             TokenKind::IO => write!(f, "IO"),
             TokenKind::Mut => write!(f, "Mut"),
+            TokenKind::While => write!(f, "While"),
+            TokenKind::Set => write!(f, "Set"),
             TokenKind::Div => write!(f, "Div"),
             TokenKind::RArrow => write!(f, "->"),
             TokenKind::DoubleArrow => write!(f, "=>"),

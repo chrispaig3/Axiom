@@ -28,11 +28,11 @@
         "named": true
       },
       {
-        "type": "newtype_declaration",
+        "type": "macro_declaration",
         "named": true
       },
       {
-        "type": "pub_declaration",
+        "type": "newtype_declaration",
         "named": true
       },
       {
@@ -114,7 +114,15 @@
         "named": true
       },
       {
+        "type": "qualified_identifier",
+        "named": true
+      },
+      {
         "type": "removed_form",
+        "named": true
+      },
+      {
+        "type": "set_expression",
         "named": true
       },
       {
@@ -127,6 +135,10 @@
       },
       {
         "type": "type_signature",
+        "named": true
+      },
+      {
+        "type": "while_expression",
         "named": true
       }
     ]
@@ -423,6 +435,16 @@
             "named": true
           }
         ]
+      },
+      "field": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "field_pattern",
+            "named": true
+          }
+        ]
       }
     }
   },
@@ -452,6 +474,10 @@
         "types": [
           {
             "type": "_type",
+            "named": true
+          },
+          {
+            "type": "named_field",
             "named": true
           }
         ]
@@ -499,6 +525,16 @@
           {
             "type": "type_parameters",
             "named": true
+          }
+        ]
+      },
+      "visibility": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "pub",
+            "named": false
           }
         ]
       }
@@ -584,6 +620,16 @@
           {
             "type": "effect_operation",
             "named": true
+          }
+        ]
+      },
+      "visibility": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "pub",
+            "named": false
           }
         ]
       }
@@ -684,6 +730,32 @@
     }
   },
   {
+    "type": "field_pattern",
+    "named": true,
+    "fields": {
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "pattern": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "_pattern",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
     "type": "foreign_declaration",
     "named": true,
     "fields": {
@@ -714,6 +786,16 @@
           {
             "type": "_type",
             "named": true
+          }
+        ]
+      },
+      "visibility": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "pub",
+            "named": false
           }
         ]
       }
@@ -750,6 +832,16 @@
           {
             "type": "_pattern",
             "named": true
+          }
+        ]
+      },
+      "visibility": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "pub",
+            "named": false
           }
         ]
       }
@@ -856,6 +948,16 @@
             "named": true
           }
         ]
+      },
+      "visibility": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "pub",
+            "named": false
+          }
+        ]
       }
     }
   },
@@ -908,6 +1010,16 @@
             "named": true
           }
         ]
+      },
+      "visibility": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "pub",
+            "named": false
+          }
+        ]
       }
     }
   },
@@ -941,6 +1053,16 @@
     "type": "let_binding",
     "named": true,
     "fields": {
+      "mutable": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "mut",
+            "named": false
+          }
+        ]
+      },
       "pattern": {
         "multiple": false,
         "required": true,
@@ -1054,6 +1176,52 @@
     }
   },
   {
+    "type": "macro_declaration",
+    "named": true,
+    "fields": {
+      "body": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "_expression",
+            "named": true
+          }
+        ]
+      },
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "parameter": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "visibility": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "pub",
+            "named": false
+          }
+        ]
+      }
+    }
+  },
+  {
     "type": "match_arm",
     "named": true,
     "fields": {
@@ -1106,6 +1274,32 @@
     }
   },
   {
+    "type": "named_field",
+    "named": true,
+    "fields": {
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "type": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "_type",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
     "type": "newtype_declaration",
     "named": true,
     "fields": {
@@ -1148,6 +1342,16 @@
             "named": true
           }
         ]
+      },
+      "visibility": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "pub",
+            "named": false
+          }
+        ]
       }
     }
   },
@@ -1168,15 +1372,25 @@
     }
   },
   {
-    "type": "pub_declaration",
+    "type": "qualified_identifier",
     "named": true,
     "fields": {
-      "declaration": {
+      "module": {
         "multiple": false,
         "required": true,
         "types": [
           {
-            "type": "_declaration",
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
             "named": true
           }
         ]
@@ -1217,6 +1431,32 @@
     "type": "removed_keyword",
     "named": true,
     "fields": {}
+  },
+  {
+    "type": "set_expression",
+    "named": true,
+    "fields": {
+      "target": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "value": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "_expression",
+            "named": true
+          }
+        ]
+      }
+    }
   },
   {
     "type": "sizeof_expression",
@@ -1323,6 +1563,16 @@
             "named": true
           }
         ]
+      },
+      "visibility": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "pub",
+            "named": false
+          }
+        ]
       }
     }
   },
@@ -1386,6 +1636,16 @@
           {
             "type": "identifier",
             "named": true
+          }
+        ]
+      },
+      "visibility": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "pub",
+            "named": false
           }
         ]
       }
@@ -1492,6 +1752,16 @@
             "named": true
           }
         ]
+      },
+      "visibility": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "pub",
+            "named": false
+          }
+        ]
       }
     }
   },
@@ -1569,6 +1839,16 @@
             "named": true
           }
         ]
+      },
+      "visibility": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "pub",
+            "named": false
+          }
+        ]
       }
     }
   },
@@ -1576,6 +1856,32 @@
     "type": "unit_type",
     "named": true,
     "fields": {}
+  },
+  {
+    "type": "while_expression",
+    "named": true,
+    "fields": {
+      "body": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "_expression",
+            "named": true
+          }
+        ]
+      },
+      "condition": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "_expression",
+            "named": true
+          }
+        ]
+      }
+    }
   },
   {
     "type": "!",
@@ -1844,6 +2150,10 @@
     "named": false
   },
   {
+    "type": "macro",
+    "named": false
+  },
+  {
     "type": "match",
     "named": false
   },
@@ -1873,6 +2183,10 @@
   },
   {
     "type": "repr",
+    "named": false
+  },
+  {
+    "type": "set",
     "named": false
   },
   {
@@ -1909,6 +2223,10 @@
   },
   {
     "type": "where",
+    "named": false
+  },
+  {
+    "type": "while",
     "named": false
   },
   {

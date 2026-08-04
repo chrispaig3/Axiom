@@ -189,6 +189,9 @@ These words are reserved and cannot be used as identifiers:
 | `fn` | Define a function (modern style, alias for `define`) |
 | `lambda` | Anonymous function |
 | `let` | Local variable binding |
+| `mut` | Marks a `let` binding assignable |
+| `set` | Assign to a `mut` binding |
+| `while` | Loop while a condition holds |
 | `if` | Conditional expression |
 | `cond` | Multi-branch conditional |
 | `match` | Pattern matching |
@@ -434,6 +437,49 @@ Use `let` to introduce local variables:
 ```
 
 Bindings are evaluated **in order** — later bindings can reference earlier ones.
+
+### Mutable Bindings and `while`
+
+A binding is immutable unless it is marked `mut`. A `mut` binding can be
+assigned with `set`, and `while` loops while its condition holds:
+
+```scheme
+(fn (sumTo n)
+  (let ((mut i 0)
+        (mut acc 0))
+    {
+      (while (< i n)
+        (set acc (+ acc i))
+        (set i (+ i 1)))
+      acc
+    }))
+```
+
+The `while` body takes any number of expressions, so a loop that updates
+two variables needs no extra brackets. The whole form evaluates to `0` —
+a loop that ran zero times has no last iteration to take a value from.
+
+`set` takes a bare name, not an arbitrary place expression: a local is
+the only thing with a slot to store into. Structure fields are written
+with `memSetWord`, which is what `Vec` and `Map` do.
+
+Assigning to a binding that is not `mut` is a compile error:
+
+```scheme
+(let ((x 0))
+  (set x 1))     ; AX3012: cannot assign to immutable binding `x`
+```
+
+The report points at the *declaration* as well as the assignment, with a
+machine-applicable fix rewriting `x` to `mut x` — the fix belongs where
+the binding is introduced, not where it is used.
+
+> **This is a real loop.** `while` lowers to a branch back to a
+> condition block, so a million iterations run in constant stack at
+> `-O0`. Iteration by recursion still works and tail calls are
+> guaranteed, but *non*-tail recursion remains stack-bounded — measured
+> at 60,000–80,000 frames on an 8 MiB stack — so a fold written as
+> `(+ (f i) (loop (+ i 1)))` is the shape to avoid at scale.
 
 ### Sequential Let Bindings
 

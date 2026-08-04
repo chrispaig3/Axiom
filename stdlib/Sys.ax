@@ -119,8 +119,19 @@
 ; Open, read entire contents, close.  Returns an empty string on any
 ; error (missing file, permission, etc.).  Files above 64 KiB are
 ; truncated — enough for the self-host bootstrap source files.
-(pub :: readFile (-> Int Int))
-(pub fn (readFile path)
+;
+; `path` is a raw NUL-terminated char*, not a `Str` handle, because it
+; goes straight to `sysOpenPath`. Use `(__addr "...")` for a literal or
+; `strCStr` for a `Str`. `IO.readFile` is the `Str`-taking one.
+;
+; Named `sysReadFile` rather than `readFile` so that the two do not
+; collide in the flat top-level namespace. They used to, and the
+; collision was silent and wrong in the worst direction: `(readFile
+; "path.txt")` resolved to *this* function, which took the `Str`
+; header's address as a char*, opened garbage, and reported every file
+; as missing.
+(pub :: sysReadFile (-> Int Int))
+(pub fn (sysReadFile path)
   (let ((fd (sysOpenPath path 0)))
     (if (sysFailed fd)
         ""

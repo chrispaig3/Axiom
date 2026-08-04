@@ -2272,6 +2272,18 @@ mod expander {
             Expr::EVar(ident) => {
                 ident.scope = TEMPLATE_MARKER;
             }
+            Expr::EWhile(cond, body) => {
+                mark_template_idents(cond);
+                mark_template_idents(body);
+            }
+            // The assignment target is a binding occurrence's *use*, so
+            // it is marked like any other identifier - otherwise a
+            // macro-introduced `set` would fail to find the `mut` local
+            // the same macro introduced.
+            Expr::EAssign(target, value) => {
+                target.scope = TEMPLATE_MARKER;
+                mark_template_idents(value);
+            }
             Expr::EApp(func, arg) => {
                 mark_template_idents(func);
                 mark_template_idents(arg);
@@ -2287,9 +2299,9 @@ mod expander {
                 }
             }
             Expr::ELet(bindings, body) => {
-                for (pat, init) in bindings.iter_mut() {
-                    mark_template_idents(init);
-                    mark_template_pattern(pat);
+                for b in bindings.iter_mut() {
+                    mark_template_idents(&mut b.init);
+                    mark_template_pattern(&mut b.pat);
                 }
                 mark_template_idents(body);
             }
@@ -2432,8 +2444,8 @@ mod expander {
                 expand_expr(else_expr, macros);
             }
             Expr::ELet(bindings, body) => {
-                for (_, init) in bindings.iter_mut() {
-                    expand_expr(init, macros);
+                for b in bindings.iter_mut() {
+                    expand_expr(&mut b.init, macros);
                 }
                 expand_expr(body, macros);
             }
@@ -2532,6 +2544,16 @@ mod expander {
                 .get(&ident.name)
                 .cloned()
                 .unwrap_or(template.clone()),
+            Expr::EWhile(cond, body) => Expr::EWhile(
+                Box::new(substitute(bindings, cond)),
+                Box::new(substitute(bindings, body)),
+            ),
+            // Only the value is substituted. Replacing the target would
+            // mean rewriting `(set x e)` into `(set <expr> e)`, which
+            // has no meaning: `set` names a slot, not a value.
+            Expr::EAssign(target, value) => {
+                Expr::EAssign(target.clone(), Box::new(substitute(bindings, value)))
+            }
             Expr::EApp(func, arg) => Expr::EApp(
                 Box::new(substitute(bindings, func)),
                 Box::new(substitute(bindings, arg)),
@@ -2550,9 +2572,13 @@ mod expander {
                 Box::new(substitute(bindings, right)),
             ),
             Expr::ELet(bindings_in, body) => {
-                let new_bindings: Vec<(Pattern, Expr)> = bindings_in
+                let new_bindings: Vec<LetBinding> = bindings_in
                     .iter()
-                    .map(|(pat, init)| (pat.clone(), substitute(bindings, init)))
+                    .map(|b| LetBinding {
+                        pat: b.pat.clone(),
+                        init: substitute(bindings, &b.init),
+                        mutable: b.mutable,
+                    })
                     .collect();
                 Expr::ELet(new_bindings, Box::new(substitute(bindings, body)))
             }
@@ -2628,9 +2654,9 @@ mod expander {
     fn collect_gensym_renames(expr: &mut Expr, renames: &mut HashMap<String, String>) {
         match expr {
             Expr::ELet(bindings, body) => {
-                for (pat, init) in bindings.iter_mut() {
-                    collect_gensym_renames(init, renames);
-                    collect_pattern_renames(pat, renames);
+                for b in bindings.iter_mut() {
+                    collect_gensym_renames(&mut b.init, renames);
+                    collect_pattern_renames(&mut b.pat, renames);
                 }
                 collect_gensym_renames(body, renames);
             }
@@ -2733,6 +2759,16 @@ mod expander {
 
     fn apply_gensym_renames(expr: &mut Expr, renames: &HashMap<String, String>, scope: usize) {
         match expr {
+            Expr::EWhile(cond, body) => {
+                apply_gensym_renames(cond, renames, scope);
+                apply_gensym_renames(body, renames, scope);
+            }
+            Expr::EAssign(target, value) => {
+                if let Some(new_name) = renames.get(&target.name) {
+                    target.name = new_name.clone();
+                }
+                apply_gensym_renames(value, renames, scope);
+            }
             Expr::EVar(ident) => {
                 if let Some(new_name) = renames.get(&ident.name) {
                     ident.name = new_name.clone();
@@ -2742,9 +2778,9 @@ mod expander {
                 }
             }
             Expr::ELet(bindings, body) => {
-                for (pat, init) in bindings.iter_mut() {
-                    apply_gensym_renames(init, renames, scope);
-                    apply_pattern_renames(pat, renames, scope);
+                for b in bindings.iter_mut() {
+                    apply_gensym_renames(&mut b.init, renames, scope);
+                    apply_pattern_renames(&mut b.pat, renames, scope);
                 }
                 apply_gensym_renames(body, renames, scope);
             }

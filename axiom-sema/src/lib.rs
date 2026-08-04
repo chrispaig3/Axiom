@@ -37,6 +37,17 @@ pub enum SemError {
     },
     #[error("non-exhaustive pattern match: missing {}", missing.join(", "))]
     NonExhaustive { span: Span, missing: Vec<String> },
+    /// `set` applied to a binding that was not declared `mut`.
+    ///
+    /// Carries the declaration's span as well as the assignment's, so
+    /// the report can show both: the fix is at the declaration, not at
+    /// the line the error is on.
+    #[error("cannot assign to immutable binding `{name}`")]
+    AssignToImmutable {
+        name: String,
+        span: Span,
+        decl_span: Span,
+    },
     #[error("duplicate definition `{name}`")]
     DuplicateDefinition {
         name: String,
@@ -70,6 +81,7 @@ impl SemError {
             SemError::ConstructorArity { span, .. } => *span,
             SemError::TypeMismatch { span, .. } => *span,
             SemError::NonExhaustive { span, .. } => *span,
+            SemError::AssignToImmutable { span, .. } => *span,
             SemError::DuplicateDefinition { span, .. } => *span,
             SemError::FieldNotFound { span, .. } => *span,
             SemError::Message { span, .. } => *span,
@@ -176,6 +188,19 @@ impl SemError {
                     )
                     .with_help("add the missing arms, or a wildcard `_` arm to catch the rest")
             }
+            SemError::AssignToImmutable {
+                name, decl_span, ..
+            } => Diagnostic::error(&code::ASSIGN_TO_IMMUTABLE, self.to_string())
+                .with_primary(span, format!("`{}` cannot be assigned", name))
+                .with_secondary(*decl_span, format!("`{}` is bound here", name))
+                .with_suggestion(
+                    format!("declare it mutable: `(mut {} ...)`", name),
+                    *decl_span,
+                    format!("mut {}", name),
+                )
+                .with_help(
+                    "only a binding introduced by `(let ((mut x ...)) ...)` may be the target of `set`",
+                ),
             SemError::DuplicateDefinition {
                 name, first_span, ..
             } => Diagnostic::error(&code::DUPLICATE_DEFINITION, self.to_string())
@@ -245,11 +270,16 @@ fn collect_effects_into(
         }
         Expr::ELam(_, body) => collect_effects_into(checker, body, out),
         Expr::ELet(bindings, body) => {
-            for (_, e) in bindings {
-                collect_effects_into(checker, e, out);
+            for b in bindings {
+                collect_effects_into(checker, &b.init, out);
             }
             collect_effects_into(checker, body, out);
         }
+        Expr::EWhile(cond, body) => {
+            collect_effects_into(checker, cond, out);
+            collect_effects_into(checker, body, out);
+        }
+        Expr::EAssign(_, value) => collect_effects_into(checker, value, out),
         Expr::EIf(_, t, e) => {
             collect_effects_into(checker, t, out);
             collect_effects_into(checker, e, out);
@@ -556,6 +586,13 @@ impl std::fmt::Display for TypeId {
 pub struct VarInfo {
     pub ty: TypeId,
     pub span: Span,
+    /// Whether `set` may store into this binding.
+    ///
+    /// Only `(let ((mut x ...)) ...)` sets this. Everything else -
+    /// function parameters, ordinary `let`s, top-level declarations,
+    /// pattern bindings - is immutable, which is what makes `set` a
+    /// checked operation rather than an unrestricted store.
+    pub mutable: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -1138,6 +1175,7 @@ impl TypeChecker {
                         VarInfo {
                             ty: ty_id,
                             span: name.span,
+                            mutable: false,
                         },
                     ));
                 }
@@ -1263,6 +1301,7 @@ impl TypeChecker {
                         VarInfo {
                             ty: ty_id,
                             span: name.span,
+                            mutable: false,
                         },
                     ));
                 }
@@ -1405,13 +1444,70 @@ impl TypeChecker {
             }
             Expr::ELet(bindings, body) => {
                 self.push_scope();
-                for (pat, init) in bindings {
-                    let init_ty = self.check_expr(init);
-                    self.check_pattern_with_type(pat, &init_ty);
+                for b in bindings {
+                    let init_ty = self.check_expr(&b.init);
+                    self.check_pattern_with_type_mut(&b.pat, &init_ty, b.mutable);
                 }
                 let body_ty = self.check_expr(body);
                 self.pop_scope();
                 body_ty
+            }
+            Expr::EWhile(cond, body) => {
+                let cond_ty = self.check_expr(cond);
+                if !cond_ty.is_error()
+                    && !cond_ty.compatible_with(&TypeId::TCon("Bool".to_string(), vec![]))
+                {
+                    self.errors.push(SemError::TypeMismatch {
+                        expected: "Bool".to_string(),
+                        found: format!("{}", cond_ty),
+                        span: cond.span(),
+                    });
+                }
+                // The body's value is discarded, so its type is
+                // unconstrained - a loop body is run for its effects.
+                self.check_expr(body);
+                // A loop that ran zero times has no last iteration to
+                // take a value from, so the form is `Int` 0 rather than
+                // something whose type depends on the trip count.
+                TypeId::TCon("Int".to_string(), vec![])
+            }
+            Expr::EAssign(target, value) => {
+                let value_ty = self.check_expr(value);
+                match self.lookup_var(&target.name, target.scope) {
+                    Some(info) => {
+                        let (var_ty, mutable, decl_span) =
+                            (info.ty.clone(), info.mutable, info.span);
+                        if !mutable {
+                            self.errors.push(SemError::AssignToImmutable {
+                                name: target.name.clone(),
+                                span: target.span,
+                                decl_span,
+                            });
+                        }
+                        if !value_ty.is_error()
+                            && !var_ty.is_error()
+                            && !value_ty.compatible_with(&var_ty)
+                        {
+                            self.errors.push(SemError::TypeMismatch {
+                                expected: format!("{}", var_ty),
+                                found: format!("{}", value_ty),
+                                span: value.span(),
+                            });
+                        }
+                        var_ty
+                    }
+                    None => {
+                        self.errors.push(SemError::UndefinedVariable {
+                            name: target.name.clone(),
+                            span: target.span,
+                            suggestion: suggest_closest(
+                                &target.name,
+                                self.scope.iter().map(|(n, _, _)| n.as_str()),
+                            ),
+                        });
+                        TypeId::TError
+                    }
+                }
             }
             Expr::EIf(cond, then_expr, else_expr) => {
                 let cond_ty = self.check_expr(cond);
@@ -1902,6 +1998,16 @@ impl TypeChecker {
     ///   checking (a literal pattern's own type is implicit in the
     ///   literal itself).
     fn check_pattern_with_type(&mut self, pat: &Pattern, ty: &TypeId) {
+        self.check_pattern_with_type_mut(pat, ty, false)
+    }
+
+    /// Bind `pat`'s variables at type `ty`, marking them `mutable`.
+    ///
+    /// Only the top-level variable of a `let` binding can be `mut`;
+    /// nested pattern variables are bound immutably, since `(mut (Just
+    /// x) e)` would be claiming a field is assignable when `set` can
+    /// only reach a whole local.
+    fn check_pattern_with_type_mut(&mut self, pat: &Pattern, ty: &TypeId, mutable: bool) {
         match pat {
             Pattern::PVar(ident) => {
                 self.scope.push((
@@ -1910,6 +2016,7 @@ impl TypeChecker {
                     VarInfo {
                         ty: ty.clone(),
                         span: ident.span,
+                        mutable,
                     },
                 ));
             }
@@ -2064,6 +2171,19 @@ impl TypeChecker {
         }
     }
 
+    /// The innermost binding of `name` visible at `scope`, if any.
+    ///
+    /// Matches `check_var`'s rule: name *and* scope must agree, so a
+    /// macro-introduced binding does not capture a user's name of the
+    /// same spelling.
+    fn lookup_var(&self, name: &str, scope: usize) -> Option<&VarInfo> {
+        self.scope
+            .iter()
+            .rev()
+            .find(|(n, s, _)| n == name && *s == scope)
+            .map(|(_, _, info)| info)
+    }
+
     fn push_scope(&mut self) {
         self.scope.push((
             "__scope__".to_string(),
@@ -2071,6 +2191,7 @@ impl TypeChecker {
             VarInfo {
                 ty: TypeId::TTuple(vec![]),
                 span: Span::dummy(),
+                mutable: false,
             },
         ));
     }
@@ -2125,6 +2246,7 @@ impl TypeChecker {
                     VarInfo {
                         ty: ty_id,
                         span: name.span,
+                        mutable: false,
                     },
                 ));
             }
@@ -2406,6 +2528,82 @@ mod tests {
         let errors = check_err(
             r#"(:: main Int)
 (fn main (if true 1 false))"#,
+        );
+        assert!(errors
+            .iter()
+            .any(|e| matches!(e, SemError::TypeMismatch { .. })));
+    }
+
+    /// `set` is what makes `mut` worth having: without a check, adding
+    /// assignment would silently make every local mutable.
+    #[test]
+    fn set_on_a_mutable_binding_is_accepted() {
+        check(
+            r#"(:: main Int)
+(fn main (let ((mut x 0)) { (set x 1) x }))"#,
+        )
+        .expect("`set` on a `mut` binding should type-check");
+    }
+
+    #[test]
+    fn set_on_an_immutable_binding_is_an_error() {
+        let errors = check_err(
+            r#"(:: main Int)
+(fn main (let ((x 0)) { (set x 1) x }))"#,
+        );
+        let err = errors
+            .iter()
+            .find(|e| matches!(e, SemError::AssignToImmutable { .. }))
+            .expect("expected AssignToImmutable");
+        assert_eq!(err.to_diagnostic().code.unwrap().code, "AX3012");
+        // The report has to point at the declaration as well as the
+        // assignment, because that is where the fix goes.
+        match err {
+            SemError::AssignToImmutable {
+                span, decl_span, ..
+            } => assert_ne!(span, decl_span, "declaration span was not recorded"),
+            _ => unreachable!(),
+        }
+    }
+
+    /// A function parameter is not a `let` binding and is not mutable.
+    /// Nothing in the grammar lets one be marked `mut`, so this pins
+    /// that the default really is immutable rather than merely unstated.
+    #[test]
+    fn set_on_a_function_parameter_is_an_error() {
+        let errors = check_err(
+            r#"(:: f (-> Int Int))
+(fn (f n) { (set n 1) n })
+(:: main Int)
+(fn main (f 0))"#,
+        );
+        assert!(errors
+            .iter()
+            .any(|e| matches!(e, SemError::AssignToImmutable { .. })));
+    }
+
+    #[test]
+    fn set_type_must_match_the_bindings_type() {
+        let errors = check_err(
+            r#"(:: main Int)
+(fn main (let ((mut x 0)) { (set x true) x }))"#,
+        );
+        assert!(errors
+            .iter()
+            .any(|e| matches!(e, SemError::TypeMismatch { .. })));
+    }
+
+    #[test]
+    fn while_requires_a_boolean_condition() {
+        check(
+            r#"(:: main Int)
+(fn main (let ((mut i 0)) { (while (< i 3) (set i (+ i 1))) i }))"#,
+        )
+        .expect("a Bool condition should type-check");
+
+        let errors = check_err(
+            r#"(:: main Int)
+(fn main (let ((mut i 0)) { (while i (set i 1)) i }))"#,
         );
         assert!(errors
             .iter()

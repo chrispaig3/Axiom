@@ -1,0 +1,133 @@
+; `while` and mutable local bindings (S5).
+;
+; Before this, iteration in Axiom was recursion and mutation went
+; through `memSetWord` on a heap cell. Both worked; both were verbose,
+; and the heap cell was a real cost - a counter is a machine word and
+; had to be an allocation.
+;
+; `(let ((mut x 0)) ...)` binds an assignable local and `(set x v)`
+; stores into it. Immutable stays the default, so nothing that does not
+; use `set` changes meaning, and `set` on a binding without `mut` is
+; `AX3012` rather than a silent store.
+;
+; The representation is not new: every `let` binding was already an
+; `alloca`, reads were already loads, so assignment is the same `store`
+; the initialiser emits. What is new is `while`, which needs a block to
+; jump back to so the condition is re-evaluated per iteration.
+;
+; The property worth pinning is that this is a *loop*: `220` runs
+; 1,000,000 iterations, which as non-tail recursion would exhaust the
+; stack between 60,000 and 80,000 frames (see the note in `200-scale`).
+; A `while` that lowered to recursion would not survive this file.
+(import IO)
+(import Str)
+
+; --- basic accumulation ---------------------------------------------
+
+(pub :: sumTo (-> Int Int))
+(pub fn (sumTo n)
+  (let ((mut i 0)
+        (mut acc 0))
+    {
+      (while (< i n)
+        (set acc (+ acc i))
+        (set i (+ i 1)))
+      acc
+    }))
+
+; --- a body of one expression needs no block ------------------------
+
+(pub :: countDown (-> Int Int))
+(pub fn (countDown n)
+  (let ((mut i n))
+    {
+      (while (> i 0) (set i (- i 1)))
+      i
+    }))
+
+; --- zero iterations: the condition is tested before the body -------
+
+(pub :: neverRuns Int)
+(pub fn (neverRuns)
+  (let ((mut touched 0))
+    {
+      (while false (set touched 1))
+      touched
+    }))
+
+; --- nesting, and an inner loop that re-initialises each time -------
+
+(pub :: gridSum (-> Int Int Int))
+(pub fn (gridSum rows cols)
+  (let ((mut r 0)
+        (mut total 0))
+    {
+      (while (< r rows)
+        (let ((mut c 0))
+          (while (< c cols)
+            {
+              (set total (+ total (* r c)))
+              (set c (+ c 1))
+            }))
+        (set r (+ r 1)))
+      total
+    }))
+
+; --- a mutable binding is still an ordinary value -------------------
+;
+; `mut` affects assignability, not representation: a mutable local can
+; hold a `Str` handle exactly like an immutable one.
+
+(pub :: joinDigits (-> Int Int))
+(pub fn (joinDigits n)
+  (let ((mut i 0)
+        (mut out ""))
+    {
+      (while (< i n)
+        {
+          (set out (strConcat out "x"))
+          (set i (+ i 1))
+        })
+      (strLen out)
+    }))
+
+; --- shadowing: an inner `let` may rebind the same name immutably ---
+
+(pub :: shadowed Int)
+(pub fn (shadowed)
+  (let ((mut x 1))
+    {
+      (set x 2)
+      (let ((x 100))
+        (+ x (let ((mut y 0)) { (set y x) y })))
+    }))
+
+; --- the loop really is a loop --------------------------------------
+
+(pub :: bigLoop Int)
+(pub fn (bigLoop)
+  (let ((mut i 0))
+    {
+      (while (< i 1000000) (set i (+ i 1)))
+      i
+    }))
+
+(pub :: main Int)
+;@axiom:effect(io)
+(pub fn (main)
+  {
+    (printlnInt (sumTo 0))          ; 0
+    (printlnInt (sumTo 1))          ; 0
+    (printlnInt (sumTo 10))         ; 45
+    (printlnInt (sumTo 100))        ; 4950
+    (printlnInt (countDown 5))      ; 0
+    (printlnInt (countDown 0))      ; 0
+    (printlnInt neverRuns)          ; 0
+    (printlnInt (gridSum 3 3))      ; 9: (0+1+2)*(0+1+2)
+    (printlnInt (gridSum 4 5))      ; 60: (0+1+2+3)*(0+1+2+3+4)
+    (printlnInt (gridSum 0 5))      ; 0
+    (printlnInt (joinDigits 7))     ; 7
+    (printlnInt shadowed)           ; 200
+    (printlnInt bigLoop)            ; 1000000
+    0
+  })

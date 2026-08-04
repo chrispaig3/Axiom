@@ -240,3 +240,36 @@ digit separators
   (function_definition
     (identifier)
     (integer_literal)))
+
+================================================================
+while loop with a mutable binding and set
+================================================================
+
+(:: main Int)
+(fn (main)
+  (let ((mut i 0))
+    (while (< i 3) (set i (+ i 1)))))
+
+----------------------------------------------------------------
+
+(source_file
+  (type_signature
+    subject: (identifier)
+    type: (builtin_type))
+  (function_definition
+    name: (identifier)
+    body: (let_expression
+      binding: (let_binding
+        pattern: (identifier)
+        value: (integer_literal))
+      body: (while_expression
+        condition: (application
+          operand: (identifier)
+          operand: (identifier)
+          operand: (integer_literal))
+        body: (set_expression
+          target: (identifier)
+          value: (application
+            operand: (identifier)
+            operand: (identifier)
+            operand: (integer_literal)))))))

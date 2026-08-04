@@ -5,5 +5,5 @@
 ; successful read is any non-zero length.
 (:: main Int)
 (fn (main)
-  (let ((src (readFile (__addr "in.ax"))))
+  (let ((src (sysReadFile (__addr "in.ax"))))
     (if (> (strLen src) 0) 42 7)))

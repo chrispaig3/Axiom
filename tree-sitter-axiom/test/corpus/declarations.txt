@@ -171,3 +171,39 @@ axtag above a declaration
   (function_definition
     (identifier)
     (integer_literal)))
+
+================================================================
+struct variant: named constructor fields and a punned pattern
+================================================================
+
+(data Shape (Circle { r : Int }))
+(:: f (-> Shape Int))
+(fn (f s) (match s ((Circle { r }) r)))
+
+----------------------------------------------------------------
+
+(source_file
+  (data_declaration
+    name: (identifier)
+    constructor: (data_constructor
+      name: (constructor_identifier)
+      field: (named_field
+        name: (identifier)
+        type: (builtin_type))))
+  (type_signature
+    subject: (identifier)
+    type: (function_type
+      operand: (type_constructor
+        (constructor_identifier))
+      operand: (builtin_type)))
+  (function_definition
+    name: (identifier)
+    parameter: (identifier)
+    body: (match_expression
+      scrutinee: (identifier)
+      arm: (match_arm
+        pattern: (constructor_pattern
+          constructor: (constructor_identifier)
+          field: (field_pattern
+            name: (identifier)))
+        body: (identifier)))))
