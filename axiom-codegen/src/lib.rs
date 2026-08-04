@@ -145,6 +145,29 @@ impl LlvmCodeGen {
             }
         }
 
+        // Two globals per literal: the bytes, and a `Str` header over
+        // them.
+        //
+        // The header is what a literal *evaluates* to, which is what
+        // makes `(println "hi")` mean what it reads as. It has the
+        // layout `Str.strWrap` builds - word 0 length, word 1 byte
+        // pointer - so a literal and a constructed `Str` are the same
+        // thing to every consumer, and `strLen` on a literal is a load
+        // rather than the `cstrLen` scan `strFromLit` had to do. The
+        // length is a compile-time constant here, so the scan is not
+        // merely faster, it is gone.
+        //
+        // The bytes keep the NUL terminator even though the header
+        // makes it redundant, because `strCStr` hands literal paths
+        // straight to a syscall without copying, and `(__addr "...")`
+        // still resolves to *these* bytes rather than to the header.
+        //
+        // Emitting the header unconditionally, rather than only for
+        // literals observed in value position, costs 16 bytes of
+        // `.rodata` per unused literal and avoids a second pass over
+        // the module to decide - and the two uses are not exclusive:
+        // the same literal can be both `__addr`-ed and used as a
+        // `Str`.
         for (id, s) in &strings {
             let escaped = escape_llvm_string(s);
             writeln!(
@@ -153,6 +176,15 @@ impl LlvmCodeGen {
                 id,
                 s.len() + 1,
                 escaped
+            )
+            .unwrap();
+            writeln!(
+                self.output,
+                "@strhdr_{} = private unnamed_addr constant {{ i64, ptr }} \
+                 {{ i64 {}, ptr @str_{} }}, align 8",
+                id,
+                s.len(),
+                id
             )
             .unwrap();
         }
@@ -763,8 +795,7 @@ impl LlvmCodeGen {
                         }
                         IrValue::Const(IrConst::Null) => "ptr null".to_string(),
                         IrValue::Const(IrConst::Str(s)) => {
-                            let id = self.string_ids.get(s).unwrap_or(&0);
-                            format!("ptr @str_{}", id)
+                            format!("i64 {}", self.str_header_value(s))
                         }
                         IrValue::Local(name) => {
                             if let Some((reg, ty)) = self.ssa_values.get(name) {
@@ -852,8 +883,7 @@ impl LlvmCodeGen {
                         }
                         IrValue::Const(IrConst::Null) => "ptr null".to_string(),
                         IrValue::Const(IrConst::Str(s)) => {
-                            let id = self.string_ids.get(s).unwrap_or(&0);
-                            format!("ptr @str_{}", id)
+                            format!("i64 {}", self.str_header_value(s))
                         }
                         IrValue::Local(name) => {
                             if let Some((reg, ty)) = self.ssa_values.get(name) {
@@ -1255,12 +1285,35 @@ impl LlvmCodeGen {
                 writeln!(self.output, "  store i64 {}, ptr {}", val, word_ptr).unwrap();
             }
             IrInst::AddrOf { dest, value } => {
+                // `(__addr "...")` means the literal's *bytes*, not the
+                // `Str` header the literal otherwise evaluates to. The
+                // two differ now that a literal is a header, and this is
+                // the only place that difference is observable: it is
+                // what keeps `(strFromLit (__addr "..."))` building a
+                // header over the bytes rather than over another header,
+                // and what lets a literal path reach a syscall.
+                if let IrValue::Const(IrConst::Str(s)) = value {
+                    let result_reg = self.new_local_reg();
+                    writeln!(
+                        self.output,
+                        "  {} = add i64 {}, 0",
+                        result_reg,
+                        self.str_bytes_value(s)
+                    )
+                    .unwrap();
+                    if let IrValue::Local(name) = dest {
+                        self.ssa_values.insert(
+                            name.clone(),
+                            (result_reg, TypeId::TCon("I64".to_string(), vec![])),
+                        );
+                    }
+                    return Ok(());
+                }
                 let (val, ty) = self.value_to_typed_string(value)?;
                 let result_reg = self.new_local_reg();
                 if ty == "ptr" {
-                    // String constants already render as
-                    // `ptr @str_N`, so the type prefix is part of
-                    // `val` and must not be repeated.
+                    // A pointer-typed value renders with its type as
+                    // part of `val`, which must not be repeated.
                     let stripped = val.strip_prefix("ptr ").unwrap_or(&val).to_string();
                     writeln!(
                         self.output,
@@ -1468,10 +1521,7 @@ impl LlvmCodeGen {
                     "i1".to_string(),
                 )),
                 IrConst::Null => Ok(("null".to_string(), "ptr".to_string())),
-                IrConst::Str(s) => {
-                    let id = self.string_ids.get(s).unwrap_or(&0);
-                    Ok((format!("ptr @str_{}", id), "ptr".to_string()))
-                }
+                IrConst::Str(s) => Ok((self.str_header_value(s), "i64".to_string())),
             },
         }
     }
@@ -1482,10 +1532,7 @@ impl LlvmCodeGen {
             IrConst::Float(n, _) => format!("{}", n),
             IrConst::Bool(b) => (if *b { "true" } else { "false" }).to_string(),
             IrConst::Null => "null".to_string(),
-            IrConst::Str(s) => {
-                let id = self.string_ids.get(s).unwrap_or(&0);
-                format!("ptr @str_{}", id)
-            }
+            IrConst::Str(s) => self.str_header_value(s),
         }
     }
 
@@ -1551,6 +1598,25 @@ impl LlvmCodeGen {
         }
     }
 
+    /// What a string literal evaluates to: the address of its static
+    /// `Str` header, as an `i64` LLVM constant expression.
+    ///
+    /// A constant expression rather than an emitted `ptrtoint`
+    /// instruction so a literal stays usable everywhere a constant is -
+    /// global initialisers and `phi` operands included - where an
+    /// instruction would need a block to live in.
+    fn str_header_value(&self, s: &str) -> String {
+        let id = self.string_ids.get(s).unwrap_or(&0);
+        format!("ptrtoint (ptr @strhdr_{} to i64)", id)
+    }
+
+    /// The literal's raw NUL-terminated bytes, as an `i64` constant
+    /// expression. This is what `(__addr "...")` resolves to.
+    fn str_bytes_value(&self, s: &str) -> String {
+        let id = self.string_ids.get(s).unwrap_or(&0);
+        format!("ptrtoint (ptr @str_{} to i64)", id)
+    }
+
     fn const_to_llvm(&self, const_val: &IrConst) -> String {
         match const_val {
             IrConst::Int(n, ty) => {
@@ -1563,10 +1629,7 @@ impl LlvmCodeGen {
             }
             IrConst::Bool(b) => format!("i1 {}", if *b { "true" } else { "false" }),
             IrConst::Null => "ptr null".to_string(),
-            IrConst::Str(s) => {
-                let id = self.string_ids.get(s).unwrap_or(&0);
-                format!("ptr @str_{}", id)
-            }
+            IrConst::Str(s) => format!("i64 {}", self.str_header_value(s)),
         }
     }
 
@@ -1582,7 +1645,20 @@ impl LlvmCodeGen {
                 "F64" => "double".to_string(),
                 "Bool" => "i1".to_string(),
                 "Void" => "void".to_string(),
-                "Any" | "String" => "ptr".to_string(),
+                "Any" => "ptr".to_string(),
+                // A `String` is a `Str` handle: the address of a
+                // `{ len, bytes }` header, held as a machine word like
+                // every other Axiom value. It is `i64` rather than
+                // `ptr` so that handles and the `Int`-typed standard
+                // library - `memGetWord`, `vecPush`, `Map` keys - mix
+                // without a bitcast at every boundary, which is the
+                // same uniform-representation choice that lets
+                // polymorphism work without monomorphisation.
+                //
+                // Code that wants the raw C string behind a literal
+                // asks for it: `(__addr "...")` for a literal's bytes,
+                // `strCStr` for a `Str`'s.
+                "String" => "i64".to_string(),
                 _ => {
                     if let Some(type_id) = self.struct_types.get(name) {
                         format!("%struct.{}", type_id)
@@ -1920,7 +1996,47 @@ mod tests {
             "{}",
             ir
         );
-        assert!(ir.contains("ptrtoint ptr @str_0 to i64"), "{}", ir);
+        // `__addr` must resolve to the literal's bytes, never to the
+        // `Str` header the same literal evaluates to in value position.
+        // Getting this backwards is silent: `(strFromLit (__addr s))`
+        // would build a header describing a header, and every read of
+        // it would return the wrong length and the wrong bytes.
+        assert!(ir.contains("ptrtoint (ptr @str_0 to i64)"), "{}", ir);
+        assert!(
+            !ir.contains("add i64 ptrtoint (ptr @strhdr_0 to i64)"),
+            "__addr resolved to the header instead of the bytes: {}",
+            ir
+        );
+    }
+
+    #[test]
+    fn a_string_literal_evaluates_to_a_static_str_header() {
+        // The header is what makes `(println "hi")` mean what it reads
+        // as, and its length is a compile-time constant - the whole
+        // point being that `strLen` on a literal is a load rather than
+        // the `cstrLen` scan `strFromLit` performs.
+        let ir = compile(
+            Target::LinuxX86_64,
+            vec![IrInst::Call {
+                dest: IrValue::Local("r".to_string()),
+                func: "println".to_string(),
+                args: vec![IrValue::Const(IrConst::Str("hi".to_string()))],
+            }],
+        );
+        assert!(
+            ir.contains(
+                "@strhdr_0 = private unnamed_addr constant { i64, ptr } \
+                 { i64 2, ptr @str_0 }"
+            ),
+            "{}",
+            ir
+        );
+        // Passed by header, as one machine word.
+        assert!(
+            ir.contains("i64 ptrtoint (ptr @strhdr_0 to i64)"),
+            "{}",
+            ir
+        );
     }
 
     #[test]

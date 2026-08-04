@@ -553,9 +553,9 @@ in the standard library needs them.
 ;@axiom:effect(io)
 (fn (main)
   {
-    (println (strFromLit (__addr "hello, world")))
+    (println "hello, world")
     (printlnInt 42)
-    (println (strConcat (strFromLit (__addr "sum=")) (fmtInt (+ 1 2))))
+    (println (strConcat "sum=" (fmtInt (+ 1 2))))
     0
   })
 ```
@@ -680,9 +680,9 @@ for safe null handling:
 ;@axiom:effect(io)
 (fn (main)
   {
-    (println (strFromLit (__addr "a literal")))
+    (println "a literal")
     (printlnInt 42)
-    (println (strConcat (strFromLit (__addr "formatted: ")) (fmtInt 42)))
+    (println (strConcat "formatted: " (fmtInt 42)))
     0
   })
 ```

@@ -13,10 +13,16 @@
 ; copying. Both properties matter for a compiler: source text is sliced
 ; constantly, and file paths cross the syscall boundary constantly.
 ;
-; String *literals* in Axiom source are NUL-terminated byte arrays with
-; no length word, so `strFromLit` is the bridge from a literal to a
-; `Str` - it scans once for the length and then shares the literal's
-; bytes without copying.
+; A string *literal* is already a `Str`. The compiler emits a header of
+; exactly this shape next to the literal's bytes, so `"hello"` is the
+; address of a static one and needs no conversion:
+;
+;     (strLen "hello")            ; 5, a load of a constant
+;     (println "hello, world")
+;
+; Its length is computed at compile time, which is why nothing here
+; scans a literal. `(__addr "hello")` still yields the raw bytes for the
+; cases that want a C string - see `strFromLit` and `strCStr`.
 
 (import Mem)
 
@@ -46,11 +52,15 @@
 (pub fn (strAlloc len)
   (strWrap (memAlloc (+ len 1)) len))
 
-; A `Str` sharing the bytes of a NUL-terminated literal.
+; A `Str` sharing the bytes at a NUL-terminated address.
 ;
-; Use as `(strFromLit (__addr "hello"))`. Cost is one scan for the
-; length; the bytes themselves are never copied, so a literal used as a
-; `Str` costs 16 bytes of header and nothing else.
+; For a literal this is no longer needed - `"hello"` is already a `Str`
+; with a compile-time length, and `(strFromLit (__addr "hello"))` is the
+; same value arrived at by scanning for a length that was known. It
+; remains the bridge for NUL-terminated bytes that come from somewhere
+; else: a syscall's output buffer, or a C library.
+;
+; Cost is one scan for the length; the bytes are never copied.
 (pub :: strFromLit (-> Int Int))
 (pub fn (strFromLit cstr)
   (strWrap cstr (cstrLen cstr 0)))

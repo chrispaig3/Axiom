@@ -1,0 +1,200 @@
+; Vec, Map and Intern at the scale a self-hosted compiler demands.
+;
+; The golden tests in 070/080/090 pick small adversarial cases to break
+; a wrong implementation. This is the other half of B3: the structures
+; are driven to 10^5 elements, the size at which things that are right
+; at eight slots can still be wrong - a growth policy that is
+; quadratic, a rehash that drops entries only once the table is large, a
+; probe run that degenerates, an id that stops being stable after a
+; dozen rehashes.
+;
+; Every assertion is a total over all 10^5 elements rather than a
+; handful of spot checks, because a spot check at this size tests
+; roughly nothing: an implementation that loses one entry in a thousand
+; passes every spot check and fails every total.
+;
+; The sums are exact and closed-form, so the expected output is derived
+; rather than recorded from a run - a golden file recorded from a buggy
+; run pins the bug.
+;
+;   sum of k for k in [0, n)          = n(n-1)/2
+;   with n = 100000                   = 4999950000
+;   sum of 3k                         = 14999850000
+;
+; Both exceed 2^32, deliberately: a 32-bit truncation anywhere in the
+; accumulation shows up here and nowhere in the small tests.
+;
+; EVERY LOOP HERE IS TAIL RECURSIVE, AND THAT IS LOAD-BEARING. Axiom
+; guarantees tail calls (B2), so a tail-recursive count runs in constant
+; stack at -O0. The natural spelling of a counting fold,
+;
+;     (+ (if (ok i) 1 0) (count (+ i 1) hi))
+;
+; is *not* tail recursive - the addition happens after the call - and at
+; this size it does not merely run slowly, it dies: measured on an 8 MiB
+; stack, a loop of that shape over this data segfaults between 60,000
+; and 80,000 frames, at roughly 110-140 bytes per frame. That is the
+; known residue of B2 (non-tail recursion is still stack-bounded) rather
+; than a defect in the structures below, and it is written down here
+; because the first draft of this file hit it and looked exactly like a
+; bug in `Intern`.
+;
+; Cost: ~0.5s of user time at -O0 for the whole file, so this is a
+; correctness gate that happens to be quick, not a benchmark.
+; Throughput against Rust is measured by
+; `scripts/bench-datastructures.sh`, which is where the roadmap's
+; "within 2x" criterion lives.
+(import IO)
+(import Map)
+(import Vec)
+(import Intern)
+(import Str)
+(import Fmt)
+
+(pub :: scN Int)
+(pub fn (scN) 100000)
+
+; ------------------------------------------------------------------
+; Vec
+; ------------------------------------------------------------------
+
+(pub :: scPush (-> Int Int Int Int))
+(pub fn (scPush v lo hi)
+  (if (>= lo hi)
+      v
+      {
+        (vecPush v lo)
+        (scPush v (+ lo 1) hi)
+      }))
+
+; Read every element back and count the ones holding what was pushed.
+; Checked against the index rather than summed, so a Vec that returns
+; the right total from the wrong slots still fails.
+(pub :: scVecIntact (-> Int Int Int Int Int))
+(pub fn (scVecIntact v lo hi acc)
+  (if (>= lo hi)
+      acc
+      (scVecIntact v (+ lo 1) hi (+ acc (if (== (vecGet v lo) lo) 1 0)))))
+
+; ------------------------------------------------------------------
+; Map
+; ------------------------------------------------------------------
+
+(pub :: scInsert (-> Int Int Int Int))
+(pub fn (scInsert m lo hi)
+  (if (>= lo hi)
+      m
+      {
+        (mapInsert m lo (* lo 3))
+        (scInsert m (+ lo 1) hi)
+      }))
+
+(pub :: scMapIntact (-> Int Int Int Int Int))
+(pub fn (scMapIntact m lo hi acc)
+  (if (>= lo hi)
+      acc
+      (scMapIntact m (+ lo 1) hi
+        (+ acc (if (== (mapGet m lo (- 0 1)) (* lo 3)) 1 0)))))
+
+; Absent keys must stay absent at scale: a table that has grown 14 times
+; has 14 chances to leave a stale slot answering a key nobody inserted.
+; The probe uses keys well outside the inserted range.
+(pub :: scMapAbsent (-> Int Int Int Int Int))
+(pub fn (scMapAbsent m lo hi acc)
+  (if (>= lo hi)
+      acc
+      (scMapAbsent m (+ lo 1) hi
+        (+ acc (if (mapHas m (+ lo 1000000)) 1 0)))))
+
+; Remove every other key, then confirm the survivors survived. This is
+; the tombstone path at a size where a probe run can be long.
+(pub :: scRemoveEven (-> Int Int Int Int))
+(pub fn (scRemoveEven m lo hi)
+  (if (>= lo hi)
+      m
+      {
+        (mapRemove m lo)
+        (scRemoveEven m (+ lo 2) hi)
+      }))
+
+(pub :: scOddsIntact (-> Int Int Int Int Int))
+(pub fn (scOddsIntact m lo hi acc)
+  (if (>= lo hi)
+      acc
+      (scOddsIntact m (+ lo 2) hi
+        (+ acc (if (== (mapGet m lo (- 0 1)) (* lo 3)) 1 0)))))
+
+(pub :: scEvensGone (-> Int Int Int Int Int))
+(pub fn (scEvensGone m lo hi acc)
+  (if (>= lo hi)
+      acc
+      (scEvensGone m (+ lo 2) hi (+ acc (if (mapHas m lo) 1 0)))))
+
+; ------------------------------------------------------------------
+; Intern
+; ------------------------------------------------------------------
+
+; Distinct, variable-length keys. `fmtInt` gives 1- to 6-byte strings
+; over this range, so the hash sees every length rather than one.
+(pub :: scName (-> Int Int))
+(pub fn (scName i)
+  (strConcat "sym" (fmtInt i)))
+
+(pub :: scIntern (-> Int Int Int Int))
+(pub fn (scIntern it lo hi)
+  (if (>= lo hi)
+      it
+      {
+        (internIntern it (scName lo))
+        (scIntern it (+ lo 1) hi)
+      }))
+
+; The two properties that make an interner an interner, checked over
+; every id: re-interning equal text returns the id it returned the
+; first time, and looking that id up returns equal text. An interner
+; that grows correctly but renumbers on rehash passes neither.
+(pub :: scInternStable (-> Int Int Int Int Int))
+(pub fn (scInternStable it lo hi acc)
+  (if (>= lo hi)
+      acc
+      (scInternStable it (+ lo 1) hi
+        (+ acc (if (== (internIntern it (scName lo)) lo)
+                   (if (strEq (internLookup it lo) (scName lo)) 1 0)
+                   0)))))
+
+(pub :: main Int)
+;@axiom:effect(io)
+(pub fn (main)
+  (let ((v (scPush vecNew 0 (scN)))
+        (m (scInsert mapNew 0 (scN)))
+        (it (scIntern internNew 0 (scN))))
+    {
+      ; --- Vec ---
+      (printlnInt (vecLen v))                            ; 100000
+      (printlnInt (scVecIntact v 0 (scN) 0))             ; 100000
+      (printlnInt (vecSum v))                            ; 4999950000
+      (printlnInt (vecGet v 0))                          ; 0
+      (printlnInt (vecGet v 99999))                      ; 99999
+      ; Capacity grows geometrically, so it stays within 2x of the
+      ; length. A linear growth policy is correct and quadratic, and
+      ; this is the assertion that notices.
+      (printlnInt (if (< (vecCap v) (* 2 (vecLen v))) 1 0))  ; 1
+
+      ; --- Map ---
+      (printlnInt (mapLen m))                            ; 100000
+      (printlnInt (scMapIntact m 0 (scN) 0))             ; 100000
+      (printlnInt (scMapAbsent m 0 (scN) 0))             ; 0
+      (printlnInt (mapSumKeys m))                        ; 4999950000
+      (printlnInt (mapSumVals m))                        ; 14999850000
+
+      ; --- Map after removing every even key ---
+      (printlnInt (mapLen (scRemoveEven m 0 (scN))))     ; 50000
+      (printlnInt (scOddsIntact m 1 (scN) 0))            ; 50000
+      (printlnInt (scEvensGone m 0 (scN) 0))             ; 0
+
+      ; --- Intern ---
+      (printlnInt (internCount it))                      ; 100000
+      (printlnInt (scInternStable it 0 (scN) 0))         ; 100000
+      (printlnInt (internCount it))                      ; 100000, re-interning added nothing
+      0
+    }))

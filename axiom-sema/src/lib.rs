@@ -412,6 +412,35 @@ impl TypeId {
         match (self, other) {
             (TypeId::TVar(_), _) | (_, TypeId::TVar(_)) => true,
             (TypeId::TError, _) | (_, TypeId::TError) => true,
+            // A `String` is a `Str` handle - one machine word, the
+            // address of a `{ len, bytes }` header - and so is
+            // interchangeable with `Int`.
+            //
+            // This is not a hole punched for convenience; it is the
+            // uniform-representation model the language already runs
+            // on, made visible at one place instead of worked around at
+            // every boundary. `Str` handles are `Int` throughout
+            // `stdlib/` and the self-hosted compiler, `Vec` stores
+            // `Int`, `Map` keys are `Int`, and `memGetWord` takes
+            // `Int`. Without this rule a first-class string literal
+            // could not be stored in a `Vec`, used as a `Map` key, or
+            // read by the very accessors that implement `Str`, and the
+            // alternative - a cast at each of those boundaries, or a
+            // container library polymorphic over representation that
+            // does not exist - would buy a distinction the runtime does
+            // not make.
+            //
+            // The cost is real and bounded: `(+ 1 "hi")` type-checks,
+            // adding one to an address. It is the same latitude the
+            // language already gives every other handle.
+            (TypeId::TCon(n1, _), TypeId::TCon(n2, _))
+                if matches!(
+                    (n1.as_str(), n2.as_str()),
+                    ("String", "Int") | ("Int", "String")
+                ) =>
+            {
+                true
+            }
             (TypeId::TCon(n1, args1), TypeId::TCon(n2, args2)) => {
                 n1 == n2
                     && args1.len() == args2.len()
@@ -2376,11 +2405,39 @@ mod tests {
     fn if_branches_of_different_types_is_an_error() {
         let errors = check_err(
             r#"(:: main Int)
-(fn main (if true 1 "no"))"#,
+(fn main (if true 1 false))"#,
         );
         assert!(errors
             .iter()
             .any(|e| matches!(e, SemError::TypeMismatch { .. })));
+    }
+
+    /// The deliberate exception to the rule above, pinned so that it is
+    /// a decision rather than a regression: a `String` is a `Str`
+    /// handle - one machine word, the address of a `{ len, bytes }`
+    /// header - so it is interchangeable with `Int`.
+    ///
+    /// This is what lets a string literal be stored in a `Vec`, used as
+    /// a `Map` key, and read by the `Int`-typed accessors that
+    /// implement `Str`, none of which would type-check under a nominal
+    /// `String`.
+    #[test]
+    fn a_string_is_a_handle_and_so_is_compatible_with_int() {
+        check(
+            r#"(:: takesInt (-> Int Int))
+(fn (takesInt n) n)
+(:: main Int)
+(fn main (takesInt "hi"))"#,
+        )
+        .expect("a String should be accepted where an Int is expected");
+
+        check(
+            r#"(:: takesStr (-> String Int))
+(fn (takesStr s) 0)
+(:: main Int)
+(fn main (takesStr 0))"#,
+        )
+        .expect("an Int should be accepted where a String is expected");
     }
 
     #[test]

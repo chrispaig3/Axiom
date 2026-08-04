@@ -138,6 +138,67 @@
 (pub :: mapLimbBias Int)
 (pub fn (mapLimbBias) 524288)
 
+; ------------------------------------------------------------------
+; The same arithmetic, without the divisions.
+;
+; `mapHash` is on the path of every insert, lookup and probe step, and
+; written with `/` and `%` it performs six hardware divisions per call:
+; four inside the two `mapFloorDiv`/`mapFloorMod` pairs that split the
+; key into limbs, and two more reducing modulo the prime. A 64-bit
+; division is 20-40 cycles where a multiply is three, which is most of
+; the reason `Map` measured 15x slower than Rust's `HashMap` at 10^6
+; keys (`scripts/bench-datastructures.sh`).
+;
+; Every divisor here is a power of two or a Mersenne prime, so none of
+; the divisions is necessary:
+;
+;   - `mapLimbBase` is 2^22. Floor division by a power of two is an
+;     arithmetic right shift and floor-modulo is a mask, and both hold
+;     for negative keys in two's complement - which is exactly the case
+;     `mapFloorDiv` exists to get right, so this is not a shortcut that
+;     drops the property, it is the same property spelled cheaper.
+;
+;   - `mapHashPrime` is 2^31 - 1, so 2^31 = 1 (mod P) and
+;     `v = (v >> 31) + (v & P)` (mod P). Two folds bring any
+;     non-negative `v < 2^54` - which is the bound the comment in
+;     `mapHash` establishes - below 2^31 + 1, and one conditional
+;     subtract finishes it.
+;
+; The results are identical to the division forms, not approximations
+; of them, which is what lets the pinned slot values in
+; `tests/stdlib/080-map.ax` stay valid.  `mapFloorDiv` and
+; `mapFloorMod` are kept as the specification, and
+; `mapHashAgreesWithSpec` in that test checks the two against each
+; other over a range of keys rather than trusting the argument above.
+; ------------------------------------------------------------------
+
+; log2(mapLimbBase).
+(pub :: mapLimbShift Int)
+(pub fn (mapLimbShift) 22)
+
+; mapLimbBase - 1.
+(pub :: mapLimbMask Int)
+(pub fn (mapLimbMask) 4194303)
+
+; `(mapFloorDiv n mapLimbBase)`, as a shift.
+(pub :: mapLimbDiv (-> Int Int))
+(pub fn (mapLimbDiv n)
+  (>> n mapLimbShift))
+
+; `(mapFloorMod n mapLimbBase)`, as a mask.
+(pub :: mapLimbMod (-> Int Int))
+(pub fn (mapLimbMod n)
+  (& n mapLimbMask))
+
+; `(% v mapHashPrime)` for non-negative `v` below 2^54.
+(pub :: mapModPrime (-> Int Int))
+(pub fn (mapModPrime v)
+  (let ((once (+ (& v mapHashPrime) (>> v 31))))
+    (let ((twice (+ (& once mapHashPrime) (>> once 31))))
+      (if (>= twice mapHashPrime)
+          (- twice mapHashPrime)
+          twice))))
+
 ; Floor division, as opposed to Axiom's `/`.
 ;
 ; Axiom's `/` is LLVM `sdiv`: it truncates toward zero, so
@@ -172,18 +233,17 @@
 ; reason given there.
 (pub :: mapHash (-> Int Int))
 (pub fn (mapHash key)
-  (let ((limb0 (mapFloorMod key mapLimbBase))
-        (high (mapFloorDiv key mapLimbBase)))
-    (let ((limb1 (mapFloorMod high mapLimbBase))
-          (limb2 (+ (mapFloorDiv high mapLimbBase) mapLimbBias)))
+  (let ((limb0 (mapLimbMod key))
+        (high (mapLimbDiv key)))
+    (let ((limb1 (mapLimbMod high))
+          (limb2 (+ (mapLimbDiv high) mapLimbBias)))
       ; Reduced in two steps rather than one, so no partial sum can
       ; exceed 2^54: each limb is under 2^22 and each multiplier under
       ; 2^31, so a product is under 2^53, and summing three unreduced
       ; products would be the only place in this file that could
       ; overflow.
-      (let ((low (% (+ (* limb0 mapMulA0) (* limb1 mapMulA1))
-                    mapHashPrime)))
-        (% (+ (+ low (* limb2 mapMulA2)) mapAddC) mapHashPrime)))))
+      (let ((low (mapModPrime (+ (* limb0 mapMulA0) (* limb1 mapMulA1)))))
+        (mapModPrime (+ (+ low (* limb2 mapMulA2)) mapAddC))))))
 
 ; The slot `key` probes first, in [0, cap).
 ;
@@ -195,9 +255,13 @@
 ; the dividend, so the distance between "the hash went negative" and "the
 ; map scribbles on unrelated allocations" is exactly this test. Guarding
 ; costs one compare per probe and removes the class of bug entirely.
+; `cap` is a power of two - every table is sized by `mapRoundUpPow2`
+; and grown by doubling - so the reduction is a mask rather than a
+; division, on the same grounds as `mapModPrime` above and again with
+; identical results for the non-negative hash this receives.
 (pub :: mapSlotOf (-> Int Int Int))
 (pub fn (mapSlotOf key cap)
-  (let ((h (% (mapHash key) cap)))
+  (let ((h (& (mapHash key) (- cap 1))))
     (if (< h 0)
         (+ h cap)
         h)))

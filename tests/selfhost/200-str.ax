@@ -1,4 +1,12 @@
 ; expect 42
+; The compatibility path, kept deliberately un-migrated: `__addr`
+; resolves to a literal's raw bytes, and `strFromLit` scans them into a
+; header. `310-strlit.ax` covers the direct form.
+;
+; Both lowerings have to stay covered because they differ - a literal
+; in value position is the header, `(__addr lit)` is the bytes - and
+; confusing them is silent rather than loud: `strFromLit` over a header
+; would take the first eight bytes of the length word as text.
 (import Str)
 (:: main Int)
 (fn (main)

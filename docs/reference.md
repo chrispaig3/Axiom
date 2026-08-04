@@ -47,7 +47,7 @@ Every Axiom program needs a `main` function that returns `Int`. Here is the smal
 ;@axiom:effect(io)
 (fn (main)
   {
-    (println (strFromLit (__addr "Hello, Axiom!")))
+    (println "Hello, Axiom!")
     0
   })
 ```
@@ -117,6 +117,53 @@ false           ; Boolean
 | `\"` | Double quote |
 | `\'` | Single quote |
 | `\0` | Null byte |
+
+### String Literals Are `Str` Values
+
+A string literal is a first-class string. It needs no conversion and can
+go anywhere a `Str` from the standard library can:
+
+```scheme
+(println "Hello, Axiom!")
+(strLen "Hello")                    ; 5
+(strConcat "sum=" (fmtInt 42))
+(strSlice "abcdef" 2 3)             ; "cde"
+```
+
+The compiler emits two globals per literal — the bytes, and a two-word
+header over them holding the length and the byte address, which is
+exactly the layout `Str.strWrap` builds:
+
+```llvm
+@str_0    = private unnamed_addr constant [14 x i8] c"Hello, Axiom!\00"
+@strhdr_0 = private unnamed_addr constant { i64, ptr } { i64 13, ptr @str_0 }
+```
+
+The literal evaluates to the header's address. Its **length is computed
+at compile time**, so `(strLen "Hello")` is a load rather than a scan,
+and a literal costs no allocation at run time.
+
+The bytes stay NUL-terminated as well as length-counted, so a literal
+can still be handed to a syscall or a C function that expects a C
+string. `__addr` is how you reach them:
+
+```scheme
+"hello"                             ; the Str header
+(__addr "hello")                    ; the bytes, as an address
+```
+
+`Str.strFromLit` remains the bridge for NUL-terminated bytes that arrive
+without a length — from a syscall buffer, say. Applied to a literal it
+is redundant: `(strFromLit (__addr "hi"))` scans for a length the
+compiler already knew, and `"hi"` is the same value.
+
+> **A `String` is a machine word.** Every Axiom value is one word, and a
+> `String` is the address of a `Str` header, so `String` and `Int` are
+> interchangeable. This is what lets a literal be stored in a `Vec`,
+> used as a `Map` key, or read by the `Int`-typed accessors that
+> implement `Str`. The cost is that `(+ 1 "hi")` type-checks — it adds
+> one to an address — which is the same latitude the language gives
+> every other handle.
 
 ---
 
@@ -539,6 +586,66 @@ Define custom types with constructors:
 ```
 
 The `(a)` after the type name is a type parameter — like generics in other languages.
+
+### Struct Variants — Named Fields Per Constructor
+
+A constructor's fields can be named instead of positional:
+
+```scheme
+(data Shape
+  (Circle { r : Int })
+  (Rect { w : Int, h : Int })
+  (Point))
+```
+
+Values are built positionally, in declaration order:
+
+```scheme
+(Circle 7)
+(Rect 3 4)
+```
+
+and read back by name, either through field access or in a pattern:
+
+```scheme
+(fn (describe s)
+  {
+    s.r                                    ; field access by name
+
+    (match s
+      ((Circle { r = r })       r)         ; named
+      ((Rect   { h = h, w = w }) (* w h))  ; order does not matter
+      ((Point)                  0))
+  })
+```
+
+Named patterns buy three things a positional pattern cannot:
+
+| | |
+|---|---|
+| **Order independence** | `{ h = h, w = w }` binds what its names say. Reordering two same-typed fields in a declaration cannot silently swap them at every match site. |
+| **Partiality** | A field the arm does not name is simply not bound — no `_` placeholder to keep in step with the constructor's arity. |
+| **Punning** | `{ w, h }` means `{ w = w, h = h }`. |
+
+So the common case is short:
+
+```scheme
+(match s
+  ((Circle { r })    r)
+  ((Rect { w, h })   (* w h))
+  ((Point)           0))
+```
+
+Punning and explicit binding mix freely, and named patterns nest:
+
+```scheme
+(match x
+  ((Wrap { inner = (Rect { w, h }), tag = t }) (+ (* w h) t))
+  ((Wrap { tag = t })                          t))
+```
+
+Positional patterns keep working on the same type; named fields add a
+spelling rather than replacing one.
 
 ### How ADTs Actually Run
 
@@ -1063,7 +1170,7 @@ Use `--opt 2` for anything that iterates over a large input.
 ;@axiom:effect(io)
 (fn (main)
   {
-    (println (strFromLit (__addr "Hello from Axiom!")))
+    (println "Hello from Axiom!")
     0
   })
 ```
@@ -1121,7 +1228,7 @@ Use `--opt 2` for anything that iterates over a large input.
 (fn (main)
   {
     (printlnInt 42)
-    (println (strConcat (strFromLit (__addr "sum=")) (fmtInt (+ 1 2))))
+    (println (strConcat "sum=" (fmtInt (+ 1 2))))
     0
   })
 ```

@@ -4,5 +4,5 @@
 (import lexer)
 (:: main Int)
 (fn (main)
-  (let ((toks (lex (strFromLit (__addr "(fn (f) 1)")))))
+  (let ((toks (lex "(fn (f) 1)")))
     (if (> (vecLen toks) 3) 42 7)))

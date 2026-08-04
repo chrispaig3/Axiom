@@ -79,6 +79,38 @@
         (mtChurn m key (- n 1))
       }))
 
+; `mapHash` reduces modulo a Mersenne prime with shifts and masks, and
+; splits the key into limbs with shifts, rather than dividing - six
+; hardware divisions per hash was most of why `Map` measured 15x slower
+; than Rust's `HashMap`. The claim that this is the *same* function and
+; not an approximation of it is what keeps the pinned slot values below
+; valid, so it is checked rather than argued: `mapFloorDiv` and
+; `mapFloorMod` are retained as the specification, and this walks keys
+; that exercise every interesting shape - zero, both signs, limb
+; boundaries at 2^22 and 2^44, and both ends of the signed range -
+; counting the ones where the two agree.
+;
+; Negative keys are the case worth naming: floor semantics and
+; truncating `/` differ only there, and getting it wrong yields a
+; negative limb and, three lines later, a negative table index.
+(pub :: mtSpecAgree (-> Int Int Int Int))
+(pub fn (mtSpecAgree k lo hi)
+  (if (>= lo hi)
+      0
+      (+ (if (== (mapLimbDiv k) (mapFloorDiv k mapLimbBase))
+             (if (== (mapLimbMod k) (mapFloorMod k mapLimbBase)) 1 0)
+             0)
+         (mtSpecAgree k (+ lo 1) hi))))
+
+; Agreement of `mapModPrime` with `%` over a stride of the range the
+; hash actually produces: partial sums below 2^54.
+(pub :: mtPrimeAgree (-> Int Int Int Int))
+(pub fn (mtPrimeAgree v steps acc)
+  (if (<= steps 0)
+      acc
+      (mtPrimeAgree (+ (* v 7919) 104729) (- steps 1)
+        (+ acc (if (== (mapModPrime (mapLimbMod v)) (% (mapLimbMod v) mapHashPrime)) 1 0)))))
+
 (pub :: main Int)
 ;@axiom:effect(io)
 (pub fn (main)
@@ -183,7 +215,27 @@
       (printlnInt (mtBit (mapHas x (- 0 2))))       ; 0
 
       ; --- a Map of Str values, on the uniform-representation claim ---
-      (mapInsert x 1000 (strFromLit (__addr "interned")))
+      (mapInsert x 1000 "interned")
       (println (mapGet x 1000 0))                   ; interned
+
+      ; --- the shift/mask hash agrees with the division specification ---
+      ; One line per key shape, each printing 1 when the fast path and
+      ; `mapFloorDiv`/`mapFloorMod` agree.
+      (printlnInt (mtSpecAgree 0 0 1))                            ; 1
+      (printlnInt (mtSpecAgree 1 0 1))                            ; 1
+      (printlnInt (mtSpecAgree (- 0 1) 0 1))                      ; 1
+      (printlnInt (mtSpecAgree (- 0 7) 0 1))                      ; 1
+      (printlnInt (mtSpecAgree 4194304 0 1))                      ; 1: 2^22, limb boundary
+      (printlnInt (mtSpecAgree (- 0 4194304) 0 1))                ; 1
+      (printlnInt (mtSpecAgree 4194303 0 1))                      ; 1: 2^22 - 1
+      (printlnInt (mtSpecAgree 17592186044416 0 1))               ; 1: 2^44
+      (printlnInt (mtSpecAgree (- 0 17592186044416) 0 1))         ; 1
+      (printlnInt (mtSpecAgree 12345 0 1))                        ; 1
+      (printlnInt (mtSpecAgree (- 0 12345) 0 1))                  ; 1
+      (printlnInt (mtSpecAgree 9223372036854775807 0 1))          ; 1
+      (printlnInt (mtSpecAgree (- 0 9223372036854775807) 0 1))    ; 1
+      ; And the Mersenne reduction agrees with `%` over 500 pseudorandom
+      ; values.
+      (printlnInt (mtPrimeAgree 1 500 0))                         ; 500
       0
     }))

@@ -2,5 +2,5 @@
 (import Str)
 (:: main Int)
 (fn (main)
-  (let ((s (strFromLit (__addr "*"))))
+  (let ((s "*"))
     (strByte s 0)))

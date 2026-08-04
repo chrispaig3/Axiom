@@ -1,0 +1,55 @@
+; String literals are first-class `Str` values.
+;
+; A literal evaluates to the address of a static `{ len, bytes }`
+; header emitted next to its bytes, so it is the same kind of thing
+; `strWrap` builds and the length is known at compile time - `strLen`
+; on a literal is a load, not the `cstrLen` scan `strFromLit` performs.
+;
+; `__addr` still resolves to the *bytes*, which is what keeps the
+; older `(strFromLit (__addr "..."))` spelling working. The two must
+; not be confused, and confusing them is silent rather than loud: a
+; header built over a header would read its length out of the first
+; eight bytes of the length word. Everything below therefore checks
+; the two spellings agree rather than merely that each runs.
+(import IO)
+(import Str)
+
+(pub :: main Int)
+;@axiom:effect(io)
+(pub fn (main)
+  (let ((direct "hello")
+        (viaAddr (strFromLit (__addr "hello")))
+        (empty "")
+        (escapes "a\tb\nc\\d\"e"))
+    {
+      ; Same length, same bytes, same comparison result.
+      (printlnInt (strLen direct))
+      (printlnInt (strLen viaAddr))
+      (printlnInt (strCmp direct viaAddr))
+      (println direct)
+      (println viaAddr)
+
+      ; An empty literal has length zero and is not confused with a
+      ; NUL byte of payload.
+      (printlnInt (strLen empty))
+      (printlnInt (if (strIsEmpty empty) 1 0))
+      (printlnInt (if (strIsEmpty direct) 1 0))
+
+      ; Escapes are resolved before the length is computed, so the
+      ; header's length counts bytes, not source characters.
+      (printlnInt (strLen escapes))
+      (println escapes)
+
+      ; A literal is an ordinary `Str` everywhere: concatenation,
+      ; slicing and byte access do not care where it came from.
+      (println (strConcat direct ", world"))
+      (println (strSlice "abcdef" 2 3))
+      (printlnInt (strByte "abc" 1))
+      (printlnInt (if (strEq "abc" "abc") 1 0))
+      (printlnInt (if (strEq "abc" "abd") 1 0))
+
+      ; Two occurrences of the same text share one global, so they are
+      ; equal by value; identity is not promised and is not checked.
+      (printlnInt (strCmp "same" "same"))
+      0
+    }))

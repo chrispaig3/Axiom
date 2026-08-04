@@ -123,13 +123,13 @@
 (pub fn (readFile path)
   (let ((fd (sysOpenPath path 0)))
     (if (sysFailed fd)
-        (strFromLit (__addr ""))
+        ""
         (let ((buf (strAlloc 65536))
               (cstr (strData buf))
               (n (sysReadFd fd cstr 65536)))
           {
             (sysCloseFd fd)
             (if (<= n 0)
-                (strFromLit (__addr ""))
+                ""
                 (strWrap cstr n))
           }))))

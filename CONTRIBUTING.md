@@ -58,7 +58,7 @@ echo '(import IO)
 (:: main Int)
 ;@axiom:effect(io)
 (fn (main)
-  { (println (strFromLit (__addr "Hello from Axiom!")))
+  { (println "Hello from Axiom!")
     0 })' > hello.ax
 
 ./target/release/axiom run hello.ax
@@ -331,7 +331,7 @@ The standard library is written entirely in Axiom — no C bindings needed. When
 (fn (eprintln s)
   {
     (writeStr stderr s)
-    (writeStr stderr (strFromLit (__addr "\n")))
+    (writeStr stderr "\n")
   })
 ```
 

@@ -2,6 +2,6 @@
 (import Str)
 (:: main Int)
 (fn (main)
-  (let ((a (strFromLit (__addr "abc")))
-        (b (strFromLit (__addr "de"))))
+  (let ((a "abc")
+        (b "de"))
     (+ (strLen (strConcat a b)) 37)))

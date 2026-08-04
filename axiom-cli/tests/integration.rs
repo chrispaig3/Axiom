@@ -304,9 +304,14 @@ fn axdl_type_mismatch_is_dense_single_line() {
     write_source(
         &dir,
         "main.ax",
+        // `Bool` rather than `String` for the mismatched arm: a
+        // `String` is a `Str` handle, one machine word, and so is
+        // deliberately compatible with `Int`. The subject here is AXDL
+        // density, so the fixture only has to be a mismatch that is
+        // still a mismatch.
         r#"#| multi-byte: héllo |#
 (:: main Int)
-(fn main (if true 1 "no"))
+(fn main (if true 1 false))
 "#,
     );
     let out = run_axiom(&["--diagnostic-format=ai", "check", "main.ax"], &dir);

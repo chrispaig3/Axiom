@@ -158,8 +158,14 @@ hold. The ones on the critical path here:
 - **B1** — function values do not survive codegen. A higher-order function
   type-checks and emits invalid LLVM.
 - **B2** — recursion depth depends on `--opt`. Correctness must not.
-- **B3** — `Vec`, `Map`, and `Intern` exist (in `stdlib/`) and compile
-  cleanly. Golden tests and scale validation are the remaining work.
+- **B3** — `Vec`, `Map`, and `Intern` are golden-tested and validated at
+  10⁵ (`tests/stdlib/200-scale.ax`) and benchmarked at 10⁶
+  (`scripts/bench-datastructures.sh`). `Intern` is *faster* than the
+  Rust equivalent (0.75×); `Vec` is 2.5×; `Map` is 14× and misses the
+  criterion. Ablation puts six sevenths of `Map`'s cost in table
+  growth, not in hashing or probing — steady-state insert is within
+  1.4× — so this now blocks on the memory model (P2) rather than on
+  `Map`. See [self-hosting.md §2.1 B3](self-hosting.md#21-blockers).
 - **B4** — namespacing: `Mod::name` qualified access works; two modules can define the same name without collision. **(DONE)**
 - **S1** — every constructor, including nullary ones, is a heap block.
 
@@ -323,14 +329,27 @@ constructor patterns, and compile-time exhaustiveness checking. That is
 verified. The actual gap against Rust is
 narrow:
 
-1. **Struct variants.** Rust's `enum Shape { Circle { r: f64 } }` has no
-   Axiom equivalent; `data` constructor fields are positional only. This
-   is the substance of the item: named fields per variant, matchable and
-   accessible by name.
+1. **Struct variants. (DONE)** `(data Shape (Circle { r : Int })
+   (Rect { w : Int, h : Int }))` declares named fields per variant.
+   They are accessible by name (`s.r`) and matchable by name
+   (`((Rect { w = w, h = h }) ...)`), independent of declaration order,
+   and an arm may name a subset of the fields rather than supplying a
+   placeholder for each one it ignores. Covered by
+   `tests/stdlib/210-struct-variants.ax`, which checks the named and
+   positional spellings agree on every constructor and that a reversed
+   named pattern binds by name rather than by position.
 2. **Nullary constructors should not allocate** (`S1`). `(Nil)` is
    currently a heap block. A nullary constructor is a constant and should
    be an immediate.
-3. **Field punning in patterns**, once (1) exists.
+3. **Field punning in patterns. (DONE)** `{ w, h }` is `{ w = w, h = h }`.
+   Mixes freely with explicit binding, and named patterns nest.
+
+What remains of this item is *named construction* — `(Rect { w = 3, h = 4 })`
+as an alternative to the positional `(Rect 3 4)`. Values are still built
+positionally, in declaration order. This is the one place the type's
+field names are not yet honoured, and it is the smaller half: a
+constructor call is written once per value, whereas a pattern is written
+once per use site, which is why matching was done first.
 
 Item 2 interacts with the memory model and should land with it; the
 allocation it removes is a large fraction of what the §2.2 measurement is

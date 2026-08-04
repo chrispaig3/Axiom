@@ -8,9 +8,9 @@
   (let ((path (__addr "axiom-stdlib-test.tmp")))
     (let ((fd (sysOpenPath path oWronlyCreateTrunc)))
       (if (sysFailed fd)
-          (die (strFromLit (__addr "open for write failed")) 1)
+          (die "open for write failed" 1)
           {
-            (writeStr fd (strFromLit (__addr "line one\nline two\n")))
+            (writeStr fd "line one\nline two\n")
             (sysCloseFd fd)
             (let ((contents (readFileLit path)))
               {

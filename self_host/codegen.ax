@@ -82,7 +82,7 @@
 
 (pub :: newCG Int)
 (pub fn (newCG)
-  (CG vecNew 0 (strFromLit (__addr "")) vecNew 0 vecNew vecNew vecNew 0 (strFromLit (__addr "")) vecNew (strFromLit (__addr "entry"))))
+  (CG vecNew 0 "" vecNew 0 vecNew vecNew vecNew 0 "" vecNew "entry"))
 
 (pub :: emitLine (-> Int Int Int))
 (pub fn (emitLine cg line)
@@ -106,7 +106,7 @@
 (pub :: fmtInt (-> Int Int))
 (pub fn (fmtInt n)
   (if (< n 0)
-      (cat2 (strFromLit (__addr "-")) (fmtInt (- 0 n)))
+      (cat2 "-" (fmtInt (- 0 n)))
   (if (< n 10)
       (let ((ch (strAlloc 1)))
         {
@@ -126,14 +126,14 @@
 (pub :: renderCG (-> Int Int))
 (pub fn (renderCG cg)
   (let ((lines (memGetWord cg 0)))
-    (renderFrom lines 0 (strFromLit (__addr "")))))
+    (renderFrom lines 0 "")))
 (pub :: renderFrom (-> Int Int Int Int))
 (pub fn (renderFrom lines i acc)
   (if (>= i (vecLen lines))
       acc
       (let ((line (vecGet lines i)))
         (renderFrom lines (+ i 1)
-          (strConcat acc (strConcat line (strFromLit (__addr "\n"))))))))
+          (strConcat acc (strConcat line "\n"))))))
 
 ; ------------------------------------------------------------------
 ; String helpers.
@@ -149,7 +149,7 @@
   (strConcat (strConcat a (strConcat b c)) d))
 
 (pub :: regStr (-> Int Int))
-(pub fn (regStr n) (cat2 (strFromLit (__addr "%t")) (fmtInt n)))
+(pub fn (regStr n) (cat2 "%t" (fmtInt n)))
 
 (pub :: constStr (-> Int Int))
 (pub fn (constStr n) (fmtInt n))
@@ -216,9 +216,9 @@
       (let ((c (strByte s i)))
         (if (&& (== c 92) (< (+ i 1) limit))
             (escBody s (+ i 2) limit
-                     (cat3 acc (strFromLit (__addr "\\")) (hex2 (unescByte (strByte s (+ i 1))))))
+                     (cat3 acc "\\" (hex2 (unescByte (strByte s (+ i 1))))))
             (escBody s (+ i 1) limit
-                     (cat3 acc (strFromLit (__addr "\\")) (hex2 c)))))))
+                     (cat3 acc "\\" (hex2 c)))))))
 
 ; Every byte became exactly three characters, so the byte count is the
 ; escaped length over three; the array is one longer for the terminator.
@@ -228,14 +228,23 @@
     (if (>= i (vecLen tbl))
         cg
         (let ((lex (vecGet tbl i)))
-          (let ((body (escBody lex 1 (- (strLen lex) 1) (strFromLit (__addr ""))))) 
+          (let ((body (escBody lex 1 (- (strLen lex) 1) ""))) 
             (let ((n (+ (/ (strLen body) 3) 1)))
               {
                 (emitLine cg
-                  (cat4 (cat3 (strFromLit (__addr "@str_")) (fmtInt i) (strFromLit (__addr " = private unnamed_addr constant [")))
-                        (cat3 (fmtInt n) (strFromLit (__addr " x i8]  c\"")) body)
-                        (strFromLit (__addr "\\00\""))
-                        (strFromLit (__addr ""))))
+                  (cat4 (cat3 "@str_" (fmtInt i) " = private unnamed_addr constant [")
+                        (cat3 (fmtInt n) " x i8]  c\"" body)
+                        "\\00\""
+                        ""))
+                ; The `Str` header the literal itself evaluates to, over
+                ; the bytes just emitted. `n` counts the NUL, the length
+                ; word does not.
+                (emitLine cg
+                  (cat4 (cat3 "@strhdr_" (fmtInt i)
+                              " = private unnamed_addr constant { i64, ptr } { i64 ")
+                        (cat3 (fmtInt (- n 1)) ", ptr @str_" (fmtInt i))
+                        " }, align 8"
+                        ""))
                 (emitStringGlobals cg (+ i 1))
               }))))))
 
@@ -356,18 +365,18 @@
 (pub :: readModuleSrc (-> Int Int))
 (pub fn (readModuleSrc name)
   (let ((stem (modPathToFile name))
-        (tgt (tryModuleFile stem (strFromLit (__addr ".darwin.ax")))))
+        (tgt (tryModuleFile stem ".darwin.ax")))
     (if (!= tgt 0)
         tgt
-        (tryModuleFile stem (strFromLit (__addr ".ax"))))))
+        (tryModuleFile stem ".ax"))))
 
 (pub :: tryModuleFile (-> Int Int Int))
 (pub fn (tryModuleFile stem suffix)
   (let ((base (cat2 stem suffix)))
-    (let ((selfSrc (readFile (strCStr (cat2 (strFromLit (__addr "self_host/")) base)))))
+    (let ((selfSrc (readFile (strCStr (cat2 "self_host/" base)))))
       (if (!= (strLen selfSrc) 0)
           selfSrc
-          (let ((stdSrc (readFile (strCStr (cat2 (strFromLit (__addr "stdlib/")) base)))))
+          (let ((stdSrc (readFile (strCStr (cat2 "stdlib/" base)))))
             (if (!= (strLen stdSrc) 0)
                 stdSrc
                 0))))))
@@ -440,42 +449,42 @@
 (pub :: emitAllocator (-> Int Int))
 (pub fn (emitAllocator cg)
   {
-    (emitLine cg (strFromLit (__addr "@__axiom_bump = internal global i64 0")))
-    (emitLine cg (strFromLit (__addr "@__axiom_bump_end = internal global i64 0")))
-    (emitLine cg (strFromLit (__addr "")))
-    (emitLine cg (strFromLit (__addr "define i64 @axiom_alloc(i64 %size) {")))
-    (emitLine cg (strFromLit (__addr "entry:")))
-    (emitLine cg (strFromLit (__addr "  %padded = add i64 %size, 15")))
-    (emitLine cg (strFromLit (__addr "  %sz = and i64 %padded, -16")))
-    (emitLine cg (strFromLit (__addr "  %cur = load i64, ptr @__axiom_bump")))
-    (emitLine cg (strFromLit (__addr "  %next = add i64 %cur, %sz")))
-    (emitLine cg (strFromLit (__addr "  %end = load i64, ptr @__axiom_bump_end")))
-    (emitLine cg (strFromLit (__addr "  %fits = icmp ule i64 %next, %end")))
-    (emitLine cg (strFromLit (__addr "  br i1 %fits, label %fast, label %refill")))
-    (emitLine cg (strFromLit (__addr "fast:")))
-    (emitLine cg (strFromLit (__addr "  store i64 %next, ptr @__axiom_bump")))
-    (emitLine cg (strFromLit (__addr "  ret i64 %cur")))
-    (emitLine cg (strFromLit (__addr "refill:")))
-    (emitLine cg (strFromLit (__addr "  %big = icmp ugt i64 %sz, 1048576")))
-    (emitLine cg (strFromLit (__addr "  %rounded0 = add i64 %sz, 65535")))
-    (emitLine cg (strFromLit (__addr "  %rounded = and i64 %rounded0, -65536")))
-    (emitLine cg (strFromLit (__addr "  %chunk = select i1 %big, i64 %rounded, i64 1048576")))
-    (emitLine cg (strFromLit (__addr "  %addr = call i64 asm sideeffect \"svc #0x80\\0Ab.cc 1f\\0Aneg x0, x0\\0A1:\", \"={x0},{x16},{x0},{x1},{x2},{x3},{x4},{x5},~{memory}\"(i64 33554629, i64 0, i64 %chunk, i64 3, i64 4098, i64 -1, i64 0)")))
-    (emitLine cg (strFromLit (__addr "  %failed_low = icmp ult i64 %addr, 4096")))
-    (emitLine cg (strFromLit (__addr "  %failed_neg = icmp ugt i64 %addr, -4096")))
-    (emitLine cg (strFromLit (__addr "  %failed = or i1 %failed_low, %failed_neg")))
-    (emitLine cg (strFromLit (__addr "  br i1 %failed, label %oom, label %mapped")))
-    (emitLine cg (strFromLit (__addr "mapped:")))
-    (emitLine cg (strFromLit (__addr "  %new_bump = add i64 %addr, %sz")))
-    (emitLine cg (strFromLit (__addr "  store i64 %new_bump, ptr @__axiom_bump")))
-    (emitLine cg (strFromLit (__addr "  %new_end = add i64 %addr, %chunk")))
-    (emitLine cg (strFromLit (__addr "  store i64 %new_end, ptr @__axiom_bump_end")))
-    (emitLine cg (strFromLit (__addr "  ret i64 %addr")))
-    (emitLine cg (strFromLit (__addr "oom:")))
-    (emitLine cg (strFromLit (__addr "  call i64 asm sideeffect \"svc #0x80\\0Ab.cc 1f\\0Aneg x0, x0\\0A1:\", \"={x0},{x16},{x0},{x1},{x2},{x3},{x4},{x5},~{memory}\"(i64 33554433, i64 70, i64 0, i64 0, i64 0, i64 0, i64 0)")))
-    (emitLine cg (strFromLit (__addr "  unreachable")))
-    (emitLine cg (strFromLit (__addr "}")))
-    (emitLine cg (strFromLit (__addr "")))
+    (emitLine cg "@__axiom_bump = internal global i64 0")
+    (emitLine cg "@__axiom_bump_end = internal global i64 0")
+    (emitLine cg "")
+    (emitLine cg "define i64 @axiom_alloc(i64 %size) {")
+    (emitLine cg "entry:")
+    (emitLine cg "  %padded = add i64 %size, 15")
+    (emitLine cg "  %sz = and i64 %padded, -16")
+    (emitLine cg "  %cur = load i64, ptr @__axiom_bump")
+    (emitLine cg "  %next = add i64 %cur, %sz")
+    (emitLine cg "  %end = load i64, ptr @__axiom_bump_end")
+    (emitLine cg "  %fits = icmp ule i64 %next, %end")
+    (emitLine cg "  br i1 %fits, label %fast, label %refill")
+    (emitLine cg "fast:")
+    (emitLine cg "  store i64 %next, ptr @__axiom_bump")
+    (emitLine cg "  ret i64 %cur")
+    (emitLine cg "refill:")
+    (emitLine cg "  %big = icmp ugt i64 %sz, 1048576")
+    (emitLine cg "  %rounded0 = add i64 %sz, 65535")
+    (emitLine cg "  %rounded = and i64 %rounded0, -65536")
+    (emitLine cg "  %chunk = select i1 %big, i64 %rounded, i64 1048576")
+    (emitLine cg "  %addr = call i64 asm sideeffect \"svc #0x80\\0Ab.cc 1f\\0Aneg x0, x0\\0A1:\", \"={x0},{x16},{x0},{x1},{x2},{x3},{x4},{x5},~{memory}\"(i64 33554629, i64 0, i64 %chunk, i64 3, i64 4098, i64 -1, i64 0)")
+    (emitLine cg "  %failed_low = icmp ult i64 %addr, 4096")
+    (emitLine cg "  %failed_neg = icmp ugt i64 %addr, -4096")
+    (emitLine cg "  %failed = or i1 %failed_low, %failed_neg")
+    (emitLine cg "  br i1 %failed, label %oom, label %mapped")
+    (emitLine cg "mapped:")
+    (emitLine cg "  %new_bump = add i64 %addr, %sz")
+    (emitLine cg "  store i64 %new_bump, ptr @__axiom_bump")
+    (emitLine cg "  %new_end = add i64 %addr, %chunk")
+    (emitLine cg "  store i64 %new_end, ptr @__axiom_bump_end")
+    (emitLine cg "  ret i64 %addr")
+    (emitLine cg "oom:")
+    (emitLine cg "  call i64 asm sideeffect \"svc #0x80\\0Ab.cc 1f\\0Aneg x0, x0\\0A1:\", \"={x0},{x16},{x0},{x1},{x2},{x3},{x4},{x5},~{memory}\"(i64 33554433, i64 70, i64 0, i64 0, i64 0, i64 0, i64 0)")
+    (emitLine cg "  unreachable")
+    (emitLine cg "}")
+    (emitLine cg "")
     cg
   })
 
@@ -488,11 +497,11 @@
     (let ((cg (newCG)))
       (let ((cg0 (scanDecls allDecls cg 0)))
         (let ((cg0b (memSetWord cg0 8 allDecls)))
-          (let ((ttHeader (cat3 (strFromLit (__addr "target triple = \"")) target (strFromLit (__addr "\"")))))
+          (let ((ttHeader (cat3 "target triple = \"" target "\"")))
             (let ((cg1 (emitLine cg0b ttHeader)))
-              (let ((cg2 (emitLine cg1 (strFromLit (__addr "")))))
+              (let ((cg2 (emitLine cg1 "")))
                 (let ((cg3 (emitAllocator cg2)))
-                  (let ((cg4 (emitLine cg3 (strFromLit (__addr "")))))
+                  (let ((cg4 (emitLine cg3 "")))
                     (emitModuleTail allDecls cg4 0)))))))))))
 
 (pub :: emitModuleTail (-> Int Int Int Int))
@@ -538,27 +547,27 @@
           ; register - a name undefined in the function that used it.
           (_2 (memSetWord cg 6 vecNew))
           (_3 (memSetWord cg 7 vecNew)))
-      (let ((hdr (strConcat (cat4 (strFromLit (__addr "define i64 @"))
+      (let ((hdr (strConcat (cat4 "define i64 @"
                                   (strDup name)
-                                  (strFromLit (__addr "("))
+                                  "("
                                   paramStr)
-                            (strFromLit (__addr ") {")))))
+                            ") {")))
         (let ((cg1 (emitLine cg hdr)))
           ; Re-scan declarations to ensure types Vec is fresh before emitting body
           (let ((cg1b (scanDecls (memGetWord cg1 8) cg1 0)))
             (let ((cg2 (emitExpr body cg1b)))
-              (let ((ret (cat3 (strFromLit (__addr "  ret i64 ")) (strDup (memGetWord cg2 2)) (strFromLit (__addr "")))))
-                (emitLine (emitLine cg2 ret) (strFromLit (__addr "}")))))))))))
+              (let ((ret (cat3 "  ret i64 " (strDup (memGetWord cg2 2)) "")))
+                (emitLine (emitLine cg2 ret) "}")))))))))
 
 (pub :: emitParams (-> Int Int Int Int))
 (pub fn (emitParams params cg i)
   (if (>= i (vecLen params))
-      (strFromLit (__addr ""))
+      ""
       (let ((pname (vecGet params i))
             (rest (emitParams params cg (+ i 1))))
         (if (== (strLen rest) 0)
-            (cat3 (strFromLit (__addr "i64 %")) (strDup pname) (strFromLit (__addr "")))
-            (cat3 (cat3 (strFromLit (__addr "i64 %")) (strDup pname) (strFromLit (__addr ", "))) rest (strFromLit (__addr "")))))))
+            (cat3 "i64 %" (strDup pname) "")
+            (cat3 (cat3 "i64 %" (strDup pname) ", ") rest "")))))
 
 
 ; ------------------------------------------------------------------
@@ -599,24 +608,24 @@
 (pub fn (loadWordAt cg base idx)
   (let ((pn (allocReg cg))
         (pr (regStr pn))
-        (_1 (emitLine cg (cat4 (cat2 (strFromLit (__addr "  ")) pr)
-                               (strFromLit (__addr " = inttoptr i64 "))
+        (_1 (emitLine cg (cat4 (cat2 "  " pr)
+                               " = inttoptr i64 "
                                base
-                               (strFromLit (__addr " to ptr")))))
+                               " to ptr")))
         (an (allocReg cg))
         (ar (regStr an))
-        (_2 (emitLine cg (cat4 (cat3 (cat2 (strFromLit (__addr "  ")) ar)
-                                     (strFromLit (__addr " = getelementptr i64, ptr "))
+        (_2 (emitLine cg (cat4 (cat3 (cat2 "  " ar)
+                                     " = getelementptr i64, ptr "
                                      pr)
-                               (strFromLit (__addr ", i64 "))
+                               ", i64 "
                                (fmtInt idx)
-                               (strFromLit (__addr "")))))
+                               "")))
         (vn (allocReg cg))
         (vr (regStr vn))
-        (_3 (emitLine cg (cat4 (cat2 (strFromLit (__addr "  ")) vr)
-                               (strFromLit (__addr " = load i64, ptr "))
+        (_3 (emitLine cg (cat4 (cat2 "  " vr)
+                               " = load i64, ptr "
                                ar
-                               (strFromLit (__addr "")))))
+                               "")))
         (_4 (memSetWord cg 2 vr)))
     cg))
 
@@ -645,11 +654,11 @@
         (sv (strDup (memGetWord cg1 2)))
         (cn (allocReg cg1))
         (cell (regStr cn))
-        (_1 (emitLine cg1 (cat3 (cat2 (strFromLit (__addr "  ")) cell)
-                                (strFromLit (__addr " = call i64 @axiom_alloc(i64 8)"))
-                                (strFromLit (__addr "")))))
+        (_1 (emitLine cg1 (cat3 (cat2 "  " cell)
+                                " = call i64 @axiom_alloc(i64 8)"
+                                "")))
         (mn (allocReg cg1))
-        (mergeB (cat2 (strFromLit (__addr "label_")) (fmtInt mn)))
+        (mergeB (cat2 "label_" (fmtInt mn)))
         (cg2 (emitArms arms sv cell mergeB cg1 0))
         (_2 (emitLabel cg2 mergeB)))
     (loadWordAt cg2 cell 0)))
@@ -661,7 +670,7 @@
       ; non-exhaustive match answers here; stage0 reports that as a
       ; diagnostic, and this compiler has no checker yet.
       {
-        (emitLine cg (cat2 (strFromLit (__addr "  br label %")) mergeB))
+        (emitLine cg (cat2 "  br label %" mergeB))
         cg
       }
       (let ((arm (vecGet arms i))
@@ -670,19 +679,19 @@
             (cname (patHead pat))
             (entry (if (== cname 0) 0 (lookupType (memGetWord cg 3) cname)))
             (bn (allocReg cg))
-            (bodyB (cat2 (strFromLit (__addr "label_")) (fmtInt bn)))
+            (bodyB (cat2 "label_" (fmtInt bn)))
             (nn (allocReg cg))
-            (nextB (cat2 (strFromLit (__addr "label_")) (fmtInt nn))))
+            (nextB (cat2 "label_" (fmtInt nn))))
         (if (== entry 0)
             ; A name that is not a constructor matches anything and binds
             ; the scrutinee.
-            (let ((_a (emitLine cg (cat2 (strFromLit (__addr "  br label %")) bodyB)))
+            (let ((_a (emitLine cg (cat2 "  br label %" bodyB)))
                   (_b (emitLabel cg bodyB))
                   (_c (if (== cname 0) 0 (bindSym cg cname sv)))
                   (cgB (emitExpr body cg))
                   (bv (strDup (memGetWord cgB 2)))
                   (_d (storeWordAt cgB cell 0 bv))
-                  (_e (emitLine cgB (cat2 (strFromLit (__addr "  br label %")) mergeB)))
+                  (_e (emitLine cgB (cat2 "  br label %" mergeB)))
                   (_f (emitLabel cgB nextB)))
               (emitArms arms sv cell mergeB cgB (+ i 1)))
             (let ((isNullary (== (eArity entry) 0))
@@ -690,20 +699,20 @@
                   (tagv (if isNullary sv (strDup (memGetWord cgT 2))))
                   (tn (allocReg cgT))
                   (tr (regStr tn))
-                  (_a (emitLine cgT (cat4 (cat2 (strFromLit (__addr "  ")) tr)
-                                          (strFromLit (__addr " = icmp eq i64 "))
+                  (_a (emitLine cgT (cat4 (cat2 "  " tr)
+                                          " = icmp eq i64 "
                                           tagv
-                                          (cat2 (strFromLit (__addr ", ")) (constStr (eTag entry))))))
-                  (_b (emitLine cgT (cat4 (cat3 (strFromLit (__addr "  br i1 ")) tr (strFromLit (__addr ", label %")))
+                                          (cat2 ", " (constStr (eTag entry))))))
+                  (_b (emitLine cgT (cat4 (cat3 "  br i1 " tr ", label %")
                                           bodyB
-                                          (cat2 (strFromLit (__addr ", label %")) nextB)
-                                          (strFromLit (__addr "")))))
+                                          (cat2 ", label %" nextB)
+                                          "")))
                   (_c (emitLabel cgT bodyB))
                   (cgF (bindFieldsIn cgT sv (patBinders pat vecNew) 0))
                   (cgB (emitExpr body cgF))
                   (bv (strDup (memGetWord cgB 2)))
                   (_d (storeWordAt cgB cell 0 bv))
-                  (_e (emitLine cgB (cat2 (strFromLit (__addr "  br label %")) mergeB)))
+                  (_e (emitLine cgB (cat2 "  br label %" mergeB)))
                   (_f (emitLabel cgB nextB)))
               (emitArms arms sv cell mergeB cgB (+ i 1)))))))
 
@@ -743,12 +752,12 @@
             (memSetWord cg 2 (strDup symReg))
             cg
           }
-          (if (strEq name (strFromLit (__addr "true")))
+          (if (strEq name "true")
               {
                 (memSetWord cg 2 (constStr 1))
                 cg
               }
-          (if (strEq name (strFromLit (__addr "false")))
+          (if (strEq name "false")
               {
                 (memSetWord cg 2 (constStr 0))
                 cg
@@ -759,16 +768,16 @@
               (let ((rn (allocReg cg)))
                 (let ((r (regStr rn)))
                   {
-                    (emitLine cg (cat4 (cat2 (strFromLit (__addr "  ")) r)
-                                       (strFromLit (__addr " = call i64 @"))
+                    (emitLine cg (cat4 (cat2 "  " r)
+                                       " = call i64 @"
                                        (strDup name)
-                                       (strFromLit (__addr "()"))))
+                                       "()"))
                     (memSetWord cg 2 r)
                     cg
                   }))
           (let ((entry (lookupType (memGetWord cg 3) name)))
             (if (== entry 0)
-                (let ((x (cat2 (strFromLit (__addr "%")) (strDup name))))
+                (let ((x (cat2 "%" (strDup name))))
                   {
                     (memSetWord cg 2 x)
                     cg
@@ -853,12 +862,12 @@
 ; ------------------------------------------------------------------
 (pub :: isPrimName (-> Int Bool))
 (pub fn (isPrimName nm)
-  (if (strEq nm (strFromLit (__addr "__alloc"))) true
-  (if (strEq nm (strFromLit (__addr "__load64"))) true
-  (if (strEq nm (strFromLit (__addr "__store64"))) true
-  (if (strEq nm (strFromLit (__addr "__load8"))) true
-  (if (strEq nm (strFromLit (__addr "__store8"))) true
-  (if (strEq nm (strFromLit (__addr "__addr"))) true
+  (if (strEq nm "__alloc") true
+  (if (strEq nm "__load64") true
+  (if (strEq nm "__store64") true
+  (if (strEq nm "__load8") true
+  (if (strEq nm "__store8") true
+  (if (strEq nm "__addr") true
   (if (isSyscallName nm) true
   false))))))))
 
@@ -867,16 +876,16 @@
 (pub :: isSyscallName (-> Int Bool))
 (pub fn (isSyscallName nm)
   (&& (== (strLen nm) 10)
-      (strStartsWith nm (strFromLit (__addr "__syscall")))))
+      (strStartsWith nm "__syscall")))
 
 (pub :: emitPrim (-> Int Int Int Int))
 (pub fn (emitPrim fnName args cg)
-  (if (strEq fnName (strFromLit (__addr "__alloc")))   (emitPrimAlloc args cg)
-  (if (strEq fnName (strFromLit (__addr "__load64")))  (emitPrimLoad args cg 8)
-  (if (strEq fnName (strFromLit (__addr "__store64"))) (emitPrimStore args cg 8)
-  (if (strEq fnName (strFromLit (__addr "__load8")))   (emitPrimLoad args cg 1)
-  (if (strEq fnName (strFromLit (__addr "__store8")))  (emitPrimStore args cg 1)
-  (if (strEq fnName (strFromLit (__addr "__addr")))    (emitPrimAddr args cg)
+  (if (strEq fnName "__alloc")   (emitPrimAlloc args cg)
+  (if (strEq fnName "__load64")  (emitPrimLoad args cg 8)
+  (if (strEq fnName "__store64") (emitPrimStore args cg 8)
+  (if (strEq fnName "__load8")   (emitPrimLoad args cg 1)
+  (if (strEq fnName "__store8")  (emitPrimStore args cg 1)
+  (if (strEq fnName "__addr")    (emitPrimAddr args cg)
   (emitPrimSyscall args cg))))))))
 
 ; The inline-assembly sequence takes the syscall number and six argument
@@ -885,17 +894,17 @@
 (pub fn (emitPrimSyscall args cg)
   (let ((cg1 (emitArgsList args cg 0))
         (at (memGetWord cg1 9))
-        (pad (padZeros (- 7 (vecLen args)) (strFromLit (__addr ""))))
+        (pad (padZeros (- 7 (vecLen args)) ""))
         (rn (allocReg cg1)))
     (let ((r (regStr rn)))
       {
         (emitLine cg1
-          (cat4 (cat3 (cat2 (strFromLit (__addr "  ")) r)
-                      (strFromLit (__addr " = call i64 asm sideeffect \"svc #0x80\\0Ab.cc 1f\\0Aneg x0, x0\\0A1:\", \"={x0},{x16},{x0},{x1},{x2},{x3},{x4},{x5},~{memory}\"(i64 "))
+          (cat4 (cat3 (cat2 "  " r)
+                      " = call i64 asm sideeffect \"svc #0x80\\0Ab.cc 1f\\0Aneg x0, x0\\0A1:\", \"={x0},{x16},{x0},{x1},{x2},{x3},{x4},{x5},~{memory}\"(i64 "
                       at)
                 pad
-                (strFromLit (__addr ")"))
-                (strFromLit (__addr ""))))
+                ")"
+                ""))
         (memSetWord cg1 2 r)
         cg1
       })))
@@ -904,7 +913,7 @@
 (pub fn (padZeros n acc)
   (if (<= n 0)
       acc
-      (padZeros (- n 1) (cat2 acc (strFromLit (__addr ", i64 0"))))))
+      (padZeros (- n 1) (cat2 acc ", i64 0"))))
 
 (pub :: emitPrimAlloc (-> Int Int Int))
 (pub fn (emitPrimAlloc args cg)
@@ -913,10 +922,10 @@
         (rn (allocReg cg1)))
     (let ((r (regStr rn)))
       {
-        (emitLine cg1 (cat4 (cat2 (strFromLit (__addr "  ")) r)
-                            (strFromLit (__addr " = call i64 @axiom_alloc(i64 "))
+        (emitLine cg1 (cat4 (cat2 "  " r)
+                            " = call i64 @axiom_alloc(i64 "
                             n
-                            (strFromLit (__addr ")"))))
+                            ")"))
         (memSetWord cg1 2 r)
         cg1
       })))
@@ -926,7 +935,7 @@
 ; byte form has to widen to a machine word on the way out.
 (pub :: elemTy (-> Int Int))
 (pub fn (elemTy width)
-  (if (== width 8) (strFromLit (__addr "i64")) (strFromLit (__addr "i8"))))
+  (if (== width 8) "i64" "i8"))
 
 (pub :: emitPrimLoad (-> Int Int Int Int))
 (pub fn (emitPrimLoad args cg width)
@@ -937,26 +946,26 @@
         (ty (elemTy width))
         (pn (allocReg cg2)))
     (let ((pr (regStr pn)))
-      (let ((cg3 (emitLine cg2 (cat4 (cat2 (strFromLit (__addr "  ")) pr)
-                                     (strFromLit (__addr " = inttoptr i64 "))
+      (let ((cg3 (emitLine cg2 (cat4 (cat2 "  " pr)
+                                     " = inttoptr i64 "
                                      base
-                                     (strFromLit (__addr " to ptr"))))))
+                                     " to ptr"))))
         (let ((gn (allocReg cg3)))
           (let ((gr (regStr gn)))
-            (let ((cg4 (emitLine cg3 (cat4 (cat3 (cat2 (strFromLit (__addr "  ")) gr)
-                                                 (strFromLit (__addr " = getelementptr "))
+            (let ((cg4 (emitLine cg3 (cat4 (cat3 (cat2 "  " gr)
+                                                 " = getelementptr "
                                                  ty)
-                                           (cat3 (strFromLit (__addr ", ptr ")) pr (strFromLit (__addr ", i64 ")))
+                                           (cat3 ", ptr " pr ", i64 ")
                                            idx
-                                           (strFromLit (__addr ""))))))
+                                           ""))))
               (let ((vn (allocReg cg4)))
                 (let ((vr (regStr vn)))
-                  (let ((cg5 (emitLine cg4 (cat4 (cat3 (cat2 (strFromLit (__addr "  ")) vr)
-                                                       (strFromLit (__addr " = load "))
+                  (let ((cg5 (emitLine cg4 (cat4 (cat3 (cat2 "  " vr)
+                                                       " = load "
                                                        ty)
-                                                 (strFromLit (__addr ", ptr "))
+                                                 ", ptr "
                                                  gr
-                                                 (strFromLit (__addr ""))))))
+                                                 ""))))
                     (if (== width 8)
                         {
                           (memSetWord cg5 2 vr)
@@ -965,10 +974,10 @@
                         (let ((wn (allocReg cg5)))
                           (let ((wr (regStr wn)))
                             {
-                              (emitLine cg5 (cat4 (cat2 (strFromLit (__addr "  ")) wr)
-                                                  (strFromLit (__addr " = zext i8 "))
+                              (emitLine cg5 (cat4 (cat2 "  " wr)
+                                                  " = zext i8 "
                                                   vr
-                                                  (strFromLit (__addr " to i64"))))
+                                                  " to i64"))
                               (memSetWord cg5 2 wr)
                               cg5
                             })))))))))))))
@@ -984,26 +993,26 @@
         (ty (elemTy width))
         (pn (allocReg cg3)))
     (let ((pr (regStr pn)))
-      (let ((cg4 (emitLine cg3 (cat4 (cat2 (strFromLit (__addr "  ")) pr)
-                                     (strFromLit (__addr " = inttoptr i64 "))
+      (let ((cg4 (emitLine cg3 (cat4 (cat2 "  " pr)
+                                     " = inttoptr i64 "
                                      base
-                                     (strFromLit (__addr " to ptr"))))))
+                                     " to ptr"))))
         (let ((gn (allocReg cg4)))
           (let ((gr (regStr gn)))
-            (let ((cg5 (emitLine cg4 (cat4 (cat3 (cat2 (strFromLit (__addr "  ")) gr)
-                                                 (strFromLit (__addr " = getelementptr "))
+            (let ((cg5 (emitLine cg4 (cat4 (cat3 (cat2 "  " gr)
+                                                 " = getelementptr "
                                                  ty)
-                                           (cat3 (strFromLit (__addr ", ptr ")) pr (strFromLit (__addr ", i64 ")))
+                                           (cat3 ", ptr " pr ", i64 ")
                                            idx
-                                           (strFromLit (__addr ""))))))
+                                           ""))))
               ; A byte store needs the value narrowed first; a word store
               ; takes it as it stands.
               (let ((sv (if (== width 8) val (narrowByte cg5 val))))
                 {
-                  (emitLine cg5 (cat4 (cat3 (strFromLit (__addr "  store ")) ty (strFromLit (__addr " ")))
+                  (emitLine cg5 (cat4 (cat3 "  store " ty " ")
                                       sv
-                                      (cat2 (strFromLit (__addr ", ptr ")) gr)
-                                      (strFromLit (__addr ""))))
+                                      (cat2 ", ptr " gr)
+                                      ""))
                   (memSetWord cg5 2 (constStr 0))
                   cg5
                 }))))))))
@@ -1013,10 +1022,10 @@
   (let ((tn (allocReg cg)))
     (let ((tr (regStr tn)))
       {
-        (emitLine cg (cat4 (cat2 (strFromLit (__addr "  ")) tr)
-                           (strFromLit (__addr " = trunc i64 "))
+        (emitLine cg (cat4 (cat2 "  " tr)
+                           " = trunc i64 "
                            val
-                           (strFromLit (__addr " to i8"))))
+                           " to i8"))
         tr
       })))
 
@@ -1032,17 +1041,17 @@
               (rn (allocReg cg)))
           (let ((r (regStr rn)))
             {
-              (emitLine cg (cat4 (cat2 (strFromLit (__addr "  ")) r)
-                                 (strFromLit (__addr " = ptrtoint ptr @str_"))
+              (emitLine cg (cat4 (cat2 "  " r)
+                                 " = ptrtoint ptr @str_"
                                  (fmtInt id)
-                                 (strFromLit (__addr " to i64"))))
+                                 " to i64"))
               (memSetWord cg 2 r)
               cg
             })))))
 
 (pub :: isCastName (-> Int Bool))
 (pub fn (isCastName nm)
-  (strEq nm (strFromLit (__addr "cast"))))
+  (strEq nm "cast"))
 
 
 (pub :: reverseVec (-> Int Int))
@@ -1070,12 +1079,12 @@
       (let ((r (regStr rn)))
         (if (== (vecLen args) 2)
             (if (isBinop fnName)
-                (let ((inst (cat3 (cat2 (strFromLit (__addr "  ")) r)
-                                  (strFromLit (__addr " = "))
+                (let ((inst (cat3 (cat2 "  " r)
+                                  " = "
                                   (cat4 (binopToLLVM fnName)
-                                        (strFromLit (__addr " i64 "))
+                                        " i64 "
                                         argStr
-                                        (strFromLit (__addr ""))))))
+                                        ""))))
                   {
                     (emitLine argStrCg inst)
                     (memSetWord argStrCg 2 r)
@@ -1083,21 +1092,21 @@
                   })
             (if (isCmpOp fnName)
                 (emitCmp fnName r argStr argStrCg)
-            (let ((callInst (cat3 (cat3 (cat2 (strFromLit (__addr "  ")) r)
-                                        (strFromLit (__addr " = call i64 @"))
+            (let ((callInst (cat3 (cat3 (cat2 "  " r)
+                                        " = call i64 @"
                                         (strDup fnName))
-                                  (strFromLit (__addr "(i64 "))
-                                  (cat2 argStrT (strFromLit (__addr ")"))))))
+                                  "(i64 "
+                                  (cat2 argStrT ")"))))
               {
                 (emitLine argStrCg callInst)
                 (memSetWord argStrCg 2 r)
                 argStrCg
               })))
-            (let ((callInst (cat3 (cat3 (cat2 (strFromLit (__addr "  ")) r)
-                                        (strFromLit (__addr " = call i64 @"))
+            (let ((callInst (cat3 (cat3 (cat2 "  " r)
+                                        " = call i64 @"
                                         (strDup fnName))
-                                  (strFromLit (__addr "(i64 "))
-                                  (cat2 argStrT (strFromLit (__addr ")"))))))
+                                  "(i64 "
+                                  (cat2 argStrT ")"))))
               {
                 (emitLine argStrCg callInst)
                 (memSetWord argStrCg 2 r)
@@ -1120,13 +1129,13 @@
 ; ------------------------------------------------------------------
 (pub :: isAndOr (-> Int Bool))
 (pub fn (isAndOr nm)
-  (if (strEq nm (strFromLit (__addr "&&")))
+  (if (strEq nm "&&")
       true
-      (strEq nm (strFromLit (__addr "||")))))
+      (strEq nm "||")))
 
 (pub :: emitAndOr (-> Int Int Int Int))
 (pub fn (emitAndOr op args cg)
-  (let ((isAnd (strEq op (strFromLit (__addr "&&"))))
+  (let ((isAnd (strEq op "&&"))
         (cg1 (emitExpr (vecGet args 0) cg))
         (ra (strDup (memGetWord cg1 2)))
         (cn (allocReg cg1))
@@ -1134,109 +1143,109 @@
         (shortL (allocReg cg1))
         (mergeL (allocReg cg1))
         (cr (regStr cn))
-        (rhsB (cat2 (strFromLit (__addr "label_")) (fmtInt rhsL)))
-        (shortB (cat2 (strFromLit (__addr "label_")) (fmtInt shortL)))
-        (mergeB (cat2 (strFromLit (__addr "label_")) (fmtInt mergeL)))
-        (_1 (emitLine cg1 (cat4 (cat2 (strFromLit (__addr "  ")) cr)
-                                (strFromLit (__addr " = icmp ne i64 "))
+        (rhsB (cat2 "label_" (fmtInt rhsL)))
+        (shortB (cat2 "label_" (fmtInt shortL)))
+        (mergeB (cat2 "label_" (fmtInt mergeL)))
+        (_1 (emitLine cg1 (cat4 (cat2 "  " cr)
+                                " = icmp ne i64 "
                                 ra
-                                (strFromLit (__addr ", 0")))))
+                                ", 0")))
         ; `&&` takes the right-hand side when the left is true; `||`
         ; when it is false.
         (tgtT (if isAnd rhsB shortB))
         (tgtF (if isAnd shortB rhsB))
-        (_2 (emitLine cg1 (cat4 (cat3 (strFromLit (__addr "  br i1 ")) cr (strFromLit (__addr ", label %")))
+        (_2 (emitLine cg1 (cat4 (cat3 "  br i1 " cr ", label %")
                                 tgtT
-                                (cat2 (strFromLit (__addr ", label %")) tgtF)
-                                (strFromLit (__addr "")))))
+                                (cat2 ", label %" tgtF)
+                                "")))
         (_3 (emitLabel cg1 rhsB))
         (cg2 (emitExpr (vecGet args 1) cg1))
         (rb (strDup (memGetWord cg2 2)))
         (bn (allocReg cg2))
         (bcr (regStr bn))
-        (_4 (emitLine cg2 (cat4 (cat2 (strFromLit (__addr "  ")) bcr)
-                                (strFromLit (__addr " = icmp ne i64 "))
+        (_4 (emitLine cg2 (cat4 (cat2 "  " bcr)
+                                " = icmp ne i64 "
                                 rb
-                                (strFromLit (__addr ", 0")))))
+                                ", 0")))
         (zn (allocReg cg2))
         (zr (regStr zn))
-        (_5 (emitLine cg2 (cat4 (cat2 (strFromLit (__addr "  ")) zr)
-                                (strFromLit (__addr " = zext i1 "))
+        (_5 (emitLine cg2 (cat4 (cat2 "  " zr)
+                                " = zext i1 "
                                 bcr
-                                (strFromLit (__addr " to i64")))))
+                                " to i64")))
         (rhsPred (strDup (memGetWord cg2 11)))
-        (_6 (emitLine cg2 (cat2 (strFromLit (__addr "  br label %")) mergeB)))
+        (_6 (emitLine cg2 (cat2 "  br label %" mergeB)))
         (_7 (emitLabel cg2 shortB))
-        (_8 (emitLine cg2 (cat2 (strFromLit (__addr "  br label %")) mergeB)))
+        (_8 (emitLine cg2 (cat2 "  br label %" mergeB)))
         (_9 (emitLabel cg2 mergeB))
         (pn (allocReg cg2))
         (pr (regStr pn))
         (shortVal (if isAnd (constStr 0) (constStr 1)))
         (_10 (emitLine cg2
-               (cat4 (cat3 (cat2 (strFromLit (__addr "  ")) pr)
-                           (strFromLit (__addr " = phi i64 [ ")) zr)
-                     (cat3 (strFromLit (__addr ", %")) rhsPred (strFromLit (__addr " ], [ ")))
-                     (cat3 shortVal (strFromLit (__addr ", %")) shortB)
-                     (strFromLit (__addr " ]")))))
+               (cat4 (cat3 (cat2 "  " pr)
+                           " = phi i64 [ " zr)
+                     (cat3 ", %" rhsPred " ], [ ")
+                     (cat3 shortVal ", %" shortB)
+                     " ]")))
         (_11 (memSetWord cg2 2 pr)))
     cg2))
 
 (pub :: isBinop (-> Int Bool))
 (pub fn (isBinop nm)
-  (if (strEq nm (strFromLit (__addr "+"))) true
-  (if (strEq nm (strFromLit (__addr "-"))) true
-  (if (strEq nm (strFromLit (__addr "*"))) true
-  (if (strEq nm (strFromLit (__addr "/"))) true
-  (if (strEq nm (strFromLit (__addr "%"))) true
+  (if (strEq nm "+") true
+  (if (strEq nm "-") true
+  (if (strEq nm "*") true
+  (if (strEq nm "/") true
+  (if (strEq nm "%") true
   false))))))
 
 (pub :: binopToLLVM (-> Int Int))
 (pub fn (binopToLLVM nm)
-  (if (strEq nm (strFromLit (__addr "+"))) (strFromLit (__addr "add"))
-  (if (strEq nm (strFromLit (__addr "-"))) (strFromLit (__addr "sub"))
-  (if (strEq nm (strFromLit (__addr "*"))) (strFromLit (__addr "mul"))
-  (if (strEq nm (strFromLit (__addr "/"))) (strFromLit (__addr "sdiv"))
-  (if (strEq nm (strFromLit (__addr "%"))) (strFromLit (__addr "srem"))
-  (strFromLit (__addr "add"))))))))
+  (if (strEq nm "+") "add"
+  (if (strEq nm "-") "sub"
+  (if (strEq nm "*") "mul"
+  (if (strEq nm "/") "sdiv"
+  (if (strEq nm "%") "srem"
+  "add"))))))
 
 (pub :: isCmpOp (-> Int Bool))
 (pub fn (isCmpOp nm)
-  (if (strEq nm (strFromLit (__addr "=="))) true
-  (if (strEq nm (strFromLit (__addr "!="))) true
-  (if (strEq nm (strFromLit (__addr "<")))  true
-  (if (strEq nm (strFromLit (__addr ">")))  true
-  (if (strEq nm (strFromLit (__addr "<="))) true
-  (if (strEq nm (strFromLit (__addr ">="))) true
+  (if (strEq nm "==") true
+  (if (strEq nm "!=") true
+  (if (strEq nm "<")  true
+  (if (strEq nm ">")  true
+  (if (strEq nm "<=") true
+  (if (strEq nm ">=") true
   false)))))))
 
 (pub :: cmpToLLVM (-> Int Int))
 (pub fn (cmpToLLVM nm)
-  (if (strEq nm (strFromLit (__addr "=="))) (strFromLit (__addr "eq"))
-  (if (strEq nm (strFromLit (__addr "!="))) (strFromLit (__addr "ne"))
-  (if (strEq nm (strFromLit (__addr "<")))  (strFromLit (__addr "slt"))
-  (if (strEq nm (strFromLit (__addr ">")))  (strFromLit (__addr "sgt"))
-  (if (strEq nm (strFromLit (__addr "<="))) (strFromLit (__addr "sle"))
-  (if (strEq nm (strFromLit (__addr ">="))) (strFromLit (__addr "sge"))
-  (strFromLit (__addr "eq")))))))))
+  (if (strEq nm "==") "eq"
+  (if (strEq nm "!=") "ne"
+  (if (strEq nm "<")  "slt"
+  (if (strEq nm ">")  "sgt"
+  (if (strEq nm "<=") "sle"
+  (if (strEq nm ">=") "sge"
+  "eq")))))))
 
 (pub :: emitCmp (-> Int Int Int Int Int))
 (pub fn (emitCmp fnName r argStr cg)
   (let ((cmpKind (cmpToLLVM fnName))
         (cmpN (allocReg cg)))
     (let ((cmpR (regStr cmpN)))
-      (let ((cmpInst (cat3 (cat2 (strFromLit (__addr "  ")) cmpR)
-                           (strFromLit (__addr " = icmp "))
+      (let ((cmpInst (cat3 (cat2 "  " cmpR)
+                           " = icmp "
                            (cat4 cmpKind
-                                 (strFromLit (__addr " i64 "))
+                                 " i64 "
                                  argStr
-                                 (strFromLit (__addr ""))))))
+                                 ""))))
         (let ((cg1 (emitLine cg cmpInst))
               (zN (allocReg cg)))
           (let ((zR (regStr zN)))
-            (let ((zI (cat4 (cat2 (strFromLit (__addr "  ")) zR)
-                            (strFromLit (__addr " = zext i1 "))
+            (let ((zI (cat4 (cat2 "  " zR)
+                            " = zext i1 "
                             cmpR
-                            (strFromLit (__addr " to i64")))))
+                            " to i64")))
               {
                 (emitLine cg1 zI)
                 (memSetWord cg1 2 zR)
@@ -1248,8 +1257,8 @@
 (pub fn (emitArgsList args cg i)
   (if (>= i (vecLen args))
       {
-        (memSetWord cg 2 (strFromLit (__addr "")))
-        (memSetWord cg 9 (strFromLit (__addr "")))
+        (memSetWord cg 2 "")
+        (memSetWord cg 9 "")
         cg
       }
       (let ((node (vecGet args i)))
@@ -1265,8 +1274,8 @@
                       restCg
                     }
                     {
-                      (memSetWord restCg 2 (cat3 reg (strFromLit (__addr ", ")) rest))
-                      (memSetWord restCg 9 (cat3 (strDup reg) (strFromLit (__addr ", i64 ")) restT))
+                      (memSetWord restCg 2 (cat3 reg ", " rest))
+                      (memSetWord restCg 9 (cat3 (strDup reg) ", i64 " restT))
                       restCg
                     }))))))))
 
@@ -1291,9 +1300,9 @@
                 ; `axiom_alloc` answers a machine word like everything
                 ; else, so the block address stays an `i64` and only
                 ; becomes a `ptr` at the point of each store.
-                (let ((allocInst (cat3 (cat2 (strFromLit (__addr "  ")) ptr)
-                                       (strFromLit (__addr " = call i64 @axiom_alloc(i64 "))
-                                       (cat2 (constStr size) (strFromLit (__addr ")"))))))
+                (let ((allocInst (cat3 (cat2 "  " ptr)
+                                       " = call i64 @axiom_alloc(i64 "
+                                       (cat2 (constStr size) ")"))))
                   (let ((cg1 (emitLine cg allocInst)))
                     (let ((cg2 (if (== kind TF_DATA)
                                    (storeWordAt cg1 ptr 0 (constStr ctorTag))
@@ -1313,21 +1322,21 @@
 (pub fn (storeWordAt cg base idx val)
   (let ((pn (allocReg cg)))
     (let ((pr (regStr pn)))
-      (let ((cg1 (emitLine cg (cat4 (cat2 (strFromLit (__addr "  ")) pr)
-                                    (strFromLit (__addr " = inttoptr i64 "))
+      (let ((cg1 (emitLine cg (cat4 (cat2 "  " pr)
+                                    " = inttoptr i64 "
                                     base
-                                    (strFromLit (__addr " to ptr"))))))
+                                    " to ptr"))))
         (let ((an (allocReg cg1)))
           (let ((ar (regStr an)))
-            (let ((cg2 (emitLine cg1 (cat4 (cat3 (cat2 (strFromLit (__addr "  ")) ar)
-                                                 (strFromLit (__addr " = getelementptr i64, ptr "))
+            (let ((cg2 (emitLine cg1 (cat4 (cat3 (cat2 "  " ar)
+                                                 " = getelementptr i64, ptr "
                                                  pr)
-                                           (strFromLit (__addr ", i64 "))
+                                           ", i64 "
                                            (fmtInt idx)
-                                           (strFromLit (__addr ""))))))
-              (emitLine cg2 (cat4 (strFromLit (__addr "  store i64 "))
+                                           ""))))
+              (emitLine cg2 (cat4 "  store i64 "
                                   val
-                                  (strFromLit (__addr ", ptr "))
+                                  ", ptr "
                                   ar)))))))))
 
 (pub :: emitFieldStores (-> Int Int Int Int Int Int))
@@ -1368,17 +1377,17 @@
         (elseLbl (allocReg cg1))
         (mergeLbl (allocReg cg1))
         (cmpR (regStr cmpN))
-        (thenB (cat2 (strFromLit (__addr "label_")) (fmtInt thenLbl)))
-        (elseB (cat2 (strFromLit (__addr "label_")) (fmtInt elseLbl)))
-        (mergeB (cat2 (strFromLit (__addr "label_")) (fmtInt mergeLbl)))
-        (_1 (emitLine cg1 (cat4 (cat2 (strFromLit (__addr "  ")) cmpR)
-                                (strFromLit (__addr " = icmp ne i64 "))
+        (thenB (cat2 "label_" (fmtInt thenLbl)))
+        (elseB (cat2 "label_" (fmtInt elseLbl)))
+        (mergeB (cat2 "label_" (fmtInt mergeLbl)))
+        (_1 (emitLine cg1 (cat4 (cat2 "  " cmpR)
+                                " = icmp ne i64 "
                                 testReg
-                                (strFromLit (__addr ", 0")))))
-        (_2 (emitLine cg1 (cat4 (cat3 (strFromLit (__addr "  br i1 ")) cmpR (strFromLit (__addr ", label %")))
+                                ", 0")))
+        (_2 (emitLine cg1 (cat4 (cat3 "  br i1 " cmpR ", label %")
                                 thenB
-                                (cat2 (strFromLit (__addr ", label %")) elseB)
-                                (strFromLit (__addr "")))))
+                                (cat2 ", label %" elseB)
+                                "")))
         (_3 (emitLabel cg1 thenB))
         (cg2 (emitExpr thenExpr cg1))
         (thenVal (strDup (memGetWord cg2 2)))
@@ -1388,21 +1397,21 @@
         ; label here made the phi list a predecessor that no longer
         ; branches to it.
         (thenPred (strDup (memGetWord cg2 11)))
-        (_4 (emitLine cg2 (cat2 (strFromLit (__addr "  br label %")) mergeB)))
+        (_4 (emitLine cg2 (cat2 "  br label %" mergeB)))
         (_5 (emitLabel cg2 elseB))
         (cg3 (emitExpr elseExpr cg2))
         (elseVal (strDup (memGetWord cg3 2)))
         (elsePred (strDup (memGetWord cg3 11)))
-        (_6 (emitLine cg3 (cat2 (strFromLit (__addr "  br label %")) mergeB)))
+        (_6 (emitLine cg3 (cat2 "  br label %" mergeB)))
         (_7 (emitLabel cg3 mergeB))
         (phiN (allocReg cg3))
         (phiR (regStr phiN))
         (_8 (emitLine cg3
-              (cat4 (cat3 (cat2 (strFromLit (__addr "  ")) phiR)
-                          (strFromLit (__addr " = phi i64 [ ")) thenVal)
-                    (cat3 (strFromLit (__addr ", %")) thenPred (strFromLit (__addr " ], [ ")))
-                    (cat3 elseVal (strFromLit (__addr ", %")) elsePred)
-                    (strFromLit (__addr " ]")))))
+              (cat4 (cat3 (cat2 "  " phiR)
+                          " = phi i64 [ " thenVal)
+                    (cat3 ", %" thenPred " ], [ ")
+                    (cat3 elseVal ", %" elsePred)
+                    " ]")))
         (_9 (memSetWord cg3 2 phiR)))
     cg3))
 
@@ -1410,7 +1419,7 @@
 (pub :: emitLabel (-> Int Int Int))
 (pub fn (emitLabel cg name)
   {
-    (emitLine cg (cat2 name (strFromLit (__addr ":"))))
+    (emitLine cg (cat2 name ":"))
     (memSetWord cg 11 (strDup name))
     cg
   })
@@ -1425,18 +1434,22 @@
   (if (>= i (vecLen exprs)) cg
       (emitSeq exprs (emitExpr (vecGet exprs i) cg) (+ i 1))))
 
-; A bare string is its address; `Str.strFromLit` is what turns one into
-; a length-carrying value.
+; A bare string *is* a `Str`: it evaluates to the address of the static
+; `{ len, bytes }` header emitted alongside its bytes, so the length is
+; a compile-time constant and no `cstrLen` scan is needed. `__addr` is
+; the way to reach the bytes underneath (see `emitPrimAddr`), and the
+; two must not be confused - a header describing a header reads back
+; the wrong length and the wrong bytes, silently.
 (pub :: emitStrExpr (-> Int Int Int))
 (pub fn (emitStrExpr node cg)
   (let ((id (internString cg (nodeA node)))
         (rn (allocReg cg)))
     (let ((r (regStr rn)))
       {
-        (emitLine cg (cat4 (cat2 (strFromLit (__addr "  ")) r)
-                           (strFromLit (__addr " = ptrtoint ptr @str_"))
+        (emitLine cg (cat4 (cat2 "  " r)
+                           " = ptrtoint ptr @strhdr_"
                            (fmtInt id)
-                           (strFromLit (__addr " to i64"))))
+                           " to i64"))
         (memSetWord cg 2 r)
         cg
       })))
@@ -1444,6 +1457,6 @@
 (pub :: emitDefault (-> Int Int Int))
 (pub fn (emitDefault node cg)
   {
-    (memSetWord cg 2 (strFromLit (__addr "0")))
+    (memSetWord cg 2 "0")
     cg
   })

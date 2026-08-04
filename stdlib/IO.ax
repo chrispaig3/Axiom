@@ -50,13 +50,17 @@
 (pub fn (println s)
   {
     (writeStr stdout s)
-    (writeStr stdout (strFromLit (__addr "\n")))
+    (writeStr stdout "\n")
   })
 
-; Print a NUL-terminated literal directly: `(printLit (__addr "hi"))`.
+; Print NUL-terminated bytes at an address: `(printLit (__addr "hi"))`.
 ;
-; Saves building a `Str` header for the extremely common case of
-; printing a constant.
+; Not the way to print a literal any more - `(println "hi")` is, and it
+; costs nothing extra, because a literal already *is* a `Str` with a
+; compile-time length and no header has to be built. What is left here
+; is the case the name no longer describes well: NUL-terminated bytes
+; that arrived from somewhere without a length, such as a syscall
+; buffer or a C library.
 (pub :: printLit (-> Int Int))
 ;@axiom:effect(io)
 (pub fn (printLit cstr)
@@ -92,7 +96,7 @@
 (pub fn (eprintln s)
   {
     (writeStr stderr s)
-    (writeStr stderr (strFromLit (__addr "\n")))
+    (writeStr stderr "\n")
   })
 
 ; ------------------------------------------------------------------

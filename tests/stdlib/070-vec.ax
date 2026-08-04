@@ -115,8 +115,8 @@
 
       ; --- a Vec of Str handles: the uniform-representation claim ---
       (println (vecGet (vecPush (vecPush (vecNew)
-                                         (strFromLit (__addr "alpha")))
-                                (strFromLit (__addr "omega")))
+                                         "alpha")
+                                "omega")
                        1))                     ; omega
       0
     }))

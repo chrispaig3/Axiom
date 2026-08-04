@@ -138,7 +138,31 @@ enum Commands {
     },
 }
 
+/// Run the compiler on a thread with an explicitly sized stack.
+///
+/// Every stage from the parser on walks the syntax tree recursively, so
+/// stack depth tracks nesting depth in the source. `MAX_NESTING_DEPTH`
+/// bounds that depth; this bounds the stack it is allowed to consume, so
+/// the bound is a property of the compiler rather than of whatever
+/// `ulimit -s` the caller happened to have. Without it, the depth that
+/// reports a diagnostic on one host aborts on `SIGSEGV` on another.
 fn main() {
+    let worker = std::thread::Builder::new()
+        .name("axiom".into())
+        .stack_size(axiom_parser::Parser::STACK_SIZE)
+        .spawn(drive)
+        .expect("failed to spawn compiler thread");
+    // Propagate a panic in the worker as a non-zero exit rather than
+    // unwinding into a zero status: `spawn` moves the failure out of the
+    // process's exit path, and a compiler that reports success after
+    // panicking is worse than one that crashes.
+    match worker.join() {
+        Ok(()) => {}
+        Err(_) => std::process::exit(101),
+    }
+}
+
+fn drive() {
     let cli = Cli::parse();
     let format = DiagnosticFormat::parse(&cli.diagnostic_format).unwrap_or_else(|| {
         eprintln!(

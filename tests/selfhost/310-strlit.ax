@@ -1,0 +1,17 @@
+; expect 42
+; A bare string literal is a `Str`: it evaluates to the address of a
+; static { len, bytes } header, so `strLen` is a load of a
+; compile-time-known length rather than the `cstrLen` scan
+; `strFromLit` performs.
+;
+; This case is what proves stage1 implements the same language as
+; stage0 rather than merely reproducing itself. The bootstrap fixpoint
+; cannot show it: stage2 and stage3 agree byte-for-byte whether or not
+; `emitStrExpr` resolves to the header or to the bytes, because both
+; are built from the same source. Getting it wrong is silent - the
+; length word would be read out of the first eight bytes of the text.
+(import Str)
+(:: main Int)
+(fn (main)
+  (let ((s "hello"))
+    (+ (strLen s) 37)))

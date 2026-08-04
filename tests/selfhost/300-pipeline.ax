@@ -15,5 +15,5 @@
         (let ((pr (parseModule (lex src))))
           (if (== (memGetWord pr 0) 0)
               8
-              (let ((out (emitModule (memGetWord pr 1) (strFromLit (__addr "t")))))
+              (let ((out (emitModule (memGetWord pr 1) "t")))
                 (if (> (strLen out) 10) 42 9)))))))

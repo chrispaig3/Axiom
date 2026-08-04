@@ -31,6 +31,14 @@ pub enum ParseError {
     /// would mean re-deriving them in every renderer.
     #[error("`{}` is no longer part of Axiom", keyword.spelling())]
     Removed { keyword: RemovedKeyword, span: Span },
+    /// Nesting deeper than [`MAX_NESTING_DEPTH`].
+    ///
+    /// The parser is recursive descent and every stage after it walks the
+    /// tree recursively too, so nesting depth is native stack depth. Without
+    /// this the compiler aborts on `SIGSEGV` with no span, no message and no
+    /// way for a caller to tell a malformed input from a compiler bug.
+    #[error("nesting is too deep (limit is {limit})")]
+    RecursionLimit { limit: usize, span: Span },
 }
 
 impl ParseError {
@@ -40,6 +48,7 @@ impl ParseError {
             ParseError::UnexpectedEof { span } => *span,
             ParseError::Message { span, .. } => *span,
             ParseError::Removed { span, .. } => *span,
+            ParseError::RecursionLimit { span, .. } => *span,
         }
     }
 
@@ -70,20 +79,74 @@ impl ParseError {
             )
             .with_primary(span, keyword.rationale())
             .with_help(keyword.replacement()),
+            ParseError::RecursionLimit { limit, .. } => Diagnostic::error(
+                &code::RECURSION_LIMIT,
+                self.to_string(),
+            )
+            .with_primary(span, format!("nesting reaches {} levels here", limit))
+            .with_help(
+                "rewrite the form as a `let` chain, a `{}` block, or a balanced tree; \
+                 hand-written code does not reach this limit, generated code can",
+            ),
         }
     }
 }
 
 type ParseResult<T> = Result<T, ParseError>;
 
+/// How deeply expressions, types and patterns may nest.
+///
+/// Chosen against the measured cost of one level. On an 8 MiB stack the
+/// pipeline overflows at roughly 4,200 levels - about 2 KiB of stack per
+/// level across the deepest stage - so this leaves a factor of four in
+/// hand, and [`Parser::STACK_SIZE`] makes the margin independent of the
+/// ambient `ulimit -s` rather than dependent on it.
+///
+/// It is deliberately far above anything a person writes and far below
+/// what crashes: the deepest form in this repository, `self_host/`
+/// included, nests 23 levels.
+pub const MAX_NESTING_DEPTH: usize = 1024;
+
 pub struct Parser {
     tokens: Vec<Token>,
     pos: usize,
+    /// Current nesting depth, maintained by [`Parser::descend`].
+    depth: usize,
 }
 
 impl Parser {
+    /// Stack size for the thread the compiler runs on.
+    ///
+    /// The recursion limit bounds depth; this bounds the stack that depth
+    /// consumes, so that reaching [`MAX_NESTING_DEPTH`] reports a
+    /// diagnostic on any host rather than reporting one on hosts with a
+    /// generous default stack and crashing on the rest.
+    pub const STACK_SIZE: usize = 64 * 1024 * 1024;
+
     pub fn new(tokens: Vec<Token>) -> Self {
-        Self { tokens, pos: 0 }
+        Self {
+            tokens,
+            pos: 0,
+            depth: 0,
+        }
+    }
+
+    /// Run `f` one level deeper, or report [`ParseError::RecursionLimit`].
+    ///
+    /// The depth is restored on both the success and the error path, so a
+    /// caller that recovers from a parse error and keeps going does not
+    /// inherit a depth count from the form that failed.
+    fn descend<T>(&mut self, f: impl FnOnce(&mut Self) -> ParseResult<T>) -> ParseResult<T> {
+        if self.depth >= MAX_NESTING_DEPTH {
+            return Err(ParseError::RecursionLimit {
+                limit: MAX_NESTING_DEPTH,
+                span: self.current_span(),
+            });
+        }
+        self.depth += 1;
+        let result = f(self);
+        self.depth -= 1;
+        result
     }
 
     /// Collect any AXTAG tokens (`TokenKind::Axtag`) that immediately
@@ -829,6 +892,10 @@ impl Parser {
     }
 
     fn parse_pattern(&mut self) -> ParseResult<Pattern> {
+        self.descend(Self::parse_pattern_at_depth)
+    }
+
+    fn parse_pattern_at_depth(&mut self) -> ParseResult<Pattern> {
         if self.check(TokenKind::Underscore) {
             self.advance();
             return Ok(Pattern::PWildcard);
@@ -860,8 +927,19 @@ impl Parser {
                     let mut named_args = Vec::new();
                     while !self.check(TokenKind::RBrace) && !self.at_eof() {
                         let field_name = self.parse_ident()?;
-                        self.expect(TokenKind::Eq)?;
-                        let field_pat = self.parse_pattern()?;
+                        // Field punning: `{ w, h }` is `{ w = w, h = h }`.
+                        //
+                        // The common case by a wide margin - a field is
+                        // almost always bound to a name matching it - and
+                        // writing it twice is exactly the noise that makes
+                        // named patterns lose to positional ones despite
+                        // being the safer spelling. Omitting `=` binds the
+                        // field to its own name.
+                        let field_pat = if self.eat(TokenKind::Eq) {
+                            self.parse_pattern()?
+                        } else {
+                            Pattern::PVar(field_name.clone())
+                        };
                         named_args.push((field_name, field_pat));
                         if self.check(TokenKind::Comma) {
                             self.advance();
@@ -959,6 +1037,10 @@ impl Parser {
     }
 
     fn parse_type(&mut self) -> ParseResult<Type> {
+        self.descend(Self::parse_type_at_depth)
+    }
+
+    fn parse_type_at_depth(&mut self) -> ParseResult<Type> {
         if self.check(TokenKind::LParen) {
             self.advance();
 
@@ -1139,6 +1221,10 @@ impl Parser {
     }
 
     fn parse_expr_inner(&mut self, in_parens: bool) -> ParseResult<Expr> {
+        self.descend(|p| p.parse_expr_at_depth(in_parens))
+    }
+
+    fn parse_expr_at_depth(&mut self, in_parens: bool) -> ParseResult<Expr> {
         if self.check(TokenKind::LParen) {
             self.advance();
 
@@ -2140,5 +2226,121 @@ mod tests {
             }
             other => panic!("expected DStruct, got {:?}", other),
         }
+    }
+
+    fn parse_err(source: &str) -> ParseError {
+        let mut lexer = Lexer::new(source, 0);
+        let tokens = lexer.tokenize().expect("lex failed");
+        Parser::new(tokens)
+            .parse_module()
+            .expect_err("expected a parse error")
+    }
+
+    /// Run `f` on a thread with the stack the compiler binary gives
+    /// itself, and fail if it does not survive.
+    ///
+    /// The depth tests have to run here rather than directly on a test
+    /// thread, whose 2 MiB default is *smaller* than what
+    /// `MAX_NESTING_DEPTH` levels need - at roughly 2 KiB of stack per
+    /// level, 1,024 levels do not fit, and the first version of these
+    /// tests aborted proving it.
+    ///
+    /// That makes this the gate on the pair of constants rather than a
+    /// workaround for the harness: it fails if `MAX_NESTING_DEPTH` is
+    /// ever raised, or `Parser::STACK_SIZE` lowered, to the point where
+    /// the limit stops being reachable without crashing first. The
+    /// no-crash guarantee is a property of the two together, and nothing
+    /// else in the suite pins it.
+    fn on_compiler_stack<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> T {
+        std::thread::Builder::new()
+            .stack_size(Parser::STACK_SIZE)
+            .spawn(f)
+            .expect("spawn failed")
+            .join()
+            .expect("the recursion limit did not hold on the compiler's own stack")
+    }
+
+    /// Regression tests for the crash where nesting deeper than the
+    /// native stack aborted the process - `has overflowed its stack`,
+    /// `SIGABRT`, no diagnostic, no span - instead of reporting. The
+    /// invariant is the one in the robustness rules: malformed input
+    /// produces a diagnostic, never a panic or a segfault.
+    ///
+    /// Depth is guarded in three places because there are three mutually
+    /// recursive descents over the token stream, and before the fix each
+    /// one crashed on its own.
+    #[test]
+    fn expression_nested_past_the_limit_reports_instead_of_overflowing() {
+        let err = on_compiler_stack(|| {
+            let n = MAX_NESTING_DEPTH + 100;
+            parse_err(&format!(
+                "(:: main Int)\n(fn main {}1{})",
+                "(+ 1 ".repeat(n),
+                ")".repeat(n)
+            ))
+        });
+        assert!(
+            matches!(err, ParseError::RecursionLimit { limit, .. } if limit == MAX_NESTING_DEPTH),
+            "expected RecursionLimit, got {:?}",
+            err
+        );
+        // The span has to land on real source text: the whole point is
+        // that a caller can point at the offending token.
+        assert!(err.span().start > 0, "recursion limit span is not real");
+        assert_eq!(err.to_diagnostic().code.unwrap().code, "AX2005");
+    }
+
+    #[test]
+    fn type_nested_past_the_limit_reports_instead_of_overflowing() {
+        let err = on_compiler_stack(|| {
+            let n = MAX_NESTING_DEPTH + 100;
+            parse_err(&format!(
+                "(:: f {}Int{})\n(fn (f) 0)",
+                "(-> Int ".repeat(n),
+                ")".repeat(n)
+            ))
+        });
+        assert!(matches!(err, ParseError::RecursionLimit { .. }));
+    }
+
+    #[test]
+    fn pattern_nested_past_the_limit_reports_instead_of_overflowing() {
+        let err = on_compiler_stack(|| {
+            let n = MAX_NESTING_DEPTH + 100;
+            parse_err(&format!(
+                "(data L (a) (N) (C a (L a)))\n(fn (f x) (match x ({}(N){} 1) (_ 2)))",
+                "(C h ".repeat(n),
+                ")".repeat(n)
+            ))
+        });
+        assert!(matches!(err, ParseError::RecursionLimit { .. }));
+    }
+
+    /// The limit must not be reachable by anything a person writes, so
+    /// nesting just under it still parses. This is the negative test for
+    /// the gate: it fails if the limit is ever lowered to a depth real
+    /// code could hit.
+    #[test]
+    fn nesting_just_under_the_limit_still_parses() {
+        on_compiler_stack(|| {
+            let n = MAX_NESTING_DEPTH - 2;
+            parse_ok(&format!(
+                "(:: main Int)\n(fn main {}1{})",
+                "(+ 1 ".repeat(n),
+                ")".repeat(n)
+            ));
+        });
+    }
+
+    /// Depth is bookkeeping, not a high-water mark: two sibling forms
+    /// each nested near the limit must both parse, which they do not if
+    /// `descend` fails to restore the counter on the way back up.
+    #[test]
+    fn depth_is_restored_between_sibling_forms() {
+        on_compiler_stack(|| {
+            let n = MAX_NESTING_DEPTH - 4;
+            let deep = format!("{}1{}", "(+ 1 ".repeat(n), ")".repeat(n));
+            parse_ok(&format!("(:: main Int)\n(fn main (+ {} {}))", deep, deep));
+        });
     }
 }

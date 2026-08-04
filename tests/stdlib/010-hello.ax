@@ -6,6 +6,6 @@
 (pub fn (main)
   {
     (printlnLit (__addr "hello, world"))
-    (println (strFromLit (__addr "and hello again")))
+    (println "and hello again")
     0
   })

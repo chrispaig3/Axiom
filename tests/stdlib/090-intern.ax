@@ -46,7 +46,7 @@
 ; the re-interning check below needs.
 (pub :: itName (-> Int Int))
 (pub fn (itName n)
-  (strConcat (strFromLit (__addr "id")) (fmtInt n)))
+  (strConcat "id" (fmtInt n)))
 
 ; Intern "id{lo}" .. "id{hi-1}".
 (pub :: itInternRange (-> Int Int Int Int))
@@ -82,10 +82,10 @@
   (let ((it (internNew))
         (col (internWithCapacity 8))
         (big (internNew))
-        (alpha (strFromLit (__addr "alpha")))
-        (built (strConcat (strFromLit (__addr "al"))
-                          (strFromLit (__addr "pha"))))
-        (haystack (strFromLit (__addr "not-alpha-either"))))
+        (alpha "alpha")
+        (built (strConcat "al"
+                          "pha"))
+        (haystack "not-alpha-either"))
     {
       ; --- a fresh interner ---
       (printlnInt (internCount it))                    ; 0
@@ -95,8 +95,8 @@
 
       ; --- distinct strings get distinct, dense ids ---
       (printlnInt (internIntern it alpha))             ; 0
-      (printlnInt (internIntern it (strFromLit (__addr "beta"))))   ; 1
-      (printlnInt (internIntern it (strFromLit (__addr "gamma"))))  ; 2
+      (printlnInt (internIntern it "beta"))   ; 1
+      (printlnInt (internIntern it "gamma"))  ; 2
       (printlnInt (internCount it))                    ; 3
 
       ; --- THE POINT: equal content, four unrelated handles, one id ---
@@ -127,33 +127,33 @@
       (printlnInt (strLen (internLookup it 100000)))   ; 0
 
       ; --- the empty string is an ordinary key ---
-      (printlnInt (internIntern it (strFromLit (__addr ""))))       ; 4
+      (printlnInt (internIntern it ""))       ; 4
       (printlnInt (internCount it))                    ; 5
       (printlnInt (internIntern it (strSlice haystack 0 0)))        ; 4: again
       (printlnInt (internCount it))                    ; 5
       (printlnInt (strLen (internLookup it 4)))        ; 0: and it is empty
 
       ; --- a string that was never interned ---
-      (printlnInt (internFind it (strFromLit (__addr "delta"))))    ; -1
-      (printlnInt (internFind it (strFromLit (__addr "alph"))))     ; -1: prefix
-      (printlnInt (internFind it (strFromLit (__addr "alphaa"))))   ; -1: extension
+      (printlnInt (internFind it "delta"))    ; -1
+      (printlnInt (internFind it "alph"))     ; -1: prefix
+      (printlnInt (internFind it "alphaa"))   ; -1: extension
       (printlnInt (internCount it))                    ; 5: find never adds
 
       ; --- three strings sharing one table index ---
       (printlnInt (internCap col))                     ; 16
-      (printlnInt (internSlotOf (strFromLit (__addr "ae")) 16))     ; 0
-      (printlnInt (internSlotOf (strFromLit (__addr "ah")) 16))     ; 0
-      (printlnInt (internSlotOf (strFromLit (__addr "ba")) 16))     ; 0
-      (printlnInt (internIntern col (strFromLit (__addr "ae"))))    ; 0
-      (printlnInt (internIntern col (strFromLit (__addr "ah"))))    ; 1
-      (printlnInt (internIntern col (strFromLit (__addr "ba"))))    ; 2
+      (printlnInt (internSlotOf "ae" 16))     ; 0
+      (printlnInt (internSlotOf "ah" 16))     ; 0
+      (printlnInt (internSlotOf "ba" 16))     ; 0
+      (printlnInt (internIntern col "ae"))    ; 0
+      (printlnInt (internIntern col "ah"))    ; 1
+      (printlnInt (internIntern col "ba"))    ; 2
       (printlnInt (internCount col))                   ; 3
       (printlnInt (internCap col))                     ; 16: no rehash yet
       ; Re-intern each, from fresh handles, so the whole probe run is
       ; walked rather than only its first slot.
-      (printlnInt (internIntern col (strFromLit (__addr "ae"))))    ; 0
-      (printlnInt (internIntern col (strFromLit (__addr "ah"))))    ; 1
-      (printlnInt (internIntern col (strFromLit (__addr "ba"))))    ; 2
+      (printlnInt (internIntern col "ae"))    ; 0
+      (printlnInt (internIntern col "ah"))    ; 1
+      (printlnInt (internIntern col "ba"))    ; 2
       (printlnInt (internCount col))                   ; 3: still three
       (println (internLookup col 2))                   ; ba
 
@@ -165,8 +165,8 @@
       (printlnInt (internCount big))                   ; 100: none re-added
       (println (internLookup big 0))                   ; id0
       (println (internLookup big 99))                  ; id99
-      (printlnInt (internFind big (strFromLit (__addr "id7"))))     ; 7
-      (printlnInt (internFind big (strFromLit (__addr "id100"))))   ; -1
+      (printlnInt (internFind big "id7"))     ; 7
+      (printlnInt (internFind big "id100"))   ; -1
       (printlnInt (strLen (internLookup big 100)))     ; 0
       0
     }))

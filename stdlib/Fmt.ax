@@ -52,9 +52,9 @@
 (pub :: fmtInt (-> Int Int))
 (pub fn (fmtInt n)
   (if (intIsMostNegative n)
-      (strFromLit (__addr "-9223372036854775808"))
+      "-9223372036854775808"
       (if (< n 0)
-          (strConcat (strFromLit (__addr "-")) (fmtNat (- 0 n)))
+          (strConcat "-" (fmtNat (- 0 n)))
           (fmtNat n))))
 
 ; `n` (assumed non-negative) in base 10.
@@ -86,7 +86,7 @@
 (pub :: fmtHex (-> Int Int))
 (pub fn (fmtHex n)
   (if (== n 0)
-      (strFromLit (__addr "0"))
+      "0"
       (let ((width (fmtHexWidth n 0)))
         (let ((out (strAlloc width)))
           {

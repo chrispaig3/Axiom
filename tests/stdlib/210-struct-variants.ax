@@ -1,0 +1,130 @@
+; Struct variants: `data` constructors with named fields.
+;
+; Roadmap §4.3 asks for "named fields per variant, matchable and
+; accessible by name", plus field punning in patterns. This exercises
+; all of it, and in particular the three properties that make named
+; matching *safer* than positional matching rather than merely
+; different - none of which a positional pattern can offer:
+;
+;   - order independence: `{ h = h, w = w }` binds the same values as
+;     `{ w = w, h = h }`, so reordering a declaration cannot silently
+;     swap two same-typed fields at every match site;
+;   - partiality: a field the arm does not name is not bound, rather
+;     than forcing a `_` placeholder that has to be kept in step with
+;     the declaration's arity;
+;   - punning: `{ w, h }` means `{ w = w, h = h }`.
+;
+; The values are chosen so a swap is visible: `(Rect 3 4)` has
+; `w * h = 12` either way, so the fields are combined asymmetrically as
+; `w * 10 + h` instead, which is 34 for the right binding and 43 for a
+; swapped one.
+(import IO)
+
+(pub data Shape
+  (Circle { r : Int })
+  (Rect { w : Int, h : Int })
+  (Point))
+
+; Positional matching still works: named fields do not remove the
+; positional spelling, they add one.
+(pub :: byPosition (-> Shape Int))
+(pub fn (byPosition s)
+  (match s
+    ((Circle r) r)
+    ((Rect w h) (+ (* w 10) h))
+    ((Point) 0)))
+
+; Named, in declaration order.
+(pub :: byName (-> Shape Int))
+(pub fn (byName s)
+  (match s
+    ((Circle { r = r }) r)
+    ((Rect { w = w, h = h }) (+ (* w 10) h))
+    ((Point) 0)))
+
+; Named, in the *opposite* order to the declaration. Must agree with
+; `byName` - this is the assertion that the fields are matched by name
+; and not by position.
+(pub :: byNameReversed (-> Shape Int))
+(pub fn (byNameReversed s)
+  (match s
+    ((Circle { r = r }) r)
+    ((Rect { h = h, w = w }) (+ (* w 10) h))
+    ((Point) 0)))
+
+; Punned. Must agree with both of the above.
+(pub :: byPun (-> Shape Int))
+(pub fn (byPun s)
+  (match s
+    ((Circle { r }) r)
+    ((Rect { w, h }) (+ (* w 10) h))
+    ((Point) 0)))
+
+; Punning and explicit binding, mixed in one pattern, with the explicit
+; one renaming.
+(pub :: byMixed (-> Shape Int))
+(pub fn (byMixed s)
+  (match s
+    ((Circle { r }) r)
+    ((Rect { w, h = tall }) (+ (* w 10) tall))
+    ((Point) 0)))
+
+; Only one field named. The other is simply not bound, which a
+; positional pattern cannot express without a placeholder.
+(pub :: widthOnly (-> Shape Int))
+(pub fn (widthOnly s)
+  (match s
+    ((Rect { w }) w)
+    (_ (- 0 1))))
+
+; Nested: a named pattern whose field is itself matched.
+(pub data Wrapped (Wrap { inner : Shape, tag : Int }))
+
+(pub :: unwrapArea (-> Wrapped Int))
+(pub fn (unwrapArea x)
+  (match x
+    ((Wrap { inner = (Rect { w, h }), tag = t }) (+ (* w h) t))
+    ((Wrap { inner = (Circle { r }), tag = t }) (+ r t))
+    ((Wrap { tag = t }) t)))
+
+; Field access by name, on a value whose constructor is known.
+(pub :: radius (-> Shape Int))
+(pub fn (radius s) s.r)
+
+(pub :: main Int)
+;@axiom:effect(io)
+(pub fn (main)
+  (let ((c (Circle 7))
+        (r (Rect 3 4))
+        (p (Point)))
+    {
+      ; --- all five spellings agree, on every constructor ---
+      (printlnInt (byPosition c))        ; 7
+      (printlnInt (byName c))            ; 7
+      (printlnInt (byNameReversed c))    ; 7
+      (printlnInt (byPun c))             ; 7
+      (printlnInt (byMixed c))           ; 7
+
+      (printlnInt (byPosition r))        ; 34
+      (printlnInt (byName r))            ; 34
+      (printlnInt (byNameReversed r))    ; 34: by name, not position
+      (printlnInt (byPun r))             ; 34
+      (printlnInt (byMixed r))           ; 34
+
+      (printlnInt (byPosition p))        ; 0
+      (printlnInt (byName p))            ; 0
+      (printlnInt (byPun p))             ; 0
+
+      ; --- a pattern may name a subset of the fields ---
+      (printlnInt (widthOnly r))         ; 3
+      (printlnInt (widthOnly c))         ; -1
+
+      ; --- nested named patterns ---
+      (printlnInt (unwrapArea (Wrap r 100)))   ; 112: 3*4 + 100
+      (printlnInt (unwrapArea (Wrap c 100)))   ; 107: 7 + 100
+      (printlnInt (unwrapArea (Wrap p 100)))   ; 100
+
+      ; --- field access by name ---
+      (printlnInt (radius c))            ; 7
+      0
+    }))

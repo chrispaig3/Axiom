@@ -23,7 +23,7 @@
 ;@axiom:effect(io)
 (pub fn (loud x)
   {
-    (println (strFromLit (__addr "EVALUATED")))
+    (println "EVALUATED")
     (> x 0)
   })
 

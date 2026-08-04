@@ -101,6 +101,19 @@ registry! {
          determined by where it is created and how far it escapes, and it is\n\
          dropped deterministically at the end of that arena. Delete the `region`\n\
          wrapper; the body is the program."),
+    RECURSION_LIMIT => ("AX2005", "recursion-limit",
+        "nesting too deep",
+        "A form nests more deeply than the parser's fixed limit. Every stage\n\
+         after the parser walks the syntax tree recursively, so an unbounded\n\
+         nesting depth is an unbounded native stack depth; the limit converts\n\
+         what would otherwise be a stack overflow - a crash with no span and no\n\
+         message - into this diagnostic, pointing at the token where the limit\n\
+         was reached.\n\
+         \n\
+         Hand-written code effectively never reaches the limit. Generated code\n\
+         can: a long chain built by folding a binary operator over a list nests\n\
+         once per element. Emit a `let` chain, a `{}` block, or a balanced tree\n\
+         instead of one deeply nested form."),
 
     // ---- AX3xxx: semantic analysis ----
     UNDEFINED_VARIABLE => ("AX3001", "undefined-variable",
