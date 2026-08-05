@@ -202,7 +202,12 @@ hold. The ones on the critical path here:
   1.4× — so this now blocks on the memory model (P2) rather than on
   `Map`. See [self-hosting.md §2.1 B3](self-hosting.md#21-blockers).
 - **B4** — namespacing: `Mod::name` qualified access works; two modules can define the same name without collision. **(DONE)**
-- **S1** — every constructor, including nullary ones, is a heap block.
+- **S1** — **(DONE)** nullary constructors are immediates rather than
+  heap blocks, in mixed types as well as all-nullary ones; a `match`
+  over a mixed type reads the tag through a runtime
+  immediate-vs-pointer guard. Constructors with fields still box. See
+  [self-hosting.md §2.2 S1](self-hosting.md#22-serious-but-workable);
+  pinned by `tests/stdlib/270-nullary-unboxed.ax`.
 
 ---
 
@@ -643,9 +648,10 @@ narrow:
    `tests/stdlib/210-struct-variants.ax`, which checks the named and
    positional spellings agree on every constructor and that a reversed
    named pattern binds by name rather than by position.
-2. **Nullary constructors should not allocate** (`S1`). `(Nil)` is
-   currently a heap block. A nullary constructor is a constant and should
-   be an immediate.
+2. **Nullary constructors should not allocate** (`S1`). **(DONE)**
+   `(Nil)`, `(None)` and every other fieldless constructor is an
+   immediate tag, in mixed types too; only constructors with fields
+   allocate.
 3. **Field punning in patterns. (DONE)** `{ w, h }` is `{ w = w, h = h }`.
    Mixes freely with explicit binding, and named patterns nest.
 
@@ -656,9 +662,9 @@ field names are not yet honoured, and it is the smaller half: a
 constructor call is written once per value, whereas a pattern is written
 once per use site, which is why matching was done first.
 
-Item 2 interacts with the memory model and should land with it; the
-allocation it removes is a large fraction of what the §2.2 measurement is
-measuring.
+Item 2 landed ahead of the memory model: the representation change
+needed nothing from the allocator, only a runtime immediate-vs-pointer
+guard at match sites over mixed types.
 
 ### 4.4 Concurrency — delegated to third-party libraries
 
@@ -723,7 +729,7 @@ parallel.
 |---|---|---|
 | **P0** *(done)* | Green CI; `union`/`region` removed; tree-sitter grammar | All seven gates green on all four targets |
 | **P1** *(done, except `Map` throughput)* | `B2` tail calls · `B3` `Vec`/`Map`/`Intern` golden tests and scale validation · `B1` closures · ADT struct variants | 10⁷-iteration loop at `-O0` ✓; higher-order probe runs ✓; struct variants match exhaustively, by name and punned ✓; `Map` is 14× Rust and blocks on P2's allocator, not on `Map` |
-| **P2** | Memory model (§4.1) · `S1` unboxed nullary constructors | `stress.ax` at 2000 generations within 2× of 20 generations |
+| **P2** | Memory model (§4.1) · ~~`S1` unboxed nullary constructors~~ **(DONE)** | `Map` insert at 10⁶ within 2× of Rust (`scripts/bench-datastructures.sh`) — the measured criterion B3 hands to this phase; the `stress.ax` criterion this row used to carry named a file deleted with the Game of Life sample |
 | **P3** | Macro system (§4.2) — hygiene done · ~~`B4` namespacing~~ **(DONE)** | Hygiene test passes; two modules define the same name without collision |
 | **P4** | Self-hosting phases 2–5 · HTTP library (§4.5) | `stage2 == stage3`; HTTP server serves a request under load |
 | **P5** | LSP (§4.6) · ~~trivia preservation for `fmt`~~ **(DONE, §2.3)** · benchmarking · docs | Completion and diagnostics in a real editor; ~~`fmt` round-trips every file in the repo, gated in CI~~ ✓ 70/70, gated by `check-fmt.sh`; published performance profile |

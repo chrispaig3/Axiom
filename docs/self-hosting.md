@@ -191,12 +191,32 @@ language-level decision is qualified names, and it is implemented in
 
 ### 2.2 Serious but workable
 
-**S1. `data` values are boxed unconditionally.** Every constructor,
-including nullary ones, is a heap block. A compiler allocates a
-constructor per token and per AST node; with a bump allocator and no
-`free`, memory use is proportional to total allocations, not live data.
-Acceptable for a single-shot compiler process, and worth revisiting
-before anything long-running is written in Axiom.
+**S1. `data` values with fields are boxed; nullary constructors are
+immediates.** A constructor with fields is a heap block. A *nullary*
+constructor is its tag, carried as an immediate — in all-nullary types
+and in mixed types alike, so `(Nil)`, `(None)` and every other
+fieldless constructor allocates nothing (verified at the IR level: a
+program whose `Option` path only ever takes `(None)` emits zero
+allocator calls). What makes the mixed case sound is that the two
+representations are distinguishable at runtime: tags are small
+ordinals and every heap address is mmap-page memory at or above 4096,
+so a `match` over a mixed type reads the tag through one
+`icmp slt 4096` guard instead of an unconditional load — word 0 of an
+immediate is a dereference of a small integer, which is a crash. Tags
+are globally unique across all `data` types, so the one guarded read
+serves every arm. A type with so many constructors that a nullary tag
+reaches 4096 stays boxed, correct and merely unoptimised. Pinned by
+`tests/stdlib/270-nullary-unboxed.ax`, the matrix of arm orders,
+nested patterns over both representations, `data`/`struct` fields,
+`Vec` slots, the builtin `Option`, and both bare-construction
+spellings; the identity line (`two separately constructed INil are
+the same immediate`) fails under the boxed representation, which is
+how the test is known to discriminate.
+
+For constructors *with* fields, memory use under the bump allocator is
+still proportional to total allocations, not live data. Acceptable for
+a single-shot compiler process, and worth revisiting before anything
+long-running is written in Axiom.
 
 *The collector, and why it is shaped the way it is.* `--gc` replaces the
 bump allocator with a conservative, non-moving mark-sweep collector, so
@@ -559,7 +579,11 @@ What genuinely remains: no type checking -
 `self_host/typecheck.ax` is a stub - so a program stage0 would reject
 with a diagnostic, stage1 compiles into whatever the code happens to
 mean. No lambda expressions or partial application (refused loudly).
-It emits for darwin-aarch64
+stage1 also still boxes every nullary constructor where stage0 now
+emits immediates (S1) - each compiler's output is self-consistent, so
+the conformance suite and the fixpoint are indifferent to it, but
+byte-identical emission (phase 4) will need stage1 to reproduce the
+unboxing. It emits for darwin-aarch64
 only. And the driver reads `in.ax` from the working directory and
 writes to stdout, with no argument parsing. Float literals with more
 precision than a double round twice where stage0 rounds once, so a

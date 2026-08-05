@@ -27,10 +27,27 @@ pub struct IrGen {
     alloca_counter: usize,
     current_block: Option<String>,
     entry_block: Option<String>,
-    /// Constructor tags whose data type has *only* nullary constructors.
-    /// These are stored as immediates (no heap allocation) because every
-    /// value of the type is a simple tag — there are no boxed fields.
+    /// Constructor tags represented as immediates (no heap allocation):
+    /// every nullary constructor whose `data` type keeps all of its
+    /// nullary tags below [`NULLARY_IMMEDIATE_LIMIT`]. A value of such a
+    /// constructor *is* its tag.
+    ///
+    /// This covers nullary constructors of *mixed* types too — `(Nil)`
+    /// in a `List` that also has `Cons` — not only all-nullary types.
+    /// What makes that sound is that an immediate and a heap pointer
+    /// can be told apart at runtime: tags sit below the limit and every
+    /// heap address is an mmap-page address at or above it, so a match
+    /// site whose type mixes both representations reads the tag through
+    /// that comparison (see [`IrGen::gen_conditional_tag_read`]).
     nullary_tags: HashSet<i64>,
+    /// Every constructor tag — nullary or not — of a `data` type that
+    /// mixes representations: at least one unboxed nullary constructor
+    /// and at least one with fields. Membership is per *type* (all of a
+    /// mixed type's tags are present), so any arm of a well-typed
+    /// `match` classifies its scrutinee the same way. A tag here whose
+    /// pattern names a constructor with fields must not load word 0
+    /// unguarded — the value may be an immediate sibling.
+    mixed_rep_tags: HashSet<i64>,
     /// Top-level functions declared with no parameters.
     ///
     /// A bare `foo` where `foo` is nullary has to lower to a *call*,
@@ -74,6 +91,19 @@ pub struct IrGen {
     /// modules use `module$name` as the value, keyed by bare `name`.
     fn_mangle_map: HashMap<String, String>,
 }
+
+/// Highest value (exclusive) a constructor tag may have and still be
+/// carried as an immediate. The bound is what makes an immediate
+/// distinguishable from a heap pointer at runtime: every heap address
+/// comes from an mmap-backed allocator (the bump allocator and the
+/// `--gc` collector's chunks alike), so it is page-aligned userspace
+/// memory at or above the first page — never below 4096 and never
+/// negative as an `i64`. `icmp slt` against this limit therefore
+/// separates the two exactly. Tags are ordinals in a flat walk of every
+/// `data` declaration, so only a program with over four thousand
+/// constructors can reach the limit, and such a type simply stays
+/// boxed (see the population site in [`IrGen::generate`]).
+const NULLARY_IMMEDIATE_LIMIT: i64 = 4096;
 
 /// Look up a data constructor by name across every `data` type the type
 /// checker collected, returning:
@@ -332,6 +362,7 @@ impl IrGen {
             current_block: None,
             entry_block: None,
             nullary_tags: HashSet::new(),
+            mixed_rep_tags: HashSet::new(),
             nullary_fns: HashSet::new(),
             all_fns: HashSet::new(),
             float_fns: HashSet::new(),
@@ -454,25 +485,45 @@ impl IrGen {
             })
             .collect();
 
-        self.nullary_tags = {
-            let mut tags: HashSet<i64> = HashSet::new();
-            // S1: unboxed nullary constructors.
-            // For all-nullary data types, constructors are immediate tags
-            // instead of heap-allocated boxes.
+        // S1: unboxed nullary constructors. A nullary constructor is a
+        // constant, so it is carried as its immediate tag rather than a
+        // heap block holding that tag — including in a mixed type like
+        // `List`, where `(Nil)` is an immediate while `(Cons ...)` stays
+        // boxed. The decision is per *type*: a type unboxes its nullary
+        // constructors only if all their tags stay below
+        // `NULLARY_IMMEDIATE_LIMIT`, because that bound is what lets a
+        // match site distinguish an immediate from a heap pointer at
+        // runtime. A program with enough constructors to push a nullary
+        // tag past the limit keeps that whole type boxed — correct,
+        // merely unoptimised.
+        (self.nullary_tags, self.mixed_rep_tags) = {
+            let mut nullary: HashSet<i64> = HashSet::new();
+            let mut mixed: HashSet<i64> = HashSet::new();
             let mut tag: i64 = 0;
             for dt in &type_checker.data_types {
-                let all_nullary = dt
+                let first_tag = tag;
+                let arities: Vec<usize> = dt
                     .constructors
                     .iter()
-                    .all(|c| constructor_arity(&c.ty) == 0);
-                for _ in &dt.constructors {
-                    if all_nullary {
-                        tags.insert(tag);
+                    .map(|c| constructor_arity(&c.ty))
+                    .collect();
+                let unboxes = arities
+                    .iter()
+                    .enumerate()
+                    .all(|(i, &a)| a > 0 || first_tag + (i as i64) < NULLARY_IMMEDIATE_LIMIT)
+                    && arities.contains(&0);
+                let has_boxed = arities.iter().any(|&a| a > 0);
+                for &arity in &arities {
+                    if unboxes && arity == 0 {
+                        nullary.insert(tag);
+                    }
+                    if unboxes && has_boxed {
+                        mixed.insert(tag);
                     }
                     tag += 1;
                 }
             }
-            tags
+            (nullary, mixed)
         };
 
         for decl in &ast_module.decls {
@@ -955,10 +1006,10 @@ impl IrGen {
     }
 
     /// Every Axiom value is one machine word: a heap pointer for a
-    /// constructor with fields, an immediate tag for a nullary
-    /// constructor of an all-nullary `data` type, an integer otherwise.
-    /// Nothing needs a representation change to cross a field, argument,
-    /// or return boundary, which is what makes polymorphism free here.
+    /// constructor with fields, an immediate tag for an unboxed nullary
+    /// constructor, an integer otherwise. Nothing needs a representation
+    /// change to cross a field, argument, or return boundary, which is
+    /// what makes polymorphism free here.
     fn box_if_tag(&mut self, _func: &mut IrFunction, value: &IrValue) -> IrValue {
         value.clone()
     }
@@ -1090,6 +1141,153 @@ impl IrGen {
         IrValue::Local(ptr_local)
     }
 
+    /// Read the tag of a value whose type mixes representations: an
+    /// unboxed nullary constructor is its own tag, a constructor with
+    /// fields is a heap pointer whose tag is word 0, and which of the
+    /// two this value is can only be decided at runtime — by comparing
+    /// against [`NULLARY_IMMEDIATE_LIMIT`], which no immediate reaches
+    /// and every heap address exceeds.
+    ///
+    /// The result is correct to compare against *any* constructor tag
+    /// of the type: tags are globally unique, so an immediate never
+    /// equals a boxed constructor's stored tag and vice versa. That is
+    /// what lets a `match` read the tag once, up front, and serve
+    /// every arm from it.
+    ///
+    /// Emitted as a branch rather than an unconditional load because
+    /// the load is the point: word 0 of an immediate is a dereference
+    /// of a small integer, which is exactly the crash this test
+    /// exists to avoid.
+    fn gen_conditional_tag_read(&mut self, func: &mut IrFunction, value: IrValue) -> IrValue {
+        let i64_ty = TypeId::TCon("I64".to_string(), vec![]);
+        let slot = self.new_local();
+        self.emit_to_func(
+            func,
+            IrInst::Alloca {
+                dest: IrValue::Local(slot.clone()),
+                ty: i64_ty.clone(),
+            },
+        );
+        let is_imm = self.new_local();
+        self.emit_to_func(
+            func,
+            IrInst::Lt {
+                dest: IrValue::Local(is_imm.clone()),
+                lhs: value.clone(),
+                rhs: IrValue::Const(IrConst::Int(NULLARY_IMMEDIATE_LIMIT, i64_ty.clone())),
+            },
+        );
+        let imm_label = self.new_block_label();
+        let boxed_label = self.new_block_label();
+        let merge_label = self.new_block_label();
+        self.emit_to_func(
+            func,
+            IrInst::CondBr {
+                cond: IrValue::Local(is_imm),
+                then_target: imm_label.clone(),
+                else_target: boxed_label.clone(),
+            },
+        );
+
+        func.blocks.push(IrBlock {
+            label: imm_label.clone(),
+            insts: Vec::new(),
+        });
+        self.current_block = Some(imm_label);
+        self.emit_to_func(
+            func,
+            IrInst::Store {
+                ptr: IrValue::Local(slot.clone()),
+                value: value.clone(),
+            },
+        );
+        self.emit_to_func(
+            func,
+            IrInst::Br {
+                target: merge_label.clone(),
+            },
+        );
+
+        func.blocks.push(IrBlock {
+            label: boxed_label.clone(),
+            insts: Vec::new(),
+        });
+        self.current_block = Some(boxed_label);
+        let loaded = self.new_local();
+        self.emit_to_func(
+            func,
+            IrInst::LoadOffset {
+                dest: IrValue::Local(loaded.clone()),
+                ptr: value,
+                offset: 0,
+            },
+        );
+        self.emit_to_func(
+            func,
+            IrInst::Store {
+                ptr: IrValue::Local(slot.clone()),
+                value: IrValue::Local(loaded),
+            },
+        );
+        self.emit_to_func(
+            func,
+            IrInst::Br {
+                target: merge_label.clone(),
+            },
+        );
+
+        func.blocks.push(IrBlock {
+            label: merge_label.clone(),
+            insts: Vec::new(),
+        });
+        self.current_block = Some(merge_label);
+        let tag = self.new_local();
+        self.emit_to_func(
+            func,
+            IrInst::Load {
+                dest: IrValue::Local(tag.clone()),
+                ptr: IrValue::Local(slot),
+            },
+        );
+        IrValue::Local(tag)
+    }
+
+    /// Where a pattern's constructor keeps its tag, given the value the
+    /// pattern is testing. Decided from the *constructor named in the
+    /// pattern*, which is static, never from sniffing the value:
+    ///
+    /// * an unboxed nullary constructor is its tag, so the value is
+    ///   compared directly — correct even when the scrutinee turns out
+    ///   to be a boxed sibling, whose pointer (or stored tag, had it
+    ///   been loaded) can never equal the immediate's;
+    /// * a constructor with fields in a mixed-representation type must
+    ///   test before loading, because the value may be an immediate
+    ///   sibling ([`IrGen::gen_conditional_tag_read`]);
+    /// * a constructor of an all-boxed type loads word 0 outright.
+    fn gen_pattern_observed_tag(
+        &mut self,
+        func: &mut IrFunction,
+        value: IrValue,
+        tag: i64,
+    ) -> IrValue {
+        if self.nullary_tags.contains(&tag) {
+            value
+        } else if self.mixed_rep_tags.contains(&tag) {
+            self.gen_conditional_tag_read(func, value)
+        } else {
+            let loaded = self.new_local();
+            self.emit_to_func(
+                func,
+                IrInst::LoadOffset {
+                    dest: IrValue::Local(loaded.clone()),
+                    ptr: value,
+                    offset: 0,
+                },
+            );
+            IrValue::Local(loaded)
+        }
+    }
+
     /// Generate IR to check sub-patterns of a `PCon` arm or
     /// elements of a `PTuple`/`PList` arm against the fields
     /// of a boxed constructor or tuple/list value.
@@ -1193,24 +1391,13 @@ impl IrGen {
                     match find_constructor(type_checker, &ident.name) {
                         Some((tag, _arity)) => {
                             // Where the tag lives is a property of the
-                            // constructor, not of the value: an unboxed
-                            // nullary constructor *is* its tag, so the
-                            // field holds it directly and loading word 0
-                            // would dereference a small integer.
-                            let observed_tag = if self.nullary_tags.contains(&tag) {
-                                IrValue::Local(field_local.clone())
-                            } else {
-                                let inner_tag_local = self.new_local();
-                                self.emit_to_func(
-                                    func,
-                                    IrInst::LoadOffset {
-                                        dest: IrValue::Local(inner_tag_local.clone()),
-                                        ptr: IrValue::Local(field_local.clone()),
-                                        offset: 0,
-                                    },
-                                );
-                                IrValue::Local(inner_tag_local)
-                            };
+                            // constructor named in the pattern, not of
+                            // the value - see `gen_pattern_observed_tag`.
+                            let observed_tag = self.gen_pattern_observed_tag(
+                                func,
+                                IrValue::Local(field_local.clone()),
+                                tag,
+                            );
                             let cmp_dest = self.new_local();
                             self.emit_to_func(
                                 func,
@@ -1279,24 +1466,13 @@ impl IrGen {
                     match find_constructor(type_checker, &ident.name) {
                         Some((tag, _arity)) => {
                             // Where the tag lives is a property of the
-                            // constructor, not of the value: an unboxed
-                            // nullary constructor *is* its tag, so the
-                            // field holds it directly and loading word 0
-                            // would dereference a small integer.
-                            let observed_tag = if self.nullary_tags.contains(&tag) {
-                                IrValue::Local(field_local.clone())
-                            } else {
-                                let inner_tag_local = self.new_local();
-                                self.emit_to_func(
-                                    func,
-                                    IrInst::LoadOffset {
-                                        dest: IrValue::Local(inner_tag_local.clone()),
-                                        ptr: IrValue::Local(field_local.clone()),
-                                        offset: 0,
-                                    },
-                                );
-                                IrValue::Local(inner_tag_local)
-                            };
+                            // constructor named in the pattern, not of
+                            // the value - see `gen_pattern_observed_tag`.
+                            let observed_tag = self.gen_pattern_observed_tag(
+                                func,
+                                IrValue::Local(field_local.clone()),
+                                tag,
+                            );
                             let cmp_dest = self.new_local();
                             self.emit_to_func(
                                 func,
@@ -2550,46 +2726,56 @@ impl IrGen {
                     },
                 );
 
-                // Load the scrutinee's tag *once*, up front, rather than
+                // Read the scrutinee's tag *once*, up front, rather than
                 // re-deriving "is this a constructor value" per arm - every
-                // `PCon` arm below compares against this same loaded tag,
-                // and every arm agrees on what a given constructor's tag is
+                // `PCon` arm below compares against this same tag, and
+                // every arm agrees on what a given constructor's tag is
                 // because both this and construction (`gen_construct`) go
                 // through the one shared `find_constructor` lookup. Only
-                // emitted when at least one arm actually needs it: a `match`
-                // over a plain `Int`/`Bool` scrutinee with only
+                // emitted when at least one arm resolves a constructor: a
+                // `match` over a plain `Int`/`Bool` scrutinee with only
                 // `PLit`/`PVar`/`PWildcard` arms has nothing to unbox.
-                let needs_tag = arms.iter().any(|(pat, _)| {
-                    matches!(pat, Pattern::PCon(ident, ..) | Pattern::PConNamed(ident, ..) if find_constructor(type_checker, &ident.name).is_some())
-                });
-                // Whether the scrutinee carries its tag inline is decided by
-                // the constructors the *arms* name, not by inspecting the
+                //
+                // How the scrutinee carries its tag is decided by the
+                // constructors the *arms* name, not by inspecting the
                 // scrutinee value. All arms of a well-typed `match` name
-                // constructors of one `data` type, so they agree, and this
-                // works for a scrutinee of any provenance - a parameter, a
-                // field, a call result - where sniffing the `IrValue` only
-                // ever recognised a literal or a locally tracked alloca and
-                // silently dereferenced everything else.
-                let immediate_tag = arms.iter().any(|(pat, _)| {
-                    matches!(pat, Pattern::PCon(ident, ..) | Pattern::PConNamed(ident, ..)
-                        if find_constructor(type_checker, &ident.name)
-                            .is_some_and(|(tag, _)| self.nullary_tags.contains(&tag)))
+                // constructors of one `data` type, so any resolvable arm
+                // classifies the whole type - and this works for a
+                // scrutinee of any provenance (a parameter, a field, a
+                // call result), where sniffing the `IrValue` only ever
+                // recognised a literal or a locally tracked alloca and
+                // silently dereferenced everything else. Three cases:
+                // an all-nullary type's value *is* its tag; a
+                // mixed-representation type's value may be either an
+                // immediate or a pointer, decided at runtime; an
+                // all-boxed type's tag is always word 0. The one tag
+                // read serves every arm because tags are globally
+                // unique - an immediate never equals a boxed
+                // constructor's stored tag, and vice versa.
+                let rep_tag = arms.iter().find_map(|(pat, _)| match pat {
+                    Pattern::PCon(ident, ..) | Pattern::PConNamed(ident, ..) => {
+                        find_constructor(type_checker, &ident.name).map(|(tag, _)| tag)
+                    }
+                    _ => None,
                 });
-                let tag_val = if !needs_tag {
-                    None
-                } else if immediate_tag {
-                    Some(target_val.clone())
-                } else {
-                    let tag_local = self.new_local();
-                    self.emit_to_func(
-                        func,
-                        IrInst::LoadOffset {
-                            dest: IrValue::Local(tag_local.clone()),
-                            ptr: target_val.clone(),
-                            offset: 0,
-                        },
-                    );
-                    Some(IrValue::Local(tag_local))
+                let tag_val = match rep_tag {
+                    None => None,
+                    Some(rep) if self.mixed_rep_tags.contains(&rep) => {
+                        Some(self.gen_conditional_tag_read(func, target_val.clone()))
+                    }
+                    Some(rep) if self.nullary_tags.contains(&rep) => Some(target_val.clone()),
+                    Some(_) => {
+                        let tag_local = self.new_local();
+                        self.emit_to_func(
+                            func,
+                            IrInst::LoadOffset {
+                                dest: IrValue::Local(tag_local.clone()),
+                                ptr: target_val.clone(),
+                                offset: 0,
+                            },
+                        );
+                        Some(IrValue::Local(tag_local))
+                    }
                 };
 
                 let merge_label = self.new_block_label();
@@ -2663,7 +2849,7 @@ impl IrGen {
                                         IrInst::Eq {
                                             dest: IrValue::Local(cmp_dest.clone()),
                                             lhs: tag_val.clone().expect(
-                                                "needs_tag scan above must have found this arm",
+                                                "rep_tag scan above must have found this arm",
                                             ),
                                             rhs: IrValue::Const(IrConst::Int(tag, i64_ty.clone())),
                                         },
@@ -2761,7 +2947,7 @@ impl IrGen {
                                         IrInst::Eq {
                                             dest: IrValue::Local(cmp_dest.clone()),
                                             lhs: tag_val.clone().expect(
-                                                "needs_tag scan above must have found this arm",
+                                                "rep_tag scan above must have found this arm",
                                             ),
                                             rhs: IrValue::Const(IrConst::Int(tag, i64_ty.clone())),
                                         },

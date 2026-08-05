@@ -1,0 +1,123 @@
+; A nullary constructor of a *mixed* `data` type is an immediate, and
+; every way of observing one still works.
+;
+; All-nullary types were already unboxed: no arm of a match over them
+; ever loads a tag word, so the value could simply be the tag. A mixed
+; type - `(data IList (INil) (ICons Int IList))` - could not, because
+; an arm naming `ICons` reads its tag from word 0, and word 0 of an
+; immediate `INil` is a dereference of a small integer. The match now
+; reads the tag through a runtime test: values below the first mmap
+; page are immediates and are their own tag, values above it are heap
+; blocks whose tag is word 0. Globally-unique tags make that one read
+; correct against every arm.
+;
+; This file is the matrix of ways a nullary value meets code that must
+; not confuse it with a pointer: each match arm order (the boxed-first
+; order is the one that would have crashed), nested patterns whose
+; inner field is either representation, `data` and `struct` fields,
+; `Vec` slots, the builtin `Option`'s `None`, both spellings of a bare
+; construction, and an all-nullary type as the regression control.
+(import IO)
+(import Vec)
+
+(data IList (INil) (ICons Int IList))
+
+; Boxed arm first: the tag read runs before any arm is chosen, so this
+; order dereferenced an immediate `INil` when the read was an
+; unconditional load.
+(:: sumList (-> IList Int))
+(fn (sumList l)
+  (match l
+    ((ICons h t) (+ h (sumList t)))
+    ((INil) 0)))
+
+; Nullary arm first: the immediate comparison path.
+(:: lenList (-> IList Int))
+(fn (lenList l)
+  (match l
+    ((INil) 0)
+    ((ICons _ t) (+ 1 (lenList t)))))
+
+; Nested patterns: the inner field is an immediate in the second arm
+; and a pointer in the first, so the inner tag read exercises both
+; sides of the runtime test.
+(:: pairSum (-> IList Int))
+(fn (pairSum l)
+  (match l
+    ((ICons a (ICons b t)) (+ (+ a b) (pairSum t)))
+    ((ICons a (INil)) a)
+    ((INil) 0)))
+
+; An immediate travels through a `data` field and a `struct` field
+; exactly as any other word does.
+(data Wrap (W IList Int))
+(struct Holder (contents : IList) (label : Int))
+
+(:: unwrapLen (-> Wrap Int))
+(fn (unwrapLen w)
+  (match w
+    ((W l k) (+ (lenList l) k))))
+
+; The builtin Option is itself a mixed type - `Some` has a field,
+; `None` does not - so `None` is an immediate in every program.
+(:: getOr (-> (Option Int) Int Int))
+(fn (getOr o d)
+  (match o
+    ((Some x) x)
+    ((None) d)))
+
+; All-nullary control: already immediate before this change, and the
+; match still compares the scrutinee directly with no tag load.
+(data Color (Red) (Green) (Blue))
+(:: colorRank (-> Color Int))
+(fn (colorRank c)
+  (match c
+    ((Red) 1)
+    ((Green) 2)
+    ((Blue) 3)))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let ((three (ICons 1 (ICons 2 (ICons 3 (INil)))))
+        (one (ICons 7 (INil)))
+        ; A bare reference to a nullary constructor constructs it too.
+        (empty INil))
+    {
+      ; --- match arm orders, over every list shape ---
+      (printlnInt (sumList three))            ; 6
+      (printlnInt (sumList (INil)))           ; 0
+      (printlnInt (lenList three))            ; 3
+      (printlnInt (lenList empty))            ; 0
+
+      ; --- nested patterns, immediate and pointer inner fields ---
+      (printlnInt (pairSum three))            ; 1+2 then tail (3 . nil) -> 6
+      (printlnInt (pairSum one))              ; 7
+      (printlnInt (pairSum (INil)))           ; 0
+
+      ; --- immediates through data and struct fields ---
+      (printlnInt (unwrapLen (W three 10)))   ; 13
+      (printlnInt (unwrapLen (W (INil) 10)))  ; 10
+      (let ((h (Holder one 5)))
+        (printlnInt (+ (lenList h.contents) h.label)))  ; 6
+
+      ; --- immediates in Vec slots ---
+      (let ((v (vecNew)))
+        (let ((v2 (vecPush v (cast Int (INil)))))
+          (let ((v3 (vecPush v2 (cast Int three))))
+            {
+              (printlnInt (lenList (cast IList (vecGet v3 0))))  ; 0
+              (printlnInt (lenList (cast IList (vecGet v3 1))))  ; 3
+            })))
+
+      ; --- the builtin Option's None ---
+      (printlnInt (getOr (Some 42) 9))        ; 42
+      (printlnInt (getOr (None) 9))           ; 9
+
+      ; --- two separately constructed INil are the same immediate ---
+      (printlnInt (if (== (cast Int (INil)) (cast Int INil)) 1 0))  ; 1
+
+      ; --- all-nullary control ---
+      (printlnInt (+ (colorRank (Red)) (+ (colorRank (Green)) (colorRank (Blue)))))  ; 6
+      0
+    }))
