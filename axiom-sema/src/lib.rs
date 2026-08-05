@@ -2000,20 +2000,22 @@ impl TypeChecker {
         let r_float = is_float_ty(&rt);
 
         if l_float || r_float {
-            // Whichever side is not a `Float` is the one to point at.
-            if !l_float {
-                self.errors.push(SemError::TypeMismatch {
-                    expected: "Float".to_string(),
-                    found: format!("{}", lt),
-                    span: lhs.span(),
-                });
-            }
-            if !r_float {
-                self.errors.push(SemError::TypeMismatch {
-                    expected: "Float".to_string(),
-                    found: format!("{}", rt),
-                    span: rhs.span(),
-                });
+            // Whichever side is not a `Float` is the one to point at -
+            // but `compatible_with`, not `is_float_ty`, so an
+            // as-yet-unconstrained type variable is allowed to be one.
+            // A lambda parameter has no declared type, so
+            // `(lambda (x) (* x 2.0))` presents `x` as a fresh variable;
+            // rejecting that would make floats unusable in exactly the
+            // higher-order code they are most wanted in. A concrete
+            // `Int` is still rejected.
+            for (ty, operand, is_float) in [(&lt, lhs, l_float), (&rt, rhs, r_float)] {
+                if !is_float && !ty.compatible_with(&float_ty) {
+                    self.errors.push(SemError::TypeMismatch {
+                        expected: "Float".to_string(),
+                        found: format!("{}", ty),
+                        span: operand.span(),
+                    });
+                }
             }
             return if comparison { bool_ty } else { float_ty };
         }

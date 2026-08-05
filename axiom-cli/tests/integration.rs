@@ -1679,3 +1679,43 @@ fn bool_survives_a_struct_field() {
         stderr(&out)
     );
 }
+
+#[test]
+fn float_arithmetic_works_inside_a_lambda() {
+    // A lambda parameter has no declared type, so it presents as a
+    // fresh type variable. Requiring both operands to be *concretely*
+    // `Float` made floats unusable in exactly the higher-order code
+    // they are most wanted in.
+    let dir = scratch_dir("float-lambda");
+    write_source(
+        &dir,
+        "main.ax",
+        "(:: main Int)\n\
+         (fn (main) (let ((f (lambda (x) (* x 2.0)))) (__floatToInt (f 21.0))))\n",
+    );
+    let out = run_axiom(&["run", "main.ax"], &dir);
+    assert_eq!(
+        out.status.code(),
+        Some(42),
+        "stdout: {}\nstderr: {}",
+        stdout(&out),
+        stderr(&out)
+    );
+}
+
+#[test]
+fn fmt_preserves_a_type_alias() {
+    // `(type Name = Alias)`: the formatter omitted the `=`, so a
+    // formatted alias no longer parsed. No `.ax` file in the repository
+    // declares one, so `check-fmt.sh` never exercised it - a gate is
+    // only as wide as the corpus it runs on.
+    let formatted = format_to_string(
+        "fmt-type-alias",
+        "(pub type Num = Int)\n(:: main Num)\n(fn (main) 42)\n",
+    );
+    assert!(
+        formatted.contains("(pub type Num = Int)"),
+        "the type alias lost its `=`: {}",
+        formatted
+    );
+}

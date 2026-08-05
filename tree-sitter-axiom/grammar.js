@@ -332,32 +332,48 @@ module.exports = grammar({
       ')',
     ),
 
-    // `(trait (Name tv) (supertraits...) (method...))`
+    // `(trait (Name tv) (supertraits) (effects) where (methods))`
+    //
+    // This used to describe a different language: methods were each
+    // parenthesised and `where` introduced a *default body* inside one.
+    // The compiler's parser reads a flat `name :: type` sequence inside a
+    // single `where ( ... )` group, with optional supertrait and effect
+    // groups before it. The grammar accepted no real trait at all, and
+    // nothing noticed because no `.ax` file in the repository declares
+    // one - the same corpus-shaped blind spot that hid the formatter's
+    // trait bugs.
     trait_declaration: $ => seq(
       '(', optional(field('visibility', 'pub')), 'trait',
       '(', field('name', $.identifier), optional(field('type_parameter', $.identifier)), ')',
-      repeat(choice(
-        field('effects', $.effect_clause),
-        field('member', $.trait_method),
-      )),
+      repeat(field('group', $.paren_group)),
+      optional(seq('where', '(', repeat(field('member', $.trait_method)), ')')),
       ')',
     ),
 
+    // A trait method: `name :: type [= default] [(effects)]`, with no
+    // parentheses of its own.
     trait_method: $ => seq(
-      '(',
       field('name', $.identifier),
       '::',
       field('type', $._type),
-      optional(seq('where', repeat(field('default', $._expression)))),
-      ')',
+      optional(seq('=', field('default', $._expression))),
+      optional(field('effects', $.paren_group)),
     ),
+
+    // A parenthesised list of identifiers or types: a supertrait list or
+    // an effect list. The compiler's parser distinguishes the two only by
+    // position, and both are spelled the same way, so the grammar - which
+    // exists for highlighting and structural selection - does not try to
+    // tell them apart either.
+    paren_group: $ => seq('(', repeat(choice($.builtin_effect, $._type)), ')'),
 
     effect_clause: $ => seq('(', 'effect', repeat($.effect), ')'),
 
     impl_declaration: $ => seq(
       '(', optional(field('visibility', 'pub')), 'impl',
       '(', field('trait', $.identifier), field('type', $._type), ')',
-      repeat(field('member', $.impl_method)),
+      optional(field('effects', $.paren_group)),
+      optional(seq('where', '(', repeat(field('member', $.impl_method)), ')')),
       ')',
     ),
 

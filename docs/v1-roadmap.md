@@ -342,6 +342,64 @@ one needing a widening at a word boundary; that widening is now applied
 wherever a value enters a word slot, not only in the two arithmetic
 sites that already did it.
 
+### 2.4d A gate is only as wide as the corpus it runs on
+
+`check-fmt.sh` formats every `.ax` file in the repository and re-runs the
+suites against the result, which sounds exhaustive and is not: the corpus
+uses `data`, `struct`, `fn` and `macro` and nothing else. Counted
+directly — `type`, `trait`, `impl`, `effect`, `foreign`, `cond` and
+top-level `lambda` appear **zero** times across `stdlib/`, `self_host/`
+and `tests/`. So the formatter was broken for most of the language with
+the gate green:
+
+- `(type N = Int)` lost its `=`;
+- a `trait` lost its `where`, its supertrait parentheses and its method
+  `::`, and emitted per-method parentheses the parser does not accept;
+- an `impl` lost its `where`;
+- a type application lost its grouping, so `(Node (Tree a) a (Tree a))`
+  became a **five**-field constructor and `(-> (Tree Int) Int)` became a
+  two-argument function.
+
+That last one is the instructive case. It still parses — it is
+well-formed source that means something else — so neither `fmt`'s own
+round-trip verification nor a re-parse can see it. Only type-checking the
+output catches it.
+
+Two changes. `tests/fmt/syntax-zoo.ax` carries every declaration and
+expression form the parser accepts, so the gate no longer depends on what
+the standard library happens to need; and `check-fmt.sh` now
+*type-checks* the formatted zoo rather than only re-parsing it. Verified
+to fail when the regrouping bug is reintroduced.
+
+The zoo immediately found the same blind spot in the editor grammar:
+`tree-sitter-axiom` described a `trait` syntax the compiler does not
+implement — methods individually parenthesised, `where` introducing a
+default body inside one — so it accepted no real trait at all. Fixed and
+now at 74/74 files.
+
+### 2.4e The parser could hang
+
+Found while probing malformed trait declarations. Four hand-written
+effect-list loops shared a shape:
+
+```rust
+while !self.check(RParen) && !self.at_eof() {
+    if self.check(IO) { … } else if self.is_ident() { … }
+    // no final `else` - and no advance
+}
+```
+
+A token that was neither a known effect, an identifier, nor `)` left the
+position unchanged, and the loop spun forever. `(trait (S a) (x) ((-> a Int)))`
+hung the compiler: no diagnostic, no crash, no output. That breaks the
+rule the project holds everywhere else — a malformed input produces a
+diagnostic, not a hang — and it is the worst failure mode of the three,
+because there is nothing to report and nothing to attach a span to.
+
+All four are now one `parse_effect_list` that either consumes a token or
+returns `AX2001` with a span. A twelve-case malformed-input sweep over
+the other parenthesised loops found no further hangs.
+
 ### 2.5 CI was not green, and could not have been
 
 The claim in §2.1 that CI was green on all four targets did not hold when

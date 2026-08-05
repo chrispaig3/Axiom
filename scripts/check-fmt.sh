@@ -114,7 +114,36 @@ if [[ $failed -eq 0 ]]; then
 fi
 
 # ---------------------------------------------------------------
-# 3. Negative test: the gate must fail when it should.
+# 3. The formatted syntax zoo still type-checks.
+#
+# `tests/fmt/syntax-zoo.ax` carries every declaration and expression form
+# the parser accepts, because this gate is otherwise exactly as wide as
+# the corpus - and the corpus uses `data`, `struct`, `fn` and `macro` and
+# nothing else. `type`, `trait`, `impl` and `foreign` were all formatted
+# into source that did not parse, with CI green.
+#
+# Type-checking rather than only re-parsing, because the worst of those
+# bugs produced a file that parsed perfectly well and meant something
+# else: an unparenthesised type application regroups its enclosing form,
+# turning `(Node (Tree a) a (Tree a))` into a five-field constructor and
+# `(-> (Tree Int) Int)` into a two-argument function. `fmt`'s own
+# round-trip check cannot see that, because both spellings are valid.
+# ---------------------------------------------------------------
+echo "== formatted syntax zoo still type-checks =="
+zoo="$copy/tests/fmt/syntax-zoo.ax"
+if [[ -f "$zoo" ]]; then
+  if ! output="$(AXIOM_STDLIB="$copy/stdlib" "$axiom" --diagnostic-format=ai check "$zoo" 2>&1)"; then
+    echo "FAIL the formatted syntax zoo no longer type-checks"
+    echo "$output" | sed 's/^/     /'
+    failed=$((failed + 1))
+  fi
+else
+  echo "FAIL tests/fmt/syntax-zoo.ax is missing"
+  failed=$((failed + 1))
+fi
+
+# ---------------------------------------------------------------
+# 4. Negative test: the gate must fail when it should.
 #
 # A gate that cannot fail is the failure mode this repository has already
 # hit twice - `check-tree-sitter.sh` exited 0 when its CLI was missing,

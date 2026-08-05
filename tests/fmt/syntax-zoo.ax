@@ -1,0 +1,113 @@
+; Every declaration and expression form the parser accepts, in one file.
+;
+; `check-fmt.sh` formats every `.ax` file in the repository and re-runs
+; the suites against the result, which makes it exactly as wide as the
+; corpus - and the corpus uses `data`, `struct`, `fn` and `macro` and
+; nothing else. So the formatter was broken for most of the language and
+; the gate was green: `(type N = Int)` lost its `=`, a `trait` lost its
+; `where`, its supertrait parentheses and its method `::`, and an `impl`
+; lost its `where` too. Each produced a file that no longer parsed, and
+; each was found by hand rather than by CI.
+;
+; This file exists so the gate stops depending on what the standard
+; library happens to need. It is never run - only parsed, formatted, and
+; parsed again - so it is written for coverage of *syntax*, not to
+; compute anything.
+
+(import Mem)
+(import Sys.Platform)
+
+; --- type alias -----------------------------------------------------
+(pub type Count = Int)
+
+; --- foreign binding ------------------------------------------------
+(foreign putchar :: (-> Int Int) = "putchar")
+
+; --- data: positional, named fields, nullary ------------------------
+(pub data Shape
+  (Circle { r : Int })
+  (Rect { w : Int, h : Int })
+  (Empty))
+
+(data Tree (a)
+  (Leaf)
+  (Node (Tree a) a (Tree a)))
+
+; --- struct ---------------------------------------------------------
+(pub struct Rec
+  (n : Int)
+  (on : Bool)
+  (ratio : Float)
+  (label : String))
+
+; --- trait: supertraits, methods, defaults --------------------------
+(trait (Show a) where
+  (show :: (-> a Int)
+   width :: (-> a Int)))
+
+(trait (Ord a) (Show) where
+  (cmp :: (-> a Int)))
+
+; --- impl -----------------------------------------------------------
+(impl (Show Int) where
+  ((show (lambda (x) x))))
+
+; --- macro ----------------------------------------------------------
+(macro (twice x) (+ x x))
+
+; --- signatures: uncurried arrows, higher order ---------------------
+(pub :: apply (-> (-> Int Int) Int Int))
+(pub fn (apply f x) (f x))
+
+; --- every literal kind ---------------------------------------------
+(:: literals (-> Int Int))
+(fn (literals _x)
+  (let ((i 42)
+        (f 1.5)
+        (c 'q')
+        (s "tab\there \"quoted\" back\\slash")
+        (b true))
+    i))
+
+; --- control flow ---------------------------------------------------
+(:: control (-> Int Int))
+;@axiom:pure
+(fn (control n)
+  (let ((mut i 0)
+        (mut acc 0))
+    {
+      (while (< i n)
+        {
+          (set acc (+ acc i))
+          (set i (+ i 1))
+        })
+      (if (> acc 10) acc 0)
+    }))
+
+; --- pattern matching: nested, named fields, punning ----------------
+(:: area (-> Shape Int))
+(fn (area s)
+  (match s
+    ((Circle { r = r }) (* r r))
+    ((Rect { w, h }) (* w h))
+    ((Empty) 0)))
+
+(:: depth (-> (Tree Int) Int))
+(fn (depth t)
+  (match t
+    ((Leaf) 0)
+    ((Node l _v r) (+ 1 (depth l)))))
+
+; --- field access, casts, sizeof ------------------------------------
+(:: misc (-> Rec Int))
+(fn (misc r)
+  (+ (+ r.n (cast Int r.ratio))
+     (+ (sizeof Int) (alignof Int))))
+
+; --- qualified names ------------------------------------------------
+(:: qualified (-> Int Int))
+(fn (qualified x) (Mem::memAlloc x))
+
+; --- trailing comment on a declaration ------------------------------
+(:: last (-> Int Int))
+(fn (last x) x)  ; stays on this line

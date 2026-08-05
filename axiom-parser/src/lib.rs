@@ -649,24 +649,7 @@ impl Parser {
         let mut effects = Vec::new();
         if self.check(TokenKind::LParen) {
             self.advance();
-            while !self.check(TokenKind::RParen) && !self.at_eof() {
-                if self.check(TokenKind::IO) {
-                    self.advance();
-                    effects.push(Effect::IO);
-                } else if self.check(TokenKind::Pure) {
-                    self.advance();
-                    effects.push(Effect::Pure);
-                } else if self.check(TokenKind::Mut) {
-                    self.advance();
-                    effects.push(Effect::Mut);
-                } else if self.check(TokenKind::Div) {
-                    self.advance();
-                    effects.push(Effect::Div);
-                } else if self.is_ident() {
-                    effects.push(Effect::Custom(self.parse_ident()?));
-                }
-            }
-            self.expect(TokenKind::RParen)?;
+            effects = self.parse_effect_list()?;
         }
 
         let mut methods = Vec::new();
@@ -685,24 +668,7 @@ impl Parser {
                 let mut method_effects = Vec::new();
                 if self.check(TokenKind::LParen) {
                     self.advance();
-                    while !self.check(TokenKind::RParen) && !self.at_eof() {
-                        if self.check(TokenKind::IO) {
-                            self.advance();
-                            method_effects.push(Effect::IO);
-                        } else if self.check(TokenKind::Pure) {
-                            self.advance();
-                            method_effects.push(Effect::Pure);
-                        } else if self.check(TokenKind::Mut) {
-                            self.advance();
-                            method_effects.push(Effect::Mut);
-                        } else if self.check(TokenKind::Div) {
-                            self.advance();
-                            method_effects.push(Effect::Div);
-                        } else if self.is_ident() {
-                            method_effects.push(Effect::Custom(self.parse_ident()?));
-                        }
-                    }
-                    self.expect(TokenKind::RParen)?;
+                    method_effects = self.parse_effect_list()?;
                 }
                 methods.push(TraitMethod {
                     name: method_name,
@@ -737,24 +703,7 @@ impl Parser {
         let mut effects = Vec::new();
         if self.check(TokenKind::LParen) {
             self.advance();
-            while !self.check(TokenKind::RParen) && !self.at_eof() {
-                if self.check(TokenKind::IO) {
-                    self.advance();
-                    effects.push(Effect::IO);
-                } else if self.check(TokenKind::Pure) {
-                    self.advance();
-                    effects.push(Effect::Pure);
-                } else if self.check(TokenKind::Mut) {
-                    self.advance();
-                    effects.push(Effect::Mut);
-                } else if self.check(TokenKind::Div) {
-                    self.advance();
-                    effects.push(Effect::Div);
-                } else if self.is_ident() {
-                    effects.push(Effect::Custom(self.parse_ident()?));
-                }
-            }
-            self.expect(TokenKind::RParen)?;
+            effects = self.parse_effect_list()?;
         }
 
         let mut methods = Vec::new();
@@ -1613,24 +1562,7 @@ impl Parser {
         let mut effects = Vec::new();
         if self.check(TokenKind::LParen) {
             self.advance();
-            while !self.check(TokenKind::RParen) && !self.at_eof() {
-                if self.check(TokenKind::IO) {
-                    self.advance();
-                    effects.push(Effect::IO);
-                } else if self.check(TokenKind::Pure) {
-                    self.advance();
-                    effects.push(Effect::Pure);
-                } else if self.check(TokenKind::Mut) {
-                    self.advance();
-                    effects.push(Effect::Mut);
-                } else if self.check(TokenKind::Div) {
-                    self.advance();
-                    effects.push(Effect::Div);
-                } else if self.is_ident() {
-                    effects.push(Effect::Custom(self.parse_ident()?));
-                }
-            }
-            self.expect(TokenKind::RParen)?;
+            effects = self.parse_effect_list()?;
         }
         let handler = self.parse_expr()?;
         self.expect(TokenKind::RParen)?;
@@ -1909,6 +1841,50 @@ impl Parser {
         } else {
             false
         }
+    }
+
+    /// Parse a parenthesised effect list: `(io)`, `(io mut)`, `(pure)`,
+    /// or a custom effect name.
+    ///
+    /// The opening `(` must already have been consumed. Every iteration
+    /// either consumes a token or returns an error - which is the whole
+    /// point of having one copy of this.
+    ///
+    /// The four hand-written copies this replaces each ended with
+    /// `else if self.is_ident() { ... }` and *no* final `else`, so a
+    /// token that was neither a known effect, an identifier, nor `)`
+    /// left the position unchanged and the loop spun forever. The
+    /// compiler hung - no diagnostic, no crash, no output - on input as
+    /// ordinary as a mistyped effect list. That breaks the rule the
+    /// project holds everywhere else: a malformed input produces a
+    /// diagnostic, not a hang.
+    fn parse_effect_list(&mut self) -> ParseResult<Vec<Effect>> {
+        let mut effects = Vec::new();
+        while !self.check(TokenKind::RParen) && !self.at_eof() {
+            if self.check(TokenKind::IO) {
+                self.advance();
+                effects.push(Effect::IO);
+            } else if self.check(TokenKind::Pure) {
+                self.advance();
+                effects.push(Effect::Pure);
+            } else if self.check(TokenKind::Mut) {
+                self.advance();
+                effects.push(Effect::Mut);
+            } else if self.check(TokenKind::Div) {
+                self.advance();
+                effects.push(Effect::Div);
+            } else if self.is_ident() {
+                effects.push(Effect::Custom(self.parse_ident()?));
+            } else {
+                return Err(ParseError::UnexpectedToken {
+                    expected: "an effect name or `)`".to_string(),
+                    found: self.current_kind_str(),
+                    span: self.current_span(),
+                });
+            }
+        }
+        self.expect(TokenKind::RParen)?;
+        Ok(effects)
     }
 
     fn expect(&mut self, kind: TokenKind) -> ParseResult<Token> {

@@ -337,7 +337,12 @@ fn format_decl(decl: &Decl, out: &mut String, state: &mut FormatState) {
                 out.push(' ');
                 format_type_vars(tyvars, out);
             }
-            write!(out, " {})", format_type(alias)).unwrap();
+            // `(type Name = Alias)`. The `=` is part of the syntax; the
+            // formatter omitted it, so a formatted type alias no longer
+            // parsed. No `.ax` file in the repository declares one,
+            // which is why `check-fmt.sh` never caught it - the gate is
+            // only as wide as the corpus it runs on.
+            write!(out, " = {})", format_type(alias)).unwrap();
         }
         Decl::DForeign {
             name, ty, source, ..
@@ -596,42 +601,61 @@ fn format_trait_decl(parts: TraitParts<'_>, out: &mut String, state: &mut Format
         }
         out.push(')');
     }
+    // Supertraits are a parenthesised list. They were emitted bare, one
+    // after another with no delimiters at all, so a trait with any
+    // supertrait formatted into something that did not parse.
     if !supertraits.is_empty() {
-        out.push('\n');
-        state.push_indent();
-        for s in supertraits {
-            out.push_str(&state.indent_str());
+        out.push_str(" (");
+        for (i, s) in supertraits.iter().enumerate() {
+            if i > 0 {
+                out.push(' ');
+            }
             out.push_str(&format_type(s));
         }
-        state.pop_indent();
+        out.push(')');
     }
+    // Methods live in `where ( ... )` and each is `name :: type`. The
+    // `where`, the wrapping parens and the `::` were all missing, so a
+    // trait with methods did not round-trip either. Nothing in the
+    // repository declares a trait, which is why `check-fmt.sh` never
+    // saw any of it.
     if !methods.is_empty() {
+        out.push_str(" where (");
         out.push('\n');
         state.push_indent();
-        for m in methods {
+        for (i, m) in methods.iter().enumerate() {
+            // One method per line. With a single `\n` before the loop,
+            // every method after the first ran onto the line before it.
+            if i > 0 {
+                out.push('\n');
+            }
             out.push_str(&state.indent_str());
-            write!(out, "({} {}", m.name.name, format_type(&m.ty)).unwrap();
+            // No per-method parentheses: the parser reads a *flat*
+            // sequence of `name :: type` inside the single `where (...)`
+            // group, so wrapping each one made the result unparseable.
+            write!(out, "{} :: {}", m.name.name, format_type(&m.ty)).unwrap();
+            // Order matters: the parser reads `= default` before an
+            // effect list, and the two were emitted the other way round
+            // with the `=` missing entirely.
+            if let Some(default) = &m.default {
+                out.push_str(" = ");
+                format_expr(default, out, state);
+            }
             if !m.effects.is_empty() {
-                out.push(' ');
-                out.push('(');
-                for (i, e) in m.effects.iter().enumerate() {
-                    if i > 0 {
+                out.push_str(" (");
+                for (j, e) in m.effects.iter().enumerate() {
+                    if j > 0 {
                         out.push(' ');
                     }
                     out.push_str(&format!("{}", e));
                 }
                 out.push(')');
             }
-            if let Some(default) = &m.default {
-                out.push('\n');
-                state.push_indent();
-                out.push_str(&state.indent_str());
-                format_expr(default, out, state);
-                state.pop_indent();
-            }
-            out.push(')');
         }
         state.pop_indent();
+        out.push('\n');
+        out.push_str(&state.indent_str());
+        out.push(')');
     }
     out.push(')');
 }
@@ -663,10 +687,17 @@ fn format_impl_decl(
         }
         out.push(')');
     }
+    // As for `trait`: the methods live in `where ( ... )`, and the
+    // keyword and wrapping parens were missing, so an `impl` with any
+    // method formatted into something that did not parse.
     if !methods.is_empty() {
+        out.push_str(" where (");
         out.push('\n');
         state.push_indent();
-        for (name, body) in methods {
+        for (i, (name, body)) in methods.iter().enumerate() {
+            if i > 0 {
+                out.push('\n');
+            }
             out.push_str(&state.indent_str());
             write!(out, "({}", name.name).unwrap();
             if is_simple_expr(body) {
@@ -684,6 +715,9 @@ fn format_impl_decl(
             out.push(')');
         }
         state.pop_indent();
+        out.push('\n');
+        out.push_str(&state.indent_str());
+        out.push(')');
     }
     out.push(')');
 }
@@ -736,7 +770,7 @@ fn format_data_con(con: &DataCon, out: &mut String) {
         ConFields::Positional(tys) => {
             for ty in tys {
                 out.push(' ');
-                out.push_str(&format_type(ty));
+                out.push_str(&format_type_atom(ty));
             }
         }
         ConFields::Named(fields) => {
@@ -768,6 +802,33 @@ fn format_type_vars(tyvars: &[String], out: &mut String) {
     }
 }
 
+/// A type in a position where juxtaposition would regroup it: an
+/// argument of another type application, a component of an arrow, or a
+/// constructor's field.
+///
+/// A type application is written by juxtaposition, so `Tree a` is two
+/// tokens with no delimiter of its own. Emitting it unparenthesised in
+/// such a position silently changes the arity of whatever encloses it:
+/// `(Node (Tree a) a (Tree a))` came back as `(Node Tree a a Tree a)`, a
+/// constructor of five fields rather than three, and
+/// `(-> (Tree Int) Int)` came back as `(-> Tree Int Int)`, a function of
+/// two arguments rather than one.
+///
+/// Both still *parse*, which is why the formatter's own round-trip check
+/// passes them - the result is well-formed source that means something
+/// else. Only type-checking the output catches it, which is what
+/// `check-fmt.sh` now does.
+///
+/// Every other type form brings its own delimiters (`(-> ..)`, `[..]`,
+/// `(* ..)`, `(forall ..)`), so only an application needs wrapping.
+fn format_type_atom(ty: &Type) -> String {
+    match ty {
+        Type::TCon(_, args) if !args.is_empty() => format!("({})", format_type(ty)),
+        Type::TEffect(_, effects) if !effects.is_empty() => format!("({})", format_type(ty)),
+        _ => format_type(ty),
+    }
+}
+
 fn format_type(ty: &Type) -> String {
     match ty {
         Type::TVar(name) => name.clone(),
@@ -778,7 +839,7 @@ fn format_type(ty: &Type) -> String {
                 let mut s = ident.name.clone();
                 for a in args {
                     s.push(' ');
-                    s.push_str(&format_type(a));
+                    s.push_str(&format_type_atom(a));
                 }
                 s
             }
@@ -798,10 +859,10 @@ fn format_type(ty: &Type) -> String {
             let mut parts = Vec::new();
             let mut cur = ty;
             while let Type::TArr(from, to) = cur {
-                parts.push(format_type(from));
+                parts.push(format_type_atom(from));
                 cur = to;
             }
-            parts.push(format_type(cur));
+            parts.push(format_type_atom(cur));
             format!("(-> {})", parts.join(" "))
         }
         Type::TTuple(types) => {

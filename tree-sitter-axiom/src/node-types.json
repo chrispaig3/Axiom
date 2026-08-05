@@ -585,21 +585,6 @@
     }
   },
   {
-    "type": "effect_clause",
-    "named": true,
-    "fields": {},
-    "children": {
-      "multiple": true,
-      "required": false,
-      "types": [
-        {
-          "type": "effect",
-          "named": true
-        }
-      ]
-    }
-  },
-  {
     "type": "effect_declaration",
     "named": true,
     "fields": {
@@ -919,6 +904,16 @@
     "type": "impl_declaration",
     "named": true,
     "fields": {
+      "effects": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "paren_group",
+            "named": true
+          }
+        ]
+      },
       "member": {
         "multiple": true,
         "required": false,
@@ -1356,6 +1351,25 @@
     }
   },
   {
+    "type": "paren_group",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "_type",
+          "named": true
+        },
+        {
+          "type": "builtin_effect",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
     "type": "pointer_type",
     "named": true,
     "fields": {
@@ -1599,12 +1613,12 @@
     "type": "trait_declaration",
     "named": true,
     "fields": {
-      "effects": {
+      "group": {
         "multiple": true,
         "required": false,
         "types": [
           {
-            "type": "effect_clause",
+            "type": "paren_group",
             "named": true
           }
         ]
@@ -1656,11 +1670,21 @@
     "named": true,
     "fields": {
       "default": {
-        "multiple": true,
+        "multiple": false,
         "required": false,
         "types": [
           {
             "type": "_expression",
+            "named": true
+          }
+        ]
+      },
+      "effects": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "paren_group",
             "named": true
           }
         ]
