@@ -84,6 +84,14 @@
       (if (> acc 10) acc 0)
     }))
 
+; --- cond ----------------------------------------------------------
+(:: classify (-> Int Int))
+(fn (classify n)
+  (cond
+    ((< n 0) 1)
+    ((== n 0) 2)
+    (else { (+ n 0) 3 })))
+
 ; --- pattern matching: nested, named fields, punning ----------------
 (:: area (-> Shape Int))
 (fn (area s)

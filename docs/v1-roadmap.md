@@ -400,6 +400,53 @@ All four are now one `parse_effect_list` that either consumes a token or
 returns `AX2001` with a span. A twelve-case malformed-input sweep over
 the other parenthesised loops found no further hangs.
 
+### 2.4f `cond` was implemented everywhere except where it mattered
+
+A feature can be absent while most of its code is present. `cond` had a
+lexer token with the syntax written out beside it, an `Expr::ECond` node
+in the AST, type-checking in `axiom-sema`, effect walking, and a
+formatter case. Two stages were missing, at opposite ends of the
+pipeline:
+
+- the **parser** had no `cond` case, so the word was reserved and could
+  never be written — and every other stage's handling of it was
+  unreachable code;
+- the **IR generator** had no `ECond` arm either, so once the parser did
+  produce one it fell through to the catch-all and the whole form
+  evaluated to `0` whichever clause matched.
+
+Both are now present. `cond` lowers to a chain of `if`, which is where
+its tail-call behaviour comes from: `if` already detects a self tail call
+in either branch, so `cond` inherits it rather than needing its own
+analysis — three million iterations in constant stack, tested. A `cond`
+with no `else` falls through to `0`, matching `while`, which also has no
+last value to report. `else` is deliberately *not* a token: it lexes as
+an ordinary identifier and is recognised by name inside `cond`, so it
+stays usable as a variable everywhere else.
+
+Covered by `tests/stdlib/260-cond.ax`, two integration tests, and an
+entry in the syntax zoo.
+
+The lesson is worth separating from the bug: **grep for a feature's name
+across the crates and count the stages that mention it.** `cond`
+appeared in five of seven. The two that did not were the two that make
+it run.
+
+### 2.4g Float-ness of a struct field, when two structs disagree
+
+`EField` gives a field's *name* but not the struct it belongs to, and the
+type checker is gone by the time the IR generator needs to know whether
+`.v` is a float. Float-ness was therefore keyed on the field name alone,
+so two structs declaring `v` — one `Float`, one `Int` — collided.
+
+It now resolves towards integer unless *every* struct declaring that name
+declares it float. The direction matters: resolving towards float emits
+`fadd` for an integer field, silently computing nonsense from the bits;
+resolving towards integer costs a float field its arithmetic only in a
+program with two same-named fields of different kinds, and that surfaces
+as a type error rather than a wrong answer. Pinned by an integration
+test.
+
 ### 2.5 CI was not green, and could not have been
 
 The claim in §2.1 that CI was green on all four targets did not hold when

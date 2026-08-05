@@ -1206,6 +1206,10 @@ impl Parser {
                 return self.parse_set();
             }
 
+            if self.check(TokenKind::Cond) {
+                return self.parse_cond();
+            }
+
             if self.check(TokenKind::Match) {
                 return self.parse_match();
             }
@@ -1527,6 +1531,47 @@ impl Parser {
         ))
     }
 
+    /// `(cond (test body...)... (else body...))`
+    ///
+    /// Every other stage already implemented this. `TokenKind::Cond`
+    /// existed with the syntax written out beside it, `Expr::ECond` was
+    /// in the AST, and the type checker, the IR generator and the
+    /// formatter all handled it - the parser was the one stage that did
+    /// not, so `cond` was a reserved word that could never be written
+    /// and the code in every other stage was unreachable.
+    ///
+    /// `else` is not a keyword: it lexes as an ordinary identifier, and
+    /// is recognised here by name. Keeping it out of the token set means
+    /// `else` stays usable as a variable name everywhere else.
+    fn parse_cond(&mut self) -> ParseResult<Expr> {
+        self.expect(TokenKind::Cond)?;
+
+        let mut branches = Vec::new();
+        let mut else_branch = None;
+
+        while self.check(TokenKind::LParen) {
+            self.advance();
+
+            if self.is_ident_named("else") {
+                self.advance();
+                let body = self.parse_body_exprs()?;
+                self.expect(TokenKind::RParen)?;
+                else_branch = Some(Box::new(body));
+                // `else` is the last clause by construction; anything
+                // after it could never be reached.
+                break;
+            }
+
+            let test = self.parse_expr()?;
+            let body = self.parse_body_exprs()?;
+            self.expect(TokenKind::RParen)?;
+            branches.push((test, body));
+        }
+
+        self.expect(TokenKind::RParen)?;
+        Ok(Expr::ECond(branches, else_branch))
+    }
+
     fn parse_match(&mut self) -> ParseResult<Expr> {
         self.expect(TokenKind::Match)?;
         let target = self.parse_expr()?;
@@ -1783,6 +1828,18 @@ impl Parser {
             }
         };
         Ok(Ident::new(&name, token.span))
+    }
+
+    /// Whether the current token is the identifier `name`.
+    ///
+    /// For contextual keywords - words that introduce a clause in one
+    /// position but stay ordinary identifiers everywhere else, like
+    /// `else` inside `cond`.
+    fn is_ident_named(&self, name: &str) -> bool {
+        matches!(
+            self.tokens.get(self.pos).map(|t| &t.kind),
+            Some(TokenKind::Ident(n)) if n == name
+        )
     }
 
     fn is_ident(&self) -> bool {

@@ -1204,21 +1204,39 @@ fn format_expr(expr: &Expr, out: &mut String, state: &mut FormatState) {
             out.push_str("(cond");
             out.push('\n');
             state.push_indent();
-            for (test, body) in branches {
+            for (i, (test, body)) in branches.iter().enumerate() {
+                // One clause per line. Without this the closing paren of
+                // one clause and the opening paren of the next shared a
+                // line: `)    ((== n 0)`.
+                if i > 0 {
+                    out.push('\n');
+                }
                 state.flush_leading(test.span().start, out);
                 out.push_str(&state.indent_str());
                 out.push('(');
                 format_expr(test, out, state);
-                out.push('\n');
-                state.push_indent();
-                out.push_str(&state.indent_str());
-                format_expr(body, out, state);
-                state.pop_indent();
-                out.push('\n');
-                out.push_str(&state.indent_str());
+                // A clause whose body fits beside its test reads far
+                // better than one broken across three lines, and `cond`
+                // exists precisely to put a column of short cases
+                // together.
+                if is_simple_expr(body) {
+                    out.push(' ');
+                    format_expr(body, out, state);
+                } else {
+                    out.push('\n');
+                    state.push_indent();
+                    out.push_str(&state.indent_str());
+                    format_expr(body, out, state);
+                    state.pop_indent();
+                    out.push('\n');
+                    out.push_str(&state.indent_str());
+                }
                 out.push(')');
             }
             if let Some(else_body) = else_ {
+                if !branches.is_empty() {
+                    out.push('\n');
+                }
                 out.push_str(&state.indent_str());
                 out.push_str("(else ");
                 if is_simple_expr(else_body) {

@@ -1,6 +1,6 @@
 use crate::{FloatOp, IrBlock, IrConst, IrFunction, IrInst, IrModule, IrStruct, IrValue, TypeId};
 use axiom_ast::ast::*;
-use axiom_ast::span::Ident;
+use axiom_ast::span::{Ident, Span};
 use axiom_sema::TypeChecker;
 use std::collections::{HashMap, HashSet};
 
@@ -536,6 +536,7 @@ impl IrGen {
     /// Run before any body is lowered, because a function may call one
     /// declared later in the file.
     fn collect_float_signatures(&mut self, decls: &[Decl]) {
+        let mut struct_field_votes: HashMap<String, Vec<bool>> = HashMap::new();
         for decl in decls {
             match decl {
                 Decl::DSig { name, ty, .. } => {
@@ -573,14 +574,54 @@ impl IrGen {
                 }
                 Decl::DStruct { fields, .. } => {
                     for f in fields {
-                        if Self::is_float_type(&f.ty) {
-                            self.float_struct_fields.insert(f.name.name.clone());
-                        }
+                        // Record a vote per field *name*, not a flag.
+                        // `EField` gives the field name but not the
+                        // struct it belongs to, and the type checker -
+                        // which could say - is gone by lowering time.
+                        struct_field_votes
+                            .entry(f.name.name.clone())
+                            .or_default()
+                            .push(Self::is_float_type(&f.ty));
                     }
                 }
                 _ => {}
             }
         }
+
+        // A field name counts as float only if *every* struct declaring
+        // it declares it float. Keying on the name alone means two
+        // structs can disagree; resolving that disagreement towards
+        // "float" would emit `fadd` for an integer field, silently
+        // computing nonsense. Resolving it towards "integer" instead
+        // costs a float field its arithmetic in a program that has two
+        // same-named fields of different kinds, which is a visible type
+        // error rather than a wrong answer.
+        for (name, votes) in struct_field_votes {
+            if votes.iter().all(|v| *v) {
+                self.float_struct_fields.insert(name);
+            }
+        }
+    }
+
+    /// Rewrite `(cond (t1 b1) (t2 b2) (else e))` as
+    /// `(if t1 b1 (if t2 b2 e))`.
+    ///
+    /// A `cond` with no `else` falls through to `0`, matching `while`,
+    /// which also has no last value to report and evaluates to `0`
+    /// rather than inventing one.
+    fn cond_as_nested_if(branches: &[(Expr, Expr)], else_: &Option<Box<Expr>>) -> Expr {
+        let mut result = match else_ {
+            Some(e) => (**e).clone(),
+            None => Expr::ELit(Literal::LInt(0), Span::dummy()),
+        };
+        for (test, body) in branches.iter().rev() {
+            result = Expr::EIf(
+                Box::new(test.clone()),
+                Box::new(body.clone()),
+                Box::new(result),
+            );
+        }
+        result
     }
 
     /// Whether a surface type is a float.
@@ -2261,6 +2302,22 @@ impl IrGen {
                     );
                 }
                 value_val
+            }
+            // `cond` is a chain of `if`s, and lowering it as one gets
+            // the whole of `if`'s existing behaviour for free - block
+            // layout, the result slot, and self-tail-call detection
+            // through every branch. There was no `ECond` arm here at
+            // all, so a `cond` fell through to the catch-all and
+            // evaluated to 0 whichever clause matched.
+            Expr::ECond(branches, else_) => {
+                let desugared = Self::cond_as_nested_if(branches, else_);
+                self.gen_expr_to_func_with_allocas(
+                    func,
+                    &desugared,
+                    alloca_map,
+                    type_checker,
+                    tail_ctx,
+                )
             }
             Expr::EIf(cond, then_expr, else_expr) => {
                 let cond_val =

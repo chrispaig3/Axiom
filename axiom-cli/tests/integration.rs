@@ -1719,3 +1719,72 @@ fn fmt_preserves_a_type_alias() {
         formatted
     );
 }
+
+#[test]
+fn cond_selects_the_right_clause() {
+    // Every stage but the parser and the IR generator already handled
+    // `cond`: the token existed, `Expr::ECond` was in the AST, and the
+    // type checker and formatter both handled it. The parser had no
+    // case, so the word was reserved and unwritable; once it did parse,
+    // the IR generator had no arm either, so the whole form evaluated to
+    // 0 whichever clause matched.
+    let dir = scratch_dir("cond");
+    write_source(
+        &dir,
+        "main.ax",
+        "(:: pick (-> Int Int))\n\
+         (fn (pick n) (cond ((< n 0) 1) ((== n 0) 2) (else 42)))\n\
+         (:: main Int)\n(fn (main) (pick 7))\n",
+    );
+    let out = run_axiom(&["run", "main.ax"], &dir);
+    assert_eq!(
+        out.status.code(),
+        Some(42),
+        "stdout: {}\nstderr: {}",
+        stdout(&out),
+        stderr(&out)
+    );
+}
+
+#[test]
+fn cond_keeps_a_self_tail_call_a_jump() {
+    // `cond` lowers to a chain of `if`, so it inherits `if`'s tail-call
+    // detection rather than needing its own. Three million frames is far
+    // past what an 8 MiB stack holds, so a regression crashes here
+    // rather than merely running slowly.
+    let dir = scratch_dir("cond-tail");
+    write_source(
+        &dir,
+        "main.ax",
+        "(:: down (-> Int Int Int))\n\
+         (fn (down n acc) (cond ((<= n 0) acc) (else (down (- n 1) (+ acc 1)))))\n\
+         (:: main Int)\n(fn (main) (- (down 3000000 0) 2999958))\n",
+    );
+    let out = run_axiom(&["run", "main.ax"], &dir);
+    assert_eq!(out.status.code(), Some(42), "stderr: {}", stderr(&out));
+}
+
+#[test]
+fn same_named_struct_fields_of_different_kinds_do_not_confuse_arithmetic() {
+    // Float-ness of a struct field is tracked by field *name*, because
+    // `EField` gives the name but not the struct and the type checker is
+    // gone by lowering time. Two structs may therefore disagree; the
+    // disagreement resolves towards integer, so an `Int` field never
+    // gets floating-point arithmetic applied to its bits.
+    let dir = scratch_dir("field-name-collision");
+    write_source(
+        &dir,
+        "main.ax",
+        "(struct A (v : Float))\n(struct B (v : Int))\n\
+         (:: useB (-> B Int))\n(fn (useB b) (+ b.v 1))\n\
+         (:: main Int)\n(fn (main) (useB (B 41)))\n",
+    );
+    let out = run_axiom(&["run", "main.ax"], &dir);
+    assert_eq!(
+        out.status.code(),
+        Some(42),
+        "an Int field was treated as a float; stdout: {}\nstderr: {}",
+        stdout(&out),
+        stderr(&out)
+    );
+}
