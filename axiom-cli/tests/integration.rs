@@ -183,6 +183,77 @@ fn an_ambiguous_bare_name_is_refused_and_qualification_resolves_it() {
     );
 }
 
+/// A module may write its definition above its signature - the two
+/// adjacent lines mean the same thing in either order. An adversarial
+/// review found the checker keeping TWO entries for the name when the
+/// definition came first, and the arity lookups landing on the
+/// signature-only one: the module was refused as having no definition
+/// at all, purely for line order.
+#[test]
+fn a_definition_written_above_its_signature_is_still_a_definition() {
+    let dir = scratch_dir("check-def-before-sig");
+    write_source(
+        &dir,
+        "ModS.ax",
+        "(pub fn (fs x) (+ x 1))\n(pub :: fs (-> Int Int))\n",
+    );
+    write_source(
+        &dir,
+        "main.ax",
+        "(import ModS)\n(:: main Int)\n(fn main (fs 41))\n",
+    );
+    let out = run_axiom(&["--diagnostic-format=ai", "check", "main.ax"], &dir);
+    assert!(
+        out.status.success(),
+        "definition-before-signature was refused: {}",
+        stderr(&out)
+    );
+}
+
+/// A module that contributes only a `pub` signature is not a
+/// *definer*: it must neither make the real definer ambiguous nor
+/// outrank it in resolution, whatever order the imports merged.
+#[test]
+fn a_signature_only_module_is_not_a_definer() {
+    let dir = scratch_dir("check-sig-only-not-definer");
+    write_source(
+        &dir,
+        "DefMod.ax",
+        "(pub :: f6 (-> Int Int))\n(pub fn (f6 x) (+ x 6))\n",
+    );
+    write_source(&dir, "SigOnly.ax", "(pub :: f6 (-> Int Int))\n");
+    write_source(
+        &dir,
+        "main.ax",
+        "(import DefMod)\n(import SigOnly)\n(:: main Int)\n(fn main (f6 36))\n",
+    );
+    let out = run_axiom(&["--diagnostic-format=ai", "check", "main.ax"], &dir);
+    assert!(
+        out.status.success(),
+        "the unique definer was not resolved: {}",
+        stderr(&out)
+    );
+}
+
+/// A pattern names a constructor as surely as an expression does:
+/// matching against "whichever module's `K`" would tag-test one
+/// module's constructor and bind fields with the other's float flags,
+/// so the ambiguity refusal covers pattern position too.
+#[test]
+fn an_ambiguous_constructor_in_a_pattern_is_refused() {
+    let dir = scratch_dir("check-ambiguous-pattern");
+    write_source(&dir, "MA.ax", "(pub data DA (a) (K Int))\n");
+    write_source(&dir, "MB.ax", "(pub data DB (a) (K Float))\n");
+    write_source(
+        &dir,
+        "main.ax",
+        "(import MA)\n(import MB)\n(:: main Int)\n(fn main (match (K 5) ((K x) x)))\n",
+    );
+    let out = run_axiom(&["--diagnostic-format=ai", "check", "main.ax"], &dir);
+    assert!(!out.status.success());
+    assert!(stderr(&out).contains("AX3014"), "stderr: {}", stderr(&out));
+}
+
 /// An import delivers a `pub` signature whose definition stayed
 /// private. The exporting module is internally fine and an unused
 /// import is harmless, so the error fires at the reference - where it

@@ -95,7 +95,7 @@ pub enum SemError {
     /// so a program could pass `check` against a 2-parameter signature
     /// and then run a 3-parameter function on two arguments. Qualified
     /// access picks explicitly and stays legal.
-    #[error("ambiguous name `{name}`: defined in {}", modules.join(" and "))]
+    #[error("ambiguous name `{name}`: defined in {}", modules.join(", "))]
     AmbiguousName {
         name: String,
         modules: Vec<String>,
@@ -1237,19 +1237,17 @@ impl TypeChecker {
     /// compiler had just accepted.
     fn check_entry_signatures(&mut self, decls: &[Decl]) {
         use std::collections::HashSet;
+        // Definitions from ANY module count: an entry-file signature
+        // over an imported definition is the same sig-then-def pattern
+        // with the def arriving through an import, and bare resolution
+        // reaches it (the entry defines nothing, so the import is the
+        // unique definer). Only the signatures checked are entry-file.
         let defined: HashSet<&str> = decls
             .iter()
             .filter_map(|d| match d {
-                Decl::DFn {
-                    name,
-                    module_path: None,
-                    ..
+                Decl::DFn { name, .. } | Decl::DForeign { name, .. } => {
+                    Some(name.name.as_str())
                 }
-                | Decl::DForeign {
-                    name,
-                    module_path: None,
-                    ..
-                } => Some(name.name.as_str()),
                 _ => None,
             })
             .collect();
@@ -1271,15 +1269,41 @@ impl TypeChecker {
     }
 
     fn collect_declarations(&mut self, module: &Module) {
-        // First pass: who declares each bare name. This is the map the
-        // ambiguity check reads, and it must be complete before any
-        // body is checked, so it cannot ride along in the main walk.
+        // First pass: type aliases, and who declares each bare name.
+        // Aliases must exist before any signature converts - the
+        // `FnInfo` types built below are now what `check_var` answers
+        // with (the position-dependent scope entries no longer resolve
+        // top-level names), so a signature written in alias terms
+        // (`(:: f (-> Span Int))` over `(type Span = Int)`) must
+        // expand no matter where in the merge the `type` declaration
+        // sits. The defining-modules map likewise must be complete
+        // before any body is checked.
+        for decl in &module.decls {
+            if let Decl::DType {
+                name,
+                tyvars,
+                alias,
+                module_path,
+                ..
+            } = decl
+            {
+                self.aliases.push(TypeAliasInfo {
+                    name: name.name.clone(),
+                    tyvars: tyvars.clone(),
+                    target: self.type_to_id(alias),
+                    module: module_path.clone(),
+                });
+            }
+        }
         for decl in &module.decls {
             match decl {
-                Decl::DSig {
-                    name, module_path, ..
-                }
-                | Decl::DFn {
+                // Only genuine definitions make a module a *definer* -
+                // a `pub` signature whose `fn` stayed private is not a
+                // candidate a bare reference could usefully resolve to,
+                // and counting it made the ambiguity help suggest a
+                // qualification that was itself a missing-definition
+                // error.
+                Decl::DFn {
                     name, module_path, ..
                 }
                 | Decl::DForeign {
@@ -1349,9 +1373,26 @@ impl TypeChecker {
                     module_path,
                     ..
                 } => {
-                    let mut info = FnInfo::new(name.name.clone(), self.type_to_id(ty));
-                    info.module = module_path.clone();
-                    self.functions.push(info);
+                    // Merge into the entry a `fn`/`foreign` written
+                    // ABOVE its signature already created, rather than
+                    // pushing a duplicate: two FnInfos for one name made
+                    // the arity lookups land on whichever the iteration
+                    // direction favoured - the signature-only one - and
+                    // a module whose definition preceded its `::` was
+                    // refused as having no definition at all, purely for
+                    // the order of two adjacent lines.
+                    let ty_id = self.type_to_id(ty);
+                    if let Some(f) = self
+                        .functions
+                        .iter_mut()
+                        .find(|f| f.name == name.name && f.module == *module_path)
+                    {
+                        f.ty = ty_id;
+                    } else {
+                        let mut info = FnInfo::new(name.name.clone(), ty_id);
+                        info.module = module_path.clone();
+                        self.functions.push(info);
+                    }
                 }
                 Decl::DTrait {
                     name,
@@ -1414,20 +1455,8 @@ impl TypeChecker {
                     info.module = module_path.clone();
                     self.functions.push(info);
                 }
-                Decl::DType {
-                    name,
-                    tyvars,
-                    alias,
-                    module_path,
-                    ..
-                } => {
-                    self.aliases.push(TypeAliasInfo {
-                        name: name.name.clone(),
-                        tyvars: tyvars.clone(),
-                        target: self.type_to_id(alias),
-                        module: module_path.clone(),
-                    });
-                }
+                // `DType` aliases were registered in the first pass
+                // above, before any signature converted.
                 _ => {}
             }
         }
@@ -1550,13 +1579,24 @@ impl TypeChecker {
                         fn_ty = TypeId::TArr(Box::new(param_ty), Box::new(fn_ty));
                     }
 
-                    // Update the function's type in self.functions
+                    // Record the inferred type ONLY where no signature
+                    // declared one - the `_fn_N` placeholder. A declared
+                    // signature is authoritative: this used to overwrite
+                    // it with the inferred parameter-and-body arrow, so
+                    // `mkTok :: Int -> Int -> Int` returning a `Tok`
+                    // struct handle became `... -> Tok` in the table,
+                    // and every caller that stored the handle as the
+                    // `Int` the signature promises was a type error. The
+                    // scope-entry resolution path used to mask the
+                    // clobber; the table is the single source now.
                     if let Some(fn_info) = self
                         .functions
                         .iter_mut()
                         .find(|f| f.name == name.name && f.module == *module_path)
                     {
-                        fn_info.ty = fn_ty;
+                        if matches!(fn_info.ty, TypeId::TVar(_)) {
+                            fn_info.ty = fn_ty;
+                        }
                     }
 
                     for tag in axtags {
@@ -2261,17 +2301,13 @@ impl TypeChecker {
         // collision is a separate, older question - see B4 - but the
         // diagnostic must at minimum be consistent with the type
         // checker.)
-        let head_fn = self
-            .functions
-            .iter()
-            .rev()
-            .find(|f| {
-                f.name == name
-                    && match &module {
-                        Some(m) => f.module.as_deref() == Some(m.as_str()),
-                        None => true,
-                    }
-            })
+        let head_fn = match &module {
+            Some(m) => self
+                .functions
+                .iter()
+                .find(|f| f.name == name && f.module.as_deref() == Some(m.as_str())),
+            None => self.resolve_bare_fn(&name),
+        }
             .map(|f| {
                 let sig_only = f.module.is_some()
                     && f.param_count.is_none()
@@ -2343,21 +2379,66 @@ impl TypeChecker {
             .any(|(n, s, _)| n == &ident.name && *s == ident.scope)
     }
 
-    /// The modules a bare name would be ambiguous between: two or more
-    /// imported definitions with no entry-file definition to win.
-    /// `None` when the name is unambiguous (entry-defined, uniquely
-    /// defined, or not defined at all).
-    fn ambiguous_modules(&self, name: &str) -> Option<Vec<String>> {
-        let of = |map: &std::collections::HashMap<String, Vec<Option<String>>>| {
-            map.get(name).and_then(|mods| {
-                if mods.len() >= 2 && mods.iter().all(|m| m.is_some()) {
-                    Some(mods.iter().flatten().cloned().collect::<Vec<String>>())
-                } else {
-                    None
-                }
+    /// Resolve a bare function name the one way every consumer must
+    /// agree on: the entry file's entry first, then any entry with an
+    /// actual *definition* behind it (a recorded parameter count, a
+    /// builtin, or a foreign symbol), then anything - so a module that
+    /// contributes only a `pub` signature never outranks the module
+    /// that defines the function, whatever order the imports merged in.
+    fn resolve_bare_fn(&self, name: &str) -> Option<&FnInfo> {
+        self.functions
+            .iter()
+            .find(|f| f.name == name && f.module.is_none())
+            .or_else(|| {
+                self.functions.iter().find(|f| {
+                    f.name == name
+                        && (f.param_count.is_some()
+                            || f.is_builtin
+                            || f.foreign_symbol.is_some())
+                })
             })
-        };
-        of(&self.fn_defining_modules).or_else(|| of(&self.ctor_defining_modules))
+            .or_else(|| self.functions.iter().find(|f| f.name == name))
+    }
+
+    /// The modules a bare name would be ambiguous between: two or more
+    /// imported definitions with no module-less definition to win.
+    /// `None` when the name is unambiguous (entry-defined, builtin,
+    /// uniquely defined, or not defined at all).
+    fn ambiguous_modules(&self, name: &str) -> Option<Vec<String>> {
+        // A module-less definition wins outright: the entry file's, or
+        // a builtin - `Option`'s `None`/`Some` and the operators are
+        // registered directly into the tables at construction and never
+        // pass through the declaration maps, so without this check two
+        // imports both defining a `None` constructor made the *builtin*
+        // spelling ambiguous.
+        if self
+            .functions
+            .iter()
+            .any(|f| f.name == name && f.module.is_none())
+            || self.data_types.iter().any(|dt| {
+                dt.module.is_none() && dt.constructors.iter().any(|c| c.name == name)
+            })
+        {
+            return None;
+        }
+        // Candidates are the union across BOTH namespaces: a function
+        // in one module and a constructor of the same name in another
+        // are exactly as unresolvable as two functions.
+        let mut mods: Vec<String> = Vec::new();
+        for map in [&self.fn_defining_modules, &self.ctor_defining_modules] {
+            if let Some(entry) = map.get(name) {
+                for m in entry.iter().flatten() {
+                    if !mods.contains(m) {
+                        mods.push(m.clone());
+                    }
+                }
+            }
+        }
+        if mods.len() >= 2 {
+            Some(mods)
+        } else {
+            None
+        }
     }
 
     fn check_var(&mut self, ident: &Ident) -> TypeId {
@@ -2375,6 +2456,24 @@ impl TypeChecker {
                 });
                 return TypeId::TError;
             }
+            // An imported signature whose definition stayed private
+            // resolves - to nothing runnable. Detected before the
+            // scope walk below, because the signature also parked a
+            // scope entry that would otherwise answer first and let
+            // the reference sail on to an undefined symbol in llc.
+            let sig_only = self.resolve_bare_fn(&ident.name).is_some_and(|f| {
+                f.module.is_some()
+                    && f.param_count.is_none()
+                    && !f.is_builtin
+                    && f.foreign_symbol.is_none()
+            });
+            if sig_only {
+                self.errors.push(SemError::MissingDefinition {
+                    name: ident.name.clone(),
+                    span: ident.span,
+                });
+                return TypeId::TError;
+            }
         }
 
         // A bare reference to a multi-parameter function, outside head
@@ -2388,13 +2487,7 @@ impl TypeChecker {
         // the top-level name and is exempt - it holds a value, and
         // values are applied indirectly.
         let flagged = if !self.in_app_head && !self.is_frame_local(ident) {
-            // Last match, not first: the entry file's declarations are
-            // merged after imports and shadow them - see
-            // `check_app_saturation`.
-            self.functions
-                .iter()
-                .rev()
-                .find(|f| f.name == ident.name)
+            self.resolve_bare_fn(&ident.name)
                 .and_then(Self::representation_arity)
                 .filter(|&a| a >= 2)
                 .map(|a| (a, false))
@@ -2433,42 +2526,31 @@ impl TypeChecker {
             return TypeId::TError;
         }
 
-        for (name, scope, info) in self.scope.iter().rev() {
-            if name == &ident.name && *scope == ident.scope {
-                return info.ty.clone();
+        // Only *frame* entries - parameters and `let`/pattern bindings
+        // - resolve through the scope walk. Signatures also park
+        // module-level entries in `scope`, but resolving a top-level
+        // name through them was position-dependent: an entry-file body
+        // sitting textually before the entry's own signature saw only
+        // the import's entry and typed against the wrong module. The
+        // functions table below is complete before any body is
+        // checked, so top-level names resolve there instead.
+        if let Some(ff) = self.scope.iter().position(|(n, _, _)| n == "__scope__") {
+            for (name, scope, info) in self.scope[ff..].iter().rev() {
+                if name == &ident.name && *scope == ident.scope {
+                    return info.ty.clone();
+                }
             }
         }
 
         // Entry-file definition first, then the (unique, after the
-        // ambiguity check above) imported one. A plain first-match here
-        // returned the *import's* type for an entry-shadowed name while
-        // codegen called the entry's symbol - the checker and the
-        // binary disagreeing about which function a name means.
-        let resolved = self
-            .functions
-            .iter()
-            .find(|f| f.name == ident.name && f.module.is_none())
-            .or_else(|| self.functions.iter().find(|f| f.name == ident.name))
-            .map(|f| {
-                // An import can deliver a `pub` signature whose
-                // definition stayed private: the name resolves, and
-                // nothing exists to run. The entry file's own
-                // signature-only case is reported once, at the
-                // signature (see `check_entry_signatures`).
-                let sig_only = f.module.is_some()
-                    && f.param_count.is_none()
-                    && !f.is_builtin
-                    && f.foreign_symbol.is_none();
-                (sig_only, f.ty.clone())
-            });
-        if let Some((sig_only, ty)) = resolved {
-            if sig_only {
-                self.errors.push(SemError::MissingDefinition {
-                    name: ident.name.clone(),
-                    span: ident.span,
-                });
-                return TypeId::TError;
-            }
+        // checks above) imported one. A plain first-match here returned
+        // the *import's* type for an entry-shadowed name while codegen
+        // called the entry's symbol - the checker and the binary
+        // disagreeing about which function a name means. Signature-only
+        // entries were already refused before the scope walk, so what
+        // resolves here is runnable.
+        let resolved = self.resolve_bare_fn(&ident.name).map(|f| f.ty.clone());
+        if let Some(ty) = resolved {
             return ty;
         }
 
@@ -2524,6 +2606,23 @@ impl TypeChecker {
         // multi-parameter-function check and the bare fieldful
         // constructor check.
         if !self.in_app_head {
+            // A qualified reference to a signature whose definition
+            // stayed private has nothing to resolve to at link time,
+            // in value position exactly as in a call.
+            let sig_only = self
+                .functions
+                .iter()
+                .find(|f| f.name == name.name && f.module.as_deref() == Some(&module))
+                .is_some_and(|f| {
+                    f.param_count.is_none() && !f.is_builtin && f.foreign_symbol.is_none()
+                });
+            if sig_only {
+                self.errors.push(SemError::MissingDefinition {
+                    name: format!("{}::{}", module, name.name),
+                    span: name.span,
+                });
+                return TypeId::TError;
+            }
             let flagged = self
                 .functions
                 .iter()
@@ -2611,14 +2710,27 @@ impl TypeChecker {
 
     /// Find the data type and constructor (if any) named `name`.
     fn find_constructor(&self, name: &str) -> Option<(&DataTypeInfo, &DataConInfo)> {
+        // Entry-file (and builtin - both are module-less) first, like
+        // every other bare-name lookup. A forward first-match typed
+        // *patterns* against the first import's constructor while
+        // expressions and codegen used the entry's - a shadowing entry
+        // constructor made legal matches report spurious arity and
+        // type errors, and an import-first float flag silently
+        // reinterpreted an entry field's bits.
+        let mut first: Option<(&DataTypeInfo, &DataConInfo)> = None;
         for dt in &self.data_types {
             for con in &dt.constructors {
                 if con.name == name {
-                    return Some((dt, con));
+                    if dt.module.is_none() {
+                        return Some((dt, con));
+                    }
+                    if first.is_none() {
+                        first = Some((dt, con));
+                    }
                 }
             }
         }
-        None
+        first
     }
 
     /// Search all known struct types for a field with the
@@ -2793,6 +2905,20 @@ impl TypeChecker {
                 ));
             }
             Pattern::PCon(ident, args) => {
+                // A pattern names a constructor as surely as an
+                // expression does, and matching against "whichever
+                // module's `K`" is the same silent divergence refused
+                // there - the arm would tag-test one module's
+                // constructor and bind fields with the other's float
+                // flags.
+                if let Some(modules) = self.ambiguous_modules(&ident.name) {
+                    self.errors.push(SemError::AmbiguousName {
+                        name: ident.name.clone(),
+                        modules,
+                        span: ident.span,
+                    });
+                    return;
+                }
                 let found = self
                     .find_constructor(&ident.name)
                     .map(|(dt, con)| (dt.name.clone(), con.ty.clone()));
@@ -3008,10 +3134,21 @@ impl TypeChecker {
                 module_path,
                 ..
             } => {
+                // Merge, don't duplicate - same reasoning as the
+                // collection pass: a definition may precede its
+                // signature.
                 let ty_id = self.type_to_id(ty);
-                let mut info = FnInfo::new(name.name.clone(), ty_id.clone());
-                info.module = module_path.clone();
-                self.functions.push(info);
+                if let Some(f) = self
+                    .functions
+                    .iter_mut()
+                    .find(|f| f.name == name.name && f.module == *module_path)
+                {
+                    f.ty = ty_id.clone();
+                } else {
+                    let mut info = FnInfo::new(name.name.clone(), ty_id.clone());
+                    info.module = module_path.clone();
+                    self.functions.push(info);
+                }
                 self.scope.push((
                     name.name.clone(),
                     name.scope,

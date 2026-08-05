@@ -608,35 +608,27 @@ impl IrGen {
     /// declared later in the file.
     fn collect_float_signatures(&mut self, decls: &[Decl]) {
         let mut struct_field_votes: HashMap<String, Vec<bool>> = HashMap::new();
-        // The float tables are keyed by bare name, and bare-name
-        // resolution is entry-file-first: when the entry defines a name
-        // an import also defines, every call site reaches the entry's
-        // definition, so the import's signature must not vote - a
-        // float-returning import polluted the set-union and made the
-        // entry's integer function "float". (Two *imports* colliding
-        // without an entry definition is an ambiguity error in sema and
-        // never reaches lowering.)
-        let entry_sigs: std::collections::HashSet<&str> = decls
-            .iter()
-            .filter_map(|d| match d {
-                Decl::DSig {
-                    name,
-                    module_path: None,
-                    ..
-                } => Some(name.name.as_str()),
-                _ => None,
-            })
-            .collect();
         for decl in decls {
             match decl {
+                // Keyed by MANGLED name - `Mod$name` for imports, bare
+                // for the entry file - because bare keys cannot hold an
+                // entry-vs-import collision: an earlier version
+                // suppressed the import's signature entirely, which
+                // made the entry's call sites right and turned the
+                // import's *own* float arithmetic, and every qualified
+                // call to it, into integer ops on IEEE bit patterns.
+                // Consults resolve a reference to its mangled callee
+                // first (`mangled_name_for`, or the qualified path
+                // spelled out), so each definition keeps its own flags.
                 Decl::DSig {
                     name,
-                    module_path: Some(_),
+                    ty,
+                    module_path,
                     ..
-                } if entry_sigs.contains(name.name.as_str()) => {}
-                Decl::DSig { name, ty, .. } => {
+                } => {
                     // Walk the arrow spine: everything but the last
                     // component is a parameter.
+                    let key = Self::mangle_name(&name.name, module_path);
                     let mut params = Vec::new();
                     let mut cur = ty;
                     while let Type::TArr(from, to) = cur {
@@ -644,10 +636,10 @@ impl IrGen {
                         cur = to;
                     }
                     if Self::is_float_type(cur) {
-                        self.float_fns.insert(name.name.clone());
+                        self.float_fns.insert(key.clone());
                     }
                     if params.iter().any(|p| *p) {
-                        self.float_params.insert(name.name.clone(), params);
+                        self.float_params.insert(key, params);
                     }
                 }
                 // A constructor's float fields, so that a pattern like
@@ -750,9 +742,18 @@ impl IrGen {
         match expr {
             Expr::ELit(Literal::LFloat(_), _) => true,
             Expr::EVar(ident) => {
-                self.float_locals.contains(&ident.name) || self.float_fns.contains(&ident.name)
+                self.float_locals.contains(&ident.name)
+                    || self.float_fns.contains(&self.mangled_name_for(&ident.name))
             }
-            Expr::EQualified(_, ident) => self.float_fns.contains(&ident.name),
+            Expr::EQualified(path, ident) => {
+                let module = path
+                    .iter()
+                    .map(|i| i.name.as_str())
+                    .collect::<Vec<_>>()
+                    .join(".");
+                self.float_fns
+                    .contains(&format!("{}${}", module, ident.name))
+            }
             Expr::EField(_, field) => self.float_struct_fields.contains(&field.name),
             Expr::ECast(_, ty) | Expr::ETypeSig(_, ty) => Self::is_float_type(ty),
             Expr::EGrouped(inner) | Expr::EConsume(inner) => self.is_float_expr(inner),
@@ -812,8 +813,21 @@ impl IrGen {
                     cur = f.as_ref();
                 }
                 args.reverse();
-                let name = match cur {
-                    Expr::EVar(ident) | Expr::EQualified(_, ident) => &ident.name,
+                let (name, callee_key) = match cur {
+                    Expr::EVar(ident) => {
+                        (ident.name.clone(), self.mangled_name_for(&ident.name))
+                    }
+                    Expr::EQualified(path, ident) => {
+                        let module = path
+                            .iter()
+                            .map(|i| i.name.as_str())
+                            .collect::<Vec<_>>()
+                            .join(".");
+                        (
+                            ident.name.clone(),
+                            format!("{}${}", module, ident.name),
+                        )
+                    }
                     _ => return false,
                 };
                 // An arithmetic builtin is a float operation exactly when
@@ -840,7 +854,7 @@ impl IrGen {
                 if name == "__intToFloat" {
                     return true;
                 }
-                self.float_fns.contains(name)
+                self.float_fns.contains(&callee_key)
             }
             _ => false,
         }
@@ -962,7 +976,9 @@ impl IrGen {
         type_checker: &mut TypeChecker,
         module_path: &Option<String>,
     ) -> IrFunction {
-        self.begin_float_scope(&name.name, params, body);
+        // The float tables are keyed by mangled name, so the scope
+        // seeding must ask with the same key this function defines.
+        self.begin_float_scope(&Self::mangle_name(&name.name, module_path), params, body);
 
         let mut fn_params: Vec<(String, TypeId)> = Vec::new();
         fn_params.push((

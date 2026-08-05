@@ -683,6 +683,34 @@ that delivered a `pub` signature whose definition stayed private -
 the exporting module is internally fine and an unused import of it
 is harmless, which is why one site cannot do both jobs.
 
+A second adversarial round over the landed rule confirmed seventeen
+findings and their fixes tightened the definitions themselves. A
+*definer* is a module with a `fn` or `foreign` - a `pub` signature
+alone neither creates ambiguity nor outranks the real definer,
+whichever import order merged them; a definition written above its
+own signature is still a definition (the checker kept two entries for
+the name and the arity lookups landed on the signature-only one);
+builtins are module-less winners like the entry file, so two imports
+defining a `None` constructor no longer make the builtin spelling
+ambiguous; ambiguity spans both namespaces (a function in one module
+and a constructor in another is as unresolvable as two functions) and
+both positions (patterns refuse exactly as expressions do - an arm
+would tag-test one module's constructor and bind fields with the
+other's float flags); and the float tables are keyed by mangled name,
+because the earlier entry-suppression fixed the entry's call sites by
+breaking the import's own float arithmetic and every qualified call
+into it. Sig-only names are refused in value position and behind
+qualified references too, not only at calls. Deepest of all, the
+round exposed a latent clobber the old resolution had been masking:
+after checking a body, the checker *overwrote* the declared signature
+in its function table with the inferred parameter-and-body type, so
+`mkTok :: Int -> Int -> Int` returning a `Tok` struct handle became
+`-> Tok` in the table - harmless while a position-dependent scope
+walk answered first, and 246 instant type errors across `self_host/`
+the moment the table became the single source. Inference now fills
+only signature-less placeholders; a declared signature is
+authoritative.
+
 Recorded open from the same scout, for later: bare references
 *inside* an imported module also resolve entry-first (in
 `320-mangle`, `Str.ax`'s own internal `strLen` call reaches the
