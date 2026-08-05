@@ -17,18 +17,26 @@
 ; when the source could not be read, 2 when it could not be parsed. The
 ; previous version returned whatever `writeStdout` did, so a successful
 ; run exited with the length of its own output.
+;
+; The input path is the first command-line argument, defaulting to
+; `in.ax` so existing harnesses keep working. `sysArg`'s Str wraps the
+; process's own NUL-terminated argv bytes without copying, so its
+; `strData` is exactly the C string `sysReadFile` wants.
 (pub :: main Int)
 (pub fn (main)
-  (let ((src (sysReadFile (__addr "in.ax"))))
+  (let ((path (if (> (sysArgc) 1)
+                  (strData (sysArg 1))
+                  (__addr "in.ax"))))
+  (let ((src (sysReadFile path)))
     (if (== (strLen src) 0)
-        (die "cannot read in.ax\n" 1)
+        (die "cannot read input\n" 1)
         (let ((pr (parseModule (lex src))))
           (if (== (memGetWord pr 0) 0)
               (die "parse failed\n" 2)
               (let ((decls (memGetWord pr 1))
                     (out (emitModule decls "arm64-apple-macosx14.0.0"))
                     (_ (writeStdout out)))
-                0))))))
+                0)))))))
 
 (pub :: die (-> Int Int Int))
 (pub fn (die msg code)

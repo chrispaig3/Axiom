@@ -64,8 +64,8 @@ for case_file in tests/selfhost/*.ax; do
     continue
   fi
 
-  # stage1 reads `in.ax` from the working directory and writes LLVM to
-  # stdout. It has no argument parsing yet.
+  # stage1 reads its input from the first argument (default in.ax) and
+  # writes LLVM to stdout.
   cp "$case_file" "$work/in.ax"
   if ! (cd "$work" && ./stage1 >out.ll 2>stage1.err); then
     echo "FAIL $name (stage1 rejected it)"

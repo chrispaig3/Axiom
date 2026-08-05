@@ -779,6 +779,15 @@ pub const PRIMITIVES: &[(&str, usize, bool)] = &[
     ("__store64", 3, false),
     // `(__alloc bytes)` -> address of `bytes` fresh zeroed bytes.
     ("__alloc", 1, false),
+    // `(__argc)` -> how many command-line arguments the process
+    // received, including the program name. Captured by the entry
+    // wrapper before the user's `main` runs.
+    ("__argc", 0, false),
+    // `(__argv i)` -> the address of the i-th argument's NUL-terminated
+    // bytes (0 is the program name). No bounds check at this layer -
+    // the primitives are where the type system stops - so the safe,
+    // bounds-checked reading belongs to `Sys.sysArg`.
+    ("__argv", 1, false),
     // Arena watermark: save / restore bump-allocator position.
     ("__axiom_arena_mark", 0, false),
     ("__axiom_arena_reset", 1, false),

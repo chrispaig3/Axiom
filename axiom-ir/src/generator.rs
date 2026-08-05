@@ -423,6 +423,17 @@ impl IrGen {
     fn mangle_name(name: &str, module_path: &Option<String>) -> String {
         match module_path {
             Some(m) => format!("{}${}", m, name),
+            // The entry file's `main` is not the linker's `main`: the C
+            // runtime calls `main(argc, argv)`, and those arguments
+            // used to land silently in the hidden closure parameter.
+            // Codegen emits a real `@main(i64, i64)` wrapper that
+            // captures them into `@__axiom_argc`/`@__axiom_argv` (the
+            // `__argc`/`__argv` primitives read them back) and then
+            // calls this symbol. Routing the rename through the one
+            // mangling function keeps every table and call site - and
+            // recursive calls to `main` itself - pointing at the user
+            // function, never at the wrapper.
+            None if name == "main" => "__axiom_user_main".to_string(),
             None => name.to_string(),
         }
     }
@@ -1678,6 +1689,30 @@ impl IrGen {
                 dest: dest_val.clone(),
                 size: args[0].clone(),
             },
+            ("__argc", 0) => IrInst::Argc {
+                dest: dest_val.clone(),
+            },
+            // `(__argv i)` is two instructions - fetch the vector's
+            // base, then an ordinary indexed word load - so it cannot
+            // be one arm of the single-instruction match.
+            ("__argv", 1) => {
+                let base = self.new_local();
+                self.emit_to_func(
+                    func,
+                    IrInst::Argv {
+                        dest: IrValue::Local(base.clone()),
+                    },
+                );
+                self.emit_to_func(
+                    func,
+                    IrInst::LoadWordIdx {
+                        dest: dest_val.clone(),
+                        ptr: IrValue::Local(base),
+                        index: args[0].clone(),
+                    },
+                );
+                return Some(dest_val);
+            }
             ("__addr", 1) => IrInst::AddrOf {
                 dest: dest_val.clone(),
                 value: args[0].clone(),

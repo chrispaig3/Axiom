@@ -209,6 +209,34 @@ impl LlvmCodeGen {
         }
         self.gc_active = self.gc && !alloc_defined_in_axiom;
 
+        // The process's arguments, captured once by the entry wrapper
+        // below and read back by the `__argc`/`__argv` primitives. The
+        // globals are emitted unconditionally (harmless when unused);
+        // the wrapper only when the module actually defines the
+        // renamed user `main` - a library module has no entry point
+        // and a wrapper would reference an undefined symbol.
+        writeln!(self.output, "@__axiom_argc = internal global i64 0").unwrap();
+        writeln!(self.output, "@__axiom_argv = internal global i64 0").unwrap();
+        writeln!(self.output).unwrap();
+        if ir_module
+            .functions
+            .iter()
+            .any(|f| f.name == "__axiom_user_main")
+        {
+            writeln!(self.output, "define i64 @main(i64 %argc, i64 %argv) {{").unwrap();
+            writeln!(self.output, "entry:").unwrap();
+            writeln!(self.output, "  store i64 %argc, ptr @__axiom_argc").unwrap();
+            writeln!(self.output, "  store i64 %argv, ptr @__axiom_argv").unwrap();
+            writeln!(
+                self.output,
+                "  %r = call i64 @__axiom_user_main(i64 0)"
+            )
+            .unwrap();
+            writeln!(self.output, "  ret i64 %r").unwrap();
+            writeln!(self.output, "}}").unwrap();
+            writeln!(self.output).unwrap();
+        }
+
         for ir_struct in &ir_module.structs {
             self.declare_struct(ir_struct);
         }
@@ -326,7 +354,12 @@ impl LlvmCodeGen {
         )
         .unwrap();
 
-        let record_stack_base = self.gc_active && ir_func.name == "main";
+        // The user's entry function - `main` was renamed at mangling so
+        // the argv-capturing wrapper could own the linker's `main`. Its
+        // frame base still bounds every Axiom frame below it; only the
+        // wrapper's own two stores sit above, and they hold no Axiom
+        // values.
+        let record_stack_base = self.gc_active && ir_func.name == "__axiom_user_main";
         for (bi, block) in ir_func.blocks.iter().enumerate() {
             writeln!(self.output, "{}:", block.label).unwrap();
 
@@ -1200,6 +1233,36 @@ impl LlvmCodeGen {
                      explicit arena calls, or build without `--gc`."
                         .to_string(),
                 );
+            }
+            IrInst::Argc { dest } => {
+                let result_reg = self.new_local_reg();
+                writeln!(
+                    self.output,
+                    "  {} = load i64, ptr @__axiom_argc",
+                    result_reg
+                )
+                .unwrap();
+                if let IrValue::Local(name) = dest {
+                    self.ssa_values.insert(
+                        name.clone(),
+                        (result_reg, TypeId::TCon("I64".to_string(), vec![])),
+                    );
+                }
+            }
+            IrInst::Argv { dest } => {
+                let result_reg = self.new_local_reg();
+                writeln!(
+                    self.output,
+                    "  {} = load i64, ptr @__axiom_argv",
+                    result_reg
+                )
+                .unwrap();
+                if let IrValue::Local(name) = dest {
+                    self.ssa_values.insert(
+                        name.clone(),
+                        (result_reg, TypeId::TCon("I64".to_string(), vec![])),
+                    );
+                }
             }
             IrInst::ArenaMark { dest } => {
                 // A mark is the whole allocator position, not just the

@@ -775,7 +775,12 @@
 ; the map.
 (pub :: mangledFor (-> Int Int Int))
 (pub fn (mangledFor cg name)
-  (mangledForIn (memGetWord cg 12) (memGetWord cg 13) name 0))
+  ; A reference to `main` - a recursive call, or main as a value -
+  ; must reach the renamed user function, never the argv wrapper,
+  ; which would re-store whatever its two parameters happened to be.
+  (if (strEq name "main")
+      "__axiom_user_main"
+      (mangledForIn (memGetWord cg 12) (memGetWord cg 13) name 0)))
 
 (pub :: mangledForIn (-> Int Int Int Int Int))
 (pub fn (mangledForIn bares fulls name i)
@@ -893,6 +898,23 @@
 (pub :: emitAllocator (-> Int Int))
 (pub fn (emitAllocator cg)
   {
+    ; The process's arguments, captured by the `@main` wrapper below
+    ; before the user's (renamed) main runs; `__argc`/`__argv` read
+    ; them back. Matches stage0's convention exactly - the C runtime
+    ; calls main(argc, argv), and before the wrapper existed those
+    ; two values arrived silently in whatever register the first
+    ; parameter happened to occupy.
+    (emitLine cg "@__axiom_argc = internal global i64 0")
+    (emitLine cg "@__axiom_argv = internal global i64 0")
+    (emitLine cg "")
+    (emitLine cg "define i64 @main(i64 %argc, i64 %argv) {")
+    (emitLine cg "entry:")
+    (emitLine cg "  store i64 %argc, ptr @__axiom_argc")
+    (emitLine cg "  store i64 %argv, ptr @__axiom_argv")
+    (emitLine cg "  %r = call i64 @__axiom_user_main()")
+    (emitLine cg "  ret i64 %r")
+    (emitLine cg "}")
+    (emitLine cg "")
     (emitLine cg "@__axiom_bump = internal global i64 0")
     (emitLine cg "@__axiom_bump_end = internal global i64 0")
     (emitLine cg "")
@@ -989,7 +1011,12 @@
 ; ------------------------------------------------------------------
 (pub :: emitFnDef (-> Int Int Int))
 (pub fn (emitFnDef node cg)
-  (let ((name (nodeA node))
+  ; The entry file's `main` is not the linker's `main` - the argv
+  ; wrapper in the prelude owns that symbol and calls this one. Same
+  ; rename stage0 makes, for the same reason.
+  (let ((name (if (strEq (nodeA node) "main")
+                  "__axiom_user_main"
+                  (nodeA node)))
         (params (nodeB node))
         (body (nodeC node)))
     (let ((paramStr (emitParams params cg 0))
@@ -1680,6 +1707,12 @@
     (let ((mac (findMacro cg name)))
     (if (!= mac 0)
         (emitMacroCall mac vecNew cg)
+    ; A zero-argument primitive is spelled `(__argc)`, which is a bare
+    ; variable reference by the time it gets here - the same wrinkle
+    ; stage0 documents for `__axiom_arena_mark`. Without this it fell
+    ; through to the undefined-name emission `%__argc`.
+    (if (strEq name "__argc")
+        (zeroFloat (emitPrimArgc cg))
     (let ((symReg (lookupSym cg name)))
       (if (!= symReg 0)
           (if (== (lookupSymKind cg name) 1)
@@ -1788,7 +1821,7 @@
                           (memSetWord cg 2 x)
                           (memSetWord cg 14 (paramFloatByName cg name))
                           cg
-                        }))))))))))))))
+                        })))))))))))))))
 
 ; Index of `name` in the current function's parameter list, -1 when it
 ; is no parameter.
@@ -2016,8 +2049,10 @@
   (if (strEq nm "__addr") true
   (if (strEq nm "__intToFloat") true
   (if (strEq nm "__floatToInt") true
+  (if (strEq nm "__argc") true
+  (if (strEq nm "__argv") true
   (if (isSyscallName nm) true
-  false))))))))))
+  false))))))))))))
 
 ; `__syscall0` through `__syscall6`, distinguished only by how many
 ; arguments follow the syscall number.
@@ -2037,7 +2072,56 @@
     (if (strEq fnName "__load8")   (emitPrimLoad args cg 1)
     (if (strEq fnName "__store8")  (emitPrimStore args cg 1)
     (if (strEq fnName "__addr")    (emitPrimAddr args cg)
-    (emitPrimSyscall args cg)))))))))))
+    (if (strEq fnName "__argc")    (emitPrimArgc cg)
+    (if (strEq fnName "__argv")    (emitPrimArgv args cg)
+    (emitPrimSyscall args cg)))))))))))))
+
+; `(__argc)`: the count the entry wrapper captured before main ran.
+(pub :: emitPrimArgc (-> Int Int))
+(pub fn (emitPrimArgc cg)
+  (let ((rn (allocReg cg)))
+    (let ((r (regStr rn)))
+      {
+        (emitLine cg (cat2 (cat2 "  " r)
+                           " = load i64, ptr @__axiom_argc"))
+        (memSetWord cg 2 r)
+        cg
+      })))
+
+; `(__argv i)`: the i-th argument's NUL-terminated bytes - the vector
+; base the wrapper captured, then an ordinary indexed word load. No
+; bounds check at this layer; `Sys.sysArg` owns that.
+(pub :: emitPrimArgv (-> Int Int Int))
+(pub fn (emitPrimArgv args cg)
+  (let ((cg1 (emitExpr (vecGet args 0) cg)))
+    (let ((i (strDup (memGetWord cg1 2)))
+          (bn (allocReg cg1))
+          (pn (allocReg cg1))
+          (gn (allocReg cg1))
+          (rn (allocReg cg1)))
+      (let ((b (regStr bn))
+            (p (cat2 "%p" (fmtInt pn)))
+            (g (cat2 "%g" (fmtInt gn)))
+            (r (regStr rn)))
+        {
+          (emitLine cg1 (cat2 (cat2 "  " b)
+                              " = load i64, ptr @__axiom_argv"))
+          (emitLine cg1 (cat4 (cat2 "  " p)
+                              " = inttoptr i64 "
+                              b
+                              " to ptr"))
+          (emitLine cg1 (strConcat (cat4 (cat2 "  " g)
+                                         " = getelementptr i64, ptr "
+                                         p
+                                         ", i64 ")
+                                   i))
+          (emitLine cg1 (cat4 (cat2 "  " r)
+                              " = load i64, ptr "
+                              g
+                              ""))
+          (memSetWord cg1 2 r)
+          cg1
+        }))))
 
 ; `__intToFloat` is a numeric conversion (`sitofp`), not a
 ; reinterpretation - that is `cast`'s job - and the result travels as

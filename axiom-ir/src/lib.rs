@@ -221,6 +221,17 @@ pub enum IrInst {
     ArenaMark {
         dest: IrValue,
     },
+    /// `dest` = the process's argument count, as captured by the entry
+    /// wrapper before the user's `main` ran.
+    Argc {
+        dest: IrValue,
+    },
+    /// `dest` = the address of the process's argument vector (an array
+    /// of NUL-terminated string addresses), captured like [`Argc`].
+    /// Indexing into it is ordinary `LoadWordIdx`.
+    Argv {
+        dest: IrValue,
+    },
     /// Roll the bump-allocator waterline back to `ptr`, reclaiming
     /// every allocation that happened since the matching `ArenaMark`.
     ///
@@ -383,6 +394,8 @@ impl IrInst {
             | IrInst::Sizeof { .. }
             | IrInst::Alignof { .. }
             | IrInst::ArenaMark { .. }
+            | IrInst::Argc { .. }
+            | IrInst::Argv { .. }
             | IrInst::ArenaReset { .. } => Vec::new(),
         }
     }

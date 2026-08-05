@@ -936,7 +936,13 @@ fn build(
     let mut ir_gen = IrGen::new();
     let ir_module = ir_gen.generate(&ast, &mut type_checker);
 
-    let has_main = ir_module.functions.iter().any(|f| f.name == "main");
+    // The user's `main` is renamed at mangling so the argv-capturing
+    // wrapper can own the linker's `main`; by the time the IR exists,
+    // this is the name an entry point has.
+    let has_main = ir_module
+        .functions
+        .iter()
+        .any(|f| f.name == "__axiom_user_main");
     if !has_main {
         let diag = Diagnostic::error(
             &axiom_errors::code::MISSING_MAIN,

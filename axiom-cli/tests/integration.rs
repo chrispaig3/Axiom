@@ -135,6 +135,32 @@ fn an_entry_fn_shadowing_an_imported_fn_is_not_partial_application() {
     );
 }
 
+/// Arguments actually passed on the command line reach the program:
+/// argc counts them, each one's bytes arrive intact. The golden suite
+/// can only pin the no-arguments case (its runner passes none), so
+/// the passing half lives here.
+#[test]
+fn command_line_arguments_reach_the_program() {
+    let dir = scratch_dir("run-with-args");
+    write_source(
+        &dir,
+        "main.ax",
+        "(import Sys)\n(import Str)\n(:: main Int)\n\
+         (fn main (+ (* 10 (sysArgc)) (strLen (sysArg 1))))\n",
+    );
+    let out = run_axiom(
+        &["build", "--input", "main.ax", "--output", "argprog"],
+        &dir,
+    );
+    assert!(out.status.success(), "build failed: {}", stderr(&out));
+    let run = std::process::Command::new(dir.join("argprog"))
+        .args(["hello", "x"])
+        .output()
+        .expect("run failed");
+    // argc = 3 (program + 2 args), strLen("hello") = 5 -> 35.
+    assert_eq!(run.status.code(), Some(35), "wrong exit: {:?}", run);
+}
+
 /// Two modules define `work`; one does IO, one is pure. Effect
 /// inference used to pool both bodies' effects into whichever FnInfo
 /// registered first, so a pure-tagged caller of the genuinely pure

@@ -765,8 +765,15 @@ emits immediates (S1) - each compiler's output is self-consistent, so
 the conformance suite and the fixpoint are indifferent to it, but
 byte-identical emission (phase 4) will need stage1 to reproduce the
 unboxing. It emits for darwin-aarch64
-only. And the driver reads `in.ax` from the working directory and
-writes to stdout, with no argument parsing. Float literals with more
+only. The driver takes its input path as the first command-line
+argument - programs can read their arguments now: the emitted `@main`
+is a wrapper that captures `argc`/`argv` into globals before calling
+the renamed user entry (`__axiom_user_main`), the `__argc`/`__argv`
+primitives read them back, and `Sys.sysArgc`/`sysArg` are the
+bounds-checked surface, in both compilers identically
+(`tests/selfhost/610-args.ax`, `tests/stdlib/290-args.ax`). With no
+argument it still reads `in.ax` from the working directory, and
+output is still stdout. Float literals with more
 precision than a double round twice where stage0 rounds once, so a
 last-ulp divergence is possible for literals outside the corpus;
 byte-identical emission (phase 4) needs a single-rounding

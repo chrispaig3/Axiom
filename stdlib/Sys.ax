@@ -170,3 +170,27 @@
                   (memCopy (strData big) (strData buf) used2)
                   (sysReadAll fd big used2 (* cap 2))
                 }))))))
+
+; ------------------------------------------------------------------
+; Command-line arguments.
+;
+; The entry wrapper captures `argc`/`argv` before `main` runs; the
+; `__argc`/`__argv` primitives read them back. `__argv` is unchecked -
+; the primitives are where the type system stops - so the bounds live
+; here, and an out-of-range index answers the empty string rather
+; than whatever address sits past the vector.
+; ------------------------------------------------------------------
+
+; How many arguments the process received, including the program name.
+(pub :: sysArgc Int)
+(pub fn (sysArgc) (__argc))
+
+; The i-th argument as a Str (0 is the program name), or "" when `i`
+; is out of range. The bytes are the process's own argv storage -
+; NUL-terminated, alive for the whole run, never freed or moved - so
+; wrapping them without copying is sound.
+(pub :: sysArg (-> Int Int))
+(pub fn (sysArg i)
+  (if (|| (< i 0) (>= i (__argc)))
+      ""
+      (strFromLit (__argv i))))
