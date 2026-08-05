@@ -388,7 +388,7 @@ stage3  the Axiom compiler, built by stage2
 also compiles and runs a program through each stage - two compilers can
 agree byte-for-byte on their own source and still both be wrong.
 
-`scripts/check-self-host.sh` is the conformance gate: 48 cases in
+`scripts/check-self-host.sh` is the conformance gate: 50 cases in
 `tests/selfhost/`, each compiled by stage1, assembled, linked, and
 checked by exit status, plus a negative check that an unresolvable
 import is refused with the module named rather than skipped. What it
@@ -526,18 +526,24 @@ unary-minus desugaring as the infix `(0 - 5)` and stripped the parens
 off a data type-parameter list. All fixed; every behavioural fix is a
 conformance case, and the gates plus the fixpoint stay green.
 
+`while`/`mut`/`set` (S5) are implemented: a `mut` binding is an
+alloca, every read of it a load, `set` a store that evaluates to the
+stored value, and `while` a branch back to its condition block
+yielding 0 - each matching stage0's observed behaviour, including a
+mutable `Float` keeping its float-ness across stores
+(`tests/selfhost/500-while-mut.ax`, `510-mut-float.ax`). The alloca
+machinery is also the substrate closures (B1 in stage1) will need.
+
 What genuinely remains: no type checking -
 `self_host/typecheck.ax` is a stub - so a program stage0 would reject
 with a diagnostic, stage1 compiles into whatever the code happens to
-mean. No `while`/`mut`/`set` (S5) - stage1's locals are SSA values
-with no storage to assign into; the forms are *refused* at parse
-rather than miscompiled, and the fix is alloca-backed locals. No
-struct field access (`p.x`), refused the same way. It emits for
-darwin-aarch64 only. And the driver reads `in.ax` from the working
-directory and writes to stdout, with no argument parsing. Float
-literals with more precision than a double round twice where stage0
-rounds once, so a last-ulp divergence is possible for literals outside
-the corpus; byte-identical emission (phase 4) needs a single-rounding
+mean. No function values or closures (refused loudly). No struct
+field access (`p.x`), refused at parse. It emits for darwin-aarch64
+only. And the driver reads `in.ax` from the working directory and
+writes to stdout, with no argument parsing. Float literals with more
+precision than a double round twice where stage0 rounds once, so a
+last-ulp divergence is possible for literals outside the corpus;
+byte-identical emission (phase 4) needs a single-rounding
 conversion.
 
 None of those is on the bootstrap path, which is why the fixpoint holds

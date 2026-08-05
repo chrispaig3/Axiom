@@ -107,7 +107,11 @@
 ; Field 17 = curParams (Vec of Str, parameter names of the function being emitted)
 ; Field 18 = curFlags (Vec of 0/1 from this function's own signature, 0 if it has none)
 ; Field 19 = macros (Vec of D_MACRO nodes: name, param names, template)
-(pub struct CG (lines : Int) (tmp : Int) (result : Int) (types : Int) (tagN : Int) (argVec : Int) (symnames : Int) (symregs : Int) (decls : Int) (argsTyped : Int) (strings : Int) (curBlock : Int) (mangleBares : Int) (mangleFulls : Int) (resultIsFloat : Int) (floatSigs : Int) (symfloats : Int) (curParams : Int) (curFlags : Int) (macros : Int))
+; Field 20 = symkinds (Vec of 0/1 parallel to fields 6/7/16: 0 = the
+;            register IS the value, 1 = the register is an alloca and
+;            every read is a load - which is what lets `set` store and
+;            `while` observe the store on the next trip)
+(pub struct CG (lines : Int) (tmp : Int) (result : Int) (types : Int) (tagN : Int) (argVec : Int) (symnames : Int) (symregs : Int) (decls : Int) (argsTyped : Int) (strings : Int) (curBlock : Int) (mangleBares : Int) (mangleFulls : Int) (resultIsFloat : Int) (floatSigs : Int) (symfloats : Int) (curParams : Int) (curFlags : Int) (macros : Int) (symkinds : Int))
 
 ; The constructor tag counter starts at 2, not 0: stage0's tag is the
 ; ordinal position in a flat walk of every data type the type checker
@@ -118,7 +122,7 @@
 ; user constructor 2).
 (pub :: newCG Int)
 (pub fn (newCG)
-  (CG vecNew 0 "" vecNew 2 vecNew vecNew vecNew 0 "" vecNew "entry" vecNew vecNew 0 vecNew vecNew 0 0 vecNew))
+  (CG vecNew 0 "" vecNew 2 vecNew vecNew vecNew 0 "" vecNew "entry" vecNew vecNew 0 vecNew vecNew 0 0 vecNew vecNew))
 
 (pub :: zeroFloat (-> Int Int))
 (pub fn (zeroFloat cg)
@@ -976,6 +980,7 @@
           (_2 (memSetWord cg 6 vecNew))
           (_3 (memSetWord cg 7 vecNew))
           (_4 (memSetWord cg 16 vecNew))
+          (_4b (memSetWord cg 20 vecNew))
           ; This function's own parameter names and float flags, for
           ; `%name` references in the body.
           (_5 (memSetWord cg 17 params))
@@ -1052,15 +1057,16 @@
         (_4 (memSetWord cg 2 vr)))
     cg))
 
-; The three symbol vectors stay parallel by construction: this is the
-; only place that pushes them. Constructor fields carry flag 0 - a field
-; is a bare word, and nothing tracks float-ness through one yet.
-(pub :: bindSym (-> Int Int Int Int Int))
-(pub fn (bindSym cg name reg isFloat)
+; The four symbol vectors stay parallel by construction: this is the
+; only place that pushes them. `kind` 0 binds a value register, 1 an
+; alloca whose reads load.
+(pub :: bindSym (-> Int Int Int Int Int Int))
+(pub fn (bindSym cg name reg isFloat kind)
   {
     (memSetWord cg 6 (vecPush (memGetWord cg 6) name))
     (memSetWord cg 7 (vecPush (memGetWord cg 7) reg))
     (memSetWord cg 16 (vecPush (memGetWord cg 16) isFloat))
+    (memSetWord cg 20 (vecPush (memGetWord cg 20) kind))
     cg
   })
 
@@ -1079,6 +1085,7 @@
     (memSetWord (memGetWord cg 6) 0 mark)
     (memSetWord (memGetWord cg 7) 0 mark)
     (memSetWord (memGetWord cg 16) 0 mark)
+    (memSetWord (memGetWord cg 20) 0 mark)
     cg
   })
 
@@ -1183,14 +1190,14 @@
             (emitPatTest (constStr 1) vr failB cg)
         (if (strEq (nodeA pat) "false")
             (emitPatTest (constStr 0) vr failB cg)
-            (bindSym cg (nodeA pat) (strDup vr) isFloat)))
+            (bindSym cg (nodeA pat) (strDup vr) isFloat 0)))
     (if (== tag TAG_P_CON0)
         ; A nullary constructor: an immediate tag in an all-nullary
         ; type, a one-word block otherwise - the tag is where the
         ; representation says it is.
         (let ((entry (lookupType (memGetWord cg 3) (nodeA pat))))
           (if (== entry 0)
-              (bindSym cg (nodeA pat) (strDup vr) isFloat)
+              (bindSym cg (nodeA pat) (strDup vr) isFloat 0)
               (if (== (eAllNull entry) 1)
                   (emitPatTest (constStr (eTag entry)) vr failB cg)
                   (let ((cgL (loadWordAt cg vr 0)))
@@ -1278,7 +1285,10 @@
     (if (== tag TAG_E_BEGIN) (emitBegin node cg)
     (if (== tag TAG_E_STR)   (emitStrExpr node cg)
     (if (== tag TAG_E_MATCH) (emitMatch node cg)
-    (emitDefault node cg))))))))))))
+    (if (== tag TAG_E_LETM)  (emitLetM node cg)
+    (if (== tag TAG_E_SET)   (emitSet node cg)
+    (if (== tag TAG_E_WHILE) (emitWhile node cg)
+    (emitDefault node cg)))))))))))))))
 
 ; E_Int
 (pub :: emitInt (-> Int Int Int))
@@ -1318,11 +1328,26 @@
         (emitMacroCall mac vecNew cg)
     (let ((symReg (lookupSym cg name)))
       (if (!= symReg 0)
-          {
-            (memSetWord cg 2 (strDup symReg))
-            (memSetWord cg 14 (lookupSymFloat cg name))
-            cg
-          }
+          (if (== (lookupSymKind cg name) 1)
+              ; A mutable binding: the register is its storage, and the
+              ; value is a fresh load - which is what makes a `set` in
+              ; a loop body visible on the next trip's read.
+              (let ((rn (allocReg cg)))
+                (let ((r (regStr rn)))
+                  {
+                    (emitLine cg (cat4 (cat2 "  " r)
+                                       " = load i64, ptr "
+                                       (strDup symReg)
+                                       ""))
+                    (memSetWord cg 2 r)
+                    (memSetWord cg 14 (lookupSymFloat cg name))
+                    cg
+                  }))
+              {
+                (memSetWord cg 2 (strDup symReg))
+                (memSetWord cg 14 (lookupSymFloat cg name))
+                cg
+              })
           (if (strEq name "true")
               {
                 (memSetWord cg 2 (constStr 1))
@@ -1425,6 +1450,11 @@
                 (&& (strEq (nodeA d) name) (> (vecLen (nodeB d)) 0)))
             true
             (isDefinedFnIn decls name (+ i 1))))))
+
+(pub :: lookupSymKind (-> Int Int Int))
+(pub fn (lookupSymKind cg name)
+  (lookupSymFloatIn (memGetWord cg 6) (memGetWord cg 20) name
+                    (- (vecLen (memGetWord cg 6)) 1)))
 
 (pub :: lookupSymFloat (-> Int Int Int))
 (pub fn (lookupSymFloat cg name)
@@ -2219,10 +2249,95 @@
       (let ((valReg (strDup (memGetWord cg1 2)))
             (valFlag (memGetWord cg1 14))
             (mark (symMark cg1)))
-        (bindSym cg1 name valReg valFlag)
+        (bindSym cg1 name valReg valFlag 0)
         (let ((cgB (emitExpr body cg1)))
           (symRestore cgB mark)
           cgB)))))
+
+; A mutable binding: the initialiser's value goes into an alloca, the
+; name binds the alloca (kind 1), and reads load. `alloca` in a body
+; block rather than the entry block is legal LLVM; at -O0 nothing cares,
+; and a `while` body cannot re-execute a `let` header, so each binding
+; allocates once per activation.
+(pub :: emitLetM (-> Int Int Int))
+(pub fn (emitLetM node cg)
+  (let ((name (nodeA node))
+        (valExpr (nodeB node))
+        (body (nodeC node)))
+    (let ((cg1 (emitExpr valExpr cg)))
+      (let ((valReg (strDup (memGetWord cg1 2)))
+            (valFlag (memGetWord cg1 14))
+            (mark (symMark cg1))
+            (an (allocReg cg1)))
+        (let ((ar (cat2 "%a" (fmtInt an))))
+          {
+            (emitLine cg1 (cat2 (cat2 "  " ar) " = alloca i64"))
+            (emitLine cg1 (cat4 "  store i64 " valReg ", ptr " ar))
+            (bindSym cg1 name ar valFlag 1)
+            (let ((cgB (emitExpr body cg1)))
+              {
+                (symRestore cgB mark)
+                cgB
+              })
+          })))))
+
+; `(set name v)` stores into the binding's alloca and evaluates to `v`,
+; matching stage0. A target with no storage - unbound, immutable, or a
+; parameter - is refused loudly; stage0 rejects it as AX3012 and this
+; compiler has no diagnostic channel subtler than dying.
+(pub :: emitSet (-> Int Int Int))
+(pub fn (emitSet node cg)
+  (let ((name (nodeA node))
+        (valExpr (nodeB node)))
+    (let ((storage (lookupSym cg name)))
+      (if (== storage 0)
+          (dieImport "error: set target is not a mut binding: " name)
+          (if (!= (lookupSymKind cg name) 1)
+              (dieImport "error: set target is not a mut binding: " name)
+              (let ((cg1 (emitExpr valExpr cg)))
+                (let ((v (strDup (memGetWord cg1 2))))
+                  {
+                    (emitLine cg1 (cat4 "  store i64 " v ", ptr " (strDup storage)))
+                    (memSetWord cg1 2 v)
+                    cg1
+                  })))))))
+
+; `while` is a real loop - a branch back to a condition block - and the
+; whole form evaluates to 0: a loop that ran zero times has no last
+; iteration to take a value from.
+(pub :: emitWhile (-> Int Int Int))
+(pub fn (emitWhile node cg)
+  (let ((cnd (nodeA node))
+        (body (nodeB node))
+        (hn (allocReg cg))
+        (bn (allocReg cg))
+        (xn (allocReg cg)))
+    (let ((hdrB (cat2 "label_" (fmtInt hn)))
+          (bodyB (cat2 "label_" (fmtInt bn)))
+          (exitB (cat2 "label_" (fmtInt xn))))
+      (let ((_1 (emitLine cg (cat2 "  br label %" hdrB)))
+            (_2 (emitLabel cg hdrB))
+            (cgC (emitExpr cnd cg))
+            (cr (strDup (memGetWord cgC 2)))
+            (tn (allocReg cgC)))
+        (let ((tr (regStr tn)))
+          (let ((_3 (emitLine cgC (cat4 (cat2 "  " tr)
+                                        " = icmp ne i64 "
+                                        cr
+                                        ", 0")))
+                (_4 (emitLine cgC (cat4 (cat3 "  br i1 " tr ", label %")
+                                        bodyB
+                                        (cat2 ", label %" exitB)
+                                        "")))
+                (_5 (emitLabel cgC bodyB))
+                (cgB (emitSeq body cgC 0))
+                (_6 (emitLine cgB (cat2 "  br label %" hdrB)))
+                (_7 (emitLabel cgB exitB)))
+            {
+              (memSetWord cgB 2 (constStr 0))
+              (memSetWord cgB 14 0)
+              cgB
+            }))))))
 
 (pub :: emitIf (-> Int Int Int))
 (pub fn (emitIf node cg)

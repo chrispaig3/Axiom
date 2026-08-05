@@ -46,6 +46,14 @@
 ; and expression parsing erases parens, so the shape is marked before
 ; the erasure. Word 1 is the constructor's name.
 (pub :: TAG_P_CON0 Int)   (pub fn (TAG_P_CON0) 23)
+; A mutable binding: like TAG_E_LET, but the name gets storage - an
+; alloca written by `set` and read by a load at every use - rather
+; than a value register.
+(pub :: TAG_E_LETM Int)   (pub fn (TAG_E_LETM) 24)
+; (set name value): word 1 the name, word 2 the value expression.
+(pub :: TAG_E_SET Int)    (pub fn (TAG_E_SET) 25)
+; (while cond body...): word 1 the condition, word 2 the body Vec.
+(pub :: TAG_E_WHILE Int)  (pub fn (TAG_E_WHILE) 26)
 
 (pub :: nodeTag (-> Int Int))   (pub fn (nodeTag n) (memGetWord n 0))
 (pub :: nodeA   (-> Int Int))   (pub fn (nodeA   n) (memGetWord n 1))
@@ -648,19 +656,48 @@
               (parseMatchExpr tokens (advance pos))
           (if (kwEq name (kwCond))
               (parseCondExpr tokens (advance pos))
-          ; `while`/`set` need mutable storage stage1's SSA locals do
-          ; not have yet (S5). Refusing to parse is honest; letting
-          ; them fall through to application emitted a call to a
-          ; symbol named `while`, which is a miscompile wearing a
-          ; typo's clothes.
           (if (kwEq name "while")
-              (pErr pos)
+              (parseWhileExpr tokens (advance pos))
           (if (kwEq name "set")
-              (pErr pos)
+              (parseSetExpr tokens (advance pos))
           (parseAppForm tokens pos)))))))))))
   (if (peekIs tokens pos TK_RPAREN)
       (pOk 0 (advance pos))
   (parseAppForm tokens pos))))
+
+; ------------------------------------------------------------------
+; (while cond body...) - body takes any number of expressions.
+; ------------------------------------------------------------------
+(pub :: parseWhileExpr (-> Int Int Int))
+(pub fn (parseWhileExpr tokens pos)
+  (let ((condR (parseExpr tokens pos)))
+    (if (== (memGetWord condR 0) 0) condR
+        (let ((cnd (memGetWord condR 1))
+              ; Consumes the while form's closing paren.
+              (bodyR (parseExprList tokens (memGetWord condR 2) vecNew)))
+          (if (== (memGetWord bodyR 0) 0) bodyR
+              (pOk (mkNode TAG_E_WHILE cnd (memGetWord bodyR 1) 0)
+                   (memGetWord bodyR 2)))))))
+
+; ------------------------------------------------------------------
+; (set name value) - a store into a `mut` binding. The field form
+; `(set r.field v)` needs storage stage1 does not model; the dot after
+; the name makes this a parse error rather than a miscompile.
+; ------------------------------------------------------------------
+(pub :: parseSetExpr (-> Int Int Int))
+(pub fn (parseSetExpr tokens pos)
+  (let ((nr (parseIdentName tokens pos)))
+    (if (== (memGetWord nr 0) 0) nr
+        (if (peekIs tokens (memGetWord nr 2) TK_DOT)
+            (pErr (memGetWord nr 2))
+            (let ((valR (parseExpr tokens (memGetWord nr 2))))
+              (if (== (memGetWord valR 0) 0) valR
+                  (let ((val (memGetWord valR 1))
+                        (afterVal (memGetWord valR 2)))
+                    (if (peekIs tokens afterVal TK_RPAREN)
+                        (pOk (mkNode TAG_E_SET (memGetWord nr 1) val 0)
+                             (advance afterVal))
+                        (pErr afterVal)))))))))
 
 ; ------------------------------------------------------------------
 ; Parse (cond (test body...) ... (else body...)) as a chain of `if`,
@@ -778,15 +815,22 @@
   (if (peekIs tokens pos TK_LPAREN)
       (let ((nr (parseIdentName tokens (advance pos))))
         (if (== (memGetWord nr 0) 0) nr
-            (let ((name (memGetWord nr 1)))
-              (let ((valR (parseExpr tokens (memGetWord nr 2))))
-                (if (== (memGetWord valR 0) 0) valR
-                    (let ((val (memGetWord valR 1))
-                          (afterVal (memGetWord valR 2)))
-                      (if (peekIs tokens afterVal TK_RPAREN)     ; close (n v)
-                          (parseBindPairs tokens (advance afterVal)
-                            (vecPush acc (mkNode TAG_NIL name val 0)))
-                          (pErr afterVal))))))))
+            ; `(mut i 0)` - the marker is the word `mut`, then the real
+            ; name. Word c of the pair records mutability for foldLets.
+            (let ((isMut (if (strEq (memGetWord nr 1) "mut") 1 0)))
+              (let ((nr2 (if (== isMut 1)
+                             (parseIdentName tokens (memGetWord nr 2))
+                             nr)))
+                (if (== (memGetWord nr2 0) 0) nr2
+                    (let ((name (memGetWord nr2 1)))
+                      (let ((valR (parseExpr tokens (memGetWord nr2 2))))
+                        (if (== (memGetWord valR 0) 0) valR
+                            (let ((val (memGetWord valR 1))
+                                  (afterVal (memGetWord valR 2)))
+                              (if (peekIs tokens afterVal TK_RPAREN) ; close (n v)
+                                  (parseBindPairs tokens (advance afterVal)
+                                    (vecPush acc (mkNode TAG_NIL name val isMut)))
+                                  (pErr afterVal)))))))))))
   (pErr pos))))
 
 ; Fold binding pairs [0..i] around `body`, innermost binding first.
@@ -795,7 +839,11 @@
   (if (< i 0)
       body
       (let ((b (vecGet binds i)))
-        (foldLets binds (mkELet (nodeA b) (nodeB b) body) (- i 1)))))
+        (foldLets binds
+                  (if (== (nodeC b) 1)
+                      (mkNode TAG_E_LETM (nodeA b) (nodeB b) body)
+                      (mkELet (nodeA b) (nodeB b) body))
+                  (- i 1)))))
 
 ; ------------------------------------------------------------------
 ; Parse (if test then else)
