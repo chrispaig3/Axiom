@@ -135,6 +135,86 @@ fn an_entry_fn_shadowing_an_imported_fn_is_not_partial_application() {
     );
 }
 
+/// Two modules define `work`; one does IO, one is pure. Effect
+/// inference used to pool both bodies' effects into whichever FnInfo
+/// registered first, so a pure-tagged caller of the genuinely pure
+/// qualified one drew a false AX3010 - and the IO one's own entry
+/// could sit empty. Keyed by (name, module), each keeps its own.
+#[test]
+fn same_named_fns_in_two_modules_keep_their_own_effects() {
+    let dir = scratch_dir("check-effect-attribution");
+    write_source(
+        &dir,
+        "Aio.ax",
+        "(pub :: work (-> Int Int))\n;@axiom:effect(io)\n\
+         (pub fn (work x) { (__syscall1 1 x) x })\n",
+    );
+    write_source(
+        &dir,
+        "Bpure.ax",
+        "(pub :: work (-> Int Int))\n(pub fn (work x) (+ x 1))\n",
+    );
+    write_source(
+        &dir,
+        "pure_ok.ax",
+        "(import Aio)\n(import Bpure)\n(:: caller (-> Int Int))\n;@axiom:pure\n\
+         (fn (caller x) (Bpure::work x))\n(:: main Int)\n(fn main (caller 1))\n",
+    );
+    let out = run_axiom(&["--diagnostic-format=ai", "check", "pure_ok.ax"], &dir);
+    assert!(out.status.success(), "stderr: {}", stderr(&out));
+    assert!(
+        !stderr(&out).contains("AX3010"),
+        "false effect warning: {}",
+        stderr(&out)
+    );
+
+    write_source(
+        &dir,
+        "pure_bad.ax",
+        "(import Aio)\n(import Bpure)\n(:: caller (-> Int Int))\n;@axiom:pure\n\
+         (fn (caller x) (Aio::work x))\n(:: main Int)\n(fn main (caller 1))\n",
+    );
+    let out = run_axiom(&["--diagnostic-format=ai", "check", "pure_bad.ax"], &dir);
+    assert!(
+        out.status.success(),
+        "AX3010 is a warning, not an error: {}",
+        stderr(&out)
+    );
+    assert!(
+        stderr(&out).contains("AX3010"),
+        "the real IO went unwarned: {}",
+        stderr(&out)
+    );
+}
+
+/// `symbols` reports what the checker inferred, not only what the
+/// tags claim: a transitively-IO function with no tag carries
+/// `#effects=io`, so a lying `#pure` tag is visible next to reality
+/// instead of standing alone.
+#[test]
+fn symbols_reports_inferred_effects() {
+    let dir = scratch_dir("symbols-inferred-effects");
+    write_source(
+        &dir,
+        "main.ax",
+        "(:: leaf (-> Int Int))\n(fn (leaf x) { (__syscall1 1 x) x })\n\
+         (:: mid (-> Int Int))\n(fn (mid x) (leaf x))\n\
+         (:: main Int)\n(fn main (mid 1))\n",
+    );
+    let out = run_axiom(&["--diagnostic-format=ai", "symbols", "main.ax"], &dir);
+    assert!(out.status.success(), "stderr: {}", stderr(&out));
+    let text = String::from_utf8_lossy(&out.stdout).to_string();
+    let mid_line = text
+        .lines()
+        .find(|l| l.contains(" mid "))
+        .expect("no symbols row for mid");
+    assert!(
+        mid_line.contains("effects=IO"),
+        "transitive IO not reported: {}",
+        mid_line
+    );
+}
+
 /// A bare reference to a name two imports define, with no entry-file
 /// definition: before AX3014 the type checker bound one module's
 /// definition while codegen called the other's, so the same program

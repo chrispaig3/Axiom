@@ -6,9 +6,11 @@
 ;
 ; Functions that touch the outside world carry `;@axiom:effect(io)`, and
 ; the compiler validates those claims against the syscalls actually
-; reachable from each body - so an `io`-tagged function that stopped
-; doing I/O, or an untagged one that started, is a compile error rather
-; than a stale comment.
+; reachable from each body - transitively, by fixpoint - so an
+; `io`-tagged function that stopped doing I/O warns (`AX3010`). An
+; untagged function that starts doing I/O is NOT flagged: tags are
+; opt-in claims, checked when made, and `axiom symbols` reports the
+; inferred `#effects=` either way.
 
 (import Sys)
 (import Str)

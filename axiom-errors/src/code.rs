@@ -164,8 +164,14 @@ registry! {
          can correct the annotation instead of silently trusting it."),
     EFFECT_MISMATCH => ("AX3011", "effect-mismatch",
         "effect mismatch",
-        "This expression performs effects that are not declared in its\n\
-         signature or not handled by the enclosing `handle` expression."),
+        "The body of a `handle` expression performs effects that its\n\
+         handled-effects list does not name. List every effect the body\n\
+         can perform, or move the unhandled operation outside the\n\
+         `handle`.\n\
+         \n\
+         (Effects do not appear in function signatures; a function's\n\
+         effect claims are made with `;@axiom:effect(...)` tags and\n\
+         validated as AX3010.)"),
     ASSIGN_TO_IMMUTABLE => ("AX3012", "assign-to-immutable",
         "cannot assign to an immutable binding",
         "`set` stores into a local, and a local is assignable only if it was\n\

@@ -365,7 +365,14 @@ fn collect_effects_into(
             // `;@axiom:effect(io)` claim on a function whose body
             // only calls syscalls has to validate exactly as it did
             // when that function called `printf`.
-            if let Some(f) = checker.functions.iter().find(|f| f.name == ident.name) {
+            //
+            // Resolved with `resolve_bare_fn` - the same entry-first,
+            // definition-preferring rule the type checker binds the
+            // name with - rather than the first bare-name match, which
+            // pooled two modules' same-named functions into whichever
+            // FnInfo registered first and made a pure function inherit
+            // its namesake's IO.
+            if let Some(f) = checker.resolve_bare_fn(&ident.name) {
                 if f.foreign_symbol.is_some() {
                     out.insert(axiom_ast::ast::Effect::IO);
                 }
@@ -453,8 +460,21 @@ fn collect_effects_into(
         Expr::EQuasiquote(inner) | Expr::EUnquote(inner) | Expr::ESplice(inner) => {
             collect_effects_into(checker, inner, out)
         }
-        Expr::EQualified(_, name) => {
-            if let Some(f) = checker.functions.iter().find(|f| f.name == name.name) {
+        Expr::EQualified(path, name) => {
+            // The qualifier picks the module; discarding it (the old
+            // behavior) read whichever same-named FnInfo happened to
+            // come first, so `Pure::work` could inherit `Io::work`'s
+            // effects and vice versa.
+            let module: String = path
+                .iter()
+                .map(|i| i.name.as_str())
+                .collect::<Vec<_>>()
+                .join(".");
+            if let Some(f) = checker
+                .functions
+                .iter()
+                .find(|f| f.name == name.name && f.module.as_deref() == Some(&module))
+            {
                 if f.foreign_symbol.is_some() {
                     out.insert(axiom_ast::ast::Effect::IO);
                 }
@@ -1483,10 +1503,21 @@ impl TypeChecker {
     /// converge on the first round in which their callees stop
     /// changing.
     fn infer_effects(&mut self, decls: &[Decl]) {
-        let bodies: Vec<(String, &Expr)> = decls
+        // Keyed by (name, module), like every other lookup since the
+        // resolution unification: a bare-name write deposited every
+        // same-named body's effects onto whichever FnInfo registered
+        // first, so a pure `Bpure::work` inherited `Aio::work`'s IO -
+        // and its own entry stayed empty - and a pure claim on its
+        // caller warned about I/O that could never happen.
+        let bodies: Vec<(String, &Option<String>, &Expr)> = decls
             .iter()
             .filter_map(|d| match d {
-                Decl::DFn { name, body, .. } => Some((name.name.clone(), body)),
+                Decl::DFn {
+                    name,
+                    module_path,
+                    body,
+                    ..
+                } => Some((name.name.clone(), module_path, body)),
                 _ => None,
             })
             .collect();
@@ -1497,9 +1528,13 @@ impl TypeChecker {
         // makes `collect_effects` non-monotone.
         for _ in 0..=bodies.len() {
             let mut changed = false;
-            for (name, body) in &bodies {
+            for (name, module_path, body) in &bodies {
                 let inferred = collect_effects(self, body);
-                if let Some(info) = self.functions.iter_mut().find(|f| &f.name == name) {
+                if let Some(info) = self
+                    .functions
+                    .iter_mut()
+                    .find(|f| &f.name == name && f.module == **module_path)
+                {
                     for e in inferred {
                         if !info.effects.contains(&e) {
                             info.effects.push(e);
@@ -1614,6 +1649,31 @@ impl TypeChecker {
                                         )],
                                         None => vec![],
                                     };
+                                // `effect(pure)` is the pure claim in
+                                // its other spelling. Checking it as
+                                // "Pure must be among the collected
+                                // effects" made it warn on every
+                                // function, since nothing ever
+                                // *collects* Pure - purity is the
+                                // absence of effects, not one of them.
+                                if declared == vec![axiom_ast::ast::Effect::Pure] {
+                                    let actual = collect_effects(self, body);
+                                    if !actual.is_empty() {
+                                        self.errors.push(SemError::AxtagMismatch {
+                                            name: name.name.clone(),
+                                            message: format!(
+                                                "`effect(pure)` claim contradicted: body performs {}",
+                                                actual
+                                                    .iter()
+                                                    .map(|e| format!("{}", e))
+                                                    .collect::<Vec<_>>()
+                                                    .join(", ")
+                                            ),
+                                            span: name.span,
+                                        });
+                                    }
+                                    continue;
+                                }
                                 let actual = collect_effects(self, body);
                                 let mut missing = Vec::new();
                                 for e in &declared {

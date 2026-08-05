@@ -1291,6 +1291,17 @@ fn collect_symbol_facts(
                 fact = fact.with_meta(m.clone());
             }
         }
+        // What the checker INFERRED, alongside whatever the tags
+        // claim. The declared metadata reproduced only the AXTAGs, so
+        // `symbols` printed `#pure` on a function whose body the same
+        // invocation had just warned performs I/O, and a transitively
+        // effectful function with no tag showed nothing at all. A
+        // consumer now sees claim and reality side by side -
+        // `#pure #effects=io` is a lie made visible.
+        if !f.effects.is_empty() && !f.is_builtin {
+            let list: Vec<String> = f.effects.iter().map(|e| format!("{}", e)).collect();
+            fact = fact.with_meta(format!("effects={}", list.join(",")));
+        }
         facts.push(fact);
     }
 

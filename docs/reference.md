@@ -817,7 +817,16 @@ Traits define interfaces with typed methods — similar to type classes in Haske
 
 ## Effects
 
-Axiom tracks side effects at the type level. Effects are checked by the compiler, so you know exactly what a function does.
+Axiom infers each function's side effects transitively - a fixpoint
+over every function body, so a syscall three calls down still counts -
+and validates any `;@axiom:effect(...)`/`;@axiom:pure` claims against
+what it inferred (`AX3010`, a warning). Effects do not appear in
+function types, and untagged functions are not policed: the tags are
+opt-in claims, checked when made. One honest gap: effects of a
+function value called through a parameter are invisible to the
+inference - effect polymorphism for higher-order functions is future
+work. `axiom symbols` reports the inferred set as `#effects=...`
+beside any declared tags.
 
 ### Built-in Effects
 
@@ -849,14 +858,19 @@ The compiler validates that the body actually performs the declared effects.
 
 ### Handling Effects
 
-Use `handle` to intercept effects:
+`handle` is a *static* effect scope: effects named in its list are
+subtracted from what the body contributes to the enclosing function's
+inferred set, and a body effect the list does not name is `AX3011`.
 
 ```scheme
-; A handler that catches IO and returns a default value
-(handle (printf "hello") (IO) 0)
+; The body's IO stops here for inference purposes
+(handle (println "hello") (IO) 0)
 ```
 
-`handle` runs `body`, intercepting the declared `effects` via `handler`. Effects not listed propagate out.
+The handler expression is currently not invoked at runtime - `handle`
+lowers to its body. Dynamic interception (running the handler when the
+effect is performed) is future work; until then `handle` documents and
+scopes effects, it does not change what executes.
 
 ---
 

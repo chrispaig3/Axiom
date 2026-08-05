@@ -717,11 +717,32 @@ Recorded open from the same scout, for later: bare references
 entry's shadowing definition, and the test passes only because both
 answers land on the same side of its comparison) - fixing that means
 module-internal references bind module-locally, which revisits B4's
-flat-namespace decision. And effect inference does not propagate
-effects through calls at all - a call to an IO-performing function
-type-checks as pure - which contradicts what this document's Phase 0
-claims about transitive effect inference and needs its own
-investigation.
+flat-namespace decision.
+
+An earlier revision of this paragraph claimed effect inference "does
+not propagate effects through calls at all". That claim was wrong,
+and the correction is worth recording as a lesson about probing:
+`infer_effects` has been a monotone fixpoint over every function body
+since it landed - transitivity is pinned by a test, and a
+`;@axiom:pure` claim over a two-call-deep syscall warns exactly as
+Phase 0 says. What the probe had actually observed was the
+*attribution* bug: effects were written to, and read from, the first
+`FnInfo` matching the bare name, so two same-named functions pooled
+their effects into one entry - a pure `Bpure::work` inherited its
+`Aio::work` namesake's IO, its own entry stayed empty, and a
+qualified call to the genuinely pure one drew a false `AX3010` while
+the general "propagation is broken" conclusion looked confirmed. The
+fixpoint and both effect lookups are now keyed by `(name, module)`
+with the same resolution rules as everything else, `EQualified` stops
+discarding its qualifier, and `symbols` emits the *inferred* effect
+set (`#effects=io`) beside whatever the tags claim - it used to print
+`#pure` on a function in the same invocation that warned the
+function's body performs I/O. Still recorded open: effects of a
+function value called through a parameter are invisible (a
+higher-order function's callback contributes nothing - honest
+effect-polymorphism is a design of its own), and `handle`'s handler
+is discarded at lowering, so it is a static effect-scoping construct
+today, not interception.
 
 Struct field access works: `p.x` resolves the field by name in the
 struct registry and loads at its word offset, chains fold left, and
