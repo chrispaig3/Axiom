@@ -1,0 +1,30 @@
+; expect 42
+; An application's span is its HEAD's span - stage0's `Expr::span()`
+; recurses to the function side for `EApp`, so a diagnostic about
+; `(f 1)` points at `f`, not at the paren. Every expression-level
+; diagnostic stage1 grows depends on this, and getting it wrong puts
+; every one of them a token to the left.
+;
+; In `(fname 1)`, `fname` occupies bytes 1..6, so both the variable
+; node and the application built over it must report 1 and 6.
+(import Str)
+(import Vec)
+(import Mem)
+(import lexer)
+(import parser)
+(:: main Int)
+(fn (main)
+  (let ((pr (parseModule (lex "(fn (g) (fname 1))"))))
+    (if (== (memGetWord pr 0) 0)
+        7
+        (let ((decls (memGetWord pr 1)))
+          (let ((body (nodeC (vecGet decls 0))))
+            ; body is the application; its span must equal its head's
+            (let ((headSp (nodeSpan (nodeA body)))
+                  (appSp (nodeSpan body)))
+              (if (&& (== (spanStart appSp) (spanStart headSp))
+                      (&& (== (spanEnd appSp) (spanEnd headSp))
+                          (&& (== (spanStart appSp) 9)
+                              (== (spanEnd appSp) 14))))
+                  42
+                  8)))))))

@@ -83,7 +83,15 @@
 (pub :: mkEFlt (-> Int Int))              (pub fn (mkEFlt bits)  (mkNode TAG_E_FLT bits 0 0))
 (pub :: mkEStr (-> Int Int))              (pub fn (mkEStr s)     (mkNode TAG_E_STR s 0 0))
 (pub :: mkEVar (-> Int Int))              (pub fn (mkEVar n)     (mkNode TAG_E_VAR n 0 0))
-(pub :: mkEApp (-> Int Int Int))          (pub fn (mkEApp f x)   (mkNode TAG_E_APP f x 0))
+; An application's span is its FUNCTION's span, not the open paren's -
+; stage0's `Expr::span()` recurses to the head for `EApp`, so a
+; diagnostic about `(f 1)` points at `f`. Copying the child's span at
+; construction is exactly equivalent to that recursion and costs one
+; word instead of a walk.
+(pub :: mkEApp (-> Int Int Int))
+(pub fn (mkEApp f x)   (mkNodeAt TAG_E_APP f x 0 (nodeSpan f)))
+(pub :: mkEVarAt (-> Int Int Int))
+(pub fn (mkEVarAt n sp) (mkNodeAt TAG_E_VAR n 0 0 sp))
 (pub :: mkELam (-> Int Int Int))          (pub fn (mkELam p b)   (mkNode TAG_E_LAM p b 0))
 (pub :: mkELet (-> Int Int Int Int))      (pub fn (mkELet n v b) (mkNode TAG_E_LET n v b))
 (pub :: mkEIf  (-> Int Int Int Int))      (pub fn (mkEIf  t c a) (mkNode TAG_E_IF  t c a))
@@ -243,7 +251,7 @@
 (pub fn (parseIdentRef tokens pos)
   (if (peekIs tokens pos TK_IDENT)
       (let ((t (vecGet tokens pos)))
-        (parseFieldChain tokens (advance pos) (mkEVar (tokenLexeme t))))
+        (parseFieldChain tokens (advance pos) (mkEVarAt (tokenLexeme t) (tokenSpan t))))
   (pErr pos)))
 
 ; `.field` suffixes make field accesses, folded left so `a.b.c` reads
@@ -786,7 +794,7 @@
             ; base the same way expression-position access does, and
             ; the LAST segment names the field written.
             (parseSetField tokens (memGetWord nr 2)
-                           (mkEVar (memGetWord nr 1)))
+                           (mkEVarAt (memGetWord nr 1) (tokenSpan (vecGet tokens pos))))
             (let ((valR (parseExpr tokens (memGetWord nr 2))))
               (if (== (memGetWord valR 0) 0) valR
                   (let ((val (memGetWord valR 1))

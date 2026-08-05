@@ -846,20 +846,72 @@ nothing would always report), and any diagnostic at all on the
 compiler's own source, since a false positive there does not annoy,
 it stops the compiler compiling itself.
 
-What genuinely remains: type checking proper. The two checks above are
-declaration-level, and `parseSigDecl` keeps only a signature's name and
-a float-flag bitmask - the type structure is discarded - so nothing
+A third check has since joined them, and it is the first that looks
+*inside* a function rather than at its declaration: `AX3013`, partial
+application. A top-level function applied to fewer arguments than it
+declares has no runtime representation - the call site omits the
+missing arguments and the callee reads whatever the registers held -
+so stage0 refuses it, and stage1 used to emit the broken code
+silently.
+
+Reaching inside a body needed one more span. An application's span is
+its *head's*: stage0's `Expr::span()` recurses to the function side of
+an `EApp`, so a report about `(f 1)` points at `f`. `mkEApp` copies
+its function's span at construction, which is exactly equivalent to
+that recursion and costs a word rather than a walk
+(`tests/selfhost/680-expr-spans.ax`). And it needed scope: a head
+shadowed by a local is skipped, because a local may hold a
+one-parameter function returning a closure and only that shape
+survives stepwise application - so the walk tracks `let`, `mut let`,
+lambda parameters and match-arm binders, where a pattern's non-head
+variables are its binders.
+
+The bug worth recording is the one the gate caught rather than the
+one it prevented. `checkSpine` ran at every `EApp` node instead of
+once per spine at its root, so `(f a b c)` re-entered the same spine
+one argument shorter at each level and reported three diagnostics, two
+of them describing calls the source never made. Nothing in the corpus
+noticed - every case there is a single short call - and the
+no-false-positives sweep over `self_host/` and `stdlib/` failed
+immediately with sixteen reports against real standard-library code.
+A checker is not tested by the errors it finds in files written to
+provoke it; it is tested by the silence it keeps on files that are
+correct.
+
+The other thing this slice found was not a diagnostic at all.
+`typecheck.ax` growing pushed `check-bootstrap` and one conformance
+case into SIGSEGV, in `Mem$memCopyFrom`, from a program that did
+nothing wrong. `Mem`'s byte loops were self tail calls, which cost
+nothing where a compiler turns them into jumps - and **stage1 emits no
+tail-call optimisation at all**, so each was a real call chain one
+frame deep per byte. A hundred kilobyte copy is a hundred thousand
+frames. It had been under the limit until the compiler's own output
+grew, which is the worst way to meet a scalability ceiling: as an
+unrelated change appearing to break an unrelated test. `memCopyFrom`,
+`memSetFrom` and `memCmpFrom` are `while` loops now, which need no
+optimisation to be flat, and `tests/selfhost/690-large-memcopy.ax`
+copies a megabyte through a stage1-built binary; restoring the
+recursive spelling fails it. stage1's missing TCO is recorded here as
+the standing gap it is - the standard library no longer depends on it,
+but user code still can, and stage0 optimises what stage1 does not.
+
+What genuinely remains: type checking proper. All three checks are
+structural, and `parseSigDecl` keeps only a signature's name and a
+float-flag bitmask - the type structure is discarded - so nothing
 downstream can compare a type to anything. `AX3001` (undefined
 variable), the most common diagnostic of all, additionally needs the
 suggestion machinery reproduced exactly: `suggest_closest`'s edit
 distance, its `(min_len/2).clamp(1,2)` threshold, *and* its candidate
-iteration order, since the first strictly-smaller distance wins and
-ties are therefore order-dependent. Duplicates *inside an imported
-module* also go unreported, because stage1's merged declaration list
-does not record which module each declaration came from; checking the
-entry file alone is the sound subset, never inventing a diagnostic
-stage0 would not produce. No lambda expressions or partial application
-(refused loudly).
+iteration order (`scope`, then `functions`, then every constructor),
+since the first strictly-smaller distance wins and ties are therefore
+order-dependent. `AX3013` itself is under-reported in two directions
+recorded in `typecheck.ax`: stage0 also measures builtins and foreign
+bindings through their arrow depth, which stage1 has no type structure
+to count. Duplicates *inside an imported module* also go unreported,
+because stage1's merged declaration list does not record which module
+each declaration came from; checking the entry file alone is the sound
+subset, never inventing a diagnostic stage0 would not produce. No
+lambda expressions (refused loudly).
 stage1 emits S1's unboxed nullary constructors exactly as stage0
 does: the per-type representation code (boxed / all-nullary / mixed)
 travels on every constructor's registry entry, construction emits the

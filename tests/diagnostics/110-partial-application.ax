@@ -1,0 +1,4 @@
+(:: add (-> Int Int Int))
+(fn (add a b) (+ a b))
+(:: main Int)
+(fn (main) (add 1))

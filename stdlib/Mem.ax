@@ -33,14 +33,36 @@
 (pub fn (memCopy dst src count)
   (memCopyFrom dst src count 0))
 
+; ------------------------------------------------------------------
+; WHY THESE THREE ARE LOOPS AND NOT RECURSIONS
+;
+; Each walks one byte per step, so its depth is the SIZE OF THE DATA -
+; a 100 KB copy is 100,000 frames. Written as a self tail call that is
+; free, but only where the compiler turns it into a jump, and only
+; stage0 does: stage1 emits no tail-call optimisation at all, so the
+; recursive form was a real call chain that overflowed the stack once
+; the compiler's own output grew past a few hundred kilobytes. It
+; surfaced as a SIGSEGV inside `memCopyFrom` from a stage1-built
+; compiler, which looks like a codegen bug in whatever was being
+; compiled and is not one.
+;
+; A `while` loop needs no such optimisation to be flat, and stage1
+; compiles one in constant stack (`tests/selfhost/500-while-mut.ax`).
+; The recursive spelling is the better one to read; it is not the one
+; that survives both compilers, and the standard library has to.
+; ------------------------------------------------------------------
+
 (pub :: memCopyFrom (-> Int Int Int Int Int))
-(pub fn (memCopyFrom dst src count i)
-  (if (>= i count)
+(pub fn (memCopyFrom dst src count start)
+  (let ((mut i start))
+    {
+      (while (< i count)
+        {
+          (__store8 dst i (__load8 src i))
+          (set i (+ i 1))
+        })
       dst
-      {
-        (__store8 dst i (__load8 src i))
-        (memCopyFrom dst src count (+ i 1))
-      }))
+    }))
 
 ; Set `count` bytes at `addr` to `value` (low 8 bits). Returns `addr`.
 (pub :: memSet (-> Int Int Int Int))
@@ -48,13 +70,16 @@
   (memSetFrom addr value count 0))
 
 (pub :: memSetFrom (-> Int Int Int Int Int))
-(pub fn (memSetFrom addr value count i)
-  (if (>= i count)
+(pub fn (memSetFrom addr value count start)
+  (let ((mut i start))
+    {
+      (while (< i count)
+        {
+          (__store8 addr i value)
+          (set i (+ i 1))
+        })
       addr
-      {
-        (__store8 addr i value)
-        (memSetFrom addr value count (+ i 1))
-      }))
+    }))
 
 ; Compare `count` bytes. 0 if equal, otherwise the signed difference of
 ; the first differing byte pair (so the result orders like `memcmp`).
@@ -63,14 +88,17 @@
   (memCmpFrom a b count 0))
 
 (pub :: memCmpFrom (-> Int Int Int Int Int))
-(pub fn (memCmpFrom a b count i)
-  (if (>= i count)
-      0
-      (let ((x (__load8 a i))
-            (y (__load8 b i)))
-        (if (== x y)
-            (memCmpFrom a b count (+ i 1))
-            (- x y)))))
+(pub fn (memCmpFrom a b count start)
+  (let ((mut i start)
+        (mut diff 0))
+    {
+      (while (&& (< i count) (== diff 0))
+        {
+          (set diff (- (__load8 a i) (__load8 b i)))
+          (set i (+ i 1))
+        })
+      diff
+    }))
 
 ; ------------------------------------------------------------------
 ; Word-granular access

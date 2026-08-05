@@ -1,0 +1,36 @@
+; expect 42
+; A copy whose size exceeds the stack.
+;
+; `memCopy` walks one byte per step. Written as a self tail call that
+; costs nothing where the compiler turns it into a jump - and stage1
+; emits no tail-call optimisation at all, so it was a real call chain
+; one frame deep per byte. Under a megabyte that is a hundred thousand
+; frames and a SIGSEGV, reported from inside `memCopyFrom` in a
+; program that did nothing wrong.
+;
+; It stayed hidden while the compiler's own output was small enough to
+; fit, and surfaced the moment `typecheck.ax` grew - which is the worst
+; way to meet a scalability limit: as an unrelated change appearing to
+; break an unrelated test. `Mem`'s byte loops are `while` loops now,
+; which need no optimisation to be flat.
+;
+; A megabyte is comfortably past where the recursive form died and
+; comfortably inside the arena.
+(import Mem)
+(import Str)
+(:: main Int)
+(fn (main)
+  (let ((n 1048576))
+    (let ((src (memAlloc n))
+          (dst (memAlloc n)))
+      {
+        (memSet src 65 n)
+        (__store8 src (- n 1) 90)
+        (memCopy dst src n)
+        ; first byte, last byte, and a full compare
+        (if (&& (== (__load8 dst 0) 65)
+                (&& (== (__load8 dst (- n 1)) 90)
+                    (== (memCmp dst src n) 0)))
+            42
+            7)
+      })))

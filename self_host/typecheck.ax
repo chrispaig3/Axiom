@@ -188,6 +188,247 @@
                   }))))))
 
 ; ------------------------------------------------------------------
+; Pass 3: partial application (AX3013).
+;
+; A top-level function applied to fewer arguments than its definition
+; declares has no runtime representation - a call site would simply
+; omit the missing arguments and the callee would read whatever was in
+; the argument registers - so stage0 refuses it rather than
+; miscompiling it. stage1 emitted the same broken code silently.
+;
+; The span is the application's, which is its HEAD's: stage0's
+; `Expr::span()` recurses to the function side of an `EApp`, so the
+; report points at `f` in `(f 1)`. `mkEApp` copies that span at
+; construction, which is what makes this checkable at all.
+;
+; Two things this deliberately does NOT do, both in the
+; under-reporting direction:
+;
+;   * Only a head that resolves to a `fn` with a known parameter count
+;     is measured. stage0 also measures builtins and foreign bindings
+;     through their arrow depth; stage1 keeps no type structure for a
+;     signature, so it has no arrow to count.
+;   * A head shadowed by a local is skipped, as stage0 skips a
+;     frame-local head - a local may hold a one-parameter function
+;     returning a closure, and only that shape survives stepwise
+;     application, so its saturation is not statically knowable.
+; ------------------------------------------------------------------
+
+; Parameter count of the top-level `fn` named `name`, or -1.
+(pub :: fnArity (-> Int Int Int Int))
+(pub fn (fnArity decls name i)
+  (if (>= i (vecLen decls))
+      (- 0 1)
+      (let ((d (vecGet decls i)))
+        (if (&& (== (nodeTag d) TAG_D_FN) (== (nameMatches (nodeA d) name) 1))
+            (vecLen (nodeB d))
+            (fnArity decls name (+ i 1))))))
+
+(pub :: scopeHas (-> Int Int Int Int))
+(pub fn (scopeHas scope name i)
+  (if (>= i (vecLen scope))
+      0
+      (if (strEq (vecGet scope i) name)
+          1
+          (scopeHas scope name (+ i 1)))))
+
+; Drop `scope` back to `n` entries - the walk pushes binders on the way
+; in and truncates on the way out.
+(pub :: scopeTrunc (-> Int Int Int))
+(pub fn (scopeTrunc scope n)
+  (if (<= (vecLen scope) n)
+      0
+      { (vecPop scope) (scopeTrunc scope n) }))
+
+; Bind every variable a match pattern introduces. A pattern parses as
+; an expression, so `(Cons h t)` is an application whose head names the
+; constructor and whose arguments are the binders; a bare identifier is
+; itself a binder, which is stage0's rule.
+(pub :: bindPattern (-> Int Int Int))
+(pub fn (bindPattern pat scope)
+  (let ((tag (nodeTag pat)))
+    (if (== tag TAG_E_VAR)
+        { (vecPush scope (nodeA pat)) 0 }
+        (if (== tag TAG_E_APP)
+            { (bindPatternArgs pat scope) 0 }
+            0))))
+
+; The arguments of a constructor pattern, left to right; the head is
+; the constructor and binds nothing.
+(pub :: bindPatternArgs (-> Int Int Int))
+(pub fn (bindPatternArgs pat scope)
+  (if (== (nodeTag pat) TAG_E_APP)
+      {
+        (bindPatternArgs (nodeA pat) scope)
+        (bindPattern (nodeB pat) scope)
+        0
+      }
+      0))
+
+; How many arguments an application spine supplies, and its head.
+(pub :: spineArgs (-> Int Int Int))
+(pub fn (spineArgs e acc)
+  (if (== (nodeTag e) TAG_E_APP)
+      (spineArgs (nodeA e) (+ acc 1))
+      acc))
+
+(pub :: spineHead (-> Int Int))
+(pub fn (spineHead e)
+  (if (== (nodeTag e) TAG_E_APP)
+      (spineHead (nodeA e))
+      e))
+
+(pub :: checkExpr (-> Int Int Int Int Int))
+(pub fn (checkExpr decls scope e out)
+  (let ((tag (nodeTag e)))
+    (if (== tag TAG_E_APP)
+        ; Once per SPINE, at its root. Recursing into `(nodeA e)` as
+        ; an expression would re-enter the same spine one argument
+        ; shorter and report it again for every prefix - `(f a b c)`
+        ; drew three diagnostics, two of them describing calls the
+        ; source never made. stage0 says "runs once per spine, at the
+        ; root" for the same reason.
+        {
+          (checkSpine decls scope e out)
+          (checkSpineParts decls scope e out)
+          0
+        }
+    (if (|| (== tag TAG_E_LET) (== tag TAG_E_LETM))
+        (let ((n (vecLen scope)))
+          {
+            (checkExpr decls scope (nodeB e) out)
+            (vecPush scope (nodeA e))
+            (checkExpr decls scope (nodeC e) out)
+            (scopeTrunc scope n)
+            0
+          })
+    (if (== tag TAG_E_LAM)
+        (let ((n (vecLen scope)))
+          {
+            (bindNames (nodeA e) scope 0)
+            (checkExpr decls scope (nodeB e) out)
+            (scopeTrunc scope n)
+            0
+          })
+    (if (== tag TAG_E_IF)
+        {
+          (checkExpr decls scope (nodeA e) out)
+          (checkExpr decls scope (nodeB e) out)
+          (checkExpr decls scope (nodeC e) out)
+          0
+        }
+    (if (== tag TAG_E_BEGIN)
+        (checkExprVec decls scope (nodeA e) out 0)
+    (if (== tag TAG_E_MATCH)
+        {
+          (checkExpr decls scope (nodeA e) out)
+          (checkArms decls scope (nodeB e) out 0)
+          0
+        }
+    (if (== tag TAG_E_WHILE)
+        {
+          (checkExpr decls scope (nodeA e) out)
+          (checkExprVec decls scope (nodeB e) out 0)
+          0
+        }
+    (if (== tag TAG_E_SET)
+        (checkExpr decls scope (nodeB e) out)
+    (if (== tag TAG_E_SETF)
+        {
+          (checkExpr decls scope (nodeA e) out)
+          (checkExpr decls scope (nodeC e) out)
+          0
+        }
+    (if (== tag TAG_E_FIELD)
+        (checkExpr decls scope (nodeA e) out)
+    0))))))))))))
+
+; The arguments of an application spine, plus its head when the head
+; is something with an inside (a lambda, a parenthesised expression) -
+; a bare name has nothing to walk.
+(pub :: checkSpineParts (-> Int Int Int Int Int))
+(pub fn (checkSpineParts decls scope e out)
+  (if (== (nodeTag e) TAG_E_APP)
+      {
+        (checkSpineParts decls scope (nodeA e) out)
+        (checkExpr decls scope (nodeB e) out)
+        0
+      }
+      (if (== (nodeTag e) TAG_E_VAR)
+          0
+          (checkExpr decls scope e out))))
+
+(pub :: checkExprVec (-> Int Int Int Int Int Int))
+(pub fn (checkExprVec decls scope v out i)
+  (if (>= i (vecLen v))
+      0
+      {
+        (checkExpr decls scope (vecGet v i) out)
+        (checkExprVec decls scope v out (+ i 1))
+      }))
+
+(pub :: bindNames (-> Int Int Int Int))
+(pub fn (bindNames v scope i)
+  (if (>= i (vecLen v))
+      0
+      { (vecPush scope (vecGet v i)) (bindNames v scope (+ i 1)) }))
+
+(pub :: checkArms (-> Int Int Int Int Int Int))
+(pub fn (checkArms decls scope arms out i)
+  (if (>= i (vecLen arms))
+      0
+      (let ((arm (vecGet arms i))
+            (n (vecLen scope)))
+        {
+          (bindPattern (nodeA arm) scope)
+          (checkExpr decls scope (nodeB arm) out)
+          (scopeTrunc scope n)
+          (checkArms decls scope arms out (+ i 1))
+        })))
+
+; One application spine, at its root.
+(pub :: checkSpine (-> Int Int Int Int Int))
+(pub fn (checkSpine decls scope e out)
+  (let ((head (spineHead e)))
+    (if (!= (nodeTag head) TAG_E_VAR)
+        0
+        (let ((name (nodeA head)))
+          (if (== (scopeHas scope name 0) 1)
+              0
+              (let ((want (fnArity decls name 0))
+                    (got (spineArgs e 0)))
+                (if (< want 0)
+                    0
+                    (if (>= got want)
+                        0
+                        {
+                          (vecPush out
+                            (mkDiag SEV_ERROR "AX3013" "partial-application"
+                                    (nodeSpan e)
+                                    (strConcat (strConcat (strConcat (strConcat (strConcat
+                                      "partial application of `" name)
+                                      "`: it takes ") (decStr want))
+                                      " argument(s) and ") (strConcat (decStr got) " were supplied"))
+                                    0 0
+                                    "bind the missing arguments with a lambda: `(lambda (y) (f x y))` builds the value `(f x)` would mean"))
+                          0
+                        }))))))))
+
+(pub :: checkBodies (-> Int Int Int Int))
+(pub fn (checkBodies decls out i)
+  (if (>= i (vecLen decls))
+      out
+      (let ((d (vecGet decls i)))
+        (if (!= (nodeTag d) TAG_D_FN)
+            (checkBodies decls out (+ i 1))
+            (let ((scope vecNew))
+              {
+                (bindNames (nodeB d) scope 0)
+                (checkExpr decls scope (nodeC d) out)
+                (checkBodies decls out (+ i 1))
+              })))))
+
+; ------------------------------------------------------------------
 ; Every diagnostic for one module, in stage0's emission order.
 ; ------------------------------------------------------------------
 (pub :: checkModule (-> Int Int Int))
@@ -196,5 +437,6 @@
     {
       (checkDuplicates entryDecls out 0)
       (checkMissingDefs entryDecls allDecls out 0)
+      (checkBodies entryDecls out 0)
       out
     }))
