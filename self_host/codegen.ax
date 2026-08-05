@@ -1080,13 +1080,29 @@
 ; target's syscall convention is a binary that dies at its first write.
 (pub :: emitModule (-> Int Int Int))
 (pub fn (emitModule decls target)
-  (let ((tcode (targetCode target)))
-  (let ((_t (if (< tcode 0)
-                (dieImport "error: unknown target (want darwin-aarch64, darwin-x86_64, linux-aarch64, or linux-x86_64): " target)
-                0))
+  (let ((tcode (checkedTargetCode target))
         (bares vecNew)
         (fulls vecNew))
-  (let ((allDecls (resolveImports decls bares fulls tcode)))
+    (emitResolved (resolveImports decls bares fulls tcode) bares fulls tcode)))
+
+; The target's numeric code, refusing an unknown name rather than
+; defaulting - emitting the wrong target's syscall convention is a
+; binary that dies at its first write. Split out so the driver can
+; resolve imports itself (the type checker needs the resolved
+; declaration list) without duplicating the refusal.
+(pub :: checkedTargetCode (-> Int Int))
+(pub fn (checkedTargetCode target)
+  (let ((tcode (targetCode target)))
+    (if (< tcode 0)
+        (dieImport "error: unknown target (want darwin-aarch64, darwin-x86_64, linux-aarch64, or linux-x86_64): " target)
+        tcode)))
+
+; Emission over an ALREADY-resolved declaration list. Separated from
+; `emitModule` so import resolution happens exactly once per run: the
+; checker needs `allDecls` too, and resolving twice would read every
+; module from disk twice.
+(pub :: emitResolved (-> Int Int Int Int Int))
+(pub fn (emitResolved allDecls bares fulls tcode)
     (let ((cg (newCG)))
       (let ((_ (memSetWord cg 12 bares))
             (_2 (memSetWord cg 13 fulls))
@@ -1100,7 +1116,7 @@
               (let ((cg2 (emitLine cg1 "")))
                 (let ((cg3 (emitAllocator cg2)))
                   (let ((cg4 (emitLine cg3 "")))
-                    (emitModuleTail allDecls cg4 0))))))))))))))
+                    (emitModuleTail allDecls cg4 0)))))))))))
 
 (pub :: emitModuleTail (-> Int Int Int Int))
 (pub fn (emitModuleTail decls cg i)

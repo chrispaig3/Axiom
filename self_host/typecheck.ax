@@ -1,116 +1,196 @@
-; typecheck.ax — semantic analysis: name resolution, type checking.
+; typecheck.ax — semantic analysis in Axiom.
 ;
-; Walks the AST produced by parser.ax, building symbol tables and
-; checking types. Uses the same tagged-node representation.
-; Dependencies: core.ax, parser.ax, Mem, Str, Vec.
+; This module was a stub for as long as stage1 could not say *where* a
+; problem was: its AST carried no spans, so no diagnostic could name a
+; location, and Phase 3's acceptance criterion is byte-identical AXDL
+; against stage0 (docs/self-hosting.md). Declaration names now carry
+; their span, `diag.ax` renders AXDL, and this module produces the
+; diagnostics.
+;
+; WHAT IS CHECKED, and why these two first. Both are
+; *declaration-level*: they need no type inference, no scope walk, and
+; none of the resolution subtleties (entry-first bare names, poison
+; propagation, tyvar-as-wildcard compatibility) that a naive
+; reimplementation gets quietly wrong. Between them they exercise every
+; AXDL field stage1 can currently produce - primary span, related span,
+; help - which is what makes the differential gate meaningful rather
+; than decorative.
+;
+;   AX3006 duplicate-definition — a name defined twice in one module.
+;   AX3015 missing-definition   — an entry-file signature with no
+;                                 definition behind it.
+;
+; ORDER MATTERS and is not incidental: stage0 runs
+; `check_duplicate_definitions` over every declaration before
+; `check_entry_signatures` runs over any, so every AX3006 precedes
+; every AX3015 whatever order they appear in the source (verified by
+; probe, in both source orderings). Two passes in that order is the
+; whole rule.
+;
+; Dependencies: core.ax, parser.ax, diag.ax, Mem, Str, Vec.
 
 (import core)
 (import Mem)
 (import Str)
 (import Vec)
 (import parser)
+(import diag)
 
 ; ------------------------------------------------------------------
-; Symbol table entry.
+; Which namespace a declaration defines into, or 0 for a declaration
+; that defines nothing. Values and types are separate namespaces in
+; stage0, so `(data Foo ...)` and `(fn (Foo) ...)` do not collide.
+;
+; stage1's parser turns `foreign`, `type` and `trait` into TAG_NIL
+; (parser.ax's skipUnknownDecl), so `fn` - and `define`, its documented
+; synonym, which stage0 parses through the same function - is the only
+; value definition that reaches here. RECORDED GAP: stage0 counts
+; `foreign` in the value namespace and `type` in the type namespace, so
+; a duplicate `foreign` or `type` in the entry file is an AX3006 stage1
+; stays silent about. Under-reporting, never over-reporting: the
+; direction that cannot reject a valid program.
 ; ------------------------------------------------------------------
-(pub struct SymEntry (name : Int) (ty : Int) (kind : Int))
+(pub :: NS_NONE Int)  (pub fn (NS_NONE)  0)
+(pub :: NS_VALUE Int) (pub fn (NS_VALUE) 1)
+(pub :: NS_TYPE Int)  (pub fn (NS_TYPE)  2)
 
-(pub :: SYM_FN     Int) (pub fn (SYM_FN)     0)
-(pub :: SYM_DATA   Int) (pub fn (SYM_DATA)   1)
-(pub :: SYM_STRUCT Int) (pub fn (SYM_STRUCT) 2)
-(pub :: SYM_VAR    Int) (pub fn (SYM_VAR)    3)
-
-; ------------------------------------------------------------------
-; Type checking context: maps names to SymEntry handles.
-; ------------------------------------------------------------------
-(pub struct TCtx (syms : Int) (errors : Int))
-
-(pub :: newTCtx Int)
-(pub fn (newTCtx)
-  (TCtx vecNew vecNew))
-
-; ------------------------------------------------------------------
-; Lookup a name in the symbol table. Returns 0 if not found.
-; ------------------------------------------------------------------
-(pub :: lookup (-> Int Int Int))
-(pub fn (lookup ctx name)
-  (lookupIn (memGetWord ctx 0) name 0))
-
-(pub :: lookupIn (-> Int Int Int Int))
-(pub fn (lookupIn syms name i)
-  (if (>= i (vecLen syms))
-      0
-      (let ((entry (vecGet syms i)))
-        (if (== (memGetWord entry 0) name)
-            entry
-            (lookupIn syms name (+ i 1))))))
+(pub :: declNamespace (-> Int Int))
+(pub fn (declNamespace tag)
+  (if (== tag TAG_D_FN)
+      NS_VALUE
+  (if (|| (== tag TAG_D_DATA) (== tag TAG_D_STRUCT))
+      NS_TYPE
+      NS_NONE)))
 
 ; ------------------------------------------------------------------
-; Check an expression node and return its type (as an ASTNode handle).
+; Index of the first declaration before `i` that defines the same name
+; in the same namespace, or -1.
+;
+; The FIRST one, not the nearest: stage0 records a name's first span
+; and never overwrites it, so three definitions of `main` produce two
+; diagnostics that both point back at the first (verified by probe).
 ; ------------------------------------------------------------------
-(pub :: checkExpr (-> Int Int Int))
-(pub fn (checkExpr ctx node)
-  (let ((tag (nodeTag node)))
-    (if (== tag TAG_E_INT)
-        (mkNode TAG_NIL 0 0 0)   ; return Int type placeholder
-    (if (== tag TAG_E_STR)
-        (mkNode TAG_NIL 0 0 0)   ; return Str type placeholder
-    (if (== tag TAG_E_VAR)
-        (let ((name (nodeA node)))
-          (let ((entry (lookup ctx name)))
-            (if (== entry 0)
-                (mkNode TAG_NIL 0 0 0)   ; error: undefined
-                (memGetWord entry 1))))  ; return entry's type
-    (if (== tag TAG_E_APP)
-        (mkNode TAG_NIL 0 0 0)   ; placeholder
-    (mkNode TAG_NIL 0 0 0)))))))  ; default
+(pub :: firstDefiner (-> Int Int Int Int Int))
+(pub fn (firstDefiner decls i ns name)
+  (firstDefinerFrom decls 0 i ns name))
+
+(pub :: firstDefinerFrom (-> Int Int Int Int Int Int))
+(pub fn (firstDefinerFrom decls j i ns name)
+  (if (>= j i)
+      (- 0 1)
+      (let ((d (vecGet decls j)))
+        (if (&& (== (declNamespace (nodeTag d)) ns)
+                (strEq (nodeA d) name))
+            j
+            (firstDefinerFrom decls (+ j 1) i ns name)))))
 
 ; ------------------------------------------------------------------
-; Register a declaration in the context.
+; Pass 1: duplicate definitions.
+;
+; Only the entry file's declarations are examined. stage0 keys this
+; check by (name, module) - a name defined once per module in two
+; modules is legal, and that is the ambiguity check's business, not
+; this one - and stage1's merged declaration list does not record which
+; module each declaration came from. Checking the entry file alone is
+; the sound subset: it reports exactly the duplicates stage0 reports
+; for a single-file program and never invents one, which is the
+; property that matters, since a checker that rejects the compiler's
+; own source is worse than no checker. Duplicates *inside an imported
+; module* go unreported until declarations carry their origin.
 ; ------------------------------------------------------------------
-(pub :: registerDecl (-> Int Int Int Int Int))
-(pub fn (registerDecl ctx name ty kind)
-  (let ((entry (SymEntry name ty kind)))
-    (vecPush (memGetWord ctx 0) (cast Int entry))))  ; returns vec handle, caller discards
-
-; ------------------------------------------------------------------
-; Check a declaration node.
-; ------------------------------------------------------------------
-(pub :: checkDecl (-> Int Int Int))
-(pub fn (checkDecl ctx node)
-  (let ((tag (nodeTag node)))
-    (if (== tag TAG_D_FN)
-        (let ((name (nodeA node))
-              (params (nodeB node))
-              (body (nodeC node)))
-          {
-            (registerDecl ctx name (mkNode TAG_NIL 0 0 0) SYM_FN)
-            (checkExpr ctx body)
-            0
-          })
-    (if (== tag TAG_D_STRUCT)
-        (let ((name (nodeA node)))
-          {
-            (registerDecl ctx name (mkNode TAG_NIL 0 0 0) SYM_STRUCT)
-            0
-          })
-    0))))
-
-; ------------------------------------------------------------------
-; Check a module (vec of declaration nodes).
-; ------------------------------------------------------------------
-(pub :: checkModule (-> Int Int))
-(pub fn (checkModule decls)
-  (let ((ctx (newTCtx)))
-    (checkDecls ctx decls 0)
-    ctx))
-
-(pub :: checkDecls (-> Int Int Int Int))
-(pub fn (checkDecls ctx decls i)
+(pub :: checkDuplicates (-> Int Int Int Int))
+(pub fn (checkDuplicates decls out i)
   (if (>= i (vecLen decls))
+      out
+      (let ((d (vecGet decls i)))
+        (let ((ns (declNamespace (nodeTag d))))
+          (if (== ns NS_NONE)
+              (checkDuplicates decls out (+ i 1))
+              (let ((name (nodeA d)))
+                (let ((j (firstDefiner decls i ns name)))
+                  (if (< j 0)
+                      (checkDuplicates decls out (+ i 1))
+                      {
+                        (vecPush out
+                          (mkDiag SEV_ERROR "AX3006" "duplicate-definition"
+                                  (nodeSpan d)
+                                  (strConcat (strConcat "duplicate definition `" name) "`")
+                                  (nodeSpan (vecGet decls j))
+                                  (strConcat (strConcat "`" name) "` first defined here")
+                                  "rename one of the definitions, or remove the duplicate"))
+                        (checkDuplicates decls out (+ i 1))
+                      }))))))))
+
+; ------------------------------------------------------------------
+; Pass 2: a signature with no definition behind it.
+;
+; The signatures examined are the entry file's; the definitions that
+; satisfy them come from ANY module, exactly as stage0 does it - an
+; entry-file signature over an imported definition is the same
+; signature-then-definition pattern with the definition arriving
+; through an import.
+; ------------------------------------------------------------------
+; Does `full` name the definition an entry-file signature for `bare`
+; is looking for?
+;
+; Not string equality, because by the time the checker runs, import
+; resolution has rewritten every *imported* declaration's name in place
+; to `Mod$name` (codegen.ax's `mangleDecl`). Entry-file declarations
+; keep their bare name. A signature in the entry file for a function
+; that arrives through an import - which stage0 accepts, counting
+; definitions from any module - therefore never matched, and every such
+; program drew a false AX3015.
+(pub :: nameMatches (-> Int Int Int))
+(pub fn (nameMatches full bare)
+  (if (strEq full bare)
+      1
+      (let ((m (strLen full))
+            (n (strLen bare)))
+        (if (<= m (+ n 1))
+            0
+            (if (&& (== (strByte full (- (- m n) 1)) 36)
+                    (strEq (strSlice full (- m n) n) bare))
+                1
+                0)))))
+
+(pub :: isDefined (-> Int Int Int Int))
+(pub fn (isDefined allDecls name i)
+  (if (>= i (vecLen allDecls))
       0
-      (let ((node (vecGet decls i)))
-        {
-          (checkDecl ctx node)
-          (checkDecls ctx decls (+ i 1))
-        })))
+      (let ((d (vecGet allDecls i)))
+        (if (&& (== (nodeTag d) TAG_D_FN) (== (nameMatches (nodeA d) name) 1))
+            1
+            (isDefined allDecls name (+ i 1))))))
+
+(pub :: checkMissingDefs (-> Int Int Int Int Int))
+(pub fn (checkMissingDefs entryDecls allDecls out i)
+  (if (>= i (vecLen entryDecls))
+      out
+      (let ((d (vecGet entryDecls i)))
+        (if (!= (nodeTag d) TAG_D_SIG)
+            (checkMissingDefs entryDecls allDecls out (+ i 1))
+            (let ((name (nodeA d)))
+              (if (== (isDefined allDecls name 0) 1)
+                  (checkMissingDefs entryDecls allDecls out (+ i 1))
+                  {
+                    (vecPush out
+                      (mkDiag SEV_ERROR "AX3015" "missing-definition"
+                              (nodeSpan d)
+                              (strConcat (strConcat "`" name)
+                                         "` has a signature but no definition")
+                              0 0
+                              "add the definition, or if it lives in another module, mark that definition `pub` so the import carries it"))
+                    (checkMissingDefs entryDecls allDecls out (+ i 1))
+                  }))))))
+
+; ------------------------------------------------------------------
+; Every diagnostic for one module, in stage0's emission order.
+; ------------------------------------------------------------------
+(pub :: checkModule (-> Int Int Int))
+(pub fn (checkModule entryDecls allDecls)
+  (let ((out vecNew))
+    {
+      (checkDuplicates entryDecls out 0)
+      (checkMissingDefs entryDecls allDecls out 0)
+      out
+    }))

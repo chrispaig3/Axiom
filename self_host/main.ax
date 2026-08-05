@@ -7,27 +7,41 @@
 (import Sys)
 (import lexer)
 (import parser)
+(import diag)
 (import typecheck)
 (import codegen)
 
 (pub :: writeStdout (-> Int Int))
 (pub fn (writeStdout s) (sysWriteFd 1 (strData s) (strLen s)))
 
+(pub :: writeStderr (-> Int Int))
+(pub fn (writeStderr s) (sysWriteFd 2 (strData s) (strLen s)))
+
 ; Exit status is the driver's answer, not a byte count: 0 on success, 1
-; when the source could not be read, 2 when it could not be parsed. The
-; previous version returned whatever `writeStdout` did, so a successful
-; run exited with the length of its own output.
+; when the source could not be read, 2 when it could not be parsed, 1
+; when the module does not type-check. The previous version returned
+; whatever `writeStdout` did, so a successful run exited with the length
+; of its own output.
 ;
 ; The input path is the first command-line argument, defaulting to
 ; `in.ax` so existing harnesses keep working. `sysArg`'s Str wraps the
 ; process's own NUL-terminated argv bytes without copying, so its
 ; `strData` is exactly the C string `sysReadFile` wants.
+;
+; Import resolution happens HERE rather than inside `emitModule`,
+; because the type checker needs the resolved declaration list too - a
+; signature in the entry file may be satisfied by a definition that
+; arrives through an import - and resolving twice would read every
+; module from disk twice. `emitResolved` takes what this already built.
+;
+; Diagnostics go to stderr and the LLVM to stdout, the same split
+; stage0 uses, so a differential gate can compare the two streams
+; separately. An error refuses to emit: a program that does not check
+; has no business producing an object file.
 (pub :: main Int)
 (pub fn (main)
-  (let ((path (if (> (sysArgc) 1)
-                  (strData (sysArg 1))
-                  (__addr "in.ax"))))
-  (let ((src (sysReadFile path)))
+  (let ((fileName (if (> (sysArgc) 1) (sysArg 1) "in.ax")))
+  (let ((src (sysReadFile (strData fileName))))
     (if (== (strLen src) 0)
         (die "cannot read input\n" 1)
         (let ((pr (parseModule (lex src))))
@@ -38,10 +52,21 @@
               (let ((decls (memGetWord pr 1))
                     (tname (if (> (sysArgc) 2)
                                (sysArg 2)
-                               "darwin-aarch64"))
-                    (out (emitModule decls tname))
-                    (_ (writeStdout out)))
-                0)))))))
+                               "darwin-aarch64")))
+                (let ((tcode (checkedTargetCode tname))
+                      (bares vecNew)
+                      (fulls vecNew))
+                  (let ((allDecls (resolveImports decls bares fulls tcode)))
+                    (let ((ds (checkModule decls allDecls)))
+                      (if (> (vecLen ds) 0)
+                          {
+                            (writeStderr (renderDiags ds src fileName))
+                            (sysExitWith 1)
+                            1
+                          }
+                          (let ((out (emitResolved allDecls bares fulls tcode))
+                                (_ (writeStdout out)))
+                            0))))))))))))
 
 (pub :: die (-> Int Int Int))
 (pub fn (die msg code)

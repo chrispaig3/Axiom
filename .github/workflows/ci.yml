@@ -98,6 +98,16 @@ jobs:
       - name: Self-hosted compiler conformance
         run: ./scripts/check-self-host.sh
 
+      # Self-hosting phase 3's acceptance criterion: the two compilers
+      # emit byte-identical AXDL. Three-way against a checked-in golden
+      # rather than a straight stage0-vs-stage1 diff, so that the two
+      # cannot drift together - the first risk docs/self-hosting.md
+      # names. It also fails on any diagnostic at all against the
+      # compiler's own source, where a false positive would stop the
+      # compiler compiling itself.
+      - name: Diagnostic parity between the compilers
+        run: ./scripts/check-diagnostics.sh
+
       # `fmt` is the tool that had no gate, and it had six independent
       # ways of silently destroying a source file. This formats a copy of
       # the whole repository and re-runs the suites against it, so a

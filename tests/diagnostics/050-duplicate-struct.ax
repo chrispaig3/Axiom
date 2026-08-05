@@ -1,0 +1,4 @@
+(struct Point (x : Int) (y : Int))
+(struct Point (a : Int))
+(:: main Int)
+(fn (main) 0)

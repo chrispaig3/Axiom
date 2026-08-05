@@ -1,0 +1,4 @@
+(:: main Int)
+(fn (main) 0)
+(fn (main) 1)
+(fn (main) 2)

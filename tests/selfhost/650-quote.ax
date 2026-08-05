@@ -1,0 +1,20 @@
+; expect 42
+; Rust `{:?}` string escaping, which every quoted AXDL field goes
+; through. Only two escapes are reachable from the messages this slice
+; builds - a message is a compiler literal joined with an identifier,
+; and an identifier holds neither a control character nor a quote - so
+; those two are what `quoteStr` implements and what this pins. A
+; message that needed `\n` or `\u{..}` would render wrongly rather than
+; approximately, which is why the renderer's comment says so out loud.
+(import Str)
+(import Vec)
+(import Mem)
+(import core)
+(import diag)
+(:: main Int)
+(fn (main)
+  (if (&& (strEq (quoteStr "plain") "\"plain\"")
+          (&& (strEq (quoteStr "say \"hi\"") "\"say \\\"hi\\\"\"")
+              (strEq (quoteStr "back\\slash") "\"back\\\\slash\"")))
+      42
+      7))

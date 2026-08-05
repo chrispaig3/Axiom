@@ -1,0 +1,225 @@
+; diag.ax — diagnostics and their AXDL rendering, in Axiom.
+;
+; Phase 3's acceptance criterion is byte-identical AXDL between the two
+; compilers (docs/self-hosting.md), so this module's contract is not
+; "readable diagnostics" but "the same bytes stage0's
+; `axiom-errors::render::render_ai` produces". Everything here is
+; therefore written against that function rather than against taste.
+;
+; The grammar of one line, field by field:
+;
+;   <SEV>[ <CODE>] <file>:<loc> [<slug>] "<message>"
+;        [ ^<loc>:"<related>"]*  [ !"<note>"]*  [ ?"<help>"]*
+;
+; with `loc` being `line:col`, `line:col-col`, or `line:col-line:col`
+; depending on whether the span is empty, within one line, or spans
+; several. Quoted fields are Rust `{:?}` output.
+;
+; Dependencies: Mem, Str, Vec, Fmt, core (for Span).
+
+(import core)
+(import Mem)
+(import Str)
+(import Vec)
+
+; ------------------------------------------------------------------
+; Decimal rendering of a non-negative number.
+;
+; The standard library formats integers already, and importing it for
+; that is what this deliberately does not do: `codegen.ax` carries its
+; own copy of that function (it predates stage1 importing any of
+; `Fmt`), so pulling `Fmt` into the same program makes the bare name
+; ambiguous - and the ambiguity lands *inside Fmt.ax's own body*,
+; where no qualification here could reach it. Line and column numbers
+; are the only numbers AXDL prints and both are at least 1, so a local
+; unsigned renderer is three lines and no dependency at all.
+; ------------------------------------------------------------------
+(pub :: decStr (-> Int Int))
+(pub fn (decStr n)
+  (if (< n 10)
+      (strSlice "0123456789" n 1)
+      (strConcat (decStr (/ n 10)) (strSlice "0123456789" (% n 10) 1))))
+
+; ------------------------------------------------------------------
+; Severity. The sigil is the first byte of every AXDL line.
+; ------------------------------------------------------------------
+(pub :: SEV_ERROR Int)   (pub fn (SEV_ERROR)   0)
+(pub :: SEV_WARNING Int) (pub fn (SEV_WARNING) 1)
+
+(pub :: sevSigil (-> Int Int))
+(pub fn (sevSigil sev)
+  (if (== sev SEV_ERROR) "E" "W"))
+
+; ------------------------------------------------------------------
+; A diagnostic.
+;
+;   sev      — SEV_*
+;   code     — Str, e.g. "AX3006"
+;   slug     — Str, the wording-independent kebab-case identifier
+;   span     — Span of the primary location
+;   msg      — Str, the human message (rendered quoted)
+;   relSpan  — Span of a related location, 0 when there is none
+;   relMsg   — Str for that related location
+;   help     — Str, a spanless help note, 0 when there is none
+;
+; stage0's Diagnostic carries vectors of secondaries, notes and helps.
+; One of each is what this slice's two diagnostics use, and a field
+; that is never exercised is a field whose rendering cannot be trusted;
+; widening this to vectors is the next diagnostic's business.
+; ------------------------------------------------------------------
+(pub struct Diag
+  (sev : Int) (code : Int) (slug : Int) (span : Int)
+  (msg : Int) (relSpan : Int) (relMsg : Int) (help : Int))
+
+(pub :: mkDiag (-> Int Int Int Int Int Int Int Int Int))
+(pub fn (mkDiag sev code slug span msg relSpan relMsg help)
+  (Diag sev code slug span msg relSpan relMsg help))
+
+; ------------------------------------------------------------------
+; Source position mapping.
+;
+; UNITS, and the reason this is not a byte count: stage0's lexer
+; tokenizes a `Vec<char>`, so every span it produces is a *character*
+; index (axiom-errors/src/source_map.rs says so at length). stage1's
+; lexer walks bytes. Line numbers agree either way - a newline is one
+; byte and one character, so the count of newlines before a position
+; does not depend on the unit - but columns do not: a multi-byte
+; character earlier on the same line shifts a byte column past the
+; character column stage0 reports.
+;
+; This matters for real files, not hypothetical ones: self_host/core.ax
+; carries 18 non-ASCII bytes and stdlib/Pre.ax 15, all em-dashes in
+; comments.
+;
+; The fix needs no UTF-8 decoding. A byte is a character *start* unless
+; it is a continuation byte, and continuation bytes are exactly those
+; matching 0b10xxxxxx. Counting non-continuation bytes from the line
+; start therefore counts characters.
+; ------------------------------------------------------------------
+(pub :: isContByte (-> Int Bool))
+(pub fn (isContByte b) (== (& b 192) 128))
+
+; Byte offset of the start of the line containing `off`.
+(pub :: lineStartOf (-> Int Int Int))
+(pub fn (lineStartOf src off)
+  (lineStartScan src off 0 0))
+
+(pub :: lineStartScan (-> Int Int Int Int Int))
+(pub fn (lineStartScan src off i start)
+  (if (>= i off)
+      start
+      (if (== (strByte src i) 10)
+          (lineStartScan src off (+ i 1) (+ i 1))
+          (lineStartScan src off (+ i 1) start))))
+
+; 1-based line number of byte offset `off`.
+(pub :: lineOf (-> Int Int Int))
+(pub fn (lineOf src off)
+  (lineCount src off 0 1))
+
+(pub :: lineCount (-> Int Int Int Int Int))
+(pub fn (lineCount src off i acc)
+  (if (>= i off)
+      acc
+      (if (== (strByte src i) 10)
+          (lineCount src off (+ i 1) (+ acc 1))
+          (lineCount src off (+ i 1) acc))))
+
+; 1-based column of byte offset `off`, counted in characters.
+(pub :: colOf (-> Int Int Int))
+(pub fn (colOf src off)
+  (colCount src (lineStartOf src off) off 1))
+
+(pub :: colCount (-> Int Int Int Int Int))
+(pub fn (colCount src i off acc)
+  (if (>= i off)
+      acc
+      (if (isContByte (strByte src i))
+          (colCount src (+ i 1) off acc)
+          (colCount src (+ i 1) off (+ acc 1)))))
+
+; ------------------------------------------------------------------
+; `line:col`, `line:col-col`, or `line:col-line:col`, exactly as
+; stage0's `fmt_span` chooses between them.
+; ------------------------------------------------------------------
+(pub :: fmtSpan (-> Int Int Int))
+(pub fn (fmtSpan src span)
+  (let ((s (spanStart span))
+        (e0 (spanEnd span)))
+    (let ((e (if (< e0 s) s e0)))
+      (let ((sl (lineOf src s))
+            (sc (colOf src s))
+            (el (lineOf src e))
+            (ec (colOf src e)))
+        (if (&& (== sl el) (== sc ec))
+            (strConcat (strConcat (decStr sl) ":") (decStr sc))
+        (if (== sl el)
+            (strConcat (strConcat (strConcat (strConcat (decStr sl) ":") (decStr sc)) "-")
+                       (decStr ec))
+            (strConcat (strConcat (strConcat (strConcat (strConcat (strConcat
+                         (decStr sl) ":") (decStr sc)) "-") (decStr el)) ":")
+                       (decStr ec))))))))
+
+; ------------------------------------------------------------------
+; Rust `{:?}` for a string: wrap in quotes, escaping `\` and `"`.
+;
+; Debug also escapes control characters as `\n`, `\t` and `\u{..}`.
+; None of this slice's messages contain one - they are compiler
+; literals over identifiers copied from source, and an identifier
+; cannot hold a control character - so implementing those escapes
+; would produce code no test could reach. `quoteStr` is written for
+; what it is given, and `tests/selfhost/650-quote.ax` pins the two
+; escapes that are reachable.
+; ------------------------------------------------------------------
+(pub :: quoteStr (-> Int Int))
+(pub fn (quoteStr s)
+  (strConcat (strConcat "\"" (quoteBody s 0 "")) "\""))
+
+(pub :: quoteBody (-> Int Int Int Int))
+(pub fn (quoteBody s i acc)
+  (if (>= i (strLen s))
+      acc
+      (let ((b (strByte s i)))
+        (if (== b 92)
+            (quoteBody s (+ i 1) (strConcat acc "\\\\"))
+        (if (== b 34)
+            (quoteBody s (+ i 1) (strConcat acc "\\\""))
+            (quoteBody s (+ i 1) (strConcat acc (strSlice s i 1))))))))
+
+; ------------------------------------------------------------------
+; One AXDL line, without its terminating newline.
+; ------------------------------------------------------------------
+(pub :: renderDiag (-> Int Int Int Int))
+(pub fn (renderDiag d src file)
+  (let ((head (strConcat (strConcat (strConcat (strConcat (strConcat (strConcat
+                 (strConcat (strConcat (strConcat (strConcat
+                   (sevSigil (memGetWord d 0)) " ")
+                   (memGetWord d 1)) " ")
+                   file) ":")
+                   (fmtSpan src (memGetWord d 3))) " ")
+                   (memGetWord d 2)) " ")
+                 (quoteStr (memGetWord d 4))))
+        (rel (if (== (memGetWord d 5) 0)
+                 ""
+                 (strConcat (strConcat (strConcat (strConcat " ^"
+                   (fmtSpan src (memGetWord d 5))) ":")
+                   (quoteStr (memGetWord d 6))) "")))
+        (hlp (if (== (memGetWord d 7) 0)
+                 ""
+                 (strConcat " ?" (quoteStr (memGetWord d 7))))))
+    (strConcat (strConcat head rel) hlp)))
+
+; ------------------------------------------------------------------
+; Every diagnostic, one per line, newline-terminated - the whole of
+; stage0's `render_ai`.
+; ------------------------------------------------------------------
+(pub :: renderDiags (-> Int Int Int Int))
+(pub fn (renderDiags ds src file)
+  (renderDiagsFrom ds src file 0 ""))
+
+(pub :: renderDiagsFrom (-> Int Int Int Int Int Int))
+(pub fn (renderDiagsFrom ds src file i acc)
+  (if (>= i (vecLen ds))
+      acc
+      (renderDiagsFrom ds src file (+ i 1)
+        (strConcat (strConcat acc (renderDiag (vecGet ds i) src file)) "\n"))))

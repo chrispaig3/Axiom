@@ -12,7 +12,7 @@
 ; ------------------------------------------------------------------
 ; AST node: tagged union. tag + a,b,c fields. Unused = 0.
 ; ------------------------------------------------------------------
-(pub struct ASTNode (tag : Int) (a : Int) (b : Int) (c : Int))
+(pub struct ASTNode (tag : Int) (a : Int) (b : Int) (c : Int) (span : Int))
 
 ; Node tags.
 (pub :: TAG_NIL Int)       (pub fn (TAG_NIL) 0)
@@ -66,7 +66,10 @@
 (pub :: nodeB   (-> Int Int))   (pub fn (nodeB   n) (memGetWord n 2))
 (pub :: nodeC   (-> Int Int))   (pub fn (nodeC   n) (memGetWord n 3))
 
-(pub :: mkNode (-> Int Int Int Int Int))  (pub fn (mkNode t a b c) (ASTNode t a b c))
+(pub :: mkNode (-> Int Int Int Int Int))  (pub fn (mkNode t a b c) (ASTNode t a b c 0))
+(pub :: mkNodeAt (-> Int Int Int Int Int Int))
+(pub fn (mkNodeAt t a b c sp) (ASTNode t a b c sp))
+(pub :: nodeSpan (-> Int Int))  (pub fn (nodeSpan n) (memGetWord n 4))
 (pub :: mkEInt (-> Int Int))              (pub fn (mkEInt v)     (mkNode TAG_E_INT v 0 0))
 (pub :: mkEFlt (-> Int Int))              (pub fn (mkEFlt bits)  (mkNode TAG_E_FLT bits 0 0))
 (pub :: mkEStr (-> Int Int))              (pub fn (mkEStr s)     (mkNode TAG_E_STR s 0 0))
@@ -78,9 +81,21 @@
 (pub :: mkEBegin (-> Int Int))            (pub fn (mkEBegin xs)  (mkNode TAG_E_BEGIN xs 0 0))
 (pub :: mkDFn   (-> Int Int Int Int))     (pub fn (mkDFn n p b)  (mkNode TAG_D_FN n p b))
 (pub :: mkDSig  (-> Int Int Int))         (pub fn (mkDSig n t)   (mkNode TAG_D_SIG n t 0))
+; Span-carrying variants. A diagnostic about a declaration points at
+; its *name*, so the name token's span is the one worth keeping - and
+; the only one this slice's checks ever report. Everything else keeps
+; span 0, which no consumer reads.
+(pub :: mkDFnAt  (-> Int Int Int Int Int))
+(pub fn (mkDFnAt n p b sp)  (mkNodeAt TAG_D_FN n p b sp))
+(pub :: mkDSigAt (-> Int Int Int Int))
+(pub fn (mkDSigAt n t sp)   (mkNodeAt TAG_D_SIG n t 0 sp))
 (pub :: mkDImport (-> Int Int Int))       (pub fn (mkDImport m ns) (mkNode TAG_D_IMPORT m ns 0))
 (pub :: mkDData (-> Int Int Int))         (pub fn (mkDData n cs)   (mkNode TAG_D_DATA n cs 0))
 (pub :: mkDStruct (-> Int Int Int))        (pub fn (mkDStruct n fs) (mkNode TAG_D_STRUCT n fs 0))
+(pub :: mkDDataAt (-> Int Int Int Int))
+(pub fn (mkDDataAt n cs sp)   (mkNodeAt TAG_D_DATA n cs 0 sp))
+(pub :: mkDStructAt (-> Int Int Int Int))
+(pub fn (mkDStructAt n fs sp) (mkNodeAt TAG_D_STRUCT n fs 0 sp))
 (pub :: mkDMacro (-> Int Int Int Int))     (pub fn (mkDMacro n ps b) (mkNode TAG_D_MACRO n ps b))
 (pub :: mkCtor (-> Int Int Int Int))       (pub fn (mkCtor n a fl) (mkNode TAG_CTOR n a fl))
 (pub :: mkField (-> Int Int Int))          (pub fn (mkField n t)   (mkNode TAG_FIELD n t 0))
@@ -273,6 +288,11 @@
 ; Keyword string literals for comparison.
 ; ------------------------------------------------------------------
 (pub :: kwFn    Int) (pub fn (kwFn)    "fn")
+; stage0 parses `define` and `fn` through the same function, and the
+; reference documents both. Without this a `(define (f x) ...)` became
+; an inert TAG_NIL node, so the checker saw a signature with no
+; definition behind it and reported AX3015 on a valid program.
+(pub :: kwDefine Int) (pub fn (kwDefine) "define")
 (pub :: kwData  Int) (pub fn (kwData)  "data")
 (pub :: kwStruct Int)(pub fn (kwStruct)"struct")
 (pub :: kwLet   Int) (pub fn (kwLet)   "let")
@@ -308,7 +328,7 @@
         (let ((name (tokenLexeme kw)))
           (if (kwEq name (kwPub))
               (parseTopForm tokens (advance pos))
-          (if (kwEq name (kwFn))
+          (if (|| (kwEq name (kwFn)) (kwEq name (kwDefine)))
               (parseFnDecl tokens (advance pos) name)
   (if (kwEq name (kwData))
       (parseDataDecl tokens (advance pos))
@@ -353,7 +373,9 @@
                 ; runtime: every value is an i64 word, and by emission
                 ; time there is no type checker left to ask. This is the
                 ; same reconstruction stage0's IR generator performs.
-                (pOk (mkDSig name (sigFloatFlags tokens typePos)) endPos)))))))
+                (pOk (mkDSigAt name (sigFloatFlags tokens typePos)
+                                (tokenSpan (vecGet tokens pos)))
+                     endPos)))))))
 
 ; One flag per arrow position, return type last: `(-> Float Int Float)`
 ; is [1, 0, 1], and a bare type - `(:: pi Float)` - is a one-entry
@@ -453,7 +475,8 @@
     (if (== (memGetWord nr 0) 0) nr
         (let ((name (memGetWord nr 1))
               (nextPos (memGetWord nr 2)))
-          (parseConstructors tokens (skipTypeParams tokens nextPos) name vecNew)))))
+          (parseConstructors tokens (skipTypeParams tokens nextPos) name
+                             (tokenSpan (vecGet tokens pos)) vecNew)))))
 
 ; `(data Tree (a) (Leaf) (Node a))` - the first parenthesised group is
 ; the type-parameter list when it is empty or opens with a lowercase
@@ -484,16 +507,16 @@
               (skipTypeParams tokens (advance pos)))
           pos)))
 
-(pub :: parseConstructors (-> Int Int Int Int Int))
-(pub fn (parseConstructors tokens pos dataName acc)
+(pub :: parseConstructors (-> Int Int Int Int Int Int))
+(pub fn (parseConstructors tokens pos dataName nameSpan acc)
   (if (peekIs tokens pos TK_RPAREN)
-      (pOk (mkDData dataName acc) (advance pos))
+      (pOk (mkDDataAt dataName acc nameSpan) (advance pos))
   (if (peekIs tokens pos TK_LPAREN)
       (let ((r (parseOneCtor tokens (advance pos))))
         (if (== (memGetWord r 0) 0) r
             (let ((ctor (memGetWord r 1))
                   (nextPos (memGetWord r 2)))
-              (parseConstructors tokens nextPos dataName (vecPush acc ctor)))))
+              (parseConstructors tokens nextPos dataName nameSpan (vecPush acc ctor)))))
   (pErr pos))))
 
 (pub :: parseOneCtor (-> Int Int Int))
@@ -537,18 +560,19 @@
     (if (== (memGetWord nr 0) 0) nr
         (let ((name (memGetWord nr 1))
               (nextPos (memGetWord nr 2)))
-          (parseFields tokens nextPos name vecNew)))))
+          (parseFields tokens nextPos name
+                       (tokenSpan (vecGet tokens pos)) vecNew)))))
 
-(pub :: parseFields (-> Int Int Int Int Int))
-(pub fn (parseFields tokens pos structName acc)
+(pub :: parseFields (-> Int Int Int Int Int Int))
+(pub fn (parseFields tokens pos structName nameSpan acc)
   (if (peekIs tokens pos TK_RPAREN)
-      (pOk (mkDStruct structName acc) (advance pos))
+      (pOk (mkDStructAt structName acc nameSpan) (advance pos))
   (if (peekIs tokens pos TK_LPAREN)
       (let ((r (parseOneField tokens (advance pos))))
         (if (== (memGetWord r 0) 0) r
             (let ((field (memGetWord r 1))
                   (nextPos (memGetWord r 2)))
-              (parseFields tokens nextPos structName (vecPush acc field)))))
+              (parseFields tokens nextPos structName nameSpan (vecPush acc field)))))
   (pErr pos))))
 
 (pub :: parseOneField (-> Int Int Int))
@@ -621,7 +645,9 @@
                               (let ((body (memGetWord bodyR 1))
                                     (afterBody (memGetWord bodyR 2)))
                                 (if (peekIs tokens afterBody TK_RPAREN)
-                                    (pOk (mkDFn fnName params body) (advance afterBody))
+                                    (pOk (mkDFnAt fnName params body
+                                                  (tokenSpan (vecGet tokens headerStart)))
+                                         (advance afterBody))
                                     (pErr afterBody))))))))))))
   ; The bare nullary form: `(fn answer 42)` - no parens around the
   ; name - which the reference documents and stage0 accepts.
@@ -634,7 +660,9 @@
                   (let ((body (memGetWord bodyR 1))
                         (afterBody (memGetWord bodyR 2)))
                     (if (peekIs tokens afterBody TK_RPAREN)
-                        (pOk (mkDFn fnName vecNew body) (advance afterBody))
+                        (pOk (mkDFnAt fnName vecNew body
+                                      (tokenSpan (vecGet tokens pos)))
+                             (advance afterBody))
                         (pErr afterBody)))))))
   (pErr pos))))
 

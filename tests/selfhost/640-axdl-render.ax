@@ -1,0 +1,30 @@
+; expect 42
+; The AXDL renderer reproduces stage0 byte for byte.
+;
+; The expected string below is not invented: it is what
+; `axiom --diagnostic-format=ai check` prints for a file with two
+; definitions of `main`, copied from that run. Phase 3's acceptance
+; criterion is byte-identical AXDL, so a renderer test that compares
+; against anything else would be testing its own opinion.
+;
+; The source is laid out so both spans are interesting: the second
+; `main` is on line 3 at columns 6-10, the first on line 2 at the same
+; columns, which exercises the `line:col-col` shape and the related-span
+; field together.
+(import Str)
+(import Vec)
+(import Mem)
+(import core)
+(import diag)
+(:: main Int)
+(fn (main)
+  (let ((src "(:: main Int)\n(fn (main) 0)\n(fn (main) 1)\n")
+        (d (mkDiag SEV_ERROR "AX3006" "duplicate-definition"
+                   (mkSpan 33 37)
+                   "duplicate definition `main`"
+                   (mkSpan 19 23)
+                   "`main` first defined here"
+                   "rename one of the definitions, or remove the duplicate")))
+    (let ((got (renderDiag d src "dup.ax"))
+          (want "E AX3006 dup.ax:3:6-10 duplicate-definition \"duplicate definition `main`\" ^2:6-10:\"`main` first defined here\" ?\"rename one of the definitions, or remove the duplicate\""))
+      (if (strEq got want) 42 7))))

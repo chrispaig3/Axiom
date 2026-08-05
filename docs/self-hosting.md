@@ -800,10 +800,66 @@ target builds the base exactly as expression-position access does, so
 only the last segment is written (`tests/selfhost/560-field-store.ax`,
 `570-field-store-nested.ax`).
 
-What genuinely remains: no type checking -
-`self_host/typecheck.ax` is a stub - so a program stage0 would reject
-with a diagnostic, stage1 compiles into whatever the code happens to
-mean. No lambda expressions or partial application (refused loudly).
+Phase 3 has started, and its acceptance criterion is met for the
+checks that exist: stage1 emits **byte-identical AXDL**. What made
+that possible was not the checker but the thing underneath it -
+stage1's AST was four words (`tag a b c`) and carried no position at
+all, so no diagnostic it produced could name a location. Declaration
+nodes now carry the span of their *name*, which is the granularity a
+declaration-level diagnostic points at (`tests/selfhost/630-decl-spans.ax`
+pins the byte offsets), and `self_host/diag.ax` renders AXDL as a
+transliteration of stage0's `render_ai_line`.
+
+Two checks replace the stub, both declaration-level, chosen because
+they need no type inference, no scope walk, and none of the resolution
+subtleties a naive reimplementation gets quietly wrong: `AX3006`
+duplicate definition and `AX3015` a signature with no definition
+behind it. Between them they exercise every AXDL field stage1 can
+produce - primary span, related span, help - so the comparison is
+meaningful rather than decorative. Their order is not incidental
+either: stage0 runs its duplicate pass over every declaration before
+its signature pass runs over any, so every `AX3006` precedes every
+`AX3015` whatever order the source puts them in, and two passes in
+that order is the whole rule.
+
+The subtlety worth recording is one of *units*. stage0's lexer
+tokenizes a `Vec<char>`, so every span it produces is a character
+index; stage1's lexer walks bytes. Line numbers agree either way - a
+newline is one byte and one character - but columns do not, and the
+compiler's own sources are full of em-dashes (`core.ax` carries 18
+non-ASCII bytes, `stdlib/Pre.ax` 15). The fix needs no UTF-8 decoding:
+a byte is a character start unless it matches `0b10xxxxxx`, so
+counting non-continuation bytes from the line start counts characters.
+An ASCII-only corpus would never have exposed this and it would have
+detonated at phase 5, when stage1 checks its own source, so
+`070-nonascii-same-line.ax` puts an em-dash before the error *on the
+same line*: stage0 says column 22, a byte count says 24.
+
+`scripts/check-diagnostics.sh` is the gate, and it is three-way -
+`golden == stage0 == stage1` - rather than a straight diff between the
+compilers, because a two-way comparison cannot see the first risk this
+document lists: a stage0 bug baked into stage1, where a wrong compiler
+looks self-consistent. It also refuses two failures that look like
+success: a golden with no AXDL line in it (agreement by mutual
+silence, which is what a comparison against a checker that emits
+nothing would always report), and any diagnostic at all on the
+compiler's own source, since a false positive there does not annoy,
+it stops the compiler compiling itself.
+
+What genuinely remains: type checking proper. The two checks above are
+declaration-level, and `parseSigDecl` keeps only a signature's name and
+a float-flag bitmask - the type structure is discarded - so nothing
+downstream can compare a type to anything. `AX3001` (undefined
+variable), the most common diagnostic of all, additionally needs the
+suggestion machinery reproduced exactly: `suggest_closest`'s edit
+distance, its `(min_len/2).clamp(1,2)` threshold, *and* its candidate
+iteration order, since the first strictly-smaller distance wins and
+ties are therefore order-dependent. Duplicates *inside an imported
+module* also go unreported, because stage1's merged declaration list
+does not record which module each declaration came from; checking the
+entry file alone is the sound subset, never inventing a diagnostic
+stage0 would not produce. No lambda expressions or partial application
+(refused loudly).
 stage1 emits S1's unboxed nullary constructors exactly as stage0
 does: the per-type representation code (boxed / all-nullary / mixed)
 travels on every constructor's registry entry, construction emits the

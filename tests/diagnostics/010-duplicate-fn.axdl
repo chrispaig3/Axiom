@@ -1,0 +1,1 @@
+E AX3006 010-duplicate-fn.ax:3:6-10 duplicate-definition "duplicate definition `main`" ^2:6-10:"`main` first defined here" ?"rename one of the definitions, or remove the duplicate"
