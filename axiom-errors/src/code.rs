@@ -179,6 +179,22 @@ registry! {
          Only a whole local can be assigned. Function parameters, pattern\n\
          bindings and top-level declarations are never mutable, and structure\n\
          fields are written with `memSetWord` instead."),
+    PARTIAL_APPLICATION => ("AX3013", "partial-application",
+        "partial application is not supported",
+        "A top-level function was applied to fewer arguments than its\n\
+         definition declares, or a function of two or more parameters was\n\
+         used as a bare value. Both are well-typed under currying, but the\n\
+         compiled representation has no way to hold the missing arguments:\n\
+         a call site would simply omit them, and the callee would read\n\
+         whatever happened to be in the argument registers - which is how\n\
+         this used to run and crash instead of being reported.\n\
+         \n\
+         Bind the missing arguments with a lambda instead: where `(f x)`\n\
+         was meant, write `(lambda (y) (f x y))`. A lambda captures `x` in\n\
+         a closure record, which is the representation partial application\n\
+         would need and lambdas already have. Saturated calls, calls with\n\
+         *extra* arguments applied to a returned function value, and\n\
+         one-parameter functions used as values are all unaffected."),
 
     // ---- AX4xxx: lowering / codegen / toolchain ----
     MISSING_MAIN => ("AX4001", "missing-main",

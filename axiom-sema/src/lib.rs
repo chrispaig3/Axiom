@@ -70,6 +70,22 @@ pub enum SemError {
     },
     #[error("effect mismatch: {message}")]
     EffectMismatch { message: String, span: Span },
+    /// A top-level function applied to fewer arguments than its
+    /// definition declares, or a function of two or more parameters
+    /// used as a bare value.
+    ///
+    /// Both are well-typed under currying and neither has a runtime
+    /// representation: a call site would simply omit the missing
+    /// arguments, which is how this used to compile into a program
+    /// that read register garbage and crashed. `found` is 0 for the
+    /// bare-value form.
+    #[error("partial application of `{name}`: it takes {expected} argument(s) and {found} were supplied")]
+    PartialApplication {
+        name: String,
+        expected: usize,
+        found: usize,
+        span: Span,
+    },
 }
 
 impl SemError {
@@ -87,6 +103,7 @@ impl SemError {
             SemError::Message { span, .. } => *span,
             SemError::AxtagMismatch { span, .. } => *span,
             SemError::EffectMismatch { span, .. } => *span,
+            SemError::PartialApplication { span, .. } => *span,
         }
     }
 
@@ -238,8 +255,46 @@ impl SemError {
                 Diagnostic::error(&code::EFFECT_MISMATCH, self.to_string())
                     .with_primary(span, message.clone())
             }
+            SemError::PartialApplication {
+                name,
+                expected,
+                found,
+                ..
+            } => {
+                let label = if *found == 0 {
+                    format!(
+                        "`{}` takes {} arguments, so it cannot be used as a bare value",
+                        name, expected
+                    )
+                } else {
+                    format!(
+                        "`{}` takes {} argument(s); {} more needed",
+                        name,
+                        expected,
+                        expected - found
+                    )
+                };
+                Diagnostic::error(&code::PARTIAL_APPLICATION, self.to_string())
+                    .with_primary(span, label)
+                    .with_help(
+                        "bind the missing arguments with a lambda: \
+                         `(lambda (y) (f x y))` builds the value `(f x)` would mean",
+                    )
+            }
         }
     }
+}
+
+/// How many `TArr`s deep a type is: the number of arguments a value of
+/// this type could absorb before the result stops being a function.
+fn arrow_depth(ty: &TypeId) -> usize {
+    let mut depth = 0;
+    let mut t = ty;
+    while let TypeId::TArr(_, ret) = t {
+        depth += 1;
+        t = ret;
+    }
+    depth
 }
 
 fn collect_effects(checker: &TypeChecker, expr: &Expr) -> Vec<axiom_ast::ast::Effect> {
@@ -623,6 +678,21 @@ pub struct FnInfo {
     pub is_builtin: bool,
     pub effects: Vec<axiom_ast::ast::Effect>,
     pub module: Option<String>,
+    /// How many parameters the function's *definition* declares -
+    /// `Some(params.len())` once its `DFn` has been collected, `None`
+    /// for builtins, foreigns, and signature-only entries.
+    ///
+    /// This is a representation fact, not a type fact, and the two
+    /// genuinely differ: `(:: mk (-> Int (-> Int Int)))` with
+    /// `(fn (mk a) (lambda (b) ...))` has an arrow two deep and one
+    /// declared parameter. Saturation - the thing the backend can
+    /// actually compile - is measured against the parameter count,
+    /// and only the arrow depth is visible in the type. Partial
+    /// application below the parameter count has no runtime
+    /// representation (a call site would simply omit the missing
+    /// arguments), which is why [`SemError::PartialApplication`]
+    /// exists.
+    pub param_count: Option<usize>,
 }
 
 #[derive(Debug, Clone)]
@@ -719,6 +789,7 @@ impl FnInfo {
             is_builtin: false,
             effects: Vec::new(),
             module: None,
+            param_count: None,
         }
     }
 
@@ -730,6 +801,7 @@ impl FnInfo {
             is_builtin: true,
             effects: Vec::new(),
             module: None,
+            param_count: None,
         }
     }
 
@@ -745,6 +817,7 @@ impl FnInfo {
             is_builtin: true,
             effects,
             module: None,
+            param_count: None,
         }
     }
 }
@@ -769,6 +842,15 @@ pub struct TypeChecker {
     /// Kept separate so they can be reported without failing the build.
     pub warnings: Vec<SemError>,
     pub type_counter: usize,
+    /// True while checking the *function* side of an application - the
+    /// head chain of a spine - and false everywhere else. A bare
+    /// reference to a multi-parameter function or a fieldful
+    /// constructor is fine as a head (the application supplies the
+    /// arguments) and unsupported as a value (nothing ever will), and
+    /// this flag is how `check_var` tells the two apart. Only the
+    /// `EApp` arm sets it, and it clears it around argument checking,
+    /// so every other position reads `false`.
+    in_app_head: bool,
 }
 
 impl Default for TypeChecker {
@@ -857,6 +939,7 @@ impl TypeChecker {
             errors: Vec::new(),
             warnings: Vec::new(),
             type_counter: 0,
+            in_app_head: false,
         };
 
         let int_ty = TypeId::TCon("Int".to_string(), vec![]);
@@ -1141,7 +1224,10 @@ impl TypeChecker {
                     });
                 }
                 Decl::DFn {
-                    name, module_path, ..
+                    name,
+                    params,
+                    module_path,
+                    ..
                 } => {
                     if !self
                         .functions
@@ -1155,6 +1241,17 @@ impl TypeChecker {
                         info.module = module_path.clone();
                         self.functions.push(info);
                         self.type_counter += 1;
+                    }
+                    // The signature usually registered this entry first,
+                    // so the parameter count is recorded on whichever
+                    // entry the name resolves to rather than only on a
+                    // freshly created one.
+                    if let Some(f) = self
+                        .functions
+                        .iter_mut()
+                        .find(|f| f.name == name.name && f.module == *module_path)
+                    {
+                        f.param_count = Some(params.len());
                     }
                 }
                 Decl::DForeign {
@@ -1416,11 +1513,41 @@ impl TypeChecker {
         }
     }
 
+    /// Wrapper that scopes [`TypeChecker::in_app_head`]: the flag means
+    /// "this expression is the function side of an application", which
+    /// is only true of the `EVar`/`EQualified`/`EApp` chain itself - a
+    /// lambda, `let`, or `match` sitting in head position is a head,
+    /// but its *body* is back to being ordinary value territory. The
+    /// wrapper clears the flag for every non-chain expression and
+    /// restores the caller's value afterwards, so the `EApp` arm's
+    /// early returns cannot leak a stale `true` either.
     fn check_expr(&mut self, expr: &Expr) -> TypeId {
+        let saved = self.in_app_head;
+        if !matches!(expr, Expr::EVar(_) | Expr::EQualified(_, _) | Expr::EApp(_, _)) {
+            self.in_app_head = false;
+        }
+        let ty = self.check_expr_inner(expr);
+        self.in_app_head = saved;
+        ty
+    }
+
+    fn check_expr_inner(&mut self, expr: &Expr) -> TypeId {
         match expr {
             Expr::EVar(ident) => self.check_var(ident),
             Expr::ELit(lit, _) => self.check_literal(lit),
             Expr::EApp(func, arg) => {
+                // Saturation is checked once per spine, at its root: this
+                // node is the root exactly when it was not reached as the
+                // head of an enclosing application. Everything below runs
+                // with the flag cleared, so operands and arguments read
+                // as value positions; only the recursion into `func`
+                // re-raises it.
+                let at_spine_root = !self.in_app_head;
+                self.in_app_head = false;
+                if at_spine_root {
+                    self.check_app_saturation(expr);
+                }
+
                 // Arithmetic and comparison over `Int` *or* `Float`.
                 //
                 // The operators are registered as builtins with the fixed
@@ -1432,8 +1559,11 @@ impl TypeChecker {
                 // `(+ "a" "b")` through.
                 //
                 // Only the saturated two-argument form is intercepted; a
-                // partial application like `(map (+ 1) xs)` falls through
-                // to the ordinary path and keeps its `Int` type.
+                // partial application like `(+ 1)` falls through to the
+                // ordinary path, where `check_app_saturation` has already
+                // reported it - the backend has no representation for a
+                // partially applied operator any more than for a
+                // partially applied function.
                 if let Some((op, lhs, rhs)) = numeric_builtin_app(expr) {
                     return self.check_numeric_builtin(op, lhs, rhs);
                 }
@@ -1474,7 +1604,9 @@ impl TypeChecker {
                     }
                 }
 
+                self.in_app_head = true;
                 let func_ty = self.check_expr(func);
+                self.in_app_head = false;
                 let arg_ty = self.check_expr(arg);
                 match func_ty {
                     TypeId::TArr(param_ty, ret_ty) => {
@@ -1891,7 +2023,174 @@ impl TypeChecker {
         }
     }
 
+    /// The number of arguments a function's *representation* wants at a
+    /// call site. For a user-defined function that is its declared
+    /// parameter count, which the arrow type cannot reveal - a
+    /// one-parameter function returning a lambda has a two-deep arrow.
+    /// Builtins and foreigns have no parameter list, and for them the
+    /// arrow depth *is* the truth: primitives are saturated operations
+    /// and a foreign symbol has exactly its C arity. A signature-only
+    /// entry (no definition seen) answers `None` and is left alone.
+    fn representation_arity(fn_info: &FnInfo) -> Option<usize> {
+        fn_info.param_count.or_else(|| {
+            if fn_info.is_builtin || fn_info.foreign_symbol.is_some() {
+                Some(arrow_depth(&fn_info.ty))
+            } else {
+                None
+            }
+        })
+    }
+
+    /// Report an application spine that supplies fewer arguments than
+    /// its head's representation declares. Runs once per spine, at the
+    /// root; purely a reporter, so the ordinary per-node typing below
+    /// still produces the spine's type and every argument's own errors.
+    ///
+    /// Resolution mirrors `check_var`: a local in scope shadows a
+    /// top-level function or constructor and makes the head a function
+    /// *value*, whose saturation is not statically knowable - a
+    /// `Int -> Int -> Int` local may hold a two-parameter function or a
+    /// one-parameter function returning a closure, and only the second
+    /// survives stepwise application. That is exactly why bare
+    /// references to multi-parameter functions are refused (see
+    /// `check_var`): every value a local can legally hold is applicable
+    /// one argument at a time.
+    fn check_app_saturation(&mut self, expr: &Expr) {
+        let mut found = 0usize;
+        let mut current = expr;
+        while let Expr::EApp(func, _) = current {
+            found += 1;
+            current = func;
+        }
+        let (name, module, _span) = match current {
+            Expr::EVar(ident) => {
+                if self.is_frame_local(ident) {
+                    return;
+                }
+                (ident.name.clone(), None, ident.span)
+            }
+            Expr::EQualified(path, ident) => {
+                let m: String = path
+                    .iter()
+                    .map(|i| i.name.as_str())
+                    .collect::<Vec<_>>()
+                    .join(".");
+                (ident.name.clone(), Some(m), ident.span)
+            }
+            _ => return,
+        };
+
+        let fn_arity = self
+            .functions
+            .iter()
+            .find(|f| {
+                f.name == name
+                    && match &module {
+                        Some(m) => f.module.as_deref() == Some(m.as_str()),
+                        None => true,
+                    }
+            })
+            .and_then(Self::representation_arity);
+        if let Some(expected) = fn_arity {
+            if found < expected {
+                self.errors.push(SemError::PartialApplication {
+                    name,
+                    expected,
+                    found,
+                    span: expr.span(),
+                });
+            }
+            return;
+        }
+
+        if module.is_none() {
+            let con_arity = self
+                .data_types
+                .iter()
+                .flat_map(|dt| dt.constructors.iter())
+                .find(|c| c.name == name)
+                .map(|c| arrow_depth(&c.ty));
+            if let Some(expected) = con_arity {
+                if found < expected {
+                    self.errors.push(SemError::ConstructorArity {
+                        name,
+                        expected,
+                        found,
+                        span: expr.span(),
+                    });
+                }
+            }
+        }
+    }
+
+    /// Whether `ident` names a binding local to the function currently
+    /// being checked - a parameter or `let`/pattern binding inside an
+    /// active scope frame. Module-level signatures also park entries in
+    /// `scope`, but those sit *below* the first `__scope__` frame
+    /// marker; a name is only a genuine shadow of a top-level function
+    /// or constructor if a frame introduced it.
+    fn is_frame_local(&self, ident: &Ident) -> bool {
+        let Some(first_frame) = self.scope.iter().position(|(n, _, _)| n == "__scope__") else {
+            return false;
+        };
+        self.scope[first_frame..]
+            .iter()
+            .any(|(n, s, _)| n == &ident.name && *s == ident.scope)
+    }
+
     fn check_var(&mut self, ident: &Ident) -> TypeId {
+        // A bare reference to a multi-parameter function, outside head
+        // position, builds a value that can only ever be applied one
+        // argument at a time - and a call site has no way to supply a
+        // multi-parameter function's arguments piecemeal, so every use
+        // of that value would be the partial-application miscompile
+        // with extra steps. One-parameter functions are the working
+        // function-value representation and stay allowed; nullary
+        // functions are named constants. A frame-local binding shadows
+        // the top-level name and is exempt - it holds a value, and
+        // values are applied indirectly.
+        let flagged = if !self.in_app_head && !self.is_frame_local(ident) {
+            self.functions
+                .iter()
+                .find(|f| f.name == ident.name)
+                .and_then(Self::representation_arity)
+                .filter(|&a| a >= 2)
+                .map(|a| (a, false))
+                .or_else(|| {
+                    // A bare fieldful constructor has no value
+                    // representation at all - it lowered to an
+                    // undefined SSA name the toolchain rejected.
+                    self.data_types
+                        .iter()
+                        .flat_map(|dt| dt.constructors.iter())
+                        .find(|c| c.name == ident.name)
+                        .map(|c| arrow_depth(&c.ty))
+                        .filter(|&a| a >= 1)
+                        .map(|a| (a, true))
+                })
+        } else {
+            None
+        };
+        if let Some((expected, is_con)) = flagged {
+            let err = if is_con {
+                SemError::ConstructorArity {
+                    name: ident.name.clone(),
+                    expected,
+                    found: 0,
+                    span: ident.span,
+                }
+            } else {
+                SemError::PartialApplication {
+                    name: ident.name.clone(),
+                    expected,
+                    found: 0,
+                    span: ident.span,
+                }
+            };
+            self.errors.push(err);
+            return TypeId::TError;
+        }
+
         for (name, scope, info) in self.scope.iter().rev() {
             if name == &ident.name && *scope == ident.scope {
                 return info.ty.clone();
@@ -1942,6 +2241,27 @@ impl TypeChecker {
             .map(|i| i.name.as_str())
             .collect::<Vec<_>>()
             .join(".");
+
+        // Same value-position rule as `check_var`: a qualified name is
+        // never a local, so only the multi-parameter-function check
+        // applies.
+        if !self.in_app_head {
+            let flagged = self
+                .functions
+                .iter()
+                .find(|f| f.name == name.name && f.module.as_deref() == Some(&module))
+                .and_then(Self::representation_arity)
+                .filter(|&a| a >= 2);
+            if let Some(expected) = flagged {
+                self.errors.push(SemError::PartialApplication {
+                    name: format!("{}::{}", module, name.name),
+                    expected,
+                    found: 0,
+                    span: name.span,
+                });
+                return TypeId::TError;
+            }
+        }
 
         for fn_info in &self.functions {
             if fn_info.name == name.name && fn_info.module.as_deref() == Some(&module) {
@@ -2426,6 +2746,18 @@ impl TypeChecker {
                     self.functions.push(info);
                     self.type_counter += 1;
                 }
+                // Recorded here as well as in the collection pass: the
+                // entry the name resolves to may have been created by
+                // either pass (or by the signature), and the parameter
+                // count must be present before any body that calls this
+                // function is checked.
+                if let Some(f) = self
+                    .functions
+                    .iter_mut()
+                    .find(|f| f.name == name.name && f.module == *module_path)
+                {
+                    f.param_count = Some(params.len());
+                }
                 self.push_scope();
                 for pat in params {
                     self.check_pattern(pat);
@@ -2750,6 +3082,163 @@ mod tests {
 (fn main (let ((mut x 0)) { (set x 1) x }))"#,
         )
         .expect("`set` on a `mut` binding should type-check");
+    }
+
+    #[test]
+    fn partial_application_of_a_top_level_function_is_an_error() {
+        // Well-typed under currying, and exactly the program that used
+        // to compile into an under-populated call reading register
+        // garbage. The declared parameter count is the arity, so the
+        // error must fire even though the arrow type would keep
+        // peeling happily.
+        let errors = check_err(
+            r#"(:: add2 (-> Int Int Int))
+(fn (add2 x y) (+ x y))
+(:: main Int)
+(fn main (let ((f (add2 1))) (f 2)))"#,
+        );
+        let err = errors
+            .iter()
+            .find(|e| {
+                matches!(e, SemError::PartialApplication { name, expected: 2, found: 1, .. } if name == "add2")
+            })
+            .expect("expected PartialApplication");
+        assert_eq!(err.to_diagnostic().code.unwrap().code, "AX3013");
+    }
+
+    #[test]
+    fn a_bare_reference_to_a_multi_parameter_function_is_an_error() {
+        // The value could only ever be applied one argument at a time,
+        // and a two-parameter function cannot receive its arguments
+        // piecemeal - every use would be the partial-application
+        // miscompile with extra steps.
+        let errors = check_err(
+            r#"(:: add2 (-> Int Int Int))
+(fn (add2 x y) (+ x y))
+(:: main Int)
+(fn main (let ((f add2)) (f 1 2)))"#,
+        );
+        assert!(errors.iter().any(|e| {
+            matches!(e, SemError::PartialApplication { name, expected: 2, found: 0, .. } if name == "add2")
+        }));
+    }
+
+    #[test]
+    fn a_saturated_nested_spine_is_not_partial_application() {
+        // (((add3 1) 2) 3) is one spine supplying all three arguments;
+        // saturation is a property of the spine, not of any inner node,
+        // and flagging an inner node was the easiest bug to write here.
+        check(
+            r#"(:: add3 (-> Int Int Int Int))
+(fn (add3 x y z) (+ x (+ y z)))
+(:: main Int)
+(fn main (((add3 1) 2) 3))"#,
+        )
+        .expect("a saturated spine must type-check");
+    }
+
+    #[test]
+    fn over_application_of_a_function_returning_a_closure_is_allowed() {
+        // One declared parameter, applied to two arguments: the second
+        // applies to the returned lambda. The declared parameter count
+        // is what saturation is measured against - the arrow is two
+        // deep, and using its depth here would wrongly flag this.
+        check(
+            r#"(:: adder (-> Int (-> Int Int)))
+(fn (adder n) (lambda (m) (+ n m)))
+(:: main Int)
+(fn main (adder 10 5))"#,
+        )
+        .expect("over-application through a returned closure must type-check");
+    }
+
+    #[test]
+    fn a_one_parameter_function_is_still_a_value() {
+        // The one-word closure record and one-at-a-time application
+        // work for exactly this case, and the standard tests use it;
+        // the refusal must be scoped to what the backend cannot run.
+        check(
+            r#"(:: inc (-> Int Int))
+(fn (inc n) (+ n 1))
+(:: apply (-> (-> Int Int) Int Int))
+(fn (apply f x) (f x))
+(:: main Int)
+(fn main (apply inc 41))"#,
+        )
+        .expect("a bare 1-param function value must type-check");
+    }
+
+    #[test]
+    fn a_local_shadowing_a_function_name_is_exempt() {
+        // `add2` here is a let-bound Int, not the function; the
+        // signature parks top-level names in `scope` too, and the
+        // shadow test must distinguish a frame-local from those.
+        check(
+            r#"(:: add2 (-> Int Int Int))
+(fn (add2 x y) (+ x y))
+(:: main Int)
+(fn main (let ((add2 5)) add2))"#,
+        )
+        .expect("a frame-local shadowing a function name is an ordinary value");
+    }
+
+    #[test]
+    fn an_under_applied_constructor_is_an_arity_error_in_expressions() {
+        // AX3009 used to fire only in patterns; at expression sites an
+        // under-applied constructor emitted a call to a symbol that
+        // does not exist and failed in llc, as a toolchain error.
+        let errors = check_err(
+            r#"(data Pair (a) (MkPair Int Int))
+(:: main Int)
+(fn main (let ((p (MkPair 1))) 0))"#,
+        );
+        let err = errors
+            .iter()
+            .find(|e| {
+                matches!(e, SemError::ConstructorArity { name, expected: 2, found: 1, .. } if name == "MkPair")
+            })
+            .expect("expected ConstructorArity");
+        assert_eq!(err.to_diagnostic().code.unwrap().code, "AX3009");
+    }
+
+    #[test]
+    fn a_bare_fieldful_constructor_reference_is_an_arity_error() {
+        // `MkPair` alone lowered to a use of the undefined SSA value
+        // `%MkPair`; a bare fieldful constructor has no value
+        // representation at all.
+        let errors = check_err(
+            r#"(data Pair (a) (MkPair Int Int))
+(:: main Int)
+(fn main (let ((p MkPair)) 0))"#,
+        );
+        assert!(errors.iter().any(|e| {
+            matches!(e, SemError::ConstructorArity { name, expected: 2, found: 0, .. } if name == "MkPair")
+        }));
+    }
+
+    #[test]
+    fn a_bare_nullary_constructor_is_still_a_construction() {
+        check(
+            r#"(data Flag (a) (On) (Off))
+(:: main Int)
+(fn main (let ((f On)) 0))"#,
+        )
+        .expect("a bare nullary constructor constructs");
+    }
+
+    #[test]
+    fn a_partially_applied_operator_is_an_error() {
+        // `(+ 1)` used to fall through the numeric intercept and keep
+        // its Int-flavoured typing on the theory that `map (+ 1)`
+        // would want it someday; the backend has never been able to
+        // run it, and a diagnostic beats an llc error.
+        let errors = check_err(
+            r#"(:: main Int)
+(fn main (let ((f (+ 1))) 0))"#,
+        );
+        assert!(errors.iter().any(|e| {
+            matches!(e, SemError::PartialApplication { name, expected: 2, found: 1, .. } if name == "+")
+        }));
     }
 
     #[test]

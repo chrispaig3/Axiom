@@ -2041,13 +2041,17 @@ impl IrGen {
                 // declared anywhere - invalid LLVM IR that fails at the
                 // `llc`/`cc` stage instead of at a compiler diagnostic.
                 // Only handled when the argument count matches the
-                // constructor's declared arity exactly; a mismatch here
-                // means semantic analysis already reported
-                // `ConstructorArity` (see `axiom-sema`), so falling
-                // through to the old (still-broken) `Call` path for that
-                // case is no worse than before and avoids generating a
-                // *third*, different kind of wrong code for an
-                // already-diagnosed program.
+                // constructor's declared arity exactly. A mismatch is
+                // reported by semantic analysis - under-application as
+                // `ConstructorArity` at the expression site, an extra
+                // argument as a type mismatch when the peeling runs out
+                // of arrows - so the fall-through below is only ever
+                // reached for a program the CLI has already refused.
+                // (This comment used to claim the same thing while
+                // sema checked constructor arity in patterns only, and
+                // the fall-through was reachable: an under-applied
+                // constructor sailed through `check` and died in `llc`
+                // as `use of undefined value '@Mk'`.)
                 if let Expr::EVar(ident) | Expr::EQualified(_, ident) = current {
                     if let Some((tag, arity)) = find_constructor(type_checker, &ident.name) {
                         if arity == all_args.len() {

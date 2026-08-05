@@ -596,15 +596,29 @@ case is a silent wrong capture. Pinned by
 `tests/selfhost/580-lambda.ax` and `590-lambda-nested.ax` (a capture
 crossing two lifts), both agreeing with stage0.
 
-Partial application remains unsupported in both compilers, and in
-stage0 that gap is currently a *miscompile* rather than a refusal:
-`(let ((f (add2 1))) (f 2))` type-checks - currying makes it
-well-typed - and then codegen emits a one-argument call to a
-two-parameter function, so the program runs and answers garbage
-(probed: exit 1 where 3 is the answer). stage1 at least stays
-saturated-only by construction. Making stage0 refuse loudly, or carry
-runtime arity in the record and curry properly, is open work; nothing
-in the corpus partially applies.
+Partial application remains unsupported in both compilers, and stage0
+now *refuses it loudly* instead of miscompiling. It used to be a
+crash wearing a type-checker's approval: `(let ((f (add2 1))) (f 2))`
+is well-typed under currying, compiled into a one-argument call to a
+two-parameter function - the missing argument simply omitted, the
+callee reading register garbage - and SIGSEGVed when the garbage was
+dereferenced as a closure. A systematic probe of every application
+shape found four such holes, each with a different failure face:
+stored partials and stepwise application of a bare multi-parameter
+function value crashed at runtime, while an under-applied constructor
+and a bare fieldful-constructor reference emitted calls to symbols
+that do not exist and surfaced as `llc` errors about generated code.
+All four are now `check`-time diagnostics: `AX3013`
+(partial-application) for functions - measured against the
+*declared parameter count*, not the arrow depth, so a one-parameter
+function returning a lambda still over-applies fine - and `AX3009`
+(constructor-arity-mismatch), which used to fire only in patterns,
+now also at expression sites. Bare references to one-parameter
+functions stay allowed; they are the working function-value
+representation the conformance suite exercises. A corpus scan of all
+106 `.ax` files found zero partial applications, so nothing existing
+changed meaning. Currying properly - runtime arity in the closure
+record - remains open work if anything ever wants it.
 
 Struct field access works: `p.x` resolves the field by name in the
 struct registry and loads at its word offset, chains fold left, and

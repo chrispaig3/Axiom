@@ -105,6 +105,26 @@ fn check_rejects_an_undefined_variable_with_the_right_code() {
     assert!(stderr(&out).contains("AX3001"), "stderr: {}", stderr(&out));
 }
 
+/// The program that used to type-check and then SIGSEGV: an
+/// under-applied call compiled into a call with the missing argument
+/// simply omitted, and the garbage result was dereferenced as a
+/// closure. It must die here, at `check`, with its own code.
+#[test]
+fn check_rejects_partial_application_with_the_right_code() {
+    let dir = scratch_dir("check-partial-application");
+    write_source(
+        &dir,
+        "main.ax",
+        "(:: add2 (-> Int Int Int))\n(fn (add2 x y) (+ x y))\n\
+         (:: main Int)\n(fn main (let ((f (add2 1))) (f 2)))\n",
+    );
+    let out = run_axiom(&["--diagnostic-format=ai", "check", "main.ax"], &dir);
+    assert!(!out.status.success());
+    let err = stderr(&out);
+    assert!(err.contains("E AX3013"), "stderr: {}", err);
+    assert!(err.contains("partial-application"), "stderr: {}", err);
+}
+
 /// End-to-end regression test for the ADT/pattern-matching work: a
 /// recursive `data List` built and summed via real heap-boxed
 /// constructors and real branching `match` codegen, not just type-checked.
