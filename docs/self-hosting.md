@@ -388,7 +388,7 @@ stage3  the Axiom compiler, built by stage2
 also compiles and runs a program through each stage - two compilers can
 agree byte-for-byte on their own source and still both be wrong.
 
-`scripts/check-self-host.sh` is the conformance gate: 50 cases in
+`scripts/check-self-host.sh` is the conformance gate: 52 cases in
 `tests/selfhost/`, each compiled by stage1, assembled, linked, and
 checked by exit status, plus a negative check that an unresolvable
 import is refused with the module named rather than skipped. What it
@@ -534,11 +534,20 @@ mutable `Float` keeping its float-ness across stores
 (`tests/selfhost/500-while-mut.ax`, `510-mut-float.ax`). The alloca
 machinery is also the substrate closures (B1 in stage1) will need.
 
+Function values work for the saturated case: a bare reference to a
+top-level function builds the one-word closure record stage0 gives a
+captureless function - the code pointer in word 0 - and a call whose
+head is a local or parameter goes indirect through it, all arguments
+at once (`tests/selfhost/520-fn-values.ax`, `530-fn-in-ctor.ax`).
+Partial application would need runtime arity in the record, and a
+lambda expression needs capture analysis and lifting; both are refused
+loudly rather than miscompiled.
+
 What genuinely remains: no type checking -
 `self_host/typecheck.ax` is a stub - so a program stage0 would reject
 with a diagnostic, stage1 compiles into whatever the code happens to
-mean. No function values or closures (refused loudly). No struct
-field access (`p.x`), refused at parse. It emits for darwin-aarch64
+mean. No lambda expressions or partial application (refused loudly).
+No struct field access (`p.x`), refused at parse. It emits for darwin-aarch64
 only. And the driver reads `in.ax` from the working directory and
 writes to stdout, with no argument parsing. Float literals with more
 precision than a double round twice where stage0 rounds once, so a

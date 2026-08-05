@@ -1288,7 +1288,11 @@
     (if (== tag TAG_E_LETM)  (emitLetM node cg)
     (if (== tag TAG_E_SET)   (emitSet node cg)
     (if (== tag TAG_E_WHILE) (emitWhile node cg)
-    (emitDefault node cg)))))))))))))))
+    ; A lambda needs capture analysis and lifting; falling through to
+    ; the default emitted 0 in its place, silently. Dying is honest.
+    (if (== tag TAG_E_LAM)
+        (dieImport "error: lambda expressions are not supported by stage1" "")
+    (emitDefault node cg))))))))))))))))
 
 ; E_Int
 (pub :: emitInt (-> Int Int Int))
@@ -1397,17 +1401,32 @@
                             cg
                           }))
                       ; A bare reference to a *defined multi-parameter
-                      ; function* is a function value, which needs the
-                      ; closure representation stage1 does not build
-                      ; yet (B1). Refusing loudly beats emitting
-                      ; `%name` - an SSA value nothing defines - and
-                      ; letting llc report it as if it were a typo.
-                      ; A parameter of the function being emitted wins
-                      ; first, though: a param named `lex` is the
-                      ; param, not the lexer entry point it shadows.
+                      ; function* is a function value: a one-word
+                      ; closure record holding the code pointer, the
+                      ; same representation stage0 gives a captureless
+                      ; top-level function. `emitIndirectCall` is the
+                      ; reader. A parameter of the function being
+                      ; emitted wins first, though: a param named `lex`
+                      ; is the param, not the lexer entry point it
+                      ; shadows.
                       (if (&& (isDefinedFn (memGetWord cg 8) full)
                               (< (paramIndexOf cg name) 0))
-                          (dieImport "error: function values are not supported by stage1: " name)
+                          (let ((pn (allocReg cg))
+                                (fn2 (allocReg cg)))
+                            (let ((pr (regStr pn))
+                                  (fr (cat2 "%f" (fmtInt fn2))))
+                              {
+                                (emitLine cg (cat2 (cat2 "  " pr)
+                                                   " = call i64 @axiom_alloc(i64 8)"))
+                                (emitLine cg (cat4 (cat2 "  " fr)
+                                                   " = ptrtoint ptr @"
+                                                   (strDup full)
+                                                   " to i64"))
+                                (storeWordAt cg pr 0 fr)
+                                (memSetWord cg 2 pr)
+                                (memSetWord cg 14 0)
+                                cg
+                              }))
                       ; A parameter reference: `%name` was emitted in
                       ; the function header, and the signature says
                       ; whether it is a float.
@@ -1564,11 +1583,56 @@
         (zeroFloat (emitAndOr fnName args cg))
     (if (isPrimName fnName)
         (emitPrim fnName args cg)
+    ; A head that names a local or a parameter is a function VALUE -
+    ; a closure record - so the call goes indirect through its code
+    ; pointer. Checked before the constructor table: locals shadow.
+    (if (isLocalValue cg fnName)
+        (emitIndirectCall fnName args cg)
         (let ((types (memGetWord cg 3))
               (entry (lookupType types fnName)))
           (if (== entry 0)
               (emitCall fnName args cg)
-              (zeroFloat (emitConstructor fnName args (eKind entry) (eArity entry) (eTag entry) (eAllNull entry) cg)))))))))))))
+              (zeroFloat (emitConstructor fnName args (eKind entry) (eArity entry) (eTag entry) (eAllNull entry) cg))))))))))))))
+
+(pub :: isLocalValue (-> Int Int Bool))
+(pub fn (isLocalValue cg name)
+  (if (!= (lookupSym cg name) 0)
+      true
+      (>= (paramIndexOf cg name) 0)))
+
+; Call through a function value: the head evaluates to a closure
+; record, word 0 is the code pointer, and the call applies every
+; argument at once. Saturated application only - stage0 curries a
+; partial application into a fresh closure, which needs runtime arity
+; the record does not carry yet; nothing in the corpus partially
+; applies. The result's float-ness is unknown (no signature to ask),
+; so it reads as integer.
+(pub :: emitIndirectCall (-> Int Int Int Int))
+(pub fn (emitIndirectCall fnName args cg)
+  (let ((cgH (emitVar (mkEVar fnName) cg)))
+    (let ((h (strDup (memGetWord cgH 2))))
+      (let ((cgL (loadWordAt cgH h 0)))
+        (let ((cp (strDup (memGetWord cgL 2)))
+              (cgA (emitArgsList args cgL 0)))
+          (let ((argStrT (memGetWord cgA 9))
+                (fpn (allocReg cgA))
+                (rn (allocReg cgA)))
+            (let ((fp (cat2 "%f" (fmtInt fpn)))
+                  (r (regStr rn)))
+              {
+                (emitLine cgA (cat4 (cat2 "  " fp)
+                                    " = inttoptr i64 "
+                                    cp
+                                    " to ptr"))
+                (emitLine cgA (cat3 (cat3 (cat2 "  " r)
+                                          " = call i64 "
+                                          fp)
+                                    "(i64 "
+                                    (cat2 argStrT ")")))
+                (memSetWord cgA 2 r)
+                (memSetWord cgA 14 0)
+                cgA
+              })))))))
 
 ; ------------------------------------------------------------------
 ; Freestanding primitives.

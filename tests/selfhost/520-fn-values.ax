@@ -1,0 +1,11 @@
+; expect 42
+; A function used as a value: the bare reference builds a one-word
+; closure record holding the code pointer - the representation stage0
+; gives a captureless top-level function - and a call whose head is a
+; parameter goes indirect through word 0. Saturated application.
+(:: inc (-> Int Int))
+(fn (inc x) (+ x 1))
+(:: apply (-> (-> Int Int) Int Int))
+(fn (apply f x) (f x))
+(:: main Int)
+(fn (main) (apply inc 41))
