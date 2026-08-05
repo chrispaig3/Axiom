@@ -1,0 +1,13 @@
+; expect 45
+; A lambda inside a lambda: the inner one captures both the outer's
+; parameter and the outer's own captures, so its record carries values
+; that crossed two lifts. Each application step is saturated through a
+; `let`-bound value - stage1 does not curry partial application, and
+; this spelling means the same thing under both compilers.
+(:: mk (-> Int Int))
+(fn (mk a)
+  (let ((f (lambda (b) (lambda (c) (+ a (+ b c))))))
+    (let ((g (f 20)))
+      (g 5))))
+(:: main Int)
+(fn (main) (mk 20))

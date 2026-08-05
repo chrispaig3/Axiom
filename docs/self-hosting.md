@@ -577,13 +577,34 @@ mutable `Float` keeping its float-ness across stores
 machinery is also the substrate closures (B1 in stage1) will need.
 
 Function values work for the saturated case: a bare reference to a
-top-level function builds the one-word closure record stage0 gives a
-captureless function - the code pointer in word 0 - and a call whose
-head is a local or parameter goes indirect through it, all arguments
-at once (`tests/selfhost/520-fn-values.ax`, `530-fn-in-ctor.ax`).
-Partial application would need runtime arity in the record, and a
-lambda expression needs capture analysis and lifting; both are refused
-loudly rather than miscompiled.
+top-level function builds a closure record, and a call whose head is a
+local or parameter goes indirect through it, all arguments at once
+(`tests/selfhost/520-fn-values.ax`, `530-fn-in-ctor.ax`). Lambda
+expressions work too, captures included: a lambda is lifted to a fresh
+top-level function whose hidden first parameter is the closure record
+- word 0 the code pointer, words 1.. the captured values - and every
+indirect call passes the record itself as that first argument. A
+record built from a bare top-level function therefore points at a
+forwarding thunk that drops the record and calls the function with
+its arguments unshifted; stage0 solves the same problem by giving
+every function the hidden parameter instead, and the two conventions
+agree on every observable. Capture is by value and captures the whole
+enclosing scope minus what the lambda's parameters shadow, rather
+than walking the body for free variables - the unused record words
+are unobservable, and a free-variable walker's one missed traversal
+case is a silent wrong capture. Pinned by
+`tests/selfhost/580-lambda.ax` and `590-lambda-nested.ax` (a capture
+crossing two lifts), both agreeing with stage0.
+
+Partial application remains unsupported in both compilers, and in
+stage0 that gap is currently a *miscompile* rather than a refusal:
+`(let ((f (add2 1))) (f 2))` type-checks - currying makes it
+well-typed - and then codegen emits a one-argument call to a
+two-parameter function, so the program runs and answers garbage
+(probed: exit 1 where 3 is the answer). stage1 at least stays
+saturated-only by construction. Making stage0 refuse loudly, or carry
+runtime arity in the record and curry properly, is open work; nothing
+in the corpus partially applies.
 
 Struct field access works: `p.x` resolves the field by name in the
 struct registry and loads at its word offset, chains fold left, and

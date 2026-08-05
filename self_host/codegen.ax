@@ -111,7 +111,18 @@
 ;            register IS the value, 1 = the register is an alloca and
 ;            every read is a load - which is what lets `set` store and
 ;            `while` observe the store on the next trip)
-(pub struct CG (lines : Int) (tmp : Int) (result : Int) (types : Int) (tagN : Int) (argVec : Int) (symnames : Int) (symregs : Int) (decls : Int) (argsTyped : Int) (strings : Int) (curBlock : Int) (mangleBares : Int) (mangleFulls : Int) (resultIsFloat : Int) (floatSigs : Int) (symfloats : Int) (curParams : Int) (curFlags : Int) (macros : Int) (symkinds : Int))
+; Field 21 = pendingLams (Vec of lifted-lambda descriptors, emitted as
+;            top-level functions after the function that created them
+;            closes - a lambda body cannot be emitted mid-function into
+;            a line buffer that is one flat stream)
+; Field 22 = lamN (Int, fresh `_lam_N` name counter)
+; Field 23 = thunkFulls (Vec of Str, mangled names needing a forwarding
+;            thunk; index in this Vec is the thunk's number)
+; Field 24 = thunkArities (Vec of Int, parallel to 23)
+; Field 25 = thunksEmitted (Int, how many of field 23's thunks have
+;            been written out, so a later drain does not define one
+;            twice)
+(pub struct CG (lines : Int) (tmp : Int) (result : Int) (types : Int) (tagN : Int) (argVec : Int) (symnames : Int) (symregs : Int) (decls : Int) (argsTyped : Int) (strings : Int) (curBlock : Int) (mangleBares : Int) (mangleFulls : Int) (resultIsFloat : Int) (floatSigs : Int) (symfloats : Int) (curParams : Int) (curFlags : Int) (macros : Int) (symkinds : Int) (pendingLams : Int) (lamN : Int) (thunkFulls : Int) (thunkArities : Int) (thunksEmitted : Int))
 
 ; The constructor tag counter starts at 2, not 0: stage0's tag is the
 ; ordinal position in a flat walk of every data type the type checker
@@ -122,7 +133,7 @@
 ; user constructor 2).
 (pub :: newCG Int)
 (pub fn (newCG)
-  (CG vecNew 0 "" vecNew 2 vecNew vecNew vecNew 0 "" vecNew "entry" vecNew vecNew 0 vecNew vecNew 0 0 vecNew vecNew))
+  (CG vecNew 0 "" vecNew 2 vecNew vecNew vecNew 0 "" vecNew "entry" vecNew vecNew 0 vecNew vecNew 0 0 vecNew vecNew vecNew 0 vecNew vecNew 0))
 
 (pub :: zeroFloat (-> Int Int))
 (pub fn (zeroFloat cg)
@@ -962,7 +973,11 @@
 (pub :: emitDecl (-> Int Int Int))
 (pub fn (emitDecl node cg)
   (if (== (nodeTag node) TAG_D_FN)
-      (emitFnDef node cg)
+      ; Lambdas lifted out of the function's body, and thunks its bare
+      ; function references demanded, are written out once the
+      ; function's own `}` is down - the line buffer is one flat
+      ; stream, so they cannot be emitted at the point of use.
+      (drainPending (emitFnDef node cg))
       cg))
 
 ; ------------------------------------------------------------------
@@ -1011,6 +1026,272 @@
         (if (== (strLen rest) 0)
             (cat3 "i64 %" (strDup pname) "")
             (cat3 (cat3 "i64 %" (strDup pname) ", ") rest "")))))
+
+; ------------------------------------------------------------------
+; Lambda expressions: capture, lifting, and the record convention.
+;
+; A lambda is lifted to a fresh top-level function `_lam_N` whose
+; hidden first parameter `%_env` is the closure record: word 0 the
+; code pointer, words 1.. the captured values. `emitIndirectCall`
+; passes the record itself as that first argument on every call
+; through a value, so a record built from a *bare top-level function*
+; cannot point at the function directly - its parameters would shift
+; by one. It points at a forwarding thunk (`_thunk_N`) that ignores
+; the record and calls the function with the arguments unshifted.
+; stage0 solves the same problem the other way, by giving every
+; function the hidden parameter; either convention is sound alone,
+; and the conformance suite observes exit codes, not symbol tables.
+;
+; Capture is by value, and captures *everything in scope* - every
+; parameter of, and every binding in, the enclosing function that the
+; lambda does not shadow with a parameter of its own - rather than
+; walking the body for its free variables. The extra record words are
+; unobservable, and the free-variable walker they replace is the kind
+; of code whose one missed case (a pattern binder, a nested arm's
+; variable) is a silent wrong capture. Each name is captured once,
+; at its current resolution - `emitVar` does the resolving, so a
+; `mut` binding is captured as the value it holds when the record is
+; built, which is stage0's snapshot semantics too.
+; ------------------------------------------------------------------
+
+; The unique names the lambda captures: enclosing parameters first,
+; then bindings in table order. A name the lambda's own parameter
+; list shadows is skipped - inside the lifted body the capture would
+; be bound as a symbol, and symbols resolve ahead of parameters.
+(pub :: collectCapNames (-> Int Int Int))
+(pub fn (collectCapNames cg lparams)
+  (let ((out vecNew))
+    {
+      (capFromVec (memGetWord cg 17) lparams out 0)
+      (capFromVec (memGetWord cg 6) lparams out 0)
+      out
+    }))
+
+(pub :: capFromVec (-> Int Int Int Int Int))
+(pub fn (capFromVec src lparams out i)
+  (if (== src 0)
+      0
+      (if (>= i (vecLen src))
+          0
+          {
+            (let ((name (vecGet src i)))
+              (if (>= (strIndexIn lparams name) 0)
+                  0
+                  (if (>= (strIndexIn out name) 0)
+                      0
+                      (vecPush out name))))
+            (capFromVec src lparams out (+ i 1))
+          })))
+
+(pub :: strIndexIn (-> Int Int Int))
+(pub fn (strIndexIn v name)
+  (if (== v 0)
+      (- 0 1)
+      (strIndexFrom v name 0)))
+
+(pub :: strIndexFrom (-> Int Int Int Int))
+(pub fn (strIndexFrom v name i)
+  (if (>= i (vecLen v))
+      (- 0 1)
+      (if (strEq (vecGet v i) name)
+          i
+          (strIndexFrom v name (+ i 1)))))
+
+; Evaluate each captured name in the enclosing scope, recording the
+; value register and its float-ness. Goes through `emitVar` so a
+; mutable binding is loaded, not aliased.
+(pub :: capValues (-> Int Int Int Int Int Int))
+(pub fn (capValues cg capNames capRegs capFloats i)
+  (if (>= i (vecLen capNames))
+      cg
+      (let ((cg1 (emitVar (mkEVar (vecGet capNames i)) cg)))
+        {
+          (vecPush capRegs (strDup (memGetWord cg1 2)))
+          (vecPush capFloats (memGetWord cg1 14))
+          (capValues cg1 capNames capRegs capFloats (+ i 1))
+        })))
+
+; A lifted lambda, waiting for the enclosing function to close:
+; word 0 name, word 1 params, word 2 body, word 3 capture names,
+; word 4 capture float flags.
+(pub :: mkLamDesc (-> Int Int Int Int Int Int))
+(pub fn (mkLamDesc lname lparams body capNames capFloats)
+  (let ((d (memAlloc 40)))
+    {
+      (memSetWord d 0 lname)
+      (memSetWord d 1 lparams)
+      (memSetWord d 2 body)
+      (memSetWord d 3 capNames)
+      (memSetWord d 4 capFloats)
+      d
+    }))
+
+(pub :: emitLambda (-> Int Int Int))
+(pub fn (emitLambda node cg)
+  (let ((lparams (nodeA node))
+        (body (nodeB node))
+        (n (memGetWord cg 22)))
+    (let ((lname (cat2 "_lam_" (fmtInt n)))
+          (capNames (collectCapNames cg lparams))
+          (capRegs vecNew)
+          (capFloats vecNew))
+      {
+        (memSetWord cg 22 (+ n 1))
+        (capValues cg capNames capRegs capFloats 0)
+        (let ((k (vecLen capNames))
+              (pn (allocReg cg))
+              (fn2 (allocReg cg)))
+          (let ((pr (regStr pn))
+                (fr (cat2 "%f" (fmtInt fn2))))
+            {
+              (emitLine cg (strConcat (cat3 (cat2 "  " pr)
+                                            " = call i64 @axiom_alloc(i64 "
+                                            (fmtInt (* (+ k 1) 8)))
+                                      ")"))
+              (emitLine cg (cat4 (cat2 "  " fr)
+                                 " = ptrtoint ptr @"
+                                 (strDup lname)
+                                 " to i64"))
+              (storeWordAt cg pr 0 fr)
+              (storeCaps cg pr capRegs 0)
+              (memSetWord cg 21 (vecPush (memGetWord cg 21)
+                                         (mkLamDesc lname lparams body
+                                                    capNames capFloats)))
+              (memSetWord cg 2 pr)
+              (memSetWord cg 14 0)
+              cg
+            }))
+      })))
+
+(pub :: storeCaps (-> Int Int Int Int Int))
+(pub fn (storeCaps cg base capRegs i)
+  (if (>= i (vecLen capRegs))
+      cg
+      (storeCaps (storeWordAt cg base (+ 1 i) (vecGet capRegs i))
+                 base capRegs (+ i 1))))
+
+; Write out every lifted lambda the last function created - a lambda
+; body may itself contain lambdas, which land on the same list and
+; are drained by the same loop - then any new forwarding thunks.
+(pub :: drainPending (-> Int Int))
+(pub fn (drainPending cg)
+  (let ((pend (memGetWord cg 21)))
+    (if (== (vecLen pend) 0)
+        (drainThunks cg)
+        (drainPending (emitLamDef (vecPop pend) cg)))))
+
+; The lifted function itself: `emitFnDef`'s shape with `%_env` in
+; front, and the captures bound as symbols before the body - loaded
+; from the record at the offsets `emitLambda` stored them to.
+(pub :: emitLamDef (-> Int Int Int))
+(pub fn (emitLamDef d cg)
+  (let ((lname (memGetWord d 0))
+        (lparams (memGetWord d 1))
+        (body (memGetWord d 2))
+        (capNames (memGetWord d 3))
+        (capFloats (memGetWord d 4)))
+    (let ((paramStr (emitParams lparams cg 0))
+          (_ (memSetWord cg 1 0))
+          (_2 (memSetWord cg 6 vecNew))
+          (_3 (memSetWord cg 7 vecNew))
+          (_4 (memSetWord cg 16 vecNew))
+          (_4b (memSetWord cg 20 vecNew))
+          (_5 (memSetWord cg 17 lparams))
+          (_6 (memSetWord cg 18 0)))
+      (let ((hdr (strConcat (cat4 "define i64 @"
+                                  (strDup lname)
+                                  "(i64 %_env"
+                                  (if (== (strLen paramStr) 0)
+                                      ""
+                                      (cat2 ", " paramStr)))
+                            ") {")))
+        (let ((cg1 (emitLine cg hdr)))
+          (let ((cg1b (scanDecls (memGetWord cg1 8) cg1 0)))
+            (let ((cg1c (bindCaps cg1b capNames capFloats 0)))
+              (let ((cg2 (emitExpr body cg1c)))
+                (let ((ret (cat3 "  ret i64 " (strDup (memGetWord cg2 2)) "")))
+                  (emitLine (emitLine cg2 ret) "}"))))))))))
+
+(pub :: bindCaps (-> Int Int Int Int Int))
+(pub fn (bindCaps cg capNames capFloats i)
+  (if (>= i (vecLen capNames))
+      cg
+      (let ((cg1 (loadWordAt cg "%_env" (+ 1 i))))
+        {
+          (bindSym cg1 (vecGet capNames i)
+                   (strDup (memGetWord cg1 2))
+                   (vecGet capFloats i)
+                   0)
+          (bindCaps cg1 capNames capFloats (+ i 1))
+        })))
+
+; A forwarding thunk for a bare top-level function used as a value:
+; takes the record it ignores, forwards the declared parameters.
+(pub :: thunkIndexFor (-> Int Int Int Int))
+(pub fn (thunkIndexFor cg full ar)
+  (let ((idx (strIndexIn (memGetWord cg 23) full)))
+    (if (>= idx 0)
+        idx
+        (let ((n (vecLen (memGetWord cg 23))))
+          {
+            (vecPush (memGetWord cg 23) (strDup full))
+            (vecPush (memGetWord cg 24) ar)
+            n
+          }))))
+
+(pub :: fnArityOf (-> Int Int Int))
+(pub fn (fnArityOf decls full)
+  (fnArityIn decls full 0))
+
+(pub :: fnArityIn (-> Int Int Int Int))
+(pub fn (fnArityIn decls full i)
+  (if (>= i (vecLen decls))
+      0
+      (let ((d (vecGet decls i)))
+        (if (&& (== (nodeTag d) TAG_D_FN) (strEq (nodeA d) full))
+            (vecLen (nodeB d))
+            (fnArityIn decls full (+ i 1))))))
+
+(pub :: drainThunks (-> Int Int))
+(pub fn (drainThunks cg)
+  (let ((i (memGetWord cg 25)))
+    (if (>= i (vecLen (memGetWord cg 23)))
+        cg
+        {
+          (memSetWord cg 25 (+ i 1))
+          (drainThunks (emitThunkDef i cg))
+        })))
+
+(pub :: emitThunkDef (-> Int Int Int))
+(pub fn (emitThunkDef i cg)
+  (let ((full (vecGet (memGetWord cg 23) i))
+        (ar (vecGet (memGetWord cg 24) i)))
+    (let ((cg1 (emitLine cg (strConcat (cat4 "define i64 @_thunk_"
+                                             (fmtInt i)
+                                             "(i64 %_env"
+                                             (thunkParamStr ar 0))
+                                       ") {"))))
+      (let ((cg2 (emitLine cg1 (strConcat (cat4 "  %r = call i64 @"
+                                                (strDup full)
+                                                "("
+                                                (thunkArgStr ar 0))
+                                          ")"))))
+        (emitLine (emitLine cg2 "  ret i64 %r") "}")))))
+
+(pub :: thunkParamStr (-> Int Int Int))
+(pub fn (thunkParamStr ar j)
+  (if (>= j ar)
+      ""
+      (cat3 (cat2 ", i64 %a" (fmtInt j)) (thunkParamStr ar (+ j 1)) "")))
+
+(pub :: thunkArgStr (-> Int Int Int))
+(pub fn (thunkArgStr ar j)
+  (if (>= j ar)
+      ""
+      (let ((rest (thunkArgStr ar (+ j 1))))
+        (cat3 (cat2 "i64 %a" (fmtInt j))
+              (if (== (strLen rest) 0) "" (cat2 ", " rest))
+              ""))))
 
 
 ; ------------------------------------------------------------------
@@ -1293,10 +1574,7 @@
     (if (== tag TAG_E_WHILE) (emitWhile node cg)
     (if (== tag TAG_E_FIELD) (emitField node cg)
     (if (== tag TAG_E_SETF)  (emitSetF node cg)
-    ; A lambda needs capture analysis and lifting; falling through to
-    ; the default emitted 0 in its place, silently. Dying is honest.
-    (if (== tag TAG_E_LAM)
-        (dieImport "error: lambda expressions are not supported by stage1" "")
+    (if (== tag TAG_E_LAM)   (emitLambda node cg)
     (emitDefault node cg))))))))))))))))))
 
 ; `(set base.field v)`: the base evaluates once, the field resolves as
@@ -1470,16 +1748,19 @@
                           }))
                       ; A bare reference to a *defined multi-parameter
                       ; function* is a function value: a one-word
-                      ; closure record holding the code pointer, the
-                      ; same representation stage0 gives a captureless
-                      ; top-level function. `emitIndirectCall` is the
-                      ; reader. A parameter of the function being
-                      ; emitted wins first, though: a param named `lex`
-                      ; is the param, not the lexer entry point it
-                      ; shadows.
+                      ; closure record holding a code pointer.
+                      ; `emitIndirectCall` passes the record as the
+                      ; callee's hidden first argument, so the record
+                      ; points at a forwarding thunk rather than at
+                      ; the function itself - see the lambda section.
+                      ; A parameter of the function being emitted wins
+                      ; first, though: a param named `lex` is the
+                      ; param, not the lexer entry point it shadows.
                       (if (&& (isDefinedFn (memGetWord cg 8) full)
                               (< (paramIndexOf cg name) 0))
-                          (let ((pn (allocReg cg))
+                          (let ((ti (thunkIndexFor cg full
+                                      (fnArityOf (memGetWord cg 8) full)))
+                                (pn (allocReg cg))
                                 (fn2 (allocReg cg)))
                             (let ((pr (regStr pn))
                                   (fr (cat2 "%f" (fmtInt fn2))))
@@ -1487,8 +1768,8 @@
                                 (emitLine cg (cat2 (cat2 "  " pr)
                                                    " = call i64 @axiom_alloc(i64 8)"))
                                 (emitLine cg (cat4 (cat2 "  " fr)
-                                                   " = ptrtoint ptr @"
-                                                   (strDup full)
+                                                   " = ptrtoint ptr @_thunk_"
+                                                   (fmtInt ti)
                                                    " to i64"))
                                 (storeWordAt cg pr 0 fr)
                                 (memSetWord cg 2 pr)
@@ -1669,12 +1950,14 @@
       (>= (paramIndexOf cg name) 0)))
 
 ; Call through a function value: the head evaluates to a closure
-; record, word 0 is the code pointer, and the call applies every
-; argument at once. Saturated application only - stage0 curries a
-; partial application into a fresh closure, which needs runtime arity
-; the record does not carry yet; nothing in the corpus partially
-; applies. The result's float-ness is unknown (no signature to ask),
-; so it reads as integer.
+; record, word 0 is the code pointer, and the call passes the record
+; itself first - the callee is a lifted lambda reading its captures
+; from it, or a forwarding thunk ignoring it - then every argument at
+; once. Saturated application only - stage0 curries a partial
+; application into a fresh closure, which needs runtime arity the
+; record does not carry; nothing in the corpus partially applies. The
+; result's float-ness is unknown (no signature to ask), so it reads
+; as integer.
 (pub :: emitIndirectCall (-> Int Int Int Int))
 (pub fn (emitIndirectCall fnName args cg)
   (let ((cgH (emitVar (mkEVar fnName) cg)))
@@ -1692,11 +1975,16 @@
                                     " = inttoptr i64 "
                                     cp
                                     " to ptr"))
-                (emitLine cgA (cat3 (cat3 (cat2 "  " r)
-                                          " = call i64 "
-                                          fp)
-                                    "(i64 "
-                                    (cat2 argStrT ")")))
+                (emitLine cgA (strConcat
+                                (cat4 (cat3 (cat2 "  " r)
+                                            " = call i64 "
+                                            fp)
+                                      "(i64 "
+                                      (strDup h)
+                                      (if (== (vecLen args) 0)
+                                          ""
+                                          (cat2 ", i64 " argStrT)))
+                                ")"))
                 (memSetWord cgA 2 r)
                 (memSetWord cgA 14 0)
                 cgA

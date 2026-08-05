@@ -677,6 +677,10 @@
               (parseInner tokens (advance pos))
           (if (kwEq name (kwFn))
               (parseLamExpr tokens (advance pos))
+          ; stage0 spells an anonymous function `lambda`; expression
+          ; position `fn` is stage1's older spelling and both stay.
+          (if (kwEq name "lambda")
+              (parseLamExpr tokens (advance pos))
           (if (kwEq name (kwLet))
               (parseLetExpr tokens (advance pos))
           (if (kwEq name (kwIf))
@@ -689,7 +693,7 @@
               (parseWhileExpr tokens (advance pos))
           (if (kwEq name "set")
               (parseSetExpr tokens (advance pos))
-          (parseAppForm tokens pos)))))))))))
+          (parseAppForm tokens pos))))))))))))
   (if (peekIs tokens pos TK_RPAREN)
       (pOk 0 (advance pos))
   (parseAppForm tokens pos))))
