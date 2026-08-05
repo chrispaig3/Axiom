@@ -137,49 +137,71 @@ half: all three driven to 10⁵ elements, asserted with totals over every
 element rather than spot checks, against closed-form expected values
 that exceed 2³² so a truncation cannot hide. All pass.
 
-*Throughput*, measured by `scripts/bench-datastructures.sh` at 10⁶
+*Throughput*, measured by `scripts/bench-datastructures.sh --fx` at 10⁶
 elements, `axiom --opt 2` against `rustc -O` with a fast
 non-cryptographic hasher on the Rust side (the map a compiler would
 actually pick), whole processes timed with startup subtracted:
 
 | | Axiom | Rust | ratio |
 |---|---:|---:|---:|
-| `Vec` | 0.0075s | 0.0016s | 2.5× |
-| `Map` | 0.331s | 0.024s | 14× |
-| `Intern` | 0.259s | 0.347s | **0.75×** |
+| `Vec` | 0.0074s | 0.0022s | 3.4× |
+| `Map` | 0.0432s | 0.0240s | **1.80×** |
+| `Intern` | 0.268s | 0.365s | **0.73×** |
 
-`Intern` beats the Rust equivalent. `Map` misses the 2× criterion by a
-lot, and ablation says the hash and the probe are not why:
+`Map` meets the 2× criterion and `Intern` beats the Rust equivalent
+outright. `Map` previously measured **14×**, and the path from there
+to 1.80× is worth recording precisely, because every intermediate
+hypothesis was plausible, was measured, and was wrong:
 
-| 10⁶ keys | time |
-|---|---:|
-| `mapSlotOf` alone | 0.005s |
-| + one probe read | 0.017s |
-| + full insert into a **pre-sized** table | 0.034s |
-| full insert into a table **grown** from 8 | 0.214s |
+- *Not the allocator.* An earlier ablation attributed six sevenths of
+  the cost to table growth and the bump allocator's refusal to reuse
+  superseded tables (102 MB peak RSS), and this section used to say
+  the remaining work was the memory model, not `Map`. Kernel time
+  measured ~0 and page faults cost milliseconds; the RSS figure was
+  real but the wall-clock attribution was not.
+- *Not the per-probe header reloads.* Every accessor was two dependent
+  loads through `__load64`, unhoistable past stores the optimiser must
+  assume alias. Threading the array addresses through the probe loops
+  as parameters was worth ~20% — real, and nowhere near the gap.
+- *Not memory layout or call overhead either* — interleaving the
+  arrays, byte-wide states, and peeling the first probe each moved
+  nothing while the real cause stood.
+- *The hash.* `mapHash` was a fixed-multiplier multiply-mod-prime over
+  22-bit limbs, and for keys below 2²² two of the three limbs are
+  constant, making it **affine in the key**. Sequential keys — node
+  ids, token indices, the keys a compiler actually inserts — landed on
+  interleaved arithmetic progressions modulo the table size, and
+  linear probing over that structure degenerates: **70,813,730 probe
+  steps for 10⁶ sequential inserts, 71 per key**. Replacing it with
+  murmur3's fmix64 finaliser (five operations, division-free,
+  bijective on the key space) took that to 1,457,580 — 1.46 per key,
+  the textbook figure for a half-loaded table — and the benchmark from
+  0.354s to 0.054s in one change. The pinned hash values in
+  `080-map.ax` now check Axiom's signed shift/mask/wrapping-multiply
+  implementation against an independent unsigned reimplementation.
+- *Then the states array width.* The state tag is the word every probe
+  loads and branches on; at 2²¹ slots a word-wide array is 16 MB and
+  probes mostly in DRAM, byte-wide it is 2 MB and probes mostly in
+  cache. Bytes took the benchmark from 0.054s to 0.043s. The rehash
+  walk still read the *old* states array word-wide after the
+  conversion — eight packed states at a time, losing roughly seven
+  entries in eight — which `080-map.ax` and `200-scale.ax` both
+  caught before it could ship, and which is why a benchmark run on
+  failing tests (0.96× at that moment) is a number about nothing.
 
-Steady-state insert is 34 ns/key, within 1.4× of Rust. **Six sevenths
-of the cost is table growth**, and it is an allocator problem rather
-than a `Map` problem: doubling from 8 to 2²¹ slots allocates
-3 × (8 + 16 + … + 2²¹) words ≈ 100 MB for a table whose live size is
-48 MB, and the bump allocator never reuses the superseded ones —
-measured at 102 MB peak RSS.
+`Vec` remains at 3.4×. Its loop is three L1 header loads and two
+stores per push against Rust's zero — `rustc` keeps a stack-local
+`Vec`'s header entirely in registers, which an opaque one-word handle
+cannot offer — and the absolute gap at compiler scale is ~5 ms per
+million pushes. Worth revisiting if a profile of the self-hosted
+compiler ever says so; not the next bottleneck.
 
-Two things that do *not* fix it, both measured rather than assumed.
-Growing by 4× instead of 2× buys 35% and by 8× buys 43%, still 5.3×
-Rust, at proportional memory overshoot. `--gc` is *worse* on this shape
-— 0.33s and 137 MB — because the tables are large, long-lived and
-conservatively scanned, so collection costs more than the garbage it
-finds is worth.
-
-The remaining work is therefore the memory model (roadmap P2), not
-`Map`. One `Map`-local improvement has already landed: `mapHash`
-performed six hardware divisions per call, and every divisor is a power
-of two or the Mersenne prime 2³¹−1, so all of them are now shifts and
-masks. That is worth ~9% and, being the same function rather than an
-approximation, leaves every pinned hash and slot value in `080-map.ax`
-byte-identical; the test checks the fast path against the retained
-division-based specification over both signs and both limb boundaries.
+The earlier growth measurements stand corrected too: with the affine
+hash, a rehash re-inserted every key into the doubled table through
+the same degenerate probe sequences, so "growth" was mostly the hash
+bug measured a second time. With fmix64, growing from 8 slots to 2²¹
+costs 0.014s over a pre-sized table — reinsertion plus first-touch
+faults on fresh pages, both proportional to live data.
 
 **B4. One flat namespace across all modules. (RESOLVED)** Qualified
 access via `Mod::name` is supported. Same-named declarations from

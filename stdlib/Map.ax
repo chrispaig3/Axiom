@@ -7,7 +7,7 @@
 ;     word 1 : cap    - slots, always a power of two
 ;     word 2 : keys   - address of cap words
 ;     word 3 : vals   - address of cap words
-;     word 4 : states - address of cap words, one tag per slot
+;     word 4 : states - address of cap *bytes*, one tag per slot
 ;     word 5 : used   - live entries plus tombstones
 ;
 ; Values are machine words, so the same code maps `Int -> Int`,
@@ -21,8 +21,13 @@
 ; mapping node ids and hash values to entries, where 0 and INT_MIN are
 ; both legitimate keys. A reserved sentinel would silently lose one key
 ; out of 2^64, and the bug would surface as a missing symbol in a program
-; that happened to hash to it. One extra word per slot buys a map that is
-; total over the key space, which is worth 33% more memory.
+; that happened to hash to it. One extra *byte* per slot buys a map that
+; is total over the key space - and the byte width is not thrift but
+; throughput: the state is the word every probe loads and branches on,
+; so at 2^21 slots the state array is 2 MB of bytes against 16 MB of
+; words, and it is the difference between probing mostly in cache and
+; probing mostly in DRAM. Keys and values stay full words; their loads
+; happen only when the state byte has already said the slot matters.
 ;
 ; The state tags are 0 = empty, 1 = live, 2 = tombstone, with empty as 0
 ; deliberately: `memAlloc` zeroes, so a fresh table is correctly "all
@@ -57,43 +62,37 @@
 ; has to move entropy from the whole key into the low bits before the
 ; mask sees them.
 ;
-; WHY NOT SPLITMIX64. splitmix64's finalizer is the standard answer and
-; it is not expressible: it needs `^` and `>>`, and Axiom has no bitwise
-; or shift operators at all. (Confirmed against the compiler, not
-; guessed: `axiom_sema::PRIMITIVES` lists only the syscall, load/store,
-; alloc, and addr primitives, the operator table registers only
-; `+ - * / % == != < > <= >= && ||`, and while the IR does define
-; `BitXor`/`Shl`/`Shr` instructions nothing in the frontend can reach
-; them. A right shift can be emulated by dividing by a power of two, but
-; xor cannot be emulated by arithmetic at reasonable cost.)
+; WHAT THIS IS: murmur3's 64-bit finaliser (fmix64) - xor-shift,
+; multiply, xor-shift, multiply, xor-shift. Five cheap operations, no
+; division, and two properties that matter here:
 ;
-; WHAT THIS IS INSTEAD: a Carter-Wegman multiply-mod-prime hash over the
-; key split into three 22-bit limbs,
+;   - it is a bijection on the 64-bit key space, so distinct keys have
+;     distinct hashes and a table-index collision is only ever the slot
+;     mask's doing, never the hash's;
+;   - it avalanches: every input bit flips every output bit with
+;     probability near 1/2, so the low bits the mask keeps carry entropy
+;     from the whole key.
 ;
-;     h(k) = (A0*l0 + A1*l1 + A2*l2 + C) mod P,   P = 2^31 - 1
+; WHY NOT A UNIVERSAL MULTIPLY-MOD-PRIME FAMILY. This file used to hash
+; with h(k) = (A0*l0 + A1*l1 + A2*l2 + C) mod (2^31 - 1) over 22-bit
+; limbs - chosen when Axiom had no `^` or `>>` operators, and argued
+; for by the family's provable 2-universality. Both premises rotted.
+; The operators exist now. And the guarantee never applied: it is a
+; bound over *randomly drawn* multipliers, while these were fixed - and
+; worse, for keys below 2^22 two of the three limbs are constant, so
+; the hash was *affine* in the key. An affine map sends sequential keys
+; onto interleaved arithmetic progressions mod cap, and linear probing
+; over that structure degenerates from occasional collisions into
+; guaranteed pile-ups. Measured on 10^6 sequential keys at cap 2^21:
+; 70,813,730 total probe steps - 71 per insert - against 1,457,580
+; (1.46 per insert) for this finaliser. That 48x in probe volume was
+; nearly the whole of the 15x gap to Rust's HashMap this module used
+; to measure, misattributed for a while to allocator and layout costs
+; that profiling then exonerated one by one.
 ;
-; which needs only `+ * / %`. This is a *stronger* guarantee than
-; splitmix64's, not a weaker one: for multipliers drawn uniformly from
-; [1,P) the family is 2-universal, so two distinct keys collide with
-; probability 1/P, provably, where splitmix64 has only empirical
-; avalanche evidence. The cost is speed - three multiplies and three
-; remainders, and `%` is a division - which is the right way round for a
-; symbol table whose real expense is the cache miss on the probe.
-;
-; THE LIMBS MUST BE SMALLER THAN P. An earlier version of this split the
-; key into two 32-bit limbs and reduced each mod P before multiplying.
-; That is broken, and the failure is systematic rather than probabilistic:
-; reducing a limb wider than P collapses limb values that differ by
-; exactly P, so `h(k)` and `h(k + 2147483647)` were *always* equal. At 22
-; bits a limb is already less than P, the reduction is the identity, and
-; the triple (l0, l1, l2) is the exact base-2^22 representation of the
-; key - injective, so the 2-universal bound applies to the whole 64-bit
-; key space.
-;
-; THE MULTIPLIERS ARE FIXED, NOT RANDOM. 2-universality only holds for
-; randomly chosen multipliers, and choosing them per process is what
-; makes a map resistant to an adversary who feeds it keys that all land
-; in one slot. These are hardcoded, so this map is *not* DoS-resistant.
+; THE CONSTANTS ARE FIXED, NOT SEEDED. A per-process seed is what makes
+; a map resistant to an adversary who feeds it keys that all land in
+; one slot. These are hardcoded, so this map is *not* DoS-resistant.
 ; That is deliberate: `scripts/check-reproducible.sh` requires two runs
 ; of the compiler to emit byte-identical IR, and any output that depends
 ; on iteration order over a map would vary run to run with a seeded hash.
@@ -102,148 +101,47 @@
 ; It is the same trade rustc makes by using FxHash.
 ; ------------------------------------------------------------------
 
-; 2^31 - 1, a Mersenne prime. Prime so that the multiply-mod-prime
-; family is universal; just under 2^31 so that `limb * A` stays below
-; 2^53 and cannot overflow a signed 64-bit `Int`.
+; 2^31 - 1, a Mersenne prime. No longer used by `mapHash` itself; kept
+; because `Intern`'s polynomial string hash reduces modulo it, and a
+; prime modulus is what makes that polynomial hash sound.
 (pub :: mapHashPrime Int)
 (pub fn (mapHashPrime) 2147483647)
 
-; 2^22: the limb base. 22 bits because three limbs then cover 66 bits -
-; enough for all of `Int` - while keeping each limb below `mapHashPrime`.
-(pub :: mapLimbBase Int)
-(pub fn (mapLimbBase) 4194304)
+; fmix64's two multipliers, written as the signed 64-bit values whose
+; bit patterns are 0xff51afd7ed558ccd and 0xc4ceb9fe1a85ec53. The
+; multiplication wraps modulo 2^64 - LLVM `mul` - so only the bit
+; pattern matters, not the sign.
+(pub :: mapMixC1 Int)
+(pub fn (mapMixC1) (- 0 49064778989728563))
 
-; Multipliers and the additive constant. Odd, unstructured, and all in
-; [1, P); no relationship between them is intended or required, which is
-; the point of a universal family.
-(pub :: mapMulA0 Int)
-(pub fn (mapMulA0) 1936298317)
+(pub :: mapMixC2 Int)
+(pub fn (mapMixC2) (- 0 4265267296055464877))
 
-(pub :: mapMulA1 Int)
-(pub fn (mapMulA1) 1183186117)
+; The unsigned 33-bit right shift fmix64 calls for. Axiom's `>>` is an
+; arithmetic shift - it fills with the sign bit - so a negative operand
+; would smear ones into the top of the result. Masking to the 31 bits a
+; 33-position shift can actually carry (bits 33..63 of the input) makes
+; it exactly the logical shift: the sign-fill lands outside the mask.
+(pub :: mapShr33 (-> Int Int))
+(pub fn (mapShr33 h)
+  (& (>> h 33) 2147483647))
 
-(pub :: mapMulA2 Int)
-(pub fn (mapMulA2) 1553372213)
-
-(pub :: mapAddC Int)
-(pub fn (mapAddC) 1000000007)
-
-; 2^19, the bias added to the top limb.
+; Hash `key` to a value in [0, 2^63).
 ;
-; The top limb is `floor(k / 2^44)`, which for a signed key ranges over
-; [-2^19, 2^19). Adding 2^19 makes it non-negative without losing
-; information, so the multiply below cannot produce a negative partial
-; sum and the "is the index negative" question has one answer for the
-; whole function.
-(pub :: mapLimbBias Int)
-(pub fn (mapLimbBias) 524288)
-
-; ------------------------------------------------------------------
-; The same arithmetic, without the divisions.
+; fmix64, exactly: xor-shift by 33, multiply, xor-shift by 33,
+; multiply, xor-shift by 33. The final mask clears the sign bit so the
+; documented range is non-negative - it costs one bit of the hash,
+; and `mapSlotOf` keeps only low bits anyway.
 ;
-; `mapHash` is on the path of every insert, lookup and probe step, and
-; written with `/` and `%` it performs six hardware divisions per call:
-; four inside the two `mapFloorDiv`/`mapFloorMod` pairs that split the
-; key into limbs, and two more reducing modulo the prime. A 64-bit
-; division is 20-40 cycles where a multiply is three, which is most of
-; the reason `Map` measured 15x slower than Rust's `HashMap` at 10^6
-; keys (`scripts/bench-datastructures.sh`).
-;
-; Every divisor here is a power of two or a Mersenne prime, so none of
-; the divisions is necessary:
-;
-;   - `mapLimbBase` is 2^22. Floor division by a power of two is an
-;     arithmetic right shift and floor-modulo is a mask, and both hold
-;     for negative keys in two's complement - which is exactly the case
-;     `mapFloorDiv` exists to get right, so this is not a shortcut that
-;     drops the property, it is the same property spelled cheaper.
-;
-;   - `mapHashPrime` is 2^31 - 1, so 2^31 = 1 (mod P) and
-;     `v = (v >> 31) + (v & P)` (mod P). Two folds bring any
-;     non-negative `v < 2^54` - which is the bound the comment in
-;     `mapHash` establishes - below 2^31 + 1, and one conditional
-;     subtract finishes it.
-;
-; The results are identical to the division forms, not approximations
-; of them, which is what lets the pinned slot values in
-; `tests/stdlib/080-map.ax` stay valid.  `mapFloorDiv` and
-; `mapFloorMod` are kept as the specification, and
-; `mapHashAgreesWithSpec` in that test checks the two against each
-; other over a range of keys rather than trusting the argument above.
-; ------------------------------------------------------------------
-
-; log2(mapLimbBase).
-(pub :: mapLimbShift Int)
-(pub fn (mapLimbShift) 22)
-
-; mapLimbBase - 1.
-(pub :: mapLimbMask Int)
-(pub fn (mapLimbMask) 4194303)
-
-; `(mapFloorDiv n mapLimbBase)`, as a shift.
-(pub :: mapLimbDiv (-> Int Int))
-(pub fn (mapLimbDiv n)
-  (>> n mapLimbShift))
-
-; `(mapFloorMod n mapLimbBase)`, as a mask.
-(pub :: mapLimbMod (-> Int Int))
-(pub fn (mapLimbMod n)
-  (& n mapLimbMask))
-
-; `(% v mapHashPrime)` for non-negative `v` below 2^54.
-(pub :: mapModPrime (-> Int Int))
-(pub fn (mapModPrime v)
-  (let ((once (+ (& v mapHashPrime) (>> v 31))))
-    (let ((twice (+ (& once mapHashPrime) (>> once 31))))
-      (if (>= twice mapHashPrime)
-          (- twice mapHashPrime)
-          twice))))
-
-; Floor division, as opposed to Axiom's `/`.
-;
-; Axiom's `/` is LLVM `sdiv`: it truncates toward zero, so
-; `(/ (- 0 7) 8)` is 0 and the matching remainder is negative. Splitting
-; a key into positional limbs needs *floor* semantics, because only then
-; is the remainder always non-negative and the (quotient, remainder) pair
-; a genuine positional digit expansion. Getting this wrong is how a
-; negative key ends up with a negative limb and, three lines later, a
-; negative table index.
-;
-; `d` must be positive. The most negative `Int` is handled: for
-; `d = 2^22` the quotient is exact, so no correction is applied and
-; nothing overflows.
-(pub :: mapFloorDiv (-> Int Int Int))
-(pub fn (mapFloorDiv n d)
-  (let ((q (/ n d)))
-    (if (< (- n (* q d)) 0)
-        (- q 1)
-        q)))
-
-; The floor-division remainder: always in [0, d) for positive `d`.
-(pub :: mapFloorMod (-> Int Int Int))
-(pub fn (mapFloorMod n d)
-  (- n (* (mapFloorDiv n d) d)))
-
-; Hash `key` to a value in [0, mapHashPrime).
-;
-; The result is non-negative by construction: every limb is non-negative
-; (`mapFloorMod` for the low two, `mapLimbBias` for the top), every
-; product is therefore non-negative, and `%` of a non-negative value by a
-; positive one is non-negative. `mapSlotOf` still re-checks, for the
-; reason given there.
+; Zero is a fixed point: `(mapHash 0)` is 0, because every stage maps
+; zero to zero. That is a known property of fmix64 and is harmless
+; here - key 0 probes from slot 0, like any other key probes from its
+; hash - but it is worth knowing when reading pinned values in tests.
 (pub :: mapHash (-> Int Int))
 (pub fn (mapHash key)
-  (let ((limb0 (mapLimbMod key))
-        (high (mapLimbDiv key)))
-    (let ((limb1 (mapLimbMod high))
-          (limb2 (+ (mapLimbDiv high) mapLimbBias)))
-      ; Reduced in two steps rather than one, so no partial sum can
-      ; exceed 2^54: each limb is under 2^22 and each multiplier under
-      ; 2^31, so a product is under 2^53, and summing three unreduced
-      ; products would be the only place in this file that could
-      ; overflow.
-      (let ((low (mapModPrime (+ (* limb0 mapMulA0) (* limb1 mapMulA1)))))
-        (mapModPrime (+ (+ low (* limb2 mapMulA2)) mapAddC))))))
+  (let ((a (* (^ key (mapShr33 key)) mapMixC1)))
+    (let ((b (* (^ a (mapShr33 a)) mapMixC2)))
+      (& (^ b (mapShr33 b)) 9223372036854775807))))
 
 ; The slot `key` probes first, in [0, cap).
 ;
@@ -257,8 +155,8 @@
 ; costs one compare per probe and removes the class of bug entirely.
 ; `cap` is a power of two - every table is sized by `mapRoundUpPow2`
 ; and grown by doubling - so the reduction is a mask rather than a
-; division, on the same grounds as `mapModPrime` above and again with
-; identical results for the non-negative hash this receives.
+; division, with identical results for the non-negative hash this
+; receives.
 (pub :: mapSlotOf (-> Int Int Int))
 (pub fn (mapSlotOf key cap)
   (let ((h (& (mapHash key) (- cap 1))))
@@ -338,7 +236,8 @@
       cap
       (mapRoundUpPow2From (* cap 2) n)))
 
-; A header over three freshly zeroed arrays of `cap` words.
+; A header over three freshly zeroed arrays: `cap` words of keys, `cap`
+; words of values, `cap` *bytes* of states.
 (pub :: mapAllocTable (-> Int Int))
 (pub fn (mapAllocTable cap)
   (let ((m (memAlloc 48)))
@@ -347,7 +246,7 @@
       (memSetWord m 1 cap)
       (memSetWord m 2 (memAlloc (* cap 8)))
       (memSetWord m 3 (memAlloc (* cap 8)))
-      (memSetWord m 4 (memAlloc (* cap 8)))
+      (memSetWord m 4 (memAlloc cap))
       (memSetWord m 5 0)
       m
     }))
@@ -381,7 +280,7 @@
 
 (pub :: mapStateAt (-> Int Int Int))
 (pub fn (mapStateAt m i)
-  (memGetWord (memGetWord m 4) i))
+  (memGetByte (memGetWord m 4) i))
 
 ; ------------------------------------------------------------------
 ; Probing
@@ -427,6 +326,22 @@
 ; and stop the scan the same way empty does, losing every entry displaced
 ; past a removed one.
 
+; WHY THE PROBE LOOPS CARRY THE ARRAYS AS PARAMETERS.
+;
+; Every accessor is two dependent loads - the header word holding the
+; array's address, then the element - and the compiler cannot hoist the
+; first out of a probe loop: every address here is an integer fed to
+; `__load64`/`__store64`, so the optimiser has to assume any store may
+; have rewritten any header word, and reloads the array base on every
+; probe. Measured on the 10^6-key benchmark, that reloading was most of
+; the gap to the Rust map. So each probe loop derives `keys`, `vals`,
+; `states` and `cap` from the header once, at entry, and carries them as
+; parameters - a tail-recursive loop keeps them in registers - and only
+; the header words that the operation genuinely mutates (`len`, `used`)
+; are touched through `m`. This is sound because nothing reallocates the
+; arrays while a probe is in flight: only `mapRehash` replaces them, and
+; no probe loop calls it.
+
 ; The slot holding `key`, or -1 if `key` is absent.
 ;
 ; Stops at the first empty slot: an entry is always placed at or after
@@ -439,24 +354,47 @@
 ; invariant "there is always at least one empty slot" is ever broken by a
 ; bug elsewhere in this file. Without it, that bug would present as a
 ; hang rather than as a wrong answer.
+; The first probe is peeled out of the loop, here in the wrapper, and
+; the loop is entered only from the second probe on. Not a stylistic
+; unroll: the loop is self-recursive, and a self-recursive callee is
+; the one thing the inliner will not inline, so the call was paid on
+; *every* find. Peeling puts the common case - the home slot decides -
+; on a path with no recursion anywhere, which inlines into every
+; caller; the call survives only for keys that actually collide.
 (pub :: mapFindSlot (-> Int Int Int))
 (pub fn (mapFindSlot m key)
-  (mapFindFrom m key (mapSlotOf key (mapCap m)) (mapCap m)))
+  (let ((cap (mapCap m))
+        (states (memGetWord m 4))
+        (keys (memGetWord m 2)))
+    (let ((h (mapSlotOf key cap)))
+      (let ((st (memGetByte states h)))
+        (if (== st mapStateEmpty)
+            (- 0 1)
+            (if (== st mapStateLive)
+                (if (== (memGetWord keys h) key)
+                    h
+                    (mapFindLoop states keys cap key
+                                 (mapNextSlot h cap) (- cap 1)))
+                (mapFindLoop states keys cap key
+                             (mapNextSlot h cap) (- cap 1))))))))
 
-(pub :: mapFindFrom (-> Int Int Int Int Int))
-(pub fn (mapFindFrom m key i left)
+(pub :: mapFindLoop (-> Int Int Int Int Int Int Int))
+(pub fn (mapFindLoop states keys cap key i left)
   (if (<= left 0)
       (- 0 1)
-      (if (== (mapStateAt m i) mapStateEmpty)
-          (- 0 1)
-          (if (== (mapStateAt m i) mapStateLive)
-              (if (== (mapKeyAt m i) key)
-                  i
-                  (mapFindFrom m key (mapNextSlot i (mapCap m)) (- left 1)))
-              ; A tombstone: keep going. Treating it as empty here would
-              ; make every entry displaced past a removed one
-              ; unreachable.
-              (mapFindFrom m key (mapNextSlot i (mapCap m)) (- left 1))))))
+      (let ((st (memGetByte states i)))
+        (if (== st mapStateEmpty)
+            (- 0 1)
+            (if (== st mapStateLive)
+                (if (== (memGetWord keys i) key)
+                    i
+                    (mapFindLoop states keys cap key
+                                 (mapNextSlot i cap) (- left 1)))
+                ; A tombstone: keep going. Treating it as empty here
+                ; would make every entry displaced past a removed one
+                ; unreachable.
+                (mapFindLoop states keys cap key
+                             (mapNextSlot i cap) (- left 1)))))))
 
 ; ------------------------------------------------------------------
 ; Reading
@@ -531,43 +469,64 @@
 ; would hold two entries for one key and `mapLen` would be wrong. So the
 ; scan always runs to the first empty slot, and only then decides between
 ; the remembered tombstone and the empty slot it stopped on.
+; The first probe is peeled for the reason given on `mapFindSlot`: the
+; recursive loop cannot be inlined, and most inserts are decided at the
+; home slot. A tombstone there falls into the loop remembering it, so
+; the reuse rule is exactly the loop's.
 (pub :: mapInsertNoGrow (-> Int Int Int Int))
 (pub fn (mapInsertNoGrow m key value)
-  (mapInsertFrom m key value (mapSlotOf key (mapCap m)) (- 0 1) (mapCap m)))
+  (let ((cap (mapCap m))
+        (keys (memGetWord m 2))
+        (vals (memGetWord m 3))
+        (states (memGetWord m 4)))
+    (let ((h (mapSlotOf key cap)))
+      (let ((st (memGetByte states h)))
+        (if (== st mapStateEmpty)
+            (mapFillAt m keys vals states h key value 1)
+            (if (== st mapStateLive)
+                (if (== (memGetWord keys h) key)
+                    {
+                      (memSetWord vals h value)
+                      m
+                    }
+                    (mapInsertLoop m keys vals states cap key value
+                                   (mapNextSlot h cap) (- 0 1) (- cap 1)))
+                (mapInsertLoop m keys vals states cap key value
+                               (mapNextSlot h cap) h (- cap 1))))))))
 
-(pub :: mapInsertFrom (-> Int Int Int Int Int Int Int))
-(pub fn (mapInsertFrom m key value i firstTomb left)
+(pub :: mapInsertLoop (-> Int Int Int Int Int Int Int Int Int Int Int))
+(pub fn (mapInsertLoop m keys vals states cap key value i firstTomb left)
   (if (<= left 0)
       m
-      (let ((state (mapStateAt m i)))
+      (let ((state (memGetByte states i)))
         (if (== state mapStateEmpty)
             ; End of the run. Prefer the remembered tombstone, so that
             ; insert/remove churn reuses slots instead of consuming a
             ; fresh empty one on every cycle.
             (if (< firstTomb 0)
-                (mapFillSlot m i key value 1)
-                (mapFillSlot m firstTomb key value 0))
+                (mapFillAt m keys vals states i key value 1)
+                (mapFillAt m keys vals states firstTomb key value 0))
             (if (== state mapStateLive)
-                (if (== (mapKeyAt m i) key)
+                (if (== (memGetWord keys i) key)
                     ; Overwrite: `len` and `used` are both unchanged,
                     ; which is the property the golden test pins down - a
                     ; map that counted an overwrite as an insertion would
                     ; grow without bound under repeated assignment to one
                     ; key.
                     {
-                      (memSetWord (memGetWord m 3) i value)
+                      (memSetWord vals i value)
                       m
                     }
-                    (mapInsertFrom m key value
-                                   (mapNextSlot i (mapCap m))
+                    (mapInsertLoop m keys vals states cap key value
+                                   (mapNextSlot i cap)
                                    firstTomb
                                    (- left 1)))
                 ; A tombstone. Remember the first one and keep scanning:
                 ; reusing it now, before the run has been searched to its
                 ; end, would risk storing a second entry for a key that
                 ; is already live further along.
-                (mapInsertFrom m key value
-                               (mapNextSlot i (mapCap m))
+                (mapInsertLoop m keys vals states cap key value
+                               (mapNextSlot i cap)
                                (if (< firstTomb 0) i firstTomb)
                                (- left 1)))))))
 
@@ -587,12 +546,12 @@
 ; because the failure mode described above the probe loops is silent and
 ; stack-dependent, and this is the layer everything else is going to
 ; trust.
-(pub :: mapFillSlot (-> Int Int Int Int Int Int))
-(pub fn (mapFillSlot m i key value consumesEmpty)
+(pub :: mapFillAt (-> Int Int Int Int Int Int Int Int Int))
+(pub fn (mapFillAt m keys vals states i key value consumesEmpty)
   {
-    (memSetWord (memGetWord m 2) i key)
-    (memSetWord (memGetWord m 3) i value)
-    (memSetWord (memGetWord m 4) i mapStateLive)
+    (memSetWord keys i key)
+    (memSetWord vals i value)
+    (memPutByte states i mapStateLive)
     (memSetWord m 0 (+ (mapLen m) 1))
     (if (== consumesEmpty 1)
         (memSetWord m 5 (+ (mapUsed m) 1))
@@ -611,7 +570,7 @@
     (if (< i 0)
         m
         {
-          (memSetWord (memGetWord m 4) i mapStateTomb)
+          (memPutByte (memGetWord m 4) i mapStateTomb)
           (memSetWord m 0 (- (mapLen m) 1))
           m
         })))
@@ -624,42 +583,80 @@
 ;
 ; The old arrays are read while the header already points at the new
 ; ones, so the three old addresses are captured into `let` bindings
-; first. Every live entry is reinserted with `mapInsertNoGrow`, which is
-; safe without a load-factor check because `newCap` is at least twice the
-; old `cap` and the entries being inserted are distinct keys that already
-; fit.
+; first. Every live entry is re-placed by `mapPlaceLoop`, a probe
+; specialised to what a rehash target is: no slot is ever a tombstone
+; and no key arrives twice, so the scan needs no key comparison, no
+; tombstone memory, and no load-factor check - `newCap` is at least
+; twice the old `cap`, so the entries fit.
 ;
-; Tombstones are simply not copied. That is the only way the space a
-; removed entry occupies ever comes back, and it is why `mapRemove` can
-; be O(1) and still leave the table healthy.
+; `len` and `used` are written once, at the end, from the count of
+; entries actually placed - after a rehash the two are equal by
+; construction, because tombstones are simply not copied. That is the
+; only way the space a removed entry occupies ever comes back, and it
+; is why `mapRemove` can be O(1) and still leave the table healthy.
 (pub :: mapRehash (-> Int Int Int))
 (pub fn (mapRehash m newCap)
   (let ((oldCap (mapCap m))
         (oldKeys (memGetWord m 2))
         (oldVals (memGetWord m 3))
         (oldStates (memGetWord m 4)))
-    {
-      (memSetWord m 0 0)
-      (memSetWord m 1 newCap)
-      (memSetWord m 2 (memAlloc (* newCap 8)))
-      (memSetWord m 3 (memAlloc (* newCap 8)))
-      (memSetWord m 4 (memAlloc (* newCap 8)))
-      (memSetWord m 5 0)
-      (mapReinsertFrom m oldKeys oldVals oldStates oldCap 0)
-    }))
-
-(pub :: mapReinsertFrom (-> Int Int Int Int Int Int Int))
-(pub fn (mapReinsertFrom m oldKeys oldVals oldStates oldCap i)
-  (if (>= i oldCap)
-      m
+    (let ((newKeys (memAlloc (* newCap 8)))
+          (newVals (memAlloc (* newCap 8)))
+          (newStates (memAlloc newCap)))
       {
-        (if (== (memGetWord oldStates i) mapStateLive)
-            (mapInsertNoGrow m
-                             (memGetWord oldKeys i)
-                             (memGetWord oldVals i))
-            m)
-        (mapReinsertFrom m oldKeys oldVals oldStates oldCap (+ i 1))
-      }))
+        (memSetWord m 1 newCap)
+        (memSetWord m 2 newKeys)
+        (memSetWord m 3 newVals)
+        (memSetWord m 4 newStates)
+        (let ((n (mapReinsertLoop newKeys newVals newStates newCap
+                                  oldKeys oldVals oldStates oldCap 0 0)))
+          {
+            (memSetWord m 0 n)
+            (memSetWord m 5 n)
+            m
+          })
+      })))
+
+; Walk the old arrays, placing every live entry into the new ones.
+; Returns how many were placed.
+(pub :: mapReinsertLoop (-> Int Int Int Int Int Int Int Int Int Int Int))
+(pub fn (mapReinsertLoop newKeys newVals newStates newCap oldKeys oldVals oldStates oldCap i cnt)
+  (if (>= i oldCap)
+      cnt
+      (if (== (memGetByte oldStates i) mapStateLive)
+          {
+            (mapPlaceLoop newKeys newVals newStates newCap
+                          (memGetWord oldKeys i) (memGetWord oldVals i)
+                          (mapSlotOf (memGetWord oldKeys i) newCap) newCap)
+            (mapReinsertLoop newKeys newVals newStates newCap
+                             oldKeys oldVals oldStates oldCap
+                             (+ i 1) (+ cnt 1))
+          }
+          (mapReinsertLoop newKeys newVals newStates newCap
+                           oldKeys oldVals oldStates oldCap
+                           (+ i 1) cnt))))
+
+; Place `key`/`value` at the first empty slot of a probe starting at
+; `i`. Only correct for a rehash target - a table with no tombstones
+; receiving each key exactly once - which is what lets it skip the
+; key-comparison and tombstone logic the general insert carries.
+;
+; `left` bounds the scan for the same reason `mapFindLoop`'s does: a
+; full table here means a bug elsewhere, and dropping the entry is a
+; wrong answer a test can see, where an unbounded scan is a hang.
+(pub :: mapPlaceLoop (-> Int Int Int Int Int Int Int Int Int))
+(pub fn (mapPlaceLoop keys vals states cap key value i left)
+  (if (<= left 0)
+      0
+      (if (== (memGetByte states i) mapStateEmpty)
+          {
+            (memSetWord keys i key)
+            (memSetWord vals i value)
+            (memPutByte states i mapStateLive)
+            0
+          }
+          (mapPlaceLoop keys vals states cap key value
+                        (mapNextSlot i cap) (- left 1)))))
 
 ; ------------------------------------------------------------------
 ; Bulk reads

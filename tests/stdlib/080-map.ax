@@ -17,18 +17,19 @@
 ;     live-plus-tombstones;
 ;   - a never-inserted key, and keys at the extremes of the signed range.
 ;
-; HOW THE COLLIDING KEYS WERE FOUND. 23, 38 and 46 all satisfy
+; HOW THE COLLIDING KEYS WERE FOUND. 30, 79 and 85 all satisfy
 ; `(mapSlotOf k 16) == 0`. They were found by brute force: a
-; reimplementation of `mapHash` in a scratch script enumerated k in
-; 1..100000, bucketed each by `mapHash(k) % 16`, and took the first
-; bucket that three distinct keys landed in; the Axiom `mapHash` was then
-; checked to agree with the script on those keys and on 0, -1, 12345 and
-; both ends of the signed range. The test prints `mapSlotOf` for all
-; three so the collision is asserted by the golden file rather than
-; merely claimed here - and note the three *hashes* are 1002742128,
-; 2129929472 and 440446832, wildly different, so this is a collision in
-; the table index only. That is the case linear probing has to handle,
-; and a hash-level collision would not have tested it.
+; reimplementation of `mapHash` (fmix64) in a scratch script enumerated
+; k upward from 1 and took the first three keys whose hash masked to
+; slot 0 at cap 16; the Axiom `mapHash` is then pinned against the same
+; script's values on 0, 1, -1, 12345 and both ends of the signed range,
+; below. The test prints `mapSlotOf` for all three so the collision is
+; asserted by the golden file rather than merely claimed here - and
+; note the three *hashes* are 4641192100291625776, 248731854332038000
+; and 1111029656834577248, wildly different, so this is a collision in
+; the table index only (fmix64 is a bijection, so a hash-level
+; collision between distinct keys is impossible). That is the case
+; linear probing has to handle.
 (import IO)
 (import Map)
 
@@ -66,7 +67,7 @@
 ; `used`. Each cycle leaves a tombstone; if tombstones were invisible to
 ; the load factor they would accumulate until no slot was empty, and the
 ; next `mapFindSlot` would have no stopping condition. The bounded probe
-; counter in `mapFindFrom` turns that into a wrong answer rather than a
+; counter in `mapFindLoop` turns that into a wrong answer rather than a
 ; hang, so the assertion after this runs is that lookups are still
 ; *right*, not merely that the program terminated.
 (pub :: mtChurn (-> Int Int Int Int))
@@ -78,38 +79,6 @@
         (mapRemove m key)
         (mtChurn m key (- n 1))
       }))
-
-; `mapHash` reduces modulo a Mersenne prime with shifts and masks, and
-; splits the key into limbs with shifts, rather than dividing - six
-; hardware divisions per hash was most of why `Map` measured 15x slower
-; than Rust's `HashMap`. The claim that this is the *same* function and
-; not an approximation of it is what keeps the pinned slot values below
-; valid, so it is checked rather than argued: `mapFloorDiv` and
-; `mapFloorMod` are retained as the specification, and this walks keys
-; that exercise every interesting shape - zero, both signs, limb
-; boundaries at 2^22 and 2^44, and both ends of the signed range -
-; counting the ones where the two agree.
-;
-; Negative keys are the case worth naming: floor semantics and
-; truncating `/` differ only there, and getting it wrong yields a
-; negative limb and, three lines later, a negative table index.
-(pub :: mtSpecAgree (-> Int Int Int Int))
-(pub fn (mtSpecAgree k lo hi)
-  (if (>= lo hi)
-      0
-      (+ (if (== (mapLimbDiv k) (mapFloorDiv k mapLimbBase))
-             (if (== (mapLimbMod k) (mapFloorMod k mapLimbBase)) 1 0)
-             0)
-         (mtSpecAgree k (+ lo 1) hi))))
-
-; Agreement of `mapModPrime` with `%` over a stride of the range the
-; hash actually produces: partial sums below 2^54.
-(pub :: mtPrimeAgree (-> Int Int Int Int))
-(pub fn (mtPrimeAgree v steps acc)
-  (if (<= steps 0)
-      acc
-      (mtPrimeAgree (+ (* v 7919) 104729) (- steps 1)
-        (+ acc (if (== (mapModPrime (mapLimbMod v)) (% (mapLimbMod v) mapHashPrime)) 1 0)))))
 
 (pub :: main Int)
 ;@axiom:effect(io)
@@ -158,34 +127,34 @@
 
       ; --- three keys that collide on the table index ---
       (printlnInt (mapCap c))                       ; 16
-      (printlnInt (mapSlotOf 23 16))                ; 0
-      (printlnInt (mapSlotOf 38 16))                ; 0
-      (printlnInt (mapSlotOf 46 16))                ; 0
-      (mapInsert c 23 230)
-      (mapInsert c 38 380)
-      (mapInsert c 46 460)
+      (printlnInt (mapSlotOf 30 16))                ; 0
+      (printlnInt (mapSlotOf 79 16))                ; 0
+      (printlnInt (mapSlotOf 85 16))                ; 0
+      (mapInsert c 30 230)
+      (mapInsert c 79 380)
+      (mapInsert c 85 460)
       (printlnInt (mapLen c))                       ; 3: three entries...
       (printlnInt (mapCap c))                       ; 16: ...no rehash
-      (printlnInt (mapGet c 23 (- 0 1)))            ; 230: home slot
-      (printlnInt (mapGet c 38 (- 0 1)))            ; 380: one probe on
-      (printlnInt (mapGet c 46 (- 0 1)))            ; 460: two probes on
+      (printlnInt (mapGet c 30 (- 0 1)))            ; 230: home slot
+      (printlnInt (mapGet c 79 (- 0 1)))            ; 380: one probe on
+      (printlnInt (mapGet c 85 (- 0 1)))            ; 460: two probes on
       (printlnInt (mapSumVals c))                   ; 1070
 
       ; --- removing the middle of the probe run must not orphan the end
-      (mapRemove c 38)
+      (mapRemove c 79)
       (printlnInt (mapLen c))                       ; 2
       (printlnInt (mapUsed c))                      ; 3: tombstone still held
-      (printlnInt (mtBit (mapHas c 38)))            ; 0
-      (printlnInt (mapGet c 23 (- 0 1)))            ; 230: before the hole
-      (printlnInt (mapGet c 46 (- 0 1)))            ; 460: past the hole
+      (printlnInt (mtBit (mapHas c 79)))            ; 0
+      (printlnInt (mapGet c 30 (- 0 1)))            ; 230: before the hole
+      (printlnInt (mapGet c 85 (- 0 1)))            ; 460: past the hole
       (printlnInt (mapSumVals c))                   ; 690
 
       ; --- the tombstone is reused, not leaked ---
-      (mapInsert c 38 381)
+      (mapInsert c 79 381)
       (printlnInt (mapLen c))                       ; 3
       (printlnInt (mapUsed c))                      ; 3: reused, not grown
-      (printlnInt (mapGet c 38 (- 0 1)))            ; 381
-      (printlnInt (mapGet c 46 (- 0 1)))            ; 460: still reachable
+      (printlnInt (mapGet c 79 (- 0 1)))            ; 381
+      (printlnInt (mapGet c 85 (- 0 1)))            ; 460: still reachable
 
       ; --- removing an absent key changes nothing ---
       (mapRemove c 999)
@@ -218,24 +187,17 @@
       (mapInsert x 1000 "interned")
       (println (mapGet x 1000 0))                   ; interned
 
-      ; --- the shift/mask hash agrees with the division specification ---
-      ; One line per key shape, each printing 1 when the fast path and
-      ; `mapFloorDiv`/`mapFloorMod` agree.
-      (printlnInt (mtSpecAgree 0 0 1))                            ; 1
-      (printlnInt (mtSpecAgree 1 0 1))                            ; 1
-      (printlnInt (mtSpecAgree (- 0 1) 0 1))                      ; 1
-      (printlnInt (mtSpecAgree (- 0 7) 0 1))                      ; 1
-      (printlnInt (mtSpecAgree 4194304 0 1))                      ; 1: 2^22, limb boundary
-      (printlnInt (mtSpecAgree (- 0 4194304) 0 1))                ; 1
-      (printlnInt (mtSpecAgree 4194303 0 1))                      ; 1: 2^22 - 1
-      (printlnInt (mtSpecAgree 17592186044416 0 1))               ; 1: 2^44
-      (printlnInt (mtSpecAgree (- 0 17592186044416) 0 1))         ; 1
-      (printlnInt (mtSpecAgree 12345 0 1))                        ; 1
-      (printlnInt (mtSpecAgree (- 0 12345) 0 1))                  ; 1
-      (printlnInt (mtSpecAgree 9223372036854775807 0 1))          ; 1
-      (printlnInt (mtSpecAgree (- 0 9223372036854775807) 0 1))    ; 1
-      ; And the Mersenne reduction agrees with `%` over 500 pseudorandom
-      ; values.
-      (printlnInt (mtPrimeAgree 1 500 0))                         ; 500
+      ; --- the hash is pinned against an independent fmix64 ---
+      ; Values computed by a Python reimplementation working in
+      ; unsigned 64-bit arithmetic, so a divergence in Axiom's signed
+      ; shifts, masks or wrapping multiplication shows as a number
+      ; here, not as a mysteriously slow table. Zero is fmix64's fixed
+      ; point, so its pin really is 0.
+      (printlnInt (mapHash 0))                        ; 0
+      (printlnInt (mapHash 1))                        ; 3771409529372330796
+      (printlnInt (mapHash (- 0 1)))                  ; 7256831767414464289
+      (printlnInt (mapHash 12345))                    ; 1716623506685013753
+      (printlnInt (mapHash 9223372036854775807))      ; 3150617518162374122
+      (printlnInt (mapHash (- 0 9223372036854775807))) ; 7913832204677143650
       0
     }))

@@ -195,12 +195,17 @@ hold. The ones on the critical path here:
   stack.
 - **B3** — `Vec`, `Map`, and `Intern` are golden-tested and validated at
   10⁵ (`tests/stdlib/200-scale.ax`) and benchmarked at 10⁶
-  (`scripts/bench-datastructures.sh`). `Intern` is *faster* than the
-  Rust equivalent (0.75×); `Vec` is 2.5×; `Map` is 14× and misses the
-  criterion. Ablation puts six sevenths of `Map`'s cost in table
-  growth, not in hashing or probing — steady-state insert is within
-  1.4× — so this now blocks on the memory model (P2) rather than on
-  `Map`. See [self-hosting.md §2.1 B3](self-hosting.md#21-blockers).
+  (`scripts/bench-datastructures.sh`). **`Map` now meets the 2×
+  criterion: 1.80×**, from 14×. The cause was never the allocator this
+  entry used to blame: `mapHash` was affine in the key for keys below
+  2²², so sequential keys clustered and linear probing ran 71 probes
+  per insert; a real avalanche hash (fmix64) plus byte-wide state tags
+  fixed it, and the earlier "growth is six sevenths of the cost"
+  ablation was the same bug measured through rehash. `Intern` is
+  *faster* than Rust (0.73×); `Vec` is 3.4×, three header loads against
+  a register-resident Rust `Vec`, ~5 ms absolute at compiler scale.
+  See [self-hosting.md §2.1 B3](self-hosting.md#21-blockers) for the
+  full correction.
 - **B4** — namespacing: `Mod::name` qualified access works; two modules can define the same name without collision. **(DONE)**
 - **S1** — **(DONE)** nullary constructors are immediates rather than
   heap blocks, in mixed types as well as all-nullary ones; a `match`
@@ -728,8 +733,8 @@ parallel.
 | Phase | Items | Exit criterion |
 |---|---|---|
 | **P0** *(done)* | Green CI; `union`/`region` removed; tree-sitter grammar | All seven gates green on all four targets |
-| **P1** *(done, except `Map` throughput)* | `B2` tail calls · `B3` `Vec`/`Map`/`Intern` golden tests and scale validation · `B1` closures · ADT struct variants | 10⁷-iteration loop at `-O0` ✓; higher-order probe runs ✓; struct variants match exhaustively, by name and punned ✓; `Map` is 14× Rust and blocks on P2's allocator, not on `Map` |
-| **P2** | Memory model (§4.1) · ~~`S1` unboxed nullary constructors~~ **(DONE)** | `Map` insert at 10⁶ within 2× of Rust (`scripts/bench-datastructures.sh`) — the measured criterion B3 hands to this phase; the `stress.ax` criterion this row used to carry named a file deleted with the Game of Life sample |
+| **P1** *(done)* | `B2` tail calls · `B3` `Vec`/`Map`/`Intern` golden tests and scale validation · `B1` closures · ADT struct variants | 10⁷-iteration loop at `-O0` ✓; higher-order probe runs ✓; struct variants match exhaustively, by name and punned ✓; `Map` within 2× of Rust ✓ (1.80×, was 14× — an affine-hash bug, not the allocator; see §2.4 B3) |
+| **P2** | Memory model (§4.1) · ~~`S1` unboxed nullary constructors~~ **(DONE)** · ~~`Map` throughput~~ **(DONE, 1.80×)** | ~~`Map` insert at 10⁶ within 2× of Rust~~ ✓ met — and not by allocator work: the cost was an affine hash, corrected in B3. What remains of P2 is §4.1's actual subject, deterministic reclamation for long-running programs (the LSP, the HTTP server); the single-shot compiler process no longer has a P2-blocking measurement |
 | **P3** | Macro system (§4.2) — hygiene done · ~~`B4` namespacing~~ **(DONE)** | Hygiene test passes; two modules define the same name without collision |
 | **P4** | Self-hosting phases 2–5 · HTTP library (§4.5) | `stage2 == stage3`; HTTP server serves a request under load |
 | **P5** | LSP (§4.6) · ~~trivia preservation for `fmt`~~ **(DONE, §2.3)** · benchmarking · docs | Completion and diagnostics in a real editor; ~~`fmt` round-trips every file in the repo, gated in CI~~ ✓ 70/70, gated by `check-fmt.sh`; published performance profile |
