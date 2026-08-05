@@ -1,0 +1,38 @@
+; expect 41
+; stage1's S1 parity matrix: nullary constructors of a MIXED type are
+; immediate tags, exactly as stage0 emits them. The boxed-first match
+; order is the one that used to require boxing (a fieldful arm's tag
+; read meeting an immediate INil dereferenced a small integer without
+; the < 4096 guard); the identity check pins that two separately
+; constructed INil are the same word, which boxing cannot satisfy.
+(data IList (INil) (ICons Int IList))
+
+(:: sumList (-> IList Int))
+(fn (sumList l)
+  (match l
+    ((ICons h t) (+ h (sumList t)))
+    ((INil) 0)))
+
+(:: pairSum (-> IList Int))
+(fn (pairSum l)
+  (match l
+    ((ICons a (ICons b t)) (+ (+ a b) (pairSum t)))
+    ((ICons a (INil)) a)
+    ((INil) 0)))
+
+(data Wrap (W IList Int))
+
+(:: unwrapLen (-> Wrap Int))
+(fn (unwrapLen w)
+  (match w
+    ((W l k) (+ (sumList l) k))))
+
+(:: main Int)
+(fn (main)
+  (let ((three (ICons 1 (ICons 2 (ICons 3 (INil))))))
+    (+ (sumList three)                               ; 6
+       (+ (pairSum three)                            ; 6
+          (+ (unwrapLen (W three 10))                ; 16
+             (+ (unwrapLen (W (INil) 12))            ; 12
+                (+ (if (== (cast Int (INil)) (cast Int (INil))) 1 0)  ; 1
+                   (sumList (INil)))))))))           ; 0 -> total 41

@@ -11,18 +11,20 @@
 ; ------------------------------------------------------------------
 ; Type registry: constructor/struct name -> arity, kind, tag.
 ; ------------------------------------------------------------------
-; `allNull` records whether the constructor's whole data type is
-; all-nullary - stage0 unboxes nullary constructors to immediate tags
-; ONLY then. In a mixed type every value is a heap block, including the
-; nullary constructors (a one-word block holding the tag), so a
-; fieldful arm's tag load is always a load from a real block. Treating
-; every nullary constructor as an immediate made `None` a bare integer
-; in a type where `Just` is a pointer, and the `Just` arm's tag load
-; dereferenced it.
+; `rep` records the data type's representation, matching stage0's S1
+; rule: 0 = boxed, 1 = all-nullary (every value is its immediate tag),
+; 2 = mixed - nullary constructors are immediate tags while fieldful
+; siblings are heap blocks, so a fieldful arm's tag read must first
+; test `value < 4096` (no immediate reaches it, every heap address
+; exceeds it) before loading word 0. An unconditional load there
+; dereferences a small integer; treating every value as immediate
+; makes a pointer fail every tag compare. The tag lives where the
+; *constructor named at the site* says, plus that one runtime test
+; for the fieldful-in-mixed case.
 ;
 ; `fieldFlags` is one 0/1 per field: is it declared `Float`. A pattern
 ; binder for that field carries the flag into the symbol table.
-(pub struct TypeEntry (name : Int) (nameLen : Int) (nameHash : Int) (kind : Int) (arity : Int) (tag : Int) (allNull : Int) (fieldFlags : Int))
+(pub struct TypeEntry (name : Int) (nameLen : Int) (nameHash : Int) (kind : Int) (arity : Int) (tag : Int) (rep : Int) (fieldFlags : Int))
 (pub :: TF_DATA   Int) (pub fn (TF_DATA)   0)
 (pub :: TF_STRUCT Int) (pub fn (TF_STRUCT) 1)
 (pub :: eNameLen (-> Int Int)) (pub fn (eNameLen e) (memGetWord e 1))
@@ -30,7 +32,7 @@
 (pub :: eKind  (-> Int Int)) (pub fn (eKind  e) (memGetWord e 3))
 (pub :: eArity (-> Int Int)) (pub fn (eArity e) (memGetWord e 4))
 (pub :: eTag   (-> Int Int)) (pub fn (eTag   e) (memGetWord e 5))
-(pub :: eAllNull (-> Int Int)) (pub fn (eAllNull e) (memGetWord e 6))
+(pub :: eRep     (-> Int Int)) (pub fn (eRep e)     (memGetWord e 6))
 (pub :: eFieldFlags (-> Int Int)) (pub fn (eFieldFlags e) (memGetWord e 7))
 
 ; A length is not a name. This used to hash to `strLen` and match on
@@ -45,10 +47,10 @@
 (pub :: eName (-> Int Int)) (pub fn (eName e) (memGetWord e 0))
 
 (pub :: addType (-> Int Int Int Int Int Int Int Int))
-(pub fn (addType types name kind arity tag allNull fieldFlags)
+(pub fn (addType types name kind arity tag rep fieldFlags)
   (let ((nl (strLen name))
         (nh (nameHash name)))
-    (vecPush types (cast Int (TypeEntry name nl nh kind arity tag allNull fieldFlags)))))
+    (vecPush types (cast Int (TypeEntry name nl nh kind arity tag rep fieldFlags)))))
 
 (pub :: lookupType (-> Int Int Int))
 (pub fn (lookupType types name)
@@ -572,7 +574,7 @@
     (if (== tag TAG_D_DATA)
         (let ((name (nodeA node))
               (ctors (nodeB node)))
-          (scanCtors ctors cg 0 (ctorsAllNullary ctors 0)))
+          (scanCtors ctors cg 0 (ctorsRep ctors (memGetWord cg 4))))
     (if (== tag TAG_D_STRUCT)
         (let ((name (nodeA node))
               (fields (nodeB node))
@@ -586,16 +588,41 @@
           })
     cg))))
 
-(pub :: ctorsAllNullary (-> Int Int Int))
-(pub fn (ctorsAllNullary ctors i)
+(pub :: ctorsHasNullary (-> Int Int Int))
+(pub fn (ctorsHasNullary ctors i)
   (if (>= i (vecLen ctors))
-      1
+      0
       (if (== (nodeB (vecGet ctors i)) 0)
-          (ctorsAllNullary ctors (+ i 1))
-          0)))
+          1
+          (ctorsHasNullary ctors (+ i 1)))))
+
+(pub :: ctorsHasBoxed (-> Int Int Int))
+(pub fn (ctorsHasBoxed ctors i)
+  (if (>= i (vecLen ctors))
+      0
+      (if (> (nodeB (vecGet ctors i)) 0)
+          1
+          (ctorsHasBoxed ctors (+ i 1)))))
+
+; The representation code every constructor of one `data` type
+; carries: 0 = boxed (no nullary constructor unboxes - the type has
+; none, or a tag would reach the 4096 immediate limit), 1 =
+; all-nullary (every value IS its tag), 2 = mixed (nullary
+; constructors are immediate tags, fieldful ones are heap blocks, and
+; a match site telling them apart needs the runtime `< 4096` test -
+; every heap address is mmap-page memory at or above it). Mirrors
+; stage0's S1 rule exactly; `firstTag` is the counter before this
+; type's constructors are assigned.
+(pub :: ctorsRep (-> Int Int Int))
+(pub fn (ctorsRep ctors firstTag)
+  (if (== (ctorsHasNullary ctors 0) 0)
+      0
+      (if (>= (+ firstTag (vecLen ctors)) 4096)
+          0
+          (if (== (ctorsHasBoxed ctors 0) 1) 2 1))))
 
 (pub :: scanCtors (-> Int Int Int Int Int))
-(pub fn (scanCtors ctors cg i allNull)
+(pub fn (scanCtors ctors cg i rep)
   (if (>= i (vecLen ctors)) cg
       (let ((node (vecGet ctors i)))
         (let ((n (nodeA node))
@@ -608,8 +635,8 @@
             ; of the module tag -1, and `fmtInt` rendered that as `/` -
             ; a stray character in the middle of an argument list.
             (memSetWord cg 4 (+ t 1))
-            (memSetWord cg 3 (addType types n TF_DATA a t allNull (nodeC node)))
-            (scanCtors ctors cg (+ i 1) allNull)
+            (memSetWord cg 3 (addType types n TF_DATA a t rep (nodeC node)))
+            (scanCtors ctors cg (+ i 1) rep)
           }))))
 
 ; ------------------------------------------------------------------
@@ -1606,13 +1633,16 @@
             (emitPatTest (constStr 0) vr failB cg)
             (bindSym cg (nodeA pat) (strDup vr) isFloat 0)))
     (if (== tag TAG_P_CON0)
-        ; A nullary constructor: an immediate tag in an all-nullary
-        ; type, a one-word block otherwise - the tag is where the
-        ; representation says it is.
+        ; A nullary constructor of a type that unboxes (rep 1 or 2) IS
+        ; its tag: compare the value directly. Correct even when the
+        ; scrutinee is a boxed sibling - a heap pointer never equals a
+        ; small immediate tag, so the arm just fails. Only a nullary
+        ; constructor of a non-unboxing type is still a one-word block
+        ; whose tag loads from word 0.
         (let ((entry (lookupType (memGetWord cg 3) (nodeA pat))))
           (if (== entry 0)
               (bindSym cg (nodeA pat) (strDup vr) isFloat 0)
-              (if (== (eAllNull entry) 1)
+              (if (!= (eRep entry) 0)
                   (emitPatTest (constStr (eTag entry)) vr failB cg)
                   (let ((cgL (loadWordAt cg vr 0)))
                     (emitPatTest (constStr (eTag entry))
@@ -1626,7 +1656,14 @@
                 ; well-typed produces this; match everything, bind
                 ; nothing, as before.
                 cg
-                (let ((cgL (loadWordAt cg vr 0)))
+                ; A fieldful pattern in a MIXED type must not load word
+                ; 0 unguarded: the scrutinee may be an immediate
+                ; nullary sibling, and word 0 of a small integer is a
+                ; crash. `emitCondTagRead` tests `< 4096` first. In an
+                ; all-boxed type the plain load stays.
+                (let ((cgL (if (== (eRep entry) 2)
+                               (emitCondTagRead vr cg)
+                               (loadWordAt cg vr 0))))
                   (let ((cgT (emitPatTest (constStr (eTag entry))
                                           (strDup (memGetWord cgL 2))
                                           failB cgL)))
@@ -1634,6 +1671,46 @@
                                    (eFieldFlags entry)
                                    vr failB cgT 0))))))
     cg))))))))
+
+; The tag of a value whose type mixes representations, decided at
+; runtime: below 4096 the value IS the tag (no immediate reaches the
+; limit, every mmap-page heap address exceeds it), at or above it the
+; tag is word 0. Globally-unique tags make the one read correct
+; against any constructor's compare. The result travels through a
+; one-word heap cell rather than a phi, the same idiom `match` uses
+; for its own result.
+(pub :: emitCondTagRead (-> Int Int Int))
+(pub fn (emitCondTagRead vr cg)
+  (let ((cellN (allocReg cg))
+        (cn (allocReg cg))
+        (immN (allocReg cg))
+        (boxN (allocReg cg))
+        (mergeN (allocReg cg)))
+    (let ((cell (regStr cellN))
+          (cr (cat2 "%c" (fmtInt cn)))
+          (immB (cat2 "label_" (fmtInt immN)))
+          (boxB (cat2 "label_" (fmtInt boxN)))
+          (mergeB (cat2 "label_" (fmtInt mergeN))))
+      (let ((cg1 (emitLine cg (cat3 (cat2 "  " cell)
+                                    " = call i64 @axiom_alloc(i64 8)"
+                                    ""))))
+        (let ((cg2 (emitLine cg1 (cat4 (cat2 "  " cr)
+                                       " = icmp slt i64 "
+                                       (strDup vr)
+                                       ", 4096"))))
+          (let ((cg3 (emitLine cg2 (cat4 (cat3 "  br i1 " cr ", label %")
+                                         immB
+                                         (cat2 ", label %" boxB)
+                                         ""))))
+            (let ((cg4 (emitLabel cg3 immB)))
+              (let ((cg5 (storeWordAt cg4 cell 0 (strDup vr))))
+                (let ((cg6 (emitLine cg5 (cat2 "  br label %" mergeB))))
+                  (let ((cg7 (emitLabel cg6 boxB)))
+                    (let ((cg8 (loadWordAt cg7 vr 0)))
+                      (let ((cg9 (storeWordAt cg8 cell 0 (strDup (memGetWord cg8 2)))))
+                        (let ((cg10 (emitLine cg9 (cat2 "  br label %" mergeB))))
+                          (let ((cg11 (emitLabel cg10 mergeB)))
+                            (loadWordAt cg11 cell 0)))))))))))))))
 
 ; One `icmp eq` against `want`, branching to `failB` on mismatch and
 ; into a fresh block on success.
@@ -1857,7 +1934,7 @@
                     ; A bare nullary constructor: an immediate tag for
                     ; an all-nullary type, a fresh one-word block
                     ; otherwise - the same split construction makes.
-                    (zeroFloat (emitConstructor name vecNew (eKind entry) 0 (eTag entry) (eAllNull entry) cg))
+                    (zeroFloat (emitConstructor name vecNew (eKind entry) 0 (eTag entry) (eRep entry) cg))
                     (let ((z 0))
                       {
                         (memSetWord cg 2 (constStr z))
@@ -2077,7 +2154,7 @@
               (entry (lookupType types fnName)))
           (if (== entry 0)
               (emitCall fnName args cg)
-              (zeroFloat (emitConstructor fnName args (eKind entry) (eArity entry) (eTag entry) (eAllNull entry) cg))))))))))))))
+              (zeroFloat (emitConstructor fnName args (eKind entry) (eArity entry) (eTag entry) (eRep entry) cg))))))))))))))
 
 (pub :: isLocalValue (-> Int Int Bool))
 (pub fn (isLocalValue cg name)
@@ -2781,13 +2858,13 @@
 ; Constructor emission: alloc + field stores.
 ; ------------------------------------------------------------------
 (pub :: emitConstructor (-> Int Int Int Int Int Int Int Int))
-(pub fn (emitConstructor fnName args kind arity ctorTag allNull cg)
-  ; An immediate tag only when the whole type is nullary; a nullary
-  ; constructor of a mixed type falls through to the general path,
-  ; which allocates its one-word block and stores the tag - the same
-  ; representation its fieldful siblings have, so a tag load never
-  ; dereferences an integer.
-  (if (&& (== kind TF_DATA) (&& (== arity 0) (== allNull 1)))
+(pub fn (emitConstructor fnName args kind arity ctorTag rep cg)
+  ; A nullary constructor of any type that unboxes (all-nullary OR
+  ; mixed) is its immediate tag - stage0's S1 representation. The
+  ; match sites carry the matching discipline: direct compare when
+  ; the pattern names an unboxed constructor, a guarded tag read when
+  ; a fieldful pattern's scrutinee might be an immediate sibling.
+  (if (&& (== kind TF_DATA) (&& (== arity 0) (!= rep 0)))
       {
         (memSetWord cg 2 (constStr ctorTag))
         cg

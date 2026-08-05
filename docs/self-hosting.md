@@ -760,11 +760,16 @@ What genuinely remains: no type checking -
 `self_host/typecheck.ax` is a stub - so a program stage0 would reject
 with a diagnostic, stage1 compiles into whatever the code happens to
 mean. No lambda expressions or partial application (refused loudly).
-stage1 also still boxes every nullary constructor where stage0 now
-emits immediates (S1) - each compiler's output is self-consistent, so
-the conformance suite and the fixpoint are indifferent to it, but
-byte-identical emission (phase 4) will need stage1 to reproduce the
-unboxing. It emits for all four targets: the second argument names one
+stage1 emits S1's unboxed nullary constructors exactly as stage0
+does: the per-type representation code (boxed / all-nullary / mixed)
+travels on every constructor's registry entry, construction emits the
+immediate tag, an unboxed pattern compares the value directly, and a
+fieldful pattern in a mixed type reads the tag through the same
+`< 4096` runtime guard - via a one-word heap cell rather than a phi,
+the idiom stage1's `match` already uses. Pinned by
+`tests/selfhost/620-nullary-unboxed.ax`, which both compilers answer
+identically, including the two-`INil`-are-one-word identity that
+boxing cannot satisfy. It emits for all four targets: the second argument names one
 (`darwin-aarch64` by default), and the whole per-target surface -
 triple, syscall register conventions, Darwin's carry-flag error
 normalisation, the allocator's mmap/exit numbers and MAP_ANON flags,
