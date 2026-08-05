@@ -179,6 +179,30 @@ registry! {
          Only a whole local can be assigned. Function parameters, pattern\n\
          bindings and top-level declarations are never mutable, and structure\n\
          fields are written with `memSetWord` instead."),
+    AMBIGUOUS_NAME => ("AX3014", "ambiguous-name",
+        "a bare name is defined in more than one imported module",
+        "Two or more imported modules define this name and the entry file\n\
+         does not, so a bare reference has no principled winner - and before\n\
+         this diagnostic the compiler's stages genuinely disagreed about\n\
+         which definition it meant, so a program could type-check against\n\
+         one module's signature and run the other module's code.\n\
+         \n\
+         Qualify the reference as `Module::name` to pick explicitly, or\n\
+         import only the names you want with `(import Module (name ...))`.\n\
+         A name the entry file defines itself always resolves to the entry\n\
+         file's definition and needs no qualification."),
+    MISSING_DEFINITION => ("AX3015", "missing-definition",
+        "a signature with no definition behind it",
+        "A `(:: name Type)` signature declares a name, but only a `(fn ...)`\n\
+         or `(foreign ...)` gives it something to run. This name has the\n\
+         former and not the latter - either the entry file declares the\n\
+         signature and never defines the function, or an import delivered a\n\
+         `pub` signature whose definition stayed private in its module.\n\
+         Calling it used to pass `check` and then fail in the native\n\
+         toolchain with an undefined-symbol error about generated code.\n\
+         \n\
+         Add the definition, or mark the defining `fn` `pub` alongside its\n\
+         signature so the import carries both."),
     PARTIAL_APPLICATION => ("AX3013", "partial-application",
         "partial application is not supported",
         "A top-level function was applied to fewer arguments than its\n\

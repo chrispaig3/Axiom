@@ -650,12 +650,50 @@ lifted body unless an enclosing local shadows them. Pinned by
 `tests/stdlib/280-function-application.ax` (the matrix of fixed
 shapes), `tests/selfhost/600-curried-flat.ax` (stage1's chain), and
 regression tests for the shadowed-import and qualified-constructor
-diagnostics. Still open, recorded not fixed: signature-only
-declarations have no parameter count and escape the arity rules
-(their calls die later as a raw `opt` error about the undefined
-symbol), and which *symbol* codegen links for a cross-import name
-collision is resolver-dependent in ways the type checker does not
-share - the B4 unification question.
+diagnostics.
+
+Both items that review left open are now closed, and the closing
+required a design decision rather than a bug fix. A scout of every
+bare-name resolution site found *five different winners* in one
+binary - sema's flagging took the last declaration, its typing took
+the first import, its signature-scope entries were
+position-dependent, effect inference ignored the module even on
+qualified names, and the IR's mangle map was entry-first-then-first-
+import with a nullary-pass wrinkle - so a program importing two
+modules that both define `f` could type-check against one and *run*
+the other (probed: the checker bound the last import while the
+emitted call reached the first). The rule now is **entry file first,
+then the unique defining module, and otherwise `AX3014
+ambiguous-name`**: a bare reference to a name that two or more
+imports define, with no entry-file definition, is refused with the
+qualified candidates listed. There is deliberately no
+import-versus-import precedence - any choice is one the other stages
+could disagree with, and no corpus program wants one (the two
+load-bearing collisions, `strLen` in `320-mangle` and `label` in
+`150-qualified-modules`, both involve the entry file, which wins
+everywhere; the historical `readFile` collision this would have
+caught was fixed by renaming). The typing loops, the float tables,
+and the generator's constructor lookups are all entry-preferring
+now, and the duplicate-definition table is keyed by
+`(name, module)` - keyed by name alone it never recorded a second
+module's definitions, so genuine duplicates there escaped `AX3006`.
+Signature-only declarations are `AX3015 missing-definition`: at the
+signature for the entry file, and at the *reference* for an import
+that delivered a `pub` signature whose definition stayed private -
+the exporting module is internally fine and an unused import of it
+is harmless, which is why one site cannot do both jobs.
+
+Recorded open from the same scout, for later: bare references
+*inside* an imported module also resolve entry-first (in
+`320-mangle`, `Str.ax`'s own internal `strLen` call reaches the
+entry's shadowing definition, and the test passes only because both
+answers land on the same side of its comparison) - fixing that means
+module-internal references bind module-locally, which revisits B4's
+flat-namespace decision. And effect inference does not propagate
+effects through calls at all - a call to an IO-performing function
+type-checks as pure - which contradicts what this document's Phase 0
+claims about transitive effect inference and needs its own
+investigation.
 
 Struct field access works: `p.x` resolves the field by name in the
 struct registry and loads at its word offset, chains fold left, and

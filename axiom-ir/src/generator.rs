@@ -135,17 +135,30 @@ const NULLARY_IMMEDIATE_LIMIT: i64 = 4096;
 /// exact same tag - there is exactly one place in the generator that
 /// decides what a constructor's tag is.
 fn find_constructor(type_checker: &TypeChecker, name: &str) -> Option<(i64, usize)> {
+    // Tags are positional, so the walk is always the full forward walk;
+    // but *which* same-named constructor a bare reference means is
+    // entry-file-first, matching the checker - imports are collected
+    // ahead of the entry file's own types, so the first name hit used to
+    // be the import's constructor while sema typed the entry's. Two
+    // imports colliding without an entry definition is an ambiguity
+    // error in sema and never reaches lowering.
     let mut tag: i64 = 0;
+    let mut first: Option<(i64, usize)> = None;
     for dt in type_checker.data_types.iter() {
         for con in dt.constructors.iter() {
             if con.name == name {
-                let arity = constructor_arity(&con.ty);
-                return Some((tag, arity));
+                let hit = (tag, constructor_arity(&con.ty));
+                if dt.module.is_none() {
+                    return Some(hit);
+                }
+                if first.is_none() {
+                    first = Some(hit);
+                }
             }
             tag += 1;
         }
     }
-    None
+    first
 }
 
 fn constructor_arity(ty: &TypeId) -> usize {
@@ -159,14 +172,21 @@ fn constructor_arity(ty: &TypeId) -> usize {
 }
 
 fn constructor_field_names(type_checker: &TypeChecker, con_name: &str) -> Option<Vec<String>> {
+    // Entry-file-first, for the same reason as `find_constructor`.
+    let mut first: Option<&axiom_sema::DataConInfo> = None;
     for dt in &type_checker.data_types {
         for con in &dt.constructors {
             if con.name == con_name {
-                return con.field_names.clone();
+                if dt.module.is_none() {
+                    return con.field_names.clone();
+                }
+                if first.is_none() {
+                    first = Some(con);
+                }
             }
         }
     }
-    None
+    first.and_then(|c| c.field_names.clone())
 }
 
 impl Default for IrGen {
@@ -588,8 +608,32 @@ impl IrGen {
     /// declared later in the file.
     fn collect_float_signatures(&mut self, decls: &[Decl]) {
         let mut struct_field_votes: HashMap<String, Vec<bool>> = HashMap::new();
+        // The float tables are keyed by bare name, and bare-name
+        // resolution is entry-file-first: when the entry defines a name
+        // an import also defines, every call site reaches the entry's
+        // definition, so the import's signature must not vote - a
+        // float-returning import polluted the set-union and made the
+        // entry's integer function "float". (Two *imports* colliding
+        // without an entry definition is an ambiguity error in sema and
+        // never reaches lowering.)
+        let entry_sigs: std::collections::HashSet<&str> = decls
+            .iter()
+            .filter_map(|d| match d {
+                Decl::DSig {
+                    name,
+                    module_path: None,
+                    ..
+                } => Some(name.name.as_str()),
+                _ => None,
+            })
+            .collect();
         for decl in decls {
             match decl {
+                Decl::DSig {
+                    name,
+                    module_path: Some(_),
+                    ..
+                } if entry_sigs.contains(name.name.as_str()) => {}
                 Decl::DSig { name, ty, .. } => {
                     // Walk the arrow spine: everything but the last
                     // component is a parameter.
@@ -610,9 +654,23 @@ impl IrGen {
                 // `((Mk x y) ...)` binds `x` and `y` as floats. Without
                 // this the arms' arithmetic lowered to integer `add` on
                 // the bit patterns, which compiles and runs and returns
-                // nonsense.
-                Decl::DData { constructors, .. } => {
+                // nonsense. Same entry-first rule as signatures: an
+                // imported constructor shadowed by an entry-file one of
+                // the same name must not vote on the flags.
+                Decl::DData {
+                    constructors,
+                    module_path,
+                    ..
+                } => {
                     for con in constructors {
+                        if module_path.is_some()
+                            && decls.iter().any(|d| {
+                                matches!(d, Decl::DData { constructors: ec, module_path: None, .. }
+                                    if ec.iter().any(|c| c.name.name == con.name.name))
+                            })
+                        {
+                            continue;
+                        }
                         let flags: Vec<bool> = con
                             .field_types()
                             .into_iter()

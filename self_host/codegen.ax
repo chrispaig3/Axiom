@@ -729,15 +729,19 @@
 ; ------------------------------------------------------------------
 ; Name mangling.
 ;
-; Two modules may export the same name - `IO.ax` and `Sys.ax` both
-; define `readFile` - and emitting both bare produced two
-; `define i64 @readFile` in one LLVM module, which `llc` rejects. The
-; scheme is stage0's: a declaration imported from module `M` defines the
-; symbol `M$name`, a declaration in the entry file keeps its bare name -
-; `@main` must stay `@main` for the linker - and a bare *reference*
-; resolves through one flat map, entry file first, then imports in
-; resolution order. `$` and `.` are both legal in an unquoted LLVM
-; identifier, so `Sys.Platform$sysWrite` needs no quoting.
+; Two modules may export the same name - `IO.ax` and `Sys.ax` once
+; both defined `readFile`, since renamed - and emitting both bare
+; produced two `define i64 @readFile` in one LLVM module, which `llc`
+; rejects. The scheme is stage0's: a declaration imported from module
+; `M` defines the symbol `M$name`, a declaration in the entry file
+; keeps its bare name - `@main` must stay `@main` for the linker - and
+; a bare *reference* resolves through one flat map, entry file first,
+; then imports in resolution order. (stage0's checker now refuses a
+; bare reference that two imports define and the entry does not -
+; AX3014 - so the imports-in-order tail of that rule only decides
+; programs stage0 would no longer accept.) `$` and `.` are both legal
+; in an unquoted LLVM identifier, so `Sys.Platform$sysWrite` needs no
+; quoting.
 ;
 ; The map is two Vecs pushed in lockstep rather than a Map, because it
 ; is small (one entry per top-level function) and built once.

@@ -86,6 +86,30 @@ pub enum SemError {
         found: usize,
         span: Span,
     },
+    /// A bare reference to a name that two or more imported modules
+    /// define while the entry file defines none.
+    ///
+    /// There is no principled winner, and before this diagnostic the
+    /// resolvers genuinely disagreed - the type checker bound one
+    /// module's definition while code generation called the other's,
+    /// so a program could pass `check` against a 2-parameter signature
+    /// and then run a 3-parameter function on two arguments. Qualified
+    /// access picks explicitly and stays legal.
+    #[error("ambiguous name `{name}`: defined in {}", modules.join(" and "))]
+    AmbiguousName {
+        name: String,
+        modules: Vec<String>,
+        span: Span,
+    },
+    /// A signature with no definition behind it, either declared in the
+    /// entry file with no matching `fn`/`foreign`, or referenced after
+    /// an import delivered the `pub` signature while the definition
+    /// stayed private.
+    ///
+    /// Calling one used to pass `check` and surface later as a raw
+    /// toolchain error about an undefined symbol.
+    #[error("`{name}` has a signature but no definition")]
+    MissingDefinition { name: String, span: Span },
 }
 
 impl SemError {
@@ -104,6 +128,8 @@ impl SemError {
             SemError::AxtagMismatch { span, .. } => *span,
             SemError::EffectMismatch { span, .. } => *span,
             SemError::PartialApplication { span, .. } => *span,
+            SemError::AmbiguousName { span, .. } => *span,
+            SemError::MissingDefinition { span, .. } => *span,
         }
     }
 
@@ -279,6 +305,24 @@ impl SemError {
                     .with_help(
                         "bind the missing arguments with a lambda: \
                          `(lambda (y) (f x y))` builds the value `(f x)` would mean",
+                    )
+            }
+            SemError::AmbiguousName { name, modules, .. } => {
+                let candidates = modules
+                    .iter()
+                    .map(|m| format!("`{}::{}`", m, name))
+                    .collect::<Vec<_>>()
+                    .join(" or ");
+                Diagnostic::error(&code::AMBIGUOUS_NAME, self.to_string())
+                    .with_primary(span, format!("`{}` could mean more than one definition", name))
+                    .with_help(format!("qualify the reference: {}", candidates))
+            }
+            SemError::MissingDefinition { name, .. } => {
+                Diagnostic::error(&code::MISSING_DEFINITION, self.to_string())
+                    .with_primary(span, format!("no `fn` or `foreign` defines `{}`", name))
+                    .with_help(
+                        "add the definition, or if it lives in another module, \
+                         mark that definition `pub` so the import carries it",
                     )
             }
         }
@@ -851,6 +895,16 @@ pub struct TypeChecker {
     /// `EApp` arm sets it, and it clears it around argument checking,
     /// so every other position reads `false`.
     in_app_head: bool,
+    /// Which modules declare each bare value-namespace name (`fn`,
+    /// `foreign`, or signature), deduped, in merge order; `None` is the
+    /// entry file. Two or more `Some` entries with no `None` is
+    /// [`SemError::AmbiguousName`]: bare-name resolution is entry file
+    /// first, then the *unique* defining module - there is no
+    /// import-versus-import precedence, because any choice would be one
+    /// the other compiler stages could disagree with, and did.
+    fn_defining_modules: std::collections::HashMap<String, Vec<Option<String>>>,
+    /// Same, for data constructors.
+    ctor_defining_modules: std::collections::HashMap<String, Vec<Option<String>>>,
 }
 
 impl Default for TypeChecker {
@@ -859,13 +913,13 @@ impl Default for TypeChecker {
     }
 }
 
-/// Where a name was first defined, and which module it came from.
+/// Where a name was first defined, keyed by `(name, module)`.
 ///
-/// Keyed by name; the `Span` is the first definition's location and the
-/// `Option<String>` its module path, which is what distinguishes a
-/// genuine redefinition from the same name arriving twice through two
-/// import paths.
-type DefinitionTable = std::collections::HashMap<String, (Span, Option<String>)>;
+/// The module is part of the key, not a payload: a redefinition is only
+/// a duplicate *within* one module, and a table keyed by name alone
+/// never recorded the second module's definition at all - so a genuine
+/// duplicate inside that second module was invisible to it.
+type DefinitionTable = std::collections::HashMap<(String, Option<String>), Span>;
 
 impl TypeChecker {
     /// Put every entry of [`PRIMITIVES`] (plus [`PRIM_ADDR`]) in
@@ -940,6 +994,8 @@ impl TypeChecker {
             warnings: Vec::new(),
             type_counter: 0,
             in_app_head: false,
+            fn_defining_modules: std::collections::HashMap::new(),
+            ctor_defining_modules: std::collections::HashMap::new(),
         };
 
         let int_ty = TypeId::TCon("Int".to_string(), vec![]);
@@ -1029,6 +1085,7 @@ impl TypeChecker {
     /// path - they are still printed, just not fatal.
     pub fn check(&mut self, module: &Module) -> Result<(), Vec<SemError>> {
         self.check_duplicate_definitions(&module.decls);
+        self.check_entry_signatures(&module.decls);
         self.collect_declarations(module);
         self.infer_effects(&module.decls);
         self.check_decls(&module.decls);
@@ -1092,16 +1149,21 @@ impl TypeChecker {
                     _ => continue,
                 };
 
-            if let Some((first_span, first_module)) = namespace.get(&name.name) {
-                if module_path == first_module {
-                    self.errors.push(SemError::DuplicateDefinition {
-                        name: name.name.clone(),
-                        span: name.span,
-                        first_span: *first_span,
-                    });
-                }
+            // Keyed by (name, module), not by name: a table that only
+            // remembered the first module's definition never *recorded*
+            // a second module's, so a genuine duplicate inside that
+            // second module escaped detection entirely. Cross-module
+            // same-name declarations remain legal here - a bare
+            // reference to one is the ambiguity check's business.
+            let key = (name.name.clone(), module_path.clone());
+            if let Some(first_span) = namespace.get(&key) {
+                self.errors.push(SemError::DuplicateDefinition {
+                    name: name.name.clone(),
+                    span: name.span,
+                    first_span: *first_span,
+                });
             } else {
-                namespace.insert(name.name.clone(), (name.span, module_path.clone()));
+                namespace.insert(key, name.span);
             }
         }
     }
@@ -1162,7 +1224,93 @@ impl TypeChecker {
         }
     }
 
+    /// A signature in the entry file with no `fn` or `foreign` behind
+    /// it, reported at the signature - the earliest point with the best
+    /// span. Entry file only: an *imported* module can legitimately
+    /// deliver a `pub` signature whose private definition the import
+    /// filtered away, and that case is harmless until used, so it is
+    /// reported at the reference instead (`check_var`,
+    /// `check_app_saturation`). Before this check, calling a
+    /// signature-only name passed `check` and failed in the native
+    /// toolchain as `use of undefined value` - a raw error about
+    /// generated code, with no diagnostic code, for a program the
+    /// compiler had just accepted.
+    fn check_entry_signatures(&mut self, decls: &[Decl]) {
+        use std::collections::HashSet;
+        let defined: HashSet<&str> = decls
+            .iter()
+            .filter_map(|d| match d {
+                Decl::DFn {
+                    name,
+                    module_path: None,
+                    ..
+                }
+                | Decl::DForeign {
+                    name,
+                    module_path: None,
+                    ..
+                } => Some(name.name.as_str()),
+                _ => None,
+            })
+            .collect();
+        for d in decls {
+            if let Decl::DSig {
+                name,
+                module_path: None,
+                ..
+            } = d
+            {
+                if !defined.contains(name.name.as_str()) {
+                    self.errors.push(SemError::MissingDefinition {
+                        name: name.name.clone(),
+                        span: name.span,
+                    });
+                }
+            }
+        }
+    }
+
     fn collect_declarations(&mut self, module: &Module) {
+        // First pass: who declares each bare name. This is the map the
+        // ambiguity check reads, and it must be complete before any
+        // body is checked, so it cannot ride along in the main walk.
+        for decl in &module.decls {
+            match decl {
+                Decl::DSig {
+                    name, module_path, ..
+                }
+                | Decl::DFn {
+                    name, module_path, ..
+                }
+                | Decl::DForeign {
+                    name, module_path, ..
+                } => {
+                    let mods = self
+                        .fn_defining_modules
+                        .entry(name.name.clone())
+                        .or_default();
+                    if !mods.contains(module_path) {
+                        mods.push(module_path.clone());
+                    }
+                }
+                Decl::DData {
+                    constructors,
+                    module_path,
+                    ..
+                } => {
+                    for con in constructors {
+                        let mods = self
+                            .ctor_defining_modules
+                            .entry(con.name.name.clone())
+                            .or_default();
+                        if !mods.contains(module_path) {
+                            mods.push(module_path.clone());
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
         for decl in &module.decls {
             match decl {
                 Decl::DData {
@@ -2084,6 +2232,12 @@ impl TypeChecker {
                 if self.is_frame_local(ident) {
                     return false;
                 }
+                // An ambiguous head is `check_var`'s report (it fires
+                // in head position too); there is no arity to measure
+                // against until the name means one thing.
+                if self.ambiguous_modules(&ident.name).is_some() {
+                    return false;
+                }
                 (ident.name.clone(), None, ident.span)
             }
             Expr::EQualified(path, ident) => {
@@ -2107,7 +2261,7 @@ impl TypeChecker {
         // collision is a separate, older question - see B4 - but the
         // diagnostic must at minimum be consistent with the type
         // checker.)
-        let fn_arity = self
+        let head_fn = self
             .functions
             .iter()
             .rev()
@@ -2118,7 +2272,25 @@ impl TypeChecker {
                         None => true,
                     }
             })
-            .and_then(Self::representation_arity);
+            .map(|f| {
+                let sig_only = f.module.is_some()
+                    && f.param_count.is_none()
+                    && !f.is_builtin
+                    && f.foreign_symbol.is_none();
+                (sig_only, Self::representation_arity(f))
+            });
+        // Calling an imported signature whose definition stayed
+        // private: nothing exists to run. Reported here, at the call,
+        // because the exporting module is internally fine and an
+        // unused import of it is harmless.
+        if let Some((true, _)) = head_fn {
+            self.errors.push(SemError::MissingDefinition {
+                name,
+                span: expr.span(),
+            });
+            return true;
+        }
+        let fn_arity = head_fn.and_then(|(_, a)| a);
         if let Some(expected) = fn_arity {
             if found < expected {
                 self.errors.push(SemError::PartialApplication {
@@ -2171,7 +2343,40 @@ impl TypeChecker {
             .any(|(n, s, _)| n == &ident.name && *s == ident.scope)
     }
 
+    /// The modules a bare name would be ambiguous between: two or more
+    /// imported definitions with no entry-file definition to win.
+    /// `None` when the name is unambiguous (entry-defined, uniquely
+    /// defined, or not defined at all).
+    fn ambiguous_modules(&self, name: &str) -> Option<Vec<String>> {
+        let of = |map: &std::collections::HashMap<String, Vec<Option<String>>>| {
+            map.get(name).and_then(|mods| {
+                if mods.len() >= 2 && mods.iter().all(|m| m.is_some()) {
+                    Some(mods.iter().flatten().cloned().collect::<Vec<String>>())
+                } else {
+                    None
+                }
+            })
+        };
+        of(&self.fn_defining_modules).or_else(|| of(&self.ctor_defining_modules))
+    }
+
     fn check_var(&mut self, ident: &Ident) -> TypeId {
+        // A bare name defined by two or more imported modules and not
+        // by the entry file has no principled winner - and the stages
+        // downstream of this one would not all pick the same one.
+        // Refused in every position, head or value; `Mod::name` picks
+        // explicitly.
+        if !self.is_frame_local(ident) {
+            if let Some(modules) = self.ambiguous_modules(&ident.name) {
+                self.errors.push(SemError::AmbiguousName {
+                    name: ident.name.clone(),
+                    modules,
+                    span: ident.span,
+                });
+                return TypeId::TError;
+            }
+        }
+
         // A bare reference to a multi-parameter function, outside head
         // position, builds a value that can only ever be applied one
         // argument at a time - and a call site has no way to supply a
@@ -2234,18 +2439,53 @@ impl TypeChecker {
             }
         }
 
-        for fn_info in &self.functions {
-            if fn_info.name == ident.name {
-                return fn_info.ty.clone();
+        // Entry-file definition first, then the (unique, after the
+        // ambiguity check above) imported one. A plain first-match here
+        // returned the *import's* type for an entry-shadowed name while
+        // codegen called the entry's symbol - the checker and the
+        // binary disagreeing about which function a name means.
+        let resolved = self
+            .functions
+            .iter()
+            .find(|f| f.name == ident.name && f.module.is_none())
+            .or_else(|| self.functions.iter().find(|f| f.name == ident.name))
+            .map(|f| {
+                // An import can deliver a `pub` signature whose
+                // definition stayed private: the name resolves, and
+                // nothing exists to run. The entry file's own
+                // signature-only case is reported once, at the
+                // signature (see `check_entry_signatures`).
+                let sig_only = f.module.is_some()
+                    && f.param_count.is_none()
+                    && !f.is_builtin
+                    && f.foreign_symbol.is_none();
+                (sig_only, f.ty.clone())
+            });
+        if let Some((sig_only, ty)) = resolved {
+            if sig_only {
+                self.errors.push(SemError::MissingDefinition {
+                    name: ident.name.clone(),
+                    span: ident.span,
+                });
+                return TypeId::TError;
             }
+            return ty;
         }
 
-        for data_type in &self.data_types {
-            for con in &data_type.constructors {
-                if con.name == ident.name {
-                    return con.ty.clone();
-                }
-            }
+        let resolved_con = self
+            .data_types
+            .iter()
+            .filter(|dt| dt.module.is_none())
+            .flat_map(|dt| dt.constructors.iter())
+            .find(|con| con.name == ident.name)
+            .or_else(|| {
+                self.data_types
+                    .iter()
+                    .flat_map(|dt| dt.constructors.iter())
+                    .find(|con| con.name == ident.name)
+            });
+        if let Some(con) = resolved_con {
+            return con.ty.clone();
         }
 
         let suggestion = suggest_closest(
@@ -3280,6 +3520,25 @@ mod tests {
 (fn main (let ((f On)) 0))"#,
         )
         .expect("a bare nullary constructor constructs");
+    }
+
+    #[test]
+    fn an_entry_signature_without_a_definition_is_an_error() {
+        // Calling one used to pass `check` and die in `opt` as
+        // `use of undefined value '@ghost'` - a raw toolchain error
+        // for a program the compiler had accepted. Reported at the
+        // signature, called or not: the declaration is a promise the
+        // file never keeps.
+        let errors = check_err(
+            r#"(:: ghost (-> Int Int Int))
+(:: main Int)
+(fn main 0)"#,
+        );
+        let err = errors
+            .iter()
+            .find(|e| matches!(e, SemError::MissingDefinition { name, .. } if name == "ghost"))
+            .expect("expected MissingDefinition");
+        assert_eq!(err.to_diagnostic().code.unwrap().code, "AX3015");
     }
 
     #[test]

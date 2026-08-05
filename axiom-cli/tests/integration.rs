@@ -135,6 +135,88 @@ fn an_entry_fn_shadowing_an_imported_fn_is_not_partial_application() {
     );
 }
 
+/// A bare reference to a name two imports define, with no entry-file
+/// definition: before AX3014 the type checker bound one module's
+/// definition while codegen called the other's, so the same program
+/// could pass `check` against a 2-parameter signature and run a
+/// 3-parameter function. The qualified spellings stay legal and both
+/// bodies stay reachable.
+#[test]
+fn an_ambiguous_bare_name_is_refused_and_qualification_resolves_it() {
+    let dir = scratch_dir("check-ambiguous-name");
+    write_source(
+        &dir,
+        "ModA.ax",
+        "(pub :: pick (-> Int Int))\n(pub fn (pick x) (+ x 1))\n",
+    );
+    write_source(
+        &dir,
+        "ModB.ax",
+        "(pub :: pick (-> Int Int))\n(pub fn (pick x) (+ x 2))\n",
+    );
+    write_source(
+        &dir,
+        "main.ax",
+        "(import ModA)\n(import ModB)\n(:: main Int)\n(fn main (pick 10))\n",
+    );
+    let out = run_axiom(&["--diagnostic-format=ai", "check", "main.ax"], &dir);
+    assert!(!out.status.success());
+    let err = stderr(&out);
+    assert!(err.contains("AX3014"), "stderr: {}", err);
+    assert!(
+        err.contains("ModA") && err.contains("ModB"),
+        "candidates not named: {}",
+        err
+    );
+
+    write_source(
+        &dir,
+        "qualified.ax",
+        "(import ModA)\n(import ModB)\n(:: main Int)\n\
+         (fn main (+ (ModA::pick 10) (ModB::pick 100)))\n",
+    );
+    let out = run_axiom(&["--diagnostic-format=ai", "check", "qualified.ax"], &dir);
+    assert!(
+        out.status.success(),
+        "qualified access must stay legal: {}",
+        stderr(&out)
+    );
+}
+
+/// An import delivers a `pub` signature whose definition stayed
+/// private. The exporting module is internally fine and an unused
+/// import is harmless, so the error fires at the reference - where it
+/// used to be a raw `opt: use of undefined value` toolchain leak.
+#[test]
+fn an_imported_signature_with_a_private_definition_errors_at_use() {
+    let dir = scratch_dir("check-private-definition");
+    write_source(
+        &dir,
+        "ModP.ax",
+        "(pub :: hidden (-> Int Int))\n(fn (hidden x) (+ x 1))\n",
+    );
+    write_source(
+        &dir,
+        "unused.ax",
+        "(import ModP)\n(:: main Int)\n(fn main 7)\n",
+    );
+    let out = run_axiom(&["--diagnostic-format=ai", "check", "unused.ax"], &dir);
+    assert!(
+        out.status.success(),
+        "an unused import of a private-definition module is harmless: {}",
+        stderr(&out)
+    );
+
+    write_source(
+        &dir,
+        "used.ax",
+        "(import ModP)\n(:: main Int)\n(fn main (hidden 5))\n",
+    );
+    let out = run_axiom(&["--diagnostic-format=ai", "check", "used.ax"], &dir);
+    assert!(!out.status.success());
+    assert!(stderr(&out).contains("AX3015"), "stderr: {}", stderr(&out));
+}
+
 /// Qualified constructor forms take the same expression-site arity
 /// rules as bare ones: `(Mod::MkP 1)` for a 2-field constructor, and
 /// bare `Mod::MkP`, both used to pass `check` and die in `opt` as
