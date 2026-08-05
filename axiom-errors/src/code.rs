@@ -225,6 +225,27 @@ registry! {
          would need and lambdas already have. Saturated calls, calls with\n\
          *extra* arguments applied to a returned function value, and\n\
          one-parameter functions used as values are all unaffected."),
+    UNKNOWN_EFFECT => ("AX3016", "unknown-effect",
+        "a handle list names an effect that is not declared",
+        "The effects a `handle` expression may name are the built-ins\n\
+         (`IO`, `Alloc`, `Mut`, `Div`) and effects introduced by an\n\
+         `(effect Name (op :: sig) ...)` declaration in scope. This name\n\
+         is neither, so the handle could never intercept or scope\n\
+         anything - before this diagnostic it was accepted silently and\n\
+         did nothing.\n\
+         \n\
+         Declare the effect, import the module that declares it, or fix\n\
+         the spelling."),
+    EFFECT_HANDLER_UNSUPPORTED => ("AX3017", "effect-handler-unsupported",
+        "an effect-handler shape the compiler does not support yet",
+        "Dynamic handlers currently support exactly one custom effect per\n\
+         `handle` expression, and only effects that declare exactly one\n\
+         operation; an effect operation is callable but cannot be used as\n\
+         a bare value (there is no closure representation for dynamic\n\
+         dispatch). Nest `handle` expressions to install handlers for\n\
+         several effects at once, and split multi-operation effects into\n\
+         one effect per operation until per-operation handler syntax\n\
+         exists."),
 
     // ---- AX4xxx: lowering / codegen / toolchain ----
     MISSING_MAIN => ("AX4001", "missing-main",

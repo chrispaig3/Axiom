@@ -650,9 +650,9 @@
           }
         ]
       },
-      "parameter": {
-        "multiple": true,
-        "required": false,
+      "type": {
+        "multiple": false,
+        "required": true,
         "types": [
           {
             "type": "_type",

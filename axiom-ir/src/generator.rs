@@ -1,4 +1,6 @@
-use crate::{FloatOp, IrBlock, IrConst, IrFunction, IrInst, IrModule, IrStruct, IrValue, TypeId};
+use crate::{
+    FloatOp, IrBlock, IrConst, IrFunction, IrGlobal, IrInst, IrModule, IrStruct, IrValue, TypeId,
+};
 use axiom_ast::ast::*;
 use axiom_ast::span::{Ident, Span};
 use axiom_sema::TypeChecker;
@@ -40,6 +42,11 @@ pub struct IrGen {
     /// site whose type mixes both representations reads the tag through
     /// that comparison (see [`IrGen::gen_conditional_tag_read`]).
     nullary_tags: HashSet<i64>,
+    /// Evidence-slot globals this module needs: one per effect whose
+    /// operations are called or whose handlers are installed anywhere
+    /// in the program. A `BTreeSet` so the emitted global order is
+    /// deterministic - `check-reproducible` diffs the LLVM text.
+    effect_slots: std::collections::BTreeSet<String>,
     /// Every constructor tag — nullary or not — of a `data` type that
     /// mixes representations: at least one unboxed nullary constructor
     /// and at least one with fields. Membership is per *type* (all of a
@@ -296,8 +303,13 @@ fn collect_free(expr: &Expr, bound: &mut HashSet<String>, out: &mut Vec<String>)
             collect_free(inner, bound, out);
         }
         Expr::ESizeof(_, _) | Expr::EAlignof(_, _) => {}
-        Expr::EHandle(inner, _, _) => {
+        Expr::EHandle(inner, _, handler) => {
+            // The handler is evaluated (and installed) at runtime, so
+            // a lambda closing over a `handle` must capture the
+            // handler's free variables too - skipping it was harmless
+            // only while lowering discarded the handler entirely.
             collect_free(inner, bound, out);
+            collect_free(handler, bound, out);
         }
         Expr::EField(inner, _) => {
             collect_free(inner, bound, out);
@@ -382,6 +394,7 @@ impl IrGen {
             current_block: None,
             entry_block: None,
             nullary_tags: HashSet::new(),
+            effect_slots: std::collections::BTreeSet::new(),
             mixed_rep_tags: HashSet::new(),
             nullary_fns: HashSet::new(),
             all_fns: HashSet::new(),
@@ -609,6 +622,21 @@ impl IrGen {
             }
         }
 
+        // One mutable global per effect the program touches: the
+        // evidence slot, zero-initialized ("no handler installed").
+        // These are the compiler's first mutable `IrGlobal`s, and the
+        // GC marks each installed chain as a root - a handler closure
+        // whose only reference is the slot must survive collection.
+        let i64_ty = TypeId::TCon("I64".to_string(), vec![]);
+        for slot in std::mem::take(&mut self.effect_slots) {
+            self.module.globals.push(IrGlobal {
+                name: slot,
+                ty: i64_ty.clone(),
+                value: IrConst::Int(0, i64_ty.clone()),
+                is_const: false,
+            });
+        }
+
         std::mem::take(&mut self.module)
     }
 
@@ -825,19 +853,14 @@ impl IrGen {
                 }
                 args.reverse();
                 let (name, callee_key) = match cur {
-                    Expr::EVar(ident) => {
-                        (ident.name.clone(), self.mangled_name_for(&ident.name))
-                    }
+                    Expr::EVar(ident) => (ident.name.clone(), self.mangled_name_for(&ident.name)),
                     Expr::EQualified(path, ident) => {
                         let module = path
                             .iter()
                             .map(|i| i.name.as_str())
                             .collect::<Vec<_>>()
                             .join(".");
-                        (
-                            ident.name.clone(),
-                            format!("{}${}", module, ident.name),
-                        )
+                        (ident.name.clone(), format!("{}${}", module, ident.name))
                     }
                     _ => return false,
                 };
@@ -1173,6 +1196,123 @@ impl IrGen {
             current = IrValue::Local(result);
         }
         current
+    }
+
+    /// The mutable global holding the innermost evidence record for
+    /// one declared effect: `0` when no handler is installed, else the
+    /// address of a two-word record `{handler_closure, previous_record}`.
+    fn effect_slot_name(effect: &str, module: &Option<String>) -> String {
+        format!("__axiom_ev_{}", Self::mangle_name(effect, module))
+    }
+
+    /// One effect-operation call: dynamic dispatch through the
+    /// evidence chain.
+    ///
+    /// The handler runs under the evidence in scope at its
+    /// *installation*: the previous record is installed for the
+    /// duration of the call, so an operation the handler itself
+    /// performs dispatches outward to the next handler instead of
+    /// recursing into the same one - which is also what the effect
+    /// system's static attribution asserts, since a handler's own
+    /// effects propagate past its own `handle`.
+    ///
+    /// No handler installed is a trap, not a zero: `(log "x")` with no
+    /// `handle` in dynamic extent exits through
+    /// `__axiom_unhandled_effect` (code 71) rather than continuing on
+    /// a garbage result.
+    fn gen_effect_op_call(
+        &mut self,
+        func: &mut IrFunction,
+        effect: &str,
+        module: &Option<String>,
+        args: Vec<IrValue>,
+    ) -> IrValue {
+        let slot = Self::effect_slot_name(effect, module);
+        self.effect_slots.insert(slot.clone());
+        let i64_ty = TypeId::TCon("I64".to_string(), vec![]);
+
+        let rec = self.new_local();
+        self.emit_to_func(
+            func,
+            IrInst::Load {
+                dest: IrValue::Local(rec.clone()),
+                ptr: IrValue::Global(slot.clone()),
+            },
+        );
+        let missing = self.new_local();
+        self.emit_to_func(
+            func,
+            IrInst::Eq {
+                dest: IrValue::Local(missing.clone()),
+                lhs: IrValue::Local(rec.clone()),
+                rhs: IrValue::Const(IrConst::Int(0, i64_ty.clone())),
+            },
+        );
+        let trap_label = self.new_block_label();
+        let go_label = self.new_block_label();
+        self.emit_to_func(
+            func,
+            IrInst::CondBr {
+                cond: IrValue::Local(missing),
+                then_target: trap_label.clone(),
+                else_target: go_label.clone(),
+            },
+        );
+        func.blocks.push(IrBlock {
+            label: trap_label.clone(),
+            insts: Vec::new(),
+        });
+        self.current_block = Some(trap_label);
+        let dead = self.new_local();
+        self.emit_to_func(
+            func,
+            IrInst::Call {
+                dest: IrValue::Local(dead),
+                func: "__axiom_unhandled_effect".to_string(),
+                args: vec![],
+            },
+        );
+        self.emit_to_func(func, IrInst::Unreachable);
+        func.blocks.push(IrBlock {
+            label: go_label.clone(),
+            insts: Vec::new(),
+        });
+        self.current_block = Some(go_label);
+
+        let handler = self.new_local();
+        self.emit_to_func(
+            func,
+            IrInst::LoadOffset {
+                dest: IrValue::Local(handler.clone()),
+                ptr: IrValue::Local(rec.clone()),
+                offset: 0,
+            },
+        );
+        let prev = self.new_local();
+        self.emit_to_func(
+            func,
+            IrInst::LoadOffset {
+                dest: IrValue::Local(prev.clone()),
+                ptr: IrValue::Local(rec.clone()),
+                offset: 8,
+            },
+        );
+        self.emit_to_func(
+            func,
+            IrInst::Store {
+                ptr: IrValue::Global(slot.clone()),
+                value: IrValue::Local(prev),
+            },
+        );
+        let result = self.gen_over_apply(func, IrValue::Local(handler), args);
+        self.emit_to_func(
+            func,
+            IrInst::Store {
+                ptr: IrValue::Global(slot),
+                value: IrValue::Local(rec),
+            },
+        );
+        result
     }
 
     fn gen_construct(&mut self, func: &mut IrFunction, tag: i64, args: Vec<IrValue>) -> IrValue {
@@ -2259,6 +2399,42 @@ impl IrGen {
                     unreachable!("non-name heads take the function-value path above");
                 }
 
+                // An effect operation is not a function to call by
+                // symbol: it dispatches through the innermost
+                // installed handler. Resolved with the same rules as
+                // the type checker so the two stages cannot disagree
+                // about what a name means.
+                let op_effect = match current {
+                    // A local binding shadows an operation name for
+                    // sema, so it must here too: the alloca map holds
+                    // every parameter and `let` binding of this
+                    // function, and a name it knows is a function
+                    // *value*, dispatched indirectly below - not an
+                    // operation.
+                    Expr::EVar(ident) if alloca_map.contains_key(&ident.name) => None,
+                    Expr::EQualified(path, ident) => {
+                        let module = path
+                            .iter()
+                            .map(|i| i.name.as_str())
+                            .collect::<Vec<_>>()
+                            .join(".");
+                        type_checker
+                            .functions
+                            .iter()
+                            .find(|f| f.name == ident.name && f.module.as_deref() == Some(&module))
+                            .filter(|f| f.effect_op.is_some())
+                            .map(|f| (f.effect_op.clone().unwrap().0, f.module.clone()))
+                    }
+                    Expr::EVar(ident) => type_checker
+                        .resolve_bare_fn(&ident.name)
+                        .filter(|f| f.effect_op.is_some())
+                        .map(|f| (f.effect_op.clone().unwrap().0, f.module.clone())),
+                    _ => None,
+                };
+                if let Some((effect, module)) = op_effect {
+                    return self.gen_effect_op_call(func, &effect, &module, all_args);
+                }
+
                 let dest = self.new_local();
 
                 if all_args.len() == 2 {
@@ -2485,11 +2661,10 @@ impl IrGen {
                         // inner closure's address instead of running it.
                         let first = all_args[0].clone();
                         let rest: Vec<IrValue> = all_args[1..].to_vec();
-                        let boxed_args: Vec<IrValue> =
-                            [IrValue::Local(closure_val), first]
-                                .iter()
-                                .map(|a| self.box_if_tag(func, a))
-                                .collect();
+                        let boxed_args: Vec<IrValue> = [IrValue::Local(closure_val), first]
+                            .iter()
+                            .map(|a| self.box_if_tag(func, a))
+                            .collect();
                         self.emit_to_func(
                             func,
                             IrInst::CallIndirect {
@@ -3391,9 +3566,99 @@ impl IrGen {
                 }
                 IrValue::Local(ptr_local)
             }
-            Expr::EHandle(body, _, handler) => {
-                let _ = handler;
-                self.gen_expr_to_func_with_allocas(func, body, alloca_map, type_checker, None)
+            Expr::EHandle(body, handled, handler) => {
+                // A handle whose list names a declared effect installs
+                // its handler for the body's dynamic extent: evidence
+                // records chain through word 1, the slot holds the
+                // innermost, and entry/exit is a push/pop. A
+                // builtin-only list stays what it always was - a
+                // static effect scope that lowers to its body, handler
+                // unevaluated.
+                let dynamic = handled.iter().find_map(|e| match e {
+                    // Resolved with the same entry-first rule sema
+                    // used; a first-match lookup here keyed the slot
+                    // by whichever same-named declaration registered
+                    // first, while the operation dispatched through
+                    // its own module's slot - installed handler,
+                    // trapping op.
+                    axiom_ast::ast::Effect::Custom(id) => type_checker
+                        .resolve_effect_decl(&id.name)
+                        .ok()
+                        .flatten()
+                        .map(|d| (d.name.clone(), d.module.clone())),
+                    _ => None,
+                });
+                let Some((effect, emodule)) = dynamic else {
+                    return self.gen_expr_to_func_with_allocas(
+                        func,
+                        body,
+                        alloca_map,
+                        type_checker,
+                        None,
+                    );
+                };
+                let slot = Self::effect_slot_name(&effect, &emodule);
+                self.effect_slots.insert(slot.clone());
+                let i64_ty = TypeId::TCon("I64".to_string(), vec![]);
+
+                let hval = self.gen_expr_to_func_with_allocas(
+                    func,
+                    handler,
+                    alloca_map,
+                    type_checker,
+                    None,
+                );
+                let rec = self.new_local();
+                self.emit_to_func(
+                    func,
+                    IrInst::HeapAlloc {
+                        dest: IrValue::Local(rec.clone()),
+                        size: IrValue::Const(IrConst::Int(16, i64_ty.clone())),
+                    },
+                );
+                self.emit_to_func(
+                    func,
+                    IrInst::StoreOffset {
+                        ptr: IrValue::Local(rec.clone()),
+                        offset: 0,
+                        value: hval,
+                    },
+                );
+                let old = self.new_local();
+                self.emit_to_func(
+                    func,
+                    IrInst::Load {
+                        dest: IrValue::Local(old.clone()),
+                        ptr: IrValue::Global(slot.clone()),
+                    },
+                );
+                self.emit_to_func(
+                    func,
+                    IrInst::StoreOffset {
+                        ptr: IrValue::Local(rec.clone()),
+                        offset: 8,
+                        value: IrValue::Local(old.clone()),
+                    },
+                );
+                self.emit_to_func(
+                    func,
+                    IrInst::Store {
+                        ptr: IrValue::Global(slot.clone()),
+                        value: IrValue::Local(rec),
+                    },
+                );
+                // The body is deliberately not in tail position: the
+                // restore below must run after it.
+                let result =
+                    self.gen_expr_to_func_with_allocas(func, body, alloca_map, type_checker, None);
+                self.emit_to_func(
+                    func,
+                    IrInst::Store {
+                        ptr: IrValue::Global(slot),
+                        value: IrValue::Local(old),
+                    },
+                );
+                result
             }
             Expr::EConsume(e) => {
                 self.gen_expr_to_func_with_allocas(func, e, alloca_map, type_checker, None)

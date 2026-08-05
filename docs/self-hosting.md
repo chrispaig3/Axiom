@@ -737,12 +737,56 @@ with the same resolution rules as everything else, `EQualified` stops
 discarding its qualifier, and `symbols` emits the *inferred* effect
 set (`#effects=io`) beside whatever the tags claim - it used to print
 `#pure` on a function in the same invocation that warned the
-function's body performs I/O. Still recorded open: effects of a
-function value called through a parameter are invisible (a
-higher-order function's callback contributes nothing - honest
-effect-polymorphism is a design of its own), and `handle`'s handler
-is discarded at lowering, so it is a static effect-scoping construct
-today, not interception.
+function's body performs I/O.
+
+Both of that paragraph's recorded-open items have since landed, and
+each was redesigned once by its own adversarial review before a line
+shipped. Effect polymorphism: a function's summary now carries
+*effect-transparent parameter* marks beside its concrete effects - a
+call through a parameter (or a `let` alias of one, or passing it on
+to another function's marked position) marks the parameter, call
+sites instantiate marks with the argument actually passed, and
+`symbols` prints `#effect-params=f` on `apply` where it used to imply
+plain purity. Claims validate against the concrete half only
+("`pure` modulo callbacks"), except that a claimed effect no
+declaration introduces warns regardless - nothing could supply it.
+The review also surfaced two latent collector bugs the tests now pin:
+`EIf` never walked its *condition* (a syscall in an `if` condition
+vanished from the inferred set), and the mid-recursion `AX3011` check
+had no lexical context, so a local shadowing an effectful top-level
+name drew a build-failing error the fixpoint's own walk of the same
+body contradicted. Reference-site attribution stays as the soundness
+net; the honest residue is invocation of function values that arrive
+through returns or structure loads, and higher-rank flows.
+
+Dynamic handles: `(effect Console (log :: ...))` now registers, its
+operations are callable names carrying `Custom(Console)` as their
+inherent effect, and `handle` with a declared effect in its list
+installs the handler for the body's dynamic extent - shallow
+evidence-passing, tail-resumptive only. Evidence is a per-effect
+mutable global holding a heap-allocated `{handler, previous}` record;
+dispatch installs `previous` while the handler runs, so a handler
+performing its own effect dispatches outward instead of looping - the
+naive lowering re-entered itself forever, and the review caught that
+the static attribution (a handler's effects pass its own `handle`)
+had already committed to outward dispatch. An unhandled operation
+traps with exit code 71 (70 belongs to the allocators' OOM path). The
+evidence globals are the program's first mutable globals, which made
+them the GC's first global roots - `gc.rs` had documented "no global
+root set" as a fact the collector's soundness rested on, and the
+`--gc` integration test churns two hundred thousand allocations under
+an installed handler to pin the marking. Multi-argument operations
+take curried handler chains (a flat lambda is tuple-typed and
+refused); one custom effect per `handle`, single-operation effects
+only, unknown effect names are `AX3016`, the rest of the v1 fence is
+`AX3017`. The review's blocker was humbler than any of that: the
+documented `(effect ...)` surface form did not parse - the grammar
+demanded a wrapper list the docs never showed, the formatter emitted
+the docs' form, and tree-sitter accepted a third shape with no `::`
+at all. Parser, formatter, and grammar now agree on the documented
+flat form, and the fmt zoo and tree-sitter corpus both carry effect
+declarations so the three cannot drift apart silently again. Stage1
+parses neither form yet - recorded here as the standing parity gap.
 
 Struct field access works: `p.x` resolves the field by name in the
 struct registry and loads at its word offset, chains fold left, and

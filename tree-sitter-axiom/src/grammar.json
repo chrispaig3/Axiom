@@ -1464,14 +1464,15 @@
           }
         },
         {
-          "type": "REPEAT",
+          "type": "STRING",
+          "value": "::"
+        },
+        {
+          "type": "FIELD",
+          "name": "type",
           "content": {
-            "type": "FIELD",
-            "name": "parameter",
-            "content": {
-              "type": "SYMBOL",
-              "name": "_type"
-            }
+            "type": "SYMBOL",
+            "name": "_type"
           }
         },
         {

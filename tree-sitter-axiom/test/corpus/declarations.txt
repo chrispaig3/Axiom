@@ -207,3 +207,21 @@ struct variant: named constructor fields and a punned pattern
           field: (field_pattern
             name: (identifier)))
         body: (identifier)))))
+
+================================================================================
+Effect declaration with a typed operation
+================================================================================
+
+(effect Console
+  (log :: (-> String Int)))
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (effect_declaration
+    name: (identifier)
+    operation: (effect_operation
+      name: (identifier)
+      type: (function_type
+        operand: (builtin_type)
+        operand: (builtin_type)))))

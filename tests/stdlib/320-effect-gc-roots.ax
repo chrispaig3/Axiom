@@ -1,0 +1,38 @@
+; A handler chain's only reference is the evidence slot - a mutable
+; global the conservative collector's stack-and-registers root scan
+; cannot see. This program answers the same under either allocator;
+; what it detects is a collector that fails to treat evidence slots as
+; roots, which frees the installed handler closure during the churn and
+; corrupts the dispatch after it. The `--gc` run lives in the CLI
+; integration tests (the golden harness compiles with the default
+; allocator).
+(import IO)
+(import Vec)
+
+(effect Console
+  (log :: (-> String Int)))
+
+(:: churn (-> Int Int))
+(fn (churn n)
+  (if (== n 0)
+      0
+      (let ((v (vecNew)))
+        {
+          (vecPush v 1)
+          (vecPush v 2)
+          (churn (- n 1))
+        })))
+
+(:: main Int)
+(fn (main)
+  {
+    (handle
+      {
+        (churn 200000)
+        (log "still alive")
+        0
+      }
+      (Console IO Alloc)
+      (lambda (s) { (println s) 0 }))
+    0
+  })

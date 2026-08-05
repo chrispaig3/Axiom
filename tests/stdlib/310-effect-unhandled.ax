@@ -1,0 +1,19 @@
+; An effect operation performed with no handler in dynamic extent is a
+; trap, not a garbage dispatch: the program exits 71 (the allocators'
+; out-of-memory path owns 70) before the operation could "return" a
+; value nothing produced. The handle around `covered` proves the trap
+; really is about dynamic extent: the same operation, one line earlier,
+; dispatched fine and printed nothing.
+(effect Console
+  (log :: (-> String Int)))
+
+(:: covered (-> Int Int))
+(fn (covered n)
+  (handle (log "handled fine") (Console) (lambda (s) 0)))
+
+(:: main Int)
+(fn (main)
+  {
+    (covered 1)
+    (log "nobody home")
+  })

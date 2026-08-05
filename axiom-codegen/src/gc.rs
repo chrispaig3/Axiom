@@ -89,6 +89,11 @@ pub struct GcEmitter {
     out: String,
     n: u64,
     target: Target,
+    /// Mutable globals to mark from during the root phase, beyond the
+    /// machine stack and registers. Today these are the effect
+    /// evidence slots: an installed handler chain's only reference is
+    /// its slot, so a collector blind to them frees a live handler.
+    global_roots: Vec<String>,
 }
 
 impl GcEmitter {
@@ -97,7 +102,13 @@ impl GcEmitter {
             out: String::new(),
             n: 0,
             target,
+            global_roots: Vec::new(),
         }
+    }
+
+    pub fn with_global_roots(mut self, roots: Vec<String>) -> Self {
+        self.global_roots = roots;
+        self
     }
 
     fn r(&mut self) -> String {
@@ -970,6 +981,16 @@ impl GcEmitter {
             spb, spc
         ));
         self.l("  call void @__axiom_gc_scan_range(i64 %sp, i64 %sb)");
+        for (i, root) in std::mem::take(&mut self.global_roots)
+            .into_iter()
+            .enumerate()
+        {
+            self.lf(format_args!("  %root{} = load i64, ptr @{}", i, root));
+            self.lf(format_args!(
+                "  call void @__axiom_gc_mark_word(i64 %root{})",
+                i
+            ));
+        }
         self.l("  call void @__axiom_gc_drain()");
         self.l("  %ov = load i64, ptr @__axiom_gc_overflow");
         self.l("  %lost = icmp ne i64 %ov, 0");

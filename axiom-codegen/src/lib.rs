@@ -197,17 +197,33 @@ impl LlvmCodeGen {
         // in the standard library), which would otherwise be a
         // duplicate symbol.
         let alloc_defined_in_axiom = ir_module.functions.iter().any(|f| f.name == ALLOC_SYMBOL);
+        // Effect evidence slots are mutable globals holding the only
+        // reference to an installed handler chain; a collector that
+        // does not treat them as roots frees a handler while it is
+        // installed. They are collected here so the GC emission below
+        // can mark through them.
+        let evidence_slots: Vec<String> = ir_module
+            .globals
+            .iter()
+            .filter(|g| g.name.starts_with("__axiom_ev_"))
+            .map(|g| g.name.clone())
+            .collect();
         if !alloc_defined_in_axiom {
             if self.gc {
                 writeln!(self.output, "declare ptr @llvm.frameaddress.p0(i32)").unwrap();
                 writeln!(self.output).unwrap();
-                let text = crate::gc::GcEmitter::new(self.target).emit();
+                let text = crate::gc::GcEmitter::new(self.target)
+                    .with_global_roots(evidence_slots.clone())
+                    .emit();
                 self.output.push_str(&text);
             } else {
                 self.emit_bump_allocator();
             }
         }
         self.gc_active = self.gc && !alloc_defined_in_axiom;
+        if !evidence_slots.is_empty() {
+            self.emit_unhandled_effect_trap();
+        }
 
         // The process's arguments, captured once by the entry wrapper
         // below and read back by the `__argc`/`__argv` primitives. The
@@ -227,11 +243,7 @@ impl LlvmCodeGen {
             writeln!(self.output, "entry:").unwrap();
             writeln!(self.output, "  store i64 %argc, ptr @__axiom_argc").unwrap();
             writeln!(self.output, "  store i64 %argv, ptr @__axiom_argv").unwrap();
-            writeln!(
-                self.output,
-                "  %r = call i64 @__axiom_user_main(i64 0)"
-            )
-            .unwrap();
+            writeln!(self.output, "  %r = call i64 @__axiom_user_main(i64 0)").unwrap();
             writeln!(self.output, "  ret i64 %r").unwrap();
             writeln!(self.output, "}}").unwrap();
             writeln!(self.output).unwrap();
@@ -321,7 +333,16 @@ impl LlvmCodeGen {
             "global"
         };
 
-        writeln!(self.output, "@{} = {} {}", global.name, const_str, value,).unwrap();
+        // `internal`: nothing outside the one emitted module ever
+        // links against an Axiom global. (Evidence slots are the
+        // first globals to actually flow through here - string
+        // literals take their own path.)
+        writeln!(
+            self.output,
+            "@{} = internal {} {}",
+            global.name, const_str, value,
+        )
+        .unwrap();
     }
 
     fn define_function(&mut self, ir_func: &IrFunction) -> Result<(), String> {
@@ -1546,6 +1567,28 @@ impl LlvmCodeGen {
     /// after one run, and it is deliberately overridable - defining
     /// `axiom_alloc` in Axiom replaces it wholesale (see
     /// [`ALLOC_SYMBOL`]).
+    /// The unhandled-effect trap: an effect operation performed with
+    /// no handler in dynamic extent calls this instead of continuing
+    /// on a garbage dispatch. Exit code 71, distinct from the
+    /// allocators' out-of-memory 70, so a golden test's `.exit` file
+    /// can tell the two apart.
+    fn emit_unhandled_effect_trap(&mut self) {
+        let (body, constraints) = self.target.syscall_asm();
+        let exit = self.target.sys_exit();
+        let out = &mut self.output;
+        writeln!(out, "define internal i64 @__axiom_unhandled_effect() {{").unwrap();
+        writeln!(out, "entry:").unwrap();
+        writeln!(
+            out,
+            "  call i64 asm sideeffect \"{}\", \"{}\"(i64 {}, i64 71, i64 0, i64 0, i64 0, i64 0, i64 0)",
+            body, constraints, exit
+        )
+        .unwrap();
+        writeln!(out, "  unreachable").unwrap();
+        writeln!(out, "}}").unwrap();
+        writeln!(out).unwrap();
+    }
+
     fn emit_bump_allocator(&mut self) {
         let (body, constraints) = self.target.syscall_asm();
         let mmap = self.target.sys_mmap();

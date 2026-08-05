@@ -110,6 +110,17 @@ pub enum SemError {
     /// toolchain error about an undefined symbol.
     #[error("`{name}` has a signature but no definition")]
     MissingDefinition { name: String, span: Span },
+    /// A `handle` list names an effect that is neither built-in nor
+    /// declared by an `(effect ...)` declaration in scope. Accepted
+    /// silently before dynamic handlers existed - and it did nothing.
+    #[error("unknown effect `{name}`")]
+    UnknownEffect { name: String, span: Span },
+    /// A dynamic-handler shape v1 does not support: several custom
+    /// effects in one handle, a handled effect with more or fewer
+    /// than one operation, or an effect operation used as a bare
+    /// value.
+    #[error("{message}")]
+    EffectHandlerUnsupported { message: String, span: Span },
 }
 
 impl SemError {
@@ -130,6 +141,8 @@ impl SemError {
             SemError::PartialApplication { span, .. } => *span,
             SemError::AmbiguousName { span, .. } => *span,
             SemError::MissingDefinition { span, .. } => *span,
+            SemError::UnknownEffect { span, .. } => *span,
+            SemError::EffectHandlerUnsupported { span, .. } => *span,
         }
     }
 
@@ -325,6 +338,18 @@ impl SemError {
                          mark that definition `pub` so the import carries it",
                     )
             }
+            SemError::UnknownEffect { name, .. } => {
+                Diagnostic::error(&code::UNKNOWN_EFFECT, self.to_string())
+                    .with_primary(span, format!("no effect named `{}` is declared", name))
+                    .with_help(
+                        "declare it with `(effect Name (op :: sig))`, import the \
+                         module that does, or fix the spelling",
+                    )
+            }
+            SemError::EffectHandlerUnsupported { message, .. } => {
+                Diagnostic::error(&code::EFFECT_HANDLER_UNSUPPORTED, self.to_string())
+                    .with_primary(span, message.clone())
+            }
         }
     }
 }
@@ -341,150 +366,532 @@ fn arrow_depth(ty: &TypeId) -> usize {
     depth
 }
 
-fn collect_effects(checker: &TypeChecker, expr: &Expr) -> Vec<axiom_ast::ast::Effect> {
-    use std::collections::HashSet;
-    let mut set = HashSet::new();
-    collect_effects_into(checker, expr, &mut set);
-    let mut v: Vec<_> = set.into_iter().collect();
-    v.sort_by(|a, b| format!("{}", a).cmp(&format!("{}", b)));
-    v
+/// The result of walking a body for effects: the concrete effects the
+/// body performs, plus the indices of the enclosing function's
+/// parameters whose argument's effects flow in at every call site -
+/// the "effect-transparent" parameters. `(fn (apply f x) (f x))`
+/// performs nothing itself and everything its first argument performs:
+/// `{ effects: [], effect_params: [0] }`.
+#[derive(Debug, Default, Clone)]
+pub struct EffectSummary {
+    pub effects: Vec<axiom_ast::ast::Effect>,
+    pub effect_params: Vec<usize>,
 }
 
-fn collect_effects_into(
+/// The definition's parameter names by index, `"_"` (which no `EVar`
+/// can spell) for any parameter that is not a plain variable pattern.
+fn param_name_list(params: &[Pattern]) -> Vec<String> {
+    params
+        .iter()
+        .map(|p| match p {
+            Pattern::PVar(id) => id.name.clone(),
+            _ => "_".to_string(),
+        })
+        .collect()
+}
+
+/// Whether each parameter's declared type could hold a function value.
+///
+/// The collector marks a parameter effect-transparent when it is
+/// *called* - and also when it escapes into an unknown callable's
+/// argument list, where only a parameter that could be a function is
+/// worth marking: `(f x)` in `apply` must not mark `x : Int`, or every
+/// wrapper's summary would claim its scalar arguments carry effects. A
+/// parameter without a usable signature stays conservatively callable.
+fn param_callables(
+    checker: &TypeChecker,
+    name: &str,
+    module: &Option<String>,
+    param_count: usize,
+) -> Vec<bool> {
+    let mut out = vec![true; param_count];
+    if let Some(f) = checker
+        .functions
+        .iter()
+        .find(|f| f.name == name && f.module == *module)
+    {
+        let mut cur = &f.ty;
+        for slot in out.iter_mut() {
+            if let TypeId::TArr(p, rest) = cur {
+                *slot = matches!(
+                    p.as_ref(),
+                    TypeId::TArr(_, _) | TypeId::TVar(_) | TypeId::TForall(_, _) | TypeId::TError
+                );
+                cur = rest.as_ref();
+            } else {
+                break;
+            }
+        }
+    }
+    out
+}
+
+fn collect_effects(
     checker: &TypeChecker,
     expr: &Expr,
-    out: &mut std::collections::HashSet<axiom_ast::ast::Effect>,
-) {
-    match expr {
-        Expr::EVar(ident) => {
-            // A name is effectful either because it is a foreign
-            // binding (the historical case) or because it is a
-            // primitive declared with effects - `__syscall1` and
-            // friends are the whole reason the standard library can
-            // do I/O without a foreign binding, so an
-            // `;@axiom:effect(io)` claim on a function whose body
-            // only calls syscalls has to validate exactly as it did
-            // when that function called `printf`.
-            //
-            // Resolved with `resolve_bare_fn` - the same entry-first,
-            // definition-preferring rule the type checker binds the
-            // name with - rather than the first bare-name match, which
-            // pooled two modules' same-named functions into whichever
-            // FnInfo registered first and made a pure function inherit
-            // its namesake's IO.
-            if let Some(f) = checker.resolve_bare_fn(&ident.name) {
-                if f.foreign_symbol.is_some() {
-                    out.insert(axiom_ast::ast::Effect::IO);
+    params: &[String],
+    param_callable: &[bool],
+) -> EffectSummary {
+    collect_effects_seeded(checker, expr, params, param_callable, Vec::new())
+}
+
+/// [`collect_effects`] with an initial shadow set - for collection that
+/// starts mid-function rather than at a body's root. The `handle`
+/// unhandled-effect check runs inside `check_expr`'s recursion, where
+/// `let` binders between the function root and the handle node are live
+/// in the checker's frame scope but invisible to a fresh collector; a
+/// local shadowing an effectful top-level name would re-resolve to the
+/// top level and report an AX3011 the fixpoint walk of the same body
+/// disagrees with.
+fn collect_effects_seeded(
+    checker: &TypeChecker,
+    expr: &Expr,
+    params: &[String],
+    param_callable: &[bool],
+    seed_shadow: Vec<(String, Option<usize>)>,
+) -> EffectSummary {
+    let mut c = EffCollector {
+        checker,
+        params,
+        param_callable,
+        shadow: seed_shadow,
+        effects: std::collections::HashSet::new(),
+        effect_params: std::collections::HashSet::new(),
+    };
+    c.walk(expr);
+    let mut effects: Vec<_> = c.effects.into_iter().collect();
+    effects.sort_by_key(|e| format!("{}", e));
+    let mut effect_params: Vec<_> = c.effect_params.into_iter().collect();
+    effect_params.sort_unstable();
+    EffectSummary {
+        effects,
+        effect_params,
+    }
+}
+
+/// The effect walk over one function body.
+///
+/// Attribution model, unchanged in kind from the pre-polymorphism
+/// collector: a *reference* to a named function owns that function's
+/// effects at the reference site, and a lambda literal owns its body's
+/// effects where the literal appears. That over-approximation is what
+/// keeps escaping function values sound - whoever mentions `println`
+/// answers for its IO even if the call happens elsewhere. What the
+/// polymorphism pass adds is the under-approximated half: a call
+/// through a parameter used to contribute nothing at all; it now marks
+/// the parameter effect-transparent, and every call site of the
+/// enclosing function instantiates the mark with the argument it
+/// actually passes (see [`EffCollector::walk_call`]).
+///
+/// The walk also tracks local shadowing (`let` binders, lambda
+/// parameters, match-pattern binders), which the old collector did
+/// not: a local named `println` no longer answers for the standard
+/// library's IO.
+struct EffCollector<'a> {
+    checker: &'a TypeChecker,
+    /// The enclosing function's parameter names, by index. A later
+    /// duplicate wins, as the argument registers would.
+    params: &'a [String],
+    /// Whether each parameter's declared type could hold a function
+    /// value (see [`param_callables`]). Consulted for *escaping*
+    /// parameters only; an outright call through a parameter marks it
+    /// regardless.
+    param_callable: &'a [bool],
+    /// Locally-bound names currently in scope, as a stack: `let`
+    /// binders, lambda parameters, match-pattern binders. A binder
+    /// whose initializer is (an alias of) an enclosing parameter
+    /// carries that parameter's index, so `(let ((g f)) (g x))` still
+    /// marks `f` - plain shadow tracking alone made aliasing a hole.
+    shadow: Vec<(String, Option<usize>)>,
+    effects: std::collections::HashSet<axiom_ast::ast::Effect>,
+    effect_params: std::collections::HashSet<usize>,
+}
+
+fn is_data_constructor(checker: &TypeChecker, name: &str) -> bool {
+    checker
+        .data_types
+        .iter()
+        .any(|d| d.constructors.iter().any(|c| c.name == name))
+}
+
+impl<'a> EffCollector<'a> {
+    /// `None`: not locally bound. `Some(None)`: locally bound, opaque.
+    /// `Some(Some(i))`: locally bound as an alias of parameter `i`.
+    /// Innermost binding wins.
+    fn lookup_shadow(&self, name: &str) -> Option<Option<usize>> {
+        self.shadow
+            .iter()
+            .rev()
+            .find(|(n, _)| n == name)
+            .map(|(_, alias)| *alias)
+    }
+
+    fn shadowed(&self, name: &str) -> bool {
+        self.lookup_shadow(name).is_some()
+    }
+
+    fn param_index(&self, name: &str) -> Option<usize> {
+        if self.shadowed(name) {
+            return None;
+        }
+        self.params.iter().rposition(|p| p == name)
+    }
+
+    /// The parameter index `expr` stands for, if it is a bare
+    /// (possibly grouped or annotated) reference to an enclosing
+    /// parameter or to a local alias of one.
+    fn param_alias_of(&self, expr: &Expr) -> Option<usize> {
+        let mut e = expr;
+        while let Expr::EGrouped(inner) | Expr::ETypeSig(inner, _) | Expr::ECast(inner, _) = e {
+            e = inner;
+        }
+        if let Expr::EVar(id) = e {
+            match self.lookup_shadow(&id.name) {
+                Some(alias) => alias,
+                None => self.param_index(&id.name),
+            }
+        } else {
+            None
+        }
+    }
+
+    fn add_fn_effects(&mut self, f: &FnInfo) {
+        if f.foreign_symbol.is_some() {
+            self.effects.insert(axiom_ast::ast::Effect::IO);
+        }
+        for e in &f.effects {
+            self.effects.insert(e.clone());
+        }
+    }
+
+    /// A function value flowing somewhere it may be *called*: an
+    /// argument handed to an unknown callable, an argument in a known
+    /// callee's effect-transparent position, or a handler installed
+    /// by `handle`. A named function or lambda among these was
+    /// already attributed when the expression was walked; the case
+    /// that needs marking is a parameter, whose effects are each call
+    /// site's to supply.
+    fn escape_value(&mut self, expr: &Expr) {
+        if let Some(i) = self.param_alias_of(expr) {
+            if *self.param_callable.get(i).unwrap_or(&true) {
+                self.effect_params.insert(i);
+            }
+        }
+    }
+
+    fn push_pattern(&mut self, pat: &Pattern, pushed: &mut usize) {
+        match pat {
+            Pattern::PVar(id) => {
+                self.shadow.push((id.name.clone(), None));
+                *pushed += 1;
+            }
+            Pattern::PCon(_, subs) | Pattern::PTuple(subs) | Pattern::PList(subs) => {
+                for s in subs {
+                    self.push_pattern(s, pushed);
                 }
-                for e in &f.effects {
-                    out.insert(e.clone());
+            }
+            Pattern::PConNamed(_, fields) => {
+                for (_, s) in fields {
+                    self.push_pattern(s, pushed);
+                }
+            }
+            Pattern::PWildcard | Pattern::PLit(_) => {}
+        }
+    }
+
+    fn pop(&mut self, n: usize) {
+        for _ in 0..n {
+            self.shadow.pop();
+        }
+    }
+
+    /// One saturated call, spine already unrolled. The arguments were
+    /// walked by the caller (evaluation effects plus reference-site
+    /// attribution); this decides what the call itself adds.
+    fn walk_call(&mut self, callee: &Expr, args: &[&Expr]) {
+        let checker = self.checker;
+        let mut callee = callee;
+        while let Expr::EGrouped(inner) = callee {
+            callee = inner;
+        }
+        match callee {
+            Expr::EVar(id) => {
+                if let Some(alias) = self.lookup_shadow(&id.name) {
+                    // Calling a local: its initializer's effects were
+                    // attributed at the binding site - unless the
+                    // local is an alias of a parameter, which makes
+                    // this a parameter call under a different name.
+                    // Either way, what the callee does with the
+                    // arguments is unknown.
+                    if let Some(i) = alias {
+                        self.effect_params.insert(i);
+                    }
+                    for a in args {
+                        self.escape_value(a);
+                    }
+                } else if let Some(i) = self.param_index(&id.name) {
+                    // The call through a parameter - the case the
+                    // whole pass exists for.
+                    self.effect_params.insert(i);
+                    for a in args {
+                        self.escape_value(a);
+                    }
+                } else if let Some(f) = checker.resolve_bare_fn(&id.name) {
+                    self.add_fn_effects(f);
+                    // Instantiate the callee's effect-transparent
+                    // positions with what this call passes there. A
+                    // lambda or named-function argument was already
+                    // attributed by the argument walk; a parameter
+                    // argument makes *this* function transparent in
+                    // that parameter too.
+                    for &j in &f.effect_params {
+                        if let Some(a) = args.get(j) {
+                            self.escape_value(a);
+                        }
+                    }
+                } else if is_data_constructor(checker, &id.name) {
+                    // Construction stores its arguments, it does not
+                    // call them. A function value that escapes into a
+                    // structure was attributed at its creation site
+                    // (the reference-site rule); later loads are the
+                    // documented gap.
+                } else {
+                    // Unresolved callee: treat like a local -
+                    // arguments may be called.
+                    for a in args {
+                        self.escape_value(a);
+                    }
+                }
+            }
+            Expr::EQualified(path, name) => {
+                // The qualifier picks the module; discarding it (the
+                // old behavior) read whichever same-named FnInfo
+                // happened to come first, so `Pure::work` could
+                // inherit `Io::work`'s effects and vice versa.
+                let module: String = path
+                    .iter()
+                    .map(|i| i.name.as_str())
+                    .collect::<Vec<_>>()
+                    .join(".");
+                if let Some(f) = checker
+                    .functions
+                    .iter()
+                    .find(|f| f.name == name.name && f.module.as_deref() == Some(&module))
+                {
+                    self.add_fn_effects(f);
+                    for &j in &f.effect_params {
+                        if let Some(a) = args.get(j) {
+                            self.escape_value(a);
+                        }
+                    }
+                }
+            }
+            other => {
+                // An inline lambda (walked here, so its body is
+                // attributed), a call-result, a field read: unknown
+                // callable, arguments may be called. The callee
+                // itself may be a wrapped parameter - the strip
+                // above handles grouping but a type-ascribed
+                // parameter head lands here - and calling it is
+                // what marks it.
+                self.walk(other);
+                self.escape_value(other);
+                for a in args {
+                    self.escape_value(a);
                 }
             }
         }
-        Expr::EApp(func, arg) => {
-            collect_effects_into(checker, func, out);
-            collect_effects_into(checker, arg, out);
-        }
-        Expr::ELam(_, body) => collect_effects_into(checker, body, out),
-        Expr::ELet(bindings, body) => {
-            for b in bindings {
-                collect_effects_into(checker, &b.init, out);
-            }
-            collect_effects_into(checker, body, out);
-        }
-        Expr::EWhile(cond, body) => {
-            collect_effects_into(checker, cond, out);
-            collect_effects_into(checker, body, out);
-        }
-        Expr::EAssign(_, value) => collect_effects_into(checker, value, out),
-        Expr::EIf(_, t, e) => {
-            collect_effects_into(checker, t, out);
-            collect_effects_into(checker, e, out);
-        }
-        Expr::EMatch(target, arms) => {
-            collect_effects_into(checker, target, out);
-            for (_, e) in arms {
-                collect_effects_into(checker, e, out);
-            }
-        }
-        Expr::ECond(branches, else_) => {
-            for (c, e) in branches {
-                collect_effects_into(checker, c, out);
-                collect_effects_into(checker, e, out);
-            }
-            if let Some(e) = else_ {
-                collect_effects_into(checker, e, out);
-            }
-        }
-        Expr::EBegin(es) | Expr::ETuple(es) | Expr::EList(es) => {
-            for e in es {
-                collect_effects_into(checker, e, out);
-            }
-        }
-        Expr::EInfix(l, _, r) => {
-            collect_effects_into(checker, l, out);
-            collect_effects_into(checker, r, out);
-        }
-        Expr::ETypeSig(e, _) | Expr::ECast(e, _) | Expr::EGrouped(e) => {
-            collect_effects_into(checker, e, out);
-        }
-        Expr::EAlloc(_, init, _) => {
-            out.insert(axiom_ast::ast::Effect::Alloc);
-            if let Some(e) = init {
-                collect_effects_into(checker, e, out);
-            }
-        }
-        Expr::ESizeof(_, _) | Expr::EAlignof(_, _) | Expr::EError(_, _) => {}
-        Expr::ELit(_, _) => {}
-        Expr::EHandle(body, handled, _handler) => {
-            let mut body_effects = std::collections::HashSet::new();
-            collect_effects_into(checker, body, &mut body_effects);
-            for e in body_effects {
-                if !handled.contains(&e) {
-                    out.insert(e);
+    }
+
+    fn walk(&mut self, expr: &Expr) {
+        match expr {
+            Expr::EVar(ident) => {
+                // A bare mention of a parameter is not a call and
+                // contributes nothing on its own (whether it escapes
+                // into a callable position is the consumer's business
+                // - see `escape_value`). A bare mention of a named
+                // function answers for that function's effects:
+                // reference-site attribution, the soundness net for
+                // escaping function values. A name is effectful
+                // either because it is a foreign binding or because
+                // it is a primitive or function with inferred effects
+                // - `__syscall1` and friends are the whole reason the
+                // standard library can do I/O without a foreign
+                // binding.
+                if self.shadowed(&ident.name) || self.param_index(&ident.name).is_some() {
+                    return;
+                }
+                let checker = self.checker;
+                if let Some(f) = checker.resolve_bare_fn(&ident.name) {
+                    self.add_fn_effects(f);
                 }
             }
-        }
-        Expr::EConsume(e) => collect_effects_into(checker, e, out),
-        Expr::EField(e, _) => collect_effects_into(checker, e, out),
-        Expr::EStructCon(_, args) => {
-            for e in args {
-                collect_effects_into(checker, e, out);
-            }
-        }
-        Expr::ESetField(base, _, value) => {
-            collect_effects_into(checker, base, out);
-            collect_effects_into(checker, value, out);
-            out.insert(axiom_ast::ast::Effect::Mut);
-        }
-        Expr::EQuasiquote(inner) | Expr::EUnquote(inner) | Expr::ESplice(inner) => {
-            collect_effects_into(checker, inner, out)
-        }
-        Expr::EQualified(path, name) => {
-            // The qualifier picks the module; discarding it (the old
-            // behavior) read whichever same-named FnInfo happened to
-            // come first, so `Pure::work` could inherit `Io::work`'s
-            // effects and vice versa.
-            let module: String = path
-                .iter()
-                .map(|i| i.name.as_str())
-                .collect::<Vec<_>>()
-                .join(".");
-            if let Some(f) = checker
-                .functions
-                .iter()
-                .find(|f| f.name == name.name && f.module.as_deref() == Some(&module))
-            {
-                if f.foreign_symbol.is_some() {
-                    out.insert(axiom_ast::ast::Effect::IO);
+            Expr::EApp(_, _) => {
+                let mut args: Vec<&Expr> = Vec::new();
+                let mut cur = expr;
+                while let Expr::EApp(f, a) = cur {
+                    args.push(a);
+                    cur = f;
                 }
-                for e in &f.effects {
-                    out.insert(e.clone());
+                args.reverse();
+                for a in &args {
+                    self.walk(a);
+                }
+                self.walk_call(cur, &args);
+            }
+            Expr::ELam(params, body) => {
+                let mut pushed = 0;
+                for p in params {
+                    self.push_pattern(p, &mut pushed);
+                }
+                self.walk(body);
+                self.pop(pushed);
+            }
+            Expr::ELet(bindings, body) => {
+                // Bindings are sequential: each init sees the binders
+                // before it, so the shadow grows between inits, not
+                // after all of them. A plain-variable binder whose
+                // initializer is (an alias of) a parameter records
+                // the alias, computed against the shadow as it stood
+                // *before* this binder joined it.
+                let mut pushed = 0;
+                for b in bindings {
+                    self.walk(&b.init);
+                    let alias = self.param_alias_of(&b.init);
+                    if let (Pattern::PVar(id), Some(i)) = (&b.pat, alias) {
+                        self.shadow.push((id.name.clone(), Some(i)));
+                        pushed += 1;
+                    } else {
+                        self.push_pattern(&b.pat, &mut pushed);
+                    }
+                }
+                self.walk(body);
+                self.pop(pushed);
+            }
+            Expr::EWhile(cond, body) => {
+                self.walk(cond);
+                self.walk(body);
+            }
+            Expr::EAssign(_, value) => {
+                self.walk(value);
+                // A parameter stored into a mutable local may be
+                // called through it later; the alias tracking above
+                // only follows immutable `let` initializers, so the
+                // assignment marks conservatively.
+                self.escape_value(value);
+            }
+            Expr::EIf(cond, t, e) => {
+                // The condition was not walked before this pass - a
+                // `(if (println "x") a b)` dropped the IO on the
+                // floor. Pinned by a test now.
+                self.walk(cond);
+                self.walk(t);
+                self.walk(e);
+            }
+            Expr::EMatch(target, arms) => {
+                self.walk(target);
+                for (pat, e) in arms {
+                    let mut pushed = 0;
+                    self.push_pattern(pat, &mut pushed);
+                    self.walk(e);
+                    self.pop(pushed);
+                }
+            }
+            Expr::ECond(branches, else_) => {
+                for (c, e) in branches {
+                    self.walk(c);
+                    self.walk(e);
+                }
+                if let Some(e) = else_ {
+                    self.walk(e);
+                }
+            }
+            Expr::EBegin(es) | Expr::ETuple(es) | Expr::EList(es) => {
+                for e in es {
+                    self.walk(e);
+                }
+            }
+            Expr::EInfix(l, _, r) => {
+                self.walk(l);
+                self.walk(r);
+            }
+            Expr::ETypeSig(e, _) | Expr::ECast(e, _) | Expr::EGrouped(e) => {
+                self.walk(e);
+            }
+            Expr::EAlloc(_, init, _) => {
+                self.effects.insert(axiom_ast::ast::Effect::Alloc);
+                if let Some(e) = init {
+                    self.walk(e);
+                }
+            }
+            Expr::ESizeof(_, _) | Expr::EAlignof(_, _) | Expr::EError(_, _) => {}
+            Expr::ELit(_, _) => {}
+            Expr::EHandle(body, handled, handler) => {
+                // The body's concrete effects are collected apart so
+                // the handled ones can be subtracted. Its
+                // effect-transparent marks pass through undiminished:
+                // a static list cannot name what a callback will do.
+                let saved = std::mem::take(&mut self.effects);
+                self.walk(body);
+                let body_effects = std::mem::replace(&mut self.effects, saved);
+                for e in body_effects {
+                    if !handled.contains(&e) {
+                        self.effects.insert(e);
+                    }
+                }
+                // A dynamic handle heap-allocates its evidence
+                // record, and inference must say so - mirroring the
+                // generator's gate exactly.
+                let dynamic = handled.iter().any(|e| match e {
+                    axiom_ast::ast::Effect::Custom(id) => {
+                        matches!(self.checker.resolve_effect_decl(&id.name), Ok(Some(_)))
+                    }
+                    _ => false,
+                });
+                if dynamic {
+                    self.effects.insert(axiom_ast::ast::Effect::Alloc);
+                }
+                // The handler is a function value `handle` installs
+                // and the operation invokes: walked for its own
+                // construction effects, and a parameter handler marks
+                // this function effect-transparent.
+                self.walk(handler);
+                self.escape_value(handler);
+            }
+            Expr::EConsume(e) => self.walk(e),
+            Expr::EField(e, _) => self.walk(e),
+            Expr::EStructCon(_, args) => {
+                for e in args {
+                    self.walk(e);
+                }
+            }
+            Expr::ESetField(base, _, value) => {
+                self.walk(base);
+                self.walk(value);
+                self.effects.insert(axiom_ast::ast::Effect::Mut);
+            }
+            Expr::EQuasiquote(inner) | Expr::EUnquote(inner) | Expr::ESplice(inner) => {
+                self.walk(inner)
+            }
+            Expr::EQualified(path, name) => {
+                let module: String = path
+                    .iter()
+                    .map(|i| i.name.as_str())
+                    .collect::<Vec<_>>()
+                    .join(".");
+                let checker = self.checker;
+                if let Some(f) = checker
+                    .functions
+                    .iter()
+                    .find(|f| f.name == name.name && f.module.as_deref() == Some(&module))
+                {
+                    self.add_fn_effects(f);
                 }
             }
         }
     }
 }
+
 /// distance, for "did you mean `foo`?" suggestions. Only returns a match
 /// that's close enough to plausibly be a typo (distance <= 2, and no more
 /// than half the length of the shorter string) so we don't suggest
@@ -714,6 +1121,27 @@ pub struct FnInfo {
     /// arguments), which is why [`SemError::PartialApplication`]
     /// exists.
     pub param_count: Option<usize>,
+    /// The definition's parameter names, in order - the context the
+    /// effect collector needs to recognise a call *through* a
+    /// parameter, and what `symbols` prints `#effect-params=` with.
+    /// Empty for builtins, foreigns, and signature-only entries.
+    /// A parameter that is not a plain variable pattern occupies its
+    /// index with `"_"`, which no `EVar` can reference.
+    pub param_names: Vec<String>,
+    /// Indices of parameters whose argument's effects flow into this
+    /// function's own performed effects when it is called - the
+    /// "effect-transparent" parameters. `(fn (apply f x) (f x))` has
+    /// `effect_params == [0]`: apply performs whatever its first
+    /// argument performs, and nothing else. Grown by the same
+    /// fixpoint as `effects`, so passing a parameter onward to
+    /// another function's effect-transparent position propagates.
+    pub effect_params: Vec<usize>,
+    /// `Some((effect_name, op_index))` when this entry is an *effect
+    /// operation* - a callable introduced by an `(effect ...)`
+    /// declaration. An op call type-checks like any function call and
+    /// lowers to dynamic dispatch through the innermost installed
+    /// handler, so the backend needs to tell the two apart.
+    pub effect_op: Option<(String, usize)>,
 }
 
 #[derive(Debug, Clone)]
@@ -820,6 +1248,9 @@ impl FnInfo {
             effects: Vec::new(),
             module: None,
             param_count: None,
+            param_names: Vec::new(),
+            effect_params: Vec::new(),
+            effect_op: None,
         }
     }
 
@@ -832,6 +1263,9 @@ impl FnInfo {
             effects: Vec::new(),
             module: None,
             param_count: None,
+            param_names: Vec::new(),
+            effect_params: Vec::new(),
+            effect_op: None,
         }
     }
 
@@ -848,6 +1282,9 @@ impl FnInfo {
             effects,
             module: None,
             param_count: None,
+            param_names: Vec::new(),
+            effect_params: Vec::new(),
+            effect_op: None,
         }
     }
 }
@@ -860,6 +1297,29 @@ pub struct TraitInfo {
     pub module: Option<String>,
 }
 
+/// One operation of a declared effect: `(print :: (-> String ()))`
+/// inside `(effect Console ...)`.
+#[derive(Debug, Clone)]
+pub struct EffectOpInfo {
+    pub name: String,
+    pub ty: TypeId,
+    pub arity: usize,
+}
+
+/// An `(effect Name (op :: sig) ...)` declaration, registered.
+///
+/// These were parsed and dropped on the floor for as long as `handle`
+/// was a static construct; dynamic handlers made them load-bearing:
+/// the declaration introduces each operation as a callable name whose
+/// invocation dispatches through the innermost installed handler, and
+/// naming the effect in a `handle` list is what installs one.
+#[derive(Debug, Clone)]
+pub struct EffectDeclInfo {
+    pub name: String,
+    pub module: Option<String>,
+    pub ops: Vec<EffectOpInfo>,
+}
+
 pub struct TypeChecker {
     pub scope: Vec<(String, usize, VarInfo)>,
     pub data_types: Vec<DataTypeInfo>,
@@ -867,6 +1327,7 @@ pub struct TypeChecker {
     pub aliases: Vec<TypeAliasInfo>,
     pub functions: Vec<FnInfo>,
     pub traits: Vec<TraitInfo>,
+    pub effect_decls: Vec<EffectDeclInfo>,
     pub errors: Vec<SemError>,
     /// Diagnostics from the last `check` whose severity is warning.
     /// Kept separate so they can be reported without failing the build.
@@ -881,6 +1342,13 @@ pub struct TypeChecker {
     /// `EApp` arm sets it, and it clears it around argument checking,
     /// so every other position reads `false`.
     in_app_head: bool,
+    /// The parameter names of the function whose body is currently
+    /// being checked - the context the effect collector needs when a
+    /// `handle` expression validates its body mid-recursion. Set
+    /// around each `DFn` body check, empty everywhere else.
+    current_fn_params: Vec<String>,
+    /// [`param_callables`] for the same function, same lifetime.
+    current_fn_callable: Vec<bool>,
     /// Which modules declare each bare value-namespace name (`fn`,
     /// `foreign`, or signature), deduped, in merge order; `None` is the
     /// entry file. Two or more `Some` entries with no `None` is
@@ -976,10 +1444,13 @@ impl TypeChecker {
             aliases: Vec::new(),
             functions: Vec::new(),
             traits: Vec::new(),
+            effect_decls: Vec::new(),
             errors: Vec::new(),
             warnings: Vec::new(),
             type_counter: 0,
             in_app_head: false,
+            current_fn_params: Vec::new(),
+            current_fn_callable: Vec::new(),
             fn_defining_modules: std::collections::HashMap::new(),
             ctor_defining_modules: std::collections::HashMap::new(),
         };
@@ -1113,8 +1584,50 @@ impl TypeChecker {
     fn check_duplicate_definitions(&mut self, decls: &[Decl]) {
         let mut values: DefinitionTable = std::collections::HashMap::new();
         let mut types: DefinitionTable = std::collections::HashMap::new();
+        let mut effects: DefinitionTable = std::collections::HashMap::new();
 
         for decl in decls {
+            // An effect's operations are callable names too: a module
+            // declaring both `(fn log ...)` and an effect operation
+            // `log` would otherwise get order-dependent resolution
+            // with no diagnostic.
+            if let Decl::DEffect {
+                name,
+                operations,
+                module_path,
+                ..
+            } = decl
+            {
+                // The effect's own name is a definition too: two
+                // same-module declarations would race for the
+                // resolver and share one evidence slot - the second
+                // declaration's operations dispatched into a handler
+                // type-checked against the first's, a segfault, not
+                // a diagnostic.
+                let ekey = (name.name.clone(), module_path.clone());
+                if let Some(first_span) = effects.get(&ekey) {
+                    self.errors.push(SemError::DuplicateDefinition {
+                        name: name.name.clone(),
+                        span: name.span,
+                        first_span: *first_span,
+                    });
+                } else {
+                    effects.insert(ekey, name.span);
+                }
+                for op in operations {
+                    let key = (op.name.name.clone(), module_path.clone());
+                    if let Some(first_span) = values.get(&key) {
+                        self.errors.push(SemError::DuplicateDefinition {
+                            name: op.name.name.clone(),
+                            span: op.name.span,
+                            first_span: *first_span,
+                        });
+                    } else {
+                        values.insert(key, op.name.span);
+                    }
+                }
+                continue;
+            }
             let (namespace, name, module_path): (&mut DefinitionTable, &Ident, &Option<String>) =
                 match decl {
                     Decl::DFn {
@@ -1231,9 +1744,7 @@ impl TypeChecker {
         let defined: HashSet<&str> = decls
             .iter()
             .filter_map(|d| match d {
-                Decl::DFn { name, .. } | Decl::DForeign { name, .. } => {
-                    Some(name.name.as_str())
-                }
+                Decl::DFn { name, .. } | Decl::DForeign { name, .. } => Some(name.name.as_str()),
                 _ => None,
             })
             .collect();
@@ -1301,6 +1812,24 @@ impl TypeChecker {
                         .or_default();
                     if !mods.contains(module_path) {
                         mods.push(module_path.clone());
+                    }
+                }
+                Decl::DEffect {
+                    operations,
+                    module_path,
+                    ..
+                } => {
+                    // Operations are bare-callable, so they take part
+                    // in the same one-bare-name ambiguity accounting
+                    // as functions.
+                    for op in operations {
+                        let mods = self
+                            .fn_defining_modules
+                            .entry(op.name.name.clone())
+                            .or_default();
+                        if !mods.contains(module_path) {
+                            mods.push(module_path.clone());
+                        }
                     }
                 }
                 Decl::DData {
@@ -1427,6 +1956,7 @@ impl TypeChecker {
                         .find(|f| f.name == name.name && f.module == *module_path)
                     {
                         f.param_count = Some(params.len());
+                        f.param_names = param_name_list(params);
                     }
                 }
                 Decl::DForeign {
@@ -1440,6 +1970,80 @@ impl TypeChecker {
                     info.foreign_symbol = Some(source.clone());
                     info.module = module_path.clone();
                     self.functions.push(info);
+                }
+                Decl::DEffect {
+                    name,
+                    operations,
+                    module_path,
+                    ..
+                } => {
+                    // A declaration shadowing a built-in effect name
+                    // would make `(handle body (IO) h)` ambiguous
+                    // between static scoping and dynamic dispatch.
+                    if matches!(
+                        name.name.as_str(),
+                        "IO" | "Pure" | "Alloc" | "Mut" | "Div" | "Err"
+                    ) {
+                        self.errors.push(SemError::Message {
+                            message: format!(
+                                "effect `{}` collides with the built-in effect of the same name",
+                                name.name
+                            ),
+                            span: name.span,
+                        });
+                        continue;
+                    }
+                    // A nullary operation has no call syntax: `(op)`
+                    // is a bare-name value, and operations are not
+                    // values. Refusing the declaration beats
+                    // accepting a name every use site then rejects.
+                    for op in operations {
+                        if op.params.is_empty() {
+                            self.errors.push(SemError::EffectHandlerUnsupported {
+                                message: format!(
+                                    "effect operation `{}` declares no parameters; an operation needs at least one to be callable",
+                                    op.name.name
+                                ),
+                                span: op.name.span,
+                            });
+                        }
+                    }
+                    let ops: Vec<EffectOpInfo> = operations
+                        .iter()
+                        .map(|op| {
+                            let mut ty = self.type_to_id(&op.return_type);
+                            for pt in op.params.iter().rev() {
+                                ty = TypeId::TArr(Box::new(self.type_to_id(pt)), Box::new(ty));
+                            }
+                            EffectOpInfo {
+                                name: op.name.name.clone(),
+                                ty,
+                                arity: op.params.len(),
+                            }
+                        })
+                        .collect();
+                    // Each operation is a callable name. Its `FnInfo`
+                    // carries the effect as an inherent `Custom`
+                    // entry, so both attribution rules - call-site
+                    // and reference-site - see an op exactly as they
+                    // see a foreign binding's IO, with zero special
+                    // cases in the collector.
+                    for (i, op) in ops.iter().enumerate() {
+                        let mut info = FnInfo::new(op.name.clone(), op.ty.clone());
+                        info.module = module_path.clone();
+                        info.param_count = Some(op.arity);
+                        info.effects = vec![axiom_ast::ast::Effect::Custom(Ident::new(
+                            &name.name,
+                            Span::dummy(),
+                        ))];
+                        info.effect_op = Some((name.name.clone(), i));
+                        self.functions.push(info);
+                    }
+                    self.effect_decls.push(EffectDeclInfo {
+                        name: name.name.clone(),
+                        module: module_path.clone(),
+                        ops,
+                    });
                 }
                 // `DType` aliases were registered in the first pass
                 // above, before any signature converted.
@@ -1475,15 +2079,24 @@ impl TypeChecker {
         // first, so a pure `Bpure::work` inherited `Aio::work`'s IO -
         // and its own entry stayed empty - and a pure claim on its
         // caller warned about I/O that could never happen.
-        let bodies: Vec<(String, &Option<String>, &Expr)> = decls
+        // (name, module, parameter names, parameter callability, body)
+        type BodyRow<'d> = (String, &'d Option<String>, Vec<String>, Vec<bool>, &'d Expr);
+        let bodies: Vec<BodyRow> = decls
             .iter()
             .filter_map(|d| match d {
                 Decl::DFn {
                     name,
                     module_path,
+                    params,
                     body,
                     ..
-                } => Some((name.name.clone(), module_path, body)),
+                } => Some((
+                    name.name.clone(),
+                    module_path,
+                    param_name_list(params),
+                    param_callables(self, &name.name, module_path, params.len()),
+                    body,
+                )),
                 _ => None,
             })
             .collect();
@@ -1491,19 +2104,27 @@ impl TypeChecker {
         // One extra round beyond the number of functions can never be
         // needed (each round propagates at least one call-graph edge),
         // and the bound guarantees termination even if a future change
-        // makes `collect_effects` non-monotone.
+        // makes `collect_effects` non-monotone. Both halves of the
+        // summary grow monotonically: concrete effects and
+        // effect-transparent parameter marks alike.
         for _ in 0..=bodies.len() {
             let mut changed = false;
-            for (name, module_path, body) in &bodies {
-                let inferred = collect_effects(self, body);
+            for (name, module_path, param_names, callable, body) in &bodies {
+                let inferred = collect_effects(self, body, param_names, callable);
                 if let Some(info) = self
                     .functions
                     .iter_mut()
                     .find(|f| &f.name == name && f.module == **module_path)
                 {
-                    for e in inferred {
+                    for e in inferred.effects {
                         if !info.effects.contains(&e) {
                             info.effects.push(e);
+                            changed = true;
+                        }
+                    }
+                    for i in inferred.effect_params {
+                        if !info.effect_params.contains(&i) {
+                            info.effect_params.push(i);
                             changed = true;
                         }
                     }
@@ -1512,6 +2133,9 @@ impl TypeChecker {
             if !changed {
                 break;
             }
+        }
+        for f in &mut self.functions {
+            f.effect_params.sort_unstable();
         }
     }
 
@@ -1571,7 +2195,18 @@ impl TypeChecker {
                         actual_param_types.push(ty.clone());
                         self.check_pattern_with_type(pat, &ty);
                     }
+                    // The effect collector inside `check_expr` (the
+                    // `handle` unhandled-effect check) needs to know
+                    // which names are this function's parameters; a
+                    // field rather than an argument because the
+                    // recursion between here and there is deep and
+                    // effect-agnostic.
+                    self.current_fn_params = param_name_list(params);
+                    self.current_fn_callable =
+                        param_callables(self, &name.name, module_path, params.len());
                     let body_ty = self.check_expr(body);
+                    self.current_fn_params = Vec::new();
+                    self.current_fn_callable = Vec::new();
                     self.pop_scope();
 
                     // Build the actual function type from parameters and body
@@ -1610,9 +2245,31 @@ impl TypeChecker {
                                         Some("mut") => vec![axiom_ast::ast::Effect::Mut],
                                         Some("div") => vec![axiom_ast::ast::Effect::Div],
                                         Some("alloc") => vec![axiom_ast::ast::Effect::Alloc],
-                                        Some(other) => vec![axiom_ast::ast::Effect::Custom(
-                                            Ident::new(other, Span::dummy()),
-                                        )],
+                                        // `effect(console)` names the
+                                        // declared effect `Console`:
+                                        // the builtin tags are all
+                                        // lowercase, so custom tags
+                                        // match case-insensitively
+                                        // against declarations and
+                                        // canonicalize to the
+                                        // declared spelling.
+                                        Some(other) => {
+                                            let canonical = self
+                                                .effect_decls
+                                                .iter()
+                                                .find(|d| d.name == other)
+                                                .or_else(|| {
+                                                    self.effect_decls.iter().find(|d| {
+                                                        d.name.eq_ignore_ascii_case(other)
+                                                    })
+                                                })
+                                                .map(|d| d.name.clone())
+                                                .unwrap_or_else(|| other.to_string());
+                                            vec![axiom_ast::ast::Effect::Custom(Ident::new(
+                                                &canonical,
+                                                Span::dummy(),
+                                            ))]
+                                        }
                                         None => vec![],
                                     };
                                 // `effect(pure)` is the pure claim in
@@ -1622,14 +2279,33 @@ impl TypeChecker {
                                 // function, since nothing ever
                                 // *collects* Pure - purity is the
                                 // absence of effects, not one of them.
+                                // Claims are validated against the
+                                // *concrete* half of the summary. A
+                                // nonempty effect-transparent set does
+                                // not contradict `pure` - `apply` is
+                                // exactly as pure as its argument, and
+                                // "pure modulo its function
+                                // parameters" is what the claim means
+                                // on a higher-order function.
                                 if declared == vec![axiom_ast::ast::Effect::Pure] {
-                                    let actual = collect_effects(self, body);
-                                    if !actual.is_empty() {
+                                    let summary = collect_effects(
+                                        self,
+                                        body,
+                                        &param_name_list(params),
+                                        &param_callables(
+                                            self,
+                                            &name.name,
+                                            module_path,
+                                            params.len(),
+                                        ),
+                                    );
+                                    if !summary.effects.is_empty() {
                                         self.errors.push(SemError::AxtagMismatch {
                                             name: name.name.clone(),
                                             message: format!(
                                                 "`effect(pure)` claim contradicted: body performs {}",
-                                                actual
+                                                summary
+                                                    .effects
                                                     .iter()
                                                     .map(|e| format!("{}", e))
                                                     .collect::<Vec<_>>()
@@ -1640,10 +2316,36 @@ impl TypeChecker {
                                     }
                                     continue;
                                 }
-                                let actual = collect_effects(self, body);
+                                let summary = collect_effects(
+                                    self,
+                                    body,
+                                    &param_name_list(params),
+                                    &param_callables(self, &name.name, module_path, params.len()),
+                                );
+                                // A declared effect the body does not
+                                // concretely perform is only a lie
+                                // when no callback could supply it: a
+                                // function with effect-transparent
+                                // parameters performs whatever its
+                                // arguments do, so the claim is
+                                // conditional and stands.
                                 let mut missing = Vec::new();
                                 for e in &declared {
-                                    if !actual.contains(e) {
+                                    if summary.effects.contains(e) {
+                                        continue;
+                                    }
+                                    // A claimed effect that *exists*
+                                    // may flow in from a callback; one
+                                    // that names no declared effect
+                                    // never can, so the suppression
+                                    // must not swallow it.
+                                    let could_exist = match e {
+                                        axiom_ast::ast::Effect::Custom(id) => {
+                                            self.effect_decls.iter().any(|d| d.name == id.name)
+                                        }
+                                        _ => true,
+                                    };
+                                    if !could_exist || summary.effect_params.is_empty() {
                                         missing.push(format!("{}", e));
                                     }
                                 }
@@ -1660,13 +2362,19 @@ impl TypeChecker {
                                 }
                             }
                             "pure" => {
-                                let actual = collect_effects(self, body);
-                                if !actual.is_empty() {
+                                let summary = collect_effects(
+                                    self,
+                                    body,
+                                    &param_name_list(params),
+                                    &param_callables(self, &name.name, module_path, params.len()),
+                                );
+                                if !summary.effects.is_empty() {
                                     self.errors.push(SemError::AxtagMismatch {
                                         name: name.name.clone(),
                                         message: format!(
                                             "`pure` claim contradicted: body performs {}",
-                                            actual
+                                            summary
+                                                .effects
                                                 .iter()
                                                 .map(|e| format!("{}", e))
                                                 .collect::<Vec<_>>()
@@ -1737,7 +2445,10 @@ impl TypeChecker {
     /// early returns cannot leak a stale `true` either.
     fn check_expr(&mut self, expr: &Expr) -> TypeId {
         let saved = self.in_app_head;
-        if !matches!(expr, Expr::EVar(_) | Expr::EQualified(_, _) | Expr::EApp(_, _)) {
+        if !matches!(
+            expr,
+            Expr::EVar(_) | Expr::EQualified(_, _) | Expr::EApp(_, _)
+        ) {
             self.in_app_head = false;
         }
         let ty = self.check_expr_inner(expr);
@@ -2115,9 +2826,88 @@ impl TypeChecker {
             Expr::EGrouped(inner) => self.check_expr(inner),
             Expr::EHandle(body, handled, handler) => {
                 let body_ty = self.check_expr(body);
-                self.check_expr(handler);
-                let actual = collect_effects(self, body);
-                for e in &actual {
+                let handler_ty = self.check_expr(handler);
+                // Custom entries must name declared effects, and v1
+                // dynamic handlers take exactly one of them per
+                // `handle`, each with exactly one operation.
+                let mut dynamic: Vec<TypeId> = Vec::new();
+                for e in handled {
+                    if let axiom_ast::ast::Effect::Custom(id) = e {
+                        let resolved = match self.resolve_effect_decl(&id.name) {
+                            Ok(r) => r,
+                            Err(modules) => {
+                                self.errors.push(SemError::AmbiguousName {
+                                    name: id.name.clone(),
+                                    modules,
+                                    span: id.span,
+                                });
+                                continue;
+                            }
+                        };
+                        match resolved {
+                            None => self.errors.push(SemError::UnknownEffect {
+                                name: id.name.clone(),
+                                span: id.span,
+                            }),
+                            Some(d) => {
+                                if d.ops.len() != 1 {
+                                    self.errors.push(SemError::EffectHandlerUnsupported {
+                                        message: format!(
+                                            "effect `{}` declares {} operations; a dynamic handler covers exactly one",
+                                            id.name,
+                                            d.ops.len()
+                                        ),
+                                        span: id.span,
+                                    });
+                                } else {
+                                    dynamic.push(d.ops[0].ty.clone());
+                                }
+                            }
+                        }
+                    }
+                }
+                if dynamic.len() > 1 {
+                    self.errors.push(SemError::EffectHandlerUnsupported {
+                        message: format!(
+                            "{} custom effects in one handle; nest one `handle` per effect",
+                            dynamic.len()
+                        ),
+                        span: expr.span(),
+                    });
+                } else if let Some(op_ty) = dynamic.first() {
+                    // The handler stands in for the operation, so it
+                    // must have the operation's type.
+                    if !handler_ty.is_error() && !handler_ty.compatible_with(op_ty) {
+                        self.errors.push(SemError::TypeMismatch {
+                            expected: format!("{}", op_ty),
+                            found: format!("{}", handler_ty),
+                            span: handler.span(),
+                        });
+                    }
+                }
+                let params = self.current_fn_params.clone();
+                let callable = self.current_fn_callable.clone();
+                // This collection starts mid-function: every `let`
+                // binder live at this node sits in the checker's
+                // frame scope, and the collector must treat those
+                // names as locally bound or a local shadowing an
+                // effectful top-level function re-resolves to the
+                // top level and produces a build-failing AX3011 the
+                // fixpoint's walk of the same body disagrees with.
+                // Parameter names are excluded: a parameter is not a
+                // shadow of itself, and masking one would blind the
+                // effect-transparency marks.
+                let mut seed: Vec<(String, Option<usize>)> = Vec::new();
+                if let Some(first_frame) = self.scope.iter().position(|(n, _, _)| n == "__scope__")
+                {
+                    for (n, _, _) in &self.scope[first_frame..] {
+                        if n != "__scope__" && !params.contains(n) {
+                            seed.push((n.clone(), None));
+                        }
+                    }
+                }
+                let summary = collect_effects_seeded(self, body, &params, &callable, seed);
+                for e in &summary.effects {
                     if !handled.contains(e) {
                         self.errors.push(SemError::EffectMismatch {
                             message: format!("unhandled effect `{}`", e),
@@ -2337,13 +3127,13 @@ impl TypeChecker {
                 .find(|f| f.name == name && f.module.as_deref() == Some(m.as_str())),
             None => self.resolve_bare_fn(&name),
         }
-            .map(|f| {
-                let sig_only = f.module.is_some()
-                    && f.param_count.is_none()
-                    && !f.is_builtin
-                    && f.foreign_symbol.is_none();
-                (sig_only, Self::representation_arity(f))
-            });
+        .map(|f| {
+            let sig_only = f.module.is_some()
+                && f.param_count.is_none()
+                && !f.is_builtin
+                && f.foreign_symbol.is_none();
+            (sig_only, Self::representation_arity(f))
+        });
         // Calling an imported signature whose definition stayed
         // private: nothing exists to run. Reported here, at the call,
         // because the exporting module is internally fine and an
@@ -2414,16 +3204,41 @@ impl TypeChecker {
     /// builtin, or a foreign symbol), then anything - so a module that
     /// contributes only a `pub` signature never outranks the module
     /// that defines the function, whatever order the imports merged in.
-    fn resolve_bare_fn(&self, name: &str) -> Option<&FnInfo> {
+    /// Resolve a bare effect name (a `handle` list entry) the one way
+    /// sema and the generator must agree on: the entry file's
+    /// declaration first, then a unique imported one. Several imported
+    /// candidates with no entry declaration is an ambiguity - sema
+    /// reports it with the same diagnostic bare function names use,
+    /// and the generator never sees one.
+    pub fn resolve_effect_decl(&self, name: &str) -> Result<Option<&EffectDeclInfo>, Vec<String>> {
+        let candidates: Vec<&EffectDeclInfo> = self
+            .effect_decls
+            .iter()
+            .filter(|d| d.name == name)
+            .collect();
+        if candidates.is_empty() {
+            return Ok(None);
+        }
+        if let Some(entry) = candidates.iter().find(|d| d.module.is_none()) {
+            return Ok(Some(entry));
+        }
+        if candidates.len() == 1 {
+            return Ok(Some(candidates[0]));
+        }
+        Err(candidates
+            .iter()
+            .map(|d| d.module.clone().unwrap_or_default())
+            .collect())
+    }
+
+    pub fn resolve_bare_fn(&self, name: &str) -> Option<&FnInfo> {
         self.functions
             .iter()
             .find(|f| f.name == name && f.module.is_none())
             .or_else(|| {
                 self.functions.iter().find(|f| {
                     f.name == name
-                        && (f.param_count.is_some()
-                            || f.is_builtin
-                            || f.foreign_symbol.is_some())
+                        && (f.param_count.is_some() || f.is_builtin || f.foreign_symbol.is_some())
                 })
             })
             .or_else(|| self.functions.iter().find(|f| f.name == name))
@@ -2444,9 +3259,10 @@ impl TypeChecker {
             .functions
             .iter()
             .any(|f| f.name == name && f.module.is_none())
-            || self.data_types.iter().any(|dt| {
-                dt.module.is_none() && dt.constructors.iter().any(|c| c.name == name)
-            })
+            || self
+                .data_types
+                .iter()
+                .any(|dt| dt.module.is_none() && dt.constructors.iter().any(|c| c.name == name))
         {
             return None;
         }
@@ -2515,6 +3331,23 @@ impl TypeChecker {
         // functions are named constants. A frame-local binding shadows
         // the top-level name and is exempt - it holds a value, and
         // values are applied indirectly.
+        // An effect operation is dispatch, not data: there is no
+        // closure representation to hand around, so it is callable
+        // only. Wrapping in a lambda gives the value form.
+        if !self.in_app_head && !self.is_frame_local(ident) {
+            if let Some(f) = self.resolve_bare_fn(&ident.name) {
+                if f.effect_op.is_some() {
+                    self.errors.push(SemError::EffectHandlerUnsupported {
+                        message: format!(
+                            "effect operation `{}` cannot be used as a bare value; call it, or wrap it: `(lambda (x) ({} x))`",
+                            ident.name, ident.name
+                        ),
+                        span: ident.span,
+                    });
+                    return TypeId::TError;
+                }
+            }
+        }
         let flagged = if !self.in_app_head && !self.is_frame_local(ident) {
             self.resolve_bare_fn(&ident.name)
                 .and_then(Self::representation_arity)
@@ -2648,6 +3481,26 @@ impl TypeChecker {
             if sig_only {
                 self.errors.push(SemError::MissingDefinition {
                     name: format!("{}::{}", module, name.name),
+                    span: name.span,
+                });
+                return TypeId::TError;
+            }
+            // The bare-name refusal of an operation-as-value must
+            // hold behind a qualifier too, or `Mod::op` in value
+            // position sails through `check` and dies in the
+            // toolchain wrapping a symbol that does not exist.
+            let is_op = self
+                .functions
+                .iter()
+                .rev()
+                .find(|f| f.name == name.name && f.module.as_deref() == Some(&module))
+                .is_some_and(|f| f.effect_op.is_some());
+            if is_op && !self.in_app_head {
+                self.errors.push(SemError::EffectHandlerUnsupported {
+                    message: format!(
+                        "effect operation `{}::{}` cannot be used as a bare value; call it, or wrap it: `(lambda (x) ({}::{} x))`",
+                        module, name.name, module, name.name
+                    ),
                     span: name.span,
                 });
                 return TypeId::TError;
@@ -4015,5 +4868,562 @@ mod tests {
 ;@axiom:effect(alloc)
 (fn main (alloc Int 1))"#;
         assert!(check(source).is_ok());
+    }
+
+    // ---- Effect polymorphism ----
+
+    fn checked(source: &str) -> TypeChecker {
+        let mut lexer = Lexer::new(source, 0);
+        let tokens = lexer.tokenize().expect("lex failed");
+        let module = Parser::new(tokens).parse_module().expect("parse failed");
+        let mut tc = TypeChecker::new();
+        tc.check(&module).expect("check failed");
+        tc
+    }
+
+    fn fn_info<'a>(tc: &'a TypeChecker, name: &str) -> &'a FnInfo {
+        tc.functions
+            .iter()
+            .find(|f| f.name == name)
+            .unwrap_or_else(|| panic!("no FnInfo for `{}`", name))
+    }
+
+    #[test]
+    fn a_call_through_a_parameter_marks_it_effect_transparent() {
+        // The gap the polymorphism pass exists for: `apply` performs
+        // whatever its first argument performs, and used to infer as
+        // simply pure.
+        let tc = checked(
+            "(:: apply (-> (-> Int Int) Int Int))\n\
+             (fn (apply f x) (f x))\n\
+             (:: main Int)\n\
+             (fn (main) (apply (lambda (x) x) 3))",
+        );
+        let f = fn_info(&tc, "apply");
+        assert_eq!(f.effect_params, vec![0]);
+        assert!(f.effects.is_empty(), "apply itself performs nothing");
+    }
+
+    #[test]
+    fn effect_transparency_propagates_through_known_callees() {
+        // `twice` never calls `f` itself - it only hands it to
+        // `apply`, whose first position is effect-transparent. The
+        // fixpoint has to carry the mark back.
+        let tc = checked(
+            "(:: apply (-> (-> Int Int) Int Int))\n\
+             (fn (apply f x) (f x))\n\
+             (:: twice (-> (-> Int Int) Int Int))\n\
+             (fn (twice f x) (apply f (apply f x)))\n\
+             (:: main Int)\n\
+             (fn (main) (twice (lambda (x) x) 3))",
+        );
+        assert_eq!(fn_info(&tc, "twice").effect_params, vec![0]);
+    }
+
+    #[test]
+    fn arguments_to_a_parameter_callee_are_marked_too() {
+        // `(f g)` may call `g` - an unknown callable answers for its
+        // arguments as well as itself.
+        let tc = checked(
+            "(:: call1 (-> (-> Int Int) Int))\n\
+             (fn (call1 h) (h 7))\n\
+             (:: weird (-> (-> (-> Int Int) Int) (-> Int Int) Int))\n\
+             (fn (weird f g) (f g))\n\
+             (:: main Int)\n\
+             (fn (main) (weird call1 (lambda (x) x)))",
+        );
+        assert_eq!(fn_info(&tc, "weird").effect_params, vec![0, 1]);
+    }
+
+    #[test]
+    fn a_local_binding_shadows_the_enclosing_parameter() {
+        // The `(f 1)` calls the let-bound lambda, not the enclosing
+        // function's parameter - `outer` is not effect-transparent.
+        let tc = checked(
+            "(:: outer (-> (-> Int Int) Int))\n\
+             (fn (outer f) (let ((f (lambda (x) x))) (f 1)))\n\
+             (:: main Int)\n\
+             (fn (main) (outer (lambda (x) x)))",
+        );
+        assert!(
+            fn_info(&tc, "outer").effect_params.is_empty(),
+            "shadowed call marked the enclosing parameter"
+        );
+    }
+
+    #[test]
+    fn a_type_ascribed_parameter_head_still_marks_transparency() {
+        // `((:: f ty) 1)` is a call through the parameter with an
+        // annotation in the way; the fallback callee path must
+        // escape the head or the identical `(f 1)` and this diverge.
+        let tc = checked(
+            "(:: go (-> (-> Int Int) Int))\n\
+             (fn (go f) ((:: f (-> Int Int)) 1))\n\
+             (:: main Int)\n\
+             (fn (main) (go (lambda (x) x)))",
+        );
+        assert_eq!(fn_info(&tc, "go").effect_params, vec![0]);
+    }
+
+    #[test]
+    fn a_bare_mention_of_a_parameter_is_not_a_call() {
+        // Storing a callback (here: constructor application) is not
+        // invoking it; the documented creation-site rule covers the
+        // value's own effects.
+        let tc = checked(
+            "(data Box (a) (MkBox a))\n\
+             (:: keep (-> (-> Int Int) (Box (-> Int Int))))\n\
+             (fn (keep f) (MkBox f))\n\
+             (:: main Int)\n\
+             (fn (main) 0)",
+        );
+        assert!(fn_info(&tc, "keep").effect_params.is_empty());
+    }
+
+    #[test]
+    fn a_let_binding_shadows_a_named_function_for_attribution() {
+        // A local `w` rebinding the name of an IO function: the old
+        // collector attributed the *named* function's IO to this
+        // body, so the pure claim warned about I/O that cannot
+        // happen.
+        let errors = check_warnings(
+            "(:: w (-> Int Int))\n\
+             (fn (w fd) (__syscall3 1 fd 0 0))\n\
+             (:: quiet (-> Int Int))\n\
+             ;@axiom:pure\n\
+             (fn (quiet n) (let ((w (lambda (x) x))) (w n)))\n\
+             (:: main Int)\n\
+             (fn (main) 0)",
+        );
+        assert!(
+            !errors
+                .iter()
+                .any(|e| matches!(e, SemError::AxtagMismatch { name, .. } if name == "quiet")),
+            "shadowed name attributed the shadowed function's IO: {:?}",
+            errors
+        );
+    }
+
+    #[test]
+    fn an_if_condition_contributes_its_effects() {
+        // The old collector walked only the branches of `EIf`; a
+        // syscall in the condition vanished from the inferred set.
+        let errors = check_warnings(
+            "(:: touch (-> Int Int))\n\
+             (fn (touch fd) (__syscall3 1 fd 0 0))\n\
+             (:: c (-> Int Int))\n\
+             ;@axiom:pure\n\
+             (fn (c fd) (if (== (touch fd) 0) 1 2))\n\
+             (:: main Int)\n\
+             (fn (main) 0)",
+        );
+        assert!(
+            errors
+                .iter()
+                .any(|e| matches!(e, SemError::AxtagMismatch { name, .. } if name == "c")),
+            "the condition's IO was dropped: {:?}",
+            errors
+        );
+    }
+
+    #[test]
+    fn a_pure_claim_on_a_higher_order_function_stands() {
+        // "Pure modulo its function parameters": `apply` is exactly
+        // as pure as its argument, and the claim means the concrete
+        // half.
+        let errors = check_warnings(
+            "(:: apply (-> (-> Int Int) Int Int))\n\
+             ;@axiom:pure\n\
+             (fn (apply f x) (f x))\n\
+             (:: main Int)\n\
+             (fn (main) (apply (lambda (x) x) 3))",
+        );
+        assert!(
+            !errors
+                .iter()
+                .any(|e| matches!(e, SemError::AxtagMismatch { name, .. } if name == "apply")),
+            "{:?}",
+            errors
+        );
+    }
+
+    #[test]
+    fn a_declared_effect_is_conditional_when_callbacks_could_supply_it() {
+        // `effect(io)` on a function that only performs IO through
+        // its callback: the claim is satisfiable at some call sites,
+        // so it stands - where a first-order function with the same
+        // tag and no IO still warns.
+        let errors = check_warnings(
+            "(:: run (-> (-> Int Int) Int))\n\
+             ;@axiom:effect(io)\n\
+             (fn (run f) (f 0))\n\
+             (:: rigid (-> Int Int))\n\
+             ;@axiom:effect(io)\n\
+             (fn (rigid x) x)\n\
+             (:: main Int)\n\
+             (fn (main) 0)",
+        );
+        assert!(
+            !errors
+                .iter()
+                .any(|e| matches!(e, SemError::AxtagMismatch { name, .. } if name == "run")),
+            "{:?}",
+            errors
+        );
+        assert!(
+            errors
+                .iter()
+                .any(|e| matches!(e, SemError::AxtagMismatch { name, .. } if name == "rigid")),
+            "a first-order missing-effect claim must still warn: {:?}",
+            errors
+        );
+    }
+
+    #[test]
+    fn effect_transparency_converges_under_recursion() {
+        // A self-call that passes the parameter onward must not spin
+        // the fixpoint or lose the mark.
+        let tc = checked(
+            "(:: each (-> (-> Int Int) Int Int))\n\
+             (fn (each f n) (if (== n 0) 0 (let ((_ (f n))) (each f (- n 1)))))\n\
+             (:: main Int)\n\
+             (fn (main) (each (lambda (x) x) 3))",
+        );
+        assert_eq!(fn_info(&tc, "each").effect_params, vec![0]);
+    }
+
+    // ---- Dynamic effect handlers (sema) ----
+
+    #[test]
+    fn an_effect_operation_carries_its_custom_effect() {
+        // Calling `log` performs `Console`, transitively, like any
+        // other effect - and a pure claim over it warns.
+        let errors = check_warnings(
+            "(effect Console (log :: (-> String Int)))\n\
+             (:: shout (-> Int Int))\n\
+             ;@axiom:pure\n\
+             (fn (shout n) (log \"hi\"))\n\
+             (:: main Int)\n\
+             (fn (main) 0)",
+        );
+        assert!(
+            errors
+                .iter()
+                .any(|e| matches!(e, SemError::AxtagMismatch { name, .. } if name == "shout")),
+            "{:?}",
+            errors
+        );
+    }
+
+    #[test]
+    fn an_effect_claim_matches_its_declaration_case_insensitively() {
+        // The builtin tags are all lowercase (`effect(io)`), so
+        // `effect(console)` names the declared `Console`.
+        let errors = check_warnings(
+            "(effect Console (log :: (-> String Int)))\n\
+             (:: shout (-> Int Int))\n\
+             ;@axiom:effect(console)\n\
+             (fn (shout n) (log \"hi\"))\n\
+             (:: main Int)\n\
+             (fn (main) 0)",
+        );
+        assert!(
+            !errors
+                .iter()
+                .any(|e| matches!(e, SemError::AxtagMismatch { name, .. } if name == "shout")),
+            "{:?}",
+            errors
+        );
+    }
+
+    #[test]
+    fn a_claimed_effect_that_exists_nowhere_warns_even_on_a_hof() {
+        // The suppression rule is for effects a callback could
+        // supply; an effect no declaration introduces never can be.
+        let errors = check_warnings(
+            "(:: run (-> (-> Int Int) Int))\n\
+             ;@axiom:effect(telemetry)\n\
+             (fn (run f) (f 0))\n\
+             (:: main Int)\n\
+             (fn (main) 0)",
+        );
+        assert!(
+            errors
+                .iter()
+                .any(|e| matches!(e, SemError::AxtagMismatch { name, .. } if name == "run")),
+            "{:?}",
+            errors
+        );
+    }
+
+    #[test]
+    fn a_handle_list_naming_an_undeclared_effect_is_refused() {
+        let errors = check("(:: main Int)\n(fn (main) (handle 1 (Console) 0))")
+            .expect_err("unknown effect must be an error");
+        assert!(
+            errors
+                .iter()
+                .any(|e| matches!(e, SemError::UnknownEffect { name, .. } if name == "Console")),
+            "{:?}",
+            errors
+        );
+        assert_eq!(
+            errors
+                .iter()
+                .find(|e| matches!(e, SemError::UnknownEffect { .. }))
+                .unwrap()
+                .to_diagnostic()
+                .code
+                .unwrap()
+                .code,
+            "AX3016"
+        );
+    }
+
+    #[test]
+    fn a_multi_operation_effect_cannot_be_handled_dynamically_yet() {
+        let errors = check(
+            "(effect Term (put :: (-> String Int)) (bell :: (-> Int Int)))\n\
+             (:: main Int)\n\
+             (fn (main) (handle 1 (Term) (lambda (s) 0)))",
+        )
+        .expect_err("multi-op dynamic handle must be refused");
+        assert!(
+            errors
+                .iter()
+                .any(|e| matches!(e, SemError::EffectHandlerUnsupported { .. })),
+            "{:?}",
+            errors
+        );
+    }
+
+    #[test]
+    fn two_custom_effects_in_one_handle_are_refused() {
+        let errors = check(
+            "(effect A (opa :: (-> Int Int)))\n\
+             (effect B (opb :: (-> Int Int)))\n\
+             (:: main Int)\n\
+             (fn (main) (handle (opa 1) (A B) (lambda (x) x)))",
+        )
+        .expect_err("two dynamic effects in one handle must be refused");
+        assert!(
+            errors
+                .iter()
+                .any(|e| matches!(e, SemError::EffectHandlerUnsupported { .. })),
+            "{:?}",
+            errors
+        );
+    }
+
+    #[test]
+    fn an_effect_operation_is_not_a_value() {
+        // There is no closure representation for dynamic dispatch;
+        // `(lambda (x) (log x))` is the value form.
+        let errors = check(
+            "(effect Console (log :: (-> String Int)))\n\
+             (:: keep (-> Int (-> String Int)))\n\
+             (fn (keep n) log)\n\
+             (:: main Int)\n\
+             (fn (main) 0)",
+        )
+        .expect_err("op in value position must be refused");
+        assert!(
+            errors
+                .iter()
+                .any(|e| matches!(e, SemError::EffectHandlerUnsupported { .. })),
+            "{:?}",
+            errors
+        );
+    }
+
+    #[test]
+    fn a_flat_multi_parameter_lambda_is_not_a_curried_handler() {
+        // A two-argument operation's handler is applied one argument
+        // per step, so it must be a chain of one-parameter lambdas; a
+        // flat two-parameter lambda is tuple-typed and refused rather
+        // than silently miscompiled.
+        let errors = check(
+            "(effect Ask (ask :: (-> Int Int Int)))\n\
+             (:: main Int)\n\
+             (fn (main) (handle (ask 1 2) (Ask) (lambda (a b) (+ a b))))",
+        )
+        .expect_err("flat lambda for a curried op must be refused");
+        assert!(
+            errors
+                .iter()
+                .any(|e| matches!(e, SemError::TypeMismatch { .. })),
+            "{:?}",
+            errors
+        );
+    }
+
+    #[test]
+    fn a_handled_custom_effect_stops_at_its_handle() {
+        // `Custom(Console)` subtracts exactly like a builtin - which
+        // depends on effect equality ignoring spans; the derived
+        // `PartialEq` compared `Custom`'s whole `Ident` and no listed
+        // custom effect could ever match a collected one. The
+        // `effect(alloc)` claim is deliberate: a dynamic handle
+        // heap-allocates its evidence record, so the function is
+        // honestly `Alloc` - and nothing else.
+        let errors = check_warnings(
+            "(effect Console (log :: (-> String Int)))\n\
+             (:: quiet (-> Int Int))\n\
+             ;@axiom:effect(alloc)\n\
+             (fn (quiet n) (handle (log \"hi\") (Console) (lambda (s) 0)))\n\
+             (:: main Int)\n\
+             (fn (main) 0)",
+        );
+        assert!(
+            !errors
+                .iter()
+                .any(|e| matches!(e, SemError::AxtagMismatch { name, .. } if name == "quiet")),
+            "the handled Console leaked past its handle (or Alloc went missing): {:?}",
+            errors
+        );
+    }
+
+    #[test]
+    fn a_local_shadow_does_not_trip_the_handle_check() {
+        // The AX3011 walk starts mid-function: `let` binders live at
+        // the handle node must mask top-level names, or the local
+        // `w` below re-resolves to the effectful top level and a
+        // build-failing error appears on a body that performs
+        // nothing.
+        assert!(check(
+            "(:: w (-> Int Int))\n\
+             (fn (w fd) (__syscall3 1 fd 0 0))\n\
+             (:: calm (-> Int Int))\n\
+             (fn (calm n) (let ((w (lambda (x) x))) (handle (w n) (Mut) 0)))\n\
+             (:: main Int)\n\
+             (fn (main) 0)"
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn an_aliased_parameter_still_marks_effect_transparency() {
+        // `(let ((g f)) (g x))` is a parameter call under another
+        // name; plain shadow tracking alone made aliasing a hole.
+        let tc = checked(
+            "(:: apply (-> (-> Int Int) Int Int))\n\
+             (fn (apply f x) (let ((g f)) (g x)))\n\
+             (:: main Int)\n\
+             (fn (main) (apply (lambda (x) x) 3))",
+        );
+        assert_eq!(fn_info(&tc, "apply").effect_params, vec![0]);
+    }
+
+    #[test]
+    fn declaring_a_builtin_effect_name_is_refused() {
+        let errors = check(
+            "(effect IO (poke :: (-> Int Int)))\n\
+             (:: main Int)\n\
+             (fn (main) 0)",
+        )
+        .expect_err("shadowing a builtin effect must be refused");
+        assert!(
+            errors.iter().any(
+                |e| matches!(e, SemError::Message { message, .. } if message.contains("built-in"))
+            ),
+            "{:?}",
+            errors
+        );
+    }
+
+    #[test]
+    fn an_op_name_colliding_with_a_function_is_a_duplicate() {
+        let errors = check(
+            "(effect Console (log :: (-> String Int)))\n\
+             (:: log (-> String Int))\n\
+             (fn (log s) 0)\n\
+             (:: main Int)\n\
+             (fn (main) 0)",
+        )
+        .expect_err("op/function name collision must be reported");
+        assert!(
+            errors
+                .iter()
+                .any(|e| matches!(e, SemError::DuplicateDefinition { name, .. } if name == "log")),
+            "{:?}",
+            errors
+        );
+    }
+
+    #[test]
+    fn two_same_named_effect_declarations_are_a_duplicate() {
+        // Both declarations would share one evidence slot while the
+        // handler is type-checked against only the first's operation
+        // - `(warn 5)` dispatched an Int into a String-typed handler
+        // and segfaulted, with zero diagnostics.
+        let errors = check(
+            "(effect Console (log :: (-> String Int)))\n\
+             (effect Console (warn :: (-> Int Int)))\n\
+             (:: main Int)\n\
+             (fn (main) 0)",
+        )
+        .expect_err("same-module same-name effects must be a duplicate");
+        assert!(
+            errors.iter().any(
+                |e| matches!(e, SemError::DuplicateDefinition { name, .. } if name == "Console")
+            ),
+            "{:?}",
+            errors
+        );
+    }
+
+    #[test]
+    fn a_nullary_effect_operation_is_refused_at_declaration() {
+        // `(op)` would be a bare-name value, and operations are not
+        // values - there is no way to call a nullary op.
+        let errors = check(
+            "(effect Clock (now :: Int))\n\
+             (:: main Int)\n\
+             (fn (main) 0)",
+        )
+        .expect_err("nullary op must be refused");
+        assert!(
+            errors
+                .iter()
+                .any(|e| matches!(e, SemError::EffectHandlerUnsupported { .. })),
+            "{:?}",
+            errors
+        );
+    }
+
+    #[test]
+    fn the_builtin_err_effect_is_nameable_in_a_handle_list() {
+        // `Err` has no keyword token; it used to lex into
+        // `Custom("Err")` and draw AX3016 for naming a documented
+        // built-in.
+        assert!(check(
+            "(:: main Int)\n\
+             (fn (main) (handle 1 (Err) 0))"
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn a_local_shadowing_an_op_name_binds_the_local() {
+        // Sema resolves the `let` binding; the generator must agree
+        // (it used to dispatch the name as an operation - the local
+        // was typed by one stage and miscompiled by the other). The
+        // sema half: no Console effect is attributed to `quiet`, so
+        // the pure claim stands.
+        let errors = check_warnings(
+            "(effect Console (log :: (-> String Int)))\n\
+             (:: quiet (-> Int Int))\n\
+             ;@axiom:pure\n\
+             (fn (quiet n) (let ((log (lambda (s) 99))) (log \"x\")))\n\
+             (:: main Int)\n\
+             (fn (main) 0)",
+        );
+        assert!(
+            !errors
+                .iter()
+                .any(|e| matches!(e, SemError::AxtagMismatch { name, .. } if name == "quiet")),
+            "{:?}",
+            errors
+        );
     }
 }

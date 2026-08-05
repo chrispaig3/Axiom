@@ -1344,7 +1344,9 @@ fn collect_symbol_facts(
             &f.name,
             fn_spans.get(&(f.name.clone(), f.module.clone())).copied(),
             f.ty.to_string(),
-            decl_meta.get(&(f.name.clone(), f.module.clone())).and_then(|(n, _)| n.clone()),
+            decl_meta
+                .get(&(f.name.clone(), f.module.clone()))
+                .and_then(|(n, _)| n.clone()),
         );
         if let Some(symbol) = &f.foreign_symbol {
             fact = fact.with_meta(format!("symbol={}", symbol));
@@ -1365,6 +1367,23 @@ fn collect_symbol_facts(
             let list: Vec<String> = f.effects.iter().map(|e| format!("{}", e)).collect();
             fact = fact.with_meta(format!("effects={}", list.join(",")));
         }
+        // The polymorphic half of the summary: which parameters'
+        // effects flow in at each call site. `apply` shows
+        // `#effect-params=f` - honest where the old output implied
+        // it was simply pure.
+        if !f.effect_params.is_empty() && !f.is_builtin {
+            let list: Vec<String> = f
+                .effect_params
+                .iter()
+                .map(|&i| {
+                    f.param_names
+                        .get(i)
+                        .cloned()
+                        .unwrap_or_else(|| format!("{}", i))
+                })
+                .collect();
+            fact = fact.with_meta(format!("effect-params={}", list.join(",")));
+        }
         facts.push(fact);
     }
 
@@ -1375,7 +1394,9 @@ fn collect_symbol_facts(
             &d.name,
             type_spans.get(&(d.name.clone(), d.module.clone())).copied(),
             format!("data {}", d.name),
-            decl_meta.get(&(d.name.clone(), d.module.clone())).and_then(|(n, _)| n.clone()),
+            decl_meta
+                .get(&(d.name.clone(), d.module.clone()))
+                .and_then(|(n, _)| n.clone()),
         );
         if !ctor_names.is_empty() {
             fact = fact.with_meta(format!("ctors={}", ctor_names.join(",")));
@@ -1406,10 +1427,17 @@ fn collect_symbol_facts(
             &s.name,
             type_spans.get(&(s.name.clone(), s.module.clone())).copied(),
             format!("struct {}", s.name),
-            decl_meta.get(&(s.name.clone(), s.module.clone())).and_then(|(n, _)| n.clone()),
+            decl_meta
+                .get(&(s.name.clone(), s.module.clone()))
+                .and_then(|(n, _)| n.clone()),
         )
         .with_meta(format!("fields={}", fields_meta(&s.fields)));
-        if let Some(repr) = repr_meta(struct_reprs.get(&(s.name.clone(), s.module.clone())).copied().unwrap_or(&None)) {
+        if let Some(repr) = repr_meta(
+            struct_reprs
+                .get(&(s.name.clone(), s.module.clone()))
+                .copied()
+                .unwrap_or(&None),
+        ) {
             fact = fact.with_meta(repr);
         }
         if let Some((_, axtags)) = decl_meta.get(&(s.name.clone(), s.module.clone())) {
@@ -1426,7 +1454,9 @@ fn collect_symbol_facts(
             &a.name,
             type_spans.get(&(a.name.clone(), a.module.clone())).copied(),
             format!("{}", a.target),
-            decl_meta.get(&(a.name.clone(), a.module.clone())).and_then(|(n, _)| n.clone()),
+            decl_meta
+                .get(&(a.name.clone(), a.module.clone()))
+                .and_then(|(n, _)| n.clone()),
         );
         if !a.tyvars.is_empty() {
             fact = fact.with_meta(format!("tyvars={}", a.tyvars.join(",")));
@@ -1443,9 +1473,13 @@ fn collect_symbol_facts(
         let mut fact = SymbolFact::new(
             SymbolKind::Trait,
             &t.name,
-            trait_spans.get(&(t.name.clone(), t.module.clone())).copied(),
+            trait_spans
+                .get(&(t.name.clone(), t.module.clone()))
+                .copied(),
             format!("trait {}", t.name),
-            decl_meta.get(&(t.name.clone(), t.module.clone())).and_then(|(n, _)| n.clone()),
+            decl_meta
+                .get(&(t.name.clone(), t.module.clone()))
+                .and_then(|(n, _)| n.clone()),
         )
         .with_meta(format!("methods={}", fields_meta(&t.methods)));
         if let Some((_, axtags)) = decl_meta.get(&(t.name.clone(), t.module.clone())) {

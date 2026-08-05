@@ -822,11 +822,36 @@ over every function body, so a syscall three calls down still counts -
 and validates any `;@axiom:effect(...)`/`;@axiom:pure` claims against
 what it inferred (`AX3010`, a warning). Effects do not appear in
 function types, and untagged functions are not policed: the tags are
-opt-in claims, checked when made. One honest gap: effects of a
-function value called through a parameter are invisible to the
-inference - effect polymorphism for higher-order functions is future
-work. `axiom symbols` reports the inferred set as `#effects=...`
-beside any declared tags.
+opt-in claims, checked when made. `axiom symbols` reports the inferred
+set as `#effects=...` beside any declared tags.
+
+### Effect Polymorphism
+
+A higher-order function's summary has two halves: the concrete effects
+its own body performs, and the *effect-transparent parameters* - the
+parameters it calls (directly, through a `let` alias, or by passing
+them onward to another function's effect-transparent position). `(fn
+(apply f x) (f x))` performs nothing concretely and everything its
+first argument performs; `axiom symbols` reports that as
+`#effect-params=f` beside `#effects=...`, and every call site
+instantiates the mark with the argument actually passed.
+
+Claims are validated against the concrete half. `;@axiom:pure` on
+`apply` stands - "pure modulo its function parameters" is what purity
+means on a higher-order function - and a declared effect the body does
+not perform concretely is accepted when a callback could supply it.
+The exception is a claimed effect that no declaration introduces at
+all: nothing could ever supply it, so it warns regardless.
+
+Attribution is otherwise unchanged: a *reference* to a named function
+answers for that function's effects at the reference site, and a
+lambda literal answers for its body where the literal appears, which
+is what keeps function values that escape into structures sound. The
+remaining honest gaps: a function value returned from a call or loaded
+from a structure contributes nothing at its *invocation* site (its
+creation site was attributed); and passing an effect-polymorphic
+function itself as a callback does not instantiate the callee's marks
+(higher-rank flows).
 
 ### Built-in Effects
 
@@ -842,13 +867,21 @@ beside any declared tags.
 
 ```scheme
 (effect Console
-  (print :: (-> String ())))
+  (log :: (-> String Int)))
 ```
 
-`effect` declarations parse and are currently inert: nothing registers
-or checks them. They reserve the surface syntax for user-defined
-effects; until that lands, the built-in effect set above is the whole
-vocabulary.
+An `effect` declaration introduces each operation as a callable name:
+`(log "hi")` type-checks against the operation's signature and
+dispatches at runtime through the innermost installed handler (below).
+Calling an operation performs the effect - `log`'s callers infer
+`#effects=Console`, transitively, and `;@axiom:effect(console)` claims
+validate against it (custom tag values match declarations
+case-insensitively). Operation names join the ordinary value
+namespace: colliding with a function in the same module is a duplicate
+definition, cross-module collisions resolve by the one-bare-name rule,
+and an operation cannot be used as a bare value - wrap it in a lambda
+(`(lambda (x) (log x))`) where a function value is needed. Declaring
+an effect named after a built-in (`IO`, `Alloc`, ...) is refused.
 
 ### Annotating Functions with Effects
 
@@ -863,19 +896,60 @@ The compiler validates that the body actually performs the declared effects.
 
 ### Handling Effects
 
-`handle` is a *static* effect scope: effects named in its list are
+`handle` plays two roles, decided per effect in its list. For built-in
+effects it is a *static* scope, exactly as before: listed effects are
 subtracted from what the body contributes to the enclosing function's
-inferred set, and a body effect the list does not name is `AX3011`.
+inferred set, the handler expression is not evaluated, and the whole
+form lowers to its body.
 
 ```scheme
 ; The body's IO stops here for inference purposes
 (handle (println "hello") (IO) 0)
 ```
 
-The handler expression is currently not invoked at runtime - `handle`
-lowers to its body. Dynamic interception (running the handler when the
-effect is performed) is future work; until then `handle` documents and
-scopes effects, it does not change what executes.
+For a *declared* effect, `handle` installs its handler for the body's
+dynamic extent - evidence-passing, tail-resumptive: an operation
+performed anywhere in that extent (any call depth) invokes the
+innermost installed handler in the operation's place, the handler's
+return value is the operation's result, and execution continues.
+
+```scheme
+(handle
+  (log "hi")            ; dispatches to the lambda below
+  (Console)
+  (lambda (s) { (println s) 0 }))
+```
+
+The rules that make this predictable:
+
+- **Nesting shadows and restores.** The innermost handler wins while
+  its `handle` is live; the previous one answers again when it exits.
+- **A handler runs under the evidence at its installation.** An
+  operation the handler itself performs dispatches *outward* to the
+  next handler, never back into itself - which also matches the
+  static story, since a handler's own effects propagate past its own
+  `handle`.
+- **No handler in dynamic extent is a trap.** The program exits with
+  code 71 rather than continuing on a value nothing produced.
+- **A multi-argument operation's handler is a curried chain** -
+  `(lambda (a) (lambda (b) ...))` - because application is one
+  argument per step; a flat two-parameter lambda is tuple-typed and
+  refused by the handler type check.
+- **In inference,** the handled effect subtracts from the body's
+  contribution like a built-in, the handler's own effects count at the
+  handle site (installing it entails maybe running it), and the form
+  performs `Alloc` (the evidence record). `AX3011` still requires the
+  list to name *every* effect the body performs, so a body whose
+  inner handlers do I/O lists `(Console IO)` even though only
+  `Console` is intercepted - the list documents, the declaration
+  decides what dispatches.
+
+Current limits, each a stable diagnostic rather than a silent
+miscompile: one custom effect per `handle` (nest them for more), only
+single-operation effects handled dynamically, and a `handle` list
+naming an undeclared effect is `AX3016`. Stage1 does not parse
+`effect`/`handle` yet - neither form appears in the self-hosting
+subset.
 
 ---
 

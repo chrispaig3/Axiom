@@ -23,7 +23,7 @@ impl Visibility {
 // Effects
 // ============================================================
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone)]
 pub enum Effect {
     Pure,
     IO,
@@ -32,6 +32,40 @@ pub enum Effect {
     Div,
     Err,
     Custom(Ident),
+}
+
+/// Effects compare by *identity of the effect*, not by where the
+/// mention sits in the source. The derived `PartialEq` compared
+/// `Custom`'s whole `Ident` - span and scope included - so a
+/// `Custom("Console")` from a handle's effect list could never equal
+/// the `Custom("Console")` the inference produced with a dummy span,
+/// and every "is this effect handled?" check on a custom effect was
+/// silently false. Unreachable while nothing inferred custom effects;
+/// wrong the moment something did.
+impl PartialEq for Effect {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Effect::Pure, Effect::Pure)
+            | (Effect::IO, Effect::IO)
+            | (Effect::Alloc, Effect::Alloc)
+            | (Effect::Mut, Effect::Mut)
+            | (Effect::Div, Effect::Div)
+            | (Effect::Err, Effect::Err) => true,
+            (Effect::Custom(a), Effect::Custom(b)) => a.name == b.name,
+            _ => false,
+        }
+    }
+}
+
+impl Eq for Effect {}
+
+impl std::hash::Hash for Effect {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        std::mem::discriminant(self).hash(state);
+        if let Effect::Custom(id) = self {
+            id.name.hash(state);
+        }
+    }
 }
 
 impl fmt::Display for Effect {

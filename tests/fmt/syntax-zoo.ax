@@ -119,3 +119,19 @@
 ; --- trailing comment on a declaration ------------------------------
 (:: last (-> Int Int))
 (fn (last x) x)  ; stays on this line
+
+; --- effect declarations and handle expressions ---------------------
+(effect Console
+  (log :: (-> String Int)))
+
+(effect Wire
+  (send :: (-> Int Int Int))
+  (recv :: (-> Int Int)))
+
+(:: handled (-> Int Int))
+(fn (handled n)
+  (handle (log "hi") (Console) (lambda (s) 0)))
+
+(:: scoped (-> Int Int))
+(fn (scoped n)
+  (handle n (IO Mut) 0))

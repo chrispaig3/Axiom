@@ -776,10 +776,15 @@ impl Parser {
         self.expect(TokenKind::Effect)?;
         let name = self.parse_ident()?;
 
+        // Operations sit directly in the effect form - `(effect Console
+        // (log :: (-> String Int)))` - the shape `trait` uses for its
+        // methods and the one the reference has always documented. The
+        // original grammar demanded an extra list wrapper around the
+        // operations, so the documented form failed with AX2001 on its
+        // first parse the moment `effect` stopped being inert.
         let mut operations = Vec::new();
-        self.expect(TokenKind::LParen)?;
-        while !self.check(TokenKind::RParen) && !self.at_eof() {
-            self.expect(TokenKind::LParen)?;
+        while self.check(TokenKind::LParen) {
+            self.advance();
             let op_name = self.parse_ident()?;
             self.expect(TokenKind::DoubleColon)?;
             let op_ty = self.parse_type()?;
@@ -791,7 +796,8 @@ impl Parser {
                 return_type,
             });
         }
-        self.expect(TokenKind::RParen)?;
+        // The declaration's closing paren belongs to the caller, as
+        // with every other decl form.
 
         Ok(Decl::DEffect {
             name,
@@ -1967,6 +1973,13 @@ impl Parser {
                 let ident = self.parse_ident()?;
                 if ident.name == "Alloc" || ident.name == "alloc" {
                     effects.push(Effect::Alloc);
+                } else if ident.name == "Err" {
+                    // `Err` is a built-in effect with no keyword
+                    // token; without this it lexed as an identifier
+                    // and became `Custom("Err")`, which the
+                    // unknown-effect check then refused - a name the
+                    // effect table documents was unusable.
+                    effects.push(Effect::Err);
                 } else {
                     effects.push(Effect::Custom(ident));
                 }

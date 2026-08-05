@@ -750,9 +750,9 @@ fn format_effect_decl(
     out.push_str("effect ");
     out.push_str(&name.name);
     if !operations.is_empty() {
-        out.push('\n');
         state.push_indent();
         for op in operations {
+            out.push('\n');
             out.push_str(&state.indent_str());
             write!(out, "({} :: ", op.name.name).unwrap();
             let ty: Type = if op.params.is_empty() {

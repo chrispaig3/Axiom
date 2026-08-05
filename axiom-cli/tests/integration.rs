@@ -2424,3 +2424,139 @@ fn set_on_a_computed_place_is_still_a_syntax_error() {
         stderr(&out)
     );
 }
+
+#[test]
+fn an_installed_handler_survives_garbage_collection() {
+    // The evidence slot is a mutable global holding the only reference
+    // to the installed handler chain - the conservative collector's
+    // stack-and-registers scan cannot see it. Under `--gc` the churn
+    // below forces collections while the handler is installed; a
+    // collector that does not mark evidence slots as roots frees the
+    // chain record (and possibly the handler closure) mid-extent, and
+    // the dispatch after the churn reads freed memory. The golden
+    // harness runs the same program under the default allocator; this
+    // is the `--gc` half.
+    let dir = scratch_dir("effect-gc-roots");
+    write_source(
+        &dir,
+        "main.ax",
+        "(import IO)\n(import Vec)\n\
+         (effect Console\n  (log :: (-> String Int)))\n\
+         (:: churn (-> Int Int))\n\
+         (fn (churn n)\n\
+           (if (== n 0)\n\
+               0\n\
+               (let ((v (vecNew)))\n\
+                 { (vecPush v 1) (vecPush v 2) (churn (- n 1)) })))\n\
+         (:: main Int)\n\
+         (fn (main)\n\
+           {\n\
+             (handle\n\
+               { (churn 200000) (log \"still alive\") 0 }\n\
+               (Console IO Alloc)\n\
+               (lambda (s) { (println s) 0 }))\n\
+             0\n\
+           })\n",
+    );
+    let out = run_axiom(
+        &[
+            "--diagnostic-format=ai",
+            "build",
+            "--input",
+            "main.ax",
+            "--output",
+            "prog",
+            "--gc",
+        ],
+        &dir,
+    );
+    assert!(
+        out.status.success(),
+        "build --gc failed: {}{}",
+        stdout(&out),
+        stderr(&out)
+    );
+    let run = Command::new(dir.join("prog"))
+        .current_dir(&dir)
+        .output()
+        .expect("failed to run compiled program");
+    assert_eq!(
+        String::from_utf8_lossy(&run.stdout),
+        "still alive\n",
+        "handler was collected out from under its own extent; stderr: {}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert_eq!(run.status.code(), Some(0));
+}
+
+#[test]
+fn an_effect_declared_in_an_imported_module_dispatches_from_the_entry() {
+    // The handle's effect resolution and the operation's slot must
+    // agree on which declaration they mean - a first-match lookup on
+    // the handle side once keyed the slot by whichever same-named
+    // declaration registered first while the op dispatched through
+    // its own module's, so the installed handler was invisible to the
+    // very operation it handled. Cross-module is the arrangement that
+    // exposes it.
+    let dir = scratch_dir("imported-effect");
+    std::fs::create_dir_all(dir.join("Fx")).unwrap();
+    write_source(
+        &dir,
+        "Fx/Console.ax",
+        "(pub effect Console\n  (log :: (-> String Int)))\n",
+    );
+    write_source(
+        &dir,
+        "main.ax",
+        "(import IO)\n(import Fx.Console)\n\
+         (:: main Int)\n\
+         (fn (main)\n\
+           {\n\
+             (handle (log \"routed\") (Console IO)\n\
+               (lambda (s) { (println s) 0 }))\n\
+             0\n\
+           })\n",
+    );
+    let out = run_axiom(&["--diagnostic-format=ai", "run", "main.ax"], &dir);
+    let text = stdout(&out);
+    assert!(
+        text.contains("routed"),
+        "imported effect did not dispatch: stdout {} stderr {}",
+        text,
+        stderr(&out)
+    );
+}
+
+#[test]
+fn a_qualified_effect_op_is_not_a_value_either() {
+    // The bare-name refusal held while `Mod::op` in value position
+    // sailed through `check` and died in the native toolchain.
+    let dir = scratch_dir("qualified-op-value");
+    std::fs::create_dir_all(dir.join("Fx")).unwrap();
+    write_source(
+        &dir,
+        "Fx/Console.ax",
+        "(pub effect Console\n  (log :: (-> String Int)))\n",
+    );
+    write_source(
+        &dir,
+        "main.ax",
+        "(import Fx.Console)\n\
+         (:: keep (-> Int (-> String Int)))\n\
+         (fn (keep n) Fx.Console::log)\n\
+         (:: main Int)\n\
+         (fn (main) 0)\n",
+    );
+    let out = run_axiom(&["--diagnostic-format=ai", "check", "main.ax"], &dir);
+    assert!(
+        !out.status.success(),
+        "qualified op as a value must be refused; stdout: {}",
+        stdout(&out)
+    );
+    assert!(
+        stderr(&out).contains("AX3017") || stdout(&out).contains("AX3017"),
+        "expected AX3017, got stdout {} stderr {}",
+        stdout(&out),
+        stderr(&out)
+    );
+}

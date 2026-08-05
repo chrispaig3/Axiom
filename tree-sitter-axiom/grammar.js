@@ -417,7 +417,7 @@ module.exports = grammar({
     ),
 
     effect_operation: $ => seq(
-      '(', field('name', $.identifier), repeat(field('parameter', $._type)), ')',
+      '(', field('name', $.identifier), '::', field('type', $._type), ')',
     ),
 
 
