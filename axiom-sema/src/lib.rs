@@ -90,6 +90,17 @@ impl SemError {
         }
     }
 
+    /// Whether this diagnostic is a warning rather than an error.
+    ///
+    /// Derived from the rendered diagnostic rather than from a list of
+    /// variants, so the severity a reader sees and the severity that
+    /// decides whether the build fails can never drift apart - which is
+    /// exactly what had happened: `AX3010` rendered as `W` and aborted
+    /// compilation.
+    pub fn is_warning(&self) -> bool {
+        !matches!(self.to_diagnostic().severity, axiom_errors::Severity::Error)
+    }
+
     /// Convert into a renderer-agnostic [`Diagnostic`], including
     /// "did you mean `foo`?" suggestions computed from names actually in
     /// scope (see [`TypeChecker::suggest_name`]).
@@ -754,6 +765,9 @@ pub struct TypeChecker {
     pub functions: Vec<FnInfo>,
     pub traits: Vec<TraitInfo>,
     pub errors: Vec<SemError>,
+    /// Diagnostics from the last `check` whose severity is warning.
+    /// Kept separate so they can be reported without failing the build.
+    pub warnings: Vec<SemError>,
     pub type_counter: usize,
 }
 
@@ -841,6 +855,7 @@ impl TypeChecker {
             functions: Vec::new(),
             traits: Vec::new(),
             errors: Vec::new(),
+            warnings: Vec::new(),
             type_counter: 0,
         };
 
@@ -923,16 +938,35 @@ impl TypeChecker {
         tc
     }
 
+    /// Type-check a module.
+    ///
+    /// `Err` carries the errors alone. Diagnostics that render as
+    /// warnings do not fail the check and are left in
+    /// [`TypeChecker::warnings`] for the caller to report on either
+    /// path - they are still printed, just not fatal.
     pub fn check(&mut self, module: &Module) -> Result<(), Vec<SemError>> {
         self.check_duplicate_definitions(&module.decls);
         self.collect_declarations(module);
         self.infer_effects(&module.decls);
         self.check_decls(&module.decls);
 
-        if self.errors.is_empty() {
+        // A warning must not fail the build. Everything the checker
+        // produced went into one `errors` list, so an `AX3010` AXTAG
+        // mismatch - documented as a warning precisely "so an agent can
+        // correct the annotation instead of silently trusting it" -
+        // aborted compilation and was announced as
+        // "compilation failed due to 1 previous error", of a diagnostic
+        // the renderer had already labelled `W`. The severity and the
+        // behaviour disagreed, and the behaviour was the wrong one.
+        let (warnings, errors): (Vec<SemError>, Vec<SemError>) = std::mem::take(&mut self.errors)
+            .into_iter()
+            .partition(|e| e.is_warning());
+        self.warnings = warnings;
+
+        if errors.is_empty() {
             Ok(())
         } else {
-            Err(std::mem::take(&mut self.errors))
+            Err(errors)
         }
     }
 
@@ -2511,6 +2545,23 @@ mod tests {
         check(source).expect_err("expected type-checking to fail")
     }
 
+    /// Type-check `source` and return the diagnostics that did *not*
+    /// fail it.
+    ///
+    /// An AXTAG mismatch is documented as a warning - `AX3010` renders
+    /// as `W` - so it must not abort compilation. The four tests below
+    /// used `check_err`, which asserted the opposite, and two of them
+    /// said `warns` in their own names while requiring a failure.
+    fn check_warnings(source: &str) -> Vec<SemError> {
+        let mut lexer = Lexer::new(source, 0);
+        let tokens = lexer.tokenize().expect("lex failed");
+        let module = Parser::new(tokens).parse_module().expect("parse failed");
+        let mut tc = TypeChecker::new();
+        tc.check(&module)
+            .expect("a warning must not fail type-checking");
+        std::mem::take(&mut tc.warnings)
+    }
+
     #[test]
     fn every_primitive_is_in_scope_with_its_declared_arity() {
         // The primitives are what let the standard library exist
@@ -2554,12 +2605,12 @@ mod tests {
     }
 
     #[test]
-    fn a_pure_claim_is_rejected_when_the_body_reaches_a_syscall_indirectly() {
+    fn a_pure_claim_warns_when_the_body_reaches_a_syscall_indirectly() {
         // Effects propagate through calls: `outer` performs I/O even
         // though the syscall is two levels down. Without transitive
         // inference this program type-checked, which made every
         // `pure` claim above the standard library meaningless.
-        let errors = check_err(
+        let errors = check_warnings(
             "(:: inner (-> Int Int))\n\
              (fn (inner fd) (__syscall3 1 fd 0 0))\n\
              (:: middle (-> Int Int))\n\
@@ -2859,7 +2910,7 @@ mod tests {
 
     #[test]
     fn effect_io_tag_without_foreign_call_warns() {
-        let errors = check_err(
+        let errors = check_warnings(
             r#"(:: main Int)
 ;@axiom:effect(io)
 (fn main 0)"#,
@@ -2871,7 +2922,7 @@ mod tests {
 
     #[test]
     fn pure_tag_with_foreign_call_warns() {
-        let errors = check_err(
+        let errors = check_warnings(
             r#"(foreign printf :: (-> String Int) = "printf")
 (:: main Int)
 ;@axiom:pure
@@ -2964,8 +3015,8 @@ mod tests {
     }
 
     #[test]
-    fn pure_tag_with_alloc_fails() {
-        let errors = check_err(
+    fn pure_tag_with_alloc_warns() {
+        let errors = check_warnings(
             r#"(:: main Int)
 ;@axiom:pure
 (fn main (alloc Int 1))"#,

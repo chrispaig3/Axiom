@@ -844,14 +844,42 @@ fn analyze(
     }
     let mut type_checker = TypeChecker::new();
     match type_checker.check(&ast) {
-        Ok(()) => Ok((ast, type_checker, registry)),
+        Ok(()) => {
+            // Warnings no longer abort the build, so they have to be
+            // printed on the success path too - otherwise separating
+            // them from errors would have silenced them instead.
+            let warnings: Vec<Diagnostic> = type_checker
+                .warnings
+                .iter()
+                .map(|w| w.to_diagnostic())
+                .collect();
+            if !warnings.is_empty() {
+                print_diagnostics_multi(&axiom_errors::dedup(warnings), &registry, format);
+            }
+            Ok((ast, type_checker, registry))
+        }
         Err(errors) => {
-            let diags: Vec<Diagnostic> = errors.iter().map(|e| e.to_diagnostic()).collect();
+            // Warnings are reported here too. Splitting them out of the
+            // failure list must not mean a file that has both a warning
+            // and an error shows only the error - that would swap one
+            // silence for another.
+            let diags: Vec<Diagnostic> = type_checker
+                .warnings
+                .iter()
+                .map(|w| w.to_diagnostic())
+                .chain(errors.iter().map(|e| e.to_diagnostic()))
+                .collect();
             // Cascade-dedup once up front so the count in the summary line
             // matches exactly what gets printed, instead of the old
             // behavior of reporting a raw (and often inflated) error count.
             let diags = axiom_errors::dedup(diags);
-            let shown = diags.len();
+            // Count only the errors: a warning is printed but does not
+            // fail the build, so counting it here would announce more
+            // errors than there were.
+            let shown = diags
+                .iter()
+                .filter(|d| d.severity == axiom_errors::Severity::Error)
+                .count();
             print_diagnostics_multi(&diags, &registry, format);
             Err(format!(
                 "compilation failed due to {} previous error{}",
@@ -1912,6 +1940,12 @@ fn cmd_load(file: &str, state: &mut ReplState) {
             let mut tc = TypeChecker::new();
             match tc.check(&ast) {
                 Ok(()) => {
+                    // A warning loads the file rather than refusing it,
+                    // but it is still said out loud - not failing must
+                    // not mean not reporting.
+                    for warning in &tc.warnings {
+                        println!("{} {}", "Warning:".bright_yellow(), warning);
+                    }
                     state.declarations.push_str(&source);
                     state.declarations.push('\n');
                     // Merge the type checker state

@@ -273,3 +273,31 @@ while loop with a mutable binding and set
             operand: (identifier)
             operand: (identifier)
             operand: (integer_literal)))))))
+
+================================================================
+set writes a struct field through a dotted path
+================================================================
+
+(:: main Int)
+(fn (main)
+  (let ((c (Counter 10 5)))
+    (set c.n 40)))
+
+----------------------------------------------------------------
+
+(source_file
+  (type_signature
+    subject: (identifier)
+    type: (builtin_type))
+  (function_definition
+    name: (identifier)
+    body: (let_expression
+      binding: (let_binding
+        pattern: (identifier)
+        value: (application
+          operand: (identifier)
+          operand: (integer_literal)
+          operand: (integer_literal)))
+      body: (set_expression
+        target: (identifier)
+        value: (integer_literal)))))

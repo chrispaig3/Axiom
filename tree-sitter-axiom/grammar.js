@@ -656,7 +656,13 @@ module.exports = grammar({
     ),
 
     // The target is an identifier, not an expression: `set` names a
-    // slot rather than computing a place.
+    // slot rather than computing a place. That covers the field form
+    // `(set r.field v)` without a second alternative, because `.` is an
+    // operator character the identifier token glues on - so `r.field`
+    // arrives here as one identifier, exactly as a module path does.
+    // The compiler's own lexer instead emits `.` as its own token and
+    // the parser rebuilds the chain; only the spelling of the split
+    // differs, not the set of programs accepted.
     set_expression: $ => seq(
       '(', 'set', field('target', $.identifier), field('value', $._expression), ')',
     ),

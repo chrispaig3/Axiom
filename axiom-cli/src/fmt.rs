@@ -1385,9 +1385,14 @@ fn format_expr(expr: &Expr, out: &mut String, state: &mut FormatState) {
             }
         }
         Expr::ESetField(base, field_ident, value) => {
-            out.push_str("(set-field ");
+            // `(set base.field v)`, not `(set-field base field v)`.
+            // There is no `set-field` form in the language - the
+            // spelling here was invented, and could never round-trip,
+            // because until now nothing could produce an `ESetField` for
+            // the formatter to print.
+            out.push_str("(set ");
             format_expr(base, out, state);
-            out.push(' ');
+            out.push('.');
             out.push_str(&field_ident.name);
             out.push(' ');
             format_expr(value, out, state);

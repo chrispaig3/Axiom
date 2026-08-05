@@ -1503,19 +1503,47 @@ impl Parser {
     /// expression so that `(set (f x) 1)` is a syntax error naming what
     /// is wrong, instead of type-checking its way to a confusing report
     /// about a non-assignable expression.
+    /// `(set x v)` - store into a `mut` local.
+    /// `(set r.field v)` - store into a struct or constructor field.
+    ///
+    /// The field form produces `Expr::ESetField`, which the type
+    /// checker, the IR generator and the formatter all already handled -
+    /// the lowering resolves the field by name and writes at its offset,
+    /// allowing for the tag word in a `data` block. Nothing could
+    /// produce one, so the whole path was unreachable and a field could
+    /// only be written through `memSetWord` with a hand-counted index.
     fn parse_set(&mut self) -> ParseResult<Expr> {
         self.expect(TokenKind::Set)?;
         if !self.is_ident() {
             return Err(ParseError::UnexpectedToken {
-                expected: "the name of a `mut` binding".to_string(),
+                expected: "the name of a `mut` binding, or a field path".to_string(),
                 found: self.current_kind_str(),
                 span: self.current_span(),
             });
         }
         let target = self.parse_ident()?;
+
+        // A dotted path makes this a field store. The chain is built the
+        // same way expression-position field access builds it, so
+        // `(set a.b.c v)` writes `c` on the value at `a.b`.
+        let mut fields = Vec::new();
+        while self.eat(TokenKind::Dot) {
+            fields.push(self.parse_ident()?);
+        }
+
         let value = self.parse_expr()?;
         self.expect(TokenKind::RParen)?;
-        Ok(Expr::EAssign(target, Box::new(value)))
+
+        if fields.is_empty() {
+            return Ok(Expr::EAssign(target, Box::new(value)));
+        }
+
+        let last = fields.pop().expect("checked non-empty");
+        let mut base = Expr::EVar(target);
+        for f in fields {
+            base = Expr::EField(Box::new(base), f);
+        }
+        Ok(Expr::ESetField(Box::new(base), last, Box::new(value)))
     }
 
     fn parse_if(&mut self) -> ParseResult<Expr> {

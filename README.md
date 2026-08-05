@@ -322,9 +322,13 @@ Error: [AX3012] cannot assign to immutable binding `x`
    │            ╰── `x` cannot be assigned
 ```
 
-`set` takes a bare name, not an arbitrary place expression: a local is
-the only thing with a slot to store into. Structure fields go through
-`memSetWord`, which is what `Vec` and `Map` do.
+`set` also writes a field, through a dotted path — `(set c.n 40)`. The
+field is resolved by name, so its offset is the compiler's problem, and
+a field write needs no `mut`, which governs rebinding the local rather
+than mutating what it points at. What `set` will not take is an
+arbitrary place expression: `(set (f x) 1)` is a syntax error naming
+what is wrong. Raw memory is still reachable through `memSetWord`, which
+is what `Vec` and `Map` do.
 
 ### Conditionals
 

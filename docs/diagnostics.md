@@ -160,6 +160,15 @@ an LLM agent burns reading compiler output. The design rationale:
 | `!"note"` | An additional note |
 | `?"msg"` or `?LOC:"msg"~>"replacement"` | A help suggestion; the `~>` form is machine-applicable |
 
+**Severity decides the exit status.** Only `E` fails a build: a run that
+produces nothing but `W`, `N` and `H` still exits zero, and the summary
+line counts errors alone, so one error alongside one warning is reported
+as "1 previous error". Warnings are printed either way — on the failing
+path they appear next to the errors, because not failing a build must
+not mean not reporting. The split is derived from the rendered severity
+rather than from a list of diagnostic kinds, so the letter a reader sees
+and the behaviour they get cannot drift apart.
+
 **Parsing note:** `"msg"` and `"replacement"` are always emitted using
 Rust's `Debug`-style string escaping (embedded `"`, `\`, and newlines are
 backslash-escaped), so a diagnostic is guaranteed to stay on exactly one

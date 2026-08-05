@@ -459,9 +459,26 @@ The `while` body takes any number of expressions, so a loop that updates
 two variables needs no extra brackets. The whole form evaluates to `0` —
 a loop that ran zero times has no last iteration to take a value from.
 
-`set` takes a bare name, not an arbitrary place expression: a local is
-the only thing with a slot to store into. Structure fields are written
-with `memSetWord`, which is what `Vec` and `Map` do.
+`set` also writes a field, through a dotted path:
+
+```scheme
+(struct Counter (n : Int) (step : Int))
+
+(fn (bump c)
+  (set c.n (+ c.n c.step)))
+```
+
+The path is resolved by name, so the offset — and the tag word a `data`
+constructor carries ahead of its fields — is the compiler's problem
+rather than yours. `(set a.b.c v)` writes `c` on the value at `a.b`.
+
+What `set` will not take is an arbitrary place expression: the target is
+a name or a field path, never a computed one, so `(set (f x) 1)` is a
+syntax error that says so instead of type-checking its way to a report
+about a non-assignable expression. A field write needs no `mut` — `mut`
+governs rebinding the local, not mutating what it points at. Raw memory
+is still reachable through `memSetWord`, which is what `Vec` and `Map`
+use to write slots that are not declared fields.
 
 Assigning to a binding that is not `mut` is a compile error:
 

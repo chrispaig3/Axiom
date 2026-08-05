@@ -1788,3 +1788,176 @@ fn same_named_struct_fields_of_different_kinds_do_not_confuse_arithmetic() {
         stderr(&out)
     );
 }
+
+#[test]
+fn a_warning_does_not_fail_the_build() {
+    // `AX3010` renders as `W` and is documented as a warning "so an
+    // agent can correct the annotation instead of silently trusting
+    // it". Everything the checker produced went into one list, so it
+    // aborted compilation and announced "compilation failed due to 1
+    // previous error" - of a diagnostic the renderer had just labelled a
+    // warning. The severity and the behaviour disagreed.
+    let dir = scratch_dir("warning-not-error");
+    write_source(
+        &dir,
+        "main.ax",
+        "(:: main Int)\n;@axiom:effect(io)\n(fn (main) 0)\n",
+    );
+    let out = run_axiom(&["--diagnostic-format=ai", "check", "main.ax"], &dir);
+    assert!(
+        out.status.success(),
+        "a warning must not fail the build; stdout: {}\nstderr: {}",
+        stdout(&out),
+        stderr(&out)
+    );
+    // Not failing must not mean not reporting.
+    let text = format!("{}{}", stdout(&out), stderr(&out));
+    assert!(
+        text.contains("AX3010"),
+        "the warning was silenced rather than downgraded: {}",
+        text
+    );
+}
+
+#[test]
+fn a_warning_is_still_reported_alongside_an_error() {
+    // Splitting warnings out of the failure list must not mean a file
+    // that has both shows only the error - that would swap one silence
+    // for another. The summary line still counts errors only, so a
+    // build with one error and one warning does not announce two.
+    let dir = scratch_dir("warning-with-error");
+    write_source(
+        &dir,
+        "main.ax",
+        "(:: main Int)\n;@axiom:effect(io)\n(fn (main) (+ 1 nope))\n",
+    );
+    let out = run_axiom(&["--diagnostic-format=ai", "check", "main.ax"], &dir);
+    assert!(!out.status.success(), "an error must still fail the build");
+    let text = format!("{}{}", stdout(&out), stderr(&out));
+    assert!(
+        text.contains("AX3010"),
+        "the warning was dropped once an error joined it: {}",
+        text
+    );
+    assert!(
+        text.contains("AX3001"),
+        "the error was not reported: {}",
+        text
+    );
+    assert!(
+        text.contains("1 previous error"),
+        "the warning was counted as an error: {}",
+        text
+    );
+}
+
+#[test]
+fn an_error_still_fails_the_build() {
+    let dir = scratch_dir("error-still-fails");
+    write_source(&dir, "main.ax", "(:: main Int)\n(fn (main) (+ 1 nope))\n");
+    let out = run_axiom(&["--diagnostic-format=ai", "check", "main.ax"], &dir);
+    assert!(!out.status.success(), "an error must still fail the build");
+    assert!(stderr(&out).contains("AX3001"), "stderr: {}", stderr(&out));
+}
+
+#[test]
+fn set_writes_a_struct_field() {
+    // `Expr::ESetField` was handled by the type checker, the IR
+    // generator (resolving the field by name and writing at its offset)
+    // and the formatter - but nothing could produce one, so a field
+    // could only be written through `memSetWord` with a hand-counted
+    // index.
+    let dir = scratch_dir("set-field");
+    write_source(
+        &dir,
+        "main.ax",
+        "(struct Counter (n : Int) (step : Int))\n\
+         (:: main Int)\n\
+         (fn (main) (let ((c (Counter 10 5))) { (set c.n 40) (+ c.n c.step) }))\n",
+    );
+    let out = run_axiom(&["run", "main.ax"], &dir);
+    assert_eq!(
+        out.status.code(),
+        Some(45),
+        "stdout: {}\nstderr: {}",
+        stdout(&out),
+        stderr(&out)
+    );
+}
+
+#[test]
+fn set_writes_a_named_constructor_field() {
+    // A `data` block carries a tag word, so the field offset differs
+    // from a struct's by one slot.
+    let dir = scratch_dir("set-data-field");
+    write_source(
+        &dir,
+        "main.ax",
+        "(data Box (Mk { x : Int, y : Int }))\n\
+         (:: main Int)\n\
+         (fn (main) (let ((b (Mk 1 2))) { (set b.x 40) (+ b.x b.y) }))\n",
+    );
+    let out = run_axiom(&["run", "main.ax"], &dir);
+    assert_eq!(
+        out.status.code(),
+        Some(42),
+        "stdout: {}\nstderr: {}",
+        stdout(&out),
+        stderr(&out)
+    );
+}
+
+#[test]
+fn set_writes_through_a_nested_field_path() {
+    // `(set a.b.c v)` writes `c` on the value at `a.b`, so the base is
+    // itself a field access rather than a variable. The reference
+    // documents this form, so it is pinned here: the chain is built the
+    // same way expression-position access builds it, and nothing in the
+    // lowering assumes the base of a store is a bare local.
+    let dir = scratch_dir("set-nested-field");
+    write_source(
+        &dir,
+        "main.ax",
+        "(struct Inner (v : Int))\n\
+         (struct Outer (i : Inner))\n\
+         (:: main Int)\n\
+         (fn (main) (let ((o (Outer (Inner 1)))) { (set o.i.v 42) o.i.v }))\n",
+    );
+    let out = run_axiom(&["run", "main.ax"], &dir);
+    assert_eq!(
+        out.status.code(),
+        Some(42),
+        "stdout: {}\nstderr: {}",
+        stdout(&out),
+        stderr(&out)
+    );
+}
+
+#[test]
+fn set_on_a_computed_place_is_still_a_syntax_error() {
+    // The target is a name or a field path, never a computed place.
+    // Accepting the dotted form must not have widened this: `(set (f x)
+    // 1)` should still be rejected by the parser, naming what is wrong,
+    // rather than type-checking its way to a confusing report about a
+    // non-assignable expression.
+    let dir = scratch_dir("set-computed-place");
+    write_source(
+        &dir,
+        "main.ax",
+        "(:: f (-> Int Int))\n\
+         (fn (f x) x)\n\
+         (:: main Int)\n\
+         (fn (main) { (set (f 1) 2) 0 })\n",
+    );
+    let out = run_axiom(&["--diagnostic-format=ai", "check", "main.ax"], &dir);
+    assert!(
+        !out.status.success(),
+        "a computed place must not be assignable; stdout: {}",
+        stdout(&out)
+    );
+    assert!(
+        stderr(&out).contains("a `mut` binding, or a field path"),
+        "expected the parse error to name what `set` accepts, got: {}",
+        stderr(&out)
+    );
+}
