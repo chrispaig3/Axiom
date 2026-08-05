@@ -101,6 +101,7 @@ they unblock everything downstream.
 |---|---|
 | CI green on all four targets | §3 below; two root-caused failures fixed. Re-checked and **was not green** — see §2.5 — for two further reasons, both now fixed |
 | `fmt` round-trips every file | §2.3; 70/70, gated by `scripts/check-fmt.sh` |
+| The REPL evaluates | §2.4; every result type, freestanding, gated by integration tests |
 | Self-hosting fixpoint `stage2 == stage3` | `scripts/check-bootstrap.sh`, now run in CI (§2.5) |
 | `union` removed, `region` removed | `AX2004` with migration advice; 3 regression tests |
 
@@ -203,6 +204,59 @@ hold. The ones on the critical path here:
 - **S1** — every constructor, including nullary ones, is a heap block.
 
 ---
+
+### 2.4 The REPL could not evaluate anything
+
+The same reasoning that found six bugs in `fmt` — a surface with no gate
+is a surface nobody has checked — applies to the two the risk table
+names next. `explain` held up. `repl` did not: it could not evaluate a
+single expression.
+
+Typing `(+ 1 2)` produced raw `llc` output and no result. The wrapper the
+REPL builds around a typed expression bound C's `printf` to print it, and
+since strings became first-class in 7b786e1 a `String` is the address of
+a `{len, bytes}` header rather than a `char*`. The call emitted `i64`
+where the declaration said `ptr`, so `llc` rejected every module the REPL
+produced. Had it assembled, `printf` would have read the length word as
+its format string.
+
+That binding also made the REPL the one code path in the project that
+called libc, which `check-freestanding.sh` forbids everywhere else — its
+output declared `printf`, `puts`, `malloc`, `free`, `memset`, `memcpy`
+and `exit`. Printing now goes through `IO`, so the REPL is freestanding
+like everything else.
+
+Four further problems were behind that one:
+
+- **Failures printed nothing.** Every stage was wrapped in `if let Ok(..)`
+  with no `else`, so an expression that failed to parse, resolve,
+  type-check or lower produced no output at all — the REPL printed the
+  type and returned to the prompt, which reads as the evaluator having
+  decided the answer was nothing.
+- **`:time` timed the compiler giving up.** It printed a duration
+  whenever code generation succeeded, including for expressions that
+  never ran.
+- **The wrapper existed in three copies** — evaluation, `:time` and
+  `:llvm` each had their own — so `:llvm` still emitted libc calls after
+  the first two were fixed. They are now one function.
+- **Scratch files were written to the working directory.** The REPL could
+  not run at all from a directory without write access, littered a
+  project on any early exit, and two concurrent sessions overwrote each
+  other's object file. They now go to a private directory under the
+  system temp dir.
+
+A `Char` result exposed a bug in the compiler rather than the REPL. A
+character literal lowered as `U8` while `Char` maps to `i64` everywhere
+else — in signatures, in `strByte`'s `zext i8 to i64`, in `__store8`'s
+truncate — so *any* function returning a `Char` emitted `ret i8` from a
+function declared `i64`. `axiom check` reported OK and the failure then
+arrived from `opt`, about generated code, for a program the compiler had
+just called well-typed. Nothing in the standard library returns a `Char`,
+so nothing had noticed. Pinned by `tests/stdlib/230-char.ax`.
+
+The REPL and `explain` are now covered by integration tests that drive
+the real binary, including one asserting that every code `explain --list`
+advertises can actually be explained.
 
 ### 2.5 CI was not green, and could not have been
 
@@ -502,7 +556,8 @@ completing together is not a plan.
 | Macros degrade diagnostics | Expansion backtrace in `Diagnostic` is part of the macro work, not a follow-up |
 | The LSP is started early "in parallel" and blocks on missing language features | The dependency edges in §1 are the schedule; the tree-sitter grammar covers editor basics meanwhile |
 | A gate passes while the property it protects is broken — as happened for PIE relocations | Every new gate gets a negative test proving it fails when it should. Done for the relocation and grammar gates |
-| A tool with no CI gate is silently broken, as `fmt` was | Either gate it or make it fail loudly. `fmt` now verifies its own output before writing and is gated by `check-fmt.sh`, which checks behaviour — it formats a copy of the repo and re-runs the suites — because the worst of its six bugs produced a program that parsed, compiled and ran, and returned the wrong answer. The remaining ungated surfaces are `repl` and `explain` |
+| A tool with no CI gate is silently broken, as `fmt` was | Either gate it or make it fail loudly. `fmt` now verifies its own output before writing and is gated by `check-fmt.sh`, which checks behaviour — it formats a copy of the repo and re-runs the suites — because the worst of its six bugs produced a program that parsed, compiled and ran, and returned the wrong answer. The prediction held for the other two surfaces this row used to name: `repl` could not evaluate a single expression (§2.4), `explain` was sound. Both are now covered by tests that drive the real binary |
+| An interactive tool is left untested *because* it is interactive | The REPL went unchecked on exactly that reasoning and was completely broken. It is line-oriented, so driving it over a pipe is all a test needs; `run_repl` in `axiom-cli/tests/integration.rs` is six lines |
 | A step in the workflow file refers to a script that no longer exists, so a job fails for a reason unrelated to the code | Gates are scripts in `scripts/`, and CI steps only invoke them. The `Game of Life` step outlived its script by one commit and failed every matrix run until it was noticed here (§2.5) |
 | A lint job that gates every other job fails, so nothing downstream ever runs | `needs: lint` means a clippy warning stops the whole pipeline. Keep `cargo clippy -- -D warnings` clean; eleven warnings had accumulated and blocked CI entirely (§2.5) |
 | A gate that *skips* when its tool is missing is the same failure wearing a different hat | `check-tree-sitter.sh` exited 0 when the tree-sitter CLI was absent — which is every machine that has not run its `npm install` — so it reported success without checking anything. It hid two live breakages: the grammar rejected every `struct` with fields, and so most of `self_host/`, taking the corpus from a claimed 18/18 to an actual 27/70; and the highlight-query step named `game_of_life/Life.ax`, deleted in 720a0d5. Both fixed, and the gate now fails rather than skips unless `AXIOM_TREE_SITTER_OPTIONAL=1` is set |

@@ -1998,60 +1998,30 @@ fn cmd_llvm(expr_str: &str, state: &mut ReplState) {
         }
     };
 
-    match result {
-        Some(DeclOrExpr::Decl(_decl)) => {
-            let wrapper = format!("{}\n{}", state.declarations, expr_str);
-            let mut lexer = Lexer::new(&wrapper, 0);
-            if let Ok(tokens) = lexer.tokenize() {
-                let mut parser = Parser::new(tokens);
-                if let Ok(ast) = parser.parse_module() {
-                    let mut tc2 = TypeChecker::new();
-                    if tc2.check(&ast).is_ok() {
-                        let mut ir_gen = IrGen::new();
-                        let ir_module = ir_gen.generate(&ast, &mut tc2);
-
-                        let mut codegen = LlvmCodeGen::for_target(target()).with_gc(gc_enabled());
-                        if let Ok(llvm_ir) = codegen.compile(&ir_module) {
-                            println!("{}", "Generated LLVM IR:".bold().bright_cyan());
-                            println!("{}", llvm_ir);
-                        }
-                    }
-                }
-            }
-        }
+    let wrapper = match result {
+        Some(DeclOrExpr::Decl(_decl)) => format!("{}\n{}", state.declarations, expr_str),
         Some(DeclOrExpr::Expr(expr)) => {
             let mut tc = TypeChecker::new();
             re_register_decls(&state.declarations, &mut tc);
-
-            if let Ok(ty) = tc.check_single_expr(&expr) {
-                let wrapper = format!(
-                    "(foreign printf :: (-> String Int Int) = \"printf\")\n(foreign puts :: (-> String Int) = \"puts\")\n{}\n(:: __repl_result (-> Int {}))\n(define (__repl_result _dummy) {})\n(:: main Int)\n(define main {{ (printf \"%ld\\n\" (__repl_result 0)) 0 }})",
-                    state.declarations,
-                    ty,
-                    expr_str,
-                );
-
-                let mut lexer = Lexer::new(&wrapper, 0);
-                if let Ok(tokens) = lexer.tokenize() {
-                    let mut parser = Parser::new(tokens);
-                    if let Ok(ast) = parser.parse_module() {
-                        let mut tc2 = TypeChecker::new();
-                        if tc2.check(&ast).is_ok() {
-                            let mut ir_gen = IrGen::new();
-                            let ir_module = ir_gen.generate(&ast, &mut tc2);
-
-                            let mut codegen =
-                                LlvmCodeGen::for_target(target()).with_gc(gc_enabled());
-                            if let Ok(llvm_ir) = codegen.compile(&ir_module) {
-                                println!("{}", "Generated LLVM IR:".bold().bright_cyan());
-                                println!("{}", llvm_ir);
-                            }
-                        }
+            match tc.check_single_expr(&expr) {
+                Ok(ty) => generate_repl_wrapper(&state.declarations, expr_str, &ty),
+                Err(errors) => {
+                    for error in &errors {
+                        println!("{} {}", "Type error:".bright_red(), error);
                     }
+                    return;
                 }
             }
         }
-        None => {}
+        None => return,
+    };
+
+    match compile_repl_module(&wrapper) {
+        Ok(llvm_ir) => {
+            println!("{}", "Generated LLVM IR:".bold().bright_cyan());
+            println!("{}", llvm_ir);
+        }
+        Err(e) => println!("{} {}", "Error:".bright_red(), e),
     }
 }
 
@@ -2109,35 +2079,21 @@ fn cmd_time(expr_str: &str, state: &mut ReplState) {
                         ty.to_string().bright_cyan()
                     );
 
-                    let wrapper = generate_repl_wrapper(&state.declarations, expr_str, &ty);
+                    // The timing has to bracket only a successful run.
+                    // It used to be printed whenever code generation
+                    // succeeded, so `:time` reported a duration for an
+                    // expression that had failed to assemble and never
+                    // ran - a measurement of the compiler giving up.
+                    let start = std::time::Instant::now();
+                    let outcome = eval_repl_expr(&state.declarations, expr_str, &ty);
+                    let duration = start.elapsed();
 
-                    let mut lexer = Lexer::new(&wrapper, 0);
-                    if let Ok(tokens) = lexer.tokenize() {
-                        let mut parser = Parser::new(tokens);
-                        if let Ok(ast) = parser.parse_module() {
-                            let mut tc2 = TypeChecker::new();
-                            if tc2.check(&ast).is_ok() {
-                                let mut ir_gen = IrGen::new();
-                                let ir_module = ir_gen.generate(&ast, &mut tc2);
-
-                                let mut codegen =
-                                    LlvmCodeGen::for_target(target()).with_gc(gc_enabled());
-                                if let Ok(llvm_ir) = codegen.compile(&ir_module) {
-                                    let start = std::time::Instant::now();
-                                    let result = compile_and_run_repl(&llvm_ir);
-                                    let duration = start.elapsed();
-
-                                    if let Some(value) = result {
-                                        println!(
-                                            "{} {}",
-                                            "result".bright_green(),
-                                            value.bright_white()
-                                        );
-                                    }
-                                    println!("{} {:?}", "Time:".bright_yellow(), duration);
-                                }
-                            }
+                    match outcome {
+                        Ok(value) => {
+                            println!("{} {}", "result".bright_green(), value.bright_white());
+                            println!("{} {:?}", "Time:".bright_yellow(), duration);
                         }
+                        Err(e) => println!("{} {}", "Error:".bright_red(), e),
                     }
                 }
                 Err(errors) => {
@@ -2213,32 +2169,7 @@ fn process_input(input: &str, state: &mut ReplState) {
                         ty.to_string().bright_cyan()
                     );
 
-                    let wrapper = generate_repl_wrapper(&state.declarations, input, &ty);
-
-                    let mut lexer = Lexer::new(&wrapper, 0);
-                    if let Ok(tokens) = lexer.tokenize() {
-                        let mut parser = Parser::new(tokens);
-                        if let Ok(ast) = parser.parse_module() {
-                            let mut tc2 = TypeChecker::new();
-                            if tc2.check(&ast).is_ok() {
-                                let mut ir_gen = IrGen::new();
-                                let ir_module = ir_gen.generate(&ast, &mut tc2);
-
-                                let mut codegen =
-                                    LlvmCodeGen::for_target(target()).with_gc(gc_enabled());
-                                if let Ok(llvm_ir) = codegen.compile(&ir_module) {
-                                    let result = compile_and_run_repl(&llvm_ir);
-                                    if let Some(value) = result {
-                                        println!(
-                                            "{} {}",
-                                            "result".bright_green(),
-                                            value.bright_white()
-                                        );
-                                    }
-                                }
-                            }
-                        }
-                    }
+                    report_repl_eval(&state.declarations, input, &ty);
                 }
                 Err(errors) => {
                     for error in &errors {
@@ -2251,92 +2182,252 @@ fn process_input(input: &str, state: &mut ReplState) {
     }
 }
 
+/// Build a complete Axiom module that computes the typed expression and
+/// prints it.
+///
+/// The printing goes through the standard library (`IO`), not through a
+/// `foreign` binding to C. It used to bind `printf` and `puts` directly,
+/// which broke twice over:
+///
+/// - The whole project is freestanding - `scripts/check-freestanding.sh`
+///   asserts that generated code calls no libc function - and the REPL
+///   was the one code path that did. Its output declared `printf`,
+///   `puts`, `malloc`, `free`, `memset`, `memcpy` and `exit`.
+/// - Since strings became first-class in 7b786e1 a `String` is the
+///   address of a `{len, bytes}` header, not a `char*`. Passing one to a
+///   variadic C `printf` emitted `i64` where the declaration says `ptr`,
+///   and `llc` rejected the module - so *every* expression a user typed
+///   failed to compile. Had it compiled, `printf` would have read the
+///   length word as its format string.
+///
+/// `println` takes the header and writes `strLen` bytes from `strData`,
+/// which is what a first-class string wants.
 fn generate_repl_wrapper(declarations: &str, input: &str, ty: &axiom_sema::TypeId) -> String {
     let type_str = format!("{}", ty);
-    match type_str.as_str() {
-        "Int" | "I64" | "U64" | "Isize" | "Usize" => {
-            format!(
-                "(foreign printf :: (-> String Int Int) = \"printf\")\n(foreign puts :: (-> String Int) = \"puts\")\n{}\n(:: __repl_result (-> Int Int))\n(define (__repl_result _dummy) {})\n(:: main Int)\n(define main {{ (printf \"%ld\\n\" (__repl_result 0)) 0 }})",
-                declarations,
-                input,
-            )
-        }
+
+    // How to render a value of this type, given `(__repl_result 0)`.
+    let print_expr = match type_str.as_str() {
         "Bool" => {
-            let wrapped_input = format!("(if {} 1 0)", input);
-            format!(
-                "(foreign printf :: (-> String Int Int) = \"printf\")\n(foreign puts :: (-> String Int) = \"puts\")\n{}\n(:: __repl_result (-> Int Int))\n(define (__repl_result _dummy) {})\n(:: main Int)\n(define main {{ (if (== (__repl_result 0) 0) {{ (puts \"false\") 0 }} {{ (puts \"true\") 0 }}) 0 }})",
-                declarations,
-                wrapped_input,
-            )
+            // `Bool` is not an `Int`, so it cannot be handed to
+            // `printlnInt`; branch on it and print a word instead.
+            "(if (== (__repl_result 0) 1) (println \"true\") (println \"false\"))".to_string()
+        }
+        "String" | "Str" => {
+            // Previously formatted with `%ld`, which printed the address
+            // of the string header as a decimal number.
+            "(println (__repl_result 0))".to_string()
         }
         "Char" => {
-            format!(
-                "(foreign printf :: (-> String Int Int) = \"printf\")\n(foreign puts :: (-> String Int) = \"puts\")\n{}\n(:: __repl_result (-> Int Int))\n(define (__repl_result _dummy) {})\n(:: main Int)\n(define main {{ (printf \"%c\\n\" (__repl_result 0)) 0 }})",
-                declarations,
-                input,
-            )
+            // No `Char`-to-`Str` conversion exists in the standard
+            // library, so build the one-byte string directly: `strAlloc`
+            // reserves `len + 1` zeroed bytes, so the NUL terminator is
+            // already in place and only the byte itself has to be stored.
+            // `memPutByte` writes a byte from an `Int`, so the `Char` is
+            // widened explicitly. Going through `Mem` rather than the
+            // `__store8` primitive keeps the wrapper in the same language
+            // the standard library is written in.
+            "(let ((s (strAlloc 1)))\n  {\n    (memPutByte (strData s) 0 (cast Int (__repl_result 0)))\n    (println s)\n  })"
+                .to_string()
         }
-        _ => {
-            format!(
-                "(foreign printf :: (-> String Int Int) = \"printf\")\n(foreign puts :: (-> String Int) = \"puts\")\n{}\n(:: __repl_result (-> Int Int))\n(define (__repl_result _dummy) {})\n(:: main Int)\n(define main {{ (printf \"%ld\\n\" (__repl_result 0)) 0 }})",
-                declarations,
-                input,
-            )
-        }
+        // Every other type is represented as a machine word, and printing
+        // it as an integer is at least an honest view of the value.
+        _ => "(printlnInt (__repl_result 0))".to_string(),
+    };
+
+    // The binding's declared result type has to match what the expression
+    // actually produces, or the emitted `ret` disagrees with the function
+    // signature and `llc` rejects the module. `Bool` is converted at the
+    // source because there is nothing to print it with; `Char` is carried
+    // as itself, since it lowers to `i8` and returning it through an
+    // `Int` produced `ret i8 90` from a function declared to return
+    // `i64`.
+    let (result_ty, body) = match type_str.as_str() {
+        "Bool" => ("Int", format!("(if {} 1 0)", input)),
+        "Char" => ("Char", input.to_string()),
+        _ => ("Int", input.to_string()),
+    };
+
+    format!(
+        "(import IO)\n(import Str)\n(import Mem)\n\
+         {declarations}\n\
+         (:: __repl_result (-> Int {result_ty}))\n\
+         (fn (__repl_result _dummy) {body})\n\
+         (:: main Int)\n\
+         ;@axiom:effect(io)\n\
+         (fn (main) {{ {print_expr} 0 }})"
+    )
+}
+
+/// Compile and run one REPL expression, returning whatever the program
+/// printed.
+///
+/// Every stage reports its own failure. Both call sites used to wrap the
+/// whole pipeline in nested `if let Ok(..)` with no `else` branch, so an
+/// expression whose wrapper failed to parse, resolve, type-check or lower
+/// produced *no output at all* - the REPL printed the expression's type
+/// and then silently returned to the prompt, which reads as the evaluator
+/// having quietly decided the answer was nothing.
+/// Lower a complete REPL module to LLVM IR, reporting whichever stage
+/// fails.
+///
+/// Shared by evaluation, `:time` and `:llvm`, which previously each had
+/// their own copy of this pipeline - including their own copy of the
+/// `foreign printf` wrapper, so fixing one left the others emitting libc
+/// calls and IR that `llc` rejects.
+fn compile_repl_module(wrapper: &str) -> Result<String, String> {
+    let mut lexer = Lexer::new(wrapper, 0);
+    let tokens = lexer
+        .tokenize()
+        .map_err(|e| format!("lexing failed: {}", e))?;
+
+    let mut parser = Parser::new(tokens);
+    let mut ast = parser
+        .parse_module()
+        .map_err(|e| format!("parsing failed: {}", e))?;
+
+    // The wrapper imports `IO` and `Str`, and this path is the one place
+    // that never resolved imports - the `check` and `build` paths do it
+    // as an explicit stage. Resolution is relative to the working
+    // directory, so a `:load`ed file's own imports resolve the same way
+    // they would for `axiom run`.
+    let mut registry = FileRegistry::new();
+    let entry = std::env::current_dir()
+        .unwrap_or_else(|_| PathBuf::from("."))
+        .join("<repl>.ax");
+    resolve_imports(&entry, &mut ast, DiagnosticFormat::Human, &mut registry)?;
+
+    let mut tc = TypeChecker::new();
+    tc.check(&ast).map_err(|errors| {
+        errors
+            .iter()
+            .map(|e| e.to_string())
+            .collect::<Vec<_>>()
+            .join("; ")
+    })?;
+
+    let mut ir_gen = IrGen::new();
+    let ir_module = ir_gen.generate(&ast, &mut tc);
+
+    let mut codegen = LlvmCodeGen::for_target(target()).with_gc(gc_enabled());
+    codegen
+        .compile(&ir_module)
+        .map_err(|e| format!("code generation failed: {}", e))
+}
+
+fn eval_repl_expr(
+    declarations: &str,
+    expr_str: &str,
+    ty: &axiom_sema::TypeId,
+) -> Result<String, String> {
+    let wrapper = generate_repl_wrapper(declarations, expr_str, ty);
+    let llvm_ir = compile_repl_module(&wrapper)?;
+    compile_and_run_repl(&llvm_ir)
+}
+
+/// Print the outcome of evaluating one expression.
+fn report_repl_eval(declarations: &str, expr_str: &str, ty: &axiom_sema::TypeId) {
+    match eval_repl_expr(declarations, expr_str, ty) {
+        Ok(value) => println!("{} {}", "result".bright_green(), value.bright_white()),
+        Err(e) => println!("{} {}", "Error:".bright_red(), e),
     }
 }
 
-fn compile_and_run_repl(llvm_ir: &str) -> Option<String> {
-    let temp_ll = "axiom_repl_temp.ll";
-    let temp_out = "axiom_repl_temp";
+/// Assemble, link and run one REPL module, returning what it printed.
+///
+/// Two things changed here beyond reporting real errors.
+///
+/// The scratch files are written to a private directory under the system
+/// temp dir rather than to the working directory. Writing
+/// `axiom_repl_temp.ll` next to the user's source meant the REPL could
+/// not run at all from a directory they lack write access to, littered a
+/// project on any path that exited early, and had two concurrent
+/// sessions overwrite each other's object file.
+///
+/// And a failure from `llc` or `cc` is captured and returned instead of
+/// being left to print itself to the terminal while the caller reports
+/// having produced no output. That combination is what a user saw for
+/// every expression they typed: raw `llc` diagnostics about generated
+/// code, followed by a message saying nothing was produced.
+fn compile_and_run_repl(llvm_ir: &str) -> Result<String, String> {
+    let dir = std::env::temp_dir().join(format!("axiom-repl-{}", std::process::id()));
+    fs::create_dir_all(&dir)
+        .map_err(|e| format!("could not create a scratch directory at {:?}: {}", dir, e))?;
 
-    if fs::write(temp_ll, llvm_ir).is_err() {
-        return None;
+    let temp_ll = dir.join("repl.ll");
+    let obj_path = dir.join("repl.o");
+    let temp_out = dir.join("repl");
+
+    // Whatever happens below, the scratch files go away.
+    let cleanup = |dir: &Path| {
+        fs::remove_dir_all(dir).ok();
+    };
+
+    if let Err(e) = fs::write(&temp_ll, llvm_ir) {
+        cleanup(&dir);
+        return Err(format!("could not write the generated IR: {}", e));
     }
 
-    let obj_path = format!("{}.o", temp_out);
-    if !Command::new("llc")
-        .arg(temp_ll)
+    let llc = Command::new("llc")
+        .arg(&temp_ll)
+        .arg("-relocation-model=pic")
         .arg("-filetype=obj")
         .arg("-o")
         .arg(&obj_path)
-        .status()
-        .is_ok_and(|s| s.success())
-    {
-        fs::remove_file(temp_ll).ok();
-        return None;
+        .output();
+    match llc {
+        Ok(out) if out.status.success() => {}
+        Ok(out) => {
+            cleanup(&dir);
+            return Err(format!(
+                "llc rejected the generated code: {}",
+                String::from_utf8_lossy(&out.stderr).trim()
+            ));
+        }
+        Err(e) => {
+            cleanup(&dir);
+            return Err(format!("could not run `llc`: {}", e));
+        }
     }
 
-    if !Command::new("cc")
+    let cc = Command::new("cc")
         .arg(&obj_path)
         .arg("-o")
-        .arg(temp_out)
-        .status()
-        .is_ok_and(|s| s.success())
-    {
-        fs::remove_file(&obj_path).ok();
-        fs::remove_file(temp_ll).ok();
-        return None;
-    }
-
-    let output = Command::new(format!("./{}", temp_out)).output();
-
-    fs::remove_file(&obj_path).ok();
-    fs::remove_file(temp_ll).ok();
-    fs::remove_file(temp_out).ok();
-
-    if let Ok(out) = output {
-        let stdout = String::from_utf8_lossy(&out.stdout);
-        let trimmed = stdout.trim().to_string();
-        if !trimmed.is_empty() {
-            return Some(trimmed);
+        .arg(&temp_out)
+        .output();
+    match cc {
+        Ok(out) if out.status.success() => {}
+        Ok(out) => {
+            cleanup(&dir);
+            return Err(format!(
+                "linking failed: {}",
+                String::from_utf8_lossy(&out.stderr).trim()
+            ));
         }
-        if let Some(code) = out.status.code() {
-            return Some(format!("{}", code));
+        Err(e) => {
+            cleanup(&dir);
+            return Err(format!("could not run `cc`: {}", e));
         }
     }
 
-    None
+    let output = Command::new(&temp_out).output();
+    cleanup(&dir);
+
+    match output {
+        Ok(out) => {
+            let printed = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            if !printed.is_empty() {
+                Ok(printed)
+            } else {
+                // Nothing on stdout: fall back to the exit status, which
+                // is how a program with no `IO` still reports a value.
+                match out.status.code() {
+                    Some(code) => Ok(format!("{}", code)),
+                    None => Err("the program was terminated by a signal".to_string()),
+                }
+            }
+        }
+        Err(e) => Err(format!("could not run the compiled program: {}", e)),
+    }
 }
 
 fn re_register_decls(source: &str, tc: &mut TypeChecker) {

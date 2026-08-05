@@ -47,6 +47,34 @@ fn run_axiom(args: &[&str], dir: &Path) -> Output {
         .expect("failed to spawn axiom binary")
 }
 
+/// Drive the REPL by feeding it `input` on stdin.
+///
+/// `:quit` is appended so the session always terminates, and stdout is
+/// captured whole - the REPL is line-oriented, so the transcript is the
+/// only thing there is to assert on.
+fn run_repl(input: &str) -> Output {
+    use std::io::Write;
+    use std::process::Stdio;
+
+    let mut child = Command::new(axiom_bin())
+        .arg("repl")
+        .current_dir(scratch_dir("repl"))
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("failed to spawn axiom repl");
+
+    child
+        .stdin
+        .as_mut()
+        .expect("no stdin")
+        .write_all(format!("{}\n:quit\n", input).as_bytes())
+        .expect("failed to write to repl");
+
+    child.wait_with_output().expect("repl did not exit")
+}
+
 fn stdout(out: &Output) -> String {
     String::from_utf8_lossy(&out.stdout).into_owned()
 }
@@ -1318,4 +1346,199 @@ fn macro_cross_module_import_from_prelude_works() {
     );
     let out = run_axiom(&["run", "main.ax"], &dir);
     assert_eq!(out.status.code(), Some(42), "stderr: {}", stderr(&out));
+}
+
+// ---------------------------------------------------------------
+// REPL evaluation
+//
+// The REPL could not evaluate anything at all. It wrapped every result
+// in a `foreign printf` binding, and since strings became first-class in
+// 7b786e1 a `String` is the address of a `{len, bytes}` header rather
+// than a `char*` - so the wrapper emitted `i64` where the declaration
+// said `ptr` and `llc` rejected every module. It was also the one code
+// path in the project that called libc, which the freestanding gate
+// forbids everywhere else.
+//
+// Nothing caught it because the REPL had no test of any kind: it is
+// interactive, so it was left to manual use, and `repl` was named in the
+// roadmap's own risk table as an ungated surface.
+//
+// These tests drive it over a pipe, which is all it takes.
+// ---------------------------------------------------------------
+
+#[test]
+fn repl_evaluates_an_integer_expression() {
+    let out = run_repl("(+ 1 2)");
+    assert!(
+        stdout(&out).contains("result 3"),
+        "the REPL could not evaluate `(+ 1 2)`; stdout: {}\nstderr: {}",
+        stdout(&out),
+        stderr(&out)
+    );
+}
+
+#[test]
+fn repl_evaluates_a_boolean_expression() {
+    let out = run_repl("(== 1 1)\n(== 1 2)");
+    let text = stdout(&out);
+    assert!(
+        text.contains("result true") && text.contains("result false"),
+        "stdout: {}",
+        text
+    );
+}
+
+#[test]
+fn repl_prints_a_string_result_as_text() {
+    // Formerly printed with `%ld`, which rendered the address of the
+    // string header as a decimal number.
+    let out = run_repl("\"hello axiom\"");
+    assert!(
+        stdout(&out).contains("result hello axiom"),
+        "stdout: {}",
+        stdout(&out)
+    );
+}
+
+#[test]
+fn repl_prints_a_char_result_as_a_character() {
+    let out = run_repl("'Z'");
+    assert!(
+        stdout(&out).contains("result Z"),
+        "stdout: {}",
+        stdout(&out)
+    );
+}
+
+#[test]
+fn repl_evaluates_a_user_defined_function() {
+    let out = run_repl("(:: sq (-> Int Int))\n(fn (sq x) (* x x))\n(sq 12)");
+    assert!(
+        stdout(&out).contains("result 144"),
+        "definitions did not carry into evaluation; stdout: {}",
+        stdout(&out)
+    );
+}
+
+#[test]
+fn repl_reports_a_failure_instead_of_printing_nothing() {
+    // Every stage used to be wrapped in `if let Ok(..)` with no `else`,
+    // so a wrapper that failed to compile produced no output at all -
+    // the REPL printed the type and returned to the prompt, which reads
+    // as the evaluator having decided the answer was nothing.
+    let out = run_repl("(+ 1 undefinedName)");
+    let text = stdout(&out);
+    assert!(
+        text.contains("undefinedName"),
+        "the REPL swallowed the failure; stdout: {}",
+        text
+    );
+}
+
+#[test]
+fn repl_generated_code_calls_no_libc() {
+    // The freestanding invariant `scripts/check-freestanding.sh` enforces
+    // for compiled programs applies to the REPL too; it was the one path
+    // that broke it.
+    let out = run_repl(":llvm (+ 1 2)");
+    let text = stdout(&out);
+    for name in [
+        "@printf(", "@puts(", "@malloc(", "@free(", "@memset(", "@memcpy(",
+    ] {
+        assert!(
+            !text.contains(&format!("call i32 {}", name))
+                && !text.contains(&format!("call ptr {}", name))
+                && !text.contains(&format!("call void {}", name)),
+            "REPL IR calls libc function {}; stdout: {}",
+            name,
+            text
+        );
+    }
+}
+
+/// A `Char`-typed function emitted `ret i8` from a function LLVM
+/// declared to return `i64`, because the character *literal* lowered as
+/// `U8` while `Char` maps to `i64` everywhere else. `check` passed and
+/// the failure surfaced from `opt`, about generated code, for a program
+/// the compiler had just called well-typed.
+#[test]
+fn char_typed_function_compiles() {
+    let dir = scratch_dir("char-return");
+    write_source(
+        &dir,
+        "main.ax",
+        "(:: pick (-> Int Char))\n(fn (pick x) 'Z')\n\
+         (:: main Int)\n(fn (main) (cast Int (pick 0)))\n",
+    );
+    let out = run_axiom(&["run", "main.ax"], &dir);
+    assert_eq!(
+        out.status.code(),
+        Some(90),
+        "stdout: {}\nstderr: {}",
+        stdout(&out),
+        stderr(&out)
+    );
+}
+
+// ---------------------------------------------------------------
+// `explain`
+//
+// The other surface the roadmap names as ungated. It was in better
+// shape than `repl`, but "in better shape" was not something anything
+// checked.
+// ---------------------------------------------------------------
+
+#[test]
+fn explain_knows_every_code_the_compiler_can_emit() {
+    // The invariant that matters: a diagnostic a user can hit is a
+    // diagnostic they can look up. A new code added to `code.rs` without
+    // an explanation is a dead end at exactly the moment someone needs
+    // the docs - and `axiom explain AX####` is the workflow the agent
+    // skill tells readers to follow.
+    let dir = scratch_dir("explain-all");
+    let listed = run_axiom(&["explain", "--list"], &dir);
+    assert!(listed.status.success(), "stderr: {}", stderr(&listed));
+
+    let codes: Vec<String> = stdout(&listed)
+        .split_whitespace()
+        .filter(|w| {
+            w.starts_with("AX") && w.len() == 6 && w[2..].chars().all(|c| c.is_ascii_digit())
+        })
+        .map(|w| w.to_string())
+        .collect();
+    assert!(
+        codes.len() >= 20,
+        "expected the full code table, got {:?}",
+        codes
+    );
+
+    for code in &codes {
+        let out = run_axiom(&["explain", code], &dir);
+        assert!(
+            out.status.success(),
+            "`axiom explain {}` failed though `--list` advertises it; stderr: {}",
+            code,
+            stderr(&out)
+        );
+        assert!(
+            stdout(&out).contains(code),
+            "`axiom explain {}` did not describe {}; stdout: {}",
+            code,
+            code,
+            stdout(&out)
+        );
+    }
+}
+
+#[test]
+fn explain_rejects_an_unknown_code_and_points_at_the_list() {
+    let dir = scratch_dir("explain-unknown");
+    let out = run_axiom(&["explain", "AX9999"], &dir);
+    assert!(!out.status.success(), "an unknown code must not succeed");
+    let text = format!("{}{}", stdout(&out), stderr(&out));
+    assert!(
+        text.contains("--list"),
+        "an unknown code should point at the list; got: {}",
+        text
+    );
 }

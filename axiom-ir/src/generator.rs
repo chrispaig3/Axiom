@@ -2769,9 +2769,18 @@ impl IrGen {
                 IrValue::Const(IrConst::Float(*n, TypeId::TCon("F64".to_string(), vec![])))
             }
             Literal::LBool(b) => IrValue::Const(IrConst::Bool(*b)),
+            // A `Char` is a machine word, like every other Axiom value:
+            // `type_to_llvm` maps `Char` to `i64`, `strByte` widens with
+            // `zext i8 to i64` on the way out of memory, and `__store8`
+            // truncates on the way back in. Only the *literal* was typed
+            // `U8`, so it alone lowered to `i8` - and a function declared
+            // to return `Char` emitted `ret i8 90` from an `i64`
+            // function, which `opt` rejects. `axiom check` reported OK
+            // first, so the failure arrived from the native toolchain
+            // rather than as a diagnostic.
             Literal::LChar(c) => IrValue::Const(IrConst::Int(
                 *c as i64,
-                TypeId::TCon("U8".to_string(), vec![]),
+                TypeId::TCon("I64".to_string(), vec![]),
             )),
             Literal::LStr(s) => IrValue::Const(IrConst::Str(s.clone())),
         }
