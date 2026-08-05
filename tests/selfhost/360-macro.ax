@@ -1,0 +1,19 @@
+; expect 45
+; Macro definition and expansion in one file. `(macro (name params...)
+; template)` is the real grammar - the name inside the head parens like
+; a function's - and stage1 used to expect a spelling that appears
+; nowhere in the language, so every macro was a parse error.
+;
+; Expansion is exercised where it can go wrong: nested invocation
+; (`twice` inside `twice`, expanded by re-entering dispatch), a macro
+; argument that is itself a call, expansion inside a `let` initialiser
+; and an `if` arm, and a parameter used twice in its template - the
+; double evaluation textual substitution has always meant.
+; twice(twice(10)) = 40, plus (if true 5 0) via when = 45.
+(macro (twice x) (+ x x))
+(macro (when t b) (if t b 0))
+
+(:: main Int)
+(fn (main)
+  (let ((n (twice (twice 10))))
+    (+ n (when (== n 40) 5))))

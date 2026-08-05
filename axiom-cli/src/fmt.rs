@@ -419,8 +419,24 @@ fn format_decl(decl: &Decl, out: &mut String, state: &mut FormatState) {
         Decl::DMacro {
             name, params, body, ..
         } => {
-            write!(out, "({}macro ({} ", vis, name.name).unwrap();
-            format_pattern(params, out);
+            // The head prints like a function's: `(macro (name p1 p2) t)`.
+            // `parse_macro` wraps two-plus parameters in a synthetic
+            // `PTuple`, and printing that tuple as one pattern -
+            // `(macro (name (p1 p2)) t)` - wrote a *constructor pattern*
+            // into the head. That reparses cleanly, so the formatter's
+            // own verification could not see it, but the macro's arity
+            // collapsed to one and every call site silently stopped
+            // matching - the expansion just never happened, and the
+            // macro's name surfaced later as an undefined function.
+            write!(out, "({}macro ({}", vis, name.name).unwrap();
+            let elems: &[Pattern] = match params {
+                Pattern::PTuple(ps) => ps,
+                single => std::slice::from_ref(single),
+            };
+            for p in elems {
+                out.push(' ');
+                format_pattern(p, out);
+            }
             write!(out, ") ").unwrap();
             format_expr(body, out, state);
             out.push(')');
@@ -1311,6 +1327,32 @@ fn format_expr(expr: &Expr, out: &mut String, state: &mut FormatState) {
             }
         }
         Expr::EInfix(left, op, right) => {
+            // Unary minus arrives as `EInfix(0, "-", x)` - the parser's
+            // desugaring of `-5` and `(- x)`. Printing that desugared
+            // form as `(0 - 5)` wrote infix spelling into files whose
+            // corpus is otherwise pure prefix; the literal gets its
+            // sign back, and the general case prints as the prefix
+            // subtraction it means.
+            if op == "-" && matches!(**left, Expr::ELit(Literal::LInt(0), _)) {
+                match &**right {
+                    Expr::ELit(Literal::LInt(n), _) => {
+                        write!(out, "-{}", n).unwrap();
+                        return;
+                    }
+                    Expr::ELit(Literal::LFloat(f), _) => {
+                        // `{:?}` keeps the decimal point (`2.0`, not
+                        // `2`), matching the positive-literal printer.
+                        write!(out, "-{:?}", f).unwrap();
+                        return;
+                    }
+                    _ => {
+                        out.push_str("(- 0 ");
+                        format_expr(right, out, state);
+                        out.push(')');
+                        return;
+                    }
+                }
+            }
             out.push('(');
             format_expr(left, out, state);
             out.push(' ');

@@ -388,29 +388,157 @@ stage3  the Axiom compiler, built by stage2
 also compiles and runs a program through each stage - two compilers can
 agree byte-for-byte on their own source and still both be wrong.
 
-`scripts/check-self-host.sh` is the conformance gate: 27 cases in
+`scripts/check-self-host.sh` is the conformance gate: 48 cases in
 `tests/selfhost/`, each compiled by stage1, assembled, linked, and
-checked by exit status. What it covers, all working: integer arithmetic
-and comparisons, `let`, `if`, `{}` blocks, multi-argument calls and
-recursion, `data` and `struct` construction, `match` with field binding,
-short-circuit `&&`/`||`, nullary functions, `true`/`false`, string
-literals, the freestanding primitives including `__syscallN`, file I/O,
-and `import` with target-specific module selection.
+checked by exit status, plus a negative check that an unresolvable
+import is refused with the module named rather than skipped. What it
+covers, all working: integer arithmetic and comparisons, `let`, `if`,
+`{}` blocks, multi-argument calls and recursion, `data` and `struct`
+construction, `match` with field binding, short-circuit `&&`/`||`,
+nullary functions, `true`/`false`, string literals, the freestanding
+primitives including `__syscallN`, file I/O, `import` with
+target-specific module selection, name mangling under an
+entry-file/import collision, floats (literals, arithmetic, ordered
+comparison, both conversions), `Fmt`'s fixed-point float rendering
+through an import, `Map` inserts across a rehash, macro definition
+with nested expansion, `Pre.ax`'s macros through an import, literal
+patterns (bare and inside constructor patterns), nested constructor
+patterns, mixed-type nullary constructors, and `Float` fields bound
+out of patterns.
 
-Thirteen of the fifteen modules in `stdlib/` and `self_host/` compile
-through stage1 into assembling LLVM, including `self_host/main.ax`
-itself at 7,135 lines.
+**Every module in the repository compiles through stage1** - all
+eighteen across `stdlib/` and `self_host/`, including
+`self_host/main.ax` itself, compile into LLVM that assembles.
 
-*What the self-hosted compiler still does not do.* It emits unmangled
-names, so two modules that export the same name collide -
-`stdlib/IO.ax` and `stdlib/Sys.ax` both define `readFile`, and compiling
-`IO.ax` is an invalid redefinition. It has no macro expansion, so
-`stdlib/Pre.ax`, which is nothing but macros, does not parse. It does no
-type checking - `self_host/typecheck.ax` is a stub - so a program stage0
-would reject with a diagnostic, stage1 compiles into whatever the code
-happens to mean. It emits for darwin-aarch64 only. And the driver reads
-`in.ax` from the working directory and writes to stdout, with no
-argument parsing.
+*What the self-hosted compiler still does not do.* ~~It emits unmangled
+names, so two modules that export the same name collide.~~ **(RESOLVED)**
+Names now mangle exactly as stage0's do: a declaration imported from
+module `M` defines `M$name`, the entry file keeps bare names - `@main`
+stays `@main` - and a bare reference resolves through one flat map,
+entry file first, then imports in resolution order. Pinned by
+`tests/selfhost/320-mangle.ax`, whose entry file shadows `Str`'s
+`strLen`; under the old scheme that emitted two `define i64 @strLen`
+and `llc` rejected the module (verified against the pre-change
+codegen). An unresolvable or unparsable import is now also a fatal
+diagnostic naming the module (exit 3) rather than a silent skip - the
+skip used to surface as `use of undefined value '@fmtInt'` out of llc,
+a codegen-shaped report for an import-shaped failure.
+
+Floats are implemented: literals lex and are decoded to their IEEE-754
+bits *by the compiler's own float arithmetic* - stage1 is an Axiom
+program, so `1.5` is evaluated with the same `fadd`/`fdiv` the program
+being compiled will use - and float-ness is reconstructed from
+signatures exactly as stage0's IR generator does it, since nothing
+about a value at emission time says it is a float. The bitwise
+operators emit as instructions rather than as calls to `@>>`, an
+identifier LLVM rejects. Together those let `stdlib/Fmt.ax`,
+`stdlib/IO.ax`, `stdlib/Map.ax` and `stdlib/Intern.ax` compile and
+assemble through stage1. Pinned by `tests/selfhost/330-float.ax`,
+`340-fmt-import.ax` and `350-map-import.ax`, each verified to produce
+the same exit status under stage0.
+
+Macros are implemented, which closed the last module. stage1's macro
+grammar was wrong in a way that refused all of `Pre.ax` - it expected
+`(macro name (params) body)`, a spelling that appears nowhere in the
+language, where the real form is `(macro (name params...) template)`
+with the name inside the head parens like a function's. Expansion is a
+rewrite applied where a call would otherwise be emitted: a head naming
+a macro with matching arity has its template instantiated and emitted
+in the call's place, and emission re-enters the same dispatch, so
+nested and chained expansions recurse exactly as stage0's expander
+does. Substitution is deliberately unhygienic (no macro in the corpus
+introduces a binder; hygiene is macro-system work, roadmap P3) and an
+argument used twice shares one tree rather than two clones - the same
+double evaluation textual substitution has always meant. Pinned by
+`tests/selfhost/360-macro.ax` and `370-pre-import.ax`, both agreeing
+with stage0.
+
+Getting there surfaced two latent bugs outside stage1, both now fixed
+and pinned. *stage0 misclassified a float expression*: `__intToFloat`
+is a primitive, so no signature ever declared its return type, and
+`(/ (__intToFloat a) (__intToFloat b))` - with no float literal,
+parameter or field anywhere in sight - lowered to `sdiv` on the
+converted values, silently computing `5 / 10 = 0` where `0.5` was
+meant, in a program the type checker had accepted
+(`a_binop_over_two_conversions_is_a_float_operation`). And
+*`sysReadFile` truncated at 64 KiB* - one `sysReadFd` chunk, documented
+as "enough for the self-host bootstrap source files", which held until
+`self_host/codegen.ax` grew past it and the compiler truncated its own
+source mid-token, reporting a parse error at a token that does not
+exist in the file. It now reads to EOF, doubling its buffer.
+
+*Adversarial differential review.* With every module compiling, the
+two compilers were put through an adversarial review: parallel
+reviewers per subsystem plus differential fuzzers writing well-typed
+programs, running them through both stages, and reporting any exit
+code that differed - every finding then independently re-reproduced by
+a verifier told to refute it. The first round confirmed 24 findings;
+all are fixed and the ones with observable behaviour are pinned as
+conformance cases. The stage1 fixes: macro parity in the degenerate
+corners (any-arity expansion binding a single parameter to a
+begin-block of the arguments, last definition wins, last duplicate
+parameter wins, zero-argument macros expanding at bare references),
+`cond`, literal patterns bare and nested, recursive nested-constructor
+patterns, the mixed-type nullary representation (the segfault above),
+constructor-before-function resolution of a bare name with stage0's
+tag numbering (the builtin `Option` occupies tags 0 and 1), import
+name lists honoured with stage0's exact filter semantics, `Float`
+constructor fields keeping float-ness through patterns, digit
+separators, and `^` - which the lexer's fallback had been *silently
+skipping*, so `(^ a b)` compiled as `(a b)`.
+
+Two of the findings were bugs in **stage0**, which is the differential
+method paying for itself in the direction nobody expected. Float-ness
+of a `let` binding was keyed by name for the whole function, so an
+`Int` binding shadowing a `Float` name still lowered its arithmetic as
+`fmul` over the integer's bits - stage1 had it right. And the alloca
+map was never restored when a `let` body ended, so
+`(let ((x 1)) (+ (let ((x 2)) x) x))` read the inner `x` twice and
+answered 4 - an integer scoping miscompile in the trusted compiler,
+sitting under every program with a shadowed binding, found because a
+fuzzer compared it against the compiler this document is about.
+Both are fixed, with scoped bind/restore at `let` boundaries and match
+arms, and pinned by `a_shadowing_let_binding_ends_with_its_body` and
+`an_int_binding_shadowing_a_float_name_is_integer_arithmetic`.
+
+A second round over the fixed compilers confirmed eleven more - none
+from the self-host-style fuzzer, whose programs in the compiler's own
+idiom found nothing, but plenty in the language's corners. stage1:
+`String` and `Bool` literal patterns bound like variables (the first
+literal arm swallowed every scrutinee); its own `let` bindings leaked
+past their scope, the same class as stage0's alloca leak; a data
+declaration's type-parameter list `(a)` was registered as a nullary
+constructor, so every binder named `a` became a tag test that bound
+nothing (SIGSEGV); an unknown top-level declaration - `foreign`,
+`type` - silently *truncated the module* at that point with exit 0;
+`-5` lexed as an identifier and emitted the SSA name `%-5`;
+`sizeof`/`alignof` emitted calls to symbols nothing defines; char
+literals did not lex; a bare function name in argument position
+emitted an undefined local (now refused loudly: function values need
+B1's closures); and a *bare* constructor name in pattern position
+tag-tested where stage0 binds it as a variable - only parenthesised
+`(Nil)` is a constructor test, so stage1 now distinguishes the two
+spellings the way stage0's parser does. stage0's own share this round:
+`Bool` literals were emitted as LLVM `i1` constants in a word-typed
+world, so a `true` pattern produced `icmp eq i64 %x, true` and llc
+rejected stage0's own module; and `fmt` printed the parser's
+unary-minus desugaring as the infix `(0 - 5)` and stripped the parens
+off a data type-parameter list. All fixed; every behavioural fix is a
+conformance case, and the gates plus the fixpoint stay green.
+
+What genuinely remains: no type checking -
+`self_host/typecheck.ax` is a stub - so a program stage0 would reject
+with a diagnostic, stage1 compiles into whatever the code happens to
+mean. No `while`/`mut`/`set` (S5) - stage1's locals are SSA values
+with no storage to assign into; the forms are *refused* at parse
+rather than miscompiled, and the fix is alloca-backed locals. No
+struct field access (`p.x`), refused the same way. It emits for
+darwin-aarch64 only. And the driver reads `in.ax` from the working
+directory and writes to stdout, with no argument parsing. Float
+literals with more precision than a double round twice where stage0
+rounds once, so a last-ulp divergence is possible for literals outside
+the corpus; byte-identical emission (phase 4) needs a single-rounding
+conversion.
 
 None of those is on the bootstrap path, which is why the fixpoint holds
 without them; all of them are between here and replacing stage0.

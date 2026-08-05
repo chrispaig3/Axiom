@@ -1,0 +1,20 @@
+; expect 55
+; `stdlib/Map.ax` is the heaviest pure-Axiom module stage1 compiles:
+; multi-limb hashing, open addressing, tombstones - and the bitwise
+; operators, which stage1 used to emit as calls to `@>>`, an identifier
+; LLVM rejects. Ten inserts overflow the default capacity, so the
+; rehash path (shifts and masks throughout) runs too. Sum of values
+; 1..10 read back through `mapSumVals` is 55.
+(import Map)
+
+(:: fill (-> Int Int Int))
+(fn (fill m i)
+  (if (> i 10)
+      m
+      {
+        (mapInsert m i i)
+        (fill m (+ i 1))
+      }))
+
+(:: main Int)
+(fn (main) (mapSumVals (fill (mapNew) 1)))

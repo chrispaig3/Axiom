@@ -1,0 +1,10 @@
+; expect 5
+; A BARE constructor name in pattern position is a binder - stage0's
+; rule, its parser makes bare identifiers variable patterns - so the
+; first arm matches everything; only parenthesised (Nil2) tests the
+; tag.
+(data L2 (Nil2) (Cons2 Int L2))
+(:: f (-> L2 Int))
+(fn (f l) (match l (Nil2 5) ((Cons2 h t) 6)))
+(:: main Int)
+(fn (main) (f (Cons2 1 (Nil2))))

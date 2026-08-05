@@ -1,0 +1,11 @@
+; expect 24
+; A nested constructor pattern - `(Cons h (Cons h2 t))` - used to bind
+; only the outer fields, so the body referred to registers nothing
+; defined and llc rejected the module. The compiler now recurses: inner
+; tag tests branch to the arm's failure label, inner binders bind.
+; 1 + 10*2 + 3 = 24 via the two-deep arm, then the tail.
+(data L (Nil) (Cons Int L))
+(:: sum (-> L Int))
+(fn (sum l) (match l ((Nil) 0) ((Cons h (Cons h2 t)) (+ h (+ (* 10 h2) (sum t)))) ((Cons h t) (+ h (sum t)))))
+(:: main Int)
+(fn (main) (sum (Cons 1 (Cons 2 (Cons 3 Nil)))))

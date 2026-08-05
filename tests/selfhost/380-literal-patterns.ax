@@ -1,0 +1,9 @@
+; expect 79
+; A literal pattern used to be indistinguishable from a binder -
+; `patHead` answered 0 for both - so `(1 42)` matched every scrutinee
+; and the first literal arm swallowed the whole match.
+; f(1)=42 lit, f(2)=7 lit, f(3)=30 binder arm; 42+7+30.
+(:: f (-> Int Int))
+(fn (f n) (match n (1 42) (2 7) (x (* x 10))))
+(:: main Int)
+(fn (main) (+ (f 1) (+ (f 2) (f 3))))

@@ -1,0 +1,9 @@
+; expect 42
+; true/false in pattern position are literal tests against 1/0. Both
+; compilers had this wrong: stage1 bound them as variables, stage0
+; emitted the i1 token 'true' into an i64 comparison and its own llc
+; refused the module.
+(:: f (-> Bool Int))
+(fn (f b) (match b (true 11) (false 31)))
+(:: main Int)
+(fn (main) (+ (f true) (f false)))

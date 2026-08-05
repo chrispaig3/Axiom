@@ -26,13 +26,16 @@
           false))
       false))
 
+; `^` (94) is an operator character like the rest - leaving it out did
+; not make it an error, it made the lexer's fallback *silently skip*
+; the byte, so `(^ a b)` lexed as `(a b)` and xor became application.
 (pub :: isIdentStart (-> Int Bool))
 (pub fn (isIdentStart ch)
-  (if (isAlpha ch) true (if (== ch 95) true (if (== ch 43) true (if (== ch 45) true (if (== ch 42) true (if (== ch 47) true (if (== ch 37) true (if (== ch 60) true (if (== ch 62) true (if (== ch 61) true (if (== ch 33) true (if (== ch 38) true (if (== ch 124) true (if (== ch 63) true false)))))))))))))))
+  (if (isAlpha ch) true (if (== ch 95) true (if (== ch 43) true (if (== ch 45) true (if (== ch 42) true (if (== ch 47) true (if (== ch 37) true (if (== ch 60) true (if (== ch 62) true (if (== ch 61) true (if (== ch 33) true (if (== ch 38) true (if (== ch 124) true (if (== ch 63) true (if (== ch 94) true false))))))))))))))))
 
 (pub :: isIdentChar (-> Int Bool))
 (pub fn (isIdentChar ch)
-  (if (isAlpha ch) true (if (isDigit ch) true (if (== ch 95) true (if (== ch 45) true (if (== ch 33) true (if (== ch 63) true (if (== ch 42) true (if (== ch 43) true (if (== ch 47) true (if (== ch 60) true (if (== ch 62) true (if (== ch 61) true (if (== ch 37) true (if (== ch 38) true (if (== ch 124) true (if (== ch 39) true false)))))))))))))))))
+  (if (isAlpha ch) true (if (isDigit ch) true (if (== ch 95) true (if (== ch 45) true (if (== ch 33) true (if (== ch 63) true (if (== ch 42) true (if (== ch 43) true (if (== ch 47) true (if (== ch 60) true (if (== ch 62) true (if (== ch 61) true (if (== ch 37) true (if (== ch 38) true (if (== ch 124) true (if (== ch 39) true (if (== ch 94) true false))))))))))))))))))
 
 (pub :: isSpace (-> Int Bool))
 (pub fn (isSpace ch)
@@ -88,6 +91,11 @@
             (skipIdent src (+ pos 1) len)
         pos))))
 
+; `_` is a digit separator, consumed as part of the number and filtered
+; out when the value is decoded - `1_000_000` is one token, exactly as
+; stage0's `consume_number` treats it. Stopping at the `_` split the
+; literal into an integer and an identifier, and the identifier went on
+; to be emitted as an SSA name nothing defines.
 (pub :: skipDigits (-> Int Int Int Int))
 (pub fn (skipDigits src pos len)
   (if (>= pos len)
@@ -95,7 +103,9 @@
       (let ((ch (strByte src pos)))
         (if (isDigit ch)
             (skipDigits src (+ pos 1) len)
-        pos))))
+        (if (== ch 95)
+            (skipDigits src (+ pos 1) len)
+        pos)))))
 
 ; A backslash escapes whatever follows it, so an escaped quote does not
 ; end the literal. Without this, `"c\""` ended at the middle quote and
@@ -130,14 +140,19 @@
   (if (== ch 45)
       (if (&& (< (+ pos 1) len) (== (strByte src (+ pos 1)) 62))
           (lexTokens src (+ pos 2) len (emitToken TK_RARROW pos (+ pos 2) tokens src))
-          (parseIdentToken src pos len tokens))
+          ; `-` directly against a digit is a negative literal, exactly
+          ; as stage0 lexes it. Falling through to the identifier rule
+          ; made `-5` an ident, which codegen emitted as the SSA name
+          ; `%-5` - a value nothing defines.
+          (if (&& (< (+ pos 1) len) (isDigit (strByte src (+ pos 1))))
+              (lexNumberFrom src pos (+ pos 1) len tokens)
+              (parseIdentToken src pos len tokens)))
 (if (== ch 58)
       (if (&& (< (+ pos 1) len) (== (strByte src (+ pos 1)) 58))
           (lexTokens src (+ pos 2) len (emitToken TK_DOUBLE_COLON pos (+ pos 2) tokens src))
           (lexTokens src (+ pos 1) len (emitToken TK_COLON pos (+ pos 1) tokens src)))
 (if (isDigit ch)
-      (let ((ep (skipDigits src (+ pos 1) len)))
-        (lexTokens src ep len (emitToken TK_INT pos ep tokens src)))
+      (lexNumberFrom src pos (+ pos 1) len tokens)
 (if (isIdentStart ch)
       (let ((ep (skipIdent src (+ pos 1) len)))
         (lexTokens src ep len (emitToken TK_IDENT pos ep tokens src)))
@@ -152,7 +167,16 @@
 (if (== ch 46)
       (lexTokens src (+ pos 1) len (emitToken TK_DOT pos (+ pos 1) tokens src))
 (if (== ch 39)
-      (lexTokens src (+ pos 1) len (emitToken TK_QUOTE pos (+ pos 1) tokens src))
+      ; A leading `'` starts a char literal unless what follows is a
+      ; space, `(` or `[` - stage0's exact rule; a mid-identifier `'`
+      ; never reaches here because isIdentChar consumes it.
+      (if (&& (< (+ pos 1) len)
+              (&& (!= (strByte src (+ pos 1)) 32)
+                  (&& (!= (strByte src (+ pos 1)) 40)
+                      (!= (strByte src (+ pos 1)) 91))))
+          (let ((ep (if (== (strByte src (+ pos 1)) 92) (+ pos 4) (+ pos 3))))
+            (lexTokens src ep len (emitToken TK_CHARLIT pos ep tokens src)))
+          (lexTokens src (+ pos 1) len (emitToken TK_QUOTE pos (+ pos 1) tokens src)))
 (if (== ch 123)
       (lexTokens src (+ pos 1) len (emitToken TK_LBRACE pos (+ pos 1) tokens src))
 (if (== ch 125)
@@ -167,6 +191,21 @@
 (pub fn (parseIdentToken src pos len tokens)
   (let ((ep (skipIdent src (+ pos 1) len)))
     (lexTokens src ep len (emitToken TK_IDENT pos ep tokens src))))
+
+; Digits (and separators), then `.digit`, make a float literal: `1.5`
+; is one token, where `1.x` is an integer followed by a field access.
+; Deciding by the character *after* the dot is what stage0's lexer does
+; too. `numStart` may sit on a leading `-`; the scan begins at
+; `scanFrom`.
+(pub :: lexNumberFrom (-> Int Int Int Int Int Int))
+(pub fn (lexNumberFrom src numStart scanFrom len tokens)
+  (let ((ep (skipDigits src scanFrom len)))
+    (if (&& (< (+ ep 1) len)
+            (&& (== (strByte src ep) 46)
+                (isDigit (strByte src (+ ep 1)))))
+        (let ((fp (skipDigits src (+ ep 1) len)))
+          (lexTokens src fp len (emitToken TK_FLOAT numStart fp tokens src)))
+        (lexTokens src ep len (emitToken TK_INT numStart ep tokens src)))))
 
 ; Public lexer interface.
 ; ------------------------------------------------------------------

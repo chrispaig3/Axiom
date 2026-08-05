@@ -1,0 +1,15 @@
+; expect 42
+; `stdlib/Pre.ax` is nothing but macros, and was the last module in the
+; repository stage1 could not compile. Importing it contributes no
+; symbols at all once its macro declarations are collected - the module
+; erases entirely into rewrites - so this case proves both halves: the
+; import resolves and parses, and every macro it defines expands.
+; when: 30, unless: +2, cond2 middle branch: +4, cond3 last branch: +6.
+(import Pre)
+
+(:: main Int)
+(fn (main)
+  (+ (when (== 1 1) 30)
+     (+ (unless (== 1 2) 2)
+        (+ (cond2 (== 1 2) 100 (== 1 1) 4 200)
+           (cond3 (== 1 2) 100 (== 3 4) 200 (== 5 5) 6 300)))))

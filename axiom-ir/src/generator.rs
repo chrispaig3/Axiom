@@ -637,7 +637,7 @@ impl IrGen {
     /// syntax and the signatures collected above, the one thing codegen
     /// needs to know: whether `+` on these operands means `add` or
     /// `fadd`.
-    fn is_float_expr(&self, expr: &Expr) -> bool {
+    fn is_float_expr(&mut self, expr: &Expr) -> bool {
         match expr {
             Expr::ELit(Literal::LFloat(_), _) => true,
             Expr::EVar(ident) => {
@@ -650,11 +650,48 @@ impl IrGen {
             // A conditional is a float if either arm is; the type
             // checker has already required both to agree.
             Expr::EIf(_, then, else_) => self.is_float_expr(then) || self.is_float_expr(else_),
-            Expr::ELet(_, body) => self.is_float_expr(body),
-            Expr::EMatch(_, arms) => arms.iter().any(|(_, body)| self.is_float_expr(body)),
+            // The body is scored with the bindings in scope - and out
+            // of scope again afterwards, so a shadowing binding's
+            // float-ness (or its absence) does not leak past its own
+            // body. This mirrors what lowering does at the same
+            // boundary.
+            Expr::ELet(bindings, body) => {
+                let mut restores: Vec<(String, bool)> = Vec::new();
+                for b in bindings {
+                    if let Pattern::PVar(ident) = &b.pat {
+                        let f = self.is_float_expr(&b.init);
+                        let was = self.float_local_set(&ident.name, f);
+                        restores.push((ident.name.clone(), was));
+                    }
+                }
+                let r = self.is_float_expr(body);
+                self.restore_floats(restores);
+                r
+            }
+            Expr::EMatch(_, arms) => {
+                let mut any = false;
+                for (pat, body) in arms {
+                    let restores = self.apply_pattern_floats(pat);
+                    if self.is_float_expr(body) {
+                        any = true;
+                    }
+                    self.restore_floats(restores);
+                }
+                any
+            }
             Expr::ECond(branches, else_) => {
-                branches.iter().any(|(_, b)| self.is_float_expr(b))
-                    || else_.as_ref().is_some_and(|e| self.is_float_expr(e))
+                let mut any = false;
+                for (_, b) in branches {
+                    if self.is_float_expr(b) {
+                        any = true;
+                    }
+                }
+                if let Some(e) = else_ {
+                    if self.is_float_expr(e) {
+                        any = true;
+                    }
+                }
+                any
             }
             Expr::EBegin(exprs) => exprs.last().is_some_and(|e| self.is_float_expr(e)),
             Expr::EApp(_, _) => {
@@ -681,21 +718,34 @@ impl IrGen {
                         return false;
                     }
                 }
+                // `__intToFloat` is a primitive, so no signature ever
+                // puts it in `float_fns` - but its result is exactly as
+                // float as a `Float`-returning function's. Without this,
+                // `(/ (__intToFloat a) (__intToFloat b))` had no float
+                // operand anywhere in sight and lowered to `sdiv` on the
+                // converted values: `5 / 10 = 0` where `0.5` was meant,
+                // silently, in a program the type checker had accepted.
+                // Every *other* float path happened to carry a literal,
+                // parameter or field that revealed the float-ness, which
+                // is why the golden tests never tripped on it.
+                if name == "__intToFloat" {
+                    return true;
+                }
                 self.float_fns.contains(name)
             }
             _ => false,
         }
     }
 
-    /// Seed [`IrGen::float_locals`] for one function body: parameters
-    /// its signature declares float, plus every `let` binding in the
-    /// body whose initialiser is one.
-    ///
-    /// The `let` walk is a pre-pass rather than something done as
-    /// bindings are lowered, because a binding's initialiser can refer
-    /// to an earlier binding in the same `let`, and the arithmetic in a
-    /// body is lowered before the walk would otherwise reach it.
-    fn begin_float_scope(&mut self, name: &str, params: &[Pattern], body: &Expr) {
+    /// Seed [`IrGen::float_locals`] for one function body: the
+    /// parameters its signature declares float. `let` bindings and
+    /// pattern binders enter and leave the set *as scopes are entered
+    /// and left* - see [`IrGen::float_local_set`] - rather than in a
+    /// per-function pre-pass. The pre-pass kept every binding's
+    /// float-ness for the whole function keyed by name alone, so an
+    /// `Int` binding shadowing a `Float` name still lowered its
+    /// arithmetic as `fmul` over the integer's bits.
+    fn begin_float_scope(&mut self, name: &str, params: &[Pattern], _body: &Expr) {
         self.float_locals.clear();
         if let Some(flags) = self.float_params.get(name).cloned() {
             for (p, is_float) in params.iter().zip(flags) {
@@ -706,104 +756,95 @@ impl IrGen {
                 }
             }
         }
-        self.note_float_lets(body);
     }
 
-    /// Record the float-typed bindings a pattern introduces.
-    fn note_float_pattern(&mut self, pat: &Pattern) {
+    /// Bind `name`'s float-ness for a scope, returning what
+    /// [`IrGen::float_local_restore`] needs to undo it. Recording a
+    /// *non*-float binding matters as much as recording a float one:
+    /// shadowing must hide the outer meaning in both directions.
+    fn float_local_set(&mut self, name: &str, is_float: bool) -> bool {
+        let was = self.float_locals.contains(name);
+        if is_float {
+            self.float_locals.insert(name.to_string());
+        } else {
+            self.float_locals.remove(name);
+        }
+        was
+    }
+
+    fn float_local_restore(&mut self, name: &str, was: bool) {
+        if was {
+            self.float_locals.insert(name.to_string());
+        } else {
+            self.float_locals.remove(name);
+        }
+    }
+
+    /// Every binder a pattern introduces, with its float-ness: a
+    /// constructor field's declared type where one is known, `false`
+    /// otherwise - a binder of unknown float-ness still *shadows*
+    /// whatever its name meant outside the arm.
+    fn pattern_float_binders(&self, pat: &Pattern, out: &mut Vec<(String, bool)>) {
         match pat {
             Pattern::PCon(name, args) => {
-                if let Some(flags) = self.float_con_fields.get(&name.name).cloned() {
-                    for (arg, is_float) in args.iter().zip(flags) {
-                        if is_float {
-                            if let Pattern::PVar(ident) = arg {
-                                self.float_locals.insert(ident.name.clone());
-                            }
-                        }
+                let flags = self
+                    .float_con_fields
+                    .get(&name.name)
+                    .cloned()
+                    .unwrap_or_default();
+                for (i, arg) in args.iter().enumerate() {
+                    if let Pattern::PVar(ident) = arg {
+                        out.push((ident.name.clone(), flags.get(i).copied().unwrap_or(false)));
+                    } else {
+                        self.pattern_float_binders(arg, out);
                     }
-                }
-                for arg in args {
-                    self.note_float_pattern(arg);
                 }
             }
             Pattern::PConNamed(_, fields) => {
                 for (fname, fpat) in fields {
                     if let Pattern::PVar(ident) = fpat {
-                        if self.float_struct_fields.contains(&fname.name) {
-                            self.float_locals.insert(ident.name.clone());
-                        }
+                        out.push((
+                            ident.name.clone(),
+                            self.float_struct_fields.contains(&fname.name),
+                        ));
+                    } else {
+                        self.pattern_float_binders(fpat, out);
                     }
-                    self.note_float_pattern(fpat);
                 }
             }
             Pattern::PTuple(pats) | Pattern::PList(pats) => {
                 for p in pats {
-                    self.note_float_pattern(p);
+                    self.pattern_float_binders(p, out);
                 }
             }
+            Pattern::PVar(ident) => {
+                out.push((ident.name.clone(), false));
+            }
             _ => {}
+        }
+    }
+
+    /// Apply a pattern's binders for the duration of one arm,
+    /// returning the restores in application order.
+    fn apply_pattern_floats(&mut self, pat: &Pattern) -> Vec<(String, bool)> {
+        let mut binders = Vec::new();
+        self.pattern_float_binders(pat, &mut binders);
+        binders
+            .into_iter()
+            .map(|(name, f)| {
+                let was = self.float_local_set(&name, f);
+                (name, was)
+            })
+            .collect()
+    }
+
+    fn restore_floats(&mut self, restores: Vec<(String, bool)>) {
+        for (name, was) in restores.into_iter().rev() {
+            self.float_local_restore(&name, was);
         }
     }
 
     /// Record every `let` binding under `expr` that holds a float.
-    fn note_float_lets(&mut self, expr: &Expr) {
-        match expr {
-            Expr::ELet(bindings, body) => {
-                for b in bindings {
-                    // Evaluate against what is known so far, so a
-                    // binding can depend on an earlier one.
-                    if let Pattern::PVar(ident) = &b.pat {
-                        if self.is_float_expr(&b.init) {
-                            self.float_locals.insert(ident.name.clone());
-                        }
-                    }
-                    self.note_float_lets(&b.init);
-                }
-                self.note_float_lets(body);
-            }
-            Expr::EApp(f, a) => {
-                self.note_float_lets(f);
-                self.note_float_lets(a);
-            }
-            Expr::EIf(c, t, e) => {
-                self.note_float_lets(c);
-                self.note_float_lets(t);
-                self.note_float_lets(e);
-            }
-            Expr::EMatch(scrut, arms) => {
-                self.note_float_lets(scrut);
-                for (pat, body) in arms {
-                    self.note_float_pattern(pat);
-                    self.note_float_lets(body);
-                }
-            }
-            Expr::ECond(branches, else_) => {
-                for (t, b) in branches {
-                    self.note_float_lets(t);
-                    self.note_float_lets(b);
-                }
-                if let Some(e) = else_ {
-                    self.note_float_lets(e);
-                }
-            }
-            Expr::EBegin(exprs) => {
-                for e in exprs {
-                    self.note_float_lets(e);
-                }
-            }
-            Expr::ELam(_, body) => self.note_float_lets(body),
-            Expr::EWhile(c, b) => {
-                self.note_float_lets(c);
-                self.note_float_lets(b);
-            }
-            Expr::EGrouped(inner)
-            | Expr::EConsume(inner)
-            | Expr::ECast(inner, _)
-            | Expr::ETypeSig(inner, _) => self.note_float_lets(inner),
-            _ => {}
-        }
-    }
-
     fn gen_function(
         &mut self,
         name: &Ident,
@@ -2423,9 +2464,22 @@ impl IrGen {
                 }
             }
             Expr::ELet(bindings, body) => {
+                // Each binding's float-ness is decided in the scope its
+                // initialiser actually evaluates in, then bound for the
+                // body and unbound after it - shadowing hides the outer
+                // meaning in both directions, and the outer meaning
+                // must return for whatever follows the `let`. The
+                // alloca map is restored the same way: it used to keep
+                // the inner binding's storage past the `let`, so
+                // `(let ((x 1)) (+ (let ((x 2)) x) x))` read the inner
+                // `x` twice and answered 4 - an integer-only scoping
+                // miscompile, no floats required.
+                let mut float_restores: Vec<(String, bool)> = Vec::new();
+                let mut alloca_restores: Vec<(String, Option<String>)> = Vec::new();
                 for b in bindings {
                     let (pat, init) = (&b.pat, &b.init);
                     if let Pattern::PVar(ident) = pat {
+                        let is_f = self.is_float_expr(init);
                         let value = self.gen_expr_to_func_with_allocas(
                             func,
                             init,
@@ -2450,10 +2504,26 @@ impl IrGen {
                                 value,
                             },
                         );
-                        alloca_map.insert(ident.name.clone(), alloca_name.clone());
+                        let prev = alloca_map.insert(ident.name.clone(), alloca_name.clone());
+                        alloca_restores.push((ident.name.clone(), prev));
+                        let was = self.float_local_set(&ident.name, is_f);
+                        float_restores.push((ident.name.clone(), was));
                     }
                 }
-                self.gen_expr_to_func_with_allocas(func, body, alloca_map, type_checker, None)
+                let r =
+                    self.gen_expr_to_func_with_allocas(func, body, alloca_map, type_checker, None);
+                self.restore_floats(float_restores);
+                for (name, prev) in alloca_restores.into_iter().rev() {
+                    match prev {
+                        Some(a) => {
+                            alloca_map.insert(name, a);
+                        }
+                        None => {
+                            alloca_map.remove(&name);
+                        }
+                    }
+                }
+                r
             }
             Expr::EMatch(target, arms) => {
                 let target_val = self.gen_expr_to_func_with_allocas(
@@ -2782,6 +2852,10 @@ impl IrGen {
                         }
                     }
 
+                    // The pattern's binders carry their fields' declared
+                    // float-ness for this arm's body alone - and shadow
+                    // whatever their names meant outside it.
+                    let float_restores = self.apply_pattern_floats(pat);
                     let body_val = self.gen_expr_to_func_with_allocas(
                         func,
                         body,
@@ -2789,6 +2863,7 @@ impl IrGen {
                         type_checker,
                         tail_ctx,
                     );
+                    self.restore_floats(float_restores);
                     self.emit_to_func(
                         func,
                         IrInst::Store {
@@ -3126,7 +3201,15 @@ impl IrGen {
             Literal::LFloat(n) => {
                 IrValue::Const(IrConst::Float(*n, TypeId::TCon("F64".to_string(), vec![])))
             }
-            Literal::LBool(b) => IrValue::Const(IrConst::Bool(*b)),
+            // A `Bool` literal is a machine word like every other Axiom
+            // value. Emitting it as an `i1` constant put the bare token
+            // `true` into `i64` positions - `icmp eq i64 %x, true` is
+            // how a Bool literal *pattern* died in `llc` after
+            // `axiom check` had accepted the program.
+            Literal::LBool(b) => IrValue::Const(IrConst::Int(
+                i64::from(*b),
+                TypeId::TCon("I64".to_string(), vec![]),
+            )),
             // A `Char` is a machine word, like every other Axiom value:
             // `type_to_llvm` maps `Char` to `i64`, `strByte` widens with
             // `zext i8 to i64` on the way out of memory, and `__store8`

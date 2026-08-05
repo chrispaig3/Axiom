@@ -101,6 +101,26 @@ for case_file in tests/selfhost/*.ax; do
   fi
 done
 
+# Negative: an import that cannot be resolved is a diagnostic naming the
+# module, not a silent skip. Skipping is the failure mode that presented
+# `stdlib/Fmt.ax` failing to parse as `use of undefined value '@fmtInt'`
+# out of llc - a codegen-shaped report for an import-shaped failure.
+# Exit 3 is the driver's import-resolution code (1 = unreadable input,
+# 2 = parse error in the input itself).
+if [[ -z "$filter" ]]; then
+  printf '(import NoSuchModule)\n(:: main Int)\n(fn (main) 7)\n' >"$work/in.ax"
+  (cd "$work" && ./stage1 >/dev/null 2>neg.err)
+  neg_status=$?
+  if [[ "$neg_status" == 3 ]] && grep -q "NoSuchModule" "$work/neg.err"; then
+    echo "ok   negative: unresolvable import is refused, naming the module"
+    passed=$((passed + 1))
+  else
+    echo "FAIL negative: unresolvable import (exit $neg_status, want 3 and the module named)"
+    sed 's/^/    /' "$work/neg.err" | head -3
+    failed=$((failed + 1))
+  fi
+fi
+
 echo
 echo "$passed passed, $failed failed"
 [[ "$failed" == 0 ]]

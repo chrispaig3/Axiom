@@ -1,0 +1,8 @@
+; expect 42
+; A string literal pattern compares against the interned literal's
+; header - equal text shares one global - instead of binding like a
+; variable and swallowing every scrutinee.
+(:: f (-> String Int))
+(fn (f s) (match s ("hi" 40) (x 2)))
+(:: main Int)
+(fn (main) (+ (f "hi") (f "yo")))

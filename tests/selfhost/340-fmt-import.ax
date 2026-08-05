@@ -1,0 +1,13 @@
+; expect 8
+; `stdlib/Fmt.ax` could not even parse through stage1 before float
+; literals existed, and the failure surfaced as `@fmtInt` being an
+; undefined value in any module that imported it. This case makes
+; stage1 compile Fmt itself - float parameters, literals, arithmetic
+; and both conversions inside `fmtFloatAbs` - and checks the rendered
+; text the only way a conformance case can: `2.5` at six places is
+; "2.500000", eight bytes.
+(import Str)
+(import Fmt)
+
+(:: main Int)
+(fn (main) (strLen (fmtFloatPrec 2.5 6)))

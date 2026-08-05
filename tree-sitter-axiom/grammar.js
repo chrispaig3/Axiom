@@ -752,9 +752,13 @@ module.exports = grammar({
     ),
 
     // `_` is a digit separator in the lexer, so `1_000_000` is one token.
-    integer_literal: _ => token(/[0-9][0-9_]*/),
+    // A leading `-` glued to a digit is part of the literal, as the
+    // compiler's lexer treats it; `-` followed by anything else stays
+    // an identifier, and `x-5` stays one identifier because the
+    // identifier token is longer.
+    integer_literal: _ => token(/-?[0-9][0-9_]*/),
 
-    float_literal: _ => token(/[0-9][0-9_]*\.[0-9][0-9_]*([eE][+-]?[0-9]+)?/),
+    float_literal: _ => token(/-?[0-9][0-9_]*\.[0-9][0-9_]*([eE][+-]?[0-9]+)?/),
 
     boolean_literal: _ => choice('true', 'false'),
 

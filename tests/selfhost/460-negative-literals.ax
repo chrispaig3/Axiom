@@ -1,0 +1,5 @@
+; expect 42
+; -5 against a digit is a negative literal, as stage0 lexes it, not an
+; identifier emitted as the SSA name %-5.
+(:: main Int)
+(fn (main) (let ((x -5)) (+ x 47)))

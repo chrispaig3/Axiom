@@ -1,0 +1,9 @@
+; expect 42
+; A declaration this compiler does not implement - the type alias in
+; the middle - is consumed and skipped, not treated as end of input:
+; the helper declared after it must still be emitted.
+(:: main Int)
+(fn (main) (helper 2))
+(type Cnt = Int)
+(:: helper (-> Int Int))
+(fn (helper n) (+ n 40))

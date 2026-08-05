@@ -11,7 +11,18 @@
 ; ------------------------------------------------------------------
 ; Type registry: constructor/struct name -> arity, kind, tag.
 ; ------------------------------------------------------------------
-(pub struct TypeEntry (name : Int) (nameLen : Int) (nameHash : Int) (kind : Int) (arity : Int) (tag : Int))
+; `allNull` records whether the constructor's whole data type is
+; all-nullary - stage0 unboxes nullary constructors to immediate tags
+; ONLY then. In a mixed type every value is a heap block, including the
+; nullary constructors (a one-word block holding the tag), so a
+; fieldful arm's tag load is always a load from a real block. Treating
+; every nullary constructor as an immediate made `None` a bare integer
+; in a type where `Just` is a pointer, and the `Just` arm's tag load
+; dereferenced it.
+;
+; `fieldFlags` is one 0/1 per field: is it declared `Float`. A pattern
+; binder for that field carries the flag into the symbol table.
+(pub struct TypeEntry (name : Int) (nameLen : Int) (nameHash : Int) (kind : Int) (arity : Int) (tag : Int) (allNull : Int) (fieldFlags : Int))
 (pub :: TF_DATA   Int) (pub fn (TF_DATA)   0)
 (pub :: TF_STRUCT Int) (pub fn (TF_STRUCT) 1)
 (pub :: eNameLen (-> Int Int)) (pub fn (eNameLen e) (memGetWord e 1))
@@ -19,6 +30,8 @@
 (pub :: eKind  (-> Int Int)) (pub fn (eKind  e) (memGetWord e 3))
 (pub :: eArity (-> Int Int)) (pub fn (eArity e) (memGetWord e 4))
 (pub :: eTag   (-> Int Int)) (pub fn (eTag   e) (memGetWord e 5))
+(pub :: eAllNull (-> Int Int)) (pub fn (eAllNull e) (memGetWord e 6))
+(pub :: eFieldFlags (-> Int Int)) (pub fn (eFieldFlags e) (memGetWord e 7))
 
 ; A length is not a name. This used to hash to `strLen` and match on
 ; (length, hash) alone, so every name of the same length was the same
@@ -31,11 +44,11 @@
 
 (pub :: eName (-> Int Int)) (pub fn (eName e) (memGetWord e 0))
 
-(pub :: addType (-> Int Int Int Int Int Int))
-(pub fn (addType types name kind arity tag)
+(pub :: addType (-> Int Int Int Int Int Int Int Int))
+(pub fn (addType types name kind arity tag allNull fieldFlags)
   (let ((nl (strLen name))
         (nh (nameHash name)))
-    (vecPush types (cast Int (TypeEntry name nl nh kind arity tag)))))
+    (vecPush types (cast Int (TypeEntry name nl nh kind arity tag allNull fieldFlags)))))
 
 (pub :: lookupType (-> Int Int Int))
 (pub fn (lookupType types name)
@@ -78,11 +91,274 @@
 ; ------------------------------------------------------------------
 ; Field 10 = strings (Vec of Str, the module's interned literals)
 ; Field 11 = curBlock (Str, the label currently being emitted into)
-(pub struct CG (lines : Int) (tmp : Int) (result : Int) (types : Int) (tagN : Int) (argVec : Int) (symnames : Int) (symregs : Int) (decls : Int) (argsTyped : Int) (strings : Int) (curBlock : Int))
+; Field 12 = mangleBares (Vec of Str, bare function names, see mangledFor)
+; Field 13 = mangleFulls (Vec of Str, the symbol each bare name reaches)
+;
+; Floats are carried as the i64 of their IEEE-754 bits, so nothing about
+; a *value* says it is a float - only the signatures do, and by emission
+; time there is no type checker left to ask. Fields 14-18 are the
+; reconstruction (the same one stage0's IR generator performs): what the
+; signatures said, and the float-ness of the result currently in field 2,
+; which is what decides `add` against `fadd` at each operator.
+;
+; Field 14 = resultIsFloat (Int 0/1, float-ness of field 2's value)
+; Field 15 = floatSigs (Vec of FSig, per-function arrow-position flags)
+; Field 16 = symfloats (Vec of 0/1, parallel to fields 6/7)
+; Field 17 = curParams (Vec of Str, parameter names of the function being emitted)
+; Field 18 = curFlags (Vec of 0/1 from this function's own signature, 0 if it has none)
+; Field 19 = macros (Vec of D_MACRO nodes: name, param names, template)
+(pub struct CG (lines : Int) (tmp : Int) (result : Int) (types : Int) (tagN : Int) (argVec : Int) (symnames : Int) (symregs : Int) (decls : Int) (argsTyped : Int) (strings : Int) (curBlock : Int) (mangleBares : Int) (mangleFulls : Int) (resultIsFloat : Int) (floatSigs : Int) (symfloats : Int) (curParams : Int) (curFlags : Int) (macros : Int))
 
+; The constructor tag counter starts at 2, not 0: stage0's tag is the
+; ordinal position in a flat walk of every data type the type checker
+; collected, and the builtin `Option` walks first - `None` is 0, `Some`
+; is 1 - so the first user-declared constructor is 2. Tags only ever
+; meet tags from the same scheme, but the two stages must still agree
+; whenever a program lets one escape (probed: stage0 gives the first
+; user constructor 2).
 (pub :: newCG Int)
 (pub fn (newCG)
-  (CG vecNew 0 "" vecNew 0 vecNew vecNew vecNew 0 "" vecNew "entry"))
+  (CG vecNew 0 "" vecNew 2 vecNew vecNew vecNew 0 "" vecNew "entry" vecNew vecNew 0 vecNew vecNew 0 0 vecNew))
+
+(pub :: zeroFloat (-> Int Int))
+(pub fn (zeroFloat cg)
+  {
+    (memSetWord cg 14 0)
+    cg
+  })
+
+; ------------------------------------------------------------------
+; Per-function float signatures, keyed by the (mangled) defined name.
+; `flags` is one 0/1 per arrow position, return type last - the shape
+; `sigFloatFlags` in the parser produces.
+; ------------------------------------------------------------------
+(pub struct FSig (name : Int) (nameLen : Int) (flags : Int))
+
+(pub :: scanFloatSigs (-> Int Int Int Int))
+(pub fn (scanFloatSigs decls sigs i)
+  (if (>= i (vecLen decls))
+      sigs
+      {
+        (let ((d (vecGet decls i)))
+          (if (== (nodeTag d) TAG_D_SIG)
+              (vecPush sigs (cast Int (FSig (nodeA d) (strLen (nodeA d)) (nodeB d))))
+              0))
+        (scanFloatSigs decls sigs (+ i 1))
+      }))
+
+(pub :: findFSig (-> Int Int Int))
+(pub fn (findFSig sigs name)
+  (findFSigIn sigs name (strLen name) 0))
+
+(pub :: findFSigIn (-> Int Int Int Int Int))
+(pub fn (findFSigIn sigs name nl i)
+  (if (>= i (vecLen sigs))
+      0
+      (let ((e (vecGet sigs i)))
+        (if (&& (== (memGetWord e 1) nl) (strEq (memGetWord e 0) name))
+            e
+            (findFSigIn sigs name nl (+ i 1))))))
+
+; Whether function `name` (already mangled) returns a float. Unknown
+; names answer 0: a function with no signature cannot traffic in floats,
+; because nothing could have told the emitter which of its words are
+; bit patterns.
+(pub :: fnRetIsFloat (-> Int Int Int))
+(pub fn (fnRetIsFloat cg name)
+  (let ((e (findFSig (memGetWord cg 15) name)))
+    (if (== e 0)
+        0
+        (let ((flags (memGetWord e 2)))
+          (if (== flags 0)
+              0
+              (if (== (vecLen flags) 0)
+                  0
+                  (vecGet flags (- (vecLen flags) 1))))))))
+
+; Whether parameter `idx` of the function being emitted is a float. The
+; last flag is the return type, so a bare-type signature has no
+; parameter flags at all.
+(pub :: paramIsFloat (-> Int Int Int))
+(pub fn (paramIsFloat cg idx)
+  (let ((flags (memGetWord cg 18)))
+    (if (== flags 0)
+        0
+        (if (>= idx (- (vecLen flags) 1))
+            0
+            (vecGet flags idx)))))
+
+(pub :: paramFloatByName (-> Int Int Int))
+(pub fn (paramFloatByName cg name)
+  (let ((params (memGetWord cg 17)))
+    (if (== params 0)
+        0
+        (paramFloatIdx cg params name 0))))
+
+(pub :: paramFloatIdx (-> Int Int Int Int Int))
+(pub fn (paramFloatIdx cg params name i)
+  (if (>= i (vecLen params))
+      0
+      (if (strEq (vecGet params i) name)
+          (paramIsFloat cg i)
+          (paramFloatIdx cg params name (+ i 1)))))
+
+; ------------------------------------------------------------------
+; Macros.
+;
+; A macro is a rewrite, applied where a call would otherwise be
+; emitted: a head that names a macro whose parameter count matches the
+; argument count has its template instantiated - each parameter name
+; replaced by the corresponding argument's syntax tree - and the
+; instantiation is emitted in the call's place. Emitting it re-enters
+; this same dispatch, so a template that itself invokes a macro
+; expands, exactly as stage0's expander recurses after substituting.
+;
+; Two deliberate simplifications against stage0. Substitution is
+; unhygienic - no gensym, no scope sets - which is observably identical
+; for every macro in the corpus, since none introduces a binder; a
+; template `let` whose name collides with a call-site name would
+; capture here and not under stage0. And an argument used twice in the
+; template shares one tree rather than two clones, which cannot be
+; told apart either: emission walks the tree twice and emits the
+; expression twice, the same double evaluation textual substitution
+; has always meant. Nothing in emission mutates expression nodes, so
+; the sharing is safe.
+; ------------------------------------------------------------------
+(pub :: scanMacros (-> Int Int Int Int))
+(pub fn (scanMacros decls acc i)
+  (if (>= i (vecLen decls))
+      acc
+      {
+        (let ((d (vecGet decls i)))
+          (if (== (nodeTag d) TAG_D_MACRO)
+              (vecPush acc d)
+              0))
+        (scanMacros decls acc (+ i 1))
+      }))
+
+; The scan runs backward: stage0 collects macros into a map keyed by
+; name, so a later definition of the same name overwrites an earlier
+; one - and since import resolution puts dependencies ahead of the
+; importing file, that is also what makes an entry-file macro shadow an
+; imported one.
+(pub :: findMacro (-> Int Int Int))
+(pub fn (findMacro cg name)
+  (findMacroIn (memGetWord cg 19) name (- (vecLen (memGetWord cg 19)) 1)))
+
+(pub :: findMacroIn (-> Int Int Int Int))
+(pub fn (findMacroIn ms name i)
+  (if (< i 0)
+      0
+      (let ((m (vecGet ms i)))
+        (if (strEq (nodeA m) name)
+            m
+            (findMacroIn ms name (- i 1))))))
+
+; Backward for the same reason: stage0 binds parameters left to right
+; into a map, so a duplicated parameter name ends up bound to its LAST
+; occurrence's argument.
+(pub :: identIndexLast (-> Int Int Int Int))
+(pub fn (identIndexLast names name i)
+  (if (< i 0)
+      (- 0 1)
+      (if (strEq (vecGet names i) name)
+          i
+          (identIndexLast names name (- i 1)))))
+
+; stage0 expands *every* invocation of a macro, whatever the arity.
+; Its pattern matcher never fails on macro parameters: a single
+; parameter binds the lone argument, a begin-block of several, or the
+; literal 0 of none; a parameter list binds positionally, extra
+; arguments are dropped, and a parameter beyond the arguments stays
+; unbound - its name survives in the template verbatim. This builds the
+; argument vector `macroSubst` indexes so those rules hold.
+(pub :: macroEffArgs (-> Int Int Int))
+(pub fn (macroEffArgs params args)
+  (if (== (vecLen params) 1)
+      (let ((v vecNew))
+        {
+          (vecPush v
+            (if (== (vecLen args) 0)
+                (mkEInt 0)
+            (if (== (vecLen args) 1)
+                (vecGet args 0)
+            (mkEBegin args))))
+          v
+        })
+      args))
+
+(pub :: emitMacroCall (-> Int Int Int Int))
+(pub fn (emitMacroCall mac args cg)
+  (emitExpr (macroSubst (nodeC mac)
+                        (nodeB mac)
+                        (macroEffArgs (nodeB mac) args))
+            cg))
+
+; The template with every parameter reference replaced by its
+; argument. Nodes that hold no parameter reference - literals,
+; strings - pass through unrebuilt; so does a `match` arm's pattern,
+; which stage0's substitution also leaves alone. A parameter with no
+; argument to bind stays as itself, matching stage0.
+(pub :: macroSubst (-> Int Int Int Int))
+(pub fn (macroSubst tpl params args)
+  (let ((tag (nodeTag tpl)))
+    (if (== tag TAG_E_VAR)
+        (let ((idx (identIndexLast params (nodeA tpl) (- (vecLen params) 1))))
+          (if (< idx 0)
+              tpl
+              (if (>= idx (vecLen args))
+                  tpl
+                  (vecGet args idx))))
+    (if (== tag TAG_E_APP)
+        (mkEApp (macroSubst (nodeA tpl) params args)
+                (macroSubst (nodeB tpl) params args))
+    (if (== tag TAG_E_IF)
+        (mkEIf (macroSubst (nodeA tpl) params args)
+               (macroSubst (nodeB tpl) params args)
+               (macroSubst (nodeC tpl) params args))
+    (if (== tag TAG_E_LET)
+        (mkELet (nodeA tpl)
+                (macroSubst (nodeB tpl) params args)
+                (macroSubst (nodeC tpl) params args))
+    (if (== tag TAG_E_LAM)
+        (mkELam (nodeA tpl)
+                (macroSubst (nodeB tpl) params args))
+    (if (== tag TAG_E_BEGIN)
+        (mkEBegin (macroSubstVec (nodeA tpl) params args))
+    (if (== tag TAG_E_MATCH)
+        (mkNode TAG_E_MATCH
+                (macroSubst (nodeA tpl) params args)
+                (macroSubstArms (nodeB tpl) params args)
+                0)
+    tpl)))))))))
+
+(pub :: macroSubstVec (-> Int Int Int Int))
+(pub fn (macroSubstVec exprs params args)
+  (macroSubstVecIn exprs params args vecNew 0))
+
+(pub :: macroSubstVecIn (-> Int Int Int Int Int Int))
+(pub fn (macroSubstVecIn exprs params args acc i)
+  (if (>= i (vecLen exprs))
+      acc
+      (macroSubstVecIn exprs params args
+                       (vecPush acc (macroSubst (vecGet exprs i) params args))
+                       (+ i 1))))
+
+(pub :: macroSubstArms (-> Int Int Int Int))
+(pub fn (macroSubstArms arms params args)
+  (macroSubstArmsIn arms params args vecNew 0))
+
+(pub :: macroSubstArmsIn (-> Int Int Int Int Int Int))
+(pub fn (macroSubstArmsIn arms params args acc i)
+  (if (>= i (vecLen arms))
+      acc
+      (let ((arm (vecGet arms i)))
+        (macroSubstArmsIn arms params args
+                          (vecPush acc (mkNode TAG_M_ARM
+                                               (nodeA arm)
+                                               (macroSubst (nodeB arm) params args)
+                                               0))
+                          (+ i 1)))))
 
 (pub :: emitLine (-> Int Int Int))
 (pub fn (emitLine cg line)
@@ -279,19 +555,27 @@
     (if (== tag TAG_D_DATA)
         (let ((name (nodeA node))
               (ctors (nodeB node)))
-          (scanCtors ctors cg 0))
+          (scanCtors ctors cg 0 (ctorsAllNullary ctors 0)))
     (if (== tag TAG_D_STRUCT)
         (let ((name (nodeA node))
               (fields (nodeB node))
               (types (memGetWord cg 3)))
           {
-            (memSetWord cg 3 (addType types name TF_STRUCT (vecLen fields) 0))
+            (memSetWord cg 3 (addType types name TF_STRUCT (vecLen fields) 0 0 0))
             cg
           })
     cg))))
 
-(pub :: scanCtors (-> Int Int Int Int))
-(pub fn (scanCtors ctors cg i)
+(pub :: ctorsAllNullary (-> Int Int Int))
+(pub fn (ctorsAllNullary ctors i)
+  (if (>= i (vecLen ctors))
+      1
+      (if (== (nodeB (vecGet ctors i)) 0)
+          (ctorsAllNullary ctors (+ i 1))
+          0)))
+
+(pub :: scanCtors (-> Int Int Int Int Int))
+(pub fn (scanCtors ctors cg i allNull)
   (if (>= i (vecLen ctors)) cg
       (let ((node (vecGet ctors i)))
         (let ((n (nodeA node))
@@ -304,8 +588,8 @@
             ; of the module tag -1, and `fmtInt` rendered that as `/` -
             ; a stray character in the middle of an argument list.
             (memSetWord cg 4 (+ t 1))
-            (memSetWord cg 3 (addType types n TF_DATA a t))
-            (scanCtors ctors cg (+ i 1))
+            (memSetWord cg 3 (addType types n TF_DATA a t allNull (nodeC node)))
+            (scanCtors ctors cg (+ i 1) allNull)
           }))))
 
 ; ------------------------------------------------------------------
@@ -382,15 +666,35 @@
                 stdSrc
                 0))))))
 
-; Declaration Vec for module source `src`, or 0 if absent or unparsable.
-(pub :: parseModuleSrc (-> Int Int))
-(pub fn (parseModuleSrc src)
-  (if (== src 0)
-      0
-      (let ((pr (parseModule (lex src))))
-        (if (== (memGetWord pr 0) 0)
-            0
-            (memGetWord pr 1)))))
+; A module that cannot be read or parsed used to be *skipped*, so every
+; function it defined surfaced later as `use of undefined value` out of
+; llc - a codegen-shaped report for an import-shaped failure, with the
+; module's name nowhere in it. That is how `stdlib/Fmt.ax` failing to
+; parse presented as `@fmtInt` being undefined in a module that had
+; visibly imported it. Refusing at the point of failure names the
+; module, and matches the rule held everywhere else: a malformed input
+; produces a diagnostic, not something worse further away.
+(pub :: dieImport (-> Int Int Int))
+(pub fn (dieImport msg name)
+  {
+    (sysWriteFd 2 (strData msg) (strLen msg))
+    (sysWriteFd 2 (strData name) (strLen name))
+    (sysWriteFd 2 (strData "\n") (strLen "\n"))
+    (sysExitWith 3)
+    0
+  })
+
+; Declaration Vec for module `name`; a module that cannot be read or
+; parsed is a fatal diagnostic, never a 0 this returns.
+(pub :: parseModuleOrDie (-> Int Int))
+(pub fn (parseModuleOrDie name)
+  (let ((src (readModuleSrc name)))
+    (if (== src 0)
+        (dieImport "error: cannot read module: " name)
+        (let ((pr (parseModule (lex src))))
+          (if (== (memGetWord pr 0) 0)
+              (dieImport "error: cannot parse module: " name)
+              (memGetWord pr 1))))))
 
 (pub :: seenHas (-> Int Int Bool))
 (pub fn (seenHas seen name)
@@ -404,38 +708,155 @@
           true
           (seenHasIn seen name (+ i 1)))))
 
-(pub :: resolveImports (-> Int Int))
-(pub fn (resolveImports decls)
-  (resolveDecls decls vecNew vecNew 0))
+; ------------------------------------------------------------------
+; Name mangling.
+;
+; Two modules may export the same name - `IO.ax` and `Sys.ax` both
+; define `readFile` - and emitting both bare produced two
+; `define i64 @readFile` in one LLVM module, which `llc` rejects. The
+; scheme is stage0's: a declaration imported from module `M` defines the
+; symbol `M$name`, a declaration in the entry file keeps its bare name -
+; `@main` must stay `@main` for the linker - and a bare *reference*
+; resolves through one flat map, entry file first, then imports in
+; resolution order. `$` and `.` are both legal in an unquoted LLVM
+; identifier, so `Sys.Platform$sysWrite` needs no quoting.
+;
+; The map is two Vecs pushed in lockstep rather than a Map, because it
+; is small (one entry per top-level function) and built once.
+; ------------------------------------------------------------------
+
+; Record how a bare reference reaches `full`, unless the bare name is
+; already claimed. First-writer-wins is what makes the entry file win:
+; `resolveImports` records every entry-file function before any import
+; is read.
+(pub :: mangleRecord (-> Int Int Int Int Int))
+(pub fn (mangleRecord bares fulls bare full)
+  (if (mangleHasIn bares bare 0)
+      0
+      {
+        (vecPush bares bare)
+        (vecPush fulls full)
+        0
+      }))
+
+(pub :: mangleHasIn (-> Int Int Int Bool))
+(pub fn (mangleHasIn bares bare i)
+  (if (>= i (vecLen bares))
+      false
+      (if (strEq (vecGet bares i) bare)
+          true
+          (mangleHasIn bares bare (+ i 1)))))
+
+; The symbol a bare reference reaches: the entry file's definition if it
+; has one, the first-resolved import's otherwise, and the name unchanged
+; when nothing claims it - parameters, locals and primitives never enter
+; the map.
+(pub :: mangledFor (-> Int Int Int))
+(pub fn (mangledFor cg name)
+  (mangledForIn (memGetWord cg 12) (memGetWord cg 13) name 0))
+
+(pub :: mangledForIn (-> Int Int Int Int Int))
+(pub fn (mangledForIn bares fulls name i)
+  (if (>= i (vecLen bares))
+      name
+      (if (strEq (vecGet bares i) name)
+          (vecGet fulls i)
+          (mangledForIn bares fulls name (+ i 1)))))
+
+; Rewrite an imported function's definition to its mangled name, in
+; place - `emitFnDef` reads the same node later, so the header and the
+; map cannot disagree. Entry-file declarations (modName 0) are left
+; bare; they were already recorded by `recordEntryFns`. A signature is
+; renamed the same way, so the float-signature registry and the
+; definitions it describes stay keyed identically.
+(pub :: mangleDecl (-> Int Int Int Int Int))
+(pub fn (mangleDecl node modName bares fulls)
+  (if (== modName 0)
+      0
+      (if (== (nodeTag node) TAG_D_FN)
+          (let ((bare (nodeA node)))
+            (let ((full (cat3 (strDup modName) "$" (strDup bare))))
+              {
+                (memSetWord node 1 full)
+                (mangleRecord bares fulls bare full)
+              }))
+          (if (== (nodeTag node) TAG_D_SIG)
+              {
+                (memSetWord node 1 (cat3 (strDup modName) "$" (strDup (nodeA node))))
+                0
+              }
+              0))))
+
+; Every entry-file function maps to itself, recorded ahead of every
+; import so that a collision resolves to the file being compiled.
+(pub :: recordEntryFns (-> Int Int Int Int Int))
+(pub fn (recordEntryFns decls bares fulls i)
+  (if (>= i (vecLen decls))
+      0
+      {
+        (let ((d (vecGet decls i)))
+          (if (== (nodeTag d) TAG_D_FN)
+              (mangleRecord bares fulls (nodeA d) (nodeA d))
+              0))
+        (recordEntryFns decls bares fulls (+ i 1))
+      }))
+
+(pub :: resolveImports (-> Int Int Int Int))
+(pub fn (resolveImports decls bares fulls)
+  {
+    (recordEntryFns decls bares fulls 0)
+    (resolveDecls decls vecNew vecNew 0 0 bares fulls 0)
+  })
 
 ; Append every non-import declaration reachable from `decls` onto `acc`,
 ; depth-first so that a module's dependencies land ahead of it.
+; `modName` is the module the list came from, 0 for the entry file; an
+; imported function is renamed to `modName$name` as it lands.
+;
+; `filter` is the import's name list, 0 when the import named none:
+; `(import M (a b))` splices only M's declarations named `a` or `b`,
+; exactly as stage0 filters through its `wanted` set - including the
+; harsh part, where a kept function's un-named private helpers vanish
+; with it. M's own nested imports are processed regardless: in stage0
+; they live outside the filtered declaration list, so a name list never
+; suppresses a dependency.
 ;
 ; `acc` and `seen` are threaded rather than rebuilt: `vecPush` mutates in
 ; place and returns the same handle, so both stay stable across the whole
 ; traversal and siblings observe each other's additions.
-(pub :: resolveDecls (-> Int Int Int Int Int))
-(pub fn (resolveDecls decls acc seen i)
+(pub :: resolveDecls (-> Int Int Int Int Int Int Int Int Int))
+(pub fn (resolveDecls decls acc seen i modName bares fulls filter)
   (if (>= i (vecLen decls)) acc
       (let ((first (vecGet decls i)))
         (if (== (nodeTag first) TAG_D_IMPORT)
             (let ((name (memGetWord first 1)))
               (if (seenHas seen name)
-                  (resolveDecls decls acc seen (+ i 1))
+                  (resolveDecls decls acc seen (+ i 1) modName bares fulls filter)
                   {
                     (vecPush seen name)
-                    (let ((modDecls (parseModuleSrc (readModuleSrc name))))
-                      ; An unresolvable module is skipped rather than
-                      ; dereferenced: `parseModuleSrc` yields 0, and
-                      ; `vecLen` on 0 would fault.
+                    (let ((modDecls (parseModuleOrDie name))
+                          (subFilter (let ((ns (nodeB first)))
+                                       (if (== ns 0)
+                                           0
+                                           (if (== (vecLen ns) 0) 0 ns)))))
                       (resolveDecls decls
-                                    (if (== modDecls 0)
-                                        acc
-                                        (resolveDecls modDecls acc seen 0))
+                                    (resolveDecls modDecls acc seen 0 name bares fulls subFilter)
                                     seen
-                                    (+ i 1)))
+                                    (+ i 1)
+                                    modName bares fulls filter))
                   }))
-            (resolveDecls decls (vecPush acc first) seen (+ i 1))))))
+            (if (filterKeeps filter (nodeA first))
+                {
+                  (mangleDecl first modName bares fulls)
+                  (resolveDecls decls (vecPush acc first) seen (+ i 1) modName bares fulls filter)
+                }
+                (resolveDecls decls acc seen (+ i 1) modName bares fulls filter))))))
+
+(pub :: filterKeeps (-> Int Int Bool))
+(pub fn (filterKeeps filter name)
+  (if (== filter 0)
+      true
+      (seenHasIn filter name 0)))
 
 
 ; ------------------------------------------------------------------
@@ -494,8 +915,14 @@
 ; ------------------------------------------------------------------
 (pub :: emitModule (-> Int Int Int))
 (pub fn (emitModule decls target)
-  (let ((allDecls (resolveImports decls)))
+  (let ((bares vecNew)
+        (fulls vecNew))
+  (let ((allDecls (resolveImports decls bares fulls)))
     (let ((cg (newCG)))
+      (let ((_ (memSetWord cg 12 bares))
+            (_2 (memSetWord cg 13 fulls))
+            (_3 (memSetWord cg 15 (scanFloatSigs allDecls vecNew 0)))
+            (_4 (memSetWord cg 19 (scanMacros allDecls vecNew 0))))
       (let ((cg0 (scanDecls allDecls cg 0)))
         (let ((cg0b (memSetWord cg0 8 allDecls)))
           (let ((ttHeader (cat3 "target triple = \"" target "\"")))
@@ -503,7 +930,7 @@
               (let ((cg2 (emitLine cg1 "")))
                 (let ((cg3 (emitAllocator cg2)))
                   (let ((cg4 (emitLine cg3 "")))
-                    (emitModuleTail allDecls cg4 0)))))))))))
+                    (emitModuleTail allDecls cg4 0)))))))))))))
 
 (pub :: emitModuleTail (-> Int Int Int Int))
 (pub fn (emitModuleTail decls cg i)
@@ -547,7 +974,14 @@
           ; `s` of a later one and emitted the earlier function's
           ; register - a name undefined in the function that used it.
           (_2 (memSetWord cg 6 vecNew))
-          (_3 (memSetWord cg 7 vecNew)))
+          (_3 (memSetWord cg 7 vecNew))
+          (_4 (memSetWord cg 16 vecNew))
+          ; This function's own parameter names and float flags, for
+          ; `%name` references in the body.
+          (_5 (memSetWord cg 17 params))
+          (_6 (memSetWord cg 18
+                (let ((e (findFSig (memGetWord cg 15) name)))
+                  (if (== e 0) 0 (memGetWord e 2))))))
       (let ((hdr (strConcat (cat4 "define i64 @"
                                   (strDup name)
                                   "("
@@ -593,18 +1027,6 @@
           (patHead (nodeA pat))
           0)))
 
-; Field binders, outermost application last, so they come out in field
-; order: `(Cons h t)` yields h then t.
-(pub :: patBinders (-> Int Int Int))
-(pub fn (patBinders pat acc)
-  (if (== (nodeTag pat) TAG_E_APP)
-      {
-        (patBinders (nodeA pat) acc)
-        (vecPush acc (nodeA (nodeB pat)))
-        acc
-      }
-      acc))
-
 (pub :: loadWordAt (-> Int Int Int Int))
 (pub fn (loadWordAt cg base idx)
   (let ((pn (allocReg cg))
@@ -630,27 +1052,46 @@
         (_4 (memSetWord cg 2 vr)))
     cg))
 
-(pub :: bindSym (-> Int Int Int Int))
-(pub fn (bindSym cg name reg)
+; The three symbol vectors stay parallel by construction: this is the
+; only place that pushes them. Constructor fields carry flag 0 - a field
+; is a bare word, and nothing tracks float-ness through one yet.
+(pub :: bindSym (-> Int Int Int Int Int))
+(pub fn (bindSym cg name reg isFloat)
   {
     (memSetWord cg 6 (vecPush (memGetWord cg 6) name))
     (memSetWord cg 7 (vecPush (memGetWord cg 7) reg))
+    (memSetWord cg 16 (vecPush (memGetWord cg 16) isFloat))
     cg
   })
 
-(pub :: bindFieldsIn (-> Int Int Int Int Int))
-(pub fn (bindFieldsIn cg sv bs i)
-  (if (>= i (vecLen bs))
-      cg
-      (let ((cg1 (loadWordAt cg sv (+ i 1)))
-            (r (strDup (memGetWord cg1 2)))
-            (_ (bindSym cg1 (vecGet bs i) r)))
-        (bindFieldsIn cg1 sv bs (+ i 1)))))
+; Truncate the three parallel symbol vectors back to `mark`, undoing
+; every binding made since. An arm's binders must not survive into the
+; next arm's emission: a later arm mentioning a name only an *earlier*
+; arm bound would otherwise resolve to the earlier arm's register - a
+; value that does not exist on the path that reaches it.
+(pub :: symMark (-> Int Int))
+(pub fn (symMark cg)
+  (vecLen (memGetWord cg 6)))
+
+(pub :: symRestore (-> Int Int Int))
+(pub fn (symRestore cg mark)
+  {
+    (memSetWord (memGetWord cg 6) 0 mark)
+    (memSetWord (memGetWord cg 7) 0 mark)
+    (memSetWord (memGetWord cg 16) 0 mark)
+    cg
+  })
 
 (pub :: emitMatch (-> Int Int Int))
 (pub fn (emitMatch node cg)
   (let ((scrutExpr (nodeA node))
         (arms (nodeB node))
+        ; A compile-time cell for the first arm's float flag - a local
+        ; rather than a CG field, so a nested match cannot clobber the
+        ; outer one's. A well-typed match yields one type from every
+        ; arm, so the first arm speaks for the form.
+        (ff (memAlloc 8))
+        (_0 (memSetWord ff 0 (- 0 1)))
         (cg1 (emitExpr scrutExpr cg))
         (sv (strDup (memGetWord cg1 2)))
         (cn (allocReg cg1))
@@ -660,12 +1101,15 @@
                                 "")))
         (mn (allocReg cg1))
         (mergeB (cat2 "label_" (fmtInt mn)))
-        (cg2 (emitArms arms sv cell mergeB cg1 0))
-        (_2 (emitLabel cg2 mergeB)))
-    (loadWordAt cg2 cell 0)))
+        (cg2 (emitArms arms sv cell mergeB cg1 0 ff))
+        (_2 (emitLabel cg2 mergeB))
+        (cg3 (loadWordAt cg2 cell 0))
+        (armFlag (memGetWord ff 0))
+        (_3 (memSetWord cg3 14 (if (== armFlag (- 0 1)) 0 armFlag))))
+    cg3))
 
-(pub :: emitArms (-> Int Int Int Int Int Int Int))
-(pub fn (emitArms arms sv cell mergeB cg i)
+(pub :: emitArms (-> Int Int Int Int Int Int Int Int))
+(pub fn (emitArms arms sv cell mergeB cg i ff)
   (if (>= i (vecLen arms))
       ; No arm matched. The cell still holds zero, which is what a
       ; non-exhaustive match answers here; stage0 reports that as a
@@ -677,45 +1121,147 @@
       (let ((arm (vecGet arms i))
             (pat (nodeA arm))
             (body (nodeB arm))
-            (cname (patHead pat))
-            (entry (if (== cname 0) 0 (lookupType (memGetWord cg 3) cname)))
-            (bn (allocReg cg))
-            (bodyB (cat2 "label_" (fmtInt bn)))
             (nn (allocReg cg))
-            (nextB (cat2 "label_" (fmtInt nn))))
-        (if (== entry 0)
-            ; A name that is not a constructor matches anything and binds
-            ; the scrutinee.
-            (let ((_a (emitLine cg (cat2 "  br label %" bodyB)))
-                  (_b (emitLabel cg bodyB))
-                  (_c (if (== cname 0) 0 (bindSym cg cname sv)))
-                  (cgB (emitExpr body cg))
-                  (bv (strDup (memGetWord cgB 2)))
-                  (_d (storeWordAt cgB cell 0 bv))
-                  (_e (emitLine cgB (cat2 "  br label %" mergeB)))
-                  (_f (emitLabel cgB nextB)))
-              (emitArms arms sv cell mergeB cgB (+ i 1)))
-            (let ((isNullary (== (eArity entry) 0))
-                  (cgT (if isNullary cg (loadWordAt cg sv 0)))
-                  (tagv (if isNullary sv (strDup (memGetWord cgT 2))))
-                  (tn (allocReg cgT))
-                  (tr (regStr tn))
-                  (_a (emitLine cgT (cat4 (cat2 "  " tr)
-                                          " = icmp eq i64 "
-                                          tagv
-                                          (cat2 ", " (constStr (eTag entry))))))
-                  (_b (emitLine cgT (cat4 (cat3 "  br i1 " tr ", label %")
-                                          bodyB
-                                          (cat2 ", label %" nextB)
-                                          "")))
-                  (_c (emitLabel cgT bodyB))
-                  (cgF (bindFieldsIn cgT sv (patBinders pat vecNew) 0))
-                  (cgB (emitExpr body cgF))
-                  (bv (strDup (memGetWord cgB 2)))
-                  (_d (storeWordAt cgB cell 0 bv))
-                  (_e (emitLine cgB (cat2 "  br label %" mergeB)))
-                  (_f (emitLabel cgB nextB)))
-              (emitArms arms sv cell mergeB cgB (+ i 1)))))))
+            (nextB (cat2 "label_" (fmtInt nn)))
+            (mark (symMark cg)))
+        ; The pattern compiles to a chain of tests that each branch to
+        ; `nextB` on mismatch and fall through on success, binding as
+        ; they go; the body is then emitted in whatever block the last
+        ; test left current.
+        (let ((cgP (emitPatMatch pat (strDup sv) nextB cg 0)))
+          (let ((cgB (emitExpr body cgP))
+                (_ff (if (== i 0) (memSetWord ff 0 (memGetWord cgB 14)) 0))
+                (bv (strDup (memGetWord cgB 2)))
+                (_d (storeWordAt cgB cell 0 bv))
+                (_e (emitLine cgB (cat2 "  br label %" mergeB)))
+                (_f (emitLabel cgB nextB))
+                (_g (symRestore cgB mark)))
+            (emitArms arms sv cell mergeB cgB (+ i 1) ff))))))
+
+; ------------------------------------------------------------------
+; Pattern compilation, recursive over the pattern's structure.
+;
+; `emitPatMatch` emits the tests for `pat` against the value held in
+; `vr`: every failing comparison branches to `failB`, success falls
+; through into a fresh block with the pattern's binders bound. Three
+; shapes existed before this and two of them were wrong. A literal
+; pattern was indistinguishable from a binder (`patHead` answered 0 for
+; both), so `(1 body)` matched *everything*. And a nested constructor
+; pattern collected only its binder names - `(Cons h (Cons h2 t))`
+; walked the outer application, took `(Cons h2 t)` as if it were a
+; name, and bound nothing inside it, so the emitted body referred to
+; registers no instruction defines.
+;
+; `isFloat` is the binder flag when `pat` is a bare name: 0 at the top
+; of an arm (the scrutinee's own float-ness is not tracked), the
+; field's declared flag when descending into a constructor.
+; ------------------------------------------------------------------
+(pub :: emitPatMatch (-> Int Int Int Int Int Int))
+(pub fn (emitPatMatch pat vr failB cg isFloat)
+  (let ((tag (nodeTag pat)))
+    (if (== tag TAG_E_INT)
+        (emitPatTest (constStr (nodeA pat)) vr failB cg)
+    (if (== tag TAG_E_FLT)
+        ; Bit-pattern equality, which is what stage0's literal float
+        ; pattern also compiles to (one word against one word).
+        (emitPatTest (constStr (nodeA pat)) vr failB cg)
+    (if (== tag TAG_E_STR)
+        ; A string literal pattern compares against the interned
+        ; literal's header address - string literals of equal text
+        ; share one global (`internString` dedups by content), which is
+        ; also how stage0's comparison against its interned constant
+        ; behaves.
+        (let ((cgS (emitStrExpr pat cg)))
+          (emitPatTest (strDup (memGetWord cgS 2)) vr failB cgS))
+    (if (== tag TAG_E_VAR)
+        ; `true`/`false` are literal tests. Every OTHER bare name - a
+        ; constructor's included - is a binder: stage0 parses a bare
+        ; identifier in pattern position as a variable pattern, and
+        ; only the parenthesised `(Nil)` (TAG_P_CON0 below) tests a
+        ; tag. `_` is just a name nobody references.
+        (if (strEq (nodeA pat) "true")
+            (emitPatTest (constStr 1) vr failB cg)
+        (if (strEq (nodeA pat) "false")
+            (emitPatTest (constStr 0) vr failB cg)
+            (bindSym cg (nodeA pat) (strDup vr) isFloat)))
+    (if (== tag TAG_P_CON0)
+        ; A nullary constructor: an immediate tag in an all-nullary
+        ; type, a one-word block otherwise - the tag is where the
+        ; representation says it is.
+        (let ((entry (lookupType (memGetWord cg 3) (nodeA pat))))
+          (if (== entry 0)
+              (bindSym cg (nodeA pat) (strDup vr) isFloat)
+              (if (== (eAllNull entry) 1)
+                  (emitPatTest (constStr (eTag entry)) vr failB cg)
+                  (let ((cgL (loadWordAt cg vr 0)))
+                    (emitPatTest (constStr (eTag entry))
+                                 (strDup (memGetWord cgL 2))
+                                 failB cgL)))))
+    (if (== tag TAG_E_APP)
+        (let ((cname (patHead pat)))
+          (let ((entry (if (== cname 0) 0 (lookupType (memGetWord cg 3) cname))))
+            (if (== entry 0)
+                ; An application whose head is no constructor - nothing
+                ; well-typed produces this; match everything, bind
+                ; nothing, as before.
+                cg
+                (let ((cgL (loadWordAt cg vr 0)))
+                  (let ((cgT (emitPatTest (constStr (eTag entry))
+                                          (strDup (memGetWord cgL 2))
+                                          failB cgL)))
+                    (emitPatFields (patArgs pat vecNew)
+                                   (eFieldFlags entry)
+                                   vr failB cgT 0))))))
+    cg))))))))
+
+; One `icmp eq` against `want`, branching to `failB` on mismatch and
+; into a fresh block on success.
+(pub :: emitPatTest (-> Int Int Int Int Int))
+(pub fn (emitPatTest want vr failB cg)
+  (let ((tn (allocReg cg))
+        (cn (allocReg cg)))
+    (let ((tr (regStr tn))
+          (contB (cat2 "label_" (fmtInt cn))))
+      {
+        (emitLine cg (cat4 (cat2 "  " tr)
+                           " = icmp eq i64 "
+                           (strDup vr)
+                           (cat2 ", " want)))
+        (emitLine cg (cat4 (cat3 "  br i1 " tr ", label %")
+                           contB
+                           (cat2 ", label %" failB)
+                           ""))
+        (emitLabel cg contB)
+        cg
+      })))
+
+; Load each field of the block in `vr` (fields start at word 1, past
+; the tag) and recurse into the subpattern, carrying the field's
+; declared float flag to whatever binder it bottoms out in.
+(pub :: emitPatFields (-> Int Int Int Int Int Int Int))
+(pub fn (emitPatFields subs flags vr failB cg i)
+  (if (>= i (vecLen subs))
+      cg
+      (let ((cgL (loadWordAt cg vr (+ i 1))))
+        (let ((fr (strDup (memGetWord cgL 2)))
+              (fl (if (== flags 0)
+                      0
+                      (if (< i (vecLen flags)) (vecGet flags i) 0))))
+          (emitPatFields subs flags vr failB
+                         (emitPatMatch (vecGet subs i) fr failB cgL fl)
+                         (+ i 1))))))
+
+; Subpattern nodes of a constructor pattern, in field order -
+; `(Cons h t)` yields the node for `h` then the node for `t`.
+(pub :: patArgs (-> Int Int Int))
+(pub fn (patArgs pat acc)
+  (if (== (nodeTag pat) TAG_E_APP)
+      {
+        (patArgs (nodeA pat) acc)
+        (vecPush acc (nodeB pat))
+        acc
+      }
+      acc))
 
 ; ------------------------------------------------------------------
 ; Expression dispatch.
@@ -724,6 +1270,7 @@
 (pub fn (emitExpr node cg)
   (let ((tag (nodeTag node)))
     (if (== tag TAG_E_INT)   (emitInt node cg)
+    (if (== tag TAG_E_FLT)   (emitFlt node cg)
     (if (== tag TAG_E_VAR)   (emitVar node cg)
     (if (== tag TAG_E_APP)   (emitApp node cg)
     (if (== tag TAG_E_LET)   (emitLet node cg)
@@ -731,7 +1278,7 @@
     (if (== tag TAG_E_BEGIN) (emitBegin node cg)
     (if (== tag TAG_E_STR)   (emitStrExpr node cg)
     (if (== tag TAG_E_MATCH) (emitMatch node cg)
-    (emitDefault node cg)))))))))))
+    (emitDefault node cg))))))))))))
 
 ; E_Int
 (pub :: emitInt (-> Int Int Int))
@@ -739,6 +1286,20 @@
   (let ((v (nodeA node)))
     {
       (memSetWord cg 2 (constStr v))
+      (memSetWord cg 14 0)
+      cg
+    }))
+
+; E_Flt: the node already holds the IEEE-754 bits, and the bits *are*
+; the value, so a float literal is the same immediate an integer is -
+; only the flag differs, and the flag is what routes `(+ x 1.5)` to
+; `fadd`.
+(pub :: emitFlt (-> Int Int Int))
+(pub fn (emitFlt node cg)
+  (let ((bits (nodeA node)))
+    {
+      (memSetWord cg 2 (constStr bits))
+      (memSetWord cg 14 1)
       cg
     }))
 
@@ -747,52 +1308,136 @@
 (pub :: emitVar (-> Int Int Int))
 (pub fn (emitVar node cg)
   (let ((name (nodeA node)))
+    ; A bare reference to a macro expands with zero arguments - stage0
+    ; rewrites every expression whose head (or self) names a macro,
+    ; before any scoping exists, so a macro shadows even a local of the
+    ; same name. Parity requires checking here ahead of the symbol
+    ; table.
+    (let ((mac (findMacro cg name)))
+    (if (!= mac 0)
+        (emitMacroCall mac vecNew cg)
     (let ((symReg (lookupSym cg name)))
       (if (!= symReg 0)
           {
             (memSetWord cg 2 (strDup symReg))
+            (memSetWord cg 14 (lookupSymFloat cg name))
             cg
           }
           (if (strEq name "true")
               {
                 (memSetWord cg 2 (constStr 1))
+                (memSetWord cg 14 0)
                 cg
               }
           (if (strEq name "false")
               {
                 (memSetWord cg 2 (constStr 0))
+                (memSetWord cg 14 0)
                 cg
               }
-          ; A nullary function referenced bare is a call, not a register.
-          ; Emitting `%answer` names a value nothing defines.
-          (if (isNullaryFn (memGetWord cg 8) name)
-              (let ((rn (allocReg cg)))
-                (let ((r (regStr rn)))
-                  {
-                    (emitLine cg (cat4 (cat2 "  " r)
-                                       " = call i64 @"
-                                       (strDup name)
-                                       "()"))
-                    (memSetWord cg 2 r)
-                    cg
-                  }))
+          ; The constructor table is consulted before the nullary
+          ; function table: stage0's EVar lowering tries
+          ; find_constructor first, so a name that is both - a nullary
+          ; constructor and a nullary function - yields the constructor
+          ; value, and parity means agreeing on that order.
           (let ((entry (lookupType (memGetWord cg 3) name)))
-            (if (== entry 0)
-                (let ((x (cat2 "%" (strDup name))))
-                  {
-                    (memSetWord cg 2 x)
-                    cg
-                  })
+            (if (!= entry 0)
                 (if (== (eArity entry) 0)
-                    {
-                      (memSetWord cg 2 (constStr (eTag entry)))
-                      cg
-                    }
+                    ; A bare nullary constructor: an immediate tag for
+                    ; an all-nullary type, a fresh one-word block
+                    ; otherwise - the same split construction makes.
+                    (zeroFloat (emitConstructor name vecNew (eKind entry) 0 (eTag entry) (eAllNull entry) cg))
                     (let ((z 0))
                       {
                         (memSetWord cg 2 (constStr z))
+                        (memSetWord cg 14 0)
                         cg
-                      })))))))))))
+                      }))
+                ; A nullary function referenced bare is a call, not a
+                ; register. Emitting `%answer` names a value nothing
+                ; defines. The decl list carries mangled names, so the
+                ; reference is resolved through the map before it is
+                ; compared or emitted.
+                (let ((full (mangledFor cg name)))
+                  (if (isNullaryFn (memGetWord cg 8) full)
+                      (let ((rn (allocReg cg)))
+                        (let ((r (regStr rn)))
+                          {
+                            (emitLine cg (cat4 (cat2 "  " r)
+                                               " = call i64 @"
+                                               (strDup full)
+                                               "()"))
+                            (memSetWord cg 2 r)
+                            (memSetWord cg 14 (fnRetIsFloat cg full))
+                            cg
+                          }))
+                      ; A bare reference to a *defined multi-parameter
+                      ; function* is a function value, which needs the
+                      ; closure representation stage1 does not build
+                      ; yet (B1). Refusing loudly beats emitting
+                      ; `%name` - an SSA value nothing defines - and
+                      ; letting llc report it as if it were a typo.
+                      ; A parameter of the function being emitted wins
+                      ; first, though: a param named `lex` is the
+                      ; param, not the lexer entry point it shadows.
+                      (if (&& (isDefinedFn (memGetWord cg 8) full)
+                              (< (paramIndexOf cg name) 0))
+                          (dieImport "error: function values are not supported by stage1: " name)
+                      ; A parameter reference: `%name` was emitted in
+                      ; the function header, and the signature says
+                      ; whether it is a float.
+                      (let ((x (cat2 "%" (strDup name))))
+                        {
+                          (memSetWord cg 2 x)
+                          (memSetWord cg 14 (paramFloatByName cg name))
+                          cg
+                        }))))))))))))))
+
+; Index of `name` in the current function's parameter list, -1 when it
+; is no parameter.
+(pub :: paramIndexOf (-> Int Int Int))
+(pub fn (paramIndexOf cg name)
+  (let ((params (memGetWord cg 17)))
+    (if (== params 0)
+        (- 0 1)
+        (paramIndexIn params name 0))))
+
+(pub :: paramIndexIn (-> Int Int Int Int))
+(pub fn (paramIndexIn params name i)
+  (if (>= i (vecLen params))
+      (- 0 1)
+      (if (strEq (vecGet params i) name)
+          i
+          (paramIndexIn params name (+ i 1)))))
+
+(pub :: isDefinedFn (-> Int Int Bool))
+(pub fn (isDefinedFn decls name)
+  (if (== decls 0)
+      false
+      (isDefinedFnIn decls name 0)))
+
+(pub :: isDefinedFnIn (-> Int Int Int Bool))
+(pub fn (isDefinedFnIn decls name i)
+  (if (>= i (vecLen decls))
+      false
+      (let ((d (vecGet decls i)))
+        (if (&& (== (nodeTag d) TAG_D_FN)
+                (&& (strEq (nodeA d) name) (> (vecLen (nodeB d)) 0)))
+            true
+            (isDefinedFnIn decls name (+ i 1))))))
+
+(pub :: lookupSymFloat (-> Int Int Int))
+(pub fn (lookupSymFloat cg name)
+  (lookupSymFloatIn (memGetWord cg 6) (memGetWord cg 16) name
+                    (- (vecLen (memGetWord cg 6)) 1)))
+
+(pub :: lookupSymFloatIn (-> Int Int Int Int Int))
+(pub fn (lookupSymFloatIn syms flags name i)
+  (if (< i 0)
+      0
+      (if (strEq (vecGet syms i) name)
+          (if (< i (vecLen flags)) (vecGet flags i) 0)
+          (lookupSymFloatIn syms flags name (- i 1)))))
 
 (pub :: lookupSym (-> Int Int Int))
 (pub fn (lookupSym cg name)
@@ -840,23 +1485,60 @@
 (pub fn (dispatchCall fnName cg)
   (let ((revArgs (memGetWord cg 5))
         (args (reverseVec revArgs)))
+    ; A macro wins over every other reading of the head, because
+    ; stage0 expands before any analysis runs - a macro shadowing a
+    ; function name rewrites the call there too, whatever the arity
+    ; (see macroEffArgs for the mismatch rules).
+    (let ((mac (findMacro cg fnName)))
+    (if (!= mac 0)
+        (emitMacroCall mac args cg)
     ; cast is a no-op at the i64 level — just evaluate and return the
     ; last argument's value directly, avoiding an undefined @cast call.
+    ; It *does* change float-ness: `(cast Float bits)` is how a bit
+    ; pattern held as an Int re-enters float arithmetic, so the flag
+    ; follows the named type rather than the operand.
     (if (isCastName fnName)
         (let ((lastArg (vecGet args (- (vecLen args) 1))))
-          (emitExpr lastArg cg))
+          (let ((cgc (emitExpr lastArg cg)))
+            {
+              (memSetWord cgc 14
+                (if (>= (vecLen args) 2)
+                    (let ((tyNode (vecGet args 0)))
+                      (if (&& (== (nodeTag tyNode) TAG_E_VAR)
+                              (strEq (nodeA tyNode) "Float"))
+                          1
+                          0))
+                    0))
+              cgc
+            }))
+    ; `sizeof`/`alignof` are compile-time constants: every Axiom value
+    ; is one machine word, so both are 8 for every type - probed
+    ; against stage0, which answers 8 for `Int` and for a three-field
+    ; struct alike (the handle is the value).
+    (if (strEq fnName "sizeof")
+        {
+          (memSetWord cg 2 (constStr 8))
+          (memSetWord cg 14 0)
+          cg
+        }
+    (if (strEq fnName "alignof")
+        {
+          (memSetWord cg 2 (constStr 8))
+          (memSetWord cg 14 0)
+          cg
+        }
     ; Primitives have no definition to call: they *are* the instruction.
     ; Emitting `call @__load64` produces a symbol nothing defines, which
     ; fails at link time rather than as a diagnostic.
     (if (isAndOr fnName)
-        (emitAndOr fnName args cg)
+        (zeroFloat (emitAndOr fnName args cg))
     (if (isPrimName fnName)
         (emitPrim fnName args cg)
         (let ((types (memGetWord cg 3))
               (entry (lookupType types fnName)))
           (if (== entry 0)
               (emitCall fnName args cg)
-              (emitConstructor fnName args (eKind entry) (eArity entry) (eTag entry) cg))))))))
+              (zeroFloat (emitConstructor fnName args (eKind entry) (eArity entry) (eTag entry) (eAllNull entry) cg)))))))))))))
 
 ; ------------------------------------------------------------------
 ; Freestanding primitives.
@@ -869,8 +1551,10 @@
   (if (strEq nm "__load8") true
   (if (strEq nm "__store8") true
   (if (strEq nm "__addr") true
+  (if (strEq nm "__intToFloat") true
+  (if (strEq nm "__floatToInt") true
   (if (isSyscallName nm) true
-  false))))))))
+  false))))))))))
 
 ; `__syscall0` through `__syscall6`, distinguished only by how many
 ; arguments follow the syscall number.
@@ -881,13 +1565,63 @@
 
 (pub :: emitPrim (-> Int Int Int Int))
 (pub fn (emitPrim fnName args cg)
-  (if (strEq fnName "__alloc")   (emitPrimAlloc args cg)
-  (if (strEq fnName "__load64")  (emitPrimLoad args cg 8)
-  (if (strEq fnName "__store64") (emitPrimStore args cg 8)
-  (if (strEq fnName "__load8")   (emitPrimLoad args cg 1)
-  (if (strEq fnName "__store8")  (emitPrimStore args cg 1)
-  (if (strEq fnName "__addr")    (emitPrimAddr args cg)
-  (emitPrimSyscall args cg))))))))
+  (if (strEq fnName "__intToFloat") (emitPrimIntToFloat args cg)
+  (if (strEq fnName "__floatToInt") (emitPrimFloatToInt args cg)
+  (zeroFloat
+    (if (strEq fnName "__alloc")   (emitPrimAlloc args cg)
+    (if (strEq fnName "__load64")  (emitPrimLoad args cg 8)
+    (if (strEq fnName "__store64") (emitPrimStore args cg 8)
+    (if (strEq fnName "__load8")   (emitPrimLoad args cg 1)
+    (if (strEq fnName "__store8")  (emitPrimStore args cg 1)
+    (if (strEq fnName "__addr")    (emitPrimAddr args cg)
+    (emitPrimSyscall args cg)))))))))))
+
+; `__intToFloat` is a numeric conversion (`sitofp`), not a
+; reinterpretation - that is `cast`'s job - and the result travels as
+; the i64 of its bits like every other float.
+(pub :: emitPrimIntToFloat (-> Int Int Int))
+(pub fn (emitPrimIntToFloat args cg)
+  (let ((cg1 (emitExpr (vecGet args 0) cg)))
+    (let ((v (strDup (memGetWord cg1 2)))
+          (dn (allocReg cg1))
+          (rn (allocReg cg1)))
+      (let ((dr (cat2 "%d" (fmtInt dn)))
+            (r (regStr rn)))
+        {
+          (emitLine cg1 (cat4 (cat2 "  " dr)
+                              " = sitofp i64 "
+                              v
+                              " to double"))
+          (emitLine cg1 (cat4 (cat2 "  " r)
+                              " = bitcast double "
+                              dr
+                              " to i64"))
+          (memSetWord cg1 2 r)
+          (memSetWord cg1 14 1)
+          cg1
+        }))))
+
+(pub :: emitPrimFloatToInt (-> Int Int Int))
+(pub fn (emitPrimFloatToInt args cg)
+  (let ((cg1 (emitExpr (vecGet args 0) cg)))
+    (let ((v (strDup (memGetWord cg1 2)))
+          (dn (allocReg cg1))
+          (rn (allocReg cg1)))
+      (let ((dr (cat2 "%d" (fmtInt dn)))
+            (r (regStr rn)))
+        {
+          (emitLine cg1 (cat4 (cat2 "  " dr)
+                              " = bitcast i64 "
+                              v
+                              " to double"))
+          (emitLine cg1 (cat4 (cat2 "  " r)
+                              " = fptosi double "
+                              dr
+                              " to i64"))
+          (memSetWord cg1 2 r)
+          (memSetWord cg1 14 0)
+          cg1
+        }))))
 
 ; The inline-assembly sequence takes the syscall number and six argument
 ; registers, so a call with fewer arguments is padded with zeros.
@@ -1067,52 +1801,156 @@
 ; Emit regular call: check binops/comparisons first.
 (pub :: emitCall (-> Int Int Int Int))
 (pub fn (emitCall fnName args cg)
-  (if (|| (== (vecLen args) 1) (== (vecLen args) 2))
-      (emitCallN fnName args cg)
-      (emitCallN fnName args cg)))
+  (if (&& (== (vecLen args) 2) (isBinop fnName))
+      (emitBinop2 fnName args cg)
+  (if (&& (== (vecLen args) 2) (isCmpOp fnName))
+      (emitCmp2 fnName args cg)
+  ; `(- x)` is unary negation - stage0 desugars it to `0 - x` at parse
+  ; time, so it is subtraction here too, not a one-argument call to a
+  ; function named `-`.
+  (if (&& (strEq fnName "-") (== (vecLen args) 1))
+      (let ((two vecNew))
+        {
+          (vecPush two (mkEInt 0))
+          (vecPush two (vecGet args 0))
+          (emitBinop2 "-" two cg)
+        })
+      (emitPlainCall fnName args cg)))))
 
-(pub :: emitCallN (-> Int Int Int Int))
-(pub fn (emitCallN fnName args cg)
+; An operator's spelling depends on its operands - `fadd` against
+; `add` - so the two are evaluated one at a time and their float flags
+; captured, where a plain call can take the whole argument list at
+; once. Either operand being a float makes the operation a float
+; operation; a program mixing the two would be a type error under
+; stage0, and this compiler compiles what it is given.
+(pub :: emitBinop2 (-> Int Int Int Int))
+(pub fn (emitBinop2 fnName args cg)
+  (let ((cg1 (emitExpr (vecGet args 0) cg)))
+    (let ((a (strDup (memGetWord cg1 2)))
+          (af (memGetWord cg1 14)))
+      (let ((cg2 (emitExpr (vecGet args 1) cg1)))
+        (let ((b (strDup (memGetWord cg2 2)))
+              (bf (memGetWord cg2 14)))
+          (if (|| (== af 1) (== bf 1))
+              (emitFBinop fnName a b cg2)
+              (emitIBinop fnName a b cg2)))))))
+
+(pub :: emitIBinop (-> Int Int Int Int Int))
+(pub fn (emitIBinop fnName a b cg)
+  (let ((rn (allocReg cg)))
+    (let ((r (regStr rn)))
+      {
+        (emitLine cg (cat4 (cat3 (cat2 "  " r) " = " (binopToLLVM fnName))
+                           " i64 "
+                           (cat3 a ", " b)
+                           ""))
+        (memSetWord cg 2 r)
+        (memSetWord cg 14 0)
+        cg
+      })))
+
+; The operands hold bits; the arithmetic wants a double. `bitcast` in,
+; one float instruction, `bitcast` back out - free at runtime, and the
+; register allocator keeps a chain of them in FP registers.
+(pub :: emitFBinop (-> Int Int Int Int Int))
+(pub fn (emitFBinop fnName a b cg)
+  (let ((an (allocReg cg))
+        (bn (allocReg cg))
+        (mn (allocReg cg))
+        (rn (allocReg cg)))
+    (let ((ar (cat2 "%d" (fmtInt an)))
+          (br (cat2 "%d" (fmtInt bn)))
+          (fr (cat2 "%d" (fmtInt mn)))
+          (r (regStr rn)))
+      {
+        (emitLine cg (cat4 (cat2 "  " ar) " = bitcast i64 " a " to double"))
+        (emitLine cg (cat4 (cat2 "  " br) " = bitcast i64 " b " to double"))
+        (emitLine cg (cat4 (cat3 (cat2 "  " fr) " = " (fbinopToLLVM fnName))
+                           " double "
+                           (cat3 ar ", " br)
+                           ""))
+        (emitLine cg (cat4 (cat2 "  " r) " = bitcast double " fr " to i64"))
+        (memSetWord cg 2 r)
+        (memSetWord cg 14 1)
+        cg
+      })))
+
+(pub :: emitCmp2 (-> Int Int Int Int))
+(pub fn (emitCmp2 fnName args cg)
+  (let ((cg1 (emitExpr (vecGet args 0) cg)))
+    (let ((a (strDup (memGetWord cg1 2)))
+          (af (memGetWord cg1 14)))
+      (let ((cg2 (emitExpr (vecGet args 1) cg1)))
+        (let ((b (strDup (memGetWord cg2 2)))
+              (bf (memGetWord cg2 14)))
+          (if (|| (== af 1) (== bf 1))
+              (emitFCmp fnName a b cg2)
+              (emitICmp fnName a b cg2)))))))
+
+(pub :: emitICmp (-> Int Int Int Int Int))
+(pub fn (emitICmp fnName a b cg)
+  (let ((cn (allocReg cg))
+        (rn (allocReg cg)))
+    (let ((cr (cat2 "%c" (fmtInt cn)))
+          (r (regStr rn)))
+      {
+        (emitLine cg (cat4 (cat3 (cat2 "  " cr) " = icmp " (cmpToLLVM fnName))
+                           " i64 "
+                           (cat3 a ", " b)
+                           ""))
+        (emitLine cg (cat4 (cat2 "  " r) " = zext i1 " cr " to i64"))
+        (memSetWord cg 2 r)
+        (memSetWord cg 14 0)
+        cg
+      })))
+
+; Ordered comparisons, so a NaN operand compares false - the same
+; choice stage0 makes.
+(pub :: emitFCmp (-> Int Int Int Int Int))
+(pub fn (emitFCmp fnName a b cg)
+  (let ((an (allocReg cg))
+        (bn (allocReg cg))
+        (cn (allocReg cg))
+        (rn (allocReg cg)))
+    (let ((ar (cat2 "%d" (fmtInt an)))
+          (br (cat2 "%d" (fmtInt bn)))
+          (cr (cat2 "%c" (fmtInt cn)))
+          (r (regStr rn)))
+      {
+        (emitLine cg (cat4 (cat2 "  " ar) " = bitcast i64 " a " to double"))
+        (emitLine cg (cat4 (cat2 "  " br) " = bitcast i64 " b " to double"))
+        (emitLine cg (cat4 (cat3 (cat2 "  " cr) " = fcmp " (fcmpToLLVM fnName))
+                           " double "
+                           (cat3 ar ", " br)
+                           ""))
+        (emitLine cg (cat4 (cat2 "  " r) " = zext i1 " cr " to i64"))
+        (memSetWord cg 2 r)
+        (memSetWord cg 14 0)
+        cg
+      })))
+
+(pub :: emitPlainCall (-> Int Int Int Int))
+(pub fn (emitPlainCall fnName args cg)
   (let ((argStrCg (emitArgsList args cg 0)))
-    (let ((argStr (memGetWord argStrCg 2))
-          (argStrT (memGetWord argStrCg 9))
+    (let ((argStrT (memGetWord argStrCg 9))
+          ; The callee's defining module may have renamed it - a bare
+          ; reference reaches whatever symbol the map says (entry file
+          ; first, then first import). Operators and primitives never
+          ; enter the map, so `full` is `fnName` for them.
+          (full (mangledFor argStrCg fnName))
           (rn (allocReg argStrCg)))
       (let ((r (regStr rn)))
-        (if (== (vecLen args) 2)
-            (if (isBinop fnName)
-                (let ((inst (cat3 (cat2 "  " r)
-                                  " = "
-                                  (cat4 (binopToLLVM fnName)
-                                        " i64 "
-                                        argStr
-                                        ""))))
-                  {
-                    (emitLine argStrCg inst)
-                    (memSetWord argStrCg 2 r)
-                    argStrCg
-                  })
-            (if (isCmpOp fnName)
-                (emitCmp fnName r argStr argStrCg)
-            (let ((callInst (cat3 (cat3 (cat2 "  " r)
-                                        " = call i64 @"
-                                        (strDup fnName))
-                                  "(i64 "
-                                  (cat2 argStrT ")"))))
-              {
-                (emitLine argStrCg callInst)
-                (memSetWord argStrCg 2 r)
-                argStrCg
-              })))
-            (let ((callInst (cat3 (cat3 (cat2 "  " r)
-                                        " = call i64 @"
-                                        (strDup fnName))
-                                  "(i64 "
-                                  (cat2 argStrT ")"))))
-              {
-                (emitLine argStrCg callInst)
-                (memSetWord argStrCg 2 r)
-                argStrCg
-              }))))))
+        (let ((callInst (cat3 (cat3 (cat2 "  " r)
+                                    " = call i64 @"
+                                    (strDup full))
+                              "(i64 "
+                              (cat2 argStrT ")"))))
+          {
+            (emitLine argStrCg callInst)
+            (memSetWord argStrCg 2 r)
+            (memSetWord argStrCg 14 (fnRetIsFloat argStrCg full))
+            argStrCg
+          })))))
 
 
 ; ------------------------------------------------------------------
@@ -1191,6 +2029,9 @@
         (_11 (memSetWord cg2 2 pr)))
     cg2))
 
+; `&&`/`||` never reach this table - `dispatchCall` routes them to the
+; short-circuit branches first - so a single `&` or `|` here is
+; unambiguously the bitwise operator.
 (pub :: isBinop (-> Int Bool))
 (pub fn (isBinop nm)
   (if (strEq nm "+") true
@@ -1198,7 +2039,12 @@
   (if (strEq nm "*") true
   (if (strEq nm "/") true
   (if (strEq nm "%") true
-  false))))))
+  (if (strEq nm "&") true
+  (if (strEq nm "|") true
+  (if (strEq nm "^") true
+  (if (strEq nm "<<") true
+  (if (strEq nm ">>") true
+  false)))))))))))
 
 (pub :: binopToLLVM (-> Int Int))
 (pub fn (binopToLLVM nm)
@@ -1207,7 +2053,12 @@
   (if (strEq nm "*") "mul"
   (if (strEq nm "/") "sdiv"
   (if (strEq nm "%") "srem"
-  "add"))))))
+  (if (strEq nm "&") "and"
+  (if (strEq nm "|") "or"
+  (if (strEq nm "^") "xor"
+  (if (strEq nm "<<") "shl"
+  (if (strEq nm ">>") "ashr"     ; arithmetic, matching stage0
+  "add")))))))))))
 
 (pub :: isCmpOp (-> Int Bool))
 (pub fn (isCmpOp nm)
@@ -1229,29 +2080,26 @@
   (if (strEq nm ">=") "sge"
   "eq")))))))
 
-(pub :: emitCmp (-> Int Int Int Int Int))
-(pub fn (emitCmp fnName r argStr cg)
-  (let ((cmpKind (cmpToLLVM fnName))
-        (cmpN (allocReg cg)))
-    (let ((cmpR (regStr cmpN)))
-      (let ((cmpInst (cat3 (cat2 "  " cmpR)
-                           " = icmp "
-                           (cat4 cmpKind
-                                 " i64 "
-                                 argStr
-                                 ""))))
-        (let ((cg1 (emitLine cg cmpInst))
-              (zN (allocReg cg)))
-          (let ((zR (regStr zN)))
-            (let ((zI (cat4 (cat2 "  " zR)
-                            " = zext i1 "
-                            cmpR
-                            " to i64")))
-              {
-                (emitLine cg1 zI)
-                (memSetWord cg1 2 zR)
-                cg1
-              })))))))
+(pub :: fbinopToLLVM (-> Int Int))
+(pub fn (fbinopToLLVM nm)
+  (if (strEq nm "+") "fadd"
+  (if (strEq nm "-") "fsub"
+  (if (strEq nm "*") "fmul"
+  (if (strEq nm "/") "fdiv"
+  (if (strEq nm "%") "frem"
+  "fadd"))))))
+
+; Ordered variants throughout: `o` requires neither operand be NaN, so
+; a NaN compares false under every operator, matching stage0.
+(pub :: fcmpToLLVM (-> Int Int))
+(pub fn (fcmpToLLVM nm)
+  (if (strEq nm "==") "oeq"
+  (if (strEq nm "!=") "one"
+  (if (strEq nm "<")  "olt"
+  (if (strEq nm ">")  "ogt"
+  (if (strEq nm "<=") "ole"
+  (if (strEq nm ">=") "oge"
+  "oeq")))))))
 
 ; Emit argument expressions from a Vec, building comma-separated reg string.
 (pub :: emitArgsList (-> Int Int Int Int))
@@ -1283,9 +2131,14 @@
 ; ------------------------------------------------------------------
 ; Constructor emission: alloc + field stores.
 ; ------------------------------------------------------------------
-(pub :: emitConstructor (-> Int Int Int Int Int Int Int))
-(pub fn (emitConstructor fnName args kind arity ctorTag cg)
-  (if (&& (== kind TF_DATA) (== arity 0))
+(pub :: emitConstructor (-> Int Int Int Int Int Int Int Int))
+(pub fn (emitConstructor fnName args kind arity ctorTag allNull cg)
+  ; An immediate tag only when the whole type is nullary; a nullary
+  ; constructor of a mixed type falls through to the general path,
+  ; which allocates its one-word block and stores the tag - the same
+  ; representation its fieldful siblings have, so a tag load never
+  ; dereferences an integer.
+  (if (&& (== kind TF_DATA) (&& (== arity 0) (== allNull 1)))
       {
         (memSetWord cg 2 (constStr ctorTag))
         cg
@@ -1357,14 +2210,19 @@
         (valExpr (nodeB node))
         (body (nodeC node)))
     (let ((cg1 (emitExpr valExpr cg)))
+      ; The binding remembers whether its initialiser was a float, so a
+      ; later `(+ x ...)` on the bound name picks the right instruction.
+      ; And it ends with its body: without the restore, a shadowing
+      ; binding's register - possibly defined in a branch block that
+      ; does not dominate later uses - kept resolving the name after
+      ; the `let` was over.
       (let ((valReg (strDup (memGetWord cg1 2)))
-            (newSyms (vecPush (memGetWord cg1 6) name))
-            (newRegs (vecPush (memGetWord cg1 7) valReg)))
-        {
-          (memSetWord cg1 6 newSyms)
-          (memSetWord cg1 7 newRegs)
-        }
-        (emitExpr body cg1)))))
+            (valFlag (memGetWord cg1 14))
+            (mark (symMark cg1)))
+        (bindSym cg1 name valReg valFlag)
+        (let ((cgB (emitExpr body cg1)))
+          (symRestore cgB mark)
+          cgB)))))
 
 (pub :: emitIf (-> Int Int Int))
 (pub fn (emitIf node cg)
@@ -1392,6 +2250,9 @@
         (_3 (emitLabel cg1 thenB))
         (cg2 (emitExpr thenExpr cg1))
         (thenVal (strDup (memGetWord cg2 2)))
+        ; A well-typed `if` yields the same type from both branches, so
+        ; the then-branch's float-ness stands for the whole form.
+        (thenFlag (memGetWord cg2 14))
         ; The block that actually reaches the merge, which is the last
         ; one this branch emitted - not the one it started in. A nested
         ; `if` leaves its own merge block current, and naming the outer
@@ -1413,7 +2274,8 @@
                     (cat3 ", %" thenPred " ], [ ")
                     (cat3 elseVal ", %" elsePred)
                     " ]")))
-        (_9 (memSetWord cg3 2 phiR)))
+        (_9 (memSetWord cg3 2 phiR))
+        (_10 (memSetWord cg3 14 thenFlag)))
     cg3))
 
 ; Emit a block label and record it as the block now being written into.
@@ -1452,6 +2314,7 @@
                            (fmtInt id)
                            " to i64"))
         (memSetWord cg 2 r)
+        (memSetWord cg 14 0)
         cg
       })))
 
@@ -1459,5 +2322,6 @@
 (pub fn (emitDefault node cg)
   {
     (memSetWord cg 2 "0")
+    (memSetWord cg 14 0)
     cg
   })

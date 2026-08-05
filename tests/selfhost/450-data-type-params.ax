@@ -1,0 +1,8 @@
+; expect 44
+; The (a) after the data name is its type-parameter list, not a
+; nullary constructor named a - registering it as one turned every
+; binder named a into a tag test that bound nothing, and arm bodies
+; dereferenced values never bound.
+(data M9 (a) (J9 a) (N9))
+(:: main Int)
+(fn (main) (match 44 (a a)))

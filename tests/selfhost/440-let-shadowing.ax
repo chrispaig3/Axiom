@@ -1,0 +1,6 @@
+; expect 3
+; A shadowing binding ends with its body: the outer x returns for the
+; second operand. Both compilers leaked the inner binding - stage0
+; through its alloca map, stage1 through its symbol table.
+(:: main Int)
+(fn (main) (let ((x 1)) (+ (let ((x 2)) x) x)))

@@ -1,0 +1,20 @@
+; expect 140
+; The entry file redefines a name its import also exports. Before name
+; mangling, stage1 emitted `define i64 @strLen` twice - once for this
+; file's and once for Str's - and `llc` rejected the module, so a
+; program could not shadow anything the standard library defined.
+; Str's definition now lands as `Str$strLen`, this file's stays bare,
+; and a bare reference resolves entry-file-first, which is stage0's
+; rule.
+;
+; `strByte` still has to work while the shadow is in force: its own
+; body is emitted against the same flat map, so this case also proves
+; an imported module's internals survive the entry file colliding with
+; them. 41 + byte 2 of "abc" = 41 + 99.
+(import Str)
+
+(:: strLen (-> Int Int))
+(fn (strLen s) 41)
+
+(:: main Int)
+(fn (main) (+ (strLen "abc") (strByte "abc" 2)))

@@ -1574,6 +1574,94 @@ fn float_returning_function_compiles_and_computes() {
 }
 
 #[test]
+fn a_binop_over_two_conversions_is_a_float_operation() {
+    // `__intToFloat` is a primitive, so no signature ever declares its
+    // return type - and the float-ness classifier consulted only
+    // declared signatures. `(/ (__intToFloat 1) (__intToFloat 2))` had
+    // no float literal, parameter or field anywhere in sight, so it
+    // lowered to `sdiv` on the converted values: 1/2 = 0 where 0.5 was
+    // meant, silently, in a program the type checker had accepted.
+    // Every other float test happens to carry an operand that reveals
+    // the float-ness, which is why none of them tripped on it.
+    let dir = scratch_dir("float-conv-binop");
+    write_source(
+        &dir,
+        "main.ax",
+        "(:: main Int)\n\
+         (fn (main) (__floatToInt (* (/ (__intToFloat 1) (__intToFloat 2)) (__intToFloat 10))))\n",
+    );
+    let out = run_axiom(&["run", "main.ax"], &dir);
+    assert_eq!(
+        out.status.code(),
+        Some(5),
+        "stdout: {}\nstderr: {}",
+        stdout(&out),
+        stderr(&out)
+    );
+}
+
+#[test]
+fn a_shadowing_let_binding_ends_with_its_body() {
+    // The alloca map was never restored after a `let` body, so the
+    // inner binding's storage leaked outward:
+    // `(let ((x 1)) (+ (let ((x 2)) x) x))` read the inner `x` twice
+    // and answered 4. No floats, no patterns - plain integer scoping.
+    let dir = scratch_dir("let-shadow-scope");
+    write_source(
+        &dir,
+        "main.ax",
+        "(:: main Int)\n(fn (main) (let ((x 1)) (+ (let ((x 2)) x) x)))\n",
+    );
+    let out = run_axiom(&["run", "main.ax"], &dir);
+    assert_eq!(
+        out.status.code(),
+        Some(3),
+        "stdout: {}\nstderr: {}",
+        stdout(&out),
+        stderr(&out)
+    );
+}
+
+#[test]
+fn an_int_binding_shadowing_a_float_name_is_integer_arithmetic() {
+    // Float-ness was keyed by name for the whole function, so an `Int`
+    // binding shadowing a `Float` name still lowered `(* x 3)` as
+    // `fmul` over the integer's bits. Scoping is now dynamic: bound
+    // for the body, unbound after it - in both directions, so the
+    // outer float meaning also returns once the shadow ends.
+    let dir = scratch_dir("float-shadow-scope");
+    write_source(
+        &dir,
+        "main.ax",
+        "(:: main Int)\n\
+         (fn (main) (let ((x 1.5)) (let ((x 20)) (* x 3))))\n",
+    );
+    let out = run_axiom(&["run", "main.ax"], &dir);
+    assert_eq!(
+        out.status.code(),
+        Some(60),
+        "stdout: {}\nstderr: {}",
+        stdout(&out),
+        stderr(&out)
+    );
+    let dir2 = scratch_dir("float-shadow-restore");
+    write_source(
+        &dir2,
+        "main.ax",
+        "(:: main Int)\n\
+         (fn (main) (let ((x 2.5)) (+ (let ((x 4)) (* x 10)) (__floatToInt (* x 2.0)))))\n",
+    );
+    let out2 = run_axiom(&["run", "main.ax"], &dir2);
+    assert_eq!(
+        out2.status.code(),
+        Some(45),
+        "stdout: {}\nstderr: {}",
+        stdout(&out2),
+        stderr(&out2)
+    );
+}
+
+#[test]
 fn float_comparison_yields_bool() {
     let dir = scratch_dir("float-cmp");
     write_source(
@@ -1717,6 +1805,45 @@ fn fmt_preserves_a_type_alias() {
         formatted.contains("(pub type Num = Int)"),
         "the type alias lost its `=`: {}",
         formatted
+    );
+}
+
+#[test]
+fn fmt_preserves_a_macro_declarations_arity() {
+    // `parse_macro` wraps two-plus parameters in a synthetic `PTuple`,
+    // and the formatter printed that tuple as a single pattern:
+    // `(macro (when test body) t)` became `(macro (when (test body)) t)`.
+    // The result *reparses* - `(test body)` is a well-formed constructor
+    // pattern - so fmt's own verification passed, but the macro's arity
+    // collapsed to one, no call site matched any longer, and the name
+    // surfaced as an undefined function. Formatting must preserve
+    // behaviour, so the pin is behavioural: format, then run.
+    let dir = scratch_dir("fmt-macro-arity");
+    write_source(
+        &dir,
+        "main.ax",
+        "(macro (when test body) (if test body 0))\n\
+         (:: main Int)\n(fn (main) (when (== 1 1) 42))\n",
+    );
+    let fmt_out = run_axiom(&["fmt", "main.ax"], &dir);
+    assert!(
+        fmt_out.status.success(),
+        "fmt refused the file: {}",
+        stderr(&fmt_out)
+    );
+    let formatted = std::fs::read_to_string(dir.join("main.ax")).unwrap();
+    assert!(
+        formatted.contains("(when test body)"),
+        "the macro head lost its parameter list shape: {}",
+        formatted
+    );
+    let out = run_axiom(&["run", "main.ax"], &dir);
+    assert_eq!(
+        out.status.code(),
+        Some(42),
+        "formatted macro no longer expands; stdout: {}\nstderr: {}",
+        stdout(&out),
+        stderr(&out)
     );
 }
 

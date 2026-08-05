@@ -115,10 +115,18 @@
 ; ------------------------------------------------------------------
 
 (import Str)
+(import Mem)
 
 ; Open, read entire contents, close.  Returns an empty string on any
-; error (missing file, permission, etc.).  Files above 64 KiB are
-; truncated — enough for the self-host bootstrap source files.
+; error (missing file, permission, etc.).
+;
+; This used to read a single 65536-byte chunk, documented as "enough
+; for the self-host bootstrap source files" - which held until
+; `self_host/codegen.ax` grew past 64 KiB, at which point the compiler
+; it feeds truncated its own source mid-token and reported a parse
+; error pointing at a token that does not exist in the file. A read
+; that silently caps at a size is a read that fails on the first input
+; to cross it, in the caller least equipped to see why.
 ;
 ; `path` is a raw NUL-terminated char*, not a `Str` handle, because it
 ; goes straight to `sysOpenPath`. Use `(__addr "...")` for a literal or
@@ -135,12 +143,30 @@
   (let ((fd (sysOpenPath path 0)))
     (if (sysFailed fd)
         ""
-        (let ((buf (strAlloc 65536))
-              (cstr (strData buf))
-              (n (sysReadFd fd cstr 65536)))
+        (let ((s (sysReadAll fd (strAlloc 65536) 0 65536)))
           {
             (sysCloseFd fd)
-            (if (<= n 0)
-                ""
-                (strWrap cstr n))
+            s
           }))))
+
+; Read `fd` to EOF into `buf`, doubling the buffer whenever it fills.
+; `used` bytes hold data; `cap` is the buffer's capacity. A short read
+; is retried rather than treated as EOF - only 0 (or an error) ends the
+; loop - so a pipe delivers its whole stream too. The final byte after
+; `used` is NUL because `strAlloc` reserves len+1 zeroed bytes and
+; every growth copies into a fresh zeroed buffer.
+(pub :: sysReadAll (-> Int Int Int Int Int))
+(pub fn (sysReadAll fd buf used cap)
+  (let ((n (sysReadFd fd (+ (strData buf) used) (- cap used))))
+    (if (<= n 0)
+        (if (== used 0)
+            ""
+            (strWrap (strData buf) used))
+        (let ((used2 (+ used n)))
+          (if (< used2 cap)
+              (sysReadAll fd buf used2 cap)
+              (let ((big (strAlloc (* cap 2))))
+                {
+                  (memCopy (strData big) (strData buf) used2)
+                  (sysReadAll fd big used2 (* cap 2))
+                }))))))
