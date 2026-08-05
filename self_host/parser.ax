@@ -57,6 +57,9 @@
 ; Field access `base.field`: word 1 the base expression, word 2 the
 ; field's name. Chains fold left: `a.b.c` is ((a.b).c).
 (pub :: TAG_E_FIELD Int)  (pub fn (TAG_E_FIELD) 27)
+; Field store `(set base.field v)`: word 1 the base expression, word 2
+; the field's name, word 3 the value. Evaluates to 0, stage0's rule.
+(pub :: TAG_E_SETF Int)   (pub fn (TAG_E_SETF) 28)
 
 (pub :: nodeTag (-> Int Int))   (pub fn (nodeTag n) (memGetWord n 0))
 (pub :: nodeA   (-> Int Int))   (pub fn (nodeA   n) (memGetWord n 1))
@@ -715,7 +718,11 @@
   (let ((nr (parseIdentName tokens pos)))
     (if (== (memGetWord nr 0) 0) nr
         (if (peekIs tokens (memGetWord nr 2) TK_DOT)
-            (pErr (memGetWord nr 2))
+            ; A dotted target is a field store: the chain builds the
+            ; base the same way expression-position access does, and
+            ; the LAST segment names the field written.
+            (parseSetField tokens (memGetWord nr 2)
+                           (mkEVar (memGetWord nr 1)))
             (let ((valR (parseExpr tokens (memGetWord nr 2))))
               (if (== (memGetWord valR 0) 0) valR
                   (let ((val (memGetWord valR 1))
@@ -724,6 +731,26 @@
                         (pOk (mkNode TAG_E_SET (memGetWord nr 1) val 0)
                              (advance afterVal))
                         (pErr afterVal)))))))))
+
+; At a `.`: if another `.` follows the field, the field folds into the
+; base; otherwise it is the store target and the value follows.
+(pub :: parseSetField (-> Int Int Int Int))
+(pub fn (parseSetField tokens pos base)
+  (if (&& (peekIs tokens pos TK_DOT)
+          (peekIs tokens (advance pos) TK_IDENT))
+      (let ((fname (tokenLexeme (vecGet tokens (advance pos))))
+            (after (advance (advance pos))))
+        (if (peekIs tokens after TK_DOT)
+            (parseSetField tokens after (mkNode TAG_E_FIELD base fname 0))
+            (let ((valR (parseExpr tokens after)))
+              (if (== (memGetWord valR 0) 0) valR
+                  (let ((val (memGetWord valR 1))
+                        (afterVal (memGetWord valR 2)))
+                    (if (peekIs tokens afterVal TK_RPAREN)
+                        (pOk (mkNode TAG_E_SETF base fname val)
+                             (advance afterVal))
+                        (pErr afterVal)))))))
+      (pErr pos)))
 
 ; ------------------------------------------------------------------
 ; Parse (cond (test body...) ... (else body...)) as a chain of `if`,

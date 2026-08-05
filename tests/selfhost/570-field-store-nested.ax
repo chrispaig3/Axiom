@@ -1,0 +1,8 @@
+; expect 42
+; `(set o.i.v 42)` - the base of a store is itself a field access; the
+; chain builds exactly as a read does and only the last segment is
+; written.
+(struct I5 (v : Int))
+(struct O5 (i : I5))
+(:: main Int)
+(fn (main) (let ((o (O5 (I5 1)))) { (set o.i.v 42) o.i.v }))

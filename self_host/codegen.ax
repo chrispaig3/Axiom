@@ -1292,11 +1292,32 @@
     (if (== tag TAG_E_SET)   (emitSet node cg)
     (if (== tag TAG_E_WHILE) (emitWhile node cg)
     (if (== tag TAG_E_FIELD) (emitField node cg)
+    (if (== tag TAG_E_SETF)  (emitSetF node cg)
     ; A lambda needs capture analysis and lifting; falling through to
     ; the default emitted 0 in its place, silently. Dying is honest.
     (if (== tag TAG_E_LAM)
         (dieImport "error: lambda expressions are not supported by stage1" "")
-    (emitDefault node cg)))))))))))))))))
+    (emitDefault node cg))))))))))))))))))
+
+; `(set base.field v)`: the base evaluates once, the field resolves as
+; a read does, and the value is stored at its offset. The whole form
+; evaluates to 0 - stage0's rule, and NOT plain `set`'s, which answers
+; the stored value.
+(pub :: emitSetF (-> Int Int Int))
+(pub fn (emitSetF node cg)
+  (let ((cgB (emitExpr (nodeA node) cg)))
+    (let ((base (strDup (memGetWord cgB 2)))
+          (fi (findStructField (memGetWord cgB 3) (nodeB node))))
+      (if (== fi 0)
+          (dieImport "error: unknown struct field: " (nodeB node))
+          (let ((cgV (emitExpr (nodeC node) cgB)))
+            (let ((v (strDup (memGetWord cgV 2))))
+              (let ((cgS (storeWordAt cgV base (nodeA fi) v)))
+                {
+                  (memSetWord cgS 2 (constStr 0))
+                  (memSetWord cgS 14 0)
+                  cgS
+                })))))))
 
 ; `base.field`: the field resolves by name across the struct registry -
 ; first declaring struct wins, the same simplification stage0 makes for

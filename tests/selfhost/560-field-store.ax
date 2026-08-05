@@ -1,0 +1,7 @@
+; expect 45
+; `(set c.n 40)` stores at the field offset and the form evaluates to
+; 0 - stage0 rule, distinct from plain `set`, which answers the stored
+; value. The read after sees the store.
+(struct C4 (n : Int) (step : Int))
+(:: main Int)
+(fn (main) (let ((c (C4 10 5))) { (set c.n 40) (+ c.n c.step) }))

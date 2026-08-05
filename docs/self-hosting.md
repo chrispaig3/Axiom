@@ -547,13 +547,19 @@ Struct field access works: `p.x` resolves the field by name in the
 struct registry and loads at its word offset, chains fold left, and
 the field's declared type travels - a `Float` field read feeds float
 instructions (`tests/selfhost/540-field-access.ax`,
-`550-field-chain.ax`).
+`550-field-chain.ax`). Field stores work too: `(set base.field v)`
+evaluates the base once, resolves the field as a read does, stores at
+its offset, and the whole form evaluates to 0 - stage0's rule, distinct
+from plain `set`, which answers the stored value. A dotted chain in the
+target builds the base exactly as expression-position access does, so
+only the last segment is written (`tests/selfhost/560-field-store.ax`,
+`570-field-store-nested.ax`).
 
 What genuinely remains: no type checking -
 `self_host/typecheck.ax` is a stub - so a program stage0 would reject
 with a diagnostic, stage1 compiles into whatever the code happens to
 mean. No lambda expressions or partial application (refused loudly).
-No `(set r.field v)` - field stores still refuse at parse. It emits for darwin-aarch64
+It emits for darwin-aarch64
 only. And the driver reads `in.ax` from the working directory and
 writes to stdout, with no argument parsing. Float literals with more
 precision than a double round twice where stage0 rounds once, so a
