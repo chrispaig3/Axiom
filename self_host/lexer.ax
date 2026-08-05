@@ -5,6 +5,7 @@
 (import core)
 (import Mem)
 (import Str)
+(import Utf8)
 (import Vec)
 
 ; ------------------------------------------------------------------
@@ -174,7 +175,14 @@
               (&& (!= (strByte src (+ pos 1)) 32)
                   (&& (!= (strByte src (+ pos 1)) 40)
                       (!= (strByte src (+ pos 1)) 91))))
-          (let ((ep (if (== (strByte src (+ pos 1)) 92) (+ pos 4) (+ pos 3))))
+          ; A char literal is quote + one CHARACTER + quote, and a
+          ; character is not a byte: `'é'` is four bytes and `'😀'`
+          ; six. Hardcoding three made stage1 fail to parse any
+          ; non-ASCII char literal at all, where stage0 - which lexes
+          ; a Vec<char> - reads it fine.
+          (let ((ep (if (== (strByte src (+ pos 1)) 92)
+                        (+ pos 4)
+                        (+ (+ pos 2) (utf8SeqLen (strByte src (+ pos 1)))))))
             (lexTokens src ep len (emitToken TK_CHARLIT pos ep tokens src)))
           (lexTokens src (+ pos 1) len (emitToken TK_QUOTE pos (+ pos 1) tokens src)))
 (if (== ch 123)

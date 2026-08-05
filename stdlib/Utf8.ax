@@ -68,15 +68,41 @@
 ; Decoding
 ; ------------------------------------------------------------------
 
-; The code point whose encoding begins at byte offset `i`.
+; The code point whose encoding begins at byte offset `i`, or -1 when
+; there is none there.
 ;
-; Out-of-range reads answer 0 (`strByte` clamps), so a sequence
-; truncated by the end of the string decodes to a defined value rather
-; than reading past the buffer.
+; -1, not 0, because 0 is a real character (NUL) and `strFindByte`
+; already sets the precedent for a caller-visible sentinel over an
+; allocating `Option` (see the argument in Vec.ax and Map.ax: every
+; `data` value heap-boxes, and this is a compiler's inner loop).
+;
+; A sequence cut short by the end of the string, and a byte that
+; begins no sequence at all, both answer -1 rather than a plausible
+; wrong character. Reading missing bytes as 0 - which is what
+; `strByte`'s clamp would give - turns the first byte of `世` into
+; U+4000, a perfectly ordinary CJK character, and passing a stray
+; continuation byte through turns the tail of `é` into `©`. A decoder
+; that invents real-looking text from a truncated file is worse than
+; one that says it cannot tell.
+;
+; Iteration is unaffected: `utf8SeqLen` still answers 1 for a bad
+; byte, so `utf8Next` advances and no loop can hang on one.
 (pub :: utf8DecodeAt (-> Int Int Int))
 (pub fn (utf8DecodeAt s i)
   (let ((b (strByte s i)))
     (let ((n (utf8SeqLen b)))
+      (if (|| (< i 0) (>= i (strLen s)))
+          (- 0 1)
+      (if (> (+ i n) (strLen s))
+          (- 0 1)
+      ; A byte that begins no sequence - a stray continuation byte, or
+      ; an `11111xxx` lead - is reported, not passed through as though
+      ; it were a code point. `utf8SeqLen` still answers 1 for it, so
+      ; stepping with `utf8Next` advances and every loop terminates;
+      ; only the decoded *value* refuses to invent something. Passing
+      ; it through turned the tail byte of `é` into `©`.
+      (if (&& (>= b 128) (== n 1))
+          (- 0 1)
       (if (== n 1)
           b
           (if (== n 2)
@@ -89,12 +115,15 @@
                   (| (| (| (<< (& b 7) 18)
                            (<< (& (strByte s (+ i 1)) 63) 12))
                         (<< (& (strByte s (+ i 2)) 63) 6))
-                     (& (strByte s (+ i 3)) 63))))))))
+                     (& (strByte s (+ i 3)) 63)))))))))))
 
-; The byte offset of the character after the one beginning at `i`.
+; The byte offset of the character after the one beginning at `i`,
+; clamped to the byte length - `utf8Offset` clamps, and two stepping
+; functions that disagree about the end of a string is a trap.
 (pub :: utf8Next (-> Int Int Int))
 (pub fn (utf8Next s i)
-  (+ i (utf8SeqLen (strByte s i))))
+  (let ((n (+ i (utf8SeqLen (strByte s i)))))
+    (if (> n (strLen s)) (strLen s) n)))
 
 ; ------------------------------------------------------------------
 ; Character-indexed access
@@ -130,12 +159,13 @@
           i
           (utf8OffsetFrom s (- n 1) (utf8Next s i)))))
 
-; Character `n` of `s`, counting from 0. Answers 0 past the end.
+; Character `n` of `s`, counting from 0. -1 past the end, the same
+; sentinel `utf8DecodeAt` uses and for the same reason.
 (pub :: utf8CharAt (-> Int Int Int))
 (pub fn (utf8CharAt s n)
   (let ((i (utf8Offset s n)))
     (if (>= i (strLen s))
-        0
+        (- 0 1)
         (utf8DecodeAt s i))))
 
 ; `count` characters of `s` beginning at character `start`, as a `Str`
@@ -151,21 +181,51 @@
 ; Encoding
 ; ------------------------------------------------------------------
 
-; How many bytes code point `cp` occupies when encoded.
+; Is `cp` a Unicode scalar value - in range, and not half of a
+; surrogate pair? Surrogates exist only to let UTF-16 address the
+; supplementary planes; UTF-8 encodes those directly and a surrogate in
+; UTF-8 is ill-formed.
+(pub :: utf8IsScalar (-> Int Bool))
+(pub fn (utf8IsScalar cp)
+  (&& (>= cp 0)
+      (&& (<= cp 1114111)
+          (|| (< cp 55296) (> cp 57343)))))
+
+; U+FFFD REPLACEMENT CHARACTER, what a code point that cannot be
+; encoded becomes.
+(pub :: utf8Replacement Int)
+(pub fn (utf8Replacement) 65533)
+
+; The code point `cp` will actually be encoded as: itself when it is a
+; scalar value, U+FFFD otherwise.
+;
+; The encoder is total and always produces well-formed UTF-8, which is
+; the contract that makes `utf8Valid (utf8FromChar x)` true for every
+; `x`. Without it `(utf8FromChar -1)` wrote the single byte 0xFF, which
+; begins no valid sequence at all, and a surrogate or anything above
+; U+10FFFF was encoded as though it were ordinary text.
+(pub :: utf8Encodable (-> Int Int))
+(pub fn (utf8Encodable cp)
+  (if (utf8IsScalar cp) cp utf8Replacement))
+
+; How many bytes code point `cp` occupies when encoded - counting what
+; `utf8FromChar` will actually write, so the two never disagree.
 (pub :: utf8Width (-> Int Int))
-(pub fn (utf8Width cp)
-  (if (< cp 128)
-      1
-      (if (< cp 2048)
-          2
-          (if (< cp 65536)
-              3
-              4))))
+(pub fn (utf8Width cp0)
+  (let ((cp (utf8Encodable cp0)))
+    (if (< cp 128)
+        1
+        (if (< cp 2048)
+            2
+            (if (< cp 65536)
+                3
+                4)))))
 
 ; A freshly allocated `Str` holding `cp` alone.
 (pub :: utf8FromChar (-> Int Int))
-(pub fn (utf8FromChar cp)
-  (let ((n (utf8Width cp)))
+(pub fn (utf8FromChar cp0)
+  (let ((cp (utf8Encodable cp0))
+        (n (utf8Width cp0)))
     (let ((s (strAlloc n)))
       (let ((d (strData s)))
         {

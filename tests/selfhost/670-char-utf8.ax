@@ -1,0 +1,22 @@
+; expect 42
+; A char literal is a CHARACTER, and a character is not a byte.
+;
+; stage1 hardcoded a char literal as three bytes - quote, one byte,
+; quote - and decoded it with a single `strByte`. So `'é'` failed to
+; parse at all (its literal is four bytes), and any that did parse
+; answered the lead byte of the encoding rather than the code point.
+; stage0 lexes a Vec<char> and has always been right, which made this
+; a silent divergence between the two compilers on ordinary source.
+;
+; All four sequence widths, checked against the values stage0 gives:
+; 'A' 65, 'é' 233, '世' 19990, '😀' 128512. The answer is 42 rather
+; than a code point because an exit status is one byte and 19990
+; would arrive as 22.
+(:: main Int)
+(fn (main)
+  (if (&& (== (cast Int 'A') 65)
+          (&& (== (cast Int 'é') 233)
+              (&& (== (cast Int '世') 19990)
+                  (== (cast Int '😀') 128512))))
+      42
+      7))

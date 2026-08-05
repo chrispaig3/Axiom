@@ -6,6 +6,7 @@
 (import core)
 (import Mem)
 (import Str)
+(import Utf8)
 (import Vec)
 (import lexer)
 
@@ -169,7 +170,10 @@
         (pOk (mkEStr (tokenLexeme t)) (advance pos)))
   (pErr pos))))))
 
-; The byte a char lexeme denotes; the lexeme includes its quotes.
+; The code point a char lexeme denotes; the lexeme includes its
+; quotes. A code point, not a byte: `'é'` is 233 and `'世'` 19990 in
+; stage0, and reading one byte answered 195 and 228 - the lead bytes
+; of their encodings.
 ; Escapes are stage0's set: \n \t \r \0, and \\ \' \" denote
 ; themselves - as does any other escaped byte here, where stage0
 ; instead reports an error this parser has no channel for.
@@ -182,7 +186,7 @@
         (if (== e 114) 13
         (if (== e 48) 0
         e)))))
-      (strByte lex 1)))
+      (utf8DecodeAt lex 1)))
 
 ; The IEEE-754 bits of the value a float lexeme denotes, computed as
 ; intPart + fracPart / 10^digits with the compiler's own float

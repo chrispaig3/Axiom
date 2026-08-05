@@ -1110,11 +1110,25 @@ indexing is O(n) in the byte length - UTF-8 is variable-width and
 nothing builds an index - so walk a string with `utf8Next` rather than
 by rising character index, or the loop is quadratic.
 
-Malformed input decodes leniently rather than failing, following the
-same rule `strSlice` and `strByte` already follow: they clamp. A byte
-that begins no valid sequence decodes as itself and advances by one,
-which is what guarantees a decoding loop terminates on a corrupt file.
-`utf8Valid` is the explicit question when a caller needs the answer.
+Decoding answers `-1` rather than a guess when there is no character
+to read: past the end, on a sequence cut short by the end of the
+string, or on a byte that begins no sequence at all. `-1` and not `0`
+because `0` is a real character, and a sentinel rather than an
+`Option` because every `data` value heap-boxes - the same argument
+`strFindByte`, `vecGet` and `mapGet` already make. Inventing a value
+would be worse than refusing one: read as bytes-with-zeros, the first
+byte of `世` decodes to U+4000, an ordinary CJK character, and the
+tail byte of `é` to `©`.
+
+Iteration is never blocked by bad input, though: `utf8SeqLen` answers
+1 for a byte it does not understand, so `utf8Next` always advances and
+no decoding loop can hang on a corrupt file. `utf8Valid` is the
+explicit question when a caller needs a verdict on the whole string.
+
+Encoding is total in the other direction: `utf8FromChar` always
+produces well-formed UTF-8, because anything that is not a Unicode
+scalar value - negative, a surrogate, or past U+10FFFF - is encoded as
+U+FFFD. So `(utf8Valid (utf8FromChar x))` holds for every `x`.
 
 Most of `Str` needed no change at all, for two reasons worth knowing
 rather than rediscovering. UTF-8 orders bytes the same way Unicode

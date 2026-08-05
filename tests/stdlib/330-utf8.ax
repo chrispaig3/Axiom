@@ -51,5 +51,27 @@
     ; A malformed byte still advances, so iteration terminates: the
     ; tail byte of "é" alone is one "character".
     (printlnInt (utf8Len (strSlice "é" 1 1)))
+
+    ; Decoding refuses to invent. A sequence cut short by the end of
+    ; the string, and a stray continuation byte, both answer -1 -
+    ; before this they answered U+4000 (an ordinary CJK character) and
+    ; U+00A9 (the copyright sign), which is the failure that looks
+    ; like success.
+    (printlnInt (utf8DecodeAt (strSlice "世" 0 1) 0))
+    (printlnInt (utf8DecodeAt (strSlice "é" 1 1) 0))
+    (printlnInt (utf8CharAt "abc" 99))
+
+    ; Stepping past the end clamps, as utf8Offset does - two stepping
+    ; functions that disagreed about the end of a string was a trap.
+    (printlnInt (utf8Next "abc" 99))
+
+    ; The encoder is TOTAL: every input produces well-formed UTF-8,
+    ; because anything that is not a Unicode scalar value - negative,
+    ; a surrogate, or past U+10FFFF - becomes U+FFFD. It used to write
+    ; a bare 0xFF for -1, which begins no sequence at all.
+    (printlnInt (check (utf8Valid (utf8FromChar (- 0 1))) 107))
+    (printlnInt (check (utf8Valid (utf8FromChar 55296)) 108))
+    (printlnInt (check (utf8Valid (utf8FromChar 2000000)) 109))
+    (printlnInt (utf8DecodeAt (utf8FromChar 55296) 0))
     0
   })
