@@ -122,7 +122,9 @@
 ; Field 25 = thunksEmitted (Int, how many of field 23's thunks have
 ;            been written out, so a later drain does not define one
 ;            twice)
-(pub struct CG (lines : Int) (tmp : Int) (result : Int) (types : Int) (tagN : Int) (argVec : Int) (symnames : Int) (symregs : Int) (decls : Int) (argsTyped : Int) (strings : Int) (curBlock : Int) (mangleBares : Int) (mangleFulls : Int) (resultIsFloat : Int) (floatSigs : Int) (symfloats : Int) (curParams : Int) (curFlags : Int) (macros : Int) (symkinds : Int) (pendingLams : Int) (lamN : Int) (thunkFulls : Int) (thunkArities : Int) (thunksEmitted : Int))
+; Field 26 = target (Int code, see `targetCode`; what the syscall asm,
+;            allocator numbers, and triple are emitted for)
+(pub struct CG (lines : Int) (tmp : Int) (result : Int) (types : Int) (tagN : Int) (argVec : Int) (symnames : Int) (symregs : Int) (decls : Int) (argsTyped : Int) (strings : Int) (curBlock : Int) (mangleBares : Int) (mangleFulls : Int) (resultIsFloat : Int) (floatSigs : Int) (symfloats : Int) (curParams : Int) (curFlags : Int) (macros : Int) (symkinds : Int) (pendingLams : Int) (lamN : Int) (thunkFulls : Int) (thunkArities : Int) (thunksEmitted : Int) (target : Int))
 
 ; The constructor tag counter starts at 2, not 0: stage0's tag is the
 ; ordinal position in a flat walk of every data type the type checker
@@ -133,7 +135,7 @@
 ; user constructor 2).
 (pub :: newCG Int)
 (pub fn (newCG)
-  (CG vecNew 0 "" vecNew 2 vecNew vecNew vecNew 0 "" vecNew "entry" vecNew vecNew 0 vecNew vecNew 0 0 vecNew vecNew vecNew 0 vecNew vecNew 0))
+  (CG vecNew 0 "" vecNew 2 vecNew vecNew vecNew 0 "" vecNew "entry" vecNew vecNew 0 vecNew vecNew 0 0 vecNew vecNew vecNew 0 vecNew vecNew 0 0))
 
 (pub :: zeroFloat (-> Int Int))
 (pub fn (zeroFloat cg)
@@ -665,13 +667,16 @@
 ; live in Axiom source rather than in a table inside the compiler.
 ; Without it the platform module resolves to nothing and every constant
 ; it defines - `sysWrite`, `oRdonly` - is an undefined symbol.
-(pub :: readModuleSrc (-> Int Int))
-(pub fn (readModuleSrc name)
-  (let ((stem (modPathToFile name))
-        (tgt (tryModuleFile stem ".darwin.ax")))
-    (if (!= tgt 0)
-        tgt
-        (tryModuleFile stem ".ax"))))
+(pub :: readModuleSrc (-> Int Int Int))
+(pub fn (readModuleSrc name tcode)
+  (let ((stem (modPathToFile name)))
+    (let ((osArch (tryModuleFile stem (targetOsArchSuffix tcode))))
+      (if (!= osArch 0)
+          osArch
+          (let ((os (tryModuleFile stem (targetOsSuffix tcode))))
+            (if (!= os 0)
+                os
+                (tryModuleFile stem ".ax")))))))
 
 (pub :: tryModuleFile (-> Int Int Int))
 (pub fn (tryModuleFile stem suffix)
@@ -704,9 +709,9 @@
 
 ; Declaration Vec for module `name`; a module that cannot be read or
 ; parsed is a fatal diagnostic, never a 0 this returns.
-(pub :: parseModuleOrDie (-> Int Int))
-(pub fn (parseModuleOrDie name)
-  (let ((src (readModuleSrc name)))
+(pub :: parseModuleOrDie (-> Int Int Int))
+(pub fn (parseModuleOrDie name tcode)
+  (let ((src (readModuleSrc name tcode)))
     (if (== src 0)
         (dieImport "error: cannot read module: " name)
         (let ((pr (parseModule (lex src))))
@@ -828,11 +833,11 @@
         (recordEntryFns decls bares fulls (+ i 1))
       }))
 
-(pub :: resolveImports (-> Int Int Int Int))
-(pub fn (resolveImports decls bares fulls)
+(pub :: resolveImports (-> Int Int Int Int Int))
+(pub fn (resolveImports decls bares fulls tcode)
   {
     (recordEntryFns decls bares fulls 0)
-    (resolveDecls decls vecNew vecNew 0 0 bares fulls 0)
+    (resolveDecls decls vecNew vecNew 0 0 bares fulls 0 tcode)
   })
 
 ; Append every non-import declaration reachable from `decls` onto `acc`,
@@ -851,33 +856,33 @@
 ; `acc` and `seen` are threaded rather than rebuilt: `vecPush` mutates in
 ; place and returns the same handle, so both stay stable across the whole
 ; traversal and siblings observe each other's additions.
-(pub :: resolveDecls (-> Int Int Int Int Int Int Int Int Int))
-(pub fn (resolveDecls decls acc seen i modName bares fulls filter)
+(pub :: resolveDecls (-> Int Int Int Int Int Int Int Int Int Int))
+(pub fn (resolveDecls decls acc seen i modName bares fulls filter tcode)
   (if (>= i (vecLen decls)) acc
       (let ((first (vecGet decls i)))
         (if (== (nodeTag first) TAG_D_IMPORT)
             (let ((name (memGetWord first 1)))
               (if (seenHas seen name)
-                  (resolveDecls decls acc seen (+ i 1) modName bares fulls filter)
+                  (resolveDecls decls acc seen (+ i 1) modName bares fulls filter tcode)
                   {
                     (vecPush seen name)
-                    (let ((modDecls (parseModuleOrDie name))
+                    (let ((modDecls (parseModuleOrDie name tcode))
                           (subFilter (let ((ns (nodeB first)))
                                        (if (== ns 0)
                                            0
                                            (if (== (vecLen ns) 0) 0 ns)))))
                       (resolveDecls decls
-                                    (resolveDecls modDecls acc seen 0 name bares fulls subFilter)
+                                    (resolveDecls modDecls acc seen 0 name bares fulls subFilter tcode)
                                     seen
                                     (+ i 1)
-                                    modName bares fulls filter))
+                                    modName bares fulls filter tcode))
                   }))
             (if (filterKeeps filter (nodeA first))
                 {
                   (mangleDecl first modName bares fulls)
-                  (resolveDecls decls (vecPush acc first) seen (+ i 1) modName bares fulls filter)
+                  (resolveDecls decls (vecPush acc first) seen (+ i 1) modName bares fulls filter tcode)
                 }
-                (resolveDecls decls acc seen (+ i 1) modName bares fulls filter))))))
+                (resolveDecls decls acc seen (+ i 1) modName bares fulls filter tcode))))))
 
 (pub :: filterKeeps (-> Int Int Bool))
 (pub fn (filterKeeps filter name)
@@ -887,13 +892,85 @@
 
 
 ; ------------------------------------------------------------------
+; Targets.
+;
+; Everything per-target in one place, mirroring stage0's
+; `axiom-codegen/src/target.rs` value for value: the triple, the
+; syscall inline-assembly (register conventions differ per arch, and
+; Darwin returns a positive errno with the carry flag set where Linux
+; returns -errno, so the Darwin templates branch on carry and negate -
+; `result < 0` is then a complete failure test on all four targets),
+; the mmap/exit syscall numbers (Darwin's carry the 0x2000000 Unix
+; class bit), the MAP_PRIVATE|MAP_ANON flag value, and the platform
+; module suffixes. Codes: 0 darwin-aarch64, 1 darwin-x86_64,
+; 2 linux-aarch64, 3 linux-x86_64; -1 is "unknown", refused loudly.
+; ------------------------------------------------------------------
+
+(pub :: targetCode (-> Int Int))
+(pub fn (targetCode name)
+  (if (strEq name "darwin-aarch64") 0
+  (if (strEq name "darwin-x86_64") 1
+  (if (strEq name "linux-aarch64") 2
+  (if (strEq name "linux-x86_64") 3
+  (- 0 1))))))
+
+(pub :: targetTriple (-> Int Int))
+(pub fn (targetTriple t)
+  (if (== t 0) "arm64-apple-macosx14.0.0"
+  (if (== t 1) "x86_64-apple-macosx14.0.0"
+  (if (== t 2) "aarch64-unknown-linux-gnu"
+  "x86_64-unknown-linux-gnu"))))
+
+; The `"body", "constraints"` middle of a syscall call instruction,
+; escaped and quoted ready to sit between `asm sideeffect ` and the
+; argument list. One fragment per target, byte-for-byte the strings
+; stage0 emits.
+(pub :: targetSyscallAsm (-> Int Int))
+(pub fn (targetSyscallAsm t)
+  (if (== t 0) "\"svc #0x80\\0Ab.cc 1f\\0Aneg x0, x0\\0A1:\", \"={x0},{x16},{x0},{x1},{x2},{x3},{x4},{x5},~{memory}\""
+  (if (== t 1) "\"syscall\\0Ajnc 1f\\0Anegq %rax\\0A1:\", \"={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rcx},~{r11},~{memory}\""
+  (if (== t 2) "\"svc #0\", \"={x0},{x8},{x0},{x1},{x2},{x3},{x4},{x5},~{memory}\""
+  "\"syscall\", \"={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rcx},~{r11},~{memory}\""))))
+
+(pub :: targetMmapNum (-> Int Int))
+(pub fn (targetMmapNum t)
+  (if (== t 0) 33554629
+  (if (== t 1) 33554629
+  (if (== t 2) 222
+  9))))
+
+(pub :: targetExitNum (-> Int Int))
+(pub fn (targetExitNum t)
+  (if (== t 0) 33554433
+  (if (== t 1) 33554433
+  (if (== t 2) 93
+  60))))
+
+(pub :: targetMapFlags (-> Int Int))
+(pub fn (targetMapFlags t)
+  (if (|| (== t 0) (== t 1)) 4098 34))
+
+; Platform module suffixes, most specific first: `.{os}-{arch}.ax`,
+; then `.{os}.ax`, then `.ax` - the same order stage0 searches.
+(pub :: targetOsArchSuffix (-> Int Int))
+(pub fn (targetOsArchSuffix t)
+  (if (== t 0) ".darwin-aarch64.ax"
+  (if (== t 1) ".darwin-x86_64.ax"
+  (if (== t 2) ".linux-aarch64.ax"
+  ".linux-x86_64.ax"))))
+
+(pub :: targetOsSuffix (-> Int Int))
+(pub fn (targetOsSuffix t)
+  (if (|| (== t 0) (== t 1)) ".darwin.ax" ".linux.ax"))
+
+; ------------------------------------------------------------------
 ; The allocator, emitted rather than linked.
 ;
 ; A program stage1 compiles has to stand on its own: `axiom_alloc` is
 ; what every constructor and every `Str` goes through, and nothing else
 ; in the output defines it. This is the same `mmap`-backed bump
-; allocator the Rust backend emits, for darwin-aarch64 - the one target
-; the driver currently names.
+; allocator the Rust backend emits, parameterized by the target the
+; driver named.
 ; ------------------------------------------------------------------
 (pub :: emitAllocator (-> Int Int))
 (pub fn (emitAllocator cg)
@@ -935,7 +1012,14 @@
     (emitLine cg "  %rounded0 = add i64 %sz, 65535")
     (emitLine cg "  %rounded = and i64 %rounded0, -65536")
     (emitLine cg "  %chunk = select i1 %big, i64 %rounded, i64 1048576")
-    (emitLine cg "  %addr = call i64 asm sideeffect \"svc #0x80\\0Ab.cc 1f\\0Aneg x0, x0\\0A1:\", \"={x0},{x16},{x0},{x1},{x2},{x3},{x4},{x5},~{memory}\"(i64 33554629, i64 0, i64 %chunk, i64 3, i64 4098, i64 -1, i64 0)")
+    (emitLine cg (strConcat
+                   (cat4 "  %addr = call i64 asm sideeffect "
+                         (targetSyscallAsm (memGetWord cg 26))
+                         "(i64 "
+                         (fmtInt (targetMmapNum (memGetWord cg 26))))
+                   (cat3 ", i64 0, i64 %chunk, i64 3, i64 "
+                         (fmtInt (targetMapFlags (memGetWord cg 26)))
+                         ", i64 -1, i64 0)")))
     (emitLine cg "  %failed_low = icmp ult i64 %addr, 4096")
     (emitLine cg "  %failed_neg = icmp ugt i64 %addr, -4096")
     (emitLine cg "  %failed = or i1 %failed_low, %failed_neg")
@@ -947,7 +1031,12 @@
     (emitLine cg "  store i64 %new_end, ptr @__axiom_bump_end")
     (emitLine cg "  ret i64 %addr")
     (emitLine cg "oom:")
-    (emitLine cg "  call i64 asm sideeffect \"svc #0x80\\0Ab.cc 1f\\0Aneg x0, x0\\0A1:\", \"={x0},{x16},{x0},{x1},{x2},{x3},{x4},{x5},~{memory}\"(i64 33554433, i64 70, i64 0, i64 0, i64 0, i64 0, i64 0)")
+    (emitLine cg (strConcat
+                   (cat4 "  call i64 asm sideeffect "
+                         (targetSyscallAsm (memGetWord cg 26))
+                         "(i64 "
+                         (fmtInt (targetExitNum (memGetWord cg 26))))
+                   ", i64 70, i64 0, i64 0, i64 0, i64 0, i64 0)"))
     (emitLine cg "  unreachable")
     (emitLine cg "}")
     (emitLine cg "")
@@ -957,24 +1046,34 @@
 ; ------------------------------------------------------------------
 ; Module emission.
 ; ------------------------------------------------------------------
+; `target` is a NAME (`darwin-aarch64`, ...), not a triple: the code it
+; maps to drives the triple, the syscall asm, the allocator's numbers,
+; and which platform module the imports resolved. An unknown name is
+; refused with the four that exist, not defaulted - emitting the wrong
+; target's syscall convention is a binary that dies at its first write.
 (pub :: emitModule (-> Int Int Int))
 (pub fn (emitModule decls target)
-  (let ((bares vecNew)
+  (let ((tcode (targetCode target)))
+  (let ((_t (if (< tcode 0)
+                (dieImport "error: unknown target (want darwin-aarch64, darwin-x86_64, linux-aarch64, or linux-x86_64): " target)
+                0))
+        (bares vecNew)
         (fulls vecNew))
-  (let ((allDecls (resolveImports decls bares fulls)))
+  (let ((allDecls (resolveImports decls bares fulls tcode)))
     (let ((cg (newCG)))
       (let ((_ (memSetWord cg 12 bares))
             (_2 (memSetWord cg 13 fulls))
+            (_2t (memSetWord cg 26 tcode))
             (_3 (memSetWord cg 15 (scanFloatSigs allDecls vecNew 0)))
             (_4 (memSetWord cg 19 (scanMacros allDecls vecNew 0))))
       (let ((cg0 (scanDecls allDecls cg 0)))
         (let ((cg0b (memSetWord cg0 8 allDecls)))
-          (let ((ttHeader (cat3 "target triple = \"" target "\"")))
+          (let ((ttHeader (cat3 "target triple = \"" (targetTriple tcode) "\"")))
             (let ((cg1 (emitLine cg0b ttHeader)))
               (let ((cg2 (emitLine cg1 "")))
                 (let ((cg3 (emitAllocator cg2)))
                   (let ((cg4 (emitLine cg3 "")))
-                    (emitModuleTail allDecls cg4 0)))))))))))))
+                    (emitModuleTail allDecls cg4 0))))))))))))))
 
 (pub :: emitModuleTail (-> Int Int Int Int))
 (pub fn (emitModuleTail decls cg i)
@@ -2182,7 +2281,10 @@
       {
         (emitLine cg1
           (cat4 (cat3 (cat2 "  " r)
-                      " = call i64 asm sideeffect \"svc #0x80\\0Ab.cc 1f\\0Aneg x0, x0\\0A1:\", \"={x0},{x16},{x0},{x1},{x2},{x3},{x4},{x5},~{memory}\"(i64 "
+                      (cat4 " = call i64 asm sideeffect "
+                            (targetSyscallAsm (memGetWord cg1 26))
+                            "(i64 "
+                            "")
                       at)
                 pad
                 ")"

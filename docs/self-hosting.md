@@ -764,9 +764,19 @@ stage1 also still boxes every nullary constructor where stage0 now
 emits immediates (S1) - each compiler's output is self-consistent, so
 the conformance suite and the fixpoint are indifferent to it, but
 byte-identical emission (phase 4) will need stage1 to reproduce the
-unboxing. It emits for darwin-aarch64
-only. The driver takes its input path as the first command-line
-argument - programs can read their arguments now: the emitted `@main`
+unboxing. It emits for all four targets: the second argument names one
+(`darwin-aarch64` by default), and the whole per-target surface -
+triple, syscall register conventions, Darwin's carry-flag error
+normalisation, the allocator's mmap/exit numbers and MAP_ANON flags,
+and the platform-module suffix search (`.{os}-{arch}.ax`, `.{os}.ax`,
+`.ax`) - mirrors stage0's `target.rs` value for value, in one table
+in `codegen.ax`. An unknown target name is refused naming the four
+that exist, because emitting the wrong syscall convention is a binary
+that dies at its first write. `check-self-host.sh` assembles the
+syscall-heavy conformance case under every target's own triple, since
+a wrong number is invisible on the host - Linux's mmap 9 assembles
+fine on Darwin. The driver takes its input path as the first
+command-line argument - programs can read their arguments now: the emitted `@main`
 is a wrapper that captures `argc`/`argv` into globals before calling
 the renamed user entry (`__axiom_user_main`), the `__argc`/`__argv`
 primitives read them back, and `Sys.sysArgc`/`sysArg` are the

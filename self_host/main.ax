@@ -33,8 +33,13 @@
         (let ((pr (parseModule (lex src))))
           (if (== (memGetWord pr 0) 0)
               (die "parse failed\n" 2)
+              ; The target is the second argument, by the same names
+              ; stage0's --target takes; darwin-aarch64 when absent.
               (let ((decls (memGetWord pr 1))
-                    (out (emitModule decls "arm64-apple-macosx14.0.0"))
+                    (tname (if (> (sysArgc) 2)
+                               (sysArg 2)
+                               "darwin-aarch64"))
+                    (out (emitModule decls tname))
                     (_ (writeStdout out)))
                 0)))))))
 

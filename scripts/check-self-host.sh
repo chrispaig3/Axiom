@@ -121,6 +121,32 @@ if [[ -z "$filter" ]]; then
   fi
 fi
 
+# Every target stage1 claims must actually assemble: emit the
+# syscall-heavy case for each of the four and run llc under that
+# target's own triple. A wrong register convention or syscall number
+# is invisible on the host - the mmap number 9 assembles fine on
+# darwin - so the check is per-triple, not host-only.
+if [[ -z "$filter" ]]; then
+  cp "$repo_root/tests/selfhost/230-syscall.ax" "$work/in.ax"
+  for tgt in darwin-aarch64 darwin-x86_64 linux-aarch64 linux-x86_64; do
+    case "$tgt" in
+      darwin-aarch64) triple=arm64-apple-macosx14.0.0 ;;
+      darwin-x86_64)  triple=x86_64-apple-macosx14.0.0 ;;
+      linux-aarch64)  triple=aarch64-unknown-linux-gnu ;;
+      linux-x86_64)   triple=x86_64-unknown-linux-gnu ;;
+    esac
+    if (cd "$work" && ./stage1 in.ax "$tgt" >"out-$tgt.ll" 2>tgt.err) \
+       && llc -mtriple="$triple" -relocation-model=pic "$work/out-$tgt.ll" -o /dev/null 2>"$work/llc-$tgt.err"; then
+      echo "ok   emit [$tgt] assembles"
+      passed=$((passed + 1))
+    else
+      echo "FAIL emit [$tgt]"
+      sed 's/^/    /' "$work/llc-$tgt.err" 2>/dev/null | head -3
+      failed=$((failed + 1))
+    fi
+  done
+fi
+
 echo
 echo "$passed passed, $failed failed"
 [[ "$failed" == 0 ]]
