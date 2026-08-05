@@ -1959,7 +1959,17 @@ impl Parser {
                 self.advance();
                 effects.push(Effect::Div);
             } else if self.is_ident() {
-                effects.push(Effect::Custom(self.parse_ident()?));
+                // `Alloc` has no keyword token - it would otherwise
+                // lex as an identifier and become `Custom("Alloc")`,
+                // a different value from the `Effect::Alloc` the
+                // inference produces, so a handle list could never
+                // actually name the allocation effect it meant.
+                let ident = self.parse_ident()?;
+                if ident.name == "Alloc" || ident.name == "alloc" {
+                    effects.push(Effect::Alloc);
+                } else {
+                    effects.push(Effect::Custom(ident));
+                }
             } else {
                 return Err(ParseError::UnexpectedToken {
                     expected: "an effect name or `)`".to_string(),

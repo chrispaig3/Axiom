@@ -529,7 +529,6 @@ pub enum TypeId {
     TList(Box<TypeId>),
     TPtr(Box<TypeId>, bool),
     TForall(Vec<String>, Box<TypeId>),
-    TEffect(Box<TypeId>, Vec<axiom_ast::ast::Effect>),
     /// A "poison" type produced after an error has already been reported
     /// for this expression (e.g. an undefined variable). Poison types are
     /// deliberately treated as compatible with everything downstream so
@@ -616,50 +615,15 @@ impl TypeId {
             (TypeId::TPtr(a, m1), TypeId::TPtr(b, m2)) => m1 == m2 && a.compatible_with(b),
             (TypeId::TForall(_, a), _) => a.compatible_with(other),
             (_, TypeId::TForall(_, b)) => self.compatible_with(b),
-            (TypeId::TEffect(a, effs1), TypeId::TEffect(b, effs2)) => {
-                effs1 == effs2 && a.compatible_with(b)
-            }
             _ => self == other,
         }
     }
 
-    /// Remove the given effects from a type, stripping `TEffect` wrappers
-    /// whose effect set is a subset of `handled`. Used by `handle` to
-    /// produce the handler's result type.
-    pub fn strip_effects(ty: &TypeId, handled: &[axiom_ast::ast::Effect]) -> TypeId {
-        match ty {
-            TypeId::TEffect(inner, effs) => {
-                let remaining: Vec<axiom_ast::ast::Effect> = effs
-                    .iter()
-                    .filter(|e| !handled.contains(e))
-                    .cloned()
-                    .collect();
-                if remaining.is_empty() {
-                    Self::strip_effects(inner, handled)
-                } else {
-                    TypeId::TEffect(Box::new(Self::strip_effects(inner, handled)), remaining)
-                }
-            }
-            TypeId::TArr(a, b) => TypeId::TArr(
-                Box::new(Self::strip_effects(a, handled)),
-                Box::new(Self::strip_effects(b, handled)),
-            ),
-            TypeId::TTuple(types) => TypeId::TTuple(
-                types
-                    .iter()
-                    .map(|t| Self::strip_effects(t, handled))
-                    .collect(),
-            ),
-            TypeId::TList(inner) => TypeId::TList(Box::new(Self::strip_effects(inner, handled))),
-            TypeId::TPtr(inner, mutable) => {
-                TypeId::TPtr(Box::new(Self::strip_effects(inner, handled)), *mutable)
-            }
-            TypeId::TForall(vars, inner) => {
-                TypeId::TForall(vars.clone(), Box::new(Self::strip_effects(inner, handled)))
-            }
-            _ => ty.clone(),
-        }
-    }
+    // (The `TEffect` wrapper and its `strip_effects` companion were
+    // removed: no parser path ever constructed an effect-carrying
+    // type, so both were unreachable from source. Effects live on
+    // `FnInfo`, inferred by fixpoint, and are validated against AXTAG
+    // claims - never in types.)
 }
 
 impl std::fmt::Display for TypeId {
@@ -700,13 +664,6 @@ impl std::fmt::Display for TypeId {
             TypeId::TForall(vars, inner) => {
                 write!(f, "forall {}. ", vars.join(", "))?;
                 write!(f, "{}", inner)
-            }
-            TypeId::TEffect(inner, effects) => {
-                write!(f, "({}", inner)?;
-                for e in effects {
-                    write!(f, " {}", e)?;
-                }
-                write!(f, ")")
             }
         }
     }
@@ -2159,7 +2116,10 @@ impl TypeChecker {
                         });
                     }
                 }
-                TypeId::strip_effects(&body_ty, handled)
+                // Effects never appear in types (the `TEffect` wrapper
+                // was unreachable from source and has been removed), so
+                // the handle expression's type is simply its body's.
+                body_ty
             }
             Expr::EConsume(e) => self.check_expr(e),
             Expr::EField(base, field_ident) => {
@@ -3119,9 +3079,6 @@ impl TypeChecker {
             Type::TPtr(inner, mutable) => TypeId::TPtr(Box::new(self.type_to_id(inner)), *mutable),
             Type::TForall(vars, inner) => {
                 TypeId::TForall(vars.clone(), Box::new(self.type_to_id(inner)))
-            }
-            Type::TEffect(inner, effects) => {
-                TypeId::TEffect(Box::new(self.type_to_id(inner)), effects.clone())
             }
             Type::TLinear(inner) => {
                 TypeId::TCon("Linear".to_string(), vec![self.type_to_id(inner)])

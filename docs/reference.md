@@ -835,7 +835,7 @@ beside any declared tags.
 | `IO` | Calls foreign functions (C FFI) |
 | `Pure` | No side effects |
 | `Alloc` | Heap allocation (`alloc`) |
-| `Mut` | Mutable state (`set-field`) |
+| `Mut` | Mutable heap state: `(set base.field v)`. Plain `set` on a `mut` local is deliberately *not* `Mut` - a local's mutation is invisible outside its function, while a field store is visible through every alias of the value |
 | `Div` | Divergence (infinite loops) |
 
 ### Declaring an Effect Type
@@ -844,6 +844,11 @@ beside any declared tags.
 (effect Console
   (print :: (-> String ())))
 ```
+
+`effect` declarations parse and are currently inert: nothing registers
+or checks them. They reserve the surface syntax for user-defined
+effects; until that lands, the built-in effect set above is the whole
+vocabulary.
 
 ### Annotating Functions with Effects
 

@@ -61,7 +61,6 @@ pub enum Type {
     TList(Box<Type>),
     TPtr(Box<Type>, bool),
     TForall(Vec<String>, Box<Type>),
-    TEffect(Box<Type>, Vec<Effect>),
     TLinear(Box<Type>),
 }
 
@@ -104,9 +103,6 @@ impl Type {
     }
     pub fn linear(inner: Type) -> Self {
         Type::TLinear(Box::new(inner))
-    }
-    pub fn effect(inner: Type, effects: Vec<Effect>) -> Self {
-        Type::TEffect(Box::new(inner), effects)
     }
 }
 

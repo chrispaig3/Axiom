@@ -3546,7 +3546,6 @@ impl IrGen {
             ),
             Type::TVar(name) => TypeId::TVar(name.clone()),
             Type::TForall(_, inner) => self.type_to_id(inner),
-            Type::TEffect(inner, _) => self.type_to_id(inner),
             Type::TLinear(inner) => {
                 TypeId::TCon("Linear".to_string(), vec![self.type_to_id(inner)])
             }

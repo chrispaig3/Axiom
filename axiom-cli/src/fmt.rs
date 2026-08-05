@@ -840,7 +840,6 @@ fn format_type_vars(tyvars: &[String], out: &mut String) {
 fn format_type_atom(ty: &Type) -> String {
     match ty {
         Type::TCon(_, args) if !args.is_empty() => format!("({})", format_type(ty)),
-        Type::TEffect(_, effects) if !effects.is_empty() => format!("({})", format_type(ty)),
         _ => format_type(ty),
     }
 }
@@ -915,18 +914,6 @@ fn format_type(ty: &Type) -> String {
             s.push(' ');
             s.push_str(&format_type(inner));
             s.push(')');
-            s
-        }
-        Type::TEffect(inner, effects) => {
-            let mut s = format_type(inner);
-            if !effects.is_empty() {
-                s.push_str(" (effect");
-                for e in effects {
-                    s.push(' ');
-                    s.push_str(&format!("{}", e));
-                }
-                s.push(')');
-            }
             s
         }
         Type::TLinear(inner) => {

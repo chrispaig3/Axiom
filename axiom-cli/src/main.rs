@@ -1165,36 +1165,71 @@ fn collect_symbol_facts(
     use axiom_ast::ast::Decl;
     use std::collections::HashMap;
 
-    let mut fn_spans: HashMap<&str, axiom_ast::span::Span> = HashMap::new();
-    let mut type_spans: HashMap<&str, axiom_ast::span::Span> = HashMap::new();
-    let mut trait_spans: HashMap<&str, axiom_ast::span::Span> = HashMap::new();
-    let mut ctor_spans: HashMap<&str, axiom_ast::span::Span> = HashMap::new();
-    let mut struct_reprs: HashMap<&str, &Option<axiom_ast::ast::TypeRepr>> = HashMap::new();
+    // Every map is keyed by (name, module), not by bare name: two
+    // modules may declare the same name, and bare keys made their rows
+    // indistinguishable - the span was whichever declaration was
+    // walked last (so file attribution flipped with import order) and
+    // AXTAG metadata pooled across modules, stamping one module's
+    // `#effect=io` onto its pure namesake's row.
+    type SymKey = (String, Option<String>);
+    let mut fn_spans: HashMap<SymKey, axiom_ast::span::Span> = HashMap::new();
+    let mut type_spans: HashMap<SymKey, axiom_ast::span::Span> = HashMap::new();
+    let mut trait_spans: HashMap<SymKey, axiom_ast::span::Span> = HashMap::new();
+    let mut ctor_spans: HashMap<SymKey, axiom_ast::span::Span> = HashMap::new();
+    let mut struct_reprs: HashMap<SymKey, &Option<axiom_ast::ast::TypeRepr>> = HashMap::new();
 
-    let mut decl_meta: HashMap<String, (Option<String>, Vec<String>)> = HashMap::new();
+    let mut decl_meta: HashMap<SymKey, (Option<String>, Vec<String>)> = HashMap::new();
     for decl in &module.decls {
-        let (name, nid, axtags) = match decl {
+        let (name, module_path, nid, axtags) = match decl {
             Decl::DSig {
-                name, nid, axtags, ..
-            } => (name, nid, axtags),
+                name,
+                module_path,
+                nid,
+                axtags,
+                ..
+            } => (name, module_path, nid, axtags),
             Decl::DFn {
-                name, nid, axtags, ..
-            } => (name, nid, axtags),
+                name,
+                module_path,
+                nid,
+                axtags,
+                ..
+            } => (name, module_path, nid, axtags),
             Decl::DForeign {
-                name, nid, axtags, ..
-            } => (name, nid, axtags),
+                name,
+                module_path,
+                nid,
+                axtags,
+                ..
+            } => (name, module_path, nid, axtags),
             Decl::DData {
-                name, nid, axtags, ..
-            } => (name, nid, axtags),
+                name,
+                module_path,
+                nid,
+                axtags,
+                ..
+            } => (name, module_path, nid, axtags),
             Decl::DStruct {
-                name, nid, axtags, ..
-            } => (name, nid, axtags),
+                name,
+                module_path,
+                nid,
+                axtags,
+                ..
+            } => (name, module_path, nid, axtags),
             Decl::DType {
-                name, nid, axtags, ..
-            } => (name, nid, axtags),
+                name,
+                module_path,
+                nid,
+                axtags,
+                ..
+            } => (name, module_path, nid, axtags),
             Decl::DTrait {
-                name, nid, axtags, ..
-            } => (name, nid, axtags),
+                name,
+                module_path,
+                nid,
+                axtags,
+                ..
+            } => (name, module_path, nid, axtags),
             _ => continue,
         };
         let axtag_meta: Vec<String> = axtags
@@ -1204,7 +1239,7 @@ fn collect_symbol_facts(
                 _ => a.key.clone(),
             })
             .collect();
-        match decl_meta.entry(name.name.clone()) {
+        match decl_meta.entry((name.name.clone(), module_path.clone())) {
             std::collections::hash_map::Entry::Occupied(mut e) => {
                 let old = e.get().clone();
                 let new_nid = nid.clone().or(old.0);
@@ -1228,19 +1263,32 @@ fn collect_symbol_facts(
             // definition and states the type the fact is about), so it
             // takes priority; `entry` leaves an existing `DFn`/`DForeign`
             // span alone only if the signature is missing.
-            Decl::DSig { name, .. } => {
-                fn_spans.insert(&name.name, name.span);
+            Decl::DSig {
+                name, module_path, ..
+            } => {
+                fn_spans.insert((name.name.clone(), module_path.clone()), name.span);
             }
-            Decl::DFn { name, .. } => {
-                fn_spans.entry(&name.name).or_insert(name.span);
+            Decl::DFn {
+                name, module_path, ..
+            } => {
+                fn_spans
+                    .entry((name.name.clone(), module_path.clone()))
+                    .or_insert(name.span);
             }
-            Decl::DForeign { name, .. } => {
-                fn_spans.entry(&name.name).or_insert(name.span);
+            Decl::DForeign {
+                name, module_path, ..
+            } => {
+                fn_spans
+                    .entry((name.name.clone(), module_path.clone()))
+                    .or_insert(name.span);
             }
             Decl::DData {
-                name, constructors, ..
+                name,
+                module_path,
+                constructors,
+                ..
             } => {
-                type_spans.insert(&name.name, name.span);
+                type_spans.insert((name.name.clone(), module_path.clone()), name.span);
                 // `DataConInfo` (the `TypeChecker`-side record) has no
                 // span of its own - only the AST's own `DataCon` does -
                 // so constructor locations have to come from here, not
@@ -1248,18 +1296,27 @@ fn collect_symbol_facts(
                 // render with no location at all (indistinguishable from
                 // an actual builtin in the AXSYM/human output).
                 for con in constructors {
-                    ctor_spans.insert(&con.name.name, con.name.span);
+                    ctor_spans.insert((con.name.name.clone(), module_path.clone()), con.name.span);
                 }
             }
-            Decl::DStruct { name, repr, .. } => {
-                type_spans.insert(&name.name, name.span);
-                struct_reprs.insert(&name.name, repr);
+            Decl::DStruct {
+                name,
+                module_path,
+                repr,
+                ..
+            } => {
+                type_spans.insert((name.name.clone(), module_path.clone()), name.span);
+                struct_reprs.insert((name.name.clone(), module_path.clone()), repr);
             }
-            Decl::DType { name, .. } => {
-                type_spans.insert(&name.name, name.span);
+            Decl::DType {
+                name, module_path, ..
+            } => {
+                type_spans.insert((name.name.clone(), module_path.clone()), name.span);
             }
-            Decl::DTrait { name, .. } => {
-                trait_spans.insert(&name.name, name.span);
+            Decl::DTrait {
+                name, module_path, ..
+            } => {
+                trait_spans.insert((name.name.clone(), module_path.clone()), name.span);
             }
             _ => {}
         }
@@ -1279,14 +1336,14 @@ fn collect_symbol_facts(
         let mut fact = SymbolFact::new(
             kind,
             &f.name,
-            fn_spans.get(f.name.as_str()).copied(),
+            fn_spans.get(&(f.name.clone(), f.module.clone())).copied(),
             f.ty.to_string(),
-            decl_meta.get(f.name.as_str()).and_then(|(n, _)| n.clone()),
+            decl_meta.get(&(f.name.clone(), f.module.clone())).and_then(|(n, _)| n.clone()),
         );
         if let Some(symbol) = &f.foreign_symbol {
             fact = fact.with_meta(format!("symbol={}", symbol));
         }
-        if let Some((_, axtags)) = decl_meta.get(f.name.as_str()) {
+        if let Some((_, axtags)) = decl_meta.get(&(f.name.clone(), f.module.clone())) {
             for m in axtags {
                 fact = fact.with_meta(m.clone());
             }
@@ -1310,14 +1367,14 @@ fn collect_symbol_facts(
         let mut fact = SymbolFact::new(
             SymbolKind::Data,
             &d.name,
-            type_spans.get(d.name.as_str()).copied(),
+            type_spans.get(&(d.name.clone(), d.module.clone())).copied(),
             format!("data {}", d.name),
-            decl_meta.get(d.name.as_str()).and_then(|(n, _)| n.clone()),
+            decl_meta.get(&(d.name.clone(), d.module.clone())).and_then(|(n, _)| n.clone()),
         );
         if !ctor_names.is_empty() {
             fact = fact.with_meta(format!("ctors={}", ctor_names.join(",")));
         }
-        if let Some((_, axtags)) = decl_meta.get(d.name.as_str()) {
+        if let Some((_, axtags)) = decl_meta.get(&(d.name.clone(), d.module.clone())) {
             for m in axtags {
                 fact = fact.with_meta(m.clone());
             }
@@ -1328,7 +1385,7 @@ fn collect_symbol_facts(
                 SymbolFact::new(
                     SymbolKind::Ctor,
                     &c.name,
-                    ctor_spans.get(c.name.as_str()).copied(),
+                    ctor_spans.get(&(c.name.clone(), c.module.clone())).copied(),
                     c.ty.to_string(),
                     None,
                 )
@@ -1341,15 +1398,15 @@ fn collect_symbol_facts(
         let mut fact = SymbolFact::new(
             SymbolKind::Struct,
             &s.name,
-            type_spans.get(s.name.as_str()).copied(),
+            type_spans.get(&(s.name.clone(), s.module.clone())).copied(),
             format!("struct {}", s.name),
-            decl_meta.get(s.name.as_str()).and_then(|(n, _)| n.clone()),
+            decl_meta.get(&(s.name.clone(), s.module.clone())).and_then(|(n, _)| n.clone()),
         )
         .with_meta(format!("fields={}", fields_meta(&s.fields)));
-        if let Some(repr) = repr_meta(struct_reprs.get(s.name.as_str()).copied().unwrap_or(&None)) {
+        if let Some(repr) = repr_meta(struct_reprs.get(&(s.name.clone(), s.module.clone())).copied().unwrap_or(&None)) {
             fact = fact.with_meta(repr);
         }
-        if let Some((_, axtags)) = decl_meta.get(s.name.as_str()) {
+        if let Some((_, axtags)) = decl_meta.get(&(s.name.clone(), s.module.clone())) {
             for m in axtags {
                 fact = fact.with_meta(m.clone());
             }
@@ -1361,14 +1418,14 @@ fn collect_symbol_facts(
         let mut fact = SymbolFact::new(
             SymbolKind::Alias,
             &a.name,
-            type_spans.get(a.name.as_str()).copied(),
+            type_spans.get(&(a.name.clone(), a.module.clone())).copied(),
             format!("{}", a.target),
-            decl_meta.get(a.name.as_str()).and_then(|(n, _)| n.clone()),
+            decl_meta.get(&(a.name.clone(), a.module.clone())).and_then(|(n, _)| n.clone()),
         );
         if !a.tyvars.is_empty() {
             fact = fact.with_meta(format!("tyvars={}", a.tyvars.join(",")));
         }
-        if let Some((_, axtags)) = decl_meta.get(a.name.as_str()) {
+        if let Some((_, axtags)) = decl_meta.get(&(a.name.clone(), a.module.clone())) {
             for m in axtags {
                 fact = fact.with_meta(m.clone());
             }
@@ -1380,12 +1437,12 @@ fn collect_symbol_facts(
         let mut fact = SymbolFact::new(
             SymbolKind::Trait,
             &t.name,
-            trait_spans.get(t.name.as_str()).copied(),
+            trait_spans.get(&(t.name.clone(), t.module.clone())).copied(),
             format!("trait {}", t.name),
-            decl_meta.get(t.name.as_str()).and_then(|(n, _)| n.clone()),
+            decl_meta.get(&(t.name.clone(), t.module.clone())).and_then(|(n, _)| n.clone()),
         )
         .with_meta(format!("methods={}", fields_meta(&t.methods)));
-        if let Some((_, axtags)) = decl_meta.get(t.name.as_str()) {
+        if let Some((_, axtags)) = decl_meta.get(&(t.name.clone(), t.module.clone())) {
             for m in axtags {
                 fact = fact.with_meta(m.clone());
             }
