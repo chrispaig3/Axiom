@@ -1542,3 +1542,98 @@ fn explain_rejects_an_unknown_code_and_points_at_the_list() {
         text
     );
 }
+
+// ---------------------------------------------------------------
+// Floating point
+//
+// Axiom had a `Float` type name and a lexer that read `1.5`, and
+// nothing else: the arithmetic operators were `Int -> Int -> Int`
+// builtins, so a float operand was a type error, and a function
+// *declared* to return `Float` emitted `ret double` from a function
+// LLVM declared to return `i64` - rejected by `opt`, after `check` had
+// reported the program well typed.
+// ---------------------------------------------------------------
+
+#[test]
+fn float_returning_function_compiles_and_computes() {
+    let dir = scratch_dir("float-return");
+    write_source(
+        &dir,
+        "main.ax",
+        "(:: scale (-> Float Float))\n(fn (scale x) (* x 2.0))\n\
+         (:: main Int)\n(fn (main) (__floatToInt (scale 21.0)))\n",
+    );
+    let out = run_axiom(&["run", "main.ax"], &dir);
+    assert_eq!(
+        out.status.code(),
+        Some(42),
+        "stdout: {}\nstderr: {}",
+        stdout(&out),
+        stderr(&out)
+    );
+}
+
+#[test]
+fn float_comparison_yields_bool() {
+    let dir = scratch_dir("float-cmp");
+    write_source(
+        &dir,
+        "main.ax",
+        "(:: main Int)\n(fn (main) (if (< (/ 1.0 4.0) 0.3) 42 7))\n",
+    );
+    let out = run_axiom(&["run", "main.ax"], &dir);
+    assert_eq!(out.status.code(), Some(42), "stderr: {}", stderr(&out));
+}
+
+#[test]
+fn mixing_int_and_float_operands_is_rejected() {
+    // An implicit widening is how precision is lost with nothing in the
+    // source saying so; `(cast Float n)` is the explicit form.
+    let dir = scratch_dir("float-mixed");
+    write_source(
+        &dir,
+        "main.ax",
+        "(:: main Int)\n(fn (main) (__floatToInt (+ 1.5 2)))\n",
+    );
+    let out = run_axiom(&["--diagnostic-format=ai", "check", "main.ax"], &dir);
+    assert!(!out.status.success(), "mixing Int and Float must not check");
+    assert!(stderr(&out).contains("AX3004"), "stderr: {}", stderr(&out));
+}
+
+#[test]
+fn float_survives_a_constructor_field() {
+    // The pattern binding has to know the field is a float, or the
+    // arm's arithmetic lowers to an integer `add` over bit patterns -
+    // which compiles, runs, and is wrong.
+    let dir = scratch_dir("float-adt");
+    write_source(
+        &dir,
+        "main.ax",
+        "(data V2 (Mk Float Float))\n\
+         (:: sum (-> V2 Float))\n(fn (sum v) (match v ((Mk x y) (+ x y))))\n\
+         (:: main Int)\n(fn (main) (__floatToInt (sum (Mk 20.5 21.5))))\n",
+    );
+    let out = run_axiom(&["run", "main.ax"], &dir);
+    assert_eq!(
+        out.status.code(),
+        Some(42),
+        "stdout: {}\nstderr: {}",
+        stdout(&out),
+        stderr(&out)
+    );
+}
+
+#[test]
+fn partial_application_of_an_operator_still_works() {
+    // Only the saturated two-argument form is intercepted by the
+    // numeric-builtin rule; `(+ 1)` must keep its ordinary `Int` type.
+    let dir = scratch_dir("float-partial");
+    write_source(
+        &dir,
+        "main.ax",
+        "(:: twice (-> (-> Int Int) Int Int))\n(fn (twice f x) (f (f x)))\n\
+         (:: main Int)\n(fn (main) (twice (lambda (n) (+ n 21)) 0))\n",
+    );
+    let out = run_axiom(&["run", "main.ax"], &dir);
+    assert_eq!(out.status.code(), Some(42), "stderr: {}", stderr(&out));
+}

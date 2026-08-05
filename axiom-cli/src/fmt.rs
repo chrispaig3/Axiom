@@ -939,7 +939,11 @@ fn escape_char(c: char, out: &mut String) {
 fn format_literal(lit: &Literal, out: &mut String) {
     match lit {
         Literal::LInt(n) => write!(out, "{}", n).unwrap(),
-        Literal::LFloat(n) => write!(out, "{}", n).unwrap(),
+        // `{:?}` rather than `{}`, so a float with no fractional part
+        // keeps its point: `Display` renders `2.0` as `2`, which re-lexes
+        // as an `Int` and turns `(* 2.0 x)` into integer multiplication
+        // of a bit pattern.
+        Literal::LFloat(n) => write!(out, "{:?}", n).unwrap(),
         Literal::LBool(b) => write!(out, "{}", b).unwrap(),
         Literal::LChar(c) => {
             out.push('\'');

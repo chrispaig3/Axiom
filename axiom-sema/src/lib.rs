@@ -689,6 +689,16 @@ pub const PRIMITIVES: &[(&str, usize, bool)] = &[
 /// what makes it useful (handing a literal's bytes to `write`).
 pub const PRIM_ADDR: &str = "__addr";
 
+/// `(__intToFloat n)` -> `n` as a `Float`.
+///
+/// Kept out of [`PRIMITIVES`] for the same reason as [`PRIM_ADDR`]: the
+/// table assumes every primitive is `Int -> ... -> Int`, and these two
+/// are the conversions, so one end of each is a `Float`.
+pub const PRIM_INT_TO_FLOAT: &str = "__intToFloat";
+
+/// `(__floatToInt x)` -> `x` truncated toward zero.
+pub const PRIM_FLOAT_TO_INT: &str = "__floatToInt";
+
 impl FnInfo {
     fn new(name: impl Into<String>, ty: TypeId) -> Self {
         Self {
@@ -788,9 +798,38 @@ impl TypeChecker {
             PRIM_ADDR,
             TypeId::TArr(
                 Box::new(TypeId::TCon("String".to_string(), vec![])),
-                Box::new(int_ty),
+                Box::new(int_ty.clone()),
             ),
         ));
+
+        // Numeric conversion between `Int` and `Float`.
+        //
+        // These are not `cast`. `cast` reinterprets - it relabels the
+        // machine word, which for a float is its IEEE bit pattern, so
+        // `(cast Int 1.5)` is 4609434218613702656 rather than 1. That
+        // reinterpretation is what lets a float travel through the
+        // `Int`-typed standard library (`Vec`, `Map`, `memSetWord`)
+        // without loss, so it is worth having; it is just never what
+        // "convert this number" means.
+        let float_ty = TypeId::TCon("Float".to_string(), vec![]);
+        self.functions.push(FnInfo::builtin(
+            PRIM_INT_TO_FLOAT,
+            TypeId::TArr(Box::new(int_ty.clone()), Box::new(float_ty.clone())),
+        ));
+        self.functions.push(FnInfo::builtin(
+            PRIM_FLOAT_TO_INT,
+            TypeId::TArr(Box::new(float_ty), Box::new(int_ty)),
+        ));
+    }
+
+    /// Whether `ty` is one of the floating-point types.
+    ///
+    /// `Float` is the surface spelling and `F64` the explicit-width one;
+    /// both are IEEE-754 doubles. `F32` is accepted as a name but is
+    /// stored and computed at double precision, since every Axiom value
+    /// occupies one machine word.
+    pub fn is_float(ty: &TypeId) -> bool {
+        is_float_ty(ty)
     }
 
     pub fn new() -> Self {
@@ -1348,6 +1387,23 @@ impl TypeChecker {
             Expr::EVar(ident) => self.check_var(ident),
             Expr::ELit(lit, _) => self.check_literal(lit),
             Expr::EApp(func, arg) => {
+                // Arithmetic and comparison over `Int` *or* `Float`.
+                //
+                // The operators are registered as builtins with the fixed
+                // type `Int -> Int -> Int`, so a float operand was a type
+                // error and floating point was unusable. They are
+                // intercepted here rather than made polymorphic because
+                // there is no numeric type class to constrain a type
+                // variable with, and an unconstrained one would let
+                // `(+ "a" "b")` through.
+                //
+                // Only the saturated two-argument form is intercepted; a
+                // partial application like `(map (+ 1) xs)` falls through
+                // to the ordinary path and keeps its `Int` type.
+                if let Some((op, lhs, rhs)) = numeric_builtin_app(expr) {
+                    return self.check_numeric_builtin(op, lhs, rhs);
+                }
+
                 // Check for struct construction first:
                 // `(Point 1 2)` where `Point` is a known struct name.
                 if let Some((struct_ident, con_args)) = self.find_struct_con(expr) {
@@ -1919,6 +1975,67 @@ impl TypeChecker {
     /// given name, returning the first match's `(struct_name, field_index, field_type)`.
     /// Used by the IR generator for field access when the base
     /// expression's type can't be re-queried (e.g. inside `gen_expr_to_func_with_allocas`).
+    /// Type a saturated arithmetic or comparison builtin, over `Int` or
+    /// `Float`.
+    ///
+    /// Both operands must agree: mixing the two is an error rather than
+    /// an implicit widening, because a silent `Int`-to-`Float`
+    /// conversion is how precision is lost without anything in the
+    /// source saying so. `(cast Float n)` is the explicit form.
+    fn check_numeric_builtin(&mut self, op: &str, lhs: &Expr, rhs: &Expr) -> TypeId {
+        let lt = self.check_expr(lhs);
+        let rt = self.check_expr(rhs);
+        let comparison = matches!(op, "==" | "!=" | "<" | ">" | "<=" | ">=");
+        let bool_ty = TypeId::TCon("Bool".to_string(), vec![]);
+        let float_ty = TypeId::TCon("Float".to_string(), vec![]);
+        let int_ty = TypeId::TCon("Int".to_string(), vec![]);
+
+        // A poisoned operand has already been reported; propagate rather
+        // than add a second diagnostic for the same root cause.
+        if lt.is_error() || rt.is_error() {
+            return if comparison { bool_ty } else { TypeId::TError };
+        }
+
+        let l_float = is_float_ty(&lt);
+        let r_float = is_float_ty(&rt);
+
+        if l_float || r_float {
+            // Whichever side is not a `Float` is the one to point at.
+            if !l_float {
+                self.errors.push(SemError::TypeMismatch {
+                    expected: "Float".to_string(),
+                    found: format!("{}", lt),
+                    span: lhs.span(),
+                });
+            }
+            if !r_float {
+                self.errors.push(SemError::TypeMismatch {
+                    expected: "Float".to_string(),
+                    found: format!("{}", rt),
+                    span: rhs.span(),
+                });
+            }
+            return if comparison { bool_ty } else { float_ty };
+        }
+
+        // The `Int` path, matching what the ordinary application rule
+        // did when these were plain `Int -> Int -> Int` builtins.
+        for (ty, operand) in [(&lt, lhs), (&rt, rhs)] {
+            if !ty.compatible_with(&int_ty) {
+                self.errors.push(SemError::TypeMismatch {
+                    expected: "Int".to_string(),
+                    found: format!("{}", ty),
+                    span: operand.span(),
+                });
+            }
+        }
+        if comparison {
+            bool_ty
+        } else {
+            int_ty
+        }
+    }
+
     pub fn find_struct_field_by_name(&self, field_name: &str) -> Option<(String, usize, TypeId)> {
         for si in &self.structs {
             for (idx, (fname, fty)) in si.fields.iter().enumerate() {
@@ -2339,6 +2456,40 @@ impl TypeChecker {
         }
         None
     }
+}
+
+/// Whether `ty` is a floating-point type.
+pub fn is_float_ty(ty: &TypeId) -> bool {
+    matches!(ty, TypeId::TCon(name, _) if matches!(name.as_str(), "Float" | "Double" | "F32" | "F64"))
+}
+
+/// Arithmetic and comparison operators that work over `Int` and `Float`
+/// alike.
+///
+/// The bitwise and shift operators (`&`, `|`, `^`, `<<`, `>>`) and `%`
+/// are deliberately absent: they have no floating-point meaning, and
+/// leaving them `Int`-only keeps a float operand an error rather than a
+/// silent reinterpretation of the bits.
+pub const NUMERIC_BUILTINS: &[&str] = &["+", "-", "*", "/", "==", "!=", "<", ">", "<=", ">="];
+
+/// Match a saturated application of a numeric builtin, returning the
+/// operator and its two operands.
+///
+/// Application is curried, so `(+ a b)` is `EApp(EApp(EVar("+"), a), b)`
+/// and this matches at the outer node.
+pub fn numeric_builtin_app(expr: &Expr) -> Option<(&str, &Expr, &Expr)> {
+    let Expr::EApp(outer, rhs) = expr else {
+        return None;
+    };
+    let Expr::EApp(callee, lhs) = outer.as_ref() else {
+        return None;
+    };
+    let Expr::EVar(ident) = callee.as_ref() else {
+        return None;
+    };
+    NUMERIC_BUILTINS
+        .contains(&ident.name.as_str())
+        .then(|| (ident.name.as_str(), lhs.as_ref(), rhs.as_ref()))
 }
 
 #[cfg(test)]

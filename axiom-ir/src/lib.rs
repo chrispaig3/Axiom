@@ -13,6 +13,34 @@ pub enum IrInst {
         lhs: IrValue,
         rhs: IrValue,
     },
+    /// Arithmetic or comparison on IEEE-754 doubles.
+    ///
+    /// One instruction rather than ten variants, because the operand
+    /// handling is identical and only the LLVM opcode differs.
+    ///
+    /// Floats are carried in the same machine word as every other Axiom
+    /// value - a `double` and an `i64` are both 64 bits - so a float is
+    /// an `i64` holding the IEEE bit pattern everywhere except inside
+    /// this instruction, which bitcasts to `double`, operates, and
+    /// bitcasts back. That keeps `data`, `struct`, closures, `Vec` and
+    /// polymorphism working on floats without any of them knowing floats
+    /// exist, which is what "every value is one machine word" is worth.
+    FloatBin {
+        dest: IrValue,
+        op: FloatOp,
+        lhs: IrValue,
+        rhs: IrValue,
+    },
+    /// `(__intToFloat n)` - widen an integer to a double.
+    IntToFloat {
+        dest: IrValue,
+        value: IrValue,
+    },
+    /// `(__floatToInt x)` - truncate a double toward zero.
+    FloatToInt {
+        dest: IrValue,
+        value: IrValue,
+    },
     Sub {
         dest: IrValue,
         lhs: IrValue,
@@ -309,7 +337,9 @@ impl IrInst {
                 .chain(args.iter())
                 .filter_map(of)
                 .collect(),
-            IrInst::AddrOf { value, .. } => of(value).into_iter().collect(),
+            IrInst::AddrOf { value, .. }
+            | IrInst::IntToFloat { value, .. }
+            | IrInst::FloatToInt { value, .. } => of(value).into_iter().collect(),
             IrInst::Ret { value } => value.as_ref().and_then(of).into_iter().collect(),
             IrInst::Store { ptr, value } => [ptr, value].into_iter().filter_map(of).collect(),
             IrInst::StoreOffset { ptr, value, .. } => {
@@ -323,7 +353,8 @@ impl IrInst {
             }
             IrInst::Load { ptr, .. } => of(ptr).into_iter().collect(),
             IrInst::LoadOffset { ptr, .. } => of(ptr).into_iter().collect(),
-            IrInst::Add { lhs, rhs, .. }
+            IrInst::FloatBin { lhs, rhs, .. }
+            | IrInst::Add { lhs, rhs, .. }
             | IrInst::Sub { lhs, rhs, .. }
             | IrInst::Mul { lhs, rhs, .. }
             | IrInst::Div { lhs, rhs, .. }
@@ -368,6 +399,70 @@ pub enum IrValue {
     /// `LoadOffset` / `inttoptr`, so the match comparison sees the
     /// tag rather than a pointer to a boxed block.
     Tag(String),
+}
+
+/// The floating-point operations [`IrInst::FloatBin`] can perform.
+///
+/// Comparisons are *ordered* (`fcmp o*`): if either operand is NaN the
+/// result is false, so `(== nan nan)` is false and `(!= nan nan)` is
+/// true, which is what IEEE-754 requires and what every other language
+/// with doubles does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FloatOp {
+    Add,
+    Sub,
+    Mul,
+    Div,
+    Eq,
+    Ne,
+    Lt,
+    Gt,
+    Le,
+    Ge,
+}
+
+impl FloatOp {
+    /// The operator as written in Axiom source, or `None` if it is not a
+    /// float operation.
+    pub fn from_op(op: &str) -> Option<Self> {
+        Some(match op {
+            "+" => FloatOp::Add,
+            "-" => FloatOp::Sub,
+            "*" => FloatOp::Mul,
+            "/" => FloatOp::Div,
+            "==" => FloatOp::Eq,
+            "!=" => FloatOp::Ne,
+            "<" => FloatOp::Lt,
+            ">" => FloatOp::Gt,
+            "<=" => FloatOp::Le,
+            ">=" => FloatOp::Ge,
+            _ => return None,
+        })
+    }
+
+    /// Whether the operation yields a `Bool` rather than a `Float`.
+    pub fn is_comparison(self) -> bool {
+        matches!(
+            self,
+            FloatOp::Eq | FloatOp::Ne | FloatOp::Lt | FloatOp::Gt | FloatOp::Le | FloatOp::Ge
+        )
+    }
+
+    /// The LLVM opcode, including the `fcmp` predicate where relevant.
+    pub fn llvm_opcode(self) -> &'static str {
+        match self {
+            FloatOp::Add => "fadd",
+            FloatOp::Sub => "fsub",
+            FloatOp::Mul => "fmul",
+            FloatOp::Div => "fdiv",
+            FloatOp::Eq => "fcmp oeq",
+            FloatOp::Ne => "fcmp one",
+            FloatOp::Lt => "fcmp olt",
+            FloatOp::Gt => "fcmp ogt",
+            FloatOp::Le => "fcmp ole",
+            FloatOp::Ge => "fcmp oge",
+        }
+    }
 }
 
 #[derive(Debug, Clone)]

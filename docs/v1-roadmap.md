@@ -102,6 +102,7 @@ they unblock everything downstream.
 | CI green on all four targets | §3 below; two root-caused failures fixed. Re-checked and **was not green** — see §2.5 — for two further reasons, both now fixed |
 | `fmt` round-trips every file | §2.3; 70/70, gated by `scripts/check-fmt.sh` |
 | The REPL evaluates | §2.4; every result type, freestanding, gated by integration tests |
+| Floating point works | §2.4b; arithmetic, comparison, conversion, formatting, and floats through ADTs — `tests/stdlib/240-float.ax` |
 | Self-hosting fixpoint `stage2 == stage3` | `scripts/check-bootstrap.sh`, now run in CI (§2.5) |
 | `union` removed, `region` removed | `AX2004` with migration advice; 3 regression tests |
 
@@ -257,6 +258,61 @@ so nothing had noticed. Pinned by `tests/stdlib/230-char.ax`.
 The REPL and `explain` are now covered by integration tests that drive
 the real binary, including one asserting that every code `explain --list`
 advertises can actually be explained.
+
+### 2.4b Floating point is implemented
+
+Found by probing whether the `Char` bug above was one of a class: a
+literal whose IR type disagrees with what the type maps to in LLVM.
+`Float` had exactly the same defect, and rather more behind it.
+
+Axiom had a `Float` type name and a lexer that read `1.5`, and nothing
+else. The arithmetic operators were registered as `Int -> Int -> Int`
+builtins, so any float operand was a type error; code generation emitted
+no floating-point instruction of any kind — no `fadd`, `fmul`, `fsub`,
+`fdiv`; and a function declared to return `Float` emitted `ret double`
+from a function LLVM declared to return `i64`, so the error arrived from
+`opt` after `axiom check` had reported the program well typed. No `.ax`
+file in the repository contained a float literal, which is why none of
+it had been noticed.
+
+**The representation.** Every Axiom value is one machine word, and a
+`double` is 64 bits, so a float is carried as the `i64` holding its
+IEEE-754 bit pattern *everywhere* — parameters, returns, constructor
+fields, `Vec` slots — and is bitcast to `double` only inside the
+arithmetic itself. Nothing else in the compiler learns that floats
+exist: `data`, `struct`, closures, `Map` and polymorphism carry them
+unchanged, and no calling convention, field layout or type mapping
+needed to change. The bitcasts are free at runtime, and the register
+allocator keeps a chain of float operations in FP registers.
+
+The cost of that choice is that *nothing about a value says it is a
+float* — only its type does, and by lowering time the type checker is
+gone. So the IR generator reconstructs it from signatures: which
+functions return floats, which parameters are floats, which constructor
+fields and struct fields are, and which `let` bindings and pattern
+bindings therefore are. That is what decides whether `(+ a b)` lowers to
+`add` or `fadd`.
+
+**What works**: arithmetic and ordered comparison (`fcmp o*`, so NaN
+compares false), float parameters/returns/locals, floats through `data`
+constructor fields and patterns, `__intToFloat`/`__floatToInt` numeric
+conversion, and `Fmt`'s `fmtFloat`/`fmtFloatPrec` for fixed-point
+output with correct rounding carry. Mixing `Int` and `Float` operands is
+an error rather than an implicit widening, since a silent conversion is
+how precision is lost with nothing in the source saying so; `cast`
+reinterprets rather than converts, which is exactly what lets a float
+travel through the `Int`-typed standard library and come back intact.
+
+**What does not**: `%` and the bitwise operators stay `Int`-only, and
+formatting is fixed-point rather than shortest-round-trip (Ryu/Grisu
+needs big-integer arithmetic and is a module of its own). `F32` is
+accepted as a type name but computed at double precision, because one
+value is one word.
+
+Covered by `tests/stdlib/240-float.ax` and five integration tests. The
+formatter needed a fix of its own to keep up: it printed a float through
+`Display`, so `2.0` came out as `2`, which re-lexes as an `Int` — caught
+by `check-fmt.sh` rather than by anything about floats.
 
 ### 2.5 CI was not green, and could not have been
 

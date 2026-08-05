@@ -1,4 +1,4 @@
-use crate::{IrBlock, IrConst, IrFunction, IrInst, IrModule, IrStruct, IrValue, TypeId};
+use crate::{FloatOp, IrBlock, IrConst, IrFunction, IrInst, IrModule, IrStruct, IrValue, TypeId};
 use axiom_ast::ast::*;
 use axiom_ast::span::Ident;
 use axiom_sema::TypeChecker;
@@ -42,6 +42,30 @@ pub struct IrGen {
     /// and flag tables depend on this.
     nullary_fns: HashSet<String>,
     all_fns: HashSet<String>,
+    /// Top-level functions whose declared return type is a float, and
+    /// the float-ness of each one's parameters, taken from its `::`
+    /// signature.
+    ///
+    /// Floats share the uniform `i64` representation with everything
+    /// else, so nothing about a *value* says it is a float - only its
+    /// type does, and by lowering time the type checker is gone. These
+    /// two tables plus [`IrGen::float_locals`] are what let
+    /// [`IrGen::is_float_expr`] decide whether `(+ a b)` means `add` or
+    /// `fadd`.
+    float_fns: HashSet<String>,
+    float_params: HashMap<String, Vec<bool>>,
+    /// Per-constructor float-ness of each field, so a pattern binding
+    /// picks up the right kind.
+    float_con_fields: HashMap<String, Vec<bool>>,
+    /// Struct field names declared float. Keyed by field name alone -
+    /// two structs with a same-named field of different kinds would
+    /// collide, which is the one imprecision here and costs a wrong
+    /// opcode rather than a crash.
+    float_struct_fields: HashSet<String>,
+    /// Locals in the function currently being lowered that hold floats:
+    /// parameters declared float, and `let` bindings whose initialiser
+    /// is one. Cleared per function.
+    float_locals: HashSet<String>,
     /// Declared parameter count per mangled top-level function name.
     fn_arity: HashMap<String, usize>,
     /// Maps bare function names to their mangled LLVM symbol names.
@@ -310,6 +334,11 @@ impl IrGen {
             nullary_tags: HashSet::new(),
             nullary_fns: HashSet::new(),
             all_fns: HashSet::new(),
+            float_fns: HashSet::new(),
+            float_params: HashMap::new(),
+            float_con_fields: HashMap::new(),
+            float_struct_fields: HashSet::new(),
+            float_locals: HashSet::new(),
             fn_arity: HashMap::new(),
             fn_mangle_map: HashMap::new(),
         }
@@ -355,6 +384,10 @@ impl IrGen {
     }
 
     pub fn generate(&mut self, ast_module: &Module, type_checker: &mut TypeChecker) -> IrModule {
+        // Which declarations traffic in floats, for the same reason and
+        // with the same timing as the nullary table below.
+        self.collect_float_signatures(&ast_module.decls);
+
         // Collected up front, before any body is lowered, so a
         // nullary function can be referenced by a function defined
         // above it (declaration order is not significant in Axiom -
@@ -497,6 +530,239 @@ impl IrGen {
         std::mem::take(&mut self.module)
     }
 
+    /// Record which declarations traffic in floats, from their `::`
+    /// signatures.
+    ///
+    /// Run before any body is lowered, because a function may call one
+    /// declared later in the file.
+    fn collect_float_signatures(&mut self, decls: &[Decl]) {
+        for decl in decls {
+            match decl {
+                Decl::DSig { name, ty, .. } => {
+                    // Walk the arrow spine: everything but the last
+                    // component is a parameter.
+                    let mut params = Vec::new();
+                    let mut cur = ty;
+                    while let Type::TArr(from, to) = cur {
+                        params.push(Self::is_float_type(from));
+                        cur = to;
+                    }
+                    if Self::is_float_type(cur) {
+                        self.float_fns.insert(name.name.clone());
+                    }
+                    if params.iter().any(|p| *p) {
+                        self.float_params.insert(name.name.clone(), params);
+                    }
+                }
+                // A constructor's float fields, so that a pattern like
+                // `((Mk x y) ...)` binds `x` and `y` as floats. Without
+                // this the arms' arithmetic lowered to integer `add` on
+                // the bit patterns, which compiles and runs and returns
+                // nonsense.
+                Decl::DData { constructors, .. } => {
+                    for con in constructors {
+                        let flags: Vec<bool> = con
+                            .field_types()
+                            .into_iter()
+                            .map(Self::is_float_type)
+                            .collect();
+                        if flags.iter().any(|f| *f) {
+                            self.float_con_fields.insert(con.name.name.clone(), flags);
+                        }
+                    }
+                }
+                Decl::DStruct { fields, .. } => {
+                    for f in fields {
+                        if Self::is_float_type(&f.ty) {
+                            self.float_struct_fields.insert(f.name.name.clone());
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    /// Whether a surface type is a float.
+    fn is_float_type(ty: &Type) -> bool {
+        matches!(ty, Type::TCon(ident, _)
+            if matches!(ident.name.as_str(), "Float" | "Double" | "F32" | "F64"))
+    }
+
+    /// Whether `expr` evaluates to a float.
+    ///
+    /// Floats are indistinguishable from every other value at runtime -
+    /// all of them are one machine word - so this reconstructs, from the
+    /// syntax and the signatures collected above, the one thing codegen
+    /// needs to know: whether `+` on these operands means `add` or
+    /// `fadd`.
+    fn is_float_expr(&self, expr: &Expr) -> bool {
+        match expr {
+            Expr::ELit(Literal::LFloat(_), _) => true,
+            Expr::EVar(ident) => {
+                self.float_locals.contains(&ident.name) || self.float_fns.contains(&ident.name)
+            }
+            Expr::EQualified(_, ident) => self.float_fns.contains(&ident.name),
+            Expr::EField(_, field) => self.float_struct_fields.contains(&field.name),
+            Expr::ECast(_, ty) | Expr::ETypeSig(_, ty) => Self::is_float_type(ty),
+            Expr::EGrouped(inner) | Expr::EConsume(inner) => self.is_float_expr(inner),
+            // A conditional is a float if either arm is; the type
+            // checker has already required both to agree.
+            Expr::EIf(_, then, else_) => self.is_float_expr(then) || self.is_float_expr(else_),
+            Expr::ELet(_, body) => self.is_float_expr(body),
+            Expr::EMatch(_, arms) => arms.iter().any(|(_, body)| self.is_float_expr(body)),
+            Expr::ECond(branches, else_) => {
+                branches.iter().any(|(_, b)| self.is_float_expr(b))
+                    || else_.as_ref().is_some_and(|e| self.is_float_expr(e))
+            }
+            Expr::EBegin(exprs) => exprs.last().is_some_and(|e| self.is_float_expr(e)),
+            Expr::EApp(_, _) => {
+                // Unwind the application spine to the callee.
+                let mut args: Vec<&Expr> = Vec::new();
+                let mut cur = expr;
+                while let Expr::EApp(f, a) = cur {
+                    args.push(a.as_ref());
+                    cur = f.as_ref();
+                }
+                args.reverse();
+                let name = match cur {
+                    Expr::EVar(ident) | Expr::EQualified(_, ident) => &ident.name,
+                    _ => return false,
+                };
+                // An arithmetic builtin is a float operation exactly when
+                // its operands are; a comparison never is, since it
+                // yields `Bool`.
+                if args.len() == 2 {
+                    if matches!(name.as_str(), "+" | "-" | "*" | "/") {
+                        return self.is_float_expr(args[0]) || self.is_float_expr(args[1]);
+                    }
+                    if matches!(name.as_str(), "==" | "!=" | "<" | ">" | "<=" | ">=") {
+                        return false;
+                    }
+                }
+                self.float_fns.contains(name)
+            }
+            _ => false,
+        }
+    }
+
+    /// Seed [`IrGen::float_locals`] for one function body: parameters
+    /// its signature declares float, plus every `let` binding in the
+    /// body whose initialiser is one.
+    ///
+    /// The `let` walk is a pre-pass rather than something done as
+    /// bindings are lowered, because a binding's initialiser can refer
+    /// to an earlier binding in the same `let`, and the arithmetic in a
+    /// body is lowered before the walk would otherwise reach it.
+    fn begin_float_scope(&mut self, name: &str, params: &[Pattern], body: &Expr) {
+        self.float_locals.clear();
+        if let Some(flags) = self.float_params.get(name).cloned() {
+            for (p, is_float) in params.iter().zip(flags) {
+                if is_float {
+                    if let Pattern::PVar(ident) = p {
+                        self.float_locals.insert(ident.name.clone());
+                    }
+                }
+            }
+        }
+        self.note_float_lets(body);
+    }
+
+    /// Record the float-typed bindings a pattern introduces.
+    fn note_float_pattern(&mut self, pat: &Pattern) {
+        match pat {
+            Pattern::PCon(name, args) => {
+                if let Some(flags) = self.float_con_fields.get(&name.name).cloned() {
+                    for (arg, is_float) in args.iter().zip(flags) {
+                        if is_float {
+                            if let Pattern::PVar(ident) = arg {
+                                self.float_locals.insert(ident.name.clone());
+                            }
+                        }
+                    }
+                }
+                for arg in args {
+                    self.note_float_pattern(arg);
+                }
+            }
+            Pattern::PConNamed(_, fields) => {
+                for (fname, fpat) in fields {
+                    if let Pattern::PVar(ident) = fpat {
+                        if self.float_struct_fields.contains(&fname.name) {
+                            self.float_locals.insert(ident.name.clone());
+                        }
+                    }
+                    self.note_float_pattern(fpat);
+                }
+            }
+            Pattern::PTuple(pats) | Pattern::PList(pats) => {
+                for p in pats {
+                    self.note_float_pattern(p);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Record every `let` binding under `expr` that holds a float.
+    fn note_float_lets(&mut self, expr: &Expr) {
+        match expr {
+            Expr::ELet(bindings, body) => {
+                for b in bindings {
+                    // Evaluate against what is known so far, so a
+                    // binding can depend on an earlier one.
+                    if let Pattern::PVar(ident) = &b.pat {
+                        if self.is_float_expr(&b.init) {
+                            self.float_locals.insert(ident.name.clone());
+                        }
+                    }
+                    self.note_float_lets(&b.init);
+                }
+                self.note_float_lets(body);
+            }
+            Expr::EApp(f, a) => {
+                self.note_float_lets(f);
+                self.note_float_lets(a);
+            }
+            Expr::EIf(c, t, e) => {
+                self.note_float_lets(c);
+                self.note_float_lets(t);
+                self.note_float_lets(e);
+            }
+            Expr::EMatch(scrut, arms) => {
+                self.note_float_lets(scrut);
+                for (pat, body) in arms {
+                    self.note_float_pattern(pat);
+                    self.note_float_lets(body);
+                }
+            }
+            Expr::ECond(branches, else_) => {
+                for (t, b) in branches {
+                    self.note_float_lets(t);
+                    self.note_float_lets(b);
+                }
+                if let Some(e) = else_ {
+                    self.note_float_lets(e);
+                }
+            }
+            Expr::EBegin(exprs) => {
+                for e in exprs {
+                    self.note_float_lets(e);
+                }
+            }
+            Expr::ELam(_, body) => self.note_float_lets(body),
+            Expr::EWhile(c, b) => {
+                self.note_float_lets(c);
+                self.note_float_lets(b);
+            }
+            Expr::EGrouped(inner)
+            | Expr::EConsume(inner)
+            | Expr::ECast(inner, _)
+            | Expr::ETypeSig(inner, _) => self.note_float_lets(inner),
+            _ => {}
+        }
+    }
+
     fn gen_function(
         &mut self,
         name: &Ident,
@@ -505,6 +771,8 @@ impl IrGen {
         type_checker: &mut TypeChecker,
         module_path: &Option<String>,
     ) -> IrFunction {
+        self.begin_float_scope(&name.name, params, body);
+
         let mut fn_params: Vec<(String, TypeId)> = Vec::new();
         fn_params.push((
             "_closure".to_string(),
@@ -1082,6 +1350,14 @@ impl IrGen {
                 dest: dest_val.clone(),
                 value: args[0].clone(),
             },
+            ("__intToFloat", 1) => IrInst::IntToFloat {
+                dest: dest_val.clone(),
+                value: args[0].clone(),
+            },
+            ("__floatToInt", 1) => IrInst::FloatToInt {
+                dest: dest_val.clone(),
+                value: args[0].clone(),
+            },
             ("__axiom_arena_mark", 0) => IrInst::ArenaMark {
                 dest: dest_val.clone(),
             },
@@ -1609,6 +1885,31 @@ impl IrGen {
                 let dest = self.new_local();
 
                 if all_args.len() == 2 {
+                    let lhs = all_args[0].clone();
+                    let rhs = all_args[1].clone();
+
+                    // Float arithmetic and comparison. Decided from the
+                    // *operand expressions*, not from the values: a
+                    // float and an integer are the same machine word at
+                    // this point, so nothing about `lhs`/`rhs` says
+                    // which this is.
+                    if arg_exprs.len() == 2
+                        && (self.is_float_expr(arg_exprs[0]) || self.is_float_expr(arg_exprs[1]))
+                    {
+                        if let Some(op) = FloatOp::from_op(&func_name) {
+                            self.emit_to_func(
+                                func,
+                                IrInst::FloatBin {
+                                    dest: IrValue::Local(dest.clone()),
+                                    op,
+                                    lhs,
+                                    rhs,
+                                },
+                            );
+                            return IrValue::Local(dest);
+                        }
+                    }
+
                     let lhs = all_args[0].clone();
                     let rhs = all_args[1].clone();
                     let inst = match func_name.as_str() {

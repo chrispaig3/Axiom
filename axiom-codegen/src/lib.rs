@@ -398,6 +398,99 @@ impl LlvmCodeGen {
                     }
                 }
             }
+            IrInst::FloatBin { dest, op, lhs, rhs } => {
+                // Floats live in the same `i64` machine word as every
+                // other Axiom value, so both operands arrive as integers
+                // holding IEEE bit patterns and have to be reinterpreted
+                // - not converted - before the operation. `bitcast` is a
+                // no-op at runtime; the register allocator keeps the
+                // value in an FP register across a chain of these.
+                let lhs_val = self.value_to_llvm(lhs)?;
+                let rhs_val = self.value_to_llvm(rhs)?;
+                let lf = self.new_local_reg();
+                let rf = self.new_local_reg();
+                writeln!(self.output, "  {} = bitcast i64 {} to double", lf, lhs_val).unwrap();
+                writeln!(self.output, "  {} = bitcast i64 {} to double", rf, rhs_val).unwrap();
+
+                let raw = self.new_local_reg();
+                writeln!(
+                    self.output,
+                    "  {} = {} double {}, {}",
+                    raw,
+                    op.llvm_opcode(),
+                    lf,
+                    rf
+                )
+                .unwrap();
+
+                // A comparison already yields `i1`, which is what `Bool`
+                // is here. Arithmetic yields a `double` that has to go
+                // back into the uniform word.
+                let result_reg = if op.is_comparison() {
+                    raw
+                } else {
+                    let back = self.new_local_reg();
+                    writeln!(self.output, "  {} = bitcast double {} to i64", back, raw).unwrap();
+                    back
+                };
+
+                if let IrValue::Local(name) = dest {
+                    let ty = if op.is_comparison() {
+                        TypeId::TCon("Bool".to_string(), vec![])
+                    } else {
+                        TypeId::TCon("I64".to_string(), vec![])
+                    };
+                    self.ssa_values.insert(name.clone(), (result_reg, ty));
+                }
+            }
+            IrInst::IntToFloat { dest, value } => {
+                // `sitofp` converts the *number*; the result then goes
+                // back into the uniform word as bits.
+                let val = self.value_to_llvm(value)?;
+                let as_double = self.new_local_reg();
+                writeln!(
+                    self.output,
+                    "  {} = sitofp i64 {} to double",
+                    as_double, val
+                )
+                .unwrap();
+                let result_reg = self.new_local_reg();
+                writeln!(
+                    self.output,
+                    "  {} = bitcast double {} to i64",
+                    result_reg, as_double
+                )
+                .unwrap();
+                if let IrValue::Local(name) = dest {
+                    self.ssa_values.insert(
+                        name.clone(),
+                        (result_reg, TypeId::TCon("I64".to_string(), vec![])),
+                    );
+                }
+            }
+            IrInst::FloatToInt { dest, value } => {
+                let val = self.value_to_llvm(value)?;
+                let as_double = self.new_local_reg();
+                writeln!(
+                    self.output,
+                    "  {} = bitcast i64 {} to double",
+                    as_double, val
+                )
+                .unwrap();
+                let result_reg = self.new_local_reg();
+                writeln!(
+                    self.output,
+                    "  {} = fptosi double {} to i64",
+                    result_reg, as_double
+                )
+                .unwrap();
+                if let IrValue::Local(name) = dest {
+                    self.ssa_values.insert(
+                        name.clone(),
+                        (result_reg, TypeId::TCon("I64".to_string(), vec![])),
+                    );
+                }
+            }
             IrInst::Add { dest, lhs, rhs } => {
                 let lhs_val = self.value_to_llvm(lhs)?;
                 let rhs_val = self.value_to_llvm(rhs)?;
@@ -789,7 +882,9 @@ impl LlvmCodeGen {
                     .iter()
                     .map(|a| match a {
                         IrValue::Const(IrConst::Int(n, _)) => format!("i64 {}", n),
-                        IrValue::Const(IrConst::Float(n, _)) => format!("double {}", n),
+                        IrValue::Const(IrConst::Float(n, _)) => {
+                            format!("i64 {}", n.to_bits() as i64)
+                        }
                         IrValue::Const(IrConst::Bool(b)) => {
                             format!("i1 {}", if *b { "true" } else { "false" })
                         }
@@ -877,7 +972,9 @@ impl LlvmCodeGen {
                     .iter()
                     .map(|a| match a {
                         IrValue::Const(IrConst::Int(n, _)) => format!("i64 {}", n),
-                        IrValue::Const(IrConst::Float(n, _)) => format!("double {}", n),
+                        IrValue::Const(IrConst::Float(n, _)) => {
+                            format!("i64 {}", n.to_bits() as i64)
+                        }
                         IrValue::Const(IrConst::Bool(b)) => {
                             format!("i1 {}", if *b { "true" } else { "false" })
                         }
@@ -1512,10 +1609,13 @@ impl LlvmCodeGen {
                     let llvm_ty = self.type_to_llvm(ty);
                     Ok((format!("{}", n), llvm_ty))
                 }
-                IrConst::Float(n, ty) => {
-                    let llvm_ty = self.type_to_llvm(ty);
-                    Ok((format!("{}", n), llvm_ty))
-                }
+                // A float is the uniform machine word holding its
+                // IEEE-754 bit pattern, so it is emitted as the integer
+                // those bits spell. Writing `double 1.5` instead would
+                // disagree with every `i64` the value flows through -
+                // parameters, returns, struct fields, `Vec` slots - and
+                // LLVM rejects the mismatch rather than coercing.
+                IrConst::Float(n, _) => Ok((format!("{}", n.to_bits() as i64), "i64".to_string())),
                 IrConst::Bool(b) => Ok((
                     (if *b { "true" } else { "false" }).to_string(),
                     "i1".to_string(),
@@ -1529,7 +1629,7 @@ impl LlvmCodeGen {
     fn const_to_llvm_value(&self, const_val: &IrConst) -> String {
         match const_val {
             IrConst::Int(n, _) => format!("{}", n),
-            IrConst::Float(n, _) => format!("{}", n),
+            IrConst::Float(n, _) => format!("{}", n.to_bits() as i64),
             IrConst::Bool(b) => (if *b { "true" } else { "false" }).to_string(),
             IrConst::Null => "null".to_string(),
             IrConst::Str(s) => self.str_header_value(s),
@@ -1623,10 +1723,7 @@ impl LlvmCodeGen {
                 let llvm_ty = self.type_to_llvm(ty);
                 format!("{} {}", llvm_ty, n)
             }
-            IrConst::Float(n, ty) => {
-                let llvm_ty = self.type_to_llvm(ty);
-                format!("{} {}", llvm_ty, n)
-            }
+            IrConst::Float(n, _) => format!("i64 {}", n.to_bits() as i64),
             IrConst::Bool(b) => format!("i1 {}", if *b { "true" } else { "false" }),
             IrConst::Null => "ptr null".to_string(),
             IrConst::Str(s) => format!("i64 {}", self.str_header_value(s)),

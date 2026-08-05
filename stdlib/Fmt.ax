@@ -123,3 +123,70 @@
             (memCopy (+ (strData out) (- width len)) (strData s) len)
             out
           }))))
+
+; ------------------------------------------------------------------
+; Floating point
+; ------------------------------------------------------------------
+;
+; Fixed-point rendering with a chosen number of decimal places, not the
+; shortest round-tripping form. Shortest-round-trip (Ryu, Grisu) needs
+; big-integer arithmetic and is a module of its own; this is the part a
+; program printing a measurement actually wants, and it is exact for
+; every value it claims to print because the digits are produced by
+; integer arithmetic after one scaling multiply.
+
+; 10^n, for the scaling factor. `n` is a place count, so it is small.
+(pub :: powTen (-> Int Int))
+(pub fn (powTen n)
+  (if (<= n 0)
+      1
+      (* 10 (powTen (- n 1)))))
+
+; `n` rendered in base 10, left-padded with `0` to at least `width`.
+;
+; Distinct from `fmtPadLeft`, which pads with spaces: a fractional part
+; needs `0.05` rather than `0. 5`, so the digits it is missing on the
+; left are zeros.
+(pub :: fmtPadZeros (-> Int Int Int))
+(pub fn (fmtPadZeros n width)
+  (let ((s (fmtNat n))
+        (len (strLen s)))
+    (if (>= len width)
+        s
+        (let ((out (strAlloc width)))
+          {
+            (memSet (strData out) 48 (- width len))
+            (memCopy (+ (strData out) (- width len)) (strData s) len)
+            out
+          }))))
+
+; `x` with six decimal places.
+(pub :: fmtFloat (-> Float Int))
+(pub fn (fmtFloat x)
+  (fmtFloatPrec x 6))
+
+; `x` with `places` decimal places, rounded half away from zero.
+(pub :: fmtFloatPrec (-> Float Int Int))
+(pub fn (fmtFloatPrec x places)
+  (if (< x 0.0)
+      (strConcat "-" (fmtFloatAbs (- 0.0 x) places))
+      (fmtFloatAbs x places)))
+
+; The non-negative case.
+;
+; Rounding is applied to the scaled fraction and can carry - `0.999` at
+; two places is `1.00`, not `0.100` - so the carry is folded back into
+; the integer part rather than left to overflow the fraction field.
+(pub :: fmtFloatAbs (-> Float Int Int))
+(pub fn (fmtFloatAbs x places)
+  (let ((whole (__floatToInt x))
+        (frac (- x (__intToFloat whole)))
+        (scale (powTen places))
+        (scaled (__floatToInt (+ (* frac (__intToFloat scale)) 0.5)))
+        (carried (if (>= scaled scale) 1 0))
+        (whole2 (+ whole carried))
+        (frac2 (- scaled (* carried scale))))
+    (if (<= places 0)
+        (fmtInt whole2)
+        (strConcat (strConcat (fmtInt whole2) ".")
+                   (fmtPadZeros frac2 places)))))
