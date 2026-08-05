@@ -1260,7 +1260,15 @@ impl LlvmCodeGen {
             }
             IrInst::StoreOffset { ptr, offset, value } => {
                 let ptr_val = self.value_to_llvm(ptr)?;
-                let val_str = self.value_to_llvm(value)?;
+                // A field is one machine word, so an `i1` has to be
+                // widened before it goes in. `Bool` is the only Axiom
+                // type that is narrower than a word, and storing one
+                // into a `data` constructor field or a `struct` field
+                // emitted `store i64 true` - a constant whose text LLVM
+                // reads as `i1` under a declared `i64` - which `llc`
+                // rejected. So no constructor or struct could hold a
+                // `Bool` at all.
+                let val_str = self.value_to_i64(value)?;
                 let addr_reg = self.new_local_reg();
                 writeln!(
                     self.output,
@@ -1378,7 +1386,8 @@ impl LlvmCodeGen {
             }
             IrInst::StoreWordIdx { ptr, index, value } => {
                 let word_ptr = self.emit_byte_gep(ptr, index, 8)?;
-                let val = self.value_to_llvm(value)?;
+                // Same widening as `StoreOffset`: the slot is a word.
+                let val = self.value_to_i64(value)?;
                 writeln!(self.output, "  store i64 {}, ptr {}", val, word_ptr).unwrap();
             }
             IrInst::AddrOf { dest, value } => {

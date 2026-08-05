@@ -1,0 +1,106 @@
+; Every kind of value survives a `data` field and a `struct` field.
+;
+; Axiom's representation is uniform: every value is one machine word, and
+; a field is one word. Three separate bugs came from types that did not
+; quite believe that, each found only by trying it:
+;
+;   - a `Char` literal lowered as `U8` while `Char` maps to `i64`, so any
+;     `Char`-typed function emitted `ret i8` from an `i64` function;
+;   - a `Float` had no lowering at all, and a `Float`-typed function
+;     emitted `ret double` from an `i64` function;
+;   - a `Bool` is genuinely narrower than a word - `i1` - and was stored
+;     into a field without widening, emitting `store i64 true`, so no
+;     constructor or struct could hold one.
+;
+; All three passed `axiom check` and failed in `llc`/`opt`, about
+; generated code, for programs the compiler had just called well typed.
+; Nothing in the standard library puts a `Char`, `Float` or `Bool` in a
+; field, which is why nothing had noticed.
+;
+; This case is the matrix rather than three regression tests, because the
+; property is about the representation and not about any one type.
+(import IO)
+(import Fmt)
+
+; ------------------------------------------------------------------
+; Every kind in a `data` constructor field
+; ------------------------------------------------------------------
+
+(pub data Cell
+  (CInt Int)
+  (CBool Bool)
+  (CChar Char)
+  (CFloat Float)
+  (CStr String))
+
+(pub :: describe (-> Cell Int))
+;@axiom:effect(io)
+(pub fn (describe c)
+  (match c
+    ((CInt n) (printlnInt n))
+    ((CBool b) (printlnInt (if b 1 0)))
+    ((CChar ch) (printlnInt (cast Int ch)))
+    ((CFloat f) (println (fmtFloatPrec f 2)))
+    ((CStr s) (println s))))
+
+; Several kinds in one constructor, so field offsets are exercised too -
+; a widening bug that only showed up in the first field would be missed
+; by single-field constructors.
+(pub data Mixed (Mk Int Bool Char Float String))
+
+(pub :: unpack (-> Mixed Int))
+;@axiom:effect(io)
+(pub fn (unpack m)
+  (match m
+    ((Mk n b ch f s)
+      {
+        (printlnInt n)
+        (printlnInt (if b 1 0))
+        (printlnInt (cast Int ch))
+        (println (fmtFloatPrec f 2))
+        (println s)
+        0
+      })))
+
+; ------------------------------------------------------------------
+; Every kind in a `struct` field
+; ------------------------------------------------------------------
+
+(pub struct Rec
+  (n : Int)
+  (on : Bool)
+  (initial : Char)
+  (ratio : Float)
+  (label : String))
+
+(pub :: showRec (-> Rec Int))
+;@axiom:effect(io)
+(pub fn (showRec r)
+  {
+    (printlnInt r.n)
+    (printlnInt (if r.on 1 0))
+    (printlnInt (cast Int r.initial))
+    (println (fmtFloatPrec r.ratio 2))
+    (println r.label)
+    0
+  })
+
+(pub :: main Int)
+;@axiom:effect(io)
+(pub fn (main)
+  {
+    ; --- one kind per constructor ---
+    (describe (CInt 7))          ; 7
+    (describe (CBool true))      ; 1
+    (describe (CBool false))     ; 0
+    (describe (CChar 'K'))       ; 75
+    (describe (CFloat 2.5))      ; 2.50
+    (describe (CStr "cell"))     ; cell
+
+    ; --- all kinds in one constructor ---
+    (unpack (Mk 9 true 'Z' 1.25 "mixed"))   ; 9 1 90 1.25 mixed
+
+    ; --- all kinds in one struct ---
+    (showRec (Rec 3 false 'q' 0.5 "rec"))   ; 3 0 113 0.50 rec
+    0
+  })

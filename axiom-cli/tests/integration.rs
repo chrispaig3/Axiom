@@ -1637,3 +1637,45 @@ fn partial_application_of_an_operator_still_works() {
     let out = run_axiom(&["run", "main.ax"], &dir);
     assert_eq!(out.status.code(), Some(42), "stderr: {}", stderr(&out));
 }
+
+#[test]
+fn bool_survives_a_constructor_field() {
+    // `Bool` is the one Axiom type narrower than a machine word (`i1`),
+    // and it was stored into a field without widening - emitting
+    // `store i64 true`, a constant whose text LLVM reads as `i1` under a
+    // declared `i64`. No `data` constructor or `struct` could hold one.
+    let dir = scratch_dir("bool-field");
+    write_source(
+        &dir,
+        "main.ax",
+        "(data Flag (Mk Bool))\n\
+         (:: main Int)\n(fn (main) (match (Mk true) ((Mk b) (if b 42 7))))\n",
+    );
+    let out = run_axiom(&["run", "main.ax"], &dir);
+    assert_eq!(
+        out.status.code(),
+        Some(42),
+        "stdout: {}\nstderr: {}",
+        stdout(&out),
+        stderr(&out)
+    );
+}
+
+#[test]
+fn bool_survives_a_struct_field() {
+    let dir = scratch_dir("bool-struct-field");
+    write_source(
+        &dir,
+        "main.ax",
+        "(struct Cfg (on : Bool) (n : Int))\n\
+         (:: main Int)\n(fn (main) (let ((c (Cfg true 5))) (if c.on 42 7)))\n",
+    );
+    let out = run_axiom(&["run", "main.ax"], &dir);
+    assert_eq!(
+        out.status.code(),
+        Some(42),
+        "stdout: {}\nstderr: {}",
+        stdout(&out),
+        stderr(&out)
+    );
+}

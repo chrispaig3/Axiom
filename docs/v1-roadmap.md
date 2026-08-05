@@ -314,6 +314,34 @@ formatter needed a fix of its own to keep up: it printed a float through
 `Display`, so `2.0` came out as `2`, which re-lexes as an `Int` — caught
 by `check-fmt.sh` rather than by anything about floats.
 
+### 2.4c The representation bugs were a class, not three accidents
+
+`Char`, `Float` and `Bool` each failed in the same shape, and each was
+found only by trying it rather than by any gate:
+
+| Type | What it emitted | Why |
+|---|---|---|
+| `Char` | `ret i8` from an `i64` function | the literal lowered as `U8`, while `Char` maps to `i64` |
+| `Float` | `ret double` from an `i64` function | no float lowering existed at all |
+| `Bool` | `store i64 true` | `i1` is genuinely narrower than a word, and was stored into a field unwidened |
+
+All three passed `axiom check` and then failed in `llc` or `opt` — a
+native-toolchain message about generated code, for a program the
+compiler had just called well typed. And all three went unnoticed for
+the same reason: nothing in `stdlib/`, `self_host/` or `tests/` puts a
+`Char`, `Float` or `Bool` in a field, so the corpus never asked.
+
+The underlying property is one sentence — *every Axiom value is one
+machine word, and a field is one word* — and it is now tested as one
+thing rather than three: `tests/stdlib/250-field-kinds.ax` is the matrix
+of every value kind against `data` constructor fields (single and
+multi-field, so offsets are exercised) and `struct` fields.
+
+`Bool` is the only Axiom type narrower than a word, so it is the only
+one needing a widening at a word boundary; that widening is now applied
+wherever a value enters a word slot, not only in the two arithmetic
+sites that already did it.
+
 ### 2.5 CI was not green, and could not have been
 
 The claim in §2.1 that CI was green on all four targets did not hold when
