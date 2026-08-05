@@ -41,12 +41,15 @@
 ; that defines nothing. Values and types are separate namespaces in
 ; stage0, so `(data Foo ...)` and `(fn (Foo) ...)` do not collide.
 ;
-; stage1's parser turns `foreign`, `type` and `trait` into TAG_NIL
-; (parser.ax's skipUnknownDecl), so `fn` - and `define`, its documented
-; synonym, which stage0 parses through the same function - is the only
-; value definition that reaches here. RECORDED GAP: stage0 counts
-; `foreign` in the value namespace and `type` in the type namespace, so
-; a duplicate `foreign` or `type` in the entry file is an AX3006 stage1
+; stage1's parser turns `type` and `trait` into TAG_NIL (parser.ax's
+; skipUnknownDecl), so `fn` - and `define`, its documented synonym,
+; which stage0 parses through the same function - is the only value
+; definition that reaches here. `foreign` is parsed for its name alone
+; (TAG_D_FOREIGN) because stage0 counts one as a definition, and
+; skipping it made a signature beside a foreign binding look
+; unsatisfied. RECORDED GAP: stage0 also counts `foreign` in the
+; *duplicate* value namespace and `type` in the type namespace, so a
+; duplicate `foreign` or `type` in the entry file is an AX3006 stage1
 ; stays silent about. Under-reporting, never over-reporting: the
 ; direction that cannot reject a valid program.
 ; ------------------------------------------------------------------
@@ -158,7 +161,8 @@
   (if (>= i (vecLen allDecls))
       0
       (let ((d (vecGet allDecls i)))
-        (if (&& (== (nodeTag d) TAG_D_FN) (== (nameMatches (nodeA d) name) 1))
+        (if (&& (|| (== (nodeTag d) TAG_D_FN) (== (nodeTag d) TAG_D_FOREIGN))
+                (== (nameMatches (nodeA d) name) 1))
             1
             (isDefined allDecls name (+ i 1))))))
 

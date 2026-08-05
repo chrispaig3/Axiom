@@ -1,0 +1,5 @@
+(foreign putchar :: (-> Int Int) = "putchar")
+(:: putchar (-> Int Int))
+(:: main Int)
+(fn (main) 0)
+(fn (main) 1)

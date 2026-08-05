@@ -60,6 +60,14 @@
 ; Field store `(set base.field v)`: word 1 the base expression, word 2
 ; the field's name, word 3 the value. Evaluates to 0, stage0's rule.
 (pub :: TAG_E_SETF Int)   (pub fn (TAG_E_SETF) 28)
+; A `foreign` binding. stage1 emits nothing for one - the compiler is
+; freestanding and `emitDecl` ignores every tag but TAG_D_FN - but the
+; *name* has to survive parsing, because stage0 counts a foreign
+; binding as a definition when it checks whether a signature has one
+; behind it. Skipping the form outright made `(:: putchar ...)` beside
+; `(foreign putchar ...)` look like a signature with nothing behind
+; it, and stage1 rejected a program stage0 compiles.
+(pub :: TAG_D_FOREIGN Int) (pub fn (TAG_D_FOREIGN) 29)
 
 (pub :: nodeTag (-> Int Int))   (pub fn (nodeTag n) (memGetWord n 0))
 (pub :: nodeA   (-> Int Int))   (pub fn (nodeA   n) (memGetWord n 1))
@@ -293,6 +301,7 @@
 ; an inert TAG_NIL node, so the checker saw a signature with no
 ; definition behind it and reported AX3015 on a valid program.
 (pub :: kwDefine Int) (pub fn (kwDefine) "define")
+(pub :: kwForeign Int) (pub fn (kwForeign) "foreign")
 (pub :: kwData  Int) (pub fn (kwData)  "data")
 (pub :: kwStruct Int)(pub fn (kwStruct)"struct")
 (pub :: kwLet   Int) (pub fn (kwLet)   "let")
@@ -338,7 +347,9 @@
       (parseImportDecl tokens (advance pos))
   (if (kwEq name (kwMacro))
       (parseMacroDecl tokens (advance pos))
-  (skipUnknownDecl tokens pos)))))))))          ; unknown form, skip
+  (if (kwEq name (kwForeign))
+      (parseForeignDecl tokens (advance pos))
+  (skipUnknownDecl tokens pos))))))))))         ; unknown form, skip
   (skipUnknownDecl tokens pos))))                      ; non-keyword form, skip
 
 ; A form this parser does not know - `foreign`, `type`, `trait` - is
@@ -348,6 +359,23 @@
 ; one unknown declaration silently dropped every declaration after it,
 ; with no diagnostic and exit 0. Truncation that looks like success is
 ; the worst spelling of unsupported.
+; Parse `(foreign name :: Type = "symbol")`, keeping only the name.
+; The type and the symbol are of no use to a backend that cannot emit
+; a call to one; the name is, because it is a definition for the
+; purpose of AX3015.
+(pub :: parseForeignDecl (-> Int Int Int))
+(pub fn (parseForeignDecl tokens pos)
+  (let ((nr (parseIdentName tokens pos)))
+    (if (== (memGetWord nr 0) 0)
+        nr
+        (let ((name (memGetWord nr 1))
+              (nameSpan (tokenSpan (vecGet tokens pos)))
+              (rest (skipParens tokens (memGetWord nr 2) 1)))
+          (if (== (memGetWord rest 0) 0)
+              rest
+              (pOk (mkNodeAt TAG_D_FOREIGN name 0 0 nameSpan)
+                   (memGetWord rest 2)))))))
+
 (pub :: skipUnknownDecl (-> Int Int Int))
 (pub fn (skipUnknownDecl tokens pos)
   (let ((r (skipParens tokens pos 1)))
