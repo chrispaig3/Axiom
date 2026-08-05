@@ -238,7 +238,7 @@ These words are reserved but no longer have a grammar rule. Using them reports a
 | `Int` | 64-bit signed integer |
 | `Float` | 64-bit floating point |
 | `Bool` | Boolean (`true` / `false`) |
-| `Char` | Character (8-bit) |
+| `Char` | A Unicode code point: `'A'` is 65, `'é'` is 233, `'世'` is 19990, `'😀'` is 128512. (This table used to say "8-bit", which was wrong - a char literal has always carried the whole code point.) |
 | `String` | String (pointer) |
 | `Unit` / `()` | Unit (no value) |
 | `Void` | Void |
@@ -1062,6 +1062,7 @@ Axiom ships a standard library written **in Axiom**. It reaches the operating sy
 | `Pre` | `when`, `unless`, `cond2`, `cond3` (conditional macros) |
 | `Mem` | `memAlloc`, `memCopy`, `memSet`, `memCmp`, `memGetByte`/`memPutByte`, `memGetWord`/`memSetWord` |
 | `Str` | `strFromLit`, `strAlloc`, `strLen`, `strByte`, `strCmp`, `strEq`, `strSlice`, `strDup`, `strConcat`, `strFindByte`, `strStartsWith`, `strCStr` |
+| `Utf8` | `utf8Len`, `utf8CharAt`, `utf8DecodeAt`, `utf8FromChar`, `utf8Next`, `utf8Offset`, `utf8Slice`, `utf8Width`, `utf8SeqLen`, `utf8IsCont`, `utf8Valid` (the character view of a `Str`) |
 | `Vec` | `vecNew`, `vecPush`, `vecPop`, `vecGet`, `vecSet`, `vecLen`, `vecCap`, `vecReserve`, `vecClear` |
 | `Map` | `mapNew`, `mapHas`, `mapGet`, `mapInsert`, `mapRemove`, `mapLen`, `mapCap`, `mapNew`, `mapRehash` (open-addressing `Int→Int` hash map) |
 | `Fmt` | `fmtInt`, `fmtHex`, `fmtPadLeft`, `fmtIntWidth` |
@@ -1077,6 +1078,50 @@ A `Str` is a length-prefixed, NUL-terminated string. It is the address of a two-
 - Word 1: address of the bytes
 
 The bytes are always NUL-terminated in addition to being length-counted. This means `strCStr` can hand a path straight to a syscall without copying, and a `Str` can contain a NUL byte.
+
+### Text Is UTF-8, and `Str` Stays Bytes
+
+A `Str` holds bytes, and `Str`'s own operations are byte operations:
+`strLen` counts bytes, `strByte` reads one, `strSlice` cuts at byte
+offsets. That is deliberate and will not change. Every syscall write
+hands `(strData s)` and `(strLen s)` straight to `write`, every hash
+folds over bytes, and every buffer sizes itself in bytes - a `strLen`
+that answered in characters would write the wrong number of bytes to a
+file descriptor.
+
+The character view lives beside it, in `Utf8`:
+
+```scheme
+(import Str)
+(import Utf8)
+
+(strLen  "héllo")            ; 6 - bytes
+(utf8Len "héllo")            ; 5 - characters
+(utf8CharAt "aé世" 2)        ; 19990, the code point of 世
+(utf8Offset "aé世" 2)        ; 3, the byte offset it starts at
+(utf8Slice "héllo, 世界" 7 2) ; "世界", sharing the original's bytes
+(utf8FromChar (cast Int '世')) ; a new one-character Str
+```
+
+This is the same split Rust draws between `len()` and
+`chars().count()`, and it works because a `Char` is already a code
+point: `(utf8DecodeAt "é" 0)` and `'é'` are both 233. Character
+indexing is O(n) in the byte length - UTF-8 is variable-width and
+nothing builds an index - so walk a string with `utf8Next` rather than
+by rising character index, or the loop is quadratic.
+
+Malformed input decodes leniently rather than failing, following the
+same rule `strSlice` and `strByte` already follow: they clamp. A byte
+that begins no valid sequence decodes as itself and advances by one,
+which is what guarantees a decoding loop terminates on a corrupt file.
+`utf8Valid` is the explicit question when a caller needs the answer.
+
+Most of `Str` needed no change at all, for two reasons worth knowing
+rather than rediscovering. UTF-8 orders bytes the same way Unicode
+orders code points, so `strCmp`, `strEq` and `strStartsWith` are
+already correct on text. And UTF-8 is self-synchronizing - no
+multi-byte sequence contains a byte below `0x80` - so `strFindByte`
+searching for an ASCII byte can never match the middle of a character.
 
 ---
 

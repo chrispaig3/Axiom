@@ -21,6 +21,7 @@
 (import Mem)
 (import Str)
 (import Vec)
+(import Utf8)
 
 ; ------------------------------------------------------------------
 ; Decimal rendering of a non-negative number.
@@ -93,12 +94,11 @@
 ;
 ; The fix needs no UTF-8 decoding. A byte is a character *start* unless
 ; it is a continuation byte, and continuation bytes are exactly those
-; matching 0b10xxxxxx. Counting non-continuation bytes from the line
-; start therefore counts characters.
+; matching 0b10xxxxxx, which `Utf8.utf8IsCont` answers. Counting
+; non-continuation bytes from the line start therefore counts
+; characters. This module carried its own copy of that test until
+; `stdlib/Utf8.ax` existed to own it.
 ; ------------------------------------------------------------------
-(pub :: isContByte (-> Int Bool))
-(pub fn (isContByte b) (== (& b 192) 128))
-
 ; Byte offset of the start of the line containing `off`.
 (pub :: lineStartOf (-> Int Int Int))
 (pub fn (lineStartOf src off)
@@ -134,7 +134,7 @@
 (pub fn (colCount src i off acc)
   (if (>= i off)
       acc
-      (if (isContByte (strByte src i))
+      (if (utf8IsCont (strByte src i))
           (colCount src (+ i 1) off acc)
           (colCount src (+ i 1) off (+ acc 1)))))
 

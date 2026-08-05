@@ -1,0 +1,55 @@
+; UTF-8: the character layer over Str's bytes.
+;
+; The load-bearing property is AGREEMENT: `Utf8`'s decoder and Axiom's
+; `Char` literals must answer the same code point for the same
+; character, because the language already had code-point chars ('é' is
+; 233, not a byte) while its strings knew only bytes. A decoder that
+; merely round-tripped with its own encoder could be self-consistently
+; wrong; comparing against the literals is what makes it right.
+;
+; `strLen` deliberately stays a BYTE count - every syscall write in the
+; standard library hands it straight to `write` - so both views are
+; checked side by side here: "héllo" is 6 bytes and 5 characters.
+(import IO)
+(import Str)
+(import Utf8)
+
+(:: check (-> Bool Int Int))
+(fn (check ok n) (if ok 0 { (printlnInt n) 1 }))
+
+(:: main Int)
+(fn (main)
+  {
+    ; Both views of the same string, neither one wrong.
+    (printlnInt (strLen "héllo"))
+    (printlnInt (utf8Len "héllo"))
+
+    ; Decoding agrees with the character literals, across all four
+    ; sequence widths.
+    (printlnInt (check (== (utf8DecodeAt "A" 0)  (cast Int 'A'))  101))
+    (printlnInt (check (== (utf8DecodeAt "é" 0)  (cast Int 'é'))  102))
+    (printlnInt (check (== (utf8DecodeAt "世" 0) (cast Int '世')) 103))
+    (printlnInt (check (== (utf8DecodeAt "😀" 0) (cast Int '😀')) 104))
+
+    ; Encoding is the inverse, and its width agrees with the bytes it
+    ; actually writes.
+    (println (utf8FromChar (cast Int '世')))
+    (printlnInt (strLen (utf8FromChar (cast Int '😀'))))
+    (printlnInt (utf8Width (cast Int 'é')))
+
+    ; Character indexing steps over multi-byte sequences: in
+    ; "aé世", character 2 is 世 even though it starts at byte 3.
+    (printlnInt (utf8CharAt "aé世" 2))
+    (printlnInt (utf8Offset "aé世" 2))
+    (println (utf8Slice "héllo, 世界" 7 2))
+
+    ; Validation says yes to real text and no to a lone continuation
+    ; byte, which begins no sequence.
+    (printlnInt (check (utf8Valid "héllo 世界") 105))
+    (printlnInt (check (if (utf8Valid (strSlice "é" 1 1)) false true) 106))
+
+    ; A malformed byte still advances, so iteration terminates: the
+    ; tail byte of "é" alone is one "character".
+    (printlnInt (utf8Len (strSlice "é" 1 1)))
+    0
+  })
