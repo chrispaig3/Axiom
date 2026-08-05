@@ -388,7 +388,7 @@ stage3  the Axiom compiler, built by stage2
 also compiles and runs a program through each stage - two compilers can
 agree byte-for-byte on their own source and still both be wrong.
 
-`scripts/check-self-host.sh` is the conformance gate: 52 cases in
+`scripts/check-self-host.sh` is the conformance gate: 54 cases in
 `tests/selfhost/`, each compiled by stage1, assembled, linked, and
 checked by exit status, plus a negative check that an unresolvable
 import is refused with the module named rather than skipped. What it
@@ -543,11 +543,17 @@ Partial application would need runtime arity in the record, and a
 lambda expression needs capture analysis and lifting; both are refused
 loudly rather than miscompiled.
 
+Struct field access works: `p.x` resolves the field by name in the
+struct registry and loads at its word offset, chains fold left, and
+the field's declared type travels - a `Float` field read feeds float
+instructions (`tests/selfhost/540-field-access.ax`,
+`550-field-chain.ax`).
+
 What genuinely remains: no type checking -
 `self_host/typecheck.ax` is a stub - so a program stage0 would reject
 with a diagnostic, stage1 compiles into whatever the code happens to
 mean. No lambda expressions or partial application (refused loudly).
-No struct field access (`p.x`), refused at parse. It emits for darwin-aarch64
+No `(set r.field v)` - field stores still refuse at parse. It emits for darwin-aarch64
 only. And the driver reads `in.ax` from the working directory and
 writes to stdout, with no argument parsing. Float literals with more
 precision than a double round twice where stage0 rounds once, so a

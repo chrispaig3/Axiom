@@ -565,7 +565,10 @@
               (fields (nodeB node))
               (types (memGetWord cg 3)))
           {
-            (memSetWord cg 3 (addType types name TF_STRUCT (vecLen fields) 0 0 0))
+            ; A struct's slot 7 holds its FIELD list (mkField nodes:
+            ; name and float flag) where a data constructor's holds
+            ; float flags alone - the kind decides the reading.
+            (memSetWord cg 3 (addType types name TF_STRUCT (vecLen fields) 0 0 fields))
             cg
           })
     cg))))
@@ -1288,11 +1291,55 @@
     (if (== tag TAG_E_LETM)  (emitLetM node cg)
     (if (== tag TAG_E_SET)   (emitSet node cg)
     (if (== tag TAG_E_WHILE) (emitWhile node cg)
+    (if (== tag TAG_E_FIELD) (emitField node cg)
     ; A lambda needs capture analysis and lifting; falling through to
     ; the default emitted 0 in its place, silently. Dying is honest.
     (if (== tag TAG_E_LAM)
         (dieImport "error: lambda expressions are not supported by stage1" "")
-    (emitDefault node cg))))))))))))))))
+    (emitDefault node cg)))))))))))))))))
+
+; `base.field`: the field resolves by name across the struct registry -
+; first declaring struct wins, the same simplification stage0 makes for
+; float-ness - and a struct carries no tag word, so field i is word i.
+(pub :: emitField (-> Int Int Int))
+(pub fn (emitField node cg)
+  (let ((cgB (emitExpr (nodeA node) cg)))
+    (let ((base (strDup (memGetWord cgB 2)))
+          (fi (findStructField (memGetWord cgB 3) (nodeB node))))
+      (if (== fi 0)
+          (dieImport "error: unknown struct field: " (nodeB node))
+          (let ((cgL (loadWordAt cgB base (nodeA fi))))
+            {
+              (memSetWord cgL 14 (nodeB fi))
+              cgL
+            })))))
+
+; The field's (index, floatFlag) as an inert node, 0 when no struct
+; declares the name.
+(pub :: findStructField (-> Int Int Int))
+(pub fn (findStructField types name)
+  (findStructFieldIn types name 0))
+
+(pub :: findStructFieldIn (-> Int Int Int Int))
+(pub fn (findStructFieldIn types name i)
+  (if (>= i (vecLen types))
+      0
+      (let ((e (vecGet types i)))
+        (if (== (eKind e) TF_STRUCT)
+            (let ((idx (fieldIndexIn (eFieldFlags e) name 0)))
+              (if (< idx 0)
+                  (findStructFieldIn types name (+ i 1))
+                  (mkNode TAG_NIL idx
+                          (nodeB (vecGet (eFieldFlags e) idx)) 0)))
+            (findStructFieldIn types name (+ i 1))))))
+
+(pub :: fieldIndexIn (-> Int Int Int Int))
+(pub fn (fieldIndexIn fields name i)
+  (if (>= i (vecLen fields))
+      (- 0 1)
+      (if (strEq (nodeA (vecGet fields i)) name)
+          i
+          (fieldIndexIn fields name (+ i 1)))))
 
 ; E_Int
 (pub :: emitInt (-> Int Int Int))

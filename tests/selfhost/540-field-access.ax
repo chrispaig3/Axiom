@@ -1,0 +1,7 @@
+; expect 12
+; Field access: `p.x` resolves the field by name in the struct
+; registry and loads at its word offset - a struct carries no tag, so
+; field i is word i.
+(struct Pt (x : Int) (y : Int))
+(:: main Int)
+(fn (main) (let ((p (Pt 3 9))) (+ p.x p.y)))

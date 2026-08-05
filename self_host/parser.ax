@@ -54,6 +54,9 @@
 (pub :: TAG_E_SET Int)    (pub fn (TAG_E_SET) 25)
 ; (while cond body...): word 1 the condition, word 2 the body Vec.
 (pub :: TAG_E_WHILE Int)  (pub fn (TAG_E_WHILE) 26)
+; Field access `base.field`: word 1 the base expression, word 2 the
+; field's name. Chains fold left: `a.b.c` is ((a.b).c).
+(pub :: TAG_E_FIELD Int)  (pub fn (TAG_E_FIELD) 27)
 
 (pub :: nodeTag (-> Int Int))   (pub fn (nodeTag n) (memGetWord n 0))
 (pub :: nodeA   (-> Int Int))   (pub fn (nodeA   n) (memGetWord n 1))
@@ -210,8 +213,20 @@
 (pub fn (parseIdentRef tokens pos)
   (if (peekIs tokens pos TK_IDENT)
       (let ((t (vecGet tokens pos)))
-        (pOk (mkEVar (tokenLexeme t)) (advance pos)))
+        (parseFieldChain tokens (advance pos) (mkEVar (tokenLexeme t))))
   (pErr pos)))
+
+; `.field` suffixes make field accesses, folded left so `a.b.c` reads
+; the `c` of the value at `a.b`. Dotted module paths never reach here -
+; imports parse through parseModPath.
+(pub :: parseFieldChain (-> Int Int Int Int))
+(pub fn (parseFieldChain tokens pos base)
+  (if (&& (peekIs tokens pos TK_DOT)
+          (peekIs tokens (advance pos) TK_IDENT))
+      (parseFieldChain tokens (advance (advance pos))
+        (mkNode TAG_E_FIELD base
+                (tokenLexeme (vecGet tokens (advance pos))) 0))
+      (pOk base pos)))
 
 ; ------------------------------------------------------------------
 ; Parse an identifier token, returning the lexeme Str handle.
@@ -539,10 +554,21 @@
     (if (== (memGetWord nr 0) 0) nr
         (let ((fieldName (memGetWord nr 1))
               (nextPos (memGetWord nr 2)))
-          (let ((afterSkip (skipParens tokens nextPos 1)))
-            (if (== (memGetWord afterSkip 0) 0) afterSkip
-                (let ((afterForm (memGetWord afterSkip 2)))
-                  (pOk (mkField fieldName 0) afterForm))))))))
+          ; `(name : Type)` - the type used to be skipped whole; the
+          ; field's float flag now survives (a bare `Float` is 1), so
+          ; `p.f` arithmetic picks float instructions.
+          (if (&& (peekIs tokens nextPos TK_COLON)
+                  (peekIs tokens (advance nextPos) TK_IDENT))
+              (let ((fl (identIsFloat tokens (advance nextPos))))
+                (if (peekIs tokens (advance (advance nextPos)) TK_RPAREN)
+                    (pOk (mkField fieldName fl)
+                         (advance (advance (advance nextPos))))
+                    (let ((r (skipParens tokens (advance (advance nextPos)) 1)))
+                      (if (== (memGetWord r 0) 0) r
+                          (pOk (mkField fieldName fl) (memGetWord r 2))))))
+              (let ((afterSkip (skipParens tokens nextPos 1)))
+                (if (== (memGetWord afterSkip 0) 0) afterSkip
+                    (pOk (mkField fieldName 0) (memGetWord afterSkip 2)))))))))
 
 ; ------------------------------------------------------------------
 ; Parse (macro (name params...) template)
