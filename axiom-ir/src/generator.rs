@@ -1648,11 +1648,25 @@ impl IrGen {
         params: &[Pattern],
         body: &Expr,
         type_checker: &mut TypeChecker,
+        enclosing: &HashMap<String, String>,
     ) -> (IrValue, Vec<String>) {
         self.lambda_counter += 1;
         let lambda_name = format!("_lambda_{}", self.lambda_counter);
 
-        let free_vars = free_variables(body, params);
+        // A name is only a *capture* if the enclosing function actually
+        // binds it. A top-level function or constructor referenced in
+        // the body resolves globally inside the lifted body exactly as
+        // it does outside, and "capturing" one stored the undefined SSA
+        // value `%add` into the record - which is why the lambda
+        // rewrite AX3013 prescribes used to die in llc. An enclosing
+        // local that shadows a global name still captures, because the
+        // body's reference means the local.
+        let mut free_vars = free_variables(body, params);
+        free_vars.retain(|fv| {
+            enclosing.contains_key(fv)
+                || !(find_constructor(type_checker, fv).is_some()
+                    || type_checker.functions.iter().any(|f| f.name == *fv))
+        });
 
         let mut lambda_params: Vec<(String, TypeId)> = Vec::new();
         lambda_params.push((
@@ -2092,38 +2106,31 @@ impl IrGen {
                     }
                 }
 
-                if let Expr::ELam(params, body) = current {
-                    let saved = self.current_block.clone();
-                    let saved_entry = self.entry_block.clone();
-                    let (lambda_val, _free_vars) = self.gen_lambda(params, body, type_checker);
-                    self.current_block = saved;
-                    self.entry_block = saved_entry;
-                    let lambda_name;
-                    if let IrValue::Global(name) = lambda_val {
-                        lambda_name = name;
-                    } else {
-                        lambda_name = "unknown".to_string();
-                    }
-
-                    let dest = self.new_local();
-                    let mut lambda_args = all_args;
-                    lambda_args.insert(
-                        0,
-                        IrValue::Const(IrConst::Int(0, TypeId::TCon("I64".to_string(), vec![]))),
-                    );
-                    let boxed_lambda_args: Vec<IrValue> = lambda_args
-                        .iter()
-                        .map(|a| self.box_if_tag(func, a))
-                        .collect();
-                    self.emit_to_func(
+                // A head that is not a bare name - a lambda literal, an
+                // `if` or `match` selecting between functions, a block -
+                // evaluates to a function *value*, and the arguments
+                // apply to it one at a time, exactly as surplus
+                // arguments apply to a returned closure. Three former
+                // bugs lived here: a lambda head was special-cased into
+                // a direct call that passed `0` for the closure, so a
+                // *capturing* lambda applied in place loaded its
+                // captures from address zero and crashed; every other
+                // expression head fell through to a call to the
+                // undefined symbol `@unknown` and died in llc; and
+                // there is no third case, because the value path is the
+                // meaning of application. (The arguments were evaluated
+                // when the spine was flattened, so an effectful head
+                // runs after its arguments - the one observable
+                // asymmetry, and the same one the named-head path has.)
+                if !matches!(current, Expr::EVar(_) | Expr::EQualified(_, _)) {
+                    let head_val = self.gen_expr_to_func_with_allocas(
                         func,
-                        IrInst::Call {
-                            dest: IrValue::Local(dest.clone()),
-                            func: lambda_name,
-                            args: boxed_lambda_args,
-                        },
+                        current,
+                        alloca_map,
+                        type_checker,
+                        None,
                     );
-                    return IrValue::Local(dest);
+                    return self.gen_over_apply(func, head_val, all_args);
                 }
 
                 let func_name;
@@ -2140,8 +2147,7 @@ impl IrGen {
                     func_name = ident.name.clone();
                     call_name = self.mangled_name_for(&ident.name);
                 } else {
-                    func_name = "unknown".to_string();
-                    call_name = "unknown".to_string();
+                    unreachable!("non-name heads take the function-value path above");
                 }
 
                 let dest = self.new_local();
@@ -2357,12 +2363,24 @@ impl IrGen {
                                 offset: 0,
                             },
                         );
-                        let mut indirect_args = all_args;
-                        indirect_args.insert(0, IrValue::Local(closure_val));
-                        let boxed_args: Vec<IrValue> = indirect_args
-                            .iter()
-                            .map(|a| self.box_if_tag(func, a))
-                            .collect();
+                        // One argument per call, not all at once. Every
+                        // function value a local can legally hold
+                        // absorbs exactly one argument - a 1-parameter
+                        // function's record, or a lambda in a curried
+                        // chain; multi-parameter bare references are
+                        // refused at check (AX3013) and multi-parameter
+                        // lambdas are tuple-typed and unapplicable - so
+                        // a flat spine like `(h 3 4)` over a curried `h`
+                        // means "apply, then apply the result". Passing
+                        // both arguments in one call answered with the
+                        // inner closure's address instead of running it.
+                        let first = all_args[0].clone();
+                        let rest: Vec<IrValue> = all_args[1..].to_vec();
+                        let boxed_args: Vec<IrValue> =
+                            [IrValue::Local(closure_val), first]
+                                .iter()
+                                .map(|a| self.box_if_tag(func, a))
+                                .collect();
                         self.emit_to_func(
                             func,
                             IrInst::CallIndirect {
@@ -2371,7 +2389,7 @@ impl IrGen {
                                 args: boxed_args,
                             },
                         );
-                        return IrValue::Local(dest);
+                        return self.gen_over_apply(func, IrValue::Local(dest), rest);
                     }
                 }
 
@@ -3148,7 +3166,8 @@ impl IrGen {
             Expr::ELam(params, body) => {
                 let saved = self.current_block.clone();
                 let saved_entry = self.entry_block.clone();
-                let (lambda_val, free_vars) = self.gen_lambda(params, body, type_checker);
+                let (lambda_val, free_vars) =
+                    self.gen_lambda(params, body, type_checker, alloca_map);
                 self.current_block = saved;
                 self.entry_block = saved_entry;
 

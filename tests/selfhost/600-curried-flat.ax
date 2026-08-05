@@ -1,0 +1,11 @@
+; expect 7
+; A flat two-argument spine over a local holding a curried lambda
+; chain: each indirect call absorbs exactly one argument and the
+; result is the record for the next - `(h 3 4)` is "apply, then apply
+; the result". Passing both arguments in one call answered with the
+; inner closure's address; both compilers had that bug and both now
+; chain.
+(:: main Int)
+(fn (main)
+  (let ((h (lambda (a) (lambda (b) (+ a b)))))
+    (h 3 4)))

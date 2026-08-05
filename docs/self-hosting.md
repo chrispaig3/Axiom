@@ -620,6 +620,43 @@ representation the conformance suite exercises. A corpus scan of all
 changed meaning. Currying properly - runtime arity in the closure
 record - remains open work if anything ever wants it.
 
+An adversarial review of that change - three independent hunters,
+every finding re-reproduced by a verifier told to refute it -
+confirmed fourteen findings, and fixing them made application
+*uniform* rather than merely refused. The false positives were one
+root cause: the arity lookup took the first name match while imports
+merge ahead of the entry file's declarations, so an entry-file
+`helper` was flagged with an imported `helper`'s arity; lookups now
+take the last match, the resolution the type checker itself uses.
+Qualified constructor forms (`Mod::MkP`, applied or bare) had
+bypassed the expression-site arity check through a `module.is_none()`
+gate; both now refuse. A refused spine now types as `TError`, so the
+refusal is the one diagnostic instead of being followed by a
+consequent mismatch at the same site. And three generator bugs fell
+to one principle - every function value absorbs exactly one argument
+per call: a flat spine over a local holding a curried chain
+(`(h 3 4)`) passed both arguments in one indirect call and answered
+with the inner closure's address, in both compilers; an `if` or
+`match` in head position lowered to a call to the undefined symbol
+`@unknown`; and a lambda head was special-cased into a direct call
+passing 0 for the closure, so a capturing lambda applied in place
+read captures from address zero. Non-name heads now evaluate as
+values and apply one argument at a time, in stage0 and stage1 alike.
+Separately, `free_variables` treated a lambda body's reference to a
+top-level function as a capture and stored the undefined SSA value
+`%add` into the record - which broke exactly the rewrite `AX3013`'s
+help text prescribes; global names now resolve globally inside the
+lifted body unless an enclosing local shadows them. Pinned by
+`tests/stdlib/280-function-application.ax` (the matrix of fixed
+shapes), `tests/selfhost/600-curried-flat.ax` (stage1's chain), and
+regression tests for the shadowed-import and qualified-constructor
+diagnostics. Still open, recorded not fixed: signature-only
+declarations have no parameter count and escape the arity rules
+(their calls die later as a raw `opt` error about the undefined
+symbol), and which *symbol* codegen links for a cross-import name
+collision is resolver-dependent in ways the type checker does not
+share - the B4 unification question.
+
 Struct field access works: `p.x` resolves the field by name in the
 struct registry and loads at its word offset, chains fold left, and
 the field's declared type travels - a `Float` field read feeds float

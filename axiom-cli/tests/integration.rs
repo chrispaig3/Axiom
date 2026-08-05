@@ -105,6 +105,63 @@ fn check_rejects_an_undefined_variable_with_the_right_code() {
     assert!(stderr(&out).contains("AX3001"), "stderr: {}", stderr(&out));
 }
 
+/// The entry file's own 1-parameter `helper` shadows a same-named
+/// 2-parameter import, and the saturated call to it must not be
+/// flagged with the *import's* arity: imports are merged ahead of the
+/// entry file's declarations, and the arity lookup has to take the
+/// last match - the resolution the type checker itself uses - or it
+/// contradicts the typing it rides along with. Found by adversarial
+/// review; the program compiled and ran before AX3013 existed.
+#[test]
+fn an_entry_fn_shadowing_an_imported_fn_is_not_partial_application() {
+    let dir = scratch_dir("check-shadowed-import-arity");
+    std::fs::create_dir_all(dir.join("Q")).unwrap();
+    write_source(
+        &dir,
+        "Q/Mod.ax",
+        "(pub :: helper (-> Int Int Int))\n(pub fn (helper a b) (+ a b))\n",
+    );
+    write_source(
+        &dir,
+        "main.ax",
+        "(import Q.Mod)\n(:: helper (-> Int Int))\n(fn (helper x) (+ x 11))\n\
+         (:: main Int)\n(fn main (helper 10))\n",
+    );
+    let out = run_axiom(&["--diagnostic-format=ai", "check", "main.ax"], &dir);
+    assert!(
+        out.status.success(),
+        "saturated call to the entry's own fn was flagged: {}",
+        stderr(&out)
+    );
+}
+
+/// Qualified constructor forms take the same expression-site arity
+/// rules as bare ones: `(Mod::MkP 1)` for a 2-field constructor, and
+/// bare `Mod::MkP`, both used to pass `check` and die in `opt` as
+/// `use of undefined value`.
+#[test]
+fn a_qualified_underapplied_constructor_is_refused() {
+    let dir = scratch_dir("check-qualified-ctor-arity");
+    write_source(&dir, "ModD.ax", "(pub data PairD (a) (MkP Int Int))\n");
+    write_source(
+        &dir,
+        "main.ax",
+        "(import ModD)\n(:: main Int)\n(fn main (let ((a (ModD::MkP 1))) 0))\n",
+    );
+    let out = run_axiom(&["--diagnostic-format=ai", "check", "main.ax"], &dir);
+    assert!(!out.status.success());
+    assert!(stderr(&out).contains("AX3009"), "stderr: {}", stderr(&out));
+
+    write_source(
+        &dir,
+        "bare.ax",
+        "(import ModD)\n(:: main Int)\n(fn main (let ((a ModD::MkP)) 0))\n",
+    );
+    let out = run_axiom(&["--diagnostic-format=ai", "check", "bare.ax"], &dir);
+    assert!(!out.status.success());
+    assert!(stderr(&out).contains("AX3009"), "stderr: {}", stderr(&out));
+}
+
 /// The program that used to type-check and then SIGSEGV: an
 /// under-applied call compiled into a call with the missing argument
 /// simply omitted, and the garbage result was dereferenced as a

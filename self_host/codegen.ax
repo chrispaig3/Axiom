@@ -1949,46 +1949,55 @@
       true
       (>= (paramIndexOf cg name) 0)))
 
-; Call through a function value: the head evaluates to a closure
-; record, word 0 is the code pointer, and the call passes the record
-; itself first - the callee is a lifted lambda reading its captures
-; from it, or a forwarding thunk ignoring it - then every argument at
-; once. Saturated application only - stage0 curries a partial
-; application into a fresh closure, which needs runtime arity the
-; record does not carry; nothing in the corpus partially applies. The
+; Call through a function value: one argument per call. The head
+; evaluates to a closure record; each step loads word 0 of the current
+; record as the code pointer and calls it with (record, argument), and
+; the result is the record for the next step - a lifted lambda reads
+; its captures from the record, a forwarding thunk ignores it. One at
+; a time rather than all at once, because every function value that
+; can legally exist absorbs exactly one argument - a 1-parameter
+; function's thunk record, or one link of a curried lambda chain - so
+; a flat spine `(h 3 4)` over a curried `h` means "apply, then apply
+; the result"; passing both in one call answered with the inner
+; closure's address, the same bug stage0's local-head path had. The
 ; result's float-ness is unknown (no signature to ask), so it reads
 ; as integer.
 (pub :: emitIndirectCall (-> Int Int Int Int))
 (pub fn (emitIndirectCall fnName args cg)
   (let ((cgH (emitVar (mkEVar fnName) cg)))
-    (let ((h (strDup (memGetWord cgH 2))))
-      (let ((cgL (loadWordAt cgH h 0)))
-        (let ((cp (strDup (memGetWord cgL 2)))
-              (cgA (emitArgsList args cgL 0)))
-          (let ((argStrT (memGetWord cgA 9))
-                (fpn (allocReg cgA))
-                (rn (allocReg cgA)))
-            (let ((fp (cat2 "%f" (fmtInt fpn)))
-                  (r (regStr rn)))
-              {
-                (emitLine cgA (cat4 (cat2 "  " fp)
-                                    " = inttoptr i64 "
-                                    cp
-                                    " to ptr"))
-                (emitLine cgA (strConcat
-                                (cat4 (cat3 (cat2 "  " r)
-                                            " = call i64 "
-                                            fp)
-                                      "(i64 "
-                                      (strDup h)
-                                      (if (== (vecLen args) 0)
-                                          ""
-                                          (cat2 ", i64 " argStrT)))
-                                ")"))
-                (memSetWord cgA 2 r)
-                (memSetWord cgA 14 0)
-                cgA
-              })))))))
+    (emitApplyChain args cgH (strDup (memGetWord cgH 2)) 0)))
+
+(pub :: emitApplyChain (-> Int Int Int Int Int))
+(pub fn (emitApplyChain args cg rec i)
+  (if (>= i (vecLen args))
+      {
+        (memSetWord cg 2 rec)
+        (memSetWord cg 14 0)
+        cg
+      }
+      (let ((cgA (emitExpr (vecGet args i) cg)))
+        (let ((a (strDup (memGetWord cgA 2))))
+          (let ((cgL (loadWordAt cgA rec 0)))
+            (let ((cp (strDup (memGetWord cgL 2)))
+                  (fpn (allocReg cgL))
+                  (rn (allocReg cgL)))
+              (let ((fp (cat2 "%f" (fmtInt fpn)))
+                    (r (regStr rn)))
+                {
+                  (emitLine cgL (cat4 (cat2 "  " fp)
+                                      " = inttoptr i64 "
+                                      cp
+                                      " to ptr"))
+                  (emitLine cgL (strConcat
+                                  (cat4 (cat3 (cat2 "  " r)
+                                              " = call i64 "
+                                              fp)
+                                        "(i64 "
+                                        (strDup rec)
+                                        (cat2 ", i64 " a))
+                                  ")"))
+                  (emitApplyChain args cgL (strDup r) (+ i 1))
+                })))))))
 
 ; ------------------------------------------------------------------
 ; Freestanding primitives.

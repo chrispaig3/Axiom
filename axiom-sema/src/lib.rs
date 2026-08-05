@@ -1544,8 +1544,25 @@ impl TypeChecker {
                 // re-raises it.
                 let at_spine_root = !self.in_app_head;
                 self.in_app_head = false;
-                if at_spine_root {
-                    self.check_app_saturation(expr);
+                if at_spine_root && self.check_app_saturation(expr) {
+                    // The spine is refused. The arguments are still
+                    // checked for their own diagnostics, and the whole
+                    // spine types as `TError`, so the refusal is the one
+                    // report - without the poison, the leftover arrow
+                    // this would otherwise type as fed a second,
+                    // consequent mismatch at the same site ("expected
+                    // function type" on the follow-on application, or an
+                    // operand mismatch inside `+`).
+                    let mut spine_args = Vec::new();
+                    let mut current = expr;
+                    while let Expr::EApp(func, a) = current {
+                        spine_args.push(a.as_ref());
+                        current = func;
+                    }
+                    for a in spine_args.into_iter().rev() {
+                        self.check_expr(a);
+                    }
+                    return TypeId::TError;
                 }
 
                 // Arithmetic and comparison over `Int` *or* `Float`.
@@ -2042,9 +2059,9 @@ impl TypeChecker {
     }
 
     /// Report an application spine that supplies fewer arguments than
-    /// its head's representation declares. Runs once per spine, at the
-    /// root; purely a reporter, so the ordinary per-node typing below
-    /// still produces the spine's type and every argument's own errors.
+    /// its head's representation declares, returning whether it did -
+    /// the caller poisons a flagged spine so the refusal is the one
+    /// diagnostic. Runs once per spine, at the root.
     ///
     /// Resolution mirrors `check_var`: a local in scope shadows a
     /// top-level function or constructor and makes the head a function
@@ -2055,7 +2072,7 @@ impl TypeChecker {
     /// references to multi-parameter functions are refused (see
     /// `check_var`): every value a local can legally hold is applicable
     /// one argument at a time.
-    fn check_app_saturation(&mut self, expr: &Expr) {
+    fn check_app_saturation(&mut self, expr: &Expr) -> bool {
         let mut found = 0usize;
         let mut current = expr;
         while let Expr::EApp(func, _) = current {
@@ -2065,7 +2082,7 @@ impl TypeChecker {
         let (name, module, _span) = match current {
             Expr::EVar(ident) => {
                 if self.is_frame_local(ident) {
-                    return;
+                    return false;
                 }
                 (ident.name.clone(), None, ident.span)
             }
@@ -2077,12 +2094,23 @@ impl TypeChecker {
                     .join(".");
                 (ident.name.clone(), Some(m), ident.span)
             }
-            _ => return,
+            _ => return false,
         };
 
+        // Resolution takes the LAST matching entry, not the first:
+        // imports are merged ahead of the entry file's own declarations,
+        // and the checker's scope-based resolution gives later
+        // declarations precedence - so an entry-file `helper` shadows an
+        // imported one, and this lookup must agree with the typing it
+        // rides along with or it flags calls the checker itself accepts.
+        // (Which *symbol* codegen then calls for a cross-import
+        // collision is a separate, older question - see B4 - but the
+        // diagnostic must at minimum be consistent with the type
+        // checker.)
         let fn_arity = self
             .functions
             .iter()
+            .rev()
             .find(|f| {
                 f.name == name
                     && match &module {
@@ -2099,28 +2127,33 @@ impl TypeChecker {
                     found,
                     span: expr.span(),
                 });
+                return true;
             }
-            return;
+            return false;
         }
 
-        if module.is_none() {
-            let con_arity = self
-                .data_types
-                .iter()
-                .flat_map(|dt| dt.constructors.iter())
-                .find(|c| c.name == name)
-                .map(|c| arrow_depth(&c.ty));
-            if let Some(expected) = con_arity {
-                if found < expected {
-                    self.errors.push(SemError::ConstructorArity {
-                        name,
-                        expected,
-                        found,
-                        span: expr.span(),
-                    });
-                }
+        let con_arity = self
+            .data_types
+            .iter()
+            .filter(|dt| match &module {
+                Some(m) => dt.module.as_deref() == Some(m.as_str()),
+                None => true,
+            })
+            .flat_map(|dt| dt.constructors.iter())
+            .rfind(|c| c.name == name)
+            .map(|c| arrow_depth(&c.ty));
+        if let Some(expected) = con_arity {
+            if found < expected {
+                self.errors.push(SemError::ConstructorArity {
+                    name,
+                    expected,
+                    found,
+                    span: expr.span(),
+                });
+                return true;
             }
         }
+        false
     }
 
     /// Whether `ident` names a binding local to the function currently
@@ -2150,8 +2183,12 @@ impl TypeChecker {
         // the top-level name and is exempt - it holds a value, and
         // values are applied indirectly.
         let flagged = if !self.in_app_head && !self.is_frame_local(ident) {
+            // Last match, not first: the entry file's declarations are
+            // merged after imports and shadow them - see
+            // `check_app_saturation`.
             self.functions
                 .iter()
+                .rev()
                 .find(|f| f.name == ident.name)
                 .and_then(Self::representation_arity)
                 .filter(|&a| a >= 2)
@@ -2163,7 +2200,7 @@ impl TypeChecker {
                     self.data_types
                         .iter()
                         .flat_map(|dt| dt.constructors.iter())
-                        .find(|c| c.name == ident.name)
+                        .rfind(|c| c.name == ident.name)
                         .map(|c| arrow_depth(&c.ty))
                         .filter(|&a| a >= 1)
                         .map(|a| (a, true))
@@ -2242,18 +2279,37 @@ impl TypeChecker {
             .collect::<Vec<_>>()
             .join(".");
 
-        // Same value-position rule as `check_var`: a qualified name is
-        // never a local, so only the multi-parameter-function check
-        // applies.
+        // Same value-position rules as `check_var`: a qualified name is
+        // never a local, so no frame-local exemption applies - only the
+        // multi-parameter-function check and the bare fieldful
+        // constructor check.
         if !self.in_app_head {
             let flagged = self
                 .functions
                 .iter()
+                .rev()
                 .find(|f| f.name == name.name && f.module.as_deref() == Some(&module))
                 .and_then(Self::representation_arity)
                 .filter(|&a| a >= 2);
             if let Some(expected) = flagged {
                 self.errors.push(SemError::PartialApplication {
+                    name: format!("{}::{}", module, name.name),
+                    expected,
+                    found: 0,
+                    span: name.span,
+                });
+                return TypeId::TError;
+            }
+            let con_flagged = self
+                .data_types
+                .iter()
+                .filter(|dt| dt.module.as_deref() == Some(&module))
+                .flat_map(|dt| dt.constructors.iter())
+                .rfind(|c| c.name == name.name)
+                .map(|c| arrow_depth(&c.ty))
+                .filter(|&a| a >= 1);
+            if let Some(expected) = con_flagged {
+                self.errors.push(SemError::ConstructorArity {
                     name: format!("{}::{}", module, name.name),
                     expected,
                     found: 0,
@@ -3224,6 +3280,22 @@ mod tests {
 (fn main (let ((f On)) 0))"#,
         )
         .expect("a bare nullary constructor constructs");
+    }
+
+    #[test]
+    fn a_refused_spine_is_one_diagnostic_not_a_cascade() {
+        // Without poisoning, the flagged inner spine typed as its
+        // leftover arrow and fed `+` a second, consequent mismatch at
+        // the same site. The refusal is the root cause and must be the
+        // one report.
+        let errors = check_err(
+            r#"(:: add2 (-> Int Int Int))
+(fn (add2 x y) (+ x y))
+(:: main Int)
+(fn main (+ 1 (add2 1)))"#,
+        );
+        assert_eq!(errors.len(), 1, "expected exactly one error: {:?}", errors);
+        assert!(matches!(&errors[0], SemError::PartialApplication { .. }));
     }
 
     #[test]

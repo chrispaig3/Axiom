@@ -1,0 +1,58 @@
+; Every application shape whose head is not a bare saturated name, on
+; the shapes an adversarial review of the AX3013 work found broken:
+;
+;   - a flat multi-argument spine over a local holding a curried chain
+;     passed every argument in one indirect call, so `(h 3 4)` answered
+;     with the inner closure's heap address instead of 7;
+;   - an `if` or `match` in head position lowered to a call to the
+;     undefined symbol `@unknown` and died in llc;
+;   - a lambda head was special-cased into a direct call passing 0 for
+;     the closure, so a *capturing* lambda applied in place read its
+;     captures from address zero;
+;   - a lambda body calling a top-level function "captured" the
+;     function's name and stored the undefined SSA value `%add` into
+;     the record - breaking exactly the rewrite AX3013's help text
+;     prescribes.
+;
+; All four are one principle now: a non-name head evaluates to a
+; function value, and every function value absorbs one argument per
+; call.
+(import IO)
+
+(pub :: add2 (-> Int Int Int))
+(pub fn (add2 x y) (+ x y))
+
+(pub :: inc (-> Int Int))
+(pub fn (inc x) (+ x 1))
+
+(pub :: dec (-> Int Int))
+(pub fn (dec x) (- x 1))
+
+(pub :: mkAdder (-> Int (-> Int Int)))
+(pub fn (mkAdder a) (lambda (b) (+ a b)))
+
+(pub data Pick (a) (First) (Second))
+
+(pub :: main Int)
+;@axiom:effect(io)
+(pub fn (main)
+  {
+    ; --- flat multi-arg spine over a curried local ---
+    (printlnInt (let ((h (mkAdder 3))) (h 4)))                       ; 7
+    (printlnInt (let ((h (lambda (a) (lambda (b) (+ a b))))) (h 3 4))) ; 7
+
+    ; --- expression heads: if, match ---
+    (printlnInt ((if true inc dec) 10))                              ; 11
+    (printlnInt ((if false inc dec) 10))                             ; 9
+    (printlnInt ((match (First) ((First) inc) ((Second) dec)) 20))   ; 21
+    (printlnInt ((match (Second) ((First) inc) ((Second) dec)) 20))  ; 19
+
+    ; --- capturing lambda applied in place ---
+    (printlnInt (let ((n 30)) ((lambda (x) (+ x n)) 5)))             ; 35
+
+    ; --- the rewrite AX3013 prescribes: a lambda body calling a
+    ;     top-level function must not capture the function's name ---
+    (printlnInt (let ((g (lambda (y) (add2 1 y)))) (g 2)))           ; 3
+    (printlnInt ((lambda (y) (add2 40 y)) 2))                        ; 42
+    0
+  })
