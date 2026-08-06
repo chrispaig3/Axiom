@@ -126,7 +126,33 @@
 ;            twice)
 ; Field 26 = target (Int code, see `targetCode`; what the syscall asm,
 ;            allocator numbers, and triple are emitted for)
-(pub struct CG (lines : Int) (tmp : Int) (result : Int) (types : Int) (tagN : Int) (argVec : Int) (symnames : Int) (symregs : Int) (decls : Int) (argsTyped : Int) (strings : Int) (curBlock : Int) (mangleBares : Int) (mangleFulls : Int) (resultIsFloat : Int) (floatSigs : Int) (symfloats : Int) (curParams : Int) (curFlags : Int) (macros : Int) (symkinds : Int) (pendingLams : Int) (lamN : Int) (thunkFulls : Int) (thunkArities : Int) (thunksEmitted : Int) (target : Int))
+(pub struct CG (lines : Int) (tmp : Int) (result : Int) (types : Int) (tagN : Int) (argVec : Int) (symnames : Int) (symregs : Int) (decls : Int) (argsTyped : Int) (strings : Int) (curBlock : Int) (mangleBares : Int) (mangleFulls : Int) (resultIsFloat : Int) (floatSigs : Int) (symfloats : Int) (curParams : Int) (curFlags : Int) (macros : Int) (symkinds : Int) (pendingLams : Int) (lamN : Int) (thunkFulls : Int) (thunkArities : Int) (thunksEmitted : Int) (target : Int) (tcoName : Int) (tcoSlots : Int) (tcoLabel : Int) (tailOK : Int) (terminated : Int))
+
+; ------------------------------------------------------------------
+; Tail-call optimisation, fields 27-31.
+;
+; A self tail call becomes parameter reassignment plus a branch back to
+; the function's loop header - stage0's rule, and without it a
+; self-recursive Axiom function compiled by stage1 is a real call chain
+; that overflows the stack where the same source compiled by stage0
+; loops forever in constant space. `stdlib/Mem.ax` met that ceiling for
+; real: its byte loops were self tail calls, and a `memCopy` of a few
+; hundred kilobytes segfaulted a stage1-built compiler.
+;
+;   tcoName   the symbol this function is being emitted as, or 0 when
+;             the body contains no self tail call and none of this
+;             applies - which is most functions, and they emit exactly
+;             the LLVM they did before.
+;   tcoSlots  one alloca register per parameter, in parameter order.
+;   tcoLabel  the loop header to branch back to.
+;   tailOK    set only for the instant between `emitExprTail` deciding
+;             an application sits in tail position and `dispatchCall`
+;             reading it. Anything else that emits a call clears it, so
+;             a call in argument position can never be rewritten.
+;   terminated  the current block already ended with a terminator, so
+;             no `br` or `ret` may follow and a phi must not name it as
+;             a predecessor.
+; ------------------------------------------------------------------
 
 ; The constructor tag counter starts at 2, not 0: stage0's tag is the
 ; ordinal position in a flat walk of every data type the type checker
@@ -137,7 +163,7 @@
 ; user constructor 2).
 (pub :: newCG Int)
 (pub fn (newCG)
-  (CG vecNew 0 "" vecNew 2 vecNew vecNew vecNew 0 "" vecNew "entry" vecNew vecNew 0 vecNew vecNew 0 0 vecNew vecNew vecNew 0 vecNew vecNew 0 0))
+  (CG vecNew 0 "" vecNew 2 vecNew vecNew vecNew 0 "" vecNew "entry" vecNew vecNew 0 vecNew vecNew 0 0 vecNew vecNew vecNew 0 vecNew vecNew 0 0 0 vecNew "" 0 0))
 
 (pub :: zeroFloat (-> Int Int))
 (pub fn (zeroFloat cg)
@@ -1186,9 +1212,338 @@
         (let ((cg1 (emitLine cg hdr)))
           ; Re-scan declarations to ensure types Vec is fresh before emitting body
           (let ((cg1b (scanDecls (memGetWord cg1 8) cg1 0)))
-            (let ((cg2 (emitExpr body cg1b)))
-              (let ((ret (cat3 "  ret i64 " (strDup (memGetWord cg2 2)) "")))
-                (emitLine (emitLine cg2 ret) "}")))))))))
+            ; A function that tail-calls itself gets a loop instead of a
+            ; recursion: its parameters move into allocas, a header
+            ; label is branched to, and the call assigns and jumps back.
+            ; A function that does not is emitted exactly as before -
+            ; same registers, same blocks, byte for byte - because most
+            ; functions are that, and paying an alloca and two memory
+            ; operations per parameter for a loop nobody enters is a
+            ; cost with no buyer.
+            (let ((wantsTCO (tailCallsSelf body (nodeA node) (vecLen params))))
+              (let ((cg1c (if (== wantsTCO 1)
+                              (openTailLoop name params cg1b)
+                              cg1b)))
+                (let ((cg2 (if (== wantsTCO 1)
+                               (emitExprTail body cg1c)
+                               (emitExpr body cg1c))))
+                  {
+                    (memSetWord cg2 27 0)
+                    (memSetWord cg2 30 0)
+                    ; A body that ended by jumping back to the header
+                    ; has already terminated its block; a `ret` after it
+                    ; is a second terminator and invalid LLVM.
+                    (if (== (memGetWord cg2 31) 1)
+                        {
+                          (memSetWord cg2 31 0)
+                          (emitLine cg2 "}")
+                        }
+                        (let ((ret (cat3 "  ret i64 " (strDup (memGetWord cg2 2)) "")))
+                          (emitLine (emitLine cg2 ret) "}")))
+                  })))))))))
+
+; Move every parameter into an alloca, bind it as mutable storage so
+; body references load it, and open the loop the tail call jumps back
+; to. `bindSym ... 1` is the same registration `mut` locals use, which
+; is what makes `emitVar` emit a load without knowing about any of
+; this.
+(pub :: openTailLoop (-> Int Int Int Int))
+(pub fn (openTailLoop name params cg)
+  (let ((slots vecNew)
+        (hdrN (allocReg cg)))
+    (let ((hdrB (cat2 "label_" (fmtInt hdrN))))
+      {
+        (allocParamSlots params slots cg 0)
+        (memSetWord cg 27 (strDup name))
+        (memSetWord cg 28 slots)
+        (memSetWord cg 29 hdrB)
+        (emitLine cg (cat2 "  br label %" hdrB))
+        (emitLabel cg hdrB)
+        cg
+      })))
+
+(pub :: allocParamSlots (-> Int Int Int Int Int))
+(pub fn (allocParamSlots params slots cg i)
+  (if (>= i (vecLen params))
+      0
+      (let ((pname (vecGet params i))
+            (an (allocReg cg)))
+        (let ((ar (cat2 "%a" (fmtInt an))))
+          {
+            (emitLine cg (cat2 (cat2 "  " ar) " = alloca i64"))
+            (emitLine cg (cat4 "  store i64 %" (strDup pname) ", ptr " ar))
+            (bindSym cg pname ar (paramFloatFlag cg i) 1)
+            (vecPush slots ar)
+            (allocParamSlots params slots cg (+ i 1))
+          }))))
+
+; Whether parameter `i` of the function being emitted is a float, from
+; the signature flags the emitter already carries.
+(pub :: paramFloatFlag (-> Int Int Int))
+(pub fn (paramFloatFlag cg i)
+  (let ((flags (memGetWord cg 18)))
+    (if (== flags 0)
+        0
+        (if (>= i (vecLen flags))
+            0
+            (vecGet flags i)))))
+
+; The tail jump: every argument is evaluated into its own register
+; FIRST, and only then are the parameter slots written. Assigning as
+; each argument is computed would clobber a parameter a later argument
+; still reads - `(go (- n 1) n)` would see the decremented `n` twice.
+(pub :: emitTailJump (-> Int Int Int))
+(pub fn (emitTailJump args cg)
+  (let ((vals vecNew))
+    {
+      (evalTailArgs args vals cg 0)
+      (storeTailSlots (memGetWord cg 28) vals cg 0)
+      (emitLine cg (cat2 "  br label %" (memGetWord cg 29)))
+      (memSetWord cg 31 1)
+      (memSetWord cg 2 "0")
+      cg
+    }))
+
+(pub :: evalTailArgs (-> Int Int Int Int Int))
+(pub fn (evalTailArgs args vals cg i)
+  (if (>= i (vecLen args))
+      0
+      {
+        (emitExpr (vecGet args i) cg)
+        (vecPush vals (strDup (memGetWord cg 2)))
+        (evalTailArgs args vals cg (+ i 1))
+      }))
+
+(pub :: storeTailSlots (-> Int Int Int Int Int))
+(pub fn (storeTailSlots slots vals cg i)
+  (if (>= i (vecLen slots))
+      0
+      {
+        (emitLine cg (cat4 "  store i64 " (vecGet vals i)
+                           ", ptr " (vecGet slots i)))
+        (storeTailSlots slots vals cg (+ i 1))
+      }))
+
+; ------------------------------------------------------------------
+; Does `e` contain a call to `name` with `arity` arguments in TAIL
+; position?
+;
+; Asked before a function is emitted so that the overwhelming majority
+; of functions - which self-recurse nowhere - keep emitting exactly the
+; LLVM they emitted before, parameters as SSA values and no loop
+; header. Only a function that will actually use the loop pays for it.
+;
+; TAIL POSITION is the whole correctness question. Rewriting a call
+; that is *not* in tail position does not crash; it returns the wrong
+; answer, because the work waiting on the call's result never happens.
+; So the positions here are exactly stage0's, and no others: the last
+; expression of a `{}` block, both arms of an `if`, the body of a
+; `let`, and the expression itself.
+; ------------------------------------------------------------------
+(pub :: tailCallsSelf (-> Int Int Int Int))
+(pub fn (tailCallsSelf e name arity)
+  (let ((tag (nodeTag e)))
+    (if (== tag TAG_E_APP)
+        (if (&& (strEq (spineHeadName e) name)
+                (== (spineArgCount e 0) arity))
+            1
+            0)
+    (if (== tag TAG_E_BEGIN)
+        (let ((v (nodeA e)))
+          (if (== (vecLen v) 0)
+              0
+              (tailCallsSelf (vecGet v (- (vecLen v) 1)) name arity)))
+    (if (== tag TAG_E_IF)
+        (if (== (tailCallsSelf (nodeB e) name arity) 1)
+            1
+            (tailCallsSelf (nodeC e) name arity))
+    (if (|| (== tag TAG_E_LET) (== tag TAG_E_LETM))
+        (tailCallsSelf (nodeC e) name arity)
+        0))))))
+
+; The head of an application spine, as a name, or "" when the head is
+; not a plain name.
+(pub :: spineHeadName (-> Int Int))
+(pub fn (spineHeadName e)
+  (if (== (nodeTag e) TAG_E_APP)
+      (spineHeadName (nodeA e))
+      (if (== (nodeTag e) TAG_E_VAR)
+          (nodeA e)
+          "")))
+
+(pub :: spineArgCount (-> Int Int Int))
+(pub fn (spineArgCount e acc)
+  (if (== (nodeTag e) TAG_E_APP)
+      (spineArgCount (nodeA e) (+ acc 1))
+      acc))
+
+; ------------------------------------------------------------------
+; Emit `e` knowing it sits in tail position.
+;
+; Everything here either delegates to `emitExpr` unchanged or hands
+; tail position to exactly the sub-expression that inherits it. The
+; only thing it does differently is set `tailOK` for an application,
+; which is what lets `dispatchCall` recognise the one call it may
+; rewrite.
+; ------------------------------------------------------------------
+(pub :: emitExprTail (-> Int Int Int))
+(pub fn (emitExprTail e cg)
+  (let ((tag (nodeTag e)))
+    (if (== tag TAG_E_APP)
+        {
+          (memSetWord cg 30 1)
+          (let ((cgA (emitExpr e cg)))
+            {
+              (memSetWord cgA 30 0)
+              cgA
+            })
+        }
+    (if (== tag TAG_E_BEGIN)
+        (emitSeqTail (nodeA e) cg 0)
+    (if (== tag TAG_E_IF)
+        (emitIfTail e cg)
+    (if (== tag TAG_E_LET)
+        (emitLetTail e cg)
+    (if (== tag TAG_E_LETM)
+        (emitLetMTail e cg)
+        (emitExpr e cg))))))))
+
+; Every expression of a block but the last is ordinary; the last
+; inherits tail position.
+(pub :: emitSeqTail (-> Int Int Int Int))
+(pub fn (emitSeqTail exprs cg i)
+  (if (>= i (vecLen exprs))
+      cg
+      (if (== i (- (vecLen exprs) 1))
+          (emitExprTail (vecGet exprs i) cg)
+          (emitSeqTail exprs (emitExpr (vecGet exprs i) cg) (+ i 1)))))
+
+; `let` in tail position: the bound value is ordinary, the body
+; inherits. Mirrors `emitLet`, which this cannot simply call because
+; the body must go through `emitExprTail`.
+(pub :: emitLetTail (-> Int Int Int))
+(pub fn (emitLetTail node cg)
+  (let ((name (nodeA node))
+        (valExpr (nodeB node))
+        (body (nodeC node)))
+    (let ((cg1 (emitExpr valExpr cg)))
+      (let ((valReg (strDup (memGetWord cg1 2)))
+            (valFlag (memGetWord cg1 14))
+            (mark (symMark cg1)))
+        {
+          (bindSym cg1 name valReg valFlag 0)
+          (let ((cgB (emitExprTail body cg1)))
+            {
+              (symRestore cgB mark)
+              cgB
+            })
+        }))))
+
+(pub :: emitLetMTail (-> Int Int Int))
+(pub fn (emitLetMTail node cg)
+  (let ((name (nodeA node))
+        (valExpr (nodeB node))
+        (body (nodeC node)))
+    (let ((cg1 (emitExpr valExpr cg)))
+      (let ((valReg (strDup (memGetWord cg1 2)))
+            (valFlag (memGetWord cg1 14))
+            (mark (symMark cg1))
+            (an (allocReg cg1)))
+        (let ((ar (cat2 "%a" (fmtInt an))))
+          {
+            (emitLine cg1 (cat2 (cat2 "  " ar) " = alloca i64"))
+            (emitLine cg1 (cat4 "  store i64 " valReg ", ptr " ar))
+            (bindSym cg1 name ar valFlag 1)
+            (let ((cgB (emitExprTail body cg1)))
+              {
+                (symRestore cgB mark)
+                cgB
+              })
+          })))))
+
+; `if` in tail position. Both arms inherit, and either may end with a
+; branch back to the loop header instead of a value - so the merge
+; block and its phi have to be built from whichever arms actually
+; reach them. A phi naming a predecessor that jumped elsewhere is
+; invalid LLVM, and a second terminator in a block is too.
+(pub :: emitIfTail (-> Int Int Int))
+(pub fn (emitIfTail node cg)
+  (let ((testExpr (nodeA node))
+        (thenExpr (nodeB node))
+        (elseExpr (nodeC node))
+        (cg1 (emitExpr testExpr cg))
+        (testReg (strDup (memGetWord cg1 2)))
+        (cmpN (allocReg cg1))
+        (thenLbl (allocReg cg1))
+        (elseLbl (allocReg cg1))
+        (mergeLbl (allocReg cg1))
+        (cmpR (regStr cmpN))
+        (thenB (cat2 "label_" (fmtInt thenLbl)))
+        (elseB (cat2 "label_" (fmtInt elseLbl)))
+        (mergeB (cat2 "label_" (fmtInt mergeLbl)))
+        (_1 (emitLine cg1 (cat4 (cat2 "  " cmpR)
+                                " = icmp ne i64 "
+                                testReg
+                                ", 0")))
+        (_2 (emitLine cg1 (cat4 (cat3 "  br i1 " cmpR ", label %")
+                                thenB
+                                (cat2 ", label %" elseB)
+                                "")))
+        (_3 (emitLabel cg1 thenB))
+        (cg2 (emitExprTail thenExpr cg1))
+        (thenTerm (memGetWord cg2 31))
+        (thenVal (strDup (memGetWord cg2 2)))
+        (thenFlag (memGetWord cg2 14))
+        (thenPred (strDup (memGetWord cg2 11)))
+        (_4 (if (== thenTerm 1) 0 (emitLine cg2 (cat2 "  br label %" mergeB))))
+        (_4b (memSetWord cg2 31 0))
+        (_5 (emitLabel cg2 elseB))
+        (cg3 (emitExprTail elseExpr cg2))
+        (elseTerm (memGetWord cg3 31))
+        (elseVal (strDup (memGetWord cg3 2)))
+        (elsePred (strDup (memGetWord cg3 11)))
+        (_6 (if (== elseTerm 1) 0 (emitLine cg3 (cat2 "  br label %" mergeB)))))
+    (if (&& (== thenTerm 1) (== elseTerm 1))
+        ; Neither arm falls through: the whole `if` is a jump, there is
+        ; nothing to merge, and the caller must not emit a `ret`.
+        {
+          (memSetWord cg3 31 1)
+          cg3
+        }
+        (if (== thenTerm 1)
+            ; Only the else arm reaches the merge, so its value is the
+            ; result outright - a phi with one incoming edge would be
+            ; legal but pointless.
+            {
+              (emitLabel cg3 mergeB)
+              (memSetWord cg3 2 elseVal)
+              (memSetWord cg3 14 (memGetWord cg3 14))
+              (memSetWord cg3 31 0)
+              cg3
+            }
+            (if (== elseTerm 1)
+                {
+                  (emitLabel cg3 mergeB)
+                  (memSetWord cg3 2 thenVal)
+                  (memSetWord cg3 14 thenFlag)
+                  (memSetWord cg3 31 0)
+                  cg3
+                }
+                (let ((_7 (emitLabel cg3 mergeB))
+                      (phiN (allocReg cg3)))
+                  (let ((phiR (regStr phiN)))
+                    {
+                      (emitLine cg3
+                        (cat4 (cat3 (cat2 "  " phiR)
+                                    " = phi i64 [ " thenVal)
+                              (cat3 ", %" thenPred " ], [ ")
+                              (cat3 elseVal ", %" elsePred)
+                              " ]"))
+                      (memSetWord cg3 2 phiR)
+                      (memSetWord cg3 14 thenFlag)
+                      (memSetWord cg3 31 0)
+                      cg3
+                    })))))))
 
 (pub :: emitParams (-> Int Int Int Int))
 (pub fn (emitParams params cg i)
@@ -2111,7 +2466,17 @@
 (pub :: dispatchCall (-> Int Int Int))
 (pub fn (dispatchCall fnName cg)
   (let ((revArgs (memGetWord cg 5))
-        (args (reverseVec revArgs)))
+        (args (reverseVec revArgs))
+        ; Read and clear in one step: tail position belongs to this
+        ; call alone, and the arguments emitted below must not inherit
+        ; it - a self call in argument position is an ordinary call.
+        (isTail (memGetWord cg 30))
+        (_clr (memSetWord cg 30 0)))
+    (if (&& (== isTail 1)
+            (&& (!= (memGetWord cg 27) 0)
+                (&& (strEq fnName (memGetWord cg 27))
+                    (== (vecLen args) (vecLen (memGetWord cg 28))))))
+        (emitTailJump args cg)
     ; A macro wins over every other reading of the head, because
     ; stage0 expands before any analysis runs - a macro shadowing a
     ; function name rewrites the call there too, whatever the arity
@@ -2170,7 +2535,7 @@
               (entry (lookupType types fnName)))
           (if (== entry 0)
               (emitCall fnName args cg)
-              (zeroFloat (emitConstructor fnName args (eKind entry) (eArity entry) (eTag entry) (eRep entry) cg))))))))))))))
+              (zeroFloat (emitConstructor fnName args (eKind entry) (eArity entry) (eTag entry) (eRep entry) cg)))))))))))))))
 
 (pub :: isLocalValue (-> Int Int Bool))
 (pub fn (isLocalValue cg name)

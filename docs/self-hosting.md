@@ -891,9 +891,35 @@ unrelated change appearing to break an unrelated test. `memCopyFrom`,
 `memSetFrom` and `memCmpFrom` are `while` loops now, which need no
 optimisation to be flat, and `tests/selfhost/690-large-memcopy.ax`
 copies a megabyte through a stage1-built binary; restoring the
-recursive spelling fails it. stage1's missing TCO is recorded here as
-the standing gap it is - the standard library no longer depends on it,
-but user code still can, and stage0 optimises what stage1 does not.
+recursive spelling fails it.
+
+**stage1 now optimises self tail calls**, which closes that gap at its
+source rather than around it. A self call in tail position becomes
+parameter reassignment plus a branch to a loop header - stage0's rule.
+Three things made it cheap. stage1 already emitted allocas, loads and
+labelled blocks for `mut` locals, so the storage machinery existed;
+registering a parameter with the same `bindSym ... 1` that `mut` uses
+makes every body reference load it without `emitVar` knowing anything
+about tail calls; and the whole apparatus is opened only for a
+function that a pre-pass finds actually tail-calls itself, so every
+other function emits byte for byte the LLVM it emitted before, and
+pays nothing.
+
+Tail position is exactly stage0's set and no larger, because the
+failure mode of getting it wrong is not a crash: rewriting a call that
+is not in tail position silently drops the work waiting on its result
+and returns a wrong answer. So `tests/selfhost/700-tco.ax` checks the
+two directions separately - two million iterations in constant stack,
+and a *non*-tail `(* n (fact (- n 1)))` still computing 10!
+correctly - plus the argument-clobber case, `(pair (- n 1) n)`, whose
+second argument must read the original `n`: every argument is
+evaluated into its own register before any parameter slot is written.
+
+The `Mem` loops stay loops. The recursive spelling would now compile
+to the same thing, but a standard library whose correctness depends on
+an optimisation is a standard library that breaks catastrophically if
+the optimisation ever regresses, and the `while` form costs nothing to
+keep.
 
 What genuinely remains: type checking proper. All three checks are
 structural, and `parseSigDecl` keeps only a signature's name and a

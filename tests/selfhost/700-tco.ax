@@ -1,0 +1,37 @@
+; expect 42
+; A self tail call is a jump, not a call.
+;
+; stage1 emitted no tail-call optimisation at all, so a self-recursive
+; function was a real call chain one frame deep per iteration - and the
+; same source compiled by stage0 ran forever in constant space. It had
+; already bitten: `Mem`'s byte loops overflowed the stack once the
+; compiler's own output grew, which is why they were rewritten as
+; `while` loops.
+;
+; Three properties, and the last two matter more than the first,
+; because a wrong tail-call rewrite does not crash - it returns the
+; wrong answer.
+;
+;   loop    two million iterations in constant stack. Recursion dies
+;           here; a jump does not.
+;   fact    a self call that is NOT in tail position - the multiply
+;           waits on its result - must stay a real call and still
+;           compute 10! correctly.
+;   pair    `(pair (- n 1) n)` reads the ORIGINAL `n` in its second
+;           argument. Assigning parameter slots as each argument is
+;           computed would clobber `n` before the second read and
+;           answer 0 instead of 1.
+(:: loop (-> Int Int Int))
+(fn (loop n acc)
+  (if (== n 0) acc { (loop (- n 1) (+ acc 1)) }))
+(:: fact (-> Int Int))
+(fn (fact n) (if (<= n 1) 1 (* n (fact (- n 1)))))
+(:: pair (-> Int Int Int))
+(fn (pair n acc) (if (== n 0) acc (pair (- n 1) n)))
+(:: main Int)
+(fn (main)
+  (if (== (loop 2000000 0) 2000000)
+      (if (== (fact 10) 3628800)
+          (if (== (pair 5 0) 1) 42 9)
+          8)
+      7))
