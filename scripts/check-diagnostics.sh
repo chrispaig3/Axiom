@@ -81,6 +81,14 @@ ln -s "$repo_root/self_host" "$work/self_host"
 # the exact vacuous success the rest of this script exists to refuse.
 ln -s "$repo_root/tests" "$work/tests"
 
+# Helper MODULES for cases that need more than one file. They live in
+# a subdirectory so the per-case glob below cannot mistake one for a
+# case needing a golden, and they are copied flat because a module
+# name is its filename stem: `tests/diagnostics/mods/AmbA.ax` is
+# `(import AmbA)`. AX3014 is the reason - a name is only ambiguous
+# when two IMPORTED modules define it, which one file cannot express.
+cp "$repo_root"/tests/diagnostics/mods/*.ax "$work/" 2>/dev/null || true
+
 if ! "$axiom" build --input self_host/main.ax --output "$work/stage1" >"$work/build.log" 2>&1; then
   echo "FAIL: could not build stage1" >&2
   tail -20 "$work/build.log" >&2

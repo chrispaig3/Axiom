@@ -17,7 +17,13 @@
 ; above a DECLARATION, and 0 everywhere else. It is the eighth word so
 ; that `ty` keeps index 6 and every existing `memGetWord` reader is
 ; untouched.
-(pub struct ASTNode (tag : Int) (a : Int) (b : Int) (c : Int) (span : Int) (vis : Int) (ty : Int) (axtags : Int))
+; `module` is the module a declaration was SPLICED FROM - 0 for the
+; entry file, the module's name otherwise. Stamped by `resolveDecls`,
+; which is the only place that knows it, and the ninth word for the
+; same reason `axtags` was the eighth: every existing reader indexes
+; by position. Without it the merged declaration list cannot say
+; which module defined what, which is what AX3014 has to answer.
+(pub struct ASTNode (tag : Int) (a : Int) (b : Int) (c : Int) (span : Int) (vis : Int) (ty : Int) (axtags : Int) (module : Int))
 
 ; A declaration's visibility: 1 when it was written `pub`, 0 otherwise.
 ; stage0 splices only the PUBLIC declarations of an imported module
@@ -152,10 +158,11 @@
 (pub :: nodeB   (-> Int Int))   (pub fn (nodeB   n) (memGetWord n 2))
 (pub :: nodeC   (-> Int Int))   (pub fn (nodeC   n) (memGetWord n 3))
 
-(pub :: mkNode (-> Int Int Int Int Int))  (pub fn (mkNode t a b c) (ASTNode t a b c 0 0 0 0))
+(pub :: mkNode (-> Int Int Int Int Int))  (pub fn (mkNode t a b c) (ASTNode t a b c 0 0 0 0 0))
 (pub :: mkNodeAt (-> Int Int Int Int Int Int))
-(pub fn (mkNodeAt t a b c sp) (ASTNode t a b c sp 0 0 0))
+(pub fn (mkNodeAt t a b c sp) (ASTNode t a b c sp 0 0 0 0))
 (pub :: nodeSpan (-> Int Int))  (pub fn (nodeSpan n) (memGetWord n 4))
+(pub :: nodeModule (-> Int Int)) (pub fn (nodeModule n) (memGetWord n 8))
 (pub :: mkEInt (-> Int Int))              (pub fn (mkEInt v)     (mkNode TAG_E_INT v 0 0))
 (pub :: mkEFlt (-> Int Int))              (pub fn (mkEFlt bits)  (mkNode TAG_E_FLT bits 0 0))
 (pub :: mkEStr (-> Int Int))              (pub fn (mkEStr s)     (mkNode TAG_E_STR s 0 0))

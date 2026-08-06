@@ -1,0 +1,4 @@
+(import AmbA)
+(import AmbB)
+(:: main Int)
+(fn (main) (+ (dup 1) (let ((f dup)) 0)))

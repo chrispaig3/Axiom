@@ -748,27 +748,53 @@
 ; live in Axiom source rather than in a table inside the compiler.
 ; Without it the platform module resolves to nothing and every constant
 ; it defines - `sysWrite`, `oRdonly` - is an undefined symbol.
-(pub :: readModuleSrc (-> Int Int Int))
-(pub fn (readModuleSrc name tcode)
+(pub :: readModuleSrc (-> Int Int Int Int))
+(pub fn (readModuleSrc name tcode entryDir)
   (let ((stem (modPathToFile name)))
-    (let ((osArch (tryModuleFile stem (targetOsArchSuffix tcode))))
+    (let ((osArch (tryModuleFile stem (targetOsArchSuffix tcode) entryDir)))
       (if (!= osArch 0)
           osArch
-          (let ((os (tryModuleFile stem (targetOsSuffix tcode))))
+          (let ((os (tryModuleFile stem (targetOsSuffix tcode) entryDir)))
             (if (!= os 0)
                 os
-                (tryModuleFile stem ".ax")))))))
+                (tryModuleFile stem ".ax" entryDir)))))))
 
-(pub :: tryModuleFile (-> Int Int Int))
-(pub fn (tryModuleFile stem suffix)
+(pub :: tryModuleFile (-> Int Int Int Int))
+(pub fn (tryModuleFile stem suffix entryDir)
   (let ((base (cat2 stem suffix)))
-    (let ((selfSrc (sysReadFile (strCStr (cat2 "self_host/" base)))))
-      (if (!= (strLen selfSrc) 0)
-          selfSrc
-          (let ((stdSrc (sysReadFile (strCStr (cat2 "stdlib/" base)))))
-            (if (!= (strLen stdSrc) 0)
-                stdSrc
-                0))))))
+    ; The ENTRY FILE'S DIRECTORY first, which is stage0's rule and was
+    ; missing entirely: stage1 searched only `self_host/` and
+    ; `stdlib/` relative to its working directory, so a module sitting
+    ; next to the program that imports it could not be found at all -
+    ; `(import MA)` beside `main.ax` was "cannot read module: MA"
+    ; where stage0 resolves it. The bootstrap never noticed because it
+    ; runs from the repo root with its entry in `self_host/`, which
+    ; the hardcoded path already covered.
+    (let ((nearSrc (if (== (strLen entryDir) 0)
+                       (sysReadFile (strCStr base))
+                       (sysReadFile (strCStr (cat2 entryDir base))))))
+      (if (!= (strLen nearSrc) 0)
+          nearSrc
+          (let ((selfSrc (sysReadFile (strCStr (cat2 "self_host/" base)))))
+            (if (!= (strLen selfSrc) 0)
+                selfSrc
+                (let ((stdSrc (sysReadFile (strCStr (cat2 "stdlib/" base)))))
+                  (if (!= (strLen stdSrc) 0)
+                      stdSrc
+                      0))))))))
+
+; Everything up to and including the last `/` of a path, or "" when
+; the path names a file in the working directory.
+(pub :: dirOfPath (-> Int Int))
+(pub fn (dirOfPath p) (dirOfPathFrom p (- (strLen p) 1)))
+
+(pub :: dirOfPathFrom (-> Int Int Int))
+(pub fn (dirOfPathFrom p i)
+  (if (< i 0)
+      ""
+      (if (== (strByte p i) 47)
+          (strSlice p 0 (+ i 1))
+          (dirOfPathFrom p (- i 1)))))
 
 ; A module that cannot be read or parsed used to be *skipped*, so every
 ; function it defined surfaced later as `use of undefined value` out of
@@ -790,9 +816,9 @@
 
 ; Declaration Vec for module `name`; a module that cannot be read or
 ; parsed is a fatal diagnostic, never a 0 this returns.
-(pub :: parseModuleOrDie (-> Int Int Int))
-(pub fn (parseModuleOrDie name tcode)
-  (let ((src (readModuleSrc name tcode)))
+(pub :: parseModuleOrDie (-> Int Int Int Int))
+(pub fn (parseModuleOrDie name tcode entryDir)
+  (let ((src (readModuleSrc name tcode entryDir)))
     (if (== src 0)
         (dieImport "error: cannot read module: " name)
         (let ((pr (parseModule (lex src))))
@@ -914,11 +940,11 @@
         (recordEntryFns decls bares fulls (+ i 1))
       }))
 
-(pub :: resolveImports (-> Int Int Int Int Int))
-(pub fn (resolveImports decls bares fulls tcode)
+(pub :: resolveImports (-> Int Int Int Int Int Int))
+(pub fn (resolveImports decls bares fulls tcode entryDir)
   {
     (recordEntryFns decls bares fulls 0)
-    (resolveDecls decls vecNew vecNew 0 0 bares fulls 0 tcode)
+    (resolveDecls decls vecNew vecNew 0 0 bares fulls 0 tcode entryDir)
   })
 
 ; Append every non-import declaration reachable from `decls` onto `acc`,
@@ -937,26 +963,26 @@
 ; `acc` and `seen` are threaded rather than rebuilt: `vecPush` mutates in
 ; place and returns the same handle, so both stay stable across the whole
 ; traversal and siblings observe each other's additions.
-(pub :: resolveDecls (-> Int Int Int Int Int Int Int Int Int Int))
-(pub fn (resolveDecls decls acc seen i modName bares fulls filter tcode)
+(pub :: resolveDecls (-> Int Int Int Int Int Int Int Int Int Int Int))
+(pub fn (resolveDecls decls acc seen i modName bares fulls filter tcode entryDir)
   (if (>= i (vecLen decls)) acc
       (let ((first (vecGet decls i)))
         (if (== (nodeTag first) TAG_D_IMPORT)
             (let ((name (memGetWord first 1)))
               (if (seenHas seen name)
-                  (resolveDecls decls acc seen (+ i 1) modName bares fulls filter tcode)
+                  (resolveDecls decls acc seen (+ i 1) modName bares fulls filter tcode entryDir)
                   {
                     (vecPush seen name)
-                    (let ((modDecls (parseModuleOrDie name tcode))
+                    (let ((modDecls (parseModuleOrDie name tcode entryDir))
                           (subFilter (let ((ns (nodeB first)))
                                        (if (== ns 0)
                                            0
                                            (if (== (vecLen ns) 0) 0 ns)))))
                       (resolveDecls decls
-                                    (resolveDecls modDecls acc seen 0 name bares fulls subFilter tcode)
+                                    (resolveDecls modDecls acc seen 0 name bares fulls subFilter tcode entryDir)
                                     seen
                                     (+ i 1)
-                                    modName bares fulls filter tcode))
+                                    modName bares fulls filter tcode entryDir))
                   }))
             ; A private declaration of an IMPORTED module is not part
             ; of the program: stage0 splices only `pub` ones, so a
@@ -966,10 +992,14 @@
             (if (&& (filterKeeps filter (nodeA first))
                     (|| (== modName 0) (== (nodeVis first) 1)))
                 {
+                  ; Provenance, recorded before mangling rewrites the
+                  ; name: this is the only point in the pipeline that
+                  ; knows which module a declaration came from.
+                  (memSetWord first 8 modName)
                   (mangleDecl first modName bares fulls)
-                  (resolveDecls decls (vecPush acc first) seen (+ i 1) modName bares fulls filter tcode)
+                  (resolveDecls decls (vecPush acc first) seen (+ i 1) modName bares fulls filter tcode entryDir)
                 }
-                (resolveDecls decls acc seen (+ i 1) modName bares fulls filter tcode))))))
+                (resolveDecls decls acc seen (+ i 1) modName bares fulls filter tcode entryDir))))))
 
 (pub :: filterKeeps (-> Int Int Bool))
 (pub fn (filterKeeps filter name)
@@ -1138,12 +1168,15 @@
 ; and which platform module the imports resolved. An unknown name is
 ; refused with the four that exist, not defaulted - emitting the wrong
 ; target's syscall convention is a binary that dies at its first write.
+; The convenience entry point, for a caller with no path to derive a
+; module search directory from; imports resolve against `self_host/`
+; and `stdlib/` only, as they always did.
 (pub :: emitModule (-> Int Int Int))
 (pub fn (emitModule decls target)
   (let ((tcode (checkedTargetCode target))
         (bares vecNew)
         (fulls vecNew))
-    (emitResolved (resolveImports decls bares fulls tcode) bares fulls tcode)))
+    (emitResolved (resolveImports decls bares fulls tcode "") bares fulls tcode)))
 
 ; The target's numeric code, refusing an unknown name rather than
 ; defaulting - emitting the wrong target's syscall convention is a

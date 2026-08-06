@@ -56,7 +56,8 @@
                 (let ((tcode (checkedTargetCode tname))
                       (bares vecNew)
                       (fulls vecNew))
-                  (let ((allDecls (resolveImports decls bares fulls tcode)))
+                  (let ((allDecls (resolveImports decls bares fulls tcode
+                                                  (dirOfPath fileName))))
                     (let ((ds (checkModule decls allDecls)))
                       (if (> (vecLen ds) 0)
                           {

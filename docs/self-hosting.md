@@ -1365,13 +1365,44 @@ record which module each declaration came from; checking the entry
 file alone is the sound subset, never inventing a diagnostic stage0
 would not produce.
 
-What genuinely remains for phase 3: `AX3014` ambiguous-name, which
-needs the per-declaration module tracking stage1's merged declaration
-list does not keep; diagnostic grouping; and type-checking the bodies
-of imported modules against their own filenames. That is every
-remaining `AX30xx` code accounted for: stage1 emits **sixteen of the
-seventeen**, all byte-identical, and the seventeenth (`AX3014`) is
-the only one left. Lowering the effect system itself is
+`AX3014` ambiguous-name is the seventeenth, and it needed a change to
+the AST rather than a new rule: the merged declaration list recorded
+*what* was declared but not *which module* declared it, and that is
+the one question this diagnostic asks. Declaration nodes carry a
+`module` word now, stamped by `resolveDecls` - the only point in the
+pipeline that knows it - before mangling rewrites the name. A
+DEFINER is a `fn`, a `foreign` or an effect operation, plus a data
+constructor, because candidates are the union across both namespaces:
+a function in one module and a constructor of the same name in
+another are exactly as unresolvable as two functions. A signature
+alone neither creates ambiguity nor outranks a definer, and a
+module-less definition wins outright - which covers builtins as well
+as the entry file, or two imports defining a `None` would make the
+builtin spelling ambiguous.
+
+Testing it exposed a gap underneath it. stage1's module search read
+`self_host/` and `stdlib/` relative to the working directory and
+nothing else, so **a module sitting next to the program that imports
+it could not be found at all** - `(import MA)` beside `main.ax` was
+"cannot read module: MA" where stage0 resolves it. The bootstrap
+never noticed, because it runs from the repo root with its entry in
+`self_host/`, which the hardcoded path already covered; no
+conformance case imports a sibling either. The entry file's directory
+is searched first now, which is stage0's order, with the old paths
+kept as a fallback.
+
+That gap also shaped the gate. A name is only ambiguous when two
+IMPORTED modules define it, which one file cannot express, so
+`check-diagnostics.sh` now copies helper modules from
+`tests/diagnostics/mods/` alongside each case. They live in a
+subdirectory so the per-case glob cannot mistake one for a case
+needing a golden, and flat in the work directory because a module
+name is its filename stem.
+
+That is every `AX30xx` code accounted for: stage1 emits **all
+seventeen**, byte-identically. What genuinely remains for phase 3:
+diagnostic grouping, and type-checking the bodies of imported modules
+against their own filenames. Lowering the effect system itself is
 phase 4 work, not phase 3 — the checker's job is finished when it
 agrees about what is wrong.
 
