@@ -1556,10 +1556,33 @@ allocator is correct but there is no tail-call elimination, and stage2
 compiling its own source overflows its stack - measured, it
 segfaults. So `check-stdlib-selfhost.sh` uses `-O0`, where the
 allocator matters and the stack does not, and the bootstrap and
-conformance gates keep the optimiser, where the reverse is true. A
-uniform fix means marking the emitted allocator `optnone` as the
-collector already is, or making `opt` a hard dependency; both are
-decisions rather than patches, and neither is taken here.
+conformance gates keep the optimiser, where the reverse is true. **It reaches users.** A missing `opt` is a warning, not an error:
+`axiom build` defaults to `--opt 1`, so without `opt` on PATH the raw
+IR goes straight to `llc -O1`. Probed with a PATH carrying `llc` and
+`cc` but no `opt` - the build succeeds, warns only that "deeply
+recursive code may exhaust the stack", and produces a binary whose
+consecutive allocations are a megabyte apart. The warning does not
+say that allocation stops reusing memory, because nobody knew.
+
+Two negative results now bound the cause, and both rule out the
+obvious fixes:
+
+- **`optnone` does not fix it.** Marking the emitted `axiom_alloc`
+  `noinline optnone`, exactly as `gc.rs` marks the collector, changes
+  nothing at `-O1`, `-O2` or `-O3`. That was the natural hypothesis,
+  given the collector hit a similar wall, and it is measurably wrong.
+- **The generated assembly reads correct.** At `-O2` the allocator
+  loads both globals, compares, stores on the fast path and stores
+  both on the refill path; the caller emits two distinct
+  `bl _axiom_alloc` calls and subtracts their results. Neither is
+  miscompiled in any way that explains a 1 MiB stride.
+
+So the fault is not where it first appears, and the next probe is the
+inline `mmap` asm rather than the control flow around it: its
+constraint string lists `x0` as both the output and an input, which is
+the one construct here whose behaviour can legitimately change with
+register allocation. Left open deliberately rather than patched on a
+guess.
 `__axiom_arena_mark` and `__axiom_arena_reset` were missing from
 stage1's primitive table entirely, so `(__axiom_arena_mark)` - a bare
 reference, since it takes no arguments - fell through to the ordinary
