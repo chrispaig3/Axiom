@@ -27,9 +27,13 @@
 #     silence, so every golden must contain at least one AXDL line.
 #
 #   * False positives on the compiler's own source. A checker that
-#     rejects self_host/ or stdlib/ is worse than no checker, and no
-#     corpus case would notice, so the last section runs stage1 over
-#     every file in both trees and requires silence.
+#     rejects self_host/, stdlib/ or the stdlib test corpus is worse
+#     than no checker, and no corpus case would notice, so the last
+#     section runs stage1 over every file in all three trees and
+#     requires silence. tests/stdlib/ is in that list because it is
+#     the only place effects and the builtin `Option` appear - a
+#     checker that rejected every effect program passed a sweep
+#     without it.
 #
 # Usage:
 #   scripts/check-diagnostics.sh          # every case
@@ -62,6 +66,11 @@ trap 'rm -rf "$work"' EXIT
 # differ for a reason that has nothing to do with diagnostics.
 ln -s "$repo_root/stdlib" "$work/stdlib"
 ln -s "$repo_root/self_host" "$work/self_host"
+# The sweep below runs from `$work` and names its inputs by
+# repo-relative path, so `tests/` has to be reachable from here too.
+# Without this the sweep read nothing, reported nothing, and passed -
+# the exact vacuous success the rest of this script exists to refuse.
+ln -s "$repo_root/tests" "$work/tests"
 
 if ! "$axiom" build --input self_host/main.ax --output "$work/stage1" >"$work/build.log" 2>&1; then
   echo "FAIL: could not build stage1" >&2
@@ -140,7 +149,7 @@ fi
 echo
 echo "--- stage1 finds nothing to report in self_host/ and stdlib/ ---"
 selfclean=0
-for src in self_host/*.ax stdlib/*.ax stdlib/Sys/*.ax; do
+for src in self_host/*.ax stdlib/*.ax stdlib/Sys/*.ax tests/stdlib/*.ax; do
   [[ -e "$src" ]] || continue
   out="$(cd "$work" && ./stage1 "$src" 2>"$work/sweep.err" >/dev/null; echo "$?")"
   diags="$(axdl_only < "$work/sweep.err")"
@@ -149,10 +158,20 @@ for src in self_host/*.ax stdlib/*.ax stdlib/Sys/*.ax; do
     printf '%s\n' "$diags" | sed 's/^/    /'
     failed=$((failed + 1))
     selfclean=1
-  elif [[ "$out" != 0 ]]; then
+  elif [[ "$out" != 0 && "$src" != tests/stdlib/* ]]; then
     # Silence plus a non-zero exit is not cleanliness, it is stage1
     # falling over before it could check anything - which would let
     # this whole section report success while testing nothing.
+    #
+    # Exempted for tests/stdlib/, and only there: those cases exercise
+    # the whole language rather than the subset stage1 compiles, so a
+    # couple of them still fail to PARSE under stage1 (qualified
+    # module references, struct variants). They are swept anyway
+    # because they are the only programs in the repository that use
+    # the effect system and the builtin `Option` - and a checker that
+    # rejected every effect program was invisible to a sweep that
+    # covered only self_host/ and stdlib/, which is exactly what
+    # happened.
     echo "FAIL $src (stage1 exited $out with no diagnostic: it did not get far enough to check)"
     sed 's/^/    /' "$work/sweep.err" | head -3
     failed=$((failed + 1))

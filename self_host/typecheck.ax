@@ -513,7 +513,18 @@
   (if (strEq n ">=") 1 (if (strEq n "&&") 1 (if (strEq n "||") 1
   (if (strEq n "true") 1 (if (strEq n "false") 1
   (if (strEq n "cast") 1 (if (strEq n "sizeof") 1 (if (strEq n "alignof") 1
-  0)))))))))))))))))))))))))
+  ; `handle` is a keyword form stage1's parser does not implement, so
+  ; `(handle body (E) h)` arrives here as an ordinary application with
+  ; `handle` as its head. stage1 cannot lower the effect system, but
+  ; reporting its keyword as an undefined *variable* is a false
+  ; positive on a program stage0 compiles silently.
+  (if (strEq n "handle") 1
+  ; The built-in effect names. A `handle` list is parsed as an
+  ; application by a parser with no `handle` form, so `(Console IO
+  ; Alloc)` puts each of these where an argument goes.
+  (if (strEq n "IO") 1 (if (strEq n "Pure") 1 (if (strEq n "Alloc") 1
+  (if (strEq n "Mut") 1 (if (strEq n "Div") 1 (if (strEq n "Err") 1
+  0))))))))))))))))))))))))))))))))
 
 ; Is `n` declared anywhere in the resolved declaration list - as a
 ; function, a foreign binding, a data constructor, a struct (structs
@@ -544,7 +555,21 @@
               1
               (if (&& (== tag TAG_D_DATA) (== (ctorNamed (nodeB d) n 0) 1))
                   1
-                  (declaredFrom decls n (+ i 1))))))))
+                  ; An effect declares its own name - which appears in
+                  ; a `handle` list - and one callable per operation.
+                  (if (&& (== tag TAG_D_EFFECT)
+                          (|| (== (nameMatches (nodeA d) n) 1)
+                              (== (opNamed (nodeB d) n 0) 1)))
+                      1
+                      (declaredFrom decls n (+ i 1)))))))))
+
+(pub :: opNamed (-> Int Int Int Int))
+(pub fn (opNamed ops n i)
+  (if (>= i (vecLen ops))
+      0
+      (if (strEq (vecGet ops i) n)
+          1
+          (opNamed ops n (+ i 1)))))
 
 (pub :: ctorNamed (-> Int Int Int Int))
 (pub fn (ctorNamed ctors n i)

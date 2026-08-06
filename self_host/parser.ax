@@ -69,6 +69,14 @@
 ; `(foreign putchar ...)` look like a signature with nothing behind
 ; it, and stage1 rejected a program stage0 compiles.
 (pub :: TAG_D_FOREIGN Int) (pub fn (TAG_D_FOREIGN) 29)
+; An `(effect Name (op :: sig) ...)` declaration. stage1 lowers no
+; part of the effect system, but the NAMES have to survive parsing:
+; the effect's own name appears in a `handle` list and each operation
+; is a callable, so a checker that never saw them reports every one as
+; an undefined variable - which it did, on programs stage0 compiles
+; without a word. Word 1 is the effect's name, word 2 a Vec of its
+; operation names.
+(pub :: TAG_D_EFFECT Int)  (pub fn (TAG_D_EFFECT) 30)
 
 (pub :: nodeTag (-> Int Int))   (pub fn (nodeTag n) (memGetWord n 0))
 (pub :: nodeA   (-> Int Int))   (pub fn (nodeA   n) (memGetWord n 1))
@@ -314,6 +322,7 @@
 ; definition behind it and reported AX3015 on a valid program.
 (pub :: kwDefine Int) (pub fn (kwDefine) "define")
 (pub :: kwForeign Int) (pub fn (kwForeign) "foreign")
+(pub :: kwEffect Int) (pub fn (kwEffect) "effect")
 (pub :: kwData  Int) (pub fn (kwData)  "data")
 (pub :: kwStruct Int)(pub fn (kwStruct)"struct")
 (pub :: kwLet   Int) (pub fn (kwLet)   "let")
@@ -361,7 +370,9 @@
       (parseMacroDecl tokens (advance pos))
   (if (kwEq name (kwForeign))
       (parseForeignDecl tokens (advance pos))
-  (skipUnknownDecl tokens pos))))))))))         ; unknown form, skip
+  (if (kwEq name (kwEffect))
+      (parseEffectDecl tokens (advance pos))
+  (skipUnknownDecl tokens pos)))))))))))        ; unknown form, skip
   (skipUnknownDecl tokens pos))))                      ; non-keyword form, skip
 
 ; A form this parser does not know - `foreign`, `type`, `trait` - is
@@ -387,6 +398,41 @@
               rest
               (pOk (mkNodeAt TAG_D_FOREIGN name 0 0 nameSpan)
                    (memGetWord rest 2)))))))
+
+; Parse `(effect Name (op :: Type) ...)`, keeping the effect's name
+; and its operations' names. Nothing else survives: stage1 emits no
+; effect code, and a type it cannot lower is a type it need not
+; record.
+(pub :: parseEffectDecl (-> Int Int Int))
+(pub fn (parseEffectDecl tokens pos)
+  (let ((nr (parseIdentName tokens pos)))
+    (if (== (memGetWord nr 0) 0)
+        nr
+        (let ((name (memGetWord nr 1))
+              (nameSpan (tokenSpan (vecGet tokens pos))))
+          (let ((ops vecNew))
+            (let ((r (parseEffectOps tokens (memGetWord nr 2) ops)))
+              (if (== (memGetWord r 0) 0)
+                  r
+                  (pOk (mkNodeAt TAG_D_EFFECT name ops 0 nameSpan)
+                       (memGetWord r 2)))))))))
+
+(pub :: parseEffectOps (-> Int Int Int Int))
+(pub fn (parseEffectOps tokens pos ops)
+  (if (peekIs tokens pos TK_RPAREN)
+      (pOk 0 (advance pos))
+      (if (peekIs tokens pos TK_LPAREN)
+          (let ((nr (parseIdentName tokens (advance pos))))
+            (if (== (memGetWord nr 0) 0)
+                nr
+                {
+                  (vecPush ops (memGetWord nr 1))
+                  (let ((r (skipParens tokens (memGetWord nr 2) 1)))
+                    (if (== (memGetWord r 0) 0)
+                        r
+                        (parseEffectOps tokens (memGetWord r 2) ops)))
+                }))
+          (pErr pos))))
 
 (pub :: skipUnknownDecl (-> Int Int Int))
 (pub fn (skipUnknownDecl tokens pos)

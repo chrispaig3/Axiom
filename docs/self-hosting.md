@@ -959,10 +959,28 @@ functions, foreign bindings, data constructors, struct names, macros
 and signatures come from the resolved declaration list; primitives are
 covered by the `__` prefix rather than a list, since every one of them
 has it; operators, `true`/`false` and `cast`/`sizeof`/`alignof` are
-enumerated. The sweep over `self_host/` and `stdlib/` is what settles
-it, and it did: the first cut reported `Int` undefined in three files,
-because `(cast Int x)` puts a TYPE where an argument goes and a type
-name is not a variable reference.
+enumerated. The sweep is what settles it, and it did: the first cut reported `Int`
+undefined in three files, because `(cast Int x)` puts a TYPE where an
+argument goes and a type name is not a variable reference.
+
+Then an adversarial scout found the one the sweep could not see.
+stage1 rejected **every program that uses the effect system** -
+`handle`, each effect operation, each effect name, and the built-in
+effect names in a handle list - on programs stage0 accepts in silence.
+It was invisible because the sweep covered `self_host/` and `stdlib/`,
+and neither uses effects. `effect` declarations parse for their names
+now, exactly as `foreign` does, and `handle` and the six built-in
+effect names are recognised; stage1 still lowers none of it, but a
+keyword is not an undefined variable.
+
+The sweep covers `tests/stdlib/` too now, which is the only place in
+the repository where effects and the built-in `Option` appear. Adding
+it exposed a second hole, this one in the gate itself: the sweep runs
+from a scratch directory and names its inputs by repo-relative path,
+so `tests/` was not reachable, stage1 read nothing, reported nothing,
+and the sweep called it clean - the exact vacuous success the rest of
+the script exists to refuse. Ablating `handle` out of the known set
+now fails three cases; before the symlink it failed none.
 
 The suggestion is reproduced exactly, which is the part that has to be
 byte-identical and has no room to be approximately right: Levenshtein
