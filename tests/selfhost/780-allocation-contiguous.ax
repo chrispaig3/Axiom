@@ -1,0 +1,24 @@
+; expect 42
+; Two consecutive allocations of the same size are adjacent: the bump
+; allocator's fast path advances by the (16-byte aligned) request, so
+; the second block begins exactly 64 bytes after the first.
+;
+; This is a REGRESSION TEST FOR AN INLINE-ASM CLOBBER, not for the
+; allocator's arithmetic. The arm64 syscall asm listed the argument
+; registers as inputs and did not declare them clobbered, but Darwin's
+; `svc` destroys them - probed, x1 comes back 0. At -O1 and above LLVM
+; therefore believed `%chunk` was still in x1 after the `mmap`, set
+; `@__axiom_bump_end` to `addr + 0`, and every allocation failed the
+; fast path and mapped a fresh megabyte: consecutive blocks came back
+; 1 MiB apart. At -O0 the same IR is correct, because LLVM spills and
+; reloads across the asm.
+;
+; The case is written to run under the conformance gate's own `llc`
+; invocation, which does NOT pass -O0 - so this fails before the fix
+; and passes after. A test that only ran at -O0 could not see it.
+(import Mem)
+(:: main Int)
+(fn (main)
+  (let ((a (memAlloc 64))
+        (b (memAlloc 64)))
+    (if (== (- b a) 64) 42 1)))

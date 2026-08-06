@@ -1556,33 +1556,41 @@ allocator is correct but there is no tail-call elimination, and stage2
 compiling its own source overflows its stack - measured, it
 segfaults. So `check-stdlib-selfhost.sh` uses `-O0`, where the
 allocator matters and the stack does not, and the bootstrap and
-conformance gates keep the optimiser, where the reverse is true. **It reaches users.** A missing `opt` is a warning, not an error:
-`axiom build` defaults to `--opt 1`, so without `opt` on PATH the raw
-IR goes straight to `llc -O1`. Probed with a PATH carrying `llc` and
-`cc` but no `opt` - the build succeeds, warns only that "deeply
-recursive code may exhaust the stack", and produces a binary whose
-consecutive allocations are a megabyte apart. The warning does not
-say that allocation stops reusing memory, because nobody knew.
+conformance gates keep the optimiser, where the reverse is true. **Root-caused and fixed: an undeclared inline-asm clobber.** Darwin
+arm64's `svc` destroys the argument registers - probed directly with a
+C program that puts `0x100000` in x1, issues the `mmap` syscall and
+reads x1 back, getting 0. The arm64 constraint strings declared
+`~{memory}` and no register clobbers at all, while the x86-64 ones had
+always declared the `rcx`/`r11` that `syscall` destroys. So LLVM
+believed an argument register still held its value after the syscall,
+and at `-O1` and above it acted on that belief: `%chunk` lived in x1
+across the `svc`, `@__axiom_bump_end` was set to `addr + 0` instead of
+`addr + chunk`, every subsequent allocation failed the fast path and
+mapped a fresh megabyte. At `-O0` the same IR is correct, because LLVM
+spills and reloads across the asm and never trusts the register - which
+is the whole `-O0`/`-O1` split, and why it read as an optimiser bug.
 
-Two negative results now bound the cause, and both rule out the
-obvious fixes:
+Two wrong guesses are worth recording, because each looked right.
+Marking the emitted `axiom_alloc` `noinline optnone`, exactly as
+`gc.rs` marks the collector, changes nothing at any level - the
+allocator's own code was never the problem. And the generated assembly
+reads correct at `-O2`: both globals loaded, compared, and stored on
+both paths, with two distinct `bl _axiom_alloc` calls in the caller.
+Nothing is miscompiled in the sense of "wrong instructions emitted";
+the instructions are right and one of the registers they read has been
+destroyed by the kernel.
 
-- **`optnone` does not fix it.** Marking the emitted `axiom_alloc`
-  `noinline optnone`, exactly as `gc.rs` marks the collector, changes
-  nothing at `-O1`, `-O2` or `-O3`. That was the natural hypothesis,
-  given the collector hit a similar wall, and it is measurably wrong.
-- **The generated assembly reads correct.** At `-O2` the allocator
-  loads both globals, compares, stores on the fast path and stores
-  both on the refill path; the caller emits two distinct
-  `bl _axiom_alloc` calls and subtracts their results. Neither is
-  miscompiled in any way that explains a 1 MiB stride.
+**It had shipped.** A missing `opt` is a warning rather than an error,
+and `axiom build` defaults to `--opt 1`, so on any machine with `llc`
+and `cc` but no `opt` the raw IR went straight to `llc -O1`. Probed
+with exactly that PATH: the build succeeded, warned only that "deeply
+recursive code may exhaust the stack", and produced a binary whose
+consecutive allocations were a megabyte apart. Both compilers carry
+the clobbers now, and `tests/selfhost/780-allocation-contiguous.ax`
+pins it - deliberately written to run under the conformance gate's own
+`llc` invocation, which does not pass `-O0`, so a test that only ran
+at `-O0` could not have seen it.
 
-So the fault is not where it first appears, and the next probe is the
-inline `mmap` asm rather than the control flow around it: its
-constraint string lists `x0` as both the output and an input, which is
-the one construct here whose behaviour can legitimately change with
-register allocation. Left open deliberately rather than patched on a
-guess.
 `__axiom_arena_mark` and `__axiom_arena_reset` were missing from
 stage1's primitive table entirely, so `(__axiom_arena_mark)` - a bare
 reference, since it takes no arguments - fell through to the ordinary

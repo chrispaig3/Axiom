@@ -198,6 +198,29 @@ impl Target {
     /// valid fd 2), the Darwin templates below branch on the carry flag
     /// and negate the errno themselves, so `result < 0` is a correct
     /// and complete failure test on all four targets.
+    /// The argument registers are listed as CLOBBERS as well as
+    /// inputs, and on arm64 that is not belt-and-braces: Darwin's
+    /// `svc` destroys them. Probed directly - a C program that puts
+    /// 0x100000 in x1, issues the `mmap` syscall and reads x1 back
+    /// gets 0.
+    ///
+    /// Without the clobbers LLVM believes an argument register still
+    /// holds its value afterwards, and at `-O1` and above it acts on
+    /// that belief. The bump allocator is where it showed: `%chunk`
+    /// lived in x1 across the `svc`, so `@__axiom_bump_end` was set to
+    /// `addr + 0` rather than `addr + chunk`, every subsequent
+    /// allocation failed the fast path and mapped a fresh megabyte,
+    /// and two consecutive `memAlloc 64` calls came back 1 MiB apart.
+    /// At `-O0` the same IR is correct, because LLVM spills and
+    /// reloads across the asm and never trusts the register.
+    ///
+    /// It shipped: a missing `opt` is a warning rather than an error,
+    /// so `axiom build` at its default `--opt 1` handed raw IR to
+    /// `llc -O1` on any machine without `opt` installed.
+    ///
+    /// The x86-64 entries always had this right - `syscall` clobbers
+    /// `rcx` and `r11` and they are declared - which is why only the
+    /// arm64 targets were affected.
     pub fn syscall_asm(self) -> (&'static str, &'static str) {
         match self {
             // Darwin/arm64: number in x16, args in x0-x5, `svc #0x80`.
@@ -207,13 +230,15 @@ impl Target {
             // cannot collide with a label from another expansion.
             Target::DarwinAarch64 => (
                 "svc #0x80\\0Ab.cc 1f\\0Aneg x0, x0\\0A1:",
-                "={x0},{x16},{x0},{x1},{x2},{x3},{x4},{x5},~{memory}",
+                "={x0},{x16},{x0},{x1},{x2},{x3},{x4},{x5},\
+                 ~{x1},~{x2},~{x3},~{x4},~{x5},~{x16},~{memory}",
             ),
             // Linux/arm64: number in x8, args in x0-x5, `svc #0`.
             // Already returns `-errno`.
             Target::LinuxAarch64 => (
                 "svc #0",
-                "={x0},{x8},{x0},{x1},{x2},{x3},{x4},{x5},~{memory}",
+                "={x0},{x8},{x0},{x1},{x2},{x3},{x4},{x5},\
+                 ~{x1},~{x2},~{x3},~{x4},~{x5},~{x8},~{memory}",
             ),
             // System V/x86-64: number in rax, args in
             // rdi/rsi/rdx/r10/r8/r9. `syscall` clobbers rcx and r11.

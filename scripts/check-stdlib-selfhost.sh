@@ -12,18 +12,14 @@
 # whose output was wrong, one whose IR `llc` rejected, and two more
 # found only by running this comparison for the first time.
 #
-# `llc` is invoked at -O0 AND with an explicit relocation model, which
-# together are what `axiom build` does at `--opt 0`. Neither is
-# optional. The relocation model is documented in axiom-cli as required
-# of "every `llc` invocation in the project, including the ones in
-# `scripts/`". The -O0 matters for a reason worth stating, because it
-# cost a bug report: the emitted bump allocator is MISCOMPILED BY `llc`
-# AT -O1 AND ABOVE, in both compilers' output alike - two consecutive
-# `memAlloc 64` calls come back a whole 1 MiB chunk apart instead of 64.
-# `llc`'s default is -O2, so a script that omits the flag measures a
-# broken allocator and blames whichever compiler it was testing. That is
-# exactly what happened to `160-arena` here. It is the same hazard
-# `axiom-codegen/src/gc.rs` already carries `optnone` for.
+# `llc` carries an explicit relocation model, which axiom-cli documents
+# as required of every `llc` invocation in the project including this
+# one. It deliberately does NOT carry -O0: it did for one commit, as a
+# workaround for the bump allocator coming apart at -O1 and above, and
+# that turned out to be an undeclared inline-asm clobber in the arm64
+# syscall sequence rather than anything about optimisation level. With
+# the clobbers declared the gate runs at `llc`'s default, which is the
+# configuration a user gets.
 #
 # The comparison is against stage0's answer rather than a checked-in
 # expected value on purpose: stage0 is the trusted implementation, and
@@ -106,7 +102,7 @@ for case_file in tests/stdlib/*.ax; do
   agree=0
   cp "$case_file" "$work/in.ax"
   if (cd "$work" && ./stage1 in.ax >s1.ll 2>/dev/null) \
-     && llc -filetype=obj -O0 -relocation-model=pic "$work/s1.ll" -o "$work/s1.o" 2>/dev/null \
+     && llc -filetype=obj -relocation-model=pic "$work/s1.ll" -o "$work/s1.o" 2>/dev/null \
      && cc "$work/s1.o" -o "$work/p1" -e _main 2>/dev/null; then
     (cd "$work" && ./p1 >o1.txt 2>&1); e1=$?
     if [[ "$e0" == "$e1" ]] && cmp -s "$work/o0.txt" "$work/o1.txt"; then
