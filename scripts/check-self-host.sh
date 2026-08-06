@@ -74,7 +74,20 @@ for case_file in tests/selfhost/*.ax; do
     continue
   fi
 
-  if ! llc -filetype=obj "$work/out.ll" -o "$work/out.o" 2>"$work/llc.err"; then
+# `llc` carries an explicit relocation model, which axiom-cli documents
+# as required of every `llc` invocation in the project including these.
+#
+# It deliberately does NOT carry -O0, even though the emitted bump
+# allocator is miscompiled by `llc` at -O1 and above (two consecutive
+# `memAlloc 64` calls come back a whole 1 MiB chunk apart). The two
+# hazards pull opposite ways: at -O0 the allocator is correct but there
+# is no tail-call elimination, and stage2 compiling its own source
+# overflows its stack - measured, it segfaults. `axiom build` escapes
+# both by running `opt` over the IR before `llc`, which these scripts
+# cannot assume is installed (axiom-cli treats a missing `opt` as a
+# warning). Small programs get -O0 in check-stdlib-selfhost.sh, where
+# the allocator matters and the stack does not.
+  if ! llc -filetype=obj -relocation-model=pic "$work/out.ll" -o "$work/out.o" 2>"$work/llc.err"; then
     echo "FAIL $name (llc rejected the emitted IR)"
     grep -m2 "error" "$work/llc.err" | sed 's/^/    /'
     failed=$((failed + 1))

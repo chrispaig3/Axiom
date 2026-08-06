@@ -47,7 +47,20 @@ build_next() {
   local from="$1" out_ll="$2" out_bin="$3"
   cp "$repo_root/self_host/main.ax" "$work/in.ax"
   (cd "$work" && "./$from" >"$out_ll" 2>"$out_ll.err") || fail "$from could not compile self_host/main.ax"
-  llc -filetype=obj "$work/$out_ll" -o "$work/$out_bin.o" 2>"$work/llc.err" \
+# `llc` carries an explicit relocation model, which axiom-cli documents
+# as required of every `llc` invocation in the project including these.
+#
+# It deliberately does NOT carry -O0, even though the emitted bump
+# allocator is miscompiled by `llc` at -O1 and above (two consecutive
+# `memAlloc 64` calls come back a whole 1 MiB chunk apart). The two
+# hazards pull opposite ways: at -O0 the allocator is correct but there
+# is no tail-call elimination, and stage2 compiling its own source
+# overflows its stack - measured, it segfaults. `axiom build` escapes
+# both by running `opt` over the IR before `llc`, which these scripts
+# cannot assume is installed (axiom-cli treats a missing `opt` as a
+# warning). Small programs get -O0 in check-stdlib-selfhost.sh, where
+# the allocator matters and the stack does not.
+  llc -filetype=obj -relocation-model=pic "$work/$out_ll" -o "$work/$out_bin.o" 2>"$work/llc.err" \
     || { head -3 "$work/llc.err" >&2; fail "llc rejected the IR $from produced"; }
   cc "$work/$out_bin.o" -o "$work/$out_bin" -e _main 2>"$work/cc.err" \
     || { head -3 "$work/cc.err" >&2; fail "could not link $out_bin"; }
@@ -64,7 +77,7 @@ check_runs() {
 (fn (main) (add 40 2))
 CASE
   (cd "$work" && "./$stage" >"prog.ll" 2>/dev/null) || fail "$stage could not compile the probe"
-  llc -filetype=obj "$work/prog.ll" -o "$work/prog.o" 2>/dev/null || fail "$stage emitted IR llc rejects"
+  llc -filetype=obj -relocation-model=pic "$work/prog.ll" -o "$work/prog.o" 2>/dev/null || fail "$stage emitted IR llc rejects"
   cc "$work/prog.o" -o "$work/prog" -e _main 2>/dev/null || fail "$stage emitted an object that will not link"
   (cd "$work" && ./prog)
   local got=$?

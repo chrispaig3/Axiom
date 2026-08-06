@@ -1522,7 +1522,44 @@ that fails against the previous commit:
   operator would otherwise be treated as over-applied
   (`770-over-application.ax`).
 
-`160-arena` remains, and its first cause is fixed.
+**`160-arena` was never a stage1 bug**, and finding that out found a
+real one underneath. Its arena primitives were genuinely missing and
+are fixed - `__axiom_arena_mark` and `__axiom_arena_reset` were absent
+from stage1's primitive table, so `(__axiom_arena_mark)`, a bare
+reference since it takes no arguments, emitted `%__axiom_arena_mark`,
+a value nothing defines. stage0 carries a comment about hitting
+exactly this, for exactly this primitive; stage1's `emitVar` carried
+the same comment, *naming* `__axiom_arena_mark` while handling only
+`__argc`.
+
+But the case still disagreed after that, and the cause was the gate's
+own `llc` invocation. **The emitted bump allocator is miscompiled by
+`llc` at `-O1` and above** - two consecutive `memAlloc 64` calls come
+back a whole 1 MiB chunk apart instead of 64. It reproduces on
+**stage0's own IR**, identically, so it is not a self-hosting defect
+at all; it is the same hazard `axiom-codegen/src/gc.rs` already
+carries `optnone` for, in the allocator beside it. `llc`'s default is
+`-O2`, so any script that assembles emitted IR without saying
+otherwise measures a broken allocator and attributes the damage to
+whichever compiler produced the IR.
+
+`axiom build` escapes it by running `opt` over the IR before `llc`,
+which is why nothing noticed: every check that goes through the
+driver is fine, and only the scripts that call `llc` directly are
+exposed. Those now pass `-relocation-model=pic`, which axiom-cli
+already documents as required of *every* `llc` invocation in the
+project and which two of them were missing.
+
+The `-O0` half cannot be applied uniformly, and the reason is worth
+recording because the two hazards pull opposite ways: at `-O0` the
+allocator is correct but there is no tail-call elimination, and stage2
+compiling its own source overflows its stack - measured, it
+segfaults. So `check-stdlib-selfhost.sh` uses `-O0`, where the
+allocator matters and the stack does not, and the bootstrap and
+conformance gates keep the optimiser, where the reverse is true. A
+uniform fix means marking the emitted allocator `optnone` as the
+collector already is, or making `opt` a hard dependency; both are
+decisions rather than patches, and neither is taken here.
 `__axiom_arena_mark` and `__axiom_arena_reset` were missing from
 stage1's primitive table entirely, so `(__axiom_arena_mark)` - a bare
 reference, since it takes no arguments - fell through to the ordinary

@@ -12,6 +12,19 @@
 # whose output was wrong, one whose IR `llc` rejected, and two more
 # found only by running this comparison for the first time.
 #
+# `llc` is invoked at -O0 AND with an explicit relocation model, which
+# together are what `axiom build` does at `--opt 0`. Neither is
+# optional. The relocation model is documented in axiom-cli as required
+# of "every `llc` invocation in the project, including the ones in
+# `scripts/`". The -O0 matters for a reason worth stating, because it
+# cost a bug report: the emitted bump allocator is MISCOMPILED BY `llc`
+# AT -O1 AND ABOVE, in both compilers' output alike - two consecutive
+# `memAlloc 64` calls come back a whole 1 MiB chunk apart instead of 64.
+# `llc`'s default is -O2, so a script that omits the flag measures a
+# broken allocator and blames whichever compiler it was testing. That is
+# exactly what happened to `160-arena` here. It is the same hazard
+# `axiom-codegen/src/gc.rs` already carries `optnone` for.
+#
 # The comparison is against stage0's answer rather than a checked-in
 # expected value on purpose: stage0 is the trusted implementation, and
 # `run-stdlib-tests.sh` already pins stage0's own answers, so
@@ -56,10 +69,7 @@ UNPARSED="150-qualified-modules 210-struct-variants 300-effect-handlers 310-effe
 # they are open, and so that a fix cannot land unnoticed - a name on
 # this list that starts agreeing FAILS the gate and must be removed.
 #
-#   160-arena                   arena mark/reset lower correctly now,
-#                               but `b - a` comes out a full 1 MiB
-#                               chunk instead of 64 - the emitted bump
-#                               allocator, not the arena primitives
+#   (empty)
 #
 # Fixed and removed from this list: 120-pattern-representation (nested
 # nullary constructor patterns parsed as binders), 270-nullary-unboxed
@@ -68,8 +78,10 @@ UNPARSED="150-qualified-modules 210-struct-variants 300-effect-handlers 310-effe
 # constant 0, deleting the call) and 140-function-values (an
 # over-applied spine flattened into one direct call). The gate refused
 # to stay green when each started agreeing, which is what the list is
-# for - all four left it that way.
-KNOWN_WRONG="160-arena"
+# for - all four left it that way. 160-arena left it too, but for a
+# different reason: it was never a stage1 bug at all, only this
+# script's own `llc` invocation missing -O0.
+KNOWN_WRONG=""
 
 in_list() { case " $2 " in *" $1 "*) return 0;; *) return 1;; esac; }
 
@@ -94,7 +106,7 @@ for case_file in tests/stdlib/*.ax; do
   agree=0
   cp "$case_file" "$work/in.ax"
   if (cd "$work" && ./stage1 in.ax >s1.ll 2>/dev/null) \
-     && llc -filetype=obj "$work/s1.ll" -o "$work/s1.o" 2>/dev/null \
+     && llc -filetype=obj -O0 -relocation-model=pic "$work/s1.ll" -o "$work/s1.o" 2>/dev/null \
      && cc "$work/s1.o" -o "$work/p1" -e _main 2>/dev/null; then
     (cd "$work" && ./p1 >o1.txt 2>&1); e1=$?
     if [[ "$e0" == "$e1" ]] && cmp -s "$work/o0.txt" "$work/o1.txt"; then
