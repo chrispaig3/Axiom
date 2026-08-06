@@ -1110,14 +1110,14 @@ counter above), `250-non-exhaustive-match`, `260-field-not-found`,
 `270-struct-field-count` in both directions, and `280-check-order`,
 which puts three diagnostics in one expression to pin the order they
 come out in: the field error, its own `I64` cascade, then
-exhaustiveness last. A standing bank of 136 differential probes over
+exhaustiveness last. A standing bank of 156 differential probes over
 the language's corners - generics, recursive types, imports, floats,
-chars, `while`/`set`, nested matches, cascade suppression, effects -
-diverges on seven, and all seven are named gaps rather than
-surprises: three are the effect fixpoint (`AX3010`/`AX3011`), one is
-the silent-wildcard handler type, and three are the standing
-parse-diagnostic gap, since stage1 emits no `AX2001` at all and
-refuses with an exit status instead.
+chars, `while`/`set`, nested matches, cascade suppression, effects,
+mutual recursion - diverges on six, and all six are named gaps rather
+than surprises: three are the standing parse-diagnostic gap, since
+stage1 emits no `AX2001` at all and refuses with an exit status
+instead; two are the silent-wildcard handler type; and one is
+`AX3010`, whose AXTAG claims do not survive stage1's lexer.
 
 The bug worth recording is the one this found in the *test suite*
 rather than in either compiler. `tests/selfhost/150-struct.ax` passed
@@ -1236,12 +1236,58 @@ identifier path, so none of the six builtins can ever reach the
 lookup — `300-unknown-effect.ax` interleaves `IO` and `Alloc` with
 the unknown names to pin that they are skipped rather than refused.
 
-`AX3010` and `AX3011` stay unreported, and the reason is a real
-dependency rather than a shortcut: both need the effect fixpoint over
-the call graph that stage1 does not run. So does the `AX3004` that
-checks a handler against its operation's declared arrow, which
-additionally needs the operation type stage1's `effect` parser
-discards. All three omit lines; none reorders or invents one.
+**Effect inference is the fifteenth diagnostic's dependency, and it
+now runs.** `AX3011` needs to know what a handle's body performs, and
+that is a monotone fixpoint over the call graph: one pass per
+function, each round propagating at least one edge, bounded by the
+function count so termination never depends on the walk staying
+monotone. What introduces an effect is a short list and nothing else
+does — calling a `foreign` or a `__syscallN` is IO, calling anything
+else contributes that callee's inferred set, an effect operation
+carries `Custom(E)` inherently (stage0 attaches it at registration so
+the collector needs no case for operations at all), `(alloc T)` is
+Alloc, `(set base.field v)` is Mut, and a `handle` naming a resolved
+custom effect is Alloc because it heap-allocates its evidence record.
+
+What stage1 deliberately does **not** model is effect *polymorphism*:
+stage0 marks a parameter effect-transparent when it is called and
+instantiates the mark with each call site's argument. Omitting it
+makes stage1's sets a strict subset of stage0's, so everything
+reading them under-reports rather than inventing a diagnostic — the
+direction this file is required to fail in. A call through a local or
+a parameter therefore contributes nothing.
+
+Three defects in the first cut are worth recording, because two of
+them made the feature a no-op and both hid behind a passing corpus.
+
+The collector seeds `bound` with the names lexically in scope, so a
+local shadowing an effectful top-level name cannot re-resolve
+globally. Seeding it from scope position **0** rather than from
+`frameBase` swept in every module-level entry the walk had pushed so
+far — every signature and every foreign — so *every top-level
+function looked lexically bound*, every call contributed nothing, and
+the entire fixpoint's output was discarded at the one place that
+reads it. Direct cases still passed: a syscall or an operation
+written straight into the handle body has no call to lose. It took
+one indirection to see it, which is why the corpus case runs its
+effect through a two-function chain.
+
+The other two were spans, and both suppressed rather than misplaced.
+`TAG_E_ALLOC` carried none, so a handle whose body is a bare
+`(alloc T)` reported nothing; it takes the `alloc` keyword's span
+now, which is stage0's. And `spanOf` had no `TAG_E_HANDLE` arm, so a
+handle nested directly inside another reported nothing — stage0's
+`Expr::span()` takes an `EHandle`'s first field exactly as it takes
+an `EApp`'s function side, so nested handles all anchor at the
+innermost body. `320-unhandled-effect.ax` carries all three shapes:
+a custom effect through a call chain, a built-in `IO` through a
+`__syscallN`, and the `Alloc` a nested dynamic handle introduces.
+
+`AX3010` stays unreported, on a dependency stage1 does not have at
+all: AXTAG claims are comments, and stage1's lexer drops them. So
+does the `AX3004` checking a handler against its operation's declared
+arrow, which needs the operation type the `effect` parser discards.
+Both omit lines; neither reorders or invents one.
 
 `AX3013` remains under-reported in one direction recorded in
 `typecheck.ax`: stage0 also measures builtins and foreign bindings
@@ -1251,14 +1297,16 @@ record which module each declaration came from; checking the entry
 file alone is the sound subset, never inventing a diagnostic stage0
 would not produce.
 
-What genuinely remains for phase 3: `AX3010` and `AX3011`, both
-blocked on the effect fixpoint; `AX3014` ambiguous-name, which needs
-the per-declaration module tracking stage1's merged declaration list
-does not keep; diagnostic grouping; and type-checking the bodies of
-imported modules against their own filenames. That is every remaining
-`AX30xx` code accounted for: stage1 emits fourteen of the seventeen.
-Lowering the effect system itself is phase 4 work, not phase 3 — the
-checker's job is finished when it agrees about what is wrong.
+What genuinely remains for phase 3: `AX3010`, which needs AXTAG
+comments to survive stage1's lexer at all; `AX3014` ambiguous-name,
+which needs the per-declaration module tracking stage1's merged
+declaration list does not keep; effect polymorphism, without which
+the inferred sets stay a sound subset; diagnostic grouping; and
+type-checking the bodies of imported modules against their own
+filenames. That is every remaining `AX30xx` code accounted for:
+stage1 emits fifteen of the seventeen. Lowering the effect system
+itself is phase 4 work, not phase 3 — the checker's job is finished
+when it agrees about what is wrong.
 
 (This paragraph used to end "No lambda expressions (refused loudly)".
 That was true when it was written and stopped being true two commits

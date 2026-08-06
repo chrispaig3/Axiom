@@ -388,8 +388,15 @@
 ;   counter  the fresh-type-variable counter. Its increment sites are
 ;            copied from stage0 exactly, because `_tN` names render.
 ; ------------------------------------------------------------------
+; `effects` is a Vec of TAGGED effect strings: "b:IO" for a built-in,
+; "c:Console" for a custom one. The tag is not decoration - stage0's
+; `Effect::IO` and `Effect::Custom("IO")` are different values, so an
+; `(effect IO ...)` declaration's operations do NOT become handled by
+; a handle list naming the built-in `IO`. Storing the display name
+; alone would silently merge them.
 (pub struct FnEnt (name : Int) (ty : Int) (paramCount : Int)
-                  (isBuiltin : Int) (isForeign : Int) (isEffectOp : Int))
+                  (isBuiltin : Int) (isForeign : Int) (isEffectOp : Int)
+                  (effects : Int))
 (pub struct CtorEnt (name : Int) (fieldTys : Int) (resTy : Int) (ctorTy : Int))
 (pub struct DataEnt (name : Int) (ctors : Int))
 (pub struct StructEnt (name : Int) (fields : Int))
@@ -429,7 +436,7 @@
 
 (pub :: regFn (-> Int Int Int Int))
 (pub fn (regFn fns name ty)
-  (vecPush fns (cast Int (FnEnt name ty (- 0 1) 1 0 0))))
+  (vecPush fns (cast Int (FnEnt name ty (- 0 1) 1 0 0 vecNew))))
 
 ; ------------------------------------------------------------------
 ; Registration: stage0's TypeChecker::new(), in its order - the order
@@ -497,6 +504,11 @@
                               vecNew vecNew entryDecls allDecls))))
         {
           (tcCollect tc allDecls 0)
+          ; Effects are inferred once, after every declaration is
+          ; registered and before any body is checked, because an
+          ; AX3011 at a handle asks what the body performs and the
+          ; answer may come from a function declared later.
+          (inferEffects tc allDecls)
           tc
         })
     }))
@@ -531,7 +543,7 @@
                 (vecPush (tcFns tc)
                   (cast Int (FnEnt (nodeA d)
                                    (if (== (nodeTy d) 0) mkSilentWild (nodeTy d))
-                                   (- 0 1) 0 1 0)))
+                                   (- 0 1) 0 1 0 vecNew)))
             (if (== tag TAG_D_EFFECT)
                 {
                   ; The whole declaration node, not just its name:
@@ -544,7 +556,7 @@
                   ; stage0 knows the real arrows and CAN complain
                   ; (AX3013 through op arity, AX3004 on arguments) -
                   ; recorded under-report.
-                  (tcCollectEffectOps tc (nodeB d) 0)
+                  (tcCollectEffectOps tc (nodeB d) 0 (nodeA d))
                 }
             (if (== tag TAG_D_MACRO)
                 (vecPush (tcMacros tc) (nodeA d))
@@ -552,15 +564,55 @@
             (tcCollect tc decls (+ i 1))
           }))))
 
-(pub :: tcCollectEffectOps (-> Int Int Int Int))
-(pub fn (tcCollectEffectOps tc ops i)
+; Every operation of `(effect E ...)` carries `Custom(E)` as its
+; INHERENT effect, exactly as a foreign binding carries IO - stage0
+; attaches it at registration so the collector needs no special case
+; for operations at all.
+(pub :: tcCollectEffectOps (-> Int Int Int Int Int))
+(pub fn (tcCollectEffectOps tc ops i effName)
   (if (>= i (vecLen ops))
       0
       {
         (vecPush (tcFns tc)
-          (cast Int (FnEnt (vecGet ops i) mkSilentWild (- 0 1) 0 0 1)))
-        (tcCollectEffectOps tc ops (+ i 1))
+          (cast Int (FnEnt (vecGet ops i) mkSilentWild (- 0 1) 0 0 1
+                           (let ((v vecNew))
+                             { (vecPush v (customEff effName)) v }))))
+        (tcCollectEffectOps tc ops (+ i 1) effName)
       }))
+
+; ------------------------------------------------------------------
+; Effects, as tagged strings. `effEq` is plain string equality, which
+; is why the tag has to be part of the string rather than a separate
+; word: these live in Vecs and are compared by value.
+; ------------------------------------------------------------------
+(pub :: builtinEff (-> Int Int))
+(pub fn (builtinEff n) (strConcat "b:" n))
+
+(pub :: customEff (-> Int Int))
+(pub fn (customEff n) (strConcat "c:" n))
+
+; The name stage0's `Display for Effect` prints, which is what an
+; AX3011 message quotes: the tag's two bytes removed.
+(pub :: effRender (-> Int Int))
+(pub fn (effRender e) (strSlice e 2 (- (strLen e) 2)))
+
+(pub :: effIn (-> Int Int Int))
+(pub fn (effIn v e) (strInVec v e 0))
+
+; Union into `acc`, answering 1 when anything was added - the
+; fixpoint's "changed" signal.
+(pub :: effUnion (-> Int Int Int Int))
+(pub fn (effUnion acc src i)
+  (if (>= i (vecLen src))
+      0
+      (let ((rest (effUnion acc src (+ i 1))))
+        (if (== (effIn acc (vecGet src i)) 1)
+            rest
+            { (vecPush acc (vecGet src i)) 1 }))))
+
+(pub :: effAdd (-> Int Int Int))
+(pub fn (effAdd acc e)
+  (if (== (effIn acc e) 1) 0 { (vecPush acc e) 1 }))
 
 (pub :: tcCollectData (-> Int Int Int))
 (pub fn (tcCollectData tc d)
@@ -616,7 +668,7 @@
     (let ((ent (findFnEntExact (tcFns tc) (nodeA d) 0)))
       (if (== ent 0)
           (vecPush (tcFns tc)
-                   (cast Int (FnEnt (nodeA d) ty (- 0 1) 0 0 0)))
+                   (cast Int (FnEnt (nodeA d) ty (- 0 1) 0 0 0 vecNew)))
           (memSetWord ent 1 ty)))))
 
 (pub :: tcCollectFn (-> Int Int Int))
@@ -627,7 +679,7 @@
                    (let ((ph (mkTVar (strConcat "_fn_" (decStr (tcCounter tc))))))
                      {
                        (tcBumpCounter tc)
-                       (let ((ne (cast Int (FnEnt (nodeA d) ph (- 0 1) 0 0 0))))
+                       (let ((ne (cast Int (FnEnt (nodeA d) ph (- 0 1) 0 0 0 vecNew))))
                          { (vecPush (tcFns tc) ne) ne })
                      }))))
       (memSetWord ent 2 (vecLen (nodeB d))))))
@@ -849,7 +901,15 @@
             (if (== (vecLen (nodeA e)) 0)
                 0
                 (spanOf (vecGet (nodeA e) 0)))
-        (nodeSpan e)))))))))))
+        ; A handle's span is its BODY's, and recursively so - stage0's
+        ; `Expr::span()` takes the first field of an EHandle exactly
+        ; as it takes the function side of an EApp. Nested handles
+        ; therefore all report at the innermost body, and without
+        ; this arm the node's own zero span suppressed every
+        ; diagnostic anchored at a handle whose body is another one.
+        (if (== tag TAG_E_HANDLE)
+            (spanOf (nodeA e))
+        (nodeSpan e))))))))))))
 
 ; ------------------------------------------------------------------
 ; Diagnostic emission helpers. EVERY emission guards its anchor: a
@@ -1571,6 +1631,309 @@
           (mkTCon (bareOf (memGetWord ent 0)) vecNew)
         })))
 
+; ------------------------------------------------------------------
+; Effect inference: stage0's `collect_effects` walk and the monotone
+; fixpoint over it. What introduces an effect, and nothing else does:
+;
+;   calling a `foreign`          IO   (stage0 adds it at the CALL,
+;                                     not as a stored effect)
+;   calling `__syscallN`         IO
+;   calling anything else        that callee's inferred effects
+;   an effect operation          Custom(E), stored on its entry
+;   `(alloc T)`                  Alloc
+;   `(set base.field v)`         Mut
+;   a `handle` naming a resolved custom effect   Alloc
+;
+; What this deliberately does NOT model is effect POLYMORPHISM:
+; stage0 marks a parameter effect-transparent when it is called, and
+; instantiates the mark with each call site's argument. Omitting it
+; makes stage1's sets a SUBSET of stage0's, so every diagnostic that
+; reads them under-reports rather than inventing one - the direction
+; this file is required to fail in. A call through a local or a
+; parameter therefore contributes nothing here.
+;
+; `bound` is the list of names lexically bound at the walk's start
+; plus everything bound inside it. Without it a local shadowing an
+; effectful top-level name re-resolves globally and attributes
+; effects the body cannot perform - the same shadowing bug stage0
+; records having hit in its own mid-recursion check.
+(pub :: collectEffects (-> Int Int Int Int))
+(pub fn (collectEffects tc e bound)
+  (let ((acc vecNew))
+    { (walkEffects tc e bound acc) acc }))
+
+(pub :: walkEffects (-> Int Int Int Int Int))
+(pub fn (walkEffects tc e bound acc)
+  (if (== e 0)
+      0
+      (let ((tag (nodeTag e)))
+        (if (== tag TAG_E_APP)
+            {
+              (walkEffectsSpine tc e bound acc)
+              0
+            }
+        (if (== tag TAG_E_VAR)
+            ; A bare reference to an effectful name is attributed
+            ; exactly as a call is - stage0's reference-site rule,
+            ; which is what keeps a function value's effects from
+            ; escaping attribution entirely.
+            (effRefSite tc (nodeA e) bound acc)
+        (if (== tag TAG_E_ALLOC)
+            {
+              (effAdd acc (builtinEff "Alloc"))
+              (walkEffects tc (nodeB e) bound acc)
+            }
+        (if (== tag TAG_E_SETF)
+            {
+              (effAdd acc (builtinEff "Mut"))
+              (walkEffects tc (nodeA e) bound acc)
+              (walkEffects tc (nodeC e) bound acc)
+            }
+        (if (== tag TAG_E_HANDLE)
+            (walkEffectsHandle tc e bound acc)
+        (if (|| (== tag TAG_E_LET) (== tag TAG_E_LETM))
+            {
+              (walkEffects tc (nodeB e) bound acc)
+              (let ((b2 (boundWith bound (nodeA e))))
+                (walkEffects tc (nodeC e) b2 acc))
+            }
+        (if (== tag TAG_E_LAM)
+            (walkEffects tc (nodeB e) (boundWithParams bound (nodeA e) 0) acc)
+        (if (== tag TAG_E_IF)
+            {
+              (walkEffects tc (nodeA e) bound acc)
+              (walkEffects tc (nodeB e) bound acc)
+              (walkEffects tc (nodeC e) bound acc)
+            }
+        (if (== tag TAG_E_BEGIN)
+            (walkEffectsVec tc (nodeA e) 0 bound acc)
+        (if (== tag TAG_E_WHILE)
+            {
+              (walkEffects tc (nodeA e) bound acc)
+              (walkEffectsVec tc (nodeB e) 0 bound acc)
+            }
+        (if (== tag TAG_E_SET)
+            (walkEffects tc (nodeB e) bound acc)
+        (if (== tag TAG_E_FIELD)
+            (walkEffects tc (nodeA e) bound acc)
+        (if (== tag TAG_E_STRUCTCON)
+            (walkEffectsVec tc (nodeB e) 0 bound acc)
+        (if (== tag TAG_E_COND)
+            (walkEffectsCond tc (nodeA e) 0 bound acc)
+        (if (== tag TAG_E_MATCH)
+            {
+              (walkEffects tc (nodeA e) bound acc)
+              (walkEffectsArms tc (nodeB e) 0 bound acc)
+            }
+        0))))))))))))))))))
+
+(pub :: walkEffectsVec (-> Int Int Int Int Int Int))
+(pub fn (walkEffectsVec tc v i bound acc)
+  (if (>= i (vecLen v))
+      0
+      {
+        (walkEffects tc (vecGet v i) bound acc)
+        (walkEffectsVec tc v (+ i 1) bound acc)
+      }))
+
+(pub :: walkEffectsCond (-> Int Int Int Int Int Int))
+(pub fn (walkEffectsCond tc cls i bound acc)
+  (if (>= i (vecLen cls))
+      0
+      (let ((c (vecGet cls i)))
+        {
+          (walkEffects tc (nodeA c) bound acc)
+          (walkEffects tc (nodeB c) bound acc)
+          (walkEffectsCond tc cls (+ i 1) bound acc)
+        })))
+
+; A match arm binds its pattern's variables, which must shadow.
+(pub :: walkEffectsArms (-> Int Int Int Int Int Int))
+(pub fn (walkEffectsArms tc arms i bound acc)
+  (if (>= i (vecLen arms))
+      0
+      (let ((a (vecGet arms i)))
+        {
+          (walkEffects tc (nodeB a) (boundWithPattern bound (nodeA a)) acc)
+          (walkEffectsArms tc arms (+ i 1) bound acc)
+        })))
+
+; A handle subtracts what it handles from the BODY's effects only,
+; then adds Alloc when it installs a real dynamic handler. The
+; handler expression's own effects pass through undiminished.
+(pub :: walkEffectsHandle (-> Int Int Int Int Int))
+(pub fn (walkEffectsHandle tc e bound acc)
+  (let ((inner (collectEffects tc (nodeA e) bound)))
+    {
+      (effUnionUnhandled acc inner (nodeB e) 0)
+      (if (== (handleIsDynamic tc (nodeB e) 0) 1)
+          (effAdd acc (builtinEff "Alloc"))
+          0)
+      (walkEffects tc (nodeC e) bound acc)
+    }))
+
+(pub :: effUnionUnhandled (-> Int Int Int Int Int))
+(pub fn (effUnionUnhandled acc inner effs i)
+  (if (>= i (vecLen inner))
+      0
+      {
+        (if (== (effHandledBy effs (vecGet inner i) 0) 1)
+            0
+            (effAdd acc (vecGet inner i)))
+        (effUnionUnhandled acc inner effs (+ i 1))
+      }))
+
+; Does this handle's effect-name list cover `e`? A name in the list
+; is the built-in effect when it spells one and a custom effect
+; otherwise - stage0's parser decides this, not the declarations.
+(pub :: effHandledBy (-> Int Int Int Int))
+(pub fn (effHandledBy effs e i)
+  (if (>= i (vecLen effs))
+      0
+      (let ((n (nodeA (vecGet effs i))))
+        (if (strEq (if (== (isBuiltinEffect n) 1)
+                       (builtinEff (if (strEq n "alloc") "Alloc" n))
+                       (customEff n))
+                   e)
+            1
+            (effHandledBy effs e (+ i 1))))))
+
+; A handle installs evidence - and so allocates - exactly when one of
+; its names resolves to a declared effect, which mirrors the gate
+; stage0's generator uses.
+(pub :: handleIsDynamic (-> Int Int Int Int))
+(pub fn (handleIsDynamic tc effs i)
+  (if (>= i (vecLen effs))
+      0
+      (let ((n (nodeA (vecGet effs i))))
+        (if (&& (== (isBuiltinEffect n) 0)
+                (!= (findEffectDecl tc n) 0))
+            1
+            (handleIsDynamic tc effs (+ i 1))))))
+
+; The spine: arguments are walked for their own effects, then the
+; head decides what the call itself adds.
+(pub :: walkEffectsSpine (-> Int Int Int Int Int))
+(pub fn (walkEffectsSpine tc e bound acc)
+  (if (== (nodeTag e) TAG_E_APP)
+      {
+        (walkEffects tc (nodeB e) bound acc)
+        (walkEffectsSpine tc (nodeA e) bound acc)
+      }
+      (if (== (nodeTag e) TAG_E_VAR)
+          (effRefSite tc (nodeA e) bound acc)
+          (walkEffects tc e bound acc))))
+
+; What naming `n` contributes. A lexically bound name contributes
+; nothing: its initializer was walked where it was bound, and what a
+; local does with arguments is the effect-polymorphism gap above.
+(pub :: effRefSite (-> Int Int Int Int Int))
+(pub fn (effRefSite tc n bound acc)
+  (if (== (strInVec bound n 0) 1)
+      0
+      (if (== (isSyscallPrim n) 1)
+          (effAdd acc (builtinEff "IO"))
+          (let ((ent (findFnEnt tc n)))
+            (if (== ent 0)
+                0
+                {
+                  (if (== (memGetWord ent 4) 1)
+                      (effAdd acc (builtinEff "IO"))
+                      0)
+                  (effUnion acc (memGetWord ent 6) 0)
+                })))))
+
+; The syscall primitives are the IO ones; every other `__` primitive
+; is pure. stage0 drives this off PRIMITIVES' `is_io` column.
+(pub :: isSyscallPrim (-> Int Int))
+(pub fn (isSyscallPrim n)
+  (if (strEq n "__syscall0") 1 (if (strEq n "__syscall1") 1
+  (if (strEq n "__syscall2") 1 (if (strEq n "__syscall3") 1
+  (if (strEq n "__syscall4") 1 (if (strEq n "__syscall5") 1
+  (if (strEq n "__syscall6") 1 0))))))))
+
+(pub :: boundWith (-> Int Int Int))
+(pub fn (boundWith bound n)
+  (let ((v vecNew))
+    { (copyInto v bound 0) (vecPush v n) v }))
+
+(pub :: copyInto (-> Int Int Int Int))
+(pub fn (copyInto dst src i)
+  (if (>= i (vecLen src))
+      0
+      { (vecPush dst (vecGet src i)) (copyInto dst src (+ i 1)) }))
+
+(pub :: boundWithParams (-> Int Int Int Int))
+(pub fn (boundWithParams bound params i)
+  (if (>= i (vecLen params))
+      bound
+      (boundWithParams (boundWith bound (vecGet params i))
+                       params (+ i 1))))
+
+; A pattern's binders are its non-head variables - the same rule the
+; AX3013 scope walk uses.
+(pub :: boundWithPattern (-> Int Int Int))
+(pub fn (boundWithPattern bound pat)
+  (let ((v vecNew))
+    { (copyInto v bound 0) (patBinders pat v) v }))
+
+(pub :: patBinders (-> Int Int Int))
+(pub fn (patBinders pat acc)
+  (if (== pat 0)
+      0
+      (let ((tag (nodeTag pat)))
+        (if (== tag TAG_E_VAR)
+            { (vecPush acc (nodeA pat)) 0 }
+        (if (== tag TAG_E_APP)
+            { (patBinders (nodeB pat) acc) (patBindersHead (nodeA pat) acc) }
+        0)))))
+
+; The spine's head of a constructor pattern names the constructor,
+; not a binder, so only the arguments' binders are collected.
+(pub :: patBindersHead (-> Int Int Int))
+(pub fn (patBindersHead pat acc)
+  (if (== (nodeTag pat) TAG_E_APP)
+      { (patBinders (nodeB pat) acc) (patBindersHead (nodeA pat) acc) }
+      0))
+
+; ------------------------------------------------------------------
+; The fixpoint. Monotone: every round can only add, and one round per
+; function suffices because each round propagates at least one
+; call-graph edge. stage0 bounds it the same way, and for the same
+; stated reason - termination must not depend on the walk staying
+; monotone if it ever changes.
+(pub :: inferEffects (-> Int Int Int))
+(pub fn (inferEffects tc decls)
+  (inferEffectsRound tc decls 0 (+ (vecLen decls) 1)))
+
+(pub :: inferEffectsRound (-> Int Int Int Int Int))
+(pub fn (inferEffectsRound tc decls round limit)
+  (if (>= round limit)
+      0
+      (if (== (inferEffectsPass tc decls 0) 0)
+          0
+          (inferEffectsRound tc decls (+ round 1) limit))))
+
+; One pass over every `fn` in the program - imported modules
+; included, since a call into one has to know what it performs.
+; Answers 1 when anything grew.
+(pub :: inferEffectsPass (-> Int Int Int Int))
+(pub fn (inferEffectsPass tc decls i)
+  (if (>= i (vecLen decls))
+      0
+      (let ((rest (inferEffectsPass tc decls (+ i 1)))
+            (d (vecGet decls i)))
+        (if (!= (nodeTag d) TAG_D_FN)
+            rest
+            (let ((ent (findFnEnt tc (nodeA d))))
+              (if (== ent 0)
+                  rest
+                  (let ((got (collectEffects tc (nodeC d)
+                               (boundWithParams vecNew (nodeB d) 0))))
+                    (if (== (effUnion (memGetWord ent 6) got 0) 1)
+                        1
+                        rest))))))))
+
 ; `(handle body (Effect...) handler)`. stage0's order is the whole
 ; rule and it is not the source order: the BODY is checked, then the
 ; HANDLER, and only then does the effect list produce diagnostics -
@@ -1596,8 +1959,52 @@
     ; recurses into the first field of an EHandle exactly as it does
     ; for an application's head.
     (checkHandleEffects tc (nodeB e) 0 0 (spanOf (nodeA e)))
+    ; AX3011: every effect the body performs that the list does not
+    ; name. Seeded with the names lexically bound HERE - the walk
+    ; starts mid-function, and a local shadowing an effectful
+    ; top-level name would otherwise re-resolve globally and produce
+    ; an error the body contradicts.
+    ;
+    ; The seed starts at frameBase, NOT at 0. Everything below it is
+    ; the module walk's own entries - every signature and foreign
+    ; seen so far - and seeding with those makes every top-level
+    ; function look lexically bound, so a call to one contributes
+    ; nothing and the whole fixpoint's work is discarded at the only
+    ; place that reads it. stage0 seeds from its `__scope__` marker
+    ; for the same reason.
+    (checkUnhandled tc
+      (collectEffects tc (nodeA e)
+        (scopeNamesFrom (tcScope tc) (tcFrameBase tc) vecNew))
+      (nodeB e) 0 (spanOf (nodeA e)))
     mkSilentWild
   })
+
+(pub :: checkUnhandled (-> Int Int Int Int Int Int))
+(pub fn (checkUnhandled tc inner effs i span)
+  (if (>= i (vecLen inner))
+      0
+      {
+        (if (&& (== (effHandledBy effs (vecGet inner i) 0) 0) (!= span 0))
+            (vecPush (tcOut tc)
+              (mkDiag SEV_ERROR "AX3011" "effect-mismatch"
+                      span
+                      (strConcat (strConcat "effect mismatch: unhandled effect `"
+                                            (effRender (vecGet inner i))) "`")
+                      0 0 0))
+            0)
+        (checkUnhandled tc inner effs (+ i 1) span)
+      }))
+
+; Every name currently in scope, which seeds the collector's `bound`
+; list at a handle site.
+(pub :: scopeNamesFrom (-> Int Int Int Int))
+(pub fn (scopeNamesFrom scope i acc)
+  (if (>= i (vecLen scope))
+      acc
+      {
+        (vecPush acc (memGetWord (vecGet scope i) 0))
+        (scopeNamesFrom scope (+ i 1) acc)
+      }))
 
 ; One pass over the effect list, counting the custom effects that
 ; resolved to a one-operation declaration. stage0 reports AX3017 a

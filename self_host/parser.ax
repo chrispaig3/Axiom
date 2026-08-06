@@ -1134,7 +1134,7 @@
           (if (kwEq name "consume")
               (parseConsumeExpr tokens (advance pos))
           (if (kwEq name "alloc")
-              (parseAllocExpr tokens (advance pos))
+              (parseAllocExpr tokens (advance pos) (tokenSpan kw))
           (if (kwEq name "handle")
               (parseHandleExpr tokens (advance pos))
           (parseAppForm tokens pos))))))))))))))))
@@ -1199,18 +1199,23 @@
 ; 4))` exits 0). stage1 reproduces the type and the zero rather than
 ; inventing an allocation stage0 does not perform.
 ; ------------------------------------------------------------------
-(pub :: parseAllocExpr (-> Int Int Int))
-(pub fn (parseAllocExpr tokens pos)
+; The span is the `alloc` KEYWORD's, which is stage0's - `EAlloc`
+; carries the token span `parse_alloc` captured, rather than deriving
+; one from a subexpression. It is load-bearing: an AX3011 whose
+; handle body is a bare `(alloc T)` anchors there, and a node with no
+; span suppresses the diagnostic instead of misplacing it.
+(pub :: parseAllocExpr (-> Int Int Int Int))
+(pub fn (parseAllocExpr tokens pos kwSpan)
   (let ((tr (parseType tokens pos)))
     (if (== (memGetWord tr 0) 0) tr
         (if (peekIs tokens (memGetWord tr 2) TK_RPAREN)
-            (pOk (mkNode TAG_E_ALLOC (memGetWord tr 1) 0 0)
+            (pOk (mkNodeAt TAG_E_ALLOC (memGetWord tr 1) 0 0 kwSpan)
                  (advance (memGetWord tr 2)))
             (let ((cr (parseExpr tokens (memGetWord tr 2))))
               (if (== (memGetWord cr 0) 0) cr
                   (if (peekIs tokens (memGetWord cr 2) TK_RPAREN)
-                      (pOk (mkNode TAG_E_ALLOC (memGetWord tr 1)
-                                   (memGetWord cr 1) 0)
+                      (pOk (mkNodeAt TAG_E_ALLOC (memGetWord tr 1)
+                                     (memGetWord cr 1) 0 kwSpan)
                            (advance (memGetWord cr 2)))
                       (pErr (memGetWord cr 2)))))))))
 
