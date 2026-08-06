@@ -908,12 +908,41 @@ pays nothing.
 Tail position is exactly stage0's set and no larger, because the
 failure mode of getting it wrong is not a crash: rewriting a call that
 is not in tail position silently drops the work waiting on its result
-and returns a wrong answer. So `tests/selfhost/700-tco.ax` checks the
-two directions separately - two million iterations in constant stack,
-and a *non*-tail `(* n (fact (- n 1)))` still computing 10!
-correctly - plus the argument-clobber case, `(pair (- n 1) n)`, whose
-second argument must read the original `n`: every argument is
-evaluated into its own register before any parameter slot is written.
+and returns a wrong answer. The set is the last expression of a `{}`
+block, both arms of an `if`, and every arm body of a `match` - which
+is the shape most recursive Axiom is written in, a walk over a `data`
+value, and the case the optimisation is most wanted for. A `let` body
+is deliberately NOT one, which is stage0's rule and worth stating
+because it is surprising: `(let ((mut s 1)) { (go ...) })` recurses
+for real under *both* compilers at `--opt 0`, and survives only
+because `--opt 1` hands it to LLVM's own `tailcallelim`. Probed both
+ways; the two compilers agree, including in when they overflow.
+
+`tests/selfhost/700-tco.ax` checks the directions separately: two
+million iterations in constant stack and a 400,000-element list walk
+through `match` arms, against a *non*-tail `(* n (fact (- n 1)))` that
+must still compute 10! correctly. It also pins the argument-clobber
+case, `(pair (- n 1) n)`, whose second argument must read the original
+`n` - every argument is evaluated into its own register before any
+parameter slot is written - and a local shadowing the enclosing
+function's own name, which must stay a call to the local rather than
+becoming a jump to the function, an infinite loop where 10 is the
+answer. The rewrite is decided after the macro and local-value checks
+for exactly that reason.
+
+Three defects an adversarial scout found in the first cut are worth
+recording, because two of them made the feature a no-op where it
+mattered. Detection compared the body's bare call head against the
+declaration's name - which `mangleDecl` has already rewritten in place
+to `Mod$name` - so TCO never fired for a single function in an
+imported module, which is all of `self_host/` and `stdlib/`, including
+the `Mem` loops that motivated the work. It passed its own test only
+because the test was an entry file. Binding parameters as `mut`
+storage also made `(set p v)` silently legal inside self-recursive
+functions, where stage0 reports AX3012 and pre-TCO stage1 refused it -
+a divergence that depended on an unrelated property of the function it
+appeared in. Parameters bind at a third kind now: loadable like a
+`mut` slot, refused by `set` like a parameter.
 
 The `Mem` loops stay loops. The recursive spelling would now compile
 to the same thing, but a standard library whose correctness depends on

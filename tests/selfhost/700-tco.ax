@@ -28,10 +28,31 @@
 (fn (fact n) (if (<= n 1) 1 (* n (fact (- n 1)))))
 (:: pair (-> Int Int Int))
 (fn (pair n acc) (if (== n 0) acc (pair (- n 1) n)))
+; A `match` arm is a tail position too, and it is the shape most
+; recursive Axiom is written in - a walk over a `data` value. Leaving
+; it out meant the optimisation missed the case it is most wanted for.
+(data L (Nil) (Cons Int L))
+(:: build (-> Int L L))
+(fn (build n acc) (if (== n 0) acc (build (- n 1) (Cons n acc))))
+(:: walk (-> L Int Int))
+(fn (walk xs acc)
+  (match xs
+    ((Nil) acc)
+    ((Cons h t) (walk t (+ acc 1)))))
+; A local shadowing the enclosing function's own name is a CALL to the
+; local, never a jump to the function - which would be an infinite
+; loop where 10 is the answer. The rewrite is therefore decided after
+; the local-value check, not before it.
+(:: dbl (-> Int Int))
+(fn (dbl n) (let ((dbl (lambda (x) (* x 2)))) (dbl n)))
 (:: main Int)
 (fn (main)
   (if (== (loop 2000000 0) 2000000)
       (if (== (fact 10) 3628800)
-          (if (== (pair 5 0) 1) 42 9)
+          (if (== (pair 5 0) 1)
+              (if (== (walk (build 400000 (Nil)) 0) 400000)
+                  (if (== (dbl 5) 10) 42 11)
+                  10)
+              9)
           8)
       7))

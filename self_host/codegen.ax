@@ -1220,9 +1220,17 @@
             ; functions are that, and paying an alloca and two memory
             ; operations per parameter for a loop nobody enters is a
             ; cost with no buyer.
-            (let ((wantsTCO (tailCallsSelf body (nodeA node) (vecLen params))))
+            ; The BARE name, because that is what a self call spells.
+            ; `mangleDecl` rewrites an imported function's declaration
+            ; name in place to `Mod$name`, so comparing against it
+            ; matched nothing for every function in every imported
+            ; module - which is all of `self_host/` and `stdlib/`, and
+            ; therefore all of the code this exists to fix. It passed
+            ; its test only because the test was an entry file.
+            (let ((selfName (bareName (nodeA node))))
+            (let ((wantsTCO (tailCallsSelf body selfName (vecLen params))))
               (let ((cg1c (if (== wantsTCO 1)
-                              (openTailLoop name params cg1b)
+                              (openTailLoop selfName params cg1b)
                               cg1b)))
                 (let ((cg2 (if (== wantsTCO 1)
                                (emitExprTail body cg1c)
@@ -1240,13 +1248,28 @@
                         }
                         (let ((ret (cat3 "  ret i64 " (strDup (memGetWord cg2 2)) "")))
                           (emitLine (emitLine cg2 ret) "}")))
-                  })))))))))
+                  }))))))))))
 
 ; Move every parameter into an alloca, bind it as mutable storage so
 ; body references load it, and open the loop the tail call jumps back
 ; to. `bindSym ... 1` is the same registration `mut` locals use, which
 ; is what makes `emitVar` emit a load without knowing about any of
 ; this.
+; Everything after the last `$`: the source-spelled name of a
+; declaration whose node `mangleDecl` may have rewritten to
+; `Mod$name`.
+(pub :: bareName (-> Int Int))
+(pub fn (bareName s)
+  (bareNameFrom s (- (strLen s) 1)))
+
+(pub :: bareNameFrom (-> Int Int Int))
+(pub fn (bareNameFrom s i)
+  (if (< i 0)
+      s
+      (if (== (strByte s i) 36)
+          (strSlice s (+ i 1) (- (strLen s) (+ i 1)))
+          (bareNameFrom s (- i 1)))))
+
 (pub :: openTailLoop (-> Int Int Int Int))
 (pub fn (openTailLoop name params cg)
   (let ((slots vecNew)
@@ -1272,7 +1295,16 @@
           {
             (emitLine cg (cat2 (cat2 "  " ar) " = alloca i64"))
             (emitLine cg (cat4 "  store i64 %" (strDup pname) ", ptr " ar))
-            (bindSym cg pname ar (paramFloatFlag cg i) 1)
+            ; Kind 2, not 1: the slot is loadable storage exactly as a
+            ; `mut` binding's is, which is what makes `emitVar` emit a
+            ; load without knowing about tail calls - but `set` must
+            ; still refuse it. stage0 rejects `(set p v)` on a
+            ; parameter as AX3012 and pre-TCO stage1 refused it too;
+            ; binding parameters at kind 1 quietly made them
+            ; assignable, and only inside self-recursive functions,
+            ; which is the worst kind of divergence: one that depends
+            ; on an unrelated property of the function it appears in.
+            (bindSym cg pname ar (paramFloatFlag cg i) 2)
             (vecPush slots ar)
             (allocParamSlots params slots cg (+ i 1))
           }))))
@@ -1357,9 +1389,28 @@
         (if (== (tailCallsSelf (nodeB e) name arity) 1)
             1
             (tailCallsSelf (nodeC e) name arity))
-    (if (|| (== tag TAG_E_LET) (== tag TAG_E_LETM))
-        (tailCallsSelf (nodeC e) name arity)
+    (if (== tag TAG_E_MATCH)
+        (armsCallSelf (nodeB e) name arity 0)
         0))))))
+
+; NOT a tail position: a `let` body. stage0 passes no tail context
+; into one, and following it here cost two defects at once. A `mut`
+; binding inside the loop re-executed its `alloca` on every iteration
+; and grew the stack without bound - re-creating the exact overflow
+; this feature removes, while emitting LLVM that looks optimised. And
+; a local shadowing the function's own name (`(let ((f (lambda ...)))
+; (f x))`) became a jump to the function instead of a call to the
+; local: an infinite loop where the correct answer was a number.
+; `while` bodies and `&&`/`||` operands are not tail positions either,
+; for the same reason stage0 excludes them.
+
+(pub :: armsCallSelf (-> Int Int Int Int Int))
+(pub fn (armsCallSelf arms name arity i)
+  (if (>= i (vecLen arms))
+      0
+      (if (== (tailCallsSelf (nodeB (vecGet arms i)) name arity) 1)
+          1
+          (armsCallSelf arms name arity (+ i 1)))))
 
 ; The head of an application spine, as a name, or "" when the head is
 ; not a plain name.
@@ -1402,11 +1453,9 @@
         (emitSeqTail (nodeA e) cg 0)
     (if (== tag TAG_E_IF)
         (emitIfTail e cg)
-    (if (== tag TAG_E_LET)
-        (emitLetTail e cg)
-    (if (== tag TAG_E_LETM)
-        (emitLetMTail e cg)
-        (emitExpr e cg))))))))
+    (if (== tag TAG_E_MATCH)
+        (emitMatchTail e cg)
+        (emitExpr e cg)))))))
 
 ; Every expression of a block but the last is ordinary; the last
 ; inherits tail position.
@@ -1418,48 +1467,71 @@
           (emitExprTail (vecGet exprs i) cg)
           (emitSeqTail exprs (emitExpr (vecGet exprs i) cg) (+ i 1)))))
 
-; `let` in tail position: the bound value is ordinary, the body
-; inherits. Mirrors `emitLet`, which this cannot simply call because
-; the body must go through `emitExprTail`.
-(pub :: emitLetTail (-> Int Int Int))
-(pub fn (emitLetTail node cg)
-  (let ((name (nodeA node))
-        (valExpr (nodeB node))
-        (body (nodeC node)))
-    (let ((cg1 (emitExpr valExpr cg)))
-      (let ((valReg (strDup (memGetWord cg1 2)))
-            (valFlag (memGetWord cg1 14))
-            (mark (symMark cg1)))
-        {
-          (bindSym cg1 name valReg valFlag 0)
-          (let ((cgB (emitExprTail body cg1)))
-            {
-              (symRestore cgB mark)
-              cgB
-            })
-        }))))
+; `match` in tail position: every arm body inherits it. This is the
+; shape most recursive Axiom is written in - a walk over a `data`
+; value - so leaving it out meant the optimisation missed the case it
+; is most wanted for.
+;
+; Easier than `if`, because a match already routes its result through
+; a heap cell rather than a phi: an arm that ends in a jump simply
+; does not store and does not branch to the merge. And the merge block
+; can never become unreachable, because the no-arm-matched fallback
+; always branches to it.
+(pub :: emitMatchTail (-> Int Int Int))
+(pub fn (emitMatchTail node cg)
+  (let ((scrutExpr (nodeA node))
+        (arms (nodeB node))
+        (ff (memAlloc 8))
+        (_0 (memSetWord ff 0 (- 0 1)))
+        (cg1 (emitExpr scrutExpr cg))
+        (sv (strDup (memGetWord cg1 2)))
+        (cn (allocReg cg1))
+        (cell (regStr cn))
+        (_1 (emitLine cg1 (cat3 (cat2 "  " cell)
+                                " = call i64 @axiom_alloc(i64 8)"
+                                "")))
+        (mn (allocReg cg1))
+        (mergeB (cat2 "label_" (fmtInt mn)))
+        (cg2 (emitArmsTail arms sv cell mergeB cg1 0 ff))
+        (_2 (emitLabel cg2 mergeB))
+        (cg3 (loadWordAt cg2 cell 0))
+        (armFlag (memGetWord ff 0))
+        (_3 (memSetWord cg3 14 (if (== armFlag (- 0 1)) 0 armFlag)))
+        (_4 (memSetWord cg3 31 0)))
+    cg3))
 
-(pub :: emitLetMTail (-> Int Int Int))
-(pub fn (emitLetMTail node cg)
-  (let ((name (nodeA node))
-        (valExpr (nodeB node))
-        (body (nodeC node)))
-    (let ((cg1 (emitExpr valExpr cg)))
-      (let ((valReg (strDup (memGetWord cg1 2)))
-            (valFlag (memGetWord cg1 14))
-            (mark (symMark cg1))
-            (an (allocReg cg1)))
-        (let ((ar (cat2 "%a" (fmtInt an))))
-          {
-            (emitLine cg1 (cat2 (cat2 "  " ar) " = alloca i64"))
-            (emitLine cg1 (cat4 "  store i64 " valReg ", ptr " ar))
-            (bindSym cg1 name ar valFlag 1)
-            (let ((cgB (emitExprTail body cg1)))
+(pub :: emitArmsTail (-> Int Int Int Int Int Int Int Int))
+(pub fn (emitArmsTail arms sv cell mergeB cg i ff)
+  (if (>= i (vecLen arms))
+      {
+        (emitLine cg (cat2 "  br label %" mergeB))
+        cg
+      }
+      (let ((arm (vecGet arms i))
+            (pat (nodeA arm))
+            (body (nodeB arm))
+            (nn (allocReg cg))
+            (nextB (cat2 "label_" (fmtInt nn)))
+            (mark (symMark cg)))
+        (let ((cgP (emitPatMatch pat (strDup sv) nextB cg 0)))
+          (let ((cgB (emitExprTail body cgP))
+                (_ff (if (== i 0) (memSetWord ff 0 (memGetWord cgB 14)) 0)))
+            (let ((termd (memGetWord cgB 31)))
               {
+                ; An arm that jumped back to the loop header has
+                ; nothing to store and nowhere to fall through to.
+                (if (== termd 1)
+                    0
+                    {
+                      (storeWordAt cgB cell 0 (strDup (memGetWord cgB 2)))
+                      (emitLine cgB (cat2 "  br label %" mergeB))
+                      0
+                    })
+                (memSetWord cgB 31 0)
+                (emitLabel cgB nextB)
                 (symRestore cgB mark)
-                cgB
-              })
-          })))))
+                (emitArmsTail arms sv cell mergeB cgB (+ i 1) ff)
+              }))))))
 
 ; `if` in tail position. Both arms inherit, and either may end with a
 ; branch back to the loop header instead of a value - so the merge
@@ -2262,7 +2334,7 @@
         (zeroFloat (emitPrimArgc cg))
     (let ((symReg (lookupSym cg name)))
       (if (!= symReg 0)
-          (if (== (lookupSymKind cg name) 1)
+          (if (>= (lookupSymKind cg name) 1)
               ; A mutable binding: the register is its storage, and the
               ; value is a fresh load - which is what makes a `set` in
               ; a loop body visible on the next trip's read.
@@ -2472,11 +2544,7 @@
         ; it - a self call in argument position is an ordinary call.
         (isTail (memGetWord cg 30))
         (_clr (memSetWord cg 30 0)))
-    (if (&& (== isTail 1)
-            (&& (!= (memGetWord cg 27) 0)
-                (&& (strEq fnName (memGetWord cg 27))
-                    (== (vecLen args) (vecLen (memGetWord cg 28))))))
-        (emitTailJump args cg)
+    (
     ; A macro wins over every other reading of the head, because
     ; stage0 expands before any analysis runs - a macro shadowing a
     ; function name rewrites the call there too, whatever the arity
@@ -2534,7 +2602,18 @@
         (let ((types (memGetWord cg 3))
               (entry (lookupType types fnName)))
           (if (== entry 0)
-              (emitCall fnName args cg)
+              ; The self tail call is recognised HERE, not on the way
+              ; in: a macro, a local, a lambda parameter or a match
+              ; binder that shadows the function's name has already
+              ; claimed the call above, and rewriting it as a jump to
+              ; the function would be an infinite loop where the
+              ; correct answer is a value.
+              (if (&& (== isTail 1)
+                      (&& (!= (memGetWord cg 27) 0)
+                          (&& (strEq fnName (memGetWord cg 27))
+                              (== (vecLen args) (vecLen (memGetWord cg 28))))))
+                  (emitTailJump args cg)
+                  (emitCall fnName args cg))
               (zeroFloat (emitConstructor fnName args (eKind entry) (eArity entry) (eTag entry) (eRep entry) cg)))))))))))))))
 
 (pub :: isLocalValue (-> Int Int Bool))
