@@ -1,3 +1,5 @@
 W AX3010 330-axtag-mismatch.ax:4:6-9 axtag-mismatch "AXTAG mismatch on `sys`: `pure` claim contradicted: body performs Alloc, IO"
 W AX3010 330-axtag-mismatch.ax:7:6-13 axtag-mismatch "AXTAG mismatch on `reached`: `pure` claim contradicted: body performs Alloc, IO"
 W AX3010 330-axtag-mismatch.ax:10:6-12 axtag-mismatch "AXTAG mismatch on `claims`: `effect(console)` claim unsupported: missing Console"
+W AX3010 330-axtag-mismatch.ax:19:6-11 axtag-mismatch "AXTAG mismatch on `leaky`: `pure` claim contradicted: body performs IO"
+W AX3010 330-axtag-mismatch.ax:22:6-17 axtag-mismatch "AXTAG mismatch on `nonexistent`: `effect(nosucheffect)` claim unsupported: missing nosucheffect"

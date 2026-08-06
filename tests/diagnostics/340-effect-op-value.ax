@@ -1,0 +1,5 @@
+(effect Ask (ask :: (-> Int Int)))
+(:: apply (-> (-> Int Int) Int Int))
+(fn (apply f x) (f x))
+(:: main Int)
+(fn (main) (handle (apply ask 1) (IO) (lambda (v) 0)))

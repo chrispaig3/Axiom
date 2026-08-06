@@ -1306,31 +1306,50 @@ a different string, and the set is rendered *into* the message. And
 canonicalises to the **declared** spelling, so the message reads
 `missing Console` for a claim written in lowercase.
 
-The gate that makes this sound is the interesting part, because
-stage1's effect sets are a subset of stage0's and a subset is fatal
-here. For `AX3011` a missing effect costs a line; for `AX3010` it
-changes the message — `body performs IO` against
-`body performs Alloc, IO` is a mis-report, not an omission. So the
-collector records whether it saw a call it could not resolve: a head
-that is a lexically bound name, or a name with no entry. Those are
-exactly the calls that make stage0's `effect_params` non-empty, and
-when there are none, stage1's concrete set *equals* stage0's and
-`effect_params` is empty — which is also the condition stage0 uses to
-decide whether a claimed-but-absent effect is a lie rather than
-something a callback could still supply. Anything else stays silent.
-The sentinel lives in the effect set itself, so `effUnion` carries it
-out of a callee's summary into its caller's and the fixpoint stores
-it: a function that calls a function that calls through a parameter
-is incomplete too, which is what makes the gate hold for
-effect-transparent callees stage1 cannot see. Marking on every
-*reference* to a bound name rather than every *call* would have
-flagged nearly every function and silenced the check everywhere.
+**Effect polymorphism now closes that gap**, and with it the last
+thing keeping stage1's inferred sets a strict subset of stage0's. A
+function's summary carries *effect-transparent parameter* marks
+beside its concrete effects: calling a parameter marks it, a `let`
+whose initialiser is a bare parameter reference is an alias of it and
+marks the same index, and a call site instantiates a callee's marks
+with whatever it passes there. Marks are gated on `param_callables` -
+a parameter declared `Int` cannot hold a callable, and marking one
+would claim a transparency the signature forbids.
+
+Marks never add a concrete effect; they only decide *suppression*,
+which is why they matter here and not to `AX3011`. stage0 suppresses
+a claimed-but-absent effect when a callback could still supply it -
+the function has transparent parameters and the effect names
+something that exists - and reports it otherwise, because an effect
+no declaration introduces can never arrive that way. stage1 now
+computes both halves and applies the same rule, so the earlier
+completeness gate is gone: measured before the change, three shapes
+diverged (a `pure` claim on a higher-order function that also
+syscalls, a claim naming no declared effect, and a bare operation
+passed as a value), all under-reports, all now byte-identical.
+
+The parameters had to leave the shadow list to make this work.
+stage0 keeps them separately so `param_index` can still find one, and
+a parameter masked as a shadow of itself is invisible to the very
+marks being computed - the same reason its handle-site seed excludes
+them.
+
+That last shape was a third `AX3017` stage1 had not implemented at
+all: an effect operation used as a **bare value**. It is dispatch,
+not data, so there is no closure to hand around; stage0 refuses and
+returns poison. stage1 already returned the poison - the comment at
+that site recorded the message as unrenderable - and now renders it,
+`(lambda (x) (ask x))` suggestion included.
 
 `330-axtag-mismatch.ax` pins a `pure` claim contradicted by two
 effects (sorted), the same contradiction reached through a call, a
 lowercase custom claim naming no performed effect, an honest claim
-that stays silent, and a higher-order function whose claim the gate
-suppresses. The swept trees carry 65 real AXTAG lines — 60
+that stays silent, a higher-order function whose transparent
+parameter suppresses its claim - pinned by its *absence* from the
+golden - and two more that transparency does not excuse: a
+higher-order function that syscalls anyway, and one claiming an
+effect no declaration introduces. `340-effect-op-value.ax` pins the
+bare-operation refusal. The swept trees carry 65 real AXTAG lines — 60
 `effect`, two `pure` — and stage1 agrees with stage0 in silence on
 every one.
 
@@ -1348,12 +1367,11 @@ would not produce.
 
 What genuinely remains for phase 3: `AX3014` ambiguous-name, which
 needs the per-declaration module tracking stage1's merged declaration
-list does not keep; effect polymorphism, without which the inferred
-sets stay a sound subset and `AX3010` stays gated off higher-order
-functions; diagnostic grouping; and type-checking the bodies of
-imported modules against their own filenames. That is every remaining
-`AX30xx` code accounted for: stage1 emits **sixteen of the
-seventeen**, all byte-identical. Lowering the effect system itself is
+list does not keep; diagnostic grouping; and type-checking the bodies
+of imported modules against their own filenames. That is every
+remaining `AX30xx` code accounted for: stage1 emits **sixteen of the
+seventeen**, all byte-identical, and the seventeenth (`AX3014`) is
+the only one left. Lowering the effect system itself is
 phase 4 work, not phase 3 — the checker's job is finished when it
 agrees about what is wrong.
 

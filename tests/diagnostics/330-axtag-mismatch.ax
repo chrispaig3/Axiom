@@ -14,5 +14,11 @@
 (:: higher (-> (-> Int Int) Int Int))
 ;@axiom:pure
 (fn (higher f x) (f x))
+(:: leaky (-> (-> Int Int) Int Int))
+;@axiom:pure
+(fn (leaky f x) { (__syscall3 1 x 0 0) (f x) })
+(:: nonexistent (-> (-> Int Int) Int Int))
+;@axiom:effect(nosucheffect)
+(fn (nonexistent f x) (f x))
 (:: main Int)
 (fn (main) 0)

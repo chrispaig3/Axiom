@@ -394,16 +394,21 @@
 ; `(effect IO ...)` declaration's operations do NOT become handled by
 ; a handle list naming the built-in `IO`. Storing the display name
 ; alone would silently merge them.
+; `eparams` is the list of parameter indices this function is
+; EFFECT-TRANSPARENT in: it performs whatever a value passed there
+; performs. `apply` is `{effects: [], eparams: [0]}` - exactly as pure
+; as its argument.
 (pub struct FnEnt (name : Int) (ty : Int) (paramCount : Int)
                   (isBuiltin : Int) (isForeign : Int) (isEffectOp : Int)
-                  (effects : Int))
+                  (effects : Int) (eparams : Int))
 (pub struct CtorEnt (name : Int) (fieldTys : Int) (resTy : Int) (ctorTy : Int))
 (pub struct DataEnt (name : Int) (ctors : Int))
 (pub struct StructEnt (name : Int) (fields : Int))
 (pub struct TC (fns : Int) (datas : Int) (structs : Int) (scope : Int)
                (out : Int) (counter : Int) (frameBase : Int)
                (macros : Int) (effects : Int)
-               (entryDecls : Int) (allDecls : Int))
+               (entryDecls : Int) (allDecls : Int)
+               (curParams : Int) (curCallable : Int))
 
 (pub :: tcFns (-> Int Int))     (pub fn (tcFns tc)     (memGetWord tc 0))
 (pub :: tcDatas (-> Int Int))   (pub fn (tcDatas tc)   (memGetWord tc 1))
@@ -436,7 +441,7 @@
 
 (pub :: regFn (-> Int Int Int Int))
 (pub fn (regFn fns name ty)
-  (vecPush fns (cast Int (FnEnt name ty (- 0 1) 1 0 0 vecNew))))
+  (vecPush fns (cast Int (FnEnt name ty (- 0 1) 1 0 0 vecNew vecNew))))
 
 ; ------------------------------------------------------------------
 ; Registration: stage0's TypeChecker::new(), in its order - the order
@@ -501,7 +506,8 @@
           (vecPush datas (cast Int (DataEnt "Option" optCtors)))
         })
       (let ((tc (cast Int (TC fns datas vecNew vecNew vecNew 0 0
-                              vecNew vecNew entryDecls allDecls))))
+                              vecNew vecNew entryDecls allDecls
+                              vecNew vecNew))))
         {
           (tcCollect tc allDecls 0)
           ; Effects are inferred once, after every declaration is
@@ -543,7 +549,7 @@
                 (vecPush (tcFns tc)
                   (cast Int (FnEnt (nodeA d)
                                    (if (== (nodeTy d) 0) mkSilentWild (nodeTy d))
-                                   (- 0 1) 0 1 0 vecNew)))
+                                   (- 0 1) 0 1 0 vecNew vecNew)))
             (if (== tag TAG_D_EFFECT)
                 {
                   ; The whole declaration node, not just its name:
@@ -576,7 +582,8 @@
         (vecPush (tcFns tc)
           (cast Int (FnEnt (vecGet ops i) mkSilentWild (- 0 1) 0 0 1
                            (let ((v vecNew))
-                             { (vecPush v (customEff effName)) v }))))
+                             { (vecPush v (customEff effName)) v })
+                           vecNew)))
         (tcCollectEffectOps tc ops (+ i 1) effName)
       }))
 
@@ -668,7 +675,7 @@
     (let ((ent (findFnEntExact (tcFns tc) (nodeA d) 0)))
       (if (== ent 0)
           (vecPush (tcFns tc)
-                   (cast Int (FnEnt (nodeA d) ty (- 0 1) 0 0 0 vecNew)))
+                   (cast Int (FnEnt (nodeA d) ty (- 0 1) 0 0 0 vecNew vecNew)))
           (memSetWord ent 1 ty)))))
 
 (pub :: tcCollectFn (-> Int Int Int))
@@ -679,7 +686,7 @@
                    (let ((ph (mkTVar (strConcat "_fn_" (decStr (tcCounter tc))))))
                      {
                        (tcBumpCounter tc)
-                       (let ((ne (cast Int (FnEnt (nodeA d) ph (- 0 1) 0 0 0 vecNew))))
+                       (let ((ne (cast Int (FnEnt (nodeA d) ph (- 0 1) 0 0 0 vecNew vecNew))))
                          { (vecPush (tcFns tc) ne) ne })
                      }))))
       (memSetWord ent 2 (vecLen (nodeB d))))))
@@ -1267,12 +1274,25 @@
   (let ((ent (findFnEnt tc name)))
     (if (!= ent 0)
         (if (== (memGetWord ent 5) 1)
-            ; An effect operation cannot be a bare value. stage0 says
-            ; so with AX3017 and returns poison; stage1 cannot render
-            ; that yet (recorded), but the POISON is load-bearing -
-            ; without it the wildcard type would let a later check
-            ; fire where stage0 is silent.
-            1
+            ; An effect operation cannot be a bare value: it is
+            ; dispatch, not data, so there is no closure to hand
+            ; around. stage0 refuses with AX3017 and returns poison,
+            ; and the poison is load-bearing independently of the
+            ; message - without it the wildcard type would let a later
+            ; check fire where stage0 is silent.
+            {
+              (if (== span 0)
+                  0
+                  (vecPush (tcOut tc)
+                    (mkDiag SEV_ERROR "AX3017" "effect-handler-unsupported"
+                            span
+                            (strConcat (strConcat (strConcat (strConcat (strConcat
+                              "effect operation `" (bareOf name))
+                              "` cannot be used as a bare value; call it, or wrap it: `(lambda (x) (")
+                              (bareOf name)) " x))`") "")
+                            0 0 0)))
+              1
+            }
             (let ((ar (repArity ent)))
               (if (>= ar 2)
                   (if (== span 0)
@@ -1662,6 +1682,47 @@
   (let ((acc vecNew))
     { (walkEffects tc e bound acc) acc }))
 
+; Which parameters can hold a callable value, from the declared type -
+; stage0's `param_callables`. An arrow, a type variable or poison can;
+; a concrete `Int` cannot, and marking one would claim a transparency
+; the signature forbids.
+(pub :: paramCallablesOf (-> Int Int Int))
+(pub fn (paramCallablesOf ty count)
+  (let ((v vecNew))
+    { (paramCallablesInto v ty count 0) v }))
+
+(pub :: paramCallablesInto (-> Int Int Int Int Int))
+(pub fn (paramCallablesInto v ty count i)
+  (if (>= i count)
+      0
+      (if (== ty 0)
+          { (vecPush v 1) (paramCallablesInto v 0 count (+ i 1)) }
+          (if (!= (nodeTag ty) TAG_T_ARR)
+              { (vecPush v 1) (paramCallablesInto v 0 count (+ i 1)) }
+              {
+                (vecPush v (tyIsCallable (nodeA ty)))
+                (paramCallablesInto v (nodeB ty) count (+ i 1))
+              }))))
+
+(pub :: tyIsCallable (-> Int Int))
+(pub fn (tyIsCallable t)
+  (if (== t 0)
+      1
+      (let ((tg (nodeTag t)))
+        (if (== tg TAG_T_ARR) 1
+        (if (== tg TAG_T_VAR) 1
+        (if (== tg TAG_T_ERR) 1
+        0))))))
+
+; The scope a function body is walked in.
+(pub :: bodyScopeOf (-> Int Int Int))
+(pub fn (bodyScopeOf tc d)
+  (let ((ent (findFnEnt tc (nodeA d))))
+    (bsNew (nodeB d)
+           (paramCallablesOf (if (== ent 0) 0 (memGetWord ent 1))
+                             (vecLen (nodeB d)))
+           vecNew)))
+
 (pub :: walkEffects (-> Int Int Int Int Int))
 (pub fn (walkEffects tc e bound acc)
   (if (== e 0)
@@ -1695,11 +1756,18 @@
         (if (|| (== tag TAG_E_LET) (== tag TAG_E_LETM))
             {
               (walkEffects tc (nodeB e) bound acc)
-              (let ((b2 (boundWith bound (nodeA e))))
+              ; A `let` whose initialiser is a bare reference to a
+              ; parameter is an ALIAS of it: calling the local is
+              ; calling the parameter under another name, which is
+              ; stage0's `param_alias_of` through `lookup_shadow`.
+              (let ((b2 (bsWith bound (nodeA e)
+                          (if (== (nodeTag (nodeB e)) TAG_E_VAR)
+                              (bsParamAlias bound (nodeA (nodeB e)))
+                              (- 0 1)))))
                 (walkEffects tc (nodeC e) b2 acc))
             }
         (if (== tag TAG_E_LAM)
-            (walkEffects tc (nodeB e) (boundWithParams bound (nodeA e) 0) acc)
+            (walkEffects tc (nodeB e) (bsWithParams bound (nodeA e) 0) acc)
         (if (== tag TAG_E_IF)
             {
               (walkEffects tc (nodeA e) bound acc)
@@ -1755,7 +1823,7 @@
       0
       (let ((a (vecGet arms i)))
         {
-          (walkEffects tc (nodeB a) (boundWithPattern bound (nodeA a)) acc)
+          (walkEffects tc (nodeB a) (bsWithPattern bound (nodeA a)) acc)
           (walkEffectsArms tc arms (+ i 1) bound acc)
         })))
 
@@ -1812,45 +1880,81 @@
             1
             (handleIsDynamic tc effs (+ i 1))))))
 
-; The spine: arguments are walked for their own effects, then the
-; head decides what the call itself adds.
+; The spine: every argument is walked for its own effects, then the
+; head decides what the call itself adds - and, when the callee is
+; known to be effect-transparent somewhere, which argument escapes
+; into that position.
 (pub :: walkEffectsSpine (-> Int Int Int Int Int))
 (pub fn (walkEffectsSpine tc e bound acc)
-  (if (== (nodeTag e) TAG_E_APP)
-      {
-        (walkEffects tc (nodeB e) bound acc)
-        (walkEffectsSpine tc (nodeA e) bound acc)
-      }
-      (if (== (nodeTag e) TAG_E_VAR)
-          (effRefSite tc (nodeA e) bound acc 1)
-          (walkEffects tc e bound acc))))
+  (let ((args (spineArgVec e vecNew))
+        (head (spineHead e)))
+    {
+      (walkEffectsVec tc args 0 bound acc)
+      (if (== (nodeTag head) TAG_E_VAR)
+          (walkCallHead tc (nodeA head) args bound acc)
+          (walkEffects tc head bound acc))
+    }))
 
-; What naming `n` contributes. A lexically bound name contributes
-; nothing: its initializer was walked where it was bound, and what a
-; local does with arguments is the effect-polymorphism gap above.
-(pub :: effRefSite (-> Int Int Int Int Int Int))
-; `inHead` distinguishes a CALL from a bare reference, and it decides
-; incompleteness: reading a local contributes nothing and is perfectly
-; knowable, while CALLING one is the unknown stage0 models with an
-; effect-transparent parameter. Marking on every bound reference would
-; flag almost every function and silence AX3010 everywhere.
-;
-; Incompleteness propagates by itself: the sentinel lives in the
-; effect set, so `effUnion` copies it out of a callee's summary into
-; the caller's, and the fixpoint stores it. A function that calls a
-; function that calls through a parameter is therefore incomplete
-; too, which is what makes the gate sound for effect-transparent
-; callees stage1 cannot see.
-(pub fn (effRefSite tc n bound acc inHead)
-  (if (== (strInVec bound n 0) 1)
-      (if (== inHead 1) (effAdd acc effIncomplete) 0)
+; stage0's `walk_call`, by callee kind.
+(pub :: walkCallHead (-> Int Int Int Int Int Int))
+(pub fn (walkCallHead tc n args bound acc)
+  (if (== (bsIsLocal bound n) 1)
+      ; Calling a local or a parameter. If it aliases a parameter,
+      ; THAT parameter is effect-transparent - this is the case the
+      ; whole pass exists for - and whatever is handed to it may be
+      ; called too.
+      {
+        (markEparam bound (bsParamAlias bound n))
+        (escapeArgs bound args 0)
+      }
       (if (== (isSyscallPrim n) 1)
           (effAdd acc (builtinEff "IO"))
           (let ((ent (findFnEnt tc n)))
             (if (== ent 0)
-                ; An unresolved callee is the collector's other
-                ; unknown: stage0 lets its arguments escape.
-                (if (== inHead 1) (effAdd acc effIncomplete) 0)
+                ; An unresolved callee: treat it like a local, since
+                ; what it does with its arguments is unknown.
+                (escapeArgs bound args 0)
+                {
+                  (if (== (memGetWord ent 4) 1)
+                      (effAdd acc (builtinEff "IO"))
+                      0)
+                  (effUnion acc (memGetWord ent 6) 0)
+                  ; Instantiate the callee's transparent positions
+                  ; with what this call passes there.
+                  (instantiateEparams bound (memGetWord ent 7) args 0)
+                })))))
+
+(pub :: escapeArgs (-> Int Int Int Int))
+(pub fn (escapeArgs bound args i)
+  (if (>= i (vecLen args))
+      0
+      { (escapeValue bound (vecGet args i)) (escapeArgs bound args (+ i 1)) }))
+
+(pub :: instantiateEparams (-> Int Int Int Int Int))
+(pub fn (instantiateEparams bound marks args i)
+  (if (>= i (vecLen marks))
+      0
+      {
+        (if (< (vecGet marks i) (vecLen args))
+            (escapeValue bound (vecGet args (vecGet marks i)))
+            0)
+        (instantiateEparams bound marks args (+ i 1))
+      }))
+
+; What naming `n` contributes when it is NOT a call head: stage0's
+; reference-site rule, which is what keeps a function value's effects
+; from escaping attribution entirely. A lexically bound name
+; contributes nothing - its initialiser was walked where it was
+; bound.
+(pub :: effRefSite (-> Int Int Int Int Int Int))
+(pub fn (effRefSite tc n bound acc inHead)
+  (if (== (bsIsLocal bound n) 1)
+      0
+      (if (== (isSyscallPrim n) 1)
+          (effAdd acc (builtinEff "IO"))
+          (let ((ent (findFnEnt tc n)))
+            (if (== ent 0)
+                0
                 {
                   (if (== (memGetWord ent 4) 1)
                       (effAdd acc (builtinEff "IO"))
@@ -1955,10 +2059,37 @@
   (if (strEq n "__syscall4") 1 (if (strEq n "__syscall5") 1
   (if (strEq n "__syscall6") 1 0))))))))
 
-(pub :: boundWith (-> Int Int Int))
-(pub fn (boundWith bound n)
+; ------------------------------------------------------------------
+; The walk's scope. `names` is the shadow list - one entry per `let`,
+; lambda parameter or match binder, carrying the PARAMETER INDEX it
+; aliases or -1 - while `params`, `callable` and `eparams` are
+; constant for the whole walk and shared by every derived scope.
+;
+; Parameters are deliberately NOT in `names`: stage0 keeps them in a
+; separate list so `param_index` can still find one, and a parameter
+; masked as a shadow of itself would be invisible to the
+; effect-transparency marks that are the whole point of tracking it.
+(pub struct BEnt (name : Int) (pidx : Int))
+(pub struct BScope (names : Int) (params : Int) (callable : Int)
+                   (eparams : Int))
+
+(pub :: bsNew (-> Int Int Int Int))
+(pub fn (bsNew params callable eparams)
+  (cast Int (BScope vecNew params callable eparams)))
+
+(pub :: bsNames (-> Int Int))    (pub fn (bsNames b)    (memGetWord b 0))
+(pub :: bsParams (-> Int Int))   (pub fn (bsParams b)   (memGetWord b 1))
+(pub :: bsCallable (-> Int Int)) (pub fn (bsCallable b) (memGetWord b 2))
+(pub :: bsEparams (-> Int Int))  (pub fn (bsEparams b)  (memGetWord b 3))
+
+(pub :: bsWith (-> Int Int Int Int))
+(pub fn (bsWith b n pidx)
   (let ((v vecNew))
-    { (copyInto v bound 0) (vecPush v n) v }))
+    {
+      (copyInto v (bsNames b) 0)
+      (vecPush v (cast Int (BEnt n pidx)))
+      (cast Int (BScope v (bsParams b) (bsCallable b) (bsEparams b)))
+    }))
 
 (pub :: copyInto (-> Int Int Int Int))
 (pub fn (copyInto dst src i)
@@ -1966,19 +2097,93 @@
       0
       { (vecPush dst (vecGet src i)) (copyInto dst src (+ i 1)) }))
 
-(pub :: boundWithParams (-> Int Int Int Int))
-(pub fn (boundWithParams bound params i)
+; The LAST entry for `n`, which is the innermost binding.
+(pub :: bsFind (-> Int Int Int))
+(pub fn (bsFind b n) (bsFindFrom (bsNames b) n (- (vecLen (bsNames b)) 1)))
+
+(pub :: bsFindFrom (-> Int Int Int Int))
+(pub fn (bsFindFrom names n i)
+  (if (< i 0)
+      0
+      (if (strEq (memGetWord (vecGet names i) 0) n)
+          (vecGet names i)
+          (bsFindFrom names n (- i 1)))))
+
+(pub :: nameIndexIn (-> Int Int Int Int))
+(pub fn (nameIndexIn v n i)
+  (if (>= i (vecLen v))
+      (- 0 1)
+      (if (strEq (vecGet v i) n) i (nameIndexIn v n (+ i 1)))))
+
+; Is this name lexically bound at all - a shadow entry or a parameter?
+(pub :: bsIsLocal (-> Int Int Int))
+(pub fn (bsIsLocal b n)
+  (if (!= (bsFind b n) 0)
+      1
+      (if (>= (nameIndexIn (bsParams b) n 0) 0) 1 0)))
+
+; stage0's `param_alias_of`: the parameter index this name stands
+; for, or -1. A shadow entry answers with the alias it recorded; an
+; unshadowed name falls through to the parameter list.
+(pub :: bsParamAlias (-> Int Int Int))
+(pub fn (bsParamAlias b n)
+  (let ((ent (bsFind b n)))
+    (if (!= ent 0)
+        (memGetWord ent 1)
+        (nameIndexIn (bsParams b) n 0))))
+
+; Mark parameter `i` effect-transparent, if it is one a value can
+; arrive in. stage0 gates on `param_callable`: a parameter declared
+; `Int` cannot be called, so marking it would claim a transparency
+; the type forbids.
+(pub :: markEparam (-> Int Int Int))
+(pub fn (markEparam b i)
+  (if (< i 0)
+      0
+      (if (== (paramIsCallable (bsCallable b) i) 0)
+          0
+          (if (== (intInVec (bsEparams b) i 0) 1)
+              0
+              { (vecPush (bsEparams b) i) 0 }))))
+
+(pub :: paramIsCallable (-> Int Int Int))
+(pub fn (paramIsCallable callable i)
+  (if (>= i (vecLen callable)) 1 (vecGet callable i)))
+
+(pub :: intInVec (-> Int Int Int Int))
+(pub fn (intInVec v n i)
+  (if (>= i (vecLen v))
+      0
+      (if (== (vecGet v i) n) 1 (intInVec v n (+ i 1)))))
+
+; stage0's `escape_value`: a value flowing somewhere it may be CALLED.
+; Only a parameter alias needs marking - a named function or lambda
+; was attributed where it was written.
+(pub :: escapeValue (-> Int Int Int))
+(pub fn (escapeValue b e)
+  (let ((inner (stripGrouping e)))
+    (if (== (nodeTag inner) TAG_E_VAR)
+        (markEparam b (bsParamAlias b (nodeA inner)))
+        0)))
+
+(pub :: stripGrouping (-> Int Int))
+(pub fn (stripGrouping e) e)
+
+(pub :: bsWithParams (-> Int Int Int Int))
+(pub fn (bsWithParams b params i)
   (if (>= i (vecLen params))
-      bound
-      (boundWithParams (boundWith bound (vecGet params i))
-                       params (+ i 1))))
+      b
+      (bsWithParams (bsWith b (vecGet params i) (- 0 1)) params (+ i 1))))
 
 ; A pattern's binders are its non-head variables - the same rule the
-; AX3013 scope walk uses.
-(pub :: boundWithPattern (-> Int Int Int))
-(pub fn (boundWithPattern bound pat)
+; AX3013 scope walk uses. They bind values, never parameter aliases.
+(pub :: bsWithPattern (-> Int Int Int))
+(pub fn (bsWithPattern b pat)
   (let ((v vecNew))
-    { (copyInto v bound 0) (patBinders pat v) v }))
+    {
+      (patBinders pat v)
+      (bsWithParams b v 0)
+    }))
 
 (pub :: patBinders (-> Int Int Int))
 (pub fn (patBinders pat acc)
@@ -2031,11 +2236,21 @@
             (let ((ent (findFnEnt tc (nodeA d))))
               (if (== ent 0)
                   rest
-                  (let ((got (collectEffects tc (nodeC d)
-                               (boundWithParams vecNew (nodeB d) 0))))
-                    (if (== (effUnion (memGetWord ent 6) got 0) 1)
-                        1
-                        rest))))))))
+                  (let ((sc (bodyScopeOf tc d)))
+                    (let ((got (collectEffects tc (nodeC d) sc)))
+                      (let ((g1 (effUnion (memGetWord ent 6) got 0))
+                            (g2 (intUnion (memGetWord ent 7)
+                                          (bsEparams sc) 0)))
+                        (if (|| (== g1 1) (== g2 1)) 1 rest))))))))))
+
+(pub :: intUnion (-> Int Int Int Int))
+(pub fn (intUnion acc src i)
+  (if (>= i (vecLen src))
+      0
+      (let ((rest (intUnion acc src (+ i 1))))
+        (if (== (intInVec acc (vecGet src i) 0) 1)
+            rest
+            { (vecPush acc (vecGet src i)) 1 }))))
 
 ; `(handle body (Effect...) handler)`. stage0's order is the whole
 ; rule and it is not the source order: the BODY is checked, then the
@@ -2076,8 +2291,7 @@
     ; place that reads it. stage0 seeds from its `__scope__` marker
     ; for the same reason.
     (checkUnhandled tc
-      (collectEffects tc (nodeA e)
-        (scopeNamesFrom (tcScope tc) (tcFrameBase tc) vecNew))
+      (collectEffects tc (nodeA e) (handleScopeOf tc))
       (nodeB e) 0 (spanOf (nodeA e)))
     mkSilentWild
   })
@@ -2108,14 +2322,27 @@
 
 ; Every name currently in scope, which seeds the collector's `bound`
 ; list at a handle site.
-(pub :: scopeNamesFrom (-> Int Int Int Int))
-(pub fn (scopeNamesFrom scope i acc)
+; The scope a handle's body is walked in: the enclosing function's
+; parameters and their callability, plus every frame binder live at
+; this node as a plain shadow. Parameters are EXCLUDED from the
+; shadow list - stage0 excludes them for the same reason, that a
+; parameter masked as a shadow of itself is invisible to the
+; transparency marks.
+(pub :: handleScopeOf (-> Int Int))
+(pub fn (handleScopeOf tc)
+  (let ((base (bsNew (memGetWord tc 11) (memGetWord tc 12) vecNew)))
+    (seedFrameBinders base (tcScope tc) (tcFrameBase tc))))
+
+(pub :: seedFrameBinders (-> Int Int Int Int))
+(pub fn (seedFrameBinders b scope i)
   (if (>= i (vecLen scope))
-      acc
-      {
-        (vecPush acc (memGetWord (vecGet scope i) 0))
-        (scopeNamesFrom scope (+ i 1) acc)
-      }))
+      b
+      (let ((n (memGetWord (vecGet scope i) 0)))
+        (seedFrameBinders
+          (if (>= (nameIndexIn (bsParams b) n 0) 0)
+              b
+              (bsWith b n (- 0 1)))
+          scope (+ i 1)))))
 
 ; One pass over the effect list, counting the custom effects that
 ; resolved to a one-operation declaration. stage0 reports AX3017 a
@@ -2775,26 +3002,24 @@
 (pub fn (checkAxtags tc d)
   (if (== (memGetWord d 7) 0)
       0
-      (let ((eff (collectEffects tc (nodeC d)
-                   (boundWithParams vecNew (nodeB d) 0))))
-        (if (== (effIsComplete eff) 0)
-            0
-            (checkAxtagsFrom tc d (memGetWord d 7) 0 eff)))))
+      (let ((sc (bodyScopeOf tc d)))
+        (let ((eff (collectEffects tc (nodeC d) sc)))
+          (checkAxtagsFrom tc d (memGetWord d 7) 0 eff (bsEparams sc))))))
 
-(pub :: checkAxtagsFrom (-> Int Int Int Int Int Int))
-(pub fn (checkAxtagsFrom tc d tags i eff)
+(pub :: checkAxtagsFrom (-> Int Int Int Int Int Int Int))
+(pub fn (checkAxtagsFrom tc d tags i eff eparams)
   (if (>= i (vecLen tags))
       0
       {
-        (checkOneAxtag tc d (memGetWord (vecGet tags i) 1) eff)
-        (checkAxtagsFrom tc d tags (+ i 1) eff)
+        (checkOneAxtag tc d (memGetWord (vecGet tags i) 1) eff eparams)
+        (checkAxtagsFrom tc d tags (+ i 1) eff eparams)
       }))
 
 ; `content` is what followed `;@axiom:` - either `key` or
 ; `key(value)`. Only `pure` and `effect` are validated; every other
 ; key is metadata stage0 records and does not check.
-(pub :: checkOneAxtag (-> Int Int Int Int Int))
-(pub fn (checkOneAxtag tc d content eff)
+(pub :: checkOneAxtag (-> Int Int Int Int Int Int))
+(pub fn (checkOneAxtag tc d content eff eparams)
   (let ((op (strFindByte content 40 0)))
     (let ((key (if (< op 0) content (strSlice content 0 op)))
           (val (if (< op 0)
@@ -2806,7 +3031,7 @@
       (if (strEq key "effect")
           (if (strEq val "pure")
               (axtagContradicted tc d "`effect(pure)` claim" eff)
-              (axtagUnsupported tc d val eff))
+              (axtagUnsupported tc d val eff eparams))
       0)))))
 
 ; The LAST `)`, scanned backwards, which is stage0's `rfind` - a
@@ -2857,17 +3082,32 @@
 ; function has effect-transparent parameters, and this check only
 ; runs when it has none (the completeness gate), so every missing
 ; claim here is one stage0 also reports.
-(pub :: axtagUnsupported (-> Int Int Int Int Int))
-(pub fn (axtagUnsupported tc d val eff)
+(pub :: axtagUnsupported (-> Int Int Int Int Int Int))
+(pub fn (axtagUnsupported tc d val eff eparams)
   (let ((want (axtagEffectOf tc val)))
     (if (== (strLen want) 0)
         0
         (if (== (effIn eff want) 1)
             0
-            (emitAxtag tc d
-              (strConcat (strConcat (strConcat (strConcat
-                "`effect(" val) ")` claim unsupported: missing ")
-                (effRender want)) ""))))))
+            ; stage0 suppresses a claimed-but-absent effect when a
+            ; CALLBACK could still supply it: the function has
+            ; effect-transparent parameters and the effect names
+            ; something that exists. An effect no declaration
+            ; introduces can never arrive that way, so the
+            ; suppression must not swallow it.
+            (if (&& (> (vecLen eparams) 0) (== (axtagCouldExist tc want) 1))
+                0
+                (emitAxtag tc d
+                  (strConcat (strConcat (strConcat
+                    "`effect(" val) ")` claim unsupported: missing ")
+                    (effRender want))))))))
+
+; Only a CUSTOM effect can fail to exist; the built-ins always do.
+(pub :: axtagCouldExist (-> Int Int Int))
+(pub fn (axtagCouldExist tc e)
+  (if (strEq (strSlice e 0 2) "b:")
+      1
+      (if (== (findEffectDecl tc (effRender e)) 0) 0 1)))
 
 ; `effect(io)` names the built-in IO; a value naming no builtin is a
 ; custom effect, matched against the declarations case-insensitively
@@ -2918,6 +3158,13 @@
         (base (vecLen (tcScope tc))))
     {
       (memSetWord tc 6 base)
+      ; The current function's parameters and their callability, for
+      ; any handle site inside the body to seed its collector scope
+      ; with. Without them a call through a parameter inside a handle
+      ; would look like a call to an unknown global.
+      (memSetWord tc 11 params)
+      (memSetWord tc 12 (paramCallablesOf (if (== ent 0) 0 (memGetWord ent 1))
+                                          (vecLen params)))
       (let ((sigTy (if (== ent 0) 0 (memGetWord ent 1)))
             (ptys vecNew))
         {
