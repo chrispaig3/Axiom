@@ -2589,11 +2589,17 @@
     (if (!= mac 0)
         (emitMacroCall mac vecNew cg)
     ; A zero-argument primitive is spelled `(__argc)`, which is a bare
-    ; variable reference by the time it gets here - the same wrinkle
-    ; stage0 documents for `__axiom_arena_mark`. Without this it fell
+    ; variable reference by the time it gets here. Without this it fell
     ; through to the undefined-name emission `%__argc`.
-    (if (strEq name "__argc")
-        (zeroFloat (emitPrimArgc cg))
+    ;
+    ; `__axiom_arena_mark` is the other one, and it was NOT handled -
+    ; the comment here named it while the code did not, so
+    ; `tests/stdlib/160-arena.ax` emitted `%__axiom_arena_mark`, a
+    ; value nothing defines, and llc rejected the module. stage0
+    ; carries a comment about hitting exactly this, for exactly this
+    ; primitive, and calls it "the only one that could go wrong".
+    (if (|| (strEq name "__argc") (strEq name "__axiom_arena_mark"))
+        (zeroFloat (emitPrim name vecNew cg))
     (let ((symReg (lookupSym cg name)))
       (if (!= symReg 0)
           (if (>= (lookupSymKind cg name) 1)
@@ -2949,8 +2955,15 @@
   (if (strEq nm "__floatToInt") true
   (if (strEq nm "__argc") true
   (if (strEq nm "__argv") true
+  ; The arena watermark pair. Their absence here was not a missing
+  ; feature but a miscompile: `(__axiom_arena_mark)` is a bare
+  ; reference, so it fell through to the ordinary variable path and
+  ; emitted `%__axiom_arena_mark`, a value nothing defines, which llc
+  ; rejects. stage0 carries a comment about hitting the identical bug.
+  (if (strEq nm "__axiom_arena_mark") true
+  (if (strEq nm "__axiom_arena_reset") true
   (if (isSyscallName nm) true
-  false))))))))))))
+  false))))))))))))))
 
 ; `__syscall0` through `__syscall6`, distinguished only by how many
 ; arguments follow the syscall number.
@@ -2972,7 +2985,65 @@
     (if (strEq fnName "__addr")    (emitPrimAddr args cg)
     (if (strEq fnName "__argc")    (emitPrimArgc cg)
     (if (strEq fnName "__argv")    (emitPrimArgv args cg)
-    (emitPrimSyscall args cg)))))))))))))
+    (if (strEq fnName "__axiom_arena_mark")  (emitPrimArenaMark cg)
+    (if (strEq fnName "__axiom_arena_reset") (emitPrimArenaReset args cg)
+    (emitPrimSyscall args cg)))))))))))))))
+
+; A mark is the WHOLE allocator position, not just the waterline:
+; `@__axiom_bump` alone is meaningless once allocation has moved to a
+; different chunk, because `@__axiom_bump_end` still describes the
+; newer one. The pair lives in a two-word cell so marks nest, and the
+; cell is allocated BEFORE the position is read so that it sits below
+; the mark and survives the reset. stage0's `IrInst::ArenaMark`,
+; instruction for instruction.
+(pub :: emitPrimArenaMark (-> Int Int))
+(pub fn (emitPrimArenaMark cg)
+  (let ((cell (regStr (allocReg cg))))
+    (let ((cg1 (emitLine cg (cat2 (cat2 "  " cell)
+                                  " = call i64 @axiom_alloc(i64 16)"))))
+      (let ((bump (regStr (allocReg cg1))))
+        (let ((cg2 (emitLine cg1 (cat2 (cat2 "  " bump)
+                                       " = load i64, ptr @__axiom_bump"))))
+          (let ((end (regStr (allocReg cg2))))
+            (let ((cg3 (emitLine cg2 (cat2 (cat2 "  " end)
+                                           " = load i64, ptr @__axiom_bump_end"))))
+              (let ((cg4 (storeWordAt cg3 cell 0 bump)))
+                (let ((cg5 (storeWordAt cg4 cell 1 end)))
+                  {
+                    (memSetWord cg5 2 cell)
+                    cg5
+                  })))))))))
+
+; Restore both halves. A chunk newer than the mark is abandoned rather
+; than reused - a leak, which is what an arena does anyway, and the
+; alternative hands out addresses belonging to no mapping.
+(pub :: emitPrimArenaReset (-> Int Int Int))
+(pub fn (emitPrimArenaReset args cg)
+  (let ((cg0 (emitExpr (vecGet args 0) cg)))
+    (let ((cell (strDup (memGetWord cg0 2))))
+      (let ((bump (regStr (allocReg cg0))))
+        (let ((cg1 (emitLoadWordAt cg0 cell 0 bump)))
+          (let ((end (regStr (allocReg cg1))))
+            (let ((cg2 (emitLoadWordAt cg1 cell 1 end)))
+              (let ((cg3 (emitLine cg2 (cat3 "  store i64 " bump
+                                             ", ptr @__axiom_bump"))))
+                (let ((cg4 (emitLine cg3 (cat3 "  store i64 " end
+                                               ", ptr @__axiom_bump_end"))))
+                  {
+                    (memSetWord cg4 2 (constStr 0))
+                    cg4
+                  })))))))))
+
+; Load word `idx` of the block at `base` into register `dest`.
+(pub :: emitLoadWordAt (-> Int Int Int Int Int))
+(pub fn (emitLoadWordAt cg base idx dest)
+  (let ((pn (regStr (allocReg cg))))
+    (let ((cg1 (emitLine cg (cat4 (cat2 "  " pn) " = inttoptr i64 " base " to ptr"))))
+      (let ((an (regStr (allocReg cg1))))
+        (let ((cg2 (emitLine cg1 (cat3 (cat3 (cat2 "  " an)
+                                             " = getelementptr i64, ptr " pn)
+                                       ", i64 " (constStr idx)))))
+          (emitLine cg2 (cat3 (cat2 "  " dest) " = load i64, ptr " an)))))))
 
 ; `(__argc)`: the count the entry wrapper captured before main ran.
 (pub :: emitPrimArgc (-> Int Int))

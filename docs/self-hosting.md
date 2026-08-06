@@ -1445,7 +1445,61 @@ turned up. Reproducing it in stage1 would be reproducing nothing.
 
 Phase 3's exit criterion is met: identical AXDL for every case in the
 diagnostic corpus, cascade suppression included, with grouping a
-no-op on both sides. Lowering the effect system itself is
+no-op on both sides.
+
+### What scouting phase 4 found first
+
+Phase 4 asks for byte-identical `.ll`. Measured on the 72-case
+conformance corpus: 62 pairs are comparable and **none is
+byte-identical**. Normalising away the preamble and the hidden closure
+parameter - the two differences visible on the simplest program -
+removes only about a fifth of the diff, so phase 4 is a
+lowering-strategy convergence project rather than a formatting one.
+The dominant residual is the storage model: stage0 spills parameters,
+`let` bindings and pattern binders to `alloca` and joins with
+branches, where stage1 emits registers and `phi`. Whether byte
+identity is measured on raw output or post-`mem2reg` is a design
+decision that has to be taken before anyone writes code, because it
+decides which compiler moves.
+
+But byte-identity is downstream of correctness, and looking for it
+turned up something worse. **Nothing ran `tests/stdlib/` through
+stage1.** `check-self-host.sh` runs `tests/selfhost/` end to end;
+`run-stdlib-tests.sh` runs `tests/stdlib/` through stage0 only; and
+the diagnostics sweep compiles `tests/stdlib/` with stage1 but reads
+only its diagnostics and explicitly exempts a non-zero exit there. So
+a stage1 miscompile of a standard-library test was invisible to every
+gate, and five of them were:
+
+| case | stage1's behaviour |
+|---|---|
+| `120-pattern-representation` | output differs |
+| `140-function-values` | prints closure *addresses* where stage0 prints values - over-application flattened into one direct call |
+| `160-arena` | `llc` rejected the module; now compiles, but `b - a` is a whole 1 MiB chunk instead of 64 |
+| `270-nullary-unboxed` | `store i64 %x` with `%x` undefined - a pattern binder never bound |
+| `280-function-application` | prints `0` where stage0 prints values - a non-name application head lowers to the constant 0 |
+
+`scripts/check-stdlib-selfhost.sh` is the gate that was missing: it
+compiles each case with both compilers, runs both, and compares exit
+status and stdout. It carries the five as an explicit known-wrong
+list with a diagnosis each, and **a listed case that starts agreeing
+fails the gate** - a known-failure list nothing can leave is a list
+that rots into a lie.
+
+The `160-arena` half of that is fixed at its first cause.
+`__axiom_arena_mark` and `__axiom_arena_reset` were missing from
+stage1's primitive table entirely, so `(__axiom_arena_mark)` - a bare
+reference, since it takes no arguments - fell through to the ordinary
+variable path and emitted `%__axiom_arena_mark`, a value nothing
+defines. stage0 carries a comment about hitting exactly this, for
+exactly this primitive, calling it "the only one that could go
+wrong"; stage1's `emitVar` carried the same comment, naming
+`__axiom_arena_mark` while handling only `__argc`. Both primitives
+lower now, instruction for instruction as stage0 does - the mark
+allocates its two-word cell *before* reading the allocator position,
+so the cell sits below the mark and survives the reset. What remains
+wrong in that case is downstream of the primitives and in the emitted
+bump allocator itself. Lowering the effect system itself is
 phase 4 work, not phase 3 — the checker's job is finished when it
 agrees about what is wrong.
 
