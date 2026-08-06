@@ -134,6 +134,14 @@
 ; stage0-built binary. stage1 reproduces both halves: the pointer
 ; type, and the zero. a=type node, b=count node (0 when absent).
 (pub :: TAG_E_ALLOC Int)   (pub fn (TAG_E_ALLOC) 41)
+; `(handle body (Effect...) handler)`. Parsed as an application until
+; now, which had two costs: an unknown effect name drew AX3001
+; `undefined variable` where stage0 says AX3016 `unknown effect`, and
+; emission produced `call i64 @Console(i64 %IO, i64 %Alloc)` - a call
+; to a symbol nothing defines, which llc rejects. a=body, b=Vec of
+; TAG_E_VAR nodes naming the handled effects (each carrying its own
+; span, which is where AX3016 and AX3017 anchor), c=handler.
+(pub :: TAG_E_HANDLE Int)  (pub fn (TAG_E_HANDLE) 42)
 
 (pub :: nodeTag (-> Int Int))   (pub fn (nodeTag n) (memGetWord n 0))
 (pub :: nodeA   (-> Int Int))   (pub fn (nodeA   n) (memGetWord n 1))
@@ -1127,7 +1135,9 @@
               (parseConsumeExpr tokens (advance pos))
           (if (kwEq name "alloc")
               (parseAllocExpr tokens (advance pos))
-          (parseAppForm tokens pos)))))))))))))))
+          (if (kwEq name "handle")
+              (parseHandleExpr tokens (advance pos))
+          (parseAppForm tokens pos))))))))))))))))
   (if (peekIs tokens pos TK_RPAREN)
       (pOk 0 (advance pos))
   (parseAppForm tokens pos))))
@@ -1203,6 +1213,45 @@
                                    (memGetWord cr 1) 0)
                            (advance (memGetWord cr 2)))
                       (pErr (memGetWord cr 2)))))))))
+
+; ------------------------------------------------------------------
+; (handle body (Effect...) handler) - stage0's parse_handle. The
+; effect list is OPTIONAL: stage0 only reads one when the next token
+; opens a paren, and otherwise goes straight to the handler.
+;
+; Each effect name is kept as a TAG_E_VAR node so it carries its own
+; span; AX3016 and AX3017 both anchor at the name, not at the form.
+; ------------------------------------------------------------------
+(pub :: parseHandleExpr (-> Int Int Int))
+(pub fn (parseHandleExpr tokens pos)
+  (let ((bodyR (parseExpr tokens pos)))
+    (if (== (memGetWord bodyR 0) 0) bodyR
+        (let ((effsR (if (peekIs tokens (memGetWord bodyR 2) TK_LPAREN)
+                         (parseEffectNames tokens
+                                           (advance (memGetWord bodyR 2))
+                                           vecNew)
+                         (pOk vecNew (memGetWord bodyR 2)))))
+          (if (== (memGetWord effsR 0) 0) effsR
+              (let ((hR (parseExpr tokens (memGetWord effsR 2))))
+                (if (== (memGetWord hR 0) 0) hR
+                    (if (peekIs tokens (memGetWord hR 2) TK_RPAREN)
+                        (pOk (mkNode TAG_E_HANDLE (memGetWord bodyR 1)
+                                     (memGetWord effsR 1) (memGetWord hR 1))
+                             (advance (memGetWord hR 2)))
+                        (pErr (memGetWord hR 2))))))))))
+
+; The names inside a handle's effect list, each as a spanned var node.
+(pub :: parseEffectNames (-> Int Int Int Int))
+(pub fn (parseEffectNames tokens pos acc)
+  (if (peekIs tokens pos TK_RPAREN)
+      (pOk acc (advance pos))
+  (if (peekIs tokens pos TK_IDENT)
+      (let ((t (vecGet tokens pos)))
+        {
+          (vecPush acc (mkEVarAt (tokenLexeme t) (tokenSpan t)))
+          (parseEffectNames tokens (advance pos) acc)
+        })
+  (pErr pos))))
 
 ; ------------------------------------------------------------------
 ; (set name value) - a store into a `mut` binding. The field form

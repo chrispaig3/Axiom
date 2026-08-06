@@ -1110,10 +1110,14 @@ counter above), `250-non-exhaustive-match`, `260-field-not-found`,
 `270-struct-field-count` in both directions, and `280-check-order`,
 which puts three diagnostics in one expression to pin the order they
 come out in: the field error, its own `I64` cascade, then
-exhaustiveness last. Roughly a hundred differential probes over the
-language's corners - generics, recursive types, imports, floats,
-chars, `while`/`set`, nested matches, cascade suppression - found no
-divergence outside the silent-wildcard gap above.
+exhaustiveness last. A standing bank of 136 differential probes over
+the language's corners - generics, recursive types, imports, floats,
+chars, `while`/`set`, nested matches, cascade suppression, effects -
+diverges on seven, and all seven are named gaps rather than
+surprises: three are the effect fixpoint (`AX3010`/`AX3011`), one is
+the silent-wildcard handler type, and three are the standing
+parse-diagnostic gap, since stage1 emits no `AX2001` at all and
+refuses with an exit status instead.
 
 The bug worth recording is the one this found in the *test suite*
 rather than in either compiler. `tests/selfhost/150-struct.ax` passed
@@ -1197,6 +1201,48 @@ next silent one has to be a fourth. The lesson is the one §4's effect
 work already recorded: documented-but-unexercised syntax is untested
 syntax, and the exercise has to come from a file in the corpus.
 
+`handle` is the fourth keyword form, and the thirteenth and
+fourteenth diagnostics ride on parsing it: `AX3016` unknown-effect
+and `AX3017` effect-handler-unsupported. The same survey found it the
+same way. `(handle body (Console) h)` parsed as an application, so a
+handle list naming an undeclared effect drew `AX3001 undefined
+variable \`Nope\`` — complete with a suggestion of `None` — where
+stage0 says `AX3016 unknown effect`. That is a **mis-report**, which
+is worse than the silence this document keeps apologising for: a
+wrong code, a wrong message, and a fix-it hint pointing somewhere
+unrelated.
+
+The same misparse had a second cost at the other end of the pipeline.
+`(handle body (Console IO Alloc) h)` emitted
+`call i64 @Console(i64 %IO, i64 %Alloc)` — a call to a symbol nothing
+defines, whose arguments are not values either — so an effect program
+compiled to exit 0 and then died inside `llc`, reporting generated
+code rather than an unsupported feature. stage1 still cannot lower
+the effect system, but it now refuses with exit 3 and names the
+effects it could not compile. An unsupported feature should say so.
+
+Three rules here had to be read out of stage0 rather than guessed.
+The effect list is **optional** — stage0 only reads one when the next
+token opens a paren. The checking order is body, then handler, then
+the effect list, so a mistake inside either expression is reported
+before `AX3016` on a misspelled effect beside it (pinned: a type
+error in the body and an undefined variable in the handler both
+precede). And the multi-effect `AX3017` anchors at the *body's* span,
+because `Expr::span()` of an `EHandle` recurses into its first field
+exactly as it does for an application's head. Only `Custom` effects
+are subject to either check: stage0 lexes `IO`/`Pure`/`Mut`/`Div` as
+keyword tokens and special-cases `Alloc`/`alloc` and `Err` out of the
+identifier path, so none of the six builtins can ever reach the
+lookup — `300-unknown-effect.ax` interleaves `IO` and `Alloc` with
+the unknown names to pin that they are skipped rather than refused.
+
+`AX3010` and `AX3011` stay unreported, and the reason is a real
+dependency rather than a shortcut: both need the effect fixpoint over
+the call graph that stage1 does not run. So does the `AX3004` that
+checks a handler against its operation's declared arrow, which
+additionally needs the operation type stage1's `effect` parser
+discards. All three omit lines; none reorders or invents one.
+
 `AX3013` remains under-reported in one direction recorded in
 `typecheck.ax`: stage0 also measures builtins and foreign bindings
 through their arrow depth. Duplicates *inside an imported module* also
@@ -1205,13 +1251,14 @@ record which module each declaration came from; checking the entry
 file alone is the sound subset, never inventing a diagnostic stage0
 would not produce.
 
-What genuinely remains for phase 3: effects and AXTAG validation
-(`AX3010`, `AX3011`, `AX3016`, `AX3017` — the coupled cluster),
-`AX3014` ambiguous-name, which needs the per-declaration module
-tracking stage1's merged declaration list does not keep, diagnostic
-grouping, and type-checking the bodies of imported modules against
-their own filenames. That is every remaining `AX30xx` code accounted
-for: stage1 emits twelve of the seventeen.
+What genuinely remains for phase 3: `AX3010` and `AX3011`, both
+blocked on the effect fixpoint; `AX3014` ambiguous-name, which needs
+the per-declaration module tracking stage1's merged declaration list
+does not keep; diagnostic grouping; and type-checking the bodies of
+imported modules against their own filenames. That is every remaining
+`AX30xx` code accounted for: stage1 emits fourteen of the seventeen.
+Lowering the effect system itself is phase 4 work, not phase 3 — the
+checker's job is finished when it agrees about what is wrong.
 
 (This paragraph used to end "No lambda expressions (refused loudly)".
 That was true when it was written and stopped being true two commits

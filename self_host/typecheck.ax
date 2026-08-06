@@ -534,7 +534,10 @@
                                    (- 0 1) 0 1 0)))
             (if (== tag TAG_D_EFFECT)
                 {
-                  (vecPush (tcEffects tc) (nodeA d))
+                  ; The whole declaration node, not just its name:
+                  ; AX3017 reports how many operations an effect
+                  ; declares, and that count is `(vecLen (nodeB d))`.
+                  (vecPush (tcEffects tc) d)
                   ; Each operation is a callable whose type stage1
                   ; does not parse: a silent wildcard, so calls check
                   ; their arguments quietly and produce no bytes.
@@ -927,7 +930,34 @@
 
 (pub :: isEffectName (-> Int Int Int))
 (pub fn (isEffectName tc n)
-  (strInVec (tcEffects tc) n 0))
+  (if (== (findEffectDecl tc n) 0) 0 1))
+
+; The TAG_D_EFFECT node declaring `n`, or 0. Its ops vector's length
+; is what AX3017 reports.
+(pub :: findEffectDecl (-> Int Int Int))
+(pub fn (findEffectDecl tc n)
+  (findEffectDeclFrom (tcEffects tc) n 0))
+
+(pub :: findEffectDeclFrom (-> Int Int Int Int))
+(pub fn (findEffectDeclFrom effs n i)
+  (if (>= i (vecLen effs))
+      0
+      (let ((d (vecGet effs i)))
+        (if (strEq (nodeA d) n)
+            d
+            (findEffectDeclFrom effs n (+ i 1))))))
+
+; The six built-in effect names a handle list may name. stage0 lexes
+; `IO`/`Pure`/`Mut`/`Div` as keyword tokens and special-cases
+; `Alloc`/`alloc` and `Err` out of the identifier path, so none of
+; them is ever a `Custom` effect - and only `Custom` entries are
+; subject to AX3016 and AX3017.
+(pub :: isBuiltinEffect (-> Int Int))
+(pub fn (isBuiltinEffect n)
+  (if (strEq n "IO") 1 (if (strEq n "Pure") 1
+  (if (strEq n "Mut") 1 (if (strEq n "Div") 1
+  (if (strEq n "Alloc") 1 (if (strEq n "alloc") 1
+  (if (strEq n "Err") 1 0))))))))
 
 (pub :: isCastLike (-> Int Int))
 (pub fn (isCastLike n)
@@ -1020,6 +1050,8 @@
             (checkSetField tc e)
         (if (== tag TAG_E_FIELD)
             (checkField tc e)
+        (if (== tag TAG_E_HANDLE)
+            (checkHandle tc e)
         (if (== tag TAG_E_STRUCTCON)
             (checkStructConNode tc e)
         ; `(alloc Type [count])` types `*mut Type` and evaluates
@@ -1031,7 +1063,7 @@
               (if (!= (nodeB e) 0) (checkExprH tc (nodeB e) 0) 0)
               (mkTPtr (nodeA e) 1)
             }
-        mkSilentWild)))))))))))))))))))))
+        mkSilentWild))))))))))))))))))))))
 
 (pub :: checkExprSeq (-> Int Int Int Int Int))
 (pub fn (checkExprSeq tc v i last)
@@ -1538,6 +1570,84 @@
           (checkStructFields tc args fields 0)
           (mkTCon (bareOf (memGetWord ent 0)) vecNew)
         })))
+
+; `(handle body (Effect...) handler)`. stage0's order is the whole
+; rule and it is not the source order: the BODY is checked, then the
+; HANDLER, and only then does the effect list produce diagnostics -
+; so a mistake inside either expression is reported before AX3016 on
+; a misspelled effect beside it.
+;
+; Only CUSTOM effects are subject to these checks. The six built-in
+; names never become `Custom` in stage0's parser, so they are skipped
+; here rather than looked up and refused.
+;
+; Two shapes stay UNDER-reported and are recorded rather than
+; guessed. stage0 follows an unhandled effect with AX3011, which
+; needs the effect fixpoint stage1 does not run, and it checks the
+; handler's type against the operation's declared arrow (AX3004),
+; which needs the op type stage1's `effect` parser discards. Both
+; omit lines; neither reorders or invents one.
+(pub :: checkHandle (-> Int Int Int))
+(pub fn (checkHandle tc e)
+  {
+    (checkExprH tc (nodeA e) 0)
+    (checkExprH tc (nodeC e) 0)
+    ; The form's own span is its BODY's - stage0's `Expr::span()`
+    ; recurses into the first field of an EHandle exactly as it does
+    ; for an application's head.
+    (checkHandleEffects tc (nodeB e) 0 0 (spanOf (nodeA e)))
+    mkSilentWild
+  })
+
+; One pass over the effect list, counting the custom effects that
+; resolved to a one-operation declaration. stage0 reports AX3017 a
+; second time, at the FORM rather than at a name, when more than one
+; such effect survives - a dynamic handle installs one evidence
+; record, so two is not a shape it can lower.
+(pub :: checkHandleEffects (-> Int Int Int Int Int Int))
+(pub fn (checkHandleEffects tc effs i dynN formSpan)
+  (if (>= i (vecLen effs))
+      (if (&& (> dynN 1) (!= formSpan 0))
+          (vecPush (tcOut tc)
+            (mkDiag SEV_ERROR "AX3017" "effect-handler-unsupported"
+                    formSpan
+                    (strConcat (decStr dynN)
+                      " custom effects in one handle; nest one `handle` per effect")
+                    0 0 0))
+          0)
+      (let ((nm (vecGet effs i)))
+        (if (== (isBuiltinEffect (nodeA nm)) 1)
+            (checkHandleEffects tc effs (+ i 1) dynN formSpan)
+            (let ((d (findEffectDecl tc (nodeA nm))))
+              (if (== d 0)
+                  {
+                    (if (!= (nodeSpan nm) 0)
+                        (vecPush (tcOut tc)
+                          (mkDiag SEV_ERROR "AX3016" "unknown-effect"
+                                  (nodeSpan nm)
+                                  (strConcat (strConcat "unknown effect `"
+                                                        (nodeA nm)) "`")
+                                  0 0
+                                  "declare it with `(effect Name (op :: sig))`, import the module that does, or fix the spelling"))
+                        0)
+                    (checkHandleEffects tc effs (+ i 1) dynN formSpan)
+                  }
+                  (if (!= (vecLen (nodeB d)) 1)
+                      {
+                        (if (!= (nodeSpan nm) 0)
+                            (vecPush (tcOut tc)
+                              (mkDiag SEV_ERROR "AX3017"
+                                      "effect-handler-unsupported"
+                                      (nodeSpan nm)
+                                      (strConcat (strConcat (strConcat (strConcat
+                                        "effect `" (nodeA nm))
+                                        "` declares ") (decStr (vecLen (nodeB d))))
+                                        " operations; a dynamic handler covers exactly one")
+                                      0 0 0))
+                            0)
+                        (checkHandleEffects tc effs (+ i 1) dynN formSpan)
+                      }
+                      (checkHandleEffects tc effs (+ i 1) (+ dynN 1) formSpan))))))))
 
 ; `(struct Name field...)` - the keyword construction form. A name
 ; that resolves to no struct is AX3002, the twelfth diagnostic and

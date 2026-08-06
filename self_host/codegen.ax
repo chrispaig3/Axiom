@@ -2344,6 +2344,18 @@
     (if (== tag TAG_E_SETF)  (emitSetF node cg)
     (if (== tag TAG_E_LAM)   (emitLambda node cg)
     (if (== tag TAG_E_STRUCTCON) (emitStructConExpr node cg)
+    ; stage1 does not lower the effect system - evidence globals,
+    ; outward dispatch and the unhandled trap are all stage0-only. It
+    ; refuses here rather than emitting something. The form used to
+    ; parse as an application, which emitted
+    ; `call i64 @Console(i64 %IO, i64 %Alloc)` - a call to a symbol
+    ; nothing defines, plus references to `%IO` and `%Alloc` that are
+    ; not values at all - so the failure surfaced out of llc as a
+    ; complaint about generated code rather than as an unsupported
+    ; feature. Exit 3 is the driver's "cannot compile this" status.
+    (if (== tag TAG_E_HANDLE)
+        (dieImport "error: stage1 cannot lower the effect system: handle of "
+                   (handleEffectNames node))
     ; `(alloc Type [count])` allocates nothing. stage0's IR generator
     ; has no EAlloc case, so the form falls to its catch-all constant
     ; 0; emitting a real allocation here would be stage1 doing more
@@ -2354,7 +2366,23 @@
           (memSetWord cg 14 0)
           cg
         }
-    (emitDefault node cg))))))))))))))))))))))
+    (emitDefault node cg)))))))))))))))))))))))
+
+; The handled effects, comma-separated, for the refusal message - so
+; the report names what it could not compile rather than only that it
+; could not.
+(pub :: handleEffectNames (-> Int Int))
+(pub fn (handleEffectNames node)
+  (handleEffectNamesFrom (nodeB node) 0 ""))
+
+(pub :: handleEffectNamesFrom (-> Int Int Int Int))
+(pub fn (handleEffectNamesFrom effs i acc)
+  (if (>= i (vecLen effs))
+      (if (== (strLen acc) 0) "(no effects)" acc)
+      (handleEffectNamesFrom effs (+ i 1)
+        (if (== i 0)
+            (nodeA (vecGet effs i))
+            (strConcat (strConcat acc ", ") (nodeA (vecGet effs i)))))))
 
 ; `(struct Name field...)` - the keyword construction form. It builds
 ; the identical block the application spelling `(Name field...)`

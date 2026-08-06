@@ -1,0 +1,13 @@
+(effect Console
+  (log :: (-> String Int))
+  (warn :: (-> String Int)))
+(effect Ask
+  (ask :: (-> Int Int)))
+(effect Tell
+  (tell :: (-> Int Int)))
+(:: two_ops (-> Int Int))
+(fn (two_ops n) (handle 1 (Console) (lambda (v) 0)))
+(:: two_effects (-> Int Int))
+(fn (two_effects n) (handle 2 (Ask Tell) (lambda (v) 0)))
+(:: main Int)
+(fn (main) 0)
