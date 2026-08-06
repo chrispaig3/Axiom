@@ -1486,7 +1486,43 @@ list with a diagnosis each, and **a listed case that starts agreeing
 fails the gate** - a known-failure list nothing can leave is a list
 that rots into a lie.
 
-The `160-arena` half of that is fixed at its first cause.
+**Four of the five are fixed**, each root-caused to a single named
+place, each with a minimal reproducer promoted to a conformance case
+that fails against the previous commit:
+
+- *A nullary constructor nested inside a fieldful pattern.* `(Red)` in
+  `(Wrap (Red))` parsed through `parseExpr`, which has no pattern
+  context, so it became an ordinary variable - a BINDER matching
+  anything, and the first arm swallowed every scrutinee.
+  `parseArmPattern` recurses now, so a pattern's arguments are parsed
+  as patterns. The same erasure was already recorded as an
+  under-reporting gap in the *checker*; in the emitter it was a wrong
+  answer (`740-nested-nullary-pattern.ax`).
+- *The builtin `Option` was absent from the codegen type registry.* It
+  has no declaration for `scanCtors` to walk, so a match on `(Some x)`
+  found no entry, bound nothing, and emitted `store i64 %x` naming a
+  register that does not exist. The registry is seeded with both
+  constructors; `Some` is tag 0 and `None` tag 1, probed directly
+  against stage0 - `(cast Int (None))` exits 1 and the tag word of
+  `(Some 7)`'s block is 0 - which is the reverse of what the comment
+  beside the tag counter claimed (`750-builtin-option-match.ax`).
+- *An application whose head is not a name.* The head dispatch had no
+  arm for a lambda, an `if` or a `match`, and wrote the constant 0 -
+  which does not emit a wrong call, it DELETES the application, so
+  `((lambda (x) x) 7)` evaluated to 0. A non-name head is evaluated as
+  a value and applied one argument at a time, the rule stage0 reached
+  from the other side when its own non-name head lowered to a call to
+  the undefined symbol `@unknown` (`760-lambda-head.ax`).
+- *An over-applied spine.* `((adder 10) 5)` supplies two arguments to a
+  one-parameter function that returns a closure; flattening it into
+  one direct call passed both to `adder` and answered with the
+  returned closure's *address*. The surplus is applied through the
+  returned value now, gated on `isDefinedFn` rather than on arity
+  alone, because an unknown name answers arity 0 and every binary
+  operator would otherwise be treated as over-applied
+  (`770-over-application.ax`).
+
+`160-arena` remains, and its first cause is fixed.
 `__axiom_arena_mark` and `__axiom_arena_reset` were missing from
 stage1's primitive table entirely, so `(__axiom_arena_mark)` - a bare
 reference, since it takes no arguments - fell through to the ordinary

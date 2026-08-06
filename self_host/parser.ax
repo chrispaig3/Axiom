@@ -1557,16 +1557,42 @@
 ; Pattern position: `( UpperIdent )` is a nullary-constructor test;
 ; everything else parses as an expression does. A bare identifier -
 ; constructor-named or not - is a binder, which is stage0's rule.
+; RECURSIVE, because a nullary constructor nested inside a fieldful
+; pattern is still a constructor. `(Wrap (Red))` used to parse its
+; argument with `parseExpr`, which has no pattern context and made
+; `(Red)` an ordinary variable reference - a BINDER, matching anything,
+; so the first arm swallowed every scrutinee and
+; `tests/stdlib/120-pattern-representation.ax` answered from the wrong
+; arm. The same erasure was already recorded as an under-reporting gap
+; in the checker; in the emitter it is a miscompile.
+;
+; A fieldful pattern still builds the application spine `parseExpr`
+; would have built, so every consumer downstream is unchanged - only
+; the ARGUMENTS are parsed as patterns rather than as expressions.
 (pub :: parseArmPattern (-> Int Int Int))
 (pub fn (parseArmPattern tokens pos)
   (if (&& (peekIs tokens pos TK_LPAREN)
           (&& (peekIs tokens (advance pos) TK_IDENT)
-              (&& (peekIs tokens (advance (advance pos)) TK_RPAREN)
-                  (identStartsUpper tokens (advance pos)))))
-      (pOk (mkNodeAt TAG_P_CON0 (tokenLexeme (vecGet tokens (advance pos))) 0 0
-                     (tokenSpan (vecGet tokens (advance pos))))
-           (advance (advance (advance pos))))
+              (identStartsUpper tokens (advance pos))))
+      (let ((nameTok (vecGet tokens (advance pos))))
+        (if (peekIs tokens (advance (advance pos)) TK_RPAREN)
+            (pOk (mkNodeAt TAG_P_CON0 (tokenLexeme nameTok) 0 0
+                           (tokenSpan nameTok))
+                 (advance (advance (advance pos))))
+            (parseArmPatternArgs tokens (advance (advance pos))
+              (mkEVarAt (tokenLexeme nameTok) (tokenSpan nameTok)))))
       (parseExpr tokens pos)))
+
+(pub :: parseArmPatternArgs (-> Int Int Int Int))
+(pub fn (parseArmPatternArgs tokens pos acc)
+  (if (peekIs tokens pos TK_RPAREN)
+      (pOk acc (advance pos))
+  (if (peekIs tokens pos TK_EOF)
+      (pErr pos)
+      (let ((r (parseArmPattern tokens pos)))
+        (if (== (memGetWord r 0) 0) r
+            (parseArmPatternArgs tokens (memGetWord r 2)
+                                 (mkEApp acc (memGetWord r 1))))))))
 
 (pub :: parseMatchArm (-> Int Int Int))
 (pub fn (parseMatchArm tokens pos)

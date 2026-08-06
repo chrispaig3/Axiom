@@ -56,20 +56,20 @@ UNPARSED="150-qualified-modules 210-struct-variants 300-effect-handlers 310-effe
 # they are open, and so that a fix cannot land unnoticed - a name on
 # this list that starts agreeing FAILS the gate and must be removed.
 #
-#   120-pattern-representation  output differs
-#   140-function-values         prints closure addresses where stage0
-#                               prints values: over-application is
-#                               flattened into one direct call
 #   160-arena                   arena mark/reset lower correctly now,
 #                               but `b - a` comes out a full 1 MiB
 #                               chunk instead of 64 - the emitted bump
 #                               allocator, not the arena primitives
-#   270-nullary-unboxed         `store i64 %x` with %x undefined: a
-#                               pattern binder is never bound
-#   280-function-application    prints 0 where stage0 prints values: a
-#                               non-name application head lowers to the
-#                               constant 0
-KNOWN_WRONG="120-pattern-representation 140-function-values 160-arena 270-nullary-unboxed 280-function-application"
+#
+# Fixed and removed from this list: 120-pattern-representation (nested
+# nullary constructor patterns parsed as binders), 270-nullary-unboxed
+# (the builtin `Option` was absent from the codegen type registry),
+# 280-function-application (a non-name application head lowered to the
+# constant 0, deleting the call) and 140-function-values (an
+# over-applied spine flattened into one direct call). The gate refused
+# to stay green when each started agreeing, which is what the list is
+# for - all four left it that way.
+KNOWN_WRONG="160-arena"
 
 in_list() { case " $2 " in *" $1 "*) return 0;; *) return 1;; esac; }
 

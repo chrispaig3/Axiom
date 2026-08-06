@@ -156,14 +156,32 @@
 
 ; The constructor tag counter starts at 2, not 0: stage0's tag is the
 ; ordinal position in a flat walk of every data type the type checker
-; collected, and the builtin `Option` walks first - `None` is 0, `Some`
-; is 1 - so the first user-declared constructor is 2. Tags only ever
-; meet tags from the same scheme, but the two stages must still agree
-; whenever a program lets one escape (probed: stage0 gives the first
-; user constructor 2).
+; collected, and the builtin `Option` walks first, so the first
+; user-declared constructor is 2. Tags only ever meet tags from the
+; same scheme, but the two stages must still agree whenever a program
+; lets one escape (probed: stage0 gives the first user constructor 2).
+;
+; `Some` is 0 and `None` is 1, not the other way round - this comment
+; used to say the reverse. Probed directly against stage0:
+; `(cast Int (None))` exits 1, and `(__load64 (cast Int (Some 7)) 0)`
+; - the tag word of the heap block - is 0.
+;
+; The registry is SEEDED with both, because `Option` is builtin and so
+; has no declaration for `scanCtors` to walk. Without the seed a match
+; on `(Some x)` found no entry, bound nothing, and emitted
+; `store i64 %x` naming a register that does not exist - invalid IR
+; that llc refused (tests/stdlib/270-nullary-unboxed.ax). Its
+; representation is 2, mixed: `None` is an immediate tag and `Some` a
+; heap block, which is exactly the case the `< 4096` runtime test
+; exists for.
 (pub :: newCG Int)
 (pub fn (newCG)
-  (CG vecNew 0 "" vecNew 2 vecNew vecNew vecNew 0 "" vecNew "entry" vecNew vecNew 0 vecNew vecNew 0 0 vecNew vecNew vecNew 0 vecNew vecNew 0 0 0 vecNew "" 0 0))
+  (let ((ts vecNew))
+    {
+      (addType ts "Some" TF_DATA 1 0 2 (let ((f vecNew)) { (vecPush f 0) f }))
+      (addType ts "None" TF_DATA 0 1 2 vecNew)
+      (CG vecNew 0 "" ts 2 vecNew vecNew vecNew 0 "" vecNew "entry" vecNew vecNew 0 vecNew vecNew 0 0 vecNew vecNew vecNew 0 vecNew vecNew 0 0 0 vecNew "" 0 0)
+    }))
 
 (pub :: zeroFloat (-> Int Int))
 (pub fn (zeroFloat cg)
@@ -2796,10 +2814,28 @@
         (dispatchCall (nodeA fnNode) cg)
     (if (== (nodeTag fnNode) TAG_E_APP)
         (walkAppChain fnNode cg)
-        (let ((z 0))
+        ; A head that is neither a name nor another application - a
+        ; lambda, an `if`, a `match`, a block. This branch used to
+        ; write the constant 0 and return, which does not emit a
+        ; wrong call: it DELETES the application, so
+        ; `((lambda (x) x) 7)` evaluated to 0
+        ; (tests/stdlib/280-function-application.ax). stage0 reached
+        ; the same shape once from the other side, lowering a non-name
+        ; head to a call to the undefined symbol `@unknown`.
+        ;
+        ; The rule both compilers settled on is that a non-name head
+        ; is EVALUATED AS A VALUE and then applied one argument at a
+        ; time, since each application may yield another closure. The
+        ; arguments are snapshotted and reversed BEFORE the head is
+        ; lowered, because lowering it re-enters `emitApp` and would
+        ; otherwise overwrite the accumulator they live in; and the
+        ; tail flag is cleared, because a call through a computed head
+        ; is never the self tail call the optimiser rewrites.
+        (let ((args (reverseVec (memGetWord cg 5))))
           {
-            (memSetWord cg 2 (constStr z))
-            cg
+            (memSetWord cg 30 0)
+            (let ((cgH (emitExpr fnNode cg)))
+              (emitApplyChain args cgH (strDup (memGetWord cgH 2)) 0))
           })))))
 
 ; Dispatch after flattening.
@@ -2881,7 +2917,7 @@
                           (&& (strEq fnName (memGetWord cg 27))
                               (== (vecLen args) (vecLen (memGetWord cg 28))))))
                   (emitTailJump args cg)
-                  (emitCall fnName args cg))
+                  (emitOverApplied fnName args cg))
               (zeroFloat (emitConstructor fnName args (eKind entry) (eArity entry) (eTag entry) (eRep entry) cg)))))))))))))))
 
 (pub :: isLocalValue (-> Int Int Bool))
@@ -3316,6 +3352,46 @@
 (pub fn (reverseInto v i acc)
   (if (< i 0) acc
       (reverseInto v (- i 1) (vecPush acc (vecGet v i)))))
+
+; A spine may supply MORE arguments than the callee declares, and
+; `((adder 10) 5)` is the shape: `adder` takes one parameter and
+; returns a closure, so the surplus argument belongs to that closure,
+; not to `adder`. Flattening the whole spine into one direct call
+; passed both to `adder` - which read the second from a register it
+; never declared - and answered with the returned closure's ADDRESS
+; (tests/stdlib/140-function-values.ax). Every function value absorbs
+; exactly one argument per call, which is the rule stage0 settled on
+; for the identical bug on its own side.
+;
+; The arity gate is `isDefinedFn`, not `fnArityOf` alone: an unknown
+; name answers arity 0, and treating every builtin and binary operator
+; as over-applied would route `(+ a b)` through a closure record that
+; does not exist.
+(pub :: emitOverApplied (-> Int Int Int Int))
+(pub fn (emitOverApplied fnName args cg)
+  (let ((decls (memGetWord cg 8)))
+    (if (isDefinedFn decls fnName)
+        (let ((ar (fnArityOf decls fnName)))
+          (if (|| (<= (vecLen args) ar) (== ar 0))
+              (emitCall fnName args cg)
+              (let ((cgD (emitCall fnName (takeVec args ar) cg)))
+                (emitApplyChain (dropVec args ar) cgD
+                                (strDup (memGetWord cgD 2)) 0))))
+        (emitCall fnName args cg))))
+
+(pub :: takeVec (-> Int Int Int))
+(pub fn (takeVec v n) (takeInto v n 0 vecNew))
+
+(pub :: takeInto (-> Int Int Int Int Int))
+(pub fn (takeInto v n i acc)
+  (if (>= i n) acc (takeInto v n (+ i 1) (vecPush acc (vecGet v i)))))
+
+(pub :: dropVec (-> Int Int Int))
+(pub fn (dropVec v n) (dropInto v n vecNew))
+
+(pub :: dropInto (-> Int Int Int Int))
+(pub fn (dropInto v i acc)
+  (if (>= i (vecLen v)) acc (dropInto v (+ i 1) (vecPush acc (vecGet v i)))))
 
 ; Emit regular call: check binops/comparisons first.
 (pub :: emitCall (-> Int Int Int Int))

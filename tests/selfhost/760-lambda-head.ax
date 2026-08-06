@@ -1,0 +1,7 @@
+; expect 7
+; An application whose HEAD is not a name. The head dispatch had no
+; arm for it and wrote the constant 0, which does not emit a wrong
+; call - it DELETES the application. A non-name head is evaluated as a
+; value and applied one argument at a time.
+(:: main Int)
+(fn (main) ((lambda (x) x) 7))

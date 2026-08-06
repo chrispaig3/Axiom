@@ -1,0 +1,8 @@
+; expect 0
+; A spine supplying MORE arguments than the callee declares. `adder`
+; takes one parameter and returns a closure, so the surplus argument
+; belongs to that closure. Flattening the whole spine into one direct
+; call passed both to `adder` and answered with the returned closure's
+; ADDRESS. Every function value absorbs exactly one argument per call.
+(fn (adder n) (lambda (x) x))
+(fn (main) (if (== ((adder 10) 5) 5) 0 1))

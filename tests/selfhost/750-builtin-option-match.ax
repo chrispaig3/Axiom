@@ -1,0 +1,12 @@
+; expect 42
+; The builtin `Option`. It has no declaration for the codegen type
+; registry to walk, so `Some`/`None` were absent from it entirely: the
+; match bound nothing and emitted `store i64 %x` naming a register
+; that does not exist, which llc refused. `Some` is tag 0 and `None`
+; tag 1 (probed against stage0), and the pair is `mixed` - `None` an
+; immediate, `Some` a heap block.
+(:: main Int)
+(fn (main)
+  (match (Some 42)
+    ((Some x) x)
+    ((None) 0)))
