@@ -950,23 +950,55 @@ an optimisation is a standard library that breaks catastrophically if
 the optimisation ever regresses, and the `while` form costs nothing to
 keep.
 
-What genuinely remains: type checking proper. All three checks are
+`AX3001`, undefined variable, is the fourth and the most common
+diagnostic there is. It rides on the scope walk `AX3013` needed, and
+its difficulty was never the walk - it was that every category of name
+a program may legally reference has to be recognised, because a
+category missed is a valid program stage1 rejects. Top-level
+functions, foreign bindings, data constructors, struct names, macros
+and signatures come from the resolved declaration list; primitives are
+covered by the `__` prefix rather than a list, since every one of them
+has it; operators, `true`/`false` and `cast`/`sizeof`/`alignof` are
+enumerated. The sweep over `self_host/` and `stdlib/` is what settles
+it, and it did: the first cut reported `Int` undefined in three files,
+because `(cast Int x)` puts a TYPE where an argument goes and a type
+name is not a variable reference.
+
+The suggestion is reproduced exactly, which is the part that has to be
+byte-identical and has no room to be approximately right: Levenshtein
+distance, the `(min(len)/2)` threshold clamped into [1,2], candidates
+equal to the name or beginning `__` skipped, and the first
+*strictly*-smaller distance winning - so the order candidates are
+visited in decides every tie. stage0 visits everything in scope, then
+every function, then every constructor, in three separate passes; a
+single interleaved walk gets the same answer except when it does not.
+Two facts had to be measured rather than read. `Option` is built in,
+so `None` and `Some` are candidates in every program without being
+declared in any of them. And `Some` is offered before `None` - a
+constructor is registered as a function too, and functions come first
+- which is the entire difference between printing `Some` and printing
+`None` for a name that sits at distance 2 from both.
+
+What genuinely remains: type checking proper. All four checks are
 structural, and `parseSigDecl` keeps only a signature's name and a
 float-flag bitmask - the type structure is discarded - so nothing
-downstream can compare a type to anything. `AX3001` (undefined
-variable), the most common diagnostic of all, additionally needs the
-suggestion machinery reproduced exactly: `suggest_closest`'s edit
-distance, its `(min_len/2).clamp(1,2)` threshold, *and* its candidate
-iteration order (`scope`, then `functions`, then every constructor),
-since the first strictly-smaller distance wins and ties are therefore
-order-dependent. `AX3013` itself is under-reported in two directions
+downstream can compare a type to anything. `AX3013` itself is
+under-reported in two directions
 recorded in `typecheck.ax`: stage0 also measures builtins and foreign
 bindings through their arrow depth, which stage1 has no type structure
 to count. Duplicates *inside an imported module* also go unreported,
 because stage1's merged declaration list does not record which module
 each declaration came from; checking the entry file alone is the sound
-subset, never inventing a diagnostic stage0 would not produce. No
-lambda expressions (refused loudly).
+subset, never inventing a diagnostic stage0 would not produce.
+
+(This paragraph used to end "No lambda expressions (refused loudly)".
+That was true when it was written and stopped being true two commits
+later; stage1 compiles a lambda, and one that captures, and has since
+`0c73140`. Probed: `(let ((g (lambda (x) (+ x k)))) (g n))` with `k`
+captured from an enclosing `let` answers correctly through a
+stage1-built binary. A stale claim in a document whose whole method is
+falsifiable claims is worse than no claim, so it is recorded here as
+having been one.)
 stage1 emits S1's unboxed nullary constructors exactly as stage0
 does: the per-type representation code (boxed / all-nullary / mixed)
 travels on every constructor's registry entry, construction emits the

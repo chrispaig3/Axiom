@@ -70,11 +70,21 @@
 ; ------------------------------------------------------------------
 (pub struct Diag
   (sev : Int) (code : Int) (slug : Int) (span : Int)
-  (msg : Int) (relSpan : Int) (relMsg : Int) (help : Int))
+  (msg : Int) (relSpan : Int) (relMsg : Int) (help : Int)
+  (fixSpan : Int) (fixText : Int))
 
 (pub :: mkDiag (-> Int Int Int Int Int Int Int Int Int))
 (pub fn (mkDiag sev code slug span msg relSpan relMsg help)
-  (Diag sev code slug span msg relSpan relMsg help))
+  (Diag sev code slug span msg relSpan relMsg help 0 0))
+
+; A diagnostic whose help is MACHINE-APPLICABLE: it names a span and
+; the text to put there, and renders as `?LOC:"msg"~>"replacement"`
+; rather than a bare `?"msg"`. `AX3001`'s "did you mean" is the first
+; of these - the whole point of the form is that a tool can apply it
+; without parsing the English.
+(pub :: mkDiagFix (-> Int Int Int Int Int Int Int Int Int Int Int))
+(pub fn (mkDiagFix sev code slug span msg relSpan relMsg help fixSpan fixText)
+  (Diag sev code slug span msg relSpan relMsg help fixSpan fixText))
 
 ; ------------------------------------------------------------------
 ; Source position mapping.
@@ -206,7 +216,15 @@
                    (quoteStr (memGetWord d 6))) "")))
         (hlp (if (== (memGetWord d 7) 0)
                  ""
-                 (strConcat " ?" (quoteStr (memGetWord d 7))))))
+                 ; `?LOC:"msg"~>"repl"` when the help carries a span
+                 ; and a replacement, plain `?"msg"` otherwise - the
+                 ; two shapes stage0's renderer chooses between.
+                 (if (== (memGetWord d 8) 0)
+                     (strConcat " ?" (quoteStr (memGetWord d 7)))
+                     (strConcat (strConcat (strConcat (strConcat (strConcat
+                       " ?" (fmtSpan src (memGetWord d 8))) ":")
+                       (quoteStr (memGetWord d 7))) "~>")
+                       (quoteStr (memGetWord d 9)))))))
     (strConcat (strConcat head rel) hlp)))
 
 ; ------------------------------------------------------------------

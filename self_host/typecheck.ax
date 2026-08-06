@@ -278,9 +278,11 @@
       (spineHead (nodeA e))
       e))
 
-(pub :: checkExpr (-> Int Int Int Int Int))
-(pub fn (checkExpr decls scope e out)
+(pub :: checkExpr (-> Int Int Int Int Int Int))
+(pub fn (checkExpr decls adecls scope e out)
   (let ((tag (nodeTag e)))
+    (if (== tag TAG_E_VAR)
+        (checkVarRef adecls scope e out)
     (if (== tag TAG_E_APP)
         ; Once per SPINE, at its root. Recursing into `(nodeA e)` as
         ; an expression would re-enter the same spine one argument
@@ -289,16 +291,22 @@
         ; source never made. stage0 says "runs once per spine, at the
         ; root" for the same reason.
         {
-          (checkSpine decls scope e out)
-          (checkSpineParts decls scope e out)
+          (checkSpine decls adecls scope e out)
+          ; `(cast Type v)`, `(sizeof Type)` and `(alignof Type)` put a
+          ; TYPE where an argument goes, and a type name is not a
+          ; variable reference - `(cast Int x)` would otherwise report
+          ; `Int` as undefined, which it did, on the compiler's own
+          ; source, in three files.
+          (checkSpineParts decls adecls scope e out
+                           (typeArgHead (spineHead e)))
           0
         }
     (if (|| (== tag TAG_E_LET) (== tag TAG_E_LETM))
         (let ((n (vecLen scope)))
           {
-            (checkExpr decls scope (nodeB e) out)
+            (checkExpr decls adecls scope (nodeB e) out)
             (vecPush scope (nodeA e))
-            (checkExpr decls scope (nodeC e) out)
+            (checkExpr decls adecls scope (nodeC e) out)
             (scopeTrunc scope n)
             0
           })
@@ -306,65 +314,110 @@
         (let ((n (vecLen scope)))
           {
             (bindNames (nodeA e) scope 0)
-            (checkExpr decls scope (nodeB e) out)
+            (checkExpr decls adecls scope (nodeB e) out)
             (scopeTrunc scope n)
             0
           })
     (if (== tag TAG_E_IF)
         {
-          (checkExpr decls scope (nodeA e) out)
-          (checkExpr decls scope (nodeB e) out)
-          (checkExpr decls scope (nodeC e) out)
+          (checkExpr decls adecls scope (nodeA e) out)
+          (checkExpr decls adecls scope (nodeB e) out)
+          (checkExpr decls adecls scope (nodeC e) out)
           0
         }
     (if (== tag TAG_E_BEGIN)
-        (checkExprVec decls scope (nodeA e) out 0)
+        (checkExprVec decls adecls scope (nodeA e) out 0)
     (if (== tag TAG_E_MATCH)
         {
-          (checkExpr decls scope (nodeA e) out)
-          (checkArms decls scope (nodeB e) out 0)
+          (checkExpr decls adecls scope (nodeA e) out)
+          (checkArms decls adecls scope (nodeB e) out 0)
           0
         }
     (if (== tag TAG_E_WHILE)
         {
-          (checkExpr decls scope (nodeA e) out)
-          (checkExprVec decls scope (nodeB e) out 0)
+          (checkExpr decls adecls scope (nodeA e) out)
+          (checkExprVec decls adecls scope (nodeB e) out 0)
           0
         }
     (if (== tag TAG_E_SET)
-        (checkExpr decls scope (nodeB e) out)
+        (checkExpr decls adecls scope (nodeB e) out)
     (if (== tag TAG_E_SETF)
         {
-          (checkExpr decls scope (nodeA e) out)
-          (checkExpr decls scope (nodeC e) out)
+          (checkExpr decls adecls scope (nodeA e) out)
+          (checkExpr decls adecls scope (nodeC e) out)
           0
         }
     (if (== tag TAG_E_FIELD)
-        (checkExpr decls scope (nodeA e) out)
-    0))))))))))))
+        (checkExpr decls adecls scope (nodeA e) out)
+    0)))))))))))))
 
 ; The arguments of an application spine, plus its head when the head
 ; is something with an inside (a lambda, a parenthesised expression) -
 ; a bare name has nothing to walk.
-(pub :: checkSpineParts (-> Int Int Int Int Int))
-(pub fn (checkSpineParts decls scope e out)
+; Does this head take a type as its first argument?
+(pub :: typeArgHead (-> Int Int))
+(pub fn (typeArgHead head)
+  (if (!= (nodeTag head) TAG_E_VAR)
+      0
+      (let ((n (nodeA head)))
+        (if (|| (strEq n "cast")
+                (|| (strEq n "sizeof") (strEq n "alignof")))
+            1
+            0))))
+
+(pub :: checkSpineParts (-> Int Int Int Int Int Int Int))
+(pub fn (checkSpineParts decls adecls scope e out skipFirst)
   (if (== (nodeTag e) TAG_E_APP)
       {
-        (checkSpineParts decls scope (nodeA e) out)
-        (checkExpr decls scope (nodeB e) out)
+        (checkSpineParts decls adecls scope (nodeA e) out skipFirst)
+        ; The innermost application holds argument zero, which is the
+        ; type position for the forms that have one.
+        (if (&& (== skipFirst 1) (!= (nodeTag (nodeA e)) TAG_E_APP))
+            0
+            (checkExpr decls adecls scope (nodeB e) out))
         0
       }
       (if (== (nodeTag e) TAG_E_VAR)
-          0
-          (checkExpr decls scope e out))))
+          (checkVarRef adecls scope e out)
+          (checkExpr decls adecls scope e out))))
 
-(pub :: checkExprVec (-> Int Int Int Int Int Int))
-(pub fn (checkExprVec decls scope v out i)
+; One variable reference. Known if it is locally bound, declared
+; anywhere in the resolved module, or one of the always-in-scope
+; builtins - operators, `true`/`false`, `cast`/`sizeof`/`alignof`, and
+; anything beginning `__`, which is every primitive.
+(pub :: checkVarRef (-> Int Int Int Int Int))
+(pub fn (checkVarRef adecls scope e out)
+  (let ((name (nodeA e)))
+    (if (|| (== (scopeHas scope name 0) 1)
+            (|| (== (isBuiltinName name) 1)
+                (== (isDeclaredName adecls name) 1)))
+        0
+        (let ((best (newBest)))
+          {
+            (offerScope best name scope 0)
+            (offerDecls best name adecls 0)
+            (vecPush out
+              (let ((msg (strConcat (strConcat "undefined variable `" name) "`")))
+                (if (== (memGetWord best 0) 0)
+                    (mkDiag SEV_ERROR "AX3001" "undefined-variable"
+                            (nodeSpan e) msg 0 0
+                            "variables must be defined (via `define`/`fn`, a `let` binding, or a lambda parameter) before they are used; check for typos")
+                    (mkDiagFix SEV_ERROR "AX3001" "undefined-variable"
+                               (nodeSpan e) msg 0 0
+                               (strConcat (strConcat
+                                 "a similarly named binding `" (memGetWord best 0))
+                                 "` is in scope; did you mean this?")
+                               (nodeSpan e) (memGetWord best 0)))))
+            0
+          }))))
+
+(pub :: checkExprVec (-> Int Int Int Int Int Int Int))
+(pub fn (checkExprVec decls adecls scope v out i)
   (if (>= i (vecLen v))
       0
       {
-        (checkExpr decls scope (vecGet v i) out)
-        (checkExprVec decls scope v out (+ i 1))
+        (checkExpr decls adecls scope (vecGet v i) out)
+        (checkExprVec decls adecls scope v out (+ i 1))
       }))
 
 (pub :: bindNames (-> Int Int Int Int))
@@ -373,22 +426,22 @@
       0
       { (vecPush scope (vecGet v i)) (bindNames v scope (+ i 1)) }))
 
-(pub :: checkArms (-> Int Int Int Int Int Int))
-(pub fn (checkArms decls scope arms out i)
+(pub :: checkArms (-> Int Int Int Int Int Int Int))
+(pub fn (checkArms decls adecls scope arms out i)
   (if (>= i (vecLen arms))
       0
       (let ((arm (vecGet arms i))
             (n (vecLen scope)))
         {
           (bindPattern (nodeA arm) scope)
-          (checkExpr decls scope (nodeB arm) out)
+          (checkExpr decls adecls scope (nodeB arm) out)
           (scopeTrunc scope n)
-          (checkArms decls scope arms out (+ i 1))
+          (checkArms decls adecls scope arms out (+ i 1))
         })))
 
 ; One application spine, at its root.
-(pub :: checkSpine (-> Int Int Int Int Int))
-(pub fn (checkSpine decls scope e out)
+(pub :: checkSpine (-> Int Int Int Int Int Int))
+(pub fn (checkSpine decls adecls scope e out)
   (let ((head (spineHead e)))
     (if (!= (nodeTag head) TAG_E_VAR)
         0
@@ -414,19 +467,253 @@
                           0
                         }))))))))
 
-(pub :: checkBodies (-> Int Int Int Int))
-(pub fn (checkBodies decls out i)
+(pub :: checkBodies (-> Int Int Int Int Int))
+(pub fn (checkBodies decls adecls out i)
   (if (>= i (vecLen decls))
       out
       (let ((d (vecGet decls i)))
         (if (!= (nodeTag d) TAG_D_FN)
-            (checkBodies decls out (+ i 1))
+            (checkBodies decls adecls out (+ i 1))
             (let ((scope vecNew))
               {
                 (bindNames (nodeB d) scope 0)
-                (checkExpr decls scope (nodeC d) out)
-                (checkBodies decls out (+ i 1))
+                (checkExpr decls adecls scope (nodeC d) out)
+                (checkBodies decls adecls out (+ i 1))
               })))))
+
+; ------------------------------------------------------------------
+; Pass 4: undefined variables (AX3001).
+;
+; The most common diagnostic there is, and the one with the most ways
+; to be WRONG in the direction that matters. Every category of name a
+; program may legally reference has to be recognised here, because a
+; name this pass fails to know about is a valid program stage1
+; rejects - and the compiler's own source is the first casualty. The
+; gate's sweep over `self_host/` and `stdlib/` is the check that
+; matters, not the corpus.
+;
+; stage0 reports these in plain traversal order, left to right, and
+; reports the SAME name once per occurrence rather than once per name
+; (probed: `zzz2` twice in one expression draws two diagnostics). The
+; walk this rides on already visits in that order.
+; ------------------------------------------------------------------
+
+; Operators, keywords and forms that are always in scope and are not
+; declarations. Primitives are covered by the `__` prefix instead of
+; being listed: every one of them has it, and stage0's own suggestion
+; machinery skips `__` names for the same reason.
+(pub :: isBuiltinName (-> Int Int))
+(pub fn (isBuiltinName n)
+  (if (strStartsWith n "__") 1
+  (if (strEq n "+") 1 (if (strEq n "-") 1 (if (strEq n "*") 1
+  (if (strEq n "/") 1 (if (strEq n "%") 1 (if (strEq n "&") 1
+  (if (strEq n "|") 1 (if (strEq n "^") 1 (if (strEq n "<<") 1
+  (if (strEq n ">>") 1 (if (strEq n "==") 1 (if (strEq n "!=") 1
+  (if (strEq n "<") 1 (if (strEq n ">") 1 (if (strEq n "<=") 1
+  (if (strEq n ">=") 1 (if (strEq n "&&") 1 (if (strEq n "||") 1
+  (if (strEq n "true") 1 (if (strEq n "false") 1
+  (if (strEq n "cast") 1 (if (strEq n "sizeof") 1 (if (strEq n "alignof") 1
+  0)))))))))))))))))))))))))
+
+; Is `n` declared anywhere in the resolved declaration list - as a
+; function, a foreign binding, a data constructor, a struct (structs
+; are constructors too), a macro, or a signature?
+; `Option` is built in: stage0 registers it ahead of every
+; user-declared type - which is why the first user constructor tag is
+; 2, a fact stage1's codegen already relies on - so `None` and `Some`
+; are in scope in every program without being declared in any of them.
+(pub :: isBuiltinCtor (-> Int Int))
+(pub fn (isBuiltinCtor n)
+  (if (|| (strEq n "None") (strEq n "Some")) 1 0))
+
+(pub :: isDeclaredName (-> Int Int Int))
+(pub fn (isDeclaredName decls n)
+  (if (== (isBuiltinCtor n) 1) 1 (declaredFrom decls n 0)))
+
+(pub :: declaredFrom (-> Int Int Int Int))
+(pub fn (declaredFrom decls n i)
+  (if (>= i (vecLen decls))
+      0
+      (let ((d (vecGet decls i)))
+        (let ((tag (nodeTag d)))
+          (if (&& (|| (== tag TAG_D_FN)
+                      (|| (== tag TAG_D_FOREIGN)
+                          (|| (== tag TAG_D_STRUCT)
+                              (|| (== tag TAG_D_MACRO) (== tag TAG_D_SIG)))))
+                  (== (nameMatches (nodeA d) n) 1))
+              1
+              (if (&& (== tag TAG_D_DATA) (== (ctorNamed (nodeB d) n 0) 1))
+                  1
+                  (declaredFrom decls n (+ i 1))))))))
+
+(pub :: ctorNamed (-> Int Int Int Int))
+(pub fn (ctorNamed ctors n i)
+  (if (>= i (vecLen ctors))
+      0
+      (if (== (nameMatches (nodeA (vecGet ctors i)) n) 1)
+          1
+          (ctorNamed ctors n (+ i 1)))))
+
+; ------------------------------------------------------------------
+; The suggestion. Byte-identical output means reproducing stage0's
+; `suggest_closest` exactly: Levenshtein distance, a threshold of
+; `(min(len)/2)` clamped to [1,2], candidates equal to the name or
+; beginning `__` skipped, and the FIRST strictly-smaller distance
+; winning - so the order candidates are visited in decides ties.
+; stage0 visits scope, then functions, then constructors; this visits
+; locals, then declarations in order, which is the same sequence.
+; ------------------------------------------------------------------
+(pub :: levenshtein (-> Int Int Int))
+(pub fn (levenshtein a b)
+  (let ((la (strLen a))
+        (lb (strLen b)))
+    (let ((prev (memAlloc (* 8 (+ lb 1))))
+          (cur (memAlloc (* 8 (+ lb 1)))))
+      {
+        (levInitRow prev lb 0)
+        (levRows a b la lb prev cur 1)
+      })))
+
+(pub :: levInitRow (-> Int Int Int Int))
+(pub fn (levInitRow row lb j)
+  (if (> j lb)
+      0
+      { (memSetWord row j j) (levInitRow row lb (+ j 1)) }))
+
+(pub :: levRows (-> Int Int Int Int Int Int Int Int))
+(pub fn (levRows a b la lb prev cur i)
+  (if (> i la)
+      (memGetWord prev lb)
+      {
+        (memSetWord cur 0 i)
+        (levCols a b lb prev cur i 1)
+        (levCopyRow cur prev lb 0)
+        (levRows a b la lb prev cur (+ i 1))
+      }))
+
+(pub :: levCols (-> Int Int Int Int Int Int Int Int))
+(pub fn (levCols a b lb prev cur i j)
+  (if (> j lb)
+      0
+      (let ((cost (if (== (strByte a (- i 1)) (strByte b (- j 1))) 0 1)))
+        (let ((del (+ (memGetWord prev j) 1))
+              (ins (+ (memGetWord cur (- j 1)) 1))
+              (sub (+ (memGetWord prev (- j 1)) cost)))
+          {
+            (memSetWord cur j (minOf3 del ins sub))
+            (levCols a b lb prev cur i (+ j 1))
+          }))))
+
+(pub :: minOf3 (-> Int Int Int Int))
+(pub fn (minOf3 a b c)
+  (let ((m (if (< a b) a b)))
+    (if (< m c) m c)))
+
+(pub :: levCopyRow (-> Int Int Int Int Int))
+(pub fn (levCopyRow src dst lb j)
+  (if (> j lb)
+      0
+      { (memSetWord dst j (memGetWord src j)) (levCopyRow src dst lb (+ j 1)) }))
+
+; `(min(len)/2)` clamped into [1,2], stage0's rule verbatim.
+(pub :: suggestThreshold (-> Int Int Int))
+(pub fn (suggestThreshold la lb)
+  (let ((m (if (< la lb) la lb)))
+    (let ((t (/ m 2)))
+      (if (< t 1) 1 (if (> t 2) 2 t)))))
+
+; A cell holding the best candidate found so far and its distance, so
+; the search can run over two sequences without rebuilding a list.
+(pub :: newBest Int)
+(pub fn (newBest)
+  (let ((c (memAlloc 16)))
+    { (memSetWord c 0 0) (memSetWord c 1 999) c }))
+
+(pub :: offerCandidate (-> Int Int Int Int))
+(pub fn (offerCandidate best name cand)
+  (if (|| (strEq cand name) (strStartsWith cand "__"))
+      0
+      (let ((d (levenshtein name cand)))
+        (if (&& (<= d (suggestThreshold (strLen name) (strLen cand)))
+                (< d (memGetWord best 1)))
+            { (memSetWord best 0 cand) (memSetWord best 1 d) 0 }
+            0))))
+
+(pub :: offerScope (-> Int Int Int Int Int))
+(pub fn (offerScope best name scope i)
+  (if (>= i (vecLen scope))
+      0
+      { (offerCandidate best name (vecGet scope i))
+        (offerScope best name scope (+ i 1)) }))
+
+; stage0 offers candidates in three separate passes - everything in
+; scope, then every function, then every constructor - and the FIRST
+; strictly-smaller distance wins, so a single interleaved walk would
+; break ties differently and print a different name. The builtin
+; `Option` constructors lead the constructor pass because stage0
+; registers that type before any declared one.
+(pub :: offerDecls (-> Int Int Int Int Int))
+(pub fn (offerDecls best name decls i)
+  {
+    (offerFns best name decls 0)
+    ; `Some` before `None`: a constructor is registered as a function
+    ; in stage0 too, and functions are offered before constructors, so
+    ; the one-argument `Some` is reached first. Both sit at distance 2
+    ; from `nope`, and the first strictly-smaller distance wins, so
+    ; this order is the whole difference between printing `Some` and
+    ; printing `None`. Determined by probe, not by reading.
+    (offerCandidate best name "Some")
+    (offerCandidate best name "None")
+    (offerAllCtors best name decls 0)
+    0
+  })
+
+(pub :: offerFns (-> Int Int Int Int Int))
+(pub fn (offerFns best name decls i)
+  (if (>= i (vecLen decls))
+      0
+      (let ((d (vecGet decls i)))
+        (let ((tag (nodeTag d)))
+          {
+            (if (|| (== tag TAG_D_FN)
+                    (|| (== tag TAG_D_FOREIGN) (== tag TAG_D_STRUCT)))
+                (offerCandidate best name (bareOf (nodeA d)))
+                0)
+            (offerFns best name decls (+ i 1))
+          }))))
+
+(pub :: offerAllCtors (-> Int Int Int Int Int))
+(pub fn (offerAllCtors best name decls i)
+  (if (>= i (vecLen decls))
+      0
+      (let ((d (vecGet decls i)))
+        {
+          (if (== (nodeTag d) TAG_D_DATA)
+              (offerCtors best name (nodeB d) 0)
+              0)
+          (offerAllCtors best name decls (+ i 1))
+        })))
+
+(pub :: offerCtors (-> Int Int Int Int Int))
+(pub fn (offerCtors best name ctors i)
+  (if (>= i (vecLen ctors))
+      0
+      { (offerCandidate best name (bareOf (nodeA (vecGet ctors i))))
+        (offerCtors best name ctors (+ i 1)) }))
+
+; A declaration's source-spelled name: import resolution rewrites an
+; imported one to `Mod$name` in place, and a suggestion has to read
+; back as something the programmer could type.
+(pub :: bareOf (-> Int Int))
+(pub fn (bareOf s) (bareOfFrom s (- (strLen s) 1)))
+
+(pub :: bareOfFrom (-> Int Int Int))
+(pub fn (bareOfFrom s i)
+  (if (< i 0)
+      s
+      (if (== (strByte s i) 36)
+          (strSlice s (+ i 1) (- (strLen s) (+ i 1)))
+          (bareOfFrom s (- i 1)))))
 
 ; ------------------------------------------------------------------
 ; Every diagnostic for one module, in stage0's emission order.
@@ -437,6 +724,6 @@
     {
       (checkDuplicates entryDecls out 0)
       (checkMissingDefs entryDecls allDecls out 0)
-      (checkBodies entryDecls out 0)
+      (checkBodies entryDecls allDecls out 0)
       out
     }))
