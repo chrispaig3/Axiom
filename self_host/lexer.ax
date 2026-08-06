@@ -221,3 +221,97 @@
 (pub :: lex (-> Int Int))
 (pub fn (lex src)
   (lexTokens src 0 (strLen src) (vecNew)))
+
+; ------------------------------------------------------------------
+; AXTAGs, scanned separately from tokenization.
+;
+; stage0's lexer emits an `Axtag` token and its parser consumes the
+; contiguous run of them sitting immediately before a declaration.
+; Reproducing that inside `lexTokens` would mean threading an
+; accumulator through every one of its recursive calls, and a stray
+; token in the stream is the kind of change that breaks parsing
+; somewhere unrelated. This is a second pass instead: it produces
+; (offset, content) pairs, and the parser partitions them by
+; declaration position, which is the same attachment stage0 performs -
+; an AXTAG anywhere other than directly above a declaration is a parse
+; error under stage0 (probed: `expected expression, found
+; `;@axiom:pure``), so no well-formed program can tell the two rules
+; apart.
+;
+; It must skip exactly what the lexer skips, or a `;@axiom:` inside a
+; string literal becomes a tag: string bodies with their escapes, and
+; char literals.
+(pub struct AxtagEnt (off : Int) (content : Int))
+
+(pub :: scanAxtags (-> Int Int))
+(pub fn (scanAxtags src)
+  (let ((acc vecNew))
+    { (scanAxtagsFrom src 0 (strLen src) acc) acc }))
+
+(pub :: scanAxtagsFrom (-> Int Int Int Int Int))
+(pub fn (scanAxtagsFrom src pos len acc)
+  (if (>= pos len)
+      0
+      (let ((ch (strByte src pos)))
+        (if (== ch 34)
+            (scanAxtagsFrom src (skipStringBody src (+ pos 1) len) len acc)
+        (if (== ch 39)
+            (scanAxtagsFrom src (skipCharBody src (+ pos 1) len) len acc)
+        (if (== ch 59)
+            (let ((nl (findNewline src pos len)))
+              {
+                (if (== (hasAxiomPrefix src (+ pos 1) len) 1)
+                    (vecPush acc
+                      (cast Int (AxtagEnt pos
+                                  (strSlice src (+ pos 8)
+                                            (- nl (+ pos 8))))))
+                    0)
+                (scanAxtagsFrom src nl len acc)
+              })
+        (scanAxtagsFrom src (+ pos 1) len acc)))))))
+
+; `@axiom:` is seven bytes; the tag's content starts one past them,
+; which is why the slice above begins at pos+8 (the `;` plus seven).
+(pub :: hasAxiomPrefix (-> Int Int Int Int))
+(pub fn (hasAxiomPrefix src pos len)
+  (if (> (+ pos 7) len)
+      0
+      (if (&& (== (strByte src pos) 64)
+          (&& (== (strByte src (+ pos 1)) 97)
+          (&& (== (strByte src (+ pos 2)) 120)
+          (&& (== (strByte src (+ pos 3)) 105)
+          (&& (== (strByte src (+ pos 4)) 111)
+          (&& (== (strByte src (+ pos 5)) 109)
+              (== (strByte src (+ pos 6)) 58)))))))
+          1
+          0)))
+
+(pub :: findNewline (-> Int Int Int Int))
+(pub fn (findNewline src pos len)
+  (if (>= pos len)
+      len
+      (if (== (strByte src pos) 10)
+          pos
+          (findNewline src (+ pos 1) len))))
+
+(pub :: skipStringBody (-> Int Int Int Int))
+(pub fn (skipStringBody src pos len)
+  (if (>= pos len)
+      len
+      (let ((ch (strByte src pos)))
+        (if (== ch 92)
+            (skipStringBody src (+ pos 2) len)
+        (if (== ch 34)
+            (+ pos 1)
+        (skipStringBody src (+ pos 1) len))))))
+
+(pub :: skipCharBody (-> Int Int Int Int))
+(pub fn (skipCharBody src pos len)
+  (if (>= pos len)
+      len
+      (let ((ch (strByte src pos)))
+        (if (== ch 92)
+            (skipCharBody src (+ pos 2) len)
+        (if (== ch 39)
+            (+ pos 1)
+        (skipCharBody src (+ pos 1) len))))))

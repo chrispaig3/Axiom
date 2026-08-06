@@ -44,7 +44,7 @@
   (let ((src (sysReadFile (strData fileName))))
     (if (== (strLen src) 0)
         (die "cannot read input\n" 1)
-        (let ((pr (parseModule (lex src))))
+        (let ((pr (parseModuleWith (lex src) (scanAxtags src))))
           (if (== (memGetWord pr 0) 0)
               (die "parse failed\n" 2)
               ; The target is the second argument, by the same names

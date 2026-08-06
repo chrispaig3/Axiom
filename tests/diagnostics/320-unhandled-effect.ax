@@ -9,5 +9,7 @@
 (fn (builtin_io n) (handle (syscaller n) (Alloc) (lambda (v) 0)))
 (:: nested (-> Int Int))
 (fn (nested n) (handle (handle (ask n) (Ask) (lambda (v) 0)) (IO) (lambda (v) 0)))
+(:: shadowed (-> Int Int))
+(fn (shadowed n) (let ((ask (lambda (x) x))) (handle (ask n) (IO) (lambda (v) 0))))
 (:: main Int)
 (fn (main) 0)

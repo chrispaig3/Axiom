@@ -13,7 +13,11 @@
 ; ------------------------------------------------------------------
 ; AST node: tagged union. tag + a,b,c fields. Unused = 0.
 ; ------------------------------------------------------------------
-(pub struct ASTNode (tag : Int) (a : Int) (b : Int) (c : Int) (span : Int) (vis : Int) (ty : Int))
+; `axtags` is the Vec of `;@axiom:key(value)` tags written directly
+; above a DECLARATION, and 0 everywhere else. It is the eighth word so
+; that `ty` keeps index 6 and every existing `memGetWord` reader is
+; untouched.
+(pub struct ASTNode (tag : Int) (a : Int) (b : Int) (c : Int) (span : Int) (vis : Int) (ty : Int) (axtags : Int))
 
 ; A declaration's visibility: 1 when it was written `pub`, 0 otherwise.
 ; stage0 splices only the PUBLIC declarations of an imported module
@@ -148,9 +152,9 @@
 (pub :: nodeB   (-> Int Int))   (pub fn (nodeB   n) (memGetWord n 2))
 (pub :: nodeC   (-> Int Int))   (pub fn (nodeC   n) (memGetWord n 3))
 
-(pub :: mkNode (-> Int Int Int Int Int))  (pub fn (mkNode t a b c) (ASTNode t a b c 0 0 0))
+(pub :: mkNode (-> Int Int Int Int Int))  (pub fn (mkNode t a b c) (ASTNode t a b c 0 0 0 0))
 (pub :: mkNodeAt (-> Int Int Int Int Int Int))
-(pub fn (mkNodeAt t a b c sp) (ASTNode t a b c sp 0 0))
+(pub fn (mkNodeAt t a b c sp) (ASTNode t a b c sp 0 0 0))
 (pub :: nodeSpan (-> Int Int))  (pub fn (nodeSpan n) (memGetWord n 4))
 (pub :: mkEInt (-> Int Int))              (pub fn (mkEInt v)     (mkNode TAG_E_INT v 0 0))
 (pub :: mkEFlt (-> Int Int))              (pub fn (mkEFlt bits)  (mkNode TAG_E_FLT bits 0 0))
@@ -1632,3 +1636,55 @@
 (pub fn (parseModule tokens)
   (let ((r (parseDecls tokens 0 vecNew)))
     r))
+
+; As `parseModule`, then attaching AXTAGs. Declarations arrive in
+; source order and every one carries its NAME's span, so the tags
+; belonging to a declaration are exactly those whose offset precedes
+; its name and follows the previous declaration's - the partition
+; stage0's `collect_axtags` performs by consuming a contiguous run of
+; Axtag tokens at each declaration boundary.
+(pub :: parseModuleWith (-> Int Int Int))
+(pub fn (parseModuleWith tokens axtags)
+  (let ((r (parseDecls tokens 0 vecNew)))
+    (if (== (memGetWord r 0) 0)
+        r
+        { (attachAxtags (memGetWord r 1) 0 axtags 0) r })))
+
+(pub :: attachAxtags (-> Int Int Int Int Int))
+(pub fn (attachAxtags decls i axtags next)
+  (if (>= i (vecLen decls))
+      0
+      (let ((d (vecGet decls i)))
+        (let ((limit (if (== (nodeSpan d) 0)
+                         next
+                         (spanStart (nodeSpan d)))))
+          (let ((upto (axtagsUpto axtags next limit)))
+            {
+              (if (> upto next)
+                  (memSetWord d 7 (axtagSlice axtags next upto))
+                  0)
+              (attachAxtags decls (+ i 1) axtags upto)
+            })))))
+
+; The index one past the last tag whose offset precedes `limit`.
+(pub :: axtagsUpto (-> Int Int Int Int))
+(pub fn (axtagsUpto axtags i limit)
+  (if (>= i (vecLen axtags))
+      i
+      (if (< (memGetWord (vecGet axtags i) 0) limit)
+          (axtagsUpto axtags (+ i 1) limit)
+          i)))
+
+(pub :: axtagSlice (-> Int Int Int Int))
+(pub fn (axtagSlice axtags from upto)
+  (let ((v vecNew))
+    { (axtagSliceInto v axtags from upto) v }))
+
+(pub :: axtagSliceInto (-> Int Int Int Int Int))
+(pub fn (axtagSliceInto v axtags from upto)
+  (if (>= from upto)
+      0
+      {
+        (vecPush v (vecGet axtags from))
+        (axtagSliceInto v axtags (+ from 1) upto)
+      }))

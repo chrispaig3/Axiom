@@ -1676,8 +1676,9 @@
             ; A bare reference to an effectful name is attributed
             ; exactly as a call is - stage0's reference-site rule,
             ; which is what keeps a function value's effects from
-            ; escaping attribution entirely.
-            (effRefSite tc (nodeA e) bound acc)
+            ; escaping attribution entirely. Not a head, so a bound
+            ; name here is an ordinary local read.
+            (effRefSite tc (nodeA e) bound acc 0)
         (if (== tag TAG_E_ALLOC)
             {
               (effAdd acc (builtinEff "Alloc"))
@@ -1821,27 +1822,129 @@
         (walkEffectsSpine tc (nodeA e) bound acc)
       }
       (if (== (nodeTag e) TAG_E_VAR)
-          (effRefSite tc (nodeA e) bound acc)
+          (effRefSite tc (nodeA e) bound acc 1)
           (walkEffects tc e bound acc))))
 
 ; What naming `n` contributes. A lexically bound name contributes
 ; nothing: its initializer was walked where it was bound, and what a
 ; local does with arguments is the effect-polymorphism gap above.
-(pub :: effRefSite (-> Int Int Int Int Int))
-(pub fn (effRefSite tc n bound acc)
+(pub :: effRefSite (-> Int Int Int Int Int Int))
+; `inHead` distinguishes a CALL from a bare reference, and it decides
+; incompleteness: reading a local contributes nothing and is perfectly
+; knowable, while CALLING one is the unknown stage0 models with an
+; effect-transparent parameter. Marking on every bound reference would
+; flag almost every function and silence AX3010 everywhere.
+;
+; Incompleteness propagates by itself: the sentinel lives in the
+; effect set, so `effUnion` copies it out of a callee's summary into
+; the caller's, and the fixpoint stores it. A function that calls a
+; function that calls through a parameter is therefore incomplete
+; too, which is what makes the gate sound for effect-transparent
+; callees stage1 cannot see.
+(pub fn (effRefSite tc n bound acc inHead)
   (if (== (strInVec bound n 0) 1)
-      0
+      (if (== inHead 1) (effAdd acc effIncomplete) 0)
       (if (== (isSyscallPrim n) 1)
           (effAdd acc (builtinEff "IO"))
           (let ((ent (findFnEnt tc n)))
             (if (== ent 0)
-                0
+                ; An unresolved callee is the collector's other
+                ; unknown: stage0 lets its arguments escape.
+                (if (== inHead 1) (effAdd acc effIncomplete) 0)
                 {
                   (if (== (memGetWord ent 4) 1)
                       (effAdd acc (builtinEff "IO"))
                       0)
                   (effUnion acc (memGetWord ent 6) 0)
                 })))))
+
+; ------------------------------------------------------------------
+; AX3010: an AXTAG claim the body does not support. A WARNING, and
+; the only diagnostic stage1 emits that is not an error.
+;
+; Three forms, all of stage0's:
+;   `;@axiom:pure`          -> "`pure` claim contradicted: body performs X, Y"
+;   `;@axiom:effect(pure)`  -> "`effect(pure)` claim contradicted: ..."
+;   `;@axiom:effect(v)`     -> "`effect(v)` claim unsupported: missing X"
+; and the rendered message is prefixed "AXTAG mismatch on `name`: ".
+; Effects are joined ", " SORTED BY THEIR DISPLAY NAME, because
+; stage0 collects into a HashSet and sorts by `format!("{}")` before
+; rendering - insertion order would be a different string.
+;
+; The gate that makes this sound: stage1 does not model effect
+; polymorphism, so its effect sets are a SUBSET of stage0's, and a
+; subset is fine for a per-effect diagnostic like AX3011 (fewer
+; lines) but fatal here, where the set is rendered INTO the message -
+; "body performs IO" against "body performs IO, Mut" is a
+; mis-report, not an omission. So the walk records whether it saw a
+; call it could not resolve: a head that is a lexically bound name,
+; or a name with no entry at all. Those are precisely the calls that
+; make stage0's `effect_params` non-empty, and when there are none,
+; stage1's concrete set equals stage0's and its `effect_params` is
+; empty - which is also the condition stage0 uses to decide whether a
+; missing claimed effect is a lie. Anything else stays silent.
+(pub :: effIncomplete Int)
+(pub fn (effIncomplete) "?:incomplete")
+
+(pub :: effIsComplete (-> Int Int))
+(pub fn (effIsComplete v) (if (== (effIn v effIncomplete) 1) 0 1))
+
+; The concrete effects, sorted by display name, joined with ", ".
+(pub :: effJoin (-> Int Int))
+(pub fn (effJoin v)
+  (effJoinFrom (effSorted v) 0 ""))
+
+(pub :: effJoinFrom (-> Int Int Int Int))
+(pub fn (effJoinFrom v i acc)
+  (if (>= i (vecLen v))
+      acc
+      (effJoinFrom v (+ i 1)
+        (if (== i 0)
+            (effRender (vecGet v i))
+            (strConcat (strConcat acc ", ") (effRender (vecGet v i)))))))
+
+; Insertion sort by rendered name - the sets are three or four
+; entries, and this has to agree with stage0's `sort_by_key` on the
+; same strings.
+(pub :: effSorted (-> Int Int))
+(pub fn (effSorted v)
+  (let ((out vecNew))
+    { (effSortInto out v 0) out }))
+
+(pub :: effSortInto (-> Int Int Int Int))
+(pub fn (effSortInto out v i)
+  (if (>= i (vecLen v))
+      0
+      {
+        (if (strEq (vecGet v i) effIncomplete)
+            0
+            (effInsertSorted out (vecGet v i)))
+        (effSortInto out v (+ i 1))
+      }))
+
+(pub :: effInsertSorted (-> Int Int Int))
+(pub fn (effInsertSorted out e)
+  (let ((n (vecLen out)))
+    {
+      (vecPush out e)
+      (effShiftDown out n)
+    }))
+
+(pub :: effShiftDown (-> Int Int Int))
+(pub fn (effShiftDown out i)
+  (if (<= i 0)
+      0
+      (if (< (strCmp (effRender (vecGet out i))
+                     (effRender (vecGet out (- i 1)))) 0)
+          {
+            (let ((tmp (vecGet out i)))
+              {
+                (vecSet out i (vecGet out (- i 1)))
+                (vecSet out (- i 1) tmp)
+              })
+            (effShiftDown out (- i 1))
+          }
+          0)))
 
 ; The syscall primitives are the IO ones; every other `__` primitive
 ; is pure. stage0 drives this off PRIMITIVES' `is_io` column.
@@ -1984,14 +2087,22 @@
   (if (>= i (vecLen inner))
       0
       {
-        (if (&& (== (effHandledBy effs (vecGet inner i) 0) 0) (!= span 0))
-            (vecPush (tcOut tc)
-              (mkDiag SEV_ERROR "AX3011" "effect-mismatch"
-                      span
-                      (strConcat (strConcat "effect mismatch: unhandled effect `"
-                                            (effRender (vecGet inner i))) "`")
-                      0 0 0))
-            0)
+        ; The incompleteness sentinel travels in the same Vec and is
+        ; NOT an effect: reporting it printed `unhandled effect
+        ; `incomplete`` on a valid program - a handle whose body calls
+        ; a local. Every consumer that renders an effect has to skip
+        ; it, and no file in the swept trees calls through a local
+        ; inside a handle body, so only the probe bank saw it.
+        (if (strEq (vecGet inner i) effIncomplete)
+            0
+            (if (&& (== (effHandledBy effs (vecGet inner i) 0) 0) (!= span 0))
+                (vecPush (tcOut tc)
+                  (mkDiag SEV_ERROR "AX3011" "effect-mismatch"
+                          span
+                          (strConcat (strConcat "effect mismatch: unhandled effect `"
+                                                (effRender (vecGet inner i))) "`")
+                          0 0 0))
+                0))
         (checkUnhandled tc inner effs (+ i 1) span)
       }))
 
@@ -2649,11 +2760,156 @@
               (if (|| (== tag TAG_D_SIG) (== tag TAG_D_FOREIGN))
                   (pushScope (tcScope tc) (nodeA d) 0 (nodeSpan d)
                              (if (== (nodeTy d) 0) mkSilentWild (nodeTy d)))
+                  ; The body first, then its tags - stage0's
+                  ; `check_decls` runs `check_expr(body)` and only
+                  ; then walks `axtags`, so every diagnostic from a
+                  ; function's body precedes its AX3010.
                   (if (== tag TAG_D_FN)
-                      (tcCheckFn tc d)
+                      { (tcCheckFn tc d) (checkAxtags tc d) }
                       0)))
             (tcWalkDecls tc (+ i 1))
           }))))
+
+; Every AXTAG on one declaration, in source order.
+(pub :: checkAxtags (-> Int Int Int))
+(pub fn (checkAxtags tc d)
+  (if (== (memGetWord d 7) 0)
+      0
+      (let ((eff (collectEffects tc (nodeC d)
+                   (boundWithParams vecNew (nodeB d) 0))))
+        (if (== (effIsComplete eff) 0)
+            0
+            (checkAxtagsFrom tc d (memGetWord d 7) 0 eff)))))
+
+(pub :: checkAxtagsFrom (-> Int Int Int Int Int Int))
+(pub fn (checkAxtagsFrom tc d tags i eff)
+  (if (>= i (vecLen tags))
+      0
+      {
+        (checkOneAxtag tc d (memGetWord (vecGet tags i) 1) eff)
+        (checkAxtagsFrom tc d tags (+ i 1) eff)
+      }))
+
+; `content` is what followed `;@axiom:` - either `key` or
+; `key(value)`. Only `pure` and `effect` are validated; every other
+; key is metadata stage0 records and does not check.
+(pub :: checkOneAxtag (-> Int Int Int Int Int))
+(pub fn (checkOneAxtag tc d content eff)
+  (let ((op (strFindByte content 40 0)))
+    (let ((key (if (< op 0) content (strSlice content 0 op)))
+          (val (if (< op 0)
+                   ""
+                   (strSlice content (+ op 1)
+                             (- (axtagCloseAt content) (+ op 1))))))
+      (if (strEq key "pure")
+          (axtagContradicted tc d "`pure` claim" eff)
+      (if (strEq key "effect")
+          (if (strEq val "pure")
+              (axtagContradicted tc d "`effect(pure)` claim" eff)
+              (axtagUnsupported tc d val eff))
+      0)))))
+
+; The LAST `)`, scanned backwards, which is stage0's `rfind` - a
+; value may contain parens of its own.
+(pub :: axtagCloseAt (-> Int Int))
+(pub fn (axtagCloseAt content)
+  (axtagCloseFrom content (- (strLen content) 1)))
+
+(pub :: axtagCloseFrom (-> Int Int Int))
+(pub fn (axtagCloseFrom content i)
+  (if (< i 0)
+      (strLen content)
+      (if (== (strByte content i) 41)
+          i
+          (axtagCloseFrom content (- i 1)))))
+
+; ASCII case-insensitive equality, for matching `effect(console)`
+; against a declared `Console`.
+(pub :: strEqCI (-> Int Int Int))
+(pub fn (strEqCI a b)
+  (if (!= (strLen a) (strLen b))
+      0
+      (strEqCIFrom a b 0)))
+
+(pub :: strEqCIFrom (-> Int Int Int Int))
+(pub fn (strEqCIFrom a b i)
+  (if (>= i (strLen a))
+      1
+      (if (== (lowerByte (strByte a i)) (lowerByte (strByte b i)))
+          (strEqCIFrom a b (+ i 1))
+          0)))
+
+(pub :: lowerByte (-> Int Int))
+(pub fn (lowerByte c)
+  (if (&& (>= c 65) (<= c 90)) (+ c 32) c))
+
+; A `pure` claim is contradicted by ANY concrete effect.
+(pub :: axtagContradicted (-> Int Int Int Int Int))
+(pub fn (axtagContradicted tc d label eff)
+  (if (== (vecLen (effSorted eff)) 0)
+      0
+      (emitAxtag tc d
+        (strConcat (strConcat label " contradicted: body performs ")
+                   (effJoin eff)))))
+
+; A claimed effect the body does not perform. stage0 suppresses this
+; when the effect COULD arrive through a callback - but only when the
+; function has effect-transparent parameters, and this check only
+; runs when it has none (the completeness gate), so every missing
+; claim here is one stage0 also reports.
+(pub :: axtagUnsupported (-> Int Int Int Int Int))
+(pub fn (axtagUnsupported tc d val eff)
+  (let ((want (axtagEffectOf tc val)))
+    (if (== (strLen want) 0)
+        0
+        (if (== (effIn eff want) 1)
+            0
+            (emitAxtag tc d
+              (strConcat (strConcat (strConcat (strConcat
+                "`effect(" val) ")` claim unsupported: missing ")
+                (effRender want)) ""))))))
+
+; `effect(io)` names the built-in IO; a value naming no builtin is a
+; custom effect, matched against the declarations case-insensitively
+; and canonicalised to the DECLARED spelling - stage0's rule, and the
+; reason `effect(console)` validates against `(effect Console ...)`.
+(pub :: axtagEffectOf (-> Int Int Int))
+(pub fn (axtagEffectOf tc val)
+  (if (strEq val "io") (builtinEff "IO")
+  (if (strEq val "mut") (builtinEff "Mut")
+  (if (strEq val "div") (builtinEff "Div")
+  (if (strEq val "alloc") (builtinEff "Alloc")
+  (if (== (strLen val) 0) ""
+  (customEff (canonicalEffectName tc val))))))))
+
+(pub :: canonicalEffectName (-> Int Int Int))
+(pub fn (canonicalEffectName tc val)
+  (let ((exact (findEffectDecl tc val)))
+    (if (!= exact 0)
+        val
+        (let ((ci (findEffectDeclCI (tcEffects tc) val 0)))
+          (if (== ci 0) val (nodeA ci))))))
+
+(pub :: findEffectDeclCI (-> Int Int Int Int))
+(pub fn (findEffectDeclCI effs val i)
+  (if (>= i (vecLen effs))
+      0
+      (let ((dd (vecGet effs i)))
+        (if (== (strEqCI (nodeA dd) val) 1)
+            dd
+            (findEffectDeclCI effs val (+ i 1))))))
+
+(pub :: emitAxtag (-> Int Int Int Int))
+(pub fn (emitAxtag tc d msg)
+  (if (== (nodeSpan d) 0)
+      0
+      (vecPush (tcOut tc)
+        (mkDiag SEV_WARNING "AX3010" "axtag-mismatch"
+                (nodeSpan d)
+                (strConcat (strConcat (strConcat (strConcat
+                  "AXTAG mismatch on `" (bareOf (nodeA d)))
+                  "`: ") msg) "")
+                0 0 0))))
 
 (pub :: tcCheckFn (-> Int Int Int))
 (pub fn (tcCheckFn tc d)

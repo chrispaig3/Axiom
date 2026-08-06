@@ -1,0 +1,18 @@
+(effect Console (log :: (-> String Int)))
+(:: sys (-> Int Int))
+;@axiom:pure
+(fn (sys fd) { (__syscall3 1 fd 0 0) (alloc Int 1) })
+(:: reached (-> Int Int))
+;@axiom:pure
+(fn (reached n) (sys n))
+(:: claims (-> Int Int))
+;@axiom:effect(console)
+(fn (claims n) n)
+(:: honest (-> Int Int))
+;@axiom:effect(console)
+(fn (honest n) (log n))
+(:: higher (-> (-> Int Int) Int Int))
+;@axiom:pure
+(fn (higher f x) (f x))
+(:: main Int)
+(fn (main) 0)

@@ -1283,11 +1283,60 @@ innermost body. `320-unhandled-effect.ax` carries all three shapes:
 a custom effect through a call chain, a built-in `IO` through a
 `__syscallN`, and the `Alloc` a nested dynamic handle introduces.
 
-`AX3010` stays unreported, on a dependency stage1 does not have at
-all: AXTAG claims are comments, and stage1's lexer drops them. So
-does the `AX3004` checking a handler against its operation's declared
-arrow, which needs the operation type the `effect` parser discards.
-Both omit lines; neither reorders or invents one.
+`AX3010` is the sixteenth, the only diagnostic stage1 emits that is a
+**warning** rather than an error, and the only one whose subject is a
+comment. AXTAG claims live in `;@axiom:key(value)` comments that
+stage1's lexer discarded, so it needed a way in. Emitting a token for
+them, as stage0 does, would put a stray token in a stream every parse
+path reads; instead a second pass over the source produces
+`(offset, content)` pairs, and the parser partitions them by
+declaration position. That is the same attachment — stage0 consumes
+the contiguous run of AXTAG tokens sitting at each declaration
+boundary, and an AXTAG anywhere else is a parse error under stage0
+(probed: `expected expression, found ;@axiom:pure`), so no
+well-formed program can tell the two rules apart. The scanner has to
+skip exactly what the lexer skips, or a `;@axiom:` inside a string
+literal becomes a tag.
+
+Two things are copied rather than derived. Effects render **sorted by
+display name**, because stage0 collects into a `HashSet` and sorts by
+`format!("{}")` before joining with `", "` — insertion order would be
+a different string, and the set is rendered *into* the message. And
+`effect(console)` matches a declared `Console` case-insensitively and
+canonicalises to the **declared** spelling, so the message reads
+`missing Console` for a claim written in lowercase.
+
+The gate that makes this sound is the interesting part, because
+stage1's effect sets are a subset of stage0's and a subset is fatal
+here. For `AX3011` a missing effect costs a line; for `AX3010` it
+changes the message — `body performs IO` against
+`body performs Alloc, IO` is a mis-report, not an omission. So the
+collector records whether it saw a call it could not resolve: a head
+that is a lexically bound name, or a name with no entry. Those are
+exactly the calls that make stage0's `effect_params` non-empty, and
+when there are none, stage1's concrete set *equals* stage0's and
+`effect_params` is empty — which is also the condition stage0 uses to
+decide whether a claimed-but-absent effect is a lie rather than
+something a callback could still supply. Anything else stays silent.
+The sentinel lives in the effect set itself, so `effUnion` carries it
+out of a callee's summary into its caller's and the fixpoint stores
+it: a function that calls a function that calls through a parameter
+is incomplete too, which is what makes the gate hold for
+effect-transparent callees stage1 cannot see. Marking on every
+*reference* to a bound name rather than every *call* would have
+flagged nearly every function and silenced the check everywhere.
+
+`330-axtag-mismatch.ax` pins a `pure` claim contradicted by two
+effects (sorted), the same contradiction reached through a call, a
+lowercase custom claim naming no performed effect, an honest claim
+that stays silent, and a higher-order function whose claim the gate
+suppresses. The swept trees carry 65 real AXTAG lines — 60
+`effect`, two `pure` — and stage1 agrees with stage0 in silence on
+every one.
+
+The `AX3004` checking a handler against its operation's declared
+arrow is still unreported: it needs the operation type the `effect`
+parser discards. It omits a line; it does not reorder or invent one.
 
 `AX3013` remains under-reported in one direction recorded in
 `typecheck.ax`: stage0 also measures builtins and foreign bindings
@@ -1297,16 +1346,16 @@ record which module each declaration came from; checking the entry
 file alone is the sound subset, never inventing a diagnostic stage0
 would not produce.
 
-What genuinely remains for phase 3: `AX3010`, which needs AXTAG
-comments to survive stage1's lexer at all; `AX3014` ambiguous-name,
-which needs the per-declaration module tracking stage1's merged
-declaration list does not keep; effect polymorphism, without which
-the inferred sets stay a sound subset; diagnostic grouping; and
-type-checking the bodies of imported modules against their own
-filenames. That is every remaining `AX30xx` code accounted for:
-stage1 emits fifteen of the seventeen. Lowering the effect system
-itself is phase 4 work, not phase 3 — the checker's job is finished
-when it agrees about what is wrong.
+What genuinely remains for phase 3: `AX3014` ambiguous-name, which
+needs the per-declaration module tracking stage1's merged declaration
+list does not keep; effect polymorphism, without which the inferred
+sets stay a sound subset and `AX3010` stays gated off higher-order
+functions; diagnostic grouping; and type-checking the bodies of
+imported modules against their own filenames. That is every remaining
+`AX30xx` code accounted for: stage1 emits **sixteen of the
+seventeen**, all byte-identical. Lowering the effect system itself is
+phase 4 work, not phase 3 — the checker's job is finished when it
+agrees about what is wrong.
 
 (This paragraph used to end "No lambda expressions (refused loudly)".
 That was true when it was written and stopped being true two commits
