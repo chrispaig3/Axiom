@@ -92,3 +92,13 @@
 (pub data TokenList
   (TKNil)
   (TKCons Int Int))
+
+; ------------------------------------------------------------------
+; A compilation UNIT: one source file that contributed declarations.
+; `name` is the module's name, 0 for the entry file. Built by
+; `resolveDecls` (the only place that reads a module), consulted by
+; the checker to stamp each diagnostic with the file its spans index,
+; and by the renderer to pick that file's text. It lives here because
+; all three of codegen, typecheck and diag need it.
+; ------------------------------------------------------------------
+(pub struct CUnit2 (file : Int) (src : Int) (name : Int))

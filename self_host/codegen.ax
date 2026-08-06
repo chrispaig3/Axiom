@@ -760,6 +760,30 @@
                 (tryModuleFile stem ".ax" entryDir)))))))
 
 (pub :: tryModuleFile (-> Int Int Int Int))
+; Answers the PATH that was read, or "" - the unit table needs the
+; filename a diagnostic will be rendered against, and only the search
+; knows which candidate won.
+(pub :: tryModulePath (-> Int Int Int Int))
+(pub fn (tryModulePath stem suffix entryDir)
+  (let ((base (cat2 stem suffix)))
+    (let ((near (if (== (strLen entryDir) 0) base (cat2 entryDir base))))
+      (if (!= (strLen (sysReadFile (strCStr near))) 0)
+          near
+          (let ((sh (cat2 "self_host/" base)))
+            (if (!= (strLen (sysReadFile (strCStr sh))) 0)
+                sh
+                (let ((sl (cat2 "stdlib/" base)))
+                  (if (!= (strLen (sysReadFile (strCStr sl))) 0) sl ""))))))))
+
+(pub :: modulePathOf (-> Int Int Int Int))
+(pub fn (modulePathOf name tcode entryDir)
+  (let ((stem (modPathToFile name)))
+    (let ((a (tryModulePath stem (targetOsArchSuffix tcode) entryDir)))
+      (if (!= (strLen a) 0)
+          a
+          (let ((b (tryModulePath stem (targetOsSuffix tcode) entryDir)))
+            (if (!= (strLen b) 0) b (tryModulePath stem ".ax" entryDir)))))))
+
 (pub fn (tryModuleFile stem suffix entryDir)
   (let ((base (cat2 stem suffix)))
     ; The ENTRY FILE'S DIRECTORY first, which is stage0's rule and was
@@ -817,6 +841,31 @@
 ; Declaration Vec for module `name`; a module that cannot be read or
 ; parsed is a fatal diagnostic, never a 0 this returns.
 (pub :: parseModuleOrDie (-> Int Int Int Int))
+; As `parseModuleOrDie`, and additionally records the module in the
+; UNIT TABLE - the path a diagnostic about this module renders
+; against, its text, and its name so the checker can find the index
+; from a declaration's `module` stamp.
+(pub :: parseModuleOrDieUnit (-> Int Int Int Int Int))
+(pub fn (parseModuleOrDieUnit name tcode entryDir units)
+  {
+    (if (== (unitIndexOf units name 0) (- 0 1))
+        (vecPush units (cast Int (CUnit2 (modulePathOf name tcode entryDir)
+                                         (readModuleSrc name tcode entryDir)
+                                         name)))
+        0)
+    (parseModuleOrDie name tcode entryDir)
+  })
+
+(pub :: unitIndexOf (-> Int Int Int Int))
+(pub fn (unitIndexOf units name i)
+  (if (>= i (vecLen units))
+      (- 0 1)
+      (if (== (memGetWord (vecGet units i) 2) 0)
+          (unitIndexOf units name (+ i 1))
+          (if (strEq (memGetWord (vecGet units i) 2) name)
+              i
+              (unitIndexOf units name (+ i 1))))))
+
 (pub fn (parseModuleOrDie name tcode entryDir)
   (let ((src (readModuleSrc name tcode entryDir)))
     (if (== src 0)
@@ -940,11 +989,11 @@
         (recordEntryFns decls bares fulls (+ i 1))
       }))
 
-(pub :: resolveImports (-> Int Int Int Int Int Int))
-(pub fn (resolveImports decls bares fulls tcode entryDir)
+(pub :: resolveImports (-> Int Int Int Int Int Int Int))
+(pub fn (resolveImports decls bares fulls tcode entryDir units)
   {
     (recordEntryFns decls bares fulls 0)
-    (resolveDecls decls vecNew vecNew 0 0 bares fulls 0 tcode entryDir)
+    (resolveDecls decls vecNew vecNew 0 0 bares fulls 0 tcode entryDir units)
   })
 
 ; Append every non-import declaration reachable from `decls` onto `acc`,
@@ -963,26 +1012,26 @@
 ; `acc` and `seen` are threaded rather than rebuilt: `vecPush` mutates in
 ; place and returns the same handle, so both stay stable across the whole
 ; traversal and siblings observe each other's additions.
-(pub :: resolveDecls (-> Int Int Int Int Int Int Int Int Int Int Int))
-(pub fn (resolveDecls decls acc seen i modName bares fulls filter tcode entryDir)
+(pub :: resolveDecls (-> Int Int Int Int Int Int Int Int Int Int Int Int))
+(pub fn (resolveDecls decls acc seen i modName bares fulls filter tcode entryDir units)
   (if (>= i (vecLen decls)) acc
       (let ((first (vecGet decls i)))
         (if (== (nodeTag first) TAG_D_IMPORT)
             (let ((name (memGetWord first 1)))
               (if (seenHas seen name)
-                  (resolveDecls decls acc seen (+ i 1) modName bares fulls filter tcode entryDir)
+                  (resolveDecls decls acc seen (+ i 1) modName bares fulls filter tcode entryDir units)
                   {
                     (vecPush seen name)
-                    (let ((modDecls (parseModuleOrDie name tcode entryDir))
+                    (let ((modDecls (parseModuleOrDieUnit name tcode entryDir units))
                           (subFilter (let ((ns (nodeB first)))
                                        (if (== ns 0)
                                            0
                                            (if (== (vecLen ns) 0) 0 ns)))))
                       (resolveDecls decls
-                                    (resolveDecls modDecls acc seen 0 name bares fulls subFilter tcode entryDir)
+                                    (resolveDecls modDecls acc seen 0 name bares fulls subFilter tcode entryDir units)
                                     seen
                                     (+ i 1)
-                                    modName bares fulls filter tcode entryDir))
+                                    modName bares fulls filter tcode entryDir units))
                   }))
             ; A private declaration of an IMPORTED module is not part
             ; of the program: stage0 splices only `pub` ones, so a
@@ -997,9 +1046,9 @@
                   ; knows which module a declaration came from.
                   (memSetWord first 8 modName)
                   (mangleDecl first modName bares fulls)
-                  (resolveDecls decls (vecPush acc first) seen (+ i 1) modName bares fulls filter tcode entryDir)
+                  (resolveDecls decls (vecPush acc first) seen (+ i 1) modName bares fulls filter tcode entryDir units)
                 }
-                (resolveDecls decls acc seen (+ i 1) modName bares fulls filter tcode entryDir))))))
+                (resolveDecls decls acc seen (+ i 1) modName bares fulls filter tcode entryDir units))))))
 
 (pub :: filterKeeps (-> Int Int Bool))
 (pub fn (filterKeeps filter name)
@@ -1176,7 +1225,7 @@
   (let ((tcode (checkedTargetCode target))
         (bares vecNew)
         (fulls vecNew))
-    (emitResolved (resolveImports decls bares fulls tcode "") bares fulls tcode)))
+    (emitResolved (resolveImports decls bares fulls tcode "" vecNew) bares fulls tcode)))
 
 ; The target's numeric code, refusing an unknown name rather than
 ; defaulting - emitting the wrong target's syscall convention is a

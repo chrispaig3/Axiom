@@ -1,0 +1,2 @@
+(pub :: bad (-> Int Int))
+(pub fn (bad n) (+ n true))

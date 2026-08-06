@@ -68,14 +68,20 @@
 ; that is never exercised is a field whose rendering cannot be trusted;
 ; widening this to vectors is the next diagnostic's business.
 ; ------------------------------------------------------------------
+; `unit` is which SOURCE FILE the diagnostic's spans index - 0 for the
+; entry file, and the index of an imported module's entry in the unit
+; table otherwise. Every span on one AXDL line renders against one
+; source, so a diagnostic about an imported module's body has to say
+; which text its offsets belong to or it renders against the wrong
+; file's bytes.
 (pub struct Diag
   (sev : Int) (code : Int) (slug : Int) (span : Int)
   (msg : Int) (relSpan : Int) (relMsg : Int) (help : Int)
-  (fixSpan : Int) (fixText : Int) (help2 : Int))
+  (fixSpan : Int) (fixText : Int) (help2 : Int) (unit : Int))
 
 (pub :: mkDiag (-> Int Int Int Int Int Int Int Int Int))
 (pub fn (mkDiag sev code slug span msg relSpan relMsg help)
-  (Diag sev code slug span msg relSpan relMsg help 0 0 0))
+  (Diag sev code slug span msg relSpan relMsg help 0 0 0 0))
 
 ; A diagnostic whose help is MACHINE-APPLICABLE: it names a span and
 ; the text to put there, and renders as `?LOC:"msg"~>"replacement"`
@@ -84,7 +90,7 @@
 ; without parsing the English.
 (pub :: mkDiagFix (-> Int Int Int Int Int Int Int Int Int Int Int))
 (pub fn (mkDiagFix sev code slug span msg relSpan relMsg help fixSpan fixText)
-  (Diag sev code slug span msg relSpan relMsg help fixSpan fixText 0))
+  (Diag sev code slug span msg relSpan relMsg help fixSpan fixText 0 0))
 
 ; A fix-help followed by a second, plain help - `AX3012`'s shape:
 ; `?LOC:"declare it mutable..."~>"mut x" ?"only a binding..."`.
@@ -92,7 +98,7 @@
 ; order; two is what any current diagnostic uses.
 (pub :: mkDiagFix2 (-> Int Int Int Int Int Int Int Int Int Int Int Int))
 (pub fn (mkDiagFix2 sev code slug span msg relSpan relMsg help fixSpan fixText help2)
-  (Diag sev code slug span msg relSpan relMsg help fixSpan fixText help2))
+  (Diag sev code slug span msg relSpan relMsg help fixSpan fixText help2 0))
 
 ; ------------------------------------------------------------------
 ; Source position mapping.
@@ -252,3 +258,23 @@
       acc
       (renderDiagsFrom ds src file (+ i 1)
         (strConcat (strConcat acc (renderDiag (vecGet ds i) src file)) "\n"))))
+
+; The multi-unit form. `units` is a Vec of CUnit records - one per
+; source file that contributed declarations - and each diagnostic
+; names the one its spans index.
+
+(pub :: renderDiagsUnits (-> Int Int Int))
+(pub fn (renderDiagsUnits ds units)
+  (renderDiagsUnitsFrom ds units 0 ""))
+
+(pub :: renderDiagsUnitsFrom (-> Int Int Int Int Int))
+(pub fn (renderDiagsUnitsFrom ds units i acc)
+  (if (>= i (vecLen ds))
+      acc
+      (let ((d (vecGet ds i)))
+        (let ((u (vecGet units (if (< (memGetWord d 11) (vecLen units))
+                                   (memGetWord d 11)
+                                   0))))
+          (renderDiagsUnitsFrom ds units (+ i 1)
+            (strConcat (strConcat acc
+              (renderDiag d (memGetWord u 1) (memGetWord u 0))) "\n"))))))

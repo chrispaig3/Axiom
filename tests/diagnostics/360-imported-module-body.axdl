@@ -1,0 +1,2 @@
+E AX3004 BadBody.ax:2:22-26 type-mismatch "type mismatch: expected Int, found Bool"
+E AX3004 360-imported-module-body.ax:3:23-28 type-mismatch "type mismatch: expected Int, found Bool"

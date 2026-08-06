@@ -56,18 +56,23 @@
                 (let ((tcode (checkedTargetCode tname))
                       (bares vecNew)
                       (fulls vecNew))
+                  ; Unit 0 is the entry file; `resolveImports` appends
+                  ; one per module it reads, and every diagnostic names
+                  ; the unit its spans index.
+                  (let ((units (let ((v vecNew))
+                                 { (vecPush v (cast Int (CUnit2 fileName src 0))) v })))
                   (let ((allDecls (resolveImports decls bares fulls tcode
-                                                  (dirOfPath fileName))))
-                    (let ((ds (checkModule decls allDecls)))
+                                                  (dirOfPath fileName) units)))
+                    (let ((ds (checkModule decls allDecls units)))
                       (if (> (vecLen ds) 0)
                           {
-                            (writeStderr (renderDiags ds src fileName))
+                            (writeStderr (renderDiagsUnits ds units))
                             (sysExitWith 1)
                             1
                           }
                           (let ((out (emitResolved allDecls bares fulls tcode))
                                 (_ (writeStdout out)))
-                            0))))))))))))
+                            0)))))))))))))
 
 (pub :: die (-> Int Int Int))
 (pub fn (die msg code)

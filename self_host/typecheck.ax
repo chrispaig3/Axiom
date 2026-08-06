@@ -408,7 +408,8 @@
                (out : Int) (counter : Int) (frameBase : Int)
                (macros : Int) (effects : Int)
                (entryDecls : Int) (allDecls : Int)
-               (curParams : Int) (curCallable : Int))
+               (curParams : Int) (curCallable : Int)
+               (units : Int) (curUnit : Int) (ambTbl : Int))
 
 (pub :: tcFns (-> Int Int))     (pub fn (tcFns tc)     (memGetWord tc 0))
 (pub :: tcDatas (-> Int Int))   (pub fn (tcDatas tc)   (memGetWord tc 1))
@@ -451,8 +452,8 @@
 ; then the builtin Option, whose constructors are in scope in every
 ; program without being declared in any of them.
 ; ------------------------------------------------------------------
-(pub :: tcNew (-> Int Int Int))
-(pub fn (tcNew entryDecls allDecls)
+(pub :: tcNew (-> Int Int Int Int))
+(pub fn (tcNew entryDecls allDecls units)
   (let ((fns vecNew)
         (datas vecNew))
     {
@@ -507,9 +508,15 @@
         })
       (let ((tc (cast Int (TC fns datas vecNew vecNew vecNew 0 0
                               vecNew vecNew entryDecls allDecls
-                              vecNew vecNew))))
+                              vecNew vecNew units 0 vecNew))))
         {
           (tcCollect tc allDecls 0)
+          ; The ambiguity table, once: builtins are module-less
+          ; winners and have no declaration to walk, so they are
+          ; seeded rather than collected.
+          (ambRecord (memGetWord tc 15) "None" 0)
+          (ambRecord (memGetWord tc 15) "Some" 0)
+          (ambBuild (memGetWord tc 15) allDecls 0)
           ; Effects are inferred once, after every declaration is
           ; registered and before any body is checked, because an
           ; AX3011 at a handle asks what the body performs and the
@@ -928,7 +935,7 @@
   (if (== span 0)
       0
       {
-        (vecPush (tcOut tc)
+        (emitDiag tc
           (mkDiag SEV_ERROR "AX3004" "type-mismatch"
                   span
                   (strConcat (strConcat (strConcat
@@ -1266,7 +1273,7 @@
         (if (== span 0)
             0
             {
-              (vecPush (tcOut tc)
+              (emitDiag tc
                 (mkDiag SEV_ERROR "AX3014" "ambiguous-name"
                         span
                         (strConcat (strConcat (strConcat (strConcat
@@ -1280,45 +1287,110 @@
 
 ; The distinct modules defining `n`, in declaration order - or an
 ; empty Vec when anything module-less defines it.
+; Built ONCE, at collection, instead of scanning every declaration at
+; every reference. The scan was linear in the declaration list and
+; the list is the whole program, so once the walk covered imported
+; modules too it went quadratic and stage1 stopped terminating on any
+; stdlib-sized input. stage0 keeps a map for the same reason.
 (pub :: definingModules (-> Int Int Int))
 (pub fn (definingModules tc n)
-  (let ((acc vecNew))
-    (if (== (definedModuleless tc n (tcAllDecls tc) 0) 1)
-        acc
-        { (collectDefiners tc n (tcAllDecls tc) 0 acc) acc })))
+  (let ((e (ambFind (memGetWord tc 15) n 0)))
+    (if (== e 0)
+        vecNew
+        (if (== (memGetWord e 2) 1) vecNew (memGetWord e 1)))))
+
+(pub struct AmbEnt (name : Int) (mods : Int) (moduleless : Int))
+
+(pub :: ambFind (-> Int Int Int Int))
+(pub fn (ambFind tbl n i)
+  (if (>= i (vecLen tbl))
+      0
+      (if (strEq (memGetWord (vecGet tbl i) 0) n)
+          (vecGet tbl i)
+          (ambFind tbl n (+ i 1)))))
+
+(pub :: ambRecord (-> Int Int Int Int))
+(pub fn (ambRecord tbl n m)
+  (let ((e (ambFind tbl n 0)))
+    (if (== e 0)
+        (vecPush tbl (cast Int (AmbEnt n
+                                 (let ((v vecNew))
+                                   { (if (!= m 0) (vecPush v m) 0) v })
+                                 (if (== m 0) 1 0))))
+        (if (== m 0)
+            (memSetWord e 2 1)
+            (if (== (strInVec (memGetWord e 1) m 0) 1)
+                0
+                { (vecPush (memGetWord e 1) m) 0 })))))
+
+; One pass over the merged list, recording every DEFINER's module.
+(pub :: ambBuild (-> Int Int Int Int))
+(pub fn (ambBuild tbl decls i)
+  (if (>= i (vecLen decls))
+      0
+      (let ((d (vecGet decls i)))
+        {
+          (ambBuildDecl tbl d)
+          (ambBuild tbl decls (+ i 1))
+        })))
+
+(pub :: ambBuildDecl (-> Int Int Int))
+(pub fn (ambBuildDecl tbl d)
+  (let ((tag (nodeTag d))
+        (m (nodeModule d)))
+    (if (|| (== tag TAG_D_FN) (== tag TAG_D_FOREIGN))
+        (ambRecord tbl (bareOf (nodeA d)) m)
+    (if (== tag TAG_D_EFFECT)
+        (ambRecordAll tbl (nodeB d) 0 m)
+    (if (== tag TAG_D_DATA)
+        (ambRecordCtors tbl (nodeB d) 0 m)
+    0)))))
+
+(pub :: ambRecordAll (-> Int Int Int Int Int))
+(pub fn (ambRecordAll tbl v i m)
+  (if (>= i (vecLen v))
+      0
+      { (ambRecord tbl (vecGet v i) m) (ambRecordAll tbl v (+ i 1) m) }))
+
+(pub :: ambRecordCtors (-> Int Int Int Int Int))
+(pub fn (ambRecordCtors tbl ctors i m)
+  (if (>= i (vecLen ctors))
+      0
+      {
+        (ambRecord tbl (bareOf (nodeA (vecGet ctors i))) m)
+        (ambRecordCtors tbl ctors (+ i 1) m)
+      }))
 
 (pub :: tcAllDecls (-> Int Int)) (pub fn (tcAllDecls tc) (memGetWord tc 10))
 
-(pub :: definedModuleless (-> Int Int Int Int Int))
-(pub fn (definedModuleless tc n decls i)
-  (if (>= i (vecLen decls))
-      ; Builtins have no declaration at all, so they are checked
-      ; against the registries rather than the list.
-      (if (== (isBuiltinName n) 1) 1 (builtinCtorNamed tc n))
-      (let ((d (vecGet decls i)))
-        (if (&& (== (nodeModule d) 0) (== (declDefines d n) 1))
-            1
-            (definedModuleless tc n decls (+ i 1))))))
+; Every diagnostic records which source file its spans index. Stamped
+; here rather than at the ~30 construction sites, so a new check
+; cannot forget to do it.
+; The unit a declaration's spans index: 0 (the entry file) when it
+; carries no module stamp, else that module's entry.
+(pub :: unitIndexFor (-> Int Int Int))
+(pub fn (unitIndexFor units m)
+  (if (== m 0) 0 (unitIndexForFrom units m 0)))
+
+(pub :: unitIndexForFrom (-> Int Int Int Int))
+(pub fn (unitIndexForFrom units m i)
+  (if (>= i (vecLen units))
+      0
+      (if (== (memGetWord (vecGet units i) 2) 0)
+          (unitIndexForFrom units m (+ i 1))
+          (if (strEq (memGetWord (vecGet units i) 2) m)
+              i
+              (unitIndexForFrom units m (+ i 1))))))
+
+(pub :: emitDiag (-> Int Int Int))
+(pub fn (emitDiag tc d)
+  { (memSetWord d 11 (memGetWord tc 14)) (vecPush (tcOut tc) d) })
 
 ; A constructor of a data type that came from no module - the builtin
 ; `Option`, whose entries are registered directly.
 (pub :: builtinCtorNamed (-> Int Int Int))
 (pub fn (builtinCtorNamed tc n)
   (if (|| (strEq n "None") (strEq n "Some")) 1 0))
-
-(pub :: collectDefiners (-> Int Int Int Int Int Int))
-(pub fn (collectDefiners tc n decls i acc)
-  (if (>= i (vecLen decls))
-      0
-      (let ((d (vecGet decls i)))
-        {
-          (if (&& (!= (nodeModule d) 0) (== (declDefines d n) 1))
-              (if (== (strInVec acc (nodeModule d) 0) 1)
-                  0
-                  { (vecPush acc (nodeModule d)) 0 })
-              0)
-          (collectDefiners tc n decls (+ i 1) acc)
-        })))
 
 ; Does this declaration DEFINE `n`? Signatures do not.
 (pub :: declDefines (-> Int Int Int))
@@ -1401,7 +1473,7 @@
             {
               (if (== span 0)
                   0
-                  (vecPush (tcOut tc)
+                  (emitDiag tc
                     (mkDiag SEV_ERROR "AX3017" "effect-handler-unsupported"
                             span
                             (strConcat (strConcat (strConcat (strConcat (strConcat
@@ -1416,7 +1488,7 @@
                   (if (== span 0)
                       1
                       {
-                        (vecPush (tcOut tc)
+                        (emitDiag tc
                           (mkDiag SEV_ERROR "AX3013" "partial-application"
                                   span
                                   (strConcat (strConcat (strConcat (strConcat
@@ -1437,7 +1509,7 @@
                     (if (== span 0)
                         1
                         {
-                          (vecPush (tcOut tc)
+                          (emitDiag tc
                             (mkDiag SEV_ERROR "AX3009" "constructor-arity-mismatch"
                                     span
                                     (strConcat (strConcat (strConcat (strConcat (strConcat
@@ -1459,7 +1531,7 @@
       (offerFnEnts best name (tcFns tc) 0)
       (offerCtorEnts best name (tcDatas tc) 0)
       (if (!= span 0)
-          (vecPush (tcOut tc)
+          (emitDiag tc
             (let ((msg (strConcat (strConcat "undefined variable `" name) "`")))
               (if (== (memGetWord best 0) 0)
                   (mkDiag SEV_ERROR "AX3001" "undefined-variable"
@@ -1688,7 +1760,7 @@
                               (if (== (nodeSpan head) 0)
                                   0
                                   {
-                                    (vecPush (tcOut tc)
+                                    (emitDiag tc
                                       (mkDiag SEV_ERROR "AX3013" "partial-application"
                                               (nodeSpan head)
                                               (strConcat (strConcat (strConcat (strConcat (strConcat
@@ -1710,7 +1782,7 @@
                                 (if (== (nodeSpan head) 0)
                                     0
                                     {
-                                      (vecPush (tcOut tc)
+                                      (emitDiag tc
                                         (mkDiag SEV_ERROR "AX3009" "constructor-arity-mismatch"
                                                 (nodeSpan head)
                                                 (strConcat (strConcat (strConcat (strConcat (strConcat
@@ -1754,7 +1826,7 @@
     (if (!= (vecLen args) (vecLen fields))
         {
           (if (!= span 0)
-              (vecPush (tcOut tc)
+              (emitDiag tc
                 (let ((msg (strConcat (strConcat (strConcat (strConcat (strConcat
                              "struct `" (bareOf (memGetWord ent 0)))
                              "` expects ") (decStr (vecLen fields)))
@@ -2428,7 +2500,7 @@
         (if (strEq (vecGet inner i) effIncomplete)
             0
             (if (&& (== (effHandledBy effs (vecGet inner i) 0) 0) (!= span 0))
-                (vecPush (tcOut tc)
+                (emitDiag tc
                   (mkDiag SEV_ERROR "AX3011" "effect-mismatch"
                           span
                           (strConcat (strConcat "effect mismatch: unhandled effect `"
@@ -2471,7 +2543,7 @@
 (pub fn (checkHandleEffects tc effs i dynN formSpan)
   (if (>= i (vecLen effs))
       (if (&& (> dynN 1) (!= formSpan 0))
-          (vecPush (tcOut tc)
+          (emitDiag tc
             (mkDiag SEV_ERROR "AX3017" "effect-handler-unsupported"
                     formSpan
                     (strConcat (decStr dynN)
@@ -2485,7 +2557,7 @@
               (if (== d 0)
                   {
                     (if (!= (nodeSpan nm) 0)
-                        (vecPush (tcOut tc)
+                        (emitDiag tc
                           (mkDiag SEV_ERROR "AX3016" "unknown-effect"
                                   (nodeSpan nm)
                                   (strConcat (strConcat "unknown effect `"
@@ -2498,7 +2570,7 @@
                   (if (!= (vecLen (nodeB d)) 1)
                       {
                         (if (!= (nodeSpan nm) 0)
-                            (vecPush (tcOut tc)
+                            (emitDiag tc
                               (mkDiag SEV_ERROR "AX3017"
                                       "effect-handler-unsupported"
                                       (nodeSpan nm)
@@ -2527,7 +2599,7 @@
     (if (== ent 0)
         {
           (if (!= (nodeSpan e) 0)
-              (vecPush (tcOut tc)
+              (emitDiag tc
                 (mkDiag SEV_ERROR "AX3002" "undefined-type"
                         (nodeSpan e)
                         (strConcat (strConcat "undefined type `" (nodeA e)) "`")
@@ -2591,7 +2663,7 @@
   (if (== span 0)
       0
       {
-        (vecPush (tcOut tc)
+        (emitDiag tc
           (mkDiag SEV_ERROR "AX3007" "field-not-found"
                   span
                   (strConcat (strConcat (strConcat (strConcat
@@ -2669,7 +2741,7 @@
                       {
                         (offerScope best name (tcScope tc) 0)
                         (if (!= (nodeSpan e) 0)
-                            (vecPush (tcOut tc)
+                            (emitDiag tc
                               (let ((msg (strConcat (strConcat "undefined variable `" name) "`")))
                                 (if (== (memGetWord best 0) 0)
                                     (mkDiag SEV_ERROR "AX3001" "undefined-variable"
@@ -2788,7 +2860,7 @@
         (if (== (vecLen missing) 0)
             0
             {
-              (vecPush (tcOut tc)
+              (emitDiag tc
                 (mkDiag SEV_ERROR "AX3005" "non-exhaustive-match"
                         span
                         (strConcat "non-exhaustive pattern match: missing "
@@ -2879,7 +2951,7 @@
             (if (!= (vecLen args) (vecLen fieldTys))
                 (if (== span 0)
                     0
-                    (vecPush (tcOut tc)
+                    (emitDiag tc
                       (mkDiag SEV_ERROR "AX3009" "constructor-arity-mismatch"
                               span
                               (strConcat (strConcat (strConcat (strConcat (strConcat
@@ -2940,7 +3012,7 @@
       (let ((best (newBest)))
         {
           (offerCtorEnts best cname (tcDatas tc) 0)
-          (vecPush (tcOut tc)
+          (emitDiag tc
             (let ((msg (strConcat (strConcat "undefined constructor `" cname) "`")))
               (if (== (memGetWord best 0) 0)
                   (mkDiag SEV_ERROR "AX3003" "undefined-constructor"
@@ -3095,12 +3167,20 @@
 ; declared signature is authoritative and never overwritten.
 ; ------------------------------------------------------------------
 (pub :: tcWalkDecls (-> Int Int Int))
+; The MERGED list, not the entry file's: stage0 type-checks the
+; bodies of imported modules too, and renders each diagnostic against
+; its own filename. `resolveDecls` accumulates depth-first, so the
+; order is dependencies first and the entry file last - which is the
+; order stage0 reports in (probed with two bad modules and a bad
+; entry). Each declaration's `module` stamp picks the unit its spans
+; index.
 (pub fn (tcWalkDecls tc i)
-  (let ((decls (memGetWord tc 9)))
+  (let ((decls (memGetWord tc 10)))
     (if (>= i (vecLen decls))
         0
         (let ((d (vecGet decls i)))
           {
+            (memSetWord tc 14 (unitIndexFor (memGetWord tc 13) (nodeModule d)))
             (let ((tag (nodeTag d)))
               (if (|| (== tag TAG_D_SIG) (== tag TAG_D_FOREIGN))
                   (pushScope (tcScope tc) (nodeA d) 0 (nodeSpan d)
@@ -3261,7 +3341,7 @@
 (pub fn (emitAxtag tc d msg)
   (if (== (nodeSpan d) 0)
       0
-      (vecPush (tcOut tc)
+      (emitDiag tc
         (mkDiag SEV_WARNING "AX3010" "axtag-mismatch"
                 (nodeSpan d)
                 (strConcat (strConcat (strConcat (strConcat
@@ -3339,9 +3419,9 @@
 ; ------------------------------------------------------------------
 ; Every diagnostic for one module, in stage0's emission order.
 ; ------------------------------------------------------------------
-(pub :: checkModule (-> Int Int Int))
-(pub fn (checkModule entryDecls allDecls)
-  (let ((tc (tcNew entryDecls allDecls)))
+(pub :: checkModule (-> Int Int Int Int))
+(pub fn (checkModule entryDecls allDecls units)
+  (let ((tc (tcNew entryDecls allDecls units)))
     (let ((out (tcOut tc)))
       {
         (checkDuplicates entryDecls out 0)

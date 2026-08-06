@@ -1400,9 +1400,52 @@ needing a golden, and flat in the work directory because a module
 name is its filename stem.
 
 That is every `AX30xx` code accounted for: stage1 emits **all
-seventeen**, byte-identically. What genuinely remains for phase 3:
-diagnostic grouping, and type-checking the bodies of imported modules
-against their own filenames. Lowering the effect system itself is
+seventeen**, byte-identically.
+
+**Imported modules are checked too, each against its own filename.**
+stage0 type-checks the merged declaration list, so a diagnostic can
+belong to any file that contributed to the program, and every span on
+an AXDL line renders against one source. stage1 therefore carries a
+UNIT TABLE - one entry per source file read, with its path, its text
+and its module name - and every diagnostic records which unit its
+spans index, stamped at a single choke point rather than at the
+thirty construction sites, so a new check cannot forget to. The order
+needs no sorting: `resolveDecls` accumulates depth-first, dependencies
+before dependents and the entry file last, which is the order stage0
+reports in (probed with two bad modules and a bad entry file).
+
+Two things went wrong, and both are the same shape - an index that
+moved. The `TC` record gained fields, so `units` sat at 13 and
+`curUnit` at 14 where the new code assumed 12 and 13, and writing
+`curUnit` through the wrong slot corrupted the record. And a blanket
+rewrite of every `(vecPush (tcOut tc) ...)` into the new stamping
+helper also rewrote the `vecPush` *inside that helper*, turning it
+into an unbounded self-call. Both presented identically: a segfault
+with no output, which read as "the new check finds nothing".
+
+The measured cost was elsewhere. `AX3014`'s lookup scanned the whole
+declaration list at every variable reference, which was affordable
+while only the entry file was walked and quadratic the moment every
+module was: stage1 stopped terminating on any stdlib-sized input. The
+table is built once at collection now, as stage0's is.
+
+What this buys is the strongest statement the sweep has made yet: the
+125-file silence sweep now type-checks each file's imports
+transitively, so stage1 checking `tests/stdlib/080-map.ax` also
+checks `Map`, `Vec`, `Str`, `Mem` and `Pre`, and agrees with stage0
+in silence on all of them.
+
+*Diagnostic grouping needs nothing.* `axiom-errors` has a `group` key
+and `dedup` drops every diagnostic after the first in a group, and
+the CLI calls `dedup` - but **no producer anywhere sets a group**
+(`grep with_group` over `axiom-sema`, `axiom-cli`, `axiom-parser`,
+`axiom-ir` is empty). It is machinery for a behaviour that does not
+occur, the same class `AX3002` was before its one emission site
+turned up. Reproducing it in stage1 would be reproducing nothing.
+
+Phase 3's exit criterion is met: identical AXDL for every case in the
+diagnostic corpus, cascade suppression included, with grouping a
+no-op on both sides. Lowering the effect system itself is
 phase 4 work, not phase 3 — the checker's job is finished when it
 agrees about what is wrong.
 

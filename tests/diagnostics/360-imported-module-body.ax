@@ -1,0 +1,3 @@
+(import BadBody)
+(:: main Int)
+(fn (main) (+ (bad 1) false))
