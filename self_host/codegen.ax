@@ -930,7 +930,13 @@
                                     (+ i 1)
                                     modName bares fulls filter tcode))
                   }))
-            (if (filterKeeps filter (nodeA first))
+            ; A private declaration of an IMPORTED module is not part
+            ; of the program: stage0 splices only `pub` ones, so a
+            ; reference to a private imported name is undefined there
+            ; and was silently callable here. The entry file
+            ; (`modName == 0`) keeps everything, public or not.
+            (if (&& (filterKeeps filter (nodeA first))
+                    (|| (== modName 0) (== (nodeVis first) 1)))
                 {
                   (mangleDecl first modName bares fulls)
                   (resolveDecls decls (vecPush acc first) seen (+ i 1) modName bares fulls filter tcode)

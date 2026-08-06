@@ -13,7 +13,15 @@
 ; ------------------------------------------------------------------
 ; AST node: tagged union. tag + a,b,c fields. Unused = 0.
 ; ------------------------------------------------------------------
-(pub struct ASTNode (tag : Int) (a : Int) (b : Int) (c : Int) (span : Int))
+(pub struct ASTNode (tag : Int) (a : Int) (b : Int) (c : Int) (span : Int) (vis : Int))
+
+; A declaration's visibility: 1 when it was written `pub`, 0 otherwise.
+; stage0 splices only the PUBLIC declarations of an imported module
+; into the program; stage1 spliced all of them, so a reference to a
+; private imported name compiled here and was AX3001 there.
+(pub :: nodeVis (-> Int Int))   (pub fn (nodeVis n) (memGetWord n 5))
+(pub :: markPub (-> Int Int))
+(pub fn (markPub n) { (if (== n 0) 0 (memSetWord n 5 1)) n })
 
 ; Node tags.
 (pub :: TAG_NIL Int)       (pub fn (TAG_NIL) 0)
@@ -83,9 +91,9 @@
 (pub :: nodeB   (-> Int Int))   (pub fn (nodeB   n) (memGetWord n 2))
 (pub :: nodeC   (-> Int Int))   (pub fn (nodeC   n) (memGetWord n 3))
 
-(pub :: mkNode (-> Int Int Int Int Int))  (pub fn (mkNode t a b c) (ASTNode t a b c 0))
+(pub :: mkNode (-> Int Int Int Int Int))  (pub fn (mkNode t a b c) (ASTNode t a b c 0 0))
 (pub :: mkNodeAt (-> Int Int Int Int Int Int))
-(pub fn (mkNodeAt t a b c sp) (ASTNode t a b c sp))
+(pub fn (mkNodeAt t a b c sp) (ASTNode t a b c sp 0))
 (pub :: nodeSpan (-> Int Int))  (pub fn (nodeSpan n) (memGetWord n 4))
 (pub :: mkEInt (-> Int Int))              (pub fn (mkEInt v)     (mkNode TAG_E_INT v 0 0))
 (pub :: mkEFlt (-> Int Int))              (pub fn (mkEFlt bits)  (mkNode TAG_E_FLT bits 0 0))
@@ -357,7 +365,10 @@
       (let ((kw (vecGet tokens pos)))
         (let ((name (tokenLexeme kw)))
           (if (kwEq name (kwPub))
-              (parseTopForm tokens (advance pos))
+              (let ((r (parseTopForm tokens (advance pos))))
+                (if (== (memGetWord r 0) 0)
+                    r
+                    { (markPub (memGetWord r 1)) r }))
           (if (|| (kwEq name (kwFn)) (kwEq name (kwDefine)))
               (parseFnDecl tokens (advance pos) name)
   (if (kwEq name (kwData))
@@ -846,7 +857,11 @@
                   (let ((val (memGetWord valR 1))
                         (afterVal (memGetWord valR 2)))
                     (if (peekIs tokens afterVal TK_RPAREN)
-                        (pOk (mkNode TAG_E_SET (memGetWord nr 1) val 0)
+                        ; The node's span is its TARGET's - stage0
+                        ; points both AX3001 and AX3012 about a `set`
+                        ; at the name being assigned, not at the form.
+                        (pOk (mkNodeAt TAG_E_SET (memGetWord nr 1) val 0
+                                       (tokenSpan (vecGet tokens pos)))
                              (advance afterVal))
                         (pErr afterVal)))))))))
 

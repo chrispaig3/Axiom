@@ -997,6 +997,31 @@ constructor is registered as a function too, and functions come first
 - which is the entire difference between printing `Some` and printing
 `None` for a name that sits at distance 2 from both.
 
+Two further divergences the same scout listed are closed. `(set name
+v)` with an unknown target is `AX3001` now - stage0 reports it there,
+with candidates drawn from scope alone rather than from the whole
+program, and the span is the target's, so `TAG_E_SET` carries the
+name's span rather than the form's. And **`pub` is honoured**:
+declarations record their visibility, and import resolution splices
+only the public declarations of an imported module, which is what
+stage0 does. stage1 had spliced all of them, so a reference to a
+private imported name compiled here and was undefined there. Every
+declaration in `self_host/` and `stdlib/` is `pub`, so the filter is a
+no-op for the compiler's own build - checked before the change, and
+the bootstrap fixpoint held after it.
+
+Still recorded open, all in the under-reporting direction: `AX3012`
+(assign to an immutable binding) is refused at emission with a prose
+message rather than reported as a diagnostic; stage0 type-checks the
+bodies of imported modules and renders each diagnostic against its own
+filename, while stage1 checks only the entry file against one; the 18
+builtin operators are suggestion candidates in stage0 and not in
+stage1; and stage0's suggestion threshold counts BYTES while its
+distance counts CHARACTERS, which stage1 cannot yet diverge on because
+its lexer accepts no non-ASCII identifier to begin with. `&&&` also
+lexes as one identifier in stage1 and as `&` plus `&&` in stage0,
+which is a lexer gap rather than a checker one.
+
 What genuinely remains: type checking proper. All four checks are
 structural, and `parseSigDecl` keeps only a signature's name and a
 float-flag bitmask - the type structure is discarded - so nothing

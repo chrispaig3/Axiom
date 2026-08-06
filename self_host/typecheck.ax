@@ -340,7 +340,16 @@
           0
         }
     (if (== tag TAG_E_SET)
-        (checkExpr decls adecls scope (nodeB e) out)
+        {
+          ; The assigned NAME is a reference too. An unknown one is
+          ; AX3001 - with candidates drawn from scope alone, which is
+          ; what stage0 offers here; a known-but-immutable target is
+          ; AX3012 instead, which stage1 still reports only at
+          ; emission and not as a diagnostic.
+          (checkSetTarget adecls scope e out)
+          (checkExpr decls adecls scope (nodeB e) out)
+          0
+        }
     (if (== tag TAG_E_SETF)
         {
           (checkExpr decls adecls scope (nodeA e) out)
@@ -396,6 +405,31 @@
           {
             (offerScope best name scope 0)
             (offerDecls best name adecls 0)
+            (vecPush out
+              (let ((msg (strConcat (strConcat "undefined variable `" name) "`")))
+                (if (== (memGetWord best 0) 0)
+                    (mkDiag SEV_ERROR "AX3001" "undefined-variable"
+                            (nodeSpan e) msg 0 0
+                            "variables must be defined (via `define`/`fn`, a `let` binding, or a lambda parameter) before they are used; check for typos")
+                    (mkDiagFix SEV_ERROR "AX3001" "undefined-variable"
+                               (nodeSpan e) msg 0 0
+                               (strConcat (strConcat
+                                 "a similarly named binding `" (memGetWord best 0))
+                                 "` is in scope; did you mean this?")
+                               (nodeSpan e) (memGetWord best 0)))))
+            0
+          }))))
+
+(pub :: checkSetTarget (-> Int Int Int Int Int))
+(pub fn (checkSetTarget adecls scope e out)
+  (let ((name (nodeA e)))
+    (if (|| (== (scopeHas scope name 0) 1)
+            (|| (== (isBuiltinName name) 1)
+                (== (isDeclaredName adecls name) 1)))
+        0
+        (let ((best (newBest)))
+          {
+            (offerScope best name scope 0)
             (vecPush out
               (let ((msg (strConcat (strConcat "undefined variable `" name) "`")))
                 (if (== (memGetWord best 0) 0)
