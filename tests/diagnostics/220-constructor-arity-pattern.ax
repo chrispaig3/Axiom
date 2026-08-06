@@ -1,0 +1,7 @@
+(data Color (Red) (Green Int))
+(:: main Int)
+(fn (main)
+  (match (Red)
+    ((Green) 1)
+    ((Green a b) 2)
+    (_ 0)))

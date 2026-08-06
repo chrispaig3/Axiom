@@ -1033,6 +1033,19 @@ two correct diagnostics in an order that fails a byte-identical gate.
 Probed, fixed, pinned by `200-set-value-before-target`, and ablating
 the order fails it.
 
+`AX3003` (undefined constructor) and `AX3009` (wrong field count),
+both in match patterns, are the sixth and seventh, and cost one probe
+and no surprises: patterns already parse as expressions, so a fieldful
+pattern's head carries its span, and `TAG_P_CON0` - the parenthesised
+nullary form - gained one. `AX3003`'s suggestion draws from
+constructors alone ("a similarly named constructor is visible"), with
+the builtin `Option`'s in front as everywhere. One shape stays
+unchecked and is worth naming: a NESTED nullary constructor pattern
+loses its parens to expression parsing, so `(Nil)` inside
+`(Cons h (Nil))` is indistinguishable from a binder by the time the
+checker sees it - under-reported, never mis-reported, and the same
+erasure stage1's own emitter documents.
+
 Still recorded open, all in the under-reporting direction: stage0
 follows `AX3012` on a top-level target with an `AX3004` cascade
 (assigning through the binding's type) that stage1 cannot produce, so

@@ -1117,7 +1117,8 @@
           (&& (peekIs tokens (advance pos) TK_IDENT)
               (&& (peekIs tokens (advance (advance pos)) TK_RPAREN)
                   (identStartsUpper tokens (advance pos)))))
-      (pOk (mkNode TAG_P_CON0 (tokenLexeme (vecGet tokens (advance pos))) 0 0)
+      (pOk (mkNodeAt TAG_P_CON0 (tokenLexeme (vecGet tokens (advance pos))) 0 0
+                     (tokenSpan (vecGet tokens (advance pos))))
            (advance (advance (advance pos))))
       (parseExpr tokens pos)))
 

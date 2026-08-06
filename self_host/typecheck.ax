@@ -265,6 +265,121 @@
       0
       { (vecPop scope) (scopeTrunc scope n) }))
 
+; ------------------------------------------------------------------
+; Pattern validity: AX3003 for a constructor no `data` declares, and
+; AX3009 for a known constructor applied to the wrong number of
+; fields. Two shapes carry a constructor name: `( UpperIdent )` at the
+; top of an arm is TAG_P_CON0, and a fieldful pattern is an
+; application whose head names the constructor. A BARE identifier
+; argument is a binder even when it is constructor-named - stage0's
+; rule, and the parenthesised nested form loses its parens to
+; expression parsing, so a nested nullary constructor is
+; indistinguishable from a binder here and stays unchecked:
+; under-reported, never mis-reported.
+; ------------------------------------------------------------------
+(pub :: checkPattern (-> Int Int Int Int))
+(pub fn (checkPattern adecls pat out)
+  (let ((tag (nodeTag pat)))
+    (if (== tag TAG_P_CON0)
+        (checkCtorUse adecls (nodeA pat) 0 (nodeSpan pat) out)
+    (if (== tag TAG_E_APP)
+        (let ((head (spineHead pat)))
+          (if (!= (nodeTag head) TAG_E_VAR)
+              0
+              {
+                (checkCtorUse adecls (nodeA head)
+                              (spineArgs pat 0) (nodeSpan head) out)
+                (checkPatternArgs adecls pat out)
+                0
+              }))
+        0))))
+
+; Nested fieldful patterns recurse; everything else in argument
+; position is a binder or a literal.
+(pub :: checkPatternArgs (-> Int Int Int Int))
+(pub fn (checkPatternArgs adecls pat out)
+  (if (== (nodeTag pat) TAG_E_APP)
+      {
+        (checkPatternArgs adecls (nodeA pat) out)
+        (if (== (nodeTag (nodeB pat)) TAG_E_APP)
+            (checkPattern adecls (nodeB pat) out)
+            0)
+        0
+      }
+      0))
+
+; The declared field count of constructor `name`, or -1 when no `data`
+; declares it.
+(pub :: ctorArity (-> Int Int Int))
+(pub fn (ctorArity adecls name)
+  (if (|| (strEq name "Some") (strEq name "None"))
+      (if (strEq name "Some") 1 0)
+      (ctorArityFrom adecls name 0)))
+
+(pub :: ctorArityFrom (-> Int Int Int Int))
+(pub fn (ctorArityFrom decls name i)
+  (if (>= i (vecLen decls))
+      (- 0 1)
+      (let ((d (vecGet decls i)))
+        (if (== (nodeTag d) TAG_D_DATA)
+            (let ((a (ctorArityIn (nodeB d) name 0)))
+              (if (< a 0)
+                  (ctorArityFrom decls name (+ i 1))
+                  a))
+            (ctorArityFrom decls name (+ i 1))))))
+
+(pub :: ctorArityIn (-> Int Int Int Int))
+(pub fn (ctorArityIn ctors name i)
+  (if (>= i (vecLen ctors))
+      (- 0 1)
+      (let ((c (vecGet ctors i)))
+        (if (== (nameMatches (nodeA c) name) 1)
+            (nodeB c)
+            (ctorArityIn ctors name (+ i 1))))))
+
+(pub :: checkCtorUse (-> Int Int Int Int Int Int))
+(pub fn (checkCtorUse adecls name found span out)
+  (let ((want (ctorArity adecls name)))
+    (if (< want 0)
+        (let ((best (newBest)))
+          {
+            ; Candidates are CONSTRUCTORS alone - the message says "a
+            ; similarly named constructor is visible" and means it.
+            ; The builtin Option's lead, as everywhere.
+            (offerCandidate best name "Some")
+            (offerCandidate best name "None")
+            (offerAllCtors best name adecls 0)
+            (vecPush out
+              (let ((msg (strConcat (strConcat "undefined constructor `" name) "`")))
+                (if (== (memGetWord best 0) 0)
+                    (mkDiag SEV_ERROR "AX3003" "undefined-constructor"
+                            span msg 0 0
+                            "check the `data` declaration for the correct constructor name")
+                    (mkDiagFix SEV_ERROR "AX3003" "undefined-constructor"
+                               span msg 0 0
+                               (strConcat (strConcat
+                                 "a similarly named constructor `" (memGetWord best 0))
+                                 "` is visible; did you mean this?")
+                               span (memGetWord best 0)))))
+            0
+          })
+        (if (== want found)
+            0
+            {
+              (vecPush out
+                (mkDiag SEV_ERROR "AX3009" "constructor-arity-mismatch"
+                        span
+                        (strConcat (strConcat (strConcat (strConcat (strConcat
+                          "constructor `" name)
+                          "` expects ") (decStr want))
+                          " argument(s), found ") (decStr found))
+                        0 0
+                        (strConcat (strConcat "this constructor takes exactly "
+                          (decStr want))
+                          " field(s); add or remove arguments to match")))
+              0
+            }))))
+
 ; Bind every variable a match pattern introduces. A pattern parses as
 ; an expression, so `(Cons h t)` is an application whose head names the
 ; constructor and whose arguments are the binders; a bare identifier is
@@ -550,6 +665,7 @@
       (let ((arm (vecGet arms i))
             (n (vecLen scope)))
         {
+          (checkPattern adecls (nodeA arm) out)
           (bindPattern (nodeA arm) scope)
           (checkExpr decls adecls scope (nodeB arm) out)
           (scopeTrunc scope n)
