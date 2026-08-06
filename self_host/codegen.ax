@@ -375,7 +375,35 @@
                 (macroSubst (nodeA tpl) params args)
                 (macroSubstArms (nodeB tpl) params args)
                 0)
-    tpl)))))))))
+    ; A structural cond in a template: substitute inside every
+    ; clause's test and body, and the else. Before cond was kept
+    ; structural it arrived here pre-desugared as TAG_E_IF; without
+    ; this case a template cond would emit with its parameter
+    ; references unsubstituted.
+    (if (== tag TAG_E_COND)
+        (mkNode TAG_E_COND
+                (macroSubstCondClauses (nodeA tpl) params args)
+                (if (== (nodeB tpl) 0)
+                    0
+                    (macroSubst (nodeB tpl) params args))
+                0)
+    tpl))))))))))
+
+(pub :: macroSubstCondClauses (-> Int Int Int Int))
+(pub fn (macroSubstCondClauses clauses params args)
+  (macroSubstCondClausesIn clauses params args vecNew 0))
+
+(pub :: macroSubstCondClausesIn (-> Int Int Int Int Int Int))
+(pub fn (macroSubstCondClausesIn clauses params args acc i)
+  (if (>= i (vecLen clauses))
+      acc
+      (let ((cl (vecGet clauses i)))
+        (macroSubstCondClausesIn clauses params args
+          (vecPush acc (mkNode TAG_M_ARM
+                               (macroSubst (nodeA cl) params args)
+                               (macroSubst (nodeB cl) params args)
+                               0))
+          (+ i 1)))))
 
 (pub :: macroSubstVec (-> Int Int Int Int))
 (pub fn (macroSubstVec exprs params args)
@@ -1183,6 +1211,78 @@
 ; ------------------------------------------------------------------
 ; Function definition.
 ; ------------------------------------------------------------------
+; ------------------------------------------------------------------
+; Lower every TAG_E_COND in an expression tree to the nested-if chain
+; the parser used to build at parse time, IN PLACE - parents keep
+; their pointers, and the rewrite runs before `tailCallsSelf` so a
+; tail self-call inside a cond clause still gets its loop. The fold is
+; the old parser desugar verbatim: clauses right to left around the
+; else body, `(mkEInt 0)` when there is none, so emission is
+; bit-identical to the parse-time desugar this replaces.
+; ------------------------------------------------------------------
+(pub :: lowerConds (-> Int Int))
+(pub fn (lowerConds e)
+  (if (== e 0)
+      0
+      (let ((tag (nodeTag e)))
+        (if (== tag TAG_E_COND)
+            (let ((chain (condChainAt (nodeA e) (- (vecLen (nodeA e)) 1)
+                                      (if (== (nodeB e) 0)
+                                          (mkEInt 0)
+                                          (lowerConds (nodeB e))))))
+              {
+                (memSetWord e 0 (nodeTag chain))
+                (memSetWord e 1 (nodeA chain))
+                (memSetWord e 2 (nodeB chain))
+                (memSetWord e 3 (nodeC chain))
+                (memSetWord e 4 (nodeSpan chain))
+                e
+              })
+        (if (== tag TAG_E_APP)
+            { (lowerConds (nodeA e)) (lowerConds (nodeB e)) e }
+        (if (== tag TAG_E_LAM)
+            { (lowerConds (nodeB e)) e }
+        (if (|| (== tag TAG_E_LET) (== tag TAG_E_LETM))
+            { (lowerConds (nodeB e)) (lowerConds (nodeC e)) e }
+        (if (== tag TAG_E_IF)
+            { (lowerConds (nodeA e)) (lowerConds (nodeB e)) (lowerConds (nodeC e)) e }
+        (if (== tag TAG_E_BEGIN)
+            { (lowerCondsVec (nodeA e) 0) e }
+        (if (== tag TAG_E_MATCH)
+            { (lowerConds (nodeA e)) (lowerCondsArms (nodeB e) 0) e }
+        (if (== tag TAG_E_WHILE)
+            { (lowerConds (nodeA e)) (lowerCondsVec (nodeB e) 0) e }
+        (if (== tag TAG_E_SET)
+            { (lowerConds (nodeB e)) e }
+        (if (== tag TAG_E_SETF)
+            { (lowerConds (nodeA e)) (lowerConds (nodeC e)) e }
+        (if (== tag TAG_E_FIELD)
+            { (lowerConds (nodeA e)) e }
+        e))))))))))))))
+
+(pub :: condChainAt (-> Int Int Int Int))
+(pub fn (condChainAt clauses i acc)
+  (if (< i 0)
+      acc
+      (let ((cl (vecGet clauses i)))
+        (condChainAt clauses (- i 1)
+          (mkEIf (lowerConds (nodeA cl)) (lowerConds (nodeB cl)) acc)))))
+
+(pub :: lowerCondsVec (-> Int Int Int))
+(pub fn (lowerCondsVec v i)
+  (if (>= i (vecLen v))
+      0
+      { (lowerConds (vecGet v i)) (lowerCondsVec v (+ i 1)) }))
+
+; Arm PATTERNS are left alone: a cond form in pattern position is
+; nonsense the emitter has always treated as match-everything, and
+; lowering it would only change which nonsense it is.
+(pub :: lowerCondsArms (-> Int Int Int))
+(pub fn (lowerCondsArms arms i)
+  (if (>= i (vecLen arms))
+      0
+      { (lowerConds (nodeB (vecGet arms i))) (lowerCondsArms arms (+ i 1)) }))
+
 (pub :: emitFnDef (-> Int Int Int))
 (pub fn (emitFnDef node cg)
   ; The entry file's `main` is not the linker's `main` - the argv
@@ -1192,7 +1292,7 @@
                   "__axiom_user_main"
                   (nodeA node)))
         (params (nodeB node))
-        (body (nodeC node)))
+        (body (lowerConds (nodeC node))))
     (let ((paramStr (emitParams params cg 0))
           (_ (memSetWord cg 1 0))      ; reset register counter in-place
           ; The symbol table holds this function's `let` bindings and
@@ -2058,6 +2158,12 @@
   (let ((tag (nodeTag pat)))
     (if (== tag TAG_E_INT)
         (emitPatTest (constStr (nodeA pat)) vr failB cg)
+    ; A char-literal pattern tests its codepoint word, exactly as an
+    ; integer literal does - `(match c ('a' 7) (x 9))` is pinned by
+    ; tests/selfhost/470-char-literals.ax, and an unknown tag here
+    ; would silently match everything.
+    (if (== tag TAG_E_CHAR)
+        (emitPatTest (constStr (nodeA pat)) vr failB cg)
     (if (== tag TAG_E_FLT)
         ; Bit-pattern equality, which is what stage0's literal float
         ; pattern also compiles to (one word against one word).
@@ -2119,7 +2225,7 @@
                     (emitPatFields (patArgs pat vecNew)
                                    (eFieldFlags entry)
                                    vr failB cgT 0))))))
-    cg))))))))
+    cg)))))))))
 
 ; The tag of a value whose type mixes representations, decided at
 ; runtime: below 4096 the value IS the tag (no immediate reaches the
@@ -2217,6 +2323,12 @@
 (pub fn (emitExpr node cg)
   (let ((tag (nodeTag node)))
     (if (== tag TAG_E_INT)   (emitInt node cg)
+    ; A char literal is its codepoint word; emission is an integer's.
+    (if (== tag TAG_E_CHAR)  (emitInt node cg)
+    ; A cond that reached emission without passing the emitFnDef
+    ; pre-pass - a macro template is the one road here - lowers on the
+    ; fly to the same if-chain and re-dispatches.
+    (if (== tag TAG_E_COND)  (emitExpr (lowerConds node) cg)
     (if (== tag TAG_E_FLT)   (emitFlt node cg)
     (if (== tag TAG_E_VAR)   (emitVar node cg)
     (if (== tag TAG_E_APP)   (emitApp node cg)
@@ -2231,7 +2343,7 @@
     (if (== tag TAG_E_FIELD) (emitField node cg)
     (if (== tag TAG_E_SETF)  (emitSetF node cg)
     (if (== tag TAG_E_LAM)   (emitLambda node cg)
-    (emitDefault node cg))))))))))))))))))
+    (emitDefault node cg))))))))))))))))))))
 
 ; `(set base.field v)`: the base evaluates once, the field resolves as
 ; a read does, and the value is stored at its offset. The whole form

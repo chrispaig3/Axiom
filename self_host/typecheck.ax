@@ -37,6 +37,59 @@
 (import diag)
 
 ; ------------------------------------------------------------------
+; Type rendering: stage0's `Display for TypeId`, byte for byte, since
+; these strings appear verbatim inside AX3004 messages and the gate
+; compares whole lines. The shapes, pinned by `axiom symbols` probes:
+;
+;   {unknown}                        poison (and an absent type)
+;   a, _t3                           type variable, its name alone
+;   Int / Maybe Int                  constructor; args space-separated,
+;                                    NO parens - nested applications
+;                                    flatten (`Option List Int`)
+;   (Int -> (Int -> Bool))           arrow, always parenthesised, binary
+;   () / (Int, Bool)                 tuple; empty tuple is unit
+;   [Int]                            list
+;   *Any / *mut Any                  pointer
+; ------------------------------------------------------------------
+(pub :: tyRender (-> Int Int))
+(pub fn (tyRender t)
+  (if (== t 0)
+      "{unknown}"
+      (let ((tag (nodeTag t)))
+        (if (== tag TAG_T_VAR)
+            (nodeA t)
+        (if (== tag TAG_T_CON)
+            (tyRenderApp (nodeA t) (nodeB t) 0)
+        (if (== tag TAG_T_ARR)
+            (strConcat (strConcat (strConcat (strConcat
+              "(" (tyRender (nodeA t))) " -> ") (tyRender (nodeB t))) ")")
+        (if (== tag TAG_T_TUP)
+            (strConcat (strConcat "(" (tyRenderJoin (nodeA t) 0 "")) ")")
+        (if (== tag TAG_T_LIST)
+            (strConcat (strConcat "[" (tyRender (nodeA t))) "]")
+        (if (== tag TAG_T_PTR)
+            (strConcat (if (== (nodeB t) 1) "*mut " "*")
+                       (tyRender (nodeA t)))
+        "{unknown}")))))))))
+
+(pub :: tyRenderApp (-> Int Int Int Int))
+(pub fn (tyRenderApp acc args i)
+  (if (>= i (vecLen args))
+      acc
+      (tyRenderApp (strConcat (strConcat acc " ")
+                              (tyRender (vecGet args i)))
+                   args (+ i 1))))
+
+(pub :: tyRenderJoin (-> Int Int Int Int))
+(pub fn (tyRenderJoin xs i acc)
+  (if (>= i (vecLen xs))
+      acc
+      (tyRenderJoin xs (+ i 1)
+        (if (== i 0)
+            (tyRender (vecGet xs 0))
+            (strConcat (strConcat acc ", ") (tyRender (vecGet xs i)))))))
+
+; ------------------------------------------------------------------
 ; Which namespace a declaration defines into, or 0 for a declaration
 ; that defines nothing. Values and types are separate namespaces in
 ; stage0, so `(data Foo ...)` and `(fn (Foo) ...)` do not collide.
@@ -504,7 +557,30 @@
         }
     (if (== tag TAG_E_FIELD)
         (checkExpr decls adecls scope (nodeA e) out)
-    0)))))))))))))
+    ; `cond` is structural now (the parser used to desugar it to
+    ; nested `if` before this checker ran); walk every clause's test
+    ; and body, and the else when there is one, so a reference inside
+    ; a cond stays checked exactly as it was when it arrived as ifs.
+    (if (== tag TAG_E_COND)
+        {
+          (checkCondClauses decls adecls scope (nodeA e) out 0)
+          (if (== (nodeB e) 0)
+              0
+              (checkExpr decls adecls scope (nodeB e) out))
+          0
+        }
+    0))))))))))))))
+
+(pub :: checkCondClauses (-> Int Int Int Int Int Int Int))
+(pub fn (checkCondClauses decls adecls scope clauses out i)
+  (if (>= i (vecLen clauses))
+      0
+      (let ((cl (vecGet clauses i)))
+        {
+          (checkExpr decls adecls scope (nodeA cl) out)
+          (checkExpr decls adecls scope (nodeB cl) out)
+          (checkCondClauses decls adecls scope clauses out (+ i 1))
+        })))
 
 ; The arguments of an application spine, plus its head when the head
 ; is something with an inside (a lambda, a parenthesised expression) -

@@ -13,7 +13,7 @@
 ; ------------------------------------------------------------------
 ; AST node: tagged union. tag + a,b,c fields. Unused = 0.
 ; ------------------------------------------------------------------
-(pub struct ASTNode (tag : Int) (a : Int) (b : Int) (c : Int) (span : Int) (vis : Int))
+(pub struct ASTNode (tag : Int) (a : Int) (b : Int) (c : Int) (span : Int) (vis : Int) (ty : Int))
 
 ; A declaration's visibility: 1 when it was written `pub`, 0 otherwise.
 ; stage0 splices only the PUBLIC declarations of an imported module
@@ -22,6 +22,15 @@
 (pub :: nodeVis (-> Int Int))   (pub fn (nodeVis n) (memGetWord n 5))
 (pub :: markPub (-> Int Int))
 (pub fn (markPub n) { (if (== n 0) 0 (memSetWord n 5 1)) n })
+
+; A declaration's parsed TYPE, or 0 when none was kept. Word 6 is new
+; and additive: every existing consumer reads words 0-5 by index, so
+; nothing moves. What lives here varies by tag - a type node for
+; TAG_D_SIG/TAG_D_FOREIGN/TAG_FIELD, a Vec of field type nodes for
+; TAG_CTOR, a Vec of tyvar name Strs for TAG_D_DATA.
+(pub :: nodeTy (-> Int Int))    (pub fn (nodeTy n) (memGetWord n 6))
+(pub :: setNodeTy (-> Int Int Int))
+(pub fn (setNodeTy n t) { (memSetWord n 6 t) n })
 
 ; Node tags.
 (pub :: TAG_NIL Int)       (pub fn (TAG_NIL) 0)
@@ -85,20 +94,53 @@
 ; without a word. Word 1 is the effect's name, word 2 a Vec of its
 ; operation names.
 (pub :: TAG_D_EFFECT Int)  (pub fn (TAG_D_EFFECT) 30)
+; A `cond` form, kept structural rather than desugared at parse time:
+; stage0's checker treats `cond` unlike nested `if` (clause bodies are
+; never joined against each other; only a real `else` is compared, and
+; only against the LAST clause - probed), so a checker over the
+; desugared tree over-reports. Word 1 is a Vec of clause nodes
+; (TAG_M_ARM: a=test, b=body), word 2 the else body or 0 for none.
+; Codegen lowers this to the same nested-if chain the parser used to
+; build, in a pre-pass that runs before TCO analysis.
+(pub :: TAG_E_COND Int)    (pub fn (TAG_E_COND) 31)
+; Type expression nodes, produced by parseType. The type checker is
+; the only consumer; codegen never reads them.
+(pub :: TAG_T_VAR Int)     (pub fn (TAG_T_VAR) 32)   ; a=name
+(pub :: TAG_T_CON Int)     (pub fn (TAG_T_CON) 33)   ; a=name, b=Vec args
+(pub :: TAG_T_ARR Int)     (pub fn (TAG_T_ARR) 34)   ; a=param, b=result
+(pub :: TAG_T_TUP Int)     (pub fn (TAG_T_TUP) 35)   ; a=Vec; empty = unit
+(pub :: TAG_T_LIST Int)    (pub fn (TAG_T_LIST) 36)  ; a=inner
+(pub :: TAG_T_PTR Int)     (pub fn (TAG_T_PTR) 37)   ; a=inner, b=mut
+(pub :: TAG_T_ERR Int)     (pub fn (TAG_T_ERR) 38)   ; poison, no payload
+; A character literal. It used to collapse into TAG_E_INT, but stage0
+; types a char literal `Char`, not `Int`, and `Char` has no
+; compatibility fiat with `Int` - `(charToStr 'q')` against
+; `(-> Char Int)` is silent under stage0 and would be a false AX3004
+; if the literal arrived typed `Int`. Codegen emits it exactly as an
+; integer (word 1 is the codepoint), so representation is unchanged.
+(pub :: TAG_E_CHAR Int)    (pub fn (TAG_E_CHAR) 39)
 
 (pub :: nodeTag (-> Int Int))   (pub fn (nodeTag n) (memGetWord n 0))
 (pub :: nodeA   (-> Int Int))   (pub fn (nodeA   n) (memGetWord n 1))
 (pub :: nodeB   (-> Int Int))   (pub fn (nodeB   n) (memGetWord n 2))
 (pub :: nodeC   (-> Int Int))   (pub fn (nodeC   n) (memGetWord n 3))
 
-(pub :: mkNode (-> Int Int Int Int Int))  (pub fn (mkNode t a b c) (ASTNode t a b c 0 0))
+(pub :: mkNode (-> Int Int Int Int Int))  (pub fn (mkNode t a b c) (ASTNode t a b c 0 0 0))
 (pub :: mkNodeAt (-> Int Int Int Int Int Int))
-(pub fn (mkNodeAt t a b c sp) (ASTNode t a b c sp 0))
+(pub fn (mkNodeAt t a b c sp) (ASTNode t a b c sp 0 0))
 (pub :: nodeSpan (-> Int Int))  (pub fn (nodeSpan n) (memGetWord n 4))
 (pub :: mkEInt (-> Int Int))              (pub fn (mkEInt v)     (mkNode TAG_E_INT v 0 0))
 (pub :: mkEFlt (-> Int Int))              (pub fn (mkEFlt bits)  (mkNode TAG_E_FLT bits 0 0))
 (pub :: mkEStr (-> Int Int))              (pub fn (mkEStr s)     (mkNode TAG_E_STR s 0 0))
 (pub :: mkEVar (-> Int Int))              (pub fn (mkEVar n)     (mkNode TAG_E_VAR n 0 0))
+; Type-node constructors. parseType builds these; only the checker
+; reads them.
+(pub :: mkTVar (-> Int Int))   (pub fn (mkTVar n)     (mkNode TAG_T_VAR n 0 0))
+(pub :: mkTCon (-> Int Int Int)) (pub fn (mkTCon n args) (mkNode TAG_T_CON n args 0))
+(pub :: mkTArr (-> Int Int Int)) (pub fn (mkTArr p r)   (mkNode TAG_T_ARR p r 0))
+(pub :: mkTTup (-> Int Int))   (pub fn (mkTTup xs)    (mkNode TAG_T_TUP xs 0 0))
+(pub :: mkTPtr (-> Int Int Int)) (pub fn (mkTPtr inner m) (mkNode TAG_T_PTR inner m 0))
+(pub :: mkTErr Int)            (pub fn (mkTErr)       (mkNode TAG_T_ERR 0 0 0))
 ; An application's span is its FUNCTION's span, not the open paren's -
 ; stage0's `Expr::span()` recurses to the head for `EApp`, so a
 ; diagnostic about `(f 1)` points at `f`. Copying the child's span at
@@ -185,20 +227,27 @@
 ; ------------------------------------------------------------------
 (pub :: parseLit (-> Int Int Int))
 (pub fn (parseLit tokens pos)
+  ; Literals carry their token's span now: an AX3004 about an argument
+  ; or an if-join anchors at the literal in stage0, and a span the
+  ; checker does not have is a diagnostic it must suppress.
   (if (peekIs tokens pos TK_INT)
       (let ((t (vecGet tokens pos)))
-        (pOk (mkEInt (strToInt (tokenLexeme t))) (advance pos)))
+        (pOk (mkNodeAt TAG_E_INT (strToInt (tokenLexeme t)) 0 0 (tokenSpan t))
+             (advance pos)))
   (if (peekIs tokens pos TK_FLOAT)
       (let ((t (vecGet tokens pos)))
-        (pOk (mkEFlt (floatLexemeBits (tokenLexeme t))) (advance pos)))
+        (pOk (mkNodeAt TAG_E_FLT (floatLexemeBits (tokenLexeme t)) 0 0 (tokenSpan t))
+             (advance pos)))
   (if (peekIs tokens pos TK_CHARLIT)
-      ; A char is its codepoint word, like every other Axiom value, so
-      ; the literal is an integer node holding the decoded byte.
+      ; A char is its codepoint word at runtime, but its TYPE is Char,
+      ; so it keeps its own tag; codegen emits it as the integer it is.
       (let ((t (vecGet tokens pos)))
-        (pOk (mkEInt (charLexemeCode (tokenLexeme t))) (advance pos)))
+        (pOk (mkNodeAt TAG_E_CHAR (charLexemeCode (tokenLexeme t)) 0 0 (tokenSpan t))
+             (advance pos)))
   (if (peekIs tokens pos TK_STRING)
       (let ((t (vecGet tokens pos)))
-        (pOk (mkEStr (tokenLexeme t)) (advance pos)))
+        (pOk (mkNodeAt TAG_E_STR (tokenLexeme t) 0 0 (tokenSpan t))
+             (advance pos)))
   (pErr pos))))))
 
 ; The code point a char lexeme denotes; the lexeme includes its
@@ -282,11 +331,16 @@
 ; imports parse through parseModPath.
 (pub :: parseFieldChain (-> Int Int Int Int))
 (pub fn (parseFieldChain tokens pos base)
+  ; The node's span is the FIELD NAME token's - AX3007's anchor. An
+  ; expression-position anchor for the whole access is the BASE's span
+  ; (stage0's EField.span() recurses to the base), which the checker
+  ; computes by walking, not by reading this slot.
   (if (&& (peekIs tokens pos TK_DOT)
           (peekIs tokens (advance pos) TK_IDENT))
       (parseFieldChain tokens (advance (advance pos))
-        (mkNode TAG_E_FIELD base
-                (tokenLexeme (vecGet tokens (advance pos))) 0))
+        (mkNodeAt TAG_E_FIELD base
+                  (tokenLexeme (vecGet tokens (advance pos))) 0
+                  (tokenSpan (vecGet tokens (advance pos)))))
       (pOk base pos)))
 
 ; ------------------------------------------------------------------
@@ -414,8 +468,18 @@
               (rest (skipParens tokens (memGetWord nr 2) 1)))
           (if (== (memGetWord rest 0) 0)
               rest
-              (pOk (mkNodeAt TAG_D_FOREIGN name 0 0 nameSpan)
-                   (memGetWord rest 2)))))))
+              ; The declared type now survives in the ty slot: stage0
+              ; measures a foreign's saturation through its arrow depth
+              ; (AX3013) and checks call arguments against it, and both
+              ; need the structure. skipParens still owns the end
+              ; position; a failed type parse leaves ty 0 (wildcard).
+              (let ((tyNode
+                      (if (peekIs tokens (memGetWord nr 2) TK_DOUBLE_COLON)
+                          (let ((tr (parseType tokens (advance (memGetWord nr 2)))))
+                            (if (== (memGetWord tr 0) 0) 0 (memGetWord tr 1)))
+                          0)))
+                (pOk (setNodeTy (mkNodeAt TAG_D_FOREIGN name 0 0 nameSpan) tyNode)
+                     (memGetWord rest 2))))))))
 
 ; Parse `(effect Name (op :: Type) ...)`, keeping the effect's name
 ; and its operations' names. Nothing else survives: stage1 emits no
@@ -460,6 +524,132 @@
         (pOk (mkNode TAG_NIL "" 0 0) (memGetWord r 2)))))
 
 ; ------------------------------------------------------------------
+; Type expressions, kept structurally. The grammar mirrors stage0's
+; parse_type exactly, because the checker's rendered types must match
+; stage0's byte-for-byte:
+;
+;   ATOM  := '*' ATOM | 'linear' ATOM | KEYWORD | lowercase-IDENT
+;          | IDENT | '(' TYPE... ')'
+;   TYPE  := '(' '->' ATOM+ ')'         right-folded, binary, curried
+;          | '(' ')'                    unit, an empty tuple
+;          | '(' Upper-nonkeyword ATOM* ')'   type application
+;          | '(' ATOM+ ')'              tuple; one element unwraps
+;          | ATOM
+;
+; The keyword distinction is load-bearing: stage0 lexes `Int` as its
+; own token kind, so `(Int Bool)` is a TUPLE while `(Foo Bar)` is an
+; application - probed via `axiom symbols` rendering `(Int, Bool)`.
+; stage1 lexes both as plain idents, so the keyword set is spelled out
+; here. `Integer` canonicalises to `Int`, everything else to itself.
+; ------------------------------------------------------------------
+(pub :: typeKeywordCanon (-> Int Int))
+(pub fn (typeKeywordCanon n)
+  (if (strEq n "Int") "Int" (if (strEq n "Integer") "Int"
+  (if (strEq n "Float") "Float" (if (strEq n "Double") "Double"
+  (if (strEq n "Bool") "Bool" (if (strEq n "Char") "Char"
+  (if (strEq n "String") "String" (if (strEq n "Void") "Void"
+  (if (strEq n "Any") "Any"
+  (if (strEq n "I8") "I8" (if (strEq n "I16") "I16"
+  (if (strEq n "I32") "I32" (if (strEq n "I64") "I64"
+  (if (strEq n "I128") "I128" (if (strEq n "Isize") "Isize"
+  (if (strEq n "U8") "U8" (if (strEq n "U16") "U16"
+  (if (strEq n "U32") "U32" (if (strEq n "U64") "U64"
+  (if (strEq n "U128") "U128" (if (strEq n "Usize") "Usize"
+  (if (strEq n "F32") "F32" (if (strEq n "F64") "F64"
+  0))))))))))))))))))))))))
+
+(pub :: lexStartsLower (-> Int Int))
+(pub fn (lexStartsLower s)
+  (if (== (strLen s) 0)
+      0
+      (if (&& (>= (strByte s 0) 97) (<= (strByte s 0) 122)) 1 0)))
+
+(pub :: parseTypeAtom (-> Int Int Int))
+(pub fn (parseTypeAtom tokens pos)
+  (if (peekIs tokens pos TK_IDENT)
+      (let ((s (tokenLexeme (vecGet tokens pos))))
+        ; `* T` and `linear T` prefix the NEXT atom. `*Any` without the
+        ; space lexes as one identifier here (stage1's `*` is an ident
+        ; character) and lands in the TCon fallback - a recorded lexer
+        ; gap; spell pointers `(* T)`.
+        (if (strEq s "*")
+            (let ((r (parseTypeAtom tokens (advance pos))))
+              (if (== (memGetWord r 0) 0) r
+                  (pOk (mkTPtr (memGetWord r 1) 0) (memGetWord r 2))))
+        (if (strEq s "linear")
+            (let ((r (parseTypeAtom tokens (advance pos))))
+              (if (== (memGetWord r 0) 0) r
+                  (pOk (mkTCon "Linear"
+                               (let ((v vecNew)) { (vecPush v (memGetWord r 1)) v }))
+                       (memGetWord r 2))))
+        (let ((canon (typeKeywordCanon s)))
+          (if (!= canon 0)
+              (pOk (mkTCon canon vecNew) (advance pos))
+          (if (== (lexStartsLower s) 1)
+              (pOk (mkTVar s) (advance pos))
+              (pOk (mkTCon s vecNew) (advance pos))))))))
+  (if (peekIs tokens pos TK_LPAREN)
+      (parseTypeParens tokens (advance pos))
+  (pErr pos))))
+
+(pub :: parseType (-> Int Int Int))
+(pub fn (parseType tokens pos)
+  (if (peekIs tokens pos TK_LPAREN)
+      (parseTypeParens tokens (advance pos))
+      (parseTypeAtom tokens pos)))
+
+; A run of atoms up to the closing paren, which is consumed.
+(pub :: parseTypeAtoms (-> Int Int Int Int))
+(pub fn (parseTypeAtoms tokens pos acc)
+  (if (peekIs tokens pos TK_RPAREN)
+      (pOk acc (advance pos))
+  (if (peekIs tokens pos TK_EOF)
+      (pErr pos)
+      (let ((r (parseTypeAtom tokens pos)))
+        (if (== (memGetWord r 0) 0) r
+            (parseTypeAtoms tokens (memGetWord r 2)
+                            (vecPush acc (memGetWord r 1))))))))
+
+; `pos` is just past the opening paren.
+(pub :: parseTypeParens (-> Int Int Int))
+(pub fn (parseTypeParens tokens pos)
+  (if (peekIs tokens pos TK_RARROW)
+      (let ((r (parseTypeAtoms tokens (advance pos) vecNew)))
+        (if (== (memGetWord r 0) 0) r
+            (let ((tys (memGetWord r 1)))
+              (if (< (vecLen tys) 2)
+                  (pErr pos)
+                  (pOk (foldArrows tys (- (vecLen tys) 2)
+                                   (vecGet tys (- (vecLen tys) 1)))
+                       (memGetWord r 2))))))
+  (if (peekIs tokens pos TK_RPAREN)
+      (pOk (mkTTup vecNew) (advance pos))
+  (if (&& (peekIs tokens pos TK_IDENT)
+          (&& (identStartsUpper tokens pos)
+              (== (typeKeywordCanon (tokenLexeme (vecGet tokens pos))) 0)))
+      ; Type application: (Maybe Int), (Vec Float). A keyword head -
+      ; (Int Bool) - is NOT an application; it falls through to the
+      ; tuple loop, stage0's rule.
+      (let ((head (tokenLexeme (vecGet tokens pos))))
+        (let ((r (parseTypeAtoms tokens (advance pos) vecNew)))
+          (if (== (memGetWord r 0) 0) r
+              (pOk (mkTCon head (memGetWord r 1)) (memGetWord r 2)))))
+  (let ((r (parseTypeAtoms tokens pos vecNew)))
+    (if (== (memGetWord r 0) 0) r
+        (let ((tys (memGetWord r 1)))
+          (if (== (vecLen tys) 1)
+              (pOk (vecGet tys 0) (memGetWord r 2))
+              (pOk (mkTTup tys) (memGetWord r 2))))))))))
+
+; `(-> A B C)` folds right: A -> (B -> C). `i` walks from the second-
+; to-last element down to 0, wrapping `acc` each step.
+(pub :: foldArrows (-> Int Int Int Int))
+(pub fn (foldArrows tys i acc)
+  (if (< i 0)
+      acc
+      (foldArrows tys (- i 1) (mkTArr (vecGet tys i) acc))))
+
+; ------------------------------------------------------------------
 ; Parse (:: name (-> ...))
 ; ------------------------------------------------------------------
 (pub :: parseSigDecl (-> Int Int Int))
@@ -477,9 +667,21 @@
                 ; runtime: every value is an i64 word, and by emission
                 ; time there is no type checker left to ask. This is the
                 ; same reconstruction stage0's IR generator performs.
-                (pOk (mkDSigAt name (sigFloatFlags tokens typePos)
-                                (tokenSpan (vecGet tokens pos)))
-                     endPos)))))))
+                ;
+                ; The FULL type structure now survives too, in the ty
+                ; slot, for the checker. The float flags stay in `b`
+                ; untouched - codegen keys on that exact shape. A type
+                ; the grammar cannot represent leaves ty 0, and the
+                ; checker treats an absent type as a silent wildcard:
+                ; under-reported, never mis-typed. Position always comes
+                ; from skipParens, so a failed type parse cannot skew
+                ; the token stream.
+                (let ((tr (parseType tokens typePos)))
+                  (pOk (setNodeTy
+                         (mkDSigAt name (sigFloatFlags tokens typePos)
+                                   (tokenSpan (vecGet tokens pos)))
+                         (if (== (memGetWord tr 0) 0) 0 (memGetWord tr 1)))
+                       endPos))))))))
 
 ; One flag per arrow position, return type last: `(-> Float Int Float)`
 ; is [1, 0, 1], and a bare type - `(:: pi Float)` - is a one-entry
@@ -579,8 +781,54 @@
     (if (== (memGetWord nr 0) 0) nr
         (let ((name (memGetWord nr 1))
               (nextPos (memGetWord nr 2)))
-          (parseConstructors tokens (skipTypeParams tokens nextPos) name
-                             (tokenSpan (vecGet tokens pos)) vecNew)))))
+          ; Type parameters are COLLECTED now, not merely skipped: a
+          ; constructor's result type is `TCon(name, tyvars)` - `Nil`
+          ; is `List a`, never bare `List` - and tyCompat compares TCon
+          ; argument COUNTS, so losing the tyvars would make the
+          ; checker call `Tree` and `Tree a` different types.
+          (let ((tvs vecNew))
+            (parseConstructors tokens (collectTyParams tokens nextPos tvs)
+                               name (tokenSpan (vecGet tokens pos)) vecNew
+                               tvs))))))
+
+; Position-identical twin of skipTypeParams that also records the
+; parameter names into `tvs`. Any shape skipTypeParams declines to
+; treat as a parameter list is declined here identically, so parse
+; positions cannot drift.
+(pub :: collectTyParams (-> Int Int Int Int))
+(pub fn (collectTyParams tokens pos tvs)
+  (if (peekIs tokens pos TK_LPAREN)
+      (let ((inPos (advance pos)))
+        (if (peekIs tokens inPos TK_RPAREN)
+            (advance inPos)
+            (if (peekIs tokens inPos TK_IDENT)
+                (if (identStartsUpper tokens inPos)
+                    pos
+                    (let ((r (skipParens tokens inPos 1)))
+                      (if (== (memGetWord r 0) 0)
+                          pos
+                          {
+                            (collectIdentsUntilRParen tokens inPos tvs)
+                            (memGetWord r 2)
+                          })))
+                pos)))
+      (if (peekIs tokens pos TK_IDENT)
+          (if (identStartsUpper tokens pos)
+              pos
+              {
+                (vecPush tvs (tokenLexeme (vecGet tokens pos)))
+                (collectTyParams tokens (advance pos) tvs)
+              })
+          pos)))
+
+(pub :: collectIdentsUntilRParen (-> Int Int Int Int))
+(pub fn (collectIdentsUntilRParen tokens pos tvs)
+  (if (peekIs tokens pos TK_IDENT)
+      {
+        (vecPush tvs (tokenLexeme (vecGet tokens pos)))
+        (collectIdentsUntilRParen tokens (advance pos) tvs)
+      }
+      0))
 
 ; `(data Tree (a) (Leaf) (Node a))` - the first parenthesised group is
 ; the type-parameter list when it is empty or opens with a lowercase
@@ -611,16 +859,17 @@
               (skipTypeParams tokens (advance pos)))
           pos)))
 
-(pub :: parseConstructors (-> Int Int Int Int Int Int))
-(pub fn (parseConstructors tokens pos dataName nameSpan acc)
+(pub :: parseConstructors (-> Int Int Int Int Int Int Int))
+(pub fn (parseConstructors tokens pos dataName nameSpan acc tvs)
   (if (peekIs tokens pos TK_RPAREN)
-      (pOk (mkDDataAt dataName acc nameSpan) (advance pos))
+      (pOk (setNodeTy (mkDDataAt dataName acc nameSpan) tvs) (advance pos))
   (if (peekIs tokens pos TK_LPAREN)
       (let ((r (parseOneCtor tokens (advance pos))))
         (if (== (memGetWord r 0) 0) r
             (let ((ctor (memGetWord r 1))
                   (nextPos (memGetWord r 2)))
-              (parseConstructors tokens nextPos dataName nameSpan (vecPush acc ctor)))))
+              (parseConstructors tokens nextPos dataName nameSpan
+                                 (vecPush acc ctor) tvs))))
   (pErr pos))))
 
 (pub :: parseOneCtor (-> Int Int Int))
@@ -630,30 +879,49 @@
         (let ((ctorName (memGetWord nr 1))
               (nextPos (memGetWord nr 2)))
           (if (peekIs tokens nextPos TK_RPAREN)
-              (pOk (mkCtor ctorName 0 vecNew) (advance nextPos))
-              (parseFieldTypes tokens nextPos vecNew ctorName))))))
+              (pOk (setNodeTy (mkCtor ctorName 0 vecNew) vecNew)
+                   (advance nextPos))
+              (parseFieldTypes tokens nextPos vecNew ctorName vecNew))))))
 
 ; Field types are retained as one float flag per field - a bare `Float`
 ; is 1, anything else (including any parenthesised type) is 0 - so a
 ; pattern that binds a constructor's field knows whether the word it
 ; binds is IEEE-754 bits. The arity is the flag count.
-(pub :: parseFieldTypes (-> Int Int Int Int Int))
-(pub fn (parseFieldTypes tokens pos flags ctorName)
+;
+; The STRUCTURE of each field type also survives now, as a Vec of type
+; nodes in the ctor's ty slot - the checker binds pattern variables at
+; these types and checks construction arguments against them. The flag
+; rule above is deliberately unchanged (`(Float)` parenthesised is
+; still flag 0), so codegen behaves bit-identically.
+(pub :: parseFieldTypes (-> Int Int Int Int Int Int))
+(pub fn (parseFieldTypes tokens pos flags ctorName tys)
   (if (peekIs tokens pos TK_RPAREN)
-      (pOk (mkCtor ctorName (vecLen flags) flags) (advance pos))
+      (pOk (setNodeTy (mkCtor ctorName (vecLen flags) flags) tys)
+           (advance pos))
   (if (peekIs tokens pos TK_IDENT)
       {
         (vecPush flags (identIsFloat tokens pos))
-        (parseFieldTypes tokens (advance pos) flags ctorName)
+        (vecPush tys (typeNodeOrWildcard (parseTypeAtom tokens pos)))
+        (parseFieldTypes tokens (advance pos) flags ctorName tys)
       }
   (if (peekIs tokens pos TK_LPAREN)
       (let ((afterSkip (skipParens tokens (advance pos) 1)))
         (if (== (memGetWord afterSkip 0) 0) afterSkip
             {
               (vecPush flags 0)
-              (parseFieldTypes tokens (memGetWord afterSkip 2) flags ctorName)
+              (vecPush tys (typeNodeOrWildcard (parseType tokens pos)))
+              (parseFieldTypes tokens (memGetWord afterSkip 2) flags ctorName tys)
             }))
   (pErr pos)))))
+
+; A parsed type, or the silent wildcard for one the grammar cannot
+; represent - the checker treats a nameless TVar as matching anything
+; and never renders it, so failure here can only under-report.
+(pub :: typeNodeOrWildcard (-> Int Int))
+(pub fn (typeNodeOrWildcard r)
+  (if (== (memGetWord r 0) 0)
+      (mkTVar "")
+      (memGetWord r 1)))
 
 ; ------------------------------------------------------------------
 ; Parse (struct Name (field1 : Type1) (field2 : Type2) ...)
@@ -686,20 +954,28 @@
         (let ((fieldName (memGetWord nr 1))
               (nextPos (memGetWord nr 2)))
           ; `(name : Type)` - the type used to be skipped whole; the
-          ; field's float flag now survives (a bare `Float` is 1), so
-          ; `p.f` arithmetic picks float instructions.
-          (if (&& (peekIs tokens nextPos TK_COLON)
-                  (peekIs tokens (advance nextPos) TK_IDENT))
-              (let ((fl (identIsFloat tokens (advance nextPos))))
-                (if (peekIs tokens (advance (advance nextPos)) TK_RPAREN)
-                    (pOk (mkField fieldName fl)
-                         (advance (advance (advance nextPos))))
-                    (let ((r (skipParens tokens (advance (advance nextPos)) 1)))
-                      (if (== (memGetWord r 0) 0) r
-                          (pOk (mkField fieldName fl) (memGetWord r 2))))))
-              (let ((afterSkip (skipParens tokens nextPos 1)))
-                (if (== (memGetWord afterSkip 0) 0) afterSkip
-                    (pOk (mkField fieldName 0) (memGetWord afterSkip 2)))))))))
+          ; field's float flag survives (a bare `Float` is 1), so
+          ; `p.f` arithmetic picks float instructions - and the full
+          ; structure now rides in the ty slot for the checker. The
+          ; flag rule and every token position are unchanged.
+          (let ((fieldTy
+                  (if (peekIs tokens nextPos TK_COLON)
+                      (typeNodeOrWildcard (parseType tokens (advance nextPos)))
+                      (mkTVar ""))))
+            (if (&& (peekIs tokens nextPos TK_COLON)
+                    (peekIs tokens (advance nextPos) TK_IDENT))
+                (let ((fl (identIsFloat tokens (advance nextPos))))
+                  (if (peekIs tokens (advance (advance nextPos)) TK_RPAREN)
+                      (pOk (setNodeTy (mkField fieldName fl) fieldTy)
+                           (advance (advance (advance nextPos))))
+                      (let ((r (skipParens tokens (advance (advance nextPos)) 1)))
+                        (if (== (memGetWord r 0) 0) r
+                            (pOk (setNodeTy (mkField fieldName fl) fieldTy)
+                                 (memGetWord r 2))))))
+                (let ((afterSkip (skipParens tokens nextPos 1)))
+                  (if (== (memGetWord afterSkip 0) 0) afterSkip
+                      (pOk (setNodeTy (mkField fieldName 0) fieldTy)
+                           (memGetWord afterSkip 2))))))))))
 
 ; ------------------------------------------------------------------
 ; Parse (macro (name params...) template)
@@ -881,29 +1157,48 @@
       (let ((fname (tokenLexeme (vecGet tokens (advance pos))))
             (after (advance (advance pos))))
         (if (peekIs tokens after TK_DOT)
-            (parseSetField tokens after (mkNode TAG_E_FIELD base fname 0))
+            (parseSetField tokens after
+              (mkNodeAt TAG_E_FIELD base fname 0
+                        (tokenSpan (vecGet tokens (advance pos)))))
             (let ((valR (parseExpr tokens after)))
               (if (== (memGetWord valR 0) 0) valR
                   (let ((val (memGetWord valR 1))
                         (afterVal (memGetWord valR 2)))
                     (if (peekIs tokens afterVal TK_RPAREN)
-                        (pOk (mkNode TAG_E_SETF base fname val)
+                        ; Span = the stored field's name token, AX3007's
+                        ; anchor, as on TAG_E_FIELD.
+                        (pOk (mkNodeAt TAG_E_SETF base fname val
+                                       (tokenSpan (vecGet tokens (advance pos))))
                              (advance afterVal))
                         (pErr afterVal)))))))
       (pErr pos)))
 
 ; ------------------------------------------------------------------
-; Parse (cond (test body...) ... (else body...)) as a chain of `if`,
-; which is where stage0's lowering also ends up. A `cond` with no
-; `else` falls through to 0, matching `while` - a form whose clauses
-; all declined has no value to report. `else` is not a token: it is an
-; ordinary identifier recognised by name here, so it stays usable as a
-; variable everywhere else.
+; Parse (cond (test body...) ... (else body...)) STRUCTURALLY: a
+; TAG_E_COND node whose word 1 is a Vec of clause pairs (TAG_M_ARM:
+; a=test, b=body) and word 2 the else body, or 0 for none.
+;
+; It used to desugar to a chain of `if` right here, but stage0's
+; checker treats `cond` unlike nested `if`: clause bodies are never
+; joined against each other, only a real `else` is compared - and only
+; against the LAST clause - and a `cond` with no `else` is never
+; compared at all (probed; `(cond ((f) true))` is silent where the
+; desugared `(if (f) true 0)` would join Bool against Int). Codegen
+; lowers this node to the exact same if-chain the parser used to
+; build, in a pre-pass that runs before TCO analysis, so emission is
+; bit-identical.
+;
+; `else` is not a token: it is an ordinary identifier recognised by
+; name here, so it stays usable as a variable everywhere else.
 ; ------------------------------------------------------------------
 (pub :: parseCondExpr (-> Int Int Int))
 (pub fn (parseCondExpr tokens pos)
+  (parseCondClauses tokens pos vecNew))
+
+(pub :: parseCondClauses (-> Int Int Int Int))
+(pub fn (parseCondClauses tokens pos clauses)
   (if (peekIs tokens pos TK_RPAREN)
-      (pOk (mkEInt 0) (advance pos))
+      (pOk (mkNode TAG_E_COND clauses 0 0) (advance pos))
   (if (peekIs tokens pos TK_LPAREN)
       (let ((inPos (advance pos)))
         (if (&& (peekIs tokens inPos TK_IDENT)
@@ -915,18 +1210,20 @@
                   (let ((body (condBodyOf (memGetWord bodyR 1)))
                         (afterClause (memGetWord bodyR 2)))
                     (if (peekIs tokens afterClause TK_RPAREN)
-                        (pOk body (advance afterClause))
+                        (pOk (mkNode TAG_E_COND clauses body 0)
+                             (advance afterClause))
                         (pErr afterClause)))))
             (let ((testR (parseExpr tokens inPos)))
               (if (== (memGetWord testR 0) 0) testR
                   (let ((test (memGetWord testR 1))
                         (bodyR (parseExprList tokens (memGetWord testR 2) vecNew)))
                     (if (== (memGetWord bodyR 0) 0) bodyR
-                        (let ((body (condBodyOf (memGetWord bodyR 1)))
-                              (restR (parseCondExpr tokens (memGetWord bodyR 2))))
-                          (if (== (memGetWord restR 0) 0) restR
-                              (pOk (mkEIf test body (memGetWord restR 1))
-                                   (memGetWord restR 2))))))))))
+                        {
+                          (vecPush clauses
+                            (mkNode TAG_M_ARM test
+                                    (condBodyOf (memGetWord bodyR 1)) 0))
+                          (parseCondClauses tokens (memGetWord bodyR 2) clauses)
+                        }))))))
   (pErr pos))))
 
 ; A clause body of several expressions is a block; of one, itself; of

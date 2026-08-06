@@ -1,0 +1,42 @@
+; expect 42
+; A self tail call inside a `cond` clause is a jump, not a call.
+;
+; `cond` used to desugar into nested `if` at parse time, so TCO saw
+; ifs and this shape was covered by accident. The parser now keeps
+; `cond` structural (TAG_E_COND) for the type checker - stage0 joins
+; a cond's clauses differently from nested ifs - and codegen lowers it
+; back to the same if-chain in a pre-pass that runs BEFORE the
+; tail-call analysis. Nothing else in the gates compiles a cond
+; through stage1, so without this case a lowering that ran after
+; `tailCallsSelf` would ship as a silent stack overflow at two million
+; frames.
+;
+;   countdown  two million iterations in constant stack, the self call
+;              in a clause body.
+;   classify   a cond whose else carries the tail call - the chain's
+;              last hop is the else body.
+;   pick       cond used as a plain value, no recursion, both clause
+;              and else results observed.
+(:: countdown (-> Int Int Int))
+(fn (countdown n acc)
+  (cond ((== n 0) acc)
+        (else (countdown (- n 1) (+ acc 1)))))
+(:: classify (-> Int Int Int))
+(fn (classify n acc)
+  (cond ((== n 0) acc)
+        ((== n 1) (+ acc 100))
+        (else (classify (- n 2) (+ acc 1)))))
+(:: pick (-> Int Int))
+(fn (pick n)
+  (cond ((== n 1) 10)
+        ((== n 2) 20)
+        (else 30)))
+(:: main Int)
+(fn (main)
+  (if (== (countdown 2000000 0) 2000000)
+      (if (== (classify 400001 0) 200100)
+          (if (== (+ (pick 1) (+ (pick 2) (pick 9))) 60)
+              42
+              11)
+          10)
+      7))

@@ -1,0 +1,61 @@
+; expect 42
+; Parsed type structure renders exactly as stage0 renders TypeId.
+;
+; The expected strings are not invented: each is what stage0's
+; `axiom --diagnostic-format=ai symbols` prints for the same
+; signature (probed on 2026-08-05 against trunk c4811d5). The type
+; checker splices these renderings into AX3004 messages, and the
+; diagnostics gate compares whole AXDL lines byte for byte, so the
+; renderer's bytes are load-bearing before any checking begins.
+;
+; The shapes chosen pin every rule that is easy to get wrong:
+;   apply   arrows nest with parens on BOTH sides
+;   pick    a TCon application inside an arrow takes NO parens
+;           (`Maybe Int`), a keyword-headed group is a TUPLE
+;           (`(Int, Bool)` - `Int` is a keyword token in stage0, so
+;           it cannot head an application), and `(* Any)` is a
+;           pointer, rendered `*Any` with no space
+;   unit    `()` is the empty tuple
+;   main    a bare non-arrow signature
+;   pf      a foreign's declared type survives parsing too
+(import Str)
+(import Vec)
+(import Mem)
+(import core)
+(import lexer)
+(import parser)
+(import typecheck)
+
+(:: renderSigAt (-> Int Int Int))
+(fn (renderSigAt decls i)
+  (tyRender (nodeTy (vecGet decls i))))
+
+(:: main Int)
+(fn (main)
+  (let ((src (strConcat
+               (strConcat
+                 (strConcat "(:: apply (-> (-> Int Int) Int Int))\n"
+                            "(:: pick (-> (Maybe Int) (Int Bool) (* Any) Int))\n")
+                 (strConcat "(:: unit (-> () Int))\n"
+                            "(:: main Int)\n"))
+               "(foreign pf :: (-> String Int) = \"printf\")\n")))
+    (let ((pr (parseModule (lex src))))
+      (if (== (memGetWord pr 0) 0)
+          7
+          (let ((decls (memGetWord pr 1)))
+            (if (!= (vecLen decls) 5)
+                8
+                (if (strEq (renderSigAt decls 0)
+                           "((Int -> Int) -> (Int -> Int))")
+                    (if (strEq (renderSigAt decls 1)
+                               "(Maybe Int -> ((Int, Bool) -> (*Any -> Int)))")
+                        (if (strEq (renderSigAt decls 2) "(() -> Int)")
+                            (if (strEq (renderSigAt decls 3) "Int")
+                                (if (strEq (renderSigAt decls 4)
+                                           "(String -> Int)")
+                                    42
+                                    13)
+                                12)
+                            11)
+                        10)
+                    9)))))))
