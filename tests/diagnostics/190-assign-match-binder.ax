@@ -1,0 +1,4 @@
+(:: main Int)
+(fn (main)
+  (match 4
+    (x { (set x 9) x })))

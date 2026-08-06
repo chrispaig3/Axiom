@@ -224,13 +224,38 @@
             (vecLen (nodeB d))
             (fnArity decls name (+ i 1))))))
 
+; One scope entry: the bound name, whether `set` may assign it, and
+; the span of its binder - which is where AX3012's secondary and its
+; `mut` fix point. A zero binder span means "unknown" (parameters and
+; lambda parameters carry no spans yet) and suppresses AX3012 rather
+; than pointing it at nothing.
+(pub struct SEnt (name : Int) (mutable : Int) (bsp : Int))
+
+(pub :: pushScope (-> Int Int Int Int Int))
+(pub fn (pushScope scope name mutFlag bsp)
+  (vecPush scope (cast Int (SEnt name mutFlag bsp))))
+
 (pub :: scopeHas (-> Int Int Int Int))
 (pub fn (scopeHas scope name i)
   (if (>= i (vecLen scope))
       0
-      (if (strEq (vecGet scope i) name)
+      (if (strEq (memGetWord (vecGet scope i) 0) name)
           1
           (scopeHas scope name (+ i 1)))))
+
+; The INNERMOST entry for `name`, or 0. Later pushes shadow earlier
+; ones, so the search runs back to front.
+(pub :: scopeFind (-> Int Int Int))
+(pub fn (scopeFind scope name)
+  (scopeFindFrom scope name (- (vecLen scope) 1)))
+
+(pub :: scopeFindFrom (-> Int Int Int Int))
+(pub fn (scopeFindFrom scope name i)
+  (if (< i 0)
+      0
+      (if (strEq (memGetWord (vecGet scope i) 0) name)
+          (vecGet scope i)
+          (scopeFindFrom scope name (- i 1)))))
 
 ; Drop `scope` back to `n` entries - the walk pushes binders on the way
 ; in and truncates on the way out.
@@ -248,7 +273,7 @@
 (pub fn (bindPattern pat scope)
   (let ((tag (nodeTag pat)))
     (if (== tag TAG_E_VAR)
-        { (vecPush scope (nodeA pat)) 0 }
+        { (pushScope scope (nodeA pat) 0 (nodeSpan pat)) 0 }
         (if (== tag TAG_E_APP)
             { (bindPatternArgs pat scope) 0 }
             0))))
@@ -305,7 +330,9 @@
         (let ((n (vecLen scope)))
           {
             (checkExpr decls adecls scope (nodeB e) out)
-            (vecPush scope (nodeA e))
+            (pushScope scope (nodeA e)
+                       (if (== tag TAG_E_LETM) 1 0)
+                       (nodeSpan e))
             (checkExpr decls adecls scope (nodeC e) out)
             (scopeTrunc scope n)
             0
@@ -341,13 +368,17 @@
         }
     (if (== tag TAG_E_SET)
         {
-          ; The assigned NAME is a reference too. An unknown one is
-          ; AX3001 - with candidates drawn from scope alone, which is
-          ; what stage0 offers here; a known-but-immutable target is
-          ; AX3012 instead, which stage1 still reports only at
-          ; emission and not as a diagnostic.
-          (checkSetTarget adecls scope e out)
+          ; VALUE first, target second - probed, not assumed: stage0
+          ; checks the assigned expression before it resolves the
+          ; target, so `(set zzz (+ qqq 1))` reports `qqq` and then
+          ; `zzz`. The first version here had them the other way
+          ; round, which is two correct diagnostics in an order that
+          ; fails a byte-identical gate.
           (checkExpr decls adecls scope (nodeB e) out)
+          ; An unknown target is AX3001, with candidates drawn from
+          ; scope alone; a known-but-immutable one is AX3012, with
+          ; the secondary and the `mut` fix pointing at its binder.
+          (checkSetTarget adecls scope e out)
           0
         }
     (if (== tag TAG_E_SETF)
@@ -423,10 +454,30 @@
 (pub :: checkSetTarget (-> Int Int Int Int Int))
 (pub fn (checkSetTarget adecls scope e out)
   (let ((name (nodeA e)))
-    (if (|| (== (scopeHas scope name 0) 1)
-            (|| (== (isBuiltinName name) 1)
-                (== (isDeclaredName adecls name) 1)))
+    (if (== (scopeHas scope name 0) 1)
+        ; Locally bound: assignable only when the binder said `mut`.
+        ; A zero binder span means a parameter or lambda parameter,
+        ; whose spans the parser does not record yet - suppressed
+        ; rather than pointed at nothing, and emission still refuses.
+        (let ((ent (scopeFind scope name)))
+          (if (== (memGetWord ent 1) 1)
+              0
+              (if (== (memGetWord ent 2) 0)
+                  0
+                  (emitAX3012 name (nodeSpan e) (memGetWord ent 2) out))))
+    (if (== (isBuiltinName name) 1)
         0
+    (if (== (isDeclaredName adecls name) 1)
+        ; A top-level name: never assignable. The secondary points at
+        ; the FIRST declaration of the name in source order, which is
+        ; the signature when one exists - stage0's anchor. Only an
+        ; entry-file declaration qualifies: an imported binder's span
+        ; indexes a different file's text, and every span on one AXDL
+        ; line renders against one source.
+        (let ((dsp (entryDeclSpan adecls name 0)))
+          (if (== dsp 0)
+              0
+              (emitAX3012 name (nodeSpan e) dsp out)))
         (let ((best (newBest)))
           {
             (offerScope best name scope 0)
@@ -443,7 +494,39 @@
                                  "` is in scope; did you mean this?")
                                (nodeSpan e) (memGetWord best 0)))))
             0
-          }))))
+          }))))))
+
+(pub :: emitAX3012 (-> Int Int Int Int Int))
+(pub fn (emitAX3012 name tspan bspan out)
+  {
+    (vecPush out
+      (mkDiagFix2 SEV_ERROR "AX3012" "assign-to-immutable"
+        tspan
+        (strConcat (strConcat "cannot assign to immutable binding `" name) "`")
+        bspan
+        (strConcat (strConcat "`" name) "` is bound here")
+        (strConcat (strConcat "declare it mutable: `(mut " name) " ...)`")
+        bspan
+        (strConcat "mut " name)
+        "only a binding introduced by `(let ((mut x ...)) ...)` may be the target of `set`"))
+    0
+  })
+
+; The span of the first entry-file declaration of `name`, or 0. An
+; imported declaration (its stored name carries a `$`) never
+; qualifies; nor does one with no recorded span.
+(pub :: entryDeclSpan (-> Int Int Int Int))
+(pub fn (entryDeclSpan decls name i)
+  (if (>= i (vecLen decls))
+      0
+      (let ((d (vecGet decls i)))
+        (let ((tag (nodeTag d)))
+          (if (&& (|| (== tag TAG_D_SIG)
+                      (|| (== tag TAG_D_FN) (== tag TAG_D_FOREIGN)))
+                  (&& (strEq (nodeA d) name)
+                      (!= (nodeSpan d) 0)))
+              (nodeSpan d)
+              (entryDeclSpan decls name (+ i 1)))))))
 
 (pub :: checkExprVec (-> Int Int Int Int Int Int Int))
 (pub fn (checkExprVec decls adecls scope v out i)
@@ -458,7 +541,7 @@
 (pub fn (bindNames v scope i)
   (if (>= i (vecLen v))
       0
-      { (vecPush scope (vecGet v i)) (bindNames v scope (+ i 1)) }))
+      { (pushScope scope (vecGet v i) 0 0) (bindNames v scope (+ i 1)) }))
 
 (pub :: checkArms (-> Int Int Int Int Int Int Int))
 (pub fn (checkArms decls adecls scope arms out i)
@@ -702,7 +785,7 @@
 (pub fn (offerScope best name scope i)
   (if (>= i (vecLen scope))
       0
-      { (offerCandidate best name (vecGet scope i))
+      { (offerCandidate best name (memGetWord (vecGet scope i) 0))
         (offerScope best name scope (+ i 1)) }))
 
 ; stage0 offers candidates in three separate passes - everything in

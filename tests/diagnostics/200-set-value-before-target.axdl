@@ -1,0 +1,2 @@
+E AX3001 200-set-value-before-target.ax:2:43-46 undefined-variable "undefined variable `qqq`" ?"variables must be defined (via `define`/`fn`, a `let` binding, or a lambda parameter) before they are used; check for typos"
+E AX3001 200-set-value-before-target.ax:2:36-39 undefined-variable "undefined variable `zzz`" ?"variables must be defined (via `define`/`fn`, a `let` binding, or a lambda parameter) before they are used; check for typos"

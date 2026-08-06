@@ -1010,10 +1010,34 @@ declaration in `self_host/` and `stdlib/` is `pub`, so the filter is a
 no-op for the compiler's own build - checked before the change, and
 the bootstrap fixpoint held after it.
 
-Still recorded open, all in the under-reporting direction: `AX3012`
-(assign to an immutable binding) is refused at emission with a prose
-message rather than reported as a diagnostic; stage0 type-checks the
-bodies of imported modules and renders each diagnostic against its own
+`AX3012` is the fifth diagnostic, and the first whose AXDL uses every
+field the renderer has: a primary at the assignment's target, a
+secondary at the binding's *binder*, a machine-applicable fix
+(`~>"mut c"`) at the same binder, and a second, plain help - which is
+one more help than `Diag` carried, so the record grew a slot. Binder
+spans had to exist first: a `let` pair now records its name token's
+span and the folded `TAG_E_LET`/`TAG_E_LETM` node carries it, a match
+binder's span was already on its pattern node, and a *parameter*
+target stays silent (the parser records no parameter spans yet) with
+emission's prose refusal still behind it - under-reported, never
+mis-pointed. A top-level target anchors its secondary at the first
+entry-file declaration of the name, which is the signature when one
+exists, stage0's anchor; an imported target stays silent, because its
+binder's span indexes a different file's text and every span on one
+AXDL line renders against one source.
+
+The probe that mattered was for something else. `(set zzz (+ qqq
+1))` reports `qqq` before `zzz` under stage0 - the VALUE is checked
+before the target resolves - and stage1 had them the other way round:
+two correct diagnostics in an order that fails a byte-identical gate.
+Probed, fixed, pinned by `200-set-value-before-target`, and ablating
+the order fails it.
+
+Still recorded open, all in the under-reporting direction: stage0
+follows `AX3012` on a top-level target with an `AX3004` cascade
+(assigning through the binding's type) that stage1 cannot produce, so
+that shape stays out of the corpus; `set` on a *parameter* is prose at
+emission, as above; stage0 type-checks the bodies of imported modules and renders each diagnostic against its own
 filename, while stage1 checks only the entry file against one; the 18
 builtin operators are suggestion candidates in stage0 and not in
 stage1; and stage0's suggestion threshold counts BYTES while its

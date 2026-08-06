@@ -71,11 +71,11 @@
 (pub struct Diag
   (sev : Int) (code : Int) (slug : Int) (span : Int)
   (msg : Int) (relSpan : Int) (relMsg : Int) (help : Int)
-  (fixSpan : Int) (fixText : Int))
+  (fixSpan : Int) (fixText : Int) (help2 : Int))
 
 (pub :: mkDiag (-> Int Int Int Int Int Int Int Int Int))
 (pub fn (mkDiag sev code slug span msg relSpan relMsg help)
-  (Diag sev code slug span msg relSpan relMsg help 0 0))
+  (Diag sev code slug span msg relSpan relMsg help 0 0 0))
 
 ; A diagnostic whose help is MACHINE-APPLICABLE: it names a span and
 ; the text to put there, and renders as `?LOC:"msg"~>"replacement"`
@@ -84,7 +84,15 @@
 ; without parsing the English.
 (pub :: mkDiagFix (-> Int Int Int Int Int Int Int Int Int Int Int))
 (pub fn (mkDiagFix sev code slug span msg relSpan relMsg help fixSpan fixText)
-  (Diag sev code slug span msg relSpan relMsg help fixSpan fixText))
+  (Diag sev code slug span msg relSpan relMsg help fixSpan fixText 0))
+
+; A fix-help followed by a second, plain help - `AX3012`'s shape:
+; `?LOC:"declare it mutable..."~>"mut x" ?"only a binding..."`.
+; stage0's Diagnostic carries a Vec of helps and renders them in push
+; order; two is what any current diagnostic uses.
+(pub :: mkDiagFix2 (-> Int Int Int Int Int Int Int Int Int Int Int Int))
+(pub fn (mkDiagFix2 sev code slug span msg relSpan relMsg help fixSpan fixText help2)
+  (Diag sev code slug span msg relSpan relMsg help fixSpan fixText help2))
 
 ; ------------------------------------------------------------------
 ; Source position mapping.
@@ -224,8 +232,11 @@
                      (strConcat (strConcat (strConcat (strConcat (strConcat
                        " ?" (fmtSpan src (memGetWord d 8))) ":")
                        (quoteStr (memGetWord d 7))) "~>")
-                       (quoteStr (memGetWord d 9)))))))
-    (strConcat (strConcat head rel) hlp)))
+                       (quoteStr (memGetWord d 9))))))
+        (hlp2 (if (== (memGetWord d 10) 0)
+                  ""
+                  (strConcat " ?" (quoteStr (memGetWord d 10))))))
+    (strConcat (strConcat (strConcat head rel) hlp) hlp2)))
 
 ; ------------------------------------------------------------------
 ; Every diagnostic, one per line, newline-terminated - the whole of

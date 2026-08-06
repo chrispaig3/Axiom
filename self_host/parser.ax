@@ -109,7 +109,14 @@
 (pub :: mkEVarAt (-> Int Int Int))
 (pub fn (mkEVarAt n sp) (mkNodeAt TAG_E_VAR n 0 0 sp))
 (pub :: mkELam (-> Int Int Int))          (pub fn (mkELam p b)   (mkNode TAG_E_LAM p b 0))
+; A `let` node's span is its BINDER's - the token the name came from.
+; stage0's `Expr::span()` answers the body's span for a `let`, but
+; nothing in stage1 asks that question; what its diagnostics need is
+; where the binding was introduced, which is where AX3012's secondary
+; and its `mut` fix point.
 (pub :: mkELet (-> Int Int Int Int))      (pub fn (mkELet n v b) (mkNode TAG_E_LET n v b))
+(pub :: mkELetAt (-> Int Int Int Int Int))
+(pub fn (mkELetAt n v b sp) (mkNodeAt TAG_E_LET n v b sp))
 (pub :: mkEIf  (-> Int Int Int Int))      (pub fn (mkEIf  t c a) (mkNode TAG_E_IF  t c a))
 (pub :: mkEBegin (-> Int Int))            (pub fn (mkEBegin xs)  (mkNode TAG_E_BEGIN xs 0 0))
 (pub :: mkDFn   (-> Int Int Int Int))     (pub fn (mkDFn n p b)  (mkNode TAG_D_FN n p b))
@@ -1014,8 +1021,14 @@
                             (let ((val (memGetWord valR 1))
                                   (afterVal (memGetWord valR 2)))
                               (if (peekIs tokens afterVal TK_RPAREN) ; close (n v)
+                                  ; The pair carries the NAME token's
+                                  ; span - the position after parsing
+                                  ; the name, minus one, is its token.
                                   (parseBindPairs tokens (advance afterVal)
-                                    (vecPush acc (mkNode TAG_NIL name val isMut)))
+                                    (vecPush acc
+                                      (mkNodeAt TAG_NIL name val isMut
+                                        (tokenSpan (vecGet tokens
+                                          (- (memGetWord nr2 2) 1))))))
                                   (pErr afterVal)))))))))))
   (pErr pos))))
 
@@ -1027,8 +1040,8 @@
       (let ((b (vecGet binds i)))
         (foldLets binds
                   (if (== (nodeC b) 1)
-                      (mkNode TAG_E_LETM (nodeA b) (nodeB b) body)
-                      (mkELet (nodeA b) (nodeB b) body))
+                      (mkNodeAt TAG_E_LETM (nodeA b) (nodeB b) body (nodeSpan b))
+                      (mkELetAt (nodeA b) (nodeB b) body (nodeSpan b)))
                   (- i 1)))))
 
 ; ------------------------------------------------------------------
