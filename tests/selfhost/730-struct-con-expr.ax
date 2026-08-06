@@ -1,0 +1,22 @@
+; expect 42
+; The three keyword-headed expression forms stage0's parser has and
+; stage1's did not. Each used to arrive as an application of a bare
+; name, so a program using any of them drew a false AX3001 from a
+; checker that had no idea they were keywords - and `(struct ...)`
+; drew two, since its type name landed where an argument goes.
+;
+;   (struct Name field...)  construction, distinct from `(Name ...)`
+;   (consume e)             transparent: stage0's checker, IR and
+;                           `Expr::span()` all see through to `e`
+;   (alloc Type [count])    types `*mut Type` and evaluates to 0 -
+;                           stage0's IR generator has NO case for it,
+;                           so it reaches the generator's catch-all
+;
+; The `alloc` term is the load-bearing one: it contributes 0, so this
+; case fails if stage1 ever "improves" on stage0 by allocating.
+(struct P (x : Int) (y : Int))
+(:: main Int)
+(fn (main)
+  (let ((p (struct P 40 2))
+        (z (cast Int (alloc Int 8))))
+    (+ (+ p.x (consume p.y)) z)))

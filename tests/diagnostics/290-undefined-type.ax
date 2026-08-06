@@ -1,0 +1,4 @@
+(struct Point (x : Int) (y : Int))
+(data Colour (Red))
+(:: main Int)
+(fn (main) { (struct Pointt 1 2) (struct Colour 1) })

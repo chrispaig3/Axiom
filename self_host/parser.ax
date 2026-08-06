@@ -119,6 +119,21 @@
 ; if the literal arrived typed `Int`. Codegen emits it exactly as an
 ; integer (word 1 is the codepoint), so representation is unchanged.
 (pub :: TAG_E_CHAR Int)    (pub fn (TAG_E_CHAR) 39)
+; `(struct Name field...)` in EXPRESSION position - stage0's
+; parse_struct_con, a construction form distinct from the application
+; spelling `(Name field...)`. Without it the form parsed as an
+; application of a variable named `struct`, and a VALID program drew
+; two false AX3001s (one for `struct`, one for the type name), which
+; is the failure the whole checker is written to avoid. a=name,
+; b=Vec of argument nodes; the span is the NAME's, which is where
+; stage0 anchors every diagnostic about the form.
+(pub :: TAG_E_STRUCTCON Int) (pub fn (TAG_E_STRUCTCON) 40)
+; `(alloc Type [count])`. stage0 types this `*mut Type` and its IR
+; generator has NO case for it, so it falls to the generator's
+; catch-all and emits the constant 0 - verified by running a
+; stage0-built binary. stage1 reproduces both halves: the pointer
+; type, and the zero. a=type node, b=count node (0 when absent).
+(pub :: TAG_E_ALLOC Int)   (pub fn (TAG_E_ALLOC) 41)
 
 (pub :: nodeTag (-> Int Int))   (pub fn (nodeTag n) (memGetWord n 0))
 (pub :: nodeA   (-> Int Int))   (pub fn (nodeA   n) (memGetWord n 1))
@@ -1101,7 +1116,18 @@
               (parseWhileExpr tokens (advance pos))
           (if (kwEq name "set")
               (parseSetExpr tokens (advance pos))
-          (parseAppForm tokens pos))))))))))))
+          ; The three keyword-headed forms stage0 parses here that
+          ; stage1 used to leave to parseAppForm. Each arrived as an
+          ; application of a bare name and drew a false AX3001 on a
+          ; program stage0 compiles in silence; `struct` drew two,
+          ; since its type name landed where an argument goes.
+          (if (kwEq name (kwStruct))
+              (parseStructConExpr tokens (advance pos))
+          (if (kwEq name "consume")
+              (parseConsumeExpr tokens (advance pos))
+          (if (kwEq name "alloc")
+              (parseAllocExpr tokens (advance pos))
+          (parseAppForm tokens pos)))))))))))))))
   (if (peekIs tokens pos TK_RPAREN)
       (pOk 0 (advance pos))
   (parseAppForm tokens pos))))
@@ -1119,6 +1145,64 @@
           (if (== (memGetWord bodyR 0) 0) bodyR
               (pOk (mkNode TAG_E_WHILE cnd (memGetWord bodyR 1) 0)
                    (memGetWord bodyR 2)))))))
+
+; ------------------------------------------------------------------
+; (struct Name field...) - struct construction in expression position,
+; stage0's parse_struct_con. The node carries the NAME'S span because
+; every diagnostic stage0 produces about this form anchors there:
+; AX3002 when the name resolves to no struct, AX3008 on a field-count
+; mismatch (`expr.span()` of an EStructCon is its name's), and only a
+; field's own AX3004 anchors at an argument.
+; ------------------------------------------------------------------
+(pub :: parseStructConExpr (-> Int Int Int))
+(pub fn (parseStructConExpr tokens pos)
+  (if (peekIs tokens pos TK_IDENT)
+      (let ((nameTok (vecGet tokens pos))
+            (argsR (parseExprList tokens (advance pos) vecNew)))
+        (if (== (memGetWord argsR 0) 0) argsR
+            (pOk (mkNodeAt TAG_E_STRUCTCON (tokenLexeme nameTok)
+                           (memGetWord argsR 1) 0
+                           (tokenSpan nameTok))
+                 (memGetWord argsR 2))))
+  (pErr pos)))
+
+; ------------------------------------------------------------------
+; (consume e) - stage0 keeps an EConsume node, but every consumer
+; sees through it: the checker types it as its operand, the IR
+; generator lowers it to its operand, and `Expr::span()` answers the
+; OPERAND's span. Collapsing it here is therefore exactly equivalent
+; and costs no node - `(consume 42)` runs to 42 under stage0, probed.
+; ------------------------------------------------------------------
+(pub :: parseConsumeExpr (-> Int Int Int))
+(pub fn (parseConsumeExpr tokens pos)
+  (let ((r (parseExpr tokens pos)))
+    (if (== (memGetWord r 0) 0) r
+        (if (peekIs tokens (memGetWord r 2) TK_RPAREN)
+            (pOk (memGetWord r 1) (advance (memGetWord r 2)))
+            (pErr (memGetWord r 2))))))
+
+; ------------------------------------------------------------------
+; (alloc Type) / (alloc Type count) - the count is optional, and both
+; shapes type as `*mut Type`. Nothing evaluates: stage0's IR generator
+; has no EAlloc case at all, so the form reaches its catch-all and
+; emits the constant 0 (probed: a stage0-built `(cast Int (alloc Int
+; 4))` exits 0). stage1 reproduces the type and the zero rather than
+; inventing an allocation stage0 does not perform.
+; ------------------------------------------------------------------
+(pub :: parseAllocExpr (-> Int Int Int))
+(pub fn (parseAllocExpr tokens pos)
+  (let ((tr (parseType tokens pos)))
+    (if (== (memGetWord tr 0) 0) tr
+        (if (peekIs tokens (memGetWord tr 2) TK_RPAREN)
+            (pOk (mkNode TAG_E_ALLOC (memGetWord tr 1) 0 0)
+                 (advance (memGetWord tr 2)))
+            (let ((cr (parseExpr tokens (memGetWord tr 2))))
+              (if (== (memGetWord cr 0) 0) cr
+                  (if (peekIs tokens (memGetWord cr 2) TK_RPAREN)
+                      (pOk (mkNode TAG_E_ALLOC (memGetWord tr 1)
+                                   (memGetWord cr 1) 0)
+                           (advance (memGetWord cr 2)))
+                      (pErr (memGetWord cr 2)))))))))
 
 ; ------------------------------------------------------------------
 ; (set name value) - a store into a `mut` binding. The field form

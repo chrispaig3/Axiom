@@ -112,6 +112,22 @@
   (+ (+ r.n (cast Int r.ratio))
      (+ (sizeof Int) (alignof Int))))
 
+; --- the keyword-headed expression forms ----------------------------
+; `(struct ...)` in EXPRESSION position is construction, distinct from
+; the `(struct ...)` declaration above and from the application
+; spelling `(Rec ...)`. It is here because it printed as a bare
+; `Rec 1 true 1.5 "s"` - no keyword, no parens - until a conformance
+; case first asked the formatter to render one: output that either
+; failed to parse or re-parsed as an application and dropped its
+; arguments on the second pass. `consume` and `alloc` ride along, the
+; two other forms whose only corpus use is this file.
+(:: keyword_forms (-> Int Int))
+(fn (keyword_forms n)
+  (let ((r (struct Rec 1 true 1.5 "s"))
+        (p (alloc Int 8))
+        (q (alloc Bool)))
+    (+ (consume r.n) n)))
+
 ; --- qualified names ------------------------------------------------
 (:: qualified (-> Int Int))
 (fn (qualified x) (Mem::memAlloc x))

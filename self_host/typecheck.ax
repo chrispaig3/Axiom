@@ -1020,7 +1020,18 @@
             (checkSetField tc e)
         (if (== tag TAG_E_FIELD)
             (checkField tc e)
-        mkSilentWild)))))))))))))))))))
+        (if (== tag TAG_E_STRUCTCON)
+            (checkStructConNode tc e)
+        ; `(alloc Type [count])` types `*mut Type` and evaluates
+        ; nothing - stage0's IR generator has no case for it. The
+        ; count, when present, is still an expression stage0 walks,
+        ; so a diagnostic inside it is reported.
+        (if (== tag TAG_E_ALLOC)
+            {
+              (if (!= (nodeB e) 0) (checkExprH tc (nodeB e) 0) 0)
+              (mkTPtr (nodeA e) 1)
+            }
+        mkSilentWild)))))))))))))))))))))
 
 (pub :: checkExprSeq (-> Int Int Int Int Int))
 (pub fn (checkExprSeq tc v i last)
@@ -1500,18 +1511,26 @@
 
 (pub :: checkStructCon (-> Int Int Int Int))
 (pub fn (checkStructCon tc e ent)
-  (let ((args (spineArgVec e vecNew))
-        (fields (memGetWord ent 1)))
+  (checkStructConAt tc (spineArgVec e vecNew) (spanOf e) ent))
+
+; The shared half, reached from both construction spellings: the
+; application form `(P 1 2)` above, and the keyword form
+; `(struct P 1 2)` below. stage0 checks them through different AST
+; nodes but with identical rules and identical message text, so one
+; body serves both and the strings cannot drift apart.
+(pub :: checkStructConAt (-> Int Int Int Int Int))
+(pub fn (checkStructConAt tc args span ent)
+  (let ((fields (memGetWord ent 1)))
     (if (!= (vecLen args) (vecLen fields))
         {
-          (if (!= (spanOf e) 0)
+          (if (!= span 0)
               (vecPush (tcOut tc)
                 (let ((msg (strConcat (strConcat (strConcat (strConcat (strConcat
                              "struct `" (bareOf (memGetWord ent 0)))
                              "` expects ") (decStr (vecLen fields)))
                              " field(s), found ") (decStr (vecLen args)))))
                   (mkDiag SEV_ERROR "AX3008" "semantic-error"
-                          (spanOf e) msg 0 0 0)))
+                          span msg 0 0 0)))
               0)
           (mkNode TAG_T_ERR 0 0 0)
         }
@@ -1519,6 +1538,32 @@
           (checkStructFields tc args fields 0)
           (mkTCon (bareOf (memGetWord ent 0)) vecNew)
         })))
+
+; `(struct Name field...)` - the keyword construction form. A name
+; that resolves to no struct is AX3002, the twelfth diagnostic and
+; the only one whose subject is a TYPE. Two details are stage0's and
+; neither is guessable: the arguments are NOT checked when the name
+; misses (stage0 returns TError straight from the `None` arm, so an
+; undefined variable among the fields goes unreported), and the help
+; is fixed prose with no "did you mean" - `SemError::UndefinedType`
+; is constructed with `suggestion: None` at its one emission site, so
+; a suggestion is unreachable however close a struct name sits.
+(pub :: checkStructConNode (-> Int Int Int))
+(pub fn (checkStructConNode tc e)
+  (let ((ent (findStruct tc (nodeA e))))
+    (if (== ent 0)
+        {
+          (if (!= (nodeSpan e) 0)
+              (vecPush (tcOut tc)
+                (mkDiag SEV_ERROR "AX3002" "undefined-type"
+                        (nodeSpan e)
+                        (strConcat (strConcat "undefined type `" (nodeA e)) "`")
+                        0 0
+                        "check for typos, or a missing `data`/`struct`/`type` declaration"))
+              0)
+          (mkNode TAG_T_ERR 0 0 0)
+        }
+        (checkStructConAt tc (nodeB e) (nodeSpan e) ent))))
 
 (pub :: checkStructFields (-> Int Int Int Int Int))
 (pub fn (checkStructFields tc args fields i)

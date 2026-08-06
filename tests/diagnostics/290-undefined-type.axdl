@@ -1,0 +1,2 @@
+E AX3002 290-undefined-type.ax:4:22-28 undefined-type "undefined type `Pointt`" ?"check for typos, or a missing `data`/`struct`/`type` declaration"
+E AX3002 290-undefined-type.ax:4:42-48 undefined-type "undefined type `Colour`" ?"check for typos, or a missing `data`/`struct`/`type` declaration"

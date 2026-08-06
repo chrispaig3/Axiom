@@ -2343,7 +2343,41 @@
     (if (== tag TAG_E_FIELD) (emitField node cg)
     (if (== tag TAG_E_SETF)  (emitSetF node cg)
     (if (== tag TAG_E_LAM)   (emitLambda node cg)
-    (emitDefault node cg))))))))))))))))))))
+    (if (== tag TAG_E_STRUCTCON) (emitStructConExpr node cg)
+    ; `(alloc Type [count])` allocates nothing. stage0's IR generator
+    ; has no EAlloc case, so the form falls to its catch-all constant
+    ; 0; emitting a real allocation here would be stage1 doing more
+    ; than the compiler it must agree with.
+    (if (== tag TAG_E_ALLOC)
+        {
+          (memSetWord cg 2 (constStr 0))
+          (memSetWord cg 14 0)
+          cg
+        }
+    (emitDefault node cg))))))))))))))))))))))
+
+; `(struct Name field...)` - the keyword construction form. It builds
+; the identical block the application spelling `(Name field...)`
+; builds, through the same emitConstructor, because stage0 lowers
+; both to a heap block of `fields * 8` bytes with argument i at word
+; i. A name with no registry entry cannot reach here on a checked
+; program - it is AX3002 - but emission must not segfault on one, so
+; an unknown name answers the constant 0, the same shape stage0's
+; generator falls back to.
+(pub :: emitStructConExpr (-> Int Int Int))
+(pub fn (emitStructConExpr node cg)
+  (let ((types (memGetWord cg 3))
+        (args (nodeB node)))
+    (let ((entry (lookupType types (nodeA node))))
+      (if (== entry 0)
+          {
+            (memSetWord cg 2 (constStr 0))
+            (memSetWord cg 14 0)
+            cg
+          }
+          (zeroFloat (emitConstructor (nodeA node) args (eKind entry)
+                                      (eArity entry) (eTag entry)
+                                      (eRep entry) cg))))))
 
 ; `(set base.field v)`: the base evaluates once, the field resolves as
 ; a read does, and the value is stored at its offset. The whole form

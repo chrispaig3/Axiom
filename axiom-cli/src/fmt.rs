@@ -1404,14 +1404,22 @@ fn format_expr(expr: &Expr, out: &mut String, state: &mut FormatState) {
             out.push_str(&field_ident.name);
         }
         Expr::EStructCon(name, args) => {
+            // `(struct Name field...)`, keyword and parens included -
+            // the same class of never-exercised spelling as
+            // `ESetField` below. This printed `Name field...` bare,
+            // which is not an expression at all: `(struct P 40 2)`
+            // formatted to `P 40 2`, and the result either failed to
+            // parse or re-parsed as an application and lost its
+            // arguments on the next pass. Nothing in the corpus used
+            // the form until a conformance case did, so the fmt zoo
+            // carries one now.
+            out.push_str("(struct ");
             out.push_str(&name.name);
-            out.push(' ');
-            for (i, arg) in args.iter().enumerate() {
-                if i > 0 {
-                    out.push(' ');
-                }
+            for arg in args.iter() {
+                out.push(' ');
                 format_expr(arg, out, state);
             }
+            out.push(')');
         }
         Expr::ESetField(base, field_ident, value) => {
             // `(set base.field v)`, not `(set-field base field v)`.

@@ -1148,6 +1148,55 @@ looking for. A checker's silence has to be swept over every tree of
 correct programs, not most of them, and the sweep has to say how many
 it swept.
 
+`AX3002` undefined-type is the twelfth diagnostic, and finding it
+meant asking a different question than "what should stage1 check
+next". A survey of the six `AX30xx` codes stage1 did not emit showed
+`AX3002` fires from exactly one place in stage0 — an `EStructCon`
+whose name resolves to no struct — which is `(struct Name field...)`
+in *expression* position, the construction form distinct from the
+application spelling `(Name field...)`. stage1's parser had no such
+form, so it arrived as an application of a bare name and drew **two
+false `AX3001`s on a valid program**: one for `struct`, one for the
+type name sitting where an argument goes. That is the failure the
+whole checker is written to avoid, and the four-tree sweep could not
+see it, because no file in any of those trees uses the form.
+
+Two neighbours were wrong the same way. stage0's expression parser has
+sixteen keyword-headed forms; the three stage1 did not know were
+`struct`, `consume` and `alloc`, and each drew a false `AX3001` on its
+keyword. All three parse now. `consume` collapses at parse time to its
+operand, which is exactly faithful — stage0's checker, IR generator
+and `Expr::span()` all see through `EConsume` to the operand. `alloc`
+types `*mut Type` and evaluates to **zero**: stage0's IR generator has
+no `EAlloc` case at all, so the form reaches the generator's catch-all
+constant, verified by running a stage0-built `(cast Int (alloc Int
+4))` and getting 0. Reproducing that zero rather than allocating is
+the point — `730-struct-con-expr.ax` adds an `alloc` term precisely so
+the case fails if stage1 ever improves on stage0 here.
+
+The trap this slice had to avoid is the one the checker creates: a
+form the type checker accepts and the emitter cannot build. Teaching
+`checkExprH` about the construction node without teaching `emitExpr`
+made a well-typed program **segfault** through stage1 while stage0 ran
+it to 42. Both spellings share one emitter now, through the same
+`emitConstructor` that builds the application form's block, because
+stage0 lowers both to a heap block of `fields * 8` bytes with argument
+*i* at word *i*; and both share one checker body, so the AX3008 and
+AX3004 message text cannot drift between the two syntaxes.
+
+Adding the first test files that use the form then found a bug in
+**stage0's formatter**, which is the third time this document records
+the differential method paying out in that direction. `EStructCon`
+printed as a bare `Name field...` — no keyword, no parens — because
+nothing in the corpus had ever asked `fmt` to render one. The output
+either failed to parse (`expected ), found 40`) or re-parsed as an
+application and dropped its arguments on the second pass, so
+`check-fmt`'s idempotency check reported a formatter that was not
+idempotent. Fixed, and the fmt zoo carries all three forms now, so the
+next silent one has to be a fourth. The lesson is the one §4's effect
+work already recorded: documented-but-unexercised syntax is untested
+syntax, and the exercise has to come from a file in the corpus.
+
 `AX3013` remains under-reported in one direction recorded in
 `typecheck.ax`: stage0 also measures builtins and foreign bindings
 through their arrow depth. Duplicates *inside an imported module* also
@@ -1156,9 +1205,13 @@ record which module each declaration came from; checking the entry
 file alone is the sound subset, never inventing a diagnostic stage0
 would not produce.
 
-What genuinely remains for phase 3: effects and AXTAG validation,
-diagnostic grouping, and type-checking the bodies of imported modules
-against their own filenames.
+What genuinely remains for phase 3: effects and AXTAG validation
+(`AX3010`, `AX3011`, `AX3016`, `AX3017` — the coupled cluster),
+`AX3014` ambiguous-name, which needs the per-declaration module
+tracking stage1's merged declaration list does not keep, diagnostic
+grouping, and type-checking the bodies of imported modules against
+their own filenames. That is every remaining `AX30xx` code accounted
+for: stage1 emits twelve of the seventeen.
 
 (This paragraph used to end "No lambda expressions (refused loudly)".
 That was true when it was written and stopped being true two commits
