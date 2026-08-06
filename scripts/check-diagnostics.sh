@@ -29,11 +29,20 @@
 #   * False positives on the compiler's own source. A checker that
 #     rejects self_host/, stdlib/ or the stdlib test corpus is worse
 #     than no checker, and no corpus case would notice, so the last
-#     section runs stage1 over every file in all three trees and
+#     section runs stage1 over every file in all four trees and
 #     requires silence. tests/stdlib/ is in that list because it is
 #     the only place effects and the builtin `Option` appear - a
 #     checker that rejected every effect program passed a sweep
-#     without it.
+#     without it. tests/selfhost/ is in it because it is the largest
+#     body of programs written to be compiled BY stage1, and it was
+#     missing when type checking landed: `150-struct.ax` passed
+#     `__load64` a struct handle, which stage0 has always rejected
+#     (every primitive is `Int`-typed) and stage1 accepted only
+#     because it did not yet check types. The sweep read the three
+#     trees and reported clean; check-self-host.sh caught it instead,
+#     as a conformance case suddenly failing. A checker's silence has
+#     to be swept over every tree of correct programs, not most of
+#     them.
 #
 # Usage:
 #   scripts/check-diagnostics.sh          # every case
@@ -147,10 +156,13 @@ fi
 # positive here does not merely annoy, it stops the compiler compiling
 # itself.
 echo
-echo "--- stage1 finds nothing to report in self_host/ and stdlib/ ---"
+echo "--- stage1 finds nothing to report in self_host/, stdlib/, tests/stdlib/, tests/selfhost/ ---"
 selfclean=0
-for src in self_host/*.ax stdlib/*.ax stdlib/Sys/*.ax tests/stdlib/*.ax; do
+swept=0
+for src in self_host/*.ax stdlib/*.ax stdlib/Sys/*.ax tests/stdlib/*.ax \
+           tests/selfhost/*.ax; do
   [[ -e "$src" ]] || continue
+  swept=$((swept + 1))
   out="$(cd "$work" && ./stage1 "$src" 2>"$work/sweep.err" >/dev/null; echo "$?")"
   diags="$(axdl_only < "$work/sweep.err")"
   if [[ -n "$diags" ]]; then
@@ -178,8 +190,17 @@ for src in self_host/*.ax stdlib/*.ax stdlib/Sys/*.ax tests/stdlib/*.ax; do
     selfclean=1
   fi
 done
-if [[ "$selfclean" == 0 ]]; then
-  echo "ok   every file in self_host/ and stdlib/ is clean"
+# A third failure that looks like success: the sweep reading fewer
+# files than it should. A renamed tree or a glob that stops matching
+# takes its files out of the sweep silently, and silence is exactly
+# what this section reports on success - which is how tests/selfhost/
+# went unswept while the sweep said "clean". The count is printed, and
+# a floor well under the current 124 refuses outright.
+if [[ "$swept" -lt 100 ]]; then
+  echo "FAIL sweep read only $swept files (expected ~124): a tree is missing from the globs"
+  failed=$((failed + 1))
+elif [[ "$selfclean" == 0 ]]; then
+  echo "ok   all $swept files across those four trees are clean"
 fi
 
 echo

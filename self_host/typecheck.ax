@@ -1,31 +1,53 @@
 ; typecheck.ax — semantic analysis in Axiom.
 ;
-; This module was a stub for as long as stage1 could not say *where* a
-; problem was: its AST carried no spans, so no diagnostic could name a
-; location, and Phase 3's acceptance criterion is byte-identical AXDL
-; against stage0 (docs/self-hosting.md). Declaration names now carry
-; their span, `diag.ax` renders AXDL, and this module produces the
-; diagnostics.
+; This is type checking proper: the checker infers a type for every
+; expression and compares them exactly where stage0 compares them,
+; because Phase 3's acceptance criterion is byte-identical AXDL
+; against stage0 (docs/self-hosting.md), and the sweep in
+; scripts/check-diagnostics.sh requires total silence on the
+; compiler's own source. Both constraints bind at once, so every rule
+; here is either a probed/read stage0 behavior reproduced exactly, or
+; a recorded gap in the UNDER-reporting direction - a checker that
+; rejects a valid program is worse than no checker.
 ;
-; WHAT IS CHECKED, and why these two first. Both are
-; *declaration-level*: they need no type inference, no scope walk, and
-; none of the resolution subtleties (entry-first bare names, poison
-; propagation, tyvar-as-wildcard compatibility) that a naive
-; reimplementation gets quietly wrong. Between them they exercise every
-; AXDL field stage1 can currently produce - primary span, related span,
-; help - which is what makes the differential gate meaningful rather
-; than decorative.
+; The stage0 model, replicated:
 ;
-;   AX3006 duplicate-definition — a name defined twice in one module.
-;   AX3015 missing-definition   — an entry-file signature with no
-;                                 definition behind it.
+;   * Types are structural nodes (TAG_T_* in parser.ax). There is no
+;     unification and no substitution anywhere: `tyCompat` treats a
+;     type VARIABLE on either side, at any depth, as matching
+;     anything, `String` and `Int` are mutually compatible by fiat
+;     (a Str handle is a machine word; without this rule every string
+;     in a Vec would be a type error), and the poison type TAG_T_ERR
+;     matches everything so one root cause never cascades.
 ;
-; ORDER MATTERS and is not incidental: stage0 runs
-; `check_duplicate_definitions` over every declaration before
-; `check_entry_signatures` runs over any, so every AX3006 precedes
-; every AX3015 whatever order they appear in the source (verified by
-; probe, in both source orderings). Two passes in that order is the
-; whole rule.
+;   * Function types come from signatures, authoritatively. A `fn`
+;     with no signature gets a placeholder `_fn_N` type variable and
+;     every parameter typed `Int` - Int, not a wildcard (probed:
+;     stage0 2185). Parameters BEYOND a signature's arrows bind at
+;     fresh `_tN` wildcards. The fresh-name counter's increment sites
+;     are copied from stage0 exactly, because `_tN` names render
+;     inside AX3004 messages.
+;
+;   * Two flavors of type variable. A RENDERED one (`_tN`, `_fn_N`, a
+;     source tyvar) follows stage0 everywhere, including the
+;     "expected function type, found _t0" arm. A SILENT one (name "")
+;     marks what stage1 cannot know - effect operations, macro heads,
+;     unparseable types - and is never rendered and never the subject
+;     of a diagnostic: applying it is quiet, reading a field off it
+;     is quiet. Under-report, never mis-report.
+;
+;   * Emission anchors: expression positions anchor through spanOf,
+;     which mirrors stage0's Expr::span() (an application's span is
+;     its head's, a field access's its BASE's, a let's its body's). A
+;     node stage1 kept no span for suppresses the diagnostic rather
+;     than mis-pointing it; suppression only ever omits lines, never
+;     reorders the ones stage0 also emits.
+;
+; Pass order (probed, pinned by goldens 040/130): every AX3006, then
+; every AX3015, then the body walk in declaration order, with
+; signature/foreign scope entries pushed AS ENCOUNTERED - a `set` in
+; an earlier body does not see a later signature (probed: AX3001, not
+; AX3012).
 ;
 ; Dependencies: core.ax, parser.ax, diag.ax, Mem, Str, Vec.
 
@@ -39,7 +61,8 @@
 ; ------------------------------------------------------------------
 ; Type rendering: stage0's `Display for TypeId`, byte for byte, since
 ; these strings appear verbatim inside AX3004 messages and the gate
-; compares whole lines. The shapes, pinned by `axiom symbols` probes:
+; compares whole lines. The shapes, pinned by `axiom symbols` probes
+; and tests/selfhost/720-type-render.ax:
 ;
 ;   {unknown}                        poison (and an absent type)
 ;   a, _t3                           type variable, its name alone
@@ -88,6 +111,110 @@
         (if (== i 0)
             (tyRender (vecGet xs 0))
             (strConcat (strConcat acc ", ") (tyRender (vecGet xs i)))))))
+
+; ------------------------------------------------------------------
+; Type predicates and constructors.
+; ------------------------------------------------------------------
+(pub :: tyIsErr (-> Int Int))
+(pub fn (tyIsErr t)
+  (if (== t 0) 0 (if (== (nodeTag t) TAG_T_ERR) 1 0)))
+
+; The silent wildcard: a nameless type variable. It marks the types
+; stage1 cannot know (effect operations, macro spines, a type its
+; grammar could not represent) and is never rendered - tyCompat lets
+; it match anything, and the two places stage0 would still complain
+; about a TVar (applying a non-function, reading a field) go quiet
+; for it specifically.
+(pub :: tyIsSilentWild (-> Int Int))
+(pub fn (tyIsSilentWild t)
+  (if (== t 0)
+      1
+      (if (&& (== (nodeTag t) TAG_T_VAR) (== (strLen (nodeA t)) 0)) 1 0)))
+
+(pub :: mkSilentWild Int)
+(pub fn (mkSilentWild) (mkTVar ""))
+
+(pub :: tyIsFloatTy (-> Int Int))
+(pub fn (tyIsFloatTy t)
+  (if (== t 0)
+      0
+      (if (!= (nodeTag t) TAG_T_CON)
+          0
+          (let ((n (nodeA t)))
+            (if (strEq n "Float") 1
+            (if (strEq n "Double") 1
+            (if (strEq n "F32") 1
+            (if (strEq n "F64") 1
+            0))))))))
+
+(pub :: mkIntTy Int)    (pub fn (mkIntTy)    (mkTCon "Int" vecNew))
+(pub :: mkBoolTy Int)   (pub fn (mkBoolTy)   (mkTCon "Bool" vecNew))
+(pub :: mkFloatTy Int)  (pub fn (mkFloatTy)  (mkTCon "Float" vecNew))
+(pub :: mkCharTy Int)   (pub fn (mkCharTy)   (mkTCon "Char" vecNew))
+(pub :: mkStringTy Int) (pub fn (mkStringTy) (mkTCon "String" vecNew))
+(pub :: mkI64Ty Int)    (pub fn (mkI64Ty)    (mkTCon "I64" vecNew))
+(pub :: mkUnitTy Int)   (pub fn (mkUnitTy)   (mkTTup vecNew))
+
+; ------------------------------------------------------------------
+; Compatibility - stage0's `compatible_with`, the whole "unifier".
+; Rules in order: a type variable on EITHER side matches anything (no
+; substitution exists, so `Tree a` vs `Tree Int` must pass); poison
+; matches anything; `String` and `Int` are mutually compatible BY
+; NAME (argument lists ignored - the uniform-representation rule);
+; constructors need equal names, equal argument counts, and pairwise
+; compatibility; arrows, tuples, lists pairwise; pointers also need
+; EQUAL mutability. An absent type (0) matches anything - stage1's
+; spelling of "I kept no type here".
+; ------------------------------------------------------------------
+(pub :: tyCompat (-> Int Int Int))
+(pub fn (tyCompat a b)
+  (if (|| (== a 0) (== b 0))
+      1
+      (let ((ta (nodeTag a))
+            (tb (nodeTag b)))
+        (if (|| (== ta TAG_T_VAR) (== tb TAG_T_VAR))
+            1
+        (if (|| (== ta TAG_T_ERR) (== tb TAG_T_ERR))
+            1
+        (if (&& (== ta TAG_T_CON) (== tb TAG_T_CON))
+            (if (|| (&& (strEq (nodeA a) "String") (strEq (nodeA b) "Int"))
+                    (&& (strEq (nodeA a) "Int") (strEq (nodeA b) "String")))
+                1
+                (if (&& (strEq (nodeA a) (nodeA b))
+                        (== (vecLen (nodeB a)) (vecLen (nodeB b))))
+                    (tyCompatVec (nodeB a) (nodeB b) 0)
+                    0))
+        (if (&& (== ta TAG_T_ARR) (== tb TAG_T_ARR))
+            (if (== (tyCompat (nodeA a) (nodeA b)) 1)
+                (tyCompat (nodeB a) (nodeB b))
+                0)
+        (if (&& (== ta TAG_T_TUP) (== tb TAG_T_TUP))
+            (if (== (vecLen (nodeA a)) (vecLen (nodeA b)))
+                (tyCompatVec (nodeA a) (nodeA b) 0)
+                0)
+        (if (&& (== ta TAG_T_LIST) (== tb TAG_T_LIST))
+            (tyCompat (nodeA a) (nodeA b))
+        (if (&& (== ta TAG_T_PTR) (== tb TAG_T_PTR))
+            (if (== (nodeB a) (nodeB b))
+                (tyCompat (nodeA a) (nodeA b))
+                0)
+        0))))))))))
+
+(pub :: tyCompatVec (-> Int Int Int Int))
+(pub fn (tyCompatVec xs ys i)
+  (if (>= i (vecLen xs))
+      1
+      (if (== (tyCompat (vecGet xs i) (vecGet ys i)) 1)
+          (tyCompatVec xs ys (+ i 1))
+          0)))
+
+(pub :: arrowDepth (-> Int Int))
+(pub fn (arrowDepth t)
+  (if (== t 0)
+      0
+      (if (== (nodeTag t) TAG_T_ARR)
+          (+ 1 (arrowDepth (nodeB t)))
+          0)))
 
 ; ------------------------------------------------------------------
 ; Which namespace a declaration defines into, or 0 for a declaration
@@ -241,63 +368,419 @@
                   }))))))
 
 ; ------------------------------------------------------------------
-; Pass 3: partial application (AX3013).
+; The checker's tables. Axiom has no globals, so one TC handle rides
+; through the whole walk.
 ;
-; A top-level function applied to fewer arguments than its definition
-; declares has no runtime representation - a call site would simply
-; omit the missing arguments and the callee would read whatever was in
-; the argument registers - so stage0 refuses it rather than
-; miscompiling it. stage1 emitted the same broken code silently.
-;
-; The span is the application's, which is its HEAD's: stage0's
-; `Expr::span()` recurses to the function side of an `EApp`, so the
-; report points at `f` in `(f 1)`. `mkEApp` copies that span at
-; construction, which is what makes this checkable at all.
-;
-; Two things this deliberately does NOT do, both in the
-; under-reporting direction:
-;
-;   * Only a head that resolves to a `fn` with a known parameter count
-;     is measured. stage0 also measures builtins and foreign bindings
-;     through their arrow depth; stage1 keeps no type structure for a
-;     signature, so it has no arrow to count.
-;   * A head shadowed by a local is skipped, as stage0 skips a
-;     frame-local head - a local may hold a one-parameter function
-;     returning a closure, and only that shape survives stepwise
-;     application, so its saturation is not statically knowable.
+;   fns      Vec of FnEnt, in registration order - which is also the
+;            suggestion pool's visit order, so it is semantic:
+;            operators, then primitives, then declarations as they
+;            appear in the resolved module list.
+;   datas    Vec of DataEnt; the builtin Option is FIRST, which is
+;            what puts `Some`/`None` ahead of every user constructor
+;            in suggestion and resolution order.
+;   structs  Vec of StructEnt.
+;   scope    one Vec: module-level entries (signatures and foreigns,
+;            pushed as the declaration walk reaches them - order
+;            matters, probed) below frameBase, the current function's
+;            frame above it. Value resolution reads the FRAME only;
+;            `set` target resolution reads the whole vec - stage0's
+;            asymmetry, kept deliberately.
+;   counter  the fresh-type-variable counter. Its increment sites are
+;            copied from stage0 exactly, because `_tN` names render.
 ; ------------------------------------------------------------------
+(pub struct FnEnt (name : Int) (ty : Int) (paramCount : Int)
+                  (isBuiltin : Int) (isForeign : Int) (isEffectOp : Int))
+(pub struct CtorEnt (name : Int) (fieldTys : Int) (resTy : Int) (ctorTy : Int))
+(pub struct DataEnt (name : Int) (ctors : Int))
+(pub struct StructEnt (name : Int) (fields : Int))
+(pub struct TC (fns : Int) (datas : Int) (structs : Int) (scope : Int)
+               (out : Int) (counter : Int) (frameBase : Int)
+               (macros : Int) (effects : Int)
+               (entryDecls : Int) (allDecls : Int))
 
-; Parameter count of the top-level `fn` named `name`, or -1.
-(pub :: fnArity (-> Int Int Int Int))
-(pub fn (fnArity decls name i)
+(pub :: tcFns (-> Int Int))     (pub fn (tcFns tc)     (memGetWord tc 0))
+(pub :: tcDatas (-> Int Int))   (pub fn (tcDatas tc)   (memGetWord tc 1))
+(pub :: tcStructs (-> Int Int)) (pub fn (tcStructs tc) (memGetWord tc 2))
+(pub :: tcScope (-> Int Int))   (pub fn (tcScope tc)   (memGetWord tc 3))
+(pub :: tcOut (-> Int Int))     (pub fn (tcOut tc)     (memGetWord tc 4))
+(pub :: tcCounter (-> Int Int)) (pub fn (tcCounter tc) (memGetWord tc 5))
+(pub :: tcBumpCounter (-> Int Int))
+(pub fn (tcBumpCounter tc) (memSetWord tc 5 (+ (memGetWord tc 5) 1)))
+(pub :: tcFrameBase (-> Int Int)) (pub fn (tcFrameBase tc) (memGetWord tc 6))
+(pub :: tcMacros (-> Int Int))  (pub fn (tcMacros tc)  (memGetWord tc 7))
+(pub :: tcEffects (-> Int Int)) (pub fn (tcEffects tc) (memGetWord tc 8))
+
+; A fresh `_tN`. stage0 mints the name from the current counter and
+; increments at SOME sites but not others; callers say which.
+(pub :: freshTVar (-> Int Int Int))
+(pub fn (freshTVar tc bump)
+  (let ((t (mkTVar (strConcat "_t" (decStr (tcCounter tc))))))
+    {
+      (if (== bump 1) (tcBumpCounter tc) 0)
+      t
+    }))
+
+; Int -> Int -> ... -> Int with `arity` arrows; arity 0 is bare Int.
+(pub :: mkIntArrow (-> Int Int))
+(pub fn (mkIntArrow arity)
+  (if (== arity 0)
+      mkIntTy
+      (mkTArr mkIntTy (mkIntArrow (- arity 1)))))
+
+(pub :: regFn (-> Int Int Int Int))
+(pub fn (regFn fns name ty)
+  (vecPush fns (cast Int (FnEnt name ty (- 0 1) 1 0 0))))
+
+; ------------------------------------------------------------------
+; Registration: stage0's TypeChecker::new(), in its order - the order
+; is observable through suggestion tie-breaking. Arithmetic and
+; bitwise operators are Int -> Int -> Int, comparisons return Bool,
+; the logical pair takes Bool; then every primitive at its arity;
+; then the builtin Option, whose constructors are in scope in every
+; program without being declared in any of them.
+; ------------------------------------------------------------------
+(pub :: tcNew (-> Int Int Int))
+(pub fn (tcNew entryDecls allDecls)
+  (let ((fns vecNew)
+        (datas vecNew))
+    {
+      (regFn fns "+" (mkIntArrow 2))
+      (regFn fns "-" (mkIntArrow 2))
+      (regFn fns "*" (mkIntArrow 2))
+      (regFn fns "/" (mkIntArrow 2))
+      (regFn fns "%" (mkIntArrow 2))
+      (regFn fns "&" (mkIntArrow 2))
+      (regFn fns "|" (mkIntArrow 2))
+      (regFn fns "^" (mkIntArrow 2))
+      (regFn fns "<<" (mkIntArrow 2))
+      (regFn fns ">>" (mkIntArrow 2))
+      (regFn fns "==" (mkTArr mkIntTy (mkTArr mkIntTy mkBoolTy)))
+      (regFn fns "!=" (mkTArr mkIntTy (mkTArr mkIntTy mkBoolTy)))
+      (regFn fns "<" (mkTArr mkIntTy (mkTArr mkIntTy mkBoolTy)))
+      (regFn fns ">" (mkTArr mkIntTy (mkTArr mkIntTy mkBoolTy)))
+      (regFn fns "<=" (mkTArr mkIntTy (mkTArr mkIntTy mkBoolTy)))
+      (regFn fns ">=" (mkTArr mkIntTy (mkTArr mkIntTy mkBoolTy)))
+      (regFn fns "&&" (mkTArr mkBoolTy (mkTArr mkBoolTy mkBoolTy)))
+      (regFn fns "||" (mkTArr mkBoolTy (mkTArr mkBoolTy mkBoolTy)))
+      (regFn fns "__syscall0" (mkIntArrow 1))
+      (regFn fns "__syscall1" (mkIntArrow 2))
+      (regFn fns "__syscall2" (mkIntArrow 3))
+      (regFn fns "__syscall3" (mkIntArrow 4))
+      (regFn fns "__syscall4" (mkIntArrow 5))
+      (regFn fns "__syscall5" (mkIntArrow 6))
+      (regFn fns "__syscall6" (mkIntArrow 7))
+      (regFn fns "__load8" (mkIntArrow 2))
+      (regFn fns "__store8" (mkIntArrow 3))
+      (regFn fns "__load64" (mkIntArrow 2))
+      (regFn fns "__store64" (mkIntArrow 3))
+      (regFn fns "__alloc" (mkIntArrow 1))
+      (regFn fns "__argc" (mkIntArrow 0))
+      (regFn fns "__argv" (mkIntArrow 1))
+      (regFn fns "__axiom_arena_mark" (mkIntArrow 0))
+      (regFn fns "__axiom_arena_reset" (mkIntArrow 1))
+      (regFn fns "__addr" (mkTArr mkStringTy mkIntTy))
+      (regFn fns "__intToFloat" (mkTArr mkIntTy mkFloatTy))
+      (regFn fns "__floatToInt" (mkTArr mkFloatTy mkIntTy))
+      (let ((optRes (mkTCon "Option"
+                      (let ((v vecNew)) { (vecPush v (mkTVar "a")) v })))
+            (optCtors vecNew))
+        {
+          (vecPush optCtors
+            (cast Int (CtorEnt "Some"
+                        (let ((v vecNew)) { (vecPush v (mkTVar "a")) v })
+                        optRes
+                        (mkTArr (mkTVar "a") optRes))))
+          (vecPush optCtors (cast Int (CtorEnt "None" vecNew optRes optRes)))
+          (vecPush datas (cast Int (DataEnt "Option" optCtors)))
+        })
+      (let ((tc (cast Int (TC fns datas vecNew vecNew vecNew 0 0
+                              vecNew vecNew entryDecls allDecls))))
+        {
+          (tcCollect tc allDecls 0)
+          tc
+        })
+    }))
+
+; ------------------------------------------------------------------
+; Collection: one pass over the RESOLVED declaration list, in order,
+; mirroring stage0's collect_declarations. Keying is exact-name -
+; imported names arrive pre-mangled to `Mod$name`, which is stage0's
+; (name, module) key spelled as one string. A later signature for the
+; same name overwrites (stage0 1905); a foreign ALWAYS pushes a new
+; entry even when a signature already made one (stage0 1969), and
+; first-match-wins lookups then prefer the signature's - order-
+; sensitive duplicate state, copied deliberately.
+; ------------------------------------------------------------------
+(pub :: tcCollect (-> Int Int Int Int))
+(pub fn (tcCollect tc decls i)
   (if (>= i (vecLen decls))
-      (- 0 1)
-      (let ((d (vecGet decls i)))
-        (if (&& (== (nodeTag d) TAG_D_FN) (== (nameMatches (nodeA d) name) 1))
-            (vecLen (nodeB d))
-            (fnArity decls name (+ i 1))))))
-
-; One scope entry: the bound name, whether `set` may assign it, and
-; the span of its binder - which is where AX3012's secondary and its
-; `mut` fix point. A zero binder span means "unknown" (parameters and
-; lambda parameters carry no spans yet) and suppresses AX3012 rather
-; than pointing it at nothing.
-(pub struct SEnt (name : Int) (mutable : Int) (bsp : Int))
-
-(pub :: pushScope (-> Int Int Int Int Int))
-(pub fn (pushScope scope name mutFlag bsp)
-  (vecPush scope (cast Int (SEnt name mutFlag bsp))))
-
-(pub :: scopeHas (-> Int Int Int Int))
-(pub fn (scopeHas scope name i)
-  (if (>= i (vecLen scope))
       0
-      (if (strEq (memGetWord (vecGet scope i) 0) name)
-          1
-          (scopeHas scope name (+ i 1)))))
+      (let ((d (vecGet decls i)))
+        (let ((tag (nodeTag d)))
+          {
+            (if (== tag TAG_D_DATA)
+                (tcCollectData tc d)
+            (if (== tag TAG_D_STRUCT)
+                (vecPush (tcStructs tc)
+                         (cast Int (StructEnt (nodeA d) (nodeB d))))
+            (if (== tag TAG_D_SIG)
+                (tcCollectSig tc d)
+            (if (== tag TAG_D_FN)
+                (tcCollectFn tc d)
+            (if (== tag TAG_D_FOREIGN)
+                (vecPush (tcFns tc)
+                  (cast Int (FnEnt (nodeA d)
+                                   (if (== (nodeTy d) 0) mkSilentWild (nodeTy d))
+                                   (- 0 1) 0 1 0)))
+            (if (== tag TAG_D_EFFECT)
+                {
+                  (vecPush (tcEffects tc) (nodeA d))
+                  ; Each operation is a callable whose type stage1
+                  ; does not parse: a silent wildcard, so calls check
+                  ; their arguments quietly and produce no bytes.
+                  ; stage0 knows the real arrows and CAN complain
+                  ; (AX3013 through op arity, AX3004 on arguments) -
+                  ; recorded under-report.
+                  (tcCollectEffectOps tc (nodeB d) 0)
+                }
+            (if (== tag TAG_D_MACRO)
+                (vecPush (tcMacros tc) (nodeA d))
+            0)))))))
+            (tcCollect tc decls (+ i 1))
+          }))))
 
-; The INNERMOST entry for `name`, or 0. Later pushes shadow earlier
-; ones, so the search runs back to front.
+(pub :: tcCollectEffectOps (-> Int Int Int Int))
+(pub fn (tcCollectEffectOps tc ops i)
+  (if (>= i (vecLen ops))
+      0
+      {
+        (vecPush (tcFns tc)
+          (cast Int (FnEnt (vecGet ops i) mkSilentWild (- 0 1) 0 0 1)))
+        (tcCollectEffectOps tc ops (+ i 1))
+      }))
+
+(pub :: tcCollectData (-> Int Int Int))
+(pub fn (tcCollectData tc d)
+  (let ((tvs (nodeTy d)))
+    (let ((tvNodes vecNew))
+      {
+        (tvNamesToNodes tvs tvNodes 0)
+        (let ((resTy (mkTCon (nodeA d) tvNodes))
+              (ctors vecNew))
+          {
+            (tcCollectCtors (nodeB d) resTy ctors 0)
+            (vecPush (tcDatas tc) (cast Int (DataEnt (nodeA d) ctors)))
+          })
+      })))
+
+(pub :: tvNamesToNodes (-> Int Int Int Int))
+(pub fn (tvNamesToNodes tvs acc i)
+  (if (== tvs 0)
+      0
+      (if (>= i (vecLen tvs))
+          0
+          {
+            (vecPush acc (mkTVar (vecGet tvs i)))
+            (tvNamesToNodes tvs acc (+ i 1))
+          })))
+
+; A constructor's type is its fields curried onto the APPLIED data
+; type - `Nil : List a`, never bare `List` (stage0 registers nullary
+; constructors with the type arguments too, a recorded old bug).
+(pub :: tcCollectCtors (-> Int Int Int Int Int))
+(pub fn (tcCollectCtors ctorNodes resTy acc i)
+  (if (>= i (vecLen ctorNodes))
+      0
+      (let ((c (vecGet ctorNodes i)))
+        (let ((fieldTys (if (== (nodeTy c) 0) vecNew (nodeTy c))))
+          {
+            (vecPush acc
+              (cast Int (CtorEnt (nodeA c) fieldTys resTy
+                                 (ctorArrowOf fieldTys resTy
+                                              (- (vecLen fieldTys) 1)))))
+            (tcCollectCtors ctorNodes resTy acc (+ i 1))
+          }))))
+
+(pub :: ctorArrowOf (-> Int Int Int Int))
+(pub fn (ctorArrowOf fieldTys acc i)
+  (if (< i 0)
+      acc
+      (ctorArrowOf fieldTys (mkTArr (vecGet fieldTys i) acc) (- i 1))))
+
+(pub :: tcCollectSig (-> Int Int Int))
+(pub fn (tcCollectSig tc d)
+  (let ((ty (if (== (nodeTy d) 0) mkSilentWild (nodeTy d))))
+    (let ((ent (findFnEntExact (tcFns tc) (nodeA d) 0)))
+      (if (== ent 0)
+          (vecPush (tcFns tc)
+                   (cast Int (FnEnt (nodeA d) ty (- 0 1) 0 0 0)))
+          (memSetWord ent 1 ty)))))
+
+(pub :: tcCollectFn (-> Int Int Int))
+(pub fn (tcCollectFn tc d)
+  (let ((ent0 (findFnEntExact (tcFns tc) (nodeA d) 0)))
+    (let ((ent (if (!= ent0 0)
+                   ent0
+                   (let ((ph (mkTVar (strConcat "_fn_" (decStr (tcCounter tc))))))
+                     {
+                       (tcBumpCounter tc)
+                       (let ((ne (cast Int (FnEnt (nodeA d) ph (- 0 1) 0 0 0))))
+                         { (vecPush (tcFns tc) ne) ne })
+                     }))))
+      (memSetWord ent 2 (vecLen (nodeB d))))))
+
+; ------------------------------------------------------------------
+; Lookups. Exact name first over the whole table, then the `Mod$name`
+; suffix pass - which reproduces stage0's entry-first (module-less
+; first) resolution, because entry declarations keep bare names and a
+; bare reference matches them exactly while an imported one only
+; matches through its suffix.
+; ------------------------------------------------------------------
+(pub :: findFnEntExact (-> Int Int Int Int))
+(pub fn (findFnEntExact fns name i)
+  (if (>= i (vecLen fns))
+      0
+      (let ((e (vecGet fns i)))
+        (if (strEq (memGetWord e 0) name)
+            e
+            (findFnEntExact fns name (+ i 1))))))
+
+(pub :: findFnEntSuffix (-> Int Int Int Int))
+(pub fn (findFnEntSuffix fns name i)
+  (if (>= i (vecLen fns))
+      0
+      (let ((e (vecGet fns i)))
+        (if (== (nameMatches (memGetWord e 0) name) 1)
+            e
+            (findFnEntSuffix fns name (+ i 1))))))
+
+(pub :: findFnEnt (-> Int Int Int))
+(pub fn (findFnEnt tc name)
+  (let ((e (findFnEntExact (tcFns tc) name 0)))
+    (if (!= e 0) e (findFnEntSuffix (tcFns tc) name 0))))
+
+; Constructor lookup, FORWARD order - Option's are first. Used for
+; type resolution and patterns (stage0's find_constructor).
+(pub :: findCtor (-> Int Int Int))
+(pub fn (findCtor tc name)
+  (findCtorFrom (tcDatas tc) name 0))
+
+(pub :: findCtorFrom (-> Int Int Int Int))
+(pub fn (findCtorFrom datas name i)
+  (if (>= i (vecLen datas))
+      0
+      (let ((c (ctorInData (memGetWord (vecGet datas i) 1) name 0)))
+        (if (!= c 0)
+            c
+            (findCtorFrom datas name (+ i 1))))))
+
+(pub :: ctorInData (-> Int Int Int Int))
+(pub fn (ctorInData ctors name i)
+  (if (>= i (vecLen ctors))
+      0
+      (let ((c (vecGet ctors i)))
+        (if (== (nameMatches (memGetWord c 0) name) 1)
+            c
+            (ctorInData ctors name (+ i 1))))))
+
+; The LAST matching constructor - stage0's bare-value and saturation
+; paths use rfind, and the difference is observable when two datas
+; declare the same constructor name.
+(pub :: rfindCtor (-> Int Int Int))
+(pub fn (rfindCtor tc name)
+  (rfindCtorFrom (tcDatas tc) name (- (vecLen (tcDatas tc)) 1)))
+
+(pub :: rfindCtorFrom (-> Int Int Int Int))
+(pub fn (rfindCtorFrom datas name i)
+  (if (< i 0)
+      0
+      (let ((c (rctorInData (memGetWord (vecGet datas i) 1) name
+                            (- (vecLen (memGetWord (vecGet datas i) 1)) 1))))
+        (if (!= c 0)
+            c
+            (rfindCtorFrom datas name (- i 1))))))
+
+(pub :: rctorInData (-> Int Int Int Int))
+(pub fn (rctorInData ctors name i)
+  (if (< i 0)
+      0
+      (let ((c (vecGet ctors i)))
+        (if (== (nameMatches (memGetWord c 0) name) 1)
+            c
+            (rctorInData ctors name (- i 1))))))
+
+(pub :: findStruct (-> Int Int Int))
+(pub fn (findStruct tc name)
+  (findStructFrom (tcStructs tc) name 0))
+
+(pub :: findStructFrom (-> Int Int Int Int))
+(pub fn (findStructFrom structs name i)
+  (if (>= i (vecLen structs))
+      0
+      (let ((s (vecGet structs i)))
+        (if (== (nameMatches (memGetWord s 0) name) 1)
+            s
+            (findStructFrom structs name (+ i 1))))))
+
+(pub :: findData (-> Int Int Int))
+(pub fn (findData tc name)
+  (findDataFrom (tcDatas tc) name 0))
+
+(pub :: findDataFrom (-> Int Int Int Int))
+(pub fn (findDataFrom datas name i)
+  (if (>= i (vecLen datas))
+      0
+      (let ((e (vecGet datas i)))
+        (if (== (nameMatches (memGetWord e 0) name) 1)
+            e
+            (findDataFrom datas name (+ i 1))))))
+
+; A struct's field type by name, or -1 when absent. Fields are the
+; parser's TAG_FIELD nodes: name in a, parsed type in ty.
+(pub :: structFieldTy (-> Int Int Int))
+(pub fn (structFieldTy ent fname)
+  (structFieldTyFrom (memGetWord ent 1) fname 0))
+
+(pub :: structFieldTyFrom (-> Int Int Int Int))
+(pub fn (structFieldTyFrom fields fname i)
+  (if (>= i (vecLen fields))
+      (- 0 1)
+      (let ((f (vecGet fields i)))
+        (if (strEq (nodeA f) fname)
+            (if (== (nodeTy f) 0) mkSilentWild (nodeTy f))
+            (structFieldTyFrom fields fname (+ i 1))))))
+
+; How many arguments a function's use must supply before it can be a
+; value: the declared parameter count when a definition was seen, the
+; ARROW DEPTH for builtins and foreigns (their type is the whole
+; truth), and -1 - unmeasurable - for a signature-only name (a
+; one-parameter function returning a closure has arrow depth 2 but
+; arity 1, so depth would wrongly flag legal code).
+(pub :: repArity (-> Int Int))
+(pub fn (repArity ent)
+  (if (>= (memGetWord ent 2) 0)
+      (memGetWord ent 2)
+      (if (|| (== (memGetWord ent 3) 1) (== (memGetWord ent 4) 1))
+          (arrowDepth (memGetWord ent 1))
+          (- 0 1))))
+
+; ------------------------------------------------------------------
+; Scope. One entry per binding: name, mutability, the binder's span
+; (0 = unknown, suppresses AX3012's anchor), and now the TYPE.
+; Entries below frameBase belong to the module walk (signatures,
+; foreigns); the frame region above it is the current function.
+; ------------------------------------------------------------------
+(pub struct SEnt (name : Int) (mutable : Int) (bsp : Int) (ty : Int))
+
+(pub :: pushScope (-> Int Int Int Int Int Int))
+(pub fn (pushScope scope name mutFlag bsp ty)
+  (vecPush scope (cast Int (SEnt name mutFlag bsp ty))))
+
+(pub :: sEntTy (-> Int Int))
+(pub fn (sEntTy ent) (memGetWord ent 3))
+
+; The innermost entry for `name` anywhere in the vec - `set` target
+; resolution and the whole-scope suggestion pool use this.
 (pub :: scopeFind (-> Int Int Int))
 (pub fn (scopeFind scope name)
   (scopeFindFrom scope name (- (vecLen scope) 1)))
@@ -310,8 +793,22 @@
           (vecGet scope i)
           (scopeFindFrom scope name (- i 1)))))
 
-; Drop `scope` back to `n` entries - the walk pushes binders on the way
-; in and truncates on the way out.
+; The innermost FRAME entry - value resolution reads only the current
+; function's bindings; module-level names resolve through the
+; function table (same types, stage0's route).
+(pub :: scopeFindFrame (-> Int Int Int))
+(pub fn (scopeFindFrame tc name)
+  (scopeFindFrameFrom (tcScope tc) name
+                      (- (vecLen (tcScope tc)) 1) (tcFrameBase tc)))
+
+(pub :: scopeFindFrameFrom (-> Int Int Int Int Int))
+(pub fn (scopeFindFrameFrom scope name i base)
+  (if (< i base)
+      0
+      (if (strEq (memGetWord (vecGet scope i) 0) name)
+          (vecGet scope i)
+          (scopeFindFrameFrom scope name (- i 1) base))))
+
 (pub :: scopeTrunc (-> Int Int Int))
 (pub fn (scopeTrunc scope n)
   (if (<= (vecLen scope) n)
@@ -319,373 +816,56 @@
       { (vecPop scope) (scopeTrunc scope n) }))
 
 ; ------------------------------------------------------------------
-; Pattern validity: AX3003 for a constructor no `data` declares, and
-; AX3009 for a known constructor applied to the wrong number of
-; fields. Two shapes carry a constructor name: `( UpperIdent )` at the
-; top of an arm is TAG_P_CON0, and a fieldful pattern is an
-; application whose head names the constructor. A BARE identifier
-; argument is a binder even when it is constructor-named - stage0's
-; rule, and the parenthesised nested form loses its parens to
-; expression parsing, so a nested nullary constructor is
-; indistinguishable from a binder here and stays unchecked:
-; under-reported, never mis-reported.
+; spanOf: stage0's Expr::span(), the anchor for every EXPRESSION-
+; position diagnostic. An application's span is its ultimate head's;
+; a field access or field store anchors at its BASE (the field-name
+; span in the node's own slot belongs to AX3007 alone); a let's span
+; is its BODY's. A shape with no span answers 0 and the caller
+; suppresses - never mis-points.
 ; ------------------------------------------------------------------
-(pub :: checkPattern (-> Int Int Int Int))
-(pub fn (checkPattern adecls pat out)
-  (let ((tag (nodeTag pat)))
-    (if (== tag TAG_P_CON0)
-        (checkCtorUse adecls (nodeA pat) 0 (nodeSpan pat) out)
-    (if (== tag TAG_E_APP)
-        (let ((head (spineHead pat)))
-          (if (!= (nodeTag head) TAG_E_VAR)
-              0
-              {
-                (checkCtorUse adecls (nodeA head)
-                              (spineArgs pat 0) (nodeSpan head) out)
-                (checkPatternArgs adecls pat out)
-                0
-              }))
-        0))))
-
-; Nested fieldful patterns recurse; everything else in argument
-; position is a binder or a literal.
-(pub :: checkPatternArgs (-> Int Int Int Int))
-(pub fn (checkPatternArgs adecls pat out)
-  (if (== (nodeTag pat) TAG_E_APP)
-      {
-        (checkPatternArgs adecls (nodeA pat) out)
-        (if (== (nodeTag (nodeB pat)) TAG_E_APP)
-            (checkPattern adecls (nodeB pat) out)
-            0)
-        0
-      }
-      0))
-
-; The declared field count of constructor `name`, or -1 when no `data`
-; declares it.
-(pub :: ctorArity (-> Int Int Int))
-(pub fn (ctorArity adecls name)
-  (if (|| (strEq name "Some") (strEq name "None"))
-      (if (strEq name "Some") 1 0)
-      (ctorArityFrom adecls name 0)))
-
-(pub :: ctorArityFrom (-> Int Int Int Int))
-(pub fn (ctorArityFrom decls name i)
-  (if (>= i (vecLen decls))
-      (- 0 1)
-      (let ((d (vecGet decls i)))
-        (if (== (nodeTag d) TAG_D_DATA)
-            (let ((a (ctorArityIn (nodeB d) name 0)))
-              (if (< a 0)
-                  (ctorArityFrom decls name (+ i 1))
-                  a))
-            (ctorArityFrom decls name (+ i 1))))))
-
-(pub :: ctorArityIn (-> Int Int Int Int))
-(pub fn (ctorArityIn ctors name i)
-  (if (>= i (vecLen ctors))
-      (- 0 1)
-      (let ((c (vecGet ctors i)))
-        (if (== (nameMatches (nodeA c) name) 1)
-            (nodeB c)
-            (ctorArityIn ctors name (+ i 1))))))
-
-(pub :: checkCtorUse (-> Int Int Int Int Int Int))
-(pub fn (checkCtorUse adecls name found span out)
-  (let ((want (ctorArity adecls name)))
-    (if (< want 0)
-        (let ((best (newBest)))
-          {
-            ; Candidates are CONSTRUCTORS alone - the message says "a
-            ; similarly named constructor is visible" and means it.
-            ; The builtin Option's lead, as everywhere.
-            (offerCandidate best name "Some")
-            (offerCandidate best name "None")
-            (offerAllCtors best name adecls 0)
-            (vecPush out
-              (let ((msg (strConcat (strConcat "undefined constructor `" name) "`")))
-                (if (== (memGetWord best 0) 0)
-                    (mkDiag SEV_ERROR "AX3003" "undefined-constructor"
-                            span msg 0 0
-                            "check the `data` declaration for the correct constructor name")
-                    (mkDiagFix SEV_ERROR "AX3003" "undefined-constructor"
-                               span msg 0 0
-                               (strConcat (strConcat
-                                 "a similarly named constructor `" (memGetWord best 0))
-                                 "` is visible; did you mean this?")
-                               span (memGetWord best 0)))))
-            0
-          })
-        (if (== want found)
-            0
-            {
-              (vecPush out
-                (mkDiag SEV_ERROR "AX3009" "constructor-arity-mismatch"
-                        span
-                        (strConcat (strConcat (strConcat (strConcat (strConcat
-                          "constructor `" name)
-                          "` expects ") (decStr want))
-                          " argument(s), found ") (decStr found))
-                        0 0
-                        (strConcat (strConcat "this constructor takes exactly "
-                          (decStr want))
-                          " field(s); add or remove arguments to match")))
-              0
-            }))))
-
-; Bind every variable a match pattern introduces. A pattern parses as
-; an expression, so `(Cons h t)` is an application whose head names the
-; constructor and whose arguments are the binders; a bare identifier is
-; itself a binder, which is stage0's rule.
-(pub :: bindPattern (-> Int Int Int))
-(pub fn (bindPattern pat scope)
-  (let ((tag (nodeTag pat)))
-    (if (== tag TAG_E_VAR)
-        { (pushScope scope (nodeA pat) 0 (nodeSpan pat)) 0 }
+(pub :: spanOf (-> Int Int))
+(pub fn (spanOf e)
+  (if (== e 0)
+      0
+      (let ((tag (nodeTag e)))
         (if (== tag TAG_E_APP)
-            { (bindPatternArgs pat scope) 0 }
-            0))))
+            (spanOf (nodeA e))
+        (if (|| (== tag TAG_E_FIELD) (== tag TAG_E_SETF))
+            (spanOf (nodeA e))
+        (if (|| (== tag TAG_E_LET) (== tag TAG_E_LETM))
+            (spanOf (nodeC e))
+        (if (|| (== tag TAG_E_IF) (== tag TAG_E_WHILE))
+            (spanOf (nodeA e))
+        (if (== tag TAG_E_MATCH)
+            (spanOf (nodeA e))
+        (if (== tag TAG_E_COND)
+            (if (== (vecLen (nodeA e)) 0)
+                0
+                (spanOf (nodeA (vecGet (nodeA e) 0))))
+        (if (== tag TAG_E_BEGIN)
+            (if (== (vecLen (nodeA e)) 0)
+                0
+                (spanOf (vecGet (nodeA e) 0)))
+        (nodeSpan e)))))))))))
 
-; The arguments of a constructor pattern, left to right; the head is
-; the constructor and binds nothing.
-(pub :: bindPatternArgs (-> Int Int Int))
-(pub fn (bindPatternArgs pat scope)
-  (if (== (nodeTag pat) TAG_E_APP)
-      {
-        (bindPatternArgs (nodeA pat) scope)
-        (bindPattern (nodeB pat) scope)
-        0
-      }
-      0))
-
-; How many arguments an application spine supplies, and its head.
-(pub :: spineArgs (-> Int Int Int))
-(pub fn (spineArgs e acc)
-  (if (== (nodeTag e) TAG_E_APP)
-      (spineArgs (nodeA e) (+ acc 1))
-      acc))
-
-(pub :: spineHead (-> Int Int))
-(pub fn (spineHead e)
-  (if (== (nodeTag e) TAG_E_APP)
-      (spineHead (nodeA e))
-      e))
-
-(pub :: checkExpr (-> Int Int Int Int Int Int))
-(pub fn (checkExpr decls adecls scope e out)
-  (let ((tag (nodeTag e)))
-    (if (== tag TAG_E_VAR)
-        (checkVarRef adecls scope e out)
-    (if (== tag TAG_E_APP)
-        ; Once per SPINE, at its root. Recursing into `(nodeA e)` as
-        ; an expression would re-enter the same spine one argument
-        ; shorter and report it again for every prefix - `(f a b c)`
-        ; drew three diagnostics, two of them describing calls the
-        ; source never made. stage0 says "runs once per spine, at the
-        ; root" for the same reason.
-        {
-          (checkSpine decls adecls scope e out)
-          ; `(cast Type v)`, `(sizeof Type)` and `(alignof Type)` put a
-          ; TYPE where an argument goes, and a type name is not a
-          ; variable reference - `(cast Int x)` would otherwise report
-          ; `Int` as undefined, which it did, on the compiler's own
-          ; source, in three files.
-          (checkSpineParts decls adecls scope e out
-                           (typeArgHead (spineHead e)))
-          0
-        }
-    (if (|| (== tag TAG_E_LET) (== tag TAG_E_LETM))
-        (let ((n (vecLen scope)))
-          {
-            (checkExpr decls adecls scope (nodeB e) out)
-            (pushScope scope (nodeA e)
-                       (if (== tag TAG_E_LETM) 1 0)
-                       (nodeSpan e))
-            (checkExpr decls adecls scope (nodeC e) out)
-            (scopeTrunc scope n)
-            0
-          })
-    (if (== tag TAG_E_LAM)
-        (let ((n (vecLen scope)))
-          {
-            (bindNames (nodeA e) scope 0)
-            (checkExpr decls adecls scope (nodeB e) out)
-            (scopeTrunc scope n)
-            0
-          })
-    (if (== tag TAG_E_IF)
-        {
-          (checkExpr decls adecls scope (nodeA e) out)
-          (checkExpr decls adecls scope (nodeB e) out)
-          (checkExpr decls adecls scope (nodeC e) out)
-          0
-        }
-    (if (== tag TAG_E_BEGIN)
-        (checkExprVec decls adecls scope (nodeA e) out 0)
-    (if (== tag TAG_E_MATCH)
-        {
-          (checkExpr decls adecls scope (nodeA e) out)
-          (checkArms decls adecls scope (nodeB e) out 0)
-          0
-        }
-    (if (== tag TAG_E_WHILE)
-        {
-          (checkExpr decls adecls scope (nodeA e) out)
-          (checkExprVec decls adecls scope (nodeB e) out 0)
-          0
-        }
-    (if (== tag TAG_E_SET)
-        {
-          ; VALUE first, target second - probed, not assumed: stage0
-          ; checks the assigned expression before it resolves the
-          ; target, so `(set zzz (+ qqq 1))` reports `qqq` and then
-          ; `zzz`. The first version here had them the other way
-          ; round, which is two correct diagnostics in an order that
-          ; fails a byte-identical gate.
-          (checkExpr decls adecls scope (nodeB e) out)
-          ; An unknown target is AX3001, with candidates drawn from
-          ; scope alone; a known-but-immutable one is AX3012, with
-          ; the secondary and the `mut` fix pointing at its binder.
-          (checkSetTarget adecls scope e out)
-          0
-        }
-    (if (== tag TAG_E_SETF)
-        {
-          (checkExpr decls adecls scope (nodeA e) out)
-          (checkExpr decls adecls scope (nodeC e) out)
-          0
-        }
-    (if (== tag TAG_E_FIELD)
-        (checkExpr decls adecls scope (nodeA e) out)
-    ; `cond` is structural now (the parser used to desugar it to
-    ; nested `if` before this checker ran); walk every clause's test
-    ; and body, and the else when there is one, so a reference inside
-    ; a cond stays checked exactly as it was when it arrived as ifs.
-    (if (== tag TAG_E_COND)
-        {
-          (checkCondClauses decls adecls scope (nodeA e) out 0)
-          (if (== (nodeB e) 0)
-              0
-              (checkExpr decls adecls scope (nodeB e) out))
-          0
-        }
-    0))))))))))))))
-
-(pub :: checkCondClauses (-> Int Int Int Int Int Int Int))
-(pub fn (checkCondClauses decls adecls scope clauses out i)
-  (if (>= i (vecLen clauses))
+; ------------------------------------------------------------------
+; Diagnostic emission helpers. EVERY emission guards its anchor: a
+; zero span renders address zero, and a diagnostic stage1 cannot
+; place is one it does not print.
+; ------------------------------------------------------------------
+(pub :: emitMismatch (-> Int Int Int Int Int))
+(pub fn (emitMismatch tc expected found span)
+  (if (== span 0)
       0
-      (let ((cl (vecGet clauses i)))
-        {
-          (checkExpr decls adecls scope (nodeA cl) out)
-          (checkExpr decls adecls scope (nodeB cl) out)
-          (checkCondClauses decls adecls scope clauses out (+ i 1))
-        })))
-
-; The arguments of an application spine, plus its head when the head
-; is something with an inside (a lambda, a parenthesised expression) -
-; a bare name has nothing to walk.
-; Does this head take a type as its first argument?
-(pub :: typeArgHead (-> Int Int))
-(pub fn (typeArgHead head)
-  (if (!= (nodeTag head) TAG_E_VAR)
-      0
-      (let ((n (nodeA head)))
-        (if (|| (strEq n "cast")
-                (|| (strEq n "sizeof") (strEq n "alignof")))
-            1
-            0))))
-
-(pub :: checkSpineParts (-> Int Int Int Int Int Int Int))
-(pub fn (checkSpineParts decls adecls scope e out skipFirst)
-  (if (== (nodeTag e) TAG_E_APP)
       {
-        (checkSpineParts decls adecls scope (nodeA e) out skipFirst)
-        ; The innermost application holds argument zero, which is the
-        ; type position for the forms that have one.
-        (if (&& (== skipFirst 1) (!= (nodeTag (nodeA e)) TAG_E_APP))
-            0
-            (checkExpr decls adecls scope (nodeB e) out))
+        (vecPush (tcOut tc)
+          (mkDiag SEV_ERROR "AX3004" "type-mismatch"
+                  span
+                  (strConcat (strConcat (strConcat
+                    "type mismatch: expected " expected) ", found ") found)
+                  0 0 0))
         0
-      }
-      (if (== (nodeTag e) TAG_E_VAR)
-          (checkVarRef adecls scope e out)
-          (checkExpr decls adecls scope e out))))
-
-; One variable reference. Known if it is locally bound, declared
-; anywhere in the resolved module, or one of the always-in-scope
-; builtins - operators, `true`/`false`, `cast`/`sizeof`/`alignof`, and
-; anything beginning `__`, which is every primitive.
-(pub :: checkVarRef (-> Int Int Int Int Int))
-(pub fn (checkVarRef adecls scope e out)
-  (let ((name (nodeA e)))
-    (if (|| (== (scopeHas scope name 0) 1)
-            (|| (== (isBuiltinName name) 1)
-                (== (isDeclaredName adecls name) 1)))
-        0
-        (let ((best (newBest)))
-          {
-            (offerScope best name scope 0)
-            (offerDecls best name adecls 0)
-            (vecPush out
-              (let ((msg (strConcat (strConcat "undefined variable `" name) "`")))
-                (if (== (memGetWord best 0) 0)
-                    (mkDiag SEV_ERROR "AX3001" "undefined-variable"
-                            (nodeSpan e) msg 0 0
-                            "variables must be defined (via `define`/`fn`, a `let` binding, or a lambda parameter) before they are used; check for typos")
-                    (mkDiagFix SEV_ERROR "AX3001" "undefined-variable"
-                               (nodeSpan e) msg 0 0
-                               (strConcat (strConcat
-                                 "a similarly named binding `" (memGetWord best 0))
-                                 "` is in scope; did you mean this?")
-                               (nodeSpan e) (memGetWord best 0)))))
-            0
-          }))))
-
-(pub :: checkSetTarget (-> Int Int Int Int Int))
-(pub fn (checkSetTarget adecls scope e out)
-  (let ((name (nodeA e)))
-    (if (== (scopeHas scope name 0) 1)
-        ; Locally bound: assignable only when the binder said `mut`.
-        ; A zero binder span means a parameter or lambda parameter,
-        ; whose spans the parser does not record yet - suppressed
-        ; rather than pointed at nothing, and emission still refuses.
-        (let ((ent (scopeFind scope name)))
-          (if (== (memGetWord ent 1) 1)
-              0
-              (if (== (memGetWord ent 2) 0)
-                  0
-                  (emitAX3012 name (nodeSpan e) (memGetWord ent 2) out))))
-    (if (== (isBuiltinName name) 1)
-        0
-    (if (== (isDeclaredName adecls name) 1)
-        ; A top-level name: never assignable. The secondary points at
-        ; the FIRST declaration of the name in source order, which is
-        ; the signature when one exists - stage0's anchor. Only an
-        ; entry-file declaration qualifies: an imported binder's span
-        ; indexes a different file's text, and every span on one AXDL
-        ; line renders against one source.
-        (let ((dsp (entryDeclSpan adecls name 0)))
-          (if (== dsp 0)
-              0
-              (emitAX3012 name (nodeSpan e) dsp out)))
-        (let ((best (newBest)))
-          {
-            (offerScope best name scope 0)
-            (vecPush out
-              (let ((msg (strConcat (strConcat "undefined variable `" name) "`")))
-                (if (== (memGetWord best 0) 0)
-                    (mkDiag SEV_ERROR "AX3001" "undefined-variable"
-                            (nodeSpan e) msg 0 0
-                            "variables must be defined (via `define`/`fn`, a `let` binding, or a lambda parameter) before they are used; check for typos")
-                    (mkDiagFix SEV_ERROR "AX3001" "undefined-variable"
-                               (nodeSpan e) msg 0 0
-                               (strConcat (strConcat
-                                 "a similarly named binding `" (memGetWord best 0))
-                                 "` is in scope; did you mean this?")
-                               (nodeSpan e) (memGetWord best 0)))))
-            0
-          }))))))
+      }))
 
 (pub :: emitAX3012 (-> Int Int Int Int Int))
 (pub fn (emitAX3012 name tspan bspan out)
@@ -703,114 +883,12 @@
     0
   })
 
-; The span of the first entry-file declaration of `name`, or 0. An
-; imported declaration (its stored name carries a `$`) never
-; qualifies; nor does one with no recorded span.
-(pub :: entryDeclSpan (-> Int Int Int Int))
-(pub fn (entryDeclSpan decls name i)
-  (if (>= i (vecLen decls))
-      0
-      (let ((d (vecGet decls i)))
-        (let ((tag (nodeTag d)))
-          (if (&& (|| (== tag TAG_D_SIG)
-                      (|| (== tag TAG_D_FN) (== tag TAG_D_FOREIGN)))
-                  (&& (strEq (nodeA d) name)
-                      (!= (nodeSpan d) 0)))
-              (nodeSpan d)
-              (entryDeclSpan decls name (+ i 1)))))))
-
-(pub :: checkExprVec (-> Int Int Int Int Int Int Int))
-(pub fn (checkExprVec decls adecls scope v out i)
-  (if (>= i (vecLen v))
-      0
-      {
-        (checkExpr decls adecls scope (vecGet v i) out)
-        (checkExprVec decls adecls scope v out (+ i 1))
-      }))
-
-(pub :: bindNames (-> Int Int Int Int))
-(pub fn (bindNames v scope i)
-  (if (>= i (vecLen v))
-      0
-      { (pushScope scope (vecGet v i) 0 0) (bindNames v scope (+ i 1)) }))
-
-(pub :: checkArms (-> Int Int Int Int Int Int Int))
-(pub fn (checkArms decls adecls scope arms out i)
-  (if (>= i (vecLen arms))
-      0
-      (let ((arm (vecGet arms i))
-            (n (vecLen scope)))
-        {
-          (checkPattern adecls (nodeA arm) out)
-          (bindPattern (nodeA arm) scope)
-          (checkExpr decls adecls scope (nodeB arm) out)
-          (scopeTrunc scope n)
-          (checkArms decls adecls scope arms out (+ i 1))
-        })))
-
-; One application spine, at its root.
-(pub :: checkSpine (-> Int Int Int Int Int Int))
-(pub fn (checkSpine decls adecls scope e out)
-  (let ((head (spineHead e)))
-    (if (!= (nodeTag head) TAG_E_VAR)
-        0
-        (let ((name (nodeA head)))
-          (if (== (scopeHas scope name 0) 1)
-              0
-              (let ((want (fnArity decls name 0))
-                    (got (spineArgs e 0)))
-                (if (< want 0)
-                    0
-                    (if (>= got want)
-                        0
-                        {
-                          (vecPush out
-                            (mkDiag SEV_ERROR "AX3013" "partial-application"
-                                    (nodeSpan e)
-                                    (strConcat (strConcat (strConcat (strConcat (strConcat
-                                      "partial application of `" name)
-                                      "`: it takes ") (decStr want))
-                                      " argument(s) and ") (strConcat (decStr got) " were supplied"))
-                                    0 0
-                                    "bind the missing arguments with a lambda: `(lambda (y) (f x y))` builds the value `(f x)` would mean"))
-                          0
-                        }))))))))
-
-(pub :: checkBodies (-> Int Int Int Int Int))
-(pub fn (checkBodies decls adecls out i)
-  (if (>= i (vecLen decls))
-      out
-      (let ((d (vecGet decls i)))
-        (if (!= (nodeTag d) TAG_D_FN)
-            (checkBodies decls adecls out (+ i 1))
-            (let ((scope vecNew))
-              {
-                (bindNames (nodeB d) scope 0)
-                (checkExpr decls adecls scope (nodeC d) out)
-                (checkBodies decls adecls out (+ i 1))
-              })))))
-
 ; ------------------------------------------------------------------
-; Pass 4: undefined variables (AX3001).
-;
-; The most common diagnostic there is, and the one with the most ways
-; to be WRONG in the direction that matters. Every category of name a
-; program may legally reference has to be recognised here, because a
-; name this pass fails to know about is a valid program stage1
-; rejects - and the compiler's own source is the first casualty. The
-; gate's sweep over `self_host/` and `stdlib/` is the check that
-; matters, not the corpus.
-;
-; stage0 reports these in plain traversal order, left to right, and
-; reports the SAME name once per occurrence rather than once per name
-; (probed: `zzz2` twice in one expression draws two diagnostics). The
-; walk this rides on already visits in that order.
-; ------------------------------------------------------------------
-
 ; Operators, keywords and forms that are always in scope and are not
 ; declarations. Primitives are covered by the `__` prefix instead of
 ; being listed: every one of them has it, and stage0's own suggestion
 ; machinery skips `__` names for the same reason.
+; ------------------------------------------------------------------
 (pub :: isBuiltinName (-> Int Int))
 (pub fn (isBuiltinName n)
   (if (strStartsWith n "__") 1
@@ -835,58 +913,1029 @@
   (if (strEq n "Mut") 1 (if (strEq n "Div") 1 (if (strEq n "Err") 1
   0))))))))))))))))))))))))))))))))
 
-; Is `n` declared anywhere in the resolved declaration list - as a
-; function, a foreign binding, a data constructor, a struct (structs
-; are constructors too), a macro, or a signature?
-; `Option` is built in: stage0 registers it ahead of every
-; user-declared type - which is why the first user constructor tag is
-; 2, a fact stage1's codegen already relies on - so `None` and `Some`
-; are in scope in every program without being declared in any of them.
-(pub :: isBuiltinCtor (-> Int Int))
-(pub fn (isBuiltinCtor n)
-  (if (|| (strEq n "None") (strEq n "Some")) 1 0))
+(pub :: strInVec (-> Int Int Int Int))
+(pub fn (strInVec v n i)
+  (if (>= i (vecLen v))
+      0
+      (if (strEq (vecGet v i) n)
+          1
+          (strInVec v n (+ i 1)))))
 
-(pub :: isDeclaredName (-> Int Int Int))
-(pub fn (isDeclaredName decls n)
-  (if (== (isBuiltinCtor n) 1) 1 (declaredFrom decls n 0)))
+(pub :: isMacroName (-> Int Int Int))
+(pub fn (isMacroName tc n)
+  (strInVec (tcMacros tc) n 0))
 
-(pub :: declaredFrom (-> Int Int Int Int))
-(pub fn (declaredFrom decls n i)
+(pub :: isEffectName (-> Int Int Int))
+(pub fn (isEffectName tc n)
+  (strInVec (tcEffects tc) n 0))
+
+(pub :: isCastLike (-> Int Int))
+(pub fn (isCastLike n)
+  (if (strEq n "cast") 1
+  (if (strEq n "sizeof") 1
+  (if (strEq n "alignof") 1
+  0))))
+
+; How many arguments an application spine supplies, and its head.
+(pub :: spineArgs (-> Int Int Int))
+(pub fn (spineArgs e acc)
+  (if (== (nodeTag e) TAG_E_APP)
+      (spineArgs (nodeA e) (+ acc 1))
+      acc))
+
+(pub :: spineHead (-> Int Int))
+(pub fn (spineHead e)
+  (if (== (nodeTag e) TAG_E_APP)
+      (spineHead (nodeA e))
+      e))
+
+; The spine's arguments in SOURCE order.
+(pub :: spineArgVec (-> Int Int Int))
+(pub fn (spineArgVec e acc)
+  (if (== (nodeTag e) TAG_E_APP)
+      {
+        (spineArgVec (nodeA e) acc)
+        (vecPush acc (nodeB e))
+        acc
+      }
+      acc))
+
+; ------------------------------------------------------------------
+; The expression walk. checkExpr answers the expression's TYPE and
+; pushes diagnostics in stage0's traversal order. `inHead` is true
+; only while checking the function side of an application - the flag
+; that lets a bare multi-parameter function name pass in head
+; position (AX3013 elsewhere) and confines the saturation check to
+; each spine's ROOT.
+; ------------------------------------------------------------------
+(pub :: checkExpr (-> Int Int Int))
+(pub fn (checkExpr tc e)
+  (checkExprH tc e 0))
+
+(pub :: checkExprH (-> Int Int Int Int))
+(pub fn (checkExprH tc e inHead)
+  (if (== e 0)
+      mkUnitTy
+      (let ((tag (nodeTag e)))
+        (if (== tag TAG_E_INT) mkIntTy
+        (if (== tag TAG_E_FLT) mkFloatTy
+        (if (== tag TAG_E_CHAR) mkCharTy
+        (if (== tag TAG_E_STR) mkStringTy
+        (if (== tag TAG_E_VAR)
+            (checkVar tc e inHead)
+        (if (== tag TAG_E_APP)
+            (checkApp tc e inHead)
+        (if (== tag TAG_E_LAM)
+            (checkLam tc e)
+        (if (|| (== tag TAG_E_LET) (== tag TAG_E_LETM))
+            (let ((initTy (checkExprH tc (nodeB e) 0)))
+              (let ((mark (vecLen (tcScope tc))))
+                {
+                  (pushScope (tcScope tc) (nodeA e)
+                             (if (== tag TAG_E_LETM) 1 0)
+                             (nodeSpan e) initTy)
+                  (let ((bodyTy (checkExprH tc (nodeC e) 0)))
+                    {
+                      (scopeTrunc (tcScope tc) mark)
+                      bodyTy
+                    })
+                }))
+        (if (== tag TAG_E_IF)
+            (checkIf tc e)
+        (if (== tag TAG_E_COND)
+            (checkCond tc e)
+        (if (== tag TAG_E_BEGIN)
+            (checkExprSeq tc (nodeA e) 0 mkUnitTy)
+        (if (== tag TAG_E_MATCH)
+            (checkMatch tc e)
+        (if (== tag TAG_E_WHILE)
+            {
+              (checkCondBool tc (nodeA e))
+              (checkExprSeq tc (nodeB e) 0 mkUnitTy)
+              mkIntTy
+            }
+        (if (== tag TAG_E_SET)
+            (checkSet tc e)
+        (if (== tag TAG_E_SETF)
+            (checkSetField tc e)
+        (if (== tag TAG_E_FIELD)
+            (checkField tc e)
+        mkSilentWild)))))))))))))))))))
+
+(pub :: checkExprSeq (-> Int Int Int Int Int))
+(pub fn (checkExprSeq tc v i last)
+  (if (>= i (vecLen v))
+      last
+      (let ((t (checkExprH tc (vecGet v i) 0)))
+        (checkExprSeq tc v (+ i 1) t))))
+
+; A condition must be Bool. Skipped when the condition is already
+; poisoned; a wildcard passes through tyCompat.
+(pub :: checkCondBool (-> Int Int Int))
+(pub fn (checkCondBool tc cnd)
+  (let ((cty (checkExprH tc cnd 0)))
+    {
+      (if (&& (== (tyIsErr cty) 0)
+              (== (tyCompat cty mkBoolTy) 0))
+          (emitMismatch tc "Bool" (tyRender cty) (spanOf cnd))
+          0)
+      cty
+    }))
+
+(pub :: checkIf (-> Int Int Int))
+(pub fn (checkIf tc e)
+  {
+    (checkCondBool tc (nodeA e))
+    (let ((thenTy (checkExprH tc (nodeB e) 0)))
+      (let ((elseTy (checkExprH tc (nodeC e) 0)))
+        {
+          ; Branches must agree; the report anchors at the ELSE with
+          ; the then-branch as the expectation - stage0's shape.
+          (if (&& (== (tyIsErr thenTy) 0)
+                  (&& (== (tyIsErr elseTy) 0)
+                      (== (tyCompat thenTy elseTy) 0)))
+              (emitMismatch tc (tyRender thenTy) (tyRender elseTy)
+                            (spanOf (nodeC e)))
+              0)
+          (if (== (tyIsErr thenTy) 1) elseTy thenTy)
+        }))
+  })
+
+; `cond`: every clause's test must be Bool; clause bodies are NEVER
+; joined against each other; only a real `else` is compared, against
+; the LAST clause's type; the result is the last clause's type -
+; stage0's ECond, probed.
+(pub :: checkCond (-> Int Int Int))
+(pub fn (checkCond tc e)
+  (let ((resTy (checkCondClauses tc (nodeA e) 0 (freshTVar tc 0))))
+    (if (== (nodeB e) 0)
+        resTy
+        (let ((elseTy (checkExprH tc (nodeB e) 0)))
+          {
+            (if (&& (== (tyIsErr resTy) 0)
+                    (&& (== (tyIsErr elseTy) 0)
+                        (== (tyCompat resTy elseTy) 0)))
+                (emitMismatch tc (tyRender resTy) (tyRender elseTy)
+                              (spanOf (nodeB e)))
+                0)
+            resTy
+          }))))
+
+(pub :: checkCondClauses (-> Int Int Int Int Int))
+(pub fn (checkCondClauses tc clauses i resTy)
+  (if (>= i (vecLen clauses))
+      resTy
+      (let ((cl (vecGet clauses i)))
+        {
+          (checkCondBool tc (nodeA cl))
+          (checkCondClauses tc clauses (+ i 1)
+                            (checkExprH tc (nodeB cl) 0))
+        })))
+
+(pub :: checkLam (-> Int Int Int))
+(pub fn (checkLam tc e)
+  (let ((params (nodeA e))
+        (mark (vecLen (tcScope tc)))
+        (ptys vecNew))
+    {
+      (bindLamParams tc params ptys 0)
+      (let ((bodyTy (checkExprH tc (nodeB e) 0)))
+        {
+          (scopeTrunc (tcScope tc) mark)
+          (if (== (vecLen ptys) 0)
+              (mkTArr mkUnitTy bodyTy)
+              (if (== (vecLen ptys) 1)
+                  (mkTArr (vecGet ptys 0) bodyTy)
+                  (mkTArr (mkTTup ptys) bodyTy)))
+        })
+    }))
+
+(pub :: bindLamParams (-> Int Int Int Int Int))
+(pub fn (bindLamParams tc params ptys i)
+  (if (>= i (vecLen params))
+      0
+      (let ((t (freshTVar tc 1)))
+        {
+          (vecPush ptys t)
+          (pushScope (tcScope tc) (vecGet params i) 0 0 t)
+          (bindLamParams tc params ptys (+ i 1))
+        })))
+
+; ------------------------------------------------------------------
+; Variable references, in stage0's check_var order. Frame-local wins
+; silently. In VALUE position (not an application head), a name that
+; cannot be a value is refused: an effect operation goes quiet with
+; poison (stage0 emits AX3017 there and poisons; the poison is the
+; part that keeps later bytes identical), a function of two or more
+; parameters is AX3013 with 0 supplied, a fieldful constructor is
+; AX3009 with 0 found (the LAST declaration of the name - rfind,
+; stage0's order). Then the function table, then constructors, then
+; the always-in-scope names, then AX3001.
+; ------------------------------------------------------------------
+(pub :: checkVar (-> Int Int Int Int))
+(pub fn (checkVar tc e inHead)
+  (let ((name (nodeA e)))
+    (if (|| (strEq name "true") (strEq name "false"))
+        mkBoolTy
+        (let ((fr (scopeFindFrame tc name)))
+          (if (!= fr 0)
+              (sEntTy fr)
+              (let ((refused (if (== inHead 0)
+                                 (checkBareValue tc name (nodeSpan e))
+                                 0)))
+                (if (== refused 1)
+                    (mkNode TAG_T_ERR 0 0 0)
+                    (let ((ent (findFnEnt tc name)))
+                      (if (!= ent 0)
+                          (memGetWord ent 1)
+                          (let ((ctor (findCtor tc name)))
+                            (if (!= ctor 0)
+                                (memGetWord ctor 3)
+                                (if (|| (== (isBuiltinName name) 1)
+                                        (|| (== (isMacroName tc name) 1)
+                                            (== (isEffectName tc name) 1)))
+                                    mkSilentWild
+                                    (emitUndefinedVar tc name (nodeSpan e))))))))))))))
+
+; The bare-value refusals. Answers 1 when the reference was refused
+; (poison the expression), 0 to continue resolving.
+(pub :: checkBareValue (-> Int Int Int Int))
+(pub fn (checkBareValue tc name span)
+  (let ((ent (findFnEnt tc name)))
+    (if (!= ent 0)
+        (if (== (memGetWord ent 5) 1)
+            ; An effect operation cannot be a bare value. stage0 says
+            ; so with AX3017 and returns poison; stage1 cannot render
+            ; that yet (recorded), but the POISON is load-bearing -
+            ; without it the wildcard type would let a later check
+            ; fire where stage0 is silent.
+            1
+            (let ((ar (repArity ent)))
+              (if (>= ar 2)
+                  (if (== span 0)
+                      1
+                      {
+                        (vecPush (tcOut tc)
+                          (mkDiag SEV_ERROR "AX3013" "partial-application"
+                                  span
+                                  (strConcat (strConcat (strConcat (strConcat
+                                    "partial application of `" name)
+                                    "`: it takes ") (decStr ar))
+                                    " argument(s) and 0 were supplied")
+                                  0 0
+                                  "bind the missing arguments with a lambda: `(lambda (y) (f x y))` builds the value `(f x)` would mean"))
+                        1
+                      })
+                  0)))
+        (let ((ctor (rfindCtor tc name)))
+          (if (== ctor 0)
+              0
+              (let ((fc (vecLen (memGetWord ctor 1))))
+                (if (== fc 0)
+                    0
+                    (if (== span 0)
+                        1
+                        {
+                          (vecPush (tcOut tc)
+                            (mkDiag SEV_ERROR "AX3009" "constructor-arity-mismatch"
+                                    span
+                                    (strConcat (strConcat (strConcat (strConcat (strConcat
+                                      "constructor `" name)
+                                      "` expects ") (decStr fc))
+                                      " argument(s), found ") "0")
+                                    0 0
+                                    (strConcat (strConcat "this constructor takes exactly "
+                                      (decStr fc))
+                                      " field(s); add or remove arguments to match")))
+                          1
+                        }))))))))
+
+(pub :: emitUndefinedVar (-> Int Int Int Int))
+(pub fn (emitUndefinedVar tc name span)
+  (let ((best (newBest)))
+    {
+      (offerScope best name (tcScope tc) 0)
+      (offerFnEnts best name (tcFns tc) 0)
+      (offerCtorEnts best name (tcDatas tc) 0)
+      (if (!= span 0)
+          (vecPush (tcOut tc)
+            (let ((msg (strConcat (strConcat "undefined variable `" name) "`")))
+              (if (== (memGetWord best 0) 0)
+                  (mkDiag SEV_ERROR "AX3001" "undefined-variable"
+                          span msg 0 0
+                          "variables must be defined (via `define`/`fn`, a `let` binding, or a lambda parameter) before they are used; check for typos")
+                  (mkDiagFix SEV_ERROR "AX3001" "undefined-variable"
+                             span msg 0 0
+                             (strConcat (strConcat
+                               "a similarly named binding `" (memGetWord best 0))
+                               "` is in scope; did you mean this?")
+                             span (memGetWord best 0)))))
+          0)
+      (mkNode TAG_T_ERR 0 0 0)
+    }))
+
+; ------------------------------------------------------------------
+; Applications. At each spine's ROOT: the saturation check (AX3013 /
+; AX3009 for under-application, with the refused spine's arguments
+; still checked and the head left alone). At EVERY level - stage0
+; does not gate these on the root: the numeric-operator intercept,
+; the cast/sizeof/alignof forms (their first argument is a TYPE, not
+; a variable reference), the macro-head skip, and struct
+; construction. Then the general rule: an arrow consumes an argument
+; (a mismatched argument reports and does NOT poison the result - a
+; curried call reports every bad argument); poison propagates
+; silently; a silent wildcard stays silent; anything else is
+; "expected function type".
+; ------------------------------------------------------------------
+(pub :: checkApp (-> Int Int Int Int))
+(pub fn (checkApp tc e inHead)
+  (let ((head (spineHead e)))
+    (let ((headIsVar (if (== (nodeTag head) TAG_E_VAR) 1 0)))
+      (let ((hname (if (== headIsVar 1) (nodeA head) 0)))
+        (if (&& (== inHead 0)
+                (&& (== headIsVar 1)
+                    (== (checkSaturation tc e head hname) 1)))
+            (mkNode TAG_T_ERR 0 0 0)
+        (if (&& (== headIsVar 1) (== (isNumericTwoArg tc e hname) 1))
+            (checkNumeric tc hname (nodeB (nodeA e)) (nodeB e))
+        (if (&& (== headIsVar 1) (== (isCastLike hname) 1))
+            (checkCastForm tc e hname)
+        (if (&& (== headIsVar 1) (== (isMacroName tc hname) 1))
+            ; A macro call cannot be typed before expansion, and
+            ; expansion lives in codegen. The arguments are still
+            ; REAL expressions the expansion will splice, so they
+            ; are checked as expressions; the spine structure is not.
+            {
+              (checkSpineArgsOnly tc e)
+              mkSilentWild
+            }
+        (if (&& (== headIsVar 1)
+                (!= (findStructIfConstruct tc e hname) 0))
+            (checkStructCon tc e (findStructIfConstruct tc e hname))
+        (let ((funcTy (checkExprH tc (nodeA e) 1)))
+          (let ((argTy (checkExprH tc (nodeB e) 0)))
+            (if (== (nodeTag funcTy) TAG_T_ARR)
+                {
+                  (if (== (tyCompat argTy (nodeA funcTy)) 0)
+                      (emitMismatch tc (tyRender (nodeA funcTy))
+                                    (tyRender argTy) (spanOf (nodeB e)))
+                      0)
+                  (nodeB funcTy)
+                }
+                (if (== (tyIsErr funcTy) 1)
+                    funcTy
+                    (if (== (tyIsSilentWild funcTy) 1)
+                        mkSilentWild
+                        {
+                          (emitMismatch tc "function type" (tyRender funcTy)
+                                        (spanOf e))
+                          (mkNode TAG_T_ERR 0 0 0)
+                        }))))))))))))))
+
+; Exactly `(op l r)` with a bare operator head - stage0's
+; numeric_builtin_app is purely syntactic; no shadow check exists.
+(pub :: isNumericTwoArg (-> Int Int Int Int))
+(pub fn (isNumericTwoArg tc e name)
+  (if (!= (nodeTag (nodeA e)) TAG_E_APP)
+      0
+      (if (!= (nodeTag (nodeA (nodeA e))) TAG_E_VAR)
+          0
+          (if (== (isNumOp name) 0)
+              0
+              1))))
+
+(pub :: isNumOp (-> Int Int))
+(pub fn (isNumOp n)
+  (if (strEq n "+") 1 (if (strEq n "-") 1 (if (strEq n "*") 1
+  (if (strEq n "/") 1 (if (strEq n "==") 1 (if (strEq n "!=") 1
+  (if (strEq n "<") 1 (if (strEq n ">") 1 (if (strEq n "<=") 1
+  (if (strEq n ">=") 1 0)))))))))))
+
+(pub :: isNumCmpOp (-> Int Int))
+(pub fn (isNumCmpOp n)
+  (if (strEq n "==") 1 (if (strEq n "!=") 1 (if (strEq n "<") 1
+  (if (strEq n ">") 1 (if (strEq n "<=") 1 (if (strEq n ">=") 1
+  0)))))))
+
+; The numeric matrix, stage0's check_numeric_builtin: operands first
+; (left then right, both always), poison silences everything (a
+; comparison still answers Bool; arithmetic answers poison), a float
+; on EITHER side selects the float path where every non-float operand
+; must be compatible with Float, otherwise both operands must be
+; compatible with Int - which a String is, by the fiat rule.
+(pub :: checkNumeric (-> Int Int Int Int Int))
+(pub fn (checkNumeric tc op l r)
+  (let ((lt (checkExprH tc l 0)))
+    (let ((rt (checkExprH tc r 0)))
+      (if (|| (== (tyIsErr lt) 1) (== (tyIsErr rt) 1))
+          (if (== (isNumCmpOp op) 1) mkBoolTy (mkNode TAG_T_ERR 0 0 0))
+          (if (|| (== (tyIsFloatTy lt) 1) (== (tyIsFloatTy rt) 1))
+              {
+                (if (&& (== (tyIsFloatTy lt) 0)
+                        (== (tyCompat lt mkFloatTy) 0))
+                    (emitMismatch tc "Float" (tyRender lt) (spanOf l))
+                    0)
+                (if (&& (== (tyIsFloatTy rt) 0)
+                        (== (tyCompat rt mkFloatTy) 0))
+                    (emitMismatch tc "Float" (tyRender rt) (spanOf r))
+                    0)
+                (if (== (isNumCmpOp op) 1) mkBoolTy mkFloatTy)
+              }
+              {
+                (if (== (tyCompat lt mkIntTy) 0)
+                    (emitMismatch tc "Int" (tyRender lt) (spanOf l))
+                    0)
+                (if (== (tyCompat rt mkIntTy) 0)
+                    (emitMismatch tc "Int" (tyRender rt) (spanOf r))
+                    0)
+                (if (== (isNumCmpOp op) 1) mkBoolTy mkIntTy)
+              })))))
+
+; `(cast Type v)`, `(sizeof Type)`, `(alignof Type)`: argument zero is
+; a TYPE, and a type name is not a variable reference - checking it
+; drew AX3001 `Int` on the compiler's own source, in three files. The
+; remaining arguments are ordinary expressions. A cast's result is
+; the named type; sizeof/alignof answer Int.
+(pub :: checkCastForm (-> Int Int Int Int))
+(pub fn (checkCastForm tc e hname)
+  (let ((args (spineArgVec e vecNew)))
+    {
+      (checkArgsFromIndex tc args 1)
+      (if (strEq hname "cast")
+          (if (>= (vecLen args) 1)
+              (exprToType (vecGet args 0))
+              mkSilentWild)
+          mkIntTy)
+    }))
+
+(pub :: checkArgsFromIndex (-> Int Int Int Int))
+(pub fn (checkArgsFromIndex tc args i)
+  (if (>= i (vecLen args))
+      0
+      {
+        (checkExprH tc (vecGet args i) 0)
+        (checkArgsFromIndex tc args (+ i 1))
+      }))
+
+; A type spelled in expression position (cast's first argument),
+; converted by the type grammar's atom rules. Unconvertible shapes
+; answer the silent wildcard.
+(pub :: exprToType (-> Int Int))
+(pub fn (exprToType e)
+  (if (== e 0)
+      mkSilentWild
+      (if (== (nodeTag e) TAG_E_VAR)
+          (typeNameToType (nodeA e))
+          (if (== (nodeTag e) TAG_E_APP)
+              (let ((head (spineHead e)))
+                (if (!= (nodeTag head) TAG_E_VAR)
+                    mkSilentWild
+                    (let ((args (spineArgVec e vecNew))
+                          (tys vecNew))
+                      {
+                        (exprsToTypes args tys 0)
+                        (if (strEq (nodeA head) "*")
+                            (if (== (vecLen tys) 1)
+                                (mkTPtr (vecGet tys 0) 0)
+                                mkSilentWild)
+                            (mkTCon (nodeA head) tys))
+                      })))
+              mkSilentWild))))
+
+(pub :: exprsToTypes (-> Int Int Int Int))
+(pub fn (exprsToTypes args acc i)
+  (if (>= i (vecLen args))
+      0
+      {
+        (vecPush acc (exprToType (vecGet args i)))
+        (exprsToTypes args acc (+ i 1))
+      }))
+
+(pub :: typeNameToType (-> Int Int))
+(pub fn (typeNameToType n)
+  (let ((canon (typeKeywordCanon n)))
+    (if (!= canon 0)
+        (mkTCon canon vecNew)
+        (if (== (lexStartsLower n) 1)
+            (mkTVar n)
+            (mkTCon n vecNew)))))
+
+; Saturation, once per spine at its root. A frame-local head is a
+; function VALUE applied stepwise - not measurable. A resolved
+; function with a measurable arity refuses under-application
+; (AX3013); when no function matches, the LAST constructor of the
+; name refuses through its arrow depth (AX3009). A refused spine's
+; arguments are still checked, left to right; the head is not
+; (reporting it again would double the diagnostic). Answers 1 when
+; refused.
+(pub :: checkSaturation (-> Int Int Int Int Int))
+(pub fn (checkSaturation tc e head hname)
+  (if (!= (scopeFindFrame tc hname) 0)
+      0
+      (if (== (isCastLike hname) 1)
+          0
+          (if (== (isMacroName tc hname) 1)
+              0
+              (let ((ent (findFnEnt tc hname)))
+                (if (!= ent 0)
+                    (let ((ar (repArity ent))
+                          (got (spineArgs e 0)))
+                      (if (< ar 0)
+                          0
+                          (if (>= got ar)
+                              0
+                              (if (== (nodeSpan head) 0)
+                                  0
+                                  {
+                                    (vecPush (tcOut tc)
+                                      (mkDiag SEV_ERROR "AX3013" "partial-application"
+                                              (nodeSpan head)
+                                              (strConcat (strConcat (strConcat (strConcat (strConcat
+                                                "partial application of `" hname)
+                                                "`: it takes ") (decStr ar))
+                                                " argument(s) and ") (strConcat (decStr got) " were supplied"))
+                                              0 0
+                                              "bind the missing arguments with a lambda: `(lambda (y) (f x y))` builds the value `(f x)` would mean"))
+                                    (checkSpineArgsOnly tc e)
+                                    1
+                                  }))))
+                    (let ((ctor (rfindCtor tc hname)))
+                      (if (== ctor 0)
+                          0
+                          (let ((want (arrowDepth (memGetWord ctor 3)))
+                                (got (spineArgs e 0)))
+                            (if (>= got want)
+                                0
+                                (if (== (nodeSpan head) 0)
+                                    0
+                                    {
+                                      (vecPush (tcOut tc)
+                                        (mkDiag SEV_ERROR "AX3009" "constructor-arity-mismatch"
+                                                (nodeSpan head)
+                                                (strConcat (strConcat (strConcat (strConcat (strConcat
+                                                  "constructor `" hname)
+                                                  "` expects ") (decStr want))
+                                                  " argument(s), found ") (decStr got))
+                                                0 0
+                                                (strConcat (strConcat "this constructor takes exactly "
+                                                  (decStr want))
+                                                  " field(s); add or remove arguments to match")))
+                                      (checkSpineArgsOnly tc e)
+                                      1
+                                    })))))))))))
+
+(pub :: checkSpineArgsOnly (-> Int Int Int))
+(pub fn (checkSpineArgsOnly tc e)
+  (let ((args (spineArgVec e vecNew)))
+    (checkArgsFromIndex tc args 0)))
+
+; Struct construction: the head names a struct (any module - stage0
+; ignores the module here). Wrong field count is AX3008 with the
+; ARGUMENTS UNCHECKED and a poisoned result; the right count checks
+; every argument against its field's declared type, reporting each
+; mismatch and keeping the struct type as the result.
+(pub :: findStructIfConstruct (-> Int Int Int Int))
+(pub fn (findStructIfConstruct tc e hname)
+  (findStruct tc hname))
+
+(pub :: checkStructCon (-> Int Int Int Int))
+(pub fn (checkStructCon tc e ent)
+  (let ((args (spineArgVec e vecNew))
+        (fields (memGetWord ent 1)))
+    (if (!= (vecLen args) (vecLen fields))
+        {
+          (if (!= (spanOf e) 0)
+              (vecPush (tcOut tc)
+                (let ((msg (strConcat (strConcat (strConcat (strConcat (strConcat
+                             "struct `" (bareOf (memGetWord ent 0)))
+                             "` expects ") (decStr (vecLen fields)))
+                             " field(s), found ") (decStr (vecLen args)))))
+                  (mkDiag SEV_ERROR "AX3008" "semantic-error"
+                          (spanOf e) msg 0 0 0)))
+              0)
+          (mkNode TAG_T_ERR 0 0 0)
+        }
+        {
+          (checkStructFields tc args fields 0)
+          (mkTCon (bareOf (memGetWord ent 0)) vecNew)
+        })))
+
+(pub :: checkStructFields (-> Int Int Int Int Int))
+(pub fn (checkStructFields tc args fields i)
+  (if (>= i (vecLen args))
+      0
+      (let ((aty (checkExprH tc (vecGet args i) 0)))
+        (let ((fty (if (== (nodeTy (vecGet fields i)) 0)
+                       mkSilentWild
+                       (nodeTy (vecGet fields i)))))
+          {
+            (if (== (tyCompat aty fty) 0)
+                (emitMismatch tc (tyRender fty) (tyRender aty)
+                              (spanOf (vecGet args i)))
+                0)
+            (checkStructFields tc args fields (+ i 1))
+          }))))
+
+; ------------------------------------------------------------------
+; Field access and field store. The base must be a plain constructor
+; type; its struct's field types answer reads and check writes. A
+; miss is AX3007 anchored at the FIELD NAME token. stage0 has a
+; data-named-field fallback here; stage1's parser keeps no named
+; constructor fields, so that road is empty by construction. The
+; result type is I64 on every path stage0 answers I64 - including
+; setf's SUCCESS - and the non-constructor-base complaint fires even
+; on poison (stage0 has no guard there; probed, `found {unknown}`
+; cascades), but stays quiet for the silent wildcard, which marks
+; what stage1 alone cannot know.
+; ------------------------------------------------------------------
+(pub :: checkField (-> Int Int Int))
+(pub fn (checkField tc e)
+  (let ((baseTy (checkExprH tc (nodeA e) 0)))
+    (if (== (nodeTag baseTy) TAG_T_CON)
+        (let ((ent (findStruct tc (nodeA baseTy))))
+          (let ((fty (if (== ent 0) (- 0 1) (structFieldTy ent (nodeB e)))))
+            (if (!= fty (- 0 1))
+                fty
+                {
+                  (emitFieldNotFound tc (nodeB e) (nodeA baseTy) (nodeSpan e))
+                  mkI64Ty
+                })))
+        {
+          (if (== (tyIsSilentWild baseTy) 0)
+              (emitMismatch tc "struct or data type" (tyRender baseTy)
+                            (spanOf (nodeA e)))
+              0)
+          mkI64Ty
+        })))
+
+(pub :: emitFieldNotFound (-> Int Int Int Int Int))
+(pub fn (emitFieldNotFound tc fname tyName span)
+  (if (== span 0)
+      0
+      {
+        (vecPush (tcOut tc)
+          (mkDiag SEV_ERROR "AX3007" "field-not-found"
+                  span
+                  (strConcat (strConcat (strConcat (strConcat
+                    "field `" fname) "` not found on type `") tyName) "`")
+                  0 0
+                  (strConcat (strConcat
+                    "check the field name and the definition of `" tyName) "`")))
+        0
+      }))
+
+(pub :: checkSetField (-> Int Int Int))
+(pub fn (checkSetField tc e)
+  (let ((baseTy (checkExprH tc (nodeA e) 0)))
+    {
+      (if (== (nodeTag baseTy) TAG_T_CON)
+          (let ((ent (findStruct tc (nodeA baseTy))))
+            (let ((fty (if (== ent 0) (- 0 1) (structFieldTy ent (nodeB e)))))
+              (if (!= fty (- 0 1))
+                  ; Field found: the VALUE is checked, against the
+                  ; field's type. On a miss the value is NEVER checked
+                  ; - stage0's rule, probed; its diagnostics are lost.
+                  (let ((vty (checkExprH tc (nodeC e) 0)))
+                    (if (== (tyCompat vty fty) 0)
+                        (emitMismatch tc (tyRender fty) (tyRender vty)
+                                      (spanOf (nodeC e)))
+                        0))
+                  (emitFieldNotFound tc (nodeB e) (nodeA baseTy) (nodeSpan e)))))
+          (if (== (tyIsSilentWild baseTy) 0)
+              (emitMismatch tc "struct or data type" (tyRender baseTy)
+                            (spanOf (nodeA e)))
+              0))
+      mkI64Ty
+    }))
+
+; ------------------------------------------------------------------
+; `set`. VALUE first, target second - probed, golden 200. The target:
+; the innermost binding ANYWHERE in scope (module signatures
+; included - stage0's lookup_var has no frame restriction, which is
+; exactly what makes a top-level target AX3012 with an AX3004 cascade
+; through the binding's declared type). A binder stage1 has no span
+; for suppresses BOTH halves. An unbound name that any signature,
+; foreign, or imported definition covers stays silent (stage0 answers
+; AX3012 anchored in another file - bytes stage1 cannot render);
+; otherwise AX3001 with candidates from scope alone.
+; ------------------------------------------------------------------
+(pub :: checkSet (-> Int Int Int))
+(pub fn (checkSet tc e)
+  (let ((valTy (checkExprH tc (nodeB e) 0)))
+    (let ((name (nodeA e)))
+      (let ((ent (scopeFind (tcScope tc) name)))
+        (if (!= ent 0)
+            (let ((suppressed
+                    (if (== (memGetWord ent 1) 1)
+                        0
+                        (if (== (memGetWord ent 2) 0)
+                            1
+                            { (emitAX3012 name (nodeSpan e) (memGetWord ent 2)
+                                          (tcOut tc))
+                              0 }))))
+              {
+                (if (&& (== suppressed 0)
+                        (&& (== (tyIsErr valTy) 0)
+                            (&& (== (tyIsErr (sEntTy ent)) 0)
+                                (== (tyCompat valTy (sEntTy ent)) 0))))
+                    (emitMismatch tc (tyRender (sEntTy ent)) (tyRender valTy)
+                                  (spanOf (nodeB e)))
+                    0)
+                (sEntTy ent)
+              })
+            (if (== (isBuiltinName name) 1)
+                mkSilentWild
+                (if (== (setTargetCovered tc name) 1)
+                    mkSilentWild
+                    (let ((best (newBest)))
+                      {
+                        (offerScope best name (tcScope tc) 0)
+                        (if (!= (nodeSpan e) 0)
+                            (vecPush (tcOut tc)
+                              (let ((msg (strConcat (strConcat "undefined variable `" name) "`")))
+                                (if (== (memGetWord best 0) 0)
+                                    (mkDiag SEV_ERROR "AX3001" "undefined-variable"
+                                            (nodeSpan e) msg 0 0
+                                            "variables must be defined (via `define`/`fn`, a `let` binding, or a lambda parameter) before they are used; check for typos")
+                                    (mkDiagFix SEV_ERROR "AX3001" "undefined-variable"
+                                               (nodeSpan e) msg 0 0
+                                               (strConcat (strConcat
+                                                 "a similarly named binding `" (memGetWord best 0))
+                                                 "` is in scope; did you mean this?")
+                                               (nodeSpan e) (memGetWord best 0)))))
+                            0)
+                        (mkNode TAG_T_ERR 0 0 0)
+                      }))))))))
+
+; An IMPORTED declaration of the name - its stored name carries a
+; `$`. stage0 resolves such a target through the scope entry the
+; merged walk parked and answers AX3012 anchored in the OTHER file;
+; stage1 renders every span against one source, so silence is the
+; sound subset. ONLY imported declarations qualify: an entry-file
+; signature is already a scope entry when the walk has passed it, and
+; when it has NOT - the signature comes later in the file - stage0
+; answers AX3001 (probed), which the fallthrough here preserves. An
+; entry-file sig-less `fn` also stays AX3001: a plain `fn` never
+; parks a scope entry in stage0 either.
+(pub :: setTargetCovered (-> Int Int Int))
+(pub fn (setTargetCovered tc name)
+  (setTargetCoveredFrom (memGetWord tc 10) name 0))
+
+(pub :: setTargetCoveredFrom (-> Int Int Int Int))
+(pub fn (setTargetCoveredFrom decls name i)
   (if (>= i (vecLen decls))
       0
       (let ((d (vecGet decls i)))
         (let ((tag (nodeTag d)))
-          (if (&& (|| (== tag TAG_D_FN)
-                      (|| (== tag TAG_D_FOREIGN)
-                          (|| (== tag TAG_D_STRUCT)
-                              (|| (== tag TAG_D_MACRO) (== tag TAG_D_SIG)))))
-                  (== (nameMatches (nodeA d) n) 1))
+          (if (&& (|| (== tag TAG_D_SIG)
+                      (|| (== tag TAG_D_FOREIGN) (== tag TAG_D_FN)))
+                  (&& (== (nameMatches (nodeA d) name) 1)
+                      (if (strEq (nodeA d) name) false true)))
               1
-              (if (&& (== tag TAG_D_DATA) (== (ctorNamed (nodeB d) n 0) 1))
-                  1
-                  ; An effect declares its own name - which appears in
-                  ; a `handle` list - and one callable per operation.
-                  (if (&& (== tag TAG_D_EFFECT)
-                          (|| (== (nameMatches (nodeA d) n) 1)
-                              (== (opNamed (nodeB d) n 0) 1)))
-                      1
-                      (declaredFrom decls n (+ i 1)))))))))
+              (setTargetCoveredFrom decls name (+ i 1)))))))
 
-(pub :: opNamed (-> Int Int Int Int))
-(pub fn (opNamed ops n i)
-  (if (>= i (vecLen ops))
+; ------------------------------------------------------------------
+; match. The scrutinee first; each arm's pattern binds its variables
+; at the constructor's DECLARED field types - tyvars as written,
+; never substituted, which is why tyCompat treats them as wildcards -
+; then the arm body; arm results are NEVER compared (stage0 keeps the
+; last arm's type). After every arm: exhaustiveness, only when no
+; catch-all arm exists and the scrutinee's type is a known data type;
+; the missing list is the declaration order, and the anchor is the
+; SCRUTINEE. Pattern errors therefore precede body errors, and AX3005
+; comes after everything in its match - probed order.
+; ------------------------------------------------------------------
+(pub :: checkMatch (-> Int Int Int))
+(pub fn (checkMatch tc e)
+  (let ((scrutTy (checkExprH tc (nodeA e) 0))
+        (covered vecNew)
+        (catchall (memAlloc 8)))
+    {
+      (memSetWord catchall 0 0)
+      (let ((resTy (checkArms tc (nodeB e) 0 covered catchall
+                              (freshTVar tc 0))))
+        {
+          (if (&& (== (memGetWord catchall 0) 0)
+                  (== (nodeTag scrutTy) TAG_T_CON))
+              (let ((dent (findData tc (nodeA scrutTy))))
+                (if (== dent 0)
+                    0
+                    (checkExhaustive tc dent covered (spanOf (nodeA e)))))
+              0)
+          resTy
+        })
+    }))
+
+(pub :: checkArms (-> Int Int Int Int Int Int Int))
+(pub fn (checkArms tc arms i covered catchall resTy)
+  (if (>= i (vecLen arms))
+      resTy
+      (let ((arm (vecGet arms i))
+            (mark (vecLen (tcScope tc))))
+        {
+          (recordCoverage (nodeA arm) covered catchall)
+          (checkPatternTyped tc (nodeA arm) 0)
+          (let ((t (checkExprH tc (nodeB arm) 0)))
+            {
+              (scopeTrunc (tcScope tc) mark)
+              (checkArms tc arms (+ i 1) covered catchall t)
+            })
+        })))
+
+; What an arm covers: a parenthesised nullary constructor or a
+; fieldful pattern's head name. A bare identifier is a catch-all -
+; except `true`/`false`, which are literal TESTS (codegen agrees),
+; and literals, which cover nothing.
+(pub :: recordCoverage (-> Int Int Int Int))
+(pub fn (recordCoverage pat covered catchall)
+  (let ((tag (nodeTag pat)))
+    (if (== tag TAG_P_CON0)
+        { (vecPush covered (nodeA pat)) 0 }
+        (if (== tag TAG_E_APP)
+            (let ((head (spineHead pat)))
+              (if (== (nodeTag head) TAG_E_VAR)
+                  { (vecPush covered (nodeA head)) 0 }
+                  0))
+            (if (== tag TAG_E_VAR)
+                (if (|| (strEq (nodeA pat) "true") (strEq (nodeA pat) "false"))
+                    0
+                    { (memSetWord catchall 0 1) 0 })
+                0)))))
+
+(pub :: checkExhaustive (-> Int Int Int Int Int))
+(pub fn (checkExhaustive tc dent covered span)
+  (if (== span 0)
       0
-      (if (strEq (vecGet ops i) n)
-          1
-          (opNamed ops n (+ i 1)))))
+      (let ((missing (missingCtors (memGetWord dent 1) covered vecNew 0)))
+        (if (== (vecLen missing) 0)
+            0
+            {
+              (vecPush (tcOut tc)
+                (mkDiag SEV_ERROR "AX3005" "non-exhaustive-match"
+                        span
+                        (strConcat "non-exhaustive pattern match: missing "
+                                   (joinComma missing 0 ""))
+                        0 0
+                        "add the missing arms, or a wildcard `_` arm to catch the rest"))
+              0
+            }))))
 
-(pub :: ctorNamed (-> Int Int Int Int))
-(pub fn (ctorNamed ctors n i)
+(pub :: missingCtors (-> Int Int Int Int Int))
+(pub fn (missingCtors ctors covered acc i)
   (if (>= i (vecLen ctors))
+      acc
+      (let ((cn (bareOf (memGetWord (vecGet ctors i) 0))))
+        {
+          (if (== (coveredHas covered cn 0) 0)
+              (vecPush acc cn)
+              0)
+          (missingCtors ctors covered acc (+ i 1))
+        })))
+
+(pub :: coveredHas (-> Int Int Int Int))
+(pub fn (coveredHas covered name i)
+  (if (>= i (vecLen covered))
       0
-      (if (== (nameMatches (nodeA (vecGet ctors i)) n) 1)
+      (if (strEq (bareOf (vecGet covered i)) name)
           1
-          (ctorNamed ctors n (+ i 1)))))
+          (coveredHas covered name (+ i 1)))))
+
+(pub :: joinComma (-> Int Int Int Int))
+(pub fn (joinComma xs i acc)
+  (if (>= i (vecLen xs))
+      acc
+      (joinComma xs (+ i 1)
+        (if (== i 0)
+            (vecGet xs 0)
+            (strConcat (strConcat acc ", ") (vecGet xs i))))))
+
+; ------------------------------------------------------------------
+; Patterns, typed. A bare identifier binds at the expected type -
+; `_` excepted: stage0 parses it as a wildcard that binds nothing,
+; and a bound `_` would join the suggestion pool. A constructor
+; pattern checks existence (AX3003, suggestions from constructors
+; alone) and arity (AX3009), then binds each argument at the
+; constructor's declared field type; arguments past the declared
+; fields, and every argument of an UNKNOWN constructor, bind at fresh
+; `_tN` wildcards - and each such fallback bumps the counter, stage0's
+; check_pattern discipline, literals and wildcards included.
+;
+; `expected` is 0 at the top of an arm (the scrutinee's type is not
+; threaded into patterns - stage0 binds a top-level variable pattern
+; at the scrutinee type, and so does checkMatch's caller via
+; checkPatternTypedAt).
+; ------------------------------------------------------------------
+(pub :: checkPatternTyped (-> Int Int Int Int))
+(pub fn (checkPatternTyped tc pat scrutTy)
+  (let ((tag (nodeTag pat)))
+    (if (== tag TAG_E_VAR)
+        (if (|| (strEq (nodeA pat) "true") (strEq (nodeA pat) "false"))
+            0
+            (if (strEq (nodeA pat) "_")
+                0
+                { (pushScope (tcScope tc) (nodeA pat) 0 (nodeSpan pat)
+                             (if (== scrutTy 0) mkSilentWild scrutTy))
+                  0 }))
+    (if (== tag TAG_P_CON0)
+        (checkCtorPattern tc (nodeA pat) vecNew (nodeSpan pat))
+    (if (== tag TAG_E_APP)
+        (let ((head (spineHead pat)))
+          (if (!= (nodeTag head) TAG_E_VAR)
+              0
+              (checkCtorPattern tc (nodeA head)
+                                (spineArgVec pat vecNew)
+                                (nodeSpan head))))
+    0)))))
+
+(pub :: checkCtorPattern (-> Int Int Int Int Int))
+(pub fn (checkCtorPattern tc cname args span)
+  (let ((ctor (findCtor tc cname)))
+    (if (== ctor 0)
+        {
+          (emitUndefinedCtor tc cname span)
+          (bindPatternArgsFresh tc args 0)
+          0
+        }
+        (let ((fieldTys (memGetWord ctor 1)))
+          {
+            (if (!= (vecLen args) (vecLen fieldTys))
+                (if (== span 0)
+                    0
+                    (vecPush (tcOut tc)
+                      (mkDiag SEV_ERROR "AX3009" "constructor-arity-mismatch"
+                              span
+                              (strConcat (strConcat (strConcat (strConcat (strConcat
+                                "constructor `" cname)
+                                "` expects ") (decStr (vecLen fieldTys)))
+                                " argument(s), found ") (decStr (vecLen args)))
+                              0 0
+                              (strConcat (strConcat "this constructor takes exactly "
+                                (decStr (vecLen fieldTys)))
+                                " field(s); add or remove arguments to match"))))
+                0)
+            (bindPatternArgs tc args fieldTys 0)
+            0
+          }))))
+
+(pub :: bindPatternArgs (-> Int Int Int Int Int))
+(pub fn (bindPatternArgs tc args fieldTys i)
+  (if (>= i (vecLen args))
+      0
+      (let ((arg (vecGet args i)))
+        {
+          (if (< i (vecLen fieldTys))
+              (bindOnePatArg tc arg (vecGet fieldTys i))
+              (bindOnePatArg tc arg (freshTVar tc 1)))
+          (bindPatternArgs tc args fieldTys (+ i 1))
+        })))
+
+(pub :: bindPatternArgsFresh (-> Int Int Int Int))
+(pub fn (bindPatternArgsFresh tc args i)
+  (if (>= i (vecLen args))
+      0
+      {
+        (bindOnePatArg tc (vecGet args i) (freshTVar tc 1))
+        (bindPatternArgsFresh tc args (+ i 1))
+      }))
+
+; One argument position: a bare name binds at the given type, a
+; nested constructor pattern recurses with its own checks, a literal
+; binds nothing.
+(pub :: bindOnePatArg (-> Int Int Int Int))
+(pub fn (bindOnePatArg tc arg ty)
+  (let ((tag (nodeTag arg)))
+    (if (== tag TAG_E_VAR)
+        (if (|| (strEq (nodeA arg) "true") (strEq (nodeA arg) "false"))
+            0
+            (if (strEq (nodeA arg) "_")
+                0
+                { (pushScope (tcScope tc) (nodeA arg) 0 (nodeSpan arg) ty)
+                  0 }))
+        (if (|| (== tag TAG_E_APP) (== tag TAG_P_CON0))
+            (checkPatternTyped tc arg 0)
+            0))))
+
+(pub :: emitUndefinedCtor (-> Int Int Int Int))
+(pub fn (emitUndefinedCtor tc cname span)
+  (if (== span 0)
+      0
+      (let ((best (newBest)))
+        {
+          (offerCtorEnts best cname (tcDatas tc) 0)
+          (vecPush (tcOut tc)
+            (let ((msg (strConcat (strConcat "undefined constructor `" cname) "`")))
+              (if (== (memGetWord best 0) 0)
+                  (mkDiag SEV_ERROR "AX3003" "undefined-constructor"
+                          span msg 0 0
+                          "check the `data` declaration for the correct constructor name")
+                  (mkDiagFix SEV_ERROR "AX3003" "undefined-constructor"
+                             span msg 0 0
+                             (strConcat (strConcat
+                               "a similarly named constructor `" (memGetWord best 0))
+                               "` is visible; did you mean this?")
+                             span (memGetWord best 0)))))
+          0
+        })))
 
 ; ------------------------------------------------------------------
 ; The suggestion. Byte-identical output means reproducing stage0's
@@ -894,8 +1943,10 @@
 ; `(min(len)/2)` clamped to [1,2], candidates equal to the name or
 ; beginning `__` skipped, and the FIRST strictly-smaller distance
 ; winning - so the order candidates are visited in decides ties.
-; stage0 visits scope, then functions, then constructors; this visits
-; locals, then declarations in order, which is the same sequence.
+; stage0 visits scope, then the function TABLE - operators and
+; primitives included, struct names absent (probed: a typo near a
+; struct name draws no suggestion) - then every constructor, the
+; builtin Option's first.
 ; ------------------------------------------------------------------
 (pub :: levenshtein (-> Int Int Int))
 (pub fn (levenshtein a b)
@@ -980,60 +2031,26 @@
       { (offerCandidate best name (memGetWord (vecGet scope i) 0))
         (offerScope best name scope (+ i 1)) }))
 
-; stage0 offers candidates in three separate passes - everything in
-; scope, then every function, then every constructor - and the FIRST
-; strictly-smaller distance wins, so a single interleaved walk would
-; break ties differently and print a different name. The builtin
-; `Option` constructors lead the constructor pass because stage0
-; registers that type before any declared one.
-(pub :: offerDecls (-> Int Int Int Int Int))
-(pub fn (offerDecls best name decls i)
-  {
-    (offerFns best name decls 0)
-    ; `Some` before `None`: a constructor is registered as a function
-    ; in stage0 too, and functions are offered before constructors, so
-    ; the one-argument `Some` is reached first. Both sit at distance 2
-    ; from `nope`, and the first strictly-smaller distance wins, so
-    ; this order is the whole difference between printing `Some` and
-    ; printing `None`. Determined by probe, not by reading.
-    (offerCandidate best name "Some")
-    (offerCandidate best name "None")
-    (offerAllCtors best name decls 0)
-    0
-  })
-
-(pub :: offerFns (-> Int Int Int Int Int))
-(pub fn (offerFns best name decls i)
-  (if (>= i (vecLen decls))
+(pub :: offerFnEnts (-> Int Int Int Int Int))
+(pub fn (offerFnEnts best name fns i)
+  (if (>= i (vecLen fns))
       0
-      (let ((d (vecGet decls i)))
-        (let ((tag (nodeTag d)))
-          {
-            (if (|| (== tag TAG_D_FN)
-                    (|| (== tag TAG_D_FOREIGN) (== tag TAG_D_STRUCT)))
-                (offerCandidate best name (bareOf (nodeA d)))
-                0)
-            (offerFns best name decls (+ i 1))
-          }))))
+      { (offerCandidate best name (bareOf (memGetWord (vecGet fns i) 0)))
+        (offerFnEnts best name fns (+ i 1)) }))
 
-(pub :: offerAllCtors (-> Int Int Int Int Int))
-(pub fn (offerAllCtors best name decls i)
-  (if (>= i (vecLen decls))
+(pub :: offerCtorEnts (-> Int Int Int Int Int))
+(pub fn (offerCtorEnts best name datas i)
+  (if (>= i (vecLen datas))
       0
-      (let ((d (vecGet decls i)))
-        {
-          (if (== (nodeTag d) TAG_D_DATA)
-              (offerCtors best name (nodeB d) 0)
-              0)
-          (offerAllCtors best name decls (+ i 1))
-        })))
+      { (offerCtorsOf best name (memGetWord (vecGet datas i) 1) 0)
+        (offerCtorEnts best name datas (+ i 1)) }))
 
-(pub :: offerCtors (-> Int Int Int Int Int))
-(pub fn (offerCtors best name ctors i)
+(pub :: offerCtorsOf (-> Int Int Int Int Int))
+(pub fn (offerCtorsOf best name ctors i)
   (if (>= i (vecLen ctors))
       0
-      { (offerCandidate best name (bareOf (nodeA (vecGet ctors i))))
-        (offerCtors best name ctors (+ i 1)) }))
+      { (offerCandidate best name (bareOf (memGetWord (vecGet ctors i) 0)))
+        (offerCtorsOf best name ctors (+ i 1)) }))
 
 ; A declaration's source-spelled name: import resolution rewrites an
 ; imported one to `Mod$name` in place, and a suggestion has to read
@@ -1050,14 +2067,102 @@
           (bareOfFrom s (- i 1)))))
 
 ; ------------------------------------------------------------------
+; The declaration walk: signatures and foreigns park scope entries AS
+; THE WALK REACHES THEM (order-sensitive, probed: a `set` in an
+; earlier body does not see a later signature), and every entry-file
+; function body is checked with its parameters typed by peeling the
+; signature's arrows - a missing or non-arrow signature types every
+; parameter Int; parameters past the arrows bind at fresh `_tN`. The
+; inferred arrow is recorded only over a still-placeholder type: a
+; declared signature is authoritative and never overwritten.
+; ------------------------------------------------------------------
+(pub :: tcWalkDecls (-> Int Int Int))
+(pub fn (tcWalkDecls tc i)
+  (let ((decls (memGetWord tc 9)))
+    (if (>= i (vecLen decls))
+        0
+        (let ((d (vecGet decls i)))
+          {
+            (let ((tag (nodeTag d)))
+              (if (|| (== tag TAG_D_SIG) (== tag TAG_D_FOREIGN))
+                  (pushScope (tcScope tc) (nodeA d) 0 (nodeSpan d)
+                             (if (== (nodeTy d) 0) mkSilentWild (nodeTy d)))
+                  (if (== tag TAG_D_FN)
+                      (tcCheckFn tc d)
+                      0)))
+            (tcWalkDecls tc (+ i 1))
+          }))))
+
+(pub :: tcCheckFn (-> Int Int Int))
+(pub fn (tcCheckFn tc d)
+  (let ((ent (findFnEnt tc (nodeA d)))
+        (params (nodeB d))
+        (base (vecLen (tcScope tc))))
+    {
+      (memSetWord tc 6 base)
+      (let ((sigTy (if (== ent 0) 0 (memGetWord ent 1)))
+            (ptys vecNew))
+        {
+          (bindFnParams tc params ptys sigTy 0)
+          (let ((bodyTy (checkExprH tc (nodeC d) 0)))
+            {
+              (if (&& (!= ent 0)
+                      (&& (!= (memGetWord ent 1) 0)
+                          (== (nodeTag (memGetWord ent 1)) TAG_T_VAR)))
+                  (memSetWord ent 1
+                              (ctorArrowOf ptys bodyTy (- (vecLen ptys) 1)))
+                  0)
+              (scopeTrunc (tcScope tc) base)
+            })
+        })
+    }))
+
+; Parameter types: peel the signature's arrows left to right. The
+; walk keeps its own cursor because a non-arrow signature - or none -
+; means EVERY parameter is Int (stage0 2185, probed), while arrows
+; that run out mid-list leave the REST at fresh `_tN` (stage0
+; 2188-2196). The counter bumps once per parameter regardless of
+; where the type came from - `_tN` names render, so the discipline is
+; not a style choice.
+(pub :: bindFnParams (-> Int Int Int Int Int Int))
+(pub fn (bindFnParams tc params ptys sigTy i)
+  (if (>= i (vecLen params))
+      0
+      (let ((isArrowSig (if (== sigTy 0)
+                            0
+                            (if (== (nodeTag sigTy) TAG_T_ARR) 1 0))))
+        (let ((pty (if (== isArrowSig 1)
+                       (nthParamTy sigTy i (freshTVar tc 0))
+                       mkIntTy)))
+          {
+            (tcBumpCounter tc)
+            (vecPush ptys pty)
+            (pushScope (tcScope tc) (vecGet params i) 0 0 pty)
+            (bindFnParams tc params ptys sigTy (+ i 1))
+          }))))
+
+; The i-th parameter position of an arrow chain, or `fallback` when
+; the arrows run out first.
+(pub :: nthParamTy (-> Int Int Int Int))
+(pub fn (nthParamTy ty i fallback)
+  (if (== ty 0)
+      fallback
+      (if (!= (nodeTag ty) TAG_T_ARR)
+          fallback
+          (if (== i 0)
+              (nodeA ty)
+              (nthParamTy (nodeB ty) (- i 1) fallback)))))
+
+; ------------------------------------------------------------------
 ; Every diagnostic for one module, in stage0's emission order.
 ; ------------------------------------------------------------------
 (pub :: checkModule (-> Int Int Int))
 (pub fn (checkModule entryDecls allDecls)
-  (let ((out vecNew))
-    {
-      (checkDuplicates entryDecls out 0)
-      (checkMissingDefs entryDecls allDecls out 0)
-      (checkBodies entryDecls allDecls out 0)
-      out
-    }))
+  (let ((tc (tcNew entryDecls allDecls)))
+    (let ((out (tcOut tc)))
+      {
+        (checkDuplicates entryDecls out 0)
+        (checkMissingDefs entryDecls allDecls out 0)
+        (tcWalkDecls tc 0)
+        out
+      })))

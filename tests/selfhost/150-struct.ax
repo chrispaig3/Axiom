@@ -1,6 +1,20 @@
 ; expect 42
+; Struct construction lays the fields out as consecutive words, so
+; field i is readable as word i through `__load64` - the raw route,
+; distinct from `540-field-access.ax`, which reads the same words
+; through `p.x`.
+;
+; The `cast` is load-bearing and was not here originally. `__load64`
+; is declared `Int -> Int -> Int` (axiom_sema::PRIMITIVES: every
+; primitive is `Int`-typed, because primitives are where the type
+; system stops), and a struct handle's type is `P`. Passing `p`
+; directly is a type error that stage0 has always reported and stage1
+; used to compile in silence, because stage1 had no type checker; the
+; case passed by not being checked. `cast` reinterprets the machine
+; word without converting it, which is exactly the handle-to-address
+; move this test wants to make.
 (struct P (x : Int) (y : Int))
 (:: main Int)
 (fn (main)
   (let ((p (P 40 2)))
-    (+ (__load64 p 0) (__load64 p 1))))
+    (+ (__load64 (cast Int p) 0) (__load64 (cast Int p) 1))))

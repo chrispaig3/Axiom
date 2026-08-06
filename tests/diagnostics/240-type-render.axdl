@@ -1,0 +1,3 @@
+E AX3004 240-type-render.ax:5:20-21 type-mismatch "type mismatch: expected Box Int, found Box Bool"
+E AX3004 240-type-render.ax:7:23-24 type-mismatch "type mismatch: expected function type, found _t3"
+E AX3004 240-type-render.ax:7:29-30 type-mismatch "type mismatch: expected function type, found _t4"

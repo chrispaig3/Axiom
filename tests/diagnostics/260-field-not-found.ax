@@ -1,0 +1,5 @@
+(struct P (x : Int) (y : Int))
+(:: main Int)
+(fn (main)
+  (let ((p (P 1 2)))
+    (+ p.z p.y)))

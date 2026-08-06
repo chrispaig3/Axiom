@@ -1,0 +1,3 @@
+E AX3004 230-type-mismatch.ax:7:8-9 type-mismatch "type mismatch: expected Bool, found Int"
+E AX3004 230-type-mismatch.ax:8:10-14 type-mismatch "type mismatch: expected Int, found Bool"
+E AX3004 230-type-mismatch.ax:9:14-15 type-mismatch "type mismatch: expected (Int -> Int), found Int"

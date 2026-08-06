@@ -1,0 +1,2 @@
+E AX3007 260-field-not-found.ax:5:10-11 field-not-found "field `z` not found on type `P`" ?"check the field name and the definition of `P`"
+E AX3004 260-field-not-found.ax:5:8-9 type-mismatch "type mismatch: expected Int, found I64"

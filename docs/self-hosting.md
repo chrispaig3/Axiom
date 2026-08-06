@@ -1059,17 +1059,106 @@ its lexer accepts no non-ASCII identifier to begin with. `&&&` also
 lexes as one identifier in stage1 and as `&` plus `&&` in stage0,
 which is a lexer gap rather than a checker one.
 
-What genuinely remains: type checking proper. All four checks are
-structural, and `parseSigDecl` keeps only a signature's name and a
-float-flag bitmask - the type structure is discarded - so nothing
-downstream can compare a type to anything. `AX3013` itself is
-under-reported in two directions
-recorded in `typecheck.ax`: stage0 also measures builtins and foreign
-bindings through their arrow depth, which stage1 has no type structure
-to count. Duplicates *inside an imported module* also go unreported,
-because stage1's merged declaration list does not record which module
-each declaration came from; checking the entry file alone is the sound
-subset, never inventing a diagnostic stage0 would not produce.
+**Type checking proper has landed**, and with it the eighth through
+eleventh diagnostics - the four that need a type to exist before they
+can be asked: `AX3004` type-mismatch, `AX3005` non-exhaustive-match,
+`AX3007` field-not-found and `AX3008` struct-field-count. What
+unblocked them was `parseSigDecl` keeping a signature's type
+*structure* rather than its name and a float-flag bitmask; with the
+structure discarded, nothing downstream could compare a type to
+anything.
+
+The model reproduced is stage0's, and its most important property is
+that there is no model to speak of: **no unification and no
+substitution exist anywhere**. `compatible_with` is the entire notion
+of agreement, and stage1's `tyCompat` is a transliteration of it - a
+type VARIABLE on either side at any depth matches anything, so
+`Tree a` against `Tree Int` passes without any substitution existing
+to make it pass; the poison type matches everything, so one root cause
+never cascades; and `String` and `Int` are mutually compatible by
+fiat, which is the uniform-representation rule (§2.2 S1) made visible
+in one place instead of worked around at every boundary. Writing a
+real unifier here would have been easier and wrong: the acceptance
+criterion is byte-identical AXDL, and a checker that knows more than
+stage0 reports diagnostics stage0 does not.
+
+Two things had to be copied rather than designed. Type *rendering* is
+byte-visible, because `_tN` names appear inside AX3004 messages, so
+the fresh-variable counter's increment sites are stage0's rather than
+a plausible equivalent - `240-type-render.ax` pins this by rendering
+`_t3` and `_t4`, numbers that are correct only if every earlier
+declaration in the file consumed exactly as many fresh variables in
+stage1 as in stage0. And a declared *signature is authoritative*: a
+`fn` without one gets a placeholder type variable and every parameter
+typed `Int` - Int, not a wildcard (probed) - while parameters beyond a
+signature's arrows bind at fresh wildcards.
+
+Where stage1 cannot know a type it uses a *silent* wildcard: a
+nameless type variable that matches anything, is never rendered, and
+is never the subject of a diagnostic. Effect operations, macro heads,
+and types the grammar cannot represent all get one, so the residue is
+under-reporting rather than divergence - a handler whose type
+disagrees with its effect's declared operation draws `AX3004` from
+stage0 and silence from stage1 (probed). Under-report, never
+mis-report, is the rule the whole file is written to.
+
+Six corpus cases pin the result: `230-type-mismatch` (the common
+shapes - a non-`Bool` `if` condition, an argument against a signature,
+a non-function where an arrow is expected), `240-type-render` (an
+applied constructor `Box Int` against `Box Bool`, plus the fresh
+counter above), `250-non-exhaustive-match`, `260-field-not-found`,
+`270-struct-field-count` in both directions, and `280-check-order`,
+which puts three diagnostics in one expression to pin the order they
+come out in: the field error, its own `I64` cascade, then
+exhaustiveness last. Roughly a hundred differential probes over the
+language's corners - generics, recursive types, imports, floats,
+chars, `while`/`set`, nested matches, cascade suppression - found no
+divergence outside the silent-wildcard gap above.
+
+The bug worth recording is the one this found in the *test suite*
+rather than in either compiler. `tests/selfhost/150-struct.ax` passed
+a struct handle to `__load64`, and every primitive is declared
+`Int -> ... -> Int` (`axiom_sema::PRIMITIVES` - the primitives are
+where the type system stops), so stage0 has always rejected that file:
+`axiom check` reports two `AX3004`s on it. It sat in the conformance
+corpus regardless, because the only compiler that ever read it was
+stage1, which had no type checker and compiled it in silence. The
+first thing type checking did was refuse it, which looked exactly like
+a false positive and was its opposite - two compilers agreeing about a
+fixture that was wrong. It reads its words through `(cast Int p)` now,
+the documented reinterpretation, which is what the case meant all
+along.
+
+That it surfaced in `check-self-host.sh` rather than in the
+diagnostics gate is the second half of the finding. The
+no-false-positives sweep ran over `self_host/`, `stdlib/` and
+`tests/stdlib/`; `tests/selfhost/` - the largest body of programs
+written specifically to be compiled by stage1 - was not in the list.
+The sweep therefore read 53 files and reported clean while the 71 in
+`tests/selfhost/`, more than it covered in total, went unread, and the
+failure arrived instead as an unrelated-looking conformance
+regression: a type checker landing broke a struct test. The sweep
+covers it now - 124 files rather than 53 - and ablating the fixture
+back to its `__load64 p` spelling fails the gate, which is how the
+extension is known to discriminate. The sweep also counts what it
+read and refuses a count under 100, because the way a tree left the
+sweep in the first place was silently: a glob that stops matching
+removes its files while the section still reports the silence it was
+looking for. A checker's silence has to be swept over every tree of
+correct programs, not most of them, and the sweep has to say how many
+it swept.
+
+`AX3013` remains under-reported in one direction recorded in
+`typecheck.ax`: stage0 also measures builtins and foreign bindings
+through their arrow depth. Duplicates *inside an imported module* also
+go unreported, because stage1's merged declaration list does not
+record which module each declaration came from; checking the entry
+file alone is the sound subset, never inventing a diagnostic stage0
+would not produce.
+
+What genuinely remains for phase 3: effects and AXTAG validation,
+diagnostic grouping, and type-checking the bodies of imported modules
+against their own filenames.
 
 (This paragraph used to end "No lambda expressions (refused loudly)".
 That was true when it was written and stopped being true two commits
