@@ -284,7 +284,12 @@ module.exports = grammar({
       ')',
     ),
 
-    deriving_clause: $ => seq('(', 'deriving', repeat($.identifier), ')'),
+    // `deriving (Eq Show)` - the keyword OUTSIDE the parentheses, which
+    // is what `parse_data` accepts. This described `(deriving Eq Show)`,
+    // the spelling the *formatter* emitted and the compiler rejects, so
+    // all three implementations of the grammar disagreed and no file in
+    // the repository used the construct to say so.
+    deriving_clause: $ => seq('deriving', '(', repeat($.identifier), ')'),
 
     // `(struct Name modifier? (field : Type)...)`
     struct_declaration: $ => seq(

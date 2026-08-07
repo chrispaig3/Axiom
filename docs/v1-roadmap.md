@@ -829,3 +829,28 @@ completing together is not a plan.
 | A lint job that gates every other job fails, so nothing downstream ever runs | `needs: lint` means a clippy warning stops the whole pipeline. Keep `cargo clippy -- -D warnings` clean; eleven warnings had accumulated and blocked CI entirely (§2.5) |
 | A gate that *skips* when its tool is missing is the same failure wearing a different hat | `check-tree-sitter.sh` exited 0 when the tree-sitter CLI was absent — which is every machine that has not run its `npm install` — so it reported success without checking anything. It hid two live breakages: the grammar rejected every `struct` with fields, and so most of `self_host/`, taking the corpus from a claimed 18/18 to an actual 27/70; and the highlight-query step named `game_of_life/Life.ax`, deleted in 720a0d5. Both fixed, and the gate now fails rather than skips unless `AXIOM_TREE_SITTER_OPTIONAL=1` is set |
 | Removing `union`/`region` breaks unknown external code | Both stay reserved and report `AX2004` with the replacement, rather than being silently reinterpreted |
+
+### 2.4i Two more of the same class, in the neighbouring branch
+
+§2.4h fixed the type printer and widened the zoo to ask about applied
+types. Asking the *rest* of the questions the zoo had never asked found
+two more constructs `fmt` refuses, both in `data`/`struct` and both the
+same shape — the formatter emitting syntax the parser does not accept,
+invisible because nothing in the repository writes it:
+
+| written | `fmt` printed | the parser wants |
+|---|---|---|
+| `(data C (Red) (Green) deriving (Eq Show))` | `(deriving Eq Show)` | `deriving` outside the parens |
+| `(struct P (mut y : Int))` | `(y : Int) mut` | `mut` inside, before the name |
+
+Both refused rather than wrote, which is the round-trip check doing its
+job for the third time. And both are now in `tests/fmt/syntax-zoo.ax`,
+so the gate asks.
+
+The pattern is worth naming, because this is the third time it has been
+recorded and the second time in one sitting: **a formatter is a second
+implementation of the grammar, and the only thing that keeps the two
+implementations in agreement is a corpus that uses every rule.** The
+`.ax` files in this repository are written by people solving problems in
+Axiom, so they use the constructs those problems need. The zoo has to be
+written by someone reading the *parser*.

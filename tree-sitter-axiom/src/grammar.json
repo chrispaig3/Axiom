@@ -535,11 +535,11 @@
       "members": [
         {
           "type": "STRING",
-          "value": "("
+          "value": "deriving"
         },
         {
           "type": "STRING",
-          "value": "deriving"
+          "value": "("
         },
         {
           "type": "REPEAT",

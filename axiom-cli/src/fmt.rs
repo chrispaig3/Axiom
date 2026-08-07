@@ -505,11 +505,7 @@ fn format_data_decl(
     } else if constructors.len() == 1 && constructors[0].is_nullary() {
         write!(out, " ({})", constructors[0].name.name).unwrap();
         if !deriving.is_empty() {
-            out.push_str(" (deriving");
-            for d in deriving {
-                write!(out, " {}", d.name).unwrap();
-            }
-            out.push(')');
+            format_deriving(deriving, out);
         }
         out.push(')');
     } else {
@@ -521,11 +517,7 @@ fn format_data_decl(
             state.pop_indent();
         }
         if !deriving.is_empty() {
-            out.push_str(" (deriving");
-            for d in deriving {
-                write!(out, " {}", d.name).unwrap();
-            }
-            out.push(')');
+            format_deriving(deriving, out);
         }
         out.push(')');
     }
@@ -567,10 +559,18 @@ fn format_struct_decl(
             // `(x : Int)`, not `(x Int)`. The separator is part of the
             // syntax, and omitting it produced a struct declaration that
             // did not parse.
-            write!(out, "({} : {})", f.name.name, format_type(&f.ty)).unwrap();
-            if f.mutable {
-                out.push_str(" mut");
-            }
+            // `(mut y : Int)`, not `(y : Int) mut`. `parse_struct`
+            // reads the `mut` immediately after the opening paren, so
+            // the trailing spelling did not parse and `fmt` refused
+            // every struct with a mutable field.
+            write!(
+                out,
+                "({}{} : {})",
+                if f.mutable { "mut " } else { "" },
+                f.name.name,
+                format_type(&f.ty)
+            )
+            .unwrap();
         }
         state.pop_indent();
     }
@@ -768,6 +768,24 @@ fn format_effect_decl(
             out.push(')');
         }
         state.pop_indent();
+    }
+    out.push(')');
+}
+
+/// `deriving (Eq Show)` - the keyword OUTSIDE the parentheses.
+///
+/// This printed `(deriving Eq Show)`, with the keyword inside, which
+/// `parse_data` does not accept: it expects `deriving` and then a
+/// parenthesised list. So `fmt` refused every `data` declaration with a
+/// `deriving` clause, and nothing in the repository has one - the same
+/// blind spot as the applied type in §2.4h, in the neighbouring branch.
+fn format_deriving(deriving: &[Ident], out: &mut String) {
+    out.push_str(" deriving (");
+    for (i, d) in deriving.iter().enumerate() {
+        if i > 0 {
+            out.push(' ');
+        }
+        out.push_str(&d.name);
     }
     out.push(')');
 }

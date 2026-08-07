@@ -33,9 +33,23 @@
   (Leaf)
   (Node (Tree a) a (Tree a)))
 
+; --- data: a deriving clause ----------------------------------------
+; `deriving` sits OUTSIDE the parentheses. The formatter printed
+; `(deriving Eq Show)` with the keyword inside, which `parse_data` does
+; not accept, so it refused every `data` declaration carrying one - and
+; no file in the repository carried one.
+(data Colour
+  (Red)
+  (Green) deriving (Eq Show))
+
 ; --- struct ---------------------------------------------------------
+; `mut` sits INSIDE the field's parentheses, before the name. The
+; formatter printed `(y : Int) mut`, which does not parse either, and
+; for the same reason nothing noticed: no struct in the repository has
+; a mutable field.
 (pub struct Rec
   (n : Int)
+  (mut counter : Int)
   (on : Bool)
   (ratio : Float)
   (label : String))
@@ -123,7 +137,7 @@
 ; two other forms whose only corpus use is this file.
 (:: keyword_forms (-> Int Int))
 (fn (keyword_forms n)
-  (let ((r (struct Rec 1 true 1.5 "s"))
+  (let ((r (struct Rec 1 0 true 1.5 "s"))
         (p (alloc Int 8))
         (q (alloc Bool)))
     (+ (consume r.n) n)))
