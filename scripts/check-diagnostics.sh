@@ -113,7 +113,7 @@ for case_file in tests/diagnostics/*.ax; do
   cp "$case_file" "$work/$name.ax"
 
   s0="$(cd "$work" && "$axiom" --diagnostic-format=ai check "$name.ax" 2>&1 | axdl_only)"
-  s1="$(cd "$work" && ./stage1 "$name.ax" 2>&1 >/dev/null | axdl_only)"
+  s1="$(cd "$work" && ./stage1 --diagnostic-format=ai "$name.ax" 2>&1 >/dev/null | axdl_only)"
 
   if [[ "$bless" == 1 ]]; then
     printf '%s\n' "$s0" > "$repo_root/$golden"
@@ -171,7 +171,12 @@ for src in self_host/*.ax stdlib/*.ax stdlib/Sys/*.ax tests/stdlib/*.ax \
            tests/selfhost/*.ax; do
   [[ -e "$src" ]] || continue
   swept=$((swept + 1))
-  out="$(cd "$work" && ./stage1 "$src" 2>"$work/sweep.err" >/dev/null; echo "$?")"
+  # `--diagnostic-format=ai` is load-bearing now that stage1 defaults
+  # to human: `axdl_only` below keeps only `^[EWNH] ` lines, so a
+  # human-rendered warning on a clean-exit file would pass BOTH
+  # checks - grep-empty and exit 0 - and this section would go blind
+  # to exactly the class of report it exists to refuse.
+  out="$(cd "$work" && ./stage1 --diagnostic-format=ai "$src" 2>"$work/sweep.err" >/dev/null; echo "$?")"
   diags="$(axdl_only < "$work/sweep.err")"
   if [[ -n "$diags" ]]; then
     echo "FAIL $src (stage1 reports a diagnostic on the compiler's own source)"
@@ -203,6 +208,21 @@ done
 # takes its files out of the sweep silently, and silence is exactly
 # what this section reports on success - which is how tests/selfhost/
 # went unswept while the sweep said "clean". The count is printed, and
+# The sweep's own pipeline, negative-tested: run the sweep's exact
+# invocation shape on a file KNOWN to produce a diagnostic, and
+# require the AXDL filter to see it. This is the one place the
+# human-default flip could fail silently - `axdl_only` keeps only
+# `^[EWNH] ` lines and the exit-status backstop exempts
+# tests/stdlib/, so a sweep invocation that lost its
+# `--diagnostic-format=ai` flag would render human, match nothing,
+# and report the compiler's own source clean without checking it.
+cp "$repo_root/tests/diagnostics/330-axtag-mismatch.ax" "$work/flipneg.ax"
+(cd "$work" && ./stage1 --diagnostic-format=ai "flipneg.ax" 2>"$work/flipneg.err" >/dev/null)
+if [[ -z "$(axdl_only < "$work/flipneg.err")" ]]; then
+  echo "FAIL: the sweep pipeline is blind - a known-warning file produced no AXDL through it"
+  failed=$((failed + 1))
+fi
+
 # a floor well under the current 124 refuses outright.
 if [[ "$swept" -lt 100 ]]; then
   echo "FAIL sweep read only $swept files (expected ~124): a tree is missing from the globs"

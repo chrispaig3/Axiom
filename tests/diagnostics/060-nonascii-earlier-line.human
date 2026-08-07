@@ -1,0 +1,12 @@
+error[AX3006]: duplicate definition `main`
+ --> 060-nonascii-earlier-line.ax:4:6
+  |
+3 | (fn (main) 0)
+  |      ---- `main` first defined here
+4 | (fn (main) 1)
+  |      ^^^^
+  |
+  = help: rename one of the definitions, or remove the duplicate
+  = help: run `axiom explain AX3006` for a full explanation
+
+compilation failed due to 1 previous error

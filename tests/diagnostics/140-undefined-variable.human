@@ -1,0 +1,37 @@
+error[AX3001]: undefined variable `zzz1`
+ --> 140-undefined-variable.ax:3:15
+  |
+3 |   (let ((a (+ zzz1 1)))
+  |               ^^^^
+  |
+  = help: variables must be defined (via `define`/`fn`, a `let` binding, or a lambda parameter) before they are used; check for typos
+  = help: run `axiom explain AX3001` for a full explanation
+
+error[AX3001]: undefined variable `zzz2`
+ --> 140-undefined-variable.ax:5:16
+  |
+5 |       (x (+ (+ zzz2 zzz3) (+ x zzz2))))))
+  |                ^^^^
+  |
+  = help: variables must be defined (via `define`/`fn`, a `let` binding, or a lambda parameter) before they are used; check for typos
+  = help: run `axiom explain AX3001` for a full explanation
+
+error[AX3001]: undefined variable `zzz3`
+ --> 140-undefined-variable.ax:5:21
+  |
+5 |       (x (+ (+ zzz2 zzz3) (+ x zzz2))))))
+  |                     ^^^^
+  |
+  = help: variables must be defined (via `define`/`fn`, a `let` binding, or a lambda parameter) before they are used; check for typos
+  = help: run `axiom explain AX3001` for a full explanation
+
+error[AX3001]: undefined variable `zzz2`
+ --> 140-undefined-variable.ax:5:32
+  |
+5 |       (x (+ (+ zzz2 zzz3) (+ x zzz2))))))
+  |                                ^^^^
+  |
+  = help: variables must be defined (via `define`/`fn`, a `let` binding, or a lambda parameter) before they are used; check for typos
+  = help: run `axiom explain AX3001` for a full explanation
+
+compilation failed due to 4 previous errors

@@ -1,0 +1,17 @@
+error[AX3017]: effect `Console` declares 2 operations; a dynamic handler covers exactly one
+ --> 310-effect-handler-unsupported.ax:9:28
+  |
+9 | (fn (two_ops n) (handle 1 (Console) (lambda (v) 0)))
+  |                            ^^^^^^^
+  |
+  = help: run `axiom explain AX3017` for a full explanation
+
+error[AX3017]: 2 custom effects in one handle; nest one `handle` per effect
+  --> 310-effect-handler-unsupported.ax:11:29
+   |
+11 | (fn (two_effects n) (handle 2 (Ask Tell) (lambda (v) 0)))
+   |                             ^
+   |
+   = help: run `axiom explain AX3017` for a full explanation
+
+compilation failed due to 2 previous errors

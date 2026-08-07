@@ -1,0 +1,25 @@
+error[AX3011]: effect mismatch: unhandled effect `Ask`
+ --> 320-unhandled-effect.ax:7:29
+  |
+7 | (fn (transitive n) (handle (mid n) (IO) (lambda (v) 0)))
+  |                             ^^^
+  |
+  = help: run `axiom explain AX3011` for a full explanation
+
+error[AX3011]: effect mismatch: unhandled effect `IO`
+ --> 320-unhandled-effect.ax:9:29
+  |
+9 | (fn (builtin_io n) (handle (syscaller n) (Alloc) (lambda (v) 0)))
+  |                             ^^^^^^^^^
+  |
+  = help: run `axiom explain AX3011` for a full explanation
+
+error[AX3011]: effect mismatch: unhandled effect `Alloc`
+  --> 320-unhandled-effect.ax:11:33
+   |
+11 | (fn (nested n) (handle (handle (ask n) (Ask) (lambda (v) 0)) (IO) (lambda (v) 0)))
+   |                                 ^^^
+   |
+   = help: run `axiom explain AX3011` for a full explanation
+
+compilation failed due to 3 previous errors

@@ -1,0 +1,21 @@
+error[AX3006]: duplicate definition `main`
+ --> 040-order-dup-before-missing.ax:4:6
+  |
+3 | (fn (main) 0)
+  |      ---- `main` first defined here
+4 | (fn (main) 1)
+  |      ^^^^
+  |
+  = help: rename one of the definitions, or remove the duplicate
+  = help: run `axiom explain AX3006` for a full explanation
+
+error[AX3015]: `ghost` has a signature but no definition
+ --> 040-order-dup-before-missing.ax:1:5
+  |
+1 | (:: ghost (-> Int Int))
+  |     ^^^^^
+  |
+  = help: add the definition, or if it lives in another module, mark that definition `pub` so the import carries it
+  = help: run `axiom explain AX3015` for a full explanation
+
+compilation failed due to 2 previous errors

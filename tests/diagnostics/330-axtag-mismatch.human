@@ -1,0 +1,40 @@
+warning[AX3010]: AXTAG mismatch on `sys`: `pure` claim contradicted: body performs Alloc, IO
+ --> 330-axtag-mismatch.ax:4:6
+  |
+4 | (fn (sys fd) { (__syscall3 1 fd 0 0) (alloc Int 1) })
+  |      ^^^
+  |
+  = help: run `axiom explain AX3010` for a full explanation
+
+warning[AX3010]: AXTAG mismatch on `reached`: `pure` claim contradicted: body performs Alloc, IO
+ --> 330-axtag-mismatch.ax:7:6
+  |
+7 | (fn (reached n) (sys n))
+  |      ^^^^^^^
+  |
+  = help: run `axiom explain AX3010` for a full explanation
+
+warning[AX3010]: AXTAG mismatch on `claims`: `effect(console)` claim unsupported: missing Console
+  --> 330-axtag-mismatch.ax:10:6
+   |
+10 | (fn (claims n) n)
+   |      ^^^^^^
+   |
+   = help: run `axiom explain AX3010` for a full explanation
+
+warning[AX3010]: AXTAG mismatch on `leaky`: `pure` claim contradicted: body performs IO
+  --> 330-axtag-mismatch.ax:19:6
+   |
+19 | (fn (leaky f x) { (__syscall3 1 x 0 0) (f x) })
+   |      ^^^^^
+   |
+   = help: run `axiom explain AX3010` for a full explanation
+
+warning[AX3010]: AXTAG mismatch on `nonexistent`: `effect(nosucheffect)` claim unsupported: missing nosucheffect
+  --> 330-axtag-mismatch.ax:22:6
+   |
+22 | (fn (nonexistent f x) (f x))
+   |      ^^^^^^^^^^^
+   |
+   = help: run `axiom explain AX3010` for a full explanation
+

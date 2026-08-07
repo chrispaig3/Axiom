@@ -265,7 +265,25 @@
 
 (pub :: renderDiagsUnits (-> Int Int Int))
 (pub fn (renderDiagsUnits ds units)
-  (renderDiagsUnitsFrom ds units 0 ""))
+  ; A linear join rather than the old recursive strConcat fold, whose
+  ; peak was measured at 829 MiB RSS for a 2000-diagnostic file - the
+  ; renderCG shape, one layer up. `renderDiagsUnitsFrom` stays, with
+  ; its signature, for anything that wants the fold's incremental
+  ; form; nothing in self_host calls it any more.
+  (let ((blocks vecNew) (mut i 0))
+    {
+      (while (< i (vecLen ds))
+        (let ((d (vecGet ds i)))
+          (let ((u (vecGet units (if (< (memGetWord d 11) (vecLen units))
+                                     (memGetWord d 11)
+                                     0))))
+            {
+              (vecPush blocks (renderDiag d (memGetWord u 1) (memGetWord u 0)))
+              (vecPush blocks "\n")
+              (set i (+ i 1))
+            })))
+      (catStrs blocks)
+    }))
 
 (pub :: renderDiagsUnitsFrom (-> Int Int Int Int Int))
 (pub fn (renderDiagsUnitsFrom ds units i acc)
@@ -278,3 +296,66 @@
           (renderDiagsUnitsFrom ds units (+ i 1)
             (strConcat (strConcat acc
               (renderDiag d (memGetWord u 1) (memGetWord u 0))) "\n"))))))
+
+; ------------------------------------------------------------------
+; Linear concatenation of a Vec of Str: sum the lengths, allocate
+; once, copy each piece. The naive alternative - folding strConcat -
+; peaks at the SUM of every intermediate, which is the 16.9 GB shape
+; renderCG had (docs/self-hosting.md); measured on this very module's
+; AXDL path, the fold reached 829 MiB peak RSS on a 2000-diagnostic
+; file. Rendering is the code that runs when something is already
+; wrong, which is the worst moment to add an allocation storm.
+; ------------------------------------------------------------------
+(pub :: catStrs (-> Int Int))
+(pub fn (catStrs v)
+  (let ((n (vecLen v)) (mut total 0) (mut i 0))
+    {
+      (while (< i n)
+        {
+          (set total (+ total (strLen (vecGet v i))))
+          (set i (+ i 1))
+        })
+      (let ((out (strAlloc total)) (mut off 0))
+        {
+          (set i 0)
+          (while (< i n)
+            (let ((s (vecGet v i)))
+              {
+                (memCopy (+ (strData out) off) (strData s) (strLen s))
+                (set off (+ off (strLen s)))
+                (set i (+ i 1))
+              }))
+          out
+        })
+    }))
+
+; ------------------------------------------------------------------
+; Render order: every warning before every error, each class in
+; discovery order - stage0's `warnings.chain(errors)` at its print
+; site. No corpus case mixed the two severities until
+; 370-mixed-warning-error, so the AXDL gate had nothing to compare
+; and stage1 shipped E-before-W unnoticed (2026-08-07). Applied by
+; the callers that render, not inside checkModule, so the checker's
+; discovery order stays observable to anything that wants it.
+; ------------------------------------------------------------------
+(pub :: orderDiags (-> Int Int))
+(pub fn (orderDiags ds)
+  (let ((out vecNew) (n (vecLen ds)) (mut i 0))
+    {
+      (while (< i n)
+        {
+          (if (!= (memGetWord (vecGet ds i) 0) SEV_ERROR)
+              (vecPush out (vecGet ds i))
+              0)
+          (set i (+ i 1))
+        })
+      (set i 0)
+      (while (< i n)
+        {
+          (if (== (memGetWord (vecGet ds i) 0) SEV_ERROR)
+              (vecPush out (vecGet ds i))
+              0)
+          (set i (+ i 1))
+        })
+      out
+    }))

@@ -1,0 +1,19 @@
+error[AX3003]: undefined constructor `Purple`
+ --> 210-undefined-constructor.ax:5:7
+  |
+5 |     ((Purple) 1)
+  |       ^^^^^^
+  |
+  = help: check the `data` declaration for the correct constructor name
+  = help: run `axiom explain AX3003` for a full explanation
+
+error[AX3003]: undefined constructor `Grean`
+ --> 210-undefined-constructor.ax:6:7
+  |
+6 |     ((Grean x) x)
+  |       ^^^^^
+  |
+  = help: a similarly named constructor `Green` is visible; did you mean this?
+  = help: run `axiom explain AX3003` for a full explanation
+
+compilation failed due to 2 previous errors

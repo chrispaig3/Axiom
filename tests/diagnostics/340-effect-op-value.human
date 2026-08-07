@@ -1,0 +1,17 @@
+error[AX3017]: effect operation `ask` cannot be used as a bare value; call it, or wrap it: `(lambda (x) (ask x))`
+ --> 340-effect-op-value.ax:5:27
+  |
+5 | (fn (main) (handle (apply ask 1) (IO) (lambda (v) 0)))
+  |                           ^^^
+  |
+  = help: run `axiom explain AX3017` for a full explanation
+
+error[AX3011]: effect mismatch: unhandled effect `Ask`
+ --> 340-effect-op-value.ax:5:21
+  |
+5 | (fn (main) (handle (apply ask 1) (IO) (lambda (v) 0)))
+  |                     ^^^^^
+  |
+  = help: run `axiom explain AX3011` for a full explanation
+
+compilation failed due to 2 previous errors

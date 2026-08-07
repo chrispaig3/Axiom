@@ -1,0 +1,12 @@
+error[AX3006]: duplicate definition `Point`
+ --> 050-duplicate-struct.ax:2:9
+  |
+1 | (struct Point (x : Int) (y : Int))
+  |         ----- `Point` first defined here
+2 | (struct Point (a : Int))
+  |         ^^^^^
+  |
+  = help: rename one of the definitions, or remove the duplicate
+  = help: run `axiom explain AX3006` for a full explanation
+
+compilation failed due to 1 previous error

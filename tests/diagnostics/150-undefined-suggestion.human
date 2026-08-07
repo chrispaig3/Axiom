@@ -1,0 +1,28 @@
+error[AX3001]: undefined variable `helpr`
+ --> 150-undefined-suggestion.ax:7:9
+  |
+7 |     (+ (helpr count) (+ (cound) (Gren)))))
+  |         ^^^^^
+  |
+  = help: a similarly named binding `helper` is in scope; did you mean this?
+  = help: run `axiom explain AX3001` for a full explanation
+
+error[AX3001]: undefined variable `cound`
+ --> 150-undefined-suggestion.ax:7:26
+  |
+7 |     (+ (helpr count) (+ (cound) (Gren)))))
+  |                          ^^^^^
+  |
+  = help: a similarly named binding `count` is in scope; did you mean this?
+  = help: run `axiom explain AX3001` for a full explanation
+
+error[AX3001]: undefined variable `Gren`
+ --> 150-undefined-suggestion.ax:7:34
+  |
+7 |     (+ (helpr count) (+ (cound) (Gren)))))
+  |                                  ^^^^
+  |
+  = help: a similarly named binding `Green` is in scope; did you mean this?
+  = help: run `axiom explain AX3001` for a full explanation
+
+compilation failed due to 3 previous errors

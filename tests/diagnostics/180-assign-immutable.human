@@ -1,0 +1,13 @@
+error[AX3012]: cannot assign to immutable binding `c`
+ --> 180-assign-immutable.ax:2:32
+  |
+2 | (fn (main) (let ((c 1)) { (set c 2) c }))
+  |                   - `c` is bound here
+2 | (fn (main) (let ((c 1)) { (set c 2) c }))
+  |                                ^
+  |
+  = help: declare it mutable: `(mut c ...)`
+  = help: only a binding introduced by `(let ((mut x ...)) ...)` may be the target of `set`
+  = help: run `axiom explain AX3012` for a full explanation
+
+compilation failed due to 1 previous error

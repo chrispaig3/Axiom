@@ -1,0 +1,384 @@
+; render.ax — human-readable and JSON diagnostic rendering, in Axiom.
+;
+; AXDL (diag.ax) is the byte-pinned cross-compiler surface; the two
+; renderers here are stage1's OWN presentation layer, pinned by
+; three-way goldens (tests/diagnostics/*.human, checked by
+; scripts/check-render-selfhost.sh) and cross-checked mechanically
+; against the AXDL goldens, which stage0 itself equals. The layout is
+; native by decision rather than a byte-clone of stage0's: stage0's
+; human renderer is the third-party `ariadne` crate, and reproducing a
+; retiring dependency's per-character ANSI stream would pin this
+; compiler to internals the project is deleting - the same reasoning
+; that replaced the phase-4 byte-identity criterion. Two information
+; deltas versus stage0, both deliberate and both in stage1's favor:
+;
+;   * no color: stage0 emits ANSI escapes even when piped, wrapping
+;     every snippet character individually; this renderer emits plain
+;     text a terminal, a log file and a diff all read the same way;
+;   * ALL helps render: ariadne 0.4.1 keeps only the last `with_help`,
+;     so stage0's human output silently drops every help but the
+;     appended `axiom explain` line. The AXDL line shows what was
+;     lost; here it is not lost.
+;
+; One block per diagnostic:
+;
+;   error[AX3006]: duplicate definition `main`
+;     --> tests/diagnostics/010-duplicate-fn.ax:3:6
+;      |
+;    2 | (fn (main) 0)
+;      |      ---- `main` first defined here
+;    3 | (fn (main) 1)
+;      |      ^^^^
+;      |
+;      = help: rename one of the definitions, or remove the duplicate
+;      = help: run `axiom explain AX3006` for a full explanation
+;
+; followed by one blank line. Labeled lines render in source order,
+; the primary span underlined with `^`, the related span with `-`; a
+; gap of more than one line between them is marked by a `...` line.
+; Columns count characters, not bytes (diag.ax's colOf), so the caret
+; padding is correct wherever the text is - self_host/core.ax alone
+; carries 18 non-ASCII bytes. Two labels on the same source line each
+; render their own copy of the line - 070-nonascii-same-line.human is
+; the pinned example - and merging the two caret rows under one line
+; print is a later diagnostic's business if the repetition ever reads
+; badly in practice.
+
+(import core)
+(import Mem)
+(import Str)
+(import Vec)
+(import Utf8)
+(import diag)
+
+; ------------------------------------------------------------------
+; Small string tools. `repByte` is a filled `strAlloc`, not a
+; strConcat fold: the fold's peak is the sum of every intermediate
+; (the 16.9 GB lesson in docs/self-hosting.md), and a caret line for
+; a wide span would pay it per character.
+; ------------------------------------------------------------------
+(pub :: repByte (-> Int Int Int))
+(pub fn (repByte n ch)
+  (let ((m (if (< n 0) 0 n)))
+    (let ((s (strAlloc m)) (mut i 0))
+      {
+        (while (< i m)
+          {
+            (memPutByte (strData s) i ch)
+            (set i (+ i 1))
+          })
+        s
+      })))
+
+(pub :: spacesN (-> Int Int))
+(pub fn (spacesN n) (repByte n 32))
+
+; `n` right-justified in `w` columns.
+(pub :: rjNum (-> Int Int Int))
+(pub fn (rjNum n w)
+  (let ((t (decStr n)))
+    (strConcat (spacesN (- w (strLen t))) t)))
+
+; Byte offset one past the last byte of the line containing `off`.
+(pub :: lineEndOf (-> Int Int Int))
+(pub fn (lineEndOf src off)
+  (let ((n (strLen src)) (mut i off))
+    {
+      (while (&& (< i n) (!= (strByte src i) 10))
+        (set i (+ i 1)))
+      i
+    }))
+
+; Characters (non-continuation bytes) in [a, b).
+(pub :: charsBetween (-> Int Int Int Int))
+(pub fn (charsBetween src a b)
+  (let ((mut i a) (mut n 0))
+    {
+      (while (< i b)
+        {
+          (if (utf8IsCont (strByte src i)) 0 (set n (+ n 1)))
+          (set i (+ i 1))
+        })
+      n
+    }))
+
+; ASCII-lowercased copy, for flag-value comparison - stage0 accepts
+; `HUMAN` and `Json` (`to_ascii_lowercase` in render.rs).
+(pub :: lowerAscii (-> Int Int))
+(pub fn (lowerAscii s)
+  (let ((n (strLen s)))
+    (let ((out (strAlloc n)) (mut i 0))
+      {
+        (while (< i n)
+          (let ((c (strByte s i)))
+            {
+              (memPutByte (strData out) i
+                          (if (&& (>= c 65) (<= c 90)) (+ c 32) c))
+              (set i (+ i 1))
+            }))
+        out
+      })))
+
+; ------------------------------------------------------------------
+; Format names, exactly the aliases stage0 accepts: human|pretty|rustc,
+; ai|agent|compact, json. Answers 0/1/2, or -1 for a name it does not
+; know - the caller owns the fallback warning, because only it knows
+; whether a flag was given at all.
+; ------------------------------------------------------------------
+(pub :: FMT_HUMAN Int) (pub fn (FMT_HUMAN) 0)
+(pub :: FMT_AI Int)    (pub fn (FMT_AI)    1)
+(pub :: FMT_JSON Int)  (pub fn (FMT_JSON)  2)
+
+(pub :: parseDiagFormatName (-> Int Int))
+(pub fn (parseDiagFormatName s)
+  (let ((v (lowerAscii s)))
+    (if (|| (strEq v "human") (|| (strEq v "pretty") (strEq v "rustc")))
+        FMT_HUMAN
+    (if (|| (strEq v "ai") (|| (strEq v "agent") (strEq v "compact")))
+        FMT_AI
+    (if (strEq v "json")
+        FMT_JSON
+        (- 0 1))))))
+
+; ------------------------------------------------------------------
+; The human renderer.
+; ------------------------------------------------------------------
+(pub :: sevWord (-> Int Int))
+(pub fn (sevWord sev)
+  (if (== sev SEV_ERROR) "error" "warning"))
+
+; The two lines one labeled span renders as: the source line with its
+; gutter, and the underline row beneath it. `ch` is the underline
+; byte - `^` for the primary span, `-` for the related one. The run
+; covers the span's characters clamped to its own line, and is never
+; shorter than one character even for an empty span.
+(pub :: labelBlock (-> Int Int Int Int Int Int Int))
+(pub fn (labelBlock src gw start end ch msg)
+  (let ((ls (lineStartOf src start))
+        (le (lineEndOf src start))
+        (ln (lineOf src start))
+        (col (colOf src start)))
+    (let ((run0 (charsBetween src start (if (< end le) end le))))
+      (let ((run (if (< run0 1) 1 run0))
+            (m (if (== msg 0) "" msg)))
+        (strConcat
+          (strConcat
+            (strConcat (strConcat (rjNum ln gw) " | ")
+                       (strSlice src ls (- le ls)))
+            "\n")
+          (strConcat
+            (strConcat (strConcat (spacesN gw) " | ")
+                       (strConcat (spacesN (- col 1)) (repByte run ch)))
+            (if (== (strLen m) 0)
+                "\n"
+                (strConcat (strConcat " " m) "\n"))))))))
+
+; `   = help: ...` - one per help the diagnostic carries, in the order
+; stage0 stores them, with the standing `axiom explain` pointer last.
+(pub :: helpLine (-> Int Int Int))
+(pub fn (helpLine gw text)
+  (strConcat (strConcat (strConcat (spacesN gw) " = help: ") text) "\n"))
+
+; One diagnostic as its human block, blank-line terminated.
+(pub :: renderDiagHuman (-> Int Int Int Int))
+(pub fn (renderDiagHuman d src file)
+  (let ((sev (memGetWord d 0))
+        (code (memGetWord d 1))
+        (span (memGetWord d 3))
+        (msg (memGetWord d 4))
+        (rel (memGetWord d 5))
+        (relMsg (memGetWord d 6))
+        (help (memGetWord d 7))
+        (help2 (memGetWord d 10)))
+    (let ((head (strConcat (strConcat (strConcat (strConcat
+                   (sevWord sev) "[") code) "]: ")
+                 (strConcat msg "\n")))
+          (spanless (|| (== span 0) (>= (spanStart span) (strLen src)))))
+      (let ((gw (if spanless
+                    1
+                    (let ((pw (strLen (decStr (lineOf src (spanStart span))))))
+                      (if (== rel 0)
+                          pw
+                          (let ((rw (strLen (decStr (lineOf src (spanStart rel))))))
+                            (if (> rw pw) rw pw)))))))
+        (let ((loc (if spanless
+                       (strConcat (strConcat (strConcat (spacesN gw) "--> ") file) "\n")
+                       (strConcat (strConcat (strConcat (strConcat (strConcat
+                         (strConcat (spacesN gw) "--> ") file) ":")
+                         (decStr (lineOf src (spanStart span)))) ":")
+                         (strConcat (decStr (colOf src (spanStart span))) "\n"))))
+              (bar (strConcat (spacesN gw) " |\n")))
+          (let ((snippet
+                  (if spanless
+                      ""
+                      (let ((pb (labelBlock src gw (spanStart span) (spanEnd span) 94 0)))
+                        (if (== rel 0)
+                            (strConcat (strConcat bar pb) bar)
+                            (let ((rb (labelBlock src gw (spanStart rel) (spanEnd rel) 45 relMsg))
+                                  (pl (lineOf src (spanStart span)))
+                                  (rl (lineOf src (spanStart rel))))
+                              ; Source order, with a `...` row when the
+                              ; two labeled lines are not adjacent.
+                              (let ((first (if (<= rl pl) rb pb))
+                                    (second (if (<= rl pl) pb rb))
+                                    (gap (if (> (- (if (<= rl pl) pl rl)
+                                                   (if (<= rl pl) rl pl)) 1)
+                                             "...\n"
+                                             "")))
+                                (strConcat (strConcat (strConcat (strConcat
+                                  bar first) gap) second) bar))))))))
+            (let ((helps (strConcat
+                           (strConcat
+                             (if (== help 0) "" (helpLine gw help))
+                             (if (== help2 0) "" (helpLine gw help2)))
+                           (helpLine gw (strConcat (strConcat
+                             "run `axiom explain " code)
+                             "` for a full explanation")))))
+              (strConcat (strConcat (strConcat (strConcat head loc) snippet) helps) "\n"))))))))
+
+; Every diagnostic, each rendered against the source file its `unit`
+; field names - the same table renderDiagsUnits (AXDL) reads.
+(pub :: renderDiagsHumanUnits (-> Int Int Int))
+(pub fn (renderDiagsHumanUnits ds units)
+  (let ((blocks vecNew) (mut i 0))
+    {
+      (while (< i (vecLen ds))
+        (let ((d (vecGet ds i)))
+          (let ((u (vecGet units (if (< (memGetWord d 11) (vecLen units))
+                                     (memGetWord d 11)
+                                     0))))
+            {
+              (vecPush blocks
+                (renderDiagHuman d (memGetWord u 1) (memGetWord u 0)))
+              (set i (+ i 1))
+            })))
+      ; A single linear join, not a strConcat fold - the fold's peak
+      ; is the sum of every intermediate (see catStrs in diag.ax).
+      (catStrs blocks)
+    }))
+
+; The trailer stage0's CLI prints after failed compilation, in every
+; format - the AXDL differential gate never saw it because its grep
+; keeps only `^[EWNH] ` lines (probed 2026-08-07: stage0 prints it in
+; `ai` mode too). Errors only, post-suppression, pluralized.
+(pub :: renderFailTrailer (-> Int Int))
+(pub fn (renderFailTrailer n)
+  (strConcat (strConcat "compilation failed due to " (decStr n))
+             (if (== n 1) " previous error\n" " previous errors\n")))
+
+; ------------------------------------------------------------------
+; JSON Lines, stage0's `render_json` shape: one object per line. The
+; escapes are the three stage0 applies - `\"`, `\\`, `\n` - no more.
+; `char_start`/`char_end` are CHARACTER offsets: stage0's spans count
+; characters end to end, stage1's count bytes, so the conversion here
+; is what keeps the two compilers' JSON agreeing on a non-ASCII file.
+; The primary label's text is `""`: AXDL never prints stage0's primary
+; label message, so stage1 never stored one - recorded as the known
+; delta, not papered over with the heading text.
+; ------------------------------------------------------------------
+(pub :: jsonEsc (-> Int Int))
+(pub fn (jsonEsc s)
+  (let ((n (strLen s)) (mut i 0) (mut acc ""))
+    {
+      (while (< i n)
+        (let ((b (strByte s i)))
+          {
+            (set acc
+              (if (== b 34)
+                  (strConcat acc "\\\"")
+              (if (== b 92)
+                  (strConcat acc "\\\\")
+              (if (== b 10)
+                  (strConcat acc "\\n")
+                  (strConcat acc (strSlice s i 1))))))
+            (set i (+ i 1))
+          }))
+      acc
+    }))
+
+(pub :: jsonSpan (-> Int Int Int))
+(pub fn (jsonSpan src span)
+  (let ((s (spanStart span)) (e0 (spanEnd span)))
+    (let ((e (if (< e0 s) s e0)))
+      (strConcat (strConcat (strConcat (strConcat (strConcat
+        (strConcat (strConcat (strConcat (strConcat (strConcat
+          "{\"start\":{\"line\":" (decStr (lineOf src s)))
+          ",\"col\":") (decStr (colOf src s)))
+          "},\"end\":{\"line\":") (decStr (lineOf src e)))
+          ",\"col\":") (decStr (colOf src e)))
+          "},\"char_start\":") (decStr (charsBetween src 0 s)))
+        (strConcat (strConcat ",\"char_end\":" (decStr (charsBetween src 0 e))) "}")))))
+
+(pub :: jsonHelpArray (-> Int Int Int))
+(pub fn (jsonHelpArray help help2)
+  (if (== help 0)
+      "[]"
+      (if (== help2 0)
+          (strConcat (strConcat "[\"" (jsonEsc help)) "\"]")
+          (strConcat (strConcat (strConcat (strConcat
+            "[\"" (jsonEsc help)) "\",\"") (jsonEsc help2)) "\"]"))))
+
+(pub :: renderDiagJson (-> Int Int Int Int))
+(pub fn (renderDiagJson d src file)
+  (let ((sev (memGetWord d 0))
+        (code (memGetWord d 1))
+        (slug (memGetWord d 2))
+        (span (memGetWord d 3))
+        (msg (memGetWord d 4))
+        (rel (memGetWord d 5))
+        (relMsg (memGetWord d 6))
+        (help (memGetWord d 7))
+        (help2 (memGetWord d 10)))
+    (strConcat
+      (strConcat
+        (strConcat
+          (strConcat
+            (strConcat
+              (strConcat
+                (strConcat
+                  (strConcat (strConcat "{\"severity\":\"" (sevWord sev)) "\",")
+                  (strConcat (strConcat (strConcat (strConcat
+                    "\"code\":\"" code) "\",\"slug\":\"") slug) "\","))
+                (strConcat (strConcat "\"message\":\"" (jsonEsc msg)) "\","))
+              (strConcat (strConcat "\"file\":\"" (jsonEsc file)) "\","))
+            (if (== span 0)
+                ""
+                (strConcat (strConcat "\"span\":" (jsonSpan src span))
+                           ",\"label\":\"\",")))
+          (if (== rel 0)
+              "\"related\":[],"
+              (strConcat (strConcat (strConcat
+                "\"related\":[{\"span\":" (jsonSpan src rel))
+                (strConcat ",\"label\":\"" (jsonEsc (if (== relMsg 0) "" relMsg))))
+                "\"}],")))
+        "\"notes\":[],")
+      (strConcat (strConcat "\"help\":" (jsonHelpArray help help2)) "}"))))
+
+(pub :: renderDiagsJsonUnits (-> Int Int Int))
+(pub fn (renderDiagsJsonUnits ds units)
+  (let ((blocks vecNew) (mut i 0))
+    {
+      (while (< i (vecLen ds))
+        (let ((d (vecGet ds i)))
+          (let ((u (vecGet units (if (< (memGetWord d 11) (vecLen units))
+                                     (memGetWord d 11)
+                                     0))))
+            {
+              (vecPush blocks
+                (renderDiagJson d (memGetWord u 1) (memGetWord u 0)))
+              (vecPush blocks "\n")
+              (set i (+ i 1))
+            })))
+      (catStrs blocks)
+    }))
+
+; ------------------------------------------------------------------
+; The dispatch every diagnostic-printing call site goes through.
+; ------------------------------------------------------------------
+(pub :: renderDiagsFormat (-> Int Int Int Int))
+(pub fn (renderDiagsFormat fmt ds units)
+  (if (== fmt FMT_AI)
+      (renderDiagsUnits ds units)
+      (if (== fmt FMT_JSON)
+          (renderDiagsJsonUnits ds units)
+          (renderDiagsHumanUnits ds units))))

@@ -1,0 +1,17 @@
+error[AX3004]: type mismatch: expected Int, found Bool
+ --> BadBody.ax:2:22
+  |
+2 | (pub fn (bad n) (+ n true))
+  |                      ^^^^
+  |
+  = help: run `axiom explain AX3004` for a full explanation
+
+error[AX3004]: type mismatch: expected Int, found Bool
+ --> 360-imported-module-body.ax:3:23
+  |
+3 | (fn (main) (+ (bad 1) false))
+  |                       ^^^^^
+  |
+  = help: run `axiom explain AX3004` for a full explanation
+
+compilation failed due to 2 previous errors

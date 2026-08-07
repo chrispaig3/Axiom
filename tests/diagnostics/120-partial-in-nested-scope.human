@@ -1,0 +1,10 @@
+error[AX3013]: partial application of `add`: it takes 2 argument(s) and 1 were supplied
+ --> 120-partial-in-nested-scope.ax:9:11
+  |
+9 |   (match (add 1)
+  |           ^^^
+  |
+  = help: bind the missing arguments with a lambda: `(lambda (y) (f x y))` builds the value `(f x)` would mean
+  = help: run `axiom explain AX3013` for a full explanation
+
+compilation failed due to 1 previous error

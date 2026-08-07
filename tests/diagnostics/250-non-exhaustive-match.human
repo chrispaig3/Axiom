@@ -1,0 +1,19 @@
+error[AX3005]: non-exhaustive pattern match: missing Green, Blue
+ --> 250-non-exhaustive-match.ax:4:11
+  |
+4 |   (match (Red)
+  |           ^^^
+  |
+  = help: add the missing arms, or a wildcard `_` arm to catch the rest
+  = help: run `axiom explain AX3005` for a full explanation
+
+error[AX3005]: non-exhaustive pattern match: missing Red
+ --> 250-non-exhaustive-match.ax:8:11
+  |
+8 |   (match (Red)
+  |           ^^^
+  |
+  = help: add the missing arms, or a wildcard `_` arm to catch the rest
+  = help: run `axiom explain AX3005` for a full explanation
+
+compilation failed due to 2 previous errors

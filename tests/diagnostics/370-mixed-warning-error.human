@@ -1,0 +1,20 @@
+warning[AX3010]: AXTAG mismatch on `w`: `pure` claim contradicted: body performs IO
+ --> 370-mixed-warning-error.ax:3:6
+  |
+3 | (fn (w) { (__syscall3 1 1 0 0) 0 })
+  |      ^
+  |
+  = help: run `axiom explain AX3010` for a full explanation
+
+error[AX3006]: duplicate definition `main`
+ --> 370-mixed-warning-error.ax:6:6
+  |
+5 | (fn (main) 0)
+  |      ---- `main` first defined here
+6 | (fn (main) 1)
+  |      ^^^^
+  |
+  = help: rename one of the definitions, or remove the duplicate
+  = help: run `axiom explain AX3006` for a full explanation
+
+compilation failed due to 1 previous error

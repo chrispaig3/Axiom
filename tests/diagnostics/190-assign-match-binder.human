@@ -1,0 +1,13 @@
+error[AX3012]: cannot assign to immutable binding `x`
+ --> 190-assign-match-binder.ax:4:15
+  |
+4 |     (x { (set x 9) x })))
+  |      - `x` is bound here
+4 |     (x { (set x 9) x })))
+  |               ^
+  |
+  = help: declare it mutable: `(mut x ...)`
+  = help: only a binding introduced by `(let ((mut x ...)) ...)` may be the target of `set`
+  = help: run `axiom explain AX3012` for a full explanation
+
+compilation failed due to 1 previous error

@@ -1,0 +1,30 @@
+error[AX3006]: duplicate definition `main`
+ --> 130-order-all-three.ax:6:6
+  |
+5 | (fn (main) (add 1))
+  |      ---- `main` first defined here
+6 | (fn (main) 0)
+  |      ^^^^
+  |
+  = help: rename one of the definitions, or remove the duplicate
+  = help: run `axiom explain AX3006` for a full explanation
+
+error[AX3015]: `ghost` has a signature but no definition
+ --> 130-order-all-three.ax:1:5
+  |
+1 | (:: ghost (-> Int Int))
+  |     ^^^^^
+  |
+  = help: add the definition, or if it lives in another module, mark that definition `pub` so the import carries it
+  = help: run `axiom explain AX3015` for a full explanation
+
+error[AX3013]: partial application of `add`: it takes 2 argument(s) and 1 were supplied
+ --> 130-order-all-three.ax:5:13
+  |
+5 | (fn (main) (add 1))
+  |             ^^^
+  |
+  = help: bind the missing arguments with a lambda: `(lambda (y) (f x y))` builds the value `(f x)` would mean
+  = help: run `axiom explain AX3013` for a full explanation
+
+compilation failed due to 3 previous errors

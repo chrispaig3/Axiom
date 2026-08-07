@@ -1,0 +1,27 @@
+error[AX3007]: field `nope` not found on type `S`
+ --> 280-check-order.ax:6:32
+  |
+6 |     (match (A 1) ((A v) (+ v s.nope)))))
+  |                                ^^^^
+  |
+  = help: check the field name and the definition of `S`
+  = help: run `axiom explain AX3007` for a full explanation
+
+error[AX3004]: type mismatch: expected Int, found I64
+ --> 280-check-order.ax:6:30
+  |
+6 |     (match (A 1) ((A v) (+ v s.nope)))))
+  |                              ^
+  |
+  = help: run `axiom explain AX3004` for a full explanation
+
+error[AX3005]: non-exhaustive pattern match: missing B
+ --> 280-check-order.ax:6:13
+  |
+6 |     (match (A 1) ((A v) (+ v s.nope)))))
+  |             ^
+  |
+  = help: add the missing arms, or a wildcard `_` arm to catch the rest
+  = help: run `axiom explain AX3005` for a full explanation
+
+compilation failed due to 3 previous errors

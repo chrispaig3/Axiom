@@ -1,0 +1,19 @@
+error[AX3001]: undefined variable `qqq`
+ --> 200-set-value-before-target.ax:2:43
+  |
+2 | (fn (main) (let ((mut c 1)) { (set zzz (+ qqq 1)) c }))
+  |                                           ^^^
+  |
+  = help: variables must be defined (via `define`/`fn`, a `let` binding, or a lambda parameter) before they are used; check for typos
+  = help: run `axiom explain AX3001` for a full explanation
+
+error[AX3001]: undefined variable `zzz`
+ --> 200-set-value-before-target.ax:2:36
+  |
+2 | (fn (main) (let ((mut c 1)) { (set zzz (+ qqq 1)) c }))
+  |                                    ^^^
+  |
+  = help: variables must be defined (via `define`/`fn`, a `let` binding, or a lambda parameter) before they are used; check for typos
+  = help: run `axiom explain AX3001` for a full explanation
+
+compilation failed due to 2 previous errors

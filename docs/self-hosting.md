@@ -1899,9 +1899,16 @@ compiler is never deleted while the Axiom one is unproven.
   stage0 remains in the tree and in CI, this is a one-line change with
   no data migration.
 - **Blast radius:** none for downstream users while the Axiom compiler is
-  opt-in; the public CLI, diagnostic formats, and ABI are unchanged by
-  the port, which is why "identical output" is the acceptance criterion
-  at every phase rather than "equivalent behaviour".
+  opt-in; the public CLI, the machine diagnostic formats (AXDL, JSON),
+  and the ABI are unchanged by the port, which is why "identical output"
+  is the acceptance criterion for every machine-read surface. The one
+  recorded exception (2026-08-07) is the HUMAN diagnostic rendering:
+  stage0's is the `ariadne` crate's output and stage1's is native (see
+  "The human renderer" below), so reverting the compiler selection
+  visibly changes error-report layout - and changes nothing a tool
+  parses, because every fact in a human report is pinned through the
+  AXDL line for the same diagnostic. A rollback that needs the old
+  look needs no code change beyond the selection itself.
 
 ---
 
@@ -2951,3 +2958,117 @@ so a same-named entry alias would collide in the span maps - no
 corpus file does this - and effect-operation rows for a module
 importing an effect rely on the `$`-prefixed duplicate being
 suppressed at emission rather than never registered.
+
+### The human renderer: native by decision, cross-checked by construction
+
+The fifth tool surface was the human diagnostic renderer, and it is
+the first port that is deliberately NOT a byte-clone - a decision
+with the same shape as replacing the phase-4 criterion, and worth its
+paper trail.
+
+What the probe found (2026-08-07): stage0's `render_human` is
+seventy-five lines of adapter over the third-party `ariadne` crate
+(v0.4.1). All layout - the box drawing, the gutter, the label
+placement, the coloring - is ariadne's. The output writes ANSI
+escapes even when piped, wrapping **every snippet character
+individually** in its own color sequence; and ariadne keeps only the
+last `with_help`, so stage0's human output **silently drops every
+help but one** - the `run axiom explain` pointer appended at render
+time. The AXDL line for `AX3006` carries `?"rename one of the
+definitions, or remove the duplicate"`; stage0's human report has
+never shown it. Byte-cloning that renderer would have meant
+reimplementing a retiring dependency's incidental escape stream,
+bug-for-bug, in the compiler that outlives it.
+
+So stage1's human renderer (`self_host/render.ax`) is Axiom's own:
+rustc-flavored plain text, `error[AX3006]:` headings, char-counted
+columns (the em-dash cases pin col 22 where a byte count says 24),
+labeled lines in source order, every help rendered, and stage0's
+trailer reproduced exactly - `compilation failed due to N previous
+error(s)`, errors only, post-suppression. `--diagnostic-format`
+accepts stage0's full alias set with stage0's fallback warning, and
+`human` is now stage1's default as it is stage0's; every gate that
+wants AXDL says so explicitly. A JSON renderer rides along, byte-
+compatible with stage0's except `"label":""` where stage0 carries
+the primary label message - a field AXDL never printed and stage1
+never stored, recorded as the known delta.
+
+The gate (`scripts/check-render-selfhost.sh`, in CI) pins a native
+surface the only way one can be pinned - three-way against checked-in
+goldens - and then refuses golden vacuousness with checks the goldens
+cannot satisfy by being wrong consistently: every code and every
+primary `file:line:col` on the case's AXDL golden (which stage0
+itself byte-equals, three-way) must appear in the human golden, one
+heading per AXDL line, the trailer counting exactly the E lines,
+and - derived from the AXDL span rather than trusted to the golden -
+a caret row at exactly the span's column and character width, plus a
+dash row for the related span. stdout is compared as its own stream
+(stage0's check prints `OK` whenever it does not fail), and exit
+status must equal stage0's per case. Two ablations were run. With
+the caret row deleted from `labelBlock`, every case fails at the
+byte comparison. With the caret column shifted one right AND the
+golden re-blessed from the shifted renderer - the golden-vacuousness
+scenario, where the byte comparison is satisfied by construction -
+the layout assertions still fail it: `no caret row at col 6 width 4
+for span 3:6-10`. Restored, 38/38. The count floor is 38; the differ
+is negative-tested in the gate itself.
+
+Widening the surface found two pre-existing divergences, both
+invisible to the AXDL gate because it compares bytes and not
+statuses, and filters to `^[EWNH] ` lines besides:
+
+* **a warnings-only file exited 1 under stage1 and 0 under stage0**
+  (probed on `330-axtag-mismatch`). `compileFile` now refuses to
+  continue only for errors: warnings print and the build proceeds,
+  which is stage0's rule;
+* **stage0 prints the failure trailer in `ai` mode too**, and stage1
+  never had - the gate's grep was silently discarding stage0's
+  trailer before every comparison. stage1 now prints it in every
+  format, and `check-diagnostics.sh`'s stage1 invocations pass
+  `--diagnostic-format=ai` explicitly, with a comment on why the
+  sweep goes blind without it.
+
+What remains of the tool surface for P5 is the REPL.
+
+The adversarial review of this port (three lenses and a judge, run
+while the implementation was in flight) confirmed the design and
+found what the corpus could not:
+
+* **stage1 ordered errors before warnings; stage0 renders all
+  warnings first** (`warnings.chain(errors)` at the CLI print site).
+  No corpus case mixed the two severities, so the AXDL gate had
+  nothing to compare - the first mixed file showed E-before-W under
+  stage1 and W-before-E under stage0. Fixed with a stable
+  warnings-first partition applied before rendering, and pinned by
+  `370-mixed-warning-error`, whose trailer also pins the
+  errors-only count.
+* **`check` prints `OK` on stdout** - on success and on
+  warnings-only files, in every diagnostic format. stage1's check
+  printed nothing; it now matches, and the render gate compares
+  stdout as its own stream.
+* **CI's push trigger named a branch that does not exist** - `main`,
+  in a repository whose only branch is `trunk`. Every push since the
+  workflow existed ran nothing; the gates were green only on pull
+  requests and local runs. The trigger now names `trunk`.
+
+Three divergences are recorded OPEN as named follow-ups rather than
+silently absorbed:
+
+* **the parse/lexer error path**: stage0 renders `AX2002` through
+  the human renderer with its own trailer (`compilation failed due
+  to a syntax error`) and exit 1; stage1 dies with `parse failed`
+  and exit 2, a shape no gate compares because the AXDL corpus is
+  all-semantic. Porting it means giving stage1's parser real
+  diagnostic objects - a slice of its own.
+* **`symbols`' stdout default**: bare `stage0 symbols` prints an
+  aligned human table; bare `stage1 symbols` prints AXSYM lines
+  (which is what stage0 emits under `--diagnostic-format=ai`, the
+  spelling every gate uses). The table is a follow-up; the flag
+  surface, not the default, is what the gates pin today.
+* **`AX5001` (cannot-resolve-import) as a diagnostic**: stage0
+  emits it spanless (`file:-`) with exit 1; stage1's resolver dies
+  with `cannot read module` and exit 3 - an exit code
+  `check-self-host.sh` asserts on by name. The spanless rendering
+  path exists in `render.ax` and is exercised by no current stage1
+  diagnostic; converting the resolver's refusal into one is the
+  follow-up that unlocks a spanless corpus case.

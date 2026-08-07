@@ -9,7 +9,14 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    # `trunk` is this repository's only branch. This said `main` from
+    # the day the workflow was added, so no push had ever triggered a
+    # run - the gates were green only on pull requests and local
+    # batteries, and a week of self-hosting work landed with CI
+    # structurally silent. A trigger that names a branch that does
+    # not exist is indistinguishable in the checks tab from a quiet
+    # success.
+    branches: [trunk]
   pull_request:
 
 env:
@@ -157,6 +164,15 @@ jobs:
       # refusal-parity cases, not skips.
       - name: CLI tool parity between the compilers
         run: ./scripts/check-tools-selfhost.sh
+
+      # stage1's native human diagnostic renderer: three-way against
+      # checked-in goldens, cross-checked against the AXDL goldens
+      # (which stage0 itself equals), exit statuses compared against
+      # stage0 per case. Not a byte comparison with stage0's human
+      # output, on purpose: that output is the `ariadne` crate's, an
+      # internal of the compiler being retired.
+      - name: Human diagnostic renderer
+        run: ./scripts/check-render-selfhost.sh
 
   grammar:
     name: Tree-sitter grammar

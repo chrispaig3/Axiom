@@ -1,0 +1,12 @@
+error[AX3006]: duplicate definition `dash`
+ --> 070-nonascii-same-line.ax:3:22
+  |
+3 | (fn (dash) "—") (fn (dash) 1)
+  |      ---- `dash` first defined here
+3 | (fn (dash) "—") (fn (dash) 1)
+  |                      ^^^^
+  |
+  = help: rename one of the definitions, or remove the duplicate
+  = help: run `axiom explain AX3006` for a full explanation
+
+compilation failed due to 1 previous error

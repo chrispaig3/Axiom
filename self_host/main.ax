@@ -9,6 +9,7 @@
 (import lexer)
 (import parser)
 (import diag)
+(import render)
 (import typecheck)
 (import codegen)
 (import driver)
@@ -21,6 +22,28 @@
 
 (pub :: writeStderr (-> Int Int))
 (pub fn (writeStderr s) (sysWriteFd 2 (strData s) (strLen s)))
+
+; Which diagnostic renderer this invocation wants. `human` is the
+; default, as it is stage0's; the aliases are stage0's; an unknown
+; name warns with stage0's exact text and falls back rather than
+; refusing, so a typo degrades the presentation instead of the build.
+; Bound once per subcommand, BEFORE any diagnostics exist, because
+; stage0 warns at argument-parse time - a clean file with a mistyped
+; flag still gets the warning.
+(pub :: diagFormatArg Int)
+;@axiom:effect(io)
+(pub fn (diagFormatArg)
+  (let ((v (flagValue "--diagnostic-format" 1)))
+    (if (== (strLen v) 0)
+        FMT_HUMAN
+        (let ((c (parseDiagFormatName v)))
+          (if (>= c 0)
+              c
+              {
+                (writeStderr (cat3 "warning: unknown --diagnostic-format '" v
+                                   "', falling back to 'human' (valid: human, ai, json)\n"))
+                FMT_HUMAN
+              })))))
 
 ; Exit status is the driver's answer, not a byte count: 0 on success, 1
 ; when the source could not be read, 2 when it could not be parsed, 1
@@ -55,7 +78,8 @@
 (pub :: compileFile (-> Int Int Int Int))
 ;@axiom:effect(io)
 (pub fn (compileFile fileName tname doEmit)
-  (let ((src (sysReadFile (strData fileName))))
+  (let ((src (sysReadFile (strData fileName)))
+        (dfmt diagFormatArg))
     (if (== (strLen src) 0)
         (die (cat3 "cannot read input: " fileName "\n") 1)
         (let ((pr (parseModuleWith (lex src) (scanAxtags src))))
@@ -83,16 +107,30 @@
                                  { (vecPush v (cast Int (CUnit2 fileName src 0))) v })))
                   (let ((allDecls (resolveImports decls bares fulls tcode
                                                   (dirOfPath fileName) units)))
-                    (let ((ds (checkModule decls allDecls units)))
-                      (if (> (vecLen ds) 0)
-                          {
-                            (writeStderr (renderDiagsUnits ds units))
-                            (sysExitWith 1)
-                            1
-                          }
-                          (if (== doEmit 0)
-                              ""
-                              (emitResolved allDecls bares fulls tcode)))))))))))))
+                    ; Diagnostics render in the chosen format; only
+                    ; ERRORS refuse to continue. It used to be any
+                    ; diagnostic at all, which made a warnings-only
+                    ; file exit 1 where stage0 exits 0 - invisible to
+                    ; the AXDL gate, which compares bytes, not status
+                    ; (probed on 330-axtag-mismatch, 2026-08-07). The
+                    ; trailer prints in every format because stage0's
+                    ; does; the AXDL gate never saw it because its
+                    ; grep keeps only `^[EWNH] ` lines.
+                    (let ((ds (orderDiags (checkModule decls allDecls units))))
+                      {
+                        (if (> (vecLen ds) 0)
+                            (writeStderr (renderDiagsFormat dfmt ds units))
+                            0)
+                        (if (> (countErrorDiags ds) 0)
+                            {
+                              (writeStderr (renderFailTrailer (countErrorDiags ds)))
+                              (sysExitWith 1)
+                              1
+                            }
+                            (if (== doEmit 0)
+                                ""
+                                (emitResolved allDecls bares fulls tcode)))
+                      }))))))))))
 
 ; The entry point: a subcommand if the first argument names one, and
 ; otherwise the original `stage1 FILE [TARGET]` spelling.
@@ -134,6 +172,11 @@
             (die "error: check needs an input file\n" 1)
             {
               (compileFile f (targetArg hostTarget) 0)
+              ; stage0's check prints `OK` on stdout whenever it does
+              ; not fail - success and warnings-only alike, in every
+              ; diagnostic format (probed 2026-08-07). compileFile
+              ; exits on errors, so reaching here IS the OK path.
+              (writeStdout "OK\n")
               0
             }))
   (if (strEq cmd "emit-llvm")
@@ -202,7 +245,8 @@
       ; stage0's rule for this subcommand, where `check` distinguishes
       ; parse (2) from semantic (1) failures. `dieImport` applies the
       ; same folding for unresolvable imports by inspecting argv.
-      (let ((f (inputArgSkipping "--builtins")))
+      (let ((f (inputArgSkipping "--builtins"))
+            (dfmt diagFormatArg))
         (if (== (strLen f) 0)
             (die "error: symbols needs an input file\n" 1)
             (let ((src (sysReadFile (strData f))))
@@ -220,20 +264,20 @@
                           (let ((allDecls (resolveImports decls bares fulls tcode
                                                           (dirOfPath f) units)))
                             (let ((tc (checkModuleTc decls allDecls units)))
-                              (let ((ds (tcOut tc)))
+                              (let ((ds (orderDiags (tcOut tc))))
                                 ; Warnings do not gate: stage0 prints
                                 ; them to stderr and emits the full
                                 ; list with exit 0. Only an E line
                                 ; empties stdout and fails.
                                 (if (> (countErrorDiags ds) 0)
                                     {
-                                      (writeStderr (renderDiagsUnits ds units))
+                                      (writeStderr (renderDiagsFormat dfmt ds units))
                                       (sysExitWith 1)
                                       1
                                     }
                                     {
                                       (if (> (vecLen ds) 0)
-                                          (writeStderr (renderDiagsUnits ds units))
+                                          (writeStderr (renderDiagsFormat dfmt ds units))
                                           0)
                                       (writeStdout
                                         (symbolsRender tc
