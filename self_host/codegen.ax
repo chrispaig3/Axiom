@@ -926,17 +926,98 @@
 ; Answers the PATH that was read, or "" - the unit table needs the
 ; filename a diagnostic will be rendered against, and only the search
 ; knows which candidate won.
+; Every directory a module is looked up in, in order.
+;
+; This is stage0's `module_search_dirs` reproduced: the entry file's own
+; directory first, so a project can shadow a standard-library module
+; with its own file of the same name; then `AXIOM_PATH` entries,
+; colon-separated, for vendored or generated code; then the standard
+; library, located by `AXIOM_STDLIB` or, failing that, relative to the
+; compiler binary - `<exe>/../stdlib` for an installed layout and
+; `<exe>/../../stdlib` for a build tree.
+;
+; Before this, stage1 searched the entry directory and then the literal
+; strings `self_host/` and `stdlib/` RELATIVE TO ITS WORKING DIRECTORY,
+; which is why every gate script salts its work directory with
+; `ln -s "$repo_root/stdlib"`. A user compiling a hello-world that
+; imports `IO` from any other directory got `cannot read module: IO`
+; and exit 3. Probed before the change, from a scratch directory.
+;
+; Those two CWD-relative entries are kept at the END as a fallback,
+; because five harnesses depend on them and breaking all of them in one
+; commit destroys the ability to bisect the only gates that watch
+; stage1. They are history, not the rule.
+;
+; `sysArg 0` is argv[0] rather than a real `current_exe`, so a compiler
+; invoked by a bare name found on PATH resolves the exe-relative
+; entries against the working directory instead. That degrades to the
+; old behaviour rather than to something wrong, and `AXIOM_STDLIB`
+; overrides it.
+(pub :: moduleSearchDirs (-> Int Int))
+(pub fn (moduleSearchDirs entryDir)
+  (let ((v vecNew))
+    {
+      (vecPush v (cast Int entryDir))
+      (pushPathList v (sysEnv "AXIOM_PATH") 0)
+      (let ((sl (sysEnv "AXIOM_STDLIB")))
+        (if (> (strLen sl) 0)
+            (vecPush v (cast Int (withTrailingSlash sl)))
+            (let ((exe (dirOfPath (sysArg 0))))
+              {
+                (vecPush v (cast Int (cat2 exe "../stdlib/")))
+                (vecPush v (cast Int (cat2 exe "../../stdlib/")))
+              })))
+      (vecPush v (cast Int "self_host/"))
+      (vecPush v (cast Int "stdlib/"))
+      v
+    }))
+
+; Append each non-empty `:`-separated entry of `list`, slash-terminated.
+(pub :: pushPathList (-> Int Int Int Int))
+(pub fn (pushPathList v list from)
+  (if (> from (strLen list))
+      0
+      (let ((colon (strFindByte list 58 from)))
+        (let ((end (if (< colon 0) (strLen list) colon)))
+          {
+            (if (> (- end from) 0)
+                (vecPush v (cast Int (withTrailingSlash (strSlice list from (- end from)))))
+                0)
+            (pushPathList v list (+ end 1))
+          }))))
+
+; A directory name that ends in `/`, so concatenation forms a path.
+;
+; The argument may be a slice of the environment's bytes, which shares
+; storage and is not NUL-terminated; `strConcat` copies, so the answer
+; always is.
+(pub :: withTrailingSlash (-> Int Int))
+(pub fn (withTrailingSlash d)
+  (if (== (strLen d) 0)
+      ""
+      (if (== (strByte d (- (strLen d) 1)) 47)
+          (strDup d)
+          (cat2 d "/"))))
+
 (pub :: tryModulePath (-> Int Int Int Int))
 (pub fn (tryModulePath stem suffix entryDir)
-  (let ((base (cat2 stem suffix)))
-    (let ((near (if (== (strLen entryDir) 0) base (cat2 entryDir base))))
-      (if (!= (strLen (sysReadFile (strCStr near))) 0)
-          near
-          (let ((sh (cat2 "self_host/" base)))
-            (if (!= (strLen (sysReadFile (strCStr sh))) 0)
-                sh
-                (let ((sl (cat2 "stdlib/" base)))
-                  (if (!= (strLen (sysReadFile (strCStr sl))) 0) sl ""))))))))
+  (searchDirsFor (moduleSearchDirs entryDir) (cat2 stem suffix) 0))
+
+; The first search directory in which `base` is a readable, non-empty
+; file, or "".
+;
+; An existing but EMPTY module reads as absent here, which is what the
+; predecessor did too - `sysReadFile` answers "" for both - and is
+; recorded rather than fixed, because an empty module contributes no
+; declarations and so fails identically one step later.
+(pub :: searchDirsFor (-> Int Int Int Int))
+(pub fn (searchDirsFor dirs base i)
+  (if (>= i (vecLen dirs))
+      ""
+      (let ((cand (cat2 (vecGet dirs i) base)))
+        (if (!= (strLen (sysReadFile (strCStr cand))) 0)
+            cand
+            (searchDirsFor dirs base (+ i 1))))))
 
 (pub :: modulePathOf (-> Int Int Int Int))
 (pub fn (modulePathOf name tcode entryDir)
@@ -947,28 +1028,18 @@
           (let ((b (tryModulePath stem (targetOsSuffix tcode) entryDir)))
             (if (!= (strLen b) 0) b (tryModulePath stem ".ax" entryDir)))))))
 
+; The SOURCE of the module `stem` + `suffix`, or 0 when no search
+; directory holds it.
+;
+; The search itself lives in `tryModulePath`, so the path a diagnostic
+; is rendered against and the text it is rendered from can never come
+; from different candidates - they used to be two independent walks of
+; the same list.
 (pub fn (tryModuleFile stem suffix entryDir)
-  (let ((base (cat2 stem suffix)))
-    ; The ENTRY FILE'S DIRECTORY first, which is stage0's rule and was
-    ; missing entirely: stage1 searched only `self_host/` and
-    ; `stdlib/` relative to its working directory, so a module sitting
-    ; next to the program that imports it could not be found at all -
-    ; `(import MA)` beside `main.ax` was "cannot read module: MA"
-    ; where stage0 resolves it. The bootstrap never noticed because it
-    ; runs from the repo root with its entry in `self_host/`, which
-    ; the hardcoded path already covered.
-    (let ((nearSrc (if (== (strLen entryDir) 0)
-                       (sysReadFile (strCStr base))
-                       (sysReadFile (strCStr (cat2 entryDir base))))))
-      (if (!= (strLen nearSrc) 0)
-          nearSrc
-          (let ((selfSrc (sysReadFile (strCStr (cat2 "self_host/" base)))))
-            (if (!= (strLen selfSrc) 0)
-                selfSrc
-                (let ((stdSrc (sysReadFile (strCStr (cat2 "stdlib/" base)))))
-                  (if (!= (strLen stdSrc) 0)
-                      stdSrc
-                      0))))))))
+  (let ((p (tryModulePath stem suffix entryDir)))
+    (if (== (strLen p) 0)
+        0
+        (sysReadFile (strCStr p)))))
 
 ; Everything up to and including the last `/` of a path, or "" when
 ; the path names a file in the working directory.
@@ -1297,7 +1368,13 @@
   ; `addr + 0` and made every allocation map a fresh megabyte. stage0
   ; carries the same clobbers and the same explanation.
   (if (== t 0) "\"svc #0x80\\0Ab.cc 1f\\0Aneg x0, x0\\0A1:\", \"={x0},{x16},{x0},{x1},{x2},{x3},{x4},{x5},~{x1},~{x2},~{x3},~{x4},~{x5},~{x16},~{memory}\""
-  (if (== t 1) "\"syscall\\0Ajnc 1f\\0Anegq %rax\\0A1:\", \"={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rcx},~{r11},~{memory}\""
+  ; Darwin/x86-64 declares its argument registers clobbered, as
+  ; Darwin/arm64 does and as Linux deliberately does not: Linux
+  ; documents that it preserves everything but rax/rcx/r11, Darwin
+  ; documents nothing and on arm64 demonstrably destroys them. `rdx`
+  ; is Darwin's second return register, so the kernel writes it while
+  ; `{dx}` is listed here as a live input.
+  (if (== t 1) "\"syscall\\0Ajnc 1f\\0Anegq %rax\\0A1:\", \"={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{memory}\""
   (if (== t 2) "\"svc #0\", \"={x0},{x8},{x0},{x1},{x2},{x3},{x4},{x5},~{x1},~{x2},~{x3},~{x4},~{x5},~{x8},~{memory}\""
   "\"syscall\", \"={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rcx},~{r11},~{memory}\""))))
 

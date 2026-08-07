@@ -1,0 +1,31 @@
+; Host - which target this compiler binary itself runs on.
+;
+; The self-hosted compiler cannot detect its host at runtime: it has no
+; `uname`, and a freestanding binary has nothing else to ask. So the
+; answer is baked in at the moment the compiler is COMPILED, by the
+; same per-target module selection the standard library's syscall
+; tables use (`Foo.{os}-{arch}.ax` before `Foo.{os}.ax` before
+; `Foo.ax`). Compiling the compiler for linux-x86_64 selects the
+; linux-x86_64 file here, and the resulting binary defaults to emitting
+; linux-x86_64 code.
+;
+; That inheritance is what makes the bootstrap self-describing. stage0
+; defaults `--target` to `Target::host`, so on a Linux runner stage0
+; builds a stage1 whose `hostTarget` is linux-x86_64, which builds a
+; linux stage2, and so on down the ladder - with no target argument
+; passed anywhere.
+;
+; Before this module the default was the literal string
+; "darwin-aarch64", written into `main.ax`. `check-bootstrap.sh` passes
+; no target argument and runs on `ubuntu-latest`, so the Linux
+; fixpoint job was compiling the compiler with a Mach-O triple: `llc`
+; produced a Mach-O object and `cc` could not link it. The fixpoint was
+; only ever reached on macOS ARM.
+;
+; There is deliberately NO fallback `Host.ax`. A target with no file
+; here fails at compile time with `cannot read module: Host`, which is
+; the loud failure; a fallback would silently hand the new target
+; somebody else's triple.
+
+(pub :: hostTarget Int)
+(pub fn (hostTarget) "darwin-aarch64")

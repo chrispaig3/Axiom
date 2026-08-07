@@ -28,7 +28,18 @@ export AXIOM_STDLIB="$repo_root/stdlib"
 # `exit`, `write`, and `read`, which compile to calls on Axiom functions
 # of those names, so listing them here would flag the replacement code
 # itself.
+#
+# The process-control family joined the list when `Sys` learned to spawn
+# children. That capability is the one place where reaching for libc is
+# genuinely tempting - `posix_spawn` is a function, not a syscall, on
+# every system that documents it - and until these names were listed the
+# gate could not tell the raw-syscall implementation from the forbidden
+# one: a `(foreign posix_spawn ...)` binding emitted `call i64
+# @posix_spawn(...)`, linked against libc, and passed both the IR grep
+# and the `nm` check. Verified before adding them.
 libc_names='printf|puts|malloc|calloc|realloc|free|strlen|strcmp|fopen|fwrite|fread'
+libc_names="$libc_names"'|fork|vfork|execv|execve|execvp|execl|execlp|posix_spawn|posix_spawnp'
+libc_names="$libc_names"'|wait|waitpid|wait3|wait4|system|popen|pclose|getenv|setenv|pipe|dup2'
 
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
@@ -65,5 +76,37 @@ for case_file in tests/stdlib/*.ax; do
 
   echo "ok   $name (no libc in IR or imports)"
 done
+
+# A gate that has never been seen to fail is a gate nobody has checked.
+#
+# Everything above asserts SILENCE - no libc in any case - and silence is
+# exactly what a broken grep, an empty corpus, or a mistyped alternation
+# also produces. So the gate finishes by compiling a program that
+# deliberately does the forbidden thing and requiring both mechanisms to
+# catch it. The probe uses `posix_spawn` because that is the name the
+# process-control entries were added for, and because it is the one an
+# author would actually reach for.
+#
+# It cannot live in `tests/stdlib/`: six other gates glob that directory
+# and would all fail on it. It is written here instead, following the
+# inline-fixture precedent in `check-self-host.sh`.
+probe="$work/libc-probe.ax"
+cat > "$probe" <<'PROBE'
+(foreign posix_spawn :: (-> Int Int Int Int Int Int) = "posix_spawn")
+(pub :: main Int)
+(pub fn (main) (posix_spawn 0 0 0 0 0))
+PROBE
+
+probe_ir="$work/libc-probe.ll"
+if ! "$axiom" emit-llvm "$probe" -o "$probe_ir" > /dev/null 2>&1; then
+  echo "FAIL negative probe: the libc probe did not compile, so it proves nothing"
+  status=1
+elif ! grep -qE "call[^\"]*@($libc_names)\(" "$probe_ir"; then
+  echo "FAIL negative probe: a program calling posix_spawn passed the IR check"
+  echo "     the forbidden-name list does not cover what it claims to"
+  status=1
+else
+  echo "ok   negative probe: a libc spawn is refused by the IR check"
+fi
 
 exit "$status"

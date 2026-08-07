@@ -194,3 +194,226 @@
   (if (|| (< i 0) (>= i (__argc)))
       ""
       (strFromLit (__argv i))))
+
+; ------------------------------------------------------------------
+; The environment.
+;
+; There is no `__envp` primitive and none is needed. The kernel lays the
+; initial process stack out as
+;
+;   argc, argv[0..n-1], NULL, envp[0..m-1], NULL, ...
+;
+; contiguously, on Darwin and Linux alike, and `__argv` indexes that
+; vector without bounds-checking - the primitives are where the type
+; system stops. So `argv[argc]` is the NULL that ends the arguments and
+; `argv[argc+1+i]` is the i-th environment entry. Probed: `argv[argc]`
+; reads 0 and `argv[argc+1]` reads a `NAME=value` string.
+;
+; Deriving it beats adding a third parameter to the entry wrapper,
+; which would have had to land in both compilers to keep the bootstrap
+; building.
+; ------------------------------------------------------------------
+
+; The address of the i-th environment entry's bytes, or 0 past the end.
+(pub :: sysEnvSlot (-> Int Int))
+(pub fn (sysEnvSlot i)
+  (__argv (+ (+ (__argc) 1) i)))
+
+; How many entries the environment has.
+(pub :: sysEnvCount Int)
+(pub fn (sysEnvCount) (sysEnvCountFrom 0))
+
+(pub :: sysEnvCountFrom (-> Int Int))
+(pub fn (sysEnvCountFrom i)
+  (if (== (sysEnvSlot i) 0)
+      i
+      (sysEnvCountFrom (+ i 1))))
+
+; The value of the environment variable `name`, or "" when it is unset.
+;
+; The answer SHARES the environment's bytes rather than copying them,
+; so it is not NUL-terminated - `strSlice` wraps an interior pointer.
+; Anything handing it to a syscall as a path must copy it first, which
+; `strConcat` and `strDup` both do.
+(pub :: sysEnv (-> Int Int))
+(pub fn (sysEnv name)
+  (sysEnvLookup (strConcat name "=") 0))
+
+(pub :: sysEnvLookup (-> Int Int Int))
+(pub fn (sysEnvLookup prefix i)
+  (let ((p (sysEnvSlot i)))
+    (if (== p 0)
+        ""
+        (let ((e (strFromLit p)))
+          (if (strStartsWith e prefix)
+              (strSlice e (strLen prefix) (- (strLen e) (strLen prefix)))
+              (sysEnvLookup prefix (+ i 1)))))))
+
+; A NULL-terminated copy of the process's own environment vector, in the
+; form a child expects.
+;
+; The pointers are the parent's own environment strings, which live for
+; the whole run, so only the vector is copied. A child spawned with this
+; inherits the environment exactly; spawning with 0 instead gives it an
+; empty one, which is rarely what a compiler driver wants - `cc` in
+; particular resolves its toolchain through the environment.
+(pub :: sysEnvp Int)
+(pub fn (sysEnvp)
+  (let ((n sysEnvCount))
+    (let ((v (memAlloc (* (+ n 1) 8))))
+      {
+        (sysEnvpFill v 0 n)
+        v
+      })))
+
+(pub :: sysEnvpFill (-> Int Int Int Int))
+(pub fn (sysEnvpFill v i n)
+  (if (>= i n)
+      (memSetWord v n 0)
+      {
+        (memSetWord v i (sysEnvSlot i))
+        (sysEnvpFill v (+ i 1) n)
+      }))
+
+; ------------------------------------------------------------------
+; Child processes.
+;
+; A compiler driver has to run `llc` and `cc`, which is the one thing
+; this standard library could not do at all. The two platforms reach it
+; differently, and the difference is forced rather than chosen: Darwin's
+; `fork` returns TWO values - the pid in x0 and an "am I the child" flag
+; in x1 - and `__syscallN` yields one register, so a Darwin child would
+; read its parent's pid and both processes would take the parent branch.
+; `posix_spawn` returns the pid through a pointer, which one register
+; carries. Linux's `fork` returns 0 in the child through that same
+; single register, so there it is expressible directly.
+;
+; `Sys.Platform.spawnUsesPosixSpawn` is the capability selecting between
+; them, in keeping with `openNeedsDirFd`: nothing here names an OS.
+; ------------------------------------------------------------------
+
+; Start `path` with argument vector `argv` and environment `envp`,
+; answering the child's pid, or `-errno`.
+;
+; `path` is a raw NUL-terminated char*, as `sysOpenPath` takes one.
+; `argv` and `envp` are NULL-terminated arrays of such pointers; `argv`
+; must include the program name at index 0, since the kernel does not
+; supply it. Neither vector is searched for on `PATH` - `sysRunPath`
+; does that.
+(pub :: sysSpawn (-> Int Int Int Int))
+;@axiom:effect(io)
+(pub fn (sysSpawn path argv envp)
+  (if (== spawnUsesPosixSpawn 1)
+      (let ((pidbuf (memAlloc 8)))
+        {
+          (memSetWord pidbuf 0 0)
+          ; FIVE arguments, not libc's six: the kernel entry point fuses
+          ; the file actions and the attributes into one descriptor, so
+          ; `(pid, path, adesc, argv, envp)` is the shape. See the note
+          ; on `sysPosixSpawn` in the Darwin platform module for what the
+          ; six-argument spelling does instead, and why it is nearly
+          ; invisible.
+          (let ((rc (__syscall5 sysPosixSpawn pidbuf path 0 argv envp)))
+            (if (< rc 0) rc (memGetWord pidbuf 0)))
+        })
+      (let ((pid (__syscall5 sysFork sysForkArg 0 0 0 0)))
+        (if (< pid 0)
+            pid
+            (if (== pid 0)
+                {
+                  ; The child. `execve` replaces this image, so reaching
+                  ; the next line means it failed - and the child must
+                  ; then die rather than return into the caller's code
+                  ; and become a second copy of the driver. 127 is the
+                  ; shell's convention for "command not found".
+                  (__syscall3 sysExecve path argv envp)
+                  (__syscall1 sysExit 127)
+                  0
+                }
+                pid)))))
+
+; Wait for `pid` and answer the raw wait status, or `-errno`.
+(pub :: sysWaitPid (-> Int Int))
+;@axiom:effect(io)
+(pub fn (sysWaitPid pid)
+  (let ((statbuf (memAlloc 8)))
+    {
+      ; The kernel writes a 32-bit int into an 8-byte word, so the upper
+      ; half is whatever was there before. Zeroing first is what makes
+      ; the read below the status rather than the status plus garbage.
+      (memSetWord statbuf 0 0)
+      (let ((w (__syscall4 sysWait4 pid statbuf 0 0)))
+        (if (< w 0) w (memGetWord statbuf 0)))
+    }))
+
+; The exit code carried by a wait status, for a child that exited
+; normally.
+(pub :: sysExitCode (-> Int Int))
+(pub fn (sysExitCode status)
+  (& (>> status 8) 255))
+
+; The signal that killed a child, or 0 if it exited normally.
+(pub :: sysTermSignal (-> Int Int))
+(pub fn (sysTermSignal status)
+  (& status 127))
+
+; Run `path` to completion and answer its exit code.
+;
+; A negative answer is the spawn's own `-errno` - the child never ran -
+; which is what distinguishes "could not start llc" from "llc rejected
+; the module", two failures a driver must not report the same way. A
+; child killed by a signal answers 128+signal, the shell's convention.
+(pub :: sysRun (-> Int Int Int Int))
+;@axiom:effect(io)
+(pub fn (sysRun path argv envp)
+  (let ((pid (sysSpawn path argv envp)))
+    (if (< pid 0)
+        pid
+        (let ((st (sysWaitPid pid)))
+          (if (< st 0)
+              st
+              (if (!= (sysTermSignal st) 0)
+                  (+ 128 (sysTermSignal st))
+                  (sysExitCode st)))))))
+
+; Run `name`, searching `PATH` for it when it contains no slash.
+;
+; This is `execvp`'s rule: a name with a slash is a path and is used as
+; written, and a bare name is looked for in each `PATH` entry in order.
+; The search is done by ATTEMPTING each candidate rather than by testing
+; for the file first, which needs no `access` syscall (AArch64 Linux has
+; no `access` at all, only `faccessat`) and cannot be raced between the
+; test and the spawn.
+;
+; The cost of that choice is that a candidate which exists but is not
+; executable is skipped rather than reported; `execvp` remembers the
+; EACCES and reports it if nothing later succeeds. A driver looking for
+; `llc` wants the next candidate either way.
+;
+; With `PATH` unset or exhausted the answer is `-2` (ENOENT), which is
+; what a caller distinguishing "not installed" from "failed" reads.
+(pub :: sysRunPath (-> Int Int Int Int))
+;@axiom:effect(io)
+(pub fn (sysRunPath name argv envp)
+  (if (>= (strFindByte name 47 0) 0)
+      (sysRun (strCStr (strDup name)) argv envp)
+      (sysRunSearch name argv envp (sysEnv "PATH") 0)))
+
+; Try `name` in each `:`-separated entry of `path` starting at `from`.
+(pub :: sysRunSearch (-> Int Int Int Int Int Int))
+;@axiom:effect(io)
+(pub fn (sysRunSearch name argv envp path from)
+  (if (> from (strLen path))
+      (- 0 2)
+      (let ((colon (strFindByte path 58 from)))
+        (let ((end (if (< colon 0) (strLen path) colon)))
+          (let ((dir (strSlice path from (- end from))))
+            ; An empty entry means the working directory, as in the
+            ; shell. `strConcat` copies, so the candidate is
+            ; NUL-terminated even though `dir` - a slice sharing the
+            ; environment's bytes - is not.
+            (let ((cand (strConcat (strConcat (if (== (strLen dir) 0) "." dir) "/") name)))
+              (let ((rc (sysRun (strCStr cand) argv envp)))
+                (if (>= rc 0)
+                    rc
+                    (sysRunSearch name argv envp path (+ end 1))))))))))

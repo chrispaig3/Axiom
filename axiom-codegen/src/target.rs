@@ -244,13 +244,32 @@ impl Target {
             // rdi/rsi/rdx/r10/r8/r9. `syscall` clobbers rcx and r11.
             Target::LinuxX86_64 => (
                 "syscall",
-                "={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rcx},~{r11},~{memory}",
+                "={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},\
+                 ~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{memory}",
             ),
             // Darwin/x86-64 uses the same registers as Linux but the
-            // same carry-flag error convention as Darwin/arm64.
+            // same carry-flag error convention as Darwin/arm64 - and,
+            // for the same reason, the same argument-register clobbers.
+            //
+            // Linux documents that its kernel preserves everything
+            // except `rax`, `rcx` and `r11`, which is why the entry
+            // above declares only those. Darwin documents no such
+            // thing, and on arm64 it demonstrably does NOT preserve the
+            // argument registers - probed, and the resulting bump
+            // allocator bug shipped. `rdx` is the strongest case: it is
+            // Darwin's SECOND RETURN register (`fork` and `pipe` answer
+            // through it), so the kernel writes it, while this template
+            // lists `{dx}` as a live input and nothing tells LLVM it
+            // was destroyed.
+            //
+            // Declaring the arguments clobbered costs a few spills and
+            // removes a whole class of miscompile on the one target no
+            // CI runner executes - it is assembled on every run and
+            // never run on any.
             Target::DarwinX86_64 => (
                 "syscall\\0Ajnc 1f\\0Anegq %rax\\0A1:",
-                "={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rcx},~{r11},~{memory}",
+                "={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},\
+                 ~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{memory}",
             ),
         }
     }
@@ -300,6 +319,69 @@ mod tests {
                 .filter(|c| !c.starts_with('=') && !c.starts_with('~'))
                 .count();
             assert_eq!(inputs, 7, "{}", t.name());
+        }
+    }
+
+    #[test]
+    fn darwin_argument_registers_are_declared_clobbered() {
+        // Darwin's kernel destroys the syscall argument registers -
+        // probed on arm64, where a C program that puts 0x100000 in x1,
+        // issues `mmap` and reads x1 back gets 0. Nothing tells LLVM
+        // that except the clobber list, and when it was missing the
+        // optimiser kept a live value in x1 across the `svc`: the bump
+        // allocator set `@__axiom_bump_end` to `addr + 0`, every
+        // allocation mapped a fresh megabyte, and it SHIPPED.
+        //
+        // The same hazard exists on Darwin x86-64, where `rdx` is the
+        // second return register, and that target is assembled by CI
+        // but executed by no runner - so this assertion is the only
+        // thing standing between it and the identical bug.
+        //
+        // Linux is deliberately exempt: its ABI documents that the
+        // kernel preserves every register but rax/rcx/r11, so the
+        // narrower list there is correct rather than an oversight.
+        for t in [Target::DarwinAarch64, Target::DarwinX86_64] {
+            let (_, constraints) = t.syscall_asm();
+            let parts: Vec<&str> = constraints.split(',').map(|p| p.trim()).collect();
+            let mut written: Vec<String> = parts
+                .iter()
+                .filter(|c| c.starts_with('~'))
+                .map(|c| normalise_reg(c.trim_start_matches("~{").trim_end_matches('}')))
+                .collect();
+            // The output register is written by construction, so an
+            // input that shares it needs no clobber. Both Darwin
+            // templates do share one: arm64 passes argument 1 in x0 and
+            // takes the result there, x86-64 the same with rax.
+            written.extend(
+                parts
+                    .iter()
+                    .filter(|c| c.starts_with('='))
+                    .map(|c| normalise_reg(c.trim_start_matches("={").trim_end_matches('}'))),
+            );
+            for input in parts
+                .iter()
+                .filter(|c| !c.starts_with('=') && !c.starts_with('~'))
+            {
+                let reg = normalise_reg(input.trim_start_matches('{').trim_end_matches('}'));
+                assert!(
+                    written.contains(&reg),
+                    "{}: register {} is a live input, is not the output, and is not declared \
+                     clobbered; Darwin's kernel does not preserve it",
+                    t.name(),
+                    reg
+                );
+            }
+        }
+    }
+
+    /// `{di}` and `~{rdi}` name one register in two spellings, so a
+    /// textual comparison of the two lists would pass while the
+    /// clobber was absent.
+    fn normalise_reg(r: &str) -> String {
+        let r = r.trim_start_matches('r').trim_start_matches('e');
+        match r {
+            "ax" | "di" | "si" | "dx" | "cx" => r.to_string(),
+            other => other.to_string(),
         }
     }
 

@@ -1,0 +1,82 @@
+; Child processes: spawn, wait, exit status, environment, PATH search.
+;
+; This is the capability a compiler driver is built on - `Sys` could not
+; run `llc` or `cc` at all before it - and every term here is chosen to
+; fail loudly if the underlying syscall shape is wrong rather than
+; merely different.
+;
+; The discriminating term is the `sh -c "exit 7"` one. Darwin's
+; posix_spawn SYSCALL takes five arguments (pid, path, adesc, argv,
+; envp) where libc's function takes six (pid, path, file_actions, attrp,
+; argv, envp), and the six-argument spelling puts `argv` in the kernel's
+; `envp` slot so the child receives a NULL argv. That failure is close
+; to invisible: the child still runs, still reports an exit status, and
+; `/usr/bin/false` still answers 1. Only a child whose behaviour depends
+; on its arguments can see it - which is why this test runs one, and why
+; a plain "did it spawn" check would have passed against the bug.
+;
+; Ablated (restoring the six-argument spelling in `Sys.sysSpawn`), this
+; case prints its first two lines and then HANGS at the `sh` term rather
+; than printing a wrong number: `sh` with a NULL argv reads a script
+; from stdin, and stdin is whatever the harness inherited. A hang is an
+; unusual way for a test to discriminate, so it is recorded here - the
+; case is doing its job when it stops, not when it fails a diff.
+
+(import IO)
+(import Sys)
+(import Str)
+(import Mem)
+(import Vec)
+
+; Build a NULL-terminated argv from up to three Str arguments; a "" ends
+; the vector early. The pointers must be to NUL-terminated bytes, so
+; every element is copied through `strDup` - a slice of a larger string
+; shares storage and stops at no NUL.
+(pub :: argv3 (-> Int Int Int Int))
+(pub fn (argv3 a b c)
+  (let ((v (memAlloc 32)))
+    {
+      (memSetWord v 0 (strCStr (strDup a)))
+      (memSetWord v 1 (if (> (strLen b) 0) (strCStr (strDup b)) 0))
+      (memSetWord v 2 (if (> (strLen c) 0) (strCStr (strDup c)) 0))
+      (memSetWord v 3 0)
+      v
+    }))
+
+(pub :: main Int)
+;@axiom:effect(io)
+(pub fn (main)
+  (let ((env sysEnvp))
+    {
+      ; A child that exits 0, and one that exits 1: the status has to
+      ; travel, not merely the fact that something ran.
+      (printlnInt (sysRun (strCStr "/usr/bin/true") (argv3 "/usr/bin/true" "" "") env))   ; 0
+      (printlnInt (sysRun (strCStr "/usr/bin/false") (argv3 "/usr/bin/false" "" "") env)) ; 1
+
+      ; THE discriminator: an exit code that can only arise if both
+      ; arguments reached the child. With a NULL argv, `sh` reads EOF
+      ; from stdin and exits 0 instead.
+      (printlnInt (sysRun (strCStr "/bin/sh") (argv3 "/bin/sh" "-c" "exit 7") env))       ; 7
+
+      ; A path that does not exist must report the spawn's own failure
+      ; rather than some exit code, so a driver can tell "llc is not
+      ; installed" from "llc rejected the module".
+      (printlnInt (if (< (sysRun (strCStr "/nonexistent/tool") (argv3 "x" "" "") env) 0) 1 0)) ; 1
+
+      ; PATH search finds a bare name, and still delivers arguments.
+      (printlnInt (sysRunPath "sh" (argv3 "sh" "-c" "exit 3") env))                       ; 3
+
+      ; A bare name that is on no PATH entry answers -ENOENT, not an
+      ; exit code that could be confused with success.
+      (printlnInt (if (< (sysRunPath "axiom-no-such-tool" (argv3 "x" "" "") env) 0) 1 0))  ; 1
+
+      ; The environment is readable, and is the process's own: PATH is
+      ; set for every process that got here through a shell.
+      (printlnInt (if (> (strLen (sysEnv "PATH")) 0) 1 0))                                ; 1
+      (printlnInt (strLen (sysEnv "AXIOM_NO_SUCH_VARIABLE_IS_SET")))                      ; 0
+
+      ; The forwarded environment reaches the child: `sh` can see PATH
+      ; only if `envp` was passed through rather than emptied.
+      (printlnInt (sysRunPath "sh" (argv3 "sh" "-c" "test -n \"$PATH\" && exit 5") env))  ; 5
+      0
+    }))

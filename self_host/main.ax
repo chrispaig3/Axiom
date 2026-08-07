@@ -1,6 +1,7 @@
 ; main.ax — self-hosted Axiom compiler entry point.
 
 (import core)
+(import Host)
 (import Mem)
 (import Str)
 (import Vec)
@@ -48,11 +49,20 @@
           (if (== (memGetWord pr 0) 0)
               (die "parse failed\n" 2)
               ; The target is the second argument, by the same names
-              ; stage0's --target takes; darwin-aarch64 when absent.
+              ; stage0's --target takes; this compiler's OWN host when
+              ; absent.
+              ;
+              ; It used to default to the literal "darwin-aarch64",
+              ; which made every compiler built anywhere else emit
+              ; Mach-O-targeted IR unless told otherwise - including in
+              ; `check-bootstrap.sh`, which passes no target and runs on
+              ; `ubuntu-latest`. `Host` is a per-target module selected
+              ; when this compiler was compiled, so the answer is
+              ; whatever it was built for.
               (let ((decls (memGetWord pr 1))
                     (tname (if (> (sysArgc) 2)
                                (sysArg 2)
-                               "darwin-aarch64")))
+                               hostTarget)))
                 (let ((tcode (checkedTargetCode tname))
                       (bares vecNew)
                       (fulls vecNew))

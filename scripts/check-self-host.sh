@@ -158,6 +158,35 @@ if [[ -z "$filter" ]]; then
   fi
 fi
 
+# The standard library is findable from a directory that has not been
+# salted with symlinks.
+#
+# stage1 used to search the entry file's directory and then the literal
+# strings `self_host/` and `stdlib/` RELATIVE TO ITS WORKING DIRECTORY,
+# so a user compiling a hello-world that imports `IO` from anywhere else
+# got `cannot read module: IO` and exit 3. Every gate in this repository
+# hid that by running from the repo root or by symlinking `stdlib` into
+# its work directory - including this one, which is why the check below
+# deliberately uses a FRESH directory containing nothing but the source.
+#
+# Ablating the search path back to the hardcoded pair fails this and
+# nothing else, which is how it is known to discriminate.
+if [[ -z "$filter" ]]; then
+  away="$work/away"
+  rm -rf "$away" && mkdir -p "$away"
+  printf '(import IO)\n(:: main Int)\n;@axiom:effect(io)\n(fn (main) { (println "ok") 0 })\n' \
+    >"$away/hello.ax"
+  if (cd "$away" && AXIOM_STDLIB="$repo_root/stdlib" "$work/stage1" hello.ax \
+        >hello.ll 2>hello.err) && grep -q 'define .*@main' "$away/hello.ll"; then
+    echo "ok   the standard library resolves from an unprepared directory"
+    passed=$((passed + 1))
+  else
+    echo "FAIL stage1 could not find the standard library outside the repo root"
+    sed 's/^/    /' "$away/hello.err" 2>/dev/null | head -3
+    failed=$((failed + 1))
+  fi
+fi
+
 # Every target stage1 claims must actually assemble: emit the
 # syscall-heavy case for each of the four and run llc under that
 # target's own triple. A wrong register convention or syscall number
@@ -182,6 +211,34 @@ if [[ -z "$filter" ]]; then
       failed=$((failed + 1))
     fi
   done
+
+  # Assembling under a triple is necessary and NOT sufficient, and the
+  # gap is not hypothetical: darwin-aarch64's IR assembles cleanly under
+  # `aarch64-unknown-linux-gnu`, because `svc #0x80` is a valid AArch64
+  # instruction whatever the OS and `{x16}` allocates fine. So if stage1
+  # ever stopped honouring the target argument, this loop would emit the
+  # same Darwin IR four times and still report three of the four green -
+  # while every Linux binary carried Darwin syscall numbers.
+  #
+  # Requiring the four to be pairwise distinct is what closes that. It
+  # is satisfiable today (the four differ), so it is an assertion about
+  # the compiler rather than an aspiration.
+  dupes=0
+  for a in darwin-aarch64 darwin-x86_64 linux-aarch64 linux-x86_64; do
+    for b in darwin-aarch64 darwin-x86_64 linux-aarch64 linux-x86_64; do
+      [[ "$a" < "$b" ]] || continue
+      if cmp -s "$work/out-$a.ll" "$work/out-$b.ll"; then
+        echo "FAIL emit [$a] and [$b] are byte-identical: the target argument is being ignored"
+        dupes=1
+      fi
+    done
+  done
+  if [[ "$dupes" == 0 ]]; then
+    echo "ok   the four targets emit four different modules"
+    passed=$((passed + 1))
+  else
+    failed=$((failed + 1))
+  fi
 fi
 
 echo

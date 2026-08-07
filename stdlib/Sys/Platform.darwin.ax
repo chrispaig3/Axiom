@@ -64,3 +64,55 @@
 
 (pub :: seekSet Int)
 (pub fn (seekSet) 0)
+
+; ------------------------------------------------------------------
+; Starting a child process.
+;
+; Darwin cannot use the fork/exec pair the way Linux does, and the
+; reason is a property of the syscall primitive rather than a
+; preference: Darwin's `fork` returns TWO values - the pid in x0 and an
+; "am I the child" flag in x1 - and `__syscallN` yields one register, so
+; a forked child would read its parent's pid and both processes would
+; take the parent branch. `posix_spawn` returns the pid through a
+; pointer instead, which one register can carry.
+;
+; `spawnUsesPosixSpawn` is the capability `Sys.ax` branches on, in
+; keeping with `openNeedsDirFd`: portable code above never names an OS.
+(pub :: spawnUsesPosixSpawn Int)
+(pub fn (spawnUsesPosixSpawn) 1)
+
+; posix_spawn - BSD 244.
+;
+; The SYSCALL is not the libc function of the same name. libc's takes
+; six arguments (pid, path, file_actions, attrp, argv, envp); the kernel
+; entry point takes FIVE, with the file actions and the attributes fused
+; into one `_posix_spawn_args_desc`:
+;
+;   __posix_spawn(pid_t *pid, const char *path,
+;                 struct _posix_spawn_args_desc *adesc,
+;                 char *const argv[], char *const envp[])
+;
+; Passing the libc shape puts `argv` in the kernel's `envp` slot and the
+; child receives a NULL argv - which is close to invisible, because a
+; child that ignores its arguments still runs and still reports the
+; right exit status. Probed: `/bin/sh -c "exit 7"` answers 0 under the
+; six-argument spelling (sh with no arguments reads EOF from stdin and
+; exits successfully) and 1792 - 7 << 8 - under this one.
+(pub :: sysPosixSpawn Int)
+(pub fn (sysPosixSpawn) 33554676)
+
+; wait4(pid, status, options, rusage) - BSD 7.
+(pub :: sysWait4 Int)
+(pub fn (sysWait4) 33554439)
+
+; Unused on Darwin (see `spawnUsesPosixSpawn`), but defined so that
+; `Sys.ax` type-checks against every platform module - the same reason
+; `atFdCwd` is defined here.
+(pub :: sysFork Int)
+(pub fn (sysFork) 0)
+
+(pub :: sysForkArg Int)
+(pub fn (sysForkArg) 0)
+
+(pub :: sysExecve Int)
+(pub fn (sysExecve) 0)

@@ -47,3 +47,37 @@
 
 (pub :: seekSet Int)
 (pub fn (seekSet) 0)
+
+; ------------------------------------------------------------------
+; Starting a child process.
+;
+; Like x86-64, AArch64 Linux forks and returns 0 in the child through a
+; single register, so `__syscallN` expresses it; Darwin's `fork` cannot
+; be (it returns a second value in x1), which is what this capability
+; selects between.
+(pub :: spawnUsesPosixSpawn Int)
+(pub fn (spawnUsesPosixSpawn) 0)
+
+; The generic syscall table has no `fork` at all - it has `clone` (220),
+; and `fork()` is `clone(SIGCHLD, 0, 0, 0, 0)`. SIGCHLD is 17, and it
+; goes in the flags argument, which is why `sysForkArg` exists: without
+; it a bare `clone(0, ...)` creates a child whose parent is never
+; notified and which `wait4` therefore never reaps.
+(pub :: sysFork Int)
+(pub fn (sysFork) 220)
+
+(pub :: sysForkArg Int)
+(pub fn (sysForkArg) 17)
+
+(pub :: sysExecve Int)
+(pub fn (sysExecve) 221)
+
+; The generic table has no `wait4` under that name either; 260 is
+; `wait4` in `include/uapi/asm-generic/unistd.h`.
+(pub :: sysWait4 Int)
+(pub fn (sysWait4) 260)
+
+; Unused on Linux, defined so `Sys.ax` type-checks against every
+; platform module.
+(pub :: sysPosixSpawn Int)
+(pub fn (sysPosixSpawn) 0)

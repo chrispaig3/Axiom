@@ -2179,3 +2179,162 @@ the reverse hazard remains: a module that references a name it neither
 defines nor imports still finds one. That is the same B4 decision, and
 the half that needs a real scope per module rather than one more
 candidate in front of a flat lookup.
+
+**The compiler can be used from a directory it does not own.** stage1
+searched the entry file's directory and then the literal strings
+`self_host/` and `stdlib/` *relative to its working directory*, so a
+user compiling a hello-world that imports `IO` from anywhere else got
+`cannot read module: IO` and exit 3. Probed from a scratch directory,
+which is all it took. Every gate in this repository hid it, either by
+running from the repo root or by salting a work directory with
+`ln -s "$repo_root/stdlib"` - the workaround was so uniform that the
+defect read as configuration.
+
+The search is stage0's `module_search_dirs` now, reproduced in order:
+the entry file's own directory first, so a project can shadow a
+standard-library module; then `AXIOM_PATH` entries, colon-separated;
+then the standard library, located by `AXIOM_STDLIB` or, failing that,
+relative to the compiler binary (`<exe>/../stdlib` for an installed
+layout, `<exe>/../../stdlib` for a build tree). The two CWD-relative
+entries are kept at the end as a fallback rather than deleted, because
+five harnesses depend on them and breaking all of them in one commit
+destroys the ability to bisect the only gates that watch stage1.
+
+`sysArg 0` is argv[0] rather than a real `current_exe`, so a compiler
+invoked by a bare name found on `PATH` resolves the exe-relative
+entries against the working directory instead. That degrades to the old
+behaviour rather than to something wrong, and `AXIOM_STDLIB` overrides
+it. The gate is a new case in `check-self-host.sh` that compiles a file
+importing `IO` from a *fresh* directory containing nothing else;
+restoring the hardcoded pair fails it and nothing else.
+
+Reading the module also stopped happening twice. The path search and
+the source read were two independent walks of the same candidate list,
+so the filename a diagnostic renders against and the text it renders
+from could in principle come from different candidates; there is one
+search now, and the read follows it.
+
+**The self-hosted compiler knows what host it is on, and did not.** The
+target defaulted to the literal string `"darwin-aarch64"`, written into
+`main.ax`. `scripts/check-bootstrap.sh` passes no target argument and
+its CI job runs on `ubuntu-latest`, so the Linux fixpoint job was
+compiling the compiler with a Mach-O triple: measured, stage1 with no
+target emits `target triple = "arm64-apple-macosx14.0.0"`, and `llc`
+turns that into a `Mach-O 64-bit object arm64`, which no Linux linker
+will accept.
+
+That job has never run. It was added to CI on 2026-08-04 (`d2ed483`);
+the most recent CI run on this repository is 2026-07-30. So **none of
+the self-hosting work described in this document has been through CI**,
+and the fixpoint is verified on macOS ARM only. That is worth stating
+plainly next to every "gated in CI" claim above: the gate exists, is
+wired up, and has not yet executed once.
+
+The fix is a per-target `Host` module - `self_host/Host.{os}-{arch}.ax`
+- selected by the same suffix mechanism the standard library's syscall
+tables use. The answer is therefore baked in when the compiler is
+*compiled*, which is the only time anything knows: a freestanding
+binary has no `uname` to ask. And because stage0 defaults `--target` to
+`Target::host`, the property is inherited down the whole ladder without
+a target argument anywhere - stage0 on a Linux runner builds a stage1
+whose `hostTarget` is `linux-x86_64`, which builds a Linux stage2.
+Measured: the four builds of `main.ax` emit four different host
+constants and four different triples. There is deliberately no
+fallback `Host.ax`, so a target with no file fails loudly at compile
+time rather than silently inheriting somebody else's triple.
+
+**`Sys` can start a child process**, which is the capability a compiler
+driver is built on and the one thing the standard library could not do
+at all. `sysSpawn`, `sysWaitPid`, `sysRun`, `sysRunPath`, `sysEnv` and
+`sysEnvp` are the surface; `tests/stdlib/300-process.ax` is the gate,
+green on all four targets at both optimisation levels.
+
+The two platforms reach it differently, and the difference is forced
+rather than chosen. **Darwin's `fork` returns two values** - the pid in
+x0 and an "am I the child" flag in x1 - and `__syscallN` yields one
+register, so a Darwin child would read its parent's pid and both
+processes would take the parent branch. `posix_spawn` returns the pid
+through a pointer, which one register carries. Linux's `fork` returns 0
+in the child through that same single register, so there it is
+expressible directly; AArch64 Linux has no `fork` in its table at all
+and spells it `clone(SIGCHLD)`. `Sys.Platform.spawnUsesPosixSpawn` is
+the capability that selects between them, in keeping with
+`openNeedsDirFd`: nothing portable names an OS.
+
+The bug worth recording is one of *arity*, and it is nearly invisible.
+**Darwin's `posix_spawn` syscall is not libc's `posix_spawn` function.**
+libc takes six arguments (pid, path, file_actions, attrp, argv, envp);
+the kernel entry point takes five, with the file actions and the
+attributes fused into one `_posix_spawn_args_desc`. Passing the libc
+shape puts `argv` in the kernel's `envp` slot, and the child receives a
+NULL argv - while still running, still being waited for, and still
+reporting the right exit status. `/usr/bin/false` answers 1 either way.
+The only witness is a child whose behaviour depends on its arguments:
+`sh -c "exit 7"` answers **0** under the six-argument spelling, because
+`sh` with no arguments reads EOF from stdin and exits successfully, and
+**1792** - 7 << 8 - under the five. Both spellings were run; that is
+the whole difference between them.
+
+The environment needed no new primitive, which was not obvious. There
+is no `__envp`, but the kernel lays the initial process stack out as
+`argc, argv[0..n-1], NULL, envp[0..m-1], NULL` contiguously on both
+platforms, and `__argv` indexes that vector unchecked - the primitives
+are where the type system stops. Probed: `argv[argc]` reads 0 and
+`argv[argc+1]` reads a `NAME=value` string. Deriving it beat adding a
+third parameter to the entry wrapper, which would have had to land in
+both compilers at once to keep the bootstrap building.
+
+`sysRunPath` searches `PATH` by *attempting* each candidate rather than
+by testing for the file first. That needs no `access` syscall - AArch64
+Linux has none, only `faccessat` - and cannot be raced between the test
+and the spawn. The cost is that a candidate which exists but is not
+executable is skipped rather than reported, where `execvp` remembers
+the EACCES; a driver looking for `llc` wants the next candidate either
+way.
+
+Only darwin-aarch64 is *run*-tested here. The other three assemble at
+`-O0` and `-O2` under their own triples, and the Linux paths are
+executed by CI's Linux runners - which, per the note above, have not
+executed anything since 2026-07-30.
+
+**Three gates were measuring less than they claimed, and one latent
+miscompile was the same one that already shipped.**
+
+*The freestanding gate could not see a libc spawn.* Its forbidden-name
+list was eleven allocation- and stdio-shaped names, so a
+`(foreign posix_spawn ...)` binding emitted `call i64 @posix_spawn(...)`,
+linked against libc, and passed both the IR grep and the `nm` check -
+verified before the list was widened. That matters precisely here,
+because `posix_spawn` is a *function* and not a syscall on every system
+that documents it, making libc the tempting implementation. The list
+now carries the process-control family, and the gate ends with a
+negative probe that compiles a program which deliberately calls libc
+and fails if either mechanism lets it through. A gate asserting silence
+needs one, because a broken grep produces silence too.
+
+*The four-target check passed vacuously for one of its four.*
+`check-self-host.sh` emits the syscall-heavy case for each target and
+assembles it under that target's triple. But darwin-aarch64's IR
+assembles cleanly under `aarch64-unknown-linux-gnu` - `svc #0x80` is a
+valid AArch64 instruction whatever the OS, and `{x16}` allocates fine -
+so if stage1 ever stopped honouring its target argument, the loop would
+emit the same Darwin IR four times and still report three green while
+every Linux binary carried Darwin syscall numbers. The four modules are
+now required to be pairwise distinct, which is satisfiable today and so
+is an assertion about the compiler rather than an aspiration.
+
+*Darwin x86-64 was one undeclared clobber from the bug that shipped on
+arm64.* The arm64 templates declare `~{x1}`..`~{x5}` because Darwin's
+`svc` destroys the argument registers - probed, and the resulting bump
+allocator miscompile reached users. The x86-64 Darwin template declared
+only `~{rcx},~{r11}`, the two the `syscall` instruction itself destroys,
+while listing `{dx}` as a live input - and `rdx` is Darwin's *second
+return register*, the one `fork` and `pipe` answer through. Linux is
+exempt because its ABI documents that the kernel preserves everything
+else; Darwin documents no such thing and demonstrably does not honour
+it. Both compilers declare the argument registers now, and a new test
+asserts the general rule - every input register is either the output or
+declared clobbered - which fails on the previous constraint string.
+darwin-x86_64 is assembled by CI on every run and executed by no
+runner, so that assertion is the only thing standing between it and the
+identical bug.
