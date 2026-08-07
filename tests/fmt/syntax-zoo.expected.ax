@@ -13,8 +13,8 @@
 ; library happens to need. It is never run - only parsed, formatted, and
 ; parsed again - so it is written for coverage of *syntax*, not to
 ; compute anything.
-
 (import Mem)
+
 (import Sys.Platform)
 
 ; --- type alias -----------------------------------------------------
@@ -29,7 +29,7 @@
   (Rect { w : Int, h : Int })
   (Empty))
 
-(data Tree (a)
+(data Tree a
   (Leaf)
   (Node (Tree a) a (Tree a)))
 
@@ -55,76 +55,116 @@
   (label : String))
 
 ; --- trait: supertraits, methods, defaults --------------------------
-(trait (Show a) where
-  (show :: (-> a Int)
-   width :: (-> a Int)))
+(trait (Show a) where (
+  show :: (-> a Int)
+  width :: (-> a Int)
+))
 
-(trait (Ord a) (Show) where
-  (cmp :: (-> a Int)))
+(trait (Ord a) (Show) where (
+  cmp :: (-> a Int)
+))
 
 ; --- impl -----------------------------------------------------------
-(impl (Show Int) where
-  ((show (lambda (x) x))))
+(impl (Show Int) where (
+  (show
+    (lambda (x) x)
+  )
+))
 
 ; --- macro ----------------------------------------------------------
 (macro (twice x) (+ x x))
 
 ; --- signatures: uncurried arrows, higher order ---------------------
 (pub :: apply (-> (-> Int Int) Int Int))
+
 (pub fn (apply f x) (f x))
 
 ; --- every literal kind ---------------------------------------------
 (:: literals (-> Int Int))
+
 (fn (literals _x)
-  (let ((i 42)
-        (f 1.5)
-        (c 'q')
-        (s "tab\there \"quoted\" back\\slash")
-        (b true))
-    i))
+  (let (
+    (i 42)
+    (f 1.5)
+    (c 'q')
+    (s "tab\there \"quoted\" back\\slash")
+    (b true)
+  )
+    i
+  )
+)
 
 ; --- control flow ---------------------------------------------------
 (:: control (-> Int Int))
+
 ;@axiom:pure
 (fn (control n)
-  (let ((mut i 0)
-        (mut acc 0))
+  (let (
+    (mut i 0)
+    (mut acc 0)
+  )
     {
       (while (< i n)
         {
           (set acc (+ acc i))
           (set i (+ i 1))
         })
-      (if (> acc 10) acc 0)
-    }))
+      (if (> acc 10)
+        acc
+        0
+      )
+    }
+  )
+)
 
 ; --- cond ----------------------------------------------------------
 (:: classify (-> Int Int))
+
 (fn (classify n)
   (cond
     ((< n 0) 1)
     ((== n 0) 2)
-    (else { (+ n 0) 3 })))
+    (else 
+      {
+        (+ n 0)
+        3
+      }
+    )
+  )
+)
 
 ; --- pattern matching: nested, named fields, punning ----------------
 (:: area (-> Shape Int))
+
 (fn (area s)
   (match s
-    ((Circle { r = r }) (* r r))
-    ((Rect { w, h }) (* w h))
-    ((Empty) 0)))
+    ((Circle {r = r}) (* r r))
+    ((Rect {w = w, h = h}) (* w h))
+    ((Empty) 0)
+  )
+)
 
 (:: depth (-> (Tree Int) Int))
+
 (fn (depth t)
   (match t
     ((Leaf) 0)
-    ((Node l _v r) (+ 1 (depth l)))))
+    ((Node l _v r) (+ 1 (depth l)))
+  )
+)
 
 ; --- field access, casts, sizeof ------------------------------------
 (:: misc (-> Rec Int))
+
 (fn (misc r)
-  (+ (+ r.n (cast Int r.ratio))
-     (+ (sizeof Int) (alignof Int))))
+  (+
+    (+
+      r.n      (cast Int r.ratio)
+    )    (+
+      (sizeof Int)      (alignof Int)
+    )
+  )
+)
 
 ; --- the keyword-headed expression forms ----------------------------
 ; `(struct ...)` in EXPRESSION position is construction, distinct from
@@ -136,18 +176,31 @@
 ; arguments on the second pass. `consume` and `alloc` ride along, the
 ; two other forms whose only corpus use is this file.
 (:: keyword_forms (-> Int Int))
+
 (fn (keyword_forms n)
-  (let ((r (struct Rec 1 0 true 1.5 "s"))
-        (p (alloc Int 8))
-        (q (alloc Bool)))
-    (+ (consume r.n) n)))
+  (let (
+    (r (struct Rec 1 0 true 1.5 "s"))
+    (p (alloc Int 8))
+    (q (alloc Bool))
+  )
+    (+
+      (consume r.n)      n
+    )
+  )
+)
 
 ; --- qualified names ------------------------------------------------
 (:: qualified (-> Int Int))
-(fn (qualified x) (Mem::memAlloc x))
+
+(fn (qualified x)
+  (Mem::memAlloc
+    x
+  )
+)
 
 ; --- trailing comment on a declaration ------------------------------
 (:: last (-> Int Int))
+
 (fn (last x) x)  ; stays on this line
 
 ; --- effect declarations and handle expressions ---------------------
@@ -159,12 +212,16 @@
   (recv :: (-> Int Int)))
 
 (:: handled (-> Int Int))
+
 (fn (handled n)
-  (handle (log "hi") (Console) (lambda (s) 0)))
+  (handle (log "hi") (Console) (lambda (s) 0))
+)
 
 (:: scoped (-> Int Int))
+
 (fn (scoped n)
-  (handle n (IO Mut) 0))
+  (handle n (IO Mut) 0)
+)
 
 ; --- a parenthesised type application, in every position that takes one
 ;
@@ -180,10 +237,11 @@
 ; either a bare name or an arrow, and an arrow's components were the
 ; one position that already parenthesised. That is this file's whole
 ; job: the corpus does not ask, so the zoo has to.
-(pub data Box (a)
+(pub data Box a
   (B a))
 
 (:: aBox (Box Int))
+
 (fn (aBox) (B 1))
 
 (pub type BoxedCount = (Box Int))
@@ -230,14 +288,22 @@
 ; refuses ("expected type, found `,`"), so a real one cannot go in a
 ; file `check-tree-sitter.sh` must accept.
 (:: interiors (-> (* (Box Int)) [(Box Int)] (linear (Box Int)) Int))
+
 (fn (interiors p l n) 0)
 
 (:: typed_exprs (-> Int Int))
+
 (fn (typed_exprs n)
-  (let ((s (:: (B 1) (Box Int)))
-        (c (cast (Box Int) 0))
-        (p (alloc (Box Int) 2)))
-    (+ (sizeof (Box Int)) (alignof (Box Int)))))
+  (let (
+    (s (:: (B 1) (Box Int)))
+    (c (cast (Box Int) 0))
+    (p (alloc (Box Int) 2))
+  )
+    (+
+      (sizeof (Box Int))      (alignof (Box Int))
+    )
+  )
+)
 
 ; --- the normalisations: what `fmt` REWRITES rather than reprints ----
 ;
@@ -276,32 +342,45 @@
 ; the same function today - a property of this corpus, not of the
 ; printer. A float needing seventeen significant digits would break that
 ; equivalence, which is why one is not written here.
-
 (:: helperD (-> Int Int))
-(define (helperD x) x)
+
+(fn (helperD x) x)
 
 (:: zeroParam Int)
-(fn zeroParam = 7)
+
+(fn (zeroParam) 7)
 
 (:: bigNums Int)
-(fn (bigNums) (+ 1_000_000 007))
+
+(fn (bigNums) (+ 1000000 7))
 
 (:: addTwo (-> Int Int Int))
+
 (fn (addTwo a b) (+ a b))
 
 (:: spine Int)
-(fn (spine) ((addTwo 1) 2))
+
+(fn (spine) (addTwo 1 2))
 
 (:: redundantParens (-> Int Int))
-(fn (redundantParens n) (n))
+
+(fn (redundantParens n) n)
 
 (:: oneBlock (-> Int Int))
-(fn (oneBlock n) { n })
+
+(fn (oneBlock n) n)
 
 (:: manyBody (-> Int Int))
-(fn (manyBody n) 1 n)
 
-(:: curried (-> Int (-> Int Int)))
+(fn (manyBody n)
+  {
+    1
+    n
+  }
+)
+
+(:: curried (-> Int Int Int))
+
 (fn (curried a b) a)
 
 ; `(Int)` -> `Int` is measured and real, but it cannot live here: the
@@ -309,20 +388,26 @@
 ; one made it ambiguous against a type-parameter list and against a
 ; zero-argument application at once - so a file both gates must accept
 ; cannot contain one.
+(:: unitArg (-> Unit Int))
 
-(:: unitArg (-> () Int))
 (fn (unitArg n) 1)
 
-(:: integerName (-> Integer Int))
+(:: integerName (-> Int Int))
+
 (fn (integerName n) 1)
 
 ; Negative literals, in the four positions that read differently: a
 ; binding, an argument, after a leading operand, and the space-separated
 ; spelling that stays unary minus and prints back as a literal.
 (:: negatives Int)
+
 (fn (negatives)
-  (let ((a -5)
-        (b (+ 3 -1))
-        (c (- 0 -4))
-        (d (- 5)))
-    (+ a (+ b (+ c d)))))
+  (let (
+    (a -5)
+    (b (+ 3 -1))
+    (c (- 0 -4))
+    (d -5)
+  )
+    (+ a (+ b (+ c d)))
+  )
+)

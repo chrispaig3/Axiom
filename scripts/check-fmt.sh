@@ -129,6 +129,56 @@ fi
 # `(-> (Tree Int) Int)` into a two-argument function. `fmt`'s own
 # round-trip check cannot see that, because both spellings are valid.
 # ---------------------------------------------------------------
+# ---------------------------------------------------------------
+# 2b. The zoo formats to exactly the checked-in golden.
+#
+# Everything above asks whether formatting PRESERVES meaning. This asks
+# what the normal form *is*, and pins it as a reviewed artefact rather
+# than as whatever the printer happens to do.
+#
+# Two things need that. The zoo's last section is the list of spellings
+# `fmt` deliberately rewrites - `(define x 1)` to `(fn (x) 1)`,
+# `1_000_000` to `1000000`, `(-> Int (-> Int Int))` to
+# `(-> Int Int Int)` - and a rewrite cannot be checked by re-parsing,
+# because both spellings mean the same thing. Only a golden can say
+# which one comes out.
+#
+# And the self-hosted formatter, when it exists, has to produce the same
+# bytes. Comparing it against stage0 directly would be a two-way diff,
+# which cannot see a stage0 bug baked into stage1 - the first risk this
+# project's self-hosting document names. With the golden checked in the
+# comparison is three-way: golden == stage0 == stage1, and changing the
+# normal form means changing a file a human reads.
+#
+# Regenerate deliberately, never automatically:
+#   cp tests/fmt/syntax-zoo.ax tests/fmt/syntax-zoo.expected.ax
+#   ./target/release/axiom fmt tests/fmt/syntax-zoo.expected.ax
+# ---------------------------------------------------------------
+echo "== the zoo formats to the checked-in golden =="
+golden="$repo_root/tests/fmt/syntax-zoo.expected.ax"
+if [[ ! -f "$golden" ]]; then
+  echo "FAIL tests/fmt/syntax-zoo.expected.ax is missing"
+  failed=$((failed + 1))
+elif [[ ! -s "$golden" ]]; then
+  # A golden with no content agrees with everything, which is the
+  # failure that looks like success.
+  echo "FAIL the golden is empty"
+  failed=$((failed + 1))
+else
+  fresh="$work/zoo-formatted.ax"
+  cp "$repo_root/tests/fmt/syntax-zoo.ax" "$fresh"
+  if ! "$axiom" fmt "$fresh" >/dev/null 2>&1; then
+    echo "FAIL formatting the zoo failed"
+    failed=$((failed + 1))
+  elif ! cmp -s "$fresh" "$golden"; then
+    echo "FAIL the zoo no longer formats to tests/fmt/syntax-zoo.expected.ax"
+    diff "$golden" "$fresh" | head -20 | sed 's/^/     /'
+    failed=$((failed + 1))
+  else
+    echo "     $(wc -l < "$golden" | tr -d ' ') lines of normal form, unchanged"
+  fi
+fi
+
 echo "== formatted syntax zoo still type-checks =="
 zoo="$copy/tests/fmt/syntax-zoo.ax"
 if [[ -f "$zoo" ]]; then

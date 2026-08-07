@@ -233,7 +233,7 @@ module.exports = grammar({
     data_declaration: $ => seq(
       '(', optional(field('visibility', 'pub')), 'data',
       field('name', $.identifier),
-      optional(field('type_parameters', $.type_parameters)),
+      optional(field('type_parameters', $._data_type_parameters)),
       repeat(field('constructor', $.data_constructor)),
       optional($.deriving_clause),
       ')',
@@ -259,6 +259,24 @@ module.exports = grammar({
     // parameter list and failed on the `:`. One token lets the declared
     // conflict below defer the decision to the parser, which can.
     type_parameters: $ => seq('(', repeat(alias($.identifier, $.type_variable)), ')'),
+
+    // A `data` declaration's parameters, which may also be the bare `a`
+    // that `fmt` emits: `format_type_vars` parenthesises a list and
+    // prints a single one on its own, so `(data Tree (a) ...)` formats
+    // to `(data Tree a ...)`. Only the parenthesised form was described
+    // here, so the grammar rejected the output of this repository's own
+    // formatter - unnoticed, because every `data` in the corpus is
+    // written with the parens and the corpus is not stored formatted.
+    //
+    // `struct` deliberately does not get the bare form. Its parameters
+    // are followed by an optional layout modifier (`repr(C)`, `packed`,
+    // `align(8)`), which is also a bare lowercase word, so a bare
+    // parameter there is genuinely ambiguous with `packed` - measured,
+    // it broke `struct with layout modifiers and a mutable field`.
+    _data_type_parameters: $ => choice(
+      $.type_parameters,
+      alias($.type_variable, $.type_parameters),
+    ),
 
     // `(Just a)` or `(Circle { r : Int })`. The braced form is a struct
     // variant: fields are named, and a pattern may then bind them by

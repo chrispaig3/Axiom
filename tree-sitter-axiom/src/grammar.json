@@ -294,7 +294,7 @@
               "name": "type_parameters",
               "content": {
                 "type": "SYMBOL",
-                "name": "type_parameters"
+                "name": "_data_type_parameters"
               }
             },
             {
@@ -353,6 +353,24 @@
         {
           "type": "STRING",
           "value": ")"
+        }
+      ]
+    },
+    "_data_type_parameters": {
+      "type": "CHOICE",
+      "members": [
+        {
+          "type": "SYMBOL",
+          "name": "type_parameters"
+        },
+        {
+          "type": "ALIAS",
+          "content": {
+            "type": "SYMBOL",
+            "name": "type_variable"
+          },
+          "named": true,
+          "value": "type_parameters"
         }
       ]
     },

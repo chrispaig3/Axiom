@@ -225,3 +225,23 @@ Effect declaration with a typed operation
       type: (function_type
         operand: (builtin_type)
         operand: (builtin_type)))))
+
+================================================================
+data declaration with a bare type parameter
+================================================================
+
+(data Tree a
+  (Leaf)
+  (Node a))
+
+----------------------------------------------------------------
+
+(source_file
+  (data_declaration
+    (identifier)
+    (type_parameters)
+    (data_constructor
+      (constructor_identifier))
+    (data_constructor
+      (constructor_identifier)
+      (type_variable))))
