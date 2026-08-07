@@ -78,6 +78,60 @@
   (lookupType types name))
 
 ; ------------------------------------------------------------------
+; The effect registry: what a `handle` installs into and what an
+; operation dispatches through.
+;
+; One entry per declared effect and one per operation, both carrying
+; the same SLOT - the mutable global holding that effect's innermost
+; evidence record. The name is the one written in source, because
+; `mangleDecl` rewrites only `fn` and `::` declarations: an imported
+; `(effect Console ...)` keeps its bare name, and the declaration's
+; module word is the only thing that says where it came from. That is
+; also why the slot, not the name, is the identity - two modules may
+; each declare a `Console`, and stage0 keys their slots by
+; (name, module), so they are two globals rather than one shared one.
+; ------------------------------------------------------------------
+(pub struct EffEnt (name : Int) (slot : Int) (isEntry : Int))
+(pub :: effName (-> Int Int))    (pub fn (effName e) (memGetWord e 0))
+(pub :: effSlot (-> Int Int))    (pub fn (effSlot e) (memGetWord e 1))
+(pub :: effIsEntry (-> Int Int)) (pub fn (effIsEntry e) (memGetWord e 2))
+
+; stage0's `effect_slot_name`: `__axiom_ev_` over the mangled effect
+; name, so an entry-file `Console` is `__axiom_ev_Console` and an
+; imported one `__axiom_ev_M$Console`.
+(pub :: effSlotFor (-> Int Int Int))
+(pub fn (effSlotFor name modName)
+  (if (== modName 0)
+      (cat2 "__axiom_ev_" name)
+      (cat4 "__axiom_ev_" modName "$" name)))
+
+; Entry file first, then whatever module defines it - the resolution
+; rule every other bare-name lookup in this compiler uses. A first
+; match alone would let an import outrank the file being compiled.
+(pub :: lookupEff (-> Int Int Int))
+(pub fn (lookupEff tbl name)
+  (let ((e (lookupEffIn tbl name 1 0)))
+    (if (!= e 0) e (lookupEffIn tbl name 0 0))))
+
+(pub :: lookupEffIn (-> Int Int Int Int Int))
+(pub fn (lookupEffIn tbl name entryOnly i)
+  (if (>= i (vecLen tbl))
+      0
+      (let ((e (vecGet tbl i)))
+        (if (&& (strEq (effName e) name)
+                (|| (== entryOnly 0) (== (effIsEntry e) 1)))
+            e
+            (lookupEffIn tbl name entryOnly (+ i 1))))))
+
+(pub :: effSlotRegistered (-> Int Int Int Bool))
+(pub fn (effSlotRegistered tbl slot i)
+  (if (>= i (vecLen tbl))
+      false
+      (if (strEq (effSlot (vecGet tbl i)) slot)
+          true
+          (effSlotRegistered tbl slot (+ i 1)))))
+
+; ------------------------------------------------------------------
 ; CG state: output buffer + temp counter + last result + type registry.
 ; Field 0 = lines (Vec of Str)
 ; Field 1 = tmp (Int, register counter)
@@ -134,7 +188,18 @@
 ;            twice)
 ; Field 26 = target (Int code, see `targetCode`; what the syscall asm,
 ;            allocator numbers, and triple are emitted for)
-(pub struct CG (lines : Int) (tmp : Int) (result : Int) (types : Int) (tagN : Int) (argVec : Int) (symnames : Int) (symregs : Int) (decls : Int) (argsTyped : Int) (strings : Int) (curBlock : Int) (mangleBares : Int) (mangleFulls : Int) (resultIsFloat : Int) (floatSigs : Int) (symfloats : Int) (curParams : Int) (curFlags : Int) (macros : Int) (symkinds : Int) (pendingLams : Int) (lamN : Int) (thunkFulls : Int) (thunkArities : Int) (thunksEmitted : Int) (target : Int) (tcoName : Int) (tcoSlots : Int) (tcoLabel : Int) (tailOK : Int) (terminated : Int))
+; Field 32 = effDecls (Vec of EffEnt, one per declared effect: what a
+;            `handle` naming it installs into, and what the evidence
+;            globals are emitted from)
+; Field 33 = effOps (Vec of EffEnt, one per operation of every declared
+;            effect, carrying that effect's slot: what a call to the
+;            operation dispatches through)
+;
+; Both are APPENDED rather than inserted. Every reader of this record
+; indexes by position, so a field that moves corrupts whatever now
+; sits at its old index - which is exactly how the unit table broke
+; when `TC` grew (docs/self-hosting.md).
+(pub struct CG (lines : Int) (tmp : Int) (result : Int) (types : Int) (tagN : Int) (argVec : Int) (symnames : Int) (symregs : Int) (decls : Int) (argsTyped : Int) (strings : Int) (curBlock : Int) (mangleBares : Int) (mangleFulls : Int) (resultIsFloat : Int) (floatSigs : Int) (symfloats : Int) (curParams : Int) (curFlags : Int) (macros : Int) (symkinds : Int) (pendingLams : Int) (lamN : Int) (thunkFulls : Int) (thunkArities : Int) (thunksEmitted : Int) (target : Int) (tcoName : Int) (tcoSlots : Int) (tcoLabel : Int) (tailOK : Int) (terminated : Int) (effDecls : Int) (effOps : Int))
 
 ; ------------------------------------------------------------------
 ; Tail-call optimisation, fields 27-31.
@@ -188,7 +253,7 @@
     {
       (addType ts "Some" TF_DATA 1 0 2 (let ((f vecNew)) { (vecPush f 0) f }))
       (addType ts "None" TF_DATA 0 1 2 vecNew)
-      (CG vecNew 0 "" ts 2 vecNew vecNew vecNew 0 "" vecNew "entry" vecNew vecNew 0 vecNew vecNew 0 0 vecNew vecNew vecNew 0 vecNew vecNew 0 0 0 vecNew "" 0 0)
+      (CG vecNew 0 "" ts 2 vecNew vecNew vecNew 0 "" vecNew "entry" vecNew vecNew 0 vecNew vecNew 0 0 vecNew vecNew vecNew 0 vecNew vecNew 0 0 0 vecNew "" 0 0 vecNew vecNew)
     }))
 
 (pub :: zeroFloat (-> Int Int))
@@ -648,9 +713,51 @@
   (if (>= i (vecLen decls)) cg
       (scanDecls decls (scanOne (vecGet decls i) cg) (+ i 1))))
 
+; `(effect E (op :: ...))` registers the effect and every one of its
+; operations against one evidence slot.
+;
+; Registered ONCE per slot, because `scanDecls` runs again before
+; every function body - the type registry is rebuilt per function, and
+; a second registration here would emit a duplicate evidence global,
+; which llc refuses outright rather than tolerating.
+(pub :: scanEffect (-> Int Int Int))
+(pub fn (scanEffect node cg)
+  (let ((tbl (memGetWord cg 32))
+        (slot (effSlotFor (nodeA node) (nodeModule node)))
+        (isEntry (if (== (nodeModule node) 0) 1 0)))
+    (if (effSlotRegistered tbl slot 0)
+        cg
+        {
+          (vecPush tbl (cast Int (EffEnt (nodeA node) slot isEntry)))
+          (scanEffectOps (nodeB node) slot isEntry (nodeModule node)
+                         (memGetWord cg 33) 0)
+          cg
+        })))
+
+; An operation of an imported effect is registered under its bare name
+; and under `Mod$op`, because that is what a qualified reference
+; resolves to: stage1 spells `EffMod::ask` as the flat name
+; `EffMod$ask`, and an `effect` declaration is one of the two kinds
+; `mangleDecl` never rewrites. Both spellings dispatch through the one
+; slot, which is the only thing that has to be single.
+(pub :: scanEffectOps (-> Int Int Int Int Int Int Int))
+(pub fn (scanEffectOps ops slot isEntry modName tbl i)
+  (if (>= i (vecLen ops))
+      0
+      {
+        (vecPush tbl (cast Int (EffEnt (vecGet ops i) slot isEntry)))
+        (if (== modName 0)
+            0
+            (vecPush tbl (cast Int (EffEnt (cat3 modName "$" (vecGet ops i))
+                                           slot isEntry))))
+        (scanEffectOps ops slot isEntry modName tbl (+ i 1))
+      }))
+
 (pub :: scanOne (-> Int Int Int))
 (pub fn (scanOne node cg)
   (let ((tag (nodeTag node)))
+    (if (== tag TAG_D_EFFECT)
+        (scanEffect node cg)
     (if (== tag TAG_D_DATA)
         (let ((name (nodeA node))
               (ctors (nodeB node)))
@@ -666,7 +773,7 @@
             (memSetWord cg 3 (addType types name TF_STRUCT (vecLen fields) 0 0 fields))
             cg
           })
-    cg))))
+    cg)))))
 
 (pub :: ctorsHasNullary (-> Int Int Int))
 (pub fn (ctorsHasNullary ctors i)
@@ -1302,7 +1409,7 @@
         ; Globals may follow the functions that mention them; LLVM does
         ; not care about order, and the table is only complete once every
         ; body has been emitted.
-        (renderCG (emitStringGlobals nextCg 0))
+        (renderCG (emitEffectGlobals (emitStringGlobals nextCg 0) 0))
         (emitModuleTail decls nextCg (+ i 1)))))
 
 ; ------------------------------------------------------------------
@@ -2474,18 +2581,8 @@
     (if (== tag TAG_E_SETF)  (emitSetF node cg)
     (if (== tag TAG_E_LAM)   (emitLambda node cg)
     (if (== tag TAG_E_STRUCTCON) (emitStructConExpr node cg)
-    ; stage1 does not lower the effect system - evidence globals,
-    ; outward dispatch and the unhandled trap are all stage0-only. It
-    ; refuses here rather than emitting something. The form used to
-    ; parse as an application, which emitted
-    ; `call i64 @Console(i64 %IO, i64 %Alloc)` - a call to a symbol
-    ; nothing defines, plus references to `%IO` and `%Alloc` that are
-    ; not values at all - so the failure surfaced out of llc as a
-    ; complaint about generated code rather than as an unsupported
-    ; feature. Exit 3 is the driver's "cannot compile this" status.
     (if (== tag TAG_E_HANDLE)
-        (dieImport "error: stage1 cannot lower the effect system: handle of "
-                   (handleEffectNames node))
+        (emitHandle node cg)
     ; `(alloc Type [count])` allocates nothing. stage0's IR generator
     ; has no EAlloc case, so the form falls to its catch-all constant
     ; 0; emitting a real allocation here would be stage1 doing more
@@ -2498,21 +2595,218 @@
         }
     (emitDefault node cg)))))))))))))))))))))))
 
-; The handled effects, comma-separated, for the refusal message - so
-; the report names what it could not compile rather than only that it
-; could not.
-(pub :: handleEffectNames (-> Int Int))
-(pub fn (handleEffectNames node)
-  (handleEffectNamesFrom (nodeB node) 0 ""))
+; ------------------------------------------------------------------
+; The effect system: dynamic handlers by evidence passing.
+;
+; `(handle body (E ...) h)` installs `h` as E's evidence for the
+; body's dynamic extent, and an operation of E called anywhere inside
+; that extent - however many frames down, and mentioning no handler
+; itself - dispatches through it. The evidence is a heap-allocated
+; two-word record `{handler, previous}`; the effect's slot, a mutable
+; global, holds the innermost, and entry and exit are a push and a
+; pop.
+;
+; Shallow and tail-resumptive: the handler's return value IS the
+; operation's result, and there is no continuation to resume. That is
+; the whole of what stage0 implements, and reproducing more of it here
+; would be stage1 doing something the compiler it must agree with
+; cannot.
+; ------------------------------------------------------------------
 
-(pub :: handleEffectNamesFrom (-> Int Int Int Int))
-(pub fn (handleEffectNamesFrom effs i acc)
+; The first effect in a handle's list that resolves to a DECLARED
+; effect, or 0 when none does. A list naming only built-in effects
+; (`IO`, `Alloc`, ...) declares no evidence and installs nothing.
+(pub :: handleEffectEnt (-> Int Int Int))
+(pub fn (handleEffectEnt node cg)
+  (handleEffectEntFrom (nodeB node) cg 0))
+
+(pub :: handleEffectEntFrom (-> Int Int Int Int))
+(pub fn (handleEffectEntFrom effs cg i)
   (if (>= i (vecLen effs))
-      (if (== (strLen acc) 0) "(no effects)" acc)
-      (handleEffectNamesFrom effs (+ i 1)
-        (if (== i 0)
-            (nodeA (vecGet effs i))
-            (strConcat (strConcat acc ", ") (nodeA (vecGet effs i)))))))
+      0
+      (let ((e (lookupEff (memGetWord cg 32) (nodeA (vecGet effs i)))))
+        (if (!= e 0)
+            e
+            (handleEffectEntFrom effs cg (+ i 1))))))
+
+(pub :: emitHandle (-> Int Int Int))
+(pub fn (emitHandle node cg)
+  (let ((ent (handleEffectEnt node cg)))
+    (if (== ent 0)
+        ; A builtin-only list is a static effect scope, not a dynamic
+        ; handler: it lowers to its body and the handler expression is
+        ; never evaluated at all. stage0's rule, and the reason a
+        ; `(handle e (IO) h)` costs nothing.
+        (emitExpr (nodeA node) cg)
+        (emitHandleDyn node (effSlot ent) cg))))
+
+(pub :: emitHandleDyn (-> Int Int Int Int))
+(pub fn (emitHandleDyn node slot cg)
+  ; The body is deliberately NOT emitted in tail position: the restore
+  ; below has to run after it, and a self tail call rewritten to a
+  ; jump would skip it and leave the handler installed forever.
+  (let ((_0 (memSetWord cg 30 0)))
+    (let ((cgH (emitExpr (nodeC node) cg)))
+      (let ((hval (strDup (memGetWord cgH 2)))
+            (recN (allocReg cgH))
+            (oldN (allocReg cgH)))
+        (let ((rec (regStr recN))
+              (old (regStr oldN)))
+          (let ((_1 (emitLine cgH (cat2 (cat2 "  " rec)
+                                        " = call i64 @axiom_alloc(i64 16)")))
+                (_2 (storeWordAt cgH rec 0 hval))
+                (_3 (emitLine cgH (cat4 (cat2 "  " old) " = load i64, ptr @" slot "")))
+                (_4 (storeWordAt cgH rec 1 old))
+                (_5 (emitLine cgH (cat4 "  store i64 " rec ", ptr @" slot)))
+                (_6 (memSetWord cgH 30 0)))
+            (let ((cgB (emitExpr (nodeA node) cgH)))
+              (let ((res (strDup (memGetWord cgB 2)))
+                    (flag (memGetWord cgB 14)))
+                {
+                  (emitLine cgB (cat4 "  store i64 " old ", ptr @" slot))
+                  (memSetWord cgB 2 res)
+                  (memSetWord cgB 14 flag)
+                  cgB
+                }))))))))
+
+; One effect-operation call.
+;
+; The handler runs under the evidence in scope at its INSTALLATION:
+; the previous record is installed for the duration of the call and
+; this one restored after, so an operation the handler itself performs
+; dispatches OUTWARD to the next handler instead of re-entering the
+; same one - which the naive lowering does forever. It is also what
+; the static attribution already committed to, since a handler's own
+; effects propagate past its own `handle`.
+;
+; No handler installed is a TRAP, not a zero: the operation has no
+; result to produce, and continuing on a garbage one turns a missing
+; handler into a wrong answer somewhere else entirely. Exit 71, which
+; the allocators' out-of-memory 70 deliberately does not collide with.
+;
+; Arguments are evaluated BEFORE the slot is read, which is stage0's
+; order and matters at exactly one observable point: an argument that
+; prints must print even when the dispatch below traps.
+(pub :: emitEffectOp (-> Int Int Int Int))
+(pub fn (emitEffectOp ent args cg)
+  (let ((slot (effSlot ent))
+        (regs vecNew))
+    (let ((cgA (emitArgRegs args cg regs 0)))
+      (let ((recN (allocReg cgA))
+            (cmpN (allocReg cgA))
+            (trapN (allocReg cgA))
+            (goN (allocReg cgA)))
+        (let ((rec (regStr recN))
+              (cmpR (regStr cmpN))
+              (trapB (cat2 "label_" (fmtInt trapN)))
+              (goB (cat2 "label_" (fmtInt goN))))
+          (let ((_1 (emitLine cgA (cat4 (cat2 "  " rec) " = load i64, ptr @" slot "")))
+                (_2 (emitLine cgA (cat4 (cat2 "  " cmpR) " = icmp eq i64 " rec ", 0")))
+                (_3 (emitLine cgA (cat4 (cat3 "  br i1 " cmpR ", label %")
+                                        trapB
+                                        (cat2 ", label %" goB)
+                                        "")))
+                (_4 (emitLabel cgA trapB))
+                (_5 (emitLine cgA "  call i64 @__axiom_unhandled_effect()"))
+                (_6 (emitLine cgA "  unreachable"))
+                (_7 (emitLabel cgA goB)))
+            (let ((cgL (loadWordAt cgA rec 0)))
+              (let ((handler (strDup (memGetWord cgL 2))))
+                (let ((cgP (loadWordAt cgL rec 1)))
+                  (let ((prev (strDup (memGetWord cgP 2))))
+                    (let ((_8 (emitLine cgP (cat4 "  store i64 " prev ", ptr @" slot))))
+                      (let ((cgR (emitApplyRegs regs cgP handler 0)))
+                        (let ((res (strDup (memGetWord cgR 2))))
+                          {
+                            (emitLine cgR (cat4 "  store i64 " rec ", ptr @" slot))
+                            (memSetWord cgR 2 res)
+                            (memSetWord cgR 14 0)
+                            cgR
+                          })))))))))))))
+
+; Every argument evaluated, left to right, into its own register -
+; collected before anything that consumes them is emitted.
+(pub :: emitArgRegs (-> Int Int Int Int Int))
+(pub fn (emitArgRegs args cg out i)
+  (if (>= i (vecLen args))
+      cg
+      (let ((cgA (emitExpr (vecGet args i) cg)))
+        {
+          (vecPush out (strDup (memGetWord cgA 2)))
+          (emitArgRegs args cgA out (+ i 1))
+        })))
+
+; `emitApplyChain` over registers that are already evaluated. One
+; argument per indirect call, for the same reason: every function
+; value absorbs exactly one, so a two-argument operation takes a
+; curried handler chain and applying both at once would answer with
+; the inner closure's address.
+(pub :: emitApplyRegs (-> Int Int Int Int Int))
+(pub fn (emitApplyRegs regs cg rec i)
+  (if (>= i (vecLen regs))
+      {
+        (memSetWord cg 2 rec)
+        (memSetWord cg 14 0)
+        cg
+      }
+      (let ((a (vecGet regs i)))
+        (let ((cgL (loadWordAt cg rec 0)))
+          (let ((cp (strDup (memGetWord cgL 2)))
+                (fpn (allocReg cgL))
+                (rn (allocReg cgL)))
+            (let ((fp (cat2 "%f" (fmtInt fpn)))
+                  (r (regStr rn)))
+              {
+                (emitLine cgL (cat4 (cat2 "  " fp)
+                                    " = inttoptr i64 "
+                                    cp
+                                    " to ptr"))
+                (emitLine cgL (strConcat
+                                (cat4 (cat3 (cat2 "  " r)
+                                            " = call i64 "
+                                            fp)
+                                      "(i64 "
+                                      (strDup rec)
+                                      (cat2 ", i64 " a))
+                                ")"))
+                (emitApplyRegs regs cgL (strDup r) (+ i 1))
+              }))))))
+
+; One mutable global per declared effect - the evidence slot, zero for
+; "no handler installed" - and the trap an unhandled operation exits
+; through. Emitted after every body, beside the string globals, since
+; LLVM does not care about order.
+;
+; stage0 emits a slot only for an effect the program actually touches;
+; this emits one per DECLARED effect. The difference is one internal,
+; unreferenced global for an effect nothing performs or handles.
+(pub :: emitEffectGlobals (-> Int Int Int))
+(pub fn (emitEffectGlobals cg i)
+  (let ((tbl (memGetWord cg 32)))
+    (if (>= i (vecLen tbl))
+        (if (== (vecLen tbl) 0) cg (emitUnhandledTrap cg))
+        {
+          (emitLine cg (cat3 "@" (effSlot (vecGet tbl i))
+                             " = internal global i64 0"))
+          (emitEffectGlobals cg (+ i 1))
+        })))
+
+(pub :: emitUnhandledTrap (-> Int Int))
+(pub fn (emitUnhandledTrap cg)
+  {
+    (emitLine cg "")
+    (emitLine cg "define internal i64 @__axiom_unhandled_effect() {")
+    (emitLine cg "entry:")
+    (emitLine cg (strConcat
+                   (cat4 "  call i64 asm sideeffect "
+                         (targetSyscallAsm (memGetWord cg 26))
+                         "(i64 "
+                         (fmtInt (targetExitNum (memGetWord cg 26))))
+                   ", i64 71, i64 0, i64 0, i64 0, i64 0, i64 0)"))
+    (emitLine cg "  unreachable")
+    (emitLine cg "}")
+    cg
+  })
 
 ; `(struct Name field...)` - the keyword construction form. It builds
 ; the identical block the application spelling `(Name field...)`
@@ -2971,6 +3265,14 @@
     ; pointer. Checked before the constructor table: locals shadow.
     (if (isLocalValue cg fnName)
         (emitIndirectCall fnName args cg)
+    ; An effect operation is dispatch, not a call: there is no symbol
+    ; to reach, only the handler the innermost `handle` installed.
+    ; Checked AFTER the local test, because a local shadowing an
+    ; operation name binds the local - which is how sema resolves it,
+    ; and a generator that disagreed would dispatch a name the checker
+    ; had already bound to a lambda.
+    (if (!= (lookupEff (memGetWord cg 33) fnName) 0)
+        (emitEffectOp (lookupEff (memGetWord cg 33) fnName) args cg)
         (let ((types (memGetWord cg 3))
               (entry (lookupType types fnName)))
           (if (== entry 0)
@@ -2986,7 +3288,7 @@
                               (== (vecLen args) (vecLen (memGetWord cg 28))))))
                   (emitTailJump args cg)
                   (emitOverApplied fnName args cg))
-              (zeroFloat (emitConstructor fnName args (eKind entry) (eArity entry) (eTag entry) (eRep entry) cg)))))))))))))))
+              (zeroFloat (emitConstructor fnName args (eKind entry) (eArity entry) (eTag entry) (eRep entry) cg))))))))))))))))
 
 (pub :: isLocalValue (-> Int Int Bool))
 (pub fn (isLocalValue cg name)

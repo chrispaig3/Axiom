@@ -1,0 +1,48 @@
+; expect 42
+; stage1 lowers the effect system: evidence slots, dynamic dispatch,
+; and the outward-dispatch rule. Every term below has a way to be
+; wrong that a simpler program cannot see, so the sum discriminates:
+;
+;   a  dispatch is DYNAMIC, not lexical - `helper` names no handler
+;      and still reaches the one installed around its caller;
+;   b  nesting shadows and restores - the inner handler wins while its
+;      handle is live and the outer answers again after it exits, so a
+;      lowering that forgot the restore gives 202 here, not 302;
+;   c  a handler performing its own effect dispatches OUTWARD, because
+;      it runs under the evidence in scope at its INSTALLATION. The
+;      naive lowering re-enters the same handler forever;
+;   d  a two-argument operation takes a CURRIED handler chain, one
+;      argument per indirect call - applying both at once answers with
+;      the inner closure's address;
+;   e  a local shadowing an operation name binds the LOCAL, which is
+;      how sema resolves it; a generator that dispatched the name
+;      instead would trap with no handler installed.
+(effect Ask
+  (ask :: (-> Int Int)))
+
+(effect Two
+  (two :: (-> Int Int Int)))
+
+(:: helper (-> Int Int))
+(fn (helper n)
+  (ask n))
+
+(:: main Int)
+(fn (main)
+  (let ((a (handle (helper 5) (Ask) (lambda (x) (* x 2)))))
+    ; The outer lists name `Alloc` because a nested `handle` in the
+    ; body heap-allocates its own evidence record, which is an effect
+    ; the enclosing handle has to cover - AX3011 otherwise, in both
+    ; compilers.
+    (let ((b (handle
+               (+ (handle (ask 1) (Ask) (lambda (x) (+ x 100)))
+                  (ask 1))
+               (Ask Alloc)
+               (lambda (x) (+ x 200)))))
+      (let ((c (handle
+                 (handle (ask 3) (Ask) (lambda (x) (ask (+ x 1))))
+                 (Ask Alloc)
+                 (lambda (x) (* x 10)))))
+        (let ((d (handle (two 6 7) (Two) (lambda (p) (lambda (q) (* p q))))))
+          (let ((e (let ((ask (lambda (x) (- x 1)))) (ask 4))))
+            (if (== (+ (+ (+ (+ a b) c) d) e) 397) 42 1)))))))

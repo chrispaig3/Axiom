@@ -786,7 +786,8 @@ the docs' form, and tree-sitter accepted a third shape with no `::`
 at all. Parser, formatter, and grammar now agree on the documented
 flat form, and the fmt zoo and tree-sitter corpus both carry effect
 declarations so the three cannot drift apart silently again. Stage1
-parses neither form yet - recorded here as the standing parity gap.
+parsed neither form when this was written; it parses, checks and now
+*lowers* both - see "The effect system lowers" below.
 
 Struct field access works: `p.x` resolves the field by name in the
 struct registry and loads at its word offset, chains fold left, and
@@ -1217,9 +1218,10 @@ The same misparse had a second cost at the other end of the pipeline.
 `call i64 @Console(i64 %IO, i64 %Alloc)` — a call to a symbol nothing
 defines, whose arguments are not values either — so an effect program
 compiled to exit 0 and then died inside `llc`, reporting generated
-code rather than an unsupported feature. stage1 still cannot lower
-the effect system, but it now refuses with exit 3 and names the
-effects it could not compile. An unsupported feature should say so.
+code rather than an unsupported feature. stage1 could not lower the
+effect system at that point, so it refused with exit 3 and named the
+effects it could not compile - an unsupported feature should say so.
+It lowers them now; the refusal is gone.
 
 Three rules here had to be read out of stage0 rather than guessed.
 The effect list is **optional** — stage0 only reads one when the next
@@ -1603,9 +1605,9 @@ lower now, instruction for instruction as stage0 does - the mark
 allocates its two-word cell *before* reading the allocator position,
 so the cell sits below the mark and survives the reset. What remains
 wrong in that case is downstream of the primitives and in the emitted
-bump allocator itself. Lowering the effect system itself is
-phase 4 work, not phase 3 — the checker's job is finished when it
-agrees about what is wrong.
+bump allocator itself. Lowering the effect system itself was phase 4
+work, not phase 3 — the checker's job is finished when it agrees about
+what is wrong — and it has since landed; see the end of this document.
 
 (This paragraph used to end "No lambda expressions (refused loudly)".
 That was true when it was written and stopped being true two commits
@@ -1836,3 +1838,148 @@ cannot resolve it from a copy in a work directory. stage1 derives its
 module search directory from its argument, so the gate passes the real
 path.
 
+
+**The effect system lowers.** `(effect E (op :: ...))`, `handle`, and
+operation calls all emit code through stage1 now, which was the last
+piece of language surface it refused. `check-stdlib-selfhost.sh` has
+no skip list left: **33 of 33 cases agree with stage0**, where three
+were skipped as "parses and checks it, but does not lower effects".
+
+The lowering is stage0's, transliterated. An effect's evidence is a
+mutable global holding either 0 - no handler installed - or the
+address of a two-word `{handler, previous}` record; `handle` pushes
+one and pops it, and an operation call loads it, installs `previous`
+for the duration of the handler, and restores. Three properties of
+that shape are worth stating because each has a plausible alternative
+that is wrong:
+
+- **The handler runs under the evidence in scope at its
+  installation**, not under its own. An operation the handler itself
+  performs therefore dispatches *outward*, to the next handler out;
+  the naive lowering re-enters the same handler forever. Ablated: the
+  conformance case SIGSEGVs.
+- **The slot is restored after the body, so the body is not in tail
+  position.** stage1 rewrites a self tail call into a jump, and a jump
+  out of the body would leave the handler installed for the rest of
+  the program. Ablated: the case answers 1 instead of 42, because a
+  later operation reaches the inner handler the outer one should have
+  replaced.
+- **No handler installed is a trap, not a zero.** The operation has no
+  result to produce, and continuing on a garbage one turns a missing
+  handler into a wrong answer somewhere else entirely. Exit 71, which
+  the allocators' out-of-memory 70 deliberately does not collide with.
+
+Arguments are evaluated *before* the slot is read, which is stage0's
+order and observable at exactly one point: an argument that prints
+must print even when the dispatch below traps. That cost a second
+apply helper - `emitApplyChain` interleaves evaluation with
+application, which is stage1's existing idiom for every function value
+- rather than accepting the difference.
+
+Two deliberate differences from stage0 remain, both unobservable. It
+emits an evidence global per *declared* effect where stage0 emits one
+per effect the program actually touches, so an effect nothing performs
+or handles costs one internal, unreferenced global. And the globals
+land after the functions rather than between them, which is where
+stage1 emits every global; LLVM does not care, and byte-identical `.ll`
+is phase 4's problem, not this one.
+
+`tests/selfhost/820-effect-handlers.ax` is the conformance case, and
+its five terms are chosen so that the sum discriminates: dispatch
+through a helper that names no handler (dynamic, not lexical), an
+inner handle that must shadow *and restore*, a handler performing its
+own effect (outward dispatch), a two-argument operation taking a
+curried handler chain one argument per indirect call, and a local
+shadowing an operation name, which binds the local because that is how
+sema resolves it. The two ablations above are how the case is known to
+discriminate rather than merely to pass.
+
+**A qualified operation call was a false `AX3001`**, and finding it
+took a probe rather than a gate: no file in any swept tree performs an
+effect declared in another module. stage1 resolves `EffOps::ask` by
+mangling it flat into `EffOps$ask` - the spelling `mangleDecl` gives
+every imported declaration - and `effect` is one of the two declaration
+kinds `mangleDecl` never rewrites, so the name existed under `ask`
+alone and the reference was undefined. stage0 compiles and runs the
+same program. Operations of an imported effect are registered under
+both spellings now, in the checker and in the emitter, dispatching
+through the one slot; the slot itself is keyed by (name, module) as
+stage0's is, so two modules each declaring a `Console` get two globals
+rather than one shared one (`tests/selfhost/830-effect-import.ax`,
+which performs the operation under both spellings).
+
+That case needed a module beside it, which no conformance case had
+needed before, and the arrangement is worth recording because the
+obvious one fails. A subdirectory - `check-diagnostics.sh`'s `mods/`
+pattern - keeps the per-case glob from mistaking a module for a case,
+but the diagnostics *sweep* reads every file of `tests/selfhost/` from
+its real path, so a case whose import resolves only inside a work
+directory fails the sweep, correctly, as "exited 3 with no diagnostic:
+it did not get far enough to check". Modules therefore sit beside the
+cases and are told apart by name: a case is digit-prefixed and must
+declare `; expect N`, anything else is a module.
+
+Which turned up a hole in `check-self-host.sh` itself. A file with no
+`; expect N` printed `SKIP` and went on - so a case that lost its
+expectation line stopped being run and reported nothing, which is what
+success looks like. It is a failure now, and the negative check is a
+case file with the line removed.
+
+Writing the fix also found the flat namespace paying out in the strict
+direction for once. `tcCollectEffectOps` used `cat3`, which lives in
+`codegen.ax`; `typecheck.ax` does not import it. stage0 resolves the
+name anyway - B4's flat namespace merges every module's declarations -
+and stage1 refused it as an undefined variable, which is the stricter
+and better answer, and is the "module-internal references should bind
+module-locally" item this document already records as open.
+
+**The lexer is a loop now, and finding out why is the more useful
+half.** Adding the effect lowering made `check-fmt` fail on
+`tests/selfhost/300-pipeline.ax` - a case about running the whole
+pipeline, which touches nothing the change went near - with SIGSEGV.
+The gate formats a copy of the repository and re-runs the suites
+against it, so the failure needed both the new code *and* formatting
+to appear, which is the least informative shape a failure can take.
+
+It was a stack overflow, and the measurement is the point:
+
+| compiler, built by | input it survives |
+|---|---|
+| stage0 (`opt` runs; mutual tail calls flattened) | 396 KB, no trouble |
+| stage1 (self tail calls only) | dies between 96 KB and 146 KB |
+
+`lexTokens` and `dispatchChar` called each other in tail position, one
+frame pair per token and none released until EOF. stage1's tail-call
+rewrite fires only for a *self* call - deliberately, since that is
+stage0's rule - so under a stage1-built compiler the lexer's stack
+grew with its input. `codegen.ax` at 183 KB sat just under the line;
+formatting expands source, and 188 KB was over it. Nothing about that
+failure points at the lexer, which is why the bisect (one import at a
+time: `Str`, `Vec`, `Mem`, `Sys`, `lexer`, `parser`, `typecheck` all
+fine, `codegen` dead) was worth more than any amount of reading.
+
+The loop makes each branch answer the *next position* rather than
+recurse, so the loop owns the only frame; termination is that every
+branch advances at least one byte, which is what the recursion got
+from running out of input. `skipWhitespace` and `skipLineComment` had
+the same shape at a smaller scale - a frame per byte of a
+comment-and-whitespace run - and `skipLineComment` returns to the loop
+now instead of calling back into it.
+
+Measured after, on the same stage1-built pipeline: 814 KB compiles,
+1.24 MB is killed for memory (exit 137 - a stage1-built binary has the
+bump allocator and no collector), and 1.66 MB overflows the stack
+again somewhere past the lexer. Both are real ceilings and both are
+recorded rather than fixed: they sit four to eight times above the
+largest module in this repository, where the old one sat *below* it.
+
+`tests/selfhost/840-large-lex.ax` pins it - 19 bytes doubled fourteen
+times, ~200,000 tokens through a stage1-built binary - and restoring
+the recursive spelling fails it with SIGSEGV, which is how the case is
+known to discriminate. It is the same lesson `690-large-memcopy.ax`
+already carries, one layer up: **a self-hosted compiler pays for every
+mutual tail call its own backend does not eliminate**, and the bill
+arrives as an unrelated test breaking after an unrelated change. The
+remaining mutual recursions in `self_host/` are the parser's, whose
+depth is nesting rather than length, and they are bounded by the same
+programs the parser already reads.

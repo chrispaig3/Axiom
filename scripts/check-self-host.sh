@@ -42,6 +42,18 @@ trap 'rm -rf "$work"' EXIT
 ln -s "$repo_root/stdlib" "$work/stdlib"
 ln -s "$repo_root/self_host" "$work/self_host"
 
+# Helper modules for cases that import a SIBLING - a shape no case
+# could express while every case was one file, and the one an effect
+# declared in another module needs.
+#
+# They live in `tests/selfhost/` beside the cases, not in a
+# subdirectory, because check-diagnostics.sh's silence sweep reads
+# every file of this tree FROM ITS REAL PATH: a case whose import
+# resolves only inside this script's work directory fails that sweep,
+# and it is right to - it did not get far enough to check anything.
+# The two kinds are told apart by name below.
+cp "$repo_root"/tests/selfhost/[A-Z]*.ax "$work/" 2>/dev/null || true
+
 # stage1: the Axiom compiler, compiled by the Rust one.
 if ! "$axiom" build --input self_host/main.ax --output "$work/stage1" >"$work/build.log" 2>&1; then
   echo "FAIL: could not build stage1" >&2
@@ -58,9 +70,21 @@ for case_file in tests/selfhost/*.ax; do
     continue
   fi
 
+  # A CASE is digit-prefixed (`820-effect-handlers.ax`); anything else
+  # in this directory is a helper module a case imports, copied into
+  # the work directory above and not run on its own.
+  if [[ ! "$name" =~ ^[0-9] ]]; then
+    continue
+  fi
+
+  # A case missing its expectation is a FAILURE, not a skip. It used to
+  # print `SKIP` and go on, which is the same silent-hole shape the
+  # sweep in check-diagnostics.sh exists to refuse: a case that stops
+  # being run reports nothing, and nothing is what success looks like.
   want="$(sed -n '1s/^; expect \([0-9]*\).*/\1/p' "$case_file")"
   if [[ -z "$want" ]]; then
-    echo "SKIP $name (no '; expect N' on the first line)"
+    echo "FAIL $name (no '; expect N' on the first line, so nothing was checked)"
+    failed=$((failed + 1))
     continue
   fi
 

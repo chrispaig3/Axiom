@@ -1,0 +1,23 @@
+; expect 42
+; An effect declared in another module, performed under both spellings
+; a reference to it can take.
+;
+; The evidence slot is named after the effect's MODULE as well as its
+; name - `__axiom_ev_EffOps$Ask` - because two modules may each declare
+; a `Console` and stage0 keys their slots by (name, module). Both
+; spellings below have to reach that one slot: an operation registered
+; only under its bare name emits a call to an undefined `@EffOps$ask`,
+; and one registered only under the qualified name leaves `(ask 20)`
+; undefined.
+;
+; The qualified spelling is why this case exists. stage1 resolves
+; `EffOps::ask` by mangling it flat into `EffOps$ask`, which works for
+; every other declaration because `mangleDecl` rewrote the declaration
+; to match - and `effect` is one of the two kinds it does not rewrite.
+; So a program stage0 compiles and runs drew a false
+; `AX3001 undefined variable EffOps$ask` here.
+(import EffOps)
+
+(:: main Int)
+(fn (main)
+  (handle (+ (ask 20) (EffOps::ask 1)) (Ask) (lambda (x) (* x 2))))

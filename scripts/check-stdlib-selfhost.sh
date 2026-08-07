@@ -58,16 +58,16 @@ fi
 # refuses loudly - and each is recorded in docs/self-hosting.md.
 # Listed by name so that a file leaving a list is a deliberate edit.
 #
-# Two kinds, and they were conflated under one "unparsed" label until
-# the exit codes were actually read:
-#   exit 2, a real PARSE failure - none left. (Qualified `Mod::name`
-#           references and struct variants were both here, and both
-#           parse now.)
+# Both lists are empty. They held two kinds, conflated under one
+# "unparsed" label until the exit codes were actually read:
+#   exit 2, a real PARSE failure - qualified `Mod::name` references
+#           and struct variants were both here, and both parse now.
 #   exit 3, parsed but REFUSED - the effect system, which stage1
-#           checks (AX3011/AX3016/AX3017 are byte-identical) but does
-#           not lower
+#           checked (AX3011/AX3016/AX3017 byte-identical) but did not
+#           lower. It lowers now: evidence slots, outward dispatch and
+#           the unhandled trap, so all three cases run and agree.
 UNPARSED=""
-UNLOWERED="300-effect-handlers 310-effect-unhandled 320-effect-gc-roots"
+UNLOWERED=""
 
 # Programs stage1 compiles and gets WRONG. Every entry is a real bug
 # with a diagnosis; the list is here so the gate can be green while

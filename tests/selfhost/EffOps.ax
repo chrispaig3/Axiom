@@ -1,0 +1,12 @@
+; A module that declares an effect, for `830-effect-import.ax`.
+;
+; It sits BESIDE its case rather than in a subdirectory, because a
+; module's name is its filename stem and stage1 searches the entry
+; file's own directory first - and because the diagnostics sweep reads
+; every file in this tree from its real path, where a case whose
+; import cannot resolve is a hard failure rather than a silence.
+; `check-self-host.sh` tells the two apart by name: a case is
+; digit-prefixed and must declare `; expect N`, anything else is a
+; module.
+(pub effect Ask
+  (ask :: (-> Int Int)))

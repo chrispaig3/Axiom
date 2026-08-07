@@ -51,24 +51,38 @@
 ; ------------------------------------------------------------------
 
 (pub :: skipWhitespace (-> Int Int Int Int))
+; A loop rather than a recursion, and `skipLineComment` returns to it
+; rather than calling back, for the reason `lexTokens` below is a loop:
+; the two used to call each other in tail position, one frame per byte
+; of a comment-and-whitespace run, and stage1's tail-call rewrite fires
+; only for a SELF call. `skipLineComment` is self-recursive, so that
+; one it does flatten.
 (pub fn (skipWhitespace src pos len)
-  (if (>= pos len)
-      pos
-      (let ((ch (strByte src pos)))
-        (if (isSpace ch)
-            (skipWhitespace src (+ pos 1) len)
-        (if (== ch 59)
-            (skipLineComment src (+ pos 1) len)
-        pos)))))
+  (let ((mut p pos)
+        (mut go 1))
+    {
+      (while (== go 1)
+        (if (>= p len)
+            (set go 0)
+            (let ((ch (strByte src p)))
+              (if (isSpace ch)
+                  (set p (+ p 1))
+              (if (== ch 59)
+                  (set p (skipLineComment src (+ p 1) len))
+                  (set go 0))))))
+      p
+    }))
 
+; The position just past the newline that ends this comment, or `len`.
+; It used to continue into `skipWhitespace` itself; the caller's loop
+; does that now, which is the same walk without the mutual recursion.
 (pub :: skipLineComment (-> Int Int Int Int))
 (pub fn (skipLineComment src pos len)
   (if (>= pos len)
       pos
-      (let ((ch (strByte src pos)))
-        (if (== ch 10)
-            (skipWhitespace src (+ pos 1) len)
-        (skipLineComment src (+ pos 1) len)))))
+      (if (== (strByte src pos) 10)
+          (+ pos 1)
+          (skipLineComment src (+ pos 1) len))))
 
 ; ------------------------------------------------------------------
 ; Emit a token.
@@ -129,44 +143,68 @@
 ; Main lexer loop.
 ; ------------------------------------------------------------------
 
+; The token loop is a `while`, and that is a correctness property
+; rather than a style choice.
+;
+; `lexTokens` and `dispatchChar` used to call each other in tail
+; position - one frame pair per token, never released until EOF - and
+; stage1's tail-call rewrite fires only for a SELF call, so a compiler
+; built BY STAGE1 grew a frame per token of its input. Measured: the
+; stage1-built `300-pipeline` died between 96 KB and 146 KB of source
+; while the same program built by stage0, whose `opt` run flattens
+; mutual tail calls, read 396 KB without trouble. The compiler's own
+; `codegen.ax` sat just under the line, so the ceiling arrived exactly
+; the way the `Mem` byte loops' did: as an unrelated-looking
+; conformance failure after an unrelated change made the source
+; longer.
+;
+; Each branch of `stepToken` pushes its token and answers the next
+; position, so the loop owns the only frame. Every branch advances by
+; at least one byte, which is what makes the loop terminate where the
+; recursion terminated by running out of input.
 (pub :: lexTokens (-> Int Int Int Int Int))
 (pub fn (lexTokens src pos len tokens)
-  (let ((ch (if (>= pos len) 0 (strByte src pos))))
-    (dispatchChar src pos len tokens ch)))
+  (let ((mut p pos))
+    {
+      (while (< p len)
+        (set p (stepToken src p len tokens (strByte src p))))
+      ; `p` may sit past `len` when the last token overshot - a char
+      ; literal at EOF - which is the position the recursive version
+      ; gave EOF too.
+      (emitToken TK_EOF p p tokens src)
+    }))
 
-(pub :: dispatchChar (-> Int Int Int Int Int Int))
-(pub fn (dispatchChar src pos len tokens ch)
-  (if (>= pos len)
-      (emitToken TK_EOF pos pos tokens src)
+(pub :: stepToken (-> Int Int Int Int Int Int))
+(pub fn (stepToken src pos len tokens ch)
   (if (== ch 45)
       (if (&& (< (+ pos 1) len) (== (strByte src (+ pos 1)) 62))
-          (lexTokens src (+ pos 2) len (emitToken TK_RARROW pos (+ pos 2) tokens src))
+          { (emitToken TK_RARROW pos (+ pos 2) tokens src) (+ pos 2) }
           ; `-` directly against a digit is a negative literal, exactly
           ; as stage0 lexes it. Falling through to the identifier rule
           ; made `-5` an ident, which codegen emitted as the SSA name
           ; `%-5` - a value nothing defines.
           (if (&& (< (+ pos 1) len) (isDigit (strByte src (+ pos 1))))
-              (lexNumberFrom src pos (+ pos 1) len tokens)
-              (parseIdentToken src pos len tokens)))
+              (stepNumberFrom src pos (+ pos 1) len tokens)
+              (stepIdentToken src pos len tokens)))
 (if (== ch 58)
       (if (&& (< (+ pos 1) len) (== (strByte src (+ pos 1)) 58))
-          (lexTokens src (+ pos 2) len (emitToken TK_DOUBLE_COLON pos (+ pos 2) tokens src))
-          (lexTokens src (+ pos 1) len (emitToken TK_COLON pos (+ pos 1) tokens src)))
+          { (emitToken TK_DOUBLE_COLON pos (+ pos 2) tokens src) (+ pos 2) }
+          { (emitToken TK_COLON pos (+ pos 1) tokens src) (+ pos 1) })
 (if (isDigit ch)
-      (lexNumberFrom src pos (+ pos 1) len tokens)
+      (stepNumberFrom src pos (+ pos 1) len tokens)
 (if (isIdentStart ch)
       (let ((ep (skipIdent src (+ pos 1) len)))
-        (lexTokens src ep len (emitToken TK_IDENT pos ep tokens src)))
+        { (emitToken TK_IDENT pos ep tokens src) ep })
 (if (== ch 34)
       (let ((ep (scanStringEnd src (+ pos 1) len)))
         (let ((kind (if (< ep len) TK_STRING TK_ERROR)))
-          (lexTokens src ep len (emitToken kind pos ep tokens src))))
+          { (emitToken kind pos ep tokens src) ep }))
 (if (== ch 40)
-      (lexTokens src (+ pos 1) len (emitToken TK_LPAREN pos (+ pos 1) tokens src))
+      { (emitToken TK_LPAREN pos (+ pos 1) tokens src) (+ pos 1) }
 (if (== ch 41)
-      (lexTokens src (+ pos 1) len (emitToken TK_RPAREN pos (+ pos 1) tokens src))
+      { (emitToken TK_RPAREN pos (+ pos 1) tokens src) (+ pos 1) }
 (if (== ch 46)
-      (lexTokens src (+ pos 1) len (emitToken TK_DOT pos (+ pos 1) tokens src))
+      { (emitToken TK_DOT pos (+ pos 1) tokens src) (+ pos 1) }
 (if (== ch 39)
       ; A leading `'` starts a char literal unless what follows is a
       ; space, `(` or `[` - stage0's exact rule; a mid-identifier `'`
@@ -183,37 +221,37 @@
           (let ((ep (if (== (strByte src (+ pos 1)) 92)
                         (+ pos 4)
                         (+ (+ pos 2) (utf8SeqLen (strByte src (+ pos 1)))))))
-            (lexTokens src ep len (emitToken TK_CHARLIT pos ep tokens src)))
-          (lexTokens src (+ pos 1) len (emitToken TK_QUOTE pos (+ pos 1) tokens src)))
+            { (emitToken TK_CHARLIT pos ep tokens src) ep })
+          { (emitToken TK_QUOTE pos (+ pos 1) tokens src) (+ pos 1) })
 (if (== ch 123)
-      (lexTokens src (+ pos 1) len (emitToken TK_LBRACE pos (+ pos 1) tokens src))
+      { (emitToken TK_LBRACE pos (+ pos 1) tokens src) (+ pos 1) }
 (if (== ch 125)
-      (lexTokens src (+ pos 1) len (emitToken TK_RBRACE pos (+ pos 1) tokens src))
+      { (emitToken TK_RBRACE pos (+ pos 1) tokens src) (+ pos 1) }
 (if (isSpace ch)
-      (lexTokens src (+ pos 1) len tokens)
+      (+ pos 1)
 (if (== ch 59)
-      (lexTokens src (skipWhitespace src pos len) len tokens)
-(lexTokens src (+ pos 1) len tokens))))))))))))))))
+      (skipWhitespace src pos len)
+(+ pos 1)))))))))))))))
 
-(pub :: parseIdentToken (-> Int Int Int Int Int))
-(pub fn (parseIdentToken src pos len tokens)
+(pub :: stepIdentToken (-> Int Int Int Int Int))
+(pub fn (stepIdentToken src pos len tokens)
   (let ((ep (skipIdent src (+ pos 1) len)))
-    (lexTokens src ep len (emitToken TK_IDENT pos ep tokens src))))
+    { (emitToken TK_IDENT pos ep tokens src) ep }))
 
 ; Digits (and separators), then `.digit`, make a float literal: `1.5`
 ; is one token, where `1.x` is an integer followed by a field access.
 ; Deciding by the character *after* the dot is what stage0's lexer does
 ; too. `numStart` may sit on a leading `-`; the scan begins at
 ; `scanFrom`.
-(pub :: lexNumberFrom (-> Int Int Int Int Int Int))
-(pub fn (lexNumberFrom src numStart scanFrom len tokens)
+(pub :: stepNumberFrom (-> Int Int Int Int Int Int))
+(pub fn (stepNumberFrom src numStart scanFrom len tokens)
   (let ((ep (skipDigits src scanFrom len)))
     (if (&& (< (+ ep 1) len)
             (&& (== (strByte src ep) 46)
                 (isDigit (strByte src (+ ep 1)))))
         (let ((fp (skipDigits src (+ ep 1) len)))
-          (lexTokens src fp len (emitToken TK_FLOAT numStart fp tokens src)))
-        (lexTokens src ep len (emitToken TK_INT numStart ep tokens src)))))
+          { (emitToken TK_FLOAT numStart fp tokens src) fp })
+        { (emitToken TK_INT numStart ep tokens src) ep })))
 
 ; Public lexer interface.
 ; ------------------------------------------------------------------

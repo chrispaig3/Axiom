@@ -573,7 +573,7 @@
                   ; stage0 knows the real arrows and CAN complain
                   ; (AX3013 through op arity, AX3004 on arguments) -
                   ; recorded under-report.
-                  (tcCollectEffectOps tc (nodeB d) 0 (nodeA d))
+                  (tcCollectEffectOps tc (nodeB d) 0 (nodeA d) (nodeModule d))
                 }
             (if (== tag TAG_D_MACRO)
                 (vecPush (tcMacros tc) (nodeA d))
@@ -585,18 +585,42 @@
 ; INHERENT effect, exactly as a foreign binding carries IO - stage0
 ; attaches it at registration so the collector needs no special case
 ; for operations at all.
-(pub :: tcCollectEffectOps (-> Int Int Int Int Int))
-(pub fn (tcCollectEffectOps tc ops i effName)
+; An operation of an IMPORTED effect is registered twice: under its
+; bare name and under `Mod$op`. stage1 resolves a qualified reference
+; by mangling it into a flat name, which works for every other kind of
+; declaration because `mangleDecl` rewrote the declaration to match -
+; and an `effect` declaration is one of the two it does not rewrite.
+; So `(EffMod::ask 21)`, a program stage0 compiles and runs, drew a
+; false `AX3001 undefined variable EffMod$ask`. Registering the
+; mangled spelling costs one entry and no rule: every lookup that goes
+; by name now finds the operation under either spelling, with the same
+; silent-wildcard type and the same inherent `Custom(E)`.
+(pub :: tcCollectEffectOps (-> Int Int Int Int Int Int))
+(pub fn (tcCollectEffectOps tc ops i effName modName)
   (if (>= i (vecLen ops))
       0
       {
-        (vecPush (tcFns tc)
-          (cast Int (FnEnt (vecGet ops i) mkSilentWild (- 0 1) 0 0 1
-                           (let ((v vecNew))
-                             { (vecPush v (customEff effName)) v })
-                           vecNew)))
-        (tcCollectEffectOps tc ops (+ i 1) effName)
+        (tcAddEffectOp tc (vecGet ops i) effName)
+        (if (== modName 0)
+            0
+            ; `strConcat` twice rather than `cat3`, which lives in
+            ; codegen.ax and is not imported here - stage0's flat
+            ; namespace resolves it across the merged declaration list
+            ; and stage1 refuses it, which is the open B4 item and the
+            ; stricter of the two answers.
+            (tcAddEffectOp tc (strConcat (strConcat modName "$")
+                                         (vecGet ops i))
+                           effName))
+        (tcCollectEffectOps tc ops (+ i 1) effName modName)
       }))
+
+(pub :: tcAddEffectOp (-> Int Int Int Int))
+(pub fn (tcAddEffectOp tc name effName)
+  (vecPush (tcFns tc)
+    (cast Int (FnEnt name mkSilentWild (- 0 1) 0 0 1
+                     (let ((v vecNew))
+                       { (vecPush v (customEff effName)) v })
+                     vecNew))))
 
 ; ------------------------------------------------------------------
 ; Effects, as tagged strings. `effEq` is plain string equality, which

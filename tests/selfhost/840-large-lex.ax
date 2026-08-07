@@ -1,0 +1,27 @@
+; expect 42
+; The lexer's frame count must not grow with the token count.
+;
+; `lexTokens` and `dispatchChar` used to call each other in tail
+; position, which costs nothing under a compiler that eliminates
+; mutual tail calls and one frame pair per token under one that does
+; not - and stage1 rewrites only SELF tail calls, so a compiler built
+; by stage1 overflowed its stack somewhere between 96 KB and 146 KB of
+; input. It had been under the limit until the compiler's own source
+; grew, which is the worst way to meet a scalability ceiling: as an
+; unrelated change appearing to break an unrelated test.
+;
+; 19 bytes doubled fourteen times is ~300 KB and ~200,000 tokens,
+; comfortably past where the recursive spelling died. Restoring that
+; spelling fails this case with SIGSEGV rather than a wrong answer.
+(import Str)
+(import Vec)
+(import lexer)
+
+(:: rep (-> Int Int Int))
+(fn (rep s n)
+  (if (== n 0) s (rep (strConcat s s) (- n 1))))
+
+(:: main Int)
+(fn (main)
+  (let ((src (rep "(fn (f x) (+ x 1)) " 14)))
+    (if (> (vecLen (lex src)) 100000) 42 1)))
