@@ -97,7 +97,7 @@ in_list() { case " $2 " in *" $1 "*) return 0;; *) return 1;; esac; }
 
 # Cases stage0 cannot build, and it is not a defect in either compiler:
 # each imports the self-hosted compiler's OWN modules (`lexer`,
-# `parser`, `typecheck`, `codegen`, `diag`), which stage1 resolves
+# `parser`, `typecheck`, `codegen`, `diag`, `format`), which stage1 resolves
 # through its `self_host/` fallback path and stage0 does not resolve at
 # all. They are stage1-only by construction, and `check-self-host.sh`
 # covers them against their `; expect N`.
@@ -124,7 +124,7 @@ NEEDS_OPT="320-effect-gc-roots"
 
 STAGE0_CANNOT="270-lex 280-parse 290-emit 300-pipeline 630-decl-spans \
 640-axdl-render 650-quote 660-span-shapes 680-expr-spans 720-type-render \
-840-large-lex"
+840-large-lex 880-format-scan"
 
 passed=0; failed=0; skipped=0; xfail=0; compared=0
 

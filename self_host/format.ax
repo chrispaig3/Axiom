@@ -1,0 +1,936 @@
+; format.ax - `axiom fmt`, self-hosted.
+;
+; This module does not use `lexer.ax`, and that is the design rather
+; than an oversight. `fmt`'s job is to produce the same bytes stage0's
+; formatter produces, and stage0's formatter is downstream of stage0's
+; tokenisation - which differs from this compiler's in a way no printer
+; can paper over. `lexer.ax:180-187` fuses `-` against a following digit
+; into one negative-integer token, deliberately (falling through made
+; `-5` an identifier that codegen emitted as the SSA name `%-5`), while
+; stage0 emits `Minus` and `IntLiteral(5)` and lets its parser decide.
+; A formatter sharing this compiler's token stream could not reproduce
+; stage0's output whatever else it did.
+;
+; It needs tokens the compiler's lexer does not produce anyway - `[`,
+; `]`, `,`, `#| |#` and the spans of discarded comments - so it needs
+; its own scan regardless. Putting them into the shared stream would
+; cost the parser work for no gain: `{ w : Int, h : Int }` parses today
+; *because* the comma vanishes. `scanAxtags` is the precedent - a second
+; pass beside the tokenizer rather than inside it.
+;
+; Dependencies: core.ax, Mem, Str, Vec, Utf8.
+
+(import Mem)
+(import Str)
+(import Utf8)
+(import Vec)
+
+; ------------------------------------------------------------------
+; Token kinds.
+;
+; Nullary constructors would be tidier; plain Ints are used because
+; every consumer compares them and a `data` here would cost a match at
+; each site for nothing. They are dense from 0 so a table lookup stays
+; possible later.
+; ------------------------------------------------------------------
+(pub :: FT_EOF Int)       (pub fn (FT_EOF) 0)
+(pub :: FT_LPAREN Int)    (pub fn (FT_LPAREN) 1)
+(pub :: FT_RPAREN Int)    (pub fn (FT_RPAREN) 2)
+(pub :: FT_LBRACK Int)    (pub fn (FT_LBRACK) 3)
+(pub :: FT_RBRACK Int)    (pub fn (FT_RBRACK) 4)
+(pub :: FT_LBRACE Int)    (pub fn (FT_LBRACE) 5)
+(pub :: FT_RBRACE Int)    (pub fn (FT_RBRACE) 6)
+(pub :: FT_IDENT Int)     (pub fn (FT_IDENT) 7)
+(pub :: FT_INT Int)       (pub fn (FT_INT) 8)
+(pub :: FT_FLOAT Int)     (pub fn (FT_FLOAT) 9)
+(pub :: FT_STR Int)       (pub fn (FT_STR) 10)
+(pub :: FT_CHAR Int)      (pub fn (FT_CHAR) 11)
+(pub :: FT_COLON Int)     (pub fn (FT_COLON) 12)
+(pub :: FT_DCOLON Int)    (pub fn (FT_DCOLON) 13)
+(pub :: FT_DOT Int)       (pub fn (FT_DOT) 14)
+(pub :: FT_COMMA Int)     (pub fn (FT_COMMA) 15)
+(pub :: FT_QUOTE Int)     (pub fn (FT_QUOTE) 16)
+(pub :: FT_BACKTICK Int)  (pub fn (FT_BACKTICK) 17)
+(pub :: FT_COMMAAT Int)   (pub fn (FT_COMMAAT) 18)
+(pub :: FT_MINUS Int)     (pub fn (FT_MINUS) 19)
+(pub :: FT_AXTAG Int)     (pub fn (FT_AXTAG) 20)
+(pub :: FT_ERROR Int)     (pub fn (FT_ERROR) 21)
+
+; A token: its kind and its half-open byte range in the source.
+;
+; The lexeme is not stored. Every use of a token's text wants a slice of
+; the source, and a slice is two words - so storing the range and
+; slicing on demand costs the same as storing the slice and keeps one
+; representation of "where this came from" rather than two.
+(pub struct FTok (kind : Int) (start : Int) (end : Int))
+
+; Constructors declared to return `Int`, the convention `mkNode` in
+; parser.ax already uses: every handle in this compiler is one machine
+; word, and `vecPush` takes an `Int`, so a struct type in argument
+; position is a type error where the same value in return position is
+; not.
+(pub :: mkFTok (-> Int Int Int Int))
+(pub fn (mkFTok k s e) (FTok k s e))
+
+(pub :: ftKind (-> Int Int))  (pub fn (ftKind t) (memGetWord t 0))
+(pub :: ftStart (-> Int Int)) (pub fn (ftStart t) (memGetWord t 1))
+(pub :: ftEnd (-> Int Int))   (pub fn (ftEnd t) (memGetWord t 2))
+(pub :: ftText (-> Int Int Int))
+(pub fn (ftText src t) (strSlice src (ftStart t) (- (ftEnd t) (ftStart t))))
+
+; A comment recovered from the source, with what the printer needs to
+; put it back: its text, where it started, which line it sat on, and
+; whether anything but whitespace preceded it on that line.
+;
+; `ownLine` is the difference between a comment that documents the line
+; below it and one that annotates the line it sits on. Emitting a
+; trailing note above its expression, or a section heading below its
+; section, both preserve every byte and change what the file says.
+(pub struct FCom (start : Int) (end : Int) (line : Int) (ownLine : Int))
+
+(pub :: mkFCom (-> Int Int Int Int Int))
+(pub fn (mkFCom s e l o) (FCom s e l o))
+
+(pub :: fcStart (-> Int Int))   (pub fn (fcStart c) (memGetWord c 0))
+(pub :: fcEnd (-> Int Int))     (pub fn (fcEnd c) (memGetWord c 1))
+(pub :: fcLine (-> Int Int))    (pub fn (fcLine c) (memGetWord c 2))
+(pub :: fcOwnLine (-> Int Int)) (pub fn (fcOwnLine c) (memGetWord c 3))
+
+; The comment exactly as written, including its `;` or `#| |#`
+; delimiters, with trailing whitespace removed - stage0 trims the end,
+; and a comment that keeps its trailing spaces is a line that changes
+; every time someone else's editor strips them.
+(pub :: fcText (-> Int Int Int))
+(pub fn (fcText src c)
+  (let ((mut e (fcEnd c)))
+    {
+      (while (&& (> e (fcStart c)) (isFSpace (strByte src (- e 1))))
+        (set e (- e 1)))
+      (strSlice src (fcStart c) (- e (fcStart c)))
+    }))
+
+; ------------------------------------------------------------------
+; Character predicates.
+;
+; These are stage0's, not this compiler's: `is_operator_char` and the
+; identifier rule from `axiom-lexer/src/lib.rs`. Where the two lexers
+; disagree, stage0 wins, because the output has to match stage0's.
+; ------------------------------------------------------------------
+(pub :: isFSpace (-> Int Bool))
+(pub fn (isFSpace ch)
+  (if (== ch 32) true (if (== ch 10) true (if (== ch 13) true (if (== ch 9) true false)))))
+
+(pub :: isFDigit (-> Int Bool))
+(pub fn (isFDigit ch) (if (>= ch 48) (<= ch 57) false))
+
+(pub :: isFAlpha (-> Int Bool))
+(pub fn (isFAlpha ch)
+  (if (>= ch 65)
+      (if (<= ch 90) true (if (>= ch 97) (<= ch 122) false))
+      false))
+
+; An identifier may be a run of operator characters (`+`, `<=`, `>>=`)
+; or a name; `_` and `'` are name characters, and a digit continues a
+; name but cannot start one.
+(pub :: isFOperChar (-> Int Bool))
+(pub fn (isFOperChar ch)
+  (if (== ch 43) true    ; +
+  (if (== ch 45) true    ; -
+  (if (== ch 42) true    ; *
+  (if (== ch 47) true    ; /
+  (if (== ch 37) true    ; %
+  (if (== ch 94) true    ; ^
+  (if (== ch 61) true    ; =
+  (if (== ch 60) true    ; <
+  (if (== ch 62) true    ; >
+  (if (== ch 33) true    ; !
+  (if (== ch 38) true    ; &
+  (if (== ch 124) true   ; |
+  (if (== ch 63) true    ; ?
+  (if (== ch 126) true   ; ~
+  false)))))))))))))))
+
+(pub :: isFNameStart (-> Int Bool))
+(pub fn (isFNameStart ch)
+  (if (isFAlpha ch) true (if (== ch 95) true false)))
+
+(pub :: isFNameChar (-> Int Bool))
+(pub fn (isFNameChar ch)
+  (if (isFAlpha ch) true
+  (if (isFDigit ch) true
+  (if (== ch 95) true
+  (if (== ch 39) true    ; '
+  false)))))
+
+; ------------------------------------------------------------------
+; The scan.
+;
+; A `while` loop over the source, pushing tokens into one Vec and
+; comments into another. Loops rather than recursion throughout: the
+; depth would be the size of the file, and this compiler emits no
+; tail-call elimination, so the recursive spelling is a real call chain
+; one frame per byte - the failure `stdlib/Mem.ax` records at length.
+; ------------------------------------------------------------------
+
+; A line index: the byte offset of the first character of each line.
+; Built once, so the comment scan can answer "which line" without
+; walking the file again per comment.
+(pub :: lineStarts (-> Int Int))
+(pub fn (lineStarts src)
+  (let ((starts (vecPush vecNew 0))
+        (mut i 0)
+        (n (strLen src)))
+    {
+      (while (< i n)
+        {
+          (if (== (strByte src i) 10) (vecPush starts (+ i 1)) 0)
+          (set i (+ i 1))
+        })
+      starts
+    }))
+
+; The zero-based line holding `off`, by binary search over the starts.
+(pub :: lineAt (-> Int Int Int))
+(pub fn (lineAt starts off)
+  (let ((mut lo 0)
+        (mut hi (- (vecLen starts) 1)))
+    {
+      (while (< lo hi)
+        (let ((mid (/ (+ (+ lo hi) 1) 2)))
+          (if (<= (vecGet starts mid) off)
+              (set lo mid)
+              (set hi (- mid 1)))))
+      lo
+    }))
+
+; Whether only whitespace precedes `start` on its line.
+(pub :: onlySpaceBefore (-> Int Int Bool))
+(pub fn (onlySpaceBefore src start)
+  (let ((mut i (- start 1))
+        (mut answer true)
+        (mut go 1))
+    {
+      (while (== go 1)
+        (if (< i 0)
+            (set go 0)
+            (let ((ch (strByte src i)))
+              (if (== ch 10)
+                  (set go 0)
+                  (if (isFSpace ch)
+                      (set i (- i 1))
+                      { (set answer false) (set go 0) })))))
+      answer
+    }))
+
+; Past the end of a line comment: the newline itself, not past it, so
+; the recorded span stops where stage0's does.
+(pub :: scanLineComment (-> Int Int Int Int))
+(pub fn (scanLineComment src pos len)
+  (let ((mut p pos))
+    {
+      (while (&& (< p len) (!= (strByte src p) 10)) (set p (+ p 1)))
+      p
+    }))
+
+; Past the end of a `#| ... |#` block comment, including the closing
+; delimiter. Nesting is not supported, matching stage0.
+(pub :: scanBlockComment (-> Int Int Int Int))
+(pub fn (scanBlockComment src pos len)
+  (let ((mut p pos)
+        (mut done 0))
+    {
+      (while (== done 0)
+        (if (>= (+ p 1) len)
+            { (set p len) (set done 1) }
+            (if (&& (== (strByte src p) 124) (== (strByte src (+ p 1)) 35))
+                { (set p (+ p 2)) (set done 1) }
+                (set p (+ p 1)))))
+      p
+    }))
+
+; Past the closing quote of a string literal. A backslash escapes the
+; next byte, so a `\"` does not end it.
+(pub :: scanStringLit (-> Int Int Int Int))
+(pub fn (scanStringLit src pos len)
+  (let ((mut p pos)
+        (mut done 0))
+    {
+      (while (== done 0)
+        (if (>= p len)
+            (set done 1)
+            (let ((ch (strByte src p)))
+              (if (== ch 92)
+                  (set p (+ p 2))
+                  (if (== ch 34)
+                      { (set p (+ p 1)) (set done 1) }
+                      (set p (+ p 1)))))))
+      p
+    }))
+
+; Past the closing quote of a character literal: quote, one escape or
+; one whole UTF-8 sequence, quote.
+(pub :: scanCharLit (-> Int Int Int Int))
+(pub fn (scanCharLit src pos len)
+  (let ((body (if (>= pos len)
+                  pos
+                  (if (== (strByte src pos) 92)
+                      (+ pos 2)
+                      (+ pos (utf8SeqLen (strByte src pos)))))))
+    (if (&& (< body len) (== (strByte src body) 39)) (+ body 1) body)))
+
+; Whether the `;` at `pos` begins an AXTAG (`;@axiom:`), which is a
+; token rather than a comment - it is compiler-checked metadata, and
+; the one category `fmt` used to delete without even a refusal.
+(pub :: isAxtagAt (-> Int Int Int Bool))
+(pub fn (isAxtagAt src pos len)
+  (if (> (+ pos 8) len)
+      false
+      (if (!= (strByte src (+ pos 1)) 64) false          ; @
+      (if (!= (strByte src (+ pos 2)) 97) false          ; a
+      (if (!= (strByte src (+ pos 3)) 120) false         ; x
+      (if (!= (strByte src (+ pos 4)) 105) false         ; i
+      (if (!= (strByte src (+ pos 5)) 111) false         ; o
+      (if (!= (strByte src (+ pos 6)) 109) false         ; m
+      (if (!= (strByte src (+ pos 7)) 58) false          ; :
+      true)))))))))
+
+; The scan's result: two vectors, held together so a caller gets both
+; from one pass.
+(pub struct FScan (toks : Int) (coms : Int))
+(pub :: mkFScan (-> Int Int Int))
+(pub fn (mkFScan t c) (FScan t c))
+
+(pub :: fsToks (-> Int Int)) (pub fn (fsToks s) (memGetWord s 0))
+(pub :: fsComs (-> Int Int)) (pub fn (fsComs s) (memGetWord s 1))
+
+(pub :: fscan (-> Int Int))
+(pub fn (fscan src)
+  (let ((toks vecNew)
+        (coms vecNew)
+        (starts (lineStarts src))
+        (len (strLen src))
+        (mut p 0))
+    {
+      (while (< p len)
+        (let ((ch (strByte src p)))
+          (if (isFSpace ch)
+              (set p (+ p 1))
+          (if (== ch 59)                                  ; ;
+              (if (isAxtagAt src p len)
+                  (let ((e (scanLineComment src p len)))
+                    { (vecPush toks (mkFTok FT_AXTAG p e)) (set p e) })
+                  (let ((e (scanLineComment src p len)))
+                    {
+                      (vecPush coms (mkFCom p e (lineAt starts p)
+                                          (if (onlySpaceBefore src p) 1 0)))
+                      (set p e)
+                    }))
+          (if (&& (== ch 35) (&& (< (+ p 1) len) (== (strByte src (+ p 1)) 124)))
+              (let ((e (scanBlockComment src (+ p 2) len)))
+                {
+                  (vecPush coms (mkFCom p e (lineAt starts p)
+                                      (if (onlySpaceBefore src p) 1 0)))
+                  (set p e)
+                })
+              (set p (fscanToken src p len toks)))))))
+      (vecPush toks (mkFTok FT_EOF len len))
+      (mkFScan toks coms)
+    }))
+
+; One non-trivia token. Returns the position just past it, and is the
+; only place that decides what a byte begins.
+(pub :: fscanToken (-> Int Int Int Int Int))
+(pub fn (fscanToken src p len toks)
+  (let ((ch (strByte src p)))
+    (if (== ch 40) { (vecPush toks (mkFTok FT_LPAREN p (+ p 1))) (+ p 1) }
+    (if (== ch 41) { (vecPush toks (mkFTok FT_RPAREN p (+ p 1))) (+ p 1) }
+    (if (== ch 91) { (vecPush toks (mkFTok FT_LBRACK p (+ p 1))) (+ p 1) }
+    (if (== ch 93) { (vecPush toks (mkFTok FT_RBRACK p (+ p 1))) (+ p 1) }
+    (if (== ch 123) { (vecPush toks (mkFTok FT_LBRACE p (+ p 1))) (+ p 1) }
+    (if (== ch 125) { (vecPush toks (mkFTok FT_RBRACE p (+ p 1))) (+ p 1) }
+    (if (== ch 44)
+        (if (&& (< (+ p 1) len) (== (strByte src (+ p 1)) 64))
+            { (vecPush toks (mkFTok FT_COMMAAT p (+ p 2))) (+ p 2) }
+            { (vecPush toks (mkFTok FT_COMMA p (+ p 1))) (+ p 1) })
+    (if (== ch 96) { (vecPush toks (mkFTok FT_BACKTICK p (+ p 1))) (+ p 1) }
+    (if (== ch 34)
+        (let ((e (scanStringLit src (+ p 1) len)))
+          { (vecPush toks (mkFTok FT_STR p e)) e })
+    ; `'` is a character literal unless the next byte is a space, `(` or
+    ; `[` - stage0's rule, copied byte for byte, because it is what
+    ; keeps a quoted form distinguishable from a character.
+    (if (== ch 39)
+        (if (&& (< (+ p 1) len)
+                (&& (!= (strByte src (+ p 1)) 32)
+                    (&& (!= (strByte src (+ p 1)) 40) (!= (strByte src (+ p 1)) 91))))
+            (let ((e (scanCharLit src (+ p 1) len)))
+              { (vecPush toks (mkFTok FT_CHAR p e)) e })
+            { (vecPush toks (mkFTok FT_QUOTE p (+ p 1))) (+ p 1) })
+    (if (isFDigit ch) (fscanNumber src p len toks)
+    (if (== ch 58)
+        (if (&& (< (+ p 1) len) (== (strByte src (+ p 1)) 58))
+            { (vecPush toks (mkFTok FT_DCOLON p (+ p 2))) (+ p 2) }
+            { (vecPush toks (mkFTok FT_COLON p (+ p 1))) (+ p 1) })
+    ; `.` is field access, its own token, and deliberately NOT in
+    ; `isFOperChar`: an operator run must not swallow it, or `x.y` would
+    ; lex as one identifier and `->` would join a following `.`.
+    (if (== ch 46) { (vecPush toks (mkFTok FT_DOT p (+ p 1))) (+ p 1) }
+    (if (isFOperChar ch) (fscanOperator src p len toks)
+    (if (isFNameStart ch) (fscanName src p len toks)
+    ; An unrecognised byte is a token rather than a skip. A formatter
+    ; that silently drops what it cannot lex writes a different program
+    ; and reports success; recorded as an error token, the round-trip
+    ; check refuses instead.
+    { (vecPush toks (mkFTok FT_ERROR p (+ p 1))) (+ p 1) })))))))))))))))))
+
+; A number, integer or float. `_` is a digit separator and a `.` makes
+; it a float only when a digit follows, so `1.foo` is `1` then `.foo`.
+(pub :: fscanNumber (-> Int Int Int Int Int))
+(pub fn (fscanNumber src p len toks)
+  (let ((mut e p)
+        (mut isFloat 0)
+        (mut go 1))
+    {
+      (while (== go 1)
+        (if (>= e len)
+            (set go 0)
+            (let ((c (strByte src e)))
+              (if (|| (isFDigit c) (== c 95))
+                  (set e (+ e 1))
+                  (if (&& (&& (== c 46) (== isFloat 0))
+                          (&& (< (+ e 1) len) (isFDigit (strByte src (+ e 1)))))
+                      { (set isFloat 1) (set e (+ e 1)) }
+                      (set go 0))))))
+      (vecPush toks (mkFTok (if (== isFloat 1) FT_FLOAT FT_INT) p e))
+      e
+    }))
+
+; A run of operator characters. `.` is its own token - field access -
+; and `->` is an identifier like any other operator run, which is why
+; there is no arrow kind here: stage0 lexes `->` as an operator token
+; and the printer only ever re-emits its text.
+(pub :: fscanOperator (-> Int Int Int Int Int))
+(pub fn (fscanOperator src p len toks)
+  (let ((mut e p))
+    {
+      (while (&& (< e len) (isFOperChar (strByte src e)))
+        (set e (+ e 1)))
+          ; A lone `-` is its own kind, because the printer has to know
+          ; whether a `-` touches the literal after it: `(+ x -5)` is
+          ; two arguments and `(+ x - 5)` is three, and only adjacency
+          ; tells them apart.
+      (vecPush toks (mkFTok (if (&& (== (- e p) 1) (== (strByte src p) 45))
+                              FT_MINUS
+                              FT_IDENT)
+                          p e))
+      e
+    }))
+
+; A name. Operator characters may follow a name run only if the whole
+; token is operators, so a name stops at the first one.
+(pub :: fscanName (-> Int Int Int Int Int))
+(pub fn (fscanName src p len toks)
+  (let ((mut e p))
+    {
+      (while (&& (< e len) (isFNameChar (strByte src e))) (set e (+ e 1)))
+      (vecPush toks (mkFTok FT_IDENT p e))
+      e
+    }))
+
+; ------------------------------------------------------------------
+; Losslessness.
+;
+; The scan must account for every byte of the source: each token and
+; each comment covers a range, and everything between those ranges must
+; be whitespace. A formatter whose scanner silently drops a byte writes
+; a different program and reports success - this compiler's own lexer
+; skips `[`, `]` and `,` exactly that way - so the property is checked
+; rather than assumed, and it is checked here rather than in a test so
+; that `fmt` itself can refuse.
+;
+; Answers 1 when every byte is accounted for, 0 otherwise.
+; ------------------------------------------------------------------
+(pub :: fscanCovers (-> Int Int Int))
+(pub fn (fscanCovers src sc)
+  (let ((toks (fsToks sc))
+        (coms (fsComs sc))
+        (len (strLen src))
+        (mut ti 0)
+        (mut ci 0)
+        (mut prev 0)
+        (mut ok 1))
+    {
+      (while (&& (== ok 1)
+                 (|| (< ti (- (vecLen toks) 1)) (< ci (vecLen coms))))
+        ; Whichever of the two comes next in the source.
+        (let ((tstart (if (< ti (- (vecLen toks) 1))
+                          (ftStart (vecGet toks ti))
+                          len))
+              (cstart (if (< ci (vecLen coms))
+                          (fcStart (vecGet coms ci))
+                          len)))
+          (if (<= tstart cstart)
+              (let ((t (vecGet toks ti)))
+                {
+                  (if (== (gapIsSpace src prev (ftStart t)) 0) (set ok 0) 0)
+                  (set prev (ftEnd t))
+                  (set ti (+ ti 1))
+                })
+              (let ((c (vecGet coms ci)))
+                {
+                  (if (== (gapIsSpace src prev (fcStart c)) 0) (set ok 0) 0)
+                  (set prev (fcEnd c))
+                  (set ci (+ ci 1))
+                }))))
+      (if (== ok 1) (gapIsSpace src prev len) 0)
+    }))
+
+(pub :: gapIsSpace (-> Int Int Int Int))
+(pub fn (gapIsSpace src from to)
+  (let ((mut i from)
+        (mut ok 1))
+    {
+      (while (< i to)
+        {
+          (if (isFSpace (strByte src i)) 0 (set ok 0))
+          (set i (+ i 1))
+        })
+      ok
+    }))
+
+; Whether the scan met a byte it could not classify. `fmt` must refuse
+; on one rather than print around it.
+(pub :: fscanHasError (-> Int Int))
+(pub fn (fscanHasError sc)
+  (let ((toks (fsToks sc))
+        (mut i 0)
+        (mut bad 0))
+    {
+      (while (< i (vecLen toks))
+        {
+          (if (== (ftKind (vecGet toks i)) FT_ERROR) (set bad 1) 0)
+          (set i (+ i 1))
+        })
+      bad
+    }))
+
+; ------------------------------------------------------------------
+; The form tree.
+;
+; A node is one of: an ATOM (one token), or a GROUP with a delimiter
+; kind and a Vec of children. A prefix marker - `'`, backtick, `,`,
+; `,@` - is a node whose single child is the form it marks, so the
+; printer can re-emit the marker without a special case at every use.
+;
+; The tree keeps every token, which is the whole reason it exists.
+; stage1's AST does not: `type`, `trait` and `impl` are consumed into an
+; inert node, `foreign` keeps only its name, and `(:: e T)` and `(- x)`
+; are desugared. A printer over that AST would delete declarations and
+; misprint negation, so the printer works over this instead.
+; ------------------------------------------------------------------
+(pub :: FN_ATOM Int)    (pub fn (FN_ATOM) 0)
+(pub :: FN_PAREN Int)   (pub fn (FN_PAREN) 1)
+(pub :: FN_BRACK Int)   (pub fn (FN_BRACK) 2)
+(pub :: FN_BRACE Int)   (pub fn (FN_BRACE) 3)
+(pub :: FN_PREFIX Int)  (pub fn (FN_PREFIX) 4)
+; `a.b` and `Mem::f` are three tokens each, and they are ONE form. Left
+; unjoined they would sit as siblings inside their enclosing group and
+; give it two extra elements - `(g x.y)` would print as `(g x . y)`, an
+; application of three things. Both join only when the tokens TOUCH,
+; which is what tells `Mem::memAlloc` apart from a trait method's
+; `show :: (-> a Int)`, where the same `::` separates a name from a type
+; with spaces around it.
+(pub :: FN_FIELD Int)   (pub fn (FN_FIELD) 5)
+(pub :: FN_QUAL Int)    (pub fn (FN_QUAL) 6)
+
+; kind: one of the above. tok: the token for an ATOM or a PREFIX's
+; marker, 0 otherwise. kids: a Vec of child nodes, 0 for an ATOM.
+; start/end: the node's byte range, which is what anchors comments.
+(pub struct FNode (kind : Int) (tok : Int) (kids : Int) (start : Int) (end : Int))
+
+(pub :: mkFNode (-> Int Int Int Int Int Int))
+(pub fn (mkFNode k t ks s e) (FNode k t ks s e))
+
+(pub :: fnKind (-> Int Int))  (pub fn (fnKind n) (memGetWord n 0))
+(pub :: fnTok (-> Int Int))   (pub fn (fnTok n) (memGetWord n 1))
+(pub :: fnKids (-> Int Int))  (pub fn (fnKids n) (memGetWord n 2))
+(pub :: fnStart (-> Int Int)) (pub fn (fnStart n) (memGetWord n 3))
+(pub :: fnEnd (-> Int Int))   (pub fn (fnEnd n) (memGetWord n 4))
+
+(pub :: fnLen (-> Int Int))
+(pub fn (fnLen n) (if (== (fnKids n) 0) 0 (vecLen (fnKids n))))
+
+(pub :: fnKid (-> Int Int Int))
+(pub fn (fnKid n i) (vecGet (fnKids n) i))
+
+; An atom's source text, and the head atom's text for a group - the two
+; questions the printer asks constantly.
+(pub :: fnText (-> Int Int Int))
+(pub fn (fnText src n)
+  (if (== (fnKind n) FN_ATOM) (ftText src (fnTok n)) ""))
+
+(pub :: fnHeadText (-> Int Int Int))
+(pub fn (fnHeadText src n)
+  (if (== (fnKind n) FN_PAREN)
+      (if (> (fnLen n) 0)
+          (let ((h (fnKid n 0)))
+            (if (== (fnKind h) FN_ATOM) (ftText src (fnTok h)) ""))
+          "")
+      ""))
+
+; The reader's result: a node and the token position just past it.
+; `ok` is 0 on a syntax the reader cannot pair up - an unbalanced
+; delimiter - which makes `fmt` refuse rather than print a guess.
+(pub struct FRead (ok : Int) (node : Int) (pos : Int))
+(pub :: mkFRead (-> Int Int Int Int))
+(pub fn (mkFRead o n p) (FRead o n p))
+(pub :: frOk (-> Int Int))   (pub fn (frOk r) (memGetWord r 0))
+(pub :: frNode (-> Int Int)) (pub fn (frNode r) (memGetWord r 1))
+(pub :: frPos (-> Int Int))  (pub fn (frPos r) (memGetWord r 2))
+
+(pub :: isCloser (-> Int Bool))
+(pub fn (isCloser k)
+  (if (== k FT_RPAREN) true (if (== k FT_RBRACK) true (if (== k FT_RBRACE) true false))))
+
+(pub :: openerFor (-> Int Int))
+(pub fn (openerFor k)
+  (if (== k FT_LPAREN) FN_PAREN (if (== k FT_LBRACK) FN_BRACK FN_BRACE)))
+
+(pub :: closerFor (-> Int Int))
+(pub fn (closerFor k)
+  (if (== k FT_LPAREN) FT_RPAREN (if (== k FT_LBRACK) FT_RBRACK FT_RBRACE)))
+
+(pub :: isPrefixTok (-> Int Bool))
+(pub fn (isPrefixTok k)
+  (if (== k FT_QUOTE) true
+  (if (== k FT_BACKTICK) true
+  (if (== k FT_COMMA) true
+  (if (== k FT_COMMAAT) true false)))))
+
+; Read one form at token position `pos`.
+;
+; Recursion here is over the DEPTH of the tree, not the size of the
+; file, so it needs no loop: a source nested a thousand deep would be
+; unreadable long before it were a stack problem, and the file-sized
+; walks in this module are all loops already.
+(pub :: readForm (-> Int Int Int Int))
+(pub fn (readForm src toks pos)
+  (let ((t (vecGet toks pos))
+        (k (ftKind (vecGet toks pos))))
+    (if (== k FT_EOF)
+        (mkFRead 0 0 pos)
+    (if (isCloser k)
+        (mkFRead 0 0 pos)
+    (if (isPrefixTok k)
+        (let ((inner (readForm src toks (+ pos 1))))
+          (if (== (frOk inner) 0)
+              inner
+              (mkFRead 1
+                       (mkFNode FN_PREFIX t (vecPush vecNew (frNode inner))
+                                (ftStart t) (fnEnd (frNode inner)))
+                       (frPos inner))))
+    (if (|| (== k FT_LPAREN) (|| (== k FT_LBRACK) (== k FT_LBRACE)))
+        (readPostfix src toks (readGroup src toks pos))
+        (readPostfix src toks
+          (mkFRead 1 (mkFNode FN_ATOM t 0 (ftStart t) (ftEnd t)) (+ pos 1)))))))))
+
+; Absorb any `.name` and `::name` that TOUCH what was just read.
+(pub :: readPostfix (-> Int Int Int Int))
+(pub fn (readPostfix src toks r)
+  (if (== (frOk r) 0)
+      r
+      (let ((mut cur r)
+            (mut go 1))
+        {
+          (while (== go 1)
+            (let ((p (frPos cur))
+                  (node (frNode cur)))
+              (let ((k (ftKind (vecGet toks p))))
+                (if (&& (|| (== k FT_DOT) (== k FT_DCOLON))
+                        (&& (== (ftStart (vecGet toks p)) (fnEnd node))
+                            (== (ftEnd (vecGet toks p))
+                                (ftStart (vecGet toks (+ p 1))))))
+                    (let ((nameTok (vecGet toks (+ p 1))))
+                      (if (!= (ftKind nameTok) FT_IDENT)
+                          (set go 0)
+                          (let ((name (mkFNode FN_ATOM nameTok 0
+                                               (ftStart nameTok) (ftEnd nameTok)))
+                                (kids (vecPush vecNew node)))
+                            {
+                              (vecPush kids name)
+                              (set cur (mkFRead 1
+                                        (mkFNode (if (== k FT_DOT) FN_FIELD FN_QUAL)
+                                                 (vecGet toks p) kids
+                                                 (fnStart node) (ftEnd nameTok))
+                                        (+ p 2)))
+                            })))
+                    (set go 0)))))
+          cur
+        })))
+
+(pub :: readGroup (-> Int Int Int Int))
+(pub fn (readGroup src toks pos)
+  (let ((open (vecGet toks pos))
+        (want (closerFor (ftKind (vecGet toks pos))))
+        (kids vecNew)
+        (mut p (+ pos 1))
+        (mut ok 1)
+        (mut done 0))
+    {
+      (while (== done 0)
+        (let ((k (ftKind (vecGet toks p))))
+          (if (== k FT_EOF)
+              { (set ok 0) (set done 1) }
+          (if (== k want)
+              { (set p (+ p 1)) (set done 1) }
+          (if (isCloser k)
+              ; A closer that does not match the opener. Printing past
+              ; it would re-nest the file silently, so this refuses.
+              { (set ok 0) (set done 1) }
+              (let ((r (readForm src toks p)))
+                (if (== (frOk r) 0)
+                    { (set ok 0) (set done 1) }
+                    { (vecPush kids (frNode r)) (set p (frPos r)) })))))))
+      (if (== ok 0)
+          (mkFRead 0 0 p)
+          (mkFRead 1
+                   (mkFNode (openerFor (ftKind open)) 0 kids
+                            (ftStart open) (ftEnd (vecGet toks (- p 1))))
+                   p))
+    }))
+
+; Every top-level form in the file, in source order.
+(pub :: readForms (-> Int Int Int))
+(pub fn (readForms src toks)
+  (let ((forms vecNew)
+        (mut p 0)
+        (mut ok 1))
+    {
+      (while (&& (== ok 1) (!= (ftKind (vecGet toks p)) FT_EOF))
+        (let ((r (readForm src toks p)))
+          (if (== (frOk r) 0)
+              (set ok 0)
+              { (vecPush forms (frNode r)) (set p (frPos r)) })))
+      (if (== ok 1) forms 0)
+    }))
+
+; ------------------------------------------------------------------
+; The output buffer.
+;
+; Fragments in a Vec, joined once at the end. `out.push_str` in stage0
+; appends three to five fragments per token - the indent, the name, a
+; space, each paren - and a `strConcat` per fragment would copy the
+; whole output each time: 200 KB of formatted source over 100,000
+; appends is 10 GB of copying, which is the law `renderCG` was just
+; rescued from. Appending to a Vec is O(1) amortised and the join is one
+; pass.
+;
+; `nl` is a running count of the newlines emitted. It stands in for
+; stage0's `out[mark..].contains('\n')`: a trailing comment may only be
+; re-attached to a construct that stayed on one line, and comparing a
+; newline count against a mark answers that without materialising the
+; string.
+; ------------------------------------------------------------------
+(pub struct FOut (frags : Int) (nl : Int) (indent : Int))
+(pub :: mkFOut (-> Int Int))
+(pub fn (mkFOut _u) (FOut vecNew 0 0))
+(pub :: foFrags (-> Int Int))  (pub fn (foFrags o) (memGetWord o 0))
+(pub :: foNl (-> Int Int))     (pub fn (foNl o) (memGetWord o 1))
+(pub :: foIndent (-> Int Int)) (pub fn (foIndent o) (memGetWord o 2))
+
+(pub :: foPush (-> Int Int Int))
+(pub fn (foPush o s)
+  {
+    (vecPush (foFrags o) s)
+    (memSetWord o 1 (+ (foNl o) (countNewlines s)))
+    o
+  })
+
+(pub :: countNewlines (-> Int Int))
+(pub fn (countNewlines s)
+  (let ((mut i 0) (mut n 0))
+    {
+      (while (< i (strLen s))
+        {
+          (if (== (strByte s i) 10) (set n (+ n 1)) 0)
+          (set i (+ i 1))
+        })
+      n
+    }))
+
+(pub :: foNewline (-> Int Int))
+(pub fn (foNewline o) (foPush o "\n"))
+
+(pub :: foPushIndent (-> Int Int))
+(pub fn (foPushIndent o) { (memSetWord o 2 (+ (foIndent o) 1)) o })
+
+(pub :: foPopIndent (-> Int Int))
+(pub fn (foPopIndent o)
+  { (memSetWord o 2 (if (> (foIndent o) 0) (- (foIndent o) 1) 0)) o })
+
+; Two spaces per level, stage0's `INDENT.repeat(level)`.
+(pub :: foIndentStr (-> Int Int))
+(pub fn (foIndentStr o)
+  (let ((mut i 0) (mut s ""))
+    {
+      (while (< i (foIndent o)) { (set s (strConcat s "  ")) (set i (+ i 1)) })
+      s
+    }))
+
+(pub :: foEmitIndent (-> Int Int))
+(pub fn (foEmitIndent o) (foPush o (foIndentStr o)))
+
+; Join the fragments: measure, allocate once, copy - the same shape
+; `renderCG` uses, and for the same reason.
+(pub :: foFinish (-> Int Int))
+(pub fn (foFinish o)
+  (let ((v (foFrags o))
+        (mut i 0)
+        (mut total 0))
+    {
+      (while (< i (vecLen v))
+        { (set total (+ total (strLen (vecGet v i)))) (set i (+ i 1)) })
+      (let ((out (strAlloc total))
+            (mut j 0)
+            (mut off 0))
+        {
+          (while (< j (vecLen v))
+            (let ((f (vecGet v j)))
+              {
+                (memCopy (+ (strData out) off) (strData f) (strLen f))
+                (set off (+ off (strLen f)))
+                (set j (+ j 1))
+              }))
+          out
+        })
+    }))
+
+; ------------------------------------------------------------------
+; The comment queue.
+;
+; Comments are not in the form tree - they are trivia the scan collects
+; beside it - so the printer walks the tree and the comment list
+; together in source order, emitting each comment when it reaches the
+; construct that followed it. `next` is the whole cursor: comments are
+; emitted in order and never revisited.
+; ------------------------------------------------------------------
+(pub struct FCq (coms : Int) (next : Int))
+(pub :: mkFCq (-> Int Int))
+(pub fn (mkFCq coms) (FCq coms 0))
+(pub :: fqComs (-> Int Int)) (pub fn (fqComs q) (memGetWord q 0))
+(pub :: fqNext (-> Int Int)) (pub fn (fqNext q) (memGetWord q 1))
+(pub :: fqAdvance (-> Int Int))
+(pub fn (fqAdvance q) { (memSetWord q 1 (+ (fqNext q) 1)) q })
+(pub :: fqPending (-> Int Bool))
+(pub fn (fqPending q) (< (fqNext q) (vecLen (fqComs q))))
+(pub :: fqHead (-> Int Int))
+(pub fn (fqHead q) (vecGet (fqComs q) (fqNext q)))
+
+; Emit every pending comment starting before `before`, each on its own
+; line at the current indent, leaving the cursor at the start of a fresh
+; line. Call it immediately BEFORE writing a construct's indent; it
+; writes its own.
+;
+; A trailing comment reaches the front of the queue here when the
+; construct it trailed was not one of the sites that calls
+; `flushTrailing`. Moving it to its own line is a formatting change;
+; dropping it is data loss, and only one of those is recoverable by
+; whoever reads the file next.
+(pub :: flushLeading (-> Int Int Int Int Int))
+(pub fn (flushLeading src q o before)
+  {
+    (while (&& (fqPending q) (< (fcStart (fqHead q)) before))
+      (let ((c (fqHead q)))
+        {
+          (foEmitIndent o)
+          (foPush o (fcText src c))
+          (foNewline o)
+          (fqAdvance q)
+        }))
+    o
+  })
+
+; Emit a pending trailing comment onto the current line, if the next one
+; belongs to the construct just written. `mark` is `foNl` from
+; immediately before the construct, which is how this tells whether the
+; construct was laid out on a single line.
+;
+; That condition is what makes formatting idempotent. A trailing comment
+; can only stay trailing across a second pass if the thing it trails
+; still ends on the line it starts on; when the printer breaks a
+; one-line source construct across several lines, the comment would land
+; after the closing paren and the next pass would move it again. Such a
+; comment stays in the queue and goes on its own line instead - it moves
+; once, and then it is stable.
+(pub :: flushTrailing (-> Int Int Int Int Int Int Int))
+(pub fn (flushTrailing src q o starts anchor mark)
+  (if (!= (foNl o) mark)
+      o
+      (if (&& (fqPending q)
+              (&& (== (fcOwnLine (fqHead q)) 0)
+                  (== (fcLine (fqHead q)) (lineAt starts anchor))))
+          {
+            (foPush o "  ")
+            (foPush o (fcText src (fqHead q)))
+            (fqAdvance q)
+            o
+          }
+          o)))
+
+; Comments after the last declaration - a trailing footnote, or a
+; commented-out block at the end of a file - have no following construct
+; to attach to, and would otherwise be dropped.
+(pub :: flushRemaining (-> Int Int Int Int))
+(pub fn (flushRemaining src q o) (flushLeading src q o 2147483647))
+
+; ------------------------------------------------------------------
+; `is_simple_expr`, transliterated.
+;
+; This one predicate drives every line break in the output. stage0
+; defines it over AST node kinds: a variable or literal is simple, an
+; application/infix/tuple/list/field is simple when its children are,
+; and everything else is not. Over the form tree the same question is
+; "is this a group whose head is not a keyword, all of whose children
+; are simple" - with `{ }` never simple, since stage0's `EBegin` is not.
+; ------------------------------------------------------------------
+(pub :: isKeywordHead (-> Int Bool))
+(pub fn (isKeywordHead name)
+  (if (strEq name "fn") true
+  (if (strEq name "define") true
+  (if (strEq name "lambda") true
+  (if (strEq name "let") true
+  (if (strEq name "if") true
+  (if (strEq name "match") true
+  (if (strEq name "cond") true
+  (if (strEq name "while") true
+  (if (strEq name "set") true
+  (if (strEq name "struct") true
+  (if (strEq name "consume") true
+  (if (strEq name "alloc") true
+  (if (strEq name "handle") true
+  (if (strEq name "cast") true
+  (if (strEq name "sizeof") true
+  (if (strEq name "alignof") true
+  (if (strEq name "::") true
+  false))))))))))))))))))
+
+(pub :: isSimpleForm (-> Int Int Bool))
+(pub fn (isSimpleForm src n)
+  (if (== (fnKind n) FN_ATOM) true
+  (if (== (fnKind n) FN_BRACE) false
+  (if (== (fnKind n) FN_PREFIX) false
+  (if (== (fnKind n) FN_BRACK) (allSimple src n 0)
+  (if (isKeywordHead (fnHeadText src n)) false
+  (allSimple src n 0)))))))
+
+(pub :: allSimple (-> Int Int Int Bool))
+(pub fn (allSimple src n i)
+  (let ((mut j i) (mut ok 1))
+    {
+      (while (< j (fnLen n))
+        {
+          (if (isSimpleForm src (fnKid n j)) 0 (set ok 0))
+          (set j (+ j 1))
+        })
+      (== ok 1)
+    }))

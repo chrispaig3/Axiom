@@ -1,0 +1,63 @@
+; expect 42
+; The formatter's scanner accounts for every byte it reads.
+;
+; `format.ax` deliberately does not share `lexer.ax`'s token stream -
+; the two tokenise `-5` differently on purpose, and a formatter has to
+; match stage0 - so it is a second lexer in the same repository, and a
+; second lexer is a second chance to drop a byte. This compiler's own
+; lexer drops `[`, `]`, `,`, `#`, `@` and backtick silently, which for a
+; compiler is a wrong program and for a formatter is a deleted one.
+;
+; `fscanCovers` is the property that rules it out: every token and every
+; comment covers a byte range, and everything between those ranges must
+; be whitespace. Nothing can be dropped without failing it, and nothing
+; can be invented either.
+;
+; The source below is deliberately full of the bytes that are easy to
+; lose: brackets, a comma, a block comment, an AXTAG, a quoted form, a
+; character literal, a string containing a semicolon and a quote, and
+; `-5` in both spellings.
+(import Str)
+(import format)
+
+(:: sample Int)
+(fn (sample)
+  (strConcat
+    (strConcat
+      "#| a block comment |#\n;@axiom:pure\n(pub fn (f x) [1, 2] { 'a' \"; not ;a comment \\\" \" })\n"
+      "; a line comment\n(fn (g y) (+ y -5) (- 5) `(a ,b ,@c) x.y)\n")
+    "(:: h (-> Int Int))\n"))
+
+; The reader pairs delimiters and refuses rather than guessing. Both
+; directions matter: an unclosed group and a mismatched closer would
+; each let a formatter re-nest a file silently.
+(:: formCount (-> Int Int))
+(fn (formCount src)
+  (let ((f (readForms src (fsToks (fscan src)))))
+    (if (== f 0) 99 (vecLen f))))
+
+; `a.b` and `Mem::f` are three tokens and one form. Left unjoined they
+; would sit as siblings and hand their enclosing group two extra
+; elements - `(g x.y)` would print as an application of three things.
+; The join is on ADJACENCY, which is what keeps a trait method's
+; `show :: (-> a Int)` three separate forms.
+(:: kidsOf (-> Int Int))
+(fn (kidsOf src)
+  (let ((f (readForms src (fsToks (fscan src)))))
+    (if (== f 0) 99 (fnLen (vecGet f 0)))))
+
+(:: main Int)
+(fn (main)
+  (let ((src (sample))
+        (sc (fscan (sample))))
+    (if (== (fscanHasError sc) 1) 1
+    (if (!= (fscanCovers src sc) 1) 2
+    (if (!= (formCount "(a b) (c) [1 2] {x}") 4) 3
+    (if (!= (formCount "`(a ,b ,@c) 'd") 2) 4
+    (if (!= (formCount "(a") 99) 5
+    (if (!= (formCount "(a]") 99) 6
+    (if (!= (kidsOf "(g x.y)") 2) 7
+    (if (!= (kidsOf "(g Mem::alloc)") 2) 8
+    (if (!= (kidsOf "(g a.b.c)") 2) 9
+    (if (!= (kidsOf "(show :: (-> a Int))") 3) 10
+    42))))))))))))

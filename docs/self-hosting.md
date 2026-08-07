@@ -2759,3 +2759,45 @@ on success passes silently in the direction that matters. Write it as:
 stage0 and stage1 `fmt` are the same function, on identical bytes **and**
 identical exit status, three-way against a checked-in golden - and
 either side may be the one that moves.
+
+### The formatter's front half: a second lexer, on purpose
+
+`self_host/format.ax` starts with the two things the design above says
+it must own — its own scan and its own tree — and with the gate that
+makes both safe to build on.
+
+**A second lexer in one repository is a second chance to drop a byte**,
+and this repository's first lexer drops six of them: `[`, `]`, `,`,
+`#`, `@` and backtick fall through `stepToken`'s final `(+ pos 1)` with
+no token and no error. For a compiler that is a wrong program; for a
+formatter it is a deleted one. So `fscanCovers` is a property rather
+than a test: every token and every comment covers a byte range, and
+everything between those ranges must be whitespace. Nothing can be
+dropped without failing it and nothing can be invented either, and it
+lives in the module so that `fmt` itself can refuse rather than print
+around a byte it did not understand. An unclassifiable byte becomes an
+`FT_ERROR` token, which is the same refusal one level down.
+
+**The tree keeps every token**, which is the point of having one. Its
+one subtlety is that `a.b` and `Mem::f` are three tokens each and one
+form: left unjoined they sit as siblings inside their enclosing group
+and hand it two extra elements, so `(g x.y)` would print as an
+application of three things. The join is on **adjacency** — the tokens
+have to touch — which is exactly what tells `Mem::memAlloc` apart from
+a trait method's `show :: (-> a Int)`, where the same `::` separates a
+name from a type with spaces around it. Two probes for the two
+readings, both in the case below.
+
+`tests/selfhost/880-format-scan.ax` pins all of it through both
+compilers, on a source written to contain what is easy to lose: a block
+comment, an AXTAG, brackets, a comma, a quasiquote with an unquote and
+a splice, a character literal, a string containing both a semicolon and
+an escaped quote, `-5` and `(- 5)`, and a field access. It also
+requires the reader to REFUSE an unclosed group and a mismatched
+closer, because a formatter that guesses at either re-nests the file
+silently.
+
+It joins `check-stdlib-selfhost.sh`'s stage0-cannot-build list for the
+same reason `270-lex` and `840-large-lex` are on it: the case imports a
+self-hosted compiler module, which stage1 resolves and stage0 does not.
+`check-self-host.sh` is what covers it, against its `; expect 42`.
