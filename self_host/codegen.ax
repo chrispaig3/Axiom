@@ -3947,17 +3947,14 @@
       (emitBinop2 fnName args cg)
   (if (&& (== (vecLen args) 2) (isCmpOp fnName))
       (emitCmp2 fnName args cg)
-  ; `(- x)` is unary negation - stage0 desugars it to `0 - x` at parse
-  ; time, so it is subtraction here too, not a one-argument call to a
-  ; function named `-`.
-  (if (&& (strEq fnName "-") (== (vecLen args) 1))
-      (let ((two vecNew))
-        {
-          (vecPush two (mkEInt 0))
-          (vecPush two (vecGet args 0))
-          (emitBinop2 "-" two cg)
-        })
-      (emitPlainCall fnName args cg)))))
+  ; `(- x)` used to be rewritten to `0 - x` here, which is what stage0
+  ; does at PARSE time - and that is where stage1 does it now
+  ; (`unaryMinusToBinary`). Doing it in the emitter meant the type
+  ; checker still met a two-parameter builtin supplied with one
+  ; argument, and reported AX3013 partial-application on a program
+  ; stage0 compiles: the form was handled at the end of the pipeline and
+  ; absent at the front, so nothing that reached here ever got here.
+  (emitPlainCall fnName args cg))))
 
 ; An operator's spelling depends on its operands - `fadd` against
 ; `add` - so the two are evaluated one at a time and their float flags

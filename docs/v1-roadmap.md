@@ -442,6 +442,19 @@ across the crates and count the stages that mention it.** `cond`
 appeared in five of seven. The two that did not were the two that make
 it run.
 
+It has since happened again, and the second time it was found by
+running every expression form the parser accepts through both compilers
+rather than by grepping. `(:: e T)` — a type ascription in expression
+position — had a parser, a type checker and a formatter, and **no arm
+in the IR generator**, so it fell through to the same catch-all and
+`(fn (main) (:: 42 Int))` answered `0` after `axiom check` had called
+the program well typed. Nothing in `stdlib/`, `self_host/` or `tests/`
+ascribes an expression, which is the whole reason it survived. Pinned
+by `tests/selfhost/870-ascription-and-negation.ax`, which answers 248
+against the previous compiler and 42 now; the sweep that found it is
+described in
+[self-hosting.md](self-hosting.md#sweeping-every-expression-form-rather-than-the-next-one).
+
 ### 2.4g Float-ness of a struct field, when two structs disagree
 
 `EField` gives a field's *name* but not the struct it belongs to, and the

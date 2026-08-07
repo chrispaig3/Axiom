@@ -1279,9 +1279,46 @@
           (if (kwEq name "handle")
               (parseHandleExpr tokens (advance pos))
           (parseAppForm tokens pos))))))))))))))))
+  (if (peekIs tokens pos TK_DOUBLE_COLON)
+      (parseTypeSigExpr tokens (advance pos))
   (if (peekIs tokens pos TK_RPAREN)
       (pOk 0 (advance pos))
-  (parseAppForm tokens pos))))
+  (parseAppForm tokens pos)))))
+
+; `(:: expr Type)` - a type ascription in EXPRESSION position, which is
+; not the same form as the top-level `(:: name Type)` declaration even
+; though it is spelled with the same token. Only the declaration was
+; parsed, so an ascribed expression reached `parseAppForm`, which asked
+; for an expression, found `::`, and answered a bare `parse failed` with
+; no span - a program stage0 compiles, refused by stage1 with nothing in
+; the message to act on.
+;
+; It lowers to the `cast` spine rather than to a node of its own,
+; because in stage0 the two forms are the same function: `check_expr`
+; checks the inner expression and answers the written type for both
+; (`axiom-sema/src/lib.rs:2825-2832`), and the IR generator is
+; transparent for both (`axiom-ir/src/generator.rs:303-307`). Sharing
+; the shape means no new case in the checker and none in the emitter,
+; which is the pairing this compiler has already been bitten by: a
+; checker taught a node the emitter does not know is a segfault, not a
+; diagnostic.
+;
+; The synthetic head carries the *inner expression's* span, because
+; stage0's `Expr::span()` for `ETypeSig` delegates to it, and `mkEApp`
+; copies the head's span to the application.
+(pub :: parseTypeSigExpr (-> Int Int Int))
+(pub fn (parseTypeSigExpr tokens pos)
+  (let ((er (parseExpr tokens pos)))
+    (if (== (memGetWord er 0) 0) er
+        (let ((inner (memGetWord er 1))
+              (tr (parseExpr tokens (memGetWord er 2))))
+          (if (== (memGetWord tr 0) 0) tr
+              (let ((tyExpr (memGetWord tr 1))
+                    (after (memGetWord tr 2)))
+                (if (peekIs tokens after TK_RPAREN)
+                    (pOk (mkEApp (mkEApp (mkEVarAt "cast" (nodeSpan inner)) tyExpr) inner)
+                         (advance after))
+                    (pErr after))))))))
 
 ; ------------------------------------------------------------------
 ; (while cond body...) - body takes any number of expressions.
@@ -1849,7 +1886,33 @@
     (if (== (memGetWord r 0) 0) r
         (let ((fnExpr (memGetWord r 1))
               (nextPos (memGetWord r 2)))
-          (parseArgs tokens nextPos fnExpr)))))
+          (let ((ar (parseArgs tokens nextPos fnExpr)))
+            (if (== (memGetWord ar 0) 0) ar
+                (pOk (unaryMinusToBinary (memGetWord ar 1)) (memGetWord ar 2))))))))
+
+; `(- x)` is negation, not a one-argument call to a function named `-`.
+;
+; stage0 desugars it in the parser - `parse_expr_inner` turns a `-` head
+; with exactly one argument into `EInfix(0, "-", x)` - and stage1 did
+; not, so its type checker met a two-parameter builtin supplied with one
+; argument and reported **AX3013 partial-application on a valid
+; program**. `codegen.ax:emitCall` had the special case, which is what
+; makes this the `cond` shape from the roadmap: the form was implemented
+; at one end of the pipeline and absent at the other, so the stage that
+; runs first refused what the stage that runs last was ready for. The
+; codegen case is gone with this, since nothing can now reach it.
+;
+; Rewriting to the two-argument application rather than adding a node
+; keeps every later stage untouched: `(- 0 x)` is a shape both compilers
+; already agree on.
+(pub :: unaryMinusToBinary (-> Int Int))
+(pub fn (unaryMinusToBinary e)
+  (if (== (nodeTag e) TAG_E_APP)
+      (let ((head (nodeA e)))
+        (if (&& (== (nodeTag head) TAG_E_VAR) (strEq (nodeA head) "-"))
+            (mkEApp (mkEApp head (mkEInt 0)) (nodeB e))
+            e))
+      e))
 
 (pub :: parseArgs (-> Int Int Int Int))
 (pub fn (parseArgs tokens pos fnExpr)

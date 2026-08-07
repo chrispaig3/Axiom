@@ -1449,6 +1449,63 @@ Phase 3's exit criterion is met: identical AXDL for every case in the
 diagnostic corpus, cascade suppression included, with grouping a
 no-op on both sides.
 
+### Sweeping every expression form, rather than the next one
+
+The `struct`/`consume`/`alloc` slice above found three missing forms by
+following one diagnostic to its emission site. That works, and it finds
+them one at a time. Running *every* expression form the Rust parser
+accepts through both compilers and comparing the answers is a different
+question, it takes one script, and it found two more (2026-08-07):
+
+| form | stage0 | stage1 |
+|---|---|---|
+| `(- x)` | compiles | **`AX3013` partial application, on a valid program** |
+| `(:: e T)` | compiles | **`parse failed`, exit 2, no span** |
+
+Both are the shape this document keeps recording, and each is a
+different half of it.
+
+`(- x)` is negation. stage0 desugars it in the parser to `0 - x`;
+stage1 did the rewrite in `emitCall`, at the far end of the pipeline.
+So the type checker met a two-parameter builtin supplied with one
+argument and refused the program before the emitter ever saw it — the
+emitter's case was correct and **dead**, and nothing that would have
+needed it could get there. It is a parser rewrite now, and the
+emitter's copy is deleted rather than left as a comment about a case
+that cannot occur.
+
+`(:: e T)` is a type ascription in *expression* position — the same
+token as the top-level `(:: name T)` declaration and a different form.
+Only the declaration was parsed, so an ascribed expression reached
+`parseAppForm`, which asked for an expression, found `::`, and answered
+a bare `parse failed` with no span attached. stage1 lowers it onto its
+existing `cast` spine rather than growing a node, because in stage0 the
+two forms *are* the same function: `check_expr` checks the inner
+expression and answers the written type for both, and the IR generator
+is transparent for both. No new checker case and no new emitter case is
+the point — the pairing this compiler has already been bitten by.
+
+**And the ascription was worse in the other compiler.** stage0's parser
+and type checker both knew the form; its IR generator had no arm for it
+at all, so it fell through to the catch-all and `(:: 42 Int)` evaluated
+to **0** — on a program `axiom check` had just called well typed. That
+is exactly the `cond` failure from the roadmap's §2.4f, in a form
+nobody had used: implemented in every stage but the one that makes it
+run. Measured before the fix, `tests/selfhost/870-ascription-and-negation.ax`
+answers **248** through stage0 (its `50` term contributing zero, so the
+sum comes out −8) and `parse failed` through stage1. Both answer 42 now.
+
+One decision inside that fix is worth stating, because the obvious
+version of it would have been wrong. stage0's new arm *drops* the tail
+context, exactly as the neighbouring `EGrouped` does. Passing it
+through works — measured, it turns a million-deep ascribed self-call
+from a stack overflow into an answer — and it would have made stage0
+the only compiler that loops, since stage1 lowers the ascription onto
+its `cast` spine and its tail-call analysis does not look through one.
+Both compilers overflow at 10⁶ and both answer 42 at 10³. Making a
+transparent wrapper transparent to tail calls as well is a change to
+make in both at once, or not at all.
+
 ### What scouting phase 4 found first
 
 Phase 4 asks for byte-identical `.ll`. Re-measured on the current

@@ -1,0 +1,53 @@
+; expect 42
+; Two expression forms stage0 compiles and stage1 refused, found by
+; running every form the Rust parser accepts through both compilers and
+; comparing the answers rather than by reading either one.
+;
+;   (- x)       negation. stage0 desugars it in the parser to `0 - x`.
+;               stage1 did it in `emitCall` instead - at the far end of
+;               the pipeline, past a type checker that met a
+;               two-parameter builtin supplied with one argument and
+;               reported **AX3013 partial-application on a valid
+;               program**. Nothing ever reached the emitter's case, so
+;               the case was both correct and dead. It is a parser
+;               rewrite now, and the emitter's copy is gone.
+;
+;   (:: e T)    a type ascription in EXPRESSION position - the same
+;               token as the top-level `(:: name T)` declaration and a
+;               different form. Only the declaration was parsed, so an
+;               ascribed expression reached `parseAppForm`, which asked
+;               for an expression, found `::`, and answered a bare
+;               `parse failed` with no span.
+;
+; The ascription was worse in the other compiler. stage0's parser and
+; type checker both knew the form; its IR generator had no arm for it,
+; so it fell through to the catch-all and `(:: 42 Int)` evaluated to
+; **0** on a program `axiom check` had just called well typed. That is
+; the shape `cond` had: implemented in every stage but the one that
+; makes it run, and invisible because no `.ax` file in the repository
+; ascribes an expression.
+;
+; `negated` and `ascribed` are separate functions rather than inline
+; forms so that the negation crosses a call boundary, where a checker
+; that had been given the answer by constant folding would not be.
+
+(:: negated (-> Int Int))
+(fn (negated n) (- n))
+
+(:: ascribed (-> Int Int))
+(fn (ascribed n) (:: n Int))
+
+; A literal argument, which is the case stage0's formatter prints back
+; as `-8` rather than as a call.
+(:: literalNegation Int)
+(fn (literalNegation) (- 8))
+
+; `(- 0 (negated 4))` rather than `(- 0 (- 4))`, which is a different
+; bug in a different compiler and has its own case: stage0 prints the
+; inner negation back as the literal `-4`, and `-4` in an argument
+; position re-lexes as two tokens, so the form grows a third argument on
+; the next pass. `fmt` catches that as a lost fixed point and refuses.
+(:: main Int)
+(fn (main)
+  (+ (ascribed 50)
+     (+ (negated 4) (+ (literalNegation) (- 0 (negated 4))))))

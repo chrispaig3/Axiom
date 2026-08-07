@@ -3489,6 +3489,33 @@ impl IrGen {
             Expr::EGrouped(inner) => {
                 self.gen_expr_to_func_with_allocas(func, inner, alloca_map, type_checker, None)
             }
+            // `(:: e T)` is an ascription, not a conversion: it tells the
+            // checker what `e` is and leaves the value alone. There was no
+            // arm here at all, so it fell through to the catch-all and the
+            // whole form evaluated to **0** whatever `e` was -
+            // `(fn (main) (:: 42 Int))` answered 0, after `axiom check`
+            // had called the program well typed. That is the `cond` shape
+            // from the roadmap: a form implemented in every stage but the
+            // one that makes it run, and it stayed invisible because no
+            // `.ax` file in the repository ascribes an expression.
+            //
+            // The tail context is dropped, exactly as `EGrouped` above
+            // drops it, so an ascribed self-call in tail position is a
+            // real call in both compilers rather than a jump in one. It
+            // could be passed through here - measured, that turns a
+            // million-deep ascribed self-call from a stack overflow into
+            // an answer - and doing so would have made stage0 the only
+            // compiler that loops, since stage1 lowers the ascription
+            // onto its `cast` spine and its tail-call analysis does not
+            // look through one. Agreement between the two is the
+            // property phase 5 is about; a wrapper that is transparent
+            // to tail calls is a change to make in both at once.
+            //
+            // Unlike `ECast` this emits no instruction: a cast may be
+            // asked to reinterpret, an ascription never is.
+            Expr::ETypeSig(inner, _) => {
+                self.gen_expr_to_func_with_allocas(func, inner, alloca_map, type_checker, None)
+            }
             Expr::ELam(params, body) => {
                 let saved = self.current_block.clone();
                 let saved_entry = self.entry_block.clone();
