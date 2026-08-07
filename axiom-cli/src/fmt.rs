@@ -786,7 +786,7 @@ fn format_data_con(con: &DataCon, out: &mut String) {
         ConFields::Positional(tys) => {
             for ty in tys {
                 out.push(' ');
-                out.push_str(&format_type_atom(ty));
+                out.push_str(&format_type(ty));
             }
         }
         ConFields::Named(fields) => {
@@ -818,33 +818,41 @@ fn format_type_vars(tyvars: &[String], out: &mut String) {
     }
 }
 
-/// A type in a position where juxtaposition would regroup it: an
-/// argument of another type application, a component of an arrow, or a
-/// constructor's field.
+/// A type, spelled so that it can be dropped into any position without
+/// regrouping what encloses it.
 ///
 /// A type application is written by juxtaposition, so `Tree a` is two
-/// tokens with no delimiter of its own. Emitting it unparenthesised in
-/// such a position silently changes the arity of whatever encloses it:
+/// tokens with no delimiter of its own. Emitting it unparenthesised
+/// silently changes the arity of whatever encloses it:
 /// `(Node (Tree a) a (Tree a))` came back as `(Node Tree a a Tree a)`, a
 /// constructor of five fields rather than three, and
 /// `(-> (Tree Int) Int)` came back as `(-> Tree Int Int)`, a function of
-/// two arguments rather than one.
+/// two arguments rather than one. Both still *parse*, which is why the
+/// formatter's own round-trip check passes them - the result is
+/// well-formed source that means something else. Only type-checking the
+/// output catches it, which is what `check-fmt.sh` now does.
 ///
-/// Both still *parse*, which is why the formatter's own round-trip check
-/// passes them - the result is well-formed source that means something
-/// else. Only type-checking the output catches it, which is what
-/// `check-fmt.sh` now does.
-///
-/// Every other type form brings its own delimiters (`(-> ..)`, `[..]`,
-/// `(* ..)`, `(forall ..)`), so only an application needs wrapping.
-fn format_type_atom(ty: &Type) -> String {
+/// This is the spelling every caller wants, and it is deliberately the
+/// one with the short name. It used to be the exception - three of the
+/// twenty places that print a type asked for it and the other seventeen
+/// did not - which meant a parenthesised type application was destroyed
+/// in fourteen of the sixteen positions the language allows one, and in
+/// most of them the result did not even parse. Every other type form
+/// brings its own delimiters (`(-> ..)`, `[..]`, `(* ..)`,
+/// `(forall ..)`), so only an application needs wrapping.
+fn format_type(ty: &Type) -> String {
     match ty {
-        Type::TCon(_, args) if !args.is_empty() => format!("({})", format_type(ty)),
-        _ => format_type(ty),
+        Type::TCon(_, args) if !args.is_empty() => format!("({})", format_type_bare(ty)),
+        _ => format_type_bare(ty),
     }
 }
 
-fn format_type(ty: &Type) -> String {
+/// The bare spelling, without the parentheses an application needs.
+///
+/// Correct in exactly one position: inside the parentheses `format_type`
+/// has just written. Everywhere else - including every recursive call
+/// below - use `format_type`.
+fn format_type_bare(ty: &Type) -> String {
     match ty {
         Type::TVar(name) => name.clone(),
         Type::TCon(ident, args) => {
@@ -854,7 +862,7 @@ fn format_type(ty: &Type) -> String {
                 let mut s = ident.name.clone();
                 for a in args {
                     s.push(' ');
-                    s.push_str(&format_type_atom(a));
+                    s.push_str(&format_type(a));
                 }
                 s
             }
@@ -874,10 +882,10 @@ fn format_type(ty: &Type) -> String {
             let mut parts = Vec::new();
             let mut cur = ty;
             while let Type::TArr(from, to) = cur {
-                parts.push(format_type_atom(from));
+                parts.push(format_type(from));
                 cur = to;
             }
-            parts.push(format_type_atom(cur));
+            parts.push(format_type(cur));
             format!("(-> {})", parts.join(" "))
         }
         Type::TTuple(types) => {

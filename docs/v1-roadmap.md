@@ -100,13 +100,13 @@ they unblock everything downstream.
 | | Evidence |
 |---|---|
 | CI green on all four targets | §3 below; two root-caused failures fixed. Re-checked and **was not green** — see §2.5 — for two further reasons, both now fixed. **Re-checked again 2026-08-07 and this row is not evidence of anything: the most recent CI run on this repository is 2026-07-30, and the `bootstrap` job was added on 2026-08-04. Every gate below has been run by hand on darwin-aarch64 and none of them has executed in CI since the self-hosting work began.** The first Linux run would have failed — see [self-hosting.md](self-hosting.md) on the hardcoded host target |
-| `fmt` round-trips every file | §2.3; 70/70, gated by `scripts/check-fmt.sh` |
+| `fmt` round-trips every file | §2.3; 190/190, gated by `scripts/check-fmt.sh` |
 | The REPL evaluates | §2.4; every result type, freestanding, gated by integration tests |
 | Floating point works | §2.4b; arithmetic, comparison, conversion, formatting, and floats through ADTs — `tests/stdlib/240-float.ax` |
 | Self-hosting fixpoint `stage2 == stage3` | `scripts/check-bootstrap.sh`, now run in CI (§2.5) |
 | `union` removed, `region` removed | `AX2004` with migration advice; 3 regression tests |
 
-| Editor grammar | [tree-sitter-axiom/](../tree-sitter-axiom/), 70/70 repo files, ~18 MB/s. The 18/18 this used to claim was true when the repo had 18 `.ax` files; the gate then silently skipped for want of its CLI while the real figure fell to 27/70. See the risk table |
+| Editor grammar | [tree-sitter-axiom/](../tree-sitter-axiom/), 190/190 repo files, ~17 MB/s. The 18/18 this used to claim was true when the repo had 18 `.ax` files; the gate then silently skipped for want of its CLI while the real figure fell to 27/70. See the risk table |
 | Freestanding stdlib | `Pre`, `Mem`, `Str`, `Vec`, `Map`, `Fmt`, `Intern`, `Sys`, `IO` over syscalls; no libc |
 | Reproducible builds | byte-identical IR across runs, gated in CI |
 
@@ -385,7 +385,7 @@ The zoo immediately found the same blind spot in the editor grammar:
 `tree-sitter-axiom` described a `trait` syntax the compiler does not
 implement — methods individually parenthesised, `where` introducing a
 default body inside one — so it accepted no real trait at all. Fixed and
-now at 74/74 files.
+now at 74/74 files, and 190/190 as the corpus has grown since.
 
 ### 2.4e The parser could hang
 
@@ -456,6 +456,60 @@ resolving towards integer costs a float field its arithmetic only in a
 program with two same-named fields of different kinds, and that surfaces
 as a type error rather than a wrong answer. Pinned by an integration
 test.
+
+### 2.4h The zoo covered every form, and one thing inside all of them
+
+§2.4d widened the gate from what the standard library happens to need to
+every declaration the parser accepts, and the widening worked — it found
+four losses on the spot. It was still narrow in a direction nobody had
+thought to name: the zoo carried every *form*, and every type inside
+those forms was a bare name or an arrow.
+
+A type application is not either. `(Box Int)` is two tokens with no
+delimiter of its own, so a position that prints it bare hands its parent
+an extra argument. `format_type_atom` existed to wrap exactly that, and
+it was called from three of the twenty places that print a type.
+Measured directly, one probe per position, against the formatter as it
+stood:
+
+```
+18 of 20 positions destroy a parenthesised type application
+```
+
+`(:: b (Box Int))` came out as `(:: b Box Int)`, which does not parse at
+all; so did a type alias, a `foreign` binding, a struct field, a named
+constructor field, a trait method, an `impl`'s type, an effect
+operation, `cast`, `alloc`, `sizeof`, `alignof`, a type-signature
+expression, a supertrait, and the interiors of `[..]`, `(* ..)` and
+`(linear ..)`. The two survivors are the reason it stayed invisible:
+`data`'s positional field was one of the three already calling the
+wrapping spelling, and `(forall a T)` re-reads its own juxtaposition as
+the same thing it printed.
+
+Every one of the eighteen *refused* rather than wrote, because `fmt`
+verifies its output before writing — so this was never data loss. It
+was `axiom fmt` declining to format any file that named an applied type
+outside an arrow, and no file in the repository does.
+
+**The fix is which name is short.** The wrapping spelling is now
+`format_type` and the bare one is `format_type_bare`, called from the
+single place that supplies the parentheses itself. Renaming rather than
+editing eighteen call sites is the point: the default spelling is the
+safe one, so the next position to print a type is correct without anyone
+remembering this.
+
+Two things fell out of writing the probes, both recorded rather than
+fixed:
+
+- **`forall` is not implemented.** `Type::TForall` exists in the AST and
+  `fmt` prints it, but `parse_type` has no `forall` branch, so
+  `(forall a a)` is read as a three-element *tuple of type variables* —
+  `axiom check` renders the mismatch as `expected (forall, a, a)`.
+- **The editor grammar's tuple type is the wrong shape.** It requires
+  commas (`(A , B)`); the parser refuses a comma there and reads a
+  space-separated `(A B)` as the tuple. Neither spelling can go in a
+  file that both gates must accept, which is why the zoo has no tuple
+  type.
 
 ### 2.5 CI was not green, and could not have been
 
@@ -737,7 +791,7 @@ parallel.
 | **P2** | Memory model (§4.1) · ~~`S1` unboxed nullary constructors~~ **(DONE)** · ~~`Map` throughput~~ **(DONE, 1.80×)** | ~~`Map` insert at 10⁶ within 2× of Rust~~ ✓ met — and not by allocator work: the cost was an affine hash, corrected in B3. What remains of P2 is §4.1's actual subject, deterministic reclamation for long-running programs (the LSP, the HTTP server); the single-shot compiler process no longer has a P2-blocking measurement |
 | **P3** | Macro system (§4.2) — hygiene done · ~~`B4` namespacing~~ **(DONE)** | Hygiene test passes; two modules define the same name without collision. A bare reference *inside* a module now binds to that module's own definition first, in both compilers: before it, an entry file defining `helper` silently redirected an imported module's own call to its own `helper` — importing a module changed what that module did, with no diagnostic from either side (`tests/selfhost/850-module-local-binding.ax`). Resolution outward from a module is still the merged declaration list rather than that module's import set, which is the remaining half of the flat-namespace decision |
 | **P4** | Self-hosting phases 2–5 · HTTP library (§4.5) | `stage2 == stage3` ✓; HTTP server serves a request under load. Phase 3 (semantic analysis in Axiom) has begun and meets its criterion for the checks that exist: stage1 emits **byte-identical AXDL** for **all seventeen** `AX30xx` codes, gated three-way against a checked-in golden by `scripts/check-diagnostics.sh` (36 cases). Type checking proper is done — `parseSigDecl` keeps type structure, and `AX3004`/`AX3005`/`AX3007`/`AX3008` compare types exactly where stage0 does, with no unifier. Effect inference is a monotone fixpoint over the call graph with effect-transparent parameter marks, so its sets match stage0's. Imported modules are checked too, each rendered against its own filename. Phase 3's exit criterion is met; grouping is a no-op on both sides, since no producer in stage0 ever sets a group key. Phase 4 re-measured (2026-08-07): 0 of 71 comparable `.ll` pairs are byte-identical, and the raw-versus-post-`mem2reg` question the criterion was waiting on is now answered — normalising does not help (46 diff lines becomes 50 on the simplest program). What survives is stage1's calling convention, block structure and register naming, all three deliberate; the arithmetic already matches. So the criterion asked stage1 to adopt the retiring compiler's design choices rather than to converge on lowering, and **it has been replaced**: phase 4 now exits on behavioural equivalence between the compilers over both corpora at both optimisation levels through an identical toolchain, plus the four-target assembly check and the fixpoint (which still requires byte-identity where it carries meaning, `stage2 == stage3`). Widening the differential gate to carry that criterion found stage0's own output overflowing the stack on `320-effect-gc-roots` through a raw `llc` pipeline where stage1's does not, because stage0's frames carry a hidden closure parameter and spill their bindings — converging stage1's IR onto stage0's would have imported that. It also found the gate **was not in CI at all**, which is the risk this table's last-but-four row names; it runs there now, over 106 cases with a counted floor. Scouting also found that **nothing ran `tests/stdlib/` through stage1**, hiding five miscompiles; `scripts/check-stdlib-selfhost.sh` now gates them, and that gate now has **no skip list at all — 33 of 33 agree**, because the effect system lowers through stage1 too (evidence slots, outward dispatch from a handler performing its own effect, and the unhandled-operation trap). Doing it exposed a scalability ceiling underneath: the lexer's `lexTokens`/`dispatchChar` mutual tail calls cost a stage1-built compiler one frame pair per token, so it died between 96 KB and 146 KB of input where a stage0-built one read 396 KB. Both are loops now; measured past 814 KB |
-| **P5** | Driver, bootstrap, fixpoint · LSP (§4.6) · ~~trivia preservation for `fmt`~~ **(DONE, §2.3)** · benchmarking · docs. Phase 5's first item — module resolution — is **done**: stage1 reproduces stage0's search order (entry dir, `AXIOM_PATH`, `AXIOM_STDLIB`, exe-relative), where it previously searched two paths relative to its working directory and could not compile a file importing `IO` from anywhere else. Its host target is a per-target `Host` module rather than the literal `"darwin-aarch64"`, which is what the Linux fixpoint job needed to mean anything. `Sys` can now spawn and wait for child processes on all four targets, which is the capability a self-hosted `build` needs. **The driver is done**: `stage1 build --input self_host/main.ax --output stage2` writes the IR, runs `opt`/`llc`/`cc` and cleans up after itself, and the compiler it produces builds a byte-identical successor — `check-bootstrap.sh` runs the ladder a second time with the compiler driving the toolchain instead of the harness, and finishes by building and running a real program through the self-built compiler. `check`, `emit-llvm`, `run` and `version` are the rest of the surface; the old `stage1 FILE [TARGET]` spelling still works, because five harnesses use it. What remains for P5 is `fmt` (five gate call sites, so "full test suite green under stage2" needs it), `symbols`, `explain`, the REPL, and the human diagnostic renderer | Completion and diagnostics in a real editor; ~~`fmt` round-trips every file in the repo, gated in CI~~ ✓ 70/70, gated by `check-fmt.sh`; published performance profile |
+| **P5** | Driver, bootstrap, fixpoint · LSP (§4.6) · ~~trivia preservation for `fmt`~~ **(DONE, §2.3)** · benchmarking · docs. Phase 5's first item — module resolution — is **done**: stage1 reproduces stage0's search order (entry dir, `AXIOM_PATH`, `AXIOM_STDLIB`, exe-relative), where it previously searched two paths relative to its working directory and could not compile a file importing `IO` from anywhere else. Its host target is a per-target `Host` module rather than the literal `"darwin-aarch64"`, which is what the Linux fixpoint job needed to mean anything. `Sys` can now spawn and wait for child processes on all four targets, which is the capability a self-hosted `build` needs. **The driver is done**: `stage1 build --input self_host/main.ax --output stage2` writes the IR, runs `opt`/`llc`/`cc` and cleans up after itself, and the compiler it produces builds a byte-identical successor — `check-bootstrap.sh` runs the ladder a second time with the compiler driving the toolchain instead of the harness, and finishes by building and running a real program through the self-built compiler. `check`, `emit-llvm`, `run` and `version` are the rest of the surface; the old `stage1 FILE [TARGET]` spelling still works, because five harnesses use it. What remains for P5 is `fmt` (five gate call sites, so "full test suite green under stage2" needs it), `symbols`, `explain`, the REPL, and the human diagnostic renderer | Completion and diagnostics in a real editor; ~~`fmt` round-trips every file in the repo, gated in CI~~ ✓ 190/190, gated by `check-fmt.sh`; published performance profile |
 
 **On effort.** P1 is weeks. P2 is the research risk and could be a month
 or several depending on which option in §4.1 proves sufficient. P3–P5 are

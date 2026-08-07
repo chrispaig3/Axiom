@@ -151,3 +151,76 @@
 (:: scoped (-> Int Int))
 (fn (scoped n)
   (handle n (IO Mut) 0))
+
+; --- a parenthesised type application, in every position that takes one
+;
+; `(Box Int)` is two tokens with no delimiter of its own, so a position
+; that prints it bare hands its parent an extra argument. The forms
+; below are the sixteen places the grammar allows one, and the
+; formatter printed fourteen of them bare - `(:: b (Box Int))` came out
+; as `(:: b Box Int)`, which does not even parse. The two that survived
+; did so by accident: `forall` and a type signature *expression* both
+; re-read the juxtaposition as the same application.
+;
+; None of it was visible, because every type in this repository is
+; either a bare name or an arrow, and an arrow's components were the
+; one position that already parenthesised. That is this file's whole
+; job: the corpus does not ask, so the zoo has to.
+(pub data Box (a)
+  (B a))
+
+(:: aBox (Box Int))
+(fn (aBox) (B 1))
+
+(pub type BoxedCount = (Box Int))
+
+(foreign boxed_zero :: (Box Int) = "boxed_zero")
+
+(struct Holder
+  (item : (Box Int)))
+
+(data Wrapped
+  (W { inner : (Box Int) }))
+
+(trait (Container a) where (
+  held :: (Box a)
+))
+
+(trait (Boxy a) ((Container (Box a))) where (
+  reboxed :: (Box (Box a))
+))
+
+(impl (Container (Box Int)) where (
+  (held 0)
+))
+
+; An effect operation's printed type is its parameters arrowed onto its
+; return type, so it reaches the bare position only when it has no
+; parameters - and `AX3017` refuses one of those ("an operation needs at
+; least one to be callable"). The bare spelling is therefore
+; unreachable from a program the checker accepts, and this declaration
+; covers the position that is reachable.
+(effect Boxes
+  (store :: (-> (Box Int) Int)))
+
+; The type-form interiors: each of these brings its own delimiters, so
+; the application inside it is the bare position under test. They ride
+; on an arrow's argument so that no definition is owed for them.
+;
+; `(forall a T)` and the space-separated tuple `(A B)` are absent
+; deliberately. The formatter prints a `TForall`, but `parse_type` has
+; no `forall` branch, so `(forall a a)` is read as a three-element
+; *tuple* of type variables - `axiom check` renders the mismatch as
+; `expected (forall, a, a)`. And a tuple type is reachable, but the
+; editor grammar's `tuple_type` demands commas, which the parser
+; refuses ("expected type, found `,`"), so a real one cannot go in a
+; file `check-tree-sitter.sh` must accept.
+(:: interiors (-> (* (Box Int)) [(Box Int)] (linear (Box Int)) Int))
+(fn (interiors p l n) 0)
+
+(:: typed_exprs (-> Int Int))
+(fn (typed_exprs n)
+  (let ((s (:: (B 1) (Box Int)))
+        (c (cast (Box Int) 0))
+        (p (alloc (Box Int) 2)))
+    (+ (sizeof (Box Int)) (alignof (Box Int)))))
