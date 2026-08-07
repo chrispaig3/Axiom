@@ -208,6 +208,23 @@ done
 # takes its files out of the sweep silently, and silence is exactly
 # what this section reports on success - which is how tests/selfhost/
 # went unswept while the sweep said "clean". The count is printed, and
+# Refusal parity for the top-level grammar: a bare expression at
+# module scope is a PARSE ERROR in both compilers. stage1's parser
+# used to consume any unknown-headed form as an inert node, so
+# `(+ 1 2)` as a whole file checked clean (exit 0, `OK`) while
+# stage0 refused it with AX2001 - and a typo'd declaration VANISHED
+# with no diagnostic. The exit codes still differ (stage0 1,
+# stage1 2 - the parse-error path is a recorded open divergence);
+# what this pins is that BOTH refuse. Reintroducing the skip makes
+# stage1 exit 0 here, and this fails.
+printf '(+ 1 2)\n' > "$work/bare-expr.ax"
+(cd "$work" && "$axiom" check "bare-expr.ax" >/dev/null 2>&1); b0=$?
+(cd "$work" && ./stage1 check "bare-expr.ax" >/dev/null 2>&1); b1=$?
+if [[ "$b0" == 0 || "$b1" == 0 ]]; then
+  echo "FAIL: a bare top-level expression was accepted (stage0=$b0 stage1=$b1)"
+  failed=$((failed + 1))
+fi
+
 # The sweep's own pipeline, negative-tested: run the sweep's exact
 # invocation shape on a file KNOWN to produce a diagnostic, and
 # require the AXDL filter to see it. This is the one place the

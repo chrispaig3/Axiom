@@ -577,8 +577,28 @@
       (parseAliasDecl tokens (advance pos) pos)
   (if (kwEq name "trait")
       (parseTraitDecl tokens (advance pos) pos)
-  (skipUnknownDecl tokens pos)))))))))))))        ; unknown form, skip
-  (skipUnknownDecl tokens pos))))                      ; non-keyword form, skip
+  ; `impl` is the one declaration form stage0 parses that this
+  ; parser has not learned; it is consumed as an inert node BY NAME,
+  ; which is what the blanket skip below used to do for it
+  ; implicitly. Naming it here is what let the blanket become a
+  ; refusal - and the syntax zoo is what found it, five minutes
+  ; after the refusal landed: a missing parse form hides inside a
+  ; tolerance until the tolerance dies.
+  (if (kwEq name "impl")
+      (skipUnknownDecl tokens pos)
+  ; Any OTHER head is a PARSE ERROR now, as it is in stage0
+  ; (AX2001 "expected declaration keyword"). The skip was cover for
+  ; forms this parser had not learned - foreign, type, trait, impl -
+  ; and every one of those is now parsed or named above, so all the
+  ; tolerance still accepted was invalid programs: `(+ 1 2)` at top
+  ; level checked clean under stage1 (exit 0, OK) while stage0
+  ; refused it, and anything typo'd into an unknown head VANISHED
+  ; from the declaration list with no diagnostic - silent code loss
+  ; wearing exit 0 (probed 2026-08-07). Malformed spellings of KNOWN
+  ; keywords still degrade inside their own parsers, which is a
+  ; different tolerance with a different blast radius.
+  (pErr pos))))))))))))))
+  (pErr pos))))
 
 ; A form this parser does not know - `foreign`, `type`, `trait` - is
 ; consumed and stands in the declaration list as an inert TAG_NIL node.
