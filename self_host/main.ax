@@ -54,7 +54,7 @@
 (pub fn (compileFile fileName tname doEmit)
   (let ((src (sysReadFile (strData fileName))))
     (if (== (strLen src) 0)
-        (die "cannot read input\n" 1)
+        (die (cat3 "cannot read input: " fileName "\n") 1)
         (let ((pr (parseModuleWith (lex src) (scanAxtags src))))
           (if (== (memGetWord pr 0) 0)
               (die "parse failed\n" 2)
@@ -121,6 +121,8 @@
 (pub :: runSubcommand (-> Int Int))
 ;@axiom:effect(io)
 (pub fn (runSubcommand cmd)
+  (if (|| (strEq cmd "help") (|| (strEq cmd "--help") (strEq cmd "-h")))
+      { (writeStdout usageText) 0 }
   (if (|| (strEq cmd "version") (strEq cmd "--version"))
       { (writeStdout "axiom (self-hosted) 0.1.0\n") 0 }
   (if (strEq cmd "check")
@@ -179,7 +181,7 @@
                         (sysExitWith (if (< code 0) 4 code))
                         0
                       }))))))
-      (die "error: unknown subcommand\n" 1)))))))
+      (die "error: unknown subcommand\n" 1))))))))
 
 ; argv for the program `run` spawns: its own name and nothing else.
 ; Forwarding the driver's remaining arguments is stage0 behaviour this

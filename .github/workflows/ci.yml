@@ -98,6 +98,19 @@ jobs:
       - name: Self-hosted compiler conformance
         run: ./scripts/check-self-host.sh
 
+      # The compiler's command-line surface, which until this gate
+      # existed was exercised by nothing: every other gate drives stage1
+      # as `stage1 [FILE [TARGET]]` and runs llc and cc itself, so
+      # `stage1 build` - the thing a user types - had no coverage at all.
+      #
+      # Its load-bearing cases are the negative ones. A driver that
+      # ignores a child's exit status reports a failed `llc` as a
+      # successful build while every positive test still passes, so the
+      # script poisons PATH in two directions: a failing tool must fail
+      # the build, and a missing `opt` must not.
+      - name: Self-hosted compiler driver
+        run: ./scripts/check-driver.sh
+
       # The differential gate, and it was not here. It exists because
       # nothing ran `tests/stdlib/` through stage1 and five miscompiles
       # were hiding in the gap - and then it ran only when somebody

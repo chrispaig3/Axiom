@@ -2512,3 +2512,32 @@ read input`. The subcommand is now found by scanning past leading flags,
 and its operands begin one past *its* index rather than at a fixed 2 -
 which is the same bug one level down, and handed the subcommand's own
 name back as the input file.
+
+### A gate for the driver, and `--help`
+
+No gate in this repository had ever invoked a compiler *driver*. Every
+one of them drives stage1 as `stage1 [FILE [TARGET]]` and runs `llc` and
+`cc` itself, so `stage1 build` - the thing a user types - was exercised
+by nothing. `scripts/check-driver.sh` is that gate, 17 cases, in CI.
+
+Its load-bearing cases are the negative ones, because a driver that
+ignores a child's exit status reports a failed `llc` as a successful
+build while every positive test still passes. So it poisons `PATH` in
+two directions and requires the outcomes to differ: an `llc` that exits
+1 must fail the build with exit 4 and leave no executable, and a `PATH`
+holding `llc` and `cc` but no `opt` must warn and still produce a
+working binary. It also pins each exit code to its own cause (1 bad
+input or failing check, 2 parse error, 3 unresolvable import, 4 native
+tool), that `build` removes its intermediates, that `--emit-llvm` keeps
+the IR and still removes the object, that `run` propagates the
+program's own status, and that both legacy spellings still work.
+
+Two things it found immediately. `--help` did nothing: it begins with
+`-`, so the scan that lets global options precede a subcommand skipped
+it, no positional remained, and the compiler fell back to reading
+`in.ax` and reported `cannot read input`. A compiler whose `--help` is
+an obscure file error is a compiler nobody gets past. And that error
+did not name the file it could not read, so a mistyped subcommand -
+which the additive grammar correctly treats as a filename - reported a
+failure with nothing in it to act on. Both fixed; `cannot read input:
+frobnicate` is the message now.
