@@ -239,10 +239,11 @@
           (|| (strEq s "run")
               (|| (strEq s "emit-llvm")
                   (|| (strEq s "fmt")
+                      (|| (strEq s "explain")
                       (|| (strEq s "version")
                           (|| (strEq s "--version")
                               (|| (strEq s "help")
-                                  (|| (strEq s "--help") (strEq s "-h")))))))))))
+                                  (|| (strEq s "--help") (strEq s "-h"))))))))))))
 
 ; `--help` has to be recognised as a subcommand rather than parsed as a
 ; flag: the scan that lets global options precede a subcommand skips
@@ -252,7 +253,7 @@
 ; is a compiler nobody gets past.
 (pub :: usageText Int)
 (pub fn (usageText)
-  (cat3 "axiom (self-hosted) - the Axiom compiler, written in Axiom\n\nUSAGE:\n  axiom [OPTIONS] <COMMAND> [ARGS]\n  axiom <FILE> [TARGET]        emit LLVM IR to stdout\n\nCOMMANDS:\n  build    compile a source file to an executable\n  check    check syntax and types, emitting no code\n  run      compile a source file and run it\n  emit-llvm  print the generated LLVM IR\n  fmt      format a source file in place (--check to only report)\n  version  print the version\n  help     print this message\n\n"
+  (cat3 "axiom (self-hosted) - the Axiom compiler, written in Axiom\n\nUSAGE:\n  axiom [OPTIONS] <COMMAND> [ARGS]\n  axiom <FILE> [TARGET]        emit LLVM IR to stdout\n\nCOMMANDS:\n  build    compile a source file to an executable\n  check    check syntax and types, emitting no code\n  run      compile a source file and run it\n  emit-llvm  print the generated LLVM IR\n  fmt      format a source file in place (--check to only report)\n  explain  describe a diagnostic code (--list for all codes)\n  version  print the version\n  help     print this message\n\n"
         "OPTIONS:\n  --input <PATH>     input file (build; a bare path also works)\n  --output <PATH>    output file (build; default `output`)\n  -o <PATH>          output file (emit-llvm)\n  --target <NAME>    darwin-aarch64, darwin-x86_64, linux-aarch64, linux-x86_64\n  --opt <0-3>        optimisation level (default 1)\n  --emit-llvm        keep the generated .ll beside the executable\n\n"
         "EXIT CODES:\n  0 success   1 bad input or a failing check   2 parse error\n  3 an import that would not resolve   4 a native tool failed or is missing\n"))
 

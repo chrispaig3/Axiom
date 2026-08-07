@@ -1,0 +1,117 @@
+; explain.ax - `axiom explain`, self-hosted.
+;
+; GENERATED from the stage0 binary's own output, one cached run per
+; code, so the texts cannot drift by transcription: regenerate with
+; the loop in scripts/check-tools-selfhost.sh's header whenever a
+; code is added or reworded in axiom-errors/src/code.rs.
+;
+; The lookup normalises the way stage0's `lookup` does: trim ASCII
+; whitespace, uppercase, strip a leading `AX`, strip leading dashes -
+; so `ax3001`, `3001` and `AX-3001` all answer AX3001.
+(import Str)
+
+; The `--list` text, byte-for-byte stage0's.
+(pub :: explainListText Int)
+
+(pub fn (explainListText) "Known Axiom diagnostic codes:\n  AX1001  unexpected character  (unexpected-char)\n  AX1002  unterminated string literal  (unterminated-string)\n  AX1003  unterminated character literal  (unterminated-char)\n  AX1004  invalid number literal  (invalid-number-literal)\n  AX1005  invalid escape sequence  (invalid-escape-sequence)\n  AX2001  unexpected token  (unexpected-token)\n  AX2002  unexpected end of file  (unexpected-eof)\n  AX2003  syntax error  (syntax-error)\n  AX2004  removed language construct  (removed-construct)\n  AX2005  nesting too deep  (recursion-limit)\n  AX3001  undefined variable  (undefined-variable)\n  AX3002  undefined type  (undefined-type)\n  AX3003  undefined constructor  (undefined-constructor)\n  AX3004  type mismatch  (type-mismatch)\n  AX3005  non-exhaustive pattern match  (non-exhaustive-match)\n  AX3006  duplicate definition  (duplicate-definition)\n  AX3007  field not found  (field-not-found)\n  AX3008  semantic error  (semantic-error)\n  AX3009  constructor arity mismatch  (constructor-arity-mismatch)\n  AX3010  agent metadata mismatch  (axtag-mismatch)\n  AX3011  effect mismatch  (effect-mismatch)\n  AX3012  cannot assign to an immutable binding  (assign-to-immutable)\n  AX3014  a bare name is defined in more than one imported module  (ambiguous-name)\n  AX3015  a signature with no definition behind it  (missing-definition)\n  AX3013  partial application is not supported  (partial-application)\n  AX3016  a handle list names an effect that is not declared  (unknown-effect)\n  AX3017  an effect-handler shape the compiler does not support yet  (effect-handler-unsupported)\n  AX4001  no `main` function  (missing-main)\n  AX4002  code generation failed  (codegen-failure)\n  AX4003  external toolchain command failed  (toolchain-failure)\n  AX5001  cannot resolve import  (module-not-found)\n")
+
+; The explanation for a NORMALISED code (digits only), or "" when
+; the code is unknown.
+(pub :: explainText (-> Int Int))
+
+(pub fn (explainText c)
+  (if (strEq c "1001")
+    "AX1001 - unexpected character\n\nThe lexer found a character that cannot start any valid Axiom token.\nAxiom identifiers may contain letters, digits, `_` and `'`; operators are\nbuilt from a fixed set of symbol characters. Check for typos, stray\npunctuation copied from another language, or an unsupported Unicode\ncharacter.\n\n"
+    (if (strEq c "1002")
+      "AX1002 - unterminated string literal\n\nA `\"` was opened but never closed before the end of input (or end of\nline). Add a matching closing `\"`, or escape an embedded `\"` as `\\\"`.\n\n"
+      (if (strEq c "1003")
+        "AX1003 - unterminated character literal\n\nA `'` character literal must contain exactly one character (or escape)\nfollowed by a closing `'`, e.g. `'a'` or `'\\n'`.\n\n"
+        (if (strEq c "1004")
+          "AX1004 - invalid number literal\n\nThe digits form a number literal that doesn't fit the expected numeric\nformat (e.g. it overflows i64/f64, or has a malformed exponent).\n\n"
+          (if (strEq c "1005")
+            "AX1005 - invalid escape sequence\n\nOnly `\\n`, `\\t`, `\\r`, `\\\\`, `\\\"`, `\\'` and `\\0` are recognized escape\nsequences inside string and character literals.\n\n"
+            (if (strEq c "2001")
+              "AX2001 - unexpected token\n\nThe parser expected one kind of token (based on the surrounding\ngrammar) but found something else. This is usually a missing/extra\nparenthesis, a misspelled keyword, or a declaration in the wrong\nposition.\n\n"
+              (if (strEq c "2002")
+                "AX2002 - unexpected end of file\n\nThe file ended while a form was still open, most commonly an\nunbalanced `(`, `[` or `{`. Count opening vs. closing delimiters\nworking backward from the end of the file.\n\n"
+                (if (strEq c "2003")
+                  "AX2003 - syntax error\n\nA syntax rule was violated in a way that doesn't fit a more specific\ndiagnostic code; see the message for details.\n\n"
+                  (if (strEq c "2004")
+                    "AX2004 - removed language construct\n\nThis form was part of an earlier version of Axiom and no longer exists.\nThe keyword is still reserved so that old source gets this explanation\ninstead of being silently reinterpreted as an ordinary identifier.\n\n`union` is gone because C interoperability is no longer a goal of the\nlanguage. An untagged union cannot be pattern-matched safely and has no\nmeaning under linear typing, where every value has exactly one owner and\none type. Use `data` for a tagged sum, whose variants the compiler can\ncheck for exhaustiveness, or `struct` for a product.\n\n`region` is gone because memory is no longer scoped by an explicit\nsource-level block. Allocation lifetime is inferred: a value's arena is\ndetermined by where it is created and how far it escapes, and it is\ndropped deterministically at the end of that arena. Delete the `region`\nwrapper; the body is the program.\n\n"
+                    (if (strEq c "2005")
+                      "AX2005 - nesting too deep\n\nA form nests more deeply than the parser's fixed limit. Every stage\nafter the parser walks the syntax tree recursively, so an unbounded\nnesting depth is an unbounded native stack depth; the limit converts\nwhat would otherwise be a stack overflow - a crash with no span and no\nmessage - into this diagnostic, pointing at the token where the limit\nwas reached.\n\nHand-written code effectively never reaches the limit. Generated code\ncan: a long chain built by folding a binary operator over a list nests\nonce per element. Emit a `let` chain, a `{}` block, or a balanced tree\ninstead of one deeply nested form.\n\n"
+                      (if (strEq c "3001")
+                        "AX3001 - undefined variable\n\nNo binding with this name is in scope: not a local `let`/`lambda`\nparameter, not a top-level `define`/`fn`, and not a data constructor.\nCheck for typos, missing imports, or a definition that appears later\nin the file (Axiom does not forward-reference local bindings).\n\n"
+                        (if (strEq c "3002")
+                          "AX3002 - undefined type\n\nThis type name does not refer to any built-in type, `data`, `struct`,\nor `type` alias visible in this module.\n\n"
+                          (if (strEq c "3003")
+                            "AX3003 - undefined constructor\n\nThis name was used as a data constructor (applied like `(Foo x y)` or\nmatched in a pattern) but no `data` declaration defines a constructor\nwith this name.\n\n"
+                            (if (strEq c "3004")
+                              "AX3004 - type mismatch\n\nAn expression's inferred type doesn't match the type required by its\ncontext (a function parameter, `if` branch, `let` binding, etc.).\n\n"
+                              (if (strEq c "3005")
+                                "AX3005 - non-exhaustive pattern match\n\nA `match` expression does not cover every possible constructor/value of\nthe scrutinee's type. Add the missing arms or a wildcard `_` arm.\n\n"
+                                (if (strEq c "3006")
+                                  "AX3006 - duplicate definition\n\nThe same name is defined more than once at the same scope. Rename one\nof the definitions or remove the duplicate.\n\n"
+                                  (if (strEq c "3007")
+                                    "AX3007 - field not found\n\nThe named field does not exist on the given `struct` type. Check the\nfield name for typos or that you're accessing the right type.\n\n"
+                                    (if (strEq c "3008")
+                                      "AX3008 - semantic error\n\nA semantic rule was violated in a way that doesn't fit a more specific\ndiagnostic code; see the message for details.\n\n"
+                                      (if (strEq c "3009")
+                                        "AX3009 - constructor arity mismatch\n\nA data constructor was applied (or matched in a pattern) with the wrong\nnumber of arguments. Check the constructor's `data` declaration for how\nmany fields it actually has.\n\n"
+                                        (if (strEq c "3010")
+                                          "AX3010 - agent metadata mismatch\n\nA `;@axiom:<key>(<value>)` tag on this declaration makes a claim\n(e.g. `effect(io)`, `pure`) that the body does not support. The\ncompiler validates tags it can and reports mismatches so an agent\ncan correct the annotation instead of silently trusting it.\n\n"
+                                          (if (strEq c "3011")
+                                            "AX3011 - effect mismatch\n\nThe body of a `handle` expression performs effects that its\nhandled-effects list does not name. List every effect the body\ncan perform, or move the unhandled operation outside the\n`handle`.\n\n(Effects do not appear in function signatures; a function's\neffect claims are made with `;@axiom:effect(...)` tags and\nvalidated as AX3010.)\n\n"
+                                            (if (strEq c "3012")
+                                              "AX3012 - cannot assign to an immutable binding\n\n`set` stores into a local, and a local is assignable only if it was\nintroduced as `(let ((mut x ...)) ...)`. Immutable is the default, so\na binding that is never reassigned needs no annotation and cannot be\nchanged by accident.\n\nAdd `mut` at the declaration, or - usually better - compute the value\nyou want with a `let` rather than mutating one you already have.\n\nOnly a whole local can be assigned. Function parameters, pattern\nbindings and top-level declarations are never mutable, and structure\nfields are written with `memSetWord` instead.\n\n"
+                                              (if (strEq c "3013")
+                                                "AX3013 - partial application is not supported\n\nA top-level function was applied to fewer arguments than its\ndefinition declares, or a function of two or more parameters was\nused as a bare value. Both are well-typed under currying, but the\ncompiled representation has no way to hold the missing arguments:\na call site would simply omit them, and the callee would read\nwhatever happened to be in the argument registers - which is how\nthis used to run and crash instead of being reported.\n\nBind the missing arguments with a lambda instead: where `(f x)`\nwas meant, write `(lambda (y) (f x y))`. A lambda captures `x` in\na closure record, which is the representation partial application\nwould need and lambdas already have. Saturated calls, calls with\n*extra* arguments applied to a returned function value, and\none-parameter functions used as values are all unaffected.\n\n"
+                                                (if (strEq c "3014")
+                                                  "AX3014 - a bare name is defined in more than one imported module\n\nTwo or more imported modules define this name and the entry file\ndoes not, so a bare reference has no principled winner - and before\nthis diagnostic the compiler's stages genuinely disagreed about\nwhich definition it meant, so a program could type-check against\none module's signature and run the other module's code.\n\nQualify the reference as `Module::name` to pick explicitly, or\nimport only the names you want with `(import Module (name ...))`.\nA name the entry file defines itself always resolves to the entry\nfile's definition and needs no qualification.\n\n"
+                                                  (if (strEq c "3015")
+                                                    "AX3015 - a signature with no definition behind it\n\nA `(:: name Type)` signature declares a name, but only a `(fn ...)`\nor `(foreign ...)` gives it something to run. This name has the\nformer and not the latter - either the entry file declares the\nsignature and never defines the function, or an import delivered a\n`pub` signature whose definition stayed private in its module.\nCalling it used to pass `check` and then fail in the native\ntoolchain with an undefined-symbol error about generated code.\n\nAdd the definition, or mark the defining `fn` `pub` alongside its\nsignature so the import carries both.\n\n"
+                                                    (if (strEq c "3016")
+                                                      "AX3016 - a handle list names an effect that is not declared\n\nThe effects a `handle` expression may name are the built-ins\n(`IO`, `Alloc`, `Mut`, `Div`) and effects introduced by an\n`(effect Name (op :: sig) ...)` declaration in scope. This name\nis neither, so the handle could never intercept or scope\nanything - before this diagnostic it was accepted silently and\ndid nothing.\n\nDeclare the effect, import the module that declares it, or fix\nthe spelling.\n\n"
+                                                      (if (strEq c "3017")
+                                                        "AX3017 - an effect-handler shape the compiler does not support yet\n\nDynamic handlers currently support exactly one custom effect per\n`handle` expression, and only effects that declare exactly one\noperation; an effect operation is callable but cannot be used as\na bare value (there is no closure representation for dynamic\ndispatch). Nest `handle` expressions to install handlers for\nseveral effects at once, and split multi-operation effects into\none effect per operation until per-operation handler syntax\nexists.\n\n"
+                                                        (if (strEq c "4001")
+                                                          "AX4001 - no `main` function\n\nAn executable Axiom program needs exactly one top-level function named\n`main` to serve as the entry point. Add `(:: main Int)` and\n`(define main ...)`, or use `axiom check`/`emit-llvm` if you only want\nto analyze a library-style module.\n\n"
+                                                          (if (strEq c "4002")
+                                                            "AX4002 - code generation failed\n\nThe IR-to-LLVM lowering stage hit a case it doesn't yet support or an\ninternal invariant was violated. This generally indicates a compiler\nlimitation rather than a mistake in your source; please file a bug\nwith a minimal reproduction.\n\n"
+                                                            (if (strEq c "4003")
+                                                              "AX4003 - external toolchain command failed\n\nAxiom shells out to `llc` and `cc` to turn LLVM IR into a native\nexecutable. This error means one of those external commands could not\nbe run or exited unsuccessfully; check that LLVM (`llc`) and a C\ncompiler (`cc`) are installed and on your `PATH`.\n\n"
+                                                              (if (strEq c "5001")
+                                                                "AX5001 - cannot resolve import\n\nAn `(import Mod.Sub ...)` declaration names a module path that doesn't\ncorrespond to any file on disk. Module paths are resolved relative to\nthe entry file's own directory (the file passed to `check`/`build`/\n`run`/`emit-llvm`), not the directory of whichever file wrote the\n`(import ...)`: `Mod.Sub` looks for `Mod/Sub.ax` next to (or below)\nthe entry file, from every file in the program alike.\n\n"
+                                                                ""
+                                                              )
+                                                            )
+                                                          )
+                                                        )
+                                                      )
+                                                    )
+                                                  )
+                                                )
+                                              )
+                                            )
+                                          )
+                                        )
+                                      )
+                                    )
+                                  )
+                                )
+                              )
+                            )
+                          )
+                        )
+                      )
+                    )
+                  )
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)
