@@ -2686,3 +2686,76 @@ lowers to the constant `-5` rather than to `sub 0, 5`.
 binding, argument, after a leading operand, and the space-separated
 spelling that must stay unary minus - and draws two `AX3013`s against
 the previous parser.
+
+### The formatter's design, decided by measurement
+
+`fmt` is the last item in phase 5 that any gate depends on, and the two
+decisions it turns on were both settled by probes rather than by
+preference. Recording them here so the port starts from a decision.
+
+**It formats from a concrete syntax tree, not from the compiler's AST.**
+stage1's parser is deliberately lossier than stage0's, and got lossier
+still while this was being decided. `type`, `trait` and `impl` are
+consumed by `skipUnknownDecl` into an inert node; `foreign` keeps only
+its name; `effect` keeps only its operation names. An AST-driven printer
+would *delete* those declarations - which is exactly the family of
+failure the six original `fmt` bugs were. And the ascription fix above
+desugars `(:: e T)` to `(cast T e)` and `(- x)` to `(- 0 x)`, while
+stage0 keeps both distinct and prints `(- 8)` back as `-8`. Matching
+stage0 from stage1's AST would mean adding nodes back to the parser, the
+checker and the emitter - a change on the bootstrap path, bought for a
+formatter.
+
+**It carries its own scanner, and must not touch `self_host/lexer.ax`.**
+This is the one that inverts the obvious plan. The formatter needs
+tokens stage1's lexer does not produce - `[`, `]`, `,`, `#| |#`, and
+comment spans - so the obvious move is to add them to the shared lexer.
+It is the wrong move, for a reason that has nothing to do with risk:
+stage1's lexer fuses `-` against a following digit into a single
+negative-integer token, deliberately (`lexer.ax:180-187` records why -
+falling through made `-5` an identifier that codegen emitted as the SSA
+name `%-5`), and stage0's emits two tokens. A formatter that shares
+stage1's tokenisation therefore cannot reproduce stage0's output
+whatever else it does. Since it needs its own scan regardless, adding
+brackets and commas to the shared stream buys nothing and costs the
+parser work to consume them - `{ w : Int, h : Int }` parses today
+*because* the comma vanishes. `scanAxtags` is the precedent: a second
+pass over the source, beside the tokenizer rather than inside it.
+
+**The printer owes thirteen normalisations**, each measured by running
+`axiom fmt` on a two-line file. They are rewrites, not reprints, and a
+CST printer gets none of them for free:
+
+| written | printed |
+|---|---|
+| `(define x 1)` | `(fn (x) 1)` |
+| `(fn f = 7)` | `(fn (f) 7)` |
+| `1_000_000` | `1000000` |
+| `007` | `7` |
+| `((g 1) 2)` | `(g 1 2)` |
+| `(e)` | `e` |
+| `{e}` | `e` |
+| `(fn (f n) 1 2)` | a body wrapped in `{ }` |
+| `(-> Int (-> Int Int))` | `(-> Int Int Int)` |
+| `(Int)` | `Int` |
+| `()` (a type) | `Unit` |
+| `Integer` | `Int` |
+| `Q.Inner::only` | `Q::Inner::only` |
+
+plus: imports hoisted above every other declaration, exactly one blank
+line between declarations and none preserved from the source, string and
+char literals re-escaped from the *decoded* value, and a float printed
+as the shortest decimal that round-trips its `f64`. That last one is
+Ryu's job in general and a textual normalisation in practice - every
+float literal in this repository is an exact short binary fraction, so
+stripping trailing zeros after the point (keeping one) is byte-identical
+today. That is a constraint on the corpus, not a property of the
+printer, and it belongs in the zoo as a comment.
+
+**The exit criterion is symmetric.** Not "stage1's output is
+byte-identical to stage0's": stage0 *refuses* four constructs, one of
+them its own non-idempotent unary minus, so a gate that only diffs bytes
+on success passes silently in the direction that matters. Write it as:
+stage0 and stage1 `fmt` are the same function, on identical bytes **and**
+identical exit status, three-way against a checked-in golden - and
+either side may be the one that moves.
