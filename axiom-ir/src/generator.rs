@@ -97,6 +97,11 @@ pub struct IrGen {
     /// with the bare name as both key and value. Functions from imported
     /// modules use `module$name` as the value, keyed by bare `name`.
     fn_mangle_map: HashMap<String, String>,
+    /// The module whose declaration is currently being lowered, so a
+    /// bare reference inside it can bind to that module's own
+    /// definition before the flat map is consulted. `None` for the
+    /// entry file, where the flat map already answers correctly.
+    current_module: Option<String>,
 }
 
 /// Highest value (exclusive) a constructor tag may have and still be
@@ -405,6 +410,7 @@ impl IrGen {
             float_locals: HashSet::new(),
             fn_arity: HashMap::new(),
             fn_mangle_map: HashMap::new(),
+            current_module: None,
         }
     }
 
@@ -451,7 +457,26 @@ impl IrGen {
         }
     }
 
+    /// The symbol a bare reference reaches.
+    ///
+    /// A reference *inside* module M binds to M's own definition when M
+    /// has one. Without that rule a module's internal call is hijacked
+    /// by whatever the entry file happens to define: `Lib.libCall`
+    /// calling its own `helper` reached the entry file's `helper`,
+    /// silently, in a program both compilers accepted and neither
+    /// diagnosed. Importing a module could change that module's
+    /// behaviour, which is not a namespace at all.
+    ///
+    /// Everything else is exactly as before - this only ever prepends a
+    /// candidate, so a name M does not define resolves by the entry-
+    /// first rule the flat map already encodes.
     fn mangled_name_for(&self, bare: &str) -> String {
+        if let Some(module) = &self.current_module {
+            let local = format!("{}${}", module, bare);
+            if self.all_fns.contains(&local) {
+                return local;
+            }
+        }
         self.fn_mangle_map
             .get(bare)
             .cloned()
@@ -1010,6 +1035,12 @@ impl IrGen {
         type_checker: &mut TypeChecker,
         module_path: &Option<String>,
     ) -> IrFunction {
+        // Every bare reference in this body is a reference made from
+        // this declaration's module, and binds to that module's own
+        // definitions first (`mangled_name_for`). Set before the float
+        // scope, because the scope seeding resolves names too.
+        self.current_module = module_path.clone();
+
         // The float tables are keyed by mangled name, so the scope
         // seeding must ask with the same key this function defines.
         self.begin_float_scope(&Self::mangle_name(&name.name, module_path), params, body);
@@ -1109,6 +1140,7 @@ impl IrGen {
         }
 
         self.entry_block = None;
+        self.current_module = None;
 
         func
     }

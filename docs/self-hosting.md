@@ -711,13 +711,13 @@ the moment the table became the single source. Inference now fills
 only signature-less placeholders; a declared signature is
 authoritative.
 
-Recorded open from the same scout, for later: bare references
-*inside* an imported module also resolve entry-first (in
-`320-mangle`, `Str.ax`'s own internal `strLen` call reaches the
-entry's shadowing definition, and the test passes only because both
-answers land on the same side of its comparison) - fixing that means
-module-internal references bind module-locally, which revisits B4's
-flat-namespace decision.
+Recorded open from the same scout, and **since fixed** - see "A module
+binds its own names" at the end of this document: bare references
+*inside* an imported module also resolved entry-first (in
+`320-mangle`, `Str.ax`'s own internal `strLen` call reached the
+entry's shadowing definition, and the test passed only because both
+answers landed on the same side of its comparison). They bind
+module-locally now.
 
 An earlier revision of this paragraph claimed effect inference "does
 not propagate effects through calls at all". That claim was wrong,
@@ -1983,3 +1983,73 @@ arrives as an unrelated test breaking after an unrelated change. The
 remaining mutual recursions in `self_host/` are the parser's, whose
 depth is nesting rather than length, and they are bounded by the same
 programs the parser already reads.
+
+**A module binds its own names.** A bare reference inside module `M`
+now resolves to `M`'s own definition when `M` has one, before the
+entry file is consulted. Before that, importing a module could change
+what the module *did*:
+
+```scheme
+; Lib.ax
+(pub fn (helper x) (* x 10))
+(pub fn (libCall x) (helper x))
+
+; main.ax
+(import Lib)
+(fn (helper x) (+ x 1))          ; the entry file happens to define one
+(fn (main) (libCall 5))
+```
+
+`Lib.libCall` calls `Lib.helper`, so the answer is 50. Both compilers
+answered **6** - the entry file's `helper` - and neither diagnosed
+anything, because under B4's flat namespace `helper` had exactly one
+winner and the winner was the entry file's, whoever was asking. A
+namespace in which importing a module rewrites that module's calls is
+not a namespace; this document has carried it as a recorded-open item
+since the resolution scout found it, on the strength of `320-mangle`
+passing only because both answers landed on the same side of its
+comparison.
+
+The rule is a *prepended* candidate and nothing else: **the defining
+module's own definition, then the entry file, then the unique defining
+module, then `AX3014`.** A name `M` does not define resolves exactly as
+it did before, which is the half a test has to pin deliberately,
+because replacing the lookup instead of preceding it passes every
+other case.
+
+It had to land in four places at once, and that is the real constraint
+here rather than any one of the changes: stage0's `mangled_name_for`
+(which symbol the call reaches) and `resolve_bare_fn` (which
+definition the checker types against), and stage1's `mangledFor` and
+`findFnEnt`. A checker that resolves one way while the generator
+resolves another is exactly the failure this area was rewritten once
+before to remove - a program that type-checked against one definition
+and *ran* another.
+
+One thing did not fit. stage1's mangle map holds one winner per bare
+name, so it cannot answer "does `M` define this name at all" - the
+entry file's claim is the only entry there. The mangled name maps to
+itself now, recorded *outside* the dedupe that guards the bare slot,
+which makes the membership question a lookup in the map that was
+already being consulted. It changes no existing answer: the only
+reference that can match one of those entries is a qualified
+`Mod::name`, which stage1 already spells `Mod$name` and which already
+resolved to itself by falling off the end of the map.
+
+`tests/selfhost/850-module-local-binding.ax` pins three terms, each
+failing differently: the module's call to its own `helper` (40, where
+the old rule gave 5), the entry file's call to its own (5, which must
+not have moved), and a call to a name the module does not define,
+reached through a module it imports (104, the term that fails if the
+new rule replaced the old lookup rather than preceding it). Both
+compilers answered 1 before the change and 42 after. `320-mangle`
+still passes, and now for the right reason: `Str.ax`'s internal
+`strLen` reaches `Str`'s.
+
+What is *not* fixed is the rest of the flat namespace. A module still
+sees names from modules it does not import - resolution outward from a
+module is still the merged list, not that module's own import set - so
+the reverse hazard remains: a module that references a name it neither
+defines nor imports still finds one. That is the same B4 decision, and
+the half that needs a real scope per module rather than one more
+candidate in front of a flat lookup.

@@ -412,7 +412,15 @@
                (macros : Int) (effects : Int)
                (entryDecls : Int) (allDecls : Int)
                (curParams : Int) (curCallable : Int)
-               (units : Int) (curUnit : Int) (ambTbl : Int))
+               (units : Int) (curUnit : Int) (ambTbl : Int)
+               ; The module whose body is being checked, or 0 for the
+               ; entry file. A bare reference inside it resolves to
+               ; that module's own definition first - the same rule
+               ; codegen's `mangledFor` and stage0's
+               ; `resolve_bare_fn` apply, and all three have to agree
+               ; or the checker types against one definition while
+               ; the emitter calls another.
+               (curModule : Int))
 
 (pub :: tcFns (-> Int Int))     (pub fn (tcFns tc)     (memGetWord tc 0))
 (pub :: tcDatas (-> Int Int))   (pub fn (tcDatas tc)   (memGetWord tc 1))
@@ -512,7 +520,7 @@
         })
       (let ((tc (cast Int (TC fns datas vecNew vecNew vecNew 0 0
                               vecNew vecNew entryDecls allDecls
-                              vecNew vecNew units 0 vecNew))))
+                              vecNew vecNew units 0 vecNew 0))))
         {
           (tcCollect tc allDecls 0)
           ; The ambiguity table, once: builtins are module-less
@@ -754,8 +762,15 @@
 
 (pub :: findFnEnt (-> Int Int Int))
 (pub fn (findFnEnt tc name)
-  (let ((e (findFnEntExact (tcFns tc) name 0)))
-    (if (!= e 0) e (findFnEntSuffix (tcFns tc) name 0))))
+  (let ((m (memGetWord tc 16)))
+    (let ((local (if (== m 0)
+                     0
+                     (findFnEntExact (tcFns tc)
+                                     (strConcat (strConcat m "$") name) 0))))
+      (if (!= local 0)
+          local
+          (let ((e (findFnEntExact (tcFns tc) name 0)))
+            (if (!= e 0) e (findFnEntSuffix (tcFns tc) name 0)))))))
 
 ; Constructor lookup, FORWARD order - Option's are first. Used for
 ; type resolution and patterns (stage0's find_constructor).
@@ -2455,8 +2470,10 @@
             (let ((ent (findFnEnt tc (nodeA d))))
               (if (== ent 0)
                   rest
-                  (let ((sc (bodyScopeOf tc d)))
-                    (let ((got (collectEffects tc (nodeC d) sc)))
+                  (let ((_m (memSetWord tc 16 (nodeModule d)))
+                        (sc (bodyScopeOf tc d)))
+                    (let ((got (collectEffects tc (nodeC d) sc))
+                          (_m0 (memSetWord tc 16 0)))
                       (let ((g1 (effUnion (memGetWord ent 6) got 0))
                             (g2 (intUnion (memGetWord ent 7)
                                           (bsEparams sc) 0)))
@@ -3321,8 +3338,10 @@
 (pub fn (checkAxtags tc d)
   (if (== (memGetWord d 7) 0)
       0
-      (let ((sc (bodyScopeOf tc d)))
-        (let ((eff (collectEffects tc (nodeC d) sc)))
+      (let ((_m (memSetWord tc 16 (nodeModule d)))
+            (sc (bodyScopeOf tc d)))
+        (let ((eff (collectEffects tc (nodeC d) sc))
+              (_m0 (memSetWord tc 16 0)))
           (checkAxtagsFrom tc d (memGetWord d 7) 0 eff (bsEparams sc))))))
 
 (pub :: checkAxtagsFrom (-> Int Int Int Int Int Int Int))
@@ -3472,7 +3491,11 @@
 
 (pub :: tcCheckFn (-> Int Int Int))
 (pub fn (tcCheckFn tc d)
-  (let ((ent (findFnEnt tc (nodeA d)))
+  ; Set BEFORE the entry lookup: `nodeA d` is already this module's
+  ; mangled name, so the lookup is unaffected, but every reference the
+  ; body makes below resolves module-locally.
+  (let ((_m (memSetWord tc 16 (nodeModule d)))
+        (ent (findFnEnt tc (nodeA d)))
         (params (nodeB d))
         (base (vecLen (tcScope tc))))
     {
@@ -3497,6 +3520,7 @@
                               (ctorArrowOf ptys bodyTy (- (vecLen ptys) 1)))
                   0)
               (scopeTrunc (tcScope tc) base)
+              (memSetWord tc 16 0)
             })
         })
     }))

@@ -1,0 +1,18 @@
+; A module whose own `helper` an entry file also defines, for
+; `850-module-local-binding.ax`. See that file for what it pins.
+;
+; Modules sit beside the cases and are told apart by name:
+; digit-prefixed is a case and must declare `; expect N`.
+(import Helpers)
+
+(pub :: helper (-> Int Int))
+(pub fn (helper x) (* x 10))
+
+; A call this module makes to its OWN helper.
+(pub :: viaOwn (-> Int Int))
+(pub fn (viaOwn x) (helper x))
+
+; A call this module makes to a name it does NOT define, which must
+; still resolve outward exactly as it did before.
+(pub :: viaImport (-> Int Int))
+(pub fn (viaImport x) (bump x))

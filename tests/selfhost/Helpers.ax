@@ -1,0 +1,11 @@
+; A third module, so `Shadowed.ax` can make a call that its own module
+; does NOT define and that the entry file does not define either - the
+; term in `850-module-local-binding.ax` that fails if the module-local
+; rule REPLACED the existing lookup rather than preceding it.
+;
+; It is a separate module rather than an undefined name so that
+; `Shadowed.ax` resolves standalone: the diagnostics sweep checks every
+; file of this tree on its own, and a module that references a name
+; nothing it imports defines is an honest `AX3001` there.
+(pub :: bump (-> Int Int))
+(pub fn (bump x) (+ x 100))

@@ -1359,6 +1359,14 @@ pub struct TypeChecker {
     fn_defining_modules: std::collections::HashMap<String, Vec<Option<String>>>,
     /// Same, for data constructors.
     ctor_defining_modules: std::collections::HashMap<String, Vec<Option<String>>>,
+    /// The module whose function body is currently being checked, so a
+    /// bare reference inside it resolves to that module's own
+    /// definition first - the same rule `axiom-ir`'s
+    /// `mangled_name_for` applies when it emits the call. The two have
+    /// to agree: a checker that types against one definition while the
+    /// generator calls another is the failure this whole resolution
+    /// area was rewritten once to remove.
+    current_module: Option<String>,
 }
 
 impl Default for TypeChecker {
@@ -1453,6 +1461,7 @@ impl TypeChecker {
             current_fn_callable: Vec::new(),
             fn_defining_modules: std::collections::HashMap::new(),
             ctor_defining_modules: std::collections::HashMap::new(),
+            current_module: None,
         };
 
         let int_ty = TypeId::TCon("Int".to_string(), vec![]);
@@ -2204,7 +2213,12 @@ impl TypeChecker {
                     self.current_fn_params = param_name_list(params);
                     self.current_fn_callable =
                         param_callables(self, &name.name, module_path, params.len());
+                    // Every bare reference in this body is made from
+                    // this declaration's module, and resolves to that
+                    // module's own definitions first.
+                    self.current_module = module_path.clone();
                     let body_ty = self.check_expr(body);
+                    self.current_module = None;
                     self.current_fn_params = Vec::new();
                     self.current_fn_callable = Vec::new();
                     self.pop_scope();
@@ -3231,7 +3245,27 @@ impl TypeChecker {
             .collect())
     }
 
+    /// The definition a bare reference reaches.
+    ///
+    /// A reference made *inside* module M binds to M's own definition
+    /// when M has one, before the entry file is consulted. Without it,
+    /// importing a module could change that module's behaviour: `Lib`'s
+    /// internal call to its own `helper` reached an entry file's
+    /// `helper` of the same name, in a program both compilers accepted
+    /// and neither diagnosed. Everything else is unchanged - this only
+    /// prepends a candidate, so a name M does not define still resolves
+    /// entry file first, then the unique defining module, then
+    /// `AX3014`.
     pub fn resolve_bare_fn(&self, name: &str) -> Option<&FnInfo> {
+        if self.current_module.is_some() {
+            if let Some(f) = self
+                .functions
+                .iter()
+                .find(|f| f.name == name && f.module == self.current_module)
+            {
+                return Some(f);
+            }
+        }
         self.functions
             .iter()
             .find(|f| f.name == name && f.module.is_none())

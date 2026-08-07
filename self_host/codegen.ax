@@ -199,7 +199,10 @@
 ; indexes by position, so a field that moves corrupts whatever now
 ; sits at its old index - which is exactly how the unit table broke
 ; when `TC` grew (docs/self-hosting.md).
-(pub struct CG (lines : Int) (tmp : Int) (result : Int) (types : Int) (tagN : Int) (argVec : Int) (symnames : Int) (symregs : Int) (decls : Int) (argsTyped : Int) (strings : Int) (curBlock : Int) (mangleBares : Int) (mangleFulls : Int) (resultIsFloat : Int) (floatSigs : Int) (symfloats : Int) (curParams : Int) (curFlags : Int) (macros : Int) (symkinds : Int) (pendingLams : Int) (lamN : Int) (thunkFulls : Int) (thunkArities : Int) (thunksEmitted : Int) (target : Int) (tcoName : Int) (tcoSlots : Int) (tcoLabel : Int) (tailOK : Int) (terminated : Int) (effDecls : Int) (effOps : Int))
+; Field 34 = curModule (Str, the module whose declaration is being
+;            emitted, or 0 for the entry file; `mangledFor` resolves a
+;            bare reference to that module's own definition first)
+(pub struct CG (lines : Int) (tmp : Int) (result : Int) (types : Int) (tagN : Int) (argVec : Int) (symnames : Int) (symregs : Int) (decls : Int) (argsTyped : Int) (strings : Int) (curBlock : Int) (mangleBares : Int) (mangleFulls : Int) (resultIsFloat : Int) (floatSigs : Int) (symfloats : Int) (curParams : Int) (curFlags : Int) (macros : Int) (symkinds : Int) (pendingLams : Int) (lamN : Int) (thunkFulls : Int) (thunkArities : Int) (thunksEmitted : Int) (target : Int) (tcoName : Int) (tcoSlots : Int) (tcoLabel : Int) (tailOK : Int) (terminated : Int) (effDecls : Int) (effOps : Int) (curModule : Int))
 
 ; ------------------------------------------------------------------
 ; Tail-call optimisation, fields 27-31.
@@ -253,7 +256,7 @@
     {
       (addType ts "Some" TF_DATA 1 0 2 (let ((f vecNew)) { (vecPush f 0) f }))
       (addType ts "None" TF_DATA 0 1 2 vecNew)
-      (CG vecNew 0 "" ts 2 vecNew vecNew vecNew 0 "" vecNew "entry" vecNew vecNew 0 vecNew vecNew 0 0 vecNew vecNew vecNew 0 vecNew vecNew 0 0 0 vecNew "" 0 0 vecNew vecNew)
+      (CG vecNew 0 "" ts 2 vecNew vecNew vecNew 0 "" vecNew "entry" vecNew vecNew 0 vecNew vecNew 0 0 vecNew vecNew vecNew 0 vecNew vecNew 0 0 0 vecNew "" 0 0 vecNew vecNew 0)
     }))
 
 (pub :: zeroFloat (-> Int Int))
@@ -1048,13 +1051,32 @@
 ; is read.
 (pub :: mangleRecord (-> Int Int Int Int Int))
 (pub fn (mangleRecord bares fulls bare full)
-  (if (mangleHasIn bares bare 0)
-      0
-      {
-        (vecPush bares bare)
-        (vecPush fulls full)
+  {
+    ; The mangled name maps to itself, recorded whether or not the bare
+    ; name was already claimed - which it usually is, by the entry
+    ; file. This is how a reference made INSIDE a module asks whether
+    ; that module defines the name at all, and the bare slot cannot
+    ; answer it: it holds exactly one winner per name.
+    ;
+    ; It changes no existing lookup. The only name that can match one
+    ; of these entries is a qualified reference, `Mod::name`, which
+    ; stage1 already spells `Mod$name` and which already resolved to
+    ; itself by falling off the end of the map.
+    (if (|| (strEq bare full) (mangleHasIn bares full 0))
         0
-      }))
+        {
+          (vecPush bares full)
+          (vecPush fulls full)
+          0
+        })
+    (if (mangleHasIn bares bare 0)
+        0
+        {
+          (vecPush bares bare)
+          (vecPush fulls full)
+          0
+        })
+  })
 
 (pub :: mangleHasIn (-> Int Int Int Bool))
 (pub fn (mangleHasIn bares bare i)
@@ -1064,10 +1086,19 @@
           true
           (mangleHasIn bares bare (+ i 1)))))
 
-; The symbol a bare reference reaches: the entry file's definition if it
-; has one, the first-resolved import's otherwise, and the name unchanged
-; when nothing claims it - parameters, locals and primitives never enter
-; the map.
+; The symbol a bare reference reaches: the DEFINING MODULE'S OWN
+; definition when the reference is made inside a module that has one,
+; then the entry file's, then the first-resolved import's, and the name
+; unchanged when nothing claims it - parameters, locals and primitives
+; never enter the map.
+;
+; The module-local step is what stops an import from changing an
+; imported module's behaviour. `Lib.libCall` calling its own `helper`
+; reached the ENTRY FILE's `helper` when the entry defined one, in a
+; program both compilers accepted and neither diagnosed - so importing
+; a module could silently rewrite what that module does. stage0 applies
+; the same rule in `mangled_name_for`, and the two have to agree
+; symbol for symbol or the fixpoint is comparing different programs.
 (pub :: mangledFor (-> Int Int Int))
 (pub fn (mangledFor cg name)
   ; A reference to `main` - a recursive call, or main as a value -
@@ -1075,7 +1106,13 @@
   ; which would re-store whatever its two parameters happened to be.
   (if (strEq name "main")
       "__axiom_user_main"
-      (mangledForIn (memGetWord cg 12) (memGetWord cg 13) name 0)))
+      (let ((m (memGetWord cg 34)))
+        (if (== m 0)
+            (mangledForIn (memGetWord cg 12) (memGetWord cg 13) name 0)
+            (let ((local (cat3 m "$" name)))
+              (if (mangleHasIn (memGetWord cg 12) local 0)
+                  local
+                  (mangledForIn (memGetWord cg 12) (memGetWord cg 13) name 0)))))))
 
 (pub :: mangledForIn (-> Int Int Int Int Int))
 (pub fn (mangledForIn bares fulls name i)
@@ -1427,7 +1464,16 @@
       ; function references demanded, are written out once the
       ; function's own `}` is down - the line buffer is one flat
       ; stream, so they cannot be emitted at the point of use.
-      (drainPending (emitFnDef node cg))
+      ;
+      ; The module travels across both, because a lifted lambda's body
+      ; is still code written in that module and its bare references
+      ; resolve the same way the enclosing function's do.
+      (let ((_ (memSetWord cg 34 (nodeModule node))))
+        (let ((cgD (drainPending (emitFnDef node cg))))
+          {
+            (memSetWord cgD 34 0)
+            cgD
+          }))
       cg))
 
 ; ------------------------------------------------------------------

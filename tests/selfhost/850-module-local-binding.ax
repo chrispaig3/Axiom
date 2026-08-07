@@ -1,0 +1,29 @@
+; expect 42
+; A bare reference inside a module binds to that module's own
+; definition, so importing a module cannot change what that module
+; does.
+;
+; It used to. `Shadowed.viaOwn` calling its own `helper` reached the
+; ENTRY FILE's `helper` whenever the entry defined one - in a program
+; both compilers accepted, neither diagnosed, and both got wrong the
+; same way, which is why no differential gate could see it. A
+; namespace in which importing a module rewrites that module's calls
+; is not a namespace.
+;
+; Three terms, and each fails differently if resolution is wrong:
+;
+;   (viaOwn 4)     40 - the module's own `helper`. The old rule gave 5.
+;   (helper 4)      5 - the entry file's own reference to its own
+;                       definition, which must not have moved.
+;   (viaImport 4) 104 - a name the module does NOT define, reached
+;                       through a module it imports. This is the term
+;                       that fails if the new rule REPLACED the old
+;                       lookup instead of preceding it.
+(import Shadowed)
+
+(:: helper (-> Int Int))
+(fn (helper x) (+ x 1))
+
+(:: main Int)
+(fn (main)
+  (if (== (+ (+ (viaOwn 4) (helper 4)) (viaImport 4)) 149) 42 1))
