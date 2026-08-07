@@ -2648,3 +2648,41 @@ this document already records presented. The measurement fails rather
 than skips when neither `/usr/bin/time -l` nor `-v` works, because a
 resource check that silently skips is this repository's most-repeated
 mistake.
+
+### A negative literal was only a literal outside a form
+
+`(+ x -5)` was three arguments to `+`.
+
+stage0's lexer emits `Minus` then `IntLiteral(5)` for `-5`, on purpose,
+with a test that says so: a negative literal is a parser construct, not
+a lexical one. But the parser only ever fused the two *outside* a
+parenthesised form - the `in_parens` flag guarded the rule - so in
+argument position the `-` stayed a bare variable and the form silently
+grew an element. Since `+` takes two, that surfaced as
+**`AX3013` partial application** pointing at the `-`, on a program
+stage1 accepts and runs to 42, because stage1's lexer fuses `-` against
+a following digit and so never had the problem.
+
+The fix is one predicate: `-` immediately followed, **with no space
+between them**, by a numeric literal is that literal. Adjacency is the
+whole rule, and it is what keeps `(- 5)` meaning negation applied to a
+positive literal while `(x -5)` means what it looks like. The spans
+answer adjacency exactly, which is the one thing keeping the two tokens
+separate buys.
+
+It was found through `fmt` rather than through either compiler.
+`(- 0 (- 4))` printed as `(- 0 -4)` on the first pass; that re-read as a
+three-element form, and the second pass printed `(- 0 - 4)`. Both
+spellings parse, so nothing but the idempotency check could see it - and
+what it reported was a formatter that is not a fixed point, about a
+parser rule two layers down.
+
+Blast radius, measured by emitting IR for all 139 `.ax` files under
+`stdlib/`, `tests/stdlib/` and `tests/selfhost/` before and after:
+**137 are byte-identical**, and the two that change are the two about
+negative literals. Both still answer 42; a `(let ((x -5)) ..)` now
+lowers to the constant `-5` rather than to `sub 0, 5`.
+`tests/selfhost/460-negative-literals.ax` carries all four positions -
+binding, argument, after a leading operand, and the space-separated
+spelling that must stay unary minus - and draws two `AX3013`s against
+the previous parser.

@@ -1326,6 +1326,39 @@ impl Parser {
                 vec![Pattern::PWildcard],
                 Box::new(Expr::EError("hole".to_string(), token.span)),
             ))
+        } else if self.negative_literal_ahead() {
+            // `-5` written with no space is one literal, wherever it
+            // appears.
+            //
+            // The lexer emits `Minus` then `IntLiteral(5)` and says so in
+            // a test, deliberately: a negative literal is not a lexical
+            // concept, unary minus is a parser construct. But the parser
+            // only ever fused the two OUTSIDE a parenthesised form, so
+            // `(+ x -5)` was three arguments to `+`, not two. That is a
+            // program with a different meaning, silently - and since `+`
+            // takes two, it surfaced as **`AX3013` partial application**
+            // pointing at the `-`, on a program the self-hosted compiler
+            // accepts and runs, because stage1's lexer fuses `-` against
+            // a following digit and never had the problem.
+            //
+            // It also cost `fmt` a fixed point, which is how it was
+            // found: `(- 0 (- 4))` printed as `(- 0 -4)` on the first
+            // pass, that re-read as a three-element form, and the second
+            // pass printed `(- 0 - 4)`. Both spellings parse, so only the
+            // idempotency check could see it.
+            //
+            // Adjacency is the whole rule, and it is why `(- 5)` still
+            // means negation rather than becoming a literal in argument
+            // position: the two tokens have to touch, which the spans
+            // answer exactly.
+            let minus = self.advance();
+            let token = self.advance();
+            let span = Span::new(minus.span.start, token.span.end, minus.span.file_id);
+            match token.kind {
+                TokenKind::IntLiteral(n) => Ok(Expr::ELit(Literal::LInt(-n), span)),
+                TokenKind::FloatLiteral(f) => Ok(Expr::ELit(Literal::LFloat(-f), span)),
+                _ => unreachable!("negative_literal_ahead checked the kind"),
+            }
         } else if self.check(TokenKind::Minus) && !in_parens {
             let token = self.advance();
             let expr = self.parse_expr()?;
@@ -1907,6 +1940,30 @@ impl Parser {
             }
         }
         false
+    }
+
+    /// Whether the position holds `-` immediately followed, with no
+    /// space between them, by a numeric literal.
+    ///
+    /// Adjacency is the whole rule. `(- 5)` is unary minus applied to a
+    /// positive literal and stays that way; `(+ x -5)` is `+` applied to
+    /// two things. The lexer keeps the two tokens separate on purpose
+    /// (see `tokenizes_numbers`), so the spans are what answer this, and
+    /// they answer it exactly.
+    fn negative_literal_ahead(&self) -> bool {
+        let Some(minus) = self.tokens.get(self.pos) else {
+            return false;
+        };
+        if !matches!(minus.kind, TokenKind::Minus) {
+            return false;
+        }
+        let Some(number) = self.tokens.get(self.pos + 1) else {
+            return false;
+        };
+        matches!(
+            number.kind,
+            TokenKind::IntLiteral(_) | TokenKind::FloatLiteral(_)
+        ) && minus.span.end == number.span.start
     }
 
     fn check(&self, kind: TokenKind) -> bool {

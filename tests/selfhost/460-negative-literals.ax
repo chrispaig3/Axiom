@@ -1,5 +1,23 @@
 ; expect 42
 ; -5 against a digit is a negative literal, as stage0 lexes it, not an
 ; identifier emitted as the SSA name %-5.
+;
+; And it is a negative literal in ARGUMENT position too, which it was
+; not. stage0's lexer emits `Minus` then `IntLiteral(5)` deliberately -
+; a negative literal is a parser construct, not a lexical one - but the
+; parser only fused the two outside a parenthesised form. So `(+ x -5)`
+; was `+` applied to THREE things, silently, and since `+` takes two it
+; surfaced as `AX3013 partial application` pointing at the `-`, on a
+; program stage1 accepts and runs. Adjacency is the rule now: the two
+; tokens have to touch.
+;
+; `(- 5)` with a space is still negation applied to a positive literal,
+; which is what keeps `(- x)` meaning what it always did. Both spellings
+; are below, because the fix is only correct if it distinguishes them.
 (:: main Int)
-(fn (main) (let ((x -5)) (+ x 47)))
+(fn (main)
+  (let ((x -5)            ; binding position: was already a literal
+        (y (+ 3 -1))      ; argument position: was three arguments
+        (z (- 0 -4))      ; and after a leading operand
+        (w (- 5)))        ; a space, so still unary minus: -5
+    (+ x (+ y (+ z (+ w 46))))))
