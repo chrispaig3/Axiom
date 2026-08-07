@@ -113,12 +113,31 @@ printf '(import NoSuchModule)\n(:: main Int)\n(fn (main) 1)\n' >badimport.ax
 
 # --- the negative cases, which are the point -------------------------
 
-mkdir -p fake
+mkdir -p fake fake-cc
 printf '#!/bin/sh\nexit 1\n' >fake/llc && chmod +x fake/llc
 PATH="$work/fake:$PATH" "$s1" build --input hello.ax --output f1 >f1.log 2>&1; rc=$?
-[[ $rc == 4 ]] && [[ ! -f f1 ]] \
-  && ok "a failing llc fails the build with exit 4 and no executable" \
-  || bad "a failing llc was reported as success (rc=$rc)"
+# The message matters as much as the status, and asserting only the
+# status does NOT discriminate: measured, a driver that ignores llc's
+# exit code still fails this build, because `cc` is handed an object
+# that was never written and fails downstream. The outcome is right for
+# the wrong reason, and what the user sees is clang complaining about a
+# missing `.o` instead of the compiler saying llc failed. So require
+# the driver to blame the tool that actually failed.
+if [[ $rc == 4 ]] && [[ ! -f f1 ]] && grep -q 'llc failed' f1.log; then
+  ok "a failing llc fails the build with exit 4, no executable, and names llc"
+else
+  bad "a failing llc (rc=$rc, blamed: $(head -1 f1.log))"
+fi
+
+# The same for `cc`, so each tool's status check is pinned by a case
+# that only it can satisfy.
+printf '#!/bin/sh\nexit 1\n' >fake-cc/cc && chmod +x fake-cc/cc
+PATH="$work/fake-cc:$PATH" "$s1" build --input hello.ax --output f3 >f3.log 2>&1; rc=$?
+if [[ $rc == 4 ]] && [[ ! -f f3 ]] && grep -q 'cc failed' f3.log; then
+  ok "a failing cc fails the build with exit 4, no executable, and names cc"
+else
+  bad "a failing cc (rc=$rc, blamed: $(head -1 f3.log))"
+fi
 
 # A `PATH` with llc and cc but no `opt`: must still build, must warn.
 # stage2 compiling its own source needs opt's tail-call pass, so this
