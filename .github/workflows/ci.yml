@@ -98,6 +98,21 @@ jobs:
       - name: Self-hosted compiler conformance
         run: ./scripts/check-self-host.sh
 
+      # The differential gate, and it was not here. It exists because
+      # nothing ran `tests/stdlib/` through stage1 and five miscompiles
+      # were hiding in the gap - and then it ran only when somebody
+      # typed its name, which is the same gap one level up. This file's
+      # own risk table calls that out: a tool with no CI gate is
+      # silently broken, as `fmt` was.
+      #
+      # It compiles every case in BOTH corpora with both compilers,
+      # puts each one's IR through the identical llc/cc pipeline at
+      # -O0 and -O2, and compares exit status and stdout. Holding the
+      # toolchain constant is what makes it a comparison of the two
+      # compilers rather than of two build pipelines.
+      - name: Differential behaviour between the compilers
+        run: ./scripts/check-stdlib-selfhost.sh
+
       # Self-hosting phase 3's acceptance criterion: the two compilers
       # emit byte-identical AXDL. Three-way against a checked-in golden
       # rather than a straight stage0-vs-stage1 diff, so that the two

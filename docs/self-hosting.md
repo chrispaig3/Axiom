@@ -1495,11 +1495,56 @@ of those. It is not a correctness property; it says the two backends
 make the same lowering choices, and the compiler whose choices would
 have to win is the one being retired.
 
-Recorded as a decision to take rather than taken: whether phase 4's
-exit criterion should stay byte-identical `.ll`, or become
-behavioural equivalence across all four targets and both optimisation
-levels plus the fixpoint. The measurement above is what the decision
-should be made on.
+**The decision is taken: phase 4's exit criterion is no longer
+byte-identical `.ll`.** It is behavioural equivalence between the two
+compilers over both corpora, at both optimisation levels, through an
+identical toolchain, plus the fixpoint and the four-target assembly
+check. §4's phase table states it.
+
+Three things decided it, and the third is the one that settles it.
+
+*The criterion asks the wrong compiler to move.* On the simplest
+program in the corpus the bodies already match instruction for
+instruction; what differs is stage1's calling convention, block
+structure and register naming, and normalising cannot remove any of
+them. Byte-identity would mean stage1 adopting stage0's hidden closure
+parameter on every function, its allocas for every binding, and its
+redundant entry block - the design choices of the implementation being
+retired.
+
+*The property it was a proxy for is now measured directly.* It was
+chosen when no other differential machinery existed. There is now
+behavioural agreement over 106 cases at two optimisation levels,
+byte-identical AXDL gated three-way against goldens with a 142-file
+silence sweep, 90 conformance cases end to end, and a fixpoint that
+checks byte-identity where it carries meaning: `stage2 == stage3`.
+
+*And stage1's convention is measurably better, not merely different.*
+Widening the differential gate turned up `320-effect-gc-roots`, which
+recurses 200,000 frames deep through a `let` body - not tail position
+in either compiler. Through a raw `llc` pipeline **stage0's own output
+overflows the stack at -O0 and at -O2, and stage1's does not**, at
+every level, because stage0's frames carry a hidden parameter and
+spill their bindings while stage1's do not. Converging stage1 onto
+stage0's IR would have imported that. A criterion that would make the
+surviving compiler worse at the thing the language is documented as
+being bad at is the wrong criterion.
+
+That case is skipped by the raw-pipeline comparison and named in the
+gate, because whether 200,000 frames fit is a question about frame
+size rather than about either compiler's semantics; `axiom build` runs
+`opt` and both are fine, which is what users get.
+
+The gate that carries the new criterion is
+`scripts/check-stdlib-selfhost.sh`, and widening it exposed one more
+thing worth recording: **it was not in CI.** It exists because nothing
+ran `tests/stdlib/` through stage1 and five miscompiles were hiding in
+that gap - and then it ran only when somebody typed its name, which is
+the same gap one level up, and precisely the risk `v1-roadmap.md`
+already lists ("a tool with no CI gate is silently broken, as `fmt`
+was"). It runs in CI now, over both corpora rather than one, with a
+counted floor so that a tree quietly leaving the sweep fails instead
+of reporting the silence it was looking for.
 
 But byte-identity is downstream of correctness, and looking for it
 turned up something worse. **Nothing ran `tests/stdlib/` through
@@ -1728,11 +1773,24 @@ including cascade suppression and grouping behaviour.
 ### Phase 4 - IR and backend in Axiom
 
 IR definition, lowering, LLVM text emission, and the target/syscall
-tables. The emitted `.ll` must match the Rust backend's byte-for-byte on
-the corpus - a stricter and much easier-to-debug criterion than
-"produces a working program".
+tables.
 
-*Exit criteria:* identical LLVM IR for the corpus; all four targets.
+This phase used to ask for `.ll` matching the Rust backend
+byte-for-byte, "a stricter and much easier-to-debug criterion than
+*produces a working program*" - true when it was written, and no longer
+the right target. Measured, it asks stage1 to adopt three design
+choices of the compiler being retired, one of which measurably costs
+stack depth; the section "What scouting phase 4 found first" above
+carries the numbers and the reasoning.
+
+*Exit criteria:* every case in `tests/stdlib/` and `tests/selfhost/`
+compiled by both compilers agrees on exit status and stdout, with each
+compiler's IR put through an identical `llc`/`cc` pipeline at `-O0` and
+`-O2` (`scripts/check-stdlib-selfhost.sh`, in CI, with a counted floor);
+stage1's output assembles for all four targets; and the bootstrap
+fixpoint holds. Byte-identity is still required where it carries
+meaning - `stage2 == stage3`, as objects and as emitted IR - which
+`scripts/check-bootstrap.sh` checks.
 
 ### Phase 5 - Driver, bootstrap, and fixpoint
 
