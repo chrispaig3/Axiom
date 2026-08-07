@@ -579,18 +579,68 @@
 
 ; ------------------------------------------------------------------
 ; Render accumulated lines into one string.
+;
+; MEASURE THE WHOLE OUTPUT FIRST, THEN ALLOCATE ONCE.
+;
+; This used to left-fold `strConcat` over the line vector, which is one
+; allocation and one full copy of everything emitted so far per line -
+; quadratic in the output, and it was the compiler's dominant cost by an
+; enormous margin. `strConcat` allocates from a bump allocator that
+; never frees, so nothing is reclaimed between iterations either, and
+; the peak is the SUM of every intermediate rather than the largest one.
+; Measured on the compiler compiling its own source (1,111,426 bytes of
+; IR over 32,593 lines), with `/usr/bin/time -l`:
+;
+;   fold:  16,973,342,080 bytes peak footprint, 15.63 s
+;   join:  see docs/self-hosting.md - two orders of magnitude less
+;
+; The law is peak ~= (bytes x lines) / 2, so the cost grew with the
+; SQUARE of the compiler's own size: every module added to `self_host/`
+; paid for itself twice. That is a bad shape for a self-hosted compiler
+; to have, independently of the absolute number.
+;
+; The replacement is the same walk twice - once to add up the lengths,
+; once to copy - so it allocates exactly one buffer of exactly the right
+; size. Both walks are `while` loops rather than self tail calls for the
+; reason `stdlib/Mem.ax` records at length: their depth is the size of
+; the data, and stage1 emits no tail-call elimination, so the recursive
+; spelling is a real call chain one frame deep per line.
 ; ------------------------------------------------------------------
 (pub :: renderCG (-> Int Int))
 (pub fn (renderCG cg)
-  (let ((lines (memGetWord cg 0)))
-    (renderFrom lines 0 "")))
-(pub :: renderFrom (-> Int Int Int Int))
-(pub fn (renderFrom lines i acc)
-  (if (>= i (vecLen lines))
-      acc
-      (let ((line (vecGet lines i)))
-        (renderFrom lines (+ i 1)
-          (strConcat acc (strConcat line "\n"))))))
+  (joinLines (memGetWord cg 0)))
+
+; The exact size of the joined result: every line plus its newline.
+(pub :: joinSize (-> Int Int))
+(pub fn (joinSize lines)
+  (let ((mut i 0)
+        (mut n 0))
+    {
+      (while (< i (vecLen lines))
+        {
+          (set n (+ n (+ (strLen (vecGet lines i)) 1)))
+          (set i (+ i 1))
+        })
+      n
+    }))
+
+(pub :: joinLines (-> Int Int))
+(pub fn (joinLines lines)
+  (let ((out (strAlloc (joinSize lines)))
+        (mut i 0)
+        (mut off 0))
+    {
+      (while (< i (vecLen lines))
+        (let ((line (vecGet lines i)))
+          {
+            (memCopy (+ (strData out) off) (strData line) (strLen line))
+            (set off (+ off (strLen line)))
+            (__store8 (strData out) off 10)
+            (set off (+ off 1))
+            (set i (+ i 1))
+          }))
+      out
+    }))
 
 ; ------------------------------------------------------------------
 ; String helpers.

@@ -2598,3 +2598,53 @@ did not name the file it could not read, so a mistyped subcommand -
 which the additive grammar correctly treats as a filename - reported a
 failure with nothing in it to act on. Both fixed; `cannot read input:
 frobnicate` is the message now.
+
+### One self-compile cost 16.9 GB, and nothing said so
+
+The self-hosted compiler's dominant cost was not lexing, parsing,
+checking or lowering. It was the last line of code generation.
+
+`renderCG` turned the emitted line vector into one string by left-folding
+`strConcat` over it. `strConcat` allocates a fresh buffer and copies both
+operands, and Axiom's allocator is a bump pointer with no free, so each
+line copied everything emitted so far into new memory and left the
+previous copy behind. Peak was therefore the **sum** of every
+intermediate rather than the largest one, and it grew with the square of
+the output.
+
+Measured with `/usr/bin/time -l`, the same compiler source compiled by
+the same stage1 before and after:
+
+| | peak footprint | wall |
+|---|---:|---:|
+| left-fold `strConcat` | 16,973,522,240 | 11.54 s |
+| measure, allocate once, copy | 72,958,912 | 0.85 s |
+
+232× less memory, 13.6× faster, and `cmp` says the two outputs are
+byte-identical — which is the only interesting property, since a
+"faster" code generator that emits different code is a different
+compiler.
+
+The replacement walks the vector twice: once adding up
+`strLen(line) + 1`, once copying into a single buffer of exactly that
+size. Both walks are `while` loops rather than self tail calls, for the
+reason `stdlib/Mem.ax` records at length — their depth is the size of
+the data, and stage1 emits no tail-call elimination, so the recursive
+spelling is a real call chain one frame deep per line.
+
+**The shape mattered more than the constant.** At `(bytes × lines) / 2`,
+every module added to `self_host/` paid for itself twice: the compiler
+got bigger, so its output got bigger, so the fold got quadratically more
+expensive. That is a bad property for a self-hosted compiler to have
+while it is still growing — and the next thing to be added to it is a
+formatter.
+
+`check-bootstrap.sh` now measures one self-compile's peak RSS and
+refuses over 400 MiB. A ceiling, not a benchmark: the number to protect
+is the shape. Quadratic growth crosses 400 MiB long before it crosses a
+CI runner's limit, and when it does it presents as a SIGKILL in a job
+that looks unrelated — which is exactly how the two bootstrap failures
+this document already records presented. The measurement fails rather
+than skips when neither `/usr/bin/time -l` nor `-v` works, because a
+resource check that silently skips is this repository's most-repeated
+mistake.

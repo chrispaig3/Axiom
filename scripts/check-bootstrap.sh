@@ -168,5 +168,48 @@ out="$("$work/d3/prog")"; got=$?
   || fail "a program built by the self-built compiler said '$out'/$got, want 'self-hosted'/42"
 echo "ok   a program built end to end by the self-built compiler runs correctly"
 
+# ---------------------------------------------------------------
+# What one self-compile costs.
+#
+# This exists because the cost was once 16.9 GB and nothing said so.
+# `renderCG` left-folded `strConcat` over the emitted line vector, which
+# is one allocation and one full copy of everything emitted so far per
+# line, over an allocator that never frees - so peak was the SUM of every
+# intermediate rather than the largest, and it grew with the SQUARE of
+# the compiler's own size. Measured on the same input before and after
+# the two-pass join: 16,973,522,240 -> 72,958,912 bytes of peak
+# footprint, 11.54 s -> 0.85 s, with byte-identical output.
+#
+# A ceiling rather than a benchmark: the number to protect is the shape,
+# not the constant. Quadratic growth crosses 400 MB long before it
+# crosses a CI runner's limit, and it presents as SIGKILL in an
+# unrelated-looking job - which is why this is a gate and not a note.
+#
+# It measures rather than assumes it can: a platform where neither
+# `time` spelling works fails here, because a resource check that
+# silently skips is the failure this repository has hit twice.
+# ---------------------------------------------------------------
+peak_rss_kb() {
+  # Darwin's `time -l` reports bytes; GNU's `time -v` reports kilobytes.
+  if /usr/bin/time -l true >/dev/null 2>&1; then
+    /usr/bin/time -l "$@" 2>&1 >/dev/null \
+      | awk '/maximum resident set size/ { print int($1 / 1024) }'
+  elif /usr/bin/time -v true >/dev/null 2>&1; then
+    /usr/bin/time -v "$@" 2>&1 >/dev/null \
+      | awk '/Maximum resident set size/ { print $NF }'
+  fi
+}
+
+cp "$repo_root/self_host/main.ax" "$work/in.ax"
+peak="$(cd "$work" && peak_rss_kb ./stage1)"
+if [[ -z "$peak" ]]; then
+  fail "could not measure the self-compile's peak memory (no usable /usr/bin/time)"
+fi
+ceiling=409600   # 400 MiB
+if (( peak > ceiling )); then
+  fail "one self-compile peaked at $((peak / 1024)) MiB, over the $((ceiling / 1024)) MiB ceiling - suspect an accumulator that copies"
+fi
+echo "ok   one self-compile peaks at $((peak / 1024)) MiB, under the $((ceiling / 1024)) MiB ceiling"
+
 echo
 echo "fixpoint reached: the Axiom compiler reproduces itself, and builds itself"
