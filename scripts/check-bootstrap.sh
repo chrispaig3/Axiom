@@ -110,5 +110,63 @@ if ! cmp -s "$work/stage2.o" "$work/stage3.o"; then
 fi
 echo "ok   stage2 and stage3 are byte-identical binaries"
 
+# The ladder again, this time driven by the compiler itself.
+#
+# Everything above proves the fixpoint but NOT that the compiler is
+# usable, and the difference is the whole of phase 5. The `build_next`
+# above runs `llc` and `cc` on stage1's behalf: what it demonstrates is
+# that stage1 emits good IR, not that stage1 can produce an executable.
+# For most of this project's life stage1 could not - it wrote LLVM text
+# to stdout and stopped, and every gate here finished the job for it.
+#
+# `stage1 build` does the whole job: writes the IR, runs `opt`, runs
+# `llc`, runs `cc`, and cleans up after itself, spawning each child
+# through `Sys.sysRunPath`. This section is kept separate from the one
+# above rather than replacing it, so that a bug in the driver cannot
+# hide a bug in the compiler by taking the fixpoint signal down with it.
+#
+# The two stages are built to the same BASENAME in different
+# directories, and that is load-bearing on macOS: `ld` derives the
+# Mach-O `LC_UUID` from the output path, so building `stage2` and
+# `stage3` side by side makes two byte-identical compilers differ in 48
+# bytes - 16 of UUID and the ad-hoc code signature that covers it -
+# for a reason neither compiler caused. Measured; the emitted IR was
+# identical throughout.
+mkdir -p "$work/d2" "$work/d3"
+
+if ! "$work/stage1" build --input "$repo_root/self_host/main.ax" \
+     --output "$work/d2/axc" >"$work/drv2.log" 2>&1; then
+  sed 's/^/    /' "$work/drv2.log" | head -5 >&2
+  fail "stage1 could not build its successor through its own driver"
+fi
+echo "ok   stage1 built stage2 by itself - no llc or cc from this script"
+
+if ! "$work/d2/axc" build --input "$repo_root/self_host/main.ax" \
+     --output "$work/d3/axc" >"$work/drv3.log" 2>&1; then
+  sed 's/^/    /' "$work/drv3.log" | head -5 >&2
+  fail "the self-built compiler could not build its own successor"
+fi
+echo "ok   stage2 built stage3 by itself, with no Rust compiler involved"
+
+if ! cmp -s "$work/d2/axc" "$work/d3/axc"; then
+  fail "the self-driven stage2 and stage3 binaries differ"
+fi
+echo "ok   the self-driven stage2 and stage3 are byte-identical"
+
+# And it compiles a real program end to end, because two compilers can
+# agree on their own source and still both be wrong.
+cat >"$work/d3/prog.ax" <<'CASE'
+(import IO)
+(:: main Int)
+;@axiom:effect(io)
+(fn (main) { (println "self-hosted") 42 })
+CASE
+(cd "$work/d3" && ./axc build --input prog.ax --output prog >build.log 2>&1) \
+  || { sed 's/^/    /' "$work/d3/build.log" | head -5 >&2; fail "the self-built compiler could not build a program"; }
+out="$("$work/d3/prog")"; got=$?
+[[ "$got" == 42 && "$out" == "self-hosted" ]] \
+  || fail "a program built by the self-built compiler said '$out'/$got, want 'self-hosted'/42"
+echo "ok   a program built end to end by the self-built compiler runs correctly"
+
 echo
-echo "fixpoint reached: the Axiom compiler reproduces itself"
+echo "fixpoint reached: the Axiom compiler reproduces itself, and builds itself"

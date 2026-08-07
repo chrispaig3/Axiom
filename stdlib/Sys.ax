@@ -195,6 +195,37 @@
       ""
       (strFromLit (__argv i))))
 
+; Write `s` to `path`, creating or truncating it. Answers the number of
+; bytes written, or a negative errno from whichever step failed.
+;
+; A compiler driver writes its own intermediates, and this is the one
+; direction of file I/O the library did not have: it could read a file
+; and it could write to an already-open descriptor, but nothing put a
+; string on disk under a name.
+(pub :: sysWriteFile (-> Int Int Int))
+;@axiom:effect(io)
+(pub fn (sysWriteFile path s)
+  (let ((fd (sysOpenPath path oWronlyCreateTrunc)))
+    (if (sysFailed fd)
+        fd
+        (let ((n (sysWriteFd fd (strData s) (strLen s))))
+          {
+            (sysCloseFd fd)
+            n
+          }))))
+
+; Remove `path`. Answers 0, or `-errno`.
+;
+; AArch64 Linux has no `unlink` in its table - only `unlinkat` - which
+; is the same shape as `open`/`openat`, so it branches on the same
+; `openNeedsDirFd` capability rather than growing a second one.
+(pub :: sysUnlink (-> Int Int))
+;@axiom:effect(io)
+(pub fn (sysUnlink path)
+  (if (== openNeedsDirFd 1)
+      (__syscall3 sysUnlinkNum atFdCwd path 0)
+      (__syscall1 sysUnlinkNum path)))
+
 ; ------------------------------------------------------------------
 ; The environment.
 ;

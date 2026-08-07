@@ -116,3 +116,7 @@
 
 (pub :: sysExecve Int)
 (pub fn (sysExecve) 0)
+
+; unlink(path) - BSD 10.
+(pub :: sysUnlinkNum Int)
+(pub fn (sysUnlinkNum) 33554442)

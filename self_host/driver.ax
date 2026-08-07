@@ -1,0 +1,295 @@
+; driver.ax - the command-line surface, and the native toolchain.
+;
+; Until this module existed, the self-hosted compiler was
+; `stage1 FILE [TARGET] > out.ll`: it emitted LLVM text on stdout and
+; could do nothing else. Producing an executable meant a human running
+; `llc` and `cc` afterwards, which is what every gate script in this
+; repository does. A compiler that cannot finish the job is a component,
+; not a compiler, and this is the difference.
+;
+; ------------------------------------------------------------------
+; The argument grammar is STRICTLY ADDITIVE, and that is a constraint
+; rather than a courtesy.
+;
+; Five harnesses invoke stage1 as `stage1 [FILE [TARGET]]` -
+; check-self-host.sh, check-diagnostics.sh (twice), check-bootstrap.sh
+; and check-stdlib-selfhost.sh. A subcommand CLI that replaced that
+; spelling would break all five in the same commit, and they are the
+; only gates that watch stage1 at all: losing them simultaneously means
+; losing the ability to bisect anything that follows. So a first
+; argument that names a known subcommand is parsed as one, and anything
+; else keeps its old meaning as an input path.
+;
+; The cost of that rule is a file literally named `build`, `check`,
+; `run`, `emit-llvm` or `version` with no extension, which would be read
+; as a subcommand. Recorded rather than defended against: `--` handling
+; would be the fix if it ever mattered.
+; ------------------------------------------------------------------
+
+(import core)
+(import Host)
+(import Mem)
+(import Str)
+(import Vec)
+(import Sys)
+(import codegen)
+
+; ------------------------------------------------------------------
+; Exit codes.
+;
+; These are stage1's existing ones, kept because `check-self-host.sh`
+; asserts on 3: 0 success, 1 unreadable input or a failing check, 2 a
+; parse error, 3 an import that would not resolve. The toolchain adds 4
+; - a native tool failed or is missing - which is deliberately distinct
+; from 1, because "your program is wrong" and "llc is not installed" are
+; not the same news and a driver that reports them identically sends
+; the reader to the wrong place.
+; ------------------------------------------------------------------
+
+(pub :: exitToolFailed Int)
+(pub fn (exitToolFailed) 4)
+
+; ------------------------------------------------------------------
+; Running a native tool.
+; ------------------------------------------------------------------
+
+; Run `tool` with the arguments in `args`, a Vec of Str, answering the
+; child's exit code, or a negative errno if it could not be started.
+;
+; `argv[0]` is the tool's own name, which the kernel does not supply and
+; which several tools read back out of their own argv.
+(pub :: runTool (-> Int Int Int))
+;@axiom:effect(io)
+(pub fn (runTool tool args)
+  (let ((n (vecLen args)))
+    (let ((v (memAlloc (* (+ n 2) 8))))
+      {
+        (memSetWord v 0 (strCStr (strDup tool)))
+        (fillArgv v args 0 n)
+        (memSetWord v (+ n 1) 0)
+        (sysRunPath tool v sysEnvp)
+      })))
+
+(pub :: fillArgv (-> Int Int Int Int Int))
+(pub fn (fillArgv v args i n)
+  (if (>= i n)
+      0
+      {
+        ; Every element is copied, because a Str produced by slicing
+        ; shares its bytes with a larger string and stops at no NUL.
+        (memSetWord v (+ i 1) (strCStr (strDup (cast Int (vecGet args i)))))
+        (fillArgv v args (+ i 1) n)
+      }))
+
+(pub :: argsOf3 (-> Int Int Int Int))
+(pub fn (argsOf3 a b c)
+  (let ((v vecNew))
+    { (vecPush v (cast Int a)) (vecPush v (cast Int b)) (vecPush v (cast Int c)) v }))
+
+; ------------------------------------------------------------------
+; The build pipeline: IR -> opt -> llc -> cc.
+;
+; The order, the argument vectors and the failure rules are stage0's,
+; because two compilers that drive the toolchain differently are two
+; compilers that produce different binaries from the same source - and
+; the bootstrap fixpoint cannot see that, since both stages would carry
+; the same driver. Copying stage0 is what keeps the comparison honest
+; while stage0 is still around to compare against.
+; ------------------------------------------------------------------
+
+; `-relocation-model=pic` is required of EVERY llc invocation in this
+; project. llc's default relocation model for ELF is `static`, every
+; current Linux distribution links PIE by default, and Axiom always has
+; a `.bss` global - the bump allocator's cursor - so the link fails with
+; `R_X86_64_32S against .bss`. It is masked at -O2, where the x86
+; backend picks PC-relative addressing anyway, and cannot be reproduced
+; on macOS at all.
+(pub :: llcRelocArg Int)
+(pub fn (llcRelocArg) "-relocation-model=pic")
+
+; Optimise `llPath` into `<base>.opt.ll`, answering the path llc should
+; read.
+;
+; A MISSING `opt` is a warning and the unoptimised IR is used; a PRESENT
+; `opt` that fails is fatal. That distinction is stage0's and it is
+; load-bearing in both directions. It has to be a warning because `opt`
+; is not always installed - and it has to be survivable, because
+; without its tail-call pass a stage2 compiling its own source
+; overflows its stack.
+(pub :: runOpt (-> Int Int Int Int))
+;@axiom:effect(io)
+(pub fn (runOpt llPath optLevel outPath)
+  (if (<= optLevel 0)
+      llPath
+      (let ((lvl (if (> optLevel 3) 3 optLevel)))
+        (let ((args (let ((v vecNew))
+                      {
+                        (vecPush v (cast Int (cat2 "-O" (fmtIntStr lvl))))
+                        (vecPush v (cast Int llPath))
+                        (vecPush v (cast Int "-S"))
+                        (vecPush v (cast Int "-o"))
+                        (vecPush v (cast Int outPath))
+                        v
+                      })))
+          (let ((rc (runTool "opt" args)))
+            (if (< rc 0)
+                {
+                  (writeStderrStr "warning: `opt` not found on PATH; building without mid-level optimisation (deeply recursive code may exhaust the stack)\n")
+                  llPath
+                }
+                (if (!= rc 0) "" outPath)))))))
+
+; Assemble `llPath` to `objPath`, then link it to `outPath`.
+; Answers 0, or `exitToolFailed`.
+(pub :: assembleAndLink (-> Int Int Int Int Int))
+;@axiom:effect(io)
+(pub fn (assembleAndLink llPath objPath outPath optLevel)
+  (let ((lvl (if (> optLevel 3) 3 (if (< optLevel 0) 0 optLevel))))
+    (let ((llcArgs (let ((v vecNew))
+                     {
+                       (vecPush v (cast Int llPath))
+                       (vecPush v (cast Int "-filetype=obj"))
+                       (vecPush v (cast Int "-o"))
+                       (vecPush v (cast Int objPath))
+                       (vecPush v (cast Int (cat2 "-O" (fmtIntStr lvl))))
+                       (vecPush v (cast Int llcRelocArg))
+                       v
+                     })))
+      (let ((rc (runTool "llc" llcArgs)))
+        (if (!= rc 0)
+            {
+              (writeStderrStr (if (< rc 0) "error: could not run `llc`\n" "error: llc failed\n"))
+              exitToolFailed
+            }
+            (let ((ccArgs (let ((v vecNew))
+                            {
+                              (vecPush v (cast Int objPath))
+                              (vecPush v (cast Int "-o"))
+                              (vecPush v (cast Int outPath))
+                              v
+                            })))
+              (let ((rc2 (runTool "cc" ccArgs)))
+                (if (!= rc2 0)
+                    {
+                      (writeStderrStr (if (< rc2 0) "error: could not run `cc`\n" "error: cc failed\n"))
+                      exitToolFailed
+                    }
+                    0))))))))
+
+; Write `ir` beside `outPath`, drive the toolchain, and clean up.
+;
+; Intermediates are removed on the FAILURE paths too, which is stage0's
+; behaviour and the reason its cleanup runs before the error is
+; propagated: a failed build that leaves a `.o` behind makes the next
+; one ambiguous. `keepLl` is `--emit-llvm`, and preserves the
+; PRE-`opt` IR - also stage0's choice, and worth knowing before writing
+; a gate that greps it, since it is the optimiser's input rather than
+; what llc consumed.
+(pub :: buildToExecutable (-> Int Int Int Int Int))
+;@axiom:effect(io)
+(pub fn (buildToExecutable ir outPath optLevel keepLl)
+  (let ((llPath (cat2 outPath ".ll"))
+        (objPath (cat2 outPath ".o"))
+        (optPath (cat2 outPath ".opt.ll")))
+    (if (< (sysWriteFile (strCStr llPath) ir) 0)
+        {
+          (writeStderrStr "error: could not write LLVM IR\n")
+          exitToolFailed
+        }
+        (let ((toAssemble (runOpt llPath optLevel optPath)))
+          (if (== (strLen toAssemble) 0)
+              {
+                (writeStderrStr "error: opt failed\n")
+                (sysUnlink (strCStr llPath))
+                exitToolFailed
+              }
+              (let ((rc (assembleAndLink toAssemble objPath outPath optLevel)))
+                {
+                  (sysUnlink (strCStr objPath))
+                  (if (!= (strCmp toAssemble llPath) 0) (sysUnlink (strCStr optPath)) 0)
+                  (if (== keepLl 0) (sysUnlink (strCStr llPath)) 0)
+                  rc
+                }))))))
+
+
+(pub :: writeStderrStr (-> Int Int))
+;@axiom:effect(io)
+(pub fn (writeStderrStr s) (sysWriteFd 2 (strData s) (strLen s)))
+
+; Decimal rendering of a small non-negative int, for `-O<n>`.
+;
+; `Fmt` is not imported here: the compiler's own modules keep their
+; import surface small, and the only numbers this module renders are 0
+; through 3.
+(pub :: fmtIntStr (-> Int Int))
+(pub fn (fmtIntStr n)
+  (if (== n 0) "0"
+  (if (== n 1) "1"
+  (if (== n 2) "2"
+  (if (== n 3) "3" "1")))))
+
+; ------------------------------------------------------------------
+; Argument parsing.
+; ------------------------------------------------------------------
+
+(pub :: isSubcommand (-> Int Bool))
+(pub fn (isSubcommand s)
+  (|| (strEq s "build")
+      (|| (strEq s "check")
+          (|| (strEq s "run")
+              (|| (strEq s "emit-llvm")
+                  (|| (strEq s "version") (strEq s "--version")))))))
+
+; The value of `--name` / `--name=value`, or "" when absent.
+(pub :: flagValue (-> Int Int Int))
+(pub fn (flagValue name from)
+  (flagValueAt name from (sysArgc)))
+
+(pub :: flagValueAt (-> Int Int Int Int))
+(pub fn (flagValueAt name i n)
+  (if (>= i n)
+      ""
+      (let ((a (sysArg i)))
+        (if (strEq a name)
+            (if (< (+ i 1) n) (sysArg (+ i 1)) "")
+            (let ((eq (cat2 name "=")))
+              (if (strStartsWith a eq)
+                  (strSlice a (strLen eq) (- (strLen a) (strLen eq)))
+                  (flagValueAt name (+ i 1) n)))))))
+
+(pub :: hasFlag (-> Int Bool))
+(pub fn (hasFlag name) (hasFlagAt name 1 (sysArgc)))
+
+(pub :: hasFlagAt (-> Int Int Int Bool))
+(pub fn (hasFlagAt name i n)
+  (if (>= i n)
+      false
+      (if (strEq (sysArg i) name) true (hasFlagAt name (+ i 1) n))))
+
+; The first argument at or after `from` that is not a flag and is not
+; the value of one, or "" if there is none.
+(pub :: positionalFrom (-> Int Int))
+(pub fn (positionalFrom from)
+  (if (>= from (sysArgc))
+      ""
+      (let ((a (sysArg from)))
+        (if (strStartsWith a "-")
+            ; A flag either carries its value with `=` or takes the next
+            ; argument, so skip one or two accordingly.
+            (if (>= (strFindByte a 61 0) 0)
+                (positionalFrom (+ from 1))
+                (positionalFrom (+ from 2)))
+            a))))
+
+(pub :: optLevelArg Int)
+(pub fn (optLevelArg)
+  (let ((v (flagValue "--opt" 1)))
+    (if (== (strLen v) 0)
+        1
+        (let ((c (strByte v 0)))
+          (if (&& (>= c 48) (<= c 51)) (- c 48) 1)))))
+
+(pub :: targetArg (-> Int Int))
+(pub fn (targetArg fallback)
+  (let ((v (flagValue "--target" 1)))
+    (if (== (strLen v) 0) fallback v)))

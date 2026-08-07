@@ -2338,3 +2338,101 @@ declared clobbered - which fails on the previous constraint string.
 darwin-x86_64 is assembled by CI on every run and executed by no
 runner, so that assertion is the only thing standing between it and the
 identical bug.
+
+## Phase 5: the compiler drives the toolchain itself
+
+**`stage1 build --input self_host/main.ax --output stage2` works, and
+the compiler it produces builds a byte-identical successor.** That is
+the difference between a compiler and a component, and until now Axiom
+had the component: stage1 wrote LLVM text to stdout and stopped.
+Producing an executable meant a human - or, in every case that has ever
+been measured, a gate script - running `opt`, `llc` and `cc` afterwards.
+So the fixpoint above was a statement about the IR stage1 emits, not
+about a compiler anyone could use.
+
+`self_host/driver.ax` closes it. `build` writes the IR, runs `opt`,
+runs `llc`, runs `cc`, and removes its intermediates, spawning each
+child through `Sys.sysRunPath`. `check`, `emit-llvm` (to stdout or
+`-o`), `run` and `version` are the rest of the surface.
+
+The order, the argument vectors and the failure rules are stage0's,
+deliberately, and not because copying is easier. Two compilers that
+drive the toolchain differently produce different binaries from the same
+source, and **the bootstrap fixpoint cannot see that**: both stages
+carry the same driver, so a wrong `llc` flag is perfectly
+self-consistent. That is risk #1 in this document's own table, and
+matching stage0 is what keeps the comparison honest while stage0 is
+still here to compare against. The rules that had to be copied rather
+than invented:
+
+- **A missing `opt` is a warning; a present `opt` that fails is fatal.**
+  Both halves are load-bearing in opposite directions. It has to be
+  survivable because `opt` is not always installed - and it has to
+  actually run, because without its tail-call pass a stage2 compiling
+  its own source overflows its stack. Probed both ways with a poisoned
+  `PATH`: a `PATH` holding only `llc` and `cc` builds a working binary
+  and warns, and an `llc` that exits 1 fails the build with exit 4 and
+  leaves no executable behind.
+- **`-relocation-model=pic` on every `llc` invocation**, which
+  axiom-cli documents as required of all of them and which two scripts
+  in this repository had already been caught missing.
+- **Intermediates are removed on the failure paths too**, so a failed
+  build cannot leave a `.o` that makes the next one ambiguous.
+
+`run` is the one deliberate divergence. stage0 pins its `run` at
+`--opt 0`, which is survivable for a small program and is not for this
+one: without `opt` the compiler overflows its stack compiling itself, so
+a `run` that copied stage0 would fail on the largest Axiom program in
+existence. It optimises.
+
+Exit 4 is new and distinguishes a native tool failing or being absent
+from exit 1, a program that does not check. Reporting both as 1 sends
+the reader to the wrong place - to their source, when the answer is
+that `llc` is not installed.
+
+**The argument grammar is strictly additive, and that is a constraint
+rather than a courtesy.** Five harnesses invoke stage1 as
+`stage1 [FILE [TARGET]]`, and they are the only gates that watch this
+compiler at all; a subcommand CLI that replaced that spelling would
+break all five in one commit and take with it the ability to bisect
+anything that follows. So a first argument naming a known subcommand is
+parsed as one and anything else keeps its old meaning. The cost is a
+file literally named `build` or `check` with no extension, recorded
+rather than defended against.
+
+*The measurement that nearly read as a lost fixpoint.* Built side by
+side, the self-driven `stage2` and `stage3` differ - in 48 bytes of
+381,672. They are not a compiler disagreement: the emitted IR is
+byte-identical, and the differing runs are 16 bytes at offset 1128 and
+32 bytes near the end, which are the Mach-O `LC_UUID` and the ad-hoc
+code signature that covers it. `ld` derives that UUID from the **output
+path**, so `stage2` and `stage3` get different ones by virtue of being
+called `stage2` and `stage3`. Built to the same basename in different
+directories they are byte-identical, which is how `check-bootstrap.sh`
+now does it. A gate that compares linked binaries has to control for
+this, and the failure it produces otherwise points squarely at the
+compiler and is nothing to do with it.
+
+`Sys` grew `sysWriteFile` and `sysUnlink` for the same slice - the
+library could read a file and write to an open descriptor, but nothing
+put a string on disk under a name, and nothing removed one. AArch64
+Linux has no `unlink`, only `unlinkat`, which is the same shape as
+`open`/`openat` and so branches on the existing `openNeedsDirFd`
+capability rather than growing a second one.
+
+`check-bootstrap.sh` now runs the ladder twice: once as before, with
+the harness driving `llc` and `cc`, and once with the compiler driving
+them. The two are kept separate rather than merged so that a bug in the
+driver cannot take the fixpoint signal down with it. The second ladder
+finishes by building and running a real program through the self-built
+compiler, because two compilers can agree on their own source and still
+both be wrong.
+
+*What is still stage0's.* `symbols`, `explain`, `fmt` and the REPL have
+no stage1 equivalent, and `--diagnostic-format` is accepted nowhere -
+stage1 emits AXDL always, which is what the diagnostics gate reads and
+what `human` would be invisible to. `fmt` is the load-bearing one:
+phase 5's "full test suite green under stage2" needs it, since five gate
+call sites use it. `run` does not forward arguments to the program it
+runs. None of these is on the bootstrap path, which is why the fixpoint
+holds without them.

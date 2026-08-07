@@ -81,3 +81,8 @@
 ; platform module.
 (pub :: sysPosixSpawn Int)
 (pub fn (sysPosixSpawn) 0)
+
+; The generic table has no `unlink`, only `unlinkat` (35) - the same
+; shape as `openat`, so `Sys.ax` branches on `openNeedsDirFd` for both.
+(pub :: sysUnlinkNum Int)
+(pub fn (sysUnlinkNum) 35)

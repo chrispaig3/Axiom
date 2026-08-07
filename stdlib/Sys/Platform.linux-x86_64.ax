@@ -79,3 +79,7 @@
 ; platform module.
 (pub :: sysPosixSpawn Int)
 (pub fn (sysPosixSpawn) 0)
+
+; x86-64 still has a real `unlink`.
+(pub :: sysUnlinkNum Int)
+(pub fn (sysUnlinkNum) 87)

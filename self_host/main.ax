@@ -11,6 +11,7 @@
 (import diag)
 (import typecheck)
 (import codegen)
+(import driver)
 
 (pub :: writeStdout (-> Int Int))
 (pub fn (writeStdout s) (sysWriteFd 1 (strData s) (strLen s)))
@@ -39,9 +40,18 @@
 ; stage0 uses, so a differential gate can compare the two streams
 ; separately. An error refuses to emit: a program that does not check
 ; has no business producing an object file.
-(pub :: main Int)
-(pub fn (main)
-  (let ((fileName (if (> (sysArgc) 1) (sysArg 1) "in.ax")))
+; Compile `fileName` for `tname`, answering its LLVM text - or the empty
+; string when `doEmit` is 0, which is what `check` wants.
+;
+; Every failure exits from inside here rather than being returned,
+; because each has its own status and each has already said what went
+; wrong: 1 unreadable input, 2 a parse error, 3 an unresolvable import,
+; 1 again for a module that does not type-check. Threading four codes
+; back through a language with no sum type at this layer would buy
+; nothing - no caller has a second thing to try.
+(pub :: compileFile (-> Int Int Int Int))
+;@axiom:effect(io)
+(pub fn (compileFile fileName tname doEmit)
   (let ((src (sysReadFile (strData fileName))))
     (if (== (strLen src) 0)
         (die "cannot read input\n" 1)
@@ -59,10 +69,7 @@
               ; `ubuntu-latest`. `Host` is a per-target module selected
               ; when this compiler was compiled, so the answer is
               ; whatever it was built for.
-              (let ((decls (memGetWord pr 1))
-                    (tname (if (> (sysArgc) 2)
-                               (sysArg 2)
-                               hostTarget)))
+              (let ((decls (memGetWord pr 1)))
                 (let ((tcode (checkedTargetCode tname))
                       (bares vecNew)
                       (fulls vecNew))
@@ -80,9 +87,103 @@
                             (sysExitWith 1)
                             1
                           }
-                          (let ((out (emitResolved allDecls bares fulls tcode))
-                                (_ (writeStdout out)))
-                            0)))))))))))))
+                          (if (== doEmit 0)
+                              ""
+                              (emitResolved allDecls bares fulls tcode)))))))))))))
+
+; The entry point: a subcommand if the first argument names one, and
+; otherwise the original `stage1 FILE [TARGET]` spelling.
+;
+; See `driver.ax` for why that fallback is not optional - five gate
+; scripts use it, and they are the only gates that watch this compiler.
+(pub :: main Int)
+;@axiom:effect(io)
+(pub fn (main)
+  (let ((first (if (> (sysArgc) 1) (sysArg 1) "")))
+    (if (isSubcommand first)
+        (runSubcommand first)
+        (let ((fileName (if (> (sysArgc) 1) first "in.ax"))
+              (tname (if (> (sysArgc) 2) (sysArg 2) hostTarget)))
+          (let ((ir (compileFile fileName tname 1)))
+            {
+              (writeStdout ir)
+              0
+            })))))
+
+(pub :: runSubcommand (-> Int Int))
+;@axiom:effect(io)
+(pub fn (runSubcommand cmd)
+  (if (|| (strEq cmd "version") (strEq cmd "--version"))
+      { (writeStdout "axiom (self-hosted) 0.1.0\n") 0 }
+  (if (strEq cmd "check")
+      (let ((f (positionalFrom 2)))
+        (if (== (strLen f) 0)
+            (die "error: check needs an input file\n" 1)
+            {
+              (compileFile f (targetArg hostTarget) 0)
+              0
+            }))
+  (if (strEq cmd "emit-llvm")
+      (let ((f (positionalFrom 2)))
+        (if (== (strLen f) 0)
+            (die "error: emit-llvm needs an input file\n" 1)
+            (let ((ir (compileFile f (targetArg hostTarget) 1))
+                  (out (flagValue "-o" 1)))
+              (if (== (strLen out) 0)
+                  { (writeStdout ir) 0 }
+                  (if (< (sysWriteFile (strCStr out) ir) 0)
+                      (die "error: could not write LLVM IR\n" 4)
+                      0)))))
+  (if (strEq cmd "build")
+      ; `--input`/`--output` are stage0's spelling. A bare positional is
+      ; accepted for `--input` too, because a compiler that insists on a
+      ; flag for the one argument it always needs is a compiler people
+      ; wrap in a shell script.
+      (let ((inp (let ((v (flagValue "--input" 1)))
+                   (if (> (strLen v) 0) v (positionalFrom 2)))))
+        (if (== (strLen inp) 0)
+            (die "error: build needs an input file\n" 1)
+            (let ((outp (let ((v (flagValue "--output" 1)))
+                          (if (> (strLen v) 0) v "output"))))
+              (let ((ir (compileFile inp (targetArg hostTarget) 1)))
+                (let ((rc (buildToExecutable ir outp optLevelArg
+                                             (if (hasFlag "--emit-llvm") 1 0))))
+                  (if (!= rc 0) (die "" rc) 0))))))
+  (if (strEq cmd "run")
+      (let ((f (positionalFrom 2)))
+        (if (== (strLen f) 0)
+            (die "error: run needs an input file\n" 1)
+            (let ((ir (compileFile f hostTarget 1)))
+              ; Unlike stage0, `run` optimises. stage0 pins its `run` at
+              ; --opt 0, which is survivable for a small program and is
+              ; not for this compiler: without `opt`'s tail-call pass a
+              ; stage2 compiling its own source overflows its stack. A
+              ; `run` that cannot run the compiler is a `run` that fails
+              ; on the largest Axiom program there is.
+              (let ((rc (buildToExecutable ir "axiom_temp_output" 1 0)))
+                (if (!= rc 0)
+                    (die "" rc)
+                    (let ((code (sysRunPath "./axiom_temp_output"
+                                            (runArgv "./axiom_temp_output")
+                                            sysEnvp)))
+                      {
+                        (sysUnlink (strCStr "./axiom_temp_output"))
+                        (sysExitWith (if (< code 0) 4 code))
+                        0
+                      }))))))
+      (die "error: unknown subcommand\n" 1)))))))
+
+; argv for the program `run` spawns: its own name and nothing else.
+; Forwarding the driver's remaining arguments is stage0 behaviour this
+; does not yet reproduce, and is recorded rather than half-done.
+(pub :: runArgv (-> Int Int))
+(pub fn (runArgv name)
+  (let ((v (memAlloc 16)))
+    {
+      (memSetWord v 0 (strCStr (strDup name)))
+      (memSetWord v 1 0)
+      v
+    }))
 
 (pub :: die (-> Int Int Int))
 (pub fn (die msg code)
