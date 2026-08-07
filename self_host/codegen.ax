@@ -123,6 +123,20 @@
             e
             (lookupEffIn tbl name entryOnly (+ i 1))))))
 
+; The registry entry a bare name reaches, asked from the module the
+; reference sits in - `mangledFor`'s rule, applied to effects. A name
+; the module does not declare falls through to `lookupEff`, so this
+; only ever prepends a candidate.
+(pub :: lookupEffFor (-> Int Int Int Int))
+(pub fn (lookupEffFor cg tbl name)
+  (let ((m (memGetWord cg 34)))
+    (let ((local (if (== m 0)
+                     0
+                     (lookupEffIn tbl (cat3 m "$" name) 0 0))))
+      (if (!= local 0)
+          local
+          (lookupEff tbl name)))))
+
 (pub :: effSlotRegistered (-> Int Int Int Bool))
 (pub fn (effSlotRegistered tbl slot i)
   (if (>= i (vecLen tbl))
@@ -732,6 +746,18 @@
         cg
         {
           (vecPush tbl (cast Int (EffEnt (nodeA node) slot isEntry)))
+          ; The effect's own name under its mangled spelling as well,
+          ; for the same reason its operations get one: a `handle`
+          ; INSIDE the declaring module must install the slot that
+          ; module's operations dispatch on. Resolve the two by
+          ; different rules and a module that declares its own
+          ; `Console` installs the handler in one global while its own
+          ; `log` reads another - the operation finds nothing and traps
+          ; on valid source.
+          (if (== (nodeModule node) 0)
+              0
+              (vecPush tbl (cast Int (EffEnt (cat3 (nodeModule node) "$" (nodeA node))
+                                             slot isEntry))))
           (scanEffectOps (nodeB node) slot isEntry (nodeModule node)
                          (memGetWord cg 33) 0)
           cg
@@ -2670,7 +2696,7 @@
 (pub fn (handleEffectEntFrom effs cg i)
   (if (>= i (vecLen effs))
       0
-      (let ((e (lookupEff (memGetWord cg 32) (nodeA (vecGet effs i)))))
+      (let ((e (lookupEffFor cg (memGetWord cg 32) (nodeA (vecGet effs i)))))
         (if (!= e 0)
             e
             (handleEffectEntFrom effs cg (+ i 1))))))
@@ -2795,28 +2821,8 @@
         (memSetWord cg 14 0)
         cg
       }
-      (let ((a (vecGet regs i)))
-        (let ((cgL (loadWordAt cg rec 0)))
-          (let ((cp (strDup (memGetWord cgL 2)))
-                (fpn (allocReg cgL))
-                (rn (allocReg cgL)))
-            (let ((fp (cat2 "%f" (fmtInt fpn)))
-                  (r (regStr rn)))
-              {
-                (emitLine cgL (cat4 (cat2 "  " fp)
-                                    " = inttoptr i64 "
-                                    cp
-                                    " to ptr"))
-                (emitLine cgL (strConcat
-                                (cat4 (cat3 (cat2 "  " r)
-                                            " = call i64 "
-                                            fp)
-                                      "(i64 "
-                                      (strDup rec)
-                                      (cat2 ", i64 " a))
-                                ")"))
-                (emitApplyRegs regs cgL (strDup r) (+ i 1))
-              }))))))
+      (let ((cgR (applyOneArg cg rec (vecGet regs i))))
+        (emitApplyRegs regs cgR (strDup (memGetWord cgR 2)) (+ i 1)))))
 
 ; One mutable global per declared effect - the evidence slot, zero for
 ; "no handler installed" - and the trap an unhandled operation exits
@@ -2832,10 +2838,27 @@
     (if (>= i (vecLen tbl))
         (if (== (vecLen tbl) 0) cg (emitUnhandledTrap cg))
         {
-          (emitLine cg (cat3 "@" (effSlot (vecGet tbl i))
-                             " = internal global i64 0"))
+          ; One global per SLOT, not per registry entry: an imported
+          ; effect is registered twice - bare, and under `Mod$name` so
+          ; a reference inside its own module finds it - and both
+          ; entries name the same slot. Emitting per entry produced two
+          ; definitions of one global, which llc refuses outright.
+          (if (== (slotFirstIndex tbl (effSlot (vecGet tbl i)) 0) i)
+              (emitLine cg (cat3 "@" (effSlot (vecGet tbl i))
+                                 " = internal global i64 0"))
+              0)
           (emitEffectGlobals cg (+ i 1))
         })))
+
+; The index of the first entry carrying `slot`, or -1. Two entries may
+; share one slot; only the first of them emits its global.
+(pub :: slotFirstIndex (-> Int Int Int Int))
+(pub fn (slotFirstIndex tbl slot i)
+  (if (>= i (vecLen tbl))
+      (- 0 1)
+      (if (strEq (effSlot (vecGet tbl i)) slot)
+          i
+          (slotFirstIndex tbl slot (+ i 1)))))
 
 (pub :: emitUnhandledTrap (-> Int Int))
 (pub fn (emitUnhandledTrap cg)
@@ -3317,8 +3340,8 @@
     ; operation name binds the local - which is how sema resolves it,
     ; and a generator that disagreed would dispatch a name the checker
     ; had already bound to a lambda.
-    (if (!= (lookupEff (memGetWord cg 33) fnName) 0)
-        (emitEffectOp (lookupEff (memGetWord cg 33) fnName) args cg)
+    (if (!= (lookupEffFor cg (memGetWord cg 33) fnName) 0)
+        (emitEffectOp (lookupEffFor cg (memGetWord cg 33) fnName) args cg)
         (let ((types (memGetWord cg 3))
               (entry (lookupType types fnName)))
           (if (== entry 0)
@@ -3370,27 +3393,42 @@
       }
       (let ((cgA (emitExpr (vecGet args i) cg)))
         (let ((a (strDup (memGetWord cgA 2))))
-          (let ((cgL (loadWordAt cgA rec 0)))
-            (let ((cp (strDup (memGetWord cgL 2)))
-                  (fpn (allocReg cgL))
-                  (rn (allocReg cgL)))
-              (let ((fp (cat2 "%f" (fmtInt fpn)))
-                    (r (regStr rn)))
-                {
-                  (emitLine cgL (cat4 (cat2 "  " fp)
-                                      " = inttoptr i64 "
-                                      cp
-                                      " to ptr"))
-                  (emitLine cgL (strConcat
-                                  (cat4 (cat3 (cat2 "  " r)
-                                              " = call i64 "
-                                              fp)
-                                        "(i64 "
-                                        (strDup rec)
-                                        (cat2 ", i64 " a))
-                                  ")"))
-                  (emitApplyChain args cgL (strDup r) (+ i 1))
-                })))))))
+          (let ((cgR (applyOneArg cgA rec a)))
+            (emitApplyChain args cgR (strDup (memGetWord cgR 2)) (+ i 1)))))))
+
+; One step of an application through a closure record: load word 0 as
+; the code pointer and call it with (record, argument). The result is
+; the record for the next step, and lands in field 2.
+;
+; Shared by the two chain walkers, which differ only in WHEN the
+; argument is evaluated - `emitApplyChain` evaluates each one just
+; before applying it, `emitApplyRegs` takes registers already
+; evaluated, which is what an effect operation needs so that an
+; argument's side effects happen before a missing handler traps.
+(pub :: applyOneArg (-> Int Int Int Int))
+(pub fn (applyOneArg cg rec a)
+  (let ((cgL (loadWordAt cg rec 0)))
+    (let ((cp (strDup (memGetWord cgL 2)))
+          (fpn (allocReg cgL))
+          (rn (allocReg cgL)))
+      (let ((fp (cat2 "%f" (fmtInt fpn)))
+            (r (regStr rn)))
+        {
+          (emitLine cgL (cat4 (cat2 "  " fp)
+                              " = inttoptr i64 "
+                              cp
+                              " to ptr"))
+          (emitLine cgL (strConcat
+                          (cat4 (cat3 (cat2 "  " r)
+                                      " = call i64 "
+                                      fp)
+                                "(i64 "
+                                (strDup rec)
+                                (cat2 ", i64 " a))
+                          ")"))
+          (memSetWord cgL 2 r)
+          cgL
+        }))))
 
 ; ------------------------------------------------------------------
 ; Freestanding primitives.

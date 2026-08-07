@@ -2216,9 +2216,10 @@ impl TypeChecker {
                     // Every bare reference in this body is made from
                     // this declaration's module, and resolves to that
                     // module's own definitions first.
+                    let saved_module = self.current_module.take();
                     self.current_module = module_path.clone();
                     let body_ty = self.check_expr(body);
-                    self.current_module = None;
+                    self.current_module = saved_module;
                     self.current_fn_params = Vec::new();
                     self.current_fn_callable = Vec::new();
                     self.pop_scope();
@@ -3225,6 +3226,27 @@ impl TypeChecker {
     /// reports it with the same diagnostic bare function names use,
     /// and the generator never sees one.
     pub fn resolve_effect_decl(&self, name: &str) -> Result<Option<&EffectDeclInfo>, Vec<String>> {
+        self.resolve_effect_decl_in(name, &self.current_module)
+    }
+
+    /// [`resolve_effect_decl`] for a reference made from a stated
+    /// module.
+    ///
+    /// This has to follow the same module-local rule
+    /// [`resolve_bare_fn`] does, and the reason is sharper than
+    /// consistency. Effect *operations* live in `functions`, so they
+    /// resolve through `resolve_bare_fn`; the effect a `handle`
+    /// installs resolves through here. Make one module-local and not
+    /// the other and a module that declares its own `Console` installs
+    /// the handler in one slot while its own `log` dispatches on
+    /// another - the operation finds no handler and the program traps
+    /// with exit 71, on source that is entirely valid. Probed: the two
+    /// used to agree by both being entry-first.
+    pub fn resolve_effect_decl_in(
+        &self,
+        name: &str,
+        module: &Option<String>,
+    ) -> Result<Option<&EffectDeclInfo>, Vec<String>> {
         let candidates: Vec<&EffectDeclInfo> = self
             .effect_decls
             .iter()
@@ -3232,6 +3254,11 @@ impl TypeChecker {
             .collect();
         if candidates.is_empty() {
             return Ok(None);
+        }
+        if module.is_some() {
+            if let Some(local) = candidates.iter().find(|d| d.module == *module) {
+                return Ok(Some(local));
+            }
         }
         if let Some(entry) = candidates.iter().find(|d| d.module.is_none()) {
             return Ok(Some(entry));
@@ -3257,11 +3284,22 @@ impl TypeChecker {
     /// entry file first, then the unique defining module, then
     /// `AX3014`.
     pub fn resolve_bare_fn(&self, name: &str) -> Option<&FnInfo> {
-        if self.current_module.is_some() {
+        self.resolve_bare_fn_in(name, &self.current_module)
+    }
+
+    /// [`resolve_bare_fn`] for a reference made from a stated module.
+    ///
+    /// `axiom-ir` needs this: `current_module` tracks the body being
+    /// *checked*, and is `None` again by the time IR is generated, so a
+    /// generator asking through `resolve_bare_fn` would resolve
+    /// entry-first while `mangled_name_for` two lines away resolved
+    /// module-locally. The two answers have to be the same one.
+    pub fn resolve_bare_fn_in(&self, name: &str, module: &Option<String>) -> Option<&FnInfo> {
+        if module.is_some() {
             if let Some(f) = self
                 .functions
                 .iter()
-                .find(|f| f.name == name && f.module == self.current_module)
+                .find(|f| f.name == name && f.module == *module)
             {
                 return Some(f);
             }

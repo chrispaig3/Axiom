@@ -1451,18 +1451,55 @@ no-op on both sides.
 
 ### What scouting phase 4 found first
 
-Phase 4 asks for byte-identical `.ll`. Measured on the 72-case
-conformance corpus: 62 pairs are comparable and **none is
-byte-identical**. Normalising away the preamble and the hidden closure
-parameter - the two differences visible on the simplest program -
-removes only about a fifth of the diff, so phase 4 is a
-lowering-strategy convergence project rather than a formatting one.
+Phase 4 asks for byte-identical `.ll`. Re-measured on the current
+corpus (2026-08-07): **71 pairs are comparable and none is
+byte-identical**, unchanged from the 0-of-62 the first scout found.
 The dominant residual is the storage model: stage0 spills parameters,
 `let` bindings and pattern binders to `alloca` and joins with
-branches, where stage1 emits registers and `phi`. Whether byte
-identity is measured on raw output or post-`mem2reg` is a design
-decision that has to be taken before anyone writes code, because it
-decides which compiler moves.
+branches, where stage1 emits registers and `phi`.
+
+The design decision this was waiting on - raw output or post-`mem2reg`
+- is now **measured rather than open, and the answer is that
+normalising does not help.** On `010-arith.ax`, the simplest program
+in the corpus, the raw diff is 46 lines and running `opt
+-passes=mem2reg` over both sides takes it to *50* (mem2reg annotates
+blocks with `; preds`). What survives on that program is three things,
+and none is a formatting artifact:
+
+| | stage0 | stage1 |
+|---|---|---|
+| calling convention | every function takes a hidden `%_closure` | only lifted lambdas do; bare references get a forwarding thunk |
+| block structure | `_block_0: br label %_block_1` | one unnamed entry block |
+| register naming | `%_t0` | `%t0` |
+
+The bodies are already identical - `mul`, `sub`, `add`, same order,
+same operands. So the criterion as written does not ask stage1 to
+converge on lowering; it asks stage1 to **abandon three of its own
+design decisions and adopt stage0's**, on the simplest program that
+exists. Two of the three this document already records as deliberate
+and sound: the thunk convention "agrees on every observable" with
+stage0's universal hidden parameter, and stage1's register/phi form is
+what a backend not built around allocas emits.
+
+That reframes the phase. Byte-identical `.ll` was chosen as "a
+stricter and much easier-to-debug criterion than *produces a working
+program*", at a time when no other differential machinery existed.
+There is now rather a lot of it - behavioural agreement on
+`tests/stdlib/` (33 of 33, exit status and stdout),
+`tests/selfhost/` end to end (90 cases), byte-identical AXDL gated
+three-way against goldens with a 142-file silence sweep, and a
+bootstrap fixpoint that already checks byte-identity where it carries
+meaning: `stage2 == stage3`, the compiler reproducing *itself*.
+Byte-identity between stage0 and stage1 is a different claim from any
+of those. It is not a correctness property; it says the two backends
+make the same lowering choices, and the compiler whose choices would
+have to win is the one being retired.
+
+Recorded as a decision to take rather than taken: whether phase 4's
+exit criterion should stay byte-identical `.ll`, or become
+behavioural equivalence across all four targets and both optimisation
+levels plus the fixpoint. The measurement above is what the decision
+should be made on.
 
 But byte-identity is downstream of correctness, and looking for it
 turned up something worse. **Nothing ran `tests/stdlib/` through
@@ -2045,6 +2082,37 @@ new rule replaced the old lookup rather than preceding it). Both
 compilers answered 1 before the change and 42 after. `320-mangle`
 still passes, and now for the right reason: `Str.ax`'s internal
 `strLen` reaches `Str`'s.
+
+**The rule had to reach effects in the same breath, and not doing so
+broke a working program.** Effect *operations* live in the same table
+as functions, so `resolve_bare_fn` made them module-local for free.
+The effect a `handle` installs resolves somewhere else entirely -
+`resolve_effect_decl` - which was still entry-first. A module
+declaring its own `Console` then installed its handler in one global
+while its own `log` dispatched on another, and the operation found no
+handler: **exit 71, the unhandled-effect trap, on valid source that
+answered 42 the commit before.** The two lookups had been agreeing by
+both being entry-first, which is the kind of agreement that survives
+exactly until one side is improved.
+
+Both are module-local now, in both compilers, and stage1 needed the
+same pairing: its effect *names* are registered under `Mod$name` as
+its operations already were, and the evidence globals are emitted per
+SLOT rather than per registry entry, since the two spellings of one
+effect share one slot and emitting per entry defined the same global
+twice. `tests/selfhost/860-module-local-effect.ax` is the guard: it
+answers 42 when the two lookups agree and 71 when they do not.
+
+The semantics this settles are worth stating, because they are a
+decision rather than a bug fix: **an effect declared in two modules is
+two effects.** stage0 has always given them separate slots
+(`effect_slot_name` keys by name *and* module); it was only resolution
+that conflated them. So an entry file's handler for its own `Console`
+does not handle an imported module's `Console` - probed, both
+compilers trap identically rather than dispatching to the wrong
+handler. Before this, a module's own effect declaration was simply
+unreachable from inside that module, which is the same defect as
+`helper` wearing different clothes.
 
 What is *not* fixed is the rest of the flat namespace. A module still
 sees names from modules it does not import - resolution outward from a

@@ -1,0 +1,25 @@
+; expect 42
+; A `handle` and the operations it handles must resolve their effect by
+; the same rule, or they install and read different globals.
+;
+; Effect operations live in the same table as functions, so they follow
+; the module-local rule `850-module-local-binding.ax` pins. The effect a
+; `handle` installs is resolved separately. Make one module-local and
+; not the other and this program - which is valid, and which both
+; compilers accept - exits **71**, the unhandled-effect trap:
+; `EffOwn.ownRun` installs its handler in one module's slot while its
+; own `log` dispatches on another's. Measured, in exactly that state,
+; before the two lookups were paired.
+;
+; 21 doubled by `EffOwn`'s own handler is 42. The entry file's handler
+; returns 99 and must never run: an effect declared in two modules is
+; two effects, with two slots, and stage0 has always given them
+; separate globals - it was only resolution that conflated them.
+(import EffOwn)
+
+(effect Console
+  (log :: (-> Int Int)))
+
+(:: main Int)
+(fn (main)
+  (handle (ownRun 21) (Console Alloc) (lambda (v) 99)))

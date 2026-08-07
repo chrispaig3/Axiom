@@ -1039,6 +1039,12 @@ impl IrGen {
         // this declaration's module, and binds to that module's own
         // definitions first (`mangled_name_for`). Set before the float
         // scope, because the scope seeding resolves names too.
+        //
+        // Saved and restored rather than cleared: nothing nests these
+        // today (`gen_lambda` builds its function inline rather than
+        // re-entering here), and a clear would strand the enclosing
+        // module's resolution the day something does.
+        let saved_module = self.current_module.take();
         self.current_module = module_path.clone();
 
         // The float tables are keyed by mangled name, so the scope
@@ -1140,7 +1146,7 @@ impl IrGen {
         }
 
         self.entry_block = None;
-        self.current_module = None;
+        self.current_module = saved_module;
 
         func
     }
@@ -2457,8 +2463,12 @@ impl IrGen {
                             .filter(|f| f.effect_op.is_some())
                             .map(|f| (f.effect_op.clone().unwrap().0, f.module.clone()))
                     }
+                    // Asked from the module being lowered, for the same
+                    // reason `mangled_name_for` resolves that way: an
+                    // operation and a function of one name must not be
+                    // picked by two different rules in one compiler.
                     Expr::EVar(ident) => type_checker
-                        .resolve_bare_fn(&ident.name)
+                        .resolve_bare_fn_in(&ident.name, &self.current_module)
                         .filter(|f| f.effect_op.is_some())
                         .map(|f| (f.effect_op.clone().unwrap().0, f.module.clone())),
                     _ => None,
@@ -3613,8 +3623,12 @@ impl IrGen {
                     // first, while the operation dispatched through
                     // its own module's slot - installed handler,
                     // trapping op.
+                    // From the module being lowered, exactly as the
+                    // operation's own lookup asks: the slot a handler
+                    // installs into and the slot its operations
+                    // dispatch on must be the same one.
                     axiom_ast::ast::Effect::Custom(id) => type_checker
-                        .resolve_effect_decl(&id.name)
+                        .resolve_effect_decl_in(&id.name, &self.current_module)
                         .ok()
                         .flatten()
                         .map(|d| (d.name.clone(), d.module.clone())),

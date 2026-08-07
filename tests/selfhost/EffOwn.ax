@@ -1,0 +1,9 @@
+; A module that declares an effect, handles it, and performs it - all
+; three inside itself - while an entry file declares an effect of the
+; same name. For `860-module-local-effect.ax`.
+(pub effect Console
+  (log :: (-> Int Int)))
+
+(pub :: ownRun (-> Int Int))
+(pub fn (ownRun x)
+  (handle (log x) (Console) (lambda (v) (* v 2))))
