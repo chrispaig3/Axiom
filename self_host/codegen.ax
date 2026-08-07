@@ -24,7 +24,10 @@
 ;
 ; `fieldFlags` is one 0/1 per field: is it declared `Float`. A pattern
 ; binder for that field carries the flag into the symbol table.
-(pub struct TypeEntry (name : Int) (nameLen : Int) (nameHash : Int) (kind : Int) (arity : Int) (tag : Int) (rep : Int) (fieldFlags : Int))
+; `fieldNames` is a data constructor's declared field names when it
+; was written as a struct variant, 0 otherwise; a named pattern is
+; reordered against it at emission.
+(pub struct TypeEntry (name : Int) (nameLen : Int) (nameHash : Int) (kind : Int) (arity : Int) (tag : Int) (rep : Int) (fieldFlags : Int) (fieldNames : Int))
 (pub :: TF_DATA   Int) (pub fn (TF_DATA)   0)
 (pub :: TF_STRUCT Int) (pub fn (TF_STRUCT) 1)
 (pub :: eNameLen (-> Int Int)) (pub fn (eNameLen e) (memGetWord e 1))
@@ -48,9 +51,14 @@
 
 (pub :: addType (-> Int Int Int Int Int Int Int Int))
 (pub fn (addType types name kind arity tag rep fieldFlags)
+  (addTypeNamed types name kind arity tag rep fieldFlags 0))
+
+(pub :: addTypeNamed (-> Int Int Int Int Int Int Int Int Int))
+(pub fn (addTypeNamed types name kind arity tag rep fieldFlags fieldNames)
   (let ((nl (strLen name))
         (nh (nameHash name)))
-    (vecPush types (cast Int (TypeEntry name nl nh kind arity tag rep fieldFlags)))))
+    (vecPush types (cast Int (TypeEntry name nl nh kind arity tag rep fieldFlags fieldNames)))))
+(pub :: eFieldNames (-> Int Int)) (pub fn (eFieldNames e) (memGetWord e 8))
 
 (pub :: lookupType (-> Int Int Int))
 (pub fn (lookupType types name)
@@ -707,7 +715,8 @@
             ; of the module tag -1, and `fmtInt` rendered that as `/` -
             ; a stray character in the middle of an argument list.
             (memSetWord cg 4 (+ t 1))
-            (memSetWord cg 3 (addType types n TF_DATA a t rep (nodeC node)))
+            (memSetWord cg 3 (addTypeNamed types n TF_DATA a t rep (nodeC node)
+                                          (nodeFieldNames node)))
             (scanCtors ctors cg (+ i 1) rep)
           }))))
 
@@ -2309,6 +2318,21 @@
                     (emitPatTest (constStr (eTag entry))
                                  (strDup (memGetWord cgL 2))
                                  failB cgL)))))
+    ; A NAMED constructor pattern is reordered into the positional
+    ; spine and re-dispatched, so every mechanism below - the mixed-rep
+    ; guard, the tag test, the word-i+1 field loads with their float
+    ; flags - runs unchanged. A constructor with no recorded field
+    ; names cannot be matched this way; the pattern binds nothing
+    ; rather than binding by position, which would be a silent wrong
+    ; answer.
+    (if (== tag TAG_P_CONNAMED)
+        (let ((ent (lookupType (memGetWord cg 3) (nodeA pat))))
+          (if (|| (== ent 0) (== (eFieldNames ent) 0))
+              cg
+              (emitPatMatch (namedPatSpine (nodeA pat) (eFieldNames ent)
+                                           (nodeB pat) (nodeC pat)
+                                           (nodeSpan pat))
+                            vr failB cg isFloat)))
     (if (== tag TAG_E_APP)
         (let ((cname (patHead pat)))
           (let ((entry (if (== cname 0) 0 (lookupType (memGetWord cg 3) cname))))
@@ -2331,7 +2355,7 @@
                     (emitPatFields (patArgs pat vecNew)
                                    (eFieldFlags entry)
                                    vr failB cgT 0))))))
-    cg)))))))))
+    cg))))))))))
 
 ; The tag of a value whose type mixes representations, decided at
 ; runtime: below 4096 the value IS the tag (no immediate reaches the
@@ -2542,12 +2566,50 @@
     (let ((base (strDup (memGetWord cgB 2)))
           (fi (findStructField (memGetWord cgB 3) (nodeB node))))
       (if (== fi 0)
-          (dieImport "error: unknown struct field: " (nodeB node))
+          ; Not a struct field: it may be a DATA constructor's named
+          ; field. Those live PAST THE TAG WORD, so the offset is
+          ; index + 1 where a struct's is index - a struct carries no
+          ; tag. stage0 searches every data type, first match winning.
+          (let ((di (findDataField (memGetWord cgB 3) (nodeB node))))
+            (if (== di 0)
+                (dieImport "error: unknown struct field: " (nodeB node))
+                (let ((cgL (loadWordAt cgB base (+ (nodeA di) 1))))
+                  {
+                    (memSetWord cgL 14 (nodeB di))
+                    cgL
+                  })))
           (let ((cgL (loadWordAt cgB base (nodeA fi))))
             {
               (memSetWord cgL 14 (nodeB fi))
               cgL
             })))))
+
+; A data constructor's named field as an inert (index, floatFlag)
+; node, or 0. Searched in registry order, first match winning.
+(pub :: findDataField (-> Int Int Int))
+(pub fn (findDataField types fname) (findDataFieldFrom types fname 0))
+
+(pub :: findDataFieldFrom (-> Int Int Int Int))
+(pub fn (findDataFieldFrom types fname i)
+  (if (>= i (vecLen types))
+      0
+      (let ((e (vecGet types i)))
+        (if (|| (!= (eKind e) TF_DATA) (== (eFieldNames e) 0))
+            (findDataFieldFrom types fname (+ i 1))
+            (let ((j (dataFieldIndexIn (eFieldNames e) fname 0)))
+              (if (< j 0)
+                  (findDataFieldFrom types fname (+ i 1))
+                  (mkNode TAG_FIELD j
+                          (if (< j (vecLen (eFieldFlags e)))
+                              (vecGet (eFieldFlags e) j) 0)
+                          0)))))))
+
+(pub :: dataFieldIndexIn (-> Int Int Int Int))
+(pub fn (dataFieldIndexIn names fname i)
+  (if (>= i (vecLen names))
+      (- 0 1)
+      (if (strEq (vecGet names i) fname) i
+          (dataFieldIndexIn names fname (+ i 1)))))
 
 ; The field's (index, floatFlag) as an inert node, 0 when no struct
 ; declares the name.

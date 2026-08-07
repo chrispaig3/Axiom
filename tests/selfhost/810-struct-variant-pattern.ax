@@ -1,0 +1,34 @@
+; expect 34
+; NAMED constructor patterns, in the three shapes that can each be
+; wrong in a way positional binding cannot show:
+;
+;   - REVERSED ORDER. `{ h = h, w = w }` must bind by NAME. An
+;     implementation that ignored the names and bound positionally
+;     would answer 43 here instead of 34, which is the only reason
+;     this case reverses them.
+;   - PUNNING. `{ w, h }` means `{ w = w, h = h }`, resolved at parse
+;     time since it needs no knowledge of the declaration.
+;   - NESTING. A named pattern inside a named pattern has to recurse,
+;     and the binder for an inner field has to reach the arm body.
+;
+; The reorder happens against the constructor's recorded field names,
+; in both the checker and the emitter, and produces exactly the
+; positional spine both already understood - so the mixed-rep tag
+; guard, the field loads and the float flags are all unchanged.
+(data Shape
+  (Rect { w : Int, h : Int }))
+(data Boxed
+  (Wrap { inner : Shape, tag : Int }))
+(:: area (-> Shape Int))
+(fn (area s)
+  (match s
+    ((Rect { h = h, w = w }) (+ (* w 10) h))))
+(:: inner (-> Boxed Int))
+(fn (inner b)
+  (match b
+    ((Wrap { inner = (Rect { w, h }), tag = t }) (+ (* w 10) (+ h t)))))
+(:: main Int)
+(fn (main)
+  (if (== (area (Rect 3 4)) 34)
+      (if (== (inner (Wrap (Rect 3 4) 0)) 34) 34 1)
+      2))

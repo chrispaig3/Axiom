@@ -401,7 +401,10 @@
 (pub struct FnEnt (name : Int) (ty : Int) (paramCount : Int)
                   (isBuiltin : Int) (isForeign : Int) (isEffectOp : Int)
                   (effects : Int) (eparams : Int))
-(pub struct CtorEnt (name : Int) (fieldTys : Int) (resTy : Int) (ctorTy : Int))
+; `fieldNames` is the constructor's declared field names when it was
+; written as a struct variant, and 0 otherwise. A NAMED pattern is
+; reordered against it.
+(pub struct CtorEnt (name : Int) (fieldTys : Int) (resTy : Int) (ctorTy : Int) (fieldNames : Int))
 (pub struct DataEnt (name : Int) (ctors : Int))
 (pub struct StructEnt (name : Int) (fields : Int))
 (pub struct TC (fns : Int) (datas : Int) (structs : Int) (scope : Int)
@@ -502,8 +505,9 @@
             (cast Int (CtorEnt "Some"
                         (let ((v vecNew)) { (vecPush v (mkTVar "a")) v })
                         optRes
-                        (mkTArr (mkTVar "a") optRes))))
-          (vecPush optCtors (cast Int (CtorEnt "None" vecNew optRes optRes)))
+                        (mkTArr (mkTVar "a") optRes)
+                        0)))
+          (vecPush optCtors (cast Int (CtorEnt "None" vecNew optRes optRes 0)))
           (vecPush datas (cast Int (DataEnt "Option" optCtors)))
         })
       (let ((tc (cast Int (TC fns datas vecNew vecNew vecNew 0 0
@@ -666,7 +670,8 @@
             (vecPush acc
               (cast Int (CtorEnt (nodeA c) fieldTys resTy
                                  (ctorArrowOf fieldTys resTy
-                                              (- (vecLen fieldTys) 1)))))
+                                              (- (vecLen fieldTys) 1))
+                                 (nodeFieldNames c))))
             (tcCollectCtors ctorNodes resTy acc (+ i 1))
           }))))
 
@@ -2646,10 +2651,21 @@
           (let ((fty (if (== ent 0) (- 0 1) (structFieldTy ent (nodeB e)))))
             (if (!= fty (- 0 1))
                 fty
-                {
-                  (emitFieldNotFound tc (nodeB e) (nodeA baseTy) (nodeSpan e))
-                  mkI64Ty
-                })))
+                ; Not a struct field. It may still be a DATA
+                ; constructor's named field: stage0 scans every data
+                ; type and every constructor that has field names,
+                ; first match winning, without consulting the
+                ; scrutinee's own type. That looseness is deliberate
+                ; there and is reproduced here rather than tightened,
+                ; because tightening it would refuse programs stage0
+                ; accepts.
+                (let ((dty (dataFieldTy tc (nodeB e))))
+                  (if (!= dty 0)
+                      dty
+                      {
+                        (emitFieldNotFound tc (nodeB e) (nodeA baseTy) (nodeSpan e))
+                        mkI64Ty
+                      })))))
         {
           (if (== (tyIsSilentWild baseTy) 0)
               (emitMismatch tc "struct or data type" (tyRender baseTy)
@@ -2657,6 +2673,39 @@
               0)
           mkI64Ty
         })))
+
+; The type of a named constructor field, searching every data type in
+; declaration order, or 0. Mirrors stage0's `find_data_field_by_name`.
+(pub :: dataFieldTy (-> Int Int Int))
+(pub fn (dataFieldTy tc fname) (dataFieldTyFrom (tcDatas tc) fname 0))
+
+(pub :: dataFieldTyFrom (-> Int Int Int Int))
+(pub fn (dataFieldTyFrom datas fname i)
+  (if (>= i (vecLen datas))
+      0
+      (let ((r (dataFieldTyInCtors (memGetWord (vecGet datas i) 1) fname 0)))
+        (if (!= r 0) r (dataFieldTyFrom datas fname (+ i 1))))))
+
+(pub :: dataFieldTyInCtors (-> Int Int Int Int))
+(pub fn (dataFieldTyInCtors ctors fname i)
+  (if (>= i (vecLen ctors))
+      0
+      (let ((c (vecGet ctors i)))
+        (let ((declared (memGetWord c 4)))
+          (if (== declared 0)
+              (dataFieldTyInCtors ctors fname (+ i 1))
+              (let ((j (declaredFieldIndex declared fname 0)))
+                (if (< j 0)
+                    (dataFieldTyInCtors ctors fname (+ i 1))
+                    (let ((tys (memGetWord c 1)))
+                      (if (< j (vecLen tys)) (vecGet tys j) mkI64Ty)))))))))
+
+(pub :: declaredFieldIndex (-> Int Int Int Int))
+(pub fn (declaredFieldIndex declared fname i)
+  (if (>= i (vecLen declared))
+      (- 0 1)
+      (if (strEq (vecGet declared i) fname) i
+          (declaredFieldIndex declared fname (+ i 1)))))
 
 (pub :: emitFieldNotFound (-> Int Int Int Int Int))
 (pub fn (emitFieldNotFound tc fname tyName span)
@@ -2839,7 +2888,10 @@
 (pub :: recordCoverage (-> Int Int Int Int))
 (pub fn (recordCoverage pat covered catchall)
   (let ((tag (nodeTag pat)))
-    (if (== tag TAG_P_CON0)
+    ; A NAMED constructor arm covers its constructor exactly as a
+    ; positional one does - stage0's exhaustiveness treats `PCon` and
+    ; `PConNamed` in the same arm of the same match.
+    (if (|| (== tag TAG_P_CON0) (== tag TAG_P_CONNAMED))
         { (vecPush covered (nodeA pat)) 0 }
         (if (== tag TAG_E_APP)
             (let ((head (spineHead pat)))
@@ -2935,7 +2987,47 @@
               (checkCtorPattern tc (nodeA head)
                                 (spineArgVec pat vecNew)
                                 (nodeSpan head))))
-    0)))))
+    ; A NAMED constructor pattern. Every field it mentions must be one
+    ; the constructor declares - a miss is AX3007, anchored at the
+    ; FIELD NAME, which is why the parser keeps each name as a spanned
+    ; node. The pattern is then reordered into the positional spine
+    ; and checked by the ordinary path, so field types, binding and
+    ; AX3003 all behave as they do for `(Rect w h)`.
+    ;
+    ; There is deliberately no arity check: stage0 fills an omitted
+    ; field with a wildcard, so a partial named pattern is legal.
+    (if (== tag TAG_P_CONNAMED)
+        (let ((ctor (findCtor tc (nodeA pat))))
+          (if (== ctor 0)
+              (checkCtorPattern tc (nodeA pat) vecNew (nodeSpan pat))
+              (let ((declared (memGetWord ctor 4)))
+                {
+                  (checkNamedPatFields tc (nodeB pat) declared
+                                       (bareOf (nodeA pat)) 0)
+                  (if (== declared 0)
+                      0
+                      (checkCtorPattern tc (nodeA pat)
+                        (spineArgVec (namedPatSpine (nodeA pat) declared
+                                                    (nodeB pat) (nodeC pat)
+                                                    (nodeSpan pat))
+                                     vecNew)
+                        (nodeSpan pat)))
+                })))
+    0))))))
+
+; Each field the pattern names must be declared. AX3007's message and
+; help are the field-access ones, byte for byte.
+(pub :: checkNamedPatFields (-> Int Int Int Int Int Int))
+(pub fn (checkNamedPatFields tc names declared tyName i)
+  (if (>= i (vecLen names))
+      0
+      {
+        (let ((nm (vecGet names i)))
+          (if (== (declaredHasField declared (nodeA nm)) 1)
+              0
+              (emitFieldNotFound tc (nodeA nm) tyName (nodeSpan nm))))
+        (checkNamedPatFields tc names declared tyName (+ i 1))
+      }))
 
 (pub :: checkCtorPattern (-> Int Int Int Int Int))
 (pub fn (checkCtorPattern tc cname args span)
@@ -3001,7 +3093,12 @@
                 0
                 { (pushScope (tcScope tc) (nodeA arg) 0 (nodeSpan arg) ty)
                   0 }))
-        (if (|| (== tag TAG_E_APP) (== tag TAG_P_CON0))
+        ; A nested constructor pattern recurses, and a NAMED one is a
+        ; constructor pattern: without this arm `(Wrap { inner =
+        ; (Rect { w, h }) })` bound nothing for `w` or `h` and every
+        ; use of them was an undefined variable.
+        (if (|| (== tag TAG_E_APP)
+                (|| (== tag TAG_P_CON0) (== tag TAG_P_CONNAMED)))
             (checkPatternTyped tc arg 0)
             0))))
 

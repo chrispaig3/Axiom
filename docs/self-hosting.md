@@ -1766,6 +1766,53 @@ where it is cited, and `axiom --diagnostic-format=ai check <file>` plus
 `axiom build --input <file> --output <bin>` is enough to reproduce every
 result.
 
+**Struct variants work end to end.** `(Rect { w : Int, h : Int })` in
+a `data` declaration, `(Rect { h = h, w = w })` as a pattern, `{ w, h }`
+punning, named patterns nested inside named patterns, and `s.r` field
+access by name on a data value - `tests/stdlib/210-struct-variants.ax`
+now matches stage0 byte for byte.
+
+The shape of the implementation is the useful part: **a named
+constructor is a positional one that also knows what its fields are
+called.** The declaration records the names in a spare ASTNode word
+and builds arity, per-field float flags and per-field type nodes
+exactly as the positional spelling does, so a positional pattern over
+a named declaration needs no work anywhere downstream - measured, that
+alone made a whole class of program compile. A named PATTERN is
+reordered against those recorded names into the positional spine both
+the checker and the emitter already understood, so the mixed-rep
+`< 4096` tag guard, the word-*i*+1 field loads and the float flags are
+all untouched.
+
+It is not desugared at parse time, and cannot be: the declaration
+saying what order the fields are in may not have been seen yet. Both
+consumers reorder, which is where stage0 does it too. Punning IS
+resolved at parse time, because it needs no declaration - `{ w }` is
+`{ w = w }` whatever `w` turns out to be.
+
+Four things had to be got right and each was found by a failing
+measurement rather than by reading:
+
+- The reversed-order pattern is the only spelling that DISCRIMINATES.
+  `{ h = h, w = w }` over `(Rect 3 4)` answers 34 when bound by name
+  and 43 when bound by position, so the conformance case reverses them
+  deliberately.
+- Landing the declaration side alone made things *worse* before it
+  made them better: `210` began to parse, so the silence sweep started
+  reading it, and its named patterns misparsed into four false
+  diagnostics. Half of this feature is worse than none of it.
+- Exhaustiveness had to learn that a named arm covers its constructor,
+  or every named `match` drew a false `AX3005`.
+- A nested named pattern has to recurse in the *checker's* binder walk
+  as well as the emitter's; without it `(Wrap { inner = (Rect { w, h }) })`
+  bound nothing and every use of `w` was an undefined variable.
+
+Field access by name on a data value reproduces stage0's looseness
+rather than tightening it: stage0 scans every data type and every
+constructor with named fields, first match winning, without consulting
+the scrutinee's type at all. Tightening that would refuse programs
+stage0 accepts.
+
 **Qualified references parse.** `Mod::name` is B4's spelling and
 stage1 could not read it at all: `parseIdentRef` committed to a
 field-access chain as each `.` was consumed, so the `::` was never

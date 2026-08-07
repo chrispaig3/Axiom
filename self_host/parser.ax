@@ -23,7 +23,12 @@
 ; same reason `axtags` was the eighth: every existing reader indexes
 ; by position. Without it the merged declaration list cannot say
 ; which module defined what, which is what AX3014 has to answer.
-(pub struct ASTNode (tag : Int) (a : Int) (b : Int) (c : Int) (span : Int) (vis : Int) (ty : Int) (axtags : Int) (module : Int))
+; `fieldNames` is a constructor's declared field names when it was
+; written as a STRUCT VARIANT - `(Rect { w : Int, h : Int })` - and 0
+; for a positional one. Tenth word for the same reason `axtags` was
+; eighth and `module` ninth: every existing reader indexes by
+; position, so appending is the only change that is free.
+(pub struct ASTNode (tag : Int) (a : Int) (b : Int) (c : Int) (span : Int) (vis : Int) (ty : Int) (axtags : Int) (module : Int) (fieldNames : Int))
 
 ; A declaration's visibility: 1 when it was written `pub`, 0 otherwise.
 ; stage0 splices only the PUBLIC declarations of an imported module
@@ -152,17 +157,28 @@
 ; TAG_E_VAR nodes naming the handled effects (each carrying its own
 ; span, which is where AX3016 and AX3017 anchor), c=handler.
 (pub :: TAG_E_HANDLE Int)  (pub fn (TAG_E_HANDLE) 42)
+; A NAMED constructor pattern: `(Rect { h = h, w = w })`. a=constructor
+; name, b=Vec of field-name nodes (TAG_E_VAR, so each carries its own
+; span - AX3007 anchors at the field name), c=Vec of sub-patterns,
+; positionally aligned with b. The span is the constructor's.
+;
+; It is NOT desugared at parse time, because the declaration that says
+; what order the fields are in may not have been seen yet. Both the
+; checker and the emitter reorder it against the constructor's
+; recorded field names, which is where stage0 does it too.
+(pub :: TAG_P_CONNAMED Int) (pub fn (TAG_P_CONNAMED) 43)
 
 (pub :: nodeTag (-> Int Int))   (pub fn (nodeTag n) (memGetWord n 0))
 (pub :: nodeA   (-> Int Int))   (pub fn (nodeA   n) (memGetWord n 1))
 (pub :: nodeB   (-> Int Int))   (pub fn (nodeB   n) (memGetWord n 2))
 (pub :: nodeC   (-> Int Int))   (pub fn (nodeC   n) (memGetWord n 3))
 
-(pub :: mkNode (-> Int Int Int Int Int))  (pub fn (mkNode t a b c) (ASTNode t a b c 0 0 0 0 0))
+(pub :: mkNode (-> Int Int Int Int Int))  (pub fn (mkNode t a b c) (ASTNode t a b c 0 0 0 0 0 0))
 (pub :: mkNodeAt (-> Int Int Int Int Int Int))
-(pub fn (mkNodeAt t a b c sp) (ASTNode t a b c sp 0 0 0 0))
+(pub fn (mkNodeAt t a b c sp) (ASTNode t a b c sp 0 0 0 0 0))
 (pub :: nodeSpan (-> Int Int))  (pub fn (nodeSpan n) (memGetWord n 4))
 (pub :: nodeModule (-> Int Int)) (pub fn (nodeModule n) (memGetWord n 8))
+(pub :: nodeFieldNames (-> Int Int)) (pub fn (nodeFieldNames n) (memGetWord n 9))
 (pub :: mkEInt (-> Int Int))              (pub fn (mkEInt v)     (mkNode TAG_E_INT v 0 0))
 (pub :: mkEFlt (-> Int Int))              (pub fn (mkEFlt bits)  (mkNode TAG_E_FLT bits 0 0))
 (pub :: mkEStr (-> Int Int))              (pub fn (mkEStr s)     (mkNode TAG_E_STR s 0 0))
@@ -981,7 +997,55 @@
           (if (peekIs tokens nextPos TK_RPAREN)
               (pOk (setNodeTy (mkCtor ctorName 0 vecNew) vecNew)
                    (advance nextPos))
-              (parseFieldTypes tokens nextPos vecNew ctorName vecNew))))))
+          ; A STRUCT VARIANT: `(Rect { w : Int, h : Int })`. The field
+          ; names are recorded, and everything else about the
+          ; constructor - arity, per-field float flags, per-field type
+          ; nodes - is built exactly as the positional spelling builds
+          ; it. A named constructor IS a positional one that also
+          ; knows what its fields are called, which is why every
+          ; consumer downstream needs no change: a positional pattern
+          ; over a named declaration already works once this parses.
+          (if (peekIs tokens nextPos TK_LBRACE)
+              (parseNamedFieldTypes tokens (advance nextPos) vecNew ctorName
+                                    vecNew vecNew)
+              (parseFieldTypes tokens nextPos vecNew ctorName vecNew)))))))
+
+; `name : Type` pairs to the closing brace, commas optional - stage0
+; treats a comma as separator-or-not, so `{ w : Int h : Int }` parses
+; the same as `{ w : Int, h : Int }`.
+(pub :: parseNamedFieldTypes (-> Int Int Int Int Int Int Int))
+(pub fn (parseNamedFieldTypes tokens pos flags ctorName tys names)
+  (if (peekIs tokens pos TK_RBRACE)
+      (if (peekIs tokens (advance pos) TK_RPAREN)
+          (pOk (setCtorFieldNames
+                 (setNodeTy (mkCtor ctorName (vecLen flags) flags) tys)
+                 names)
+               (advance (advance pos)))
+          (pErr (advance pos)))
+  ; No comma case: stage1's lexer has no comma token and skips the
+  ; byte, so `{ w : Int, h : Int }` arrives as `{ w : Int h : Int }`.
+  (if (peekIs tokens pos TK_IDENT)
+      (let ((fname (tokenLexeme (vecGet tokens pos))))
+        (if (peekIs tokens (advance pos) TK_COLON)
+            (let ((tr (parseType tokens (advance (advance pos)))))
+              (if (== (memGetWord tr 0) 0) tr
+                  {
+                    (vecPush names fname)
+                    ; The float flag follows the positional rule
+                    ; exactly: a BARE `Float` is 1, anything else
+                    ; including a parenthesised type is 0.
+                    (vecPush flags (if (peekIs tokens (advance (advance pos)) TK_IDENT)
+                                       (identIsFloat tokens (advance (advance pos)))
+                                       0))
+                    (vecPush tys (memGetWord tr 1))
+                    (parseNamedFieldTypes tokens (memGetWord tr 2) flags
+                                          ctorName tys names)
+                  }))
+            (pErr (advance pos))))
+  (pErr pos))))
+
+(pub :: setCtorFieldNames (-> Int Int Int))
+(pub fn (setCtorFieldNames n names) { (memSetWord n 9 names) n })
 
 ; Field types are retained as one float flag per field - a bare `Float`
 ; is 1, anything else (including any parenthesised type) is 0 - so a
@@ -1645,9 +1709,93 @@
             (pOk (mkNodeAt TAG_P_CON0 (tokenLexeme nameTok) 0 0
                            (tokenSpan nameTok))
                  (advance (advance (advance pos))))
-            (parseArmPatternArgs tokens (advance (advance pos))
-              (mkEVarAt (tokenLexeme nameTok) (tokenSpan nameTok)))))
+            (if (peekIs tokens (advance (advance pos)) TK_LBRACE)
+                (parseNamedPatFields tokens (advance (advance (advance pos)))
+                                     (tokenLexeme nameTok) (tokenSpan nameTok)
+                                     vecNew vecNew)
+                (parseArmPatternArgs tokens (advance (advance pos))
+                  (mkEVarAt (tokenLexeme nameTok) (tokenSpan nameTok))))))
       (parseExpr tokens pos)))
+
+; Reorder a named constructor pattern into the positional spine the
+; rest of both compilers already understands. `declared` is the
+; constructor's field names in declaration order; `names` and `pats`
+; are what the pattern wrote, positionally aligned with each other.
+;
+; A field the pattern omits becomes `_`, which binds nothing - stage0
+; fills the same hole with a wildcard, so a partial named pattern is
+; legal by construction and needs no arity check.
+(pub :: namedPatSpine (-> Int Int Int Int Int Int))
+(pub fn (namedPatSpine cname declared names pats sp)
+  (namedPatSpineFrom declared names pats 0 (mkEVarAt cname sp)))
+
+(pub :: namedPatSpineFrom (-> Int Int Int Int Int Int))
+(pub fn (namedPatSpineFrom declared names pats i acc)
+  (if (>= i (vecLen declared))
+      acc
+      (let ((j (namedFieldIndex names (vecGet declared i) 0)))
+        (namedPatSpineFrom declared names pats (+ i 1)
+          (mkEApp acc (if (< j 0) (mkEVar "_") (vecGet pats j)))))))
+
+; Where the pattern mentions field `n`, or -1. `names` holds spanned
+; TAG_E_VAR nodes so a miss can be reported at the field name.
+(pub :: namedFieldIndex (-> Int Int Int Int))
+(pub fn (namedFieldIndex names n i)
+  (if (>= i (vecLen names))
+      (- 0 1)
+      (if (strEq (nodeA (vecGet names i)) n)
+          i
+          (namedFieldIndex names n (+ i 1)))))
+
+; Is `n` one of the constructor's declared fields?
+(pub :: declaredHasField (-> Int Int Int))
+(pub fn (declaredHasField declared n)
+  (if (== declared 0) 0 (declaredHasFieldFrom declared n 0)))
+
+(pub :: declaredHasFieldFrom (-> Int Int Int Int))
+(pub fn (declaredHasFieldFrom declared n i)
+  (if (>= i (vecLen declared))
+      0
+      (if (strEq (vecGet declared i) n) 1 (declaredHasFieldFrom declared n (+ i 1)))))
+
+(pub :: peekIsEq (-> Int Int Bool))
+(pub fn (peekIsEq tokens pos)
+  (if (peekIs tokens pos TK_IDENT)
+      (strEq (tokenLexeme (vecGet tokens pos)) "=")
+      false))
+
+; `{ f = pat, g }` to the closing brace. A bare name PUNS: `{ w, h }`
+; means `{ w = w, h = h }`, which is stage0's rule and is resolved
+; here at parse time, since it needs no knowledge of the declaration.
+(pub :: parseNamedPatFields (-> Int Int Int Int Int Int Int))
+(pub fn (parseNamedPatFields tokens pos cname csp names pats)
+  (if (peekIs tokens pos TK_RBRACE)
+      (if (peekIs tokens (advance pos) TK_RPAREN)
+          (pOk (mkNodeAt TAG_P_CONNAMED cname names pats csp)
+               (advance (advance pos)))
+          (pErr (advance pos)))
+  (if (peekIs tokens pos TK_IDENT)
+      (let ((fTok (vecGet tokens pos)))
+        {
+          (vecPush names (mkEVarAt (tokenLexeme fTok) (tokenSpan fTok)))
+          ; `=` has no token of its own: it is an operator character,
+          ; so the lexer hands it back as an identifier whose lexeme
+          ; is "=".
+          (if (peekIsEq tokens (advance pos))
+              (let ((pr (parseArmPattern tokens (advance (advance pos)))))
+                (if (== (memGetWord pr 0) 0)
+                    pr
+                    {
+                      (vecPush pats (memGetWord pr 1))
+                      (parseNamedPatFields tokens (memGetWord pr 2) cname csp
+                                           names pats)
+                    }))
+              {
+                (vecPush pats (mkEVarAt (tokenLexeme fTok) (tokenSpan fTok)))
+                (parseNamedPatFields tokens (advance pos) cname csp names pats)
+              })
+        })
+  (pErr pos))))
 
 (pub :: parseArmPatternArgs (-> Int Int Int Int))
 (pub fn (parseArmPatternArgs tokens pos acc)

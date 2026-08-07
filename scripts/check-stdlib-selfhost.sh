@@ -60,13 +60,13 @@ fi
 #
 # Two kinds, and they were conflated under one "unparsed" label until
 # the exit codes were actually read:
-#   exit 2, a real PARSE failure - struct variants in a `data`
-#           declaration. (Qualified `Mod::name` references were here
-#           too, and now parse.)
+#   exit 2, a real PARSE failure - none left. (Qualified `Mod::name`
+#           references and struct variants were both here, and both
+#           parse now.)
 #   exit 3, parsed but REFUSED - the effect system, which stage1
 #           checks (AX3011/AX3016/AX3017 are byte-identical) but does
 #           not lower
-UNPARSED="210-struct-variants"
+UNPARSED=""
 UNLOWERED="300-effect-handlers 310-effect-unhandled 320-effect-gc-roots"
 
 # Programs stage1 compiles and gets WRONG. Every entry is a real bug

@@ -1,0 +1,20 @@
+; expect 34
+; A STRUCT VARIANT declaration: `(Rect { w : Int, h : Int })`. stage1
+; could not parse the braces at all, so a `data` declaration using them
+; failed the whole module.
+;
+; A named constructor IS a positional one that also knows what its
+; fields are called: arity, per-field float flags and per-field type
+; nodes are built exactly as the positional spelling builds them, and
+; the names ride along in a slot nothing else reads. That is why a
+; POSITIONAL pattern over a named declaration - this case - needs no
+; further work anywhere downstream.
+;
+; The named pattern spelling `(Rect { h = h, w = w })` is separate and
+; is not exercised here.
+(data Shape
+  (Rect { w : Int, h : Int }))
+(:: main Int)
+(fn (main)
+  (match (Rect 3 4)
+    ((Rect w h) (+ (* w 10) h))))
