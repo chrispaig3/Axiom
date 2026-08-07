@@ -1430,7 +1430,7 @@
     (emitLine cg "@__axiom_argc = internal global i64 0")
     (emitLine cg "@__axiom_argv = internal global i64 0")
     (emitLine cg "")
-    (emitLine cg "define i64 @main(i64 %argc, i64 %argv) {")
+    (emitLine cg "define i64 @main(i64 %argc, i64 %argv) #0 {")
     (emitLine cg "entry:")
     (emitLine cg "  store i64 %argc, ptr @__axiom_argc")
     (emitLine cg "  store i64 %argv, ptr @__axiom_argv")
@@ -1441,7 +1441,7 @@
     (emitLine cg "@__axiom_bump = internal global i64 0")
     (emitLine cg "@__axiom_bump_end = internal global i64 0")
     (emitLine cg "")
-    (emitLine cg "define i64 @axiom_alloc(i64 %size) {")
+    (emitLine cg "define i64 @axiom_alloc(i64 %size) #0 {")
     (emitLine cg "entry:")
     (emitLine cg "  %padded = add i64 %size, 15")
     (emitLine cg "  %sz = and i64 %padded, -16")
@@ -1549,7 +1549,23 @@
         ; Globals may follow the functions that mention them; LLVM does
         ; not care about order, and the table is only complete once every
         ; body has been emitted.
-        (renderCG (emitEffectGlobals (emitStringGlobals nextCg 0) 0))
+        ;
+        ; The attribute group every `define` above refers to. Axiom's
+        ; contract is that generated code calls no libc function, and the
+        ; optimiser does not know that: LLVM's loop-idiom recogniser
+        ; rewrites a byte loop into a call to `strlen` or `memset`, which
+        ; are libc symbols in a language that has deliberately never
+        ; linked libc. Measured on a stage1-built `010-hello.ax` through
+        ; `opt -O1`: 17 references to `strlen`, and a linked binary
+        ; importing `_strlen` and `_memset`.
+        ;
+        ; `"no-builtins"` is the string attribute clang emits for
+        ; `-fno-builtin`. The enum attribute `nobuiltin` is a different
+        ; thing and does NOT work here - measured separately, it left all
+        ; 17 in place. Only one of the two is load-bearing and they are
+        ; easy to confuse.
+        (renderCG (emitLine (emitEffectGlobals (emitStringGlobals nextCg 0) 0)
+                            "attributes #0 = { \"no-builtins\" }"))
         (emitModuleTail decls nextCg (+ i 1)))))
 
 ; ------------------------------------------------------------------
@@ -1685,7 +1701,7 @@
                                   (strDup name)
                                   "("
                                   paramStr)
-                            ") {")))
+                            ") #0 {")))
         (let ((cg1 (emitLine cg hdr)))
           ; Re-scan declarations to ensure types Vec is fresh before emitting body
           (let ((cg1b (scanDecls (memGetWord cg1 8) cg1 0)))
@@ -2281,7 +2297,7 @@
                                   (if (== (strLen paramStr) 0)
                                       ""
                                       (cat2 ", " paramStr)))
-                            ") {")))
+                            ") #0 {")))
         (let ((cg1 (emitLine cg hdr)))
           (let ((cg1b (scanDecls (memGetWord cg1 8) cg1 0)))
             (let ((cg1c (bindCaps cg1b capNames capFloats 0)))
@@ -2347,7 +2363,7 @@
                                              (fmtInt i)
                                              "(i64 %_env"
                                              (thunkParamStr ar 0))
-                                       ") {"))))
+                                       ") #0 {"))))
       (let ((cg2 (emitLine cg1 (strConcat (cat4 "  %r = call i64 @"
                                                 (strDup full)
                                                 "("
@@ -2941,7 +2957,7 @@
 (pub fn (emitUnhandledTrap cg)
   {
     (emitLine cg "")
-    (emitLine cg "define internal i64 @__axiom_unhandled_effect() {")
+    (emitLine cg "define internal i64 @__axiom_unhandled_effect() #0 {")
     (emitLine cg "entry:")
     (emitLine cg (strConcat
                    (cat4 "  call i64 asm sideeffect "

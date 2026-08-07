@@ -90,6 +90,56 @@ done
 # It cannot live in `tests/stdlib/`: six other gates glob that directory
 # and would all fail on it. It is written here instead, following the
 # inline-fixture precedent in `check-self-host.sh`.
+# The same corpus, compiled by the SELF-HOSTED compiler.
+#
+# Nothing ever ran this gate against stage1's output, and a real bug was
+# living in that gap: `opt` rewrites a byte loop into a call to `strlen`
+# when it can, and it can on stage1's register/phi IR while it cannot on
+# stage0's alloca form. Measured before the fix - a stage1-built
+# `010-hello.ax` grew 17 `strlen` references under `opt -O1` and linked
+# against `_strlen` and `_memset`. Every case failed; the gate was green
+# because it only ever asked stage0.
+#
+# The freestanding contract belongs to the language, not to one backend,
+# so both compilers have to answer for it. This also exercises stage1's
+# own driver end to end, which is the only place in the gates that does.
+if [[ "${AXIOM_SKIP_STAGE1:-0}" != 1 ]]; then
+  s1="$work/stage1"
+  if "$axiom" build --input self_host/main.ax --output "$s1" >"$work/s1.log" 2>&1; then
+    s1_checked=0
+    for case_file in tests/stdlib/*.ax; do
+      name="$(basename "$case_file" .ax)"
+      exe="$work/s1-$name"
+      if ! "$s1" build --input "$repo_root/$case_file" --output "$exe" \
+           >"$work/s1-$name.log" 2>&1; then
+        echo "FAIL $name: the self-hosted compiler could not build it"
+        sed 's/^/    /' "$work/s1-$name.log" | head -3
+        status=1
+        continue
+      fi
+      case "$(uname -s)" in
+        Darwin) imports="$(nm -u "$exe" 2>/dev/null | sed 's/^_//' || true)" ;;
+        *)      imports="$(nm -D --undefined-only "$exe" 2>/dev/null | awk '{print $NF}' || true)" ;;
+      esac
+      if printf '%s\n' "$imports" | grep -qE "^($libc_names)$"; then
+        echo "FAIL $name: an executable built by the SELF-HOSTED compiler imports libc"
+        printf '%s\n' "$imports" | grep -E "^($libc_names)$" | sed 's/^/    /'
+        status=1
+        continue
+      fi
+      s1_checked=$((s1_checked + 1))
+    done
+    # A loop that silently stopped matching would report the silence it
+    # was looking for, so say how many it actually read.
+    echo "ok   $s1_checked cases built by the self-hosted compiler import no libc"
+    [[ "$s1_checked" -ge 30 ]] || { echo "FAIL only $s1_checked cases reached the stage1 pass"; status=1; }
+  else
+    echo "FAIL could not build the self-hosted compiler for the stage1 pass"
+    sed 's/^/    /' "$work/s1.log" | head -5
+    status=1
+  fi
+fi
+
 probe="$work/libc-probe.ax"
 cat > "$probe" <<'PROBE'
 (foreign posix_spawn :: (-> Int Int Int Int Int Int) = "posix_spawn")

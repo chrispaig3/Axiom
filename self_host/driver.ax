@@ -266,20 +266,56 @@
       false
       (if (strEq (sysArg i) name) true (hasFlagAt name (+ i 1) n))))
 
-; The first argument at or after `from` that is not a flag and is not
-; the value of one, or "" if there is none.
-(pub :: positionalFrom (-> Int Int))
-(pub fn (positionalFrom from)
+; The INDEX of the first argument at or after `from` that is not a flag
+; and is not the value of one, or -1.
+;
+; Global flags may precede the subcommand, because stage0's are accepted
+; anywhere and the gates rely on it: `check-cross-targets.sh` invokes
+; `axiom --target=<t> emit-llvm <file> -o <out>`. Dispatching on argv[1]
+; alone read `--target=linux-x86_64` as an input filename and answered
+; `cannot read input`.
+(pub :: positionalIndex (-> Int Int))
+(pub fn (positionalIndex from)
   (if (>= from (sysArgc))
-      ""
+      (- 0 1)
       (let ((a (sysArg from)))
         (if (strStartsWith a "-")
             ; A flag either carries its value with `=` or takes the next
             ; argument, so skip one or two accordingly.
             (if (>= (strFindByte a 61 0) 0)
-                (positionalFrom (+ from 1))
-                (positionalFrom (+ from 2)))
-            a))))
+                (positionalIndex (+ from 1))
+                (positionalIndex (+ from 2)))
+            from))))
+
+(pub :: positionalFrom (-> Int Int))
+(pub fn (positionalFrom from)
+  (let ((i (positionalIndex from)))
+    (if (< i 0) "" (sysArg i))))
+
+; The subcommand this invocation names, or "".
+;
+; argv[1] is consulted directly first so that `--version` - a flag by
+; spelling and a subcommand by meaning - is not skipped as a flag by the
+; scan below it.
+(pub :: subcommandIndex Int)
+(pub fn (subcommandIndex)
+  (let ((a1 (if (> (sysArgc) 1) (sysArg 1) "")))
+    (if (isSubcommand a1) 1 (positionalIndex 1))))
+
+(pub :: subcommandName Int)
+(pub fn (subcommandName)
+  (let ((i subcommandIndex))
+    (if (< i 0)
+        ""
+        (let ((a (sysArg i)))
+          (if (isSubcommand a) a "")))))
+
+; Where a subcommand's own operands begin - one past the subcommand,
+; which is NOT always index 2: a global flag in front of it shifts
+; everything right, and reading from a fixed 2 hands the subcommand's
+; own name back as the input filename.
+(pub :: operandStart Int)
+(pub fn (operandStart) (+ subcommandIndex 1))
 
 (pub :: optLevelArg Int)
 (pub fn (optLevelArg)

@@ -18,6 +18,32 @@ use std::fmt::Write;
 /// having to know whether it has been.
 pub const ALLOC_SYMBOL: &str = "axiom_alloc";
 
+/// The attribute group reference put on every emitted function, and the
+/// group itself.
+///
+/// Axiom's contract is that generated code calls no libc function, and
+/// the optimiser does not know that. LLVM's loop-idiom recogniser
+/// rewrites a byte loop into a call to `strlen` or `memset` - which are
+/// libc symbols, in a language that has deliberately never linked libc -
+/// and it does so on IR the compiler was right to emit. Measured: a
+/// stage1-built `010-hello.ax` put through `opt -O1` grew 17 references
+/// to `strlen`, and the linked binary imported `_strlen` and `_memset`.
+///
+/// `"no-builtins"` is the string attribute clang emits for
+/// `-fno-builtin`, and it is what disables the recognition. The
+/// enum attribute `nobuiltin` is NOT the same thing and does NOT work
+/// here - measured separately, it left all 17 in place. They are easy
+/// to confuse and only one of them is load-bearing.
+///
+/// The cost is real and accepted: a byte loop stays a byte loop rather
+/// than becoming a tuned `memcpy`. A freestanding language cannot take
+/// the faster option, because the faster option is a symbol it has no
+/// way to define.
+pub const NO_BUILTINS_ATTR: &str = "#0 ";
+
+/// The attribute group `NO_BUILTINS_ATTR` refers to.
+pub const NO_BUILTINS_GROUP: &str = "attributes #0 = { \"no-builtins\" }";
+
 pub struct LlvmCodeGen {
     output: String,
     type_counter: usize,
@@ -239,7 +265,12 @@ impl LlvmCodeGen {
             .iter()
             .any(|f| f.name == "__axiom_user_main")
         {
-            writeln!(self.output, "define i64 @main(i64 %argc, i64 %argv) {{").unwrap();
+            writeln!(
+                self.output,
+                "define i64 @main(i64 %argc, i64 %argv) {}{{",
+                NO_BUILTINS_ATTR
+            )
+            .unwrap();
             writeln!(self.output, "entry:").unwrap();
             writeln!(self.output, "  store i64 %argc, ptr @__axiom_argc").unwrap();
             writeln!(self.output, "  store i64 %argv, ptr @__axiom_argv").unwrap();
@@ -262,6 +293,9 @@ impl LlvmCodeGen {
         for ir_func in &ir_module.functions {
             self.define_function(ir_func)?;
         }
+
+        writeln!(self.output).unwrap();
+        writeln!(self.output, "{}", NO_BUILTINS_GROUP).unwrap();
 
         Ok(self.output.clone())
     }
@@ -368,10 +402,11 @@ impl LlvmCodeGen {
 
         writeln!(
             self.output,
-            "define {} @{}({}) {{",
+            "define {} @{}({}) {}{{",
             return_type,
             ir_func.name,
             params.join(", "),
+            NO_BUILTINS_ATTR,
         )
         .unwrap();
 
@@ -1576,7 +1611,12 @@ impl LlvmCodeGen {
         let (body, constraints) = self.target.syscall_asm();
         let exit = self.target.sys_exit();
         let out = &mut self.output;
-        writeln!(out, "define internal i64 @__axiom_unhandled_effect() {{").unwrap();
+        writeln!(
+            out,
+            "define internal i64 @__axiom_unhandled_effect() {}{{",
+            NO_BUILTINS_ATTR
+        )
+        .unwrap();
         writeln!(out, "entry:").unwrap();
         writeln!(
             out,
@@ -1603,7 +1643,12 @@ impl LlvmCodeGen {
         writeln!(out, "@__axiom_bump = internal global i64 0").unwrap();
         writeln!(out, "@__axiom_bump_end = internal global i64 0").unwrap();
         writeln!(out).unwrap();
-        writeln!(out, "define i64 @{}(i64 %size) {{", ALLOC_SYMBOL).unwrap();
+        writeln!(
+            out,
+            "define i64 @{}(i64 %size) {}{{",
+            ALLOC_SYMBOL, NO_BUILTINS_ATTR
+        )
+        .unwrap();
         writeln!(out, "entry:").unwrap();
         // Round the request up to 16 bytes so every returned
         // address stays 16-byte aligned (the strictest alignment

@@ -99,16 +99,24 @@
 (pub :: main Int)
 ;@axiom:effect(io)
 (pub fn (main)
-  (let ((first (if (> (sysArgc) 1) (sysArg 1) "")))
-    (if (isSubcommand first)
+  (let ((first subcommandName))
+    (if (> (strLen first) 0)
         (runSubcommand first)
-        (let ((fileName (if (> (sysArgc) 1) first "in.ax"))
-              (tname (if (> (sysArgc) 2) (sysArg 2) hostTarget)))
+        ; The original spelling: the first positional is the input, the
+        ; second is the target. Positions rather than argv indices,
+        ; because a global flag may sit in front of either.
+        (let ((i1 (positionalIndex 1)))
+        (let ((fileName (if (< i1 0) "in.ax" (sysArg i1)))
+              (tname (let ((v (flagValue "--target" 1)))
+                       (if (> (strLen v) 0)
+                           v
+                           (let ((i2 (if (< i1 0) (- 0 1) (positionalIndex (+ i1 1)))))
+                             (if (< i2 0) hostTarget (sysArg i2)))))))
           (let ((ir (compileFile fileName tname 1)))
             {
               (writeStdout ir)
               0
-            })))))
+            }))))))
 
 (pub :: runSubcommand (-> Int Int))
 ;@axiom:effect(io)
@@ -116,7 +124,7 @@
   (if (|| (strEq cmd "version") (strEq cmd "--version"))
       { (writeStdout "axiom (self-hosted) 0.1.0\n") 0 }
   (if (strEq cmd "check")
-      (let ((f (positionalFrom 2)))
+      (let ((f (positionalFrom operandStart)))
         (if (== (strLen f) 0)
             (die "error: check needs an input file\n" 1)
             {
@@ -124,7 +132,7 @@
               0
             }))
   (if (strEq cmd "emit-llvm")
-      (let ((f (positionalFrom 2)))
+      (let ((f (positionalFrom operandStart)))
         (if (== (strLen f) 0)
             (die "error: emit-llvm needs an input file\n" 1)
             (let ((ir (compileFile f (targetArg hostTarget) 1))
@@ -140,7 +148,7 @@
       ; flag for the one argument it always needs is a compiler people
       ; wrap in a shell script.
       (let ((inp (let ((v (flagValue "--input" 1)))
-                   (if (> (strLen v) 0) v (positionalFrom 2)))))
+                   (if (> (strLen v) 0) v (positionalFrom operandStart)))))
         (if (== (strLen inp) 0)
             (die "error: build needs an input file\n" 1)
             (let ((outp (let ((v (flagValue "--output" 1)))
@@ -150,7 +158,7 @@
                                              (if (hasFlag "--emit-llvm") 1 0))))
                   (if (!= rc 0) (die "" rc) 0))))))
   (if (strEq cmd "run")
-      (let ((f (positionalFrom 2)))
+      (let ((f (positionalFrom operandStart)))
         (if (== (strLen f) 0)
             (die "error: run needs an input file\n" 1)
             (let ((ir (compileFile f hostTarget 1)))

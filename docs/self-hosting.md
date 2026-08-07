@@ -2436,3 +2436,79 @@ phase 5's "full test suite green under stage2" needs it, since five gate
 call sites use it. `run` does not forward arguments to the program it
 runs. None of these is on the bootstrap path, which is why the fixpoint
 holds without them.
+
+### The optimiser was linking the freestanding language against libc
+
+`check-freestanding.sh` had only ever been run with stage0. Pointing it
+at the self-hosted compiler failed **every case in the corpus**, with
+the same symptom each time: the linked executable imported `_strlen`
+and `_memset`.
+
+Neither compiler emits either. `opt -O1` synthesises them: LLVM's
+loop-idiom recogniser rewrites a byte loop into a call to `strlen` or
+`memset`, which are libc symbols in a language that has deliberately
+never linked libc. Measured on `010-hello.ax` - stage0's IR comes back
+from `opt -O1` with zero mentions of `strlen`, and stage1's with
+**seventeen**. The pass fires on stage1's register/`phi` form and not on
+stage0's alloca form, which is why the language's central invariant had
+been quietly conditional on which backend produced the IR.
+
+The fix is one function attribute, `"no-builtins"`, on every emitted
+definition, plus the attribute group at the end of the module. Both
+compilers carry it: the freestanding contract belongs to the language,
+not to one backend, and stage0 was one optimiser heuristic away from
+the same failure.
+
+The attribute that works is **not** the one that looks right.
+`nobuiltin` - the enum attribute - left all seventeen `strlen`
+references in place, measured on its own. `"no-builtins"`, the string
+attribute clang emits for `-fno-builtin`, removes them and the linked
+binary imports nothing. Testing the two together would have shipped a
+change half of which did nothing.
+
+The accepted cost is that a byte loop stays a byte loop rather than
+becoming a tuned `memcpy`. A freestanding language cannot take the
+faster option, because the faster option is a symbol it has no way to
+define.
+
+`check-freestanding.sh` now runs the whole corpus through **both**
+compilers, building each case with stage1's own driver - the only place
+in the gates that exercises it end to end - and counts what it read so
+that a loop which silently stopped matching cannot report the silence it
+was looking for. Before the fix that pass fails all 34 cases; after it,
+34 of 34 import no libc.
+
+### How much of the suite runs under the self-hosted compiler
+
+Phase 5 exits on "full test suite green under stage2". Measured today by
+pointing each gate's `$AXIOM` at a stage2 built from `self_host/main.ax`:
+
+| gate | under stage2 | checks |
+|---|---|---:|
+| `run-stdlib-tests.sh` | passes | 34 |
+| `check-reproducible.sh` | passes | 34 |
+| `check-cross-targets.sh` | passes | 272 |
+| `check-freestanding.sh` | passes | 35 |
+
+Every gate whose job is simply *to compile things* now passes with the
+Axiom compiler doing the compiling, on all four targets at both
+optimisation levels. The remaining gates are not failures of stage2 and
+mostly cannot be run against it by construction: `check-self-host.sh`,
+`check-bootstrap.sh`, `check-stdlib-selfhost.sh` and
+`check-diagnostics.sh` exist *to compare stage0 with stage1*, so stage0
+is an input rather than a substitutable component.
+
+The one real gap is `check-fmt.sh`, which needs `axiom fmt` - and
+`fmt` has no stage1 implementation. That is the load-bearing item left
+in phase 5, ahead of `symbols`, `explain` and the REPL, because five
+gate call sites use it.
+
+Getting the gates to run at all needed one CLI fix worth recording:
+global flags may precede the subcommand, because stage0's clap accepts
+them anywhere and `check-cross-targets.sh` relies on it
+(`axiom --target=<t> emit-llvm <file> -o <out>`). Dispatching on argv[1]
+read `--target=linux-x86_64` as an input filename and answered `cannot
+read input`. The subcommand is now found by scanning past leading flags,
+and its operands begin one past *its* index rather than at a fixed 2 -
+which is the same bug one level down, and handed the subcommand's own
+name back as the input file.
