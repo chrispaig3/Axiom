@@ -420,7 +420,12 @@
                ; `resolve_bare_fn` apply, and all three have to agree
                ; or the checker types against one definition while
                ; the emitter calls another.
-               (curModule : Int))
+               (curModule : Int)
+               ; `type` and `trait` declaration nodes, in collection
+               ; order. Nothing in checking or emission reads them -
+               ; they exist for `symbols`, whose A and T rows walk
+               ; them the way stage0 walks tc.aliases/tc.traits.
+               (aliases : Int) (traits : Int))
 
 (pub :: tcFns (-> Int Int))     (pub fn (tcFns tc)     (memGetWord tc 0))
 (pub :: tcDatas (-> Int Int))   (pub fn (tcDatas tc)   (memGetWord tc 1))
@@ -433,6 +438,8 @@
 (pub :: tcFrameBase (-> Int Int)) (pub fn (tcFrameBase tc) (memGetWord tc 6))
 (pub :: tcMacros (-> Int Int))  (pub fn (tcMacros tc)  (memGetWord tc 7))
 (pub :: tcEffects (-> Int Int)) (pub fn (tcEffects tc) (memGetWord tc 8))
+(pub :: tcAliases (-> Int Int)) (pub fn (tcAliases tc) (memGetWord tc 17))
+(pub :: tcTraits (-> Int Int))  (pub fn (tcTraits tc)  (memGetWord tc 18))
 
 ; A fresh `_tN`. stage0 mints the name from the current counter and
 ; increments at SOME sites but not others; callers say which.
@@ -520,7 +527,8 @@
         })
       (let ((tc (cast Int (TC fns datas vecNew vecNew vecNew 0 0
                               vecNew vecNew entryDecls allDecls
-                              vecNew vecNew units 0 vecNew 0))))
+                              vecNew vecNew units 0 vecNew 0
+                              vecNew vecNew))))
         {
           (tcCollect tc allDecls 0)
           ; The ambiguity table, once: builtins are module-less
@@ -585,7 +593,11 @@
                 }
             (if (== tag TAG_D_MACRO)
                 (vecPush (tcMacros tc) (nodeA d))
-            0)))))))
+            (if (== tag TAG_D_ALIAS)
+                (vecPush (tcAliases tc) d)
+            (if (== tag TAG_D_TRAIT)
+                (vecPush (tcTraits tc) d)
+            0)))))))))
             (tcCollect tc decls (+ i 1))
           }))))
 
@@ -3566,11 +3578,18 @@
 ; ------------------------------------------------------------------
 (pub :: checkModule (-> Int Int Int Int))
 (pub fn (checkModule entryDecls allDecls units)
+  (tcOut (checkModuleTc entryDecls allDecls units)))
+
+; The same three passes, answering the CHECKER rather than its
+; diagnostics alone - `symbols` needs the populated tables after a
+; clean check, and the diagnostics are still there behind `tcOut`.
+(pub :: checkModuleTc (-> Int Int Int Int))
+(pub fn (checkModuleTc entryDecls allDecls units)
   (let ((tc (tcNew entryDecls allDecls units)))
     (let ((out (tcOut tc)))
       {
         (checkDuplicates entryDecls out 0)
         (checkMissingDefs entryDecls allDecls out 0)
         (tcWalkDecls tc 0)
-        out
+        tc
       })))

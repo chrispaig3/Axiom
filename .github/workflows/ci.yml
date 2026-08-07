@@ -151,6 +151,13 @@ jobs:
       - name: Formatter parity between the compilers
         run: ./scripts/check-fmt-selfhost.sh
 
+      # explain and symbols, live and two-sided: every diagnostic code
+      # stage0 lists, and every .ax file's AXSYM output, byte-for-byte
+      # with matching exit statuses - the 49 broken fixtures are
+      # refusal-parity cases, not skips.
+      - name: CLI tool parity between the compilers
+        run: ./scripts/check-tools-selfhost.sh
+
   grammar:
     name: Tree-sitter grammar
     needs: lint

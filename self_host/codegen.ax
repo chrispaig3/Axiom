@@ -1118,9 +1118,24 @@
     (sysWriteFd 2 (strData msg) (strLen msg))
     (sysWriteFd 2 (strData name) (strLen name))
     (sysWriteFd 2 (strData "\n") (strLen "\n"))
-    (sysExitWith 3)
+    ; Exit 3 is this compiler's import-failure code - except under
+    ; `symbols`, where stage0 folds EVERY failure into exit 1 and the
+    ; parity gate compares statuses. The subcommand is re-derived from
+    ; argv here because driver.ax owns `subcommandName` and importing
+    ; it from codegen would be a cycle: the first argument not opening
+    ; with `-` is the subcommand, the same rule the driver applies.
+    (sysExitWith (if (strEq (firstOperandArg 1) "symbols") 1 3))
     0
   })
+
+(pub :: firstOperandArg (-> Int Int))
+(pub fn (firstOperandArg i)
+  (if (>= i (sysArgc))
+      ""
+      (let ((a (sysArg i)))
+        (if (strStartsWith a "-")
+            (firstOperandArg (+ i 1))
+            a))))
 
 ; Declaration Vec for module `name`; a module that cannot be read or
 ; parsed is a fatal diagnostic, never a 0 this returns.
@@ -1154,7 +1169,12 @@
   (let ((src (readModuleSrc name tcode entryDir)))
     (if (== src 0)
         (dieImport "error: cannot read module: " name)
-        (let ((pr (parseModule (lex src))))
+        ; `parseModuleWith`, not `parseModule`: an imported module's
+        ; AXTAGs have to attach to its declarations exactly as the
+        ; entry file's do, or `symbols` prints `#effects=IO` beside a
+        ; missing `#effect=io` claim and every tag check on imported
+        ; code silently never runs.
+        (let ((pr (parseModuleWith (lex src) (scanAxtags src))))
           (if (== (memGetWord pr 0) 0)
               (dieImport "error: cannot parse module: " name)
               (memGetWord pr 1))))))
@@ -1332,41 +1352,63 @@
 ; traversal and siblings observe each other's additions.
 (pub :: resolveDecls (-> Int Int Int Int Int Int Int Int Int Int Int Int))
 (pub fn (resolveDecls decls acc seen i modName bares fulls filter tcode entryDir units)
+  ; Two passes: stage0 partitions a module's imports into
+  ; `Module::imports` and resolves ALL of them before any of the
+  ; module's own declarations, at every level. Splicing an import at
+  ; its source position agreed with stage0 on every file whose imports
+  ; sit at the top - which is nearly all of them - and diverged the
+  ; program's declaration order on the ones with a mid-file import,
+  ; found when Sys.ax (a late `(import Mem)`) met the `symbols`
+  ; differential: stage0 listed Mem's functions before Sys's own, this
+  ; resolver the other way round.
+  (resolveDeclsPhase decls
+    (resolveDeclsPhase decls acc seen i modName bares fulls filter tcode entryDir units 0)
+    seen i modName bares fulls filter tcode entryDir units 1))
+
+; One pass: phase 0 consumes only the `(import ...)` entries (each
+; imported module resolving BOTH its phases depth-first), phase 1 only
+; the module's own declarations.
+(pub :: resolveDeclsPhase (-> Int Int Int Int Int Int Int Int Int Int Int Int Int))
+(pub fn (resolveDeclsPhase decls acc seen i modName bares fulls filter tcode entryDir units phase)
   (if (>= i (vecLen decls)) acc
       (let ((first (vecGet decls i)))
         (if (== (nodeTag first) TAG_D_IMPORT)
-            (let ((name (memGetWord first 1)))
-              (if (seenHas seen name)
-                  (resolveDecls decls acc seen (+ i 1) modName bares fulls filter tcode entryDir units)
-                  {
-                    (vecPush seen name)
-                    (let ((modDecls (parseModuleOrDieUnit name tcode entryDir units))
-                          (subFilter (let ((ns (nodeB first)))
-                                       (if (== ns 0)
-                                           0
-                                           (if (== (vecLen ns) 0) 0 ns)))))
-                      (resolveDecls decls
-                                    (resolveDecls modDecls acc seen 0 name bares fulls subFilter tcode entryDir units)
-                                    seen
-                                    (+ i 1)
-                                    modName bares fulls filter tcode entryDir units))
-                  }))
-            ; A private declaration of an IMPORTED module is not part
-            ; of the program: stage0 splices only `pub` ones, so a
-            ; reference to a private imported name is undefined there
-            ; and was silently callable here. The entry file
-            ; (`modName == 0`) keeps everything, public or not.
-            (if (&& (filterKeeps filter (nodeA first))
-                    (|| (== modName 0) (== (nodeVis first) 1)))
-                {
-                  ; Provenance, recorded before mangling rewrites the
-                  ; name: this is the only point in the pipeline that
-                  ; knows which module a declaration came from.
-                  (memSetWord first 8 modName)
-                  (mangleDecl first modName bares fulls)
-                  (resolveDecls decls (vecPush acc first) seen (+ i 1) modName bares fulls filter tcode entryDir units)
-                }
-                (resolveDecls decls acc seen (+ i 1) modName bares fulls filter tcode entryDir units))))))
+            (if (== phase 1)
+                (resolveDeclsPhase decls acc seen (+ i 1) modName bares fulls filter tcode entryDir units phase)
+                (let ((name (memGetWord first 1)))
+                  (if (seenHas seen name)
+                      (resolveDeclsPhase decls acc seen (+ i 1) modName bares fulls filter tcode entryDir units phase)
+                      {
+                        (vecPush seen name)
+                        (let ((modDecls (parseModuleOrDieUnit name tcode entryDir units))
+                              (subFilter (let ((ns (nodeB first)))
+                                           (if (== ns 0)
+                                               0
+                                               (if (== (vecLen ns) 0) 0 ns)))))
+                          (resolveDeclsPhase decls
+                                        (resolveDecls modDecls acc seen 0 name bares fulls subFilter tcode entryDir units)
+                                        seen
+                                        (+ i 1)
+                                        modName bares fulls filter tcode entryDir units phase))
+                      })))
+            (if (== phase 0)
+                (resolveDeclsPhase decls acc seen (+ i 1) modName bares fulls filter tcode entryDir units phase)
+                ; A private declaration of an IMPORTED module is not part
+                ; of the program: stage0 splices only `pub` ones, so a
+                ; reference to a private imported name is undefined there
+                ; and was silently callable here. The entry file
+                ; (`modName == 0`) keeps everything, public or not.
+                (if (&& (filterKeeps filter (nodeA first))
+                        (|| (== modName 0) (== (nodeVis first) 1)))
+                    {
+                      ; Provenance, recorded before mangling rewrites the
+                      ; name: this is the only point in the pipeline that
+                      ; knows which module a declaration came from.
+                      (memSetWord first 8 modName)
+                      (mangleDecl first modName bares fulls)
+                      (resolveDeclsPhase decls (vecPush acc first) seen (+ i 1) modName bares fulls filter tcode entryDir units phase)
+                    }
+                    (resolveDeclsPhase decls acc seen (+ i 1) modName bares fulls filter tcode entryDir units phase)))))))
 
 (pub :: filterKeeps (-> Int Int Bool))
 (pub fn (filterKeeps filter name)

@@ -40,7 +40,14 @@
   (TK_EOF)
   (TK_ERROR)
   (TK_FLOAT)        ; float literal - appended, so no existing tag moves
-  (TK_CHARLIT))     ; character literal, quotes and escape included
+  (TK_CHARLIT)      ; character literal, quotes and escape included
+  ; Brackets were SKIPPED by the lexer until `symbols` needed the
+  ; list type `[T]` rendered: a skipped delimiter is not a smaller
+  ; token stream, it is a different program - `[(Box Int)]` arrived
+  ; as `(Box Int)` and the list-ness vanished with no diagnostic.
+  ; Appended, so no existing tag moves.
+  (TK_LBRACKET)     ; [
+  (TK_RBRACKET))    ; ]
 
 ; ------------------------------------------------------------------
 ; Token: the product of lexing a single lexical item.

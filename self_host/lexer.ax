@@ -227,11 +227,15 @@
       { (emitToken TK_LBRACE pos (+ pos 1) tokens src) (+ pos 1) }
 (if (== ch 125)
       { (emitToken TK_RBRACE pos (+ pos 1) tokens src) (+ pos 1) }
+(if (== ch 91)
+      { (emitToken TK_LBRACKET pos (+ pos 1) tokens src) (+ pos 1) }
+(if (== ch 93)
+      { (emitToken TK_RBRACKET pos (+ pos 1) tokens src) (+ pos 1) }
 (if (isSpace ch)
       (+ pos 1)
 (if (== ch 59)
       (skipWhitespace src pos len)
-(+ pos 1)))))))))))))))
+(+ pos 1)))))))))))))))))
 
 (pub :: stepIdentToken (-> Int Int Int Int Int))
 (pub fn (stepIdentToken src pos len tokens)

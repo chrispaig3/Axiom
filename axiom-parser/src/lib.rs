@@ -2,8 +2,6 @@ use axiom_ast::ast::*;
 use axiom_ast::span::{Ident, Span};
 use axiom_ast::token::{RemovedKeyword, Token, TokenKind};
 use axiom_errors::{code, Diagnostic};
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
 
 #[derive(Debug, thiserror::Error)]
 pub enum ParseError {
@@ -172,12 +170,25 @@ impl Parser {
     /// The ID is a short hex hash of the declaration's kind and
     /// name, making it stable across formatting-only edits but
     /// sensitive to renames.
+    /// A content-derived stable node ID: FNV-1a 64 over the
+    /// `DVariant:name` key.
+    ///
+    /// This used to feed the same key through `DefaultHasher`, whose
+    /// algorithm std documents as unspecified and subject to change -
+    /// so a "stable" ID was stable only until a toolchain upgrade,
+    /// and the self-hosted `symbols` could not reproduce it without
+    /// chaining itself to std's internals. FNV-1a is specified in
+    /// full by its two constants, and `self_host/symbols.ax` carries
+    /// the same four lines.
     fn generate_nid(decl: &Decl) -> String {
         let mut s = String::new();
         decl.nid_key(&mut s);
-        let mut hasher = DefaultHasher::new();
-        s.hash(&mut hasher);
-        format!("{:016x}", hasher.finish())
+        let mut h: u64 = 0xcbf29ce484222325;
+        for b in s.as_bytes() {
+            h ^= u64::from(*b);
+            h = h.wrapping_mul(0x100000001b3);
+        }
+        format!("{h:016x}")
     }
 
     /// Parse raw AXTAG tokens into structured [`Axtag`] values.

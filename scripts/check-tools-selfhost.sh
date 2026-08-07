@@ -41,8 +41,13 @@ export AXIOM_STDLIB="$repo_root/stdlib"
 
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
-ln -s "$repo_root/stdlib" "$work/stdlib"
-ln -s "$repo_root/self_host" "$work/self_host"
+# Deliberately NO stdlib/self_host symlinks here, unlike the gates
+# that COMPILE through stage1: stage1 keeps a legacy CWD-relative
+# search entry five harnesses depend on, and a work directory that
+# feeds it would let stage1 resolve imports stage0 cannot - the
+# symbols sweep's refusal parity on tests/selfhost's compiler-module
+# imports depends on both sides failing identically. stage0 builds
+# stage1 from the repository root and needs nothing from here.
 
 echo "== building stage1 =="
 if ! "$axiom" build --input self_host/main.ax --output "$work/stage1" >"$work/build.log" 2>&1; then
@@ -92,6 +97,65 @@ compare "explain --list" explain --list
 compare "explain (no argument)" explain
 compare "explain AX9999 (unknown)" explain AX9999
 compare "explain ax99 (unknown short)" explain ax99
+
+# ---------------------------------------------------------------
+# symbols: every .ax in the repository, live and two-sided.
+#
+# stage0 runs fresh rather than from a cache: a cached golden went
+# stale FOUR times while the port was written, each time because an
+# edit moved spans in a file some other file imports. Both binaries
+# get ABSOLUTE paths, and stage1 runs from the gate's work directory,
+# which deliberately contains no stdlib or self_host entry - so its
+# legacy CWD-relative search (which the five compile harnesses still
+# depend on) finds nothing stage0's search would not, and resolution
+# failures agree.
+#
+# `symbols` folds EVERY failure into exit 1 - parse errors included,
+# where `check` answers 2 - so the deliberately-broken fixtures under
+# tests/ are refusal-parity cases, not skips: both sides must refuse,
+# and stdout must be empty on both.
+#
+# Negative test, RUN at introduction, not assumed: ablating the
+# emitter's nid-variant map (every variant forced to DFn:) fails the
+# sweep on every file with a sig, data, struct, alias or trait.
+# ---------------------------------------------------------------
+echo "== symbols: corpus differential =="
+swept=0
+for f in $(find "$repo_root/stdlib" "$repo_root/self_host" "$repo_root/tests" -name '*.ax' | sort); do
+  swept=$((swept + 1))
+  "$axiom" --diagnostic-format=ai symbols "$f" >"$work/s0.out" 2>/dev/null; s0=$?
+  (cd "$work" && ./stage1 symbols "$f" >s1.out 2>/dev/null); s1=$?
+  if [[ "$s0" != "$s1" ]]; then
+    echo "FAIL symbols $f: exit status diverged (stage0=$s0 stage1=$s1)"
+    failed=$((failed + 1))
+  elif ! cmp -s "$work/s0.out" "$work/s1.out"; then
+    echo "FAIL symbols $f: stdout differs"
+    diff "$work/s0.out" "$work/s1.out" | head -4 | sed 's/^/     /'
+    failed=$((failed + 1))
+  fi
+done
+echo "     $swept files swept"
+if [[ $swept -lt 150 ]]; then
+  echo "FAIL symbols sweep read $swept files; the floor is 150"
+  failed=$((failed + 1))
+fi
+
+echo "== symbols: --builtins, flag order, missing file =="
+zoocase="$repo_root/tests/stdlib/010-hello.ax"
+# The global format flag goes to BOTH binaries: stage0 needs it to
+# emit AXSYM rather than its human table, and stage1's argv walk
+# skips an unrecognised global flag.
+compare "symbols --builtins FILE" --diagnostic-format=ai symbols --builtins "$zoocase"
+compare "symbols FILE --builtins" --diagnostic-format=ai symbols "$zoocase" --builtins
+# Missing file: status and stdout only. The stderr prose carries
+# Rust's io::Error rendering ("(os error 2)"), which is not part of
+# any contract a port should chase.
+"$axiom" symbols "$work/does-not-exist.ax" >"$work/m0.out" 2>/dev/null; m0=$?
+(cd "$work" && ./stage1 symbols "$work/does-not-exist.ax" >m1.out 2>/dev/null); m1=$?
+if [[ "$m0" != "$m1" || -s "$work/m0.out" || -s "$work/m1.out" ]]; then
+  echo "FAIL symbols missing-file: statuses ($m0/$m1) or stdout nonempty"
+  failed=$((failed + 1))
+fi
 
 echo
 if [[ $failed -eq 0 ]]; then

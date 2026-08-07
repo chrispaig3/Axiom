@@ -2876,3 +2876,78 @@ printer arm that meets a shape stage0's parser would refuse poisons
 the buffer, and the driver then refuses to write - is what makes the
 two kinds of refusal answer with one exit status, and the corpus,
 zoo, and parity sweeps are what keep the claim honest.
+
+### symbols: the fourth tool, and what porting it dislodged
+
+`stage1 symbols` emits AXSYM at byte parity: **all 196 `.ax` files in
+the repository produce identical stdout with identical exit status
+under both compilers** - including the 49 deliberately-broken
+fixtures, where both sides refuse with an empty stdout and exit 1
+(`symbols` folds every failure into 1, parse errors included, where
+`check` answers 2) - and `--builtins` agrees byte-for-byte on all 150
+builtin rows, whose registration order stage1's `tcNew` had already
+copied from stage0 without knowing it would one day be printed.
+`scripts/check-tools-selfhost.sh` sweeps it live and two-sided (a
+cached golden went stale four times during the port; the gate runs
+stage0 fresh), floor 150, from a work directory with deliberately no
+`stdlib`/`self_host` entries - stage1 keeps a legacy CWD-relative
+search the compile harnesses depend on, and a salted directory would
+let it resolve imports stage0 cannot, breaking refusal parity in the
+direction that flatters it. The negative test was run: forcing every
+nid variant to `DFn:` fails 42 checks.
+
+The `@nid` needed a decision before a line of the port: stage0 hashed
+`DVariant:name` through Rust's `DefaultHasher`, whose algorithm std
+documents as unspecified - a "stable node ID" stable only until a
+toolchain upgrade, and a port that matched it would chain this
+compiler to std's internals. **stage0 moved to FNV-1a 64** (nothing
+consumed the old values; the two constants specify the whole
+function), and stage1 carries the same four lines. The nid's key is
+the LAST declaration variant naming the symbol - probed, `(:: f ..)`
+then `(fn (f ..))` hashes `DFn:f` while the reverse order hashes
+`DSig:f` - and a signature-then-foreign pair emits TWO rows, an `F`
+and an `X` at the same span with the same nid, both reproduced
+bug-for-bug.
+
+What the port dislodged outside itself is the longer list, because
+`symbols` is the first consumer to push the zoo and the whole corpus
+through stage1's PARSER and CHECKER rather than its formatter:
+
+- **Import order**: stage0 resolves ALL of a module's imports before
+  any of its own declarations, at every level; stage1 spliced each
+  import at its source position. Every file with its imports at the
+  top agreed - nearly all of them - and `Sys.ax`, with a mid-file
+  `(import Mem)`, listed its functions in a different program order.
+  stage1's resolver now hoists, which changes the program-wide
+  declaration order and held every gate.
+- **Imported modules lost their AXTAGs**: the import path parsed with
+  `parseModule`, not `parseModuleWith`, so no imported declaration
+  carried its tags - `#effect=io` was missing from every stdlib row,
+  and every tag check on imported code had silently never run.
+- **`type` and `trait` declarations are now parsed**, not skipped
+  into inert nodes (names, tyvars, alias targets, method signatures -
+  enough for `A` and `T` rows), and `deriving`, multi-expression
+  `fn` bodies, and `(fn f = 7)` all parse - each a form the corpus
+  never wrote and the zoo carried, refused by stage1 the first time
+  the zoo met its parser.
+- **`[` and `]` are tokens now.** The compiler's lexer skipped them
+  silently, so `[(Box Int)]` arrived as `(Box Int)` and a list-typed
+  signature rendered without its list-ness - a skipped delimiter is
+  not a smaller token stream, it is a different program. The type
+  grammar reads `[T]`; a bracket in expression position is now a
+  parse error rather than an invisible deletion.
+- **`(mut counter : Int)` struct fields parsed as a field named
+  `mut`** with a wildcard type; the marker is now skipped as stage0
+  skips it.
+- A latent collision class in the tooling itself: an alias's `=`
+  lexes as an identifier, and the data-declaration tyvar collector
+  accepts any not-uppercase ident - so it swallowed the `=` as a type
+  parameter and every alias fell back to the inert skip. Alias
+  tyvars now require a lowercase letter.
+
+Two divergences are recorded OPEN rather than closed: an imported
+`type`/`trait` keeps its bare name (mangling covers `fn`/`sig` only),
+so a same-named entry alias would collide in the span maps - no
+corpus file does this - and effect-operation rows for a module
+importing an effect rely on the `$`-prefixed duplicate being
+suppressed at emission rather than never registered.
