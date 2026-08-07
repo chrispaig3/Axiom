@@ -54,11 +54,20 @@ if ! "$axiom" build --input self_host/main.ax --output "$work/stage1" >"$work/bu
   exit 1
 fi
 
-# Programs stage1's PARSER does not accept. These are language surface
-# stage1 has not implemented, not miscompiles, and each is recorded in
-# docs/self-hosting.md. Listed by name so that a file leaving the list
-# is a deliberate edit.
-UNPARSED="150-qualified-modules 210-struct-variants 300-effect-handlers 310-effect-unhandled 320-effect-gc-roots"
+# Language surface stage1 has not implemented. Not miscompiles - each
+# refuses loudly - and each is recorded in docs/self-hosting.md.
+# Listed by name so that a file leaving a list is a deliberate edit.
+#
+# Two kinds, and they were conflated under one "unparsed" label until
+# the exit codes were actually read:
+#   exit 2, a real PARSE failure - struct variants in a `data`
+#           declaration. (Qualified `Mod::name` references were here
+#           too, and now parse.)
+#   exit 3, parsed but REFUSED - the effect system, which stage1
+#           checks (AX3011/AX3016/AX3017 are byte-identical) but does
+#           not lower
+UNPARSED="210-struct-variants"
+UNLOWERED="300-effect-handlers 310-effect-unhandled 320-effect-gc-roots"
 
 # Programs stage1 compiles and gets WRONG. Every entry is a real bug
 # with a diagnosis; the list is here so the gate can be green while
@@ -91,6 +100,11 @@ for case_file in tests/stdlib/*.ax; do
     skipped=$((skipped + 1))
     continue
   fi
+  if in_list "$name" "$UNLOWERED"; then
+    echo "skip $name (stage1 parses and checks it, but does not lower effects)"
+    skipped=$((skipped + 1))
+    continue
+  fi
 
   if ! "$axiom" build --input "$case_file" --output "$work/p0" >/dev/null 2>&1; then
     echo "FAIL $name (stage0 could not build it)"
@@ -100,8 +114,13 @@ for case_file in tests/stdlib/*.ax; do
   (cd "$work" && ./p0 >o0.txt 2>&1); e0=$?
 
   agree=0
-  cp "$case_file" "$work/in.ax"
-  if (cd "$work" && ./stage1 in.ax >s1.ll 2>/dev/null) \
+  # stage1 is given the case's real path, not a copy: it derives the
+  # module search directory from its argument, and a case importing a
+  # module that sits beside it - `150-qualified-modules.ax` imports
+  # `Q.Inner`, which is `tests/stdlib/Q/Inner.ax` - cannot resolve it
+  # from a copy in the work directory. Copying to `in.ax` was why that
+  # case looked unparseable.
+  if (cd "$work" && ./stage1 "$case_file" >s1.ll 2>/dev/null) \
      && llc -filetype=obj -relocation-model=pic "$work/s1.ll" -o "$work/s1.o" 2>/dev/null \
      && cc "$work/s1.o" -o "$work/p1" -e _main 2>/dev/null; then
     (cd "$work" && ./p1 >o1.txt 2>&1); e1=$?

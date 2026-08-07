@@ -1,0 +1,16 @@
+; expect 42
+; `Mod::name` disambiguates when several modules export the same name,
+; and it is how B4's qualified access is spelled. stage1 could not
+; parse it at all: `parseIdentRef` committed to a field-access chain as
+; each `.` was consumed, so the `::` was never reached.
+;
+; A qualified reference needs no node of its own. The module path
+; joined by `.`, then `$`, then the name IS the mangled symbol every
+; imported declaration already carries - `Mem::memAlloc` is
+; `Mem$memAlloc`, exactly what `mangleDecl` wrote - so it resolves to
+; an ordinary variable reference and the checker and emitter need to
+; know nothing about it.
+(import Mem)
+(:: main Int)
+(fn (main)
+  (if (> (Mem::memAlloc 64) 0) 42 1))

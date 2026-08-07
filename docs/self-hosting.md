@@ -1765,3 +1765,27 @@ The capability probes in §2 are single files; each is quoted in full
 where it is cited, and `axiom --diagnostic-format=ai check <file>` plus
 `axiom build --input <file> --output <bin>` is enough to reproduce every
 result.
+
+**Qualified references parse.** `Mod::name` is B4's spelling and
+stage1 could not read it at all: `parseIdentRef` committed to a
+field-access chain as each `.` was consumed, so the `::` was never
+reached - the identical mistake stage0 records having made, where a
+dotted module name reported "expected expression, found `::`". The
+chain is collected first and the decision taken after, which is
+stage0's order.
+
+It needs no AST node. The module path joined by `.`, then `$`, then
+the name IS the mangled symbol every imported declaration already
+carries - `Mem::memAlloc` is `Mem$memAlloc`, exactly what `mangleDecl`
+wrote - so a qualified reference resolves to an ordinary variable
+reference and the checker and emitter need to know nothing about it.
+Pinned by `tests/selfhost/790-qualified-reference.ax`.
+
+`tests/stdlib/150-qualified-modules.ax` compiles and matches stage0
+now, which took one more fix than the parser: the gate was handing
+stage1 a *copy* of each case, and a case importing a module that sits
+beside it - that one imports `Q.Inner`, i.e. `tests/stdlib/Q/Inner.ax` -
+cannot resolve it from a copy in a work directory. stage1 derives its
+module search directory from its argument, so the gate passes the real
+path.
+

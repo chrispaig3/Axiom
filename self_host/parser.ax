@@ -354,11 +354,77 @@
                 (if (== (strByte lex i) 95) acc (* acc 10)))))
 
 (pub :: parseIdentRef (-> Int Int Int))
+; A dotted chain of identifiers is either FIELD ACCESS (`p.x.y`) or a
+; MODULE PATH (`Sys.Platform::sysRead`), and which one is only known at
+; the end: `::` makes it a module path. So the chain is collected
+; first and the decision taken after - stage0's rule, and it records
+; having got this wrong in the other order, where committing to a
+; field access as each dot was consumed left the `::` unconsumed and
+; reported "expected expression, found `::`" for exactly the dotted
+; module names `import Sys.Platform` creates.
+;
+; A qualified reference needs no node of its own. The path joined by
+; `.`, then `$`, then the name IS the mangled symbol every imported
+; declaration already carries - `Mem::memAlloc` is `Mem$memAlloc`,
+; which is what `mangleDecl` wrote and what the checker and emitter
+; both look up. So it resolves to an ordinary variable reference with
+; the mangled name, and nothing downstream needs to know.
 (pub fn (parseIdentRef tokens pos)
   (if (peekIs tokens pos TK_IDENT)
       (let ((t (vecGet tokens pos)))
-        (parseFieldChain tokens (advance pos) (mkEVarAt (tokenLexeme t) (tokenSpan t))))
+        (let ((chain (let ((v vecNew))
+                       { (vecPush v (tokenLexeme t)) v })))
+          (let ((afterChain (parseDottedChain tokens (advance pos) chain)))
+            (if (peekIs tokens afterChain TK_DOUBLE_COLON)
+                (parseQualifiedTail tokens afterChain chain (tokenSpan t))
+                (parseFieldChain tokens (advance pos)
+                                 (mkEVarAt (tokenLexeme t) (tokenSpan t)))))))
   (pErr pos)))
+
+; Consume `.ident` runs, recording the segments, and answer the
+; position after them. Used only to LOOK AHEAD for a `::`; when there
+; is none the caller re-parses from the start as a field chain, which
+; costs one extra pass over a handful of tokens and keeps the field
+; path exactly as it was.
+(pub :: parseDottedChain (-> Int Int Int Int))
+(pub fn (parseDottedChain tokens pos acc)
+  (if (&& (peekIs tokens pos TK_DOT)
+          (peekIs tokens (advance pos) TK_IDENT))
+      {
+        (vecPush acc (tokenLexeme (vecGet tokens (advance pos))))
+        (parseDottedChain tokens (advance (advance pos)) acc)
+      }
+      pos))
+
+; At the `::`. Every further `::ident` extends the path; the LAST
+; segment is the name and the rest are the module.
+(pub :: parseQualifiedTail (-> Int Int Int Int Int))
+(pub fn (parseQualifiedTail tokens pos chain sp)
+  (if (peekIs tokens pos TK_DOUBLE_COLON)
+      (if (peekIs tokens (advance pos) TK_IDENT)
+          {
+            (vecPush chain (tokenLexeme (vecGet tokens (advance pos))))
+            (parseQualifiedTail tokens (advance (advance pos)) chain sp)
+          }
+          (pErr pos))
+      (pOk (mkEVarAt (mangledFromChain chain) sp) pos)))
+
+; `[A B name]` -> `A.B$name`: the module segments joined by `.`, then
+; `$`, then the name. That is the spelling `mangleDecl` gives an
+; imported declaration, so the reference and the definition meet.
+(pub :: mangledFromChain (-> Int Int))
+(pub fn (mangledFromChain chain)
+  (strConcat (strConcat (joinDotted chain 0 "") "$")
+             (vecGet chain (- (vecLen chain) 1))))
+
+(pub :: joinDotted (-> Int Int Int Int))
+(pub fn (joinDotted chain i acc)
+  (if (>= i (- (vecLen chain) 1))
+      acc
+      (joinDotted chain (+ i 1)
+        (if (== i 0)
+            (vecGet chain 0)
+            (strConcat (strConcat acc ".") (vecGet chain i))))))
 
 ; `.field` suffixes make field accesses, folded left so `a.b.c` reads
 ; the `c` of the value at `a.b`. Dotted module paths never reach here -
