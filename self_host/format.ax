@@ -118,7 +118,46 @@
 ; ------------------------------------------------------------------
 (pub :: isFSpace (-> Int Bool))
 (pub fn (isFSpace ch)
-  (if (== ch 32) true (if (== ch 10) true (if (== ch 13) true (if (== ch 9) true false)))))
+  (if (== ch 32) true
+  (if (== ch 10) true
+  (if (== ch 13) true
+  (if (== ch 9) true
+  (if (== ch 11) true
+  (if (== ch 12) true false)))))))
+
+; The width of the whitespace at `i`, or 0 when `i` is not on
+; whitespace. stage0 skips anything Rust's `char::is_whitespace`
+; accepts - probed with a NBSP, which formats under stage0 - so the
+; scan has to skip the same set or refuse files stage0 formats.
+(pub :: fpWsWidth (-> Int Int Int Int))
+(pub fn (fpWsWidth src i len)
+  (let ((b (strByte src i)))
+    (if (isFSpace b) 1
+    (if (== b 194)                                  ; C2: NEL, NBSP
+        (if (< (+ i 1) len)
+            (let ((c (strByte src (+ i 1))))
+              (if (|| (== c 133) (== c 160)) 2 0))
+            0)
+    (if (== b 225)                                  ; E1 9A 80: U+1680
+        (if (&& (< (+ i 2) len)
+                (&& (== (strByte src (+ i 1)) 154)
+                    (== (strByte src (+ i 2)) 128)))
+            3 0)
+    (if (== b 226)                                  ; E2: U+2000-200A etc
+        (if (< (+ i 2) len)
+            (let ((c (strByte src (+ i 1))) (d (strByte src (+ i 2))))
+              (if (== c 128)
+                  (if (|| (&& (>= d 128) (<= d 138))
+                          (|| (== d 168) (|| (== d 169) (== d 175))))
+                      3 0)
+                  (if (&& (== c 129) (== d 159)) 3 0)))
+            0)
+    (if (== b 227)                                  ; E3 80 80: U+3000
+        (if (&& (< (+ i 2) len)
+                (&& (== (strByte src (+ i 1)) 128)
+                    (== (strByte src (+ i 2)) 128)))
+            3 0)
+    0)))))))
 
 (pub :: isFDigit (-> Int Bool))
 (pub fn (isFDigit ch) (if (>= ch 48) (<= ch 57) false))
@@ -148,7 +187,8 @@
   (if (== ch 124) true   ; |
   (if (== ch 63) true    ; ?
   (if (== ch 126) true   ; ~
-  false)))))))))))))))
+  (if (== ch 36) true    ; $ - stage0 lexes it as `!`
+  false))))))))))))))))
 
 (pub :: isFNameStart (-> Int Bool))
 (pub fn (isFNameStart ch)
@@ -233,18 +273,28 @@
     }))
 
 ; Past the end of a `#| ... |#` block comment, including the closing
-; delimiter. Nesting is not supported, matching stage0.
+; delimiter. Nesting IS supported: stage0's `consume_block_comment`
+; tracks depth, probed with `#| a #| b |# c |#`, which stage0 keeps
+; as one comment. The earlier claim here that stage0 does not nest
+; was wrong.
 (pub :: scanBlockComment (-> Int Int Int Int))
 (pub fn (scanBlockComment src pos len)
   (let ((mut p pos)
+        (mut depth 1)
         (mut done 0))
     {
       (while (== done 0)
         (if (>= (+ p 1) len)
             { (set p len) (set done 1) }
             (if (&& (== (strByte src p) 124) (== (strByte src (+ p 1)) 35))
-                { (set p (+ p 2)) (set done 1) }
-                (set p (+ p 1)))))
+                {
+                  (set p (+ p 2))
+                  (set depth (- depth 1))
+                  (if (== depth 0) (set done 1) 0)
+                }
+                (if (&& (== (strByte src p) 35) (== (strByte src (+ p 1)) 124))
+                    { (set p (+ p 2)) (set depth (+ depth 1)) }
+                    (set p (+ p 1))))))
       p
     }))
 
@@ -312,9 +362,10 @@
         (mut p 0))
     {
       (while (< p len)
-        (let ((ch (strByte src p)))
-          (if (isFSpace ch)
-              (set p (+ p 1))
+        (let ((ch (strByte src p))
+              (ws (fpWsWidth src p len)))
+          (if (> ws 0)
+              (set p (+ p ws))
           (if (== ch 59)                                  ; ;
               (if (isAxtagAt src p len)
                   (let ((e (scanLineComment src p len)))
@@ -491,10 +542,10 @@
         (mut ok 1))
     {
       (while (< i to)
-        {
-          (if (isFSpace (strByte src i)) 0 (set ok 0))
-          (set i (+ i 1))
-        })
+        (let ((w (fpWsWidth src i to)))
+          (if (> w 0)
+              (set i (+ i w))
+              { (set ok 0) (set i to) })))
       ok
     }))
 
@@ -731,12 +782,20 @@
 ; newline count against a mark answers that without materialising the
 ; string.
 ; ------------------------------------------------------------------
-(pub struct FOut (frags : Int) (nl : Int) (indent : Int))
+(pub struct FOut (frags : Int) (nl : Int) (indent : Int) (bad : Int))
 (pub :: mkFOut (-> Int Int))
-(pub fn (mkFOut _u) (FOut vecNew 0 0))
+(pub fn (mkFOut _u) (FOut vecNew 0 0 0))
 (pub :: foFrags (-> Int Int))  (pub fn (foFrags o) (memGetWord o 0))
 (pub :: foNl (-> Int Int))     (pub fn (foNl o) (memGetWord o 1))
 (pub :: foIndent (-> Int Int)) (pub fn (foIndent o) (memGetWord o 2))
+
+; The refusal flag. A printer that meets a shape stage0's parser would
+; refuse cannot return an error - it is many calls deep in a walk - so
+; it marks the buffer poisoned and the driver refuses to write. This is
+; the mechanism that keeps stage1's exit status equal to stage0's: the
+; shapes stage0 cannot parse are the shapes this printer will not print.
+(pub :: foBad (-> Int Int))    (pub fn (foBad o) (memGetWord o 3))
+(pub :: foSetBad (-> Int Int)) (pub fn (foSetBad o) { (memSetWord o 3 1) o })
 
 (pub :: foPush (-> Int Int Int))
 (pub fn (foPush o s)
@@ -917,11 +976,20 @@
 (pub :: isSimpleForm (-> Int Int Bool))
 (pub fn (isSimpleForm src n)
   (if (== (fnKind n) FN_ATOM) true
-  (if (== (fnKind n) FN_BRACE) false
+  ; A singleton brace block parses to its inner expression - `{e}` IS
+  ; `e` to stage0's parser - so its simplicity is the inner's. A
+  ; multi-expression block is `EBegin`, never simple.
+  (if (== (fnKind n) FN_BRACE)
+      (if (== (fnLen n) 1) (isSimpleForm src (fnKid n 0)) false)
   (if (== (fnKind n) FN_PREFIX) false
+  ; `EQualified` is NOT in stage0's `is_simple_expr` list - probed:
+  ; `(Q::Inner::only 1)` breaks across four lines under stage0's fmt
+  ; while `(p.x 1)` stays on one. Field access is simple, qualified
+  ; access is not.
+  (if (== (fnKind n) FN_QUAL) false
   (if (== (fnKind n) FN_BRACK) (allSimple src n 0)
   (if (isKeywordHead (fnHeadText src n)) false
-  (allSimple src n 0)))))))
+  (allSimple src n 0))))))))
 
 (pub :: allSimple (-> Int Int Int Bool))
 (pub fn (allSimple src n i)
@@ -934,3 +1002,2479 @@
         })
       (== ok 1)
     }))
+
+; ==================================================================
+; The printer.
+;
+; Everything below is a transliteration of stage0's
+; `axiom-cli/src/fmt.rs`, reading the same shapes off the form tree
+; that stage0's printers read off its AST. The obligation is
+; byte-identity where stage0 succeeds and refusal where it refuses, so
+; where the two sources of truth could disagree - which AST shape a
+; CST shape parses to - the answer was taken from
+; `axiom-parser/src/lib.rs` and probed against the real binary, not
+; guessed. The probes live in the fmt gate.
+; ==================================================================
+
+; The printer context: the source, the line index, the comment queue,
+; and the output buffer, threaded as one word.
+(pub struct FPr (src : Int) (starts : Int) (q : Int) (out : Int))
+(pub :: mkFPr (-> Int Int Int Int Int))
+(pub fn (mkFPr src starts q out) (FPr src starts q out))
+(pub :: fpSrc (-> Int Int))    (pub fn (fpSrc p) (memGetWord p 0))
+(pub :: fpStarts (-> Int Int)) (pub fn (fpStarts p) (memGetWord p 1))
+(pub :: fpQ (-> Int Int))      (pub fn (fpQ p) (memGetWord p 2))
+(pub :: fpOut (-> Int Int))    (pub fn (fpOut p) (memGetWord p 3))
+
+(pub :: fpP (-> Int Int Int))
+(pub fn (fpP p s) { (foPush (fpOut p) s) p })
+(pub :: fpByte (-> Int Int Int))
+(pub fn (fpByte p b)
+  (let ((s (strAlloc 1))) { (__store8 (strData s) 0 b) (fpP p s) }))
+(pub :: fpBad (-> Int Int))
+(pub fn (fpBad p) { (foSetBad (fpOut p)) p })
+(pub :: fpIsBad (-> Int Bool))
+(pub fn (fpIsBad p) (== (foBad (fpOut p)) 1))
+
+; Emit a slice of the source verbatim. `strSlice` shares storage, so
+; this costs two words however long the run is.
+(pub :: fpSlice (-> Int Int Int Int))
+(pub fn (fpSlice p from to)
+  (if (> to from) (fpP p (strSlice (fpSrc p) from (- to from))) p))
+
+; ------------------------------------------------------------------
+; Literal normalisation.
+;
+; stage0 lexes a literal into a VALUE and prints the value back, so
+; the printed spelling is the normal form, not the written one. These
+; reproduce that composition textually: `1_000` and `007` normalise
+; because Rust's `{}` on the parsed i64 never prints separators or
+; leading zeros, and a float's trailing zeros vanish because `{:?}`
+; prints the shortest round-tripping decimal - equal, on every float
+; this corpus is allowed to contain (see the zoo), to stripping them.
+; ------------------------------------------------------------------
+
+; Digits from `from..to` with `_` dropped and leading zeros dropped,
+; keeping at least one digit.
+(pub :: fpDigits (-> Int Int Int Int))
+(pub fn (fpDigits p from to)
+  (let ((src (fpSrc p))
+        (mut digits 0)
+        (mut j from))
+    {
+      (while (< j to)
+        {
+          (if (== (strByte src j) 95) 0 (set digits (+ digits 1)))
+          (set j (+ j 1))
+        })
+      (let ((mut skipped 0) (mut emitted 0) (mut i from))
+        {
+          (while (< i to)
+            (let ((b (strByte src i)))
+              {
+                (if (== b 95)
+                    0
+                    (if (&& (== b 48) (&& (== emitted 0) (> (- digits skipped) 1)))
+                        (set skipped (+ skipped 1))
+                        { (fpByte p b) (set emitted (+ emitted 1)) }))
+                (set i (+ i 1))
+              }))
+          p
+        })
+    }))
+
+; An integer literal's text, normalised. A leading `-` (a fused
+; negative literal) passes through. Digits that overflow an i64
+; poison the output: stage0's lexer refuses the file.
+(pub :: fpInt (-> Int Int Int Int))
+(pub fn (fpInt p from to)
+  (if (if (fpIntFits (fpSrc p) from to) false true)
+      (fpBad p)
+      (let ((neg (== (strByte (fpSrc p) from) 45)))
+        {
+          (if neg (fpP p "-") p)
+          (fpDigits p (if neg (+ from 1) from) to)
+        })))
+
+; A float literal's text: integer part like an integer, fractional
+; part with trailing zeros dropped, keeping one digit.
+(pub :: fpFloat (-> Int Int Int Int))
+(pub fn (fpFloat p from to)
+  (let ((src (fpSrc p))
+        (neg (== (strByte (fpSrc p) from) 45)))
+    (let ((s (if neg (+ from 1) from))
+          (mut dot from))
+      {
+        (if neg (fpP p "-") p)
+        (set dot s)
+        (while (!= (strByte src dot) 46) (set dot (+ dot 1)))
+        (fpDigits p s dot)
+        (fpP p ".")
+        ; The fractional cut: the position after the last non-zero
+        ; digit, but at least one digit past the dot.
+        (let ((mut cut (+ dot 1)) (mut j (+ dot 1)) (mut seen 0))
+          {
+            (while (< j to)
+              (let ((b (strByte src j)))
+                {
+                  (if (== b 95)
+                      0
+                      { (set seen (+ seen 1))
+                        (if (!= b 48) (set cut (+ j 1)) 0) })
+                  (set j (+ j 1))
+                }))
+            ; No non-zero digit: keep exactly the first digit.
+            (if (== cut (+ dot 1))
+                (let ((mut k (+ dot 1)))
+                  {
+                    (while (== (strByte src k) 95) (set k (+ k 1)))
+                    (fpSlice p k (+ k 1))
+                  })
+                (fpDigits p (+ dot 1) cut))
+          })
+      })))
+
+; A string literal, re-escaped from its decoded value. The decode and
+; the re-encode compose to the identity for every escape except `\'`,
+; which decodes to a quote that needs no escaping, and for raw
+; control bytes, which come back escaped. An escape outside the
+; lexer's set (`n t r \ " ' 0`) is a lex error in stage0, so it
+; poisons the output here.
+(pub :: fpStrLit (-> Int Int Int))
+(pub fn (fpStrLit p tok)
+  (let ((src (fpSrc p))
+        (s (+ (ftStart tok) 1))
+        (e (- (ftEnd tok) 1)))
+    (if (|| (> (ftEnd tok) (strLen src))
+            (|| (< e s) (!= (strByte src e) 34)))
+        (fpBad p)
+        {
+          (fpP p "\"")
+          (let ((mut i s))
+            (while (< i e)
+              (let ((run i))
+                {
+                  (while (&& (< i e)
+                             (let ((b (strByte src i)))
+                               (&& (!= b 92)
+                                   (&& (!= b 10)
+                                       (&& (!= b 13) (&& (!= b 9) (!= b 0)))))))
+                    (set i (+ i 1)))
+                  (fpSlice p run i)
+                  (if (< i e)
+                      (let ((b (strByte src i)))
+                        (if (== b 92)
+                            (let ((esc (if (< (+ i 1) e) (strByte src (+ i 1)) 0)))
+                              {
+                                (if (== esc 39)
+                                    (fpP p "'")
+                                    (if (|| (== esc 110)
+                                            (|| (== esc 116)
+                                                (|| (== esc 114)
+                                                    (|| (== esc 92)
+                                                        (|| (== esc 34) (== esc 48))))))
+                                        (fpSlice p i (+ i 2))
+                                        (fpBad p)))
+                                (set i (+ i 2))
+                              })
+                            {
+                              (if (== b 10) (fpP p "\\n")
+                              (if (== b 13) (fpP p "\\r")
+                              (if (== b 9) (fpP p "\\t")
+                              (fpP p "\\0"))))
+                              (set i (+ i 1))
+                            }))
+                      p)
+                })))
+          (fpP p "\"")
+        })))
+
+; A character literal. The one asymmetry against strings: a `"` in a
+; character literal is never escaped, and `\"` written in one decodes
+; to a bare `"`.
+(pub :: fpCharLit (-> Int Int Int))
+(pub fn (fpCharLit p tok)
+  (let ((src (fpSrc p))
+        (s (+ (ftStart tok) 1))
+        (e (- (ftEnd tok) 1)))
+    (if (|| (> (ftEnd tok) (strLen src))
+            (|| (< e (+ s 1)) (!= (strByte src e) 39)))
+        (fpBad p)
+        {
+          (fpP p "'")
+          (let ((b (strByte src s)))
+            (if (== b 92)
+                (let ((esc (strByte src (+ s 1))))
+                  (if (== esc 39)
+                      (fpP p "'")
+                      (if (== esc 34)
+                          (fpP p "\"")
+                          (if (|| (== esc 110)
+                                  (|| (== esc 116)
+                                      (|| (== esc 114) (|| (== esc 92) (== esc 48)))))
+                              (fpSlice p s (+ s 2))
+                              (fpBad p)))))
+                (if (== b 10) (fpP p "\\n")
+                (if (== b 13) (fpP p "\\r")
+                (if (== b 9) (fpP p "\\t")
+                (if (== b 0) (fpP p "\\0")
+                (fpSlice p s e)))))))
+          (fpP p "'")
+        })))
+
+; A string literal's decoded bytes, emitted raw with no re-escaping.
+; This is what `foreign`'s source string gets: stage0 prints the
+; decoded value into plain quotes.
+(pub :: fpStrRaw (-> Int Int Int))
+(pub fn (fpStrRaw p tok)
+  (let ((src (fpSrc p))
+        (s (+ (ftStart tok) 1))
+        (e (- (ftEnd tok) 1)))
+    (if (|| (> (ftEnd tok) (strLen src))
+            (|| (< e s) (!= (strByte src e) 34)))
+        (fpBad p)
+        (let ((mut i s))
+          {
+            (while (< i e)
+              (let ((run i))
+                {
+                  (while (&& (< i e) (!= (strByte src i) 92)) (set i (+ i 1)))
+                  (fpSlice p run i)
+                  (if (< i e)
+                      (let ((esc (if (< (+ i 1) e) (strByte src (+ i 1)) 0)))
+                        {
+                          (if (== esc 110) (fpP p "\n")
+                          (if (== esc 116) (fpP p "\t")
+                          (if (== esc 114) (fpP p "\r")
+                          (if (== esc 92) (fpP p "\\")
+                          (if (== esc 34) (fpP p "\"")
+                          (if (== esc 39) (fpP p "'")
+                          (if (== esc 48) (fpByte p 0)
+                          (fpBad p))))))))
+                          (set i (+ i 2))
+                        })
+                      p)
+                }))
+            p
+          }))))
+
+; ------------------------------------------------------------------
+; Expressions.
+; ------------------------------------------------------------------
+
+; Structural keywords, which stage0's lexer reserves: in expression or
+; pattern position each is a parse error there, so the printer refuses
+; rather than printing a program stage0's own `fmt` would not accept.
+; Type-name keywords (`Int`, `IO`, ...) are deliberately absent - they
+; are legal in name positions and the corpus never puts one in an
+; expression.
+(pub :: fpIsReservedWord (-> Int Bool))
+(pub fn (fpIsReservedWord t)
+  (if (strEq t "define") true
+  (if (strEq t "lambda") true
+  (if (strEq t "let") true
+  (if (strEq t "if") true
+  (if (strEq t "cond") true
+  (if (strEq t "match") true
+  (if (strEq t "fn") true
+  (if (strEq t "data") true
+  (if (strEq t "macro") true
+  (if (strEq t "struct") true
+  (if (strEq t "type") true
+  (if (strEq t "newtype") true
+  (if (strEq t "trait") true
+  (if (strEq t "impl") true
+  (if (strEq t "import") true
+  (if (strEq t "foreign") true
+  (if (strEq t "pub") true
+  (if (strEq t "deriving") true
+  (if (strEq t "where") true
+  (if (strEq t "effect") true
+  (if (strEq t "handle") true
+  (if (strEq t "linear") true
+  (if (strEq t "consume") true
+  (if (strEq t "packed") true
+  (if (strEq t "repr") true
+  (if (strEq t "align") true
+  (if (strEq t "alloc") true
+  (if (strEq t "sizeof") true
+  (if (strEq t "alignof") true
+  (if (strEq t "cast") true
+  (if (strEq t "mut") true
+  (if (strEq t "while") true
+  (if (strEq t "set") true
+  (if (strEq t "union") true
+  (if (strEq t "region") true
+  false))))))))))))))))))))))))))))))))))))
+
+; The operator spellings stage0's parser turns into expression values
+; (`parse_expr_at_depth`'s token list), exactly and only. `$` lexes as
+; the `!` token and prints as `!`. Any other operator run in
+; expression position is a stage0 parse error, so it answers "" and
+; the caller refuses - `=`, `->`, `~>` and `>>=` are all refusals.
+(pub :: fpOperSpelling (-> Int Int))
+(pub fn (fpOperSpelling t)
+  (if (strEq t "+") t
+  (if (strEq t "*") t
+  (if (strEq t "/") t
+  (if (strEq t "%") t
+  (if (strEq t "^") t
+  (if (strEq t "==") t
+  (if (strEq t "!=") t
+  (if (strEq t "<") t
+  (if (strEq t ">") t
+  (if (strEq t "<=") t
+  (if (strEq t ">=") t
+  (if (strEq t "!") t
+  (if (strEq t "&&") t
+  (if (strEq t "||") t
+  (if (strEq t "&") t
+  (if (strEq t "|") t
+  (if (strEq t "<<") t
+  (if (strEq t ">>") t
+  (if (strEq t "$") "!"
+  ""))))))))))))))))))))
+
+; Whether the integer literal's significant digits fit an i64 -
+; stage0's LEXER parses every integer through i64 and refuses the
+; file on overflow, before any sign applies (probed:
+; `-9223372036854775808` refuses even though it would fit signed).
+(pub :: fpIntFits (-> Int Int Int Bool))
+(pub fn (fpIntFits src from0 to)
+  (let ((from (if (== (strByte src from0) 45) (+ from0 1) from0))
+        (limit "9223372036854775807")
+        (mut sig 0)
+        (mut i (if (== (strByte src from0) 45) (+ from0 1) from0))
+        (mut cmpBigger 0)
+        (mut k 0))
+    {
+      ; Count significant digits: skip `_` and leading zeros.
+      (while (< i to)
+        (let ((b (strByte src i)))
+          {
+            (if (== b 95)
+                0
+                (if (&& (== b 48) (== sig 0)) 0 (set sig (+ sig 1))))
+            (set i (+ i 1))
+          }))
+      (if (> sig 19)
+          false
+          (if (< sig 19)
+              true
+              ; Exactly 19: lexicographic compare against i64::MAX.
+              (let ((mut j from) (mut seen 0) (mut decided 0))
+                {
+                  (while (< j to)
+                    (let ((b (strByte src j)))
+                      {
+                        (if (== b 95)
+                            0
+                            (if (&& (== b 48) (== seen 0))
+                                0
+                                {
+                                  (if (== decided 0)
+                                      (let ((lb (strByte limit k)))
+                                        (if (> b lb)
+                                            { (set cmpBigger 1) (set decided 1) }
+                                            (if (< b lb) (set decided 1) 0)))
+                                      0)
+                                  (set seen 1)
+                                  (set k (+ k 1))
+                                }))
+                        (set j (+ j 1))
+                      }))
+                  (== cmpBigger 0)
+                })))
+    }))
+
+; The left side of a qualified reference. A dotted module path prints
+; with `::` throughout - `Q.Inner::only` is `Q::Inner::only` - and only
+; ident-rooted chains are legal, as in stage0's parser.
+(pub :: fpQualLeft (-> Int Int Int))
+(pub fn (fpQualLeft p n)
+  (let ((k (fnKind n)) (src (fpSrc p)))
+    (if (== k FN_ATOM)
+        (if (== (ftKind (fnTok n)) FT_IDENT) (fpP p (fnText src n)) (fpBad p))
+    (if (|| (== k FN_FIELD) (== k FN_QUAL))
+        {
+          (fpQualLeft p (fnKid n 0))
+          (fpP p "::")
+          (fpP p (fnText src (fnKid n 1)))
+        }
+    (fpBad p)))))
+
+; The body of a form that takes `expr...`: one expression stays
+; itself, several are an implicit `{}` block, which is exactly
+; stage0's `parse_body_exprs`.
+(pub :: fpBodyVecSimple (-> Int Int Int Bool))
+(pub fn (fpBodyVecSimple src elems from)
+  (if (== (- (vecLen elems) from) 1)
+      (isSimpleForm src (vecGet elems from))
+      false))
+
+(pub :: fpBodyVecAnchor (-> Int Int Int Int))
+(pub fn (fpBodyVecAnchor src elems from)
+  (if (> (vecLen elems) from) (fpAnchor src (vecGet elems from)) 0))
+
+(pub :: fpBeginVec (-> Int Int Int Int))
+(pub fn (fpBeginVec p elems from)
+  (let ((src (fpSrc p)) (o (fpOut p)) (mut i from))
+    {
+      (fpP p "{\n")
+      (foPushIndent o)
+      (while (< i (vecLen elems))
+        (let ((e (vecGet elems i)))
+          {
+            (if (> i from) (fpP p "\n") p)
+            (flushLeading src (fpQ p) o (fpAnchor src e))
+            (let ((mark (foNl o)))
+              {
+                (foEmitIndent o)
+                (fpExpr p e)
+                (flushTrailing src (fpQ p) o (fpStarts p) (fpAnchor src e) mark)
+              })
+            (set i (+ i 1))
+          }))
+      (foPopIndent o)
+      (fpP p "\n")
+      (foEmitIndent o)
+      (fpP p "}")
+    }))
+
+(pub :: fpBodyVec (-> Int Int Int Int))
+(pub fn (fpBodyVec p elems from)
+  (if (== (- (vecLen elems) from) 1)
+      (fpExpr p (vecGet elems from))
+      (if (< (vecLen elems) (+ from 1))
+          (fpBad p)
+          (fpBeginVec p elems from))))
+
+; The simple-body/broken-body shape shared by fn bodies, lambda
+; bodies, match arms and cond clauses: a space and the body inline, or
+; the body alone on the next indent level with the closing paren under
+; the construct.
+(pub :: fpTailBody (-> Int Int Int Int))
+(pub fn (fpTailBody p elems from)
+  (let ((o (fpOut p)))
+    (if (fpBodyVecSimple (fpSrc p) elems from)
+        {
+          (fpP p " ")
+          (fpBodyVec p elems from)
+        }
+        {
+          (fpP p "\n")
+          (foPushIndent o)
+          (foEmitIndent o)
+          (fpBodyVec p elems from)
+          (foPopIndent o)
+          (fpP p "\n")
+          (foEmitIndent o)
+        })))
+
+(pub :: fpLambda (-> Int Int Int))
+(pub fn (fpLambda p n)
+  (if (|| (< (fnLen n) 3) (!= (fnKind (fnKid n 1)) FN_PAREN))
+      (fpBad p)
+      (let ((params (fnKids (fnKid n 1))) (mut i 0) (mut nth 0))
+        {
+          (fpP p "(lambda (")
+          (if (== params 0)
+              p
+              (while (< i (vecLen params))
+                {
+                  (if (> nth 0) (fpP p " ") p)
+                  (set i (fpPatVecAt p params i))
+                  (set nth (+ nth 1))
+                }))
+          (fpP p ")")
+          (fpTailBody p (fpExprElems n 2) 0)
+          (fpP p ")")
+        })))
+
+(pub :: fpLet (-> Int Int Int))
+(pub fn (fpLet p n)
+  (if (|| (< (fnLen n) 3) (!= (fnKind (fnKid n 1)) FN_PAREN))
+      (fpBad p)
+      (let ((src (fpSrc p))
+            (o (fpOut p))
+            (binds (fnKid n 1))
+            (body (fpExprElems n 2)))
+        {
+          (fpP p "(let (")
+          (if (== (fnLen binds) 1)
+              (fpLetBinding p (fnKid binds 0) 1)
+              (let ((mut i 0))
+                {
+                  (fpP p "\n")
+                  (foPushIndent o)
+                  (while (< i (fnLen binds))
+                    {
+                      (if (> i 0) (fpP p "\n") p)
+                      (fpLetBindingBroken p (fnKid binds i))
+                      (set i (+ i 1))
+                    })
+                  (foPopIndent o)
+                  (fpP p "\n")
+                  (foEmitIndent o)
+                }))
+          (fpP p ")")
+          (fpP p "\n")
+          (foPushIndent o)
+          (foEmitIndent o)
+          (fpBodyVec p body 0)
+          (foPopIndent o)
+          (fpP p "\n")
+          (foEmitIndent o)
+          (fpP p ")")
+        })))
+
+; One binding pair, decomposed: `(x init)`, `(mut x init)`, and the
+; legacy `(x = init)` all normalise to the first two spellings.
+; Answers the kid index where the init begins, or -1 on a shape
+; stage0's `parse_let` would refuse. The init may span two kids - a
+; fused negative literal - so the caller validates it as ONE fused
+; expression element, not one kid.
+(pub :: fpBindInit (-> Int Int Int))
+(pub fn (fpBindInit src b)
+  (if (!= (fnKind b) FN_PAREN)
+      (- 0 1)
+      (let ((i0 (if (&& (> (fnLen b) 0) (fpIsAtomText src (fnKid b 0) "mut")) 1 0)))
+        (let ((i1 (if (&& (> (fnLen b) (+ i0 1))
+                          (fpIsAtomText src (fnKid b (+ i0 1)) "="))
+                      (+ i0 2)
+                      (+ i0 1))))
+          (if (>= i1 (fnLen b)) (- 0 1) i1)))))
+
+; The single-binding spelling: the init inline when simple, broken
+; below the pattern when not.
+(pub :: fpLetBinding (-> Int Int Int Int))
+(pub fn (fpLetBinding p b single)
+  (let ((src (fpSrc p)) (o (fpOut p)) (initIx (fpBindInit (fpSrc p) b)))
+    (if (|| (< initIx 0) (!= (vecLen (fpExprElems b (if (< initIx 0) 0 initIx))) 1))
+        (fpBad p)
+        (let ((isMut (fpIsAtomText src (fnKid b 0) "mut"))
+              (patIx (if (fpIsAtomText src (fnKid b 0) "mut") 1 0)))
+          (let ((init (vecGet (fpExprElems b initIx) 0)))
+            {
+              (fpP p (if isMut "(mut " "("))
+              (fpPat p (fnKid b patIx))
+              (fpP p " ")
+              (if (isSimpleForm src init)
+                  (fpExpr p init)
+                  {
+                    (fpP p "\n")
+                    (foPushIndent o)
+                    (foEmitIndent o)
+                    (fpExpr p init)
+                    (foPopIndent o)
+                    (fpP p "\n")
+                    (foEmitIndent o)
+                  })
+              (fpP p ")")
+            })))))
+
+; A binding in the several-bindings spelling: always inline, with the
+; comment flushes stage0 makes at exactly these two points.
+(pub :: fpLetBindingBroken (-> Int Int Int))
+(pub fn (fpLetBindingBroken p b)
+  (let ((src (fpSrc p)) (o (fpOut p)) (initIx (fpBindInit (fpSrc p) b)))
+    (if (|| (< initIx 0) (!= (vecLen (fpExprElems b (if (< initIx 0) 0 initIx))) 1))
+        (fpBad p)
+        (let ((isMut (fpIsAtomText src (fnKid b 0) "mut"))
+              (patIx (if (fpIsAtomText src (fnKid b 0) "mut") 1 0)))
+          (let ((init (vecGet (fpExprElems b initIx) 0)))
+            {
+              (flushLeading src (fpQ p) o (fpAnchor src init))
+              (let ((mark (foNl o)))
+                {
+                  (foEmitIndent o)
+                  (fpP p (if isMut "(mut " "("))
+                  (fpPat p (fnKid b patIx))
+                  (fpP p " ")
+                  (fpExpr p init)
+                  (fpP p ")")
+                  (flushTrailing src (fpQ p) o (fpStarts p) (fpAnchor src init) mark)
+                })
+            })))))
+
+(pub :: fpIf (-> Int Int Int))
+(pub fn (fpIf p n)
+  (let ((elems (fpExprElems n 1)))
+    (if (!= (vecLen elems) 3)
+        (fpBad p)
+        (let ((src (fpSrc p))
+              (o (fpOut p))
+              (c (vecGet elems 0))
+              (t (vecGet elems 1))
+              (e (vecGet elems 2)))
+          (let ((condMark (foNl o)))
+            {
+              (fpP p "(if ")
+              (fpExpr p c)
+              (flushTrailing src (fpQ p) o (fpStarts p) (fpAnchor src c) condMark)
+              (fpP p "\n")
+              (foPushIndent o)
+              (flushLeading src (fpQ p) o (fpAnchor src t))
+              (let ((thenMark (foNl o)))
+                {
+                  (foEmitIndent o)
+                  (fpExpr p t)
+                  (flushTrailing src (fpQ p) o (fpStarts p) (fpAnchor src t) thenMark)
+                })
+              (fpP p "\n")
+              (flushLeading src (fpQ p) o (fpAnchor src e))
+              (foEmitIndent o)
+              (fpExpr p e)
+              (foPopIndent o)
+              (fpP p "\n")
+              (foEmitIndent o)
+              (fpP p ")")
+            })))))
+
+(pub :: fpWhile (-> Int Int Int))
+(pub fn (fpWhile p n)
+  (let ((elems (fpExprElems n 1)))
+    (if (< (vecLen elems) 2)
+        (fpBad p)
+        (let ((o (fpOut p)))
+          {
+            (fpP p "(while ")
+            (fpExpr p (vecGet elems 0))
+            (fpP p "\n")
+            (foPushIndent o)
+            (foEmitIndent o)
+            (fpBodyVec p elems 1)
+            (foPopIndent o)
+            (fpP p ")")
+          }))))
+
+(pub :: fpSet (-> Int Int Int))
+(pub fn (fpSet p n)
+  (let ((src (fpSrc p)) (vals (fpExprElems n 2)))
+    (if (|| (< (fnLen n) 3) (!= (vecLen vals) 1))
+        (fpBad p)
+        (let ((target (fnKid n 1)))
+          (let ((rootOk
+                 (if (== (fnKind target) FN_ATOM)
+                     (if (== (ftKind (fnTok target)) FT_IDENT)
+                         (if (isFOperChar (strByte src (fnStart target))) false true)
+                         false)
+                     (== (fnKind target) FN_FIELD))))
+            (if rootOk
+                {
+                  (fpP p "(set ")
+                  (fpExpr p target)
+                  (fpP p " ")
+                  (fpExpr p (vecGet vals 0))
+                  (fpP p ")")
+                }
+                (fpBad p)))))))
+
+(pub :: fpMatch (-> Int Int Int))
+(pub fn (fpMatch p n)
+  (let ((elems (fpExprElems n 1)))
+    (if (< (vecLen elems) 1)
+        (fpBad p)
+        (let ((src (fpSrc p)) (o (fpOut p)) (mut i 1))
+          {
+            (fpP p "(match ")
+            (fpExpr p (vecGet elems 0))
+            (fpP p "\n")
+            (foPushIndent o)
+            (while (< i (vecLen elems))
+              (let ((arm (vecGet elems i)))
+                (if (|| (!= (fnKind arm) FN_PAREN) (< (fnLen arm) 2))
+                    { (fpBad p) (set i (vecLen elems)) }
+                    ; The arm's pattern may occupy TWO kids - `C (h t)`
+                    ; fuses into a constructor pattern - and the body is
+                    ; whatever remains. A fusion that swallows the last
+                    ; kid leaves no body, which stage0 refuses.
+                    (let ((patEnd (fpPatWidth src (fnKids arm) 0)))
+                      (let ((armBody (fpExprElems arm patEnd)))
+                        (if (== (vecLen armBody) 0)
+                            { (fpBad p) (set i (vecLen elems)) }
+                            {
+                              (if (> i 1) (fpP p "\n") p)
+                              (flushLeading src (fpQ p) o (fpBodyVecAnchor src armBody 0))
+                              (foEmitIndent o)
+                              (fpP p "(")
+                              (fpPatVecAt p (fnKids arm) 0)
+                              (fpTailBody p armBody 0)
+                              (fpP p ")")
+                              (set i (+ i 1))
+                            }))))))
+            (foPopIndent o)
+            (fpP p "\n")
+            (foEmitIndent o)
+            (fpP p ")")
+          }))))
+
+(pub :: fpCond (-> Int Int Int))
+(pub fn (fpCond p n)
+  (let ((src (fpSrc p)) (o (fpOut p)) (mut i 1) (mut seenElse 0) (mut branches 0))
+    {
+      (fpP p "(cond")
+      (fpP p "\n")
+      (foPushIndent o)
+      (while (< i (fnLen n))
+        (let ((clause (fnKid n i)))
+          (if (|| (!= (fnKind clause) FN_PAREN) (== seenElse 1))
+              { (fpBad p) (set i (fnLen n)) }
+              (let ((celems (fpExprElems clause 0)))
+                (if (< (vecLen celems) 2)
+                    { (fpBad p) (set i (fnLen n)) }
+                    {
+                      (if (fpIsAtomText src (vecGet celems 0) "else")
+                          {
+                            (set seenElse 1)
+                            (if (> branches 0) (fpP p "\n") p)
+                            (foEmitIndent o)
+                            (fpP p "(else ")
+                            (if (fpBodyVecSimple src celems 1)
+                                (fpBodyVec p celems 1)
+                                {
+                                  (fpP p "\n")
+                                  (foPushIndent o)
+                                  (foEmitIndent o)
+                                  (fpBodyVec p celems 1)
+                                  (foPopIndent o)
+                                  (fpP p "\n")
+                                  (foEmitIndent o)
+                                })
+                            (fpP p ")")
+                          }
+                          {
+                            (if (> branches 0) (fpP p "\n") p)
+                            (flushLeading src (fpQ p) o (fpAnchor src (vecGet celems 0)))
+                            (foEmitIndent o)
+                            (fpP p "(")
+                            (fpExpr p (vecGet celems 0))
+                            (fpTailBody p celems 1)
+                            (fpP p ")")
+                            (set branches (+ branches 1))
+                          })
+                      (set i (+ i 1))
+                    })))))
+      (foPopIndent o)
+      (fpP p "\n")
+      (foEmitIndent o)
+      (fpP p ")")
+    }))
+
+(pub :: fpHandle (-> Int Int Int))
+(pub fn (fpHandle p n)
+  (let ((src (fpSrc p)) (elems (fpExprElems n 1)))
+    (let ((hasFx (if (== (vecLen elems) 3)
+                     (== (fnKind (vecGet elems 1)) FN_PAREN)
+                     false)))
+      ; Exactly `body handler` or `body (effects) handler`: with three
+      ; elements the middle must be the effect list (stage0 would have
+      ; consumed a paren there as one), and with two the second must
+      ; not be a paren the parser would have eaten as effects.
+      (if (|| (< (vecLen elems) 2)
+              (|| (> (vecLen elems) 3)
+                  (|| (&& (== (vecLen elems) 3) (if hasFx false true))
+                      (&& (== (vecLen elems) 2)
+                          (== (fnKind (vecGet elems 1)) FN_PAREN)))))
+          (fpBad p)
+          {
+            (fpP p "(handle ")
+            (fpExpr p (vecGet elems 0))
+            (fpP p " (")
+            (if hasFx (fpEffectAtoms p (vecGet elems 1)) p)
+            (fpP p ") ")
+            (fpExpr p (vecGet elems (if hasFx 2 1)))
+            (fpP p ")")
+          }))))
+
+; Whether a paren form would parse as an application spine - the
+; condition under which stage0's `format_app` splices it into its
+; caller's spine. A keyword form, the unary-minus form, a singleton
+; and the empty tuple all parse to non-`EApp` nodes and stay whole.
+(pub :: fpIsAppForm (-> Int Int Bool))
+(pub fn (fpIsAppForm src n)
+  (if (!= (fnKind n) FN_PAREN)
+      false
+      (if (< (fnLen n) 2)
+          false
+          (let ((h (fnHeadText src n)))
+            (if (isKeywordHead h)
+                false
+                (if (fpIsReservedWord h)
+                    false
+                    (let ((elems (fpExprElems n 0)))
+                      (if (== (vecLen elems) 2)
+                          (if (fpIsMinusAtom (vecGet elems 0)) false true)
+                          true))))))))
+
+(pub :: fpApp (-> Int Int Int))
+(pub fn (fpApp p n)
+  (let ((src (fpSrc p)) (o (fpOut p)) (mut elems (fpExprElems n 0)))
+    (if (&& (== (vecLen elems) 2) (fpIsMinusAtom (vecGet elems 0)))
+        ; The unary-minus desugar: a literal takes its sign back, and
+        ; anything else prints as the subtraction it means.
+        (let ((arg (vecGet elems 1)))
+          (if (&& (== (fnKind arg) FN_ATOM) (== (ftKind (fnTok arg)) FT_INT))
+              { (fpP p "-") (fpInt p (fnStart arg) (fnEnd arg)) }
+          (if (&& (== (fnKind arg) FN_ATOM) (== (ftKind (fnTok arg)) FT_FLOAT))
+              { (fpP p "-") (fpFloat p (fnStart arg) (fnEnd arg)) }
+              {
+                (fpP p "(- 0 ")
+                (fpExpr p arg)
+                (fpP p ")")
+              })))
+        {
+          ; Flatten the spine: a head that is itself an application
+          ; dissolves into this one, exactly as stage0's parse builds
+          ; one `EApp` chain from `((g 1) 2)` and `(g 1 2)` alike.
+          (let ((mut go 1))
+            (while (== go 1)
+              (let ((h (vecGet elems 0)))
+                (if (&& (== (fnKind h) FN_PAREN) (== (fnLen h) 1))
+                    (vecSet elems 0 (fnKid h 0))
+                    (if (fpIsAppForm src h)
+                        (let ((hElems (fpExprElems h 0)) (merged vecNew) (mut j 1))
+                          {
+                            (let ((mut k 0))
+                              (while (< k (vecLen hElems))
+                                { (vecPush merged (vecGet hElems k)) (set k (+ k 1)) }))
+                            (while (< j (vecLen elems))
+                              { (vecPush merged (vecGet elems j)) (set j (+ j 1)) })
+                            (set elems merged)
+                          })
+                        (set go 0))))))
+          ; A single element left after flattening is stage0's
+          ; singleton-paren unwrap: `(x)` IS `x`, and `((- 5))` is
+          ; `-5`. No application node exists, so no parens print.
+          (if (== (vecLen elems) 1)
+              (fpExpr p (vecGet elems 0))
+          (let ((func (vecGet elems 0)))
+            (let ((inline
+                   (if (isSimpleForm src func)
+                       (if (<= (- (vecLen elems) 1) 4)
+                           (let ((mut j 1) (mut ok 1))
+                             {
+                               (while (< j (vecLen elems))
+                                 {
+                                   (if (isSimpleForm src (vecGet elems j)) 0 (set ok 0))
+                                   (set j (+ j 1))
+                                 })
+                               (== ok 1)
+                             })
+                           false)
+                       false)))
+              (if inline
+                  (let ((mut j 1))
+                    {
+                      (fpP p "(")
+                      (fpExpr p func)
+                      (while (< j (vecLen elems))
+                        {
+                          (fpP p " ")
+                          (fpExpr p (vecGet elems j))
+                          (set j (+ j 1))
+                        })
+                      (fpP p ")")
+                    })
+                  (let ((mut j 1))
+                    {
+                      (fpP p "(")
+                      (fpExpr p func)
+                      (fpP p "\n")
+                      (foPushIndent o)
+                      ; No newline between the arguments: stage0's
+                      ; broken-application branch omits it, measured
+                      ; (`(f\n  1  2  3  4  5\n))`), and byte-identity
+                      ; means keeping the bug.
+                      (while (< j (vecLen elems))
+                        {
+                          (foEmitIndent o)
+                          (fpExpr p (vecGet elems j))
+                          (set j (+ j 1))
+                        })
+                      (foPopIndent o)
+                      (fpP p "\n")
+                      (foEmitIndent o)
+                      (fpP p ")")
+                    })))))
+        })))
+
+(pub :: fpExpr (-> Int Int Int))
+(pub fn (fpExpr p n)
+  (let ((k (fnKind n)) (src (fpSrc p)))
+    (if (== k FN_ATOM)
+        (let ((tk (ftKind (fnTok n))))
+          (if (== tk FT_IDENT)
+              (let ((t (fnText src n)))
+                (if (isFOperChar (strByte src (fnStart n)))
+                    (let ((s (fpOperSpelling t)))
+                      (if (== (strLen s) 0) (fpBad p) (fpP p s)))
+                    (if (fpIsReservedWord t) (fpBad p) (fpP p t))))
+          (if (== tk FT_INT) (fpInt p (fnStart n) (fnEnd n))
+          (if (== tk FT_FLOAT) (fpFloat p (fnStart n) (fnEnd n))
+          (if (== tk FT_STR) (fpStrLit p (fnTok n))
+          (if (== tk FT_CHAR) (fpCharLit p (fnTok n))
+          (if (== tk FT_MINUS) (fpP p "-")
+          (fpBad p))))))))
+    (if (== k FN_FIELD)
+        (let ((base (fnKid n 0)))
+          (let ((baseOk (if (== (fnKind base) FN_ATOM)
+                            (== (ftKind (fnTok base)) FT_IDENT)
+                            (== (fnKind base) FN_FIELD))))
+            (if baseOk
+                {
+                  (fpExpr p base)
+                  (fpP p ".")
+                  (fpP p (fnText src (fnKid n 1)))
+                }
+                (fpBad p))))
+    (if (== k FN_QUAL)
+        {
+          (fpQualLeft p (fnKid n 0))
+          (fpP p "::")
+          (fpP p (fnText src (fnKid n 1)))
+        }
+    (if (== k FN_PREFIX)
+        (let ((tk (ftKind (fnTok n))))
+          ; `,@` is refused: stage0's parser has an `ESplice` arm the
+          ; lexer never feeds - probed, `,@c` is "expected expression,
+          ; found `@`" in every position - so printing it would accept
+          ; a program stage0 refuses.
+          (if (== tk FT_COMMAAT)
+              (fpBad p)
+              {
+                (if (== tk FT_QUOTE) (fpP p "'")
+                (if (== tk FT_BACKTICK) (fpP p "`")
+                (fpP p ",")))
+                (fpExpr p (fnKid n 0))
+              }))
+    (if (== k FN_BRACK)
+        (if (== (fnLen n) 0)
+            (fpP p "[]")
+            (let ((elems (fpExprElems n 0)) (o (fpOut p)))
+              (if (allSimple src n 0)
+                  (let ((mut i 0))
+                    {
+                      (fpP p "[")
+                      (while (< i (vecLen elems))
+                        {
+                          (if (> i 0) (fpP p " ") p)
+                          (fpExpr p (vecGet elems i))
+                          (set i (+ i 1))
+                        })
+                      (fpP p "]")
+                    })
+                  (let ((mut i 0))
+                    {
+                      (fpP p "[\n")
+                      (foPushIndent o)
+                      (while (< i (vecLen elems))
+                        {
+                          (foEmitIndent o)
+                          (fpExpr p (vecGet elems i))
+                          (set i (+ i 1))
+                        })
+                      (foPopIndent o)
+                      (fpP p "\n")
+                      (foEmitIndent o)
+                      (fpP p "]")
+                    }))))
+    (if (== k FN_BRACE)
+        (if (== (fnLen n) 1)
+            (fpExpr p (fnKid n 0))
+            (fpBeginVec p (fpExprElems n 0) 0))
+    ; FN_PAREN.
+    (if (== (fnLen n) 0)
+        (fpP p "()")
+        (let ((h (fnHeadText src n)))
+          (if (strEq h "lambda") (fpLambda p n)
+          (if (strEq h "let") (fpLet p n)
+          (if (strEq h "if") (fpIf p n)
+          (if (strEq h "while") (fpWhile p n)
+          (if (strEq h "set") (fpSet p n)
+          (if (strEq h "cond") (fpCond p n)
+          (if (strEq h "match") (fpMatch p n)
+          (if (strEq h "handle") (fpHandle p n)
+          (if (strEq h "consume")
+              (let ((elems (fpExprElems n 1)))
+                (if (== (vecLen elems) 1)
+                    {
+                      (fpP p "(consume ")
+                      (fpExpr p (vecGet elems 0))
+                      (fpP p ")")
+                    }
+                    (fpBad p)))
+          (if (strEq h "alloc")
+              (let ((cnt (fpExprElems n 2)))
+                (if (|| (< (fnLen n) 2) (> (vecLen cnt) 1))
+                    (fpBad p)
+                    {
+                      (fpP p "(alloc ")
+                      (fpType p (fnKid n 1))
+                      (if (== (vecLen cnt) 1)
+                          { (fpP p " ") (fpExpr p (vecGet cnt 0)) }
+                          p)
+                      (fpP p ")")
+                    }))
+          (if (strEq h "sizeof")
+              (if (== (fnLen n) 2)
+                  { (fpP p "(sizeof ") (fpType p (fnKid n 1)) (fpP p ")") }
+                  (fpBad p))
+          (if (strEq h "alignof")
+              (if (== (fnLen n) 2)
+                  { (fpP p "(alignof ") (fpType p (fnKid n 1)) (fpP p ")") }
+                  (fpBad p))
+          (if (strEq h "cast")
+              (let ((vals (fpExprElems n 2)))
+                (if (|| (< (fnLen n) 3) (!= (vecLen vals) 1))
+                    (fpBad p)
+                    {
+                      (fpP p "(cast ")
+                      (fpType p (fnKid n 1))
+                      (fpP p " ")
+                      (fpExpr p (vecGet vals 0))
+                      (fpP p ")")
+                    }))
+          (if (strEq h "::")
+              (let ((elems (fpExprElems n 1)))
+                (if (!= (vecLen elems) 2)
+                    (fpBad p)
+                    {
+                      (fpP p "(:: ")
+                      (fpExpr p (vecGet elems 0))
+                      (fpP p " ")
+                      (fpType p (vecGet elems 1))
+                      (fpP p ")")
+                    }))
+          (if (strEq h "struct")
+              (if (< (fnLen n) 2)
+                  (fpBad p)
+                  (let ((nameN (fnKid n 1)) (args (fpExprElems n 2)) (mut j 0))
+                    (if (if (== (fnKind nameN) FN_ATOM)
+                            (== (ftKind (fnTok nameN)) FT_IDENT)
+                            false)
+                        {
+                          (fpP p "(struct ")
+                          (fpP p (fnText src nameN))
+                          (while (< j (vecLen args))
+                            {
+                              (fpP p " ")
+                              (fpExpr p (vecGet args j))
+                              (set j (+ j 1))
+                            })
+                          (fpP p ")")
+                        }
+                        (fpBad p))))
+          (if (fpIsReservedWord h)
+              (fpBad p)
+              (fpApp p n)))))))))))))))))))))))))))
+
+; ------------------------------------------------------------------
+; Anchors: `Expr::span()` as a byte offset.
+;
+; Comment placement keys on the span stage0's AST carries for each
+; expression, and that span recurses to a LEAF: a `let`'s span is its
+; body's, an `if`'s is its condition's, a `cast`'s is its inner
+; expression's, an application's is its head's. This is the same
+; recursion over the form tree.
+; ------------------------------------------------------------------
+(pub :: fpCondAnchor (-> Int Int Int))
+(pub fn (fpCondAnchor src n)
+  (if (< (fnLen n) 2)
+      0
+      (let ((c (fnKid n 1)))
+        (if (&& (== (fnKind c) FN_PAREN)
+                (&& (> (fnLen c) 0) (strEq (fnHeadText src c) "else")))
+            0
+            (if (&& (== (fnKind c) FN_PAREN) (> (fnLen c) 0))
+                (fpAnchor src (fnKid c 0))
+                0)))))
+
+; ------------------------------------------------------------------
+; Negative-literal fusion.
+;
+; The reader keeps `-` and `5` as two atoms (the scan test pins that),
+; but stage0's parser reads an adjacent pair as one literal in
+; expression position - `(+ x -5)` is two arguments. The printer
+; fuses them where the parser would, and only there: patterns and
+; types refuse a bare `-`, exactly as stage0's parsers do.
+; ------------------------------------------------------------------
+(pub :: fpIsMinusAtom (-> Int Bool))
+(pub fn (fpIsMinusAtom n)
+  (if (== (fnKind n) FN_ATOM) (== (ftKind (fnTok n)) FT_MINUS) false))
+
+(pub :: fpFusesWith (-> Int Int Bool))
+(pub fn (fpFusesWith m d)
+  (if (== (fnKind d) FN_ATOM)
+      (if (|| (== (ftKind (fnTok d)) FT_INT) (== (ftKind (fnTok d)) FT_FLOAT))
+          (== (fnEnd m) (fnStart d))
+          false)
+      false))
+
+; The expression elements of `n` from index `from`, with adjacent
+; minus+number pairs fused into synthetic literal atoms.
+(pub :: fpExprElems (-> Int Int Int))
+(pub fn (fpExprElems n from)
+  (let ((v vecNew) (mut i from))
+    {
+      (while (< i (fnLen n))
+        (let ((kid (fnKid n i)))
+          (if (&& (fpIsMinusAtom kid)
+                  (if (< (+ i 1) (fnLen n))
+                      (fpFusesWith kid (fnKid n (+ i 1)))
+                      false))
+              (let ((d (fnKid n (+ i 1))))
+                {
+                  (vecPush v (mkFNode FN_ATOM
+                                      (mkFTok (ftKind (fnTok d))
+                                              (fnStart kid) (fnEnd d))
+                                      0 (fnStart kid) (fnEnd d)))
+                  (set i (+ i 2))
+                })
+              {
+                (vecPush v kid)
+                (set i (+ i 1))
+              })))
+      v
+    }))
+
+; ------------------------------------------------------------------
+; Types.
+;
+; Over the form tree the tuple/application distinction stage0's parser
+; makes changes nothing: both print as `(head rest...)` with every
+; component recursively wrapped, which is why one printer serves both.
+; Probed: `(:: g (-> (Int Int) Int))` and `(:: g (-> (Box Int) Int))`
+; round-trip identically. The arrow flattens its right spine only -
+; `(-> a (-> b c))` is `(-> a b c)` and an arrow ARGUMENT keeps its
+; parens.
+; ------------------------------------------------------------------
+(pub :: fpTypeUnwrap (-> Int Int))
+(pub fn (fpTypeUnwrap n)
+  (if (&& (== (fnKind n) FN_PAREN) (== (fnLen n) 1))
+      (fpTypeUnwrap (fnKid n 0))
+      n))
+
+(pub :: fpArrow (-> Int Int Int))
+(pub fn (fpArrow p n)
+  (if (< (fnLen n) 3)
+      (fpBad p)
+      (let ((elems vecNew) (mut i 1) (mut go 1))
+        {
+          (while (< i (fnLen n)) { (vecPush elems (fnKid n i)) (set i (+ i 1)) })
+          ; Splice a trailing arrow group, repeatedly: the parser
+          ; right-associates, and the printer flattens the right spine.
+          (while (== go 1)
+            (let ((last (fpTypeUnwrap (vecGet elems (- (vecLen elems) 1)))))
+              (if (&& (== (fnKind last) FN_PAREN)
+                      (&& (> (fnLen last) 0)
+                          (strEq (fnHeadText (fpSrc p) last) "->")))
+                  (if (< (fnLen last) 3)
+                      { (fpBad p) (set go 0) }
+                      (let ((mut j 1))
+                        {
+                          (vecSet elems (- (vecLen elems) 1) (fnKid last 1))
+                          (set j 2)
+                          (while (< j (fnLen last))
+                            { (vecPush elems (fnKid last j)) (set j (+ j 1)) })
+                        }))
+                  (set go 0))))
+          (fpP p "(-> ")
+          (let ((mut k 0))
+            (while (< k (vecLen elems))
+              {
+                (if (> k 0) (fpP p " ") p)
+                (fpType p (vecGet elems k))
+                (set k (+ k 1))
+              }))
+          (fpP p ")")
+        })))
+
+(pub :: fpType (-> Int Int Int))
+(pub fn (fpType p n)
+  (let ((k (fnKind n)))
+    (if (== k FN_ATOM)
+        (if (== (ftKind (fnTok n)) FT_IDENT)
+            (let ((t (fnText (fpSrc p) n)))
+              ; `Integer` is a second spelling of `Int` in stage0's
+              ; token set, and the printer normalises it away.
+              (if (strEq t "Integer") (fpP p "Int") (fpP p t)))
+            (fpBad p))
+    (if (== k FN_BRACK)
+        (if (== (fnLen n) 1)
+            { (fpP p "[") (fpType p (fnKid n 0)) (fpP p "]") }
+            (fpBad p))
+    (if (== k FN_PAREN)
+        (if (== (fnLen n) 0)
+            (fpP p "Unit")
+            (let ((h (fnHeadText (fpSrc p) n)))
+              (if (strEq h "->")
+                  (fpArrow p n)
+              (if (strEq h "*")
+                  (if (== (fnLen n) 2)
+                      { (fpP p "(* ") (fpType p (fnKid n 1)) (fpP p ")") }
+                      (fpBad p))
+              (if (strEq h "linear")
+                  (if (== (fnLen n) 2)
+                      { (fpP p "(linear ") (fpType p (fnKid n 1)) (fpP p ")") }
+                      (fpBad p))
+              (if (== (fnLen n) 1)
+                  (fpType p (fnKid n 0))
+                  (let ((mut i 0))
+                    {
+                      (fpP p "(")
+                      (while (< i (fnLen n))
+                        {
+                          (if (> i 0) (fpP p " ") p)
+                          (fpType p (fnKid n i))
+                          (set i (+ i 1))
+                        })
+                      (fpP p ")")
+                    })))))))
+    (fpBad p))))))
+
+; ------------------------------------------------------------------
+; Patterns.
+; ------------------------------------------------------------------
+
+; Expand `,`-prefix nodes back into their inner forms. Inside braces
+; the scan reads `, h` as an unquote prefix - context it cannot have -
+; so the field walkers flatten the node and treat the comma as the
+; separator it was.
+(pub :: fpPushExpanded (-> Int Int Int))
+(pub fn (fpPushExpanded v kid)
+  (if (&& (== (fnKind kid) FN_PREFIX)
+          (== (ftKind (fnTok kid)) FT_COMMA))
+      (fpPushExpanded v (fnKid kid 0))
+      (vecPush v kid)))
+
+(pub :: fpFlattenCommas (-> Int Int))
+(pub fn (fpFlattenCommas n)
+  (let ((v vecNew) (mut i 0))
+    {
+      (while (< i (fnLen n))
+        { (fpPushExpanded v (fnKid n i)) (set i (+ i 1)) })
+      v
+    }))
+
+(pub :: fpIsUpperIdent (-> Int Int Bool))
+(pub fn (fpIsUpperIdent src n)
+  (if (== (fnKind n) FN_ATOM)
+      (if (== (ftKind (fnTok n)) FT_IDENT)
+          (let ((b (strByte src (fnStart n))))
+            (if (>= b 65) (<= b 90) false))
+          false)
+      false))
+
+(pub :: fpIsAtomText (-> Int Int Int Bool))
+(pub fn (fpIsAtomText src n t)
+  (if (== (fnKind n) FN_ATOM) (strEq (fnText src n) t) false))
+
+; How many kids one pattern occupies at position `i` of vec `v`: two
+; when a bare uppercase ident is followed by a paren group - stage0's
+; `parse_pattern` fuses `C (h t)` into the constructor pattern
+; `(C h t)` in every pattern position - and one otherwise.
+(pub :: fpPatWidth (-> Int Int Int Int))
+(pub fn (fpPatWidth src v i)
+  (if (&& (fpIsUpperIdent src (vecGet v i))
+          (if (< (+ i 1) (vecLen v))
+              (== (fnKind (vecGet v (+ i 1))) FN_PAREN)
+              false))
+      2
+      1))
+
+; The number of patterns a fused walk reads from `v` starting at
+; `from` - the count stage0's pattern loops see.
+(pub :: fpPatVecCount (-> Int Int Int Int))
+(pub fn (fpPatVecCount src v from)
+  (let ((mut i from) (mut n 0))
+    {
+      (while (< i (vecLen v))
+        {
+          (set i (+ i (fpPatWidth src v i)))
+          (set n (+ n 1))
+        })
+      n
+    }))
+
+; Print one pattern starting at `v[i]`, answering the index past it.
+(pub :: fpPatVecAt (-> Int Int Int Int))
+(pub fn (fpPatVecAt p v i)
+  (let ((src (fpSrc p)))
+    (if (== (fpPatWidth src v i) 2)
+        (let ((args (fnKids (vecGet v (+ i 1)))) (mut j 0))
+          {
+            (fpP p "(")
+            (fpP p (fnText src (vecGet v i)))
+            (if (== args 0)
+                p
+                (while (< j (vecLen args))
+                  {
+                    (fpP p " ")
+                    (set j (fpPatVecAt p args j))
+                  }))
+            (fpP p ")")
+            (+ i 2)
+          })
+        {
+          (fpPat p (vecGet v i))
+          (+ i 1)
+        })))
+
+; A named-field pattern group's fields: `(Name { w = p, h })`.
+(pub :: fpPatNamed (-> Int Int Int Int))
+(pub fn (fpPatNamed p name brace)
+  (let ((src (fpSrc p))
+        (flat (fpFlattenCommas brace))
+        (mut i 0)
+        (mut nth 0))
+    {
+      (fpP p "(")
+      (fpP p (fnText src name))
+      (fpP p " {")
+      (while (< i (vecLen flat))
+        (let ((fname (vecGet flat i)))
+          (if (if (== (fnKind fname) FN_ATOM)
+                  (== (ftKind (fnTok fname)) FT_IDENT)
+                  false)
+              {
+                (if (> nth 0) (fpP p ", ") p)
+                (fpP p (fnText src fname))
+                (fpP p " = ")
+                (if (&& (< (+ i 1) (vecLen flat))
+                        (fpIsAtomText src (vecGet flat (+ i 1)) "="))
+                    (if (< (+ i 2) (vecLen flat))
+                        (set i (fpPatVecAt p flat (+ i 2)))
+                        { (fpBad p) (set i (vecLen flat)) })
+                    ; Punning: `{ w }` binds the field to its own name,
+                    ; and prints expanded, as stage0's parser expands it.
+                    { (fpP p (fnText src fname)) (set i (+ i 1)) })
+                (set nth (+ nth 1))
+              }
+              { (fpBad p) (set i (vecLen flat)) })))
+      (fpP p "}")
+      (fpP p ")")
+    }))
+
+(pub :: fpPat (-> Int Int Int))
+(pub fn (fpPat p n)
+  (let ((k (fnKind n)) (src (fpSrc p)))
+    (if (== k FN_ATOM)
+        (let ((tk (ftKind (fnTok n))))
+          (if (== tk FT_IDENT)
+              ; An operator run is not a pattern - stage0's
+              ; `parse_pattern` has no case for one.
+              (if (isFOperChar (strByte src (fnStart n)))
+                  (fpBad p)
+                  (fpP p (fnText src n)))
+          (if (== tk FT_INT) (fpInt p (fnStart n) (fnEnd n))
+          (if (== tk FT_FLOAT) (fpFloat p (fnStart n) (fnEnd n))
+          (if (== tk FT_STR) (fpStrLit p (fnTok n))
+          (if (== tk FT_CHAR) (fpCharLit p (fnTok n))
+          (fpBad p)))))))
+    (if (== k FN_BRACK)
+        (let ((kids (fnKids n)) (mut i 0) (mut nth 0))
+          {
+            (fpP p "[")
+            (if (== kids 0)
+                p
+                (while (< i (vecLen kids))
+                  {
+                    (if (> nth 0) (fpP p " ") p)
+                    (set i (fpPatVecAt p kids i))
+                    (set nth (+ nth 1))
+                  }))
+            (fpP p "]")
+          })
+    (if (== k FN_PAREN)
+        (if (== (fnLen n) 0)
+            (fpP p "()")
+            (if (fpIsUpperIdent src (fnKid n 0))
+                ; A constructor pattern: the parens are load-bearing -
+                ; `(Red)` is a tag test where `Red` alone would be a
+                ; binder - so nullary constructors keep them.
+                (if (&& (== (fnLen n) 2) (== (fnKind (fnKid n 1)) FN_BRACE))
+                    (fpPatNamed p (fnKid n 0) (fnKid n 1))
+                    (let ((kids (fnKids n)) (mut i 1))
+                      {
+                        (fpP p "(")
+                        (fpP p (fnText src (fnKid n 0)))
+                        (while (< i (vecLen kids))
+                          {
+                            (fpP p " ")
+                            (set i (fpPatVecAt p kids i))
+                          })
+                        (fpP p ")")
+                      }))
+                ; Not a constructor head: the group is a paren list of
+                ; patterns - one unwraps to itself, several are a
+                ; tuple - counted through the constructor fusion, so
+                ; `(C (x))` above and `((C x))` here agree with the
+                ; parser.
+                (let ((kids (fnKids n)))
+                  (if (== (fpPatVecCount src kids 0) 1)
+                      { (fpPatVecAt p kids 0) p }
+                      (let ((mut i 0) (mut nth 0))
+                        {
+                          (fpP p "(")
+                          (while (< i (vecLen kids))
+                            {
+                              (if (> nth 0) (fpP p " ") p)
+                              (set i (fpPatVecAt p kids i))
+                              (set nth (+ nth 1))
+                            })
+                          (fpP p ")")
+                        })))))
+    (fpBad p))))))
+
+(pub :: fpAnchor (-> Int Int Int))
+(pub fn (fpAnchor src n)
+  (let ((k (fnKind n)))
+    (if (== k FN_ATOM) (fnStart n)
+    (if (== k FN_FIELD) (fnStart n)
+    (if (== k FN_QUAL) (fnStart n)
+    (if (== k FN_PREFIX) (fpAnchor src (fnKid n 0))
+    (if (|| (== k FN_BRACK) (== k FN_BRACE))
+        (if (> (fnLen n) 0) (fpAnchor src (fnKid n 0)) 0)
+    ; FN_PAREN.
+    (if (== (fnLen n) 0)
+        0
+        (let ((h (fnHeadText src n)))
+          (if (|| (strEq h "let") (strEq h "lambda"))
+              (if (> (fnLen n) 2) (fpAnchor src (fnKid n 2)) 0)
+          (if (|| (strEq h "if")
+                  (|| (strEq h "while")
+                      (|| (strEq h "match")
+                          (|| (strEq h "handle")
+                              (|| (strEq h "consume") (strEq h "::"))))))
+              (if (> (fnLen n) 1) (fpAnchor src (fnKid n 1)) 0)
+          (if (strEq h "cast")
+              (if (> (fnLen n) 2) (fpAnchor src (fnKid n 2)) 0)
+          (if (strEq h "cond")
+              (fpCondAnchor src n)
+          (if (|| (strEq h "alloc") (|| (strEq h "sizeof") (strEq h "alignof")))
+              (fnStart (fnKid n 0))
+          (if (|| (strEq h "set") (strEq h "struct"))
+              (if (> (fnLen n) 1) (fnStart (fnKid n 1)) 0)
+          (fpAnchor src (fnKid n 0)))))))))))))))))
+
+; ------------------------------------------------------------------
+; Declarations.
+; ------------------------------------------------------------------
+
+; Whether the declaration opens with `pub`: 1 shifts every index.
+(pub :: fpDeclBase (-> Int Int Int))
+(pub fn (fpDeclBase src n)
+  (if (&& (> (fnLen n) 0) (fpIsAtomText src (fnKid n 0) "pub")) 1 0))
+
+(pub :: fpDeclHead (-> Int Int Int))
+(pub fn (fpDeclHead src n)
+  (let ((b (fpDeclBase src n)))
+    (if (> (fnLen n) b)
+        (fnText src (fnKid n b))
+        "")))
+
+(pub :: fpIsDeclHead (-> Int Bool))
+(pub fn (fpIsDeclHead h)
+  (if (strEq h "import") true
+  (if (strEq h "fn") true
+  (if (strEq h "define") true
+  (if (strEq h "::") true
+  (if (strEq h "data") true
+  (if (strEq h "newtype") true
+  (if (strEq h "struct") true
+  (if (strEq h "type") true
+  (if (strEq h "trait") true
+  (if (strEq h "impl") true
+  (if (strEq h "effect") true
+  (if (strEq h "macro") true
+  (if (strEq h "foreign") true
+  false))))))))))))))
+
+; The offset stage0's `decl_start` answers: the NAME token's start,
+; which sits a few tokens into the form. Comments order against it.
+(pub :: fpDeclAnchor (-> Int Int Int))
+(pub fn (fpDeclAnchor src n)
+  (let ((b (fpDeclBase src n)) (h (fpDeclHead src n)))
+    (if (< (fnLen n) (+ b 2))
+        (fnStart n)
+        (let ((x (fnKid n (+ b 1))))
+          (if (|| (strEq h "fn")
+                  (|| (strEq h "define")
+                      (|| (strEq h "macro") (|| (strEq h "trait") (strEq h "impl")))))
+              (if (&& (== (fnKind x) FN_PAREN) (> (fnLen x) 0))
+                  (fnStart (fnKid x 0))
+                  (fnStart x))
+              (fnStart x))))))
+
+; `pub ` as spelled: inside the paren, before the keyword.
+(pub :: fpVis (-> Int Int Int))
+(pub fn (fpVis p n)
+  (if (== (fpDeclBase (fpSrc p) n) 1) (fpP p "pub ") p))
+
+; The end of a tyvar run starting at `from`: consecutive bare
+; lowercase idents, or one parenthesised all-lowercase list (empty
+; counts), mirroring `parse_tyvars`/`looks_like_tyvar_list`.
+(pub :: fpIsLowerIdent (-> Int Int Bool))
+(pub fn (fpIsLowerIdent src n)
+  (if (== (fnKind n) FN_ATOM)
+      (if (== (ftKind (fnTok n)) FT_IDENT)
+          (let ((c (strByte src (fnStart n))))
+            (if (>= c 97) (<= c 122) false))
+          false)
+      false))
+
+(pub :: fpIsTyvarList (-> Int Int Bool))
+(pub fn (fpIsTyvarList src n)
+  (if (!= (fnKind n) FN_PAREN)
+      false
+      (let ((mut j 0) (mut ok 1))
+        {
+          (while (< j (fnLen n))
+            {
+              (if (fpIsLowerIdent src (fnKid n j)) 0 (set ok 0))
+              (set j (+ j 1))
+            })
+          (== ok 1)
+        })))
+
+(pub :: fpTyvarsEnd (-> Int Int Int Int))
+(pub fn (fpTyvarsEnd src n from)
+  (if (>= from (fnLen n))
+      from
+      (if (fpIsTyvarList src (fnKid n from))
+          (+ from 1)
+          (let ((mut i from))
+            {
+              (while (&& (< i (fnLen n)) (fpIsLowerIdent src (fnKid n i)))
+                (set i (+ i 1)))
+              i
+            }))))
+
+; Print the tyvars between `from` and `to`: one prints bare, several
+; print parenthesised, none prints nothing - stage0's
+; `format_type_vars` over the flattened list.
+(pub :: fpTyvars (-> Int Int Int Int Int))
+(pub fn (fpTyvars p n from to)
+  (let ((src (fpSrc p))
+        (names vecNew)
+        (mut i from))
+    {
+      (while (< i to)
+        (let ((kid (fnKid n i)))
+          {
+            (if (== (fnKind kid) FN_PAREN)
+                (let ((mut j 0))
+                  (while (< j (fnLen kid))
+                    { (vecPush names (fnKid kid j)) (set j (+ j 1)) }))
+                (vecPush names kid))
+            (set i (+ i 1))
+          }))
+      (if (== (vecLen names) 0)
+          p
+          {
+            (fpP p " ")
+            (if (== (vecLen names) 1)
+                (fpP p (fnText src (vecGet names 0)))
+                (let ((mut k 0))
+                  {
+                    (fpP p "(")
+                    (while (< k (vecLen names))
+                      {
+                        (if (> k 0) (fpP p " ") p)
+                        (fpP p (fnText src (vecGet names k)))
+                        (set k (+ k 1))
+                      })
+                    (fpP p ")")
+                  }))
+          })
+    }))
+
+(pub :: fpIsColonAtom (-> Int Bool))
+(pub fn (fpIsColonAtom n)
+  (if (== (fnKind n) FN_ATOM) (== (ftKind (fnTok n)) FT_COLON) false))
+
+(pub :: fpIsDColonAtom (-> Int Bool))
+(pub fn (fpIsDColonAtom n)
+  (if (== (fnKind n) FN_ATOM) (== (ftKind (fnTok n)) FT_DCOLON) false))
+
+(pub :: fpIsIdentAtom (-> Int Bool))
+(pub fn (fpIsIdentAtom n)
+  (if (== (fnKind n) FN_ATOM) (== (ftKind (fnTok n)) FT_IDENT) false))
+
+; A constructor of a `data` declaration.
+(pub :: fpDataCon (-> Int Int Int))
+(pub fn (fpDataCon p con)
+  (let ((src (fpSrc p)))
+    (if (|| (!= (fnKind con) FN_PAREN)
+            (|| (< (fnLen con) 1) (if (fpIsIdentAtom (fnKid con 0)) false true)))
+        (fpBad p)
+        {
+          (fpP p "(")
+          (fpP p (fnText src (fnKid con 0)))
+          (if (&& (== (fnLen con) 2) (== (fnKind (fnKid con 1)) FN_BRACE))
+              ; Named fields print named: `(Circle { r : Int })`.
+              ; Erasing the names demotes a struct variant to
+              ; positional, which is the worst of the original six
+              ; formatter bugs.
+              (let ((flat (fpFlattenCommas (fnKid con 1))) (mut i 0) (mut nth 0))
+                {
+                  (fpP p " {")
+                  (while (< i (vecLen flat))
+                    (if (&& (< (+ i 2) (+ (vecLen flat) 1))
+                            (&& (fpIsIdentAtom (vecGet flat i))
+                                (if (< (+ i 1) (vecLen flat))
+                                    (fpIsColonAtom (vecGet flat (+ i 1)))
+                                    false)))
+                        (if (< (+ i 2) (vecLen flat))
+                            {
+                              (if (> nth 0) (fpP p ",") p)
+                              (fpP p " ")
+                              (fpP p (fnText src (vecGet flat i)))
+                              (fpP p " : ")
+                              (fpType p (vecGet flat (+ i 2)))
+                              (set nth (+ nth 1))
+                              (set i (+ i 3))
+                            }
+                            { (fpBad p) (set i (vecLen flat)) })
+                        { (fpBad p) (set i (vecLen flat)) }))
+                  (fpP p " }")
+                })
+              (let ((mut i 1))
+                (while (< i (fnLen con))
+                  {
+                    (fpP p " ")
+                    (fpType p (fnKid con i))
+                    (set i (+ i 1))
+                  })))
+          (fpP p ")")
+        })))
+
+(pub :: fpDeriving (-> Int Int Int))
+(pub fn (fpDeriving p grp)
+  (let ((src (fpSrc p)) (mut i 0))
+    (if (!= (fnKind grp) FN_PAREN)
+        (fpBad p)
+        {
+          (fpP p " deriving (")
+          (while (< i (fnLen grp))
+            (if (fpIsIdentAtom (fnKid grp i))
+                {
+                  (if (> i 0) (fpP p " ") p)
+                  (fpP p (fnText src (fnKid grp i)))
+                  (set i (+ i 1))
+                }
+                { (fpBad p) (set i (fnLen grp)) }))
+          (fpP p ")")
+        })))
+
+(pub :: fpDeclData (-> Int Int Int))
+(pub fn (fpDeclData p n)
+  (let ((src (fpSrc p)) (o (fpOut p)) (b (fpDeclBase src n)))
+    (if (|| (< (fnLen n) (+ b 2)) (if (fpIsIdentAtom (fnKid n (+ b 1))) false true))
+        (fpBad p)
+        (let ((tvEnd (fpTyvarsEnd src n (+ b 2))))
+          {
+            (fpP p "(")
+            (fpVis p n)
+            (fpP p "data ")
+            (fpP p (fnText src (fnKid n (+ b 1))))
+            (fpTyvars p n (+ b 2) tvEnd)
+            ; Constructors run to the `deriving` keyword or the end.
+            (let ((mut end (fnLen n)) (mut dgrp 0) (mut i tvEnd))
+              {
+                (while (< i (fnLen n))
+                  {
+                    (if (fpIsAtomText src (fnKid n i) "deriving")
+                        (if (== (+ i 2) (fnLen n))
+                            { (set end i) (set dgrp (fnKid n (+ i 1))) (set i (fnLen n)) }
+                            { (fpBad p) (set i (fnLen n)) })
+                        0)
+                    (set i (+ i 1))
+                  })
+                (let ((ctors (- end tvEnd)))
+                  (if (== ctors 0)
+                      ; stage0's `format_data_decl` prints `)` the
+                      ; moment the constructor list is empty and never
+                      ; reaches its deriving clause - a zero-constructor
+                      ; `data` loses its `deriving` silently, and
+                      ; byte-parity keeps the bug.
+                      (fpP p ")")
+                      (if (&& (== ctors 1)
+                              (&& (== (fnKind (fnKid n tvEnd)) FN_PAREN)
+                                  (== (fnLen (fnKid n tvEnd)) 1)))
+                          {
+                            (fpP p " ")
+                            (fpDataCon p (fnKid n tvEnd))
+                            (if (!= dgrp 0) (fpDeriving p dgrp) p)
+                            (fpP p ")")
+                          }
+                          (let ((mut j tvEnd))
+                            {
+                              (while (< j end)
+                                {
+                                  (fpP p "\n")
+                                  (foPushIndent o)
+                                  (foEmitIndent o)
+                                  (fpDataCon p (fnKid n j))
+                                  (foPopIndent o)
+                                  (set j (+ j 1))
+                                })
+                              (if (!= dgrp 0) (fpDeriving p dgrp) p)
+                              (fpP p ")")
+                            }))))
+              })
+          }))))
+
+; `newtype` is sugar stage0's parser rewrites into a single-constructor
+; `data`, so the printer performs the same rewrite.
+(pub :: fpDeclNewtype (-> Int Int Int))
+(pub fn (fpDeclNewtype p n)
+  (let ((src (fpSrc p)) (o (fpOut p)) (b (fpDeclBase src n)))
+    (if (|| (< (fnLen n) (+ b 2)) (if (fpIsIdentAtom (fnKid n (+ b 1))) false true))
+        (fpBad p)
+        (let ((tvEnd (fpTyvarsEnd src n (+ b 2))))
+          (if (|| (!= (+ tvEnd 3) (fnLen n))
+                  (|| (if (fpIsAtomText src (fnKid n tvEnd) "=") false true)
+                      (if (fpIsIdentAtom (fnKid n (+ tvEnd 1))) false true)))
+              (fpBad p)
+              {
+                (fpP p "(")
+                (fpVis p n)
+                (fpP p "data ")
+                (fpP p (fnText src (fnKid n (+ b 1))))
+                (fpTyvars p n (+ b 2) tvEnd)
+                (fpP p "\n")
+                (foPushIndent o)
+                (foEmitIndent o)
+                (fpP p "(")
+                (fpP p (fnText src (fnKid n (+ tvEnd 1))))
+                (fpP p " ")
+                (fpType p (fnKid n (+ tvEnd 2)))
+                (fpP p ")")
+                (foPopIndent o)
+                (fpP p ")")
+              })))))
+
+(pub :: fpDeclStruct (-> Int Int Int))
+(pub fn (fpDeclStruct p n)
+  (let ((src (fpSrc p)) (o (fpOut p)) (b (fpDeclBase src n)))
+    (if (|| (< (fnLen n) (+ b 2)) (if (fpIsIdentAtom (fnKid n (+ b 1))) false true))
+        (fpBad p)
+        (let ((tvEnd (fpTyvarsEnd src n (+ b 2))))
+          {
+            (fpP p "(")
+            (fpVis p n)
+            (fpP p "struct ")
+            (fpP p (fnText src (fnKid n (+ b 1))))
+            (fpTyvars p n (+ b 2) tvEnd)
+            ; Optional representation: `packed`, `repr(C)`, `align(N)`.
+            (let ((mut i tvEnd))
+              {
+                (if (< i (fnLen n))
+                    (if (fpIsAtomText src (fnKid n i) "packed")
+                        { (fpP p " packed") (set i (+ i 1)) }
+                    (if (&& (fpIsAtomText src (fnKid n i) "repr")
+                            (&& (< (+ i 1) (fnLen n))
+                                (&& (== (fnKind (fnKid n (+ i 1))) FN_PAREN)
+                                    (&& (== (fnLen (fnKid n (+ i 1))) 1)
+                                        (fpIsAtomText src (fnKid (fnKid n (+ i 1)) 0) "C")))))
+                        { (fpP p " repr(C)") (set i (+ i 2)) }
+                    (if (&& (fpIsAtomText src (fnKid n i) "align")
+                            (&& (< (+ i 1) (fnLen n))
+                                (&& (== (fnKind (fnKid n (+ i 1))) FN_PAREN)
+                                    (== (fnLen (fnKid n (+ i 1))) 1))))
+                        (let ((num (fnKid (fnKid n (+ i 1)) 0)))
+                          (if (&& (== (fnKind num) FN_ATOM)
+                                  (== (ftKind (fnTok num)) FT_INT))
+                              {
+                                (fpP p " align(")
+                                (fpInt p (fnStart num) (fnEnd num))
+                                (fpP p ")")
+                                (set i (+ i 2))
+                              }
+                              (fpBad p)))
+                        p)))
+                    p)
+                ; Fields: `({mut }name : Type)`, one per line.
+                (if (< i (fnLen n)) (foPushIndent o) o)
+                (let ((had (< i (fnLen n))))
+                  {
+                    (while (< i (fnLen n))
+                      (let ((f (fnKid n i)))
+                        (if (!= (fnKind f) FN_PAREN)
+                            { (fpBad p) (set i (fnLen n)) }
+                            (let ((fb (if (&& (> (fnLen f) 0)
+                                              (fpIsAtomText src (fnKid f 0) "mut"))
+                                          1 0)))
+                              (if (|| (!= (fnLen f) (+ fb 3))
+                                      (|| (if (fpIsIdentAtom (fnKid f fb)) false true)
+                                          (if (fpIsColonAtom (fnKid f (+ fb 1))) false true)))
+                                  { (fpBad p) (set i (fnLen n)) }
+                                  {
+                                    (fpP p "\n")
+                                    (foEmitIndent o)
+                                    (fpP p (if (== fb 1) "(mut " "("))
+                                    (fpP p (fnText src (fnKid f fb)))
+                                    (fpP p " : ")
+                                    (fpType p (fnKid f (+ fb 2)))
+                                    (fpP p ")")
+                                    (set i (+ i 1))
+                                  })))))
+                    (if had (foPopIndent o) o)
+                  })
+              })
+            (fpP p ")")
+          }))))
+
+(pub :: fpDeclType (-> Int Int Int))
+(pub fn (fpDeclType p n)
+  (let ((src (fpSrc p)) (b (fpDeclBase src n)))
+    (if (|| (< (fnLen n) (+ b 2)) (if (fpIsIdentAtom (fnKid n (+ b 1))) false true))
+        (fpBad p)
+        (let ((tvEnd (fpTyvarsEnd src n (+ b 2))))
+          (if (|| (!= (+ tvEnd 2) (fnLen n))
+                  (if (fpIsAtomText src (fnKid n tvEnd) "=") false true))
+              (fpBad p)
+              {
+                (fpP p "(")
+                (fpVis p n)
+                (fpP p "type ")
+                (fpP p (fnText src (fnKid n (+ b 1))))
+                (fpTyvars p n (+ b 2) tvEnd)
+                (fpP p " = ")
+                (fpType p (fnKid n (+ tvEnd 1)))
+                (fpP p ")")
+              })))))
+
+(pub :: fpDeclSig (-> Int Int Int))
+(pub fn (fpDeclSig p n)
+  (let ((src (fpSrc p)) (b (fpDeclBase src n)))
+    (if (|| (!= (fnLen n) (+ b 3)) (if (fpIsIdentAtom (fnKid n (+ b 1))) false true))
+        (fpBad p)
+        {
+          (fpP p "(")
+          (fpVis p n)
+          (fpP p ":: ")
+          (fpP p (fnText src (fnKid n (+ b 1))))
+          (fpP p " ")
+          (fpType p (fnKid n (+ b 2)))
+          (fpP p ")")
+        })))
+
+(pub :: fpDeclFn (-> Int Int Int))
+(pub fn (fpDeclFn p n)
+  (let ((src (fpSrc p)) (o (fpOut p)) (b (fpDeclBase src n)))
+    (if (< (fnLen n) (+ b 2))
+        (fpBad p)
+        (let ((x (fnKid n (+ b 1))))
+          {
+            (fpP p "(")
+            (fpVis p n)
+            (fpP p "fn (")
+            ; `(fn (name params) body)`, `(fn name = body)` and
+            ; `(define name body)` all print as the first spelling.
+            (let ((bodyFrom
+                   (if (== (fnKind x) FN_PAREN)
+                       (if (&& (> (fnLen x) 0) (fpIsIdentAtom (fnKid x 0)))
+                           (let ((kids (fnKids x)) (mut i 1))
+                             {
+                               (fpP p (fnText src (fnKid x 0)))
+                               (while (< i (vecLen kids))
+                                 {
+                                   (fpP p " ")
+                                   (set i (fpPatVecAt p kids i))
+                                 })
+                               (+ b 2)
+                             })
+                           { (fpBad p) (+ b 2) })
+                       (if (fpIsIdentAtom x)
+                           {
+                             (fpP p (fnText src x))
+                             (if (&& (> (fnLen n) (+ b 2))
+                                     (fpIsAtomText src (fnKid n (+ b 2)) "="))
+                                 (+ b 3)
+                                 (+ b 2))
+                           }
+                           { (fpBad p) (+ b 2) }))))
+              (let ((body (fpExprElems n bodyFrom)))
+                {
+                  (fpP p ")")
+                  (if (== (vecLen body) 0)
+                      (fpBad p)
+                      (if (fpBodyVecSimple src body 0)
+                          {
+                            (fpP p " ")
+                            (fpBodyVec p body 0)
+                            (fpP p ")")
+                          }
+                          {
+                            (fpP p "\n")
+                            (foPushIndent o)
+                            (flushLeading src (fpQ p) o (fpBodyVecAnchor src body 0))
+                            (foEmitIndent o)
+                            (fpBodyVec p body 0)
+                            (foPopIndent o)
+                            (fpP p "\n")
+                            (foEmitIndent o)
+                            (fpP p ")")
+                          }))
+                }))
+          }))))
+
+(pub :: fpDeclForeign (-> Int Int Int))
+(pub fn (fpDeclForeign p n)
+  (let ((src (fpSrc p)) (b (fpDeclBase src n)))
+    (if (|| (!= (fnLen n) (+ b 6))
+            (|| (if (fpIsIdentAtom (fnKid n (+ b 1))) false true)
+                (|| (if (fpIsDColonAtom (fnKid n (+ b 2))) false true)
+                    (|| (if (fpIsAtomText src (fnKid n (+ b 4)) "=") false true)
+                        (if (== (fnKind (fnKid n (+ b 5))) FN_ATOM)
+                            (!= (ftKind (fnTok (fnKid n (+ b 5)))) FT_STR)
+                            true)))))
+        (fpBad p)
+        {
+          (fpP p "(")
+          (fpVis p n)
+          (fpP p "foreign ")
+          (fpP p (fnText src (fnKid n (+ b 1))))
+          (fpP p " :: ")
+          (fpType p (fnKid n (+ b 3)))
+          (fpP p " = \"")
+          (fpStrRaw p (fnTok (fnKid n (+ b 5))))
+          (fpP p "\")")
+        })))
+
+(pub :: fpDeclImport (-> Int Int Int))
+(pub fn (fpDeclImport p n)
+  (let ((src (fpSrc p)) (b (fpDeclBase src n)))
+    (if (|| (< (fnLen n) (+ b 2)) (> (fnLen n) (+ b 3)))
+        (fpBad p)
+        (let ((path (fnKid n (+ b 1))))
+          {
+            (fpP p "(import ")
+            (fpImportPath p path)
+            (if (== (fnLen n) (+ b 3))
+                (let ((names (fnKid n (+ b 2))) (mut i 0))
+                  (if (!= (fnKind names) FN_PAREN)
+                      (fpBad p)
+                      ; An EMPTY name list is omitted entirely:
+                      ; stage0's printer guards on `!names.is_empty()`,
+                      ; so `(import A.B ())` prints `(import A.B)`.
+                      (if (== (fnLen names) 0)
+                          p
+                          {
+                            (fpP p " (")
+                            (while (< i (fnLen names))
+                              (if (fpIsIdentAtom (fnKid names i))
+                                  {
+                                    (if (> i 0) (fpP p " ") p)
+                                    (fpP p (fnText src (fnKid names i)))
+                                    (set i (+ i 1))
+                                  }
+                                  { (fpBad p) (set i (fnLen names)) }))
+                            (fpP p ")")
+                          })))
+                p)
+            (fpP p ")")
+          }))))
+
+; A dotted module path: `Q.Inner` is a FIELD join in the tree and one
+; path here.
+(pub :: fpImportPath (-> Int Int Int))
+(pub fn (fpImportPath p path)
+  (if (fpIsIdentAtom path)
+      (fpP p (fnText (fpSrc p) path))
+      (if (== (fnKind path) FN_FIELD)
+          {
+            (fpImportPath p (fnKid path 0))
+            (fpP p ".")
+            (fpP p (fnText (fpSrc p) (fnKid path 1)))
+          }
+          (fpBad p))))
+
+; Effect atoms print SEMANTICALLY, not verbatim: `mut` is the `Mut`
+; token and prints `Mut` (probed). Structural keywords other than
+; `mut` are parse errors in an effect list - `(alloc)` refuses even
+; though `Alloc` is fine - so they poison.
+(pub :: fpEffectAtoms (-> Int Int Int))
+(pub fn (fpEffectAtoms p grp)
+  (let ((src (fpSrc p)) (mut j 0))
+    {
+      (while (< j (fnLen grp))
+        (if (fpIsIdentAtom (fnKid grp j))
+            (let ((t (fnText src (fnKid grp j))))
+              {
+                (if (> j 0) (fpP p " ") p)
+                (if (strEq t "mut")
+                    (fpP p "Mut")
+                    (if (fpIsReservedWord t) (fpBad p) (fpP p t)))
+                (set j (+ j 1))
+              })
+            { (fpBad p) (set j (fnLen grp)) }))
+      p
+    }))
+
+(pub :: fpDeclTrait (-> Int Int Int))
+(pub fn (fpDeclTrait p n)
+  (let ((src (fpSrc p)) (o (fpOut p)) (b (fpDeclBase src n)))
+    (if (|| (< (fnLen n) (+ b 2))
+            (|| (!= (fnKind (fnKid n (+ b 1))) FN_PAREN)
+                (|| (!= (fnLen (fnKid n (+ b 1))) 2)
+                    (|| (if (fpIsIdentAtom (fnKid (fnKid n (+ b 1)) 0)) false true)
+                        (if (fpIsIdentAtom (fnKid (fnKid n (+ b 1)) 1)) false true)))))
+        (fpBad p)
+        (let ((hd (fnKid n (+ b 1)))
+              (mut i (+ b 2))
+              (mut supers 0)
+              (mut fx 0)
+              (mut methods 0))
+          {
+            ; Parse order is supertraits then effects then `where`;
+            ; print order is effects then supertraits - stage0's, kept
+            ; bug-for-bug (a trait with both cannot round-trip and is
+            ; refused by the idempotency check, there as here).
+            (if (&& (< i (fnLen n)) (== (fnKind (fnKid n i)) FN_PAREN))
+                { (set supers (fnKid n i)) (set i (+ i 1)) }
+                0)
+            (if (&& (< i (fnLen n)) (== (fnKind (fnKid n i)) FN_PAREN))
+                { (set fx (fnKid n i)) (set i (+ i 1)) }
+                0)
+            (if (&& (< (+ i 1) (fnLen n))
+                    (&& (fpIsAtomText src (fnKid n i) "where")
+                        (== (fnKind (fnKid n (+ i 1))) FN_PAREN)))
+                { (set methods (fnKid n (+ i 1))) (set i (+ i 2)) }
+                0)
+            (if (!= i (fnLen n)) (fpBad p) p)
+            (fpP p "(")
+            (fpVis p n)
+            (fpP p "trait (")
+            (fpP p (fnText src (fnKid hd 0)))
+            (fpP p " ")
+            (fpP p (fnText src (fnKid hd 1)))
+            (fpP p ")")
+            (if (!= fx 0)
+                { (fpP p " (") (fpEffectAtoms p fx) (fpP p ")") }
+                p)
+            (if (!= supers 0)
+                (let ((mut j 0))
+                  {
+                    (fpP p " (")
+                    (while (< j (fnLen supers))
+                      {
+                        (if (> j 0) (fpP p " ") p)
+                        (fpType p (fnKid supers j))
+                        (set j (+ j 1))
+                      })
+                    (fpP p ")")
+                  })
+                p)
+            (if (!= methods 0) (fpTraitMethods p methods) p)
+            (fpP p ")")
+          }))))
+
+(pub :: fpTraitMethods (-> Int Int Int))
+(pub fn (fpTraitMethods p methods)
+  (let ((src (fpSrc p))
+        (o (fpOut p))
+        (elems (fpExprElems methods 0))
+        (mut i 0)
+        (mut nth 0))
+    {
+      (fpP p " where (")
+      (fpP p "\n")
+      (foPushIndent o)
+      (while (< i (vecLen elems))
+        (if (&& (fpIsIdentAtom (vecGet elems i))
+                (&& (< (+ i 2) (+ (vecLen elems) 1))
+                    (if (< (+ i 1) (vecLen elems))
+                        (fpIsDColonAtom (vecGet elems (+ i 1)))
+                        false)))
+            (if (< (+ i 2) (vecLen elems))
+                {
+                  (if (> nth 0) (fpP p "\n") p)
+                  (foEmitIndent o)
+                  (fpP p (fnText src (vecGet elems i)))
+                  (fpP p " :: ")
+                  (fpType p (vecGet elems (+ i 2)))
+                  (set i (+ i 3))
+                  ; Optional `= default`, then an optional effect list.
+                  (if (&& (< (+ i 1) (vecLen elems))
+                          (fpIsAtomText src (vecGet elems i) "="))
+                      {
+                        (fpP p " = ")
+                        (fpExpr p (vecGet elems (+ i 1)))
+                        (set i (+ i 2))
+                      }
+                      p)
+                  (if (&& (< i (vecLen elems))
+                          (== (fnKind (vecGet elems i)) FN_PAREN))
+                      {
+                        (fpP p " (")
+                        (fpEffectAtoms p (vecGet elems i))
+                        (fpP p ")")
+                        (set i (+ i 1))
+                      }
+                      p)
+                  (set nth (+ nth 1))
+                }
+                { (fpBad p) (set i (vecLen elems)) })
+            { (fpBad p) (set i (vecLen elems)) }))
+      (foPopIndent o)
+      (fpP p "\n")
+      (foEmitIndent o)
+      (fpP p ")")
+    }))
+
+(pub :: fpDeclImpl (-> Int Int Int))
+(pub fn (fpDeclImpl p n)
+  (let ((src (fpSrc p)) (o (fpOut p)) (b (fpDeclBase src n)))
+    (if (|| (< (fnLen n) (+ b 2))
+            (|| (!= (fnKind (fnKid n (+ b 1))) FN_PAREN)
+                (|| (!= (fnLen (fnKid n (+ b 1))) 2)
+                    (if (fpIsIdentAtom (fnKid (fnKid n (+ b 1)) 0)) false true))))
+        (fpBad p)
+        (let ((hd (fnKid n (+ b 1)))
+              (mut i (+ b 2))
+              (mut fx 0)
+              (mut methods 0))
+          {
+            (if (&& (< i (fnLen n)) (== (fnKind (fnKid n i)) FN_PAREN))
+                { (set fx (fnKid n i)) (set i (+ i 1)) }
+                0)
+            (if (&& (< (+ i 1) (fnLen n))
+                    (&& (fpIsAtomText src (fnKid n i) "where")
+                        (== (fnKind (fnKid n (+ i 1))) FN_PAREN)))
+                { (set methods (fnKid n (+ i 1))) (set i (+ i 2)) }
+                0)
+            (if (!= i (fnLen n)) (fpBad p) p)
+            (fpP p "(")
+            (fpVis p n)
+            (fpP p "impl (")
+            (fpP p (fnText src (fnKid hd 0)))
+            (fpP p " ")
+            (fpType p (fnKid hd 1))
+            (fpP p ")")
+            (if (!= fx 0)
+                { (fpP p " (") (fpEffectAtoms p fx) (fpP p ")") }
+                p)
+            (if (!= methods 0)
+                (let ((mut j 0))
+                  {
+                    (fpP p " where (")
+                    (fpP p "\n")
+                    (foPushIndent o)
+                    (while (< j (fnLen methods))
+                      (let ((m (fnKid methods j)))
+                        (if (!= (fnKind m) FN_PAREN)
+                            { (fpBad p) (set j (fnLen methods)) }
+                            (let ((melems (fpExprElems m 0)))
+                              (if (|| (!= (vecLen melems) 2)
+                                      (if (fpIsIdentAtom (vecGet melems 0)) false true))
+                                  { (fpBad p) (set j (fnLen methods)) }
+                                  (let ((mbody (vecGet melems 1)))
+                                    {
+                                      (if (> j 0) (fpP p "\n") p)
+                                      (foEmitIndent o)
+                                      (fpP p "(")
+                                      (fpP p (fnText src (vecGet melems 0)))
+                                      (if (isSimpleForm src mbody)
+                                          {
+                                            (fpP p " ")
+                                            (fpExpr p mbody)
+                                          }
+                                          {
+                                            (fpP p "\n")
+                                            (foPushIndent o)
+                                            (foEmitIndent o)
+                                            (fpExpr p mbody)
+                                            (foPopIndent o)
+                                            (fpP p "\n")
+                                            (foEmitIndent o)
+                                          })
+                                      (fpP p ")")
+                                      (set j (+ j 1))
+                                    }))))))
+                    (foPopIndent o)
+                    (fpP p "\n")
+                    (foEmitIndent o)
+                    (fpP p ")")
+                  })
+                p)
+            (fpP p ")")
+          }))))
+
+(pub :: fpDeclEffect (-> Int Int Int))
+(pub fn (fpDeclEffect p n)
+  (let ((src (fpSrc p)) (o (fpOut p)) (b (fpDeclBase src n)))
+    (if (|| (< (fnLen n) (+ b 2)) (if (fpIsIdentAtom (fnKid n (+ b 1))) false true))
+        (fpBad p)
+        (let ((mut i (+ b 2)))
+          {
+            (fpP p "(")
+            (fpVis p n)
+            (fpP p "effect ")
+            (fpP p (fnText src (fnKid n (+ b 1))))
+            (if (< i (fnLen n)) (foPushIndent o) o)
+            (let ((had (< i (fnLen n))))
+              {
+                (while (< i (fnLen n))
+                  (let ((op (fnKid n i)))
+                    (if (|| (!= (fnKind op) FN_PAREN)
+                            (|| (!= (fnLen op) 3)
+                                (|| (if (fpIsIdentAtom (fnKid op 0)) false true)
+                                    (if (fpIsDColonAtom (fnKid op 1)) false true))))
+                        { (fpBad p) (set i (fnLen n)) }
+                        {
+                          (fpP p "\n")
+                          (foEmitIndent o)
+                          (fpP p "(")
+                          (fpP p (fnText src (fnKid op 0)))
+                          (fpP p " :: ")
+                          (fpType p (fnKid op 2))
+                          (fpP p ")")
+                          (set i (+ i 1))
+                        })))
+                (if had (foPopIndent o) o)
+              })
+            (fpP p ")")
+          }))))
+
+(pub :: fpDeclMacro (-> Int Int Int))
+(pub fn (fpDeclMacro p n)
+  (let ((src (fpSrc p)) (b (fpDeclBase src n)))
+    (let ((tmpl (fpExprElems n (+ b 2))))
+      (if (|| (< (fnLen n) (+ b 3))
+              (|| (!= (vecLen tmpl) 1)
+                  (|| (!= (fnKind (fnKid n (+ b 1))) FN_PAREN)
+                      (|| (< (fnLen (fnKid n (+ b 1))) 1)
+                          (if (fpIsIdentAtom (fnKid (fnKid n (+ b 1)) 0)) false true)))))
+          (fpBad p)
+          (let ((hd (fnKid n (+ b 1))) (mut i 1))
+            {
+              (fpP p "(")
+              (fpVis p n)
+              (fpP p "macro (")
+              (fpP p (fnText src (fnKid hd 0)))
+              (while (< i (fnLen hd))
+                {
+                  (fpP p " ")
+                  (set i (fpPatVecAt p (fnKids hd) i))
+                })
+              (fpP p ") ")
+              (fpExpr p (vecGet tmpl 0))
+              (fpP p ")")
+            })))))
+
+(pub :: fpDecl (-> Int Int Int))
+(pub fn (fpDecl p n)
+  (let ((h (fpDeclHead (fpSrc p) n)))
+    (if (strEq h "import") (fpDeclImport p n)
+    (if (|| (strEq h "fn") (strEq h "define")) (fpDeclFn p n)
+    (if (strEq h "::") (fpDeclSig p n)
+    (if (strEq h "data") (fpDeclData p n)
+    (if (strEq h "newtype") (fpDeclNewtype p n)
+    (if (strEq h "struct") (fpDeclStruct p n)
+    (if (strEq h "type") (fpDeclType p n)
+    (if (strEq h "trait") (fpDeclTrait p n)
+    (if (strEq h "impl") (fpDeclImpl p n)
+    (if (strEq h "effect") (fpDeclEffect p n)
+    (if (strEq h "macro") (fpDeclMacro p n)
+    (if (strEq h "foreign") (fpDeclForeign p n)
+    (fpBad p)))))))))))))))
+
+; An AXTAG line, reconstructed the way stage0's parser splits it: the
+; key up to the first `(`, the value to the LAST `)`. Text outside
+; that shape is normalised away, including an unclosed paren gaining
+; its close.
+(pub :: fpAxtag (-> Int Int Int))
+(pub fn (fpAxtag p tok)
+  (let ((src (fpSrc p))
+        (s (+ (ftStart tok) 8))
+        (e (ftEnd tok)))
+    (let ((mut paren e) (mut i s))
+      {
+        (while (< i e)
+          {
+            (if (&& (== (strByte src i) 40) (== paren e)) (set paren i) 0)
+            (set i (+ i 1))
+          })
+        (fpP p ";@axiom:")
+        (if (== paren e)
+            (fpSlice p s e)
+            (let ((mut close (- e 1)))
+              {
+                (while (&& (> close paren) (!= (strByte src close) 41))
+                  (set close (- close 1)))
+                (fpSlice p s paren)
+                (fpP p "(")
+                (fpSlice p (+ paren 1) (if (== close paren) e close))
+                (fpP p ")")
+              }))
+      })))
+
+; ------------------------------------------------------------------
+; The module printer and the driver's entry points.
+; ------------------------------------------------------------------
+(pub :: fpIsAxtagAtom (-> Int Bool))
+(pub fn (fpIsAxtagAtom n)
+  (if (== (fnKind n) FN_ATOM) (== (ftKind (fnTok n)) FT_AXTAG) false))
+
+; One declaration with stage0's per-declaration choreography: the
+; blank-line separator, leading comments, the mark for the trailing
+; comment taken BEFORE the axtags print, the axtags, the declaration,
+; the trailing comment, the newline.
+(pub :: fpEmitDecl (-> Int Int Int Int Int))
+(pub fn (fpEmitDecl p nth tags n)
+  (let ((src (fpSrc p)) (o (fpOut p)))
+    {
+      (if (> nth 0) (fpP p "\n") p)
+      (flushLeading src (fpQ p) o (fpDeclAnchor src n))
+      (let ((mark (foNl o)))
+        {
+          (let ((mut t 0))
+            (while (< t (vecLen tags))
+              {
+                (foEmitIndent o)
+                (fpAxtag p (vecGet tags t))
+                (fpP p "\n")
+                (set t (+ t 1))
+              }))
+          (fpDecl p n)
+          (flushTrailing src (fpQ p) o (fpStarts p) (fpDeclAnchor src n) mark)
+        })
+      (fpP p "\n")
+    }))
+
+; Format a whole module: classify the top-level forms, hoist imports
+; above everything else (stage0 keeps them in `Module::imports` and
+; chains them first), and emit with the comment queue threaded
+; through.
+(pub :: fmtPrint (-> Int Int Int Int Int))
+(pub fn (fmtPrint src forms coms starts)
+  (let ((o (mkFOut 0))
+        (q (mkFCq coms)))
+    (let ((p (mkFPr src starts q o))
+          (imports vecNew)
+          (declTags vecNew)
+          (declNodes vecNew)
+          (mut pending vecNew)
+          (mut i 0))
+      {
+        (while (< i (vecLen forms))
+          (let ((f (vecGet forms i)))
+            {
+              (if (fpIsAxtagAtom f)
+                  (vecPush pending (fnTok f))
+                  (if (!= (fnKind f) FN_PAREN)
+                      (foSetBad o)
+                      (if (== (fnLen f) 0)
+                          ; `parse_module` skips an empty `()` form, so
+                          ; the formatter deletes it - unless AXTAGs
+                          ; precede it, which routes through
+                          ; `parse_decl` and refuses (probed).
+                          (if (> (vecLen pending) 0) (foSetBad o) 0)
+                          (let ((h (fpDeclHead src f)))
+                            (if (strEq h "import")
+                                ; AXTAGs before an import are collected
+                                ; and then discarded - stage0 attaches
+                                ; none to `DImport`.
+                                {
+                                  (vecPush imports f)
+                                  (set pending vecNew)
+                                }
+                                (if (fpIsDeclHead h)
+                                    {
+                                      (vecPush declTags (cast Int pending))
+                                      (vecPush declNodes f)
+                                      (set pending vecNew)
+                                    }
+                                    (foSetBad o)))))))
+              (set i (+ i 1))
+            }))
+        ; Trailing AXTAGs have no declaration to attach to: stage0's
+        ; parser fails at EOF looking for one.
+        (if (> (vecLen pending) 0) (foSetBad o) o)
+        (let ((mut nth 0) (mut j 0))
+          {
+            (while (< j (vecLen imports))
+              {
+                (fpEmitDecl p nth vecNew (vecGet imports j))
+                (set nth (+ nth 1))
+                (set j (+ j 1))
+              })
+            (set j 0)
+            (while (< j (vecLen declNodes))
+              {
+                (fpEmitDecl p nth (vecGet declTags j) (vecGet declNodes j))
+                (set nth (+ nth 1))
+                (set j (+ j 1))
+              })
+          })
+        (flushRemaining src q o)
+        o
+      })))
+
+; The result of one formatting pass: `ok` and the text.
+(pub struct FRes (ok : Int) (text : Int))
+(pub :: fzOk (-> Int Int))   (pub fn (fzOk r) (memGetWord r 0))
+(pub :: fzText (-> Int Int)) (pub fn (fzText r) (memGetWord r 1))
+
+(pub :: fmtOnce (-> Int Int))
+(pub fn (fmtOnce src)
+  (let ((sc (fscan src)))
+    (if (== (fscanHasError sc) 1)
+        (cast Int (FRes 0 ""))
+        (if (== (fscanCovers src sc) 0)
+            (cast Int (FRes 0 ""))
+            (let ((forms (readForms src (fsToks sc))))
+              (if (== forms 0)
+                  (cast Int (FRes 0 ""))
+                  (let ((out (fmtPrint src forms (fsComs sc) (lineStarts src))))
+                    (if (== (foBad out) 1)
+                        (cast Int (FRes 0 ""))
+                        (cast Int (FRes 1 (foFinish out)))))))))))
+
+; The comment texts of `src`, for the count-and-content check.
+(pub :: fmtComTexts (-> Int Int))
+(pub fn (fmtComTexts src)
+  (let ((sc (fscan src)) (v vecNew))
+    (let ((coms (fsComs sc)) (mut i 0))
+      {
+        (while (< i (vecLen coms))
+          {
+            (vecPush v (fcText src (vecGet coms i)))
+            (set i (+ i 1))
+          })
+        v
+      })))
+
+; Format with stage0's three-part verification: the output must
+; rescan and re-read, must carry exactly the comments the input
+; carried, and must be a fixed point of a second pass. Refusal is the
+; only alternative to a faithful rewrite.
+(pub :: fmtFormat (-> Int Int))
+(pub fn (fmtFormat src)
+  (let ((r1 (fmtOnce src)))
+    (if (== (fzOk r1) 0)
+        r1
+        (let ((t1 (fzText r1)))
+          (let ((r2 (fmtOnce t1)))
+            (if (== (fzOk r2) 0)
+                (cast Int (FRes 0 ""))
+                (if (if (strEq (fzText r2) t1) false true)
+                    (cast Int (FRes 0 ""))
+                    (let ((before (fmtComTexts src)) (after (fmtComTexts t1)))
+                      (if (!= (vecLen before) (vecLen after))
+                          (cast Int (FRes 0 ""))
+                          (let ((mut i 0) (mut same 1))
+                            {
+                              (while (< i (vecLen before))
+                                {
+                                  (if (strEq (vecGet before i) (vecGet after i))
+                                      0
+                                      (set same 0))
+                                  (set i (+ i 1))
+                                })
+                              (if (== same 1) r1 (cast Int (FRes 0 "")))
+                            }))))))))))

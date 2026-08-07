@@ -1,0 +1,2 @@
+(data M (C Int Int))
+(fn (f v) (match v (C (h t) 1)))

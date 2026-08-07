@@ -1,0 +1,2 @@
+(pub import Mem)
+(fn (f) 1)

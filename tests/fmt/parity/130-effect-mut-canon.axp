@@ -1,0 +1,1 @@
+(fn (f n) (handle n (mut) 0))

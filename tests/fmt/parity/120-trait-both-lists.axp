@@ -1,0 +1,3 @@
+(trait (N a) (Show) (IO) where (
+  m :: (-> a Int)
+))

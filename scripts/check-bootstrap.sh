@@ -110,6 +110,27 @@ if ! cmp -s "$work/stage2.o" "$work/stage3.o"; then
 fi
 echo "ok   stage2 and stage3 are byte-identical binaries"
 
+# ---------------------------------------------------------------
+# stage2's formatter produces the golden zoo.
+#
+# check-fmt-selfhost.sh proves stage1's `fmt` - compiled by stage0 -
+# is the same function as stage0's. Nothing there runs the printer AS
+# COMPILED BY THE AXIOM COMPILER: a stage1 miscompile of format.ax
+# could leave the fixpoint intact (stage2 and stage3 are built by
+# equally-affected parents) while stage2's `fmt` writes different
+# bytes. One zoo pass through stage2 closes that hole: same golden,
+# third compiler. `fmt` resolves no imports, so it needs none of the
+# module plumbing the compile steps set up.
+# ---------------------------------------------------------------
+cp "$repo_root/tests/fmt/syntax-zoo.ax" "$work/zoo2.ax"
+if ! (cd "$work" && ./stage2 fmt zoo2.ax >/dev/null 2>&1); then
+  fail "stage2's fmt refused the zoo that stage0 and stage1 format"
+fi
+if ! cmp -s "$work/zoo2.ax" "$repo_root/tests/fmt/syntax-zoo.expected.ax"; then
+  fail "stage2's fmt does not produce the golden zoo"
+fi
+echo "ok   stage2's fmt produces the golden zoo"
+
 # The ladder again, this time driven by the compiler itself.
 #
 # Everything above proves the fixpoint but NOT that the compiler is

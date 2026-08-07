@@ -12,6 +12,7 @@
 (import typecheck)
 (import codegen)
 (import driver)
+(import format)
 
 (pub :: writeStdout (-> Int Int))
 (pub fn (writeStdout s) (sysWriteFd 1 (strData s) (strLen s)))
@@ -159,6 +160,40 @@
                 (let ((rc (buildToExecutable ir outp optLevelArg
                                              (if (hasFlag "--emit-llvm") 1 0))))
                   (if (!= rc 0) (die "" rc) 0))))))
+  (if (strEq cmd "fmt")
+      ; `fmt FILE [--check]`: format in place, or report whether the
+      ; file would change. Verification runs before any write - the
+      ; output must rescan, keep every comment, and be a fixed point -
+      ; and a refusal exits 1 with the file untouched, which is
+      ; stage0's contract.
+      ;
+      ; The input is found by a scan that knows `--check` takes no
+      ; value: the general positional walk treats any `--flag` as
+      ; consuming its neighbour, which would swallow the file in
+      ; `fmt --check FILE`. And the empty-versus-missing distinction
+      ; needs an open probe, because `sysReadFile` answers "" for
+      ; both: an empty file formats to an empty file with exit 0.
+      (let ((f (fmtInputArg 0)))
+        (if (== (strLen f) 0)
+            (die "error: fmt needs an input file\n" 1)
+            (let ((fd (sysOpenPath (strData f) 0)))
+              (if (sysFailed fd)
+                  (die (cat3 "Failed to read file '" f "'\n") 1)
+                  {
+                    (sysCloseFd fd)
+                    (let ((src (sysReadFile (strData f))))
+                      (let ((res (fmtFormat src)))
+                        (if (== (fzOk res) 0)
+                            (die (cat2 f " was not rewritten: formatter refusal\n") 1)
+                            (let ((text (fzText res)))
+                              (if (hasFlag "--check")
+                                  (if (strEq src text)
+                                      { (writeStdout (cat3 "OK: " f " is already formatted\n")) 0 }
+                                      (die (cat3 "Error: " f " needs formatting\n") 1))
+                                  (if (< (sysWriteFile (strCStr f) text) 0)
+                                      (die "error: could not write formatted file\n" 1)
+                                      { (writeStdout (cat3 "OK: " f " formatted\n")) 0 }))))))
+                  }))))
   (if (strEq cmd "run")
       (let ((f (positionalFrom operandStart)))
         (if (== (strLen f) 0)
@@ -181,7 +216,29 @@
                         (sysExitWith (if (< code 0) 4 code))
                         0
                       }))))))
-      (die "error: unknown subcommand\n" 1))))))))
+      (die "error: unknown subcommand\n" 1)))))))))
+
+; The input file for `fmt`: the first operand that is not `--check`
+; and does not look like a flag. `positionalFrom` cannot be used here
+; because its skip heuristic pairs every `--flag` with the argument
+; after it, and `--check` takes no value.
+(pub :: fmtInputArg (-> Int Int))
+(pub fn (fmtInputArg _u)
+  (let ((n (sysArgc)) (mut i operandStart) (mut f ""))
+    {
+      (while (< i n)
+        (let ((a (sysArg i)))
+          {
+            (if (&& (== (strLen f) 0)
+                    (if (strEq a "--check")
+                        false
+                        (if (strStartsWith a "-") false true)))
+                (set f a)
+                0)
+            (set i (+ i 1))
+          }))
+      f
+    }))
 
 ; argv for the program `run` spawns: its own name and nothing else.
 ; Forwarding the driver's remaining arguments is stage0 behaviour this

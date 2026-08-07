@@ -143,6 +143,14 @@ jobs:
       - name: Formatter round-trip
         run: ./scripts/check-fmt.sh
 
+      # The self-hosted formatter is the same function as stage0's,
+      # measured: identical bytes and identical exit status over the
+      # whole corpus, the zoo three-way against the checked-in golden,
+      # and a parity bank of deliberate refusals - both compilers must
+      # refuse the same malformed inputs.
+      - name: Formatter parity between the compilers
+        run: ./scripts/check-fmt-selfhost.sh
+
   grammar:
     name: Tree-sitter grammar
     needs: lint

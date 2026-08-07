@@ -2801,3 +2801,78 @@ It joins `check-stdlib-selfhost.sh`'s stage0-cannot-build list for the
 same reason `270-lex` and `840-large-lex` are on it: the case imports a
 self-hosted compiler module, which stage1 resolves and stage0 does not.
 `check-self-host.sh` is what covers it, against its `; expect 42`.
+
+### The formatter's back half: the same function, measured
+
+`stage1 fmt` exists, and the exit criterion above is met on everything
+measurable today: **all 194 `.ax` files in the repository format to
+byte-identical output with identical exit status under both
+compilers**, `--check` agrees file-for-file on the unformatted
+originals, the zoo formats to the checked-in golden three ways
+(`golden == stage0 == stage1`), and a 33-case parity bank of
+deliberate refusals and rewrites - unbalanced groups, bad escapes,
+i64-overflowing literals, keywords in expression position, fused
+constructor patterns, `newtype`, `--check` in both argument orders,
+an empty file (formats, exit 0) versus a missing one (refuses) -
+agrees case-for-case. `scripts/check-fmt-selfhost.sh` is the gate, in
+CI, with counted floors on both sweeps; its negative test was run,
+not assumed: ablating one normalisation (`Integer` printed verbatim)
+fails the zoo comparison and the corpus sweep, and the restored file
+was byte-compared back.
+
+The printer was written from measurement, not from `fmt.rs`'s
+apparent intent, and the difference bought most of the parity. Every
+uncertain shape was probed through the real stage0 binary before the
+matching arm was written, and the probes found stage0 behaviours no
+reading would predict, all now reproduced bug-for-bug because the
+criterion is bytes, not taste: the broken-application branch prints
+its arguments with **no newline between them** (`(f 1 2 3 4 5)` with
+five arguments becomes `(f\n  1  2  3  4  5\n))`); `cond`'s `(else `
+keeps a trailing space before its newline; a comment sitting between
+an AXTAG and its declaration is emitted *above* the AXTAG; AXTAGs
+before an `(import ...)` are collected and silently discarded; a
+zero-constructor `data` loses its `deriving` clause; and `EInfix`
+exists in the AST only as the unary-minus desugar - `(a + b)` is an
+application of `a` to `+` and `b` that happens to print back as
+written, so the printer needs no infix case at all.
+
+The probes also found dead code wearing living syntax, where the
+right move was refusal: `,@` splice has an AST node, a parser arm and
+a printer arm, and no lexer that produces it - `,@c` is "expected
+expression, found `@`" in every position - and `(* mut T)` prints
+from a `TPtr` mutability no parse can construct. stage1 refuses both,
+which is what stage0 in fact does, whatever its source suggests it
+would do.
+
+A three-lens adversarial critique of the plan ran before the printer
+landed (the standing practice), and its judge confirmed 21 changes,
+several of which no test would have caught before the gate existed:
+`EQualified` is not simple, so `(Q::Inner::only 1)` breaks across
+four lines while `(p.x 1)` stays inline - the committed
+`isSimpleForm` had it wrong; a bare uppercase identifier fuses with a
+following paren group in *pattern* position (`(match v (C (h t) 1))`
+means `((C h t) 1)`, and `(match v (Nothing (g 1)))` is a refusal
+because the fusion swallows the arm's body); effect lists print
+semantically, so `(handle n (mut) 0)` comes back `(Mut)` while
+`(alloc)` refuses - the keyword has no effect-list token where the
+identifier `Alloc` does; block comments nest, against this document's
+own earlier claim; stage0 skips any Unicode whitespace, so the scan
+now does too (probed with a NBSP); and the lexer parses every integer
+through an i64 *before* any sign applies, so `9223372036854775807`
+formats and `-9223372036854775808` refuses.
+
+What stays deliberately unmatched is recorded in the gate's header:
+stage1 refuses a few shapes stage0 rewrites - `(- -5)` (stage0 emits
+`--5` through its two-token minus lexing), a bare top-level `- x`
+body, spaced chains (`p . x`, `X :: y`), type-name keywords in
+expression position - every one a refusal with the file untouched,
+every one absent from the corpus, none in the parity bank.
+
+The residual asymmetry of the whole exercise: stage0 formats from its
+AST after a real parse, stage1 from a form tree after a scan, so
+stage1's refusals are structural (a shape no printer arm accepts)
+where stage0's are grammatical. The `bad`-flag mechanism - any
+printer arm that meets a shape stage0's parser would refuse poisons
+the buffer, and the driver then refuses to write - is what makes the
+two kinds of refusal answer with one exit status, and the corpus,
+zoo, and parity sweeps are what keep the claim honest.

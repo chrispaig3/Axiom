@@ -1,0 +1,2 @@
+(data M (Nothing) (Just Int))
+(fn (f v) (match v (Nothing (g 1))))

@@ -1,0 +1,2 @@
+#| outer #| inner |# still |#
+(fn (f) 1)
