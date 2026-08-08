@@ -1,0 +1,230 @@
+; Rpc.ax — the LSP base protocol's framing, over a file descriptor.
+;
+; A message is a header block, `\r\n\r\n`, and exactly `Content-Length`
+; bytes of UTF-8 body:
+;
+;   Content-Length: 47\r\n
+;   \r\n
+;   {"jsonrpc":"2.0","method":"initialized",...}
+;
+; WHY A BUFFERED READER. `IO.readUpTo` performs ONE `read`, and a read
+; is permitted to return fewer bytes than asked - a pipe hands over
+; whatever the writer has flushed. Framing therefore cannot be done by
+; reading a header "then" a body: the header, the terminator and the
+; first bytes of the body routinely arrive in one read, and the rest of
+; the body in several more. `IO.readAll` is no help either, because it
+; reads to EOF, and a language server's peer does not close the pipe
+; between messages - it waits for a reply. So this keeps a buffer and
+; consumes messages out of it.
+;
+;   word 0  fd
+;   word 1  buf, a Str whose LENGTH is the capacity
+;   word 2  filled    - bytes of `buf` holding data
+;   word 3  consumed  - how far the reader has got
+;
+; Bytes between `consumed` and `filled` are a message-in-progress. When
+; the buffer fills, the live region is compacted to the front before
+; growing, so a long session over a small buffer does not grow without
+; bound.
+;
+; CONTENT-LENGTH IS COUNTED IN BYTES, not characters - the spec says so,
+; and getting it wrong would desynchronise the stream permanently on the
+; first non-ASCII message rather than failing visibly.
+
+; `IO` is deliberately NOT imported. It defines `die`, and so does the
+; compiler's own `main.ax`; Axiom's namespace is flat, so a program
+; holding both has an ambiguous `die` at every call site. Writing is
+; three lines over `Sys` and costs nothing.
+(import Mem)
+(import Str)
+(import Sys)
+
+(pub :: rdCap Int) (pub fn (rdCap) 65536)
+
+(pub :: rdNew (-> Int Int))
+(pub fn (rdNew fd)
+  (let ((r (memAlloc 32)))
+    {
+      (memSetWord r 0 fd)
+      (memSetWord r 1 (strAlloc rdCap))
+      (memSetWord r 2 0)
+      (memSetWord r 3 0)
+      r
+    }))
+
+(pub :: rdFd (-> Int Int))       (pub fn (rdFd r)       (memGetWord r 0))
+(pub :: rdBuf (-> Int Int))      (pub fn (rdBuf r)      (memGetWord r 1))
+(pub :: rdFilled (-> Int Int))   (pub fn (rdFilled r)   (memGetWord r 2))
+(pub :: rdConsumed (-> Int Int)) (pub fn (rdConsumed r) (memGetWord r 3))
+
+; Move the live region to the front, and double the buffer if it is
+; still full afterwards. Answers nothing useful; it mutates `r`.
+(pub :: rdCompact (-> Int Int))
+(pub fn (rdCompact r)
+  (let ((buf (rdBuf r)) (c (rdConsumed r)) (f (rdFilled r)))
+    {
+      (if (> c 0)
+          {
+            (memCopy (strData buf) (+ (strData buf) c) (- f c))
+            (memSetWord r 2 (- f c))
+            (memSetWord r 3 0)
+          }
+          0)
+      ; Still no room? Grow. `strLen` of the buffer is its capacity.
+      (if (>= (rdFilled r) (strLen (rdBuf r)))
+          (let ((bigger (strAlloc (* (strLen (rdBuf r)) 2))))
+            {
+              (memCopy (strData bigger) (strData (rdBuf r)) (rdFilled r))
+              (memSetWord r 1 bigger)
+            })
+          0)
+      0
+    }))
+
+; One `read` into the free tail. Answers the byte count: 0 at end of
+; file, negative on error.
+(pub :: rdFill (-> Int Int))
+;@axiom:effect(io)
+(pub fn (rdFill r)
+  {
+    (if (>= (rdFilled r) (strLen (rdBuf r))) (rdCompact r) 0)
+    (let ((n (sysReadFd (rdFd r)
+                        (+ (strData (rdBuf r)) (rdFilled r))
+                        (- (strLen (rdBuf r)) (rdFilled r)))))
+      {
+        (if (> n 0) (memSetWord r 2 (+ (rdFilled r) n)) 0)
+        n
+      })
+  })
+
+; The offset of `\r\n\r\n` at or after `from`, or -1. Offsets are
+; absolute into the buffer, not relative to `consumed`.
+(pub :: rdFindHeaderEnd (-> Int Int Int))
+(pub fn (rdFindHeaderEnd r from)
+  (let ((buf (rdBuf r)) (f (rdFilled r)) (mut i from) (mut found (- 0 1)))
+    {
+      (while (&& (< found 0) (<= (+ i 4) f))
+        {
+          (if (&& (== (strByte buf i) 13)
+                  (&& (== (strByte buf (+ i 1)) 10)
+                      (&& (== (strByte buf (+ i 2)) 13)
+                          (== (strByte buf (+ i 3)) 10))))
+              (set found i)
+              0)
+          (set i (+ i 1))
+        })
+      found
+    }))
+
+; ASCII lower-case of one byte.
+(pub :: rdLower (-> Int Int))
+(pub fn (rdLower b) (if (&& (>= b 65) (<= b 90)) (+ b 32) b))
+
+; Does the buffer hold `word` at `at`, compared case-insensitively?
+(pub :: rdMatchCI (-> Int Int Int Int Bool))
+(pub fn (rdMatchCI r at word i)
+  (if (>= i (strLen word))
+      true
+      (if (>= (+ at i) (rdFilled r))
+          false
+          (if (== (rdLower (strByte (rdBuf r) (+ at i))) (rdLower (strByte word i)))
+              (rdMatchCI r at word (+ i 1))
+              false))))
+
+; The `Content-Length` value in the header block [start, end), or -1
+; when the header is absent or unparseable. A message with no
+; Content-Length is not a message.
+(pub :: rdContentLength (-> Int Int Int Int))
+(pub fn (rdContentLength r start end)
+  (let ((buf (rdBuf r)) (mut i start) (mut len (- 0 1)))
+    {
+      (while (&& (< len 0) (< i end))
+        {
+          (if (rdMatchCI r i "content-length:" 0)
+              (let ((mut p (+ i 15)) (mut v 0) (mut digits 0))
+                {
+                  (while (&& (< p end) (== (strByte buf p) 32)) (set p (+ p 1)))
+                  (while (&& (< p end)
+                             (&& (>= (strByte buf p) 48) (<= (strByte buf p) 57)))
+                    {
+                      (set v (+ (* v 10) (- (strByte buf p) 48)))
+                      (set digits (+ digits 1))
+                      (set p (+ p 1))
+                    })
+                  (if (> digits 0) (set len v) 0)
+                })
+              0)
+          (set i (+ i 1))
+        })
+      len
+    }))
+
+; Read one whole message and answer its body. An empty Str means the
+; stream ended or broke - the caller stops, which is what an LSP does
+; when its client goes away without saying `exit`.
+(pub :: rpcRead (-> Int Int))
+;@axiom:effect(io)
+(pub fn (rpcRead r)
+  (let ((mut hdr (- 0 1)) (mut dead 0))
+    {
+      ; 1. A complete header block.
+      (while (&& (< hdr 0) (== dead 0))
+        {
+          (set hdr (rdFindHeaderEnd r (rdConsumed r)))
+          (if (< hdr 0)
+              (if (< (rdFill r) 1) (set dead 1) 0)
+              0)
+        })
+      (if (== dead 1)
+          ""
+          (let ((n (rdContentLength r (rdConsumed r) hdr)))
+            (if (< n 0)
+                ""
+                (let ((bodyAt (+ hdr 4)))
+                  {
+                    ; 2. Enough bytes for the body. Growing here is why
+                    ; `rdCompact` exists: a message larger than the
+                    ; buffer must still arrive.
+                    (while (&& (< (rdFilled r) (+ bodyAt n)) (== dead 0))
+                      (if (< (rdFill r) 1) (set dead 1) 0))
+                    (if (== dead 1)
+                        ""
+                        (let ((body (strSlice (rdBuf r) bodyAt n)))
+                          {
+                            (memSetWord r 3 (+ bodyAt n))
+                            body
+                          }))
+                  }))))
+    }))
+
+; Write all of `s`, looping: a single `write` may transfer fewer bytes
+; than asked, and treating a short write as success is how a reply gets
+; silently truncated.
+(pub :: rpcPut (-> Int Int Int))
+;@axiom:effect(io)
+(pub fn (rpcPut fd s)
+  (let ((mut done 0) (mut bad 0))
+    {
+      (while (&& (< done (strLen s)) (== bad 0))
+        (let ((n (sysWriteFd fd (+ (strData s) done) (- (strLen s) done))))
+          (if (< n 1) (set bad 1) (set done (+ done n)))))
+      done
+    }))
+
+; Frame `body` and write it.
+(pub :: rpcWrite (-> Int Int Int))
+;@axiom:effect(io)
+(pub fn (rpcWrite fd body)
+  {
+    (rpcPut fd "Content-Length: ")
+    (rpcPut fd (rpcNat (strLen body)))
+    (rpcPut fd "\r\n\r\n")
+    (rpcPut fd body)
+    (strLen body)
+  })
+
+(pub :: rpcNat (-> Int Int))
+(pub fn (rpcNat n)
+  (if (< n 10)
+      (strSlice "0123456789" n 1)
+      (strConcat (rpcNat (/ n 10)) (strSlice "0123456789" (% n 10) 1))))

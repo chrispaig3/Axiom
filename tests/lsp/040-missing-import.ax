@@ -1,0 +1,3 @@
+(import NoSuchModuleAtAll)
+(:: main Int)
+(fn (main) 0)

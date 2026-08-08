@@ -3147,3 +3147,144 @@ session's own definitions rather than stage0's builtin table render,
 and `Parse error:`/`Lexer error:` message BODIES, which are stage0
 Display internals no artifact pins - the bank's error sessions pin
 stage1's texts as their own contract.
+
+### The language server: the first surface with no stage0 to copy
+
+Every tool port before this one had a reference implementation to
+reproduce: `fmt`, `symbols`, `explain`, the human renderer and the
+REPL all exist in the Rust compiler, so "done" meant a two-sided
+differential and the only argument was which divergences were
+deliberate. `axiom lsp` has no such other side. The Rust compiler has
+no language server, so the self-hosted one is not a port; it is the
+first thing this compiler does that its predecessor cannot.
+
+**The frontend was already library-shaped, with exactly one
+exception.** §4.6 of the roadmap argues the server should reuse the
+frontend rather than reimplement parsing, and the reuse turned out to
+be almost free: `parseModuleWith`, `resolveImports`, `checkModule` and
+`orderDiags` all take values and answer values, which is how
+`repl.ax:500` already drives them on an in-memory string. The
+exception is import resolution. `resolveImports` reaches
+`parseModuleOrDie`, which on a module it cannot read renders AX5001
+and calls `sysExitWith` (`codegen.ax:1250`). That is right for a
+compiler, whose next act would be to fail anyway, and fatal for a
+server: a user halfway through typing `(import Fo` would kill the
+session, and the editor would report a crashed server rather than a
+typo. So `lspPreflight` walks the import graph first, by
+`TAG_D_IMPORT` node exactly as `resolveDeclsPhase` does, and answers
+the first unreadable module's name instead of exiting; resolution runs
+only once every module is known to be readable. Fixture
+`040-missing-import.ax` pins it: the server publishes AX5001 and stays
+up.
+
+**Positions are a third unit.** stage0's spans are character indices,
+stage1's are bytes (diag.ax says so at length), and LSP wants UTF-16
+code units. `lspChar` converts from a byte offset directly, counting
+two units for a code point at or above U+10000 and one below. The
+three units agree on ASCII, which is why this needs a deliberately
+hostile fixture rather than a corpus: `030-utf16-columns.ax` puts
+`"é😀"` on the same line BEFORE the undefined name, where the byte
+column is 23, the character column 20 and the UTF-16 column also 20 -
+so the fixture discriminates bytes from the other two, and stage0's
+own character column plus the source text derives the expected answer.
+
+**The gate caught itself being vacuous, which is the point of running
+the drill.** The first version compared, per fixture, the set of
+(severity, code, line) pairs the server published against the set
+stage0's `check --diagnostic-format ai` reports. Ablating `lspChar`
+to a byte count and RE-BLESSING every golden from the ablated build -
+the mandatory native-surface drill - passed **7 of 7**: the golden
+half was satisfied by construction, and the derived half never looked
+at columns. The comparison now carries the column, converted from
+stage0's 1-based character index through the fixture's own bytes. Re-
+run: `030-utf16-columns` fails with `server 23, stage0 20`, exit 1;
+restored, 7/7, exit 0. A gate written to catch X routinely catches Y
+instead, for the second time in this document.
+
+The same drill found a second defect, in the harness rather than the
+server. Goldens are path-independent because the document's absolute
+URI is replaced by a placeholder - and the first version did that
+substitution on the raw byte stream, leaving every `Content-Length`
+header claiming the pre-substitution length. The goldens' frames did
+not parse, and two runs made the same way still compared equal, so
+nothing showed until the fixtures moved from a scratch directory to
+`tests/lsp/` and the path got shorter. The bodies are now
+re-framed with recomputed lengths and are otherwise passed through
+byte for byte, so the golden still pins the server's exact JSON.
+
+**Measured.** `scripts/check-lsp-selfhost.sh`: 7 fixtures (floor 7),
+each a fixed session - initialize, initialized, didOpen,
+documentSymbol, an unsupported request, didClose, shutdown, exit -
+compared byte-for-byte against a checked-in golden and fact-by-fact
+against stage0. stderr required empty, no unframed trailing bytes,
+exit 0. The server built by stage0 and the server built by stage1
+produce byte-identical protocol streams (1,156 bytes over a
+three-message session, both exit 0, both stderr empty). Adding
+`lsp.ax`, `Json.ax` and `Rpc.ax` moves one self-compile's peak RSS
+from 176.8 MiB to 187.0 MiB, against `check-bootstrap.sh`'s 400 MiB
+ceiling.
+
+**What it speaks, and what it does not.** The lifecycle, full-text
+sync (`textDocumentSync: 1`), `publishDiagnostics` and
+`documentSymbol`. Not hover, not completion, not definition: those
+need type information at a position, and `typecheck.ax` does not
+retain a node-to-type table - that is a real new mechanism and it is a
+later slice, not a half-done one here. Diagnostics for IMPORTED
+modules are filtered out (`unit != 0`) rather than published against
+the open file's URI, where their offsets would index the wrong text.
+And a file that does not parse gets one AX2003 at the top rather than
+a positioned error, because stage1's parser still carries no
+diagnostic payload - the parse-error port is the slice that fixes it,
+and until it lands the gate exempts unparseable fixtures from the code
+comparison and asserts only that both sides refuse.
+
+**Two supporting modules, both new.** `stdlib/Json.ax` is a parser and
+serialiser over a three-word tagged record rather than a `data`
+declaration (every constructor with fields boxes anyway, so an ADT
+would cost the same allocation and add a `match` to every accessor).
+Numbers keep their raw text beside an integer value, so a fraction is
+never silently truncated while no float path goes untested; objects
+are parallel vecs written by one lockstep helper; the serialiser sums
+lengths and copies once rather than left-folding `strConcat`, the
+shape that cost 16.9 GB. `stdlib/Rpc.ax` is the base protocol's
+framing, and is buffered because `IO.readUpTo` performs one `read`
+and a pipe hands over whatever the writer flushed - the header,
+terminator and first body bytes routinely arrive together, and the
+rest in several more reads. Both are pinned by 53 assertions that run
+byte-identically under compilers built by stage0 and stage1, and the
+framing is driven over a real pipe with a message deliberately torn
+mid-header and a body split across three writes.
+
+**And the honest limit: one edit costs 198 KB that is never returned.**
+The server is a long-running process on a bump allocator with no
+`free`, which is the case §4.1 of the roadmap exists for, so the
+question is not whether it leaks but how fast. Measured directly —
+N `didChange` notifications carrying `self_host/diag.ax` (16,432
+bytes), peak RSS from `/usr/bin/time -l`:
+
+| edits | max RSS | bytes/edit |
+|---:|---:|---:|
+| 1 | 2,523,136 | — |
+| 10 | 4,030,464 | 167,481 |
+| 50 | 12,517,376 | 203,964 |
+| 200 | 41,975,808 | 198,255 |
+
+Linear, ~198 KB per edit of a 16 KB document: one re-parse and
+re-check, retained forever. A short session is fine; an eight-hour one
+at a modest one edit per second would ask for about 5.7 GB. So the
+language server is usable today and is not yet shippable, and the
+thing standing between the two is P2 — which is what the dependency
+graph in §1 of the roadmap already claimed, now with a number behind
+the edge rather than an argument.
+
+The shape of the fix is unusually clear here, and worth recording
+before the P2 slice is designed around something else. An LSP
+request's working set is genuinely dead when the request ends: the
+AST, the diagnostics and the type state for version N are unreachable
+once version N+1 arrives. That is precisely the watermark-and-reset
+case, without the aliasing obligation that makes the general problem
+hard — nothing from the previous check is retained across the
+boundary except the document text, which the store owns. `Mem.ax`
+already notes that the allocator is replaceable (`define axiom_alloc`
+and the backend defers to it), so this need not wait for full arena
+inference.

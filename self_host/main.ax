@@ -17,6 +17,7 @@
 (import format)
 (import explain)
 (import symbols)
+(import lsp)
 
 (pub :: writeStdout (-> Int Int))
 (pub fn (writeStdout s) (sysWriteFd 1 (strData s) (strLen s)))
@@ -312,6 +313,11 @@
                   { (writeStdout text) 0 }))))
   (if (strEq cmd "repl")
       (replMain (if (hasFlag "--no-banner") 1 0))
+  (if (strEq cmd "lsp")
+      ; The language server speaks JSON-RPC over stdin/stdout, so it
+      ; takes no operand and prints nothing else to stdout - anything
+      ; else written there would be read by the client as a frame.
+      (lspMain)
   (if (strEq cmd "run")
       (let ((f (positionalFrom operandStart)))
         (if (== (strLen f) 0)
@@ -334,7 +340,7 @@
                         (sysExitWith (if (< code 0) 4 code))
                         0
                       }))))))
-      (die "error: unknown subcommand\n" 1))))))))))))
+      (die "error: unknown subcommand\n" 1)))))))))))))
 
 ; A diagnostic code the way stage0's `lookup` normalises one: ASCII
 ; whitespace trimmed, a leading `AX` (any case) stripped, leading

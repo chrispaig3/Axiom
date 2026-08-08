@@ -182,6 +182,19 @@ jobs:
       - name: REPL parity between the compilers
         run: ./scripts/check-repl-selfhost.sh
 
+      # The language server. The first tool surface that is NOT a port
+      # of a stage0 tool - there is no `axiom lsp` in the Rust compiler
+      # - so it cannot be a two-sided differential and is the
+      # native-surface shape instead: a checked-in golden for the
+      # framed session bytes, PLUS every published diagnostic checked
+      # against what stage0's own AXDL reports for the same file,
+      # including the column, converted from stage0's 1-based character
+      # index into LSP's 0-based UTF-16 code unit. The conversion is
+      # what the negative test ablates, and a version of this gate that
+      # compared only line numbers passed with it removed.
+      - name: Language server
+        run: ./scripts/check-lsp-selfhost.sh
+
       # The P2 memory-model exit criterion: one Life board advanced
       # 2000 generations stays under 4 MiB when the loop carries the
       # explicit mark/copy/reset contract, grows linearly when it

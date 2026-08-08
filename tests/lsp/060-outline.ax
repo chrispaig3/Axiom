@@ -1,0 +1,6 @@
+(data Color (Red) (Green))
+(struct P (x : Int) (y : Int))
+(:: area (-> Int Int))
+(fn (area p) 0)
+(:: main Int)
+(fn (main) 0)

@@ -1,0 +1,13 @@
+Content-Length: 121
+
+{"jsonrpc":"2.0","id":1,"result":{"capabilities":{"textDocumentSync":1},"serverInfo":{"name":"axiom","version":"0.1.0"}}}Content-Length: 283
+
+{"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{"uri":"file:///DOC.ax","diagnostics":[{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":0}},"severity":1,"code":"AX2003","source":"axiom","message":"syntax error: this file does not parse"}]}}Content-Length: 36
+
+{"jsonrpc":"2.0","id":2,"result":[]}Content-Length: 97
+
+{"jsonrpc":"2.0","id":3,"error":{"code":-32601,"message":"method not found: textDocument/hover"}}Content-Length: 111
+
+{"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{"uri":"file:///DOC.ax","diagnostics":[]}}Content-Length: 38
+
+{"jsonrpc":"2.0","id":4,"result":null}

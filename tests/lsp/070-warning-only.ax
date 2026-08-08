@@ -1,0 +1,5 @@
+(:: pure (-> Int Int))
+;@axiom:effect(io)
+(fn (pure x) x)
+(:: main Int)
+(fn (main) (pure 1))

@@ -1,0 +1,538 @@
+; lsp.ax — a Language Server Protocol server, in Axiom, over the
+; self-hosted frontend.
+;
+; The architectural argument for self-hosting first (v1-roadmap §4.6) is
+; that the language server should REUSE the compiler's frontend rather
+; than reimplement parsing. This module is that reuse: it owns the
+; protocol and nothing else. Every diagnostic it publishes comes from
+; the same `parseModuleWith`/`checkModule` pair that `check` runs.
+;
+; WHAT IT SPEAKS. The lifecycle (`initialize`, `initialized`,
+; `shutdown`, `exit`), full-text document sync (`didOpen`, `didChange`,
+; `didClose`) and `publishDiagnostics`. Sync is FULL rather than
+; incremental - `textDocumentSync: 1` - because the checker takes a
+; whole source string anyway, so an incremental store would exist only
+; to be re-flattened before every check.
+;
+; THE FRONTEND IS LIBRARY-SHAPED, WITH ONE EXCEPTION, and that
+; exception is why `lspPreflight` exists. `parseModuleWith` and
+; `checkModule` both take a source string and answer values - the REPL
+; already drives them that way. But `resolveImports` reaches
+; `parseModuleOrDie`, which on a module it cannot find renders AX5001
+; and calls `sysExitWith`. That is correct for a compiler, whose next
+; action would be to fail anyway, and fatal for a server: a user
+; halfway through typing `(import Fo` would kill the session, and the
+; editor would report the crash rather than the typo. So the imports
+; are walked non-fatally FIRST, and resolution runs only once every
+; module is known to be readable.
+;
+; POSITIONS ARE UTF-16 CODE UNITS, which is the protocol's default and
+; is a third unit alongside the two the compilers already disagree
+; about (stage0 counts characters, stage1 counts bytes - see diag.ax).
+; `lspChar` converts from a byte offset directly, so nothing downstream
+; has to know.
+;
+; STATE IS THREADED, not global: Axiom has no module-level mutable
+; binding. The document store is two parallel `Vec`s created in
+; `lspMain` and mutated in place through ONE writer, `docPut` - the
+; lockstep rule this project learned the hard way, where two separate
+; single-value puts desynchronise the moment one takes the overwrite
+; path and the other appends.
+
+(import core)
+(import Host)
+(import Mem)
+(import Str)
+(import Vec)
+(import Utf8)
+(import Sys)
+(import Json)
+(import Rpc)
+(import lexer)
+(import parser)
+(import diag)
+(import typecheck)
+(import codegen)
+
+; ------------------------------------------------------------------
+; Positions
+; ------------------------------------------------------------------
+
+; 0-based line of a byte offset. `diag.lineOf` is 1-based, because AXDL
+; is; LSP is not.
+(pub :: lspLine (-> Int Int Int))
+(pub fn (lspLine src off) (- (lineOf src off) 1))
+
+; The UTF-16 code unit offset of `off` within its line.
+;
+; A code point below U+10000 is one unit; one at or above is a
+; surrogate pair, so two. A byte that decodes to nothing - a truncated
+; or invalid sequence - counts as one unit and advances one byte, so a
+; malformed buffer still yields monotonic positions rather than
+; hanging.
+(pub :: lspChar (-> Int Int Int))
+(pub fn (lspChar src off)
+  (let ((mut i (lineStartOf src off)) (mut acc 0))
+    {
+      (while (< i off)
+        (let ((cp (utf8DecodeAt src i)))
+          (if (< cp 0)
+              { (set acc (+ acc 1)) (set i (+ i 1)) }
+              {
+                (set acc (+ acc (if (>= cp 65536) 2 1)))
+                (set i (+ i (utf8SeqLen (strByte src i))))
+              })))
+      acc
+    }))
+
+(pub :: lspPos (-> Int Int Int))
+(pub fn (lspPos src off)
+  (jsonObjPut (jsonObjPut jsonObj "line" (jsonNum (lspLine src off)))
+              "character" (jsonNum (lspChar src off))))
+
+; The range of a span. A span of 0 is the spanless diagnostic - AX5001
+; is one - and renders at the top of the file rather than dereferencing
+; address zero, which is what reading `spanStart` of 0 would do.
+(pub :: lspRange (-> Int Int Int))
+(pub fn (lspRange src span)
+  (if (== span 0)
+      (jsonObjPut (jsonObjPut jsonObj "start" (lspPos src 0)) "end" (lspPos src 0))
+      (let ((s (spanStart span)) (e0 (spanEnd span)))
+        (let ((e (if (< e0 s) s e0)))
+          (jsonObjPut (jsonObjPut jsonObj "start" (lspPos src s))
+                      "end" (lspPos src e))))))
+
+; ------------------------------------------------------------------
+; Diagnostics
+; ------------------------------------------------------------------
+
+; LSP severity: 1 Error, 2 Warning. Axiom's are 0 and 1.
+(pub :: lspSeverity (-> Int Int))
+(pub fn (lspSeverity sev) (if (== sev SEV_ERROR) 1 2))
+
+; One Axiom diagnostic as an LSP `Diagnostic`.
+;
+; The help text is appended to the message rather than dropped: LSP has
+; no field for it, `relatedInformation` wants a location the help does
+; not carry, and a help is often the whole value of an Axiom
+; diagnostic - `AX3001`'s "did you mean" is the reason the fix-help
+; form exists at all.
+(pub :: lspDiagJson (-> Int Int Int))
+(pub fn (lspDiagJson d src)
+  (let ((help (memGetWord d 7))
+        (msg (memGetWord d 4)))
+    (jsonObjPut
+      (jsonObjPut
+        (jsonObjPut
+          (jsonObjPut
+            (jsonObjPut jsonObj "range" (lspRange src (memGetWord d 3)))
+            "severity" (jsonNum (lspSeverity (memGetWord d 0))))
+          "code" (jsonStr (memGetWord d 1)))
+        "source" (jsonStr "axiom"))
+      "message" (jsonStr (if (== help 0)
+                             msg
+                             (strConcat (strConcat msg "\n\nhelp: ") help))))))
+
+; A one-diagnostic array, for the failures that happen before the
+; checker runs and therefore have no span to report.
+(pub :: lspOneDiag (-> Int Int Int))
+(pub fn (lspOneDiag code msg)
+  (jsonArrPush jsonArr
+    (jsonObjPut
+      (jsonObjPut
+        (jsonObjPut
+          (jsonObjPut
+            (jsonObjPut jsonObj "range"
+              (jsonObjPut (jsonObjPut jsonObj "start"
+                            (jsonObjPut (jsonObjPut jsonObj "line" (jsonNum 0))
+                                        "character" (jsonNum 0)))
+                          "end"
+                            (jsonObjPut (jsonObjPut jsonObj "line" (jsonNum 0))
+                                        "character" (jsonNum 0))))
+            "severity" (jsonNum 1))
+          "code" (jsonStr code))
+        "source" (jsonStr "axiom"))
+      "message" (jsonStr msg))))
+
+; ------------------------------------------------------------------
+; Import pre-flight
+;
+; Walks the import graph exactly as `resolveDeclsPhase` does - by
+; `TAG_D_IMPORT` node, name in word 1 - but answers the name of the
+; first module that cannot be read instead of exiting. "" means every
+; import resolves and `resolveImports` is safe to call.
+; ------------------------------------------------------------------
+
+(pub :: lspSeenHas (-> Int Int Bool))
+(pub fn (lspSeenHas seen name) (lspSeenFrom seen name 0))
+
+(pub :: lspSeenFrom (-> Int Int Int Bool))
+(pub fn (lspSeenFrom seen name i)
+  (if (>= i (vecLen seen))
+      false
+      (if (strEq (vecGet seen i) name)
+          true
+          (lspSeenFrom seen name (+ i 1)))))
+
+(pub :: lspPreflight (-> Int Int Int Int Int))
+(pub fn (lspPreflight decls tcode entryDir seen)
+  (let ((mut i 0) (mut missing ""))
+    {
+      (while (&& (< i (vecLen decls)) (== (strLen missing) 0))
+        (let ((n (vecGet decls i)))
+          {
+            (if (== (nodeTag n) TAG_D_IMPORT)
+                (let ((name (memGetWord n 1)))
+                  (if (lspSeenHas seen name)
+                      0
+                      {
+                        (vecPush seen name)
+                        (let ((src (readModuleSrc name tcode entryDir)))
+                          (if (== src 0)
+                              (set missing name)
+                              ; The module reads. Its own imports are
+                              ; the same question one level down; a
+                              ; module that does not parse is not a
+                              ; missing-import failure and is left for
+                              ; the checker to report.
+                              (let ((pr (parseModuleWith (lex src) (scanAxtags src))))
+                                (if (== (memGetWord pr 0) 0)
+                                    0
+                                    (set missing
+                                         (lspPreflight (memGetWord pr 1)
+                                                       tcode entryDir seen))))))
+                      }))
+                0)
+            (set i (+ i 1))
+          }))
+      missing
+    }))
+
+; ------------------------------------------------------------------
+; Checking one document
+;
+; Answers a JSON array of LSP diagnostics for `src`, named `path`.
+;
+; Only diagnostics whose unit is 0 - the document itself - are
+; published. A diagnostic about an imported module indexes that
+; module's bytes, so rendering it against this file's text would put a
+; caret at an unrelated position; publishing it under this file's URI
+; would put it in the wrong editor tab. Reporting those under their own
+; URIs is a later slice.
+; ------------------------------------------------------------------
+
+(pub :: lspCheckDoc (-> Int Int Int))
+(pub fn (lspCheckDoc path src)
+  (let ((pr (parseModuleWith (lex src) (scanAxtags src))))
+    (if (== (memGetWord pr 0) 0)
+        ; stage1's parser reports failure as a bare flag: it carries no
+        ; span and no code yet, which is the parse-error port's whole
+        ; subject. Until it does, one diagnostic at the top of the file
+        ; is the honest rendering - inventing a position would put a
+        ; squiggle somewhere the error is not.
+        (lspOneDiag "AX2003" "syntax error: this file does not parse")
+        (let ((decls (memGetWord pr 1))
+              (tcode (checkedTargetCode hostTarget))
+              (entryDir (dirOfPath path)))
+          (let ((missing (lspPreflight decls tcode entryDir vecNew)))
+            (if (> (strLen missing) 0)
+                (lspOneDiag "AX5001"
+                            (strConcat (strConcat "cannot resolve import `" missing) "`"))
+                (let ((bares vecNew)
+                      (fulls vecNew)
+                      (units (let ((v vecNew))
+                               { (vecPush v (cast Int (CUnit2 path src 0))) v })))
+                  (let ((allDecls (resolveImports decls bares fulls tcode entryDir units)))
+                    (let ((ds (orderDiags (checkModule decls allDecls units))))
+                      (let ((out jsonArr) (mut i 0))
+                        {
+                          (while (< i (vecLen ds))
+                            (let ((d (vecGet ds i)))
+                              {
+                                (if (== (memGetWord d 11) 0)
+                                    (jsonArrPush out (lspDiagJson d src))
+                                    0)
+                                (set i (+ i 1))
+                              }))
+                          out
+                        }))))))))))
+
+; ------------------------------------------------------------------
+; Document symbols
+;
+; Every top-level declaration node carries its NAME's span in word 4 -
+; `mkDFnAt` and its siblings put it there precisely because a
+; diagnostic about a declaration points at its name - so the outline
+; comes straight off the parse tree without the checker running. That
+; matters for an editor: a file with a type error still has an outline,
+; and a file that does not parse simply has none.
+;
+; A `(:: f T)` signature is deliberately NOT listed. It shares its name
+; with the `(fn (f) ...)` beside it, and an outline that shows every
+; name twice is worse than one that shows it once.
+;
+; `range` and `selectionRange` are both the name's span. The protocol
+; requires `selectionRange` to be contained in `range`, which is
+; satisfied, and recovering the declaration's full extent would mean
+; spans this parser does not record.
+; ------------------------------------------------------------------
+
+; LSP SymbolKind. Function 12, Enum 10, Struct 23.
+(pub :: lspSymKind (-> Int Int))
+(pub fn (lspSymKind tag)
+  (if (== tag TAG_D_DATA) 10
+  (if (== tag TAG_D_STRUCT) 23
+      12)))
+
+(pub :: lspWantsSymbol (-> Int Bool))
+(pub fn (lspWantsSymbol tag)
+  (|| (== tag TAG_D_FN)
+      (|| (== tag TAG_D_DATA)
+          (|| (== tag TAG_D_STRUCT) (== tag TAG_D_MACRO)))))
+
+(pub :: lspDocumentSymbols (-> Int Int))
+(pub fn (lspDocumentSymbols src)
+  (let ((pr (parseModuleWith (lex src) (scanAxtags src))))
+    (if (== (memGetWord pr 0) 0)
+        jsonArr
+        (let ((decls (memGetWord pr 1)) (out jsonArr) (mut i 0))
+          {
+            (while (< i (vecLen decls))
+              (let ((n (vecGet decls i)))
+                {
+                  (if (&& (lspWantsSymbol (nodeTag n)) (!= (nodeSpan n) 0))
+                      (jsonArrPush out
+                        (jsonObjPut
+                          (jsonObjPut
+                            (jsonObjPut
+                              (jsonObjPut jsonObj "name" (jsonStr (nodeA n)))
+                              "kind" (jsonNum (lspSymKind (nodeTag n))))
+                            "range" (lspRange src (nodeSpan n)))
+                          "selectionRange" (lspRange src (nodeSpan n))))
+                      0)
+                  (set i (+ i 1))
+                }))
+            out
+          }))))
+
+; ------------------------------------------------------------------
+; URIs
+;
+; `file:///a/b.ax` -> `/a/b.ax`, percent-decoding as it goes. Anything
+; that is not a `file:` URI is passed through unchanged: the checker
+; only ever uses the path to find sibling modules, so a URI it cannot
+; interpret degrades to "no import directory" rather than to a refusal.
+; ------------------------------------------------------------------
+
+(pub :: lspUriToPath (-> Int Int))
+(pub fn (lspUriToPath uri)
+  (let ((body (if (strStartsWith uri "file://")
+                  (strSlice uri 7 (- (strLen uri) 7))
+                  uri)))
+    (let ((out (strAlloc (strLen body))) (mut i 0) (mut o 0))
+      {
+        (while (< i (strLen body))
+          (if (&& (== (strByte body i) 37) (<= (+ i 3) (strLen body)))
+              (let ((h (lspHexVal (strByte body (+ i 1))))
+                    (l (lspHexVal (strByte body (+ i 2)))))
+                (if (|| (< h 0) (< l 0))
+                    {
+                      (__store8 (strData out) o (strByte body i))
+                      (set o (+ o 1))
+                      (set i (+ i 1))
+                    }
+                    {
+                      (__store8 (strData out) o (+ (* h 16) l))
+                      (set o (+ o 1))
+                      (set i (+ i 3))
+                    }))
+              {
+                (__store8 (strData out) o (strByte body i))
+                (set o (+ o 1))
+                (set i (+ i 1))
+              }))
+        (strSlice out 0 o)
+      })))
+
+(pub :: lspHexVal (-> Int Int))
+(pub fn (lspHexVal b)
+  (if (&& (>= b 48) (<= b 57)) (- b 48)
+  (if (&& (>= b 97) (<= b 102)) (+ 10 (- b 97))
+  (if (&& (>= b 65) (<= b 70)) (+ 10 (- b 65))
+      (- 0 1)))))
+
+; ------------------------------------------------------------------
+; The document store: two parallel Vecs, one writer.
+; ------------------------------------------------------------------
+
+(pub :: docFind (-> Int Int Int))
+(pub fn (docFind uris uri) (docFindFrom uris uri 0))
+
+(pub :: docFindFrom (-> Int Int Int Int))
+(pub fn (docFindFrom uris uri i)
+  (if (>= i (vecLen uris))
+      (- 0 1)
+      (if (strEq (vecGet uris i) uri)
+          i
+          (docFindFrom uris uri (+ i 1)))))
+
+; The ONLY writer of the pair. Both vecs are appended together or
+; neither is, so their indices cannot drift apart.
+(pub :: docPut (-> Int Int Int Int Int))
+(pub fn (docPut uris texts uri text)
+  (let ((i (docFind uris uri)))
+    (if (< i 0)
+        { (vecPush uris uri) (vecPush texts text) (vecLen uris) }
+        { (vecSet texts i text) (vecLen uris) })))
+
+(pub :: docText (-> Int Int Int Int))
+(pub fn (docText uris texts uri)
+  (let ((i (docFind uris uri)))
+    (if (< i 0) "" (vecGet texts i))))
+
+; ------------------------------------------------------------------
+; Protocol
+; ------------------------------------------------------------------
+
+(pub :: lspSend (-> Int Int))
+;@axiom:effect(io)
+(pub fn (lspSend obj) (rpcWrite 1 (jsonWrite obj)))
+
+; A response carries back the request's `id` NODE, not its integer: LSP
+; ids may be strings, and echoing a number where a string was sent is a
+; protocol violation the client is entitled to drop the connection over.
+(pub :: lspReply (-> Int Int Int))
+;@axiom:effect(io)
+(pub fn (lspReply id result)
+  (lspSend (jsonObjPut (jsonObjPut (jsonObjPut jsonObj "jsonrpc" (jsonStr "2.0"))
+                                   "id" id)
+                       "result" result)))
+
+(pub :: lspError (-> Int Int Int Int))
+;@axiom:effect(io)
+(pub fn (lspError id code msg)
+  (lspSend (jsonObjPut (jsonObjPut (jsonObjPut jsonObj "jsonrpc" (jsonStr "2.0"))
+                                   "id" id)
+                       "error"
+                       (jsonObjPut (jsonObjPut jsonObj "code" (jsonNum code))
+                                   "message" (jsonStr msg)))))
+
+(pub :: lspNotify (-> Int Int Int))
+;@axiom:effect(io)
+(pub fn (lspNotify method params)
+  (lspSend (jsonObjPut (jsonObjPut (jsonObjPut jsonObj "jsonrpc" (jsonStr "2.0"))
+                                   "method" (jsonStr method))
+                       "params" params)))
+
+(pub :: lspPublish (-> Int Int Int))
+;@axiom:effect(io)
+(pub fn (lspPublish uri diags)
+  (lspNotify "textDocument/publishDiagnostics"
+             (jsonObjPut (jsonObjPut jsonObj "uri" (jsonStr uri))
+                         "diagnostics" diags)))
+
+; What this server can do. `textDocumentSync: 1` is full-text sync.
+(pub :: lspCapabilities Int)
+(pub fn (lspCapabilities)
+  (jsonObjPut
+    (jsonObjPut jsonObj "capabilities"
+      (jsonObjPut jsonObj "textDocumentSync" (jsonNum 1)))
+    "serverInfo"
+    (jsonObjPut (jsonObjPut jsonObj "name" (jsonStr "axiom"))
+                "version" (jsonStr "0.1.0"))))
+
+; Check the document behind `uri` and publish the result.
+(pub :: lspRecheck (-> Int Int Int Int))
+;@axiom:effect(io)
+(pub fn (lspRecheck uris texts uri)
+  (lspPublish uri (lspCheckDoc (lspUriToPath uri) (docText uris texts uri))))
+
+; The URI a `textDocument`-shaped params object names.
+(pub :: lspParamsUri (-> Int Int))
+(pub fn (lspParamsUri params)
+  (jsonGetStr (jsonGet params "textDocument") "uri"))
+
+; The whole new text of a full-sync `didChange`: the LAST content
+; change wins, because a full-sync server receives exactly one and a
+; client that sent several would mean the last to be the final state.
+(pub :: lspChangeText (-> Int Int))
+(pub fn (lspChangeText params)
+  (let ((cs (jsonGet params "contentChanges")))
+    (if (== (jsonArrLen cs) 0)
+        ""
+        (jsonGetStr (jsonArrGet cs (- (jsonArrLen cs) 1)) "text"))))
+
+; ------------------------------------------------------------------
+; The loop
+; ------------------------------------------------------------------
+
+(pub :: lspMain Int)
+;@axiom:effect(io)
+(pub fn (lspMain)
+  (let ((r (rdNew 0))
+        (uris vecNew)
+        (texts vecNew)
+        (mut running 1)
+        (mut status 1))
+    {
+      (while (== running 1)
+        (let ((body (rpcRead r)))
+          (if (== (strLen body) 0)
+              ; The client went away without saying `exit`. Stopping is
+              ; the only option; the status is the one `exit` would have
+              ; given for a session that never had `shutdown`.
+              (set running 0)
+              (let ((msg (jsonParse body)))
+                (if (== msg 0)
+                    ; Unparseable JSON. There is no id to answer with,
+                    ; so the message is dropped, which is what the spec
+                    ; requires of a notification and the only thing
+                    ; possible for a request whose id could not be read.
+                    0
+                    (let ((method (jsonGetStr msg "method"))
+                          (id (jsonGet msg "id"))
+                          (params (jsonGet msg "params")))
+                      (if (strEq method "initialize")
+                          (lspReply id lspCapabilities)
+                      (if (strEq method "initialized")
+                          0
+                      (if (strEq method "shutdown")
+                          { (set status 0) (lspReply id jsonNull) }
+                      (if (strEq method "exit")
+                          (set running 0)
+                      (if (strEq method "textDocument/didOpen")
+                          (let ((uri (lspParamsUri params)))
+                            {
+                              (docPut uris texts uri
+                                      (jsonGetStr (jsonGet params "textDocument") "text"))
+                              (lspRecheck uris texts uri)
+                            })
+                      (if (strEq method "textDocument/didChange")
+                          (let ((uri (lspParamsUri params)))
+                            {
+                              (docPut uris texts uri (lspChangeText params))
+                              (lspRecheck uris texts uri)
+                            })
+                      (if (strEq method "textDocument/documentSymbol")
+                          (lspReply id
+                            (lspDocumentSymbols
+                              (docText uris texts (lspParamsUri params))))
+                      (if (strEq method "textDocument/didClose")
+                          (let ((uri (lspParamsUri params)))
+                            {
+                              (docPut uris texts uri "")
+                              ; An empty list is how a server retracts
+                              ; the squiggles for a file the editor has
+                              ; closed; saying nothing leaves them on
+                              ; screen forever.
+                              (lspPublish uri jsonArr)
+                            })
+                          ; Anything else: a request must be answered,
+                          ; a notification must not be.
+                          (if (== id 0)
+                              0
+                              (lspError id (- 0 32601)
+                                        (strConcat "method not found: " method)))))))))))))))))
+      (sysExitWith status)
+      status
+    }))
