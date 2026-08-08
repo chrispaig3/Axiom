@@ -3350,3 +3350,54 @@ both bugs were in the layers underneath it.** A gate on a composed
 surface exercises its dependencies only along the paths that surface
 happens to take — small ASCII messages and small integers — and
 reports their silence as agreement.
+
+### The nesting limit: stage1 accepted what stage0 refuses, then crashed
+
+`AX2005` — `nesting is too deep (limit is 1024)` — had no site in the
+self-hosted compiler and no depth counter anywhere behind it. The
+consequence was two divergences rather than one, and the milder-looking
+one is the worse:
+
+| nesting | stage0 | stage1 (before) | stage1 (now) |
+|---:|---|---|---|
+| 5,000 | exit 1, `AX2005` | **exit 0, checks clean** | exit 2, refused |
+| 20,000 | exit 1, `AX2005` | **exit 0, checks clean** | exit 2, refused |
+| 100,000 | exit 1, `AX2005` | **SIGSEGV (signal 11)** | exit 2, refused |
+| 300,000 | exit 1, `AX2005` | **SIGSEGV (signal 11)** | exit 2, refused |
+
+A crash is loud. Accepting a program the other compiler says is not a
+program is not: stage1 type-checked a 20,000-deep expression clean and
+would have gone on to emit code for it.
+
+**Counted over the token stream, not threaded through the parser.**
+Sixty-odd `parse*` functions would each need a depth parameter
+otherwise, which is the parse-error port's shape of work and not this
+slice's. A nesting level in this syntax is a delimiter, so
+`maxNestDepth` walks the tokens once counting `(`/`{`/`[` against
+`)`/`}`/`]`, floors at zero so a stray closer cannot mask real depth
+after it, and `parseModuleWith` refuses before `parseDecls` is called —
+before, that is, the call whose stack exhaustion is the failure being
+prevented. It is deliberately not exact agreement with stage0's
+counter, which counts parse recursion; the two coincide on every
+nesting form the grammar has, and where they might not, both compilers
+still refuse.
+
+**The limit does not touch real code.** The deepest `.ax` file in the
+repository is `self_host/format.ax` at 37, against a limit of 1024 —
+28× headroom, measured over all 211 files.
+
+What stage1 still does not do is *say* `AX2005`. Its parser carries no
+diagnostic payload, so this is a bare refusal reported as
+`parse failed` with exit 2, against stage0's exit 1 for the same input.
+Both refuse, which is the parity standard this project uses where exit
+codes legitimately differ (the bare-top-level-expression case in
+`check-diagnostics.sh` records the same pair); the code, the span and
+the help arrive with the parse-error port.
+
+The gate is a refusal-parity case in `scripts/check-diagnostics.sh` at
+the depth that used to **crash** rather than the depth that used to be
+accepted, so it pins both halves, and it checks the exit status against
+128 as well as against 0 — a signal death is not a refusal. Ablated
+(limit raised out of reach), it reports
+`stage1 died of signal 11 on 100000-deep nesting instead of refusing`
+and exits 1.

@@ -2238,12 +2238,76 @@
 ; its name and follows the previous declaration's - the partition
 ; stage0's `collect_axtags` performs by consuming a contiguous run of
 ; Axtag tokens at each declaration boundary.
+; ------------------------------------------------------------------
+; The nesting limit.
+;
+; stage0 refuses past 1024 with AX2005 (`nesting is too deep (limit is
+; 1024)`). stage1 had no limit and no depth counter anywhere, and the
+; consequence was worse than a missing diagnostic: measured 2026-08-08,
+; a 20,000-deep expression that stage0 REJECTS was ACCEPTED by stage1
+; and checked clean, and at 100,000 stage1 died of SIGSEGV (signal 11)
+; where stage0 still answered in the ordinary way. Accepting a program
+; the other compiler refuses is the worse half of that: a crash is at
+; least loud.
+;
+; Counted over the TOKEN STREAM rather than threaded through the parse
+; functions. Every `parse*` function would need a depth parameter
+; otherwise - sixty-odd of them - and this measures the same thing for
+; the shape that matters, since a nesting level in this syntax is a
+; delimiter. Braces and brackets are counted with parens because each
+; one is a recursive descent in the parser too.
+;
+; It is deliberately NOT exact agreement with stage0's counter, which
+; counts parse recursion rather than delimiters; the two coincide on
+; every nesting form the grammar has, and where they might not, both
+; compilers still refuse. What stage1 does not yet do is SAY AX2005:
+; its parser carries no diagnostic payload, so this is a bare refusal
+; and main.ax's `parse failed` (exit 2, against stage0's exit 1 for
+; the same input). Both refuse, which is the parity standard this
+; project uses where exit codes legitimately differ; the code and the
+; span arrive with the parse-error port.
+; ------------------------------------------------------------------
+(pub :: parseMaxDepth Int)
+(pub fn (parseMaxDepth) 1024)
+
+; The deepest delimiter nesting reached anywhere in `tokens`.
+;
+; A closer at depth 0 is unbalanced input, which the parser reports on
+; its own terms; it is floored here rather than allowed to go negative,
+; so a stray `)` early in a file cannot mask real depth after it.
+(pub :: maxNestDepth (-> Int Int))
+(pub fn (maxNestDepth tokens)
+  (let ((mut i 0) (mut d 0) (mut best 0) (n (vecLen tokens)))
+    {
+      (while (< i n)
+        {
+          (if (|| (peekIs tokens i TK_LPAREN)
+                  (|| (peekIs tokens i TK_LBRACE)
+                      (peekIs tokens i TK_LBRACKET)))
+              {
+                (set d (+ d 1))
+                (if (> d best) (set best d) 0)
+              }
+              (if (|| (peekIs tokens i TK_RPAREN)
+                      (|| (peekIs tokens i TK_RBRACE)
+                          (peekIs tokens i TK_RBRACKET)))
+                  (if (> d 0) (set d (- d 1)) 0)
+                  0))
+          (set i (+ i 1))
+        })
+      best
+    }))
+
 (pub :: parseModuleWith (-> Int Int Int))
 (pub fn (parseModuleWith tokens axtags)
-  (let ((r (parseDecls tokens 0 vecNew)))
-    (if (== (memGetWord r 0) 0)
-        r
-        { (attachAxtags (memGetWord r 1) 0 axtags 0) r })))
+  ; The depth check runs BEFORE `parseDecls`, because the failure it
+  ; prevents is that call exhausting the stack.
+  (if (> (maxNestDepth tokens) parseMaxDepth)
+      (pErr 0)
+      (let ((r (parseDecls tokens 0 vecNew)))
+        (if (== (memGetWord r 0) 0)
+            r
+            { (attachAxtags (memGetWord r 1) 0 axtags 0) r }))))
 
 (pub :: attachAxtags (-> Int Int Int Int Int))
 (pub fn (attachAxtags decls i axtags next)

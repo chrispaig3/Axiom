@@ -225,6 +225,41 @@ if [[ "$b0" == 0 || "$b1" == 0 ]]; then
   failed=$((failed + 1))
 fi
 
+# Refusal parity for NESTING DEPTH, and the crash it replaces.
+#
+# stage1 had no depth limit and no counter anywhere. Measured
+# 2026-08-08: a 20,000-deep expression that stage0 rejects with AX2005
+# (`nesting is too deep (limit is 1024)`) was ACCEPTED by stage1 and
+# checked clean, and at 100,000 stage1 died of SIGSEGV where stage0
+# went on answering in the ordinary way. Accepting a program the other
+# compiler refuses is the worse half of that pair: a crash is at least
+# loud, while a silent accept compiles something stage0 says is not a
+# program.
+#
+# The depth here is the one that used to CRASH, not merely the one
+# that used to be accepted, so this pins both halves. And stage1 has
+# to refuse by refusing: a signal death is not a refusal, which is why
+# the status is checked against 128 as well as against 0. Exit codes
+# still differ (stage0 1, stage1 2) for the reason the bare-expression
+# case above records - the parse-error path is a recorded open
+# divergence, and AX2005's code and span arrive with it.
+deep_n=100000
+deep_open="$(yes '(+ 1 ' | head -n "$deep_n" | tr -d '\n')"
+deep_close="$(yes ')' | head -n "$deep_n" | tr -d '\n')"
+printf '(:: main Int)\n(fn (main) %s0%s)\n' "$deep_open" "$deep_close" > "$work/deep.ax"
+(cd "$work" && "$axiom" check "deep.ax" >/dev/null 2>&1); d0=$?
+(cd "$work" && ./stage1 check "deep.ax" >/dev/null 2>&1); d1=$?
+if [[ "$d0" == 0 || "$d1" == 0 ]]; then
+  echo "FAIL: ${deep_n}-deep nesting was accepted (stage0=$d0 stage1=$d1)"
+  failed=$((failed + 1))
+elif (( d1 > 128 )); then
+  echo "FAIL: stage1 died of signal $((d1 - 128)) on ${deep_n}-deep nesting instead of refusing"
+  failed=$((failed + 1))
+else
+  echo "ok   refusal parity: ${deep_n}-deep nesting refused by both (stage0=$d0 stage1=$d1)"
+  passed=$((passed + 1))
+fi
+
 # The sweep's own pipeline, negative-tested: run the sweep's exact
 # invocation shape on a file KNOWN to produce a diagnostic, and
 # require the AXDL filter to see it. This is the one place the
