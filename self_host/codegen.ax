@@ -66,14 +66,34 @@
 (pub fn (lookupType types name)
   (lookupByIdx types name (strLen name) 0))
 
+; A LOOP, not a recursion, for the reason `lexTokens` and
+; `skipLineComment` are loops: this walks the whole type table, so it
+; used to cost ONE STACK FRAME PER ENTRY, and the table holds every
+; constructor and struct of every module in the program. The self tail
+; call the IR rewrites into a jump does not fire through the `let`
+; here, so the frames were real.
+;
+; It presented the way this ceiling always presents - as an unrelated
+; change tipping something over. Adding one alias entry per imported
+; constructor (`addQualified`) lengthened the table, and stage2 then
+; died of SIGSEGV compiling its own source, in a build without `opt`
+; to eliminate the frames. `lldb` named it in one backtrace: 25 frames
+; of `codegen$lookupByIdx`, and `Vec$vecGet` on top of them holding
+; the address that had run off the stack.
 (pub :: lookupByIdx (-> Int Int Int Int Int))
 (pub fn (lookupByIdx types name nLen i)
-  (if (>= i (vecLen types))
-      0
-      (let ((e (vecGet types i)))
-        (if (&& (== (eNameLen e) nLen) (strEq (eName e) name))
-            e
-            (lookupByIdx types name nLen (+ i 1))))))
+  (let ((mut k i) (mut found 0))
+    {
+      (while (&& (< k (vecLen types)) (== found 0))
+        {
+          (let ((e (vecGet types k)))
+            (if (&& (== (eNameLen e) nLen) (strEq (eName e) name))
+                (set found e)
+                0))
+          (set k (+ k 1))
+        })
+      found
+    }))
 
 (pub :: lookupTypeIn (-> Int Int Int Int))
 (pub fn (lookupTypeIn types name i)
@@ -842,7 +862,8 @@
     (if (== tag TAG_D_DATA)
         (let ((name (nodeA node))
               (ctors (nodeB node)))
-          (scanCtors ctors cg 0 (ctorsRep ctors (memGetWord cg 4))))
+          (scanCtors ctors cg 0 (ctorsRep ctors (memGetWord cg 4))
+                     (nodeModule node)))
     (if (== tag TAG_D_STRUCT)
         (let ((name (nodeA node))
               (fields (nodeB node))
@@ -851,7 +872,10 @@
             ; A struct's slot 7 holds its FIELD list (mkField nodes:
             ; name and float flag) where a data constructor's holds
             ; float flags alone - the kind decides the reading.
-            (memSetWord cg 3 (addType types name TF_STRUCT (vecLen fields) 0 0 fields))
+            (memSetWord cg 3 (addQualified
+                                (addType types name TF_STRUCT (vecLen fields) 0 0 fields)
+                                (nodeModule node) name
+                                TF_STRUCT (vecLen fields) 0 0 fields 0))
             cg
           })
     cg)))))
@@ -889,8 +913,27 @@
           0
           (if (== (ctorsHasBoxed ctors 0) 1) 2 1))))
 
-(pub :: scanCtors (-> Int Int Int Int Int))
-(pub fn (scanCtors ctors cg i rep)
+; A SECOND entry for a declaration that arrived through an import,
+; under the `Mod$name` spelling a qualified reference is parsed into.
+;
+; `mangleDecl` renames `fn` and `::` declarations, so `Mod::f` finds a
+; declaration whose name already matches. It does not rename `data` or
+; `struct`, so `Mod::Ctor` found nothing, and the checker refused a
+; program stage0 compiles - measured `AX3001 undefined variable
+; Box$Red` against stage0's `OK`. `lookupType` is exact string
+; equality over a flat table, so an alias here costs one entry and
+; changes no rule: the tag, arity and representation are the SAME
+; values, which is what keeps a constructor reached under either
+; spelling one constructor rather than two.
+(pub :: addQualified (-> Int Int Int Int Int Int Int Int Int Int))
+(pub fn (addQualified types modName name kind arity tag rep fieldFlags fieldNames)
+  (if (== modName 0)
+      types
+      (addTypeNamed types (cat3 (strDup modName) "$" (strDup name))
+                    kind arity tag rep fieldFlags fieldNames)))
+
+(pub :: scanCtors (-> Int Int Int Int Int Int))
+(pub fn (scanCtors ctors cg i rep modName)
   (if (>= i (vecLen ctors)) cg
       (let ((node (vecGet ctors i)))
         (let ((n (nodeA node))
@@ -903,9 +946,12 @@
             ; of the module tag -1, and `fmtInt` rendered that as `/` -
             ; a stray character in the middle of an argument list.
             (memSetWord cg 4 (+ t 1))
-            (memSetWord cg 3 (addTypeNamed types n TF_DATA a t rep (nodeC node)
-                                          (nodeFieldNames node)))
-            (scanCtors ctors cg (+ i 1) rep)
+            (memSetWord cg 3 (addQualified
+                                (addTypeNamed types n TF_DATA a t rep (nodeC node)
+                                              (nodeFieldNames node))
+                                modName n TF_DATA a t rep (nodeC node)
+                                (nodeFieldNames node)))
+            (scanCtors ctors cg (+ i 1) rep modName)
           }))))
 
 ; ------------------------------------------------------------------

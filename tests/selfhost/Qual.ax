@@ -1,0 +1,11 @@
+; A module whose data, struct and function are all reached through
+; `Qual::` from `900-qualified-ctors.ax`. It stands alone - the
+; diagnostics sweep checks every file of this tree on its own.
+(pub data Shade
+  (Dim)
+  (Bright))
+
+(pub struct Pair (a : Int) (b : Int))
+
+(pub :: twice (-> Int Int))
+(pub fn (twice x) (* x 2))

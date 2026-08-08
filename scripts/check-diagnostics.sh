@@ -235,6 +235,34 @@ if [[ "$b0" == 0 || "$b1" == 0 ]]; then
   failed=$((failed + 1))
 fi
 
+# Refusal parity for a QUALIFIED reference naming the wrong module.
+#
+# `Mod::Ctor` was a false AX3001 in stage1 on a program stage0
+# compiles and runs, because `mangleDecl` rewrites `fn` and `::`
+# declarations to `Mod$name` and does not rewrite `data` or `struct` -
+# so the qualified spelling was parsed into a name nothing declared.
+# `tests/selfhost/900-qualified-ctors.ax` pins the ACCEPTING half by
+# running it; this pins the other half, which a fix that simply
+# stripped the module part would break: `Nope::Dim` must still be
+# refused when `Nope` declares nothing.
+#
+# Codes and messages agree; only the SPANS differ, and that is a
+# recorded pre-existing divergence for every qualified reference
+# including functions - stage0 anchors on the name after `::`, stage1
+# on the module before it. So this compares exit status, not AXDL.
+cp "$repo_root/tests/selfhost/Qual.ax" "$work/Qual.ax"
+printf '(import Qual)\n(:: main Int)\n(fn (main) (match Nope::Dim ((Dim) 1) ((Bright) 2)))\n' \
+  > "$work/wrong-module.ax"
+(cd "$work" && "$axiom" check "wrong-module.ax" >/dev/null 2>&1); q0=$?
+(cd "$work" && ./stage1 check "wrong-module.ax" >/dev/null 2>&1); q1=$?
+if [[ "$q0" == 0 || "$q1" == 0 ]]; then
+  echo "FAIL: a qualified reference to a module that declares nothing was accepted (stage0=$q0 stage1=$q1)"
+  failed=$((failed + 1))
+else
+  echo "ok   refusal parity: \`Nope::Dim\` refused by both (stage0=$q0 stage1=$q1)"
+  passed=$((passed + 1))
+fi
+
 # Refusal parity for NESTING DEPTH, and the crash it replaces.
 #
 # stage1 had no depth limit and no counter anywhere. Measured

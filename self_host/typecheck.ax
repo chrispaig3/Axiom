@@ -405,8 +405,16 @@
 ; written as a struct variant, and 0 otherwise. A NAMED pattern is
 ; reordered against it.
 (pub struct CtorEnt (name : Int) (fieldTys : Int) (resTy : Int) (ctorTy : Int) (fieldNames : Int))
-(pub struct DataEnt (name : Int) (ctors : Int))
-(pub struct StructEnt (name : Int) (fields : Int))
+; `module` is the module that DECLARED this type, or 0 for the entry
+; file and for builtins. It exists so a QUALIFIED reference can be
+; checked rather than merely stripped: `mangleDecl` rewrites `fn` and
+; `::` declarations to `Mod$name`, so `Mod::f` resolves by matching a
+; rewritten declaration - but it does not rewrite `data` or `struct`,
+; so `Mod::Ctor` matched nothing and every qualified constructor
+; reference was a false AX3001 on a valid program. Recording the
+; module here answers it without renaming anything: see `ctorMatches`.
+(pub struct DataEnt (name : Int) (ctors : Int) (module : Int))
+(pub struct StructEnt (name : Int) (fields : Int) (module : Int))
 (pub struct TC (fns : Int) (datas : Int) (structs : Int) (scope : Int)
                (out : Int) (counter : Int) (frameBase : Int)
                (macros : Int) (effects : Int)
@@ -524,7 +532,7 @@
                         (mkTArr (mkTVar "a") optRes)
                         0)))
           (vecPush optCtors (cast Int (CtorEnt "None" vecNew optRes optRes 0)))
-          (vecPush datas (cast Int (DataEnt "Option" optCtors)))
+          (vecPush datas (cast Int (DataEnt "Option" optCtors 0)))
         })
       (let ((tc (cast Int (TC fns datas vecNew vecNew vecNew 0 0
                               vecNew vecNew entryDecls allDecls
@@ -568,7 +576,7 @@
                 (tcCollectData tc d)
             (if (== tag TAG_D_STRUCT)
                 (vecPush (tcStructs tc)
-                         (cast Int (StructEnt (nodeA d) (nodeB d))))
+                         (cast Int (StructEnt (nodeA d) (nodeB d) (nodeModule d))))
             (if (== tag TAG_D_SIG)
                 (tcCollectSig tc d)
             (if (== tag TAG_D_FN)
@@ -687,7 +695,7 @@
               (ctors vecNew))
           {
             (tcCollectCtors (nodeB d) resTy ctors 0)
-            (vecPush (tcDatas tc) (cast Int (DataEnt (nodeA d) ctors)))
+            (vecPush (tcDatas tc) (cast Int (DataEnt (nodeA d) ctors (nodeModule d))))
           })
       })))
 
@@ -795,19 +803,20 @@
 (pub fn (findCtorFrom datas name i)
   (if (>= i (vecLen datas))
       0
-      (let ((c (ctorInData (memGetWord (vecGet datas i) 1) name 0)))
+      (let ((c (ctorInData (memGetWord (vecGet datas i) 1)
+                           (memGetWord (vecGet datas i) 2) name 0)))
         (if (!= c 0)
             c
             (findCtorFrom datas name (+ i 1))))))
 
-(pub :: ctorInData (-> Int Int Int Int))
-(pub fn (ctorInData ctors name i)
+(pub :: ctorInData (-> Int Int Int Int Int))
+(pub fn (ctorInData ctors declMod name i)
   (if (>= i (vecLen ctors))
       0
       (let ((c (vecGet ctors i)))
-        (if (== (nameMatches (memGetWord c 0) name) 1)
+        (if (== (declMatches declMod (memGetWord c 0) name) 1)
             c
-            (ctorInData ctors name (+ i 1))))))
+            (ctorInData ctors declMod name (+ i 1))))))
 
 ; The LAST matching constructor - stage0's bare-value and saturation
 ; paths use rfind, and the difference is observable when two datas
@@ -820,20 +829,21 @@
 (pub fn (rfindCtorFrom datas name i)
   (if (< i 0)
       0
-      (let ((c (rctorInData (memGetWord (vecGet datas i) 1) name
+      (let ((c (rctorInData (memGetWord (vecGet datas i) 1)
+                            (memGetWord (vecGet datas i) 2) name
                             (- (vecLen (memGetWord (vecGet datas i) 1)) 1))))
         (if (!= c 0)
             c
             (rfindCtorFrom datas name (- i 1))))))
 
-(pub :: rctorInData (-> Int Int Int Int))
-(pub fn (rctorInData ctors name i)
+(pub :: rctorInData (-> Int Int Int Int Int))
+(pub fn (rctorInData ctors declMod name i)
   (if (< i 0)
       0
       (let ((c (vecGet ctors i)))
-        (if (== (nameMatches (memGetWord c 0) name) 1)
+        (if (== (declMatches declMod (memGetWord c 0) name) 1)
             c
-            (rctorInData ctors name (- i 1))))))
+            (rctorInData ctors declMod name (- i 1))))))
 
 (pub :: findStruct (-> Int Int Int))
 (pub fn (findStruct tc name)
@@ -844,7 +854,7 @@
   (if (>= i (vecLen structs))
       0
       (let ((s (vecGet structs i)))
-        (if (== (nameMatches (memGetWord s 0) name) 1)
+        (if (== (declMatches (memGetWord s 2) (memGetWord s 0) name) 1)
             s
             (findStructFrom structs name (+ i 1))))))
 
@@ -1589,7 +1599,7 @@
       (offerCtorEnts best name (tcDatas tc) 0)
       (if (!= span 0)
           (emitDiag tc
-            (let ((msg (strConcat (strConcat "undefined variable `" name) "`")))
+            (let ((msg (strConcat (strConcat "undefined variable `" (srcSpelling name)) "`")))
               (if (== (memGetWord best 0) 0)
                   (mkDiag SEV_ERROR "AX3001" "undefined-variable"
                           span msg 0 0
@@ -2845,7 +2855,7 @@
                         (offerScope best name (tcScope tc) 0)
                         (if (!= (nodeSpan e) 0)
                             (emitDiag tc
-                              (let ((msg (strConcat (strConcat "undefined variable `" name) "`")))
+                              (let ((msg (strConcat (strConcat "undefined variable `" (srcSpelling name)) "`")))
                                 (if (== (memGetWord best 0) 0)
                                     (mkDiag SEV_ERROR "AX3001" "undefined-variable"
                                             (nodeSpan e) msg 0 0
@@ -3298,6 +3308,57 @@
 ; back as something the programmer could type.
 (pub :: bareOf (-> Int Int))
 (pub fn (bareOf s) (bareOfFrom s (- (strLen s) 1)))
+
+; The MODULE part of a qualified name `Mod$name`, or 0 when there is
+; none. The mirror of `bareOf`, which answers the other half.
+; A name as the PROGRAMMER wrote it. A qualified reference is parsed
+; into the flat `Mod$name` spelling the declarations use, and a
+; diagnostic that quotes it back reports a name that appears nowhere in
+; the source: `undefined variable `Nope$Red`` for a line reading
+; `Nope::Red`. stage0 reports the source spelling; so does this now.
+(pub :: srcSpelling (-> Int Int))
+(pub fn (srcSpelling s)
+  (let ((m (modOf s)))
+    (if (== m 0) s (strConcat (strConcat m "::") (bareOf s)))))
+
+(pub :: modOf (-> Int Int))
+(pub fn (modOf s) (modOfFrom s (- (strLen s) 1)))
+
+(pub :: modOfFrom (-> Int Int Int))
+(pub fn (modOfFrom s i)
+  (if (< i 0)
+      0
+      (if (== (strByte s i) 36)
+          (strSlice s 0 i)
+          (modOfFrom s (- i 1)))))
+
+; Does a type or constructor named `declName`, declared by module
+; `declMod`, answer to the reference `ref`?
+;
+; A BARE reference behaves exactly as it always did - `nameMatches`,
+; which also lets a bare reference reach a declaration `mangleDecl`
+; rewrote. A QUALIFIED one now has its module CHECKED against the
+; declaring module rather than ignored, and that is the whole fix:
+; `mangleDecl` rewrites `fn` and `::` declarations, so `Mod::f`
+; resolved by matching a rewritten name, and it does not rewrite
+; `data` or `struct`, so `Mod::Ctor` matched nothing at all and every
+; qualified constructor reference was a false AX3001 on a program
+; stage0 compiles and runs.
+;
+; stage0 checks the module for data constructors and for functions and
+; does NOT for struct constructors - `(Nope::Pt 1 2)` is accepted
+; there, measured 2026-08-08. This is the stricter of the two answers,
+; applied uniformly: a qualified reference names a module or it does
+; not resolve.
+(pub :: declMatches (-> Int Int Int Int))
+(pub fn (declMatches declMod declName ref)
+  (let ((m (modOf ref)))
+    (if (== m 0)
+        (nameMatches declName ref)
+        (if (&& (!= declMod 0)
+                (&& (strEq declMod m) (strEq declName (bareOf ref))))
+            1
+            0))))
 
 (pub :: bareOfFrom (-> Int Int Int))
 (pub fn (bareOfFrom s i)

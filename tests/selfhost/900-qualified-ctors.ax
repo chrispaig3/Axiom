@@ -1,0 +1,27 @@
+; expect 42
+; `Mod::Ctor` - a qualified reference to a data or struct constructor.
+;
+; It was a false AX3001 on a valid program until 2026-08-08.
+; `mangleDecl` rewrites `fn` and `::` declarations to `Mod$name`, so
+; `Mod::f` resolved by matching a declaration already renamed to match;
+; it does not rewrite `data` or `struct`, so `Mod::Ctor` was parsed
+; into a name nothing declared. Nothing in this repository used the
+; spelling, which is why nothing caught it - and `axiom explain AX3014`
+; recommends it, since it is the documented way to disambiguate a name
+; that two imports both define.
+;
+; 7 + 20 + 10 + 5 = 42.
+(import Qual)
+
+(:: shade (-> Shade Int))
+(fn (shade c)
+  (match c
+    ((Dim) 7)
+    ((Bright) 20)))
+
+(:: main Int)
+(fn (main)
+  (+ (shade Qual::Dim)
+     (+ (shade (Qual::Bright))
+        (+ (Qual::twice 5)
+           (let ((p (Qual::Pair 2 3))) (+ p.a p.b))))))

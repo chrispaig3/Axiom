@@ -3793,3 +3793,100 @@ file committed together move together. Ken Thompson's attack applies
 here as it does to every bootstrapped compiler; everything short of it
 is answered by requiring the seed to compile the whole compiler, reach
 a fixpoint, and produce a program that runs.
+
+### `Mod::Ctor` was a false diagnostic on a valid program
+
+`axiom explain AX3014` tells the reader to write `Module::name` when
+two imports define the same name. The self-hosted compiler refused
+that spelling for constructors:
+
+```
+$ stage0 check t.ax        OK
+$ stage1 check t.ax        E AX3001 undefined variable `Qual$Dim`
+```
+
+A qualified reference is parsed into the flat `Mod$name` spelling the
+declarations use — the parser says so, and `mangleDecl` is why it
+works: import resolution rewrites every imported `fn` and `::`
+declaration to `Mod$name`, so `Mod::f` resolves by matching a
+declaration that has already been renamed to match it. `mangleDecl`
+rewrites nothing else. A `data` or `struct` declaration keeps its bare
+constructor names, so `Mod::Ctor` was parsed into a name no
+declaration in the program carried, and the checker was right to say
+so about the name it was given.
+
+This is the third time that same gap has produced a false positive on
+a valid program. Effect operations hit it first, and were fixed by
+registering each imported operation under both spellings. Constructors
+could not be fixed that way: the checker's `DataEnt` holds the
+constructor list that exhaustiveness counts, so a duplicate entry
+would make `AX3005` report a constructor missing that the match
+covers.
+
+**What it needed instead was for the module part to be checked rather
+than ignored.** `DataEnt` and `StructEnt` now record the module that
+declared them, and one comparison — `declMatches` — decides every
+constructor and struct lookup: a bare reference behaves exactly as
+before, and a qualified one resolves only when the declaring module is
+the one named. `Box::Red` resolves; `Nope::Red` does not. In codegen,
+whose type table is exact string equality over a flat vector, the same
+thing is one extra entry per imported constructor carrying the *same*
+tag, arity and representation — which is what keeps a constructor
+reached under either spelling one constructor and not two.
+
+**Where this is deliberately stricter than stage0.** stage0 checks the
+module for data constructors and for functions, and does not for
+struct constructors: `(Nope::Pt 1 2)` is accepted there, measured. A
+qualified reference that names a module declaring nothing of the sort
+is a typo in every case, so stage1 refuses all three uniformly. That
+is the one behavioural divergence this change introduces, and it is
+recorded rather than smoothed over.
+
+**A second, smaller thing the probe exposed.** stage1's `AX3001`
+quoted the internal spelling back at the programmer — ``undefined
+variable `Nope$Red` `` for a line that reads `Nope::Red`, a name that
+appears nowhere in the source. The message now renders the source
+spelling, as stage0's does.
+
+Still divergent, and pre-existing: the **span**. For any qualified
+reference, function or constructor, stage0 anchors on the name after
+the `::` and stage1 on the module before it. Both compilers refuse the
+same programs with the same code and now the same message, so the
+refusal-parity case in `check-diagnostics.sh` compares exit status
+rather than AXDL and says why.
+
+**Gated.** `tests/selfhost/900-qualified-ctors.ax` reaches a data
+constructor, a nullary one applied, a function and a struct
+constructor through `Qual::`, and runs — 42. Against a compiler built
+from the previous commit it fails with the false `AX3001`, which is
+the whole bug. The refusal half is a parity case in
+`check-diagnostics.sh`: it is vacuous against the old compiler, which
+refused everything qualified, and exists to catch the tempting wrong
+fix — stripping the module part instead of checking it.
+
+**And the ceiling it tipped over.** The alias entry is one extra row in
+codegen's type table per imported constructor, which is a table
+`lookupByIdx` walks linearly — and `lookupByIdx` was a recursion, so
+the walk cost **one stack frame per entry**. The self tail call the IR
+rewrites into a jump does not fire through the `let` that binds the
+entry, so the frames were real. With the table longer, `stage2` died
+of SIGSEGV compiling its own source, in the `check-bootstrap.sh` ladder
+that deliberately runs `llc` without `opt`.
+
+This is the third appearance of the same ceiling — after `scanAxtags`
+and `skipLineComment` — and it presented the way it always does: an
+unrelated change tipping something over, two changes needed before
+anything looked wrong. `lldb` named it in one backtrace rather than by
+reading: twenty-five frames of `codegen$lookupByIdx` under a
+`Vec$vecGet` holding an address off the end of the stack.
+
+`lookupByIdx` is a loop now. The alternative — requiring `opt` in the
+bootstrap path, which does eliminate those frames — was rejected: the
+whole argument for `bootstrap/` is that a clean checkout needs only
+`llc` and a C compiler, and `axiom-cli` has always treated a missing
+`opt` as a warning. A compiler that cannot compile itself without an
+optimiser has a smaller set of machines it can be born on.
+
+`check-bootstrap.sh` found this with no new gate needed, which is what
+that ladder's `-O0`/no-`opt` comment has been protecting since it was
+written.
