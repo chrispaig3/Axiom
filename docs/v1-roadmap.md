@@ -152,10 +152,34 @@ Linear in generations, flat in live data: the bump allocator tracks
 *total allocations*, not reachable data. The historical table here
 read 744 MiB at 2000 generations; today's 33.3 MiB is 22× better and
 **none of it came from reclamation** — the B3 data-structure work
-simply allocates less per step. The per-generation column is the
-claim under test: §4.1's copy-at-boundary work exits when it goes to
-approximately zero, and this script becomes the before/after
-evidence, then a gate.
+simply allocates less per step.
+
+**The managed twin (2026-08-08).** The same program with the loop
+bracketed by the explicit arena primitives — mark once, then per
+iteration copy the new board up, reset, copy down — holds **1.4 MiB
+flat from 80 through 20,000 generations, population 5 throughout**,
+and the per-generation column reads 0 at N=2000.
+`scripts/check-memory-baseline.sh` gates all three claims in CI:
+managed flat under 4 MiB, populations exactly 5, and — the negative,
+run every time — a reset with *no* copy corrupts the board to
+population 0, proving the gate sees the unsoundness class.
+
+**Automatic insertion of that contract was re-scoped out of the
+first slice by adversarial review** (three lenses, a judge, five
+probes, all measured). The blockers, now the automation slice's
+named prerequisites: (1) the compiler cannot see pointerhood —
+`Int` is the universal heap-handle type and String unifies with Int
+*by fiat*, so a type-directed trigger is either unsound (it fired
+on the Life probe and corrupted it to population 0) or vacuous;
+(2) `arena_reset` strands chunks mapped after the mark (~320 KiB
+per iteration measured on a chunk-crossing loop), so "O(live),
+always sound" is false past a chunk boundary; (3) a
+compiler-inserted copy-down was tried once before — `ArenaCompact`,
+removed because codegen "could not see Str or Vec at all"
+([self-hosting.md](self-hosting.md)) — and the review's first draft
+re-proposed exactly that failure. The explicit contract is §4.1's
+copy-at-boundary made real today; inference is the research half,
+and it now has a measured target to hit.
 
 This is not a pathological program. A loop that builds a value from
 the previous value is the shape of every compiler pass, every request

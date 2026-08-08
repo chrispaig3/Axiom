@@ -182,6 +182,17 @@ jobs:
       - name: REPL parity between the compilers
         run: ./scripts/check-repl-selfhost.sh
 
+      # The P2 memory-model exit criterion: one Life board advanced
+      # 2000 generations stays under 4 MiB when the loop carries the
+      # explicit mark/copy/reset contract, grows linearly when it
+      # does not, and CORRUPTS when the reset drops its copy - all
+      # three measured, the third proving the gate can see the
+      # unsoundness class. Automation of the contract is a future
+      # slice, gated on static pointerhood (Int is the universal
+      # handle type; String unifies with Int by fiat).
+      - name: Memory baseline (managed flat, unmanaged linear)
+        run: ./scripts/check-memory-baseline.sh
+
   grammar:
     name: Tree-sitter grammar
     needs: lint
