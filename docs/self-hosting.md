@@ -3065,13 +3065,19 @@ silently absorbed:
   (which is what stage0 emits under `--diagnostic-format=ai`, the
   spelling every gate uses). The table is a follow-up; the flag
   surface, not the default, is what the gates pin today.
-* **`AX5001` (cannot-resolve-import) as a diagnostic**: stage0
-  emits it spanless (`file:-`) with exit 1; stage1's resolver dies
-  with `cannot read module` and exit 3 - an exit code
-  `check-self-host.sh` asserts on by name. The spanless rendering
-  path exists in `render.ax` and is exercised by no current stage1
-  diagnostic; converting the resolver's refusal into one is the
-  follow-up that unlocks a spanless corpus case.
+* ~~**`AX5001` (cannot-resolve-import) as a diagnostic**~~ - DONE
+  (2026-08-08): stage1's resolver now emits `E AX5001 <import>:-
+  module-not-found` with a help listing every candidate filename and
+  every directory its search actually visited, renders it in the
+  chosen format - the first real exercise of the spanless human
+  path - and exits 1, stage0's code; the old exit 3's only two
+  consumers were gates, both updated in the same commit. The
+  imagined "spanless corpus case" turned out to be impossible BY
+  CONSTRUCTION and the pin is structural instead: the help's paths
+  are each binary's own search list, so two differently-located
+  compilers legitimately emit different bytes, and
+  `check-self-host.sh` asserts the code, the module name and the
+  search text rather than a golden.
 
 ### The REPL: the last tool, and the bug only it could find
 

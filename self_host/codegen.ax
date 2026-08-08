@@ -7,6 +7,8 @@
 (import Vec)
 (import Sys)
 (import parser)
+(import diag)
+(import render)
 
 ; ------------------------------------------------------------------
 ; Type registry: constructor/struct name -> arity, kind, tag.
@@ -1165,10 +1167,94 @@
               i
               (unitIndexOf units name (+ i 1))))))
 
+; The unresolvable import is a REAL DIAGNOSTIC now - AX5001,
+; spanless, rendered in the chosen format like every other refusal -
+; where it used to be a bare "cannot read module" line and exit 3.
+; stage0's shape, probed 2026-08-08: `E AX5001 <import>:-
+; module-not-found "cannot resolve import \`Name\`"` with one help
+; listing every candidate filename and every directory searched, and
+; exit 1. The help's paths are THIS binary's search list
+; (moduleSearchDirs), so the bytes legitimately differ between two
+; differently-located compilers - the pin is structural, in
+; check-self-host.sh and check-driver.sh, not a corpus golden.
+;
+; The format flag is re-derived from argv here for the same reason
+; dieImport re-derives the subcommand: driver.ax owns flagValue and
+; importing it from codegen would be a cycle. No fallback warning on
+; an unknown value - main.ax's diagFormatArg already warned once at
+; entry, and warning twice for one typo is chatter.
+(pub :: diagFormatFromArgv Int)
+(pub fn (diagFormatFromArgv)
+  (diagFormatScan 1))
+
+(pub :: diagFormatScan (-> Int Int))
+(pub fn (diagFormatScan i)
+  (if (>= i (sysArgc))
+      FMT_HUMAN
+      (let ((a (sysArg i)))
+        (if (strEq a "--diagnostic-format")
+            (if (< (+ i 1) (sysArgc))
+                (let ((c (parseDiagFormatName (sysArg (+ i 1)))))
+                  (if (>= c 0) c FMT_HUMAN))
+                FMT_HUMAN)
+            (if (strStartsWith a "--diagnostic-format=")
+                (let ((c (parseDiagFormatName
+                           (strSlice a 20 (- (strLen a) 20)))))
+                  (if (>= c 0) c FMT_HUMAN))
+                (diagFormatScan (+ i 1)))))))
+
+; `looked for 'A' or 'B' or 'C' in 'd1', 'd2', ...` - the same
+; candidates and directories readModuleSrc searched, in the same
+; order, so the help never claims a search that did not happen.
+(pub :: importHelpText (-> Int Int Int Int))
+(pub fn (importHelpText name tcode entryDir)
+  (let ((stem (modPathToFile name))
+        (dirs (moduleSearchDirs entryDir)))
+    (let ((parts vecNew))
+      {
+        (vecPush parts "looked for '")
+        (vecPush parts (cat2 stem (targetOsArchSuffix tcode)))
+        (vecPush parts "' or '")
+        (vecPush parts (cat2 stem (targetOsSuffix tcode)))
+        (vecPush parts "' or '")
+        (vecPush parts (cat2 stem ".ax"))
+        (vecPush parts "' in ")
+        (let ((mut i 0))
+          (while (< i (vecLen dirs))
+            {
+              (if (> i 0) (vecPush parts ", ") 0)
+              (vecPush parts "'")
+              (vecPush parts (cast Int (vecGet dirs i)))
+              (vecPush parts "'")
+              (set i (+ i 1))
+            }))
+        (catStrs parts)
+      })))
+
+(pub :: dieImportDiag (-> Int Int Int Int))
+;@axiom:effect(io)
+(pub fn (dieImportDiag name tcode entryDir)
+  (let ((d (mkDiag SEV_ERROR "AX5001" "module-not-found" 0
+                   (cat3 "cannot resolve import `" name "`")
+                   0 0 (importHelpText name tcode entryDir)))
+        (ds vecNew)
+        (units vecNew))
+    {
+      (vecPush ds d)
+      (vecPush units (cast Int (CUnit2 "<import>" "" 0)))
+      (let ((out (renderDiagsFormat diagFormatFromArgv ds units)))
+        (sysWriteFd 2 (strData out) (strLen out)))
+      ; Exit 1, stage0's code for this failure. The old 3 had exactly
+      ; two consumers, both gates, both updated in this commit; the
+      ; `symbols` fold to 1 is now the rule rather than the exception.
+      (sysExitWith 1)
+      0
+    }))
+
 (pub fn (parseModuleOrDie name tcode entryDir)
   (let ((src (readModuleSrc name tcode entryDir)))
     (if (== src 0)
-        (dieImport "error: cannot read module: " name)
+        (dieImportDiag name tcode entryDir)
         ; `parseModuleWith`, not `parseModule`: an imported module's
         ; AXTAGs have to attach to its declarations exactly as the
         ; entry file's do, or `symbols` prints `#effects=IO` beside a

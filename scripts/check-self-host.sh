@@ -142,17 +142,24 @@ done
 # module, not a silent skip. Skipping is the failure mode that presented
 # `stdlib/Fmt.ax` failing to parse as `use of undefined value '@fmtInt'`
 # out of llc - a codegen-shaped report for an import-shaped failure.
-# Exit 3 is the driver's import-resolution code (1 = unreadable input,
-# 2 = parse error in the input itself).
+# An unresolvable import is a real diagnostic now - AX5001, spanless,
+# exit 1, stage0's code (2026-08-08; it was a bare "cannot read
+# module" line and exit 3, whose only consumers were this gate and
+# check-driver.sh). The pin is structural: the code, the module's
+# name, and the help's search-path list must all appear - the exact
+# paths differ legitimately between two differently-located binaries,
+# which is why this is not a corpus golden.
 if [[ -z "$filter" ]]; then
   printf '(import NoSuchModule)\n(:: main Int)\n(fn (main) 7)\n' >"$work/in.ax"
   (cd "$work" && ./stage1 >/dev/null 2>neg.err)
   neg_status=$?
-  if [[ "$neg_status" == 3 ]] && grep -q "NoSuchModule" "$work/neg.err"; then
-    echo "ok   negative: unresolvable import is refused, naming the module"
+  if [[ "$neg_status" == 1 ]] && grep -q "AX5001" "$work/neg.err" \
+     && grep -q "NoSuchModule" "$work/neg.err" \
+     && grep -q "looked for" "$work/neg.err"; then
+    echo "ok   negative: unresolvable import is AX5001, naming the module and the search"
     passed=$((passed + 1))
   else
-    echo "FAIL negative: unresolvable import (exit $neg_status, want 3 and the module named)"
+    echo "FAIL negative: unresolvable import (exit $neg_status, want 1 with AX5001 + module + search paths)"
     sed 's/^/    /' "$work/neg.err" | head -3
     failed=$((failed + 1))
   fi

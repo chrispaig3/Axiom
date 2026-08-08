@@ -104,8 +104,8 @@ printf '(import NoSuchModule)\n(:: main Int)\n(fn (main) 1)\n' >badimport.ax
 "$s1" build --input unparsable.ax --output nope2 >/dev/null 2>&1; [[ $? == 2 ]] \
   && ok "a parse error exits 2" || bad "parse error exit code"
 
-"$s1" build --input badimport.ax --output nope3 >/dev/null 2>&1; [[ $? == 3 ]] \
-  && ok "an unresolvable import exits 3" || bad "import exit code"
+"$s1" build --input badimport.ax --output nope3 >/dev/null 2>&1; [[ $? == 1 ]] \
+  && ok "an unresolvable import exits 1 (AX5001, stage0's code)" || bad "import exit code"
 
 "$s1" build --input no-such-file.ax --output nope4 >err.txt 2>&1; rc=$?
 [[ $rc == 1 ]] && grep -q 'no-such-file.ax' err.txt \

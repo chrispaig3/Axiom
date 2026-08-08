@@ -220,7 +220,14 @@
                    (sevSigil (memGetWord d 0)) " ")
                    (memGetWord d 1)) " ")
                    file) ":")
-                   (fmtSpan src (memGetWord d 3))) " ")
+                   ; A diagnostic with no span renders `file:-`,
+                   ; stage0's spelling for None - and a span of 0 fed
+                   ; to fmtSpan would be read as address zero. AX5001
+                   ; is the first spanless producer; every earlier
+                   ; diagnostic had a position by construction.
+                   (if (== (memGetWord d 3) 0)
+                       "-"
+                       (fmtSpan src (memGetWord d 3)))) " ")
                    (memGetWord d 2)) " ")
                  (quoteStr (memGetWord d 4))))
         (rel (if (== (memGetWord d 5) 0)
