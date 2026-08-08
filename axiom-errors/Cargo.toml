@@ -1,8 +1,0 @@
-[package]
-name = "axiom-errors"
-version.workspace = true
-edition.workspace = true
-
-[dependencies]
-axiom-ast.workspace = true
-ariadne.workspace = true

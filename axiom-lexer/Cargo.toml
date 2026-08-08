@@ -1,9 +1,0 @@
-[package]
-name = "axiom-lexer"
-version.workspace = true
-edition.workspace = true
-
-[dependencies]
-axiom-ast.workspace = true
-axiom-errors.workspace = true
-thiserror.workspace = true
