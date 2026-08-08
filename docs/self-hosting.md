@@ -240,11 +240,16 @@ still proportional to total allocations, not live data. Acceptable for
 a single-shot compiler process, and worth revisiting before anything
 long-running is written in Axiom.
 
-*The collector, and why it is shaped the way it is.* `--gc` replaces the
-bump allocator with a conservative, non-moving mark-sweep collector, so
-peak memory tracks live data instead of total allocation. Measured on
-`tests/stdlib/170-gc.ax`, which churns garbage while holding a list
-alive:
+*The collector, and why it was shaped the way it was.* **This section
+describes the RETIRED Rust compiler. `--gc` no longer exists** — the
+collector was not ported and the flag is refused by name; see §8.4. The
+numbers and the design are kept because they are the measured case for
+building one again, not because the current compiler behaves this way.
+
+`--gc` replaced the bump allocator with a conservative, non-moving
+mark-sweep collector, so peak memory tracked live data instead of total
+allocation. Measured on `tests/stdlib/170-gc.ax`, which churns garbage
+while holding a list alive:
 
 | churned | bump allocator | `--gc` |
 |---|---:|---:|
@@ -4013,6 +4018,22 @@ Recorded as this compiler's behaviour rather than fixed to match:
 - **Parse-error codes differ on some malformed input** (AX2001 vs AX2002
   vs AX2003). Spans and exit statuses agree; only the code differs, on
   input that is refused either way.
+- **`--gc` is gone, and is now refused by name.** The Rust compiler had
+  it as a global boolean that swapped the bump allocator for a
+  conservative mark-sweep collector — 1,098 lines in
+  `axiom-codegen/src/gc.rs`, deleted with the rest of the crate in
+  `430a138`. Nothing in `self_host/` replaced it, and the flag was
+  neither implemented nor rejected, so `axiom --gc build …` produced a
+  bump-allocator binary and said nothing. That was worse than an
+  unimplemented flag: `scripts/bench-datastructures.sh --gc` was
+  reporting collector numbers for an allocator binary, and README.md's
+  opening paragraph and `docs/reference.md` both promised a memory model
+  the compiler did not have. A silent downgrade of a memory-management
+  request is precisely the failure its user cannot detect, so the flag
+  is now a hard, named refusal (exit 2) and the three documents no
+  longer claim it. **This is a capability loss, not a CLI decision**: if
+  peak memory tracking live data matters again, the collector has to be
+  written in Axiom, and that is a project, not a slice.
 
 One divergence found during this work is recorded as a **defect, not a
 decision**, because after the deletion there is no second implementation

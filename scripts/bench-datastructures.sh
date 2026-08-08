@@ -40,15 +40,15 @@
 #     one.
 #
 #   - Axiom allocates from a bump allocator and never frees, so it does
-#     no deallocation work at all, while Rust's `Drop` runs. `--gc`
-#     measures the collected variant, which is the honest comparison for
-#     anything long-running.
+#     no deallocation work at all, while Rust's `Drop` runs. There is no
+#     longer a collected variant to measure against: the Rust
+#     compiler's `--gc` was not ported (docs/self-hosting.md 8.4), so
+#     this comparison is bump-allocator-versus-Drop and says so.
 #
 # Usage:
 #   scripts/bench-datastructures.sh              # table only
 #   scripts/bench-datastructures.sh --check      # enforce the 2x bound
 #   scripts/bench-datastructures.sh --fx         # fast hasher on the Rust side
-#   scripts/bench-datastructures.sh --gc         # Axiom under --gc
 #   scripts/bench-datastructures.sh --opt=0      # axiom unoptimised
 #   N=100000 scripts/bench-datastructures.sh     # a different scale
 
@@ -74,7 +74,6 @@ N="${N:-1000000}"
 REPS="${REPS:-7}"
 check=0
 fx=0
-use_gc=0
 # Axiom's optimisation level. The Rust side is always `rustc -O`, so
 # comparing against Axiom's default `-O0` measures the absence of an
 # optimiser as much as the data structure. `--opt 2` is what the
@@ -85,7 +84,13 @@ for arg in "$@"; do
   case "$arg" in
     --check) check=1 ;;
     --fx)    fx=1 ;;
-    --gc)    use_gc=1 ;;
+    # `--gc` used to set a flag that was passed to the compiler,
+    # silently ignored by it, and then printed in the results banner -
+    # so the table said "axiom under --gc" while measuring the bump
+    # allocator. Refused rather than quietly dropped: a benchmark that
+    # answers a question it did not measure is worse than one that
+    # declines to.
+    --gc)    echo "error: --gc was not ported to the self-hosted compiler; there is no collected variant to measure (docs/self-hosting.md 8.4)" >&2; exit 2 ;;
     --opt=*) opt="${arg#--opt=}" ;;
     *) echo "unknown option: $arg" >&2; exit 2 ;;
   esac
@@ -267,11 +272,7 @@ for b in empty vec map intern; do
     echo "error: could not build the Rust $b benchmark" >&2
     tail -20 "$work/rustc.log" >&2; exit 1
   }
-  if [[ $use_gc -eq 1 ]]; then
-    build=("$axiom" --gc build)
-  else
-    build=("$axiom" build)
-  fi
+  build=("$axiom" build)
   "${build[@]}" --opt "$opt" --input "$work/b_$b.ax" --output "$work/ax_$b" \
     >"$work/build.log" 2>&1 || {
     echo "error: could not build the Axiom $b benchmark" >&2
@@ -326,7 +327,6 @@ done
 printf '\nn=%s, axiom --opt %s vs rustc -O, best of %s runs, startup subtracted ' "$N" "$opt" "$REPS"
 printf '(axiom %ss, rust %ss)' "$ax_startup" "$rs_startup"
 [[ $fx -eq 1 ]] && printf ', rust using a fast non-cryptographic hasher'
-[[ $use_gc -eq 1 ]] && printf ', axiom under --gc'
 printf '\n'
 
 exit $status
