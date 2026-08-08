@@ -1,0 +1,10 @@
+error[AX2001]: expected the name of a `mut` binding, or a field path, found `)`
+ --> 950-set-target.ax:2:16
+  |
+2 | (fn (main) (set))
+  |                ^
+  |
+  = help: Axiom expected the name of a `mut` binding, or a field path at this position
+  = help: run `axiom explain AX2001` for a full explanation
+
+compilation failed due to 1 previous error

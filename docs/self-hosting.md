@@ -3386,13 +3386,16 @@ still refuse.
 repository is `self_host/format.ax` at 37, against a limit of 1024 —
 28× headroom, measured over all 211 files.
 
-What stage1 still does not do is *say* `AX2005`. Its parser carries no
-diagnostic payload, so this is a bare refusal reported as
-`parse failed` with exit 2, against stage0's exit 1 for the same input.
-Both refuse, which is the parity standard this project uses where exit
-codes legitimately differ (the bare-top-level-expression case in
-`check-diagnostics.sh` records the same pair); the code, the span and
-the help arrive with the parse-error port.
+What stage1 still does not do is *say* `AX2005`. The parse-error port
+since gave the parser a diagnostic channel and a real exit status, so
+this is no longer a bare `parse failed` with exit 2 — it is a spanned
+`AX2003` syntax error with exit 1, the same status stage0 gives.
+Measured on a 2,000-deep file: stage0 says
+`AX2005 deep.ax:2:1036-1037 recursion-limit`, stage1 says
+`AX2003 deep.ax:1:1-2 syntax-error`. Both refuse with the same status
+now; what is left is the code and a span at the offending depth rather
+than at the first token, since the guard reports position 0. That is a
+small follow-on now that the channel exists.
 
 The gate is a refusal-parity case in `scripts/check-diagnostics.sh` at
 the depth that used to **crash** rather than the depth that used to be
@@ -3538,3 +3541,79 @@ memory-model work touched the lexer. And `check-fmt.sh` is the gate
 that caught it, because a formatted copy of the repository is the
 largest input this project compiles; it earns its runtime for reasons
 that have nothing to do with formatting.
+
+### The parse-error port: the payload was mostly already there
+
+Every parse failure in the self-hosted compiler reported the same
+thing: `parse failed` on stderr, exit 2, against stage0's coded and
+spanned diagnostic and exit 1. It was the largest item left on the
+backlog and the blocker for two other things — the language server
+published one spanless `AX2003` at the top of the file for a typo
+anywhere in it, and `AX2005` could refuse a too-deep file but not say
+so.
+
+The estimate said "62 `pErr` sites need a diagnostic payload threaded
+through them". Measuring first changed the shape of the work
+completely, in three ways.
+
+**The position was already threaded.** `PResult` is `(ok, value, pos)`,
+and `pos` is the token index where the parse gave up — so on a corpus
+of twelve broken programs, stage1's span already agreed with stage0's
+on *every single one*, before any of this. What was missing was the
+code and the message, not the location.
+
+**stage0 has 16 error sites, not 62,** and about twelve distinct
+expectation strings between them. And its AX2001 is derived
+mechanically from exactly one of them:
+
+    E AX2001 f.ax:3:4-5 unexpected-token "expected identifier, found `)`"
+                                         ?"Axiom expected identifier at this position"
+
+Message and help both come from the noun. So a site does not need a
+payload threaded through it — it needs to name what it wanted, in one
+string, and everything else follows from `pos`. `PResult` grew one
+field, `pErrExp` joined `pErr`, and thirteen sites were taught their
+noun.
+
+**The code is derivable, but not the way it looks.** The obvious rule —
+"at end of file, report AX2002" — is wrong, and the LSP's own
+unparseable fixture is what proved it: stage0 answers *AX2001,
+"expected expression, found `EOF`"* there. Reading stage0 rather than
+guessing gave the real rule: AX2002 comes from exactly one routine, the
+one demanding a *specific token kind*, and every site that wanted a
+*category* reports AX2001 even at EOF. That maps onto the same one
+field — a site that named its expectation gets AX2001 wherever it
+failed, and a site that did not is the specific-token case. One place
+still needed stage0's grammar reproduced rather than its output copied:
+an expression list at EOF wants an expression when it has parsed none
+and a closing paren when it has parsed one, which is why
+`(fn (main)` and `(fn (main) (+ 1 2)` get different codes.
+
+Eleven of the twelve corpus cases are now byte-identical through both
+compilers, including the two removed constructs, whose migration advice
+is the entire reason `union` and `region` are still reserved words.
+`scripts/check-diagnostics.sh` carries eight of them as `.axbad` cases
+— the extension the LSP gate invented, because `check-fmt.sh` and
+`check-tree-sitter.sh` sweep every `*.ax` and require it to parse, and
+they are right to. Ablated to the previous parser, all eight fail.
+
+One thing the new cases dislodged, which is the usual reward for
+pointing a gate at a shape nothing had produced before. An
+end-of-file diagnostic names a line PAST the last one - an unclosed
+`(` runs out at the position after the final newline - and stage1's
+human renderer treated any span at or beyond the end of the source as
+spanless, so the commonest syntax error there is printed no snippet at
+all. stage0 does have a line to show and shows it: its AXDL says `2:1`
+for a one-line file while its report puts the caret at `1:11`, the end
+of the last line. stage1's renderer clamps the same way now, and the
+gate derives the clamped position from the fixture's own bytes rather
+than trusting the golden - so the two halves still cannot satisfy each
+other. No existing golden moved.
+
+The twelfth corpus case is not a parse-error bug and is recorded rather
+than papered over: `(:: f (-> ))` is *accepted* by stage1, because
+`parseSigDecl` deliberately treats a type it cannot parse as an absent
+type — "under-reported, never mis-typed". That is a tolerance with a
+documented reason, and this project's own experience is that a
+tolerance dies loudly when it dies; killing it needs evidence that
+stage1's type grammar covers stage0's, which is its own slice.

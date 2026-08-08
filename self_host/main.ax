@@ -84,9 +84,23 @@
         (dfmt diagFormatArg))
     (if (== (strLen src) 0)
         (die (cat3 "cannot read input: " fileName "\n") 1)
-        (let ((pr (parseModuleWith (lex src) (scanAxtags src))))
+        (let ((toks (lex src)))
+        (let ((pr (parseModuleWith toks (scanAxtags src))))
           (if (== (memGetWord pr 0) 0)
-              (die "parse failed\n" 2)
+              ; A parse failure is a DIAGNOSTIC, through the same
+              ; renderer and the same exit status as every other one.
+              ; It used to be a bare `parse failed` on stderr with exit
+              ; 2, against stage0's coded, spanned report and exit 1.
+              (let ((ds (let ((v vecNew))
+                          { (vecPush v (parseErrDiag toks pr src)) v }))
+                    (units (let ((v vecNew))
+                             { (vecPush v (cast Int (CUnit2 fileName src 0))) v })))
+                {
+                  (writeStderr (renderDiagsFormat dfmt ds units))
+                  (writeStderr (renderFailTrailer 1))
+                  (sysExitWith 1)
+                  ""
+                })
               ; The target is the second argument, by the same names
               ; stage0's --target takes; this compiler's OWN host when
               ; absent.
@@ -132,7 +146,7 @@
                             (if (== doEmit 0)
                                 ""
                                 (emitResolved allDecls bares fulls tcode)))
-                      }))))))))))
+                      })))))))))))
 
 ; The entry point: a subcommand if the first argument names one, and
 ; otherwise the original `stage1 FILE [TARGET]` spelling.

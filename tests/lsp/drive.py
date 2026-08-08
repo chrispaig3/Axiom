@@ -24,12 +24,13 @@ two independent things:
      half is derived from an artifact stage0 produces, so it cannot be
      satisfied by blessing.
 
-     Fixtures that do NOT parse are exempt from the code comparison and
-     assert only that both sides report a failure: stage1's parser
-     carries no diagnostic payload yet (the parse-error port), so it
-     answers a single AX2003 at the top of the file where stage0 names
-     a specific AX2001/AX2002 and a position. Recording that as a known
-     divergence is honest; asserting equality would be asserting a lie.
+     Fixtures that do not PARSE are held to the same standard as the
+     rest, and were not always: stage1's parser carried no diagnostic
+     payload, so it answered one spanless AX2003 at the top of the file
+     where stage0 named a code and a position, and this gate could only
+     assert that both sides disliked the file. The parse-error port
+     closed that, so the exemption is gone and an unparseable fixture
+     now has to agree on code, line and UTF-16 column like any other.
 
 Usage: drive.py STAGE1 STAGE0 FIXTURE_DIR [--bless] [filter]
 """
@@ -255,15 +256,9 @@ for fx in fixtures:
 
     want_pairs, parsed, rc0 = stage0_diags(path)
 
-    if not parsed:
-        # Known divergence, recorded above: both sides must merely agree
-        # that the file is bad.
-        if not got:
-            print(f"FAIL {name}: stage0 rejects this file and the server reported nothing")
-            failed += 1
-            continue
-        print(f"ok   {name} (unparseable; both sides report, codes not compared)")
-        passed += 1
+    if not parsed and not got:
+        print(f"FAIL {name}: stage0 rejects this file and the server reported nothing")
+        failed += 1
         continue
 
     if got != want_pairs:

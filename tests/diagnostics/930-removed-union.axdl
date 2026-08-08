@@ -1,0 +1,1 @@
+E AX2004 930-removed-union.ax:1:2-7 removed-construct "`union` is no longer part of Axiom" ?"use `data` for a tagged sum whose variants the compiler can check for exhaustiveness, or `struct` for a product of fields"

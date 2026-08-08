@@ -224,14 +224,15 @@
 
 (pub :: lspCheckDoc (-> Int Int Int))
 (pub fn (lspCheckDoc path src)
-  (let ((pr (parseModuleWith (lex src) (scanAxtags src))))
+  (let ((toks (lex src)))
+  (let ((pr (parseModuleWith toks (scanAxtags src))))
     (if (== (memGetWord pr 0) 0)
-        ; stage1's parser reports failure as a bare flag: it carries no
-        ; span and no code yet, which is the parse-error port's whole
-        ; subject. Until it does, one diagnostic at the top of the file
-        ; is the honest rendering - inventing a position would put a
-        ; squiggle somewhere the error is not.
-        (lspOneDiag src "AX2003" "syntax error: this file does not parse")
+        ; A parse failure now carries a code and a span, so the editor
+        ; gets a squiggle ON the offending token instead of one
+        ; spanless note at the top of the file. That was this port's
+        ; first consumer: before it, every typo anywhere in a file
+        ; reported identically, at line 1.
+        (jsonArrPush jsonArr (lspDiagJson (parseErrDiag toks pr src) src))
         (let ((decls (memGetWord pr 1))
               (tcode (checkedTargetCode hostTarget))
               (entryDir (dirOfPath path)))
@@ -256,7 +257,7 @@
                                 (set i (+ i 1))
                               }))
                           out
-                        }))))))))))
+                        })))))))))))
 
 ; ------------------------------------------------------------------
 ; Document symbols

@@ -79,7 +79,14 @@ for axdl in tests/diagnostics/*.axdl; do
   cases=$((cases + 1))
   golden="tests/diagnostics/$name.human"
 
-  cp "tests/diagnostics/$name.ax" "$work/$name.ax"
+  # A case that deliberately does not parse is spelled `.axbad` (see
+  # check-diagnostics.sh); either way it lands in the work directory as
+  # `.ax` so the report names the file the way every other case does.
+  if [[ -f "tests/diagnostics/$name.ax" ]]; then
+    cp "tests/diagnostics/$name.ax" "$work/$name.ax"
+  else
+    cp "tests/diagnostics/$name.axbad" "$work/$name.ax"
+  fi
 
   (cd "$work" && ./stage1 check "$name.ax" 2>"$work/h.err" >"$work/h.out")
   s1=$?
@@ -168,6 +175,20 @@ for axdl in tests/diagnostics/*.axdl; do
       C="${rest%%-*}"
       if [[ "$rest" == *-* ]]; then C2="${rest#*-}"; else C2=$((C + 1)); fi
       run=$((C2 - C)); [[ "$run" -lt 1 ]] && run=1
+      # An end-of-file diagnostic names a line PAST the last one - an
+      # unclosed `(` runs out at the position after the final newline.
+      # There is still a line to point at, and both renderers point at
+      # the same one: the last, with the caret one past its final
+      # character. Derived here from the fixture's own bytes, so it
+      # stays a fact about the file rather than a fact about the
+      # golden. stage0's report agrees (its AXDL says 2:1 for a
+      # one-line file and its caret sits at 1:11).
+      nlines="$(wc -l < "$work/$name.ax" | tr -d ' ')"
+      if [[ "$L" -gt "$nlines" ]]; then
+        L="$nlines"
+        C=$(( $(awk -v n="$nlines" 'NR==n {print length($0)}' "$work/$name.ax") + 1 ))
+        run=1
+      fi
       if ! grep -qE "^ *${L} \| " "$golden"; then
         echo "FAIL $name (source line $L not in the snippet gutter)"
         ok=0

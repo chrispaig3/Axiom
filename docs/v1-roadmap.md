@@ -970,12 +970,16 @@ What the server still does not do is the part that genuinely needs
 new machinery: hover, completion and go-to-definition all want a
 type at a position, and `typecheck.ax` retains no node-to-type
 table. That is the next LSP slice and it is a real one. Two smaller
-gaps are recorded rather than hidden: diagnostics for imported
+gap is recorded rather than hidden: diagnostics for imported
 modules are filtered out instead of being published under their own
-URIs, and a file that does not parse gets one spanless `AX2003`
-because stage1's parser carries no diagnostic payload yet — the
-parse-error port is what fixes that, and the LSP is now a second
-consumer arguing for it.
+URIs.
+
+~~a file that does not parse gets one spanless `AX2003`~~ **fixed.**
+A parse failure now carries a code and a span, so an editor puts a
+squiggle on the offending token instead of one note at line 1 — and
+the gate got *stronger* rather than being re-blessed: unparseable
+fixtures used to be exempt from the stage0-derived comparison
+because stage1 could not agree, and the exemption is gone.
 
 One structural finding, in
 [self-hosting.md](self-hosting.md#the-language-server-the-first-surface-with-no-stage0-to-copy):

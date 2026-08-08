@@ -101,8 +101,16 @@ printf '(import NoSuchModule)\n(:: main Int)\n(fn (main) 1)\n' >badimport.ax
   && ok "a program that fails to check exits 1 and produces no binary" \
   || bad "failing check"
 
-"$s1" build --input unparsable.ax --output nope2 >/dev/null 2>&1; [[ $? == 2 ]] \
-  && ok "a parse error exits 2" || bad "parse error exit code"
+# A parse error exits 1, not 2, and no binary is left behind. It exited
+# 2 until the parse-error port, which is the number stage0 never used:
+# stage0 reports a syntax error as an ordinary diagnostic and exits 1,
+# so the two compilers disagreed on the status of every unparseable
+# file. Asserting the absent binary as well, because the status alone
+# would also be satisfied by a build that failed for another reason.
+"$s1" build --input unparsable.ax --output nope2 >/dev/null 2>&1
+[[ $? == 1 ]] && [[ ! -f nope2 ]] \
+  && ok "a parse error exits 1, like stage0, and produces no binary" \
+  || bad "parse error exit code"
 
 "$s1" build --input badimport.ax --output nope3 >/dev/null 2>&1; [[ $? == 1 ]] \
   && ok "an unresolvable import exits 1 (AX5001, stage0's code)" || bad "import exit code"

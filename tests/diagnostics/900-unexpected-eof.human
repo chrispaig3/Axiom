@@ -1,0 +1,10 @@
+error[AX2002]: unexpected end of file
+ --> 900-unexpected-eof.ax:3:10
+  |
+3 |   (+ 1 2)
+  |          ^
+  |
+  = help: count `(`/`[`/`{` against `)`/`]`/`}` working backward from the end of the file
+  = help: run `axiom explain AX2002` for a full explanation
+
+compilation failed due to 1 previous error

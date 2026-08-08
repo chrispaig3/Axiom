@@ -173,6 +173,22 @@
                 "\n"
                 (strConcat (strConcat " " m) "\n"))))))))
 
+; The last position in `src` that a caret can sit on: one past the
+; final character of the last non-empty line. A span at or beyond the
+; end of the source is moved here, and every other span is left alone.
+(pub :: clampToSource (-> Int Int Int))
+(pub fn (clampToSource src span)
+  (if (== span 0)
+      0
+      (let ((n (strLen src)))
+        (if (< (spanStart span) n)
+            span
+            ; Step back over a trailing newline so the caret lands at
+            ; the end of the last line of text rather than on a line
+            ; that has no characters in it.
+            (let ((p (if (&& (> n 0) (== (strByte src (- n 1)) 10)) (- n 1) n)))
+              (mkSpan p p))))))
+
 ; `   = help: ...` - one per help the diagnostic carries, in the order
 ; stage0 stores them, with the standing `axiom explain` pointer last.
 (pub :: helpLine (-> Int Int Int))
@@ -193,7 +209,17 @@
     (let ((head (strConcat (strConcat (strConcat (strConcat
                    (sevWord sev) "[") code) "]: ")
                  (strConcat msg "\n")))
-          (spanless (|| (== span 0) (>= (spanStart span) (strLen src)))))
+          ; A span that starts AT the end of the source is the
+          ; end-of-file diagnostic - an unclosed `(` is the commonest
+          ; syntax error there is - and it used to render spanless,
+          ; with no snippet at all. There is a line to show: the last
+          ; one, with the caret one past its final character, which is
+          ; where stage0's own human renderer puts it (probed: AXDL
+          ; says 2:1 for a one-line file, the report says 1:11). Only
+          ; the DISPLAY position is clamped; the machine-readable
+          ; location still reports where the file actually ran out.
+          (span (clampToSource src span))
+          (spanless (== span 0)))
       (let ((gw (if spanless
                     1
                     (let ((pw (strLen (decStr (lineOf src (spanStart span))))))

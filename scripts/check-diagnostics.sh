@@ -103,8 +103,18 @@ axdl_only() { grep -E '^[EWNH] ' || true; }
 passed=0
 failed=0
 
-for case_file in tests/diagnostics/*.ax; do
-  name="$(basename "$case_file" .ax)"
+# `.axbad` is a case that deliberately does NOT parse - the AX1xxx and
+# AX2xxx codes cannot be provoked by a file that does. It cannot be
+# spelled `.ax`: check-fmt.sh and check-tree-sitter.sh sweep every
+# `*.ax` in the repository and require all of them to parse, and they
+# are right to. The extension is the LSP gate's, for the same reason.
+# Both kinds are copied into the work directory AS `.ax`, so the
+# diagnostic names the file the way every other case does.
+for case_file in tests/diagnostics/*.ax tests/diagnostics/*.axbad; do
+  [[ -e "$case_file" ]] || continue
+  base="$(basename "$case_file")"
+  name="${base%.ax}"
+  name="${name%.axbad}"
   if [[ -n "$filter" && "$name" != "$filter"* ]]; then
     continue
   fi

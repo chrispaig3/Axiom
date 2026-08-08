@@ -9,6 +9,7 @@
 (import Utf8)
 (import Vec)
 (import lexer)
+(import diag)
 
 ; ------------------------------------------------------------------
 ; AST node: tagged union. tag + a,b,c fields. Unused = 0.
@@ -248,10 +249,109 @@
 ; ------------------------------------------------------------------
 ; Parse result.
 ; ------------------------------------------------------------------
-(pub struct PResult (ok : Int) (value : Int) (pos : Int))
+; `exp` is what the parser WANTED at `pos`, as the noun stage0 puts in
+; its message - "identifier", "expression", "pattern". It is the whole
+; diagnostic payload, because stage0's AX2001 is mechanically derived
+; from that one string:
+;
+;   E AX2001 f.ax:3:4-5 unexpected-token "expected identifier, found `)`"
+;                                        ?"Axiom expected identifier at this position"
+;
+; and the code and span are derivable from `pos` alone - past the last
+; token is AX2002, otherwise the found token's own span. So a site
+; teaches the diagnostic everything it needs by naming its expectation,
+; and a site that has not been taught yet answers `""`, which reports
+; AX2003 rather than inventing an expectation it does not have.
+(pub struct PResult (ok : Int) (value : Int) (pos : Int) (exp : Int)
+                    (code : Int))
 
-(pub :: pOk (-> Int Int Int))     (pub fn (pOk v p) (PResult 1 v p))
-(pub :: pErr (-> Int Int))        (pub fn (pErr p)   (PResult 0 0 p))
+(pub :: pOk (-> Int Int Int))     (pub fn (pOk v p) (PResult 1 v p "" ""))
+(pub :: pErr (-> Int Int))        (pub fn (pErr p)   (PResult 0 0 p "" ""))
+(pub :: pErrExp (-> Int Int Int)) (pub fn (pErrExp p e) (PResult 0 0 p e ""))
+(pub :: pResExp (-> Int Int))     (pub fn (pResExp r) (memGetWord r 3))
+(pub :: pResCode (-> Int Int))    (pub fn (pResCode r) (memGetWord r 4))
+
+; A keyword that USED to be Axiom. The point of keeping `union` and
+; `region` reserved is that old source gets an explanation instead of
+; being silently reinterpreted as an ordinary identifier, so the
+; explanation is the diagnostic and `exp` carries the keyword.
+(pub :: pErrRemoved (-> Int Int Int))
+(pub fn (pErrRemoved p kw) (PResult 0 0 p kw "AX2004"))
+
+; The diagnostic for a failed parse, from the failure's token position.
+;
+; Before this, a parse failure was a bare `parse failed` on stderr and
+; exit 2, against stage0's coded, spanned diagnostic and exit 1 - so
+; every tool built on this frontend inherited it, and the language
+; server published one spanless error at the top of the file for a
+; typo anywhere in it.
+;
+; Three codes, chosen the way stage0 chooses them:
+;
+;   AX2002  the position is past the last token - the file ended while
+;           a form was still open. Zero-width span at end of source,
+;           which is what stage0's caret sits on.
+;   AX2001  a token is there and the site said what it wanted. The
+;           message and the help both come from that one noun.
+;   AX2003  a token is there and the site has not been taught its
+;           expectation yet. Reported as a plain syntax error rather
+;           than as an AX2001 with an empty noun in it: an honest
+;           weaker code beats a well-formed lie, and it shrinks as
+;           sites are taught.
+(pub :: parseErrDiag (-> Int Int Int Int))
+(pub fn (parseErrDiag tokens r src)
+  (let ((pos (memGetWord r 2))
+        (exp (pResExp r)))
+    ; AX2002 is NOT "the position is at EOF" - stage0 emits it from
+    ; exactly one routine, the one that demands a SPECIFIC token kind
+    ; (`expect(RParen)` and friends), and reports AX2001 with a found
+    ; text of `EOF` from every site that wanted a CATEGORY. So the
+    ; distinction is already carried here: a site that named its
+    ; expectation gets AX2001 wherever it failed, and a site that did
+    ; not is the specific-token case, which at EOF is AX2002.
+    (if (&& (== (strLen exp) 0)
+            (|| (>= pos (vecLen tokens))
+                (== (kindInt (tokenKind (vecGet tokens pos))) (kindInt TK_EOF))))
+        (mkDiag SEV_ERROR "AX2002" "unexpected-eof"
+                (mkSpan (strLen src) (strLen src))
+                "unexpected end of file" 0 ""
+                (strConcat "count `(`/`[`/`{` against `)`/`]`/`}` "
+                           "working backward from the end of the file"))
+        (let ((tok (vecGet tokens pos)))
+          (if (strEq (pResCode r) "AX2004")
+              (mkDiag SEV_ERROR "AX2004" "removed-construct"
+                      (tokenSpan tok)
+                      (strConcat (strConcat "`" exp) "` is no longer part of Axiom")
+                      0 "" (removedHelp exp))
+          (if (== (strLen exp) 0)
+              (mkDiag SEV_ERROR "AX2003" "syntax-error"
+                      (tokenSpan tok) "syntax error" 0 "" 0)
+              (mkDiag SEV_ERROR "AX2001" "unexpected-token"
+                      (tokenSpan tok)
+                      (strConcat (strConcat "expected " exp)
+                                 (strConcat ", found `"
+                                            (strConcat (foundText tok) "`")))
+                      0 ""
+                      (strConcat (strConcat "Axiom expected " exp)
+                                 " at this position"))))))))
+
+; The EOF token has no lexeme; stage0 spells it `EOF` in the message.
+(pub :: foundText (-> Int Int))
+(pub fn (foundText tok)
+  (if (== (kindInt (tokenKind tok)) (kindInt TK_EOF))
+      "EOF"
+      (tokenLexeme tok)))
+
+; stage0's advice for each removed keyword, verbatim: this is the one
+; place the two compilers' text has to agree exactly, since the whole
+; construct exists to be read by a person porting old source.
+(pub :: removedHelp (-> Int Int))
+(pub fn (removedHelp kw)
+  (if (strEq kw "union")
+      (strConcat "use `data` for a tagged sum whose variants the compiler can check "
+                 "for exhaustiveness, or `struct` for a product of fields")
+      (strConcat "delete the `region` wrapper and keep its body; values are dropped "
+                 "deterministically at the end of the arena they belong to")))
 
 ; ------------------------------------------------------------------
 ; Token helpers.
@@ -408,7 +508,7 @@
                 (parseQualifiedTail tokens afterChain chain (tokenSpan t))
                 (parseFieldChain tokens (advance pos)
                                  (mkEVarAt (tokenLexeme t) (tokenSpan t)))))))
-  (pErr pos)))
+  (pErrExp pos "expression")))
 
 ; Consume `.ident` runs, recording the segments, and answer the
 ; position after them. Used only to LOOK AHEAD for a `::`; when there
@@ -480,7 +580,7 @@
   (if (peekIs tokens pos TK_IDENT)
       (let ((t (vecGet tokens pos)))
         (pOk (tokenLexeme t) (advance pos)))
-  (pErr pos)))
+  (pErrExp pos "identifier")))
 
 ; ------------------------------------------------------------------
 ; Parse a list of identifiers until ), returning a Vec of Str handles.
@@ -493,7 +593,7 @@
       (let ((t (vecGet tokens pos)))
         (parseIdentList tokens (advance pos)
           (vecPush acc (tokenLexeme t))))
-  (pErr pos))))
+  (pErrExp pos "identifier"))))
 
 ; ------------------------------------------------------------------
 ; Parse an expression list until ), returning a Vec of Expr handles.
@@ -503,7 +603,17 @@
   (if (peekIs tokens pos TK_RPAREN)
       (pOk acc (advance pos))
   (if (peekIs tokens pos TK_EOF)
-      (pErr pos)
+      ; At EOF the two compilers want different things, and stage0 is
+      ; right about which: with nothing parsed yet the list is still
+      ; waiting for its first EXPRESSION (AX2001, found `EOF`), but
+      ; once one has been parsed the only thing that can legally come
+      ; next is the closing paren - a specific token, which is the one
+      ; routine stage0 reports AX2002 from. Probed both ways:
+      ; `(fn (main)` gives "expected expression, found `EOF`" and
+      ; `(fn (main) (+ 1 2)` gives "unexpected end of file".
+      (if (== (vecLen acc) 0)
+          (pErrExp pos "expression")
+          (pErr pos))
       (let ((r (parseExpr tokens pos)))
         (if (== (memGetWord r 0) 0)
             r
@@ -545,7 +655,7 @@
       (pOk 0 pos)
   (if (peekIs tokens pos TK_LPAREN)
       (parseTopForm tokens (advance pos))
-  (pErr pos))))
+  (pErrExp pos "("))))
 
 (pub :: parseTopForm (-> Int Int Int))
 (pub fn (parseTopForm tokens pos)
@@ -554,6 +664,13 @@
   (if (peekIs tokens pos TK_IDENT)
       (let ((kw (vecGet tokens pos)))
         (let ((name (tokenLexeme kw)))
+          (if (|| (kwEq name "union") (kwEq name "region"))
+              ; Reserved, not unknown. Falling through to the
+              ; unknown-declaration refusal below would report a
+              ; generic syntax error and lose the migration advice
+              ; that is the entire reason these two keywords are still
+              ; reserved.
+              (pErrRemoved pos name)
           (if (kwEq name (kwPub))
               (let ((r (parseTopForm tokens (advance pos))))
                 (if (== (memGetWord r 0) 0)
@@ -597,7 +714,7 @@
   ; wearing exit 0 (probed 2026-08-07). Malformed spellings of KNOWN
   ; keywords still degrade inside their own parsers, which is a
   ; different tolerance with a different blast radius.
-  (pErr pos))))))))))))))
+  (pErr pos)))))))))))))))
   (pErr pos))))
 
 ; A form this parser does not know - `foreign`, `type`, `trait` - is
@@ -936,7 +1053,7 @@
               (pOk (mkTCon s vecNew) (advance pos))))))))
   (if (peekIs tokens pos TK_LPAREN)
       (parseTypeParens tokens (advance pos))
-  (pErr pos)))))
+  (pErrExp pos "type")))))
 
 (pub :: parseType (-> Int Int Int))
 (pub fn (parseType tokens pos)
@@ -950,7 +1067,7 @@
   (if (peekIs tokens pos TK_RPAREN)
       (pOk acc (advance pos))
   (if (peekIs tokens pos TK_EOF)
-      (pErr pos)
+      (pErrExp pos "type")
       (let ((r (parseTypeAtom tokens pos)))
         (if (== (memGetWord r 0) 0) r
             (parseTypeAtoms tokens (memGetWord r 2)
@@ -964,7 +1081,7 @@
         (if (== (memGetWord r 0) 0) r
             (let ((tys (memGetWord r 1)))
               (if (< (vecLen tys) 2)
-                  (pErr pos)
+                  (pErrExp pos "type")
                   (pOk (foldArrows tys (- (vecLen tys) 2)
                                    (vecGet tys (- (vecLen tys) 1)))
                        (memGetWord r 2))))))
@@ -1229,8 +1346,8 @@
                 r
                 (parseConstructors tokens (memGetWord r 2) dataName nameSpan
                                    acc tvs)))
-          (pErr pos))
-  (pErr pos)))))
+          (pErrExp pos "identifier"))
+  (pErrExp pos "identifier")))))
 
 (pub :: parseOneCtor (-> Int Int Int))
 (pub fn (parseOneCtor tokens pos)
@@ -1366,7 +1483,7 @@
             (let ((field (memGetWord r 1))
                   (nextPos (memGetWord r 2)))
               (parseFields tokens nextPos structName nameSpan (vecPush acc field)))))
-  (pErr pos))))
+  (pErrExp pos "identifier"))))
 
 ; `(mut name : Type)` - the marker sits INSIDE the parens, before the
 ; name. Reading it as the field's name gave the zoo's `Rec` a field
@@ -1493,7 +1610,7 @@
                                       (tokenSpan (vecGet tokens pos)))
                              (advance afterBody))
                         (pErr afterBody)))))))
-  (pErr pos))))
+  (pErrExp pos "identifier"))))
 
 ; ------------------------------------------------------------------
 ; Expression parsing.
@@ -1514,7 +1631,7 @@
       (parseSExpr tokens pos)
   (if (peekIs tokens pos TK_LBRACE)
       (parseBlock tokens (advance pos))
-  (pErr pos)))))))))
+  (pErrExp pos "expression")))))))))
 
 ; ------------------------------------------------------------------
 ; Parse an S-expression: dispatch on first token.
@@ -1523,7 +1640,7 @@
 (pub fn (parseSExpr tokens pos)
   (if (peekIs tokens pos TK_LPAREN)
       (parseInner tokens (advance pos))
-  (pErr pos)))
+  (pErrExp pos "expression")))
 
 (pub :: parseInner (-> Int Int Int))
 (pub fn (parseInner tokens pos)
@@ -1729,7 +1846,11 @@
 (pub :: parseSetExpr (-> Int Int Int))
 (pub fn (parseSetExpr tokens pos)
   (let ((nr (parseIdentName tokens pos)))
-    (if (== (memGetWord nr 0) 0) nr
+    ; stage0 names what a `set` target IS here rather than inheriting
+    ; the generic "identifier" its own ident parser would give.
+    (if (== (memGetWord nr 0) 0)
+        (pErrExp (memGetWord nr 2)
+                 "the name of a `mut` binding, or a field path")
         (if (peekIs tokens (memGetWord nr 2) TK_DOT)
             ; A dotted target is a field store: the chain builds the
             ; base the same way expression-position access does, and
@@ -1772,7 +1893,7 @@
                                        (tokenSpan (vecGet tokens (advance pos))))
                              (advance afterVal))
                         (pErr afterVal)))))))
-      (pErr pos)))
+      (pErrExp pos "the name of a `mut` binding, or a field path")))
 
 ; ------------------------------------------------------------------
 ; Parse (cond (test body...) ... (else body...)) STRUCTURALLY: a

@@ -1,0 +1,10 @@
+error[AX2004]: `region` is no longer part of Axiom
+ --> 940-removed-region.ax:1:2
+  |
+1 | (region r)
+  |  ^^^^^^
+  |
+  = help: delete the `region` wrapper and keep its body; values are dropped deterministically at the end of the arena they belong to
+  = help: run `axiom explain AX2004` for a full explanation
+
+compilation failed due to 1 previous error
