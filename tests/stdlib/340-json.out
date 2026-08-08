@@ -1,0 +1,56 @@
+ok   zero
+ok   one
+ok   minus one
+ok   int max
+ok   int max negated
+ok   int min
+ok   parse int
+ok   parse negative
+ok   parse big
+ok   null is null
+ok   true
+ok   false
+ok   fraction int
+ok   fraction text
+ok   exponent text
+ok   plain
+ok   empty
+ok   quote
+ok   backslash
+ok   newline
+ok   tab
+ok   solidus
+ok   u escape ascii
+ok   u escape backspace
+ok   u escape formfeed
+ok   latin1 length
+ok   surrogate pair length
+ok   lone surrogate length
+ok   array length
+ok   array element
+ok   array whitespace
+ok   empty array
+ok   empty object
+ok   object lookup
+ok   object miss
+ok   nested
+ok   bad trailing comma
+ok   bad unclosed array
+ok   bad unclosed string
+ok   bad lone minus
+ok   bad bare word
+ok   bad trailing junk
+ok   bad empty input
+ok   bad raw control in string
+ok   bad missing colon
+ok   bad unclosed object
+ok   write null
+ok   write escapes
+ok   write control
+ok   write object
+ok   round trip
+ok   round trip escape
+ok   round trip astral length
+ok   depth 8 ok
+checks 54
+failures 0

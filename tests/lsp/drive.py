@@ -278,5 +278,76 @@ for fx in fixtures:
     print(f"ok   {name} ({ne} error(s), {nw} warning(s), agrees with stage0)")
     passed += 1
 
-print(f"\nlsp: {passed} passed, {failed} failed, {len(fixtures)} fixtures")
+# ---------------------------------------------------------------------
+# A document larger than the reader's buffer, sent as the SECOND
+# message.
+#
+# This is a regression, not a feature test. `Rpc.ax` shipped for one
+# commit holding ABSOLUTE buffer offsets across a fill that may
+# compact, so any message which did not fit in the free space was
+# mis-sliced - and the symptom was a message silently DROPPED, read by
+# the server as the client hanging up. Every fixture above is a few
+# hundred bytes, so none of them could see it; `self_host/codegen.ax`
+# is about 150 KB, so an editor opening the compiler's own source
+# would have.
+#
+# It has to be the second message, because compaction only shifts when
+# `consumed` is non-zero. And a request is sent AFTER it, because the
+# failure to catch is losing stream sync, not mangling one body.
+N = 6000
+big_lines = []
+for i in range(N):
+    big_lines.append(f"(:: f{i} Int)")
+    big_lines.append(f"(fn (f{i}) 0)")
+big_lines.append("(:: main Int)")
+big_lines.append("(fn (main) nosuchname)")
+BIG = "\n".join(big_lines) + "\n"
+BIG_ERR_LINE = 2 * N + 1
+big_uri = "file://" + os.path.join(os.path.abspath(fixdir), "big-generated.ax")
+
+big_session = b"".join(frame(m) for m in [
+    {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
+    {"jsonrpc": "2.0", "method": "textDocument/didOpen",
+     "params": {"textDocument": {"uri": big_uri, "languageId": "axiom",
+                                 "version": 1, "text": BIG}}},
+    {"jsonrpc": "2.0", "id": 2, "method": "textDocument/documentSymbol",
+     "params": {"textDocument": {"uri": big_uri}}},
+    {"jsonrpc": "2.0", "id": 3, "method": "shutdown", "params": None},
+    {"jsonrpc": "2.0", "method": "exit", "params": None},
+])
+
+bp = subprocess.run([stage1, "lsp"], input=big_session, capture_output=True,
+                    cwd=fixdir)
+bmsgs, btail = unframe(bp.stdout)
+bpubs = [m for m in bmsgs if m.get("method") == "textDocument/publishDiagnostics"]
+bresp = {m["id"]: m for m in bmsgs if "id" in m}
+why = None
+if bp.returncode != 0:
+    why = f"server exited {bp.returncode}"
+elif bp.stderr:
+    why = f"stderr not empty: {bp.stderr[:120]!r}"
+elif btail:
+    why = f"{len(btail)} unframed trailing bytes"
+elif len(bpubs) != 1:
+    why = f"expected 1 publishDiagnostics, got {len(bpubs)}"
+elif [(d["code"], d["range"]["start"]["line"])
+      for d in bpubs[0]["params"]["diagnostics"]] != [("AX3001", BIG_ERR_LINE)]:
+    why = ("body did not arrive intact: "
+           f"{[(d['code'], d['range']['start']['line']) for d in bpubs[0]['params']['diagnostics']]}"
+           f" (want [('AX3001', {BIG_ERR_LINE})])")
+elif 2 not in bresp or not isinstance(bresp[2].get("result"), list):
+    why = "stream lost sync: the request after the large document was not answered"
+elif len(bresp[2]["result"]) != N + 1:
+    why = f"outline over the large document has {len(bresp[2]['result'])} symbols, want {N + 1}"
+
+if why:
+    print(f"FAIL large-document ({len(BIG):,} bytes): {why}")
+    failed += 1
+else:
+    print(f"ok   large-document ({len(BIG):,} bytes, "
+          f"{N + 1} symbols, error found on line {BIG_ERR_LINE})")
+    passed += 1
+
+print(f"\nlsp: {passed} passed, {failed} failed, "
+      f"{len(fixtures)} fixtures + 1 generated")
 sys.exit(1 if failed else 0)

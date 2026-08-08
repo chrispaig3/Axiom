@@ -3288,3 +3288,65 @@ boundary except the document text, which the store owns. `Mem.ax`
 already notes that the allocator is replaceable (`define axiom_alloc`
 and the backend defers to it), so this need not wait for full arena
 inference.
+
+### What a quality pass found the day after, and why the gate had missed it
+
+Two real defects, both in code the language-server gate had signed off
+on, and both found by re-reading rather than by any test — which is the
+argument for the re-read.
+
+**A message larger than the reader's buffer was silently dropped.**
+`Rpc.ax` held ABSOLUTE buffer offsets across a fill, and a fill may
+compact: `rdCompact` slides the live region to the front and resets
+`consumed` to 0, so an offset taken before it is stale by the old
+`consumed` afterwards. The symptom was not a corrupted body but a lost
+message — the reader mis-sliced, saw a short body, answered `""`, and
+the server read that as the client hanging up and exited. Measured on
+an echo of two messages: a 60,000-byte body round-trips, a
+100,000-byte body loses the message entirely. The buffer is 64 KiB and
+`self_host/codegen.ax` is about 150 KB, so an editor opening the
+compiler's own source would have hit it on the first file it read.
+
+It needed two conditions at once — a body bigger than the free space,
+and a non-zero `consumed`, which means it cannot be the first message
+— and every fixture in the gate is a few hundred bytes. Offsets are
+relative to `consumed` now, which is invariant under compaction, so
+the question cannot be got wrong again. `rpcRead` also answers a
+`strDup` rather than a `strSlice`: a slice shares the reader's buffer,
+and the next compaction memcpys within that same allocation, so a body
+handed to a caller — or any substring the JSON parser kept of it —
+would change underneath them later. The regression is a generated
+177,817-byte document sent as the SECOND message with a deliberate
+error on its last line, followed by another request; it checks that
+the diagnostic lands on line 12,001, that the outline has all 6,001
+symbols, and that the stream is still in sync afterwards. Ablated back
+to the shipped bug: that case fails with zero diagnostics while all
+seven small fixtures still pass.
+
+**The most-negative integer guard was the exact mistake `Fmt.ax`
+documents having made.** `jsonIntStr` refused
+`(- 0 9223372036854775807)` — which is one GREATER than the most
+negative `Int`, so the guard never fired on the value it was for, and
+mis-rendered its neighbour as `-9223372036854775808`. The most
+negative value itself fell through to `jsonNatStr (- 0 n)`, where
+negating it yields itself and the digit lookup walks off the table:
+it rendered as `-0`. `Fmt.ax` carries a paragraph about making
+precisely this mistake and fixing it with `intIsMostNegative`, three
+lines from where this file re-made it. `Json.ax` cannot import `Fmt` —
+probed, `AX3014 ambiguous name 'fmtInt': defined in codegen, Fmt`,
+because `codegen.ax` carries its own copy and the namespace is flat —
+so it carries the predicate rather than the literal.
+
+Both now have a gate that could have caught them, and neither did
+before: `tests/stdlib/340-json.ax` is 54 assertions run by BOTH
+compilers through `run-stdlib-tests.sh` and
+`check-stdlib-selfhost.sh`, covering the integer boundaries, the
+escape set, surrogate pairs, ten malformed inputs and round-tripping.
+Ablated back to the literal guard, it fails two cases with
+`got=-9223372036854775808` and `got=-0`.
+
+The pattern worth keeping: **the LSP gate tested the protocol, and
+both bugs were in the layers underneath it.** A gate on a composed
+surface exercises its dependencies only along the paths that surface
+happens to take — small ASCII messages and small integers — and
+reports their silence as agreement.

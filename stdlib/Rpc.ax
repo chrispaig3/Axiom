@@ -97,18 +97,35 @@
       })
   })
 
-; The offset of `\r\n\r\n` at or after `from`, or -1. Offsets are
-; absolute into the buffer, not relative to `consumed`.
-(pub :: rdFindHeaderEnd (-> Int Int Int))
-(pub fn (rdFindHeaderEnd r from)
-  (let ((buf (rdBuf r)) (f (rdFilled r)) (mut i from) (mut found (- 0 1)))
+; Bytes read but not yet consumed: the message currently in progress.
+(pub :: rdAvail (-> Int Int))
+(pub fn (rdAvail r) (- (rdFilled r) (rdConsumed r)))
+
+; The offset of `\r\n\r\n` within the unconsumed region, or -1.
+;
+; RELATIVE to `consumed`, and that is load-bearing rather than a
+; matter of taste. `rdFill` may compact, which slides the live region
+; to the front and resets `consumed` to 0; an offset taken as an
+; ABSOLUTE buffer position before such a fill is stale by the old
+; `consumed` afterwards. This module shipped that way for one commit,
+; and the symptom was not a corrupt message but a SILENTLY DROPPED
+; one: the reader mis-sliced, saw a short body, answered "", and the
+; server read that as the client hanging up. It needed a message
+; larger than the free space to fire, so every small fixture passed -
+; measured, a 100,000-byte body was lost where 60,000 was fine, and
+; `self_host/codegen.ax` is ~150 KB. Relative offsets are invariant
+; under compaction, so the question cannot be got wrong again.
+(pub :: rdFindHeaderEnd (-> Int Int))
+(pub fn (rdFindHeaderEnd r)
+  (let ((buf (rdBuf r)) (base (rdConsumed r)) (n (rdAvail r))
+        (mut i 0) (mut found (- 0 1)))
     {
-      (while (&& (< found 0) (<= (+ i 4) f))
+      (while (&& (< found 0) (<= (+ i 4) n))
         {
-          (if (&& (== (strByte buf i) 13)
-                  (&& (== (strByte buf (+ i 1)) 10)
-                      (&& (== (strByte buf (+ i 2)) 13)
-                          (== (strByte buf (+ i 3)) 10))))
+          (if (&& (== (strByte buf (+ base i)) 13)
+                  (&& (== (strByte buf (+ (+ base i) 1)) 10)
+                      (&& (== (strByte buf (+ (+ base i) 2)) 13)
+                          (== (strByte buf (+ (+ base i) 3)) 10))))
               (set found i)
               0)
           (set i (+ i 1))
@@ -131,17 +148,19 @@
               (rdMatchCI r at word (+ i 1))
               false))))
 
-; The `Content-Length` value in the header block [start, end), or -1
-; when the header is absent or unparseable. A message with no
-; Content-Length is not a message.
-(pub :: rdContentLength (-> Int Int Int Int))
-(pub fn (rdContentLength r start end)
-  (let ((buf (rdBuf r)) (mut i start) (mut len (- 0 1)))
+; The `Content-Length` value in the header block, which runs from the
+; consume point to `hdrRel` bytes past it, or -1 when the header is
+; absent or unparseable. A message with no Content-Length is not a
+; message. `hdrRel` is relative, for the reason above.
+(pub :: rdContentLength (-> Int Int Int))
+(pub fn (rdContentLength r hdrRel)
+  (let ((buf (rdBuf r)) (base (rdConsumed r)) (mut i 0) (mut len (- 0 1)))
+    (let ((end (+ base hdrRel)))
     {
-      (while (&& (< len 0) (< i end))
+      (while (&& (< len 0) (< i hdrRel))
         {
-          (if (rdMatchCI r i "content-length:" 0)
-              (let ((mut p (+ i 15)) (mut v 0) (mut digits 0))
+          (if (rdMatchCI r (+ base i) "content-length:" 0)
+              (let ((mut p (+ (+ base i) 15)) (mut v 0) (mut digits 0))
                 {
                   (while (&& (< p end) (== (strByte buf p) 32)) (set p (+ p 1)))
                   (while (&& (< p end)
@@ -157,7 +176,7 @@
           (set i (+ i 1))
         })
       len
-    }))
+    })))
 
 ; Read one whole message and answer its body. An empty Str means the
 ; stream ended or broke - the caller stops, which is what an LSP does
@@ -170,28 +189,38 @@
       ; 1. A complete header block.
       (while (&& (< hdr 0) (== dead 0))
         {
-          (set hdr (rdFindHeaderEnd r (rdConsumed r)))
+          (set hdr (rdFindHeaderEnd r))
           (if (< hdr 0)
               (if (< (rdFill r) 1) (set dead 1) 0)
               0)
         })
       (if (== dead 1)
           ""
-          (let ((n (rdContentLength r (rdConsumed r) hdr)))
+          (let ((n (rdContentLength r hdr)))
             (if (< n 0)
                 ""
-                (let ((bodyAt (+ hdr 4)))
+                (let ((bodyRel (+ hdr 4)))
                   {
                     ; 2. Enough bytes for the body. Growing here is why
                     ; `rdCompact` exists: a message larger than the
-                    ; buffer must still arrive.
-                    (while (&& (< (rdFilled r) (+ bodyAt n)) (== dead 0))
+                    ; buffer must still arrive. Every offset below is
+                    ; re-derived from `rdConsumed` AFTER the fills,
+                    ; because a fill may have compacted.
+                    (while (&& (< (rdAvail r) (+ bodyRel n)) (== dead 0))
                       (if (< (rdFill r) 1) (set dead 1) 0))
                     (if (== dead 1)
                         ""
-                        (let ((body (strSlice (rdBuf r) bodyAt n)))
+                        ; `strDup`, not `strSlice`: a slice would SHARE
+                        ; the reader's buffer, and the next compaction
+                        ; memcpys within that same allocation - so a
+                        ; body handed to the caller, or any substring
+                        ; the JSON parser kept of it, would change
+                        ; under them later. One copy per message is
+                        ; nothing next to the parse that follows it.
+                        (let ((body (strDup (strSlice (rdBuf r)
+                                                      (+ (rdConsumed r) bodyRel) n))))
                           {
-                            (memSetWord r 3 (+ bodyAt n))
+                            (memSetWord r 3 (+ (rdConsumed r) (+ bodyRel n)))
                             body
                           }))
                   }))))

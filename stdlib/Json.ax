@@ -186,7 +186,13 @@
   })
 
 ; The value for `key`, or 0 when there is none. 0 is not a valid value
-; pointer, so it is an unambiguous absence marker.
+; pointer, so it is an unambiguous absence marker AT THIS LAYER - but
+; `jsonTag` reports 0 as `JNULL`, so `jsonIsNull` cannot tell an absent
+; member from one explicitly set to null. A caller that must
+; distinguish the two tests against 0 directly, which is what
+; `lsp.ax`'s dispatch does to tell a request from a notification: an
+; absent `id` means notification, and a null `id` is a different thing
+; the protocol does not let you answer the same way.
 (pub :: jsonGet (-> Int Int Int))
 (pub fn (jsonGet v key) (jsonGetFrom v key 0))
 
@@ -217,9 +223,25 @@
 ; written out rather than negated.
 ; ------------------------------------------------------------------
 
+; The most negative `Int` has no positive counterpart - negating it
+; yields itself - so `jsonNatStr` would recurse on it forever, and it
+; is answered outright.
+;
+; Detected the way `Fmt.intIsMostNegative` detects it, NOT by comparing
+; against a literal. The value cannot be written (it overflows a
+; positive literal), and the obvious stand-in
+; `(- 0 9223372036854775807)` is one GREATER than it: a guard written
+; that way looks correct, never fires on the value it is for, and
+; mis-renders -9223372036854775807 as -9223372036854775808. `Fmt.ax`
+; records having made exactly that mistake and fixing it; this file
+; reproduced it three lines from the note, which is the argument for
+; `tests/stdlib/340-json.ax` pinning both boundaries.
+(pub :: jsonIsMostNegative (-> Int Bool))
+(pub fn (jsonIsMostNegative n) (&& (< n 0) (== (- 0 n) n)))
+
 (pub :: jsonIntStr (-> Int Int))
 (pub fn (jsonIntStr n)
-  (if (== n (- 0 9223372036854775807))
+  (if (jsonIsMostNegative n)
       "-9223372036854775808"
       (if (< n 0)
           (strConcat "-" (jsonNatStr (- 0 n)))
@@ -241,16 +263,16 @@
 
 (pub :: jsonJoin (-> Int Int))
 (pub fn (jsonJoin pieces)
-  (let ((total (jsonJoinLen pieces 0 0)))
+  (let ((total (jsonJoinLen pieces)))
     (let ((out (strAlloc total)))
       {
-        (jsonJoinFill pieces out 0 0)
+        (jsonJoinFill pieces out)
         out
       })))
 
-(pub :: jsonJoinLen (-> Int Int Int Int))
-(pub fn (jsonJoinLen pieces i acc)
-  (let ((mut k i) (mut n acc))
+(pub :: jsonJoinLen (-> Int Int))
+(pub fn (jsonJoinLen pieces)
+  (let ((mut k 0) (mut n 0))
     {
       (while (< k (vecLen pieces))
         {
@@ -260,9 +282,9 @@
       n
     }))
 
-(pub :: jsonJoinFill (-> Int Int Int Int Int))
-(pub fn (jsonJoinFill pieces out i at)
-  (let ((mut k i) (mut off at))
+(pub :: jsonJoinFill (-> Int Int Int))
+(pub fn (jsonJoinFill pieces out)
+  (let ((mut k 0) (mut off 0))
     {
       (while (< k (vecLen pieces))
         (let ((p (vecGet pieces k)))
@@ -299,18 +321,18 @@
 
 (pub :: jsonEscape (-> Int Int))
 (pub fn (jsonEscape s)
-  (let ((total (jsonEscapeLen s 0 0)))
+  (let ((total (jsonEscapeLen s)))
     (if (== total (strLen s))
         s
         (let ((out (strAlloc total)))
           {
-            (jsonEscapeFill s out 0 0)
+            (jsonEscapeFill s out)
             out
           }))))
 
-(pub :: jsonEscapeLen (-> Int Int Int Int))
-(pub fn (jsonEscapeLen s i acc)
-  (let ((mut k i) (mut n acc))
+(pub :: jsonEscapeLen (-> Int Int))
+(pub fn (jsonEscapeLen s)
+  (let ((mut k 0) (mut n 0))
     {
       (while (< k (strLen s))
         {
@@ -330,9 +352,9 @@
 (pub fn (jsonByteStr b)
   (let ((s (strAlloc 1))) { (__store8 (strData s) 0 b) s }))
 
-(pub :: jsonEscapeFill (-> Int Int Int Int Int))
-(pub fn (jsonEscapeFill s out i at)
-  (let ((mut k i) (mut off at) (d (strData out)))
+(pub :: jsonEscapeFill (-> Int Int Int))
+(pub fn (jsonEscapeFill s out)
+  (let ((mut k 0) (mut off 0) (d (strData out)))
     {
       (while (< k (strLen s))
         (let ((b (strByte s k)))
