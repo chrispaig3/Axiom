@@ -1632,6 +1632,21 @@
     (emitLine cg "")
     (emitLine cg "@__axiom_bump = internal global i64 0")
     (emitLine cg "@__axiom_bump_end = internal global i64 0")
+    ; Every mapped chunk carries a two-word header - its total size and
+    ; the chunk mapped before it - so the chunks form a list in
+    ; allocation order. `@__axiom_chunk` is its head; a reset walks it
+    ; back to the marked chunk and moves what it passes onto
+    ; `@__axiom_free`, where the next refill finds it. Without the list
+    ; a reset could only restore a waterline, so every chunk mapped
+    ; after the mark was stranded: 576 KiB per iteration measured on a
+    ; loop whose body crosses a chunk boundary.
+    (emitLine cg "@__axiom_chunk = internal global i64 0")
+    (emitLine cg "@__axiom_free = internal global i64 0")
+    ; How far into the current chunk memory has ever been handed out.
+    ; Above it is still the zeroes `mmap` gave us; below it is whatever
+    ; the program wrote, and has to be scrubbed before it is handed out
+    ; again - see `handout`.
+    (emitLine cg "@__axiom_high = internal global i64 0")
     (emitLine cg "")
     (emitLine cg "define i64 @axiom_alloc(i64 %size) #0 {")
     (emitLine cg "entry:")
@@ -1644,12 +1659,48 @@
     (emitLine cg "  br i1 %fits, label %fast, label %refill")
     (emitLine cg "fast:")
     (emitLine cg "  store i64 %next, ptr @__axiom_bump")
-    (emitLine cg "  ret i64 %cur")
+    (emitLine cg "  %high = load i64, ptr @__axiom_high")
+    (emitLine cg "  br label %handout")
     (emitLine cg "refill:")
-    (emitLine cg "  %big = icmp ugt i64 %sz, 1048576")
-    (emitLine cg "  %rounded0 = add i64 %sz, 65535")
+    (emitLine cg "  %need = add i64 %sz, 16")
+    (emitLine cg "  %big = icmp ugt i64 %need, 1048576")
+    (emitLine cg "  %rounded0 = add i64 %need, 65535")
     (emitLine cg "  %rounded = and i64 %rounded0, -65536")
     (emitLine cg "  %chunk = select i1 %big, i64 %rounded, i64 1048576")
+    ; First fit over the chunks a reset has freed. The list is short -
+    ; it holds only what outlived a mark - and a chunk on it is a whole
+    ; mapping, so reuse is what keeps a resetting loop's RSS flat
+    ; rather than merely its waterline.
+    (emitLine cg "  %fhead = load i64, ptr @__axiom_free")
+    (emitLine cg "  br label %scan")
+    (emitLine cg "scan:")
+    (emitLine cg "  %cand = phi i64 [ %fhead, %refill ], [ %cnext, %scan_next ]")
+    (emitLine cg "  %prev = phi i64 [ 0, %refill ], [ %cand, %scan_next ]")
+    (emitLine cg "  %exhausted = icmp eq i64 %cand, 0")
+    (emitLine cg "  br i1 %exhausted, label %map, label %scan_test")
+    (emitLine cg "scan_test:")
+    (emitLine cg "  %candp = inttoptr i64 %cand to ptr")
+    (emitLine cg "  %candsz = load i64, ptr %candp")
+    (emitLine cg "  %candlink = add i64 %cand, 8")
+    (emitLine cg "  %candlinkp = inttoptr i64 %candlink to ptr")
+    (emitLine cg "  %cnext = load i64, ptr %candlinkp")
+    (emitLine cg "  %roomy = icmp uge i64 %candsz, %chunk")
+    (emitLine cg "  br i1 %roomy, label %unlink, label %scan_next")
+    (emitLine cg "scan_next:")
+    (emitLine cg "  br label %scan")
+    (emitLine cg "unlink:")
+    (emitLine cg "  %cand_end = add i64 %cand, %candsz")
+    (emitLine cg "  %at_head = icmp eq i64 %prev, 0")
+    (emitLine cg "  br i1 %at_head, label %unlink_head, label %unlink_mid")
+    (emitLine cg "unlink_head:")
+    (emitLine cg "  store i64 %cnext, ptr @__axiom_free")
+    (emitLine cg "  br label %install")
+    (emitLine cg "unlink_mid:")
+    (emitLine cg "  %prevlink = add i64 %prev, 8")
+    (emitLine cg "  %prevlinkp = inttoptr i64 %prevlink to ptr")
+    (emitLine cg "  store i64 %cnext, ptr %prevlinkp")
+    (emitLine cg "  br label %install")
+    (emitLine cg "map:")
     (emitLine cg (strConcat
                    (cat4 "  %addr = call i64 asm sideeffect "
                          (targetSyscallAsm (memGetWord cg 26))
@@ -1663,11 +1714,65 @@
     (emitLine cg "  %failed = or i1 %failed_low, %failed_neg")
     (emitLine cg "  br i1 %failed, label %oom, label %mapped")
     (emitLine cg "mapped:")
-    (emitLine cg "  %new_bump = add i64 %addr, %sz")
+    (emitLine cg "  %virgin_high = add i64 %addr, 16")
+    (emitLine cg "  br label %install")
+    ; Link the chunk - mapped or recycled - onto the active list and
+    ; allocate out of it. The header sits at the base, so the address
+    ; handed back is base + 16. `%chunk_high` is the chunk's high water
+    ; BEFORE this request: a recycled chunk is dirty to its last byte,
+    ; a fresh mapping is the kernel's zeroes all the way down.
+    (emitLine cg "install:")
+    (emitLine cg "  %base = phi i64 [ %addr, %mapped ], [ %cand, %unlink_head ], [ %cand, %unlink_mid ]")
+    (emitLine cg "  %bsize = phi i64 [ %chunk, %mapped ], [ %candsz, %unlink_head ], [ %candsz, %unlink_mid ]")
+    (emitLine cg "  %chunk_high = phi i64 [ %virgin_high, %mapped ], [ %cand_end, %unlink_head ], [ %cand_end, %unlink_mid ]")
+    (emitLine cg "  %basep = inttoptr i64 %base to ptr")
+    (emitLine cg "  store i64 %bsize, ptr %basep")
+    (emitLine cg "  %baselink = add i64 %base, 8")
+    (emitLine cg "  %baselinkp = inttoptr i64 %baselink to ptr")
+    (emitLine cg "  %chead = load i64, ptr @__axiom_chunk")
+    (emitLine cg "  store i64 %chead, ptr %baselinkp")
+    (emitLine cg "  store i64 %base, ptr @__axiom_chunk")
+    (emitLine cg "  %data = add i64 %base, 16")
+    (emitLine cg "  %new_bump = add i64 %data, %sz")
     (emitLine cg "  store i64 %new_bump, ptr @__axiom_bump")
-    (emitLine cg "  %new_end = add i64 %addr, %chunk")
+    (emitLine cg "  %new_end = add i64 %base, %bsize")
     (emitLine cg "  store i64 %new_end, ptr @__axiom_bump_end")
-    (emitLine cg "  ret i64 %addr")
+    (emitLine cg "  br label %handout")
+    ; Both paths converge here to hand out `[%hb, %he)`. Memory below
+    ; the high-water mark has been handed out before, so it holds
+    ; whatever the program last wrote and has to be scrubbed:
+    ; `memAlloc` promises ZEROED memory and the standard library spends
+    ; that promise - `Map` and `Intern` read an all-zero state array as
+    ; "every slot empty", `strAlloc` reserves a byte for its NUL
+    ; terminator and never writes one. A fresh mapping arrives zeroed
+    ; from the kernel, so the promise used to hold for free and
+    ; silently stopped the moment a reset handed the same bytes out
+    ; twice: `strAlloc 3` after a reset measured a `cstrLen` of 17.
+    ;
+    ; Scrubbing HERE rather than in the reset is what lets §4.1's
+    ; copy-at-boundary work: the value being copied down sits above the
+    ; restored waterline, in memory the reset gave back, and must
+    ; survive being read until the copy finishes.
+    (emitLine cg "handout:")
+    (emitLine cg "  %hb = phi i64 [ %cur, %fast ], [ %data, %install ]")
+    (emitLine cg "  %he = phi i64 [ %next, %fast ], [ %new_bump, %install ]")
+    (emitLine cg "  %hh = phi i64 [ %high, %fast ], [ %chunk_high, %install ]")
+    (emitLine cg "  %past = icmp ugt i64 %he, %hh")
+    (emitLine cg "  %stop = select i1 %past, i64 %hh, i64 %he")
+    (emitLine cg "  %newhigh = select i1 %past, i64 %he, i64 %hh")
+    (emitLine cg "  store i64 %newhigh, ptr @__axiom_high")
+    (emitLine cg "  br label %wipe")
+    (emitLine cg "wipe:")
+    (emitLine cg "  %wi = phi i64 [ %hb, %handout ], [ %wnext, %wipe_body ]")
+    (emitLine cg "  %wmore = icmp ult i64 %wi, %stop")
+    (emitLine cg "  br i1 %wmore, label %wipe_body, label %wiped")
+    (emitLine cg "wipe_body:")
+    (emitLine cg "  %wp = inttoptr i64 %wi to ptr")
+    (emitLine cg "  store i64 0, ptr %wp")
+    (emitLine cg "  %wnext = add i64 %wi, 8")
+    (emitLine cg "  br label %wipe")
+    (emitLine cg "wiped:")
+    (emitLine cg "  ret i64 %hb")
     (emitLine cg "oom:")
     (emitLine cg (strConcat
                    (cat4 "  call i64 asm sideeffect "
@@ -1676,6 +1781,93 @@
                          (fmtInt (targetExitNum (memGetWord cg 26))))
                    ", i64 70, i64 0, i64 0, i64 0, i64 0, i64 0)"))
     (emitLine cg "  unreachable")
+    (emitLine cg "}")
+    (emitLine cg "")
+    (emitArenaHelpers cg)
+    cg
+  })
+
+; ------------------------------------------------------------------
+; The two arena primitives, as runtime helpers beside the allocator
+; whose globals they move. stage0's `emit_arena_helpers`, block for
+; block.
+;
+; A mark is the WHOLE allocator position, not just the waterline:
+; `@__axiom_bump` alone is meaningless once allocation has moved to a
+; different chunk, because `@__axiom_bump_end` still describes the
+; newer one - restoring the old bump against the new end let the fast
+; path succeed on an address in neither chunk, and a mark taken before
+; the first chunk existed handed out address 0. So a mark saves bump,
+; end AND the chunk bump points into, in a three-word cell so marks
+; nest. The cell is allocated BEFORE the position is read, which puts
+; it below its own waterline: a reset never reclaims it, so the same
+; mark can be reset twice.
+;
+; A reset restores that position and returns every chunk mapped since
+; the mark to the free list. It writes no byte of the memory it
+; reclaims, which is what the copy-at-boundary idiom depends on; the
+; zeroing `memAlloc` promises happens in `handout` instead, as each
+; byte is handed to a caller.
+; ------------------------------------------------------------------
+(pub :: emitArenaHelpers (-> Int Int))
+(pub fn (emitArenaHelpers cg)
+  {
+    (emitLine cg "define internal i64 @__axiom_arena_mark_fn() #0 {")
+    (emitLine cg "entry:")
+    (emitLine cg "  %cell = call i64 @axiom_alloc(i64 24)")
+    (emitLine cg "  %bump = load i64, ptr @__axiom_bump")
+    (emitLine cg "  %end = load i64, ptr @__axiom_bump_end")
+    (emitLine cg "  %chunk = load i64, ptr @__axiom_chunk")
+    (emitLine cg "  %p0 = inttoptr i64 %cell to ptr")
+    (emitLine cg "  store i64 %bump, ptr %p0")
+    (emitLine cg "  %a1 = add i64 %cell, 8")
+    (emitLine cg "  %p1 = inttoptr i64 %a1 to ptr")
+    (emitLine cg "  store i64 %end, ptr %p1")
+    (emitLine cg "  %a2 = add i64 %cell, 16")
+    (emitLine cg "  %p2 = inttoptr i64 %a2 to ptr")
+    (emitLine cg "  store i64 %chunk, ptr %p2")
+    (emitLine cg "  ret i64 %cell")
+    (emitLine cg "}")
+    (emitLine cg "")
+    (emitLine cg "define internal i64 @__axiom_arena_reset_fn(i64 %cell) #0 {")
+    (emitLine cg "entry:")
+    (emitLine cg "  %p0 = inttoptr i64 %cell to ptr")
+    (emitLine cg "  %sbump = load i64, ptr %p0")
+    (emitLine cg "  %a1 = add i64 %cell, 8")
+    (emitLine cg "  %p1 = inttoptr i64 %a1 to ptr")
+    (emitLine cg "  %send = load i64, ptr %p1")
+    (emitLine cg "  %a2 = add i64 %cell, 16")
+    (emitLine cg "  %p2 = inttoptr i64 %a2 to ptr")
+    (emitLine cg "  %schunk = load i64, ptr %p2")
+    (emitLine cg "  %chead = load i64, ptr @__axiom_chunk")
+    (emitLine cg "  %same = icmp eq i64 %chead, %schunk")
+    (emitLine cg "  br i1 %same, label %restore, label %unwind")
+    ; Every chunk between the head and the marked one is wholly garbage
+    ; now, so it goes back on the free list. The marked chunk is then
+    ; dirty from the restored waterline to its end - it was abandoned
+    ; because it filled up - and saying so is one store.
+    (emitLine cg "unwind:")
+    (emitLine cg "  %c = phi i64 [ %chead, %entry ], [ %cnext, %unwind_body ]")
+    (emitLine cg "  %reached = icmp eq i64 %c, %schunk")
+    (emitLine cg "  %ranout = icmp eq i64 %c, 0")
+    (emitLine cg "  %stop = or i1 %reached, %ranout")
+    (emitLine cg "  br i1 %stop, label %tail, label %unwind_body")
+    (emitLine cg "unwind_body:")
+    (emitLine cg "  %clink = add i64 %c, 8")
+    (emitLine cg "  %clinkp = inttoptr i64 %clink to ptr")
+    (emitLine cg "  %cnext = load i64, ptr %clinkp")
+    (emitLine cg "  %fhead = load i64, ptr @__axiom_free")
+    (emitLine cg "  store i64 %fhead, ptr %clinkp")
+    (emitLine cg "  store i64 %c, ptr @__axiom_free")
+    (emitLine cg "  br label %unwind")
+    (emitLine cg "tail:")
+    (emitLine cg "  store i64 %send, ptr @__axiom_high")
+    (emitLine cg "  br label %restore")
+    (emitLine cg "restore:")
+    (emitLine cg "  store i64 %sbump, ptr @__axiom_bump")
+    (emitLine cg "  store i64 %send, ptr @__axiom_bump_end")
+    (emitLine cg "  store i64 %schunk, ptr @__axiom_chunk")
+    (emitLine cg "  ret i64 0")
     (emitLine cg "}")
     (emitLine cg "")
     cg
@@ -3764,61 +3956,33 @@
     (if (strEq fnName "__axiom_arena_reset") (emitPrimArenaReset args cg)
     (emitPrimSyscall args cg)))))))))))))))
 
-; A mark is the WHOLE allocator position, not just the waterline:
-; `@__axiom_bump` alone is meaningless once allocation has moved to a
-; different chunk, because `@__axiom_bump_end` still describes the
-; newer one. The pair lives in a two-word cell so marks nest, and the
-; cell is allocated BEFORE the position is read so that it sits below
-; the mark and survives the reset. stage0's `IrInst::ArenaMark`,
-; instruction for instruction.
+; Both primitives are ONE CALL into the helpers `emitArenaHelpers`
+; emitted beside the allocator - see there for what a mark saves and
+; why a reset writes no byte of what it reclaims. They were inline
+; once, and stopped fitting: a reset now walks the chunk list, which
+; needs loops, which need blocks of their own.
 (pub :: emitPrimArenaMark (-> Int Int))
 (pub fn (emitPrimArenaMark cg)
-  (let ((cell (regStr (allocReg cg))))
-    (let ((cg1 (emitLine cg (cat2 (cat2 "  " cell)
-                                  " = call i64 @axiom_alloc(i64 16)"))))
-      (let ((bump (regStr (allocReg cg1))))
-        (let ((cg2 (emitLine cg1 (cat2 (cat2 "  " bump)
-                                       " = load i64, ptr @__axiom_bump"))))
-          (let ((end (regStr (allocReg cg2))))
-            (let ((cg3 (emitLine cg2 (cat2 (cat2 "  " end)
-                                           " = load i64, ptr @__axiom_bump_end"))))
-              (let ((cg4 (storeWordAt cg3 cell 0 bump)))
-                (let ((cg5 (storeWordAt cg4 cell 1 end)))
-                  {
-                    (memSetWord cg5 2 cell)
-                    cg5
-                  })))))))))
+  (let ((r (regStr (allocReg cg))))
+    (let ((cg1 (emitLine cg (cat2 (cat2 "  " r)
+                                  " = call i64 @__axiom_arena_mark_fn()"))))
+      {
+        (memSetWord cg1 2 r)
+        cg1
+      })))
 
-; Restore both halves. A chunk newer than the mark is abandoned rather
-; than reused - a leak, which is what an arena does anyway, and the
-; alternative hands out addresses belonging to no mapping.
 (pub :: emitPrimArenaReset (-> Int Int Int))
 (pub fn (emitPrimArenaReset args cg)
   (let ((cg0 (emitExpr (vecGet args 0) cg)))
     (let ((cell (strDup (memGetWord cg0 2))))
-      (let ((bump (regStr (allocReg cg0))))
-        (let ((cg1 (emitLoadWordAt cg0 cell 0 bump)))
-          (let ((end (regStr (allocReg cg1))))
-            (let ((cg2 (emitLoadWordAt cg1 cell 1 end)))
-              (let ((cg3 (emitLine cg2 (cat3 "  store i64 " bump
-                                             ", ptr @__axiom_bump"))))
-                (let ((cg4 (emitLine cg3 (cat3 "  store i64 " end
-                                               ", ptr @__axiom_bump_end"))))
-                  {
-                    (memSetWord cg4 2 (constStr 0))
-                    cg4
-                  })))))))))
-
-; Load word `idx` of the block at `base` into register `dest`.
-(pub :: emitLoadWordAt (-> Int Int Int Int Int))
-(pub fn (emitLoadWordAt cg base idx dest)
-  (let ((pn (regStr (allocReg cg))))
-    (let ((cg1 (emitLine cg (cat4 (cat2 "  " pn) " = inttoptr i64 " base " to ptr"))))
-      (let ((an (regStr (allocReg cg1))))
-        (let ((cg2 (emitLine cg1 (cat3 (cat3 (cat2 "  " an)
-                                             " = getelementptr i64, ptr " pn)
-                                       ", i64 " (constStr idx)))))
-          (emitLine cg2 (cat3 (cat2 "  " dest) " = load i64, ptr " an)))))))
+      (let ((r (regStr (allocReg cg0))))
+        (let ((cg1 (emitLine cg0 (cat4 (cat2 "  " r)
+                                       " = call i64 @__axiom_arena_reset_fn(i64 "
+                                       cell ")"))))
+          {
+            (memSetWord cg1 2 (constStr 0))
+            cg1
+          })))))
 
 ; `(__argc)`: the count the entry wrapper captured before main ran.
 (pub :: emitPrimArgc (-> Int Int))

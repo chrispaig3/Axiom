@@ -20,6 +20,17 @@
 ; server - which is why this is `memAlloc` and not `new`, and why the
 ; allocator itself is replaceable (define `axiom_alloc` and the backend
 ; defers to it).
+;
+; ZEROED IS A PROMISE, not an artefact of where the memory came from,
+; and this comment used to be describing the artefact. Fresh pages
+; arrive zeroed from the kernel, so the promise held for free until
+; `__axiom_arena_reset` began handing the same bytes out a second
+; time - after which `strAlloc` produced strings with no terminator
+; (`cstrLen` of a 3-byte string measured 17) and a `Map`'s state array
+; came back full of a previous table's occupancy. The allocator now
+; tracks how far into each chunk it has ever handed out, and scrubs
+; below that line as it allocates. Callers may rely on the promise;
+; `Map`, `Intern`, `Str` and `Vec` all do.
 (pub :: memAlloc (-> Int Int))
 (pub fn (memAlloc bytes)
   (__alloc bytes))

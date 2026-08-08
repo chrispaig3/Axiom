@@ -18,6 +18,7 @@
 ; null pointer.
 (import IO)
 (import Mem)
+(import Str)
 
 ; Fill enough memory to force the allocator past a 1 MiB chunk, so the
 ; reset below has to restore a position from a *different* chunk than the
@@ -74,5 +75,50 @@
               (r2 (__axiom_arena_reset far))
               (fresh (memAlloc 64)))
           (usable fresh)))                       ; 987654321
+
+      ; --- reclaimed memory is handed back ZEROED ---
+      ;
+      ; `memAlloc` promises zeroed memory and the standard library
+      ; spends that promise: `Map` and `Intern` read an all-zero state
+      ; array as "every slot empty", and `strAlloc` reserves a byte for
+      ; its NUL terminator without ever writing one. A fresh mapping
+      ; arrives zeroed from the kernel, so the promise held for free
+      ; until a reset handed the same bytes out a second time. It did
+      ; not hold then: this case measured 255 and a `cstrLen` of 17 for
+      ; a 3-byte string, which is `strCStr` running off the end of a
+      ; string into whatever the arena last held.
+      (printlnInt
+        (let ((z (__axiom_arena_mark))
+              (scribble (memSet (memAlloc 256) 255 256))
+              (r3 (__axiom_arena_reset z))
+              (again (memAlloc 256)))
+          (+ (memGetByte again 0) (memGetByte again 200))))   ; 0
+
+      (printlnInt
+        (let ((z2 (__axiom_arena_mark))
+              (fill (memSet (memAlloc 64) 65 64))
+              (r4 (__axiom_arena_reset z2))
+              (s (strAlloc 3))
+              (h (memPutByte (strData s) 0 104))
+              (i (memPutByte (strData s) 1 105))
+              (b (memPutByte (strData s) 2 33)))
+          (cstrLen (strData s) 0)))                          ; 3
+
+      ; --- and a chunk mapped after the mark is REUSED, not stranded ---
+      ;
+      ; Two rounds of the same chunk-crossing burn from the same mark:
+      ; if the reset returned the chunks it passed to the free list,
+      ; the second round is served out of the first round's memory and
+      ; the two rounds hand out the same address. If it stranded them -
+      ; which it did, at a measured 576 KiB per iteration - the second
+      ; round maps new memory and the addresses differ.
+      (printlnInt
+        (let ((c0 (__axiom_arena_mark))
+              (j1 (burn 40))
+              (a1 (memAlloc 64))
+              (r5 (__axiom_arena_reset c0))
+              (j2 (burn 40))
+              (a2 (memAlloc 64)))
+          (if (== a1 a2) 1 0)))                              ; 1
       0
     }))

@@ -73,6 +73,9 @@ pub struct LlvmCodeGen {
     /// Whether the collector was actually emitted for this module, which
     /// is what decides if `main` has to record the stack base.
     gc_active: bool,
+    /// Whether the built-in bump allocator - and with it the arena
+    /// helpers and the globals they move - is part of this module.
+    bump_allocator_emitted: bool,
 }
 
 impl Default for LlvmCodeGen {
@@ -103,6 +106,7 @@ impl LlvmCodeGen {
             current_ret_ty: "i64".to_string(),
             gc: false,
             gc_active: false,
+            bump_allocator_emitted: false,
         }
     }
 
@@ -244,6 +248,8 @@ impl LlvmCodeGen {
                 self.output.push_str(&text);
             } else {
                 self.emit_bump_allocator();
+                self.emit_arena_helpers();
+                self.bump_allocator_emitted = true;
             }
         }
         self.gc_active = self.gc && !alloc_defined_in_axiom;
@@ -1283,10 +1289,10 @@ impl LlvmCodeGen {
                 // would leave a program that asked for memory back and
                 // did not get it; honouring it would free live objects.
                 return Err(
-                    "`__axiom_arena_mark` and `__axiom_arena_reset` are bump-allocator \
-                     primitives and cannot be used with `--gc`: the collector reclaims by \
-                     reachability, so there is no waterline to roll back to. Drop the \
-                     explicit arena calls, or build without `--gc`."
+                    "the `__axiom_arena_*` primitives are bump-allocator controls and cannot \
+                     be used with `--gc`: the collector reclaims by reachability, so there is \
+                     no waterline to roll back to. Drop the explicit arena calls, or build \
+                     without `--gc`."
                         .to_string(),
                 );
             }
@@ -1320,36 +1326,34 @@ impl LlvmCodeGen {
                     );
                 }
             }
+            IrInst::ArenaMark { .. } | IrInst::ArenaReset { .. } if !self.bump_allocator_emitted => {
+                // The arena primitives are the built-in allocator's own
+                // controls: they save and restore *its* globals. When a
+                // program supplies its own `axiom_alloc` the built-in is
+                // not emitted at all, so these would reference globals
+                // and helpers nothing defines - previously a link error
+                // naming `@__axiom_bump`, which points at the compiler
+                // rather than at the program.
+                return Err(
+                    "the `__axiom_arena_*` primitives control the built-in bump allocator, and \
+                     this program defines its own `axiom_alloc`, which replaces it. An \
+                     allocator that wants a waterline has to expose its own."
+                        .to_string(),
+                );
+            }
             IrInst::ArenaMark { dest } => {
-                // A mark is the whole allocator position, not just the
-                // waterline: `@__axiom_bump` alone is meaningless once
-                // allocation has moved to a different chunk, because
-                // `@__axiom_bump_end` still describes the newer one.
-                // Restoring the old bump against the new end let the fast
-                // path succeed on an address in neither chunk - and when
-                // the mark was taken before the first chunk existed, it
-                // handed out address 0.
-                //
-                // The pair lives in a two-word cell so marks can nest.
-                // It is allocated *before* the position is read, so the
-                // cell itself sits below the mark and is still there to
-                // be read when the reset happens.
-                let cell = self.new_local_reg();
-                writeln!(self.output, "  {} = call i64 @axiom_alloc(i64 16)", cell).unwrap();
-                let bump = self.new_local_reg();
-                writeln!(self.output, "  {} = load i64, ptr @__axiom_bump", bump).unwrap();
-                let end = self.new_local_reg();
-                writeln!(self.output, "  {} = load i64, ptr @__axiom_bump_end", end).unwrap();
-                let p0 = self.new_local_reg();
-                writeln!(self.output, "  {} = inttoptr i64 {} to ptr", p0, cell).unwrap();
-                writeln!(self.output, "  store i64 {}, ptr {}", bump, p0).unwrap();
-                let a1 = self.new_local_reg();
-                writeln!(self.output, "  {} = add i64 {}, 8", a1, cell).unwrap();
-                let p1 = self.new_local_reg();
-                writeln!(self.output, "  {} = inttoptr i64 {} to ptr", p1, a1).unwrap();
-                writeln!(self.output, "  store i64 {}, ptr {}", end, p1).unwrap();
+                // Both primitives are one call into a runtime helper
+                // emitted beside the allocator. They were inline once,
+                // and stopped fitting: a reset now walks the chunk list
+                // and zeroes what it reclaims, which needs loops, which
+                // need blocks of their own.
                 let result_reg = self.new_local_reg();
-                writeln!(self.output, "  {} = add i64 {}, 0", result_reg, cell).unwrap();
+                writeln!(
+                    self.output,
+                    "  {} = call i64 @__axiom_arena_mark_fn()",
+                    result_reg
+                )
+                .unwrap();
                 if let IrValue::Local(name) = dest {
                     self.ssa_values.insert(
                         name.clone(),
@@ -1358,24 +1362,14 @@ impl LlvmCodeGen {
                 }
             }
             IrInst::ArenaReset { ptr } => {
-                // Restore both halves of the position saved by `ArenaMark`.
-                // If allocation moved to a newer chunk since the mark, that
-                // chunk is abandoned rather than reused - a leak, which is
-                // what an arena does anyway, and the alternative is handing
-                // out addresses that belong to no mapping.
                 let ptr_val = self.value_to_llvm(ptr)?;
-                let p0 = self.new_local_reg();
-                writeln!(self.output, "  {} = inttoptr i64 {} to ptr", p0, ptr_val).unwrap();
-                let bump = self.new_local_reg();
-                writeln!(self.output, "  {} = load i64, ptr {}", bump, p0).unwrap();
-                let a1 = self.new_local_reg();
-                writeln!(self.output, "  {} = add i64 {}, 8", a1, ptr_val).unwrap();
-                let p1 = self.new_local_reg();
-                writeln!(self.output, "  {} = inttoptr i64 {} to ptr", p1, a1).unwrap();
-                let end = self.new_local_reg();
-                writeln!(self.output, "  {} = load i64, ptr {}", end, p1).unwrap();
-                writeln!(self.output, "  store i64 {}, ptr @__axiom_bump", bump).unwrap();
-                writeln!(self.output, "  store i64 {}, ptr @__axiom_bump_end", end).unwrap();
+                let result_reg = self.new_local_reg();
+                writeln!(
+                    self.output,
+                    "  {} = call i64 @__axiom_arena_reset_fn(i64 {})",
+                    result_reg, ptr_val
+                )
+                .unwrap();
             }
             IrInst::StoreOffset { ptr, offset, value } => {
                 let ptr_val = self.value_to_llvm(ptr)?;
@@ -1642,6 +1636,24 @@ impl LlvmCodeGen {
         let out = &mut self.output;
         writeln!(out, "@__axiom_bump = internal global i64 0").unwrap();
         writeln!(out, "@__axiom_bump_end = internal global i64 0").unwrap();
+        // Every mapped chunk carries a two-word header - its total size
+        // and the chunk mapped before it - so the chunks form a list in
+        // allocation order. `@__axiom_chunk` is its head; a reset walks
+        // it back to the marked chunk and moves what it passes onto
+        // `@__axiom_free`, where the next refill finds it. Without the
+        // list a reset could only ever restore a waterline, so every
+        // chunk mapped after the mark was stranded: measured at 576 KiB
+        // per iteration on a loop whose body crosses a chunk boundary,
+        // which is linear growth in exactly the shape §4.1 exists to
+        // make constant.
+        writeln!(out, "@__axiom_chunk = internal global i64 0").unwrap();
+        writeln!(out, "@__axiom_free = internal global i64 0").unwrap();
+        // How far into the current chunk memory has ever been handed
+        // out. Everything above it is still the zeroes `mmap` gave us;
+        // everything below has been written by the program and must be
+        // scrubbed before it is handed out again. See the `handout`
+        // block for what that buys and why it is not a reset's job.
+        writeln!(out, "@__axiom_high = internal global i64 0").unwrap();
         writeln!(out).unwrap();
         writeln!(
             out,
@@ -1662,13 +1674,16 @@ impl LlvmCodeGen {
         writeln!(out, "  br i1 %fits, label %fast, label %refill").unwrap();
         writeln!(out, "fast:").unwrap();
         writeln!(out, "  store i64 %next, ptr @__axiom_bump").unwrap();
-        writeln!(out, "  ret i64 %cur").unwrap();
+        writeln!(out, "  %high = load i64, ptr @__axiom_high").unwrap();
+        writeln!(out, "  br label %handout").unwrap();
         writeln!(out, "refill:").unwrap();
         // A request bigger than a chunk gets its own mapping,
         // rounded up to a 64 KiB boundary (a page on every
-        // supported target, and the largest of them).
-        writeln!(out, "  %big = icmp ugt i64 %sz, {}", CHUNK).unwrap();
-        writeln!(out, "  %rounded0 = add i64 %sz, 65535").unwrap();
+        // supported target, and the largest of them). The header
+        // is part of what has to fit.
+        writeln!(out, "  %need = add i64 %sz, 16").unwrap();
+        writeln!(out, "  %big = icmp ugt i64 %need, {}", CHUNK).unwrap();
+        writeln!(out, "  %rounded0 = add i64 %need, 65535").unwrap();
         writeln!(out, "  %rounded = and i64 %rounded0, -65536").unwrap();
         writeln!(
             out,
@@ -1676,6 +1691,48 @@ impl LlvmCodeGen {
             CHUNK
         )
         .unwrap();
+        // First fit over the chunks a reset has freed. The list is
+        // short (it holds only what outlived a mark), and a chunk on
+        // it is a whole mapping, so reuse is what keeps a resetting
+        // loop's RSS flat rather than merely its waterline.
+        writeln!(out, "  %fhead = load i64, ptr @__axiom_free").unwrap();
+        writeln!(out, "  br label %scan").unwrap();
+        writeln!(out, "scan:").unwrap();
+        writeln!(
+            out,
+            "  %cand = phi i64 [ %fhead, %refill ], [ %cnext, %scan_next ]"
+        )
+        .unwrap();
+        writeln!(
+            out,
+            "  %prev = phi i64 [ 0, %refill ], [ %cand, %scan_next ]"
+        )
+        .unwrap();
+        writeln!(out, "  %exhausted = icmp eq i64 %cand, 0").unwrap();
+        writeln!(out, "  br i1 %exhausted, label %map, label %scan_test").unwrap();
+        writeln!(out, "scan_test:").unwrap();
+        writeln!(out, "  %candp = inttoptr i64 %cand to ptr").unwrap();
+        writeln!(out, "  %candsz = load i64, ptr %candp").unwrap();
+        writeln!(out, "  %candlink = add i64 %cand, 8").unwrap();
+        writeln!(out, "  %candlinkp = inttoptr i64 %candlink to ptr").unwrap();
+        writeln!(out, "  %cnext = load i64, ptr %candlinkp").unwrap();
+        writeln!(out, "  %roomy = icmp uge i64 %candsz, %chunk").unwrap();
+        writeln!(out, "  br i1 %roomy, label %unlink, label %scan_next").unwrap();
+        writeln!(out, "scan_next:").unwrap();
+        writeln!(out, "  br label %scan").unwrap();
+        writeln!(out, "unlink:").unwrap();
+        writeln!(out, "  %cand_end = add i64 %cand, %candsz").unwrap();
+        writeln!(out, "  %at_head = icmp eq i64 %prev, 0").unwrap();
+        writeln!(out, "  br i1 %at_head, label %unlink_head, label %unlink_mid").unwrap();
+        writeln!(out, "unlink_head:").unwrap();
+        writeln!(out, "  store i64 %cnext, ptr @__axiom_free").unwrap();
+        writeln!(out, "  br label %install").unwrap();
+        writeln!(out, "unlink_mid:").unwrap();
+        writeln!(out, "  %prevlink = add i64 %prev, 8").unwrap();
+        writeln!(out, "  %prevlinkp = inttoptr i64 %prevlink to ptr").unwrap();
+        writeln!(out, "  store i64 %cnext, ptr %prevlinkp").unwrap();
+        writeln!(out, "  br label %install").unwrap();
+        writeln!(out, "map:").unwrap();
         writeln!(
             out,
             "  %addr = call i64 asm sideeffect \"{}\", \"{}\"(i64 {}, i64 0, i64 %chunk, i64 3, i64 {}, i64 -1, i64 0)",
@@ -1693,11 +1750,99 @@ impl LlvmCodeGen {
         writeln!(out, "  %failed = or i1 %failed_low, %failed_neg").unwrap();
         writeln!(out, "  br i1 %failed, label %oom, label %mapped").unwrap();
         writeln!(out, "mapped:").unwrap();
-        writeln!(out, "  %new_bump = add i64 %addr, %sz").unwrap();
+        writeln!(out, "  %virgin_high = add i64 %addr, 16").unwrap();
+        writeln!(out, "  br label %install").unwrap();
+        // Link the chunk - mapped or recycled - onto the active list
+        // and allocate out of it. The header sits at the base, so the
+        // address handed back is base + 16.
+        writeln!(out, "install:").unwrap();
+        writeln!(
+            out,
+            "  %base = phi i64 [ %addr, %mapped ], [ %cand, %unlink_head ], [ %cand, %unlink_mid ]"
+        )
+        .unwrap();
+        writeln!(
+            out,
+            "  %bsize = phi i64 [ %chunk, %mapped ], [ %candsz, %unlink_head ], [ %candsz, %unlink_mid ]"
+        )
+        .unwrap();
+        // The chunk's high water *before* this request is handed out.
+        // A recycled chunk is dirty to its last byte; a fresh mapping
+        // is the kernel's zeroes all the way down, so nothing in it
+        // has ever been handed out. That is the entire difference
+        // between the two, and stating it as a high-water mark is what
+        // keeps the scrub off the mapping path and off the reset.
+        writeln!(
+            out,
+            "  %chunk_high = phi i64 [ %virgin_high, %mapped ], [ %cand_end, %unlink_head ], [ %cand_end, %unlink_mid ]"
+        )
+        .unwrap();
+        writeln!(out, "  %basep = inttoptr i64 %base to ptr").unwrap();
+        writeln!(out, "  store i64 %bsize, ptr %basep").unwrap();
+        writeln!(out, "  %baselink = add i64 %base, 8").unwrap();
+        writeln!(out, "  %baselinkp = inttoptr i64 %baselink to ptr").unwrap();
+        writeln!(out, "  %chead = load i64, ptr @__axiom_chunk").unwrap();
+        writeln!(out, "  store i64 %chead, ptr %baselinkp").unwrap();
+        writeln!(out, "  store i64 %base, ptr @__axiom_chunk").unwrap();
+        writeln!(out, "  %data = add i64 %base, 16").unwrap();
+        writeln!(out, "  %new_bump = add i64 %data, %sz").unwrap();
         writeln!(out, "  store i64 %new_bump, ptr @__axiom_bump").unwrap();
-        writeln!(out, "  %new_end = add i64 %addr, %chunk").unwrap();
+        writeln!(out, "  %new_end = add i64 %base, %bsize").unwrap();
         writeln!(out, "  store i64 %new_end, ptr @__axiom_bump_end").unwrap();
-        writeln!(out, "  ret i64 %addr").unwrap();
+        writeln!(out, "  br label %handout").unwrap();
+        // Both paths converge here to hand out `[%hb, %he)`. Memory
+        // below the high-water mark has been handed out before, so it
+        // holds whatever the program last wrote there and has to be
+        // scrubbed: `memAlloc` promises zeroed memory and the standard
+        // library spends that promise - `Map` and `Intern` read an
+        // all-zero state array as "every slot empty", `strAlloc`
+        // reserves a byte for its NUL terminator and never writes one.
+        // A fresh mapping arrives zeroed from the kernel, so the
+        // promise used to hold for free, and silently stopped holding
+        // the moment an arena reset handed the same bytes out twice:
+        // `strAlloc 3` after a reset measured a `cstrLen` of 17,
+        // running off the end of the string into whatever the arena
+        // last held there.
+        //
+        // Scrubbing here rather than in the reset is what makes the
+        // difference for §4.1's copy-at-boundary: the value being
+        // copied down sits above the restored waterline, in memory the
+        // reset gave back, and it has to survive being read until the
+        // copy that reads it has finished. A reset that scrubbed would
+        // destroy it. This one cannot: it touches a byte only as that
+        // byte is handed to a caller.
+        writeln!(out, "handout:").unwrap();
+        writeln!(out, "  %hb = phi i64 [ %cur, %fast ], [ %data, %install ]").unwrap();
+        writeln!(
+            out,
+            "  %he = phi i64 [ %next, %fast ], [ %new_bump, %install ]"
+        )
+        .unwrap();
+        writeln!(
+            out,
+            "  %hh = phi i64 [ %high, %fast ], [ %chunk_high, %install ]"
+        )
+        .unwrap();
+        writeln!(out, "  %past = icmp ugt i64 %he, %hh").unwrap();
+        writeln!(out, "  %stop = select i1 %past, i64 %hh, i64 %he").unwrap();
+        writeln!(out, "  %newhigh = select i1 %past, i64 %he, i64 %hh").unwrap();
+        writeln!(out, "  store i64 %newhigh, ptr @__axiom_high").unwrap();
+        writeln!(out, "  br label %wipe").unwrap();
+        writeln!(out, "wipe:").unwrap();
+        writeln!(
+            out,
+            "  %wi = phi i64 [ %hb, %handout ], [ %wnext, %wipe_body ]"
+        )
+        .unwrap();
+        writeln!(out, "  %wmore = icmp ult i64 %wi, %stop").unwrap();
+        writeln!(out, "  br i1 %wmore, label %wipe_body, label %wiped").unwrap();
+        writeln!(out, "wipe_body:").unwrap();
+        writeln!(out, "  %wp = inttoptr i64 %wi to ptr").unwrap();
+        writeln!(out, "  store i64 0, ptr %wp").unwrap();
+        writeln!(out, "  %wnext = add i64 %wi, 8").unwrap();
+        writeln!(out, "  br label %wipe").unwrap();
+        writeln!(out, "wiped:").unwrap();
+        writeln!(out, "  ret i64 %hb").unwrap();
         writeln!(out, "oom:").unwrap();
         writeln!(
             out,
@@ -1706,6 +1851,135 @@ impl LlvmCodeGen {
         )
         .unwrap();
         writeln!(out, "  unreachable").unwrap();
+        writeln!(out, "}}").unwrap();
+        writeln!(out).unwrap();
+    }
+
+    /// Emit the two arena primitives as runtime helpers beside the
+    /// allocator whose globals they move.
+    ///
+    /// A mark is the whole allocator position, not just the waterline.
+    /// `@__axiom_bump` alone is meaningless once allocation has moved
+    /// to a different chunk, because `@__axiom_bump_end` still
+    /// describes the newer one - restoring the old bump against the
+    /// new end let the fast path succeed on an address in neither
+    /// chunk, and a mark taken before the first chunk existed handed
+    /// out address 0. So a mark saves bump, end, *and* the chunk that
+    /// bump points into, in a three-word cell so marks can nest.
+    ///
+    /// The cell is allocated *before* the position is read, which is
+    /// what puts it below the mark: a reset restores a waterline above
+    /// its own cell, so the cell is never re-handed-out and the same
+    /// mark can be reset twice.
+    ///
+    /// A reset restores that position and returns every chunk mapped
+    /// since the mark to the free list, so the memory is reused rather
+    /// than stranded. It stays O(1) in the memory it reclaims: it
+    /// writes no byte of it. Two properties depend on that, and both
+    /// are contracts rather than accidents.
+    ///
+    /// The first is that a reset **scrubs nothing**, so memory above
+    /// the restored waterline keeps its contents until it is handed
+    /// out again. §4.1's copy-at-boundary needs exactly this: the
+    /// value being copied down to the waterline is itself sitting in
+    /// the region the reset just gave back, and it has to survive
+    /// being read until the copy finishes. The zeroing `memAlloc`
+    /// promises is delivered by the allocator's `handout` block
+    /// instead, one byte at the moment that byte is handed to a
+    /// caller.
+    ///
+    /// The second is that a mark may be reset twice. The cell is
+    /// allocated before the position is read, so it sits *below* its
+    /// own waterline and a reset never reclaims it.
+    ///
+    /// What a reset cannot survive is being applied to a mark taken
+    /// before an enclosing mark that has already been reset - the
+    /// chunk it names may be on the free list by then. That is a stale
+    /// mark, which the primitives' contract already forbids reading;
+    /// the walk below stops at the end of the chunk list rather than
+    /// running off it.
+    fn emit_arena_helpers(&mut self) {
+        let out = &mut self.output;
+        writeln!(
+            out,
+            "define internal i64 @__axiom_arena_mark_fn() {}{{",
+            NO_BUILTINS_ATTR
+        )
+        .unwrap();
+        writeln!(out, "entry:").unwrap();
+        writeln!(out, "  %cell = call i64 @{}(i64 24)", ALLOC_SYMBOL).unwrap();
+        writeln!(out, "  %bump = load i64, ptr @__axiom_bump").unwrap();
+        writeln!(out, "  %end = load i64, ptr @__axiom_bump_end").unwrap();
+        writeln!(out, "  %chunk = load i64, ptr @__axiom_chunk").unwrap();
+        writeln!(out, "  %p0 = inttoptr i64 %cell to ptr").unwrap();
+        writeln!(out, "  store i64 %bump, ptr %p0").unwrap();
+        writeln!(out, "  %a1 = add i64 %cell, 8").unwrap();
+        writeln!(out, "  %p1 = inttoptr i64 %a1 to ptr").unwrap();
+        writeln!(out, "  store i64 %end, ptr %p1").unwrap();
+        writeln!(out, "  %a2 = add i64 %cell, 16").unwrap();
+        writeln!(out, "  %p2 = inttoptr i64 %a2 to ptr").unwrap();
+        writeln!(out, "  store i64 %chunk, ptr %p2").unwrap();
+        writeln!(out, "  ret i64 %cell").unwrap();
+        writeln!(out, "}}").unwrap();
+        writeln!(out).unwrap();
+
+        writeln!(
+            out,
+            "define internal i64 @__axiom_arena_reset_fn(i64 %cell) {}{{",
+            NO_BUILTINS_ATTR
+        )
+        .unwrap();
+        writeln!(out, "entry:").unwrap();
+        writeln!(out, "  %p0 = inttoptr i64 %cell to ptr").unwrap();
+        writeln!(out, "  %sbump = load i64, ptr %p0").unwrap();
+        writeln!(out, "  %a1 = add i64 %cell, 8").unwrap();
+        writeln!(out, "  %p1 = inttoptr i64 %a1 to ptr").unwrap();
+        writeln!(out, "  %send = load i64, ptr %p1").unwrap();
+        writeln!(out, "  %a2 = add i64 %cell, 16").unwrap();
+        writeln!(out, "  %p2 = inttoptr i64 %a2 to ptr").unwrap();
+        writeln!(out, "  %schunk = load i64, ptr %p2").unwrap();
+        writeln!(out, "  %chead = load i64, ptr @__axiom_chunk").unwrap();
+        writeln!(out, "  %same = icmp eq i64 %chead, %schunk").unwrap();
+        writeln!(out, "  br i1 %same, label %restore, label %unwind").unwrap();
+        // Allocation moved on since the mark, so every chunk between
+        // the head and the marked one is wholly garbage now and goes
+        // back on the free list, to be handed out again by the next
+        // refill. Without this a reset could only ever restore a
+        // waterline, and every chunk mapped after the mark was
+        // stranded - measured at 576 KiB per iteration on a loop whose
+        // body crosses a chunk boundary, which is linear growth in
+        // exactly the shape §4.1 exists to make constant.
+        //
+        // The marked chunk is then dirty from the restored waterline
+        // to its end (it was abandoned because it filled up), and
+        // saying so is one store: the high-water mark moves to that
+        // chunk's end and the scrub happens lazily, on hand-out.
+        writeln!(out, "unwind:").unwrap();
+        writeln!(
+            out,
+            "  %c = phi i64 [ %chead, %entry ], [ %cnext, %unwind_body ]"
+        )
+        .unwrap();
+        writeln!(out, "  %reached = icmp eq i64 %c, %schunk").unwrap();
+        writeln!(out, "  %ranout = icmp eq i64 %c, 0").unwrap();
+        writeln!(out, "  %stop = or i1 %reached, %ranout").unwrap();
+        writeln!(out, "  br i1 %stop, label %tail, label %unwind_body").unwrap();
+        writeln!(out, "unwind_body:").unwrap();
+        writeln!(out, "  %clink = add i64 %c, 8").unwrap();
+        writeln!(out, "  %clinkp = inttoptr i64 %clink to ptr").unwrap();
+        writeln!(out, "  %cnext = load i64, ptr %clinkp").unwrap();
+        writeln!(out, "  %fhead = load i64, ptr @__axiom_free").unwrap();
+        writeln!(out, "  store i64 %fhead, ptr %clinkp").unwrap();
+        writeln!(out, "  store i64 %c, ptr @__axiom_free").unwrap();
+        writeln!(out, "  br label %unwind").unwrap();
+        writeln!(out, "tail:").unwrap();
+        writeln!(out, "  store i64 %send, ptr @__axiom_high").unwrap();
+        writeln!(out, "  br label %restore").unwrap();
+        writeln!(out, "restore:").unwrap();
+        writeln!(out, "  store i64 %sbump, ptr @__axiom_bump").unwrap();
+        writeln!(out, "  store i64 %send, ptr @__axiom_bump_end").unwrap();
+        writeln!(out, "  store i64 %schunk, ptr @__axiom_chunk").unwrap();
+        writeln!(out, "  ret i64 0").unwrap();
         writeln!(out, "}}").unwrap();
         writeln!(out).unwrap();
     }

@@ -171,15 +171,64 @@ named prerequisites: (1) the compiler cannot see pointerhood —
 `Int` is the universal heap-handle type and String unifies with Int
 *by fiat*, so a type-directed trigger is either unsound (it fired
 on the Life probe and corrupted it to population 0) or vacuous;
-(2) `arena_reset` strands chunks mapped after the mark (~320 KiB
-per iteration measured on a chunk-crossing loop), so "O(live),
-always sound" is false past a chunk boundary; (3) a
+(2) ~~`arena_reset` strands chunks mapped after the mark~~
+**fixed, see below**; (3) a
 compiler-inserted copy-down was tried once before — `ArenaCompact`,
 removed because codegen "could not see Str or Vec at all"
 ([self-hosting.md](self-hosting.md)) — and the review's first draft
 re-proposed exactly that failure. The explicit contract is §4.1's
 copy-at-boundary made real today; inference is the research half,
 and it now has a measured target to hit.
+
+**The allocator now reclaims chunks, and hands reclaimed memory
+back zeroed (2026-08-08).** Two defects, one of which nothing had
+ever asked about:
+
+- *Stranded chunks.* A mark saved the waterline and the chunk end,
+  so a reset could restore a position — but every chunk **mapped
+  after** the mark was abandoned, because nothing recorded that it
+  existed. Measured on a loop marking, allocating 1.5 MiB and
+  resetting: 8.0 MiB at 10 iterations, 117.5 MiB at 200, linear at
+  **576 KiB per iteration**. Chunks now carry a two-word header
+  (size, previous chunk) and form a list; a reset walks it back to
+  the marked chunk and moves what it passes to a free list that the
+  next refill fits from. Same loop: **2.9 MiB, flat through 1,000
+  iterations**.
+- *Reclaimed memory came back dirty.* `Mem.memAlloc` documents that
+  it returns **zeroed** memory, and the standard library spends that
+  promise in load-bearing places — `Map` and `Intern` read an
+  all-zero state array as "every slot empty", `strAlloc` reserves a
+  byte for its NUL terminator and never writes one. A fresh mapping
+  arrives zeroed from the kernel, so the promise held for free, and
+  stopped holding silently the first time a reset handed the same
+  bytes out twice. Probed: two bytes of a fresh 256-byte block read
+  255, and `strAlloc 3` produced a string whose `cstrLen` was
+  **17** — `strCStr` running off the end into whatever the arena
+  last held there. So slice 1's "explicit contract" was unsound
+  against the standard library the moment it was used with anything
+  but `Vec`, and its own gate could not see it: the Life probe
+  writes every slot it reads.
+
+The fix is a per-chunk high-water mark. Memory above it has never
+been handed out and is still the kernel's zeroes; memory below it
+is scrubbed **as it is handed out**, one allocation at a time. That
+placement is not an optimisation, it is the contract: §4.1's
+copy-at-boundary reads the value being copied *out of the region
+the reset just gave back*, so a reset that scrubbed would destroy
+it. Scrubbing at the reset was in fact the first version of this
+change, and `check-memory-baseline.sh` failed it in one run —
+managed population 0. A reset writes no byte of what it reclaims,
+and that is now a stated property rather than an accident of the
+implementation.
+
+Cost, best-of-7 at n=10⁶: `map` 0.0429 s → 0.0432 s, `intern`
+0.2731 s → 0.2764 s, `vec` 0.0079 s → 0.0073 s. The extra load and
+compare on the allocation fast path do not show above the noise,
+and one self-compile's peak RSS moves 151 → 152 MiB against the
+400 MiB ceiling.
+`tests/stdlib/160-arena.ax` pins all three properties in both
+compilers; on the pre-fix compiler its new cases print 510, 17 and
+0 against the 0, 3 and 1 they now require.
 
 This is not a pathological program. A loop that builds a value from
 the previous value is the shape of every compiler pass, every request
@@ -701,6 +750,26 @@ Three ways to discharge it, in increasing order of ambition:
 turns the §2.2 number from linear into constant, and it establishes the
 watermark machinery the other two need. Then the second, since linear
 types are already in the surface syntax. Treat the third as optional.
+
+**The watermark machinery is built, and copying at the boundary has
+one requirement the table above does not show.** The value being
+copied *down* to the watermark is itself sitting above that
+watermark — in the memory the reset just reclaimed — so it has to
+survive being read after the reset. That is now a stated property of
+the allocator rather than an accident of it: a reset writes no byte
+of what it reclaims, and the zeroing `memAlloc` promises is
+delivered per allocation, as each byte is handed back out (§2.2).
+
+It leaves a sharper obligation than "copy at the boundary" suggests,
+and the first version of this work got it wrong. Copying down through
+ordinary allocation is only sound when the destination cannot reach
+the source — which holds when an iteration's garbage exceeds its live
+set, and fails exactly when it does not: a server holding a 150 KB
+document and then handling a 200-byte request would allocate its
+copy straight over the original. The Life probe never showed this
+because its live set is constant and its garbage is larger. What
+discharges the obligation in general is doing the reclaim and the
+copy as one step, which is the next slice.
 
 
 
