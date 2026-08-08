@@ -455,3 +455,24 @@
 (pub :: sysGetPid Int)
 ;@axiom:effect(io)
 (pub fn (sysGetPid) (__syscall3 sysGetPidNum 0 0 0))
+
+; Microseconds now, from the platform's cheapest correct clock: Darwin
+; answers gettimeofday's timeval (realtime; Darwin's syscall table has
+; no clock_gettime), Linux answers CLOCK_MONOTONIC via clock_gettime.
+; The 16-byte buffer is caller-supplied so a timing loop allocates
+; nothing. tv_usec is 32-bit on Darwin with struct padding above it -
+; masked, not trusted. A negative answer is the syscall's own error.
+(pub :: sysNowMicros (-> Int Int))
+;@axiom:effect(io)
+(pub fn (sysNowMicros buf)
+  (if (== clockIsGettimeofday 1)
+      (let ((r (__syscall3 sysClockNum buf 0 0)))
+        (if (< r 0)
+            r
+            (+ (* (memGetWord buf 0) 1000000)
+               (& (memGetWord buf 1) 4294967295))))
+      (let ((r (__syscall3 sysClockNum 1 buf 0)))
+        (if (< r 0)
+            r
+            (+ (* (memGetWord buf 0) 1000000)
+               (/ (memGetWord buf 1) 1000))))))

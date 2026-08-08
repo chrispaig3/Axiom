@@ -124,3 +124,13 @@
 ; getpid() - BSD 20
 (pub :: sysGetPidNum Int)
 (pub fn (sysGetPidNum) 33554452)
+
+; gettimeofday(tv, tz) - BSD 116. Writes {tv_sec i64, tv_usec i32+pad}
+; to its 16-byte buffer; the register-return interpretation was probed
+; WRONG on arm64 (x0 is 0 on success, never seconds). Verified against
+; the shell clock, 400,000 reads, zero backwards steps, ~200ns/call.
+(pub :: sysClockNum Int)
+(pub fn (sysClockNum) 33554548)
+
+(pub :: clockIsGettimeofday Int)
+(pub fn (clockIsGettimeofday) 1)

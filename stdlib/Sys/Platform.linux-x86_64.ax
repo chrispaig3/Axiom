@@ -87,3 +87,12 @@
 ; getpid() - 39
 (pub :: sysGetPidNum Int)
 (pub fn (sysGetPidNum) 39)
+
+; clock_gettime(clockid, ts) - 228. CLOCK_MONOTONIC=1; timespec is
+; {tv_sec i64, tv_nsec i64}. Verified by the REPL gate on the CI
+; runner - the first Linux execution of this number.
+(pub :: sysClockNum Int)
+(pub fn (sysClockNum) 228)
+
+(pub :: clockIsGettimeofday Int)
+(pub fn (clockIsGettimeofday) 0)

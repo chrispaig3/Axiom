@@ -21,9 +21,9 @@
 ;   * the banner names THIS compiler, not stage0's version string.
 ;     Gated sessions run --no-banner, so it never enters a byte
 ;     comparison.
-;   * `:time` cannot measure yet - stage1 has no clock primitive -
-;     and says so instead of inventing a number. The benchmarking
-;     item on the P5 list is where the clock arrives.
+;   * `:time` measures with sysNowMicros and prints stage1's own
+;     duration spelling (`Time: 12.345ms`), not Rust's Duration
+;     debug format, which is stage0 internals.
 ;   * `:defs` lists what the session defined, not stage0's builtin
 ;     table render.
 ;
@@ -574,14 +574,19 @@
                         (if (strEq w ":time")
                             ; stage0 prints the two eval lines, then
                             ; the duration (probed: type, result,
-                            ; Time). The duration itself awaits a
-                            ; clock primitive; the line's position
-                            ; does not.
-                            {
-                              (replExpr declsSrc rest)
-                              (replOut "Time: unavailable (stage1 has no clock primitive yet)\n")
-                              0
-                            }
+                            ; Time). The duration is real now -
+                            ; sysNowMicros bracketing the eval - in
+                            ; stage1's own format: stage0 prints
+                            ; Rust's Duration debug, which is
+                            ; internals, and the gate's marker pins
+                            ; only the `Time: ` prefix.
+                            (let ((tbuf (memAlloc 16)))
+                              (let ((t0 (sysNowMicros tbuf)))
+                                {
+                                  (replExpr declsSrc rest)
+                                  (replOut (fmtMicrosMs (- (sysNowMicros tbuf) t0)))
+                                  0
+                                }))
                             (replOut (catStrs (let ((v vecNew))
                               {
                                 (vecPush v "Error: Unknown command '")
@@ -624,3 +629,21 @@
             })))
     0
   })
+
+; `Time: 12.345ms` from a microsecond count - millis, a dot, the
+; microsecond remainder zero-padded to three digits. stage1's own
+; spelling of a duration; the shape gate pins only the prefix.
+(pub :: fmtMicrosMs (-> Int Int))
+(pub fn (fmtMicrosMs us)
+  (let ((u (if (< us 0) 0 us)))
+    (let ((ms (/ u 1000)) (rem (% u 1000)))
+      (catStrs (let ((v vecNew))
+        {
+          (vecPush v "Time: ")
+          (vecPush v (decStr ms))
+          (vecPush v ".")
+          (vecPush v (if (< rem 10) "00" (if (< rem 100) "0" "")))
+          (vecPush v (decStr rem))
+          (vecPush v "ms\n")
+          v
+        })))))

@@ -3131,8 +3131,12 @@ touches the user's; the differ is negative-tested in-gate and the
 Deliberate divergences, recorded: no rustyline (plain line reads;
 piped surface identical, TTY sessions plainer - the editor-grade
 interface is the LSP's), stage1's own banner (never compared;
---no-banner in every gated session), `:time` without a duration
-until the benchmarking item lands the clock, `:defs` listing the
+--no-banner in every gated session), `:time` printing stage1's own
+duration spelling from `sysNowMicros` - the clock primitive landed
+the same day, verified 400,000 reads with zero backwards steps on
+darwin-aarch64, its Linux numbers first executed by the REPL gate
+on the CI runner - rather than Rust's Duration debug format, and
+`:defs` listing the
 session's own definitions rather than stage0's builtin table render,
 and `Parse error:`/`Lexer error:` message BODIES, which are stage0
 Display internals no artifact pins - the bank's error sessions pin
