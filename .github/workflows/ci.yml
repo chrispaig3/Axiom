@@ -276,3 +276,48 @@ jobs:
           echo "$(llvm-config --bindir)" >> "$GITHUB_PATH"
       - name: Byte-identical output from two independent runs
         run: ./scripts/check-reproducible.sh
+
+  # ---------------------------------------------------------------
+  # The job that has to pass before the Rust crates can be deleted.
+  #
+  # Every other job here starts by building the Rust compiler and
+  # asking it for a stage1. This one never touches Rust at all - no
+  # toolchain step, no cache step, no cargo - and builds the compiler
+  # from `bootstrap/`, the compiler's own LLVM IR committed one file
+  # per target. If this is green, a clean checkout of this repository
+  # can produce a working Axiom compiler with nothing but `llc` and a
+  # C linker, which is precisely what removing `axiom-*` requires.
+  #
+  # It also fails when the committed seed goes stale - when self_host/
+  # starts using something the seed cannot compile - and
+  # `scripts/reseed.sh` is the fix. Run on both architectures because
+  # the seed is per-target and a wrong syscall table in one of them is
+  # invisible from the other.
+  # ---------------------------------------------------------------
+  bootstrap-no-rust:
+    name: Bootstrap from seed, no Rust (${{ matrix.name }})
+    needs: lint
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x86_64
+            os: ubuntu-latest
+          - name: darwin-aarch64
+            os: macos-14
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install LLVM tools (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y llvm clang
+          echo "$(llvm-config --bindir)" >> "$GITHUB_PATH"
+      - name: Install LLVM tools (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install llvm
+          echo "$(brew --prefix llvm)/bin" >> "$GITHUB_PATH"
+      - name: Build the compiler from the committed seed
+        run: ./scripts/bootstrap-from-seed.sh

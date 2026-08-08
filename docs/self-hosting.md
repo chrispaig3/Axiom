@@ -3725,3 +3725,71 @@ way cannot see: `tests/selfhost/890-lexical-edges.ax` compiles and
 *runs* a program built from the shapes both compilers accept — a string
 spanning a line break, `'\n'`, `'\''`, and a comma between named fields
 — and both compilers answer 55.
+
+### The seed: what actually stood between here and deleting the Rust compiler
+
+The self-hosting fixpoint has been reached for a while. `stage2` and
+`stage3` are byte-identical, `stage2` builds `stage3` through its own
+driver with no Rust involved, and every gate in the repository has been
+run against a stage2 binary. None of that lets the Rust crates be
+deleted, because every one of those ladders begins by asking the Rust
+compiler for a `stage1`. Remove `axiom-*` from the tree and a fresh
+clone has nothing to build with at all.
+
+That — not any missing feature — is the critical path. It is closed by
+`bootstrap/`: the compiler's own LLVM IR, one file per target,
+committed.
+
+```
+bootstrap/axiom-<target>.ll   →  llc + cc  →  seed
+seed  →  self_host/  →  stage1  →  stage2  →  stage3      (stage2 == stage3)
+```
+
+`scripts/bootstrap-from-seed.sh` runs that, and needs `llc` and a C
+compiler on `PATH` and nothing else. It is wired into CI as
+`bootstrap-no-rust`, the only job with no `rust-toolchain` step, on
+both Linux and macOS.
+
+**Measured, because the design turns on the numbers.** 2.10 MB of IR
+per target; 8.38 MB for all four. The four differ from each other in
+**193 lines of 61,473** — the target triple, the syscall instruction,
+and the syscall numbers — so git stores them as near-duplicates. IR
+rather than a binary because it is text, it diffs, and one `llc`
+invocation adapts it to whatever libc and linker the host has.
+
+**The seed is deliberately not asserted to match the source beside
+it.** A seed regenerated on every compiler commit would put 8.4 MB of
+generated text into every such diff, to buy the property "the seed is
+exactly this source" — which is not the property a clone needs. A
+clone needs *"the seed can build this source"*, and the script checks
+that by doing it. A seed that falls far enough behind to stop
+compiling `self_host/` fails there, naming the stage that could not do
+it, and `scripts/reseed.sh` moves it forward. Go and Rust make the
+same bargain with their bootstrap toolchains.
+
+That the bargain is safe is measured rather than assumed: **a seed
+generated from the previous commit's compiler builds the current tree
+to a byte-identical `stage2 == stage3`.**
+
+**The vacuousness drill, run.** Three ablations, all of which had to
+fail and did:
+
+1. one byte flipped in a seed → refused at the `SHA256SUMS` check
+2. a seed that is a valid Axiom program but *not a compiler* (a
+   `hello`-shaped `.ll`) → refused
+3. a seed one commit stale → **passes**, which is the design claim
+
+Ablation 2 is the one that improved the script. Its first failure read
+`llc rejected the IR seed produced` — true, and blaming the wrong
+file, exactly the trap `check-driver.sh` fell into when a poisoned
+`PATH` proved the pipeline broke rather than that the check under test
+existed. The seeded stage now has to emit something with a target
+triple and more than ten thousand lines before `llc` is allowed an
+opinion, and the message names the stage: `seed emitted no LLVM module
+- it is not a compiler`.
+
+`SHA256SUMS` is a corruption check and not a trust check — a hash and a
+file committed together move together. Ken Thompson's attack applies
+here as it does to every bootstrapped compiler; everything short of it
+is answered by requiring the seed to compile the whole compiler, reach
+a fixpoint, and produce a program that runs.
