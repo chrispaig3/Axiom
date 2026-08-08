@@ -1,0 +1,26 @@
+; A countdown whose loop condition crosses a syscall. This is the
+; shape that ran FOREVER when the syscall templates declared no
+; condition-flags clobber: the Darwin kernel answers through the
+; carry bit, LLVM scheduled the loop's `adds` before the `svc` and
+; the flag-consuming branch after it, and the backedge read whatever
+; the kernel left. Fixed 2026-08-07 with `~{cc}` on every target's
+; template; the IR-level assertion lives in check-cross-targets.sh,
+; and THIS case pins the runtime behavior - on a regressed compiler
+; it does not fail, it hangs, which is loud enough.
+(import IO)
+(import Sys)
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let ((mut n 1000))
+    {
+      (while (> n 0)
+        {
+          ; write of zero bytes: a real syscall with no output.
+          (sysWriteFd 1 0 0)
+          (set n (- n 1))
+        })
+      (printlnInt n)
+      0
+    }))

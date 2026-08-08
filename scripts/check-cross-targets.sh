@@ -238,4 +238,51 @@ for case_file in tests/stdlib/*.ax; do
   done
 done
 
+# Every inline-asm syscall template must declare the condition-flags
+# clobber. The Darwin kernel answers through the CARRY FLAG (the
+# templates' own `b.cc`/`jnc` read it), and with no `~{cc}` declared,
+# LLVM scheduled a countdown loop's `adds` before the `svc` and its
+# flag-consuming branch after - an infinite loop, measured 2026-08-07
+# at every opt level, on the shape every clock and polling loop has.
+# Checked here because this gate already emits IR for all four
+# targets; both compilers' templates are asserted, since the linux-
+# x86_64 one had silently drifted (stage1 matched stage0's stale
+# COMMENT, not its string).
+echo "--- syscall templates declare ~{cc} on every target ---"
+ccwork="$(mktemp -d)"
+trap 'rm -rf "$ccwork"' EXIT
+printf '(import Sys)\n(:: main Int)\n;@axiom:effect(io)\n(fn (main) { (sysWriteFd 1 0 0) 0 })\n' > "$ccwork/cc.ax"
+export AXIOM_STDLIB="${AXIOM_STDLIB:-$(pwd)/stdlib}"
+if ! "$axiom" build --input self_host/main.ax --output "$ccwork/stage1" >"$ccwork/s1build.log" 2>&1; then
+  echo "FAIL: could not build stage1 for the template comparison"
+  status=1
+fi
+for target in darwin-aarch64 darwin-x86_64 linux-aarch64 linux-x86_64; do
+  "$axiom" --target="$target" emit-llvm "$ccwork/cc.ax" -o "$ccwork/s0.ll" >/dev/null 2>&1
+  asms="$(grep -c 'asm sideeffect' "$ccwork/s0.ll" || true)"
+  bare="$(grep 'asm sideeffect' "$ccwork/s0.ll" | grep -vc '~{cc}' || true)"
+  if [[ "$asms" -lt 1 ]]; then
+    echo "FAIL [$target]: the probe emitted no inline-asm syscall at all (the assertion checked nothing)"
+    status=1
+  elif [[ "$bare" -gt 0 ]]; then
+    echo "FAIL [$target]: $bare inline-asm syscall template(s) lack the ~{cc} clobber"
+    status=1
+  else
+    echo "ok   [$target] $asms syscall template(s) all clobber cc"
+  fi
+  # And the two compilers must emit the SAME template, extracted and
+  # compared as strings: the linux-x86_64 drift lived for months
+  # because nothing compared them.
+  if [[ -x "$ccwork/stage1" ]]; then
+    "$ccwork/stage1" --target="$target" emit-llvm "$ccwork/cc.ax" -o "$ccwork/s1.ll" >/dev/null 2>&1
+    t0="$(grep -o '"[^"]*svc[^"]*"\|"[^"]*syscall[^"]*"' "$ccwork/s0.ll" | sort -u)"
+    t1="$(grep -o '"[^"]*svc[^"]*"\|"[^"]*syscall[^"]*"' "$ccwork/s1.ll" | sort -u)"
+    if [[ "$t0" != "$t1" ]]; then
+      echo "FAIL [$target]: the two compilers emit different syscall templates"
+      diff <(printf '%s\n' "$t0") <(printf '%s\n' "$t1") | head -4 | sed 's/^/    /'
+      status=1
+    fi
+  fi
+done
+
 exit "$status"

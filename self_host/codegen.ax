@@ -1459,16 +1459,30 @@
   ; syscall at -O1 and above, which set `@__axiom_bump_end` to
   ; `addr + 0` and made every allocation map a fresh megabyte. stage0
   ; carries the same clobbers and the same explanation.
-  (if (== t 0) "\"svc #0x80\\0Ab.cc 1f\\0Aneg x0, x0\\0A1:\", \"={x0},{x16},{x0},{x1},{x2},{x3},{x4},{x5},~{x1},~{x2},~{x3},~{x4},~{x5},~{x16},~{memory}\""
+  ;
+  ; `~{cc}` is on every template for the same reason one register
+  ; short of it already shipped a bug: the Darwin kernel answers
+  ; through the CARRY FLAG (the templates' own `b.cc`/`jnc` read it),
+  ; and with no flags clobber declared, a countdown loop with a
+  ; syscall in its body compiled to an `adds` before the `svc` and
+  ; its `b.lo` after - an infinite loop, measured 2026-08-07 at every
+  ; opt level. Linux preserves the flags; the clobber is kept anyway,
+  ; because an ABI assumption is exactly what failed here.
+  ;
+  ; linux-x86_64 also declares its argument registers clobbered now,
+  ; matching stage0's STRING (stage0's comment claimed the narrow
+  ; list while its string had been widened; the two compilers must
+  ; match the string, because the string is what compiles).
+  (if (== t 0) "\"svc #0x80\\0Ab.cc 1f\\0Aneg x0, x0\\0A1:\", \"={x0},{x16},{x0},{x1},{x2},{x3},{x4},{x5},~{x1},~{x2},~{x3},~{x4},~{x5},~{x16},~{cc},~{memory}\""
   ; Darwin/x86-64 declares its argument registers clobbered, as
   ; Darwin/arm64 does and as Linux deliberately does not: Linux
   ; documents that it preserves everything but rax/rcx/r11, Darwin
   ; documents nothing and on arm64 demonstrably destroys them. `rdx`
   ; is Darwin's second return register, so the kernel writes it while
   ; `{dx}` is listed here as a live input.
-  (if (== t 1) "\"syscall\\0Ajnc 1f\\0Anegq %rax\\0A1:\", \"={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{memory}\""
-  (if (== t 2) "\"svc #0\", \"={x0},{x8},{x0},{x1},{x2},{x3},{x4},{x5},~{x1},~{x2},~{x3},~{x4},~{x5},~{x8},~{memory}\""
-  "\"syscall\", \"={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rcx},~{r11},~{memory}\""))))
+  (if (== t 1) "\"syscall\\0Ajnc 1f\\0Anegq %rax\\0A1:\", \"={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{cc},~{memory}\""
+  (if (== t 2) "\"svc #0\", \"={x0},{x8},{x0},{x1},{x2},{x3},{x4},{x5},~{x1},~{x2},~{x3},~{x4},~{x5},~{x8},~{cc},~{memory}\""
+  "\"syscall\", \"={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{cc},~{memory}\""))))
 
 (pub :: targetMmapNum (-> Int Int))
 (pub fn (targetMmapNum t)

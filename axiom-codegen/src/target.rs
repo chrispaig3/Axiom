@@ -231,29 +231,31 @@ impl Target {
             Target::DarwinAarch64 => (
                 "svc #0x80\\0Ab.cc 1f\\0Aneg x0, x0\\0A1:",
                 "={x0},{x16},{x0},{x1},{x2},{x3},{x4},{x5},\
-                 ~{x1},~{x2},~{x3},~{x4},~{x5},~{x16},~{memory}",
+                 ~{x1},~{x2},~{x3},~{x4},~{x5},~{x16},~{cc},~{memory}",
             ),
             // Linux/arm64: number in x8, args in x0-x5, `svc #0`.
             // Already returns `-errno`.
             Target::LinuxAarch64 => (
                 "svc #0",
                 "={x0},{x8},{x0},{x1},{x2},{x3},{x4},{x5},\
-                 ~{x1},~{x2},~{x3},~{x4},~{x5},~{x8},~{memory}",
+                 ~{x1},~{x2},~{x3},~{x4},~{x5},~{x8},~{cc},~{memory}",
             ),
             // System V/x86-64: number in rax, args in
             // rdi/rsi/rdx/r10/r8/r9. `syscall` clobbers rcx and r11.
             Target::LinuxX86_64 => (
                 "syscall",
                 "={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},\
-                 ~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{memory}",
+                 ~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{cc},~{memory}",
             ),
             // Darwin/x86-64 uses the same registers as Linux but the
             // same carry-flag error convention as Darwin/arm64 - and,
             // for the same reason, the same argument-register clobbers.
             //
             // Linux documents that its kernel preserves everything
-            // except `rax`, `rcx` and `r11`, which is why the entry
-            // above declares only those. Darwin documents no such
+            // except `rax`, `rcx` and `r11` - but the entry above
+            // declares the argument registers clobbered anyway (this
+            // comment once claimed otherwise while the string had
+            // already been widened; the string is the truth). Darwin documents no such
             // thing, and on arm64 it demonstrably does NOT preserve the
             // argument registers - probed, and the resulting bump
             // allocator bug shipped. `rdx` is the strongest case: it is
@@ -269,7 +271,7 @@ impl Target {
             Target::DarwinX86_64 => (
                 "syscall\\0Ajnc 1f\\0Anegq %rax\\0A1:",
                 "={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},\
-                 ~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{memory}",
+                 ~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{cc},~{memory}",
             ),
         }
     }
@@ -307,6 +309,33 @@ mod tests {
             assert!(!t.bsd_syscall_numbering());
             assert_eq!(t.sys_mmap() & 0x2000000, 0);
             assert_eq!(t.sys_exit() & 0x2000000, 0);
+        }
+    }
+
+    #[test]
+    fn condition_flags_are_declared_clobbered_everywhere() {
+        // The kernel eats the flags, and two of the four templates
+        // READ them: Darwin signals syscall failure in the carry bit,
+        // which is why the arm64 template says `b.cc` and the x86-64
+        // one says `jnc`. Nothing told LLVM. At -O1+ the optimiser is
+        // entitled to keep a comparison's flags live across the whole
+        // asm block, and it did: a countdown loop with a syscall in
+        // its body scheduled the `adds` before the `svc` and the
+        // flag-consuming `b.lo` after it, and ran FOREVER - measured
+        // 2026-08-07 on darwin-aarch64 at every opt level, found by a
+        // clock probe, invisible to every existing test because their
+        // loop conditions happened to be scheduled entirely after the
+        // syscall. The Linux templates get `~{cc}` too: their kernels
+        // preserve the flags, but a clobber that costs a rare spill is
+        // cheaper than an ABI assumption this project has already
+        // watched fail once per architecture.
+        for t in Target::all() {
+            let (_, constraints) = t.syscall_asm();
+            assert!(
+                constraints.contains("~{cc}"),
+                "{} syscall template does not clobber the condition flags",
+                t.name()
+            );
         }
     }
 
