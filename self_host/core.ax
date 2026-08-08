@@ -47,7 +47,22 @@
   ; as `(Box Int)` and the list-ness vanished with no diagnostic.
   ; Appended, so no existing tag moves.
   (TK_LBRACKET)     ; [
-  (TK_RBRACKET))    ; ]
+  (TK_RBRACKET)     ; ]
+  ; The comma separates the fields of a struct variant, and was the
+  ; last byte the lexer's final fallthrough silently swallowed:
+  ; `(Rect { w : Int, h : Int })` arrived as `{ w : Int h : Int }` and
+  ; parsed by luck, because S-expression fields are whitespace
+  ; separated anyway. Turning that fallthrough into AX1001 is what
+  ; asked the question - three corpus files failed at once.
+  (TK_COMMA)        ; ,
+  ; An invalid escape sequence, as opposed to any other lexical error.
+  ; `lexErrDiag` reads the CODE off the first byte of a TK_ERROR span,
+  ; which works for four of the five conditions - only `"` can open a
+  ; string, only `'` a char, only a digit a number - but not for the
+  ; fifth: a bare `\` is an unexpected character AND an escape starts
+  ; with one. Measured: `\` alone drew AX1005 where stage0 says
+  ; AX1001. A separate kind is the distinction the span cannot carry.
+  (TK_ERROR_ESC))   ; \x, x not one of the seven
 
 ; ------------------------------------------------------------------
 ; Token: the product of lexing a single lexical item.

@@ -335,6 +335,68 @@
                       (strConcat (strConcat "Axiom expected " exp)
                                  " at this position"))))))))
 
+; The diagnostic for a LEXICAL error, or 0 when the token stream has
+; none. Lexing happens before parsing, so this is asked first and a
+; file with both kinds of error reports this one - which is also
+; stage0's order.
+;
+; The code comes from the first byte of the offending span, because
+; each of the four conditions `TK_ERROR` carries can only begin one
+; way: `"` a string, `'` a char, a digit a number, anything else an
+; unexpected character. That is why `TK_ERROR` needs no payload - the
+; lexer recorded WHERE, and where determines what.
+;
+; The fifth condition is the exception that earns its own kind. A bad
+; escape starts with `\`, and so does a bare `\` outside any literal,
+; which is an unexpected character. Keying off the byte gave the bare
+; one AX1005 where stage0 says AX1001 - found by sweeping all 94
+; printable bytes through both compilers, not by reading.
+(pub :: lexErrDiag (-> Int Int Int))
+(pub fn (lexErrDiag tokens src)
+  (let ((mut i 0) (mut found 0) (mut isEsc false))
+    {
+      (while (&& (< i (vecLen tokens)) (== found 0))
+        {
+          (let ((k (kindInt (tokenKind (vecGet tokens i)))))
+            (if (== k (kindInt TK_ERROR))
+                { (set found (vecGet tokens i)) 0 }
+                (if (== k (kindInt TK_ERROR_ESC))
+                    { (set found (vecGet tokens i)) (set isEsc true) 0 }
+                    0)))
+          (set i (+ i 1))
+        })
+      (if (== found 0)
+          0
+          (let ((sp (tokenSpan found)))
+            (let ((b (strByte src (spanStart sp))))
+              (if isEsc
+                  (mkDiag SEV_ERROR "AX1005" "invalid-escape-sequence" sp
+                          (strConcat (strConcat "invalid escape sequence `"
+                                                (strSlice src (spanStart sp) 2)) "`")
+                          0 ""
+                          "valid escapes are \\n \\t \\r \\\\ \\\" \\' \\0")
+              (if (== b 34)
+                  (mkDiag SEV_ERROR "AX1002" "unterminated-string" sp
+                          "unterminated string literal" 0 ""
+                          "add a closing `\"`, or escape an embedded quote as `\\\"`")
+              (if (== b 39)
+                  (mkDiag SEV_ERROR "AX1003" "unterminated-char" sp
+                          "unterminated char literal" 0 ""
+                          "character literals must contain exactly one character, e.g. `\'a\'` or `\'\\n\'`")
+              (if (isDigit b)
+                  (mkDiag SEV_ERROR "AX1004" "invalid-number-literal" sp
+                          (strConcat (strConcat "invalid number literal `"
+                                                (strSlice src (spanStart sp)
+                                                          (- (spanEnd sp) (spanStart sp)))) "`")
+                          0 ""
+                          "check for a value that overflows i64/f64 or a malformed exponent")
+                  (mkDiag SEV_ERROR "AX1001" "unexpected-char" sp
+                          (strConcat (strConcat "unexpected character `"
+                                                (strSlice src (spanStart sp) 1)) "`")
+                          0 ""
+                          "identifiers may contain letters, digits, `_`, and `\'`; operators are built from `+ - * / % ^ = < > ! & | . ? ~ @`"))))))))
+    }))
+
 ; The EOF token has no lexeme; stage0 spells it `EOF` in the message.
 (pub :: foundText (-> Int Int))
 (pub fn (foundText tok)
@@ -1396,8 +1458,6 @@
                  names)
                (advance (advance pos)))
           (pErr (advance pos)))
-  ; No comma case: stage1's lexer has no comma token and skips the
-  ; byte, so `{ w : Int, h : Int }` arrives as `{ w : Int h : Int }`.
   (if (peekIs tokens pos TK_IDENT)
       (let ((fname (tokenLexeme (vecGet tokens pos))))
         (if (peekIs tokens (advance pos) TK_COLON)
@@ -1412,11 +1472,21 @@
                                        (identIsFloat tokens (advance (advance pos)))
                                        0))
                     (vecPush tys (memGetWord tr 1))
-                    (parseNamedFieldTypes tokens (memGetWord tr 2) flags
-                                          ctorName tys names)
+                    (parseNamedFieldTypes tokens
+                                          (skipFieldComma tokens (memGetWord tr 2))
+                                          flags ctorName tys names)
                   }))
             (pErr (advance pos))))
   (pErr pos))))
+
+; stage0 consumes at most ONE comma, and only immediately after a
+; completed field (axiom-parser/src/lib.rs:508 for declarations, :909
+; for patterns). So `{ w : Int,, h : Int }` and a leading `{ , w ... }`
+; are parse errors there, and skipping commas wherever they appear
+; would accept programs it refuses.
+(pub :: skipFieldComma (-> Int Int Int))
+(pub fn (skipFieldComma tokens pos)
+  (if (peekIs tokens pos TK_COMMA) (advance pos) pos))
 
 (pub :: setCtorFieldNames (-> Int Int Int))
 (pub fn (setCtorFieldNames n names) { (memSetWord n 9 names) n })
@@ -2230,12 +2300,15 @@
                     pr
                     {
                       (vecPush pats (memGetWord pr 1))
-                      (parseNamedPatFields tokens (memGetWord pr 2) cname csp
-                                           names pats)
+                      (parseNamedPatFields tokens
+                                           (skipFieldComma tokens (memGetWord pr 2))
+                                           cname csp names pats)
                     }))
               {
                 (vecPush pats (mkEVarAt (tokenLexeme fTok) (tokenSpan fTok)))
-                (parseNamedPatFields tokens (advance pos) cname csp names pats)
+                (parseNamedPatFields tokens
+                                     (skipFieldComma tokens (advance pos))
+                                     cname csp names pats)
               })
         })
   (pErr pos))))

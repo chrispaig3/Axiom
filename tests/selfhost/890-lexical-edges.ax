@@ -1,0 +1,31 @@
+; expect 55
+; The lexical shapes both compilers accept, in one case, because each
+; of them was silently WRONG in this compiler until the lexer started
+; reporting lexical errors at all:
+;
+;   a string spanning a line break   refused outright (the scan stopped
+;                                    at the newline), where stage0's
+;                                    string loop has no newline case
+;   `'\n'` and `'\''`                accepted without checking the
+;                                    escape, so `'\q'` was accepted too
+;   `,` between named fields         SKIPPED by the lexer, so the token
+;                                    stream was one for a different
+;                                    program that happened to parse
+;
+; strLen("a\nb") 3 + area 10 + byte of `'` 39 + strLen("\n\t\\") 3 = 55.
+(import Str)
+
+(data Shape
+  (Rect { w : Int, h : Int }))
+
+(:: area (-> Shape Int))
+(fn (area s)
+  (match s
+    ((Rect { w = w, h = h }) (* w h))))
+
+(:: main Int)
+(fn (main)
+  (+ (strLen "a
+b")
+     (+ (area (Rect 2 5))
+        (+ (strByte "'" 0) (strLen "\n\t\\")))))

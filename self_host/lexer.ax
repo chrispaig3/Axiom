@@ -32,11 +32,19 @@
 ; the byte, so `(^ a b)` lexed as `(a b)` and xor became application.
 (pub :: isIdentStart (-> Int Bool))
 (pub fn (isIdentStart ch)
-  (if (isAlpha ch) true (if (== ch 95) true (if (== ch 43) true (if (== ch 45) true (if (== ch 42) true (if (== ch 47) true (if (== ch 37) true (if (== ch 60) true (if (== ch 62) true (if (== ch 61) true (if (== ch 33) true (if (== ch 38) true (if (== ch 124) true (if (== ch 63) true (if (== ch 94) true false))))))))))))))))
+  ; `?` (63) is deliberately NOT here. stage0's dispatch has no arm
+  ; for it, so `?` is AX1001 there and every predicate-style name
+  ; (`empty?`) is a lexer error - measured by sweeping all 94
+  ; printable bytes through both compilers. Admitting `?` into names
+  ; is a language change, worth making on purpose with the
+  ; tree-sitter grammar and the formatter moved alongside; it is not
+  ; made here by an identifier set that happened to be wider.
+  (if (isAlpha ch) true (if (== ch 95) true (if (== ch 43) true (if (== ch 45) true (if (== ch 42) true (if (== ch 47) true (if (== ch 37) true (if (== ch 60) true (if (== ch 62) true (if (== ch 61) true (if (== ch 33) true (if (== ch 38) true (if (== ch 124) true (if (== ch 94) true false)))))))))))))))
 
 (pub :: isIdentChar (-> Int Bool))
 (pub fn (isIdentChar ch)
-  (if (isAlpha ch) true (if (isDigit ch) true (if (== ch 95) true (if (== ch 45) true (if (== ch 33) true (if (== ch 63) true (if (== ch 42) true (if (== ch 43) true (if (== ch 47) true (if (== ch 60) true (if (== ch 62) true (if (== ch 61) true (if (== ch 37) true (if (== ch 38) true (if (== ch 124) true (if (== ch 39) true (if (== ch 94) true false))))))))))))))))))
+  ; `?` (63) is absent here for the reason given on `isIdentStart`.
+  (if (isAlpha ch) true (if (isDigit ch) true (if (== ch 95) true (if (== ch 45) true (if (== ch 33) true (if (== ch 42) true (if (== ch 43) true (if (== ch 47) true (if (== ch 60) true (if (== ch 62) true (if (== ch 61) true (if (== ch 37) true (if (== ch 38) true (if (== ch 124) true (if (== ch 39) true (if (== ch 94) true false)))))))))))))))))
 
 (pub :: isSpace (-> Int Bool))
 (pub fn (isSpace ch)
@@ -144,9 +152,99 @@
             (scanStringEnd src (+ pos 2) len)
         (if (== ch 34)
             (+ pos 1)
-        (if (== ch 10)
-            (- 0 (+ pos 1))
-        (scanStringEnd src (+ pos 1) len)))))))
+        ; A newline is an ORDINARY character inside a string literal.
+        ; This used to stop the scan, so `"one<newline>two"` - which
+        ; stage0 lexes as one string containing a line break
+        ; (axiom-lexer/src/lib.rs:498, whose loop has no newline case)
+        ; - was refused by this compiler. It was refused before the
+        ; lexical diagnostics landed too, just less legibly: the
+        ; TK_ERROR reached the parser and came out as
+        ; `AX2001 expected expression, found "one`. Measured against
+        ; a stage1 built from 61ed4e8.
+        ;
+        ; AX1002's help says "end of input (or end of line)"; only the
+        ; first half is true of either compiler. Banning the line
+        ; break is a language decision, not a lexer detail, and would
+        ; have to move the tree-sitter grammar and the formatter with
+        ; it - so it is not made here by accident.
+        (scanStringEnd src (+ pos 1) len))))))
+
+; ------------------------------------------------------------------
+; Lexical validity.
+;
+; These are the checks that turn a silent divergence into a
+; diagnostic. Each condition below was ACCEPTED by this lexer while
+; stage0 refused it, and two of them changed what the program means:
+;
+;   `99999999999999999999999`  stage0 refuses (AX1004); this compiler
+;                              built it and printed 200376420520689663
+;   `"A\qB"`                   stage0 refuses (AX1005); this compiler
+;                              built it and printed `AqB`
+;   `#`                        stage0 refuses (AX1001); this lexer's
+;                              final fallthrough skipped the byte, so
+;                              the token stream was one for a
+;                              DIFFERENT program
+;
+; A lexical error is reported as a `TK_ERROR` token whose span is the
+; offending text. The CODE does not need a field of its own: the first
+; byte of that span determines it, because each condition can only
+; begin one way - `"` unterminated string, `'` unterminated char, a
+; digit an out-of-range number, `\` a bad escape, anything else an
+; unexpected character. See `lexErrDiag` in parser.ax.
+; ------------------------------------------------------------------
+
+; Do the digits of the integer literal spanning [start, end) fit an
+; i64? stage0 parses the lexeme with `from_str`, so the bound is
+; i64::MAX and a leading `-` buys nothing (probed:
+; `-9223372036854775808` is refused too). `_` separators are ignored,
+; as they are everywhere else.
+(pub :: intLitFits (-> Int Int Int Bool))
+(pub fn (intLitFits src start end)
+  (let ((mut i start) (mut acc 0) (mut ok true))
+    {
+      (while (< i end)
+        (let ((b (strByte src i)))
+          {
+            (if (|| (== b 95) (== b 45))
+                0
+                (let ((d (- b 48)))
+                  (if (|| (> acc 922337203685477580)
+                          (&& (== acc 922337203685477580) (> d 7)))
+                      { (set ok false) 0 }
+                      { (set acc (+ (* acc 10) d)) 0 })))
+            (set i (+ i 1))
+          }))
+      ok
+    }))
+
+; The characters stage0 accepts after a backslash. It writes the set
+; out twice - once for strings (axiom-lexer/src/lib.rs:513) and once
+; for character literals (:563) - and the two lists agree, so this is
+; one function used by both callers here.
+(pub :: isEscapeChar (-> Int Bool))
+(pub fn (isEscapeChar b)
+  (|| (== b 110) (|| (== b 116) (|| (== b 114)
+      (|| (== b 92) (|| (== b 34) (|| (== b 39) (== b 48))))))))
+
+; The position of the first invalid escape inside the string literal
+; spanning [start, end) - `start` on the opening quote, `end` one past
+; the closing one - or -1 when every escape is one stage0 accepts.
+(pub :: badEscapeIn (-> Int Int Int Int))
+(pub fn (badEscapeIn src start end)
+  (let ((mut i (+ start 1)) (mut found (- 0 1)))
+    {
+      (while (&& (< i (- end 1)) (< found 0))
+        (let ((b (strByte src i)))
+          (if (== b 92)
+              {
+                (if (isEscapeChar (if (< (+ i 1) end) (strByte src (+ i 1)) 0))
+                    0
+                    (set found i))
+                (set i (+ i 2))
+              }
+              (set i (+ i 1)))))
+      found
+    }))
 
 ; ------------------------------------------------------------------
 ; Main lexer loop.
@@ -206,12 +304,23 @@
         { (emitToken TK_IDENT pos ep tokens src) ep })
 (if (== ch 34)
       (let ((ep0 (scanStringEnd src (+ pos 1) len)))
-        (let ((kind (if (< ep0 0) TK_ERROR TK_STRING))
-              (ep (if (< ep0 0)
-                      (let ((stop (- (- 0 ep0) 1)))
-                        (if (> stop len) len stop))
-                      ep0)))
-          { (emitToken kind pos ep tokens src) ep }))
+        (if (< ep0 0)
+            ; Unterminated: the error spans from the opening quote to
+            ; where the scan stopped, which - since a newline no longer
+            ; stops it - is the end of the source, exactly as stage0's
+            ; `span(start)` at axiom-lexer/src/lib.rs:541 is.
+            (let ((stop (let ((s (- (- 0 ep0) 1))) (if (> s len) len s))))
+              { (emitToken TK_ERROR pos stop tokens src) stop })
+            ; Terminated, but stage0 also rejects an escape outside its
+            ; set - and this lexer used to pass one through, changing
+            ; the string's BYTES rather than refusing (`"A\qB"` built
+            ; and printed `AqB`). The error spans the two characters of
+            ; the escape; lexing resumes past the whole literal, so one
+            ; bad escape does not cascade.
+            (let ((bad (badEscapeIn src pos ep0)))
+              (if (< bad 0)
+                  { (emitToken TK_STRING pos ep0 tokens src) ep0 }
+                  { (emitToken TK_ERROR_ESC bad (+ bad 2) tokens src) ep0 }))))
 (if (== ch 40)
       { (emitToken TK_LPAREN pos (+ pos 1) tokens src) (+ pos 1) }
 (if (== ch 41)
@@ -226,20 +335,14 @@
               (&& (!= (strByte src (+ pos 1)) 32)
                   (&& (!= (strByte src (+ pos 1)) 40)
                       (!= (strByte src (+ pos 1)) 91))))
-          ; A char literal is quote + one CHARACTER + quote, and a
-          ; character is not a byte: `'é'` is four bytes and `'😀'`
-          ; six. Hardcoding three made stage1 fail to parse any
-          ; non-ASCII char literal at all, where stage0 - which lexes
-          ; a Vec<char> - reads it fine.
-          (let ((ep (if (== (strByte src (+ pos 1)) 92)
-                        (+ pos 4)
-                        (+ (+ pos 2) (utf8SeqLen (strByte src (+ pos 1)))))))
-            { (emitToken TK_CHARLIT pos ep tokens src) ep })
+          (stepCharToken src pos len tokens)
           { (emitToken TK_QUOTE pos (+ pos 1) tokens src) (+ pos 1) })
 (if (== ch 123)
       { (emitToken TK_LBRACE pos (+ pos 1) tokens src) (+ pos 1) }
 (if (== ch 125)
       { (emitToken TK_RBRACE pos (+ pos 1) tokens src) (+ pos 1) }
+(if (== ch 44)
+      { (emitToken TK_COMMA pos (+ pos 1) tokens src) (+ pos 1) }
 (if (== ch 91)
       { (emitToken TK_LBRACKET pos (+ pos 1) tokens src) (+ pos 1) }
 (if (== ch 93)
@@ -248,7 +351,51 @@
       (+ pos 1)
 (if (== ch 59)
       (skipWhitespace src pos len)
-(+ pos 1)))))))))))))))))
+      ; A byte no arm above claims. This was `(+ pos 1)` - the byte
+      ; vanished, and the token stream that came out was the stream for
+      ; a different program, with no diagnostic anywhere. stage0 refuses
+      ; it as AX1001.
+      { (emitToken TK_ERROR pos (+ pos 1) tokens src) (+ pos 1) })))))))))))))))))
+
+; A character literal, following stage0's `consume_char`
+; (axiom-lexer/src/lib.rs:546) step for step, because the ORDER of its
+; three failures decides which code each one gets:
+;
+;   `'\q'`  the escape is not one of the seven -> AX1005, spanning the
+;           BACKSLASH and the character after it, which is what makes
+;           `lexErrDiag` read the code off the first byte. This lexer
+;           used to accept it, so `'\q'` compiled to whatever the
+;           width arithmetic below happened to skip.
+;   `'a`    no closing quote -> AX1003. The span ends one past the
+;           character, NOT at the position the missing quote would
+;           have taken: stage0's span ends where its scan stopped.
+;   `'`+EOF never arrives here - the caller sends it to TK_QUOTE,
+;           because stage0's `peek().is_some_and(..)` is false at end
+;           of input.
+;
+; A char literal is quote + one CHARACTER + quote, and a character is
+; not a byte: `'é'` is four bytes and `'😀'` six. Hardcoding three made
+; stage1 fail to parse any non-ASCII char literal at all, where stage0
+; - which lexes a Vec<char> - reads it fine.
+(pub :: stepCharToken (-> Int Int Int Int Int))
+(pub fn (stepCharToken src pos len tokens)
+  (let ((esc (== (strByte src (+ pos 1)) 92)))
+  (let ((ep (if esc (+ pos 4) (+ (+ pos 2) (utf8SeqLen (strByte src (+ pos 1))))))
+        (badEsc (if (&& esc (< (+ pos 2) len))
+                    (if (isEscapeChar (strByte src (+ pos 2))) false true)
+                    false)))
+    ; Lexing resumes past the whole literal however it turned out, so
+    ; one bad character literal reports once instead of cascading.
+    (let ((stop (if (> ep len) len ep)))
+      (if badEsc
+          { (emitToken TK_ERROR_ESC (+ pos 1) (+ pos 3) tokens src) stop }
+          ; The width was computed, never CHECKED: `'a` with no closing
+          ; quote produced a CHARLIT spanning past the end of the
+          ; literal and, at the end of a file, past the source.
+          (if (&& (<= ep len) (== (strByte src (- ep 1)) 39))
+              { (emitToken TK_CHARLIT pos ep tokens src) ep }
+              (let ((estop (if (> (- ep 1) len) len (- ep 1))))
+                { (emitToken TK_ERROR pos estop tokens src) stop })))))))
 
 (pub :: stepIdentToken (-> Int Int Int Int Int))
 (pub fn (stepIdentToken src pos len tokens)
@@ -268,7 +415,13 @@
                 (isDigit (strByte src (+ ep 1)))))
         (let ((fp (skipDigits src (+ ep 1) len)))
           { (emitToken TK_FLOAT numStart fp tokens src) fp })
-        { (emitToken TK_INT numStart ep tokens src) ep })))
+        (if (intLitFits src numStart ep)
+            { (emitToken TK_INT numStart ep tokens src) ep }
+            ; Out of i64 range. This used to lex as an ordinary TK_INT
+            ; and wrap silently: stage0 refuses
+            ; `99999999999999999999999`, this compiler built it and
+            ; printed 200376420520689663.
+            { (emitToken TK_ERROR numStart ep tokens src) ep }))))
 
 ; Public lexer interface.
 ; ------------------------------------------------------------------

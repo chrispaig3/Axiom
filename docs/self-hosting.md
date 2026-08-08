@@ -3617,3 +3617,111 @@ type — "under-reported, never mis-typed". That is a tolerance with a
 documented reason, and this project's own experience is that a
 tolerance dies loudly when it dies; killing it needs evidence that
 stage1's type grammar covers stage0's, which is its own slice.
+
+### The lexical-error port, and the sweep that found what reading did not
+
+The self-hosted lexer had no diagnostics at all. Five conditions stage0
+refuses arrived here as silence, and two of them changed what the
+program *meant* rather than merely what it reported:
+
+| source | stage0 | this compiler, before |
+|---|---|---|
+| `99999999999999999999999` | AX1004 | built it, and printed `200376420520689663` |
+| `"A\qB"` | AX1005 | built it, and printed `AqB` |
+| `#` | AX1001 | skipped the byte |
+
+The third is the worst of the three even though it prints nothing: a
+skipped byte is not a smaller token stream, it is the token stream for
+a *different program*, which is the same failure `[` and `]` produced
+before `symbols` needed them.
+
+`TK_ERROR` carries no payload. It does not need one for four of the
+five conditions, because each can only begin one way — `"` a string,
+`'` a char, a digit a number, anything else an unexpected character —
+so `lexErrDiag` reads the code off the first byte of the span. The
+fifth is the exception that earns its own kind, and it took a
+measurement to see: a bad escape starts with `\`, and so does a stray
+backslash outside any literal, which is AX1001. Keying off the byte
+gave the stray one AX1005. `TK_ERROR_ESC` is the distinction the span
+cannot carry.
+
+**The instrument.** Reading two lexers side by side finds some of this.
+What actually found it was a sweep: every one of the 94 printable ASCII
+bytes, in three positions — alone, after a letter, before a letter —
+through both compilers, comparing the diagnostic code. It runs in about
+two minutes and it reported **7 divergent bytes of 94**, five of them
+real bugs nobody had looked for:
+
+```
+byte  36 $    stage0=AX2001   stage1=AX1001
+byte  44 ,    stage0=AX2001   stage1=AX1001
+byte  63 ?    stage0=AX1001   stage1=AX2001
+byte  64 @    stage0=AX2001   stage1=AX1001
+byte  92 \    stage0=AX1001   stage1=AX1005
+byte  96 `    stage0=AX2001   stage1=AX1001
+byte  40 (    stage0=AX2001   stage1=AX2002
+```
+
+`,` is the one that mattered. The lexer had been **skipping the comma**,
+so `(Rect { w : Int, h : Int })` arrived as `{ w : Int h : Int }` and
+parsed *by luck* — S-expression fields are whitespace-separated anyway.
+Nothing could see it while unknown bytes vanished; the moment the
+fallthrough became AX1001, three corpus files failed at once. The
+comma is now `TK_COMMA`, and the two named-field loops consume at most
+one immediately after a completed field, which is where stage0 consumes
+it (`axiom-parser/src/lib.rs:508` and `:909`) — skipping commas
+wherever they appear would accept `{ ,, w : Int }`, which stage0
+refuses.
+
+`?` runs the other way: it was in this lexer's identifier set and has
+no arm in stage0's dispatch, so every predicate-style name (`empty?`)
+was a program only one compiler would take. It is out of the set.
+Admitting it is a language change and belongs with the tree-sitter
+grammar and the formatter, not in an identifier set that happened to be
+wider.
+
+**Two refusals of valid programs, found the same way.** A string
+spanning a line break is one string in stage0 — its scan loop has no
+newline case — and was refused here, because `scanStringEnd` stopped at
+the newline. That was not new: a stage1 built from `61ed4e8` refused it
+too, as `AX2001 expected expression, found "one`, which is why nobody
+had noticed. And `'\q'` was accepted, because the char literal's width
+was computed and its escape never checked. AX1002's help still says
+"end of input (or end of line)"; only the first half is true of either
+compiler, and banning the line break is a language decision, not a
+lexer detail.
+
+**Three divergences kept, on purpose.** `$`, `@` and `` ` `` are bytes
+stage0 tokenises and no grammar rule of Axiom uses. stage1 refuses them
+lexically, naming the character; stage0 carries them further and
+reports something else. The evidence says the lexical refusal is the
+better answer in all three:
+
+- `` `42 `` and `,42` are quasiquote and unquote. stage0 **accepts both
+  and miscompiles them**: `axiom-sema` unwraps `EQuasiquote`/`EUnquote`/
+  `ESplice` to their inner expression for type checking (`lib.rs:873`,
+  `:3070`) and `axiom-ir` has no arm for any of the three, so
+  `(fn (main) `42)` builds cleanly and the program **exits 0**. Same
+  shape as `(:: 42 Int)` evaluating to `0` — a node the checker accepts
+  and the IR generator forgot.
+- `$` lexes as `TokenKind::Bang`, so stage0's report for a `$` you typed
+  reads ``undefined variable `!` `` and suggests `+`.
+
+None of the five sigils (`?`, `$`, `@`, `` ` ``, `~`) occurs in code in
+any of the 228 `.ax` files in this repository, so the blast radius of
+all of this is zero and the sweep is the only thing that could have
+found it.
+
+After the port: **3 divergent bytes of 94**, all three the recorded
+decision above. (`(` remains the separate, previously recorded
+parse-error code divergence.)
+
+**Gated.** Six `.axbad` cases in `tests/diagnostics/` — one per code
+plus the char-literal escape — carry three-way AXDL goldens
+(`golden == stage0 == stage1`) and six `.human` goldens whose layout
+`check-render-selfhost.sh` derives from the AXDL rather than trusting.
+The refusal side is only half of it, and the half a gate written this
+way cannot see: `tests/selfhost/890-lexical-edges.ax` compiles and
+*runs* a program built from the shapes both compilers accept — a string
+spanning a line break, `'\n'`, `'\''`, and a comma between named fields
+— and both compilers answer 55.

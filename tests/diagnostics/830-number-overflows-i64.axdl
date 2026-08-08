@@ -1,0 +1,1 @@
+E AX1004 830-number-overflows-i64.ax:2:12-35 invalid-number-literal "invalid number literal `99999999999999999999999`" ?"check for a value that overflows i64/f64 or a malformed exponent"

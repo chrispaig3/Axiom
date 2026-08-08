@@ -1,0 +1,10 @@
+error[AX1005]: invalid escape sequence `\q`
+ --> 840-invalid-string-escape.ax:4:25
+  |
+4 | (fn (main) { (println "A\qB") 0 })
+  |                         ^^
+  |
+  = help: valid escapes are \n \t \r \\ \" \' \0
+  = help: run `axiom explain AX1005` for a full explanation
+
+compilation failed due to 1 previous error

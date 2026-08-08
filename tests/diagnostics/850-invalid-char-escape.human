@@ -1,0 +1,10 @@
+error[AX1005]: invalid escape sequence `\q`
+ --> 850-invalid-char-escape.ax:2:22
+  |
+2 | (fn (main) (let ((c '\q')) 0))
+  |                      ^^
+  |
+  = help: valid escapes are \n \t \r \\ \" \' \0
+  = help: run `axiom explain AX1005` for a full explanation
+
+compilation failed due to 1 previous error

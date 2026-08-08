@@ -285,9 +285,9 @@ if [[ -z "$(axdl_only < "$work/flipneg.err")" ]]; then
   failed=$((failed + 1))
 fi
 
-# a floor well under the current 124 refuses outright.
+# a floor well under the current 163 refuses outright.
 if [[ "$swept" -lt 100 ]]; then
-  echo "FAIL sweep read only $swept files (expected ~124): a tree is missing from the globs"
+  echo "FAIL sweep read only $swept files (expected ~163): a tree is missing from the globs"
   failed=$((failed + 1))
 elif [[ "$selfclean" == 0 ]]; then
   echo "ok   all $swept files across those four trees are clean"

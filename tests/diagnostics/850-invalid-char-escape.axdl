@@ -1,0 +1,1 @@
+E AX1005 850-invalid-char-escape.ax:2:22-24 invalid-escape-sequence "invalid escape sequence `\\q`" ?"valid escapes are \\n \\t \\r \\\\ \\\" \\' \\0"

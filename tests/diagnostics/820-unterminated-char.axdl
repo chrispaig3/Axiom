@@ -1,0 +1,1 @@
+E AX1003 820-unterminated-char.ax:2:21-23 unterminated-char "unterminated char literal" ?"character literals must contain exactly one character, e.g. `'a'` or `'\\n'`"

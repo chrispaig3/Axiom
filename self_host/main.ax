@@ -85,14 +85,23 @@
     (if (== (strLen src) 0)
         (die (cat3 "cannot read input: " fileName "\n") 1)
         (let ((toks (lex src)))
-        (let ((pr (parseModuleWith toks (scanAxtags src))))
-          (if (== (memGetWord pr 0) 0)
+        ; Lexical errors come first, because lexing does - and because
+        ; a file with a bad escape in it has not got a token stream
+        ; worth parsing. stage0 reports them the same way round.
+        (let ((lexD (lexErrDiag toks src)))
+        (let ((pr (if (== lexD 0)
+                      (parseModuleWith toks (scanAxtags src))
+                      (pErr 0))))
+          (if (|| (> lexD 0) (== (memGetWord pr 0) 0))
               ; A parse failure is a DIAGNOSTIC, through the same
               ; renderer and the same exit status as every other one.
               ; It used to be a bare `parse failed` on stderr with exit
               ; 2, against stage0's coded, spanned report and exit 1.
               (let ((ds (let ((v vecNew))
-                          { (vecPush v (parseErrDiag toks pr src)) v }))
+                          { (vecPush v (if (== lexD 0)
+                                           (parseErrDiag toks pr src)
+                                           lexD))
+                            v }))
                     (units (let ((v vecNew))
                              { (vecPush v (cast Int (CUnit2 fileName src 0))) v })))
                 {
@@ -146,7 +155,7 @@
                             (if (== doEmit 0)
                                 ""
                                 (emitResolved allDecls bares fulls tcode)))
-                      })))))))))))
+                      }))))))))))))
 
 ; The entry point: a subcommand if the first argument names one, and
 ; otherwise the original `stage1 FILE [TARGET]` spelling.

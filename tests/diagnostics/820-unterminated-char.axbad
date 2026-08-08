@@ -1,0 +1,2 @@
+(:: main Int)
+(fn (main) (let ((c 'a)) 0))

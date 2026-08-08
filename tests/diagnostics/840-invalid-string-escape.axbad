@@ -1,0 +1,4 @@
+(import IO)
+(:: main Int)
+;@axiom:effect(io)
+(fn (main) { (println "A\qB") 0 })

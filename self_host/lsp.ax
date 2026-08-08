@@ -225,14 +225,21 @@
 (pub :: lspCheckDoc (-> Int Int Int))
 (pub fn (lspCheckDoc path src)
   (let ((toks (lex src)))
-  (let ((pr (parseModuleWith toks (scanAxtags src))))
-    (if (== (memGetWord pr 0) 0)
+  ; A lexical error is reported before a parse one, as it is in the
+  ; compiler: an editor should point at the bad escape rather than at
+  ; whatever the parser tripped over afterwards.
+  (let ((lexD (lexErrDiag toks src)))
+  (let ((pr (if (== lexD 0)
+                (parseModuleWith toks (scanAxtags src))
+                (pErr 0))))
+    (if (|| (> lexD 0) (== (memGetWord pr 0) 0))
         ; A parse failure now carries a code and a span, so the editor
         ; gets a squiggle ON the offending token instead of one
         ; spanless note at the top of the file. That was this port's
         ; first consumer: before it, every typo anywhere in a file
         ; reported identically, at line 1.
-        (jsonArrPush jsonArr (lspDiagJson (parseErrDiag toks pr src) src))
+        (jsonArrPush jsonArr
+          (lspDiagJson (if (== lexD 0) (parseErrDiag toks pr src) lexD) src))
         (let ((decls (memGetWord pr 1))
               (tcode (checkedTargetCode hostTarget))
               (entryDir (dirOfPath path)))
@@ -257,7 +264,7 @@
                                 (set i (+ i 1))
                               }))
                           out
-                        })))))))))))
+                        }))))))))))))
 
 ; ------------------------------------------------------------------
 ; Document symbols
