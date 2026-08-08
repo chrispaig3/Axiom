@@ -86,3 +86,7 @@
 ; shape as `openat`, so `Sys.ax` branches on `openNeedsDirFd` for both.
 (pub :: sysUnlinkNum Int)
 (pub fn (sysUnlinkNum) 35)
+
+; getpid() - 172
+(pub :: sysGetPidNum Int)
+(pub fn (sysGetPidNum) 172)

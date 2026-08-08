@@ -120,3 +120,7 @@
 ; unlink(path) - BSD 10.
 (pub :: sysUnlinkNum Int)
 (pub fn (sysUnlinkNum) 33554442)
+
+; getpid() - BSD 20
+(pub :: sysGetPidNum Int)
+(pub fn (sysGetPidNum) 33554452)

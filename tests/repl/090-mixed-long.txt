@@ -1,0 +1,11 @@
+(fn (add x y) (+ x y))
+(add 1 2)
+(fn (sq x) (* x x))
+(sq (add 2 3))
+(bad_name 1)
+(sq 4)
+(:: dec (-> Int Int))
+(fn (dec x) (- x 1))
+(dec (sq (add 1 2)))
+(== (dec 10) 9)
+"done"

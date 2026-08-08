@@ -241,10 +241,11 @@
                   (|| (strEq s "fmt")
                       (|| (strEq s "explain")
                           (|| (strEq s "symbols")
+                      (|| (strEq s "repl")
                       (|| (strEq s "version")
                           (|| (strEq s "--version")
                               (|| (strEq s "help")
-                                  (|| (strEq s "--help") (strEq s "-h")))))))))))))
+                                  (|| (strEq s "--help") (strEq s "-h"))))))))))))))
 
 ; `--help` has to be recognised as a subcommand rather than parsed as a
 ; flag: the scan that lets global options precede a subcommand skips

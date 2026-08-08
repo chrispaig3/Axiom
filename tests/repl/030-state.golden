@@ -1,0 +1,12 @@
+OK: double defined
+type : Int
+result 42
+OK: triple defined
+OK: triple defined
+type : Int
+result 15
+OK: six_x defined
+type : Int
+result 42
+
+Goodbye!

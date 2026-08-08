@@ -10,6 +10,7 @@
 (import parser)
 (import diag)
 (import render)
+(import repl)
 (import typecheck)
 (import codegen)
 (import driver)
@@ -309,6 +310,8 @@
                     1
                   }
                   { (writeStdout text) 0 }))))
+  (if (strEq cmd "repl")
+      (replMain (if (hasFlag "--no-banner") 1 0))
   (if (strEq cmd "run")
       (let ((f (positionalFrom operandStart)))
         (if (== (strLen f) 0)
@@ -331,22 +334,7 @@
                         (sysExitWith (if (< code 0) 4 code))
                         0
                       }))))))
-      (die "error: unknown subcommand\n" 1)))))))))))
-
-; How many of `ds` are hard errors. The Diag record's first word is
-; the severity CODE - `SEV_ERROR` is 0 - and warnings inform without
-; gating.
-(pub :: countErrorDiags (-> Int Int))
-(pub fn (countErrorDiags ds)
-  (let ((mut i 0) (mut n 0))
-    {
-      (while (< i (vecLen ds))
-        {
-          (if (== (memGetWord (vecGet ds i) 0) SEV_ERROR) (set n (+ n 1)) 0)
-          (set i (+ i 1))
-        })
-      n
-    }))
+      (die "error: unknown subcommand\n" 1))))))))))))
 
 ; A diagnostic code the way stage0's `lookup` normalises one: ASCII
 ; whitespace trimmed, a leading `AX` (any case) stripped, leading

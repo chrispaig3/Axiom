@@ -1,0 +1,6 @@
+type : Int
+result 4
+type : Int
+result 6
+
+Goodbye!

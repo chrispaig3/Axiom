@@ -1,0 +1,14 @@
+type : Int
+result 42
+type : Bool
+result true
+type : Bool
+result false
+type : Char
+result x
+type : String
+result hello
+type : String
+result two words
+
+Goodbye!

@@ -359,3 +359,21 @@
         })
       out
     }))
+
+; How many of `ds` are hard errors. The Diag record's first word is
+; the severity CODE - `SEV_ERROR` is 0 - and warnings inform without
+; gating. Lived in main.ax until the REPL became a second caller:
+; the diagnostics sweep checks every self_host module STANDALONE
+; with only its own imports, so a shared helper in the entry file is
+; a helper only the entry file can see.
+(pub :: countErrorDiags (-> Int Int))
+(pub fn (countErrorDiags ds)
+  (let ((mut i 0) (mut n 0))
+    {
+      (while (< i (vecLen ds))
+        {
+          (if (== (memGetWord (vecGet ds i) 0) SEV_ERROR) (set n (+ n 1)) 0)
+          (set i (+ i 1))
+        })
+      n
+    }))

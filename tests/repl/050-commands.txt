@@ -1,0 +1,7 @@
+:help
+:zzz
+:type (+ 1 2)
+:type
+(fn (f x) x)
+:reset
+(f 1)

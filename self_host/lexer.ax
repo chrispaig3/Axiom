@@ -128,15 +128,24 @@
 ; compiler emitting LLVM has to write.
 (pub :: scanStringEnd (-> Int Int Int Int))
 (pub fn (scanStringEnd src pos len)
+  ; Terminated answers one past the closing quote; UNTERMINATED
+  ; answers the negative of the stop position, minus one so stop 0
+  ; survives the sign. The old contract answered a bare position
+  ; both ways and let the caller infer termination from `ep < len`,
+  ; which misreads the one input whose closing quote is the LAST
+  ; byte - impossible in a module file, where a string always has a
+  ; `)` or whitespace after it, and the first thing the REPL fed the
+  ; lexer: a line that IS a string lexed as TK_ERROR while stage0
+  ; answered String (probed 2026-08-07).
   (if (>= pos len)
-      pos
+      (- 0 (+ pos 1))
       (let ((ch (strByte src pos)))
         (if (== ch 92)
             (scanStringEnd src (+ pos 2) len)
         (if (== ch 34)
             (+ pos 1)
         (if (== ch 10)
-            pos
+            (- 0 (+ pos 1))
         (scanStringEnd src (+ pos 1) len)))))))
 
 ; ------------------------------------------------------------------
@@ -196,8 +205,12 @@
       (let ((ep (skipIdent src (+ pos 1) len)))
         { (emitToken TK_IDENT pos ep tokens src) ep })
 (if (== ch 34)
-      (let ((ep (scanStringEnd src (+ pos 1) len)))
-        (let ((kind (if (< ep len) TK_STRING TK_ERROR)))
+      (let ((ep0 (scanStringEnd src (+ pos 1) len)))
+        (let ((kind (if (< ep0 0) TK_ERROR TK_STRING))
+              (ep (if (< ep0 0)
+                      (let ((stop (- (- 0 ep0) 1)))
+                        (if (> stop len) len stop))
+                      ep0)))
           { (emitToken kind pos ep tokens src) ep }))
 (if (== ch 40)
       { (emitToken TK_LPAREN pos (+ pos 1) tokens src) (+ pos 1) }

@@ -1,0 +1,8 @@
+Type error: undefined variable `zzz`
+type : Int
+result 3
+Type error: undefined variable `undefined_fn`
+type : Int
+result 9
+
+Goodbye!

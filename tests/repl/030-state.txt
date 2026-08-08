@@ -1,0 +1,7 @@
+(fn (double x) (* x 2))
+(double 21)
+(:: triple (-> Int Int))
+(fn (triple x) (* x 3))
+(triple 5)
+(fn (six_x x) (double (triple x)))
+(six_x 7)

@@ -83,3 +83,7 @@
 ; x86-64 still has a real `unlink`.
 (pub :: sysUnlinkNum Int)
 (pub fn (sysUnlinkNum) 87)
+
+; getpid() - 39
+(pub :: sysGetPidNum Int)
+(pub fn (sysGetPidNum) 39)

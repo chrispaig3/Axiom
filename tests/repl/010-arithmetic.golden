@@ -1,0 +1,10 @@
+type : Int
+result 3
+type : Int
+result 42
+type : Int
+result 12
+type : Int
+result 42
+
+Goodbye!

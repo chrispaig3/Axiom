@@ -448,3 +448,10 @@
                 (if (>= rc 0)
                     rc
                     (sysRunSearch name argv envp path (+ end 1))))))))))
+
+; The calling process's own id - the per-session suffix scratch
+; files need so two concurrent processes cannot collide. The
+; syscall takes no arguments; the unused ones are simply zero.
+(pub :: sysGetPid Int)
+;@axiom:effect(io)
+(pub fn (sysGetPid) (__syscall3 sysGetPidNum 0 0 0))

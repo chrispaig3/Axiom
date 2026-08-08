@@ -3072,3 +3072,68 @@ silently absorbed:
   path exists in `render.ax` and is exercised by no current stage1
   diagnostic; converting the resolver's refusal into one is the
   follow-up that unlocks a spanless corpus case.
+
+### The REPL: the last tool, and the bug only it could find
+
+The sixth and final tool surface was the REPL, and its port closes
+the P5 tool list: every command stage0's binary answers, the
+self-hosted compiler now answers too.
+
+The parity target is the piped surface - stage0 writes no prompt
+off-TTY, the `colored` crate suppresses its escapes, and every line
+lands on stdout with stderr empty - which is exactly the surface the
+stage0 integration tests drive, and the roadmap's own doctrine for
+testing an interactive tool. The policy was decided per-behavior
+BEFORE any golden was blessed: byte-identity for everything
+deterministic (all scalar result types including Float's bit-pattern
+print, declaration OK lines, `type :` lines, semantic error texts,
+the colon-command surface with stage0's advertised-but-unreachable
+`?` alias reproduced by reproducing the dispatch, comment and blank
+handling, `:quit`'s no-Goodbye exit); marker-pinned shape for the
+rest (`:time`, which stage1 answers honestly until a clock primitive
+exists; `:llvm`, where each compiler prints its own IR by phase-4
+decision; `:defs`; and stage0's leaked `_fn_0` type variable under
+redefinition - the whole redefinition session is byte-identical
+BUT that one line, down to the same `Error: duplicate definition`
+from the eval, and the leak is a stage0 internal the port does not
+clone).
+
+Evaluation is stage0's design re-expressed through stage1's own
+machinery: declarations accumulate as source; expressions type
+against a fresh check (imports deliberately unresolved, so
+`(println "x")` is an undefined variable at the prompt in both
+compilers - bug-for-bug); the wrapper module is stage0's template
+verbatim; stage1's own emitResolved lowers it; the driver's llc/cc
+invocations assemble it; the child's stdout is captured through
+`sh -c "exec PROG > OUT"` because Darwin's posix_spawn
+file-actions descriptor is not a documented shape. `sysGetPid` (new,
+per-target syscall numbers in the Platform modules) suffixes the
+scratch files so two sessions cannot collide.
+
+The port found what nothing else could have: **a string whose
+closing quote is the last byte of the input lexed as `TK_ERROR`**.
+`scanStringEnd` answered a bare position both for "closed" and
+"unterminated" and the caller inferred termination from `ep < len` -
+true for every string in every module file, where a `)` or newline
+always follows, and false for the first thing the REPL fed the
+lexer: a line that IS a string. The contract now distinguishes the
+two (negative-encoded stop position), and the fix is pinned by the
+literals session in the bank. A new consumer is a gate-widening
+event, sixth occurrence.
+
+`scripts/check-repl-selfhost.sh` runs 12 sessions (floor 12), 9
+byte-identical three-way against checked-in goldens, 3
+marker-pinned; exit codes equal and stderr empty required on every
+one; stage0 runs with HOME redirected so its history file never
+touches the user's; the differ is negative-tested in-gate and the
+`type :`-line ablation was run (9 sessions fail; 12/12 restored).
+
+Deliberate divergences, recorded: no rustyline (plain line reads;
+piped surface identical, TTY sessions plainer - the editor-grade
+interface is the LSP's), stage1's own banner (never compared;
+--no-banner in every gated session), `:time` without a duration
+until the benchmarking item lands the clock, `:defs` listing the
+session's own definitions rather than stage0's builtin table render,
+and `Parse error:`/`Lexer error:` message BODIES, which are stage0
+Display internals no artifact pins - the bank's error sessions pin
+stage1's texts as their own contract.

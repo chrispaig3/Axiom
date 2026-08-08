@@ -1,0 +1,4 @@
+OK: f defined
+type : 
+Error: duplicate definition `f`
+Goodbye!

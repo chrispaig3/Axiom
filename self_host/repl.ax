@@ -1,0 +1,626 @@
+; repl.ax — the interactive evaluator, in Axiom.
+;
+; The parity target is stage0's PIPED surface, which is the surface
+; the integration tests drive and the only one a differential gate
+; can compare: no prompt is written when stdin is not a TTY, the
+; `colored` crate suppresses its escapes, and every line of output -
+; results, errors, command chatter - goes to STDOUT with stderr
+; empty and exit 0. scripts/check-repl-selfhost.sh pins it per
+; behavior: byte-exact where stage0 is deterministic (results of
+; every scalar type, declaration OK lines, `type :` lines, semantic
+; error lines, the command surface), shape-only where it is not
+; (`:time` durations, `:llvm` IR that differs by design, compound
+; results that print per-run heap addresses).
+;
+; Deliberate divergences, recorded in docs/self-hosting.md:
+;   * no rustyline: stage1 reads plain lines, so the interactive
+;     affordances (editing, arrow-key history, the history file) do
+;     not exist. The piped surface is identical; a TTY session is
+;     visibly plainer. The editor-grade interface is the LSP's
+;     business.
+;   * the banner names THIS compiler, not stage0's version string.
+;     Gated sessions run --no-banner, so it never enters a byte
+;     comparison.
+;   * `:time` cannot measure yet - stage1 has no clock primitive -
+;     and says so instead of inventing a number. The benchmarking
+;     item on the P5 list is where the clock arrives.
+;   * `:defs` lists what the session defined, not stage0's builtin
+;     table render.
+;
+; Evaluation is stage0's design re-expressed: declarations accumulate
+; as SOURCE TEXT; each expression is typed against a fresh check of
+; that text, wrapped in a generated module that prints one value,
+; compiled by THIS compiler's own pipeline, assembled with the same
+; llc/cc invocations the driver uses, run, and its stdout re-printed
+; as `result ...`. The wrapper template is stage0's exactly,
+; including the Bool/String/Char/other dispatch and the `Int`-typed
+; `__repl_result` carrier (generate_repl_wrapper, axiom-cli).
+
+(import core)
+(import Host)
+(import Mem)
+(import Str)
+(import Vec)
+(import Sys)
+(import lexer)
+(import parser)
+(import diag)
+(import render)
+(import typecheck)
+(import codegen)
+(import driver)
+
+; All REPL output is stdout - stage0's rule, measured: stderr stayed
+; empty in every probed session, errors included.
+(pub :: replOut (-> Int Int))
+(pub fn (replOut s) (sysWriteFd 1 (strData s) (strLen s)))
+
+; ------------------------------------------------------------------
+; Reading a line from fd 0. One byte per read(2): a REPL line is
+; short and arrives at human or pipe speed, so the syscall count is
+; irrelevant and the buffer bookkeeping a block reader needs is not.
+; Answers the line WITHOUT its newline, or -1 at EOF-before-any-byte
+; (a Str is a pointer, so -1 is not one). A final unterminated line
+; comes back as itself; the next call answers -1.
+; ------------------------------------------------------------------
+(pub :: replReadLine (-> Int Int))
+;@axiom:effect(io)
+(pub fn (replReadLine _u)
+  (let ((buf (memAlloc 8)) (parts vecNew) (mut done 0) (mut sawAny 0))
+    {
+      (while (== done 0)
+        (let ((n (sysReadFd 0 buf 1)))
+          (if (<= n 0)
+              (set done 1)
+              (let ((b (memGetByte buf 0)))
+                (if (== b 10)
+                    { (set sawAny 1) (set done 2) }
+                    {
+                      (set sawAny 1)
+                      (vecPush parts (strSlice (byteAsStr b) 0 1))
+                    })))))
+      (if (== sawAny 0)
+          (- 0 1)
+          (catStrs parts))
+    }))
+
+; A one-byte Str. strAlloc zeroes, so the NUL is already in place.
+(pub :: byteAsStr (-> Int Int))
+(pub fn (byteAsStr b)
+  (let ((s (strAlloc 1)))
+    {
+      (memPutByte (strData s) 0 b)
+      s
+    }))
+
+; ASCII whitespace trim, both ends - stage0 trims every line before
+; classifying it.
+(pub :: replTrim (-> Int Int))
+(pub fn (replTrim s)
+  (let ((mut a 0) (mut b (strLen s)))
+    {
+      (while (&& (< a b) (replIsWs (strByte s a))) (set a (+ a 1)))
+      (while (&& (> b a) (replIsWs (strByte s (- b 1)))) (set b (- b 1)))
+      (strSlice s a (- b a))
+    }))
+
+(pub :: replIsWs (-> Int Bool))
+(pub fn (replIsWs c)
+  (|| (== c 32) (|| (== c 9) (|| (== c 10) (== c 13)))))
+
+; First `:word` of a command line, and the rest after it (trimmed).
+(pub :: cmdWordEnd (-> Int Int))
+(pub fn (cmdWordEnd line)
+  (let ((n (strLen line)) (mut i 0))
+    {
+      (while (&& (< i n) (if (replIsWs (strByte line i)) false true))
+        (set i (+ i 1)))
+      i
+    }))
+
+(pub :: cmdWord (-> Int Int))
+(pub fn (cmdWord line) (strSlice line 0 (cmdWordEnd line)))
+
+(pub :: cmdRest (-> Int Int))
+(pub fn (cmdRest line)
+  (replTrim (strSlice line (cmdWordEnd line)
+                      (- (strLen line) (cmdWordEnd line)))))
+
+; ------------------------------------------------------------------
+; Declaration-or-expression, decided the way stage0's
+; parse_decl_or_expr decides: by whether the form's head is a
+; declaration keyword. stage1's module parser cannot decide for us -
+; it refuses everything else now (the tolerance that accepted
+; `(+ 1 2)` as a module is gone) - so the head is inspected before
+; choosing a parser.
+; ------------------------------------------------------------------
+(pub :: isDeclLine (-> Int Bool))
+(pub fn (isDeclLine line)
+  (if (< (strLen line) 2)
+      false
+      (if (!= (strByte line 0) 40)
+          false
+          (let ((w (declHeadWord line)))
+            (|| (strEq w "fn")
+            (|| (strEq w "define")
+            (|| (strEq w "::")
+            (|| (strEq w "pub")
+            (|| (strEq w "data")
+            (|| (strEq w "struct")
+            (|| (strEq w "import")
+            (|| (strEq w "macro")
+            (|| (strEq w "foreign")
+            (|| (strEq w "effect")
+            (|| (strEq w "type")
+                (strEq w "trait"))))))))))))))))
+
+; The identifier (or `::`) immediately after the opening paren.
+(pub :: declHeadWord (-> Int Int))
+(pub fn (declHeadWord line)
+  (let ((n (strLen line)) (mut i 1))
+    {
+      (while (&& (< i n) (replIsWs (strByte line i))) (set i (+ i 1)))
+      (let ((start i))
+        {
+          (while (&& (< i n)
+                     (let ((c (strByte line i)))
+                       (if (== c 40) false
+                       (if (== c 41) false
+                       (if (replIsWs c) false true)))))
+            (set i (+ i 1)))
+          (strSlice line start (- i start))
+        })
+    }))
+
+; ------------------------------------------------------------------
+; Typing an expression against the accumulated declarations -
+; stage0's check_single_expr re-expressed. The declaration text is
+; parsed and checked FRESH (stage0 re-registers per line; the cost
+; and the semantics both clone), imports deliberately unresolved:
+; stage0's REPL type-checks with a bare TypeChecker, which is why
+; `(println "x")` is an undefined-variable error at the prompt even
+; though the eval wrapper imports IO. Bug-for-bug.
+;
+; Answers a PResult-shaped record: ok, the rendered type Str, and
+; the count of `Type error:` lines it printed (nonzero means the
+; caller stops).
+; ------------------------------------------------------------------
+(pub :: typeExprAgainst (-> Int Int Int))
+;@axiom:effect(io)
+(pub fn (typeExprAgainst declsSrc exprLine)
+  (let ((toks (lex exprLine)))
+    (let ((er (parseExpr toks 0)))
+      (if (== (memGetWord er 0) 0)
+          {
+            (replOut "Parse error: the line does not parse as an expression\n")
+            (pErr 0)
+          }
+          (let ((dtoks (lex declsSrc)))
+            (let ((dr (parseDecls dtoks 0 vecNew)))
+              (if (== (memGetWord dr 0) 0)
+                  {
+                    (replOut "Error: the accumulated declarations no longer parse\n")
+                    (pErr 0)
+                  }
+                  (let ((decls (memGetWord dr 1))
+                        (units (let ((v vecNew))
+                                 {
+                                   (vecPush v (cast Int (CUnit2 "<repl>" declsSrc 0)))
+                                   v
+                                 })))
+                    (let ((tc (checkModuleTc decls decls units)))
+                      (let ((before (vecLen (tcOut tc))))
+                        (let ((ty (checkExpr tc (memGetWord er 1))))
+                          (let ((after (tcOut tc)))
+                            (if (> (vecLen after) before)
+                                {
+                                  (printTypeErrors after before)
+                                  (pErr 0)
+                                }
+                                (pOk (tyRender ty) 0))))))))))))))
+
+(pub :: printTypeErrors (-> Int Int Int))
+;@axiom:effect(io)
+(pub fn (printTypeErrors ds from)
+  (let ((mut i from))
+    {
+      (while (< i (vecLen ds))
+        {
+          (replOut (strConcat (strConcat "Type error: "
+                     (memGetWord (vecGet ds i) 4)) "\n"))
+          (set i (+ i 1))
+        })
+      0
+    }))
+
+; ------------------------------------------------------------------
+; The wrapper module - stage0's generate_repl_wrapper, byte for
+; byte in intent: how a value prints is decided by the RENDERED type
+; string, the result carrier is declared `(-> Int <carrier>)`, and
+; Bool is converted at the source because nothing prints one.
+; ------------------------------------------------------------------
+(pub :: replWrapper (-> Int Int Int Int))
+(pub fn (replWrapper declsSrc exprLine tyStr)
+  (let ((printExpr
+          (if (strEq tyStr "Bool")
+              "(if (== (__repl_result 0) 1) (println \"true\") (println \"false\"))"
+          (if (|| (strEq tyStr "String") (strEq tyStr "Str"))
+              "(println (__repl_result 0))"
+          (if (strEq tyStr "Char")
+              "(let ((s (strAlloc 1)))\n  {\n    (memPutByte (strData s) 0 (cast Int (__repl_result 0)))\n    (println s)\n  })"
+              "(printlnInt (__repl_result 0))"))))
+        (carrier (if (strEq tyStr "Char") "Char" "Int"))
+        (body (if (strEq tyStr "Bool")
+                  (strConcat (strConcat "(if " exprLine) " 1 0)")
+                  exprLine)))
+    (catStrs (let ((v vecNew))
+      {
+        (vecPush v "(import IO)\n(import Str)\n(import Mem)\n")
+        (vecPush v declsSrc)
+        (vecPush v "\n(:: __repl_result (-> Int ")
+        (vecPush v carrier)
+        (vecPush v "))\n(fn (__repl_result _dummy) ")
+        (vecPush v body)
+        (vecPush v ")\n(:: main Int)\n;@axiom:effect(io)\n(fn (main) { ")
+        (vecPush v printExpr)
+        (vecPush v " 0 })")
+        v
+      }))))
+
+; ------------------------------------------------------------------
+; Compile a complete wrapper module to IR through this compiler's
+; own pipeline, WITHOUT compileFile - the REPL must survive a bad
+; line, and compileFile exits. Import resolution still dies if the
+; stdlib itself is unreachable, which is an environment failure, not
+; a line failure; recorded.
+; Answers ok+IR, or prints the failure and answers pErr.
+; ------------------------------------------------------------------
+(pub :: replCompile (-> Int Int))
+;@axiom:effect(io)
+(pub fn (replCompile wrapper)
+  (let ((pr (parseModuleWith (lex wrapper) (scanAxtags wrapper))))
+    (if (== (memGetWord pr 0) 0)
+        {
+          (replOut "Error: parsing failed\n")
+          (pErr 0)
+        }
+        (let ((decls (memGetWord pr 1))
+              (tcode (checkedTargetCode hostTarget))
+              (bares vecNew)
+              (fulls vecNew)
+              (units (let ((v vecNew))
+                       {
+                         (vecPush v (cast Int (CUnit2 "<repl>" wrapper 0)))
+                         v
+                       })))
+          (let ((allDecls (resolveImports decls bares fulls tcode "." units)))
+            (let ((ds (checkModule decls allDecls units)))
+              (if (> (countErrorDiags ds) 0)
+                  {
+                    (replOut (strConcat "Error: " (joinDiagMsgs ds)))
+                    (pErr 0)
+                  }
+                  (pOk (emitResolved allDecls bares fulls tcode) 0))))))))
+
+(pub :: joinDiagMsgs (-> Int Int))
+(pub fn (joinDiagMsgs ds)
+  (let ((parts vecNew) (mut i 0))
+    {
+      (while (< i (vecLen ds))
+        {
+          (if (> i 0) (vecPush parts "; ") 0)
+          (vecPush parts (memGetWord (vecGet ds i) 4))
+          (set i (+ i 1))
+        })
+      (vecPush parts "\n")
+      (catStrs parts)
+    }))
+
+; ------------------------------------------------------------------
+; Assemble, link, run, capture. Scratch files are flat in /tmp,
+; suffixed by pid so two sessions cannot collide (stage0 does the
+; same with a per-pid directory). The child's stdout is captured by
+; running it through `sh -c "exec PROG > OUT"` - the one place a
+; shell is borrowed, because the spawn primitive inherits stdio and
+; Darwin's posix_spawn file_actions descriptor is not a documented
+; shape (docs/self-hosting.md, phase-5 notes).
+; ------------------------------------------------------------------
+(pub :: replEval (-> Int Int))
+;@axiom:effect(io)
+(pub fn (replEval ir)
+  (let ((pid sysGetPid))
+    (let ((base (strConcat "/tmp/axiom-repl-" (fmtIntStr pid))))
+      (let ((ll (strConcat base ".ll"))
+            (obj (strConcat base ".o"))
+            (exe base)
+            (outf (strConcat base ".out")))
+        {
+          (if (< (sysWriteFile (strCStr ll) ir) 0)
+              (replOut "Error: could not write the generated IR\n")
+              (let ((lrc (runTool "llc" (let ((v vecNew))
+                           {
+                             (vecPush v (cast Int ll))
+                             (vecPush v (cast Int "-relocation-model=pic"))
+                             (vecPush v (cast Int "-filetype=obj"))
+                             (vecPush v (cast Int "-o"))
+                             (vecPush v (cast Int obj))
+                             v
+                           }))))
+                (if (!= lrc 0)
+                    (replOut "Error: llc rejected the generated code\n")
+                    (let ((crc (runTool "cc" (let ((v vecNew))
+                                 {
+                                   (vecPush v (cast Int obj))
+                                   (vecPush v (cast Int "-o"))
+                                   (vecPush v (cast Int exe))
+                                   v
+                                 }))))
+                      (if (!= crc 0)
+                          (replOut "Error: linking failed\n")
+                          (let ((cmd (catStrs (let ((v vecNew))
+                                       {
+                                         (vecPush v "exec '")
+                                         (vecPush v exe)
+                                         (vecPush v "' > '")
+                                         (vecPush v outf)
+                                         (vecPush v "'")
+                                         v
+                                       }))))
+                            (let ((rc (runTool "/bin/sh" (argsOf3 "-c" cmd ""))))
+                              (let ((printed (replTrim (sysReadFile (strData outf)))))
+                                (if (> (strLen printed) 0)
+                                    (replOut (strConcat (strConcat "result " printed) "\n"))
+                                    (if (< rc 0)
+                                        (replOut "Error: the program was terminated by a signal\n")
+                                        (replOut (strConcat (strConcat "result "
+                                                   (fmtIntStr rc)) "\n"))))))))))))
+          (sysUnlink (strCStr ll))
+          (sysUnlink (strCStr obj))
+          (sysUnlink (strCStr exe))
+          (sysUnlink (strCStr outf))
+          0
+        }))))
+
+; One expression, end to end: type, announce, wrap, compile, run.
+(pub :: replExpr (-> Int Int Int))
+;@axiom:effect(io)
+(pub fn (replExpr declsSrc line)
+  (let ((tr (typeExprAgainst declsSrc line)))
+    (if (== (memGetWord tr 0) 0)
+        0
+        (let ((tyStr (memGetWord tr 1)))
+          {
+            (replOut (strConcat (strConcat "type : " tyStr) "\n"))
+            (let ((cr (replCompile (replWrapper declsSrc line tyStr))))
+              (if (== (memGetWord cr 0) 0)
+                  0
+                  (replEval (memGetWord cr 1))))
+          }))))
+
+; A declaration line: appended to the source store unconditionally
+; once it PARSES (stage0 gates on parse alone - a decl with a type
+; error is still appended, and the error surfaces when something
+; uses it). The OK line names fn and sig declarations; data-shaped
+; ones say so; anything else is a bare OK.
+(pub :: replDecl (-> Int Int Int))
+;@axiom:effect(io)
+(pub fn (replDecl declsSrc line)
+  (let ((dr (parseDecls (lex line) 0 vecNew)))
+    (if (== (memGetWord dr 0) 0)
+        {
+          (replOut "Parse error: the declaration does not parse\n")
+          declsSrc
+        }
+        (let ((decls (memGetWord dr 1)))
+          {
+            (if (== (vecLen decls) 0)
+                (replOut "OK\n")
+                (let ((d (vecGet decls 0)))
+                  (let ((tag (nodeTag d)))
+                    (if (|| (== tag TAG_D_FN) (== tag TAG_D_SIG))
+                        (replOut (strConcat (strConcat "OK: " (nodeA d)) " defined\n"))
+                    (if (|| (== tag TAG_D_DATA) (== tag TAG_D_STRUCT))
+                        (replOut (strConcat (strConcat "OK: data " (nodeA d)) " defined\n"))
+                        (replOut "OK\n"))))))
+            (strConcat (strConcat declsSrc line) "\n")
+          }))))
+
+; ------------------------------------------------------------------
+; Colon commands - stage0's surface exactly, minus what is recorded
+; divergent. Note `?` is advertised by stage0's help and DEAD in its
+; dispatch (only `:`-prefixed lines reach handle_command), so it is
+; not implemented here either: reproducing the help text reproduces
+; the advertisement, and reproducing the dispatch reproduces the
+; bug.
+; ------------------------------------------------------------------
+(pub :: replHelp Int)
+;@axiom:effect(io)
+(pub fn (replHelp)
+  {
+    (replOut "\nAvailable Commands:\n")
+    (replOut "  :help, :h, ?     Show this help message\n")
+    (replOut "  :quit, :q, :exit      Exit the REPL\n")
+    (replOut "  :type, :t <expr>  Show the type of an expression\n")
+    (replOut "  :load, :l <file>  Load a file into the REPL\n")
+    (replOut "  :reset, :r        Reset the REPL state\n")
+    (replOut "  :defs, :d       Show all definitions in scope\n")
+    (replOut "  :llvm <expr>  Show generated LLVM IR\n")
+    (replOut "  :time <expr>  Time expression evaluation\n")
+    (replOut "\nTips:\n")
+    (replOut "  • Define functions: (define (add x y) (+ x y))\n")
+    (replOut "  • Type signatures: (:: add (-> Int Int Int))\n")
+    (replOut "  • Data types: (data Maybe (a) (Nothing) (Just a))\n")
+    (replOut "  • Expressions are evaluated and results shown\n")
+    (replOut "  • Use ; for line comments\n")
+    (replOut "  • Use arrow keys for history, Ctrl+C to cancel input\n")
+    (replOut "\n")
+    0
+  })
+
+(pub :: replBanner Int)
+;@axiom:effect(io)
+(pub fn (replBanner)
+  {
+    (replOut "axiom (self-hosted) 0.1.0 - Axiom REPL\n")
+    (replOut "Type :help for commands, :quit to exit\n\n")
+    0
+  })
+
+; :type - the argument as typed, colon, its type. Does not evaluate.
+(pub :: replCmdType (-> Int Int Int))
+;@axiom:effect(io)
+(pub fn (replCmdType declsSrc arg)
+  (if (== (strLen arg) 0)
+      { (replOut "Error: Usage: :type <expression>\n") 0 }
+      (let ((tr (typeExprAgainst declsSrc arg)))
+        (if (== (memGetWord tr 0) 0)
+            0
+            {
+              (replOut (catStrs (let ((v vecNew))
+                {
+                  (vecPush v arg)
+                  (vecPush v " : ")
+                  (vecPush v (memGetWord tr 1))
+                  (vecPush v "\n")
+                  v
+                })))
+              0
+            }))))
+
+; :load - the whole file must parse; type errors refuse the load;
+; warnings load and are said out loud (stage0's rule).
+(pub :: replCmdLoad (-> Int Int Int))
+;@axiom:effect(io)
+(pub fn (replCmdLoad declsSrc arg)
+  (if (== (strLen arg) 0)
+      { (replOut "Error: Usage: :load <filename>\n") declsSrc }
+      (let ((src (sysReadFile (strData arg))))
+        (if (== (strLen src) 0)
+            { (replOut (strConcat (strConcat "File error: cannot read '" arg) "'\n")) declsSrc }
+            (let ((pr (parseModuleWith (lex src) (scanAxtags src))))
+              (if (== (memGetWord pr 0) 0)
+                  { (replOut "Parse error: the file does not parse\n") declsSrc }
+                  (let ((decls (memGetWord pr 1))
+                        (units (let ((v vecNew))
+                                 {
+                                   (vecPush v (cast Int (CUnit2 arg src 0)))
+                                   v
+                                 })))
+                    (let ((ds (orderDiags (checkModule decls decls units))))
+                      (if (> (countErrorDiags ds) 0)
+                          { (printTypeErrors ds 0) declsSrc }
+                          {
+                            (if (> (vecLen ds) 0) (printTypeErrors ds 0) 0)
+                            (replOut (strConcat (strConcat "OK: Loaded '" arg) "'\n"))
+                            (strConcat (strConcat declsSrc src) "\n")
+                          })))))))))
+
+(pub :: replCmdLlvm (-> Int Int Int))
+;@axiom:effect(io)
+(pub fn (replCmdLlvm declsSrc arg)
+  (if (== (strLen arg) 0)
+      { (replOut "Error: Usage: :llvm <expression>\n") 0 }
+      (let ((tr (typeExprAgainst declsSrc arg)))
+        (if (== (memGetWord tr 0) 0)
+            0
+            (let ((cr (replCompile (replWrapper declsSrc arg (memGetWord tr 1)))))
+              (if (== (memGetWord cr 0) 0)
+                  0
+                  {
+                    (replOut "Generated LLVM IR:\n")
+                    (replOut (memGetWord cr 1))
+                    0
+                  }))))))
+
+; ------------------------------------------------------------------
+; The loop.
+; ------------------------------------------------------------------
+(pub :: replMain (-> Int Int))
+;@axiom:effect(io)
+(pub fn (replMain noBanner)
+  {
+    (if (== noBanner 0) replBanner 0)
+    (let ((mut declsSrc "") (mut running 1))
+      {
+        (while (== running 1)
+          (let ((raw (replReadLine 0)))
+            (if (== raw (- 0 1))
+                { (set running 0) (replOut "\nGoodbye!\n") }
+                (let ((line (replTrim raw)))
+                  (if (== (strLen line) 0)
+                      0
+                  (if (== (strByte line 0) 59)
+                      0
+                  (if (== (strByte line 0) 58)
+                      (let ((w (cmdWord line)) (rest (cmdRest line)))
+                        (if (|| (strEq w ":help") (strEq w ":h"))
+                            replHelp
+                        (if (|| (strEq w ":quit") (|| (strEq w ":q") (strEq w ":exit")))
+                            { (sysExitWith 0) 0 }
+                        (if (|| (strEq w ":type") (strEq w ":t"))
+                            (replCmdType declsSrc rest)
+                        (if (|| (strEq w ":load") (strEq w ":l"))
+                            { (set declsSrc (replCmdLoad declsSrc rest)) 0 }
+                        (if (|| (strEq w ":reset") (strEq w ":r"))
+                            {
+                              (set declsSrc "")
+                              (replOut "REPL state reset.\n")
+                              0
+                            }
+                        (if (|| (strEq w ":defs") (strEq w ":d"))
+                            (replCmdDefs declsSrc)
+                        (if (strEq w ":llvm")
+                            (replCmdLlvm declsSrc rest)
+                        (if (strEq w ":time")
+                            ; stage0 prints the two eval lines, then
+                            ; the duration (probed: type, result,
+                            ; Time). The duration itself awaits a
+                            ; clock primitive; the line's position
+                            ; does not.
+                            {
+                              (replExpr declsSrc rest)
+                              (replOut "Time: unavailable (stage1 has no clock primitive yet)\n")
+                              0
+                            }
+                            (replOut (catStrs (let ((v vecNew))
+                              {
+                                (vecPush v "Error: Unknown command '")
+                                (vecPush v w)
+                                (vecPush v "'. Type :help for available commands.\n")
+                                v
+                              }))))))))))))
+                  (if (isDeclLine line)
+                      { (set declsSrc (replDecl declsSrc line)) 0 }
+                      (replExpr declsSrc line)))))))))
+        0
+      })
+  })
+
+; :defs - what THIS session defined, one line per parsed declaration
+; name. stage0 renders its whole builtin table here; reproducing
+; that render is recorded divergent until someone needs it.
+(pub :: replCmdDefs (-> Int Int))
+;@axiom:effect(io)
+(pub fn (replCmdDefs declsSrc)
+  {
+    (replOut "Definitions in scope:\n")
+    (let ((dr (parseDecls (lex declsSrc) 0 vecNew)))
+      (if (== (memGetWord dr 0) 0)
+          0
+          (let ((decls (memGetWord dr 1)) (mut i 0))
+            {
+              (while (< i (vecLen decls))
+                (let ((d (vecGet decls i)))
+                  {
+                    (if (|| (== (nodeTag d) TAG_D_FN)
+                            (|| (== (nodeTag d) TAG_D_SIG)
+                                (|| (== (nodeTag d) TAG_D_DATA)
+                                    (== (nodeTag d) TAG_D_STRUCT))))
+                        (replOut (strConcat (strConcat "  " (nodeA d)) "\n"))
+                        0)
+                    (set i (+ i 1))
+                  }))
+              0
+            })))
+    0
+  })

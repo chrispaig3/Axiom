@@ -1,0 +1,19 @@
+OK: add defined
+type : Int
+result 3
+OK: sq defined
+type : Int
+result 25
+Type error: undefined variable `bad_name`
+type : Int
+result 16
+OK: dec defined
+OK: dec defined
+type : Int
+result 8
+type : Bool
+result true
+type : String
+result done
+
+Goodbye!
