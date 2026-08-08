@@ -348,6 +348,131 @@ else:
           f"{N + 1} symbols, error found on line {BIG_ERR_LINE})")
     passed += 1
 
+# ---------------------------------------------------------------------
+# An editing session does not grow.
+#
+# This is the roadmap's §1 dependency edge measured on the thing that
+# depends on it. The server reuses the compiler's frontend, so every
+# edit re-parses and re-checks - and on a bump allocator that never
+# frees, every one of those was retained for the life of the process:
+# 8.3 MB after one `didChange` of a 16 KB file, 693.7 MB after two
+# hundred. Flat now, because the loop reclaims to a mark after each
+# message and carries the store and the reader's unconsumed bytes
+# across the reclaim in one block.
+#
+# What makes this gate non-vacuous is the pair of checks together. RSS
+# alone cannot tell reclamation from a server that died on message
+# three: BOTH sessions must publish diagnostics for every edit and
+# answer the shutdown, and only then does the memory comparison mean
+# anything.
+
+
+def run_measured(argv, payload, cwd):
+    """Run a child on `payload` and answer (stdout, exit status, peak
+    RSS in KiB). `os.wait4` gives the rusage of THIS child, which
+    `RUSAGE_CHILDREN` does not - it reports a maximum over every child
+    so far, so a smaller second run would read as the larger first."""
+    rfd, wfd = os.pipe()
+    orfd, owfd = os.pipe()
+    pid = os.fork()
+    if pid == 0:                                    # child
+        os.dup2(rfd, 0)
+        os.dup2(owfd, 1)
+        for fd in (rfd, wfd, orfd, owfd):
+            os.close(fd)
+        os.chdir(cwd)
+        os.execv(argv[0], argv)
+        os._exit(127)
+    os.close(rfd)
+    os.close(owfd)
+    # Feed and drain concurrently: the payload is larger than a pipe
+    # buffer and the server answers as it reads, so writing it all
+    # before reading deadlocks both ends.
+    import threading
+    chunks = []
+
+    def drain():
+        while True:
+            b = os.read(orfd, 65536)
+            if not b:
+                return
+            chunks.append(b)
+
+    t = threading.Thread(target=drain)
+    t.start()
+    try:
+        os.write(wfd, payload)
+    except BrokenPipeError:
+        pass
+    os.close(wfd)
+    t.join()
+    os.close(orfd)
+    _, status, ru = os.wait4(pid, 0)
+    # Darwin reports bytes, Linux kilobytes.
+    kib = ru.ru_maxrss // 1024 if sys.platform == "darwin" else ru.ru_maxrss
+    return b"".join(chunks), status, kib
+
+
+MEM_SRC = open(os.path.join(fixdir, "060-outline.ax"), encoding="utf-8").read()
+mem_uri = "file://" + os.path.join(os.path.abspath(fixdir), "060-outline.ax")
+
+
+def edit_session(n):
+    ms = [{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
+          {"jsonrpc": "2.0", "method": "textDocument/didOpen",
+           "params": {"textDocument": {"uri": mem_uri, "languageId": "axiom",
+                                       "version": 1, "text": MEM_SRC}}}]
+    for i in range(n):
+        ms.append({"jsonrpc": "2.0", "method": "textDocument/didChange",
+                   "params": {"textDocument": {"uri": mem_uri, "version": i + 2},
+                              "contentChanges": [{"text": MEM_SRC + "\n; %d\n" % i}]}})
+    ms += [{"jsonrpc": "2.0", "id": 2, "method": "shutdown", "params": None},
+           {"jsonrpc": "2.0", "method": "exit", "params": None}]
+    return b"".join(frame(m) for m in ms)
+
+
+SMALL, BIG_N = 5, 200
+SLOPE_CEILING_KIB = 2048     # over 195 further edits
+ABSOLUTE_CEILING_KIB = 32768
+
+why = None
+rss = {}
+for n in (SMALL, BIG_N):
+    out, st, kib = run_measured([stage1, "lsp"], edit_session(n), fixdir)
+    rss[n] = kib
+    msgs, tail = unframe(out)
+    pubs = [m for m in msgs if m.get("method") == "textDocument/publishDiagnostics"]
+    answered = {m["id"] for m in msgs if "id" in m}
+    if st != 0:
+        why = f"{n}-edit session exited {st}"
+    elif tail:
+        why = f"{n}-edit session left {len(tail)} unframed trailing bytes"
+    elif len(pubs) != n + 1:
+        why = (f"{n}-edit session published {len(pubs)} diagnostics, want {n + 1}"
+               " - it did not process every edit, so its memory means nothing")
+    elif 2 not in answered:
+        why = f"{n}-edit session never answered shutdown"
+    if why:
+        break
+
+if not why:
+    slope = rss[BIG_N] - rss[SMALL]
+    if slope > SLOPE_CEILING_KIB:
+        why = (f"{rss[SMALL]} KiB at {SMALL} edits, {rss[BIG_N]} KiB at {BIG_N}"
+               f" - grew {slope} KiB over {BIG_N - SMALL} edits"
+               f" ({slope * 1024 // (BIG_N - SMALL)} bytes per edit),"
+               f" ceiling {SLOPE_CEILING_KIB} KiB")
+    elif rss[BIG_N] > ABSOLUTE_CEILING_KIB:
+        why = f"{rss[BIG_N]} KiB at {BIG_N} edits exceeds {ABSOLUTE_CEILING_KIB} KiB"
+
+if why:
+    print(f"FAIL editing-session-is-flat: {why}")
+    failed += 1
+else:
+    print(f"ok   editing-session-is-flat ({rss[SMALL]} KiB at {SMALL} edits, "
+          f"{rss[BIG_N]} KiB at {BIG_N}, every edit checked)")
+    passed += 1
+
 print(f"\nlsp: {passed} passed, {failed} failed, "
-      f"{len(fixtures)} fixtures + 1 generated")
+      f"{len(fixtures)} fixtures + 2 generated")
 sys.exit(1 if failed else 0)

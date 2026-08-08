@@ -124,7 +124,7 @@ NEEDS_OPT="320-effect-gc-roots"
 
 STAGE0_CANNOT="270-lex 280-parse 290-emit 300-pipeline 630-decl-spans \
 640-axdl-render 650-quote 660-span-shapes 680-expr-spans 720-type-render \
-840-large-lex 880-format-scan"
+840-large-lex 845-large-axtags 880-format-scan"
 
 passed=0; failed=0; skipped=0; xfail=0; compared=0
 

@@ -245,6 +245,24 @@ pub enum IrInst {
     ArenaReset {
         ptr: IrValue,
     },
+    /// Roll the waterline back to `ptr` like [`IrInst::ArenaReset`],
+    /// but carry `bytes` bytes at `addr` across the reclaim, copying
+    /// them down to the restored waterline. `dest` is where they now
+    /// live; every other address in the reclaimed range is gone.
+    ///
+    /// The reclaim and the copy are one instruction because they
+    /// cannot be two. Written as a reset followed by an ordinary
+    /// allocate-and-copy, the allocation lands at the restored
+    /// waterline and is scrubbed on the way out - over the source
+    /// itself whenever the kept block is larger than the garbage
+    /// around it, which is the normal case for a server holding a
+    /// document and handling a small request.
+    ArenaResetKeeping {
+        dest: IrValue,
+        ptr: IrValue,
+        addr: IrValue,
+        bytes: IrValue,
+    },
 
     // ========================================================
     // Freestanding primitives
@@ -396,7 +414,8 @@ impl IrInst {
             | IrInst::ArenaMark { .. }
             | IrInst::Argc { .. }
             | IrInst::Argv { .. }
-            | IrInst::ArenaReset { .. } => Vec::new(),
+            | IrInst::ArenaReset { .. }
+            | IrInst::ArenaResetKeeping { .. } => Vec::new(),
         }
     }
 }

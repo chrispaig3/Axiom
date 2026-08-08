@@ -1,0 +1,43 @@
+; expect 42
+; The AXTAG scan's frame count must not grow with the source size.
+;
+; `scanAxtagsFrom` walked the source one byte per recursive call. Three
+; of its four branches were plain self tail calls, which cost nothing
+; under a compiler that eliminates them - and stage1 does not eliminate
+; them here, so a stage1-built binary that has not been through `opt`
+; paid one frame per ordinary byte of every module it resolved.
+;
+; It was invisible for as long as no module was big enough to reach the
+; limit, and it was reached by ordinary growth: adding to
+; `self_host/codegen.ax` pushed the FORMATTED copy of it from 215,369
+; to 221,940 bytes, and `check-fmt.sh` - which re-runs the suites
+; against a formatted copy of the whole repository, the largest input
+; anything here compiles - segfaulted on `300-pipeline`. Nothing about
+; that change touched the lexer.
+;
+; Measured on the pre-fix spelling: 400 KB of comment-free source
+; segfaults, while 400 KB that is almost entirely comment lines does
+; not - because a comment is skipped in one step and an ordinary byte
+; costs a frame. That asymmetry is why `840-large-lex.ax` did not catch
+; this: it exercises `lex`, and nothing exercised `scanAxtags` at
+; scale.
+;
+; 26 bytes doubled fourteen times is ~426 KB, comfortably past where
+; the recursive spelling died, and one line in two is an AXTAG so the
+; scan has real work to do rather than one long skip. Restoring the
+; recursive spelling fails this case with SIGSEGV.
+(import Str)
+(import Vec)
+(import lexer)
+
+(:: rep (-> Int Int Int))
+(fn (rep s n)
+  (if (== n 0) s (rep (strConcat s s) (- n 1))))
+
+(:: main Int)
+(fn (main)
+  (let ((src (rep ";@axiom:pure\n(fn (f x) x)\n" 14)))
+    (if (&& (> (strLen src) 400000)
+            (== (vecLen (scanAxtags src)) 16384))
+        42
+        1)))

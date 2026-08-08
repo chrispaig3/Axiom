@@ -57,6 +57,26 @@
 (pub :: rdFilled (-> Int Int))   (pub fn (rdFilled r)   (memGetWord r 2))
 (pub :: rdConsumed (-> Int Int)) (pub fn (rdConsumed r) (memGetWord r 3))
 
+; Re-seat a reader on freshly allocated storage, carrying `u` bytes of
+; not-yet-consumed input from `addr`.
+;
+; A caller that reclaims its arena between messages needs this: the
+; reader's buffer was allocated inside the region being reclaimed, so
+; it cannot be kept, and the bytes of the *next* message that this read
+; already pulled in cannot be dropped. `u` may exceed the default
+; capacity - a partially-read large message is exactly the case - so
+; the new buffer is at least as big as what it has to hold.
+(pub :: rdReseat (-> Int Int Int Int))
+(pub fn (rdReseat r addr u)
+  (let ((buf (strAlloc (if (> u rdCap) u rdCap))))
+    {
+      (memCopy (strData buf) addr u)
+      (memSetWord r 1 buf)
+      (memSetWord r 2 u)
+      (memSetWord r 3 0)
+      r
+    }))
+
 ; Move the live region to the front, and double the buffer if it is
 ; still full afterwards. Answers nothing useful; it mutates `r`.
 (pub :: rdCompact (-> Int Int))

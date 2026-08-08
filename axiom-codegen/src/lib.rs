@@ -1279,7 +1279,11 @@ impl LlvmCodeGen {
                     );
                 }
             }
-            IrInst::ArenaMark { .. } | IrInst::ArenaReset { .. } if self.gc_active => {
+            IrInst::ArenaMark { .. }
+            | IrInst::ArenaReset { .. }
+            | IrInst::ArenaResetKeeping { .. }
+                if self.gc_active =>
+            {
                 // The waterline these save and restore belongs to the
                 // bump allocator. Under the collector there is no
                 // waterline, and "free everything allocated since here"
@@ -1326,7 +1330,11 @@ impl LlvmCodeGen {
                     );
                 }
             }
-            IrInst::ArenaMark { .. } | IrInst::ArenaReset { .. } if !self.bump_allocator_emitted => {
+            IrInst::ArenaMark { .. }
+            | IrInst::ArenaReset { .. }
+            | IrInst::ArenaResetKeeping { .. }
+                if !self.bump_allocator_emitted =>
+            {
                 // The arena primitives are the built-in allocator's own
                 // controls: they save and restore *its* globals. When a
                 // program supplies its own `axiom_alloc` the built-in is
@@ -1370,6 +1378,29 @@ impl LlvmCodeGen {
                     result_reg, ptr_val
                 )
                 .unwrap();
+            }
+            IrInst::ArenaResetKeeping {
+                dest,
+                ptr,
+                addr,
+                bytes,
+            } => {
+                let ptr_val = self.value_to_llvm(ptr)?;
+                let addr_val = self.value_to_i64(addr)?;
+                let bytes_val = self.value_to_i64(bytes)?;
+                let result_reg = self.new_local_reg();
+                writeln!(
+                    self.output,
+                    "  {} = call i64 @__axiom_arena_reset_keeping_fn(i64 {}, i64 {}, i64 {})",
+                    result_reg, ptr_val, addr_val, bytes_val
+                )
+                .unwrap();
+                if let IrValue::Local(name) = dest {
+                    self.ssa_values.insert(
+                        name.clone(),
+                        (result_reg, TypeId::TCon("I64".to_string(), vec![])),
+                    );
+                }
             }
             IrInst::StoreOffset { ptr, offset, value } => {
                 let ptr_val = self.value_to_llvm(ptr)?;
@@ -1980,6 +2011,130 @@ impl LlvmCodeGen {
         writeln!(out, "  store i64 %send, ptr @__axiom_bump_end").unwrap();
         writeln!(out, "  store i64 %schunk, ptr @__axiom_chunk").unwrap();
         writeln!(out, "  ret i64 0").unwrap();
+        writeln!(out, "}}").unwrap();
+        writeln!(out).unwrap();
+
+        self.emit_arena_reset_keeping();
+    }
+
+    /// Emit `__axiom_arena_reset_keeping_fn(cell, src, bytes)`: reclaim
+    /// to the mark and carry one contiguous block across the reclaim,
+    /// answering where it landed.
+    ///
+    /// This exists because a caller cannot build it out of the two
+    /// primitives it looks like. Written as `reset` then "allocate and
+    /// copy", the destination is allocated *after* the reset, so it
+    /// lands at the restored waterline and the allocator scrubs it on
+    /// the way out - and when the kept block is larger than the garbage
+    /// around it, the scrub runs over the source before the copy reads
+    /// it. That is not a corner case: it is a server holding a 150 KB
+    /// document and answering a 200-byte request. Doing the reclaim and
+    /// the copy in one step means the destination is never handed out
+    /// through `axiom_alloc` and never scrubbed - the copy is what
+    /// initialises it.
+    ///
+    /// The copy runs forwards, which is safe here in both directions it
+    /// can face. Within one chunk the source was allocated after the
+    /// mark, so `dst <= src` and a forward copy of overlapping ranges
+    /// reads each byte before it is overwritten. Across chunks the two
+    /// ranges are separate mappings and cannot overlap at all - which
+    /// matters, because `mmap` hands out chunks in no particular
+    /// address order, so `dst <= src` is exactly the thing not to
+    /// assume there.
+    ///
+    /// When the block does not fit in what remains of the marked chunk,
+    /// the destination chunk comes from a fresh mapping rather than
+    /// from the free list. The free list at that moment holds the
+    /// chunks this very call just reclaimed, one of which may be the
+    /// source's.
+    fn emit_arena_reset_keeping(&mut self) {
+        let (body, constraints) = self.target.syscall_asm();
+        let mmap = self.target.sys_mmap();
+        let exit = self.target.sys_exit();
+        let flags = self.target.map_private_anon();
+        let out = &mut self.output;
+        writeln!(
+            out,
+            "define internal i64 @__axiom_arena_reset_keeping_fn(i64 %cell, i64 %src, i64 %bytes) {}{{",
+            NO_BUILTINS_ATTR
+        )
+        .unwrap();
+        writeln!(out, "entry:").unwrap();
+        writeln!(out, "  %r = call i64 @__axiom_arena_reset_fn(i64 %cell)").unwrap();
+        writeln!(out, "  %sz0 = add i64 %bytes, 15").unwrap();
+        writeln!(out, "  %sz = and i64 %sz0, -16").unwrap();
+        writeln!(out, "  %bump = load i64, ptr @__axiom_bump").unwrap();
+        writeln!(out, "  %end = load i64, ptr @__axiom_bump_end").unwrap();
+        writeln!(out, "  %stop = add i64 %bump, %sz").unwrap();
+        writeln!(out, "  %fits = icmp ule i64 %stop, %end").unwrap();
+        writeln!(out, "  br i1 %fits, label %inplace, label %fresh").unwrap();
+        writeln!(out, "inplace:").unwrap();
+        writeln!(out, "  store i64 %stop, ptr @__axiom_bump").unwrap();
+        writeln!(out, "  br label %copy").unwrap();
+        // A fresh mapping, deliberately not the free list - see above.
+        // The chunk is linked onto the active list like any other, so a
+        // later reset reclaims it.
+        writeln!(out, "fresh:").unwrap();
+        writeln!(out, "  %need = add i64 %sz, 16").unwrap();
+        writeln!(out, "  %rounded0 = add i64 %need, 65535").unwrap();
+        writeln!(out, "  %want = and i64 %rounded0, -65536").unwrap();
+        writeln!(
+            out,
+            "  %addr = call i64 asm sideeffect \"{}\", \"{}\"(i64 {}, i64 0, i64 %want, i64 3, i64 {}, i64 -1, i64 0)",
+            body, constraints, mmap, flags
+        )
+        .unwrap();
+        writeln!(out, "  %failed_low = icmp ult i64 %addr, 4096").unwrap();
+        writeln!(out, "  %failed_neg = icmp ugt i64 %addr, -4096").unwrap();
+        writeln!(out, "  %failed = or i1 %failed_low, %failed_neg").unwrap();
+        writeln!(out, "  br i1 %failed, label %oom, label %adopt").unwrap();
+        writeln!(out, "adopt:").unwrap();
+        writeln!(out, "  %basep = inttoptr i64 %addr to ptr").unwrap();
+        writeln!(out, "  store i64 %want, ptr %basep").unwrap();
+        writeln!(out, "  %baselink = add i64 %addr, 8").unwrap();
+        writeln!(out, "  %baselinkp = inttoptr i64 %baselink to ptr").unwrap();
+        writeln!(out, "  %chead = load i64, ptr @__axiom_chunk").unwrap();
+        writeln!(out, "  store i64 %chead, ptr %baselinkp").unwrap();
+        writeln!(out, "  store i64 %addr, ptr @__axiom_chunk").unwrap();
+        writeln!(out, "  %fdata = add i64 %addr, 16").unwrap();
+        writeln!(out, "  %fbump = add i64 %fdata, %sz").unwrap();
+        writeln!(out, "  store i64 %fbump, ptr @__axiom_bump").unwrap();
+        writeln!(out, "  %fend = add i64 %addr, %want").unwrap();
+        writeln!(out, "  store i64 %fend, ptr @__axiom_bump_end").unwrap();
+        writeln!(out, "  store i64 %fbump, ptr @__axiom_high").unwrap();
+        writeln!(out, "  br label %copy").unwrap();
+        // The destination is dirty and stays unscrubbed: the copy
+        // writes every byte the caller asked to keep, and the bytes
+        // past `%bytes` up to the 16-byte rounding are padding no
+        // caller can name. `@__axiom_high` already covers this range on
+        // the in-place path - the source was handed out from it - so
+        // the next allocation above still scrubs correctly.
+        writeln!(out, "copy:").unwrap();
+        writeln!(out, "  %dst = phi i64 [ %bump, %inplace ], [ %fdata, %adopt ]").unwrap();
+        writeln!(out, "  br label %loop").unwrap();
+        writeln!(out, "loop:").unwrap();
+        writeln!(out, "  %i = phi i64 [ 0, %copy ], [ %i2, %loop_body ]").unwrap();
+        writeln!(out, "  %more = icmp ult i64 %i, %bytes").unwrap();
+        writeln!(out, "  br i1 %more, label %loop_body, label %done").unwrap();
+        writeln!(out, "loop_body:").unwrap();
+        writeln!(out, "  %sa = add i64 %src, %i").unwrap();
+        writeln!(out, "  %sp = inttoptr i64 %sa to ptr").unwrap();
+        writeln!(out, "  %b = load i8, ptr %sp").unwrap();
+        writeln!(out, "  %da = add i64 %dst, %i").unwrap();
+        writeln!(out, "  %dp = inttoptr i64 %da to ptr").unwrap();
+        writeln!(out, "  store i8 %b, ptr %dp").unwrap();
+        writeln!(out, "  %i2 = add i64 %i, 1").unwrap();
+        writeln!(out, "  br label %loop").unwrap();
+        writeln!(out, "done:").unwrap();
+        writeln!(out, "  ret i64 %dst").unwrap();
+        writeln!(out, "oom:").unwrap();
+        writeln!(
+            out,
+            "  call i64 asm sideeffect \"{}\", \"{}\"(i64 {}, i64 70, i64 0, i64 0, i64 0, i64 0, i64 0)",
+            body, constraints, exit
+        )
+        .unwrap();
+        writeln!(out, "  unreachable").unwrap();
         writeln!(out, "}}").unwrap();
         writeln!(out).unwrap();
     }

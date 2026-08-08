@@ -1870,6 +1870,116 @@
     (emitLine cg "  ret i64 0")
     (emitLine cg "}")
     (emitLine cg "")
+    (emitArenaKeepHelper cg)
+    cg
+  })
+
+; ------------------------------------------------------------------
+; `__axiom_arena_reset_keeping_fn(cell, src, bytes)`: reclaim to the
+; mark and carry one contiguous block across the reclaim, answering
+; where it landed. stage0's `emit_arena_reset_keeping`.
+;
+; It exists because a caller CANNOT build it out of the two primitives
+; it looks like. Written as a reset followed by allocate-and-copy, the
+; destination is handed out by `axiom_alloc`, which scrubs it - and
+; when the kept block is bigger than the garbage around it, the scrub
+; runs over the source before the copy reads it. Measured on a 40 KB
+; block kept across a 64-byte allocation: 39,841 of 40,000 bytes wrong
+; on the FIRST round. That is not a corner case, it is a server holding
+; a document and answering a short request.
+;
+; The copy runs forwards, which is safe in both directions it can face.
+; Within one chunk the source was allocated after the mark, so
+; `dst <= src` and a forward copy reads each byte before overwriting
+; it. Across chunks the ranges are separate mappings and cannot overlap
+; at all - which matters, because `mmap` hands out chunks in no
+; particular address order, so `dst <= src` is exactly what not to
+; assume there.
+;
+; When the block does not fit in what remains of the marked chunk the
+; destination comes from a FRESH mapping, never the free list: the free
+; list at that moment holds the chunks this call just reclaimed, one of
+; which may be the source's.
+; ------------------------------------------------------------------
+(pub :: emitArenaKeepHelper (-> Int Int))
+(pub fn (emitArenaKeepHelper cg)
+  {
+    (emitLine cg (cat2 "define internal i64 @__axiom_arena_reset_keeping_fn"
+                       "(i64 %cell, i64 %src, i64 %bytes) #0 {"))
+    (emitLine cg "entry:")
+    (emitLine cg "  %r = call i64 @__axiom_arena_reset_fn(i64 %cell)")
+    (emitLine cg "  %sz0 = add i64 %bytes, 15")
+    (emitLine cg "  %sz = and i64 %sz0, -16")
+    (emitLine cg "  %bump = load i64, ptr @__axiom_bump")
+    (emitLine cg "  %end = load i64, ptr @__axiom_bump_end")
+    (emitLine cg "  %stop = add i64 %bump, %sz")
+    (emitLine cg "  %fits = icmp ule i64 %stop, %end")
+    (emitLine cg "  br i1 %fits, label %inplace, label %fresh")
+    (emitLine cg "inplace:")
+    (emitLine cg "  store i64 %stop, ptr @__axiom_bump")
+    (emitLine cg "  br label %copy")
+    (emitLine cg "fresh:")
+    (emitLine cg "  %need = add i64 %sz, 16")
+    (emitLine cg "  %rounded0 = add i64 %need, 65535")
+    (emitLine cg "  %want = and i64 %rounded0, -65536")
+    (emitLine cg (strConcat
+                   (cat4 "  %addr = call i64 asm sideeffect "
+                         (targetSyscallAsm (memGetWord cg 26))
+                         "(i64 "
+                         (fmtInt (targetMmapNum (memGetWord cg 26))))
+                   (cat3 ", i64 0, i64 %want, i64 3, i64 "
+                         (fmtInt (targetMapFlags (memGetWord cg 26)))
+                         ", i64 -1, i64 0)")))
+    (emitLine cg "  %failed_low = icmp ult i64 %addr, 4096")
+    (emitLine cg "  %failed_neg = icmp ugt i64 %addr, -4096")
+    (emitLine cg "  %failed = or i1 %failed_low, %failed_neg")
+    (emitLine cg "  br i1 %failed, label %oom, label %adopt")
+    (emitLine cg "adopt:")
+    (emitLine cg "  %basep = inttoptr i64 %addr to ptr")
+    (emitLine cg "  store i64 %want, ptr %basep")
+    (emitLine cg "  %baselink = add i64 %addr, 8")
+    (emitLine cg "  %baselinkp = inttoptr i64 %baselink to ptr")
+    (emitLine cg "  %chead = load i64, ptr @__axiom_chunk")
+    (emitLine cg "  store i64 %chead, ptr %baselinkp")
+    (emitLine cg "  store i64 %addr, ptr @__axiom_chunk")
+    (emitLine cg "  %fdata = add i64 %addr, 16")
+    (emitLine cg "  %fbump = add i64 %fdata, %sz")
+    (emitLine cg "  store i64 %fbump, ptr @__axiom_bump")
+    (emitLine cg "  %fend = add i64 %addr, %want")
+    (emitLine cg "  store i64 %fend, ptr @__axiom_bump_end")
+    (emitLine cg "  store i64 %fbump, ptr @__axiom_high")
+    (emitLine cg "  br label %copy")
+    ; The destination stays unscrubbed: the copy writes every byte the
+    ; caller asked to keep, and the bytes past `%bytes` up to the
+    ; 16-byte rounding are padding no caller can name.
+    (emitLine cg "copy:")
+    (emitLine cg "  %dst = phi i64 [ %bump, %inplace ], [ %fdata, %adopt ]")
+    (emitLine cg "  br label %loop")
+    (emitLine cg "loop:")
+    (emitLine cg "  %i = phi i64 [ 0, %copy ], [ %i2, %loop_body ]")
+    (emitLine cg "  %more = icmp ult i64 %i, %bytes")
+    (emitLine cg "  br i1 %more, label %loop_body, label %done")
+    (emitLine cg "loop_body:")
+    (emitLine cg "  %sa = add i64 %src, %i")
+    (emitLine cg "  %sp = inttoptr i64 %sa to ptr")
+    (emitLine cg "  %b = load i8, ptr %sp")
+    (emitLine cg "  %da = add i64 %dst, %i")
+    (emitLine cg "  %dp = inttoptr i64 %da to ptr")
+    (emitLine cg "  store i8 %b, ptr %dp")
+    (emitLine cg "  %i2 = add i64 %i, 1")
+    (emitLine cg "  br label %loop")
+    (emitLine cg "done:")
+    (emitLine cg "  ret i64 %dst")
+    (emitLine cg "oom:")
+    (emitLine cg (strConcat
+                   (cat4 "  call i64 asm sideeffect "
+                         (targetSyscallAsm (memGetWord cg 26))
+                         "(i64 "
+                         (fmtInt (targetExitNum (memGetWord cg 26))))
+                   ", i64 70, i64 0, i64 0, i64 0, i64 0, i64 0)"))
+    (emitLine cg "  unreachable")
+    (emitLine cg "}")
+    (emitLine cg "")
     cg
   })
 
@@ -3929,8 +4039,9 @@
   ; rejects. stage0 carries a comment about hitting the identical bug.
   (if (strEq nm "__axiom_arena_mark") true
   (if (strEq nm "__axiom_arena_reset") true
+  (if (strEq nm "__axiom_arena_reset_keeping") true
   (if (isSyscallName nm) true
-  false))))))))))))))
+  false)))))))))))))))
 
 ; `__syscall0` through `__syscall6`, distinguished only by how many
 ; arguments follow the syscall number.
@@ -3954,7 +4065,8 @@
     (if (strEq fnName "__argv")    (emitPrimArgv args cg)
     (if (strEq fnName "__axiom_arena_mark")  (emitPrimArenaMark cg)
     (if (strEq fnName "__axiom_arena_reset") (emitPrimArenaReset args cg)
-    (emitPrimSyscall args cg)))))))))))))))
+    (if (strEq fnName "__axiom_arena_reset_keeping") (emitPrimArenaResetKeeping args cg)
+    (emitPrimSyscall args cg))))))))))))))))
 
 ; Both primitives are ONE CALL into the helpers `emitArenaHelpers`
 ; emitted beside the allocator - see there for what a mark saves and
@@ -3983,6 +4095,29 @@
             (memSetWord cg1 2 (constStr 0))
             cg1
           })))))
+
+; `(__axiom_arena_reset_keeping mark addr bytes)` -> where the kept
+; block landed. Unlike the other two this one ANSWERS a value, so its
+; result register goes in field 2.
+(pub :: emitPrimArenaResetKeeping (-> Int Int Int))
+(pub fn (emitPrimArenaResetKeeping args cg)
+  (let ((cg0 (emitExpr (vecGet args 0) cg)))
+    (let ((cell (strDup (memGetWord cg0 2))))
+      (let ((cg1 (emitExpr (vecGet args 1) cg0)))
+        (let ((src (strDup (memGetWord cg1 2))))
+          (let ((cg2 (emitExpr (vecGet args 2) cg1)))
+            (let ((n (strDup (memGetWord cg2 2))))
+              (let ((r (regStr (allocReg cg2))))
+                (let ((cg3 (emitLine cg2
+                             (strConcat
+                               (cat4 (cat2 "  " r)
+                                     " = call i64 @__axiom_arena_reset_keeping_fn(i64 "
+                                     cell ", i64 ")
+                               (cat4 src ", i64 " n ")")))))
+                  {
+                    (memSetWord cg3 2 r)
+                    cg3
+                  })))))))))
 
 ; `(__argc)`: the count the entry wrapper captured before main ran.
 (pub :: emitPrimArgc (-> Int Int))

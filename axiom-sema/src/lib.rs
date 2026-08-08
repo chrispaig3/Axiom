@@ -1219,6 +1219,17 @@ pub const PRIMITIVES: &[(&str, usize, bool)] = &[
     // Arena watermark: save / restore bump-allocator position.
     ("__axiom_arena_mark", 0, false),
     ("__axiom_arena_reset", 1, false),
+    // `(__axiom_arena_reset_keeping mark addr bytes)` -> the address
+    // the `bytes` at `addr` now live at. Reclaims to `mark` exactly as
+    // `__axiom_arena_reset` does, and keeps one contiguous block alive
+    // across the reclaim by copying it down to the restored waterline.
+    //
+    // This is §4.1's "copy at the boundary" as one step, and it has to
+    // be one step: a caller cannot do it with a reset and a copy,
+    // because the copy's destination is allocated *after* the reset and
+    // the allocator would scrub it - over the source, when the live set
+    // is larger than the garbage.
+    ("__axiom_arena_reset_keeping", 3, false),
 ];
 
 /// `(__addr s)` -> the address of string literal `s`'s bytes.

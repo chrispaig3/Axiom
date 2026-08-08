@@ -298,32 +298,40 @@
 ; char literals.
 (pub struct AxtagEnt (off : Int) (content : Int))
 
+; A LOOP, not a recursion, for the same reason `lexTokens` and
+; `dispatchChar` are loops: this walks ONE BYTE PER STEP, so its depth
+; is the size of the source. Written as a tail call that is free only
+; where the compiler turns it into a jump, and a stage1-built binary
+; that has not been through `opt` does not - so it cost one frame per
+; byte of every module it read, and died at somewhere between 215 KB
+; and 222 KB of input. That ceiling was invisible for as long as no
+; single file was big enough to reach it; adding to `self_host/codegen.ax`
+; reached it, through `check-fmt.sh`, whose formatted copy of the
+; repository is the largest input anything in this project reads.
 (pub :: scanAxtags (-> Int Int))
 (pub fn (scanAxtags src)
-  (let ((acc vecNew))
-    { (scanAxtagsFrom src 0 (strLen src) acc) acc }))
-
-(pub :: scanAxtagsFrom (-> Int Int Int Int Int))
-(pub fn (scanAxtagsFrom src pos len acc)
-  (if (>= pos len)
-      0
-      (let ((ch (strByte src pos)))
-        (if (== ch 34)
-            (scanAxtagsFrom src (skipStringBody src (+ pos 1) len) len acc)
-        (if (== ch 39)
-            (scanAxtagsFrom src (skipCharBody src (+ pos 1) len) len acc)
-        (if (== ch 59)
-            (let ((nl (findNewline src pos len)))
-              {
-                (if (== (hasAxiomPrefix src (+ pos 1) len) 1)
-                    (vecPush acc
-                      (cast Int (AxtagEnt pos
-                                  (strSlice src (+ pos 8)
-                                            (- nl (+ pos 8))))))
-                    0)
-                (scanAxtagsFrom src nl len acc)
-              })
-        (scanAxtagsFrom src (+ pos 1) len acc)))))))
+  (let ((acc vecNew) (len (strLen src)) (mut pos 0))
+    {
+      (while (< pos len)
+        (let ((ch (strByte src pos)))
+          (if (== ch 34)
+              (set pos (skipStringBody src (+ pos 1) len))
+          (if (== ch 39)
+              (set pos (skipCharBody src (+ pos 1) len))
+          (if (== ch 59)
+              (let ((nl (findNewline src pos len)))
+                {
+                  (if (== (hasAxiomPrefix src (+ pos 1) len) 1)
+                      (vecPush acc
+                        (cast Int (AxtagEnt pos
+                                    (strSlice src (+ pos 8)
+                                              (- nl (+ pos 8))))))
+                      0)
+                  (set pos nl)
+                })
+              (set pos (+ pos 1)))))))
+      acc
+    }))
 
 ; `@axiom:` is seven bytes; the tag's content starts one past them,
 ; which is why the slice above begins at pos+8 (the `;` plus seven).

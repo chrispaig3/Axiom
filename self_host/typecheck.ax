@@ -509,6 +509,7 @@
       (regFn fns "__argv" (mkIntArrow 1))
       (regFn fns "__axiom_arena_mark" (mkIntArrow 0))
       (regFn fns "__axiom_arena_reset" (mkIntArrow 1))
+      (regFn fns "__axiom_arena_reset_keeping" (mkIntArrow 3))
       (regFn fns "__addr" (mkTArr mkStringTy mkIntTy))
       (regFn fns "__intToFloat" (mkTArr mkIntTy mkFloatTy))
       (regFn fns "__floatToInt" (mkTArr mkFloatTy mkIntTy))

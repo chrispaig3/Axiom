@@ -1291,9 +1291,28 @@ words at runtime. An integer that happens to equal a live object's
 address keeps that object alive. It never moves anything, so pointer
 identity holds.
 
-`__axiom_arena_mark` and `__axiom_arena_reset` belong to the bump
-allocator and are a compile error under `--gc`: a tracing collector
-reclaims by reachability and has no waterline to roll back to.
+`__axiom_arena_mark`, `__axiom_arena_reset` and
+`__axiom_arena_reset_keeping` belong to the bump allocator and are a
+compile error under `--gc`: a tracing collector reclaims by
+reachability and has no waterline to roll back to. They are also a
+compile error in a program that defines its own `axiom_alloc`, which
+replaces the allocator whose position they move.
+
+The three carry a contract the compiler cannot check: after a reset,
+nothing allocated since the matching mark may be read again. What the
+allocator does guarantee around them is worth stating, because the
+one useful pattern depends on it:
+
+- `memAlloc` answers **zeroed** memory always, including memory a
+  reset has reclaimed and handed out again.
+- A reset **writes nothing** to what it reclaims. Memory above the
+  restored waterline keeps its contents until it is handed out again.
+- `(__axiom_arena_reset_keeping mark addr bytes)` reclaims to `mark`
+  and carries the `bytes` at `addr` across the reclaim, answering
+  their new address. This is how a value is kept: doing it as a reset
+  followed by an ordinary copy is unsound, because the copy's
+  destination is scrubbed on allocation and the scrub can run over
+  the source.
 
 ### Using the AI-Optimized Format
 

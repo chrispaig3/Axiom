@@ -1909,6 +1909,12 @@ impl IrGen {
             ("__axiom_arena_reset", 1) => IrInst::ArenaReset {
                 ptr: args[0].clone(),
             },
+            ("__axiom_arena_reset_keeping", 3) => IrInst::ArenaResetKeeping {
+                dest: dest_val.clone(),
+                ptr: args[0].clone(),
+                addr: args[1].clone(),
+                bytes: args[2].clone(),
+            },
             _ => return None,
         };
         // The store-shaped primitives have no result; they still

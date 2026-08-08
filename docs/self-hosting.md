@@ -3401,3 +3401,140 @@ accepted, so it pins both halves, and it checks the exit status against
 (limit raised out of reach), it reports
 `stage1 died of signal 11 on 100000-deep nesting instead of refusing`
 and exits 1.
+
+### The language server stopped growing, and what that cost the allocator
+
+The LSP's first slice was gated and correct and leaked 3.4 MB per
+keystroke. That number is the roadmap's §1 dependency edge with
+evidence attached: the server reuses the compiler's frontend, so every
+`didChange` re-parses and re-checks the document, and on a bump
+allocator that never frees, every one of those re-checks was retained
+for the life of the process. Measured on a 16 KB file: 8.3 MB after one
+edit, 39.5 MB after ten, 693.7 MB after two hundred.
+
+Fixing it turned out to be three findings deep, and only the first was
+the one I set out to fix.
+
+**A reset stranded every chunk mapped after the mark.** A mark saved
+the waterline and the chunk end, which is enough to restore a position
+and nothing else: chunks mapped after the mark were simply forgotten.
+A loop that marks, allocates 1.5 MiB and resets measured 576 KiB of
+growth per iteration — the *same linear shape* the memory model exists
+to remove, one level below where the roadmap was looking for it.
+Chunks now carry a two-word header and form a list; a reset walks it
+back to the marked chunk and moves what it passes onto a free list the
+next refill fits from. Same loop, 2.9 MiB, flat through 1,000
+iterations.
+
+**Reclaimed memory came back dirty, and four modules had been told it
+would not.** `Mem.memAlloc` documents that it returns zeroed memory.
+Fresh pages arrive zeroed from the kernel, so that held for free until
+a reset handed the same bytes out a second time — after which
+`strAlloc 3` produced a string whose `cstrLen` was 17, because
+`strAlloc` reserves a byte for its NUL terminator and never writes one.
+`Map` and `Intern` read an all-zero state array as "every slot empty".
+So the explicit contract that landed in the previous memory commit was
+unsound against the standard library from the day it landed, and its
+gate could not see it, because the Life probe writes every slot it
+reads before reading it.
+
+The fix is a per-chunk high-water mark, with the scrub on the
+allocation rather than on the reset. That placement is the interesting
+part, and I got it wrong first: scrubbing at the reset is the obvious
+reading of "hand back clean memory", and `check-memory-baseline.sh`
+failed it on the first run with the managed population at 0. The reason
+is that §4.1's copy-at-boundary reads the value it is copying *out of
+the region the reset just reclaimed* — a reset that scrubs destroys the
+thing the caller is trying to keep. A reset writes no byte of what it
+reclaims, and that is now a stated property.
+
+**And then copy-at-boundary turned out not to be expressible.** With
+the allocator fixed, the LSP's boundary should have been: snapshot the
+live state, reset, copy it back down. It is not, and the reason is
+exact. The copy's destination is allocated *after* the reset, so it
+comes from `axiom_alloc`, so it is scrubbed on the way out — and when
+the kept block is bigger than the garbage around it, that scrub runs
+over the source before the copy reads it. That is not a corner case,
+it is the normal case for a server: a 150 KB document and a 200-byte
+request. Probed at 40 KB kept across a 64-byte allocation: **39,841 of
+40,000 bytes wrong on the first round**. The Life probe never showed
+this because its live set is constant and its garbage is larger, which
+is the narrow condition under which the naive spelling happens to work.
+
+So the reclaim and the copy are one primitive,
+`__axiom_arena_reset_keeping`, whose destination is never handed out
+through the allocator and therefore never scrubbed — the copy is what
+initialises it. Its copy runs forwards, which covers both directions it
+can face: within a chunk the source was allocated after the mark so
+`dst <= src`; across chunks the ranges are separate mappings and cannot
+overlap, which is the case to get right, because `mmap` returns chunks
+in no particular address order. When the kept block will not fit in the
+marked chunk's remainder the destination is a fresh mapping, never the
+free list — the free list at that moment holds the chunks the same call
+just reclaimed, one of which may be the source's.
+
+With that, the server's loop marks once and reclaims after every
+message, carrying the document store and the reader's unconsumed bytes
+across as one block. 693.7 MB → **6.8 MB at 200 edits, flat**; a
+two-document session with interleaved edits, outline requests, closes
+and reopens sits at 6,816 KiB at 4, 12 and 60 rounds where the old
+build climbs to 248 MB, and the protocol stream is byte-identical.
+
+The gate is the shape this project keeps arriving at. RSS alone cannot
+tell reclamation from a server that died on message three, and a dead
+server is *very* flat — so both the 5-edit and the 200-edit session
+must publish diagnostics for every edit and answer their shutdown
+before the memory numbers are allowed to mean anything. With the
+boundary removed, it reports 60,158 bytes per edit and exits 1.
+
+
+### The ceiling this uncovered: one stack frame per source byte
+
+Adding to `self_host/codegen.ax` broke `check-fmt.sh`, in the way this
+project has recorded once before and did not recognise the second time
+either: a case that passes in the repository and segfaults in the
+formatted copy of it. `300-pipeline` builds a program that embeds the
+frontend and reads a module at runtime, so the formatted copy makes it
+read a *larger* file — formatting `codegen.ax` takes it from 215,369 to
+221,940 bytes — and somewhere in that gap it died.
+
+The diagnosis is worth writing down because it looked like three other
+things first. The emitted IR was **byte-identical** between the
+formatted and unformatted builds, and so was the object file, which
+rules out a formatter bug and a codegen bug together. Copying the
+binary into the other directory moved the failure with the
+*directory*, not the binary, which says the input decides. `lldb`
+could not unwind the stack at all — the frame chain is gone by then —
+but dumping raw stack words showed a 64-byte frame repeating with one
+field decrementing by exactly one per frame, and its value was the size
+of the source. One frame per byte. The return address in that frame
+symbolised to `lexer$scanAxtagsFrom`.
+
+It is the same finding as `lexTokens`/`dispatchChar`: a walk written as
+a tail call, which is free only where the compiler turns it into a
+jump, and a stage1-built binary that has not been through `opt` does
+not. `check-self-host.sh` deliberately runs `llc` without `opt`, so
+that is exactly the binary under test. Rewritten as a `while`, its
+depth is constant.
+
+Two measurements confirm the reading, both on an imported module -
+which is what reaches `scanAxtags` at all, since a module is
+tag-scanned when it is *resolved*, not when it is the entry file. The
+first: 400 KB of comment-free source segfaults the pre-fix binary,
+while 400 KB that is almost entirely comment lines does not. That is
+the shape of the recursion exactly - the `;` branch skips a whole line
+per frame, and an ordinary byte costs one. The second, after the fix:
+the same binary reads a 1 MB module, and 2 MB overflows somewhere else
+again.
+
+So the margin goes from *below* the real input to several times above
+it. The largest module in this project is the formatted `codegen.ax`
+at 222 KB, and the number that matters is the first one, because 222 KB
+is where the compiler was already standing when this change arrived.
+
+Two things to keep. **A ceiling that no file is big enough to reach is
+invisible, and it is reached by ordinary growth** — nothing about the
+memory-model work touched the lexer. And `check-fmt.sh` is the gate
+that caught it, because a formatted copy of the repository is the
+largest input this project compiles; it earns its runtime for reasons
+that have nothing to do with formatting.

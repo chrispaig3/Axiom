@@ -392,6 +392,119 @@
     (if (< i 0) "" (vecGet texts i))))
 
 ; ------------------------------------------------------------------
+; The request boundary
+; ------------------------------------------------------------------
+;
+; A request's working set is dead the moment its response is written:
+; the parse tree, every diagnostic, the JSON on the way out. What
+; survives is the document store, and whatever bytes of the *next*
+; message this read already pulled into the reader. Nothing else.
+;
+; Nothing reclaimed it. Measured on `didChange` of a 16 KB file:
+; 8.3 MB after one edit, 693.7 MB after two hundred - 3.4 MB retained
+; per keystroke-sized edit, for the lifetime of the session. That is
+; the roadmap's §1 dependency edge with a number on it: an editor is a
+; long-running program, and a bump allocator that never frees is a
+; leak with a language server attached.
+;
+; So the loop marks the arena once, and reclaims to that mark after
+; every message - carrying the live state across the reclaim as ONE
+; block. That is `__axiom_arena_reset_keeping`, and it has to be one
+; operation rather than a reset followed by a copy: the copy's
+; destination would be handed out by the allocator, which scrubs
+; re-used memory, and the scrub runs over the source whenever the live
+; set is bigger than the garbage - which is precisely a server holding
+; a document and answering a short request. See
+; tests/stdlib/165-arena-keep.ax, where the naive spelling loses 39,841
+; of 40,000 bytes on its first round.
+;
+; The block is laid out so that restoring it needs no allocation it
+; cannot make afterwards:
+;
+;   word 0   total bytes (what the reclaim is told to keep)
+;   word 1   document count N
+;   word 2   unconsumed reader bytes U
+;   word 3.. N pairs of (uri length, text length)
+;   then     U bytes of reader input, then each uri and text in order
+
+(pub :: lspSnapshot (-> Int Int Int Int))
+(pub fn (lspSnapshot uris texts r)
+  (let ((n (vecLen uris))
+        (u (- (rdFilled r) (rdConsumed r))))
+    (let ((head (* 8 (+ 3 (* 2 n)))) (mut total 0) (mut i 0))
+      {
+        (set total (+ head u))
+        (while (< i n)
+          {
+            (set total (+ total (+ (strLen (vecGet uris i))
+                                   (strLen (vecGet texts i)))))
+            (set i (+ i 1))
+          })
+        (let ((b (memAlloc total)) (mut j 0) (mut at head))
+          {
+            (memSetWord b 0 total)
+            (memSetWord b 1 n)
+            (memSetWord b 2 u)
+            (while (< j n)
+              {
+                (memSetWord b (+ 3 (* 2 j)) (strLen (vecGet uris j)))
+                (memSetWord b (+ 4 (* 2 j)) (strLen (vecGet texts j)))
+                (set j (+ j 1))
+              })
+            (memCopy (+ b at) (+ (strData (rdBuf r)) (rdConsumed r)) u)
+            (set at (+ at u))
+            (set j 0)
+            (while (< j n)
+              (let ((uu (vecGet uris j)) (tt (vecGet texts j)))
+                {
+                  (memCopy (+ b at) (strData uu) (strLen uu))
+                  (set at (+ at (strLen uu)))
+                  (memCopy (+ b at) (strData tt) (strLen tt))
+                  (set at (+ at (strLen tt)))
+                  (set j (+ j 1))
+                }))
+            b
+          })
+      })))
+
+; Rebuild the store and the reader out of a snapshot the reclaim has
+; already moved down to the waterline, and answer the three handles in
+; a block, since a function answers one value.
+;
+; The strings are `strDup`ped out of the block rather than pointed into
+; it: a `Str` inside the block has no NUL terminator after it, and
+; `strCStr` is what hands a uri to anything outside this module.
+(pub :: lspRestore (-> Int Int))
+(pub fn (lspRestore b)
+  (let ((n (memGetWord b 1))
+        (u (memGetWord b 2))
+        (fu vecNew)
+        (ft vecNew)
+        (r (rdNew 0)))
+    (let ((mut j 0) (mut at (* 8 (+ 3 (* 2 n)))))
+      {
+        (rdReseat r (+ b at) u)
+        (set at (+ at u))
+        (while (< j n)
+          (let ((ul (memGetWord b (+ 3 (* 2 j))))
+                (tl (memGetWord b (+ 4 (* 2 j)))))
+            {
+              (vecPush fu (strDup (strWrap (+ b at) ul)))
+              (set at (+ at ul))
+              (vecPush ft (strDup (strWrap (+ b at) tl)))
+              (set at (+ at tl))
+              (set j (+ j 1))
+            }))
+        (let ((h (memAlloc 24)))
+          {
+            (memSetWord h 0 fu)
+            (memSetWord h 1 ft)
+            (memSetWord h 2 r)
+            h
+          })
+      })))
+
+; ------------------------------------------------------------------
 ; Protocol
 ; ------------------------------------------------------------------
 
@@ -470,13 +583,18 @@
 (pub :: lspMain Int)
 ;@axiom:effect(io)
 (pub fn (lspMain)
-  (let ((r (rdNew 0))
-        (uris vecNew)
-        (texts vecNew)
+  (let ((mut r (rdNew 0))
+        (mut uris vecNew)
+        (mut texts vecNew)
         (mut running 1)
-        (mut status 1))
+        (mut status 1)
+        ; Taken after the store and the reader exist, so their handles
+        ; sit below it; everything a message allocates sits above it and
+        ; is reclaimed at the end of the message.
+        (m (__axiom_arena_mark)))
     {
       (while (== running 1)
+        {
         (let ((body (rpcRead r)))
           (if (== (strLen body) 0)
               ; The client went away without saying `exit`. Stopping is
@@ -533,7 +651,19 @@
                           (if (== id 0)
                               0
                               (lspError id (- 0 32601)
-                                        (strConcat "method not found: " method)))))))))))))))))
+                                        (strConcat "method not found: " method))))))))))))))))
+        ; The boundary. Everything this message touched goes back,
+        ; except the store and the reader's unconsumed bytes, which
+        ; travel down to the waterline in one block.
+        (let ((snap (lspSnapshot uris texts r)))
+          (let ((kept (__axiom_arena_reset_keeping m snap (memGetWord snap 0))))
+            (let ((h (lspRestore kept)))
+              {
+                (set uris (memGetWord h 0))
+                (set texts (memGetWord h 1))
+                (set r (memGetWord h 2))
+              })))
+        })
       (sysExitWith status)
       status
     }))
