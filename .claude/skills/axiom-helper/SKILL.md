@@ -24,14 +24,17 @@ subcommand. It produces one dense, greppable, colorless AXDL line per diagnostic
 
 ```
 axiom/
-├── axiom-ast/          # AST, token, and span definitions
-├── axiom-lexer/        # Tokenizer
-├── axiom-parser/       # S-expression parser (Lisp-style)
-├── axiom-sema/         # Two-pass type checker (name resolution + effect analysis)
-├── axiom-ir/           # IR definitions and generator
-├── axiom-codegen/      # LLVM IR emitter
-├── axiom-cli/          # CLI entry point, REPL
-├── axiom-errors/       # Diagnostic types, rendering, code lookup, SymbolFact
+├── self_host/          # THE COMPILER, written in Axiom
+│   ├── core.ax           # tokens and spans
+│   ├── lexer.ax          # tokenizer
+│   ├── parser.ax         # S-expression parser and AST
+│   ├── typecheck.ax      # name resolution, types, effects, AXTAG validation
+│   ├── codegen.ax        # import resolution, name mangling, LLVM emission
+│   ├── diag.ax           # diagnostics, AXDL/JSON rendering, source maps
+│   ├── render.ax         # human diagnostic renderer
+│   ├── driver.ax         # `build`: opt, llc, cc
+│   └── main.ax           # CLI entry point
+├── bootstrap/          # the compiler's own LLVM IR, per target - the seed
 ├── hello_world/        # Sample program
 ├── docs/               # docs/diagnostics.md (AXDL/AXSYM reference)
 ├── Cargo.toml          # Workspace manifest
@@ -41,7 +44,7 @@ axiom/
 The compiler pipeline is always:
 
 ```
-Source (.ax) → axiom-lexer → axiom-parser → axiom-sema → axiom-ir → axiom-codegen → LLVM IR → llc → cc → Executable
+Source (.ax) → lexer.ax → parser.ax → typecheck.ax → codegen.ax → LLVM IR → llc → cc → Executable
 ```
 
 Cross-crate dependencies flow in one direction: lexer → parser → sema → ir → codegen. The lexer must not know about types; the parser must not know about effects; the codegen must not know about semantic analysis.
@@ -102,7 +105,7 @@ If you see multiple diagnostics sharing the same `group` key in `ai` output, onl
 
 ### 3.5 Never duplicate diagnostic logic across renderers
 
-All compiler messages must go through `axiom_errors::Diagnostic` with a stable code, severity, span, and message. Never print raw strings from compiler phases. When adding a new diagnostic, update `axiom-errors/src/code.rs`, add the variant in the owning crate, and implement `to_diagnostic()`.
+All compiler messages must go through `mkDiag` (`self_host/diag.ax`) with a stable code, severity, span, and message. Never print raw strings from compiler phases. When adding a new diagnostic, construct it at the site that detects the condition and write its long-form text into `self_host/explain.ax` - `scripts/check-tools-selfhost.sh` fails if a code the corpus emits has no entry.
 
 ## 4. Robustness patterns
 
@@ -322,4 +325,5 @@ When you encounter an error code in AXDL output:
 - Integration tests live in `tests/` directories within each crate.
 - Every diagnostic code must have at least one test case.
 - Use snapshot testing (`insta`) for renderer output to catch formatting regressions.
-- Run `cargo fmt` before committing and `cargo clippy` treating warnings as errors.
+- Do NOT run `axiom fmt` over the repository: the tree is not kept in the formatter's normal form, and doing so buries real changes in churn.
+- Build the compiler with `./scripts/bootstrap-from-seed.sh --install .axiom-bin`. There is no Rust toolchain and no `cargo`.

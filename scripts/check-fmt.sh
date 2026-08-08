@@ -29,10 +29,16 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
 
-axiom="${AXIOM:-$repo_root/target/release/axiom}"
+axiom="${AXIOM:-$repo_root/.axiom-bin/axiom}"
 if [[ ! -x "$axiom" ]]; then
-  echo "building the compiler first (no binary at $axiom)" >&2
-  cargo build --release
+  # No `cargo` here, and none anywhere in this repository's gates: the
+  # Rust compiler this used to build has been deleted. A checkout gets
+  # a compiler from the committed seed - `bootstrap/axiom-<target>.ll`
+  # through `llc` and `cc` - which is the whole point of that directory
+  # existing. Set AXIOM to use one you already have.
+  echo "no compiler at $axiom - building one from the committed seed" >&2
+  "$repo_root/scripts/bootstrap-from-seed.sh" --install "$repo_root/.axiom-bin" >&2 \
+    || { echo "FAIL: could not bootstrap a compiler from bootstrap/" >&2; exit 1; }
 fi
 
 work="$(mktemp -d)"
@@ -152,7 +158,7 @@ fi
 #
 # Regenerate deliberately, never automatically:
 #   cp tests/fmt/syntax-zoo.ax tests/fmt/syntax-zoo.expected.ax
-#   ./target/release/axiom fmt tests/fmt/syntax-zoo.expected.ax
+#   .axiom-bin/axiom fmt tests/fmt/syntax-zoo.expected.ax
 # ---------------------------------------------------------------
 echo "== the zoo formats to the checked-in golden =="
 golden="$repo_root/tests/fmt/syntax-zoo.expected.ax"

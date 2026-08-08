@@ -1,48 +1,205 @@
 #!/usr/bin/env bash
-# stage1's native human diagnostic renderer, three-way and cross-checked.
+# The native human diagnostic renderer, pinned without a second compiler.
 #
-# This gate is NOT a stage0 comparison, and that is a decision with a
-# paper trail (docs/self-hosting.md): stage0's human renderer is the
-# third-party `ariadne` crate, whose per-character ANSI stream is an
-# internal of the compiler being retired, not a design of Axiom's. The
-# human layout here is stage1's own, so the gate pins it the only way
-# a native surface can be pinned - against checked-in goldens:
+# WHAT THIS USED TO PIN AND NO LONGER CAN. The layout itself was never a
+# byte-differential against stage0, and that decision has a paper trail
+# (docs/self-hosting.md): stage0's human renderer was the third-party
+# `ariadne` crate, whose per-character stream is an internal of a
+# compiler being retired rather than a design of Axiom's. But two checks
+# per case still reached for stage0 anyway - the exit status had to
+# equal stage0's, and stdout had to be byte-equal to stage0's - and
+# neither could be left in place once the Rust tree goes, because a
+# differential does not FAIL when its reference disappears. Repoint
+# `$axiom` at a self-hosted binary and `s1 != s0` becomes `s1 != s1`,
+# `cmp a.out h.out` compares a file with itself, and the sweep reports
+# 52 cases, zero divergences, exit 0, nothing tested.
 #
-#     golden == stage1's `check` stderr, byte for byte, per case
+# WHAT IT PINS NOW. Four checks per case, of which exactly one is a
+# golden comparison:
 #
-# Golden vacuousness is the failure mode of a gate whose goldens were
-# written by the code under test, and three independent checks refuse
-# it:
+#   1. GOLDEN. tests/diagnostics/NAME.human equals the renderer's
+#      stderr, byte for byte.
 #
-#   * every fact on the case's AXDL golden - which stage0 itself
-#     byte-equals, three-way, in check-diagnostics.sh - must appear in
-#     the human golden: the code, the file:line:col of every primary
-#     span, one heading per AXDL line, and a trailer whose count
-#     equals the number of E lines;
-#   * exit status must equal stage0's for every case (the AXDL gate
-#     compares bytes, not statuses - which is how a warnings-only file
-#     exited 1 under stage1 and 0 under stage0 for a month with the
-#     gate green; probed and fixed 2026-08-07);
-#   * the differ itself is negative-tested: a deliberately corrupted
-#     golden must fail, or the sweep exits 1 without reporting a pass.
+#   2. EXIT STATUS AND STDOUT, DERIVED FROM THE AXDL GOLDEN. A `^E `
+#      line in NAME.axdl means the case must FAIL: status 1, empty
+#      stdout. No `^E ` line means it must SUCCEED: status 0, stdout
+#      exactly `OK`. This is a fact about the golden, not about the
+#      renderer. NAME.axdl records the severity of every diagnostic the
+#      case produces, and "an error was reported" and "the compile
+#      failed" are one statement said twice; the two halves are
+#      produced by different parts of the compiler - the status by the
+#      driver, the severity by a file checked in beside the one under
+#      test - so they agree only when both are right. That is what the
+#      stage0 comparison bought, bought without stage0.
+#      Not decoration: a warnings-only file exited 1 here and 0 under
+#      stage0 for a month with the gate green (probed and fixed
+#      2026-08-07). 330-axtag-mismatch is that case, and it is the
+#      corpus's only status-0 case - if it ever stops being one the
+#      derivation degenerates into a constant, which the
+#      both-classes-present check below refuses outright.
+#
+#   3. THE AXDL GOLDEN READ AS A DOCUMENT, BLOCK BY BLOCK, AGAINST THE
+#      HUMAN ONE. The human surface is split on blank lines; the k-th
+#      block must be the rendering of the k-th AXDL line, and every
+#      assertion below is scoped to THAT BLOCK and anchored at both
+#      ends. Block count = one per AXDL diagnostic, plus one trailer
+#      block iff there is an error. Then, per block: the first line
+#      must EQUAL `<severity>[<CODE>]: <message>`; a line must EQUAL
+#      `--> FILE:L:C` (leading gutter spaces aside), with the
+#      end-of-file remap described at the assertion; the primary line
+#      must appear in the gutter; the caret row must EQUAL C spaces
+#      then exactly `run` carets after the bar, and the related row
+#      RC spaces then exactly `rrun` dashes then the related note; and
+#      each help must EQUAL `= help: <text>` after undoing AXDL's `\\`
+#      and `\"` escaping. Widths and columns are computed from the
+#      span - for a span that crosses lines, from the FIXTURE's line
+#      length, because the renderer underlines to end of line and the
+#      AXDL does not say how long that line is. The block must draw
+#      exactly ONE caret row and exactly as many dash rows as the AXDL
+#      gives it related spans (one, or none), so a row the diagnostic
+#      never asked for is a failure rather than a free extra. Finally
+#      the golden's last line must EQUAL the trailer counting exactly
+#      the E lines.
+#
+#      Why block-scoped and anchored rather than `grep -qF`: see THE
+#      HOLLOW VERSION below. An unanchored substring search over the
+#      whole file pins a MULTISET of strings. It cannot see order, it
+#      cannot see which message belongs to which code, and it cannot
+#      see anything ADDED - not a wider caret run, not a debug tag
+#      welded onto every heading.
+#
+#   4. EVERY SOURCE LINE THE SNIPPET QUOTES, AGAINST THE FIXTURE'S OWN
+#      BYTES. Each `N | TEXT` row must have TEXT equal to line N of the
+#      file that the enclosing `--> FILE:L:C` names, resolved per
+#      snippet - a multi-file case quotes an imported module, and
+#      360-imported-module-body renders two snippets from two different
+#      files, so a check that assumed one fixture per case would have
+#      compared BadBody.ax's line 2 against the case file's. 101 rows
+#      over the corpus.
+#
+# WHY THAT IS ADEQUATE WITHOUT A SECOND COMPILER. Checks 3 and 4 cannot
+# be satisfied by regenerating anything this script writes. `AXIOM_BLESS=1`
+# rewrites NAME.human and nothing else; check 3 reads NAME.axdl, a
+# different checked-in artifact, and check 4 reads the fixture, which is
+# the INPUT and cannot be blessed at all. A renderer that quoted the
+# wrong line, quoted the right line from the wrong file, put a caret one
+# column off, sized it to the wrong width, printed a message it did not
+# diagnose, printed its diagnostics in the wrong order, or exited 0 on a
+# file it had just reported an error for, fails here with a freshly
+# blessed golden sitting in the tree. Drilled rather than assumed - the
+# comparators are negative-tested at the foot of this script, on
+# corrupted copies, every run - and a bless whose result fails checks
+# 2/3/4 is REFUSED on the spot rather than left to go green later
+# (check-diagnostics.sh has refused on the same grounds since it grew
+# its span verifier).
+#
+# THE HOLLOW VERSION, AND WHAT IT COST. Measured 2026-08-08. Check 3
+# used to be 692 unanchored `grep -qF` hits over the whole golden. Three
+# one-token renderer defects, each re-blessed into all 52 goldens, each
+# left this gate at EXIT=0, "52 passed, 0 failed", zero FAIL lines:
+#
+#   A  render.ax:171 `(repByte run ch)` -> `(repByte (+ run 1) ch)`.
+#      Every caret run and every dash run one character too wide;
+#      040's 4-character span 4:6-10 rendered `^^^^^`. Invisible
+#      because `grep -qF -- "| ${pad}${carets}"` is a SUBSTRING search
+#      and `"|      ^^^^"` is a prefix of `"|      ^^^^^"`. A span that
+#      is too LONG - the ordinary direction of an end-offset bug - could
+#      never fail. Now: the caret row is an equality on everything after
+#      the bar, and the drill at the foot widens a real caret run by one
+#      character every run to prove the comparator still sees it.
+#
+#   B  render.ax:272 `(vecGet ds i)` -> `(vecGet ds (- (- (vecLen ds) 1)
+#      i))`, reversing the human renderer's emission order only (AXDL is
+#      rendered elsewhere and stayed correct). 130-order-all-three went
+#      from AX3006/AX3015/AX3013 to AX3013/AX3015/AX3006. Invisible
+#      because nothing paired the k-th AXDL line with the k-th rendered
+#      block - two of the corpus's cases (040-order-dup-before-missing,
+#      130-order-all-three) exist for no other purpose than to pin
+#      emission order and the derived half could not see it. Now: block
+#      k is the rendering of AXDL line k, and the drill reverses two
+#      blocks of a real golden every run.
+#
+#   C  render.ax:211 `(strConcat msg "\n")` -> `(strConcat msg " [debug:
+#      span=?]\n")`, welding a debug tag onto every heading. Invisible
+#      because `grep -qF -- "$msg"` means "appears somewhere as a
+#      substring", so anything appended, prepended or interleaved was
+#      free. Now: the heading is an equality against
+#      `<severity>[<CODE>]: <message>` built from the AXDL line, which
+#      pins severity, code, text and the absence of anything else in one
+#      statement.
+#
+# RE-RUN AGAINST THOSE SAME THREE BUILDS with this version in place, in
+# a mirror tree (self_host a patchable copy, tests/diagnostics a
+# writable copy, stdlib and .axiom-bin symlinked) so neither self_host/
+# nor tests/ in the real tree was touched. `AXIOM_BLESS=1` still writes
+# all 52 goldens - it has to, it is only writing down what the compiler
+# said - and is then REFUSED; running the gate again over those freshly
+# blessed goldens exits 1 -
+#
+#   A  bless REFUSED. Plain run: exit 1, 0 passed / 52 failed, 102 FAIL
+#      lines - every one of the 86 caret-row equalities and all 15
+#      dash-row equalities, because a run one character too wide is now
+#      an inequality rather than a prefix. 010 reads `FAIL
+#      010-duplicate-fn (block 1: no caret row at col 6 width 4 for span
+#      010-duplicate-fn.ax:3:6-10)`.
+#   B  bless REFUSED. Plain run: exit 1, 29 passed / 24 failed, 191 FAIL
+#      lines. The 24 are the 23 cases that emit more than one
+#      diagnostic - the only ones an order bug can show up in - plus
+#      drill(g). 44 headings, 44 caret rows, 29 gutter lines, 12 helps
+#      and 6 dash-row counts disagree; 040 reads `block 1 heading is
+#      `error[AX3015]: `ghost` has a signature but no definition``; the
+#      AXDL calls for `error[AX3006]: duplicate definition `main```,
+#      and block 2 the mirror image.
+#   C  bless REFUSED. Plain run: exit 1, 0 passed / 52 failed, 87 FAIL
+#      lines - all 86 heading equalities. 010 reads `block 1 heading is
+#      `error[AX3006]: duplicate definition `main` [debug: span=?]``;
+#      the AXDL calls for `error[AX3006]: duplicate definition `main```.
+#
+# In each the 53rd/24th failure is drill(g) reporting that its own
+# baseline golden no longer satisfies its AXDL - the reorder drill is
+# the one corruption that is an involution, so it says which of the two
+# is broken instead of blaming the comparator. Check 4 saw none of the
+# three, which is the point of keeping both halves: it reads the
+# fixture, and all three defects are downstream of the input.
+#
+# The pristine tree, same script: 52 passed, 0 failed, 832 AXDL facts,
+# 101 source rows, 51 fail/1 ok by derivation, exit 0. Counting them
+# against the 692 they replaced is not the comparison that matters: 566
+# of those 692 were unanchored substring greps, and none of the ones
+# here are.
+#
+# PROVENANCE FOR THE DERIVED STATUS RULE. Measured 2026-08-08, while
+# both compilers still existed: over all 52 cases the rule "an E line
+# means status 1 with empty stdout, no E line means status 0 with `OK`"
+# reproduces stage0's observed status and stdout exactly, and the
+# self-hosted compiler's. That is the last moment there were two
+# implementations to take that measurement from.
 #
 # Regenerate a golden deliberately, never casually:
 #   AXIOM_BLESS=1 scripts/check-render-selfhost.sh          # all
 #   AXIOM_BLESS=1 scripts/check-render-selfhost.sh 010      # one
+# A bless still has to pass checks 2, 3 and 4 - the ones that read the
+# AXDL golden and the fixture rather than the file being written - or it
+# is refused with the new goldens left on disk to look at.
 #
 # Usage:
 #   scripts/check-render-selfhost.sh          # every case
 #   scripts/check-render-selfhost.sh 010      # one case, by prefix
+#                                             # (a filtered run skips
+#                                             #  the corpus floors and
+#                                             #  the drills; it is a
+#                                             #  probe, not the gate)
 
 set -uo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
 
-axiom="${AXIOM:-$repo_root/target/release/axiom}"
+axiom="${AXIOM:-$repo_root/.axiom-bin/axiom}"
 if [[ ! -x "$axiom" ]]; then
-  echo "building the compiler first (no binary at $axiom)" >&2
-  cargo build --release
+  echo "no compiler at $axiom - building one from the committed seed" >&2
+  "$repo_root/scripts/bootstrap-from-seed.sh" --install "$repo_root/.axiom-bin" >&2 \
+    || { echo "FAIL: could not bootstrap a compiler" >&2; exit 1; }
 fi
 
 export AXIOM_STDLIB="$repo_root/stdlib"
@@ -52,24 +209,480 @@ bless="${AXIOM_BLESS:-0}"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 
-# Same work-dir shape as check-diagnostics.sh, for the same reason:
-# the cases run from $work so the filename each renderer prints is a
-# bare `NAME.ax`, and the helper modules for multi-file cases are
-# copied flat because a module name is its filename stem.
+# Same work-dir shape as check-diagnostics.sh, for the same reason: the
+# cases run from $work so the filename the renderer prints is a bare
+# `NAME.ax`, and the helper modules for multi-file cases are copied flat
+# because a module name is its filename stem.
 ln -s "$repo_root/stdlib" "$work/stdlib"
 ln -s "$repo_root/self_host" "$work/self_host"
 ln -s "$repo_root/tests" "$work/tests"
 cp "$repo_root"/tests/diagnostics/mods/*.ax "$work/" 2>/dev/null || true
 
-if ! "$axiom" build --input self_host/main.ax --output "$work/stage1" >"$work/build.log" 2>&1; then
-  echo "FAIL: could not build stage1" >&2
+# The renderer under test is the one built FROM SOURCE by `$axiom`, not
+# `$axiom` itself: this gate exists to test self_host/, and `$axiom` may
+# be an older seed-descended binary that predates the change being
+# tested.
+if ! "$axiom" build --input self_host/main.ax --output "$work/axc" >"$work/build.log" 2>&1; then
+  echo "FAIL: could not build the compiler under test" >&2
   tail -20 "$work/build.log" >&2
   exit 1
 fi
 
+# ------------------------------------------------------------------
+# helpers
+# ------------------------------------------------------------------
+
+# A basename out of a diagnostic maps back to a file in the tree. Three
+# places, because a case that deliberately does not parse is spelled
+# `.axbad` (check-fmt.sh and check-tree-sitter.sh sweep every `*.ax` and
+# require all of them to parse) and a helper module lives under mods/.
+resolve_fixture() {
+  local b="$1" c
+  for c in "tests/diagnostics/$b" "tests/diagnostics/${b%.ax}.axbad" \
+           "tests/diagnostics/mods/$b"; do
+    [[ -f "$c" ]] && { printf '%s\n' "$c"; return 0; }
+  done
+  return 1
+}
+
+# Line N of a file, and its length in CHARACTERS rather than bytes. The
+# renderer counts columns in characters - 070-nonascii-same-line pins
+# that, its em dash is three bytes and one column - and both `awk`'s
+# `length` and `wc -c` here count bytes, while `wc -m` counts whatever
+# the ambient locale says. Every byte that is not a UTF-8 continuation
+# byte starts exactly one character, which needs no locale at all.
+fixture_line() {
+  awk -v n="$2" 'NR==n {print; exit}' "$1"
+}
+char_len() {
+  printf '%s' "$1" | LC_ALL=C tr -d '\200-\277' | LC_ALL=C wc -c | tr -d ' '
+}
+
+# Every quoted string on an AXDL line, one `KIND<TAB>TEXT` per output
+# line, KIND decided by the STRUCTURAL text that precedes the opening
+# quote: the slug and a space introduce the primary message, `^L:C-C2:`
+# a related-span note, `?` or `?L:C-C2:` a help, `~>` a suggested
+# replacement. The replacement is machine-applied text, not something
+# the human surface is required to print, and is dropped; anything that
+# matches no rule is reported rather than ignored, because a new AXDL
+# field that this parser silently skipped would be a message family
+# nobody is checking.
+#
+# AXDL quotes its strings and escapes `\` and `"` inside them; the human
+# surface prints them raw. Comparing the two without undoing that would
+# make every message containing a backslash unassertable - which is most
+# of the lexer corpus, where the diagnostic IS about an escape sequence.
+# Two rules suffice because AXDL emits exactly two: `\\` and `\"`. Both
+# are swapped for sentinels before the split, which is also what keeps
+# `\\"` (an escaped backslash then a delimiter) from being read as `\`
+# followed by an escaped quote, and leaves the remaining `"` all
+# structural - so the odd fields of a `"`-split are exactly the strings.
+axdl_fields() {
+  local line="$1" esc s pre i seen=0
+  local help_re='[?]([0-9]+:[0-9]+(-[0-9]+)?:)?$'
+  local rel_re='\^[0-9]+:[0-9]+(-[0-9]+)?:$'
+  local -a parts
+  esc="${line//\\\\/$'\001'}"
+  esc="${esc//\\\"/$'\002'}"
+  IFS='"' read -r -a parts <<< "$esc"
+  i=1
+  while (( i < ${#parts[@]} )); do
+    pre="${parts[i-1]}"
+    s="${parts[i]}"
+    s="${s//$'\002'/\"}"
+    s="${s//$'\001'/\\}"
+    if [[ "$pre" == *'~>' ]]; then
+      :
+    elif [[ "$pre" =~ $help_re ]]; then
+      printf 'help\t%s\n' "$s"
+    elif [[ "$pre" =~ $rel_re ]]; then
+      printf 'rel\t%s\n' "$s"
+    elif (( seen == 0 )); then
+      printf 'msg\t%s\n' "$s"
+      seen=1
+    else
+      printf 'unknown\t%s\n' "$s"
+    fi
+    i=$((i + 2))
+  done
+}
+
+# The block helpers. `GL` is the human golden as an array of lines and
+# `BS`/`BE` are the inclusive line ranges of its blank-line-separated
+# blocks; both are filled by `read_blocks` and read by everything below
+# through bash's dynamic scope.
+read_blocks() {
+  local f="$1" ln inblk=0
+  GL=(); BS=(); BE=()
+  NG=0
+  while IFS= read -r ln || [[ -n "$ln" ]]; do
+    GL[$NG]="$ln"
+    NG=$((NG + 1))
+  done < "$f"
+  NB=0
+  local i
+  for (( i = 0; i < NG; i++ )); do
+    if [[ -n "${GL[$i]}" ]]; then
+      if (( inblk == 0 )); then BS[$NB]=$i; inblk=1; fi
+      BE[$NB]=$i
+    elif (( inblk == 1 )); then
+      NB=$((NB + 1)); inblk=0
+    fi
+  done
+  (( inblk == 1 )) && NB=$((NB + 1))
+  return 0
+}
+
+# Some line of block [s,e], with its leading whitespace removed, equals
+# WANT exactly. The leading whitespace is the gutter, whose WIDTH is a
+# layout choice with no independent truth (it tracks the widest line
+# number in the snippet); everything to the right of it is asserted
+# character for character.
+block_trim_eq() {
+  local s="$1" e="$2" want="$3" i t
+  for (( i = s; i <= e; i++ )); do
+    t="${GL[$i]}"
+    t="${t#"${t%%[![:space:]]*}"}"
+    [[ "$t" == "$want" ]] && return 0
+  done
+  return 1
+}
+
+# Some line of block [s,e] is a gutter bar - leading spaces, then `|` -
+# whose entire remainder equals WANT. This is the assertion the hollow
+# version could not make: `grep -qF "| ${pad}${carets}"` accepted a run
+# of carets one longer than the span, because a prefix is a substring.
+block_bar_eq() {
+  local s="$1" e="$2" want="$3" i ln pre
+  for (( i = s; i <= e; i++ )); do
+    ln="${GL[$i]}"
+    [[ "$ln" == *'|'* ]] || continue
+    pre="${ln%%|*}"
+    [[ -z "${pre//[[:space:]]/}" ]] || continue
+    [[ "${ln#*|}" == "$want" ]] && return 0
+  done
+  return 1
+}
+
+# Some line of block [s,e] matches an ERE.
+block_re() {
+  local s="$1" e="$2" re="$3" i
+  for (( i = s; i <= e; i++ )); do
+    [[ "${GL[$i]}" =~ $re ]] && return 0
+  done
+  return 1
+}
+
+# How MANY lines of block [s,e] match an ERE. The equalities above say a
+# row with the right geometry exists; these say no second one does. One
+# diagnostic underlines one primary span, so a block with two caret rows
+# is a renderer emitting something it was never asked for - the same
+# class of defect as a caret run one character too wide, and equally
+# invisible to a search that stops at the first hit.
+block_count_re() {
+  local s="$1" e="$2" re="$3" i n=0
+  for (( i = s; i <= e; i++ )); do
+    [[ "${GL[$i]}" =~ $re ]] && n=$((n + 1))
+  done
+  printf '%s' "$n"
+}
+
+facts=0      # individual assertions made against the AXDL goldens
+rows=0       # snippet rows checked against fixture bytes
+f_block=0    # ... of which: block pairing and severity counts
+f_head=0     #               heading equalities
+f_loc=0      #               `-->` location equalities
+f_msg=0      #               help and related-note text equalities
+f_caret=0    #               caret-row equalities
+f_dash=0     #               dash-row equalities
+f_gutter=0   #               snippet-gutter presence
+
+# ------------------------------------------------------------------
+# check 3: the AXDL golden read as a document, against the human one
+# ------------------------------------------------------------------
+# POSITIONAL. The k-th blank-line-separated block of the human golden is
+# the rendering of the k-th AXDL diagnostic, and every assertion is
+# scoped to that block and anchored at both ends. The version this
+# replaced made 692 unanchored `grep -qF` hits over the whole file,
+# which pinned a multiset of strings: reversing the renderer's emission
+# order, or welding a suffix onto every heading, left it reporting
+# "52 passed, 0 failed".
+axdl_facts() {
+  local axdl="$1" golden="$2" label="$3"
+  local rc=0 nE nW headE headW line ndiag want_blocks k
+
+  nE="$(grep -cE '^E ' "$axdl")"
+  nW="$(grep -cE '^W ' "$axdl")"
+  headE="$(grep -cE '^error\[AX[0-9]{4}\]: ' "$golden")"
+  headW="$(grep -cE '^warning\[AX[0-9]{4}\]: ' "$golden")"
+
+  # Severities counted SEPARATELY. A single total is satisfied by a
+  # renderer that prints an error as a warning and a warning as an
+  # error, which is precisely the confusion the exit-status derivation
+  # above rests on. (The per-block heading equality below pins the
+  # severity of each diagnostic individually; these two also catch a
+  # heading that appears somewhere other than at the head of a block,
+  # which the pairing alone would not look at.)
+  if grep -qE '^[NH] ' "$axdl"; then
+    echo "FAIL $label (AXDL note/help severity has no heading rule in this gate)"
+    rc=1
+  fi
+  facts=$((facts + 2)); f_block=$((f_block + 2))
+  if [[ "$nE" != "$headE" ]]; then
+    echo "FAIL $label (AXDL has $nE errors, human has $headE error headings)"
+    rc=1
+  fi
+  if [[ "$nW" != "$headW" ]]; then
+    echo "FAIL $label (AXDL has $nW warnings, human has $headW warning headings)"
+    rc=1
+  fi
+
+  local -a DL
+  DL=()
+  ndiag=0
+  while IFS= read -r line; do
+    DL[$ndiag]="$line"
+    ndiag=$((ndiag + 1))
+  done < <(grep -E '^[EWNH] ' "$axdl")
+
+  read_blocks "$golden"
+
+  # The shape of the document, before anything about its contents: one
+  # block per diagnostic, in order, plus exactly one trailer block iff
+  # the case has an error. A renderer that dropped, duplicated or merged
+  # a diagnostic changes this count even when every string it prints is
+  # still somewhere in the file.
+  want_blocks="$ndiag"
+  [[ "$nE" -gt 0 ]] && want_blocks=$((ndiag + 1))
+  facts=$((facts + 1)); f_block=$((f_block + 1))
+  if [[ "$NB" != "$want_blocks" ]]; then
+    echo "FAIL $label (human golden has $NB blank-line-separated block(s); the AXDL's $ndiag diagnostic(s) call for $want_blocks)"
+    return 1
+  fi
+
+  for (( k = 0; k < ndiag; k++ )); do
+    local sev code locspan slug f rest L C crest tail C2 run bs be
+    local want_sev primary relmsg kind text src nlines
+    local -a helps
+    read -r sev code locspan slug _ <<< "${DL[$k]}"
+    bs="${BS[$k]}"
+    be="${BE[$k]}"
+
+    primary=""
+    relmsg=""
+    helps=()
+    while IFS=$'\t' read -r kind text; do
+      case "$kind" in
+        msg)  primary="$text" ;;
+        rel)  relmsg="$text" ;;
+        help) helps[${#helps[@]}]="$text" ;;
+        *)
+          echo "FAIL $label (AXDL string in a field this gate does not know how to assert: $text)"
+          rc=1 ;;
+      esac
+    done < <(axdl_fields "${DL[$k]}")
+
+    # The heading, as an EQUALITY. Severity, code, message text, and the
+    # absence of anything else, in one statement: `grep -qF -- "$msg"`
+    # said only "appears somewhere as a substring", which a renderer
+    # that printed the right text plus a debug tag satisfied for free.
+    want_sev="error"
+    [[ "$sev" == W ]] && want_sev="warning"
+    facts=$((facts + 1)); f_head=$((f_head + 1))
+    if [[ "${GL[$bs]}" != "$want_sev[$code]: $primary" ]]; then
+      echo "FAIL $label (block $((k + 1)) heading is \`${GL[$bs]}\`; the AXDL calls for \`$want_sev[$code]: $primary\`)"
+      rc=1
+    fi
+
+    f="${locspan%%:*}"
+    rest="${locspan#*:}"
+    L="${rest%%:*}"
+    crest="${rest#*:}"
+    if [[ "$crest" == *-* ]]; then
+      C="${crest%%-*}"
+      tail="${crest#*-}"
+    else
+      C="$crest"
+      tail=""
+    fi
+
+    if ! src="$(resolve_fixture "$f")"; then
+      echo "FAIL $label (AXDL names $f, which is not a file in tests/diagnostics)"
+      rc=1
+      continue
+    fi
+    nlines="$(grep -c '' "$src" | tr -d ' ')"
+
+    # An end-of-file diagnostic names a line PAST the last one - an
+    # unclosed `(` runs out at the position after the final newline.
+    # There is still a line to point at, and the renderer points at the
+    # last one with the caret one past its final character. Derived
+    # here from the fixture's own bytes, so it stays a fact about the
+    # file rather than a fact about the golden. (stage0 agreed while it
+    # existed: its AXDL said 4:1 for the three-line 900-unexpected-eof
+    # and its caret sat at 3:10.)
+    if (( L > nlines )); then
+      L="$nlines"
+      C=$(( $(char_len "$(fixture_line "$src" "$nlines")") + 1 ))
+      tail=""
+    fi
+
+    facts=$((facts + 1)); f_loc=$((f_loc + 1))
+    if ! block_trim_eq "$bs" "$be" "--> $f:$L:$C"; then
+      echo "FAIL $label (block $((k + 1)) has no \`--> $f:$L:$C\` header line)"
+      rc=1
+    fi
+
+    # Layout derived from the span rather than trusted to the golden.
+    # `L:C-C2` is end-exclusive in characters; a bare `L:C` is a width-1
+    # span. A span that crosses lines (810-unterminated-string is
+    # `4:23-5:1`) is underlined to end of line, and how long that line
+    # is comes from the FIXTURE - the one right-hand side no bless can
+    # write.
+    if [[ "$tail" == *:* ]]; then
+      run=$(( $(char_len "$(fixture_line "$src" "$L")") - C + 1 ))
+    elif [[ -n "$tail" ]]; then
+      C2="$tail"; run=$((C2 - C))
+    else
+      run=1
+    fi
+    [[ "$run" -lt 1 ]] && run=1
+
+    facts=$((facts + 2)); f_gutter=$((f_gutter + 1)); f_caret=$((f_caret + 1))
+    if ! block_re "$bs" "$be" "^ *${L} \\| "; then
+      echo "FAIL $label (block $((k + 1)): source line $L not in the snippet gutter)"
+      rc=1
+    fi
+    if ! block_bar_eq "$bs" "$be" \
+         "$(printf '%*s' "$C" '')$(printf '%*s' "$run" '' | tr ' ' '^')"; then
+      echo "FAIL $label (block $((k + 1)): no caret row at col $C width $run for span $locspan)"
+      rc=1
+    fi
+    local ncaret ndash
+    ncaret="$(block_count_re "$bs" "$be" '^ *\| *\^+$')"
+    facts=$((facts + 1)); f_caret=$((f_caret + 1))
+    if [[ "$ncaret" != 1 ]]; then
+      echo "FAIL $label (block $((k + 1)) draws $ncaret caret rows; one diagnostic underlines one primary span)"
+      rc=1
+    fi
+
+    # The related span's line must appear in the gutter too, with a dash
+    # row of the span's width carrying the note verbatim after it.
+    local rel RL rrest RC RC2 rrun
+    rel="$(printf '%s\n' "${DL[$k]}" | grep -oE ' \^[0-9]+:[0-9]+(-[0-9]+)?:' | head -1 | sed 's/^ \^//; s/:$//')"
+    if [[ -n "$rel" ]]; then
+      RL="${rel%%:*}"
+      rrest="${rel#*:}"
+      RC="${rrest%%-*}"
+      if [[ "$rrest" == *-* ]]; then RC2="${rrest#*-}"; else RC2=$((RC + 1)); fi
+      rrun=$((RC2 - RC)); [[ "$rrun" -lt 1 ]] && rrun=1
+      facts=$((facts + 2)); f_gutter=$((f_gutter + 1)); f_dash=$((f_dash + 1))
+      if ! block_re "$bs" "$be" "^ *${RL} \\| "; then
+        echo "FAIL $label (block $((k + 1)): related line $RL not in the snippet gutter)"
+        rc=1
+      fi
+      local want_dash
+      want_dash="$(printf '%*s' "$RC" '')$(printf '%*s' "$rrun" '' | tr ' ' '-')"
+      [[ -n "$relmsg" ]] && want_dash="$want_dash $relmsg"
+      if ! block_bar_eq "$bs" "$be" "$want_dash"; then
+        echo "FAIL $label (block $((k + 1)): no dash row at col $RC width $rrun followed by \`$relmsg\`)"
+        rc=1
+      fi
+    elif [[ -n "$relmsg" ]]; then
+      echo "FAIL $label (block $((k + 1)): AXDL carries a related note with no span this gate can read)"
+      rc=1
+    fi
+    # And no dash row the AXDL never asked for. A block whose AXDL line
+    # has no `^` span must draw none at all, which is the assertion the
+    # 71 related-less blocks make and the 15 others make as "exactly 1".
+    ndash="$(block_count_re "$bs" "$be" '^ *\| *-+( .*)?$')"
+    facts=$((facts + 1)); f_dash=$((f_dash + 1))
+    if [[ -n "$rel" ]]; then
+      [[ "$ndash" == 1 ]] || { echo "FAIL $label (block $((k + 1)) draws $ndash dash rows; the AXDL gives it one related span)"; rc=1; }
+    else
+      [[ "$ndash" == 0 ]] || { echo "FAIL $label (block $((k + 1)) draws $ndash dash rows; the AXDL gives it no related span)"; rc=1; }
+    fi
+
+    local h
+    for h in ${helps[@]+"${helps[@]}"}; do
+      facts=$((facts + 1)); f_msg=$((f_msg + 1))
+      if ! block_trim_eq "$bs" "$be" "= help: $h"; then
+        echo "FAIL $label (block $((k + 1)) has no help line reading exactly \`= help: $h\`)"
+        rc=1
+      fi
+    done
+    [[ -n "$relmsg" ]] && { facts=$((facts + 1)); f_msg=$((f_msg + 1)); }
+  done
+
+  # The trailer, as an equality on the golden's last line. A count that
+  # merely APPEARS somewhere is satisfied by a file that also says
+  # something else afterwards.
+  facts=$((facts + 1)); f_block=$((f_block + 1))
+  local lastline="" i
+  for (( i = NG - 1; i >= 0; i-- )); do
+    if [[ -n "${GL[$i]}" ]]; then lastline="${GL[$i]}"; break; fi
+  done
+  if [[ "$nE" -gt 0 ]]; then
+    local plural="errors"
+    [[ "$nE" == 1 ]] && plural="error"
+    if [[ "$lastline" != "compilation failed due to $nE previous $plural" ]]; then
+      echo "FAIL $label (the golden ends \`$lastline\`; the AXDL's $nE error(s) call for \`compilation failed due to $nE previous $plural\`)"
+      rc=1
+    fi
+  else
+    if grep -q "compilation failed" "$golden"; then
+      echo "FAIL $label (warnings-only case has a failure trailer)"
+      rc=1
+    fi
+  fi
+
+  return $rc
+}
+
+# ------------------------------------------------------------------
+# check 4: every quoted source row, against the fixture's own bytes
+# ------------------------------------------------------------------
+# The one assertion in this gate that reads no golden at all on the
+# right-hand side. `AXIOM_BLESS=1` can make the left-hand side say
+# anything; the right-hand side is the compiler's INPUT.
+source_rows() {
+  local golden="$1" label="$2"
+  local rc=0 row cur="" n text src
+  while IFS= read -r row; do
+    if [[ "$row" =~ ^\ *--\>\ ([^ :]+\.ax):[0-9]+:[0-9]+$ ]]; then
+      if ! cur="$(resolve_fixture "${BASH_REMATCH[1]}")"; then
+        echo "FAIL $label (snippet header names ${BASH_REMATCH[1]}, not a file in tests/diagnostics)"
+        rc=1
+        cur=""
+      fi
+    elif [[ "$row" =~ ^[[:space:]]*([0-9]+)\ \|(\ (.*))?$ ]]; then
+      n="${BASH_REMATCH[1]}"
+      text="${BASH_REMATCH[3]}"
+      if [[ -z "$cur" ]]; then
+        echo "FAIL $label (snippet row \`$row\` belongs to no \`-->\` header)"
+        rc=1
+        continue
+      fi
+      src="$(fixture_line "$cur" "$n")"
+      rows=$((rows + 1))
+      if [[ "$text" != "$src" ]]; then
+        echo "FAIL $label (snippet quotes $cur:$n as \`$text\`; the file says \`$src\`)"
+        rc=1
+      fi
+    fi
+  done < "$golden"
+  return $rc
+}
+
+# ------------------------------------------------------------------
+# the sweep
+# ------------------------------------------------------------------
+
 passed=0
 failed=0
 cases=0
+want_fail=0   # cases the AXDL golden says must fail
+want_ok=0     # cases it says must succeed
 
 for axdl in tests/diagnostics/*.axdl; do
   name="$(basename "$axdl" .axdl)"
@@ -79,24 +692,27 @@ for axdl in tests/diagnostics/*.axdl; do
   cases=$((cases + 1))
   golden="tests/diagnostics/$name.human"
 
-  # A case that deliberately does not parse is spelled `.axbad` (see
-  # check-diagnostics.sh); either way it lands in the work directory as
-  # `.ax` so the report names the file the way every other case does.
   if [[ -f "tests/diagnostics/$name.ax" ]]; then
     cp "tests/diagnostics/$name.ax" "$work/$name.ax"
   else
     cp "tests/diagnostics/$name.axbad" "$work/$name.ax"
   fi
 
-  (cd "$work" && ./stage1 check "$name.ax" 2>"$work/h.err" >"$work/h.out")
+  (cd "$work" && ./axc check "$name.ax" 2>"$work/h.err" >"$work/h.out")
   s1=$?
-  (cd "$work" && "$axiom" check "$name.ax" --diagnostic-format=ai >"$work/a.out" 2>/dev/null)
-  s0=$?
 
+  # A bless writes the golden and then goes on to be CHECKED, exactly as
+  # if it had been in the tree all along. Checks 2, 3 and 4 read the
+  # AXDL golden and the fixture, neither of which this script writes, so
+  # they are as sharp against a golden one second old as against a
+  # committed one - and the summary below refuses the whole bless if any
+  # of them fired. check-diagnostics.sh has refused on the same grounds
+  # since it grew its span verifier; the version of this script that
+  # `continue`d past every check and always exited 0 let a compiler
+  # write down its own defects and call it provenance.
   if [[ "$bless" == 1 ]]; then
     cp "$work/h.err" "$repo_root/$golden"
     echo "blessed $name"
-    continue
   fi
 
   if [[ ! -f "$golden" ]]; then
@@ -112,130 +728,51 @@ for axdl in tests/diagnostics/*.axdl; do
     failed=$((failed + 1))
     continue
   fi
-
-  if [[ "$s1" != "$s0" ]]; then
-    echo "FAIL $name: exit status diverged (stage0=$s0 stage1=$s1)"
+  if ! grep -qE '^[EWNH] ' "$axdl"; then
+    echo "FAIL $name (AXDL golden has no diagnostic line - nothing to derive from)"
     failed=$((failed + 1))
     continue
   fi
 
-  # stdout is its own stream and its own contract: stage0's check
-  # prints `OK` there whenever it does not fail - success and
-  # warnings-only alike - and nothing on errors. A gate that watched
-  # only stderr passed while stage1 printed no OK at all.
-  if ! cmp -s "$work/a.out" "$work/h.out"; then
-    echo "FAIL $name: stdout differs from stage0's"
-    diff "$work/a.out" "$work/h.out" | head -4 | sed 's/^/    /'
-    failed=$((failed + 1))
-    continue
+  # Check 2. Expected status and stdout read off the AXDL golden.
+  if grep -qE '^E ' "$axdl"; then
+    want_status=1
+    want_fail=$((want_fail + 1))
+    : > "$work/want.out"
+  else
+    want_status=0
+    want_ok=$((want_ok + 1))
+    printf 'OK\n' > "$work/want.out"
   fi
 
-  if ! cmp -s "$golden" "$work/h.err"; then
-    echo "FAIL $name (stage1's rendering differs from the golden)"
-    diff "$golden" "$work/h.err" | head -8 | sed 's/^/    /'
-    failed=$((failed + 1))
-    continue
-  fi
-
-  # Cross-check against the AXDL golden, which stage0 itself equals:
-  # the same diagnostics, independently rendered, must tell the same
-  # story. One heading per AXDL line; every code and every primary
-  # file:line:col present; the trailer counting exactly the E lines.
   ok=1
-  axdl_lines="$(grep -cE '^[EWNH] ' "$axdl")"
-  headings="$(grep -cE '^(error|warning)\[AX[0-9]{4}\]: ' "$golden")"
-  if [[ "$axdl_lines" != "$headings" ]]; then
-    echo "FAIL $name (AXDL has $axdl_lines diagnostics, human has $headings headings)"
+  if [[ "$s1" != "$want_status" ]]; then
+    if (( s1 > 128 )); then
+      echo "FAIL $name: died of signal $((s1 - 128)); the AXDL golden calls for status $want_status"
+    else
+      echo "FAIL $name: exited $s1; the AXDL golden has $(grep -cE '^E ' "$axdl") error line(s), which calls for status $want_status"
+    fi
     ok=0
   fi
-  while IFS= read -r line; do
-    code="$(printf '%s\n' "$line" | grep -oE 'AX[0-9]{4}' | head -1)"
-    loc="$(printf '%s\n' "$line" | grep -oE '[^ ]+\.ax:[0-9]+:[0-9]+' | head -1 | sed 's/-.*//')"
-    if [[ -n "$code" ]] && ! grep -qF "[$code]" "$golden"; then
-      echo "FAIL $name (AXDL code $code missing from human golden)"
-      ok=0
-    fi
-    if [[ -n "$loc" ]] && ! grep -qF -- "--> $loc" "$golden"; then
-      echo "FAIL $name (AXDL location $loc missing from human golden)"
-      ok=0
-    fi
-
-    # Layout, derived from the AXDL golden rather than trusted to the
-    # human golden: the caret row's column and width are functions of
-    # the primary span, so a golden blessed from a renderer that
-    # misplaced or missized its carets cannot satisfy the AXDL facts
-    # even though it byte-equals the renderer that made it. `L:C-C2`
-    # is end-exclusive in characters; a bare `L:C` is a width-1 span;
-    # a span crossing lines carries a second `L:`, which no current
-    # case produces and the assertion skips.
-    span="$(printf '%s\n' "$line" | grep -oE '\.ax:[0-9]+:[0-9]+(-[0-9]+)?( |$)' | head -1 | sed 's/^\.ax://; s/ $//')"
-    if [[ -n "$span" ]]; then
-      L="${span%%:*}"
-      rest="${span#*:}"
-      C="${rest%%-*}"
-      if [[ "$rest" == *-* ]]; then C2="${rest#*-}"; else C2=$((C + 1)); fi
-      run=$((C2 - C)); [[ "$run" -lt 1 ]] && run=1
-      # An end-of-file diagnostic names a line PAST the last one - an
-      # unclosed `(` runs out at the position after the final newline.
-      # There is still a line to point at, and both renderers point at
-      # the same one: the last, with the caret one past its final
-      # character. Derived here from the fixture's own bytes, so it
-      # stays a fact about the file rather than a fact about the
-      # golden. stage0's report agrees (its AXDL says 2:1 for a
-      # one-line file and its caret sits at 1:11).
-      nlines="$(wc -l < "$work/$name.ax" | tr -d ' ')"
-      if [[ "$L" -gt "$nlines" ]]; then
-        L="$nlines"
-        C=$(( $(awk -v n="$nlines" 'NR==n {print length($0)}' "$work/$name.ax") + 1 ))
-        run=1
-      fi
-      if ! grep -qE "^ *${L} \| " "$golden"; then
-        echo "FAIL $name (source line $L not in the snippet gutter)"
-        ok=0
-      fi
-      pad="$(printf '%*s' $((C - 1)) '')"
-      carets="$(printf '%*s' "$run" '' | tr ' ' '^')"
-      if ! grep -qF -- "| ${pad}${carets}" "$golden"; then
-        echo "FAIL $name (no caret row at col $C width $run for span $span)"
-        ok=0
-      fi
-    fi
-
-    # The related span's line must appear in the gutter too, with a
-    # dash row of the span's width.
-    rel="$(printf '%s\n' "$line" | grep -oE ' \^[0-9]+:[0-9]+(-[0-9]+)?:' | head -1 | sed 's/^ \^//; s/:$//')"
-    if [[ -n "$rel" ]]; then
-      RL="${rel%%:*}"
-      rrest="${rel#*:}"
-      RC="${rrest%%-*}"
-      if [[ "$rrest" == *-* ]]; then RC2="${rrest#*-}"; else RC2=$((RC + 1)); fi
-      rrun=$((RC2 - RC)); [[ "$rrun" -lt 1 ]] && rrun=1
-      rpad="$(printf '%*s' $((RC - 1)) '')"
-      dashes="$(printf '%*s' "$rrun" '' | tr ' ' '-')"
-      if ! grep -qE "^ *${RL} \| " "$golden"; then
-        echo "FAIL $name (related line $RL not in the snippet gutter)"
-        ok=0
-      fi
-      if ! grep -qF -- "| ${rpad}${dashes}" "$golden"; then
-        echo "FAIL $name (no dash row at col $RC width $rrun for related span)"
-        ok=0
-      fi
-    fi
-  done < <(grep -E '^[EWNH] ' "$axdl")
-  errs="$(grep -cE '^E ' "$axdl")" || true
-  if [[ "$errs" -gt 0 ]]; then
-    plural="errors"
-    [[ "$errs" == 1 ]] && plural="error"
-    if ! grep -qF "compilation failed due to $errs previous $plural" "$golden"; then
-      echo "FAIL $name (trailer does not count $errs errors)"
-      ok=0
-    fi
-  else
-    if grep -q "compilation failed" "$golden"; then
-      echo "FAIL $name (warnings-only case has a failure trailer)"
-      ok=0
-    fi
+  # stdout is its own stream and its own contract: `check` prints `OK`
+  # there whenever it does not fail - success and warnings-only alike -
+  # and nothing at all on errors. A gate that watched only stderr passed
+  # while the renderer printed no OK at all.
+  if ! cmp -s "$work/want.out" "$work/h.out"; then
+    echo "FAIL $name: stdout is $(wc -c <"$work/h.out" | tr -d ' ') bytes, want $(wc -c <"$work/want.out" | tr -d ' ') ($(head -c 40 "$work/want.out" | tr '\n' ' '))"
+    ok=0
   fi
+
+  # Check 1.
+  if ! cmp -s "$golden" "$work/h.err"; then
+    echo "FAIL $name (the rendering differs from the golden)"
+    diff "$golden" "$work/h.err" | head -8 | sed 's/^/    /'
+    ok=0
+  fi
+
+  # Checks 3 and 4.
+  axdl_facts "$axdl" "$golden" "$name" || ok=0
+  source_rows "$golden" "$name" || ok=0
 
   if [[ "$ok" == 1 ]]; then
     passed=$((passed + 1))
@@ -244,34 +781,223 @@ for axdl in tests/diagnostics/*.axdl; do
   fi
 done
 
-if [[ "$bless" == 1 ]]; then
-  echo "blessed $cases cases"
-  exit 0
+if [[ -n "$filter" ]]; then
+  echo "NOTE: filtered run (\`$filter\`): $cases case(s), corpus floors and drills skipped."
+  if [[ "$bless" == 1 ]]; then
+    if [[ "$failed" != 0 ]]; then
+      echo "REFUSED: $cases case(s) blessed, $passed of them still derivable from their AXDL golden and fixture, $failed check(s) failed - the goldens are on disk to look at, the run is a failure"
+      exit 1
+    fi
+    echo "check-render-selfhost: blessed $cases case(s), all still derivable from their AXDL goldens and fixtures (PROBE not gate)"
+    exit 0
+  fi
+  echo "check-render-selfhost: $passed passed, $failed failed ($cases cases, PROBE not gate)"
+  [[ "$failed" == 0 ]]
+  exit
 fi
 
 # A sweep that read fewer cases than exist is a sweep that can pass by
-# not looking (the glob-rot lesson: a pattern that stops matching
-# removes files while the section keeps reporting the silence it was
-# looking for).
+# not looking (the glob-rot lesson: a pattern that stops matching removes
+# files while the section keeps reporting the silence it was looking
+# for). Same for the derived halves: if the AXDL parse ever stops
+# producing facts, every per-case assertion becomes vacuously true and
+# the gate goes green while checking one `cmp` per case.
 if [[ "$cases" -lt 38 ]]; then
   echo "FAIL: swept $cases cases; the floor is 38"
   failed=$((failed + 1))
 fi
-
-# The differ itself, negative-tested: corrupt a copy of the first
-# golden and require the comparison to see it. A gate whose cmp was
-# wired to the wrong file reports every case green forever.
-first_golden="$(ls tests/diagnostics/*.human 2>/dev/null | head -1)"
-if [[ -n "$first_golden" ]]; then
-  sed 's/error/errro/' "$first_golden" > "$work/corrupt.human"
-  if cmp -s "$first_golden" "$work/corrupt.human"; then
-    echo "FAIL: the negative test did not fail - the differ is blind"
-    failed=$((failed + 1))
-  fi
-else
-  echo "FAIL: no goldens exist for the negative test"
+if [[ "$rows" -lt 80 ]]; then
+  echo "FAIL: only $rows snippet rows were checked against fixture bytes; the floor is 80"
   failed=$((failed + 1))
 fi
 
-echo "check-render-selfhost: $passed passed, $failed failed ($cases cases)"
+# ONE FLOOR PER FAMILY, not one for the total. The aggregate floor this
+# replaced was 400 against a total of 692, so the entire message family
+# - the newest and most valuable of them - could stop producing
+# assertions (a broken field parser, an AXDL quoting change) and leave
+# 528, comfortably green, with the headline check evaporated. Today's
+# counts over the 52-case corpus, measured 2026-08-08:
+#   block  208   head  86   loc  86   msg  78   caret  172   dash  101
+#            (gutter 101, and 101 source rows in check 4)
+# `msg` is the helps and the related notes; the 86 primary messages are
+# asserted by the heading equality and counted under `head`, which is
+# why that family shrank from 164 while gaining an anchor at both ends.
+# Each floor sits just under its count and far above what a family that
+# stopped matching would produce, which is zero.
+floor_fail() {
+  echo "FAIL: only $2 $1 assertions were made; the floor is $3 - that family stopped matching, which is not the same as nothing being wrong"
+  failed=$((failed + 1))
+}
+[[ "$f_block"  -lt 190 ]] && floor_fail "block-shape and severity-count" "$f_block"  190
+[[ "$f_head"   -lt  80 ]] && floor_fail "heading-equality"               "$f_head"    80
+[[ "$f_loc"    -lt  80 ]] && floor_fail "location-equality"              "$f_loc"     80
+[[ "$f_msg"    -lt  70 ]] && floor_fail "help/related-text equality"     "$f_msg"     70
+[[ "$f_caret"  -lt 160 ]] && floor_fail "caret-row equality and count"   "$f_caret"  160
+[[ "$f_dash"   -lt  90 ]] && floor_fail "dash-row equality and count"    "$f_dash"    90
+[[ "$f_gutter" -lt  90 ]] && floor_fail "snippet-gutter"                 "$f_gutter"  90
+
+# The status derivation has to DISTINGUISH something. A corpus in which
+# every case wants the same status is satisfied by a `check` that always
+# fails, or always succeeds, and check 2 would be reporting a constant.
+if (( want_fail == 0 || want_ok == 0 )); then
+  echo "FAIL: every case wants the same exit status ($want_fail fail / $want_ok ok) - the derivation distinguishes nothing"
+  failed=$((failed + 1))
+fi
+
+# ------------------------------------------------------------------
+# drills: the comparators, negative-tested, every run
+# ------------------------------------------------------------------
+# A gate whose comparison is wired to the wrong file, or whose regex
+# stopped matching, reports every case green forever. Each drill
+# corrupts a copy of a real golden in one specific way and requires the
+# check that owns that way to see it - and first requires the corruption
+# to have actually changed the file, so a no-op mutation cannot pass the
+# drill by accident. Drills (e), (f) and (g) are the three renderer
+# defects that went green against the unanchored version of check 3,
+# reproduced here as edits to a golden rather than to a compiler.
+drill_golden="$(ls tests/diagnostics/*.human 2>/dev/null | head -1)"
+if [[ -z "$drill_golden" ]]; then
+  echo "FAIL: no goldens exist for the drills"
+  failed=$((failed + 1))
+else
+  drill_axdl="${drill_golden%.human}.axdl"
+  drill_name="$(basename "$drill_golden" .human)"
+  # The drills run their own assertions; the corpus counters are the
+  # sweep's report and must not be inflated by them.
+  facts_kept="$facts"; rows_kept="$rows"
+  bk="$f_block"; hk="$f_head"; lk="$f_loc"; mk="$f_msg"
+  ck="$f_caret"; dk="$f_dash"; gk="$f_gutter"
+
+  # (a) the byte comparison itself. A gate whose `cmp` is wired to the
+  # wrong file reports every case green forever.
+  sed 's/error/errro/' "$drill_golden" > "$work/corrupt.human"
+  if cmp -s "$drill_golden" "$work/corrupt.human"; then
+    echo "FAIL drill(cmp): the byte comparison did not see a corrupted golden"
+    failed=$((failed + 1))
+  fi
+
+  # (b) check 4: a snippet row that no longer matches the fixture. One
+  # character appended to the first quoted source line - the smallest
+  # edit a renderer that mis-slices a line would make.
+  awk 'BEGIN{d=0} { if (!d && $0 ~ /^ *[0-9]+ \| /) { print $0 "X"; d=1 } else print }' \
+    "$drill_golden" > "$work/rowbad.human"
+  if cmp -s "$drill_golden" "$work/rowbad.human"; then
+    echo "FAIL drill(rows): the corruption changed nothing - the row pattern matched no line"
+    failed=$((failed + 1))
+  elif source_rows "$work/rowbad.human" "drill" >/dev/null 2>&1; then
+    echo "FAIL drill(rows): a snippet row that contradicts the fixture was accepted"
+    failed=$((failed + 1))
+  fi
+
+  # (c) check 3: a heading that keeps its code, its location, its
+  # carets and its trailer, and says something the diagnostic never
+  # said. Only the heading equality can see this one, which is why it
+  # is drilled apart from (b).
+  sed -E '/^error\[AX[0-9]{4}\]: /s/(\]: ).*/\1a message this compiler never emitted/' \
+    "$drill_golden" > "$work/msgbad.human"
+  if cmp -s "$drill_golden" "$work/msgbad.human"; then
+    echo "FAIL drill(messages): the corruption changed nothing - no heading matched"
+    failed=$((failed + 1))
+  elif axdl_facts "$drill_axdl" "$work/msgbad.human" "drill" >/dev/null 2>&1; then
+    echo "FAIL drill(messages): a heading with the wrong message text was accepted"
+    failed=$((failed + 1))
+  fi
+
+  # (d) check 2: the status derivation reads the AXDL golden rather
+  # than returning a constant. Downgrade the drill case's errors to
+  # warnings in a copy and the derived status must flip - if it does
+  # not, the rule is not a function of the file and every case's status
+  # assertion is decoration.
+  sed 's/^E /W /' "$drill_axdl" > "$work/statusbad.axdl"
+  grep -qE '^E ' "$drill_axdl"; d_before=$?
+  grep -qE '^E ' "$work/statusbad.axdl"; d_after=$?
+  if [[ "$d_before" != 0 ]]; then
+    echo "FAIL drill(status): $drill_name has no E line, so the derivation cannot be exercised here"
+    failed=$((failed + 1))
+  elif [[ "$d_after" == 0 ]]; then
+    echo "FAIL drill(status): errors downgraded to warnings still derive a failing status"
+    failed=$((failed + 1))
+  fi
+
+  # (e) attack A, as an edit: one more caret than the span calls for.
+  # This is what `(repByte (+ run 1) ch)` did to all 52 goldens, and the
+  # substring form of this assertion could not fail on it - a prefix is
+  # a substring, so no span could ever be too WIDE.
+  awk 'BEGIN{d=0} { if (!d && $0 ~ /^ *\| *\^+$/) { print $0 "^"; d=1 } else print }' \
+    "$drill_golden" > "$work/caretbad.human"
+  if cmp -s "$drill_golden" "$work/caretbad.human"; then
+    echo "FAIL drill(caret): the corruption changed nothing - no caret row matched"
+    failed=$((failed + 1))
+  elif axdl_facts "$drill_axdl" "$work/caretbad.human" "drill" >/dev/null 2>&1; then
+    echo "FAIL drill(caret): a caret run one character wider than the span was accepted"
+    failed=$((failed + 1))
+  fi
+
+  # (f) attack C, as an edit: the right text plus something else. The
+  # containment form accepted every suffix, prefix and interleaving.
+  awk 'BEGIN{d=0} { if (!d && $0 ~ /^(error|warning)\[AX[0-9][0-9][0-9][0-9]\]: /) { print $0 " [debug: span=?]"; d=1 } else print }' \
+    "$drill_golden" > "$work/suffixbad.human"
+  if cmp -s "$drill_golden" "$work/suffixbad.human"; then
+    echo "FAIL drill(suffix): the corruption changed nothing - no heading matched"
+    failed=$((failed + 1))
+  elif axdl_facts "$drill_axdl" "$work/suffixbad.human" "drill" >/dev/null 2>&1; then
+    echo "FAIL drill(suffix): a heading carrying the right message plus a debug tag was accepted"
+    failed=$((failed + 1))
+  fi
+
+  # (g) attack B, as an edit: the same blocks, emitted in the wrong
+  # order. Needs a case with more than one diagnostic, so it picks its
+  # own golden rather than reusing the first one - and fails loudly if
+  # the corpus no longer has such a case, because then nothing in this
+  # gate is pinning order.
+  order_axdl=""
+  for cand in tests/diagnostics/*.axdl; do
+    if [[ "$(grep -cE '^[EWNH] ' "$cand")" -ge 2 && -f "${cand%.axdl}.human" ]]; then
+      order_axdl="$cand"; break
+    fi
+  done
+  if [[ -z "$order_axdl" ]]; then
+    echo "FAIL drill(order): no case has two diagnostics - emission order is unpinnable"
+    failed=$((failed + 1))
+  else
+    order_golden="${order_axdl%.axdl}.human"
+    awk 'BEGIN{RS=""; n=0} {b[++n]=$0} END{ t=b[1]; b[1]=b[2]; b[2]=t; for (i=1;i<=n;i++) printf "%s\n\n", b[i] }' \
+      "$order_golden" > "$work/orderbad.human"
+    if ! grep -qE '^(error|warning)\[AX[0-9]{4}\]: ' "$work/orderbad.human"; then
+      echo "FAIL drill(order): the reordered copy has no headings - the block split matched nothing"
+      failed=$((failed + 1))
+    elif [[ "$(grep -cE '^(error|warning)\[AX[0-9]{4}\]: ' "$work/orderbad.human")" \
+         != "$(grep -cE '^(error|warning)\[AX[0-9]{4}\]: ' "$order_golden")" ]]; then
+      echo "FAIL drill(order): the reordered copy lost or gained a heading - it is not a permutation"
+      failed=$((failed + 1))
+    elif ! axdl_facts "$order_axdl" "$order_golden" "drill" >/dev/null 2>&1; then
+      # This drill is the only one whose corruption is an INVOLUTION: if
+      # the golden on disk is already in the wrong order - which is
+      # exactly what a bless from a renderer with a reversed emission
+      # loop leaves behind - then swapping two of its blocks puts them
+      # back and the drill would report the comparator broken when the
+      # corpus is. Say which.
+      echo "FAIL drill(order): $(basename "$order_golden") does not satisfy its own AXDL golden, so there is no correct baseline to reorder (the sweep above names the case)"
+      failed=$((failed + 1))
+    elif axdl_facts "$order_axdl" "$work/orderbad.human" "drill" >/dev/null 2>&1; then
+      echo "FAIL drill(order): $(basename "$order_golden")'s diagnostics, emitted in the wrong order, were accepted"
+      failed=$((failed + 1))
+    fi
+  fi
+
+  facts="$facts_kept"; rows="$rows_kept"
+  f_block="$bk"; f_head="$hk"; f_loc="$lk"; f_msg="$mk"
+  f_caret="$ck"; f_dash="$dk"; f_gutter="$gk"
+fi
+
+if [[ "$bless" == 1 ]]; then
+  if [[ "$failed" != 0 ]]; then
+    echo "REFUSED: $cases case(s) blessed, $passed of them still derivable from their AXDL golden and fixture, $failed check(s) failed - the goldens are on disk to look at, the run is a failure"
+    exit 1
+  fi
+  echo "check-render-selfhost: blessed $cases cases, all still derivable from their AXDL goldens and fixtures ($facts AXDL facts, $rows source rows)"
+  exit 0
+fi
+
+echo "check-render-selfhost: $passed passed, $failed failed ($cases cases, $facts AXDL facts [block $f_block, head $f_head, loc $f_loc, msg $f_msg, caret $f_caret, dash $f_dash, gutter $f_gutter], $rows source rows, $want_fail fail/$want_ok ok by derivation)"
 [[ "$failed" == 0 ]]

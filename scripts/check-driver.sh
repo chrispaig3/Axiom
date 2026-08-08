@@ -20,8 +20,17 @@ set -uo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
 
-axiom="${AXIOM:-$repo_root/target/release/axiom}"
-[[ -x "$axiom" ]] || cargo build --release
+axiom="${AXIOM:-$repo_root/.axiom-bin/axiom}"
+if [[ ! -x "$axiom" ]]; then
+  # No `cargo` here, and none anywhere in this repository's gates: the
+  # Rust compiler this used to build has been deleted. A checkout gets
+  # a compiler from the committed seed - `bootstrap/axiom-<target>.ll`
+  # through `llc` and `cc` - which is the whole point of that directory
+  # existing. Set AXIOM to use one you already have.
+  echo "no compiler at $axiom - building one from the committed seed" >&2
+  "$repo_root/scripts/bootstrap-from-seed.sh" --install "$repo_root/.axiom-bin" >&2 \
+    || { echo "FAIL: could not bootstrap a compiler from bootstrap/" >&2; exit 1; }
+fi
 export AXIOM_STDLIB="$repo_root/stdlib"
 
 work="$(mktemp -d)"

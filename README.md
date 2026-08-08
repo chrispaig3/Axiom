@@ -40,9 +40,11 @@ Axiom is built for agents as first-class users. Three notations make this possib
 
 ### Prerequisites
 
-- **Rust 1.70+** — to build the compiler
 - **LLVM** — `llc` must be on your PATH (for code generation)
 - **A C compiler** — `cc`, `clang`, or `gcc` on your PATH (for final linking)
+
+That is the whole list. Axiom's compiler is written in Axiom, so there
+is no other language's toolchain to install first.
 
 On macOS:
 ```bash
@@ -59,10 +61,24 @@ sudo apt install llvm clang
 ```bash
 git clone https://github.com/chrispaig3/Axiom
 cd axiom
-cargo build --release
+./scripts/bootstrap-from-seed.sh --install .axiom-bin
 ```
 
-The binary is at `./target/release/axiom`.
+The binary is at `./.axiom-bin/axiom`.
+
+**How a compiler written in itself gets built the first time.**
+`bootstrap/` holds the compiler's own LLVM IR, one file per target,
+committed. The script runs `llc` and `cc` over the one matching your
+host to get a *seed* compiler, uses that to compile `self_host/` into a
+real one, and then does it twice more — requiring the last two to be
+byte-identical before it hands you anything. So the binary you end up
+with was built by a compiler built from the source in front of you, and
+the fixpoint is checked on the way, every time.
+
+The seed is allowed to lag the source; what is checked is that it can
+still *build* it. When it can no longer do that,
+`scripts/bootstrap-from-seed.sh` fails saying so and
+`scripts/reseed.sh` moves it forward. See `bootstrap/README.md`.
 
 ---
 
@@ -95,12 +111,12 @@ known at compile time — see [Strings](#strings).
 
 Run it:
 ```bash
-./target/release/axiom run hello.ax
+axiom run hello.ax
 ```
 
 Compile it:
 ```bash
-./target/release/axiom build --input hello.ax --output hello
+axiom build --input hello.ax --output hello
 ./hello
 ```
 
@@ -947,7 +963,7 @@ Split a program across files with `(import Mod.Sub ...)`:
 ```
 
 ```bash
-./target/release/axiom run main.ax
+axiom run main.ax
 ```
 
 How it works:
@@ -984,38 +1000,38 @@ How it works:
 
 ```bash
 # Check syntax and types (no code generation)
-./target/release/axiom check source.ax
+axiom check source.ax
 
 # Compile to a native executable
-./target/release/axiom build --input source.ax --output program
+axiom build --input source.ax --output program
 
 # Emit LLVM IR to stdout
-./target/release/axiom emit-llvm source.ax
+axiom emit-llvm source.ax
 
 # Emit LLVM IR to a file
-./target/release/axiom emit-llvm source.ax -o output.ll
+axiom emit-llvm source.ax -o output.ll
 
 # Compile and run immediately
-./target/release/axiom run source.ax
+axiom run source.ax
 
 # Start interactive REPL
-./target/release/axiom repl
+axiom repl
 
 # Look up a diagnostic code
-./target/release/axiom explain AX3001
+axiom explain AX3001
 
 # Render diagnostics in Axiom's AI-optimized notation (see docs/diagnostics.md)
-./target/release/axiom --diagnostic-format=ai check source.ax
+axiom --diagnostic-format=ai check source.ax
 
 # List every top-level symbol (functions, types, constructors, structs,
 # aliases, traits, ...) and its type/shape in Axiom's AI-optimized
 # "AXSYM" notation (see docs/diagnostics.md); resolves (import ...) too, and
 # attributes each symbol to the file that actually declared it
-./target/release/axiom --diagnostic-format=ai symbols source.ax
+axiom --diagnostic-format=ai symbols source.ax
 
 # Same, but also include the dozen always-in-scope built-in operators
 # (omitted by default to keep output minimal)
-./target/release/axiom --diagnostic-format=ai symbols source.ax --builtins
+axiom --diagnostic-format=ai symbols source.ax --builtins
 ```
 
 See [`docs/diagnostics.md`](docs/diagnostics.md) for the full agent-facing
@@ -1030,7 +1046,7 @@ the AI-optimized "AXSYM" symbol/type notation.
 The REPL compiles expressions to native code — it doesn't interpret them. This means you get real performance even in interactive mode.
 
 ```bash
-./target/release/axiom repl
+axiom repl
 ```
 
 ### REPL commands
@@ -1149,18 +1165,24 @@ Source (.ax)
 [5/5] LLVM CodeGen → LLVM IR text → llc → .o → cc → executable
 ```
 
-### Crate structure
+### Compiler structure
 
-| Crate | Purpose |
+The compiler is `self_host/`, and it is written in Axiom. Every stage of
+the pipeline above is a module you can read in the language it compiles.
+
+| Module | Purpose |
 |---|---|
-| `axiom-ast` | AST, token, and span definitions |
-| `axiom-lexer` | Tokenizer |
-| `axiom-parser` | S-expression parser |
-| `axiom-sema` | Two-pass type checker |
-| `axiom-ir` | IR definitions and generator |
-| `axiom-codegen` | LLVM IR emitter |
-| `axiom-cli` | CLI and REPL |
-| `axiom-errors` | Error types with pretty diagnostics |
+| `core.ax` | Tokens and spans |
+| `lexer.ax` | Tokenizer |
+| `parser.ax` | S-expression parser and AST |
+| `typecheck.ax` | Name resolution, types, effects, AXTAG validation |
+| `codegen.ax` | Import resolution, name mangling, LLVM IR emission |
+| `diag.ax` | Diagnostics, AXDL and JSON rendering, source maps |
+| `render.ax` | The human diagnostic renderer |
+| `driver.ax` | `build`: `opt`, `llc`, `cc`, and blaming the right one |
+| `main.ax` | CLI entry point and subcommand dispatch |
+| `format.ax`, `repl.ax`, `symbols.ax`, `explain.ax`, `lsp.ax` | The tools |
+| `Host.<target>.ax` | Host triple and syscall ABI, chosen when the compiler is *compiled* — a freestanding binary has no `uname` to ask |
 
 ---
 
@@ -1180,7 +1202,7 @@ Source (.ax)
 | Syscalls | **Complete** | `__syscall0`-`__syscall6` on Darwin and Linux, x86-64 and AArch64; errors normalised to `-errno` on every platform |
 | Allocation | **Functional; unbounded by default** | `mmap`-backed bump allocator emitted by the backend, overridable by defining `axiom_alloc`. No `free`, so memory tracks *total* allocations. `--gc` swaps in a conservative non-moving mark-sweep collector and makes peak memory track the live set: 400 MB churned goes from 352 MB to 3.2 MB. Neither is the end state; see the memory model in [docs/v1-roadmap.md](docs/v1-roadmap.md) |
 | Cross-compilation | **Functional** | `--target` selects ABI and platform stdlib modules; codegen verified for all four targets |
-| Self-hosting | **Fixpoint reached** | The Axiom compiler compiles itself and reproduces itself byte-for-byte (`stage2 == stage3`, as objects and as IR), gated by `scripts/check-bootstrap.sh`. It is not yet a replacement for the Rust compiler — no type checking, one target, unmangled names. See [docs/self-hosting.md](docs/self-hosting.md) |
+| Self-hosting | **Done** | Axiom's compiler is written in Axiom. It compiles itself and reproduces itself byte-for-byte (`stage2 == stage3`, as objects and as IR), and a clean checkout builds it from `bootstrap/` with nothing but `llc` and a C linker. The Rust implementation it replaced has been removed. See [docs/self-hosting.md](docs/self-hosting.md) |
 | ADTs / data types | **Complete** | Constructors (nullary and with fields, including recursive types like `List`/`Tree`) compile to heap-boxed tagged values; see [Algebraic data types](#algebraic-data-types-how-they-actually-run) |
 | Structs | **Complete** | Declarations, LLVM emission, field access (`.field`), construction (`(StructName expr1 expr2 ...)`), `mut` fields, field mutation |
 | Struct variants | **Complete** | Named fields per `data` constructor, matchable by name and in any order, with field punning (`{ w, h }`) and partial patterns. `tests/stdlib/210-struct-variants.ax` |
@@ -1250,32 +1272,27 @@ See [docs/diagnostics.md](docs/diagnostics.md) for the full grammar.
 
 ```
 axiom/
-├── axiom-ast/          # AST, token, and span definitions
-├── axiom-lexer/        # Tokenizer
-├── axiom-parser/       # S-expression parser
-├── axiom-sema/         # Name resolution, type checking, effects
-├── axiom-ir/           # IR definitions and lowering
-├── axiom-codegen/      # LLVM emission, target/syscall ABI
-├── axiom-cli/          # Driver, REPL, `fmt`, `symbols`
-├── axiom-errors/       # Diagnostics, AXDL/AXSYM rendering
+├── self_host/          # The compiler, written in Axiom
+├── bootstrap/          # Its own LLVM IR, one file per target — how a clean
+│                       # checkout builds a compiler without one
 ├── stdlib/             # Standard library, written in Axiom
 ├── tree-sitter-axiom/  # Editor grammar, queries, corpus
-├── self_host/          # The Axiom compiler, written in Axiom
 ├── tests/stdlib/       # Golden tests: compiled, run, output compared
-├── tests/selfhost/     # Conformance cases run through the Axiom compiler
-├── scripts/            # CI gates, each runnable locally
-├── docs/               # diagnostics.md, reference.md, self-hosting.md, v1-roadmap.md
-└── Cargo.toml          # Workspace manifest
+├── tests/selfhost/     # Conformance cases: compiled, run, exit status checked
+├── tests/diagnostics/  # AXDL and human-render goldens, per diagnostic code
+├── tests/{fmt,repl,lsp,tools}/  # Goldens for each tool surface
+├── scripts/            # The gates — each one is what CI runs
+└── docs/               # diagnostics.md, reference.md, self-hosting.md, v1-roadmap.md
 ```
 
 Every CI gate is a script in `scripts/`, so a contributor runs locally
 exactly what CI runs:
 
 ```bash
-cargo test --release --all           # unit, integration, golden suites
+./scripts/bootstrap-from-seed.sh     # seed -> stage1 -> stage2 == stage3
 ./scripts/run-stdlib-tests.sh        # stdlib, compiled and run
 ./scripts/check-self-host.sh         # conformance suite under the Axiom compiler
-./scripts/check-bootstrap.sh         # stage1 -> stage2 -> stage3, byte-identical
+./scripts/check-bootstrap.sh         # the same ladder, driven by the compiler itself
 ./scripts/check-freestanding.sh      # no libc in the IR or the binary
 ./scripts/check-cross-targets.sh     # every target assembles, at -O0 and -O2,
                                      # with no PIE-hostile relocations
@@ -1296,9 +1313,9 @@ never tested is how a broken one goes unnoticed:
 ./scripts/check-cross-targets.sh --self-test   # the relocation rules, on known input
 ```
 
-And a measurement rather than a gate — wall-clock against the Rust
-equivalents, since a timing threshold on a shared CI runner is a flaky
-test:
+And a measurement rather than a gate — wall-clock against Rust's
+equivalent data structures, since a timing threshold on a shared CI
+runner is a flaky test:
 
 ```bash
 ./scripts/bench-datastructures.sh              # Vec/Map/Intern vs Rust
@@ -1316,8 +1333,9 @@ work is *not* parallelizable: the macro system, the HTTP
 library, and the LSP all depend on the memory model, and the LSP depends on
 self-hosting.
 
-[docs/self-hosting.md](docs/self-hosting.md) is the measured gap analysis
-for replacing the Rust compiler with one written in Axiom.
+[docs/self-hosting.md](docs/self-hosting.md) is the record of replacing
+the Rust compiler with one written in Axiom — the measured gap analysis
+that started it, and the working notes of every slice that closed a gap.
 
 ---
 

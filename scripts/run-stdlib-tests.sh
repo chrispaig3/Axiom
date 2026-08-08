@@ -4,10 +4,11 @@
 #
 # Each case is `NAME.ax` with an expected stdout in `NAME.out` and an
 # optional expected exit status in `NAME.exit` (default 0). This is the
-# same set of cases `cargo test -p axiom-cli --test stdlib_golden`
+# same set of cases the deleted Rust test suite ran as `stdlib_golden`
 # covers; the script exists so that a contributor can run one case, see
 # the actual diff, and keep the compiled binary around to poke at -
-# none of which `cargo test` makes easy.
+# none of which a unit-test harness makes easy. It is now the only
+# runner for them.
 #
 # Usage:
 #   scripts/run-stdlib-tests.sh            # every case
@@ -18,10 +19,16 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
 
-axiom="${AXIOM:-$repo_root/target/release/axiom}"
+axiom="${AXIOM:-$repo_root/.axiom-bin/axiom}"
 if [[ ! -x "$axiom" ]]; then
-  echo "building the compiler first (no binary at $axiom)" >&2
-  cargo build --release
+  # No `cargo` here, and none anywhere in this repository's gates: the
+  # Rust compiler this used to build has been deleted. A checkout gets
+  # a compiler from the committed seed - `bootstrap/axiom-<target>.ll`
+  # through `llc` and `cc` - which is the whole point of that directory
+  # existing. Set AXIOM to use one you already have.
+  echo "no compiler at $axiom - building one from the committed seed" >&2
+  "$repo_root/scripts/bootstrap-from-seed.sh" --install "$repo_root/.axiom-bin" >&2 \
+    || { echo "FAIL: could not bootstrap a compiler from bootstrap/" >&2; exit 1; }
 fi
 
 export AXIOM_STDLIB="$repo_root/stdlib"

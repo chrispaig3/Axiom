@@ -47,6 +47,36 @@
                 FMT_HUMAN
               })))))
 
+; `symbols` emits AXSYM and nothing else, and this says so out loud
+; when asked for something else.
+;
+; The Rust compiler had three renderers for it - an aligned human
+; table (its DEFAULT), one JSON object per line, and AXSYM - and this
+; compiler has only the third, which is also its default. That is a
+; deliberate divergence: AXSYM is the notation this language is
+; designed around, the human table is a strict subset of it (it drops
+; the nid and the metadata), and nothing in the repository consumes
+; either of the other two.
+;
+; What was NOT acceptable is how it diverged. `--diagnostic-format`
+; was read, used for diagnostics, and then ignored for the symbol
+; output, so `symbols --diagnostic-format=json` printed AXSYM and
+; claimed success - a request silently answered with something else.
+; A notice, rather than a refusal, because the flag is global: a
+; script that sets it once for a run of mixed subcommands should not
+; fail on this one.
+(pub :: symbolsFormatNotice Int)
+;@axiom:effect(io)
+(pub fn (symbolsFormatNotice)
+  (let ((v (flagValue "--diagnostic-format" 1)))
+    (if (|| (== (strLen v) 0) (strEq v "ai"))
+        0
+        {
+          (writeStderr (cat3 "note: `symbols` emits AXSYM; --diagnostic-format='" v
+                             "' applies to diagnostics only\n"))
+          0
+        })))
+
 ; Exit status is the driver's answer, not a byte count: 0 on success, 1
 ; when the source could not be read, 2 when it could not be parsed, 1
 ; when the module does not type-check. The previous version returned
@@ -304,6 +334,7 @@
                                       (if (> (vecLen ds) 0)
                                           (writeStderr (renderDiagsFormat dfmt ds units))
                                           0)
+                                      (symbolsFormatNotice)
                                       (writeStdout
                                         (symbolsRender tc
                                           (if (hasFlag "--builtins") 1 0)))

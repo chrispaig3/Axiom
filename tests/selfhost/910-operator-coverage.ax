@@ -1,0 +1,45 @@
+; expect 42
+; The operators no other conformance case exercises.
+;
+; Measured over the 90 cases of this directory before this one was
+; added: `>>`, `%`, `|` and `^` appeared in ZERO of them, `>=` in one,
+; `<=` in two, and only two cases compared floats at all. A codegen
+; mistake in any of those - the wrong LLVM predicate, `lshr` where
+; `ashr` is meant, `urem` for `srem` - compiled cleanly, ran, and was
+; caught by nothing. It would also survive a re-bless of every golden
+; in the repository, because the whole corpus that could contradict it
+; was silent.
+;
+; An adversarial pass over `check-bootstrap.sh` found this by getting
+; three separately-wrong compilers past a ladder that reaches
+; `stage2 == stage3` and passes 90 conformance cases: the fixpoint says
+; the compiler reproduces itself, not that it is right, and the corpus
+; only reaches as far as the fixtures go.
+;
+; Drilled rather than assumed: a compiler built with one token changed
+; in `codegen.ax` - `(if (strEq nm ">>") "ashr")` to `"lshr"` - answers
+; 26 here instead of 42, and 140 on `320-mangle.ax` exactly as before.
+; The missing 16 names the term that broke, and the untouched case is
+; the blind spot this file exists to close.
+;
+; Every term is chosen for a shape the compiler cannot check by
+; self-consistency, and the total is a sum of powers of two so that a
+; single wrong term names itself in the exit status:
+;
+;   1   fcmp oeq, on floats                    (== 1.5 1.5)
+;   2   fcmp one, taking the FALSE branch      (!= 1.5 1.5)
+;   4   fcmp oge at the boundary               (>= 2.5 2.5)
+;   8   fcmp ole at the boundary               (<= 2.5 2.5)
+;  16   ashr, not lshr: -8 >> 1 stays negative (>> (- 0 8) 1)
+;   2   srem                                   (% 17 5)
+;   3   or                                     (| 1 2)
+;   6   xor                                    (^ 5 3)
+(:: main Int)
+(fn (main)
+  (+ (if (== 1.5 1.5) 1 0)
+     (+ (if (!= 1.5 1.5) 0 2)
+        (+ (if (>= 2.5 2.5) 4 0)
+           (+ (if (<= 2.5 2.5) 8 0)
+              (+ (if (< (>> (- 0 8) 1) 0) 16 0)
+                 (+ (% 17 5)
+                    (+ (| 1 2) (^ 5 3)))))))))

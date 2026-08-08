@@ -26,21 +26,31 @@ env:
   RUSTFLAGS: -D warnings
 
 jobs:
-  lint:
-    name: Format and lint
+  # The cheap gate that fails first. It used to be `cargo fmt` and
+  # `cargo clippy` over the Rust compiler; with that compiler deleted,
+  # the equivalent cheap check is the one thing here that needs no
+  # compiler at all - the tree-sitter grammar must still parse every
+  # `.ax` file in the repository. A grammar that has drifted from the
+  # parser is the failure this catches before anything expensive runs.
+  grammar:
+    name: Tree-sitter grammar
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-node@v4
         with:
-          components: rustfmt, clippy
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo fmt --all --check
-      - run: cargo clippy --all-targets --all-features -- -D warnings
+          node-version: '22'
+      # The grammar has to accept every `.ax` file in the repository.
+      # Nothing here compiles anything: the check parses checked-in
+      # sources, so only the tree-sitter CLI is needed.
+      - run: npm install --prefix tree-sitter-axiom --no-save tree-sitter-cli
+      - name: Every .ax file parses under the checked-in grammar
+        run: ./scripts/check-tree-sitter.sh
+
 
   test:
     name: Tests (${{ matrix.name }})
-    needs: lint
+    needs: grammar
     strategy:
       fail-fast: false
       matrix:
@@ -54,8 +64,6 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
 
       # `llc` is not on the default PATH on either runner image, and the
       # compiler shells out to it by name. `llvm-readobj` comes from the
@@ -79,12 +87,18 @@ jobs:
           echo "$(brew --prefix llvm)/bin" >> "$GITHUB_PATH"
       - run: llc --version
 
-      - name: Unit and integration tests
-        run: cargo test --release --all
+      # Every gate below needs a compiler, and there is no longer one to
+      # build from source in the usual sense - the compiler IS the source.
+      # `bootstrap/` holds its LLVM IR, one file per target; this turns
+      # that into a working binary with `llc` and `cc` and nothing else,
+      # and installs it where every script's default `$AXIOM` looks.
+      # A failure here is the seed going stale: `scripts/reseed.sh`.
+      - name: Provision a compiler from the committed seed
+        run: ./scripts/bootstrap-from-seed.sh --install .axiom-bin
 
-      # The Rust test suite already runs the standard-library golden
-      # cases, but running them through the script as well keeps the
-      # script - which is what a contributor uses locally - from rotting.
+      # These cases were also run by the deleted Rust test suite, as
+      # `stdlib_golden`. This script is now their only runner, which is
+      # the reason it was kept alive alongside that suite for so long.
       - name: Standard-library golden tests
         run: ./scripts/run-stdlib-tests.sh
 
@@ -206,32 +220,12 @@ jobs:
       - name: Memory baseline (managed flat, unmanaged linear)
         run: ./scripts/check-memory-baseline.sh
 
-  grammar:
-    name: Tree-sitter grammar
-    needs: lint
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-      # The grammar has to accept every `.ax` file in the repository, so the
-      # compiler has to be built to produce nothing - but the check parses
-      # the standard library and the demos, which are checked in, so only
-      # the tree-sitter CLI is actually needed.
-      - run: npm install --prefix tree-sitter-axiom --no-save tree-sitter-cli
-      - run: ./scripts/check-tree-sitter.sh
-
   cross:
     name: Cross-target codegen
-    needs: lint
+    needs: grammar
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
       - run: |
           sudo apt-get update
           sudo apt-get install -y llvm clang
@@ -240,17 +234,24 @@ jobs:
       # standard library picks syscall numbers by target, and a typo in a
       # platform module is otherwise invisible until someone builds on
       # that platform.
+      # Every gate below needs a compiler, and there is no longer one to
+      # build from source in the usual sense - the compiler IS the source.
+      # `bootstrap/` holds its LLVM IR, one file per target; this turns
+      # that into a working binary with `llc` and `cc` and nothing else,
+      # and installs it where every script's default `$AXIOM` looks.
+      # A failure here is the seed going stale: `scripts/reseed.sh`.
+      - name: Provision a compiler from the committed seed
+        run: ./scripts/bootstrap-from-seed.sh --install .axiom-bin
+
       - name: Assemble every target from one host
         run: ./scripts/check-cross-targets.sh
 
   bootstrap:
     name: Self-hosting fixpoint
-    needs: lint
+    needs: grammar
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
       - run: |
           sudo apt-get update
           sudo apt-get install -y llvm clang
@@ -259,44 +260,61 @@ jobs:
       # is aimed at, and the script that checks it was in the tree but
       # wired into nothing - so a regression in it would have been found
       # by whoever next ran it by hand.
+      # Every gate below needs a compiler, and there is no longer one to
+      # build from source in the usual sense - the compiler IS the source.
+      # `bootstrap/` holds its LLVM IR, one file per target; this turns
+      # that into a working binary with `llc` and `cc` and nothing else,
+      # and installs it where every script's default `$AXIOM` looks.
+      # A failure here is the seed going stale: `scripts/reseed.sh`.
+      - name: Provision a compiler from the committed seed
+        run: ./scripts/bootstrap-from-seed.sh --install .axiom-bin
+
       - name: stage2 and stage3 are byte-identical
         run: ./scripts/check-bootstrap.sh
 
   reproducible:
     name: Reproducible build
-    needs: lint
+    needs: grammar
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
       - run: |
           sudo apt-get update
           sudo apt-get install -y llvm clang
           echo "$(llvm-config --bindir)" >> "$GITHUB_PATH"
+      # Every gate below needs a compiler, and there is no longer one to
+      # build from source in the usual sense - the compiler IS the source.
+      # `bootstrap/` holds its LLVM IR, one file per target; this turns
+      # that into a working binary with `llc` and `cc` and nothing else,
+      # and installs it where every script's default `$AXIOM` looks.
+      # A failure here is the seed going stale: `scripts/reseed.sh`.
+      - name: Provision a compiler from the committed seed
+        run: ./scripts/bootstrap-from-seed.sh --install .axiom-bin
+
       - name: Byte-identical output from two independent runs
         run: ./scripts/check-reproducible.sh
 
   # ---------------------------------------------------------------
-  # The job that has to pass before the Rust crates can be deleted.
+  # The load-bearing job. Every other one here PROVISIONS a compiler
+  # from `bootstrap/` and gets on with testing something; this one
+  # tests the provisioning itself, end to end, as the thing under test:
+  # seed -> stage1 -> stage2 -> stage3, byte-identical at the top, and
+  # a program compiled and run by the result.
   #
-  # Every other job here starts by building the Rust compiler and
-  # asking it for a stage1. This one never touches Rust at all - no
-  # toolchain step, no cache step, no cargo - and builds the compiler
-  # from `bootstrap/`, the compiler's own LLVM IR committed one file
-  # per target. If this is green, a clean checkout of this repository
-  # can produce a working Axiom compiler with nothing but `llc` and a
-  # C linker, which is precisely what removing `axiom-*` requires.
+  # If it is green, a clean checkout of this repository produces a
+  # working Axiom compiler with nothing but `llc` and a C linker. That
+  # was the precondition for deleting the Rust crates, and it is now
+  # the precondition for the repository being buildable at all.
   #
-  # It also fails when the committed seed goes stale - when self_host/
-  # starts using something the seed cannot compile - and
+  # It is also what fails when the committed seed goes stale - when
+  # self_host/ starts using something the seed cannot compile - and
   # `scripts/reseed.sh` is the fix. Run on both architectures because
   # the seed is per-target and a wrong syscall table in one of them is
   # invisible from the other.
   # ---------------------------------------------------------------
   bootstrap-no-rust:
-    name: Bootstrap from seed, no Rust (${{ matrix.name }})
-    needs: lint
+    name: Bootstrap from seed (${{ matrix.name }})
+    needs: grammar
     strategy:
       fail-fast: false
       matrix:

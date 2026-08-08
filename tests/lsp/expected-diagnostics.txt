@@ -1,0 +1,71 @@
+# What the language server must publish, WITHOUT saying where.
+#
+# Every row names a diagnostic by severity, code, an ANCHOR (a string
+# the fixture's own source contains) and the first line of the message
+# it must render. No row carries a line or a column. drive.py finds the
+# anchor in the fixture's bytes and computes the 0-based line and the
+# 0-based UTF-16 code-unit range itself
+# (`len(line[:col].encode("utf-16-le")) // 2`), then requires the
+# server's published range to equal that. A position can therefore
+# never be blessed into this file: there is no field to write it into,
+# and `--bless` rewrites *.golden only - it never touches this manifest.
+# That is the whole point. A golden regenerated from a compiler with a
+# broken column conversion still fails here.
+#
+# Columns:  fixture  severity(E|W)  code  anchor  message-first-line
+#
+# Anchor forms:
+#   TEXT          the diagnostic's range must cover exactly the first
+#                 occurrence of TEXT in the fixture, start and end
+#                 both in UTF-16 code units
+#   N@TEXT        the N-th occurrence (1-based), for anchors that are
+#                 not unique in the file
+#   <spanless>N   the diagnostic carries no span: it must be published
+#                 at 0:0-0:0, and N must appear in the source and in
+#                 the message, so a spanless diagnostic is still about
+#                 something the file actually says
+#   <eof>         the diagnostic must sit exactly at end of file: last
+#                 line index, and the UTF-16 length of that last line
+#
+# The message column is the message's first line VERBATIM, with `%N`
+# standing for the anchor's text. Everything after the first blank line
+# - the `help:` paragraph - is not pinned here. This column exists
+# because the backtick check in drive.py only reads the FIRST quoted
+# name out of a message: it is satisfied by
+# `WRONG-EXPLANATION undefined variable \`alpha\``, which is what an
+# ablated server was made to emit, and by any other prose wrapped round
+# a correct name. An equality against a line written by hand is not.
+#
+# ROWS ARE COUNTED, NOT SET-UNIONED. drive.py compares sorted LISTS, so
+# two rows that differ only in their anchor - 080's two AX3001s - are
+# two separate obligations. A server that publishes only the first
+# diagnostic of a document, or publishes each one twice, fails here.
+# Every fixture had exactly one row until 080 was added, which is why
+# the set comparison it replaced could not see either bug.
+#
+# A fixture with no row here must publish an EMPTY diagnostics array;
+# 010-clean.ax and 060-outline.ax are the two that do.
+#
+# PROVENANCE. Written 2026-08-08, while the Rust compiler still existed,
+# and cross-checked against it at that moment: for all 7 fixtures then
+# present, `target/release/axiom check --diagnostic-format ai` produces
+# exactly the (severity, code, 0-based line, 0-based UTF-16 column)
+# tuples the anchors below derive - 0 disagreements. The three that
+# carry a real span are the interesting ones, and stage0 named them
+# 2:12, 4:20 and 3:6 in its own 1-based CHARACTER coordinates, which
+# convert to UTF-16 columns 11, 20 and 5. The self-hosted server
+# publishes 11, 20 and 5. Those two compilers will not both exist
+# again; this paragraph is the record that they agreed.
+# 080-many-diagnostics.ax was added 2026-08-08 after stage0 was gone,
+# so it carries no such cross-check; its three rows are the same three
+# diagnostics the older fixtures already pin, in one document.
+#
+# fixture                  severity  code    anchor                        message first line
+030-utf16-columns.ax       E         AX3001  zzz                           undefined variable `%N`
+020-undefined.ax           E         AX3001  nosuch                        undefined variable `%N`
+070-warning-only.ax        W         AX3010  2@pure                        AXTAG mismatch on `%N`: `effect(io)` claim unsupported: missing IO
+040-missing-import.ax      E         AX5001  <spanless>NoSuchModuleAtAll   cannot resolve import `%N`
+050-unparseable.axbad      E         AX2001  <eof>                         expected expression, found `EOF`
+080-many-diagnostics.ax    W         AX3010  2@pure                        AXTAG mismatch on `%N`: `effect(io)` claim unsupported: missing IO
+080-many-diagnostics.ax    E         AX3001  missingOne                    undefined variable `%N`
+080-many-diagnostics.ax    E         AX3001  missingTwo                    undefined variable `%N`

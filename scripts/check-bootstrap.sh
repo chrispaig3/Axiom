@@ -1,52 +1,202 @@
 #!/usr/bin/env bash
-# The self-hosting fixpoint.
+# The self-hosting fixpoint, rooted at the committed seed.
 #
-#   stage0  the Rust compiler in this repository        - trusted
-#   stage1  the Axiom compiler, built by stage0         - the new code
-#   stage2  the Axiom compiler, built by stage1
-#   stage3  the Axiom compiler, built by stage2
+#   seed    bootstrap/axiom-<target>.ll - a previous compiler, as LLVM
+#           IR, committed and hash-pinned. The only rung of this ladder
+#           that is not built from the tree in front of you.
+#   stage1  the current self_host/, compiled by the seed
+#   stage2  the current self_host/, compiled by stage1 through stage1's
+#           OWN driver
+#   stage3  the same source again, compiled by stage2
 #
 # Self-hosting is reached when stage2 and stage3 are byte-identical: at
 # that point the compiler reproduces itself exactly, so nothing about it
-# depends on stage0 any longer except the trust placed in it. Comparing
-# stage1 against stage2 would prove less - stage1 was built by a
-# different compiler and may legitimately differ - which is why the
+# depends on the seed any longer except the trust placed in it.
+# Comparing stage1 against stage2 would prove less - stage1 was built by
+# a different compiler and may legitimately differ - which is why the
 # classic criterion starts one stage later.
 #
-# Every stage is also run on the conformance corpus, because two
-# compilers can agree byte-for-byte on their own source and still both be
-# wrong. `check-self-host.sh` covers stage1; this covers stage2 and
-# stage3 by re-running one case through each.
+# WHAT THIS USED TO PIN. The first rung was `"$axiom" build --input
+# self_host/main.ax` with `$axiom` defaulting to target/release/axiom,
+# and `cargo build --release` when that was missing: stage0, the Rust
+# compiler, built stage1, and every rung above it was climbed on its
+# credit. That compiler is being deleted, and the hazard is that a
+# ladder DOES NOT FAIL when its root goes away. Repoint `$axiom` at a
+# self-hosted binary and this script still climbs, still reaches a
+# fixpoint, still exits 0 - while quietly no longer saying the thing it
+# existed to say, which is that the compiler comes from this tree and
+# not from a binary somebody already had. The root is now
+# bootstrap/axiom-<target>.ll, which a clone has and cannot fake: it is
+# checked against bootstrap/SHA256SUMS before it is used.
+#
+# WHAT IT PINS NOW, and what each half fails for.
+#
+#   the ladder    the seed compiles self_host/ into stage1 with `llc`
+#                 and `cc` (NOT at -O0 - see the comment on the
+#                 invocation), and from there the compiler builds
+#                 itself twice THROUGH ITS OWN DRIVER. stage2 and
+#                 stage3 must be byte-identical binaries, and the IR
+#                 each driver run kept (`--emit-llvm`) byte-identical
+#                 too. Nothing here is stored, so there is nothing to
+#                 re-bless: every byte compared is recomputed from
+#                 self_host/ on the run.
+#
+#   the corpus    the 90 cases of tests/selfhost/, built end to end by
+#                 stage3 and RUN, each checked against the exit status
+#                 a human wrote on the case's own first line
+#                 (`; expect N`). This is the half a re-bless cannot
+#                 satisfy, in the strongest form available to a
+#                 bootstrap gate: the expected answers were not
+#                 produced by any compiler, they are part of the
+#                 fixture's source bytes, and there are 26 distinct
+#                 values across the 90 cases - so a compiler cannot
+#                 pass them by answering one number. It is what
+#                 notices a ladder that converged on a WRONG compiler,
+#                 which byte-identity cannot: two compilers agreeing
+#                 byte for byte on their own source says only that
+#                 they agree.
+#
+#   fmt           stage2's `fmt` turns tests/fmt/syntax-zoo.ax into
+#                 tests/fmt/syntax-zoo.expected.ax, and leaves that
+#                 golden alone when re-run on it.
+#
+#   memory        one self-compile's peak RSS, under a 400 MiB ceiling
+#                 and over an 8 MiB floor, with the IR it produced
+#                 compared against the IR the ladder already has.
+#
+# WHAT IS DELIBERATELY NOT HERE. scripts/bootstrap-from-seed.sh already
+# runs the OTHER ladder - seed -> stage1 -> stage2 -> stage3 with this
+# script's `llc` and `cc`, and the same byte-identity check on the
+# result. Repeating it would be two copies of one fact. What that
+# script never does is let the compiler drive itself: its stages write
+# LLVM to stdout and it finishes the job for them. So the ladder is
+# split at the seam that matters - the seed builds stage1 here because
+# the `llc` reasoning below has to live somewhere it is used, and
+# everything above stage1 goes through `axiom build`, which is the part
+# no other gate reaches. In CI the two run back to back in one job
+# (.github/workflows/ci.yml, `Self-hosting fixpoint`), which is the
+# other reason not to repeat its ladder: it has just been run, on this
+# checkout, minutes earlier.
+#
+# WHY THE REPLACEMENT IS ADEQUATE. The only stored artefact this gate
+# compares against is the zoo golden, which belongs to
+# check-fmt-selfhost.sh and is defended there by a preservation
+# verifier that reads the source bytes. Everything else - the fixpoint,
+# the corpus answers, the memory ceiling, the running program - is
+# recomputed, and the corpus answers are not derived from a compiler at
+# all. A wrong compiler that re-blessed every golden in this repository
+# would still have to answer 26 different numbers correctly on 90
+# programs, print `self-hosted` from a 91st, and reproduce itself
+# exactly twice.
+#
+# `$axiom` is provisioned the way every other gate provisions it, and
+# is used here for one thing only: a third witness on the zoo golden.
+# It is deliberately NOT the ladder's root. Rooting this gate at a
+# compiler that is already installed is precisely the failure described
+# above, and a clone that needs to bootstrap does not have one.
+#
+# THE DRILL, run rather than assumed. The tree was copied and ONE token
+# changed in the copy: `fbinopToLLVM` in self_host/codegen.ax mapping
+# `*` to `fadd` instead of `fmul`, so float multiplication adds. The
+# compiler never multiplies floats itself, so the mutation is invisible
+# to everything except a program that does - which is the interesting
+# kind of wrong compiler, not the kind that fails to build. Pointed at
+# that copy, this script said:
+#
+#   the seed built stage1     ok
+#   stage2 == stage3          ok - identical IR (61,686 lines) and
+#                             byte-identical binaries. The fixpoint is
+#                             a fixpoint of a wrong compiler.
+#   the zoo golden            ok, three times: stage2 produced it, the
+#                             golden was a fixed point of it, and the
+#                             installed compiler agreed. NOTHING had to
+#                             be re-blessed for that - `fmt` is not
+#                             codegen, so the stored artefact was
+#                             already satisfied by the broken build.
+#   the corpus                4 of 90 cases answered the wrong number:
+#                             330-float said 48 where its first line
+#                             says 52, 410-float-fields 10 for 26,
+#                             510-mut-float 41 for 48, 550-field-chain
+#                             9 for 22. Exit 1.
+#
+# Every check the pre-conversion script had would have passed that
+# build. Putting the token back and re-running the same copy: every
+# check green, exit 0.
+#
+# Requires: llc, cc. Not cargo, not rustc.
+#
+# Usage:  scripts/check-bootstrap.sh
 
 set -uo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
 
-axiom="${AXIOM:-$repo_root/target/release/axiom}"
+fail() { echo "FAIL: $*" >&2; exit 1; }
+
+axiom="${AXIOM:-$repo_root/.axiom-bin/axiom}"
 if [[ ! -x "$axiom" ]]; then
-  echo "building the compiler first (no binary at $axiom)" >&2
-  cargo build --release
+  # No `cargo` here, and none anywhere in this repository's gates: the
+  # Rust compiler this used to build has been deleted. A checkout gets
+  # a compiler from the committed seed - the same seed this script
+  # climbs from - through `llc` and `cc`.
+  echo "no compiler at $axiom - building one from the committed seed" >&2
+  "$repo_root/scripts/bootstrap-from-seed.sh" --install "$repo_root/.axiom-bin" >&2 \
+    || fail "could not bootstrap a compiler from bootstrap/"
 fi
 
 export AXIOM_STDLIB="$repo_root/stdlib"
 
+command -v llc >/dev/null || fail "llc is not on PATH"
+command -v cc  >/dev/null || fail "cc is not on PATH"
+
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 
-# stage1 resolves imports relative to its working directory.
+# Every stage resolves `(import Foo)` against `self_host/` and `stdlib/`
+# relative to its working directory.
 ln -s "$repo_root/stdlib" "$work/stdlib"
 ln -s "$repo_root/self_host" "$work/self_host"
 
-fail() { echo "FAIL: $*" >&2; exit 1; }
+# ---------------------------------------------------------------
+# The seed, and the fact that it is the seed.
+#
+# bootstrap-from-seed.sh checks these sums too, and this is not a
+# duplicate of that check so much as a refusal to skip it: this script
+# reads bootstrap/*.ll directly, so it owns the question of whether
+# what it read is what the tree says. It is a corruption check, not a
+# trust check - a committed hash and a committed file move together
+# under any edit - and its value is that it names the file that
+# changed, which a link error three steps later does not.
+# ---------------------------------------------------------------
+case "$(uname -s)" in
+  Darwin) os=darwin ;;
+  Linux)  os=linux ;;
+  *) fail "unsupported OS $(uname -s): the seeds cover darwin and linux" ;;
+esac
+case "$(uname -m)" in
+  arm64|aarch64) arch=aarch64 ;;
+  x86_64|amd64)  arch=x86_64 ;;
+  *) fail "unsupported architecture $(uname -m)" ;;
+esac
+target="$os-$arch"
+seed_ll="bootstrap/axiom-$target.ll"
+[[ -f "$seed_ll" ]] || fail "no seed for this host at $seed_ll"
 
-# Build stage N+1 from stage N: the stage reads `in.ax` and writes LLVM
-# to stdout, so compiling the compiler means feeding it its own entry
-# point.
-build_next() {
-  local from="$1" out_ll="$2" out_bin="$3"
-  cp "$repo_root/self_host/main.ax" "$work/in.ax"
-  (cd "$work" && "./$from" >"$out_ll" 2>"$out_ll.err") || fail "$from could not compile self_host/main.ax"
+[[ -f bootstrap/SHA256SUMS ]] \
+  || fail "bootstrap/SHA256SUMS is missing: an unverifiable seed is not a seed"
+if command -v sha256sum >/dev/null; then
+  sumcheck() { sha256sum -c SHA256SUMS; }
+else
+  sumcheck() { shasum -a 256 -c SHA256SUMS; }
+fi
+(cd bootstrap && sumcheck) >"$work/sums.log" 2>&1 \
+  || { sed 's/^/    /' "$work/sums.log" >&2; fail "a bootstrap seed does not match its recorded hash"; }
+# All four seeds are checked, not just this host's: the sums file names
+# them all, and a corrupt seed for another target is a fact about this
+# checkout worth hearing here rather than on someone else's machine.
+echo "ok   the seeds match bootstrap/SHA256SUMS ($seed_ll is this host's)"
+
 # `llc` carries an explicit relocation model, which axiom-cli documents
 # as required of every `llc` invocation in the project including these.
 #
@@ -54,12 +204,38 @@ build_next() {
 # allocator is miscompiled by `llc` at -O1 and above (two consecutive
 # `memAlloc 64` calls come back a whole 1 MiB chunk apart). The two
 # hazards pull opposite ways: at -O0 the allocator is correct but there
-# is no tail-call elimination, and stage2 compiling its own source
-# overflows its stack - measured, it segfaults. `axiom build` escapes
-# both by running `opt` over the IR before `llc`, which these scripts
-# cannot assume is installed (axiom-cli treats a missing `opt` as a
-# warning). Small programs get -O0 in check-stdlib-selfhost.sh, where
+# is no tail-call elimination, and a stage compiling its own source
+# overflows its stack - measured, it segfaults. That is not a stale
+# note: a change that lengthened one table made a stage SIGSEGV right
+# here, because a linear scan over it cost one stack frame per entry.
+# `axiom build` escapes both by running `opt` over the IR before `llc`,
+# which these scripts cannot assume is installed (axiom-cli treats a
+# missing `opt` as a warning) - so the rungs BELOW `axiom build` stay
+# opt-free, and adding `opt` here to "fix" something is the wrong fix
+# twice over. Small programs get -O0 in check-stdlib-selfhost.sh, where
 # the allocator matters and the stack does not.
+llc -filetype=obj -relocation-model=pic "$seed_ll" -o "$work/seed.o" 2>"$work/llc.err" \
+  || { head -3 "$work/llc.err" >&2; fail "llc rejected $seed_ll"; }
+cc "$work/seed.o" -o "$work/seed" -e _main 2>"$work/cc.err" \
+  || { head -3 "$work/cc.err" >&2; fail "could not link the seed"; }
+echo "ok   seed built for $target from $seed_ll (no Rust, no cargo)"
+
+# Build the next stage from a stage that has no driver yet: the stage
+# reads `in.ax` and writes LLVM to stdout, so compiling the compiler
+# means feeding it its own entry point.
+build_next() {
+  local from="$1" out_ll="$2" out_bin="$3"
+  cp "$repo_root/self_host/main.ax" "$work/in.ax"
+  (cd "$work" && "./$from" >"$out_ll" 2>"$out_ll.err") \
+    || { head -5 "$work/$out_ll.err" >&2; fail "$from could not compile self_host/main.ax"; }
+  # Blame the stage that produced the garbage, not the tool that chokes
+  # on it: without these two lines a seed that was a valid Axiom
+  # program but not a compiler failed as "llc rejected the IR", which
+  # is true and points at the wrong file.
+  grep -q "^target triple" "$work/$out_ll" \
+    || fail "$from emitted no LLVM module - it is not a compiler"
+  (( $(wc -l <"$work/$out_ll") > 10000 )) \
+    || fail "$from emitted only $(wc -l <"$work/$out_ll") lines for the compiler - the emit was truncated"
   llc -filetype=obj -relocation-model=pic "$work/$out_ll" -o "$work/$out_bin.o" 2>"$work/llc.err" \
     || { head -3 "$work/llc.err" >&2; fail "llc rejected the IR $from produced"; }
   cc "$work/$out_bin.o" -o "$work/$out_bin" -e _main 2>"$work/cc.err" \
@@ -67,7 +243,9 @@ build_next() {
 }
 
 # A stage has to compile and run something real, not just reproduce
-# itself.
+# itself. stage1 gets this probe because it is the rung where a failure
+# is cheapest to read; stage2 and stage3 get more than a probe below -
+# the zoo, the corpus, and a program that prints.
 check_runs() {
   local stage="$1"
   cat >"$work/in.ax" <<'CASE'
@@ -85,66 +263,31 @@ CASE
   echo "ok   $stage compiles and runs a program correctly"
 }
 
-"$axiom" build --input self_host/main.ax --output "$work/stage1" >"$work/build.log" 2>&1 \
-  || { tail -20 "$work/build.log" >&2; fail "stage0 could not build stage1"; }
-echo "ok   stage1 built by the Rust compiler"
+# ---------------------------------------------------------------
+# The seed compiles the tree. This is also the staleness check, and it
+# is the whole reason the seed is allowed to lag the source: if
+# self_host/ starts using a construct the committed seed cannot
+# compile, it fails HERE, naming the construct, and scripts/reseed.sh
+# is the fix.
+# ---------------------------------------------------------------
+build_next seed stage1.ll stage1
+echo "ok   the seed compiled the current self_host/ into stage1"
 check_runs stage1
 
-build_next stage1 stage2.ll stage2
-echo "ok   stage2 built by stage1"
-check_runs stage2
-
-build_next stage2 stage3.ll stage3
-echo "ok   stage3 built by stage2"
-check_runs stage3
-
-if ! cmp -s "$work/stage2.ll" "$work/stage3.ll"; then
-  echo "FAIL: stage2 and stage3 differ" >&2
-  cmp "$work/stage2.ll" "$work/stage3.ll" >&2 | head -3
-  exit 1
-fi
-echo "ok   stage2 and stage3 emit identical IR"
-
-if ! cmp -s "$work/stage2.o" "$work/stage3.o"; then
-  fail "stage2 and stage3 IR matched but their objects differ"
-fi
-echo "ok   stage2 and stage3 are byte-identical binaries"
-
 # ---------------------------------------------------------------
-# stage2's formatter produces the golden zoo.
+# The ladder, driven by the compiler itself.
 #
-# check-fmt-selfhost.sh proves stage1's `fmt` - compiled by stage0 -
-# is the same function as stage0's. Nothing there runs the printer AS
-# COMPILED BY THE AXIOM COMPILER: a stage1 miscompile of format.ax
-# could leave the fixpoint intact (stage2 and stage3 are built by
-# equally-affected parents) while stage2's `fmt` writes different
-# bytes. One zoo pass through stage2 closes that hole: same golden,
-# third compiler. `fmt` resolves no imports, so it needs none of the
-# module plumbing the compile steps set up.
-# ---------------------------------------------------------------
-cp "$repo_root/tests/fmt/syntax-zoo.ax" "$work/zoo2.ax"
-if ! (cd "$work" && ./stage2 fmt zoo2.ax >/dev/null 2>&1); then
-  fail "stage2's fmt refused the zoo that stage0 and stage1 format"
-fi
-if ! cmp -s "$work/zoo2.ax" "$repo_root/tests/fmt/syntax-zoo.expected.ax"; then
-  fail "stage2's fmt does not produce the golden zoo"
-fi
-echo "ok   stage2's fmt produces the golden zoo"
-
-# The ladder again, this time driven by the compiler itself.
+# Everything a stage does above is `llc` and `cc` run on its behalf by
+# this script: what that demonstrates is that a stage emits good IR,
+# not that it can produce an executable. For most of this project's
+# life stage1 could not - it wrote LLVM text to stdout and stopped, and
+# every gate finished the job for it.
 #
-# Everything above proves the fixpoint but NOT that the compiler is
-# usable, and the difference is the whole of phase 5. The `build_next`
-# above runs `llc` and `cc` on stage1's behalf: what it demonstrates is
-# that stage1 emits good IR, not that stage1 can produce an executable.
-# For most of this project's life stage1 could not - it wrote LLVM text
-# to stdout and stopped, and every gate here finished the job for it.
-#
-# `stage1 build` does the whole job: writes the IR, runs `opt`, runs
+# `axiom build` does the whole job: writes the IR, runs `opt`, runs
 # `llc`, runs `cc`, and cleans up after itself, spawning each child
-# through `Sys.sysRunPath`. This section is kept separate from the one
-# above rather than replacing it, so that a bug in the driver cannot
-# hide a bug in the compiler by taking the fixpoint signal down with it.
+# through `Sys.sysRunPath`. Both rungs above stage1 go through it, so
+# the fixpoint being asserted is a fixpoint of the compiler AS SHIPPED,
+# driver included.
 #
 # The two stages are built to the same BASENAME in different
 # directories, and that is load-bearing on macOS: `ld` derives the
@@ -153,41 +296,197 @@ echo "ok   stage2's fmt produces the golden zoo"
 # bytes - 16 of UUID and the ad-hoc code signature that covers it -
 # for a reason neither compiler caused. Measured; the emitted IR was
 # identical throughout.
+# ---------------------------------------------------------------
 mkdir -p "$work/d2" "$work/d3"
 
 if ! "$work/stage1" build --input "$repo_root/self_host/main.ax" \
-     --output "$work/d2/axc" >"$work/drv2.log" 2>&1; then
+     --output "$work/d2/axc" --emit-llvm >"$work/drv2.log" 2>&1; then
   sed 's/^/    /' "$work/drv2.log" | head -5 >&2
-  fail "stage1 could not build its successor through its own driver"
+  fail "stage1 could not build stage2 through its own driver"
 fi
-echo "ok   stage1 built stage2 by itself - no llc or cc from this script"
+echo "ok   stage2 built by stage1's own driver - no llc or cc from this script"
 
 if ! "$work/d2/axc" build --input "$repo_root/self_host/main.ax" \
-     --output "$work/d3/axc" >"$work/drv3.log" 2>&1; then
+     --output "$work/d3/axc" --emit-llvm >"$work/drv3.log" 2>&1; then
   sed 's/^/    /' "$work/drv3.log" | head -5 >&2
-  fail "the self-built compiler could not build its own successor"
+  fail "stage2 could not build its own successor"
 fi
-echo "ok   stage2 built stage3 by itself, with no Rust compiler involved"
+echo "ok   stage3 built by stage2, with no Rust compiler anywhere in the chain"
+
+# Anti-vacuousness before the comparison, not after it: `cmp` is
+# happiest when both files are empty, and two missing compilers are
+# byte-identical. The binary is 588 KB today and the IR 61,688 lines;
+# the floors sit far below both and far above anything a failed build
+# leaves behind.
+for stage in d2 d3; do
+  [[ -x "$work/$stage/axc" ]] || fail "$stage/axc is not an executable file"
+  (( $(wc -c <"$work/$stage/axc") > 100000 )) \
+    || fail "$stage/axc is $(wc -c <"$work/$stage/axc") bytes - too small to be the compiler"
+  [[ -f "$work/$stage/axc.ll" ]] || fail "$stage/axc.ll was not kept - --emit-llvm did nothing"
+  (( $(wc -l <"$work/$stage/axc.ll") > 10000 )) \
+    || fail "$stage/axc.ll is $(wc -l <"$work/$stage/axc.ll") lines - the emit was truncated"
+done
+
+if ! cmp -s "$work/d2/axc.ll" "$work/d3/axc.ll"; then
+  # `cmp a b >&2 | head -3`, which this used to be and which
+  # bootstrap-from-seed.sh still is, pipes an already-redirected stdout
+  # into a `head` that reads nothing. The report is wanted, so it is
+  # spelled so that it arrives.
+  cmp "$work/d2/axc.ll" "$work/d3/axc.ll" 2>&1 | head -3 | sed 's/^/    /' >&2
+  fail "stage2 and stage3 emit different IR"
+fi
+echo "ok   stage2 and stage3 emit identical IR ($(wc -l <"$work/d2/axc.ll" | tr -d ' ') lines)"
 
 if ! cmp -s "$work/d2/axc" "$work/d3/axc"; then
-  fail "the self-driven stage2 and stage3 binaries differ"
+  fail "stage2 and stage3 IR matched but their binaries differ"
 fi
-echo "ok   the self-driven stage2 and stage3 are byte-identical"
+echo "ok   stage2 and stage3 are byte-identical binaries - the fixpoint holds from the seed"
 
-# And it compiles a real program end to end, because two compilers can
-# agree on their own source and still both be wrong.
-cat >"$work/d3/prog.ax" <<'CASE'
+# ---------------------------------------------------------------
+# stage2's formatter produces the golden zoo.
+#
+# check-fmt-selfhost.sh proves that the `fmt` in a compiler built by
+# `$axiom` is the function the goldens describe. Nothing there runs the
+# printer AS COMPILED BY A COMPILER THAT CAME FROM THE SEED: a
+# miscompile of format.ax would leave the fixpoint intact - stage2 and
+# stage3 are built by equally-affected parents - while stage2's `fmt`
+# writes different bytes. One zoo pass through stage2 closes that hole:
+# same golden, third compiler. `fmt` resolves no imports, so it needs
+# none of the module plumbing the compile steps set up.
+#
+# The golden is also required to be a fixed point of itself, which is
+# not a golden fact but a computed one: a printer that formats its own
+# output differently is wrong however the golden was produced.
+# ---------------------------------------------------------------
+zoo="$repo_root/tests/fmt/syntax-zoo.ax"
+zoo_golden="$repo_root/tests/fmt/syntax-zoo.expected.ax"
+[[ -f "$zoo" && -f "$zoo_golden" ]] || fail "the fmt zoo or its golden is missing"
+(( $(wc -l <"$zoo_golden") > 200 )) \
+  || fail "$zoo_golden is $(wc -l <"$zoo_golden") lines - a golden that small pins nothing"
+
+cp "$zoo" "$work/zoo2.ax"
+(cd "$work" && "./d2/axc" fmt zoo2.ax >/dev/null 2>&1) \
+  || fail "stage2's fmt refused the zoo that check-fmt-selfhost.sh formats"
+cmp -s "$work/zoo2.ax" "$zoo_golden" \
+  || { diff "$zoo_golden" "$work/zoo2.ax" | head -10 | sed 's/^/     /' >&2
+       fail "stage2's fmt does not produce the golden zoo"; }
+echo "ok   stage2's fmt produces the golden zoo"
+
+cp "$zoo_golden" "$work/zoo3.ax"
+(cd "$work" && "./d2/axc" fmt zoo3.ax >/dev/null 2>&1) \
+  || fail "stage2's fmt refused the golden it just produced"
+cmp -s "$work/zoo3.ax" "$zoo_golden" || fail "the zoo golden is not a fixed point of stage2's fmt"
+echo "ok   the zoo golden is a fixed point of stage2's fmt"
+
+# The third witness, and the only thing `$axiom` is used for. Not a
+# differential - both compilers are checked against the golden, so a
+# bug they share shows up as two failures rather than as agreement.
+cp "$zoo" "$work/zoo4.ax"
+("$axiom" fmt "$work/zoo4.ax" >/dev/null 2>&1) \
+  || fail "the installed compiler at $axiom refused the zoo"
+cmp -s "$work/zoo4.ax" "$zoo_golden" \
+  || fail "the installed compiler at $axiom does not produce the golden zoo - it predates a formatter change, or one of the two is wrong"
+echo "ok   the installed compiler produces the same golden zoo"
+
+# ---------------------------------------------------------------
+# The corpus, answered by a compiler that came from the seed.
+#
+# This is the half a re-bless cannot satisfy. Every case in
+# tests/selfhost/ carries its expected exit status on its own first
+# line as `; expect N` - written by a person, describing what the
+# program means, and stored in the file whose behaviour it describes.
+# There is no golden here to regenerate: satisfying this by editing
+# means editing 90 fixtures to agree with a broken compiler, one at a
+# time, each next to the source that contradicts it.
+#
+# It is not check-self-host.sh repeated. That gate runs the corpus
+# through a stage1 built by whatever `$axiom` is, on the raw `llc`
+# path. These are the first questions ever put to a compiler that came
+# from the SEED and was built by its own driver - and they are the only
+# thing in this script that can tell a converged ladder from a
+# converged CORRECT one. The old script put one question (40 + 2) to
+# each of the three stages; this puts 90 to stage3, and keeps the
+# 40 + 2 for stage1, where a failure is cheapest to read.
+#
+# Cases are copied to `in.ax` because some of them read it: 250-readfile
+# opens "in.ax" and asserts it is non-empty, which is a statement about
+# the case's own bytes and fails everywhere else.
+# ---------------------------------------------------------------
+sweep="$work/sweep"
+mkdir -p "$sweep"
+ln -s "$repo_root/stdlib" "$sweep/stdlib"
+ln -s "$repo_root/self_host" "$sweep/self_host"
+# Helper modules a case imports as a sibling; digit-prefixed files are
+# the cases themselves.
+cp "$repo_root"/tests/selfhost/[A-Z]*.ax "$sweep/" 2>/dev/null || true
+
+swept=0; corpus_failed=0
+: > "$work/wants"
+for case_file in "$repo_root"/tests/selfhost/[0-9]*.ax; do
+  name="$(basename "$case_file" .ax)"
+  # A case missing its expectation is a FAILURE, not a skip: a case
+  # that stops being checked reports nothing, and nothing is what
+  # success looks like.
+  want="$(sed -n '1s/^; expect \([0-9]*\).*/\1/p' "$case_file")"
+  if [[ -z "$want" ]]; then
+    echo "FAIL $name: no '; expect N' on the first line, so nothing was checked" >&2
+    corpus_failed=$((corpus_failed + 1))
+    continue
+  fi
+  swept=$((swept + 1))
+  echo "$want" >> "$work/wants"
+  cp "$case_file" "$sweep/in.ax"
+  # The previous case's binary is removed rather than overwritten: a
+  # build that fails after `continue` would otherwise leave a program
+  # behind for the next case to run, and a stale 42 is indistinguishable
+  # from a fresh one.
+  rm -f "$sweep/prog"
+  if ! (cd "$sweep" && "$work/d3/axc" build --input in.ax --output prog) >"$sweep/build.log" 2>&1; then
+    echo "FAIL $name: stage3 could not build it" >&2
+    sed 's/^/    /' "$sweep/build.log" | head -3 >&2
+    corpus_failed=$((corpus_failed + 1))
+    continue
+  fi
+  (cd "$sweep" && ./prog >/dev/null 2>&1); got=$?
+  if [[ "$got" != "$want" ]]; then
+    echo "FAIL $name: a program built by stage3 answered $got, the case says $want" >&2
+    corpus_failed=$((corpus_failed + 1))
+  fi
+done
+
+# Floors. 90 cases carrying 26 distinct expectations today; a sweep
+# that reads fewer than 60, or one whose expectations collapse to a
+# handful of values, has lost its corpus or its parser - and either
+# reads exactly like a compiler that answers everything correctly.
+distinct="$(sort -u "$work/wants" | grep -c .)"
+if (( swept < 60 )); then
+  fail "the sweep ran only $swept cases; the floor is 60 - tests/selfhost/ moved or the glob broke"
+fi
+if (( distinct < 5 )); then
+  fail "the $swept cases carry only $distinct distinct expected statuses; the floor is 5 - a compiler that answers one number would pass"
+fi
+if (( corpus_failed > 0 )); then
+  fail "$corpus_failed of $swept conformance cases disagree with the status their own source declares"
+fi
+echo "ok   $swept conformance cases, built and run by stage3, answer what their source says ($distinct distinct statuses)"
+
+# And a program that PRINTS, because every case above communicates
+# through its exit status alone and a compiler can get those right with
+# its string handling entirely broken.
+mkdir -p "$work/e2e"
+ln -s "$repo_root/stdlib" "$work/e2e/stdlib"
+cat >"$work/e2e/prog.ax" <<'CASE'
 (import IO)
 (:: main Int)
 ;@axiom:effect(io)
 (fn (main) { (println "self-hosted") 42 })
 CASE
-(cd "$work/d3" && ./axc build --input prog.ax --output prog >build.log 2>&1) \
-  || { sed 's/^/    /' "$work/d3/build.log" | head -5 >&2; fail "the self-built compiler could not build a program"; }
-out="$("$work/d3/prog")"; got=$?
+(cd "$work/e2e" && "$work/d3/axc" build --input prog.ax --output prog >build.log 2>&1) \
+  || { sed 's/^/    /' "$work/e2e/build.log" | head -5 >&2; fail "stage3 could not build a program that prints"; }
+out="$("$work/e2e/prog")"; got=$?
 [[ "$got" == 42 && "$out" == "self-hosted" ]] \
-  || fail "a program built by the self-built compiler said '$out'/$got, want 'self-hosted'/42"
-echo "ok   a program built end to end by the self-built compiler runs correctly"
+  || fail "a program built end to end by stage3 said '$out'/$got, want 'self-hosted'/42"
+echo "ok   a program built end to end by stage3 prints and exits correctly"
 
 # ---------------------------------------------------------------
 # What one self-compile costs.
@@ -208,29 +507,42 @@ echo "ok   a program built end to end by the self-built compiler runs correctly"
 #
 # It measures rather than assumes it can: a platform where neither
 # `time` spelling works fails here, because a resource check that
-# silently skips is the failure this repository has hit twice.
+# silently skips is the failure this repository has hit twice. For the
+# same reason there is a FLOOR as well as a ceiling, and the IR the
+# measured run produced is compared against the IR the ladder already
+# holds: a compiler that died on the first line would peak at nothing
+# and pass a ceiling. The run measured is stage2 emitting the compiler
+# - the driver-built configuration the project ships, and the same
+# source the 16.9 GB was measured on.
 # ---------------------------------------------------------------
 peak_rss_kb() {
   # Darwin's `time -l` reports bytes; GNU's `time -v` reports kilobytes.
   if /usr/bin/time -l true >/dev/null 2>&1; then
-    /usr/bin/time -l "$@" 2>&1 >/dev/null \
+    /usr/bin/time -l "$@" 2>&1 >"$work/peak.ll" \
       | awk '/maximum resident set size/ { print int($1 / 1024) }'
   elif /usr/bin/time -v true >/dev/null 2>&1; then
-    /usr/bin/time -v "$@" 2>&1 >/dev/null \
+    /usr/bin/time -v "$@" 2>&1 >"$work/peak.ll" \
       | awk '/Maximum resident set size/ { print $NF }'
   fi
 }
 
 cp "$repo_root/self_host/main.ax" "$work/in.ax"
-peak="$(cd "$work" && peak_rss_kb ./stage1)"
+peak="$(cd "$work" && peak_rss_kb ./d2/axc in.ax)"
 if [[ -z "$peak" ]]; then
   fail "could not measure the self-compile's peak memory (no usable /usr/bin/time)"
 fi
+if ! cmp -s "$work/peak.ll" "$work/d3/axc.ll"; then
+  fail "the measured self-compile did not emit the compiler - the number below would be of something else"
+fi
+floor=8192       # 8 MiB
 ceiling=409600   # 400 MiB
+if (( peak < floor )); then
+  fail "the self-compile peaked at $peak KiB, under the $((floor / 1024)) MiB floor - that is not a measurement of compiling 61,688 lines"
+fi
 if (( peak > ceiling )); then
   fail "one self-compile peaked at $((peak / 1024)) MiB, over the $((ceiling / 1024)) MiB ceiling - suspect an accumulator that copies"
 fi
 echo "ok   one self-compile peaks at $((peak / 1024)) MiB, under the $((ceiling / 1024)) MiB ceiling"
 
 echo
-echo "fixpoint reached: the Axiom compiler reproduces itself, and builds itself"
+echo "fixpoint reached from $seed_ll: the Axiom compiler reproduces itself, builds itself, and answers $swept cases correctly"

@@ -113,7 +113,7 @@ they unblock everything downstream.
 Reproduce all of it:
 
 ```bash
-cargo test --release --all
+./scripts/bootstrap-from-seed.sh
 ./scripts/run-stdlib-tests.sh
 ./scripts/check-freestanding.sh
 ./scripts/check-cross-targets.sh
@@ -124,8 +124,10 @@ cargo test --release --all
 ./scripts/check-fmt.sh
 ```
 
-All eight gates and `cargo test --release --all` pass, and
-`cargo clippy --all-targets --all-features -- -D warnings` is clean.
+All nine gates pass. There is no separate unit-test suite to run: the
+Rust implementation these gates once compared against has been removed,
+and each of them now carries its own half derived from something other
+than the compiler's output. See `docs/self-hosting.md`.
 
 ### 2.2 The measurement that drives the schedule
 
@@ -520,7 +522,7 @@ the other parenthesised loops found no further hangs.
 
 A feature can be absent while most of its code is present. `cond` had a
 lexer token with the syntax written out beside it, an `Expr::ECond` node
-in the AST, type-checking in `axiom-sema`, effect walking, and a
+in the AST, type-checking in `self_host/typecheck.ax`, effect walking, and a
 formatter case. Two stages were missing, at opposite ends of the
 pipeline:
 
@@ -827,8 +829,8 @@ compiler's threat model and needs a sandbox and an explicit decision.
 introduces a fresh scope, and resolution matches on both. Free identifiers
 in a template resolve at the macro's *definition* site; binders introduced
 by a template are renamed. Concretely this means adding a scope field to
-`Ident` in `axiom-ast/src/span.rs` and teaching name resolution in
-`axiom-sema` to compare scope sets. That is the first commit, and it is
+an identifier's scope set in `self_host/parser.ax` and teaching name
+resolution in `self_host/typecheck.ax` to compare them. That is the first commit, and it is
 independently testable before any macro exists.
 
 **Type-checked output is free; good diagnostics are not.** Expansion runs
@@ -1027,9 +1029,9 @@ completing together is not a plan.
 | The LSP is started early "in parallel" and blocks on missing language features | The dependency edges in §1 are the schedule; the tree-sitter grammar covers editor basics meanwhile |
 | A gate passes while the property it protects is broken — as happened for PIE relocations | Every new gate gets a negative test proving it fails when it should. Done for the relocation and grammar gates |
 | A tool with no CI gate is silently broken, as `fmt` was | Either gate it or make it fail loudly. `fmt` now verifies its own output before writing and is gated by `check-fmt.sh`, which checks behaviour — it formats a copy of the repo and re-runs the suites — because the worst of its six bugs produced a program that parsed, compiled and ran, and returned the wrong answer. The prediction held for the other two surfaces this row used to name: `repl` could not evaluate a single expression (§2.4), `explain` was sound. Both are now covered by tests that drive the real binary |
-| An interactive tool is left untested *because* it is interactive | The REPL went unchecked on exactly that reasoning and was completely broken. It is line-oriented, so driving it over a pipe is all a test needs; `run_repl` in `axiom-cli/tests/integration.rs` is six lines |
+| An interactive tool is left untested *because* it is interactive | The REPL went unchecked on exactly that reasoning and was completely broken. It is line-oriented, so driving it over a pipe is all a test needs; `scripts/check-repl-selfhost.sh` drives it over a pipe |
 | A step in the workflow file refers to a script that no longer exists, so a job fails for a reason unrelated to the code | Gates are scripts in `scripts/`, and CI steps only invoke them. The `Game of Life` step outlived its script by one commit and failed every matrix run until it was noticed here (§2.5) |
-| A lint job that gates every other job fails, so nothing downstream ever runs | `needs: lint` means a clippy warning stops the whole pipeline. Keep `cargo clippy -- -D warnings` clean; eleven warnings had accumulated and blocked CI entirely (§2.5) |
+| A cheap job that gates every other job fails, so nothing downstream ever runs | `needs:` on a first job means one failure stops the whole pipeline. Eleven accumulated clippy warnings blocked CI entirely this way (§2.5). The job in that position is now `grammar`, which needs no compiler; when it goes red, nothing else has run, so read it first |
 | A gate that *skips* when its tool is missing is the same failure wearing a different hat | `check-tree-sitter.sh` exited 0 when the tree-sitter CLI was absent — which is every machine that has not run its `npm install` — so it reported success without checking anything. It hid two live breakages: the grammar rejected every `struct` with fields, and so most of `self_host/`, taking the corpus from a claimed 18/18 to an actual 27/70; and the highlight-query step named `game_of_life/Life.ax`, deleted in 720a0d5. Both fixed, and the gate now fails rather than skips unless `AXIOM_TREE_SITTER_OPTIONAL=1` is set |
 | Removing `union`/`region` breaks unknown external code | Both stay reserved and report `AX2004` with the replacement, rather than being silently reinterpreted |
 

@@ -1,0 +1,4 @@
+(import IO)
+(:: main Int)
+;@axiom:effect(io)
+(fn (main) { (printlnInt (- 0 12345)) 0 })

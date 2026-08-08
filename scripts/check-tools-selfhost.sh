@@ -1,28 +1,66 @@
 #!/usr/bin/env bash
-# The self-hosted CLI tools answer with stage0's bytes.
+# `explain` and `symbols`, pinned without a second compiler.
 #
-# `self_host/explain.ax` is GENERATED from stage0's own output - one
-# cached run per diagnostic code - so the texts cannot drift by
-# transcription. This gate closes the other drift direction: a code
-# added or reworded in `axiom-errors/src/code.rs` changes stage0's
-# output while the generated table still carries yesterday's bytes,
-# and the differential below fails until the table is regenerated:
+# This gate used to be a differential against the Rust compiler: run
+# both binaries on the same input, require identical bytes. That was
+# the right shape while the Rust compiler was the trusted reference and
+# the Axiom one was being brought up to it. It stops being available
+# the moment the reference is deleted, and - this is the part worth
+# being careful about - a differential does not fail when its reference
+# disappears. Point `$axiom` at a self-hosted binary and every
+# comparison becomes a compiler against itself: 214 files swept, zero
+# differences, exit 0, and nothing tested. That is the failure mode
+# this repository names most often, and it is why the gate was rewritten
+# rather than left to degrade.
 #
-#   for c in $(target/release/axiom explain --list \
-#              | grep -oE 'AX[0-9]{4}'); do
-#     target/release/axiom explain $c > /tmp/exp/$c.out; done
-#   ... then re-run the generator recorded in explain.ax's header.
+# What replaces it, per surface:
 #
-# The code list is taken from stage0's `--list` AT RUN TIME, so a new
-# code joins the sweep by existing - stage1 missing it is a failure,
-# not a smaller sweep. Floor: at least 25 codes, because a sweep that
-# reads nothing reports the silence it was looking for.
+#   explain   a checked-in golden of every code's text, materialized
+#             from the Rust compiler at the last commit that had one
+#             (tests/tools/explain.golden), PLUS a cross-check that
+#             every code the diagnostics corpus actually emits has an
+#             entry. The second half is derived from a different
+#             artifact - tests/diagnostics/*.axdl - so re-blessing the
+#             explain golden cannot satisfy it.
 #
-# Negative test, run at introduction: deleting one code's row from the
-# generated table fails exactly that code's comparison. Verified.
+#   symbols   three checks, of which only the first is a golden:
+#               1. AXSYM for tests/fmt/syntax-zoo.ax, byte for byte
+#               2. `symbols` exits 0 for exactly the files `check`
+#                  exits 0 for - two subcommands of one binary
+#                  cross-checking each other, with nothing to bless
+#               3. EVERY position claim AXSYM makes, verified against
+#                  the source bytes: at the line and columns a symbol
+#                  names, the file must literally spell that symbol
 #
-# `symbols`, the REPL and the human renderer join this gate as they
-# are ported.
+# Check 3 is strictly stronger than the differential it replaces.
+# Agreeing with another implementation says two things agree; this says
+# the answer is CORRECT, it cannot be satisfied by regenerating
+# anything, and it does not churn when a span moves - the position is
+# recomputed from the source on every run. 14,123 claims over the
+# corpus, plus 503 symbols that carry no position by design (the
+# builtin `Option` and its constructors, and the operations of an
+# `effect`) and are counted rather than skipped.
+#
+# THE DRILL, run rather than assumed. A compiler was built with every
+# AXSYM start column shifted by one, and BOTH goldens were regenerated
+# from it:
+#
+#   the zoo golden        re-blessed clean - matched the wrong compiler
+#   the status manifest   re-blessed clean - matched the wrong compiler
+#   verify-axsym.py       14,100 of 14,100 claims wrong, plus 23 lines
+#                         it could not even parse (one-character names,
+#                         whose spans went zero-width and printed
+#                         without the dash), exit 1
+#
+# That is the whole argument for check 3 existing, measured: the two
+# goldens are exactly as strong as whoever last regenerated them, and
+# the verifier is not.
+#
+# The provenance of both goldens, recorded at the last moment there
+# were two compilers to compare: at commit 1041f11 the Rust compiler
+# and the self-hosted one produced IDENTICAL AXSYM for all 216 files -
+# all 14,626 lines - and identical exit statuses, once paths are
+# normalised and the sweep runs from a neutral directory.
 #
 # Usage:  scripts/check-tools-selfhost.sh
 
@@ -31,130 +69,217 @@ set -uo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
 
-axiom="${AXIOM:-$repo_root/target/release/axiom}"
+axiom="${AXIOM:-$repo_root/.axiom-bin/axiom}"
 if [[ ! -x "$axiom" ]]; then
-  echo "building the compiler first (no binary at $axiom)" >&2
-  cargo build --release
+  echo "no compiler at $axiom - building one from the committed seed" >&2
+  "$repo_root/scripts/bootstrap-from-seed.sh" --install "$repo_root/.axiom-bin" >&2 \
+    || { echo "FAIL: could not bootstrap a compiler" >&2; exit 1; }
 fi
 
 export AXIOM_STDLIB="$repo_root/stdlib"
 
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
-# Deliberately NO stdlib/self_host symlinks here, unlike the gates
-# that COMPILE through stage1: stage1 keeps a legacy CWD-relative
-# search entry five harnesses depend on, and a work directory that
-# feeds it would let stage1 resolve imports stage0 cannot - the
-# symbols sweep's refusal parity on tests/selfhost's compiler-module
-# imports depends on both sides failing identically. stage0 builds
-# stage1 from the repository root and needs nothing from here.
 
-echo "== building stage1 =="
-if ! "$axiom" build --input self_host/main.ax --output "$work/stage1" >"$work/build.log" 2>&1; then
-  echo "FAIL: could not build stage1" >&2
+failed=0
+
+# AXSYM names the file each symbol came from, and for an imported
+# stdlib module that path depends on where the BINARY lives - both
+# compilers resolve their stdlib relative to themselves, so the same
+# symbol is `.../target/release/../../stdlib/Mem.ax` from one install
+# and `.../.axiom-bin/../stdlib/Mem.ax` from another. Neither is wrong
+# and neither belongs in a golden. Normalising to the repo-relative
+# spelling is what makes the golden a fact about AXSYM rather than
+# about the checkout.
+# Anchored on the `..` segment, which is what marks a
+# binary-relative path. An earlier version matched any path ending in
+# `stdlib/` and quietly rewrote `tests/stdlib/010-hello.ax` to
+# `stdlib/010-hello.ax` - a file that does not exist, which the
+# position verifier then reported as 191 unreadable files. The
+# normaliser has to name the thing it is normalising.
+norm() { sed -E -e "s|[^ ]*\.\./stdlib/|stdlib/|g" -e "s|[^ ]*\.\./self_host/|self_host/|g" -e "s|$repo_root/||g"; }
+
+# Every invocation runs from `$neutral`, a directory containing
+# nothing. The compiler keeps a legacy CWD-relative entry in its module
+# search, so running the sweep from the repository root would let a
+# fixture resolve `(import lexer)` out of self_host/ - which is a
+# property of where the sweep ran, not of the fixture, and it moves 4
+# of the 216 statuses. A neutral directory measures the file.
+neutral="$work/neutral"
+mkdir -p "$neutral"
+
+# The compiler under test is the one built FROM SOURCE by `$axiom`, not
+# `$axiom` itself: this gate exists to test self_host/, and `$axiom` may
+# be an older seed-descended binary that predates the change being
+# tested.
+#
+# Deliberately NO stdlib/self_host symlinks in the work directory. The
+# compiler keeps a legacy CWD-relative module search that the compile
+# harnesses depend on, and a salted work directory would let the symbols
+# sweep resolve imports it should not - which flatters the refusal half
+# of the exit-status manifest.
+echo "== building the compiler under test =="
+if ! "$axiom" build --input self_host/main.ax --output "$work/axc" >"$work/build.log" 2>&1; then
+  echo "FAIL: could not build the compiler under test" >&2
   tail -20 "$work/build.log" >&2
   exit 1
 fi
 
-failed=0
+# ---------------------------------------------------------------
+# explain
+# ---------------------------------------------------------------
+echo "== explain: every code and spelling, against the golden =="
+golden="tests/tools/explain.golden"
+[[ -f "$golden" ]] || { echo "FAIL: $golden is missing"; exit 1; }
 
-# stdout, stderr and exit status must all agree.
-compare() {
-  local label="$1"; shift
-  "$axiom" "$@" >"$work/a.out" 2>"$work/a.err"; local s0=$?
-  (cd "$work" && ./stage1 "$@" >b.out 2>b.err); local s1=$?
-  if [[ "$s0" != "$s1" ]]; then
-    echo "FAIL $label: exit status diverged (stage0=$s0 stage1=$s1)"
-    failed=$((failed + 1))
-  elif ! cmp -s "$work/a.out" "$work/b.out"; then
-    echo "FAIL $label: stdout differs"
-    diff "$work/a.out" "$work/b.out" | head -6 | sed 's/^/     /'
-    failed=$((failed + 1))
-  elif ! cmp -s "$work/a.err" "$work/b.err"; then
-    echo "FAIL $label: stderr differs"
-    diff "$work/a.err" "$work/b.err" | head -6 | sed 's/^/     /'
-    failed=$((failed + 1))
-  fi
-}
+{
+  # Regenerated in the same order and with the same section headers the
+  # golden was written with; a mismatch in the ORDER is a real
+  # difference and is meant to fail.
+  head -4 "$golden"
+  echo "### explain --list"
+  "$work/axc" explain --list 2>&1
+  for c in $("$work/axc" explain --list 2>/dev/null | grep -oE 'AX[0-9]{4}' | sort -u); do
+    echo "### explain $c"
+    "$work/axc" explain "$c" 2>&1
+  done
+  for v in ax3001 3001 AX-3001 AX9999 ax99; do
+    echo "### explain $v (exit $("$work/axc" explain "$v" >/dev/null 2>&1; echo $?))"
+    "$work/axc" explain "$v" 2>&1
+  done
+  echo "### explain (no argument) (exit $("$work/axc" explain >/dev/null 2>&1; echo $?))"
+  "$work/axc" explain 2>&1
+} > "$work/explain.out"
 
-echo "== explain: every code stage0 lists =="
-codes=0
-for code in $("$axiom" explain --list | grep -oE 'AX[0-9]{4}' | sort -u); do
-  codes=$((codes + 1))
-  compare "explain $code" explain "$code"
-done
-echo "     $codes codes"
-if [[ $codes -lt 25 ]]; then
-  echo "FAIL the code sweep read $codes codes; the floor is 25"
+if ! cmp -s "$golden" "$work/explain.out"; then
+  echo "FAIL explain: output differs from $golden"
+  diff "$golden" "$work/explain.out" | head -12 | sed 's/^/     /'
   failed=$((failed + 1))
+else
+  echo "ok   explain matches the golden ($(grep -c '^### ' "$golden") sections)"
 fi
 
-echo "== explain: spellings, list, bare, unknown =="
-compare "explain ax3001 (lowercase)" explain ax3001
-compare "explain 3001 (bare digits)" explain 3001
-compare "explain AX-3001 (dashed)" explain AX-3001
-compare "explain --list" explain --list
-compare "explain (no argument)" explain
-compare "explain AX9999 (unknown)" explain AX9999
-compare "explain ax99 (unknown short)" explain ax99
+# The half a re-bless of that golden cannot satisfy: the codes come from
+# a DIFFERENT artifact. Every code the diagnostics corpus actually emits
+# must have an explanation, so a new diagnostic that nobody documented
+# fails here rather than shipping undocumented.
+echo "== explain: every code the diagnostics corpus emits has an entry =="
+listed="$("$work/axc" explain --list 2>/dev/null | grep -oE 'AX[0-9]{4}' | sort -u)"
+emitted="$(grep -ohE 'AX[0-9]{4}' tests/diagnostics/*.axdl | sort -u)"
+emitted_n="$(printf '%s\n' "$emitted" | grep -c .)"
+if (( emitted_n < 20 )); then
+  echo "FAIL: only $emitted_n codes found in tests/diagnostics/*.axdl; the floor is 20 (the corpus moved or the glob broke)"
+  failed=$((failed + 1))
+fi
+missing="$(comm -23 <(printf '%s\n' "$emitted") <(printf '%s\n' "$listed") | tr '\n' ' ')"
+if [[ -n "${missing// /}" ]]; then
+  echo "FAIL explain: codes the corpus emits with no explanation: $missing"
+  failed=$((failed + 1))
+else
+  echo "ok   all $emitted_n codes emitted by the corpus are explained"
+fi
 
 # ---------------------------------------------------------------
-# symbols: every .ax in the repository, live and two-sided.
-#
-# stage0 runs fresh rather than from a cache: a cached golden went
-# stale FOUR times while the port was written, each time because an
-# edit moved spans in a file some other file imports. Both binaries
-# get ABSOLUTE paths, and stage1 runs from the gate's work directory,
-# which deliberately contains no stdlib or self_host entry - so its
-# legacy CWD-relative search (which the five compile harnesses still
-# depend on) finds nothing stage0's search would not, and resolution
-# failures agree.
-#
-# `symbols` folds EVERY failure into exit 1 - parse errors included,
-# where `check` answers 2 - so the deliberately-broken fixtures under
-# tests/ are refusal-parity cases, not skips: both sides must refuse,
-# and stdout must be empty on both.
-#
-# Negative test, RUN at introduction, not assumed: ablating the
-# emitter's nid-variant map (every variant forced to DFn:) fails the
-# sweep on every file with a sig, data, struct, alias or trait.
+# symbols
 # ---------------------------------------------------------------
-echo "== symbols: corpus differential =="
-swept=0
-for f in $(find "$repo_root/stdlib" "$repo_root/self_host" "$repo_root/tests" -name '*.ax' | sort); do
+echo "== symbols: the syntax zoo, against the golden =="
+zoo_golden="tests/tools/symbols-zoo.golden"
+[[ -f "$zoo_golden" ]] || { echo "FAIL: $zoo_golden is missing"; exit 1; }
+(cd "$neutral" && "$work/axc" --diagnostic-format=ai symbols \
+   "$repo_root/tests/fmt/syntax-zoo.ax" 2>/dev/null) | norm >"$work/zoo.out"
+if ! cmp -s "$zoo_golden" "$work/zoo.out"; then
+  echo "FAIL symbols: the zoo's AXSYM differs from $zoo_golden"
+  diff "$zoo_golden" "$work/zoo.out" | head -10 | sed 's/^/     /'
+  failed=$((failed + 1))
+else
+  echo "ok   the zoo's AXSYM matches the golden ($(wc -l <"$zoo_golden" | tr -d ' ') symbols)"
+fi
+
+echo '== symbols: exit status agrees with check, file by file =='
+# This was a checked-in manifest of the per-file exit status, and the
+# manifest was wrong for the corpus - it enumerated every `.ax` in the
+# repository, so ADDING A TEST FIXTURE anywhere made it fail and need
+# re-blessing. A golden that churns for reasons unrelated to what it
+# pins is a golden nobody reads.
+#
+# The property behind it does not churn. `symbols` folds every failure
+# into exit 1, where `check` distinguishes parse (2) from semantic (1),
+# so for every file:
+#
+#     symbols exits 0  <=>  check exits 0
+#
+# That is two independent paths through the same binary - a file that
+# type-checks but whose symbols cannot be listed, or vice versa, is a
+# real defect and nothing has to be regenerated for this to notice.
+# Measured over 224 files at the time it was written: zero mismatches.
+: > "$work/all.axsym"
+swept=0; accepted=0; refused=0
+while read -r f; do
   swept=$((swept + 1))
-  "$axiom" --diagnostic-format=ai symbols "$f" >"$work/s0.out" 2>/dev/null; s0=$?
-  (cd "$work" && ./stage1 symbols "$f" >s1.out 2>/dev/null); s1=$?
-  if [[ "$s0" != "$s1" ]]; then
-    echo "FAIL symbols $f: exit status diverged (stage0=$s0 stage1=$s1)"
-    failed=$((failed + 1))
-  elif ! cmp -s "$work/s0.out" "$work/s1.out"; then
-    echo "FAIL symbols $f: stdout differs"
-    diff "$work/s0.out" "$work/s1.out" | head -4 | sed 's/^/     /'
-    failed=$((failed + 1))
+  (cd "$neutral" && "$work/axc" check "$repo_root/$f" >/dev/null 2>&1); c=$?
+  (cd "$neutral" && "$work/axc" --diagnostic-format=ai symbols "$repo_root/$f" \
+     2>/dev/null) | norm > "$work/one.axsym"
+  (cd "$neutral" && "$work/axc" --diagnostic-format=ai symbols "$repo_root/$f" \
+     >/dev/null 2>&1); sy=$?
+  cat "$work/one.axsym" >> "$work/all.axsym"
+  if [[ "$c" == 0 ]]; then
+    accepted=$((accepted + 1))
+    if [[ "$sy" != 0 ]]; then
+      echo "FAIL $f: check accepted it (0) but symbols refused it ($sy)"
+      failed=$((failed + 1))
+    fi
+  else
+    refused=$((refused + 1))
+    if [[ "$sy" == 0 ]]; then
+      echo "FAIL $f: check refused it ($c) but symbols answered (0)"
+      failed=$((failed + 1))
+    elif [[ "$sy" != 1 ]]; then
+      echo "FAIL $f: symbols exited $sy; it folds every failure into 1"
+      failed=$((failed + 1))
+    fi
   fi
-done
-echo "     $swept files swept"
-if [[ $swept -lt 150 ]]; then
-  echo "FAIL symbols sweep read $swept files; the floor is 150"
+done < <(find stdlib self_host tests -name '*.ax' | sort)
+
+if (( swept < 150 )); then
+  echo "FAIL: the sweep read only $swept files; the floor is 150 - a tree is missing from the find"
+  failed=$((failed + 1))
+# Both outcomes have to occur, or the agreement is trivial: a `symbols`
+# that always succeeded would satisfy a corpus that always type-checks.
+elif (( accepted == 0 || refused == 0 )); then
+  echo "FAIL: every file got the same verdict ($accepted accepted, $refused refused) - the check cannot distinguish anything"
+  failed=$((failed + 1))
+else
+  echo "ok   $swept files, symbols agrees with check everywhere ($accepted accepted, $refused refused)"
+fi
+
+echo "== symbols: every position claim, against the source =="
+if ! (cd "$repo_root" && python3 tests/tools/verify-axsym.py "$work/all.axsym"); then
+  echo "FAIL symbols: AXSYM claims a symbol where the source does not have one"
   failed=$((failed + 1))
 fi
 
-echo "== symbols: --builtins, flag order, missing file =="
+echo "== symbols: flags, and a file that is not there =="
 zoocase="$repo_root/tests/stdlib/010-hello.ax"
-# The global format flag goes to BOTH binaries: stage0 needs it to
-# emit AXSYM rather than its human table, and stage1's argv walk
-# skips an unrecognised global flag.
-compare "symbols --builtins FILE" --diagnostic-format=ai symbols --builtins "$zoocase"
-compare "symbols FILE --builtins" --diagnostic-format=ai symbols "$zoocase" --builtins
-# Missing file: status and stdout only. The stderr prose carries
-# Rust's io::Error rendering ("(os error 2)"), which is not part of
-# any contract a port should chase.
-"$axiom" symbols "$work/does-not-exist.ax" >"$work/m0.out" 2>/dev/null; m0=$?
-(cd "$work" && ./stage1 symbols "$work/does-not-exist.ax" >m1.out 2>/dev/null); m1=$?
-if [[ "$m0" != "$m1" || -s "$work/m0.out" || -s "$work/m1.out" ]]; then
-  echo "FAIL symbols missing-file: statuses ($m0/$m1) or stdout nonempty"
+(cd "$neutral" && "$work/axc" --diagnostic-format=ai symbols --builtins "$zoocase" \
+   >"$work/b1.out" 2>/dev/null); b1=$?
+(cd "$neutral" && "$work/axc" --diagnostic-format=ai symbols "$zoocase" --builtins \
+   >"$work/b2.out" 2>/dev/null); b2=$?
+if [[ "$b1" != 0 || "$b2" != 0 ]] || ! cmp -s "$work/b1.out" "$work/b2.out"; then
+  echo "FAIL symbols: --builtins is order-sensitive (exits $b1/$b2)"
   failed=$((failed + 1))
+elif ! grep -q '^C Some ' "$work/b1.out"; then
+  echo "FAIL symbols: --builtins printed no builtin constructor - the flag did nothing"
+  failed=$((failed + 1))
+else
+  echo "ok   --builtins works in either position and lists the builtins"
+fi
+
+"$work/axc" symbols "$work/does-not-exist.ax" >"$work/m.out" 2>/dev/null; m=$?
+if [[ "$m" == 0 || -s "$work/m.out" ]]; then
+  echo "FAIL symbols: a missing file exited $m with $(wc -c <"$work/m.out" | tr -d ' ') bytes on stdout"
+  failed=$((failed + 1))
+else
+  echo "ok   a missing file is refused with empty stdout"
 fi
 
 echo

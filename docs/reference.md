@@ -1354,18 +1354,22 @@ axiom explain --list
 Source (.ax) → Lexer → Parser → Type Checker → IR → LLVM IR → llc → cc → Executable
 ```
 
-### Crate Structure
+### Compiler Structure
 
-| Crate | Purpose |
+The compiler is written in Axiom, in `self_host/`.
+
+| Module | Purpose |
 |---|---|
-| `axiom-ast` | AST, token, and span definitions |
-| `axiom-lexer` | Tokenizer |
-| `axiom-parser` | S-expression parser |
-| `axiom-sema` | Name resolution, type checking, effects |
-| `axiom-ir` | IR definitions and lowering |
-| `axiom-codegen` | LLVM emission, target/syscall ABI |
-| `axiom-cli` | Driver, REPL, `fmt`, `symbols` |
-| `axiom-errors` | Diagnostics, AXDL/AXSYM rendering |
+| `core.ax` | Tokens and spans |
+| `lexer.ax` | Tokenizer |
+| `parser.ax` | S-expression parser and AST |
+| `typecheck.ax` | Name resolution, type checking, effects, AXTAG validation |
+| `codegen.ax` | Import resolution, name mangling, LLVM emission |
+| `diag.ax` | Diagnostics, AXDL/JSON rendering, source maps |
+| `render.ax` | The human diagnostic renderer |
+| `driver.ax` | `build`: `opt`, `llc`, `cc` |
+| `main.ax` | CLI entry point; `format.ax`, `repl.ax`, `symbols.ax`, `explain.ax`, `lsp.ax` are the tools |
+| `Host.<target>.ax` | Host triple and syscall ABI, selected when the compiler is compiled |
 
 ---
 
@@ -1472,6 +1476,6 @@ Use `--opt 2` for anything that iterates over a large input.
 ## Further Reading
 
 - [Diagnostics & Agent Notations](diagnostics.md) — AXDL, AXSYM, NID, AXTAG reference
-- [Self-Hosting](self-hosting.md) — plan to replace the Rust compiler with Axiom
+- [Self-Hosting](self-hosting.md) — how the Rust compiler was replaced with one written in Axiom, and how a clean checkout builds it
 - [v1 Roadmap](v1-roadmap.md) — what is done, what is left, and what blocks what
 - [README](../README.md) — project overview and installation guide

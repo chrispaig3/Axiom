@@ -1,0 +1,36 @@
+# Which diagnostic codes are allowed to be WARNINGS. Hand-maintained,
+# and that is the entire point: everything else in this directory is
+# written by the compiler, so an invariant read off a golden is an
+# invariant the compiler under test decides.
+#
+# It was not hypothetical. An adversary flipped one token in
+# `typecheck.ax` - `SEV_ERROR` to `SEV_WARNING` on AX3004 - re-blessed
+# the AXDL goldens from the resulting compiler, and this gate passed:
+# 55 checks, 0 failed, every span still verified. That compiler exits 0
+# on a type-incorrect program and emits LLVM for it, including a call
+# through an `inttoptr` of an integer. A guaranteed segfault, shipped as
+# a successful build, and green.
+#
+# Re-run with this file in place, in a shadow tree so the real one was
+# never touched: the re-bless still succeeds - it has to, it is only
+# writing down what the compiler said - and the gate then exits 1 with
+#
+#     FAIL severity: AX3004 renders as a WARNING in a golden but is
+#     not in tests/diagnostics/severity.policy
+#
+# which is the drill this file exists to pass.
+#
+# The reason the gate could not see it is that the severity letter in
+# the golden and the exit status are the SAME field: `countErrorDiags`
+# and `sevSigil` both read `(memGetWord d 0)`, which docs/diagnostics.md
+# records as the design. So "the golden says E, therefore the run exits
+# non-zero" is a theorem about the compiler's source rather than a test
+# of it. This file breaks the circle by being the one artifact here that
+# no compiler writes.
+#
+# One code per line. A code absent from this list must never appear as
+# `W` in any `.axdl` golden.
+#
+# AX3010 - an AXTAG that claims an effect the function does not have.
+#          A claim that is merely wrong about code that compiles.
+AX3010

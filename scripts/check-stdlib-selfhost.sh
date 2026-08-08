@@ -1,254 +1,452 @@
 #!/usr/bin/env bash
-# Run the standard-library test corpus through BOTH compilers and
-# compare what the programs actually do: exit status and stdout.
+# Compile and RUN the standard-library corpus with the self-hosted
+# compiler, and check what the programs actually do - stdout byte for
+# byte, and exit status - against two things that were not produced by
+# the compiler under test.
 #
-# This gate exists because nothing else ran `tests/stdlib/` through
-# stage1. `check-self-host.sh` runs `tests/selfhost/` end to end;
-# `run-stdlib-tests.sh` runs `tests/stdlib/` through *stage0* only;
-# and `check-diagnostics.sh` does compile `tests/stdlib/` with stage1
-# but only reads its diagnostics, and explicitly exempts a non-zero
-# exit there. So a stage1 miscompile of a stdlib test was invisible to
-# every gate in the repository, and five of them were: two programs
-# whose output was wrong, one whose IR `llc` rejected, and two more
-# found only by running this comparison for the first time.
+# WHAT THIS USED TO PIN, AND WHY IT COULD NOT STAY
 #
-# `llc` carries an explicit relocation model, which axiom-cli documents
-# as required of every `llc` invocation in the project including this
-# one. It deliberately does NOT carry -O0: it did for one commit, as a
-# workaround for the bump allocator coming apart at -O1 and above, and
-# that turned out to be an undeclared inline-asm clobber in the arm64
-# syscall sequence rather than anything about optimisation level. With
-# the clobbers declared the gate runs at `llc`'s default, which is the
-# configuration a user gets.
+# This gate was a differential: build every `tests/stdlib/` case with
+# stage0 (the Rust compiler) and with stage1, run both through the same
+# `llc`/`cc` pipeline, and require identical stdout and identical exit
+# status. It deliberately took stage0's answer rather than a checked-in
+# expected value, on the argument that stage0 was the trusted
+# implementation and `run-stdlib-tests.sh` already pinned stage0's own
+# answers.
 #
-# The comparison is against stage0's answer rather than a checked-in
-# expected value on purpose: stage0 is the trusted implementation, and
-# `run-stdlib-tests.sh` already pins stage0's own answers, so
-# "stage1 agrees with stage0" plus "stage0 is pinned" is the same
-# three-way property `check-diagnostics.sh` gets from its goldens.
+# That argument dies with stage0. Worse, it dies SILENTLY: a differential
+# does not fail when its reference disappears. Point `$axiom` at a
+# self-hosted binary and both sides of every comparison become the same
+# compiler - 37 cases swept, zero differences, exit 0, nothing tested.
+# The corpus would keep printing `ok` while a miscompile walked in.
+#
+# WHAT IT PINS NOW
+#
+#   1. GOLDENS. `tests/stdlib/NAME.out` byte for byte, and `NAME.exit`
+#      (default 0), for every case, at `llc -O0` AND `llc -O2`. These are
+#      the same goldens `run-stdlib-tests.sh` has always used, and the
+#      differential's own premise was that they were trustworthy. Their
+#      provenance is that they were written by the Rust compiler before
+#      any self-hosted binary had an opinion about this corpus: 32 of the
+#      37 are byte-identical to their content at 5f6aaaa (2026-08-06),
+#      the commit that first ran `tests/stdlib/` through stage1 at all.
+#      The five that have moved since are 160-arena, 165-arena-keep,
+#      210-flags-across-syscall, 300-process and 340-json - and the last
+#      four of those did not exist at 5f6aaaa, so they never had stage0
+#      provenance either.
+#
+#   2. THE FIXTURES' OWN SOURCE. `tests/stdlib/verify-stdlib-out.py`
+#      derives 446 expected output values over 30 of the 37 cases from
+#      `NAME.ax`, and 34 of the 37 expected exit statuses, and checks
+#      them - in order, as a subsequence - against what the program
+#      printed and what it returned. It never opens a `.out` file. Three
+#      sources of claim: the expectation the corpus writes beside its own
+#      calls (`(printlnInt (& 12 10))  ; 8`, `(describe (CInt 7))  ; 7`);
+#      a Python model of the literal-only part of `Str`/`Utf8`
+#      (`(printlnInt (strLen "héllo"))` must print 6 because the literal
+#      is six bytes); and, for a case that GRADES ITSELF, the verdict the
+#      fixture publishes about each of its own checks. See that file's
+#      header for the extraction rules and for why claims are matched as
+#      a subsequence.
+#
+# WHY THAT IS ADEQUATE
+#
+# A checked-in golden alone is not: if the compiler is wrong and someone
+# regenerates `NAME.out` from the wrong compiler, a golden-only gate goes
+# green. Check 2 cannot be satisfied that way, because rewriting a golden
+# does not change the source the claims come from - the compiler would
+# have to be right, or the fixture's comments, its string literals and
+# its own pass/fail vocabulary would all have to be edited to agree with
+# the wrong answer. Check 2 also runs against the goldens THEMSELVES
+# before any compiling happens, so a re-blessed golden is refused even on
+# a machine with no toolchain.
+#
+# Against the differential it replaces, check 2 is stronger in kind:
+# agreeing with another implementation says two implementations agree,
+# and `330-utf8`'s header makes the same point about a decoder that
+# round-trips with its own encoder. Check 2 says the answer is CORRECT.
+#
+# HOW FAR IT REACHES, MEASURED RATHER THAN ASSERTED
+#
+# Mutation test, no compiler required: corrupt one line of one golden and
+# ask the verifier whether it still accepts the corpus. Of the corpus's
+# 546 output lines, 443 are pinned by a derived claim and 103 (18.9%) can
+# be corrupted with the verifier silent. Seven cases yield no claim at
+# all and are pinned by their golden alone - 040-mem, 050-file-io,
+# 100-pre, 210-flags-across-syscall, 300-effect-handlers,
+# 310-effect-unhandled, 320-effect-gc-roots - and the largest partly
+# unpinned remainders are 330-utf8 (18 of 23 lines), 030-str (12 of 19)
+# and 250-field-kinds (11 of 16). Three cases name no exit status in
+# their source: 050-file-io and 310-effect-unhandled, whose `main` ends
+# in a branch and in a trap, and 340-json, which returns its own failure
+# count.
+#
+# That is the honest number, and it is the number that moved. Before the
+# self-grading claims, the derived exit statuses and the two extractor
+# repairs below, it was 199 of 546 lines (36.4%) corruptible and 0 of 37
+# exit statuses derived - and inside that region a defective compiler was
+# re-blessed to a clean pass. See the drill.
+#
+# DRILLED, TWICE, RATHER THAN ASSUMED
+#
+# At conversion time: a compiler built from a copy of self_host/ with
+# `>>` lowered to `lshr` instead of `ashr` was used to re-bless the whole
+# corpus, so every `cmp` in this script passed - "37 of 37 cases match
+# their golden" - and the gate still exited 1, twice: once on the goldens
+# before compiling, once on what the programs printed.
+#
+# That drill left a hole this one closes. `340-json` was 56 golden lines
+# and NO claim, so it was checked by `cmp` alone. Ablating one token of
+# `stdlib/Json.ax` - `jpHexVal`'s lowercase-hex branch, `(- b 97)` to
+# `(- b 96)`, so every lowercase digit of a `\uXXXX` escape decodes one
+# too high and a surrogate pair stops being one - and re-blessing
+# `340-json.out` and `340-json.exit` from that build made this gate print
+# "37 of 37 cases match their golden" and "all checks passed", exit 0,
+# with a checked-in golden that reads "FAIL surrogate pair length got=6
+# want=4" and "failures 2". Measured, in a full-tree copy: EXIT=0.
+#
+# The same ablation, the same re-blessed corpus, against this script as
+# it now stands: EXIT=1, and both halves fire.
+#
+#   FAIL 340-json: 340-json.ax grades itself, and 2 line(s) of
+#        tests/stdlib/340-json.out begin with 'FAIL ': FAIL surrogate
+#        pair length got=6 want=4
+#   FAIL 340-json: harness at 340-json.ax:111 claims 'ok   surrogate
+#        pair length', and no such line remains
+#   FAIL goldens: only 0 self-graded check lines claimed; the floor is 50
+#   ...
+#   37 of 37 cases match their golden; 73 case-and-level runs
+#
+# `cmp` still passes - it is comparing the wrong compiler with its own
+# output - and the fixture's own verdict refuses it, once before any
+# compiler is built and once against what the programs printed.
+#
+# TWO THINGS THAT WERE SILENTLY COUNTING NOTHING
+#
+#   - The verifier blanked each string or char literal to a SINGLE space
+#     and then sliced the RAW line at an offset it had found in the
+#     masked one, so every annotation on a line containing a literal was
+#     read at the wrong column: `(describe (CChar 'K'))  ; 75` handed
+#     back `; 75`, which is not a number, and the claim was dropped.
+#     Length-preserving masking, plus accepting any CALL on the line
+#     rather than only a `println*` - the value a case documents sits
+#     beside the call that produces the line, which for a multi-line
+#     print is the closing paren - took the corpus from 351 claims over
+#     26 files to 446 over 30: 300-process 0 claims to 9, 250-field-kinds
+#     0 to 5, 165-arena-keep 0 to 4, 160-arena 3 to 8, 090-intern 33 to
+#     50, and 340-json 0 to 54 from the self-grading class.
+#   - The distinct-exit floor counted `42` from one case running into `0`
+#     from the next as the distinct status `420`, so it was not counting
+#     statuses at all. See `expected_exit_of`. With that fixed the corpus
+#     has exactly three - 0, 42 and 71 - and re-blessing
+#     `310-effect-unhandled.exit` from 71 to 0, which is what an ablated
+#     compiler that stopped trapping unhandled effects wants, leaves two
+#     and trips the floor.
+#
+# PROVENANCE, RECORDED WHILE BOTH COMPILERS STILL EXIST
+#
+# Measured at conversion time, with stage0 still in the tree: stage0 and
+# the self-hosted compiler each reproduce all 37 goldens byte for byte
+# through this same raw `llc` pipeline, at -O0 and at -O2, with one
+# exception, `320-effect-gc-roots` - see NEEDS_TCO below. No new golden
+# was materialized, because none was needed: the corpus already carried
+# 37 `.out` files and 2 `.exit` files, and check 2 reads sources.
+#
+# WHAT LEFT THIS GATE
+#
+# The old sweep also ran `tests/selfhost/[0-9]*.ax`, purely to make
+# `check-self-host.sh`'s `; expect N` check three-way (expect == stage0
+# == stage1). With stage0 gone the third leg is gone, and what remains -
+# stage1's exit status against the number written in the case's own first
+# line - is exactly what `check-self-host.sh` already does. Running it
+# here a second time would be repetition, not coverage. The 13 cases the
+# old script listed under STAGE0_CANNOT were skipped only because stage0
+# could not resolve `self_host/` imports; that list is now meaningless
+# and is deleted rather than left to rot.
+#
+# `llc` carries an explicit relocation model, which the project requires
+# of every `llc` invocation. It deliberately does NOT carry -O0 globally:
+# both levels are run, because the hazards pull in opposite directions
+# and each has hidden a real bug - at -O1 and above an undeclared
+# inline-asm clobber broke the bump allocator, and at -O0 there is no
+# tail-call elimination, so deep recursion overflows.
 #
 # Usage:
 #   scripts/check-stdlib-selfhost.sh          # every case
 #   scripts/check-stdlib-selfhost.sh 080      # one case, by name prefix
+#
+# A prefix that selects nothing is a failure, not a quiet pass: measured,
+# `scripts/check-stdlib-selfhost.sh zzz-no-such-case` used to build a
+# compiler, compile nothing, run nothing, verify nothing and exit 0.
 
 set -uo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
 
-axiom="${AXIOM:-$repo_root/target/release/axiom}"
-[[ -x "$axiom" ]] || cargo build --release
+axiom="${AXIOM:-$repo_root/.axiom-bin/axiom}"
+if [[ ! -x "$axiom" ]]; then
+  echo "no compiler at $axiom - building one from the committed seed" >&2
+  "$repo_root/scripts/bootstrap-from-seed.sh" --install "$repo_root/.axiom-bin" >&2 \
+    || { echo "FAIL: could not bootstrap a compiler" >&2; exit 1; }
+fi
 
 export AXIOM_STDLIB="$repo_root/stdlib"
 filter="${1:-}"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 
+corpus="tests/stdlib"
+verifier="$corpus/verify-stdlib-out.py"
+failed=0
+
+# Deep non-tail recursion that only fits on a stack once LLVM has done
+# tail-call elimination. `320-effect-gc-roots` churns 200,000 allocations
+# through `churn`, whose self call sits in a `let` body - which the
+# compiler does not treat as tail position. Through a raw `llc` pipeline
+# that is a real 200,000-frame chain: measured at conversion time, the
+# self-hosted compiler's binary exits 139 at -O0 and 0 at -O2, and
+# stage0's exited 139 at both. `axiom build` runs `opt` and the case is
+# fine, which is the configuration users get and the one
+# `run-stdlib-tests.sh` covers. Run here at -O2 only, and listed by name
+# so that a file joining or leaving the list is a deliberate edit - the
+# older spelling of this exemption skipped the case at every level.
+NEEDS_TCO="320-effect-gc-roots"
+
+in_list() { case " $2 " in *" $1 "*) return 0;; *) return 1;; esac; }
+
+# One status, one LINE. `tr -d '[:space:]'` also deletes the trailing
+# newline, and the only caller that reads more than one status at a time
+# pipes them into `sort -u` - where `42` from one case ran into `0` from
+# the next and was counted as the distinct status `420`. That is why the
+# distinct-exit floor was satisfied by a corpus that had lost a status:
+# it was not counting statuses at all.
+expected_exit_of() {
+  if [[ -f "$corpus/$1.exit" ]]; then
+    printf '%s\n' "$(tr -d '[:space:]' < "$corpus/$1.exit")"
+  else
+    echo 0
+  fi
+}
+
+# ---------------------------------------------------------------
+# the corpus itself, before any compiler is involved
+# ---------------------------------------------------------------
+echo "== corpus: the goldens are present, distinguishable, and not empty =="
+cases=0
+for case_file in $corpus/*.ax; do
+  name="$(basename "$case_file" .ax)"
+  cases=$((cases + 1))
+  if [[ ! -f "$corpus/$name.out" ]]; then
+    echo "FAIL $name: no $corpus/$name.out - a case with no golden is a case nothing checks"
+    failed=$((failed + 1))
+    continue
+  fi
+  # An empty golden is only meaningful for a program that did not reach
+  # its first print. A case that exits 0 with nothing on stdout cannot be
+  # told apart from a binary that did nothing at all, which is exactly
+  # what a failed build leaves behind.
+  if [[ ! -s "$corpus/$name.out" && "$(expected_exit_of "$name")" == 0 ]]; then
+    echo "FAIL $name: an empty golden with expected exit 0 asserts nothing"
+    failed=$((failed + 1))
+  fi
+  ex="$(expected_exit_of "$name")"
+  if [[ ! "$ex" =~ ^[0-9]+$ ]]; then
+    echo "FAIL $name: $corpus/$name.exit is not a number ($ex)"
+    failed=$((failed + 1))
+  fi
+done
+
+if [[ "$cases" -lt 35 ]]; then
+  echo "FAIL: found only $cases cases in $corpus (expected 37) - a glob or a tree is missing"
+  failed=$((failed + 1))
+fi
+
+# A corpus of identical goldens would be satisfied by a compiler that
+# emits one program, and a corpus with one expected exit status would be
+# satisfied by a runner that never reads the status at all.
+distinct_goldens="$(shasum $corpus/*.out | awk '{print $1}' | sort -u | wc -l | tr -d ' ')"
+distinct_exits="$(for f in $corpus/*.ax; do expected_exit_of "$(basename "$f" .ax)"; done | sort -u | wc -l | tr -d ' ')"
+if [[ "$distinct_goldens" -lt 30 ]]; then
+  echo "FAIL: the $cases goldens take only $distinct_goldens distinct values"
+  failed=$((failed + 1))
+fi
+# Three, not two: an ablated compiler that stopped trapping unhandled
+# effects was re-blessed by rewriting `310-effect-unhandled.exit` from 71
+# to 0, and a floor of 2 did not notice a whole expected status leaving
+# the corpus. The three are 0, 42 (060-exit-code) and 71 (310).
+if [[ "$distinct_exits" -lt 3 ]]; then
+  echo "FAIL: the $cases cases expect only $distinct_exits distinct exit statuses (expected 3) - a status left the corpus"
+  failed=$((failed + 1))
+fi
+echo "ok   $cases cases, $distinct_goldens distinct goldens, $distinct_exits distinct expected exit statuses"
+
+# ---------------------------------------------------------------
+# the goldens against the sources - no compiler needed
+# ---------------------------------------------------------------
+echo "== goldens: every value the sources claim is in the golden that claims it =="
+[[ -f "$verifier" ]] || { echo "FAIL: $verifier is missing"; exit 1; }
+if ! python3 "$verifier" "$corpus" "$corpus" --label goldens --quiet; then
+  echo "FAIL: a checked-in golden disagrees with its own source - a re-blessed golden"
+  failed=$((failed + 1))
+fi
+
+# ---------------------------------------------------------------
+# the compiler under test
+# ---------------------------------------------------------------
+# Built FROM SOURCE by `$axiom`, not `$axiom` itself: this gate exists to
+# test the tree, and `$axiom` may be a seed-descended binary that
+# predates the change being tested.
+#
+# It runs from `$work` with `stdlib`, `self_host` and `tests` reachable,
+# because a legacy CWD-relative entry in the module search is how the
+# compile harnesses resolve `(import Foo)`. Cases are still handed their
+# REAL path: the module search directory is derived from the argument,
+# and `150-qualified-modules` imports `Q.Inner`, which is
+# `tests/stdlib/Q/Inner.ax` and does not exist beside a copy.
+echo "== building the compiler under test =="
 ln -s "$repo_root/stdlib" "$work/stdlib"
 ln -s "$repo_root/self_host" "$work/self_host"
 ln -s "$repo_root/tests" "$work/tests"
-
-# Helper modules for `tests/selfhost/` cases that import a sibling.
-# Copied flat because a module's name is its filename stem; the cases
-# themselves are digit-prefixed, which is how the two are told apart.
-cp "$repo_root"/tests/selfhost/[A-Z]*.ax "$work/" 2>/dev/null || true
-
-if ! "$axiom" build --input self_host/main.ax --output "$work/stage1" >"$work/build.log" 2>&1; then
-  echo "FAIL: could not build stage1" >&2
+if ! "$axiom" build --input self_host/main.ax --output "$work/axc" >"$work/build.log" 2>&1; then
+  echo "FAIL: could not build the compiler under test" >&2
   tail -20 "$work/build.log" >&2
   exit 1
 fi
 
-# Language surface stage1 has not implemented. Not miscompiles - each
-# refuses loudly - and each is recorded in docs/self-hosting.md.
-# Listed by name so that a file leaving a list is a deliberate edit.
-#
-# Both lists are empty. They held two kinds, conflated under one
-# "unparsed" label until the exit codes were actually read:
-#   exit 2, a real PARSE failure - qualified `Mod::name` references
-#           and struct variants were both here, and both parse now.
-#   exit 3, parsed but REFUSED - the effect system, which stage1
-#           checked (AX3011/AX3016/AX3017 byte-identical) but did not
-#           lower. It lowers now: evidence slots, outward dispatch and
-#           the unhandled trap, so all three cases run and agree.
-UNPARSED=""
-UNLOWERED=""
+mkdir -p "$work/observed" "$work/ir"
 
-# Programs stage1 compiles and gets WRONG. Every entry is a real bug
-# with a diagnosis; the list is here so the gate can be green while
-# they are open, and so that a fix cannot land unnoticed - a name on
-# this list that starts agreeing FAILS the gate and must be removed.
-#
-#   (empty)
-#
-# Fixed and removed from this list: 120-pattern-representation (nested
-# nullary constructor patterns parsed as binders), 270-nullary-unboxed
-# (the builtin `Option` was absent from the codegen type registry),
-# 280-function-application (a non-name application head lowered to the
-# constant 0, deleting the call) and 140-function-values (an
-# over-applied spine flattened into one direct call). The gate refused
-# to stay green when each started agreeing, which is what the list is
-# for - all four left it that way. 160-arena left it too, but for a
-# different reason: it was never a stage1 bug at all, only this
-# script's own `llc` invocation missing -O0.
-KNOWN_WRONG=""
-
-in_list() { case " $2 " in *" $1 "*) return 0;; *) return 1;; esac; }
-
-# Cases stage0 cannot build, and it is not a defect in either compiler:
-# each imports the self-hosted compiler's OWN modules (`lexer`,
-# `parser`, `typecheck`, `codegen`, `diag`, `format`), which stage1 resolves
-# through its `self_host/` fallback path and stage0 does not resolve at
-# all. They are stage1-only by construction, and `check-self-host.sh`
-# covers them against their `; expect N`.
-# Programs whose recursion depth needs LLVM's tail-call elimination to
-# fit on a stack, and which therefore cannot be compared through a RAW
-# `llc` pipeline at all.
-#
-# `320-effect-gc-roots` churns 200,000 allocations through `churn`,
-# whose self call sits in a `let` body - which neither compiler treats
-# as tail position, deliberately, because stage0 does not. Without
-# `opt` that is a real 200,000-frame chain, and whether it fits is a
-# question about FRAME SIZE rather than about either compiler's
-# semantics: stage0 gives every function a hidden closure parameter and
-# spills its bindings to allocas, stage1 does neither, so stage0
-# overflows an 8 MiB stack here and stage1 does not (measured: stage0's
-# raw IR exits 139 at both -O0 and -O2, and 0 once `opt -O1` has run;
-# stage1's exits 0 at every level). `axiom build` runs `opt` and both
-# are fine, which is the configuration users get and the one
-# `run-stdlib-tests.sh` covers.
-#
-# Listed rather than silently tolerated, and listed by name so that a
-# file leaving the list is a deliberate edit.
-NEEDS_OPT="320-effect-gc-roots"
-
-STAGE0_CANNOT="270-lex 280-parse 290-emit 300-pipeline 630-decl-spans \
-640-axdl-render 650-quote 660-span-shapes 680-expr-spans 720-type-render \
-840-large-lex 845-large-axtags 880-format-scan"
-
-passed=0; failed=0; skipped=0; xfail=0; compared=0
-
-# Both trees, and both optimisation levels.
-#
-# `tests/selfhost/` used to be checked only against its own `; expect N`
-# line - stage1's answer against a number, with stage0 never asked. That
-# is a two-way comparison wearing a golden's clothes, and this file's
-# own header explains why that is not enough. Running both compilers
-# over it makes the property three-way for that tree too:
-# expect == stage0 == stage1.
-#
-# The two `llc` levels are not redundant, because the hazards they
-# expose pull in opposite directions and each hid a real bug: at -O1 and
-# above an undeclared inline-asm clobber broke the bump allocator, and
-# at -O0 there is no tail-call elimination, so a deeply recursive
-# program overflows. Checking one level only is checking half the
-# configurations a user gets.
-for case_file in tests/stdlib/*.ax tests/selfhost/[0-9]*.ax; do
+# ---------------------------------------------------------------
+# the sweep
+# ---------------------------------------------------------------
+echo "== cases: compiled, run, and checked against the goldens at -O0 and -O2 =="
+passed=0; ran=0; runs=0
+for case_file in $corpus/*.ax; do
   name="$(basename "$case_file" .ax)"
   [[ -n "$filter" && "$name" != "$filter"* ]] && continue
 
-  if in_list "$name" "$UNPARSED"; then
-    echo "skip $name (stage1 does not parse it)"
-    skipped=$((skipped + 1))
-    continue
-  fi
-  if in_list "$name" "$UNLOWERED"; then
-    echo "skip $name (stage1 parses and checks it, but does not lower effects)"
-    skipped=$((skipped + 1))
-    continue
-  fi
-  if in_list "$name" "$NEEDS_OPT"; then
-    echo "skip $name (deep non-tail recursion; needs opt's tailcallelim to fit a stack)"
-    skipped=$((skipped + 1))
-    continue
-  fi
-  if in_list "$name" "$STAGE0_CANNOT"; then
-    echo "skip $name (imports the self-hosted compiler; stage0 cannot resolve it)"
-    skipped=$((skipped + 1))
-    continue
+  golden="$corpus/$name.out"
+  [[ -f "$golden" ]] || continue
+  want_exit="$(expected_exit_of "$name")"
+
+  levels="-O0 -O2"
+  if in_list "$name" "$NEEDS_TCO"; then
+    levels="-O2"
   fi
 
-  # Both compilers are asked for IR, and the SAME toolchain turns each
-  # into a binary. Taking stage0's side from `axiom build` instead
-  # compared unlike with unlike: the driver runs `opt` before `llc`, so
-  # stage0's binary arrived optimised while stage1's came raw out of
-  # `llc -O0`, and a program that survives only because LLVM eliminated
-  # its tail calls then "disagreed" about nothing the compilers did.
-  # Holding the toolchain constant is what makes this a comparison of
-  # the two compilers rather than of two build pipelines.
-  if ! "$axiom" build --input "$case_file" --emit-llvm --output "$work/o0" >/dev/null 2>&1; then
-    echo "FAIL $name (stage0 could not build it)"
+  # A case that does not BUILD fails here. It must never fall through to
+  # a comparison, because a build that produced nothing and a program
+  # that printed nothing look the same to `cmp` when the golden is empty.
+  (cd "$work" && ./axc "$repo_root/$case_file" >"$work/ir/$name.ll" 2>"$work/ir/$name.err")
+  emit_status=$?
+  if [[ "$emit_status" != 0 ]]; then
+    echo "FAIL $name (the compiler refused it; exit $emit_status)"
+    head -4 "$work/ir/$name.err" | sed 's/^/     /'
+    failed=$((failed + 1))
+    continue
+  fi
+  if [[ ! -s "$work/ir/$name.ll" ]]; then
+    echo "FAIL $name (the compiler exited 0 and emitted no IR)"
     failed=$((failed + 1))
     continue
   fi
 
-  # stage1 is given the case's real path, not a copy: it derives the
-  # module search directory from its argument, and a case importing a
-  # module that sits beside it - `150-qualified-modules.ax` imports
-  # `Q.Inner`, which is `tests/stdlib/Q/Inner.ax` - cannot resolve it
-  # from a copy in the work directory. Copying to `in.ax` was why that
-  # case looked unparseable.
-  if ! (cd "$work" && ./stage1 "$case_file" >s1.ll 2>/dev/null); then
-    echo "FAIL $name (stage1 could not emit it)"
-    failed=$((failed + 1))
-    continue
-  fi
-
-  agree=1
+  ok=1
   why=""
-  for opt in -O0 -O2; do
-    built=1
-    for side in o0 s1; do
-      llc "$opt" -filetype=obj -relocation-model=pic "$work/$side.ll" -o "$work/$side.o" 2>/dev/null \
-        && cc "$work/$side.o" -o "$work/$side.bin" -e _main 2>/dev/null || built=0
-    done
-    if [[ "$built" == 0 ]]; then
-      agree=0; why="$why $opt(llc/cc rejected one side)"
+  for opt in $levels; do
+    if ! llc "$opt" -filetype=obj -relocation-model=pic "$work/ir/$name.ll" \
+         -o "$work/ir/$name$opt.o" 2>"$work/ir/$name$opt.llc.err"; then
+      ok=0; why="$why $opt(llc rejected the IR)"
       continue
     fi
-    (cd "$work" && ./o0.bin >e0.txt 2>&1); e0=$?
-    (cd "$work" && ./s1.bin >e1.txt 2>&1); e1=$?
-    if [[ "$e0" != "$e1" ]] || ! cmp -s "$work/e0.txt" "$work/e1.txt"; then
-      agree=0; why="$why $opt(stage0 exit $e0, stage1 exit $e1)"
+    if ! cc "$work/ir/$name$opt.o" -o "$work/ir/$name$opt.bin" -e _main \
+         2>"$work/ir/$name$opt.cc.err"; then
+      ok=0; why="$why $opt(cc could not link it)"
+      continue
     fi
+
+    # Its own directory per level: several cases create files, and a
+    # leftover from a previous run would make a failure look like a pass.
+    rundir="$work/run/$name$opt"
+    mkdir -p "$rundir"
+    (cd "$rundir" && "$work/ir/$name$opt.bin" >stdout.txt 2>stderr.txt); got_exit=$?
+    runs=$((runs + 1))
+
+    if [[ -s "$golden" && ! -s "$rundir/stdout.txt" ]]; then
+      ok=0; why="$why $opt(printed nothing at all)"
+    elif ! cmp -s "$golden" "$rundir/stdout.txt"; then
+      ok=0; why="$why $opt(stdout differs from $name.out)"
+      diff "$golden" "$rundir/stdout.txt" 2>/dev/null | head -6 | sed 's/^/     /'
+    fi
+    if [[ "$got_exit" != "$want_exit" ]]; then
+      ok=0; why="$why $opt(exit $got_exit, expected $want_exit)"
+    fi
+
+    # What the derived half will read. Written only after a real run, so
+    # a case that failed to build leaves no observed output and is
+    # reported by the verifier as unchecked rather than as agreeing. The
+    # status goes beside the output, because the verifier derives that
+    # from the source too and `NAME.exit` is as re-blessable as `NAME.out`.
+    cp "$rundir/stdout.txt" "$work/observed/$name.out"
+    printf '%s\n' "$got_exit" > "$work/observed/$name.exit"
   done
-  compared=$((compared + 1))
 
-  if in_list "$name" "$KNOWN_WRONG"; then
-    if [[ "$agree" == 1 ]]; then
-      # A known-wrong case that now agrees is good news the list has
-      # to be told about, or the list rots into a lie.
-      echo "FAIL $name (listed as known-wrong but now AGREES - remove it from KNOWN_WRONG)"
-      failed=$((failed + 1))
-    else
-      echo "xfail $name (known stage1 bug)"
-      xfail=$((xfail + 1))
-    fi
-    continue
-  fi
-
-  if [[ "$agree" == 1 ]]; then
+  ran=$((ran + 1))
+  if [[ "$ok" == 1 ]]; then
     echo "ok   $name"
     passed=$((passed + 1))
   else
-    echo "FAIL $name (stage1 disagrees with stage0):$why"
-    diff "$work/e0.txt" "$work/e1.txt" 2>/dev/null | head -6 | sed 's/^/    /'
+    echo "FAIL $name:$why"
     failed=$((failed + 1))
   fi
 done
 
 echo
-echo "$passed agree, $xfail known-wrong, $skipped skipped, $failed failed"
-echo "$compared cases compared through both compilers at -O0 and -O2"
+echo "$passed of $ran cases match their golden; $runs case-and-level runs"
+
+# ---------------------------------------------------------------
+# the half a re-bless cannot satisfy
+# ---------------------------------------------------------------
+echo "== output: every value the sources claim, against what the programs printed =="
+if [[ -n "$filter" ]]; then
+  # One case cannot meet corpus-wide floors; the floors are checked on
+  # the goldens above, which a filter does not narrow. `--filter` is what
+  # keeps the relaxation from becoming a hole: the verifier then knows
+  # which cases were ASKED for, and a case that was asked for and left no
+  # output is a failure rather than a note. Before that, mistyping a case
+  # name compiled nothing, ran nothing, checked nothing and exited 0.
+  python3 "$verifier" "$corpus" "$work/observed" --label filtered --filter "$filter" \
+    --min-files 0 --min-claims 0 --min-distinct 0 --min-harness 0 --min-exits 0 \
+    || { echo "FAIL: what the program printed disagrees with its own source"; failed=$((failed + 1)); }
+else
+  if ! python3 "$verifier" "$corpus" "$work/observed" --label output --quiet; then
+    echo "FAIL: what the programs printed disagrees with the sources they were compiled from"
+    failed=$((failed + 1))
+  fi
+fi
 
 # A gate that quietly stops comparing reports the same silence as one
 # that compares everything and finds nothing wrong. A glob that stops
-# matching, a tree that moves, a skip list that grows - all of them look
-# like success. The floor is well under the current count and refuses
-# outright, the same guard `check-diagnostics.sh` carries for its sweep.
-if [[ -z "$filter" && "$compared" -lt 90 ]]; then
-  echo "FAIL compared only $compared cases (expected ~106): a tree or a glob is missing"
+# matching, a tree that moves, an exemption list that grows - all of them
+# look like success.
+if [[ -z "$filter" ]]; then
+  if [[ "$ran" -lt 35 ]]; then
+    echo "FAIL: ran only $ran cases (expected 37) - a glob or a tree is missing"
+    failed=$((failed + 1))
+  fi
+  if [[ "$runs" -lt 70 ]]; then
+    echo "FAIL: only $runs case-and-level runs (expected 73) - an optimisation level stopped running"
+    failed=$((failed + 1))
+  fi
+elif [[ "$ran" -lt 1 || "$runs" -lt 1 ]]; then
+  echo "FAIL: '$filter' selected no case - nothing was compiled and nothing was run"
   failed=$((failed + 1))
 fi
 
-[[ "$failed" -eq 0 ]]
+echo
+if [[ "$failed" -eq 0 ]]; then
+  echo "stdlib-selfhost: all checks passed"
+else
+  echo "stdlib-selfhost: $failed check(s) failed"
+  exit 1
+fi

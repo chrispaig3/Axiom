@@ -1,2 +1,4 @@
-(fn (f x) x)
+(fn (alpha x) x)
+(fn (beta y) (+ y 1))
+(:: gamma (-> Int Int))
 :defs

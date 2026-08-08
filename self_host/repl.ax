@@ -318,8 +318,15 @@
 
 ; ------------------------------------------------------------------
 ; Assemble, link, run, capture. Scratch files are flat in /tmp,
-; suffixed by pid so two sessions cannot collide (stage0 does the
-; same with a per-pid directory). The child's stdout is captured by
+; suffixed by pid so two sessions cannot collide.
+;
+; That suffix was a lie until 2026-08-08. It used `driver$fmtIntStr`,
+; which renders 0, 1, 2, 3 and answers "1" for everything else - its
+; own comment says so, because it exists to spell the `n` in `-O<n>`
+; and nothing else. Every REPL on the machine therefore wrote
+; `/tmp/axiom-repl-1.{ll,o,out}`, and two sessions collided on exactly
+; the files this comment promised they would not. `diag$decStr`
+; renders any non-negative integer and is already imported here. The child's stdout is captured by
 ; running it through `sh -c "exec PROG > OUT"` - the one place a
 ; shell is borrowed, because the spawn primitive inherits stdio and
 ; Darwin's posix_spawn file_actions descriptor is not a documented
@@ -329,7 +336,7 @@
 ;@axiom:effect(io)
 (pub fn (replEval ir)
   (let ((pid sysGetPid))
-    (let ((base (strConcat "/tmp/axiom-repl-" (fmtIntStr pid))))
+    (let ((base (strConcat "/tmp/axiom-repl-" (decStr pid))))
       (let ((ll (strConcat base ".ll"))
             (obj (strConcat base ".o"))
             (exe base)
@@ -372,8 +379,12 @@
                                     (replOut (strConcat (strConcat "result " printed) "\n"))
                                     (if (< rc 0)
                                         (replOut "Error: the program was terminated by a signal\n")
+                                        ; `decStr`, not `fmtIntStr`: an
+                                        ; exit status is any byte, and
+                                        ; `fmtIntStr` reported every one
+                                        ; of them above 3 as `1`.
                                         (replOut (strConcat (strConcat "result "
-                                                   (fmtIntStr rc)) "\n"))))))))))))
+                                                   (decStr rc)) "\n"))))))))))))
           (sysUnlink (strCStr ll))
           (sysUnlink (strCStr obj))
           (sysUnlink (strCStr exe))

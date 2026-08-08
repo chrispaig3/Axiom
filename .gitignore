@@ -13,3 +13,15 @@ tree-sitter-axiom/*.dylib
 tree-sitter-axiom/*.so
 tree-sitter-axiom/*.dll
 tree-sitter-axiom/package-lock.json
+
+# The compiler a gate provisions for itself from `bootstrap/`, via
+# `scripts/bootstrap-from-seed.sh --install`. Built, not committed -
+# `bootstrap/` is the committed artifact.
+.axiom-bin/
+
+# Worktrees created by tooling.
+.claude/worktrees/
+
+# Python bytecode from the gate helpers under tests/.
+__pycache__/
+*.pyc

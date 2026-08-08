@@ -35,12 +35,30 @@
 #
 # Requires: llc, cc. Not cargo, not rustc.
 
+#
+# With `--install DIR` it also copies the verified compiler to
+# DIR/axiom. That is how every other gate gets a compiler once the Rust
+# crates are gone: eighteen of them default to
+# `${AXIOM:-target/release/axiom}` and seventeen fall back to
+# `cargo build --release`, so `AXIOM=<dir>/axiom` is the single knob
+# that moves all of them off it. The binary installed is stage3 - the
+# one that came out of the fixpoint, not the seed and not the first
+# thing built from it.
+
 set -uo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
 
 fail() { echo "FAIL: $*" >&2; exit 1; }
+
+install_dir=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --install) install_dir="${2:-}"; [[ -n "$install_dir" ]] || fail "--install needs a directory"; shift 2 ;;
+    *) fail "unknown argument $1 (usage: $0 [--install DIR])" ;;
+  esac
+done
 
 command -v llc >/dev/null || fail "llc is not on PATH"
 command -v cc  >/dev/null || fail "cc is not on PATH"
@@ -170,6 +188,17 @@ out="$("$work/prog/hello")"; got=$?
 [[ "$got" == 42 && "$out" == "bootstrapped" ]] \
   || fail "a program built from the seeded compiler said '$out'/$got, want 'bootstrapped'/42"
 echo "ok   a program built by the seeded compiler runs correctly"
+
+if [[ -n "$install_dir" ]]; then
+  mkdir -p "$install_dir" || fail "could not create $install_dir"
+  cp "$work/stage3" "$install_dir/axiom" || fail "could not install to $install_dir"
+  chmod +x "$install_dir/axiom"
+  # Installed only AFTER the fixpoint and the running program, so
+  # `$install_dir/axiom` existing means every check above passed. A
+  # gate that finds a compiler there has one that was verified, not
+  # one that merely linked.
+  echo "ok   installed the verified compiler at $install_dir/axiom"
+fi
 
 echo
 echo "bootstrapped from source with no Rust compiler: $seed_ll -> stage1 -> stage2 == stage3"

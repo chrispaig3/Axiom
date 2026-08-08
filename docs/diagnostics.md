@@ -22,7 +22,7 @@ one question so a consumer never has to guess which fields a given line
 might contain.
 
 All diagnostics flow through a single structured type,
-[`axiom_errors::Diagnostic`](../axiom-errors/src/diagnostic.rs), produced
+`Diag` in [`self_host/diag.ax`](../self_host/diag.ax), produced
 by the lexer, parser, and semantic analyzer. That one representation is
 rendered into whichever of the formats below you ask for with
 `--diagnostic-format`; the renderers never see anything the compiler
@@ -67,7 +67,7 @@ producing 2-3 more "errors" that were really just echoes of the first one.
 Axiom's type checker now propagates a `TypeId::TError` **poison** type
 after reporting a failure, and every downstream check treats a poisoned
 type as "already explained, don't check again" (`is_error()` guards at
-every `TypeMismatch` call site in `axiom-sema`). This is the actual,
+every type-mismatch construction site in `self_host/typecheck.ax`). This is the actual,
 exercised mechanism behind every cascade fix today.
 
 Separately, `Diagnostic` also supports tagging a diagnostic with a
@@ -238,23 +238,27 @@ pipeline as `check` (including resolving `(import ...)`s, see
 top-level name the checker collected: every `define`/`fn`, every
 `foreign` binding, every `data` type and its constructors, every
 `struct` (with its exact field shapes and layout attributes),
-every `type` alias, and every trait. Like diagnostics, it honors
-`--diagnostic-format`:
+every `type` alias, and every trait.
 
 ```bash
-# Dense AXSYM notation, one line per symbol
-./target/release/axiom --diagnostic-format=ai symbols main.ax
-
-# JSON Lines, one object per symbol
-./target/release/axiom --diagnostic-format=json symbols main.ax
-
-# Aligned table for humans (the default)
-./target/release/axiom symbols main.ax
+# AXSYM, one line per symbol - the only format, and the default
+axiom symbols main.ax
 
 # Also list Axiom's dozen always-in-scope built-in operators (+, ==, &&, ...),
 # which are omitted by default (see the `-`/builtins row below)
-./target/release/axiom --diagnostic-format=ai symbols main.ax --builtins
+axiom symbols main.ax --builtins
 ```
+
+**`symbols` emits AXSYM and nothing else.** The Rust implementation of
+this compiler had three renderers for it - an aligned human table, which
+was its default, one JSON object per line, and AXSYM - and the
+self-hosted compiler that replaced it has only AXSYM, which is also its
+default. That is deliberate: AXSYM is the notation this language is
+designed around, the human table was a strict subset of it (dropping the
+nid and the metadata), and nothing consumed the JSON. Asking for either
+of the other two with `--diagnostic-format` prints a note saying so
+rather than silently answering with something else; the flag still
+selects the format of *diagnostics*, which is what it is named for.
 
 ### Grammar
 
@@ -266,7 +270,7 @@ every `type` alias, and every trait. Like diagnostics, it honors
 |---|---|
 | `KIND` | One letter: `F` function, `X` foreign binding, `D` data type, `C` constructor, `S` struct, `A` type alias, `T` trait |
 | `NAME` | The declared name, exactly as written |
-| `FILE:LOC` | Same `file:line:col[-col\|:line:col]` addressing as AXDL, via the same [`SourceMap`](../axiom-errors/src/source_map.rs) - for a program with `(import ...)`s, `FILE` is the *actual* file that declared this symbol (an imported module's own file), not always the entry file, exactly like AXDL's own multi-file attribution |
+| `FILE:LOC` | Same `file:line:col[-col\|:line:col]` addressing as AXDL, via the same source map in [`self_host/diag.ax`](../self_host/diag.ax) - for a program with `(import ...)`s, `FILE` is the *actual* file that declared this symbol (an imported module's own file), not always the entry file, exactly like AXDL's own multi-file attribution |
 | `-` | In place of `FILE:LOC`, for names with no source span at all - in practice, only Axiom's dozen built-in operators (`+`, `==`, `&&`, ...), which `axiom symbols` omits entirely unless `--builtins` is passed (they never change, so printing them on every call is exactly the restating-what's-already-known token waste this notation exists to avoid) |
 | `"TYPE"` | Axiom's own curried type syntax, quoted (it can itself contain `->`/parens, so quoting keeps the line's field boundaries unambiguous the same way AXDL quotes messages) |
 | `#key=value` | Kind-specific metadata (see below) |
@@ -283,7 +287,7 @@ Metadata keys actually emitted today:
 | `symbol` | `X` | The real linked C symbol name from `(foreign name :: Type = "c_symbol")`, e.g. `#symbol=printf` - not always the same as `NAME` |
 | `tyvars` | `A` | Comma-separated type parameters, e.g. `#tyvars=a,b`, omitted when there are none |
 
-`KIND` letters are deliberately disjoint from [`Severity::sigil`](../axiom-errors/src/severity.rs)'s `E`/`W`/`N`/`H`, so the first character of a line is never ambiguous about which notation (or which command) produced it even if AXDL and AXSYM output were ever concatenated into one stream.
+`KIND` letters are deliberately disjoint from the severity sigils `E`/`W`/`N`/`H`, so the first character of a line is never ambiguous about which notation (or which command) produced it even if AXDL and AXSYM output were ever concatenated into one stream.
 
 ### Example
 
@@ -335,28 +339,34 @@ notation is supposed to deliver: the moment "what does this file
 actually declare" became one `grep`-able line per symbol instead of
 prose an agent (or a human) has to re-derive by eye, a real correctness
 bug that pretty-printed output had been silently absorbing became
-obvious immediately. See `axiom-parser/src/lib.rs`'s `parse_tyvars`/
+obvious immediately. See `self_host/parser.ax`'s type-variable parsing and
 `looks_like_tyvar_list` for the fix.
 
 ## Adding a new diagnostic
 
-1. Add a `CodeInfo` entry to the `registry!` macro invocation in
-   `axiom-errors/src/code.rs` with the next free number in the
-   appropriate `AX{1,2,3,4}xxx` range, a kebab-case slug, a one-line
-   title, and a full explanation paragraph.
-2. Add or extend an error variant in the owning crate (`axiom-lexer`,
-   `axiom-parser`, or `axiom-sema`) and implement/extend `to_diagnostic()`
-   to build a `Diagnostic` using the new code, a primary span, and a
-   helpful suggestion.
-3. If the new error can be a downstream consequence of another error in
-   `axiom-sema`, prefer the poisoning pattern: return/propagate
-   `TypeId::TError` from the failing check instead of a fresh placeholder,
-   and guard every later comparison with `.is_error()` so a poisoned value
-   never triggers a second, redundant diagnostic (see `EApp`/`EIf`/`ECond`
-   in `axiom-sema/src/lib.rs` for the pattern). Only reach for
-   `.with_group(...)` + `dedup()` when poisoning genuinely can't apply
-   (e.g. the cascade spans multiple compiler stages), and pick a group key
-   specific enough that it can never merge two unrelated errors.
+1. Pick the next free number in the appropriate range: `AX1xxx`
+   lexical, `AX2xxx` parse, `AX3xxx` semantic, `AX5xxx` module
+   resolution.
+2. Construct it with `mkDiag` - or `mkDiagFix` when the help is
+   machine-applicable and should render as `?LOC:"msg"~>"replacement"` -
+   at the site that detects the condition, in `self_host/lexer.ax`,
+   `self_host/parser.ax`, or `self_host/typecheck.ax`. It takes a
+   severity, the code, a kebab-case slug, a span, a message and a help.
+3. Write its long-form text into `self_host/explain.ax`, so
+   `axiom explain AX....` answers. This is enforced:
+   `scripts/check-tools-selfhost.sh` cross-checks every code the
+   diagnostics corpus emits against `explain --list`, so a new
+   diagnostic cannot ship undocumented.
+4. If the new error can be a downstream consequence of another, prefer
+   poisoning: propagate the error type from the failing check rather
+   than a fresh placeholder, and guard later comparisons, so one mistake
+   draws one diagnostic rather than a cascade.
+5. Add a case to `tests/diagnostics/` with its `.axdl` and `.human`
+   goldens - `.axbad` if it deliberately does not parse, because the
+   formatter and grammar gates sweep every `*.ax` and require it to
+   parse. Bless with `AXIOM_BLESS=1 scripts/check-diagnostics.sh NNN`,
+   then prove the case is not vacuous by checking it FAILS against a
+   compiler built from before the change.
 
 ## Stable node IDs and source-embedded tags
 

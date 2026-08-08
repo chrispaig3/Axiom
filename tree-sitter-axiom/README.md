@@ -34,8 +34,8 @@ toolchain.
 ## Design notes
 
 **The reference is the compiler, not a description of it.** Keyword
-spellings come from `axiom-lexer/src/lib.rs`; declaration and expression
-shapes from `axiom-parser/src/lib.rs`. Where the grammar had to make a
+spellings come from `self_host/lexer.ax`; declaration and expression
+shapes from `self_host/parser.ax`. Where the grammar had to make a
 decision, it makes the same one the compiler makes:
 
 - **Case decides `(data Maybe (a) (Nothing) ...)`.** `(a)` and

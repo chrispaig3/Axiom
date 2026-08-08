@@ -1,4 +1,4 @@
 OK: f defined
-type : 
+type : Int
 Error: duplicate definition `f`
 Goodbye!

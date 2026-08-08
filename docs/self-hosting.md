@@ -1889,8 +1889,24 @@ driver last).
 
 ## 6. Rollback
 
-Rollback is cheap by construction, and stays cheap because the Rust
-compiler is never deleted while the Axiom one is unproven.
+**Amended 2026-08-08, when the Rust compiler was deleted.** The
+sentence below said rollback stays cheap "because the Rust compiler is
+never deleted while the Axiom one is unproven". That was the right rule
+while "proven" was an open question. It is now closed by §8: the
+compiler builds itself from a committed seed with no Rust in the path,
+reaches `stage2 == stage3` every time it does, and every gate that used
+to lean on the Rust compiler has been given a half that does not.
+
+Rollback is therefore `git revert` of the deletion commit, plus
+`cargo build --release`, against a tree that still contains every other
+change. What it is NOT any longer is free: the two compilers have
+diverged deliberately in the ways §8.4 records, so reverting changes
+`symbols` output, some parse-error codes, and the human diagnostic
+layout back. Those are the divergences, listed, so a rollback can be
+priced rather than discovered.
+
+The original text, still true of everything except the Rust compiler's
+presence:
 
 - **Trigger:** any of - self-hosting fixpoint lost; conformance
   regression; >20% compile-throughput regression; a miscompilation with
@@ -3890,3 +3906,213 @@ optimiser has a smaller set of machines it can be born on.
 `check-bootstrap.sh` found this with no new gate needed, which is what
 that ladder's `-O0`/no-`opt` comment has been protecting since it was
 written.
+
+---
+
+## 8. Retiring the Rust compiler
+
+The Rust implementation is gone. This section is what it cost, what
+replaced it, and what was deliberately not replaced — written while
+both compilers still existed, because most of it could not be
+established afterwards.
+
+### 8.1 What actually blocked it
+
+Not the fixpoint, which had held for weeks. Not any missing feature.
+**Nothing could build the compiler from a clean checkout**, because
+every ladder in the repository began by asking the Rust compiler for a
+stage1. That is closed by `bootstrap/` (§ "The seed", above).
+
+The second blocker was subtler and is the reason this section is long.
+
+### 8.2 A differential gate does not fail when its reference disappears
+
+Six of the gates compared the two compilers: run both, require identical
+bytes. Delete one and point `$axiom` at the other, and every one of them
+still passes — comparing a compiler with itself, sweeping two hundred
+files, finding nothing, exiting 0. Measured before any of them was
+touched: **thirteen gates went green that way**, and that number was
+briefly mistaken for good news.
+
+So each was rewritten rather than allowed to degrade, and each now
+carries at least one assertion **derived from something other than the
+compiler's own output** — the property a re-bless cannot satisfy:
+
+| gate | what replaced the comparison |
+|---|---|
+| `check-tools-selfhost` | every AXSYM position claim verified against the source bytes (14,123 of them), and `symbols` exiting 0 for exactly the files `check` does |
+| `check-diagnostics` | every AXDL span checked against the fixture's own bytes |
+| `check-render-selfhost` | expected exit status derived from the `.axdl` golden, not from another compiler |
+| `check-lsp-selfhost` | the expected UTF-16 column recomputed in Python from the fixture bytes — a second implementation, in another language |
+| `check-fmt-selfhost` | idempotence and reparse: format twice, require byte-identity, require the result to parse |
+| `check-repl-selfhost` | each `result` cross-checked against compiling and running the same expression |
+| `check-stdlib-selfhost` | a Python model of each case's expected output, derived from the source, cross-checked against the 37 checked-in `.out` goldens |
+
+One claim in an earlier draft of this table was wrong and is worth
+recording as such: the `.out` goldens do **not** predate the
+self-hosted compiler in git history. The self-hosting work began at
+`b32d41e` (2026-07-28) and the earliest `.out` file lands 2026-07-30,
+so none of the 37 predates it. The accurate, checkable statement is
+that they predate any self-hosted binary having an opinion about this
+corpus: 32 of 37 are unchanged since `5f6aaaa`, the commit that added
+that gate and first ran `tests/stdlib/` through the Axiom compiler.
+
+The rule these follow: *agreeing with another implementation says two
+things agree; checking the answer against the input says it is right.*
+Several of the replacements are strictly stronger than the differentials
+they replace, and none of them churns when a span moves.
+
+**The drill, on the first one converted.** A compiler was built with
+every AXSYM start column shifted by one, and both of that gate's goldens
+were regenerated from it. The zoo golden matched. The status manifest
+matched. The position verifier failed 14,100 of 14,100 claims and could
+not parse 23 more. That is the argument for the derived half, measured
+rather than asserted — the goldens are exactly as strong as whoever last
+regenerated them.
+
+### 8.3 Provenance, recorded while it could be
+
+Goldens that had never been checked in were materialized from the Rust
+compiler and **verified against the self-hosted one at the same commit**,
+which is the last moment that comparison was available:
+
+- `symbols`, all 216 files: **14,626 AXSYM lines identical**, and every
+  exit status identical, once paths are normalised and the sweep runs
+  from a directory that cannot resolve imports for the file under test.
+- `explain`, every code and spelling: identical.
+
+Both normalisations are load-bearing and both were found by the
+comparison failing first. AXSYM names the file a symbol came from, and
+for an imported stdlib module that path is relative to the *binary*, so
+two installs disagree about a symbol neither got wrong. And the compiler
+keeps a legacy CWD-relative entry in its module search, so running the
+sweep from the repository root lets a fixture resolve `(import lexer)`
+out of `self_host/` — which moved 4 of the 216 statuses and is a fact
+about where the sweep ran.
+
+### 8.4 What was deliberately not replaced
+
+Recorded as this compiler's behaviour rather than fixed to match:
+
+- **`symbols` emits AXSYM only.** The Rust compiler also had an aligned
+  human table (its default) and JSON Lines. AXSYM is the notation this
+  language is designed around, the human table was a strict subset of it,
+  and nothing consumed the JSON. What was *not* acceptable was how it
+  diverged: `--diagnostic-format` was read, used for diagnostics, and
+  silently ignored for the symbol output, so `symbols
+  --diagnostic-format=json` printed AXSYM and claimed success. It now
+  says so.
+- **Human diagnostics are this compiler's own layout**, not the
+  `ariadne` crate's. Decided and gated earlier; see "The human renderer".
+- **`$`, `@` and `` ` `` are lexical errors.** The Rust lexer tokenised
+  them, and its quasiquote forms *type-checked and then miscompiled* —
+  `(fn (main) ``42)` built cleanly and returned 0.
+- **A qualified reference must name the module that declares the thing.**
+  Stricter than the Rust compiler, which checked this for functions and
+  data constructors but not struct constructors.
+- **Parse-error codes differ on some malformed input** (AX2001 vs AX2002
+  vs AX2003). Spans and exit statuses agree; only the code differs, on
+  input that is refused either way.
+
+One divergence found during this work is recorded as a **defect, not a
+decision**, because after the deletion there is no second implementation
+to observe it against. At the REPL, a recursive function defined without
+a `::` signature:
+
+```
+(fn (fact n) (if (== n 0) 1 (* n (fact (- n 1)))))
+(fact 10)
+```
+
+Both compilers refuse it, both exit 0, both name the same internal
+`_fn_0`. But this one types the call as `Int` and prints `type : Int`
+first, and only the module check catches it afterwards — so it
+**announces a type for an expression that then fails to compile**. The
+Rust compiler caught it in the expression check and printed no type
+line. With a signature present the two agree exactly. Nothing pins this,
+deliberately: pinning it would bless the wrong half as the contract.
+
+### 8.5 The citations in `self_host/`
+
+Comments throughout the compiler cite the implementation they were
+written against, by file and line: `axiom-lexer/src/lib.rs:498`,
+`axiom-parser/src/lib.rs:508`, `axiom-sema/src/lib.rs:873`. Those files
+are gone from the working tree, and the citations were left in place on
+purpose. They are the record of *why* a behaviour is the way it is —
+several of them are the only remaining evidence that a rule was
+reproduced deliberately rather than invented — and they resolve at the
+tag:
+
+```bash
+git show v0.1.0-rust-final:axiom-lexer/src/lib.rs | sed -n '498,545p'
+```
+
+A citation that named nothing would be worse than one that names
+something you have to check out. Where a citation described a rule this
+compiler now owns rather than inherits, it was repointed instead — the
+tree-sitter grammar's, for one, since the grammar's obligation is to
+agree with the compiler that exists.
+
+### 8.6 The Rust test suite
+
+286 tests died with the crates. 115 of them were end-to-end language
+behaviour, and those are the only ones whose loss means anything — the
+rest tested Rust internals of a program that no longer exists. The
+end-to-end properties live on in `tests/selfhost/` (compile, run, check
+exit status), `tests/stdlib/` (compile, run, compare output),
+`tests/diagnostics/` (every code, three-way goldens), and the tool gates.
+
+There is no `cargo test` equivalent, and no single "run all the tests"
+command, by design: each gate is a script, and the script is exactly what
+CI runs.
+
+### 8.7 What the gates lost, stated plainly
+
+Deleting the Rust compiler **irreducibly weakens** seven gates, and no
+amount of rewriting undoes that. It is worth being precise about what
+changed, because the mitigations are real but partial.
+
+**Before**, a gate compared this compiler against an independent
+implementation of the same language. An adversary who broke one of them
+could not regenerate their way out: the other one disagreed, and it was
+written by different people from a different design.
+
+**After**, a gate compares against checked-in goldens plus assertions
+derived from the fixtures. Goldens are written by the compiler under
+test, so anyone who breaks the compiler and then re-blesses gets a green
+gate — unless a derived assertion catches the specific defect.
+
+That is not a theory. Every one of the seven rewritten gates was
+attacked by an adversary allowed to introduce a real defect and re-bless
+every golden, and **all seven went green on the first attempt.** The
+derived halves were then strengthened until each attack failed:
+
+- `check-diagnostics` — a hand-maintained severity policy, because the
+  golden's severity letter and the exit status are the same field.
+- `check-fmt-selfhost` — an indentation-variety floor, because a
+  flush-left printer is idempotent, reparses, and preserves every
+  comment.
+- `check-bootstrap` — `tests/selfhost/910-operator-coverage.ax`, because
+  `>>`, `%`, `|` and `^` appeared in **zero** of the 90 conformance
+  cases, and a compiler is not self-checking about operators it never
+  performs on itself.
+- `check-repl`, `check-lsp`, `check-stdlib-selfhost`,
+  `check-render-selfhost` — each given a half derived from fixture bytes
+  or reimplemented in Python.
+
+A second adversarial round then attacked the hardened gates. The
+original attacks are dead; narrower ones survive, and their fixes are
+recorded where they belong rather than pretended away.
+
+**The residual risk, honestly.** These gates now defend fully against
+*accidental* regression — the case where a gate fails and a developer
+investigates. They defend partially against a *careless re-bless* — the
+case where someone makes a red gate green without reading it. They do
+not defend against a determined adversary, and neither did the
+differential, once you notice that the same person could have edited
+both compilers.
+
+The lever that matters is cultural and is written into every one of
+those scripts: **a bless is not a fix.** Each header now says what its
+derived half is and what drill it survived, so a maintainer regenerating
+a golden can see what they are being trusted with.

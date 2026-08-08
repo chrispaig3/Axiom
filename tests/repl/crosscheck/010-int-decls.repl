@@ -1,0 +1,3 @@
+(fn (add x y) (+ x y))
+(fn (sq x) (* x x))
+(sq (add 3 4))

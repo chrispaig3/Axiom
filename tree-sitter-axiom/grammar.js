@@ -3,8 +3,8 @@
  *
  * The reference for every rule here is the compiler in this repository,
  * not a description of it: keyword spellings come from
- * `axiom-lexer/src/lib.rs`, declaration and expression shapes from
- * `axiom-parser/src/lib.rs`. Where the two could drift, the corpus in
+ * `self_host/lexer.ax`, declaration and expression shapes from
+ * `self_host/parser.ax`. Where the two could drift, the corpus in
  * `test/corpus/` is what catches it - it is parsed by both this grammar
  * and the real compiler in `scripts/check-tree-sitter.sh`.
  *
@@ -36,7 +36,7 @@
  */
 
 // Characters the lexer treats as operator constituents.
-// Source: `is_operator_char` in axiom-lexer/src/lib.rs.
+// Source: `isIdentStart`/`isIdentChar` in self_host/lexer.ax.
 const OPERATOR_CHAR = /[+\-*\/%^=<>!&|.?~@]/;
 
 // Built-in type names, which the lexer tokenises as distinct keywords
@@ -242,7 +242,7 @@ module.exports = grammar({
     // Type parameters hold only lowercase names and constructors only
     // uppercase ones, which is not a stylistic convention here but the
     // rule the compiler uses: `looks_like_tyvar_list` in
-    // `axiom-parser/src/lib.rs` accepts a parenthesised group as a type
+    // `self_host/parser.ax` accepts a parenthesised group as a type
     // parameter list exactly when every name in it starts lowercase.
     //
     // Encoding that makes `(data Maybe (a) (Nothing) (Just a))`
@@ -519,7 +519,7 @@ module.exports = grammar({
     type_variable: _ => token(/[a-z][A-Za-z0-9_']*/),
 
     // There is no general "parenthesised type" rule, and that is not an
-    // omission: `parse_type` in `axiom-parser/src/lib.rs` accepts a
+    // omission: `parseType` in `self_host/parser.ax` accepts a
     // parenthesised group in type position only when it is headed by `->`,
     // `*`, `linear`, a comma-separated tuple, `()`, or a *capitalised*
     // name. `(a)` for a lowercase type variable is not valid Axiom, so it

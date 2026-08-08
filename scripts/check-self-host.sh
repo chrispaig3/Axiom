@@ -2,7 +2,8 @@
 # Compile every case in tests/selfhost with the *self-hosted* compiler,
 # assemble it, run it, and check its exit status.
 #
-# This is the only gate that exercises stage1 end to end. `cargo test`
+# This is the only gate that exercises the compiler end to end. The
+# deleted Rust suite
 # and the stdlib suite both check the Rust compiler; nothing else notices
 # when the Axiom one emits LLVM that `llc` rejects, or emits code that
 # assembles and computes the wrong answer.
@@ -22,10 +23,16 @@ set -uo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
 
-axiom="${AXIOM:-$repo_root/target/release/axiom}"
+axiom="${AXIOM:-$repo_root/.axiom-bin/axiom}"
 if [[ ! -x "$axiom" ]]; then
-  echo "building the compiler first (no binary at $axiom)" >&2
-  cargo build --release
+  # No `cargo` here, and none anywhere in this repository's gates: the
+  # Rust compiler this used to build has been deleted. A checkout gets
+  # a compiler from the committed seed - `bootstrap/axiom-<target>.ll`
+  # through `llc` and `cc` - which is the whole point of that directory
+  # existing. Set AXIOM to use one you already have.
+  echo "no compiler at $axiom - building one from the committed seed" >&2
+  "$repo_root/scripts/bootstrap-from-seed.sh" --install "$repo_root/.axiom-bin" >&2 \
+    || { echo "FAIL: could not bootstrap a compiler from bootstrap/" >&2; exit 1; }
 fi
 
 export AXIOM_STDLIB="$repo_root/stdlib"
@@ -98,7 +105,7 @@ for case_file in tests/selfhost/*.ax; do
     continue
   fi
 
-# `llc` carries an explicit relocation model, which axiom-cli documents
+# `llc` carries an explicit relocation model, which the driver documents
 # as required of every `llc` invocation in the project including these.
 #
 # It deliberately does NOT carry -O0, even though the emitted bump
@@ -108,7 +115,7 @@ for case_file in tests/selfhost/*.ax; do
 # is no tail-call elimination, and stage2 compiling its own source
 # overflows its stack - measured, it segfaults. `axiom build` escapes
 # both by running `opt` over the IR before `llc`, which these scripts
-# cannot assume is installed (axiom-cli treats a missing `opt` as a
+# cannot assume is installed (the driver treats a missing `opt` as a
 # warning). Small programs get -O0 in check-stdlib-selfhost.sh, where
 # the allocator matters and the stack does not.
   if ! llc -filetype=obj -relocation-model=pic "$work/out.ll" -o "$work/out.o" 2>"$work/llc.err"; then

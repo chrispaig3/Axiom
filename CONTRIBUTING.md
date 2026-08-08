@@ -25,7 +25,6 @@ Welcome! Whether you're here to fix a typo, add a feature, write a new stdlib mo
 
 ### Prerequisites
 
-- **Rust 1.70+** — to build the compiler
 - **LLVM** — `llc` must be on your PATH (for code generation)
 - **A C compiler** — `cc`, `clang`, or `gcc` on your PATH (for final linking)
 
@@ -46,10 +45,22 @@ sudo apt install llvm clang
 ```bash
 git clone https://github.com/chrispaig3/Axiom
 cd axiom
-cargo build --release
+./scripts/bootstrap-from-seed.sh --install .axiom-bin
 ```
 
-The binary is at `./target/release/axiom`.
+The binary is at `./.axiom-bin/axiom`.
+
+The compiler is written in Axiom, so building it needs a compiler.
+`bootstrap/` holds its own LLVM IR, one file per target, committed;
+the script turns the one matching your host into a *seed* with `llc`
+and `cc`, compiles `self_host/` with it, and repeats until two
+successive compilers are byte-identical. There is no Rust, and no
+other toolchain, anywhere in that path — see `bootstrap/README.md`
+for why the seed is allowed to lag the source and what stops it
+drifting.
+
+Every gate script provisions the same way if `$AXIOM` is unset, so
+you can also just run one and let it build what it needs.
 
 ### Verify it works
 
@@ -61,7 +72,7 @@ echo '(import IO)
   { (println "Hello from Axiom!")
     0 })' > hello.ax
 
-./target/release/axiom run hello.ax
+./.axiom-bin/axiom run hello.ax
 ```
 
 You should see `Hello from Axiom!` printed to the terminal.
@@ -72,34 +83,43 @@ You should see `Hello from Axiom!` printed to the terminal.
 
 ```
 axiom/
-├── axiom-ast/          AST, token, and span definitions
-├── axiom-lexer/        Tokenizer
-├── axiom-parser/       S-expression parser
-├── axiom-sema/         Two-pass type checker (name resolution + effect analysis)
-├── axiom-ir/           IR definitions and generator
-├── axiom-codegen/      LLVM IR emitter
-├── axiom-cli/          CLI entry point, REPL, fmt, symbols
-├── axiom-errors/       Diagnostics, AXDL/AXSYM rendering, code lookup, SymbolFact
-├── stdlib/             Standard library written in Axiom (Pre, Mem, Str, Vec, Map, Fmt, Intern, Sys, IO)
-├── tree-sitter-axiom/  Editor grammar for syntax highlighting and structural editing
-├── tests/stdlib/       Golden tests: compile, run, compare output
-├── scripts/            CI gates, each runnable locally
-├── docs/               Documentation (diagnostics.md, self-hosting.md, v1-roadmap.md, reference.md)
-├── Cargo.toml          Workspace manifest
+├── self_host/          THE COMPILER, written in Axiom
+│   ├── core.ax           tokens and spans
+│   ├── lexer.ax          tokenizer
+│   ├── parser.ax         S-expression parser, AST
+│   ├── typecheck.ax      name resolution, types, effects, AXTAG validation
+│   ├── codegen.ax        IR and LLVM text emission, import resolution
+│   ├── diag.ax           diagnostics, AXDL and JSON rendering, source maps
+│   ├── render.ax         the human diagnostic renderer
+│   ├── driver.ax         `build`: opt, llc, cc, and cleaning up after them
+│   ├── main.ax           the CLI entry point and subcommand dispatch
+│   ├── format.ax  repl.ax  symbols.ax  explain.ax  lsp.ax
+│   └── Host.<target>.ax  the host triple and syscall ABI, chosen at compile time
+├── bootstrap/          the compiler's own LLVM IR, one file per target — how a
+│                       clean checkout builds a compiler with no compiler
+├── stdlib/             standard library, in Axiom (Pre, Mem, Str, Vec, Map, Fmt,
+│                       Intern, Sys, IO, Json, Rpc, Utf8)
+├── tree-sitter-axiom/  editor grammar for highlighting and structural editing
+├── tests/              stdlib/ diagnostics/ selfhost/ fmt/ repl/ lsp/ tools/
+├── scripts/            the gates — each one is what CI runs, runnable locally
+├── docs/               diagnostics.md, self-hosting.md, v1-roadmap.md, reference.md
 └── README.md
 ```
 
-### Crate dependency flow
+### Module dependency flow
 
-Dependencies flow in one direction — no crate knows about a downstream crate:
+Dependencies flow in one direction — no module knows about a downstream one:
 
 ```
-lexer → parser → sema → ir → codegen
+core → lexer → parser → typecheck → codegen → driver → main
 ```
 
 - The lexer must not know about types.
 - The parser must not know about effects.
-- The codegen must not know about semantic analysis.
+- The emitter must not know about semantic analysis.
+
+`diag.ax` sits beside all of them: every stage constructs diagnostics,
+and none of them renders one.
 
 ---
 
@@ -111,11 +131,20 @@ Every Axiom program goes through this pipeline:
 Source (.ax) → Lexer → Parser → Type Checker → IR → LLVM IR → llc → cc → Executable
 ```
 
-1. **Lexer** (`axiom-lexer`) — turns source text into tokens.
-2. **Parser** (`axiom-parser`) — turns tokens into an AST (S-expression tree).
-3. **Type Checker** (`axiom-sema`) — two-pass: collects declarations, then checks bodies. Propagates `TypeId::TError` (poison) after a type mismatch to suppress cascading errors.
-4. **IR** (`axiom-ir`) — lowers the AST to three-address code with basic blocks.
-5. **LLVM CodeGen** (`axiom-codegen`) — emits LLVM IR text, which `llc` compiles to an object file, and `cc` links to an executable.
+1. **Lexer** (`self_host/lexer.ax`) — turns source text into tokens.
+2. **Parser** (`self_host/parser.ax`) — turns tokens into an AST (S-expression tree).
+3. **Type checker** (`self_host/typecheck.ax`) — two-pass: collects declarations,
+   then checks bodies. Propagates a poison type after a mismatch so one mistake
+   draws one diagnostic.
+4. **Emitter** (`self_host/codegen.ax`) — resolves imports, mangles names, and
+   writes LLVM IR text.
+5. **Driver** (`self_host/driver.ax`) — runs `opt`, `llc` and `cc`, and reports
+   which of them failed rather than passing their errors through.
+
+The compiler is a freestanding binary: it calls no libc function, and reaches
+the operating system through syscalls it emits itself. That is why the host
+target is chosen when the compiler is *compiled* (`Host.<target>.ax`) rather
+than detected at run time — there is nothing to ask.
 
 ---
 
@@ -123,25 +152,39 @@ Source (.ax) → Lexer → Parser → Type Checker → IR → LLVM IR → llc �
 
 ### The development workflow
 
-1. **Build** — `cargo build --release` (or `cargo build` for faster debug builds).
+1. **Build** — `./scripts/bootstrap-from-seed.sh --install .axiom-bin`, once.
+   After that, most gates rebuild the compiler under test themselves.
 2. **Make your change** — edit the relevant file(s).
-3. **Test** — run the relevant test suite (see [Testing](#testing)).
-4. **Format** — `cargo fmt` before committing.
-5. **Lint** — `cargo clippy --all-targets --all-features -- -D warnings` — treat warnings as errors.
-6. **Commit** — write a clear, concise commit message that matches the project style.
+3. **Test** — run the relevant gates (see [Testing](#testing)). There is no
+   single "run all the tests" command by design: each gate is a script, and
+   the script is what CI runs.
+4. **Commit** — write a clear, concise commit message that matches the
+   project style. Read a few first: they are narrative, and they carry the
+   measurement that justified the change.
+
+Do **not** run `axiom fmt` over the repository. The tree is not kept in
+the formatter's normal form, and the formatting gates check
+behaviour-preservation on a copy rather than fixed-point-ness of the
+tree.
 
 ### Where to make changes
 
+The compiler is `self_host/`, written in Axiom. It is one program: a
+change to the lexer and the gate that pins it are the same language and
+the same build.
+
 | What you want to do | Where to look |
 |---|---|
-| Add a new AST node | `axiom-ast/src/ast.rs` |
-| Add a new token | `axiom-ast/src/token.rs` |
-| Change parsing rules | `axiom-parser/src/lib.rs` |
-| Add a type-checking rule | `axiom-sema/src/lib.rs` |
-| Add a new IR instruction | `axiom-ir/src/lib.rs` |
-| Change LLVM emission | `axiom-codegen/src/lib.rs` |
-| Add a CLI command | `axiom-cli/src/lib.rs` |
-| Add a diagnostic code | `axiom-errors/src/code.rs` |
+| Add a new token | `self_host/core.ax` (the `TokenKind` list) + `self_host/lexer.ax` |
+| Change lexing rules | `self_host/lexer.ax` |
+| Add a new AST node | `self_host/parser.ax` (the `TAG_*` constants and `ASTNode`) |
+| Change parsing rules | `self_host/parser.ax` |
+| Add a type-checking rule | `self_host/typecheck.ax` |
+| Change LLVM emission | `self_host/codegen.ax` |
+| Add a CLI command | `self_host/main.ax`, and `self_host/driver.ax` for `build` |
+| Add a diagnostic code | `self_host/diag.ax` at the construction site, plus `self_host/explain.ax` for its long-form text |
+| Change how diagnostics look | `self_host/render.ax` (human) — AXDL and JSON are in `self_host/diag.ax` |
+| Work on the formatter, REPL, `symbols`, or the language server | `self_host/{format,repl,symbols,lsp}.ax` |
 | Add a stdlib function | `stdlib/` (e.g. `IO.ax`, `Mem.ax`, `Str.ax`, `Vec.ax`, `Map.ax`, `Fmt.ax`, `Intern.ax`, `Pre.ax`) |
 | Add a new syntax feature | `tree-sitter-axiom/grammar.js` + parser + ast + lexer |
 
@@ -151,31 +194,23 @@ Source (.ax) → Lexer → Parser → Type Checker → IR → LLVM IR → llc �
 
 Axiom has several layers of testing. Run them all before submitting a PR.
 
-### Unit tests
+### There are no unit tests, and that is deliberate
 
-Unit tests live in the same file as the code they test, under `#[cfg(test)]` modules:
+The compiler is written in Axiom, and Axiom has no test-attribute
+machinery. Every gate is a **shell script in `scripts/`** that runs the
+real binary on real input and checks what came out — which is also
+exactly what CI runs, so a contributor can reproduce any CI failure with
+one command.
 
-```rust
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_something() {
-        // ...
-    }
-}
-```
-
-Run all unit tests:
-
-```bash
-cargo test --release --all
-```
-
-### Integration tests
-
-Integration tests live in `tests/` directories within each crate.
+The consequence worth knowing: a gate can only see what it actually
+compares. Several of these scripts used to compare the Axiom compiler
+against the Rust one, and when that one was deleted the comparisons
+would have silently become a compiler compared with itself — swept
+everything, found nothing, exit 0. So each gate now carries at least one
+assertion **derived from something other than the compiler's own
+output**: the fixture's source bytes, a different golden file, or a
+second implementation in Python. When you add a gate, add that half too,
+and prove it by breaking the thing it should catch.
 
 ### Golden tests (stdlib)
 
@@ -185,13 +220,7 @@ The standard library has golden tests in `tests/stdlib/`. Each test is a pair of
 - `NNN-name.out` — the expected stdout
 - `NNN-name.exit` — (optional) the expected exit status (default 0)
 
-Run the golden tests:
-
-```bash
-cargo test --release --all
-```
-
-Or run them manually through the script:
+Run them:
 
 ```bash
 ./scripts/run-stdlib-tests.sh        # every case
@@ -237,11 +266,18 @@ npm install --prefix tree-sitter-axiom --no-save tree-sitter-cli
 
 Every push and pull request triggers the CI pipeline in `.github/workflows/ci.yml`. The pipeline is staged so that cheap failures are reported before expensive ones:
 
-1. **Lint** — `cargo fmt --all --check` and `cargo clippy --all-targets --all-features -- -D warnings`
-2. **Test** — unit, integration, and golden tests on three platforms (linux-x86_64, linux-aarch64, darwin-aarch64)
-3. **Grammar** — tree-sitter grammar accepts every `.ax` file
-4. **Cross-target** — IR assembles for all four targets
-5. **Reproducible** — two runs produce identical IR
+1. **Grammar** — the tree-sitter grammar accepts every `.ax` file. It gates
+   the rest because it is the one job that needs no compiler at all.
+2. **Test** — the gate scripts, on three platforms (linux-x86_64,
+   linux-aarch64, darwin-aarch64). Each job provisions a compiler from
+   `bootstrap/` first.
+3. **Cross-target** — IR assembles for all four targets
+4. **Reproducible** — two runs produce identical IR
+5. **Bootstrap from seed** — the load-bearing one: a clean checkout builds
+   the compiler from `bootstrap/` with only `llc` and `cc`, and the ladder
+   reaches `stage2 == stage3`. If this fails, the repository cannot be
+   built at all, and a stale seed is the usual reason
+   (`scripts/reseed.sh`).
 
 ### What the CI tests actually do
 
@@ -253,13 +289,16 @@ The tests compile and **run** Axiom programs rather than only type-checking them
 
 ### Formatting
 
-- Run `cargo fmt` before committing.
-- The project uses the default Rust formatter configuration.
-
-### Linting
-
-- Run `cargo clippy --all-targets --all-features -- -D warnings` locally.
-- Warnings are treated as errors in CI (`RUSTFLAGS: -D warnings`).
+- The repository is **not** kept in `axiom fmt`'s normal form, and running
+  the formatter over it is a mistake that buries real changes in churn.
+  The formatting gates check that formatting *preserves behaviour*, on a
+  copy — not that the tree is already a fixed point.
+- New files may be committed in hand style; the gates only need them to
+  round-trip.
+- Match the surrounding code. `self_host/` uses long explanatory comments
+  above anything non-obvious, and they carry the measurement that
+  justified the code. That convention is the project's main defence
+  against re-litigating decisions.
 
 ### Naming conventions
 
@@ -298,15 +337,36 @@ Every diagnostic carries a stable code in the format `AX{stage}{number}`:
 
 When adding a new compiler error or warning, follow these steps:
 
-1. **Add a `CodeInfo` entry** to the `registry!` macro invocation in `axiom-errors/src/code.rs` with the next free number in the appropriate `AX{1,2,3,4}xxx` range, a kebab-case slug, a one-line title, and a full explanation paragraph.
+1. **Pick the number** — the next free one in the appropriate range:
+   `AX1xxx` lexical, `AX2xxx` parse, `AX3xxx` semantic, `AX5xxx` module
+   resolution.
 
-2. **Add or extend an error variant** in the owning crate (`axiom-lexer`, `axiom-parser`, or `axiom-sema`) and implement/extend `to_diagnostic()` to build a `Diagnostic` using the new code, a primary span, and a helpful suggestion.
+2. **Construct it** with `mkDiag` (or `mkDiagFix` when the help is
+   machine-applicable) at the site that detects the condition, in
+   `self_host/lexer.ax`, `self_host/parser.ax`, or
+   `self_host/typecheck.ax`. It needs a severity, the code, a kebab-case
+   slug, a span, a message, and a help.
 
-3. **If the new error can be a downstream consequence** of another error in `axiom-sema`, prefer the poisoning pattern: return/propagate `TypeId::TError` from the failing check instead of a fresh placeholder, and guard every later comparison with `.is_error()` so a poisoned value never triggers a second, redundant diagnostic. See `EApp`/`EIf`/`ECond` in `axiom-sema/src/lib.rs` for the pattern.
+3. **Write its long-form text** into `self_host/explain.ax`, so
+   `axiom explain AX....` answers. `check-tools-selfhost.sh` fails if a
+   code the corpus emits has no entry — a new diagnostic cannot ship
+   undocumented.
 
-4. **Add a test case** for the new diagnostic code.
+4. **If it can be a downstream consequence** of another error, poison
+   rather than report: propagate the error type from the failing check and
+   guard later comparisons, so one mistake draws one diagnostic. The
+   existing sites in `typecheck.ax` show the pattern.
 
-5. **Verify** by running `cargo test --release --all` and confirming the new diagnostic fires correctly.
+5. **Add a case** to `tests/diagnostics/` — `NNN-name.ax` plus its `.axdl`
+   and `.human` goldens (`.axbad` if the case deliberately does not parse,
+   because the formatter and grammar gates sweep every `*.ax` and require
+   it to parse). Bless with
+   `AXIOM_BLESS=1 scripts/check-diagnostics.sh NNN`.
+
+6. **Prove the case is not vacuous**: build a compiler from before your
+   change and confirm the new case FAILS against it. A golden blessed from
+   the only implementation that has ever produced it proves nothing on its
+   own.
 
 ---
 
@@ -369,7 +429,7 @@ Content-derived hashes of `(kind, name)` that survive edits and reformatting, un
 When contributing, remember:
 - All compiler messages go through `axiom_errors::Diagnostic` with a stable code, severity, span, and message.
 - Never print raw strings from compiler phases.
-- When adding a new diagnostic, update `axiom-errors/src/code.rs`, add the variant in the owning crate, and implement `to_diagnostic()`.
+- When adding a new diagnostic, construct it with `mkDiag` at the site that detects it and write its long-form text into `self_host/explain.ax` — the tools gate fails if a code the corpus emits has no entry.
 - Prefer poison propagation over ad-hoc cascade suppression.
 
 ---
@@ -387,18 +447,25 @@ When contributing, remember:
 
 1. **Fork the repository** and create a branch from `main`.
 2. **Make your changes** — keep them focused on a single concern.
-3. **Run the full test suite** locally before submitting:
+3. **Run the gates** locally before submitting. There is no single
+   command; run the ones your change could affect, and
+   `bootstrap-from-seed.sh` always:
    ```bash
-   cargo test --release --all
+   ./scripts/bootstrap-from-seed.sh     # the compiler still builds itself
+   ./scripts/run-stdlib-tests.sh
+   ./scripts/check-self-host.sh
+   ./scripts/check-diagnostics.sh
    ./scripts/check-freestanding.sh
    ./scripts/check-cross-targets.sh
    ./scripts/check-reproducible.sh
-   ./scripts/check-game-of-life.sh
    ```
-4. **Format your code** — `cargo fmt --all`.
-5. **Run lints** — `cargo clippy --all-targets --all-features -- -D warnings`.
-6. **Write a clear commit message** that describes what you changed and why.
-7. **Open a pull request** with a description of the change and any relevant context.
+   Check each one's **exit status**, not its printed output — a script
+   that prints "1 failed" and is judged by a pipeline's tail reads as
+   green.
+4. **Write a clear commit message** that describes what was wrong, why it
+   was invisible, what changed, and the numbers. Read a few first.
+5. **Open a pull request** with a description of the change and any
+   relevant context.
 
 ### PR Review
 

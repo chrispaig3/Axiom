@@ -1,0 +1,8 @@
+(import IO)
+(:: add (-> Int Int Int))
+(fn (add x y) (+ x y))
+(:: sq (-> Int Int))
+(fn (sq x) (* x x))
+(:: main Int)
+;@axiom:effect(io)
+(fn (main) { (printlnInt (sq (add 3 4))) 0 })

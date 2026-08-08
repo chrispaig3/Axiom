@@ -1,0 +1,121 @@
+# The refusal bank: what `axiom fmt` does to each tests/fmt/parity/*.axp case.
+#
+# One `### <case> (exit N)` line per case, followed by the formatted bytes when
+# it formatted at all. 37 cases: 20 rewrites and 17 refusals, which is why this
+# file can tell a formatter that always succeeds from one that always refuses -
+# check-fmt-selfhost.sh requires both outcomes to be present.
+#
+# Materialized from the Rust compiler at commit 1041f11 on 2026-08-08, and
+# verified at that commit to be byte-identical to what the self-hosted compiler
+# produces on all 37 cases - status and bytes. That is the provenance, recorded
+# on the last day there were two compilers to compare. It replaces the
+# stage0-vs-stage1 comparison this bank used to be read by, which would have
+# gone silently green the moment both sides became the same binary.
+#
+# `.axp`, not `.ax`, so check-fmt.sh's every-file-formats sweep does not trip
+# over the deliberate refusals.
+#
+# Regenerate deliberately, never automatically:
+#
+#   axc=$(mktemp -d)/axc
+#   .axiom-bin/axiom build --input self_host/main.ax --output "$axc"
+#   t=$(mktemp -d)
+#   for f in tests/fmt/parity/*.axp; do
+#     cp "$f" "$t/case.ax"; "$axc" fmt "$t/case.ax" >/dev/null 2>&1; s=$?
+#     echo "### $(basename "$f") (exit $s)"
+#     [ $s -eq 0 ] && cat "$t/case.ax"
+#   done
+#
+# and keep this header. A re-bless satisfies this file and nothing else: the
+# gate's preservation check reads these same cases against their own source
+# bytes, and the rebuild half never reads a golden at all.
+### 010-unbalanced.axp (exit 1)
+### 020-mismatched-closer.axp (exit 1)
+### 030-stray-atom.axp (exit 1)
+### 040-bad-escape.axp (exit 1)
+### 050-int-overflow.axp (exit 1)
+### 051-int-max-ok.axp (exit 0)
+(fn (f) 9223372036854775807)
+### 052-neg-max-ok.axp (exit 0)
+(fn (f) -9223372036854775807)
+### 060-splice-refused.axp (exit 1)
+### 070-keyword-in-expr.axp (exit 1)
+### 071-eq-in-expr.axp (exit 1)
+### 080-dollar-is-bang.axp (exit 0)
+(fn (f x) (! x))
+### 090-fused-arm-starved.axp (exit 1)
+### 091-ctor-fusion.axp (exit 0)
+(data M
+  (C Int Int))
+
+(fn (f v)
+  (match v
+    ((C h t) 1)
+  )
+)
+### 092-negative-pattern.axp (exit 1)
+### 100-empty-form-dropped.axp (exit 0)
+(fn (f) 1)
+### 101-axtag-then-unit.axp (exit 1)
+### 102-axtag-trailing.axp (exit 1)
+### 110-nested-block-comment.axp (exit 0)
+#| outer #| inner |# still |#
+(fn (f) 1)
+### 120-trait-both-lists.axp (exit 1)
+### 130-effect-mut-canon.axp (exit 0)
+(fn (f n)
+  (handle n (Mut) 0)
+)
+### 131-effect-alloc-kw.axp (exit 1)
+### 132-effect-Alloc-ok.axp (exit 0)
+(fn (f n)
+  (handle n (Alloc) 0)
+)
+### 140-if-missing-else.axp (exit 1)
+### 141-let-missing-init.axp (exit 1)
+### 142-lambda-bare-param.axp (exit 1)
+### 150-newtype-rewrites.axp (exit 0)
+(data Meters
+  (Meters Int))
+### 151-import-empty-names.axp (exit 0)
+(import Mem)
+
+(fn (f) 1)
+### 160-nbsp-whitespace.axp (exit 0)
+(fn (f) 42)
+### 170-empty-tuple.axp (exit 0)
+(fn (f) ())
+### 171-singleton-unwrap.axp (exit 0)
+(fn (f x) x)
+### 172-empty-brace-body.axp (exit 0)
+(fn (f)
+  {
+
+  }
+)
+### 173-empty-match.axp (exit 0)
+(fn (f v)
+  (match v
+
+  )
+)
+### 174-cond-only-else.axp (exit 0)
+(fn (f n)
+  (cond
+    (else 9)
+  )
+)
+### 175-empty-data.axp (exit 0)
+(data Empty)
+### 180-pub-import.axp (exit 0)
+(import Mem)
+
+(fn (f) 1)
+### 181-legacy-eq-binding.axp (exit 0)
+(fn (f)
+  (let ((x 1))
+    x
+  )
+)
+### 182-define-rewrites.axp (exit 0)
+(fn (legacy) 7)
