@@ -172,6 +172,379 @@ else
   sed 's/^/    /' f2.log | head -3
 fi
 
+# ---------------------------------------------------------------
+# Argument parsing: a boolean flag must not eat the file after it.
+#
+# The scan that finds the first positional used to skip TWO arguments
+# for any flag without an `=`, on the assumption that every flag takes
+# a value. Six do; the rest are booleans. So
+#
+#     axiom --emit-llvm prog.ax
+#
+# read `prog.ax` as the value of `--emit-llvm`, found no positional,
+# and compiled the default `in.ax` - reporting `cannot read input:
+# in.ax` about a file the user never typed, while their filename sat
+# in argv.
+#
+# The assertion is about ARGV, not about any golden: whatever the
+# compiler says, it must name the file it was given. A wrong answer
+# here cannot be blessed away, because the expected string is built
+# from the argument the test itself passed.
+for flag in --emit-llvm --check --builtins --list; do
+  "$s1" "$flag" nosuch-$$.ax >p.out 2>p.err; rc=$?
+  if grep -q "nosuch-$$\.ax" p.err; then
+    ok "\`$flag FILE\` names FILE, not a default"
+  elif grep -q 'in\.ax' p.err; then
+    bad "\`$flag FILE\` swallowed the filename and reported in.ax (rc=$rc)"
+  else
+    bad "\`$flag FILE\` (rc=$rc) said: $(head -1 p.err)"
+  fi
+done
+
+# The same flags, with a file that EXISTS, must actually compile it.
+"$s1" --emit-llvm hello.ax >p2.out 2>p2.err; rc=$?
+if [[ $rc == 0 ]] && grep -q '^target triple' p2.out; then
+  ok "\`--emit-llvm FILE\` compiles FILE"
+else
+  bad "\`--emit-llvm FILE\` (rc=$rc): $(head -1 p2.err)"
+fi
+
+# No arguments at all: usage, not a complaint about a file nobody named.
+"$s1" >n.out 2>n.err; rc=$?
+if [[ $rc != 0 ]] && grep -q 'USAGE' n.err && ! grep -q 'in\.ax' n.err; then
+  ok "a bare invocation prints usage and fails"
+else
+  bad "a bare invocation (rc=$rc) said: $(head -1 n.err)"
+fi
+
+# ---------------------------------------------------------------
+# The entry point is the program's business, not the toolchain's.
+#
+# A file with no `main` used to reach codegen, which emits the argv
+# wrapper's `call @__axiom_user_main` unconditionally, and the omission
+# surfaced from `opt` as `use of undefined value '@__axiom_user_main'`
+# against a `.ll` the driver had already deleted - exit 4, "a native
+# tool failed", for a program that was simply missing its entry point.
+# AX4001 was in the code table and in `axiom explain` the whole time
+# with nothing constructing it.
+#
+# Asserting the CODE and the absence of the toolchain's noise, because
+# the status alone does not discriminate: exit 1 is also what a failing
+# check gives, and a driver that merely stopped earlier for some other
+# reason would satisfy a status-only test.
+printf '(:: helper (-> Int Int))\n(fn (helper x) x)\n' >nomain.ax
+"$s1" build --input nomain.ax --output nm >nm.out 2>nm.err; rc=$?
+if [[ $rc == 1 ]] && [[ ! -f nm ]] \
+   && grep -q 'AX4001' nm.err \
+   && grep -q 'no `main` function found' nm.err \
+   && ! grep -q '__axiom_user_main' nm.err \
+   && ! grep -q 'opt' nm.err; then
+  ok "a program with no \`main\` is AX4001 and exit 1, not an llc error"
+else
+  bad "no-main (rc=$rc): $(head -1 nm.err)"
+fi
+
+# The help has to be actionable, since this is the commonest thing a
+# newcomer gets wrong.
+grep -q 'add `(:: main Int)`' nm.err \
+  && ok "AX4001 says how to fix it" || bad "AX4001 help text"
+
+# ...and it must NOT over-fire. These three surfaces analyse a module
+# without producing an executable, so a library with no entry point is
+# perfectly well-formed to them. The legacy no-subcommand spelling is
+# the load-bearing one: check-diagnostics.sh sweeps every file in
+# self_host/, stdlib/, stdlib/Sys/, tests/stdlib/ and tests/selfhost/
+# through it and requires exit 0, and most of those modules have no
+# `main` at all.
+"$s1" check nomain.ax >/dev/null 2>&1 \
+  && ok "\`check\` accepts a module with no \`main\`" || bad "check over-fires AX4001"
+"$s1" emit-llvm nomain.ax >/dev/null 2>&1 \
+  && ok "\`emit-llvm\` accepts a module with no \`main\`" || bad "emit-llvm over-fires AX4001"
+"$s1" nomain.ax >legacy-nomain.ll 2>/dev/null && grep -q '^target triple' legacy-nomain.ll \
+  && ok "the legacy spelling accepts a module with no \`main\`" \
+  || bad "the legacy spelling over-fires AX4001 - check-diagnostics.sh sweeps main-less modules through it"
+
+# ---------------------------------------------------------------
+# An empty file is READ, not refused.
+#
+# `sysReadFile` answers "" for a missing file and for an empty one, so
+# both reported `cannot read input` - a statement about the filesystem,
+# and false for the second. An empty file is a module with no
+# declarations: it checks clean, and only `build` rejects it, for the
+# reason that is actually true.
+: >empty.ax
+"$s1" check empty.ax >e.out 2>e.err; rc=$?
+if [[ $rc == 0 ]] && grep -q 'OK' e.out; then
+  ok "an empty file checks clean"
+else
+  bad "empty file check (rc=$rc): $(head -1 e.err)"
+fi
+"$s1" build --input empty.ax --output ef >/dev/null 2>ef.err; rc=$?
+if [[ $rc == 1 ]] && grep -q 'AX4001' ef.err; then
+  ok "an empty file fails to BUILD, for want of an entry point"
+else
+  bad "empty file build (rc=$rc): $(head -1 ef.err)"
+fi
+
+# ---------------------------------------------------------------
+# One spelling for an unreadable entry file, and it says WHY.
+#
+# There were three wordings - `cannot read input: F` from the compile
+# path, `Failed to read file 'F'` from fmt and symbols, and nothing at
+# all distinguishing a missing file from a directory - so which message
+# a user saw depended on which subcommand they had typed, and none of
+# them ever said whether the file was absent, unreadable, or a
+# directory. The REASON is what pins this: no previous version printed
+# one, so a re-blessed golden cannot satisfy it by accident.
+for sub in "check" "fmt" "symbols"; do
+  "$s1" $sub no-such-file.ax >/dev/null 2>r.err
+  if grep -q "Failed to read file 'no-such-file.ax': No such file or directory" r.err; then
+    ok "\`$sub\` names the file and the reason it could not be read"
+  else
+    bad "\`$sub\` read failure: $(head -1 r.err)"
+  fi
+done
+"$s1" build --input no-such-file.ax --output x >/dev/null 2>r2.err
+grep -q "Failed to read file 'no-such-file.ax': No such file or directory" r2.err \
+  && ok "\`build\` uses the same wording" || bad "build read failure: $(head -1 r2.err)"
+
+# A directory opens happily on both Darwin and Linux and fails at
+# `read`, so it is the case a missing-file-only probe gets wrong.
+mkdir -p adir
+"$s1" check adir >/dev/null 2>d.err
+grep -q "Failed to read file 'adir': Is a directory" d.err \
+  && ok "a directory is reported as a directory" || bad "directory: $(head -1 d.err)"
+
+# ---------------------------------------------------------------
+# THE DATA LOSS. Two spellings of `fmt` used to rewrite the user's file
+# and report success, because argument parsing could not say that an
+# argument was not a flag it knew:
+#
+#   fmt --check=true F   `hasFlag` matched EXACTLY, so `--check=true`
+#                        was not `--check`, and the arm fell through to
+#                        the write path.
+#   fmt F --help         `--help` was recognised only at argv[1].
+#
+# Both assertions are about the FILE, not about a message: whatever the
+# compiler says, F must come back byte-identical. That cannot be blessed
+# away, because the expected content is the input the test itself wrote.
+printf '(:: main Int)\n(fn (main)   42)\n' >dl.ax
+cp dl.ax dl.orig
+
+"$s1" fmt --check=true dl.ax >dl1.out 2>dl1.err; rc=$?
+if cmp -s dl.ax dl.orig && [[ $rc == 2 ]]; then
+  ok "\`fmt --check=true FILE\` refuses and leaves FILE untouched"
+else
+  bad "\`fmt --check=true FILE\` (rc=$rc) rewrote the file or accepted it"
+fi
+
+cp dl.orig dl.ax
+"$s1" fmt dl.ax --help >dl2.out 2>dl2.err; rc=$?
+if cmp -s dl.ax dl.orig && [[ $rc == 0 ]] && grep -q 'axiom fmt' dl2.out; then
+  ok "\`fmt FILE --help\` prints fmt's help and leaves FILE untouched"
+else
+  bad "\`fmt FILE --help\` (rc=$rc) rewrote the file or printed no help"
+fi
+
+# ---------------------------------------------------------------
+# An unrecognised flag is an ERROR, not something stepped over.
+#
+# Skipping is indistinguishable from accepting, which is why
+# `check --bogus f.ax` printed OK and exited 0, and why a mistyped
+# `--diagnostic-formt=json` quietly produced human output.
+"$s1" check --bogus hello.ax >u1.out 2>u1.err; rc=$?
+if [[ $rc == 2 ]] && grep -q 'unrecognised flag' u1.err && grep -q 'bogus' u1.err; then
+  ok "an unrecognised flag is refused, naming the flag"
+else
+  bad "unknown flag (rc=$rc): $(head -1 u1.err)"
+fi
+
+# A value flag at the end of argv with nothing after it.
+"$s1" check hello.ax --target >u2.out 2>u2.err; rc=$?
+[[ $rc == 2 ]] && grep -q 'value is required' u2.err \
+  && ok "a value flag with no value is refused" || bad "missing flag value (rc=$rc)"
+
+# ---------------------------------------------------------------
+# A mistyped SUBCOMMAND is a subcommand error, not a file error.
+#
+# `axiom buidl f.ax` was read as the legacy `FILE TARGET` with
+# FILE=`buidl`, so the answer was `cannot read input: buidl` and the
+# user's real filename was discarded. `buidl`->`build` is a
+# TRANSPOSITION, which plain Levenshtein scores as two edits, so this
+# case is also what pins the suggestion threshold at 2 rather than 1.
+"$s1" buidl hello.ax >tc.out 2>tc.err; rc=$?
+if [[ $rc == 2 ]] && grep -q 'unrecognised subcommand' tc.err && grep -q 'build' tc.err; then
+  ok "a mistyped subcommand is refused, and suggests the real one"
+else
+  bad "typo'd subcommand (rc=$rc): $(head -1 tc.err)"
+fi
+
+# ...but a real file that merely looks nothing like a command keeps the
+# legacy reading, which is what the five harnesses depend on.
+"$s1" hello.ax >lg.ll 2>/dev/null && grep -q '^target triple' lg.ll \
+  && ok "a real file is still read as a file, not guessed at" || bad "legacy reading lost"
+
+# ---------------------------------------------------------------
+# `--gc` names a capability this compiler does not have.
+#
+# The retired compiler's tracing collector (1,098 lines, deleted with
+# the crate) was not ported. The flag was neither implemented nor
+# rejected, so `axiom --gc build ...` produced a bump-allocator binary
+# and said nothing - while README.md, docs/reference.md and
+# scripts/bench-datastructures.sh all still promised a collector. A
+# silent downgrade of a memory-management request is the one failure its
+# user cannot detect.
+"$s1" --gc build --input hello.ax --output gcout >gc.out 2>gc.err; rc=$?
+if [[ $rc == 2 ]] && grep -q 'gc' gc.err && [[ ! -f gcout ]]; then
+  ok "\`--gc\` is refused by name rather than silently ignored"
+else
+  bad "--gc (rc=$rc): $(head -1 gc.err)"
+fi
+
+# ---------------------------------------------------------------
+# Help, from anywhere, on stdout, exit 0.
+for c in build check run emit-llvm fmt explain symbols repl lsp; do
+  "$s1" $c --help >h.out 2>h.err; rc=$?
+  if [[ $rc == 0 ]] && grep -q "axiom $c" h.out; then
+    ok "\`$c --help\` prints $c's help"
+  else
+    bad "\`$c --help\` (rc=$rc)"
+  fi
+done
+
+# `axiom help <COMMAND>` answers for that command. The operand used to
+# be read and discarded, printing the general usage - while the COMMANDS
+# block promised this exact spelling. A usage text documenting behaviour
+# the binary lacks is the same defect as an unconstructed diagnostic code.
+for c in build fmt symbols; do
+  "$s1" help $c >hc.out 2>&1
+  grep -q "axiom $c" hc.out \
+    && ok "\`help $c\` answers for $c" || bad "\`help $c\` printed the general usage"
+done
+"$s1" help nosuchthing >hn.out 2>&1; rc=$?
+[[ $rc == 0 ]] && grep -q 'USAGE' hn.out \
+  && ok "\`help\` with an unknown topic falls back to the general usage" \
+  || bad "\`help nosuchthing\` (rc=$rc)"
+
+# The usage text and the flag table must not drift apart: every flag the
+# compiler accepts has to appear in `axiom --help`. Without this the two
+# have already diverged once - `repl` was dispatched but missing from
+# COMMANDS, and `--check`, `--builtins`, `--list` and `--no-banner` were
+# accepted but documented nowhere.
+"$s1" --help >full-help.txt 2>&1
+missing=""
+for f in --input --output -o --target --opt --emit-llvm --check --builtins \
+         --list --no-banner --diagnostic-format --help --version; do
+  grep -q -- "$f" full-help.txt || missing="$missing $f"
+done
+for c in build check run emit-llvm fmt explain symbols repl lsp version help; do
+  grep -q -- "  $c" full-help.txt || missing="$missing cmd:$c"
+done
+[[ -z "$missing" ]] && ok "every accepted flag and command appears in --help" \
+  || bad "undocumented in --help:$missing"
+
+# `-o` is the short form of `--output` under `build` too. Only
+# `emit-llvm` read it, so `axiom build -o prog f.ax` consumed `prog` as
+# a flag value and wrote the default `output` - while the usage text
+# listed `-o <PATH>` with no qualification.
+rm -f oprog output
+"$s1" build -o oprog hello.ax >ob.out 2>ob.err; rc=$?
+if [[ $rc == 0 ]] && [[ -x oprog ]]; then
+  ok "\`build -o PATH\` writes the executable to PATH"
+else
+  bad "build -o (rc=$rc, wrote $(ls output 2>/dev/null || echo nothing))"
+fi
+
+# `--opt` refuses a value it cannot honour instead of silently using 1,
+# in both spellings.
+for bad_opt in banana 9 300 ""; do
+  "$s1" build --input hello.ax --output oo --opt "$bad_opt" >oo.out 2>oo.err; rc=$?
+  [[ $rc == 2 ]] \
+    && ok "\`--opt $bad_opt\` is refused rather than silently building at -O1" \
+    || bad "\`--opt $bad_opt\` (rc=$rc) was accepted"
+done
+"$s1" build --input hello.ax --output oo --opt=banana >/dev/null 2>&1; [[ $? == 2 ]] \
+  && ok "\`--opt=banana\` is refused too" || bad "--opt= form not validated"
+
+# ...and it is refused BEFORE the compiler does the work, which is the
+# whole point of validating the command line in one pass. `--opt` used
+# to be parsed where it is USED - in `build`, after `compileFile` has
+# already run - so a command line that was wrong in two ways reported
+# the type error first and the bad flag only on the next run, after the
+# user had fixed the other thing.
+printf '(:: main Int)\n(fn (main) (nope 1))\n' >badopt.ax
+"$s1" build --input badopt.ax --output x --opt banana >bo.out 2>bo.err; rc=$?
+if [[ $rc == 2 ]] && grep -q 'opt' bo.err && ! grep -q 'AX3001' bo.err; then
+  ok "a bad flag is refused before the file is compiled"
+else
+  bad "flag/compile ordering (rc=$rc): $(head -1 bo.err)"
+fi
+rm -f oo
+"$s1" build --input hello.ax --output oo --opt 2 >/dev/null 2>&1 && [[ -x oo ]] \
+  && ok "a valid --opt still builds" || bad "--opt 2 regressed"
+
+# `-V` is the short form of `--version`, and `--` really ends option
+# parsing. Both were listed in the usage text before they worked: `-V`
+# printed the whole usage to stderr and exited 1, and `--` was accepted
+# by the validator and then ignored by the operand scan, so
+# `axiom check -- -weird.ax` still answered "check needs an input file".
+# A flag the help documents and the binary ignores is the same defect as
+# a diagnostic code nothing constructs.
+"$s1" -V >v.out 2>v.err; rc=$?
+[[ $rc == 0 ]] && grep -q 'axiom' v.out \
+  && ok "\`-V\` prints the version" || bad "\`-V\` (rc=$rc)"
+
+printf '(:: main Int)\n(fn (main) 1)\n' >./-weird.ax
+for sub in check symbols; do
+  "$s1" $sub -- -weird.ax >w.out 2>w.err; rc=$?
+  [[ $rc == 0 ]] \
+    && ok "\`$sub -- -weird.ax\` reaches a file whose name begins with a dash" \
+    || bad "\`$sub --\` (rc=$rc): $(head -1 w.err)"
+done
+# A LEADING-DASH code, which is the case only `--` can reach.
+# `explainNormalize` has always stripped leading dashes so that
+# `AX-3001` and `-3001` resolve, but nothing could deliver such a code
+# to it: the operand scan skipped any argument beginning with `-`. The
+# normaliser's dash-stripping was unreachable until now, and a plain
+# `explain -- 3001` would not have shown it, because that spelling
+# already worked by accident.
+"$s1" explain -- -3001 >x.out 2>&1
+grep -q 'AX3001' x.out \
+  && ok "\`explain -- -CODE\` reaches a code written with a leading dash" \
+  || bad "explain -- -3001: $(head -1 x.out)"
+
+# ---------------------------------------------------------------
+# `run` forwards what follows the file to the PROGRAM.
+#
+# It used to pass only the program's own name, so a program that reads
+# argv could not be given any arguments at all. Asserted numerically
+# through the program's own exit status, so no golden can bless it.
+cat >argc.ax <<'EOF'
+(import Sys)
+(:: main Int)
+(fn (main) (sysArgc))
+EOF
+"$s1" run argc.ax >/dev/null 2>&1; [[ $? == 1 ]] \
+  && ok "run with no arguments gives the program argc 1" || bad "run argc baseline"
+"$s1" run argc.ax alpha beta >/dev/null 2>&1; [[ $? == 3 ]] \
+  && ok "run forwards its trailing arguments to the program" || bad "run does not forward arguments"
+"$s1" run argc.ax -- --verbose x >/dev/null 2>&1; [[ $? == 3 ]] \
+  && ok "run passes dash-prefixed arguments through after \`--\`" || bad "run \`--\` passthrough"
+
+# ---------------------------------------------------------------
+# A successful command says so, and names what it produced.
+"$s1" build --input hello.ax --output bs >bs.out 2>&1
+grep -q 'Build successful: bs' bs.out \
+  && ok "a successful build names the executable it wrote" || bad "build success line"
+
+rm -f eo.ll
+"$s1" emit-llvm hello.ax --output eo.ll >eo.out 2>eo.err; rc=$?
+if [[ $rc == 0 ]] && [[ -s eo.ll ]] && grep -q 'LLVM IR written to eo.ll' eo.out; then
+  ok "\`emit-llvm --output\` writes the file and says where"
+else
+  bad "emit-llvm --output (rc=$rc, file $( [[ -s eo.ll ]] && echo written || echo MISSING))"
+fi
+
 echo
 echo "$passed passed, $failed failed"
 [[ "$failed" == 0 ]]

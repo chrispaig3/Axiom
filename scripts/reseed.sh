@@ -48,7 +48,7 @@ if ! "$axiom" build --input self_host/main.ax --output "$work/gen" >"$work/build
   # `build --input` spelled that way only if it is very old; try the
   # plain form before giving up.
   cp "$repo_root/self_host/main.ax" "$work/in.ax"
-  (cd "$work" && "$axiom" >"$work/gen.ll" 2>/dev/null) \
+  (cd "$work" && "$axiom" in.ax >"$work/gen.ll" 2>/dev/null) \
     || { tail -20 "$work/build.log" >&2; fail "could not build a compiler with $axiom"; }
   llc -filetype=obj -relocation-model=pic "$work/gen.ll" -o "$work/gen.o" 2>/dev/null \
     || fail "llc rejected the IR from $axiom"

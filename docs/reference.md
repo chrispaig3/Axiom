@@ -1,6 +1,6 @@
 # Axiom Language Reference
 
-A friendly, comprehensive guide to the Axiom programming language — a functional systems language that compiles to native code via LLVM, with no VM and no runtime. Memory comes from an `mmap`-backed bump allocator by default; `--gc` swaps in a tracing collector for programs that need peak memory to track live data.
+A friendly, comprehensive guide to the Axiom programming language — a functional systems language that compiles to native code via LLVM, with no VM and no runtime. Memory comes from an `mmap`-backed bump allocator.
 
 ---
 
@@ -1276,27 +1276,20 @@ axiom run source.ax
 # exits in milliseconds, and it costs nothing at runtime.
 axiom build --input source.ax --output program
 
-# A conservative mark-sweep collector, so peak memory tracks *live* data.
-# Pays a collection pause whenever the current mapping fills.
-axiom --gc build --input source.ax --output program
 ```
 
-Both are freestanding — neither calls libc. `--gc` is a global flag, so
-it goes before the subcommand, and it applies to `run` and `emit-llvm`
-too.
+The build is freestanding — it does not call libc.
 
-The collector is conservative: it treats any word that could be a
-pointer to a live object as one, because Axiom values are untyped machine
-words at runtime. An integer that happens to equal a live object's
-address keeps that object alive. It never moves anything, so pointer
-identity holds.
-
-`__axiom_arena_mark`, `__axiom_arena_reset` and
-`__axiom_arena_reset_keeping` belong to the bump allocator and are a
-compile error under `--gc`: a tracing collector reclaims by
-reachability and has no waterline to roll back to. They are also a
-compile error in a program that defines its own `axiom_alloc`, which
-replaces the allocator whose position they move.
+There is no tracing collector. The retired Rust compiler had one behind
+a `--gc` flag; it was not ported, and `--gc` is now refused by name
+rather than silently ignored (see `docs/self-hosting.md` §8.4). Peak
+memory therefore tracks *total* allocation, not live data. Where that
+matters, `__axiom_arena_mark`, `__axiom_arena_reset` and
+`__axiom_arena_reset_keeping` let a program reclaim explicitly by
+rolling the allocator's waterline back — which is how the language
+server holds flat memory across an editing session. They are a compile
+error in a program that defines its own `axiom_alloc`, which replaces
+the allocator whose position they move.
 
 The three carry a contract the compiler cannot check: after a reset,
 nothing allocated since the matching mark may be read again. What the

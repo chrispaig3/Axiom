@@ -221,12 +221,12 @@ cc "$work/seed.o" -o "$work/seed" -e _main 2>"$work/cc.err" \
 echo "ok   seed built for $target from $seed_ll (no Rust, no cargo)"
 
 # Build the next stage from a stage that has no driver yet: the stage
-# reads `in.ax` and writes LLVM to stdout, so compiling the compiler
-# means feeding it its own entry point.
+# compiles the file it is given and writes LLVM to stdout, so compiling
+# the compiler means feeding it its own entry point.
 build_next() {
   local from="$1" out_ll="$2" out_bin="$3"
   cp "$repo_root/self_host/main.ax" "$work/in.ax"
-  (cd "$work" && "./$from" >"$out_ll" 2>"$out_ll.err") \
+  (cd "$work" && "./$from" in.ax >"$out_ll" 2>"$out_ll.err") \
     || { head -5 "$work/$out_ll.err" >&2; fail "$from could not compile self_host/main.ax"; }
   # Blame the stage that produced the garbage, not the tool that chokes
   # on it: without these two lines a seed that was a valid Axiom
@@ -254,7 +254,7 @@ check_runs() {
 (:: main Int)
 (fn (main) (add 40 2))
 CASE
-  (cd "$work" && "./$stage" >"prog.ll" 2>/dev/null) || fail "$stage could not compile the probe"
+  (cd "$work" && "./$stage" in.ax >"prog.ll" 2>/dev/null) || fail "$stage could not compile the probe"
   llc -filetype=obj -relocation-model=pic "$work/prog.ll" -o "$work/prog.o" 2>/dev/null || fail "$stage emitted IR llc rejects"
   cc "$work/prog.o" -o "$work/prog" -e _main 2>/dev/null || fail "$stage emitted an object that will not link"
   (cd "$work" && ./prog)

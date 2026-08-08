@@ -77,16 +77,22 @@
           0
         })))
 
-; Exit status is the driver's answer, not a byte count: 0 on success, 1
-; when the source could not be read, 2 when it could not be parsed, 1
-; when the module does not type-check. The previous version returned
-; whatever `writeStdout` did, so a successful run exited with the length
-; of its own output.
+; Exit status is the driver's answer, not a byte count: 0 on success and
+; 1 when the source could not be read, could not be parsed, has no entry
+; point, or does not type-check. The previous version returned whatever
+; `writeStdout` did, so a successful run exited with the length of its
+; own output.
 ;
-; The input path is the first command-line argument, defaulting to
-; `in.ax` so existing harnesses keep working. `sysArg`'s Str wraps the
-; process's own NUL-terminated argv bytes without copying, so its
-; `strData` is exactly the C string `sysReadFile` wants.
+; The input path is the first command-line argument. It used to default
+; to `in.ax` when there was none, which is why a bare `axiom` answered
+; `cannot read input: in.ax` - naming a file the user had never typed.
+; The five harnesses that relied on that default all `cp` their case to
+; `in.ax` first, so each now passes the name explicitly and a bare
+; invocation is free to print the usage instead.
+;
+; `sysArg`'s Str wraps the process's own NUL-terminated argv bytes
+; without copying, so its `strData` is exactly the C string
+; `sysReadFile` wants.
 ;
 ; Import resolution happens HERE rather than inside `emitModule`,
 ; because the type checker needs the resolved declaration list too - a
@@ -98,22 +104,103 @@
 ; stage0 uses, so a differential gate can compare the two streams
 ; separately. An error refuses to emit: a program that does not check
 ; has no business producing an object file.
+; ------------------------------------------------------------------
+; Reading the input, and saying what went wrong when it cannot be read.
+; ------------------------------------------------------------------
+
+; The C library's own wording for the three errnos a source path
+; realistically produces. Anything else is reported by number rather
+; than guessed at, because a wrong reason is worse than a bare one.
+(pub :: errnoReason (-> Int Int))
+(pub fn (errnoReason e)
+  (if (== e 2) "No such file or directory"
+  (if (== e 13) "Permission denied"
+  (if (== e 21) "Is a directory"
+      (cat2 "errno " (decStr e))))))
+
+; 0 when `fileName` can be read, otherwise the errno explaining why not.
+;
+; `sysReadFile` answers "" for a missing file, an EMPTY file, and a
+; DIRECTORY alike - three different facts collapsed into one, which is
+; why an empty file used to be reported as unreadable (a statement about
+; the filesystem, and a false one) and a directory as missing. Opening
+; separates the first: ENOENT and EACCES are refused there. A one-byte
+; read separates the third, because both Darwin and Linux open a
+; directory happily and defer EISDIR to `read` (probed, 2026-08-08).
+(pub :: sourceReadErrno (-> Int Int))
+;@axiom:effect(io)
+(pub fn (sourceReadErrno fileName)
+  (let ((fd (sysOpenPath (strData fileName) 0)))
+    (if (sysFailed fd)
+        (sysErrno fd)
+        (let ((probe (strAlloc 1)))
+          (let ((n (sysReadFd fd (strData probe) 1)))
+            {
+              (sysCloseFd fd)
+              (if (< n 0) (sysErrno n) 0)
+            })))))
+
+; One spelling of the read failure, everywhere.
+;
+; There were three. `fmt` and `symbols` said `Failed to read file 'F'`,
+; the compile path said `cannot read input: F`, and neither gave the
+; reason - so which wording a user saw depended on which subcommand they
+; had typed, and no wording ever said whether the file was missing,
+; unreadable, or a directory.
+(pub :: readFailMsg (-> Int Int Int))
+(pub fn (readFailMsg fileName e)
+  (cat2 (cat3 "Failed to read file '" fileName "': ") (cat2 (errnoReason e) "\n")))
+
+; Does this declaration list define a `main` function?
+;
+; The entry point is what turns a module into a program, and until this
+; existed nothing checked for it: `emitFnDef` renames the entry file's
+; `main` to `__axiom_user_main` and the prelude's argv wrapper calls
+; that symbol, so a file with no `main` emitted a call to a function
+; nobody defined. The failure surfaced from `opt`, as `use of undefined
+; value '@__axiom_user_main'` against a temporary `.ll` that had already
+; been deleted, blaming a native tool for the program's own omission.
+; AX4001 has been in the code table and in `axiom explain` the whole
+; time, with no site constructing it.
+(pub :: declsHaveMain (-> Int Bool))
+(pub fn (declsHaveMain ds) (declsHaveMainFrom ds 0))
+
+(pub :: declsHaveMainFrom (-> Int Int Bool))
+(pub fn (declsHaveMainFrom ds i)
+  (if (>= i (vecLen ds))
+      false
+      (let ((d (vecGet ds i)))
+        (if (&& (== (nodeTag d) TAG_D_FN) (strEq (nodeA d) "main"))
+            true
+            (declsHaveMainFrom ds (+ i 1))))))
+
 ; Compile `fileName` for `tname`, answering its LLVM text - or the empty
 ; string when `doEmit` is 0, which is what `check` wants.
 ;
+; `needMain` is 1 for the subcommands that produce an executable -
+; `build` and `run` - and 0 for `check`, `emit-llvm` and the legacy
+; `axiom FILE` spelling. That split is stage0's: its `build` tested the
+; generated module for an entry point and its `emit_llvm` did not, so a
+; library module can still be checked and can still have its IR read.
+;
 ; Every failure exits from inside here rather than being returned,
 ; because each has its own status and each has already said what went
-; wrong: 1 unreadable input, 2 a parse error, 3 an unresolvable import,
-; 1 again for a module that does not type-check. Threading four codes
-; back through a language with no sum type at this layer would buy
-; nothing - no caller has a second thing to try.
-(pub :: compileFile (-> Int Int Int Int))
+; wrong: 1 an unreadable input, a parse error, a missing entry point, or
+; a module that does not type-check. Threading the codes back through a
+; language with no sum type at this layer would buy nothing - no caller
+; has a second thing to try.
+(pub :: compileFile (-> Int Int Int Int Int))
 ;@axiom:effect(io)
-(pub fn (compileFile fileName tname doEmit)
-  (let ((src (sysReadFile (strData fileName)))
+(pub fn (compileFile fileName tname doEmit needMain)
+  (let ((rerr (sourceReadErrno fileName))
         (dfmt diagFormatArg))
-    (if (== (strLen src) 0)
-        (die (cat3 "cannot read input: " fileName "\n") 1)
+    (if (!= rerr 0)
+        (die (readFailMsg fileName rerr) 1)
+        ; An empty file is READ, not refused: it lexes to no tokens and
+        ; parses to a module with no declarations, which `check` accepts
+        ; and `build` rejects for having no `main` - the same answers
+        ; stage0 gave. It used to be refused as unreadable.
+        (let ((src (sysReadFile (strData fileName))))
         (let ((toks (lex src)))
         ; Lexical errors come first, because lexing does - and because
         ; a file with a bad escape in it has not got a token stream
@@ -184,8 +271,38 @@
                             }
                             (if (== doEmit 0)
                                 ""
-                                (emitResolved allDecls bares fulls tcode)))
-                      }))))))))))))
+                                ; The entry point is checked HERE, after
+                                ; the module type-checks and before a
+                                ; byte of IR exists, because the wrapper
+                                ; that calls `__axiom_user_main` is
+                                ; emitted unconditionally: without this,
+                                ; the omission surfaced from `opt` as
+                                ; `use of undefined value`, against a
+                                ; temporary file already deleted, with
+                                ; exit 4 blaming the toolchain.
+                                ;
+                                ; Spanless, because the diagnostic is
+                                ; about the module rather than about any
+                                ; position in it - there is no `main` to
+                                ; point at. The renderer's `--> <file>`
+                                ; form still names the file.
+                                (if (&& (== needMain 1)
+                                        (if (declsHaveMain allDecls) false true))
+                                    (let ((mds (let ((v vecNew))
+                                                 { (vecPush v
+                                                     (mkDiag SEV_ERROR "AX4001" "missing-main" 0
+                                                             "no `main` function found"
+                                                             0 0
+                                                             "add `(:: main Int)` and `(define main ...)` as the program entry point"))
+                                                   v })))
+                                      {
+                                        (writeStderr (renderDiagsFormat dfmt mds units))
+                                        (writeStderr (renderFailTrailer 1))
+                                        (sysExitWith 1)
+                                        ""
+                                      })
+                                    (emitResolved allDecls bares fulls tcode))))
+                      })))))))))))))
 
 ; The entry point: a subcommand if the first argument names one, and
 ; otherwise the original `stage1 FILE [TARGET]` spelling.
@@ -196,37 +313,98 @@
 ;@axiom:effect(io)
 (pub fn (main)
   (let ((first subcommandName))
+    {
+      ; Refuse a malformed invocation BEFORE anything acts on it. This
+      ; is what stops `axiom fmt --check=true FILE` and
+      ; `axiom fmt FILE --help` from rewriting the file: both used to
+      ; reach fmt's write path, because `hasFlag` matched exactly and
+      ; `--help` was recognised only at argv[1].
+      (checkArgs first)
+      ; Help the user ASKED for: stdout, exit 0, from anywhere in argv.
+      ; `--version`/`-V` is deliberately NOT accepted after a
+      ; subcommand - the retired compiler did not propagate it either -
+      ; so `axiom run prog.ax -V` forwards `-V` to the program.
+      (if (hasFlagAnywhere first "--help")
+          { (writeStdout (helpForCommand first)) (sysExitWith 0) 0 }
+          (if (hasFlagAnywhere first "-h")
+              { (writeStdout (helpForCommand first)) (sysExitWith 0) 0 }
+              0))
+      (if (== (strLen first) 0) (rejectTypoedSubcommand) 0)
     (if (> (strLen first) 0)
         (runSubcommand first)
         ; The original spelling: the first positional is the input, the
         ; second is the target. Positions rather than argv indices,
         ; because a global flag may sit in front of either.
         (let ((i1 (positionalIndex 1)))
-        (let ((fileName (if (< i1 0) "in.ax" (sysArg i1)))
+        ; No subcommand and no file: print the usage rather than a
+        ; complaint about `in.ax`, a filename the user never typed and
+        ; which only exists as this fallback's default. A bare `axiom`
+        ; said `cannot read input: in.ax` and exited 1, which reads as a
+        ; missing file rather than as a missing argument.
+        (if (< i1 0)
+            (die usageText 1)
+        (let ((fileName (sysArg i1))
+              ; `i1` is known good here, so the target scan starts
+              ; one past it unconditionally.
               (tname (let ((v (flagValue "--target" 1)))
                        (if (> (strLen v) 0)
                            v
-                           (let ((i2 (if (< i1 0) (- 0 1) (positionalIndex (+ i1 1)))))
+                           (let ((i2 (positionalIndex (+ i1 1))))
                              (if (< i2 0) hostTarget (sysArg i2)))))))
-          (let ((ir (compileFile fileName tname 1)))
+          (let ((ir (compileFile fileName tname 1 0)))
             {
               (writeStdout ir)
               0
-            }))))))
+            })))))}))
+
+; `axiom buidl f.ax` used to be read as the legacy `axiom FILE TARGET`
+; with FILE=`buidl`, so the answer was `cannot read input: buidl` - a
+; file error naming a word the user meant as a command, with their
+; actual filename silently discarded.
+;
+; The two readings are genuinely ambiguous, because the legacy spelling
+; makes ANY first positional a filename. The tie is broken by asking
+; the filesystem: a first operand that cannot be read AND is within one
+; edit of a subcommand is a typo, not a file. A name that is neither
+; keeps the old answer, which for the legacy grammar is the right one.
+(pub :: rejectTypoedSubcommand Int)
+;@axiom:effect(io)
+(pub fn (rejectTypoedSubcommand)
+  (let ((i (positionalIndex 1)))
+    (if (< i 0)
+        0
+        (let ((w (sysArg i)))
+          (if (== (sourceReadErrno w) 0)
+              0
+              (let ((near (nearestSubcommand w)))
+                (if (== (strLen near) 0)
+                    0
+                    (usageError (cat2 (cat3 "error: unrecognised subcommand `" w "`\n")
+                                      (cat3 "       did you mean `" near "`?\n"))))))))))
 
 (pub :: runSubcommand (-> Int Int))
 ;@axiom:effect(io)
 (pub fn (runSubcommand cmd)
   (if (|| (strEq cmd "help") (|| (strEq cmd "--help") (strEq cmd "-h")))
-      { (writeStdout usageText) 0 }
-  (if (|| (strEq cmd "version") (strEq cmd "--version"))
+      ; `axiom help build` answers for `build`. The operand used to be
+      ; read and discarded, so it printed the general usage - while the
+      ; COMMANDS block promised `help <COMMAND>` would do this. A usage
+      ; text that documents behaviour the binary does not have is the
+      ; same defect as a diagnostic code nothing constructs.
+      ;
+      ; An operand that names no command falls back to the general
+      ; usage rather than failing: `help` is where someone goes when
+      ; they are already lost, and refusing them there is unkind.
+      (let ((topic (positionalFrom operandStart)))
+        { (writeStdout (if (isSubcommand topic) (helpForCommand topic) usageText)) 0 })
+  (if (|| (strEq cmd "version") (|| (strEq cmd "--version") (strEq cmd "-V")))
       { (writeStdout "axiom (self-hosted) 0.1.0\n") 0 }
   (if (strEq cmd "check")
       (let ((f (positionalFrom operandStart)))
         (if (== (strLen f) 0)
             (die "error: check needs an input file\n" 1)
             {
-              (compileFile f (targetArg hostTarget) 0)
+              (compileFile f (targetArg hostTarget) 0 0)
               ; stage0's check prints `OK` on stdout whenever it does
               ; not fail - success and warnings-only alike, in every
               ; diagnostic format (probed 2026-08-07). compileFile
@@ -238,13 +416,18 @@
       (let ((f (positionalFrom operandStart)))
         (if (== (strLen f) 0)
             (die "error: emit-llvm needs an input file\n" 1)
-            (let ((ir (compileFile f (targetArg hostTarget) 1))
-                  (out (flagValue "-o" 1)))
+            ; `--output` is read as well as `-o`. Only `-o` used to be,
+            ; so `axiom emit-llvm f.ax --output out.ll` silently ignored
+            ; the flag, put 57 KB of IR on the terminal, and exited 0 -
+            ; a build script cannot detect that, because nothing failed.
+            (let ((ir (compileFile f (targetArg hostTarget) 1 0))
+                  (out (let ((v (flagValue "-o" 1)))
+                         (if (> (strLen v) 0) v (flagValue "--output" 1)))))
               (if (== (strLen out) 0)
                   { (writeStdout ir) 0 }
                   (if (< (sysWriteFile (strCStr out) ir) 0)
-                      (die "error: could not write LLVM IR\n" 4)
-                      0)))))
+                      (die (cat3 "error: could not write LLVM IR to '" out "'\n") 4)
+                      { (writeStdout (cat3 "LLVM IR written to " out "\n")) 0 })))))
   (if (strEq cmd "build")
       ; `--input`/`--output` are stage0's spelling. A bare positional is
       ; accepted for `--input` too, because a compiler that insists on a
@@ -254,12 +437,46 @@
                    (if (> (strLen v) 0) v (positionalFrom operandStart)))))
         (if (== (strLen inp) 0)
             (die "error: build needs an input file\n" 1)
+            ; `-o` is the short form of `--output` here as well as under
+            ; `emit-llvm`. It used to be read only by `emit-llvm`, so
+            ; `axiom build -o prog f.ax` consumed `prog` as a flag value
+            ; and wrote the default `output` instead - while the usage
+            ; text listed `-o <PATH>` with no qualification. A flag the
+            ; help documents and the binary ignores is the same defect
+            ; as a diagnostic code nothing constructs.
+            ;
+            ; The retired compiler made `-o` the short form of `--opt`
+            ; under `build` and of `--output` under `emit-llvm`. That is
+            ; a wart rather than a contract, and it is not reproduced:
+            ; one letter meaning two unrelated things across sibling
+            ; subcommands is how a build script writes its executable to
+            ; a file named `3`.
             (let ((outp (let ((v (flagValue "--output" 1)))
-                          (if (> (strLen v) 0) v "output"))))
-              (let ((ir (compileFile inp (targetArg hostTarget) 1)))
+                          (if (> (strLen v) 0)
+                              v
+                              (let ((sh (flagValue "-o" 1)))
+                                (if (> (strLen sh) 0) sh "output"))))))
+              (let ((ir (compileFile inp (targetArg hostTarget) 1 1)))
                 (let ((rc (buildToExecutable ir outp optLevelArg
-                                             (if (hasFlag "--emit-llvm") 1 0))))
-                  (if (!= rc 0) (die "" rc) 0))))))
+                                             (if (hasFlagAnywhere cmd "--emit-llvm") 1 0))))
+                  (if (!= rc 0)
+                      (die "" rc)
+                      ; A successful build used to print NOTHING, so a
+                      ; user could not tell it from a no-op, and had to
+                      ; go looking for the file to find out. The retired
+                      ; compiler also printed `[1/5] Lexing...` and four
+                      ; more phase labels; those are not reproduced -
+                      ; they are content-free, they numbered one step
+                      ; twice whenever the entry file had imports, and
+                      ; `run` inherited them onto stdout in front of the
+                      ; program's own output.
+                      {
+                        (if (hasFlagAnywhere cmd "--emit-llvm")
+                            (writeStdout (cat3 "LLVM IR written to " outp ".ll\n"))
+                            0)
+                        (writeStdout (cat3 "Build successful: " outp "\n"))
+                        0
+                      }))))))
   (if (strEq cmd "fmt")
       ; `fmt FILE [--check]`: format in place, or report whether the
       ; file would change. Verification runs before any write - the
@@ -276,17 +493,17 @@
       (let ((f (fmtInputArg 0)))
         (if (== (strLen f) 0)
             (die "error: fmt needs an input file\n" 1)
-            (let ((fd (sysOpenPath (strData f) 0)))
-              (if (sysFailed fd)
-                  (die (cat3 "Failed to read file '" f "'\n") 1)
+            (let ((rerr (sourceReadErrno f)))
+              (if (!= rerr 0)
+                  (die (readFailMsg f rerr) 1)
                   {
-                    (sysCloseFd fd)
+                    0
                     (let ((src (sysReadFile (strData f))))
                       (let ((res (fmtFormat src)))
                         (if (== (fzOk res) 0)
                             (die (cat2 f " was not rewritten: formatter refusal\n") 1)
                             (let ((text (fzText res)))
-                              (if (hasFlag "--check")
+                              (if (hasFlagAnywhere cmd "--check")
                                   (if (strEq src text)
                                       { (writeStdout (cat3 "OK: " f " is already formatted\n")) 0 }
                                       (die (cat3 "Error: " f " needs formatting\n") 1))
@@ -304,9 +521,10 @@
             (dfmt diagFormatArg))
         (if (== (strLen f) 0)
             (die "error: symbols needs an input file\n" 1)
-            (let ((src (sysReadFile (strData f))))
-              (if (== (strLen src) 0)
-                  (die (cat3 "Failed to read file '" f "'\n") 1)
+            (let ((rerr (sourceReadErrno f)))
+              (if (!= rerr 0)
+                  (die (readFailMsg f rerr) 1)
+                  (let ((src (sysReadFile (strData f))))
                   (let ((pr (parseModuleWith (lex src) (scanAxtags src))))
                     (if (== (memGetWord pr 0) 0)
                         (die "compilation failed due to a syntax error\n" 1)
@@ -337,9 +555,9 @@
                                       (symbolsFormatNotice)
                                       (writeStdout
                                         (symbolsRender tc
-                                          (if (hasFlag "--builtins") 1 0)))
+                                          (if (hasFlagAnywhere cmd "--builtins") 1 0)))
                                       0
-                                    }))))))))))))
+                                    })))))))))))))
   (if (strEq cmd "explain")
       ; `explain [CODE] [--list]`: the texts live in explain.ax,
       ; generated byte-for-byte from stage0's own output. `--list`
@@ -347,11 +565,11 @@
       ; an unknown code is two stderr lines and exit 1, echoing the
       ; code AS TYPED, before normalisation.
       (let ((code (positionalFrom operandStart)))
-        (if (|| (hasFlag "--list") (== (strLen code) 0))
+        (if (|| (hasFlagAnywhere cmd "--list") (== (strLen code) 0))
             {
               (writeStdout explainListText)
               (if (&& (== (strLen code) 0)
-                      (if (hasFlag "--list") false true))
+                      (if (hasFlagAnywhere cmd "--list") false true))
                   (writeStdout "\nUsage: axiom explain <CODE>\n")
                   0)
               0
@@ -366,7 +584,7 @@
                   }
                   { (writeStdout text) 0 }))))
   (if (strEq cmd "repl")
-      (replMain (if (hasFlag "--no-banner") 1 0))
+      (replMain (if (hasFlagAnywhere cmd "--no-banner") 1 0))
   (if (strEq cmd "lsp")
       ; The language server speaks JSON-RPC over stdin/stdout, so it
       ; takes no operand and prints nothing else to stdout - anything
@@ -376,7 +594,7 @@
       (let ((f (positionalFrom operandStart)))
         (if (== (strLen f) 0)
             (die "error: run needs an input file\n" 1)
-            (let ((ir (compileFile f hostTarget 1)))
+            (let ((ir (compileFile f hostTarget 1 1)))
               ; Unlike stage0, `run` optimises. stage0 pins its `run` at
               ; --opt 0, which is survivable for a small program and is
               ; not for this compiler: without `opt`'s tail-call pass a
@@ -438,17 +656,26 @@
 ; after it, and `--check` takes no value.
 (pub :: inputArgSkipping (-> Int Int))
 (pub fn (inputArgSkipping bare)
-  (let ((n (sysArgc)) (mut i operandStart) (mut f ""))
+  (let ((n (sysArgc)) (mut i operandStart) (mut f "") (mut endOpts 0))
     {
       (while (< i n)
         (let ((a (sysArg i)))
           {
-            (if (&& (== (strLen f) 0)
-                    (if (strEq a bare)
-                        false
-                        (if (strStartsWith a "-") false true)))
-                (set f a)
-                0)
+            ; `--` ends option parsing here too. `fmt` and `symbols` do
+            ; not use the general positional walk - its flag-skipping
+            ; would swallow the file in `fmt --check FILE` - so the
+            ; separator has to be honoured in both places or it works
+            ; for some subcommands and not others.
+            (if (&& (== endOpts 0) (strEq a "--"))
+                (set endOpts 1)
+                (if (&& (== (strLen f) 0)
+                        (if (strEq a bare)
+                            false
+                            (if (== endOpts 1)
+                                true
+                                (if (strStartsWith a "-") false true))))
+                    (set f a)
+                    0))
             (set i (+ i 1))
           }))
       f
@@ -457,17 +684,47 @@
 (pub :: fmtInputArg (-> Int Int))
 (pub fn (fmtInputArg _u) (inputArgSkipping "--check"))
 
-; argv for the program `run` spawns: its own name and nothing else.
-; Forwarding the driver's remaining arguments is stage0 behaviour this
-; does not yet reproduce, and is recorded rather than half-done.
+; argv for the program `run` spawns: its own name, then every argument
+; that followed the source file.
+;
+; It used to be the name and nothing else, so `axiom run prog.ax a b`
+; started prog.ax with argc 1 and the arguments silently dropped - a
+; program that reads argv could not be run with any at all. The
+; retired compiler forwarded them, and its `Run { input, args }` is
+; where the shape comes from.
+;
+; Everything after the file operand belongs to the PROGRAM, which is
+; also why `checkArgs` stops validating there: `axiom run prog.ax
+; --verbose` passes `--verbose` on rather than refusing it as a flag
+; this compiler does not know. A leading-dash argument that would
+; otherwise be ambiguous can be forced across with `--`.
 (pub :: runArgv (-> Int Int))
 (pub fn (runArgv name)
-  (let ((v (memAlloc 16)))
-    {
-      (memSetWord v 0 (strCStr (strDup name)))
-      (memSetWord v 1 0)
-      v
-    }))
+  (let ((first (+ (positionalIndex operandStart) 1))
+        (n (sysArgc)))
+    (let ((extra (if (< (positionalIndex operandStart) 0) n first)))
+      (let ((v (memAlloc (* (+ (- n extra) 2) 8))))
+        {
+          (memSetWord v 0 (strCStr (strDup name)))
+          (fillRunArgv v extra n 1)
+          v
+        }))))
+
+; Copy argv[from..to) into `v` starting at slot `slot`, NUL-terminated.
+;
+; `--` is dropped as it passes: it is this compiler's end-of-options
+; marker, not an argument the program asked for.
+(pub :: fillRunArgv (-> Int Int Int Int Int))
+(pub fn (fillRunArgv v from to slot)
+  (if (>= from to)
+      { (memSetWord v slot 0) 0 }
+      (let ((a (sysArg from)))
+        (if (strEq a "--")
+            (fillRunArgv v (+ from 1) to slot)
+            {
+              (memSetWord v slot (strCStr (strDup a)))
+              (fillRunArgv v (+ from 1) to (+ slot 1))
+            }))))
 
 (pub :: die (-> Int Int Int))
 (pub fn (die msg code)

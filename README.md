@@ -3,7 +3,7 @@
 <img width="1500" height="1024" alt="Image" src="https://github.com/user-attachments/assets/38a9afb6-3570-4797-ba57-488e004f4e66" />
 
 A functional systems programming language for humans and agents.
-Axiom blends the expressive power of functional programming with the performance and control of systems languages. It uses a clean Lisp‑style S‑expression syntax, a Hindley–Milner‑inspired type system, and an LLVM backend to produce fast, native executables — with no VM and no runtime. Memory comes from an `mmap`-backed bump allocator by default; `--gc` swaps in a tracing collector for programs that need peak memory to track live data.
+Axiom blends the expressive power of functional programming with the performance and control of systems languages. It uses a clean Lisp‑style S‑expression syntax, a Hindley–Milner‑inspired type system, and an LLVM backend to produce fast, native executables — with no VM and no runtime. Memory comes from an `mmap`-backed bump allocator, with explicit arena reclamation where peak memory matters.
 
 Axiom is intentionally small, explicit, and transparent. It’s designed not only for developers, but also for agentic programming, where AI systems generate, analyze, and manipulate code. Its uniform structure and predictable semantics make it uniquely easy for agents to understand and work with.
 
@@ -546,12 +546,15 @@ What works, and what to know:
   at contiguous 8-byte offsets (no tag word).
 - **Named fields per variant** work - see [Struct variants](#struct-variants).
 - **Allocation** comes from an `mmap`-backed bump allocator, not `malloc`,
-  and by default nothing is ever freed, so memory use tracks *total*
-  allocations rather than live data. `--gc` swaps in a tracing collector
-  and makes peak memory track the live set instead: on
-  `tests/stdlib/170-gc.ax`, 400 MB churned goes from 352 MB to 3.2 MB.
-  Neither is the end state - see the memory model in
-  [docs/v1-roadmap.md](docs/v1-roadmap.md).
+  and nothing is freed implicitly, so memory use tracks *total*
+  allocations rather than live data. `__axiom_arena_mark` and
+  `__axiom_arena_reset` reclaim explicitly by rolling the allocator's
+  waterline back, which is how the language server holds flat memory
+  across an editing session. There is no tracing collector: the retired
+  Rust compiler had one behind `--gc`, it was not ported, and the flag is
+  now refused by name rather than silently ignored
+  (`docs/self-hosting.md` §8.4). Not the end state - see the memory model
+  in [docs/v1-roadmap.md](docs/v1-roadmap.md).
 - **Field access by name** works on `data` and `struct` alike: `s.r`
   reads a field of a value whose constructor declared one.
 
@@ -1200,7 +1203,7 @@ the pipeline above is a module you can read in the language it compiles.
 | FFI | **Complete, no longer required** | Call any C function with `foreign` declarations. The standard library no longer uses it: see [Standard library](#standard-library) |
 | Standard library | **Functional** | `Pre`, `Mem`, `Str`, `Vec`, `Map`, `Fmt`, `Intern`, `Sys`, `IO`, written in Axiom over syscall primitives. `Vec`/`Map`/`Intern` are golden-tested and validated at 10⁵ elements; against Rust at 10⁶, `Intern` is *faster* (0.75×), `Vec` is 2.5×, and `Map` is 14× — six sevenths of which is table growth against the bump allocator, not hashing. `scripts/bench-datastructures.sh` |
 | Syscalls | **Complete** | `__syscall0`-`__syscall6` on Darwin and Linux, x86-64 and AArch64; errors normalised to `-errno` on every platform |
-| Allocation | **Functional; unbounded by default** | `mmap`-backed bump allocator emitted by the backend, overridable by defining `axiom_alloc`. No `free`, so memory tracks *total* allocations. `--gc` swaps in a conservative non-moving mark-sweep collector and makes peak memory track the live set: 400 MB churned goes from 352 MB to 3.2 MB. Neither is the end state; see the memory model in [docs/v1-roadmap.md](docs/v1-roadmap.md) |
+| Allocation | **Functional; unbounded by default** | `mmap`-backed bump allocator emitted by the backend, overridable by defining `axiom_alloc`. No `free`, so memory tracks *total* allocations; `__axiom_arena_mark`/`__axiom_arena_reset` reclaim explicitly where peak memory matters. No tracing collector — the Rust compiler's `--gc` was not ported and the flag is now refused (`docs/self-hosting.md` §8.4). Not the end state; see the memory model in [docs/v1-roadmap.md](docs/v1-roadmap.md) |
 | Cross-compilation | **Functional** | `--target` selects ABI and platform stdlib modules; codegen verified for all four targets |
 | Self-hosting | **Done** | Axiom's compiler is written in Axiom. It compiles itself and reproduces itself byte-for-byte (`stage2 == stage3`, as objects and as IR), and a clean checkout builds it from `bootstrap/` with nothing but `llc` and a C linker. The Rust implementation it replaced has been removed. See [docs/self-hosting.md](docs/self-hosting.md) |
 | ADTs / data types | **Complete** | Constructors (nullary and with fields, including recursive types like `List`/`Tree`) compile to heap-boxed tagged values; see [Algebraic data types](#algebraic-data-types-how-they-actually-run) |

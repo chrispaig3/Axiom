@@ -95,10 +95,10 @@ for case_file in tests/selfhost/*.ax; do
     continue
   fi
 
-  # stage1 reads its input from the first argument (default in.ax) and
-  # writes LLVM to stdout.
+  # stage1 reads its input from the first argument and writes LLVM to
+  # stdout.
   cp "$case_file" "$work/in.ax"
-  if ! (cd "$work" && ./stage1 >out.ll 2>stage1.err); then
+  if ! (cd "$work" && ./stage1 in.ax >out.ll 2>stage1.err); then
     echo "FAIL $name (stage1 rejected it)"
     sed 's/^/    /' "$work/stage1.err" | head -3
     failed=$((failed + 1))
@@ -158,7 +158,7 @@ done
 # which is why this is not a corpus golden.
 if [[ -z "$filter" ]]; then
   printf '(import NoSuchModule)\n(:: main Int)\n(fn (main) 7)\n' >"$work/in.ax"
-  (cd "$work" && ./stage1 >/dev/null 2>neg.err)
+  (cd "$work" && ./stage1 in.ax >/dev/null 2>neg.err)
   neg_status=$?
   if [[ "$neg_status" == 1 ]] && grep -q "AX5001" "$work/neg.err" \
      && grep -q "NoSuchModule" "$work/neg.err" \

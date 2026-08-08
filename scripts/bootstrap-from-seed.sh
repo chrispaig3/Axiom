@@ -126,12 +126,17 @@ cc "$work/seed.o" -o "$work/seed" -e _main 2>"$work/cc.err" \
   || { head -3 "$work/cc.err" >&2; fail "could not link the seed"; }
 echo "ok   seed built for $target from $seed_ll (no Rust)"
 
-# A stage reads `in.ax` and writes LLVM to stdout, so compiling the
-# compiler means feeding it its own entry point.
+# A stage compiles the file it is given and writes LLVM to stdout, so
+# compiling the compiler means feeding it its own entry point.
+#
+# The filename is passed explicitly. It used to be omitted, relying on a
+# bare invocation defaulting to `in.ax` - a default that made `axiom`
+# with no arguments answer `cannot read input: in.ax`, naming a file the
+# user never typed. The default is gone; every caller says what it means.
 build_next() {
   local from="$1" out_ll="$2" out_bin="$3"
   cp "$repo_root/self_host/main.ax" "$work/in.ax"
-  (cd "$work" && "./$from" >"$out_ll" 2>"$out_ll.err") \
+  (cd "$work" && "./$from" in.ax >"$out_ll" 2>"$out_ll.err") \
     || { head -5 "$work/$out_ll.err" >&2; fail "$from could not compile self_host/main.ax"; }
   # Blame the stage that produced the garbage, not the tool that
   # chokes on it. Ablated with a seed that was a valid Axiom program
