@@ -127,7 +127,40 @@ cargo test --release --all
 All eight gates and `cargo test --release --all` pass, and
 `cargo clippy --all-targets --all-features -- -D warnings` is clean.
 
+### 2.2 The measurement that drives the schedule
 
+Restored 2026-08-08: this section was deleted with the Game of Life
+demo in 720a0d5 while four references to it stayed behind, so the
+number the memory model exists to change had no in-tree reproduction.
+`scripts/measure-memory-baseline.sh` is the reproduction now — it
+generates the probe, builds it at `--opt 2`, and prints this table.
+
+A 24×24 toroidal Life board — one board live at any moment, ~10 KiB —
+advanced by `(advance (step board) (- n 1))`, the exact tail-call
+shape §4.1 names as the hard case. The printed population is 5 at
+every N (a lone glider), which pins that all N steps really computed
+Life:
+
+| Generations | Population | Max RSS | KiB per generation |
+|---:|---:|---:|---:|
+| 10 | 5 | 1.5 MiB | 148 |
+| 80 | 5 | 2.6 MiB | 32 |
+| 500 | 5 | 9.3 MiB | 18 |
+| 2000 | 5 | 33.3 MiB | 16 |
+
+Linear in generations, flat in live data: the bump allocator tracks
+*total allocations*, not reachable data. The historical table here
+read 744 MiB at 2000 generations; today's 33.3 MiB is 22× better and
+**none of it came from reclamation** — the B3 data-structure work
+simply allocates less per step. The per-generation column is the
+claim under test: §4.1's copy-at-boundary work exits when it goes to
+approximately zero, and this script becomes the before/after
+evidence, then a gate.
+
+This is not a pathological program. A loop that builds a value from
+the previous value is the shape of every compiler pass, every request
+handler, and every macro expansion. It is why the memory model is the
+hinge of this roadmap rather than one item on a list.
 
 ### 2.3 `axiom fmt` round-trips source — and did not, in six ways
 
