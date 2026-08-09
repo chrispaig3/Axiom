@@ -41,6 +41,8 @@
 (import Vec)
 (import Sys)
 (import codegen)
+(import diag)
+(import render)
 
 ; ------------------------------------------------------------------
 ; Exit codes.
@@ -164,6 +166,40 @@
                 }
                 (if (!= rc 0) "" outPath)))))))
 
+; ------------------------------------------------------------------
+; A toolchain failure as AX4003.
+;
+; `error: llc failed` was a bare stderr write: no code, no span, no
+; format, invisible to anything reading AXDL or JSON, and unexplainable
+; even though `axiom explain AX4003` has had an answer for it since the
+; registry existed. stage0 had the same gap from the other side - it
+; defined TOOLCHAIN_FAILURE and returned bare `String`s - so this is one
+; of the two codes neither compiler ever constructed.
+;
+; The MESSAGE keeps the wording the driver has always used. That is not
+; only because check-driver.sh greps it: naming the tool that failed is
+; the whole content of the diagnostic, and the reason the gate greps it
+; is that a build blamed on the wrong tool is the failure mode here -
+; `cc` complaining about an object llc never wrote.
+;
+; Spanless, like AX4001 and AX5001: there is no source position for "the
+; assembler exited 1". Returns `exitToolFailed` so the call sites read
+; the way they did.
+(pub :: toolFailDiag (-> Int Int Int))
+;@axiom:effect(io)
+(pub fn (toolFailDiag msg help)
+  (let ((d (mkDiag SEV_ERROR "AX4003" "toolchain-failure" 0 msg 0 0 help))
+        (ds vecNew)
+        (units vecNew))
+    {
+      (vecPush ds d)
+      (vecPush units (cast Int (CUnit2 "<toolchain>" "" 0)))
+      (let ((out (renderDiagsFormat diagFormatFromArgv ds units)))
+        (sysWriteFd 2 (strData out) (strLen out)))
+      exitToolFailed
+    }))
+
+
 ; Assemble `llPath` to `objPath`, then link it to `outPath`.
 ; Answers 0, or `exitToolFailed`.
 (pub :: assembleAndLink (-> Int Int Int Int Int))
@@ -182,10 +218,8 @@
                      })))
       (let ((rc (runTool "llc" llcArgs)))
         (if (!= rc 0)
-            {
-              (writeStderrStr (if (< rc 0) "error: could not run `llc`\n" "error: llc failed\n"))
-              exitToolFailed
-            }
+            (toolFailDiag (if (< rc 0) "could not run `llc`" "llc failed")
+                          "install LLVM and put `llc` on PATH; `--emit-llvm` keeps the IR so the step can be run by hand")
             (let ((ccArgs (let ((v vecNew))
                             {
                               (vecPush v (cast Int objPath))
@@ -195,10 +229,8 @@
                             })))
               (let ((rc2 (runTool "cc" ccArgs)))
                 (if (!= rc2 0)
-                    {
-                      (writeStderrStr (if (< rc2 0) "error: could not run `cc`\n" "error: cc failed\n"))
-                      exitToolFailed
-                    }
+                    (toolFailDiag (if (< rc2 0) "could not run `cc`" "cc failed")
+                                  "a C compiler drives the link step; put `cc` on PATH")
                     0))))))))
 
 ; Write `ir` beside `outPath`, drive the toolchain, and clean up.
@@ -217,16 +249,14 @@
         (objPath (cat2 outPath ".o"))
         (optPath (cat2 outPath ".opt.ll")))
     (if (< (sysWriteFile (strCStr llPath) ir) 0)
-        {
-          (writeStderrStr "error: could not write LLVM IR\n")
-          exitToolFailed
-        }
+        (toolFailDiag "could not write LLVM IR"
+                      "check that the output directory exists and is writable")
         (let ((toAssemble (runOpt llPath optLevel optPath)))
           (if (== (strLen toAssemble) 0)
               {
-                (writeStderrStr "error: opt failed\n")
                 (sysUnlink (strCStr llPath))
-                exitToolFailed
+                (toolFailDiag "opt failed"
+                              "`opt` is optional - a PATH without it warns and builds - so this is a failure of the one that is installed")
               }
               (let ((rc (assembleAndLink toAssemble objPath outPath optLevel)))
                 {
