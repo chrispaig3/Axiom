@@ -17,7 +17,7 @@
 ;           pointer, rendered `*Any` with no space
 ;   unit    `()` is the empty tuple
 ;   main    a bare non-arrow signature
-;   pf      a foreign's declared type survives parsing too
+;   pf      `String`, the one builtin type name the four above omit
 (import Str)
 (import Vec)
 (import Mem)
@@ -38,7 +38,7 @@
                             "(:: pick (-> (Maybe Int) (Int Bool) (* Any) Int))\n")
                  (strConcat "(:: unit (-> () Int))\n"
                             "(:: main Int)\n"))
-               "(foreign pf :: (-> String Int) = \"printf\")\n")))
+               "(:: pf (-> String Int))\n")))
     (let ((pr (parseModule (lex src))))
       (if (== (memGetWord pr 0) 0)
           7

@@ -4158,3 +4158,117 @@ The lever that matters is cultural and is written into every one of
 those scripts: **a bless is not a fix.** Each header now says what its
 derived half is and what drill it survived, so a maintainer regenerating
 a golden can see what they are being trusted with.
+
+---
+
+## 9. Retiring the C FFI
+
+`foreign` is gone. So are the struct layout modifiers `packed`,
+`repr(C)` and `align(N)`, and the `X` (foreign binding) kind in AXSYM.
+All three are now spelled the same way `union` and `region` are: a
+reserved word that reports `AX2004` with migration advice, so old source
+gets an explanation instead of being reinterpreted as an ordinary
+identifier.
+
+### 9.1 `foreign` did not work, and nothing said so
+
+The binding parsed, type-checked, contributed `IO` to effect inference,
+and appeared in `symbols` with its linked symbol name. What it never did
+was emit a `declare`. Measured on trunk `1c3b325`:
+
+```
+(foreign putchar :: (-> Int Int) = "putchar")
+(:: main Int)
+;@axiom:effect(io)
+(fn (main) { (putchar 65) 0 })
+```
+
+`check` answered `OK` and exited 0. `emit-llvm` produced
+`%t0 = call i64 @putchar(i64 65)` in a module that declares no
+`@putchar`, and `build` died two stages later:
+
+```
+opt: f1.ll:235:18: error: use of undefined value '@putchar'
+E AX4003 <toolchain>:- toolchain-failure "opt failed"
+```
+
+That is the exact shape `AX3015` exists to prevent — a name that passes
+`check` and then fails in the native toolchain with an undefined-symbol
+error about generated code — reintroduced by the one construct whose
+whole purpose was to name a symbol from outside. Every `foreign` program
+in the repository was a fixture that was never built: the diagnostics
+case only ever read the AX3006 beside it, and the fmt zoo is formatted
+and type-checked, never compiled.
+
+So removing it is not a capability loss. There was no capability.
+
+### 9.2 What it cost to keep
+
+`TAG_D_FOREIGN` was threaded through five of the compiler's modules:
+twelve sites in `typecheck.ax` (a namespace rule, the AX3015 definer
+test, a collection branch, the ambiguity table, `declDefines`,
+`setTargetCovered`, the declaration walk, and an `isForeign` field on
+`FnEnt` read by `repArity` and by both effect-inference walks), a
+declaration parser plus a two-function symbol scanner in `parser.ax`, a
+collection branch and a whole parallel-vec map pair in `symbols.ax`, and
+a printer arm plus `fpStrRaw` — its only caller — in `format.ax`.
+Dropping the `FnEnt` field shortened the struct from eight words to
+seven and renumbered three others; dropping the `symbols.ax` map pair
+took `SymMaps` from twenty-two fields to twenty.
+
+### 9.3 The layout modifiers were formatter-only
+
+`packed`, `repr(C)` and `align(N)` were documented in `README.md` and
+`docs/reference.md`, printed by `fpDeclStruct`, described by the
+tree-sitter grammar, and pinned by a tree-sitter corpus case — and
+rejected by the compiler. All three are `AX2001` and always have been:
+
+```
+E AX2001 s1.ax:1:11-15 unexpected-token "expected identifier, found `repr`"
+```
+
+The formatter could therefore only ever have printed programs that do
+not compile. `(struct Counter mut ...)` in `docs/reference.md` was the
+same class of defect and is corrected in the same pass; `mut` goes on
+the field.
+
+This is the failure mode `check-fmt.sh`'s own header names — "`type`,
+`trait`, `impl` and `foreign` were all formatted into source that did
+not parse, with CI green" — surviving in the one direction that gate
+does not cover, because the zoo carries only what someone wrote into it.
+
+### 9.4 What the freestanding gate lost, and what replaced it
+
+`check-freestanding.sh` ended in a negative probe: an Axiom program
+built on `(foreign posix_spawn ...)`, required to produce IR the
+forbidden-name grep catches. It worked precisely because `foreign`
+emitted an undeclared call. With `foreign` gone the language cannot name
+an external symbol at all, so that probe cannot be written any more.
+
+Deleting it would have left the gate asserting silence with nothing
+proving the silence is real. It is replaced by two checks that are
+together stronger than the one they replace:
+
+1. The grep is run against IR the script writes itself, once per name in
+   the list rather than once for `posix_spawn` — the old probe exercised
+   one alternative of a 31-name alternation, so a typo anywhere else in
+   it was invisible.
+2. The grep is shown *discriminating*: `axiom_alloc`, `freelist`,
+   `awaited`, `printfmt` and `__syscall1` must not match. A pattern that
+   matched everything passed the old probe.
+
+And a third check asserts the source-level door is shut: a `foreign`
+binding must be refused, and refused as `AX2004`. That is the fact the
+old probe implied by working; it is now stated.
+
+### 9.5 What stays
+
+The `libc_names` list stays, though nothing in the language can emit a
+call to one. It is what would notice a *backend* that started lowering
+something to a libc name, which is a different door from the
+source-level one.
+
+Tag 29 (`TAG_D_FOREIGN`) is retired, not reused. The tag numbers are the
+AST's wire format between `parser.ax` and its four readers, and a
+recycled one turns a stale reader into a silent misparse rather than a
+crash.

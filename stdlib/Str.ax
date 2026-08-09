@@ -22,7 +22,7 @@
 ;
 ; Its length is computed at compile time, which is why nothing here
 ; scans a literal. `(__addr "hello")` still yields the raw bytes for the
-; cases that want a C string - see `strFromLit` and `strCStr`.
+; cases that want NUL-terminated ones - see `strFromLit` and `strCStr`.
 
 (import Mem)
 
@@ -58,7 +58,7 @@
 ; with a compile-time length, and `(strFromLit (__addr "hello"))` is the
 ; same value arrived at by scanning for a length that was known. It
 ; remains the bridge for NUL-terminated bytes that come from somewhere
-; else: a syscall's output buffer, or a C library.
+; else: a syscall's output buffer.
 ;
 ; Cost is one scan for the length; the bytes are never copied.
 (pub :: strFromLit (-> Int Int))

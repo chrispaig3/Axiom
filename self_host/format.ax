@@ -575,9 +575,9 @@
 ;
 ; The tree keeps every token, which is the whole reason it exists.
 ; stage1's AST does not: `type`, `trait` and `impl` are consumed into an
-; inert node, `foreign` keeps only its name, and `(:: e T)` and `(- x)`
-; are desugared. A printer over that AST would delete declarations and
-; misprint negation, so the printer works over this instead.
+; inert node, and `(:: e T)` and `(- x)` are desugared. A printer over
+; that AST would delete declarations and misprint negation, so the
+; printer works over this instead.
 ; ------------------------------------------------------------------
 (pub :: FN_ATOM Int)    (pub fn (FN_ATOM) 0)
 (pub :: FN_PAREN Int)   (pub fn (FN_PAREN) 1)
@@ -1222,42 +1222,6 @@
           (fpP p "'")
         })))
 
-; A string literal's decoded bytes, emitted raw with no re-escaping.
-; This is what `foreign`'s source string gets: stage0 prints the
-; decoded value into plain quotes.
-(pub :: fpStrRaw (-> Int Int Int))
-(pub fn (fpStrRaw p tok)
-  (let ((src (fpSrc p))
-        (s (+ (ftStart tok) 1))
-        (e (- (ftEnd tok) 1)))
-    (if (|| (> (ftEnd tok) (strLen src))
-            (|| (< e s) (!= (strByte src e) 34)))
-        (fpBad p)
-        (let ((mut i s))
-          {
-            (while (< i e)
-              (let ((run i))
-                {
-                  (while (&& (< i e) (!= (strByte src i) 92)) (set i (+ i 1)))
-                  (fpSlice p run i)
-                  (if (< i e)
-                      (let ((esc (if (< (+ i 1) e) (strByte src (+ i 1)) 0)))
-                        {
-                          (if (== esc 110) (fpP p "\n")
-                          (if (== esc 116) (fpP p "\t")
-                          (if (== esc 114) (fpP p "\r")
-                          (if (== esc 92) (fpP p "\\")
-                          (if (== esc 34) (fpP p "\"")
-                          (if (== esc 39) (fpP p "'")
-                          (if (== esc 48) (fpByte p 0)
-                          (fpBad p))))))))
-                          (set i (+ i 2))
-                        })
-                      p)
-                }))
-            p
-          }))))
-
 ; ------------------------------------------------------------------
 ; Expressions.
 ; ------------------------------------------------------------------
@@ -1293,9 +1257,6 @@
   (if (strEq t "handle") true
   (if (strEq t "linear") true
   (if (strEq t "consume") true
-  (if (strEq t "packed") true
-  (if (strEq t "repr") true
-  (if (strEq t "align") true
   (if (strEq t "alloc") true
   (if (strEq t "sizeof") true
   (if (strEq t "alignof") true
@@ -1305,7 +1266,7 @@
   (if (strEq t "set") true
   (if (strEq t "union") true
   (if (strEq t "region") true
-  false))))))))))))))))))))))))))))))))))))
+  false)))))))))))))))))))))))))))))))))
 
 ; The operator spellings stage0's parser turns into expression values
 ; (`parse_expr_at_depth`'s token list), exactly and only. `$` lexes as
@@ -2488,8 +2449,7 @@
   (if (strEq h "impl") true
   (if (strEq h "effect") true
   (if (strEq h "macro") true
-  (if (strEq h "foreign") true
-  false))))))))))))))
+  false)))))))))))))
 
 ; The offset stage0's `decl_start` answers: the NAME token's start,
 ; which sits a few tokens into the form. Comments order against it.
@@ -2768,34 +2728,14 @@
             (fpP p "struct ")
             (fpP p (fnText src (fnKid n (+ b 1))))
             (fpTyvars p n (+ b 2) tvEnd)
-            ; Optional representation: `packed`, `repr(C)`, `align(N)`.
+            ; There is no layout modifier to print. `packed`, `repr(C)`
+            ; and `align(N)` were accepted here and by nothing else:
+            ; the parser has always answered AX2001 for all three, so
+            ; the only programs this arm could format were programs the
+            ; compiler refuses. C layout has no meaning in a language
+            ; that links no C.
             (let ((mut i tvEnd))
               {
-                (if (< i (fnLen n))
-                    (if (fpIsAtomText src (fnKid n i) "packed")
-                        { (fpP p " packed") (set i (+ i 1)) }
-                    (if (&& (fpIsAtomText src (fnKid n i) "repr")
-                            (&& (< (+ i 1) (fnLen n))
-                                (&& (== (fnKind (fnKid n (+ i 1))) FN_PAREN)
-                                    (&& (== (fnLen (fnKid n (+ i 1))) 1)
-                                        (fpIsAtomText src (fnKid (fnKid n (+ i 1)) 0) "C")))))
-                        { (fpP p " repr(C)") (set i (+ i 2)) }
-                    (if (&& (fpIsAtomText src (fnKid n i) "align")
-                            (&& (< (+ i 1) (fnLen n))
-                                (&& (== (fnKind (fnKid n (+ i 1))) FN_PAREN)
-                                    (== (fnLen (fnKid n (+ i 1))) 1))))
-                        (let ((num (fnKid (fnKid n (+ i 1)) 0)))
-                          (if (&& (== (fnKind num) FN_ATOM)
-                                  (== (ftKind (fnTok num)) FT_INT))
-                              {
-                                (fpP p " align(")
-                                (fpInt p (fnStart num) (fnEnd num))
-                                (fpP p ")")
-                                (set i (+ i 2))
-                              }
-                              (fpBad p)))
-                        p)))
-                    p)
                 ; Fields: `({mut }name : Type)`, one per line.
                 (if (< i (fnLen n)) (foPushIndent o) o)
                 (let ((had (< i (fnLen n))))
@@ -2921,29 +2861,6 @@
                           }))
                 }))
           }))))
-
-(pub :: fpDeclForeign (-> Int Int Int))
-(pub fn (fpDeclForeign p n)
-  (let ((src (fpSrc p)) (b (fpDeclBase src n)))
-    (if (|| (!= (fnLen n) (+ b 6))
-            (|| (if (fpIsIdentAtom (fnKid n (+ b 1))) false true)
-                (|| (if (fpIsDColonAtom (fnKid n (+ b 2))) false true)
-                    (|| (if (fpIsAtomText src (fnKid n (+ b 4)) "=") false true)
-                        (if (== (fnKind (fnKid n (+ b 5))) FN_ATOM)
-                            (!= (ftKind (fnTok (fnKid n (+ b 5)))) FT_STR)
-                            true)))))
-        (fpBad p)
-        {
-          (fpP p "(")
-          (fpVis p n)
-          (fpP p "foreign ")
-          (fpP p (fnText src (fnKid n (+ b 1))))
-          (fpP p " :: ")
-          (fpType p (fnKid n (+ b 3)))
-          (fpP p " = \"")
-          (fpStrRaw p (fnTok (fnKid n (+ b 5))))
-          (fpP p "\")")
-        })))
 
 (pub :: fpDeclImport (-> Int Int Int))
 (pub fn (fpDeclImport p n)
@@ -3280,8 +3197,7 @@
     (if (strEq h "impl") (fpDeclImpl p n)
     (if (strEq h "effect") (fpDeclEffect p n)
     (if (strEq h "macro") (fpDeclMacro p n)
-    (if (strEq h "foreign") (fpDeclForeign p n)
-    (fpBad p)))))))))))))))
+    (fpBad p))))))))))))))
 
 ; An AXTAG line, reconstructed the way stage0's parser splits it: the
 ; key up to the first `(`, the value to the LAST `)`. Text outside

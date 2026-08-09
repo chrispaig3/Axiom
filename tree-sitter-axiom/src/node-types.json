@@ -12,10 +12,6 @@
         "named": true
       },
       {
-        "type": "foreign_declaration",
-        "named": true
-      },
-      {
         "type": "function_definition",
         "named": true
       },
@@ -741,52 +737,6 @@
     }
   },
   {
-    "type": "foreign_declaration",
-    "named": true,
-    "fields": {
-      "name": {
-        "multiple": false,
-        "required": true,
-        "types": [
-          {
-            "type": "identifier",
-            "named": true
-          }
-        ]
-      },
-      "symbol": {
-        "multiple": false,
-        "required": true,
-        "types": [
-          {
-            "type": "string_literal",
-            "named": true
-          }
-        ]
-      },
-      "type": {
-        "multiple": false,
-        "required": true,
-        "types": [
-          {
-            "type": "_type",
-            "named": true
-          }
-        ]
-      },
-      "visibility": {
-        "multiple": false,
-        "required": false,
-        "types": [
-          {
-            "type": "pub",
-            "named": false
-          }
-        ]
-      }
-    }
-  },
-  {
     "type": "function_definition",
     "named": true,
     "fields": {
@@ -1424,6 +1374,36 @@
             "named": true
           }
         ]
+      },
+      "name": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "symbol": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "string_literal",
+            "named": true
+          }
+        ]
+      },
+      "type": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "_type",
+            "named": true
+          }
+        ]
       }
     },
     "children": {
@@ -1548,16 +1528,6 @@
           }
         ]
       },
-      "modifier": {
-        "multiple": true,
-        "required": false,
-        "types": [
-          {
-            "type": "struct_modifier",
-            "named": true
-          }
-        ]
-      },
       "name": {
         "multiple": false,
         "required": true,
@@ -1588,25 +1558,6 @@
           }
         ]
       }
-    }
-  },
-  {
-    "type": "struct_modifier",
-    "named": true,
-    "fields": {},
-    "children": {
-      "multiple": false,
-      "required": false,
-      "types": [
-        {
-          "type": "identifier",
-          "named": true
-        },
-        {
-          "type": "integer_literal",
-          "named": true
-        }
-      ]
     }
   },
   {
@@ -2060,10 +2011,6 @@
     "named": false
   },
   {
-    "type": "align",
-    "named": false
-  },
-  {
     "type": "alignof",
     "named": false
   },
@@ -2194,19 +2141,11 @@
     "named": false
   },
   {
-    "type": "packed",
-    "named": false
-  },
-  {
     "type": "pub",
     "named": false
   },
   {
     "type": "region",
-    "named": false
-  },
-  {
-    "type": "repr",
     "named": false
   },
   {

@@ -187,7 +187,6 @@ module.exports = grammar({
       $.trait_declaration,
       $.impl_declaration,
       $.import,
-      $.foreign_declaration,
       $.effect_declaration,
       $.macro_declaration,
     ),
@@ -268,11 +267,11 @@ module.exports = grammar({
     // formatter - unnoticed, because every `data` in the corpus is
     // written with the parens and the corpus is not stored formatted.
     //
-    // `struct` deliberately does not get the bare form. Its parameters
-    // are followed by an optional layout modifier (`repr(C)`, `packed`,
-    // `align(8)`), which is also a bare lowercase word, so a bare
-    // parameter there is genuinely ambiguous with `packed` - measured,
-    // it broke `struct with layout modifiers and a mutable field`.
+    // `struct` deliberately does not get the bare form either, even
+    // though the layout modifiers that made it ambiguous - `repr(C)`,
+    // `packed`, `align(8)` - are gone. No `struct` in the corpus is
+    // written that way, and widening the rule is a change to what the
+    // grammar accepts rather than to what it stops rejecting.
     _data_type_parameters: $ => choice(
       $.type_parameters,
       alias($.type_variable, $.type_parameters),
@@ -309,20 +308,19 @@ module.exports = grammar({
     // the repository used the construct to say so.
     deriving_clause: $ => seq('deriving', '(', repeat($.identifier), ')'),
 
-    // `(struct Name modifier? (field : Type)...)`
+    // `(struct Name (field : Type)...)`
+    //
+    // The C layout modifiers `packed`, `repr(C)` and `align(N)` used to
+    // sit between the name and the fields. The compiler's parser never
+    // accepted any of them - all three are `AX2001` - so the only
+    // programs this grammar described there were programs that do not
+    // compile, and C layout means nothing in a language that links no C.
     struct_declaration: $ => seq(
       '(', optional(field('visibility', 'pub')), 'struct',
       field('name', $.identifier),
       optional(field('type_parameters', $.type_parameters)),
-      repeat(field('modifier', $.struct_modifier)),
       repeat(field('field', $.field_declaration)),
       ')',
-    ),
-
-    struct_modifier: $ => choice(
-      'packed',
-      seq('repr', '(', $.identifier, ')'),
-      seq('align', '(', $.integer_literal, ')'),
     ),
 
     // `(name : Type)` with an optional `mut` before the name.
@@ -421,17 +419,6 @@ module.exports = grammar({
     // keeps the tree agreeing with the compiler's view.
     module_path: _ => token(/[A-Za-z_][A-Za-z0-9_']*(\.[A-Za-z_][A-Za-z0-9_']*)*/),
 
-    // `(foreign name :: Type = "symbol")`
-    foreign_declaration: $ => seq(
-      '(', optional(field('visibility', 'pub')), 'foreign',
-      field('name', $.identifier),
-      '::',
-      field('type', $._type),
-      '=',
-      field('symbol', $.string_literal),
-      ')',
-    ),
-
     effect_declaration: $ => seq(
       '(', optional(field('visibility', 'pub')), 'effect',
       field('name', $.identifier),
@@ -447,11 +434,12 @@ module.exports = grammar({
     // -----------------------------------------------------------------
     // Removed constructs
     //
-    // `union` and `region` are no longer part of the language but remain
-    // reserved words, and the compiler reports `AX2004` for them. They are
-    // in the grammar so an editor can mark the whole form as an error
-    // region with a useful name, instead of showing an anonymous ERROR
-    // node whose extent depends on where the recovery happened to land.
+    // `union`, `region` and `foreign` are no longer part of the language
+    // but remain reserved words, and the compiler reports `AX2004` for
+    // them. They are in the grammar so an editor can mark the whole form
+    // as an error region with a useful name, instead of showing an
+    // anonymous ERROR node whose extent depends on where the recovery
+    // happened to land.
     // -----------------------------------------------------------------
 
     // A single rule for both spellings, for the same reason
@@ -475,14 +463,33 @@ module.exports = grammar({
     // swallowed whole, or recovery ends mid-declaration and the trailing
     // fields get reinterpreted as top-level forms, turning one dead
     // declaration into a cascade of unrelated errors.
-    removed_form: $ => seq(
-      '(',
-      field('keyword', $.removed_keyword),
-      repeat(choice($.field_declaration, $._expression)),
-      ')',
+    // `foreign` gets a branch of its own rather than joining the
+    // permissive body above, because its tail - `name :: Type = "sym"` -
+    // is neither a field declaration nor an expression, and a body that
+    // could not swallow it would leave the `::` to start a cascade. The
+    // two branches are distinguished by their keyword token, which is a
+    // decision this grammar can make one token in.
+    removed_form: $ => choice(
+      seq(
+        '(',
+        field('keyword', $.removed_keyword),
+        repeat(choice($.field_declaration, $._expression)),
+        ')',
+      ),
+      seq(
+        '(',
+        field('keyword', alias($._removed_foreign, $.removed_keyword)),
+        field('name', $.identifier),
+        '::',
+        field('type', $._type),
+        '=',
+        field('symbol', $.string_literal),
+        ')',
+      ),
     ),
 
     removed_keyword: _ => choice('union', 'region'),
+    _removed_foreign: _ => 'foreign',
 
     // -----------------------------------------------------------------
     // Types

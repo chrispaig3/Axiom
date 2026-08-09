@@ -56,8 +56,9 @@ decision, it makes the same one the compiler makes:
   nearly always mid-edit, because a grammar that fails on incomplete input
   produces an `ERROR` that swallows the rest of the file and collapses
   highlighting exactly when the author most needs it.
-- **Removed constructs parse.** `union` and `region` are gone from the
-  language but still reserved, and the compiler reports `AX2004` for them.
+- **Removed constructs parse.** `union`, `region` and `foreign` are gone
+  from the language but still reserved, and the compiler reports `AX2004`
+  for them.
   A `removed_form` node consumes the whole dead form, so an editor gets one
   bounded region to mark as an error instead of an anonymous `ERROR` whose
   extent depends on where recovery landed — and so the trailing fields of

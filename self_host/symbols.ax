@@ -329,15 +329,14 @@
         })))
 
 ; The whole collection state, one handle: parallel-vec maps for the
-; three span namespaces, ctor spans, nid variants, axtags, foreign
-; symbols, and fn parameter names.
+; three span namespaces, ctor spans, nid variants, axtags, and fn
+; parameter names.
 (pub struct SymMaps (fnN : Int) (fnS : Int) (fnU : Int)
                     (tyN : Int) (tyS : Int) (tyU : Int)
                     (trN : Int) (trS : Int) (trU : Int)
                     (ctN : Int) (ctS : Int) (ctU : Int)
                     (nidN : Int) (nidV : Int)
                     (tagN : Int) (tagV : Int)
-                    (symN : Int) (symV : Int)
                     (prmN : Int) (prmV : Int)
                     (opN : Int) (opV : Int))
 
@@ -346,11 +345,11 @@
   (cast Int (SymMaps vecNew vecNew vecNew vecNew vecNew vecNew
                      vecNew vecNew vecNew vecNew vecNew vecNew
                      vecNew vecNew vecNew vecNew vecNew vecNew
-                     vecNew vecNew vecNew vecNew)))
+                     vecNew vecNew)))
 
 ; One declaration into the maps. The rules are stage0's exactly:
-; DSig overwrites a function span, DFn/DForeign only fill an absent
-; one; the nid variant is the LAST declaration mentioning the name;
+; DSig overwrites a function span, DFn only fills an absent one;
+; the nid variant is the LAST declaration mentioning the name;
 ; the axtag set is the last NON-EMPTY one.
 (pub :: smCollect (-> Int Int Int Int))
 (pub fn (smCollect sm d units)
@@ -370,14 +369,6 @@
             (saPutSoft2 (memGetWord sm 0) (memGetWord sm 1) (memGetWord sm 2)
                         name (nodeSpan d) u)
             (smNid sm name "DFn:")
-            (smTags sm d name)
-            (saPut (memGetWord sm 18) (memGetWord sm 19) name (nodeB d))
-          }
-      (if (== tag TAG_D_FOREIGN)
-          {
-            (saPutSoft2 (memGetWord sm 0) (memGetWord sm 1) (memGetWord sm 2)
-                        name (nodeSpan d) u)
-            (smNid sm name "DForeign:")
             (smTags sm d name)
             (saPut (memGetWord sm 16) (memGetWord sm 17) name (nodeB d))
           }
@@ -426,17 +417,17 @@
                 (while (< i (vecLen fields))
                   (let ((f (vecGet fields i)))
                     {
-                      (saPut (memGetWord sm 20) (memGetWord sm 21)
+                      (saPut (memGetWord sm 18) (memGetWord sm 19)
                              (nodeA f) (nodeB f))
                       (if (== (nodeModule d) 0)
                           0
-                          (saPut (memGetWord sm 20) (memGetWord sm 21)
+                          (saPut (memGetWord sm 18) (memGetWord sm 19)
                                  (strConcat (strConcat (nodeModule d) "$")
                                             (nodeA f))
                                  (nodeB f)))
                       (set i (+ i 1))
                     }))))
-      0))))))))
+      0)))))))
       0
     }))
 
@@ -531,12 +522,11 @@
 (pub :: symKindWord (-> Int Int))
 (pub fn (symKindWord k)
   (if (strEq k "F") "Fn"
-  (if (strEq k "X") "Foreign"
   (if (strEq k "D") "Data"
   (if (strEq k "C") "Ctor"
   (if (strEq k "S") "Struct"
   (if (strEq k "A") "Alias"
-  (if (strEq k "T") "Trait" k))))))))
+  (if (strEq k "T") "Trait" k)))))))
 
 ; Characters, not bytes - the same rule every column in this compiler
 ; counts by.
@@ -633,14 +623,13 @@
         (lines vecNew))
     (let ((sm (smBuild decls units)))
       {
-        ; --- functions and foreigns -------------------------------
+        ; --- functions --------------------------------------------
         (let ((fns (tcFns tc)) (mut i 0))
           (while (< i (vecLen fns))
             (let ((e (vecGet fns i)))
               (let ((name (memGetWord e 0))
                     (isB (memGetWord e 3))
-                    (isF (memGetWord e 4))
-                    (isOp (memGetWord e 5)))
+                    (isOp (memGetWord e 4)))
                 {
                   (if (|| (&& (== isB 1) (== builtins 0))
                           (&& (== isOp 1)
@@ -649,13 +638,8 @@
                       (let ((metas vecNew)
                             (loc (smLocReal sm 0 1 2 name units)))
                         {
-                          (if (== isF 1)
-                              (vecPush metas
-                                (strConcat "symbol="
-                                  (saGet (memGetWord sm 16) (memGetWord sm 17) name)))
-                              0)
                           (smTagMetas sm name metas)
-                          (let ((effs (memGetWord e 6)))
+                          (let ((effs (memGetWord e 5)))
                             (if (&& (> (vecLen effs) 0) (== isB 0))
                                 (let ((disp vecNew) (mut k 0))
                                   {
@@ -669,10 +653,10 @@
                                                  (saJoinComma (saSort disp))))
                                   })
                                 0))
-                          (let ((eps (memGetWord e 7)))
+                          (let ((eps (memGetWord e 6)))
                             (if (&& (> (vecLen eps) 0) (== isB 0))
-                                (let ((params (saGet (memGetWord sm 18)
-                                                     (memGetWord sm 19) name))
+                                (let ((params (saGet (memGetWord sm 16)
+                                                     (memGetWord sm 17) name))
                                       (pnames vecNew)
                                       (mut k 0))
                                   {
@@ -691,10 +675,10 @@
                                                  (saJoinComma pnames)))
                                   })
                                 0))
-                          (let ((opTy (saGet (memGetWord sm 20)
-                                             (memGetWord sm 21) name)))
+                          (let ((opTy (saGet (memGetWord sm 18)
+                                             (memGetWord sm 19) name)))
                             (vecPush lines
-                              (symLine (if (== isF 1) "X" "F")
+                              (symLine "F"
                                        (bareOf name)
                                        (if (== (strLen loc) 0) "-" loc)
                                        (if (&& (== isOp 1) (!= opTy 0))

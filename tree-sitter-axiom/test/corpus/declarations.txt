@@ -84,10 +84,10 @@ data declaration with no type parameters
       (constructor_identifier))))
 
 ================================================================
-struct with layout modifiers and a mutable field
+struct with a mutable field
 ================================================================
 
-(struct Point repr(C)
+(struct Point
   (x : Int)
   (mut y : Int))
 
@@ -96,8 +96,6 @@ struct with layout modifiers and a mutable field
 (source_file
   (struct_declaration
     (identifier)
-    (struct_modifier
-      (identifier))
     (field_declaration
       (identifier)
       (builtin_type))
@@ -119,22 +117,6 @@ type alias
     (type_parameters)
     (list_type
       (builtin_type))))
-
-================================================================
-foreign binding
-================================================================
-
-(foreign printf :: (-> String Int) = "printf")
-
-----------------------------------------------------------------
-
-(source_file
-  (foreign_declaration
-    (identifier)
-    (function_type
-      (builtin_type)
-      (builtin_type))
-    (string_literal)))
 
 ================================================================
 import with and without a name list

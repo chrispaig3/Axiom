@@ -46,3 +46,28 @@ region expression is consumed as one removed form
       (removed_keyword)
       (identifier)
       (integer_literal))))
+
+================================================================
+foreign binding is consumed as one removed form
+================================================================
+
+(foreign printf :: (-> String Int) = "printf")
+(:: main Int)
+(fn (main) 0)
+
+----------------------------------------------------------------
+
+(source_file
+  (removed_form
+    (removed_keyword)
+    (identifier)
+    (function_type
+      (builtin_type)
+      (builtin_type))
+    (string_literal))
+  (type_signature
+    (identifier)
+    (builtin_type))
+  (function_definition
+    (identifier)
+    (integer_literal)))

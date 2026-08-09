@@ -2,7 +2,7 @@
  [1;34m--> [0m030-missing-definition.ax:1:5
 [1;34m  |[0m
 [1;34m1 |[0m (:: ghost (-> Int Int))
-[1;34m  |[0m     [1;31m^^^^^ no `fn` or `foreign` defines `ghost`[0m
+[1;34m  |[0m     [1;31m^^^^^ no `fn` defines `ghost`[0m
 [1;34m  |[0m
  [1;34m = [0m[1;32mhelp: [0madd the definition, or if it lives in another module, mark that definition `pub` so the import carries it
  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3015` for a full explanation

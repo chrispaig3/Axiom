@@ -1,6 +1,6 @@
 ; Mem - raw memory operations, in Axiom.
 ;
-; These are the functions that used to require `foreign` bindings to
+; These are the functions that used to require FFI bindings to
 ; `malloc`/`memcpy`/`memset`. They are now ordinary Axiom loops over the
 ; `__alloc`/`__load8`/`__store8` primitives, which means they are
 ; type-checked, span-checked, and steppable like any other Axiom code,

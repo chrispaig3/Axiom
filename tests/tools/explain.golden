@@ -102,6 +102,13 @@ meaning under linear typing, where every value has exactly one owner and
 one type. Use `data` for a tagged sum, whose variants the compiler can
 check for exhaustiveness, or `struct` for a product.
 
+`foreign` is gone for the same reason, and because it never worked: a
+binding emitted a call to a symbol the module never declared, so a
+program that used one passed `check` and then died inside `opt` or the
+linker. Generated code links no C library. Reach the kernel through
+the standard library, which is written in Axiom over
+`__syscall0`-`__syscall6`.
+
 `region` is gone because memory is no longer scoped by an explicit
 source-level block. Allocation lifetime is inferred: a value's arena is
 determined by where it is created and how far it escapes, and it is
@@ -251,11 +258,11 @@ file's definition and needs no qualification.
 ### explain AX3015
 AX3015 - a signature with no definition behind it
 
-A `(:: name Type)` signature declares a name, but only a `(fn ...)`
-or `(foreign ...)` gives it something to run. This name has the
-former and not the latter - either the entry file declares the
-signature and never defines the function, or an import delivered a
-`pub` signature whose definition stayed private in its module.
+A `(:: name Type)` signature declares a name; only a `(fn ...)`
+gives it something to run. This name has a signature and no `fn` -
+either the entry file declares the signature and never defines the
+function, or an import delivered a `pub` signature whose definition
+stayed private in its module.
 Calling it used to pass `check` and then fail in the native
 toolchain with an undefined-symbol error about generated code.
 

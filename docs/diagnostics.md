@@ -271,9 +271,8 @@ instead of the failure case.
 pipeline as `check` (including resolving `(import ...)`s, see
 `docs/diagnostics.md`'s multi-file notes below), then prints one fact per
 top-level name the checker collected: every `define`/`fn`, every
-`foreign` binding, every `data` type and its constructors, every
-`struct` (with its exact field shapes and layout attributes),
-every `type` alias, and every trait.
+`data` type and its constructors, every `struct` (with its exact field
+shapes), every `type` alias, and every trait.
 
 ```bash
 # AXSYM, one line per symbol - the only format, and the default
@@ -303,7 +302,7 @@ selects the format of *diagnostics*, which is what it is named for.
 
 | Field | Meaning |
 |---|---|
-| `KIND` | One letter: `F` function, `X` foreign binding, `D` data type, `C` constructor, `S` struct, `A` type alias, `T` trait |
+| `KIND` | One letter: `F` function, `D` data type, `C` constructor, `S` struct, `A` type alias, `T` trait |
 | `NAME` | The declared name, exactly as written |
 | `FILE:LOC` | Same `file:line:col[-col\|:line:col]` addressing as AXDL, via the same source map in [`self_host/diag.ax`](../self_host/diag.ax) - for a program with `(import ...)`s, `FILE` is the *actual* file that declared this symbol (an imported module's own file), not always the entry file, exactly like AXDL's own multi-file attribution |
 | `-` | In place of `FILE:LOC`, for names with no source span at all - in practice, only Axiom's dozen built-in operators (`+`, `==`, `&&`, ...), which `axiom symbols` omits entirely unless `--builtins` is passed (they never change, so printing them on every call is exactly the restating-what's-already-known token waste this notation exists to avoid) |
@@ -317,9 +316,7 @@ Metadata keys actually emitted today:
 | `ctors` | `D` | Comma-separated constructor names, e.g. `#ctors=Nothing,Just` |
 | `of` | `C` | The constructor's owning data type, e.g. `#of=Maybe` |
 | `fields` | `S` | `name:Type,name:Type,...` - the actual field shapes, not just a count, e.g. `#fields=x:Int,y:Int` |
-| `packed` / `repr=C` / `align=N` | `S` | The struct's layout attribute, when it has a non-default one |
 | `methods` | `T` | `name:Type,name:Type,...` for the trait's methods, same shape as `fields` |
-| `symbol` | `X` | The real linked C symbol name from `(foreign name :: Type = "c_symbol")`, e.g. `#symbol=printf` - not always the same as `NAME` |
 | `tyvars` | `A` | Comma-separated type parameters, e.g. `#tyvars=a,b`, omitted when there are none |
 
 `KIND` letters are deliberately disjoint from the severity sigils `E`/`W`/`N`/`H`, so the first character of a line is never ambiguous about which notation (or which command) produced it even if AXDL and AXSYM output were ever concatenated into one stream.
@@ -329,8 +326,6 @@ Metadata keys actually emitted today:
 Source:
 
 ```lisp
-(foreign printf :: (-> String Int) = "printf")
-
 (data Maybe (a)
   (Nothing)
   (Just a))
@@ -347,17 +342,16 @@ Source:
 AXSYM output (`--diagnostic-format=ai symbols`, builtins omitted by default):
 
 ```
-X printf main.ax:1:10-16 "(String -> Int)" #symbol=printf
-F add main.ax:11:5-8 "(Int -> (Int -> Int))"
-D Maybe main.ax:3:7-12 "data Maybe" #ctors=Nothing,Just
-C Nothing main.ax:4:4-11 "Maybe" #of=Maybe
-C Just main.ax:5:4-8 "(a -> Maybe a)" #of=Maybe
-S Point main.ax:7:9-14 "struct Point" #fields=x:Int,y:Int
+F add main.ax:9:5-8 "(Int -> (Int -> Int))"
+D Maybe main.ax:1:7-12 "data Maybe" #ctors=Nothing,Just
+C Nothing main.ax:2:4-11 "Maybe" #of=Maybe
+C Just main.ax:3:4-8 "(a -> Maybe a)" #of=Maybe
+S Point main.ax:5:9-14 "struct Point" #fields=x:Int,y:Int
 ```
 
 An agent asked to "add a function that formats a `Maybe Int`" can now
 `grep '^D Maybe'`/`grep '^C '` for the exact constructor set and
-`grep '^X printf'` for the exact FFI signature, instead of paying to
+`grep '^S Point'` for its exact field shapes, instead of paying to
 re-read and re-parse the whole file just to recover facts the type
 checker already has in hand.
 
@@ -422,8 +416,9 @@ Both NID and AXTAG are now implemented.
   on the corresponding AXSYM line (e.g. `#effect=io`, `#pure`).
 
   Sema validates what it can: `effect(io)` claims are checked against
-  actual foreign calls in the body, and `pure` claims are checked against
-  foreign calls. Mismatches emit a normal `AX3010` / `axtag-mismatch`
+  what the body actually performs - a `__syscallN`, or a call to
+  something that performs one - and `pure` claims are checked against
+  the absence of any effect. Mismatches emit a normal `AX3010` / `axtag-mismatch`
   warning so an agent can correct the annotation instead of silently
   trusting it. Other tags (`no_refactor`, `owned(arena=frame)`, etc.) are
   preserved and emitted but not yet validated.

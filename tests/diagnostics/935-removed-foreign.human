@@ -1,0 +1,10 @@
+[1;31merror[AX2004][0m[1m: `foreign` is no longer part of Axiom[0m
+ [1;34m--> [0m935-removed-foreign.ax:1:2
+[1;34m  |[0m
+[1;34m1 |[0m (foreign putchar :: (-> Int Int) = "putchar")
+[1;34m  |[0m  [1;31m^^^^^^^ `foreign` was removed: C interoperability is no longer a goal, and generated code links no C library to call into[0m
+[1;34m  |[0m
+ [1;34m = [0m[1;32mhelp: [0muse the standard library, which reaches the kernel through `__syscall0`-`__syscall6` rather than through libc
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX2004` for a full explanation
+
+compilation failed due to 1 previous error

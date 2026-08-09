@@ -20,9 +20,6 @@
 ; --- type alias -----------------------------------------------------
 (pub type Count = Int)
 
-; --- foreign binding ------------------------------------------------
-(foreign putchar :: (-> Int Int) = "putchar")
-
 ; --- data: positional, named fields, nullary ------------------------
 (pub data Shape
   (Circle { r : Int })
@@ -245,8 +242,6 @@
 (fn (aBox) (B 1))
 
 (pub type BoxedCount = (Box Int))
-
-(foreign boxed_zero :: (Box Int) = "boxed_zero")
 
 (struct Holder
   (item : (Box Int)))

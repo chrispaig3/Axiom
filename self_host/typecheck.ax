@@ -45,7 +45,7 @@
 ;
 ; Pass order (probed, pinned by goldens 040/130): every AX3006, then
 ; every AX3015, then the body walk in declaration order, with
-; signature/foreign scope entries pushed AS ENCOUNTERED - a `set` in
+; signature scope entries pushed AS ENCOUNTERED - a `set` in
 ; an earlier body does not see a later signature (probed: AX3001, not
 ; AX3012).
 ;
@@ -224,14 +224,10 @@
 ; stage1's parser turns `type` and `trait` into TAG_NIL (parser.ax's
 ; skipUnknownDecl), so `fn` - and `define`, its documented synonym,
 ; which stage0 parses through the same function - is the only value
-; definition that reaches here. `foreign` is parsed for its name alone
-; (TAG_D_FOREIGN) because stage0 counts one as a definition, and
-; skipping it made a signature beside a foreign binding look
-; unsatisfied. RECORDED GAP: stage0 also counts `foreign` in the
-; *duplicate* value namespace and `type` in the type namespace, so a
-; duplicate `foreign` or `type` in the entry file is an AX3006 stage1
-; stays silent about. Under-reporting, never over-reporting: the
-; direction that cannot reject a valid program.
+; definition that reaches here. RECORDED GAP: stage0 also counts
+; `type` in the type namespace, so a duplicate `type` in the entry
+; file is an AX3006 stage1 stays silent about. Under-reporting, never
+; over-reporting: the direction that cannot reject a valid program.
 ; ------------------------------------------------------------------
 (pub :: NS_NONE Int)  (pub fn (NS_NONE)  0)
 (pub :: NS_VALUE Int) (pub fn (NS_VALUE) 1)
@@ -342,7 +338,7 @@
   (if (>= i (vecLen allDecls))
       0
       (let ((d (vecGet allDecls i)))
-        (if (&& (|| (== (nodeTag d) TAG_D_FN) (== (nodeTag d) TAG_D_FOREIGN))
+        (if (&& (== (nodeTag d) TAG_D_FN)
                 (== (nameMatches (nodeA d) name) 1))
             1
             (isDefined allDecls name (+ i 1))))))
@@ -365,7 +361,7 @@
                                          "` has a signature but no definition")
                               0 0
                               "add the definition, or if it lives in another module, mark that definition `pub` so the import carries it")
-                        (strConcat (strConcat "no `fn` or `foreign` defines `" name) "`")))
+                        (strConcat (strConcat "no `fn` defines `" name) "`")))
                     (checkMissingDefs entryDecls allDecls out (+ i 1))
                   }))))))
 
@@ -381,10 +377,10 @@
 ;            what puts `Some`/`None` ahead of every user constructor
 ;            in suggestion and resolution order.
 ;   structs  Vec of StructEnt.
-;   scope    one Vec: module-level entries (signatures and foreigns,
-;            pushed as the declaration walk reaches them - order
-;            matters, probed) below frameBase, the current function's
-;            frame above it. Value resolution reads the FRAME only;
+;   scope    one Vec: module-level entries (signatures, pushed as the
+;            declaration walk reaches them - order matters, probed)
+;            below frameBase, the current function's frame above it.
+;            Value resolution reads the FRAME only;
 ;            `set` target resolution reads the whole vec - stage0's
 ;            asymmetry, kept deliberately.
 ;   counter  the fresh-type-variable counter. Its increment sites are
@@ -401,7 +397,7 @@
 ; performs. `apply` is `{effects: [], eparams: [0]}` - exactly as pure
 ; as its argument.
 (pub struct FnEnt (name : Int) (ty : Int) (paramCount : Int)
-                  (isBuiltin : Int) (isForeign : Int) (isEffectOp : Int)
+                  (isBuiltin : Int) (isEffectOp : Int)
                   (effects : Int) (eparams : Int))
 ; `fieldNames` is the constructor's declared field names when it was
 ; written as a struct variant, and 0 otherwise. A NAMED pattern is
@@ -470,7 +466,7 @@
 
 (pub :: regFn (-> Int Int Int Int))
 (pub fn (regFn fns name ty)
-  (vecPush fns (cast Int (FnEnt name ty (- 0 1) 1 0 0 vecNew vecNew))))
+  (vecPush fns (cast Int (FnEnt name ty (- 0 1) 1 0 vecNew vecNew))))
 
 ; ------------------------------------------------------------------
 ; Registration: stage0's TypeChecker::new(), in its order - the order
@@ -562,10 +558,7 @@
 ; mirroring stage0's collect_declarations. Keying is exact-name -
 ; imported names arrive pre-mangled to `Mod$name`, which is stage0's
 ; (name, module) key spelled as one string. A later signature for the
-; same name overwrites (stage0 1905); a foreign ALWAYS pushes a new
-; entry even when a signature already made one (stage0 1969), and
-; first-match-wins lookups then prefer the signature's - order-
-; sensitive duplicate state, copied deliberately.
+; same name overwrites (stage0 1905).
 ; ------------------------------------------------------------------
 (pub :: tcCollect (-> Int Int Int Int))
 (pub fn (tcCollect tc decls i)
@@ -583,11 +576,6 @@
                 (tcCollectSig tc d)
             (if (== tag TAG_D_FN)
                 (tcCollectFn tc d)
-            (if (== tag TAG_D_FOREIGN)
-                (vecPush (tcFns tc)
-                  (cast Int (FnEnt (nodeA d)
-                                   (if (== (nodeTy d) 0) mkSilentWild (nodeTy d))
-                                   (- 0 1) 0 1 0 vecNew vecNew)))
             (if (== tag TAG_D_EFFECT)
                 {
                   ; The whole declaration node, not just its name:
@@ -608,14 +596,13 @@
                 (vecPush (tcAliases tc) d)
             (if (== tag TAG_D_TRAIT)
                 (vecPush (tcTraits tc) d)
-            0)))))))))
+            0))))))))
             (tcCollect tc decls (+ i 1))
           }))))
 
 ; Every operation of `(effect E ...)` carries `Custom(E)` as its
-; INHERENT effect, exactly as a foreign binding carries IO - stage0
-; attaches it at registration so the collector needs no special case
-; for operations at all.
+; INHERENT effect - stage0 attaches it at registration so the
+; collector needs no special case for operations at all.
 ; An operation of an IMPORTED effect is registered twice: under its
 ; bare name and under `Mod$op`. stage1 resolves a qualified reference
 ; by mangling it into a flat name, which works for every other kind of
@@ -648,7 +635,7 @@
 (pub :: tcAddEffectOp (-> Int Int Int Int))
 (pub fn (tcAddEffectOp tc name effName)
   (vecPush (tcFns tc)
-    (cast Int (FnEnt name mkSilentWild (- 0 1) 0 0 1
+    (cast Int (FnEnt name mkSilentWild (- 0 1) 0 1
                      (let ((v vecNew))
                        { (vecPush v (customEff effName)) v })
                      vecNew))))
@@ -742,7 +729,7 @@
     (let ((ent (findFnEntExact (tcFns tc) (nodeA d) 0)))
       (if (== ent 0)
           (vecPush (tcFns tc)
-                   (cast Int (FnEnt (nodeA d) ty (- 0 1) 0 0 0 vecNew vecNew)))
+                   (cast Int (FnEnt (nodeA d) ty (- 0 1) 0 0 vecNew vecNew)))
           (memSetWord ent 1 ty)))))
 
 (pub :: tcCollectFn (-> Int Int Int))
@@ -753,7 +740,7 @@
                    (let ((ph (mkTVar (strConcat "_fn_" (decStr (tcCounter tc))))))
                      {
                        (tcBumpCounter tc)
-                       (let ((ne (cast Int (FnEnt (nodeA d) ph (- 0 1) 0 0 0 vecNew vecNew))))
+                       (let ((ne (cast Int (FnEnt (nodeA d) ph (- 0 1) 0 0 vecNew vecNew))))
                          { (vecPush (tcFns tc) ne) ne })
                      }))))
       (memSetWord ent 2 (vecLen (nodeB d))))))
@@ -890,23 +877,23 @@
 
 ; How many arguments a function's use must supply before it can be a
 ; value: the declared parameter count when a definition was seen, the
-; ARROW DEPTH for builtins and foreigns (their type is the whole
-; truth), and -1 - unmeasurable - for a signature-only name (a
-; one-parameter function returning a closure has arrow depth 2 but
-; arity 1, so depth would wrongly flag legal code).
+; ARROW DEPTH for builtins (their type is the whole truth), and -1 -
+; unmeasurable - for a signature-only name (a one-parameter function
+; returning a closure has arrow depth 2 but arity 1, so depth would
+; wrongly flag legal code).
 (pub :: repArity (-> Int Int))
 (pub fn (repArity ent)
   (if (>= (memGetWord ent 2) 0)
       (memGetWord ent 2)
-      (if (|| (== (memGetWord ent 3) 1) (== (memGetWord ent 4) 1))
+      (if (== (memGetWord ent 3) 1)
           (arrowDepth (memGetWord ent 1))
           (- 0 1))))
 
 ; ------------------------------------------------------------------
 ; Scope. One entry per binding: name, mutability, the binder's span
 ; (0 = unknown, suppresses AX3012's anchor), and now the TYPE.
-; Entries below frameBase belong to the module walk (signatures,
-; foreigns); the frame region above it is the current function.
+; Entries below frameBase belong to the module walk (signatures); the
+; frame region above it is the current function.
 ; ------------------------------------------------------------------
 (pub struct SEnt (name : Int) (mutable : Int) (bsp : Int) (ty : Int))
 
@@ -1325,7 +1312,7 @@
 ; entry-file definition to win. Refused in every position, head or
 ; value; `Mod::name` picks explicitly.
 ;
-; A DEFINER is a `fn`, a `foreign`, or an effect operation - a bare
+; A DEFINER is a `fn` or an effect operation - a bare
 ; signature neither creates ambiguity nor outranks a real definer -
 ; plus a data constructor, because candidates are the union across
 ; BOTH namespaces: a function in one module and a constructor of the
@@ -1410,7 +1397,7 @@
 (pub fn (ambBuildDecl tbl d)
   (let ((tag (nodeTag d))
         (m (nodeModule d)))
-    (if (|| (== tag TAG_D_FN) (== tag TAG_D_FOREIGN))
+    (if (== tag TAG_D_FN)
         (ambRecord tbl (bareOf (nodeA d)) m)
     (if (== tag TAG_D_EFFECT)
         (ambRecordAll tbl (nodeB d) 0 m)
@@ -1468,7 +1455,7 @@
 (pub :: declDefines (-> Int Int Int))
 (pub fn (declDefines d n)
   (let ((tag (nodeTag d)))
-    (if (|| (== tag TAG_D_FN) (== tag TAG_D_FOREIGN))
+    (if (== tag TAG_D_FN)
         (if (strEq (bareOf (nodeA d)) n) 1 0)
     (if (== tag TAG_D_EFFECT)
         (strInVec (nodeB d) n 0)
@@ -1535,7 +1522,7 @@
 (pub fn (checkBareValue tc name span)
   (let ((ent (findFnEnt tc name)))
     (if (!= ent 0)
-        (if (== (memGetWord ent 5) 1)
+        (if (== (memGetWord ent 4) 1)
             ; An effect operation cannot be a bare value: it is
             ; dispatch, not data, so there is no closure to hand
             ; around. stage0 refuses with AX3017 and returns poison,
@@ -1924,8 +1911,6 @@
 ; Effect inference: stage0's `collect_effects` walk and the monotone
 ; fixpoint over it. What introduces an effect, and nothing else does:
 ;
-;   calling a `foreign`          IO   (stage0 adds it at the CALL,
-;                                     not as a stored effect)
 ;   calling `__syscallN`         IO
 ;   calling anything else        that callee's inferred effects
 ;   an effect operation          Custom(E), stored on its entry
@@ -2184,13 +2169,10 @@
                 ; what it does with its arguments is unknown.
                 (escapeArgs bound args 0)
                 {
-                  (if (== (memGetWord ent 4) 1)
-                      (effAdd acc (builtinEff "IO"))
-                      0)
-                  (effUnion acc (memGetWord ent 6) 0)
+                  (effUnion acc (memGetWord ent 5) 0)
                   ; Instantiate the callee's transparent positions
                   ; with what this call passes there.
-                  (instantiateEparams bound (memGetWord ent 7) args 0)
+                  (instantiateEparams bound (memGetWord ent 6) args 0)
                 })))))
 
 (pub :: escapeArgs (-> Int Int Int Int))
@@ -2225,10 +2207,7 @@
             (if (== ent 0)
                 0
                 {
-                  (if (== (memGetWord ent 4) 1)
-                      (effAdd acc (builtinEff "IO"))
-                      0)
-                  (effUnion acc (memGetWord ent 6) 0)
+                  (effUnion acc (memGetWord ent 5) 0)
                 })))))
 
 ; ------------------------------------------------------------------
@@ -2509,8 +2488,8 @@
                         (sc (bodyScopeOf tc d)))
                     (let ((got (collectEffects tc (nodeC d) sc))
                           (_m0 (memSetWord tc 16 0)))
-                      (let ((g1 (effUnion (memGetWord ent 6) got 0))
-                            (g2 (intUnion (memGetWord ent 7)
+                      (let ((g1 (effUnion (memGetWord ent 5) got 0))
+                            (g2 (intUnion (memGetWord ent 6)
                                           (bsEparams sc) 0)))
                         (if (|| (== g1 1) (== g2 1)) 1 rest))))))))))
 
@@ -2555,8 +2534,8 @@
     ; an error the body contradicts.
     ;
     ; The seed starts at frameBase, NOT at 0. Everything below it is
-    ; the module walk's own entries - every signature and foreign
-    ; seen so far - and seeding with those makes every top-level
+    ; the module walk's own entries - every signature seen so far -
+    ; and seeding with those makes every top-level
     ; function look lexically bound, so a call to one contributes
     ; nothing and the whole fixpoint's work is discarded at the only
     ; place that reads it. stage0 seeds from its `__scope__` marker
@@ -2833,7 +2812,7 @@
 ; exactly what makes a top-level target AX3012 with an AX3004 cascade
 ; through the binding's declared type). A binder stage1 has no span
 ; for suppresses BOTH halves. An unbound name that any signature,
-; foreign, or imported definition covers stays silent (stage0 answers
+; or imported definition covers stays silent (stage0 answers
 ; AX3012 anchored in another file - bytes stage1 cannot render);
 ; otherwise AX3001 with candidates from scope alone.
 ; ------------------------------------------------------------------
@@ -2906,8 +2885,7 @@
       0
       (let ((d (vecGet decls i)))
         (let ((tag (nodeTag d)))
-          (if (&& (|| (== tag TAG_D_SIG)
-                      (|| (== tag TAG_D_FOREIGN) (== tag TAG_D_FN)))
+          (if (&& (|| (== tag TAG_D_SIG) (== tag TAG_D_FN))
                   (&& (== (nameMatches (nodeA d) name) 1)
                       (if (strEq (nodeA d) name) false true)))
               1
@@ -3388,7 +3366,7 @@
           (bareOfFrom s (- i 1)))))
 
 ; ------------------------------------------------------------------
-; The declaration walk: signatures and foreigns park scope entries AS
+; The declaration walk: signatures park scope entries AS
 ; THE WALK REACHES THEM (order-sensitive, probed: a `set` in an
 ; earlier body does not see a later signature), and every entry-file
 ; function body is checked with its parameters typed by peeling the
@@ -3413,7 +3391,7 @@
           {
             (memSetWord tc 14 (unitIndexFor (memGetWord tc 13) (nodeModule d)))
             (let ((tag (nodeTag d)))
-              (if (|| (== tag TAG_D_SIG) (== tag TAG_D_FOREIGN))
+              (if (== tag TAG_D_SIG)
                   (pushScope (tcScope tc) (nodeA d) 0 (nodeSpan d)
                              (if (== (nodeTy d) 0) mkSilentWild (nodeTy d)))
                   ; The body first, then its tags - stage0's

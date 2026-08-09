@@ -393,8 +393,8 @@ else
   fi
   # The zoo is the one corpus file that exists only to be parsed, so it
   # is also the one whose formatted form is worth type-checking on its
-  # own: it carries `type`, `trait`, `impl` and `foreign`, all of which
-  # were once formatted into source that did not parse.
+  # own: it carries `type`, `trait` and `impl`, all of which were once
+  # formatted into source that did not parse.
   if ! (cd "$copy" && AXIOM_STDLIB="$copy/stdlib" "$axc" --diagnostic-format=ai \
           check tests/fmt/syntax-zoo.ax) >"$work/zoocheck.log" 2>&1; then
     echo "FAIL: the formatted syntax zoo no longer type-checks"

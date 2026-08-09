@@ -1,4 +1,4 @@
-; The freestanding "hello world": no `foreign`, no libc, no printf.
+; The freestanding "hello world": no FFI, no libc, no printf.
 (import IO)
 
 (pub :: main Int)

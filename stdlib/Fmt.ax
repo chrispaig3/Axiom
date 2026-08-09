@@ -1,7 +1,7 @@
 ; Fmt - number formatting, in Axiom.
 ;
 ; This module is what replaced `printf`. Formatting an integer used to
-; mean a `foreign` binding to a C variadic function - a construct Axiom's
+; have meant an FFI binding to a C variadic function - a construct Axiom's
 ; type system cannot describe and its effect analysis cannot see through.
 ; Doing it in Axiom instead is about 40 lines, is fully type-checked, and
 ; leaves nothing for a C library to do.

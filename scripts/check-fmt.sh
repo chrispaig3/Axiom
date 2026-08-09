@@ -125,8 +125,10 @@ fi
 # `tests/fmt/syntax-zoo.ax` carries every declaration and expression form
 # the parser accepts, because this gate is otherwise exactly as wide as
 # the corpus - and the corpus uses `data`, `struct`, `fn` and `macro` and
-# nothing else. `type`, `trait`, `impl` and `foreign` were all formatted
-# into source that did not parse, with CI green.
+# nothing else. `type`, `trait` and `impl` were all formatted into source
+# that did not parse, with CI green. So was `foreign`, until it was
+# removed from the language - the zoo no longer carries it, and the
+# printer no longer has an arm for it.
 #
 # Type-checking rather than only re-parsing, because the worst of those
 # bugs produced a file that parsed perfectly well and meant something

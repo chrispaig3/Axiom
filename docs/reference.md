@@ -24,12 +24,11 @@ A friendly, comprehensive guide to the Axiom programming language — a function
 16. [Effects](#effects)
 17. [Handle Expressions](#handle-expressions)
 18. [Modules and Imports](#modules-and-imports)
-19. [Foreign Function Interface](#foreign-function-interface)
-20. [Memory Primitives](#memory-primitives)
-21. [Standard Library](#standard-library)
-22. [AXTAG Metadata](#axtag-metadata)
-23. [Linear Types and Consume](#linear-types-and-consume)
-24. [Removed Features](#removed-features)
+19. [Memory Primitives](#memory-primitives)
+20. [Standard Library](#standard-library)
+21. [AXTAG Metadata](#axtag-metadata)
+22. [Linear Types and Consume](#linear-types-and-consume)
+23. [Removed Features](#removed-features)
 25. [The REPL](#the-repl)
 26. [CLI Commands](#cli-commands)
 27. [Compiler Pipeline](#compiler-pipeline)
@@ -202,7 +201,6 @@ These words are reserved and cannot be used as identifiers:
 | `trait` | Interface / type class |
 | `impl` | Trait implementation |
 | `import` | Import a module |
-| `foreign` | Declare a C function |
 | `pub` | Public visibility |
 | `deriving` | Derive a trait for a data type |
 | `where` | Trait method bodies |
@@ -210,9 +208,6 @@ These words are reserved and cannot be used as identifiers:
 | `handle` | Handle effects |
 | `linear` | Linear type marker |
 | `consume` | Consume a linear value |
-| `packed` | Packed struct modifier |
-| `repr` | Struct layout modifier (`repr(C)`) |
-| `align` | Struct alignment modifier |
 | `alloc` | Allocate memory |
 | `sizeof` | Size of a type |
 | `alignof` | Alignment of a type |
@@ -226,6 +221,7 @@ These words are reserved but no longer have a grammar rule. Using them reports a
 |---|---|
 | `union` | Use `data` for a tagged sum or `struct` for a product |
 | `region` | Delete the `region` wrapper; lifetimes are inferred |
+| `foreign` | Use the standard library; generated code links no C |
 
 ---
 
@@ -732,31 +728,22 @@ You can automatically derive trait implementations for data types:
 Products of named fields:
 
 ```scheme
-; Basic struct
 (struct Point
   (x : Int)
   (y : Int))
-
-; Packed (no padding)
-(struct PackedPoint packed
-  (x : Int)
-  (y : Int))
-
-; C-compatible layout
-(struct CPoint repr(C)
-  (x : I32)
-  (y : I32))
-
-; Aligned to 16 bytes
-(struct AlignedData align(16)
-  (data : I64))
 ```
 
-Struct fields can be mutable:
+There are no layout modifiers. `packed`, `repr(C)` and `align(N)` were
+documented here and accepted by nothing: the parser has always answered
+`AX2001` for all three. C layout has no meaning in a language that links
+no C.
+
+Struct fields can be mutable. `mut` goes on the field, inside its
+parentheses — not on the struct:
 
 ```scheme
-(struct Counter mut
-  (count : Int))
+(struct Counter
+  (mut count : Int))
 ```
 
 ---
@@ -857,7 +844,7 @@ function itself as a callback does not instantiate the callee's marks
 
 | Effect | Meaning |
 |---|---|
-| `IO` | Calls foreign functions (C FFI) |
+| `IO` | Reaches the outside world through a `__syscallN` |
 | `Pure` | No side effects |
 | `Alloc` | Heap allocation (`alloc`) |
 | `Mut` | Mutable heap state: `(set base.field v)`. Plain `set` on a `mut` local is deliberately *not* `Mut` - a local's mutation is invisible outside its function, while a field store is visible through every alias of the value |
@@ -1005,26 +992,6 @@ The `pub` keyword goes before the declaration keyword, inside the same parenthes
 
 ---
 
-## Foreign Function Interface
-
-Axiom does not *need* C for standard-library work (see [Standard Library](#standard-library)), but it can still call any C function. Declare it with `foreign`:
-
-```scheme
-(foreign printf :: (-> String Int) = "printf")
-(foreign malloc :: (-> Int (* Any)) = "malloc")
-(foreign free :: (-> (* Any) ()) = "free")
-```
-
-The string after `=` is the symbol name as it appears in the C library. For most C library functions, this is the same as the Axiom name.
-
-When compiling, you may need to link additional libraries:
-
-```bash
-cc output.o -lcurl -lssl -lcrypto -o program
-```
-
----
-
 ## Memory Primitives
 
 The standard library is built on these low-level primitives, and so is any code that needs to talk to the machine directly. They are the layer where the type system stops — every argument and result is an `Int`.
@@ -1168,7 +1135,7 @@ AXTAGs are source-embedded agent metadata preserved from `;@axiom:<key>(<value>)
 | `no_refactor` | Hints that the declaration should not be modified by automated refactoring |
 | `owned(arena=frame)` | Specifies ownership semantics for linear types |
 
-The compiler validates `effect(io)` claims against actual foreign calls in the body, and `pure` claims against the absence of foreign calls. Mismatches emit a warning (`AX3010`).
+The compiler validates `effect(io)` claims against what the body actually performs - a `__syscallN`, or a call to something that performs one - and `pure` claims against the absence of any effect. Mismatches emit a warning (`AX3010`).
 
 ---
 
@@ -1205,6 +1172,12 @@ C interoperability is no longer a goal, and an untagged union has no meaning und
 ### `region` — Removed
 
 Allocation lifetime is inferred from where a value is created and how far it escapes, not written by hand. Delete the `region` wrapper and keep its body.
+
+### `foreign` — Removed
+
+C interoperability is no longer a goal, and the binding never worked: it emitted a call to a symbol the module never declared, so a program that used one passed `check` and then failed inside `opt` or the linker. Generated code links no C library. Reach the kernel through the standard library, which is written in Axiom over `__syscall0`-`__syscall6`.
+
+Struct layout modifiers went with it. `packed`, `repr(C)` and `align(N)` appeared in this document and in the formatter; the parser rejected all three.
 
 ---
 

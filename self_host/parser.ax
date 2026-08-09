@@ -45,8 +45,8 @@
 ; A declaration's parsed TYPE, or 0 when none was kept. Word 6 is new
 ; and additive: every existing consumer reads words 0-5 by index, so
 ; nothing moves. What lives here varies by tag - a type node for
-; TAG_D_SIG/TAG_D_FOREIGN/TAG_FIELD, a Vec of field type nodes for
-; TAG_CTOR, a Vec of tyvar name Strs for TAG_D_DATA.
+; TAG_D_SIG/TAG_FIELD, a Vec of field type nodes for TAG_CTOR, a Vec
+; of tyvar name Strs for TAG_D_DATA.
 (pub :: nodeTy (-> Int Int))    (pub fn (nodeTy n) (memGetWord n 6))
 (pub :: setNodeTy (-> Int Int Int))
 (pub fn (setNodeTy n t) { (memSetWord n 6 t) n })
@@ -97,14 +97,10 @@
 ; Field store `(set base.field v)`: word 1 the base expression, word 2
 ; the field's name, word 3 the value. Evaluates to 0, stage0's rule.
 (pub :: TAG_E_SETF Int)   (pub fn (TAG_E_SETF) 28)
-; A `foreign` binding. stage1 emits nothing for one - the compiler is
-; freestanding and `emitDecl` ignores every tag but TAG_D_FN - but the
-; *name* has to survive parsing, because stage0 counts a foreign
-; binding as a definition when it checks whether a signature has one
-; behind it. Skipping the form outright made `(:: putchar ...)` beside
-; `(foreign putchar ...)` look like a signature with nothing behind
-; it, and stage1 rejected a program stage0 compiles.
-(pub :: TAG_D_FOREIGN Int) (pub fn (TAG_D_FOREIGN) 29)
+; 29 was TAG_D_FOREIGN, the `foreign` binding, and is not reused: the
+; tag numbers are the AST's wire format between this file and its four
+; readers, and a retired one left vacant costs nothing while a recycled
+; one turns a stale reader into a silent misparse rather than a crash.
 ; An `(effect Name (op :: sig) ...)` declaration. stage1 lowers no
 ; part of the effect system, but the NAMES have to survive parsing:
 ; the effect's own name appears in a `handle` list and each operation
@@ -271,10 +267,11 @@
 (pub :: pResExp (-> Int Int))     (pub fn (pResExp r) (memGetWord r 3))
 (pub :: pResCode (-> Int Int))    (pub fn (pResCode r) (memGetWord r 4))
 
-; A keyword that USED to be Axiom. The point of keeping `union` and
-; `region` reserved is that old source gets an explanation instead of
-; being silently reinterpreted as an ordinary identifier, so the
-; explanation is the diagnostic and `exp` carries the keyword.
+; A keyword that USED to be Axiom. The point of keeping `union`,
+; `region` and `foreign` reserved is that old source gets an
+; explanation instead of being silently reinterpreted as an ordinary
+; identifier, so the explanation is the diagnostic and `exp` carries
+; the keyword.
 (pub :: pErrRemoved (-> Int Int Int))
 (pub fn (pErrRemoved p kw) (PResult 0 0 p kw "AX2004"))
 
@@ -462,9 +459,11 @@
       "EOF"
       (tokenLexeme tok)))
 
-; stage0's advice for each removed keyword, verbatim: this is the one
-; place the two compilers' text has to agree exactly, since the whole
-; construct exists to be read by a person porting old source.
+; The advice for each removed keyword. `union` and `region` carry
+; stage0's wording verbatim, from when there were two compilers whose
+; text had to agree; `foreign` is stage1's own, written when the FFI
+; went. The whole construct exists to be read by a person porting old
+; source, which is why the text is here and not a generic refusal.
 (pub :: removedHelp (-> Int Int))
 ; WHY the construct is gone, phrased as a statement about the language
 ; rather than about the parser's expectations - stage0's `rationale()`,
@@ -476,15 +475,21 @@
   (if (strEq kw "union")
       (strConcat "`union` was removed: C interoperability is no longer a goal, "
                  "and an untagged union has no meaning under linear types")
+  (if (strEq kw "foreign")
+      (strConcat "`foreign` was removed: C interoperability is no longer a goal, "
+                 "and generated code links no C library to call into")
       (strConcat "`region` was removed: allocation lifetime is inferred from "
-                 "where a value is created and how far it escapes, not written by hand")))
+                 "where a value is created and how far it escapes, not written by hand"))))
 
 (pub fn (removedHelp kw)
   (if (strEq kw "union")
       (strConcat "use `data` for a tagged sum whose variants the compiler can check "
                  "for exhaustiveness, or `struct` for a product of fields")
+  (if (strEq kw "foreign")
+      (strConcat "use the standard library, which reaches the kernel through "
+                 "`__syscall0`-`__syscall6` rather than through libc")
       (strConcat "delete the `region` wrapper and keep its body; values are dropped "
-                 "deterministically at the end of the arena they belong to")))
+                 "deterministically at the end of the arena they belong to"))))
 
 ; ------------------------------------------------------------------
 ; Token helpers.
@@ -762,7 +767,6 @@
 ; an inert TAG_NIL node, so the checker saw a signature with no
 ; definition behind it and reported AX3015 on a valid program.
 (pub :: kwDefine Int) (pub fn (kwDefine) "define")
-(pub :: kwForeign Int) (pub fn (kwForeign) "foreign")
 (pub :: kwEffect Int) (pub fn (kwEffect) "effect")
 (pub :: kwData  Int) (pub fn (kwData)  "data")
 (pub :: kwStruct Int)(pub fn (kwStruct)"struct")
@@ -797,12 +801,13 @@
   (if (peekIs tokens pos TK_IDENT)
       (let ((kw (vecGet tokens pos)))
         (let ((name (tokenLexeme kw)))
-          (if (|| (kwEq name "union") (kwEq name "region"))
+          (if (|| (kwEq name "union")
+                  (|| (kwEq name "region") (kwEq name "foreign")))
               ; Reserved, not unknown. Falling through to the
               ; unknown-declaration refusal below would report a
               ; generic syntax error and lose the migration advice
-              ; that is the entire reason these two keywords are still
-              ; reserved.
+              ; that is the entire reason these three keywords are
+              ; still reserved.
               (pErrRemoved pos name)
           (if (kwEq name (kwPub))
               (let ((r (parseTopForm tokens (advance pos))))
@@ -819,8 +824,6 @@
       (parseImportDecl tokens (advance pos))
   (if (kwEq name (kwMacro))
       (parseMacroDecl tokens (advance pos))
-  (if (kwEq name (kwForeign))
-      (parseForeignDecl tokens (advance pos))
   (if (kwEq name (kwEffect))
       (parseEffectDecl tokens (advance pos))
   (if (kwEq name "type")
@@ -838,86 +841,25 @@
       (skipUnknownDecl tokens pos)
   ; Any OTHER head is a PARSE ERROR now, as it is in stage0
   ; (AX2001 "expected declaration keyword"). The skip was cover for
-  ; forms this parser had not learned - foreign, type, trait, impl -
-  ; and every one of those is now parsed or named above, so all the
-  ; tolerance still accepted was invalid programs: `(+ 1 2)` at top
-  ; level checked clean under stage1 (exit 0, OK) while stage0
-  ; refused it, and anything typo'd into an unknown head VANISHED
-  ; from the declaration list with no diagnostic - silent code loss
-  ; wearing exit 0 (probed 2026-08-07). Malformed spellings of KNOWN
-  ; keywords still degrade inside their own parsers, which is a
-  ; different tolerance with a different blast radius.
-  (pErr pos)))))))))))))))
+  ; forms this parser had not learned - type, trait, impl - and every
+  ; one of those is now parsed or named above, so all the tolerance
+  ; still accepted was invalid programs: `(+ 1 2)` at top level
+  ; checked clean under stage1 (exit 0, OK) while stage0 refused it,
+  ; and anything typo'd into an unknown head VANISHED from the
+  ; declaration list with no diagnostic - silent code loss wearing
+  ; exit 0 (probed 2026-08-07). Malformed spellings of KNOWN keywords
+  ; still degrade inside their own parsers, which is a different
+  ; tolerance with a different blast radius.
+  (pErr pos))))))))))))))
   (pErr pos))))
 
-; A form this parser does not know - `foreign`, `type`, `trait` - is
-; consumed and stands in the declaration list as an inert TAG_NIL node.
+; A form this parser does not know - `type`, `trait` - is consumed and
+; stands in the declaration list as an inert TAG_NIL node.
 ; It used to be skipped with bare `skipParens`, whose success value is
 ; 0 - and `parseDecls` reads value 0 as the clean end of the module, so
 ; one unknown declaration silently dropped every declaration after it,
 ; with no diagnostic and exit 0. Truncation that looks like success is
 ; the worst spelling of unsupported.
-; Parse `(foreign name :: Type = "symbol")`, keeping only the name.
-; The type and the symbol are of no use to a backend that cannot emit
-; a call to one; the name is, because it is a definition for the
-; purpose of AX3015.
-(pub :: parseForeignDecl (-> Int Int Int))
-(pub fn (parseForeignDecl tokens pos)
-  (let ((nr (parseIdentName tokens pos)))
-    (if (== (memGetWord nr 0) 0)
-        nr
-        (let ((name (memGetWord nr 1))
-              (nameSpan (tokenSpan (vecGet tokens pos)))
-              (rest (skipParens tokens (memGetWord nr 2) 1)))
-          (if (== (memGetWord rest 0) 0)
-              rest
-              ; The declared type now survives in the ty slot: stage0
-              ; measures a foreign's saturation through its arrow depth
-              ; (AX3013) and checks call arguments against it, and both
-              ; need the structure. skipParens still owns the end
-              ; position; a failed type parse leaves ty 0 (wildcard).
-              (let ((tyNode
-                      (if (peekIs tokens (memGetWord nr 2) TK_DOUBLE_COLON)
-                          (let ((tr (parseType tokens (advance (memGetWord nr 2)))))
-                            (if (== (memGetWord tr 0) 0) 0 (memGetWord tr 1)))
-                          0))
-                    ; The link symbol from `= "sym"`, for `symbols`'
-                    ; `#symbol=` meta. The lexeme is the raw slice with
-                    ; its quotes; corpus symbols are plain names, so
-                    ; stripping the quotes IS the decode.
-                    (symName (foreignSymbolAfter tokens (memGetWord nr 2))))
-                (pOk (setNodeTy (mkNodeAt TAG_D_FOREIGN name symName 0 nameSpan) tyNode)
-                     (memGetWord rest 2))))))))
-
-; The string after `= ` in a foreign declaration, quotes stripped, or
-; "" when the shape is absent. Scans forward from `pos` to the `=`,
-; tracking paren depth so the TYPE's own closing parens do not end the
-; walk - `(-> Int Int)` sits between the name and the `=`, and the
-; first cut stopped at its `)` and answered "" for every arrow-typed
-; foreign.
-(pub :: foreignSymbolAfter (-> Int Int Int))
-(pub fn (foreignSymbolAfter tokens pos)
-  (foreignSymbolScan tokens pos 0))
-
-(pub :: foreignSymbolScan (-> Int Int Int Int))
-(pub fn (foreignSymbolScan tokens pos depth)
-  (if (peekIs tokens pos TK_EOF)
-      ""
-      (if (&& (peekIs tokens pos TK_RPAREN) (== depth 0))
-          ""
-          (if (peekIs tokens pos TK_RPAREN)
-              (foreignSymbolScan tokens (advance pos) (- depth 1))
-              (if (peekIs tokens pos TK_LPAREN)
-                  (foreignSymbolScan tokens (advance pos) (+ depth 1))
-                  (if (&& (== depth 0)
-                          (&& (peekIs tokens pos TK_IDENT)
-                              (&& (strEq (tokenLexeme (vecGet tokens pos)) "=")
-                                  (peekIs tokens (advance pos) TK_STRING))))
-                      (let ((lex (tokenLexeme (vecGet tokens (advance pos)))))
-                        (if (>= (strLen lex) 2)
-                            (strSlice lex 1 (- (strLen lex) 2))
-                            ""))
-                      (foreignSymbolScan tokens (advance pos) depth)))))))
 
 ; Parse `(effect Name (op :: Type) ...)`, keeping the effect's name
 ; and its operations' names. Nothing else survives: stage1 emits no

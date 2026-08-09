@@ -377,7 +377,7 @@ The standard library is written entirely in Axiom — no C bindings needed. When
 2. **Use `::` for the type signature** and `fn` for the definition.
 3. **If the function performs I/O**, annotate it with `;@axiom:effect(io)`.
 4. **If the function allocates memory**, note that memory comes from the backend's bump allocator and is reclaimed at process exit.
-5. **Prefer the standard library primitives** (`__syscallN`, `__load8`/`__store8`, `__alloc`, `__addr`) over `foreign` bindings.
+5. **Reach the machine through the standard library primitives** (`__syscallN`, `__load8`/`__store8`, `__alloc`, `__addr`). There is no FFI: `foreign` was removed and reports `AX2004`.
 6. **Add a golden test** in `tests/stdlib/` with the `.ax` source and `.out` expected output.
 7. **Update the module table** in `README.md` and `docs/reference.md`.
 
@@ -510,7 +510,7 @@ If you're unsure about how something works or where to make a change, open an is
 | begin blocks | **Removed** | Replaced by `{ }` brace blocks and implicit sequencing |
 | brace blocks | **Complete** | Modern sequencing, returns last value |
 | fn keyword | **Complete** | Modern alias for `define` |
-| FFI | **Complete** | Call any C function with `foreign` declarations (stdlib no longer uses it) |
+| FFI | **Removed** | `foreign` emitted a call to a symbol the module never declared, so it never linked. `foreign` stays reserved and reports `AX2004` |
 | Standard library | **Functional** | `Pre`, `Mem`, `Str`, `Vec`, `Map`, `Fmt`, `Intern`, `Sys`, `IO`, written in Axiom over syscall primitives |
 | Syscalls | **Complete** | `__syscall0`-`__syscall6` on Darwin and Linux, x86-64 and AArch64 |
 | Allocation | **Functional, unbounded** | `mmap`-backed bump allocator; no `free` |

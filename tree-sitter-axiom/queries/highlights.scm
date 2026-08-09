@@ -86,9 +86,6 @@
 (effect_declaration name: (identifier) @keyword.modifier)
 (effect_operation name: (identifier) @function.method)
 
-(foreign_declaration name: (identifier) @function)
-(foreign_declaration symbol: (string_literal) @string.special)
-
 (import module: (module_path) @module)
 (import name: (identifier) @variable)
 
@@ -137,7 +134,6 @@
   "trait"
   "impl"
   "effect"
-  "foreign"
 ] @keyword.type
 
 [
@@ -164,18 +160,15 @@
   "cast"
   "linear"
   "mut"
-  "packed"
-  "repr"
-  "align"
 ] @keyword.modifier
 
 ; ---------------------------------------------------------------
 ; Removed constructs
 ;
-; `union` and `region` parse, so that an editor can mark the dead form as
-; one bounded region instead of showing an anonymous ERROR whose extent
-; depends on where recovery landed. They are highlighted as errors
-; because that is what the compiler reports (`AX2004`).
+; `union`, `region` and `foreign` parse, so that an editor can mark the
+; dead form as one bounded region instead of showing an anonymous ERROR
+; whose extent depends on where recovery landed. They are highlighted as
+; errors because that is what the compiler reports (`AX2004`).
 ; ---------------------------------------------------------------
 
 (removed_keyword) @error

@@ -32,7 +32,7 @@ Axiom is built for agents as first-class users. Three notations make this possib
 
 - **AXSYM** — A dense, one-line-per-symbol notation that tells an agent exactly what a file declares and the type of each symbol. Run `axiom symbols` to see it. No re-reading files, no re-deriving signatures by eye.
 - **NID** — Stable node IDs: content-derived hashes of `(kind, name)` that survive edits and reformatting, unlike line numbers. Every named declaration gets one automatically.
-- **AXTAG** — Source-embedded agent metadata via `;@axiom:<key>(<value>)` comments above declarations. The compiler validates these (e.g., `effect(io)` claims are checked against actual foreign calls), so agents can annotate intent and trust the compiler to verify it.
+- **AXTAG** — Source-embedded agent metadata via `;@axiom:<key>(<value>)` comments above declarations. The compiler validates these (e.g., `effect(io)` claims are checked against the syscalls the body actually reaches), so agents can annotate intent and trust the compiler to verify it.
 
 ---
 
@@ -563,25 +563,15 @@ What works, and what to know:
 Products of named fields:
 
 ```scheme
-; Basic struct
 (struct Point
   (x : Int)
   (y : Int))
-
-; Packed (no padding)
-(struct PackedPoint packed
-  (x : Int)
-  (y : Int))
-
-; C-compatible layout
-(struct CPoint repr(C)
-  (x : I32)
-  (y : I32))
-
-; Aligned to 16 bytes
-(struct AlignedData align(16)
-  (data : I64))
 ```
+
+There are no layout modifiers. `packed`, `repr(C)` and `align(N)` were
+documented here and accepted by nothing - the parser has always answered
+`AX2001` for all three - and C layout means nothing in a language that
+links no C.
 
 ### Type aliases
 
@@ -636,7 +626,7 @@ Built-in effects:
 
 | Effect | Meaning |
 |---|---|
-| `IO` | Reaches the outside world — a syscall, or a `foreign` call |
+| `IO` | Reaches the outside world — a syscall |
 | `Pure` | No side effects |
 | `Alloc` | Heap allocation (`alloc`) |
 | `Mut` | Mutable state (`set` on a `mut` binding, field mutation) |
@@ -732,10 +722,9 @@ Effect annotations are also supported on traits and implementations:
 Axiom ships a standard library written **in Axiom**. It reaches the
 operating system through raw syscalls, not through C, so a compiled
 Axiom program contains no call to libc - not for printing, not for
-allocation, not for file I/O. `foreign` bindings still work and are
-still supported (see
-[Foreign Function Interface](#foreign-function-interface)), but nothing
-in the standard library needs them.
+allocation, not for file I/O. There is no FFI to reach for either:
+`foreign` has been removed, and the language has no way to name an
+external symbol.
 
 ```scheme
 (import IO)
@@ -901,8 +890,8 @@ for safe null handling:
   })
 ```
 
-No `foreign` binding and no `printf`: `IO` is Axiom code over the
-syscall primitives.
+No FFI and no `printf`: `IO` is Axiom code over the syscall
+primitives.
 
 ### Read a file
 
@@ -979,8 +968,7 @@ How it works:
   would.
 - `(import Mod.Sub)` with no name list brings in every top-level
   declaration from that file; `(import Mod.Sub (a b))` brings in only the
-  named declarations (functions, `data`/`struct`/`type` decls,
-  `foreign` bindings, ...).
+  named declarations (functions, `data`/`struct`/`type` decls, ...).
 - Imports are transitive (`A` imports `B` imports `C` brings `C`'s
   declarations into `A` too) and diamond-safe (two different modules both
   importing `C` merges `C` exactly once, not twice).
@@ -1108,45 +1096,6 @@ The REPL accumulates definitions — functions you define persist across inputs.
 
 ---
 
-## Foreign Function Interface
-
-Axiom does not *need* C for standard-library work any more - see
-[Standard library](#standard-library) - but it can still call any C
-function. Declare it with `foreign`:
-
-```scheme
-(foreign name :: (-> ReturnType Param1 Param2 ...) = "c_symbol_name")
-```
-
-Examples:
-
-> **Passing strings to C.** A `String` is a `Str` handle, not a `char*`,
-> so it cannot be handed to a C function directly. Use `(__addr "...")`
-> for a literal or `strCStr` for a computed `Str` - both yield the
-> NUL-terminated bytes a C function expects.
-
-```scheme
-; printf from stdio.h. Call as (printf (__addr "hi\n")) - the parameter
-; is the address of the bytes, not a Str handle.
-(foreign printf :: (-> Int Int) = "printf")
-
-; malloc from stdlib.h
-(foreign malloc :: (-> Int (* Any)) = "malloc")
-
-; A custom C function
-(foreign my_c_function :: (-> Int String Int) = "my_c_function")
-```
-
-The string after `=` is the symbol name as it appears in the C library. For most C library functions, this is the same as the Axiom name.
-
-When compiling, you may need to link additional libraries:
-
-```bash
-cc output.o -lcurl -lssl -lcrypto -o program
-```
-
----
-
 ## Compiler Architecture
 
 ```
@@ -1200,7 +1149,7 @@ the pipeline above is a module you can read in the language it compiles.
 | begin blocks | **Removed** | Replaced by `{ }` brace blocks and implicit sequencing |
 | brace blocks | **Complete** | `{ expr1 expr2 ... }` — modern sequencing, returns last value |
 | fn keyword | **Complete** | Modern alias for `define` |
-| FFI | **Complete, no longer required** | Call any C function with `foreign` declarations. The standard library no longer uses it: see [Standard library](#standard-library) |
+| FFI | **Removed** | `foreign` never worked: it emitted a call to a symbol the module never declared, so a program that used one passed `check` and then died in `opt` or the linker. C interoperability is not a goal and the standard library needs none. `foreign` stays reserved and reports `AX2004` |
 | Standard library | **Functional** | `Pre`, `Mem`, `Str`, `Vec`, `Map`, `Fmt`, `Intern`, `Sys`, `IO`, written in Axiom over syscall primitives. `Vec`/`Map`/`Intern` are golden-tested and validated at 10⁵ elements; against Rust at 10⁶, `Intern` is *faster* (0.75×), `Vec` is 2.5×, and `Map` is 14× — six sevenths of which is table growth against the bump allocator, not hashing. `scripts/bench-datastructures.sh` |
 | Syscalls | **Complete** | `__syscall0`-`__syscall6` on Darwin and Linux, x86-64 and AArch64; errors normalised to `-errno` on every platform |
 | Allocation | **Functional; unbounded by default** | `mmap`-backed bump allocator emitted by the backend, overridable by defining `axiom_alloc`. No `free`, so memory tracks *total* allocations; `__axiom_arena_mark`/`__axiom_arena_reset` reclaim explicitly where peak memory matters. No tracing collector — the Rust compiler's `--gc` was not ported and the flag is now refused (`docs/self-hosting.md` §8.4). Not the end state; see the memory model in [docs/v1-roadmap.md](docs/v1-roadmap.md) |
@@ -1216,6 +1165,7 @@ the pipeline above is a module you can read in the language it compiles.
 | Tuples | **Partial** | Syntax and type checking; codegen pending |
 | Type classes | **Replaced** | Renamed to traits; see [Traits](#traits) |
 | Unions | **Removed** | C interoperability is not a goal, and an untagged union has no meaning under linear types. Use `data` for a tagged sum or `struct` for a product. `union` stays reserved and reports `AX2004` |
+| Struct layout modifiers | **Removed** | `packed`, `repr(C)` and `align(N)` were documented and formatted but never parsed - all three are `AX2001`. C layout has no meaning without C |
 | Region syntax | **Removed** | Allocation lifetime is inferred, not written by hand. `region` stays reserved and reports `AX2004` |
 | Traits | **Complete** | Declarations, supertraits, effects, default methods, implementations (`impl`) |
 | Effects | **Complete** | Effect declarations, `handle` expressions, effect checking (`IO`, `Pure`, `Alloc`, `Mut`, `Div`), AXTAG validation. Effects propagate transitively through calls, so a claim on a caller is checked against what its callees do |

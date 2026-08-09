@@ -149,10 +149,9 @@
             (|| (strEq w "struct")
             (|| (strEq w "import")
             (|| (strEq w "macro")
-            (|| (strEq w "foreign")
             (|| (strEq w "effect")
             (|| (strEq w "type")
-                (strEq w "trait"))))))))))))))))
+                (strEq w "trait")))))))))))))))
 
 ; The identifier (or `::`) immediately after the opening paren.
 (pub :: declHeadWord (-> Int Int))

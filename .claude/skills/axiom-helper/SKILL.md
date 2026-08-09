@@ -52,11 +52,11 @@ Cross-crate dependencies flow in one direction: lexer → parser → sema → ir
 
 ### 3.1 Validate AXTAG annotations
 
-AXTAG metadata (`;@axiom:<key>(<value>)` comments above declarations) is compiler-checked. The most important validation is that `effect(io)` claims match actual foreign calls in the body, and `pure` claims match no foreign calls. Mismatches emit `AX3010` (`axtag-mismatch`).
+AXTAG metadata (`;@axiom:<key>(<value>)` comments above declarations) is compiler-checked. The most important validation is that `effect(io)` claims match what the body actually performs - a `__syscallN`, or a call to something that performs one - and `pure` claims match a body that performs nothing. Mismatches emit `AX3010` (`axtag-mismatch`).
 
 When writing or reviewing Axiom source:
-- Always pair `;@axiom:effect(io)` with actual `foreign` calls or `handle` expressions.
-- Never annotate a function as `pure` if it calls a `foreign` function.
+- Always pair `;@axiom:effect(io)` with code that actually reaches a syscall, directly or through a callee, or with a `handle` expression.
+- Never annotate a function as `pure` if anything it calls performs an effect.
 - Use `axiom --diagnostic-format=ai symbols source.ax` to verify which AXTAG metadata was accepted (`#effect=io`, `#pure`, etc.).
 
 ### 3.2 Check pattern matching exhaustiveness
@@ -129,26 +129,21 @@ AXDL lines follow this grammar:
 Axiom has a standard library written in Axiom (`stdlib/`: `Sys`, `Mem`,
 `Str`, `Fmt`, `IO`), built on the freestanding primitives
 `__syscall0`-`__syscall6`, `__load8`/`__store8`, `__load64`/`__store64`,
-`__alloc`, and `__addr`. Prefer it: `(import IO)` and `println` rather
-than a `foreign` binding to `printf`. Generated code calls no libc
-function, and `scripts/check-freestanding.sh` enforces that.
+`__alloc`, and `__addr`. Use it: `(import IO)` and `println`. Generated
+code calls no libc function, and `scripts/check-freestanding.sh`
+enforces that.
 
-`foreign` is still supported for calling genuine C libraries:
+**There is no FFI.** `foreign` was removed and is a reserved word that
+reports `AX2004` with migration advice, alongside `union` and `region`.
+The language has no way to name an external symbol, so a program cannot
+call into C at all. Do not write `foreign` bindings and do not suggest
+them.
 
-```scheme
-(foreign printf :: (-> String Int) = "printf")
-(foreign malloc :: (-> Int (* Any)) = "malloc")
-(foreign free :: (-> (* Any) ()) = "free")
-```
-
-When generating or reviewing FFI code:
-- Verify C function signatures match exactly. Mismatched signatures are undefined behavior.
-- Use `cc` to link additional libraries: `cc output.o -lcurl -lssl -lcrypto -o program`
 - Sanitize file paths before passing them to native toolchain invocations (`llc`, `cc`). Never pass unsanitized user input to shell commands. Native tools are spawned with explicit argument vectors through `Sys.spawn`, never through a shell.
 
 ### 4.3 Memory safety discipline
 
-Axiom source has no `malloc` and no `free`: allocation goes through the backend's `mmap`-backed bump allocator (overridable by defining `axiom_alloc`), and `union` and `region` have been removed from the language - both are still reserved words and report `AX2004`. `foreign` bindings to C allocators are only for genuine C interop, and every such call must be wrapped in a safe abstraction.
+Axiom source has no `malloc` and no `free`: allocation goes through the backend's `mmap`-backed bump allocator (overridable by defining `axiom_alloc`). `union`, `region` and `foreign` have been removed from the language - all three are still reserved words and report `AX2004`. There is no way to reach a C allocator, because there is no way to reach C.
 
 ### 4.4 Handle input validation at every pipeline stage
 
@@ -208,7 +203,6 @@ axiom --diagnostic-format=ai symbols source.ax | grep '@'
 | KIND | Meaning |
 |---|---|
 | `F` | Function |
-| `X` | Foreign binding |
 | `D` | Data type |
 | `C` | Constructor |
 | `S` | Struct |
@@ -218,7 +212,6 @@ axiom --diagnostic-format=ai symbols source.ax | grep '@'
 Example output:
 
 ```
-X printf main.ax:1:10-16 "(String -> Int)" #symbol=printf
 F add main.ax:11:5-8 "(Int -> (Int -> Int))"
 D Maybe main.ax:3:7-12 "data Maybe" #ctors=Nothing,Just
 C Nothing main.ax:4:4-11 "Maybe" #of=Maybe
@@ -226,7 +219,7 @@ C Just main.ax:5:4-8 "(a -> Maybe a)" #of=Maybe
 S Point main.ax:7:9-14 "struct Point" #fields=x:Int,y:Int
 ```
 
-An agent asked to "add a function that formats a `Maybe Int`" can `grep '^D Maybe'` and `grep '^C '` for the exact constructor set and `grep '^X printf'` for the exact FFI signature, instead of re-reading the whole file.
+An agent asked to "add a function that formats a `Maybe Int`" can `grep '^D Maybe'` and `grep '^C '` for the exact constructor set, and `grep '^S Point'` for a struct's exact field shapes, instead of re-reading the whole file.
 
 ### 5.3 Module imports resolution
 
@@ -270,11 +263,6 @@ Key facts:
 }
 ```
 
-**Foreign FFI declaration:**
-```scheme
-(foreign printf :: (-> String Int) = "printf")
-```
-
 **Algebraic data types:**
 ```scheme
 (data Maybe (a)
@@ -292,8 +280,10 @@ Key facts:
 
 **Effects with AXTAG:**
 ```scheme
+(import IO)
+
 ;@axiom:effect(io)
-(fn main (printf "hello"))
+(fn (main) { (println "hello") 0 })
 ```
 
 ### 5.5 REPL commands for rapid prototyping

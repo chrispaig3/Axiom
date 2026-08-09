@@ -62,7 +62,7 @@
 ; compile-time length and no header has to be built. What is left here
 ; is the case the name no longer describes well: NUL-terminated bytes
 ; that arrived from somewhere without a length, such as a syscall
-; buffer or a C library.
+; buffer.
 (pub :: printLit (-> Int Int))
 ;@axiom:effect(io)
 (pub fn (printLit cstr)

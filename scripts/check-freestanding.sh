@@ -46,6 +46,12 @@ export AXIOM_STDLIB="$repo_root/stdlib"
 # one: a `(foreign posix_spawn ...)` binding emitted `call i64
 # @posix_spawn(...)`, linked against libc, and passed both the IR grep
 # and the `nm` check. Verified before adding them.
+#
+# `foreign` has since been removed from the language, so nothing can
+# emit such a call any more. The list stays: it is what would notice a
+# BACKEND that started lowering something to a libc name, which is a
+# different door from the source-level one, and the last probe below is
+# what keeps the source-level one shut.
 libc_names='printf|puts|malloc|calloc|realloc|free|strlen|strcmp|fopen|fwrite|fread'
 libc_names="$libc_names"'|fork|vfork|execv|execve|execvp|execl|execlp|posix_spawn|posix_spawnp'
 libc_names="$libc_names"'|wait|waitpid|wait3|wait4|system|popen|pclose|getenv|setenv|pipe|dup2'
@@ -86,19 +92,6 @@ for case_file in tests/stdlib/*.ax; do
   echo "ok   $name (no libc in IR or imports)"
 done
 
-# A gate that has never been seen to fail is a gate nobody has checked.
-#
-# Everything above asserts SILENCE - no libc in any case - and silence is
-# exactly what a broken grep, an empty corpus, or a mistyped alternation
-# also produces. So the gate finishes by compiling a program that
-# deliberately does the forbidden thing and requiring both mechanisms to
-# catch it. The probe uses `posix_spawn` because that is the name the
-# process-control entries were added for, and because it is the one an
-# author would actually reach for.
-#
-# It cannot live in `tests/stdlib/`: six other gates glob that directory
-# and would all fail on it. It is written here instead, following the
-# inline-fixture precedent in `check-self-host.sh`.
 # The same corpus, compiled by the SELF-HOSTED compiler.
 #
 # Nothing ever ran this gate against stage1's output, and a real bug was
@@ -149,23 +142,91 @@ if [[ "${AXIOM_SKIP_STAGE1:-0}" != 1 ]]; then
   fi
 fi
 
-probe="$work/libc-probe.ax"
-cat > "$probe" <<'PROBE'
+# ---------------------------------------------------------------
+# Negative probes: the IR check can still fail, and the language has
+# no way to ask for a libc call in the first place.
+#
+# A gate that has never been seen to fail is a gate nobody has checked.
+# Everything above asserts SILENCE - no libc in any case - and silence
+# is exactly what a broken grep, an empty corpus, or a mistyped
+# alternation also produces.
+#
+# This used to be one probe, an Axiom program built on
+# `(foreign posix_spawn ...)`, and it worked because `foreign` emitted
+# `call i64 @posix_spawn(...)` verbatim. `foreign` has been removed -
+# it named a symbol the emitted module never declared, so every
+# program that used one passed `check` and then died in `opt` - and
+# with it went the only construct that could name an external symbol
+# at all. A probe cannot be written in Axiom any more.
+#
+# That is a strictly better world and a strictly worse test, so the
+# two halves it used to prove at once are now proved separately.
+# ---------------------------------------------------------------
+
+# 1. The forbidden-name list catches what it claims to, checked against
+#    IR lines this script writes itself - one per name in the list, not
+#    just the one a probe happened to call. The old probe exercised
+#    exactly one alternative of the alternation, so a typo in any of the
+#    other thirty was invisible.
+missed=""
+IFS='|' read -r -a forbidden <<< "$libc_names"
+for fname in "${forbidden[@]}"; do
+  grep -qE "call[^\"]*@($libc_names)\(" <<< "  %r = call i64 @$fname(i64 0)" \
+    || missed="$missed $fname"
+done
+if (( ${#forbidden[@]} < 25 )); then
+  echo "FAIL negative probe: the forbidden-name list parsed to only ${#forbidden[@]} names"
+  status=1
+elif [[ -n "$missed" ]]; then
+  echo "FAIL negative probe: the IR check does not catch a call to$missed"
+  status=1
+else
+  echo "ok   negative probe: the IR check catches a call to each of ${#forbidden[@]} libc names"
+fi
+
+# And it DISCRIMINATES. A pattern that matched every line would pass the
+# loop above while reporting the whole standard library as libc, so the
+# grep is also shown refusing a call the corpus makes on every run -
+# `@axiom_alloc` is Axiom's own, and the substring hazard is real:
+# `free` sits inside a name like `freelist` and `wait` inside `awaited`,
+# so this is what would notice the alternation losing its anchors.
+kept=""
+for ok_name in axiom_alloc freelist awaited printfmt __syscall1; do
+  grep -qE "call[^\"]*@($libc_names)\(" <<< "  %r = call i64 @$ok_name(i64 0)" \
+    && kept="$kept $ok_name"
+done
+if [[ -n "$kept" ]]; then
+  echo "FAIL negative probe: the IR check flags non-libc name(s)$kept"
+  status=1
+else
+  echo "ok   negative probe: the IR check leaves Axiom's own call names alone"
+fi
+
+# 2. The door is shut in the language, not merely unused by the corpus.
+#    A sweep over programs that do not call libc says nothing about
+#    whether one COULD; this is the check that says it cannot, and it is
+#    the reason (1) no longer has an Axiom program behind it.
+ffi="$work/ffi-probe.ax"
+cat > "$ffi" <<'PROBE'
 (foreign posix_spawn :: (-> Int Int Int Int Int Int) = "posix_spawn")
 (pub :: main Int)
 (pub fn (main) (posix_spawn 0 0 0 0 0))
 PROBE
-
-probe_ir="$work/libc-probe.ll"
-if ! "$axiom" emit-llvm "$probe" -o "$probe_ir" > /dev/null 2>&1; then
-  echo "FAIL negative probe: the libc probe did not compile, so it proves nothing"
+# Assigned inside the `if` condition, not before it: this script runs
+# under `set -e`, and a bare `out="$(cmd)"` whose command exits non-zero
+# takes the whole script down. Here a non-zero exit is the PASSING
+# outcome, so writing it that way killed the gate one line before its
+# own result - exit 1, no verdict printed, which reads as a failure
+# somewhere else entirely.
+if ffi_out="$("$axiom" --diagnostic-format=ai check "$ffi" 2>&1)"; then
+  echo "FAIL negative probe: a \`foreign\` binding still compiles - the FFI is back"
   status=1
-elif ! grep -qE "call[^\"]*@($libc_names)\(" "$probe_ir"; then
-  echo "FAIL negative probe: a program calling posix_spawn passed the IR check"
-  echo "     the forbidden-name list does not cover what it claims to"
+elif ! grep -q 'AX2004' <<< "$ffi_out"; then
+  echo "FAIL negative probe: \`foreign\` is refused, but not as a removed construct"
+  printf '%s\n' "$ffi_out" | sed 's/^/    /' | head -3
   status=1
 else
-  echo "ok   negative probe: a libc spawn is refused by the IR check"
+  echo "ok   negative probe: \`foreign\` is refused as a removed construct (AX2004)"
 fi
 
 exit "$status"
