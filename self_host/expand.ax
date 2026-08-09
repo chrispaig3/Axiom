@@ -1,0 +1,962 @@
+; expand.ax — macro expansion, as a pass of its own.
+;
+; Expansion used to live in `codegen.ax`, applied at EMIT time: a head
+; that named a macro had its template instantiated and the result
+; emitted in the call's place. That placement is the cause of most of
+; what was wrong with macros, and none of it was visible to any gate.
+;
+; What it cost, each item measured on the compiler this file replaces:
+;
+;   - Nothing type-checked an expansion. `(macro (bad x) (takesInt
+;     "not an int"))` compiled and ran, exit 0. So did an undefined
+;     name in a template. `check` reported OK on both, because the
+;     checker's rule for a macro call is "cannot be typed before
+;     expansion" and expansion had not happened yet.
+;   - A macro-generated `match` was never checked for exhaustiveness.
+;     The identical match written by hand is AX3005; written by a
+;     macro it compiled silently.
+;   - `check` and `build` disagreed. A template using `while`, `set`
+;     or a field access emitted LLVM referencing an undefined
+;     register - `check` said OK, `build` died as AX4003 `opt failed`
+;     against `<toolchain>`, a diagnostic that blames the toolchain
+;     for the compiler's own bug and carries no span into the source.
+;   - Substitution reached 8 of the tags a template can contain and
+;     returned the other 8 verbatim, so a parameter reference inside
+;     `letm`, `set`, `while`, field access, field store, struct
+;     construction, `alloc` or `handle` survived into the IR as the
+;     TEMPLATE's identifier. Every one of those was silent.
+;   - Recursion was unbounded. `(macro (loopy x) (loopy x))` segfaulted
+;     the compiler - exit 139, no output, no diagnostic - in about
+;     10 ms of CPU time, so not even slowly enough to interrupt.
+;   - `()` in a template segfaulted it too: the parser answers node
+;     handle 0 for the empty form and the substituter dereferenced it.
+;     `lowerConds`, the sibling walker in the same file, guards; the
+;     substituter did not.
+;
+; This pass runs between `resolveImports` and `checkModule`, so what
+; the checker sees is the expanded program and every one of those
+; becomes an ordinary diagnostic about ordinary code. The rules it
+; implements, and where each differs from the emit-time expander:
+;
+; HYGIENE. A binder introduced by a TEMPLATE is renamed at every
+; expansion, so it cannot capture a name the caller passed in.
+; `(macro (addTo x) (let ((tmp 100)) (+ tmp x)))` called under a
+; caller's own `tmp` used to answer 200 and now answers 101. The fresh
+; name is `<name>.<counter>`, which is deliberate on both sides: `.`
+; is TK_DOT to the lexer, so no Axiom source can spell such an
+; identifier and a collision is impossible by construction, and `.` is
+; legal in an unquoted LLVM identifier, so the name survives codegen's
+; register naming with nothing to escape. The counter is per-run and
+; monotonic, so the IR stays byte-identical across runs and
+; `check-reproducible.sh` keeps holding.
+;
+; The renaming is the FORWARD half of hygiene. The reverse half - a
+; caller's binder capturing a free identifier of the template - is NOT
+; fixed here, and there is no test pinning it because there is nothing
+; yet to pin: it needs definition-site resolution, which needs macros
+; to be module-qualified, which they are not. A macro's name is a flat
+; program-wide entry with no module recorded, so one macro genuinely
+; means two different things depending on the caller's module -
+; measured at 6 against 105 in `docs/macros.md` section 3, which is
+; where the gap is recorded and what schedules it.
+;
+; SHADOWING. A macro name no longer outranks every binder in the
+; program. `(macro (v) 9) (fn (f v) v)` used to answer 9, because
+; emission consulted the macro table before the symbol table. This
+; pass carries the set of names bound at each point and a locally
+; bound name is a variable, not a macro invocation.
+;
+; ARITY. A macro is applied to exactly as many arguments as it has
+; parameters. The emit-time expander dropped extra arguments WITHOUT
+; evaluating them, packed several into a `begin` when the macro had
+; exactly one parameter, and left a parameter with no argument as its
+; own name in the output - which is how `%q` reached `opt` as an
+; undefined value. All three are now AX3018.
+;
+; COVERAGE. Every tag a template can contain has a case below, node
+; handle 0 is guarded, and the default arm REFUSES with AX3021 rather
+; than passing the node through. That last part is the point: the
+; eight silent miscompiles were all one bug - a tag added to the
+; parser and not to the substituter - and a default that returns the
+; node unchanged makes the ninth one silent too. A default that
+; refuses makes it loud, in the commit that adds the tag.
+
+(import Mem)
+(import Str)
+(import Vec)
+(import core)
+(import parser)
+(import diag)
+
+; ------------------------------------------------------------------
+; Limits.
+;
+; The depth cap is what stands between a self-referential macro and
+; the segfault it used to produce. 128 is far above any real macro -
+; `stdlib/Pre.ax`'s deepest expands to depth 1 - and far below the
+; stack this process has.
+; ------------------------------------------------------------------
+(pub :: expDepthLimit Int) (pub fn (expDepthLimit) 128)
+
+; ------------------------------------------------------------------
+; The expander's environment.
+;   macros — Vec of TAG_D_MACRO nodes, in declaration order
+;   out    — Vec of Diag, the same sink `checkModule` fills
+;   fresh  — the gensym counter. NOT shared with the checker's
+;            `tcCounter`: that one names type variables `_tN`, those
+;            names are printed inside AX3004 messages, and the AXDL
+;            goldens pin them byte for byte. A renamed binder must not
+;            renumber a type variable.
+;   depth  — expansion depth at the current point
+; ------------------------------------------------------------------
+(pub struct MEnv (macros : Int) (out : Int) (fresh : Int) (depth : Int))
+
+(pub :: expMacros (-> Int Int)) (pub fn (expMacros env) (memGetWord env 0))
+(pub :: expOut    (-> Int Int)) (pub fn (expOut    env) (memGetWord env 1))
+(pub :: expDepth  (-> Int Int)) (pub fn (expDepth  env) (memGetWord env 3))
+(pub :: expSetDepth (-> Int Int Int))
+(pub fn (expSetDepth env d) { (memSetWord env 3 d) env })
+
+; A fresh identifier. See the header for why `.` is the marker.
+(pub :: expFresh (-> Int Int Int))
+(pub fn (expFresh env base)
+  (let ((n (memGetWord env 2)))
+    {
+      (memSetWord env 2 (+ n 1))
+      (strConcat (strConcat base ".") (expFmtInt n))
+    }))
+
+; Decimal rendering. `codegen.ax` has one of these and `Fmt` has
+; another, but the compiler's own modules do not import `Fmt` and this
+; pass must not depend on codegen.
+(pub :: expFmtInt (-> Int Int))
+(pub fn (expFmtInt n)
+  (if (< n 10)
+      (let ((ch (strAlloc 1)))
+        {
+          (__store8 (strData ch) 0 (+ n 48))
+          ch
+        })
+      (let ((prefix (expFmtInt (/ n 10))))
+        (let ((suffix (strAlloc 1)))
+          {
+            (__store8 (strData suffix) 0 (+ (% n 10) 48))
+            (strConcat prefix suffix)
+          }))))
+
+; ------------------------------------------------------------------
+; Diagnostics.
+;
+; Every one anchors at the INVOCATION's span, which is a real position
+; in the file being compiled. The macro's own definition span would be
+; the better secondary, and is what criterion 3 of the roadmap's
+; section 4.2 asks for, but a `Diag` carries one unit and a macro is
+; usually defined in another file - reporting a span from a different
+; source text against this diagnostic's unit would point at a real
+; line of the wrong file. That is worse than not pointing, so until
+; `Diag` can carry a per-span unit these say the macro's NAME in the
+; message and anchor only where they can be trusted.
+; ------------------------------------------------------------------
+(pub :: expEmit (-> Int Int Int))
+(pub fn (expEmit env d)
+  { (vecPush (expOut env) d) 0 })
+
+; ------------------------------------------------------------------
+; Collecting the macro table.
+;
+; Declaration order, searched backward, so a later definition of a
+; name wins over an earlier one - and since import resolution puts a
+; module's declarations ahead of the importing file's, that is also
+; what lets an entry file's macro shadow an imported one. It is the
+; same rule the emit-time expander used, kept deliberately: changing
+; it is a language change, not a bug fix.
+; ------------------------------------------------------------------
+(pub :: expCollectMacros (-> Int Int Int Int))
+(pub fn (expCollectMacros decls acc i)
+  (if (>= i (vecLen decls))
+      acc
+      {
+        (let ((d (vecGet decls i)))
+          (if (== (nodeTag d) TAG_D_MACRO)
+              (vecPush acc d)
+              0))
+        (expCollectMacros decls acc (+ i 1))
+      }))
+
+(pub :: expFindMacro (-> Int Int Int))
+(pub fn (expFindMacro env name)
+  (expFindMacroIn (expMacros env) name (- (vecLen (expMacros env)) 1)))
+
+(pub :: expFindMacroIn (-> Int Int Int Int))
+(pub fn (expFindMacroIn ms name i)
+  (if (< i 0)
+      0
+      (let ((m (vecGet ms i)))
+        (if (strEq (nodeA m) name)
+            m
+            (expFindMacroIn ms name (- i 1))))))
+
+; ------------------------------------------------------------------
+; The bound-name stack.
+;
+; A Vec of Strs used as a stack: pushed on entering a binder, truncated
+; on leaving it. Its only job is to answer "is this name a local?", so
+; that a local outranks a macro of the same name. `typecheck.ax` keeps
+; a richer version of the same thing (`SEnt`); this pass needs the
+; names alone.
+; ------------------------------------------------------------------
+(pub :: expBound (-> Int Int Int))
+(pub fn (expBound bs name)
+  (expBoundFrom bs name (- (vecLen bs) 1)))
+
+(pub :: expBoundFrom (-> Int Int Int Int))
+(pub fn (expBoundFrom bs name i)
+  (if (< i 0)
+      0
+      (if (strEq (vecGet bs i) name)
+          1
+          (expBoundFrom bs name (- i 1)))))
+
+(pub :: expTrunc (-> Int Int Int))
+(pub fn (expTrunc bs n)
+  (if (<= (vecLen bs) n)
+      0
+      { (vecPop bs) (expTrunc bs n) }))
+
+; ------------------------------------------------------------------
+; The rename stack: alternating old, new. Innermost wins, so the scan
+; runs backward in pairs.
+; ------------------------------------------------------------------
+(pub :: expRenLookup (-> Int Int Int))
+(pub fn (expRenLookup ren name)
+  (expRenLookupFrom ren name (- (vecLen ren) 2)))
+
+(pub :: expRenLookupFrom (-> Int Int Int Int))
+(pub fn (expRenLookupFrom ren name i)
+  (if (< i 0)
+      0
+      (if (strEq (vecGet ren i) name)
+          (vecGet ren (+ i 1))
+          (expRenLookupFrom ren name (- i 2)))))
+
+(pub :: expRenPush (-> Int Int Int Int))
+(pub fn (expRenPush ren old new)
+  { (vecPush ren old) (vecPush ren new) ren })
+
+; ------------------------------------------------------------------
+; Parameter lookup. The LAST occurrence wins, matching the emit-time
+; expander - but a duplicate parameter is now AX3020, so the rule is
+; unobservable on any program that compiles.
+; ------------------------------------------------------------------
+(pub :: expParamIndex (-> Int Int Int))
+(pub fn (expParamIndex params name)
+  (expParamIndexFrom params name (- (vecLen params) 1)))
+
+(pub :: expParamIndexFrom (-> Int Int Int Int))
+(pub fn (expParamIndexFrom params name i)
+  (if (< i 0)
+      (- 0 1)
+      (if (strEq (vecGet params i) name)
+          i
+          (expParamIndexFrom params name (- i 1)))))
+
+; ------------------------------------------------------------------
+; Pattern binders.
+;
+; A match arm's pattern binds names, and a template's arm binders have
+; to be renamed for the same reason a template's `let` binder does:
+; `(macro (unwrapOr o d) (match o ((Some v) d) ((None) d)))` called
+; with `d` = a caller's `v` used to answer the payload instead of the
+; caller's value, because the arm's `v` captured it. Measured: 8
+; against the 42 the caller wrote.
+;
+; The shapes a pattern arrives in: a bare TAG_E_VAR is a BINDER -
+; stage0 binds a bare identifier in pattern position even when it
+; names a constructor, which is why `(Nil)` needs TAG_P_CON0 to mean
+; the constructor. A constructor pattern with arguments is an
+; TAG_E_APP spine whose ultimate head is the constructor's name, so
+; the spine's head is walked past rather than renamed.
+; TAG_P_CONNAMED holds its sub-patterns in word c and its field NAMES
+; in word b; the field names are the struct's, not binders.
+; ------------------------------------------------------------------
+(pub :: expRenamePat (-> Int Int Int Int Int))
+(pub fn (expRenamePat p ren env isp)
+  (if (== p 0)
+      0
+      (let ((tag (nodeTag p)))
+        (if (== tag TAG_E_VAR)
+            (let ((new (expFresh env (nodeA p))))
+              {
+                (expRenPush ren (nodeA p) new)
+                (mkEVarAt new isp)
+              })
+        (if (== tag TAG_E_APP)
+            (expRenamePatSpine p ren env isp)
+        (if (== tag TAG_P_CONNAMED)
+            (mkNodeAt TAG_P_CONNAMED (nodeA p) (nodeB p)
+                      (expRenamePatVec (nodeC p) ren env isp) isp)
+        p))))))
+
+; The head of a constructor spine is the constructor's NAME and must
+; survive; every argument is a sub-pattern.
+(pub :: expRenamePatSpine (-> Int Int Int Int Int))
+(pub fn (expRenamePatSpine p ren env isp)
+  (if (== (nodeTag p) TAG_E_APP)
+      (mkEApp (expRenamePatSpine (nodeA p) ren env isp)
+              (expRenamePat (nodeB p) ren env isp))
+      p))
+
+(pub :: expRenamePatVec (-> Int Int Int Int Int))
+(pub fn (expRenamePatVec ps ren env isp)
+  (expRenamePatVecIn ps ren env isp vecNew 0))
+
+(pub :: expRenamePatVecIn (-> Int Int Int Int Int Int Int))
+(pub fn (expRenamePatVecIn ps ren env isp acc i)
+  (if (>= i (vecLen ps))
+      acc
+      (expRenamePatVecIn ps ren env isp
+                      (vecPush acc (expRenamePat (vecGet ps i) ren env isp))
+                      (+ i 1))))
+
+; ------------------------------------------------------------------
+; Substitution.
+;
+; The template with every parameter reference replaced by its
+; argument's syntax tree, every binder the template introduces renamed
+; to a fresh name, and every node it builds carrying the INVOCATION's
+; span.
+;
+; The span rule is uniform and deliberate. A template node's own span
+; indexes the file the macro was DEFINED in, and a `Diag` carries one
+; unit, so a diagnostic anchored there would point at a real line of
+; the wrong file - which reads as a correct diagnostic about
+; unrelated code and is worse than pointing nowhere. Arguments keep
+; their own spans, because those are call-site nodes and already
+; index the right file. Naming the macro as well as the call site is
+; roadmap section 4.2's criterion 3 and needs `Diag` to carry a unit
+; per span; the header records why that is a separate change.
+;
+; Nodes are REBUILT rather than mutated. The emit-time expander
+; returned the template's own nodes for every tag it did not know,
+; which made one template node reachable from every call site - safe
+; only for as long as nothing writes to a node, and renaming writes.
+; ------------------------------------------------------------------
+(pub :: substTpl (-> Int Int Int Int Int Int Int))
+(pub fn (substTpl tpl params args ren env isp)
+  (if (== tpl 0)
+      0
+      (let ((tag (nodeTag tpl)))
+        ; --- leaves: no children, nothing to substitute ------------
+        (if (|| (== tag TAG_E_INT)
+                (|| (== tag TAG_E_STR)
+                    (|| (== tag TAG_E_FLT) (== tag TAG_E_CHAR))))
+            tpl
+        ; --- a name: a rename, a parameter, or itself --------------
+        (if (== tag TAG_E_VAR)
+            (let ((r (expRenLookup ren (nodeA tpl))))
+              (if (!= r 0)
+                  (mkEVarAt r isp)
+                  (let ((idx (expParamIndex params (nodeA tpl))))
+                    (if (< idx 0)
+                        (mkEVarAt (nodeA tpl) isp)
+                        (vecGet args idx)))))
+        (if (== tag TAG_E_APP)
+            (mkNodeAt TAG_E_APP
+                      (substTpl (nodeA tpl) params args ren env isp)
+                      (substTpl (nodeB tpl) params args ren env isp)
+                      0 isp)
+        (if (== tag TAG_E_IF)
+            (mkNodeAt TAG_E_IF
+                      (substTpl (nodeA tpl) params args ren env isp)
+                      (substTpl (nodeB tpl) params args ren env isp)
+                      (substTpl (nodeC tpl) params args ren env isp) isp)
+        ; --- binders: value first, then body under the new name ----
+        (if (|| (== tag TAG_E_LET) (== tag TAG_E_LETM))
+            (let ((val (substTpl (nodeB tpl) params args ren env isp))
+                  (mark (vecLen ren))
+                  (new (expFresh env (nodeA tpl))))
+              {
+                (expRenPush ren (nodeA tpl) new)
+                (let ((body (substTpl (nodeC tpl) params args ren env isp)))
+                  {
+                    (expTrunc ren mark)
+                    (mkNodeAt tag new val body isp)
+                  })
+              })
+        (if (== tag TAG_E_LAM)
+            (let ((mark (vecLen ren))
+                  (ps (substLamParams (nodeA tpl) ren env)))
+              (let ((body (substTpl (nodeB tpl) params args ren env isp)))
+                {
+                  (expTrunc ren mark)
+                  (mkNodeAt TAG_E_LAM ps body 0 isp)
+                }))
+        (if (== tag TAG_E_BEGIN)
+            (mkNodeAt TAG_E_BEGIN
+                      (substVec (nodeA tpl) params args ren env isp) 0 0 isp)
+        (if (== tag TAG_E_WHILE)
+            (mkNodeAt TAG_E_WHILE
+                      (substTpl (nodeA tpl) params args ren env isp)
+                      (substVec (nodeB tpl) params args ren env isp) 0 isp)
+        ; --- `(set name value)`: the name is a REFERENCE ------------
+        (if (== tag TAG_E_SET)
+            (mkNodeAt TAG_E_SET
+                      (substName (nodeA tpl) params args ren env isp)
+                      (substTpl (nodeB tpl) params args ren env isp) 0 isp)
+        (if (== tag TAG_E_FIELD)
+            (mkNodeAt TAG_E_FIELD
+                      (substTpl (nodeA tpl) params args ren env isp)
+                      (nodeB tpl) 0 isp)
+        (if (== tag TAG_E_SETF)
+            (mkNodeAt TAG_E_SETF
+                      (substTpl (nodeA tpl) params args ren env isp)
+                      (nodeB tpl)
+                      (substTpl (nodeC tpl) params args ren env isp) isp)
+        (if (== tag TAG_E_STRUCTCON)
+            (mkNodeAt TAG_E_STRUCTCON (nodeA tpl)
+                      (substVec (nodeB tpl) params args ren env isp) 0 isp)
+        ; `alloc`'s word a is a TYPE node, which holds no parameter
+        ; reference; its count is an expression.
+        (if (== tag TAG_E_ALLOC)
+            (mkNodeAt TAG_E_ALLOC (nodeA tpl)
+                      (substTpl (nodeB tpl) params args ren env isp) 0 isp)
+        ; `handle`'s word b is a Vec of EFFECT names, not values.
+        (if (== tag TAG_E_HANDLE)
+            (mkNodeAt TAG_E_HANDLE
+                      (substTpl (nodeA tpl) params args ren env isp)
+                      (nodeB tpl)
+                      (substTpl (nodeC tpl) params args ren env isp) isp)
+        (if (== tag TAG_E_MATCH)
+            (mkNodeAt TAG_E_MATCH
+                      (substTpl (nodeA tpl) params args ren env isp)
+                      (substArms (nodeB tpl) params args ren env isp) 0 isp)
+        (if (== tag TAG_E_COND)
+            (mkNodeAt TAG_E_COND
+                      (substCondClauses (nodeA tpl) params args ren env isp)
+                      (if (== (nodeB tpl) 0)
+                          0
+                          (substTpl (nodeB tpl) params args ren env isp))
+                      0 isp)
+        ; --- the refusal ------------------------------------------
+        ; Reached only by a tag added to the parser and not to this
+        ; function. Returning `tpl` here is what made eight separate
+        ; miscompiles silent; refusing is what stops the ninth.
+        {
+          (expEmit env
+            (mkDiagNote SEV_ERROR "AX3021" "macro-template-unsupported"
+                        isp
+                        "this macro template contains a form the expander cannot substitute into"
+                        0 0
+                        "rewrite the template without this form, or add a case for it to `substTpl` in self_host/expand.ax"
+                        "the expansion was refused rather than emitted, because substituting nothing here would silently leave the template's own identifiers in the generated code"))
+          (mkEInt 0)
+        })))))))))))))))))))
+
+; A lambda's parameter list is a Vec of NAMES. Each is a binder the
+; template introduces, so each is renamed.
+(pub :: substLamParams (-> Int Int Int Int))
+(pub fn (substLamParams ps ren env)
+  (substLamParamsIn ps ren env vecNew 0))
+
+(pub :: substLamParamsIn (-> Int Int Int Int Int Int))
+(pub fn (substLamParamsIn ps ren env acc i)
+  (if (>= i (vecLen ps))
+      acc
+      (let ((new (expFresh env (vecGet ps i))))
+        {
+          (expRenPush ren (vecGet ps i) new)
+          (substLamParamsIn ps ren env (vecPush acc new) (+ i 1))
+        })))
+
+; `(set name v)` names a binder rather than evaluating an expression.
+; A renamed template binder answers its new name; a macro parameter
+; answers the argument's name, which only exists if the argument is
+; itself a plain identifier - `(set (f 1) 2)` has no meaning and the
+; parser would not have produced it, but a PARAMETER standing in that
+; position can be handed any expression at all, so the case is real
+; and is refused rather than dropped.
+(pub :: substName (-> Int Int Int Int Int Int Int))
+(pub fn (substName name params args ren env isp)
+  (let ((r (expRenLookup ren name)))
+    (if (!= r 0)
+        r
+        (let ((idx (expParamIndex params name)))
+          (if (< idx 0)
+              name
+              (let ((a (vecGet args idx)))
+                (if (== (nodeTag a) TAG_E_VAR)
+                    (nodeA a)
+                    {
+                      (expEmit env
+                        (mkDiagNote SEV_ERROR "AX3022" "macro-set-target"
+                                    isp
+                                    "a macro parameter used as the target of `set` was given something that is not a variable"
+                                    0 0
+                                    "pass a variable name for this parameter, or rewrite the template so the parameter is not a `set` target"
+                                    "`set` assigns to a binding, so its target has to be a name; the argument here is an expression"))
+                      name
+                    })))))))
+
+(pub :: substVec (-> Int Int Int Int Int Int Int))
+(pub fn (substVec xs params args ren env isp)
+  (substVecIn xs params args ren env isp vecNew 0))
+
+(pub :: substVecIn (-> Int Int Int Int Int Int Int Int Int))
+(pub fn (substVecIn xs params args ren env isp acc i)
+  (if (>= i (vecLen xs))
+      acc
+      (substVecIn xs params args ren env isp
+                  (vecPush acc (substTpl (vecGet xs i) params args ren env isp))
+                  (+ i 1))))
+
+; A match arm: the pattern's binders are renamed and the body is
+; substituted UNDER those renames, so a template binder and a
+; substituted argument that happen to share a name stay distinct.
+(pub :: substArms (-> Int Int Int Int Int Int Int))
+(pub fn (substArms arms params args ren env isp)
+  (substArmsIn arms params args ren env isp vecNew 0))
+
+(pub :: substArmsIn (-> Int Int Int Int Int Int Int Int Int))
+(pub fn (substArmsIn arms params args ren env isp acc i)
+  (if (>= i (vecLen arms))
+      acc
+      (let ((arm (vecGet arms i))
+            (mark (vecLen ren)))
+        (let ((pat (expRenamePat (nodeA arm) ren env isp)))
+          (let ((body (substTpl (nodeB arm) params args ren env isp)))
+            {
+              (expTrunc ren mark)
+              (substArmsIn arms params args ren env isp
+                           (vecPush acc (mkNodeAt TAG_M_ARM pat body 0 isp))
+                           (+ i 1))
+            })))))
+
+; A `cond` clause is a TAG_M_ARM holding a TEST and a body. It binds
+; nothing, so no renaming happens here - the shape is shared with a
+; match arm but the meaning is not.
+(pub :: substCondClauses (-> Int Int Int Int Int Int Int))
+(pub fn (substCondClauses cls params args ren env isp)
+  (substCondClausesIn cls params args ren env isp vecNew 0))
+
+(pub :: substCondClausesIn (-> Int Int Int Int Int Int Int Int Int))
+(pub fn (substCondClausesIn cls params args ren env isp acc i)
+  (if (>= i (vecLen cls))
+      acc
+      (let ((cl (vecGet cls i)))
+        (substCondClausesIn cls params args ren env isp
+          (vecPush acc (mkNodeAt TAG_M_ARM
+                                 (substTpl (nodeA cl) params args ren env isp)
+                                 (substTpl (nodeB cl) params args ren env isp)
+                                 0 isp))
+          (+ i 1)))))
+
+; ------------------------------------------------------------------
+; Application spines.
+;
+; `(when a b)` is App(App(when, a), b), so a macro's arguments are the
+; spine's, collected left to right. The emit-time expander flattened
+; the spine before it ever consulted the macro table, which is why
+; `((m a) b)` handed BOTH a and b to a one-parameter `m` and the outer
+; application vanished. The spine is still flattened here - Pre.ax's
+; `cond3` is a seven-deep spine and has to keep working - but a spine
+; longer than the macro's arity now re-applies the surplus to the
+; expansion instead of dropping it.
+; ------------------------------------------------------------------
+(pub :: expSpineHead (-> Int Int))
+(pub fn (expSpineHead e)
+  (if (== (nodeTag e) TAG_E_APP) (expSpineHead (nodeA e)) e))
+
+(pub :: expSpineArgs (-> Int Int Int))
+(pub fn (expSpineArgs e acc)
+  (if (== (nodeTag e) TAG_E_APP)
+      {
+        (expSpineArgs (nodeA e) acc)
+        (vecPush acc (nodeB e))
+        acc
+      }
+      acc))
+
+; ------------------------------------------------------------------
+; The walk over ORDINARY code. Its two jobs are to find macro
+; invocations and to know which names are locally bound at each point,
+; because a local outranks a macro of the same name.
+; ------------------------------------------------------------------
+(pub :: expandExpr (-> Int Int Int Int))
+(pub fn (expandExpr e env bs)
+  (if (== e 0)
+      0
+      (let ((tag (nodeTag e))
+            (sp (nodeSpan e)))
+        (if (|| (== tag TAG_E_INT)
+                (|| (== tag TAG_E_STR)
+                    (|| (== tag TAG_E_FLT) (== tag TAG_E_CHAR))))
+            e
+        (if (== tag TAG_E_VAR)
+            (expandVarRef e env bs)
+        (if (== tag TAG_E_APP)
+            (expandApp e env bs)
+        (if (== tag TAG_E_IF)
+            (mkNodeAt TAG_E_IF
+                      (expandExpr (nodeA e) env bs)
+                      (expandExpr (nodeB e) env bs)
+                      (expandExpr (nodeC e) env bs) sp)
+        (if (|| (== tag TAG_E_LET) (== tag TAG_E_LETM))
+            (let ((val (expandExpr (nodeB e) env bs))
+                  (mark (vecLen bs)))
+              {
+                (vecPush bs (nodeA e))
+                (let ((body (expandExpr (nodeC e) env bs)))
+                  {
+                    (expTrunc bs mark)
+                    (mkNodeAt tag (nodeA e) val body sp)
+                  })
+              })
+        (if (== tag TAG_E_LAM)
+            (let ((mark (vecLen bs)))
+              {
+                (expPushNames (nodeA e) bs 0)
+                (let ((body (expandExpr (nodeB e) env bs)))
+                  {
+                    (expTrunc bs mark)
+                    (mkNodeAt TAG_E_LAM (nodeA e) body 0 sp)
+                  })
+              })
+        (if (== tag TAG_E_BEGIN)
+            (mkNodeAt TAG_E_BEGIN (expandVec (nodeA e) env bs) 0 0 sp)
+        (if (== tag TAG_E_WHILE)
+            (mkNodeAt TAG_E_WHILE
+                      (expandExpr (nodeA e) env bs)
+                      (expandVec (nodeB e) env bs) 0 sp)
+        (if (== tag TAG_E_SET)
+            (mkNodeAt TAG_E_SET (nodeA e) (expandExpr (nodeB e) env bs) 0 sp)
+        (if (== tag TAG_E_FIELD)
+            (mkNodeAt TAG_E_FIELD (expandExpr (nodeA e) env bs) (nodeB e) 0 sp)
+        (if (== tag TAG_E_SETF)
+            (mkNodeAt TAG_E_SETF
+                      (expandExpr (nodeA e) env bs) (nodeB e)
+                      (expandExpr (nodeC e) env bs) sp)
+        (if (== tag TAG_E_STRUCTCON)
+            (mkNodeAt TAG_E_STRUCTCON (nodeA e)
+                      (expandVec (nodeB e) env bs) 0 sp)
+        (if (== tag TAG_E_ALLOC)
+            (mkNodeAt TAG_E_ALLOC (nodeA e)
+                      (expandExpr (nodeB e) env bs) 0 sp)
+        (if (== tag TAG_E_HANDLE)
+            (mkNodeAt TAG_E_HANDLE
+                      (expandExpr (nodeA e) env bs) (nodeB e)
+                      (expandExpr (nodeC e) env bs) sp)
+        (if (== tag TAG_E_MATCH)
+            (mkNodeAt TAG_E_MATCH
+                      (expandExpr (nodeA e) env bs)
+                      (expandArms (nodeB e) env bs) 0 sp)
+        (if (== tag TAG_E_COND)
+            (mkNodeAt TAG_E_COND
+                      (expandCondClauses (nodeA e) env bs)
+                      (if (== (nodeB e) 0) 0 (expandExpr (nodeB e) env bs))
+                      0 sp)
+        ; Anything else has no expression children to walk - a pattern
+        ; node reached out of position, or a tag this pass does not
+        ; recognise. Unlike a TEMPLATE, ordinary code holds no
+        ; parameter references, so passing it through is safe.
+        e)))))))))))))))))))
+
+(pub :: expPushNames (-> Int Int Int Int))
+(pub fn (expPushNames ns bs i)
+  (if (>= i (vecLen ns))
+      0
+      { (vecPush bs (vecGet ns i)) (expPushNames ns bs (+ i 1)) }))
+
+(pub :: expandVec (-> Int Int Int Int))
+(pub fn (expandVec xs env bs)
+  (expandVecIn xs env bs vecNew 0))
+
+(pub :: expandVecIn (-> Int Int Int Int Int Int))
+(pub fn (expandVecIn xs env bs acc i)
+  (if (>= i (vecLen xs))
+      acc
+      (expandVecIn xs env bs
+                   (vecPush acc (expandExpr (vecGet xs i) env bs))
+                   (+ i 1))))
+
+; A match arm's pattern binds names for its body. They are NOT renamed
+; here - this is the user's own code, not a template - but they must
+; enter the bound set, or a macro sharing a name with an arm binder
+; would rewrite the binder's uses.
+(pub :: expandArms (-> Int Int Int Int))
+(pub fn (expandArms arms env bs)
+  (expandArmsIn arms env bs vecNew 0))
+
+(pub :: expandArmsIn (-> Int Int Int Int Int Int))
+(pub fn (expandArmsIn arms env bs acc i)
+  (if (>= i (vecLen arms))
+      acc
+      (let ((arm (vecGet arms i))
+            (mark (vecLen bs)))
+        {
+          (expPatBinders (nodeA arm) bs)
+          (let ((body (expandExpr (nodeB arm) env bs)))
+            {
+              (expTrunc bs mark)
+              (expandArmsIn arms env bs
+                            (vecPush acc (mkNodeAt TAG_M_ARM (nodeA arm) body 0
+                                                   (nodeSpan arm)))
+                            (+ i 1))
+            })
+        })))
+
+(pub :: expPatBinders (-> Int Int Int))
+(pub fn (expPatBinders p bs)
+  (if (== p 0)
+      0
+      (let ((tag (nodeTag p)))
+        (if (== tag TAG_E_VAR)
+            { (vecPush bs (nodeA p)) 0 }
+        (if (== tag TAG_E_APP)
+            (expPatBindersSpine p bs)
+        (if (== tag TAG_P_CONNAMED)
+            (expPatBindersVec (nodeC p) bs 0)
+        0))))))
+
+(pub :: expPatBindersSpine (-> Int Int Int))
+(pub fn (expPatBindersSpine p bs)
+  (if (== (nodeTag p) TAG_E_APP)
+      { (expPatBindersSpine (nodeA p) bs) (expPatBinders (nodeB p) bs) 0 }
+      0))
+
+(pub :: expPatBindersVec (-> Int Int Int Int))
+(pub fn (expPatBindersVec ps bs i)
+  (if (>= i (vecLen ps))
+      0
+      { (expPatBinders (vecGet ps i) bs) (expPatBindersVec ps bs (+ i 1)) }))
+
+(pub :: expandCondClauses (-> Int Int Int Int))
+(pub fn (expandCondClauses cls env bs)
+  (expandCondClausesIn cls env bs vecNew 0))
+
+(pub :: expandCondClausesIn (-> Int Int Int Int Int Int))
+(pub fn (expandCondClausesIn cls env bs acc i)
+  (if (>= i (vecLen cls))
+      acc
+      (let ((cl (vecGet cls i)))
+        (expandCondClausesIn cls env bs
+          (vecPush acc (mkNodeAt TAG_M_ARM
+                                 (expandExpr (nodeA cl) env bs)
+                                 (expandExpr (nodeB cl) env bs)
+                                 0 (nodeSpan cl)))
+          (+ i 1)))))
+
+; ------------------------------------------------------------------
+; A bare identifier. A zero-parameter macro is invoked this way -
+; `(five)` erases its parens and arrives here - so the name is looked
+; up, but only after the bound set has had its say.
+; ------------------------------------------------------------------
+(pub :: expandVarRef (-> Int Int Int Int))
+(pub fn (expandVarRef e env bs)
+  (if (== (expBound bs (nodeA e)) 1)
+      e
+      (let ((mac (expFindMacro env (nodeA e))))
+        (if (== mac 0)
+            e
+            (if (> (vecLen (nodeB mac)) 0)
+                {
+                  (expArityDiag env (nodeA e) (vecLen (nodeB mac)) 0 (nodeSpan e))
+                  (mkEInt 0)
+                }
+                (expandInstantiate mac vecNew env bs (nodeSpan e)))))))
+
+; ------------------------------------------------------------------
+; An application whose head names a macro.
+; ------------------------------------------------------------------
+(pub :: expandApp (-> Int Int Int Int))
+(pub fn (expandApp e env bs)
+  (let ((head (expSpineHead e)))
+    (if (!= (nodeTag head) TAG_E_VAR)
+        (expandAppPlain e env bs)
+        (if (== (expBound bs (nodeA head)) 1)
+            (expandAppPlain e env bs)
+            (let ((mac (expFindMacro env (nodeA head))))
+              (if (== mac 0)
+                  (expandAppPlain e env bs)
+                  (expandMacroApp e head mac env bs)))))))
+
+(pub :: expandAppPlain (-> Int Int Int Int))
+(pub fn (expandAppPlain e env bs)
+  (mkNodeAt TAG_E_APP
+            (expandExpr (nodeA e) env bs)
+            (expandExpr (nodeB e) env bs) 0 (nodeSpan e)))
+
+(pub :: expandMacroApp (-> Int Int Int Int Int Int))
+(pub fn (expandMacroApp e head mac env bs)
+  (let ((args (expSpineArgs e vecNew))
+        (params (nodeB mac))
+        (isp (if (!= (nodeSpan head) 0) (nodeSpan head) (nodeSpan e))))
+    (if (< (vecLen args) (vecLen params))
+        {
+          (expArityDiag env (nodeA head) (vecLen params) (vecLen args) isp)
+          (mkEInt 0)
+        }
+        ; Exactly `arity` arguments feed the macro; a longer spine
+        ; applies the surplus to whatever the macro produced.
+        (let ((taken (takeArgs args (vecLen params) env bs)))
+          (applyRest (expandInstantiate mac taken env bs isp)
+                     args (vecLen params) env bs)))))
+
+(pub :: takeArgs (-> Int Int Int Int Int))
+(pub fn (takeArgs args n env bs)
+  (takeArgsIn args n env bs vecNew 0))
+
+(pub :: takeArgsIn (-> Int Int Int Int Int Int Int))
+(pub fn (takeArgsIn args n env bs acc i)
+  (if (>= i n)
+      acc
+      (takeArgsIn args n env bs
+                  (vecPush acc (expandExpr (vecGet args i) env bs))
+                  (+ i 1))))
+
+(pub :: applyRest (-> Int Int Int Int Int Int))
+(pub fn (applyRest f args n env bs)
+  (if (>= n (vecLen args))
+      f
+      (applyRest (mkEApp f (expandExpr (vecGet args n) env bs))
+                 args (+ n 1) env bs)))
+
+; ------------------------------------------------------------------
+; Instantiate: substitute, then expand the result, so a template that
+; invokes another macro expands too. The depth counter is what turns
+; `(macro (loopy x) (loopy x))` from a segfault into a diagnostic.
+; ------------------------------------------------------------------
+(pub :: expandInstantiate (-> Int Int Int Int Int Int))
+(pub fn (expandInstantiate mac args env bs isp)
+  (let ((d (+ (expDepth env) 1)))
+    (if (> d (expDepthLimit))
+        {
+          (expEmit env
+            (mkDiagNote SEV_ERROR "AX3019" "macro-recursion-limit"
+                        isp
+                        (strConcat (strConcat "expanding `" (nodeA mac))
+                                   "` exceeded the macro expansion depth limit")
+                        0 0
+                        "check whether this macro, directly or through another, invokes itself with no case that stops"
+                        "expansion is a rewrite, so a macro that always rewrites to itself never terminates; the limit is 128"))
+          (mkEInt 0)
+        }
+        (let ((body (substTpl (nodeC mac) (nodeB mac) args vecNew env isp)))
+          {
+            (expSetDepth env d)
+            (let ((out (expandExpr body env bs)))
+              {
+                (expSetDepth env (- d 1))
+                out
+              })
+          }))))
+
+(pub :: expArityDiag (-> Int Int Int Int Int Int))
+(pub fn (expArityDiag env name want got isp)
+  (expEmit env
+    (mkDiagNote SEV_ERROR "AX3018" "macro-arity"
+                isp
+                (strConcat (strConcat (strConcat (strConcat (strConcat
+                  "macro `" name) "` takes ") (expFmtInt want))
+                  " arguments, but was given ") (expFmtInt got))
+                0 0
+                "pass exactly as many arguments as the macro declares parameters"
+                "a macro is a rewrite, not a function: a missing argument would leave the parameter's own name in the generated code, and a surplus one would be dropped without being evaluated")))
+
+; ------------------------------------------------------------------
+; Declarations.
+;
+; Only a function has a body to walk. The body is written back into
+; word 3 IN PLACE, which matters: `resolveImports` answers a merged
+; list that shares its declaration nodes with the entry list the
+; checker is also handed, so rebuilding the nodes would expand one
+; view of the program and leave the other unexpanded.
+;
+; A macro's own template is NOT expanded here. It is expanded once per
+; invocation, against that invocation's arguments; expanding it in
+; place would rewrite it against no arguments at all.
+; ------------------------------------------------------------------
+(pub :: expandDecl (-> Int Int Int))
+(pub fn (expandDecl d env)
+  (if (== d 0)
+      0
+      (if (== (nodeTag d) TAG_D_FN)
+          (let ((bs vecNew))
+            {
+              (expPushNames (nodeB d) bs 0)
+              (memSetWord d 3 (expandExpr (nodeC d) env bs))
+              0
+            })
+          0)))
+
+(pub :: expandDeclsIn (-> Int Int Int Int))
+(pub fn (expandDeclsIn decls env i)
+  (if (>= i (vecLen decls))
+      0
+      { (expandDecl (vecGet decls i) env) (expandDeclsIn decls env (+ i 1)) }))
+
+; ------------------------------------------------------------------
+; A macro declaration is checked once, here, rather than at each
+; invocation: two parameters with the same name make every reference
+; to that name resolve to the LAST argument, silently. Measured on the
+; emit-time expander: `(macro (dup a a) (+ a a))` invoked as
+; `(dup 10 20)` answered 40.
+; ------------------------------------------------------------------
+(pub :: expCheckMacros (-> Int Int Int))
+(pub fn (expCheckMacros env i)
+  (if (>= i (vecLen (expMacros env)))
+      0
+      {
+        (expCheckDupParams (vecGet (expMacros env) i) env 0)
+        (expCheckMacros env (+ i 1))
+      }))
+
+(pub :: expCheckDupParams (-> Int Int Int Int))
+(pub fn (expCheckDupParams mac env i)
+  (let ((ps (nodeB mac)))
+    (if (>= i (vecLen ps))
+        0
+        {
+          (if (!= (expParamIndex ps (vecGet ps i)) i)
+              (expEmit env
+                (mkDiagNote SEV_ERROR "AX3020" "macro-duplicate-parameter"
+                            (nodeSpan mac)
+                            (strConcat (strConcat (strConcat
+                              "macro `" (nodeA mac)) "` declares the parameter `")
+                              (strConcat (vecGet ps i) "` more than once"))
+                            0 0
+                            "give each parameter a distinct name"
+                            "every reference to a repeated parameter resolves to the LAST argument, so the earlier ones are silently discarded"))
+              0)
+          (expCheckDupParams mac env (+ i 1))
+        })))
+
+; ------------------------------------------------------------------
+; The pass.
+;
+; Called between `resolveImports` and `checkModule`, on the MERGED
+; declaration list, with the same diagnostic Vec the checker will add
+; to. Answers nothing: the declarations are rewritten in place.
+; ------------------------------------------------------------------
+(pub :: expandProgram (-> Int Int Int))
+(pub fn (expandProgram decls out)
+  (let ((env (cast Int (MEnv (expCollectMacros decls vecNew 0) out 0 0))))
+    {
+      (expCheckMacros env 0)
+      (expandDeclsIn decls env 0)
+      0
+    }))
+
+; Push every diagnostic of `src` onto `dst`, answering `dst`. The
+; expander runs before the checker, so its diagnostics are collected
+; separately and merged; `orderDiags` is a stable partition, so
+; merging this way round keeps expansion's refusals ahead of the
+; checker's report about the code they poisoned.
+(pub :: expMergeInto (-> Int Int Int))
+(pub fn (expMergeInto dst src)
+  (expMergeIntoAt dst src 0))
+
+(pub :: expMergeIntoAt (-> Int Int Int Int))
+(pub fn (expMergeIntoAt dst src i)
+  (if (>= i (vecLen src))
+      dst
+      { (vecPush dst (vecGet src i)) (expMergeIntoAt dst src (+ i 1)) }))

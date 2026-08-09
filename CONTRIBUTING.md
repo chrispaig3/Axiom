@@ -87,6 +87,7 @@ axiom/
 │   ├── core.ax           tokens and spans
 │   ├── lexer.ax          tokenizer
 │   ├── parser.ax         S-expression parser, AST
+│   ├── expand.ax         macro expansion, hygiene, expansion diagnostics
 │   ├── typecheck.ax      name resolution, types, effects, AXTAG validation
 │   ├── codegen.ax        IR and LLVM text emission, import resolution
 │   ├── diag.ax           diagnostics, AXDL and JSON rendering, source maps
@@ -111,7 +112,7 @@ axiom/
 Dependencies flow in one direction — no module knows about a downstream one:
 
 ```
-core → lexer → parser → typecheck → codegen → driver → main
+core → lexer → parser → expand → typecheck → codegen → driver → main
 ```
 
 - The lexer must not know about types.
@@ -128,17 +129,22 @@ and none of them renders one.
 Every Axiom program goes through this pipeline:
 
 ```
-Source (.ax) → Lexer → Parser → Type Checker → IR → LLVM IR → llc → cc → Executable
+Source (.ax) → Lexer → Parser → Imports → Macro Expansion → Type Checker → IR → LLVM IR → llc → cc → Executable
 ```
 
 1. **Lexer** (`self_host/lexer.ax`) — turns source text into tokens.
 2. **Parser** (`self_host/parser.ax`) — turns tokens into an AST (S-expression tree).
-3. **Type checker** (`self_host/typecheck.ax`) — two-pass: collects declarations,
+3. **Expander** (`self_host/expand.ax`) — rewrites every macro invocation into
+   its template, renaming the binders the template introduces so they cannot
+   capture a caller's names. It runs *before* the checker, which is what makes
+   everything a macro generates ordinary code as far as every later stage is
+   concerned.
+4. **Type checker** (`self_host/typecheck.ax`) — two-pass: collects declarations,
    then checks bodies. Propagates a poison type after a mismatch so one mistake
    draws one diagnostic.
-4. **Emitter** (`self_host/codegen.ax`) — resolves imports, mangles names, and
+5. **Emitter** (`self_host/codegen.ax`) — resolves imports, mangles names, and
    writes LLVM IR text.
-5. **Driver** (`self_host/driver.ax`) — runs `opt`, `llc` and `cc`, and reports
+6. **Driver** (`self_host/driver.ax`) — runs `opt`, `llc` and `cc`, and reports
    which of them failed rather than passing their errors through.
 
 The compiler is a freestanding binary: it calls no libc function, and reaches
@@ -179,6 +185,7 @@ the same build.
 | Change lexing rules | `self_host/lexer.ax` |
 | Add a new AST node | `self_host/parser.ax` (the `TAG_*` constants and `ASTNode`) |
 | Change parsing rules | `self_host/parser.ax` |
+| Change what a macro expands to, or add a template form | `self_host/expand.ax` |
 | Add a type-checking rule | `self_host/typecheck.ax` |
 | Change LLVM emission | `self_host/codegen.ax` |
 | Add a CLI command | `self_host/main.ax`, and `self_host/driver.ax` for `build` |
@@ -531,9 +538,9 @@ If you're unsure about how something works or where to make a change, open an is
 | Effects | **Complete** | Effect declarations, `handle` expressions, effect checking, AXTAG validation, transitive inference |
 | Loops | **Missing** | Iteration is recursion; `--opt 1`+ turns tail recursion into a loop |
 | Linear types | **Parsed only** | `linear T`, `consume` — the ownership facts the memory model needs |
-| Macros | **Complete** | Pattern-substitution expansion before sema with hygiene |
+| Macros | **Partial** | Substitution expansion before sema, hygienic in the binder direction, arity- and depth-checked. One pattern per macro, no repetition, no declaration-level macros, no `derive`. See [docs/macros.md](docs/macros.md) for what is measured and what is not. This row read "**Complete** — Pattern-substitution expansion before sema with hygiene" until 2026-08-09, and every clause of it was false: expansion ran inside codegen *after* the checker, there was no hygiene of any kind, and there were no patterns |
 | Concurrency | **Delegated** | External/third-party library concern; memory model provides safety foundation |
-| Editor support | **Functional** | Tree-sitter grammar with highlighting queries; no LSP yet |
+| Editor support | **Functional** | Tree-sitter grammar with highlighting queries, and `axiom lsp` — lifecycle, full-text sync, `publishDiagnostics` and `documentSymbol` over JSON-RPC (`self_host/lsp.ax`, gated by `scripts/check-lsp-selfhost.sh`). Hover, completion and go-to-definition are not implemented. This row said "no LSP yet" until 2026-08-09, three commits after the server landed |
 | Imports | **Functional** | `(import Mod.Sub ...)` with transitive/diamond-safe resolution, qualified access |
 
 ---

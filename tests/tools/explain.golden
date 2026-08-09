@@ -1,7 +1,7 @@
 # axiom explain, every code and every spelling.
-# Materialized from the Rust compiler at commit 1041f11 on 2026-08-08. The
-# TEXTS are those bytes and self_host/explain.ax was GENERATED from them. The
-# list section's COLOUR is RECONSTRUCTED, not captured (check-tools-selfhost.sh).
+# AX1001-AX5001 were materialized from the Rust compiler at commit 1041f11 on
+# 2026-08-08; AX3018-AX3022 (macro expansion) postdate its deletion and originate
+# in self_host/explain.ax. The list section's COLOUR is RECONSTRUCTED, not captured.
 ### explain --list
 [1;96mKnown Axiom diagnostic codes:[0m
   [93mAX1001[0m  unexpected character  (unexpected-char)
@@ -31,6 +31,11 @@
   [93mAX3013[0m  partial application is not supported  (partial-application)
   [93mAX3016[0m  a handle list names an effect that is not declared  (unknown-effect)
   [93mAX3017[0m  an effect-handler shape the compiler does not support yet  (effect-handler-unsupported)
+  [93mAX3018[0m  wrong number of arguments to a macro  (macro-arity)
+  [93mAX3019[0m  macro expansion did not terminate  (macro-recursion-limit)
+  [93mAX3020[0m  a macro declares the same parameter twice  (macro-duplicate-parameter)
+  [93mAX3021[0m  a macro template contains a form the expander cannot substitute into  (macro-template-unsupported)
+  [93mAX3022[0m  a macro parameter used as a `set` target was given an expression  (macro-set-target)
   [93mAX4001[0m  no `main` function  (missing-main)
   [93mAX4002[0m  code generation failed  (codegen-failure)
   [93mAX4003[0m  external toolchain command failed  (toolchain-failure)
@@ -294,6 +299,79 @@ several effects at once, and split multi-operation effects into
 one effect per operation until per-operation handler syntax
 exists.
 
+### explain AX3018
+AX3018 - wrong number of arguments to a macro
+
+A macro is applied to exactly as many arguments as its head declares
+parameters. It is not a function and does not curry: an invocation is a
+REWRITE, and the rewrite has nowhere to put an argument it was given no
+parameter for.
+
+Both mismatches used to be accepted. A missing argument left the
+parameter's own name standing in the generated code, so
+`(macro (two p q) (+ p q))` invoked as `(two 40)` emitted
+`add i64 40, %q` and the native toolchain rejected it with an undefined
+value - an error about generated code, carrying no span into the
+source. A surplus argument was dropped WITHOUT being evaluated, so its
+side effects silently did not happen.
+
+Count the parameters and pass that many.
+
+### explain AX3019
+AX3019 - macro expansion did not terminate
+
+Expanding this macro reached the depth limit of 128. Expansion repeats
+until no invocation is left, so a macro that always rewrites to an
+invocation of itself - directly, or through a second macro that
+rewrites back - never finishes.
+
+Before the limit existed this crashed the compiler: `(macro (loopy x)
+(loopy x))` segfaulted with no diagnostic and no output, in about 10 ms
+of CPU time.
+
+A macro cannot recurse on its arguments the way a function can, because
+there is no test the expander can evaluate to stop. Write the recursion
+as a function and let the macro expand to a call.
+
+### explain AX3020
+AX3020 - a macro declares the same parameter twice
+
+Two parameters of this macro share a name, so a reference to that name
+in the template has no single meaning. The expander resolves it to the
+LAST argument, which means the earlier ones are accepted, evaluated in
+source order, and then discarded - measured: `(macro (dup a a) (+ a a))`
+invoked as `(dup 10 20)` answered 40.
+
+Give each parameter a distinct name.
+
+### explain AX3021
+AX3021 - a macro template contains a form the expander cannot substitute into
+
+The expander rebuilds a template node by node, replacing parameter
+references with the arguments' syntax. This template contains a form it
+has no case for, so it refused rather than emit the template's own
+identifiers into the generated code.
+
+This is a compiler limitation, not a mistake in the program, and it
+exists to be loud. The eight silent miscompiles it replaced were all
+the same bug: a form was added to the language and not to the expander,
+whose default was to return the node unchanged - which compiled, and
+produced code referring to names that existed only inside the macro.
+
+Rewrite the template without the form, or add a case for it to
+`substTpl` in `self_host/expand.ax`.
+
+### explain AX3022
+AX3022 - a macro parameter used as a `set` target was given an expression
+
+`set` assigns to a binding, so its target has to be a name. Where a
+template writes `(set p v)` and `p` is a macro parameter, the argument
+passed for `p` has to be a plain identifier; this call passed an
+expression, which names no binding to assign to.
+
+Pass a variable for that parameter, or rewrite the template so the
+parameter is not a `set` target.
+
 ### explain AX4001
 AX4001 - no `main` function
 
@@ -387,6 +465,11 @@ run `axiom explain --list` to see all known codes
   [93mAX3013[0m  partial application is not supported  (partial-application)
   [93mAX3016[0m  a handle list names an effect that is not declared  (unknown-effect)
   [93mAX3017[0m  an effect-handler shape the compiler does not support yet  (effect-handler-unsupported)
+  [93mAX3018[0m  wrong number of arguments to a macro  (macro-arity)
+  [93mAX3019[0m  macro expansion did not terminate  (macro-recursion-limit)
+  [93mAX3020[0m  a macro declares the same parameter twice  (macro-duplicate-parameter)
+  [93mAX3021[0m  a macro template contains a form the expander cannot substitute into  (macro-template-unsupported)
+  [93mAX3022[0m  a macro parameter used as a `set` target was given an expression  (macro-set-target)
   [93mAX4001[0m  no `main` function  (missing-main)
   [93mAX4002[0m  code generation failed  (codegen-failure)
   [93mAX4003[0m  external toolchain command failed  (toolchain-failure)

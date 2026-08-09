@@ -1,0 +1,11 @@
+[1;31merror[AX3020][0m[1m: macro `dup` declares the parameter `a` more than once[0m
+ [1;34m--> [0m992-macro-duplicate-parameter.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (dup a a) (+ a a))
+[1;34m  |[0m         [1;31m^^^[0m
+[1;34m  |[0m
+ [1;34m = [0m[1mnote: [0mevery reference to a repeated parameter resolves to the LAST argument, so the earlier ones are silently discarded
+ [1;34m = [0m[1;32mhelp: [0mgive each parameter a distinct name
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3020` for a full explanation
+
+compilation failed due to 1 previous error

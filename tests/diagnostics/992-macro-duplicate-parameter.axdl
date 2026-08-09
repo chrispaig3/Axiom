@@ -1,0 +1,1 @@
+E AX3020 992-macro-duplicate-parameter.ax:4:9-12 macro-duplicate-parameter "macro `dup` declares the parameter `a` more than once" !"every reference to a repeated parameter resolves to the LAST argument, so the earlier ones are silently discarded" ?"give each parameter a distinct name"

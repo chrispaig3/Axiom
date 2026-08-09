@@ -1,0 +1,7 @@
+; A macro is applied to exactly as many arguments as it declares
+; parameters. Under-application used to leave the parameter's own name
+; in the generated code, which reached `opt` as an undefined value.
+(macro (two p q) (+ p q))
+
+(:: main Int)
+(fn (main) (two 40))

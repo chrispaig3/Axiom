@@ -1,0 +1,44 @@
+; expect 57
+; Substitution has to reach every form a template can contain. It
+; reached eight of them and returned the rest of the template
+; unrebuilt, which meant a parameter reference inside one of the other
+; eight survived into the generated code as the TEMPLATE's own
+; identifier - LLVM naming a register nothing defines.
+;
+; Every case here failed that way, and every one failed SILENTLY at
+; `check`: the program type-checked, emitted, and died in `opt` as
+; AX4003 `opt failed` against `<toolchain>`, a diagnostic that blames
+; the toolchain for the compiler's own bug and carries no span into
+; the source.
+;
+;   sumTo   - `let mut`, `while` and `set` (TAG_E_LETM/WHILE/SET):
+;             emitted `icmp slt i64 %t5, %n`, `%n` undefined
+;   getx    - field access (TAG_E_FIELD): emitted `inttoptr i64 %p`
+;   mk      - struct construction (TAG_E_STRUCTCON): emitted
+;             `store i64 %a` and `store i64 %b`
+;
+; `applyTwice` is the one that already worked (TAG_E_LAM was covered),
+; kept so a regression that breaks the covered forms while fixing the
+; uncovered ones is still caught.
+;
+; 10 + 40 + 7 = 57.
+(struct P (x : Int) (y : Int))
+
+(macro (sumTo n)
+  (let ((mut i 0) (mut acc 0))
+    {
+      (while (< i n) { (set acc (+ acc i)) (set i (+ i 1)) })
+      acc
+    }))
+(macro (mk a b) (P a b))
+(macro (getx p) p.x)
+(macro (applyTwice f v) ((lambda (z) (f (f z))) v))
+
+(:: inc (-> Int Int))
+(fn (inc k) (+ k 1))
+
+(:: main Int)
+(fn (main)
+  (+ (sumTo 5)
+     (+ (getx (mk 40 1))
+        (applyTwice inc 5))))

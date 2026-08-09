@@ -1,0 +1,1 @@
+E AX3019 991-macro-recursion.ax:7:13-18 macro-recursion-limit "expanding `loopy` exceeded the macro expansion depth limit" !"expansion is a rewrite, so a macro that always rewrites to itself never terminates; the limit is 128" ?"check whether this macro, directly or through another, invokes itself with no case that stops"

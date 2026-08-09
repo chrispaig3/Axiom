@@ -24,6 +24,7 @@ A friendly, comprehensive guide to the Axiom programming language — a function
 16. [Effects](#effects)
 17. [Handle Expressions](#handle-expressions)
 18. [Modules and Imports](#modules-and-imports)
+18b. [Macros](#macros)
 19. [Memory Primitives](#memory-primitives)
 20. [Standard Library](#standard-library)
 21. [AXTAG Metadata](#axtag-metadata)
@@ -1002,6 +1003,58 @@ The `pub` keyword goes before the declaration keyword, inside the same parenthes
 
 ---
 
+## Macros
+
+A macro rewrites its invocation into a template, before the type
+checker runs. The compiler executes no code from a source file:
+expansion is substitution and nothing else.
+
+```scheme
+(macro (when test body) (if test body 0))
+(pub macro (unless test body) (if test 0 body))
+
+(when (== n 40) 5)          ; becomes (if (== n 40) 5 0)
+```
+
+The name lives inside the head parens, like a function's. A macro is
+applied to **exactly** as many arguments as it declares parameters —
+too few or too many is `AX3018`.
+
+Arguments are substituted as syntax, so one used twice in a template is
+evaluated twice:
+
+```scheme
+(macro (twice x) (+ x x))
+(twice (readLine))          ; reads twice
+```
+
+**Expansion is hygienic in the binder direction.** A binder the
+template introduces cannot capture a name from the call site:
+
+```scheme
+(macro (addTo x) (let ((tmp 100)) (+ tmp x)))
+(let ((tmp 1)) (addTo tmp))     ; 101, not 200
+```
+
+**A macro name is not a keyword.** A binding of the same name wins:
+
+```scheme
+(macro (v) 9)
+(fn (f v) v)                    ; the parameter, not the macro
+```
+
+Because the expansion is checked like ordinary code, a mistake inside a
+template is an ordinary diagnostic — including exhaustiveness on a
+`match` the macro generated. The diagnostic anchors at the invocation.
+
+What macros cannot do yet: produce declarations (so there is no
+`derive`), match on the shape of their arguments, or repeat a template
+over a variable number of them. `deriving (Eq)` parses and is
+discarded. See [macros.md](macros.md) for the measured detail and the
+order the rest is planned in.
+
+---
+
 ## Memory Primitives
 
 The standard library is built on these low-level primitives, and so is any code that needs to talk to the machine directly. They are the layer where the type system stops — every argument and result is an `Int`.
@@ -1327,7 +1380,7 @@ axiom explain --list
 ## Compiler Pipeline
 
 ```
-Source (.ax) → Lexer → Parser → Type Checker → IR → LLVM IR → llc → cc → Executable
+Source (.ax) → Lexer → Parser → Imports → Macro Expansion → Type Checker → IR → LLVM IR → llc → cc → Executable
 ```
 
 ### Compiler Structure
@@ -1339,6 +1392,7 @@ The compiler is written in Axiom, in `self_host/`.
 | `core.ax` | Tokens and spans |
 | `lexer.ax` | Tokenizer |
 | `parser.ax` | S-expression parser and AST |
+| `expand.ax` | Macro expansion, hygiene, expansion diagnostics |
 | `typecheck.ax` | Name resolution, type checking, effects, AXTAG validation |
 | `codegen.ax` | Import resolution, name mangling, LLVM emission |
 | `diag.ax` | Diagnostics, AXDL/JSON rendering, source maps |
@@ -1451,6 +1505,7 @@ Use `--opt 2` for anything that iterates over a large input.
 
 ## Further Reading
 
+- [Macros](macros.md) — what expansion guarantees, what it does not, and the probes behind each claim
 - [Diagnostics & Agent Notations](diagnostics.md) — AXDL, AXSYM, NID, AXTAG reference
 - [Self-Hosting](self-hosting.md) — how the Rust compiler was replaced with one written in Axiom, and how a clean checkout builds it
 - [v1 Roadmap](v1-roadmap.md) — what is done, what is left, and what blocks what

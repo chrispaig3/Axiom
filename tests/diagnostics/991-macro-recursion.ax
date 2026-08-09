@@ -1,0 +1,7 @@
+; A macro that always rewrites to itself never terminates. This
+; segfaulted the compiler before the depth limit existed: exit 139, no
+; output, no diagnostic.
+(macro (loopy x) (loopy x))
+
+(:: main Int)
+(fn (main) (loopy 1))

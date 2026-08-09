@@ -1,0 +1,7 @@
+; Two parameters sharing a name make every reference resolve to the
+; LAST argument, so the earlier ones are evaluated and discarded.
+; Measured on the emit-time expander: this answered 40.
+(macro (dup a a) (+ a a))
+
+(:: main Int)
+(fn (main) (dup 10 20))

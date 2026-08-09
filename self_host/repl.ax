@@ -47,6 +47,7 @@
 (import diag)
 (import render)
 (import typecheck)
+(import expand)
 (import codegen)
 (import driver)
 
@@ -293,13 +294,19 @@
                          v
                        })))
           (let ((allDecls (resolveImports decls bares fulls tcode "." units)))
-            (let ((ds (checkModule decls allDecls units)))
+            ; The REPL compiles and RUNS, so it needs the same expansion
+            ; the file path gets. When expansion lived in codegen this
+            ; came for free; now it does not, and without this line a
+            ; macro defined at the prompt emitted a call to a symbol
+            ; nothing defines - `use of undefined value '@twice'`.
+            (let ((eds (let ((v vecNew)) { (expandProgram allDecls v) v })))
+            (let ((ds (expMergeInto eds (checkModule decls allDecls units))))
               (if (> (countErrorDiags ds) 0)
                   {
                     (replOut (strConcat "Error: " (joinDiagMsgs ds)))
                     (pErr 0)
                   }
-                  (pOk (emitResolved allDecls bares fulls tcode) 0))))))))
+                  (pOk (emitResolved allDecls bares fulls tcode) 0)))))))))
 
 (pub :: joinDiagMsgs (-> Int Int))
 (pub fn (joinDiagMsgs ds)

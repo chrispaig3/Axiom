@@ -1,0 +1,25 @@
+; expect 3
+; A macro name is not a keyword. A binding of the same name wins, and
+; both kinds of binding are checked because the old expander lost to
+; neither - it lost to both.
+;
+; Expansion used to run at EMIT time, and `emitVar`/`dispatchCall` each
+; consulted the macro table BEFORE the symbol table, the constructor
+; registry and the parameter list. So a macro named `v` rewrote every
+; occurrence of the identifier `v` anywhere in the program: a function
+; parameter named `v` evaluated to the macro's template, and so did a
+; `let` binding. Measured at 9 for each, where the program says 1 and 2.
+;
+; Expansion now runs before the checker, over a walk that carries the
+; set of names bound at each point, so a bound name is a variable.
+;
+; 1 + 2 = 3; under the old rule, 9 + 9 = 18.
+(macro (v) 9)
+
+(:: f (-> Int Int))
+(fn (f v) v)
+
+(:: main Int)
+(fn (main)
+  (+ (f 1)
+     (let ((v 2)) v)))

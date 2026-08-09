@@ -43,6 +43,11 @@ Codes are namespaced by compiler stage:
 | `AX4xxx` | IR lowering, codegen, and the native toolchain |
 | `AX5xxx` | Module/import resolution |
 
+Macro expansion runs as part of semantic analysis and its refusals live
+in `AX3xxx`: `AX3018` arity, `AX3019` recursion limit, `AX3020`
+duplicate parameter, `AX3021` an unsupported template form, `AX3022` a
+`set` target that is not a name. See [macros.md](macros.md).
+
 Codes are stable across wording changes, so you can grep for them in CI,
 pattern-match on them in editor tooling, or look them up directly:
 

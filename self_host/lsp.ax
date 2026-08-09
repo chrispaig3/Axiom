@@ -52,6 +52,7 @@
 (import parser)
 (import diag)
 (import typecheck)
+(import expand)
 (import codegen)
 
 ; ------------------------------------------------------------------
@@ -278,7 +279,12 @@
                       (units (let ((v vecNew))
                                { (vecPush v (cast Int (CUnit2 path src 0))) v })))
                   (let ((allDecls (resolveImports decls bares fulls tcode entryDir units)))
-                    (let ((ds (orderDiags (checkModule decls allDecls units))))
+                    ; Same order as `compileFile`: expansion, then the
+                    ; checker. An editor that reported a different set
+                    ; of diagnostics from `axiom check` on the same file
+                    ; would be worse than one that reported none.
+                    (let ((eds (let ((v vecNew)) { (expandProgram allDecls v) v })))
+                    (let ((ds (orderDiags (expMergeInto eds (checkModule decls allDecls units)))))
                       (let ((out jsonArr) (mut i 0))
                         {
                           (while (< i (vecLen ds))
@@ -290,7 +296,7 @@
                                 (set i (+ i 1))
                               }))
                           out
-                        }))))))))))))
+                        })))))))))))))
 
 ; ------------------------------------------------------------------
 ; Document symbols

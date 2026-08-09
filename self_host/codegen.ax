@@ -8,6 +8,7 @@
 (import Sys)
 (import parser)
 (import diag)
+(import expand)
 (import render)
 
 ; ------------------------------------------------------------------
@@ -378,190 +379,19 @@
           (paramFloatIdx cg params name (+ i 1)))))
 
 ; ------------------------------------------------------------------
-; Macros.
+; Macros were expanded HERE, at emit time, by a substituter that lived
+; in this file. They are expanded in `self_host/expand.ax` now, as a
+; pass between import resolution and the checker, and this file no
+; longer knows what a macro is. Its header records what the move was
+; worth; the short version is that emitting an expansion is too late
+; to type-check it, and everything a macro generated was therefore
+; unchecked.
 ;
-; A macro is a rewrite, applied where a call would otherwise be
-; emitted: a head that names a macro whose parameter count matches the
-; argument count has its template instantiated - each parameter name
-; replaced by the corresponding argument's syntax tree - and the
-; instantiation is emitted in the call's place. Emitting it re-enters
-; this same dispatch, so a template that itself invokes a macro
-; expands, exactly as stage0's expander recurses after substituting.
-;
-; Two deliberate simplifications against stage0. Substitution is
-; unhygienic - no gensym, no scope sets - which is observably identical
-; for every macro in the corpus, since none introduces a binder; a
-; template `let` whose name collides with a call-site name would
-; capture here and not under stage0. And an argument used twice in the
-; template shares one tree rather than two clones, which cannot be
-; told apart either: emission walks the tree twice and emits the
-; expression twice, the same double evaluation textual substitution
-; has always meant. Nothing in emission mutates expression nodes, so
-; the sharing is safe.
+; Field 19 of `CG` held the macro table and is left in place rather
+; than reclaimed, for the reason the retired TAG_D_FOREIGN tag number
+; is left vacant: a retired slot costs a word, and a recycled one
+; turns a stale reader into a silent wrong answer.
 ; ------------------------------------------------------------------
-(pub :: scanMacros (-> Int Int Int Int))
-(pub fn (scanMacros decls acc i)
-  (if (>= i (vecLen decls))
-      acc
-      {
-        (let ((d (vecGet decls i)))
-          (if (== (nodeTag d) TAG_D_MACRO)
-              (vecPush acc d)
-              0))
-        (scanMacros decls acc (+ i 1))
-      }))
-
-; The scan runs backward: stage0 collects macros into a map keyed by
-; name, so a later definition of the same name overwrites an earlier
-; one - and since import resolution puts dependencies ahead of the
-; importing file, that is also what makes an entry-file macro shadow an
-; imported one.
-(pub :: findMacro (-> Int Int Int))
-(pub fn (findMacro cg name)
-  (findMacroIn (memGetWord cg 19) name (- (vecLen (memGetWord cg 19)) 1)))
-
-(pub :: findMacroIn (-> Int Int Int Int))
-(pub fn (findMacroIn ms name i)
-  (if (< i 0)
-      0
-      (let ((m (vecGet ms i)))
-        (if (strEq (nodeA m) name)
-            m
-            (findMacroIn ms name (- i 1))))))
-
-; Backward for the same reason: stage0 binds parameters left to right
-; into a map, so a duplicated parameter name ends up bound to its LAST
-; occurrence's argument.
-(pub :: identIndexLast (-> Int Int Int Int))
-(pub fn (identIndexLast names name i)
-  (if (< i 0)
-      (- 0 1)
-      (if (strEq (vecGet names i) name)
-          i
-          (identIndexLast names name (- i 1)))))
-
-; stage0 expands *every* invocation of a macro, whatever the arity.
-; Its pattern matcher never fails on macro parameters: a single
-; parameter binds the lone argument, a begin-block of several, or the
-; literal 0 of none; a parameter list binds positionally, extra
-; arguments are dropped, and a parameter beyond the arguments stays
-; unbound - its name survives in the template verbatim. This builds the
-; argument vector `macroSubst` indexes so those rules hold.
-(pub :: macroEffArgs (-> Int Int Int))
-(pub fn (macroEffArgs params args)
-  (if (== (vecLen params) 1)
-      (let ((v vecNew))
-        {
-          (vecPush v
-            (if (== (vecLen args) 0)
-                (mkEInt 0)
-            (if (== (vecLen args) 1)
-                (vecGet args 0)
-            (mkEBegin args))))
-          v
-        })
-      args))
-
-(pub :: emitMacroCall (-> Int Int Int Int))
-(pub fn (emitMacroCall mac args cg)
-  (emitExpr (macroSubst (nodeC mac)
-                        (nodeB mac)
-                        (macroEffArgs (nodeB mac) args))
-            cg))
-
-; The template with every parameter reference replaced by its
-; argument. Nodes that hold no parameter reference - literals,
-; strings - pass through unrebuilt; so does a `match` arm's pattern,
-; which stage0's substitution also leaves alone. A parameter with no
-; argument to bind stays as itself, matching stage0.
-(pub :: macroSubst (-> Int Int Int Int))
-(pub fn (macroSubst tpl params args)
-  (let ((tag (nodeTag tpl)))
-    (if (== tag TAG_E_VAR)
-        (let ((idx (identIndexLast params (nodeA tpl) (- (vecLen params) 1))))
-          (if (< idx 0)
-              tpl
-              (if (>= idx (vecLen args))
-                  tpl
-                  (vecGet args idx))))
-    (if (== tag TAG_E_APP)
-        (mkEApp (macroSubst (nodeA tpl) params args)
-                (macroSubst (nodeB tpl) params args))
-    (if (== tag TAG_E_IF)
-        (mkEIf (macroSubst (nodeA tpl) params args)
-               (macroSubst (nodeB tpl) params args)
-               (macroSubst (nodeC tpl) params args))
-    (if (== tag TAG_E_LET)
-        (mkELet (nodeA tpl)
-                (macroSubst (nodeB tpl) params args)
-                (macroSubst (nodeC tpl) params args))
-    (if (== tag TAG_E_LAM)
-        (mkELam (nodeA tpl)
-                (macroSubst (nodeB tpl) params args))
-    (if (== tag TAG_E_BEGIN)
-        (mkEBegin (macroSubstVec (nodeA tpl) params args))
-    (if (== tag TAG_E_MATCH)
-        (mkNode TAG_E_MATCH
-                (macroSubst (nodeA tpl) params args)
-                (macroSubstArms (nodeB tpl) params args)
-                0)
-    ; A structural cond in a template: substitute inside every
-    ; clause's test and body, and the else. Before cond was kept
-    ; structural it arrived here pre-desugared as TAG_E_IF; without
-    ; this case a template cond would emit with its parameter
-    ; references unsubstituted.
-    (if (== tag TAG_E_COND)
-        (mkNode TAG_E_COND
-                (macroSubstCondClauses (nodeA tpl) params args)
-                (if (== (nodeB tpl) 0)
-                    0
-                    (macroSubst (nodeB tpl) params args))
-                0)
-    tpl))))))))))
-
-(pub :: macroSubstCondClauses (-> Int Int Int Int))
-(pub fn (macroSubstCondClauses clauses params args)
-  (macroSubstCondClausesIn clauses params args vecNew 0))
-
-(pub :: macroSubstCondClausesIn (-> Int Int Int Int Int Int))
-(pub fn (macroSubstCondClausesIn clauses params args acc i)
-  (if (>= i (vecLen clauses))
-      acc
-      (let ((cl (vecGet clauses i)))
-        (macroSubstCondClausesIn clauses params args
-          (vecPush acc (mkNode TAG_M_ARM
-                               (macroSubst (nodeA cl) params args)
-                               (macroSubst (nodeB cl) params args)
-                               0))
-          (+ i 1)))))
-
-(pub :: macroSubstVec (-> Int Int Int Int))
-(pub fn (macroSubstVec exprs params args)
-  (macroSubstVecIn exprs params args vecNew 0))
-
-(pub :: macroSubstVecIn (-> Int Int Int Int Int Int))
-(pub fn (macroSubstVecIn exprs params args acc i)
-  (if (>= i (vecLen exprs))
-      acc
-      (macroSubstVecIn exprs params args
-                       (vecPush acc (macroSubst (vecGet exprs i) params args))
-                       (+ i 1))))
-
-(pub :: macroSubstArms (-> Int Int Int Int))
-(pub fn (macroSubstArms arms params args)
-  (macroSubstArmsIn arms params args vecNew 0))
-
-(pub :: macroSubstArmsIn (-> Int Int Int Int Int Int))
-(pub fn (macroSubstArmsIn arms params args acc i)
-  (if (>= i (vecLen arms))
-      acc
-      (let ((arm (vecGet arms i)))
-        (macroSubstArmsIn arms params args
-                          (vecPush acc (mkNode TAG_M_ARM
-                                               (nodeA arm)
-                                               (macroSubst (nodeB arm) params args)
-                                               0))
-                          (+ i 1)))))
 
 (pub :: emitLine (-> Int Int Int))
 (pub fn (emitLine cg line)
@@ -2088,7 +1918,18 @@
   (let ((tcode (checkedTargetCode target))
         (bares vecNew)
         (fulls vecNew))
-    (emitResolved (resolveImports decls bares fulls tcode "" vecNew) bares fulls tcode)))
+    (let ((allDecls (resolveImports decls bares fulls tcode "" vecNew)))
+      {
+        ; Expansion, for the same reason every other path runs it: this
+        ; one reaches EMISSION, so without it a macro invocation is
+        ; emitted as a call to a symbol nothing defines. Its
+        ; diagnostics are discarded because this entry point has no
+        ; renderer and no units to render against - it is the
+        ; convenience form, and a caller that wants diagnostics uses
+        ; the pipeline in `main.ax` that has them.
+        (expandProgram allDecls vecNew)
+        (emitResolved allDecls bares fulls tcode)
+      })))
 
 ; The target's numeric code, refusing an unknown name rather than
 ; defaulting - emitting the wrong target's syscall convention is a
@@ -2113,7 +1954,7 @@
             (_2 (memSetWord cg 13 fulls))
             (_2t (memSetWord cg 26 tcode))
             (_3 (memSetWord cg 15 (scanFloatSigs allDecls vecNew 0)))
-            (_4 (memSetWord cg 19 (scanMacros allDecls vecNew 0))))
+            (_4 (memSetWord cg 19 vecNew)))
       (let ((cg0 (scanDecls allDecls cg 0)))
         (let ((cg0b (memSetWord cg0 8 allDecls)))
           (let ((ttHeader (cat3 "target triple = \"" (targetTriple tcode) "\"")))
@@ -3705,14 +3546,12 @@
 (pub :: emitVar (-> Int Int Int))
 (pub fn (emitVar node cg)
   (let ((name (nodeA node)))
-    ; A bare reference to a macro expands with zero arguments - stage0
-    ; rewrites every expression whose head (or self) names a macro,
-    ; before any scoping exists, so a macro shadows even a local of the
-    ; same name. Parity requires checking here ahead of the symbol
-    ; table.
-    (let ((mac (findMacro cg name)))
-    (if (!= mac 0)
-        (emitMacroCall mac vecNew cg)
+    ; A macro used to be expanded HERE, ahead of the symbol table, so a
+    ; macro name outranked every binder in the program: `(macro (v) 9)`
+    ; made a parameter named `v` evaluate to 9. Expansion now happens in
+    ; `self_host/expand.ax`, before the checker, and that pass knows
+    ; which names are bound - so by the time emission runs there is no
+    ; macro left to expand and a local is a local.
     ; A zero-argument primitive is spelled `(__argc)`, which is a bare
     ; variable reference by the time it gets here. Without this it fell
     ; through to the undefined-name emission `%__argc`.
@@ -3833,7 +3672,7 @@
                           (memSetWord cg 2 x)
                           (memSetWord cg 14 (paramFloatByName cg name))
                           cg
-                        })))))))))))))))
+                        })))))))))))))
 
 ; Index of `name` in the current function's parameter list, -1 when it
 ; is no parameter.
@@ -3956,13 +3795,8 @@
         (isTail (memGetWord cg 30))
         (_clr (memSetWord cg 30 0)))
     (
-    ; A macro wins over every other reading of the head, because
-    ; stage0 expands before any analysis runs - a macro shadowing a
-    ; function name rewrites the call there too, whatever the arity
-    ; (see macroEffArgs for the mismatch rules).
-    (let ((mac (findMacro cg fnName)))
-    (if (!= mac 0)
-        (emitMacroCall mac args cg)
+    ; The macro branch that used to lead here is gone with the rest of
+    ; the emit-time expander; see `self_host/expand.ax`.
     ; cast is a no-op at the i64 level — just evaluate and return the
     ; last argument's value directly, avoiding an undefined @cast call.
     ; It *does* change float-ness: `(cast Float bits)` is how a bit
@@ -4033,7 +3867,7 @@
                               (== (vecLen args) (vecLen (memGetWord cg 28))))))
                   (emitTailJump args cg)
                   (emitOverApplied fnName args cg))
-              (zeroFloat (emitConstructor fnName args (eKind entry) (eArity entry) (eTag entry) (eRep entry) cg))))))))))))))))
+              (zeroFloat (emitConstructor fnName args (eKind entry) (eArity entry) (eTag entry) (eRep entry) cg))))))))))))))
 
 (pub :: isLocalValue (-> Int Int Bool))
 (pub fn (isLocalValue cg name)

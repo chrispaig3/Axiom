@@ -1,0 +1,30 @@
+; expect 143
+; A binder a TEMPLATE introduces must not capture a name the caller
+; passed in. Both places a template can introduce one are exercised,
+; because they failed independently and for different reasons.
+;
+; `addTo`'s template binds `tmp` and then uses the argument. Called
+; under a caller's own `tmp`, the emit-time expander substituted the
+; argument into a tree where `tmp` was already bound and answered 200 -
+; a silent wrong answer, with no diagnostic from either compiler and
+; no gate that would have noticed.
+;
+; `orElse`'s template binds `v` in a match ARM pattern. That one was
+; worse than a missed rename: `macroSubstArmsIn` copied the pattern
+; verbatim while substituting the body, so the binder stayed and every
+; use of it in the body became the ARGUMENT. Measured at 8 - the
+; payload - where the caller wrote 42.
+;
+; 101 + 42 = 143. Under capture the answer is 200 + 8 = 208, so the
+; two failures are distinguishable from the pass and from each other.
+(data Opt (None) (Some Int))
+
+(macro (addTo x) (let ((tmp 100)) (+ tmp x)))
+(macro (orElse o d) (match o ((Some v) d) ((None) d)))
+
+(:: main Int)
+(fn (main)
+  (let ((tmp 1))
+    (+ (addTo tmp)
+       (let ((v 42))
+         (orElse (Some 8) v)))))
