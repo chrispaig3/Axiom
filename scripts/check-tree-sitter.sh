@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
-# Verify the tree-sitter grammar against the compiler.
+# Verify the tree-sitter grammar against the compiler, and the
+# documentation's Axiom against itself.
 #
-# Two checks, and the second is the one that matters:
+# Three checks. The second is the one that matters most, and the third
+# is here rather than in a gate of its own because it belongs to the
+# same CI job: the cheap one that needs no compiler.
 #
 #   1. `tree-sitter test` runs the hand-written corpus in
 #      `tree-sitter-axiom/test/corpus/`, which pins the *shape* of the tree
@@ -14,6 +17,11 @@
 #      and the standard library is not. When the language grows a form, the
 #      stdlib and the demos get it first, and this fails until the grammar
 #      catches up.
+#
+#   3. Every Axiom code block in `README.md`, `docs/reference.md` and
+#      `CONTRIBUTING.md` balances its delimiters. Documented syntax is
+#      the one corpus nothing else reads, and it drifts the same way the
+#      grammar does - see the note on the check itself.
 #
 # A grammar that drifts from the compiler is worse than no grammar: it
 # misleads an editor into highlighting invalid code as valid, and the author
@@ -28,6 +36,23 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root/tree-sitter-axiom"
+
+echo "--- documented Axiom code blocks balance their delimiters ---"
+# Placed before the CLI probe below, because it needs no CLI and no
+# compiler: a machine that has neither should still get this one.
+#
+# `axiom check` cannot be the test here. Most documented blocks are
+# fragments - a column of literals, a bare expression, a `{}` body - and
+# a fragment is not a module, so `check` refuses 45 of the 107 that
+# exist and is right to. Balance is the property fragments and modules
+# share, and it is the property both defects this found had violated:
+# README.md's multi-method `trait` and multi-method `impl` examples each
+# carried one extra `)`. Both were the SECOND, longer example under
+# their heading; the short one above each was correct, which is how they
+# survived being read.
+python3 "$repo_root/tests/docs/verify-doc-code.py" \
+  "$repo_root/README.md" "$repo_root/docs/reference.md" \
+  "$repo_root/CONTRIBUTING.md"
 
 # Prefer a project-local install, then anything on PATH.
 if [[ -x "$repo_root/tree-sitter-axiom/node_modules/.bin/tree-sitter" ]]; then

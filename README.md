@@ -595,7 +595,7 @@ Define interfaces with typed methods:
   where
     (cmp :: (-> a a Int))
     (lt :: (-> a a Bool))
-    (gt :: (-> a a Bool))))
+    (gt :: (-> a a Bool)))
 ```
 
 Implement a trait for a specific type:
@@ -609,7 +609,7 @@ Implement a trait for a specific type:
   where
     ((cmp (lambda (x y) (if (== x y) 0 (if (< x y) (- 0 1) 1)))))
     ((lt (lambda (x y) (< x y))))
-    ((gt (lambda (x y) (> x y))))))
+    ((gt (lambda (x y) (> x y)))))
 ```
 
 Traits support:
