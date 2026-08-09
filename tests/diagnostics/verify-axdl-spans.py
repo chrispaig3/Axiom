@@ -15,7 +15,10 @@ all. An AXDL line is
 
     SEV CODE file:line:colStart-colEnd slug "message" ^L:C-C:"note" ?"help"
 
-and every one of those positions is a claim about a file this repository
+with three further text-only fields the grammar allows and this parser
+reads without deriving a claim from: `#"label"` (the primary label),
+`!"note"` and `&"frame"` (an expansion-backtrace frame). Every one of
+the *positions* above is a claim about a file this repository
 also contains. `tests/diagnostics/010-duplicate-fn.ax` really does or
 does not have a line 3 whose characters 6 through 9 spell `main`. That
 is a fact about the fixture, so no amount of blessing can make a wrong
@@ -140,9 +143,26 @@ def parse(line):
             i += 1
             continue
         mark = line[i]
-        if mark not in '^?':
+        if mark not in '^?!#&':
             raise ValueError('unexpected %r after the message' % line[i:][:20])
         i += 1
+        # `#"label"`, `!"note"` and `&"frame"` are text-only: the primary
+        # label, an additional note, and one expansion-backtrace frame.
+        # None of them carries a location, so none of them adds a span
+        # claim - which is why MIN_CLAIMS and MIN_ANCHORED are unmoved by
+        # a corpus that starts using them. They are read rather than
+        # skipped because an unread field is a field whose quoting nobody
+        # is checking, and `read_string` is what proves each one is a
+        # properly escaped string that ends where it says it does.
+        #
+        # The label in particular must NOT join the anchor text: anchors
+        # are compared against the primary message alone, for the reason
+        # the docstring gives about `150-undefined-suggestion`, and a
+        # label naming the same identifier as the span would turn the
+        # corroboration into a tautology.
+        if mark in '!#&':
+            _text, i = read_string(line, i)
+            continue
         sec = SECONDARY.match(line, i)
         if sec:
             sl1, sc1, sl2, sc2 = sec.groups()

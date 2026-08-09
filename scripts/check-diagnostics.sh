@@ -173,6 +173,7 @@ failed=0
 cases=0
 exit_zero=0
 exit_nonzero=0
+colorless=0   # runs whose `ai` stderr carried no ANSI escape
 
 # `.axbad` is a case that deliberately does NOT parse - the AX1xxx and
 # AX2xxx codes cannot be provoked by a file that does. It cannot be
@@ -196,6 +197,21 @@ for case_file in tests/diagnostics/*.ax tests/diagnostics/*.axbad; do
   (cd "$work" && ./axc --diagnostic-format=ai "$name.ax" >/dev/null 2>"$work/case.err")
   status=$?
   got="$(axdl_only < "$work/case.err")"
+
+  # AXDL IS COLOURLESS, and this is where that is enforced. The human
+  # renderer paints its output; AXDL is the machine surface and must not,
+  # because a consumer of these lines is a `grep`, a diff or another
+  # program. Checked over the WHOLE stderr rather than over `got`,
+  # because `axdl_only` keeps `^[EWNH] ` lines and would silently drop a
+  # line whose severity sigil had been pushed rightwards by an escape -
+  # the failure would then read as a missing diagnostic somewhere else.
+  # The trailer is printed in this format too, and is covered here.
+  if LC_ALL=C grep -q $'\x1b' "$work/case.err"; then
+    echo "FAIL $name (\`--diagnostic-format=ai\` emitted an ANSI escape; AXDL is the machine surface)"
+    failed=$((failed + 1))
+    continue
+  fi
+  colorless=$((colorless + 1))
 
   if [[ "$bless" == 1 ]]; then
     printf '%s\n' "$got" > "$repo_root/$golden"
@@ -520,6 +536,13 @@ if [[ -z "$filter" ]]; then
   # the shape a broken driver takes.
   if (( exit_zero == 0 || exit_nonzero == 0 )); then
     echo "FAIL: every corpus case exited the same way ($exit_zero zero, $exit_nonzero non-zero)"
+    failed=$((failed + 1))
+  fi
+  # The colourless assertion is made per case and counted, so that it
+  # cannot evaporate the way a check wired to a glob that stopped
+  # matching does.
+  if (( colorless < 45 )); then
+    echo "FAIL: only $colorless run(s) were checked for ANSI escapes (expected ~52)"
     failed=$((failed + 1))
   fi
 fi

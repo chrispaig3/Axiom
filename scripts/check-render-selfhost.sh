@@ -14,7 +14,7 @@
 # `cmp a.out h.out` compares a file with itself, and the sweep reports
 # 52 cases, zero divergences, exit 0, nothing tested.
 #
-# WHAT IT PINS NOW. Four checks per case, of which exactly one is a
+# WHAT IT PINS NOW. Five checks per case, of which exactly one is a
 # golden comparison:
 #
 #   1. GOLDEN. tests/diagnostics/NAME.human equals the renderer's
@@ -77,11 +77,26 @@
 #      compared BadBody.ax's line 2 against the case file's. 101 rows
 #      over the corpus.
 #
-# WHY THAT IS ADEQUATE WITHOUT A SECOND COMPILER. Checks 3 and 4 cannot
-# be satisfied by regenerating anything this script writes. `AXIOM_BLESS=1`
-# rewrites NAME.human and nothing else; check 3 reads NAME.axdl, a
-# different checked-in artifact, and check 4 reads the fixture, which is
-# the INPUT and cannot be blessed at all. A renderer that quoted the
+#   5. THE ESCAPE STREAM, AGAINST THE PALETTE self_host/style.ax
+#      DECLARES. The human surface is coloured and neither of the
+#      artifacts checks 3 and 4 read has any colour in it, so those two
+#      compare a STRIPPED copy of the golden and say nothing about the
+#      escapes - and check 1, which does see them, is the re-blessable
+#      half. Check 5 is the third artifact: every SGR parameter string
+#      in the golden must be one the compiler's own palette table
+#      declares, every line's sequences must read open/reset in pairs so
+#      no colour bleeds past a newline, and no escape may appear after a
+#      snippet's gutter bar or anywhere on the trailer - the source text
+#      a snippet quotes is the fixture's bytes, and the trailer is
+#      printed in the machine formats too. AXIOM_BLESS writes
+#      NAME.human; it cannot write self_host/style.ax.
+#
+# WHY THAT IS ADEQUATE WITHOUT A SECOND COMPILER. Checks 3, 4 and 5
+# cannot be satisfied by regenerating anything this script writes.
+# `AXIOM_BLESS=1` rewrites NAME.human and nothing else; check 3 reads
+# NAME.axdl, a different checked-in artifact, check 4 reads the fixture,
+# which is the INPUT and cannot be blessed at all, and check 5 reads the
+# compiler's source. A renderer that quoted the
 # wrong line, quoted the right line from the wrong file, put a caret one
 # column off, sized it to the wrong width, printed a message it did not
 # diagnose, printed its diagnostics in the wrong order, or exited 0 on a
@@ -162,11 +177,27 @@
 # three, which is the point of keeping both halves: it reads the
 # fixture, and all three defects are downstream of the input.
 #
-# The pristine tree, same script: 52 passed, 0 failed, 832 AXDL facts,
+# The pristine tree, same script: 52 passed, 0 failed, 936 AXDL facts,
 # 101 source rows, 51 fail/1 ok by derivation, exit 0. Counting them
 # against the 692 they replaced is not the comparison that matters: 566
 # of those 692 were unanchored substring greps, and none of the ones
 # here are.
+#
+# THE SCAFFOLDING THAT LANDED BEFORE THE RENDERER DID. Check 5, the
+# colour stripping in checks 3 and 4, the display-column and truncation
+# arithmetic, and the `#`/`!`/`&`/`~>` AXDL field arms were all added in
+# one run that changed NO existing assertion: block/head/loc/msg/caret/
+# dash/gutter came out at 208/86/86/78/172/101/101 before and after. The
+# derivations are the identity on this corpus - no fixture has a tab,
+# the longest line is 83 columns against a 160-column window, and no
+# diagnostic emits a label, a note or an expansion frame yet - so they
+# are provably neutral, and each is drilled on synthetic input at the
+# foot rather than left to be tested by the step that finally needs it.
+# Adversarially checked at introduction, each defect caught by exactly
+# the check that owns it and no other: a `disp_col` seeded one column
+# off fails 54 cases on the caret row; a `strip_ansi` that strips
+# nothing is seen only by drill (h1); a palette that declares everything
+# is seen only by drill (h3).
 #
 # PROVENANCE FOR THE DERIVED STATUS RULE. Measured 2026-08-08, while
 # both compilers still existed: over all 52 cases the rule "an E line
@@ -258,6 +289,128 @@ char_len() {
   printf '%s' "$1" | LC_ALL=C tr -d '\200-\277' | LC_ALL=C wc -c | tr -d ' '
 }
 
+# ------------------------------------------------------------------
+# display columns, tab expansion, truncation
+# ------------------------------------------------------------------
+# The renderer quotes a source line with its tabs expanded and, past a
+# width, only a window of it. A CHARACTER column (what AXDL reports, what
+# colOf counts) and a DISPLAY column (where the caret actually lands)
+# stop being the same number the moment a tab appears before the span.
+# The rules, restated here so this gate DERIVES the quoted row and the
+# caret pad from the fixture rather than reading them off the golden:
+#
+#   * a tab advances to the next multiple of TAB_WIDTH;
+#   * every other character is one column wide, and a UTF-8 continuation
+#     byte is not a character at all - the rule char_len already uses,
+#     and the reason 070-nonascii-same-line reads column 22 where a byte
+#     count says 24;
+#   * a line wider than LINE_MAX is quoted as a window: it starts
+#     LEFT_CTX columns before the span, runs LINE_MAX columns, is pushed
+#     back to end at the line's end if that overshoots, and is marked
+#     `...` on whichever side was elided.
+#
+# ALL THREE ARE THE IDENTITY ON TODAY'S CORPUS - no fixture contains a
+# tab and the longest line is 83 columns against a 160-column window - so
+# this whole section changes no assertion in the run that introduces it.
+# That is the point: the gate for a renderer behaviour lands before the
+# behaviour, drilled on synthetic input (see drill (i) at the foot), so
+# that the step which adds tab handling is not also the step that writes
+# the check on it.
+TAB_WIDTH=4
+LINE_MAX=160
+LEFT_CTX=20
+
+# Byte values, so a UTF-8 continuation byte can be recognised without a
+# locale. `LC_ALL=C` makes awk's substr index bytes, which is what lets
+# the same loop count characters and copy them intact.
+awk_ord='BEGIN { for (n = 1; n < 256; n++) ord[sprintf("%c", n)] = n }
+         function iscont(c) { return (ord[c] >= 128 && ord[c] < 192) }'
+
+# A line with its tabs expanded.
+expand_tabs() {
+  printf '%s' "$1" | LC_ALL=C awk -v tw="$TAB_WIDTH" "$awk_ord"'
+    { out = ""; col = 0; n = length($0)
+      for (i = 1; i <= n; i++) {
+        c = substr($0, i, 1)
+        if (c == "\t") { stop = int(col / tw + 1) * tw
+                         while (col < stop) { out = out " "; col++ } }
+        else { out = out c; if (!iscont(c)) col++ }
+      }
+      print out }'
+}
+
+# Display width of a line, in columns.
+disp_width() {
+  printf '%s' "$1" | LC_ALL=C awk -v tw="$TAB_WIDTH" "$awk_ord"'
+    { col = 0; n = length($0)
+      for (i = 1; i <= n; i++) {
+        c = substr($0, i, 1)
+        if (c == "\t") col = int(col / tw + 1) * tw
+        else if (!iscont(c)) col++
+      }
+      print col }'
+}
+
+# The 1-based display column at which the WANT-th character of a line
+# begins. A column at or past end of line keeps counting one per
+# character, which is where an end-of-file caret sits.
+disp_col() {
+  printf '%s' "$1" | LC_ALL=C awk -v want="$2" -v tw="$TAB_WIDTH" "$awk_ord"'
+    { ch = 0; col = 0; n = length($0)
+      for (i = 1; i <= n; i++) {
+        c = substr($0, i, 1)
+        if (iscont(c)) continue
+        ch++
+        if (ch == want) { print col + 1; exit }
+        if (c == "\t") col = int(col / tw + 1) * tw; else col++
+      }
+      print col + 1 + (want - ch - 1) }'
+}
+
+# Display columns [a, b) of an ALREADY-EXPANDED line (so every character
+# is one column wide), with multi-byte characters copied whole.
+disp_slice() {
+  printf '%s' "$1" | LC_ALL=C awk -v a="$2" -v b="$3" "$awk_ord"'
+    { out = ""; col = 0; keep = 0; n = length($0)
+      for (i = 1; i <= n; i++) {
+        c = substr($0, i, 1)
+        if (iscont(c)) { if (keep) out = out c; continue }
+        keep = (col >= a && col < b)
+        if (keep) out = out c
+        col++
+      }
+      print out }'
+}
+
+# The window a line of display width W gets when the span starts at
+# 1-based display column S, as `START END` with START 0-based and END
+# exclusive. `0 W` means the whole line, which is every case today.
+trunc_window() {
+  local w="$1" s0=$(( $2 - 1 )) start end
+  if (( w <= LINE_MAX )); then printf '0 %s\n' "$w"; return 0; fi
+  start=$(( s0 - LEFT_CTX )); (( start < 0 )) && start=0
+  end=$(( start + LINE_MAX ))
+  if (( end >= w )); then end="$w"; start=$(( w - LINE_MAX )); (( start < 0 )) && start=0; fi
+  printf '%s %s\n' "$start" "$end"
+}
+
+# ------------------------------------------------------------------
+# ANSI
+# ------------------------------------------------------------------
+# The human surface is colored; the AXDL golden and the fixture it is
+# checked against are not. Checks 3 and 4 compare rendered text with text
+# derived from those two artifacts, so they read a STRIPPED copy of the
+# golden - while check 1's `cmp` stays a raw byte comparison, which is
+# what keeps the escape stream itself pinned. Check 5 then asserts the
+# escapes are the ones self_host/style.ax declares.
+#
+# Stripping in the comparator rather than in the renderer is deliberate:
+# a gate that asked the compiler for uncolored output would be checking
+# the layout of a mode nobody runs.
+strip_ansi() {
+  LC_ALL=C sed $'s/\x1b\\[[0-9;]*m//g'
+}
+
 # Every quoted string on an AXDL line, one `KIND<TAB>TEXT` per output
 # line, KIND decided by the STRUCTURAL text that precedes the opening
 # quote: the slug and a space introduce the primary message, `^L:C-C2:`
@@ -281,6 +434,9 @@ axdl_fields() {
   local line="$1" esc s pre i seen=0
   local help_re='[?]([0-9]+:[0-9]+(-[0-9]+)?:)?$'
   local rel_re='\^[0-9]+:[0-9]+(-[0-9]+)?:$'
+  local label_re='#$'
+  local note_re='!$'
+  local trace_re='&$'
   local -a parts
   esc="${line//\\\\/$'\001'}"
   esc="${esc//\\\"/$'\002'}"
@@ -291,8 +447,19 @@ axdl_fields() {
     s="${parts[i]}"
     s="${s//$'\002'/\"}"
     s="${s//$'\001'/\\}"
+    # The replacement half of a machine-applicable fix. It used to be
+    # DROPPED here, on the reasoning that machine-applied text is not
+    # something the human surface must print - true until the human
+    # surface started printing it. Named rather than discarded so the
+    # help-line equality can be extended to cover it.
     if [[ "$pre" == *'~>' ]]; then
-      :
+      printf 'fix\t%s\n' "$s"
+    elif [[ "$pre" =~ $label_re ]]; then
+      printf 'label\t%s\n' "$s"
+    elif [[ "$pre" =~ $note_re ]]; then
+      printf 'note\t%s\n' "$s"
+    elif [[ "$pre" =~ $trace_re ]]; then
+      printf 'trace\t%s\n' "$s"
     elif [[ "$pre" =~ $help_re ]]; then
       printf 'help\t%s\n' "$s"
     elif [[ "$pre" =~ $rel_re ]]; then
@@ -396,6 +563,9 @@ f_msg=0      #               help and related-note text equalities
 f_caret=0    #               caret-row equalities
 f_dash=0     #               dash-row equalities
 f_gutter=0   #               snippet-gutter presence
+f_label=0    #               primary-label equalities  (AXDL `#"..."`)
+f_note=0     #               note-line equalities      (AXDL `!"..."`, `&"..."`)
+f_esc=0      # ANSI sequences checked against style.ax's declared palette
 
 # ------------------------------------------------------------------
 # check 3: the AXDL golden read as a document, against the human one
@@ -462,20 +632,34 @@ axdl_facts() {
 
   for (( k = 0; k < ndiag; k++ )); do
     local sev code locspan slug f rest L C crest tail C2 run bs be
-    local want_sev primary relmsg kind text src nlines
-    local -a helps
+    local want_sev primary relmsg kind text src nlines plabel
+    local -a helps helpfix notes
     read -r sev code locspan slug _ <<< "${DL[$k]}"
     bs="${BS[$k]}"
     be="${BE[$k]}"
 
     primary=""
     relmsg=""
+    plabel=""
     helps=()
+    helpfix=()
+    notes=()
     while IFS=$'\t' read -r kind text; do
       case "$kind" in
-        msg)  primary="$text" ;;
-        rel)  relmsg="$text" ;;
-        help) helps[${#helps[@]}]="$text" ;;
+        msg)   primary="$text" ;;
+        rel)   relmsg="$text" ;;
+        label) plabel="$text" ;;
+        help)  helps[${#helps[@]}]="$text"; helpfix[${#helpfix[@]}]="" ;;
+        note)  notes[${#notes[@]}]="$text" ;;
+        # An expansion-backtrace frame renders as a note, the way rustc
+        # reports the same thing.
+        trace) notes[${#notes[@]}]="in this expansion of $text" ;;
+        # The replacement half of a fix attaches to the help it follows.
+        # Parsed and paired here, but NOT yet folded into the help-line
+        # equality below: the renderer does not print it yet, and a gate
+        # that demanded output the compiler was never asked for would
+        # fail the corpus rather than describe it.
+        fix)   (( ${#helps[@]} > 0 )) && helpfix[$(( ${#helps[@]} - 1 ))]="$text" ;;
         *)
           echo "FAIL $label (AXDL string in a field this gate does not know how to assert: $text)"
           rc=1 ;;
@@ -548,18 +732,47 @@ axdl_facts() {
     fi
     [[ "$run" -lt 1 ]] && run=1
 
+    # The same span in DISPLAY columns, and the window the line is quoted
+    # in. `run` above counts characters, which is what AXDL reports; a
+    # tab before or inside the span makes that a different number from
+    # where the caret lands. Both conversions are the identity on today's
+    # corpus - no tabs, longest line 83 against a 160-column window - so
+    # this derivation reproduces the previous one exactly until a fixture
+    # gives it something to do.
+    local rawline dw dC dEnd drun wstart wend cpad
+    rawline="$(fixture_line "$src" "$L")"
+    dw="$(disp_width "$rawline")"
+    dC="$(disp_col "$rawline" "$C")"
+    dEnd="$(disp_col "$rawline" "$((C + run))")"
+    drun=$((dEnd - dC)); [[ "$drun" -lt 1 ]] && drun=1
+    read -r wstart wend < <(trunc_window "$dw" "$dC")
+    # A caret is clamped to the window it is drawn in.
+    (( dC - 1 + drun > wend )) && drun=$(( wend - (dC - 1) ))
+    [[ "$drun" -lt 1 ]] && drun=1
+    # One leading space for the bar, three more if the row opens with an
+    # elision marker, then the span's offset within the window.
+    cpad=$(( 1 + (wstart > 0 ? 3 : 0) + (dC - 1 - wstart) ))
+
     facts=$((facts + 2)); f_gutter=$((f_gutter + 1)); f_caret=$((f_caret + 1))
     if ! block_re "$bs" "$be" "^ *${L} \\| "; then
       echo "FAIL $label (block $((k + 1)): source line $L not in the snippet gutter)"
       rc=1
     fi
-    if ! block_bar_eq "$bs" "$be" \
-         "$(printf '%*s' "$C" '')$(printf '%*s' "$run" '' | tr ' ' '^')"; then
-      echo "FAIL $label (block $((k + 1)): no caret row at col $C width $run for span $locspan)"
+    # The primary label, when the AXDL carries one, is part of the caret
+    # row and is asserted with it: the caret row equality is anchored at
+    # both ends, so a label is either exactly right or the row is wrong.
+    local want_caret
+    want_caret="$(printf '%*s' "$cpad" '')$(printf '%*s' "$drun" '' | tr ' ' '^')"
+    if [[ -n "$plabel" ]]; then
+      want_caret="$want_caret $plabel"
+      facts=$((facts + 1)); f_label=$((f_label + 1))
+    fi
+    if ! block_bar_eq "$bs" "$be" "$want_caret"; then
+      echo "FAIL $label (block $((k + 1)): no caret row at col $dC width $drun for span $locspan${plabel:+ labelled \`$plabel\`})"
       rc=1
     fi
     local ncaret ndash
-    ncaret="$(block_count_re "$bs" "$be" '^ *\| *\^+$')"
+    ncaret="$(block_count_re "$bs" "$be" '^ *\| *\^+( .*)?$')"
     facts=$((facts + 1)); f_caret=$((f_caret + 1))
     if [[ "$ncaret" != 1 ]]; then
       echo "FAIL $label (block $((k + 1)) draws $ncaret caret rows; one diagnostic underlines one primary span)"
@@ -602,6 +815,17 @@ axdl_facts() {
     else
       [[ "$ndash" == 0 ]] || { echo "FAIL $label (block $((k + 1)) draws $ndash dash rows; the AXDL gives it no related span)"; rc=1; }
     fi
+
+    # Notes, before the helps, the way the renderer orders them. An
+    # expansion-backtrace frame has already been turned into one above.
+    local nt
+    for nt in ${notes[@]+"${notes[@]}"}; do
+      facts=$((facts + 1)); f_note=$((f_note + 1))
+      if ! block_trim_eq "$bs" "$be" "= note: $nt"; then
+        echo "FAIL $label (block $((k + 1)) has no note line reading exactly \`= note: $nt\`)"
+        rc=1
+      fi
+    done
 
     local h
     for h in ${helps[@]+"${helps[@]}"}; do
@@ -665,12 +889,136 @@ source_rows() {
       fi
       src="$(fixture_line "$cur" "$n")"
       rows=$((rows + 1))
-      if [[ "$text" != "$src" ]]; then
-        echo "FAIL $label (snippet quotes $cur:$n as \`$text\`; the file says \`$src\`)"
-        rc=1
+      local exp w inner lmark rmark want
+      exp="$(expand_tabs "$src")"
+      w="$(disp_width "$src")"
+      if (( w <= LINE_MAX )); then
+        # The whole line, tabs expanded. This is the only branch today:
+        # the corpus's longest line is 83 columns and none contains a
+        # tab, so `exp` is `src` and this is the comparison that was
+        # here before the window arithmetic existed.
+        if [[ "$text" != "$exp" ]]; then
+          echo "FAIL $label (snippet quotes $cur:$n as \`$text\`; the file says \`$exp\`)"
+          rc=1
+        fi
+      else
+        # A line too wide to quote whole is quoted as a window, marked
+        # `...` on whichever side was elided. The window is always
+        # exactly LINE_MAX columns - that falls out of trunc_window - so
+        # its WIDTH is derivable here even though its ORIGIN depends on a
+        # span this check does not read. When only one side is elided the
+        # origin is pinned too, because the other side is the line's own
+        # end. The origin in the both-elided case is pinned by the caret
+        # pad in check 3, which does know the span.
+        #
+        # Markers are only read as markers on a line that could not have
+        # been quoted whole, so a source line that genuinely begins with
+        # three dots is never mistaken for a windowed one.
+        inner="$text"; lmark=0; rmark=0
+        [[ "$inner" == ...* ]] && { lmark=1; inner="${inner#...}"; }
+        [[ "$inner" == *... ]] && { rmark=1; inner="${inner%...}"; }
+        if (( lmark == 0 && rmark == 0 )); then
+          echo "FAIL $label (snippet quotes all $w columns of $cur:$n; the window is $LINE_MAX)"
+          rc=1
+        elif [[ "$(char_len "$inner")" != "$LINE_MAX" ]]; then
+          echo "FAIL $label (snippet window on $cur:$n is $(char_len "$inner") columns; the window is $LINE_MAX)"
+          rc=1
+        elif (( lmark == 0 )); then
+          want="$(disp_slice "$exp" 0 "$LINE_MAX")"
+          [[ "$inner" == "$want" ]] || {
+            echo "FAIL $label (snippet window on $cur:$n is not the line's first $LINE_MAX columns)"; rc=1; }
+        elif (( rmark == 0 )); then
+          want="$(disp_slice "$exp" "$((w - LINE_MAX))" "$w")"
+          [[ "$inner" == "$want" ]] || {
+            echo "FAIL $label (snippet window on $cur:$n is not the line's last $LINE_MAX columns)"; rc=1; }
+        else
+          [[ "$exp" == *"$inner"* ]] || {
+            echo "FAIL $label (snippet window on $cur:$n is not a run of columns from that line)"; rc=1; }
+        fi
       fi
     fi
   done < "$golden"
+  return $rc
+}
+
+# ------------------------------------------------------------------
+# check 5: the escape stream, against the palette style.ax declares
+# ------------------------------------------------------------------
+# Color is the one part of the human surface with no counterpart in the
+# AXDL golden or the fixture, so checks 3 and 4 - which strip it before
+# comparing - say nothing about it, and check 1 is the re-blessable half.
+# On its own that would mean a renderer could emit any escape stream it
+# liked and have it blessed into all 52 goldens unchallenged, which is
+# the shape of defect this script's header was written about.
+#
+# The right-hand side is therefore a THIRD artifact: the palette declared
+# in self_host/style.ax. AXIOM_BLESS rewrites NAME.human; it cannot write
+# the compiler's own palette table, so an escape sequence nothing
+# declares fails with a freshly blessed golden in the tree.
+#
+# Before the color layer exists there is no style.ax, the declared
+# alphabet is empty, and the only stream that passes is the empty one -
+# which is exactly today's contract, asserted rather than assumed.
+palette_file="self_host/style.ax"
+PALETTE=""
+if [[ -f "$palette_file" ]]; then
+  PALETTE="$(grep -oE '"[0-9;]+"' "$palette_file" | tr -d '"' | sort -u)"
+fi
+
+escape_facts() {
+  local golden="$1" label="$2" rc=0 p ln params
+  # (1) ALPHABET. Every SGR parameter string in the golden is one
+  #     style.ax declares, or the reset.
+  while IFS= read -r p; do
+    [[ -z "$p" && "$p" != "0" ]] && continue
+    f_esc=$((f_esc + 1)); facts=$((facts + 1))
+    if [[ "$p" != "0" ]] && ! grep -qxF -- "$p" <<< "$PALETTE"; then
+      echo "FAIL $label (renders SGR \`$p\`, which $palette_file does not declare)"
+      rc=1
+    fi
+  done < <(LC_ALL=C grep -oE $'\x1b\\[[0-9;]*m' "$golden" 2>/dev/null \
+           | LC_ALL=C sed $'s/^\x1b\\[//; s/m$//')
+
+  # (2) BALANCE. Escapes are emitted by painting a finished fragment, so
+  #     every line's sequences read open, reset, open, reset. A colour
+  #     left open at end of line bleeds into whatever the terminal prints
+  #     next, and a golden is exactly where that would go unnoticed.
+  while IFS= read -r ln; do
+    [[ "$ln" != *$'\x1b'* ]] && continue
+    params="$(printf '%s' "$ln" | LC_ALL=C grep -oE $'\x1b\\[[0-9;]*m' \
+              | LC_ALL=C sed $'s/^\x1b\\[//; s/m$//' | tr '\n' ' ')"
+    local -a ps; read -r -a ps <<< "$params"
+    facts=$((facts + 1)); f_esc=$((f_esc + 1))
+    local j bad=0
+    (( ${#ps[@]} % 2 == 1 )) && bad=1
+    for (( j = 0; j < ${#ps[@]}; j++ )); do
+      if (( j % 2 == 0 )); then [[ "${ps[j]}" == "0" ]] && bad=1
+      else                      [[ "${ps[j]}" != "0" ]] && bad=1; fi
+    done
+    if (( bad )); then
+      echo "FAIL $label (a line's SGR sequences do not read open/reset in pairs: $params)"
+      rc=1
+    fi
+  done < "$golden"
+
+  # (3) PLACEMENT. The gutter of a snippet row may be painted; the source
+  #     text it quotes may not - that text is the fixture's bytes, and
+  #     colouring it is what made ariadne's output undiffable. The trailer
+  #     is printed in every format, including the machine ones, so it
+  #     carries no escapes at all.
+  local nbad
+  nbad="$(LC_ALL=C grep -cE $'^[^|]*\\|[^\x1b]*\x1b' "$golden" 2>/dev/null || true)"
+  facts=$((facts + 1)); f_esc=$((f_esc + 1))
+  if [[ "${nbad:-0}" != 0 ]]; then
+    echo "FAIL $label ($nbad snippet row(s) carry an escape after the gutter bar)"
+    rc=1
+  fi
+  facts=$((facts + 1)); f_esc=$((f_esc + 1))
+  if LC_ALL=C grep -q $'^.*compilation failed.*\x1b' "$golden" 2>/dev/null \
+     || LC_ALL=C grep -q $'\x1b.*compilation failed' "$golden" 2>/dev/null; then
+    echo "FAIL $label (the failure trailer carries an escape; it is printed in every format)"
+    rc=1
+  fi
   return $rc
 }
 
@@ -770,9 +1118,17 @@ for axdl in tests/diagnostics/*.axdl; do
     ok=0
   fi
 
-  # Checks 3 and 4.
-  axdl_facts "$axdl" "$golden" "$name" || ok=0
-  source_rows "$golden" "$name" || ok=0
+  # Checks 3, 4 and 5. Three and four read a colour-STRIPPED copy: their
+  # right-hand sides are the AXDL golden and the fixture, neither of
+  # which has any colour in it to compare against, so leaving the
+  # escapes in would turn every layout equality into an inequality and
+  # the gate would have to be weakened to substrings to survive - the
+  # exact trade this script exists to refuse. Check 5 reads the golden
+  # raw, because the escapes are what it is about.
+  strip_ansi < "$golden" > "$work/plain.human"
+  axdl_facts "$axdl" "$work/plain.human" "$name" || ok=0
+  source_rows "$work/plain.human" "$name" || ok=0
+  escape_facts "$golden" "$name" || ok=0
 
   if [[ "$ok" == 1 ]]; then
     passed=$((passed + 1))
@@ -836,6 +1192,23 @@ floor_fail() {
 [[ "$f_dash"   -lt  90 ]] && floor_fail "dash-row equality and count"    "$f_dash"    90
 [[ "$f_gutter" -lt  90 ]] && floor_fail "snippet-gutter"                 "$f_gutter"  90
 
+# Three families whose AXDL field no diagnostic emits yet. Their floors
+# are 0 BECAUSE the corpus produces none of them, which is a fact worth
+# writing down rather than an omission: each is raised by the step that
+# starts emitting the field, and a floor still sitting at 0 afterwards is
+# the signal that the renderer and the gate went out of step.
+#   f_label - AXDL `#"..."`, the primary label
+#   f_note  - AXDL `!"..."` and `&"..."`, notes and expansion frames
+[[ "$f_label" -lt 0 ]] && floor_fail "primary-label equality"            "$f_label"    0
+[[ "$f_note"  -lt 0 ]] && floor_fail "note-line equality"                "$f_note"     0
+
+# The escape family is NOT one of those. Two of its assertions - no
+# escape after a snippet's gutter bar, none on the trailer - are made
+# per case whether or not the golden has any colour in it, so it counts
+# 104 today and a floor belongs on it now. The alphabet and balance
+# assertions are what will lift it further when the colour layer lands.
+[[ "$f_esc"   -lt 100 ]] && floor_fail "escape-stream"                   "$f_esc"    100
+
 # The status derivation has to DISTINGUISH something. A corpus in which
 # every case wants the same status is satisfied by a `check` that always
 # fails, or always succeeds, and check 2 would be reporting a constant.
@@ -862,11 +1235,20 @@ if [[ -z "$drill_golden" ]]; then
 else
   drill_axdl="${drill_golden%.human}.axdl"
   drill_name="$(basename "$drill_golden" .human)"
+  # The layout drills corrupt a COLOUR-STRIPPED copy, because the checks
+  # they are drilling read a stripped copy too - a `sed` anchored at
+  # `^error\[` would stop matching the moment a heading opens with an
+  # escape, and a drill that silently stops corrupting anything is a
+  # drill that passes forever. Drill (a) keeps the raw golden: the byte
+  # comparison is about the bytes.
+  drill_plain="$work/drill.plain"
+  strip_ansi < "$drill_golden" > "$drill_plain"
   # The drills run their own assertions; the corpus counters are the
   # sweep's report and must not be inflated by them.
   facts_kept="$facts"; rows_kept="$rows"
   bk="$f_block"; hk="$f_head"; lk="$f_loc"; mk="$f_msg"
   ck="$f_caret"; dk="$f_dash"; gk="$f_gutter"
+  lbk="$f_label"; nk="$f_note"; ek="$f_esc"
 
   # (a) the byte comparison itself. A gate whose `cmp` is wired to the
   # wrong file reports every case green forever.
@@ -880,8 +1262,8 @@ else
   # character appended to the first quoted source line - the smallest
   # edit a renderer that mis-slices a line would make.
   awk 'BEGIN{d=0} { if (!d && $0 ~ /^ *[0-9]+ \| /) { print $0 "X"; d=1 } else print }' \
-    "$drill_golden" > "$work/rowbad.human"
-  if cmp -s "$drill_golden" "$work/rowbad.human"; then
+    "$drill_plain" > "$work/rowbad.human"
+  if cmp -s "$drill_plain" "$work/rowbad.human"; then
     echo "FAIL drill(rows): the corruption changed nothing - the row pattern matched no line"
     failed=$((failed + 1))
   elif source_rows "$work/rowbad.human" "drill" >/dev/null 2>&1; then
@@ -894,8 +1276,8 @@ else
   # said. Only the heading equality can see this one, which is why it
   # is drilled apart from (b).
   sed -E '/^error\[AX[0-9]{4}\]: /s/(\]: ).*/\1a message this compiler never emitted/' \
-    "$drill_golden" > "$work/msgbad.human"
-  if cmp -s "$drill_golden" "$work/msgbad.human"; then
+    "$drill_plain" > "$work/msgbad.human"
+  if cmp -s "$drill_plain" "$work/msgbad.human"; then
     echo "FAIL drill(messages): the corruption changed nothing - no heading matched"
     failed=$((failed + 1))
   elif axdl_facts "$drill_axdl" "$work/msgbad.human" "drill" >/dev/null 2>&1; then
@@ -924,8 +1306,8 @@ else
   # substring form of this assertion could not fail on it - a prefix is
   # a substring, so no span could ever be too WIDE.
   awk 'BEGIN{d=0} { if (!d && $0 ~ /^ *\| *\^+$/) { print $0 "^"; d=1 } else print }' \
-    "$drill_golden" > "$work/caretbad.human"
-  if cmp -s "$drill_golden" "$work/caretbad.human"; then
+    "$drill_plain" > "$work/caretbad.human"
+  if cmp -s "$drill_plain" "$work/caretbad.human"; then
     echo "FAIL drill(caret): the corruption changed nothing - no caret row matched"
     failed=$((failed + 1))
   elif axdl_facts "$drill_axdl" "$work/caretbad.human" "drill" >/dev/null 2>&1; then
@@ -936,8 +1318,8 @@ else
   # (f) attack C, as an edit: the right text plus something else. The
   # containment form accepted every suffix, prefix and interleaving.
   awk 'BEGIN{d=0} { if (!d && $0 ~ /^(error|warning)\[AX[0-9][0-9][0-9][0-9]\]: /) { print $0 " [debug: span=?]"; d=1 } else print }' \
-    "$drill_golden" > "$work/suffixbad.human"
-  if cmp -s "$drill_golden" "$work/suffixbad.human"; then
+    "$drill_plain" > "$work/suffixbad.human"
+  if cmp -s "$drill_plain" "$work/suffixbad.human"; then
     echo "FAIL drill(suffix): the corruption changed nothing - no heading matched"
     failed=$((failed + 1))
   elif axdl_facts "$drill_axdl" "$work/suffixbad.human" "drill" >/dev/null 2>&1; then
@@ -961,16 +1343,18 @@ else
     failed=$((failed + 1))
   else
     order_golden="${order_axdl%.axdl}.human"
+    order_plain="$work/order.plain"
+    strip_ansi < "$order_golden" > "$order_plain"
     awk 'BEGIN{RS=""; n=0} {b[++n]=$0} END{ t=b[1]; b[1]=b[2]; b[2]=t; for (i=1;i<=n;i++) printf "%s\n\n", b[i] }' \
-      "$order_golden" > "$work/orderbad.human"
+      "$order_plain" > "$work/orderbad.human"
     if ! grep -qE '^(error|warning)\[AX[0-9]{4}\]: ' "$work/orderbad.human"; then
       echo "FAIL drill(order): the reordered copy has no headings - the block split matched nothing"
       failed=$((failed + 1))
     elif [[ "$(grep -cE '^(error|warning)\[AX[0-9]{4}\]: ' "$work/orderbad.human")" \
-         != "$(grep -cE '^(error|warning)\[AX[0-9]{4}\]: ' "$order_golden")" ]]; then
+         != "$(grep -cE '^(error|warning)\[AX[0-9]{4}\]: ' "$order_plain")" ]]; then
       echo "FAIL drill(order): the reordered copy lost or gained a heading - it is not a permutation"
       failed=$((failed + 1))
-    elif ! axdl_facts "$order_axdl" "$order_golden" "drill" >/dev/null 2>&1; then
+    elif ! axdl_facts "$order_axdl" "$order_plain" "drill" >/dev/null 2>&1; then
       # This drill is the only one whose corruption is an INVOLUTION: if
       # the golden on disk is already in the wrong order - which is
       # exactly what a bless from a renderer with a reversed emission
@@ -985,9 +1369,96 @@ else
     fi
   fi
 
+  # (h) the colour layer's three failure modes. Until style.ax exists
+  # the goldens carry no escapes, so these run on a SYNTHETIC copy -
+  # a real golden with paint applied to its heading. Drilling the
+  # machinery before it is load-bearing is the point: the step that
+  # turns colour on must not also be the step that writes the check on
+  # it, or the check is only as good as the output it was written
+  # against. Once the goldens are coloured, (h1) additionally proves
+  # they are - see the f_esc floor.
+  esc=$'\x1b'
+  sed "1s/^/${esc}[1;31m/; 1s/\$/${esc}[0m/" "$drill_plain" > "$work/esc.human"
+
+  # (h1) the stripper actually strips. If strip_ansi silently stopped
+  # matching, checks 3 and 4 would be reading coloured text and failing
+  # loudly - but a stripper that removed too much, or a golden that
+  # never had colour, both leave it a no-op, and only one of those is
+  # fine. Compare the two directions separately.
+  if cmp -s "$work/esc.human" "$drill_plain"; then
+    echo "FAIL drill(ansi-inject): the synthetic corruption added no escapes"
+    failed=$((failed + 1))
+  elif ! cmp -s <(strip_ansi < "$work/esc.human") "$drill_plain"; then
+    echo "FAIL drill(ansi-strip): stripping a painted copy did not restore the plain one"
+    failed=$((failed + 1))
+  fi
+
+  # (h2) a BROKEN escape - one whose `[` is missing, so the stripper
+  # cannot repair it - must leave the layout equalities failing rather
+  # than passing on a mangled heading. This is what proves checks 3 and
+  # 4 see THROUGH the colour rather than being blinded by it.
+  sed "1s/^/${esc}1;31m/" "$drill_plain" > "$work/escbad.human"
+  if cmp -s "$drill_plain" "$work/escbad.human"; then
+    echo "FAIL drill(ansi-broken): the corruption changed nothing"
+    failed=$((failed + 1))
+  elif axdl_facts "$drill_axdl" <(strip_ansi < "$work/escbad.human") "drill" >/dev/null 2>&1; then
+    echo "FAIL drill(ansi-broken): a heading carrying an unstrippable escape was accepted"
+    failed=$((failed + 1))
+  fi
+
+  # (h3) an SGR the palette does not declare. The one drill a re-bless
+  # cannot get out from under: the alphabet lives in self_host/style.ax.
+  sed "1s/^/${esc}[5;35m/; 1s/\$/${esc}[0m/" "$drill_plain" > "$work/palbad.human"
+  if cmp -s "$drill_plain" "$work/palbad.human"; then
+    echo "FAIL drill(ansi-palette): the corruption changed nothing"
+    failed=$((failed + 1))
+  elif escape_facts "$work/palbad.human" "drill" >/dev/null 2>&1; then
+    echo "FAIL drill(ansi-palette): SGR \`5;35\`, which $palette_file does not declare, was accepted"
+    failed=$((failed + 1))
+  fi
+
+  # (i) the display-column arithmetic, on synthetic input. Every one of
+  # these functions is the identity on today's corpus - no tabs, no line
+  # near the window - so nothing in the sweep above exercises them, and
+  # an identity that is wrong in the general case would sit here unnoticed
+  # until the fixture that needed it arrived and the golden was blessed
+  # around the bug.
+  drill_disp() {
+    local what="$1" got="$2" want="$3"
+    facts=$((facts + 1))
+    if [[ "$got" != "$want" ]]; then
+      echo "FAIL drill(display): $what is \`$got\`, want \`$want\`"
+      failed=$((failed + 1))
+    fi
+  }
+  tabline=$'\tx\ty'          # -> "    x   y": tab to 4, x at 5, tab to 8, y at 9
+  drill_disp "expand_tabs on a tab-indented line" \
+             "$(expand_tabs "$tabline")" "    x   y"
+  drill_disp "disp_width of that line"    "$(disp_width "$tabline")"     9
+  drill_disp "disp_col of its 2nd char"   "$(disp_col "$tabline" 2)"     5
+  drill_disp "disp_col of its 4th char"   "$(disp_col "$tabline" 4)"     9
+  drill_disp "disp_col one past its end"  "$(disp_col "$tabline" 5)"     10
+  # A character column and a display column differ here, which is the
+  # whole reason the conversion exists: `y` is character 4, column 9.
+  drill_disp "expand_tabs is identity without tabs" \
+             "$(expand_tabs 'plain (fn (main) 0)')" 'plain (fn (main) 0)'
+  # Multi-byte: an em dash is one character and one column, three bytes.
+  drill_disp "disp_col past an em dash"   "$(disp_col 'a—b' 3)"          3
+  drill_disp "disp_slice keeps a character whole" \
+             "$(disp_slice 'a—bc' 1 3)"   '—b'
+  # The window: a line that fits is quoted whole; one that does not is
+  # quoted in exactly LINE_MAX columns, pushed back at the line's end.
+  drill_disp "trunc_window on a short line"        "$(trunc_window 83 6)"    "0 83"
+  drill_disp "trunc_window at the head of a wide line" \
+             "$(trunc_window 300 30)"     "9 169"
+  drill_disp "trunc_window near the end of a wide line" \
+             "$(trunc_window 300 295)"    "140 300"
+  drill_disp "trunc_window at the very start"      "$(trunc_window 300 1)"   "0 160"
+
   facts="$facts_kept"; rows="$rows_kept"
   f_block="$bk"; f_head="$hk"; f_loc="$lk"; f_msg="$mk"
   f_caret="$ck"; f_dash="$dk"; f_gutter="$gk"
+  f_label="$lbk"; f_note="$nk"; f_esc="$ek"
 fi
 
 if [[ "$bless" == 1 ]]; then
@@ -999,5 +1470,5 @@ if [[ "$bless" == 1 ]]; then
   exit 0
 fi
 
-echo "check-render-selfhost: $passed passed, $failed failed ($cases cases, $facts AXDL facts [block $f_block, head $f_head, loc $f_loc, msg $f_msg, caret $f_caret, dash $f_dash, gutter $f_gutter], $rows source rows, $want_fail fail/$want_ok ok by derivation)"
+echo "check-render-selfhost: $passed passed, $failed failed ($cases cases, $facts AXDL facts [block $f_block, head $f_head, loc $f_loc, msg $f_msg, caret $f_caret, dash $f_dash, gutter $f_gutter, label $f_label, note $f_note, esc $f_esc], $rows source rows, $want_fail fail/$want_ok ok by derivation)"
 [[ "$failed" == 0 ]]
