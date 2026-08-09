@@ -1,19 +1,19 @@
-error[AX3014]: ambiguous name `dup`: defined in AmbA, AmbB
- --> 350-ambiguous-name.ax:4:16
-  |
-4 | (fn (main) (+ (dup 1) (let ((f dup)) 0)))
-  |                ^^^ `dup` could mean more than one definition
-  |
-  = help: qualify the reference: `AmbA::dup` or `AmbB::dup`
-  = help: run `axiom explain AX3014` for a full explanation
+[1;31merror[AX3014][0m[1m: ambiguous name `dup`: defined in AmbA, AmbB[0m
+ [1;34m--> [0m350-ambiguous-name.ax:4:16
+[1;34m  |[0m
+[1;34m4 |[0m (fn (main) (+ (dup 1) (let ((f dup)) 0)))
+[1;34m  |[0m                [1;31m^^^ `dup` could mean more than one definition[0m
+[1;34m  |[0m
+ [1;34m = [0m[1;32mhelp: [0mqualify the reference: `AmbA::dup` or `AmbB::dup`
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3014` for a full explanation
 
-error[AX3014]: ambiguous name `dup`: defined in AmbA, AmbB
- --> 350-ambiguous-name.ax:4:32
-  |
-4 | (fn (main) (+ (dup 1) (let ((f dup)) 0)))
-  |                                ^^^ `dup` could mean more than one definition
-  |
-  = help: qualify the reference: `AmbA::dup` or `AmbB::dup`
-  = help: run `axiom explain AX3014` for a full explanation
+[1;31merror[AX3014][0m[1m: ambiguous name `dup`: defined in AmbA, AmbB[0m
+ [1;34m--> [0m350-ambiguous-name.ax:4:32
+[1;34m  |[0m
+[1;34m4 |[0m (fn (main) (+ (dup 1) (let ((f dup)) 0)))
+[1;34m  |[0m                                [1;31m^^^ `dup` could mean more than one definition[0m
+[1;34m  |[0m
+ [1;34m = [0m[1;32mhelp: [0mqualify the reference: `AmbA::dup` or `AmbB::dup`
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3014` for a full explanation
 
 compilation failed due to 2 previous errors

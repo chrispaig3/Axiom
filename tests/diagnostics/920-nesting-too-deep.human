@@ -1,11 +1,11 @@
-error[AX2005]: nesting is too deep (limit is 1024)
-    --> 920-nesting-too-deep.ax:1025:1
-     |
-1025 | (+ 1
-     | ^ nesting reaches 1024 levels here
-     |
-     = note: the parser walks the form tree recursively, so nesting depth is native stack depth
-     = help: rewrite the form as a `let` chain, a `{}` block, or a balanced tree; hand-written code does not reach this limit, generated code can
-     = help: run `axiom explain AX2005` for a full explanation
+[1;31merror[AX2005][0m[1m: nesting is too deep (limit is 1024)[0m
+    [1;34m--> [0m920-nesting-too-deep.ax:1025:1
+[1;34m     |[0m
+[1;34m1025 |[0m (+ 1
+[1;34m     |[0m [1;31m^ nesting reaches 1024 levels here[0m
+[1;34m     |[0m
+    [1;34m = [0m[1mnote: [0mthe parser walks the form tree recursively, so nesting depth is native stack depth
+    [1;34m = [0m[1;32mhelp: [0mrewrite the form as a `let` chain, a `{}` block, or a balanced tree; hand-written code does not reach this limit, generated code can
+    [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX2005` for a full explanation
 
 compilation failed due to 1 previous error

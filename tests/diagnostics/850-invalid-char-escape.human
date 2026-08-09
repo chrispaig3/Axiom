@@ -1,10 +1,10 @@
-error[AX1005]: invalid escape sequence `\q`
- --> 850-invalid-char-escape.ax:2:22
-  |
-2 | (fn (main) (let ((c '\q')) 0))
-  |                      ^^ unrecognized escape sequence
-  |
-  = help: valid escapes are \n \t \r \\ \" \' \0
-  = help: run `axiom explain AX1005` for a full explanation
+[1;31merror[AX1005][0m[1m: invalid escape sequence `\q`[0m
+ [1;34m--> [0m850-invalid-char-escape.ax:2:22
+[1;34m  |[0m
+[1;34m2 |[0m (fn (main) (let ((c '\q')) 0))
+[1;34m  |[0m                      [1;31m^^ unrecognized escape sequence[0m
+[1;34m  |[0m
+ [1;34m = [0m[1;32mhelp: [0mvalid escapes are \n \t \r \\ \" \' \0
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX1005` for a full explanation
 
 compilation failed due to 1 previous error

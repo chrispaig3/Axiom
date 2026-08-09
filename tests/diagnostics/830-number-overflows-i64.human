@@ -1,10 +1,10 @@
-error[AX1004]: invalid number literal `99999999999999999999999`
- --> 830-number-overflows-i64.ax:2:12
-  |
-2 | (fn (main) 99999999999999999999999)
-  |            ^^^^^^^^^^^^^^^^^^^^^^^ `99999999999999999999999` cannot be parsed as Int or Float
-  |
-  = help: check for a value that overflows i64/f64 or a malformed exponent
-  = help: run `axiom explain AX1004` for a full explanation
+[1;31merror[AX1004][0m[1m: invalid number literal `99999999999999999999999`[0m
+ [1;34m--> [0m830-number-overflows-i64.ax:2:12
+[1;34m  |[0m
+[1;34m2 |[0m (fn (main) 99999999999999999999999)
+[1;34m  |[0m            [1;31m^^^^^^^^^^^^^^^^^^^^^^^ `99999999999999999999999` cannot be parsed as Int or Float[0m
+[1;34m  |[0m
+ [1;34m = [0m[1;32mhelp: [0mcheck for a value that overflows i64/f64 or a malformed exponent
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX1004` for a full explanation
 
 compilation failed due to 1 previous error

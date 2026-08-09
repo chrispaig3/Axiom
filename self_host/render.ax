@@ -50,6 +50,7 @@
 (import Vec)
 (import Utf8)
 (import diag)
+(import style)
 
 ; ------------------------------------------------------------------
 ; Small string tools. `repByte` is a filled `strAlloc`, not a
@@ -74,10 +75,14 @@
 (pub fn (spacesN n) (repByte n 32))
 
 ; `n` right-justified in `w` columns.
+; `visLen` rather than `strLen`: the renderer paints finished fragments
+; and computes widths on plain text, so this should never see an escape -
+; and if the discipline ever slips, a gutter measured in bytes would be
+; seven columns wide per colour.
 (pub :: rjNum (-> Int Int Int))
 (pub fn (rjNum n w)
   (let ((t (decStr n)))
-    (strConcat (spacesN (- w (strLen t))) t)))
+    (strConcat (spacesN (- w (visLen t))) t)))
 
 ; Byte offset one past the last byte of the line containing `off`.
 (pub :: lineEndOf (-> Int Int Int))
@@ -264,8 +269,8 @@
 ; byte - `^` for the primary span, `-` for the related one. The run
 ; covers the span clamped to its own line and to the quoted window, and
 ; is never shorter than one column even for an empty span.
-(pub :: labelBlock (-> Int Int Int Int Int Int Int))
-(pub fn (labelBlock src gw start end ch msg)
+(pub :: labelBlock (-> Int Int Int Int Int Int Int Int))
+(pub fn (labelBlock src gw start end ch msg sgr)
   (let ((ls (lineStartOf src start))
         (le (lineEndOf src start))
         (ln (lineOf src start)))
@@ -284,18 +289,19 @@
                     (tail (if (< we dw) "..." "")))
                 (strConcat
                   (strConcat
-                    (strConcat (strConcat (rjNum ln gw) " | ")
-                               (strConcat (strConcat lead
-                                            (expandWindow src ls le ws we))
-                                          tail))
+                    (strConcat (paint SGR_GUT (strConcat (rjNum ln gw) " |"))
+                               (strConcat " "
+                                 (strConcat (strConcat lead
+                                              (expandWindow src ls le ws we))
+                                            tail)))
                     "\n")
                   (strConcat
-                    (strConcat (strConcat (spacesN gw) " | ")
+                    (strConcat (strConcat (paint SGR_GUT (strConcat (spacesN gw) " |")) " ")
                                (strConcat (spacesN (+ (strLen lead) (- (- dcol 1) ws)))
-                                          (repByte run ch)))
-                    (if (== (strLen m) 0)
-                        "\n"
-                        (strConcat (strConcat " " m) "\n"))))))))))))
+                                 (paint sgr
+                                   (strConcat (repByte run ch)
+                                     (if (== (strLen m) 0) "" (strConcat " " m))))))
+                    "\n"))))))))))
 
 ; The last position in `src` that a caret can sit on: one past the
 ; final character of the last non-empty line. A span at or beyond the
@@ -315,14 +321,27 @@
 
 ; `   = help: ...` - one per help the diagnostic carries, in the order
 ; stage0 stores them, with the standing `axiom explain` pointer last.
+; `= help: ...`. The marker is painted and the prose is not, the way
+; rustc does it: the eye finds the label, the sentence stays readable in
+; a log. A machine-applicable replacement takes its own colour, because
+; it is the one part of a help that is text to type rather than text to
+; read.
 (pub :: helpLine (-> Int Int Int))
 (pub fn (helpLine gw text)
-  (strConcat (strConcat (strConcat (spacesN gw) " = help: ") text) "\n"))
+  (strConcat (strConcat (strConcat
+    (spacesN gw) (paint SGR_GUT " = ")) (paint SGR_HELP "help: ")) 
+    (strConcat text "\n")))
+
+(pub :: helpLineFix (-> Int Int Int Int))
+(pub fn (helpLineFix gw text repl)
+  (helpLine gw (strConcat text (paint SGR_FIX (strConcat " ~> " repl)))))
 
 ; `   = note: ...`, which renders before the helps.
 (pub :: noteLine (-> Int Int Int))
 (pub fn (noteLine gw text)
-  (strConcat (strConcat (strConcat (spacesN gw) " = note: ") text) "\n"))
+  (strConcat (strConcat (strConcat
+    (spacesN gw) (paint SGR_GUT " = ")) (paint SGR_TITLE "note: "))
+    (strConcat text "\n")))
 
 ; ------------------------------------------------------------------
 ; The rows of one snippet: one per labeled span, in source order.
@@ -331,11 +350,12 @@
 ; related - because the Diag record held at most one related span. It
 ; now holds a vector of them, so the snippet is a sorted list.
 ; ------------------------------------------------------------------
-(pub struct SnipRow (span : Int) (ch : Int) (msg : Int))
+(pub struct SnipRow (span : Int) (ch : Int) (msg : Int) (sgr : Int))
 
 (pub :: rowSpan (-> Int Int)) (pub fn (rowSpan r) (memGetWord r 0))
 (pub :: rowCh   (-> Int Int)) (pub fn (rowCh   r) (memGetWord r 1))
 (pub :: rowMsg  (-> Int Int)) (pub fn (rowMsg  r) (memGetWord r 2))
+(pub :: rowSgr  (-> Int Int)) (pub fn (rowSgr  r) (memGetWord r 3))
 
 ; Insertion sort by span START. The code this replaces compared LINE
 ; numbers and put the related span first on a tie, which agreed with
@@ -370,10 +390,12 @@
 (pub fn (snipRowsOf d span)
   (let ((rows vecNew) (mut i 0))
     {
-      (vecPush rows (cast Int (SnipRow span 94 (diagLabel d))))
+      ; The primary underline takes the diagnostic's own severity
+      ; colour; a related one is always secondary.
+      (vecPush rows (cast Int (SnipRow span 94 (diagLabel d) (sgrForSev (diagSev d)))))
       (while (< i (diagSecCount d))
         {
-          (vecPush rows (cast Int (SnipRow (diagSecSpan d i) 45 (diagSecMsg d i))))
+          (vecPush rows (cast Int (SnipRow (diagSecSpan d i) 45 (diagSecMsg d i) SGR_SEC)))
           (set i (+ i 1))
         })
       (sortRows rows)
@@ -403,9 +425,12 @@
         (let ((r (vecGet rows i)))
           (let ((ln (lineOf src (spanStart (rowSpan r)))))
             {
-              (if (&& (> i 0) (> (- ln prev) 1)) (vecPush out "...\n") 0)
+              (if (&& (> i 0) (> (- ln prev) 1))
+                  (vecPush out (strConcat (paint SGR_GUT "...") "\n"))
+                  0)
               (vecPush out (labelBlock src gw (spanStart (rowSpan r))
-                                       (spanEnd (rowSpan r)) (rowCh r) (rowMsg r)))
+                                       (spanEnd (rowSpan r)) (rowCh r) (rowMsg r)
+                                       (rowSgr r)))
               (set prev ln)
               (set i (+ i 1))
             })))
@@ -419,9 +444,10 @@
         (code (diagCode d))
         (span (diagSpan d))
         (msg (diagMsg d)))
-    (let ((head (strConcat (strConcat (strConcat (strConcat
-                   (sevWord sev) "[") code) "]: ")
-                 (strConcat msg "\n")))
+    (let ((head (strConcat
+                   (paint (sgrForSev sev)
+                     (strConcat (strConcat (strConcat (sevWord sev) "[") code) "]"))
+                   (strConcat (paint SGR_TITLE (strConcat ": " msg)) "\n")))
           ; A span that starts AT the end of the source is the
           ; end-of-file diagnostic - an unclosed `(` is the commonest
           ; syntax error there is - and it used to render spanless,
@@ -437,13 +463,14 @@
       ; its gutter is one column wide.
       (let ((rows (if spanless vecNew (snipRowsOf d span))))
         (let ((gw (if spanless 1 (rowsGutterWidth src rows))))
-          (let ((loc (if spanless
-                         (strConcat (strConcat (strConcat (spacesN gw) "--> ") file) "\n")
-                         (strConcat (strConcat (strConcat (strConcat (strConcat
-                           (strConcat (spacesN gw) "--> ") file) ":")
-                           (decStr (lineOf src (spanStart span)))) ":")
-                           (strConcat (decStr (colOf src (spanStart span))) "\n"))))
-                (bar (strConcat (spacesN gw) " |\n")))
+          (let ((loc (strConcat (strConcat (spacesN gw) (paint SGR_GUT "--> "))
+                       (if spanless
+                           (strConcat file "\n")
+                           (strConcat (strConcat (strConcat (strConcat
+                             file ":")
+                             (decStr (lineOf src (spanStart span)))) ":")
+                             (strConcat (decStr (colOf src (spanStart span))) "\n")))))
+                (bar (strConcat (paint SGR_GUT (strConcat (spacesN gw) " |")) "\n")))
             (let ((snippet
                     (if spanless
                         ""
@@ -479,11 +506,11 @@
                                    ; AXDL's, deliberately - one fact,
                                    ; one notation, whichever surface a
                                    ; reader is looking at.
-                                   (vecPush acc (helpLine gw
+                                   (vecPush acc
                                      (if (== (diagHelpFixSpan d i) 0)
-                                         (diagHelpMsg d i)
-                                         (strConcat (strConcat (diagHelpMsg d i) " ~> ")
-                                                    (diagHelpFixText d i)))))
+                                         (helpLine gw (diagHelpMsg d i))
+                                         (helpLineFix gw (diagHelpMsg d i)
+                                                      (diagHelpFixText d i))))
                                    (set i (+ i 1))
                                  })
                                (vecPush acc (helpLine gw (strConcat (strConcat

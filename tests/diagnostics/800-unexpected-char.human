@@ -1,10 +1,10 @@
-error[AX1001]: unexpected character `#`
- --> 800-unexpected-char.ax:2:12
-  |
-2 | (fn (main) # 0)
-  |            ^ `#` is not valid here
-  |
-  = help: identifiers may contain letters, digits, `_`, and `'`; operators are built from `+ - * / % ^ = < > ! & | . ? ~ @`
-  = help: run `axiom explain AX1001` for a full explanation
+[1;31merror[AX1001][0m[1m: unexpected character `#`[0m
+ [1;34m--> [0m800-unexpected-char.ax:2:12
+[1;34m  |[0m
+[1;34m2 |[0m (fn (main) # 0)
+[1;34m  |[0m            [1;31m^ `#` is not valid here[0m
+[1;34m  |[0m
+ [1;34m = [0m[1;32mhelp: [0midentifiers may contain letters, digits, `_`, and `'`; operators are built from `+ - * / % ^ = < > ! & | . ? ~ @`
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX1001` for a full explanation
 
 compilation failed due to 1 previous error

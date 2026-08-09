@@ -1,10 +1,10 @@
-error[AX1005]: invalid escape sequence `\q`
- --> 840-invalid-string-escape.ax:4:25
-  |
-4 | (fn (main) { (println "A\qB") 0 })
-  |                         ^^ unrecognized escape sequence
-  |
-  = help: valid escapes are \n \t \r \\ \" \' \0
-  = help: run `axiom explain AX1005` for a full explanation
+[1;31merror[AX1005][0m[1m: invalid escape sequence `\q`[0m
+ [1;34m--> [0m840-invalid-string-escape.ax:4:25
+[1;34m  |[0m
+[1;34m4 |[0m (fn (main) { (println "A\qB") 0 })
+[1;34m  |[0m                         [1;31m^^ unrecognized escape sequence[0m
+[1;34m  |[0m
+ [1;34m = [0m[1;32mhelp: [0mvalid escapes are \n \t \r \\ \" \' \0
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX1005` for a full explanation
 
 compilation failed due to 1 previous error

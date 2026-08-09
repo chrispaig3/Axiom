@@ -1029,11 +1029,21 @@ escape_facts() {
 
   # (3) PLACEMENT. The gutter of a snippet row may be painted; the source
   #     text it quotes may not - that text is the fixture's bytes, and
-  #     colouring it is what made ariadne's output undiffable. The trailer
-  #     is printed in every format, including the machine ones, so it
-  #     carries no escapes at all.
+  #     colouring it per character is what made ariadne's output
+  #     undiffable. The trailer is printed in every format, including the
+  #     machine ones, so it carries no escapes at all.
+  #
+  #     A SOURCE row is one with a line number: optional colour, spaces,
+  #     digits, ` |`, optional reset, one space, then the quoted text.
+  #     Strip exactly that prefix and the remainder must be escape-free.
+  #     The rule was first written as "no escape after the first `|`",
+  #     which was right while the gutter was plain and wrong the moment
+  #     it was painted - the gutter's own reset sits after the bar. It is
+  #     drilled at (h4) rather than trusted, because a placement rule
+  #     that matches nothing looks exactly like one that finds nothing.
   local nbad
-  nbad="$(LC_ALL=C grep -cE $'^[^|]*\\|[^\x1b]*\x1b' "$golden" 2>/dev/null || true)"
+  nbad="$(LC_ALL=C sed -nE $'s/^(\x1b\\[[0-9;]*m)?[[:space:]]*[0-9]+ \\|(\x1b\\[[0-9;]*m)? //p' \
+            "$golden" 2>/dev/null | LC_ALL=C grep -c $'\x1b' || true)"
   facts=$((facts + 1)); f_esc=$((f_esc + 1))
   if [[ "${nbad:-0}" != 0 ]]; then
     echo "FAIL $label ($nbad snippet row(s) carry an escape after the gutter bar)"
@@ -1264,12 +1274,12 @@ floor_fail() {
 # be - see the note in parser.ax's parseErrDiag.
 [[ "$f_label" -lt 70 ]] && floor_fail "primary-label equality"           "$f_label"   70
 
-# The escape family is NOT one of those. Two of its assertions - no
-# escape after a snippet's gutter bar, none on the trailer - are made
-# per case whether or not the golden has any colour in it, so it counts
-# 104 today and a floor belongs on it now. The alphabet and balance
-# assertions are what will lift it further when the colour layer lands.
-[[ "$f_esc"   -lt 100 ]] && floor_fail "escape-stream"                   "$f_esc"    100
+# The escape family, 3087 today. This floor is the one that refuses a
+# renderer which QUIETLY STOPPED COLOURING: every equality in checks 3
+# and 4 passes against colourless output, because they strip colour
+# before comparing, and a re-bless would make check 1 pass too. Only a
+# count can tell "no colour was emitted" from "no colour was wrong".
+[[ "$f_esc"   -lt 2900 ]] && floor_fail "escape-stream"                  "$f_esc"   2900
 
 # The machine-applicable replacements. stage0 stored these and printed
 # none of them: ariadne read only a help's message, so `~>` reached AXDL
@@ -1502,6 +1512,20 @@ else
     failed=$((failed + 1))
   elif escape_facts "$work/palbad.human" "drill" >/dev/null 2>&1; then
     echo "FAIL drill(ansi-palette): SGR \`5;35\`, which $palette_file does not declare, was accepted"
+    failed=$((failed + 1))
+  fi
+
+  # (h4) colour in the quoted source text. A snippet quotes the
+  # fixture's bytes; painting them is the one thing the placement rule
+  # exists to refuse, and the rule had to be rewritten when the gutter
+  # itself became painted - so it is drilled rather than assumed.
+  awk -v e="$esc" 'BEGIN{d=0} { if (!d && $0 ~ /[0-9] \|/) { print $0 e "[1;31mX" e "[0m"; d=1 } else print }' \
+    "$drill_golden" > "$work/srcpaint.human"
+  if cmp -s "$drill_golden" "$work/srcpaint.human"; then
+    echo "FAIL drill(ansi-placement): the corruption changed nothing - no source row matched"
+    failed=$((failed + 1))
+  elif escape_facts "$work/srcpaint.human" "drill" >/dev/null 2>&1; then
+    echo "FAIL drill(ansi-placement): an escape inside a quoted source row was accepted"
     failed=$((failed + 1))
   fi
 

@@ -1,17 +1,17 @@
-error[AX3008]: struct `P` expects 2 field(s), found 1
- --> 270-struct-field-count.ax:3:16
-  |
-3 | (fn (main) (+ (P 1) (P 1 2 3)))
-  |                ^
-  |
-  = help: run `axiom explain AX3008` for a full explanation
+[1;31merror[AX3008][0m[1m: struct `P` expects 2 field(s), found 1[0m
+ [1;34m--> [0m270-struct-field-count.ax:3:16
+[1;34m  |[0m
+[1;34m3 |[0m (fn (main) (+ (P 1) (P 1 2 3)))
+[1;34m  |[0m                [1;31m^[0m
+[1;34m  |[0m
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3008` for a full explanation
 
-error[AX3008]: struct `P` expects 2 field(s), found 3
- --> 270-struct-field-count.ax:3:22
-  |
-3 | (fn (main) (+ (P 1) (P 1 2 3)))
-  |                      ^
-  |
-  = help: run `axiom explain AX3008` for a full explanation
+[1;31merror[AX3008][0m[1m: struct `P` expects 2 field(s), found 3[0m
+ [1;34m--> [0m270-struct-field-count.ax:3:22
+[1;34m  |[0m
+[1;34m3 |[0m (fn (main) (+ (P 1) (P 1 2 3)))
+[1;34m  |[0m                      [1;31m^[0m
+[1;34m  |[0m
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3008` for a full explanation
 
 compilation failed due to 2 previous errors

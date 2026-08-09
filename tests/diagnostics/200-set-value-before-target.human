@@ -1,19 +1,19 @@
-error[AX3001]: undefined variable `qqq`
- --> 200-set-value-before-target.ax:2:43
-  |
-2 | (fn (main) (let ((mut c 1)) { (set zzz (+ qqq 1)) c }))
-  |                                           ^^^ no binding named `qqq` in scope
-  |
-  = help: variables must be defined (via `define`/`fn`, a `let` binding, or a lambda parameter) before they are used; check for typos
-  = help: run `axiom explain AX3001` for a full explanation
+[1;31merror[AX3001][0m[1m: undefined variable `qqq`[0m
+ [1;34m--> [0m200-set-value-before-target.ax:2:43
+[1;34m  |[0m
+[1;34m2 |[0m (fn (main) (let ((mut c 1)) { (set zzz (+ qqq 1)) c }))
+[1;34m  |[0m                                           [1;31m^^^ no binding named `qqq` in scope[0m
+[1;34m  |[0m
+ [1;34m = [0m[1;32mhelp: [0mvariables must be defined (via `define`/`fn`, a `let` binding, or a lambda parameter) before they are used; check for typos
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3001` for a full explanation
 
-error[AX3001]: undefined variable `zzz`
- --> 200-set-value-before-target.ax:2:36
-  |
-2 | (fn (main) (let ((mut c 1)) { (set zzz (+ qqq 1)) c }))
-  |                                    ^^^ no binding named `zzz` in scope
-  |
-  = help: variables must be defined (via `define`/`fn`, a `let` binding, or a lambda parameter) before they are used; check for typos
-  = help: run `axiom explain AX3001` for a full explanation
+[1;31merror[AX3001][0m[1m: undefined variable `zzz`[0m
+ [1;34m--> [0m200-set-value-before-target.ax:2:36
+[1;34m  |[0m
+[1;34m2 |[0m (fn (main) (let ((mut c 1)) { (set zzz (+ qqq 1)) c }))
+[1;34m  |[0m                                    [1;31m^^^ no binding named `zzz` in scope[0m
+[1;34m  |[0m
+ [1;34m = [0m[1;32mhelp: [0mvariables must be defined (via `define`/`fn`, a `let` binding, or a lambda parameter) before they are used; check for typos
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3001` for a full explanation
 
 compilation failed due to 2 previous errors

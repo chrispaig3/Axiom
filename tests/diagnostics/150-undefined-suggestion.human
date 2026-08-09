@@ -1,28 +1,28 @@
-error[AX3001]: undefined variable `helpr`
- --> 150-undefined-suggestion.ax:7:9
-  |
-7 |     (+ (helpr count) (+ (cound) (Gren)))))
-  |         ^^^^^ no binding named `helpr` in scope
-  |
-  = help: a similarly named binding `helper` is in scope; did you mean this? ~> helper
-  = help: run `axiom explain AX3001` for a full explanation
+[1;31merror[AX3001][0m[1m: undefined variable `helpr`[0m
+ [1;34m--> [0m150-undefined-suggestion.ax:7:9
+[1;34m  |[0m
+[1;34m7 |[0m     (+ (helpr count) (+ (cound) (Gren)))))
+[1;34m  |[0m         [1;31m^^^^^ no binding named `helpr` in scope[0m
+[1;34m  |[0m
+ [1;34m = [0m[1;32mhelp: [0ma similarly named binding `helper` is in scope; did you mean this?[1;35m ~> helper[0m
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3001` for a full explanation
 
-error[AX3001]: undefined variable `cound`
- --> 150-undefined-suggestion.ax:7:26
-  |
-7 |     (+ (helpr count) (+ (cound) (Gren)))))
-  |                          ^^^^^ no binding named `cound` in scope
-  |
-  = help: a similarly named binding `count` is in scope; did you mean this? ~> count
-  = help: run `axiom explain AX3001` for a full explanation
+[1;31merror[AX3001][0m[1m: undefined variable `cound`[0m
+ [1;34m--> [0m150-undefined-suggestion.ax:7:26
+[1;34m  |[0m
+[1;34m7 |[0m     (+ (helpr count) (+ (cound) (Gren)))))
+[1;34m  |[0m                          [1;31m^^^^^ no binding named `cound` in scope[0m
+[1;34m  |[0m
+ [1;34m = [0m[1;32mhelp: [0ma similarly named binding `count` is in scope; did you mean this?[1;35m ~> count[0m
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3001` for a full explanation
 
-error[AX3001]: undefined variable `Gren`
- --> 150-undefined-suggestion.ax:7:34
-  |
-7 |     (+ (helpr count) (+ (cound) (Gren)))))
-  |                                  ^^^^ no binding named `Gren` in scope
-  |
-  = help: a similarly named binding `Green` is in scope; did you mean this? ~> Green
-  = help: run `axiom explain AX3001` for a full explanation
+[1;31merror[AX3001][0m[1m: undefined variable `Gren`[0m
+ [1;34m--> [0m150-undefined-suggestion.ax:7:34
+[1;34m  |[0m
+[1;34m7 |[0m     (+ (helpr count) (+ (cound) (Gren)))))
+[1;34m  |[0m                                  [1;31m^^^^ no binding named `Gren` in scope[0m
+[1;34m  |[0m
+ [1;34m = [0m[1;32mhelp: [0ma similarly named binding `Green` is in scope; did you mean this?[1;35m ~> Green[0m
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3001` for a full explanation
 
 compilation failed due to 3 previous errors

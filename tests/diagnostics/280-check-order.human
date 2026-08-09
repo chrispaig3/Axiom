@@ -1,27 +1,27 @@
-error[AX3007]: field `nope` not found on type `S`
- --> 280-check-order.ax:6:32
-  |
-6 |     (match (A 1) ((A v) (+ v s.nope)))))
-  |                                ^^^^ no field `nope` on `S`
-  |
-  = help: check the field name and the definition of `S`
-  = help: run `axiom explain AX3007` for a full explanation
+[1;31merror[AX3007][0m[1m: field `nope` not found on type `S`[0m
+ [1;34m--> [0m280-check-order.ax:6:32
+[1;34m  |[0m
+[1;34m6 |[0m     (match (A 1) ((A v) (+ v s.nope)))))
+[1;34m  |[0m                                [1;31m^^^^ no field `nope` on `S`[0m
+[1;34m  |[0m
+ [1;34m = [0m[1;32mhelp: [0mcheck the field name and the definition of `S`
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3007` for a full explanation
 
-error[AX3004]: type mismatch: expected Int, found I64
- --> 280-check-order.ax:6:30
-  |
-6 |     (match (A 1) ((A v) (+ v s.nope)))))
-  |                              ^ this has type `I64`, expected `Int`
-  |
-  = help: run `axiom explain AX3004` for a full explanation
+[1;31merror[AX3004][0m[1m: type mismatch: expected Int, found I64[0m
+ [1;34m--> [0m280-check-order.ax:6:30
+[1;34m  |[0m
+[1;34m6 |[0m     (match (A 1) ((A v) (+ v s.nope)))))
+[1;34m  |[0m                              [1;31m^ this has type `I64`, expected `Int`[0m
+[1;34m  |[0m
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation
 
-error[AX3005]: non-exhaustive pattern match: missing B
- --> 280-check-order.ax:6:13
-  |
-6 |     (match (A 1) ((A v) (+ v s.nope)))))
-  |             ^ this `match` does not cover: B
-  |
-  = help: add the missing arms, or a wildcard `_` arm to catch the rest
-  = help: run `axiom explain AX3005` for a full explanation
+[1;31merror[AX3005][0m[1m: non-exhaustive pattern match: missing B[0m
+ [1;34m--> [0m280-check-order.ax:6:13
+[1;34m  |[0m
+[1;34m6 |[0m     (match (A 1) ((A v) (+ v s.nope)))))
+[1;34m  |[0m             [1;31m^ this `match` does not cover: B[0m
+[1;34m  |[0m
+ [1;34m = [0m[1;32mhelp: [0madd the missing arms, or a wildcard `_` arm to catch the rest
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3005` for a full explanation
 
 compilation failed due to 3 previous errors

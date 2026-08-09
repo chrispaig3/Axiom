@@ -128,6 +128,20 @@ fi
 # ---------------------------------------------------------------
 # explain
 # ---------------------------------------------------------------
+# THE COLOUR IN THE LIST SECTION IS RECONSTRUCTED, NOT CAPTURED, and the
+# golden's header says so. stage0 printed `explain --list` through the
+# `colored` crate, which does its own tty detection and has no
+# `set_override` anywhere in that binary - so into a pipe, which is how
+# this golden was materialised, stage0 emitted no escapes at all. Its
+# diagnostics went through ariadne, which had the opposite behaviour and
+# painted a pipe as readily as a terminal.
+#
+# stage1 is always-on everywhere, which EXCEEDS stage0 here rather than
+# matching it. The palette is `colored`'s - bold bright cyan heading,
+# bright yellow codes - so the intent is reproduced even though the
+# bytes were never observed. Recorded because this file's whole job is
+# provenance, and a captured byte and a reconstructed one are not the
+# same claim.
 echo "== explain: every code and spelling, against the golden =="
 golden="tests/tools/explain.golden"
 [[ -f "$golden" ]] || { echo "FAIL: $golden is missing"; exit 1; }

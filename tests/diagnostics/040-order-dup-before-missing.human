@@ -1,21 +1,21 @@
-error[AX3006]: duplicate definition `main`
- --> 040-order-dup-before-missing.ax:4:6
-  |
-3 | (fn (main) 0)
-  |      ---- `main` first defined here
-4 | (fn (main) 1)
-  |      ^^^^ `main` redefined here
-  |
-  = help: rename one of the definitions, or remove the duplicate
-  = help: run `axiom explain AX3006` for a full explanation
+[1;31merror[AX3006][0m[1m: duplicate definition `main`[0m
+ [1;34m--> [0m040-order-dup-before-missing.ax:4:6
+[1;34m  |[0m
+[1;34m3 |[0m (fn (main) 0)
+[1;34m  |[0m      [1;36m---- `main` first defined here[0m
+[1;34m4 |[0m (fn (main) 1)
+[1;34m  |[0m      [1;31m^^^^ `main` redefined here[0m
+[1;34m  |[0m
+ [1;34m = [0m[1;32mhelp: [0mrename one of the definitions, or remove the duplicate
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3006` for a full explanation
 
-error[AX3015]: `ghost` has a signature but no definition
- --> 040-order-dup-before-missing.ax:1:5
-  |
-1 | (:: ghost (-> Int Int))
-  |     ^^^^^ no `fn` or `foreign` defines `ghost`
-  |
-  = help: add the definition, or if it lives in another module, mark that definition `pub` so the import carries it
-  = help: run `axiom explain AX3015` for a full explanation
+[1;31merror[AX3015][0m[1m: `ghost` has a signature but no definition[0m
+ [1;34m--> [0m040-order-dup-before-missing.ax:1:5
+[1;34m  |[0m
+[1;34m1 |[0m (:: ghost (-> Int Int))
+[1;34m  |[0m     [1;31m^^^^^ no `fn` or `foreign` defines `ghost`[0m
+[1;34m  |[0m
+ [1;34m = [0m[1;32mhelp: [0madd the definition, or if it lives in another module, mark that definition `pub` so the import carries it
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3015` for a full explanation
 
 compilation failed due to 2 previous errors
