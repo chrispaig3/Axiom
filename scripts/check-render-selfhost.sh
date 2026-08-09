@@ -579,6 +579,7 @@ f_dash=0     #               dash-row equalities
 f_gutter=0   #               snippet-gutter presence
 f_label=0    #               primary-label equalities  (AXDL `#"..."`)
 f_note=0     #               note-line equalities      (AXDL `!"..."`, `&"..."`)
+f_fix=0      #               machine-applicable replacements (`~>`)
 f_esc=0      # ANSI sequences checked against style.ax's declared palette
 
 # ------------------------------------------------------------------
@@ -841,11 +842,22 @@ axdl_facts() {
       fi
     done
 
-    local h
-    for h in ${helps[@]+"${helps[@]}"}; do
+    # A help carrying a machine-applicable fix prints the replacement
+    # after `~>`. The replacement is read from the AXDL's own `~>"..."`
+    # field, so this stays a derivation rather than a second copy of the
+    # renderer's opinion - and the field used to be DROPPED by the
+    # parser above, which is why the human surface could have printed
+    # anything there.
+    local hj want_help
+    for (( hj = 0; hj < ${#helps[@]}; hj++ )); do
+      want_help="= help: ${helps[hj]}"
       facts=$((facts + 1)); f_msg=$((f_msg + 1))
-      if ! block_trim_eq "$bs" "$be" "= help: $h"; then
-        echo "FAIL $label (block $((k + 1)) has no help line reading exactly \`= help: $h\`)"
+      if [[ -n "${helpfix[hj]:-}" ]]; then
+        want_help="$want_help ~> ${helpfix[hj]}"
+        facts=$((facts + 1)); f_fix=$((f_fix + 1))
+      fi
+      if ! block_trim_eq "$bs" "$be" "$want_help"; then
+        echo "FAIL $label (block $((k + 1)) has no help line reading exactly \`$want_help\`)"
         rc=1
       fi
     done
@@ -1259,6 +1271,11 @@ floor_fail() {
 # assertions are what will lift it further when the colour layer lands.
 [[ "$f_esc"   -lt 100 ]] && floor_fail "escape-stream"                   "$f_esc"    100
 
+# The machine-applicable replacements. stage0 stored these and printed
+# none of them: ariadne read only a help's message, so `~>` reached AXDL
+# and no human ever saw it.
+[[ "$f_fix"   -lt 7 ]] && floor_fail "fix-replacement equality"          "$f_fix"      7
+
 # The status derivation has to DISTINGUISH something. A corpus in which
 # every case wants the same status is satisfied by a `check` that always
 # fails, or always succeeds, and check 2 would be reporting a constant.
@@ -1312,7 +1329,7 @@ else
   facts_kept="$facts"; rows_kept="$rows"
   bk="$f_block"; hk="$f_head"; lk="$f_loc"; mk="$f_msg"
   ck="$f_caret"; dk="$f_dash"; gk="$f_gutter"
-  lbk="$f_label"; nk="$f_note"; ek="$f_esc"
+  lbk="$f_label"; nk="$f_note"; ek="$f_esc"; fk="$f_fix"
 
   # (a) the byte comparison itself. A gate whose `cmp` is wired to the
   # wrong file reports every case green forever.
@@ -1569,7 +1586,7 @@ else
   facts="$facts_kept"; rows="$rows_kept"
   f_block="$bk"; f_head="$hk"; f_loc="$lk"; f_msg="$mk"
   f_caret="$ck"; f_dash="$dk"; f_gutter="$gk"
-  f_label="$lbk"; f_note="$nk"; f_esc="$ek"
+  f_label="$lbk"; f_note="$nk"; f_esc="$ek"; f_fix="$fk"
 fi
 
 if [[ "$bless" == 1 ]]; then
@@ -1581,5 +1598,5 @@ if [[ "$bless" == 1 ]]; then
   exit 0
 fi
 
-echo "check-render-selfhost: $passed passed, $failed failed ($cases cases, $facts AXDL facts [block $f_block, head $f_head, loc $f_loc, msg $f_msg, caret $f_caret, dash $f_dash, gutter $f_gutter, label $f_label, note $f_note, esc $f_esc], $rows source rows, $want_fail fail/$want_ok ok by derivation)"
+echo "check-render-selfhost: $passed passed, $failed failed ($cases cases, $facts AXDL facts [block $f_block, head $f_head, loc $f_loc, msg $f_msg, caret $f_caret, dash $f_dash, gutter $f_gutter, label $f_label, note $f_note, fix $f_fix, esc $f_esc], $rows source rows, $want_fail fail/$want_ok ok by derivation)"
 [[ "$failed" == 0 ]]

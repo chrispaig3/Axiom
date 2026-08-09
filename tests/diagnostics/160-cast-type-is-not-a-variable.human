@@ -4,7 +4,7 @@ error[AX3001]: undefined variable `nope`
 3 |   (+ (cast Int (sizeof Int)) nope))
   |                              ^^^^ no binding named `nope` in scope
   |
-  = help: a similarly named binding `Some` is in scope; did you mean this?
+  = help: a similarly named binding `Some` is in scope; did you mean this? ~> Some
   = help: run `axiom explain AX3001` for a full explanation
 
 compilation failed due to 1 previous error

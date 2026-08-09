@@ -4,7 +4,7 @@ error[AX3001]: undefined variable `cound`
 4 |     { (set cound 2) count }))
   |            ^^^^^ no binding named `cound` in scope
   |
-  = help: a similarly named binding `count` is in scope; did you mean this?
+  = help: a similarly named binding `count` is in scope; did you mean this? ~> count
   = help: run `axiom explain AX3001` for a full explanation
 
 compilation failed due to 1 previous error

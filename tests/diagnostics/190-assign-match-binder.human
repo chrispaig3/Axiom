@@ -6,7 +6,7 @@ error[AX3012]: cannot assign to immutable binding `x`
 4 |     (x { (set x 9) x })))
   |               ^ `x` cannot be assigned
   |
-  = help: declare it mutable: `(mut x ...)`
+  = help: declare it mutable: `(mut x ...)` ~> mut x
   = help: only a binding introduced by `(let ((mut x ...)) ...)` may be the target of `set`
   = help: run `axiom explain AX3012` for a full explanation
 

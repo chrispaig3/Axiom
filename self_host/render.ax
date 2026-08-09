@@ -346,7 +346,20 @@
                              {
                                (while (< i (diagHelpCount d))
                                  {
-                                   (vecPush acc (helpLine gw (diagHelpMsg d i)))
+                                   ; A MACHINE-APPLICABLE help shows the
+                                   ; replacement it would apply. stage0
+                                   ; stored one and never printed it:
+                                   ; ariadne read only `help.message`,
+                                   ; so `~>` reached AXDL and no human
+                                   ; ever saw it. The `~>` spelling is
+                                   ; AXDL's, deliberately - one fact,
+                                   ; one notation, whichever surface a
+                                   ; reader is looking at.
+                                   (vecPush acc (helpLine gw
+                                     (if (== (diagHelpFixSpan d i) 0)
+                                         (diagHelpMsg d i)
+                                         (strConcat (strConcat (diagHelpMsg d i) " ~> ")
+                                                    (diagHelpFixText d i)))))
                                    (set i (+ i 1))
                                  })
                                (vecPush acc (helpLine gw (strConcat (strConcat
