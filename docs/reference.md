@@ -247,7 +247,7 @@ These words are reserved but no longer have a grammar rule. Using them reports a
 | `Bool` | Boolean (`true` / `false`) |
 | `Char` | A Unicode code point: `'A'` is 65, `'é'` is 233, `'世'` is 19990, `'😀'` is 128512. (This table used to say "8-bit", which was wrong - a char literal has always carried the whole code point.) |
 | `String` | String (pointer) |
-| `Unit` / `()` | Unit (no value) |
+| `Unit` / `()` | Unit (no value). A **type** only — `(:: main ())` and `(:: f (-> () Int))` are accepted, and `symbols` renders the empty tuple as `()`. There is no unit *value*: `()` in expression position is `AX2001 expected expression`, as it is in `[]` and `(set)`, and nothing in the language produces or consumes one |
 | `Void` | Void |
 | `Any` | Generic pointer |
 

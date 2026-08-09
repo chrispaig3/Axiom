@@ -4742,3 +4742,238 @@ untested backend is broken; it is that **the test which would have
 caught it can already exist, already be right, and still be telling
 nobody anything** — for six days, because something upstream of it was
 red and nobody had read down past the first failure.
+
+## 13. The empty form: a node the parser said it built and never made
+
+`axiom check` on this program died of `SIGSEGV`:
+
+```scheme
+(:: main Int)
+(fn (main) ())
+```
+
+Exit 139, no output, nothing on stderr, no diagnostic. So did
+twenty-two other programs — the same two characters in a different
+position each time — and seven of those killed `check` itself rather
+than the emitter:
+
+| position | before | after |
+|---|---|---|
+| `(fn (main) ())` | `check` OK, `run` SIGSEGV | `AX2001` at the `)` |
+| `(let ((x ())) 0)` | `check` SIGSEGV | `AX2001` |
+| `(())`, `(() 1)` | `check` SIGSEGV | `AX2001` |
+| `(:: 1 ())`, `(:: () Int)` | `check` SIGSEGV | `AX2001` |
+| `(match 1 (() 0))` | `check` SIGSEGV | `AX2001` |
+| `(if () 1 2)`, `(while () 0)`, `(cond (() 1) (else 2))` | `check` OK, `run` SIGSEGV | `AX2001` |
+| `(macro (m x) ())` | `check` OK, `run` SIGSEGV | `AX2001` |
+| `(fn (main) {})` | `check` OK, `run` exits 4 with `AX4003 opt failed` against `<toolchain>` | `AX2001` at the `}` |
+
+The cause is one line. `parseInner` answered
+
+```scheme
+(if (peekIs tokens pos TK_RPAREN)
+    (pOk 0 (advance pos))
+```
+
+— a **successful** parse whose node handle is `0`, which is the handle
+every other producer in `parser.ax` uses to mean *there is no node
+here*. `pErr` is how that file reports failure; `pOk 0` reports success
+and hands over the null. Nothing downstream guards a node it has been
+told it has, so `checkExpr` and `emitExpr` both dereferenced it. This is
+the sentinel-in-the-data-channel defect the effect collector had in
+2026-08-06, in its most direct form: the sentinel was not merely stored
+beside real data, it was returned *as* real data.
+
+`{}` is the same defect one node further along. It parsed as a real
+`EBegin` over an empty vector, survived the checker, and reached codegen,
+which emitted a block that assigns no register — invalid IR, which `opt`
+rejects and the driver reports as `AX4003 opt failed` against
+`<toolchain>`. The compiler blaming the toolchain for its own output,
+with no span into the source, is the failure mode
+[macros.md §2](macros.md) records for templates and is here for a
+two-character program.
+
+### 13.1 The language server died on what typing looks like
+
+`()` is not an exotic input. It is the state of a buffer between the
+keystroke that opens a form and the keystroke that fills it, so the
+document a language server sees most often is one that contains it.
+Driven by hand — `initialize`, `didOpen`, then one `didChange` whose
+text is `(fn (main) (let ((x ())) 0))` — the server answered the
+lifecycle, published diagnostics for version 1, and was killed by
+signal 11 before version 2:
+
+```
+returncode: -11
+stdout bytes: 382     (initialize result, then one empty diagnostics array)
+```
+
+Seven of the twenty-three crashes were inside `check`, which is exactly
+the entry point `lsp.ax` calls per edit, so every one of those seven was
+a way to end an editing session.
+
+### 13.2 Why five gates were green
+
+The formatter accepted all of it. `axiom fmt` on `(fn (main) ())`
+reports `OK: formatted` and writes the file back out, because
+`format.ax` — the second implementation of the grammar — has a printer
+arm for the empty form. So did the parity bank: **the two programs that
+killed the compiler were already checked-in test cases.**
+
+```
+$ cat tests/fmt/parity/170-empty-tuple.axp
+(fn (f) ())
+$ cat tests/fmt/parity/172-empty-brace-body.axp
+(fn (f) {})
+```
+
+and `tests/fmt/parity.golden` recorded, as the correct answer, that the
+formatter rewrites both and exits 0.
+
+That bank compares the formatter with its own previous output, so it
+could not see a crash. But `check-fmt-selfhost.sh` §5b exists precisely
+to close that loop — it hands every formatted output back to the
+compiler and fails if it carries an `AX1xxx` or `AX2xxx` — and it was
+green too, for a reason worth stating in full because it generalises:
+
+> **A process killed by a signal prints nothing, so it satisfies every
+> check written as "the output must not contain X".**
+
+§5b ran `check` on `(fn (f) ())`, `check` died before printing anything,
+the grep found no diagnostic line, and the case passed. The section's
+own status was discarded with `|| true`. This is the third entry in this
+document's catalogue of failures that look like success — after a golden
+with no content, and a sweep that reads fewer files than it should — and
+it is the one that cannot be fixed by counting, because the count was
+right: 251 outputs were swept, and two of them killed the compiler.
+
+There is a fourth green gate in the list, and it is a different bug in
+the same family. `()` at the top level is `AX2003` from this compiler,
+and the formatter **deleted the form** and exited 0:
+
+```
+$ cat a.ax
+()
+(fn (f) 1)
+$ axiom check a.ax  ->  E AX2003 a.ax:1:2-3 syntax-error   exit 1
+$ axiom fmt a.ax    ->  OK: a.ax formatted                 exit 0
+$ cat a.ax
+(fn (f) 1)
+$ axiom check a.ax  ->  OK                                 exit 0
+```
+
+`axiom fmt` turning a file the compiler refuses into one it accepts is
+the one rewrite a formatter may never make, and it is the only kind that
+cannot be caught by asking whether the output means what the input meant
+— because the input means nothing. `format.ax`'s comment said
+`parse_module` skips an empty `()` form, which was stage0's rule; it has
+not been this compiler's for as long as anyone has checked, and nothing
+re-read the comment after stage0 was deleted.
+
+### 13.3 What changed
+
+Four sites, all refusals:
+
+- `parseInner` answers `(pErrExp pos "expression")` for `()` in
+  expression position. That is what `[]`, `(-> )`, `(* )`, `(set)`,
+  `(alloc)`, `(consume)` and `(handle e)` already answer; the empty form
+  was the outlier. `()` remains a **type** — the empty tuple, built by
+  `parseTypeParens` — and `(:: main ())` still checks and runs. The two
+  positions are separate, which `(:: 1 ())` proves: a type ascription in
+  expression position parses its type with `parseExpr`, deliberately, so
+  it went through the crashing door.
+- `parseBlockBody` refuses a block with no expressions. A block's value
+  is its last expression; a block with none has no value.
+- `format.ax` refuses all three shapes — `()` in expression position,
+  `()` in pattern position, `{}` — and no longer deletes a top-level
+  `()`. Refusal parity is the contract the `.axp` bank pins, and three
+  of its cases changed sides.
+- `check-fmt-selfhost.sh` reads the exit status before it believes the
+  output, in both §4 and §5b, and now asks the compiler about each
+  parity case as well as the formatter.
+
+No unit **value** was invented. Adding one is a language change that
+would have to move the type checker, the emitter, `format.ax` and
+`tree-sitter-axiom/` together; refusing is the weakest rule that kills
+the class, and the class is what was killing the compiler.
+
+### 13.4 The gate, and the ablation
+
+`scripts/check-degenerate.sh` is 88 small adversarial programs — every
+position of the empty form, the truncated and unterminated inputs, the
+literal boundaries, the empty declaration bodies, a NUL byte — run
+through `check`, `fmt --check` and `symbols`. Its assertions are about
+the **process**, not its output, which is the whole point:
+
+1. no invocation may be killed by a signal;
+2. a refusal must print a diagnostic to act on;
+3. an acceptance must print no error;
+4. the pinned exit status per case;
+5. floors: at least 80 cases, both outcomes present, and at least six
+   distinct diagnostic codes among the refusals — a bank that answers
+   everything with one code has stopped distinguishing its cases.
+
+It ends by driving `axiom lsp` through five document versions, two of
+which contain an empty form, and requires the server to publish
+diagnostics for every one of them **and answer its own shutdown**. That
+last clause is load-bearing: a server that dies quietly after the first
+publish still produces plausible-looking stdout, and only the reply to
+the final request proves it was alive at the end.
+
+Measured, on a compiler built from the tree before the fix:
+
+```
+FAIL empty-let-val: check was killed by a signal (exit 139)
+FAIL empty-let-val: symbols was killed by a signal (exit 139)
+...
+     88 cases: 23 accepted, 40 refused, 7 killed by a signal
+FAIL lsp: the server was killed by signal 11
+FAIL: 26 of 88 checks failed
+```
+
+and after:
+
+```
+     88 cases: 23 accepted, 65 refused, 0 killed by a signal
+ok   the refusals name 9 distinct diagnostic codes
+ok   the server answered 5 versions and its shutdown
+PASS: 88 degenerate inputs, every one answered by a diagnostic or an acceptance
+```
+
+The corpus is unmoved: all 241 `.ax` files in the repository produce the
+same `fmt --check` status before and after, because no file in it
+contains an empty form. That is the reason it survived — the corpus is
+written by people solving problems, and nobody's problem needs `()`.
+
+### 13.5 What this did NOT fix, measured and recorded
+
+- **A nullary lambda applied returns the closure, not its result.**
+  `((lambda () 7))` answers `4302028816` — a pointer — where `7` is
+  meant, and `(let ((k g)) (k))` on a nullary `g` is `AX3004 expected
+  Int, found (() -> Int)`. A zero-argument application is parsed as the
+  head expression alone. A named nullary call `(g)` is a direct call and
+  is correct, which is why nothing noticed. Silent wrong answer, not a
+  crash, and a separate defect in the application form.
+- **`(match e)` with no arms and `(cond)` with no clauses are accepted**
+  and answer 0. Exhaustiveness over a non-ADT scrutinee is not checkable,
+  so this is a runtime-trap question rather than a parse question, and
+  `173-empty-match.axp` stays a rewrite.
+- **An unterminated `#| ... ` runs to end of input and is not an
+  error** — `check` on a file whose first line is `#| never closed`
+  reports `OK` and compiles an empty module. `lexer.ax` documents this as
+  deliberate and matched to stage0's `consume_block_comment`, whose loop
+  guard is `pos < len && depth > 0` and which returns `Ok` either way,
+  and `format.ax`'s scanner agrees with it byte for byte, so the two
+  implementations are consistent. It is left alone here because it is a
+  language decision that has to move the lexer, `format.ax` and
+  `tree-sitter-axiom/src/scanner.c` together — the same reasoning
+  `lexer.ax` already applies to a line break inside a string literal.
+  The argument for revisiting it is that an unterminated `"` is `AX1002`
+  and an unterminated `'` is `AX1003`, so the block comment is the one
+  unterminated construct that silently truncates the file instead, and
+  truncation that looks like success is what `parseTopForm`'s own
+  comment calls the worst spelling of unsupported.
+- The parser's nesting guard fires between depth 1,000 and 5,000
+  (`AX2005`, measured at 1,000 → OK and 5,000 → refused), so the deep
+  cases in the bank are inside it by construction and pin the accepting
+  side.

@@ -1814,7 +1814,27 @@
   (if (peekIs tokens pos TK_DOUBLE_COLON)
       (parseTypeSigExpr tokens (advance pos))
   (if (peekIs tokens pos TK_RPAREN)
-      (pOk 0 (advance pos))
+      ; `()` in EXPRESSION position. This used to answer `(pOk 0 ...)` -
+      ; a SUCCESSFUL parse whose node handle is 0, which is the handle
+      ; every other producer in this file uses to mean "there is no node
+      ; here". Nothing downstream guards it, because a successful parse
+      ; is not supposed to be able to hand one over: `checkExpr` and
+      ; `emitExpr` both dereference it, and the compiler died by signal
+      ; with no diagnostic in twenty-three measured positions - seven of
+      ; them inside `check`, which is what `axiom lsp` runs, so a
+      ; document containing the two characters a user types before they
+      ; type anything else killed the language server.
+      ;
+      ; A refusal, not a node: `()` is a TYPE (the empty tuple, see
+      ; `parseTypeParens`) and there is no unit VALUE in the language -
+      ; no literal produces one and nothing consumes one. Every sibling
+      ; empty form already refuses exactly this way: `[]`, `(-> )`,
+      ; `(* )`, `(set)`, `(alloc)`, `(consume)` are all AX2001 "expected
+      ; expression". A bare `()` at the TOP level is a different form
+      ; and stays skipped - `parse_module` dropped it, `parseDecls`
+      ; drops it, and the formatter deletes it
+      ; (`tests/fmt/parity/100-empty-form-dropped`).
+      (pErrExp pos "expression")
   (parseAppForm tokens pos)))))
 
 ; `(:: expr Type)` - a type ascription in EXPRESSION position, which is
@@ -2408,7 +2428,18 @@
 (pub :: parseBlockBody (-> Int Int Int Int))
 (pub fn (parseBlockBody tokens pos acc)
   (if (peekIs tokens pos TK_RBRACE)
-      (pOk (mkEBegin acc) (advance pos))
+      ; An empty `{}` is the same defect one node along. It parsed as a
+      ; real `EBegin` over an empty vector, so it survived the checker -
+      ; and then codegen emitted a block that assigns no register and
+      ; the function returned a value that was never computed. In value
+      ; position that is invalid IR, which `opt` rejects and the driver
+      ; reports as `AX4003 opt failed` against `<toolchain>`: the
+      ; compiler blaming the toolchain for its own output, with no span
+      ; into the source. A block's value is its last expression, so a
+      ; block with no expressions has no value and cannot be one.
+      (if (== (vecLen acc) 0)
+          (pErrExp pos "expression")
+          (pOk (mkEBegin acc) (advance pos)))
   (if (peekIs tokens pos TK_EOF)
       (pErr pos)
       (let ((r (parseExpr tokens pos)))

@@ -1,9 +1,27 @@
 # The refusal bank: what `axiom fmt` does to each tests/fmt/parity/*.axp case.
 #
 # One `### <case> (exit N)` line per case, followed by the formatted bytes when
-# it formatted at all. 37 cases: 20 rewrites and 17 refusals, which is why this
+# it formatted at all. 38 cases: 17 rewrites and 21 refusals, which is why this
 # file can tell a formatter that always succeeds from one that always refuses -
 # check-fmt-selfhost.sh requires both outcomes to be present.
+#
+# THREE CASES CHANGED SIDES on 2026-08-09, and the reason is worth recording
+# here because this file is what recorded the wrong answer:
+#
+#   100-empty-form-dropped  exit 0 -> 1   `()` then `(fn (f) 1)`
+#   170-empty-tuple         exit 0 -> 1   `(fn (f) ())`
+#   172-empty-brace-body    exit 0 -> 1   `(fn (f) {})`
+#
+# 170 and 172 are the two programs that killed the compiler. `check` on either
+# of them was SIGSEGV - exit 139, no output - and this bank recorded, as the
+# correct answer, that the formatter rewrites them and exits 0. It could not
+# see the crash because it never asked the compiler anything: it compares the
+# formatter with its own previous output. 100 is the other direction and needs
+# no crash to be wrong: `()` at the top level is `AX2003` from this compiler,
+# the formatter DELETED the form and exited 0, so `axiom fmt` turned a file the
+# compiler refuses into one it accepts. The gate now asks the compiler about
+# every case as well (section 4), and refuses to read a signal as silence
+# (section 5b).
 #
 # Materialized from the Rust compiler at commit 1041f11 on 2026-08-08, and
 # verified at that commit to be byte-identical to what the self-hosted compiler
@@ -54,8 +72,7 @@
   )
 )
 ### 092-negative-pattern.axp (exit 1)
-### 100-empty-form-dropped.axp (exit 0)
-(fn (f) 1)
+### 100-empty-form-dropped.axp (exit 1)
 ### 101-axtag-then-unit.axp (exit 1)
 ### 102-axtag-trailing.axp (exit 1)
 ### 110-nested-block-comment.axp (exit 0)
@@ -83,16 +100,10 @@
 (fn (f) 1)
 ### 160-nbsp-whitespace.axp (exit 0)
 (fn (f) 42)
-### 170-empty-tuple.axp (exit 0)
-(fn (f) ())
+### 170-empty-tuple.axp (exit 1)
 ### 171-singleton-unwrap.axp (exit 0)
 (fn (f x) x)
-### 172-empty-brace-body.axp (exit 0)
-(fn (f)
-  {
-
-  }
-)
+### 172-empty-brace-body.axp (exit 1)
 ### 173-empty-match.axp (exit 0)
 (fn (f v)
   (match v
@@ -107,6 +118,7 @@
 )
 ### 175-empty-data.axp (exit 0)
 (data Empty)
+### 176-empty-pattern.axp (exit 1)
 ### 180-pub-import.axp (exit 0)
 (import Mem)
 

@@ -1941,12 +1941,22 @@
                       (fpP p "]")
                     }))))
     (if (== k FN_BRACE)
+        (if (== (fnLen n) 0)
+            ; The parser refuses an empty block, so the formatter must
+            ; too - it wrote `{}` back out and reported OK on a file the
+            ; compiler cannot compile. Refusal parity is the contract
+            ; the `.axp` bank pins.
+            (fpBad p)
         (if (== (fnLen n) 1)
             (fpExpr p (fnKid n 0))
-            (fpBeginVec p (fpExprElems n 0) 0))
+            (fpBeginVec p (fpExprElems n 0) 0)))
     ; FN_PAREN.
     (if (== (fnLen n) 0)
-        (fpP p "()")
+        ; `()` in expression position: refused by the parser, so refused
+        ; here. It used to print `()` back and exit 0 - the formatter
+        ; declaring a program well-formed that segfaulted the compiler
+        ; that was about to read it.
+        (fpBad p)
         (let ((h (fnHeadText src n)))
           (if (strEq h "lambda") (fpLambda p n)
           (if (strEq h "let") (fpLet p n)
@@ -2349,7 +2359,10 @@
           })
     (if (== k FN_PAREN)
         (if (== (fnLen n) 0)
-            (fpP p "()")
+            ; `(match e (() 0))` - a pattern is parsed by `parseExpr`
+            ; (`parseArmPattern`'s fallback), so an empty pattern was
+            ; the same crash reached through a different door.
+            (fpBad p)
             (if (fpIsUpperIdent src (fnKid n 0))
                 ; A constructor pattern: the parens are load-bearing -
                 ; `(Red)` is a tag test where `Red` alone would be a
@@ -3285,11 +3298,22 @@
                   (if (!= (fnKind f) FN_PAREN)
                       (foSetBad o)
                       (if (== (fnLen f) 0)
-                          ; `parse_module` skips an empty `()` form, so
-                          ; the formatter deletes it - unless AXTAGs
-                          ; precede it, which routes through
-                          ; `parse_decl` and refuses (probed).
-                          (if (> (vecLen pending) 0) (foSetBad o) 0)
+                          ; A bare `()` at the TOP level. The comment
+                          ; this replaces said `parse_module` skips the
+                          ; form, so the formatter deleted it. That was
+                          ; stage0's rule and it is not this compiler's:
+                          ; `check` on a file whose first form is `()`
+                          ; is `AX2003` at the `)`. So the formatter
+                          ; took a file the compiler REFUSES and wrote
+                          ; back one it accepts, reporting OK - the one
+                          ; rewrite a formatter may never make, and the
+                          ; only one that cannot be caught by asking
+                          ; whether the output means what the input
+                          ; meant, because the input means nothing.
+                          ; The parity golden recorded the deletion as
+                          ; correct, because that bank compares the
+                          ; formatter against its own previous output.
+                          (foSetBad o)
                           (let ((h (fpDeclHead src f)))
                             (if (strEq h "import")
                                 ; AXTAGs before an import are collected

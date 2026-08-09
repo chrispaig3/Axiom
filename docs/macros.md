@@ -264,15 +264,25 @@ type is `Vec of Str`: a frame can hold pre-rendered English, not a
 span. Criterion 3 needs the element widened to carry `(name, span,
 unit)` and the AXDL `&"frame"` grammar to gain a location.
 
-### One crash this did not fix, recorded so it is not mistaken for a macro bug
+### One crash this did not fix — since fixed, 2026-08-09
 
-`(macro (m x) ())` still segfaults the compiler at emission — and so
-does `(fn (main) ())` with no macro anywhere. The parser answers node
-handle **0** for the empty form and `emitExpr` dereferences it. The
-expander guards handle 0 everywhere it walks, so it is no longer a
-*second* road to the crash, but the road itself is in the parser and
-codegen and is out of this scope. Measured on both compilers, with and
-without a macro: exit 139, no output, no diagnostic.
+`(macro (m x) ())` segfaulted the compiler at emission, and so did
+`(fn (main) ())` with no macro anywhere: the parser answered node handle
+**0** for the empty form and `emitExpr` dereferenced it. The expander
+already guarded handle 0 everywhere it walks, so it was not a *second*
+road to the crash, but the road itself was in the parser and was out of
+that slice's scope. Measured then, with and without a macro: exit 139,
+no output, no diagnostic.
+
+It is now `AX2001` — `()` in expression position is a refusal, the same
+one `[]` and `(set)` already gave — along with twenty-two other
+positions of the same two characters, seven of which killed `check`
+rather than the emitter. A template is an expression, so
+`(macro (m x) ())` is refused at the macro's own line before any
+invocation is expanded. See
+[self-hosting.md §13](self-hosting.md#13-the-empty-form-a-node-the-parser-said-it-built-and-never-made);
+the bank that pins it is `scripts/check-degenerate.sh`, and
+`empty-in-macro-tpl` and `empty-macro-arg` are two of its cases.
 
 ## 5. What does not exist
 

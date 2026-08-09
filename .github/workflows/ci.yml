@@ -159,6 +159,20 @@ jobs:
       - name: The AXDL corpus, and every span against the fixtures
         run: ./scripts/check-diagnostics.sh
 
+      # Degenerate input answers with a diagnostic, not with a signal.
+      # `axiom check` on `(fn (main) ())` was SIGSEGV - exit 139, no
+      # output, nothing on stderr - and so were twenty-two other
+      # positions of the same two characters, seven of them inside
+      # `check`, which is what `axiom lsp` runs for every keystroke.
+      #
+      # No gate above could see it, and the reason is the point of this
+      # one: every other suite asks what the compiler PRINTED, and a
+      # process killed by a signal prints nothing, so it satisfies any
+      # check written as "the output must not contain X". This one asks
+      # about the process.
+      - name: Degenerate input is diagnosed, not fatal
+        run: ./scripts/check-degenerate.sh
+
       # `fmt` is the tool that had no gate, and it had six independent
       # ways of silently destroying a source file. This formats a copy of
       # the whole repository and re-runs the suites against it, so a

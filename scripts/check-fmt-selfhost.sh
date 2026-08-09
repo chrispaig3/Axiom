@@ -307,6 +307,21 @@ for f in "$repo_root"/tests/fmt/parity/*.axp; do
   cases=$((cases + 1))
   name="$(basename "$f")"
   cp "$f" "$work/case.ax"
+  # Ask the COMPILER about the case before asking the formatter. This bank
+  # compares the formatter against its own previous output, so nothing in
+  # it ever noticed that two of its cases - `170-empty-tuple` `(fn (f) ())`
+  # and `172-empty-brace-body` `(fn (f) {})` - killed the compiler outright,
+  # and that `100-empty-form-dropped` was a file the compiler REFUSES which
+  # the formatter rewrote into one it accepts, reporting OK. A signal is the
+  # one answer no golden can record, so it is asserted here rather than
+  # compared.
+  cp "$f" "$work/parity-in.ax"
+  ( cd "$work" && "$axc" --diagnostic-format=ai check parity-in.ax ) >/dev/null 2>&1
+  in_st=$?
+  if [[ $in_st -ge 128 ]]; then
+    echo "FAIL parity/$name: reading the case killed the compiler (exit $in_st)"
+    failed=$((failed + 1))
+  fi
   "$axc" fmt "$work/case.ax" >/dev/null 2>&1; s=$?
   echo "### $name (exit $s)" >> "$work/parity.out"
   if [[ $s -eq 0 ]]; then
@@ -403,8 +418,19 @@ while read -r src out; do
   # From the formatted copy of the tree, so an `(import Mem)` in a
   # formatted corpus file resolves the same way section 6 resolves it.
   axdl="$( (cd "$copy" && AXIOM_STDLIB="$copy/stdlib" \
-            "$axc" --diagnostic-format=ai check "$out") 2>&1 || true)"
-  if grep -qE '^[EW] AX[12][0-9]{3} ' <<<"$axdl"; then
+            "$axc" --diagnostic-format=ai check "$out") 2>&1 )"
+  read_st=$?
+  # A process killed by a signal prints nothing, so it satisfies a check
+  # written as "the output must not contain a diagnostic". That is not a
+  # hypothetical: `tests/fmt/parity/170-empty-tuple.axp` is `(fn (f) ())`,
+  # the formatter wrote it back out, `check` died of SIGSEGV reading it,
+  # the grep below found no AX2xxx line, and this section reported ok - in
+  # CI, for as long as that case has existed. The status has to be read
+  # BEFORE the output is believed.
+  if [[ $read_st -ge 128 ]]; then
+    echo "FAIL $(basename "$src"): reading its formatted output killed the compiler (exit $read_st)"
+    unreadable=$((unreadable + 1))
+  elif grep -qE '^[EW] AX[12][0-9]{3} ' <<<"$axdl"; then
     echo "FAIL $(basename "$src"): its formatted output does not lex or parse"
     grep -E '^[EW] AX[12][0-9]{3} ' <<<"$axdl" | head -2 | sed 's/^/     /'
     unreadable=$((unreadable + 1))

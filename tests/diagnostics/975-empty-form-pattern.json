@@ -1,0 +1,1 @@
+{"severity":"error","code":"AX2001","slug":"unexpected-token","message":"expected expression, found `)`","file":"975-empty-form-pattern.ax","span":{"start":{"line":2,"col":23},"end":{"line":2,"col":24},"char_start":36,"char_end":37},"label":"found `)` here","related":[],"notes":[],"help":["Axiom expected expression at this position"],"expansion":[]}
