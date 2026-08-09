@@ -25,6 +25,7 @@
 (import Mem)
 (import Str)
 (import Vec)
+(import Utf8)
 (import parser)
 (import typecheck)
 (import diag)
@@ -503,6 +504,127 @@
               (vecPush metas (saAxMeta (memGetWord (vecGet tags i) 1)))
               (set i (+ i 1))
             })))))
+
+
+; ------------------------------------------------------------------
+; The human table.
+;
+; `symbols` prints AXSYM by default and printed it under every format,
+; which was the last of the three divergences docs/self-hosting.md
+; recorded OPEN: stage0's bare `symbols` printed an aligned table and
+; only `--diagnostic-format=ai` gave AXSYM. The flag surface matched;
+; the default did not.
+;
+; Derived from the AXSYM text by re-reading it, not by threading a mode
+; through fact collection. Two reasons. The fact walk is four hundred
+; lines with a dozen `symLine` call sites, and a second renderer
+; interleaved through it is a second place for a fact to go missing.
+; And a table derived from AXSYM cannot disagree with AXSYM about what
+; the symbols are - which is a property the gate would otherwise have
+; had to check, and now gets for free.
+;
+; stage0's format, verbatim: `{:<8} {:<20} {:<40} [{}]`, with the kind
+; as its Rust variant name and a spanless fact reading `builtin` where
+; AXSYM writes `-`. Columns are padded in CHARACTERS, so a non-ASCII
+; name pads to the width a reader sees.
+; ------------------------------------------------------------------
+(pub :: symKindWord (-> Int Int))
+(pub fn (symKindWord k)
+  (if (strEq k "F") "Fn"
+  (if (strEq k "X") "Foreign"
+  (if (strEq k "D") "Data"
+  (if (strEq k "C") "Ctor"
+  (if (strEq k "S") "Struct"
+  (if (strEq k "A") "Alias"
+  (if (strEq k "T") "Trait" k))))))))
+
+; Characters, not bytes - the same rule every column in this compiler
+; counts by.
+(pub :: symCharLen (-> Int Int))
+(pub fn (symCharLen s)
+  (let ((n (strLen s)) (mut i 0) (mut c 0))
+    {
+      (while (< i n)
+        {
+          (if (utf8IsCont (strByte s i)) 0 (set c (+ c 1)))
+          (set i (+ i 1))
+        })
+      c
+    }))
+
+(pub :: symPad (-> Int Int Int))
+(pub fn (symPad s w)
+  (let ((have (symCharLen s)))
+    (if (>= have w)
+        s
+        (let ((out (strAlloc (- w have))) (mut i 0))
+          {
+            (while (< i (- w have))
+              {
+                (memPutByte (strData out) i 32)
+                (set i (+ i 1))
+              })
+            (strConcat s out)
+          }))))
+
+; One past the last byte of the line starting at `i`.
+(pub :: symLineEnd (-> Int Int Int))
+(pub fn (symLineEnd s i)
+  (let ((n (strLen s)) (mut j i))
+    {
+      (while (&& (< j n) (!= (strByte s j) 10)) (set j (+ j 1)))
+      j
+    }))
+
+; The byte after the next space at or after `i`, and the field before
+; it. Fields one to three of an AXSYM line are space-delimited and
+; contain no spaces; the type that follows them is quoted and may.
+(pub :: symField (-> Int Int Int Int))
+(pub fn (symField s i e)
+  (let ((mut j i))
+    {
+      (while (&& (< j e) (!= (strByte s j) 32)) (set j (+ j 1)))
+      j
+    }))
+
+(pub :: symbolsHumanTable (-> Int Int))
+(pub fn (symbolsHumanTable axsym)
+  (let ((n (strLen axsym)) (parts vecNew) (mut i 0))
+    {
+      (while (< i n)
+        (let ((e (symLineEnd axsym i)))
+          {
+            (if (> e i)
+                (let ((k1 (symField axsym i e)))
+                  (let ((k2 (symField axsym (+ k1 1) e)))
+                    (let ((k3 (symField axsym (+ k2 1) e)))
+                      (let ((kind (strSlice axsym i (- k1 i)))
+                            (name (strSlice axsym (+ k1 1) (- k2 (+ k1 1))))
+                            (loc (strSlice axsym (+ k2 1) (- k3 (+ k2 1))))
+                            ; the type is quoted; take what is between
+                            ; the first `"` after the location and the
+                            ; last one on the line
+                            (ty (let ((a (+ k3 2)) (mut b (- e 1)))
+                                  {
+                                    (while (&& (> b a) (!= (strByte axsym b) 34))
+                                      (set b (- b 1)))
+                                    (if (> b a) (strSlice axsym a (- b a)) "")
+                                  })))
+                        {
+                          (vecPush parts (symPad (symKindWord kind) 8))
+                          (vecPush parts " ")
+                          (vecPush parts (symPad name 20))
+                          (vecPush parts " ")
+                          (vecPush parts (symPad ty 40))
+                          (vecPush parts " [")
+                          (vecPush parts (if (strEq loc "-") "builtin" loc))
+                          (vecPush parts "]\n")
+                        }))))
+                0)
+            (set i (+ e 1))
+          }))
+      (catStrs parts)
+    }))
 
 (pub :: symbolsRender (-> Int Int Int))
 (pub fn (symbolsRender tc builtins)
