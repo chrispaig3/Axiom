@@ -97,7 +97,7 @@ Create a file called `hello.ax`:
 ;@axiom:effect(io)
 (fn (main)
   {
-    (println "Hello from Axiom!")
+    (println "Hello from Axiom! 🚀")
     0
   })
 ```
