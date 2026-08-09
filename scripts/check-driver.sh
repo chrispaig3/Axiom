@@ -178,6 +178,36 @@ else
   sed 's/^/    /' f2.log | head -3
 fi
 
+# A `PATH` whose FIRST entry holds none of the tools. The driver
+# searches `PATH` itself, and the search has to keep going past an entry
+# that does not have what it is looking for.
+#
+# This is the shape that took the whole Linux half of CI down. Under
+# `posix_spawn` a missing candidate fails before a process exists and
+# answers `-ENOENT`, so the search moved on; under `fork`+`execve` the
+# fork always succeeds, the failed `execve` is the CHILD's problem, and
+# all the parent gets back is its exit status - 127, which is not
+# negative, so the search stopped at the first entry and reported that
+# as the tool's own exit code. `axiom build` on both Linux targets said
+# `AX4003: cc failed` with no output from cc, because cc had never run.
+#
+# NOTE FOR ANYONE ABLATING THIS: it is vacuous on darwin and only
+# discriminates on Linux, because the backend that had the bug is the
+# one darwin cannot use (its `fork` returns two values and `__syscallN`
+# yields one register). Reverting the fix and running this on macOS
+# passes. That is a property of the defect, not a weak test.
+mkdir -p empty late
+for t in llc cc opt; do
+  p="$(command -v $t)" && ln -sf "$p" "late/$t"
+done
+PATH="$work/empty:$work/late" "$s1" build --input hello.ax --output f4 >f4.log 2>&1; rc=$?
+if [[ $rc == 0 ]] && [[ -x f4 ]] && [[ "$(./f4)" == "driver-ok" ]]; then
+  ok "the tool search passes a PATH entry that does not have the tool"
+else
+  bad "PATH search stopped early (rc=$rc)"
+  sed 's/^/    /' f4.log | head -3
+fi
+
 # ---------------------------------------------------------------
 # Argument parsing: a boolean flag must not eat the file after it.
 #

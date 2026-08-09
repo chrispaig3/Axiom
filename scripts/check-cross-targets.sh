@@ -288,7 +288,9 @@ for target in darwin-aarch64 darwin-x86_64 linux-aarch64 linux-x86_64; do
     t1="$(grep -o '"[^"]*svc[^"]*"\|"[^"]*syscall[^"]*"' "$ccwork/s1.ll" | sort -u)"
     if [[ "$t0" != "$t1" ]]; then
       echo "FAIL [$target]: the two compilers emit different syscall templates"
-      diff <(printf '%s\n' "$t0") <(printf '%s\n' "$t1") | head -4 | sed 's/^/    /'
+      # Same `set -e` hazard as the section below: `diff` exits 1 on the
+      # difference it is being asked to show.
+      { diff <(printf '%s\n' "$t0") <(printf '%s\n' "$t1") || true; } | head -4 | sed 's/^/    /'
       status=1
     fi
   fi
@@ -347,7 +349,12 @@ for target in "${targets[@]}"; do
   fi
   if ! cmp -s "$pework/d2/axc.o" "$pework/d3/axc.o"; then
     echo "FAIL [$target]: two objects from the same basename in different directories differ"
-    cmp -l "$pework/d2/axc.o" "$pework/d3/axc.o" | head -3 | sed 's/^/    /'
+    # `|| true` because `set -e` does NOT spare the body of an `if`, only
+    # its condition: `cmp -l` exits 1 on the difference it was asked to
+    # print, so without this the gate dies inside the report and never
+    # reaches the remaining targets. Found by running the ablation, which
+    # is the only thing that executes this branch.
+    { cmp -l "$pework/d2/axc.o" "$pework/d3/axc.o" || true; } | head -3 | sed 's/^/    /'
     status=1
     continue
   fi

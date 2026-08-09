@@ -411,15 +411,40 @@
 ;
 ; This is `execvp`'s rule: a name with a slash is a path and is used as
 ; written, and a bare name is looked for in each `PATH` entry in order.
-; The search is done by ATTEMPTING each candidate rather than by testing
-; for the file first, which needs no `access` syscall (AArch64 Linux has
-; no `access` at all, only `faccessat`) and cannot be raced between the
-; test and the spawn.
 ;
-; The cost of that choice is that a candidate which exists but is not
-; executable is skipped rather than reported; `execvp` remembers the
-; EACCES and reports it if nothing later succeeds. A driver looking for
-; `llc` wants the next candidate either way.
+; THE CANDIDATE IS TESTED BEFORE IT IS SPAWNED, and it has to be, on one
+; of the two backends. The search used to be done by attempting each
+; candidate and moving on when the attempt came back negative. That is
+; exactly right under `posix_spawn`, which resolves the path itself and
+; answers `-ENOENT` without creating a process - and it is broken under
+; `fork`+`execve`, where the fork ALWAYS succeeds, the failed `execve`
+; happens in the child, and the only thing the parent gets back is the
+; child's exit status. 127 is not negative, so the search stopped at the
+; FIRST `PATH` entry and reported that status as the tool's own.
+;
+; Measured: on both Linux targets `axiom build` answered `AX4003: cc
+; failed` with no output from `cc`, because `cc` had never run - it is
+; in `/usr/bin` and the first `PATH` entry was LLVM's bindir. `llc`
+; worked, from that same first entry, which is what made it look like a
+; linker problem. Darwin was unaffected and no gate could see it: the
+; whole Linux half of CI had been failing an earlier step for six days.
+;
+; `sysOpenPath` is the test, so this needs no new syscall on any
+; platform - it already routes through `openNeedsDirFd` for the AArch64
+; Linux `openat`-only asymmetry, which is the reason the original note
+; gave for not testing first (`access` does not exist there).
+;
+; What that note said about racing is still true, and is accepted: the
+; file can vanish between the test and the spawn. The alternative is a
+; close-on-exec pipe carrying the child's errno, which is the correct
+; POSIX answer and a larger change than the defect justifies. The window
+; is a compiler driver locating `llc`.
+;
+; The cost of the original choice is unchanged and still deliberate: a
+; candidate that exists but is not executable is skipped rather than
+; reported, where `execvp` remembers the EACCES and reports it if
+; nothing later succeeds. A driver looking for `llc` wants the next
+; candidate either way.
 ;
 ; With `PATH` unset or exhausted the answer is `-2` (ENOENT), which is
 ; what a caller distinguishing "not installed" from "failed" reads.
@@ -444,10 +469,22 @@
             ; NUL-terminated even though `dir` - a slice sharing the
             ; environment's bytes - is not.
             (let ((cand (strConcat (strConcat (if (== (strLen dir) 0) "." dir) "/") name)))
-              (let ((rc (sysRun (strCStr cand) argv envp)))
-                (if (>= rc 0)
-                    rc
-                    (sysRunSearch name argv envp path (+ end 1))))))))))
+              (let ((cpath (strCStr cand)))
+                ; Does it exist? A candidate that cannot be opened cannot
+                ; be executed, and under fork+exec that is the ONLY point
+                ; at which the two are still distinguishable - once the
+                ; fork has happened, "no such file" and "the tool exited
+                ; 127" are the same integer.
+                (let ((fd (sysOpenPath cpath 0)))
+                  (if (< fd 0)
+                      (sysRunSearch name argv envp path (+ end 1))
+                      {
+                        (sysCloseFd fd)
+                        (let ((rc (sysRun cpath argv envp)))
+                          (if (>= rc 0)
+                              rc
+                              (sysRunSearch name argv envp path (+ end 1))))
+                      })))))))))
 
 ; The calling process's own id - the per-session suffix scratch
 ; files need so two concurrent processes cannot collide. The

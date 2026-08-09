@@ -4629,3 +4629,57 @@ This one executed, failed loudly, and was reported in the checks tab on
 every push — the signal was working. What was missing was somebody
 reading it, and the honest lesson is the cheapest one in the file:
 **check what CI says before trusting what the docs say it says.**
+
+### 12.5 And behind it, `axiom build` had never worked on Linux
+
+With the fixpoint fixed, the same step failed one line later, on both
+Linux targets and neither darwin one:
+
+```
+ok   stage2 and stage3 are byte-identical - the fixpoint holds from the seed
+    error[AX4003]: cc failed
+FAIL: stage3 could not build a program
+```
+
+`cc` printed nothing, which is the tell: it had never run.
+
+`sysRunPath` implements `execvp`'s rule itself — a bare name is looked
+for in each `PATH` entry in order — and the note above it recorded a
+deliberate choice to search *by attempting each candidate* rather than
+by testing for the file first, because AArch64 Linux has no `access`
+and a test can be raced. That reasoning is sound under `posix_spawn`,
+which resolves the path itself and answers `-ENOENT` **without creating
+a process**. It does not survive the other backend. Under
+`fork`+`execve` the fork always succeeds, the failed `execve` happens in
+the child, and the only thing that comes back to the parent is the
+child's exit status — 127, by this library's own convention. 127 is not
+negative, and `sysRunSearch` advanced only on a negative answer, so:
+
+> the search stopped at the **first** `PATH` entry, and reported that
+> entry's absence of the tool as the tool's own exit code.
+
+`llc` worked because CI puts LLVM's bindir first; `cc` is in `/usr/bin`
+and was never reached. Both Linux architectures failed identically,
+which is what ruled out every arch-specific theory (the `-O0` absolute
+relocation, the entry symbol, PIE) in one comparison.
+
+The fix is one `sysOpenPath` before the spawn: a candidate that cannot
+be opened is skipped without forking, so "no such file" and "the tool
+exited 127" stop being the same integer. It needs no new syscall on any
+platform — `sysOpenPath` already routes through `openNeedsDirFd` for
+exactly the AArch64 `openat`-only asymmetry the original note gave as
+its reason. The race that note describes is real and is accepted; the
+alternative is a close-on-exec pipe carrying the child's errno, which is
+the correct POSIX answer and a larger change than this defect justifies.
+
+`scripts/check-driver.sh` gates it: a `PATH` whose first entry holds
+none of the tools must still build and run. **That case is vacuous on
+darwin and only discriminates on Linux**, because the backend that had
+the bug is the one darwin cannot use — its `fork` returns two values and
+`__syscallN` yields one register, which is why `posix_spawn` is there at
+all. An ablation on macOS passes. That is a property of the defect, and
+saying so in the script is better than a future reader concluding the
+test is weak.
+
+Two defects, one shape: **a capability with two backends is two
+implementations, and the one your machine does not run is untested.**
