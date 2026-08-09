@@ -8,8 +8,9 @@
 ;
 ; The grammar of one line, field by field:
 ;
-;   <SEV>[ <CODE>] <file>:<loc> [<slug>] "<message>"
+;   <SEV>[ <CODE>] <file>:<loc> [<slug>] "<message>" [ #"<label>"]
 ;        [ ^<loc>:"<related>"]*  [ !"<note>"]*  [ ?"<help>"]*
+;        [ &"<frame>"]*
 ;
 ; with `loc` being `line:col`, `line:col-col`, or `line:col-line:col`
 ; depending on whether the span is empty, within one line, or spans
@@ -54,51 +55,174 @@
 ; ------------------------------------------------------------------
 ; A diagnostic.
 ;
-;   sev      — SEV_*
-;   code     — Str, e.g. "AX3006"
-;   slug     — Str, the wording-independent kebab-case identifier
-;   span     — Span of the primary location
-;   msg      — Str, the human message (rendered quoted)
-;   relSpan  — Span of a related location, 0 when there is none
-;   relMsg   — Str for that related location
-;   help     — Str, a spanless help note, 0 when there is none
+;   sev    — SEV_*
+;   code   — Str, e.g. "AX3006"
+;   slug   — Str, the wording-independent kebab-case identifier
+;   span   — Span of the primary location, 0 when there is none
+;   msg    — Str, the human message (rendered quoted)
+;   label  — Str, the PRIMARY span's own label, 0 when there is none
+;   unit   — which source file the spans index (see below)
+;   secs   — Vec of DLabel, or 0: related locations
+;   notes  — Vec of Str, or 0
+;   helps  — Vec of DHelp, or 0
+;   trace  — Vec of Str, or 0: the expansion backtrace, outermost first
 ;
-; stage0's Diagnostic carries vectors of secondaries, notes and helps.
-; One of each is what this slice's two diagnostics use, and a field
-; that is never exercised is a field whose rendering cannot be trusted;
-; widening this to vectors is the next diagnostic's business.
-; ------------------------------------------------------------------
+; THE WIDENING. Six scalar slots - relSpan, relMsg, help, fixSpan,
+; fixText, help2 - were one secondary and two helps, and the comment
+; here used to say that widening them to vectors was the next
+; diagnostic's business. It is now this one's. stage0 carried
+; `secondary: Vec<Label>`, `notes: Vec<String>`, `helps: Vec<Suggestion>`
+; and `expansion_backtrace: Vec<String>`, and the published AXDL grammar
+; promises `[...]*` repetition on three of its four field sigils, so the
+; fixed arity was a grammar this compiler could not emit.
+;
+; The Vec slots are allocated LAZILY - they hold 0 until something is
+; pushed. A diagnostic is built on the failure path, once per report,
+; and the overwhelmingly common shape is one span and one help; eagerly
+; allocating three vector headers for it would cost more than the six
+; scalars this replaces rather than less. As it is, the common case is
+; three zero words where there were six live ones.
+;
 ; `unit` is which SOURCE FILE the diagnostic's spans index - 0 for the
 ; entry file, and the index of an imported module's entry in the unit
 ; table otherwise. Every span on one AXDL line renders against one
 ; source, so a diagnostic about an imported module's body has to say
 ; which text its offsets belong to or it renders against the wrong
 ; file's bytes.
+;
+; NOTHING OUTSIDE THIS MODULE READS THESE POSITIONS. The accessors below
+; exist because lsp.ax used to carry a second copy of the field list as
+; a comment, which is the shape a layout drifts out of.
 (pub struct Diag
   (sev : Int) (code : Int) (slug : Int) (span : Int)
-  (msg : Int) (relSpan : Int) (relMsg : Int) (help : Int)
-  (fixSpan : Int) (fixText : Int) (help2 : Int) (unit : Int))
+  (msg : Int) (label : Int) (unit : Int)
+  (secs : Int) (notes : Int) (helps : Int) (trace : Int))
 
+; A related location and the note that goes with it.
+(pub struct DLabel (span : Int) (msg : Int))
+
+; One help. `fixSpan` non-zero makes it MACHINE-APPLICABLE: it names a
+; span and the text to put there, and renders `?LOC:"msg"~>"repl"`
+; rather than a bare `?"msg"` - the whole point of the form being that a
+; tool can apply it without parsing the English.
+(pub struct DHelp (msg : Int) (fixSpan : Int) (fixText : Int))
+
+(pub :: mkDiagBase (-> Int Int Int Int Int Int))
+(pub fn (mkDiagBase sev code slug span msg)
+  (Diag sev code slug span msg 0 0 0 0 0 0))
+
+; ------------------------------------------------------------------
+; Accessors.
+; ------------------------------------------------------------------
+(pub :: diagSev   (-> Int Int)) (pub fn (diagSev   d) (memGetWord d 0))
+(pub :: diagCode  (-> Int Int)) (pub fn (diagCode  d) (memGetWord d 1))
+(pub :: diagSlug  (-> Int Int)) (pub fn (diagSlug  d) (memGetWord d 2))
+(pub :: diagSpan  (-> Int Int)) (pub fn (diagSpan  d) (memGetWord d 3))
+(pub :: diagMsg   (-> Int Int)) (pub fn (diagMsg   d) (memGetWord d 4))
+(pub :: diagLabel (-> Int Int)) (pub fn (diagLabel d) (memGetWord d 5))
+(pub :: diagUnit  (-> Int Int)) (pub fn (diagUnit  d) (memGetWord d 6))
+
+(pub :: diagSetLabel (-> Int Int Int))
+(pub fn (diagSetLabel d s) (memSetWord d 5 s))
+
+(pub :: diagSetUnit (-> Int Int Int))
+(pub fn (diagSetUnit d u) (memSetWord d 6 u))
+
+; How many entries a lazily-allocated slot holds; 0 both when the slot
+; was never touched and when its vector is empty.
+(pub :: diagCountAt (-> Int Int Int))
+(pub fn (diagCountAt d w)
+  (let ((v (memGetWord d w)))
+    (if (== v 0) 0 (vecLen v))))
+
+; The slot's vector, allocating it on first use.
+(pub :: diagVecAt (-> Int Int Int))
+(pub fn (diagVecAt d w)
+  (let ((v (memGetWord d w)))
+    (if (== v 0)
+        (let ((nv vecNew)) { (memSetWord d w nv) nv })
+        v)))
+
+(pub :: diagSecCount (-> Int Int)) (pub fn (diagSecCount d) (diagCountAt d 7))
+(pub :: diagSecSpan  (-> Int Int Int))
+(pub fn (diagSecSpan d i) (memGetWord (vecGet (memGetWord d 7) i) 0))
+(pub :: diagSecMsg   (-> Int Int Int))
+(pub fn (diagSecMsg  d i) (memGetWord (vecGet (memGetWord d 7) i) 1))
+
+(pub :: diagNoteCount (-> Int Int)) (pub fn (diagNoteCount d) (diagCountAt d 8))
+(pub :: diagNote (-> Int Int Int))
+(pub fn (diagNote d i) (vecGet (memGetWord d 8) i))
+
+(pub :: diagHelpCount (-> Int Int)) (pub fn (diagHelpCount d) (diagCountAt d 9))
+(pub :: diagHelpMsg (-> Int Int Int))
+(pub fn (diagHelpMsg d i) (memGetWord (vecGet (memGetWord d 9) i) 0))
+(pub :: diagHelpFixSpan (-> Int Int Int))
+(pub fn (diagHelpFixSpan d i) (memGetWord (vecGet (memGetWord d 9) i) 1))
+(pub :: diagHelpFixText (-> Int Int Int))
+(pub fn (diagHelpFixText d i) (memGetWord (vecGet (memGetWord d 9) i) 2))
+
+(pub :: diagTraceCount (-> Int Int)) (pub fn (diagTraceCount d) (diagCountAt d 10))
+(pub :: diagTrace (-> Int Int Int))
+(pub fn (diagTrace d i) (vecGet (memGetWord d 10) i))
+
+; ------------------------------------------------------------------
+; Builders. Each returns the diagnostic, so they chain.
+; ------------------------------------------------------------------
+(pub :: diagAddSecondary (-> Int Int Int Int))
+(pub fn (diagAddSecondary d span msg)
+  { (vecPush (diagVecAt d 7) (cast Int (DLabel span msg))) d })
+
+(pub :: diagAddNote (-> Int Int Int))
+(pub fn (diagAddNote d s)
+  { (vecPush (diagVecAt d 8) s) d })
+
+(pub :: diagAddHelp (-> Int Int Int))
+(pub fn (diagAddHelp d s)
+  { (vecPush (diagVecAt d 9) (cast Int (DHelp s 0 0))) d })
+
+(pub :: diagAddFixHelp (-> Int Int Int Int Int))
+(pub fn (diagAddFixHelp d msg fixSpan fixText)
+  { (vecPush (diagVecAt d 9) (cast Int (DHelp msg fixSpan fixText))) d })
+
+(pub :: diagAddTrace (-> Int Int Int))
+(pub fn (diagAddTrace d s)
+  { (vecPush (diagVecAt d 10) s) d })
+
+; ------------------------------------------------------------------
+; The three constructors every existing emission site calls, kept as
+; adapters over the builders above.
+;
+; They are not convenience: they are what makes this widening provable.
+; Roughly thirty-five call sites across typecheck.ax, parser.ax,
+; codegen.ax and main.ax pass these argument lists, and each adapter
+; reproduces the EXACT predicate the old renderer used to decide whether
+; a field appeared - a related span iff `relSpan` is non-zero, a help
+; iff `help` is non-zero, that help's machine-applicable form iff
+; `fixSpan` is non-zero, a second help iff `help2` is non-zero. So the
+; output is byte-identical by construction, and the whole corpus passing
+; with no re-bless is the check on it.
+; ------------------------------------------------------------------
 (pub :: mkDiag (-> Int Int Int Int Int Int Int Int Int))
 (pub fn (mkDiag sev code slug span msg relSpan relMsg help)
-  (Diag sev code slug span msg relSpan relMsg help 0 0 0 0))
+  (mkDiagFix2 sev code slug span msg relSpan relMsg help 0 0 0))
 
-; A diagnostic whose help is MACHINE-APPLICABLE: it names a span and
-; the text to put there, and renders as `?LOC:"msg"~>"replacement"`
-; rather than a bare `?"msg"`. `AX3001`'s "did you mean" is the first
-; of these - the whole point of the form is that a tool can apply it
-; without parsing the English.
 (pub :: mkDiagFix (-> Int Int Int Int Int Int Int Int Int Int Int))
 (pub fn (mkDiagFix sev code slug span msg relSpan relMsg help fixSpan fixText)
-  (Diag sev code slug span msg relSpan relMsg help fixSpan fixText 0 0))
+  (mkDiagFix2 sev code slug span msg relSpan relMsg help fixSpan fixText 0))
 
-; A fix-help followed by a second, plain help - `AX3012`'s shape:
-; `?LOC:"declare it mutable..."~>"mut x" ?"only a binding..."`.
-; stage0's Diagnostic carries a Vec of helps and renders them in push
-; order; two is what any current diagnostic uses.
 (pub :: mkDiagFix2 (-> Int Int Int Int Int Int Int Int Int Int Int Int))
 (pub fn (mkDiagFix2 sev code slug span msg relSpan relMsg help fixSpan fixText help2)
-  (Diag sev code slug span msg relSpan relMsg help fixSpan fixText help2 0))
+  (let ((d (mkDiagBase sev code slug span msg)))
+    {
+      (if (== relSpan 0) 0 (diagAddSecondary d relSpan relMsg))
+      (if (== help 0)
+          0
+          (if (== fixSpan 0)
+              (diagAddHelp d help)
+              (diagAddFixHelp d help fixSpan fixText)))
+      (if (== help2 0) 0 (diagAddHelp d help2))
+      d
+    }))
 
 ; ------------------------------------------------------------------
 ; Source position mapping.
@@ -213,43 +337,78 @@
 ; ------------------------------------------------------------------
 ; One AXDL line, without its terminating newline.
 ; ------------------------------------------------------------------
+; `pre` then a quoted string, as two pieces. Pushing rather than
+; concatenating keeps the whole line one linear join (see catStrs); it
+; is a function rather than a block inside an `if` so the callers below
+; read as one expression each.
+(pub :: pushQ (-> Int Int Int Int))
+(pub fn (pushQ parts pre s)
+  { (vecPush parts pre) (vecPush parts (quoteStr s)) 0 })
+
 (pub :: renderDiag (-> Int Int Int Int))
 (pub fn (renderDiag d src file)
-  (let ((head (strConcat (strConcat (strConcat (strConcat (strConcat (strConcat
-                 (strConcat (strConcat (strConcat (strConcat
-                   (sevSigil (memGetWord d 0)) " ")
-                   (memGetWord d 1)) " ")
-                   file) ":")
-                   ; A diagnostic with no span renders `file:-`,
-                   ; stage0's spelling for None - and a span of 0 fed
-                   ; to fmtSpan would be read as address zero. AX5001
-                   ; is the first spanless producer; every earlier
-                   ; diagnostic had a position by construction.
-                   (if (== (memGetWord d 3) 0)
-                       "-"
-                       (fmtSpan src (memGetWord d 3)))) " ")
-                   (memGetWord d 2)) " ")
-                 (quoteStr (memGetWord d 4))))
-        (rel (if (== (memGetWord d 5) 0)
-                 ""
-                 (strConcat (strConcat (strConcat (strConcat " ^"
-                   (fmtSpan src (memGetWord d 5))) ":")
-                   (quoteStr (memGetWord d 6))) "")))
-        (hlp (if (== (memGetWord d 7) 0)
-                 ""
-                 ; `?LOC:"msg"~>"repl"` when the help carries a span
-                 ; and a replacement, plain `?"msg"` otherwise - the
-                 ; two shapes stage0's renderer chooses between.
-                 (if (== (memGetWord d 8) 0)
-                     (strConcat " ?" (quoteStr (memGetWord d 7)))
-                     (strConcat (strConcat (strConcat (strConcat (strConcat
-                       " ?" (fmtSpan src (memGetWord d 8))) ":")
-                       (quoteStr (memGetWord d 7))) "~>")
-                       (quoteStr (memGetWord d 9))))))
-        (hlp2 (if (== (memGetWord d 10) 0)
-                  ""
-                  (strConcat " ?" (quoteStr (memGetWord d 10))))))
-    (strConcat (strConcat (strConcat head rel) hlp) hlp2)))
+  (let ((parts vecNew))
+    {
+      (vecPush parts (sevSigil (diagSev d)))
+      (vecPush parts " ")
+      (vecPush parts (diagCode d))
+      (vecPush parts " ")
+      (vecPush parts file)
+      (vecPush parts ":")
+      ; A diagnostic with no span renders `file:-`, stage0's spelling
+      ; for None - and a span of 0 fed to fmtSpan would be read as
+      ; address zero. AX5001 is the first spanless producer; every
+      ; earlier diagnostic had a position by construction.
+      (vecPush parts (if (== (diagSpan d) 0) "-" (fmtSpan src (diagSpan d))))
+      (vecPush parts " ")
+      (vecPush parts (diagSlug d))
+      (vecPush parts " ")
+      (vecPush parts (quoteStr (diagMsg d)))
+
+      ; The primary label. stage0 stored one and never printed it on an
+      ; AXDL line - `#` is this compiler's field, added so the human
+      ; renderer's label has a machine-readable counterpart to be
+      ; checked against rather than only a golden.
+      (if (== (diagLabel d) 0) 0 (pushQ parts " #" (diagLabel d)))
+
+      ; Then, in stage0's emission order: related spans, notes, helps,
+      ; expansion frames. Each repeats.
+      (let ((mut i 0))
+        (while (< i (diagSecCount d))
+          {
+            (vecPush parts " ^")
+            (vecPush parts (fmtSpan src (diagSecSpan d i)))
+            (vecPush parts ":")
+            (vecPush parts (quoteStr (diagSecMsg d i)))
+            (set i (+ i 1))
+          }))
+      (let ((mut i 0))
+        (while (< i (diagNoteCount d))
+          { (pushQ parts " !" (diagNote d i)) (set i (+ i 1)) }))
+      (let ((mut i 0))
+        (while (< i (diagHelpCount d))
+          {
+            ; `?LOC:"msg"~>"repl"` when the help carries a span and a
+            ; replacement, plain `?"msg"` otherwise - the two shapes
+            ; stage0's renderer chooses between.
+            (if (== (diagHelpFixSpan d i) 0)
+                (pushQ parts " ?" (diagHelpMsg d i))
+                {
+                  (vecPush parts " ?")
+                  (vecPush parts (fmtSpan src (diagHelpFixSpan d i)))
+                  (vecPush parts ":")
+                  (vecPush parts (quoteStr (diagHelpMsg d i)))
+                  (vecPush parts "~>")
+                  (vecPush parts (quoteStr (diagHelpFixText d i)))
+                })
+            (set i (+ i 1))
+          }))
+      (let ((mut i 0))
+        (while (< i (diagTraceCount d))
+          { (pushQ parts " &" (diagTrace d i)) (set i (+ i 1)) }))
+
+      (catStrs parts)
+    }))
 
 ; ------------------------------------------------------------------
 ; Every diagnostic, one per line, newline-terminated - the whole of
@@ -281,8 +440,8 @@
     {
       (while (< i (vecLen ds))
         (let ((d (vecGet ds i)))
-          (let ((u (vecGet units (if (< (memGetWord d 11) (vecLen units))
-                                     (memGetWord d 11)
+          (let ((u (vecGet units (if (< (diagUnit d) (vecLen units))
+                                     (diagUnit d)
                                      0))))
             {
               (vecPush blocks (renderDiag d (memGetWord u 1) (memGetWord u 0)))
@@ -297,8 +456,8 @@
   (if (>= i (vecLen ds))
       acc
       (let ((d (vecGet ds i)))
-        (let ((u (vecGet units (if (< (memGetWord d 11) (vecLen units))
-                                   (memGetWord d 11)
+        (let ((u (vecGet units (if (< (diagUnit d) (vecLen units))
+                                   (diagUnit d)
                                    0))))
           (renderDiagsUnitsFrom ds units (+ i 1)
             (strConcat (strConcat acc
@@ -351,7 +510,7 @@
     {
       (while (< i n)
         {
-          (if (!= (memGetWord (vecGet ds i) 0) SEV_ERROR)
+          (if (!= (diagSev (vecGet ds i)) SEV_ERROR)
               (vecPush out (vecGet ds i))
               0)
           (set i (+ i 1))
@@ -359,7 +518,7 @@
       (set i 0)
       (while (< i n)
         {
-          (if (== (memGetWord (vecGet ds i) 0) SEV_ERROR)
+          (if (== (diagSev (vecGet ds i)) SEV_ERROR)
               (vecPush out (vecGet ds i))
               0)
           (set i (+ i 1))
@@ -379,7 +538,7 @@
     {
       (while (< i (vecLen ds))
         {
-          (if (== (memGetWord (vecGet ds i) 0) SEV_ERROR) (set n (+ n 1)) 0)
+          (if (== (diagSev (vecGet ds i)) SEV_ERROR) (set n (+ n 1)) 0)
           (set i (+ i 1))
         })
       n

@@ -1451,7 +1451,7 @@
 
 (pub :: emitDiag (-> Int Int Int))
 (pub fn (emitDiag tc d)
-  { (memSetWord d 11 (memGetWord tc 14)) (vecPush (tcOut tc) d) })
+  { (diagSetUnit d (memGetWord tc 14)) (vecPush (tcOut tc) d) })
 
 ; A constructor of a data type that came from no module - the builtin
 ; `Option`, whose entries are registered directly.
