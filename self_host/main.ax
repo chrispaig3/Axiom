@@ -650,7 +650,7 @@
 ; is two spaces then six characters of code. A line that is not shaped
 ; that way is passed through untouched, which is what the heading and
 ; any future blank line are.
-(pub :: explainListColored (-> Int))
+(pub :: explainListColored Int)
 (pub fn (explainListColored)
   (let ((n (strLen explainListText)) (parts vecNew) (mut i 0) (mut first true))
     {
