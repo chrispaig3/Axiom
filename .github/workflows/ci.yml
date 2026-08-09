@@ -147,14 +147,16 @@ jobs:
       - name: Differential behaviour between the compilers
         run: ./scripts/check-stdlib-selfhost.sh
 
-      # Self-hosting phase 3's acceptance criterion: the two compilers
-      # emit byte-identical AXDL. Three-way against a checked-in golden
-      # rather than a straight stage0-vs-stage1 diff, so that the two
-      # cannot drift together - the first risk docs/self-hosting.md
-      # names. It also fails on any diagnostic at all against the
-      # compiler's own source, where a false positive would stop the
-      # compiler compiling itself.
-      - name: Diagnostic parity between the compilers
+      # The AXDL corpus against checked-in goldens, plus the half a
+      # re-bless cannot satisfy: verify-axdl-spans.py recomputes every
+      # span claim from the FIXTURE'S own bytes, so a wrong column
+      # blessed into a golden still fails. This was a three-way
+      # differential against the Rust compiler until that compiler was
+      # deleted; a differential does not fail when its reference
+      # disappears, so the arm was removed rather than repointed. It
+      # also fails on any diagnostic at all against the compiler's own
+      # source, where a false positive would stop it compiling itself.
+      - name: The AXDL corpus, and every span against the fixtures
         run: ./scripts/check-diagnostics.sh
 
       # `fmt` is the tool that had no gate, and it had six independent
@@ -181,11 +183,13 @@ jobs:
 
       # stage1's native human diagnostic renderer: three-way against
       # checked-in goldens, cross-checked against the AXDL goldens
-      # (which stage0 itself equals), exit statuses compared against
-      # stage0 per case. Not a byte comparison with stage0's human
-      # output, on purpose: that output is the `ariadne` crate's, an
-      # internal of the compiler being retired.
-      - name: Human diagnostic renderer
+      # (which stage0 itself equalled), exit statuses DERIVED from the
+      # golden's own severity column, every quoted source row checked
+      # against the fixture, and the escape stream checked against the
+      # palette self_host/style.ax declares. Never a byte comparison
+      # with stage0's human output: that output was the `ariadne`
+      # crate's, an internal of the compiler being retired.
+      - name: Human and JSON diagnostic renderers
         run: ./scripts/check-render-selfhost.sh
 
       # The self-hosted REPL against stage0's, piped session by piped

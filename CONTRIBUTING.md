@@ -326,9 +326,8 @@ Every diagnostic carries a stable code in the format `AX{stage}{number}`:
 
 ### Comments
 
-- Use `;` for line comments in Axiom source.
-- Use `//` for line comments in Rust source.
-- Use `/* */` for block comments in Rust source.
+- Use `;` for line comments in Axiom source. There is no block comment,
+  and no other language in the tree to have one.
 - Document public APIs with comments that explain *why*, not just *what*.
 
 ---
@@ -427,7 +426,7 @@ Content-derived hashes of `(kind, name)` that survive edits and reformatting, un
 ` ;@axiom:<key>(<value>)` comments above declarations for agent-authored, compiler-checked intent.
 
 When contributing, remember:
-- All compiler messages go through `axiom_errors::Diagnostic` with a stable code, severity, span, and message.
+- All compiler messages go through `self_host/diag.ax`'s `Diag` with a stable code, slug, severity, span, and message.
 - Never print raw strings from compiler phases.
 - When adding a new diagnostic, construct it with `mkDiag` at the site that detects it and write its long-form text into `self_host/explain.ax` — the tools gate fails if a code the corpus emits has no entry.
 - Prefer poison propagation over ad-hoc cascade suppression.

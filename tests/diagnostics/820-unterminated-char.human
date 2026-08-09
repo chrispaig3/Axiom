@@ -1,10 +1,10 @@
-error[AX1003]: unterminated char literal
- --> 820-unterminated-char.ax:2:21
-  |
-2 | (fn (main) (let ((c 'a)) 0))
-  |                     ^^
-  |
-  = help: character literals must contain exactly one character, e.g. `'a'` or `'\n'`
-  = help: run `axiom explain AX1003` for a full explanation
+[1;31merror[AX1003][0m[1m: unterminated char literal[0m
+ [1;34m--> [0m820-unterminated-char.ax:2:21
+[1;34m  |[0m
+[1;34m2 |[0m (fn (main) (let ((c 'a)) 0))
+[1;34m  |[0m                     [1;31m^^ character literal starts here but is never closed[0m
+[1;34m  |[0m
+ [1;34m = [0m[1;32mhelp: [0mcharacter literals must contain exactly one character, e.g. `'a'` or `'\n'`
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX1003` for a full explanation
 
 compilation failed due to 1 previous error

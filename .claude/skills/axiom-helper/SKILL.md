@@ -37,7 +37,6 @@ axiom/
 ├── bootstrap/          # the compiler's own LLVM IR, per target - the seed
 ├── hello_world/        # Sample program
 ├── docs/               # docs/diagnostics.md (AXDL/AXSYM reference)
-├── Cargo.toml          # Workspace manifest
 └── README.md
 ```
 
@@ -114,7 +113,8 @@ All compiler messages must go through `mkDiag` (`self_host/diag.ax`) with a stab
 AXDL lines follow this grammar:
 
 ```
-<SEV> <CODE> <FILE>:<LOC> <SLUG> "<MESSAGE>" [^<LOC>:"<related>"]* [!<note>]* [?<field>]*
+<SEV> <CODE> <FILE>:<LOC> <SLUG> "<MESSAGE>" [#"<label>"]
+     [^<LOC>:"<related>"]* [!"<note>"]* [?<field>]* [&"<frame>"]*
 ```
 
 - `SEV` is one of `E` (error), `W` (warning), `N` (note), `H` (help)
@@ -144,7 +144,7 @@ function, and `scripts/check-freestanding.sh` enforces that.
 When generating or reviewing FFI code:
 - Verify C function signatures match exactly. Mismatched signatures are undefined behavior.
 - Use `cc` to link additional libraries: `cc output.o -lcurl -lssl -lcrypto -o program`
-- Sanitize file paths before passing them to native toolchain invocations (`llc`, `cc`). Never pass unsanitized user input to shell commands. Use `std::process::Command` with explicit argument vectors.
+- Sanitize file paths before passing them to native toolchain invocations (`llc`, `cc`). Never pass unsanitized user input to shell commands. Native tools are spawned with explicit argument vectors through `Sys.spawn`, never through a shell.
 
 ### 4.3 Memory safety discipline
 
@@ -213,7 +213,7 @@ axiom --diagnostic-format=ai symbols source.ax | grep '@'
 | `C` | Constructor |
 | `S` | Struct |
 | `A` | Type alias |
-| `L` | Class (trait) |
+| `T` | Trait |
 
 Example output:
 
@@ -321,9 +321,8 @@ When you encounter an error code in AXDL output:
 
 ### 5.7 Testing and validation
 
-- Unit tests live in the same file as the code they test, under `#[cfg(test)]` modules.
-- Integration tests live in `tests/` directories within each crate.
-- Every diagnostic code must have at least one test case.
-- Use snapshot testing (`insta`) for renderer output to catch formatting regressions.
+- Unit tests are Axiom programs under `tests/selfhost/`, each carrying an `; expect N` line that `scripts/check-bootstrap.sh` runs and checks.
+- Every diagnostic code the corpus emits must be explained; `scripts/check-tools-selfhost.sh` cross-checks that against `explain --list`.
+- Renderer output is pinned by the goldens under `tests/diagnostics/` - `.axdl`, `.human` and `.json` per case - each with a half that a re-bless cannot satisfy. Regenerate deliberately with `AXIOM_BLESS=1`, never casually.
 - Do NOT run `axiom fmt` over the repository: the tree is not kept in the formatter's normal form, and doing so buries real changes in churn.
 - Build the compiler with `./scripts/bootstrap-from-seed.sh --install .axiom-bin`. There is no Rust toolchain and no `cargo`.

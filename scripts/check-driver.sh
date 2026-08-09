@@ -140,8 +140,13 @@ PATH="$work/fake:$PATH" "$s1" build --input hello.ax --output f1 >f1.log 2>&1; r
 # the wrong reason, and what the user sees is clang complaining about a
 # missing `.o` instead of the compiler saying llc failed. So require
 # the driver to blame the tool that actually failed.
-if [[ $rc == 4 ]] && [[ ! -f f1 ]] && grep -q 'llc failed' f1.log; then
-  ok "a failing llc fails the build with exit 4, no executable, and names llc"
+# The wording is now the MESSAGE of an AX4003 diagnostic rather than a
+# bare stderr write, so the code is required alongside it: a toolchain
+# failure that named the right tool without a code would be the state
+# this replaced.
+if [[ $rc == 4 ]] && [[ ! -f f1 ]] && grep -q 'llc failed' f1.log \
+   && grep -q 'AX4003' f1.log; then
+  ok "a failing llc fails the build with exit 4, no executable, and names llc (AX4003)"
 else
   bad "a failing llc (rc=$rc, blamed: $(head -1 f1.log))"
 fi
@@ -150,8 +155,9 @@ fi
 # that only it can satisfy.
 printf '#!/bin/sh\nexit 1\n' >fake-cc/cc && chmod +x fake-cc/cc
 PATH="$work/fake-cc:$PATH" "$s1" build --input hello.ax --output f3 >f3.log 2>&1; rc=$?
-if [[ $rc == 4 ]] && [[ ! -f f3 ]] && grep -q 'cc failed' f3.log; then
-  ok "a failing cc fails the build with exit 4, no executable, and names cc"
+if [[ $rc == 4 ]] && [[ ! -f f3 ]] && grep -q 'cc failed' f3.log \
+   && grep -q 'AX4003' f3.log; then
+  ok "a failing cc fails the build with exit 4, no executable, and names cc (AX4003)"
 else
   bad "a failing cc (rc=$rc, blamed: $(head -1 f3.log))"
 fi

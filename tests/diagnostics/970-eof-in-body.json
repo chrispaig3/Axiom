@@ -1,0 +1,1 @@
+{"severity":"error","code":"AX2001","slug":"unexpected-token","message":"expected expression, found `EOF`","file":"970-eof-in-body.ax","span":{"start":{"line":2,"col":1},"end":{"line":2,"col":1},"char_start":11,"char_end":11},"label":"found `EOF` here","related":[],"notes":[],"help":["Axiom expected expression at this position"],"expansion":[]}

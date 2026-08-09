@@ -1,0 +1,1 @@
+{"severity":"error","code":"AX2001","slug":"unexpected-token","message":"expected identifier, found `)`","file":"910-expected-identifier.ax","span":{"start":{"line":3,"col":4},"end":{"line":3,"col":5},"char_start":31,"char_end":32},"label":"found `)` here","related":[],"notes":[],"help":["Axiom expected identifier at this position"],"expansion":[]}

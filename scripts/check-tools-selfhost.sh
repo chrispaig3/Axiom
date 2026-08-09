@@ -128,6 +128,20 @@ fi
 # ---------------------------------------------------------------
 # explain
 # ---------------------------------------------------------------
+# THE COLOUR IN THE LIST SECTION IS RECONSTRUCTED, NOT CAPTURED, and the
+# golden's header says so. stage0 printed `explain --list` through the
+# `colored` crate, which does its own tty detection and has no
+# `set_override` anywhere in that binary - so into a pipe, which is how
+# this golden was materialised, stage0 emitted no escapes at all. Its
+# diagnostics went through ariadne, which had the opposite behaviour and
+# painted a pipe as readily as a terminal.
+#
+# stage1 is always-on everywhere, which EXCEEDS stage0 here rather than
+# matching it. The palette is `colored`'s - bold bright cyan heading,
+# bright yellow codes - so the intent is reproduced even though the
+# bytes were never observed. Recorded because this file's whole job is
+# provenance, and a captured byte and a reconstructed one are not the
+# same claim.
 echo "== explain: every code and spelling, against the golden =="
 golden="tests/tools/explain.golden"
 [[ -f "$golden" ]] || { echo "FAIL: $golden is missing"; exit 1; }
@@ -193,6 +207,68 @@ if ! cmp -s "$zoo_golden" "$work/zoo.out"; then
   failed=$((failed + 1))
 else
   echo "ok   the zoo's AXSYM matches the golden ($(wc -l <"$zoo_golden" | tr -d ' ') symbols)"
+fi
+
+# ---------------------------------------------------------------
+# The human table, and the half a re-bless of ITS golden cannot satisfy.
+#
+# `symbols` printed AXSYM under every format until the table landed;
+# stage0's bare `symbols` printed the table and only `ai` gave AXSYM.
+# The golden below is the re-blessable half. The derivation after it
+# reads `$work/zoo.out` - the AXSYM golden's own bytes, a different
+# artifact - and reconstructs every row from them, so a table that
+# invented, dropped, reordered or misspelled a symbol fails even with a
+# freshly written golden beside it.
+# ---------------------------------------------------------------
+echo "== symbols: the human table, against the golden and against AXSYM =="
+tbl_golden="tests/tools/symbols-zoo-human.golden"
+(cd "$neutral" && "$work/axc" symbols \
+   "$repo_root/tests/fmt/syntax-zoo.ax" 2>/dev/null) | norm >"$work/zoo.tbl"
+if [[ "${AXIOM_BLESS:-0}" == 1 ]]; then
+  cp "$work/zoo.tbl" "$repo_root/$tbl_golden"
+  echo "blessed $tbl_golden"
+fi
+if [[ ! -f "$tbl_golden" ]]; then
+  echo "FAIL symbols: $tbl_golden is missing; run with AXIOM_BLESS=1"
+  failed=$((failed + 1))
+elif ! cmp -s "$tbl_golden" "$work/zoo.tbl"; then
+  echo "FAIL symbols: the human table differs from $tbl_golden"
+  diff "$tbl_golden" "$work/zoo.tbl" | head -6 | sed 's/^/     /'
+  failed=$((failed + 1))
+else
+  echo "ok   the human table matches the golden ($(wc -l <"$tbl_golden" | tr -d ' ') rows)"
+fi
+
+# Row for row against the AXSYM the same run produced.
+tbl_bad="$(python3 - "$work/zoo.out" "$work/zoo.tbl" <<'PY'
+import re, sys
+KIND = {'F': 'Fn', 'X': 'Foreign', 'D': 'Data', 'C': 'Ctor',
+        'S': 'Struct', 'A': 'Alias', 'T': 'Trait'}
+axsym = [l for l in open(sys.argv[1], encoding='utf-8').read().split('\n') if l]
+table = [l for l in open(sys.argv[2], encoding='utf-8').read().split('\n') if l]
+bad = []
+if len(axsym) != len(table):
+    bad.append('%d AXSYM lines, %d table rows' % (len(axsym), len(table)))
+for i, (a, t) in enumerate(zip(axsym, table)):
+    k, name, loc, rest = a.split(' ', 3)
+    ty = rest[1:rest.rindex('"')] if rest.startswith('"') else ''
+    want_loc = 'builtin' if loc == '-' else loc
+    # The rule, not the golden: 8, 20 and 40 columns, left justified,
+    # single spaces between, location in brackets at the end.
+    want = '%-8s %-20s %-40s [%s]' % (KIND.get(k, k), name, ty, want_loc)
+    if t != want:
+        bad.append('row %d\n      is   %r\n      want %r' % (i + 1, t, want))
+    if len(bad) > 3:
+        break
+print('\n    '.join(bad))
+PY
+)"
+if [[ -n "$tbl_bad" ]]; then
+  echo "FAIL symbols: the table does not reconstruct from AXSYM"
+  echo "    $tbl_bad"
+  failed=$((failed + 1))
+else
+  echo "ok   every table row reconstructs from its AXSYM line ($(wc -l <"$work/zoo.out" | tr -d ' ') rows)"
 fi
 
 echo '== symbols: exit status agrees with check, file by file =='

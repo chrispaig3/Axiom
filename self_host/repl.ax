@@ -227,7 +227,7 @@
       (while (< i (vecLen ds))
         {
           (replOut (strConcat (strConcat "Type error: "
-                     (memGetWord (vecGet ds i) 4)) "\n"))
+                     (diagMsg (vecGet ds i))) "\n"))
           (set i (+ i 1))
         })
       0
@@ -309,7 +309,7 @@
       (while (< i (vecLen ds))
         {
           (if (> i 0) (vecPush parts "; ") 0)
-          (vecPush parts (memGetWord (vecGet ds i) 4))
+          (vecPush parts (diagMsg (vecGet ds i)))
           (set i (+ i 1))
         })
       (vecPush parts "\n")

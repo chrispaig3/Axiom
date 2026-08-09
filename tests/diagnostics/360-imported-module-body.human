@@ -1,17 +1,17 @@
-error[AX3004]: type mismatch: expected Int, found Bool
- --> BadBody.ax:2:22
-  |
-2 | (pub fn (bad n) (+ n true))
-  |                      ^^^^
-  |
-  = help: run `axiom explain AX3004` for a full explanation
+[1;31merror[AX3004][0m[1m: type mismatch: expected Int, found Bool[0m
+ [1;34m--> [0mBadBody.ax:2:22
+[1;34m  |[0m
+[1;34m2 |[0m (pub fn (bad n) (+ n true))
+[1;34m  |[0m                      [1;31m^^^^ this has type `Bool`, expected `Int`[0m
+[1;34m  |[0m
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation
 
-error[AX3004]: type mismatch: expected Int, found Bool
- --> 360-imported-module-body.ax:3:23
-  |
-3 | (fn (main) (+ (bad 1) false))
-  |                       ^^^^^
-  |
-  = help: run `axiom explain AX3004` for a full explanation
+[1;31merror[AX3004][0m[1m: type mismatch: expected Int, found Bool[0m
+ [1;34m--> [0m360-imported-module-body.ax:3:23
+[1;34m  |[0m
+[1;34m3 |[0m (fn (main) (+ (bad 1) false))
+[1;34m  |[0m                       [1;31m^^^^^ this has type `Bool`, expected `Int`[0m
+[1;34m  |[0m
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation
 
 compilation failed due to 2 previous errors

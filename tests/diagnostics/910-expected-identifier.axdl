@@ -1,1 +1,1 @@
-E AX2001 910-expected-identifier.ax:3:4-5 unexpected-token "expected identifier, found `)`" ?"Axiom expected identifier at this position"
+E AX2001 910-expected-identifier.ax:3:4-5 unexpected-token "expected identifier, found `)`" #"found `)` here" ?"Axiom expected identifier at this position"

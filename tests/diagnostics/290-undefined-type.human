@@ -1,19 +1,19 @@
-error[AX3002]: undefined type `Pointt`
- --> 290-undefined-type.ax:4:22
-  |
-4 | (fn (main) { (struct Pointt 1 2) (struct Colour 1) })
-  |                      ^^^^^^
-  |
-  = help: check for typos, or a missing `data`/`struct`/`type` declaration
-  = help: run `axiom explain AX3002` for a full explanation
+[1;31merror[AX3002][0m[1m: undefined type `Pointt`[0m
+ [1;34m--> [0m290-undefined-type.ax:4:22
+[1;34m  |[0m
+[1;34m4 |[0m (fn (main) { (struct Pointt 1 2) (struct Colour 1) })
+[1;34m  |[0m                      [1;31m^^^^^^ no type named `Pointt` is visible here[0m
+[1;34m  |[0m
+ [1;34m = [0m[1;32mhelp: [0mcheck for typos, or a missing `data`/`struct`/`type` declaration
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3002` for a full explanation
 
-error[AX3002]: undefined type `Colour`
- --> 290-undefined-type.ax:4:42
-  |
-4 | (fn (main) { (struct Pointt 1 2) (struct Colour 1) })
-  |                                          ^^^^^^
-  |
-  = help: check for typos, or a missing `data`/`struct`/`type` declaration
-  = help: run `axiom explain AX3002` for a full explanation
+[1;31merror[AX3002][0m[1m: undefined type `Colour`[0m
+ [1;34m--> [0m290-undefined-type.ax:4:42
+[1;34m  |[0m
+[1;34m4 |[0m (fn (main) { (struct Pointt 1 2) (struct Colour 1) })
+[1;34m  |[0m                                          [1;31m^^^^^^ no type named `Colour` is visible here[0m
+[1;34m  |[0m
+ [1;34m = [0m[1;32mhelp: [0mcheck for typos, or a missing `data`/`struct`/`type` declaration
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3002` for a full explanation
 
 compilation failed due to 2 previous errors

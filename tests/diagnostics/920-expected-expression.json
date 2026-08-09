@@ -1,0 +1,1 @@
+{"severity":"error","code":"AX2001","slug":"unexpected-token","message":"expected expression, found `)`","file":"920-expected-expression.ax","span":{"start":{"line":2,"col":20},"end":{"line":2,"col":21},"char_start":33,"char_end":34},"label":"found `)` here","related":[],"notes":[],"help":["Axiom expected expression at this position"],"expansion":[]}

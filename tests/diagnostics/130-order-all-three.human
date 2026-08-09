@@ -1,30 +1,31 @@
-error[AX3006]: duplicate definition `main`
- --> 130-order-all-three.ax:6:6
-  |
-5 | (fn (main) (add 1))
-  |      ---- `main` first defined here
-6 | (fn (main) 0)
-  |      ^^^^
-  |
-  = help: rename one of the definitions, or remove the duplicate
-  = help: run `axiom explain AX3006` for a full explanation
+[1;31merror[AX3006][0m[1m: duplicate definition `main`[0m
+ [1;34m--> [0m130-order-all-three.ax:6:6
+[1;34m  |[0m
+[1;34m5 |[0m (fn (main) (add 1))
+[1;34m  |[0m      [1;36m---- `main` first defined here[0m
+[1;34m6 |[0m (fn (main) 0)
+[1;34m  |[0m      [1;31m^^^^ `main` redefined here[0m
+[1;34m  |[0m
+ [1;34m = [0m[1;32mhelp: [0mrename one of the definitions, or remove the duplicate
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3006` for a full explanation
 
-error[AX3015]: `ghost` has a signature but no definition
- --> 130-order-all-three.ax:1:5
-  |
-1 | (:: ghost (-> Int Int))
-  |     ^^^^^
-  |
-  = help: add the definition, or if it lives in another module, mark that definition `pub` so the import carries it
-  = help: run `axiom explain AX3015` for a full explanation
+[1;31merror[AX3015][0m[1m: `ghost` has a signature but no definition[0m
+ [1;34m--> [0m130-order-all-three.ax:1:5
+[1;34m  |[0m
+[1;34m1 |[0m (:: ghost (-> Int Int))
+[1;34m  |[0m     [1;31m^^^^^ no `fn` or `foreign` defines `ghost`[0m
+[1;34m  |[0m
+ [1;34m = [0m[1;32mhelp: [0madd the definition, or if it lives in another module, mark that definition `pub` so the import carries it
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3015` for a full explanation
 
-error[AX3013]: partial application of `add`: it takes 2 argument(s) and 1 were supplied
- --> 130-order-all-three.ax:5:13
-  |
-5 | (fn (main) (add 1))
-  |             ^^^
-  |
-  = help: bind the missing arguments with a lambda: `(lambda (y) (f x y))` builds the value `(f x)` would mean
-  = help: run `axiom explain AX3013` for a full explanation
+[1;31merror[AX3013][0m[1m: partial application of `add`: it takes 2 argument(s) and 1 were supplied[0m
+ [1;34m--> [0m130-order-all-three.ax:5:13
+[1;34m  |[0m
+[1;34m5 |[0m (fn (main) (add 1))
+[1;34m  |[0m             [1;31m^^^ `add` takes 2 argument(s); 1 more needed[0m
+[1;34m  |[0m
+ [1;34m = [0m[1mnote: [0ma partial application has to hold the arguments it was not given, and a top-level function has no closure record to hold them in
+ [1;34m = [0m[1;32mhelp: [0mbind the missing arguments with a lambda: `(lambda (y) (f x y))` builds the value `(f x)` would mean
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3013` for a full explanation
 
 compilation failed due to 3 previous errors

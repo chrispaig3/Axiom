@@ -1176,6 +1176,35 @@
     0
   })
 
+
+; An internal invariant, violated, as AX4002.
+;
+; Reaching codegen with an unknown struct field or a `set` whose target
+; is not a `mut` binding means the checker did not fire the diagnostic
+; that was supposed to stop it - AX3007 and AX3012 respectively. That is
+; literally what AX4002 is for, and it was the other code in the
+; registry that neither compiler ever constructed.
+;
+; The exit status is `dieImport`'s, unchanged, because it is the one
+; every gate already expects for a codegen bail-out and this commit is
+; about the diagnostic rather than the status.
+(pub :: dieCodegenDiag (-> Int Int Int))
+;@axiom:effect(io)
+(pub fn (dieCodegenDiag msg name)
+  (let ((d (mkDiag SEV_ERROR "AX4002" "codegen-failure" 0
+                   (cat2 msg name) 0 0
+                   "this is a compiler bug: the check that should have refused this program did not run"))
+        (ds vecNew)
+        (units vecNew))
+    {
+      (vecPush ds d)
+      (vecPush units (cast Int (CUnit2 "<codegen>" "" 0)))
+      (let ((out (renderDiagsFormat diagFormatFromArgv ds units)))
+        (sysWriteFd 2 (strData out) (strLen out)))
+      (sysExitWith (if (strEq (firstOperandArg 1) "symbols") 1 3))
+      0
+    }))
+
 (pub :: firstOperandArg (-> Int Int))
 (pub fn (firstOperandArg i)
   (if (>= i (sysArgc))
@@ -3543,7 +3572,7 @@
     (let ((base (strDup (memGetWord cgB 2)))
           (fi (findStructField (memGetWord cgB 3) (nodeB node))))
       (if (== fi 0)
-          (dieImport "error: unknown struct field: " (nodeB node))
+          (dieCodegenDiag "unknown struct field: " (nodeB node))
           (let ((cgV (emitExpr (nodeC node) cgB)))
             (let ((v (strDup (memGetWord cgV 2))))
               (let ((cgS (storeWordAt cgV base (nodeA fi) v)))
@@ -3568,7 +3597,7 @@
           ; tag. stage0 searches every data type, first match winning.
           (let ((di (findDataField (memGetWord cgB 3) (nodeB node))))
             (if (== di 0)
-                (dieImport "error: unknown struct field: " (nodeB node))
+                (dieCodegenDiag "unknown struct field: " (nodeB node))
                 (let ((cgL (loadWordAt cgB base (+ (nodeA di) 1))))
                   {
                     (memSetWord cgL 14 (nodeB di))
@@ -4937,9 +4966,9 @@
         (valExpr (nodeB node)))
     (let ((storage (lookupSym cg name)))
       (if (== storage 0)
-          (dieImport "error: set target is not a mut binding: " name)
+          (dieCodegenDiag "set target is not a mut binding: " name)
           (if (!= (lookupSymKind cg name) 1)
-              (dieImport "error: set target is not a mut binding: " name)
+              (dieCodegenDiag "set target is not a mut binding: " name)
               (let ((cg1 (emitExpr valExpr cg)))
                 (let ((v (strDup (memGetWord cg1 2))))
                   {

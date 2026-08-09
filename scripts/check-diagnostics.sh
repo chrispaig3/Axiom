@@ -173,6 +173,7 @@ failed=0
 cases=0
 exit_zero=0
 exit_nonzero=0
+colorless=0   # runs whose `ai` stderr carried no ANSI escape
 
 # `.axbad` is a case that deliberately does NOT parse - the AX1xxx and
 # AX2xxx codes cannot be provoked by a file that does. It cannot be
@@ -196,6 +197,21 @@ for case_file in tests/diagnostics/*.ax tests/diagnostics/*.axbad; do
   (cd "$work" && ./axc --diagnostic-format=ai "$name.ax" >/dev/null 2>"$work/case.err")
   status=$?
   got="$(axdl_only < "$work/case.err")"
+
+  # AXDL IS COLOURLESS, and this is where that is enforced. The human
+  # renderer paints its output; AXDL is the machine surface and must not,
+  # because a consumer of these lines is a `grep`, a diff or another
+  # program. Checked over the WHOLE stderr rather than over `got`,
+  # because `axdl_only` keeps `^[EWNH] ` lines and would silently drop a
+  # line whose severity sigil had been pushed rightwards by an escape -
+  # the failure would then read as a missing diagnostic somewhere else.
+  # The trailer is printed in this format too, and is covered here.
+  if LC_ALL=C grep -q $'\x1b' "$work/case.err"; then
+    echo "FAIL $name (\`--diagnostic-format=ai\` emitted an ANSI escape; AXDL is the machine surface)"
+    failed=$((failed + 1))
+    continue
+  fi
+  colorless=$((colorless + 1))
 
   if [[ "$bless" == 1 ]]; then
     printf '%s\n' "$got" > "$repo_root/$golden"
@@ -494,15 +510,42 @@ deep_n=100000
 deep_open="$(yes '(+ 1 ' | head -n "$deep_n" | tr -d '\n')"
 deep_close="$(yes ')' | head -n "$deep_n" | tr -d '\n')"
 printf '(:: main Int)\n(fn (main) %s0%s)\n' "$deep_open" "$deep_close" > "$work/deep.ax"
-(cd "$work" && ./axc check "deep.ax" >/dev/null 2>&1); d1=$?
+(cd "$work" && ./axc --diagnostic-format=ai check "deep.ax" \
+   >/dev/null 2>"$work/deep.err"); d1=$?
 if [[ "$d1" == 0 ]]; then
   echo "FAIL: ${deep_n}-deep nesting was accepted (exit $d1)"
   failed=$((failed + 1))
 elif (( d1 > 128 )); then
   echo "FAIL: died of signal $((d1 - 128)) on ${deep_n}-deep nesting instead of refusing"
   failed=$((failed + 1))
+# Refusing is half of it. This used to be a BARE refusal - `parse
+# failed` on stderr with exit 2, no code, no span, against stage0's
+# AX2005 and exit 1 - and a gate that only asked "did it refuse" is
+# what let that sit. Both halves are named now: the code, and the
+# status stage0 exits with.
+elif ! grep -qE '^E AX2005 .* recursion-limit ' "$work/deep.err"; then
+  echo "FAIL: ${deep_n}-deep nesting was refused without AX2005: $(head -1 "$work/deep.err")"
+  failed=$((failed + 1))
+elif [[ "$d1" != 1 ]]; then
+  echo "FAIL: ${deep_n}-deep nesting exited $d1; a diagnosed program is refused with 1"
+  failed=$((failed + 1))
 else
-  echo "ok   refusal: ${deep_n}-deep nesting (exit $d1)"
+  echo "ok   refusal: ${deep_n}-deep nesting (AX2005, exit $d1)"
+  passed=$((passed + 1))
+fi
+
+# The other half of a limit is that just under it still works. A guard
+# that refused everything would satisfy every assertion above.
+under_n=1022
+under_open="$(yes '(+ 1 ' | head -n "$under_n" | tr -d '\n')"
+under_close="$(yes ')' | head -n "$under_n" | tr -d '\n')"
+printf '(:: main Int)\n(fn (main) %s0%s)\n' "$under_open" "$under_close" > "$work/under.ax"
+(cd "$work" && ./axc check "under.ax" >/dev/null 2>"$work/under.err"); d2=$?
+if [[ "$d2" != 0 ]]; then
+  echo "FAIL: nesting just under the limit was refused (exit $d2): $(head -1 "$work/under.err")"
+  failed=$((failed + 1))
+else
+  echo "ok   nesting just under the limit still parses"
   passed=$((passed + 1))
 fi
 
@@ -511,8 +554,8 @@ fi
 # debugging aid and is expected to read one case.
 # ---------------------------------------------------------------
 if [[ -z "$filter" ]]; then
-  if (( cases < 45 )); then
-    echo "FAIL: only $cases corpus cases ran (expected ~52) - the glob stopped matching"
+  if (( cases < 54 )); then
+    echo "FAIL: only $cases corpus cases ran (expected ~56) - the glob stopped matching"
     failed=$((failed + 1))
   fi
   # An exit-status column of all one value distinguishes nothing: it
@@ -520,6 +563,13 @@ if [[ -z "$filter" ]]; then
   # the shape a broken driver takes.
   if (( exit_zero == 0 || exit_nonzero == 0 )); then
     echo "FAIL: every corpus case exited the same way ($exit_zero zero, $exit_nonzero non-zero)"
+    failed=$((failed + 1))
+  fi
+  # The colourless assertion is made per case and counted, so that it
+  # cannot evaporate the way a check wired to a glob that stopped
+  # matching does.
+  if (( colorless < 54 )); then
+    echo "FAIL: only $colorless run(s) were checked for ANSI escapes (expected ~56)"
     failed=$((failed + 1))
   fi
 fi

@@ -1,0 +1,1 @@
+E AX1001 930-tab-indent.ax:3:7-8 unexpected-char "unexpected character `$`" #"`$` is not valid here" ?"identifiers may contain letters, digits, `_`, and `'`; operators are built from `+ - * / % ^ = < > ! & | . ? ~ @`"

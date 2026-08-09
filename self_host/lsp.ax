@@ -112,31 +112,57 @@
 
 ; One Axiom diagnostic as an LSP `Diagnostic`.
 ;
-; The help text is appended to the message rather than dropped: LSP has
-; no field for it, `relatedInformation` wants a location the help does
-; not carry, and a help is often the whole value of an Axiom
-; diagnostic - `AX3001`'s "did you mean" is the reason the fix-help
-; form exists at all.
-; The word indices are `Diag`'s field order from diag.ax: 0 sev,
-; 1 code, 2 slug, 3 span, 4 msg, 5 relSpan, 6 relMsg, 7 help,
-; 8 fixSpan, 9 fixText, 10 help2, 11 unit. Read positionally because
-; that is how diag.ax itself reads them; it declares the struct and
-; then uses `memGetWord` everywhere rather than field accessors.
+; The notes and help texts are appended to the message rather than
+; dropped: LSP has no field for either, `relatedInformation` wants a
+; location a help does not carry, and a help is often the whole value of
+; an Axiom diagnostic - `AX3001`'s "did you mean" is the reason the
+; fix-help form exists at all.
+;
+; Read through diag.ax's accessors. This function used to carry a second
+; copy of the twelve-word field list as a comment and index it by hand,
+; which is the shape a layout drifts out of - and it did drift in one
+; direction already: it appended word 7 and nothing else, so a
+; diagnostic carrying two helps showed one of them in the editor. All of
+; them show now.
+(pub :: lspDiagText (-> Int Int))
+(pub fn (lspDiagText d)
+  (let ((parts vecNew) (mut i 0))
+    {
+      (vecPush parts (diagMsg d))
+      (while (< i (diagNoteCount d))
+        {
+          (vecPush parts "\n\nnote: ")
+          (vecPush parts (diagNote d i))
+          (set i (+ i 1))
+        })
+      (set i 0)
+      (while (< i (diagTraceCount d))
+        {
+          (vecPush parts "\n\nnote: in this expansion of ")
+          (vecPush parts (diagTrace d i))
+          (set i (+ i 1))
+        })
+      (set i 0)
+      (while (< i (diagHelpCount d))
+        {
+          (vecPush parts "\n\nhelp: ")
+          (vecPush parts (diagHelpMsg d i))
+          (set i (+ i 1))
+        })
+      (catStrs parts)
+    }))
+
 (pub :: lspDiagJson (-> Int Int Int))
 (pub fn (lspDiagJson d src)
-  (let ((help (memGetWord d 7))
-        (msg (memGetWord d 4)))
+  (jsonObjPut
     (jsonObjPut
       (jsonObjPut
         (jsonObjPut
-          (jsonObjPut
-            (jsonObjPut jsonObj "range" (lspRange src (memGetWord d 3)))
-            "severity" (jsonNum (lspSeverity (memGetWord d 0))))
-          "code" (jsonStr (memGetWord d 1)))
-        "source" (jsonStr "axiom"))
-      "message" (jsonStr (if (== help 0)
-                             msg
-                             (strConcat (strConcat msg "\n\nhelp: ") help))))))
+          (jsonObjPut jsonObj "range" (lspRange src (diagSpan d)))
+          "severity" (jsonNum (lspSeverity (diagSev d))))
+        "code" (jsonStr (diagCode d)))
+      "source" (jsonStr "axiom"))
+    "message" (jsonStr (lspDiagText d))))
 
 ; A one-diagnostic array, for the failures that happen before the
 ; checker runs and therefore have no span to report. `lspRange` already
@@ -258,7 +284,7 @@
                           (while (< i (vecLen ds))
                             (let ((d (vecGet ds i)))
                               {
-                                (if (== (memGetWord d 11) 0)
+                                (if (== (diagUnit d) 0)
                                     (jsonArrPush out (lspDiagJson d src))
                                     0)
                                 (set i (+ i 1))

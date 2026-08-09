@@ -1,0 +1,64 @@
+; expect 42
+; Every AXDL field, repeated, in emission order.
+;
+; 640-axdl-render pins the shape one real diagnostic takes. This pins
+; the shape none of them takes yet: the grammar promises
+;
+;   [ #"<label>"] [ ^<loc>:"<rel>"]* [ !"<note>"]* [ ?"<help>"]* [ &"<frame>"]*
+;
+; and the record behind it held one related span, two helps and no notes
+; at all until it was widened to vectors. A field with no producer is a
+; field whose rendering nobody has ever seen, which is exactly how the
+; old `!"note"` arm came to be documented in three places and
+; implemented in none - so the ones that have no emission site yet are
+; exercised here instead of being taken on trust.
+;
+; `&` is the expansion backtrace. It has NO producer and will not have
+; one until macro expansion reports through diagnostics (the dependency
+; docs/v1-roadmap.md records against the macro work), so this test is
+; the only thing that renders it. That is the point: the field is ready,
+; and "ready" is a claim someone has to check.
+;
+; The expected string is built by hand from the grammar rather than
+; copied from a run, because there is no run to copy from - unlike
+; 640, whose expectation came from stage0's own output.
+(import Str)
+(import Vec)
+(import Mem)
+(import core)
+(import diag)
+(:: main Int)
+(fn (main)
+  (let ((src "(fn (a) 0)\n(fn (b) 1)\n(fn (c) 2)\n"))
+    (let ((d (mkDiagBase SEV_ERROR "AX9999" "kitchen-sink"
+                         (mkSpan 5 6) "everything at once")))
+      {
+        (diagSetLabel d "the label")
+        ; Two of each, so the difference between "renders the field" and
+        ; "renders the field once" is visible.
+        (diagAddSecondary d (mkSpan 16 17) "first related")
+        (diagAddSecondary d (mkSpan 27 28) "second related")
+        (diagAddNote d "first note")
+        (diagAddNote d "second note")
+        (diagAddHelp d "plain help")
+        (diagAddFixHelp d "fix help" (mkSpan 5 6) "z")
+        (diagAddTrace d "outer!")
+        (diagAddTrace d "inner!")
+        (let ((got (renderDiag d src "k.ax"))
+              (want (strConcat (strConcat (strConcat (strConcat
+                      "E AX9999 k.ax:1:6-7 kitchen-sink \"everything at once\" #\"the label\""
+                      " ^2:6-7:\"first related\" ^3:6-7:\"second related\"")
+                      " !\"first note\" !\"second note\"")
+                      " ?\"plain help\" ?1:6-7:\"fix help\"~>\"z\"")
+                      " &\"outer!\" &\"inner!\"")))
+          ; The counts too, so a renderer that printed the right line by
+          ; concatenating the wrong vectors would still have to lie
+          ; about how many it held.
+          (if (&& (strEq got want)
+                  (&& (== (diagSecCount d) 2)
+                      (&& (== (diagNoteCount d) 2)
+                          (&& (== (diagHelpCount d) 2)
+                              (== (diagTraceCount d) 2)))))
+              42
+              7))
+      })))

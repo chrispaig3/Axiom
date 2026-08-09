@@ -14,10 +14,18 @@
 # triple, not the machine doing the compiling. Measured: the four files
 # differ from one another in 193 lines of 61,473.
 #
-# Requires a working compiler to start from. Pass one in AXIOM, or let
-# this find the Rust one while it still exists:
+# Requires a working compiler to start from. It defaults to the one
+# every other script here defaults to - `.axiom-bin/axiom`, where
+# `bootstrap-from-seed.sh --install` puts it - and AXIOM names another:
 #
 #   AXIOM=/path/to/compiler scripts/reseed.sh
+#
+# It does NOT bootstrap one itself, unlike the gates. The routine
+# reason to run this is that the committed seed can no longer compile
+# self_host/ - so a bootstrap from that seed is exactly the thing that
+# has just failed, and silently attempting it here would replace a
+# clear "the seed is stale" with a confusing one. Name a compiler that
+# works: the previous commit's `.axiom-bin/axiom` is the usual answer.
 #
 # The seeds are REPRODUCIBLE - scripts/check-reproducible.sh is the gate
 # that says so - which means re-running this against an unchanged tree
@@ -31,7 +39,7 @@ cd "$repo_root"
 
 fail() { echo "FAIL: $*" >&2; exit 1; }
 
-axiom="${AXIOM:-$repo_root/target/release/axiom}"
+axiom="${AXIOM:-$repo_root/.axiom-bin/axiom}"
 [[ -x "$axiom" ]] || fail "no compiler at $axiom - set AXIOM to one"
 
 work="$(mktemp -d)"
@@ -39,10 +47,13 @@ trap 'rm -rf "$work"' EXIT
 ln -s "$repo_root/stdlib"    "$work/stdlib"
 ln -s "$repo_root/self_host" "$work/self_host"
 
-# The seed has to be emitted by a SELF-HOSTED compiler, not by the Rust
-# one, because the seed's whole purpose is to exist after the Rust one
-# is gone. So whatever `$axiom` is, the first thing it does here is
-# build the Axiom compiler; the seeds come out of THAT.
+# The seed is emitted by a compiler built from THIS tree, never by
+# `$axiom` directly - `$axiom` is only trusted to be new enough to
+# compile self_host/, not to be what the seed should record. So the
+# first thing that happens here is building the compiler; the seeds
+# come out of THAT. (Written while the Rust compiler still existed and
+# could be passed in; the reasoning is unchanged now that any `$axiom`
+# is itself self-hosted.)
 if ! "$axiom" build --input self_host/main.ax --output "$work/gen" >"$work/build.log" 2>&1; then
   # `$axiom` may already be a self-hosted compiler, which has no
   # `build --input` spelled that way only if it is very old; try the

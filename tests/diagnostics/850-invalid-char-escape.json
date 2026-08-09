@@ -1,0 +1,1 @@
+{"severity":"error","code":"AX1005","slug":"invalid-escape-sequence","message":"invalid escape sequence `\\q`","file":"850-invalid-char-escape.ax","span":{"start":{"line":2,"col":22},"end":{"line":2,"col":24},"char_start":35,"char_end":37},"label":"unrecognized escape sequence","related":[],"notes":[],"help":["valid escapes are \\n \\t \\r \\\\ \\\" \\' \\0"],"expansion":[]}

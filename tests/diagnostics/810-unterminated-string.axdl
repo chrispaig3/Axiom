@@ -1,1 +1,1 @@
-E AX1002 810-unterminated-string.ax:4:23-5:1 unterminated-string "unterminated string literal" ?"add a closing `\"`, or escape an embedded quote as `\\\"`"
+E AX1002 810-unterminated-string.ax:4:23-5:1 unterminated-string "unterminated string literal" #"string literal starts here but is never closed" ?"add a closing `\"`, or escape an embedded quote as `\\\"`"

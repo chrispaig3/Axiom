@@ -18,6 +18,7 @@
 (import explain)
 (import symbols)
 (import lsp)
+(import style)
 
 (pub :: writeStdout (-> Int Int))
 (pub fn (writeStdout s) (sysWriteFd 1 (strData s) (strLen s)))
@@ -68,8 +69,12 @@
 (pub :: symbolsFormatNotice Int)
 ;@axiom:effect(io)
 (pub fn (symbolsFormatNotice)
-  (let ((v (flagValue "--diagnostic-format" 1)))
-    (if (|| (== (strLen v) 0) (strEq v "ai"))
+  (let ((v (lowerAscii (flagValue "--diagnostic-format" 1))))
+    ; `human` and `ai` both render symbols now; only `json` has no
+    ; symbol renderer of its own and falls back.
+    (if (|| (== (strLen v) 0)
+        (|| (strEq v "ai") (|| (strEq v "agent") (|| (strEq v "compact")
+        (|| (strEq v "human") (|| (strEq v "pretty") (strEq v "rustc")))))))
         0
         {
           (writeStderr (cat3 "note: `symbols` emits AXSYM; --diagnostic-format='" v
@@ -553,9 +558,21 @@
                                           (writeStderr (renderDiagsFormat dfmt ds units))
                                           0)
                                       (symbolsFormatNotice)
-                                      (writeStdout
-                                        (symbolsRender tc
-                                          (if (hasFlagAnywhere cmd "--builtins") 1 0)))
+                                      ; AXSYM under `ai`, the aligned
+                                      ; table under `human`, which is
+                                      ; the default - stage0's split,
+                                      ; and the last of the three
+                                      ; divergences docs/self-hosting.md
+                                      ; recorded OPEN. The table is
+                                      ; derived from the AXSYM text, so
+                                      ; the two cannot disagree about
+                                      ; what the symbols are.
+                                      (let ((axsym (symbolsRender tc
+                                              (if (hasFlagAnywhere cmd "--builtins") 1 0))))
+                                        (writeStdout
+                                          (if (== dfmt FMT_HUMAN)
+                                              (symbolsHumanTable axsym)
+                                              axsym)))
                                       0
                                     })))))))))))))
   (if (strEq cmd "explain")
@@ -567,7 +584,7 @@
       (let ((code (positionalFrom operandStart)))
         (if (|| (hasFlagAnywhere cmd "--list") (== (strLen code) 0))
             {
-              (writeStdout explainListText)
+              (writeStdout (explainListColored))
               (if (&& (== (strLen code) 0)
                       (if (hasFlagAnywhere cmd "--list") false true))
                   (writeStdout "\nUsage: axiom explain <CODE>\n")
@@ -619,6 +636,59 @@
 ; dashes stripped, the rest uppercased - so `ax3001`, `3001` and
 ; `AX-3001` all reach the same table row. Hand-written here rather
 ; than in explain.ax so that file stays wholly generated.
+; `axiom explain --list`, coloured the way stage0's did it: the heading
+; bold bright cyan, every `AXnnnn` bright yellow, the title and slug
+; plain. stage0 used the `colored` crate for this and ariadne for the
+; diagnostics themselves.
+;
+; Applied as a PASS OVER `explainListText` rather than baked into
+; explain.ax, because that file is GENERATED - one cached run of stage0
+; per code - and its header says to regenerate it whenever a code is
+; added or reworded. Escapes written into it could not survive that.
+;
+; The code token is found by position, not by search: every listed line
+; is two spaces then six characters of code. A line that is not shaped
+; that way is passed through untouched, which is what the heading and
+; any future blank line are.
+(pub :: explainListColored Int)
+(pub fn (explainListColored)
+  (let ((n (strLen explainListText)) (parts vecNew) (mut i 0) (mut first true))
+    {
+      (while (< i n)
+        (let ((e (lineEndFrom explainListText i)))
+          (let ((line (strSlice explainListText i (- e i))))
+            {
+              (if first
+                  (vecPush parts (paint SGR_LIST line))
+                  (if (&& (> (strLen line) 8)
+                          (&& (== (strByte line 0) 32)
+                              (&& (== (strByte line 1) 32)
+                                  (== (strByte line 2) 65))))
+                      {
+                        (vecPush parts "  ")
+                        (vecPush parts (paint SGR_CODE (strSlice line 2 6)))
+                        (vecPush parts (strSlice line 8 (- (strLen line) 8)))
+                      }
+                      (vecPush parts line)))
+              (set first false)
+              (if (< e n) (vecPush parts "\n") 0)
+              (set i (+ e 1))
+            })))
+      (catStrs parts)
+    }))
+
+; One past the last byte of the line starting at `i`, or the string's
+; length. (`render.ax`'s `lineEndOf` takes an offset into a source file
+; and this takes an offset into any string; the same three lines, but
+; importing render here for it would be a cycle through diag.)
+(pub :: lineEndFrom (-> Int Int Int))
+(pub fn (lineEndFrom s i)
+  (let ((n (strLen s)) (mut j i))
+    {
+      (while (&& (< j n) (!= (strByte s j) 10)) (set j (+ j 1)))
+      j
+    }))
+
 (pub :: explainNormalize (-> Int Int))
 (pub fn (explainNormalize s)
   (let ((mut a 0) (mut b (strLen s)))

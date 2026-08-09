@@ -1,20 +1,20 @@
-warning[AX3010]: AXTAG mismatch on `w`: `pure` claim contradicted: body performs IO
- --> 370-mixed-warning-error.ax:3:6
-  |
-3 | (fn (w) { (__syscall3 1 1 0 0) 0 })
-  |      ^
-  |
-  = help: run `axiom explain AX3010` for a full explanation
+[1;33mwarning[AX3010][0m[1m: AXTAG mismatch on `w`: `pure` claim contradicted: body performs IO[0m
+ [1;34m--> [0m370-mixed-warning-error.ax:3:6
+[1;34m  |[0m
+[1;34m3 |[0m (fn (w) { (__syscall3 1 1 0 0) 0 })
+[1;34m  |[0m      [1;33m^[0m
+[1;34m  |[0m
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3010` for a full explanation
 
-error[AX3006]: duplicate definition `main`
- --> 370-mixed-warning-error.ax:6:6
-  |
-5 | (fn (main) 0)
-  |      ---- `main` first defined here
-6 | (fn (main) 1)
-  |      ^^^^
-  |
-  = help: rename one of the definitions, or remove the duplicate
-  = help: run `axiom explain AX3006` for a full explanation
+[1;31merror[AX3006][0m[1m: duplicate definition `main`[0m
+ [1;34m--> [0m370-mixed-warning-error.ax:6:6
+[1;34m  |[0m
+[1;34m5 |[0m (fn (main) 0)
+[1;34m  |[0m      [1;36m---- `main` first defined here[0m
+[1;34m6 |[0m (fn (main) 1)
+[1;34m  |[0m      [1;31m^^^^ `main` redefined here[0m
+[1;34m  |[0m
+ [1;34m = [0m[1;32mhelp: [0mrename one of the definitions, or remove the duplicate
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3006` for a full explanation
 
 compilation failed due to 1 previous error

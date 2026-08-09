@@ -1,1 +1,1 @@
-E AX3015 030-missing-definition.ax:1:5-10 missing-definition "`ghost` has a signature but no definition" ?"add the definition, or if it lives in another module, mark that definition `pub` so the import carries it"
+E AX3015 030-missing-definition.ax:1:5-10 missing-definition "`ghost` has a signature but no definition" #"no `fn` or `foreign` defines `ghost`" ?"add the definition, or if it lives in another module, mark that definition `pub` so the import carries it"

@@ -1,24 +1,24 @@
-error[AX3006]: duplicate definition `main`
- --> 020-duplicate-thrice.ax:3:6
-  |
-2 | (fn (main) 0)
-  |      ---- `main` first defined here
-3 | (fn (main) 1)
-  |      ^^^^
-  |
-  = help: rename one of the definitions, or remove the duplicate
-  = help: run `axiom explain AX3006` for a full explanation
+[1;31merror[AX3006][0m[1m: duplicate definition `main`[0m
+ [1;34m--> [0m020-duplicate-thrice.ax:3:6
+[1;34m  |[0m
+[1;34m2 |[0m (fn (main) 0)
+[1;34m  |[0m      [1;36m---- `main` first defined here[0m
+[1;34m3 |[0m (fn (main) 1)
+[1;34m  |[0m      [1;31m^^^^ `main` redefined here[0m
+[1;34m  |[0m
+ [1;34m = [0m[1;32mhelp: [0mrename one of the definitions, or remove the duplicate
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3006` for a full explanation
 
-error[AX3006]: duplicate definition `main`
- --> 020-duplicate-thrice.ax:4:6
-  |
-2 | (fn (main) 0)
-  |      ---- `main` first defined here
-...
-4 | (fn (main) 2)
-  |      ^^^^
-  |
-  = help: rename one of the definitions, or remove the duplicate
-  = help: run `axiom explain AX3006` for a full explanation
+[1;31merror[AX3006][0m[1m: duplicate definition `main`[0m
+ [1;34m--> [0m020-duplicate-thrice.ax:4:6
+[1;34m  |[0m
+[1;34m2 |[0m (fn (main) 0)
+[1;34m  |[0m      [1;36m---- `main` first defined here[0m
+[1;34m...[0m
+[1;34m4 |[0m (fn (main) 2)
+[1;34m  |[0m      [1;31m^^^^ `main` redefined here[0m
+[1;34m  |[0m
+ [1;34m = [0m[1;32mhelp: [0mrename one of the definitions, or remove the duplicate
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3006` for a full explanation
 
 compilation failed due to 2 previous errors

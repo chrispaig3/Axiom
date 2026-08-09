@@ -3002,17 +3002,36 @@ reimplementing a retiring dependency's incidental escape stream,
 bug-for-bug, in the compiler that outlives it.
 
 So stage1's human renderer (`self_host/render.ax`) is Axiom's own:
-rustc-flavored plain text, `error[AX3006]:` headings, char-counted
-columns (the em-dash cases pin col 22 where a byte count says 24),
-labeled lines in source order, every help rendered, and stage0's
-trailer reproduced exactly - `compilation failed due to N previous
+rustc-flavored, `error[AX3006]:` headings, char-counted columns (the
+em-dash cases pin col 22 where a byte count says 24), labeled lines
+in source order, every help rendered, and stage0's trailer
+reproduced exactly - `compilation failed due to N previous
 error(s)`, errors only, post-suppression. `--diagnostic-format`
 accepts stage0's full alias set with stage0's fallback warning, and
 `human` is now stage1's default as it is stage0's; every gate that
-wants AXDL says so explicitly. A JSON renderer rides along, byte-
-compatible with stage0's except `"label":""` where stage0 carries
-the primary label message - a field AXDL never printed and stage1
-never stored, recorded as the known delta.
+wants AXDL says so explicitly.
+
+**Both deltas recorded here have since been closed** (2026-08-09),
+and the layout has caught up with what a report should say:
+
+* the renderer is COLOURED, always, including into a pipe - stage0's
+  behaviour, and the escapes are in all 56 `.human` goldens so the
+  bytes a user sees are the bytes a gate checks. Not ariadne's
+  per-character stream: whole lexemes only, from a palette declared
+  in `self_host/style.ax` that the gate reads to decide whether an
+  escape is one the compiler may emit. Byte 27 is synthesised at run
+  time, because Axiom's lexer accepts no `\e` escape and `"\e[1;31m"`
+  is AX1005 from the compiler's own front end.
+* the primary label is STORED and printed, after the carets, which
+  is what the JSON's `"label":""` was the visible half of. It also
+  reaches AXDL, as `#"..."` - a field stage0 never printed - so the
+  gate derives the caret row's label from a machine-readable
+  counterpart rather than trusting the golden alone.
+
+The JSON renderer rides along with the same fields plus `expansion`,
+and has goldens of its own now: `tests/diagnostics/NAME.json`, with
+every field reconstructed from `NAME.axdl` and the fixture by
+`verify-json.py`. It had no gate at all before that.
 
 The gate (`scripts/check-render-selfhost.sh`, in CI) pins a native
 surface the only way one can be pinned - three-way against checked-in
@@ -3072,20 +3091,22 @@ found what the corpus could not:
   workflow existed ran nothing; the gates were green only on pull
   requests and local runs. The trigger now names `trunk`.
 
-Three divergences are recorded OPEN as named follow-ups rather than
-silently absorbed:
+Three divergences were recorded OPEN as named follow-ups rather than
+silently absorbed. All three are now closed:
 
-* **the parse/lexer error path**: stage0 renders `AX2002` through
-  the human renderer with its own trailer (`compilation failed due
-  to a syntax error`) and exit 1; stage1 dies with `parse failed`
-  and exit 2, a shape no gate compares because the AXDL corpus is
-  all-semantic. Porting it means giving stage1's parser real
-  diagnostic objects - a slice of its own.
-* **`symbols`' stdout default**: bare `stage0 symbols` prints an
-  aligned human table; bare `stage1 symbols` prints AXSYM lines
-  (which is what stage0 emits under `--diagnostic-format=ai`, the
-  spelling every gate uses). The table is a follow-up; the flag
-  surface, not the default, is what the gates pin today.
+* ~~**the parse/lexer error path**~~ - DONE (2026-08-08, commits
+  `61ed4e8` and `8218a9b`): the parser carries real diagnostic
+  objects, the corpus gained fourteen `.axbad` cases covering
+  AX1xxx and AX2xxx, and exit 2 became exit 1. AX2005
+  (`recursion-limit`), the last code that path could not emit, was
+  the final piece - it had been a bare refusal because "the parser
+  carries no diagnostic payload", which stopped being true here.
+* ~~**`symbols`' stdout default**~~ - DONE (2026-08-09): bare
+  `symbols` prints the aligned table again and `ai` still gives
+  AXSYM. The table is DERIVED from the AXSYM text rather than
+  rendered separately, so the two cannot disagree about what the
+  symbols are, and the gate reconstructs every row from the AXSYM
+  golden rather than from the table's own.
 * ~~**`AX5001` (cannot-resolve-import) as a diagnostic**~~ - DONE
   (2026-08-08): stage1's resolver now emits `E AX5001 <import>:-
   module-not-found` with a help listing every candidate filename and

@@ -1,10 +1,10 @@
-error[AX1002]: unterminated string literal
- --> 810-unterminated-string.ax:4:23
-  |
-4 | (fn (main) { (println "never closed) 0 })
-  |                       ^^^^^^^^^^^^^^^^^^^
-  |
-  = help: add a closing `"`, or escape an embedded quote as `\"`
-  = help: run `axiom explain AX1002` for a full explanation
+[1;31merror[AX1002][0m[1m: unterminated string literal[0m
+ [1;34m--> [0m810-unterminated-string.ax:4:23
+[1;34m  |[0m
+[1;34m4 |[0m (fn (main) { (println "never closed) 0 })
+[1;34m  |[0m                       [1;31m^^^^^^^^^^^^^^^^^^^ string literal starts here but is never closed[0m
+[1;34m  |[0m
+ [1;34m = [0m[1;32mhelp: [0madd a closing `"`, or escape an embedded quote as `\"`
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX1002` for a full explanation
 
 compilation failed due to 1 previous error

@@ -1,0 +1,129 @@
+; style.ax — ANSI colour for the human diagnostic surface.
+;
+; THE HUMAN RENDERER IS COLOURED; NOTHING ELSE IS. AXDL, AXSYM, JSON,
+; the LSP payload and the failure trailer are machine surfaces read by
+; greps, diffs and other programs, and the trailer in particular is
+; printed in every format - painting it would put escapes in AXDL. That
+; invariant is greppable rather than merely intended: `diag.ax` does not
+; import this module, and `scripts/check-render-selfhost.sh` asserts per
+; case that the `ai` and `json` streams carry no ESC byte at all.
+;
+; ALWAYS ON, even when stderr is a file. That is stage0's behaviour -
+; ariadne wrote escapes into a pipe as readily as into a terminal, and
+; had no tty detection anywhere - and it is a deliberate choice here
+; rather than an inherited accident: the 56 `.human` goldens carry the
+; escape stream, so the bytes a user sees are the bytes a gate checks.
+; The cost is that a redirected log holds escapes; the benefit is that
+; there is exactly one output to reason about. `paint` is the single
+; choke point if that is ever revisited.
+;
+; ESC CANNOT BE WRITTEN AS A LITERAL. `isEscapeChar` in lexer.ax accepts
+; exactly \n \t \r \\ \" \' \0, so `"\e[1;31m"` is AX1005 from this
+; compiler's own lexer, and `\x1b` is not a form it has. The palette is
+; therefore a table of plain-ASCII SGR PARAMETER strings and `paint`
+; synthesises byte 27 at run time. This is not a workaround: it also
+; means the palette is a greppable list of `"[0-9;]+"` in one file,
+; which is what check-render-selfhost.sh reads to decide whether an
+; escape in a golden is one the compiler is allowed to emit.
+;
+; THE PALETTE IS RUSTC'S, not ariadne's, because the layout is rustc's:
+; `error[AX3006]:`, ` --> `, `= help:`, a `|` gutter. ariadne's own
+; scheme - which is what stage0 actually emitted - was header Red or
+; Yellow, primary label Red/Yellow/Blue by severity, secondary Cyan,
+; gutter Fixed(246), note and help footers Fixed(115), skipped margin
+; Fixed(240). Dropping that in favour of rustc's is the same reasoning
+; that made the layout native: reproducing a retired dependency's
+; incidental colour choices would pin this compiler to internals the
+; project deleted. Swapping the scheme is editing the nine lines below.
+;
+; ESCAPES GO AROUND WHOLE LEXEMES, never around individual characters -
+; which is precisely what ariadne did wrong, wrapping every snippet
+; character in its own sequence and making its output undiffable. Four
+; live gates grep this surface for bare text (`check-self-host.sh` for
+; `AX5001`, `check-driver.sh` for `AX4001` and its help wording,
+; `check-tools-selfhost.sh` for `AX[0-9]{4}` twice), and every one of
+; them keeps working only because no escape lands inside a token.
+
+(import Mem)
+(import Str)
+(import Utf8)
+
+; ------------------------------------------------------------------
+; The palette. One table; swapping the scheme is editing these lines.
+; ------------------------------------------------------------------
+(pub :: SGR_ERROR Int) (pub fn (SGR_ERROR) "1;31")  ; bold red
+(pub :: SGR_WARN  Int) (pub fn (SGR_WARN)  "1;33")  ; bold yellow
+(pub :: SGR_TITLE Int) (pub fn (SGR_TITLE) "1")     ; bold
+(pub :: SGR_GUT   Int) (pub fn (SGR_GUT)   "1;34")  ; bold blue
+(pub :: SGR_SEC   Int) (pub fn (SGR_SEC)   "1;36")  ; bold cyan
+(pub :: SGR_HELP  Int) (pub fn (SGR_HELP)  "1;32")  ; bold green
+(pub :: SGR_FIX   Int) (pub fn (SGR_FIX)   "1;35")  ; bold magenta
+(pub :: SGR_LIST  Int) (pub fn (SGR_LIST)  "1;96")  ; bold bright cyan
+(pub :: SGR_CODE  Int) (pub fn (SGR_CODE)  "93")    ; bright yellow
+
+; The colour of a diagnostic's own severity, which the heading and the
+; primary underline both take.
+(pub :: sgrForSev (-> Int Int))
+(pub fn (sgrForSev sev) (if (== sev 0) SGR_ERROR SGR_WARN))
+
+; ------------------------------------------------------------------
+; `ESC [ <params> m <text> ESC [ 0 m`, in one allocation.
+;
+; Written into a single `strAlloc` rather than built from `strConcat`,
+; for the reason every other builder in this compiler is: a fold's peak
+; is the sum of its intermediates, and painting happens per fragment,
+; per row, per diagnostic. One `paint` is one allocation.
+; ------------------------------------------------------------------
+(pub :: paint (-> Int Int Int))
+(pub fn (paint sgr text)
+  (let ((np (strLen sgr)) (nt (strLen text)))
+    (let ((out (strAlloc (+ (+ np nt) 7))) (mut o 0))
+      {
+        (memPutByte (strData out) 0 27)    ; ESC
+        (memPutByte (strData out) 1 91)    ; [
+        (set o 2)
+        (memCopy (+ (strData out) o) (strData sgr) np)
+        (set o (+ o np))
+        (memPutByte (strData out) o 109)   ; m
+        (set o (+ o 1))
+        (memCopy (+ (strData out) o) (strData text) nt)
+        (set o (+ o nt))
+        (memPutByte (strData out) o 27)
+        (memPutByte (strData out) (+ o 1) 91)
+        (memPutByte (strData out) (+ o 2) 48)   ; 0
+        (memPutByte (strData out) (+ o 3) 109)  ; m
+        out
+      })))
+
+; ------------------------------------------------------------------
+; Display width, counting no escape sequence and no UTF-8 continuation
+; byte.
+;
+; The renderer computes its layout on PLAIN text and paints finished
+; fragments last, so padding always sits outside every paint and this
+; should never be load-bearing. It is here as the structural backstop
+; for that discipline: `rjNum` measures with it, so a painted string
+; that leaked into a width computation still produces the right gutter
+; instead of a column count inflated by seven bytes per colour.
+; ------------------------------------------------------------------
+(pub :: visLen (-> Int Int))
+(pub fn (visLen s)
+  (let ((n (strLen s)) (mut i 0) (mut w 0))
+    {
+      (while (< i n)
+        (if (&& (== (strByte s i) 27)
+                (&& (< (+ i 1) n) (== (strByte s (+ i 1)) 91)))
+            ; ESC [ ... m, skipped whole; an unterminated sequence
+            ; consumes the rest rather than looping.
+            (let ((mut j (+ i 2)))
+              {
+                (while (&& (< j n) (!= (strByte s j) 109))
+                  (set j (+ j 1)))
+                (set i (if (< j n) (+ j 1) n))
+              })
+            {
+              (if (utf8IsCont (strByte s i)) 0 (set w (+ w 1)))
+              (set i (+ i 1))
+            }))
+      w
+    }))

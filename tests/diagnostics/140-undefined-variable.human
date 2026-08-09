@@ -1,37 +1,37 @@
-error[AX3001]: undefined variable `zzz1`
- --> 140-undefined-variable.ax:3:15
-  |
-3 |   (let ((a (+ zzz1 1)))
-  |               ^^^^
-  |
-  = help: variables must be defined (via `define`/`fn`, a `let` binding, or a lambda parameter) before they are used; check for typos
-  = help: run `axiom explain AX3001` for a full explanation
+[1;31merror[AX3001][0m[1m: undefined variable `zzz1`[0m
+ [1;34m--> [0m140-undefined-variable.ax:3:15
+[1;34m  |[0m
+[1;34m3 |[0m   (let ((a (+ zzz1 1)))
+[1;34m  |[0m               [1;31m^^^^ no binding named `zzz1` in scope[0m
+[1;34m  |[0m
+ [1;34m = [0m[1;32mhelp: [0mvariables must be defined (via `define`/`fn`, a `let` binding, or a lambda parameter) before they are used; check for typos
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3001` for a full explanation
 
-error[AX3001]: undefined variable `zzz2`
- --> 140-undefined-variable.ax:5:16
-  |
-5 |       (x (+ (+ zzz2 zzz3) (+ x zzz2))))))
-  |                ^^^^
-  |
-  = help: variables must be defined (via `define`/`fn`, a `let` binding, or a lambda parameter) before they are used; check for typos
-  = help: run `axiom explain AX3001` for a full explanation
+[1;31merror[AX3001][0m[1m: undefined variable `zzz2`[0m
+ [1;34m--> [0m140-undefined-variable.ax:5:16
+[1;34m  |[0m
+[1;34m5 |[0m       (x (+ (+ zzz2 zzz3) (+ x zzz2))))))
+[1;34m  |[0m                [1;31m^^^^ no binding named `zzz2` in scope[0m
+[1;34m  |[0m
+ [1;34m = [0m[1;32mhelp: [0mvariables must be defined (via `define`/`fn`, a `let` binding, or a lambda parameter) before they are used; check for typos
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3001` for a full explanation
 
-error[AX3001]: undefined variable `zzz3`
- --> 140-undefined-variable.ax:5:21
-  |
-5 |       (x (+ (+ zzz2 zzz3) (+ x zzz2))))))
-  |                     ^^^^
-  |
-  = help: variables must be defined (via `define`/`fn`, a `let` binding, or a lambda parameter) before they are used; check for typos
-  = help: run `axiom explain AX3001` for a full explanation
+[1;31merror[AX3001][0m[1m: undefined variable `zzz3`[0m
+ [1;34m--> [0m140-undefined-variable.ax:5:21
+[1;34m  |[0m
+[1;34m5 |[0m       (x (+ (+ zzz2 zzz3) (+ x zzz2))))))
+[1;34m  |[0m                     [1;31m^^^^ no binding named `zzz3` in scope[0m
+[1;34m  |[0m
+ [1;34m = [0m[1;32mhelp: [0mvariables must be defined (via `define`/`fn`, a `let` binding, or a lambda parameter) before they are used; check for typos
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3001` for a full explanation
 
-error[AX3001]: undefined variable `zzz2`
- --> 140-undefined-variable.ax:5:32
-  |
-5 |       (x (+ (+ zzz2 zzz3) (+ x zzz2))))))
-  |                                ^^^^
-  |
-  = help: variables must be defined (via `define`/`fn`, a `let` binding, or a lambda parameter) before they are used; check for typos
-  = help: run `axiom explain AX3001` for a full explanation
+[1;31merror[AX3001][0m[1m: undefined variable `zzz2`[0m
+ [1;34m--> [0m140-undefined-variable.ax:5:32
+[1;34m  |[0m
+[1;34m5 |[0m       (x (+ (+ zzz2 zzz3) (+ x zzz2))))))
+[1;34m  |[0m                                [1;31m^^^^ no binding named `zzz2` in scope[0m
+[1;34m  |[0m
+ [1;34m = [0m[1;32mhelp: [0mvariables must be defined (via `define`/`fn`, a `let` binding, or a lambda parameter) before they are used; check for typos
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3001` for a full explanation
 
 compilation failed due to 4 previous errors

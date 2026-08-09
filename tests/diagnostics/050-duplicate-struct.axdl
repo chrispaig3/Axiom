@@ -1,1 +1,1 @@
-E AX3006 050-duplicate-struct.ax:2:9-14 duplicate-definition "duplicate definition `Point`" ^1:9-14:"`Point` first defined here" ?"rename one of the definitions, or remove the duplicate"
+E AX3006 050-duplicate-struct.ax:2:9-14 duplicate-definition "duplicate definition `Point`" #"`Point` redefined here" ^1:9-14:"`Point` first defined here" ?"rename one of the definitions, or remove the duplicate"

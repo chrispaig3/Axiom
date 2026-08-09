@@ -1,10 +1,10 @@
-error[AX2002]: unexpected end of file
- --> 900-unexpected-eof.ax:3:10
-  |
-3 |   (+ 1 2)
-  |          ^
-  |
-  = help: count `(`/`[`/`{` against `)`/`]`/`}` working backward from the end of the file
-  = help: run `axiom explain AX2002` for a full explanation
+[1;31merror[AX2002][0m[1m: unexpected end of file[0m
+ [1;34m--> [0m900-unexpected-eof.ax:3:10
+[1;34m  |[0m
+[1;34m3 |[0m   (+ 1 2)
+[1;34m  |[0m          [1;31m^ file ends here while a form is still open[0m
+[1;34m  |[0m
+ [1;34m = [0m[1;32mhelp: [0mcount `(`/`[`/`{` against `)`/`]`/`}` working backward from the end of the file
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX2002` for a full explanation
 
 compilation failed due to 1 previous error
