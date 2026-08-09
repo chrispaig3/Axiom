@@ -347,21 +347,45 @@
           (let ((rc (__syscall5 sysPosixSpawn pidbuf path 0 argv envp)))
             (if (< rc 0) rc (memGetWord pidbuf 0)))
         })
-      (let ((pid (__syscall5 sysFork sysForkArg 0 0 0 0)))
-        (if (< pid 0)
-            pid
-            (if (== pid 0)
-                {
-                  ; The child. `execve` replaces this image, so reaching
-                  ; the next line means it failed - and the child must
-                  ; then die rather than return into the caller's code
-                  ; and become a second copy of the driver. 127 is the
-                  ; shell's convention for "command not found".
-                  (__syscall3 sysExecve path argv envp)
-                  (__syscall1 sysExit 127)
-                  0
-                }
-                pid)))))
+      ; The path is tested BEFORE the fork, and only this backend needs
+      ; the test. `posix_spawn` resolves the path in the PARENT and
+      ; answers `-ENOENT` without creating a process; here the fork
+      ; always succeeds, the failed `execve` is the CHILD's problem, and
+      ; the only thing the parent gets back is the exit status set
+      ; below - 127, a positive number indistinguishable from a tool
+      ; that ran and exited 127. Conflating those two is exactly what
+      ; `sysRun`'s contract says it does not do.
+      ;
+      ; `sysRunSearch` has its own test for the same reason and it is
+      ; not this one: that one skips a candidate on ANY open failure,
+      ; which is `execvp`'s rule for a PATH walk. This is the direct
+      ; path, where ENOENT ONLY is deliberate - a file that cannot be
+      ; opened can still be executable (mode 0711 is readable by nobody
+      ; and runnable by everyone), and `execve` is the only thing
+      ; entitled to decide that, so every other open failure still
+      ; forks and asks it.
+      (let ((probe (sysOpenPath path 0)))
+        (if (== probe (- 0 2))
+            probe
+            {
+              (if (>= probe 0) (sysCloseFd probe) 0)
+              (let ((pid (__syscall5 sysFork sysForkArg 0 0 0 0)))
+                (if (< pid 0)
+                    pid
+                    (if (== pid 0)
+                        {
+                          ; The child. `execve` replaces this image, so
+                          ; reaching the next line means it failed - and
+                          ; the child must then die rather than return
+                          ; into the caller's code and become a second
+                          ; copy of the driver. 127 is the shell's
+                          ; convention for "command not found".
+                          (__syscall3 sysExecve path argv envp)
+                          (__syscall1 sysExit 127)
+                          0
+                        }
+                        pid)))
+            }))))
 
 ; Wait for `pid` and answer the raw wait status, or `-errno`.
 (pub :: sysWaitPid (-> Int Int))

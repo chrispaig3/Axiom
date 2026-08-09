@@ -4683,3 +4683,62 @@ test is weak.
 
 Two defects, one shape: **a capability with two backends is two
 implementations, and the one your machine does not run is untested.**
+
+### 12.6 The same conflation, one level down, found by the test that had never run
+
+Fixing the provisioning step let the Linux half of the `Tests` job reach
+its second step for the first time in six days, and it failed there:
+
+```
+FAIL 300-process (stdout)
+    4c4
+    < 1
+    ---
+    > 0
+36 passed, 1 failed
+```
+
+Both Linux targets, identically; darwin green. Line 4 of that case is
+
+```
+(printlnInt (if (< (sysRun (strCStr "/nonexistent/tool") (argv3 "x" "" "") env) 0) 1 0))
+```
+
+which is the **direct** path — no `PATH` search, nothing for
+`sysRunSearch` to do. §12.5's probe went into the search, one level
+above the defect, and the identical conflation was still sitting in
+`sysSpawn`: the fork succeeds, the `execve` fails in the child, the
+child exits 127, and `sysRun` answers 127. Its own doc comment says
+
+> A negative answer is the spawn's own `-errno` — the child never ran —
+> which is what distinguishes "could not start llc" from "llc rejected
+> the module", two failures a driver must not report the same way.
+
+That sentence had been false on Linux since the day it was written.
+`axiom run` goes through the same door: `main.ax` runs the program it
+just built as `./axiom_temp_output`, a name with a slash, so it takes
+the direct branch too.
+
+The probe therefore belongs in `sysSpawn`'s `fork`+`execve` arm, not in
+its caller, and **ENOENT only** — where the search skips a candidate on
+any open failure, which is `execvp`'s rule for a `PATH` walk, the direct
+path must not. A file that cannot be opened can still be executable
+(mode 0711 is readable by nobody and runnable by everyone) and `execve`
+is the only thing entitled to decide that, so every other open failure
+still forks and asks it.
+
+The gate is `tests/stdlib/300-process.ax` line 4, and it is worth being
+precise about what happened to it: **the case was already written, and
+already correct.** It did not need adding, weakening, or re-blessing. It
+had simply never executed on the platform whose backend it discriminates,
+because the job it lives in had been failing an earlier step. Like
+`check-driver.sh`'s `PATH` case it is vacuous on darwin — `posix_spawn`
+resolves the path in the parent and has always answered `-ENOENT` — so
+a local run on macOS cannot see this fix work, and CI is the only
+arbiter for it.
+
+That is the sharper form of §12.5's lesson. It is not only that the
+untested backend is broken; it is that **the test which would have
+caught it can already exist, already be right, and still be telling
+nobody anything** — for six days, because something upstream of it was
+red and nobody had read down past the first failure.

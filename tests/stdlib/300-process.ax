@@ -61,6 +61,15 @@
       ; A path that does not exist must report the spawn's own failure
       ; rather than some exit code, so a driver can tell "llc is not
       ; installed" from "llc rejected the module".
+      ;
+      ; VACUOUS ON DARWIN, and the one term here that is. `posix_spawn`
+      ; resolves the path in the parent and has always answered -ENOENT;
+      ; under fork+execve the fork succeeds, the execve fails in the
+      ; CHILD, and the parent sees only its exit status - 127, which is
+      ; not negative. This line printed 0 on both Linux targets until
+      ; `sysSpawn` grew a pre-fork test. Ablating that test and running
+      ; on macOS passes, which is a property of the defect rather than
+      ; a weak case.
       (printlnInt (if (< (sysRun (strCStr "/nonexistent/tool") (argv3 "x" "" "") env) 0) 1 0)) ; 1
 
       ; PATH search finds a bare name, and still delivers arguments.
