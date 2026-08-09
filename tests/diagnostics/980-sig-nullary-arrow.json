@@ -1,0 +1,1 @@
+{"severity":"error","code":"AX2001","slug":"unexpected-token","message":"expected type, found `->`","file":"980-sig-nullary-arrow.ax","span":{"start":{"line":9,"col":8},"end":{"line":9,"col":10},"char_start":460,"char_end":462},"label":"found `->` here","related":[],"notes":[],"help":["Axiom expected type at this position"],"expansion":[]}

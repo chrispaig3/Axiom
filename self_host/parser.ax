@@ -1195,31 +1195,66 @@
   (let ((nr (parseIdentName tokens pos)))
     (if (== (memGetWord nr 0) 0) nr
         (let ((name (memGetWord nr 1))
-              (typePos (memGetWord nr 2))
-              (rest (skipParens tokens (memGetWord nr 2) 1)))
-          (if (== (memGetWord rest 0) 0) rest
-              (let ((endPos (memGetWord rest 2)))
-                ; The signature used to be skipped outright. The emitter
-                ; now needs one bit per arrow position - is it `Float` -
-                ; because float-ness of a value is not observable at
-                ; runtime: every value is an i64 word, and by emission
-                ; time there is no type checker left to ask. This is the
-                ; same reconstruction stage0's IR generator performs.
-                ;
-                ; The FULL type structure now survives too, in the ty
-                ; slot, for the checker. The float flags stay in `b`
-                ; untouched - codegen keys on that exact shape. A type
-                ; the grammar cannot represent leaves ty 0, and the
-                ; checker treats an absent type as a silent wildcard:
-                ; under-reported, never mis-typed. Position always comes
-                ; from skipParens, so a failed type parse cannot skew
-                ; the token stream.
-                (let ((tr (parseType tokens typePos)))
-                  (pOk (setNodeTy
-                         (mkDSigAt name (sigFloatFlags tokens typePos)
-                                   (tokenSpan (vecGet tokens pos)))
-                         (if (== (memGetWord tr 0) 0) 0 (memGetWord tr 1)))
-                       endPos))))))))
+              (typePos (memGetWord nr 2)))
+          ; The emitter needs one bit per arrow position - is it `Float`
+          ; - because float-ness of a value is not observable at
+          ; runtime: every value is an i64 word, and by emission time
+          ; there is no type checker left to ask. This is the same
+          ; reconstruction stage0's IR generator performs. The FULL type
+          ; structure survives beside it, in the ty slot, for the
+          ; checker; the float flags stay in `b` untouched, because
+          ; codegen keys on that exact shape.
+          ;
+          ; A TYPE THIS PARSER CANNOT READ IS A PARSE ERROR, which is
+          ; stage0's shape: `parse_sig` was `expect(::)`, `parse_ident`,
+          ; `parse_type()?` - the `?` propagating - and its caller then
+          ; ran `expect(RParen)` on what was left. Both halves are here.
+          ;
+          ; It used to be neither. `skipParens` owned the end position
+          ; and the type was parsed opportunistically, so a failure left
+          ; 0 in the ty slot, which the checker reads as a silent
+          ; wildcard - "under-reported, never mis-typed", said the note
+          ; that used to be here. The first half was true and the second
+          ; was not, in two directions:
+          ;
+          ;   (:: f (-> Int))     a nullary arrow. stage0 refused it
+          ;                       ("-> requires at least two types") and
+          ;                       so does `parseTypeParens`; the refusal
+          ;                       was then discarded here, so `f` simply
+          ;                       had no signature and nothing said so.
+          ;                       Every gate missed it. `check-fmt.sh`
+          ;                       caught the one instance that reached
+          ;                       the tree, as a formatter refusal on
+          ;                       `main.ax`, which is a strange way to
+          ;                       hear that a type was ignored.
+          ;
+          ;   (:: h Int Bool)     the run-of-atoms spelling of an arrow.
+          ;                       `parseType` reads `Int`, `skipParens`
+          ;                       skips to the declaration's `)`, and
+          ;                       `Bool` is gone - so `h` is TYPED, and
+          ;                       typed wrongly. The only report was an
+          ;                       AX3004 at the call site blaming the
+          ;                       caller ("expected function type, found
+          ;                       Int") for a defect in the signature.
+          ;
+          ; The tree-sitter grammar has always agreed with stage0 here -
+          ; `type_signature` is `'(' [pub] '::' subject type ')'`, and
+          ; both shapes above are ERROR nodes under it - and so has the
+          ; formatter, which refuses to rewrite either. This parser was
+          ; the one implementation of the three that accepted them.
+          (let ((tr (parseType tokens typePos)))
+            (if (== (memGetWord tr 0) 0)
+                tr
+            (if (peekIs tokens (memGetWord tr 2) TK_RPAREN)
+                (pOk (setNodeTy
+                       (mkDSigAt name (sigFloatFlags tokens typePos)
+                                 (tokenSpan (vecGet tokens pos)))
+                       (memGetWord tr 1))
+                     (advance (memGetWord tr 2)))
+                ; stage0's `expect(RParen)` renders its expectation as
+                ; `)`, so this is its message verbatim: `expected ),
+                ; found \`Bool\``.
+                (pErrExp (memGetWord tr 2) ")"))))))))
 
 ; One flag per arrow position, return type last: `(-> Float Int Float)`
 ; is [1, 0, 1], and a bare type - `(:: pi Float)` - is a one-entry

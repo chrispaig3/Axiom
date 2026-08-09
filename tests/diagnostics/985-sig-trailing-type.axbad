@@ -1,0 +1,12 @@
+; This looks like it declares `Int -> Bool`. It does not: the type is
+; `Int`, and `Bool` is a second type in a position that holds one.
+;
+; `skipParens` used to own the declaration's end position, so whatever
+; the type parse did not consume was skipped in silence - which typed
+; `h` WRONGLY rather than leaving it untyped. The only report was an
+; AX3004 at the call site on line 9, blaming the caller ("expected
+; function type, found Int") for a defect in the signature above.
+(:: h Int Bool)
+(fn (h x) (== x 1))
+(:: main Int)
+(fn (main) (if (h 1) 0 1))

@@ -1,0 +1,1 @@
+{"severity":"error","code":"AX2001","slug":"unexpected-token","message":"expected ), found `Bool`","file":"985-sig-trailing-type.ax","span":{"start":{"line":9,"col":11},"end":{"line":9,"col":15},"char_start":492,"char_end":496},"label":"found `Bool` here","related":[],"notes":[],"help":["Axiom expected ) at this position"],"expansion":[]}

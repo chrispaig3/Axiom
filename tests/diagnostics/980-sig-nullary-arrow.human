@@ -1,0 +1,10 @@
+[1;31merror[AX2001][0m[1m: expected type, found `->`[0m
+ [1;34m--> [0m980-sig-nullary-arrow.ax:9:8
+[1;34m  |[0m
+[1;34m9 |[0m (:: f (-> Int))
+[1;34m  |[0m        [1;31m^^ found `->` here[0m
+[1;34m  |[0m
+ [1;34m = [0m[1;32mhelp: [0mAxiom expected type at this position
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX2001` for a full explanation
+
+compilation failed due to 1 previous error

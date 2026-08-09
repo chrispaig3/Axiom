@@ -1,0 +1,1 @@
+E AX2001 985-sig-trailing-type.ax:9:11-15 unexpected-token "expected ), found `Bool`" #"found `Bool` here" ?"Axiom expected ) at this position"

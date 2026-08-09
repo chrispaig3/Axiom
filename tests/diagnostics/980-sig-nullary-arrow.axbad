@@ -1,0 +1,10 @@
+; `(-> T)` is not the type of a nullary function. A nullary function is
+; declared with a BARE type - `(:: hostTarget Int)` - and a one-atom
+; arrow is refused: stage0 said "-> requires at least two types" and
+; `parseTypeParens` refuses it here.
+;
+; What was missing was the refusal REACHING anyone. `parseSigDecl` read
+; the type opportunistically and dropped a failed parse on the floor, so
+; this declared nothing at all and the compiler said `OK`.
+(:: f (-> Int))
+(fn (f) 1)

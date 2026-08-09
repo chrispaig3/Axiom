@@ -4401,3 +4401,100 @@ formatted file still parses, still preserves every comment byte, and
 still answers 55, so every property the gates state is intact; what is
 lost is where the reader put the note. Fixing it is comment attachment
 in the printer, which is a slice of its own.
+
+---
+
+## 11. A signature the parser read and then threw away
+
+`parseSigDecl` parsed the declaration's type *opportunistically*:
+`skipParens` owned the end position, and a type the parser could not
+read left `0` in the ty slot, which the checker treats as a silent
+wildcard. The note that used to sit there called this "under-reported,
+never mis-typed". The first half was true. The second was not, and it
+failed in two different directions.
+
+### 11.1 A refusal that was computed and discarded
+
+```
+(:: f (-> Int))
+(fn (f) 1)
+```
+
+`(-> T)` is not the type of a nullary function — a nullary function is
+declared with a bare type, `(:: hostTarget Int)` — and both compilers
+refuse the one-atom arrow. stage0 said so in words ("-> requires at
+least two types", `axiom-parser/src/lib.rs:1019`); `parseTypeParens`
+answers `pErrExp pos "type"`. The refusal was then dropped on the floor
+by the caller, so `f` had no signature at all and `check` printed `OK`.
+
+The one instance that reached the tree was `explainListColored` in
+`main.ax`, declared `(-> Int)` and unchecked for as long as it existed.
+What found it was `check-fmt.sh`, as `was not rewritten: formatter
+refusal` — which is a strange way to be told that a type was ignored,
+and only worked because the file happened to be inside the tree the
+formatter sweeps.
+
+### 11.2 A signature that was silently TRUNCATED
+
+```
+(:: h Int Bool)
+(fn (h x) (== x 1))
+```
+
+This reads as `Int -> Bool` and is not. `parseType` reads `Int` and
+stops; `skipParens` skipped from there to the declaration's `)`, so
+`Bool` was discarded — and `h` was left *typed*, typed wrongly, with no
+diagnostic at the signature. The only report was at the call site:
+
+```
+E AX3004 s1.ax:5:17-18 type-mismatch
+  "type mismatch: expected function type, found Int"
+```
+
+which blames the caller for a defect in the declaration above it. That
+is the direction the old note said could not happen.
+
+### 11.3 The other two implementations already agreed
+
+The tree-sitter grammar's `type_signature` is `'(' [pub] '::' subject
+type ')'` — one type, then the closer — and both shapes above are ERROR
+nodes under it. The formatter refuses to rewrite either. This parser
+was the one implementation of the three that accepted them, and the
+gates could not see the disagreement because nothing compares a
+`.axbad` fixture's fate across the three.
+
+### 11.4 What it is now
+
+stage0's shape, both halves: `parse_sig` ran `parse_type()?` with the
+`?` propagating, and its caller then ran `expect(RParen)` on what was
+left (`axiom-parser/src/lib.rs:473` and :367). So a type this parser
+cannot read is that type's own parse error, and a type that does not
+reach the closer is `expected ), found \`Bool\`` — `expect`'s rendering
+of `TokenKind::RParen` verbatim. `skipParens` is gone from this path;
+the end position is one past the closer the check just proved is there.
+
+Measured blast radius before landing it: **231 `.ax` files and 94
+`.axbad`/`.axp` fixtures swept through the old and new compilers, zero
+divergences.** Nothing in the tree relied on the tolerance — which is
+also why nothing in the tree would have noticed it come back, and why
+`tests/diagnostics/980-sig-nullary-arrow.axbad` and
+`985-sig-trailing-type.axbad` are here.
+
+### 11.5 The same tolerance survives in two smaller places
+
+`parseEffectOps` and `parseAliasDecl` both parse a type
+opportunistically and keep `skipParens`' position, on the recorded
+argument that acceptance is unchanged and only `symbols` is the poorer.
+Probed, and still true of both:
+
+```
+(type N = (-> Int))            check: OK
+(effect E (op :: (-> Int)))    check: OK
+```
+
+They are left alone here because the checker genuinely does not consult
+either type — an effect operation keeps a deliberate wildcard, and an
+alias whose target did not parse falls back to the old skip. A
+signature is different: it is the checker's contract for a function,
+which is what made the same tolerance a wrong answer rather than a
+missing one.
