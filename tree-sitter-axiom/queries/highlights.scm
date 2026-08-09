@@ -23,6 +23,7 @@
 ; ---------------------------------------------------------------
 
 (comment) @comment
+(block_comment) @comment
 
 ; AXTAGs are agent-authored metadata that the compiler validates, not
 ; free-form prose. Highlighting them apart from comments is the point:

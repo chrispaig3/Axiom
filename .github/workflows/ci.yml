@@ -19,11 +19,11 @@ on:
     branches: [trunk]
   pull_request:
 
-env:
-  CARGO_TERM_COLOR: always
-  # A build that differs between two runs of the same source is a
-  # reproducibility bug; keep the environment from contributing to one.
-  RUSTFLAGS: -D warnings
+# No `env:` block. It used to set `CARGO_TERM_COLOR` and `RUSTFLAGS: -D
+# warnings`, both of which outlived the Rust compiler they configured -
+# nothing in this repository runs cargo, so `-D warnings` was a
+# reproducibility promise no job could keep or break. The property it
+# claimed is gated for real by `scripts/check-reproducible.sh`.
 
 jobs:
   # The cheap gate that fails first. It used to be `cargo fmt` and

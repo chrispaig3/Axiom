@@ -90,6 +90,16 @@ Whitespace (spaces, tabs, newlines) separates tokens. It is not significant beyo
 
 Line comments start with `;`. Block comments use `#| ... |#` and can nest arbitrarily.
 
+A block comment is trivia: it may sit between any two tokens, and its
+contents are not source. Nesting is counted, so the first `|#` closes
+only the innermost open comment. A block comment that is never closed
+runs to the end of the file and is not an error. A `#` that is not
+followed by `|` is `AX1001`, so `#` is not a comment character on its
+own.
+
+`;@axiom:` metadata is recognised only in a line comment. Inside a
+block comment it is comment text like anything else.
+
 ---
 
 ## Literals

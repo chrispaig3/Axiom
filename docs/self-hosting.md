@@ -4272,3 +4272,132 @@ Tag 29 (`TAG_D_FOREIGN`) is retired, not reused. The tag numbers are the
 AST's wire format between `parser.ax` and its four readers, and a
 recycled one turns a stale reader into a silent misparse rather than a
 crash.
+
+---
+
+## 10. The comment syntax three implementations had and the lexer did not
+
+`#| ... |#` block comments, which nest, are documented in `README.md`
+and `docs/reference.md` as part of the language. stage0 lexed them
+(`consume_block_comment`, `axiom-lexer/src/lib.rs:631`, dispatched at
+:159 on `ch == '#' && self.peek() == Some('|')`). `format.ax` scans
+them, with nesting, and its comment records that the depth counter was
+added after probing stage0. `tests/fmt/verify-fmt.py` — the independent
+verifier that reads no golden — scans them too, and its header records
+that `fmt` once shipped having deleted every one.
+
+`self_host/lexer.ax` had no case for `#` at all, so the first byte fell
+through to the unexpected-character arm. Measured on trunk `5f8d022`,
+on the example printed in both of those documents:
+
+```
+$ cat readme.ax
+#| This is a block comment.
+   They can nest: #| inner |# |#
+(:: main Int)
+(fn (main) 0)
+$ axiom check readme.ax
+E AX1001 readme.ax:1:1-2 unexpected-char "unexpected character `#`"
+```
+
+`CONTRIBUTING.md` said "There is no block comment, and no other language
+in the tree to have one." Two documents promising a feature and a third
+denying it is not a disagreement anything could report: each was read on
+its own.
+
+### 10.1 Why every gate was green
+
+No `.ax` file in the repository contained a block comment. `check-fmt.sh`
+formatted 229 of them and re-ran the suites on the result;
+`check-tree-sitter.sh` parsed the same 229 under the grammar; neither
+can see a construct the corpus does not use. This is the failure mode
+`tests/fmt/syntax-zoo.ax` exists for — "the corpus is written by people
+solving problems, so it uses only the constructs those problems need" —
+and the zoo did not have one either, because the zoo was written by
+someone reading the *parser*, and this is a *lexer* form.
+
+The one block comment in the tree is `tests/fmt/parity/110-nested-block-
+comment.axp`, a formatter fixture. It is formatted, not compiled, and
+what it pinned was that `fmt` leaves it alone:
+
+```
+$ axiom fmt case.ax   # exit 0 - "already formatted"
+$ axiom check case.ax # exit 1 - E AX1001
+```
+
+So the file that proved the formatter handled block comments was the
+same file that would have proved the compiler did not, and nothing ran
+the second half.
+
+### 10.2 The formatter verifies itself with its own scanner
+
+`fmtFormat` refuses to write unless the output rescans, keeps exactly
+the comments the input had, and is a fixed point of a second pass. All
+three run inside `format.ax`. `format.ax` has its own scanner by
+necessity — it needs the spans of `]`, `,`, `#| |#` and discarded
+comments, which the token stream does not carry — and that scanner is
+therefore a second implementation of the grammar, checked against
+nothing.
+
+`check-fmt-selfhost.sh` §5b closes it: **every formatted output is
+handed back to the compiler, and must carry no AX1xxx and no AX2xxx.**
+251 outputs: 231 files from the formatted copy of the tree, plus the
+20 of the 37 parity cases the formatter accepts. Type errors are
+allowed — the parity bank is full of programs about undefined names —
+and so is input the compiler would refuse, because migrating legacy
+spellings (`$` to `!`, `define` to `fn`) is the formatter's job. What
+it may never do is *emit* any.
+
+Ablated by running the new section against a compiler built from
+`5f8d022`: exit 1, one failure, `110-nested-block-comment.axp: its
+formatted output does not lex or parse`. The old §6 could not have
+found it — §6 compiles the formatted *tree*, and the tree has no block
+comment.
+
+### 10.3 What the lexer does now
+
+`isBlockOpen` is the two-byte test; `skipBlockComment` is stage0's loop,
+counting depth, stopping at EOF with no error (an unterminated block
+comment is a file whose tail is comment, which is what stage0 returned
+`Ok` for). Both are `while` loops rather than recursions, for the reason
+`scanAxtags` was rewritten as one: a stage1-built compiler eliminates
+only self tail calls, so a recursive byte-walk costs a frame per byte.
+Every call site guards on the byte it already holds, so ordinary source
+pays one integer comparison.
+
+`scanAxtags` skips block comments too, and has to: it is a second walk
+over the source, not a read of the token stream, so it carries the same
+obligation as its string and char arms. stage0 consumed a block comment
+before its `;` branch ever ran, so `#| ;@axiom:pure |#` was never a tag
+there. `tests/diagnostics/335-axtag-in-block-comment.ax` is that fact as
+a fixture: two identical functions with identical `pure` claims, one
+claim inside a block comment, and **one** AX3010 in the golden. A
+scanner that missed the block would report two.
+
+### 10.4 The grammar needed an external scanner
+
+Nesting is not a token any regular expression describes, and the obvious
+rule spelling disagrees with the compiler on input the compiler has an
+opinion about. `#| a||# |#` closes at the `|#` inside `a||#` under both
+`skipBlockComment` and stage0 — each tests `|` against the next byte and
+advances one when that byte is not `#`, so the second `|` starts a fresh
+test — while a chunk regex consumes `||` as one match and leaves a `#`
+that closes nothing.
+
+`tree-sitter-axiom/src/scanner.c` reproduces the loop instead. Verified
+against the compiler on that input: the grammar's `block_comment` node
+spans bytes 0–7, and `axiom check` reports AX1001 at column 10 — both
+end the comment in the same place and both refuse the file. Ablated by
+deleting the depth counter: the corpus fails exactly one case, the one
+that nests.
+
+### 10.5 What is not fixed
+
+`fmt` moves a comment that sits *inside* an expression to the end of the
+file. `tests/selfhost/170-block-comment.ax` records it, and it is not
+about block comments — a line comment in the same position moves the
+same way, and has for as long as the formatter has existed. The
+formatted file still parses, still preserves every comment byte, and
+still answers 55, so every property the gates state is intact; what is
+lost is where the reader put the note. Fixing it is comment attachment
+in the printer, which is a slice of its own.

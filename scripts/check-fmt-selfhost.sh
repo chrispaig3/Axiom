@@ -365,6 +365,63 @@ if ! python3 "$repo_root/tests/fmt/verify-fmt.py" "$work/pairs.txt"; then
 fi
 
 # ---------------------------------------------------------------
+# 5b. The formatted output is source THIS compiler can read.
+#
+# The formatter is a second implementation of the grammar, with its own
+# scanner (`format.ax` says so at the top: it needs the spans of things
+# the token stream discards). `fmtFormat`'s three-part verification -
+# rescan, comments preserved, fixed point - runs entirely inside that
+# second implementation. Nothing anywhere handed a formatted file back
+# to the LEXER, and the two disagreed for as long as the self-hosted
+# compiler has been the only one:
+#
+#   $ cat tests/fmt/parity/110-nested-block-comment.axp
+#   #| outer #| inner |# still |#
+#   (fn (f) 1)
+#   $ axiom fmt case.ax   -> exit 0, "already formatted"
+#   $ axiom check case.ax -> E AX1001 "unexpected character `#`"
+#
+# `#| ... |#` is documented in README.md and docs/reference.md, was
+# implemented by stage0, and is scanned by `format.ax` - and was refused
+# by `lexer.ax`, so `fmt` was blessing files the compiler could not
+# read. Section 6 below could not see it: it compiles the formatted
+# TREE, and no file in the tree has a block comment.
+#
+# Only AX1xxx and AX2xxx count. A formatted parity case may legitimately
+# not type-check - the bank is full of programs about undefined names -
+# but every one of them has to LEX and PARSE, whatever the formatter
+# accepted on the way in. That asymmetry is deliberate: `fmt` migrates
+# legacy spellings (`$` becomes `!`, `define` becomes `fn`), so it takes
+# input the compiler refuses on purpose. What it may never do is EMIT
+# any.
+# ---------------------------------------------------------------
+echo "== the formatted output lexes and parses =="
+unreadable=0; read_swept=0
+while read -r src out; do
+  [[ -f "$out" ]] || continue
+  read_swept=$((read_swept + 1))
+  # From the formatted copy of the tree, so an `(import Mem)` in a
+  # formatted corpus file resolves the same way section 6 resolves it.
+  axdl="$( (cd "$copy" && AXIOM_STDLIB="$copy/stdlib" \
+            "$axc" --diagnostic-format=ai check "$out") 2>&1 || true)"
+  if grep -qE '^[EW] AX[12][0-9]{3} ' <<<"$axdl"; then
+    echo "FAIL $(basename "$src"): its formatted output does not lex or parse"
+    grep -E '^[EW] AX[12][0-9]{3} ' <<<"$axdl" | head -2 | sed 's/^/     /'
+    unreadable=$((unreadable + 1))
+  fi
+done < "$work/pairs.txt"
+failed=$((failed + unreadable))
+# The floor is the usual one: this check reports silence, and a
+# `pairs.txt` that stopped being written would report the same silence
+# from zero files.
+if [[ $read_swept -lt 150 ]]; then
+  echo "FAIL: only $read_swept formatted outputs were re-read; the floor is 150"
+  failed=$((failed + 1))
+elif [[ $unreadable -eq 0 ]]; then
+  echo "ok   $read_swept formatted outputs carry no lexical or syntactic error"
+fi
+
+# ---------------------------------------------------------------
 # 6. Behaviour: the formatted tree still compiles, and the compiler it
 #    produces still formats the zoo to the golden.
 #

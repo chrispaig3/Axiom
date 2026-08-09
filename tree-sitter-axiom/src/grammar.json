@@ -3131,6 +3131,10 @@
     {
       "type": "SYMBOL",
       "name": "comment"
+    },
+    {
+      "type": "SYMBOL",
+      "name": "block_comment"
     }
   ],
   "conflicts": [
@@ -3152,7 +3156,12 @@
     ]
   ],
   "precedences": [],
-  "externals": [],
+  "externals": [
+    {
+      "type": "SYMBOL",
+      "name": "block_comment"
+    }
+  ],
   "inline": [],
   "supertypes": [
     "_declaration",

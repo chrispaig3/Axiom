@@ -242,7 +242,10 @@ fi
 # Row for row against the AXSYM the same run produced.
 tbl_bad="$(python3 - "$work/zoo.out" "$work/zoo.tbl" <<'PY'
 import re, sys
-KIND = {'F': 'Fn', 'X': 'Foreign', 'D': 'Data', 'C': 'Ctor',
+# One entry per arm of `symKindWord` in self_host/symbols.ax, and no
+# more: `X` (foreign binding) was retired with the FFI, and leaving it
+# here would have this rule spell a kind the compiler prints raw.
+KIND = {'F': 'Fn', 'D': 'Data', 'C': 'Ctor',
         'S': 'Struct', 'A': 'Alias', 'T': 'Trait'}
 axsym = [l for l in open(sys.argv[1], encoding='utf-8').read().split('\n') if l]
 table = [l for l in open(sys.argv[2], encoding='utf-8').read().split('\n') if l]

@@ -1,0 +1,20 @@
+; expect 55
+; `#| ... |#` is trivia: it may sit between any two tokens, it nests,
+; and its contents are not source. Two of the comments below hold text
+; that would not parse if it were read as code, and one holds a `|#`
+; that closes an inner comment rather than this one - so a scanner that
+; stopped at the first `|#` would leave `still comment |#` in the token
+; stream and this file would not parse at all.
+;
+; `fmt` moves a comment that sits INSIDE an expression to the end of
+; the file. That is not new here and is not about block comments - a
+; line comment in the same position moves the same way - so the
+; formatted copy of this file that `check-fmt.sh` builds still runs and
+; still answers 55.
+(:: main Int)
+(fn (main)
+  #| a comment before the body |#
+  (+ #| between the head and its first argument |#
+     50
+     #| nested: #| (fn (this) would not parse |# still comment |#
+     5))

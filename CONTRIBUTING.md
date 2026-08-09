@@ -326,8 +326,13 @@ Every diagnostic carries a stable code in the format `AX{stage}{number}`:
 
 ### Comments
 
-- Use `;` for line comments in Axiom source. There is no block comment,
-  and no other language in the tree to have one.
+- Use `;` for line comments in Axiom source. `#| ... |#` block comments
+  exist and nest, but nothing in this tree uses one: a commented-out
+  region is a region that no gate compiles, and the reason to reach for
+  a block comment is almost always to keep code that should be deleted.
+  This file used to claim there was no such thing, while `README.md` and
+  `docs/reference.md` documented it and the lexer refused it — see
+  `docs/self-hosting.md` §10.
 - Document public APIs with comments that explain *why*, not just *what*.
 
 ---

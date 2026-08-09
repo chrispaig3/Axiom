@@ -61,6 +61,16 @@ module.exports = grammar({
     /\s/,
     $.axtag,
     $.comment,
+    $.block_comment,
+  ],
+
+  // `#| ... |#` nests, and a nesting delimiter is not a token any
+  // regular expression can describe. `src/scanner.c` reproduces the
+  // compiler's `skipBlockComment` loop instead of approximating it -
+  // see the comment at the top of that file for the input where an
+  // approximation and the compiler disagree.
+  externals: $ => [
+    $.block_comment,
   ],
 
   // The word token must be the identifier rule itself, not a separate
@@ -165,6 +175,13 @@ module.exports = grammar({
     axtag: _ => token(seq(';@axiom:', /[^\r\n]*/)),
 
     comment: _ => token(seq(';', /[^\r\n]*/)),
+
+    // `block_comment` has no rule here on purpose: it is produced only
+    // by `src/scanner.c`. Giving it a body as well would hand the
+    // generated lexer a second, non-nesting way to match one - taken
+    // during error recovery, where it would close the comment at the
+    // first `|#` and disagree with the compiler exactly when the input
+    // is already confusing.
 
     // -----------------------------------------------------------------
     // Declarations

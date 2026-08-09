@@ -1,0 +1,95 @@
+================================================================
+line comment and block comment are separate nodes
+================================================================
+
+; a line comment
+#| a block comment |#
+(:: main Int)
+(fn (main) 0)
+
+----------------------------------------------------------------
+
+(source_file
+  (comment)
+  (block_comment)
+  (type_signature
+    (identifier)
+    (builtin_type))
+  (function_definition
+    (identifier)
+    (integer_literal)))
+
+================================================================
+a block comment nests, and the inner close does not end it
+================================================================
+
+#| outer #| inner |# still outer |#
+(:: main Int)
+(fn (main) 0)
+
+----------------------------------------------------------------
+
+(source_file
+  (block_comment)
+  (type_signature
+    (identifier)
+    (builtin_type))
+  (function_definition
+    (identifier)
+    (integer_literal)))
+
+================================================================
+a block comment is trivia anywhere a token may be
+================================================================
+
+(:: main Int)
+(fn (main) #| between the head and the body |# 0)
+
+----------------------------------------------------------------
+
+(source_file
+  (type_signature
+    (identifier)
+    (builtin_type))
+  (function_definition
+    (identifier)
+    (block_comment)
+    (integer_literal)))
+
+================================================================
+an AXTAG inside a block comment is comment, not metadata
+================================================================
+
+#| ;@axiom:pure |#
+(:: main Int)
+(fn (main) 0)
+
+----------------------------------------------------------------
+
+(source_file
+  (block_comment)
+  (type_signature
+    (identifier)
+    (builtin_type))
+  (function_definition
+    (identifier)
+    (integer_literal)))
+
+================================================================
+an unterminated block comment runs to the end of the file
+================================================================
+
+(:: main Int)
+(fn (main) 0)
+#| no closing delimiter
+
+----------------------------------------------------------------
+
+(source_file
+  (type_signature
+    (identifier)
+    (builtin_type))
+  (function_definition
+    (identifier)
+    (integer_literal))
+  (block_comment))

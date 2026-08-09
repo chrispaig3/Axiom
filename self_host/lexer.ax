@@ -77,7 +77,9 @@
                   (set p (+ p 1))
               (if (== ch 59)
                   (set p (skipLineComment src (+ p 1) len))
-                  (set go 0))))))
+              (if (&& (== ch 35) (isBlockOpen src p len))
+                  (set p (skipBlockComment src (+ p 2) len))
+                  (set go 0)))))))
       p
     }))
 
@@ -91,6 +93,56 @@
       (if (== (strByte src pos) 10)
           (+ pos 1)
           (skipLineComment src (+ pos 1) len))))
+
+; `#|` opens a block comment; a `#` that is not followed by `|` opens
+; nothing and is the AX1001 the fallthrough in `stepToken` reports.
+; stage0 made the same two-byte test (`ch == '#' && self.peek() ==
+; Some('|')`, axiom-lexer/src/lib.rs:159) and it is the whole reason a
+; bare `#` and a block comment can share a first byte.
+;
+; Every caller holds the byte at `pos` already and guards this call with
+; `(== ch 35)`, so the common byte - which is every byte of every source
+; file - costs one comparison and no call. `scanAxtags` is why that is
+; worth writing down: it walks one byte per step over every module the
+; compiler resolves.
+(pub :: isBlockOpen (-> Int Int Int Bool))
+(pub fn (isBlockOpen src pos len)
+  (&& (== (strByte src pos) 35)
+      (&& (< (+ pos 1) len) (== (strByte src (+ pos 1)) 124))))
+
+; Past the end of a `#| ... |#` block comment, including the closing
+; delimiter. `pos` is just past the opening `#|`.
+;
+; NESTING, which is what makes this a scan and not a `find`: stage0's
+; `consume_block_comment` counts depth, so `#| a #| b |# c |#` is ONE
+; comment and the middle `|#` does not end it. `format.ax` has carried
+; a nesting scanner for this since it was written; this lexer never
+; had one, so the compiler refused - as AX1001 on the `#` - every file
+; the formatter was happy to rewrite.
+;
+; UNTERMINATED runs to the end of the source and is not an error, which
+; is also stage0 (its loop's guard is `pos < len && depth > 0`, and it
+; returns `Ok` either way). A file ending inside a block comment is
+; therefore a file whose tail is comment, not a diagnostic.
+;
+; A LOOP, not a recursion, for the reason every other byte-walk in this
+; file is one: depth here is source length, and a stage1-built compiler
+; eliminates only SELF tail calls, so a recursive spelling costs a
+; frame per byte of comment.
+(pub :: skipBlockComment (-> Int Int Int Int))
+(pub fn (skipBlockComment src pos len)
+  (let ((mut p pos)
+        (mut depth 1))
+    {
+      (while (&& (< p len) (> depth 0))
+        (if (isBlockOpen src p len)
+            { (set p (+ p 2)) (set depth (+ depth 1)) }
+        (if (&& (== (strByte src p) 124)
+                (&& (< (+ p 1) len) (== (strByte src (+ p 1)) 35)))
+            { (set p (+ p 2)) (set depth (- depth 1)) }
+            (set p (+ p 1)))))
+      p
+    }))
 
 ; ------------------------------------------------------------------
 ; Emit a token.
@@ -351,11 +403,16 @@
       (+ pos 1)
 (if (== ch 59)
       (skipWhitespace src pos len)
+(if (&& (== ch 35) (isBlockOpen src pos len))
+      ; `#|` is a comment, not a token: it produces nothing and answers
+      ; the position past its close, exactly as the `;` arm does.
+      (skipBlockComment src (+ pos 2) len)
       ; A byte no arm above claims. This was `(+ pos 1)` - the byte
       ; vanished, and the token stream that came out was the stream for
       ; a different program, with no diagnostic anywhere. stage0 refuses
-      ; it as AX1001.
-      { (emitToken TK_ERROR pos (+ pos 1) tokens src) (+ pos 1) })))))))))))))))))
+      ; it as AX1001. A bare `#` still lands here; only `#|` is claimed
+      ; by the arm above.
+      { (emitToken TK_ERROR pos (+ pos 1) tokens src) (+ pos 1) }))))))))))))))))))
 
 ; A character literal, following stage0's `consume_char`
 ; (axiom-lexer/src/lib.rs:546) step for step, because the ORDER of its
@@ -471,6 +528,12 @@
               (set pos (skipStringBody src (+ pos 1) len))
           (if (== ch 39)
               (set pos (skipCharBody src (+ pos 1) len))
+          (if (&& (== ch 35) (isBlockOpen src pos len))
+              ; The same obligation as the string and char arms above,
+              ; and for the same reason: stage0 consumes a block comment
+              ; before its `;` arm ever runs, so `#| ;@axiom:pure |#` is
+              ; a comment there and must not become a tag here.
+              (set pos (skipBlockComment src (+ pos 2) len))
           (if (== ch 59)
               (let ((nl (findNewline src pos len)))
                 {
@@ -482,7 +545,7 @@
                       0)
                   (set pos nl)
                 })
-              (set pos (+ pos 1)))))))
+              (set pos (+ pos 1))))))))
       acc
     }))
 

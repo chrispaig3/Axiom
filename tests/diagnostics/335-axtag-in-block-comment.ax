@@ -1,0 +1,21 @@
+; A `;@axiom:` line inside a `#| ... |#` block comment is comment text,
+; not metadata. The lexer's AXTAG pass is a SECOND walk over the source
+; - it does not read the token stream - so it has to skip exactly what
+; tokenization skips, and a block comment is now one of those things.
+;
+; The two functions below are the same function twice: same body, same
+; `pure` claim, same contradiction. The only difference is that one
+; claim is inside a block comment. Exactly one AX3010 is correct. A
+; scanner that missed the block comment would report two, at different
+; lines, which is what makes this a fixture and not a file with an
+; empty golden.
+(:: quiet (-> Int Int))
+#|
+;@axiom:pure
+|#
+(fn (quiet fd) { (__syscall3 1 fd 0 0) 0 })
+(:: loud (-> Int Int))
+;@axiom:pure
+(fn (loud fd) { (__syscall3 1 fd 0 0) 0 })
+(:: main Int)
+(fn (main) 0)
