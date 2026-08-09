@@ -1556,14 +1556,15 @@
                       1
                       {
                         (emitDiag tc
-                          (mkDiag SEV_ERROR "AX3013" "partial-application"
+                          (mkDiagNote SEV_ERROR "AX3013" "partial-application"
                                   span
                                   (strConcat (strConcat (strConcat (strConcat
                                     "partial application of `" name)
                                     "`: it takes ") (decStr ar))
                                     " argument(s) and 0 were supplied")
                                   0 0
-                                  "bind the missing arguments with a lambda: `(lambda (y) (f x y))` builds the value `(f x)` would mean"))
+                                  "bind the missing arguments with a lambda: `(lambda (y) (f x y))` builds the value `(f x)` would mean"
+                                  "a partial application has to hold the arguments it was not given, and a top-level function has no closure record to hold them in"))
                         1
                       })
                   0)))
@@ -1828,14 +1829,15 @@
                                   0
                                   {
                                     (emitDiag tc
-                                      (mkDiag SEV_ERROR "AX3013" "partial-application"
+                                      (mkDiagNote SEV_ERROR "AX3013" "partial-application"
                                               (nodeSpan head)
                                               (strConcat (strConcat (strConcat (strConcat (strConcat
                                                 "partial application of `" hname)
                                                 "`: it takes ") (decStr ar))
                                                 " argument(s) and ") (strConcat (decStr got) " were supplied"))
                                               0 0
-                                              "bind the missing arguments with a lambda: `(lambda (y) (f x y))` builds the value `(f x)` would mean"))
+                                              "bind the missing arguments with a lambda: `(lambda (y) (f x y))` builds the value `(f x)` would mean"
+                                              "a partial application has to hold the arguments it was not given, and a top-level function has no closure record to hold them in"))
                                     (checkSpineArgsOnly tc e)
                                     1
                                   }))))

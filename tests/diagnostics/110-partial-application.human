@@ -4,6 +4,7 @@ error[AX3013]: partial application of `add`: it takes 2 argument(s) and 1 were s
 4 | (fn (main) (add 1))
   |             ^^^
   |
+  = note: a partial application has to hold the arguments it was not given, and a top-level function has no closure record to hold them in
   = help: bind the missing arguments with a lambda: `(lambda (y) (f x y))` builds the value `(f x)` would mean
   = help: run `axiom explain AX3013` for a full explanation
 

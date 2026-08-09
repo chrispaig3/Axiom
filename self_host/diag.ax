@@ -210,6 +210,17 @@
 (pub fn (mkDiagFix sev code slug span msg relSpan relMsg help fixSpan fixText)
   (mkDiagFix2 sev code slug span msg relSpan relMsg help fixSpan fixText 0))
 
+; `mkDiag` plus one note. A NOTE is a fact about why the program is
+; wrong; a HELP is an action that would make it right. The distinction
+; is rustc's and it is worth keeping: a reader who already knows what to
+; do skips the help, and a reader who does not understand the refusal
+; needs the note. AXDL renders them as separate fields and the human
+; renderer as separate lines, so the two never have to be crammed into
+; one sentence.
+(pub :: mkDiagNote (-> Int Int Int Int Int Int Int Int Int Int))
+(pub fn (mkDiagNote sev code slug span msg relSpan relMsg help note)
+  (diagAddNote (mkDiag sev code slug span msg relSpan relMsg help) note))
+
 (pub :: mkDiagFix2 (-> Int Int Int Int Int Int Int Int Int Int Int Int))
 (pub fn (mkDiagFix2 sev code slug span msg relSpan relMsg help fixSpan fixText help2)
   (let ((d (mkDiagBase sev code slug span msg)))

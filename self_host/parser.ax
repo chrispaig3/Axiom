@@ -322,6 +322,13 @@
                        "hand-written code does not reach this limit, generated code can"))))
       {
         (diagSetLabel d (strConcat (strConcat "nesting reaches " lim) " levels here"))
+        ; Why the limit exists at all, which the help does not say: the
+        ; parser walks the form tree recursively, so nesting depth IS
+        ; native stack depth, and the alternative to refusing here is
+        ; the SIGSEGV this check was added to prevent.
+        (diagAddNote d (strConcat
+          "the parser walks the form tree recursively, so nesting depth is "
+          "native stack depth"))
         d
       })))
 

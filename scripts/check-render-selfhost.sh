@@ -1239,8 +1239,12 @@ floor_fail() {
 # writing down rather than an omission: each is raised by the step that
 # starts emitting the field, and a floor still sitting at 0 afterwards is
 # the signal that the renderer and the gate went out of step.
-#   f_note  - AXDL `!"..."` and `&"..."`, notes and expansion frames
-[[ "$f_note"  -lt 0 ]] && floor_fail "note-line equality"                "$f_note"     0
+# Notes: AX3013 explains why a partial application cannot be held, and
+# AX2005 why the nesting limit exists. `&` expansion frames have no
+# producer and will not until macro expansion reports through
+# diagnostics, so nothing here counts one - tests/selfhost/645 is what
+# renders that field.
+[[ "$f_note"  -lt 4 ]] && floor_fail "note-line equality"                "$f_note"     4
 
 # The label family is off 0: AX2005 carries one, which is what proved
 # the `#` field end to end - through the record, the AXDL line, the
