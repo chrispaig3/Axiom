@@ -1,12 +1,30 @@
-# Diagnostic parity corpus
+# Diagnostic corpus
 
-Each `NAME.ax` is a program that should draw a diagnostic, and
-`NAME.axdl` is the AXDL both compilers must produce for it, byte for
-byte. `scripts/check-diagnostics.sh` asserts
+Each `NAME.ax` (or `NAME.axbad`, for a case that deliberately does not
+parse) is a program that should draw a diagnostic. Three goldens sit
+beside it:
 
-    golden == stage0 == stage1
+| File | Surface | Gate |
+|---|---|---|
+| `NAME.axdl` | AXDL, one line per diagnostic | `scripts/check-diagnostics.sh` |
+| `NAME.human` | the rendered report, colour and all | `scripts/check-render-selfhost.sh` |
+| `NAME.json` | JSON Lines, one object per diagnostic | same |
 
-which is self-hosting phase 3's acceptance criterion (`docs/self-hosting.md`).
+This asserted `golden == stage0 == stage1` until the Rust compiler was
+deleted. A differential does not fail when its reference disappears -
+point it at a self-hosted binary and every comparison becomes a compiler
+against itself - so the third leg was replaced rather than repointed.
+Each gate now has a half that reads a DIFFERENT artifact and that a
+re-bless therefore cannot satisfy:
+
+* `verify-axdl-spans.py` recomputes every span claim from the fixture's
+  own bytes;
+* `verify-json.py` reconstructs every JSON field from `NAME.axdl` and
+  the fixture;
+* the render gate derives the exit status, the heading, the caret
+  geometry and every quoted source row from `NAME.axdl` and the fixture,
+  and checks the escape stream against the palette the compiler
+  declares.
 
 ## The layout of these files is load-bearing
 

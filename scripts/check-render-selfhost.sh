@@ -1222,12 +1222,12 @@ fi
 # for). Same for the derived halves: if the AXDL parse ever stops
 # producing facts, every per-case assertion becomes vacuously true and
 # the gate goes green while checking one `cmp` per case.
-if [[ "$cases" -lt 38 ]]; then
-  echo "FAIL: swept $cases cases; the floor is 38"
+if [[ "$cases" -lt 54 ]]; then
+  echo "FAIL: swept $cases cases; the floor is 54"
   failed=$((failed + 1))
 fi
-if [[ "$rows" -lt 80 ]]; then
-  echo "FAIL: only $rows snippet rows were checked against fixture bytes; the floor is 80"
+if [[ "$rows" -lt 100 ]]; then
+  echo "FAIL: only $rows snippet rows were checked against fixture bytes; the floor is 100"
   failed=$((failed + 1))
 fi
 
@@ -1237,8 +1237,10 @@ fi
 # assertions (a broken field parser, an AXDL quoting change) and leave
 # 528, comfortably green, with the headline check evaporated. Today's
 # counts over the 52-case corpus, measured 2026-08-08:
-#   block  208   head  86   loc  86   msg  78   caret  172   dash  101
-#            (gutter 101, and 101 source rows in check 4)
+#   block  224   head  90   loc  90   msg  81   caret  180   dash  105
+#            (gutter 105, and 105 source rows in check 4)
+# plus the families this series added: label 74, note 4, fix 8, and
+# esc 3087 escape sequences over the 56 coloured goldens.
 # `msg` is the helps and the related notes; the 86 primary messages are
 # asserted by the heading equality and counted under `head`, which is
 # why that family shrank from 164 while gaining an anchor at both ends.
@@ -1248,13 +1250,13 @@ floor_fail() {
   echo "FAIL: only $2 $1 assertions were made; the floor is $3 - that family stopped matching, which is not the same as nothing being wrong"
   failed=$((failed + 1))
 }
-[[ "$f_block"  -lt 190 ]] && floor_fail "block-shape and severity-count" "$f_block"  190
-[[ "$f_head"   -lt  80 ]] && floor_fail "heading-equality"               "$f_head"    80
-[[ "$f_loc"    -lt  80 ]] && floor_fail "location-equality"              "$f_loc"     80
-[[ "$f_msg"    -lt  70 ]] && floor_fail "help/related-text equality"     "$f_msg"     70
-[[ "$f_caret"  -lt 160 ]] && floor_fail "caret-row equality and count"   "$f_caret"  160
-[[ "$f_dash"   -lt  90 ]] && floor_fail "dash-row equality and count"    "$f_dash"    90
-[[ "$f_gutter" -lt  90 ]] && floor_fail "snippet-gutter"                 "$f_gutter"  90
+[[ "$f_block"  -lt 215 ]] && floor_fail "block-shape and severity-count" "$f_block"  215
+[[ "$f_head"   -lt  86 ]] && floor_fail "heading-equality"               "$f_head"    86
+[[ "$f_loc"    -lt  86 ]] && floor_fail "location-equality"              "$f_loc"     86
+[[ "$f_msg"    -lt  78 ]] && floor_fail "help/related-text equality"     "$f_msg"     78
+[[ "$f_caret"  -lt 176 ]] && floor_fail "caret-row equality and count"   "$f_caret"  176
+[[ "$f_dash"   -lt 100 ]] && floor_fail "dash-row equality and count"    "$f_dash"   100
+[[ "$f_gutter" -lt 100 ]] && floor_fail "snippet-gutter"                 "$f_gutter" 100
 
 # Three families whose AXDL field no diagnostic emits yet. Their floors
 # are 0 BECAUSE the corpus produces none of them, which is a fact worth

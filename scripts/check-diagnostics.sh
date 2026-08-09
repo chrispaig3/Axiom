@@ -554,8 +554,8 @@ fi
 # debugging aid and is expected to read one case.
 # ---------------------------------------------------------------
 if [[ -z "$filter" ]]; then
-  if (( cases < 45 )); then
-    echo "FAIL: only $cases corpus cases ran (expected ~52) - the glob stopped matching"
+  if (( cases < 54 )); then
+    echo "FAIL: only $cases corpus cases ran (expected ~56) - the glob stopped matching"
     failed=$((failed + 1))
   fi
   # An exit-status column of all one value distinguishes nothing: it
@@ -568,8 +568,8 @@ if [[ -z "$filter" ]]; then
   # The colourless assertion is made per case and counted, so that it
   # cannot evaporate the way a check wired to a glob that stopped
   # matching does.
-  if (( colorless < 45 )); then
-    echo "FAIL: only $colorless run(s) were checked for ANSI escapes (expected ~52)"
+  if (( colorless < 54 )); then
+    echo "FAIL: only $colorless run(s) were checked for ANSI escapes (expected ~56)"
     failed=$((failed + 1))
   fi
 fi

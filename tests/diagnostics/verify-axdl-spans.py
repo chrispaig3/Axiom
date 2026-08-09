@@ -87,15 +87,15 @@ IDENT_CH = re.compile(r"[^\W]|'", re.UNICODE)
 
 ESCAPES = {'n': '\n', 't': '\t', 'r': '\r', '\\': '\\', '"': '"', "'": "'", '0': '\0'}
 
-# Floors, all well under what the corpus produces today (52 goldens,
-# 109 claims, 87 anchored, 25 codes). A verifier that reads nothing
-# reports the same silence as one that verifies everything, and the
-# reason this gate needs floors at all is that its predecessor's sweep
-# once read zero files and passed.
-MIN_GOLDENS = 45
-MIN_CLAIMS = 90
-MIN_ANCHORED = 75
-MIN_CODES = 15
+# Floors, all under what the corpus produces today: 56 goldens, 113
+# claims, 90 anchored, 26 codes. A verifier that reads nothing reports
+# the same silence as one that verifies everything, and the reason this
+# gate needs floors at all is that its predecessor's sweep once read
+# zero files and passed.
+MIN_GOLDENS = 54
+MIN_CLAIMS = 108
+MIN_ANCHORED = 86
+MIN_CODES = 24
 
 
 def read_string(text, i):

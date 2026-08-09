@@ -70,21 +70,20 @@ type as "already explained, don't check again" (`is_error()` guards at
 every type-mismatch construction site in `self_host/typecheck.ax`). This is the actual,
 exercised mechanism behind every cascade fix today.
 
-Separately, `Diagnostic` also supports tagging a diagnostic with a
-`group` key via `.with_group(...)`, and [`axiom_errors::dedup`] drops
-every diagnostic after the first one in a given group before anything is
-rendered. This is generic plumbing for a *different* kind of cascade -
-one where a truly separate `Diagnostic` was already constructed and needs
-suppressing after the fact, rather than being prevented from firing in
-the first place - and is not currently used by any lexer/parser/sema call
-site (poisoning covers the one cascade case that exists today, so nothing
-needs it yet). It's kept because a purely span/type-based guard isn't
-always available (e.g. two diagnostics from unrelated compiler stages that
-are nonetheless both consequences of the same root cause); reach for it
-only when you have a concrete cascade that poisoning/guards can't prevent,
-and give the group key enough specificity that it can't accidentally merge
-two genuinely distinct errors (e.g. never group solely by diagnostic code -
-two different undefined variables must not collapse into one report).
+The Rust compiler additionally carried a `group` key and an
+`axiom_errors::dedup` pass that dropped every diagnostic after the first
+in a group. It had no call sites - poisoning covered the one cascade
+that exists - so it was a no-op for the whole life of that compiler, and
+it was not carried across when the crate was deleted. If a cascade ever
+turns up that poisoning and span guards cannot prevent, that is when to
+build it; the lesson from the Rust version is to build it with a call
+site rather than ahead of one.
+
+The second suppression that IS exercised is spanlessness: a node with no
+span suppresses its diagnostic rather than pointing it somewhere wrong.
+There are thirteen `span == 0` guards in `self_host/typecheck.ax` and
+they are the reason a diagnostic never lands on line 1 column 1 by
+accident.
 
 Concretely, poisoning today makes this:
 
@@ -98,26 +97,43 @@ three.
 
 ## Human format (`--diagnostic-format=human`, default)
 
-Rust-style reports: the offending line is quoted, the exact span is
-underlined, and a code + slug + message + suggestion are shown. Example:
+rustc-flavored reports: the offending line is quoted, the exact span is
+underlined and labelled, and a code, a message, any notes and every help
+are shown.
 
 ```
-error: [AX3001] undefined variable `foo`
-   ╭─[main.ax:3:4]
-   │
- 3 │   (foo 1 2)
-   │    ─┬─
-   │     ╰── no binding named `foo` in scope
-   │
-   │ Help: run `axiom explain AX3001` for a full explanation
-───╯
+error[AX3001]: undefined variable `foo`
+ --> main.ax:3:4
+  |
+3 |   (foo 1 2))
+  |    ^^^ no binding named `foo` in scope
+  |
+  = help: variables must be defined (via `define`/`fn`, a `let` binding, or a lambda parameter) before they are used; check for typos
+  = help: run `axiom explain AX3001` for a full explanation
+
+compilation failed due to 1 previous error
 ```
 
-Unlike the pre-1.0 renderer, the header line number is now computed from
-the actual primary span (it used to be hardcoded to `1:1` no matter where
-the error was), and every span is clamped into valid file bounds so
-"unexpected end of file" errors still show the last real line instead of
-rendering blank.
+**The real output is coloured** - severity and carets in the severity's
+colour, the gutter blue, the `= help:` marker green - and always is,
+including when stderr is redirected. Shown plain here because a markdown
+code fence is not a terminal. The palette is one table in
+`self_host/style.ax`.
+
+Notes on the layout, all of them things the renderer is checked on:
+
+* **Columns count characters, not bytes**, so a caret under a line
+  containing an em dash lands where the eye expects. Tabs expand to the
+  next multiple of four, and the caret is placed in DISPLAY columns
+  while the `-->` line keeps the character column AXDL reports - those
+  are different numbers on a tab-indented line and both are right.
+* **A line wider than 160 columns is quoted as a window**, 20 columns
+  before the span, marked `...` on whichever side was elided.
+* **Every help renders.** The header line number comes from the primary
+  span, and a span past end of file is clamped so "unexpected end of
+  file" shows the last real line instead of rendering blank.
+* **A machine-applicable fix shows its replacement**, after `~>` - the
+  same notation AXDL uses for the same fact.
 
 ## AI-optimized notation (`--diagnostic-format=ai`)
 
@@ -146,22 +162,41 @@ an LLM agent burns reading compiler output. The design rationale:
 ### Grammar
 
 ```
-<SEV> <CODE> <FILE>:<LOC> <SLUG> "<MESSAGE>" [^<LOC>:"<related>"]* [!"<note>"]* [?<field>]*
+<SEV> <CODE> <FILE>:<LOC> <SLUG> "<MESSAGE>" [#"<label>"]
+     [^<LOC>:"<related>"]* [!"<note>"]* [?<field>]* [&"<frame>"]*
 ```
 
 | Field | Meaning |
 |---|---|
-| `SEV` | One of `E` (error), `W` (warning), `N` (note), `H` (help) |
+| `SEV` | `E` (error) or `W` (warning). See the note below on `N` and `H`. |
 | `CODE` | Stable code, e.g. `AX3001` |
 | `FILE:LOC` | `file:line:col` or `file:line:col-col` or `file:line:col-line:col` |
 | `SLUG` | kebab-case, wording-independent diagnostic kind |
 | `"MESSAGE"` | Quoted human message (still present - codes alone don't carry the specific name/type involved) |
+| `#"label"` | The primary span's own label, the sentence the human renderer prints after the carets. Absent when it would only repeat the message. |
 | `^LOC:"msg"` | A secondary/related span, e.g. the other side of a type mismatch |
-| `!"note"` | An additional note |
+| `!"note"` | An additional note: a fact about why the program is wrong, as against a help, which is an action that would make it right |
 | `?"msg"` or `?LOC:"msg"~>"replacement"` | A help suggestion; the `~>` form is machine-applicable |
+| `&"frame"` | One frame of the expansion backtrace, outermost first |
+
+Every field marked `*` repeats. Fields appear in exactly the order
+above, and a consumer that meets one it does not know should fail rather
+than skip it - `tests/diagnostics/verify-axdl-spans.py` does, and that
+is how the `!` field was found to be documented in three places and
+implemented in none.
+
+`N` and `H` are reserved as severities and are not emitted: every
+diagnostic this compiler builds is an error or a warning, and a note or
+a help is a FIELD of one rather than a diagnostic of its own.
+
+`&` has no producer yet. Macro expansion does not report through
+diagnostics (docs/v1-roadmap.md records the backtrace as part of that
+work), so the field is rendered only by
+`tests/selfhost/645-axdl-repetition`, which builds one diagnostic
+carrying two of every repeating field and pins the whole line.
 
 **Severity decides the exit status.** Only `E` fails a build: a run that
-produces nothing but `W`, `N` and `H` still exits zero, and the summary
+produces nothing but `W` still exits zero, and the summary
 line counts errors alone, so one error alongside one warning is reported
 as "1 previous error". Warnings are printed either way — on the failing
 path they appear next to the errors, because not failing a build must
