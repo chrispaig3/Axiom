@@ -162,6 +162,42 @@ else
   bad "a failing cc (rc=$rc, blamed: $(head -1 f3.log))"
 fi
 
+# The two cases below are the only ones that REPLACE `PATH` rather than
+# prepending to it, and a `PATH` that holds nothing but the tools under
+# test withholds one more thing by accident: the C compiler's own.
+#
+# Apple's `cc` reaches the linker through an absolute path inside its
+# toolchain, so darwin never noticed. GNU `cc` runs `collect2`, which
+# looks for `ld` on `PATH` - so on both Linux targets these two cases
+# failed with
+#
+#     collect2: fatal error: cannot find 'ld'
+#     error[AX4003]: cc failed
+#
+# and the gate read the C toolchain coming apart as the driver's own
+# failure. The driver was right in both: the `opt` case printed its
+# warning first, which is the assertion, and then died on the link.
+#
+# Linking these in withholds nothing this script is testing. `opt` is
+# still absent from the first case and all three tools are still absent
+# from the empty first entry of the second; what is restored is only
+# what `cc` needs to be `cc`.
+# Says so when it cannot find one, rather than quietly reproducing the
+# defect it exists to prevent: a linker named `ld.lld` on some future
+# runner image would take these two cases straight back to `cc failed`
+# with nothing on screen to say why.
+link_cc_support() {
+  local t p
+  for t in ld as; do
+    if p="$(command -v "$t")"; then
+      ln -sf "$p" "$1/$t"
+    else
+      echo "note: no \`$t\` on PATH; \`cc\` may not be able to link in $1" >&2
+    fi
+  done
+  return 0
+}
+
 # A `PATH` with llc and cc but no `opt`: must still build, must warn.
 # stage2 compiling its own source needs opt's tail-call pass, so this
 # has to be survivable rather than silently skipped or fatal.
@@ -169,6 +205,7 @@ mkdir -p only
 for t in llc cc; do
   p="$(command -v $t)" && ln -sf "$p" "only/$t"
 done
+link_cc_support only
 PATH="$work/only" "$s1" build --input hello.ax --output f2 >f2.log 2>&1; rc=$?
 if [[ $rc == 0 ]] && [[ -x f2 ]] && [[ "$(./f2)" == "driver-ok" ]] \
    && grep -q 'opt' f2.log; then
@@ -200,6 +237,7 @@ mkdir -p empty late
 for t in llc cc opt; do
   p="$(command -v $t)" && ln -sf "$p" "late/$t"
 done
+link_cc_support late
 PATH="$work/empty:$work/late" "$s1" build --input hello.ax --output f4 >f4.log 2>&1; rc=$?
 if [[ $rc == 0 ]] && [[ -x f4 ]] && [[ "$(./f4)" == "driver-ok" ]]; then
   ok "the tool search passes a PATH entry that does not have the tool"
