@@ -1,0 +1,1 @@
+{"severity":"warning","code":"AX3010","slug":"axtag-mismatch","message":"AXTAG mismatch on `emit`: `pure` claim contradicted: body performs Alloc, IO","file":"340-axtag-pure-io.ax","span":{"start":{"line":3,"col":6},"end":{"line":3,"col":10},"char_start":41,"char_end":45},"label":"","related":[],"notes":[],"help":[],"expansion":[]}

@@ -1,0 +1,1 @@
+E AX2005 920-nesting-too-deep.ax:1025:1-2 recursion-limit "nesting is too deep (limit is 1024)" #"nesting reaches 1024 levels here" ?"rewrite the form as a `let` chain, a `{}` block, or a balanced tree; hand-written code does not reach this limit, generated code can"

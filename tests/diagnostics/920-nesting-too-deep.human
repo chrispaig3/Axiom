@@ -1,0 +1,10 @@
+error[AX2005]: nesting is too deep (limit is 1024)
+    --> 920-nesting-too-deep.ax:1025:1
+     |
+1025 | (+ 1
+     | ^ nesting reaches 1024 levels here
+     |
+     = help: rewrite the form as a `let` chain, a `{}` block, or a balanced tree; hand-written code does not reach this limit, generated code can
+     = help: run `axiom explain AX2005` for a full explanation
+
+compilation failed due to 1 previous error

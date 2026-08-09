@@ -1239,10 +1239,14 @@ floor_fail() {
 # writing down rather than an omission: each is raised by the step that
 # starts emitting the field, and a floor still sitting at 0 afterwards is
 # the signal that the renderer and the gate went out of step.
-#   f_label - AXDL `#"..."`, the primary label
 #   f_note  - AXDL `!"..."` and `&"..."`, notes and expansion frames
-[[ "$f_label" -lt 0 ]] && floor_fail "primary-label equality"            "$f_label"    0
 [[ "$f_note"  -lt 0 ]] && floor_fail "note-line equality"                "$f_note"     0
+
+# The label family is off 0: AX2005 carries one, which is what proved
+# the `#` field end to end - through the record, the AXDL line, the
+# JSON object and the caret row - before the step that gives one to
+# every other diagnostic.
+[[ "$f_label" -lt 1 ]] && floor_fail "primary-label equality"            "$f_label"    1
 
 # The escape family is NOT one of those. Two of its assertions - no
 # escape after a snippet's gutter bar, none on the trailer - are made

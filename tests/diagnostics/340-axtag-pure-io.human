@@ -1,0 +1,8 @@
+warning[AX3010]: AXTAG mismatch on `emit`: `pure` claim contradicted: body performs Alloc, IO
+ --> 340-axtag-pure-io.ax:3:6
+  |
+3 | (fn (emit fd) { (__syscall3 1 fd 0 0) (alloc Int 1) })
+  |      ^^^^
+  |
+  = help: run `axiom explain AX3010` for a full explanation
+

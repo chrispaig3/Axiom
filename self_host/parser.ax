@@ -278,6 +278,14 @@
 (pub :: pErrRemoved (-> Int Int Int))
 (pub fn (pErrRemoved p kw) (PResult 0 0 p kw "AX2004"))
 
+; A failure that names its own code and expects nothing - AX2005 is the
+; one, refused before any expectation exists to record. A constructor
+; rather than a bare `(PResult ...)` at the call site for the reason the
+; three above are: the struct's type is not `Int`, and every caller here
+; is in a position that wants one.
+(pub :: pErrCode (-> Int Int Int))
+(pub fn (pErrCode p c) (PResult 0 0 p "" c))
+
 ; The diagnostic for a failed parse, from the failure's token position.
 ;
 ; Before this, a parse failure was a bare `parse failed` on stderr and
@@ -298,10 +306,35 @@
 ;           than as an AX2001 with an empty noun in it: an honest
 ;           weaker code beats a well-formed lie, and it shrinks as
 ;           sites are taught.
+; AX2005, whose message, label and help are stage0's own wording. The
+; limit renders from `parseMaxDepth` rather than being spelled out, so
+; the constant and the sentence about it cannot drift.
+(pub :: ax2005Diag (-> Int Int Int))
+(pub fn (ax2005Diag tokens pos)
+  (let ((tok (vecGet tokens pos))
+        (lim (decStr parseMaxDepth)))
+    (let ((d (mkDiag SEV_ERROR "AX2005" "recursion-limit"
+                     (tokenSpan tok)
+                     (strConcat (strConcat "nesting is too deep (limit is " lim) ")")
+                     0 ""
+                     (strConcat
+                       "rewrite the form as a `let` chain, a `{}` block, or a balanced tree; "
+                       "hand-written code does not reach this limit, generated code can"))))
+      {
+        (diagSetLabel d (strConcat (strConcat "nesting reaches " lim) " levels here"))
+        d
+      })))
+
 (pub :: parseErrDiag (-> Int Int Int Int))
 (pub fn (parseErrDiag tokens r src)
   (let ((pos (memGetWord r 2))
         (exp (pResExp r)))
+   ; Tested on the CODE rather than inferred from the position: the
+   ; overflow token is always a real `(`, so every test below would step
+   ; over it and report AX2003. An explicit code beats an inference that
+   ; happens to be unreachable.
+   (if (strEq (pResCode r) "AX2005")
+    (ax2005Diag tokens pos)
     ; AX2002 is NOT "the position is at EOF" - stage0 emits it from
     ; exactly one routine, the one that demands a SPECIFIC token kind
     ; (`expect(RParen)` and friends), and reports AX2001 with a found
@@ -333,7 +366,7 @@
                                             (strConcat (foundText tok) "`")))
                       0 ""
                       (strConcat (strConcat "Axiom expected " exp)
-                                 " at this position"))))))))
+                                 " at this position")))))))))
 
 ; The diagnostic for a LEXICAL error, or 0 when the token stream has
 ; none. Lexing happens before parsing, so this is asked first and a
@@ -2454,12 +2487,13 @@
 ; It is deliberately NOT exact agreement with stage0's counter, which
 ; counts parse recursion rather than delimiters; the two coincide on
 ; every nesting form the grammar has, and where they might not, both
-; compilers still refuse. What stage1 does not yet do is SAY AX2005:
-; its parser carries no diagnostic payload, so this is a bare refusal
-; and main.ax's `parse failed` (exit 2, against stage0's exit 1 for
-; the same input). Both refuse, which is the parity standard this
-; project uses where exit codes legitimately differ; the code and the
-; span arrive with the parse-error port.
+; compilers still refuse.
+;
+; It used to be a BARE refusal - `pErr 0`, reported by main.ax as
+; `parse failed` with exit 2 against stage0's coded, spanned AX2005 and
+; exit 1 - on the grounds that the parser carried no diagnostic payload.
+; It carries one now (`PResult`'s `code` slot, added by the parse-error
+; port), so the refusal says which token it is refusing and why.
 ; ------------------------------------------------------------------
 (pub :: parseMaxDepth Int)
 (pub fn (parseMaxDepth) 1024)
@@ -2492,16 +2526,45 @@
       best
     }))
 
+; The index of the opening delimiter that first takes nesting past
+; `limit`, or -1 when nothing does. The same walk `maxNestDepth` makes,
+; stopping at the first offender rather than tracking the maximum: the
+; guard wants a yes-or-no and the diagnostic wants a position, and those
+; are one question asked twice.
+(pub :: nestOverflowTok (-> Int Int Int))
+(pub fn (nestOverflowTok tokens limit)
+  (let ((mut i 0) (mut d 0) (mut hit (- 0 1)) (n (vecLen tokens)))
+    {
+      (while (&& (< i n) (< hit 0))
+        {
+          (if (|| (peekIs tokens i TK_LPAREN)
+                  (|| (peekIs tokens i TK_LBRACE)
+                      (peekIs tokens i TK_LBRACKET)))
+              {
+                (set d (+ d 1))
+                (if (> d limit) (set hit i) 0)
+              }
+              (if (|| (peekIs tokens i TK_RPAREN)
+                      (|| (peekIs tokens i TK_RBRACE)
+                          (peekIs tokens i TK_RBRACKET)))
+                  (if (> d 0) (set d (- d 1)) 0)
+                  0))
+          (set i (+ i 1))
+        })
+      hit
+    }))
+
 (pub :: parseModuleWith (-> Int Int Int))
 (pub fn (parseModuleWith tokens axtags)
   ; The depth check runs BEFORE `parseDecls`, because the failure it
   ; prevents is that call exhausting the stack.
-  (if (> (maxNestDepth tokens) parseMaxDepth)
-      (pErr 0)
+  (let ((over (nestOverflowTok tokens parseMaxDepth)))
+   (if (>= over 0)
+      (pErrCode over "AX2005")
       (let ((r (parseDecls tokens 0 vecNew)))
         (if (== (memGetWord r 0) 0)
             r
-            { (attachAxtags (memGetWord r 1) 0 axtags 0) r }))))
+            { (attachAxtags (memGetWord r 1) 0 axtags 0) r })))))
 
 (pub :: attachAxtags (-> Int Int Int Int Int))
 (pub fn (attachAxtags decls i axtags next)
