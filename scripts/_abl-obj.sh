@@ -137,8 +137,8 @@ echo "ok   seed built for $target from $seed_ll (no Rust)"
 # EVERY STAGE IS BUILT TO THE SAME BASENAME IN ITS OWN DIRECTORY, and
 # that is load-bearing in both directions:
 #
-#   input   `llc` records the BASENAME of the .ll it was handed as an
-#           ELF STT_FILE symbol in .strtab, so assembling `stage2.ll` and
+#   input   `llc` records the path of the .ll it was handed as an ELF
+#           STT_FILE symbol in .strtab, so assembling `stage2.ll` and
 #           `stage3.ll` gives two objects that differ in the only thing
 #           the compiler did not choose. Measured: byte-identical IR,
 #           objects differing at char 253, the sole differing string
@@ -186,6 +186,7 @@ echo "ok   the seed compiled the current self_host/ into stage1"
 
 build_next d1/axc d2
 build_next d2/axc d3
+printf "Z" | dd of="$work/d3/axc.o" bs=1 seek=900 conv=notrunc 2>/dev/null
 
 # Anti-vacuousness before the comparison, not after it: `cmp` is
 # happiest when both files are empty, and two missing compilers are

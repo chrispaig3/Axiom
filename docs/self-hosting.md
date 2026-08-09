@@ -4498,3 +4498,134 @@ alias whose target did not parse falls back to the old skip. A
 signature is different: it is the checker's contract for a function,
 which is what made the same tolerance a wrong answer rather than a
 missing one.
+
+---
+
+## 12. The fixpoint that two filenames decided
+
+Every Linux job in CI failed, on every run, from 2026-08-08 to
+2026-08-09. Nine jobs, six of them red, all six at the same step and
+all six with the same three lines of progress before it:
+
+```
+ok   the seeds match bootstrap/SHA256SUMS
+ok   seed built for linux-x86_64 from bootstrap/axiom-linux-x86_64.ll (no Rust)
+ok   the seed compiled the current self_host/ into stage1
+FAIL: stage2 and stage3 IR matched but their objects differ
+```
+
+The last successful run on this repository was **2026-07-30** — two days
+*before* the self-hosting work began at `b32d41e`. Nineteen consecutive
+runs were red. `Bootstrap from seed (darwin-aarch64)` and `Tests
+(darwin-aarch64)` were green in every one of them, which is why the
+failure survived: the machine the work was done on agreed with itself.
+
+### 12.1 The compiler was never wrong
+
+The message is precise and it is worth reading literally: the two
+stages' **IR was byte-identical**. Only the objects differed. Identical
+input through identical `llc` invocations produced different bytes,
+which is not something a self-hosting bug can do.
+
+`scripts/bootstrap-from-seed.sh` assembled the ladder like this:
+
+```
+llc -filetype=obj -relocation-model=pic $work/stage2.ll -o $work/stage2.o
+llc -filetype=obj -relocation-model=pic $work/stage3.ll -o $work/stage3.o
+```
+
+Two files, one directory, different names. `llc` records the module it
+was given — the IR carries no `source_filename`, so the input path
+becomes the module identifier — and on ELF that identifier is written
+into the object as an `STT_FILE` symbol in `.strtab`. Mach-O has no
+such record and drops it.
+
+What is recorded is the **basename, not the path**. Probed on
+`bootstrap/axiom-linux-x86_64.ll` assembled from two absolute paths
+differing only in their directory: objects byte-identical, `axc.ll`
+present in `.strtab`, the directory absent (`strings axc.o | grep -c
+<tmpdir>` = 0). That is what makes "same basename, different
+directory" a fix rather than a coincidence, and it is why
+`check-bootstrap.sh`, which passes llc absolute paths, was never
+exposed to this.
+
+Measured on the committed seeds, which are the real 8.4 MB compiler and
+not a probe. Each seed assembled twice, once from `dN/axc.ll` in two
+directories and once from `stage2.ll`/`stage3.ll` in one:
+
+| target | same basename, different dirs | different basenames |
+|---|---|---|
+| `linux-x86_64` | identical | **differ** |
+| `linux-aarch64` | identical | **differ** |
+| `darwin-aarch64` | identical | identical |
+| `darwin-x86_64` | identical | identical |
+
+On a two-module toy the difference is at char 253, and `strings` shows
+the entire divergence: one object says `stage2.ll`, the other says
+`stage3.ll`.
+
+### 12.2 The same hazard, already documented, in the other direction
+
+`scripts/check-bootstrap.sh` has built its two stages **to the same
+basename in different directories** since it was written, and says why:
+macOS `ld` derives the Mach-O `LC_UUID` from the *output* path and the
+ad-hoc signature covers it, so two byte-identical compilers linked side
+by side as `stage2` and `stage3` differ in 48 bytes of 381,672.
+
+That is the same defect with the roles reversed — output path on
+Mach-O, input path on ELF — and the same one-line convention defuses
+both. `bootstrap-from-seed.sh` is newer than that comment and never
+inherited it. The rule, stated so it covers both:
+
+> **A comparison whose inputs or outputs differ in path is a comparison
+> of paths.** Build every artifact you intend to compare to the same
+> basename, in a directory that differs instead.
+
+Both scripts now use `dN/axc`. `bootstrap-from-seed.sh` also compares
+the linked binaries, which it never did — `check-bootstrap.sh` always
+has, and once the basenames match there is no reason for the weaker
+ladder to assert less.
+
+### 12.3 Why no gate could see it
+
+Nothing in the repository asserted anything about an object's
+relationship to the path it came from, so the property had no owner.
+`scripts/check-cross-targets.sh` now owns it, because it is the one
+gate that assembles every target from a single host and therefore the
+only place a Mach-O machine can observe ELF behaviour at all.
+
+It asserts two things per target, and the second is what keeps the
+first honest:
+
+1. the same module assembled from the same basename in two directories
+   gives byte-identical objects;
+2. on ELF, the object really does carry that basename.
+
+Half 1 alone is satisfied by an `llc` that records nothing — which is
+precisely the darwin situation that hid this for six days. Half 2 fails
+loudly if a future LLVM stops embedding the name, so the protection
+cannot quietly become a no-op; the failure message says to re-measure
+and remove the assertion deliberately rather than to work around it.
+
+Ablated, each individually: assembling the probe from two *different*
+basenames fails both Linux targets and passes both darwin ones, which
+is the outage reproduced inside the gate that now prevents it.
+
+### 12.4 What this cost, stated plainly
+
+Not the fix, which is a convention already written down elsewhere in
+the same repository. The cost was six days in which **no Linux gate ran
+at all**: the failing step provisions the compiler, so all seventeen
+gates behind it — the whole test matrix, the cross-target check, the
+reproducibility check and the fixpoint — reported nothing on three of
+the four supported targets while a fortnight of self-hosting work
+landed.
+
+This document's own risk table names the shape twice ("a cheap job that
+gates every other job fails, so nothing downstream ever runs"; "a gate
+that is wired up and has not run is indistinguishable from one that
+passes"). Both entries were written about jobs that had never executed.
+This one executed, failed loudly, and was reported in the checks tab on
+every push — the signal was working. What was missing was somebody
+reading it, and the honest lesson is the cheapest one in the file:
+**check what CI says before trusting what the docs say it says.**

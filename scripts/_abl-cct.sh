@@ -334,9 +334,9 @@ for target in "${targets[@]}"; do
     continue
   fi
   cp "$pework/pe.ll" "$pework/d2/axc.ll"
-  cp "$pework/pe.ll" "$pework/d3/axc.ll"
+  cp "$pework/pe.ll" "$pework/d3/other.ll"
   llc -filetype=obj -relocation-model=pic "$pework/d2/axc.ll" -o "$pework/d2/axc.o" 2>/dev/null
-  llc -filetype=obj -relocation-model=pic "$pework/d3/axc.ll" -o "$pework/d3/axc.o" 2>/dev/null
+  llc -filetype=obj -relocation-model=pic "$pework/d3/other.ll" -o "$pework/d3/axc.o" 2>/dev/null
   # `cmp` is happiest when both files are empty; two objects llc never
   # wrote are byte-identical.
   size="$(wc -c <"$pework/d2/axc.o" | tr -d ' ')"
@@ -351,14 +351,13 @@ for target in "${targets[@]}"; do
     status=1
     continue
   fi
-  # Half two. `grep -a` on the object rather than `strings`, which is
-  # binutils and need not be installed; and grepping a FILE rather than
-  # a pipeline, because under `pipefail` a non-zero producer makes
-  # `if ! producer | grep -q` read as "no match" exactly when there was
-  # one.
+  # Half two. Captured first and grepped after, because under
+  # `pipefail` a non-zero producer makes `if ! producer | grep -q` read
+  # as "no match" exactly when there was one.
+  syms="$(strings "$pework/d2/axc.o" 2>/dev/null || true)"
   case "$target" in
     linux-*)
-      if ! grep -a -q 'axc\.ll' "$pework/d2/axc.o"; then
+      if ! printf '%s\n' "$syms" | grep -qx 'axc.ll'; then
         echo "FAIL [$target]: this ELF object no longer records its input filename -"
         echo "     the same-basename convention above is now protecting against nothing."
         echo "     Re-measure, then delete this half deliberately if it is truly gone."
