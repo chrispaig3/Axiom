@@ -2,7 +2,7 @@ error[AX3001]: undefined variable `cound`
  --> 170-undefined-set-target.ax:4:12
   |
 4 |     { (set cound 2) count }))
-  |            ^^^^^
+  |            ^^^^^ no binding named `cound` in scope
   |
   = help: a similarly named binding `count` is in scope; did you mean this?
   = help: run `axiom explain AX3001` for a full explanation

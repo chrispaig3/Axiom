@@ -122,8 +122,10 @@
 (pub :: diagLabel (-> Int Int)) (pub fn (diagLabel d) (memGetWord d 5))
 (pub :: diagUnit  (-> Int Int)) (pub fn (diagUnit  d) (memGetWord d 6))
 
+; Returns the diagnostic, so it wraps a constructor at an emission site
+; without the site having to name a local.
 (pub :: diagSetLabel (-> Int Int Int))
-(pub fn (diagSetLabel d s) (memSetWord d 5 s))
+(pub fn (diagSetLabel d s) { (memSetWord d 5 s) d })
 
 (pub :: diagSetUnit (-> Int Int Int))
 (pub fn (diagSetUnit d u) (memSetWord d 6 u))

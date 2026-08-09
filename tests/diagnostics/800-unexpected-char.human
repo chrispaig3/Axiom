@@ -2,7 +2,7 @@ error[AX1001]: unexpected character `#`
  --> 800-unexpected-char.ax:2:12
   |
 2 | (fn (main) # 0)
-  |            ^
+  |            ^ `#` is not valid here
   |
   = help: identifiers may contain letters, digits, `_`, and `'`; operators are built from `+ - * / % ^ = < > ! & | . ? ~ @`
   = help: run `axiom explain AX1001` for a full explanation

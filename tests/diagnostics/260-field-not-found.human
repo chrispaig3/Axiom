@@ -2,7 +2,7 @@ error[AX3007]: field `z` not found on type `P`
  --> 260-field-not-found.ax:5:10
   |
 5 |     (+ p.z p.y)))
-  |          ^
+  |          ^ no field `z` on `P`
   |
   = help: check the field name and the definition of `P`
   = help: run `axiom explain AX3007` for a full explanation
@@ -11,7 +11,7 @@ error[AX3004]: type mismatch: expected Int, found I64
  --> 260-field-not-found.ax:5:8
   |
 5 |     (+ p.z p.y)))
-  |        ^
+  |        ^ this has type `I64`, expected `Int`
   |
   = help: run `axiom explain AX3004` for a full explanation
 

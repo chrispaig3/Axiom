@@ -1,1 +1,1 @@
-E AX2001 970-eof-in-body.ax:2:1 unexpected-token "expected expression, found `EOF`" ?"Axiom expected expression at this position"
+E AX2001 970-eof-in-body.ax:2:1 unexpected-token "expected expression, found `EOF`" #"found `EOF` here" ?"Axiom expected expression at this position"

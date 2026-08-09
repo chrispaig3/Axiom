@@ -2,7 +2,7 @@ error[AX2001]: expected expression, found `)`
  --> 920-expected-expression.ax:2:20
   |
 2 | (fn (main) (let ((x)) x))
-  |                    ^
+  |                    ^ found `)` here
   |
   = help: Axiom expected expression at this position
   = help: run `axiom explain AX2001` for a full explanation

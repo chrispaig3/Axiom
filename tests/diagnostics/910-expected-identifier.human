@@ -2,7 +2,7 @@ error[AX2001]: expected identifier, found `)`
  --> 910-expected-identifier.ax:3:4
   |
 3 | (fn)
-  |    ^
+  |    ^ found `)` here
   |
   = help: Axiom expected identifier at this position
   = help: run `axiom explain AX2001` for a full explanation

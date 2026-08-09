@@ -2,7 +2,7 @@ error[AX3001]: undefined variable `nope`
  --> 160-cast-type-is-not-a-variable.ax:3:30
   |
 3 |   (+ (cast Int (sizeof Int)) nope))
-  |                              ^^^^
+  |                              ^^^^ no binding named `nope` in scope
   |
   = help: a similarly named binding `Some` is in scope; did you mean this?
   = help: run `axiom explain AX3001` for a full explanation

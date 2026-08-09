@@ -1,3 +1,3 @@
-E AX3001 150-undefined-suggestion.ax:7:9-14 undefined-variable "undefined variable `helpr`" ?7:9-14:"a similarly named binding `helper` is in scope; did you mean this?"~>"helper"
-E AX3001 150-undefined-suggestion.ax:7:26-31 undefined-variable "undefined variable `cound`" ?7:26-31:"a similarly named binding `count` is in scope; did you mean this?"~>"count"
-E AX3001 150-undefined-suggestion.ax:7:34-38 undefined-variable "undefined variable `Gren`" ?7:34-38:"a similarly named binding `Green` is in scope; did you mean this?"~>"Green"
+E AX3001 150-undefined-suggestion.ax:7:9-14 undefined-variable "undefined variable `helpr`" #"no binding named `helpr` in scope" ?7:9-14:"a similarly named binding `helper` is in scope; did you mean this?"~>"helper"
+E AX3001 150-undefined-suggestion.ax:7:26-31 undefined-variable "undefined variable `cound`" #"no binding named `cound` in scope" ?7:26-31:"a similarly named binding `count` is in scope; did you mean this?"~>"count"
+E AX3001 150-undefined-suggestion.ax:7:34-38 undefined-variable "undefined variable `Gren`" #"no binding named `Gren` in scope" ?7:34-38:"a similarly named binding `Green` is in scope; did you mean this?"~>"Green"

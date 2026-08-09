@@ -4,7 +4,7 @@ error[AX3006]: duplicate definition `Point`
 1 | (struct Point (x : Int) (y : Int))
   |         ----- `Point` first defined here
 2 | (struct Point (a : Int))
-  |         ^^^^^
+  |         ^^^^^ `Point` redefined here
   |
   = help: rename one of the definitions, or remove the duplicate
   = help: run `axiom explain AX3006` for a full explanation

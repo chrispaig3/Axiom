@@ -2,7 +2,7 @@ error[AX3009]: constructor `Green` expects 1 argument(s), found 0
  --> 220-constructor-arity-pattern.ax:5:7
   |
 5 |     ((Green) 1)
-  |       ^^^^^
+  |       ^^^^^ 0 argument(s) provided here
   |
   = help: this constructor takes exactly 1 field(s); add or remove arguments to match
   = help: run `axiom explain AX3009` for a full explanation
@@ -11,7 +11,7 @@ error[AX3009]: constructor `Green` expects 1 argument(s), found 2
  --> 220-constructor-arity-pattern.ax:6:7
   |
 6 |     ((Green a b) 2)
-  |       ^^^^^
+  |       ^^^^^ 2 argument(s) provided here
   |
   = help: this constructor takes exactly 1 field(s); add or remove arguments to match
   = help: run `axiom explain AX3009` for a full explanation

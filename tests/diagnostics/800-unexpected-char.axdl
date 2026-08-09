@@ -1,1 +1,1 @@
-E AX1001 800-unexpected-char.ax:2:12-13 unexpected-char "unexpected character `#`" ?"identifiers may contain letters, digits, `_`, and `'`; operators are built from `+ - * / % ^ = < > ! & | . ? ~ @`"
+E AX1001 800-unexpected-char.ax:2:12-13 unexpected-char "unexpected character `#`" #"`#` is not valid here" ?"identifiers may contain letters, digits, `_`, and `'`; operators are built from `+ - * / % ^ = < > ! & | . ? ~ @`"

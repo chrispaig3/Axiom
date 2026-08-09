@@ -4,7 +4,7 @@ error[AX3012]: cannot assign to immutable binding `c`
 2 | (fn (main) (let ((c 1)) { (set c 2) c }))
   |                   - `c` is bound here
 2 | (fn (main) (let ((c 1)) { (set c 2) c }))
-  |                                ^
+  |                                ^ `c` cannot be assigned
   |
   = help: declare it mutable: `(mut c ...)`
   = help: only a binding introduced by `(let ((mut x ...)) ...)` may be the target of `set`

@@ -2,7 +2,7 @@ error[AX3004]: type mismatch: expected Box Int, found Box Bool
  --> 240-type-render.ax:5:20
   |
 5 | (fn (give b) (want b))
-  |                    ^
+  |                    ^ this has type `Box Bool`, expected `Box Int`
   |
   = help: run `axiom explain AX3004` for a full explanation
 
@@ -10,7 +10,7 @@ error[AX3004]: type mismatch: expected function type, found _t3
  --> 240-type-render.ax:7:23
   |
 7 | (fn (beyond a p q) { (p 1) (q 2) })
-  |                       ^
+  |                       ^ this has type `_t3`, expected `function type`
   |
   = help: run `axiom explain AX3004` for a full explanation
 
@@ -18,7 +18,7 @@ error[AX3004]: type mismatch: expected function type, found _t4
  --> 240-type-render.ax:7:29
   |
 7 | (fn (beyond a p q) { (p 1) (q 2) })
-  |                             ^
+  |                             ^ this has type `_t4`, expected `function type`
   |
   = help: run `axiom explain AX3004` for a full explanation
 

@@ -4,7 +4,7 @@ error[AX3006]: duplicate definition `main`
 3 | (fn (main) 0)
   |      ---- `main` first defined here
 4 | (fn (main) 1)
-  |      ^^^^
+  |      ^^^^ `main` redefined here
   |
   = help: rename one of the definitions, or remove the duplicate
   = help: run `axiom explain AX3006` for a full explanation

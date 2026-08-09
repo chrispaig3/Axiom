@@ -2,7 +2,7 @@ error[AX3016]: unknown effect `Nope`
  --> 300-unknown-effect.ax:4:23
   |
 4 | (fn (main) (handle 1 (Nope IO Alsonope Alloc) (lambda (v) 0)))
-  |                       ^^^^
+  |                       ^^^^ no effect named `Nope` is declared
   |
   = help: declare it with `(effect Name (op :: sig))`, import the module that does, or fix the spelling
   = help: run `axiom explain AX3016` for a full explanation
@@ -11,7 +11,7 @@ error[AX3016]: unknown effect `Alsonope`
  --> 300-unknown-effect.ax:4:31
   |
 4 | (fn (main) (handle 1 (Nope IO Alsonope Alloc) (lambda (v) 0)))
-  |                               ^^^^^^^^
+  |                               ^^^^^^^^ no effect named `Alsonope` is declared
   |
   = help: declare it with `(effect Name (op :: sig))`, import the module that does, or fix the spelling
   = help: run `axiom explain AX3016` for a full explanation

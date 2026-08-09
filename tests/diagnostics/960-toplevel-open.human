@@ -2,7 +2,7 @@ error[AX2001]: expected (, found `42`
  --> 960-toplevel-open.ax:1:1
   |
 1 | 42
-  | ^^
+  | ^^ found `42` here
   |
   = help: Axiom expected ( at this position
   = help: run `axiom explain AX2001` for a full explanation

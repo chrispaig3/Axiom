@@ -1,2 +1,2 @@
-E AX3006 040-order-dup-before-missing.ax:4:6-10 duplicate-definition "duplicate definition `main`" ^3:6-10:"`main` first defined here" ?"rename one of the definitions, or remove the duplicate"
-E AX3015 040-order-dup-before-missing.ax:1:5-10 missing-definition "`ghost` has a signature but no definition" ?"add the definition, or if it lives in another module, mark that definition `pub` so the import carries it"
+E AX3006 040-order-dup-before-missing.ax:4:6-10 duplicate-definition "duplicate definition `main`" #"`main` redefined here" ^3:6-10:"`main` first defined here" ?"rename one of the definitions, or remove the duplicate"
+E AX3015 040-order-dup-before-missing.ax:1:5-10 missing-definition "`ghost` has a signature but no definition" #"no `fn` or `foreign` defines `ghost`" ?"add the definition, or if it lives in another module, mark that definition `pub` so the import carries it"

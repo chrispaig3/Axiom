@@ -352,28 +352,41 @@
     (if (&& (== (strLen exp) 0)
             (|| (>= pos (vecLen tokens))
                 (== (kindInt (tokenKind (vecGet tokens pos))) (kindInt TK_EOF))))
-        (mkDiag SEV_ERROR "AX2002" "unexpected-eof"
+        (diagSetLabel (mkDiag SEV_ERROR "AX2002" "unexpected-eof"
                 (mkSpan (strLen src) (strLen src))
                 "unexpected end of file" 0 ""
                 (strConcat "count `(`/`[`/`{` against `)`/`]`/`}` "
                            "working backward from the end of the file"))
+          "file ends here while a form is still open")
         (let ((tok (vecGet tokens pos)))
           (if (strEq (pResCode r) "AX2004")
-              (mkDiag SEV_ERROR "AX2004" "removed-construct"
+              (diagSetLabel (mkDiag SEV_ERROR "AX2004" "removed-construct"
                       (tokenSpan tok)
                       (strConcat (strConcat "`" exp) "` is no longer part of Axiom")
                       0 "" (removedHelp exp))
+                (removedRationale exp))
+          ; NO LABEL, deliberately, and the same for AX3008, AX3011,
+          ; AX3017 and AX3010. stage0 set a primary label on all
+          ; twenty-seven of its diagnostics, but for these five the
+          ; label WAS the heading - `message.clone()` at the call site -
+          ; and ariadne fell back to the heading anyway when a label was
+          ; empty, so its output always printed something under the
+          ; caret, sometimes the same sentence twice. Printing nothing
+          ; when there is nothing further to say is the better half of
+          ; that behaviour, and it keeps `#` out of the AXDL line rather
+          ; than putting a redundant field in it.
           (if (== (strLen exp) 0)
               (mkDiag SEV_ERROR "AX2003" "syntax-error"
                       (tokenSpan tok) "syntax error" 0 "" 0)
-              (mkDiag SEV_ERROR "AX2001" "unexpected-token"
+              (diagSetLabel (mkDiag SEV_ERROR "AX2001" "unexpected-token"
                       (tokenSpan tok)
                       (strConcat (strConcat "expected " exp)
                                  (strConcat ", found `"
                                             (strConcat (foundText tok) "`")))
                       0 ""
                       (strConcat (strConcat "Axiom expected " exp)
-                                 " at this position")))))))))
+                                 " at this position"))
+                (strConcat (strConcat "found `" (foundText tok)) "` here")))))))))
 
 ; The diagnostic for a LEXICAL error, or 0 when the token stream has
 ; none. Lexing happens before parsing, so this is asked first and a
@@ -410,31 +423,36 @@
           (let ((sp (tokenSpan found)))
             (let ((b (strByte src (spanStart sp))))
               (if isEsc
-                  (mkDiag SEV_ERROR "AX1005" "invalid-escape-sequence" sp
+                  (diagSetLabel (mkDiag SEV_ERROR "AX1005" "invalid-escape-sequence" sp
                           (strConcat (strConcat "invalid escape sequence `"
                                                 (strSlice src (spanStart sp) 2)) "`")
                           0 ""
                           "valid escapes are \\n \\t \\r \\\\ \\\" \\' \\0")
+                    "unrecognized escape sequence")
               (if (== b 34)
-                  (mkDiag SEV_ERROR "AX1002" "unterminated-string" sp
+                  (diagSetLabel (mkDiag SEV_ERROR "AX1002" "unterminated-string" sp
                           "unterminated string literal" 0 ""
                           "add a closing `\"`, or escape an embedded quote as `\\\"`")
+                    "string literal starts here but is never closed")
               (if (== b 39)
-                  (mkDiag SEV_ERROR "AX1003" "unterminated-char" sp
+                  (diagSetLabel (mkDiag SEV_ERROR "AX1003" "unterminated-char" sp
                           "unterminated char literal" 0 ""
                           "character literals must contain exactly one character, e.g. `\'a\'` or `\'\\n\'`")
+                    "character literal starts here but is never closed")
               (if (isDigit b)
-                  (mkDiag SEV_ERROR "AX1004" "invalid-number-literal" sp
+                  (diagSetLabel (mkDiag SEV_ERROR "AX1004" "invalid-number-literal" sp
                           (strConcat (strConcat "invalid number literal `"
                                                 (strSlice src (spanStart sp)
                                                           (- (spanEnd sp) (spanStart sp)))) "`")
                           0 ""
                           "check for a value that overflows i64/f64 or a malformed exponent")
-                  (mkDiag SEV_ERROR "AX1001" "unexpected-char" sp
+                    (strConcat (strConcat "`" (strSlice src (spanStart sp) (- (spanEnd sp) (spanStart sp)))) "` cannot be parsed as Int or Float"))
+                  (diagSetLabel (mkDiag SEV_ERROR "AX1001" "unexpected-char" sp
                           (strConcat (strConcat "unexpected character `"
                                                 (strSlice src (spanStart sp) 1)) "`")
                           0 ""
-                          "identifiers may contain letters, digits, `_`, and `\'`; operators are built from `+ - * / % ^ = < > ! & | . ? ~ @`"))))))))
+                          "identifiers may contain letters, digits, `_`, and `\'`; operators are built from `+ - * / % ^ = < > ! & | . ? ~ @`")
+                    (strConcat (strConcat "`" (strSlice src (spanStart sp) 1)) "` is not valid here")))))))))
     }))
 
 ; The EOF token has no lexeme; stage0 spells it `EOF` in the message.
@@ -448,6 +466,19 @@
 ; place the two compilers' text has to agree exactly, since the whole
 ; construct exists to be read by a person porting old source.
 (pub :: removedHelp (-> Int Int))
+; WHY the construct is gone, phrased as a statement about the language
+; rather than about the parser's expectations - stage0's `rationale()`,
+; which is what its primary label carried while `removedHelp` here is
+; its `replacement()`. Two halves of one explanation that stage1 had
+; only one of.
+(pub :: removedRationale (-> Int Int))
+(pub fn (removedRationale kw)
+  (if (strEq kw "union")
+      (strConcat "`union` was removed: C interoperability is no longer a goal, "
+                 "and an untagged union has no meaning under linear types")
+      (strConcat "`region` was removed: allocation lifetime is inferred from "
+                 "where a value is created and how far it escapes, not written by hand")))
+
 (pub fn (removedHelp kw)
   (if (strEq kw "union")
       (strConcat "use `data` for a tagged sum whose variants the compiler can check "

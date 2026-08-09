@@ -1,2 +1,2 @@
-E AX3016 300-unknown-effect.ax:4:23-27 unknown-effect "unknown effect `Nope`" ?"declare it with `(effect Name (op :: sig))`, import the module that does, or fix the spelling"
-E AX3016 300-unknown-effect.ax:4:31-39 unknown-effect "unknown effect `Alsonope`" ?"declare it with `(effect Name (op :: sig))`, import the module that does, or fix the spelling"
+E AX3016 300-unknown-effect.ax:4:23-27 unknown-effect "unknown effect `Nope`" #"no effect named `Nope` is declared" ?"declare it with `(effect Name (op :: sig))`, import the module that does, or fix the spelling"
+E AX3016 300-unknown-effect.ax:4:31-39 unknown-effect "unknown effect `Alsonope`" #"no effect named `Alsonope` is declared" ?"declare it with `(effect Name (op :: sig))`, import the module that does, or fix the spelling"

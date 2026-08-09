@@ -2,7 +2,7 @@ error[AX3002]: undefined type `Pointt`
  --> 290-undefined-type.ax:4:22
   |
 4 | (fn (main) { (struct Pointt 1 2) (struct Colour 1) })
-  |                      ^^^^^^
+  |                      ^^^^^^ no type named `Pointt` is visible here
   |
   = help: check for typos, or a missing `data`/`struct`/`type` declaration
   = help: run `axiom explain AX3002` for a full explanation
@@ -11,7 +11,7 @@ error[AX3002]: undefined type `Colour`
  --> 290-undefined-type.ax:4:42
   |
 4 | (fn (main) { (struct Pointt 1 2) (struct Colour 1) })
-  |                                          ^^^^^^
+  |                                          ^^^^^^ no type named `Colour` is visible here
   |
   = help: check for typos, or a missing `data`/`struct`/`type` declaration
   = help: run `axiom explain AX3002` for a full explanation

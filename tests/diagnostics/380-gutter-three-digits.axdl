@@ -1,1 +1,1 @@
-E AX3006 380-gutter-three-digits.ax:103:6-10 duplicate-definition "duplicate definition `main`" ^102:6-10:"`main` first defined here" ?"rename one of the definitions, or remove the duplicate"
+E AX3006 380-gutter-three-digits.ax:103:6-10 duplicate-definition "duplicate definition `main`" #"`main` redefined here" ^102:6-10:"`main` first defined here" ?"rename one of the definitions, or remove the duplicate"

@@ -2,7 +2,7 @@ error[AX2004]: `union` is no longer part of Axiom
  --> 930-removed-union.ax:1:2
   |
 1 | (union Foo (A) (B))
-  |  ^^^^^
+  |  ^^^^^ `union` was removed: C interoperability is no longer a goal, and an untagged union has no meaning under linear types
   |
   = help: use `data` for a tagged sum whose variants the compiler can check for exhaustiveness, or `struct` for a product of fields
   = help: run `axiom explain AX2004` for a full explanation

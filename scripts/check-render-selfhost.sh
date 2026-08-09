@@ -1246,11 +1246,11 @@ floor_fail() {
 # renders that field.
 [[ "$f_note"  -lt 4 ]] && floor_fail "note-line equality"                "$f_note"     4
 
-# The label family is off 0: AX2005 carries one, which is what proved
-# the `#` field end to end - through the record, the AXDL line, the
-# JSON object and the caret row - before the step that gives one to
-# every other diagnostic.
-[[ "$f_label" -lt 1 ]] && floor_fail "primary-label equality"            "$f_label"    1
+# Labels, on every diagnostic that has something to say the heading does
+# not. 72 today. The four that would only have repeated their own
+# heading carry none, so this is not one per diagnostic and never will
+# be - see the note in parser.ax's parseErrDiag.
+[[ "$f_label" -lt 70 ]] && floor_fail "primary-label equality"           "$f_label"   70
 
 # The escape family is NOT one of those. Two of its assertions - no
 # escape after a snippet's gutter bar, none on the trailer - are made
@@ -1369,7 +1369,14 @@ else
   # This is what `(repByte (+ run 1) ch)` did to all 52 goldens, and the
   # substring form of this assertion could not fail on it - a prefix is
   # a substring, so no span could ever be too WIDE.
-  awk 'BEGIN{d=0} { if (!d && $0 ~ /^ *\| *\^+$/) { print $0 "^"; d=1 } else print }' \
+  # The extra caret is inserted INTO the run rather than appended to the
+  # line, because a caret row now ends with the primary label rather
+  # than with the run - appending would put a stray `^` after the label
+  # text and test the wrong thing. This drill caught the change itself:
+  # when labels landed, its old pattern stopped matching any row and it
+  # failed with "the corruption changed nothing", which is the report a
+  # drill is supposed to make when the shape moves out from under it.
+  awk 'BEGIN{d=0} { if (!d && $0 ~ /^ *\| *\^+( .*)?$/) { sub(/\^+/, "&^"); d=1 } print }' \
     "$drill_plain" > "$work/caretbad.human"
   if cmp -s "$drill_plain" "$work/caretbad.human"; then
     echo "FAIL drill(caret): the corruption changed nothing - no caret row matched"

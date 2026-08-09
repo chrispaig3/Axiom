@@ -295,12 +295,13 @@
                       (checkDuplicates decls out (+ i 1))
                       {
                         (vecPush out
-                          (mkDiag SEV_ERROR "AX3006" "duplicate-definition"
+                          (diagSetLabel (mkDiag SEV_ERROR "AX3006" "duplicate-definition"
                                   (nodeSpan d)
                                   (strConcat (strConcat "duplicate definition `" name) "`")
                                   (nodeSpan (vecGet decls j))
                                   (strConcat (strConcat "`" name) "` first defined here")
-                                  "rename one of the definitions, or remove the duplicate"))
+                                  "rename one of the definitions, or remove the duplicate")
+                            (strConcat (strConcat "`" name) "` redefined here")))
                         (checkDuplicates decls out (+ i 1))
                       }))))))))
 
@@ -358,12 +359,13 @@
                   (checkMissingDefs entryDecls allDecls out (+ i 1))
                   {
                     (vecPush out
-                      (mkDiag SEV_ERROR "AX3015" "missing-definition"
+                      (diagSetLabel (mkDiag SEV_ERROR "AX3015" "missing-definition"
                               (nodeSpan d)
                               (strConcat (strConcat "`" name)
                                          "` has a signature but no definition")
                               0 0
-                              "add the definition, or if it lives in another module, mark that definition `pub` so the import carries it"))
+                              "add the definition, or if it lives in another module, mark that definition `pub` so the import carries it")
+                        (strConcat (strConcat "no `fn` or `foreign` defines `" name) "`")))
                     (checkMissingDefs entryDecls allDecls out (+ i 1))
                   }))))))
 
@@ -1003,11 +1005,12 @@
       0
       {
         (emitDiag tc
-          (mkDiag SEV_ERROR "AX3004" "type-mismatch"
+          (diagSetLabel (mkDiag SEV_ERROR "AX3004" "type-mismatch"
                   span
                   (strConcat (strConcat (strConcat
                     "type mismatch: expected " expected) ", found ") found)
-                  0 0 0))
+                  0 0 0)
+            (strConcat (strConcat (strConcat (strConcat "this has type `" found) "`, expected `") expected) "`")))
         0
       }))
 
@@ -1015,7 +1018,7 @@
 (pub fn (emitAX3012 name tspan bspan out)
   {
     (vecPush out
-      (mkDiagFix2 SEV_ERROR "AX3012" "assign-to-immutable"
+      (diagSetLabel (mkDiagFix2 SEV_ERROR "AX3012" "assign-to-immutable"
         tspan
         (strConcat (strConcat "cannot assign to immutable binding `" name) "`")
         bspan
@@ -1023,7 +1026,8 @@
         (strConcat (strConcat "declare it mutable: `(mut " name) " ...)`")
         bspan
         (strConcat "mut " name)
-        "only a binding introduced by `(let ((mut x ...)) ...)` may be the target of `set`"))
+        "only a binding introduced by `(let ((mut x ...)) ...)` may be the target of `set`")
+        (strConcat (strConcat "`" name) "` cannot be assigned")))
     0
   })
 
@@ -1341,14 +1345,15 @@
             0
             {
               (emitDiag tc
-                (mkDiag SEV_ERROR "AX3014" "ambiguous-name"
+                (diagSetLabel (mkDiag SEV_ERROR "AX3014" "ambiguous-name"
                         span
                         (strConcat (strConcat (strConcat (strConcat
                           "ambiguous name `" (bareOf name))
                           "`: defined in ") (joinModules mods 0 "")) "")
                         0 0
                         (strConcat "qualify the reference: "
-                                   (joinQualified mods (bareOf name) 0 ""))))
+                                   (joinQualified mods (bareOf name) 0 "")))
+                  (strConcat (strConcat "`" (bareOf name)) "` could mean more than one definition")))
               1
             }))))
 
@@ -1556,7 +1561,7 @@
                       1
                       {
                         (emitDiag tc
-                          (mkDiagNote SEV_ERROR "AX3013" "partial-application"
+                          (diagSetLabel (mkDiagNote SEV_ERROR "AX3013" "partial-application"
                                   span
                                   (strConcat (strConcat (strConcat (strConcat
                                     "partial application of `" name)
@@ -1564,7 +1569,8 @@
                                     " argument(s) and 0 were supplied")
                                   0 0
                                   "bind the missing arguments with a lambda: `(lambda (y) (f x y))` builds the value `(f x)` would mean"
-                                  "a partial application has to hold the arguments it was not given, and a top-level function has no closure record to hold them in"))
+                                  "a partial application has to hold the arguments it was not given, and a top-level function has no closure record to hold them in")
+                            (strConcat (strConcat (strConcat (strConcat "`" name) "` takes ") (decStr ar)) " arguments, so it cannot be used as a bare value")))
                         1
                       })
                   0)))
@@ -1578,7 +1584,7 @@
                         1
                         {
                           (emitDiag tc
-                            (mkDiag SEV_ERROR "AX3009" "constructor-arity-mismatch"
+                            (diagSetLabel (mkDiag SEV_ERROR "AX3009" "constructor-arity-mismatch"
                                     span
                                     (strConcat (strConcat (strConcat (strConcat (strConcat
                                       "constructor `" name)
@@ -1587,7 +1593,8 @@
                                     0 0
                                     (strConcat (strConcat "this constructor takes exactly "
                                       (decStr fc))
-                                      " field(s); add or remove arguments to match")))
+                                      " field(s); add or remove arguments to match"))
+                              "0 argument(s) provided here"))
                           1
                         }))))))))
 
@@ -1601,7 +1608,7 @@
       (if (!= span 0)
           (emitDiag tc
             (let ((msg (strConcat (strConcat "undefined variable `" (srcSpelling name)) "`")))
-              (if (== (memGetWord best 0) 0)
+              (diagSetLabel (if (== (memGetWord best 0) 0)
                   (mkDiag SEV_ERROR "AX3001" "undefined-variable"
                           span msg 0 0
                           "variables must be defined (via `define`/`fn`, a `let` binding, or a lambda parameter) before they are used; check for typos")
@@ -1610,7 +1617,8 @@
                              (strConcat (strConcat
                                "a similarly named binding `" (memGetWord best 0))
                                "` is in scope; did you mean this?")
-                             span (memGetWord best 0)))))
+                             span (memGetWord best 0)))
+                (strConcat (strConcat "no binding named `" (srcSpelling name)) "` in scope"))))
           0)
       (mkNode TAG_T_ERR 0 0 0)
     }))
@@ -1829,7 +1837,7 @@
                                   0
                                   {
                                     (emitDiag tc
-                                      (mkDiagNote SEV_ERROR "AX3013" "partial-application"
+                                      (diagSetLabel (mkDiagNote SEV_ERROR "AX3013" "partial-application"
                                               (nodeSpan head)
                                               (strConcat (strConcat (strConcat (strConcat (strConcat
                                                 "partial application of `" hname)
@@ -1837,7 +1845,8 @@
                                                 " argument(s) and ") (strConcat (decStr got) " were supplied"))
                                               0 0
                                               "bind the missing arguments with a lambda: `(lambda (y) (f x y))` builds the value `(f x)` would mean"
-                                              "a partial application has to hold the arguments it was not given, and a top-level function has no closure record to hold them in"))
+                                              "a partial application has to hold the arguments it was not given, and a top-level function has no closure record to hold them in")
+                                        (strConcat (strConcat (strConcat (strConcat (strConcat "`" hname) "` takes ") (decStr ar)) " argument(s); ") (strConcat (decStr (- ar got)) " more needed"))))
                                     (checkSpineArgsOnly tc e)
                                     1
                                   }))))
@@ -1852,7 +1861,7 @@
                                     0
                                     {
                                       (emitDiag tc
-                                        (mkDiag SEV_ERROR "AX3009" "constructor-arity-mismatch"
+                                        (diagSetLabel (mkDiag SEV_ERROR "AX3009" "constructor-arity-mismatch"
                                                 (nodeSpan head)
                                                 (strConcat (strConcat (strConcat (strConcat (strConcat
                                                   "constructor `" hname)
@@ -1861,7 +1870,8 @@
                                                 0 0
                                                 (strConcat (strConcat "this constructor takes exactly "
                                                   (decStr want))
-                                                  " field(s); add or remove arguments to match")))
+                                                  " field(s); add or remove arguments to match"))
+                                          (strConcat (decStr got) " argument(s) provided here")))
                                       (checkSpineArgsOnly tc e)
                                       1
                                     })))))))))))
@@ -2629,12 +2639,13 @@
                   {
                     (if (!= (nodeSpan nm) 0)
                         (emitDiag tc
-                          (mkDiag SEV_ERROR "AX3016" "unknown-effect"
+                          (diagSetLabel (mkDiag SEV_ERROR "AX3016" "unknown-effect"
                                   (nodeSpan nm)
                                   (strConcat (strConcat "unknown effect `"
                                                         (nodeA nm)) "`")
                                   0 0
-                                  "declare it with `(effect Name (op :: sig))`, import the module that does, or fix the spelling"))
+                                  "declare it with `(effect Name (op :: sig))`, import the module that does, or fix the spelling")
+                            (strConcat (strConcat "no effect named `" (nodeA nm)) "` is declared")))
                         0)
                     (checkHandleEffects tc effs (+ i 1) dynN formSpan)
                   }
@@ -2671,11 +2682,12 @@
         {
           (if (!= (nodeSpan e) 0)
               (emitDiag tc
-                (mkDiag SEV_ERROR "AX3002" "undefined-type"
+                (diagSetLabel (mkDiag SEV_ERROR "AX3002" "undefined-type"
                         (nodeSpan e)
                         (strConcat (strConcat "undefined type `" (nodeA e)) "`")
                         0 0
-                        "check for typos, or a missing `data`/`struct`/`type` declaration"))
+                        "check for typos, or a missing `data`/`struct`/`type` declaration")
+                  (strConcat (strConcat "no type named `" (nodeA e)) "` is visible here")))
               0)
           (mkNode TAG_T_ERR 0 0 0)
         }
@@ -2779,13 +2791,14 @@
       0
       {
         (emitDiag tc
-          (mkDiag SEV_ERROR "AX3007" "field-not-found"
+          (diagSetLabel (mkDiag SEV_ERROR "AX3007" "field-not-found"
                   span
                   (strConcat (strConcat (strConcat (strConcat
                     "field `" fname) "` not found on type `") tyName) "`")
                   0 0
                   (strConcat (strConcat
-                    "check the field name and the definition of `" tyName) "`")))
+                    "check the field name and the definition of `" tyName) "`"))
+            (strConcat (strConcat (strConcat (strConcat "no field `" fname) "` on `") tyName) "`")))
         0
       }))
 
@@ -2858,7 +2871,7 @@
                         (if (!= (nodeSpan e) 0)
                             (emitDiag tc
                               (let ((msg (strConcat (strConcat "undefined variable `" (srcSpelling name)) "`")))
-                                (if (== (memGetWord best 0) 0)
+                                (diagSetLabel (if (== (memGetWord best 0) 0)
                                     (mkDiag SEV_ERROR "AX3001" "undefined-variable"
                                             (nodeSpan e) msg 0 0
                                             "variables must be defined (via `define`/`fn`, a `let` binding, or a lambda parameter) before they are used; check for typos")
@@ -2867,7 +2880,8 @@
                                                (strConcat (strConcat
                                                  "a similarly named binding `" (memGetWord best 0))
                                                  "` is in scope; did you mean this?")
-                                               (nodeSpan e) (memGetWord best 0)))))
+                                               (nodeSpan e) (memGetWord best 0)))
+                                  (strConcat (strConcat "no binding named `" (srcSpelling name)) "` in scope"))))
                             0)
                         (mkNode TAG_T_ERR 0 0 0)
                       }))))))))
@@ -2979,12 +2993,13 @@
             0
             {
               (emitDiag tc
-                (mkDiag SEV_ERROR "AX3005" "non-exhaustive-match"
+                (diagSetLabel (mkDiag SEV_ERROR "AX3005" "non-exhaustive-match"
                         span
                         (strConcat "non-exhaustive pattern match: missing "
                                    (joinComma missing 0 ""))
                         0 0
-                        "add the missing arms, or a wildcard `_` arm to catch the rest"))
+                        "add the missing arms, or a wildcard `_` arm to catch the rest")
+                  (strConcat "this `match` does not cover: " (joinComma missing 0 ""))))
               0
             }))))
 
@@ -3110,7 +3125,7 @@
                 (if (== span 0)
                     0
                     (emitDiag tc
-                      (mkDiag SEV_ERROR "AX3009" "constructor-arity-mismatch"
+                      (diagSetLabel (mkDiag SEV_ERROR "AX3009" "constructor-arity-mismatch"
                               span
                               (strConcat (strConcat (strConcat (strConcat (strConcat
                                 "constructor `" cname)
@@ -3119,7 +3134,8 @@
                               0 0
                               (strConcat (strConcat "this constructor takes exactly "
                                 (decStr (vecLen fieldTys)))
-                                " field(s); add or remove arguments to match"))))
+                                " field(s); add or remove arguments to match"))
+                        (strConcat (decStr (vecLen args)) " argument(s) provided here"))))
                 0)
             (bindPatternArgs tc args fieldTys 0)
             0
@@ -3177,7 +3193,7 @@
           (offerCtorEnts best cname (tcDatas tc) 0)
           (emitDiag tc
             (let ((msg (strConcat (strConcat "undefined constructor `" cname) "`")))
-              (if (== (memGetWord best 0) 0)
+              (diagSetLabel (if (== (memGetWord best 0) 0)
                   (mkDiag SEV_ERROR "AX3003" "undefined-constructor"
                           span msg 0 0
                           "check the `data` declaration for the correct constructor name")
@@ -3186,7 +3202,8 @@
                              (strConcat (strConcat
                                "a similarly named constructor `" (memGetWord best 0))
                                "` is visible; did you mean this?")
-                             span (memGetWord best 0)))))
+                             span (memGetWord best 0)))
+                (strConcat (strConcat "no constructor named `" cname) "` is visible here"))))
           0
         })))
 

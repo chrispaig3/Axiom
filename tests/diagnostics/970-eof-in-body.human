@@ -2,7 +2,7 @@ error[AX2001]: expected expression, found `EOF`
  --> 970-eof-in-body.ax:1:11
   |
 1 | (fn (main)
-  |           ^
+  |           ^ found `EOF` here
   |
   = help: Axiom expected expression at this position
   = help: run `axiom explain AX2001` for a full explanation
