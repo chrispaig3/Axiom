@@ -1,0 +1,53 @@
+; expect 157
+; A free identifier in a macro's template means what it meant where the
+; macro was WRITTEN, not where it was called.
+;
+; It used to mean whichever one the call site could see, so one macro
+; had two meanings. `MacScope.callHelper` expands to `(helper x)`;
+; invoked from this file, which defines its own `helper`, it reached
+; THIS file's, and invoked from inside `MacScope.viaOwn` it reached
+; `MacScope`'s. Same macro, same template, two answers, chosen by the
+; caller's module. Neither compiler diagnosed it, because both were
+; resolving a name that really was in scope.
+;
+; Four terms, each failing differently if resolution is wrong:
+;
+;   (callHelper 5)               50 - the macro crossing a module
+;                                     boundary. The old rule gave 6.
+;   (viaOwn 5)                   50 - the same macro inside its own
+;                                     module, which was already right
+;                                     and must stay right.
+;   (helper 6)                    7 - this file's own reference to its
+;                                     own definition, which must not
+;                                     have moved.
+;   (let ((helper 0)) ...)       50 - the reverse half of hygiene: a
+;                                     LOCAL binding of the template's
+;                                     free name must not capture it
+;                                     either. Under the old rule this
+;                                     was AX3004 `expected function
+;                                     type, found Int`, so the term is
+;                                     also what proves the fix is
+;                                     resolution and not luck.
+;
+; 50 + 50 + 7 + 50 = 157. Kept under 256 deliberately: a case's whole
+; answer is its exit status, and the status is one byte - an earlier
+; draft of this file totalled 322 and reported 66.
+;
+; The boundary this does NOT cross, recorded because it is real: the
+; same protection does not reach a macro defined in the ENTRY file.
+; `resolveImports` mangles an imported declaration's name to
+; `Mod$name`, and that mangled name is what a template's free
+; identifier resolves to; an entry-file declaration is left bare, so
+; there is no distinct name to resolve to and a local can still capture
+; it. See docs/macros.md section 3.
+(import MacScope)
+
+(:: helper (-> Int Int))
+(fn (helper n) (+ n 1))
+
+(:: main Int)
+(fn (main)
+  (+ (callHelper 5)
+     (+ (viaOwn 5)
+        (+ (helper 6)
+           (let ((helper 0)) (callHelper 5))))))

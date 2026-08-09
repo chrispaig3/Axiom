@@ -1,0 +1,18 @@
+; A module that defines both a helper and a macro whose template calls
+; it, for `364-macro-definition-site.ax`. See that file for what it
+; pins.
+;
+; Modules sit beside the cases and are told apart by name:
+; digit-prefixed is a case and must declare `; expect N`.
+
+(pub :: helper (-> Int Int))
+(pub fn (helper n) (* n 10))
+
+; The template's `helper` is a FREE identifier. Which `helper` it means
+; is the whole question: this module's, wherever the macro is invoked.
+(pub macro (callHelper x) (helper x))
+
+; The same macro, invoked inside the module that defines it - the
+; control for the one invoked from outside.
+(pub :: viaOwn (-> Int Int))
+(pub fn (viaOwn k) (callHelper k))

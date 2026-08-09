@@ -117,28 +117,88 @@ anywhere:
 (let ((v 2)) v)                  ; 2   (was 9)
 ```
 
-### What hygiene does NOT cover
+**A free identifier in a template means what it meant where the macro
+was written.** This is the reverse direction of hygiene, and it used to
+fail in a way that made one macro mean two things. A module `MacScope`
+defining both `helper` and a macro `callHelper` whose template calls
+it:
 
-The **reverse direction** — a caller's binder capturing a *free*
-identifier of the template — is not fixed. A template that refers to a
-top-level `helper`, invoked inside a caller's `(let ((helper ...)) ...)`,
-resolves to the caller's `helper`.
+| Call site | Was | Is |
+|---|---|---|
+| an entry file that defines its own `helper` | 6 — the *entry's* | 50 — `MacScope`'s |
+| a function inside `MacScope` | 50 — `MacScope`'s | 50 — unchanged |
+| under a caller's `(let ((helper 0)) ...)` | `AX3004 expected function type, found Int` | 50 — the local cannot capture it |
 
-This is not an oversight to be patched in the expander. It needs
-definition-site resolution, which needs macros to be module-qualified,
-which they are not: a macro's name is a flat program-wide entry with no
-module recorded, `Pre::when` is `AX3001`, and one macro genuinely means
-two different things depending on the caller's module. Measured — a
-module `MacLib` defining both `helper` and a macro `callHelper` that
-uses it:
+Same macro, same template, two answers, chosen by the caller's module —
+and neither compiler diagnosed it, because both were resolving a name
+that really was in scope. Gated by
+`tests/selfhost/364-macro-definition-site.ax` (157; the unfixed
+compiler exits 1).
 
-| Call site | Answer |
-|---|---|
-| entry file that defines its own `helper` | 6 — the entry's |
-| a function inside `MacLib` | 105 — `MacLib`'s |
+The mechanism costs nothing outside the expander. `resolveImports` runs
+before this pass and already mangles an imported `fn`/`::` declaration's
+name to `Mod$name`, so the definition-site name a template's free
+identifier should resolve to **already exists as a declaration name**.
+Rewriting the reference to it is enough: `findFnEnt` looks names up in a
+table keyed by exactly those, and `mangledFor` passes an
+already-mangled name through unchanged. Neither resolver learns
+anything about macros. The rewrite is conditional on `Mod$name` really
+being a declaration, which is what keeps it from touching a reference
+to `+`, to a constructor (constructors are not mangled), or to a name
+the macro's own module merely imported — each of those finds nothing
+and stays bare, resolving outward exactly as before.
 
-Same macro, two meanings, chosen by where it was called. That is
-§6's first item and it is a resolution change, not an expander change.
+### What hygiene still does NOT cover
+
+**A macro defined in the entry file.** Entry-file declarations are left
+bare by `resolveImports` — there is no `Mod$name` to resolve to — so a
+caller's local binding of the same name can still capture a template's
+free identifier. It is a loud failure rather than a wrong answer
+(`AX3004 expected function type, found Int` on the probe above), but it
+is not a diagnostic about capture and it names neither the macro nor
+the binding that shadowed it.
+
+**Qualified reference to a macro.** `Pre::when` is `AX3001`: macro
+names are still a flat program-wide table with no module recorded, so a
+macro cannot be disambiguated the way a function can, and two imported
+modules defining the same macro name resolve last-wins with no
+`AX3014`.
+
+**An imported macro still outranks an entry-file function of the same
+name.** `(fn (when n) ...)` beside `(import Pre)` gets the macro at
+every call site. It is loud now rather than silent — `AX3018 macro
+`when` takes 2 arguments, but was given 1` — but the diagnostic is
+about the wrong thing: the author defined a function and is told about
+a macro's arity. Within ONE file the collision is caught properly (see
+below); across an import boundary it is not.
+
+### Macros occupy the value namespace
+
+A macro and a function cannot share a name in the same file. Expansion
+consults the macro table before anything else, so the function would
+simply be unreachable — and before macros joined `declNamespace`'s
+value namespace, this was silent: the file below checked `OK` and
+answered 11 where the function says 20.
+
+```scheme
+(macro (thing x) (+ x 1))
+(:: thing (-> Int Int))
+(fn (thing n) (* n 2))
+```
+
+```
+error[AX3006]: duplicate definition `thing`
+1 | (macro (thing x) (+ x 1))
+  |         ----- `thing` first defined here
+3 | (fn (thing n) (* n 2))
+  |      ^^^^^ `thing` redefined here
+```
+
+That the macro's span is real — and so the "first defined here" line
+points anywhere at all — is the other half of a fix in the same slice:
+`parseMacroDecl` stamped no span on a macro node, which also left
+`lsp.ax`'s `documentSymbol` arm for macros dead since it was written.
+Pinned by `tests/diagnostics/993-macro-shadows-function`.
 
 ## 4. Diagnostics
 
@@ -152,6 +212,9 @@ semantic-analysis-time work:
 | `AX3020` | `macro-duplicate-parameter` | two parameters sharing a name |
 | `AX3021` | `macro-template-unsupported` | a template form the expander cannot substitute into |
 | `AX3022` | `macro-set-target` | a parameter used as a `set` target, given an expression |
+
+`AX3006` (duplicate definition) also reaches macros now — see
+"Macros occupy the value namespace" above.
 
 `AX3018` and `AX3019` each replace a failure that was not a diagnostic
 at all. Under-application left the parameter's own name in the
@@ -227,10 +290,12 @@ without a macro: exit 139, no output, no diagnostic.
 
 ## 6. The order the rest should land in
 
-1. **Module qualification for macros** — the resolution change §3
-   describes. It is the prerequisite for the reverse half of hygiene
-   *and* it fixes a live wrong-answer bug, so it is first on both
-   counts.
+1. ~~**Module qualification for macros**~~ — **done** for a template's
+   free identifiers, and macros now occupy the value namespace so a
+   same-file collision is `AX3006` (§3). What remains under this
+   heading: `Pre::when` is still `AX3001`, an imported macro still
+   outranks an entry-file function of the same name, and an entry-file
+   macro's free identifiers are still capturable.
 2. **`Diag` frames carrying a span and a unit** — criterion 3. Touches
    `diag.ax`'s word 10, all four renderers, the published AXDL grammar,
    `tests/selfhost/645-axdl-repetition.ax`'s hand-built expected string
@@ -264,3 +329,10 @@ compiler built from the commit before the expander moved:
 | `361-macro-hygiene` | 143 | 208 | 143 |
 | `362-macro-coverage` | 57 | 4 (`AX4003`) | 57 |
 | `363-macro-shadowing` | 3 | 18 | 3 |
+| `364-macro-definition-site` | 157 | 1 (`AX3004`) | 157 |
+
+and one refusal that used to be an acceptance:
+
+| Case | Before | After |
+|---|---|---|
+| `993-macro-shadows-function` | `OK`, exit 11 | `AX3006`, exit 1 |

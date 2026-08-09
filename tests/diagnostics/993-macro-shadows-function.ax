@@ -1,0 +1,11 @@
+; A macro and a function cannot share a name. Expansion consults the
+; macro table before anything else, so the function would simply be
+; unreachable: measured before macros joined the value namespace, this
+; file checked `OK` and answered 11 where the function says 20.
+(macro (thing x) (+ x 1))
+
+(:: thing (-> Int Int))
+(fn (thing n) (* n 2))
+
+(:: main Int)
+(fn (main) (thing 10))

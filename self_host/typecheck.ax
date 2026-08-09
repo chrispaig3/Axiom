@@ -233,9 +233,17 @@
 (pub :: NS_VALUE Int) (pub fn (NS_VALUE) 1)
 (pub :: NS_TYPE Int)  (pub fn (NS_TYPE)  2)
 
+; A MACRO occupies the value namespace too. It defines a name that an
+; expression can be headed by, and expansion consults the macro table
+; before anything else, so a macro and a function of the same name are
+; not two definitions that coexist - the macro simply wins and the
+; function becomes unreachable. Measured before this line existed:
+; `(macro (thing x) (+ x 1))` beside `(fn (thing n) (* n 2))` checked
+; `OK` and answered 11 where the function says 20, with no diagnostic
+; from either compiler.
 (pub :: declNamespace (-> Int Int))
 (pub fn (declNamespace tag)
-  (if (== tag TAG_D_FN)
+  (if (|| (== tag TAG_D_FN) (== tag TAG_D_MACRO))
       NS_VALUE
   (if (|| (== tag TAG_D_DATA) (== tag TAG_D_STRUCT))
       NS_TYPE

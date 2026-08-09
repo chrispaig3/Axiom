@@ -50,15 +50,20 @@
 ; monotonic, so the IR stays byte-identical across runs and
 ; `check-reproducible.sh` keeps holding.
 ;
-; The renaming is the FORWARD half of hygiene. The reverse half - a
-; caller's binder capturing a free identifier of the template - is NOT
-; fixed here, and there is no test pinning it because there is nothing
-; yet to pin: it needs definition-site resolution, which needs macros
-; to be module-qualified, which they are not. A macro's name is a flat
-; program-wide entry with no module recorded, so one macro genuinely
-; means two different things depending on the caller's module -
-; measured at 6 against 105 in `docs/macros.md` section 3, which is
-; where the gap is recorded and what schedules it.
+; Renaming is the FORWARD half of hygiene. The REVERSE half - a
+; caller's binder capturing a free identifier of the template - is
+; `expQualify` below: a free identifier resolves where the macro was
+; written. It used to resolve where the macro was called, so one macro
+; meant two things depending on the caller's module (50 against 6,
+; `tests/selfhost/364-macro-definition-site.ax`).
+;
+; That covers a macro defined in a MODULE, and not one defined in the
+; entry file, because the mechanism is the mangled name
+; `resolveImports` already assigns to an imported declaration and an
+; entry-file declaration keeps its bare one. The residue is a loud
+; refusal rather than a wrong answer - AX3004 `expected function type`
+; where a local shadowed the template's name - and `docs/macros.md`
+; section 3 is where the boundary is written down.
 ;
 ; SHADOWING. A macro name no longer outranks every binder in the
 ; program. `(macro (v) 9) (fn (f v) v)` used to answer 9, because
@@ -108,14 +113,72 @@
 ;            goldens pin them byte for byte. A renamed binder must not
 ;            renumber a type variable.
 ;   depth  — expansion depth at the current point
+;   decls  — the merged declaration list, for resolving a template's
+;            free identifiers at its DEFINITION site (`expQualify`)
+;   macmod — the module of the macro currently being instantiated, 0
+;            for one defined in the entry file. Set and restored around
+;            each instantiation rather than threaded as a parameter:
+;            `substTpl` runs to completion before the expansion it
+;            produces is walked, so no two macros are ever mid-
+;            substitution at once.
 ; ------------------------------------------------------------------
-(pub struct MEnv (macros : Int) (out : Int) (fresh : Int) (depth : Int))
+(pub struct MEnv (macros : Int) (out : Int) (fresh : Int) (depth : Int)
+                 (decls : Int) (macmod : Int))
 
 (pub :: expMacros (-> Int Int)) (pub fn (expMacros env) (memGetWord env 0))
 (pub :: expOut    (-> Int Int)) (pub fn (expOut    env) (memGetWord env 1))
 (pub :: expDepth  (-> Int Int)) (pub fn (expDepth  env) (memGetWord env 3))
+(pub :: expDecls  (-> Int Int)) (pub fn (expDecls  env) (memGetWord env 4))
+(pub :: expMacMod (-> Int Int)) (pub fn (expMacMod env) (memGetWord env 5))
 (pub :: expSetDepth (-> Int Int Int))
 (pub fn (expSetDepth env d) { (memSetWord env 3 d) env })
+(pub :: expSetMacMod (-> Int Int Int))
+(pub fn (expSetMacMod env m) { (memSetWord env 5 m) env })
+
+; ------------------------------------------------------------------
+; A template's FREE identifier, resolved at the macro's definition
+; site rather than at the call site.
+;
+; Without this, one macro means two things. `MacLib` defines `helper`
+; and a macro `callHelper` whose template calls it; an entry file that
+; imports `MacLib` and defines its own `helper` used to get ITS OWN
+; from `(callHelper 5)` — exit 6 — while the identical macro expanded
+; inside `MacLib`'s own function got `MacLib`'s — exit 105. Same
+; macro, two answers, chosen by where it was written down.
+;
+; `resolveImports` has already run when this pass does, and it mangles
+; an imported `fn`/`::` declaration's name to `Mod$name` while
+; stamping the module on word 8. So the definition-site name a
+; template's free identifier should resolve to already EXISTS as a
+; declaration name, and rewriting the reference to it is enough: both
+; resolvers find it without knowing anything about macros.
+; `findFnEnt` looks the name up in a table keyed by exactly those
+; mangled names, and `mangledFor` passes an already-mangled name
+; through unchanged, so the emitted call names the right symbol.
+;
+; The rewrite is conditional on the qualified name actually being a
+; declaration, which is what keeps it from touching anything else: a
+; template referring to `+`, to `if`, to a constructor (constructors
+; are not mangled) or to a name the entry file owns finds no
+; `Mod$name` and stays bare.
+; ------------------------------------------------------------------
+(pub :: expQualify (-> Int Int Int))
+(pub fn (expQualify env name)
+  (let ((m (expMacMod env)))
+    (if (== m 0)
+        name
+        (let ((q (strConcat (strConcat m "$") name)))
+          (if (== (expDeclNamed (expDecls env) q 0) 1) q name)))))
+
+(pub :: expDeclNamed (-> Int Int Int Int))
+(pub fn (expDeclNamed decls name i)
+  (if (>= i (vecLen decls))
+      0
+      (let ((d (vecGet decls i)))
+        (if (&& (|| (== (nodeTag d) TAG_D_FN) (== (nodeTag d) TAG_D_SIG))
+                (strEq (nodeA d) name))
+            1
+            (expDeclNamed decls name (+ i 1))))))
 
 ; A fresh identifier. See the header for why `.` is the marker.
 (pub :: expFresh (-> Int Int Int))
@@ -358,7 +421,10 @@
                   (mkEVarAt r isp)
                   (let ((idx (expParamIndex params (nodeA tpl))))
                     (if (< idx 0)
-                        (mkEVarAt (nodeA tpl) isp)
+                        ; Neither a template binder nor a parameter, so
+                        ; a FREE identifier: resolved where the macro
+                        ; was written, not where it was called.
+                        (mkEVarAt (expQualify env (nodeA tpl)) isp)
                         (vecGet args idx)))))
         (if (== tag TAG_E_APP)
             (mkNodeAt TAG_E_APP
@@ -482,7 +548,7 @@
         r
         (let ((idx (expParamIndex params name)))
           (if (< idx 0)
-              name
+              (expQualify env name)
               (let ((a (vecGet args idx)))
                 (if (== (nodeTag a) TAG_E_VAR)
                     (nodeA a)
@@ -840,15 +906,18 @@
                         "expansion is a rewrite, so a macro that always rewrites to itself never terminates; the limit is 128"))
           (mkEInt 0)
         }
+        (let ((prevMod (expMacMod env))
+              (_setmod (expSetMacMod env (nodeModule mac))))
         (let ((body (substTpl (nodeC mac) (nodeB mac) args vecNew env isp)))
           {
+            (expSetMacMod env prevMod)
             (expSetDepth env d)
             (let ((out (expandExpr body env bs)))
               {
                 (expSetDepth env (- d 1))
                 out
               })
-          }))))
+          })))))
 
 (pub :: expArityDiag (-> Int Int Int Int Int Int))
 (pub fn (expArityDiag env name want got isp)
@@ -939,7 +1008,7 @@
 ; ------------------------------------------------------------------
 (pub :: expandProgram (-> Int Int Int))
 (pub fn (expandProgram decls out)
-  (let ((env (cast Int (MEnv (expCollectMacros decls vecNew 0) out 0 0))))
+  (let ((env (cast Int (MEnv (expCollectMacros decls vecNew 0) out 0 0 decls 0))))
     {
       (expCheckMacros env 0)
       (expandDeclsIn decls env 0)
