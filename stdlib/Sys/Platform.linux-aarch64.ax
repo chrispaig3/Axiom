@@ -72,8 +72,11 @@
 (pub :: sysExecve Int)
 (pub fn (sysExecve) 221)
 
-; The generic table has no `wait4` under that name either; 260 is
-; `wait4` in `include/uapi/asm-generic/unistd.h`.
+; 260 is `wait4` in `include/uapi/asm-generic/unistd.h`, among the
+; legacy entries at the end of that table. This used to open with "the
+; generic table has no `wait4` under that name either", which is the
+; `unlink` note above carried one entry too far: that table really does
+; lack `unlink`, and really does have `wait4`.
 (pub :: sysWait4 Int)
 (pub fn (sysWait4) 260)
 

@@ -464,11 +464,24 @@
 ; POSIX answer and a larger change than the defect justifies. The window
 ; is a compiler driver locating `llc`.
 ;
-; The cost of the original choice is unchanged and still deliberate: a
-; candidate that exists but is not executable is skipped rather than
-; reported, where `execvp` remembers the EACCES and reports it if
-; nothing later succeeds. A driver looking for `llc` wants the next
-; candidate either way.
+; One more thing this walk does is a `posix_spawn` property and not a
+; promise, and saying so is the point of this paragraph. THAT backend
+; permission-checks in the parent, so a candidate which exists and is
+; not executable comes back as `-EACCES`, the guard below sees a
+; negative, and the walk moves on - `execvp`'s own behaviour, minus
+; execvp's remembering of the EACCES to report if nothing later
+; succeeds. A driver looking for `llc` wants the next candidate either
+; way, so the difference does not matter.
+;
+; Under `fork`+`execve` it is not true. The open above succeeds on a
+; mode-0644 file, the `execve` then fails in the child, and 127 comes
+; back - non-negative, so the walk STOPS and reports it. Closing that
+; needs the same close-on-exec errno pipe named above and is deferred
+; for the same reason; a guard on 127 here is not the fix, because it
+; would send a tool that legitimately exited 127 round every remaining
+; `PATH` entry, which is the conflation this file spent `sysSpawn`
+; arguing against. No gate reaches the case: every fake tool
+; `check-driver.sh` plants is `chmod +x`.
 ;
 ; With `PATH` unset or exhausted the answer is `-2` (ENOENT), which is
 ; what a caller distinguishing "not installed" from "failed" reads.

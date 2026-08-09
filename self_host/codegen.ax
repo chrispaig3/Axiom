@@ -1652,12 +1652,26 @@
   (if (== t 2) 222
   9))))
 
+; The number the emitted abort paths - allocator OOM, arena OOM, and an
+; unhandled effect - exit through. It must be the one `Sys.Platform`
+; picks, and on Linux it was not: this returned 93 and 60, which are
+; `exit`, while `Platform.linux-aarch64.ax` returns 94 and
+; `Platform.linux-x86_64.ax` returns 231, which are `exit_group`. The
+; aarch64 module states the rule in as many words - "exit_group (94),
+; not exit (93)" - and the compiler emitted 93 anyway, so the two
+; implementations of "how this platform exits" disagreed with each
+; other while agreeing on darwin, where 33554433 is the only spelling.
+;
+; Latent rather than live: `exit` ends the calling thread, and nothing
+; Axiom emits has a second one, so the process dies either way. It stops
+; being latent the moment one of these programs has two threads, and
+; the failure then is a process that aborts and stays alive.
 (pub :: targetExitNum (-> Int Int))
 (pub fn (targetExitNum t)
   (if (== t 0) 33554433
   (if (== t 1) 33554433
-  (if (== t 2) 93
-  60))))
+  (if (== t 2) 94
+  231))))
 
 (pub :: targetMapFlags (-> Int Int))
 (pub fn (targetMapFlags t)
