@@ -147,31 +147,155 @@
 (pub fn (sevWord sev)
   (if (== sev SEV_ERROR) "error" "warning"))
 
+; ------------------------------------------------------------------
+; Display columns.
+;
+; A CHARACTER column is what AXDL reports and what `colOf` counts. A
+; DISPLAY column is where the caret actually lands, and the two stop
+; being the same number as soon as a tab appears earlier on the line.
+; Every column below is a display column; every column AXDL, `-->` and
+; the JSON carry stays a character column, because those are machine
+; positions and a tab is one character wherever it is drawn.
+;
+; A tab advances to the next multiple of TAB_WIDTH rather than emitting
+; a fixed four spaces, which is what makes indented code line up - and
+; is what stage0 did, by way of ariadne's `tab_width: 4`. Before this
+; the renderer echoed the tab raw and then padded the caret with
+; SPACES, so a caret under tab-indented source pointed at the wrong
+; column by however much the terminal's tab stop differed from one.
+; ------------------------------------------------------------------
+(pub :: TAB_WIDTH Int) (pub fn (TAB_WIDTH) 4)
+
+; How wide a line may be quoted before it is quoted as a window, and how
+; much of it to keep to the left of the span. A diagnostic on a
+; generated or minified line used to echo the whole thing: measured, a
+; 4000-column line printed in full, which is not a snippet.
+(pub :: LINE_MAX Int) (pub fn (LINE_MAX) 160)
+(pub :: LEFT_CTX Int) (pub fn (LEFT_CTX) 20)
+
+; The 1-based display column of byte offset `off` within its own line.
+(pub :: dispColAt (-> Int Int Int))
+(pub fn (dispColAt src off)
+  (let ((mut i (lineStartOf src off)) (mut col 0))
+    {
+      (while (< i off)
+        {
+          (if (== (strByte src i) 9)
+              (set col (* (+ (/ col TAB_WIDTH) 1) TAB_WIDTH))
+              (if (utf8IsCont (strByte src i)) 0 (set col (+ col 1))))
+          (set i (+ i 1))
+        })
+      (+ col 1)
+    }))
+
+; Display width of the bytes in [ls, le).
+(pub :: dispWidthLine (-> Int Int Int Int))
+(pub fn (dispWidthLine src ls le)
+  (let ((mut i ls) (mut col 0))
+    {
+      (while (< i le)
+        {
+          (if (== (strByte src i) 9)
+              (set col (* (+ (/ col TAB_WIDTH) 1) TAB_WIDTH))
+              (if (utf8IsCont (strByte src i)) 0 (set col (+ col 1))))
+          (set i (+ i 1))
+        })
+      col
+    }))
+
+; Where the quoted window of a line of display width `dw` begins, given
+; a span starting at 1-based display column `dcol`. 0 whenever the whole
+; line fits, which is every line in the corpus.
+(pub :: winStart (-> Int Int Int))
+(pub fn (winStart dw dcol)
+  (if (<= dw LINE_MAX)
+      0
+      (let ((s0 (- (- dcol 1) LEFT_CTX)))
+        (let ((s (if (< s0 0) 0 s0)))
+          ; A window that would run off the end is pushed back to end at
+          ; the line's end instead, so the last columns are never quoted
+          ; as a short window with nothing after them.
+          (if (>= (+ s LINE_MAX) dw)
+              (let ((t (- dw LINE_MAX))) (if (< t 0) 0 t))
+              s)))))
+
+(pub :: winEnd (-> Int Int Int))
+(pub fn (winEnd dw dcol)
+  (if (<= dw LINE_MAX)
+      dw
+      (let ((e (+ (winStart dw dcol) LINE_MAX)))
+        (if (> e dw) dw e))))
+
+; The bytes of [ls, le) whose display columns lie in [a, b), with tabs
+; expanded. A tab is emitted column by column, so one straddling the
+; window's edge contributes only the columns inside it; a multi-byte
+; character is emitted whole at its lead byte.
+(pub :: expandWindow (-> Int Int Int Int Int Int))
+(pub fn (expandWindow src ls le a b)
+  (let ((parts vecNew) (mut i ls) (mut col 0))
+    {
+      (while (< i le)
+        (let ((by (strByte src i)))
+          {
+            (if (== by 9)
+                (let ((stop (* (+ (/ col TAB_WIDTH) 1) TAB_WIDTH)))
+                  (while (< col stop)
+                    {
+                      (if (&& (>= col a) (< col b)) (vecPush parts " ") 0)
+                      (set col (+ col 1))
+                    }))
+                (if (utf8IsCont by)
+                    0
+                    (let ((n0 (utf8SeqLen by)))
+                      (let ((n (if (> (+ i n0) le) (- le i) n0)))
+                        {
+                          (if (&& (>= col a) (< col b))
+                              (vecPush parts (strSlice src i n))
+                              0)
+                          (set col (+ col 1))
+                        }))))
+            (set i (+ i 1))
+          }))
+      (catStrs parts)
+    }))
+
 ; The two lines one labeled span renders as: the source line with its
 ; gutter, and the underline row beneath it. `ch` is the underline
 ; byte - `^` for the primary span, `-` for the related one. The run
-; covers the span's characters clamped to its own line, and is never
-; shorter than one character even for an empty span.
+; covers the span clamped to its own line and to the quoted window, and
+; is never shorter than one column even for an empty span.
 (pub :: labelBlock (-> Int Int Int Int Int Int Int))
 (pub fn (labelBlock src gw start end ch msg)
   (let ((ls (lineStartOf src start))
         (le (lineEndOf src start))
-        (ln (lineOf src start))
-        (col (colOf src start)))
-    (let ((run0 (charsBetween src start (if (< end le) end le))))
-      (let ((run (if (< run0 1) 1 run0))
-            (m (if (== msg 0) "" msg)))
-        (strConcat
-          (strConcat
-            (strConcat (strConcat (rjNum ln gw) " | ")
-                       (strSlice src ls (- le ls)))
-            "\n")
-          (strConcat
-            (strConcat (strConcat (spacesN gw) " | ")
-                       (strConcat (spacesN (- col 1)) (repByte run ch)))
-            (if (== (strLen m) 0)
-                "\n"
-                (strConcat (strConcat " " m) "\n"))))))))
+        (ln (lineOf src start)))
+    (let ((dcol (dispColAt src start))
+          (dw (dispWidthLine src ls le))
+          (m (if (== msg 0) "" msg)))
+      (let ((dend (dispColAt src (if (< end le) end le)))
+            (ws (winStart dw dcol))
+            (we (winEnd dw dcol)))
+        (let ((run0 (- dend dcol)))
+          (let ((run1 (if (< run0 1) 1 run0)))
+            ; Clamp the underline to the window it is drawn in.
+            (let ((run2 (if (> (+ (- dcol 1) run1) we) (- we (- dcol 1)) run1)))
+              (let ((run (if (< run2 1) 1 run2))
+                    (lead (if (> ws 0) "..." ""))
+                    (tail (if (< we dw) "..." "")))
+                (strConcat
+                  (strConcat
+                    (strConcat (strConcat (rjNum ln gw) " | ")
+                               (strConcat (strConcat lead
+                                            (expandWindow src ls le ws we))
+                                          tail))
+                    "\n")
+                  (strConcat
+                    (strConcat (strConcat (spacesN gw) " | ")
+                               (strConcat (spacesN (+ (strLen lead) (- (- dcol 1) ws)))
+                                          (repByte run ch)))
+                    (if (== (strLen m) 0)
+                        "\n"
+                        (strConcat (strConcat " " m) "\n"))))))))))))
 
 ; The last position in `src` that a caret can sit on: one past the
 ; final character of the last non-empty line. A span at or beyond the

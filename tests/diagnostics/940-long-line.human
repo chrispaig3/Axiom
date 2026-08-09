@@ -1,0 +1,10 @@
+error[AX3001]: undefined variable `undefinedvar`
+ --> 940-long-line.ax:2:217
+  |
+2 | ...AAAAAAAAAAAAAAAAAA" undefinedvar "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB...
+  |                        ^^^^^^^^^^^^ no binding named `undefinedvar` in scope
+  |
+  = help: variables must be defined (via `define`/`fn`, a `let` binding, or a lambda parameter) before they are used; check for typos
+  = help: run `axiom explain AX3001` for a full explanation
+
+compilation failed due to 1 previous error

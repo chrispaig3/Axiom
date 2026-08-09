@@ -1,0 +1,1 @@
+E AX3001 940-long-line.ax:2:217-229 undefined-variable "undefined variable `undefinedvar`" #"no binding named `undefinedvar` in scope" ?"variables must be defined (via `define`/`fn`, a `let` binding, or a lambda parameter) before they are used; check for typos"
