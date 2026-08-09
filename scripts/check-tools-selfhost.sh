@@ -196,10 +196,38 @@ fi
 # ---------------------------------------------------------------
 # symbols
 # ---------------------------------------------------------------
+# `--target` is PINNED for both golden comparisons below, and has to be.
+#
+# The zoo imports `Sys`, `Sys` imports `Sys.Platform`, and that module is
+# selected by TARGET - `Platform.darwin.ax` here, `Platform.linux-aarch64.ax`
+# on one CI runner, `Platform.linux-x86_64.ax` on another. Its symbols land
+# in the table with the resolved file's name AND its line numbers, so 22 of
+# the zoo's 89 rows are a statement about the host rather than about the
+# fixture. Blessed on darwin, the golden could only ever match on darwin:
+#
+#     < F sysRead stdlib/Sys/Platform.darwin.ax:21:9-16 "Int" @d99009b49c22cd84
+#     > F sysRead stdlib/Sys/Platform.linux-aarch64.ax:8:9-16 "Int" @d99009b49c22cd84
+#
+# which is what both Linux targets reported the first time this gate ever
+# ran on them. Note the hash is EQUAL across the two - the symbol is the
+# same symbol; only its address in the tree moved.
+#
+# Pinning a target rather than normalising the path away is the choice that
+# keeps the other half honest: the cited file still exists on every host, so
+# the position verifier can still open it and check the claim against real
+# bytes. A placeholder would have to be exempted from that check, which is
+# the half a re-bless cannot satisfy and the half worth keeping.
+#
+# darwin-aarch64 is simply the target the goldens were blessed with; any
+# fixed one would do. What matters is that it is fixed, which also means a
+# contributor on Linux can now run this gate at all - until this line they
+# could not.
+zoo_target="darwin-aarch64"
+
 echo "== symbols: the syntax zoo, against the golden =="
 zoo_golden="tests/tools/symbols-zoo.golden"
 [[ -f "$zoo_golden" ]] || { echo "FAIL: $zoo_golden is missing"; exit 1; }
-(cd "$neutral" && "$work/axc" --diagnostic-format=ai symbols \
+(cd "$neutral" && "$work/axc" --target="$zoo_target" --diagnostic-format=ai symbols \
    "$repo_root/tests/fmt/syntax-zoo.ax" 2>/dev/null) | norm >"$work/zoo.out"
 if ! cmp -s "$zoo_golden" "$work/zoo.out"; then
   echo "FAIL symbols: the zoo's AXSYM differs from $zoo_golden"
@@ -222,7 +250,7 @@ fi
 # ---------------------------------------------------------------
 echo "== symbols: the human table, against the golden and against AXSYM =="
 tbl_golden="tests/tools/symbols-zoo-human.golden"
-(cd "$neutral" && "$work/axc" symbols \
+(cd "$neutral" && "$work/axc" --target="$zoo_target" symbols \
    "$repo_root/tests/fmt/syntax-zoo.ax" 2>/dev/null) | norm >"$work/zoo.tbl"
 if [[ "${AXIOM_BLESS:-0}" == 1 ]]; then
   cp "$work/zoo.tbl" "$repo_root/$tbl_golden"
