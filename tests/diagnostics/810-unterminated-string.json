@@ -1,0 +1,1 @@
+{"severity":"error","code":"AX1002","slug":"unterminated-string","message":"unterminated string literal","file":"810-unterminated-string.ax","span":{"start":{"line":4,"col":23},"end":{"line":5,"col":1},"char_start":67,"char_end":87},"label":"","related":[],"notes":[],"help":["add a closing `\"`, or escape an embedded quote as `\\\"`"],"expansion":[]}

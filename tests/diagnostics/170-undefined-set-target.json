@@ -1,0 +1,1 @@
+{"severity":"error","code":"AX3001","slug":"undefined-variable","message":"undefined variable `cound`","file":"170-undefined-set-target.ax","span":{"start":{"line":4,"col":12},"end":{"line":4,"col":17},"char_start":59,"char_end":64},"label":"","related":[],"notes":[],"help":["a similarly named binding `count` is in scope; did you mean this?"],"expansion":[]}

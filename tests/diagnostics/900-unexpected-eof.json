@@ -1,0 +1,1 @@
+{"severity":"error","code":"AX2002","slug":"unexpected-eof","message":"unexpected end of file","file":"900-unexpected-eof.ax","span":{"start":{"line":4,"col":1},"end":{"line":4,"col":1},"char_start":35,"char_end":35},"label":"","related":[],"notes":[],"help":["count `(`/`[`/`{` against `)`/`]`/`}` working backward from the end of the file"],"expansion":[]}

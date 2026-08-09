@@ -14,8 +14,8 @@
 # `cmp a.out h.out` compares a file with itself, and the sweep reports
 # 52 cases, zero divergences, exit 0, nothing tested.
 #
-# WHAT IT PINS NOW. Five checks per case, of which exactly one is a
-# golden comparison:
+# WHAT IT PINS NOW. Six checks per case, of which exactly two are
+# golden comparisons:
 #
 #   1. GOLDEN. tests/diagnostics/NAME.human equals the renderer's
 #      stderr, byte for byte.
@@ -90,6 +90,20 @@
 #      a snippet quotes is the fixture's bytes, and the trailer is
 #      printed in the machine formats too. AXIOM_BLESS writes
 #      NAME.human; it cannot write self_host/style.ax.
+#
+#   6. THE JSON RENDERING, in the same two halves. 6a is a `cmp`
+#      against NAME.json, minus the trailer, which is not JSON and is
+#      pinned by the human golden anyway - dropped here the way
+#      check-diagnostics.sh drops it from AXDL. 6b is
+#      tests/diagnostics/verify-json.py, which derives every field of
+#      every object from NAME.axdl and the fixture: one object per AXDL
+#      line in the same order, severity from the sigil, the span's
+#      line/col equal to the AXDL's, `char_start`/`char_end`
+#      RECOMPUTED from the fixture as character offsets, and label,
+#      related, notes, help and expansion from the `#`, `^`, `!`, `?`
+#      and `&` fields. The comparison is on the whole decoded object,
+#      so an invented key fails as loudly as a dropped one.
+#      Before this the JSON renderer had no golden and no gate at all.
 #
 # WHY THAT IS ADEQUATE WITHOUT A SECOND COMPILER. Checks 3, 4 and 5
 # cannot be satisfied by regenerating anything this script writes.
@@ -1049,6 +1063,15 @@ for axdl in tests/diagnostics/*.axdl; do
   (cd "$work" && ./axc check "$name.ax" 2>"$work/h.err" >"$work/h.out")
   s1=$?
 
+  # Check 6a: the same case rendered as JSON Lines. The trailer is
+  # dropped the way check-diagnostics.sh drops it from AXDL -
+  # `compilation failed due to N previous errors` is printed in every
+  # format and is pinned by the human golden, and a JSON Lines file
+  # whose last line is not JSON is one no consumer can read to the end.
+  (cd "$work" && ./axc --diagnostic-format=json check "$name.ax" \
+       2>"$work/j.raw" >/dev/null)
+  grep -E '^\{' "$work/j.raw" > "$work/j.err" || true
+
   # A bless writes the golden and then goes on to be CHECKED, exactly as
   # if it had been in the tree all along. Checks 2, 3 and 4 read the
   # AXDL golden and the fixture, neither of which this script writes, so
@@ -1060,6 +1083,7 @@ for axdl in tests/diagnostics/*.axdl; do
   # write down its own defects and call it provenance.
   if [[ "$bless" == 1 ]]; then
     cp "$work/h.err" "$repo_root/$golden"
+    cp "$work/j.err" "$repo_root/tests/diagnostics/$name.json"
     echo "blessed $name"
   fi
 
@@ -1115,6 +1139,24 @@ for axdl in tests/diagnostics/*.axdl; do
   if ! cmp -s "$golden" "$work/h.err"; then
     echo "FAIL $name (the rendering differs from the golden)"
     diff "$golden" "$work/h.err" | head -8 | sed 's/^/    /'
+    ok=0
+  fi
+
+  # Check 6a. The JSON golden, byte for byte, and no colour in the
+  # stream it came from - JSON is a machine surface like AXDL. 6b, the
+  # derivation from the AXDL golden and the fixture, runs once over the
+  # whole corpus after the sweep.
+  facts=$((facts + 1)); f_esc=$((f_esc + 1))
+  if LC_ALL=C grep -q $'\x1b' "$work/j.raw"; then
+    echo "FAIL $name (\`--diagnostic-format=json\` emitted an ANSI escape)"
+    ok=0
+  fi
+  if [[ ! -f "tests/diagnostics/$name.json" ]]; then
+    echo "FAIL $name (no JSON golden; run with AXIOM_BLESS=1)"
+    ok=0
+  elif ! cmp -s "tests/diagnostics/$name.json" "$work/j.err"; then
+    echo "FAIL $name (the JSON rendering differs from the golden)"
+    diff "tests/diagnostics/$name.json" "$work/j.err" | head -4 | sed 's/^/    /'
     ok=0
   fi
 
@@ -1214,6 +1256,20 @@ floor_fail() {
 # fails, or always succeeds, and check 2 would be reporting a constant.
 if (( want_fail == 0 || want_ok == 0 )); then
   echo "FAIL: every case wants the same exit status ($want_fail fail / $want_ok ok) - the derivation distinguishes nothing"
+  failed=$((failed + 1))
+fi
+
+# ------------------------------------------------------------------
+# check 6b: every JSON golden, derived from the AXDL golden and the
+#           fixture
+# ------------------------------------------------------------------
+# The half of the JSON gate a re-bless cannot satisfy, and the reason
+# check 6a is allowed to be a plain `cmp`. Run once over the corpus
+# rather than per case because its right-hand sides - NAME.axdl and the
+# fixture - are the same files the whole way through.
+echo "--- every JSON golden, against its AXDL golden and the fixture's bytes ---"
+if ! python3 tests/diagnostics/verify-json.py tests/diagnostics; then
+  echo "FAIL: a JSON golden says something its AXDL golden and the fixture do not"
   failed=$((failed + 1))
 fi
 
@@ -1454,6 +1510,46 @@ else
   drill_disp "trunc_window near the end of a wide line" \
              "$(trunc_window 300 295)"    "140 300"
   drill_disp "trunc_window at the very start"      "$(trunc_window 300 1)"   "0 160"
+
+  # (j) check 6b: a JSON golden that contradicts the fixture. `char_start`
+  # is the leg that reads the file's own bytes, and the one a regression
+  # from characters back to bytes would move - so that is the field the
+  # drill moves. Run in a scratch directory holding one case, so the
+  # verifier's own corpus floors are not what makes it fail: the drill
+  # requires the per-CASE line, not a non-zero exit.
+  jd="$work/jdrill"
+  rm -rf "$jd"; mkdir -p "$jd"
+  cp "$drill_axdl" "${drill_golden%.human}.json" "$jd/" 2>/dev/null
+  if jf="$(resolve_fixture "$drill_name.ax")"; then
+    cp "$jf" "$jd/$(basename "$jf")"
+  fi
+  # The verifier's output is captured rather than piped: `set -o pipefail`
+  # is on, and `python3 (exit 1) | grep -q (exit 0)` is a FAILING
+  # pipeline under it, so a piped form reads as "grep did not match"
+  # exactly when it did. Found by this drill reporting its own
+  # corruption uncaught while the verifier caught it by hand.
+  jout=""
+  if [[ ! -f "$jd/$drill_name.json" ]]; then
+    echo "FAIL drill(json): $drill_name has no JSON golden to corrupt"
+    failed=$((failed + 1))
+  else
+    jout="$(python3 tests/diagnostics/verify-json.py "$jd" 2>&1 || true)"
+    if grep -q "^FAIL $drill_name" <<< "$jout"; then
+      echo "FAIL drill(json): $drill_name's own JSON golden is not derivable, so there is no correct baseline to corrupt"
+      failed=$((failed + 1))
+    else
+      sed 's/"char_start":[0-9]*/"char_start":9999/' "$jd/$drill_name.json" \
+        > "$jd/j.tmp" && mv "$jd/j.tmp" "$jd/$drill_name.json"
+      jout="$(python3 tests/diagnostics/verify-json.py "$jd" 2>&1 || true)"
+      if cmp -s "${drill_golden%.human}.json" "$jd/$drill_name.json"; then
+        echo "FAIL drill(json): the corruption changed nothing - no char_start matched"
+        failed=$((failed + 1))
+      elif ! grep -q "^FAIL $drill_name.*'span'" <<< "$jout"; then
+        echo "FAIL drill(json): a JSON span whose char_start contradicts the fixture was accepted"
+        failed=$((failed + 1))
+      fi
+    fi
+  fi
 
   facts="$facts_kept"; rows="$rows_kept"
   f_block="$bk"; f_head="$hk"; f_loc="$lk"; f_msg="$mk"
