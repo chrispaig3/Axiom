@@ -7503,3 +7503,108 @@ and runs to exit 17.
 WIDE: it passes on both compilers, so it was ablated separately by
 making `tyInst` the identity, and then fails with three false AX3004s.
 A control that cannot fail is not a control.
+
+## 39. A `type` alias answered two different ways, and `Mod::name` reported the ambiguity it resolves
+
+Fixed 2026-08-10.
+
+```scheme
+(type Count = Int)
+(:: h (-> Count Int))   (fn (h c) c)
+
+(h 42)                          ->  AX3004: expected Count, found Int,  exit 1
+(:: mkc (-> Int Count)) (fn (mkc n) n)
+(h (mkc 42))                    ->  exit 0, prints 42
+```
+
+The same relation gave opposite answers depending on POSITION, because
+argument checking compares constructor names through `tyCompat` while
+the declared-return check names only `Bool` and `Float`.
+`docs/reference.md:808` promises the opposite: an alias "does not
+create a new type — `StringList` and `[String]` are interchangeable".
+`tcAliases` was filled at collection and read by `axiom symbols` and by
+nothing else.
+
+And, one namespace over:
+
+```scheme
+(import DupA)
+(import DupB)
+(DupA::dup 0)
+```
+
+```
+error[AX3014]: ambiguous name `dup`: defined in DupA, DupB
+  = help: qualify the reference: `DupA::dup` or `DupB::dup`
+```
+
+The diagnostic recommended the spelling that was already there.
+`checkAmbiguous` asked `bareOf name`, and `bareOf` strips exactly the
+qualifier that answers the question — so the documented escape from the
+flat namespace did not exist, which is part of why 149 imports still
+carry no name list.
+
+### The float flags are what made this a slice and not a line
+
+§30's note said expansion was a larger job because `parseSigDecl`
+reconstructs one float flag per arrow position FROM THE TOKENS —
+float-ness is not observable at runtime, so by emission time there is no
+checker to ask — and codegen reads those flags to choose `fmul` over
+`mul`. Expanding `(type Real = Float)` in the checker alone would have
+the checker say `Float` where the emitter still says `Int`. That note
+was right, and it is measured:
+
+```scheme
+(type Real = Float)
+(:: area (-> Real Real Real))
+(fn (area w h) (* w h))
+(println (fmtFloatPrec (area 3.0 1.5) 2))
+```
+
+With the flag rewrite: `4.50`, byte-identical to the same program
+written with `Float`. With the flag rewrite ablated and everything else
+in place: **`0.00`, at exit 0.**
+
+Note the shape of the probe. An earlier version used `(/ x 2.0)`, and it
+printed `4.50` under the ablation too — a float LITERAL decides
+float-ness on its own, so the flag was never consulted. `area` takes two
+parameters and multiplies them with no literal in the body, which is the
+only shape where `paramIsFloat` is the deciding reader.
+
+### The fix
+
+`tcExpandSigAliases` runs over every signature, immediately before the
+AX3002 pass that already visits those positions, and writes THREE
+places so no reader keeps the unexpanded spelling: the declaration
+node's type slot, its float-flag slot, and the `FnEnt`'s type — which is
+what `checkVar` hands a call site, what `bindFnParams` peels for the
+parameters and what `checkDeclaredReturn` compares the body against.
+The positions cannot disagree again because there is nothing left for
+them to disagree about.
+
+The flags are recomputed from the expanded node at the vector's
+ORIGINAL length, which reproduces `sigFloatFlags` exactly: position k is
+the k-th peel's parameter for every k but the last, and the last is
+whatever is left. Walking the node to exhaustion instead gives
+`(-> Int (-> Float Float))` three flags where the parser gives two.
+
+An alias reached through another alias re-enters. A cyclic one stops at
+a depth cap and stays nominal, which is what it was. Parameterised
+aliases need substitution and are not covered.
+
+`checkAmbiguous` returns early when `modOf name` is non-zero.
+
+### What it cost
+
+`(type` has a corpus population of 0, and a 283-file old-vs-new sweep
+moved exactly the two new fixtures — 1 to 0 — and nothing else.
+
+### What pins it
+
+`tests/selfhost/973-type-alias.ax` (argument position, an alias through
+an alias, and the `Float` case) and
+`tests/selfhost/974-qualified-ambiguous.ax`, which asserts not that the
+AX3014 is gone but that each qualified call resolves to the module it
+NAMES — the two definitions answer 100 apart, so a fix that merely
+silenced the diagnostic and bound both calls to the first definition
+still fails.

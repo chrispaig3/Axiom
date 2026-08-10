@@ -1596,16 +1596,18 @@
 ; is AX3023's subject, and answering AX3002 for it would say "no such
 ; type" about one that exists.
 ;
-; An ALIAS name counts as known even though `tcAliases` is still read
-; by nothing else. An alias is a declaration; saying "undefined type"
-; about it would be false. Making it TRANSPARENT is a separate slice
-; and a larger one - `parseSigDecl` stores per-arrow float flags in
-; the node's `b` slot beside this type, reconstructed at PARSE time
-; because float-ness is not observable at runtime, and codegen keys on
-; that exact shape. Expanding `(type F = Float)` in the checker alone
-; would have the checker say `Float` where the emitter still says
-; `Int` - trading a missing diagnostic for a wrong answer, which is
-; the trade this repository twice records as the wrong one.
+; An ALIAS name counts as known. An alias is a declaration; saying
+; "undefined type" about it would be false.
+;
+; It is also EXPANDED now - see `tcExpandSigAliases`. The note that
+; used to stand here said expansion was a larger slice because
+; `parseSigDecl` stores per-arrow float flags in the node's `b` slot,
+; reconstructed at PARSE time from the tokens because float-ness is
+; not observable at runtime, and codegen keys on that exact shape - so
+; expanding `(type F = Float)` in the checker alone would have the
+; checker say `Float` where the emitter still says `Int`. That was
+; right, and it is why expansion rewrites the FLAGS as well as the
+; type.
 (pub :: tyConKnown (-> Int Int Int))
 (pub fn (tyConKnown tc name)
   (if (!= (typeKeywordCanon name) 0)
@@ -1651,6 +1653,155 @@
           (tyUnknownCon tc (vecGet xs i))
           (tyUnknownConVec tc xs (+ i 1)))))
 
+; ------------------------------------------------------------------
+; `type` aliases, expanded.
+;
+; `docs/reference.md:808` says an alias "does not create a new type -
+; `StringList` and `[String]` are interchangeable". The compiler
+; answered two different ways depending on POSITION:
+;
+;   (type Count = Int)
+;   (:: h (-> Count Int))  (fn (h c) c)
+;   (h 42)                     AX3004: expected Count, found Int
+;   (:: mkc (-> Int Count)) (fn (mkc n) n)
+;   (h (mkc 42))               exit 0, prints 42
+;
+; because argument checking compares constructor NAMES through
+; `tyCompat` while the declared-return check names only `Bool` and
+; `Float`. `tcAliases` was populated at collection and read by
+; `symbols` and by nobody else, so the declaration existed and was
+; never expanded.
+;
+; Expansion happens once, over the signature, and writes THREE places
+; so no reader is left with the unexpanded spelling: the declaration
+; node's type slot, its float-flag slot, and the `FnEnt`'s type - which
+; is what `checkVar` hands a call site, what `bindFnParams` peels for
+; the parameters and what `checkDeclaredReturn` compares the body
+; against. One write per reader; the positions cannot disagree again
+; because there is nothing left for them to disagree about.
+;
+; The FLAGS are the half that makes this sound rather than a swapped
+; defect. They are one bit per arrow position - is it a bare `Float` -
+; and codegen reads them because by emission time there is no checker
+; to ask. Recomputing them from the expanded NODE reproduces
+; `sigFloatFlags` exactly as long as the vector keeps its ORIGINAL
+; length: position k is the k-th peel's parameter for every k but the
+; last, and the last is whatever is left, which is precisely how
+; `spineFlags` reads the token spine. Walking the node to exhaustion
+; instead would give `(-> Int (-> Float Float))` three flags where the
+; parser gives two.
+;
+; A cyclic alias - `(type A = B)` beside `(type B = A)` - stops at the
+; depth cap and stays nominal, which is what it was before. Recorded,
+; not diagnosed.
+(pub :: aliasMaxDepth Int)
+(pub fn (aliasMaxDepth) 32)
+
+(pub :: tyHasAliasCon (-> Int Int Int))
+(pub fn (tyHasAliasCon tc t)
+  (if (== t 0)
+      0
+      (let ((tg (nodeTag t)))
+        (if (== tg TAG_T_CON)
+            (if (!= (tcAliasFind tc (nodeA t)) 0)
+                1
+                (tyHasAliasConVec tc (nodeB t) 0))
+        (if (== tg TAG_T_ARR)
+            (if (== (tyHasAliasCon tc (nodeA t)) 1) 1 (tyHasAliasCon tc (nodeB t)))
+        (if (== tg TAG_T_TUP)
+            (tyHasAliasConVec tc (nodeA t) 0)
+        (if (|| (== tg TAG_T_LIST) (== tg TAG_T_PTR))
+            (tyHasAliasCon tc (nodeA t))
+        0)))))))
+
+(pub :: tyHasAliasConVec (-> Int Int Int Int))
+(pub fn (tyHasAliasConVec tc xs i)
+  (if (== xs 0)
+      0
+      (if (>= i (vecLen xs))
+          0
+          (if (== (tyHasAliasCon tc (vecGet xs i)) 1)
+              1
+              (tyHasAliasConVec tc xs (+ i 1))))))
+
+(pub :: tyExpandAliases (-> Int Int Int Int))
+(pub fn (tyExpandAliases tc t depth)
+  (if (== t 0)
+      0
+      (if (>= depth aliasMaxDepth)
+          t
+          (let ((tg (nodeTag t)))
+            (if (== tg TAG_T_CON)
+                (let ((al (tcAliasFind tc (nodeA t))))
+                  (if (== al 0)
+                      (mkTCon (nodeA t) (tyExpandAliasesVec tc (nodeB t) depth vecNew 0))
+                      ; An alias's TARGET may itself name one, so the
+                      ; expansion is re-entered rather than returned.
+                      ; Parameterised aliases need substitution and are
+                      ; not covered: only the zero-parameter spelling
+                      ; expands, which is the one `docs/reference.md`
+                      ; documents and the only one `symbols` prints.
+                      (if (!= (vecLen (nodeB t)) 0)
+                          t
+                          (tyExpandAliases tc (nodeB al) (+ depth 1)))))
+            (if (== tg TAG_T_ARR)
+                (mkTArr (tyExpandAliases tc (nodeA t) depth)
+                        (tyExpandAliases tc (nodeB t) depth))
+            (if (== tg TAG_T_TUP)
+                (mkTTup (tyExpandAliasesVec tc (nodeA t) depth vecNew 0))
+            (if (== tg TAG_T_LIST)
+                (mkNode TAG_T_LIST (tyExpandAliases tc (nodeA t) depth) 0 0)
+            (if (== tg TAG_T_PTR)
+                (mkTPtr (tyExpandAliases tc (nodeA t) depth) (nodeB t))
+            t)))))))))
+
+(pub :: tyExpandAliasesVec (-> Int Int Int Int Int Int))
+(pub fn (tyExpandAliasesVec tc xs depth acc i)
+  (if (== xs 0)
+      acc
+      (if (>= i (vecLen xs))
+          acc
+          {
+            (vecPush acc (tyExpandAliases tc (vecGet xs i) depth))
+            (tyExpandAliasesVec tc xs depth acc (+ i 1))
+          })))
+
+; 1 when this type is a bare `Float`, which is the only thing a float
+; flag is ever set for - an applied constructor, an arrow, a tuple, a
+; list or a pointer is a word.
+(pub :: tyIsBareFloat (-> Int Int))
+(pub fn (tyIsBareFloat t)
+  (if (== t 0)
+      0
+      (if (!= (nodeTag t) TAG_T_CON)
+          0
+          (if (!= (vecLen (nodeB t)) 0)
+              0
+              (if (strEq (nodeA t) "Float") 1 0)))))
+
+; The flag vector `sigFloatFlags` would have produced for `t`, at the
+; length the parser already chose.
+(pub :: tyFloatFlags (-> Int Int Int))
+(pub fn (tyFloatFlags t n)
+  (tyFloatFlagsFrom t n 0 vecNew))
+
+(pub :: tyFloatFlagsFrom (-> Int Int Int Int Int))
+(pub fn (tyFloatFlagsFrom t n i acc)
+  (if (>= i n)
+      acc
+      (if (== (+ i 1) n)
+          { (vecPush acc (tyIsBareFloat t)) acc }
+          (if (!= (nodeTag t) TAG_T_ARR)
+              ; Fewer arrows than flags cannot happen for a type this
+              ; pass expanded - the length came from the same spine -
+              ; but answering the flags already collected is the
+              ; conservative end rather than reading off a non-arrow.
+              acc
+              {
+                (vecPush acc (tyIsBareFloat (nodeA t)))
+                (tyFloatFlagsFrom (nodeB t) n (+ i 1) acc)
+              }))))
+
 ; One pass over the resolved declaration list, after `tcCollect` has
 ; registered every `data`, `struct` and `type` - a signature may name
 ; a type declared later in the file, or in another module.
@@ -1660,10 +1811,28 @@
       0
       {
         (if (== (nodeTag (vecGet decls i)) TAG_D_SIG)
-            (tcCheckSigTypeOf tc (vecGet decls i))
+            {
+              ; Expansion FIRST: `tcCheckSigTypeOf` poisons a signature
+              ; naming an unknown type, and an alias is a known one.
+              (tcExpandSigAliases tc (vecGet decls i))
+              (tcCheckSigTypeOf tc (vecGet decls i))
+            }
             0)
         (tcCheckSigTypes tc decls (+ i 1))
       }))
+
+(pub :: tcExpandSigAliases (-> Int Int Int))
+(pub fn (tcExpandSigAliases tc d)
+  (if (== (tyHasAliasCon tc (nodeTy d)) 0)
+      0
+      (let ((ex (tyExpandAliases tc (nodeTy d) 0))
+            (n (if (== (nodeB d) 0) 0 (vecLen (nodeB d)))))
+        {
+          (setNodeTy d ex)
+          (if (== n 0) 0 (memSetWord d 2 (tyFloatFlags ex n)))
+          (let ((ent (fnEntExact tc (nodeA d))))
+            (if (== ent 0) 0 (memSetWord ent 1 ex)))
+        })))
 
 (pub :: tcCheckSigTypeOf (-> Int Int Int))
 (pub fn (tcCheckSigTypeOf tc d)
@@ -2246,6 +2415,17 @@
 (pub :: checkAmbiguous (-> Int Int Int Int))
 (pub fn (checkAmbiguous tc name span)
   (let ((mods (definingModules tc (bareOf name))))
+    ; A QUALIFIED reference names one module, so it cannot be
+    ; ambiguous - it is the escape this diagnostic's own help text
+    ; tells the reader to write. The check asked `bareOf name`, which
+    ; strips the qualifier that answers the question, so `AmbA::dup`
+    ; reported `ambiguous name \`dup\`` and helpfully suggested
+    ; writing `AmbA::dup`. The documented escape from the flat
+    ; namespace did not work, which is why 149 imports still carry no
+    ; name list and two `fmtInt`/`die` pairs are still duplicated by
+    ; hand.
+    (if (!= (modOf name) 0)
+        0
     (if (< (vecLen mods) 2)
         0
         (if (== span 0)
@@ -2262,7 +2442,7 @@
                                    (joinQualified mods (bareOf name) 0 "")))
                   (strConcat (strConcat "`" (bareOf name)) "` could mean more than one definition")))
               1
-            }))))
+            })))))
 
 ; The distinct modules defining `n`, in declaration order - or an
 ; empty Vec when anything module-less defines it.

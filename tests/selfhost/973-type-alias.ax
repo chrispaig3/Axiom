@@ -1,0 +1,50 @@
+; expect 42
+; `docs/reference.md:808` promises that a `type` alias "does not create
+; a new type - `StringList` and `[String]` are interchangeable". The
+; compiler answered two different ways depending on POSITION: an alias
+; was nominal where an argument is checked and transparent where a
+; declared return is, so `(h 42)` was `AX3004: expected Count, found
+; Int` while `(h (mkc 42))` ran and printed 42. `tcAliases` was filled
+; at collection and read by `axiom symbols` and by nothing else.
+;
+; Three terms, and the third is the one with a wrong answer behind it:
+;
+;   a  an alias in ARGUMENT position, which used to be the refusal;
+;   b  an alias reached through another alias, so expansion has to
+;      re-enter rather than substitute once;
+;   c  an alias to `Float`. This is why expanding in the checker alone
+;      would have been a swapped defect rather than a fix:
+;      `parseSigDecl` reconstructs one float flag per arrow position
+;      FROM THE TOKENS, because float-ness is not observable at
+;      runtime, and codegen reads those flags to decide `fmul` against
+;      `mul`. A checker that says `Float` over an emitter that still
+;      says `Int` computes `0.00` at exit 0 - measured, by ablating
+;      the flag rewrite and running this file.
+;
+; `area` takes TWO parameters and multiplies them, with no float
+; LITERAL anywhere in the body, because a literal operand decides
+; float-ness on its own and would make this term pass either way.
+(import Fmt)
+
+(type Count = Int)
+(type Tally = Count)
+(type Real = Float)
+
+(:: h (-> Count Int))
+(fn (h c) c)
+
+(:: mkc (-> Int Count))
+(fn (mkc n) n)
+
+(:: t (-> Tally Int))
+(fn (t v) v)
+
+(:: area (-> Real Real Real))
+(fn (area w h) (* w h))
+
+(:: main Int)
+(fn (main)
+  (if (&& (&& (== (h 20) 20) (== (h (mkc 1)) 1))
+          (&& (== (t 17) 17) (== (__floatToInt (area 3.0 1.5)) 4)))
+      42
+      1))

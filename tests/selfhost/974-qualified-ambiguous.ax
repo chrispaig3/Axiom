@@ -1,0 +1,22 @@
+; expect 42
+; `Mod::name` is the escape from the flat namespace that `AX3014`'s own
+; help text tells the reader to write - "qualify the reference:
+; `DupA::dup` or `DupB::dup`". Writing it still reported `AX3014`,
+; because `checkAmbiguous` asked `bareOf name` and `bareOf` strips
+; exactly the qualifier that answers the question. So the diagnostic
+; recommended a spelling it then refused, and the documented way out of
+; a name collision did not exist.
+;
+; Both halves are asserted. The first is that neither call is refused;
+; the second, which is the one that matters, is that each resolves to
+; the module it NAMES - a fix that only silenced the diagnostic could
+; still bind both calls to whichever definition came first, and the
+; answers here are 100 apart so that shows up as a value.
+(import DupA)
+(import DupB)
+
+(:: main Int)
+(fn (main)
+  (if (&& (== (DupA::dup 0) 1) (== (DupB::dup 0) 100))
+      42
+      1))
