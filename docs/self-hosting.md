@@ -4980,7 +4980,12 @@ written by people solving problems, and nobody's problem needs `()`.
 
 ## 14. A module cannot have a private declaration
 
-Measured 2026-08-09, and not fixed here. `R.ax`:
+**Fixed 2026-08-10.** What follows is the defect as it was measured on
+2026-08-09, because the fix is only legible against it; §14.3 records
+what it is now, §14.4 the half that was found a day later and is worse
+than anything below, and §14.5 what this still leaves.
+
+`R.ax`:
 
 ```scheme
 (:: helper (-> Int Int))
@@ -5079,6 +5084,177 @@ and wants its own slice and its own battery.
 This is the other half of the flat-namespace decision the roadmap's P3
 row already names: *resolution outward from a module is still the merged
 declaration list rather than that module's import set.*
+
+### 14.3 What it is now
+
+Both halves landed together, because either alone is worse than
+neither. `resolveDeclsPhase` carries **every** declaration and records
+the export decision on the node (word 5, which meant "was written
+`pub`" and now means "may anything outside name it"). `mangleDecl` then
+splits `mangleRecord`'s two recordings the way §14.2 described: a
+carried private declaration records `Mod$name -> Mod$name` and leaves
+the bare slot alone.
+
+The checker gets the visibility it did not have, and it is one table,
+not a field on every entry. `tc` word 19 holds the mangled name of each
+carried-but-not-exported declaration; `findFnEnt`'s module-local step
+is unchanged (anything it finds is the module's own), and the two steps
+after it — which are the ones that can reach another module — consult
+it. `findCtor`, `rfindCtor`, `findStruct` and `findData` do the same
+for types, keyed on the module recorded beside them, since `data` and
+`struct` names are not rewritten to `Mod$name`.
+
+A reference that gets refused is **`AX3023`**, a new code, and it says
+which module the name belongs to rather than claiming the name does not
+exist:
+
+```
+error[AX3023]: `helper` is private to module `M.Lib`
+ --> leak.ax:3:13
+  |
+3 | (fn (main) (helper 3))
+  |             ^^^^^^ `helper` is not exported by its module
+  |
+  = help: a name leaves its module when its declaration is written `pub`;
+          if the import that brought the module in carries a name list,
+          the name has to appear there too
+```
+
+That diagnostic is the load-bearing half. Without it the reference
+reaches `mangledFor`, which holds no bare entry for a private name and
+emits it verbatim — `opt: use of undefined value '@helper'`, exit 4,
+blaming the toolchain — which is precisely the trade §14.2 refused to
+commit.
+
+**The table is 0, not an empty Vec, when the program has nothing
+private**, and that is a measured decision rather than a taste. The
+first version put an `exported` field on `FnEnt`, `DataEnt` and
+`StructEnt`. `findFnEnt` scans `tcFns` linearly and a self-check spends
+most of its time there, so one extra word on ~1,600 entries cost
+**1.30s → 1.38s** on `check self_host/main.ax`, same builder, same
+flags, same input. Moving it to one side table and guarding every
+lookup on `(== (memGetWord tc 19) 0)` — a load and a compare against a
+constant, no call, no length — brings it back to **1.31s**, which is
+inside the run-to-run spread.
+
+Two things had to move with it:
+
+- `inferEffectsPass` looked up a declaration's own `FnEnt` *before*
+  setting `tc`'s current module, so every private function's entry came
+  back 0 and its body's effects were never accumulated. The symptom was
+  the entire standard library drawing `AX3010 effect(io) claim
+  unsupported` the moment one import carried a name list. `tcCheckFn`
+  already sets the module before its lookup and says why in a comment;
+  this is the same rule, and the fix is the same two lines.
+- `ambBuildDecl` no longer records a name nothing outside can reach. A
+  private helper colliding with an unrelated public name in another
+  module would otherwise report `AX3014` about two definitions, only
+  one of which the reference could ever have named. `isDefined` refuses
+  a private definition for the same reason: an entry-file `(:: f T)`
+  with only a private `M$f` behind it is still `AX3015`, and saying so
+  is what keeps it from becoming an undefined symbol at link time.
+
+Gated by `tests/selfhost/920-private-declaration.ax` (a private `data`,
+its constructor, a private function matching on it, and a private
+helper, all reached from public bodies — answers 42, and does not
+compile at all against a compiler built from `875b79b`) and
+`tests/selfhost/930-selective-import.ax` (the name-list half), plus
+`tests/diagnostics/370-private-name.ax` and
+`380-private-name-filtered.ax` for the refusal.
+
+**And it is a measured no-op on everything that exists.** §14.1's census
+said all 3,094 top-level declarations in `stdlib/` and `self_host/` are
+`pub` and not one of the 144 imports carries a name list — so the whole
+corpus is on the path where nothing changes, and it is worth checking
+that prediction rather than asserting it. All **246** `.ax` files under
+`stdlib/`, `self_host/` and `tests/` were run through `check
+--diagnostic-format=ai` under a compiler built from `875b79b` and under
+this one: **0 divergences**, in bytes and in exit status. The fixpoint
+holds, `stage2` and `stage3` emitting identical IR.
+
+### 14.4 The half that was not recorded, and is worse
+
+§14 above says a private helper makes the module fail to compile. That
+is the *loud* manifestation, and it is not the dangerous one.
+
+A dropped declaration does not merely go missing. It leaves its bare
+name unclaimed in `mangleRecord`'s map, and `recordEntryFns` runs
+before any import — so **if the importing program happens to define
+that name, the imported module's own call lands on the importer's
+definition.** Measured against `875b79b`, with `stdlib/IO.ax` as the
+victim and nothing but documented syntax:
+
+```scheme
+(import Sys)
+(:: writeStr (-> Int Int Int))
+(fn (writeStr fd s) (sysWriteFd fd (__addr "PWNED\n") 6))
+(import IO (println))
+(:: main Int)
+(fn main { (println "hello") 0 })
+```
+
+```
+$ axiom run sel8.ax
+PWNED
+PWNED
+exit 0
+```
+
+`IO.println` calls `writeStr` twice. Both calls reached the entry
+file's. No diagnostic at any severity, from any pass. The name list is
+the entire discriminator: delete `(println)` from that import and the
+same program prints `hello`.
+
+The same shape with a private helper and an integer answer, so the
+wrongness is a number rather than a string:
+
+| | wanted | `875b79b` | now |
+|---|---|---|---|
+| private helper, importer defines nothing | 12 | `AX3001` at *the library's* lines, exit 1 | 12 |
+| private helper, importer defines `helper` | 12 | **100**, exit 0, silent | 12 |
+| name list drops a `pub` sibling | 5 | `AX3001` at *the library's* lines, exit 1 | 5 |
+| name list drops it, importer defines it | 5 | **50**, exit 0, silent | 5 |
+
+Importing a module could rewrite what that module does. That is the
+sentence the whole slice exists to make false, and it is a strictly
+stronger statement than §14's — which is why the fix is not "carry the
+declaration" but "carry the declaration *and* refuse the reference".
+
+### 14.5 What this still leaves
+
+- **`macro` and `effect` declarations are exempt, and for `macro` that
+  is a widening rather than a no-op — measured, not assumed.**
+  `mangleDecl` rewrites only `fn` and `::`, so a macro's name carries
+  no module, and the expander runs *before* the checker and resolves an
+  invocation by bare name over the declaration order, with nowhere to
+  ask whose module the invocation is in. So a non-`pub` macro is now
+  visible from outside its module:
+
+  |  | `875b79b` | now |
+  |---|---|---|
+  | the module's own use of its private macro | 1 (`AX3001`) | 42 |
+  | an outside use of it | 1 (`AX3001`) | 42 |
+
+  The first row is the fix. The second is a leak, and it is recorded
+  rather than repaired because **no program that previously worked can
+  observe it**: a module with a private macro did not compile at all —
+  its own call to that macro was the `AX3001` — so nothing could depend
+  on the old refusal, which was deletion wearing privacy's clothes.
+  Repairing it means giving the expander the invocation site's module,
+  and `expand.ax`'s header calls its resolution rule a language
+  decision rather than an implementation detail ("changing it is a
+  language change, not a bug fix"), so it is its own slice with its own
+  design.
+- **A constructor of a private `data` is refused as `AX3001`, not
+  `AX3023`.** The constructor lookup is a different path and does not
+  reach the private table's function branch. The refusal is correct and
+  the message is the older, weaker one.
+- **An import's name list is still unchecked.** `(import M (noSuch))`
+  is accepted in silence and reports nothing at the import; the mistake
+  surfaces as `AX3001` wherever the name is used, or as nothing at all
+  if it never is. That is its own slice — a diagnostic at the import
+  site, naming what the module does export — and it is the last piece
+  of the same family.
 
 ## 15. The identifier characters two passes did not honour
 

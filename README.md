@@ -939,18 +939,24 @@ inside `match` work correctly (see the limitations below).
 
 ## Modules and imports
 
-Split a program across files with `(import Mod.Sub ...)`:
+Split a program across files with `(import Mod.Sub ...)`. A declaration
+leaves its module only if it is written `pub`:
 
 ```scheme
 ; Math/Ops.ax
-(:: square (-> Int Int))
-(fn (square x) (* x x))
+(pub :: square (-> Int Int))
+(pub fn (square x) (* x x))
+
+; Not `pub`: this module's own business, and callable only from
+; inside this file. Naming it from anywhere else is AX3023.
+(:: twice (-> Int Int))
+(fn (twice x) (+ x x))
 ```
 
 ```scheme
 ; main.ax
 (import Math.Ops (square))       ; only bring in `square`
-; (import Math.Ops)               would bring in every top-level decl
+; (import Math.Ops)               would bring in every `pub` decl
 
 (:: main Int)
 (fn main (square 5))
@@ -960,6 +966,11 @@ Split a program across files with `(import Mod.Sub ...)`:
 axiom run main.ax
 ```
 
+> Every version of this example before 2026-08-10 omitted `pub`, and
+> every version of it failed: `square` was not exported, so the call
+> was `AX3001 undefined variable`. It is now `AX3023`, which names the
+> module and the reason. See [docs/self-hosting.md §14](docs/self-hosting.md).
+
 How it works:
 
 - A dotted module path maps directly to a file path: `Math.Ops` resolves
@@ -968,9 +979,19 @@ How it works:
   whichever file happens to contain the `(import ...)`, so a deeply nested
   module can still `(import Math.Ops)` using the same path the entry file
   would.
-- `(import Mod.Sub)` with no name list brings in every top-level
-  declaration from that file; `(import Mod.Sub (a b))` brings in only the
-  named declarations (functions, `data`/`struct`/`type` decls, ...).
+- `(import Mod.Sub)` with no name list makes every `pub` top-level
+  declaration of that file visible; `(import Mod.Sub (a b))` makes only
+  the named ones visible (functions, `data`/`struct`/`type` decls, ...).
+- **`pub` and the name list decide which names you may write, not which
+  declarations exist.** A module's own bodies always reach its own
+  declarations, `pub` or not, so a module with private helpers is
+  importable and behaves the same however it is imported. Reaching a
+  name a module does not export is `AX3023`, which names the module.
+  Until 2026-08-10 the two were one decision: a private declaration was
+  deleted from the program, the module's own calls to it broke — and if
+  the importing file defined that name, they silently called *it*
+  instead. `(import IO (println))` beside an entry-file `writeStr` made
+  the standard library print the entry file's bytes, at exit 0.
 - Imports are transitive (`A` imports `B` imports `C` brings `C`'s
   declarations into `A` too) and diamond-safe (two different modules both
   importing `C` merges `C` exactly once, not twice).
@@ -1177,6 +1198,7 @@ the pipeline above is a module you can read in the language it compiles.
 | Concurrency | **Library** | No language support and no compiler change: `stdlib/Job.ax` is a bounded pool of child processes over `Sys`'s existing `sysSpawn`/`sysWaitPid` pair, answering in submit order. Processes rather than threads, because a freestanding binary cannot create an OS thread on macOS. See [docs/v1-roadmap.md §4.4](docs/v1-roadmap.md) |
 | Editor support | **Functional** | [tree-sitter grammar](tree-sitter-axiom/) with highlighting queries, gated against all 70 `.ax` files in the repo and a 22-case tree-shape corpus. No LSP yet |
 | Imports | **Functional** | `(import Mod.Sub ...)` resolves and merges declarations from other files; qualified access via `Mod::name` disambiguates; see [Modules and imports](#modules-and-imports) |
+| Module visibility | **Complete** | `pub` on a declaration, or an import's name list, decides which names are visible outside a module — not which declarations exist. A module keeps its private helpers and behaves identically however it is imported; naming one from outside is `AX3023`. An import's name list is still not itself checked: `(import M (noSuch))` is accepted in silence. `tests/selfhost/920-private-declaration.ax`, `930-selective-import.ax` |
 
 ---
 

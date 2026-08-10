@@ -1,0 +1,40 @@
+; expect 42
+; A module may keep a declaration to itself. `pub` and an import's
+; name list decide which BARE NAMES are visible, not which
+; declarations exist, and those are two different things that used to
+; share one `if` in `resolveDeclsPhase`.
+;
+; With them conflated, a module with a private helper was a module
+; nobody could import: its public bodies were spliced into the program
+; and the declarations they call were dropped, so `axiom check` on the
+; IMPORTING file reported `AX3001 undefined variable` at the imported
+; file's own lines. `Priv.ax` has three such declarations - a private
+; `data`, a private function matching on it, and a private helper -
+; and under the old rule this file did not compile at all.
+;
+; Three terms, and each fails differently if the rule is wrong:
+;
+;   (quad 2)       18 - the module's public body calling its OWN
+;                       private `scale`, twice. If a carried private
+;                       name resolves outward instead of locally this
+;                       is 4, because THIS file defines `scale` too.
+;                       That is the silent half of the old defect:
+;                       the dropped declaration left the bare slot
+;                       free, the importer's definition claimed it,
+;                       and the module's own call landed on it - at
+;                       exit 0, with no diagnostic from any pass.
+;   (scale 2)       3 - this file's own reference to its own
+;                       definition, which must not have moved.
+;   (roundTrip 5)   5 - a private `data`, its constructor and a
+;                       private function that matches on it, all
+;                       reached from a public body. This is the term
+;                       that fails if only functions were carried and
+;                       types were left behind.
+(import Priv)
+
+(:: scale (-> Int Int))
+(fn (scale n) (+ n 1))
+
+(:: main Int)
+(fn (main)
+  (if (== (+ (+ (quad 2) (scale 2)) (roundTrip 5)) 26) 42 1))

@@ -341,13 +341,18 @@
                 1
                 0)))))
 
+; A definition that is not exported does not answer an ENTRY-FILE
+; signature: the entry file cannot name it, so a `(:: f T)` with only
+; a private `M$f` behind it is still AX3015, and saying so here is
+; what keeps it from becoming an undefined symbol at link time.
 (pub :: isDefined (-> Int Int Int Int))
 (pub fn (isDefined allDecls name i)
   (if (>= i (vecLen allDecls))
       0
       (let ((d (vecGet allDecls i)))
         (if (&& (== (nodeTag d) TAG_D_FN)
-                (== (nameMatches (nodeA d) name) 1))
+                (&& (== (nameMatches (nodeA d) name) 1)
+                    (== (nodeVis d) 1)))
             1
             (isDefined allDecls name (+ i 1))))))
 
@@ -439,7 +444,13 @@
                ; order. Nothing in checking or emission reads them -
                ; they exist for `symbols`, whose A and T rows walk
                ; them the way stage0 walks tc.aliases/tc.traits.
-               (aliases : Int) (traits : Int))
+               (aliases : Int) (traits : Int)
+               ; The mangled `Mod$name` of every declaration carried
+               ; into the program that its own module does not export.
+               ; Empty for every program in this repository. See the
+               ; visibility section for why it lives here and not on
+               ; the entries.
+               (privates : Int))
 
 (pub :: tcFns (-> Int Int))     (pub fn (tcFns tc)     (memGetWord tc 0))
 (pub :: tcDatas (-> Int Int))   (pub fn (tcDatas tc)   (memGetWord tc 1))
@@ -484,6 +495,29 @@
 ; then the builtin Option, whose constructors are in scope in every
 ; program without being declared in any of them.
 ; ------------------------------------------------------------------
+; Every carried-but-not-exported declaration, keyed the way the
+; lookups ask: `Mod$name`. `fn` and `::` already carry that spelling
+; because `mangleDecl` rewrote them; `data` and `struct` do not, so
+; theirs is built from the module recorded on the node.
+;
+; Collected once, before anything is looked up, and empty unless the
+; program actually declares something private.
+(pub :: collectPrivates (-> Int Int Int Int))
+(pub fn (collectPrivates decls out i)
+  (if (>= i (vecLen decls))
+      (if (== (vecLen out) 0) 0 out)
+      (let ((d (vecGet decls i)))
+        {
+          (if (&& (== (nodeVis d) 0) (!= (nodeModule d) 0))
+              (let ((k (if (|| (== (nodeTag d) TAG_D_FN)
+                               (== (nodeTag d) TAG_D_SIG))
+                           (nodeA d)
+                           (privKey (nodeModule d) (nodeA d)))))
+                (if (== (strInVec out k 0) 1) 0 (vecPush out k)))
+              0)
+          (collectPrivates decls out (+ i 1))
+        })))
+
 (pub :: tcNew (-> Int Int Int Int))
 (pub fn (tcNew entryDecls allDecls units)
   (let ((fns vecNew)
@@ -543,7 +577,7 @@
       (let ((tc (cast Int (TC fns datas vecNew vecNew vecNew 0 0
                               vecNew vecNew entryDecls allDecls
                               vecNew vecNew units 0 vecNew 0
-                              vecNew vecNew))))
+                              vecNew vecNew (collectPrivates allDecls vecNew 0)))))
         {
           (tcCollect tc allDecls 0)
           ; The ambiguity table, once: builtins are module-less
@@ -778,6 +812,82 @@
             e
             (findFnEntSuffix fns name (+ i 1))))))
 
+; ------------------------------------------------------------------
+; Visibility.
+;
+; A declaration that is not exported is still IN the program - its own
+; module's bodies call it - so every lookup that can be reached from
+; outside that module has to refuse it, and these are the predicates
+; they share. Privacy used to be enforced by the declaration's
+; ABSENCE, which is why it took the module's own calls down with it.
+;
+; It is recorded in ONE place, `tc`'s word 19: the mangled `Mod$name`
+; of every carried-but-not-exported declaration. Not on the entries -
+; a field on `FnEnt` costs a word on all ~1,600 of them, in the table
+; `findFnEnt` scans linearly and where a self-check spends most of its
+; time, and it measured 1.30s -> 1.38s. This Vec is EMPTY for every
+; program in this repository and for every program that declares
+; nothing private - answered as 0 rather than as an empty Vec, so
+; every lookup's guard is one word compare against a constant.
+;
+; `data` and `struct` names are not rewritten to `Mod$name` - only
+; `fn` and `::` are - so their key is built from the module recorded
+; beside them.
+; ------------------------------------------------------------------
+(pub :: privKey (-> Int Int Int))
+(pub fn (privKey declMod name)
+  (if (== declMod 0) name (strConcat (strConcat declMod "$") name)))
+
+; 1 when a reference made from `curMod` may NOT name `key`.
+(pub :: privBlocks (-> Int Int Int Int))
+(pub fn (privBlocks privs key curMod)
+  (if (== (strInVec privs key 0) 0)
+      0
+      (if (== curMod 0)
+          1
+          (if (strStartsWith key (strConcat curMod "$")) 0 1))))
+
+(pub :: findFnEntVisibleExact (-> Int Int Int Int Int))
+(pub fn (findFnEntVisibleExact privs fns name curMod)
+  (findFnEntVisibleExactFrom privs fns name curMod 0))
+
+(pub :: findFnEntVisibleExactFrom (-> Int Int Int Int Int Int))
+(pub fn (findFnEntVisibleExactFrom privs fns name curMod i)
+  (if (>= i (vecLen fns))
+      0
+      (let ((e (vecGet fns i)))
+        (if (strEq (memGetWord e 0) name)
+            (if (== (privBlocks privs (memGetWord e 0) curMod) 0)
+                e
+                (findFnEntVisibleExactFrom privs fns name curMod (+ i 1)))
+            (findFnEntVisibleExactFrom privs fns name curMod (+ i 1))))))
+
+(pub :: findFnEntVisibleSuffix (-> Int Int Int Int Int))
+(pub fn (findFnEntVisibleSuffix privs fns name curMod)
+  (findFnEntVisibleSuffixFrom privs fns name curMod 0))
+
+(pub :: findFnEntVisibleSuffixFrom (-> Int Int Int Int Int Int))
+(pub fn (findFnEntVisibleSuffixFrom privs fns name curMod i)
+  (if (>= i (vecLen fns))
+      0
+      (let ((e (vecGet fns i)))
+        (if (== (nameMatches (memGetWord e 0) name) 1)
+            (if (== (privBlocks privs (memGetWord e 0) curMod) 0)
+                e
+                (findFnEntVisibleSuffixFrom privs fns name curMod (+ i 1)))
+            (findFnEntVisibleSuffixFrom privs fns name curMod (+ i 1))))))
+
+; The module-local step needs no visibility test - it asks for
+; `Mod$name` with `Mod` the module being checked, so anything it finds
+; is that module's own. Both steps after it can reach another module's
+; declaration, and when anything in the program is private both are
+; filtered.
+;
+; Getting this wrong is not a missing diagnostic, it is a link
+; failure: `mangledFor` holds no bare entry for a private name, so a
+; reference the checker lets through is emitted verbatim and `opt`
+; reports `use of undefined value` against generated code, at exit 4,
+; blaming the toolchain. The clean AX3023 is this function's job.
 (pub :: findFnEnt (-> Int Int Int))
 (pub fn (findFnEnt tc name)
   (let ((m (memGetWord tc 16)))
@@ -787,24 +897,49 @@
                                      (strConcat (strConcat m "$") name) 0))))
       (if (!= local 0)
           local
-          (let ((e (findFnEntExact (tcFns tc) name 0)))
-            (if (!= e 0) e (findFnEntSuffix (tcFns tc) name 0)))))))
+          (if (== (memGetWord tc 19) 0)
+              (let ((e (findFnEntExact (tcFns tc) name 0)))
+                (if (!= e 0) e (findFnEntSuffix (tcFns tc) name 0)))
+              (let ((e (findFnEntVisibleExact (memGetWord tc 19) (tcFns tc) name m)))
+                (if (!= e 0)
+                    e
+                    (findFnEntVisibleSuffix (memGetWord tc 19) (tcFns tc) name m))))))))
+
+; The same question asked of the whole table rather than of the
+; visible part of it: used only to tell "there is no such name" from
+; "there is one and it is private", which are the same AX3001 today
+; and should not read the same to whoever gets it.
+(pub :: findFnEntAnywhere (-> Int Int Int))
+(pub fn (findFnEntAnywhere tc name)
+  (let ((e (findFnEntExact (tcFns tc) name 0)))
+    (if (!= e 0) e (findFnEntSuffix (tcFns tc) name 0))))
 
 ; Constructor lookup, FORWARD order - Option's are first. Used for
 ; type resolution and patterns (stage0's find_constructor).
+; A `data`/`struct` name is NOT rewritten to `Mod$name` - only `fn`
+; and `::` are - so a type's privacy cannot be read off its name the
+; way a function's can, and these three lookups take the declaring
+; module from the entry beside it.
+;
+; The predicate is the same one: exported, or asked from inside the
+; module that declared it.
 (pub :: findCtor (-> Int Int Int))
 (pub fn (findCtor tc name)
-  (findCtorFrom (tcDatas tc) name 0))
+  (findCtorFrom (tcDatas tc) name (memGetWord tc 19)
+                (memGetWord tc 16) 0))
 
-(pub :: findCtorFrom (-> Int Int Int Int))
-(pub fn (findCtorFrom datas name i)
+(pub :: findCtorFrom (-> Int Int Int Int Int Int))
+(pub fn (findCtorFrom datas name privs curMod i)
   (if (>= i (vecLen datas))
       0
-      (let ((c (ctorInData (memGetWord (vecGet datas i) 1)
-                           (memGetWord (vecGet datas i) 2) name 0)))
-        (if (!= c 0)
-            c
-            (findCtorFrom datas name (+ i 1))))))
+      (let ((d (vecGet datas i)))
+        (if (&& (!= privs 0)
+                (== (privBlocks privs (privKey (memGetWord d 2) (memGetWord d 0)) curMod) 1))
+            (findCtorFrom datas name privs curMod (+ i 1))
+            (let ((c (ctorInData (memGetWord d 1) (memGetWord d 2) name 0)))
+              (if (!= c 0)
+                  c
+                  (findCtorFrom datas name privs curMod (+ i 1))))))))
 
 (pub :: ctorInData (-> Int Int Int Int Int))
 (pub fn (ctorInData ctors declMod name i)
@@ -820,18 +955,23 @@
 ; declare the same constructor name.
 (pub :: rfindCtor (-> Int Int Int))
 (pub fn (rfindCtor tc name)
-  (rfindCtorFrom (tcDatas tc) name (- (vecLen (tcDatas tc)) 1)))
+  (rfindCtorFrom (tcDatas tc) name (memGetWord tc 19)
+                 (memGetWord tc 16)
+                 (- (vecLen (tcDatas tc)) 1)))
 
-(pub :: rfindCtorFrom (-> Int Int Int Int))
-(pub fn (rfindCtorFrom datas name i)
+(pub :: rfindCtorFrom (-> Int Int Int Int Int Int))
+(pub fn (rfindCtorFrom datas name privs curMod i)
   (if (< i 0)
       0
-      (let ((c (rctorInData (memGetWord (vecGet datas i) 1)
-                            (memGetWord (vecGet datas i) 2) name
-                            (- (vecLen (memGetWord (vecGet datas i) 1)) 1))))
-        (if (!= c 0)
-            c
-            (rfindCtorFrom datas name (- i 1))))))
+      (let ((d (vecGet datas i)))
+        (if (&& (!= privs 0)
+                (== (privBlocks privs (privKey (memGetWord d 2) (memGetWord d 0)) curMod) 1))
+            (rfindCtorFrom datas name privs curMod (- i 1))
+            (let ((c (rctorInData (memGetWord d 1) (memGetWord d 2) name
+                                  (- (vecLen (memGetWord d 1)) 1))))
+              (if (!= c 0)
+                  c
+                  (rfindCtorFrom datas name privs curMod (- i 1))))))))
 
 (pub :: rctorInData (-> Int Int Int Int Int))
 (pub fn (rctorInData ctors declMod name i)
@@ -844,29 +984,37 @@
 
 (pub :: findStruct (-> Int Int Int))
 (pub fn (findStruct tc name)
-  (findStructFrom (tcStructs tc) name 0))
+  (findStructFrom (tcStructs tc) name (memGetWord tc 19)
+                  (memGetWord tc 16) 0))
 
-(pub :: findStructFrom (-> Int Int Int Int))
-(pub fn (findStructFrom structs name i)
+(pub :: findStructFrom (-> Int Int Int Int Int Int))
+(pub fn (findStructFrom structs name privs curMod i)
   (if (>= i (vecLen structs))
       0
       (let ((s (vecGet structs i)))
         (if (== (declMatches (memGetWord s 2) (memGetWord s 0) name) 1)
-            s
-            (findStructFrom structs name (+ i 1))))))
+            (if (|| (== privs 0)
+                    (== (privBlocks privs (privKey (memGetWord s 2) (memGetWord s 0)) curMod) 0))
+                s
+                (findStructFrom structs name privs curMod (+ i 1)))
+            (findStructFrom structs name privs curMod (+ i 1))))))
 
 (pub :: findData (-> Int Int Int))
 (pub fn (findData tc name)
-  (findDataFrom (tcDatas tc) name 0))
+  (findDataFrom (tcDatas tc) name (memGetWord tc 19)
+                (memGetWord tc 16) 0))
 
-(pub :: findDataFrom (-> Int Int Int Int))
-(pub fn (findDataFrom datas name i)
+(pub :: findDataFrom (-> Int Int Int Int Int Int))
+(pub fn (findDataFrom datas name privs curMod i)
   (if (>= i (vecLen datas))
       0
       (let ((e (vecGet datas i)))
         (if (== (nameMatches (memGetWord e 0) name) 1)
-            e
-            (findDataFrom datas name (+ i 1))))))
+            (if (|| (== privs 0)
+                    (== (privBlocks privs (privKey (memGetWord e 2) (memGetWord e 0)) curMod) 0))
+                e
+                (findDataFrom datas name privs curMod (+ i 1)))
+            (findDataFrom datas name privs curMod (+ i 1))))))
 
 ; A struct's field type by name, or -1 when absent. Fields are the
 ; parser's TAG_FIELD nodes: name in a, parsed type in ty.
@@ -1401,8 +1549,15 @@
           (ambBuild tbl decls (+ i 1))
         })))
 
+; A declaration nobody outside its module may name cannot make a bare
+; reference ambiguous, so it is not recorded. Without this a module's
+; private helper would collide with an unrelated public name in
+; another module and report AX3014 about two definitions, only one of
+; which the reference could ever have reached.
 (pub :: ambBuildDecl (-> Int Int Int))
 (pub fn (ambBuildDecl tbl d)
+  (if (== (nodeVis d) 0)
+      0
   (let ((tag (nodeTag d))
         (m (nodeModule d)))
     (if (== tag TAG_D_FN)
@@ -1411,7 +1566,7 @@
         (ambRecordAll tbl (nodeB d) 0 m)
     (if (== tag TAG_D_DATA)
         (ambRecordCtors tbl (nodeB d) 0 m)
-    0)))))
+    0))))))
 
 (pub :: ambRecordAll (-> Int Int Int Int Int))
 (pub fn (ambRecordAll tbl v i m)
@@ -1593,8 +1748,45 @@
                           1
                         }))))))))
 
+; A name that IS defined, in a module that does not export it, is a
+; different mistake from a name that is defined nowhere, and it used
+; to be impossible to make: privacy was enforced by dropping the
+; declaration, so the reference and the module's own calls failed
+; together and the message was right about both by accident. Now the
+; declaration is there and only the reference is refused, so the
+; reference gets told why.
+;
+; The suggestion machinery is skipped for this branch on purpose -
+; "did you mean `helper`?" about the very name that was written is
+; noise.
+(pub :: emitPrivateVar (-> Int Int Int Int Int))
+(pub fn (emitPrivateVar tc name span declName)
+  {
+    (if (!= span 0)
+        (emitDiag tc
+          (diagSetLabel
+            (mkDiag SEV_ERROR "AX3023" "private-name"
+                    span
+                    (strConcat (strConcat (strConcat (strConcat
+                      "`" (srcSpelling name))
+                      "` is private to module `") (modOf declName)) "`")
+                    0 0
+                    "a name leaves its module when its declaration is written `pub`; if the import that brought the module in carries a name list, the name has to appear there too")
+            (strConcat (strConcat "`" (bareOf declName)) "` is not exported by its module")))
+        0)
+    (mkNode TAG_T_ERR 0 0 0)
+  })
+
 (pub :: emitUndefinedVar (-> Int Int Int Int))
 (pub fn (emitUndefinedVar tc name span)
+  (let ((hidden (if (== (memGetWord tc 19) 0) 0 (findFnEntAnywhere tc name))))
+    (if (&& (!= hidden 0)
+            (== (strInVec (memGetWord tc 19) (memGetWord hidden 0) 0) 1))
+        (emitPrivateVar tc name span (memGetWord hidden 0))
+        (emitUndefinedVarPlain tc name span))))
+
+(pub :: emitUndefinedVarPlain (-> Int Int Int Int))
+(pub fn (emitUndefinedVarPlain tc name span)
   (let ((best (newBest)))
     {
       (offerScope best name (tcScope tc) 0)
@@ -2489,11 +2681,19 @@
             (d (vecGet decls i)))
         (if (!= (nodeTag d) TAG_D_FN)
             rest
-            (let ((ent (findFnEnt tc (nodeA d))))
+            ; Set BEFORE the entry lookup, for the reason `tcCheckFn`
+            ; states: `nodeA d` is this module's mangled name, and a
+            ; declaration its own module does not export is invisible
+            ; to a lookup made from nowhere. Looked up first, every
+            ; private function's entry came back 0, its body's effects
+            ; were never accumulated, and the whole standard library
+            ; drew `AX3010 effect(io) claim unsupported` the moment one
+            ; import carried a name list.
+            (let ((_m (memSetWord tc 16 (nodeModule d)))
+                  (ent (findFnEnt tc (nodeA d))))
               (if (== ent 0)
-                  rest
-                  (let ((_m (memSetWord tc 16 (nodeModule d)))
-                        (sc (bodyScopeOf tc d)))
+                  { (memSetWord tc 16 0) rest }
+                  (let ((sc (bodyScopeOf tc d)))
                     (let ((got (collectEffects tc (nodeC d) sc))
                           (_m0 (memSetWord tc 16 0)))
                       (let ((g1 (effUnion (memGetWord ent 5) got 0))

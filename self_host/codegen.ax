@@ -1369,8 +1369,18 @@
 ; bare; they were already recorded by `recordEntryFns`. A signature is
 ; renamed the same way, so the float-signature registry and the
 ; definitions it describes stay keyed identically.
-(pub :: mangleDecl (-> Int Int Int Int Int))
-(pub fn (mangleDecl node modName bares fulls)
+;
+; `exported` decides which of `mangleRecord`'s two recordings happens.
+; A declaration that is carried but NOT exported records only
+; `Mod$name -> Mod$name`, so a reference made inside its own module
+; still reaches it and no bare name anywhere else can. That split is
+; the whole of module privacy in the emitter; the checker enforces the
+; other side (see `findFnEnt`), and it has to, because a bare
+; reference that gets past it lands here as a name this map does not
+; hold and is emitted unchanged - an undefined symbol reported by
+; `opt` against generated code.
+(pub :: mangleDecl (-> Int Int Int Int Int Int))
+(pub fn (mangleDecl node modName bares fulls exported)
   (if (== modName 0)
       0
       (if (== (nodeTag node) TAG_D_FN)
@@ -1378,7 +1388,9 @@
             (let ((full (cat3 (strDup modName) "$" (strDup bare))))
               {
                 (memSetWord node 1 full)
-                (mangleRecord bares fulls bare full)
+                (if (== exported 1)
+                    (mangleRecord bares fulls bare full)
+                    (mangleRecordSelf bares fulls full))
               }))
           (if (== (nodeTag node) TAG_D_SIG)
               {
@@ -1386,6 +1398,19 @@
                 0
               }
               0))))
+
+; The half of `mangleRecord` that a private declaration gets: the
+; mangled name maps to itself, and the bare slot is left for whoever
+; can legitimately claim it.
+(pub :: mangleRecordSelf (-> Int Int Int Int))
+(pub fn (mangleRecordSelf bares fulls full)
+  (if (mangleHasIn bares full 0)
+      0
+      {
+        (vecPush bares full)
+        (vecPush fulls full)
+        0
+      }))
 
 ; Every entry-file function maps to itself, recorded ahead of every
 ; import so that a collision resolves to the file being compiled.
@@ -1467,22 +1492,45 @@
                       })))
             (if (== phase 0)
                 (resolveDeclsPhase decls acc seen (+ i 1) modName bares fulls filter tcode entryDir units phase)
-                ; A private declaration of an IMPORTED module is not part
-                ; of the program: stage0 splices only `pub` ones, so a
-                ; reference to a private imported name is undefined there
-                ; and was silently callable here. The entry file
-                ; (`modName == 0`) keeps everything, public or not.
-                (if (&& (filterKeeps filter (nodeA first))
-                        (|| (== modName 0) (== (nodeVis first) 1)))
-                    {
-                      ; Provenance, recorded before mangling rewrites the
-                      ; name: this is the only point in the pipeline that
-                      ; knows which module a declaration came from.
-                      (memSetWord first 8 modName)
-                      (mangleDecl first modName bares fulls)
-                      (resolveDeclsPhase decls (vecPush acc first) seen (+ i 1) modName bares fulls filter tcode entryDir units phase)
-                    }
-                    (resolveDeclsPhase decls acc seen (+ i 1) modName bares fulls filter tcode entryDir units phase)))))))
+                ; `pub` and the import's name list decide which BARE
+                ; NAMES are visible, not which declarations exist. They
+                ; used to decide both, through this one `if`, and the
+                ; two are different things: the module's public bodies
+                ; were spliced and the declarations they call were
+                ; dropped, so a module with a private helper was a
+                ; module nobody could import - it failed with AX3001 at
+                ; ITS OWN lines, in a file that merely read it.
+                ;
+                ; Worse where the importing program happened to define
+                ; the same name: the dropped declaration left the bare
+                ; slot free, the importer's definition claimed it, and
+                ; the imported module's own call landed on it. Measured
+                ; on `(import IO (println))` beside an entry-file
+                ; `writeStr`: the standard library printed the entry
+                ; file's bytes, twice, at exit 0, with no diagnostic
+                ; from any pass. Importing a module could rewrite what
+                ; that module does.
+                ;
+                ; So every declaration is carried, and `exported` -
+                ; recorded on the node, where the checker reads it -
+                ; says whether anything outside may name it.
+                (let ((exported (if (&& (filterKeeps filter (nodeA first))
+                                        (|| (== modName 0) (== (nodeVis first) 1)))
+                                    1
+                                    0)))
+                  {
+                    ; Provenance, recorded before mangling rewrites the
+                    ; name: this is the only point in the pipeline that
+                    ; knows which module a declaration came from.
+                    (memSetWord first 8 modName)
+                    ; From here on word 5 answers "may a reference from
+                    ; outside this module name it", not "was it written
+                    ; `pub`". The entry file's own declarations are all
+                    ; visible; nothing imports them.
+                    (memSetWord first 5 exported)
+                    (mangleDecl first modName bares fulls exported)
+                    (resolveDeclsPhase decls (vecPush acc first) seen (+ i 1) modName bares fulls filter tcode entryDir units phase)
+                  }))))))
 
 (pub :: filterKeeps (-> Int Int Bool))
 (pub fn (filterKeeps filter name)

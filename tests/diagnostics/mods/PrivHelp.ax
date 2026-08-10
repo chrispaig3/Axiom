@@ -1,0 +1,7 @@
+; A module with one exported name and one it keeps, for the AX3023
+; cases. `helper` is reachable from `shout` and from nowhere else.
+(:: helper (-> Int Int))
+(fn (helper n) (* n 2))
+
+(pub :: shout (-> Int Int))
+(pub fn (shout n) (helper n))

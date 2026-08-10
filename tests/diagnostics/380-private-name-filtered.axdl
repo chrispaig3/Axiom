@@ -1,0 +1,1 @@
+E AX3023 380-private-name-filtered.ax:3:25-30 private-name "`quiet` is private to module `PrivBoth`" #"`quiet` is not exported by its module" ?"a name leaves its module when its declaration is written `pub`; if the import that brought the module in carries a name list, the name has to appear there too"

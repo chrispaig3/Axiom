@@ -1,0 +1,10 @@
+[1;31merror[AX3023][0m[1m: `helper` is private to module `PrivHelp`[0m
+ [1;34m--> [0m370-private-name.ax:3:26
+[1;34m  |[0m
+[1;34m3 |[0m (fn (main) (+ (shout 1) (helper 1)))
+[1;34m  |[0m                          [1;31m^^^^^^ `helper` is not exported by its module[0m
+[1;34m  |[0m
+ [1;34m = [0m[1;32mhelp: [0ma name leaves its module when its declaration is written `pub`; if the import that brought the module in carries a name list, the name has to appear there too
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3023` for a full explanation
+
+compilation failed due to 1 previous error

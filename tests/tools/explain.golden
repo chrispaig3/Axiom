@@ -1,7 +1,7 @@
 # axiom explain, every code and every spelling.
 # AX1001-AX5001 were materialized from the Rust compiler at commit 1041f11 on
-# 2026-08-08; AX3018-AX3022 (macro expansion) postdate its deletion and originate
-# in self_host/explain.ax. The list section's COLOUR is RECONSTRUCTED, not captured.
+# 2026-08-08; AX3018-AX3022 (macro expansion) and AX3023 (module visibility)
+# postdate it and originate in self_host/explain.ax. The list COLOUR is RECONSTRUCTED, not captured.
 ### explain --list
 [1;96mKnown Axiom diagnostic codes:[0m
   [93mAX1001[0m  unexpected character  (unexpected-char)
@@ -36,6 +36,7 @@
   [93mAX3020[0m  a macro declares the same parameter twice  (macro-duplicate-parameter)
   [93mAX3021[0m  a macro template contains a form the expander cannot substitute into  (macro-template-unsupported)
   [93mAX3022[0m  a macro parameter used as a `set` target was given an expression  (macro-set-target)
+  [93mAX3023[0m  a name its module does not export  (private-name)
   [93mAX4001[0m  no `main` function  (missing-main)
   [93mAX4002[0m  code generation failed  (codegen-failure)
   [93mAX4003[0m  external toolchain command failed  (toolchain-failure)
@@ -375,6 +376,25 @@ expression, which names no binding to assign to.
 Pass a variable for that parameter, or rewrite the template so the
 parameter is not a `set` target.
 
+### explain AX3023
+AX3023 - a name its module does not export
+
+The name exists. It is declared in another module, and that module
+does not make it visible: either its declaration is not written `pub`,
+or the `(import M (a b))` that brought the module in does not list it.
+
+A module's declarations are all carried into the program - its own
+bodies have to be able to call its own helpers - and `pub` decides
+only which of them anything ELSE may name. Before that split the two
+were one decision, and a private declaration was simply deleted: the
+module's own calls to it became `AX3001 undefined variable` reported
+at the library's own lines, in a file that merely imported it, and if
+the importing program happened to define that name, the module's call
+landed on the importer's definition instead - silently, at exit 0.
+
+Write `pub` on the declaration, add the name to the import's list, or
+call something the module does export.
+
 ### explain AX4001
 AX4001 - no `main` function
 
@@ -473,6 +493,7 @@ run `axiom explain --list` to see all known codes
   [93mAX3020[0m  a macro declares the same parameter twice  (macro-duplicate-parameter)
   [93mAX3021[0m  a macro template contains a form the expander cannot substitute into  (macro-template-unsupported)
   [93mAX3022[0m  a macro parameter used as a `set` target was given an expression  (macro-set-target)
+  [93mAX3023[0m  a name its module does not export  (private-name)
   [93mAX4001[0m  no `main` function  (missing-main)
   [93mAX4002[0m  code generation failed  (codegen-failure)
   [93mAX4003[0m  external toolchain command failed  (toolchain-failure)

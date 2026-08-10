@@ -48,6 +48,13 @@ in `AX3xxx`: `AX3018` arity, `AX3019` recursion limit, `AX3020`
 duplicate parameter, `AX3021` an unsupported template form, `AX3022` a
 `set` target that is not a name. See [macros.md](macros.md).
 
+Module visibility lives there too: `AX3023` is a reference to a name
+that exists, in a module that does not export it — the declaration is
+not `pub`, or the `(import M (a b))` that brought the module in does
+not list it. It is a *different* mistake from `AX3001`, which is a name
+that is defined nowhere, and it did not exist before a module could
+have a private declaration at all.
+
 Codes are stable across wording changes, so you can grep for them in CI,
 pattern-match on them in editor tooling, or look them up directly:
 

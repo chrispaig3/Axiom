@@ -1,0 +1,3 @@
+(import PrivHelp)
+(:: main Int)
+(fn (main) (+ (shout 1) (helper 1)))

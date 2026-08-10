@@ -1,0 +1,24 @@
+; expect 42
+; The same rule for the OTHER way a name fails to be exported: the
+; declaration is `pub`, and the import that brought the module in does
+; not name it.
+;
+; `(import PrivSel (viaSibling))` asks for one of two public
+; functions. `viaSibling` calls `sibling`, which the name list does
+; not mention - so under the old rule `sibling` was deleted and this
+; file did not compile, and if this file happened to define `sibling`
+; itself, `viaSibling` called THAT instead, silently, at exit 0.
+;
+;   (viaSibling 2)  18 - the module's own `sibling`, twice. The
+;                        importer's `sibling` below would give 8.
+;   (sibling 2)      4 - this file's own definition, unmoved. It is
+;                        not the module's: the name list is what
+;                        decides, and it does not carry `sibling`.
+(import PrivSel (viaSibling))
+
+(:: sibling (-> Int Int))
+(fn (sibling n) (+ n 2))
+
+(:: main Int)
+(fn (main)
+  (if (== (+ (viaSibling 2) (sibling 2)) 22) 42 1))

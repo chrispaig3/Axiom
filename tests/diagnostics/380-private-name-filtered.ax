@@ -1,0 +1,3 @@
+(import PrivBoth (loud))
+(:: main Int)
+(fn (main) (+ (loud 1) (quiet 1)))

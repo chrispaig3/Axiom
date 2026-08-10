@@ -1025,11 +1025,18 @@ The `pub` keyword goes before the declaration keyword, inside the same parenthes
 | `(struct Name ...)` | `(pub struct Name ...)` |
 | `(macro (name pat) body)` | `(pub macro (name pat) body)` |
 
+`pub` controls **which names are visible outside the module**, not which declarations the program contains. A module's own bodies reach its own declarations whether or not they are `pub`, so a module with private helpers imports and behaves exactly like one without. Naming a declaration a module does not export is `AX3023`, which says which module it belongs to.
+
+Both halves matter, and until 2026-08-10 there was only one: a private declaration was *deleted* from the program by whatever imported it, which broke the module's own calls to it — and if the importing file happened to define the same name, those calls silently reached that definition instead. See [self-hosting.md §14](self-hosting.md).
+
+`macro` and `effect` declarations are the exception and are exported unconditionally; their names carry no module, so visibility is not yet expressible for them.
+
 ### How Imports Work
 
 - A dotted module path maps directly to a file path: `Math.Ops` resolves to `Math/Ops.ax`, always relative to the entry file's own directory.
-- `(import Mod.Sub)` with no name list brings in every top-level declaration.
-- `(import Mod.Sub (a b))` brings in only the named declarations.
+- `(import Mod.Sub)` with no name list makes every `pub` top-level declaration visible.
+- `(import Mod.Sub (a b))` makes only the named ones visible. A name the module does not export stays invisible even when the list asks for it.
+- An import's name list is **not** itself checked: `(import M (noSuch))` is accepted in silence, and the mistake surfaces as `AX3001` wherever the name is used, or as nothing at all if it never is.
 - Imports are transitive (`A` imports `B` imports `C` brings `C`'s declarations into `A` too) and diamond-safe (two different modules both importing `C` merges `C` exactly once).
 - Qualified access is supported: `Mod::name` resolves to `name` declared in `Mod`. Imported declarations still join the importing module's flat top-level namespace by default; use `Mod::name` to disambiguate when the same name exists in multiple modules.
 - A module path that doesn't resolve to a real file is `AX5001`.
