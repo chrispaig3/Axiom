@@ -150,6 +150,36 @@ export AXIOM_STDLIB="$repo_root/stdlib"
 command -v llc >/dev/null || fail "llc is not on PATH"
 command -v cc  >/dev/null || fail "cc is not on PATH"
 
+# The LLVM middle end, which this ladder used to skip. `llc` does
+# instruction selection and its own backend passes; it does not do the
+# middle end, and nothing here ran `opt`, so every stage was built
+# without it. Measured on one emitted compiler, 67,029 lines, built two
+# ways and each then asked to compile self_host/main.ax: 16.52s with
+# `llc` alone against 1.72s with `opt -O1` in front of it. This gate
+# builds three stages and runs two of them over the whole compiler and
+# 99 conformance cases, so it paid that 9.6x several times over.
+#
+# `opt` stays OPTIONAL, as `driver.ax` treats it - a PATH without it
+# warns and builds, correct but slower - which is why it is not in the
+# `command -v` checks above. The `llc` invocations are untouched; the
+# reasoning about their level, recorded at the seed build below, still
+# applies unchanged.
+#
+# Both stages go through the identical path, so the byte-identity this
+# gate exists to check is unaffected.
+have_opt=0
+command -v opt >/dev/null && have_opt=1
+[[ $have_opt -eq 1 ]] || echo "warn: opt is not on PATH - the ladder will be correct but far slower" >&2
+
+optimised() {
+  local in="$1" out="$2"
+  if [[ $have_opt -eq 1 ]] && opt -O1 "$in" -S -o "$out" 2>/dev/null; then
+    printf '%s' "$out"
+  else
+    printf '%s' "$in"
+  fi
+}
+
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 
@@ -214,7 +244,8 @@ echo "ok   the seeds match bootstrap/SHA256SUMS ($seed_ll is this host's)"
 # opt-free, and adding `opt` here to "fix" something is the wrong fix
 # twice over. Small programs get -O0 in check-stdlib-selfhost.sh, where
 # the allocator matters and the stack does not.
-llc -filetype=obj -relocation-model=pic "$seed_ll" -o "$work/seed.o" 2>"$work/llc.err" \
+llc -filetype=obj -relocation-model=pic "$(optimised "$seed_ll" "$work/seed.opt.ll")" \
+    -o "$work/seed.o" 2>"$work/llc.err" \
   || { head -3 "$work/llc.err" >&2; fail "llc rejected $seed_ll"; }
 cc "$work/seed.o" -o "$work/seed" -e _main 2>"$work/cc.err" \
   || { head -3 "$work/cc.err" >&2; fail "could not link the seed"; }
@@ -236,7 +267,9 @@ build_next() {
     || fail "$from emitted no LLVM module - it is not a compiler"
   (( $(wc -l <"$work/$out_ll") > 10000 )) \
     || fail "$from emitted only $(wc -l <"$work/$out_ll") lines for the compiler - the emit was truncated"
-  llc -filetype=obj -relocation-model=pic "$work/$out_ll" -o "$work/$out_bin.o" 2>"$work/llc.err" \
+  llc -filetype=obj -relocation-model=pic \
+      "$(optimised "$work/$out_ll" "$work/$out_bin.opt.ll")" \
+      -o "$work/$out_bin.o" 2>"$work/llc.err" \
     || { head -3 "$work/llc.err" >&2; fail "llc rejected the IR $from produced"; }
   cc "$work/$out_bin.o" -o "$work/$out_bin" -e _main 2>"$work/cc.err" \
     || { head -3 "$work/cc.err" >&2; fail "could not link $out_bin"; }

@@ -63,6 +63,45 @@ done
 command -v llc >/dev/null || fail "llc is not on PATH"
 command -v cc  >/dev/null || fail "cc is not on PATH"
 
+# ---------------------------------------------------------------
+# The LLVM middle end, which this script used to skip entirely.
+#
+# `llc` does instruction selection and its own backend passes. It does
+# not do the middle end, and nothing here was running `opt` - so every
+# stage of this ladder, and the compiler this script INSTALLS for every
+# other gate to use, was built without it. Measured on one emitted
+# compiler, 67,029 lines of IR, built two ways and each then asked to
+# compile `self_host/main.ax`:
+#
+#   llc alone          16.52s
+#   opt -O1 then llc    1.72s
+#
+# 9.6x, on the binary that then runs in nineteen gates.
+#
+# `opt` stays OPTIONAL, exactly as `driver.ax` treats it: a PATH without
+# it warns and builds, because it is genuinely not always installed and
+# the result is correct either way - only slower. That is also why this
+# cannot simply be added to the `command -v` checks above.
+#
+# It does not touch the `llc` invocations, whose level was chosen
+# deliberately for a reason recorded at the seed build below and which
+# still applies unchanged.
+have_opt=0
+command -v opt >/dev/null && have_opt=1
+[[ $have_opt -eq 1 ]] || echo "warn: opt is not on PATH - stages will be correct but roughly 9x slower to run" >&2
+
+# Answer the path `llc` should read: the optimised IR when `opt` is
+# available and succeeded, the original otherwise. A failing `opt` is
+# NOT fatal here for the same reason a missing one is not.
+optimised() {
+  local in="$1" out="$2"
+  if [[ $have_opt -eq 1 ]] && opt -O1 "$in" -S -o "$out" 2>/dev/null; then
+    printf '%s' "$out"
+  else
+    printf '%s' "$in"
+  fi
+}
+
 # The host target names the seed to use. A freestanding binary cannot
 # ask the kernel what it is running on, so the target is chosen when the
 # compiler is COMPILED - which is exactly why there is one seed per
@@ -120,7 +159,8 @@ echo "ok   the seeds match bootstrap/SHA256SUMS"
 # rearranged but the compiler is correct. Changing this line means
 # re-reading that comment first.
 # ---------------------------------------------------------------
-llc -filetype=obj -relocation-model=pic "$seed_ll" -o "$work/seed.o" 2>"$work/llc.err" \
+llc -filetype=obj -relocation-model=pic "$(optimised "$seed_ll" "$work/seed.opt.ll")" \
+    -o "$work/seed.o" 2>"$work/llc.err" \
   || { head -3 "$work/llc.err" >&2; fail "llc rejected $seed_ll"; }
 cc "$work/seed.o" -o "$work/seed" -e _main 2>"$work/cc.err" \
   || { head -3 "$work/cc.err" >&2; fail "could not link the seed"; }
@@ -168,7 +208,9 @@ build_next() {
     || fail "$from emitted no LLVM module - it is not a compiler"
   (( $(wc -l <"$work/$dir/axc.ll") > 10000 )) \
     || fail "$from emitted only $(wc -l <"$work/$dir/axc.ll") lines for the compiler - the emit was truncated"
-  llc -filetype=obj -relocation-model=pic "$work/$dir/axc.ll" -o "$work/$dir/axc.o" 2>"$work/llc.err" \
+  llc -filetype=obj -relocation-model=pic \
+      "$(optimised "$work/$dir/axc.ll" "$work/$dir/axc.opt.ll")" \
+      -o "$work/$dir/axc.o" 2>"$work/llc.err" \
     || { head -3 "$work/llc.err" >&2; fail "llc rejected the IR $from produced"; }
   cc "$work/$dir/axc.o" -o "$work/$dir/axc" -e _main 2>"$work/cc.err" \
     || { head -3 "$work/cc.err" >&2; fail "could not link $dir/axc"; }
