@@ -2110,7 +2110,48 @@
 
 ; ------------------------------------------------------------------
 ; Parse (fn (args...) body) as lambda expression.
+;
+; A lambda of SEVERAL parameters is several lambdas, built here, the
+; way multi-binding `let` is built as nested single-binding lets a few
+; lines below. `(lambda (x y) b)` is `(lambda (x) (lambda (y) b))`,
+; which is what the language's curried types already say it means and
+; what the closure representation already implements: one hidden
+; `%_env` per lifted body, capture by value of everything in scope, so
+; the inner lambda captures `x` exactly as it captures any other
+; enclosing binding.
+;
+; Before this, a multi-parameter lambda had NO representation at all.
+; `checkLam` typed it as taking a TUPLE, so most uses were refused with
+; a type error naming a type nobody wrote (`expected (_t0, _t1), found
+; Int`); and any use that laundered it through `cast Int` - which the
+; uniform-representation rule makes an ordinary thing to write - passed
+; `check` and was silently DISCARDED by the emitter:
+;
+;   (fn (main) ((cast Int (lambda (x y) (+ x y))) 20 22))
+;   check: OK
+;   the emitted `__axiom_user_main` body: `ret i64 22`
+;
+; No `_lam_` function, no call, the whole application folded to its
+; last argument, exit 0. README called lambdas Complete and
+; `tests/stdlib/140-function-values.ax` passed, because every lambda in
+; the repository takes one parameter.
 ; ------------------------------------------------------------------
+(pub :: curryLam (-> Int Int Int Int))
+(pub fn (curryLam params body i)
+  (if (>= i (vecLen params))
+      body
+      (let ((one (let ((v vecNew))
+                   { (vecPush v (vecGet params i)) v })))
+        (mkELam one (curryLam params body (+ i 1))))))
+
+; Zero parameters stays one lambda: `(lambda () b)` is a thunk, and
+; currying nothing would answer the body itself.
+(pub :: mkLamCurried (-> Int Int Int))
+(pub fn (mkLamCurried params body)
+  (if (== (vecLen params) 0)
+      (mkELam params body)
+      (curryLam params body 0)))
+
 (pub :: parseLamExpr (-> Int Int Int))
 (pub fn (parseLamExpr tokens pos)
   (if (peekIs tokens pos TK_LPAREN)
@@ -2123,7 +2164,7 @@
                     (let ((body (memGetWord bodyR 1))
                           (afterBody (memGetWord bodyR 2)))
                       (if (peekIs tokens afterBody TK_RPAREN)
-                          (pOk (mkELam params body) (advance afterBody))
+                          (pOk (mkLamCurried params body) (advance afterBody))
                           (pErr afterBody))))))))
   (pErr pos)))
 

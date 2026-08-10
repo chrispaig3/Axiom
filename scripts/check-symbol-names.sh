@@ -327,12 +327,28 @@ AXEOF
 # stores around the handler. The slot is ALSO the registry's key, so
 # this pins that the quoting happens at emission and not in the key -
 # get that wrong and the global's definition and its loads disagree.
+#
+# The handler takes ONE parameter because `op'` takes one argument.
+# `emitApplyRegs` applies the handler to the OPERATION's arguments, one
+# per indirect call, and every handler in the corpus is written that way
+# - including `tests/selfhost/820-effect-handlers.ax`, which curries a
+# two-argument operation's handler by hand as
+# `(lambda (p) (lambda (q) ...))`.
+#
+# This probe used to be written `(lambda (v k) v)`, which answered 42
+# only because a multi-parameter lambda silently DROPPED its surplus
+# parameters - it had no representation at all, and the second one bound
+# nothing. Now that `(lambda (v k) b)` means `(lambda (v) (lambda (k) b))`,
+# applying it to `op'`'s single argument correctly yields the inner
+# closure, and the probe read its address (48). The old spelling was
+# asserting the bug; the subject of this probe - where the quoting
+# happens - is untouched either way.
 struct_probe effect-slot 42 <<'AXEOF'
 (effect E' (op' (-> Int Int)))
 (:: user (-> Int Int))
 (fn (user n) (op' n))
 (:: main Int)
-(fn (main) (handle (user 42) (E') (lambda (v k) v)))
+(fn (main) (handle (user 42) (E') (lambda (v) v)))
 AXEOF
 
 # An imported name is mangled to `Mod$name` before it is emitted, so the

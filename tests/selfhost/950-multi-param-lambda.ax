@@ -1,0 +1,49 @@
+; expect 42
+; A lambda of several parameters. Every lambda in this repository takes
+; ONE, which is why nothing noticed that two had no representation at
+; all: `checkLam` typed a multi-parameter lambda as taking a TUPLE, so
+; an ordinary call was refused with a type naming something nobody
+; wrote - `expected (_t0, _t1), found Int` - and the emitter, on the
+; paths that got past the checker, produced no `_lam_` function and
+; folded the whole application to its last argument at exit 0.
+;
+; It is now parsed as what the curried types already said it was:
+; `(lambda (x y) b)` is `(lambda (x) (lambda (y) b))`, which the
+; closure representation has always implemented - one hidden `%_env`
+; per lifted body, capture by value of everything in scope, so the
+; inner lambda captures `x` the way it captures any other enclosing
+; binding.
+;
+; Five terms, each failing differently if the desugar is wrong:
+;
+;   (add2 20 22)      42 - two parameters, applied at once. Under the
+;                          old rule this file did not compile.
+;   (add3 10 15 17)   42 - three, so the nesting is not special-cased
+;                          at two.
+;   (withCap 5 7)     42 - the inner lambda must capture `k` from the
+;                          enclosing `let`, not just the outer
+;                          parameter. If capture walks only one level
+;                          this is 12.
+;   (partial 22)      42 - the intermediate value of a partial
+;                          application IS the inner closure, which is
+;                          the whole point of currying and the thing a
+;                          tuple parameter cannot express.
+;   (shadow 1 2)      42 - the inner parameter shadows a same-named
+;                          binding outside, and the capture must not
+;                          win over the parameter.
+(:: main Int)
+(fn (main)
+  (let ((add2 (lambda (x y) (+ x y)))
+        (add3 (lambda (x y z) (+ (+ x y) z)))
+        (k 30))
+    (let ((withCap (lambda (a b) (+ k (+ a b))))
+          (y 100))
+      (let ((shadow (lambda (p y) (+ (* p 40) (+ y 0)))))
+        (let ((partial (add2 20)))
+          (if (&& (&& (== (add2 20 22) 42)
+                      (== (add3 10 15 17) 42))
+                  (&& (== (withCap 5 7) 42)
+                      (&& (== (partial 22) 42)
+                          (== (shadow 1 2) 42))))
+              42
+              1))))))

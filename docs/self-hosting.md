@@ -5821,3 +5821,111 @@ Widening `scan`'s return also broke `tests/docs/verify-doc-code.py`,
 which loads it rather than copying it — the second consumer doing its
 job, and the reason that file loads the scanner instead of duplicating
 it.
+
+## 19. A lambda of two parameters was not a lambda
+
+Measured and fixed 2026-08-10. Every lambda in this repository takes one
+parameter — 97 of them — so nothing had ever asked what two did. The
+answer was: nothing coherent, in two different ways depending on which
+path the program took.
+
+```
+$ cat L2.ax
+(:: main Int)
+(fn (main) (let ((f (lambda (x y) (+ x y)))) (f 20 22)))
+
+$ axiom check L2.ax
+error[AX3004]: type mismatch: expected (_t0, _t1), found Int
+```
+
+`checkLam` typed a multi-parameter lambda as taking a **tuple**
+(`typecheck.ax`, the `(vecLen ptys)` cascade), so calling it the way it
+was written is a type error naming a type the programmer did not write
+and cannot supply — Axiom has no tuple expression syntax.
+
+That is the loud half. The quiet half is worse. On any path that got
+past the checker — and the uniform-representation rule makes `cast Int`
+an ordinary thing to write — the emitter produced no lambda at all:
+
+```
+$ cat F2.ax
+(:: main Int)
+(fn (main) ((cast Int (lambda (x y) (+ x y))) 20 22))
+
+$ axiom check F2.ax
+OK
+
+$ axiom emit-llvm F2.ax -o F2.ll
+$ sed -n '/define i64 @__axiom_user_main/,/^}/p' F2.ll
+define i64 @__axiom_user_main() #0 {
+  ret i64 22
+}
+```
+
+No `_lam_` function, no call, the application folded to its last
+argument, exit 0. README called lambdas **Complete**, citing
+`tests/stdlib/140-function-values.ax`, which passes — every lambda in it
+takes one parameter.
+
+### 19.1 The fix is the definition
+
+A lambda of several parameters *is* several lambdas. `(lambda (x y) b)`
+is now parsed as `(lambda (x) (lambda (y) b))`, in `parseLamExpr`, the
+way multi-binding `let` is already parsed as nested single-binding lets
+twenty lines below it.
+
+Nothing else had to move, and that is the argument for this shape rather
+than a new representation. The curried type is what the language already
+claims (`(-> Int Int Int)` is `Int -> (Int -> Int)`, right-folded, and
+`arrowDepth` has always counted it that way). The closure
+representation already implements it: each lambda is lifted to a
+`_lam_N` with a hidden `%_env` first parameter and captures **everything
+in scope by value**, so the inner lambda captures the outer parameter
+exactly as it captures any other enclosing binding — no free-variable
+walk to get wrong. And `emitApplyChain` already applies one argument at
+a time through the record's code pointer, because each application may
+yield another closure.
+
+Zero parameters stays one lambda: `(lambda () b)` is a thunk, and
+currying nothing would answer the body.
+
+`tests/selfhost/950-multi-param-lambda.ax` pins five terms that each
+fail differently — two parameters, three, an inner lambda capturing an
+enclosing `let` binding, a partial application whose intermediate value
+is the inner closure, and an inner parameter shadowing a same-named
+outer binding. It answers 42, and against a compiler built from
+`2192d61` it does not compile at all.
+
+The formatter is untouched and does not need to be: `format.ax` prints
+from its own scanner over the source text, so `(lambda (x y) ...)` is
+still written and read the way it was.
+
+### 19.2 What this did NOT fix, measured
+
+The `cast Int` case above still answers 22, and the reason turned out
+not to be about lambdas at all. `walkAppChain` flattens a whole
+application spine into one argument accumulator before dispatching on
+the head, so when the head is itself a call to a fixed-arity special
+form the outer arguments are handed to that form and silently dropped:
+
+```
+((cast Int f) 41)      41      -- want 42, and `f` takes ONE parameter
+((cast Int f) 20 22)   22      -- want 42
+(sizeof Int 99)         8      -- the surplus argument is dropped
+```
+
+All three are `check`-clean at exit 0. This is independent of lambda
+arity — the first line is a one-parameter lambda — and it is its own
+slice: every fixed-arity head (`cast`, `sizeof`, `alignof`, the
+primitives) needs to consume its own arguments and apply the remainder
+through `emitApplyChain`, rather than absorbing the spine.
+
+Two neighbouring shapes are also unfixed and predate this change,
+verified identical against `2192d61`:
+
+- `(let ((f (lambda () 42))) (f))` answers a heap address, not 42 — a
+  nullary lambda is built and the call does not reach it.
+- A lambda passed to a function whose parameter is declared `Int` is
+  `AX3004 expected function type, found Int`: the checker has no way to
+  say "this parameter is callable", which is the same missing notion of
+  pointerhood the memory model's inference is blocked on.
