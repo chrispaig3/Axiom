@@ -172,10 +172,14 @@
       1
       (let ((ta (nodeTag a))
             (tb (nodeTag b)))
-        (if (|| (== ta TAG_T_VAR) (== tb TAG_T_VAR))
-            1
+        ; Poison BEFORE variables. The two orders differ on exactly one
+        ; pair - a source type variable against `TAG_T_ERR` - and
+        ; getting it wrong turns cascade suppression off for every
+        ; polymorphic signature.
         (if (|| (== ta TAG_T_ERR) (== tb TAG_T_ERR))
             1
+        (if (|| (== ta TAG_T_VAR) (== tb TAG_T_VAR))
+            (tyVarCompat a b ta tb)
         (if (&& (== ta TAG_T_CON) (== tb TAG_T_CON))
             (if (|| (&& (strEq (nodeA a) "String") (strEq (nodeA b) "Int"))
                     (&& (strEq (nodeA a) "Int") (strEq (nodeA b) "String")))
@@ -207,6 +211,161 @@
       (if (== (tyCompat (vecGet xs i) (vecGet ys i)) 1)
           (tyCompatVec xs ys (+ i 1))
           0)))
+
+; ------------------------------------------------------------------
+; Three flavours of type variable, and only one of them is rigid.
+;
+;   `_tN` / `_fn_N`  placeholders this checker mints - "I have no type
+;                    here". They match anything, which is what makes a
+;                    `fn` with no signature usable at all.
+;   `""`             the silent wildcard: what stage1 cannot know -
+;                    macro heads, unparseable types. Matches anything,
+;                    renders nowhere.
+;   `a`, `b`, ...    written by the PROGRAMMER in a signature. RIGID:
+;                    inside the body it stands for ONE unknown type
+;                    and supports no operation that needs a concrete
+;                    one; at a reference site it is INSTANTIATED to a
+;                    fresh placeholder, so a caller may still pass
+;                    anything.
+;
+; Until 2026-08-10 all three matched anything at any depth, and the
+; consequence was that writing `a` was strictly WEAKER than writing
+; `Int`:
+;
+;   (:: bad (-> Int Int))  (fn (bad x) (+ x 1))
+;   (bad (Pt 3 4))         AX3004: expected Int, found Pt        exit 1
+;
+;   (:: bad (-> a   Int))  (fn (bad x) (+ x 1))
+;   (bad (Pt 3 4))         prints 4372529169                     exit 0
+;
+; The struct handle arrived in `x`, `+` added one to a pointer, and
+; the program answered an address. README.md listed "polymorphic
+; signatures" under **Complete** while the rule disabled checking
+; rather than generalising it.
+;
+; The discriminator is the leading `_`, and it is disjoint by
+; construction rather than by convention: `parser.ax`'s
+; `lexStartsLower` admits bytes 97-122 and nothing else, so a
+; source-written type variable always starts with a lowercase letter
+; and can never collide with a minted one.
+(pub :: tyIsSrcVar (-> Int Int))
+(pub fn (tyIsSrcVar t)
+  (if (!= (nodeTag t) TAG_T_VAR)
+      0
+      (let ((n (nodeA t)))
+        (if (== (strLen n) 0)
+            0
+            (if (== (strByte n 0) 95) 0 1)))))
+
+; Compatibility when at least one side is a variable. A minted
+; placeholder still matches anything - that is the whole reason it
+; exists. Two source variables agree when they are the SAME variable,
+; which is what makes `(-> a a Bool)` say something. A source variable
+; against a concrete type does not match, and that is the rule the
+; body of a polymorphic function now obeys.
+(pub :: tyVarCompat (-> Int Int Int Int Int))
+(pub fn (tyVarCompat a b ta tb)
+  (if (&& (== ta TAG_T_VAR) (== tb TAG_T_VAR))
+      (if (&& (== (tyIsSrcVar a) 1) (== (tyIsSrcVar b) 1))
+          (if (strEq (nodeA a) (nodeA b)) 1 0)
+          1)
+      (if (== ta TAG_T_VAR)
+          (if (== (tyIsSrcVar a) 1) 0 1)
+          (if (== (tyIsSrcVar b) 1) 0 1))))
+
+; Does this type mention a source-written variable anywhere?
+; Asked before every instantiation, and the answer is 0 for every
+; declaration in this repository - 0 of 1,733 signatures in
+; `self_host/` + `stdlib/` and 0 of 549 in `tests/` use one - so the
+; walk is what keeps instantiation off the hot path rather than a
+; flag that would have to be maintained.
+(pub :: tyHasSrcVar (-> Int Int))
+(pub fn (tyHasSrcVar t)
+  (if (== t 0)
+      0
+      (let ((tg (nodeTag t)))
+        (if (== tg TAG_T_VAR)
+            (tyIsSrcVar t)
+        (if (== tg TAG_T_CON)
+            (tyHasSrcVarVec (nodeB t) 0)
+        (if (== tg TAG_T_ARR)
+            (if (== (tyHasSrcVar (nodeA t)) 1) 1 (tyHasSrcVar (nodeB t)))
+        (if (== tg TAG_T_TUP)
+            (tyHasSrcVarVec (nodeA t) 0)
+        (if (|| (== tg TAG_T_LIST) (== tg TAG_T_PTR))
+            (tyHasSrcVar (nodeA t))
+        0))))))))
+
+(pub :: tyHasSrcVarVec (-> Int Int Int))
+(pub fn (tyHasSrcVarVec xs i)
+  (if (== xs 0)
+      0
+      (if (>= i (vecLen xs))
+          0
+          (if (== (tyHasSrcVar (vecGet xs i)) 1)
+              1
+              (tyHasSrcVarVec xs (+ i 1))))))
+
+; Instantiation: a fresh `_tN` for each DISTINCT source variable in
+; the type, shared across every occurrence of that variable, so
+; `(-> a a Bool)` instantiates to `(-> _t7 _t7 Bool)` and not to two
+; unrelated placeholders. That is the one property a caller's
+; arguments still have to satisfy; everything else about the call is
+; as permissive as it was, which is why this change refuses no
+; program the corpus contains.
+;
+; What it deliberately does NOT do is SOLVE those placeholders. A
+; minted variable matches anything, so `(id 5)` has a wildcard type
+; rather than `Int`, and a second argument that disagrees with the
+; first is accepted. Under-report, never mis-report - the same trade
+; this file records for effect operations before they carried their
+; arrow. The result is that the DEFINITION of a polymorphic function
+; is checked, which is where the wrong answer came from.
+(pub :: tyInst (-> Int Int Int))
+(pub fn (tyInst tc t)
+  (if (== (tyHasSrcVar t) 0)
+      t
+      (tyInstIn tc t vecNew)))
+
+; `env` is a flat Vec of alternating name, node.
+(pub :: tyInstIn (-> Int Int Int Int))
+(pub fn (tyInstIn tc t env)
+  (if (== t 0)
+      0
+      (let ((tg (nodeTag t)))
+        (if (== tg TAG_T_VAR)
+            (if (== (tyIsSrcVar t) 0) t (tyInstVar tc (nodeA t) env 0))
+        (if (== tg TAG_T_CON)
+            (mkTCon (nodeA t) (tyInstVec tc (nodeB t) env vecNew 0))
+        (if (== tg TAG_T_ARR)
+            (mkTArr (tyInstIn tc (nodeA t) env) (tyInstIn tc (nodeB t) env))
+        (if (== tg TAG_T_TUP)
+            (mkTTup (tyInstVec tc (nodeA t) env vecNew 0))
+        (if (== tg TAG_T_LIST)
+            (mkNode TAG_T_LIST (tyInstIn tc (nodeA t) env) 0 0)
+        (if (== tg TAG_T_PTR)
+            (mkTPtr (tyInstIn tc (nodeA t) env) (nodeB t))
+        t)))))))))
+
+(pub :: tyInstVar (-> Int Int Int Int Int))
+(pub fn (tyInstVar tc name env i)
+  (if (>= i (vecLen env))
+      (let ((fresh (freshTVar tc 1)))
+        { (vecPush env name) (vecPush env fresh) fresh })
+      (if (strEq (vecGet env i) name)
+          (vecGet env (+ i 1))
+          (tyInstVar tc name env (+ i 2)))))
+
+(pub :: tyInstVec (-> Int Int Int Int Int Int))
+(pub fn (tyInstVec tc xs env acc i)
+  (if (== xs 0)
+      acc
+      (if (>= i (vecLen xs))
+          acc
+          {
+            (vecPush acc (tyInstIn tc (vecGet xs i) env))
+            (tyInstVec tc xs env acc (+ i 1))
+          })))
 
 (pub :: arrowDepth (-> Int Int))
 (pub fn (arrowDepth t)
@@ -2274,10 +2433,16 @@
                     (mkNode TAG_T_ERR 0 0 0)
                     (let ((ent (findFnEnt tc name)))
                       (if (!= ent 0)
-                          (memGetWord ent 1)
+                          ; INSTANTIATED. A signature's type variables
+                          ; are rigid where the body reads them and
+                          ; fresh where a caller does; this is the
+                          ; only place a declaration's type becomes a
+                          ; reference's type, so it is the only place
+                          ; that distinction has to be made.
+                          (tyInst tc (memGetWord ent 1))
                           (let ((ctor (findCtor tc name)))
                             (if (!= ctor 0)
-                                (memGetWord ctor 3)
+                                (tyInst tc (memGetWord ctor 3))
                                 ; A trait method is always in scope and
                                 ; is never a top-level function:
                                 ; dispatch rewrites a CALL to a concrete
@@ -4083,7 +4248,12 @@
           (bindPatternArgsFresh tc args 0)
           0
         }
-        (let ((fieldTys (memGetWord ctor 1)))
+        ; Instantiated for the same reason a reference to the
+        ; constructor is: a pattern BINDS these types onto names, and
+        ; a binder holding the declaring type's own rigid `a` would
+        ; make `(match (Some 42) ((Some x) x))` answer a variable no
+        ; concrete type is compatible with.
+        (let ((fieldTys (tyInstVec tc (memGetWord ctor 1) vecNew vecNew 0)))
           {
             (if (!= (vecLen args) (vecLen fieldTys))
                 (if (== span 0)
@@ -4645,6 +4815,23 @@
       0
   (if (== (tyIsSilentWild got) 1)
       0
+  (if (== (tyIsSrcVar want) 1)
+      ; A signature promising a type VARIABLE promises the CALLER a
+      ; type the caller chooses, so the body may answer only that same
+      ; variable. A different one, or any concrete type, breaks the
+      ; promise the same way the `Float`-over-`Int` case two arms down
+      ; does: every reader downstream believes the signature. A minted
+      ; `_tN` body stays quiet, because it means "not known" rather
+      ; than "known to be wrong".
+      ;
+      ;   (:: f (-> a b a))  (fn (f x y) y)   was accepted, answered y
+      (if (== (nodeTag got) TAG_T_VAR)
+          (if (== (tyIsSrcVar got) 1)
+              (if (strEq (nodeA want) (nodeA got))
+                  0
+                  (emitMismatch tc (tyRender want) (tyRender got) (spanOf (nodeC d))))
+              0)
+          (emitMismatch tc (tyRender want) (tyRender got) (spanOf (nodeC d))))
   (if (== (nodeTag got) TAG_T_VAR)
       0
   (if (== (nodeTag want) TAG_T_ARR)
@@ -4653,7 +4840,7 @@
           (emitMismatch tc (tyRender want) (tyRender got) (spanOf (nodeC d))))
       (if (== (tyReprClash want got) 1)
           (emitMismatch tc (tyRender want) (tyRender got) (spanOf (nodeC d)))
-          0))))))))
+          0)))))))))
 
 ; 1 when `want` and `got` are two plain type constructors that cannot
 ; share a representation, so believing the signature over the body is

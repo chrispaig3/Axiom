@@ -1,0 +1,36 @@
+; expect 42
+; A signature's type variables are the CONTROL for the rigidity rule
+; in `tyCompat`: a rule written too wide refuses every one of these,
+; and until 2026-08-10 a rule written too narrow (a variable matched
+; anything at any depth) made writing `a` strictly weaker than writing
+; `Int`. The refusals are in
+; `tests/diagnostics/460-signature-type-variable.ax`; these are the
+; programs that have to keep working.
+;
+;   idf     the identity. Its body answers the parameter, so the
+;           declared result and the inferred one are the SAME
+;           variable - which is the only pair rigidity accepts;
+;   konst   two distinct variables in one signature, and a body that
+;           answers the first. `(-> a b a)` says something now, and
+;           the term that proves it is 460's `(fn (promised x y) y)`;
+;   applyf  a variable under an ARROW, applied to a variable beside
+;           it. The parameter `f` has type `(-> a b)` and `x` has type
+;           `a`, so `(f x)` type-checks only if two occurrences of `a`
+;           written in different places are recognised as one;
+;   the calls  instantiate. Each reference mints fresh placeholders,
+;           so a caller may still pass whatever it likes - `idf` takes
+;           an Int here and the identity is not restricted to Int.
+(:: idf (-> a a))
+(fn (idf x) x)
+
+(:: konst (-> a b a))
+(fn (konst x y) x)
+
+(:: applyf (-> (-> a b) a b))
+(fn (applyf f x) (f x))
+
+(:: main Int)
+(fn (main)
+  (if (== (+ (idf 20) (konst 21 99)) 41)
+      (applyf (lambda (n) 42) 7)
+      1))

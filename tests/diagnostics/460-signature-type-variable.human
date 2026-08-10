@@ -1,0 +1,17 @@
+[1;31merror[AX3004][0m[1m: type mismatch: expected Int, found a[0m
+  [1;34m--> [0m460-signature-type-variable.ax:33:16
+[1;34m   |[0m
+[1;34m33 |[0m (fn (bad x) (+ x 1))
+[1;34m   |[0m                [1;31m^ this has type `a`, expected `Int`[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation
+
+[1;31merror[AX3004][0m[1m: type mismatch: expected a, found b[0m
+  [1;34m--> [0m460-signature-type-variable.ax:36:20
+[1;34m   |[0m
+[1;34m36 |[0m (fn (promised x y) y)
+[1;34m   |[0m                    [1;31m^ this has type `b`, expected `a`[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation
+
+compilation failed due to 2 previous errors

@@ -1,0 +1,39 @@
+; `tyCompat` treated a type variable on either side, at any depth, as
+; matching anything - no substitution exists, so `Tree a` had to pass
+; against `Tree Int`. The consequence was that writing `a` was
+; strictly WEAKER than writing `Int`:
+;
+;   (:: bad (-> Int Int))  (fn (bad x) (+ x 1))
+;   (bad (Pt 3 4))            AX3004: expected Int, found Pt   exit 1
+;
+;   (:: bad (-> a   Int))  (fn (bad x) (+ x 1))
+;   (bad (Pt 3 4))            prints 4372529169                exit 0
+;
+; The struct handle arrived in `x`, `+` added one to a pointer, and the
+; program answered an address - while `README.md:1187` listed
+; "polymorphic signatures" under **Complete**.
+;
+; Two shapes, both in the DEFINITION, which is where the wrong answer
+; came from:
+;
+;   bad       performs arithmetic on a value whose type the caller
+;             chooses. There is no such operation;
+;   promised  declares that it answers the caller's first type and
+;             answers the second one instead.
+;
+; A CALL SITE passing anything at all is still accepted, deliberately:
+; instantiation mints a fresh placeholder per variable and does not
+; SOLVE it, so `(f 1 (Pt 3 4))` on `(-> a a Int)` goes unreported.
+; Under-report, never mis-report - the same trade recorded for effect
+; operations before they carried their arrow. The programs that must
+; keep working are `tests/selfhost/972-polymorphic-signature.ax`.
+(struct Pt (x : Int) (y : Int))
+
+(:: bad (-> a Int))
+(fn (bad x) (+ x 1))
+
+(:: promised (-> a b a))
+(fn (promised x y) y)
+
+(:: main Int)
+(fn (main) (bad (Pt 3 4)))

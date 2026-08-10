@@ -7411,3 +7411,95 @@ correctly typed, which is exactly why nothing had ever noticed.
 AX3013 under-applied) and `tests/diagnostics/455-effect-op-collision.ax`
 (AX3006). Each was run individually against the previous compiler:
 exit 0, zero diagnostics, both times.
+
+## 38. A type variable in a signature was strictly weaker than `Int`
+
+Fixed 2026-08-10.
+
+```scheme
+(struct Pt (x : Int) (y : Int))
+
+(:: bad (-> Int Int))  (fn (bad x) (+ x 1))
+(bad (Pt 3 4))          ->  AX3004: expected Int, found Pt,  exit 1
+
+(:: bad (-> a   Int))  (fn (bad x) (+ x 1))
+(bad (Pt 3 4))          ->  exit 0, prints 4372529169
+```
+
+Replacing `Int` with `a` turned a caught error into a wrong answer.
+The struct handle arrived in `x`, `+` added one to a pointer, and the
+program delivered an address — while `README.md:1187` listed
+"Curried, **polymorphic signatures**" under **Complete** and
+`docs/reference.md:307-315` has a section called "Type Variables and
+Polymorphism".
+
+### Why
+
+`tyCompat` returned 1 whenever either side was `TAG_T_VAR`, at any
+depth. That was deliberate and documented at the top of the file:
+there is no substitution, so `Tree a` had to pass against `Tree Int`.
+The rule is right for the two variable flavours the CHECKER mints —
+`_tN` for a parameter past a signature's arrows, `_fn_N` for a
+function with no signature, and the silent `""` for what stage1 cannot
+know. All three mean "I have no type here" and must match anything.
+
+A variable the PROGRAMMER wrote means the opposite: *this stands for
+one type, chosen by the caller*. Sharing one rule between the two made
+the programmer's version the weakest thing in the language.
+
+### The fix
+
+Three flavours, distinguished by the leading `_`, and the
+discrimination is by construction rather than by convention:
+`parser.ax`'s `lexStartsLower` admits bytes 97-122 and nothing else,
+so a source-written type variable always starts with a lowercase
+letter and can never collide with a minted one.
+
+* **Rigid in the body.** `tyVarCompat`: two source variables agree
+  when they are the same variable; a source variable against a
+  concrete type does not. `(+ x 1)` where `x : a` is now AX3004, which
+  is where the wrong answer came from.
+* **Instantiated at a reference.** `tyInst` mints a fresh `_tN` per
+  distinct variable, shared across occurrences, wherever a
+  declaration's type becomes a reference's type — the `FnEnt` arm and
+  the constructor arm of `checkVar`, and a constructor's field types
+  when a pattern binds them. A caller may still pass anything, and
+  `(Some 42)` still works.
+* **The declared return.** A signature promising `a` may be satisfied
+  only by that same `a`. `(:: f (-> a b a))` over `(fn (f x y) y)` was
+  accepted and answered `y`.
+
+Poison moved ahead of variables in `tyCompat`. The two orders differ
+on exactly one pair — a source variable against `TAG_T_ERR` — and
+getting it wrong turns cascade suppression off for every polymorphic
+signature.
+
+### What it does NOT do
+
+It does not SOLVE the minted placeholders. `(id 5)` has a wildcard
+type rather than `Int`, and a second argument disagreeing with the
+first goes unreported: `(f 1 (Pt 3 4))` on `(-> a a Int)` is accepted.
+Under-report, never mis-report — the same trade this file records for
+effect operations before §37 gave them their arrow.
+
+### What it cost
+
+Nothing measurable — `check self_host/main.ax` is 0.18 s before and
+after, because `tyHasSrcVar` answers 0 on a walk of a small type and
+that is every type in the repository. Re-derived here: **0 of 1,733**
+signatures in `self_host/` + `stdlib/` and **0 of 549** in `tests/`
+use a type variable, and there are **0** parameterised `data`
+declarations. The only source-shaped variables in the whole system are
+the builtin `Option`'s, in `Some : (-> a (Option a))`. A 277-file
+old-vs-new sweep diverged on **0**.
+
+### What pins it
+
+Both directions, which is the point:
+`tests/diagnostics/460-signature-type-variable.ax` catches the rule
+being too NARROW — on the previous compiler it checks clean at exit 0
+and runs to exit 17.
+`tests/selfhost/972-polymorphic-signature.ax` catches it being too
+WIDE: it passes on both compilers, so it was ablated separately by
+making `tyInst` the identity, and then fails with three false AX3004s.
+A control that cannot fail is not a control.
