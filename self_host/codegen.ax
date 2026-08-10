@@ -1634,6 +1634,15 @@
   (if (== t 2) 94
   231))))
 
+; `write`, per target, for the runtime traps. Darwin BSD 4 is
+; 0x2000004; linux-x86_64 is 1 and linux-aarch64 is 64.
+(pub :: targetWriteNum (-> Int Int))
+(pub fn (targetWriteNum t)
+  (if (== t 0) 33554436
+  (if (== t 1) 33554436
+  (if (== t 2) 64
+  1))))
+
 (pub :: targetMapFlags (-> Int Int))
 (pub fn (targetMapFlags t)
   (if (|| (== t 0) (== t 1)) 4098 34))
@@ -1834,6 +1843,7 @@
     (emitLine cg "}")
     (emitLine cg "")
     (emitArenaHelpers cg)
+    (emitDivTrap cg)
     cg
   })
 
@@ -1860,6 +1870,35 @@
 ; byte is handed to a caller.
 ; ------------------------------------------------------------------
 (pub :: emitArenaHelpers (-> Int Int))
+; The division trap, emitted UNCONDITIONALLY beside the arena helpers.
+; It first rode along with `emitUnhandledTrap`, which is emitted only
+; when the program declares an effect - so every program that divided
+; and had no effects reached `opt` with a call to a symbol nothing
+; defined. Caught by the first probe after the change.
+(pub :: emitDivTrap (-> Int Int))
+(pub fn (emitDivTrap cg)
+  {
+    (emitLine cg "@__axiom_divzero_msg = private unnamed_addr constant [24 x i8] c\"axiom: division by zero\\0A\"")
+    (emitLine cg "define internal i64 @__axiom_div_by_zero() #0 {")
+    (emitLine cg "entry:")
+    (emitLine cg "  %dzp = ptrtoint ptr @__axiom_divzero_msg to i64")
+    (emitLine cg (strConcat
+                   (cat4 "  call i64 asm sideeffect "
+                         (targetSyscallAsm (memGetWord cg 26))
+                         "(i64 "
+                         (fmtInt (targetWriteNum (memGetWord cg 26))))
+                   ", i64 2, i64 %dzp, i64 24, i64 0, i64 0, i64 0)"))
+    (emitLine cg (strConcat
+                   (cat4 "  call i64 asm sideeffect "
+                         (targetSyscallAsm (memGetWord cg 26))
+                         "(i64 "
+                         (fmtInt (targetExitNum (memGetWord cg 26))))
+                   ", i64 72, i64 0, i64 0, i64 0, i64 0, i64 0)"))
+    (emitLine cg "  unreachable")
+    (emitLine cg "}")
+    cg
+  })
+
 (pub fn (emitArenaHelpers cg)
   {
     (emitLine cg "define internal i64 @__axiom_arena_mark_fn() #0 {")
@@ -4590,19 +4629,53 @@
               (emitFBinop fnName a b cg2)
               (emitIBinop fnName a b cg2)))))))
 
+; `sdiv`/`srem` by zero is UNDEFINED in LLVM, and the two targets
+; disagree about what undefined looks like: on darwin-aarch64
+; `(/ 10 0)` printed 1 at exit 0, and the same IR on linux-x86_64
+; lowers to `idiv`, which raises SIGFPE. Same source, two behaviours,
+; and `check` had nothing to say about either.
+;
+; Guarded now: a compare and a branch to a shared trap that names the
+; fault on fd 2 and exits 72. One predictable branch, paid only by
+; `/` and `%`.
 (pub :: emitIBinop (-> Int Int Int Int Int))
 (pub fn (emitIBinop fnName a b cg)
-  (let ((rn (allocReg cg)))
-    (let ((r (regStr rn)))
-      {
-        (emitLine cg (cat4 (cat3 (cat2 "  " r) " = " (binopToLLVM fnName))
-                           " i64 "
-                           (cat3 a ", " b)
-                           ""))
-        (memSetWord cg 2 r)
-        (memSetWord cg 14 0)
-        cg
-      })))
+  (let ((cgG (if (isDivOp fnName) (emitDivGuard b cg) cg)))
+    (let ((rn (allocReg cgG)))
+      (let ((r (regStr rn)))
+        {
+          (emitLine cgG (cat4 (cat3 (cat2 "  " r) " = " (binopToLLVM fnName))
+                              " i64 "
+                              (cat3 a ", " b)
+                              ""))
+          (memSetWord cgG 2 r)
+          (memSetWord cgG 14 0)
+          cgG
+        }))))
+
+(pub :: isDivOp (-> Int Bool))
+(pub fn (isDivOp nm) (|| (strEq nm "/") (strEq nm "%")))
+
+; `if divisor == 0 then trap`. The trap block ends `unreachable`, so
+; nothing downstream has to know it is there.
+(pub :: emitDivGuard (-> Int Int Int))
+(pub fn (emitDivGuard b cg)
+  (let ((cn (allocReg cg)))
+    (let ((zn (allocReg cg))
+          (kn (allocReg cg)))
+      (let ((c (regStr cn))
+            (zb (cat2 "divzero_" (fmtInt zn)))
+            (kb (cat2 "divok_" (fmtInt kn))))
+        {
+          (emitLine cg (cat4 (cat2 "  " c) " = icmp eq i64 " b ", 0"))
+          (emitLine cg (cat4 (cat3 "  br i1 " c ", label %")
+                             zb (cat2 ", label %" kb) ""))
+          (emitLabel cg zb)
+          (emitLine cg "  call i64 @__axiom_div_by_zero()")
+          (emitLine cg "  unreachable")
+          (emitLabel cg kb)
+          cg
+        }))))
 
 ; The operands hold bits; the arithmetic wants a double. `bitcast` in,
 ; one float instruction, `bitcast` back out - free at runtime, and the

@@ -1,0 +1,17 @@
+; expect 72
+; Integer division by zero. `sdiv`/`srem` with a zero divisor is
+; UNDEFINED in LLVM, and the two targets disagreed about what undefined
+; looks like: on darwin-aarch64 this program printed `1` and exited 0,
+; and the same IR on linux-x86_64 lowers to `idiv`, which raises
+; SIGFPE. Same source, two behaviours, and `check` had nothing to say
+; about either - so a program developed on macOS and shipped to Linux
+; changed its meaning on the way.
+;
+; It now names the fault on fd 2 and exits 72, on every target. The
+; divisor comes from a function so that no constant folding can decide
+; it before the guard does.
+(:: zero Int)
+(fn (zero) 0)
+
+(:: main Int)
+(fn (main) (/ 10 (zero)))

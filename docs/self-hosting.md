@@ -6379,3 +6379,51 @@ error[AX3004]: type mismatch: expected function type, found Int
 which is the diagnostic added two commits earlier for exactly that
 mistake, working on the compiler that introduced it. Before it, the
 same slip compiled and segfaulted at the call site.
+
+## 26. Division by zero meant two things, and neither was said
+
+Fixed 2026-08-10.
+
+```scheme
+(:: zero Int)
+(fn (zero) 0)
+(fn (main) (printlnInt (/ 10 (zero))))
+```
+
+```
+$ axiom check   OK
+$ axiom run     1
+```
+
+`sdiv` and `srem` with a zero divisor are **undefined** in LLVM, and
+the two targets disagree about what undefined looks like: on
+darwin-aarch64 that program prints `1` and exits 0, and the same IR on
+linux-x86_64 lowers to `idiv`, which raises `SIGFPE`. A program
+developed on macOS and shipped to Linux changed its meaning on the way,
+and nothing in the compiler had an opinion about it.
+
+`/` and `%` now compare the divisor against zero and branch to a shared
+trap that writes `axiom: division by zero` to fd 2 and exits **72** —
+one status along from the unhandled-effect trap's 71, and emitted the
+same way, through the target's own syscall template.
+
+The cost is one predictable branch per division, paid only by `/` and
+`%`. Measured on `emit-llvm self_host/main.ax`, same input, a compiler
+built with the guard against one built without: **1.79–1.89 s versus
+1.80–2.00 s** — inside the run-to-run spread. The fixpoint holds and
+all 263 `.ax` files check identically.
+
+### 26.1 The trap was emitted where the effects are
+
+The first version put the helper beside `__axiom_unhandled_effect`,
+which reads well and is wrong: that one is emitted **only when the
+program declares an effect**. Every program that divided and used no
+effects reached `opt` with a call to a symbol nothing defined —
+
+```
+opt: error: use of undefined value '@__axiom_div_by_zero'
+```
+
+— which the first probe after the change found, because a probe that
+runs the program is the only thing that could. It is emitted with the
+arena helpers now, which every program gets.
