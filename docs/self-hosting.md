@@ -4977,3 +4977,460 @@ written by people solving problems, and nobody's problem needs `()`.
   (`AX2005`, measured at 1,000 → OK and 5,000 → refused), so the deep
   cases in the bank are inside it by construction and pin the accepting
   side.
+
+## 14. A module cannot have a private declaration
+
+Measured 2026-08-09, and not fixed here. `R.ax`:
+
+```scheme
+(:: helper (-> Int Int))
+(fn (helper n) (* n 2))
+(pub :: quad (-> Int Int))
+(pub fn (quad n) (helper (helper n)))
+```
+
+`axiom check R.ax` is `OK`, exit 0. Any file that imports it is not:
+
+```
+$ cat useR.ax
+(import R)
+(:: main Int)
+(fn (main) (quad 3))
+
+$ axiom --diagnostic-format=ai check useR.ax
+E AX3001 R.ax:5:19-25 undefined-variable "undefined variable `helper`" ...
+E AX3001 R.ax:5:27-33 undefined-variable "undefined variable `helper`" ...
+exit 1
+```
+
+The importing file is fine and the imported file is now broken — reported
+at **its own lines**, by a file that merely read it. A module with a
+private helper is a module nobody may import.
+
+The selective form of the import has the same defect for a name that is
+`pub`. `(import T (quad))`, where `T`'s `quad` calls `T`'s `pub other`,
+deletes `other` and fails identically. And a private `macro` fails the
+same way, which is how this was found — it looked like a macro bug and is
+not one.
+
+`resolveDeclsPhase` (codegen.ax) is the site. It drops a declaration that
+is not `pub`, or that the import's name list does not name, and the
+comment records the intent exactly:
+
+> A private declaration of an IMPORTED module is not part of the program:
+> stage0 splices only `pub` ones, so a reference to a private imported
+> name is undefined there and was silently callable here.
+
+Which is right about the NAME and wrong about the CODE. The module's
+public bodies are spliced, and they call the declarations that were
+dropped. **`pub` and the import list should decide which bare names are
+visible, not which declarations exist**, and those are two different
+things sharing one `if`.
+
+### 14.1 Why no gate could see it
+
+All **3,094** top-level `fn`/`::`/`define` declarations in `stdlib/` and
+`self_host/` are `pub` — every single one — and not one of the 144
+imports carries a name list. The entire corpus lives on the only path
+that works. A count of the private declarations in this repository, at
+the moment this was written, is zero.
+
+That is the same shape as the empty form in §13 and as block comments in
+§10: the corpus is written by people solving problems, and none of their
+problems needed the construct.
+
+### 14.2 The fix that is not complete
+
+Carrying the declaration is three lines: `mangleRecord` already does two
+separable things — it records `Mod$name -> Mod$name`, which is how a
+reference *inside* a module reaches its own definition, and `name ->
+Mod$name`, which is what makes the bare name visible to everyone else.
+Splitting them, splicing every declaration, and recording only the first
+for a carried one makes all three cases above compile and run: measured
+12, 12 and 12, and the emitted IR shows `R`'s own body calling
+`@R$helper` while nothing else can name it.
+
+It is not enough, and the reason is worth recording because it is the
+same defect class this session opened with. **The type checker has no
+notion of visibility.** `declMatches` resolves a bare reference by
+matching the declaration's bare suffix — deliberately, since that is how
+an imported `pub` name resolves — so once the private declaration exists,
+the checker accepts a reference to it from anywhere. Privacy was being
+enforced by the declaration's *absence*, and with the declaration present
+the reference passes `check` and fails in `opt`:
+
+```
+$ axiom run leak.ax          # (import R) then (helper 3)
+opt: error: use of undefined value '@helper'
+error[AX4003]: opt failed  --> <toolchain>
+```
+
+A clean `AX3001` traded for a link failure blamed on the toolchain is the
+exact trade §13 exists to undo, so the half-fix is recorded here rather
+than committed. Completing it means giving the checker the visibility it
+does not have: the node already carries both `vis` (word 5) and its
+declaring `module` (word 8), and the checker already tracks the module
+whose declaration it is checking, so the rule is expressible — a bare
+reference may not reach a declaration that is invisible and belongs to
+another module — but it has to be threaded through `declMatches` and its
+call sites, which is name resolution in a compiler that compiles itself
+and wants its own slice and its own battery.
+
+This is the other half of the flat-namespace decision the roadmap's P3
+row already names: *resolution outward from a module is still the merged
+declaration list rather than that module's import set.*
+
+## 15. The identifier characters two passes did not honour
+
+`lexer.ax` admits `+ - * / % < > = ! & | ^` into an identifier's first
+byte and those plus `'` into the rest, deliberately and with the
+reasoning written down: leaving `^` out did not make `(^ a b)` an error,
+it made the lexer's fallback silently skip the byte, so xor became
+application. `?` is deliberately absent for the mirror reason.
+
+Two passes that consume names do not share that set. Both fail in
+silence, and both were found by asking what a name may contain rather
+than by anything in the corpus — there is not one prime-suffixed
+identifier among the **1,629** top-level function names in `stdlib/` and
+`self_host/`, and every apostrophe in either tree is inside a comment or
+a string, where an earlier arm of the same scanner consumes it.
+
+### 15.1 One apostrophe deleted a file's AXTAG checking (fixed)
+
+`scanAxtags` walks a resolved module's bytes looking for `;@axiom:`
+lines, with arms for a string, a char literal and a block comment so that
+a tag inside one is not a tag. It had no arm for an identifier. `'` is an
+identifier character, so `f'` is one token to `lexTokens` — and to this
+scanner the `'` was the opening quote of a char literal, and
+`skipCharBody` ran to the next apostrophe in the file, or to end of
+input.
+
+Measured on this repository's own AXTAG fixture. Prepending the single
+line `(fn (poison' n) n)` to `tests/diagnostics/330-axtag-mismatch.ax`:
+
+```
+control  : 5 AX3010 warnings
+poisoned : 0
+```
+
+AXTAGs are compiler-checked metadata — `pure`, `effect(io)` — so what one
+apostrophe deletes is the checking. Nothing reports a dropped tag, `check`
+does not fail on warnings anyway, and `fmt` preserves both the name and
+the now-inert tag, so the loss has no channel to appear in.
+
+The fix is an identifier arm ahead of the char-literal arm, asking
+`isIdentStart` and `skipIdent` — the same two functions `stepIdentToken`
+asks — rather than restating the rule, so the two cannot drift apart
+again. `tests/diagnostics/336-axtag-after-prime` pins it: two tags, one
+of them inside the swallowed span, and a real `'x'` past them so the
+char-literal arm is still exercised. Against a compiler built before the
+fix the fixture emits one of its two warnings.
+
+### 15.2 Twelve of fourteen legal names could not be emitted (fixed)
+
+The other pass is codegen, which writes names into LLVM unquoted. Every
+shape below was accepted by the lexer, the parser, the checker, `fmt` and
+`symbols`, and then died. This section previously recorded six of eight,
+from the eight shapes that had been probed; sweeping the rest of the
+character set found the ratio is worse:
+
+| name | `check` | `run` (before) | `run` (now) |
+|---|---|---|---|
+| `plain`, `x-5` | 0 | 42 | 42 |
+| `foo'`, `a+b`, `set!`, `a*b`, `a=b`, `a^b`, `a<b`, `a\|b`, `a&b`, `a%b`, `a/b`, `a>b` | 0 | **4** | 42 |
+
+Exit 4 was `AX4003 opt failed` against `<toolchain>` — `opt` refusing
+`define i64 @foo'(i64 %n)`. `x-5` survives only because `-` happens to be
+legal in an unquoted LLVM identifier. It is the same sentence §13 already
+records about `{}`: the compiler blaming the toolchain for its own
+output, with no span into the source, for a program it told the user was
+fine. The same twelve failed in parameter position, where the sigil is
+`%` rather than `@` and the message is `expected ')' at end of argument
+list`.
+
+**The fix is `llvmSym`** (codegen.ax): a name whose every byte is in
+LLVM's unquoted set `[-A-Za-z0-9$._]` is returned unchanged, and any
+other is wrapped in `"` with `"` and `\` hex-escaped. It is routed
+through the sites that write a *user's* name into IR — the function
+definition, the parameter list, the parameter reference, the tail-loop
+store, the `ptrtoint` of a function value, the three `call` sites, and
+the effect slot's global with its loads and stores. Compiler-generated
+names (`_lam_N`, `_thunk_N`, `%aN`, `label_N`) are deliberately not
+routed: they are inside the set by construction.
+
+Three things were measured rather than assumed:
+
+- **Quoting, not mangling, and it holds on all four targets.**
+  `define i64 @"foo'"`, `%"n'"` and `@"g!x"` through
+  `llc -mtriple=<t> -relocation-model=pic -filetype=obj` exit 0 for
+  `arm64-apple-macosx14.0.0`, `x86_64-apple-macosx14.0.0`,
+  `aarch64-unknown-linux-gnu` and `x86_64-unknown-linux-gnu`, at `-O0`
+  and `-O2`, and `nm` shows `_foo'`, `_a+b` and `_set!` surviving into
+  the object intact. So the symbol a debugger shows is still the name
+  the programmer wrote, which a `$`-escaping mangle would have cost.
+- **The change is a no-op on this tree, to the byte.** The compiler's
+  own IR — 2,342,271 bytes — is *identical* emitted by a compiler with
+  `llvmSym` and one without, and contains zero quoted names, because all
+  1,625 distinct top-level names in `stdlib/` and `self_host/` are
+  already inside the unquoted set, and `Mod$name` is too (`$` is in both
+  sets). That is why `check-bootstrap.sh`'s IR identity and
+  `check-reproducible.sh` cannot move. The census is the `fn`/`define`
+  heads and the `::` subjects over the 35 files of those two trees,
+  deduplicated — 1,426 declarations and 1,674 signatures, 1,625 distinct
+  names between them, **0** carrying a byte outside `[-A-Za-z0-9$._]`
+  and 0 carrying an operator byte at all. (§15.1's neighbouring figure
+  of 1,629 was counted before this section's work added `llvmSym`'s four
+  helpers and removed one; the reproducible number is the one above.)
+- **The registry key and the emitted name are separate.** An effect slot
+  is both a global's name and the key `slotFirstIndex` dedups on, so the
+  quoting happens at emission and the key stays bare; quoting the key
+  instead would make the global's definition and its loads disagree.
+
+`scripts/check-symbol-names.sh` is the gate, and it asks the question
+the corpus cannot. For each of the **94 printable bytes** — not the
+sixteen `isIdentChar` admits, because which bytes those are is the other
+side of the agreement and has to be free to move — it builds three
+probes: the byte inside a function name, at the start of one, and inside
+a parameter name. Each must reach exactly one of two outcomes: refused
+by `check` with a code *and a span into the probe*, or accepted **and**
+built **and** run to 42. There is no third outcome, and "accepted, then
+killed by `opt`" was the third outcome for twelve bytes.
+
+Which arm applies is decided by `symbols`, not by consulting the lexer:
+if the frontend reports a function whose name is exactly the probe's,
+the frontend accepted that *name*, and the backend is then obliged to
+emit it. Asking `isIdentChar` what it admits and then checking codegen
+against that answer would be one implementation grading itself — the
+error this whole section is about. Measured: of the 282 sweep probes,
+217 are accepted, and **every one of them is accepted as a name** —
+there is no "accepted, but a different program" case to weaken the
+assertion.
+
+Seven further probes carry the constructs a three-character name cannot
+reach: a self tail call (the parameter is stored into its alloca by
+name), a lambda capturing a prime-suffixed binding, a constructor, a
+nullary reference, a function value (`ptrtoint` plus the thunk's call),
+an effect slot, and the same program at `--opt 2`. One more asserts the
+quoting is *minimal* — a plain name still emits `@plain`, since
+everything else here passes just as well from a `llvmSym` that quotes
+unconditionally, and that version would rewrite every symbol in the
+bootstrap.
+
+The ablation drill ran against the ablated **tree**, not merely with an
+ablated compiler: `llvmSym` reduced to the identity in a scratch copy,
+the compiler under test built from that copy. Exit 1, **42 of 290** — 35
+sweep probes (exactly the 35 that need quoting in a good build, so the
+two halves account for each other with nothing left over), the five
+structural probes, `--opt 2`, and the quoted-path floor reading 0 where
+the floor is 12. Restored: 290/290.
+
+Two checks deliberately do *not* move under that ablation, and the file
+says so rather than letting a reader over-credit them: "plain names are
+unquoted" is an over-quoting check, which the identity satisfies; and
+the constructor probe passes, because a constructor is a tag rather than
+an emitted symbol.
+
+### 15.3 The third pass, found by the fixture written for the second
+
+`tests/selfhost/366-operator-names.ax` was added to pin §15.2 cheaply,
+and `check-fmt.sh` went red on it. That was not the fixture being wrong.
+The formatter is a **fourth** implementation of the identifier rule, and
+it disagreed with the lexer in the way that costs the most: not by
+refusing, but by rewriting.
+
+`fscanName` (format.ax) continued a name over `isFNameChar` — letters,
+digits, `_` and `'` — a local restatement that omitted every one of the
+operator bytes `isIdentChar` admits. So a name containing one was three
+tokens to the formatter and one to the compiler, and the formatter
+printed the three. Measured against the compiler as it stood, output
+written to disk, **exit 0, no warning**:
+
+| written | `fmt` wrote | what the compiler reads |
+|---|---|---|
+| `(fn (g) (h empty-list))` | `(fn (g) (h empty - list))` | a 3-argument call where there was 1 |
+| `(fn (g) (h a+b))` | `(fn (g) (h a + b))` | a 3-argument call where there was 1 |
+| `(fn (g) (h x-5))` | `(fn (g) (h x -5))` | a 2-argument call where there was 1 |
+
+This is the roadmap §2.3 list — the six ways `fmt` silently destroyed a
+source file — in a seventh way, and it is the worst-shaped of them
+because **`empty-list` is not an exotic name.** Kebab-case is the
+commonest non-alphanumeric naming convention there is, and
+`(:: empty-list (-> Int Int))` is a declaration `axiom check` accepts
+and runs. In declaration position the same split poisoned the buffer
+instead, so `axiom fmt` *refused every file that declared such a name* —
+which is how a formatter reports that it cannot round-trip a construct,
+and is the only reason this was not worse.
+
+Nothing in the repository has such a name. All 244 `.ax` files formatted
+byte-identically with this broken, because Axiom's own convention is
+camelCase — the same sentence §13, §14 and §15.1 each already record,
+now for the fourth time in one document.
+
+**The fix is one line and an import**: `fscanName` asks `lexer`'s
+`isIdentChar`, which is exactly the continuation set it wants, and the
+local `isFNameChar` is deleted rather than corrected. Correcting it
+would have left two statements of one rule and a note asking the next
+person to keep them equal; deleting it leaves one. That is §15.1's
+repair applied to the pass §15.1 did not cover.
+
+Measured, the same way the `llvmSym` change was: formatting all **244**
+`.ax` files under a compiler with the fix and one without produces
+**byte-identical output and identical exit status on 243 of them**, the
+single difference being `366-operator-names.ax` itself, which goes from
+`formatter refusal` to formatted. The `-5` adjacency rule the scanner
+exists to preserve is unmoved in both directions — `(+ x -5)` stays two
+arguments and `(+ x - 5)` stays three.
+
+**What is deliberately not fixed, and is a real residue of the same
+kind.** The dispatch still routes an operator-*initial* token to
+`fscanOperator`, which consumes only operator bytes. `isIdentStart`
+admits those same twelve bytes, so `+foo` and `-foo` are each one
+identifier to the lexer — measured, both compile and run — and two
+tokens here. Stated plainly rather than softly: this is still a
+rewrite, not merely a split. Measured after the `fscanName` fix,
+
+```
+(fn (g) (h +foo))   ->   (fn (g) (h + foo))
+```
+
+written to disk at exit 0, exactly as the table above. In declaration
+position it refuses, as before.
+
+It is left alone because it is not the one-line change `fscanName`
+took, and getting it wrong is worse than leaving it. The lexer's rule
+for an operator-initial token is conditional — measured, `(+ 40 -5)` is
+**35**, so `-` followed by a digit is a negative literal, while `-foo`
+is a name — so a scanner that simply continued over `isIdentChar` after
+an operator run would fuse `-5` into an identifier and silently change
+every negative literal in the corpus, which is a far larger blast
+radius than the defect it repairs. `? ~ $` are also operator bytes to
+this scanner and not identifier bytes at all. So it needs the lexer's
+*conditional* mirrored, and a probe bank over `-5`, `--5`, `+5`, `->x`
+and the adjacency cases, which is a slice with its own gate.
+
+What bounds it: no name in the corpus, and none in any probe written
+for §15.2, starts with an operator byte and continues with a letter.
+`scripts/check-symbol-names.sh` sweeps names in the two positions the
+frontend can *declare* them, and every one of those starts with a
+letter or the operator run alone.
+
+## 16. The one editor feature this server has, that no editor would ask for
+
+`axiom lsp` answers `textDocument/documentSymbol` correctly - the
+outline is right, its `SymbolKind`s are right, and a 6,001-symbol
+document comes back intact. Its `initialize` reply advertised
+
+```json
+{"capabilities":{"textDocumentSync":1},"serverInfo":{...}}
+```
+
+and nothing else. A conforming client reads that object and sends only
+what it names, so the one feature this server has that is not a
+diagnostic was implemented, gated, and requested by nobody.
+
+`check-lsp-selfhost.sh` could not see it, and the reason is worth
+stating because it is not the usual one. The gate was not vacuous and no
+golden was wrong: every fixture sends `documentSymbol` unconditionally,
+the way no editor does, so the goldens faithfully record a conversation
+that cannot happen. **The gate spoke the protocol; it did not obey it.**
+
+One line adds the capability. The assertion that keeps it is in
+`tests/lsp/drive.py`, in the one session that holds both halves at once
+- the large-document session sends `initialize` and then
+`documentSymbol` - and it is bidirectional: a request the server answers
+with a result must be advertised, and the check reads both sides out of
+the same run, so no re-bless can satisfy it.
+
+The drill ran. With the capability removed and **every golden re-blessed
+from the ablated build**, the bless itself refused and the gate still
+failed:
+
+```
+FAIL large-document (177,817 bytes): the server answers
+textDocument/documentSymbol and does not advertise
+documentSymbolProvider, so a conforming client never sends it:
+capabilities were ['textDocumentSync']
+```
+
+This is the third defect this session that lived in the gap between two
+implementations of one agreement - the parser and the formatter (§13),
+the lexer and the AXTAG scanner (§15), and now the server's promises and
+the server's behaviour. The pattern each time is that both sides were
+tested against a third thing (a golden, a corpus) and never against each
+other.
+
+## 17. `(true)` is a pattern the compiler runs and the grammar refused
+
+`tests/selfhost/365-macro-pattern-literal.ax` was written to pin a macro
+hygiene bug about `true` and `false` in pattern position. Adding it to
+the tree took `check-tree-sitter.sh` from 243/243 to **243 of 244**, and
+the one failure was the new file:
+
+```
+tests/selfhost/365-macro-pattern-literal.ax   (ERROR [23, 27] - [23, 33])
+```
+
+The span is `((true`, in this line:
+
+```scheme
+(macro (isTrue b) (match b ((true) 1) ((false) 0)))
+```
+
+which is a complete, running program — the fixture answers 95 — and
+which the editor grammar called a syntax error. Probed one shape at a
+time against the grammar as it stood:
+
+| arm pattern | grammar | compiler |
+|---|---|---|
+| `((Nil) 0)`, `((Just x) x)` | ok | ok |
+| `(true 1)`, `(_ 7)` | ok | ok |
+| `((true) 1)`, `((false) 0)` | **ERROR** | ok |
+| `((_) 7)`, `((1) 10)` | **ERROR** | ok |
+
+The cause is a modelling difference rather than an oversight in a list.
+This grammar describes patterns *structurally* — `wildcard_pattern`,
+`constructor_pattern`, `tuple_pattern` — and the parenthesised form was
+reachable only through `constructor_pattern`, which requires a
+`constructor_identifier` (`[A-Z][A-Za-z0-9_']*`). Nothing beginning
+`true`, `false`, `_` or a digit can start one. But **Axiom does not
+parse patterns structurally**: `parseArmPattern` falls back to
+`parseExpr`, so a pattern is an expression that is later *read* as a
+pattern, and the nullary-constructor spelling `(Nil)` is therefore
+available to a literal too. `emitPattern` then compares the scrutinee
+against 1 or 0 for the two boolean names.
+
+The repair is one rule, `parenthesized_pattern`, wrapping a literal or a
+wildcard. It cannot be ambiguous against `constructor_pattern` for the
+reason the bug existed: the two token classes are disjoint. Pinned by
+corpus case 21 in `tree-sitter-axiom/test/corpus/expressions.txt`, which
+carries all four shapes and reads them back as
+`(parenthesized_pattern (boolean_literal))`,
+`(parenthesized_pattern (integer_literal))` and
+`(parenthesized_pattern (wildcard_pattern))` rather than as an
+acceptance count.
+
+### 17.1 The count that keeps going up
+
+This session touched **four** implementations of one grammar, and found
+three of them disagreeing with the compiler in three different ways:
+
+| implementation | how it disagreed | how it showed |
+|---|---|---|
+| `codegen.ax` | wrote names LLVM cannot read | `AX4003` from `opt`, after `check` said OK (§15.2) |
+| `format.ax` | split names at operator bytes | **rewrote the program**, exit 0, no warning (§15.3) |
+| `tree-sitter-axiom` | no parenthesised literal pattern | ERROR on source that runs (§17) |
+| `lexer.ax`/`parser.ax` | — | the reference the other three were measured against |
+
+Each was invisible for the same reason, now recorded for the fifth time
+in this document: the corpus is written by people solving problems, so
+it contains only the constructs those problems needed. No repository
+file has an operator-charactered name, and none had a parenthesised
+literal pattern until a fixture written for an unrelated bug introduced
+one.
+
+The useful generalisation is not "add more cases". It is that **a
+fixture written for one implementation is a probe of every other**. 365
+was written to test macro hygiene and found a grammar bug; 366 was
+written to test codegen and found a formatter bug. Neither gate was
+vacuous and neither golden was wrong — the files simply had not existed
+before, and the moment they did, three passes disagreed with them.

@@ -148,6 +148,30 @@ to `+`, to a constructor (constructors are not mangled), or to a name
 the macro's own module merely imported — each of those finds nothing
 and stays bare, resolving outward exactly as before.
 
+**Three bare names in pattern position are not binders**, and the
+renamer treated them as if they were. `true` and `false` are literal
+*tests* — `emitPattern` compares the scrutinee against 1 and 0 for them
+and `checkPatternTyped` binds nothing — so renaming one to `true.1`
+turned the test into a binder, the arm matched everything, and every
+later arm became unreachable:
+
+```scheme
+(macro (isTrue b) (match b ((true) 1) ((false) 0)))
+(isTrue false)                          ; 0   (was 1)
+(match false ((true) 1) ((false) 0))    ; 0   unchanged
+```
+
+The same `match`, written by hand and written by a macro, disagreeing —
+which is the one thing a hygiene mechanism exists to prevent, and a
+silent wrong answer rather than a diagnostic. `_` is excluded with them
+because the checker special-cases it too. Nothing else is: a bare
+constructor name in pattern position IS a binder in this language, which
+is why `(Nil)` needs its parentheses, so renaming it is correct and is
+what the existing hygiene cases depend on. Pinned by
+`tests/selfhost/365-macro-pattern-literal.ax` (95; the unfixed compiler
+answers 97), which also carries `_`, an integer literal, a nullary
+constructor and a constructor spine whose binder must still be renamed.
+
 ### What hygiene still does NOT cover
 
 **A macro defined in the entry file.** Entry-file declarations are left
@@ -207,7 +231,7 @@ semantic-analysis-time work:
 
 | Code | Slug | What it catches |
 |---|---|---|
-| `AX3018` | `macro-arity` | wrong number of arguments |
+| `AX3018` | `macro-arity` | too FEW arguments. A longer spine is not an error: the surplus is applied to whatever the macro produced, which is how a macro expanding to a function stays usable. Measured: `(macro (one x) x)` invoked as `(one 5 6)` is `AX3004 expected function type, found Int` at the surplus argument, not `AX3018` |
 | `AX3019` | `macro-recursion-limit` | expansion did not terminate (limit 128) |
 | `AX3020` | `macro-duplicate-parameter` | two parameters sharing a name |
 | `AX3021` | `macro-template-unsupported` | a template form the expander cannot substitute into |
@@ -220,7 +244,9 @@ semantic-analysis-time work:
 at all. Under-application left the parameter's own name in the
 generated code (`add i64 40, %q`, rejected by `opt` as an undefined
 value); over-application dropped the surplus argument **without
-evaluating it**, so its side effects silently did not happen; and
+evaluating it**, so its side effects silently did not happen - it is now
+applied rather than dropped, which is a rewrite the reader can follow
+and a type error when it is wrong; and
 `(macro (loopy x) (loopy x))` segfaulted the compiler with no output
 and no diagnostic, in about 10 ms of CPU time.
 

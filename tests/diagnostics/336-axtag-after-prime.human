@@ -1,0 +1,16 @@
+[1;33mwarning[AX3010][0m[1m: AXTAG mismatch on `quiet`: `pure` claim contradicted: body performs IO[0m
+  [1;34m--> [0m336-axtag-after-prime.ax:22:6
+[1;34m   |[0m
+[1;34m22 |[0m (fn (quiet fd) { (__syscall3 1 fd 0 0) (prime' fd) })
+[1;34m   |[0m      [1;33m^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3010` for a full explanation
+
+[1;33mwarning[AX3010][0m[1m: AXTAG mismatch on `after`: `effect(nosucheffect)` claim unsupported: missing nosucheffect[0m
+  [1;34m--> [0m336-axtag-after-prime.ax:32:6
+[1;34m   |[0m
+[1;34m32 |[0m (fn (after n) n)
+[1;34m   |[0m      [1;33m^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3010` for a full explanation
+

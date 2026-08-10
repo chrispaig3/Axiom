@@ -1,0 +1,84 @@
+; expect 200
+; Every byte `isIdentChar` admits that LLVM's unquoted identifier set
+; does not, used as a real name in a real program.
+;
+; Axiom's identifier set is deliberately wide - `! % & ' * + / < > = ^ |`
+; are name characters, which is what makes `(+ a b)` a call rather than
+; punctuation - and codegen wrote names into LLVM bare, where the legal
+; set is only `[-A-Za-z0-9$._]`. So each of the declarations below was
+; accepted by the lexer, the parser, the checker, `fmt` and `symbols`,
+; and then killed `opt`:
+;
+;   define i64 @foo'(i64 %n) #0 {
+;   opt: error: expected '(' in function argument list
+;
+; reported as `AX4003 opt failed` against `<toolchain>` - no span into
+; the source, for a program the compiler had just called well typed.
+; Against a compiler built before `llvmSym` this file does not run at
+; all: it exits 4 with no answer.
+;
+; Both sigils are exercised, because they failed separately: a function
+; name is `@name` and a parameter is `%name`, and quoting one without
+; the other still dies. `count'` is self-tail-recursive, so its
+; parameter is also stored into the tail-loop's alloca by name, and the
+; lambda's `z*w` goes through the lifted function's own parameter list.
+;
+; The exhaustive version of this - all 94 printable bytes, in three
+; positions, each either refused with a span or run to 42 - is
+; `scripts/check-symbol-names.sh`. This file is the cheap pin that rides
+; along with every bootstrap.
+
+(:: inc' (-> Int Int))
+(fn (inc' n') (+ n' 1))
+
+(:: a+b (-> Int Int Int))
+(fn (a+b x y) (+ x y))
+
+(:: set! (-> Int Int))
+(fn (set! v) (* v 2))
+
+(:: p<q (-> Int Int Int))
+(fn (p<q a b) (if (< a b) 1 0))
+
+(:: m|n (-> Int Int Int))
+(fn (m|n a b) (| a b))
+
+(:: pow^ (-> Int Int))
+(fn (pow^ e) (* e e))
+
+(:: half/ (-> Int Int))
+(fn (half/ v) (/ v 2))
+
+(:: mod% (-> Int Int))
+(fn (mod% v) (% v 7))
+
+(:: both& (-> Int Int Int))
+(fn (both& a b) (& a b))
+
+(:: eq= (-> Int Int Int))
+(fn (eq= a b) (if (== a b) 1 0))
+
+(:: gt> (-> Int Int Int))
+(fn (gt> a b) (if (> a b) 1 0))
+
+(:: mul* (-> Int Int Int))
+(fn (mul* a b) (* a b))
+
+; A self tail call, so the parameter is also written into the tail
+; loop's alloca by name.
+(:: count' (-> Int Int Int))
+(fn (count' n acc) (if (== n 0) acc (count' (- n 1) (+ acc 1))))
+
+;   11 + 7 + 10 + 1 + 15 + 25 + 4 + 2 + 8 + 1 + 1 + 42 = 127
+;   + (count' 10 0) = 10          -> 137
+;   + ((lambda (z*w) (+ z*w 3)) 60) = 63  -> 200
+(:: main Int)
+(fn (main)
+  (+ (+ (+ (inc' 10) (a+b 3 4))
+        (+ (+ (set! 5) (p<q 1 2))
+           (+ (m|n 12 3) (pow^ 5))))
+     (+ (+ (+ (half/ 9) (mod% 30))
+           (+ (both& 12 10) (eq= 4 4)))
+        (+ (+ (gt> 9 2) (mul* 6 7))
+           (+ (count' 10 0)
+              ((lambda (z*w) (+ z*w 3)) 60))))))

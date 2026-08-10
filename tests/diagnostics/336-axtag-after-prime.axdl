@@ -1,0 +1,2 @@
+W AX3010 336-axtag-after-prime.ax:22:6-11 axtag-mismatch "AXTAG mismatch on `quiet`: `pure` claim contradicted: body performs IO"
+W AX3010 336-axtag-after-prime.ax:32:6-11 axtag-mismatch "AXTAG mismatch on `after`: `effect(nosucheffect)` claim unsupported: missing nosucheffect"

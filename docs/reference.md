@@ -189,6 +189,39 @@ compute_sum
 ->
 ```
 
+**The character set is wider than that suggests, and deliberately so.**
+An identifier's first byte is a letter, `_`, or one of
+
+```
++ - * / % < > = ! & | ^
+```
+
+and every byte after the first is one of those, a letter, a digit, or
+`'`. That is what makes `+` a name rather than punctuation — `(+ a b)`
+is an ordinary application of a function called `+` — and it means
+`set!`, `foo'`, `empty-list` and `a+b` are all ordinary names you may
+declare:
+
+```scheme
+(:: half' (-> Int Int))
+(fn (half' n') (/ n' 2))
+```
+
+Two exclusions are on purpose. `?` is **not** an identifier character,
+so `empty?` is a lexer error (`AX1001`) rather than a name; admitting it
+is a language change to be made deliberately, with the tree-sitter
+grammar and the formatter moved alongside. And `.` is not one either,
+so `tmp.1` is refused — `.` is field access, and `::` is qualified
+module access (`Mod::name`), neither of which can be part of a name.
+
+Names outside LLVM's own identifier set are quoted on the way into the
+generated code, so every name the frontend accepts is one the backend
+can emit. Twelve of these characters used to pass `check` and then kill
+`opt`; `scripts/check-symbol-names.sh` now sweeps all 94 printable bytes
+in three positions and requires each to be either refused with a span or
+compiled and run. See
+[self-hosting.md §15.2](self-hosting.md).
+
 ### Keywords
 
 These words are reserved and cannot be used as identifiers:

@@ -288,6 +288,34 @@ check could see it.
 Trivia preservation is consequently **done** rather than scheduled for
 P5. The LSP still needs the same machinery, and can reuse it.
 
+**A seventh way arrived on 2026-08-09, and it was the least exotic of
+them.** `fscanName` continued a name over its own local character set —
+letters, digits, `_` and `'` — which omitted every operator byte
+`isIdentChar` admits, so a name containing one was three tokens to the
+formatter and one to the compiler. It printed the three:
+
+| written | `fmt` wrote |
+|---|---|
+| `(fn (g) (h empty-list))` | `(fn (g) (h empty - list))` |
+| `(fn (g) (h a+b))` | `(fn (g) (h a + b))` |
+| `(fn (g) (h x-5))` | `(fn (g) (h x -5))` |
+
+Written to disk, exit 0, no warning: a one-argument call becomes a
+three-argument one. In declaration position it refused instead, so
+`axiom fmt` could not format any file declaring a kebab-case name at
+all — and `(:: empty-list (-> Int Int))` is a declaration `check`
+accepts and runs.
+
+`empty-list` is the point. The other six were exotic enough to be
+plausible oversights; this one is the commonest non-alphanumeric naming
+convention there is, and it survived because Axiom's own corpus is
+camelCase — all 244 `.ax` files formatted byte-identically with it
+broken. The fix deletes the local set and asks `lexer`'s `isIdentChar`,
+and is measured to move nothing: 243 of 244 files format to identical
+bytes and identical exit status, the one difference being the fixture
+written to catch it. See
+[self-hosting.md §15.3](self-hosting.md).
+
 ### 2.4 Open blockers, unchanged
 
 `B1`–`B4` and `S1`–`S5` from
@@ -459,6 +487,29 @@ multi-field, so offsets are exercised) and `struct` fields.
 one needing a widening at a word boundary; that widening is now applied
 wherever a value enters a word slot, not only in the two arithmetic
 sites that already did it.
+
+**A fourth member arrived on 2026-08-09, and it is about names rather
+than values.** `foo'`, `a+b` and `set!` are legal Axiom identifiers —
+`isIdentChar` admits `! % & ' * + / < > = ^ |` on purpose, so that
+`(+ a b)` is a call — and codegen wrote every name into LLVM unquoted,
+where the legal set is only `[-A-Za-z0-9$._]`. Twelve of the fourteen
+shapes probed passed `check` and then exited 4 with `opt` refusing
+`define i64 @foo'(i64 %n)`. Same signature as the three above: accepted
+by the frontend, killed by the native toolchain, `AX4003` against
+`<toolchain>` with no span into the source. Same reason for surviving,
+too — all 1,625 distinct top-level names in `stdlib/` and `self_host/` are inside
+LLVM's set, so the corpus never asked.
+
+The difference is what the gate had to be. The three rows above are
+pinned by a matrix of value kinds against field positions, which is
+finite and writable by hand. A name is not a value, and the property is
+an agreement between two character sets, so
+`scripts/check-symbol-names.sh` sweeps **the rule**: all 94 printable
+bytes, in three positions, each of which must be refused with a span or
+run to 42 — and which arm applies is decided by `symbols` rather than by
+asking `isIdentChar`, because a backend graded against the lexer's own
+answer is one implementation grading itself. See
+[self-hosting.md §15.2](self-hosting.md).
 
 ### 2.4d A gate is only as wide as the corpus it runs on
 

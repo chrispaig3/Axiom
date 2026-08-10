@@ -597,11 +597,40 @@ module.exports = grammar({
       $._literal,
       $.identifier,
       $.constructor_pattern,
+      $.parenthesized_pattern,
       $.tuple_pattern,
       $.list_pattern,
     ),
 
     wildcard_pattern: _ => '_',
+
+    // `(true)`, `(false)`, `(1)`, `(_)`.
+    //
+    // A pattern in this language is PARSED as an expression and only
+    // then read as a pattern (`parseArmPattern` falls back to
+    // `parseExpr`), so the nullary-constructor spelling `(Nil)` is
+    // available to a literal too, and the compiler accepts it:
+    //
+    //   (match b ((true) 1) ((false) 0))
+    //
+    // is a complete, running program - `true` and `false` in pattern
+    // position are literal TESTS, which `emitPattern` compares the
+    // scrutinee against. This grammar modelled patterns structurally
+    // and had no rule for the parenthesised form, so it reported an
+    // ERROR on source the compiler runs.
+    //
+    // Found by `tests/selfhost/365-macro-pattern-literal.ax`, the
+    // fixture written to pin a macro-hygiene bug about exactly these
+    // two names. No file in the repository had used the form before
+    // it, which is why 243 of 244 parsed and this did not - the same
+    // sentence this project keeps writing.
+    //
+    // Unambiguous against `constructor_pattern`, which requires a
+    // `constructor_identifier` (`[A-Z]...`): none of `true`, `false`,
+    // a number or `_` can begin one.
+    parenthesized_pattern: $ => seq(
+      '(', field('pattern', choice($._literal, $.wildcard_pattern)), ')',
+    ),
 
     // `(Cons h t)`, and nested: `(Cons h (Cons h2 t))`.
     // `(Just x)`, or the struct-variant form `(Rect { w = w, h })`.

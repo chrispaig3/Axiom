@@ -186,6 +186,10 @@
         "named": true
       },
       {
+        "type": "parenthesized_pattern",
+        "named": true
+      },
+      {
         "type": "tuple_pattern",
         "named": true
       },
@@ -1317,6 +1321,26 @@
           "named": true
         }
       ]
+    }
+  },
+  {
+    "type": "parenthesized_pattern",
+    "named": true,
+    "fields": {
+      "pattern": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "_literal",
+            "named": true
+          },
+          {
+            "type": "wildcard_pattern",
+            "named": true
+          }
+        ]
+      }
     }
   },
   {

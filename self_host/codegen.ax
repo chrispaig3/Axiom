@@ -579,6 +579,89 @@
             (escBody s (+ i 1) limit
                      (cat3 acc "\\" (hex2 c)))))))
 
+; ------------------------------------------------------------------
+; A user's name, as LLVM has to read it.
+;
+; LLVM's unquoted identifier is `[-a-zA-Z$._][-a-zA-Z$._0-9]*`. Axiom's
+; is deliberately wider: `isIdentChar` (lexer.ax) admits
+; `! * + / < > = % & | ' ^` so that `(+ a b)` is a call, `set!` is a
+; name and `foo'` is a name. Twelve of those bytes are outside LLVM's
+; set, and this file wrote every name out bare, so a program the lexer,
+; the parser, the checker, `fmt` and `symbols` all accepted died in
+; `opt`:
+;
+;   define i64 @foo'(i64 %n)
+;   opt: error: expected '(' in function argument list
+;
+; reported as `AX4003 opt failed` against `<toolchain>` - the compiler
+; blaming the native tools for its own output, with no span into the
+; source, for a program it had just called well typed. Measured one
+; probe per shape, as a function name and again as a parameter name:
+; `plain` and `x-5` ran and answered 42, and the other twelve exited 4.
+; `x-5` survives only because `-` happens to be legal in both sets.
+;
+; The rule here is LLVM's, written out rather than expressed as "not
+; `isIdentChar`". They are two different agreements and each side has
+; to be free to move without the other silently following - which is
+; the defect this repository keeps finding: the parser and the
+; formatter, the lexer and the AXTAG scanner, the server's promises and
+; the server's behaviour. Stating LLVM's set here means widening
+; Axiom's cannot quietly break the backend.
+;
+; A name already inside LLVM's set is returned UNCHANGED. Every one of
+; the 1,629 top-level names in `stdlib/` and `self_host/` is, and so is
+; every `Mod$name` the module mangle produces, because `$` is in both
+; sets - so this cannot move the bootstrap's IR by a byte.
+(pub :: llvmPlainByte (-> Int Bool))
+(pub fn (llvmPlainByte c)
+  (if (&& (>= c 97) (<= c 122)) true      ; a-z
+  (if (&& (>= c 65) (<= c 90))  true      ; A-Z
+  (if (&& (>= c 48) (<= c 57))  true      ; 0-9
+  (if (== c 45) true                      ; -
+  (if (== c 36) true                      ; $, the module mangle
+  (if (== c 46) true                      ; .
+  (if (== c 95) true                      ; _
+  false))))))))
+
+; A leading digit is refused even though a digit is legal further in:
+; `@42` is LLVM's NUMBERED global, which is a different thing from a
+; global whose name is "42". `isIdentStart` cannot produce one today
+; and this does not rely on that staying true.
+(pub :: llvmSymIsPlain (-> Int Int Int Bool))
+(pub fn (llvmSymIsPlain s i n)
+  (if (>= i n)
+      true
+      (let ((c (strByte s i)))
+        (if (llvmPlainByte c)
+            (if (&& (== i 0) (&& (>= c 48) (<= c 57)))
+                false
+                (llvmSymIsPlain s (+ i 1) n))
+            false))))
+
+; Inside the quotes LLVM reads `\xx` hex escapes, so the two bytes that
+; would end the name early have to become them. Neither `"` nor `\` is
+; in `isIdentChar`, so neither is reachable from a source name today;
+; they are handled because the quoting rule belongs to LLVM and must
+; not depend on where Axiom's set happens to stop.
+(pub :: llvmSymBody (-> Int Int Int Int Int))
+(pub fn (llvmSymBody s i n acc)
+  (if (>= i n)
+      acc
+      (let ((c (strByte s i)))
+        (llvmSymBody s (+ i 1) n
+                     (if (|| (== c 34) (== c 92))
+                         (cat3 acc "\\" (hex2 c))
+                         (cat3 acc (strSlice s i 1) ""))))))
+
+; The empty name quotes rather than emitting a bare sigil: `@` alone is
+; not an identifier, and `@""` is.
+(pub :: llvmSym (-> Int Int))
+(pub fn (llvmSym name)
+  (let ((n (strLen name)))
+    (if (&& (> n 0) (llvmSymIsPlain name 0 n))
+        name
+        (cat3 "\"" (llvmSymBody name 0 n "") "\""))))
+
 ; Every byte became exactly three characters, so the byte count is the
 ; escaped length over three; the array is one longer for the terminator.
 (pub :: emitStringGlobals (-> Int Int Int))
@@ -2122,7 +2205,7 @@
                 (let ((e (findFSig (memGetWord cg 15) name)))
                   (if (== e 0) 0 (memGetWord e 2))))))
       (let ((hdr (strConcat (cat4 "define i64 @"
-                                  (strDup name)
+                                  (llvmSym (strDup name))
                                   "("
                                   paramStr)
                             ") #0 {")))
@@ -2211,7 +2294,7 @@
         (let ((ar (cat2 "%a" (fmtInt an))))
           {
             (emitLine cg (cat2 (cat2 "  " ar) " = alloca i64"))
-            (emitLine cg (cat4 "  store i64 %" (strDup pname) ", ptr " ar))
+            (emitLine cg (cat4 "  store i64 %" (llvmSym (strDup pname)) ", ptr " ar))
             ; Kind 2, not 1: the slot is loadable storage exactly as a
             ; `mut` binding's is, which is what makes `emitVar` emit a
             ; load without knowing about tail calls - but `set` must
@@ -2541,8 +2624,8 @@
       (let ((pname (vecGet params i))
             (rest (emitParams params cg (+ i 1))))
         (if (== (strLen rest) 0)
-            (cat3 "i64 %" (strDup pname) "")
-            (cat3 (cat3 "i64 %" (strDup pname) ", ") rest "")))))
+            (cat3 "i64 %" (llvmSym (strDup pname)) "")
+            (cat3 (cat3 "i64 %" (llvmSym (strDup pname)) ", ") rest "")))))
 
 ; ------------------------------------------------------------------
 ; Lambda expressions: capture, lifting, and the record convention.
@@ -2667,7 +2750,7 @@
                                       ")"))
               (emitLine cg (cat4 (cat2 "  " fr)
                                  " = ptrtoint ptr @"
-                                 (strDup lname)
+                                 (llvmSym (strDup lname))
                                  " to i64"))
               (storeWordAt cg pr 0 fr)
               (storeCaps cg pr capRegs 0)
@@ -2789,7 +2872,7 @@
                                              (thunkParamStr ar 0))
                                        ") #0 {"))))
       (let ((cg2 (emitLine cg1 (strConcat (cat4 "  %r = call i64 @"
-                                                (strDup full)
+                                                (llvmSym (strDup full))
                                                 "("
                                                 (thunkArgStr ar 0))
                                           ")"))))
@@ -3227,7 +3310,10 @@
         ; never evaluated at all. stage0's rule, and the reason a
         ; `(handle e (IO) h)` costs nothing.
         (emitExpr (nodeA node) cg)
-        (emitHandleDyn node (effSlot ent) cg))))
+        ; Quoted once, here, rather than at the four `ptr @` sites
+        ; below: `slot` reaches `emitHandleDyn` for emission only, and
+        ; the unquoted spelling stays the registry's key.
+        (emitHandleDyn node (llvmSym (effSlot ent)) cg))))
 
 (pub :: emitHandleDyn (-> Int Int Int Int))
 (pub fn (emitHandleDyn node slot cg)
@@ -3278,7 +3364,9 @@
 ; prints must print even when the dispatch below traps.
 (pub :: emitEffectOp (-> Int Int Int Int))
 (pub fn (emitEffectOp ent args cg)
-  (let ((slot (effSlot ent))
+  ; Emission only, as in `emitHandle`: the registry is keyed on the
+  ; unquoted name.
+  (let ((slot (llvmSym (effSlot ent)))
         (regs vecNew))
     (let ((cgA (emitArgRegs args cg regs 0)))
       (let ((recN (allocReg cgA))
@@ -3360,8 +3448,12 @@
           ; a reference inside its own module finds it - and both
           ; entries name the same slot. Emitting per entry produced two
           ; definitions of one global, which llc refuses outright.
+          ; The dedup above compares the UNQUOTED slot, because that is
+          ; the registry's key; only the definition emitted from it is
+          ; quoted, and it has to agree with the loads and stores
+          ; `emitHandle`/`emitEffectOp` quote the same way.
           (if (== (slotFirstIndex tbl (effSlot (vecGet tbl i)) 0) i)
-              (emitLine cg (cat3 "@" (effSlot (vecGet tbl i))
+              (emitLine cg (cat3 "@" (llvmSym (effSlot (vecGet tbl i)))
                                  " = internal global i64 0"))
               0)
           (emitEffectGlobals cg (+ i 1))
@@ -3628,7 +3720,7 @@
                           {
                             (emitLine cg (cat4 (cat2 "  " r)
                                                " = call i64 @"
-                                               (strDup full)
+                                               (llvmSym (strDup full))
                                                "()"))
                             (memSetWord cg 2 r)
                             (memSetWord cg 14 (fnRetIsFloat cg full))
@@ -3667,7 +3759,7 @@
                       ; A parameter reference: `%name` was emitted in
                       ; the function header, and the signature says
                       ; whether it is a float.
-                      (let ((x (cat2 "%" (strDup name))))
+                      (let ((x (cat2 "%" (llvmSym (strDup name)))))
                         {
                           (memSetWord cg 2 x)
                           (memSetWord cg 14 (paramFloatByName cg name))
@@ -4495,7 +4587,7 @@
       (let ((r (regStr rn)))
         (let ((callInst (cat3 (cat3 (cat2 "  " r)
                                     " = call i64 @"
-                                    (strDup full))
+                                    (llvmSym (strDup full)))
                               "(i64 "
                               (cat2 argStrT ")"))))
           {

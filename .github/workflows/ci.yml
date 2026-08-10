@@ -173,6 +173,21 @@ jobs:
       - name: Degenerate input is diagnosed, not fatal
         run: ./scripts/check-degenerate.sh
 
+      # A name the frontend accepts is a name the backend can emit.
+      # `foo'`, `a+b` and `set!` are legal Axiom names - the lexer, the
+      # parser, the checker, `fmt` and `symbols` all took them - and
+      # codegen wrote them into LLVM unquoted, where they are not legal
+      # at all, so twelve of the sixteen bytes `isIdentChar` admits
+      # exited 4 with `opt` blamed for the compiler's own output.
+      #
+      # It is the same blind spot as the two above: all 1,629 top-level
+      # names in `stdlib/` and `self_host/` are inside LLVM's set, so no
+      # sweep over real code can find it. This one sweeps the RULE - all
+      # 94 printable bytes, in three positions - and every probe must
+      # either be refused with a span or run to 42.
+      - name: Every legal name is an emittable name
+        run: ./scripts/check-symbol-names.sh
+
       # `fmt` is the tool that had no gate, and it had six independent
       # ways of silently destroying a source file. This formats a copy of
       # the whole repository and re-runs the suites against it, so a

@@ -526,6 +526,29 @@
         (let ((ch (strByte src pos)))
           (if (== ch 34)
               (set pos (skipStringBody src (+ pos 1) len))
+          ; An IDENTIFIER, consumed whole, and it has to come before the
+          ; char-literal arm. `'` is an identifier character (39 is in
+          ; `isIdentChar`, and only there - it cannot START one), so
+          ; `f'` is one token to `lexTokens`. This scanner had no
+          ; identifier arm at all, so it met the `'` of `f'` with no
+          ; context, took it for the opening quote of a char literal,
+          ; and `skipCharBody` ran to the next `'` in the file or to
+          ; EOF - swallowing every `;@axiom:` line in between.
+          ;
+          ; Measured on this repository's own AXTAG fixture: prepending
+          ; the single line `(fn (poison' n) n)` to
+          ; `tests/diagnostics/330-axtag-mismatch.ax` takes it from five
+          ; `AX3010` warnings to `OK` with none. AXTAGs are
+          ; compiler-checked metadata - a `pure` claim, an `effect(io)`
+          ; claim - so what one apostrophe deletes is the checking, in
+          ; silence, with `fmt` still preserving both the name and the
+          ; now-inert tag.
+          ;
+          ; This arm is the version that cannot drift again: it asks
+          ; `isIdentStart`/`skipIdent`, the same two functions
+          ; `stepIdentToken` asks, rather than restating the rule.
+          (if (isIdentStart ch)
+              (set pos (skipIdent src (+ pos 1) len))
           (if (== ch 39)
               (set pos (skipCharBody src (+ pos 1) len))
           (if (&& (== ch 35) (isBlockOpen src pos len))
@@ -545,7 +568,7 @@
                       0)
                   (set pos nl)
                 })
-              (set pos (+ pos 1))))))))
+              (set pos (+ pos 1)))))))))
       acc
     }))
 

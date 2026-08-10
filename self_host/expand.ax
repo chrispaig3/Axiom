@@ -348,11 +348,39 @@
       0
       (let ((tag (nodeTag p)))
         (if (== tag TAG_E_VAR)
-            (let ((new (expFresh env (nodeA p))))
-              {
-                (expRenPush ren (nodeA p) new)
-                (mkEVarAt new isp)
-              })
+            ; ...with three exceptions, because three bare names in
+            ; pattern position are not binders. `true` and `false` are
+            ; literal TESTS - `emitPattern` compares the scrutinee
+            ; against 1 and 0 for them (codegen.ax) and
+            ; `checkPatternTyped` binds nothing (typecheck.ax) - and
+            ; renaming one to `true.1` turned the test into a binder,
+            ; so the arm matched EVERYTHING and every later arm became
+            ; unreachable. Measured before this line existed:
+            ;
+            ;   (macro (isTrue b) (match b ((true) 1) ((false) 0)))
+            ;   (isTrue false)                    ; answered 1
+            ;   (match false ((true) 1) ((false) 0))  ; answers 0
+            ;
+            ; The same match, written by hand and written by a macro,
+            ; disagreeing - which is the one thing a hygiene mechanism
+            ; exists to prevent. `_` is renamed harmlessly today (it is
+            ; a binder nobody references) but is excluded with them,
+            ; because the checker special-cases it too and a `_.1` in a
+            ; scope is a difference with no reason to exist.
+            ;
+            ; Nothing else is exempt: a bare constructor name in
+            ; pattern position IS a binder in this language - that is
+            ; why `(Nil)` needs the parentheses - so renaming it is
+            ; correct and is what the `(macro (m x) (match x ((Nil) 0)))`
+            ; hygiene case depends on.
+            (if (|| (strEq (nodeA p) "true")
+                    (|| (strEq (nodeA p) "false") (strEq (nodeA p) "_")))
+                (mkEVarAt (nodeA p) isp)
+                (let ((new (expFresh env (nodeA p))))
+                  {
+                    (expRenPush ren (nodeA p) new)
+                    (mkEVarAt new isp)
+                  }))
         (if (== tag TAG_E_APP)
             (expRenamePatSpine p ren env isp)
         (if (== tag TAG_P_CONNAMED)

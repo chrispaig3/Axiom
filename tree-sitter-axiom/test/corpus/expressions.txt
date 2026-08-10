@@ -135,6 +135,62 @@ match with nested constructor patterns and a wildcard
         (integer_literal)))))
 
 ================================================================
+parenthesised literal and wildcard patterns
+================================================================
+
+(:: f (-> Bool Int))
+(fn (f b)
+  (match b
+    ((true) 1)
+    ((false) 0)))
+
+(:: g (-> Int Int))
+(fn (g n)
+  (match n
+    ((1) 10)
+    ((_) 20)))
+
+----------------------------------------------------------------
+
+(source_file
+  (type_signature
+    (identifier)
+    (function_type
+      (builtin_type)
+      (builtin_type)))
+  (function_definition
+    (identifier)
+    (identifier)
+    (match_expression
+      (identifier)
+      (match_arm
+        (parenthesized_pattern
+          (boolean_literal))
+        (integer_literal))
+      (match_arm
+        (parenthesized_pattern
+          (boolean_literal))
+        (integer_literal))))
+  (type_signature
+    (identifier)
+    (function_type
+      (builtin_type)
+      (builtin_type)))
+  (function_definition
+    (identifier)
+    (identifier)
+    (match_expression
+      (identifier)
+      (match_arm
+        (parenthesized_pattern
+          (integer_literal))
+        (integer_literal))
+      (match_arm
+        (parenthesized_pattern
+          (wildcard_pattern))
+        (integer_literal)))))
+
+================================================================
 brace block sequences expressions
 ================================================================
 

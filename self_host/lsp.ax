@@ -586,11 +586,22 @@
                          "diagnostics" diags)))
 
 ; What this server can do. `textDocumentSync: 1` is full-text sync.
+;
+; `documentSymbolProvider` has to be here, and was not. A conforming
+; client reads this object and sends only what it names, so the outline
+; - the one feature this server has that is not a diagnostic - was
+; answered correctly by `lspDocumentSymbol` and requested by nobody. The
+; gate could not see it either: the fixture sends the request
+; unconditionally, the way no editor does, so both sides agreed on a
+; conversation that cannot happen. A capability is a promise the client
+; reads, and an implementation nothing advertises is an implementation
+; nothing calls.
 (pub :: lspCapabilities Int)
 (pub fn (lspCapabilities)
   (jsonObjPut
     (jsonObjPut jsonObj "capabilities"
-      (jsonObjPut jsonObj "textDocumentSync" (jsonNum 1)))
+      (jsonObjPut (jsonObjPut jsonObj "textDocumentSync" (jsonNum 1))
+                  "documentSymbolProvider" (jsonBool 1)))
     "serverInfo"
     (jsonObjPut (jsonObjPut jsonObj "name" (jsonStr "axiom"))
                 "version" (jsonStr "0.1.0"))))

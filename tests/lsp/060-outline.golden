@@ -1,6 +1,6 @@
-Content-Length: 121
+Content-Length: 151
 
-{"jsonrpc":"2.0","id":1,"result":{"capabilities":{"textDocumentSync":1},"serverInfo":{"name":"axiom","version":"0.1.0"}}}Content-Length: 111
+{"jsonrpc":"2.0","id":1,"result":{"capabilities":{"textDocumentSync":1,"documentSymbolProvider":true},"serverInfo":{"name":"axiom","version":"0.1.0"}}}Content-Length: 111
 
 {"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{"uri":"file:///DOC.ax","diagnostics":[]}}Content-Length: 767
 

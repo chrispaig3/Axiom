@@ -24,6 +24,11 @@
 (import Str)
 (import Utf8)
 (import Vec)
+; For `isIdentChar` alone, and deliberately: what continues a name is
+; the LEXER's rule, and a formatter that restates it is a second
+; implementation of one agreement with nothing comparing them. That is
+; the defect this import removes - see `fscanName`.
+(import lexer)
 
 ; ------------------------------------------------------------------
 ; Token kinds.
@@ -194,13 +199,11 @@
 (pub fn (isFNameStart ch)
   (if (isFAlpha ch) true (if (== ch 95) true false)))
 
-(pub :: isFNameChar (-> Int Bool))
-(pub fn (isFNameChar ch)
-  (if (isFAlpha ch) true
-  (if (isFDigit ch) true
-  (if (== ch 95) true
-  (if (== ch 39) true    ; '
-  false)))))
+; There is deliberately no `isFNameChar` here. What continues a name is
+; `lexer`'s `isIdentChar`, asked directly by `fscanName`; the local copy
+; that used to sit at this spot listed letters, digits, `_` and `'` and
+; omitted every operator byte, which is how `empty-list` came to be
+; three tokens to the formatter and one to the compiler.
 
 ; ------------------------------------------------------------------
 ; The scan.
@@ -477,13 +480,40 @@
       e
     }))
 
-; A name. Operator characters may follow a name run only if the whole
-; token is operators, so a name stops at the first one.
+; A name, continued by the LEXER'S rule rather than by a restatement of
+; it. `isIdentChar` admits `! % & ' * + - / < > = ^ |` as well as
+; letters, digits and `_`, so `empty-list`, `a+b`, `set!`, `foo'` and
+; `x-5` are each ONE identifier to `lexTokens`.
+;
+; This used to stop at the first operator byte, which made each of them
+; THREE tokens, and the consequence was not a refusal - it was a
+; rewrite. Measured on the compiler as it stood:
+;
+;   (fn (g) (h empty-list))   ->  (fn (g) (h empty - list))
+;   (fn (g) (h a+b))          ->  (fn (g) (h a + b))
+;   (fn (g) (h x-5))          ->  (fn (g) (h x -5))
+;
+; written to disk, exit 0, no warning: a one-argument call turned into
+; a three-argument one, which is `fmt` silently destroying a source
+; file - the sixfold defect §2.3 of the roadmap exists to record, in a
+; seventh way. In DECLARATION position the same split poisoned the
+; buffer instead, so `axiom fmt` refused every file that declared a
+; kebab-case name.
+;
+; Nothing in the repository has such a name, which is why 194 files
+; formatted byte-identically with this broken: the corpus is written by
+; people solving problems, and Axiom's own convention is camelCase.
+;
+; The dispatch above still routes an operator-INITIAL token to
+; `fscanOperator`, because a lone `-` has to stay its own kind for the
+; `-5` adjacency rule, and because `? ~ $` are operator bytes here and
+; not identifier bytes at all. What that leaves is recorded in
+; docs/self-hosting.md §15.3 rather than guessed at.
 (pub :: fscanName (-> Int Int Int Int Int))
 (pub fn (fscanName src p len toks)
   (let ((mut e p))
     {
-      (while (&& (< e len) (isFNameChar (strByte src e))) (set e (+ e 1)))
+      (while (&& (< e len) (isIdentChar (strByte src e))) (set e (+ e 1)))
       (vecPush toks (mkFTok FT_IDENT p e))
       e
     }))

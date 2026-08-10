@@ -1,0 +1,35 @@
+; A prime-suffixed identifier ahead of a tagged declaration. `'` is an
+; identifier character - `f'` is one token to the lexer - but the
+; separate scan that collects AXTAGs had no identifier arm, met the `'`
+; with no context, took it for the opening quote of a char literal, and
+; ran to the next `'` in the file or to end of input. Every `;@axiom:`
+; line in between was swallowed, so the claim was never checked and the
+; file reported OK.
+;
+; Both tags below have to survive, and they fail differently. `quiet`
+; sits between two prime identifiers, which is the swallowed span.
+; `after` sits past a REAL char literal, so it also proves the arm that
+; consumes one is still reached and still terminates - a fix that made
+; every `'` an identifier would lose that.
+(:: prime' (-> Int Int))
+(fn (prime' n) n)
+
+(:: three Int)
+(fn (three) (prime' 1))
+
+(:: quiet (-> Int Int))
+;@axiom:pure
+(fn (quiet fd) { (__syscall3 1 fd 0 0) (prime' fd) })
+
+(:: n' Int)
+(fn (n') 0)
+
+(:: cch Char)
+(fn (cch) 'x')
+
+(:: after (-> Int Int))
+;@axiom:effect(nosucheffect)
+(fn (after n) n)
+
+(:: main Int)
+(fn (main) (+ (three) (+ (n') (after (quiet 0)))))

@@ -1,0 +1,44 @@
+; expect 95
+; A template's `true`/`false` pattern arms are literal TESTS, not
+; binders, and the expander renamed them like binders.
+;
+; `emitPattern` compares the scrutinee against 1 and 0 for those two
+; names and `checkPatternTyped` binds nothing for them; every OTHER bare
+; name in pattern position IS a binder, which is why `(Nil)` needs its
+; parentheses. Renaming `true` to `true.1` turned the test into a
+; binder, so the first arm matched everything and every later arm became
+; unreachable - the same `match`, written by hand and written by a
+; macro, disagreeing, which is the one thing a hygiene mechanism exists
+; to prevent.
+;
+; Every other pattern shape is here because each has to keep working:
+; `_`, an integer literal, a nullary constructor, and a constructor
+; spine whose binder MUST still be renamed.
+;
+;   isTrue true   1     isTrue false  0  (was 1)
+;   wild 5        7     lit 1        10     lit 2      20
+;   col Red       4     col Green     8     payload    5
+;
+; 1 + 2*0 + 7 + 10 + 3*20 + 4 + 8 + 5 = 95. Against the unfixed
+; compiler this answers 97.
+(macro (isTrue b) (match b ((true) 1) ((false) 0)))
+(macro (wild x) (match x ((_) 7)))
+(macro (lit x) (match x ((1) 10) ((_) 20)))
+(data Col (Red) (Green))
+(macro (col c) (match c ((Red) 4) ((Green) 8)))
+(macro (payload o) (match o ((Some v) v) ((None) 0)))
+
+(:: main Int)
+(fn (main)
+  (let ((mut t 0))
+    {
+      (set t (+ t (isTrue true)))
+      (set t (+ t (* 2 (isTrue false))))
+      (set t (+ t (wild 5)))
+      (set t (+ t (lit 1)))
+      (set t (+ t (* 3 (lit 2))))
+      (set t (+ t (col (Red))))
+      (set t (+ t (col (Green))))
+      (set t (+ t (payload (Some 5))))
+      t
+    }))

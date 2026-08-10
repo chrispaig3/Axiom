@@ -784,6 +784,22 @@ elif bgot != bwant:
     why = f"body did not arrive intact: {bgot} (want {bwant})"
 elif 2 not in bresp or not isinstance(bresp[2].get("result"), list):
     why = "stream lost sync: the request after the large document was not answered"
+# A CAPABILITY IS A PROMISE THE CLIENT READS. This session is the only
+# one that holds both halves at once - the `initialize` result and an
+# answered `textDocument/documentSymbol` - so it is where the two are
+# compared. Every fixture sends the request unconditionally, the way no
+# editor does; that is what let the server implement documentSymbol
+# correctly, advertise nothing but `textDocumentSync`, and satisfy this
+# whole gate while a conforming client would never have sent the request
+# at all. Neither half of this is re-blessable: both sides come out of
+# the server in one run.
+elif not isinstance((bresp.get(1, {}).get("result") or {}).get("capabilities"), dict):
+    why = "the initialize result carries no capabilities object"
+elif bresp[1]["result"]["capabilities"].get("documentSymbolProvider") is not True:
+    why = ("the server answers textDocument/documentSymbol and does not "
+           "advertise documentSymbolProvider, so a conforming client never "
+           "sends it: capabilities were "
+           f"{sorted(bresp[1]['result']['capabilities'])}")
 elif len(bresp[2]["result"]) != N + 1:
     why = f"outline over the large document has {len(bresp[2]['result'])} symbols, want {N + 1}"
 
