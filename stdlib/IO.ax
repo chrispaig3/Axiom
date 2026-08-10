@@ -32,9 +32,9 @@
 (pub fn (writeStr fd s)
   (writeAll fd (strData s) (strLen s) 0))
 
-(pub :: writeAll (-> Int Int Int Int Int))
+(:: writeAll (-> Int Int Int Int Int))
 ;@axiom:effect(io)
-(pub fn (writeAll fd buf count done)
+(fn (writeAll fd buf count done)
   (if (>= done count)
       done
       (let ((n (sysWriteFd fd (+ buf done) (- count done))))
@@ -63,9 +63,9 @@
 ; is the case the name no longer describes well: NUL-terminated bytes
 ; that arrived from somewhere without a length, such as a syscall
 ; buffer.
-(pub :: printLit (-> Int Int))
+(:: printLit (-> Int Int))
 ;@axiom:effect(io)
-(pub fn (printLit cstr)
+(fn (printLit cstr)
   (writeAll stdout cstr (cstrLen cstr 0) 0))
 
 (pub :: printlnLit (-> Int Int))
@@ -88,9 +88,9 @@
 
 ; Write to standard error - for diagnostics, which must not be captured
 ; by a caller redirecting stdout.
-(pub :: eprint (-> Int Int))
+(:: eprint (-> Int Int))
 ;@axiom:effect(io)
-(pub fn (eprint s)
+(fn (eprint s)
   (writeStr stderr s))
 
 (pub :: eprintln (-> Int Int))
@@ -111,9 +111,9 @@
 ; empty `Str` rather than a sentinel the caller has to remember to check.
 ; A read error returns an empty `Str` too; `readFile` distinguishes the
 ; cases where it matters.
-(pub :: readUpTo (-> Int Int Int))
+(:: readUpTo (-> Int Int Int))
 ;@axiom:effect(io)
-(pub fn (readUpTo fd count)
+(fn (readUpTo fd count)
   (let ((s (strAlloc count)))
     (let ((n (sysReadFd fd (strData s) count)))
       (if (< n 0)
@@ -125,14 +125,14 @@
 ; Doubling on each refill keeps the total copying linear in the file
 ; size. `chunk` is the initial capacity; files smaller than it cost
 ; exactly one allocation and one `read`.
-(pub :: readAll (-> Int Int Int))
+(:: readAll (-> Int Int Int))
 ;@axiom:effect(io)
-(pub fn (readAll fd chunk)
+(fn (readAll fd chunk)
   (readAllInto fd (strAlloc chunk) 0 chunk))
 
-(pub :: readAllInto (-> Int Int Int Int Int))
+(:: readAllInto (-> Int Int Int Int Int))
 ;@axiom:effect(io)
-(pub fn (readAllInto fd buf len cap)
+(fn (readAllInto fd buf len cap)
   (if (>= len cap)
       (let ((bigger (strAlloc (* cap 2))))
         {

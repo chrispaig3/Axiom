@@ -1,0 +1,19 @@
+; `AX3023` had no positive corpus. Module visibility landed in
+; `2192d61` and every one of the 3,358 top-level declarations in
+; `stdlib/` and `self_host/` was `pub`, so the feature was exercised
+; in its true branch by all of them and in its false branch by none -
+; the exact shape that hid three bugs when visibility itself landed.
+;
+; 151 standard-library names had no consumer outside their own module
+; and are private now. `mapFindLoop` takes seven parameters and
+; `mapInsertLoop` eleven; they are `Map`'s internals, and until this
+; they were permanent public API and permanent residents of the flat
+; namespace.
+;
+; The ablation is the standard library itself: against the previous
+; `stdlib/`, this file reports `AX3004` about the arguments instead,
+; because the name resolved.
+(import Map)
+
+(:: main Int)
+(fn (main) (mapFindLoop 0 0 0 0 0 0 0))

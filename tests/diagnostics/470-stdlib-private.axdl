@@ -1,0 +1,1 @@
+E AX3023 470-stdlib-private.ax:19:13-24 private-name "`mapFindLoop` is private to module `Map`" #"`mapFindLoop` is not exported by its module" ?"a name leaves its module when its declaration is written `pub`; if the import that brought the module in carries a name list, the name has to appear there too"

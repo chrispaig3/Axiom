@@ -43,8 +43,8 @@
 ; is a single bump of the allocator. Starting at 1 or 2 would make those
 ; cases pay two or three reallocations each, and every reallocation leaks
 ; (see the module comment).
-(pub :: vecDefaultCap Int)
-(pub fn (vecDefaultCap) 8)
+(:: vecDefaultCap Int)
+(fn (vecDefaultCap) 8)
 
 ; An empty `Vec` with `vecDefaultCap` capacity.
 (pub :: vecNew Int)
@@ -87,8 +87,8 @@
 ; vector without paying a bounds check per element needs it, and because
 ; hiding it would be pretend safety: the handle is an `Int`, so a caller
 ; that wants the data pointer can already read word 2 itself.
-(pub :: vecData (-> Int Int))
-(pub fn (vecData v)
+(:: vecData (-> Int Int))
+(fn (vecData v)
   (memGetWord v 2))
 
 ; The element at `i`, or 0 when `i` is out of range.
@@ -132,8 +132,8 @@
 
 ; Ensure `v` can hold `need` elements, reallocating if it cannot.
 ; Returns the handle.
-(pub :: vecReserve (-> Int Int Int))
-(pub fn (vecReserve v need)
+(:: vecReserve (-> Int Int Int))
+(fn (vecReserve v need)
   (if (<= need (vecCap v))
       v
       (vecReserveExactly v (vecGrownCap (vecCap v) need))))
@@ -148,8 +148,8 @@
 ; reallocations at log2(n).
 ;
 ; Terminates because `vecWithCapacity` guarantees `cap >= 1`.
-(pub :: vecGrownCap (-> Int Int Int))
-(pub fn (vecGrownCap cap need)
+(:: vecGrownCap (-> Int Int Int))
+(fn (vecGrownCap cap need)
   (if (>= cap need)
       cap
       (vecGrownCap (* cap 2) need)))
@@ -160,8 +160,8 @@
 ; unreachable through `vecGet`, so copying them would be pure cost. The
 ; new block comes from `memAlloc`, which zeroes, so the tail is 0 rather
 ; than whatever the arena last held there.
-(pub :: vecReserveExactly (-> Int Int Int))
-(pub fn (vecReserveExactly v newCap)
+(:: vecReserveExactly (-> Int Int Int))
+(fn (vecReserveExactly v newCap)
   (let ((bigger (memAlloc (* newCap 8))))
     {
       (memCopy bigger (vecData v) (* (vecLen v) 8))
@@ -242,8 +242,8 @@
 (pub fn (vecSum v)
   (vecSumFrom v 0 0))
 
-(pub :: vecSumFrom (-> Int Int Int Int))
-(pub fn (vecSumFrom v i acc)
+(:: vecSumFrom (-> Int Int Int Int))
+(fn (vecSumFrom v i acc)
   (if (>= i (vecLen v))
       acc
       (vecSumFrom v (+ i 1) (+ acc (vecGet v i)))))
@@ -258,8 +258,8 @@
 (pub fn (vecHash v)
   (vecHashFrom v 0 1))
 
-(pub :: vecHashFrom (-> Int Int Int Int))
-(pub fn (vecHashFrom v i h)
+(:: vecHashFrom (-> Int Int Int Int))
+(fn (vecHashFrom v i h)
   (if (>= i (vecLen v))
       h
       (vecHashFrom v (+ i 1) (% (+ (* h 31) (vecGet v i)) 1000000007))))

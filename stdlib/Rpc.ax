@@ -39,7 +39,7 @@
 (import Str)
 (import Sys)
 
-(pub :: rdCap Int) (pub fn (rdCap) 65536)
+(:: rdCap Int) (pub fn (rdCap) 65536)
 
 (pub :: rdNew (-> Int Int))
 (pub fn (rdNew fd)
@@ -52,7 +52,7 @@
       r
     }))
 
-(pub :: rdFd (-> Int Int))       (pub fn (rdFd r)       (memGetWord r 0))
+(:: rdFd (-> Int Int))       (pub fn (rdFd r)       (memGetWord r 0))
 (pub :: rdBuf (-> Int Int))      (pub fn (rdBuf r)      (memGetWord r 1))
 (pub :: rdFilled (-> Int Int))   (pub fn (rdFilled r)   (memGetWord r 2))
 (pub :: rdConsumed (-> Int Int)) (pub fn (rdConsumed r) (memGetWord r 3))
@@ -79,8 +79,8 @@
 
 ; Move the live region to the front, and double the buffer if it is
 ; still full afterwards. Answers nothing useful; it mutates `r`.
-(pub :: rdCompact (-> Int Int))
-(pub fn (rdCompact r)
+(:: rdCompact (-> Int Int))
+(fn (rdCompact r)
   (let ((buf (rdBuf r)) (c (rdConsumed r)) (f (rdFilled r)))
     {
       (if (> c 0)
@@ -103,9 +103,9 @@
 
 ; One `read` into the free tail. Answers the byte count: 0 at end of
 ; file, negative on error.
-(pub :: rdFill (-> Int Int))
+(:: rdFill (-> Int Int))
 ;@axiom:effect(io)
-(pub fn (rdFill r)
+(fn (rdFill r)
   {
     (if (>= (rdFilled r) (strLen (rdBuf r))) (rdCompact r) 0)
     (let ((n (sysReadFd (rdFd r)
@@ -118,8 +118,8 @@
   })
 
 ; Bytes read but not yet consumed: the message currently in progress.
-(pub :: rdAvail (-> Int Int))
-(pub fn (rdAvail r) (- (rdFilled r) (rdConsumed r)))
+(:: rdAvail (-> Int Int))
+(fn (rdAvail r) (- (rdFilled r) (rdConsumed r)))
 
 ; The offset of `\r\n\r\n` within the unconsumed region, or -1.
 ;
@@ -135,8 +135,8 @@
 ; measured, a 100,000-byte body was lost where 60,000 was fine, and
 ; `self_host/codegen.ax` is ~150 KB. Relative offsets are invariant
 ; under compaction, so the question cannot be got wrong again.
-(pub :: rdFindHeaderEnd (-> Int Int))
-(pub fn (rdFindHeaderEnd r)
+(:: rdFindHeaderEnd (-> Int Int))
+(fn (rdFindHeaderEnd r)
   (let ((buf (rdBuf r)) (base (rdConsumed r)) (n (rdAvail r))
         (mut i 0) (mut found (- 0 1)))
     {
@@ -154,12 +154,12 @@
     }))
 
 ; ASCII lower-case of one byte.
-(pub :: rdLower (-> Int Int))
-(pub fn (rdLower b) (if (&& (>= b 65) (<= b 90)) (+ b 32) b))
+(:: rdLower (-> Int Int))
+(fn (rdLower b) (if (&& (>= b 65) (<= b 90)) (+ b 32) b))
 
 ; Does the buffer hold `word` at `at`, compared case-insensitively?
-(pub :: rdMatchCI (-> Int Int Int Int Bool))
-(pub fn (rdMatchCI r at word i)
+(:: rdMatchCI (-> Int Int Int Int Bool))
+(fn (rdMatchCI r at word i)
   (if (>= i (strLen word))
       true
       (if (>= (+ at i) (rdFilled r))
@@ -172,8 +172,8 @@
 ; consume point to `hdrRel` bytes past it, or -1 when the header is
 ; absent or unparseable. A message with no Content-Length is not a
 ; message. `hdrRel` is relative, for the reason above.
-(pub :: rdContentLength (-> Int Int Int))
-(pub fn (rdContentLength r hdrRel)
+(:: rdContentLength (-> Int Int Int))
+(fn (rdContentLength r hdrRel)
   (let ((buf (rdBuf r)) (base (rdConsumed r)) (mut i 0) (mut len (- 0 1)))
     (let ((end (+ base hdrRel)))
     {
@@ -249,9 +249,9 @@
 ; Write all of `s`, looping: a single `write` may transfer fewer bytes
 ; than asked, and treating a short write as success is how a reply gets
 ; silently truncated.
-(pub :: rpcPut (-> Int Int Int))
+(:: rpcPut (-> Int Int Int))
 ;@axiom:effect(io)
-(pub fn (rpcPut fd s)
+(fn (rpcPut fd s)
   (let ((mut done 0) (mut bad 0))
     {
       (while (&& (< done (strLen s)) (== bad 0))
@@ -272,8 +272,8 @@
     (strLen body)
   })
 
-(pub :: rpcNat (-> Int Int))
-(pub fn (rpcNat n)
+(:: rpcNat (-> Int Int))
+(fn (rpcNat n)
   (if (< n 10)
       (strSlice "0123456789" n 1)
       (strConcat (rpcNat (/ n 10)) (strSlice "0123456789" (% n 10) 1))))

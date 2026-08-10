@@ -92,26 +92,26 @@
 
 ; The multiplier. Odd, no small factors, and under `mapHashPrime` so that
 ; the product bound above holds.
-(pub :: internStrMul Int)
-(pub fn (internStrMul) 1099087573)
+(:: internStrMul Int)
+(fn (internStrMul) 1099087573)
 
 ; The starting value. Any non-zero seed does; a zero seed would make every
 ; string of leading NULs hash to 0 regardless of length.
-(pub :: internHashSeed Int)
-(pub fn (internHashSeed) 1234567891)
+(:: internHashSeed Int)
+(fn (internHashSeed) 1234567891)
 
-(pub :: internHashStr (-> Int Int))
-(pub fn (internHashStr s)
+(:: internHashStr (-> Int Int))
+(fn (internHashStr s)
   (internFinishHash (internHashFrom s 0 internHashSeed)))
 
 ; One final multiply, so that the last byte of the string is mixed rather
 ; than merely added. See the note above on trailing digits.
-(pub :: internFinishHash (-> Int Int))
-(pub fn (internFinishHash h)
+(:: internFinishHash (-> Int Int))
+(fn (internFinishHash h)
   (% (* h internStrMul) mapHashPrime))
 
-(pub :: internHashFrom (-> Int Int Int Int))
-(pub fn (internHashFrom s i h)
+(:: internHashFrom (-> Int Int Int Int))
+(fn (internHashFrom s i h)
   (if (>= i (strLen s))
       h
       (internHashFrom s
@@ -140,8 +140,8 @@
 ; single long-lived table per compilation rather than one of thousands of
 ; small ones, so the interesting cost is rehashing a table that is going
 ; to hold thousands of identifiers, not the footprint of an empty one.
-(pub :: internDefaultCap Int)
-(pub fn (internDefaultCap) 64)
+(:: internDefaultCap Int)
+(fn (internDefaultCap) 64)
 
 ; `internDefaultCap` is a *slot* count, so it is passed straight to
 ; `internAllocTable` and not through `internWithCapacity`, which takes a
@@ -165,8 +165,8 @@
 ; strings will be interned before the next rehash, because the `Vec` is
 ; the one structure here that survives a rehash untouched, so sizing it
 ; generously costs one allocation and saves a growth step.
-(pub :: internAllocTable (-> Int Int))
-(pub fn (internAllocTable cap)
+(:: internAllocTable (-> Int Int))
+(fn (internAllocTable cap)
   (let ((it (memAlloc 24)))
     {
       (memSetWord it 0 (vecWithCapacity cap))
@@ -185,16 +185,16 @@
 ; wants to walk every interned string in id order should read it directly
 ; rather than call `internLookup` in a loop and pay a bounds check per
 ; string.
-(pub :: internStrs (-> Int Int))
-(pub fn (internStrs it)
+(:: internStrs (-> Int Int))
+(fn (internStrs it)
   (memGetWord it 0))
 
 (pub :: internCap (-> Int Int))
 (pub fn (internCap it)
   (memGetWord it 1))
 
-(pub :: internTable (-> Int Int))
-(pub fn (internTable it)
+(:: internTable (-> Int Int))
+(fn (internTable it)
   (memGetWord it 2))
 
 ; How many distinct strings have been interned. Ids are exactly
@@ -242,8 +242,8 @@
 (pub fn (internFind it s)
   (internFindFrom it s (internSlotOf s (internCap it)) (internCap it)))
 
-(pub :: internFindFrom (-> Int Int Int Int Int))
-(pub fn (internFindFrom it s i left)
+(:: internFindFrom (-> Int Int Int Int Int))
+(fn (internFindFrom it s i left)
   (if (<= left 0)
       (- 0 1)
       (let ((cell (memGetWord (internTable it) i)))
@@ -256,8 +256,8 @@
                                 (internNextSlot i (internCap it))
                                 (- left 1)))))))
 
-(pub :: internNextSlot (-> Int Int Int))
-(pub fn (internNextSlot i cap)
+(:: internNextSlot (-> Int Int Int))
+(fn (internNextSlot i cap)
   (if (>= (+ i 1) cap)
       0
       (+ i 1)))
@@ -272,8 +272,8 @@
 ; `internCount` and not a separate counter because nothing is ever
 ; removed, so live entries and occupied slots are the same number - the
 ; one simplification that having no delete actually buys.
-(pub :: internNeedsGrow (-> Int Bool))
-(pub fn (internNeedsGrow it)
+(:: internNeedsGrow (-> Int Bool))
+(fn (internNeedsGrow it)
   (>= (* (internCount it) 2) (internCap it)))
 
 ; The id for `s`, interning it if its content is new.
@@ -310,8 +310,8 @@
 ;
 ; The id is `vecLen` *before* the push, which is what makes ids dense: the
 ; nth distinct string interned gets id n.
-(pub :: internAdd (-> Int Int Int))
-(pub fn (internAdd it s)
+(:: internAdd (-> Int Int Int))
+(fn (internAdd it s)
   (let ((id (internCount it)))
     {
       (vecPush (internStrs it) s)
@@ -323,8 +323,8 @@
 ;
 ; No key comparison happens here: `internIntern` has already established
 ; that the content is absent, so the first empty slot is the right one.
-(pub :: internPlace (-> Int Int Int Int Int))
-(pub fn (internPlace it id i left)
+(:: internPlace (-> Int Int Int Int Int))
+(fn (internPlace it id i left)
   (if (<= left 0)
       it
       (if (== (memGetWord (internTable it) i) 0)
@@ -342,16 +342,16 @@
 ; by walking ids 0..count-1 - so unlike `Map.mapRehash` there is no need
 ; to capture the old array first, and no chance of copying a stale slot.
 ; Having a dense id space pays for itself here.
-(pub :: internRehash (-> Int Int Int))
-(pub fn (internRehash it newCap)
+(:: internRehash (-> Int Int Int))
+(fn (internRehash it newCap)
   {
     (memSetWord it 1 newCap)
     (memSetWord it 2 (memAlloc (* newCap 8)))
     (internReplaceFrom it 0)
   })
 
-(pub :: internReplaceFrom (-> Int Int Int))
-(pub fn (internReplaceFrom it id)
+(:: internReplaceFrom (-> Int Int Int))
+(fn (internReplaceFrom it id)
   (if (>= id (internCount it))
       it
       {

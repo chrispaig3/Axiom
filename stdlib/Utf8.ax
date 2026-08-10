@@ -140,8 +140,8 @@
 (pub :: utf8Len (-> Int Int))
 (pub fn (utf8Len s) (utf8LenFrom s 0 0))
 
-(pub :: utf8LenFrom (-> Int Int Int Int))
-(pub fn (utf8LenFrom s i acc)
+(:: utf8LenFrom (-> Int Int Int Int))
+(fn (utf8LenFrom s i acc)
   (if (>= i (strLen s))
       acc
       (utf8LenFrom s (utf8Next s i) (+ acc 1))))
@@ -151,8 +151,8 @@
 (pub :: utf8Offset (-> Int Int Int))
 (pub fn (utf8Offset s n) (utf8OffsetFrom s n 0))
 
-(pub :: utf8OffsetFrom (-> Int Int Int Int))
-(pub fn (utf8OffsetFrom s n i)
+(:: utf8OffsetFrom (-> Int Int Int Int))
+(fn (utf8OffsetFrom s n i)
   (if (<= n 0)
       i
       (if (>= i (strLen s))
@@ -185,8 +185,8 @@
 ; surrogate pair? Surrogates exist only to let UTF-16 address the
 ; supplementary planes; UTF-8 encodes those directly and a surrogate in
 ; UTF-8 is ill-formed.
-(pub :: utf8IsScalar (-> Int Bool))
-(pub fn (utf8IsScalar cp)
+(:: utf8IsScalar (-> Int Bool))
+(fn (utf8IsScalar cp)
   (&& (>= cp 0)
       (&& (<= cp 1114111)
           (|| (< cp 55296) (> cp 57343)))))
@@ -204,8 +204,8 @@
 ; `x`. Without it `(utf8FromChar -1)` wrote the single byte 0xFF, which
 ; begins no valid sequence at all, and a surrogate or anything above
 ; U+10FFFF was encoded as though it were ordinary text.
-(pub :: utf8Encodable (-> Int Int))
-(pub fn (utf8Encodable cp)
+(:: utf8Encodable (-> Int Int))
+(fn (utf8Encodable cp)
   (if (utf8IsScalar cp) cp utf8Replacement))
 
 ; How many bytes code point `cp` occupies when encoded - counting what
@@ -269,8 +269,8 @@
 (pub :: utf8Valid (-> Int Bool))
 (pub fn (utf8Valid s) (utf8ValidFrom s 0))
 
-(pub :: utf8ValidFrom (-> Int Int Bool))
-(pub fn (utf8ValidFrom s i)
+(:: utf8ValidFrom (-> Int Int Bool))
+(fn (utf8ValidFrom s i)
   (if (>= i (strLen s))
       true
       (let ((b (strByte s i)))
@@ -286,8 +286,8 @@
                           false))))))))
 
 ; Are the next `k` bytes from `i` all continuation bytes?
-(pub :: utf8ContRun (-> Int Int Int Bool))
-(pub fn (utf8ContRun s i k)
+(:: utf8ContRun (-> Int Int Int Bool))
+(fn (utf8ContRun s i k)
   (if (<= k 0)
       true
       (if (utf8IsCont (strByte s i))

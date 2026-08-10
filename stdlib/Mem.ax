@@ -63,8 +63,8 @@
 ; that survives both compilers, and the standard library has to.
 ; ------------------------------------------------------------------
 
-(pub :: memCopyFrom (-> Int Int Int Int Int))
-(pub fn (memCopyFrom dst src count start)
+(:: memCopyFrom (-> Int Int Int Int Int))
+(fn (memCopyFrom dst src count start)
   (let ((mut i start))
     {
       (while (< i count)
@@ -80,8 +80,8 @@
 (pub fn (memSet addr value count)
   (memSetFrom addr value count 0))
 
-(pub :: memSetFrom (-> Int Int Int Int Int))
-(pub fn (memSetFrom addr value count start)
+(:: memSetFrom (-> Int Int Int Int Int))
+(fn (memSetFrom addr value count start)
   (let ((mut i start))
     {
       (while (< i count)
@@ -98,8 +98,8 @@
 (pub fn (memCmp a b count)
   (memCmpFrom a b count 0))
 
-(pub :: memCmpFrom (-> Int Int Int Int Int))
-(pub fn (memCmpFrom a b count start)
+(:: memCmpFrom (-> Int Int Int Int Int))
+(fn (memCmpFrom a b count start)
   (let ((mut i start)
         (mut diff 0))
     {

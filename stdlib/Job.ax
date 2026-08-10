@@ -57,33 +57,33 @@
 ; `pids` and `codes` are parallel and pushed in lockstep - the discipline
 ; `codegen.ax`'s `bares`/`fulls` pair records the hard way. Every write
 ; below appends to both or to neither.
-(pub struct JobPool (width : Int) (pids : Int) (codes : Int) (live : Int))
+(struct JobPool (width : Int) (pids : Int) (codes : Int) (live : Int))
 
 ; The sentinel a slot's result holds before it has been reaped. It is
 ; outside `sysRun`'s whole range - exit codes are 0..255, signal deaths
 ; are 128+n, and spawn failures are negative errnos, none of which reach
 ; -1000 - so it cannot be mistaken for an answer.
-(pub :: jobPending Int)
-(pub fn (jobPending) (- 0 1000))
+(:: jobPending Int)
+(fn (jobPending) (- 0 1000))
 
-(pub :: jobWidth (-> Int Int))   (pub fn (jobWidth p) (memGetWord p 0))
-(pub :: jobPids (-> Int Int))    (pub fn (jobPids p) (memGetWord p 1))
-(pub :: jobCodes (-> Int Int))   (pub fn (jobCodes p) (memGetWord p 2))
-(pub :: jobLive (-> Int Int))    (pub fn (jobLive p) (memGetWord p 3))
+(:: jobWidth (-> Int Int))   (pub fn (jobWidth p) (memGetWord p 0))
+(:: jobPids (-> Int Int))    (pub fn (jobPids p) (memGetWord p 1))
+(:: jobCodes (-> Int Int))   (pub fn (jobCodes p) (memGetWord p 2))
+(:: jobLive (-> Int Int))    (pub fn (jobLive p) (memGetWord p 3))
 
 ; A width below 1 would submit nothing and join forever, so it is
 ; clamped rather than trusted. `width` 1 is meaningful and is the
 ; default a gate should use when it wants reproducibility: the pool
 ; then behaves exactly like a sequence of `sysRun` calls.
-(pub :: jobPoolNew (-> Int Int))
-(pub fn (jobPoolNew width)
+(:: jobPoolNew (-> Int Int))
+(fn (jobPoolNew width)
   (JobPool (if (< width 1) 1 width) vecNew vecNew 0))
 
 ; Reap the oldest slot that is still outstanding, recording its result.
 ; Answers 1 if it reaped one, 0 if there was nothing to reap.
-(pub :: jobReapOldest (-> Int Int))
+(:: jobReapOldest (-> Int Int))
 ;@axiom:effect(io)
-(pub fn (jobReapOldest p)
+(fn (jobReapOldest p)
   (let ((pids (jobPids p))
         (codes (jobCodes p))
         (mut i 0)
@@ -103,8 +103,8 @@
     }))
 
 ; `sysRun`'s reading of a raw wait status, kept identical to it.
-(pub :: jobStatusToCode (-> Int Int))
-(pub fn (jobStatusToCode st)
+(:: jobStatusToCode (-> Int Int))
+(fn (jobStatusToCode st)
   (if (< st 0)
       st
       (if (!= (sysTermSignal st) 0)
@@ -117,9 +117,9 @@
 ; recorded in its slot as the negative errno and occupies no child, so
 ; the caller still gets one answer per submission and still gets them in
 ; order - a failed submission must not shift every later result by one.
-(pub :: jobSubmit (-> Int Int Int Int Int))
+(:: jobSubmit (-> Int Int Int Int Int))
 ;@axiom:effect(io)
-(pub fn (jobSubmit p path argv envp)
+(fn (jobSubmit p path argv envp)
   {
     ; The loop exits on `jobReapOldest` answering 0 as well as on the
     ; pool draining. `live` and the `pids` Vec are two views of the same
@@ -149,18 +149,18 @@
 ; Wait for every outstanding child and answer the Vec of results, in
 ; SUBMIT order. Safe to call more than once; the second call finds
 ; nothing live and answers the same Vec.
-(pub :: jobWaitAll (-> Int Int))
+(:: jobWaitAll (-> Int Int))
 ;@axiom:effect(io)
-(pub fn (jobWaitAll p)
+(fn (jobWaitAll p)
   {
     (while (> (jobLive p) 0) (jobReapOldest p))
     (jobCodes p)
   })
 
 ; The result in one slot, waiting for it if it has not been reaped.
-(pub :: jobWait (-> Int Int Int))
+(:: jobWait (-> Int Int Int))
 ;@axiom:effect(io)
-(pub fn (jobWait p slot)
+(fn (jobWait p slot)
   (let ((pids (jobPids p)))
     (if (|| (< slot 0) (>= slot (vecLen pids)))
         jobPending
@@ -204,9 +204,9 @@
 ; a missing program answer `-ENOENT` in its slot instead of becoming a
 ; child that exits 127 - the distinction `sysSpawn` documents and goes
 ; to some trouble to preserve.
-(pub :: jobSubmitArgv (-> Int Int Int))
+(:: jobSubmitArgv (-> Int Int Int))
 ;@axiom:effect(io)
-(pub fn (jobSubmitArgv p argv)
+(fn (jobSubmitArgv p argv)
   (if (== (vecLen argv) 0)
       (jobSubmit p (strCStr "") (jobArgvVector argv) sysEnvp)
       (jobSubmit p (strCStr (strDup (vecGet argv 0))) (jobArgvVector argv) sysEnvp)))
@@ -222,8 +222,8 @@
 ; the kernel reads a path or an argument that does not end where the
 ; `Str` does. `tests/stdlib/300-process.ax` records the same rule for
 ; the same reason on its own argv helper.
-(pub :: jobArgvVector (-> Int Int))
-(pub fn (jobArgvVector argv)
+(:: jobArgvVector (-> Int Int))
+(fn (jobArgvVector argv)
   (let ((n (vecLen argv))
         (mut i 0))
     (let ((v (memAlloc (* 8 (+ n 1)))))

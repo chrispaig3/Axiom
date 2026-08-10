@@ -63,9 +63,9 @@
   (sysOpenPathMode path flags 420))
 
 ; open(path, flags, mode), for callers that need a specific mode.
-(pub :: sysOpenPathMode (-> Int Int Int Int))
+(:: sysOpenPathMode (-> Int Int Int Int))
 ;@axiom:effect(io)
-(pub fn (sysOpenPathMode path flags mode)
+(fn (sysOpenPathMode path flags mode)
   (if (== openNeedsDirFd 1)
       (__syscall4 sysOpen atFdCwd path flags mode)
       (__syscall3 sysOpen path flags mode)))
@@ -76,9 +76,9 @@
   (__syscall1 sysClose fd))
 
 ; lseek(fd, offset, whence) -> resulting absolute offset.
-(pub :: sysSeek (-> Int Int Int Int))
+(:: sysSeek (-> Int Int Int Int))
 ;@axiom:effect(io)
-(pub fn (sysSeek fd offset whence)
+(fn (sysSeek fd offset whence)
   (__syscall3 sysLseek fd offset whence))
 
 ; Terminate the process. Never returns; the `0` afterwards exists only
@@ -155,8 +155,8 @@
 ; loop - so a pipe delivers its whole stream too. The final byte after
 ; `used` is NUL because `strAlloc` reserves len+1 zeroed bytes and
 ; every growth copies into a fresh zeroed buffer.
-(pub :: sysReadAll (-> Int Int Int Int Int))
-(pub fn (sysReadAll fd buf used cap)
+(:: sysReadAll (-> Int Int Int Int Int))
+(fn (sysReadAll fd buf used cap)
   (let ((n (sysReadFd fd (+ (strData buf) used) (- cap used))))
     (if (<= n 0)
         (if (== used 0)
@@ -246,16 +246,16 @@
 ; ------------------------------------------------------------------
 
 ; The address of the i-th environment entry's bytes, or 0 past the end.
-(pub :: sysEnvSlot (-> Int Int))
-(pub fn (sysEnvSlot i)
+(:: sysEnvSlot (-> Int Int))
+(fn (sysEnvSlot i)
   (__argv (+ (+ (__argc) 1) i)))
 
 ; How many entries the environment has.
-(pub :: sysEnvCount Int)
-(pub fn (sysEnvCount) (sysEnvCountFrom 0))
+(:: sysEnvCount Int)
+(fn (sysEnvCount) (sysEnvCountFrom 0))
 
-(pub :: sysEnvCountFrom (-> Int Int))
-(pub fn (sysEnvCountFrom i)
+(:: sysEnvCountFrom (-> Int Int))
+(fn (sysEnvCountFrom i)
   (if (== (sysEnvSlot i) 0)
       i
       (sysEnvCountFrom (+ i 1))))
@@ -270,8 +270,8 @@
 (pub fn (sysEnv name)
   (sysEnvLookup (strConcat name "=") 0))
 
-(pub :: sysEnvLookup (-> Int Int Int))
-(pub fn (sysEnvLookup prefix i)
+(:: sysEnvLookup (-> Int Int Int))
+(fn (sysEnvLookup prefix i)
   (let ((p (sysEnvSlot i)))
     (if (== p 0)
         ""
@@ -297,8 +297,8 @@
         v
       })))
 
-(pub :: sysEnvpFill (-> Int Int Int Int))
-(pub fn (sysEnvpFill v i n)
+(:: sysEnvpFill (-> Int Int Int Int))
+(fn (sysEnvpFill v i n)
   (if (>= i n)
       (memSetWord v n 0)
       {
@@ -493,9 +493,9 @@
       (sysRunSearch name argv envp (sysEnv "PATH") 0)))
 
 ; Try `name` in each `:`-separated entry of `path` starting at `from`.
-(pub :: sysRunSearch (-> Int Int Int Int Int Int))
+(:: sysRunSearch (-> Int Int Int Int Int Int))
 ;@axiom:effect(io)
-(pub fn (sysRunSearch name argv envp path from)
+(fn (sysRunSearch name argv envp path from)
   (if (> from (strLen path))
       (- 0 2)
       (let ((colon (strFindByte path 58 from)))

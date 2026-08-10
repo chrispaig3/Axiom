@@ -7857,3 +7857,115 @@ because the same nodes would be reused across edits.
 The gate is unchanged and still right: a ratio measured in one run,
 second invocation against first. A wall-clock ceiling is a
 machine-speed assertion in costume.
+
+## 44. The standard library was 100% public, and the seed could not survive it being otherwise
+
+Fixed 2026-08-10.
+
+Of 361 distinct `pub` names across `stdlib/`, **151 had no consumer
+outside their own module** — `Map` exported `mapFindLoop` (seven
+parameters) and `mapInsertLoop` (eleven); `Rpc` exported `rdFill`,
+`rdCompact` and `rdFindHeaderEnd`. Those are internals, and they were
+permanent public API and permanent residents of the flat namespace.
+
+The reason to fix it is not tidiness. `pub` distinguished **nothing**:
+every one of the 3,358 top-level declarations in `stdlib/` and
+`self_host/` carried it, so module visibility was exercised in its true
+branch by all of them and in its false branch by none. That is the
+exact shape that hid three bugs when visibility itself landed. 288
+declarations are private now, and `tests/diagnostics/470-stdlib-private.ax`
+is `AX3023`'s first positive case.
+
+### What it cost, which was not zero
+
+**The committed bootstrap seed could not compile the result.**
+
+```
+warning[AX3010]: AXTAG mismatch on `sysOpenPath`: `effect(io)` claim unsupported: missing IO
+  --> stdlib/Sys.ax:62:10
+FAIL: seed could not compile self_host/main.ax
+```
+
+`sysOpenPath` is public and calls `sysOpenPathMode`, which is now
+private. `bootstrap/STAMP` says the seeds were generated on
+**2026-08-08 from `8218a9bd`** — before module visibility landed in
+`2192d61` on 2026-08-10 — and the compiler of that day *deleted* a
+private declaration rather than hiding it. So the callee vanished from
+the program and the caller's inferred effect set lost `IO`.
+
+That is the seed going stale in the precise sense `scripts/reseed.sh`
+names as its only routine reason to move, and it means visibility was
+unusable anywhere in the bootstrap path from the day it shipped —
+which nothing could notice while every declaration in the repository
+was `pub`. Reseeded from `c46e555`; `bootstrap-from-seed.sh` builds
+stage1 from it and stage2 equals stage3.
+
+### Two names the tree could not see
+
+The sweep asks whether a name has a consumer, and it read `.ax` files.
+Three names had none there and are still public API, because the
+DOCUMENTATION teaches them: `readFile`, `eprintln`, `fmtFloat`. The
+widened doc-code sweep is what caught it, on the first run after the
+change:
+
+```
+FAIL doc snippet README.md:919: does not compile:
+  E AX3023 ... "`readFile` is private to module `IO`"
+```
+
+Which is §41's law arriving from the other direction: the documented
+surface defines the API, not the tree.
+
+### What moved, and what did not
+
+`symbols`' zoo goldens moved by four columns — removing `pub ` shifts a
+declaration's name — and the 89-symbol count held, which is the half a
+re-bless cannot satisfy. A 290-file sweep of `check` output and exit
+status against the previous standard library diverged on **0**.
+
+## 45. Three statements of "what is a space"
+
+Fixed 2026-08-10.
+
+`lexer.ax`, `format.ax` and `Json.ax` each carried their own byte
+classifiers — three of `isSpace`, two each of `isDigit` and `isAlpha` —
+and nothing compared them. `isFSpace` had already drifted once: it
+admitted VT (11) and FF (12), inherited from the retired compiler's
+`char::is_whitespace`, which this language's lexer never matched. `fmt`
+rewrote a file `check` refuses with `AX1001` into one it accepts, at
+exit 0. The fix at the time added a comment saying "exactly
+`lexer.ax`'s `isSpace`, byte for byte" — a claim checked by nobody.
+
+The rules live in `Str` now (`strIsDigit`, `strIsAlpha`, `strIsSpace`,
+`strIsHexDigit`) and the named predicates delegate, so the claim is
+structural. `tests/selfhost/990-char-class.ax` sweeps **all 256 byte
+values** through every surviving predicate three ways and requires 768
+agreements — a count rather than a flag, so a predicate that stopped
+being called fails with a number instead of passing by silence.
+
+Ablated by re-introducing the VT/FF drift: exit 1. The bytes that
+shipped the bug are 11 and 12, which no corpus file contains and which
+no hand-written case would have thought to try. That is why the sweep
+is exhaustive rather than illustrative.
+
+## 46. `strSplit`
+
+Added 2026-08-10.
+
+The colon scan was open-coded twice — `codegen.ax`'s `pushPathList` and
+`Sys.ax`'s `sysRunSearch`. `strSplit` owns it now and `pushPathList`
+uses it.
+
+`sysRunSearch` deliberately keeps its own: it stops at the first
+candidate that opens, and building the whole vector first would open
+files it never needs. Recording that is the point — the two loops
+looked identical and their *control flow* is not.
+
+Empty segments are KEPT, because the two callers disagree about them: an
+empty `PATH` entry means the working directory to `sysRunSearch` and
+means nothing to a module search path. So the segment count is the
+separator count plus one, always, and dropping empties is the caller's
+business. `tests/selfhost/991-str-split.ax` pins the five boundary
+cases that decision makes observable — no separator, leading, trailing,
+adjacent, and the empty string — plus the segments' actual bytes, since
+a split answering N empty slices would satisfy all five counts.

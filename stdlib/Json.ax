@@ -59,23 +59,23 @@
 ; Tags
 ; ------------------------------------------------------------------
 
-(pub :: JNULL Int) (pub fn (JNULL) 0)
-(pub :: JBOOL Int) (pub fn (JBOOL) 1)
-(pub :: JNUM  Int) (pub fn (JNUM)  2)
-(pub :: JSTR  Int) (pub fn (JSTR)  3)
-(pub :: JARR  Int) (pub fn (JARR)  4)
-(pub :: JOBJ  Int) (pub fn (JOBJ)  5)
+(:: JNULL Int) (pub fn (JNULL) 0)
+(:: JBOOL Int) (pub fn (JBOOL) 1)
+(:: JNUM  Int) (pub fn (JNUM)  2)
+(:: JSTR  Int) (pub fn (JSTR)  3)
+(:: JARR  Int) (pub fn (JARR)  4)
+(:: JOBJ  Int) (pub fn (JOBJ)  5)
 
 ; The nesting limit. See the note above: this is a frame budget, not a
 ; grammar rule.
-(pub :: jsonMaxDepth Int) (pub fn (jsonMaxDepth) 64)
+(:: jsonMaxDepth Int) (pub fn (jsonMaxDepth) 64)
 
 ; ------------------------------------------------------------------
 ; Construction
 ; ------------------------------------------------------------------
 
-(pub :: jsonMake (-> Int Int Int Int))
-(pub fn (jsonMake tag a b)
+(:: jsonMake (-> Int Int Int Int))
+(fn (jsonMake tag a b)
   (let ((v (memAlloc 24)))
     {
       (memSetWord v 0 tag)
@@ -108,8 +108,8 @@
 ; Inspection
 ; ------------------------------------------------------------------
 
-(pub :: jsonTag (-> Int Int))
-(pub fn (jsonTag v) (if (== v 0) JNULL (memGetWord v 0)))
+(:: jsonTag (-> Int Int))
+(fn (jsonTag v) (if (== v 0) JNULL (memGetWord v 0)))
 
 (pub :: jsonIsNull (-> Int Bool))
 (pub fn (jsonIsNull v) (== (jsonTag v) JNULL))
@@ -158,12 +158,12 @@
 (pub fn (jsonObjLen v)
   (if (== (jsonTag v) JOBJ) (vecLen (memGetWord v 1)) 0))
 
-(pub :: jsonObjKeyAt (-> Int Int Int))
-(pub fn (jsonObjKeyAt v i)
+(:: jsonObjKeyAt (-> Int Int Int))
+(fn (jsonObjKeyAt v i)
   (if (|| (< i 0) (>= i (jsonObjLen v))) "" (vecGet (memGetWord v 1) i)))
 
-(pub :: jsonObjValAt (-> Int Int Int))
-(pub fn (jsonObjValAt v i)
+(:: jsonObjValAt (-> Int Int Int))
+(fn (jsonObjValAt v i)
   (if (|| (< i 0) (>= i (jsonObjLen v))) 0 (vecGet (memGetWord v 2) i)))
 
 ; The ONLY writer of the two parallel vecs, so they cannot desync. A
@@ -196,8 +196,8 @@
 (pub :: jsonGet (-> Int Int Int))
 (pub fn (jsonGet v key) (jsonGetFrom v key 0))
 
-(pub :: jsonGetFrom (-> Int Int Int Int))
-(pub fn (jsonGetFrom v key i)
+(:: jsonGetFrom (-> Int Int Int Int))
+(fn (jsonGetFrom v key i)
   (if (>= i (jsonObjLen v))
       0
       (if (strEq (jsonObjKeyAt v i) key)
@@ -236,19 +236,19 @@
 ; records having made exactly that mistake and fixing it; this file
 ; reproduced it three lines from the note, which is the argument for
 ; `tests/stdlib/340-json.ax` pinning both boundaries.
-(pub :: jsonIsMostNegative (-> Int Bool))
-(pub fn (jsonIsMostNegative n) (&& (< n 0) (== (- 0 n) n)))
+(:: jsonIsMostNegative (-> Int Bool))
+(fn (jsonIsMostNegative n) (&& (< n 0) (== (- 0 n) n)))
 
-(pub :: jsonIntStr (-> Int Int))
-(pub fn (jsonIntStr n)
+(:: jsonIntStr (-> Int Int))
+(fn (jsonIntStr n)
   (if (jsonIsMostNegative n)
       "-9223372036854775808"
       (if (< n 0)
           (strConcat "-" (jsonNatStr (- 0 n)))
           (jsonNatStr n))))
 
-(pub :: jsonNatStr (-> Int Int))
-(pub fn (jsonNatStr n)
+(:: jsonNatStr (-> Int Int))
+(fn (jsonNatStr n)
   (if (< n 10)
       (strSlice "0123456789" n 1)
       (strConcat (jsonNatStr (/ n 10)) (strSlice "0123456789" (% n 10) 1))))
@@ -261,8 +261,8 @@
 ; single most expensive mistake this project has measured.
 ; ------------------------------------------------------------------
 
-(pub :: jsonJoin (-> Int Int))
-(pub fn (jsonJoin pieces)
+(:: jsonJoin (-> Int Int))
+(fn (jsonJoin pieces)
   (let ((total (jsonJoinLen pieces)))
     (let ((out (strAlloc total)))
       {
@@ -270,8 +270,8 @@
         out
       })))
 
-(pub :: jsonJoinLen (-> Int Int))
-(pub fn (jsonJoinLen pieces)
+(:: jsonJoinLen (-> Int Int))
+(fn (jsonJoinLen pieces)
   (let ((mut k 0) (mut n 0))
     {
       (while (< k (vecLen pieces))
@@ -282,8 +282,8 @@
       n
     }))
 
-(pub :: jsonJoinFill (-> Int Int Int))
-(pub fn (jsonJoinFill pieces out)
+(:: jsonJoinFill (-> Int Int Int))
+(fn (jsonJoinFill pieces out)
   (let ((mut k 0) (mut off 0))
     {
       (while (< k (vecLen pieces))
@@ -311,16 +311,16 @@
 ; ------------------------------------------------------------------
 
 ; The number of bytes `b` occupies once escaped.
-(pub :: jsonEscLen (-> Int Int))
-(pub fn (jsonEscLen b)
+(:: jsonEscLen (-> Int Int))
+(fn (jsonEscLen b)
   (if (|| (== b 34) (== b 92))
       2
       (if (|| (== b 8) (|| (== b 12) (|| (== b 10) (|| (== b 13) (== b 9)))))
           2
           (if (< b 32) 6 1))))
 
-(pub :: jsonEscape (-> Int Int))
-(pub fn (jsonEscape s)
+(:: jsonEscape (-> Int Int))
+(fn (jsonEscape s)
   (let ((total (jsonEscapeLen s)))
     (if (== total (strLen s))
         s
@@ -330,8 +330,8 @@
             out
           }))))
 
-(pub :: jsonEscapeLen (-> Int Int))
-(pub fn (jsonEscapeLen s)
+(:: jsonEscapeLen (-> Int Int))
+(fn (jsonEscapeLen s)
   (let ((mut k 0) (mut n 0))
     {
       (while (< k (strLen s))
@@ -343,8 +343,8 @@
     }))
 
 ; The lower-case hex digit for the low nibble of `b`.
-(pub :: jsonHexDigit (-> Int Int))
-(pub fn (jsonHexDigit b) (strByte "0123456789abcdef" (& b 15)))
+(:: jsonHexDigit (-> Int Int))
+(fn (jsonHexDigit b) (strByte "0123456789abcdef" (& b 15)))
 
 ; A one-byte string holding `b`. Needed for the control characters
 ; Axiom's own string syntax cannot spell.
@@ -352,8 +352,8 @@
 (pub fn (jsonByteStr b)
   (let ((s (strAlloc 1))) { (__store8 (strData s) 0 b) s }))
 
-(pub :: jsonEscapeFill (-> Int Int Int))
-(pub fn (jsonEscapeFill s out)
+(:: jsonEscapeFill (-> Int Int Int))
+(fn (jsonEscapeFill s out)
   (let ((mut k 0) (mut off 0) (d (strData out)))
     {
       (while (< k (strLen s))
@@ -401,8 +401,8 @@
       (jsonJoin pieces)
     }))
 
-(pub :: jsonWriteInto (-> Int Int Int))
-(pub fn (jsonWriteInto v pieces)
+(:: jsonWriteInto (-> Int Int Int))
+(fn (jsonWriteInto v pieces)
   (let ((t (jsonTag v)))
     (if (== t JNULL)
         (vecPush pieces "null")
@@ -420,8 +420,8 @@
         (jsonWriteArr v pieces)
         (jsonWriteObj v pieces))))))))
 
-(pub :: jsonWriteArr (-> Int Int Int))
-(pub fn (jsonWriteArr v pieces)
+(:: jsonWriteArr (-> Int Int Int))
+(fn (jsonWriteArr v pieces)
   (let ((items (memGetWord v 1)) (mut i 0))
     {
       (vecPush pieces "[")
@@ -434,8 +434,8 @@
       (vecPush pieces "]")
     }))
 
-(pub :: jsonWriteObj (-> Int Int Int))
-(pub fn (jsonWriteObj v pieces)
+(:: jsonWriteObj (-> Int Int Int))
+(fn (jsonWriteObj v pieces)
   (let ((keys (memGetWord v 1)) (vals (memGetWord v 2)) (mut i 0))
     {
       (vecPush pieces "{")
@@ -465,29 +465,29 @@
 ; so a malformed input costs one pass and cannot loop.
 ; ------------------------------------------------------------------
 
-(pub :: jcNew Int)
-(pub fn (jcNew)
+(:: jcNew Int)
+(fn (jcNew)
   (let ((c (memAlloc 16))) { (memSetWord c 0 0) (memSetWord c 1 0) c }))
 
-(pub :: jcPos (-> Int Int))
-(pub fn (jcPos c) (memGetWord c 0))
+(:: jcPos (-> Int Int))
+(fn (jcPos c) (memGetWord c 0))
 
-(pub :: jcSetPos (-> Int Int Int))
-(pub fn (jcSetPos c p) (memSetWord c 0 p))
+(:: jcSetPos (-> Int Int Int))
+(fn (jcSetPos c p) (memSetWord c 0 p))
 
-(pub :: jcBad (-> Int Bool))
-(pub fn (jcBad c) (!= (memGetWord c 1) 0))
+(:: jcBad (-> Int Bool))
+(fn (jcBad c) (!= (memGetWord c 1) 0))
 
-(pub :: jcFail (-> Int Int))
-(pub fn (jcFail c) { (memSetWord c 1 1) 0 })
+(:: jcFail (-> Int Int))
+(fn (jcFail c) { (memSetWord c 1 1) 0 })
 
 ; The byte at the cursor, or -1 at the end of the input.
-(pub :: jcPeek (-> Int Int Int))
-(pub fn (jcPeek src c)
+(:: jcPeek (-> Int Int Int))
+(fn (jcPeek src c)
   (if (>= (jcPos c) (strLen src)) (- 0 1) (strByte src (jcPos c))))
 
-(pub :: jcSkipWs (-> Int Int Int))
-(pub fn (jcSkipWs src c)
+(:: jcSkipWs (-> Int Int Int))
+(fn (jcSkipWs src c)
   (let ((mut p (jcPos c)))
     {
       (while (&& (< p (strLen src))
@@ -508,8 +508,8 @@
         (if (|| (jcBad c) (< (jcPos c) (strLen src))) 0 v)
       })))
 
-(pub :: jpValue (-> Int Int Int Int))
-(pub fn (jpValue src c depth)
+(:: jpValue (-> Int Int Int Int))
+(fn (jpValue src c depth)
   {
     (jcSkipWs src c)
     (if (jcBad c)
@@ -528,14 +528,14 @@
                   { (jcFail c) 0 }))))))))))
   })
 
-(pub :: jpLit (-> Int Int Int Int Int))
-(pub fn (jpLit src c word v)
+(:: jpLit (-> Int Int Int Int Int))
+(fn (jpLit src c word v)
   (if (jpMatches src (jcPos c) word 0)
       { (jcSetPos c (+ (jcPos c) (strLen word))) v }
       { (jcFail c) 0 }))
 
-(pub :: jpMatches (-> Int Int Int Int Bool))
-(pub fn (jpMatches src at word i)
+(:: jpMatches (-> Int Int Int Int Bool))
+(fn (jpMatches src at word i)
   (if (>= i (strLen word))
       true
       (if (>= (+ at i) (strLen src))
@@ -547,8 +547,8 @@
 ; A number, as its integer value plus the exact bytes it was written
 ; with. The fraction and exponent are CONSUMED and preserved in the
 ; text but do not contribute to the integer - see the header note.
-(pub :: jpNumber (-> Int Int Int))
-(pub fn (jpNumber src c)
+(:: jpNumber (-> Int Int Int))
+(fn (jpNumber src c)
   (let ((start (jcPos c)))
     (let ((mut p start) (mut neg 0) (mut val 0) (mut digits 0))
       {
@@ -599,8 +599,8 @@
 ; Escapes are decoded into a piece vector rather than a growing
 ; concatenation, and the common case - a string with no escape at all -
 ; takes a single slice and allocates nothing.
-(pub :: jpString (-> Int Int Int))
-(pub fn (jpString src c)
+(:: jpString (-> Int Int Int))
+(fn (jpString src c)
   (if (!= (jcPeek src c) 34)
       { (jcFail c) "" }
       (let ((pieces vecNew) (mut p (+ (jcPos c) 1)) (mut run (+ (jcPos c) 1))
@@ -637,8 +637,8 @@
 
 ; Decode one escape whose backslash was at `p - 1`, pushing its bytes.
 ; Answers the offset just past the escape.
-(pub :: jpEscape (-> Int Int Int Int Int))
-(pub fn (jpEscape src c p pieces)
+(:: jpEscape (-> Int Int Int Int Int))
+(fn (jpEscape src c p pieces)
   (if (>= p (strLen src))
       { (jcFail c) p }
       (let ((b (strByte src p)))
@@ -661,8 +661,8 @@
 ; written with. An unpaired surrogate is replaced by U+FFFD rather than
 ; refused: it cannot be encoded as UTF-8, and refusing a whole message
 ; over one bad character is the less useful of the two failures.
-(pub :: jpUnicode (-> Int Int Int Int Int))
-(pub fn (jpUnicode src c p pieces)
+(:: jpUnicode (-> Int Int Int Int Int))
+(fn (jpUnicode src c p pieces)
   (let ((hi (jpHex4 src c p)))
     (if (jcBad c)
         p
@@ -688,8 +688,8 @@
                 { (vecPush pieces (utf8FromChar utf8Replacement)) (+ p 4) }
                 { (vecPush pieces (utf8FromChar hi)) (+ p 4) })))))
 
-(pub :: jpHex4 (-> Int Int Int Int))
-(pub fn (jpHex4 src c p)
+(:: jpHex4 (-> Int Int Int Int))
+(fn (jpHex4 src c p)
   (if (> (+ p 4) (strLen src))
       { (jcFail c) 0 }
       (let ((a (jpHexVal (strByte src p)))
@@ -700,8 +700,8 @@
             { (jcFail c) 0 }
             (+ (* a 4096) (+ (* b 256) (+ (* d 16) e)))))))
 
-(pub :: jpHexVal (-> Int Int))
-(pub fn (jpHexVal b)
+(:: jpHexVal (-> Int Int))
+(fn (jpHexVal b)
   (if (&& (>= b 48) (<= b 57))
       (- b 48)
       (if (&& (>= b 97) (<= b 102))
@@ -710,8 +710,8 @@
               (+ 10 (- b 65))
               (- 0 1)))))
 
-(pub :: jpArray (-> Int Int Int Int))
-(pub fn (jpArray src c depth)
+(:: jpArray (-> Int Int Int Int))
+(fn (jpArray src c depth)
   (let ((v jsonArr) (mut done 0) (mut first 1))
     {
       (jcSetPos c (+ (jcPos c) 1))
@@ -746,8 +746,8 @@
       (if (jcBad c) 0 v)
     }))
 
-(pub :: jpObject (-> Int Int Int Int))
-(pub fn (jpObject src c depth)
+(:: jpObject (-> Int Int Int Int))
+(fn (jpObject src c depth)
   (let ((v jsonObj) (mut done 0) (mut first 1))
     {
       (jcSetPos c (+ (jcPos c) 1))

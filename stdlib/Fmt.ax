@@ -18,8 +18,8 @@
 ; overflowing positive literal - and the obvious stand-in,
 ; `(- 0 9223372036854775807)`, is one *greater* than it. Code guarded that
 ; way looks correct and never fires.
-(pub :: intIsMostNegative (-> Int Bool))
-(pub fn (intIsMostNegative n)
+(:: intIsMostNegative (-> Int Bool))
+(fn (intIsMostNegative n)
   (&& (< n 0) (== (- 0 n) n)))
 
 ; Decimal digits in `n`, counting a leading `-` and treating 0 as one
@@ -58,8 +58,8 @@
           (fmtNat n))))
 
 ; `n` (assumed non-negative) in base 10.
-(pub :: fmtNat (-> Int Int))
-(pub fn (fmtNat n)
+(:: fmtNat (-> Int Int))
+(fn (fmtNat n)
   (let ((width (fmtIntWidth n)))
     (let ((out (strAlloc width)))
       {
@@ -69,8 +69,8 @@
 
 ; Write `n`'s decimal digits into `buf` ending at index `at`, working
 ; right to left.
-(pub :: fmtDigits (-> Int Int Int Int))
-(pub fn (fmtDigits buf n at)
+(:: fmtDigits (-> Int Int Int Int))
+(fn (fmtDigits buf n at)
   (let ((digit (+ 48 (% n 10))))
     {
       (__store8 buf at digit)
@@ -94,14 +94,14 @@
             out
           }))))
 
-(pub :: fmtHexWidth (-> Int Int Int))
-(pub fn (fmtHexWidth n acc)
+(:: fmtHexWidth (-> Int Int Int))
+(fn (fmtHexWidth n acc)
   (if (== n 0)
       acc
       (fmtHexWidth (/ n 16) (+ acc 1))))
 
-(pub :: fmtHexDigits (-> Int Int Int Int))
-(pub fn (fmtHexDigits buf n at)
+(:: fmtHexDigits (-> Int Int Int Int))
+(fn (fmtHexDigits buf n at)
   (let ((nibble (% n 16)))
     (let ((digit (if (< nibble 10) (+ 48 nibble) (+ 87 nibble))))
       {
@@ -136,8 +136,8 @@
 ; integer arithmetic after one scaling multiply.
 
 ; 10^n, for the scaling factor. `n` is a place count, so it is small.
-(pub :: powTen (-> Int Int))
-(pub fn (powTen n)
+(:: powTen (-> Int Int))
+(fn (powTen n)
   (if (<= n 0)
       1
       (* 10 (powTen (- n 1)))))
@@ -147,8 +147,8 @@
 ; Distinct from `fmtPadLeft`, which pads with spaces: a fractional part
 ; needs `0.05` rather than `0. 5`, so the digits it is missing on the
 ; left are zeros.
-(pub :: fmtPadZeros (-> Int Int Int))
-(pub fn (fmtPadZeros n width)
+(:: fmtPadZeros (-> Int Int Int))
+(fn (fmtPadZeros n width)
   (let ((s (fmtNat n))
         (len (strLen s)))
     (if (>= len width)
@@ -177,8 +177,8 @@
 ; Rounding is applied to the scaled fraction and can carry - `0.999` at
 ; two places is `1.00`, not `0.100` - so the carry is folded back into
 ; the integer part rather than left to overflow the fraction field.
-(pub :: fmtFloatAbs (-> Float Int Int))
-(pub fn (fmtFloatAbs x places)
+(:: fmtFloatAbs (-> Float Int Int))
+(fn (fmtFloatAbs x places)
   (let ((whole (__floatToInt x))
         (frac (- x (__intToFloat whole)))
         (scale (powTen places))
