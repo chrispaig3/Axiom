@@ -84,6 +84,15 @@
 (pub :: sysUnlinkNum Int)
 (pub fn (sysUnlinkNum) 87)
 
+; mkdir(path, mode) - 83. x86-64 Linux has the plain call, so
+; `openNeedsDirFd` is 0 here and `sysMkdir` uses the two-argument form.
+(pub :: sysMkdirNum Int)
+(pub fn (sysMkdirNum) 83)
+
+; rmdir(path) - 84.
+(pub :: sysRmdirNum Int)
+(pub fn (sysRmdirNum) 84)
+
 ; getpid() - 39
 (pub :: sysGetPidNum Int)
 (pub fn (sysGetPidNum) 39)

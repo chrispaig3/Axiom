@@ -121,6 +121,15 @@
 (pub :: sysUnlinkNum Int)
 (pub fn (sysUnlinkNum) 33554442)
 
+; mkdir(path, mode) - BSD 136. Darwin has the plain call, so
+; `openNeedsDirFd` is 0 here and `sysMkdir` uses the two-argument form.
+(pub :: sysMkdirNum Int)
+(pub fn (sysMkdirNum) 33554568)
+
+; rmdir(path) - BSD 137.
+(pub :: sysRmdirNum Int)
+(pub fn (sysRmdirNum) 33554569)
+
 ; getpid() - BSD 20
 (pub :: sysGetPidNum Int)
 (pub fn (sysGetPidNum) 33554452)

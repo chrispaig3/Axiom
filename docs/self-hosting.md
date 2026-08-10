@@ -7969,3 +7969,65 @@ business. `tests/selfhost/991-str-split.ax` pins the five boundary
 cases that decision makes observable — no separator, leading, trailing,
 adjacent, and the empty string — plus the segments' actual bytes, since
 a split answering N empty slices would satisfy all five counts.
+
+## 47. A batteries-included language could not create a directory
+
+Fixed 2026-08-10.
+
+`Sys` had `open`, `read`, `write`, `close`, `seek`, `unlink`,
+`readFile` and `writeFile`, and no way to make a directory at all.
+`dirOfPath` and `withTrailingSlash` were private helpers in
+`codegen.ax` because there was nowhere else to put them.
+
+Added: `sysMkdir`, `sysRmdir`, `sysDirMode`, `sysFileExists`,
+`sysFileSize`.
+
+### `stat` is deliberately not among them
+
+It is the obvious way to ask "is it there" and "how big", and it is
+four record layouts rather than one syscall number — `struct stat`'s
+offsets, widths and padding all differ across the four targets, and
+this repository can execute exactly one of them. So those two
+questions are answered by calls the module already made:
+`sysFileExists` is `open` + `close`, which is what `sysRunSearch` has
+always done to test a candidate, and `sysFileSize` is a seek to the
+end, which is what the size *is*.
+
+That leaves `mkdir` as the only genuinely new number, and it has the
+shape `sysUnlink` already established:
+
+| target | call | number |
+|---|---|---|
+| darwin | `mkdir(path, mode)` | BSD 136 → `33554568` |
+| linux-x86_64 | `mkdir(path, mode)` | `83` |
+| linux-aarch64 | `mkdirat(dirfd, path, mode)` | `34` |
+
+AArch64 Linux has no plain `mkdir`, the same way it has no `open` and
+no `unlink`, so this branches on the existing `openNeedsDirFd`
+capability rather than growing a second one — the rule this file
+records for `sysUnlink`, applied unchanged. `sysRmdir` is the same
+again, and on AArch64 it shares `unlinkat`'s number with
+`AT_REMOVEDIR` (512) in the flags: removing a file and removing a
+directory are one call there, distinguished by a flag.
+
+`rmdir` landed WITH `mkdir` rather than after it, because a fixture
+that creates a directory in the working tree and cannot remove it is
+litter every later gate runs over. `unlink` does not remove a
+directory — `EISDIR` on Linux, `EPERM` on Darwin.
+
+### What pins it
+
+`tests/selfhost/992-filesystem.ax` is a round trip, not a status
+check: the directory is absent, then created, then present, then
+creating it again is `EEXIST`, then removed, then absent. A gate
+asserting `(== (sysMkdir p m) 0)` alone would pass against a syscall
+number for something else entirely.
+
+Ablated by pointing `sysRmdirNum` at BSD 138 instead of 137: exit 1,
+**and it leaves the directory behind**, which is the observation the
+round trip exists to make.
+
+The three targets this host cannot execute are covered the way every
+other syscall here is — `check-cross-targets.sh` assembles all four
+from one host, and the numbers sit in the per-target module beside the
+ones already proven.

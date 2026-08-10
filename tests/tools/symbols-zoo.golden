@@ -28,9 +28,11 @@ F sysFork stdlib/Sys/Platform.darwin.ax:111:9-16 "Int" @d2301f5b9cd3da3c
 F sysForkArg stdlib/Sys/Platform.darwin.ax:114:9-19 "Int" @ccc826600e295ed8
 F sysExecve stdlib/Sys/Platform.darwin.ax:117:9-18 "Int" @cf0811b42b349ef8
 F sysUnlinkNum stdlib/Sys/Platform.darwin.ax:121:9-21 "Int" @ba296983f73bf8b5
-F sysGetPidNum stdlib/Sys/Platform.darwin.ax:125:9-21 "Int" @8dd97b36f3b03217
-F sysClockNum stdlib/Sys/Platform.darwin.ax:132:9-20 "Int" @338b1a845ae4c6ae
-F clockIsGettimeofday stdlib/Sys/Platform.darwin.ax:135:9-28 "Int" @48d4af426412da35
+F sysMkdirNum stdlib/Sys/Platform.darwin.ax:126:9-20 "Int" @d70958f5f657e079
+F sysRmdirNum stdlib/Sys/Platform.darwin.ax:130:9-20 "Int" @624e8f20729e9500
+F sysGetPidNum stdlib/Sys/Platform.darwin.ax:134:9-21 "Int" @8dd97b36f3b03217
+F sysClockNum stdlib/Sys/Platform.darwin.ax:141:9-20 "Int" @338b1a845ae4c6ae
+F clockIsGettimeofday stdlib/Sys/Platform.darwin.ax:144:9-28 "Int" @48d4af426412da35
 F apply tests/fmt/syntax-zoo.ax:75:9-14 "((Int -> Int) -> (Int -> Int))" @9fde5fb4f32622ed #effect-params=f
 F literals tests/fmt/syntax-zoo.ax:79:5-13 "(Int -> Int)" @44e294b76be6470b
 F control tests/fmt/syntax-zoo.ax:89:5-12 "(Int -> Int)" @d78a59fa83fe109c #pure

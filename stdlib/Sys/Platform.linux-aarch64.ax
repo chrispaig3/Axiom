@@ -90,6 +90,21 @@
 (pub :: sysUnlinkNum Int)
 (pub fn (sysUnlinkNum) 35)
 
+; mkdirat(dirfd, path, mode) - 34. AArch64 Linux has no plain `mkdir`,
+; the same way it has no `open` and no `unlink`, so this is the `at`
+; number and `openNeedsDirFd` (1 here) selects the three-argument form.
+(pub :: sysMkdirNum Int)
+(pub fn (sysMkdirNum) 34)
+
+; AArch64 Linux has no `rmdir` either. It is `unlinkat` - the SAME
+; number `sysUnlinkNum` names - with `AT_REMOVEDIR` in the flags, so
+; the number is 35 and `sysRmdir` passes 512 where `sysUnlink` passes
+; 0. That the two share a number is the point: on this target
+; removing a file and removing a directory are one call distinguished
+; by a flag.
+(pub :: sysRmdirNum Int)
+(pub fn (sysRmdirNum) 35)
+
 ; getpid() - 172
 (pub :: sysGetPidNum Int)
 (pub fn (sysGetPidNum) 172)

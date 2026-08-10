@@ -1,0 +1,51 @@
+; expect 42
+; The filesystem surface a batteries-included language needs and did
+; not have: `Sys` had open/read/write/close/seek/unlink and no way to
+; make a directory at all.
+;
+; This is a ROUND TRIP, not a status check. `sysMkdir` returning 0
+; proves only that a syscall was accepted; the directory has to then
+; be there, and be gone after `sysRmdir`, or the number meant nothing.
+; A gate that asserted `(== (sysMkdir p m) 0)` alone would pass
+; against a syscall number for something else entirely.
+;
+; It cleans up after itself, which is why `sysRmdir` had to land with
+; `sysMkdir` rather than after it - a fixture that creates a directory
+; in the working tree and cannot remove it is litter every later gate
+; runs over.
+;
+; `stat` is deliberately absent. Its answer is a struct whose layout
+; differs on all four targets, so a portable `stat` is four record
+; layouts rather than one syscall number - and the two questions
+; anyone actually asks it, "is it there" and "how big", are `open` and
+; `lseek`, which this module already had.
+(import Sys)
+(import Str)
+
+(:: main Int)
+(fn (main)
+  (let ((d (strCStr "axiom_test_dir_992"))
+        (f (strCStr "axiom_test_file_992"))
+        (mut n 0))
+    {
+      ; not there to begin with, and a size query on it fails
+      (if (sysFileExists d) 0 (set n (+ n 1)))
+      (if (< (sysFileSize d) 0) (set n (+ n 1)) 0)
+      ; created
+      (if (== (sysMkdir d sysDirMode) 0) (set n (+ n 1)) 0)
+      (if (sysFileExists d) (set n (+ n 1)) 0)
+      ; creating it again is EEXIST, not silence
+      (if (< (sysMkdir d sysDirMode) 0) (set n (+ n 1)) 0)
+      ; removed, and gone
+      (if (== (sysRmdir d) 0) (set n (+ n 1)) 0)
+      (if (sysFileExists d) 0 (set n (+ n 1)))
+      ; a file with known contents has a known size. Written and
+      ; removed here rather than pointed at a path in the tree,
+      ; because a fixture that depends on where it was run from is a
+      ; statement about the harness, not about `lseek`.
+      (sysWriteFile f "hello")
+      (if (== (sysFileSize f) 5) (set n (+ n 1)) 0)
+      (if (== (sysUnlink f) 0) (set n (+ n 1)) 0)
+      (if (sysFileExists f) 0 (set n (+ n 1)))
+      (if (== n 10) 42 1)
+    }))
