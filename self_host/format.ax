@@ -128,12 +128,7 @@
 ; file `check` refuses with AX1001 into one it accepts, silently
 ; turning an invalid program into a valid one. Two implementations of
 ; "what is a space" and nothing compared them.
-(pub fn (isFSpace ch)
-  (if (== ch 32) true
-  (if (== ch 10) true
-  (if (== ch 13) true
-  (if (== ch 9) true
-  false)))))
+(pub fn (isFSpace ch) (strIsSpace ch))
 
 ; The width of the whitespace at `i`, or 0 when `i` is not on
 ; whitespace. stage0 skips anything Rust's `char::is_whitespace`
@@ -170,13 +165,10 @@
     0)))))))
 
 (pub :: isFDigit (-> Int Bool))
-(pub fn (isFDigit ch) (if (>= ch 48) (<= ch 57) false))
+(pub fn (isFDigit ch) (strIsDigit ch))
 
 (pub :: isFAlpha (-> Int Bool))
-(pub fn (isFAlpha ch)
-  (if (>= ch 65)
-      (if (<= ch 90) true (if (>= ch 97) (<= ch 122) false))
-      false))
+(pub fn (isFAlpha ch) (strIsAlpha ch))
 
 ; An identifier may be a run of operator characters (`+`, `<=`, `>>=`)
 ; or a name; `_` and `'` are name characters, and a digit continues a

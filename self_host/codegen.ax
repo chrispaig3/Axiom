@@ -999,16 +999,29 @@
 ; Append each non-empty `:`-separated entry of `list`, slash-terminated.
 (pub :: pushPathList (-> Int Int Int Int))
 (pub fn (pushPathList v list from)
-  (if (> from (strLen list))
+  ; `strSplit` owns the colon scan now. This was one of two open-coded
+  ; copies of it - the other is `Sys.sysRunSearch`, which keeps its
+  ; own because it stops at the first candidate that runs and building
+  ; the whole vector first would open files it never needs.
+  ;
+  ; Empty entries are dropped HERE rather than by the split, because
+  ; the two callers disagree about them: an empty `PATH` entry means
+  ; the working directory to `sysRunSearch` and means nothing to a
+  ; module search path.
+  (let ((parts (strSplit list 58)))
+    (pushPathParts v parts 0)))
+
+(pub :: pushPathParts (-> Int Int Int Int))
+(pub fn (pushPathParts v parts i)
+  (if (>= i (vecLen parts))
       0
-      (let ((colon (strFindByte list 58 from)))
-        (let ((end (if (< colon 0) (strLen list) colon)))
-          {
-            (if (> (- end from) 0)
-                (vecPush v (cast Int (withTrailingSlash (strSlice list from (- end from)))))
-                0)
-            (pushPathList v list (+ end 1))
-          }))))
+      {
+        (let ((d (vecGet parts i)))
+          (if (> (strLen d) 0)
+              (vecPush v (cast Int (withTrailingSlash d)))
+              0))
+        (pushPathParts v parts (+ i 1))
+      }))
 
 ; A directory name that ends in `/`, so concatenation forms a path.
 ;

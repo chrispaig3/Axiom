@@ -491,8 +491,10 @@
   (let ((mut p (jcPos c)))
     {
       (while (&& (< p (strLen src))
-                 (let ((b (strByte src p)))
-                   (|| (== b 32) (|| (== b 9) (|| (== b 10) (== b 13))))))
+                 ; JSON's insignificant whitespace is space, tab, LF
+                 ; and CR - the same four bytes `strIsSpace` names, and
+                 ; this used to say so a fourth time in its own idiom.
+                 (strIsSpace (strByte src p)))
         (set p (+ p 1)))
       (jcSetPos c p)
     }))

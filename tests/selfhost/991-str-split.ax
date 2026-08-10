@@ -1,0 +1,44 @@
+; expect 42
+; `strSplit`, and the boundary cases the two open-coded copies it
+; replaced each had to get right on their own.
+;
+; Empty segments are KEPT. A `PATH` entry of "" means the working
+; directory to `Sys.sysRunSearch` and means nothing to the module
+; search path, so the split cannot decide for them: the segment count
+; is the separator count plus one, always, and a caller that wants
+; empties dropped drops them.
+;
+;   a  no separator at all        1 segment
+;   b  a trailing separator       an empty last segment, not 1 fewer
+;   c  a leading separator        an empty FIRST segment
+;   d  two adjacent separators    an empty segment between them
+;   e  the empty string           one empty segment, not zero
+;   f  the segments are the right BYTES, not merely the right count -
+;      a split that answered N empty slices would pass a-e
+(import Str)
+(import Vec)
+
+(:: nseg (-> Int Int Int))
+(fn (nseg s b) (vecLen (strSplit s b)))
+
+(:: segEq (-> Int Int Int Int Bool))
+(fn (segEq s b i want) (strEq (vecGet (strSplit s b) i) want))
+
+; Counted, not `&&`-chained and not nested: the answer says HOW MANY
+; of the nine checks held, so a fixture that stopped exercising one of
+; them fails with a number rather than passing by silence.
+(:: main Int)
+(fn (main)
+  (let ((mut n 0))
+    {
+      (if (== (nseg "abc" 58) 1)  (set n (+ n 1)) 0)
+      (if (== (nseg "a:" 58) 2)   (set n (+ n 1)) 0)
+      (if (== (nseg ":a" 58) 2)   (set n (+ n 1)) 0)
+      (if (== (nseg "a::b" 58) 3) (set n (+ n 1)) 0)
+      (if (== (nseg "" 58) 1)     (set n (+ n 1)) 0)
+      (if (segEq "usr:local:bin" 58 0 "usr")   (set n (+ n 1)) 0)
+      (if (segEq "usr:local:bin" 58 1 "local") (set n (+ n 1)) 0)
+      (if (segEq "usr:local:bin" 58 2 "bin")   (set n (+ n 1)) 0)
+      (if (segEq "a::b" 58 1 "")               (set n (+ n 1)) 0)
+      (if (== n 9) 42 1)
+    }))

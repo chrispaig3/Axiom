@@ -12,20 +12,16 @@
 ; Character predicates.
 ; ------------------------------------------------------------------
 
+; These three delegate to `Str`. They were three independent
+; statements of one rule across `lexer.ax`, `format.ax` and `Json.ax`,
+; and `isFSpace` had already drifted once - it admitted VT and FF, so
+; `fmt` turned a file `check` refuses into one it accepts. The names
+; stay because callers import them by name; the RULE is in one place.
 (pub :: isDigit (-> Int Bool))
-(pub fn (isDigit ch)
-  (if (>= ch 48)
-      (<= ch 57)
-      false))
+(pub fn (isDigit ch) (strIsDigit ch))
 
 (pub :: isAlpha (-> Int Bool))
-(pub fn (isAlpha ch)
-  (if (>= ch 65)
-      (if (<= ch 90) true
-      (if (>= ch 97)
-          (<= ch 122)
-          false))
-      false))
+(pub fn (isAlpha ch) (strIsAlpha ch))
 
 ; `^` (94) is an operator character like the rest - leaving it out did
 ; not make it an error, it made the lexer's fallback *silently skip*
@@ -47,12 +43,7 @@
   (if (isAlpha ch) true (if (isDigit ch) true (if (== ch 95) true (if (== ch 45) true (if (== ch 33) true (if (== ch 42) true (if (== ch 43) true (if (== ch 47) true (if (== ch 60) true (if (== ch 62) true (if (== ch 61) true (if (== ch 37) true (if (== ch 38) true (if (== ch 124) true (if (== ch 39) true (if (== ch 94) true false)))))))))))))))))
 
 (pub :: isSpace (-> Int Bool))
-(pub fn (isSpace ch)
-  (if (== ch 32) true
-  (if (== ch 10) true
-  (if (== ch 13) true
-  (if (== ch 9)  true
-  false)))))
+(pub fn (isSpace ch) (strIsSpace ch))
 
 ; ------------------------------------------------------------------
 ; Skip whitespace and comments.

@@ -140,15 +140,21 @@ for r in complete:
 
 print("== every tests/ path named in the docs exists ==")
 named = set()
-for doc in ("README.md", "docs/reference.md", "CONTRIBUTING.md", "docs/v1-roadmap.md"):
+# docs/self-hosting.md was NOT in this list, and the omission bit
+# immediately: a commit landed three sections naming three fixtures and
+# only one of them existed, and this gate passed. It is the document
+# that names the most fixtures, because every section ends by saying
+# what pins it.
+for doc in ("README.md", "docs/reference.md", "CONTRIBUTING.md",
+            "docs/v1-roadmap.md", "docs/self-hosting.md", "docs/macros.md"):
     # The extension alternation needs the boundary: without it
     # `tests/fmt/parity/170-empty-tuple.axp` matched as `...ax` and was
     # reported missing, which is a gate finding its own bug and calling
     # it drift. Caught on this gate's first run.
     named |= set(re.findall(r"tests/[\w./-]+\.(?:axbad|axp|ax|py|sh|out|golden)(?![\w])",
                             open(doc, encoding="utf-8").read()))
-if len(named) < 10:
-    print(f"FAIL paths: only {len(named)} tests/ paths named across the docs; floor is 10")
+if len(named) < 40:
+    print(f"FAIL paths: only {len(named)} tests/ paths named across the docs; floor is 40")
     bad += 1
 missing = sorted(p for p in named if not os.path.exists(p))
 if missing:

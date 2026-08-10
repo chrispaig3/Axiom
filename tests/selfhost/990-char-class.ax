@@ -1,0 +1,46 @@
+; expect 42
+; The differential the character predicates never had.
+;
+; There were three independent statements of "what is a space" and two
+; each of "digit" and "alpha", in `lexer.ax`, `format.ax` and
+; `Json.ax`, and nothing compared them. That is not hypothetical:
+; `isFSpace` admitted VT (11) and FF (12) - inherited from the retired
+; compiler's `char::is_whitespace`, which this language's lexer never
+; matched - so `fmt` rewrote a file `check` refuses with AX1001 into
+; one it accepts, at exit 0. The comment on `isFSpace` has claimed
+; "exactly `lexer.ax`'s `isSpace`, byte for byte" ever since, and a
+; claim in a comment is checked by nobody.
+;
+; They delegate to `Str` now, and this sweeps ALL 256 byte values
+; through every surviving predicate and requires the answers to agree.
+; The sweep is the point: the drift that shipped was at bytes 11 and
+; 12, which no corpus file contains and which no hand-written case
+; would have thought to try.
+;
+; `n` COUNTS agreements rather than checking a flag, so a predicate
+; that stopped being called cannot pass by silence - 256 * 3 = 768 is
+; the only answer that means every byte was compared three ways.
+(import Str)
+(import lexer)
+(import format)
+
+; 1 when both answers are the same. `==` is arithmetic here, so a
+; Bool pair has to be compared by branching on it.
+(:: agree (-> Bool Bool Int))
+(fn (agree x y) (if x (if y 1 0) (if y 0 1)))
+
+(:: agree3 (-> Bool Bool Bool Int))
+(fn (agree3 a b c) (if (== (agree a b) 1) (agree b c) 0))
+
+(:: sweep (-> Int Int Int))
+(fn (sweep b n)
+  (if (>= b 256)
+      n
+      (sweep (+ b 1)
+             (+ n (+ (agree3 (isDigit b) (isFDigit b) (strIsDigit b))
+                  (+ (agree3 (isAlpha b) (isFAlpha b) (strIsAlpha b))
+                     (agree3 (isSpace b) (isFSpace b) (strIsSpace b))))))))
+
+(:: main Int)
+(fn (main)
+  (if (== (sweep 0 0) 768) 42 1))

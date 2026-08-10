@@ -25,6 +25,9 @@
 ; cases that want NUL-terminated ones - see `strFromLit` and `strCStr`.
 
 (import Mem)
+; For `strSplit`, which is the only thing here that answers a Vec.
+; `Vec` imports `Mem` and nothing else, so this adds no cycle.
+(import Vec)
 
 ; ------------------------------------------------------------------
 ; Construction
@@ -211,3 +214,84 @@
     (if (> lp (strLen s))
         false
         (== (memCmp (strData s) (strData prefix) lp) 0))))
+
+; ------------------------------------------------------------------
+; Byte classification.
+;
+; One statement of each rule, because there were three of "what is a
+; space" and two each of "digit" and "alpha", in `lexer.ax`,
+; `format.ax` and `Json.ax`, and nothing compared them. That is not a
+; hypothetical: `isFSpace` used to admit VT (11) and FF (12) - they
+; came from the retired compiler's `char::is_whitespace` and the lexer
+; never accepted them - so `fmt` rewrote a file `check` refuses with
+; AX1001 into one it accepts, turning an invalid program into a valid
+; one at exit 0. The comment on `isFSpace` has said "exactly
+; `lexer.ax`'s `isSpace`, byte for byte" ever since, which is a claim
+; a reader has to verify by hand every time either one changes.
+;
+; The predicates in `lexer.ax` and `format.ax` are kept - they are
+; named in diagnostics and imported by name - and now delegate here,
+; so the claim is structural rather than editorial.
+; `tests/selfhost/990-char-class.ax` sweeps all 256 byte values
+; through every one of them and requires the delegations to agree,
+; which is the check that would have caught the VT/FF drift.
+; ------------------------------------------------------------------
+
+(pub :: strIsDigit (-> Int Bool))
+(pub fn (strIsDigit ch)
+  (if (>= ch 48) (<= ch 57) false))
+
+(pub :: strIsAlpha (-> Int Bool))
+(pub fn (strIsAlpha ch)
+  (if (>= ch 65)
+      (if (<= ch 90) true (if (>= ch 97) (<= ch 122) false))
+      false))
+
+; Space, tab, LF, CR - and nothing else. Not `char::is_whitespace`:
+; VT and FF are AX1001 to this language's lexer, and a formatter that
+; skipped them turned a refused file into an accepted one.
+(pub :: strIsSpace (-> Int Bool))
+(pub fn (strIsSpace ch)
+  (if (== ch 32) true
+  (if (== ch 10) true
+  (if (== ch 13) true
+  (if (== ch 9)  true
+  false)))))
+
+(pub :: strIsHexDigit (-> Int Bool))
+(pub fn (strIsHexDigit ch)
+  (if (strIsDigit ch) true
+  (if (if (>= ch 97) (<= ch 102) false) true
+  (if (if (>= ch 65) (<= ch 70) false) true
+  false))))
+
+; ------------------------------------------------------------------
+; Splitting
+; ------------------------------------------------------------------
+
+; Every segment of `s` between occurrences of `byte`, in order, as a
+; Vec of Str handles. Empty segments are KEPT: a `PATH` entry of ""
+; means the working directory, and a caller that wants them dropped
+; can drop them, while a caller that needs them cannot get them back.
+; `strSplit "" 58` answers one empty segment, and `strSplit "a:" 58`
+; answers two - the same rule as splitting on a separator anywhere
+; else, and the one that makes the segment count equal the separator
+; count plus one.
+;
+; The segments are SLICES: they share `s`'s bytes and are not
+; NUL-terminated. `strCStr` or `strConcat` where a syscall needs a C
+; string - the two call sites this replaced both did that already, and
+; for that reason.
+(pub :: strSplit (-> Int Int Int))
+(pub fn (strSplit s byte)
+  (let ((out vecNew))
+    { (strSplitFrom s byte 0 out) out }))
+
+(pub :: strSplitFrom (-> Int Int Int Int Int))
+(pub fn (strSplitFrom s byte from out)
+  (let ((cut (strFindByte s byte from)))
+    (let ((end (if (< cut 0) (strLen s) cut)))
+      {
+        (vecPush out (cast Int (strSlice s from (- end from))))
+        (if (< cut 0) 0 (strSplitFrom s byte (+ end 1) out))
+      })))
