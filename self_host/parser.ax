@@ -450,7 +450,7 @@
                           (strConcat (strConcat "unexpected character `"
                                                 (strSlice src (spanStart sp) 1)) "`")
                           0 ""
-                          "identifiers may contain letters, digits, `_`, and `\'`; operators are built from `+ - * / % ^ = < > ! & | . ? ~ @`")
+                          "an identifier is letters, digits, `_`, `\'` and `+ - * / % < > = ! & | ^`, and cannot begin with a digit or `\'`; operators are not a separate class - `+` is simply an identifier - and `?`, `~` and `@` are not identifier characters at all")
                     (strConcat (strConcat "`" (strSlice src (spanStart sp) 1)) "` is not valid here")))))))))
     }))
 

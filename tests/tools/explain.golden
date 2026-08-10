@@ -44,10 +44,13 @@
 AX1001 - unexpected character
 
 The lexer found a character that cannot start any valid Axiom token.
-Axiom identifiers may contain letters, digits, `_` and `'`; operators are
-built from a fixed set of symbol characters. Check for typos, stray
-punctuation copied from another language, or an unsupported Unicode
-character.
+An identifier is letters, digits, `_`, `'` and the operator characters
+`+ - * / % < > = ! & | ^`, and cannot begin with a digit or `'`.
+Operators are not a separate lexical class - `+` is an identifier - so
+`set!`, `foo'` and `empty-list` are ordinary names. `?`, `~` and `@` are
+not identifier characters at all, and `#` is one only as the `#|` that
+opens a block comment. Check for typos, stray punctuation copied from
+another language, or an unsupported Unicode character.
 
 ### explain AX1002
 AX1002 - unterminated string literal

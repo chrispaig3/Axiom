@@ -26,7 +26,7 @@
 
 (pub fn (explainText c)
   (if (strEq c "1001")
-    "AX1001 - unexpected character\n\nThe lexer found a character that cannot start any valid Axiom token.\nAxiom identifiers may contain letters, digits, `_` and `'`; operators are\nbuilt from a fixed set of symbol characters. Check for typos, stray\npunctuation copied from another language, or an unsupported Unicode\ncharacter.\n\n"
+    "AX1001 - unexpected character\n\nThe lexer found a character that cannot start any valid Axiom token.\nAn identifier is letters, digits, `_`, `'` and the operator characters\n`+ - * / % < > = ! & | ^`, and cannot begin with a digit or `'`.\nOperators are not a separate lexical class - `+` is an identifier - so\n`set!`, `foo'` and `empty-list` are ordinary names. `?`, `~` and `@` are\nnot identifier characters at all, and `#` is one only as the `#|` that\nopens a block comment. Check for typos, stray punctuation copied from\nanother language, or an unsupported Unicode character.\n\n"
     (if (strEq c "1002")
       "AX1002 - unterminated string literal\n\nA `\"` was opened but never closed before the end of input (or end of\nline). Add a matching closing `\"`, or escape an embedded `\"` as `\\\"`.\n\n"
       (if (strEq c "1003")
