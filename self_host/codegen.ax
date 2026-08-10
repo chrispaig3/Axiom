@@ -2210,8 +2210,47 @@
                                   paramStr)
                             ") #0 {")))
         (let ((cg1 (emitLine cg hdr)))
-          ; Re-scan declarations to ensure types Vec is fresh before emitting body
-          (let ((cg1b (scanDecls (memGetWord cg1 8) cg1 0)))
+          ; NO re-scan here. This used to read
+          ;
+          ;   ; Re-scan declarations to ensure types Vec is fresh
+          ;   (scanDecls (memGetWord cg1 8) cg1 0)
+          ;
+          ; and the comment was wrong in the one way that mattered: the
+          ; types Vec is never made STALE, so it never needed making
+          ; fresh. `emitResolved` scans `allDecls` once (see its
+          ; `scanDecls` call) and then sets slot 8 to that same
+          ; `allDecls`, so this re-scanned an identical list. Nothing
+          ; clears slot 3 - the only writes to it are `scanOne`'s own
+          ; appends - and `addTypeNamed` is a bare `vecPush` with no
+          ; dedup. So each re-scan appended every constructor and every
+          ; struct in the program to the table AGAIN, once per function.
+          ;
+          ; That is quadratic in both directions at once: the table grew
+          ; to functions x types entries, and `lookupType` walks it
+          ; linearly, so every constructor reference in every body paid
+          ; for all the copies. Measured on synthetic programs of N
+          ; two-line functions, best of 3, before this change:
+          ;
+          ;     N      IR lines    emit-llvm     us/line
+          ;   250         1,738      0.0583s        33.5
+          ;   500         3,238      0.2085s        64.4
+          ;  1000         6,238      0.7986s       128.0
+          ;  2000        12,238      3.1028s       253.5
+          ;  4000        24,238     12.3580s       509.9
+          ;
+          ; Doubling the input quadrupled the time, and the per-line cost
+          ; doubled with it. On the compiler's own source, lowering was
+          ; 54.6s of a 76.0s build - 73% - against 5.0s for `opt`, `llc`
+          ; and `cc` together. `scripts/bench-compile.sh` is that
+          ; measurement.
+          ;
+          ; This is the second instance of the defect the strConcat fix
+          ; already recorded (docs/self-hosting.md 7: "the dominant cost
+          ; was not lexing, parsing, checking or lowering - it was the
+          ; last line of code generation"). That one was fixed and the
+          ; 0.85s it produced was written down; nothing re-measured
+          ; afterwards, so this one accumulated behind a stale number.
+          (let ((cg1b cg1))
             ; A function that tail-calls itself gets a loop instead of a
             ; recursion: its parameters move into allocas, a header
             ; label is branched to, and the call assigns and jumps back.
@@ -2806,7 +2845,11 @@
                                       (cat2 ", " paramStr)))
                             ") #0 {")))
         (let ((cg1 (emitLine cg hdr)))
-          (let ((cg1b (scanDecls (memGetWord cg1 8) cg1 0)))
+          ; The lifted-lambda twin of the re-scan deleted in `emitFnDef`,
+          ; and redundant for the same reason: slot 8 is `allDecls`,
+          ; already scanned once by `emitResolved`, and nothing clears
+          ; the types table between bodies.
+          (let ((cg1b cg1))
             (let ((cg1c (bindCaps cg1b capNames capFloats 0)))
               (let ((cg2 (emitExpr body cg1c)))
                 (let ((ret (cat3 "  ret i64 " (strDup (memGetWord cg2 2)) "")))
