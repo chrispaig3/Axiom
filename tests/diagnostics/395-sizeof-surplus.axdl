@@ -1,0 +1,2 @@
+E AX3008 395-sizeof-surplus.ax:2:27-29 semantic-error "`sizeof` takes one type and answers a constant, so this argument has nowhere to go" #"extra argument" !"it used to be discarded in silence" ?"remove the extra argument"
+E AX3008 395-sizeof-surplus.ax:2:44-45 semantic-error "`alignof` takes one type and answers a constant, so this argument has nowhere to go" #"extra argument" !"it used to be discarded in silence" ?"remove the extra argument"

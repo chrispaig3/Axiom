@@ -1,0 +1,21 @@
+[1;31merror[AX3008][0m[1m: `sizeof` takes one type and answers a constant, so this argument has nowhere to go[0m
+ [1;34m--> [0m395-sizeof-surplus.ax:2:27
+[1;34m  |[0m
+[1;34m2 |[0m (fn (main) (+ (sizeof Int 99) (alignof Int 1)))
+[1;34m  |[0m                           [1;31m^^ extra argument[0m
+[1;34m  |[0m
+ [1;34m = [0m[1mnote: [0mit used to be discarded in silence
+ [1;34m = [0m[1;32mhelp: [0mremove the extra argument
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3008` for a full explanation
+
+[1;31merror[AX3008][0m[1m: `alignof` takes one type and answers a constant, so this argument has nowhere to go[0m
+ [1;34m--> [0m395-sizeof-surplus.ax:2:44
+[1;34m  |[0m
+[1;34m2 |[0m (fn (main) (+ (sizeof Int 99) (alignof Int 1)))
+[1;34m  |[0m                                            [1;31m^ extra argument[0m
+[1;34m  |[0m
+ [1;34m = [0m[1mnote: [0mit used to be discarded in silence
+ [1;34m = [0m[1;32mhelp: [0mremove the extra argument
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3008` for a full explanation
+
+compilation failed due to 2 previous errors

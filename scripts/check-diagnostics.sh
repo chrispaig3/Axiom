@@ -175,10 +175,15 @@ exit_zero=0
 exit_nonzero=0
 colorless=0   # runs whose `ai` stderr carried no ANSI escape
 
-# `.axbad` is a case that deliberately does NOT parse - the AX1xxx and
-# AX2xxx codes cannot be provoked by a file that does. It cannot be
-# spelled `.ax`: check-fmt.sh and check-tree-sitter.sh sweep every
-# `*.ax` in the repository and require all of them to parse, and they
+# `.axbad` is a case the repository-wide sweeps must not judge. Usually
+# that is a file that deliberately does NOT parse - the AX1xxx and
+# AX2xxx codes cannot be provoked by a file that does - but it is also
+# where a file lands that parses and that `fmt` refuses, which
+# `395-sizeof-surplus.ax` does: `format.ax` and the tree-sitter grammar
+# both already encode that `sizeof` takes exactly one type, and the
+# checker is what did not. Either way it cannot be spelled `.ax`:
+# check-fmt.sh and check-tree-sitter.sh sweep every `*.ax` in the
+# repository and require all of them to parse and to format, and they
 # are right to. The extension is the LSP gate's, for the same reason.
 # Both kinds are copied into the work directory AS `.ax`, so the
 # diagnostic names the file the way every other case does.

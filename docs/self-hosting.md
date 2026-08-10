@@ -5900,32 +5900,92 @@ The formatter is untouched and does not need to be: `format.ax` prints
 from its own scanner over the source text, so `(lambda (x y) ...)` is
 still written and read the way it was.
 
-### 19.2 What this did NOT fix, measured
+### 19.2 What this did not fix, and what came next
 
-The `cast Int` case above still answers 22, and the reason turned out
-not to be about lambdas at all. `walkAppChain` flattens a whole
-application spine into one argument accumulator before dispatching on
-the head, so when the head is itself a call to a fixed-arity special
-form the outer arguments are handed to that form and silently dropped:
+Two things were left measured at `53438d8` and are fixed in §20. One
+claim recorded here was simply **wrong** and is corrected below.
+
+The `cast Int` case still answered 22, for a reason that turned out not
+to be about lambdas at all — see §20.
+
+`(let ((f (lambda () 42))) (f))` answered a heap address — also §20.
+
+**Corrected.** This section previously said that a lambda passed to a
+function whose parameter is declared `Int` is `AX3004` because "the
+checker has no way to say this parameter is callable". That is wrong,
+and the fix is to write the type: `(:: applyTo (-> (-> Int Int) Int Int))`
+declares the parameter as a function and the call type-checks, which is
+how `tests/stdlib/140-function-values.ax` has always written it. The
+`AX3004` was a correct refusal of a signature that said `Int`, and the
+probe that produced it was mine, written wrong. Re-measured: a
+two-parameter lambda through a properly typed higher-order function
+answers 42.
+
+## 20. A spine is not a call, and three heads read it as one
+
+Fixed 2026-08-10, immediately after §19 and found by it.
+
+`walkAppChain` flattens a whole application spine into one argument
+accumulator and then dispatches on its head, so `((cast Int f) 41)`
+reaches the `cast` branch as `[Int, f, 41]` rather than `[Int, f]`.
+That branch emitted the **last** argument — right when there is no
+surplus, and wrong the moment there is:
 
 ```
-((cast Int f) 41)      41      -- want 42, and `f` takes ONE parameter
-((cast Int f) 20 22)   22      -- want 42
-(sizeof Int 99)         8      -- the surplus argument is dropped
+((cast Int f) 41)      41   -- and `f` takes ONE parameter
+((cast Int f) 20 22)   22
+(sizeof Int 99)         8   -- the surplus argument dropped in silence
 ```
 
-All three are `check`-clean at exit 0. This is independent of lambda
-arity — the first line is a one-parameter lambda — and it is its own
-slice: every fixed-arity head (`cast`, `sizeof`, `alignof`, the
-primitives) needs to consume its own arguments and apply the remainder
-through `emitApplyChain`, rather than absorbing the spine.
+All three `check`-clean, at exit 0. The first is the one that matters:
+`cast` is the documented way to move a function value through a plain
+`Int`, the uniform-representation rule makes it ordinary to write, and
+applying the result is the only reason to do it. So the shape that was
+broken is the shape the feature exists for.
 
-Two neighbouring shapes are also unfixed and predate this change,
-verified identical against `2192d61`:
+`cast` now consumes its two arguments and applies anything beyond them
+to its result, one at a time — `emitApplyChain` already takes a start
+index, and already applies one argument per step because each
+application may yield another closure. `tests/selfhost/960-cast-application.ax`
+pins one surplus argument, two through a two-parameter lambda, and a
+`cast` with no surplus at all.
 
-- `(let ((f (lambda () 42))) (f))` answers a heap address, not 42 — a
-  nullary lambda is built and the call does not reach it.
-- A lambda passed to a function whose parameter is declared `Int` is
-  `AX3004 expected function type, found Int`: the checker has no way to
-  say "this parameter is callable", which is the same missing notion of
-  pointerhood the memory model's inference is blocked on.
+### 20.1 Two other implementations already knew
+
+`sizeof` and `alignof` answer a compile-time constant, so a surplus
+argument has nowhere to go and is now `AX3008` rather than being
+discarded. What makes this worth recording is where the rule already
+existed: **`format.ax` refuses `(sizeof Int 99)` outright** (its arm
+requires `fnLen == 2`) and **the tree-sitter grammar parses it as an
+ERROR node**. Two of the grammar's implementations had encoded the
+arity and the checker had not, which is §10's shape again — and the
+fixture proved it by failing `check-fmt` and `check-tree-sitter` the
+moment it was added as a `.ax` file. It lives as `.axbad` for exactly
+that reason.
+
+### 20.2 A lambda of no parameters can never be called
+
+`(lambda () b)` was accepted, lifted to a `_lam_N`, and evaluated to the
+closure record's **address**: `(let ((f (lambda () 42))) (f))` answered
+16 at exit 0, and `((lambda () 42))` the same.
+
+There is no way to call one, and that is a property of the syntax
+rather than a gap in the emitter: **`(f)` and `f` are the same
+expression** — a one-element list is its head — which is exactly how a
+bare reference to a nullary top-level `fn` calls it, and `vecNew`,
+`mkIntTy` and every other nullary function in this repository is
+written bare. So there is no spelling left that means "apply this
+closure to nothing".
+
+It is therefore refused, with a span on the `lambda` keyword. Getting
+that span took a second pass: the node was built with `mkNode`, which
+carries none, and `check-render-selfhost.sh` **refused the bless** —
+"a golden claims a span the fixture does not have", and four caret-row
+assertions besides. A diagnostic with no snippet is not a diagnostic
+anyone can act on, and the gate would not let one through.
+
+Zero nullary lambdas exist in the repository — the census that made
+refusing them safe — and `check-degenerate.sh`'s `empty-lambda-params`
+case, which asserted exit 0, now asserts the refusal. Its subject is
+unchanged either way: that an empty parameter list does not take the
+compiler down.

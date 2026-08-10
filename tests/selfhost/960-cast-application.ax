@@ -1,0 +1,42 @@
+; expect 42
+; A closure held as an `Int` and then applied. `cast` is the documented
+; way to move a function value through a plain `Int` - the
+; uniform-representation rule makes it an ordinary thing to write - and
+; applying the result is the only reason to do it.
+;
+; `walkAppChain` flattens a whole application spine into one argument
+; accumulator before dispatching on its head, so `((cast Int f) 41)`
+; reaches the `cast` branch as `[Int, f, 41]`, not `[Int, f]`. That
+; branch emitted the LAST argument, which is right only when there is no
+; surplus: it emitted `41` and returned it, `check`-clean, at exit 0,
+; for a one-parameter `f`. `cast` now consumes its two arguments and
+; applies anything beyond them to its result.
+;
+;   (via1 41)   42 - one surplus argument, a one-parameter closure.
+;                    Under the old rule this was 41: the argument
+;                    itself, returned as the answer.
+;   (via2 20)   42 - two surplus arguments through a two-parameter
+;                    lambda, so the surplus applies one at a time and
+;                    the intermediate value is the inner closure. Under
+;                    the old rule this was 22.
+;   (plain)     42 - a `cast` with NO surplus still answers its second
+;                    argument, which is what every existing use needs.
+(:: via1 (-> Int Int))
+(fn (via1 n)
+  (let ((f (lambda (x) (+ x 1))))
+    ((cast Int f) n)))
+
+(:: via2 (-> Int Int))
+(fn (via2 n)
+  (let ((g (lambda (x y) (+ x y))))
+    ((cast Int g) n 22)))
+
+(:: plain Int)
+(fn (plain) (cast Int 42))
+
+(:: main Int)
+(fn (main)
+  (if (&& (== (via1 41) 42)
+          (&& (== (via2 20) 42) (== (plain) 42)))
+      42
+      1))

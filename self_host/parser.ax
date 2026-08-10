@@ -2136,24 +2136,30 @@
 ; `tests/stdlib/140-function-values.ax` passed, because every lambda in
 ; the repository takes one parameter.
 ; ------------------------------------------------------------------
-(pub :: curryLam (-> Int Int Int Int))
-(pub fn (curryLam params body i)
+; Each lambda carries the `lambda`/`fn` keyword's span. A node with no
+; span is a diagnostic with no snippet - `check-render-selfhost.sh`
+; refuses to bless one, which is how the missing span here was found.
+(pub :: curryLam (-> Int Int Int Int Int))
+(pub fn (curryLam params body sp i)
   (if (>= i (vecLen params))
       body
       (let ((one (let ((v vecNew))
                    { (vecPush v (vecGet params i)) v })))
-        (mkELam one (curryLam params body (+ i 1))))))
+        (mkNodeAt TAG_E_LAM one (curryLam params body sp (+ i 1)) 0 sp))))
 
-; Zero parameters stays one lambda: `(lambda () b)` is a thunk, and
-; currying nothing would answer the body itself.
-(pub :: mkLamCurried (-> Int Int Int))
-(pub fn (mkLamCurried params body)
+; Zero parameters still builds one lambda, so the CHECKER can refuse it
+; with a span rather than the parser refusing it without one: a lambda
+; of no parameters can never be called, because `(f)` and `f` are the
+; same expression.
+(pub :: mkLamCurried (-> Int Int Int Int))
+(pub fn (mkLamCurried params body sp)
   (if (== (vecLen params) 0)
-      (mkELam params body)
-      (curryLam params body 0)))
+      (mkNodeAt TAG_E_LAM params body 0 sp)
+      (curryLam params body sp 0)))
 
 (pub :: parseLamExpr (-> Int Int Int))
 (pub fn (parseLamExpr tokens pos)
+  (let ((kwSp (if (> pos 0) (tokenSpan (vecGet tokens (- pos 1))) 0)))
   (if (peekIs tokens pos TK_LPAREN)
       (let ((paramsR (parseIdentList tokens (advance pos) vecNew)))
         (if (== (memGetWord paramsR 0) 0) paramsR
@@ -2164,9 +2170,9 @@
                     (let ((body (memGetWord bodyR 1))
                           (afterBody (memGetWord bodyR 2)))
                       (if (peekIs tokens afterBody TK_RPAREN)
-                          (pOk (mkLamCurried params body) (advance afterBody))
+                          (pOk (mkLamCurried params body kwSp) (advance afterBody))
                           (pErr afterBody))))))))
-  (pErr pos)))
+  (pErr pos))))
 
 ; ------------------------------------------------------------------
 ; Parse (let ((n1 v1) (n2 v2) ...) body)

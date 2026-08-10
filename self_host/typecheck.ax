@@ -1429,6 +1429,25 @@
         (mark (vecLen (tcScope tc)))
         (ptys vecNew))
     {
+      ; A lambda with no parameters can never be called, so it is
+      ; refused rather than built. `(f)` and `f` are the SAME
+      ; expression - a one-element list is its head - which is how a
+      ; bare reference to a nullary top-level `fn` calls it, and it
+      ; leaves no syntax that applies a nullary closure. Before this it
+      ; was accepted, lifted, and evaluated to the closure record's
+      ; ADDRESS: `(let ((f (lambda () 42))) (f))` answered 16, at exit
+      ; 0, and `((lambda () 42))` the same.
+      (if (== (vecLen params) 0)
+          (emitDiag tc
+            (diagSetLabel
+              (mkDiagNote SEV_ERROR "AX3008" "semantic-error"
+                          (nodeSpan e)
+                          "a lambda with no parameters can never be called"
+                          0 0
+                          "give it a parameter, or write a top-level `(fn (name) body)` - a bare reference to a nullary function does call it"
+                          "`(f)` and `f` are the same expression, so no syntax applies a nullary closure; it used to evaluate to the closure record's address")
+              "this lambda takes no parameters"))
+          0)
       (bindLamParams tc params ptys 0)
       (let ((bodyTy (checkExprH tc (nodeB e) 0)))
         {
@@ -1937,6 +1956,24 @@
   (let ((args (spineArgVec e vecNew)))
     {
       (checkArgsFromIndex tc args 1)
+      ; `sizeof` and `alignof` take one TYPE and answer a constant, so
+      ; a surplus argument has nowhere to go: the emitter dropped it in
+      ; silence and `(sizeof Int 99)` answered 8. `cast` is exempt -
+      ; its result is routinely a function value, and a surplus
+      ; argument there is an application of it.
+      (if (&& (if (strEq hname "cast") false true)
+              (> (vecLen args) 1))
+          (emitDiag tc
+            (diagSetLabel
+              (mkDiagNote SEV_ERROR "AX3008" "semantic-error"
+                          (spanOf (vecGet args 1))
+                          (strConcat (strConcat "`" hname)
+                                     "` takes one type and answers a constant, so this argument has nowhere to go")
+                          0 0
+                          "remove the extra argument"
+                          "it used to be discarded in silence")
+              "extra argument"))
+          0)
       (if (strEq hname "cast")
           (if (>= (vecLen args) 1)
               (exprToType (vecGet args 0))

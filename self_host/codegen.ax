@@ -3981,24 +3981,43 @@
     ; The macro branch that used to lead here is gone with the rest of
     ; the emit-time expander; see `self_host/expand.ax`.
     ; cast is a no-op at the i64 level — just evaluate and return the
-    ; last argument's value directly, avoiding an undefined @cast call.
+    ; cast expression's value directly, avoiding an undefined @cast call.
     ; It *does* change float-ness: `(cast Float bits)` is how a bit
     ; pattern held as an Int re-enters float arithmetic, so the flag
     ; follows the named type rather than the operand.
+    ;
+    ; `cast` takes TWO arguments and any beyond them are applied to its
+    ; RESULT, which is the whole point of casting a closure to `Int`:
+    ; `((cast Int f) 41)` is one application spine, and `walkAppChain`
+    ; flattens a spine into one accumulator before dispatching on its
+    ; head, so this branch is handed `[Int, f, 41]` rather than
+    ; `[Int, f]`. It used to take the LAST argument, which is the right
+    ; answer only when there is no surplus: `((cast Int f) 41)` emitted
+    ; `41` and returned it, `check`-clean, at exit 0, for a
+    ; one-parameter `f`. Every other head in this dispatch consumes a
+    ; fixed count too, and this is the one whose result is routinely a
+    ; function value.
     (if (isCastName fnName)
-        (let ((lastArg (vecGet args (- (vecLen args) 1))))
-          (let ((cgc (emitExpr lastArg cg)))
-            {
-              (memSetWord cgc 14
-                (if (>= (vecLen args) 2)
-                    (let ((tyNode (vecGet args 0)))
-                      (if (&& (== (nodeTag tyNode) TAG_E_VAR)
-                              (strEq (nodeA tyNode) "Float"))
-                          1
-                          0))
-                    0))
-              cgc
-            }))
+        (let ((n (vecLen args)))
+          (let ((valIdx (if (>= n 2) 1 (- n 1))))
+            (let ((cgc (emitExpr (vecGet args valIdx) cg)))
+              {
+                (memSetWord cgc 14
+                  (if (>= n 2)
+                      (let ((tyNode (vecGet args 0)))
+                        (if (&& (== (nodeTag tyNode) TAG_E_VAR)
+                                (strEq (nodeA tyNode) "Float"))
+                            1
+                            0))
+                      0))
+                (if (> n 2)
+                    ; `emitApplyChain` already takes a start index, so
+                    ; the surplus applies one argument at a time from
+                    ; position 2 - each application may yield another
+                    ; closure, which is exactly the curried case.
+                    (emitApplyChain args cgc (strDup (memGetWord cgc 2)) 2)
+                    cgc)
+              })))
     ; `sizeof`/`alignof` are compile-time constants: every Axiom value
     ; is one machine word, so both are 8 for every type - probed
     ; against stage0, which answers 8 for `Int` and for a three-field
