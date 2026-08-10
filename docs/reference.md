@@ -821,27 +821,26 @@ Traits define interfaces with typed methods — similar to type classes in Haske
   where
     (eq :: (-> a a Bool)))
 
-; A trait with multiple methods and supertraits
-(trait (Ord a)
-  (Eq a)
-  where
-    (cmp :: (-> a a Int))
-    (lt :: (-> a a Bool))
-    (gt :: (-> a a Bool)))
+; A trait with multiple methods and supertraits. Every method
+; signature goes in ONE parenthesised group - a group per method is
+; `AX2003`, and used to be discarded in silence.
+(trait (Ord a) (Eq a) where
+  (cmp :: (-> a a Int)
+   lt :: (-> a a Bool)
+   gt :: (-> a a Bool)))
 ```
 
 ### Implementing a Trait
 
 ```scheme
-(impl (Eq Int)
-  where
-    ((eq (lambda (x y) (== x y)))))
+(impl (Eq Int) where
+  ((eq (lambda (x y) (== x y)))))
 
-(impl (Ord Int)
-  where
-    ((cmp (lambda (x y) (if (== x y) 0 (if (< x y) (- 0 1) 1)))))
-    ((lt (lambda (x y) (< x y))))
-    ((gt (lambda (x y) (> x y)))))
+; Again one group, holding every method.
+(impl (Ord Int) where
+  ((cmp (lambda (x y) (if (== x y) 0 (if (< x y) (- 0 1) 1))))
+   (lt (lambda (x y) (< x y)))
+   (gt (lambda (x y) (> x y)))))
 ```
 
 ### Traits Support

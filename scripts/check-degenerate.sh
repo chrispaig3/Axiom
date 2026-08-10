@@ -308,12 +308,19 @@ deg import-empty-names 0 <<'AXEOF'
 (:: main Int)
 (fn (main) 0)
 AXEOF
-deg empty-trait 0 <<'AXEOF'
+# `(trait T)`, `(impl T)` and `(type)` are a recognised keyword with a
+# shape the parser cannot read, and they used to be ACCEPTED - these three
+# expectations were `0`. That was `skipUnknownDecl` swallowing the form
+# and answering `TAG_NIL`, a successful parse of nothing, which is the
+# same tolerance that made four DOCUMENTED declarations vanish at exit 0
+# (self-hosting.md §35). It is a refusal now, so these are `1`: AX2003
+# with a span on the keyword, and no signal.
+deg empty-trait 1 <<'AXEOF'
 (trait T)
 (:: main Int)
 (fn (main) 0)
 AXEOF
-deg empty-impl 0 <<'AXEOF'
+deg empty-impl 1 <<'AXEOF'
 (impl T)
 (:: main Int)
 (fn (main) 0)
@@ -338,7 +345,7 @@ deg empty-sig 1 <<'AXEOF'
 (:: main Int)
 (fn (main) 0)
 AXEOF
-deg empty-type-decl 0 <<'AXEOF'
+deg empty-type-decl 1 <<'AXEOF'
 (type)
 (:: main Int)
 (fn (main) 0)

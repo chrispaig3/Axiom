@@ -264,6 +264,53 @@ fi
 # compiler says, it must name the file it was given. A wrong answer
 # here cannot be blessed away, because the expected string is built
 # from the argument the test itself passed.
+# `--input` is read by every subcommand that takes a file, not just
+# `build`.
+#
+# `flagArity` is one table for the whole command line, so `--input` is
+# paired with the argument after it for EVERY subcommand - that is what
+# makes `--opt banana` fail before any work happens. But only `build`
+# ever read the flag back: `check`, `emit-llvm` and `run` sought a bare
+# positional, and the operand scan had already skipped the `--input FILE`
+# pair, so the filename vanished between the validator and the
+# subcommand and each reported "needs an input file" at exit 1 about a
+# file the user had named. `fmt` and `symbols` reached it through a
+# different walk - one that cannot use the general positional scan,
+# because its flag-skipping would swallow the file in `fmt --check FILE`
+# - and lost it the same way.
+#
+# The assertion is a DIFFERENTIAL against the spelling that always
+# worked: `--input FILE` must give the same status and the same bytes as
+# a bare FILE, for every subcommand that takes one. There is no golden
+# here and nothing a re-bless could reach, because the expected output
+# is whatever the other spelling produced in the same run.
+for cmd in check emit-llvm symbols; do
+  "$s1" "$cmd" hello.ax >i-bare.out 2>i-bare.err; arc=$?
+  "$s1" "$cmd" --input hello.ax >i-flag.out 2>i-flag.err; brc=$?
+  if [[ "$arc" == "$brc" ]] && cmp -s i-bare.out i-flag.out; then
+    ok "\`$cmd --input FILE\` agrees with \`$cmd FILE\`"
+  else
+    bad "\`$cmd --input FILE\` (rc=$brc) differs from bare (rc=$arc): $(head -1 i-flag.err)"
+  fi
+done
+
+# `fmt` takes its file through the flag-skipping walk, so it gets its own
+# case rather than riding the loop: `--check` must still be a boolean and
+# the file must still be found.
+"$s1" fmt --check hello.ax >f-bare.out 2>&1; arc=$?
+"$s1" fmt --check --input hello.ax >f-flag.out 2>&1; brc=$?
+[[ "$arc" == "$brc" ]] && cmp -s f-bare.out f-flag.out \
+  && ok "\`fmt --check --input FILE\` agrees with \`fmt --check FILE\`" \
+  || bad "fmt --input (rc=$brc vs $arc)"
+
+# `run` forwards everything after the file to the program, so the flag
+# spelling must not change what the program receives.
+"$s1" run --input hello.ax >r-flag.out 2>&1; brc=$?
+"$s1" run hello.ax >r-bare.out 2>&1; arc=$?
+[[ "$arc" == "$brc" ]] && cmp -s r-bare.out r-flag.out \
+  && ok "\`run --input FILE\` agrees with \`run FILE\`" \
+  || bad "run --input (rc=$brc vs $arc)"
+
 for flag in --emit-llvm --check --builtins --list; do
   "$s1" "$flag" nosuch-$$.ax >p.out 2>p.err; rc=$?
   if grep -q "nosuch-$$\.ax" p.err; then

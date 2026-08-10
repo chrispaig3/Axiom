@@ -7084,3 +7084,153 @@ which is precisely the shape recorded above as having crashed
 conversion is justified on its own merits rather than as part of a sweep
 — and with 36× headroom now measured and gated, it can wait for a change
 that touches that function for another reason.
+
+## 35. Four documented declarations vanished, and `check` said OK
+
+Fixed 2026-08-10.
+
+```scheme
+(trait (Ord a)
+  (Eq a)
+  where
+    (cmp :: (-> a a Int))
+    (lt :: (-> a a Bool)))
+```
+
+That is `README.md`'s and `docs/reference.md`'s own example of a trait
+with several methods. On the compiler before this change:
+
+```
+$ axiom check   OK
+$ axiom symbols <no Trait row at all>
+```
+
+The declaration was **discarded in silence**. `parseTraitRest` reads
+`where` and then exactly ONE parenthesised group of method signatures; a
+group per method does not match, so it fell through to
+`skipUnknownDecl`, which consumes the form and answers `TAG_NIL` — a
+successful parse of nothing. Three more documented forms did the same:
+the multi-method `impl` example in both files, and `(type Count Int)`
+written without the `=` that `parseAliasDecl` requires.
+
+**`check` cannot see this, because a discarded declaration is not an
+error.** Only `axiom symbols` can, by not printing a row — which is why
+the discriminator for a declaration form is `symbols`, never `check`.
+That is the same lesson as `(impl ...)` being consumed inertly forever
+until `parseTopForm` shed its own version of this tolerance, and the
+same one `parseSigDecl` records in its comment: *a type this parser
+cannot read is a parse error.*
+
+There were **22** of these fallbacks, all inside `parseAliasDecl`,
+`parseTraitRest` and `parseImplRest`. Every one is now a refusal, so the
+form above is `AX2003` with a span on the `trait` keyword.
+
+### 35.1 The tolerance was holding nothing
+
+Converted and swept over every `.ax` file in the repository: **0 of 273
+change behaviour.** The corpus population of every shape the tolerance
+covered is zero, which is precisely why it survived — the compiler is
+written by one consumer solving its own problems, and that consumer never
+wrote a trait with two method groups.
+
+So the change that would have been risky is free, and the four examples
+that were broken were broken *because* nothing in the tree used them.
+
+### 35.2 What was actually wrong with the examples, isolated
+
+The grammar is fine and the documentation was nearly right. Probing each
+axis separately:
+
+| form | result |
+|---|---|
+| supertrait, one group, split over lines | **OK**, 1 Trait row |
+| supertrait, one group per method | `AX2003` |
+| no supertrait, one group (the docs' *single*-method example) | **OK** |
+| `impl`, one group, two methods | **OK** |
+| `impl`, one group per method | `AX2003` |
+
+Supertraits work. Newlines are irrelevant. The *only* defect is **a
+parenthesised group per method where the grammar wants one group holding
+them all** — and the single-method example, which both files show first,
+is correct, which is why the pair read as consistent.
+
+Both files' examples are corrected to one group, and the corrected blocks
+were extracted from `docs/reference.md` verbatim and compiled: `check`
+OK, two `Trait` rows. A documentation fix that is not run through the
+compiler is the defect it is fixing.
+
+### 35.3 Pinned, and the ablation
+
+`tests/diagnostics/427-trait-group-shape.axbad` and
+`428-alias-missing-eq.axbad`, both `.axbad` because they deliberately do
+not parse and `check-fmt` and `check-tree-sitter` sweep every `.ax`.
+
+Against a compiler built from `34280eb`'s sources both answer **`OK`
+with zero declaration rows**, so the goldens' `AX2003` cannot be
+satisfied by the old code. That is the ablation, and it is also the
+clearest statement of the defect: the old compiler was silent, and
+silence is what a golden cannot record.
+
+### 35.4 Two more documented forms that do not parse, and one stale claim
+
+Found by the same sweep, recorded rather than fixed because each is a
+language decision rather than a defect:
+
+* **`deriving` as a top-level form** (`docs/reference.md:768`) is
+  `AX2003`. `parseTopForm` has no `deriving` head; only the
+  inside-`data`, parenthesised spelling is accepted, and it is consumed
+  and dropped — which `reference.md:1101` already says.
+* **`newtype`** is in the keyword table at `reference.md:244`,
+  `format.ax` formats it and rewrites it to `data`, and the tree-sitter
+  grammar parses it — and `parseTopForm` has no head for it, so it is
+  `AX2003`. Three implementations accept a form the compiler refuses.
+
+And one claim that is simply out of date: `reference.md:993` says
+"Stage1 does not parse `effect`/`handle` yet - neither form appears in the
+self-hosting subset." Both halves are false.
+`tests/selfhost/820-effect-handlers.ax` is in the corpus, and the
+self-hosted compiler checks it OK and runs it to 42.
+
+### 35.5 Two readings of my own that were wrong
+
+Recorded because the corrections are the useful part. Probing `effect`, I
+read `symbols` printing no row for an `effect` declaration as the same
+silent-discard defect — it is not; `symbols` has no effect row at all, so
+the discriminator does not apply there. And I wrote a `handle` in the
+shape `(handle ((op handler)) body)` and read the resulting error as a
+defect in the documented syntax; the real form is `(handle BODY
+(Effects) HANDLER)`, which is what both the corpus and
+`reference.md:946` show. Two false positives, from the same habit the
+repository already warns about: a probe that fails proves the probe ran,
+not that the subject is broken.
+
+### 35.6 The gate that named what the tolerance was holding
+
+`check-degenerate.sh` failed on this change, three cases of 88, and it
+was right to:
+
+```
+FAIL empty-trait:     check exited 1, want 0
+FAIL empty-impl:      check exited 1, want 0
+FAIL empty-type-decl: check exited 1, want 0
+```
+
+`(trait T)`, `(impl T)` and `(type)` are a recognised keyword with a
+shape the parser cannot read, and the bank asserted they were
+**accepted** — because when those expectations were written,
+`skipUnknownDecl` swallowed them and answered `TAG_NIL`. The three `0`s
+were the tolerance, written down as a requirement.
+
+They are `1` now: `AX2003` with a span on the keyword, exit 1, no signal
+on any of the three. The bank still holds its floors — 88 cases against a
+floor of 80, ten distinct diagnostic codes against a floor of six, and
+both outcomes still present, which is the check that stops the bank
+becoming all-refusals.
+
+This is the third time in this repository's history that converting a
+tolerance made a gate fail and the gate turned out to be encoding the
+defect: `parseTopForm`'s version broke the syntax zoo on `(impl ...)`,
+`parseSigDecl`'s broke a fixture that had passed a struct handle to
+`__load64`, and this one asserted that three malformed declarations were
+fine. **A gate written while a tolerance was alive records the tolerance
+as a promise.**

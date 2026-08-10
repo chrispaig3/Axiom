@@ -938,7 +938,7 @@
   (if (peekIs tokens pos TK_IDENT)
       (let ((nr (parseIdentName tokens pos)))
         (if (== (memGetWord nr 0) 0)
-            (skipUnknownDecl tokens origPos)
+            (pErr origPos)
             (let ((name (memGetWord nr 1))
                   (nameSpan (tokenSpan (vecGet tokens pos)))
                   (tvs vecNew))
@@ -952,14 +952,14 @@
                         (strEq (tokenLexeme (vecGet tokens afterTvs)) "="))
                     (let ((tr (parseType tokens (advance afterTvs))))
                       (if (== (memGetWord tr 0) 0)
-                          (skipUnknownDecl tokens origPos)
+                          (pErr origPos)
                           (if (peekIs tokens (memGetWord tr 2) TK_RPAREN)
                               (pOk (mkNodeAt TAG_D_ALIAS name (memGetWord tr 1)
                                              tvs nameSpan)
                                    (advance (memGetWord tr 2)))
-                              (skipUnknownDecl tokens origPos))))
-                    (skipUnknownDecl tokens origPos))))))
-      (skipUnknownDecl tokens origPos)))
+                              (pErr origPos))))
+                    (pErr origPos))))))
+      (pErr origPos)))
 
 ; Type parameters between an alias's name and its `=`: a paren list,
 ; or a bare run of idents that start with a lowercase LETTER.
@@ -998,10 +998,10 @@
                     (parseTraitRest tokens (advance afterTvs) name nameSpan tvs origPos)
                     (let ((hr (skipParens tokens np 1)))
                       (if (== (memGetWord hr 0) 0)
-                          (skipUnknownDecl tokens origPos)
+                          (pErr origPos)
                           (parseTraitRest tokens (memGetWord hr 2) name nameSpan vecNew origPos))))))
-            (skipUnknownDecl tokens origPos)))
-      (skipUnknownDecl tokens origPos)))
+            (pErr origPos)))
+      (pErr origPos)))
 
 ; One recognised supertrait name, threaded on. Only the first is kept:
 ; a second `(...)` group before `where` is an effect list, and there is
@@ -1028,7 +1028,7 @@
       ; skipped, since `symbols` cannot print it.
       (let ((r (skipParens tokens (advance pos) 1)))
         (if (== (memGetWord r 0) 0)
-            (skipUnknownDecl tokens origPos)
+            (pErr origPos)
             (let ((sup (if (peekIs tokens (advance pos) TK_IDENT)
                            (tokenLexeme (vecGet tokens (advance pos)))
                            "")))
@@ -1039,13 +1039,13 @@
           (let ((methods vecNew))
             (let ((mr (parseTraitMethods tokens (advance (advance pos)) methods)))
               (if (== (memGetWord mr 0) 0)
-                  (skipUnknownDecl tokens origPos)
+                  (pErr origPos)
                   (if (peekIs tokens (memGetWord mr 2) TK_RPAREN)
                       (pOk (mkNodeAt TAG_D_TRAIT name methods tvs nameSpan)
                            (advance (memGetWord mr 2)))
-                      (skipUnknownDecl tokens origPos)))))
-          (skipUnknownDecl tokens origPos))
-  (skipUnknownDecl tokens origPos)))))
+                      (pErr origPos)))))
+          (pErr origPos))
+  (pErr origPos)))))
 
 ; `(impl (Trait Type) [(effects)] where ((method expr) ...))`.
 ;
@@ -1062,14 +1062,14 @@
                   (tspan (tokenSpan (vecGet tokens np))))
               (let ((tr (parseType tokens (advance np))))
                 (if (== (memGetWord tr 0) 0)
-                    (skipUnknownDecl tokens origPos)
+                    (pErr origPos)
                     (if (peekIs tokens (memGetWord tr 2) TK_RPAREN)
                         (parseImplRest tokens (advance (memGetWord tr 2))
                                        tname (implTypeName (memGetWord tr 1))
                                        tspan origPos)
-                        (skipUnknownDecl tokens origPos)))))
-            (skipUnknownDecl tokens origPos)))
-      (skipUnknownDecl tokens origPos)))
+                        (pErr origPos)))))
+            (pErr origPos)))
+      (pErr origPos)))
 
 ; A type node's head NAME: `Int` for `Int`, `List` for `(List Int)`,
 ; and the empty string for anything with no name to give (an arrow, a
@@ -1090,7 +1090,7 @@
       ; An effect list, as on a trait: skipped the same way.
       (let ((r (skipParens tokens (advance pos) 1)))
         (if (== (memGetWord r 0) 0)
-            (skipUnknownDecl tokens origPos)
+            (pErr origPos)
             (parseImplRest tokens (memGetWord r 2) tname tyName tspan origPos)))
   (if (&& (peekIs tokens pos TK_IDENT)
           (strEq (tokenLexeme (vecGet tokens pos)) "where"))
@@ -1098,13 +1098,13 @@
           (let ((methods vecNew))
             (let ((mr (parseImplMethods tokens (advance (advance pos)) methods)))
               (if (== (memGetWord mr 0) 0)
-                  (skipUnknownDecl tokens origPos)
+                  (pErr origPos)
                   (if (peekIs tokens (memGetWord mr 2) TK_RPAREN)
                       (pOk (mkNodeAt TAG_D_IMPL tname methods tyName tspan)
                            (advance (memGetWord mr 2)))
-                      (skipUnknownDecl tokens origPos)))))
-          (skipUnknownDecl tokens origPos))
-  (skipUnknownDecl tokens origPos)))))
+                      (pErr origPos)))))
+          (pErr origPos))
+  (pErr origPos)))))
 
 ; `((name expr) ...)` to the closing paren of the `where` group.
 (pub :: parseImplMethods (-> Int Int Int Int))
@@ -1182,6 +1182,26 @@
                 (pErr pos)))
           (pErr pos))))
 
+; A declaration whose HEAD KEYWORD this parser knows and whose SHAPE it
+; cannot read is now a parse error, not a skip. The 22 fallbacks inside
+; `parseAliasDecl`, `parseTraitRest` and `parseImplRest` used to land
+; here, and the consequence was that four forms documented in `README.md`
+; and `docs/reference.md` vanished from the declaration list at exit 0
+; with no diagnostic at all - the multi-method `trait` and `impl`
+; examples, and `(type Count Int)` written without its `=`.
+;
+; `check` could not see it, because a discarded declaration is not an
+; error; only `axiom symbols` could, by not printing a row. That is the
+; same tolerance `parseTopForm` shed earlier, one level down, and the
+; same lesson `parseSigDecl` records: a type this parser cannot read is a
+; parse error.
+;
+; Converted and swept: 0 of 273 `.ax` files change behaviour, because the
+; corpus population of every shape the tolerance was covering is zero -
+; which is exactly why it survived.
+;
+; This function is retained for the one caller left that legitimately
+; wants to consume and ignore, and as the place this note belongs.
 (pub :: skipUnknownDecl (-> Int Int Int))
 (pub fn (skipUnknownDecl tokens pos)
   (let ((r (skipParens tokens pos 1)))

@@ -1,0 +1,9 @@
+[1;31merror[AX2003][0m[1m: syntax error[0m
+ [1;34m--> [0m428-alias-missing-eq.ax:1:2
+[1;34m  |[0m
+[1;34m1 |[0m (type Count Int)
+[1;34m  |[0m  [1;31m^^^^[0m
+[1;34m  |[0m
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX2003` for a full explanation
+
+compilation failed due to 1 previous error
