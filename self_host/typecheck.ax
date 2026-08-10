@@ -3948,6 +3948,7 @@
           (bindFnParams tc params ptys sigTy 0)
           (let ((bodyTy (checkExprH tc (nodeC d) 0)))
             {
+              (checkDeclaredReturn tc d (peelArrows sigTy (vecLen params)) bodyTy)
               (if (&& (!= ent 0)
                       (&& (!= (memGetWord ent 1) 0)
                           (== (nodeTag (memGetWord ent 1)) TAG_T_VAR)))
@@ -3959,6 +3960,59 @@
             })
         })
     }))
+
+; The signature's result type: its arrows peeled by as many
+; parameters as the definition has. 0 when the signature runs out of
+; arrows first, which is the case this cannot say anything about.
+(pub :: peelArrows (-> Int Int Int))
+(pub fn (peelArrows t n)
+  (if (<= n 0)
+      t
+      (if (== t 0)
+          0
+          (if (!= (nodeTag t) TAG_T_ARR)
+              0
+              (peelArrows (nodeB t) (- n 1))))))
+
+; A signature that promises a FUNCTION where the body answers a
+; concrete non-function is refused, because the emitter believes both
+; halves and they disagree about the shape of the call:
+;
+;   (:: g (-> Int Int Int))
+;   (fn (g a) a)
+;   (fn (main) (g 41 2))
+;
+; `check` used to accept that. The call site reads the signature -
+; two parameters, one supplied to the definition, so the second is an
+; application of the RESULT - and emits `call @g(41)` followed by a
+; load of word 0 of the answer as a code pointer. The answer is 41.
+; SIGSEGV, no output, exit 139, on a program `check` called OK.
+;
+; Deliberately narrow. `(-> Int (-> Int Int))` and `(-> Int Int Int)`
+; are the SAME type - the parser right-folds - so arity alone cannot
+; tell a curried return from a wrong one, and a function that really
+; does return a closure (`tests/stdlib/140-function-values.ax`) must
+; keep working. What is refused is only the case where the declared
+; result is an arrow and the body's type is a concrete type that is
+; not one: not a type variable, not poison, not a silent wildcard,
+; all of which mean "not known" rather than "known to be wrong".
+(pub :: checkDeclaredReturn (-> Int Int Int Int Int))
+(pub fn (checkDeclaredReturn tc d want got)
+  (if (== want 0)
+      0
+  (if (!= (nodeTag want) TAG_T_ARR)
+      0
+  (if (== got 0)
+      0
+  (if (== (tyIsErr got) 1)
+      0
+  (if (== (tyIsSilentWild got) 1)
+      0
+  (if (== (nodeTag got) TAG_T_VAR)
+      0
+  (if (== (nodeTag got) TAG_T_ARR)
+      0
+      (emitMismatch tc (tyRender want) (tyRender got) (spanOf (nodeC d)))))))))))
 
 ; Parameter types: peel the signature's arrows left to right. The
 ; walk keeps its own cursor because a non-arrow signature - or none -

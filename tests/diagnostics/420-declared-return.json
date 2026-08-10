@@ -1,0 +1,1 @@
+{"severity":"error","code":"AX3004","slug":"type-mismatch","message":"type mismatch: expected (Int -> Int), found Int","file":"420-declared-return.ax","span":{"start":{"line":2,"col":11},"end":{"line":2,"col":12},"char_start":34,"char_end":35},"label":"this has type `Int`, expected `(Int -> Int)`","related":[],"notes":[],"help":[],"expansion":[]}

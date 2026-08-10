@@ -1,0 +1,9 @@
+[1;31merror[AX3004][0m[1m: type mismatch: expected (Int -> Int), found Int[0m
+ [1;34m--> [0m420-declared-return.ax:2:11
+[1;34m  |[0m
+[1;34m2 |[0m (fn (g a) a)
+[1;34m  |[0m           [1;31m^ this has type `Int`, expected `(Int -> Int)`[0m
+[1;34m  |[0m
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation
+
+compilation failed due to 1 previous error

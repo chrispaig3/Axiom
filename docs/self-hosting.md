@@ -6171,3 +6171,75 @@ Two other gates spoke up, and both were right:
   compiler built and only a program importing `codegen` alone could
   see the hole. The pure helpers now live in `parser.ax` and the pass
   in `expand.ax` — the modules that both consumers already import.
+
+## 23. A signature that promised a function, and a body that answered an Int
+
+Fixed 2026-08-10.
+
+```scheme
+(:: g (-> Int Int Int))
+(fn (g a) a)
+(:: main Int)
+(fn (main) (g 41 2))
+```
+
+`axiom check` said **OK**. Running it was `SIGSEGV`, exit 139, no
+output, and the emitted IR says exactly why:
+
+```llvm
+%t0 = call i64 @g(i64 41)
+%t1 = inttoptr i64 %t0 to ptr
+%t3 = load i64, ptr %t1            ; word 0 of "the closure" g returned
+%t5 = call i64 %f4(i64 %t0, i64 2)
+```
+
+The call site believes the **signature** — two parameters, one of them
+consumed by the definition, so the second argument is an application of
+the *result* — and the callee is the **definition**, which takes one and
+answers an `Int`. The emitter then loads word 0 of `41` as a code
+pointer and calls it.
+
+The checker had no opinion because it never compared the two. It peels
+a signature's arrows to type the parameters and it types the body, and
+those two facts were never put beside each other.
+
+### 23.1 Why arity alone cannot decide it
+
+The obvious check — "the signature has more arrows than the definition
+has parameters" — is wrong, and the reason is in the parser: `->` right-
+folds, so `(-> Int Int Int)` and `(-> Int (-> Int Int))` are **the same
+type**. A function that genuinely returns a closure is written both
+ways, and `tests/stdlib/140-function-values.ax` relies on it:
+
+```scheme
+(pub :: adder (-> Int (-> Int Int)))
+(pub fn (adder n) (lambda (x) (+ x n)))
+```
+
+Two arrows, one parameter, and entirely correct. So the question is not
+how many arrows there are; it is whether the **body** answers the thing
+the signature's result says it does.
+
+### 23.2 The check, deliberately narrow
+
+After the body is checked, its type is compared with the signature's
+result — the arrows peeled by as many parameters as the definition has
+— and the mismatch is refused **only when the declared result is an
+arrow and the body's type is a concrete type that is not one**. A type
+variable, poison and a silent wildcard all mean *not known* rather than
+*known to be wrong*, and this compiler under-reports on purpose; they
+are all left alone.
+
+That is the whole of the segfault shape and nothing else. Measured
+against a compiler built from `689934a` over all **263** `.ax` files in
+`stdlib/`, `self_host/` and `tests/`: **0 divergences**, so it costs no
+existing program a diagnostic. Both spellings of a genuine curried
+return still compile and answer 42.
+
+`tests/diagnostics/420-declared-return.ax` pins it, and the message is
+the ordinary one:
+
+```
+error[AX3004]: type mismatch: expected (Int -> Int), found Int
+ --> 420-declared-return.ax:2:11
+```
