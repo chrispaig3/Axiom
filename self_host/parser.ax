@@ -1207,6 +1207,21 @@
 ; application - probed via `axiom symbols` rendering `(Int, Bool)`.
 ; stage1 lexes both as plain idents, so the keyword set is spelled out
 ; here. `Integer` canonicalises to `Int`, everything else to itself.
+;
+; `Unit` is in this list because `docs/reference.md` and `README.md`
+; both document it as a type and `tests/fmt/syntax-zoo.expected.ax`
+; declares `(:: unitArg (-> Unit Int))`, while this list had omitted
+; it - so `Unit` became a bare unresolvable `TAG_T_CON` that nothing
+; asked about. Resolving signature types (`tcCheckSigTypes`) is what
+; surfaced it; before that, the omission had no observable effect.
+;
+; It canonicalises to itself, NOT to the empty tuple, which is what
+; `docs/reference.md`'s "`Unit` / `()`" spelling claims they share.
+; They do not, and did not before this: `symbols` already renders
+; `(:: a (-> () Int))` as `(() -> Int)` and `(:: b (-> Unit Int))` as
+; `(Unit -> Int)`. Making them one type is a semantic change with a
+; golden behind it; naming the type the documentation promises is not,
+; so only the second is done here and the first is recorded.
 ; ------------------------------------------------------------------
 (pub :: typeKeywordCanon (-> Int Int))
 (pub fn (typeKeywordCanon n)
@@ -1214,6 +1229,7 @@
   (if (strEq n "Float") "Float" (if (strEq n "Double") "Double"
   (if (strEq n "Bool") "Bool" (if (strEq n "Char") "Char"
   (if (strEq n "String") "String" (if (strEq n "Void") "Void"
+  (if (strEq n "Unit") "Unit"
   (if (strEq n "Any") "Any"
   (if (strEq n "I8") "I8" (if (strEq n "I16") "I16"
   (if (strEq n "I32") "I32" (if (strEq n "I64") "I64"
@@ -1222,7 +1238,7 @@
   (if (strEq n "U32") "U32" (if (strEq n "U64") "U64"
   (if (strEq n "U128") "U128" (if (strEq n "Usize") "Usize"
   (if (strEq n "F32") "F32" (if (strEq n "F64") "F64"
-  0))))))))))))))))))))))))
+  0)))))))))))))))))))))))))
 
 (pub :: lexStartsLower (-> Int Int))
 (pub fn (lexStartsLower s)

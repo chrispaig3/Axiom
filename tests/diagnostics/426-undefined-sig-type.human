@@ -1,0 +1,10 @@
+[1;31merror[AX3002][0m[1m: undefined type `Nonexistent`[0m
+ [1;34m--> [0m426-undefined-sig-type.ax:1:5
+[1;34m  |[0m
+[1;34m1 |[0m (:: g (-> Nonexistent Int))
+[1;34m  |[0m     [1;31m^ no type named `Nonexistent` is visible here[0m
+[1;34m  |[0m
+ [1;34m = [0m[1;32mhelp: [0mcheck for typos, or a missing `data`/`struct`/`type` declaration
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3002` for a full explanation
+
+compilation failed due to 1 previous error

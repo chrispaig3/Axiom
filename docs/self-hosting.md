@@ -6622,3 +6622,123 @@ Resolving type-constructor names in signature and annotation position is
 one pass that closes both, and it is the next slice rather than this one —
 it needs a decision about parameterised aliases and it moves diagnostics
 on programs this one leaves alone.
+
+## 30. A type name in a signature was never resolved against anything
+
+Fixed 2026-08-10.
+
+```scheme
+(:: g (-> Nonexistent Int))
+(fn (g x) 1)
+(fn (main) (g 5))
+```
+
+```
+$ axiom check
+error[AX3004]: type mismatch: expected Nonexistent, found Int
+ --> u.ax:4:15
+  |
+4 | (fn (main) (g 5))
+  |               ^ this has type `Int`, expected `Nonexistent`
+```
+
+The typo is on line 1 and the diagnostic is on line 4, blaming the
+caller's `Int` for the declarer's mistake. `parseTypeAtom` turns every
+capitalised name that is not one of `typeKeywordCanon`'s primitives into
+a bare `TAG_T_CON` (`parser.ax:1261-1266`), and nothing ever asked
+whether it named anything: **`AX3002 undefined-type` had exactly one
+construction site in `typecheck.ax`, and it is the `(struct Name ...)`
+expression.** No signature, annotation or field type had been resolved
+against the type namespace at all — which is also why `explain.ax`'s own
+`AX3002` text ("This type name does not refer to any built-in type,
+`data`, `struct`, or `type` alias visible in this module") described a
+check that did not exist.
+
+`tcCheckSigTypes` now runs once after `tcCollect`, because a signature
+may name a type declared later in the file or in another module. It
+reports the first unresolvable constructor per signature:
+
+```
+error[AX3002]: undefined type `Nonexistent`
+ --> u.ax:1:5
+  |
+1 | (:: g (-> Nonexistent Int))
+  |     ^ no type named `Nonexistent` is visible here
+```
+
+Type **variables** need no check — `lexStartsLower` sends every
+lowercase-initial name to `TAG_T_VAR` before this can see it, so the
+subject is exactly the capitalised names. The diagnostic sits on the
+signature's own name span because a type node carries no span of its own
+(`mkTCon` is `mkNode`, not `mkNodeAt`), and only the first bad
+constructor in a signature is named: pointing several at one span would
+print the same caret twice.
+
+Existence is asked **ignoring visibility** — `findDataFrom` and
+`findStructFrom` skip their privacy filter when `privs` is 0. Reaching a
+type another module keeps private is `AX3023`'s subject, and answering
+`AX3002` for it would say "no such type" about one that exists.
+
+### 30.1 The cascade this had to suppress
+
+The first version reported the AX3002 and then let every call site
+report as well: one bad signature and four calls gave **five errors**,
+which is the cascade the poison discipline at the top of `typecheck.ax`
+exists to prevent, and which the sibling AX3002 site already avoids by
+answering `TAG_T_ERR`. `tyPoisonUnknown` rebuilds the signature with each
+unresolvable constructor replaced by poison and stores that in `FnEnt`
+word 1, so the declaration is the only thing reported.
+
+The arrow shape is preserved rather than poisoning the type wholesale,
+because `peelArrows` and `bindFnParams` read it and a *non-arrow*
+signature means "every parameter is `Int`" to them — poisoning wholesale
+would quietly retype the parameters instead of excusing them. A fresh
+tree is built rather than the nodes edited, because the declaration's own
+`ty` slot is what `symbols` renders and only the checker's copy should
+carry poison. Verified: `axiom symbols` is byte-identical on all **272**
+`.ax` files.
+
+### 30.2 The check immediately found a type the documentation promises
+
+`tests/fmt/syntax-zoo.expected.ax:393` declares `(:: unitArg (-> Unit
+Int))`, and `Unit` was **not** in `typeKeywordCanon`. Both `README.md`
+and `docs/reference.md` document it as a type; `format.ax:2259` prints
+it; the parser's canonical list omitted it, so it became a bare
+unresolvable constructor that nothing had ever asked about. Four
+implementations, and the only pair anything compared was the formatter
+against the corpus.
+
+`Unit` is now in the list, canonicalising to itself. It is deliberately
+**not** made equal to the empty tuple, which is what
+`docs/reference.md`'s "`Unit` / `()`" spelling claims they share. They do
+not, and did not before this — `symbols` already renders `(:: a (-> ()
+Int))` as `(() -> Int)` and `(:: b (-> Unit Int))` as `(Unit -> Int)`.
+Naming the type the documentation promises is a no-op on every golden;
+making the two one type is a semantic change with goldens behind it. Only
+the first is done here.
+
+### 30.3 What this does not reach, and why aliases are still a slice
+
+`type` aliases remain opaque. An alias name now counts as *known*, so it
+draws no AX3002 — an alias is a declaration and saying "undefined type"
+about it would be false — but `tcAliases` is still read by nothing else,
+so `(type Count = Int)` declares a name that compares equal to nothing
+and `docs/reference.md:807`'s promise that an alias and its target are
+interchangeable is still false.
+
+Making it transparent is a larger change than it looks, and the reason is
+in the node beside the type. `parseSigDecl` stores per-arrow **float
+flags** in the declaration's `b` slot, reconstructed at *parse* time
+because float-ness of a value is not observable at runtime and there is
+no type checker left by emission time; codegen keys on that exact shape.
+Expanding `(type F = Float)` in the checker alone would have the checker
+say `Float` where the emitter still says `Int` — trading a missing
+diagnostic for a wrong answer, which is the trade this repository twice
+records as the wrong one. The alias slice therefore has to expand where
+the flags are computed, or recompute them, and that is a decision with a
+measurement behind it rather than a line.
+
+Struct field and `data` constructor argument types are also still
+unresolved. Measured, so the size is known: **50** `struct`/`data`
+declarations and **214** annotated fields in `self_host/` + `stdlib/`,
+with zero undeclared type names among them.

@@ -669,6 +669,10 @@
                               vecNew vecNew (collectPrivates allDecls vecNew 0)))))
         {
           (tcCollect tc allDecls 0)
+          ; Type constructors named in signatures, once collection has
+          ; seen every `data`/`struct`/`type` - a signature may name a
+          ; type declared later in the file or in another module.
+          (tcCheckSigTypes tc allDecls 0)
           ; The ambiguity table, once: builtins are module-less
           ; winners and have no declaration to walk, so they are
           ; seeded rather than collected.
@@ -1140,6 +1144,187 @@
                 e
                 (findDataFrom datas name privs curMod (+ i 1)))
             (findDataFrom datas name privs curMod (+ i 1))))))
+
+; ------------------------------------------------------------------
+; Type constructors named in a SIGNATURE.
+;
+; `parseTypeAtom` turns every capitalised name that is not one of
+; `typeKeywordCanon`'s primitives into a bare `TAG_T_CON`, and nothing
+; ever asked whether it named anything (`parser.ax:1261-1266`). So
+;
+;   (:: g (-> Nonexistent Int))
+;   (fn (g x) 1)
+;   (fn (main) (g 5))
+;
+; was accepted, and the diagnostic that eventually arrived was an
+; AX3004 at the CALLER - blaming the caller's `Int` for the declarer's
+; typo. AX3002 had exactly one construction site in this file and it
+; is the `(struct Name ...)` expression, so no signature, annotation
+; or field type had ever been resolved against anything.
+;
+; Type VARIABLES need no check: `lexStartsLower` sends every
+; lowercase-initial name to `TAG_T_VAR` before this can see it. So the
+; subject here is exactly the capitalised names.
+;
+; Anchoring: a type node carries NO span - `mkTCon` is `mkNode`, not
+; `mkNodeAt` - so the diagnostic sits on the signature's own name span,
+; and only the FIRST unknown constructor in a signature is reported.
+; Pointing every one of them at that same span would print the same
+; caret twice for `(-> Nope Nope)`, and this repository's rule for a
+; shape it kept no span for is to say less rather than to mis-point.
+; ------------------------------------------------------------------
+(pub :: tcAliasFind (-> Int Int Int))
+(pub fn (tcAliasFind tc name)
+  (tcAliasFindFrom (tcAliases tc) name 0))
+
+(pub :: tcAliasFindFrom (-> Int Int Int Int))
+(pub fn (tcAliasFindFrom av name i)
+  (if (>= i (vecLen av))
+      0
+      (if (strEq (nodeA (vecGet av i)) name)
+          (vecGet av i)
+          (tcAliasFindFrom av name (+ i 1)))))
+
+; Existence, deliberately IGNORING visibility. `findDataFrom` and
+; `findStructFrom` skip their privacy filter when `privs` is 0, and
+; that is what is wanted: reaching a type another module keeps private
+; is AX3023's subject, and answering AX3002 for it would say "no such
+; type" about one that exists.
+;
+; An ALIAS name counts as known even though `tcAliases` is still read
+; by nothing else. An alias is a declaration; saying "undefined type"
+; about it would be false. Making it TRANSPARENT is a separate slice
+; and a larger one - `parseSigDecl` stores per-arrow float flags in
+; the node's `b` slot beside this type, reconstructed at PARSE time
+; because float-ness is not observable at runtime, and codegen keys on
+; that exact shape. Expanding `(type F = Float)` in the checker alone
+; would have the checker say `Float` where the emitter still says
+; `Int` - trading a missing diagnostic for a wrong answer, which is
+; the trade this repository twice records as the wrong one.
+(pub :: tyConKnown (-> Int Int Int))
+(pub fn (tyConKnown tc name)
+  (if (!= (typeKeywordCanon name) 0)
+      1
+  (if (strEq name "Linear")
+      1
+  (if (!= (findDataFrom (tcDatas tc) name 0 0 0) 0)
+      1
+  (if (!= (findStructFrom (tcStructs tc) name 0 0 0) 0)
+      1
+  (if (!= (tcAliasFind tc name) 0)
+      1
+      0))))))
+
+; The name of the first type constructor in `t` that resolves to
+; nothing, or 0. A known head with an unknown ARGUMENT is still a
+; miss, so `(Box Nope)` reports `Nope`.
+(pub :: tyUnknownCon (-> Int Int Int))
+(pub fn (tyUnknownCon tc t)
+  (if (== t 0)
+      0
+      (if (== (nodeTag t) TAG_T_CON)
+          (if (== (tyConKnown tc (nodeA t)) 0)
+              (nodeA t)
+              (tyUnknownConVec tc (nodeB t) 0))
+      (if (== (nodeTag t) TAG_T_ARR)
+          (if (!= (tyUnknownCon tc (nodeA t)) 0)
+              (tyUnknownCon tc (nodeA t))
+              (tyUnknownCon tc (nodeB t)))
+      (if (== (nodeTag t) TAG_T_TUP)
+          (tyUnknownConVec tc (nodeA t) 0)
+      (if (== (nodeTag t) TAG_T_LIST)
+          (tyUnknownCon tc (nodeA t))
+      (if (== (nodeTag t) TAG_T_PTR)
+          (tyUnknownCon tc (nodeA t))
+          0)))))))
+
+(pub :: tyUnknownConVec (-> Int Int Int Int))
+(pub fn (tyUnknownConVec tc xs i)
+  (if (>= i (vecLen xs))
+      0
+      (if (!= (tyUnknownCon tc (vecGet xs i)) 0)
+          (tyUnknownCon tc (vecGet xs i))
+          (tyUnknownConVec tc xs (+ i 1)))))
+
+; One pass over the resolved declaration list, after `tcCollect` has
+; registered every `data`, `struct` and `type` - a signature may name
+; a type declared later in the file, or in another module.
+(pub :: tcCheckSigTypes (-> Int Int Int Int))
+(pub fn (tcCheckSigTypes tc decls i)
+  (if (>= i (vecLen decls))
+      0
+      {
+        (if (== (nodeTag (vecGet decls i)) TAG_D_SIG)
+            (tcCheckSigTypeOf tc (vecGet decls i))
+            0)
+        (tcCheckSigTypes tc decls (+ i 1))
+      }))
+
+(pub :: tcCheckSigTypeOf (-> Int Int Int))
+(pub fn (tcCheckSigTypeOf tc d)
+  (let ((bad (tyUnknownCon tc (nodeTy d))))
+    (if (== bad 0)
+        0
+        {
+          (if (== (nodeSpan d) 0)
+              0
+              (emitDiag tc
+                (diagSetLabel (mkDiag SEV_ERROR "AX3002" "undefined-type"
+                        (nodeSpan d)
+                        (strConcat (strConcat "undefined type `" bad) "`")
+                        0 0
+                        "check for typos, or a missing `data`/`struct`/`type` declaration")
+                  (strConcat (strConcat "no type named `" bad) "` is visible here"))))
+          (let ((ent (findFnEntExact (tcFns tc) (nodeA d) 0)))
+            (if (== ent 0)
+                0
+                (memSetWord ent 1 (tyPoisonUnknown tc (nodeTy d)))))
+        })))
+
+; The same type with every unresolvable constructor replaced by
+; poison, the structure kept. `tyCompat` treats poison as compatible
+; with everything, so the one AX3002 at the declaration becomes the
+; only thing reported: without this a signature naming an undefined
+; type drew a further AX3004 at every CALL SITE - measured, one bad
+; signature and four calls gave five errors, which is the cascade the
+; poison discipline at the top of this file exists to prevent, and
+; what the sibling AX3002 site already does by answering `TAG_T_ERR`.
+;
+; The arrow shape is preserved rather than poisoning the whole type,
+; because `peelArrows` and `bindFnParams` read it and a NON-arrow
+; signature means "every parameter is Int" to them - so poisoning
+; wholesale would quietly retype the parameters instead of excusing
+; them.
+;
+; A fresh tree is built rather than the nodes edited: the declaration's
+; own `ty` slot is what `symbols` renders, and only the checker's copy
+; in `FnEnt` word 1 should carry poison.
+(pub :: tyPoisonUnknown (-> Int Int Int))
+(pub fn (tyPoisonUnknown tc t)
+  (if (== t 0)
+      0
+      (if (== (nodeTag t) TAG_T_CON)
+          (if (== (tyConKnown tc (nodeA t)) 0)
+              mkTErr
+              (mkTCon (nodeA t) (tyPoisonUnknownVec tc (nodeB t) vecNew 0)))
+      (if (== (nodeTag t) TAG_T_ARR)
+          (mkTArr (tyPoisonUnknown tc (nodeA t)) (tyPoisonUnknown tc (nodeB t)))
+      (if (== (nodeTag t) TAG_T_TUP)
+          (mkTTup (tyPoisonUnknownVec tc (nodeA t) vecNew 0))
+      (if (== (nodeTag t) TAG_T_LIST)
+          (mkNode TAG_T_LIST (tyPoisonUnknown tc (nodeA t)) 0 0)
+      (if (== (nodeTag t) TAG_T_PTR)
+          (mkTPtr (tyPoisonUnknown tc (nodeA t)) (nodeB t))
+          t)))))))
+
+(pub :: tyPoisonUnknownVec (-> Int Int Int Int Int))
+(pub fn (tyPoisonUnknownVec tc xs out i)
+  (if (>= i (vecLen xs))
+      out
+      {
+        (vecPush out (tyPoisonUnknown tc (vecGet xs i)))
+        (tyPoisonUnknownVec tc xs out (+ i 1))
+      }))
 
 ; A struct's field type by name, or -1 when absent. Fields are the
 ; parser's TAG_FIELD nodes: name in a, parsed type in ty.

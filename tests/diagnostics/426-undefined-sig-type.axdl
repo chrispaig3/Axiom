@@ -1,0 +1,1 @@
+E AX3002 426-undefined-sig-type.ax:1:5-6 undefined-type "undefined type `Nonexistent`" #"no type named `Nonexistent` is visible here" ?"check for typos, or a missing `data`/`struct`/`type` declaration"
