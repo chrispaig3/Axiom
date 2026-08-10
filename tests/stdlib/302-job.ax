@@ -1,0 +1,116 @@
+; A bounded pool of child processes, joined in submit order.
+;
+; `Sys` has always had the unfused pair - `sysSpawn` and `sysWaitPid`
+; take an explicit pid - and nothing had ever used it that way. `Job`
+; is that pair with a width bound, and this case is chosen to fail
+; loudly on each of the three things that can go wrong rather than
+; merely to observe that something ran.
+;
+; THE DISCRIMINATING TERMS, and what each one alone would catch:
+;
+;   1. ORDER. Eight children exit with eight DIFFERENT codes, and the
+;      slowest-submitted finishes first: slot i sleeps for (8-i)
+;      hundredths before exiting i+10. A pool that answered in
+;      completion order would print them exactly reversed, and a pool
+;      that answered in submit order prints them ascending. A test
+;      whose children all exited 0, or all took the same time, could
+;      not tell those two pools apart.
+;
+;   2. THE SLICE. One argument is a `strSlice` of a longer string
+;      rather than a literal. `strCStr` is `strData` and nothing more,
+;      so a slice is NUL-terminated only by accident of what follows it
+;      in memory; `jobArgvVector` must `strDup` every element. Ablated
+;      (dropping the strDup), this term makes `sh` receive an argument
+;      with trailing garbage and exit non-zero, so it shows up as a
+;      wrong code rather than as a crash.
+;
+;   3. THE MISSING PROGRAM. A command that does not exist must answer a
+;      NEGATIVE errno - the child never ran - and must still occupy its
+;      own slot, so that every later result keeps its index. Conflating
+;      "could not start it" with "it exited 127" is the distinction
+;      `Sys.ax` goes out of its way to preserve in `sysRun`, and a
+;      failed submission that consumed no slot would silently shift
+;      every subsequent answer by one.
+;
+; Width 3 against 8 submissions, so the pool genuinely blocks and reaps
+; mid-run rather than spawning everything at once.
+
+(import IO)
+(import Sys)
+(import Str)
+(import Fmt)
+(import Vec)
+(import Job)
+
+(pub :: sh3 (-> Int Int))
+(pub fn (sh3 script)
+  (let ((v vecNew))
+    {
+      (vecPush v "/bin/sh")
+      (vecPush v "-c")
+      (vecPush v script)
+      v
+    }))
+
+; `sleep 0.0N; exit CODE`, with the sleep DESCENDING as the code
+; ascends, so completion order is the reverse of submit order.
+(pub :: staggered (-> Int Int))
+(pub fn (staggered i)
+  (sh3 (strConcat (strConcat "sleep 0.0" (fmtInt (- 8 i)))
+                  (strConcat "; exit " (fmtInt (+ i 10))))))
+
+(pub :: main Int)
+;@axiom:effect(io)
+(pub fn (main)
+  (let ((cmds vecNew)
+        (mut i 0))
+    {
+      (while (< i 8)
+        {
+          (vecPush cmds (staggered i))
+          (set i (+ i 1))
+        })
+
+      ; Term 1: order under a deliberately reversed completion order.
+      (let ((res (jobRunAll cmds 3))
+            (mut k 0))
+        {
+          (println "submit order")
+          (while (< k (vecLen res))
+            {
+              (printlnInt (vecGet res k))
+              (set k (+ k 1))
+            })
+        })
+
+      ; Term 2: an argument that is a SLICE, not a literal. "exit 23" is
+      ; carved out of a longer string, so its bytes do not end where the
+      ; `Str` does.
+      (let ((long "XXexit 23YYYY")
+            (c2 vecNew))
+        {
+          (vecPush c2 (sh3 (strSlice long 2 7)))
+          (println "slice argument")
+          (printlnInt (vecGet (jobRunAll c2 2) 0))
+        })
+
+      ; Term 3: a program that does not exist keeps its own slot, and
+      ; answers negative rather than 127.
+      (let ((c3 vecNew)
+            (miss vecNew))
+        {
+          (vecPush miss "/nonexistent/definitely-not-here")
+          (vecPush c3 (sh3 "exit 5"))
+          (vecPush c3 miss)
+          (vecPush c3 (sh3 "exit 6"))
+          (let ((r3 (jobRunAll c3 3)))
+            {
+              (println "missing program")
+              (printlnInt (vecLen r3))
+              (printlnInt (vecGet r3 0))
+              (println (if (< (vecGet r3 1) 0) "negative" "NOT-NEGATIVE"))
+              (printlnInt (vecGet r3 2))
+            })
+        })
+      0
+    }))

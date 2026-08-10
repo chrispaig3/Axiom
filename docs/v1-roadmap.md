@@ -974,12 +974,46 @@ Item 2 landed ahead of the memory model: the representation change
 needed nothing from the allocator, only a runtime immediate-vs-pointer
 guard at match sites over mixed types.
 
-### 4.4 Concurrency — delegated to third-party libraries
+### 4.4 Concurrency — no language support, and a standard-library module
 
-Concurrency is not a native feature of Axiom. The design below is preserved
-as guidance for a future third-party library, but the compiler and standard
-library will not ship with native concurrency primitives, a task scheduler,
-or constructors like `parMap`.
+Concurrency is not a native feature of Axiom, and this section's reasoning
+is unchanged. **What changed on 2026-08-09 is only where the library
+lives**: `stdlib/Job.ax` ships, because it turned out to need nothing from
+the compiler at all, and the compiler is its first consumer.
+
+This section used to end "the compiler and standard library will not ship
+with native concurrency primitives, a task scheduler, or constructors like
+`parMap`". Read against what shipped: there is still no language support,
+no scheduler in the compiler, and no new primitive — `Job` is `sysSpawn`
+and `sysWaitPid`, which have been separate public functions taking an
+explicit pid since the driver needed them, with a width bound on the pair.
+Only `sysRun` fused them, and every caller used `sysRun`, so every external
+tool this project has ever invoked ran one at a time.
+
+**Processes, not threads, and that is forced rather than chosen.** macOS
+cannot have OS threads in a freestanding binary, twice over: thread
+creation needs `bsdthread_register` and Mach-O has no local-exec TLS, so
+`__thread` lowers to `tlv_get_addr` — both libSystem, and the language has
+no construct that can name an external symbol (`foreign` is `AX2004`, and
+`check-freestanding.sh` gates that it stays refused).
+
+Processes also make this section's own safety claim true by construction
+rather than by discipline. All seven process-wide mutable globals — the
+five allocator words and the per-effect evidence slots — are private after
+a `fork` and fresh after an `exec`. The allocator needs no atomics, no
+lock and no TLS; the effect-slot save/restore stack inherits correctly for
+free. That is why the module needed no compiler change.
+
+**Measured**: eight `sleep 0.5` children take 4.61s at width 1 and 0.93s at
+width 8. Results are answered in **submit order, always** — a pool whose
+output depended on which core was free would make a whole class of
+byte-comparing gates nondeterministic, so completion order is not exposed
+at all. `tests/stdlib/302-job.ax` pins it with children whose completion
+order is deliberately the reverse of their submit order; ablated to
+`waitpid(-1)` it prints `12 11 10 13 15 14 17 16` instead of ascending.
+
+The rest of this section stands as written, and the design guidance below
+is what `Job` follows.
 
 **Rationale.** Axiom's memory model (arena inference, linear types) already
 prevents data races by construction — no mutable aliasing is constructible.

@@ -539,7 +539,7 @@ If you're unsure about how something works or where to make a change, open an is
 | Loops | **Missing** | Iteration is recursion; `--opt 1`+ turns tail recursion into a loop |
 | Linear types | **Parsed only** | `linear T`, `consume` — the ownership facts the memory model needs |
 | Macros | **Partial** | Substitution expansion before sema, hygienic in the binder direction, arity- and depth-checked. One pattern per macro, no repetition, no declaration-level macros, no `derive`. See [docs/macros.md](docs/macros.md) for what is measured and what is not. This row read "**Complete** — Pattern-substitution expansion before sema with hygiene" until 2026-08-09, and every clause of it was false: expansion ran inside codegen *after* the checker, there was no hygiene of any kind, and there were no patterns |
-| Concurrency | **Delegated** | External/third-party library concern; memory model provides safety foundation |
+| Concurrency | **Library** | `stdlib/Job.ax`: a bounded pool of child processes over `Sys`'s `sysSpawn`/`sysWaitPid`, submit-order results. No language support, no compiler change. Processes, not threads - a freestanding binary cannot create an OS thread on macOS |
 | Editor support | **Functional** | Tree-sitter grammar with highlighting queries, and `axiom lsp` — lifecycle, full-text sync, `publishDiagnostics` and `documentSymbol` over JSON-RPC (`self_host/lsp.ax`, gated by `scripts/check-lsp-selfhost.sh`). Hover, completion and go-to-definition are not implemented. This row said "no LSP yet" until 2026-08-09, three commits after the server landed |
 | Imports | **Functional** | `(import Mod.Sub ...)` with transitive/diamond-safe resolution, qualified access |
 

@@ -1,0 +1,238 @@
+; A bounded pool of child processes, joined in SUBMIT order.
+;
+; The substrate for this already shipped and nothing used it. `sysSpawn`
+; and `sysWaitPid` have always been separate public functions taking an
+; explicit pid, and only `sysRun` fuses them into "start one, wait for
+; it, answer its code". Every caller in the compiler uses `sysRun`, so
+; every external tool this project has ever invoked - `opt`, `llc`, `cc`
+; - has run one at a time on a machine with cores to spare.
+;
+; This module is the unfused pair with a width bound on it, and nothing
+; more. No new syscall, no new compiler support, no new language
+; feature. It works on all four targets today because `sysSpawn` already
+; does: `posix_spawn` on Darwin, `fork`+`execve` on Linux, chosen by the
+; `spawnUsesPosixSpawn` capability rather than by naming an OS.
+;
+; WHY THE RESULT ORDER IS THE SUBMIT ORDER, ALWAYS.
+;
+; A pool that answers in completion order is a pool whose output depends
+; on which core was free, and this project compares bytes for a living -
+; the self-hosting fixpoint, every golden, every renderer gate. An
+; ordering that varies with scheduling would make a whole class of gates
+; nondeterministic, and the nondeterminism would show up as a flake in
+; something unrelated. So `jobWaitAll` walks the slots in the order they
+; were submitted and answers a Vec indexed the same way. Completion
+; order is not exposed at all; there is deliberately no API for it.
+;
+; WIDTH BOUNDS RUNNING CHILDREN, NOT SUBMISSIONS. `jobSubmit` blocks
+; when the pool is full, reaping the oldest outstanding child to make
+; room. That keeps the caller's loop simple - submit everything, then
+; join - without letting a thousand-case sweep fork a thousand
+; processes.
+;
+; THE ERROR CONTRACT IS `sysRun`'S, EXACTLY, because a caller that
+; already handles `sysRun`'s answers should not have to learn a second
+; scheme:
+;
+;   >= 0   the child's exit code
+;   128+n  the child was killed by signal n
+;   < 0    the spawn's own -errno: the child NEVER RAN
+;
+; That last distinction is the one a driver must not lose - "could not
+; start llc" and "llc rejected the module" are different failures, and
+; `Sys.ax` says so where `sysRun` is defined.
+
+(import Mem)
+(import Str)
+(import Vec)
+(import Sys)
+
+; A pool is a 4-word record:
+;
+;   0  width      the maximum number of children running at once
+;   1  pids       Vec of child pids, indexed by slot; 0 once reaped
+;   2  codes      Vec of results, indexed by slot; `jobPending` until reaped
+;   3  live       how many entries of `pids` are still unreaped
+;
+; `pids` and `codes` are parallel and pushed in lockstep - the discipline
+; `codegen.ax`'s `bares`/`fulls` pair records the hard way. Every write
+; below appends to both or to neither.
+(pub struct JobPool (width : Int) (pids : Int) (codes : Int) (live : Int))
+
+; The sentinel a slot's result holds before it has been reaped. It is
+; outside `sysRun`'s whole range - exit codes are 0..255, signal deaths
+; are 128+n, and spawn failures are negative errnos, none of which reach
+; -1000 - so it cannot be mistaken for an answer.
+(pub :: jobPending Int)
+(pub fn (jobPending) (- 0 1000))
+
+(pub :: jobWidth (-> Int Int))   (pub fn (jobWidth p) (memGetWord p 0))
+(pub :: jobPids (-> Int Int))    (pub fn (jobPids p) (memGetWord p 1))
+(pub :: jobCodes (-> Int Int))   (pub fn (jobCodes p) (memGetWord p 2))
+(pub :: jobLive (-> Int Int))    (pub fn (jobLive p) (memGetWord p 3))
+
+; A width below 1 would submit nothing and join forever, so it is
+; clamped rather than trusted. `width` 1 is meaningful and is the
+; default a gate should use when it wants reproducibility: the pool
+; then behaves exactly like a sequence of `sysRun` calls.
+(pub :: jobPoolNew (-> Int Int))
+(pub fn (jobPoolNew width)
+  (JobPool (if (< width 1) 1 width) vecNew vecNew 0))
+
+; Reap the oldest slot that is still outstanding, recording its result.
+; Answers 1 if it reaped one, 0 if there was nothing to reap.
+(pub :: jobReapOldest (-> Int Int))
+;@axiom:effect(io)
+(pub fn (jobReapOldest p)
+  (let ((pids (jobPids p))
+        (codes (jobCodes p))
+        (mut i 0)
+        (mut done 0))
+    {
+      (while (&& (== done 0) (< i (vecLen pids)))
+        (let ((pid (vecGet pids i)))
+          (if (== pid 0)
+              (set i (+ i 1))
+              {
+                (vecSet codes i (jobStatusToCode (sysWaitPid pid)))
+                (vecSet pids i 0)
+                (memSetWord p 3 (- (jobLive p) 1))
+                (set done 1)
+              })))
+      done
+    }))
+
+; `sysRun`'s reading of a raw wait status, kept identical to it.
+(pub :: jobStatusToCode (-> Int Int))
+(pub fn (jobStatusToCode st)
+  (if (< st 0)
+      st
+      (if (!= (sysTermSignal st) 0)
+          (+ 128 (sysTermSignal st))
+          (sysExitCode st))))
+
+; Start `path` with `argv` and `envp`, answering the slot it was given.
+;
+; Blocks first if the pool is already at width. A spawn that fails is
+; recorded in its slot as the negative errno and occupies no child, so
+; the caller still gets one answer per submission and still gets them in
+; order - a failed submission must not shift every later result by one.
+(pub :: jobSubmit (-> Int Int Int Int Int))
+;@axiom:effect(io)
+(pub fn (jobSubmit p path argv envp)
+  {
+    ; The loop exits on `jobReapOldest` answering 0 as well as on the
+    ; pool draining. `live` and the `pids` Vec are two views of the same
+    ; fact, and a loop that trusted only the counter would spin forever
+    ; if they ever disagreed - which is the shape of hang this project
+    ; has already met once, in the parser's effect-list loops that
+    ; consumed no token on an unrecognised one.
+    (let ((mut more 1))
+      (while (&& (== more 1) (>= (jobLive p) (jobWidth p)))
+        (set more (jobReapOldest p))))
+    (let ((slot (vecLen (jobPids p)))
+          (pid (sysSpawn path argv envp)))
+      (if (< pid 0)
+          {
+            (vecPush (jobPids p) 0)
+            (vecPush (jobCodes p) pid)
+            slot
+          }
+          {
+            (vecPush (jobPids p) pid)
+            (vecPush (jobCodes p) jobPending)
+            (memSetWord p 3 (+ (jobLive p) 1))
+            slot
+          }))
+  })
+
+; Wait for every outstanding child and answer the Vec of results, in
+; SUBMIT order. Safe to call more than once; the second call finds
+; nothing live and answers the same Vec.
+(pub :: jobWaitAll (-> Int Int))
+;@axiom:effect(io)
+(pub fn (jobWaitAll p)
+  {
+    (while (> (jobLive p) 0) (jobReapOldest p))
+    (jobCodes p)
+  })
+
+; The result in one slot, waiting for it if it has not been reaped.
+(pub :: jobWait (-> Int Int Int))
+;@axiom:effect(io)
+(pub fn (jobWait p slot)
+  (let ((pids (jobPids p)))
+    (if (|| (< slot 0) (>= slot (vecLen pids)))
+        jobPending
+        {
+          (let ((pid (vecGet pids slot)))
+            (if (== pid 0)
+                0
+                {
+                  (vecSet (jobCodes p) slot (jobStatusToCode (sysWaitPid pid)))
+                  (vecSet pids slot 0)
+                  (memSetWord p 3 (- (jobLive p) 1))
+                  0
+                }))
+          (vecGet (jobCodes p) slot)
+        })))
+
+; Run every command in `cmds` at up to `width` at once, answering their
+; exit codes in the order they appear in `cmds`.
+;
+; `cmds` is a Vec of Vecs: each inner Vec is an argv whose element 0 is
+; the program, exactly as `sysRunPath` expects, and it is looked up on
+; PATH the same way. This is the shape a gate script wants - a list of
+; cases, a width, and an answer per case in the order it was listed.
+(pub :: jobRunAll (-> Int Int Int))
+;@axiom:effect(io)
+(pub fn (jobRunAll cmds width)
+  (let ((p (jobPoolNew width))
+        (mut i 0))
+    {
+      (while (< i (vecLen cmds))
+        {
+          (jobSubmitArgv p (vecGet cmds i))
+          (set i (+ i 1))
+        })
+      (jobWaitAll p)
+    }))
+
+; Submit one argv Vec, resolving element 0 the way `sysRunPath` does.
+;
+; The lookup happens in the PARENT, before the spawn, which is what lets
+; a missing program answer `-ENOENT` in its slot instead of becoming a
+; child that exits 127 - the distinction `sysSpawn` documents and goes
+; to some trouble to preserve.
+(pub :: jobSubmitArgv (-> Int Int Int))
+;@axiom:effect(io)
+(pub fn (jobSubmitArgv p argv)
+  (if (== (vecLen argv) 0)
+      (jobSubmit p (strCStr "") (jobArgvVector argv) sysEnvp)
+      (jobSubmit p (strCStr (strDup (vecGet argv 0))) (jobArgvVector argv) sysEnvp)))
+
+; A NULL-terminated array of char* from a Vec of `Str`, which is the
+; shape `execve` and `posix_spawn` both take.
+;
+; Every element goes through `strDup`, and that is not defensive
+; copying - it is required. `strCStr` is `strData` and nothing more
+; (Str.ax), so it is NUL-terminated only because every `Str` that
+; module BUILDS is. A `strSlice` is not built, it is `strWrap` over
+; somebody else's buffer, so its bytes run on into whatever follows and
+; the kernel reads a path or an argument that does not end where the
+; `Str` does. `tests/stdlib/300-process.ax` records the same rule for
+; the same reason on its own argv helper.
+(pub :: jobArgvVector (-> Int Int))
+(pub fn (jobArgvVector argv)
+  (let ((n (vecLen argv))
+        (mut i 0))
+    (let ((v (memAlloc (* 8 (+ n 1)))))
+      {
+        (while (< i n)
+          {
+            (memSetWord v i (strCStr (strDup (vecGet argv i))))
+            (set i (+ i 1))
+          })
+        (memSetWord v n 0)
+        v
+      })))

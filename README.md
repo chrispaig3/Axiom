@@ -1174,7 +1174,7 @@ the pipeline above is a module you can read in the language it compiles.
 | Loops | **Complete** | `while` plus `mut` local bindings and `set`; 10⁷ iterations in constant stack at `-O0`. Tail calls are guaranteed in the IR independently of `--opt`. Non-tail recursion is still stack-bounded at 60,000–80,000 frames |
 | Linear types | **Parsed only** | `linear T`, `consume`. The ownership facts they express are what the planned memory model needs; see [docs/v1-roadmap.md](docs/v1-roadmap.md) |
 | Macros | **Complete** | Pattern-substitution expansion before sema with hygiene (scope sets + gensym); `stdlib/Pre.ax` defines `when`, `unless`, `cond2`, `cond3`; cross-module macro import works; expansion backtrace on diagnostics |
-| Concurrency | **Delegated** | Not a native feature; external/third-party library concern. The memory model (arena inference, linear types) provides the safety foundation. Design in [docs/v1-roadmap.md §4.4](docs/v1-roadmap.md) |
+| Concurrency | **Library** | No language support and no compiler change: `stdlib/Job.ax` is a bounded pool of child processes over `Sys`'s existing `sysSpawn`/`sysWaitPid` pair, answering in submit order. Processes rather than threads, because a freestanding binary cannot create an OS thread on macOS. See [docs/v1-roadmap.md §4.4](docs/v1-roadmap.md) |
 | Editor support | **Functional** | [tree-sitter grammar](tree-sitter-axiom/) with highlighting queries, gated against all 70 `.ax` files in the repo and a 22-case tree-shape corpus. No LSP yet |
 | Imports | **Functional** | `(import Mod.Sub ...)` resolves and merges declarations from other files; qualified access via `Mod::name` disambiguates; see [Modules and imports](#modules-and-imports) |
 
