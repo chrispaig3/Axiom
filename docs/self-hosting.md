@@ -6478,3 +6478,40 @@ whose whole subject is refusals.
 One corpus golden moves — `870-ascription-and-negation.ax`, which
 contains the `(- n)` this fixes — and the parity bank gains a case.
 Nothing else in 288 formatted files changes.
+
+## 28. Three documented examples that had never parsed
+
+Fixed 2026-08-10. `tests/docs/verify-doc-code.py` checks that every
+Axiom code block in `README.md`, `docs/reference.md` and
+`CONTRIBUTING.md` balances its delimiters, and its own docstring says
+why it stops there: most blocks are fragments, a fragment is not a
+module, and balance is the property fragments and modules share — and
+it needs no compiler, which is what lets it run in the grammar job that
+gates every other job.
+
+Balance cannot see an example that parses and means nothing. Three did:
+
+| documented | what it is |
+|---|---|
+| `(fn main (println "a") (println "b") 0)` | `AX2003`. A multi-expression body needs the parenthesised name: `(fn (main) ...)`. The prose around it is about *implicit sequencing*, so the example was the whole point |
+| `(fn main (printf "hello"))` ×3 | `printf` is not a function in this language. `README.md` says so, eleven sections later: "No FFI and no `printf`" |
+| the `effect(io)` and sequencing blocks | no `(import IO)`, so `println` is undefined and the AXTAG claim it demonstrates cannot hold |
+
+### 28.1 The compiling half, and where it runs
+
+A block is now compiled when it **declares a `main`** — a block
+claiming to be a whole program — and opts out by tagging its fence
+```` ```scheme fragment ````. Three do, and each for a reason worth
+keeping: the two halves of the multi-file `Math.Ops` example need a
+companion file, and the AXTAG **syntax** block is deliberately not a
+program (`(def legacyFn ...)`).
+
+It is opt-in on a compiler path so the grammar job keeps its property
+of needing none; `check-tools-selfhost.sh`, which already builds a
+compiler, passes it. 114 blocks balance, **17 of them whole programs
+that compile**, with a floor of 12 — because a `main` test that stops
+matching would otherwise leave a compile check that compiles nothing
+and passes every time.
+
+Ablated by putting `(fn main` back in one example: `FAIL doc snippet
+README.md:392: does not compile: AX2003`, exit 1. Restored, 0.

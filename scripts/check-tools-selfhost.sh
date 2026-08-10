@@ -365,6 +365,23 @@ if ! (cd "$repo_root" && python3 tests/tools/verify-axsym.py "$work/all.axsym");
   failed=$((failed + 1))
 fi
 
+# ---------------------------------------------------------------
+# The documented programs compile.
+#
+# `check-tree-sitter.sh` runs the same verifier for delimiter BALANCE,
+# in the grammar job that deliberately has no compiler. Balance cannot
+# see an example that parses and means nothing, and three did - `(fn
+# main ...)` with more than one body expression is a syntax error, and
+# `printf` is not a function in this language. This is where the
+# compiler exists, so this is where they are compiled.
+# ---------------------------------------------------------------
+echo "== docs: every documented whole program compiles =="
+if ! python3 "$repo_root/tests/docs/verify-doc-code.py" --compile "$work/axc" \
+     "$repo_root/README.md" "$repo_root/docs/reference.md" \
+     "$repo_root/CONTRIBUTING.md"; then
+  failed=$((failed + 1))
+fi
+
 echo "== symbols: flags, and a file that is not there =="
 zoocase="$repo_root/tests/stdlib/010-hello.ax"
 (cd "$neutral" && "$work/axc" --diagnostic-format=ai symbols --builtins "$zoocase" \

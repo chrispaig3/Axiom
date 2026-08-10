@@ -328,8 +328,11 @@ This says `add` is a function that takes two `Int`s and returns an `Int`. The `(
 Functions can carry effect annotations that the compiler checks:
 
 ```scheme
+(import IO)
+
+(:: main Int)
 ;@axiom:effect(io)
-(fn main (printf "hello"))
+(fn (main) (println "hello"))
 ```
 
 The compiler validates that the body actually performs the declared effects.
@@ -379,8 +382,7 @@ Use braces for sequencing:
 
 ```scheme
 (fn (verbose-add x y)
-  { (printf "adding %d + %d\n" x y)
-    (+ x y) })
+  { (println "adding") (+ x y) })
 ```
 
 The value of a brace block is the value of its last expression. Single expressions in braces are unwrapped automatically — `{ 42 }` is just `42`.
@@ -388,9 +390,13 @@ The value of a brace block is the value of its last expression. Single expressio
 Function bodies, `let` bodies, `if` branches, and `lambda` bodies also support **implicit sequencing** without braces:
 
 ```scheme
-(fn main
-  (printf "Starting...\n")
-  (printf "Working...\n")
+(import IO)
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (println "Starting...")
+  (println "Working...")
   0)
 ```
 
@@ -919,8 +925,11 @@ an effect named after a built-in (`IO`, `Alloc`, ...) is refused.
 Use AXTAG metadata above the function declaration:
 
 ```scheme
+(import IO)
+
+(:: main Int)
 ;@axiom:effect(io)
-(fn main (printf "hello"))
+(fn (main) (println "hello"))
 ```
 
 The compiler validates that the body actually performs the declared effects.
@@ -994,7 +1003,7 @@ Split a program across files with `(import Mod.Sub ...)`:
 (pub fn (square x) (* x x))
 ```
 
-```scheme
+```scheme fragment
 ; main.ax
 (import Math.Ops (square))    ; only bring in `square`
 ; (import Math.Ops)            ; would bring in every pub decl
@@ -1215,12 +1224,12 @@ AXTAGs are source-embedded agent metadata preserved from `;@axiom:<key>(<value>)
 
 ### Syntax
 
-```scheme
+```scheme fragment
 ;@axiom:effect(io)
-(fn main (printf "hello"))
+(fn (main) (println "hello"))
 
 ;@axiom:pure()
-(fn pureFn (x) (* x x))
+(fn (pureFn x) (* x x))
 
 ;@axiom:no_refactor
 (def legacyFn ...)

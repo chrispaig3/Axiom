@@ -390,7 +390,11 @@ The value of a brace block is the value of its last expression. Single expressio
 Function bodies, `let` bodies, `if` branches, and `lambda` bodies also support implicit sequencing without braces:
 
 ```scheme
-(fn main
+(import IO)
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
   (println "Starting...")
   (println "Working...")
   0)
@@ -656,8 +660,11 @@ Declare an effect type:
 Annotate a function with its effects using AXTAG metadata:
 
 ```scheme
+(import IO)
+
+(:: main Int)
 ;@axiom:effect(io)
-(fn main (println "hello"))
+(fn (main) { (println "hello") 0 })
 ```
 
 The compiler validates that the body actually performs the declared effects.
@@ -965,7 +972,7 @@ leaves its module only if it is written `pub`:
 (fn (twice x) (+ x x))
 ```
 
-```scheme
+```scheme fragment
 ; main.ax
 (import Math.Ops (square))       ; only bring in `square`
 ; (import Math.Ops)               would bring in every `pub` decl
