@@ -152,7 +152,15 @@
             (|| (strEq w "macro")
             (|| (strEq w "effect")
             (|| (strEq w "type")
-                (strEq w "trait")))))))))))))))
+            (|| (strEq w "trait")
+                ; `impl` was missing while `trait` and `type` were
+                ; here, so a trait implementation typed at the prompt
+                ; went down the EXPRESSION path and was read as an
+                ; application: `undefined variable `impl``, then
+                ; `Sz`, `Int`, `where`, and a later `(sz 5)` answering
+                ; `no implementation of `Sz` for `Int`` because the
+                ; implementation had never been recorded.
+                (strEq w "impl"))))))))))))))))
 
 ; The identifier (or `::`) immediately after the opening paren.
 (pub :: declHeadWord (-> Int Int))
@@ -208,6 +216,17 @@
                                    (vecPush v (cast Int (CUnit2 "<repl>" declsSrc 0)))
                                    v
                                  })))
+                    ; `impl`s are LOWERED before the expression is
+                    ; typed. `replCompile` has always done this on the
+                    ; way to emission, so an implementation typed at
+                    ; the prompt ran correctly and was rejected before
+                    ; it got the chance: `(sz 5)` answered `no
+                    ; implementation of `Sz` for `Int`` about one
+                    ; sitting two lines above it. Imports stay
+                    ; unresolved - that is the stage0 parity this
+                    ; function's header records, and it is a different
+                    ; question.
+                    (let ((_lw (lowerImpls decls vecNew)))
                     (let ((tc (checkModuleTc decls decls units)))
                       (let ((before (vecLen (tcOut tc))))
                         (let ((ty (checkExpr tc (memGetWord er 1))))
@@ -217,7 +236,7 @@
                                   (printTypeErrors after before)
                                   (pErr 0)
                                 }
-                                (pOk (tyRender ty) 0))))))))))))))
+                                (pOk (tyRender ty) 0)))))))))))))))
 
 (pub :: printTypeErrors (-> Int Int Int))
 ;@axiom:effect(io)
@@ -518,19 +537,47 @@
               (if (== (memGetWord pr 0) 0)
                   { (replOut "Parse error: the file does not parse\n") declsSrc }
                   (let ((decls (memGetWord pr 1))
+                        (tcode (checkedTargetCode hostTarget))
+                        (bares vecNew)
+                        (fulls vecNew)
                         (units (let ((v vecNew))
                                  {
                                    (vecPush v (cast Int (CUnit2 arg src 0)))
                                    v
                                  })))
-                    (let ((ds (orderDiags (checkModule decls decls units))))
+                    ; `:load` used to hand `decls` to `checkModule`
+                    ; TWICE - as the entry file and as the whole
+                    ; program - so a file's imports were never
+                    ; resolved and every name they provide was
+                    ; undefined. Measured before this line: 196 of the
+                    ; 219 corpus files `check` accepts were refused by
+                    ; `:load`, which is nearly all of them, because
+                    ; almost every file imports something.
+                    ;
+                    ; The entry directory is the LOADED FILE's, not
+                    ; the process's: `:load tests/selfhost/x.ax` has
+                    ; to find the modules sitting beside it, the same
+                    ; way `check` does. `replCompile` passes "." for
+                    ; the opposite reason - its wrapper has no file.
+                    ;
+                    ; Expansion comes with it. A loaded file may
+                    ; define macros and `impl`s, and checking the
+                    ; unexpanded list reports an implementation's body
+                    ; as undefined names.
+                    (let ((allDecls (resolveImports decls bares fulls tcode
+                                                    (dirOfPath arg) units)))
+                    (let ((eds (let ((v vecNew))
+                                 { (expandProgram allDecls v)
+                                   (lowerImpls allDecls v)
+                                   v })))
+                    (let ((ds (orderDiags (expMergeInto eds (checkModule decls allDecls units)))))
                       (if (> (countErrorDiags ds) 0)
                           { (printTypeErrors ds 0) declsSrc }
                           {
                             (if (> (vecLen ds) 0) (printTypeErrors ds 0) 0)
                             (replOut (strConcat (strConcat "OK: Loaded '" arg) "'\n"))
                             (strConcat (strConcat declsSrc src) "\n")
-                          })))))))))
+                          })))))))))))
 
 (pub :: replCmdLlvm (-> Int Int Int))
 ;@axiom:effect(io)

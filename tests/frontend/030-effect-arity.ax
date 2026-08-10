@@ -1,0 +1,12 @@
+; refuse AX3013
+; An under-applied effect operation. Checked clean and printed a heap
+; address before operations carried their declared arrow.
+(effect Two
+  (two :: (-> Int Int Int)))
+
+(:: under (-> Int Int))
+(fn (under n)
+  (handle (two 3) (Two) (lambda (p) (lambda (q) (* p q)))))
+
+(:: main Int)
+(fn (main) 0)

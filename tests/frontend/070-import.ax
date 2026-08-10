@@ -1,0 +1,9 @@
+; expect 42
+; Carries an IMPORT, which is what separates the consumers: `check`
+; and `lsp` resolve imports, `repl :load` did not and refused 196 of
+; the 219 corpus files it should have accepted, and `typeExprAgainst`
+; deliberately still does not.
+(import Str)
+
+(:: main Int)
+(fn (main) (if (== (strLen "abcd") 4) 42 1))

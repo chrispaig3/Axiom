@@ -1,0 +1,11 @@
+; expect 42
+; The control for the rigidity rule: a genuinely polymorphic signature
+; must still be usable. A rule written too wide refuses this.
+(:: idf (-> a a))
+(fn (idf x) x)
+
+(:: konst (-> a b a))
+(fn (konst x y) x)
+
+(:: main Int)
+(fn (main) (if (== (+ (idf 20) (konst 22 99)) 42) 42 1))

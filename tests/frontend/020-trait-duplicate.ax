@@ -1,0 +1,11 @@
+; refuse AX3006
+; A trait method and a top-level `fn` of one spelling. Checked clean
+; and answered 111 before the trait declaration occupied the value
+; namespace.
+(trait (Sz a) where
+  (sz :: (-> a Int)))
+
+(fn (sz n) 7)
+
+(:: main Int)
+(fn (main) 0)

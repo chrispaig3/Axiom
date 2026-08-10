@@ -267,6 +267,19 @@ jobs:
       - name: Language server
         run: ./scripts/check-lsp-selfhost.sh
 
+      # The frontend has five consumers - check, symbols, fmt, the
+      # REPL's :load and the language server - each reaching
+      # parseModuleWith/resolveImports/checkModule through its own call
+      # site, and until this gate nothing compared them. Three of the
+      # four defects it is seeded with exist because a NEW consumer
+      # re-derived a rule the frontend already had. It asserts the
+      # VALUE as well as the verdict, which is the assertion none of
+      # the other gates can make: every one of those defects passed
+      # `check` at exit 0 and differed only in what the program then
+      # computed.
+      - name: Frontend parity across its five consumers
+        run: ./scripts/check-frontend-parity.sh
+
       # The P2 memory-model exit criterion: one Life board advanced
       # 2000 generations stays under 4 MiB when the loop carries the
       # explicit mark/copy/reset contract, grows linearly when it

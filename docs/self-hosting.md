@@ -7608,3 +7608,68 @@ AX3014 is gone but that each qualified call resolves to the module it
 NAMES — the two definitions answer 100 apart, so a fix that merely
 silenced the diagnostic and bound both calls to the first definition
 still fails.
+
+## 40. The frontend has five consumers and nothing compared them
+
+Added 2026-08-10.
+
+`check`, `symbols`, `fmt`, the REPL's `:load` and the language server
+all drive the same `parseModuleWith` / `resolveImports` / `checkModule`
+trio, each through its own call site — `resolveImports` from five,
+`checkModule` from six. Three of the four defects fixed in §36-§39 exist
+because a NEW consumer re-derived a rule the frontend already had, and
+the fourth is a consumer that skipped a step:
+
+```
+:load accepted   23 of the 219 corpus files `check` accepts
+```
+
+`replCmdLoad` handed the entry file's declarations to `checkModule` as
+*both* the entry list and the whole program, so no import was ever
+resolved and every name an import provides was undefined. Nearly every
+file in the repository imports something. (The review that prompted this
+reported 178 of 199; re-derived at HEAD it is 196 of 219, which is the
+reason for re-deriving.)
+
+Two more, in the same file. `isDeclLine` listed `fn`, `define`, `::`,
+`pub`, `data`, `struct`, `import`, `macro`, `effect`, `type` and
+`trait` — and not `impl`, so a trait implementation typed at the prompt
+went down the EXPRESSION path and was read as an application:
+`undefined variable `impl``, then `Sz`, `Int`, `where`. And with that
+fixed it parsed but did not dispatch, because `typeExprAgainst` never
+lowered `impl`s the way `replCompile` always had, so `(sz 5)` answered
+`no implementation of `Sz` for `Int`` about one sitting two lines above
+it.
+
+`:load` now accepts 219 of 219; `(sz 5)` answers `result 111`.
+
+### The gate
+
+`scripts/check-frontend-parity.sh` runs a bank of small programs
+through all five consumers and requires them to agree on the verdict,
+on the diagnostic set, and — the assertion none of the other gates can
+make — **on the computed value**. Every defect §36-§39 fixed passed
+`check` at exit 0 and differed only in what the program then computed,
+so a gate that compares exit statuses cannot see any of them. A
+`; refuse` case is additionally required to have produced a diagnostic,
+because a SIGSEGV is also a nonzero exit.
+
+The bank is seeded from those defects, plus the control that catches the
+type-variable rule being written too WIDE.
+
+Ablated by deleting `traitNameFree`'s body and rebuilding: `check` still
+exits 0 on all seven, every diagnostic set still matches, and
+`010-trait-scope` runs to 1 instead of 42. One failure, exit 1 — from
+the only assertion that could see it.
+
+### What it does not compare
+
+Columns. `check-lsp-selfhost.sh` owns the UTF-16 conversion and derives
+it from the fixture's own bytes; restating that derivation here would be
+a second implementation of the thing it exists to check. And `fmt` is
+compared on CODES rather than lines, because reflowing is the
+formatter's job.
+
+`typeExprAgainst` still leaves imports unresolved at the prompt — that is
+stage0 parity, recorded in the function's own header, and a separate
+question from `:load`.
