@@ -1,0 +1,2 @@
+E AX3023 440-import-name-list.ax:1:9-15 private-name "module `VisAll` declares no `noSuchName`" #"not exported" !"an import's name list is checked against what the module exports" ?"check the spelling, or import the module without a name list"
+E AX3023 440-import-name-list.ax:1:9-15 private-name "module `VisAll` declares `privMac` but does not export it" #"not exported" !"an import's name list is checked against what the module exports" ?"write `pub` on its declaration"

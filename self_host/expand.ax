@@ -134,7 +134,14 @@
                  ; `nodes` counts every node it visits. `blown` is set
                  ; once so the refusal is reported once rather than at
                  ; every node after it.
-                 (walk : Int) (nodes : Int) (blown : Int))
+                 (walk : Int) (nodes : Int) (blown : Int)
+                 ; The module whose declaration is being expanded -
+                 ; the INVOCATION SITE, as against `macmod`, which is
+                 ; the definition site of the macro currently being
+                 ; instantiated. A private macro is reachable only
+                 ; from its own module, and this is the module the
+                 ; comparison is against.
+                 (site : Int))
 
 (pub :: expMacros (-> Int Int)) (pub fn (expMacros env) (memGetWord env 0))
 (pub :: expOut    (-> Int Int)) (pub fn (expOut    env) (memGetWord env 1))
@@ -298,16 +305,34 @@
 
 (pub :: expFindMacro (-> Int Int Int))
 (pub fn (expFindMacro env name)
-  (expFindMacroIn (expMacros env) name (- (vecLen (expMacros env)) 1)))
+  (expFindMacroIn (expMacros env) name (memGetWord env 9)
+                  (- (vecLen (expMacros env)) 1)))
 
-(pub :: expFindMacroIn (-> Int Int Int Int))
-(pub fn (expFindMacroIn ms name i)
+; A macro its module does not export is invisible from anywhere else.
+;
+; `mangleDecl` rewrites only `fn` and `::`, so a macro's name carries
+; no module and `resolveDeclsPhase`'s word-5 flag is the only thing
+; that knows: `pub`, or named by the import's list. Until this, a
+; non-`pub` macro was visible EVERYWHERE - a widening that arrived with
+; module visibility itself, because before that the declaration was
+; deleted outright and the module could not be imported at all.
+;
+; `site` is the module of the declaration being expanded, and it is set
+; to the MACRO's module while that macro's template is walked, so a
+; public macro whose template invokes a private one of its own module
+; still expands from outside. That is the same definition-site rule
+; `expQualify` applies to a template's free identifiers.
+(pub :: expFindMacroIn (-> Int Int Int Int Int))
+(pub fn (expFindMacroIn ms name site i)
   (if (< i 0)
       0
       (let ((m (vecGet ms i)))
-        (if (strEq (nodeA m) name)
+        (if (&& (strEq (nodeA m) name)
+                (|| (== (nodeVis m) 1)
+                    (|| (== (nodeModule m) 0)
+                        (&& (!= site 0) (strEq (nodeModule m) site)))))
             m
-            (expFindMacroIn ms name (- i 1))))))
+            (expFindMacroIn ms name site (- i 1))))))
 
 ; ------------------------------------------------------------------
 ; The bound-name stack.
@@ -1022,13 +1047,16 @@
           (mkEInt 0)
         }
         (let ((prevMod (expMacMod env))
-              (_setmod (expSetMacMod env (nodeModule mac))))
+              (prevSite (memGetWord env 9))
+              (_setmod (expSetMacMod env (nodeModule mac)))
+              (_setsite (memSetWord env 9 (nodeModule mac))))
         (let ((body (substTpl (nodeC mac) (nodeB mac) args vecNew env isp)))
           {
             (expSetMacMod env prevMod)
             (expSetDepth env d)
             (let ((out (expandExpr body env bs)))
               {
+                (memSetWord env 9 prevSite)
                 (expSetDepth env (- d 1))
                 out
               })
@@ -1076,7 +1104,13 @@
 (pub fn (expandDeclsIn decls env i)
   (if (>= i (vecLen decls))
       0
-      { (expandDecl (vecGet decls i) env) (expandDeclsIn decls env (+ i 1)) }))
+      {
+        ; The invocation site's module, for macro visibility.
+        (memSetWord env 9 (nodeModule (vecGet decls i)))
+        (expandDecl (vecGet decls i) env)
+        (memSetWord env 9 0)
+        (expandDeclsIn decls env (+ i 1))
+      }))
 
 ; ------------------------------------------------------------------
 ; A macro declaration is checked once, here, rather than at each
@@ -1123,7 +1157,7 @@
 ; ------------------------------------------------------------------
 (pub :: expandProgram (-> Int Int Int))
 (pub fn (expandProgram decls out)
-  (let ((env (cast Int (MEnv (expCollectMacros decls vecNew 0) out 0 0 decls 0 0 0 0))))
+  (let ((env (cast Int (MEnv (expCollectMacros decls vecNew 0) out 0 0 decls 0 0 0 0 0))))
     {
       (expCheckMacros env 0)
       (expandDeclsIn decls env 0)

@@ -1,0 +1,21 @@
+[1;31merror[AX3023][0m[1m: module `VisAll` declares no `noSuchName`[0m
+ [1;34m--> [0m440-import-name-list.ax:1:9
+[1;34m  |[0m
+[1;34m1 |[0m (import VisAll (unwrapped noSuchName privMac))
+[1;34m  |[0m         [1;31m^^^^^^ not exported[0m
+[1;34m  |[0m
+ [1;34m = [0m[1mnote: [0man import's name list is checked against what the module exports
+ [1;34m = [0m[1;32mhelp: [0mcheck the spelling, or import the module without a name list
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3023` for a full explanation
+
+[1;31merror[AX3023][0m[1m: module `VisAll` declares `privMac` but does not export it[0m
+ [1;34m--> [0m440-import-name-list.ax:1:9
+[1;34m  |[0m
+[1;34m1 |[0m (import VisAll (unwrapped noSuchName privMac))
+[1;34m  |[0m         [1;31m^^^^^^ not exported[0m
+[1;34m  |[0m
+ [1;34m = [0m[1mnote: [0man import's name list is checked against what the module exports
+ [1;34m = [0m[1;32mhelp: [0mwrite `pub` on its declaration
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3023` for a full explanation
+
+compilation failed due to 2 previous errors

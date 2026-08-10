@@ -1,0 +1,3 @@
+(import VisAll (unwrapped noSuchName privMac))
+(:: main Int)
+(fn (main) (unwrapped 5))

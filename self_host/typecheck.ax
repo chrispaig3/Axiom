@@ -356,6 +356,89 @@
             1
             (isDefined allDecls name (+ i 1))))))
 
+; ------------------------------------------------------------------
+; `(import M (a b))` naming something `M` does not export.
+;
+; The list was never read after `resolveDeclsPhase` used it to decide
+; visibility, so `(import M (noSuch))` was accepted in silence and the
+; mistake surfaced as an AX3001 wherever the name was used - or as
+; nothing at all if it never was, which is the case for a typo in a
+; list of otherwise-good names.
+;
+; Only the ENTRY file's imports. A nested module's import list is its
+; author's business and its declarations are not in `entryDecls` to
+; walk; the entry file's is where a reader's typo lives.
+; ------------------------------------------------------------------
+(pub :: checkImportNames (-> Int Int Int Int Int))
+(pub fn (checkImportNames entryDecls allDecls out i)
+  (if (>= i (vecLen entryDecls))
+      0
+      (let ((d (vecGet entryDecls i)))
+        {
+          (if (== (nodeTag d) TAG_D_IMPORT)
+              (let ((names (nodeB d)))
+                (if (== names 0)
+                    0
+                    (checkImportNameList (nodeA d) names (nodeSpan d) allDecls out 0)))
+              0)
+          (checkImportNames entryDecls allDecls out (+ i 1))
+        })))
+
+(pub :: checkImportNameList (-> Int Int Int Int Int Int Int))
+(pub fn (checkImportNameList modName names sp allDecls out i)
+  (if (>= i (vecLen names))
+      0
+      {
+        (let ((n (vecGet names i)))
+          (if (== (declaredInModule allDecls modName n 0) 1)
+              (if (== (exportedFromModule allDecls modName n 0) 1)
+                  0
+                  (importDiag out sp
+                    (strConcat (strConcat (strConcat (strConcat
+                      "module `" modName) "` declares `") n)
+                      "` but does not export it")
+                    "write `pub` on its declaration"))
+              (importDiag out sp
+                (strConcat (strConcat (strConcat (strConcat
+                  "module `" modName) "` declares no `") n) "`")
+                "check the spelling, or import the module without a name list")))
+        (checkImportNameList modName names sp allDecls out (+ i 1))
+      }))
+
+(pub :: importDiag (-> Int Int Int Int Int))
+(pub fn (importDiag out sp msg help)
+  {
+    (vecPush out
+      (diagSetLabel
+        (mkDiagNote SEV_ERROR "AX3023" "private-name" sp msg 0 0 help
+                    "an import\'s name list is checked against what the module exports")
+        "not exported"))
+    0
+  })
+
+(pub :: declaredInModule (-> Int Int Int Int Int))
+(pub fn (declaredInModule allDecls modName n i)
+  (if (>= i (vecLen allDecls))
+      0
+      (let ((d (vecGet allDecls i)))
+        (if (&& (!= (nodeModule d) 0)
+                (&& (strEq (nodeModule d) modName)
+                    (strEq (bareOf (nodeA d)) n)))
+            1
+            (declaredInModule allDecls modName n (+ i 1))))))
+
+(pub :: exportedFromModule (-> Int Int Int Int Int))
+(pub fn (exportedFromModule allDecls modName n i)
+  (if (>= i (vecLen allDecls))
+      0
+      (let ((d (vecGet allDecls i)))
+        (if (&& (== (nodeVis d) 1)
+                (&& (!= (nodeModule d) 0)
+                    (&& (strEq (nodeModule d) modName)
+                        (strEq (bareOf (nodeA d)) n))))
+            1
+            (exportedFromModule allDecls modName n (+ i 1))))))
+
 (pub :: checkMissingDefs (-> Int Int Int Int Int))
 (pub fn (checkMissingDefs entryDecls allDecls out i)
   (if (>= i (vecLen entryDecls))
@@ -639,7 +722,15 @@
                   (tcCollectEffectOps tc (nodeB d) 0 (nodeA d) (nodeModule d))
                 }
             (if (== tag TAG_D_MACRO)
-                (vecPush (tcMacros tc) (nodeA d))
+                ; The NODE, not the name: a macro its module does not
+                ; export is not a macro name HERE, and deciding that
+                ; needs its module and its visibility flag. Storing
+                ; only the string made a private macro's invocation
+                ; type-check as a macro (silent wildcard), reach
+                ; codegen as a call to a symbol nothing defines, and
+                ; fail in `opt` at exit 4 - the link failure this
+                ; repository twice records as the wrong trade.
+                (vecPush (tcMacros tc) d)
             (if (== tag TAG_D_ALIAS)
                 (vecPush (tcAliases tc) d)
             (if (== tag TAG_D_TRAIT)
@@ -1248,7 +1339,37 @@
 
 (pub :: isMacroName (-> Int Int Int))
 (pub fn (isMacroName tc n)
-  (strInVec (tcMacros tc) n 0))
+  (isMacroVisible (tcMacros tc) n (memGetWord tc 16) 0))
+
+; Visible from the module being checked: exported, or the entry
+; file's, or this module's own. The same rule `expFindMacroIn`
+; applies, and the two have to agree - one decides whether the name
+; type-checks and the other whether it expands.
+(pub :: isMacroVisible (-> Int Int Int Int Int))
+(pub fn (isMacroVisible ms n curMod i)
+  (if (>= i (vecLen ms))
+      0
+      (let ((m (vecGet ms i)))
+        (if (&& (strEq (nodeA m) n)
+                (|| (== (nodeVis m) 1)
+                    (|| (== (nodeModule m) 0)
+                        (&& (!= curMod 0) (strEq (nodeModule m) curMod)))))
+            1
+            (isMacroVisible ms n curMod (+ i 1))))))
+
+; Declared anywhere, visible or not - for telling "no such macro" from
+; "a macro you may not name".
+(pub :: isMacroAnywhere (-> Int Int Int))
+(pub fn (isMacroAnywhere tc n)
+  (isMacroNamedIn (tcMacros tc) n 0))
+
+(pub :: isMacroNamedIn (-> Int Int Int Int))
+(pub fn (isMacroNamedIn ms n i)
+  (if (>= i (vecLen ms))
+      0
+      (if (strEq (nodeA (vecGet ms i)) n)
+          1
+          (isMacroNamedIn ms n (+ i 1)))))
 
 (pub :: isEffectName (-> Int Int Int))
 (pub fn (isEffectName tc n)
@@ -1848,7 +1969,41 @@
     (if (&& (!= hidden 0)
             (== (strInVec (memGetWord tc 19) (memGetWord hidden 0) 0) 1))
         (emitPrivateVar tc name span (memGetWord hidden 0))
-        (emitUndefinedVarPlain tc name span))))
+        (if (== (isMacroAnywhere tc name) 1)
+            (emitPrivateVar tc name span
+                            (privKey (macroModuleOf (tcMacros tc) name 0) name))
+            (let ((cm (ctorHiddenModule tc name)))
+              (if (!= cm 0)
+                  (emitPrivateVar tc name span (privKey cm name))
+                  (emitUndefinedVarPlain tc name span)))))))
+
+; The module of an INVISIBLE `data` declaring a constructor of this
+; name, or 0. A private type's constructors are already refused - the
+; lookup filters them - but as `AX3001`/`AX3003`, which say the name
+; does not exist when it plainly does.
+(pub :: ctorHiddenModule (-> Int Int Int))
+(pub fn (ctorHiddenModule tc name)
+  (if (== (memGetWord tc 19) 0)
+      0
+      (ctorHiddenIn (tcDatas tc) (memGetWord tc 19) (memGetWord tc 16) name 0)))
+
+(pub :: ctorHiddenIn (-> Int Int Int Int Int Int))
+(pub fn (ctorHiddenIn datas privs curMod name i)
+  (if (>= i (vecLen datas))
+      0
+      (let ((d (vecGet datas i)))
+        (if (&& (== (privBlocks privs (privKey (memGetWord d 2) (memGetWord d 0)) curMod) 1)
+                (!= (ctorInData (memGetWord d 1) (memGetWord d 2) name 0) 0))
+            (memGetWord d 2)
+            (ctorHiddenIn datas privs curMod name (+ i 1))))))
+
+(pub :: macroModuleOf (-> Int Int Int Int))
+(pub fn (macroModuleOf ms n i)
+  (if (>= i (vecLen ms))
+      0
+      (if (strEq (nodeA (vecGet ms i)) n)
+          (nodeModule (vecGet ms i))
+          (macroModuleOf ms n (+ i 1)))))
 
 (pub :: emitUndefinedVarPlain (-> Int Int Int Int))
 (pub fn (emitUndefinedVarPlain tc name span)
@@ -3533,6 +3688,12 @@
       (let ((best (newBest)))
         {
           (offerCtorEnts best cname (tcDatas tc) 0)
+          ; A constructor of a type its module does not export is
+          ; refused either way - the lookup filters it - but saying it
+          ; does not exist is wrong about a name that plainly does.
+          (if (!= (ctorHiddenModule tc cname) 0)
+              (emitPrivateVar tc cname span
+                              (privKey (ctorHiddenModule tc cname) cname))
           (emitDiag tc
             (let ((msg (strConcat (strConcat "undefined constructor `" cname) "`")))
               (diagSetLabel (if (== (memGetWord best 0) 0)
@@ -3545,7 +3706,7 @@
                                "a similarly named constructor `" (memGetWord best 0))
                                "` is visible; did you mean this?")
                              span (memGetWord best 0)))
-                (strConcat (strConcat "no constructor named `" cname) "` is visible here"))))
+                (strConcat (strConcat "no constructor named `" cname) "` is visible here")))))
           0
         })))
 
@@ -4066,6 +4227,7 @@
     (let ((out (tcOut tc)))
       {
         (checkDuplicates entryDecls out 0)
+        (checkImportNames entryDecls allDecls out 0)
         (checkMissingDefs entryDecls allDecls out 0)
         (tcWalkDecls tc 0)
         tc

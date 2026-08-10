@@ -240,6 +240,11 @@
 (pub :: mkDSigAt (-> Int Int Int Int))
 (pub fn (mkDSigAt n t sp)   (mkNodeAt TAG_D_SIG n t 0 sp))
 (pub :: mkDImport (-> Int Int Int))       (pub fn (mkDImport m ns) (mkNode TAG_D_IMPORT m ns 0))
+; With the module path's span, so a diagnostic about the import - an
+; unexported name in its list - has somewhere to point. `mkDImport`
+; stays for callers that have no token to hand.
+(pub :: mkDImportAt (-> Int Int Int Int))
+(pub fn (mkDImportAt m ns sp) (mkNodeAt TAG_D_IMPORT m ns 0 sp))
 (pub :: mkDData (-> Int Int Int))         (pub fn (mkDData n cs)   (mkNode TAG_D_DATA n cs 0))
 (pub :: mkDStruct (-> Int Int Int))        (pub fn (mkDStruct n fs) (mkNode TAG_D_STRUCT n fs 0))
 (pub :: mkDDataAt (-> Int Int Int Int))
@@ -1432,6 +1437,9 @@
   (let ((mr (parseModPath tokens pos)))
     (if (== (memGetWord mr 0) 0) mr
         (let ((modName (memGetWord mr 1))
+              (impSpan (if (< pos (vecLen tokens))
+                           (tokenSpan (vecGet tokens pos))
+                           0))
               (nextPos (memGetWord mr 2)))
           (if (peekIs tokens nextPos TK_LPAREN)
               (let ((namesR (parseIdentList tokens (advance nextPos) vecNew)))
@@ -1439,10 +1447,10 @@
                     (let ((names (memGetWord namesR 1))
                           (afterNames (memGetWord namesR 2)))
                       (if (peekIs tokens afterNames TK_RPAREN)
-                          (pOk (mkDImport modName names) (advance afterNames))
+                          (pOk (mkDImportAt modName names impSpan) (advance afterNames))
                           (pErr afterNames)))))
               (if (peekIs tokens nextPos TK_RPAREN)
-                  (pOk (mkDImport modName vecNew) (advance nextPos))
+                  (pOk (mkDImportAt modName vecNew impSpan) (advance nextPos))
                   (pErr nextPos)))))))
 
 ; ------------------------------------------------------------------

@@ -1,0 +1,12 @@
+; A module that keeps a macro and a type to itself, for the AX3023
+; cases. `pubMac` is exported and its template invokes `privMac`,
+; which is not - a public macro whose body uses a private one of its
+; own module must still expand from outside.
+(macro (privMac x) (+ x x))
+
+(pub macro (pubMac x) (privMac x))
+
+(data Hidden (Wrap Int))
+
+(pub :: unwrapped (-> Int Int))
+(pub fn (unwrapped n) (match (Wrap n) ((Wrap x) x)))

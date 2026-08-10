@@ -1,0 +1,19 @@
+[1;31merror[AX3023][0m[1m: `Wrap` is private to module `VisAll`[0m
+ [1;34m--> [0m435-private-constructor.ax:3:20
+[1;34m  |[0m
+[1;34m3 |[0m (fn (main) (match (Wrap 7) ((Wrap x) x)))
+[1;34m  |[0m                    [1;31m^^^^ `Wrap` is not exported by its module[0m
+[1;34m  |[0m
+ [1;34m = [0m[1;32mhelp: [0ma name leaves its module when its declaration is written `pub`; if the import that brought the module in carries a name list, the name has to appear there too
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3023` for a full explanation
+
+[1;31merror[AX3023][0m[1m: `Wrap` is private to module `VisAll`[0m
+ [1;34m--> [0m435-private-constructor.ax:3:30
+[1;34m  |[0m
+[1;34m3 |[0m (fn (main) (match (Wrap 7) ((Wrap x) x)))
+[1;34m  |[0m                              [1;31m^^^^ `Wrap` is not exported by its module[0m
+[1;34m  |[0m
+ [1;34m = [0m[1;32mhelp: [0ma name leaves its module when its declaration is written `pub`; if the import that brought the module in carries a name list, the name has to appear there too
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3023` for a full explanation
+
+compilation failed due to 2 previous errors

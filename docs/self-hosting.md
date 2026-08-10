@@ -6243,3 +6243,69 @@ the ordinary one:
 error[AX3004]: type mismatch: expected (Int -> Int), found Int
  --> 420-declared-return.ax:2:11
 ```
+
+## 24. The three holes module visibility left
+
+§14.5 recorded three things the visibility slice did not cover. All
+three are closed here, and one of them was a *widening* that slice
+introduced rather than a defect it inherited.
+
+### 24.1 A private macro was visible everywhere
+
+`mangleDecl` rewrites only `fn` and `::`, so a macro's name carries no
+module and `resolveDeclsPhase`'s word-5 flag was the only thing that
+knew. Nothing read it, so a non-`pub` macro could be invoked from
+anywhere — and that was **new**: before §14, the declaration was
+deleted outright and a module with a private macro could not be
+imported at all, so no program that worked could observe the
+difference. It was recorded honestly and left, and this closes it.
+
+The expander now tracks the **invocation site's module** alongside the
+definition site it already tracked, and `expFindMacroIn` refuses a
+macro its module does not export. The site is set to the *macro's* own
+module while that macro's template is walked, so a public macro whose
+template invokes a private one of its own module still expands from
+outside — the same definition-site rule `expQualify` applies to a
+template's free identifiers.
+
+The checker had to move with it, and the reason is the one this
+repository keeps writing down. `tcMacros` held name **strings**, so
+`isMacroName` said yes to a private macro, the invocation type-checked
+as a macro (silent wildcard), reached codegen as a call to a symbol
+nothing defines, and failed in `opt` at **exit 4**. That is the same
+clean-diagnostic-for-a-link-failure trade §14.2 refused to commit.
+`tcMacros` now holds the declaration nodes, and `isMacroName` asks the
+same visibility question the expander does — the two have to agree,
+because one decides whether the name type-checks and the other whether
+it expands.
+
+### 24.2 A private type's constructors said they did not exist
+
+They were already refused — the lookup filters them — but as `AX3001`
+and `AX3003`, which say a name does not exist when it plainly does.
+Both sites now name the module, like every other private reference.
+
+### 24.3 An import's name list was never read again
+
+`resolveDeclsPhase` used it to decide visibility and nothing checked
+it, so `(import M (noSuch))` was accepted in silence: the mistake
+surfaced as an `AX3001` wherever the name was used, or as **nothing at
+all** if it never was, which is exactly what a typo in a list of
+otherwise-good names looks like. The entry file's import lists are now
+checked against what each module declares and exports, with the two
+cases told apart:
+
+```
+error[AX3023]: module `VisAll` declares no `noSuchName`
+error[AX3023]: module `VisAll` declares `privMac` but does not export it
+```
+
+That needed the import declaration to carry a span, which it never had
+— `mkDImport` used `mkNode`. It carries the module path's token now,
+for the same reason the nullary lambda needed one in §20.2: a
+diagnostic with no snippet is one the render gate will not bless.
+
+Measured against a compiler built from `4f29a2a` over all 263 `.ax`
+files: **0 divergences**. The corpus has no private macro, no private
+type and no import name list, which is §14.1's census again and the
+reason all three could sit here unnoticed.
