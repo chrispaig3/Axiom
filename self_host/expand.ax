@@ -1219,9 +1219,41 @@
                 "give the trait a parameter: `(trait (Name a) where ...)`"
                 "an implementation is keyed on (trait, type), and this trait has no type to key on")
               {
+                (checkSupertrait decls tr d out)
                 (lowerImplMethods decls tr d (nodeB d) v out 0)
-                (checkImplComplete tr d (nodeB d) out 0)
+                (checkImplComplete decls tr d (nodeB d) v out 0)
               })))))
+
+; A supertrait is a requirement on the IMPLEMENTATION: `(trait (Ord a)
+; (Eq a) ...)` means every type with an `Ord` implementation must have
+; an `Eq` one. It parsed and was dropped, so the requirement was
+; decoration.
+(pub :: checkSupertrait (-> Int Int Int Int Int))
+(pub fn (checkSupertrait decls tr d out)
+  (let ((sup (memGetWord tr 6)))
+    (if (== sup 0)
+        0
+        (if (== (strLen sup) 0)
+            0
+            (if (== (implExistsFor decls sup (nodeC d) 0) 1)
+                0
+                (implDiag out (nodeSpan d)
+                  (strConcat (strConcat (strConcat (strConcat (strConcat
+                    "trait `" (nodeA tr)) "` requires `") sup)
+                    (strConcat (strConcat "`, and there is no `impl (" sup)
+                               (strConcat " " (nodeC d)))) ")`")
+                  "implement the supertrait for this type first"
+                  "a supertrait is a requirement on the implementation, not only on the declaration"))))))
+
+(pub :: implExistsFor (-> Int Int Int Int Int))
+(pub fn (implExistsFor decls tname ty i)
+  (if (>= i (vecLen decls))
+      0
+      (let ((d (vecGet decls i)))
+        (if (&& (== (nodeTag d) TAG_D_IMPL)
+                (&& (strEq (nodeA d) tname) (strEq (nodeC d) ty)))
+            1
+            (implExistsFor decls tname ty (+ i 1))))))
 
 (pub :: implDiag (-> Int Int Int Int Int Int))
 (pub fn (implDiag out sp msg help note)
@@ -1260,20 +1292,62 @@
     (let ((ar (arrowArity ty))
           (ps vecNew))
       {
-        (mkParamNames ps ar 0)
-        (let ((sig (mkNodeAt TAG_D_SIG nm 0 0 (nodeSpan m))))
-          {
-            (memSetWord sig 6 ty)
-            (memSetWord sig 5 1)
-            (vecPush decls sig)
-          })
-        (let ((fnd (mkNodeAt TAG_D_FN nm ps (etaApply (nodeB m) ps 0) (nodeSpan m))))
-          {
-            (memSetWord fnd 5 1)
-            (vecPush decls fnd)
-          })
-        0
+        ; Splice the lambda's OWN parameters and body in when the
+        ; implementing expression is one - `(lambda (x y) b)` is
+        ; `(lambda (x) (lambda (y) b))` after the parser's currying,
+        ; so peeling `ar` of them gives both.
+        ;
+        ; Not a tidiness: the generated definition's signature is the
+        ; trait's method type with the concrete type substituted, so
+        ; spliced parameters are typed `Int` (or whatever the impl is
+        ; for) where a lambda's own are fresh type variables. A DEFAULT
+        ; body calling another method of its own trait - the reason
+        ; defaults exist - can only be dispatched if its arguments have
+        ; a type, and eta-expansion leaves them without one: measured,
+        ; `(ne :: ... = (lambda (x y) (if (eq x y) ...)))` reached
+        ; `opt` as `use of undefined value '@eq'`.
+        ;
+        ; Anything that is not a deep-enough lambda is eta-expanded
+        ; instead, because `(eq myNamedFunction)` is as legitimate as a
+        ; lambda and applying it is what both shapes support.
+        (let ((peeled (peelLambdaParams (nodeB m) ar ps)))
+          (let ((body (if (== peeled 0)
+                          (etaApply (nodeB m) (mkParamNamesInto ps ar) 0)
+                          peeled)))
+            (let ((sig (mkNodeAt TAG_D_SIG nm 0 0 (nodeSpan m))))
+              {
+                (memSetWord sig 6 ty)
+                (memSetWord sig 5 1)
+                (vecPush decls sig)
+                (let ((fnd (mkNodeAt TAG_D_FN nm ps body (nodeSpan m))))
+                  {
+                    (memSetWord fnd 5 1)
+                    (vecPush decls fnd)
+                  })
+                0
+              })))
       })))
+
+; `ar` nested single-parameter lambdas: their names into `ps`, and the
+; innermost body answered. 0 when the expression is not that shape.
+(pub :: peelLambdaParams (-> Int Int Int Int))
+(pub fn (peelLambdaParams e n ps)
+  (if (<= n 0)
+      e
+      (if (== e 0)
+          0
+          (if (!= (nodeTag e) TAG_E_LAM)
+              0
+              (if (!= (vecLen (nodeA e)) 1)
+                  0
+                  {
+                    (vecPush ps (vecGet (nodeA e) 0))
+                    (peelLambdaParams (nodeB e) (- n 1) ps)
+                  })))))
+
+(pub :: mkParamNamesInto (-> Int Int Int))
+(pub fn (mkParamNamesInto ps ar)
+  { (mkParamNames ps ar 0) ps })
 
 (pub :: mkParamNames (-> Int Int Int Int))
 (pub fn (mkParamNames ps ar i)
@@ -1290,21 +1364,30 @@
       f
       (etaApply (mkEApp f (mkEVar (vecGet ps i))) ps (+ i 1))))
 
-; Every method the trait declares must be implemented.
+; Every method the trait declares must be implemented - or have a
+; DEFAULT BODY, which is generated for this type exactly as a written
+; one would be. A default's own references to the trait's other
+; methods dispatch normally, because the generated definition has the
+; concrete parameter types the substitution gave it.
 
-(pub :: checkImplComplete (-> Int Int Int Int Int Int))
-(pub fn (checkImplComplete tr d methods out i)
+(pub :: checkImplComplete (-> Int Int Int Int Int Int Int Int))
+(pub fn (checkImplComplete decls tr d methods v out i)
   (if (>= i (vecLen (nodeB tr)))
       0
       (let ((want (vecGet (nodeB tr) i)))
         {
           (if (== (findFieldNamed methods (nodeA want) 0) 0)
-              (implDiag out (nodeSpan d)
-                (strConcat (strConcat (strConcat (strConcat
-                  "this implementation of `" (nodeA tr))
-                  "` does not define `") (nodeA want)) "`")
-                "define every method the trait declares; there are no default bodies yet"
-                "a trait method with no implementation would have nothing to dispatch to")
+              (if (!= (nodeC want) 0)
+                  (lowerEmit decls tr d
+                             (mkNodeAt TAG_FIELD (nodeA want) (nodeC want) 0
+                                       (nodeSpan want))
+                             want v)
+                  (implDiag out (nodeSpan d)
+                    (strConcat (strConcat (strConcat (strConcat
+                      "this implementation of `" (nodeA tr))
+                      "` does not define `") (nodeA want)) "`")
+                    "define it, or give the trait method a default body with `= <expr>`"
+                    "a trait method with no implementation and no default has nothing to dispatch to"))
               0)
-          (checkImplComplete tr d methods out (+ i 1))
+          (checkImplComplete decls tr d methods v out (+ i 1))
         })))

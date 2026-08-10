@@ -14,8 +14,8 @@
 [1;34m4 |[0m (impl (Eq Int) where
 [1;34m  |[0m        [1;31m^^ in this implementation[0m
 [1;34m  |[0m
- [1;34m = [0m[1mnote: [0ma trait method with no implementation would have nothing to dispatch to
- [1;34m = [0m[1;32mhelp: [0mdefine every method the trait declares; there are no default bodies yet
+ [1;34m = [0m[1mnote: [0ma trait method with no implementation and no default has nothing to dispatch to
+ [1;34m = [0m[1;32mhelp: [0mdefine it, or give the trait method a default body with `= <expr>`
  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3025` for a full explanation
 
 [1;31merror[AX3025][0m[1m: no trait named `Missing` is in scope[0m

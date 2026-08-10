@@ -1,0 +1,43 @@
+; expect 42
+; The two halves of a trait declaration that parsed and were dropped:
+; a method's DEFAULT BODY and a SUPERTRAIT.
+;
+; A default meant an implementation had to repeat every method the
+; trait declared, however mechanical - `ne` is `(if (eq x y) false
+; true)` for every type there will ever be, and every `impl` had to
+; say so. A supertrait meant nothing at all: `(trait (Ord a) (Eq a)
+; ...)` declared a requirement nothing checked, so an `impl (Ord T)`
+; with no `impl (Eq T)` behind it compiled until a call to `eq` from
+; inside `Ord`'s own default went looking.
+;
+;   (ne 1 2)      the DEFAULT, generated for Int because `Eq Int`
+;                 does not define it. Its own `(eq x y)` dispatches,
+;                 which is the whole point and the part that needs the
+;                 generated definition to carry the CONCRETE parameter
+;                 types - eta-expanding it instead leaves `x` a type
+;                 variable and the call reaches `opt` as an undefined
+;                 `@eq`.
+;   (lte 2 2)     a default that uses a method of the SUPERTRAIT.
+;   (lt 1 2)      a written method, beside the generated ones.
+;   (eq 3 3)      the supertrait's own method, still dispatching.
+(trait (Eq a) where
+  (eq :: (-> a a Bool)
+   ne :: (-> a a Bool) = (lambda (x y) (if (eq x y) false true))))
+
+(trait (Ord a) (Eq a) where
+  (lt :: (-> a a Bool)
+   lte :: (-> a a Bool) = (lambda (x y) (if (lt x y) true (eq x y)))))
+
+(impl (Eq Int) where
+  ((eq (lambda (x y) (== x y)))))
+
+(impl (Ord Int) where
+  ((lt (lambda (x y) (< x y)))))
+
+(:: main Int)
+(fn (main)
+  (if (&& (&& (ne 1 2) (if (ne 1 1) false true))
+          (&& (&& (lte 2 2) (lte 1 2))
+              (&& (lt 1 2) (eq 3 3))))
+      42
+      1))

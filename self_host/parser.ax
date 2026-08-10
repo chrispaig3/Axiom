@@ -1003,16 +1003,36 @@
             (skipUnknownDecl tokens origPos)))
       (skipUnknownDecl tokens origPos)))
 
+; One recognised supertrait name, threaded on. Only the first is kept:
+; a second `(...)` group before `where` is an effect list, and there is
+; no syntax that distinguishes them beyond position.
+(pub :: parseTraitRestSup (-> Int Int Int Int Int Int Int Int))
+(pub fn (parseTraitRestSup tokens pos name nameSpan tvs sup origPos)
+  (let ((r (parseTraitRest tokens pos name nameSpan tvs origPos)))
+    {
+      (if (&& (== (memGetWord r 0) 1)
+              (&& (!= (memGetWord r 1) 0) (> (strLen sup) 0)))
+          (memSetWord (memGetWord r 1) 6 sup)
+          0)
+      r
+    }))
+
 (pub :: parseTraitRest (-> Int Int Int Int Int Int Int))
 (pub fn (parseTraitRest tokens pos name nameSpan tvs origPos)
   (if (peekIs tokens pos TK_RPAREN)
       (pOk (mkNodeAt TAG_D_TRAIT name vecNew tvs nameSpan) (advance pos))
   (if (peekIs tokens pos TK_LPAREN)
-      ; A supertrait or effect list: structure `symbols` cannot print.
+      ; A supertrait or effect list. The HEAD NAMES are kept now - a
+      ; supertrait is a requirement on an implementation, and enforcing
+      ; it needs the names - while the rest of the structure is still
+      ; skipped, since `symbols` cannot print it.
       (let ((r (skipParens tokens (advance pos) 1)))
         (if (== (memGetWord r 0) 0)
             (skipUnknownDecl tokens origPos)
-            (parseTraitRest tokens (memGetWord r 2) name nameSpan tvs origPos)))
+            (let ((sup (if (peekIs tokens (advance pos) TK_IDENT)
+                           (tokenLexeme (vecGet tokens (advance pos)))
+                           "")))
+              (parseTraitRestSup tokens (memGetWord r 2) name nameSpan tvs sup origPos))))
   (if (&& (peekIs tokens pos TK_IDENT)
           (strEq (tokenLexeme (vecGet tokens pos)) "where"))
       (if (peekIs tokens (advance pos) TK_LPAREN)
@@ -1123,6 +1143,11 @@
                   (if (== (memGetWord tr 0) 0)
                       (pErr pos)
                       (let ((afterTy (memGetWord tr 2)))
+                        (let ((dflt (if (&& (peekIs tokens afterTy TK_IDENT)
+                                            (strEq (tokenLexeme (vecGet tokens afterTy)) "="))
+                                        (let ((er (parseExpr tokens (advance afterTy))))
+                                          (if (== (memGetWord er 0) 0) 0 (memGetWord er 1)))
+                                        0)))
                         (let ((afterDflt
                                (if (&& (peekIs tokens afterTy TK_IDENT)
                                        (strEq (tokenLexeme (vecGet tokens afterTy)) "="))
@@ -1143,9 +1168,17 @@
                                 (if (< afterFx 0)
                                     (pErr afterDflt)
                                     {
-                                      (vecPush methods (mkField mname (memGetWord tr 1)))
+                                      ; The DEFAULT BODY is kept in slot
+                                      ; c. It was parsed and thrown
+                                      ; away, which is why a trait
+                                      ; could declare a method every
+                                      ; implementation then had to
+                                      ; repeat.
+                                      (vecPush methods
+                                        (mkNodeAt TAG_FIELD mname (memGetWord tr 1) dflt
+                                                  (tokenSpan (vecGet tokens pos))))
                                       (parseTraitMethods tokens afterFx methods)
-                                    })))))))
+                                    }))))))))
                 (pErr pos)))
           (pErr pos))))
 

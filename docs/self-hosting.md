@@ -6309,3 +6309,73 @@ Measured against a compiler built from `4f29a2a` over all 263 `.ax`
 files: **0 divergences**. The corpus has no private macro, no private
 type and no import name list, which is §14.1's census again and the
 reason all three could sit here unnoticed.
+
+## 25. The other two halves of a trait declaration
+
+§22.3 listed supertraits and default method bodies as parsed and
+dropped. Both work now, and the second one turned on a detail of the
+lowering that had been arbitrary until it was not.
+
+### 25.1 Defaults, and why eta-expansion was not enough
+
+`(ne :: (-> a a Bool) = (lambda (x y) (if (eq x y) false true)))` is
+the whole reason defaults exist: `ne` is that expression for every type
+there will ever be, and every implementation had to write it out. The
+parser had always parsed the default and thrown it away.
+
+It is kept now, and an implementation that omits the method gets the
+default lowered for its type exactly as a written one would be. That is
+where it stopped working the first time:
+
+```
+opt: error: use of undefined value '@eq'
+  %t9 = call i64 @eq(i64 %t2, i64 %y)
+```
+
+§22.1 lowered an implementing expression by **eta-expansion** —
+`(fn (Eq#Int#ne p#0 p#1) ((<expr> p#0) p#1))` — chosen because the
+expression need not be a lambda. But a default's body calls the trait's
+*other* methods, and dispatch needs the argument's type: under
+eta-expansion the argument is a lambda parameter, whose type is a fresh
+type variable, so `(eq x y)` could not be dispatched and reached codegen
+as a bare `@eq`.
+
+So the lowering now **splices the lambda's own parameters and body**
+when the expression is a deep-enough lambda — `(lambda (x y) b)` is
+`(lambda (x) (lambda (y) b))` after the parser's currying, so peeling
+`arity` of them gives both. The generated definition's signature is the
+trait's method type with the concrete type substituted, so those
+parameters are typed `Int` and the inner call dispatches. Anything that
+is not a deep-enough lambda — `(eq myNamedFunction)` — is eta-expanded
+as before. The splice also removes a closure allocation per call on the
+common path, which was a real cost nobody had priced.
+
+### 25.2 Supertraits are a requirement on the implementation
+
+`(trait (Ord a) (Eq a) ...)` means every type with an `Ord`
+implementation must have an `Eq` one. The list was skipped by the
+parser, so it declared nothing:
+
+```
+error[AX3025]: trait `Ord` requires `Eq`, and there is no `impl (Eq Int)`
+```
+
+The first head name of the group before `where` is kept. Only the
+first: a second parenthesised group there is an effect list, and
+nothing in the syntax distinguishes them beyond position — which is a
+limitation of the grammar rather than of this check, and is recorded
+rather than guessed at.
+
+### 25.3 The check from §23 caught its own author
+
+Adding a parameter to `checkImplComplete` and forgetting to widen its
+`::` produced, immediately:
+
+```
+error[AX3004]: type mismatch: expected function type, found Int
+  --> self_host/expand.ax:1224:18
+```
+
+which is the diagnostic added two commits earlier for exactly that
+mistake, working on the compiler that introduced it. Before it, the
+same slip compiled and segfaulted at the call site.
