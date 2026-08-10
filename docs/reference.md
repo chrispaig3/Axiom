@@ -805,7 +805,7 @@ parentheses — not on the struct:
 (type StringList () = [String])
 ```
 
-A type alias gives a name to an existing type. It does not create a new type — `StringList` and `[String]` are interchangeable.
+A type alias gives a name to an existing type. It does not create a new type — `StringList` and `[String]` are interchangeable: the alias is expanded in every signature position before checking, and its float flags are rewritten with it, so the checker and the emitter cannot disagree about a `(type Real = Float)`. A PARAMETERISED alias — `(type Pair a = ...)` — needs substitution and is not expanded; it behaves nominally. `tests/selfhost/973-type-alias.ax`
 
 ---
 
@@ -915,10 +915,13 @@ Calling an operation performs the effect - `log`'s callers infer
 validate against it (custom tag values match declarations
 case-insensitively). Operation names join the ordinary value
 namespace: colliding with a function in the same module is a duplicate
-definition, cross-module collisions resolve by the one-bare-name rule,
+definition (`AX3006`, `tests/diagnostics/455-effect-op-collision.ax`),
+cross-module collisions resolve by the one-bare-name rule,
 and an operation cannot be used as a bare value - wrap it in a lambda
 (`(lambda (x) (log x))`) where a function value is needed. Declaring
-an effect named after a built-in (`IO`, `Alloc`, ...) is refused.
+an effect named after a built-in (`IO`, `Alloc`, ...) is **accepted**;
+the refusal this paragraph used to claim is not implemented, measured
+2026-08-10.
 
 ### Annotating Functions with Effects
 
@@ -1261,7 +1264,7 @@ Axiom supports linear types — types where values have exactly one owner and ca
 (linear T)
 ```
 
-A linear type `T` enforces that values of type `T` are used exactly once.
+**Parsed only.** `linear T` parses to the nominal type constructor `Linear T`, and nothing counts uses: a value used twice, or zero times, is accepted and runs. The ownership fact the syntax expresses is what the planned memory model needs (`docs/v1-roadmap.md` §4.1); the enforcement is not written.
 
 ### Consume
 
@@ -1269,7 +1272,7 @@ A linear type `T` enforces that values of type `T` are used exactly once.
 (consume expr)
 ```
 
-The `consume` expression takes ownership of a linear value, signaling that it will no longer be used after this point. This is the mechanism for deterministic destruction — when a linear value is consumed, its memory is reclaimed at that point rather than at process exit.
+**Parsed only.** `consume` is a parse-time identity that keeps the `Linear` wrapper; consuming twice is accepted, and no memory is reclaimed at that point or any other — there is no `free`. Deterministic reclamation today is `__axiom_arena_mark` / `__axiom_arena_reset_keeping`, written by hand; see `docs/v1-roadmap.md` §4.1.
 
 ---
 
@@ -1466,7 +1469,7 @@ Supported targets: `darwin-aarch64`, `darwin-x86_64`, `linux-aarch64`, `linux-x8
 
 ## Optimisation
 
-Axiom has no loop construct — iteration is written as recursion. At `--opt 0` each iteration costs a stack frame. `--opt 1` (the default) and above run LLVM's mid-level passes, which turn self-tail-recursion into a real loop:
+Axiom has `while` with `mut` and `set` (see [Loops](#loops)), used 241 times in the compiler's own sources. Iteration may also be written as recursion, and at `--opt 0` each recursive iteration costs a stack frame. `--opt 1` (the default) and above run LLVM's mid-level passes, which turn self-tail-recursion into a real loop:
 
 ```bash
 axiom build --input main.ax --output main --opt 2

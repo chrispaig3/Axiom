@@ -50,9 +50,15 @@ echo "--- documented Axiom code blocks balance their delimiters ---"
 # carried one extra `)`. Both were the SECOND, longer example under
 # their heading; the short one above each was correct, which is how they
 # survived being read.
+# docs/macros.md and docs/self-hosting.md were never swept. The
+# second is 7,000+ lines and grows by a section per fix, every one of
+# them quoting real programs - exactly the shape that goes stale
+# unread. Adding two paths takes the sweep from 114 fenced blocks to
+# 139 at zero design cost.
 python3 "$repo_root/tests/docs/verify-doc-code.py" \
   "$repo_root/README.md" "$repo_root/docs/reference.md" \
-  "$repo_root/CONTRIBUTING.md"
+  "$repo_root/CONTRIBUTING.md" \
+  "$repo_root/docs/macros.md" "$repo_root/docs/self-hosting.md"
 
 # Prefer a project-local install, then anything on PATH.
 if [[ -x "$repo_root/tree-sitter-axiom/node_modules/.bin/tree-sitter" ]]; then

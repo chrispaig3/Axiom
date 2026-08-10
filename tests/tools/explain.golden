@@ -433,8 +433,8 @@ not:
 
   - the `impl` names a trait that is not in scope
   - it defines a method the trait does not declare
-  - it does not define one the trait does declare (there are no
-    default bodies yet, so every method needs an implementation)
+  - it does not define one the trait does declare and the trait
+    supplies no default body for it
   - the trait has no type parameter, so there is nothing to key an
     implementation on
   - a call has no implementation for the type of its dispatch argument

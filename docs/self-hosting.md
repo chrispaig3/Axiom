@@ -2169,7 +2169,7 @@ now resolves to `M`'s own definition when `M` has one, before the
 entry file is consulted. Before that, importing a module could change
 what the module *did*:
 
-```scheme
+```scheme fragment
 ; Lib.ax
 (pub fn (helper x) (* x 10))
 (pub fn (libCall x) (helper x))
@@ -4747,7 +4747,7 @@ red and nobody had read down past the first failure.
 
 `axiom check` on this program died of `SIGSEGV`:
 
-```scheme
+```scheme refused
 (:: main Int)
 (fn (main) ())
 ```
@@ -4770,7 +4770,7 @@ than the emitter:
 
 The cause is one line. `parseInner` answered
 
-```scheme
+```scheme excerpt
 (if (peekIs tokens pos TK_RPAREN)
     (pOk 0 (advance pos))
 ```
@@ -6176,7 +6176,7 @@ Two other gates spoke up, and both were right:
 
 Fixed 2026-08-10.
 
-```scheme
+```scheme refused
 (:: g (-> Int Int Int))
 (fn (g a) a)
 (:: main Int)
@@ -6384,7 +6384,7 @@ same slip compiled and segfaulted at the call site.
 
 Fixed 2026-08-10.
 
-```scheme
+```scheme refused
 (:: zero Int)
 (fn (zero) 0)
 (fn (main) (printlnInt (/ 10 (zero))))
@@ -6520,7 +6520,7 @@ README.md:392: does not compile: AX2003`, exit 1. Restored, 0.
 
 Fixed 2026-08-10.
 
-```scheme
+```scheme refused
 (:: f (-> Int Float))
 (fn (f x) 42)
 (fn (main) (println (fmtFloat (f 1))))
@@ -6543,7 +6543,7 @@ double, and 42 as a double bit pattern is a denormal that prints
 
 `Bool` is the same defect one step quieter:
 
-```scheme
+```scheme refused
 (:: b (-> Int Bool))
 (fn (b x) 42)
 (fn (main) (if (b 1) 7 9))
@@ -6602,7 +6602,7 @@ undefined-type` has exactly **one** construction site in `typecheck.ax`,
 and it is the `(struct Name ...)` *expression*, so a type constructor
 named in a signature is never resolved against anything:
 
-```scheme
+```scheme refused
 (:: g (-> Nonexistent Int))
 (fn (g x) 1)
 (fn (main) (g 5))
@@ -6627,7 +6627,7 @@ on programs this one leaves alone.
 
 Fixed 2026-08-10.
 
-```scheme
+```scheme refused
 (:: g (-> Nonexistent Int))
 (fn (g x) 1)
 (fn (main) (g 5))
@@ -7274,7 +7274,7 @@ standard-library functions alike.
 
 `checkApp` dispatched before it resolved:
 
-```scheme
+```scheme excerpt
 (let ((_td (if (&& (== headIsVar 1) (== inHead 0))
                (traitRewrite tc e head (nodeA head))
                0)))
@@ -7673,3 +7673,78 @@ formatter's job.
 `typeExprAgainst` still leaves imports unresolved at the prompt — that is
 stage0 parity, recorded in the function's own header, and a separate
 question from `:load`.
+
+## 41. Nine documented claims were false, and the fix is gates
+
+Fixed 2026-08-10.
+
+| Location | Claim as written | Measured |
+|---|---|---|
+| `README.md` status table | `Map` is **14×** Rust, "six sevenths of which is table growth against the bump allocator" | **1.80×**, and the cause was an affine hash — `docs/v1-roadmap.md` §2.4 B3 says so, in the same repository |
+| `README.md` editor row | "gated against all **70** `.ax` files and a **22**-case tree-shape corpus. **No LSP yet**" | 290 files; 31 cases; `self_host/lsp.ax` is 812 lines with a CI gate, and the row four above it lists the LSP |
+| `README.md` visibility row | "An import's name list is still not itself checked" | checked since `6a28103` |
+| `README.md` functions row | "polymorphic signatures" under **Complete** | §38 made that true; the row now also says what it still does not do |
+| `reference.md` aliases | an alias "does not create a new type … interchangeable" | §39 made that true for the spelling this section documents; a *parameterised* alias still does not expand |
+| `reference.md` effects | "colliding with a function … is a duplicate definition" | §37 made that true |
+| `reference.md` effects | "an effect named after a built-in … is refused" | **accepted**, measured; not implemented |
+| `reference.md` linear types | "enforced … used exactly once"; memory "reclaimed at that point" | parsed only: a linear value used twice, or zero times, is accepted and runs; `consume` is a parse-time identity and there is no `free` |
+| `reference.md` loops | "Axiom has **no loop construct**" | `while` is **Complete**, has its own heading, and is used 241 times in the compiler's own sources |
+| `explain AX3025` | "there are no default bodies yet" | default bodies landed in `18537c0` |
+
+Every one of them is corrected. That is the smaller half.
+
+### The fix is gates, because correcting by hand is a treadmill
+
+Seven stale file counts have been fixed one at a time across this
+project's history. `scripts/check-doc-drift.sh`:
+
+* **every count is recomputed** — and a claim whose sentence this gate
+  can no longer find is a FAILURE, not a skip, because a reworded
+  sentence that quietly stops being checked reads exactly like success;
+* **every `**Complete**` row names a fixture, and the fixture exists.**
+  Three of seventeen did; the other fourteen now do. This is the
+  cheapest implementation of the corpus-is-the-spec law: it forces the
+  *documented* surface, not the tree, to define coverage — and two of
+  the fourteen turned out to be describing behaviour that did not
+  exist;
+* **the diagnostic registry, both ways.** 39 codes have a construction
+  site outside `explain.ax`, 39 are listed, and the sets are equal.
+  `check-tools-selfhost.sh` already checked emitted → listed, which is
+  weaker in the direction that matters: a code CONSTRUCTED but never
+  reached by a corpus fixture escapes it, and `AX4001` sat in the table
+  with no construction site for months;
+* **every `tests/` path the docs name exists** — 44 of them.
+
+All three sections were ablated: a wrong count, a `**Complete**` row
+stripped of its fixture, and a construction site for a code nobody
+explains. Each fails, individually.
+
+The registry check strips comments before grepping. Without that it
+counts a code MENTIONED in prose, and these files quote codes
+constantly.
+
+### And the sweep was widened
+
+`tests/docs/verify-doc-code.py` read `README.md`, `docs/reference.md`
+and `CONTRIBUTING.md` — 114 blocks. It did not read `docs/macros.md` or
+this file, which is 7,000+ lines, grows by a section per fix, and quotes
+real programs throughout: exactly the shape that goes stale unread.
+Adding two paths takes it to **148 blocks and 27 whole programs**.
+
+Two markers came with them:
+
+* `excerpt` — a section explaining a defect quotes source mid-form, and
+  balance is not a property such a quotation has. Two blocks need it;
+  the count is printed on every run and capped at 12, because an
+  opt-out nobody counts is how a sweep stops sweeping.
+* `refused` — a section that quotes the program a defect lived in can
+  now ASSERT it: the block must still fail to compile, **and fail with
+  a diagnostic** rather than by dying, since a signal is also a nonzero
+  exit. Seven blocks carry it. Ablated by marking a compiling program
+  `refused`: `FAIL doc snippet README.md:93: marked `refused` and it
+  compiles`.
+
+One correction here was the gate finding its own bug rather than the
+tree's: the path-existence regex matched
+`tests/fmt/parity/170-empty-tuple.axp` as `…ax` and reported a file that
+exists as missing. First run, first finding, and it was mine.

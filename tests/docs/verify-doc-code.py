@@ -52,14 +52,26 @@ FMT = os.path.join(HERE, os.pardir, 'fmt', 'verify-fmt.py')
 # blocks are transcripts and are not read.
 # The info string after the language is captured so a block can opt out
 # of the compile check with ```scheme fragment. It is still balance-checked.
+#
+# `excerpt` opts out of the BALANCE check as well, and only that marker
+# does. A section explaining a defect often quotes source mid-form - the
+# head of a `let` whose body is three screens away - and balance is not a
+# property such a quotation has. The count of them is printed on every
+# run and capped, because an opt-out nobody counts is how a sweep stops
+# sweeping.
 FENCE = re.compile(r'^```(scheme|axiom)([^\n]*)\n(.*?)^```', re.S | re.M)
 
 # The floor. Docs shrink, and a regex that stopped matching would report
 # the same silence as a clean sweep.
-MIN_BLOCKS = 80
-# Whole programs among them. 17 compile today; the floor is under that
-# and far above what a broken `main` test would leave.
-MIN_PROGRAMS = 12
+MIN_BLOCKS = 130
+# An escape hatch nobody counts becomes the default. Two blocks need it
+# today; a run that needs many more has stopped checking the documents.
+MAX_EXCERPTS = 12
+# Whole programs among them - those that compile, plus those a section
+# marks `refused` and that are still refused with a diagnostic. 27
+# today; the floor is under that and far above what a broken `main`
+# test would leave.
+MIN_PROGRAMS = 20
 
 
 def load_scanner():
@@ -74,14 +86,29 @@ def is_program(body):
     return re.search(r'\(\s*(?:pub\s+)?(?:fn|define)\s+\(?\s*main\b', body) is not None
 
 
-def compile_block(axiom, body, where, failures, work):
+def compile_block(axiom, body, where, failures, work, must_fail=False):
     path = os.path.join(work, 'block.ax')
     with open(path, 'w', encoding='utf-8') as fh:
         fh.write(body)
     r = subprocess.run([axiom, '--diagnostic-format=ai', 'check', path],
                        capture_output=True, text=True)
+    out = (r.stdout + r.stderr).strip()
+    if must_fail:
+        # A section explaining a defect quotes the program that had it,
+        # and says so. Marking such a block `refused` turns the prose
+        # into an assertion the compiler has to keep satisfying: it must
+        # still be refused, and refused with a DIAGNOSTIC rather than by
+        # dying, since a signal is also a nonzero exit.
+        if r.returncode == 0:
+            failures.append('%s: marked `refused` and it compiles' % where)
+            return 0
+        if not re.search(r'^[EWNH] AX[0-9]{4}', out, re.M):
+            failures.append('%s: marked `refused` but produced no diagnostic '
+                            '(exit %d)' % (where, r.returncode))
+            return 0
+        return 1
     if r.returncode != 0:
-        first = (r.stdout + r.stderr).strip().split('\n')[0][:120]
+        first = out.split('\n')[0][:120]
         failures.append('%s: does not compile: %s' % (where, first))
         return 0
     return 1
@@ -99,6 +126,7 @@ def main(argv):
     vf = load_scanner()
     blocks = 0
     programs = 0
+    excerpts = 0
     work = tempfile.mkdtemp(prefix='axdoc')
     failures = []
     for path in argv[1:]:
@@ -118,7 +146,10 @@ def main(argv):
                     under = True
                     break
             where = '%s:%d' % (os.path.basename(path), line)
-            if under:
+            if 'excerpt' in info:
+                excerpts += 1
+                print('     excerpt (balance not checked): %s' % where)
+            elif under:
                 failures.append('%s: a closing delimiter with nothing open'
                                 % where)
             elif depth > 0:
@@ -128,9 +159,14 @@ def main(argv):
                                 % (where, -depth))
             elif (axiom is not None and 'fragment' not in info
                   and is_program(body)):
-                programs += compile_block(axiom, body, where, failures, work)
+                programs += compile_block(axiom, body, where, failures, work,
+                                          must_fail='refused' in info)
     for f in failures:
         print('FAIL doc snippet %s' % f)
+    if excerpts > MAX_EXCERPTS:
+        print('FAIL: %d blocks opted out of the balance check with `excerpt`; '
+              'the cap is %d' % (excerpts, MAX_EXCERPTS))
+        return 1
     if blocks < MIN_BLOCKS:
         print('FAIL: read %d Axiom code blocks; the floor is %d - the fence '
               'pattern has stopped matching' % (blocks, MIN_BLOCKS))
@@ -144,11 +180,13 @@ def main(argv):
                   'that compiles nothing passes every time'
                   % (programs, MIN_PROGRAMS), file=sys.stderr)
             return 1
-        print('ok   %d documented Axiom code blocks balance their delimiters, '
-              '%d of them whole programs that compile' % (blocks, programs))
+        print('ok   %d documented Axiom code blocks balance their delimiters '
+              '(%d excerpts exempt), %d of them whole programs that compile '
+              'or are refused as documented'
+              % (blocks, excerpts, programs))
         return 0
-    print('ok   %d documented Axiom code blocks balance their delimiters'
-          % blocks)
+    print('ok   %d documented Axiom code blocks balance their delimiters '
+          '(%d excerpts exempt)' % (blocks, excerpts))
     return 0
 
 

@@ -267,6 +267,20 @@ jobs:
       - name: Language server
         run: ./scripts/check-lsp-selfhost.sh
 
+      # The normative documents drift because they are maintained by
+      # hand: nine claims in README.md and docs/reference.md were
+      # measurably false on 2026-08-10, including a benchmark ratio this
+      # repository had already corrected in another file and "No LSP
+      # yet" forty lines below the row listing the LSP. Correcting them
+      # by hand is a treadmill - seven stale file counts have been fixed
+      # one at a time across this project's history - so every count is
+      # recomputed, every **Complete** row must name a fixture that
+      # exists, and the diagnostic registry is compared BOTH ways
+      # (a code constructed but never reached by a corpus fixture
+      # escapes the emitted->listed check that already existed).
+      - name: Documentation agrees with the tree
+        run: ./scripts/check-doc-drift.sh
+
       # The frontend has five consumers - check, symbols, fmt, the
       # REPL's :load and the language server - each reaching
       # parseModuleWith/resolveImports/checkModule through its own call
