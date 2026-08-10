@@ -666,6 +666,48 @@ else
   bad "emit-llvm --output (rc=$rc, file $( [[ -s eo.ll ]] && echo written || echo MISSING))"
 fi
 
+# ---------------------------------------------------------------
+# An IMPORTED module that does not parse.
+#
+# This used to print `error: cannot parse module: Broken` on fd 2 and
+# exit 3 - no code, no span, no snippet, and byte-identical under
+# `--diagnostic-format=json` - while checking that same file DIRECTLY
+# gave a complete AX2002 with file, line, column, caret and help at
+# exit 1. The information was held by the caller and thrown away.
+#
+# The broken module is written HERE rather than checked in, because
+# `check-fmt.sh` and `check-tree-sitter.sh` sweep every `*.ax` in the
+# repository and require it to parse - a file that deliberately does
+# not parse has to be `.axbad`, and an `.axbad` is not a name the
+# module resolver will ever find.
+#
+# The load-bearing assertion is the LAST one: that the diagnostic an
+# importer gets is byte-for-byte the diagnostic the module itself
+# gets. Asserting only "exit 1" or "says AX2002" would be satisfied by
+# any refusal, and the defect was never that it failed to refuse.
+printf '(pub :: helper (-> Int Int))\n(pub fn (helper x) (* x\n' > Broken.ax
+printf '(import Broken)\n(:: main Int)\n(fn (main) (helper 4))\n' > useBroken.ax
+
+"$s1" check useBroken.ax >/dev/null 2>ib.err; rc=$?
+[[ $rc == 1 ]] \
+  && ok "an unparseable import exits 1, like every other diagnostic" \
+  || bad "unparseable import exit status (got $rc, want 1)"
+
+"$s1" --diagnostic-format=ai check useBroken.ax >/dev/null 2>ib.axdl
+grep -q '^E AX2002 Broken.ax:' ib.axdl \
+  && ok "an unparseable import carries its code and the module's own span" \
+  || bad "unparseable import AXDL ($(head -c 90 ib.axdl))"
+
+"$s1" --diagnostic-format=ai check Broken.ax >/dev/null 2>direct.axdl
+cmp -s ib.axdl direct.axdl \
+  && ok "the importer's diagnostic is the module's diagnostic, byte for byte" \
+  || bad "importer and direct check disagree$(diff direct.axdl ib.axdl | head -2 | tr '\n' ' ')"
+
+"$s1" --diagnostic-format=json check useBroken.ax >/dev/null 2>ib.json
+grep -q '"code":"AX2002"' ib.json \
+  && ok "and it honours --diagnostic-format" \
+  || bad "unparseable import ignores --diagnostic-format"
+
 echo
 echo "$passed passed, $failed failed"
 [[ "$failed" == 0 ]]

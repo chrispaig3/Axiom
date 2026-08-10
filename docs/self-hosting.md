@@ -7748,3 +7748,112 @@ One correction here was the gate finding its own bug rather than the
 tree's: the path-existence regex matched
 `tests/fmt/parity/170-empty-tuple.axp` as `…ax` and reported a file that
 exists as missing. First run, first finding, and it was mine.
+
+## 42. An imported module that did not parse reported nothing about it
+
+Fixed 2026-08-10.
+
+```
+$ axiom check use.ax
+error: cannot parse module: Broken
+$ echo $?
+3
+```
+
+No code. No span. No snippet. No help. Byte-identical under
+`--diagnostic-format=json`, which it ignored. And checking that same
+file directly:
+
+```
+$ axiom check Broken.ax
+error[AX2002]: unexpected end of file
+ --> Broken.ax:2:24
+  |
+2 | (pub fn (helper x) (* x
+  |                        ^ file ends here while a form is still open
+  |
+  = help: count `(`/`[`/`{` against `)`/`]`/`}` working backward from the end of the file
+$ echo $?
+1
+```
+
+The information was held by the caller and thrown away. This was the
+last surface untouched by the parse-error port, and it is the one a
+person compiling a multi-module program meets first: it is what the
+compiler prints when a file it was told to read is broken.
+
+I met it myself while writing §38 — a missing parenthesis in
+`typecheck.ax` reported as `error: cannot parse module: typecheck`, and
+the only way to find the line was to run `check` on the file by hand.
+
+### The fix
+
+`parseModuleOrDie` now lexes, checks for lexical errors and parses in
+the same order `main.ax` does for the entry file, and `dieModuleParse`
+renders the result through `renderDiagsFormat` — the same renderer, the
+same trailer, the same exit status 1. `dieImportDiag`, three definitions
+above, already had this shape for the module that could not be FOUND;
+the module that could not be READ is the same problem one step later.
+
+One thing had to move for it. The diagnostic must name a FILE, and
+`readModuleSrc` answered the bytes and threw the resolved path away —
+only the search knows which of `Mod.darwin-aarch64.ax`, `Mod.darwin.ax`
+and `Mod.ax` won. `moduleSrcPath` now owns that ladder and
+`readModuleSrc` reads through it, so the two cannot disagree about which
+file was opened.
+
+### What pins it
+
+Four cases in `scripts/check-driver.sh`, and the broken module is
+written by the script rather than checked in — `check-fmt.sh` and
+`check-tree-sitter.sh` sweep every `*.ax` in the repository and require
+it to parse, so a file that deliberately does not parse must be
+`.axbad`, and an `.axbad` is not a name the module resolver will ever
+find.
+
+The load-bearing one is the last: **the diagnostic an importer gets is
+byte-for-byte the diagnostic the module itself gets.** Asserting only
+"exit 1" or "mentions AX2002" would be satisfied by any refusal, and
+the defect was never that it failed to refuse.
+
+Ablated against a tree with the previous `codegen.ax`: all four fail,
+each for its own reason — exit 3, an uncoded line, a mismatch against
+the direct check, and JSON ignored.
+
+## 43. What the module cache actually needs, measured
+
+Not fixed. Recorded because the estimate was wrong and the reason is
+worth having in writing.
+
+The plan was a cache keyed on path + mtime holding a module's parsed
+and checked declarations, at roughly 120 lines, resting on a surveyed
+negative result: there is no module-level mutable state anywhere in
+`self_host/` or `stdlib/`, so a second `checkModule` in one process
+inherits nothing and the cache is purely additive.
+
+That negative result is true and it is about the wrong thing. The
+declarations themselves are mutated in place, by three passes:
+
+* `mangleDecl` (`codegen.ax`) renames an imported declaration —
+  `(memSetWord node 1 full)` — so `f` becomes `Mod$f` **on the parsed
+  node**. Re-resolving a cached module would produce `Mod$Mod$f`;
+* `traitRewrite` (`typecheck.ax`) rewrites a call head to an
+  implementation's mangled name, deliberately, because the emitter
+  reads the same nodes later;
+* `tcExpandSigAliases` (§39) rewrites a signature's type slot and its
+  float-flag slot for the same reason.
+
+So the cache is not additive; it needs import resolution to stop being
+destructive, or a deep copy per reuse that costs much of what it saves.
+
+And the benefit is narrower than the headline suggests. 93% of
+`check self_host/main.ax` is its twenty imports, but each is read once
+per process, so a fresh `check` cannot be helped by any cache. The
+beneficiary is the process that checks repeatedly — the language
+server, on every keystroke — which is exactly the workload the ratio
+was measured on and exactly the one where the mutation problem bites,
+because the same nodes would be reused across edits.
+
+The gate is unchanged and still right: a ratio measured in one run,
+second invocation against first. A wall-clock ceiling is a
+machine-speed assertion in costume.

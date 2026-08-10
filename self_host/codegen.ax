@@ -924,14 +924,27 @@
 ; it defines - `sysWrite`, `oRdonly` - is an undefined symbol.
 (pub :: readModuleSrc (-> Int Int Int Int))
 (pub fn (readModuleSrc name tcode entryDir)
+  (let ((p (moduleSrcPath name tcode entryDir)))
+    (if (== (strLen p) 0)
+        0
+        (sysReadFile (strCStr p)))))
+
+; The path the suffix ladder resolved, or "". A diagnostic about a
+; module has to name the FILE, and only the search knows which
+; candidate won - `readModuleSrc` used to answer the bytes and throw
+; the path away, so an imported module that failed to parse could not
+; be reported against anything. The ladder lives here once and
+; `readModuleSrc` reads through it, rather than being stated twice.
+(pub :: moduleSrcPath (-> Int Int Int Int))
+(pub fn (moduleSrcPath name tcode entryDir)
   (let ((stem (modPathToFile name)))
-    (let ((osArch (tryModuleFile stem (targetOsArchSuffix tcode) entryDir)))
-      (if (!= osArch 0)
-          osArch
-          (let ((os (tryModuleFile stem (targetOsSuffix tcode) entryDir)))
-            (if (!= os 0)
-                os
-                (tryModuleFile stem ".ax" entryDir)))))))
+    (let ((a (tryModulePath stem (targetOsArchSuffix tcode) entryDir)))
+      (if (> (strLen a) 0)
+          a
+          (let ((b (tryModulePath stem (targetOsSuffix tcode) entryDir)))
+            (if (> (strLen b) 0)
+                b
+                (tryModulePath stem ".ax" entryDir)))))))
 
 (pub :: tryModuleFile (-> Int Int Int Int))
 ; Answers the PATH that was read, or "" - the unit table needs the
@@ -1239,6 +1252,43 @@
       0
     }))
 
+; An IMPORTED module that does not lex or parse, reported the way the
+; entry file's failure is reported.
+;
+; It used to be `dieImport`: `error: cannot parse module: Broken` on fd
+; 2, exit 3, no code, no span, no snippet, and byte-identical under
+; `--diagnostic-format=json` - while checking that same file DIRECTLY
+; gave a complete `AX2001`/`AX2002` with file, line, column, caret and
+; help at exit 1. The information was held by the caller and thrown
+; away; `dieImportDiag`, three definitions above, already had the right
+; shape for the module that could not be FOUND.
+;
+; This was the last surface untouched by the parse-error port, and it
+; is the one a person compiling a multi-module program meets first: it
+; is what a compiler prints when a file it was told to read is broken.
+(pub :: dieModuleParse (-> Int Int Int Int Int Int Int Int))
+;@axiom:effect(io)
+(pub fn (dieModuleParse name src toks pr lexD tcode entryDir)
+  (let ((path (moduleSrcPath name tcode entryDir))
+        (ds vecNew)
+        (units vecNew))
+    {
+      (vecPush ds (if (== lexD 0) (parseErrDiag toks pr src) lexD))
+      ; The unit carries the RESOLVED path, not the module name, so the
+      ; `-->` line names a file the reader can open.
+      (vecPush units (cast Int (CUnit2 path src 0)))
+      (let ((out (renderDiagsFormat diagFormatFromArgv ds units)))
+        (sysWriteFd 2 (strData out) (strLen out)))
+      (let ((tr (renderFailTrailer 1)))
+        (sysWriteFd 2 (strData tr) (strLen tr)))
+      ; Exit 1, the status every other diagnostic exits with and the
+      ; one `dieImportDiag` moved to when AX5001 became a real
+      ; diagnostic. The old 3 said "import machinery" about what is
+      ; simply a syntax error in a file.
+      (sysExitWith 1)
+      0
+    }))
+
 (pub fn (parseModuleOrDie name tcode entryDir)
   (let ((src (readModuleSrc name tcode entryDir)))
     (if (== src 0)
@@ -1248,10 +1298,14 @@
         ; entry file's do, or `symbols` prints `#effects=IO` beside a
         ; missing `#effect=io` claim and every tag check on imported
         ; code silently never runs.
-        (let ((pr (parseModuleWith (lex src) (scanAxtags src))))
-          (if (== (memGetWord pr 0) 0)
-              (dieImport "error: cannot parse module: " name)
-              (memGetWord pr 1))))))
+        (let ((toks (lex src)))
+        (let ((lexD (lexErrDiag toks src)))
+        (let ((pr (if (== lexD 0)
+                      (parseModuleWith toks (scanAxtags src))
+                      (pErr 0))))
+          (if (|| (> lexD 0) (== (memGetWord pr 0) 0))
+              (dieModuleParse name src toks pr lexD tcode entryDir)
+              (memGetWord pr 1))))))))
 
 (pub :: seenHas (-> Int Int Bool))
 (pub fn (seenHas seen name)
