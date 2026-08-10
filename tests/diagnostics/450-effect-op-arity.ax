@@ -1,0 +1,29 @@
+; An effect operation was registered with a silent wildcard type and
+; arity -1, so neither of these was a diagnostic. Both checked clean
+; at exit 0 and the process then answered:
+;
+;   (two 3 4 5)   exit 139, SIGSEGV
+;   (two 3)       exit 0, printing a heap address - a different one on
+;                 the next run
+;
+; The declared arrow was never missing. The parser has kept it beside
+; the name since effects landed and `axiom symbols` prints it; one
+; registration site took the parallel name-only vector instead.
+;
+; Over-application is AX3004 rather than AX3013 because it is not an
+; arity question by the time it is asked: `(-> Int Int Int)` right-folds
+; to `(-> Int (-> Int Int))`, so the third argument is applied to the
+; `Int` the second one produced.
+(effect Two
+  (two :: (-> Int Int Int)))
+
+(:: over (-> Int Int))
+(fn (over n)
+  (handle (two 3 4 5) (Two) (lambda (p) (lambda (q) (* p q)))))
+
+(:: under (-> Int Int))
+(fn (under n)
+  (handle (two 3) (Two) (lambda (p) (lambda (q) (* p q)))))
+
+(:: main Int)
+(fn (main) 0)

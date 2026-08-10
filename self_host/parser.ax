@@ -920,7 +920,15 @@
                            0)))
                   {
                     (vecPush ops (memGetWord nr 1))
-                    (vecPush opFields (mkField (memGetWord nr 1) tyNode))
+                    ; With the NAME's span, the way a trait's methods
+                    ; have carried one since they were parsed: an
+                    ; operation is a definition, so a duplicate of it
+                    ; has to be reportable at the line that declares
+                    ; it. `mkField` leaves span 0 and a spanless
+                    ; diagnostic is a suppressed one.
+                    (vecPush opFields
+                      (mkNodeAt TAG_FIELD (memGetWord nr 1) tyNode 0
+                                (tokenSpan (vecGet tokens (advance pos)))))
                     (let ((r (skipParens tokens (memGetWord nr 2) 1)))
                       (if (== (memGetWord r 0) 0)
                           r

@@ -1,0 +1,2 @@
+E AX3004 450-effect-op-arity.ax:22:12-15 type-mismatch "type mismatch: expected function type, found Int" #"this has type `Int`, expected `function type`"
+E AX3013 450-effect-op-arity.ax:26:12-15 partial-application "partial application of `two`: it takes 2 argument(s) and 1 were supplied" #"`two` takes 2 argument(s); 1 more needed" !"a partial application has to hold the arguments it was not given, and a top-level function has no closure record to hold them in" ?"bind the missing arguments with a lambda: `(lambda (y) (f x y))` builds the value `(f x)` would mean"

@@ -1,0 +1,17 @@
+; `docs/reference.md:917` says an operation colliding with a function
+; is a duplicate definition. It was not implemented: this program
+; checked clean, built, and trapped at run time with exit 71, no
+; stdout and no stderr - the operation won the call and no handler was
+; installed.
+;
+; An `effect` declares one value name per operation, the same way a
+; `trait` declares one per method, so both now reach `checkDuplicates`
+; through `declFields`.
+(effect Two
+  (two :: (-> Int Int Int)))
+
+(:: two (-> Int Int))
+(fn (two n) 5)
+
+(:: main Int)
+(fn (main) (two 3))

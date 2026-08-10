@@ -7332,3 +7332,82 @@ compiler before the change it exits 1 with three `AX3025`s.
 collision — the `fn` after the trait and the trait after the `fn` — because
 they reach the report through different arms, and one arm working while
 the other stayed silent is what hid this.
+
+## 37. An effect operation was registered with no type and no arity
+
+Fixed 2026-08-10.
+
+```scheme
+(effect Two
+  (two :: (-> Int Int Int)))
+```
+
+```
+(two 3 4 5)   over-applied    check OK, exit 0  ->  run exit 139 (SIGSEGV)
+(two 3)       under-applied   check OK, exit 0  ->  run exit 0, prints 4332585008
+                                                    and 4340662320 on the next run
+(two 3 4)     correct         run exit 0, prints 12
+```
+
+A nondeterministic heap address delivered as the program's answer, at
+exit 0, and a segmentation fault from a program the checker called
+fine.
+
+A third shape, `docs/reference.md:917`'s own promise, was not
+implemented at all: a top-level `fn` whose name collides with an
+operation was accepted, built, and trapped at run time with **exit 71,
+no stdout and no stderr**.
+
+### Why
+
+```scheme
+(pub fn (tcAddEffectOp tc name effName)
+  (tcPushFn tc
+    (cast Int (FnEnt name mkSilentWild (- 0 1) 0 1 ...))))
+```
+
+Wildcard type, arity **-1**. The source recorded it as a deliberate
+under-report, and for the TYPE that is a defensible one. For the
+ARITY it is not a missing diagnostic, it is a missing bound: `-1`
+means "not measurable", so `checkSaturation` skips the operation and
+`checkApp`'s arrow walk has no arrow to run out of.
+
+The declared arrow was never missing. `parseEffectDecl` builds two
+parallel vectors — `ops`, the bare names, and `opFields`, TAG_FIELD
+nodes with the parsed types beside them — and `axiom symbols` has
+printed `two  (Int -> (Int -> Int))` off the second one since it was
+added. The collector took the first. **One registration site
+discarding a type the parser already kept**, which is the sentence
+§29 writes about `parseSigDecl`, one subsystem over.
+
+### The fix
+
+`tcCollectEffectOps` reads slot c instead of slot b, so an operation
+is registered with its declared arrow and `arrowDepth` of that arrow
+as its arity. A type the parser could not read still leaves 0 in the
+field and still registers the old wildcard at -1: under-report, never
+mis-report. Nothing downstream changed — `checkSaturation` and
+`tyCompat` were already correct and had simply never been given
+anything to work with.
+
+The collision is a declaration question, so it went where §36 put the
+trait one: `declFields` now names the two declarations that define more
+than one value name — a `trait` through its methods, an `effect`
+through its operations — and `checkDuplicates` reports each. Effect
+operation fields gained the NAME's span in the parser, the way a
+trait's methods have always carried one, because a spanless diagnostic
+is a suppressed one.
+
+### What it cost
+
+Nothing: 20 effect declarations across 14 files, and a 275-file
+old-vs-new sweep of `check` output and exit status diverged on **0**.
+Every effect call in this repository was already saturated and
+correctly typed, which is exactly why nothing had ever noticed.
+
+### What pins it
+
+`tests/diagnostics/450-effect-op-arity.ax` (AX3004 over-applied,
+AX3013 under-applied) and `tests/diagnostics/455-effect-op-collision.ax`
+(AX3006). Each was run individually against the previous compiler:
+exit 0, zero diagnostics, both times.

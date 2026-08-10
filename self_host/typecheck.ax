@@ -270,34 +270,52 @@
             j
             (firstDefinerFrom decls (+ j 1) i ns name)))))
 
+; The TAG_FIELD vector of a declaration that defines MORE THAN ONE
+; value name, or 0 for the ordinary kind that defines just `nodeA`.
+;
+; Two declarations are in this class and both were invisible to the
+; duplicate check. A `trait` keeps its methods in slot b; an `effect`
+; keeps its operations' names in slot b and the same names with their
+; TYPES in slot c, which is the vector with the spans on it.
+(pub :: declFields (-> Int Int))
+(pub fn (declFields d)
+  (if (== (nodeTag d) TAG_D_TRAIT)
+      (nodeB d)
+      (if (== (nodeTag d) TAG_D_EFFECT)
+          (nodeC d)
+          0)))
+
 ; Does this declaration define `name` in namespace `ns`?
 ;
 ; The namespaced twin of `declDefines`, which the missing-definition
-; pass uses and which is deliberately namespace-blind. Every
-; declaration but one defines a single name, and it is `nodeA`. A
-; `trait` is the exception: every method in its `where` list is a
-; value name the trait claims, and until this predicate existed none
-; of them collided with anything. A trait method and a top-level `fn`
-; of the same spelling both "existed", the implementation won every
-; call, and no diagnostic said so - `(trait (Sz a) where (sz :: ...))`
-; beside `(fn (sz n) 7)` answered 111 at exit 0. `declDefines`
-; already knew an `effect` declares its operations; this is the same
-; fact for the same reason, in the namespace this pass reads.
+; pass uses and which is deliberately namespace-blind. Every ordinary
+; declaration defines a single name and it is `nodeA`; `declFields`
+; names the two that do not. Until this predicate existed, neither of
+; those collided with anything: a trait method and a top-level `fn` of
+; the same spelling both "existed" and the implementation won every
+; call at exit 0, and a top-level `fn` named after an effect operation
+; built cleanly and trapped at run time with exit 71, no stdout and no
+; stderr, where `docs/reference.md:917` says it is a duplicate
+; definition. `declDefines` already knew an `effect` declares its
+; operations - the same fact, one pass over.
 (pub :: declDefinesNS (-> Int Int Int Int))
 (pub fn (declDefinesNS d ns name)
-  (if (== (nodeTag d) TAG_D_TRAIT)
-      (if (&& (== ns NS_VALUE) (!= (findFieldNamed (nodeB d) name 0) 0)) 1 0)
-      (if (&& (== (declNamespace (nodeTag d)) ns) (strEq (nodeA d) name)) 1 0)))
+  (let ((fs (declFields d)))
+    (if (!= fs 0)
+        (if (&& (== ns NS_VALUE) (!= (findFieldNamed fs name 0) 0)) 1 0)
+        (if (&& (== (declNamespace (nodeTag d)) ns) (strEq (nodeA d) name)) 1 0))))
 
-; The span to blame for that definition. For a trait it is the METHOD
-; name's span, not the trait's own: the label says "first defined
-; here", and the line the reader has to change is the `where` entry.
+; The span to blame for that definition. For a trait or an effect it
+; is the METHOD or OPERATION name's span, not the declaration's own:
+; the label says "first defined here", and the line the reader has to
+; change is the `where` entry.
 (pub :: declDefSpan (-> Int Int Int))
 (pub fn (declDefSpan d name)
-  (if (== (nodeTag d) TAG_D_TRAIT)
-      (let ((f (findFieldNamed (nodeB d) name 0)))
-        (if (== f 0) (nodeSpan d) (nodeSpan f)))
-      (nodeSpan d)))
+  (let ((fs (declFields d)))
+    (if (== fs 0)
+        (nodeSpan d)
+        (let ((f (findFieldNamed fs name 0)))
+          (if (== f 0) (nodeSpan d) (nodeSpan f))))))
 
 ; ------------------------------------------------------------------
 ; Pass 1: duplicate definitions.
@@ -319,32 +337,34 @@
       out
       (let ((d (vecGet decls i)))
         {
-          (if (== (nodeTag d) TAG_D_TRAIT)
-              ; A trait defines one value name per method, so it is
-              ; the one declaration that needs a loop here.
-              (checkTraitDupes decls out i (nodeB d) 0)
-              (let ((ns (declNamespace (nodeTag d))))
-                (if (== ns NS_NONE)
-                    0
-                    (let ((name (nodeA d)))
-                      (let ((j (firstDefiner decls i ns name)))
-                        (if (< j 0)
-                            0
-                            (dupDiag decls out j name (nodeSpan d))))))))
+          (let ((fs (declFields d)))
+            (if (!= fs 0)
+                ; A trait defines one value name per method and an
+                ; effect one per operation, so these are the two
+                ; declarations that need a loop here.
+                (checkFieldDupes decls out i fs 0)
+                (let ((ns (declNamespace (nodeTag d))))
+                  (if (== ns NS_NONE)
+                      0
+                      (let ((name (nodeA d)))
+                        (let ((j (firstDefiner decls i ns name)))
+                          (if (< j 0)
+                              0
+                              (dupDiag decls out j name (nodeSpan d)))))))))
           (checkDuplicates decls out (+ i 1))
         })))
 
-(pub :: checkTraitDupes (-> Int Int Int Int Int Int))
-(pub fn (checkTraitDupes decls out i methods k)
-  (if (>= k (vecLen methods))
+(pub :: checkFieldDupes (-> Int Int Int Int Int Int))
+(pub fn (checkFieldDupes decls out i fields k)
+  (if (>= k (vecLen fields))
       0
-      (let ((m (vecGet methods k)))
+      (let ((m (vecGet fields k)))
         {
           (let ((j (firstDefiner decls i NS_VALUE (nodeA m))))
             (if (< j 0)
                 0
                 (dupDiag decls out j (nodeA m) (nodeSpan m))))
-          (checkTraitDupes decls out i methods (+ k 1))
+          (checkFieldDupes decls out i fields (+ k 1))
         })))
 
 (pub :: dupDiag (-> Int Int Int Int Int Int))
@@ -780,13 +800,14 @@
                   ; AX3017 reports how many operations an effect
                   ; declares, and that count is `(vecLen (nodeB d))`.
                   (vecPush (tcEffects tc) d)
-                  ; Each operation is a callable whose type stage1
-                  ; does not parse: a silent wildcard, so calls check
-                  ; their arguments quietly and produce no bytes.
-                  ; stage0 knows the real arrows and CAN complain
-                  ; (AX3013 through op arity, AX3004 on arguments) -
-                  ; recorded under-report.
-                  (tcCollectEffectOps tc (nodeB d) 0 (nodeA d) (nodeModule d))
+                  ; Slot c, not slot b: the TYPES the parser kept
+                  ; beside the names, so an operation is a callable
+                  ; with a real arrow and a real arity. It used to
+                  ; take slot b - the bare names - and register a
+                  ; silent wildcard at arity -1, which made
+                  ; `(two 3 4 5)` check clean and SIGSEGV and
+                  ; `(two 3)` check clean and answer a heap address.
+                  (tcCollectEffectOps tc (nodeC d) 0 (nodeA d) (nodeModule d))
                 }
             (if (== tag TAG_D_MACRO)
                 ; The NODE, not the name: a macro its module does not
@@ -847,29 +868,52 @@
 ; are then collected and checked exactly like hand-written ones, which
 ; is the point - an impl body was previously never checked at all.
 ; ------------------------------------------------------------------
+; `fields` is the effect declaration's `opFields` - TAG_FIELD nodes
+; carrying the operation's NAME and its DECLARED TYPE. The parser has
+; kept both since effects landed, and `symbols` walks exactly this
+; vector to print an operation's real arrow; this collector took the
+; parallel name-only vector and registered a silent wildcard with
+; arity -1 instead. One site discarding a type the parser already
+; kept, which is the same sentence `docs/self-hosting.md` 29 writes
+; about `parseSigDecl`.
 (pub :: tcCollectEffectOps (-> Int Int Int Int Int Int))
-(pub fn (tcCollectEffectOps tc ops i effName modName)
-  (if (>= i (vecLen ops))
+(pub fn (tcCollectEffectOps tc fields i effName modName)
+  (if (== fields 0)
       0
-      {
-        (tcAddEffectOp tc (vecGet ops i) effName)
-        (if (== modName 0)
-            0
-            ; `strConcat` twice rather than `cat3`, which lives in
-            ; codegen.ax and is not imported here - stage0's flat
-            ; namespace resolves it across the merged declaration list
-            ; and stage1 refuses it, which is the open B4 item and the
-            ; stricter of the two answers.
-            (tcAddEffectOp tc (strConcat (strConcat modName "$")
-                                         (vecGet ops i))
-                           effName))
-        (tcCollectEffectOps tc ops (+ i 1) effName modName)
-      }))
+      (if (>= i (vecLen fields))
+          0
+          (let ((f (vecGet fields i)))
+            {
+              (tcAddEffectOp tc (nodeA f) (nodeB f) effName)
+              (if (== modName 0)
+                  0
+                  ; `strConcat` twice rather than `cat3`, which lives in
+                  ; codegen.ax and is not imported here - stage0's flat
+                  ; namespace resolves it across the merged declaration list
+                  ; and stage1 refuses it, which is the open B4 item and the
+                  ; stricter of the two answers.
+                  (tcAddEffectOp tc (strConcat (strConcat modName "$")
+                                               (nodeA f))
+                                 (nodeB f) effName))
+              (tcCollectEffectOps tc fields (+ i 1) effName modName)
+            }))))
 
-(pub :: tcAddEffectOp (-> Int Int Int Int))
-(pub fn (tcAddEffectOp tc name effName)
+; An operation's arity is its declared arrow's depth. `->` right-folds,
+; so `(-> Int Int Int)` IS `(-> Int (-> Int Int))` and the depth is the
+; only reading available - but for an OPERATION it is also the right
+; one, because the lowering applies the handler to the operation's
+; arguments and there is no partial application to preserve.
+;
+; A type the parser could not read leaves 0 in the field, and that
+; keeps the old under-report: silent wildcard, arity -1, calls check
+; quietly. Under-report, never mis-report.
+(pub :: tcAddEffectOp (-> Int Int Int Int Int))
+(pub fn (tcAddEffectOp tc name ty effName)
   (tcPushFn tc
-    (cast Int (FnEnt name mkSilentWild (- 0 1) 0 1
+    (cast Int (FnEnt name
+                     (if (== ty 0) mkSilentWild ty)
+                     (if (== ty 0) (- 0 1) (arrowDepth ty))
+                     0 1
                      (let ((v vecNew))
                        { (vecPush v (customEff effName)) v })
                      vecNew))))
