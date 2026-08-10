@@ -5714,3 +5714,110 @@ No behaviour changes and no code path moves — which is worth stating
 plainly, because it means the gates could not have caught any of this.
 A help string is compared only against a golden, and a golden records
 what the compiler said, not whether it was true.
+
+## 18. `fmt` moved a decimal point, and every gate was green
+
+Measured and fixed 2026-08-10. `axiom fmt` is the tool a company runs on
+every commit, and on one shape it silently changed what the program
+computes:
+
+```
+$ cat fl.ax
+(:: main Int)
+(fn (main) (let ((x 0.05)) (if (< x 0.1) 42 7)))
+
+$ axiom fmt fl.ax
+OK: fl.ax formatted
+
+$ grep 0. fl.ax
+    (let ((x 0.5))
+
+$ axiom run fl.ax; echo $?
+7                              # it was 42
+```
+
+Exit 0 from the formatter, exit 0 from the program, no warning, no
+diagnostic. A tenfold change in a rate, a tolerance or a threshold, and
+the only review signal is the literal itself.
+
+### 18.1 One helper, two jobs, one of them wrong
+
+`fpFloat` printed the integer part and the fractional part with the same
+routine, `fpDigits`, whose contract is *drop `_` separators and leading
+zeros, keeping at least one digit*. That is exactly right for an integer
+part — `007` and `7` are the same number, and normalising the spelling is
+the formatter's job. On a fraction the same rule changes the value:
+
+| written | printed | |
+|---|---|---|
+| `0.05` | `0.5` | ×10 |
+| `0.0583` | `0.583` | ×10 |
+| `1.050` | `1.5` | ×10, and the trailing zero legitimately gone |
+
+The fraction now goes through `fpFracDigits`, which drops `_` and
+nothing else. Trailing zeros still go, because the cut is computed
+before the digits are emitted and that half was always right; `007.50`
+is still `7.5`, and `1_0.0_5` is still `10.05`.
+
+### 18.2 Why five gates were green
+
+The corpus contains **no float literal with a leading zero in its
+fractional part outside a comment.** The only two occurrences in the
+repository — `0.0583` in `codegen.ax` and `0.05` in `Fmt.ax` — are both
+inside prose. So `check-fmt.sh` could format all 255 files, re-run every
+suite, and see nothing, because nothing it formatted had the shape.
+
+This is the class §10 and §13 already name, sharpened: the corpus is
+written by people solving problems, so it contains the shapes those
+problems needed. Sixty-two float literals, all of them `1.5`, `2.5`,
+`0.5`, `4.0` — the shapes a benchmark table and a float test need.
+
+And `fmt`'s own round-trip check could not see it either, which is the
+part worth keeping. That check re-scans its output and compares the
+token stream; `0.5` is a perfectly good float where `0.05` was, so the
+scan agrees. **A round-trip check answers "is the output still the same
+kind of thing", not "is it still the same thing".**
+
+### 18.3 The gate, and the ablation
+
+Two, at different altitudes.
+
+`tests/selfhost/940-float-literal.ax` is the corpus entry the corpus was
+missing: five literals whose value decides whether it answers 42 or 1.
+`check-fmt.sh` formats a copy of the repository and re-runs
+`check-self-host.sh` against it, so this case turns any recurrence into
+a failing test rather than a silent rewrite.
+
+`tests/fmt/verify-fmt.py` gets the general property, and it is the one
+the file already exists to provide — a second opinion that reads no
+golden. Every float literal in the input and in the output is decoded to
+a number and the multisets are compared, so a normalisation of the
+SPELLING passes and a change of the VALUE does not. Two details are
+load-bearing and both were found by running it:
+
+- **Magnitude, not value.** The printer legitimately fuses a unary minus
+  into a literal (`(- 8)` prints `-8`), which moves the sign between the
+  expression and the token without changing what the program computes.
+  Comparing signed values reported three corpus files.
+- **Floats only.** Integer normalisation is value-preserving by
+  construction, and counting integers also flags `(- n)` → `(- 0 n)`,
+  which introduces a literal `0` without changing a value.
+
+73 float magnitudes over 272 pairs, with a floor of 40, because a
+scanner that stops recognising numbers would otherwise pass every time.
+
+The ablation was run rather than assumed: a tree with the old `fpFloat`
+and the new gate, bootstrapped and swept, reports
+
+```
+940-float-literal.ax: formatting changed the float values:
+  lost [(0.05, 1), (0.0583, 1), (1.05, 1)],
+  gained [(0.5, 1), (0.583, 1), (1.5, 1)]
+```
+
+and exits 1. Restored, it is 0 failures.
+
+Widening `scan`'s return also broke `tests/docs/verify-doc-code.py`,
+which loads it rather than copying it — the second consumer doing its
+job, and the reason that file loads the scanner instead of duplicating
+it.

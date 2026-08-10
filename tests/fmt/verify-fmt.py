@@ -38,6 +38,13 @@ be a second, weaker copy of them. Meaning-preservation at the atom level
 is instead carried by the gate's rebuild: the formatted tree has to
 compile into a compiler that reproduces the zoo golden.
 
+Float literals are compared by decoded MAGNITUDE rather than by spelling,
+because normalising the spelling is the formatter's job and changing the
+value is the bug: `1_000.50` must compare equal to `1000.5`, and `0.05`
+must not compare equal to `0.5`. The sign is dropped because the printer
+fuses a unary minus into the literal, which moves the sign between the
+expression and the token without changing what the program computes.
+
 Also checked, on the formatted bytes alone: delimiters balance, no tabs,
 no CR, and the file ends in exactly one newline. Trailing spaces are NOT
 checked - the printer emits them (`(else ` before a line break, 15 of
@@ -58,6 +65,11 @@ OPENERS, CLOSERS = '([{', ')]}'
 # stage0's seven, self_host/lexer.ax:isEscapeChar.
 ESC = {'n': '\n', 't': '\t', 'r': '\r', '\\': '\\', '"': '"', "'": "'", '0': '\0'}
 CHARLIT = re.compile(r"^'(\\.|[^\\'])'$", re.S)
+# A whole atom that is a FLOAT literal: an optional fused minus, digits
+# and `_` separators, then a `.` and more of the same. Anchored at both
+# ends, because `-foo` is an identifier and `c.n` is a field access -
+# only an atom that is entirely numeric is one.
+FLOATLIT = re.compile(r'^-?[0-9][0-9_]*\.[0-9][0-9_]*$')
 
 
 def decode(body):
@@ -84,7 +96,7 @@ def scan(text):
     the character-literal test is anchored at both ends of a whole atom
     rather than applied to a bare quote.
     """
-    comments, strings, chars, delims = [], [], [], []
+    comments, strings, chars, delims, numbers = [], [], [], [], []
     i, n = 0, len(text)
     while i < n:
         c = text[i]
@@ -135,8 +147,25 @@ def scan(text):
             atom = text[i:j]
             if CHARLIT.match(atom):
                 chars.append(decode(atom[1:-1]))
+            elif FLOATLIT.match(atom):
+                # The VALUE, not the spelling, and by MAGNITUDE.
+                #
+                # `1_000.50` -> `1000.5` is a normalisation the printer
+                # is meant to make and compares equal here; `0.05` ->
+                # `0.5` is not, and does not. The sign is dropped
+                # because the printer legitimately FUSES a unary minus
+                # into the literal (`(- 8)` prints `-8`), which moves
+                # the sign between the expression and the token without
+                # changing what the program computes.
+                #
+                # Floats only. Integers cannot reach this bug - their
+                # normalisation drops `_` and leading zeros, both
+                # value-preserving by construction - and counting them
+                # would also flag the `(- n)` -> `(- 0 n)` rewrite,
+                # which introduces a literal without changing a value.
+                numbers.append(abs(float(atom.replace('_', ''))))
             i = j if j > i else i + 1
-    return comments, strings, chars, delims
+    return comments, strings, chars, delims, numbers
 
 
 def load(path):
@@ -252,18 +281,19 @@ def main(argv):
             pairs.append(tuple(parts))
 
     failures = []
-    n_comments = n_strings = n_chars = n_indented = 0
+    n_comments = n_strings = n_chars = n_indented = n_numbers = 0
     for orig, formatted in pairs:
         try:
             before, after = load(orig), load(formatted)
         except OSError as exc:
             failures.append(f'{orig}: cannot read the pair: {exc}')
             continue
-        b_com, b_str, b_chr, _ = scan(before)
-        a_com, a_str, a_chr, a_delims = scan(after)
+        b_com, b_str, b_chr, _, b_num = scan(before)
+        a_com, a_str, a_chr, a_delims, a_num = scan(after)
         n_comments += compare('comments', b_com, a_com, orig, failures)
         n_strings += compare('string literals', b_str, a_str, orig, failures)
         n_chars += compare('character literals', b_chr, a_chr, orig, failures)
+        n_numbers += compare('float values', b_num, a_num, orig, failures)
         for problem in shape_problems(after, a_delims):
             failures.append(f'{orig}: the formatted output {problem}')
         failures.extend(indent_problems(after, a_delims, orig))
@@ -276,7 +306,7 @@ def main(argv):
         print(f'  ... and {len(failures) - 20} more', file=sys.stderr)
     print(f'{len(pairs)} formatted files verified against their source: '
           f'{n_comments} comments, {n_strings} strings, {n_chars} char '
-          f'literals preserved, {n_indented} indented, '
+          f'literals, {n_numbers} float magnitudes preserved, {n_indented} indented, '
           f'{len(failures)} failure(s)')
 
     # Silence is the failure this file exists to avoid: verifying nothing
@@ -300,6 +330,17 @@ def main(argv):
               f'seen; the floors are 2000 and 300 - the scanner matched '
               f'nothing, which is not the same as nothing being wrong',
               file=sys.stderr)
+        return 1
+    # Floats get their own floor for the same reason, and it is the
+    # newest of these rules: `fmt` normalises a literal's SPELLING
+    # deliberately (`1_000`, `007`, `1.50`) and changed its VALUE by
+    # accident (`0.05` printed `0.5`), which no comparison of bytes or
+    # of exit statuses can tell apart from the normalisations - only a
+    # comparison of the decoded numbers can.
+    if n_numbers < 40:
+        print(f'FAIL: only {n_numbers} float literals seen; the floor is 40 - '
+              f'the atom scanner stopped recognising them, and a value check '
+              f'that reads no values passes every time', file=sys.stderr)
         return 1
     return 1 if failures else 0
 

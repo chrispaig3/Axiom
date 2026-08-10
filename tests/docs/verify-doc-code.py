@@ -61,7 +61,7 @@ def main(argv):
             body = m.group(2)
             line = src[:m.start()].count('\n') + 1
             blocks += 1
-            _, _, _, delims = vf.scan(body)
+            _, _, _, delims, _ = vf.scan(body)
             depth = 0
             under = False
             for d in delims:

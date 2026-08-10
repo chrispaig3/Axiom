@@ -1,0 +1,36 @@
+; expect 42
+; A float literal whose fractional part begins with a zero, which no
+; other file in this repository contains outside a comment - and which
+; `axiom fmt` therefore rewrote into a different number for as long as
+; the formatter has existed.
+;
+; `fpFloat` normalised the fractional digits with `fpDigits`, the
+; helper that drops LEADING zeros. That is right for an integer part,
+; where `007` and `7` are the same number. On a fraction it changes
+; the value: `0.05` was printed `0.5`, `0.0583` as `0.583`. Exit 0, no
+; warning, and `fmt`'s own round-trip check satisfied, because both
+; spellings are perfectly good float literals and the re-scan only
+; asks whether a float is there.
+;
+; This file is the gate. `check-fmt.sh` formats a copy of the whole
+; repository and re-runs `check-self-host.sh` against it, so a
+; recurrence turns this case's 42 into a 1 - which is why the terms
+; below are comparisons that a ten-fold error breaks, rather than a
+; printed number nothing reads.
+;
+;   a  0.05   -> 0.5    under the bug: no longer < 0.1
+;   b  0.0583 -> 0.583  under the bug: no longer < 0.1
+;   c  1.050  -> 1.05   trailing zeros must STILL go
+;   d  0.000  -> 0.0    a fraction of only zeros keeps one digit
+;   e  007.50 -> 7.5    an integer part's leading zeros must still go
+(:: main Int)
+(fn (main)
+  (let ((a 0.05)
+        (b 0.0583)
+        (c 1.050)
+        (d 0.000)
+        (e 007.50))
+    (if (&& (&& (< a 0.1) (< b 0.1))
+            (&& (&& (< c 1.1) (== d 0.0)) (&& (> e 7.4) (< e 7.6))))
+        42
+        1)))

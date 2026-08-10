@@ -1126,6 +1126,36 @@
           (fpDigits p (if neg (+ from 1) from) to)
         })))
 
+; The fractional digits, verbatim apart from `_` separators.
+;
+; NOT `fpDigits`, which drops LEADING zeros. That is right for an
+; integer part, where `007` and `7` are the same number, and it
+; changes the VALUE of a fraction, where `05` and `5` are not: `fmt`
+; rewrote `0.05` into `0.5` and `0.0583` into `0.583`, at exit 0, with
+; the round-trip check satisfied because both spellings are valid
+; floats and the re-scan sees only that a float is there.
+;
+; No `.ax` file in this repository contains such a literal outside a
+; comment - the only two occurrences are in prose in `codegen.ax` and
+; `Fmt.ax` - which is why formatting the whole corpus and re-running
+; every suite could not see it. `tests/selfhost/940-float-literal.ax`
+; is the corpus entry that makes it visible, since `check-fmt.sh`
+; formats a copy of the repository and re-runs `check-self-host.sh`
+; against it.
+(pub :: fpFracDigits (-> Int Int Int Int))
+(pub fn (fpFracDigits p from to)
+  (let ((src (fpSrc p))
+        (mut i from))
+    {
+      (while (< i to)
+        (let ((b (strByte src i)))
+          {
+            (if (== b 95) 0 (fpByte p b))
+            (set i (+ i 1))
+          }))
+      p
+    }))
+
 ; A float literal's text: integer part like an integer, fractional
 ; part with trailing zeros dropped, keeping one digit.
 (pub :: fpFloat (-> Int Int Int Int))
@@ -1160,7 +1190,7 @@
                     (while (== (strByte src k) 95) (set k (+ k 1)))
                     (fpSlice p k (+ k 1))
                   })
-                (fpDigits p (+ dot 1) cut))
+                (fpFracDigits p (+ dot 1) cut))
           })
       })))
 
