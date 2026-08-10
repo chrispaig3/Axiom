@@ -6515,3 +6515,110 @@ and passes every time.
 
 Ablated by putting `(fn main` back in one example: `FAIL doc snippet
 README.md:392: does not compile: AX2003`, exit 1. Restored, 0.
+
+## 29. A signature named a representation the body did not produce
+
+Fixed 2026-08-10.
+
+```scheme
+(:: f (-> Int Float))
+(fn (f x) 42)
+(fn (main) (println (fmtFloat (f 1))))
+```
+
+```
+$ axiom check   OK
+$ axiom run     0.000000
+```
+
+The answer should be `42.000000`. `checkDeclaredReturn` compared a
+declared result type against the body's inferred type only when the
+declared result was an **arrow** — the shape §23 added, where a signature
+promising a function over a body answering an `Int` segfaulted the call
+site. Every other declared result type returned `0` before looking at the
+body at all, so a signature naming `Float` over a body answering `Int`
+was never checked, the integer bit pattern was handed to `fmtFloat` as a
+double, and 42 as a double bit pattern is a denormal that prints
+`0.000000`.
+
+`Bool` is the same defect one step quieter:
+
+```scheme
+(:: b (-> Int Bool))
+(fn (b x) 42)
+(fn (main) (if (b 1) 7 9))
+```
+
+exits **7**, having read 42 as `true`.
+
+Every *other* position already refused both. A `Bool` parameter given an
+`Int`, a `Float` parameter given an `Int`, and a `Float` or `Bool` struct
+field given an `Int` are all `AX3004` today, because they route through
+`tyCompat`, which compares two `TAG_T_CON`s by name. The return position
+was the only one that did not ask.
+
+### 29.1 Why the obvious fix is unsound, measured
+
+Comparing the declared result with the inferred one through `tyCompat` —
+the same relation every other position uses — reports **21 of this
+repository's 271 `.ax` files**, and not one of them is a bug. `Int` is
+this language's universal heap-handle type, and the tree relies on it.
+The compiler's own:
+
+```scheme
+(pub struct Span (start : Int) (end : Int))
+
+(pub :: mkSpan (-> Int Int Int))
+(pub fn (mkSpan start end)
+  (Span start end))
+```
+
+declares `Int` and answers a `Span`; `Job.ax`'s `jobPoolNew` answers a
+`JobPool` through an `Int` signature the same way; `(alloc Int 1)` answers
+`*mut Int` through one. The handle convention is *implemented by the
+absence of this check* — the call site believes the signature, so the
+declared `Int` is what every reader downstream sees, and the body's real
+type never has to agree.
+
+That is why the rule names the two constructors that are **not** handles.
+`tyReprClash` refuses only a pair of argument-free `TAG_T_CON`s with
+different names where either name is `Bool` or `Float`. Anything applied
+(`Box Int`), any arrow, tuple, list or pointer, and anything either side
+does not know — a type variable, poison, a silent wildcard — stay
+permitted. Swept old-versus-new over all 271 files: **0 divergences**.
+A full `AXIOM_BLESS=1` run of `check-diagnostics.sh` and
+`check-render-selfhost.sh` rewrote **none** of the 80 existing golden
+sets, which is the same fact from the other side.
+
+`tests/diagnostics/425-declared-return-repr.ax` carries both clashes in
+one fixture. Against a compiler built from `6c9294f`'s sources it answers
+`OK` at exit 0, so the golden's two `AX3004` lines cannot be satisfied by
+the old code.
+
+### 29.2 What this does not reach
+
+A declared result the checker cannot resolve at all. `AX3002
+undefined-type` has exactly **one** construction site in `typecheck.ax`,
+and it is the `(struct Name ...)` *expression*, so a type constructor
+named in a signature is never resolved against anything:
+
+```scheme
+(:: g (-> Nonexistent Int))
+(fn (g x) 1)
+(fn (main) (g 5))
+```
+
+is accepted, and the diagnostic that eventually arrives is `AX3004` at
+the **caller's** line, blaming the caller's `Int` for the declarer's
+typo. The same hole is why `type` aliases do not work: `tcAliases` is
+pushed to and never read, so `(type Count = Int)` declares a name that
+compares equal to nothing, and `docs/reference.md` promises the opposite
+("It does not create a new type — `StringList` and `[String]` are
+interchangeable"). `explain.ax`'s own `AX3002` text already documents the
+check that does not exist: "This type name does not refer to any built-in
+type, `data`, `struct`, or `type` alias visible in this module."
+
+Resolving type-constructor names in signature and annotation position is
+one pass that closes both, and it is the next slice rather than this one —
+it needs a decision about parameterised aliases and it moves diagnostics
+on programs this one leaves alone.

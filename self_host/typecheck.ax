@@ -4153,15 +4153,24 @@
 ; are the SAME type - the parser right-folds - so arity alone cannot
 ; tell a curried return from a wrong one, and a function that really
 ; does return a closure (`tests/stdlib/140-function-values.ax`) must
-; keep working. What is refused is only the case where the declared
-; result is an arrow and the body's type is a concrete type that is
-; not one: not a type variable, not poison, not a silent wildcard,
-; all of which mean "not known" rather than "known to be wrong".
+; keep working. So when the declared result IS an arrow, what is
+; refused is only a body whose type is a concrete non-arrow: not a
+; type variable, not poison, not a silent wildcard, all of which mean
+; "not known" rather than "known to be wrong".
+;
+; When the declared result is NOT an arrow this used to check nothing
+; at all, and that was the louder half of the same defect. A signature
+; naming a representation the body does not produce is believed by
+; every reader downstream:
+;
+;   (:: f (-> Int Float))  (fn (f x) 42)
+;   (println (fmtFloat (f 1)))  ->  0.000000   at exit 0
+;
+; `tyReprClash` below is what decides that case, and why it cannot
+; simply be `tyCompat`.
 (pub :: checkDeclaredReturn (-> Int Int Int Int Int))
 (pub fn (checkDeclaredReturn tc d want got)
   (if (== want 0)
-      0
-  (if (!= (nodeTag want) TAG_T_ARR)
       0
   (if (== got 0)
       0
@@ -4171,9 +4180,56 @@
       0
   (if (== (nodeTag got) TAG_T_VAR)
       0
-  (if (== (nodeTag got) TAG_T_ARR)
+  (if (== (nodeTag want) TAG_T_ARR)
+      (if (== (nodeTag got) TAG_T_ARR)
+          0
+          (emitMismatch tc (tyRender want) (tyRender got) (spanOf (nodeC d))))
+      (if (== (tyReprClash want got) 1)
+          (emitMismatch tc (tyRender want) (tyRender got) (spanOf (nodeC d)))
+          0))))))))
+
+; 1 when `want` and `got` are two plain type constructors that cannot
+; share a representation, so believing the signature over the body is
+; a miscompile rather than a naming difference.
+;
+; This is deliberately NOT `tyCompat`. `Int` is this language's
+; universal heap-handle type, and the whole tree relies on it: the
+; compiler's own `(pub :: mkSpan (-> Int Int Int))` has the body
+; `(Span start end)`, and `Job.ax`'s `jobPoolNew` answers a `JobPool`
+; through an `Int` signature. Comparing a declared result with an
+; inferred one through `tyCompat` reports 21 of this repository's 271
+; files, every one of them a handle returned through `Int` on purpose.
+;
+; `Bool` and `Float` are the two names that are not handles. A `Float`
+; declared over an `Int` body is a silent wrong answer, measured:
+;
+;   (:: f (-> Int Float))  (fn (f x) 42)
+;   (println (fmtFloat (f 1)))  ->  0.000000   at exit 0
+;
+; because the integer bit pattern is read as a double and 42 is a
+; denormal. `Bool` over `Int` is the same shape one step less loud -
+; `(if (f 1) 7 9)` answers 7, having read 42 as true.
+;
+; Only argument-free constructors are compared. Anything applied
+; (`Box Int`), any arrow, tuple, list or pointer, and anything either
+; side does not know, stays permitted - the point is to name the two
+; representations that cannot be punned, not to start checking types
+; the handle convention deliberately conflates.
+(pub :: tyReprClash (-> Int Int Int))
+(pub fn (tyReprClash want got)
+  (if (|| (!= (nodeTag want) TAG_T_CON) (!= (nodeTag got) TAG_T_CON))
       0
-      (emitMismatch tc (tyRender want) (tyRender got) (spanOf (nodeC d)))))))))))
+      (if (|| (!= (vecLen (nodeB want)) 0) (!= (vecLen (nodeB got)) 0))
+          0
+          (if (strEq (nodeA want) (nodeA got))
+              0
+              (if (|| (tyIsReprScalar (nodeA want)) (tyIsReprScalar (nodeA got)))
+                  1
+                  0)))))
+
+(pub :: tyIsReprScalar (-> Int Bool))
+(pub fn (tyIsReprScalar name)
+  (|| (strEq name "Bool") (strEq name "Float")))
 
 ; Parameter types: peel the signature's arrows left to right. The
 ; walk keeps its own cursor because a non-arrow signature - or none -
