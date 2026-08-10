@@ -6955,3 +6955,132 @@ stage1-built compiler dying at. A perf gate that flakes is worse than a
 measurement written down with the probe that produced it, which is what
 this section is. `scripts/bench-compile.sh` is the tool if the number is
 ever in doubt.
+
+## 33. `--input` was documented for one subcommand and swallowed by all of them
+
+Fixed 2026-08-10.
+
+```
+$ axiom emit-llvm --input hello.ax
+error: emit-llvm needs an input file        exit 1
+$ axiom check --input hello.ax
+error: check needs an input file            exit 1
+```
+
+`flagArity` is one table for the whole command line, so `--input` is
+paired with the argument after it for **every** subcommand — that is what
+makes `axiom build --opt banana` fail before any work happens, and it is
+not per-subcommand. But only `build` ever read the flag back. `check`,
+`emit-llvm` and `run` took a bare positional, and the operand scan had
+already skipped the `--input FILE` pair, so the filename vanished
+between the validator and the subcommand.
+
+The same shape as `build -o PATH` writing to `output`, and as
+`--emit-llvm FILE` reading the filename as a flag value: a flag the
+help documents and the binary discards.
+
+Per-subcommand flag **ownership** would be the complete fix and is the
+wrong one. It was measured and dropped once already: it flips five
+`check-driver` assertions written the same day — the legacy
+no-subcommand spelling legitimately takes `--emit-llvm`, `--check`,
+`--builtins` and `--list` — while fixing nothing a user can see. The
+weaker rule that kills the class is to accept the flag wherever a file
+is expected, which is what `inputOperand` does, and the usage text now
+says `(build, check, run, emit-llvm)` rather than `(build)`.
+
+`check-driver.sh` passes 75/75 unchanged, including its anti-drift
+assertion that every name in the accept chain appears in `--help`.
+
+## 34. How much stack the compiler needs, as a number
+
+`scripts/check-stack-depth.sh`, new 2026-08-10.
+
+This backend eliminates only **self** tail calls, and a `let` body is not
+a tail position (`codegen.ax`'s `tailCallsSelf`, deliberately — following
+it re-executed `alloca` per iteration for `mut` bindings). So
+
+```scheme
+(let ((e (vecGet v i))) (if ... e (recur ...)))
+```
+
+costs one real stack frame per loop iteration, and that is the shape
+almost all of `typecheck.ax` is written in — a file with **no `while` at
+all** — so a dozen of its table walks are one frame per table entry.
+
+Three SIGSEGVs in this repository's history are that shape, and each
+presented as a crash in whatever was being compiled rather than in the
+walk: `memCopyFrom` on a few hundred KB, `lookupByIdx` twenty-five frames
+deep in stage2, and `scanAxtagsFrom` one frame per source byte.
+
+**Nothing measured it.** The obvious response — convert every such walk
+to a `while` — is a large diff across the most correctness-critical file
+in the tree, to buy headroom nobody had priced. So it was priced first:
+
+```
+check self_host/main.ax needs 216 KiB of stack (ceiling 1024 KiB)
+and dies by 139 at 108 KiB, as it must
+```
+
+216 KiB against an 8 MiB default is roughly 36× headroom. The
+conversions are not urgent. Knowing when that stops being true is, and
+that is now one number in CI.
+
+The gate bisects the minimum stack at which `check` succeeds and reports
+it either way, so a change that doubles the requirement is visible in the
+log before it is a failure. Two halves keep it honest: the successful run
+must print `OK`, because a compiler that exits 0 having done nothing
+needs very little stack; and at **half** the discovered minimum the
+process must die by SIGNAL rather than merely non-zero, because without
+that the bisection could report any number and the ceiling would still
+pass — a run that failed for an unrelated reason looks identical to one
+that ran out of stack.
+
+The ceiling is deliberately loose at 1 MiB. The property is "nothing
+recurses per program element", not "this host's frame layout"; a tight
+ceiling would be a gate about the machine.
+
+### 34.1 The ablation found a bug in the gate
+
+Ablated by patching a copy with a 64 KiB ceiling: it failed, exit 1, with
+the right number — and printed
+
+```
+      and prefer a  over a -bound tail call.
+./scripts/check-stack-depth-ABL.sh: line 130: syntax error: unexpected end of file
+```
+
+Three of its `echo` lines quoted `while`, `let` and `check $subject` in
+**backticks inside double quotes**, which is command substitution, not
+quotation. All three were on failure-only paths, so the clean run could
+never reach them. That is the same class as `AX4001` sitting in the code
+table with no construction site, and as the three flags `usageText`
+documented while the binary ignored them: **a message you only see when
+something breaks is untested until you break it.** Fixed, re-ablated,
+and the failure text now reads as intended.
+
+### 34.2 What this slice deliberately did not do
+
+Three items were surveyed with it and are recorded rather than half
+done.
+
+`unitIndexForFrom` (`typecheck.ax`) returns **0 for both "not found" and
+"the entry file"**, so a diagnostic about a module whose unit was never
+registered would render against the entry file's bytes at the module's
+offsets — silent wrong output. It has one caller, and no input reaching
+it has been found: `units` is built from the resolved import list, so
+every module in a program is in it. Recorded as a latent sentinel
+ambiguity of the same family as `mangledForIn` returning its argument
+unchanged, not fixed, because a fix with no reachable case is a fix with
+no test.
+
+`dieImport` (`codegen.ax`) still writes to fd 2 and exits 3, bypassing
+every diagnostic collector — inconsistent with the parse-error port,
+which gave parse failures a code and a span at exit 1. Giving codegen a
+diagnostic channel is a slice, not a line.
+
+`inferEffectsPass` puts its recursive call inside a `let` **binding**,
+which is precisely the shape recorded above as having crashed
+`lookupByIdx`. It is on the list because it is the one site where the
+conversion is justified on its own merits rather than as part of a sweep
+— and with 36× headroom now measured and gated, it can wait for a change
+that touches that function for another reason.

@@ -188,6 +188,18 @@ jobs:
       - name: Every legal name is an emittable name
         run: ./scripts/check-symbol-names.sh
 
+      # How much STACK the compiler needs, bisected and reported. This
+      # backend eliminates only SELF tail calls and a `let` body is not a
+      # tail position, so `(let ((e (vecGet v i))) (if ... e (recur ...)))`
+      # - the shape most of `typecheck.ax` is written in - costs one real
+      # frame per table entry. That has produced three SIGSEGVs here, each
+      # presenting as a crash in whatever was being compiled rather than in
+      # the walk. Nothing measured it until now; the answer is ~216 KiB
+      # against an 8 MiB default, so the conversions are not urgent, and
+      # this is how we find out when that stops being true.
+      - name: Checking the compiler fits in a small stack
+        run: ./scripts/check-stack-depth.sh
+
       # Two `axiom run`s in one directory must not corrupt each other.
       # The scratch name was a fixed literal in the working directory,
       # so concurrent runs overwrote each other's intermediates - and

@@ -439,7 +439,7 @@
   (if (|| (strEq cmd "version") (|| (strEq cmd "--version") (strEq cmd "-V")))
       { (writeStdout "axiom (self-hosted) 0.1.0\n") 0 }
   (if (strEq cmd "check")
-      (let ((f (positionalFrom operandStart)))
+      (let ((f inputOperand))
         (if (== (strLen f) 0)
             (die "error: check needs an input file\n" 1)
             {
@@ -452,7 +452,7 @@
               0
             }))
   (if (strEq cmd "emit-llvm")
-      (let ((f (positionalFrom operandStart)))
+      (let ((f inputOperand))
         (if (== (strLen f) 0)
             (die "error: emit-llvm needs an input file\n" 1)
             ; `--output` is read as well as `-o`. Only `-o` used to be,
@@ -472,8 +472,7 @@
       ; accepted for `--input` too, because a compiler that insists on a
       ; flag for the one argument it always needs is a compiler people
       ; wrap in a shell script.
-      (let ((inp (let ((v (flagValue "--input" 1)))
-                   (if (> (strLen v) 0) v (positionalFrom operandStart)))))
+      (let ((inp inputOperand))
         (if (== (strLen inp) 0)
             (die "error: build needs an input file\n" 1)
             ; `-o` is the short form of `--output` here as well as under
@@ -658,7 +657,7 @@
       ; else written there would be read by the client as a frame.
       (lspMain)
   (if (strEq cmd "run")
-      (let ((f (positionalFrom operandStart)))
+      (let ((f inputOperand))
         (if (== (strLen f) 0)
             (die "error: run needs an input file\n" 1)
             (let ((ir (compileFile f hostTarget 1 1)))
@@ -799,6 +798,27 @@
 ; because its skip heuristic pairs every `--flag` with the argument
 ; after it, and `--check` takes no value.
 (pub :: inputArgSkipping (-> Int Int))
+; The input file: `--input`, or a bare positional.
+;
+; `build` accepted both from the start; `check`, `emit-llvm` and `run`
+; accepted only the positional - while the global validator pairs
+; `--input` with the argument after it for EVERY subcommand, because
+; `flagArity` is one table. So `axiom emit-llvm --input f.ax` consumed
+; the filename as a flag value, found no positional, and reported
+; "emit-llvm needs an input file" at exit 1: the same data-loss shape as
+; `build -o PATH` writing to `output` did.
+;
+; The usage text called `--input` build-only, and that is a distinction
+; nothing in the validator can enforce - per-subcommand flag OWNERSHIP
+; was measured and dropped, because it would have flipped five
+; check-driver assertions while fixing nothing a user can see. Accepting
+; the flag wherever a file is expected is the weaker rule that kills the
+; class, and it is what the usage text now says.
+(pub :: inputOperand Int)
+(pub fn (inputOperand)
+  (let ((v (flagValue "--input" 1)))
+    (if (> (strLen v) 0) v (positionalFrom operandStart))))
+
 (pub fn (inputArgSkipping bare)
   (let ((n (sysArgc)) (mut i operandStart) (mut f "") (mut endOpts 0))
     {
