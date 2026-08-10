@@ -73,7 +73,14 @@
 ; hanging.
 (pub :: lspChar (-> Int Int Int))
 (pub fn (lspChar src off)
-  (let ((mut i (lineStartOf src off)) (mut acc 0))
+  (lspCharFrom src (lineStartOf src off) off))
+
+; The same count, from a line start the caller already knows - which is
+; what the line index makes free, and what `lineStartOf` was scanning
+; the whole document to rediscover.
+(pub :: lspCharFrom (-> Int Int Int Int))
+(pub fn (lspCharFrom src start off)
+  (let ((mut i start) (mut acc 0))
     {
       (while (< i off)
         (let ((cp (utf8DecodeAt src i)))
@@ -102,6 +109,79 @@
         (let ((e (if (< e0 s) s e0)))
           (jsonObjPut (jsonObjPut jsonObj "start" (lspPos src s))
                       "end" (lspPos src e))))))
+
+; ------------------------------------------------------------------
+; The line index.
+;
+; `lspPos` answered both halves of a position by scanning the document
+; from byte 0: `lineOf` counts newlines from 0 (`diag.ax`), and
+; `lspChar`'s `lineStartOf` scans from 0 to rediscover the line start.
+; `lspRange` calls `lspPos` twice, and `lspDocumentSymbols` calls
+; `lspRange` twice per symbol - so an outline cost four whole-document
+; scans per symbol, and publishing N diagnostics cost 4N.
+;
+; Measured over a real JSON-RPC pipe, `textDocument/documentSymbol`
+; alone: 0.03 s at 1,002 symbols, 0.13 at 2,002, 0.54 at 4,002, 2.22 at
+; 8,002 - against 0.20 s for the ENTIRE `didOpen` (parse, check and
+; publish) on the same document. The outline cost eleven times the whole
+; frontend. On this repository's own files: `parser.ax` 0.082 s,
+; `typecheck.ax` 0.166 s, `codegen.ax` 0.185 s. The shape is
+; symbols x document length, at about 8.0M line-steps a second.
+;
+; One pass records the offset at which every line begins; a position is
+; then a binary search and no scan. Built per REQUEST and deliberately
+; not cached: the server reclaims the arena at every message boundary
+; (`lspSnapshot`), so an index kept across messages would point into
+; storage the reset has handed back.
+; ------------------------------------------------------------------
+
+; Element 0 is 0; element k is the offset just past the k-th newline.
+; A `while`, not a recursion: its depth would be the line count, and
+; this backend eliminates only self tail calls.
+(pub :: lspLineIndex (-> Int Int))
+(pub fn (lspLineIndex src)
+  (let ((out vecNew) (n (strLen src)) (mut i 0))
+    {
+      (vecPush out 0)
+      (while (< i n)
+        {
+          (if (== (strByte src i) 10) (vecPush out (+ i 1)) 0)
+          (set i (+ i 1))
+        })
+      out
+    }))
+
+; The 0-based line of `off`: the largest k with `ix[k] <= off`. An
+; offset past the end answers the last line rather than failing, because
+; a span may name the byte after the final character - `lspRange`
+; clamps its end but the end itself is legitimately one past.
+(pub :: lspLineOfIx (-> Int Int Int))
+(pub fn (lspLineOfIx ix off)
+  (let ((mut lo 0) (mut hi (- (vecLen ix) 1)))
+    {
+      (while (< lo hi)
+        (let ((mid (+ lo (/ (+ (- hi lo) 1) 2))))
+          (if (<= (vecGet ix mid) off)
+              (set lo mid)
+              (set hi (- mid 1)))))
+      lo
+    }))
+
+(pub :: lspPosIx (-> Int Int Int Int))
+(pub fn (lspPosIx src ix off)
+  (let ((ln (lspLineOfIx ix off)))
+    (jsonObjPut (jsonObjPut jsonObj "line" (jsonNum ln))
+                "character" (jsonNum (lspCharFrom src (vecGet ix ln) off)))))
+
+(pub :: lspRangeIx (-> Int Int Int Int))
+(pub fn (lspRangeIx src ix span)
+  (if (== span 0)
+      (jsonObjPut (jsonObjPut jsonObj "start" (lspPosIx src ix 0))
+                  "end" (lspPosIx src ix 0))
+      (let ((s (spanStart span)) (e0 (spanEnd span)))
+        (let ((e (if (< e0 s) s e0)))
+          (jsonObjPut (jsonObjPut jsonObj "start" (lspPosIx src ix s))
+                      "end" (lspPosIx src ix e))))))
 
 ; ------------------------------------------------------------------
 ; Diagnostics
@@ -153,13 +233,16 @@
       (catStrs parts)
     }))
 
-(pub :: lspDiagJson (-> Int Int Int))
-(pub fn (lspDiagJson d src)
+; Takes the line index rather than building one: its caller at the
+; publish loop reports every diagnostic in the file, and building the
+; index per diagnostic would keep the whole cost it exists to remove.
+(pub :: lspDiagJson (-> Int Int Int Int))
+(pub fn (lspDiagJson d src ix)
   (jsonObjPut
     (jsonObjPut
       (jsonObjPut
         (jsonObjPut
-          (jsonObjPut jsonObj "range" (lspRange src (diagSpan d)))
+          (jsonObjPut jsonObj "range" (lspRangeIx src ix (diagSpan d)))
           "severity" (jsonNum (lspSeverity (diagSev d))))
         "code" (jsonStr (diagCode d)))
       "source" (jsonStr "axiom"))
@@ -266,7 +349,8 @@
         ; first consumer: before it, every typo anywhere in a file
         ; reported identically, at line 1.
         (jsonArrPush jsonArr
-          (lspDiagJson (if (== lexD 0) (parseErrDiag toks pr src) lexD) src))
+          (lspDiagJson (if (== lexD 0) (parseErrDiag toks pr src) lexD) src
+                       (lspLineIndex src)))
         (let ((decls (memGetWord pr 1))
               (tcode (checkedTargetCode hostTarget))
               (entryDir (dirOfPath path)))
@@ -292,13 +376,13 @@
                     (let ((ds (if (> (countErrorDiags eds) 0)
                                   (orderDiags eds)
                                   (orderDiags (expMergeInto eds (checkModule decls allDecls units))))))
-                      (let ((out jsonArr) (mut i 0))
+                      (let ((out jsonArr) (ix (lspLineIndex src)) (mut i 0))
                         {
                           (while (< i (vecLen ds))
                             (let ((d (vecGet ds i)))
                               {
                                 (if (== (diagUnit d) 0)
-                                    (jsonArrPush out (lspDiagJson d src))
+                                    (jsonArrPush out (lspDiagJson d src ix))
                                     0)
                                 (set i (+ i 1))
                               }))
@@ -343,7 +427,8 @@
   (let ((pr (parseModuleWith (lex src) (scanAxtags src))))
     (if (== (memGetWord pr 0) 0)
         jsonArr
-        (let ((decls (memGetWord pr 1)) (out jsonArr) (mut i 0))
+        (let ((decls (memGetWord pr 1)) (out jsonArr)
+              (ix (lspLineIndex src)) (mut i 0))
           {
             (while (< i (vecLen decls))
               (let ((n (vecGet decls i)))
@@ -355,8 +440,8 @@
                             (jsonObjPut
                               (jsonObjPut jsonObj "name" (jsonStr (nodeA n)))
                               "kind" (jsonNum (lspSymKind (nodeTag n))))
-                            "range" (lspRange src (nodeSpan n)))
-                          "selectionRange" (lspRange src (nodeSpan n))))
+                            "range" (lspRangeIx src ix (nodeSpan n)))
+                          "selectionRange" (lspRangeIx src ix (nodeSpan n))))
                       0)
                   (set i (+ i 1))
                 }))

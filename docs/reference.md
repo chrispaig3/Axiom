@@ -280,7 +280,8 @@ These words are reserved but no longer have a grammar rule. Using them reports a
 | `Bool` | Boolean (`true` / `false`) |
 | `Char` | A Unicode code point: `'A'` is 65, `'é'` is 233, `'世'` is 19990, `'😀'` is 128512. (This table used to say "8-bit", which was wrong - a char literal has always carried the whole code point.) |
 | `String` | String (pointer) |
-| `Unit` / `()` | Unit (no value). A **type** only — `(:: main ())` and `(:: f (-> () Int))` are accepted, and `symbols` renders the empty tuple as `()`. There is no unit *value*: `()` in expression position is `AX2001 expected expression`, as it is in `[]` and `(set)`, and nothing in the language produces or consumes one |
+| `()` | Unit (no value). A **type** only — `(:: main ())` and `(:: f (-> () Int))` are accepted, and `symbols` renders the empty tuple as `()`. There is no unit *value*: `()` in expression position is `AX2001 expected expression`, as it is in `[]` and `(set)`, and nothing in the language produces or consumes one |
+| `Unit` | A distinct type constructor spelled `Unit`, **not** a synonym for `()`. This row used to read ``| `Unit` / `()` |``, and the equivalence was never true: `symbols` renders `(:: a (-> () Int))` as `(() -> Int)` and `(:: b (-> Unit Int))` as `(Unit -> Int)`. `Unit` was also missing from the parser's type-keyword set until 2026-08-10, so it was a bare unresolvable constructor that nothing asked about until signature types began to be resolved — see [self-hosting.md §30.2](self-hosting.md) |
 | `Void` | Void |
 | `Any` | Generic pointer |
 

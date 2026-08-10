@@ -6742,3 +6742,108 @@ Struct field and `data` constructor argument types are also still
 unresolved. Measured, so the size is known: **50** `struct`/`data`
 declarations and **214** annotated fields in `self_host/` + `stdlib/`,
 with zero undeclared type names among them.
+
+## 31. The outline scanned the document once per position
+
+Fixed 2026-08-10.
+
+`lspPos` answered both halves of an LSP position by scanning from byte 0.
+`lspLine` calls `diag.lineOf`, which counts newlines from 0; `lspChar`
+called `lineStartOf`, which scans from 0 to rediscover the line start it
+then walks forward from. `lspRange` calls `lspPos` twice, and
+`lspDocumentSymbols` called `lspRange` twice per symbol — so an outline
+cost **four whole-document scans per symbol**, and publishing N
+diagnostics cost 4N.
+
+Measured over a real JSON-RPC pipe, `textDocument/documentSymbol` alone:
+
+| symbols | documentSymbol | whole `didOpen` (parse + check + publish) |
+|---:|---:|---:|
+| 1,002 | 0.03 s | 0.01 s |
+| 2,002 | 0.13 s | 0.02 s |
+| 4,002 | 0.54 s | 0.05 s |
+| 8,002 | **2.22 s** | 0.20 s |
+
+At 8,002 symbols the outline cost **eleven times the entire frontend**.
+On this repository's own files: `parser.ax` 0.082 s, `typecheck.ax`
+0.166 s, `codegen.ax` 0.185 s. The shape is symbols × document length,
+at about 8.0M line-steps a second — not a mystery quadratic but exactly
+the product of the two loops.
+
+`lspLineIndex` records, in one pass, the offset at which each line
+begins. A position is then a binary search and no scan: the line is the
+largest index whose offset is at or below the byte, and the character
+count starts from that offset instead of rediscovering it.
+
+| file | symbols | before | after |
+|---|---:|---:|---:|
+| `parser.ax` | 246 | 0.085 s | 0.001 s |
+| `typecheck.ax` | 309 | 0.184 s | ~0.000 s |
+| `codegen.ax` | 275 | 0.192 s | 0.008 s |
+
+The index is built per **request** and deliberately not cached: the
+server reclaims the arena at every message boundary (`lspSnapshot`), so
+an index kept across messages would point into storage the reset has
+handed back. It is a `while` loop, not a recursion, because its depth
+would be the line count and this backend eliminates only self tail
+calls.
+
+`lspDiagJson` now takes the index rather than building one, because its
+caller reports every diagnostic in the file and building it per
+diagnostic would keep the whole cost the index exists to remove.
+
+### 31.1 The gate asserts a ratio, not a stopwatch
+
+Everything `check-lsp-selfhost.sh` already pinned is about what the
+server *answers* — and all of it stayed green through this change,
+including the two invariants it checks on every symbol of the
+6001-symbol generated document and the seven positions it recomputes in
+Python from the fixtures' own bytes. That is the half that proves the
+index computes the same answers, and it needed no widening.
+
+What nothing pinned was the *cost*. The new section measures two
+sessions on the same machine in the same run and requires the outline
+request to cost no more than the whole parse-and-check of the same
+document. `didOpen` does strictly more work, so a correct index makes
+this comfortable and the quadratic makes it impossible. An absolute
+millisecond ceiling would have been a machine-speed assertion wearing a
+performance costume.
+
+It proves the work happened before reporting the number, because a
+server that answers no symbols is extremely fast: the outline must carry
+at least 2,000 symbols or the section fails rather than passes. That
+floor immediately caught an error in the section itself — the generator
+produced one symbol per function, not two, so the first version measured
+1,051 symbols against its own floor of 2,000 and refused.
+
+**Ablated** against `ef9e53e`'s `lsp.ax` in the same tree: **11.19×,
+exit 1**, against 0.10× restored. The rest of the gate passed in *both*
+runs — 10 passed, 0 failed, every derived position correct — so the new
+section fails only for its own reason, which is the property this
+repository keeps having to check about its own gates. The 11.19× also
+independently reproduces the "eleven times the frontend" figure measured
+by hand above, from a different document and a different harness.
+
+### 31.2 Non-ASCII, because the columns are the subtle half
+
+LSP characters are UTF-16 code units, and the index only supplies the
+line and the line's start — `lspCharFrom` still walks code points from
+there. A document mixing two-byte (`é`), three-byte (`中`) and
+four-byte (`😀`, a surrogate **pair**, so two units) sequences, with
+declarations on lines after them, produces byte-identical protocol
+streams before and after. So do all four of `render.ax`, `parser.ax`,
+`typecheck.ax` and `codegen.ax`.
+
+### 31.3 What this does not fix
+
+`didChange` still re-parses and re-checks the whole import closure from
+disk on every keystroke, caching nothing. Per-edit cost tracks closure
+**bytes**, superlinearly: 27 KB 0.003 s, 168 KB 0.016 s, 344 KB 0.049 s,
+565 KB **0.369 s**. The older note that this "tracks the import count"
+had the mechanism right and the units wrong.
+
+It is deliberately not fixed here. The declared next LSP slice is a
+node-to-type table for hover, definition and completion, because
+`typecheck.ax` keeps no map from node to type; a cache designed before
+that table exists is likely the wrong cache at the wrong granularity,
+and building it twice costs more than 42–163 ms a keystroke does.

@@ -707,7 +707,8 @@ Effect annotations are also supported on traits and implementations:
 | `Bool` | Boolean | `i1` |
 | `Char` | Character | `i8` |
 | `String` | A `Str` handle - the address of a `{ length, bytes }` header. Interchangeable with `Int`; see [Strings](#strings) | `i64` |
-| `Unit` / `()` | Unit (no value) | `void` |
+| `()` | Unit (no value) | `void` |
+| `Unit` | A distinct constructor, **not** a synonym for `()` — `symbols` renders them differently; see [reference.md](docs/reference.md#types) | `void` |
 | `Void` | Void | `void` |
 | `Any` | Generic pointer | `ptr` |
 

@@ -235,4 +235,80 @@ python3 tests/lsp/drive.py "${args[@]}"
 status=$?
 
 echo "swept $fixtures fixtures (floor $floor), $rows manifest rows, $orows outline rows"
+
+# ------------------------------------------------------------------
+# The outline's COST, as a ratio rather than a stopwatch.
+#
+# Everything above pins what the server answers; nothing pinned what it
+# spends. `lspPos` used to answer both halves of a position by scanning
+# the document from byte 0 - `lineOf` counts newlines from 0 and
+# `lspChar`'s `lineStartOf` rescans to find the line start - and
+# `lspRange` calls it twice per symbol, so an outline cost four
+# whole-document scans per symbol. Measured before the line index:
+# `documentSymbol` on `self_host/typecheck.ax` took 0.166 s against
+# 0.042 s for the entire `didOpen` that parses and checks the same file,
+# and 2.22 s at 8,002 symbols against 0.20 s.
+#
+# The assertion is a RATIO of two measurements taken here, on the same
+# machine, in the same run: the outline request must not cost more than
+# the whole parse-and-check of the same document. `didOpen` does strictly
+# more work, so a correct index makes this comfortable (measured ~0.02x)
+# and the quadratic makes it impossible (measured ~11x). An absolute
+# millisecond ceiling would be a machine-speed assertion wearing a
+# performance costume.
+#
+# And it proves the work happened before it reports the number, because
+# a server that answers no symbols is extremely fast: the outline must
+# carry at least $sym_floor symbols or this section fails rather than
+# passes.
+# ------------------------------------------------------------------
+sym_floor=2000
+perf=$(SERVER="$work/stage1" SYM_FLOOR="$sym_floor" python3 - <<'PY'
+import json, os, subprocess, sys, time
+server=os.environ["SERVER"]; floor=int(os.environ["SYM_FLOOR"])
+n=floor+50   # one TAG_D_FN symbol per function; the `::` lines are not symbols
+text="".join(f"(:: f{i} (-> Int Int))\n(fn (f{i} x) (+ x {i}))\n" for i in range(n))
+text+="(:: main Int)\n(fn (main) 0)\n"
+uri="file:///tmp/axiom-lsp-perf/big.ax"
+def frame(o):
+    b=json.dumps(o).encode(); return b"Content-Length: "+str(len(b)).encode()+b"\r\n\r\n"+b
+base=[frame({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"processId":None,"rootUri":None,"capabilities":{}}}),
+      frame({"jsonrpc":"2.0","method":"initialized","params":{}}),
+      frame({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":uri,"languageId":"axiom","version":1,"text":text}}})]
+tail=[frame({"jsonrpc":"2.0","id":9,"method":"shutdown","params":{}}),frame({"jsonrpc":"2.0","method":"exit","params":{}})]
+ds=[frame({"jsonrpc":"2.0","id":2,"method":"textDocument/documentSymbol","params":{"textDocument":{"uri":uri}}})]
+def best(msgs):
+    b=None; out=None
+    for _ in range(3):
+        t0=time.time()
+        p=subprocess.run([server,"lsp","--no-banner"],input=b"".join(msgs),capture_output=True,timeout=600)
+        dt=time.time()-t0
+        if p.returncode!=0:
+            print(f"FAIL server exited {p.returncode}"); sys.exit(1)
+        if b is None or dt<b: b=dt;
+        out=p.stdout
+    return b,out
+t_open,_=best(base+tail)
+t_all,out=best(base+ds+tail)
+syms=out.count(b'"selectionRange"')
+if syms < floor:
+    print(f"FAIL the outline carried {syms} symbols, floor {floor} - a server that")
+    print(f"     answers nothing is fast, so the ratio below would mean nothing")
+    sys.exit(1)
+cost=max(t_all-t_open, 0.0)
+ratio=cost/t_open if t_open>0 else 0.0
+print(f"outline {syms} symbols: didOpen {t_open:.3f}s, documentSymbol {cost:.3f}s, ratio {ratio:.2f}x")
+if ratio > 2.0:
+    print(f"FAIL documentSymbol cost {ratio:.2f}x the whole parse-and-check of the same")
+    print( "     document, over a ceiling of 2.00x. The line index is what keeps this")
+    print( "     under one - see lspLineIndex in self_host/lsp.ax.")
+    sys.exit(1)
+PY
+)
+perf_status=$?
+echo "$perf"
+if [[ "$perf_status" -ne 0 ]]; then
+  status=1
+fi
+
 exit $status
