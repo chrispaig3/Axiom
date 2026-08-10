@@ -6847,3 +6847,111 @@ node-to-type table for hover, definition and completion, because
 `typecheck.ax` keeps no map from node to type; a cache designed before
 that table exists is likely the wrong cache at the wrong granularity,
 and building it twice costs more than 42–163 ms a keystroke does.
+
+## 32. Name resolution was three linear scans of a 1,600-entry table, per reference
+
+Fixed 2026-08-10.
+
+`findFnEnt` answered every name reference with up to three full linear
+scans of `tcFns`: the module-local `Mod$name` exactly, then the bare name
+exactly, then the `$`-suffix pass. On a self-check that table holds about
+1,600 entries, and the module-local key was rebuilt with two `strConcat`
+allocations per lookup.
+
+A per-call-site sampling profile of `axiom check self_host/main.ax` put
+**83% of the program in the two EXACT passes** and under 5% in the suffix
+one. So only the exact passes are indexed, and `findFnEntSuffix` is left
+byte-for-byte as it was.
+
+That split is the whole design. Indexing an exact match is a statement
+about string equality and nothing else. Indexing the suffix pass would
+mean reasoning about where `$` falls in a name that module mangling has
+already rewritten, and about which of several matches wins — in the
+function whose own comment says getting this wrong "is not a missing
+diagnostic, it is a link failure".
+
+```
+$ axiom check self_host/main.ax     0.89s  ->  0.17s      5.2x
+```
+
+The emitted IR is **byte-identical** on all 71,494 lines, `check` output
+is identical on all 273 `.ax` files, and `axiom symbols` is identical on
+all 273. Peak RSS moves 107.1 → 107.3 MB, so the index is free.
+
+### 32.1 Buckets, because the table is built once
+
+Buckets rather than open addressing: nothing is ever deleted, so probing,
+tombstones and growth would be machinery for cases that cannot arise.
+Each bucket keeps insertion order and the scan takes the first match,
+which is what the linear scan answered — and it **has** to be, because
+`tcAddEffectOp` pushes with no presence test, so two entries legitimately
+share a name and only the first was ever reachable.
+
+The hash is the shape `stdlib/Intern.ax` uses — a multiplicative hash
+with an odd multiplier, reduced mod 2³¹−1 at every step — spelled out in
+`typecheck.ax` rather than imported. Importing `Intern` pulls `Map` with
+it and puts 63 declarations into six entry files' import closures for one
+hash function, in a flat namespace that already carries five separate
+`fmtInt`s. Intern's own note explains why the running value stays under
+the prime: a value below 2³¹ times a multiplier below 2³¹ is below 2⁶²,
+so nothing overflows into the sign bit before the `%` brings it down, and
+no negative index can reach `vecGet`.
+
+Every push to `fns` now goes through `tcPushFn`, which updates the index
+too. Nothing pushes after the index exists today, but a lookup against a
+stale index is a wrong answer rather than a slow one, and that is not a
+property to leave resting on an ordering.
+
+### 32.2 The index is built BEFORE collection, and that mattered
+
+The first version built it after `tcCollect`, which is the obvious place:
+by then every entry has been pushed. It measured the same 5.2× on
+`main.ax` — and left a second quadratic standing, because `tcCollectSig`
+and `tcCollectFn` each look a name up *before* deciding whether to push.
+With the body-checking scans gone, collection becomes the dominant cost
+on a single large module. Measured on a generated module of N
+cross-referencing functions, before this correction: N=1000 0.05 s,
+N=2000 0.15 s — a ratio of 3.0 where linear is 2.0.
+
+Building it in `tcNew` needs the eventual size in hand, because the table
+holds only about sixty builtins at that point and these buckets never
+grow. The **declaration count** is the hint: every `::` and `fn` in the
+program contributes at most one entry, so it is an upper bound, and the
+average bucket stays well under one. Same module, after: N=1000 0.01 s,
+N=2000 0.03 s.
+
+### 32.3 The synthetic sweep measures a different quadratic
+
+A generated file of N functions in the **entry file** barely moves —
+0.19 s → 0.14 s at N=4000 — and that is not a disappointment, it is the
+answer to a question worth recording. That shape is quadratic in
+`checkDuplicates`/`firstDefiner` and `checkMissingDefs`/`isDefined`,
+which scan the entry file's own declarations, and `main.ax` has 21 of
+those against a 1,326-function closure. **Two independent quadratics, and
+the one that dominates real programs is the one fixed here.** Anyone
+re-measuring with an N-function entry file will conclude nothing changed;
+the shape that shows it is a large module reached through an import.
+
+### 32.4 What is left, and what is not guarded
+
+Still linear, deliberately: `findFnEntSuffix`, at under 5% of the
+profile; and `findFnEntVisibleExact`/`Suffix`, which only run when a
+program declares something private — the count of those in this
+repository is zero, and the module-local lookup is indexed on that path
+anyway.
+
+**This change has no gate of its own, and that is a considered choice
+rather than an omission.** Its correctness is pinned comprehensively by
+gates that already exist — identical diagnostics over 273 files,
+identical `symbols`, and byte-identical IR through the bootstrap
+fixpoint — so a wrong index cannot pass. Its *speed* is what nothing
+asserts. Every candidate was measured and rejected: peak RSS does not
+move, so the `check-bootstrap` 400 MiB pattern cannot see it; the ratio
+of `main.ax` to `typecheck.ax` separates only 22.0× from 8.5× with
+`typecheck.ax` at 0.02 s, which is timer resolution; and a doubling-ratio
+assertion needs an 8,000-function generated module to make both timings
+stable, which is a size this repository has independently measured a
+stage1-built compiler dying at. A perf gate that flakes is worse than a
+measurement written down with the probe that produced it, which is what
+this section is. `scripts/bench-compile.sh` is the tool if the number is
+ever in doubt.

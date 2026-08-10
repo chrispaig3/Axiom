@@ -539,7 +539,13 @@
                ; Empty for every program in this repository. See the
                ; visibility section for why it lives here and not on
                ; the entries.
-               (privates : Int))
+               (privates : Int)
+               ; The exact-name index over `fns`, or 0 before it is
+               ; built. Appended, like every field before it: every
+               ; reader indexes this record by position, which is how
+               ; the unit table broke the last time it grew in the
+               ; middle. See the exact-name index section.
+               (fnIdx : Int))
 
 (pub :: tcFns (-> Int Int))     (pub fn (tcFns tc)     (memGetWord tc 0))
 (pub :: tcDatas (-> Int Int))   (pub fn (tcDatas tc)   (memGetWord tc 1))
@@ -666,8 +672,13 @@
       (let ((tc (cast Int (TC fns datas vecNew vecNew vecNew 0 0
                               vecNew vecNew entryDecls allDecls
                               vecNew vecNew units 0 vecNew 0
-                              vecNew vecNew (collectPrivates allDecls vecNew 0)))))
+                              vecNew vecNew (collectPrivates allDecls vecNew 0)
+                              0))))
         {
+          ; The exact-name index, before collection rather than after:
+          ; collection itself looks a name up per declaration.
+          (memSetWord tc 20
+            (fnIdxBuildSized (tcFns tc) (vecLen allDecls)))
           (tcCollect tc allDecls 0)
           ; Type constructors named in signatures, once collection has
           ; seen every `data`/`struct`/`type` - a signature may name a
@@ -805,7 +816,7 @@
 
 (pub :: tcAddEffectOp (-> Int Int Int Int))
 (pub fn (tcAddEffectOp tc name effName)
-  (vecPush (tcFns tc)
+  (tcPushFn tc
     (cast Int (FnEnt name mkSilentWild (- 0 1) 0 1
                      (let ((v vecNew))
                        { (vecPush v (customEff effName)) v })
@@ -897,22 +908,29 @@
 (pub :: tcCollectSig (-> Int Int Int))
 (pub fn (tcCollectSig tc d)
   (let ((ty (if (== (nodeTy d) 0) mkSilentWild (nodeTy d))))
-    (let ((ent (findFnEntExact (tcFns tc) (nodeA d) 0)))
+    (let ((ent (fnEntExact tc (nodeA d))))
       (if (== ent 0)
-          (vecPush (tcFns tc)
-                   (cast Int (FnEnt (nodeA d) ty (- 0 1) 0 0 vecNew vecNew)))
+          (tcPushFn tc (cast Int (FnEnt (nodeA d) ty (- 0 1) 0 0 vecNew vecNew)))
           (memSetWord ent 1 ty)))))
+
+; Every push to `fns` goes through here, so the exact-name index cannot
+; fall behind the table it indexes - including if a later pass ever
+; pushes after `checkModuleTc` has built it, which nothing does today
+; and which would otherwise be a silently wrong lookup rather than a
+; slow one.
+(pub :: tcPushFn (-> Int Int Int))
+(pub fn (tcPushFn tc ent)
+  { (vecPush (tcFns tc) ent) (fnIdxNote tc ent) ent })
 
 (pub :: tcCollectFn (-> Int Int Int))
 (pub fn (tcCollectFn tc d)
-  (let ((ent0 (findFnEntExact (tcFns tc) (nodeA d) 0)))
+  (let ((ent0 (fnEntExact tc (nodeA d))))
     (let ((ent (if (!= ent0 0)
                    ent0
                    (let ((ph (mkTVar (strConcat "_fn_" (decStr (tcCounter tc))))))
                      {
                        (tcBumpCounter tc)
-                       (let ((ne (cast Int (FnEnt (nodeA d) ph (- 0 1) 0 0 vecNew vecNew))))
-                         { (vecPush (tcFns tc) ne) ne })
+                       (tcPushFn tc (cast Int (FnEnt (nodeA d) ph (- 0 1) 0 0 vecNew vecNew)))
                      }))))
       (memSetWord ent 2 (vecLen (nodeB d))))))
 
@@ -1022,12 +1040,11 @@
   (let ((m (memGetWord tc 16)))
     (let ((local (if (== m 0)
                      0
-                     (findFnEntExact (tcFns tc)
-                                     (strConcat (strConcat m "$") name) 0))))
+                     (fnEntExact tc (strConcat (strConcat m "$") name)))))
       (if (!= local 0)
           local
           (if (== (memGetWord tc 19) 0)
-              (let ((e (findFnEntExact (tcFns tc) name 0)))
+              (let ((e (fnEntExact tc name)))
                 (if (!= e 0) e (findFnEntSuffix (tcFns tc) name 0)))
               (let ((e (findFnEntVisibleExact (memGetWord tc 19) (tcFns tc) name m)))
                 (if (!= e 0)
@@ -1040,8 +1057,141 @@
 ; and should not read the same to whoever gets it.
 (pub :: findFnEntAnywhere (-> Int Int Int))
 (pub fn (findFnEntAnywhere tc name)
-  (let ((e (findFnEntExact (tcFns tc) name 0)))
+  (let ((e (fnEntExact tc name)))
     (if (!= e 0) e (findFnEntSuffix (tcFns tc) name 0))))
+
+; ------------------------------------------------------------------
+; The exact-name index.
+;
+; `findFnEnt` performed up to three full linear scans of `tcFns` per
+; reference - `Mod$name` exactly, then the bare name exactly, then the
+; `$`-suffix pass - over a table holding about 1,600 entries when the
+; compiler checks itself. A per-call-site sampling profile of `axiom
+; check self_host/main.ax` put **83% of the program in the two EXACT
+; passes** and under 5% in the suffix one. So only the exact passes are
+; indexed, and `findFnEntSuffix` is left exactly as it was.
+;
+; That split is the whole design. Indexing an exact match is a
+; statement about string equality and nothing else; indexing the suffix
+; pass would mean reasoning about where `$` falls in a name, which
+; module mangling has already rewritten, and which of several matches
+; wins - in the function whose own comment says getting it wrong "is
+; not a missing diagnostic, it is a link failure".
+;
+; SHAPE. Buckets, not open addressing: this table is built once and
+; never deleted from, so probing, tombstones and growth would all be
+; machinery for cases that cannot arise. Each bucket keeps insertion
+; order and the scan takes the first match, which is what the linear
+; scan answered - and it has to be, because `tcAddEffectOp` pushes with
+; no presence test, so two entries legitimately share a name and only
+; the first is reachable.
+;
+; The hash is the shape `stdlib/Intern.ax` uses - a multiplicative hash
+; with an odd multiplier, reduced mod 2^31-1 at every step - spelled out
+; here rather than imported. `typecheck.ax` importing `Intern` pulls
+; `Map` with it and puts 63 declarations into six entry files' import
+; closures for one hash function, in a flat namespace that already
+; carries five separate `fmtInt`s. Intern's own note explains why the
+; running value stays under the prime: the product of a value below
+; 2^31 and a multiplier below 2^31 is below 2^62, so nothing overflows
+; into the sign bit before the `%` brings it back down, and no negative
+; index can reach `vecGet`.
+; ------------------------------------------------------------------
+(pub :: fnIdxMul Int)   (pub fn (fnIdxMul)   1099087573)
+(pub :: fnIdxSeed Int)  (pub fn (fnIdxSeed)  1234567891)
+(pub :: fnIdxPrime Int) (pub fn (fnIdxPrime) 2147483647)
+
+(pub :: fnIdxHash (-> Int Int))
+(pub fn (fnIdxHash s) (fnIdxHashFrom s 0 fnIdxSeed))
+
+(pub :: fnIdxHashFrom (-> Int Int Int Int))
+(pub fn (fnIdxHashFrom s i h)
+  (if (>= i (strLen s))
+      h
+      (fnIdxHashFrom s (+ i 1)
+                     (% (+ (* h fnIdxMul) (strByte s i)) fnIdxPrime))))
+
+; Buckets for a table of `n` entries: enough that the average bucket
+; holds well under one, and never fewer than 17 so a tiny program still
+; spreads. Odd, because the hash's low bits are the ones `%` keeps.
+(pub :: fnIdxBuckets (-> Int Int))
+(pub fn (fnIdxBuckets n) (+ (* 2 n) 17))
+
+; A Vec of `fnIdxBuckets` slots, each 0 until something hashes to it -
+; an empty `Vec` header per slot would be 3 words times the bucket
+; count for nothing.
+(pub :: fnIdxBuild (-> Int Int))
+(pub fn (fnIdxBuild fns) (fnIdxBuildSized fns 0))
+
+; Built with the eventual size in hand rather than the current one.
+;
+; The index is created in `tcNew`, BEFORE collection, because
+; `tcCollectSig` and `tcCollectFn` each look a name up before deciding
+; whether to push - so a table indexed only afterwards leaves collection
+; itself a linear scan per declaration, which is quadratic in the
+; declaration count and, on a single large module, becomes the dominant
+; cost once the body-checking scans are gone. Measured on a generated
+; module of N cross-referencing functions before this: N=1000 0.05s,
+; N=2000 0.15s.
+;
+; Sizing needs a hint because the table is nearly empty at that point -
+; about sixty builtins - and these buckets never grow. The declaration
+; count is the hint: every `::` and `fn` in the program contributes at
+; most one entry, so it is an upper bound on the table and the average
+; bucket stays well under one.
+(pub :: fnIdxBuildSized (-> Int Int Int))
+(pub fn (fnIdxBuildSized fns hint)
+  (let ((n (if (> hint (vecLen fns)) hint (vecLen fns))))
+   (let ((nb (fnIdxBuckets n)) (bs vecNew) (mut i 0))
+    {
+      (while (< i nb) { (vecPush bs 0) (set i (+ i 1)) })
+      (set i 0)
+      (while (< i (vecLen fns))
+        {
+          (fnIdxAdd bs (vecGet fns i))
+          (set i (+ i 1))
+        })
+      bs
+    })))
+
+(pub :: fnIdxAdd (-> Int Int Int))
+(pub fn (fnIdxAdd bs ent)
+  (let ((b (% (fnIdxHash (memGetWord ent 0)) (vecLen bs))))
+    (if (== (vecGet bs b) 0)
+        (let ((v vecNew)) { (vecPush v ent) (vecSet bs b v) 0 })
+        { (vecPush (vecGet bs b) ent) 0 })))
+
+(pub :: fnIdxGet (-> Int Int Int))
+(pub fn (fnIdxGet bs name)
+  (if (== (vecGet bs (% (fnIdxHash name) (vecLen bs))) 0)
+      0
+      (fnIdxScan (vecGet bs (% (fnIdxHash name) (vecLen bs))) name 0)))
+
+(pub :: fnIdxScan (-> Int Int Int Int))
+(pub fn (fnIdxScan v name i)
+  (if (>= i (vecLen v))
+      0
+      (if (strEq (memGetWord (vecGet v i) 0) name)
+          (vecGet v i)
+          (fnIdxScan v name (+ i 1)))))
+
+; The exact-name question, however it is currently answerable. Word 20
+; is 0 until `checkModuleTc` builds the index after collection, and
+; during collection the scan answers - which is the same answer, just
+; the slow way, and is why the three push sites also maintain the index
+; when it exists rather than relying on an ordering.
+(pub :: fnEntExact (-> Int Int Int))
+(pub fn (fnEntExact tc name)
+  (if (== (memGetWord tc 20) 0)
+      (findFnEntExact (tcFns tc) name 0)
+      (fnIdxGet (memGetWord tc 20) name)))
+
+; Keep the index in step with a push. A no-op before the index exists.
+(pub :: fnIdxNote (-> Int Int Int))
+(pub fn (fnIdxNote tc ent)
+  (if (== (memGetWord tc 20) 0)
+      0
+      (fnIdxAdd (memGetWord tc 20) ent)))
 
 ; Constructor lookup, FORWARD order - Option's are first. Used for
 ; type resolution and patterns (stage0's find_constructor).
@@ -1275,7 +1425,7 @@
                         0 0
                         "check for typos, or a missing `data`/`struct`/`type` declaration")
                   (strConcat (strConcat "no type named `" bad) "` is visible here"))))
-          (let ((ent (findFnEntExact (tcFns tc) (nodeA d) 0)))
+          (let ((ent (fnEntExact tc (nodeA d))))
             (if (== ent 0)
                 0
                 (memSetWord ent 1 (tyPoisonUnknown tc (nodeTy d)))))
@@ -2319,7 +2469,7 @@
                               (if (== (strLen tn) 0)
                                   0
                                   (let ((full (traitImplName (nodeA tr) tn hname)))
-                                    (if (!= (findFnEntExact (tcFns tc) full 0) 0)
+                                    (if (!= (fnEntExact tc full) 0)
                                         { (memSetWord head 1 full) 0 }
                                         (traitDiag tc (spanOf (vecGet args di))
                                           (strConcat (strConcat (strConcat (strConcat
