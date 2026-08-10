@@ -1,6 +1,6 @@
 # axiom explain, every code and every spelling.
 # AX1001-AX5001 were materialized from the Rust compiler at commit 1041f11 on
-# 2026-08-08; AX3018-AX3022 (macro expansion) and AX3023 (module visibility)
+# 2026-08-08; AX3018-AX3024 (macro expansion, module visibility, expansion limits)
 # postdate it and originate in self_host/explain.ax. The list COLOUR is RECONSTRUCTED, not captured.
 ### explain --list
 [1;96mKnown Axiom diagnostic codes:[0m
@@ -37,6 +37,7 @@
   [93mAX3021[0m  a macro template contains a form the expander cannot substitute into  (macro-template-unsupported)
   [93mAX3022[0m  a macro parameter used as a `set` target was given an expression  (macro-set-target)
   [93mAX3023[0m  a name its module does not export  (private-name)
+  [93mAX3024[0m  macro expansion produced more than the limit  (macro-expansion-limit)
   [93mAX4001[0m  no `main` function  (missing-main)
   [93mAX4002[0m  code generation failed  (codegen-failure)
   [93mAX4003[0m  external toolchain command failed  (toolchain-failure)
@@ -395,6 +396,31 @@ landed on the importer's definition instead - silently, at exit 0.
 Write `pub` on the declaration, add the name to the import's list, or
 call something the module does export.
 
+### explain AX3024
+AX3024 - macro expansion produced more than the limit
+
+Expansion is a rewrite, so the program the compiler sees is the
+expanded one, and this expansion produced a tree too deep or too large
+to process. Two limits apply and the message says which was reached.
+
+DEPTH is 1024 forms, the same number the parser refuses source at
+(AX2005). It has to be checked separately because the parser measures
+the SOURCE: a 500-deep template invoked 120 times nests 620 in the file
+and 60,000 in the tree, and only the second number overflows the stack.
+Before this limit that input crashed `check`, `run`, `symbols` and the
+language server with no output at all.
+
+SIZE is 2,000,000 forms, and no depth limit can see what it catches:
+`(macro (m x) (+ x x))` doubles per level, so 26 nested invocations are
+154 bytes of source and 2**26 forms. That took 41 seconds and the
+language server never answered.
+
+Both are far above any real macro - the whole of `stdlib/Pre.ax`
+expands to depth 1. Make the macro produce less, or write the repeated
+part as a function and let the macro expand to a call: a function is
+compiled once however many times it is called, which is the whole
+difference.
+
 ### explain AX4001
 AX4001 - no `main` function
 
@@ -494,6 +520,7 @@ run `axiom explain --list` to see all known codes
   [93mAX3021[0m  a macro template contains a form the expander cannot substitute into  (macro-template-unsupported)
   [93mAX3022[0m  a macro parameter used as a `set` target was given an expression  (macro-set-target)
   [93mAX3023[0m  a name its module does not export  (private-name)
+  [93mAX3024[0m  macro expansion produced more than the limit  (macro-expansion-limit)
   [93mAX4001[0m  no `main` function  (missing-main)
   [93mAX4002[0m  code generation failed  (codegen-failure)
   [93mAX4003[0m  external toolchain command failed  (toolchain-failure)

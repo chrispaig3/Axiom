@@ -5989,3 +5989,74 @@ refusing them safe — and `check-degenerate.sh`'s `empty-lambda-params`
 case, which asserted exit 0, now asserts the refusal. Its subject is
 unchanged either way: that an empty parameter list does not take the
 compiler down.
+
+## 21. Expansion had a depth cap and no budget, and the pass after it ran anyway
+
+Fixed 2026-08-10. `expand.ax` has had a recursion limit since the macro
+port — `AX3019`, 128, for a macro that rewrites to itself — and it
+bounds the wrong thing. Two well-formed inputs got past it:
+
+```
+(macro (m x) (+ x x))            ; 26 nested invocations, 154 bytes
+(fn (main) (m (m (m ... 1))))
+```
+
+Doubling per level, so 2²⁶ forms. Measured on `875b79b`: **41.4 s** in
+`check`, rising 4× per two levels, and the language server simply never
+answered. Depth never exceeds 26, so `AX3019` cannot see it.
+
+```
+(macro (g x) <500 deep>)         ; invoked 120 times, 3.5 KB
+```
+
+Depth 620 in the file and **60,000 in the tree**. `AX2005` refuses
+source past 1024 and this source is nowhere near it — the parser
+measures what was written, and expansion produces what was not.
+Measured: `SIGSEGV`, no output, from `check`, `run`, `symbols` **and
+`axiom lsp`**.
+
+### 21.1 Two budgets, on the output
+
+`expandExpr` recurses structurally, so the depth of its walk *is* the
+depth of the tree it is building. It is now a thin wrapper that counts
+the node, tracks that depth on the way in and out, and stops at the
+limits rather than at the guard page; `expandExprInner` is the walk
+that was there before.
+
+- **Depth 1024**, deliberately the parser's own `parseMaxDepth`:
+  expansion must not produce a program the parser would have refused.
+- **Size 2,000,000 forms**, which no depth limit can see, because
+  fan-out is flat.
+
+Both are far above any real macro — the whole of `stdlib/Pre.ax`
+expands to depth 1 — and the refusal is `AX3024`, reported once rather
+than at every node after it.
+
+### 21.2 The guard fired and the crash moved
+
+With both budgets in, the 3.5 KB file **still** `SIGSEGV`d, and the
+guard was not at fault. `lldb -b -o run -o "bt 8"` put the crashing
+frame in `typecheck$spineArgVec` — the **checker**, not the expander.
+
+`compileFile` merged expansion's diagnostics with the checker's and
+decided afterwards, so the checker ran over a tree expansion had
+already given up on. The rule that was missing is the general one: **a
+pass that refused does not hand its output to the next.** `check`,
+`symbols` and the language server each had their own copy of the merge
+and each needed it; the server's copy matters most, because a server
+that dies stops answering.
+
+That single change also took the fan-out case from 12.2 s to 0.0 s —
+the wait was never the expansion, it was the checker walking two
+million abandoned nodes afterwards.
+
+### 21.3 What the survey got wrong, and how it looked right
+
+The scout that found these reported the second one as "macro expansion
+bypasses the AX2005 nesting guard", which is true of the *input* and
+wrong about the *crash*: the crash was one pass later, in code that had
+nothing to do with macros. The evidence that looked conclusive was that
+`symbols` crashed too and `symbols` does not expand macros — except it
+does (`main.ax` expands before checking, so that a listing tool cannot
+disagree with `check` about whether a file is well-formed). Two wrong
+inferences that cancelled, and only the debugger settled it.

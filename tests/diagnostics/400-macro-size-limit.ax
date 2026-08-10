@@ -1,0 +1,3 @@
+(macro (m x) (+ x x))
+(:: main Int)
+(fn (main) (m (m (m (m (m (m (m (m (m (m (m (m (m (m (m (m (m (m (m (m (m (m (m (m (m (m 1)))))))))))))))))))))))))))

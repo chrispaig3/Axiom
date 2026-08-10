@@ -123,13 +123,63 @@
 ;            substitution at once.
 ; ------------------------------------------------------------------
 (pub struct MEnv (macros : Int) (out : Int) (fresh : Int) (depth : Int)
-                 (decls : Int) (macmod : Int))
+                 (decls : Int) (macmod : Int)
+                 ; The two budgets on the OUTPUT, which the parser's
+                 ; own AX2005 guard cannot see: it measures the source,
+                 ; and expansion routinely produces a tree deeper and
+                 ; larger than any source that guard would have let
+                 ; through. `walk` is the current depth of the
+                 ; expansion walk, which IS the depth of the tree being
+                 ; built, since `expandExpr` recurses structurally.
+                 ; `nodes` counts every node it visits. `blown` is set
+                 ; once so the refusal is reported once rather than at
+                 ; every node after it.
+                 (walk : Int) (nodes : Int) (blown : Int))
 
 (pub :: expMacros (-> Int Int)) (pub fn (expMacros env) (memGetWord env 0))
 (pub :: expOut    (-> Int Int)) (pub fn (expOut    env) (memGetWord env 1))
 (pub :: expDepth  (-> Int Int)) (pub fn (expDepth  env) (memGetWord env 3))
 (pub :: expDecls  (-> Int Int)) (pub fn (expDecls  env) (memGetWord env 4))
 (pub :: expMacMod (-> Int Int)) (pub fn (expMacMod env) (memGetWord env 5))
+
+; The output limits, and why these numbers.
+;
+; DEPTH is the parser's own `parseMaxDepth`, deliberately the same
+; number: expansion must not produce a program the parser would have
+; refused. It could not be checked at parse time because the source is
+; short - `(macro (g x) <500 deep>)` invoked 120 times nests 620 in the
+; file and 60,000 in the tree, and the second number is the one that
+; overflows the stack. Measured: that input SIGSEGVs `check`, `run`,
+; `symbols` and `axiom lsp`.
+;
+; NODES bounds fan-out, which no depth limit can see: `(macro (m x) (+ x x))`
+; doubles per level, so 26 nested invocations are 154 bytes of source
+; and 2^26 nodes - `check` took 41.4s and rose 4x per two levels, and
+; the language server simply never answered. The budget is far above
+; any real macro (the whole of `stdlib/Pre.ax` expands to depth 1) and
+; far below where the wait becomes indistinguishable from a hang.
+(pub :: expMaxWalk Int) (pub fn (expMaxWalk) 1024)
+(pub :: expMaxNodes Int) (pub fn (expMaxNodes) 2000000)
+
+(pub :: expBlown (-> Int Int)) (pub fn (expBlown env) (memGetWord env 8))
+
+; Report once, then stay reported: every node after the first refusal
+; would otherwise emit its own copy.
+(pub :: expBlow (-> Int Int Int Int))
+(pub fn (expBlow env sp msg)
+  {
+    (if (== (memGetWord env 8) 0)
+        {
+          (memSetWord env 8 1)
+          (expEmit env
+            (mkDiagNote SEV_ERROR "AX3024" "macro-expansion-limit"
+                        sp msg 0 0
+                        "expansion is a rewrite, so the program the compiler sees is the expanded one; make the macro produce less, or write the repeated part as a function and let the macro expand to a call"
+                        "the parser's own nesting limit measures the SOURCE, and this limit measures what expansion produced from it"))
+        }
+        0)
+    0
+  })
 (pub :: expSetDepth (-> Int Int Int))
 (pub fn (expSetDepth env d) { (memSetWord env 3 d) env })
 (pub :: expSetMacMod (-> Int Int Int))
@@ -676,7 +726,44 @@
 ; because a local outranks a macro of the same name.
 ; ------------------------------------------------------------------
 (pub :: expandExpr (-> Int Int Int Int))
+; The budgeted wrapper. `expandExprInner` is the walk itself; this
+; counts the node, tracks the walk's depth on the way in and out, and
+; stops the recursion at the limits rather than at the guard page.
 (pub fn (expandExpr e env bs)
+  (if (== e 0)
+      0
+      (if (== (memGetWord env 8) 1)
+          e
+          (let ((d (+ (memGetWord env 6) 1))
+                (n (+ (memGetWord env 7) 1)))
+            {
+              (memSetWord env 6 d)
+              (memSetWord env 7 n)
+              (let ((r (if (> d expMaxWalk)
+                           {
+                             (expBlow env (nodeSpan e)
+                               (strConcat (strConcat
+                                 "macro expansion nested deeper than the limit of "
+                                 (expFmtInt expMaxWalk)) " forms"))
+                             e
+                           }
+                           (if (> n expMaxNodes)
+                               {
+                                 (expBlow env (nodeSpan e)
+                                   (strConcat (strConcat
+                                     "macro expansion produced more than the limit of "
+                                     (expFmtInt expMaxNodes)) " forms"))
+                                 e
+                               }
+                               (expandExprInner e env bs)))))
+                {
+                  (memSetWord env 6 (- d 1))
+                  r
+                })
+            }))))
+
+(pub :: expandExprInner (-> Int Int Int Int))
+(pub fn (expandExprInner e env bs)
   (if (== e 0)
       0
       (let ((tag (nodeTag e))
@@ -1036,7 +1123,7 @@
 ; ------------------------------------------------------------------
 (pub :: expandProgram (-> Int Int Int))
 (pub fn (expandProgram decls out)
-  (let ((env (cast Int (MEnv (expCollectMacros decls vecNew 0) out 0 0 decls 0))))
+  (let ((env (cast Int (MEnv (expCollectMacros decls vecNew 0) out 0 0 decls 0 0 0 0))))
     {
       (expCheckMacros env 0)
       (expandDeclsIn decls env 0)
