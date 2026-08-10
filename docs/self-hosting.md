@@ -7234,3 +7234,101 @@ defect: `parseTopForm`'s version broke the syntax zoo on `(impl ...)`,
 `__load64`, and this one asserted that three malformed declarations were
 fine. **A gate written while a tolerance was alive records the tolerance
 as a promise.**
+
+## 36. A trait method name captured every call with that spelling
+
+Fixed 2026-08-10.
+
+```scheme
+(trait (Sz a) where (sz :: (-> a Int)))
+(impl (Sz Int) where ((sz (lambda (n) 111))))
+
+(fn (main) (let ((sz (lambda (q) 7))) (sz 5)))
+```
+
+`7`, by every rule the language has: a `let` binding shadows whatever the
+name meant outside it. The compiler answered **111**, at exit 0.
+
+So did the same program with `sz` a function parameter, and the same
+program with `sz` a top-level `(fn (sz n) 7)` — the last of those with no
+`AX3006` either, so two definitions of one name coexisted and the
+implementation won every call in silence. A fourth shape broke a valid
+program outright:
+
+```scheme
+(import Str)
+(trait (Len a) where (strLen :: (-> a Int)))
+
+(strLen "abcd")   ;; want 4
+```
+
+```
+error[AX3025]: no implementation of `Len` for `String`
+```
+
+Declaring a trait method made that spelling globally unavailable —
+parameters, `let` bindings, top-level functions and imported
+standard-library functions alike.
+
+### Why
+
+`checkApp` dispatched before it resolved:
+
+```scheme
+(let ((_td (if (&& (== headIsVar 1) (== inHead 0))
+               (traitRewrite tc e head (nodeA head))
+               0)))
+```
+
+`traitRewrite`'s first act is `findTraitOwning (tcTraits tc) hname`, and
+if a trait owns the spelling it mutates the head node to the
+implementation's mangled name. Trait dispatch **is** name resolution — it
+decides which definition a name means — but this call asked no scope and
+no declaration list. `checkVar`, two hundred lines away, has always asked
+`scopeFindFrame` first and reaches its trait arm only as the last resort;
+`checkSaturation`, twenty lines below the dispatch call, has always
+guarded on `scopeFindFrame` too. The rule existed in the file twice. The
+third consumer re-derived it and got it wrong, which is the shape
+`docs/self-hosting.md` records for effect operations and macro heads —
+the two other users of `mkSilentWild`, named in `typecheck.ax:31-37`.
+
+### The fix
+
+`traitNameFree` asks the two questions that mean "already taken":
+
+* `scopeFindFrame` — a parameter or a `let` binding, which shadows;
+* `findFnEnt` — a real declaration. A trait method is never itself in
+  `tcFns` (an `impl` lowers to `Trait#Type#method`, and `checkVar`'s
+  trait arm exists precisely because the bare name resolves to nothing),
+  so a hit here is always something else.
+
+and dispatch runs only when both say no.
+
+That leaves the top-level collision, which is not a resolution question
+but a declaration one. A trait declares one value name per method, so
+`declDefinesNS` — the namespaced twin of `declDefines`, which already
+knew an `effect` declares its operations — reports each of them, and
+`checkDuplicates` grew the loop that a multi-name declaration needs.
+`declDefSpan` points the "first defined here" label at the `where`
+entry rather than at the trait's own name, because that is the line the
+reader has to change.
+
+### What it cost
+
+Nothing measurable, and nothing at all in the corpus: `(trait` and
+`(impl` have a population of **0** in `self_host/` and `stdlib/`, and a
+273-file old-vs-new sweep of `check` output and exit status diverged on
+**0** files.
+
+### What pins it
+
+`tests/selfhost/971-trait-name-scope.ax` asserts the **value** — a `let`
+binding, a parameter and an imported `strLen` answering 7, 7 and 4, plus
+two dispatching calls that answer 111 and 222 as the control, since a
+guard written too wide turns dispatch off and takes them with it. On the
+compiler before the change it exits 1 with three `AX3025`s.
+
+`tests/diagnostics/445-trait-method-duplicate.ax` pins both orders of the
+collision — the `fn` after the trait and the trait after the `fn` — because
+they reach the report through different arms, and one arm working while
+the other stayed silent is what hid this.

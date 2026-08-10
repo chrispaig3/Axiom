@@ -266,10 +266,38 @@
   (if (>= j i)
       (- 0 1)
       (let ((d (vecGet decls j)))
-        (if (&& (== (declNamespace (nodeTag d)) ns)
-                (strEq (nodeA d) name))
+        (if (== (declDefinesNS d ns name) 1)
             j
             (firstDefinerFrom decls (+ j 1) i ns name)))))
+
+; Does this declaration define `name` in namespace `ns`?
+;
+; The namespaced twin of `declDefines`, which the missing-definition
+; pass uses and which is deliberately namespace-blind. Every
+; declaration but one defines a single name, and it is `nodeA`. A
+; `trait` is the exception: every method in its `where` list is a
+; value name the trait claims, and until this predicate existed none
+; of them collided with anything. A trait method and a top-level `fn`
+; of the same spelling both "existed", the implementation won every
+; call, and no diagnostic said so - `(trait (Sz a) where (sz :: ...))`
+; beside `(fn (sz n) 7)` answered 111 at exit 0. `declDefines`
+; already knew an `effect` declares its operations; this is the same
+; fact for the same reason, in the namespace this pass reads.
+(pub :: declDefinesNS (-> Int Int Int Int))
+(pub fn (declDefinesNS d ns name)
+  (if (== (nodeTag d) TAG_D_TRAIT)
+      (if (&& (== ns NS_VALUE) (!= (findFieldNamed (nodeB d) name 0) 0)) 1 0)
+      (if (&& (== (declNamespace (nodeTag d)) ns) (strEq (nodeA d) name)) 1 0)))
+
+; The span to blame for that definition. For a trait it is the METHOD
+; name's span, not the trait's own: the label says "first defined
+; here", and the line the reader has to change is the `where` entry.
+(pub :: declDefSpan (-> Int Int Int))
+(pub fn (declDefSpan d name)
+  (if (== (nodeTag d) TAG_D_TRAIT)
+      (let ((f (findFieldNamed (nodeB d) name 0)))
+        (if (== f 0) (nodeSpan d) (nodeSpan f)))
+      (nodeSpan d)))
 
 ; ------------------------------------------------------------------
 ; Pass 1: duplicate definitions.
@@ -290,24 +318,48 @@
   (if (>= i (vecLen decls))
       out
       (let ((d (vecGet decls i)))
-        (let ((ns (declNamespace (nodeTag d))))
-          (if (== ns NS_NONE)
-              (checkDuplicates decls out (+ i 1))
-              (let ((name (nodeA d)))
-                (let ((j (firstDefiner decls i ns name)))
-                  (if (< j 0)
-                      (checkDuplicates decls out (+ i 1))
-                      {
-                        (vecPush out
-                          (diagSetLabel (mkDiag SEV_ERROR "AX3006" "duplicate-definition"
-                                  (nodeSpan d)
-                                  (strConcat (strConcat "duplicate definition `" name) "`")
-                                  (nodeSpan (vecGet decls j))
-                                  (strConcat (strConcat "`" name) "` first defined here")
-                                  "rename one of the definitions, or remove the duplicate")
-                            (strConcat (strConcat "`" name) "` redefined here")))
-                        (checkDuplicates decls out (+ i 1))
-                      }))))))))
+        {
+          (if (== (nodeTag d) TAG_D_TRAIT)
+              ; A trait defines one value name per method, so it is
+              ; the one declaration that needs a loop here.
+              (checkTraitDupes decls out i (nodeB d) 0)
+              (let ((ns (declNamespace (nodeTag d))))
+                (if (== ns NS_NONE)
+                    0
+                    (let ((name (nodeA d)))
+                      (let ((j (firstDefiner decls i ns name)))
+                        (if (< j 0)
+                            0
+                            (dupDiag decls out j name (nodeSpan d))))))))
+          (checkDuplicates decls out (+ i 1))
+        })))
+
+(pub :: checkTraitDupes (-> Int Int Int Int Int Int))
+(pub fn (checkTraitDupes decls out i methods k)
+  (if (>= k (vecLen methods))
+      0
+      (let ((m (vecGet methods k)))
+        {
+          (let ((j (firstDefiner decls i NS_VALUE (nodeA m))))
+            (if (< j 0)
+                0
+                (dupDiag decls out j (nodeA m) (nodeSpan m))))
+          (checkTraitDupes decls out i methods (+ k 1))
+        })))
+
+(pub :: dupDiag (-> Int Int Int Int Int Int))
+(pub fn (dupDiag decls out j name sp)
+  {
+    (vecPush out
+      (diagSetLabel (mkDiag SEV_ERROR "AX3006" "duplicate-definition"
+              sp
+              (strConcat (strConcat "duplicate definition `" name) "`")
+              (declDefSpan (vecGet decls j) name)
+              (strConcat (strConcat "`" name) "` first defined here")
+              "rename one of the definitions, or remove the duplicate")
+        (strConcat (strConcat "`" name) "` redefined here")))
+    0
+  })
 
 ; ------------------------------------------------------------------
 ; Pass 2: a signature with no definition behind it.
@@ -2392,7 +2444,14 @@
       ; level of a curried spine and `spineHead` answers the same node
       ; each time, so dispatching at each level reported the same
       ; missing implementation once per argument.
-      (let ((_td (if (&& (== headIsVar 1) (== inHead 0))
+      ;
+      ; And only when nothing else claims the spelling - see
+      ; `traitNameFree`. `checkSaturation`, twenty lines down, has
+      ; asked `scopeFindFrame` first since it was written; this call
+      ; was added later and asked nothing.
+      (let ((_td (if (&& (== headIsVar 1)
+                         (&& (== inHead 0)
+                             (== (traitNameFree tc (nodeA head)) 1)))
                      (traitRewrite tc e head (nodeA head))
                      0)))
       (let ((hname (if (== headIsVar 1) (nodeA head) 0)))
@@ -2477,6 +2536,35 @@
                                             "` for `") tn) "`")
                                           "write `(impl (Trait Type) where ((method ...)))` for it"
                                           "a trait method is dispatched on the type of its argument, and this type has no implementation")))))))))))))))
+
+; Is `name` still the trait's to claim at this call site?
+;
+; Dispatch rewrites the head node to an implementation's mangled name,
+; so it is name RESOLUTION and has to obey the same order as every
+; other resolution in this file: a frame-local binding first, then a
+; declaration. Asking neither made a trait method's spelling globally
+; unavailable - it captured `let` bindings, lambda and function
+; parameters, top-level functions and imported standard-library
+; functions alike, and the implementation won every one of them at
+; exit 0. `(let ((sz (lambda (q) 7))) (sz 5))` answered 111.
+;
+; The two questions are the two ways a name can already be taken:
+;   - `scopeFindFrame`, a parameter or a `let` binding, which shadows;
+;   - `findFnEnt`, a real declaration of that name. A trait method is
+;     never itself in `tcFns` (an `impl` lowers to `Trait#Type#method`,
+;     and `checkVar`'s trait arm exists precisely because the bare
+;     name resolves to nothing), so a hit here is always something
+;     else. In the entry file that collision is now `AX3006`; across
+;     modules the concrete definition simply wins, which is what makes
+;     `(import Str)` beside a trait method named `strLen` a working
+;     program again instead of `AX3025`.
+(pub :: traitNameFree (-> Int Int Int))
+(pub fn (traitNameFree tc name)
+  (if (!= (scopeFindFrame tc name) 0)
+      0
+      (if (!= (findFnEnt tc name) 0)
+          0
+          1)))
 
 (pub :: findTraitOwning (-> Int Int Int Int))
 (pub fn (findTraitOwning trs name i)

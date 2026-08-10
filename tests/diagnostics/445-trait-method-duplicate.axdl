@@ -1,0 +1,2 @@
+E AX3006 445-trait-method-duplicate.ax:16:6-8 duplicate-definition "duplicate definition `sz`" #"`sz` redefined here" ^14:4-6:"`sz` first defined here" ?"rename one of the definitions, or remove the duplicate"
+E AX3006 445-trait-method-duplicate.ax:21:4-6 duplicate-definition "duplicate definition `tw`" #"`tw` redefined here" ^18:6-8:"`tw` first defined here" ?"rename one of the definitions, or remove the duplicate"
