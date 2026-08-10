@@ -351,8 +351,19 @@
 ; DSig overwrites a function span, DFn only fills an absent one;
 ; the nid variant is the LAST declaration mentioning the name;
 ; the axtag set is the last NON-EMPTY one.
+; A GENERATED declaration is not a symbol. Lowering an `impl` appends
+; a signature and a definition named `Trait#Type#method`, and those
+; are the compiler's business: `symbols` reports what the file
+; declares, and the position verifier is right to refuse a claim the
+; source does not spell. `#` is not an identifier byte, so a name that
+; contains one cannot have been written.
+(pub :: smGenerated (-> Int Bool))
+(pub fn (smGenerated name) (>= (strFindByte name 35 0) 0))
+
 (pub :: smCollect (-> Int Int Int Int))
 (pub fn (smCollect sm d units)
+  (if (smGenerated (nodeA d))
+      0
   (let ((tag (nodeTag d))
         (name (nodeA d))
         (u (saUnitOf units (nodeModule d))))
@@ -429,7 +440,7 @@
                     }))))
       0)))))))
       0
-    }))
+    })))
 
 (pub :: smNid (-> Int Int Int Int))
 (pub fn (smNid sm name variant)
@@ -631,9 +642,17 @@
                     (isB (memGetWord e 3))
                     (isOp (memGetWord e 4)))
                 {
-                  (if (|| (&& (== isB 1) (== builtins 0))
+                  ; A GENERATED name is not a symbol. Lowering an
+                  ; `impl` appends `Trait#Type#method` declarations,
+                  ; and they are the compiler's business: `symbols`
+                  ; reports what the file declares, and the position
+                  ; verifier is right to refuse a claim the source does
+                  ; not spell. `#` is not an identifier byte, so a name
+                  ; containing one cannot have been written.
+                  (if (|| (smGenerated name)
+                      (|| (&& (== isB 1) (== builtins 0))
                           (&& (== isOp 1)
-                              (!= (strLen (bareOf name)) (strLen name))))
+                              (!= (strLen (bareOf name)) (strLen name)))))
                       0
                       (let ((metas vecNew)
                             (loc (smLocReal sm 0 1 2 name units)))

@@ -1,0 +1,11 @@
+[1;31merror[AX3025][0m[1m: no implementation of `Eq` for `Bool`[0m
+ [1;34m--> [0m410-trait-no-impl.ax:6:20
+[1;34m  |[0m
+[1;34m6 |[0m (fn (main) (if (eq true true) 1 0))
+[1;34m  |[0m                    [1;31m^^^^ no implementation selected[0m
+[1;34m  |[0m
+ [1;34m = [0m[1mnote: [0ma trait method is dispatched on the type of its argument, and this type has no implementation
+ [1;34m = [0m[1;32mhelp: [0mwrite `(impl (Trait Type) where ((method ...)))` for it
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3025` for a full explanation
+
+compilation failed due to 1 previous error

@@ -6060,3 +6060,114 @@ nothing to do with macros. The evidence that looked conclusive was that
 does (`main.ax` expands before checking, so that a listing tool cannot
 disagree with `check` about whether a file is well-formed). Two wrong
 inferences that cancelled, and only the debugger settled it.
+
+## 22. Traits were a keyword and a comment
+
+Implemented 2026-08-10. `README.md` called traits **Complete** —
+"declarations, supertraits, effects, default methods, implementations"
+— and the compiler's whole contribution was to consume `impl` and
+throw it away:
+
+```scheme
+(trait (Eq a) where (eq :: (-> a a Bool)))
+(impl (Eq Int) where ((eq (lambda (x y) (== x y)))))
+(fn (main) (if (eq 3 3) 42 7))
+```
+
+```
+error[AX3001]: undefined variable `eq`
+```
+
+That is the README's own example, verbatim. `parser.ax` matched `impl`
+by name and called `skipUnknownDecl`, so the declaration became an
+inert `TAG_NIL`: **its body was never type-checked** — an `impl` of a
+trait that does not exist, whose method calls a name that does not
+exist, passed `check` at exit 0 — and no trait method was bound to
+anything anywhere.
+
+### 22.1 An impl is ordinary declarations
+
+`impl` now parses to `TAG_D_IMPL`, and a pass in `expand.ax` — beside
+macro expansion, because it is the same kind of rewrite and runs at the
+same point — lowers each one to declarations the rest of the compiler
+already understands:
+
+```
+(impl (Eq Int) where ((eq <expr>)))
+  =>  (:: Eq#Int#eq (-> Int Int Bool))
+      (fn (Eq#Int#eq p#0 p#1) ((<expr> p#0) p#1))
+```
+
+The signature is the trait's method type with the implementing type
+substituted for the trait's parameter, which is what gives the body a
+concrete type to be checked against. The definition is **eta-expanded**
+rather than having the lambda spliced in, because the implementing
+expression need not be a lambda: `(eq myNamedFunction)` is as
+legitimate as `(eq (lambda (x y) ...))`, and applying it is the one
+thing both shapes support.
+
+The separator is `#`, not `$`, and that is load-bearing: `bareOf` and
+`nameMatches` treat `$` as the module boundary, so `Eq$Int$eq` would
+suffix-match a **bare** `eq` and whichever implementation resolved
+first would silently win every unqualified call. `#` is not an
+identifier byte, so a generated name cannot collide with a written one
+— which also makes it the test `symbols` uses to leave these out of its
+listing.
+
+### 22.2 Dispatch is a rewrite, at compile time
+
+`checkApp` looks at the spine's head: if it names a trait method, the
+checker finds the parameter position whose declared type **is** the
+trait's own parameter, types the argument there, and rewrites the head
+node's name to that implementation's. Everything downstream — argument
+checking, saturation, and later the emitter, which reads the same
+nodes — then proceeds as for any ordinary call. So a trait call costs a
+direct call: no dictionary, no vtable, no indirection.
+
+Only at the spine root. `checkApp` runs at every level of a curried
+spine and `spineHead` answers the same node each time, so dispatching
+at each level reported the same missing implementation once per
+argument — caught by the fixture, which showed the diagnostic twice.
+
+`AX3025` covers every way the pair (trait, type) fails to be usable: an
+unknown trait, a method the trait does not declare, a method the impl
+does not define, a trait with no type parameter, no implementation for
+the dispatch argument's type, and a method whose signature mentions the
+trait's parameter in no parameter position — there is no
+return-type-directed dispatch, so `(mk :: (-> Int a))` says so rather
+than guessing.
+
+### 22.3 What it does not do
+
+- **A function generic over a trait cannot call its methods.** Dispatch
+  needs a concrete type at the call site and a type variable is not
+  one. That is the dictionary-passing design, and it is a different
+  slice.
+- **Supertraits and default bodies parse and are dropped.** Every
+  method a trait declares must therefore be implemented, which is what
+  `AX3025` says when one is missing.
+- **One type parameter per trait**, the first.
+
+### 22.4 What the corpus said, once anything asked
+
+`tests/fmt/syntax-zoo.ax` carried `(impl (Show Int) where ((show ...)))`
+for a trait declaring `show` **and** `width`. It was a syntax fixture
+and syntax was all anyone checked, so the missing method had never been
+a problem; the first thing real `impl` checking did was report it. The
+zoo now implements both — the fixture becoming a valid program rather
+than only a parsable one.
+
+Two other gates spoke up, and both were right:
+
+- **`check-fmt` refused `self_host/typecheck.ax`.** A helper of mine
+  took a parameter named `trait`. The parser accepts a keyword as a
+  binder and `format.ax`'s scanner refuses the whole file, with no line
+  and no reason. Renamed; the disagreement between those two readings
+  of a name is recorded here because nothing else compares them.
+- **`tests/selfhost/290-emit.ax` failed after formatting**, which
+  looked like a formatter bug and was not. `lowerImpls` had been put in
+  `typecheck.ax` and called from `codegen.ax`, which does not import
+  it; `main.ax` merges every module into one flat namespace, so the
+  compiler built and only a program importing `codegen` alone could
+  see the hole. The pure helpers now live in `parser.ax` and the pass
+  in `expand.ax` — the modules that both consumers already import.

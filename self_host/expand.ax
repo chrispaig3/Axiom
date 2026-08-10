@@ -1144,3 +1144,133 @@
   (if (>= i (vecLen src))
       dst
       { (vecPush dst (vecGet src i)) (expMergeIntoAt dst src (+ i 1)) }))
+
+; ------------------------------------------------------------------
+; Traits: lowering an `impl` to ordinary declarations.
+;
+; It belongs beside macro expansion because it is the same kind of
+; pass - a rewrite that runs before the checker so that what it
+; produces is checked like anything else - and because `codegen.ax`
+; imports this module and needs to lower before it emits.
+; ------------------------------------------------------------------
+
+(pub :: lowerImpls (-> Int Int Int))
+(pub fn (lowerImpls decls out)
+  (let ((n (vecLen decls)) (mut i 0))
+    {
+      (while (< i n)
+        (let ((d (vecGet decls i)))
+          {
+            (if (== (nodeTag d) TAG_D_IMPL)
+                (lowerOneImpl decls d out)
+                0)
+            (set i (+ i 1))
+          }))
+      0
+    }))
+
+(pub :: lowerOneImpl (-> Int Int Int Int))
+(pub fn (lowerOneImpl decls d out)
+  (let ((tr (findTraitDecl decls (nodeA d) 0)))
+    (if (== tr 0)
+        (implDiag out (nodeSpan d)
+          (strConcat (strConcat "no trait named `" (nodeA d)) "` is in scope")
+          "declare the trait, or import the module that declares it"
+          "an `impl` names the trait it implements; this one names nothing")
+        (let ((v (traitTyvar tr)))
+          (if (== (strLen v) 0)
+              (implDiag out (nodeSpan d)
+                (strConcat (strConcat "trait `" (nodeA d))
+                           "` declares no type parameter, so it cannot be implemented for a type")
+                "give the trait a parameter: `(trait (Name a) where ...)`"
+                "an implementation is keyed on (trait, type), and this trait has no type to key on")
+              {
+                (lowerImplMethods decls tr d (nodeB d) v out 0)
+                (checkImplComplete tr d (nodeB d) out 0)
+              })))))
+
+(pub :: implDiag (-> Int Int Int Int Int Int))
+(pub fn (implDiag out sp msg help note)
+  {
+    (vecPush out
+      (diagSetLabel
+        (mkDiagNote SEV_ERROR "AX3025" "trait-impl" sp msg 0 0 help note)
+        "in this implementation"))
+    0
+  })
+
+(pub :: lowerImplMethods (-> Int Int Int Int Int Int Int Int))
+(pub fn (lowerImplMethods decls tr d methods v out i)
+  (if (>= i (vecLen methods))
+      0
+      (let ((m (vecGet methods i)))
+        {
+          (let ((decl (findFieldNamed (nodeB tr) (nodeA m) 0)))
+            (if (== decl 0)
+                (implDiag out (nodeSpan m)
+                  (strConcat (strConcat (strConcat (strConcat
+                    "trait `" (nodeA tr)) "` declares no method `") (nodeA m)) "`")
+                  "check the spelling against the trait's `where` list"
+                  "an implementation may only define methods the trait declares")
+                (lowerEmit decls tr d m decl v)))
+          (lowerImplMethods decls tr d methods v out (+ i 1))
+        })))
+
+; The generated pair: `(:: Trait#Type#m <substituted type>)` and
+; `(fn (Trait#Type#m p0 .. pn) ((<expr> p0) .. pn))`.
+
+(pub :: lowerEmit (-> Int Int Int Int Int Int Int))
+(pub fn (lowerEmit decls tr d m decl v)
+  (let ((ty (tySubstVar (nodeB decl) v (mkTCon (nodeC d) vecNew)))
+        (nm (traitImplName (nodeA tr) (nodeC d) (nodeA m))))
+    (let ((ar (arrowArity ty))
+          (ps vecNew))
+      {
+        (mkParamNames ps ar 0)
+        (let ((sig (mkNodeAt TAG_D_SIG nm 0 0 (nodeSpan m))))
+          {
+            (memSetWord sig 6 ty)
+            (memSetWord sig 5 1)
+            (vecPush decls sig)
+          })
+        (let ((fnd (mkNodeAt TAG_D_FN nm ps (etaApply (nodeB m) ps 0) (nodeSpan m))))
+          {
+            (memSetWord fnd 5 1)
+            (vecPush decls fnd)
+          })
+        0
+      })))
+
+(pub :: mkParamNames (-> Int Int Int Int))
+(pub fn (mkParamNames ps ar i)
+  (if (>= i ar)
+      0
+      {
+        (vecPush ps (strConcat "p#" (decStr i)))
+        (mkParamNames ps ar (+ i 1))
+      }))
+
+(pub :: etaApply (-> Int Int Int Int))
+(pub fn (etaApply f ps i)
+  (if (>= i (vecLen ps))
+      f
+      (etaApply (mkEApp f (mkEVar (vecGet ps i))) ps (+ i 1))))
+
+; Every method the trait declares must be implemented.
+
+(pub :: checkImplComplete (-> Int Int Int Int Int Int))
+(pub fn (checkImplComplete tr d methods out i)
+  (if (>= i (vecLen (nodeB tr)))
+      0
+      (let ((want (vecGet (nodeB tr) i)))
+        {
+          (if (== (findFieldNamed methods (nodeA want) 0) 0)
+              (implDiag out (nodeSpan d)
+                (strConcat (strConcat (strConcat (strConcat
+                  "this implementation of `" (nodeA tr))
+                  "` does not define `") (nodeA want)) "`")
+                "define every method the trait declares; there are no default bodies yet"
+                "a trait method with no implementation would have nothing to dispatch to")
+              0)
+          (checkImplComplete tr d methods out (+ i 1))
+        })))

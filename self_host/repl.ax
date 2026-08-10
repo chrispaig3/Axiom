@@ -299,7 +299,7 @@
             ; came for free; now it does not, and without this line a
             ; macro defined at the prompt emitted a call to a symbol
             ; nothing defines - `use of undefined value '@twice'`.
-            (let ((eds (let ((v vecNew)) { (expandProgram allDecls v) v })))
+            (let ((eds (let ((v vecNew)) { (expandProgram allDecls v) (lowerImpls allDecls v) v })))
             (let ((ds (expMergeInto eds (checkModule decls allDecls units))))
               (if (> (countErrorDiags ds) 0)
                   {

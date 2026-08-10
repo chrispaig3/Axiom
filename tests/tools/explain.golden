@@ -1,6 +1,6 @@
 # axiom explain, every code and every spelling.
 # AX1001-AX5001 were materialized from the Rust compiler at commit 1041f11 on
-# 2026-08-08; AX3018-AX3024 (macro expansion, module visibility, expansion limits)
+# 2026-08-08; AX3018-AX3025 (macro expansion, module visibility, limits, traits)
 # postdate it and originate in self_host/explain.ax. The list COLOUR is RECONSTRUCTED, not captured.
 ### explain --list
 [1;96mKnown Axiom diagnostic codes:[0m
@@ -38,6 +38,7 @@
   [93mAX3022[0m  a macro parameter used as a `set` target was given an expression  (macro-set-target)
   [93mAX3023[0m  a name its module does not export  (private-name)
   [93mAX3024[0m  macro expansion produced more than the limit  (macro-expansion-limit)
+  [93mAX3025[0m  a trait implementation the compiler cannot use  (trait-impl)
   [93mAX4001[0m  no `main` function  (missing-main)
   [93mAX4002[0m  code generation failed  (codegen-failure)
   [93mAX4003[0m  external toolchain command failed  (toolchain-failure)
@@ -421,6 +422,32 @@ part as a function and let the macro expand to a call: a function is
 compiled once however many times it is called, which is the whole
 difference.
 
+### explain AX3025
+AX3025 - a trait implementation the compiler cannot use
+
+A trait is a set of method signatures written against one type
+parameter; an `impl` gives those methods a body for one concrete type.
+The pair (trait, type) is what a call is dispatched on, so both halves
+have to be there and have to agree. This code covers every way they do
+not:
+
+  - the `impl` names a trait that is not in scope
+  - it defines a method the trait does not declare
+  - it does not define one the trait does declare (there are no
+    default bodies yet, so every method needs an implementation)
+  - the trait has no type parameter, so there is nothing to key an
+    implementation on
+  - a call has no implementation for the type of its dispatch argument
+  - a method mentions the trait's parameter in no parameter position,
+    so no argument can select an implementation - there is no
+    return-type-directed dispatch
+
+Dispatch is by the STATIC type of the argument at the call site, and it
+is resolved at compile time: the call becomes a direct call to that
+implementation, with no table and no indirection. A type variable is
+not a type, so a function that is generic over the trait cannot yet
+call its methods - see docs/self-hosting.md 22.
+
 ### explain AX4001
 AX4001 - no `main` function
 
@@ -521,6 +548,7 @@ run `axiom explain --list` to see all known codes
   [93mAX3022[0m  a macro parameter used as a `set` target was given an expression  (macro-set-target)
   [93mAX3023[0m  a name its module does not export  (private-name)
   [93mAX3024[0m  macro expansion produced more than the limit  (macro-expansion-limit)
+  [93mAX3025[0m  a trait implementation the compiler cannot use  (trait-impl)
   [93mAX4001[0m  no `main` function  (missing-main)
   [93mAX4002[0m  code generation failed  (codegen-failure)
   [93mAX4003[0m  external toolchain command failed  (toolchain-failure)

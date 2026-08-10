@@ -1,0 +1,31 @@
+[1;31merror[AX3025][0m[1m: trait `Eq` declares no method `nope`[0m
+ [1;34m--> [0m415-trait-impl-shape.ax:6:5
+[1;34m  |[0m
+[1;34m6 |[0m    (nope (lambda (x y) true))))
+[1;34m  |[0m     [1;31m^^^^ in this implementation[0m
+[1;34m  |[0m
+ [1;34m = [0m[1mnote: [0man implementation may only define methods the trait declares
+ [1;34m = [0m[1;32mhelp: [0mcheck the spelling against the trait's `where` list
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3025` for a full explanation
+
+[1;31merror[AX3025][0m[1m: this implementation of `Eq` does not define `ne`[0m
+ [1;34m--> [0m415-trait-impl-shape.ax:4:8
+[1;34m  |[0m
+[1;34m4 |[0m (impl (Eq Int) where
+[1;34m  |[0m        [1;31m^^ in this implementation[0m
+[1;34m  |[0m
+ [1;34m = [0m[1mnote: [0ma trait method with no implementation would have nothing to dispatch to
+ [1;34m = [0m[1;32mhelp: [0mdefine every method the trait declares; there are no default bodies yet
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3025` for a full explanation
+
+[1;31merror[AX3025][0m[1m: no trait named `Missing` is in scope[0m
+ [1;34m--> [0m415-trait-impl-shape.ax:7:8
+[1;34m  |[0m
+[1;34m7 |[0m (impl (Missing Int) where
+[1;34m  |[0m        [1;31m^^^^^^^ in this implementation[0m
+[1;34m  |[0m
+ [1;34m = [0m[1mnote: [0man `impl` names the trait it implements; this one names nothing
+ [1;34m = [0m[1;32mhelp: [0mdeclare the trait, or import the module that declares it
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3025` for a full explanation
+
+compilation failed due to 3 previous errors

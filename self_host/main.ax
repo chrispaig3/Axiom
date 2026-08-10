@@ -265,6 +265,10 @@
                   (let ((eds vecNew))
                   {
                     (expandProgram allDecls eds)
+                    ; Impls become ordinary declarations before the
+                    ; checker runs, so their bodies are checked like
+                    ; any others - they used to be checked not at all.
+                    (lowerImpls allDecls eds)
                     ; A pass that REFUSED does not hand its output to
                     ; the next one. Expansion's errors used to be
                     ; merged with the checker's, which meant the
@@ -577,7 +581,7 @@
                             ; disagreed with `check` about whether a
                             ; file is well-formed is the drift this
                             ; repository names most often.
-                            (let ((eds (let ((v vecNew)) { (expandProgram allDecls v) v })))
+                            (let ((eds (let ((v vecNew)) { (expandProgram allDecls v) (lowerImpls allDecls v) v })))
                             ; Expansion refused: do not type-check what
                             ; it gave up on. `compileFile` says why.
                             (let ((_stop (if (> (countErrorDiags eds) 0)

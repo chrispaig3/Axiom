@@ -62,9 +62,16 @@
 ))
 
 ; --- impl -----------------------------------------------------------
+; Every method the trait declares, because since 2026-08-10 an `impl`
+; is a real declaration rather than an inert node: its bodies are
+; type-checked and a missing method is AX3025. This file carried only
+; `show` while nothing looked.
 (impl (Show Int) where (
   (show
     (lambda (x) x)
+  )
+  (width
+    (lambda (x) 1)
   )
 ))
 

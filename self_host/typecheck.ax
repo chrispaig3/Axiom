@@ -424,6 +424,12 @@
 ; so `Mod::Ctor` matched nothing and every qualified constructor
 ; reference was a false AX3001 on a valid program. Recording the
 ; module here answers it without renaming anything: see `ctorMatches`.
+; A trait, as the dispatcher needs it: the name it is keyed on, the
+; single type parameter its methods are written against, and its
+; method signatures. Supertraits and default bodies are still parsed
+; and dropped - see docs/self-hosting.md 22 for what this slice covers.
+(pub struct TraitEnt (name : Int) (tyvar : Int) (methods : Int))
+
 (pub struct DataEnt (name : Int) (ctors : Int) (module : Int))
 (pub struct StructEnt (name : Int) (fields : Int) (module : Int))
 (pub struct TC (fns : Int) (datas : Int) (structs : Int) (scope : Int)
@@ -655,6 +661,34 @@
 ; mangled spelling costs one entry and no rule: every lookup that goes
 ; by name now finds the operation under either spelling, with the same
 ; silent-wildcard type and the same inherent `Custom(E)`.
+
+; ------------------------------------------------------------------
+; Traits: lowering, and dispatch.
+;
+; An `impl` becomes ordinary declarations. `(impl (Eq Int) where ((eq
+; <expr>)))` appends a signature and a definition named `Eq#Int#eq`,
+; and a call to `eq` whose dispatch argument is an `Int` is rewritten
+; to name it. The separator is `#` rather than `$` deliberately:
+; `bareOf`/`nameMatches` treat `$` as the module boundary, so
+; `Eq$Int$eq` would suffix-match a BARE `eq` and whichever impl came
+; first would silently win every unqualified call.
+;
+; The definition is eta-expanded - `(fn (Eq#Int#eq a b) ((<expr> a) b))`
+; - rather than having the lambda spliced in, because the implementing
+; expression need not be a lambda at all: `(eq myNamedFunction)` is as
+; legitimate as `(eq (lambda (x y) ...))`, and applying it is the one
+; thing both shapes support.
+; ------------------------------------------------------------------
+; The parameters are not called `trait`: the parser accepts a keyword
+; as a binder and `format.ax`'s scanner refuses the file outright, with
+; no line and no reason - found by `check-fmt.sh`, which is the only
+; thing that compares those two readings of a name.
+; ------------------------------------------------------------------
+; The lowering pass. Runs after expansion and before checking, over the
+; merged declaration list, appending to it: the generated declarations
+; are then collected and checked exactly like hand-written ones, which
+; is the point - an impl body was previously never checked at all.
+; ------------------------------------------------------------------
 (pub :: tcCollectEffectOps (-> Int Int Int Int Int Int))
 (pub fn (tcCollectEffectOps tc ops i effName modName)
   (if (>= i (vecLen ops))
@@ -1692,9 +1726,21 @@
                           (let ((ctor (findCtor tc name)))
                             (if (!= ctor 0)
                                 (memGetWord ctor 3)
+                                ; A trait method is always in scope and
+                                ; is never a top-level function:
+                                ; dispatch rewrites a CALL to a concrete
+                                ; implementation, and a reference that
+                                ; reaches here is one dispatch could not
+                                ; resolve - already reported as AX3025,
+                                ; so going quiet stops a second and
+                                ; wrong AX3001 on top of it. Registering
+                                ; these in `tcFns` instead made
+                                ; `symbols` print them as positionless
+                                ; functions with no type.
                                 (if (|| (== (isBuiltinName name) 1)
                                         (|| (== (isMacroName tc name) 1)
-                                            (== (isEffectName tc name) 1)))
+                                            (|| (== (isEffectName tc name) 1)
+                                                (!= (findTraitOwning (tcTraits tc) name 0) 0))))
                                     mkSilentWild
                                     (emitUndefinedVar tc name (nodeSpan e)))))))))))))))
 
@@ -1846,6 +1892,19 @@
 (pub fn (checkApp tc e inHead)
   (let ((head (spineHead e)))
     (let ((headIsVar (if (== (nodeTag head) TAG_E_VAR) 1 0)))
+      ; Trait dispatch happens FIRST and by rewriting: if the head
+      ; names a trait method and an implementation covers the dispatch
+      ; argument's type, the head's name becomes that implementation's
+      ; and everything below - saturation, argument checking, and
+      ; later the emitter, which reads these same nodes - proceeds as
+      ; for any ordinary call.
+      ; Only at the spine ROOT (`inHead` 0). `checkApp` runs at every
+      ; level of a curried spine and `spineHead` answers the same node
+      ; each time, so dispatching at each level reported the same
+      ; missing implementation once per argument.
+      (let ((_td (if (&& (== headIsVar 1) (== inHead 0))
+                     (traitRewrite tc e head (nodeA head))
+                     0)))
       (let ((hname (if (== headIsVar 1) (nodeA head) 0)))
         (if (&& (== inHead 0)
                 (&& (== headIsVar 1)
@@ -1885,7 +1944,67 @@
                           (emitMismatch tc "function type" (tyRender funcTy)
                                         (spanOf e))
                           (mkNode TAG_T_ERR 0 0 0)
-                        }))))))))))))))
+                        })))))))))))))))
+
+; Rewrite a trait-method call to the implementation its dispatch
+; argument selects. Answers 0 always; it works by mutating the head
+; node, which the emitter reads later from the same tree.
+;
+; No implementation is a DIAGNOSTIC rather than silence, and the
+; method name stays registered as a wildcard so the caller does not
+; also collect an `AX3001` about a name that plainly exists.
+(pub :: traitRewrite (-> Int Int Int Int Int))
+(pub fn (traitRewrite tc e head hname)
+  (let ((tr (findTraitOwning (tcTraits tc) hname 0)))
+    (if (== tr 0)
+        0
+        (let ((v (traitTyvar tr))
+              (decl (findFieldNamed (nodeB tr) hname 0)))
+          (if (|| (== (strLen v) 0) (== decl 0))
+              0
+              (let ((di (traitDispatchIdx (nodeB decl) v 0)))
+                (if (< di 0)
+                    (traitDiag tc (spanOf e)
+                      (strConcat (strConcat (strConcat (strConcat
+                        "cannot tell which implementation of `" (nodeA tr))
+                        "` `") hname)
+                        "` means: no parameter of it has the trait's own type")
+                      "give the method a parameter of the trait's type; there is no return-type-directed dispatch"
+                      "an implementation is selected by the type of an argument")
+                    (let ((args (spineArgVec e vecNew)))
+                      (if (<= (vecLen args) di)
+                          0
+                          (let ((at (checkExprH tc (vecGet args di) 0)))
+                            (let ((tn (tyHeadName at)))
+                              (if (== (strLen tn) 0)
+                                  0
+                                  (let ((full (traitImplName (nodeA tr) tn hname)))
+                                    (if (!= (findFnEntExact (tcFns tc) full 0) 0)
+                                        { (memSetWord head 1 full) 0 }
+                                        (traitDiag tc (spanOf (vecGet args di))
+                                          (strConcat (strConcat (strConcat (strConcat
+                                            "no implementation of `" (nodeA tr))
+                                            "` for `") tn) "`")
+                                          "write `(impl (Trait Type) where ((method ...)))` for it"
+                                          "a trait method is dispatched on the type of its argument, and this type has no implementation")))))))))))))))
+
+(pub :: findTraitOwning (-> Int Int Int Int))
+(pub fn (findTraitOwning trs name i)
+  (if (>= i (vecLen trs))
+      0
+      (if (!= (findFieldNamed (nodeB (vecGet trs i)) name 0) 0)
+          (vecGet trs i)
+          (findTraitOwning trs name (+ i 1)))))
+
+(pub :: traitDiag (-> Int Int Int Int Int Int))
+(pub fn (traitDiag tc sp msg help note)
+  {
+    (emitDiag tc
+      (diagSetLabel
+        (mkDiagNote SEV_ERROR "AX3025" "trait-impl" sp msg 0 0 help note)
+        "no implementation selected"))
+    0
+  })
 
 ; Exactly `(op l r)` with a bare operator head - stage0's
 ; numeric_builtin_app is purely syntactic; no shadow check exists.

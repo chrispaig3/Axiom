@@ -614,11 +614,23 @@ Implement a trait for a specific type:
     ((gt (lambda (x y) (> x y)))))
 ```
 
+A call is dispatched on the **static type of an argument**, resolved at
+compile time to a direct call:
+
+```scheme
+(eq 3 3)        ; the (Eq Int) implementation
+(eq true true)  ; the (Eq Bool) one, same spelling
+```
+
 Traits support:
-- **Type parameters** — `(trait (Eq a) ...)` binds `a` for all method signatures
-- **Supertraits** — `(trait (Ord a) (Eq a) ...)` requires `Eq` to be implemented too
-- **Default methods** — `(where (method :: type = default_body))`
+- **Type parameters** — `(trait (Eq a) ...)` binds `a` for all method signatures, and it is what an implementation is selected by
+- **Multiple methods** — every one the trait declares must be implemented; there are no default bodies yet
+- **Supertraits** — `(trait (Ord a) (Eq a) ...)` parses, and is currently dropped rather than enforced
 - **Effects** — traits and methods can carry effect annotations
+
+Not yet: a function generic over a trait cannot call its methods, because
+dispatch needs a concrete type at the call site rather than a type
+variable. Every unsupported shape is `AX3025` — run `axiom explain AX3025`.
 
 ### Effects
 
@@ -1190,7 +1202,7 @@ the pipeline above is a module you can read in the language it compiles.
 | Unions | **Removed** | C interoperability is not a goal, and an untagged union has no meaning under linear types. Use `data` for a tagged sum or `struct` for a product. `union` stays reserved and reports `AX2004` |
 | Struct layout modifiers | **Removed** | `packed`, `repr(C)` and `align(N)` were documented and formatted but never parsed - all three are `AX2001`. C layout has no meaning without C |
 | Region syntax | **Removed** | Allocation lifetime is inferred, not written by hand. `region` stays reserved and reports `AX2004` |
-| Traits | **Complete** | Declarations, supertraits, effects, default methods, implementations (`impl`) |
+| Traits | **Functional** | Declarations, implementations (`impl`), and compile-time dispatch on the type of an argument: a call to a trait method resolves to the `impl` for that type and becomes a direct call, with no table and no indirection. Until 2026-08-10 `impl` was consumed as an inert node — its body was never type-checked and its methods were bound to nothing, so the example below was `AX3001 undefined variable eq` on its first use. Supertraits and default method bodies still parse and are dropped; a function that is generic over a trait cannot call its methods, because dispatch needs a concrete type at the call site. Every other shape is `AX3025`. `tests/selfhost/970-traits.ax` |
 | Effects | **Complete** | Effect declarations, `handle` expressions, effect checking (`IO`, `Pure`, `Alloc`, `Mut`, `Div`), AXTAG validation. Effects propagate transitively through calls, so a claim on a caller is checked against what its callees do |
 | Loops | **Complete** | `while` plus `mut` local bindings and `set`; 10⁷ iterations in constant stack at `-O0`. Tail calls are guaranteed in the IR independently of `--opt`. Non-tail recursion is still stack-bounded at 60,000–80,000 frames |
 | Linear types | **Parsed only** | `linear T`, `consume`. The ownership facts they express are what the planned memory model needs; see [docs/v1-roadmap.md](docs/v1-roadmap.md) |
