@@ -1,0 +1,36 @@
+; expect 42
+; Four shapes on which `fmt` and `check` disagreed. They are here as a
+; RUNNING program because that is the only way to state what the
+; disagreement cost: `check-fmt.sh` formats a copy of the repository
+; and re-runs this suite against it, so if the formatter rewrites any
+; of these into a different program, the answer stops being 42.
+;
+;   (neg 5)      `(- x)` on a non-literal used to print `(- 0 x)`,
+;                which the parser reads as a subtraction rather than a
+;                negation - a different expression, and for a Float
+;                operand one that no longer type-checks.
+;   (lit)        a literal still takes its sign back: `(- 3)` prints
+;                `-3`, the same number spelled shorter.
+;   (viaFn 41)   expression-position `fn` as a lambda. `parseInner`
+;                accepts it and the printer had no arm for it, so
+;                every file using it was REFUSED - no line, no reason,
+;                from the tool a CI formatting gate runs.
+;   (negf)       the Float case the `(- 0 x)` rewrite broke outright.
+(:: neg (-> Int Int))
+(fn (neg x) (- x))
+
+(:: lit Int)
+(fn (lit) (- 3))
+
+(:: viaFn (-> Int Int))
+(fn (viaFn n) (let ((f (fn (x) (+ x 1)))) (f n)))
+
+(:: negf (-> Float Float))
+(fn (negf x) (- x))
+
+(:: main Int)
+(fn (main)
+  (if (&& (&& (== (neg 5) (- 0 5)) (== (lit) (- 0 3)))
+          (&& (== (viaFn 41) 42) (< (negf 1.5) 0.0)))
+      42
+      1))

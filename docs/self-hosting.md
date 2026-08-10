@@ -6427,3 +6427,54 @@ opt: error: use of undefined value '@__axiom_div_by_zero'
 — which the first probe after the change found, because a probe that
 runs the program is the only thing that could. It is emitted with the
 arena helpers now, which every program gets.
+
+## 27. Four ways `fmt` and `check` disagreed about the language
+
+Fixed 2026-08-10. §10 named the rule — *a formatter is a second
+implementation of the grammar, and the only thing that keeps the two in
+agreement is a corpus that uses every rule* — and these are four rules
+the corpus does not use.
+
+| written | `check` | `fmt` before |
+|---|---|---|
+| `;@axiom:pure()` above `(import M)` | accepted | **deletes the AXTAG** |
+| `(- x)`, `x` not a literal | negation | **rewrites to `(- 0 x)`** |
+| `(fn (x) ...)` in expression position | accepted | **refuses the whole file** |
+| a `\v` or `\f` byte | `AX1001` | **accepts and rewrites** |
+
+Each is a different kind of wrong and the third and fourth are worth
+separating: refusing a valid file is loud and merely infuriating,
+whereas accepting an invalid one **turns a program the compiler rejects
+into one it accepts**, which is the rewrite a formatter may never make.
+
+- **The AXTAG** was collected and discarded, with a comment saying
+  stage0 attached none to `DImport`. Whatever the parser does with it,
+  an AXTAG is a *comment the programmer wrote*, and preserving comments
+  is the formatter's one contract. `verify-fmt.py` counts AXTAGs among
+  the comments it compares and could not see this, because no file in
+  the corpus has one above an import.
+- **`(- x)` → `(- 0 x)`** is a different expression: the parser reads
+  the first as negation and the second as a subtraction, and on a
+  `Float` operand the second is `Int - Float`, which does not
+  type-check. A *literal* still takes its sign back — `(- 3)` prints
+  `-3` — because that is the same number spelled shorter, not a
+  different expression.
+- **Expression-position `fn`** is a spelling `parseInner` accepts and
+  documents ("stage0 spells an anonymous function `lambda`; expression
+  position `fn` is stage1's older spelling and both stay"). The printer
+  knew only `lambda`, so every file using it was refused with no line
+  and no reason, by the tool a CI formatting gate runs.
+- **`isFSpace`** admitted VT and FF, inherited from the retired
+  compiler's `char::is_whitespace`; `lexer.ax`'s `isSpace` never did.
+  It is now that function, byte for byte.
+
+`tests/selfhost/985-fmt-agreement.ax` is the first three as a **running
+program**, which is the only way to state what the disagreement cost:
+`check-fmt.sh` formats a copy of the repository and re-runs that suite,
+so a rewrite that changes meaning stops the answer being 42.
+`tests/fmt/parity/176-vt-ff-whitespace.axp` is the fourth, in the bank
+whose whole subject is refusals.
+
+One corpus golden moves — `870-ascription-and-negation.ax`, which
+contains the `(- n)` this fixes — and the parity bank gains a case.
+Nothing else in 288 formatted files changes.

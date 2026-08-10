@@ -122,13 +122,18 @@
 ; disagree, stage0 wins, because the output has to match stage0's.
 ; ------------------------------------------------------------------
 (pub :: isFSpace (-> Int Bool))
+; Exactly `lexer.ax`'s `isSpace`, byte for byte. It used to admit
+; VT (11) and FF (12) as well, inherited from the retired compiler's
+; `char::is_whitespace`, and the lexer never did - so `fmt` rewrote a
+; file `check` refuses with AX1001 into one it accepts, silently
+; turning an invalid program into a valid one. Two implementations of
+; "what is a space" and nothing compared them.
 (pub fn (isFSpace ch)
   (if (== ch 32) true
   (if (== ch 10) true
   (if (== ch 13) true
   (if (== ch 9) true
-  (if (== ch 11) true
-  (if (== ch 12) true false)))))))
+  false)))))
 
 ; The width of the whitespace at `i`, or 0 when `i` is not on
 ; whitespace. stage0 skips anything Rust's `char::is_whitespace`
@@ -1839,8 +1844,15 @@
               { (fpP p "-") (fpInt p (fnStart arg) (fnEnd arg)) }
           (if (&& (== (fnKind arg) FN_ATOM) (== (ftKind (fnTok arg)) FT_FLOAT))
               { (fpP p "-") (fpFloat p (fnStart arg) (fnEnd arg)) }
+              ; `(- e)` prints as `(- e)`. It used to print `(- 0 e)`,
+              ; which is a DIFFERENT program: the parser reads `(- e)`
+              ; as unary negation and `(- 0 e)` as a subtraction, and
+              ; for a Float operand the second is `Int - Float`, which
+              ; no longer type-checks. A literal still takes its sign
+              ; back, above, because that is a spelling of the same
+              ; number rather than a different expression.
               {
-                (fpP p "(- 0 ")
+                (fpP p "(- ")
                 (fpExpr p arg)
                 (fpP p ")")
               })))
@@ -2018,7 +2030,14 @@
         ; that was about to read it.
         (fpBad p)
         (let ((h (fnHeadText src n)))
-          (if (strEq h "lambda") (fpLambda p n)
+          ; `fn` in EXPRESSION position is a lambda. `parseInner`
+          ; accepts both spellings and says so ("stage0 spells an
+          ; anonymous function `lambda`; expression position `fn` is
+          ; stage1's older spelling and both stay"), and this printer
+          ; knew only one - so every file using it was refused
+          ; outright, with no line and no reason, by the tool a CI
+          ; formatting gate runs.
+          (if (|| (strEq h "lambda") (strEq h "fn")) (fpLambda p n)
           (if (strEq h "let") (fpLet p n)
           (if (strEq h "if") (fpIf p n)
           (if (strEq h "while") (fpWhile p n)
@@ -2474,7 +2493,7 @@
     (if (== (fnLen n) 0)
         0
         (let ((h (fnHeadText src n)))
-          (if (|| (strEq h "let") (strEq h "lambda"))
+          (if (|| (strEq h "let") (|| (strEq h "lambda") (strEq h "fn")))
               (if (> (fnLen n) 2) (fpAnchor src (fnKid n 2)) 0)
           (if (|| (strEq h "if")
                   (|| (strEq h "while")
@@ -3347,6 +3366,7 @@
           (imports vecNew)
           (declTags vecNew)
           (declNodes vecNew)
+          (importTags vecNew)
           (mut pending vecNew)
           (mut i 0))
       {
@@ -3376,11 +3396,20 @@
                           (foSetBad o)
                           (let ((h (fpDeclHead src f)))
                             (if (strEq h "import")
-                                ; AXTAGs before an import are collected
-                                ; and then discarded - stage0 attaches
-                                ; none to `DImport`.
+                                ; AXTAGs before an import are KEPT and
+                                ; reprinted. They used to be collected
+                                ; and thrown away, because stage0
+                                ; attached none to `DImport` - but an
+                                ; AXTAG is a comment the programmer
+                                ; wrote, and a formatter that deletes a
+                                ; comment has broken its one contract.
+                                ; `verify-fmt.py` counts AXTAGs among
+                                ; the comments it compares, and could
+                                ; not see this because no file in the
+                                ; corpus has one above an import.
                                 {
                                   (vecPush imports f)
+                                  (vecPush importTags (cast Int pending))
                                   (set pending vecNew)
                                 }
                                 (if (fpIsDeclHead h)
@@ -3399,7 +3428,7 @@
           {
             (while (< j (vecLen imports))
               {
-                (fpEmitDecl p nth vecNew (vecGet imports j))
+                (fpEmitDecl p nth (vecGet importTags j) (vecGet imports j))
                 (set nth (+ nth 1))
                 (set j (+ j 1))
               })
