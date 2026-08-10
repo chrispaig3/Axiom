@@ -637,17 +637,41 @@
               ; stage2 compiling its own source overflows its stack. A
               ; `run` that cannot run the compiler is a `run` that fails
               ; on the largest Axiom program there is.
-              (let ((rc (buildToExecutable ir "axiom_temp_output" 1 0)))
-                (if (!= rc 0)
-                    (die "" rc)
-                    (let ((code (sysRunPath "./axiom_temp_output"
-                                            (runArgv "./axiom_temp_output")
-                                            sysEnvp)))
-                      {
-                        (sysUnlink (strCStr "./axiom_temp_output"))
-                        (sysExitWith (if (< code 0) 4 code))
-                        0
-                      }))))))
+              ; The scratch name carries this process's pid, the way
+              ; `replEval` names its own (repl.ax) and for the reason
+              ; `sysGetPid` is documented with in `Sys.ax`: "so two
+              ; concurrent processes cannot collide".
+              ;
+              ; It used to be the fixed literal `axiom_temp_output` in
+              ; the working directory, and `buildToExecutable` derives
+              ; `<name>.ll`, `<name>.o` and `<name>.opt.ll` from it - so
+              ; two `axiom run`s in one directory wrote over each
+              ; other's intermediates and each unlinked the other's.
+              ; That does not present as a collision; it presents as a
+              ; miscompile, because what fails is a later stage reading
+              ; a file some other process already replaced or removed.
+              ;
+              ; Measured the hard way rather than reasoned about: probe
+              ; programs run from the repository root while a gate
+              ; battery was running there returned uniformly wrong exit
+              ; codes, and running them from a scratch directory fixed
+              ; it with no other change.
+              ;
+              ; `buildToExecutable` needs no such change: its
+              ; intermediates already track `--output`, so two builds
+              ; collide only when they were asked for the same output,
+              ; which collides on the executable regardless.
+              (let ((base (cat2 "axiom_temp_output." (decStr sysGetPid))))
+                (let ((exe (cat2 "./" base)))
+                  (let ((rc (buildToExecutable ir base 1 0)))
+                    (if (!= rc 0)
+                        (die "" rc)
+                        (let ((code (sysRunPath exe (runArgv exe) sysEnvp)))
+                          {
+                            (sysUnlink (strCStr exe))
+                            (sysExitWith (if (< code 0) 4 code))
+                            0
+                          }))))))))
       (die "error: unknown subcommand\n" 1)))))))))))))
 
 ; A diagnostic code the way stage0's `lookup` normalises one: ASCII

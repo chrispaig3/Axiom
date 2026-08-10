@@ -188,6 +188,19 @@ jobs:
       - name: Every legal name is an emittable name
         run: ./scripts/check-symbol-names.sh
 
+      # Two `axiom run`s in one directory must not corrupt each other.
+      # The scratch name was a fixed literal in the working directory,
+      # so concurrent runs overwrote each other's intermediates - and
+      # the failure was not a crash but a WRONG ANSWER: one program
+      # returning another's result, exit 0, nothing on stderr.
+      #
+      # No other gate could see it, because every other gate runs one
+      # compiler at a time or gives each case its own directory. This is
+      # also the prerequisite for any parallel work: no job pool can be
+      # trusted while a filename is shared.
+      - name: Concurrent runs in one directory do not collide
+        run: ./scripts/check-concurrent-run.sh
+
       # `fmt` is the tool that had no gate, and it had six independent
       # ways of silently destroying a source file. This formats a copy of
       # the whole repository and re-runs the suites against it, so a
