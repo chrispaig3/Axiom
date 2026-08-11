@@ -79,13 +79,13 @@
 ; and computes widths on plain text, so this should never see an escape -
 ; and if the discipline ever slips, a gutter measured in bytes would be
 ; seven columns wide per colour.
-(pub :: rjNum (-> Int Int Int))
+(pub :: rjNum (-> Int Int String))
 (pub fn (rjNum n w)
   (let ((t (decStr n)))
     (strConcat (spacesN (- w (visLen t))) t)))
 
 ; Byte offset one past the last byte of the line containing `off`.
-(pub :: lineEndOf (-> Int Int Int))
+(pub :: lineEndOf (-> String Int Int))
 (pub fn (lineEndOf src off)
   (let ((n (strLen src)) (mut i off))
     {
@@ -95,7 +95,7 @@
     }))
 
 ; Characters (non-continuation bytes) in [a, b).
-(pub :: charsBetween (-> Int Int Int Int))
+(pub :: charsBetween (-> String Int Int Int))
 (pub fn (charsBetween src a b)
   (let ((mut i a) (mut n 0))
     {
@@ -109,7 +109,7 @@
 
 ; ASCII-lowercased copy, for flag-value comparison - stage0 accepts
 ; `HUMAN` and `Json` (`to_ascii_lowercase` in render.rs).
-(pub :: lowerAscii (-> Int Int))
+(pub :: lowerAscii (-> String Int))
 (pub fn (lowerAscii s)
   (let ((n (strLen s)))
     (let ((out (strAlloc n)) (mut i 0))
@@ -134,7 +134,7 @@
 (pub :: FMT_AI Int)    (pub fn (FMT_AI)    1)
 (pub :: FMT_JSON Int)  (pub fn (FMT_JSON)  2)
 
-(pub :: parseDiagFormatName (-> Int Int))
+(pub :: parseDiagFormatName (-> String Int))
 (pub fn (parseDiagFormatName s)
   (let ((v (lowerAscii s)))
     (if (|| (strEq v "human") (|| (strEq v "pretty") (strEq v "rustc")))
@@ -179,7 +179,7 @@
 (pub :: LEFT_CTX Int) (pub fn (LEFT_CTX) 20)
 
 ; The 1-based display column of byte offset `off` within its own line.
-(pub :: dispColAt (-> Int Int Int))
+(pub :: dispColAt (-> String Int Int))
 (pub fn (dispColAt src off)
   (let ((mut i (lineStartOf src off)) (mut col 0))
     {
@@ -194,7 +194,7 @@
     }))
 
 ; Display width of the bytes in [ls, le).
-(pub :: dispWidthLine (-> Int Int Int Int))
+(pub :: dispWidthLine (-> String Int Int Int))
 (pub fn (dispWidthLine src ls le)
   (let ((mut i ls) (mut col 0))
     {
@@ -235,7 +235,7 @@
 ; expanded. A tab is emitted column by column, so one straddling the
 ; window's edge contributes only the columns inside it; a multi-byte
 ; character is emitted whole at its lead byte.
-(pub :: expandWindow (-> Int Int Int Int Int Int))
+(pub :: expandWindow (-> String Int Int Int Int Int))
 (pub fn (expandWindow src ls le a b)
   (let ((parts vecNew) (mut i ls) (mut col 0))
     {
@@ -269,7 +269,7 @@
 ; byte - `^` for the primary span, `-` for the related one. The run
 ; covers the span clamped to its own line and to the quoted window, and
 ; is never shorter than one column even for an empty span.
-(pub :: labelBlock (-> Int Int Int Int Int Int Int Int))
+(pub :: labelBlock (-> String Int Int Int Int Int String String))
 (pub fn (labelBlock src gw start end ch msg sgr)
   (let ((ls (lineStartOf src start))
         (le (lineEndOf src start))
@@ -306,7 +306,7 @@
 ; The last position in `src` that a caret can sit on: one past the
 ; final character of the last non-empty line. A span at or beyond the
 ; end of the source is moved here, and every other span is left alone.
-(pub :: clampToSource (-> Int Int Int))
+(pub :: clampToSource (-> String Int Int))
 (pub fn (clampToSource src span)
   (if (== span 0)
       0
@@ -326,18 +326,18 @@
 ; a log. A machine-applicable replacement takes its own colour, because
 ; it is the one part of a help that is text to type rather than text to
 ; read.
-(pub :: helpLine (-> Int Int Int))
+(pub :: helpLine (-> Int String String))
 (pub fn (helpLine gw text)
   (strConcat (strConcat (strConcat
     (spacesN gw) (paint SGR_GUT " = ")) (paint SGR_HELP "help: ")) 
     (strConcat text "\n")))
 
-(pub :: helpLineFix (-> Int Int Int Int))
+(pub :: helpLineFix (-> Int String Int String))
 (pub fn (helpLineFix gw text repl)
   (helpLine gw (strConcat text (paint SGR_FIX (strConcat " ~> " repl)))))
 
 ; `   = note: ...`, which renders before the helps.
-(pub :: noteLine (-> Int Int Int))
+(pub :: noteLine (-> Int String String))
 (pub fn (noteLine gw text)
   (strConcat (strConcat (strConcat
     (spacesN gw) (paint SGR_GUT " = ")) (paint SGR_TITLE "note: "))
@@ -402,7 +402,7 @@
     }))
 
 ; Width of the widest line number any row will print.
-(pub :: rowsGutterWidth (-> Int Int Int))
+(pub :: rowsGutterWidth (-> String Int Int))
 (pub fn (rowsGutterWidth src rows)
   (let ((mut i 0) (mut w 1))
     {
@@ -417,7 +417,7 @@
 
 ; The labeled blocks, in order, with a `...` row wherever two adjacent
 ; rows are more than one line apart.
-(pub :: snipBody (-> Int Int Int Int))
+(pub :: snipBody (-> String Int Int Int))
 (pub fn (snipBody src gw rows)
   (let ((out vecNew) (mut i 0) (mut prev 0))
     {
@@ -438,7 +438,7 @@
     }))
 
 ; One diagnostic as its human block, blank-line terminated.
-(pub :: renderDiagHuman (-> Int Int Int Int))
+(pub :: renderDiagHuman (-> Int String String String))
 (pub fn (renderDiagHuman d src file)
   (let ((sev (diagSev d))
         (code (diagCode d))
@@ -546,7 +546,7 @@
 ; format - the AXDL differential gate never saw it because its grep
 ; keeps only `^[EWNH] ` lines (probed 2026-08-07: stage0 prints it in
 ; `ai` mode too). Errors only, post-suppression, pluralized.
-(pub :: renderFailTrailer (-> Int Int))
+(pub :: renderFailTrailer (-> Int String))
 (pub fn (renderFailTrailer n)
   (strConcat (strConcat "compilation failed due to " (decStr n))
              (if (== n 1) " previous error\n" " previous errors\n")))
@@ -566,7 +566,7 @@
 ; stage0 carried the backtrace in its Diagnostic and its AXDL grammar,
 ; but never in its JSON, because nothing ever populated it.
 ; ------------------------------------------------------------------
-(pub :: jsonEsc (-> Int Int))
+(pub :: jsonEsc (-> String Int))
 (pub fn (jsonEsc s)
   (let ((n (strLen s)) (mut i 0) (mut acc ""))
     {
@@ -586,7 +586,7 @@
       acc
     }))
 
-(pub :: jsonSpan (-> Int Int Int))
+(pub :: jsonSpan (-> String Int String))
 (pub fn (jsonSpan src span)
   (let ((s (spanStart span)) (e0 (spanEnd span)))
     (let ((e (if (< e0 s) s e0)))
@@ -644,7 +644,7 @@
       (jsonStrArray v)
     }))
 
-(pub :: jsonRelatedArray (-> Int Int Int))
+(pub :: jsonRelatedArray (-> Int String Int))
 (pub fn (jsonRelatedArray d src)
   (let ((parts vecNew) (mut i 0))
     {
@@ -663,7 +663,7 @@
       (catStrs parts)
     }))
 
-(pub :: renderDiagJson (-> Int Int Int Int))
+(pub :: renderDiagJson (-> Int String String String))
 (pub fn (renderDiagJson d src file)
   (let ((sev (diagSev d))
         (code (diagCode d))

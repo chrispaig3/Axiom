@@ -95,7 +95,7 @@
                        (tyRender (nodeA t)))
         "{unknown}")))))))))
 
-(pub :: tyRenderApp (-> Int Int Int Int))
+(pub :: tyRenderApp (-> String Int Int Int))
 (pub fn (tyRenderApp acc args i)
   (if (>= i (vecLen args))
       acc
@@ -103,7 +103,7 @@
                               (tyRender (vecGet args i)))
                    args (+ i 1))))
 
-(pub :: tyRenderJoin (-> Int Int Int Int))
+(pub :: tyRenderJoin (-> Int Int String Int))
 (pub fn (tyRenderJoin xs i acc)
   (if (>= i (vecLen xs))
       acc
@@ -362,7 +362,7 @@
             (mkTPtr (tyInstIn tc (nodeA t) env) (nodeB t))
         t)))))))))
 
-(pub :: tyInstVar (-> Int Int Int Int Int))
+(pub :: tyInstVar (-> Int String Int Int Int))
 (pub fn (tyInstVar tc name env i)
   (if (>= i (vecLen env))
       (let ((fresh (freshTVar tc 1)))
@@ -444,14 +444,14 @@
 ; not nearest" rule this check has always had, unchanged. The bucket
 ; interleaves names that hash together and that does not disturb the
 ; order.
-(pub :: firstDefiner (-> Int Int Int Int Int))
+(pub :: firstDefiner (-> Int Int Int String Int))
 (pub fn (firstDefiner bs i ns name)
   (let ((v (vecGet bs (% (fnIdxHash name) (vecLen bs)))))
     (if (== v 0)
         (- 0 1)
         (firstDefinerScan v i ns name 0))))
 
-(pub :: firstDefinerScan (-> Int Int Int Int Int Int))
+(pub :: firstDefinerScan (-> Int Int Int String Int Int))
 (pub fn (firstDefinerScan v i ns name k)
   (if (>= k (vecLen v))
       (- 0 1)
@@ -503,7 +503,7 @@
         (dupIdxAddFields bs fs i (+ k 1))
       }))
 
-(pub :: dupIdxPut (-> Int Int Int Int Int))
+(pub :: dupIdxPut (-> Int String Int Int Int))
 (pub fn (dupIdxPut bs name ns i)
   (let ((b (% (fnIdxHash name) (vecLen bs))))
     (if (== (vecGet bs b) 0)
@@ -539,7 +539,7 @@
 ; stderr, where `docs/reference.md:917` says it is a duplicate
 ; definition. `declDefines` already knew an `effect` declares its
 ; operations - the same fact, one pass over.
-(pub :: declDefinesNS (-> Int Int Int Int))
+(pub :: declDefinesNS (-> Int Int String Int))
 (pub fn (declDefinesNS d ns name)
   (let ((fs (declFields d)))
     (if (!= fs 0)
@@ -550,7 +550,7 @@
 ; is the METHOD or OPERATION name's span, not the declaration's own:
 ; the label says "first defined here", and the line the reader has to
 ; change is the `where` entry.
-(pub :: declDefSpan (-> Int Int Int))
+(pub :: declDefSpan (-> Int String Int))
 (pub fn (declDefSpan d name)
   (let ((fs (declFields d)))
     (if (== fs 0)
@@ -608,7 +608,7 @@
           (checkFieldDupes bs decls out i fields (+ k 1))
         })))
 
-(pub :: dupDiag (-> Int Int Int Int Int Int))
+(pub :: dupDiag (-> Int Int Int String Int Int))
 (pub fn (dupDiag decls out j name sp)
   {
     (vecPush out
@@ -641,7 +641,7 @@
 ; that arrives through an import - which stage0 accepts, counting
 ; definitions from any module - therefore never matched, and every such
 ; program drew a false AX3015.
-(pub :: nameMatches (-> Int Int Int))
+(pub :: nameMatches (-> String String Int))
 (pub fn (nameMatches full bare)
   (if (strEq full bare)
       1
@@ -658,14 +658,14 @@
 ; signature: the entry file cannot name it, so a `(:: f T)` with only
 ; a private `M$f` behind it is still AX3015, and saying so here is
 ; what keeps it from becoming an undefined symbol at link time.
-(pub :: isDefined (-> Int Int Int))
+(pub :: isDefined (-> Int String Int))
 (pub fn (isDefined bs name)
   (let ((v (vecGet bs (% (fnIdxHash name) (vecLen bs)))))
     (if (== v 0)
         0
         (defIdxHas v name 0))))
 
-(pub :: defIdxHas (-> Int Int Int Int))
+(pub :: defIdxHas (-> Int String Int Int))
 (pub fn (defIdxHas v name k)
   (if (>= k (vecLen v))
       0
@@ -705,14 +705,14 @@
       bs
     }))
 
-(pub :: defIdxAddKeys (-> Int Int Int))
+(pub :: defIdxAddKeys (-> Int String Int))
 (pub fn (defIdxAddKeys bs full)
   {
     (defIdxPut bs full)
     (defIdxAddSuffixes bs full 1)
   })
 
-(pub :: defIdxAddSuffixes (-> Int Int Int Int))
+(pub :: defIdxAddSuffixes (-> Int String Int Int))
 (pub fn (defIdxAddSuffixes bs full i)
   (if (>= i (strLen full))
       0
@@ -723,7 +723,7 @@
         (defIdxAddSuffixes bs full (+ i 1))
       }))
 
-(pub :: defIdxPut (-> Int Int Int))
+(pub :: defIdxPut (-> Int String Int))
 (pub fn (defIdxPut bs name)
   (let ((b (% (fnIdxHash name) (vecLen bs))))
     (if (== (vecGet bs b) 0)
@@ -758,7 +758,7 @@
           (checkImportNames entryDecls allDecls out (+ i 1))
         })))
 
-(pub :: checkImportNameList (-> Int Int Int Int Int Int Int))
+(pub :: checkImportNameList (-> String Int Int Int Int Int Int))
 (pub fn (checkImportNameList modName names sp allDecls out i)
   (if (>= i (vecLen names))
       0
@@ -790,7 +790,7 @@
     0
   })
 
-(pub :: declaredInModule (-> Int Int Int Int Int))
+(pub :: declaredInModule (-> Int String String Int Int))
 (pub fn (declaredInModule allDecls modName n i)
   (if (>= i (vecLen allDecls))
       0
@@ -801,7 +801,7 @@
             1
             (declaredInModule allDecls modName n (+ i 1))))))
 
-(pub :: exportedFromModule (-> Int Int Int Int Int))
+(pub :: exportedFromModule (-> Int String String Int Int))
 (pub fn (exportedFromModule allDecls modName n i)
   (if (>= i (vecLen allDecls))
       0
@@ -1197,7 +1197,7 @@
 ; arity -1 instead. One site discarding a type the parser already
 ; kept, which is the same sentence `docs/self-hosting.md` 29 writes
 ; about `parseSigDecl`.
-(pub :: tcCollectEffectOps (-> Int Int Int Int Int Int))
+(pub :: tcCollectEffectOps (-> Int Int Int Int String Int))
 (pub fn (tcCollectEffectOps tc fields i effName modName)
   (if (== fields 0)
       0
@@ -1244,18 +1244,18 @@
 ; is why the tag has to be part of the string rather than a separate
 ; word: these live in Vecs and are compared by value.
 ; ------------------------------------------------------------------
-(pub :: builtinEff (-> Int Int))
+(pub :: builtinEff (-> Int String))
 (pub fn (builtinEff n) (strConcat "b:" n))
 
-(pub :: customEff (-> Int Int))
+(pub :: customEff (-> Int String))
 (pub fn (customEff n) (strConcat "c:" n))
 
 ; The name stage0's `Display for Effect` prints, which is what an
 ; AX3011 message quotes: the tag's two bytes removed.
-(pub :: effRender (-> Int Int))
+(pub :: effRender (-> String String))
 (pub fn (effRender e) (strSlice e 2 (- (strLen e) 2)))
 
-(pub :: effIn (-> Int Int Int))
+(pub :: effIn (-> Int String Int))
 (pub fn (effIn v e) (strInVec v e 0))
 
 ; Union into `acc`, answering 1 when anything was added - the
@@ -1269,7 +1269,7 @@
             rest
             { (vecPush acc (vecGet src i)) 1 }))))
 
-(pub :: effAdd (-> Int Int Int))
+(pub :: effAdd (-> Int String Int))
 (pub fn (effAdd acc e)
   (if (== (effIn acc e) 1) 0 { (vecPush acc e) 1 }))
 
@@ -1358,7 +1358,7 @@
 ; bare reference matches them exactly while an imported one only
 ; matches through its suffix.
 ; ------------------------------------------------------------------
-(pub :: findFnEntExact (-> Int Int Int Int))
+(pub :: findFnEntExact (-> Int String Int Int))
 (pub fn (findFnEntExact fns name i)
   (if (>= i (vecLen fns))
       0
@@ -1367,7 +1367,7 @@
             e
             (findFnEntExact fns name (+ i 1))))))
 
-(pub :: findFnEntSuffix (-> Int Int Int Int))
+(pub :: findFnEntSuffix (-> Int String Int Int))
 (pub fn (findFnEntSuffix fns name i)
   (if (>= i (vecLen fns))
       0
@@ -1398,12 +1398,12 @@
 ; `fn` and `::` are - so their key is built from the module recorded
 ; beside them.
 ; ------------------------------------------------------------------
-(pub :: privKey (-> Int Int Int))
+(pub :: privKey (-> String String String))
 (pub fn (privKey declMod name)
   (if (== declMod 0) name (strConcat (strConcat declMod "$") name)))
 
 ; 1 when a reference made from `curMod` may NOT name `key`.
-(pub :: privBlocks (-> Int Int Int Int))
+(pub :: privBlocks (-> Int String String Int))
 (pub fn (privBlocks privs key curMod)
   (if (== (strInVec privs key 0) 0)
       0
@@ -1411,11 +1411,11 @@
           1
           (if (strStartsWith key (strConcat curMod "$")) 0 1))))
 
-(pub :: findFnEntVisibleExact (-> Int Int Int Int Int))
+(pub :: findFnEntVisibleExact (-> Int Int String String Int))
 (pub fn (findFnEntVisibleExact privs fns name curMod)
   (findFnEntVisibleExactFrom privs fns name curMod 0))
 
-(pub :: findFnEntVisibleExactFrom (-> Int Int Int Int Int Int))
+(pub :: findFnEntVisibleExactFrom (-> Int Int String String Int Int))
 (pub fn (findFnEntVisibleExactFrom privs fns name curMod i)
   (if (>= i (vecLen fns))
       0
@@ -1426,11 +1426,11 @@
                 (findFnEntVisibleExactFrom privs fns name curMod (+ i 1)))
             (findFnEntVisibleExactFrom privs fns name curMod (+ i 1))))))
 
-(pub :: findFnEntVisibleSuffix (-> Int Int Int Int Int))
+(pub :: findFnEntVisibleSuffix (-> Int Int String String Int))
 (pub fn (findFnEntVisibleSuffix privs fns name curMod)
   (findFnEntVisibleSuffixFrom privs fns name curMod 0))
 
-(pub :: findFnEntVisibleSuffixFrom (-> Int Int Int Int Int Int))
+(pub :: findFnEntVisibleSuffixFrom (-> Int Int String String Int Int))
 (pub fn (findFnEntVisibleSuffixFrom privs fns name curMod i)
   (if (>= i (vecLen fns))
       0
@@ -1452,7 +1452,7 @@
 ; reference the checker lets through is emitted verbatim and `opt`
 ; reports `use of undefined value` against generated code, at exit 4,
 ; blaming the toolchain. The clean AX3023 is this function's job.
-(pub :: findFnEnt (-> Int Int Int))
+(pub :: findFnEnt (-> Int String Int))
 (pub fn (findFnEnt tc name)
   (let ((m (memGetWord tc 16)))
     (let ((local (if (== m 0)
@@ -1472,7 +1472,7 @@
 ; visible part of it: used only to tell "there is no such name" from
 ; "there is one and it is private", which are the same AX3001 today
 ; and should not read the same to whoever gets it.
-(pub :: findFnEntAnywhere (-> Int Int Int))
+(pub :: findFnEntAnywhere (-> Int String Int))
 (pub fn (findFnEntAnywhere tc name)
   (let ((e (fnEntExact tc name)))
     (if (!= e 0) e (findFnEntSuffix (tcFns tc) name 0))))
@@ -1518,10 +1518,10 @@
 (pub :: fnIdxSeed Int)  (pub fn (fnIdxSeed)  1234567891)
 (pub :: fnIdxPrime Int) (pub fn (fnIdxPrime) 2147483647)
 
-(pub :: fnIdxHash (-> Int Int))
+(pub :: fnIdxHash (-> String Int))
 (pub fn (fnIdxHash s) (fnIdxHashFrom s 0 fnIdxSeed))
 
-(pub :: fnIdxHashFrom (-> Int Int Int Int))
+(pub :: fnIdxHashFrom (-> String Int Int Int))
 (pub fn (fnIdxHashFrom s i h)
   (if (>= i (strLen s))
       h
@@ -1578,13 +1578,13 @@
         (let ((v vecNew)) { (vecPush v ent) (vecSet bs b v) 0 })
         { (vecPush (vecGet bs b) ent) 0 })))
 
-(pub :: fnIdxGet (-> Int Int Int))
+(pub :: fnIdxGet (-> Int String Int))
 (pub fn (fnIdxGet bs name)
   (if (== (vecGet bs (% (fnIdxHash name) (vecLen bs))) 0)
       0
       (fnIdxScan (vecGet bs (% (fnIdxHash name) (vecLen bs))) name 0)))
 
-(pub :: fnIdxScan (-> Int Int Int Int))
+(pub :: fnIdxScan (-> Int String Int Int))
 (pub fn (fnIdxScan v name i)
   (if (>= i (vecLen v))
       0
@@ -1597,7 +1597,7 @@
 ; during collection the scan answers - which is the same answer, just
 ; the slow way, and is why the three push sites also maintain the index
 ; when it exists rather than relying on an ordering.
-(pub :: fnEntExact (-> Int Int Int))
+(pub :: fnEntExact (-> Int String Int))
 (pub fn (fnEntExact tc name)
   (if (== (memGetWord tc 20) 0)
       (findFnEntExact (tcFns tc) name 0)
@@ -1619,12 +1619,12 @@
 ;
 ; The predicate is the same one: exported, or asked from inside the
 ; module that declared it.
-(pub :: findCtor (-> Int Int Int))
+(pub :: findCtor (-> Int String Int))
 (pub fn (findCtor tc name)
   (findCtorFrom (tcDatas tc) name (memGetWord tc 19)
                 (memGetWord tc 16) 0))
 
-(pub :: findCtorFrom (-> Int Int Int Int Int Int))
+(pub :: findCtorFrom (-> Int String Int String Int Int))
 (pub fn (findCtorFrom datas name privs curMod i)
   (if (>= i (vecLen datas))
       0
@@ -1637,7 +1637,7 @@
                   c
                   (findCtorFrom datas name privs curMod (+ i 1))))))))
 
-(pub :: ctorInData (-> Int Int Int Int Int))
+(pub :: ctorInData (-> Int String String Int Int))
 (pub fn (ctorInData ctors declMod name i)
   (if (>= i (vecLen ctors))
       0
@@ -1649,13 +1649,13 @@
 ; The LAST matching constructor - stage0's bare-value and saturation
 ; paths use rfind, and the difference is observable when two datas
 ; declare the same constructor name.
-(pub :: rfindCtor (-> Int Int Int))
+(pub :: rfindCtor (-> Int String Int))
 (pub fn (rfindCtor tc name)
   (rfindCtorFrom (tcDatas tc) name (memGetWord tc 19)
                  (memGetWord tc 16)
                  (- (vecLen (tcDatas tc)) 1)))
 
-(pub :: rfindCtorFrom (-> Int Int Int Int Int Int))
+(pub :: rfindCtorFrom (-> Int String Int String Int Int))
 (pub fn (rfindCtorFrom datas name privs curMod i)
   (if (< i 0)
       0
@@ -1669,7 +1669,7 @@
                   c
                   (rfindCtorFrom datas name privs curMod (- i 1))))))))
 
-(pub :: rctorInData (-> Int Int Int Int Int))
+(pub :: rctorInData (-> Int String String Int Int))
 (pub fn (rctorInData ctors declMod name i)
   (if (< i 0)
       0
@@ -1678,12 +1678,12 @@
             c
             (rctorInData ctors declMod name (- i 1))))))
 
-(pub :: findStruct (-> Int Int Int))
+(pub :: findStruct (-> Int String Int))
 (pub fn (findStruct tc name)
   (findStructFrom (tcStructs tc) name (memGetWord tc 19)
                   (memGetWord tc 16) 0))
 
-(pub :: findStructFrom (-> Int Int Int Int Int Int))
+(pub :: findStructFrom (-> Int String Int String Int Int))
 (pub fn (findStructFrom structs name privs curMod i)
   (if (>= i (vecLen structs))
       0
@@ -1695,12 +1695,12 @@
                 (findStructFrom structs name privs curMod (+ i 1)))
             (findStructFrom structs name privs curMod (+ i 1))))))
 
-(pub :: findData (-> Int Int Int))
+(pub :: findData (-> Int String Int))
 (pub fn (findData tc name)
   (findDataFrom (tcDatas tc) name (memGetWord tc 19)
                 (memGetWord tc 16) 0))
 
-(pub :: findDataFrom (-> Int Int Int Int Int Int))
+(pub :: findDataFrom (-> Int String Int String Int Int))
 (pub fn (findDataFrom datas name privs curMod i)
   (if (>= i (vecLen datas))
       0
@@ -1740,11 +1740,11 @@
 ; caret twice for `(-> Nope Nope)`, and this repository's rule for a
 ; shape it kept no span for is to say less rather than to mis-point.
 ; ------------------------------------------------------------------
-(pub :: tcAliasFind (-> Int Int Int))
+(pub :: tcAliasFind (-> Int String Int))
 (pub fn (tcAliasFind tc name)
   (tcAliasFindFrom (tcAliases tc) name 0))
 
-(pub :: tcAliasFindFrom (-> Int Int Int Int))
+(pub :: tcAliasFindFrom (-> Int String Int Int))
 (pub fn (tcAliasFindFrom av name i)
   (if (>= i (vecLen av))
       0
@@ -1770,7 +1770,7 @@
 ; checker say `Float` where the emitter still says `Int`. That was
 ; right, and it is why expansion rewrites the FLAGS as well as the
 ; type.
-(pub :: tyConKnown (-> Int Int Int))
+(pub :: tyConKnown (-> Int String Int))
 (pub fn (tyConKnown tc name)
   (if (!= (typeKeywordCanon name) 0)
       1
@@ -2064,11 +2064,11 @@
 
 ; A struct's field type by name, or -1 when absent. Fields are the
 ; parser's TAG_FIELD nodes: name in a, parsed type in ty.
-(pub :: structFieldTy (-> Int Int Int))
+(pub :: structFieldTy (-> Int String Int))
 (pub fn (structFieldTy ent fname)
   (structFieldTyFrom (memGetWord ent 1) fname 0))
 
-(pub :: structFieldTyFrom (-> Int Int Int Int))
+(pub :: structFieldTyFrom (-> Int String Int Int))
 (pub fn (structFieldTyFrom fields fname i)
   (if (>= i (vecLen fields))
       (- 0 1)
@@ -2108,11 +2108,11 @@
 
 ; The innermost entry for `name` anywhere in the vec - `set` target
 ; resolution and the whole-scope suggestion pool use this.
-(pub :: scopeFind (-> Int Int Int))
+(pub :: scopeFind (-> Int String Int))
 (pub fn (scopeFind scope name)
   (scopeFindFrom scope name (- (vecLen scope) 1)))
 
-(pub :: scopeFindFrom (-> Int Int Int Int))
+(pub :: scopeFindFrom (-> Int String Int Int))
 (pub fn (scopeFindFrom scope name i)
   (if (< i 0)
       0
@@ -2123,12 +2123,12 @@
 ; The innermost FRAME entry - value resolution reads only the current
 ; function's bindings; module-level names resolve through the
 ; function table (same types, stage0's route).
-(pub :: scopeFindFrame (-> Int Int Int))
+(pub :: scopeFindFrame (-> Int String Int))
 (pub fn (scopeFindFrame tc name)
   (scopeFindFrameFrom (tcScope tc) name
                       (- (vecLen (tcScope tc)) 1) (tcFrameBase tc)))
 
-(pub :: scopeFindFrameFrom (-> Int Int Int Int Int))
+(pub :: scopeFindFrameFrom (-> Int String Int Int Int))
 (pub fn (scopeFindFrameFrom scope name i base)
   (if (< i base)
       0
@@ -2188,7 +2188,7 @@
 ; zero span renders address zero, and a diagnostic stage1 cannot
 ; place is one it does not print.
 ; ------------------------------------------------------------------
-(pub :: emitMismatch (-> Int Int Int Int Int))
+(pub :: emitMismatch (-> Int String String Int Int))
 (pub fn (emitMismatch tc expected found span)
   (if (== span 0)
       0
@@ -2226,7 +2226,7 @@
 ; being listed: every one of them has it, and stage0's own suggestion
 ; machinery skips `__` names for the same reason.
 ; ------------------------------------------------------------------
-(pub :: isBuiltinName (-> Int Int))
+(pub :: isBuiltinName (-> String Int))
 (pub fn (isBuiltinName n)
   (if (strStartsWith n "__") 1
   (if (strEq n "+") 1 (if (strEq n "-") 1 (if (strEq n "*") 1
@@ -2250,7 +2250,7 @@
   (if (strEq n "Mut") 1 (if (strEq n "Div") 1 (if (strEq n "Err") 1
   0))))))))))))))))))))))))))))))))
 
-(pub :: strInVec (-> Int Int Int Int))
+(pub :: strInVec (-> Int String Int Int))
 (pub fn (strInVec v n i)
   (if (>= i (vecLen v))
       0
@@ -2258,7 +2258,7 @@
           1
           (strInVec v n (+ i 1)))))
 
-(pub :: isMacroName (-> Int Int Int))
+(pub :: isMacroName (-> Int String Int))
 (pub fn (isMacroName tc n)
   (isMacroVisible (tcMacros tc) n (memGetWord tc 16) 0))
 
@@ -2266,7 +2266,7 @@
 ; file's, or this module's own. The same rule `expFindMacroIn`
 ; applies, and the two have to agree - one decides whether the name
 ; type-checks and the other whether it expands.
-(pub :: isMacroVisible (-> Int Int Int Int Int))
+(pub :: isMacroVisible (-> Int String String Int Int))
 (pub fn (isMacroVisible ms n curMod i)
   (if (>= i (vecLen ms))
       0
@@ -2280,11 +2280,11 @@
 
 ; Declared anywhere, visible or not - for telling "no such macro" from
 ; "a macro you may not name".
-(pub :: isMacroAnywhere (-> Int Int Int))
+(pub :: isMacroAnywhere (-> Int String Int))
 (pub fn (isMacroAnywhere tc n)
   (isMacroNamedIn (tcMacros tc) n 0))
 
-(pub :: isMacroNamedIn (-> Int Int Int Int))
+(pub :: isMacroNamedIn (-> Int String Int Int))
 (pub fn (isMacroNamedIn ms n i)
   (if (>= i (vecLen ms))
       0
@@ -2292,17 +2292,17 @@
           1
           (isMacroNamedIn ms n (+ i 1)))))
 
-(pub :: isEffectName (-> Int Int Int))
+(pub :: isEffectName (-> Int String Int))
 (pub fn (isEffectName tc n)
   (if (== (findEffectDecl tc n) 0) 0 1))
 
 ; The TAG_D_EFFECT node declaring `n`, or 0. Its ops vector's length
 ; is what AX3017 reports.
-(pub :: findEffectDecl (-> Int Int Int))
+(pub :: findEffectDecl (-> Int String Int))
 (pub fn (findEffectDecl tc n)
   (findEffectDeclFrom (tcEffects tc) n 0))
 
-(pub :: findEffectDeclFrom (-> Int Int Int Int))
+(pub :: findEffectDeclFrom (-> Int String Int Int))
 (pub fn (findEffectDeclFrom effs n i)
   (if (>= i (vecLen effs))
       0
@@ -2316,14 +2316,14 @@
 ; `Alloc`/`alloc` and `Err` out of the identifier path, so none of
 ; them is ever a `Custom` effect - and only `Custom` entries are
 ; subject to AX3016 and AX3017.
-(pub :: isBuiltinEffect (-> Int Int))
+(pub :: isBuiltinEffect (-> String Int))
 (pub fn (isBuiltinEffect n)
   (if (strEq n "IO") 1 (if (strEq n "Pure") 1
   (if (strEq n "Mut") 1 (if (strEq n "Div") 1
   (if (strEq n "Alloc") 1 (if (strEq n "alloc") 1
   (if (strEq n "Err") 1 0))))))))
 
-(pub :: isCastLike (-> Int Int))
+(pub :: isCastLike (-> String Int))
 (pub fn (isCastLike n)
   (if (strEq n "cast") 1
   (if (strEq n "sizeof") 1
@@ -2574,7 +2574,7 @@
 ; are registered directly into the tables and never pass through a
 ; declaration list, so without the check two imports defining a
 ; `None` constructor would make the BUILTIN spelling ambiguous.
-(pub :: checkAmbiguous (-> Int Int Int Int))
+(pub :: checkAmbiguous (-> Int String Int Int))
 (pub fn (checkAmbiguous tc name span)
   (let ((mods (definingModules tc (bareOf name))))
     ; A QUALIFIED reference names one module, so it cannot be
@@ -2613,7 +2613,7 @@
 ; the list is the whole program, so once the walk covered imported
 ; modules too it went quadratic and stage1 stopped terminating on any
 ; stdlib-sized input. stage0 keeps a map for the same reason.
-(pub :: definingModules (-> Int Int Int))
+(pub :: definingModules (-> Int String Int))
 (pub fn (definingModules tc n)
   (let ((e (ambFind tc n)))
     (if (== e 0)
@@ -2632,7 +2632,7 @@
   (let ((nb (fnIdxBuckets hint)) (bs vecNew) (mut i 0))
     { (while (< i nb) { (vecPush bs 0) (set i (+ i 1)) }) bs }))
 
-(pub :: ambFind (-> Int Int Int))
+(pub :: ambFind (-> Int String Int))
 (pub fn (ambFind tc n)
   (let ((bs (memGetWord tc 21)))
     (if (== bs 0)
@@ -2640,7 +2640,7 @@
         (let ((v (vecGet bs (% (fnIdxHash n) (vecLen bs)))))
           (if (== v 0) 0 (ambFindIn v n 0))))))
 
-(pub :: ambFindIn (-> Int Int Int Int))
+(pub :: ambFindIn (-> Int String Int Int))
 (pub fn (ambFindIn v n i)
   (if (>= i (vecLen v))
       0
@@ -2648,7 +2648,7 @@
           (vecGet v i)
           (ambFindIn v n (+ i 1)))))
 
-(pub :: ambRecord (-> Int Int Int Int))
+(pub :: ambRecord (-> Int String String Int))
 (pub fn (ambRecord tc n m)
   (let ((e (ambFind tc n)))
     (if (== e 0)
@@ -2669,7 +2669,7 @@
                 0
                 { (vecPush (memGetWord e 1) m) 0 })))))
 
-(pub :: ambIdxPut (-> Int Int Int Int))
+(pub :: ambIdxPut (-> Int String Int Int))
 (pub fn (ambIdxPut bs n ent)
   (let ((b (% (fnIdxHash n) (vecLen bs))))
     (if (== (vecGet bs b) 0)
@@ -2706,13 +2706,13 @@
         (ambRecordCtors tc (nodeB d) 0 m)
     0))))))
 
-(pub :: ambRecordAll (-> Int Int Int Int Int))
+(pub :: ambRecordAll (-> Int Int Int String Int))
 (pub fn (ambRecordAll tc v i m)
   (if (>= i (vecLen v))
       0
       { (ambRecord tc (vecGet v i) m) (ambRecordAll tc v (+ i 1) m) }))
 
-(pub :: ambRecordCtors (-> Int Int Int Int Int))
+(pub :: ambRecordCtors (-> Int Int Int String Int))
 (pub fn (ambRecordCtors tc ctors i m)
   (if (>= i (vecLen ctors))
       0
@@ -2728,11 +2728,11 @@
 ; cannot forget to do it.
 ; The unit a declaration's spans index: 0 (the entry file) when it
 ; carries no module stamp, else that module's entry.
-(pub :: unitIndexFor (-> Int Int Int))
+(pub :: unitIndexFor (-> Int String Int))
 (pub fn (unitIndexFor units m)
   (if (== m 0) 0 (unitIndexForFrom units m 0)))
 
-(pub :: unitIndexForFrom (-> Int Int Int Int))
+(pub :: unitIndexForFrom (-> Int String Int Int))
 (pub fn (unitIndexForFrom units m i)
   (if (>= i (vecLen units))
       0
@@ -2748,12 +2748,12 @@
 
 ; A constructor of a data type that came from no module - the builtin
 ; `Option`, whose entries are registered directly.
-(pub :: builtinCtorNamed (-> Int Int Int))
+(pub :: builtinCtorNamed (-> Int String Int))
 (pub fn (builtinCtorNamed tc n)
   (if (|| (strEq n "None") (strEq n "Some")) 1 0))
 
 ; Does this declaration DEFINE `n`? Signatures do not.
-(pub :: declDefines (-> Int Int Int))
+(pub :: declDefines (-> Int String Int))
 (pub fn (declDefines d n)
   (let ((tag (nodeTag d)))
     (if (== tag TAG_D_FN)
@@ -2764,7 +2764,7 @@
         (ctorNamedIn (nodeB d) n 0)
     0)))))
 
-(pub :: ctorNamedIn (-> Int Int Int Int))
+(pub :: ctorNamedIn (-> Int String Int Int))
 (pub fn (ctorNamedIn ctors n i)
   (if (>= i (vecLen ctors))
       0
@@ -2772,7 +2772,7 @@
           1
           (ctorNamedIn ctors n (+ i 1)))))
 
-(pub :: joinModules (-> Int Int Int Int))
+(pub :: joinModules (-> Int Int String Int))
 (pub fn (joinModules v i acc)
   (if (>= i (vecLen v))
       acc
@@ -2781,7 +2781,7 @@
             (vecGet v i)
             (strConcat (strConcat acc ", ") (vecGet v i))))))
 
-(pub :: joinQualified (-> Int Int Int Int Int))
+(pub :: joinQualified (-> Int String Int String Int))
 (pub fn (joinQualified v n i acc)
   (if (>= i (vecLen v))
       acc
@@ -2837,7 +2837,7 @@
 
 ; The bare-value refusals. Answers 1 when the reference was refused
 ; (poison the expression), 0 to continue resolving.
-(pub :: checkBareValue (-> Int Int Int Int))
+(pub :: checkBareValue (-> Int String Int Int))
 (pub fn (checkBareValue tc name span)
   (let ((ent (findFnEnt tc name)))
     (if (!= ent 0)
@@ -2915,7 +2915,7 @@
 ; The suggestion machinery is skipped for this branch on purpose -
 ; "did you mean `helper`?" about the very name that was written is
 ; noise.
-(pub :: emitPrivateVar (-> Int Int Int Int Int))
+(pub :: emitPrivateVar (-> Int String Int String Int))
 (pub fn (emitPrivateVar tc name span declName)
   {
     (if (!= span 0)
@@ -2933,7 +2933,7 @@
     (mkNode TAG_T_ERR 0 0 0)
   })
 
-(pub :: emitUndefinedVar (-> Int Int Int Int))
+(pub :: emitUndefinedVar (-> Int String Int Int))
 (pub fn (emitUndefinedVar tc name span)
   (let ((hidden (if (== (memGetWord tc 19) 0) 0 (findFnEntAnywhere tc name))))
     (if (&& (!= hidden 0)
@@ -2951,13 +2951,13 @@
 ; name, or 0. A private type's constructors are already refused - the
 ; lookup filters them - but as `AX3001`/`AX3003`, which say the name
 ; does not exist when it plainly does.
-(pub :: ctorHiddenModule (-> Int Int Int))
+(pub :: ctorHiddenModule (-> Int String Int))
 (pub fn (ctorHiddenModule tc name)
   (if (== (memGetWord tc 19) 0)
       0
       (ctorHiddenIn (tcDatas tc) (memGetWord tc 19) (memGetWord tc 16) name 0)))
 
-(pub :: ctorHiddenIn (-> Int Int Int Int Int Int))
+(pub :: ctorHiddenIn (-> Int Int String String Int Int))
 (pub fn (ctorHiddenIn datas privs curMod name i)
   (if (>= i (vecLen datas))
       0
@@ -2967,7 +2967,7 @@
             (memGetWord d 2)
             (ctorHiddenIn datas privs curMod name (+ i 1))))))
 
-(pub :: macroModuleOf (-> Int Int Int Int))
+(pub :: macroModuleOf (-> Int String Int Int))
 (pub fn (macroModuleOf ms n i)
   (if (>= i (vecLen ms))
       0
@@ -2975,7 +2975,7 @@
           (nodeModule (vecGet ms i))
           (macroModuleOf ms n (+ i 1)))))
 
-(pub :: emitUndefinedVarPlain (-> Int Int Int Int))
+(pub :: emitUndefinedVarPlain (-> Int String Int Int))
 (pub fn (emitUndefinedVarPlain tc name span)
   (let ((best (newBest)))
     {
@@ -3085,7 +3085,7 @@
 ; No implementation is a DIAGNOSTIC rather than silence, and the
 ; method name stays registered as a wildcard so the caller does not
 ; also collect an `AX3001` about a name that plainly exists.
-(pub :: traitRewrite (-> Int Int Int Int Int))
+(pub :: traitRewrite (-> Int Int Int String Int))
 (pub fn (traitRewrite tc e head hname)
   (let ((tr (findTraitOwning (tcTraits tc) hname 0)))
     (if (== tr 0)
@@ -3141,7 +3141,7 @@
 ;     modules the concrete definition simply wins, which is what makes
 ;     `(import Str)` beside a trait method named `strLen` a working
 ;     program again instead of `AX3025`.
-(pub :: traitNameFree (-> Int Int Int))
+(pub :: traitNameFree (-> Int String Int))
 (pub fn (traitNameFree tc name)
   (if (!= (scopeFindFrame tc name) 0)
       0
@@ -3149,7 +3149,7 @@
           0
           1)))
 
-(pub :: findTraitOwning (-> Int Int Int Int))
+(pub :: findTraitOwning (-> Int String Int Int))
 (pub fn (findTraitOwning trs name i)
   (if (>= i (vecLen trs))
       0
@@ -3169,7 +3169,7 @@
 
 ; Exactly `(op l r)` with a bare operator head - stage0's
 ; numeric_builtin_app is purely syntactic; no shadow check exists.
-(pub :: isNumericTwoArg (-> Int Int Int Int))
+(pub :: isNumericTwoArg (-> Int Int String Int))
 (pub fn (isNumericTwoArg tc e name)
   (if (!= (nodeTag (nodeA e)) TAG_E_APP)
       0
@@ -3179,14 +3179,14 @@
               0
               1))))
 
-(pub :: isNumOp (-> Int Int))
+(pub :: isNumOp (-> String Int))
 (pub fn (isNumOp n)
   (if (strEq n "+") 1 (if (strEq n "-") 1 (if (strEq n "*") 1
   (if (strEq n "/") 1 (if (strEq n "==") 1 (if (strEq n "!=") 1
   (if (strEq n "<") 1 (if (strEq n ">") 1 (if (strEq n "<=") 1
   (if (strEq n ">=") 1 0)))))))))))
 
-(pub :: isNumCmpOp (-> Int Int))
+(pub :: isNumCmpOp (-> String Int))
 (pub fn (isNumCmpOp n)
   (if (strEq n "==") 1 (if (strEq n "!=") 1 (if (strEq n "<") 1
   (if (strEq n ">") 1 (if (strEq n "<=") 1 (if (strEq n ">=") 1
@@ -3205,7 +3205,7 @@
 ; emitter compares CONTENT rather than the two handles. See
 ; `equalityIsStringly` for when that fires and why it cannot fire on an
 ; ordinary `Int`.
-(pub :: checkNumeric (-> Int Int Int Int Int Int))
+(pub :: checkNumeric (-> Int String Int Int Int Int))
 (pub fn (checkNumeric tc op l r head)
   (let ((lt (checkExprH tc l 0)))
     (let ((rt (checkExprH tc r 0)))
@@ -3263,7 +3263,7 @@
 ; types down and not otherwise. That is the same bargain `fadd` makes,
 ; and it is an argument for removing the fiat rather than against
 ; fixing equality.
-(pub :: equalityIsStringly (-> Int Int Int Int))
+(pub :: equalityIsStringly (-> String Int Int Int))
 (pub fn (equalityIsStringly op lt rt)
   (if (&& (|| (strEq op "==") (strEq op "!="))
           (&& (== (tyIsStringTy lt) 1) (== (tyIsStringTy rt) 1)))
@@ -3275,7 +3275,7 @@
 ; drew AX3001 `Int` on the compiler's own source, in three files. The
 ; remaining arguments are ordinary expressions. A cast's result is
 ; the named type; sizeof/alignof answer Int.
-(pub :: checkCastForm (-> Int Int Int Int))
+(pub :: checkCastForm (-> Int Int String Int))
 (pub fn (checkCastForm tc e hname)
   (let ((args (spineArgVec e vecNew)))
     {
@@ -3348,7 +3348,7 @@
         (exprsToTypes args acc (+ i 1))
       }))
 
-(pub :: typeNameToType (-> Int Int))
+(pub :: typeNameToType (-> String Int))
 (pub fn (typeNameToType n)
   (let ((canon (typeKeywordCanon n)))
     (if (!= canon 0)
@@ -3365,7 +3365,7 @@
 ; arguments are still checked, left to right; the head is not
 ; (reporting it again would double the diagnostic). Answers 1 when
 ; refused.
-(pub :: checkSaturation (-> Int Int Int Int Int))
+(pub :: checkSaturation (-> Int Int Int String Int))
 (pub fn (checkSaturation tc e head hname)
   (if (!= (scopeFindFrame tc hname) 0)
       0
@@ -3434,7 +3434,7 @@
 ; ARGUMENTS UNCHECKED and a poisoned result; the right count checks
 ; every argument against its field's declared type, reporting each
 ; mismatch and keeping the struct type as the result.
-(pub :: findStructIfConstruct (-> Int Int Int Int))
+(pub :: findStructIfConstruct (-> Int Int String Int))
 (pub fn (findStructIfConstruct tc e hname)
   (findStruct tc hname))
 
@@ -3670,7 +3670,7 @@
 ; Does this handle's effect-name list cover `e`? A name in the list
 ; is the built-in effect when it spells one and a custom effect
 ; otherwise - stage0's parser decides this, not the declarations.
-(pub :: effHandledBy (-> Int Int Int Int))
+(pub :: effHandledBy (-> Int String Int Int))
 (pub fn (effHandledBy effs e i)
   (if (>= i (vecLen effs))
       0
@@ -3711,7 +3711,7 @@
     }))
 
 ; stage0's `walk_call`, by callee kind.
-(pub :: walkCallHead (-> Int Int Int Int Int Int))
+(pub :: walkCallHead (-> Int String Int Int Int Int))
 (pub fn (walkCallHead tc n args bound acc)
   (if (== (bsIsLocal bound n) 1)
       ; Calling a local or a parameter. If it aliases a parameter,
@@ -3758,7 +3758,7 @@
 ; from escaping attribution entirely. A lexically bound name
 ; contributes nothing - its initialiser was walked where it was
 ; bound.
-(pub :: effRefSite (-> Int Int Int Int Int Int))
+(pub :: effRefSite (-> Int String Int Int Int Int))
 (pub fn (effRefSite tc n bound acc inHead)
   (if (== (bsIsLocal bound n) 1)
       0
@@ -3807,7 +3807,7 @@
 (pub fn (effJoin v)
   (effJoinFrom (effSorted v) 0 ""))
 
-(pub :: effJoinFrom (-> Int Int Int Int))
+(pub :: effJoinFrom (-> Int Int String Int))
 (pub fn (effJoinFrom v i acc)
   (if (>= i (vecLen v))
       acc
@@ -3861,7 +3861,7 @@
 
 ; The syscall primitives are the IO ones; every other `__` primitive
 ; is pure. stage0 drives this off PRIMITIVES' `is_io` column.
-(pub :: isSyscallPrim (-> Int Int))
+(pub :: isSyscallPrim (-> String Int))
 (pub fn (isSyscallPrim n)
   (if (strEq n "__syscall0") 1 (if (strEq n "__syscall1") 1
   (if (strEq n "__syscall2") 1 (if (strEq n "__syscall3") 1
@@ -3907,10 +3907,10 @@
       { (vecPush dst (vecGet src i)) (copyInto dst src (+ i 1)) }))
 
 ; The LAST entry for `n`, which is the innermost binding.
-(pub :: bsFind (-> Int Int Int))
+(pub :: bsFind (-> Int String Int))
 (pub fn (bsFind b n) (bsFindFrom (bsNames b) n (- (vecLen (bsNames b)) 1)))
 
-(pub :: bsFindFrom (-> Int Int Int Int))
+(pub :: bsFindFrom (-> Int String Int Int))
 (pub fn (bsFindFrom names n i)
   (if (< i 0)
       0
@@ -3918,14 +3918,14 @@
           (vecGet names i)
           (bsFindFrom names n (- i 1)))))
 
-(pub :: nameIndexIn (-> Int Int Int Int))
+(pub :: nameIndexIn (-> Int String Int Int))
 (pub fn (nameIndexIn v n i)
   (if (>= i (vecLen v))
       (- 0 1)
       (if (strEq (vecGet v i) n) i (nameIndexIn v n (+ i 1)))))
 
 ; Is this name lexically bound at all - a shadow entry or a parameter?
-(pub :: bsIsLocal (-> Int Int Int))
+(pub :: bsIsLocal (-> Int String Int))
 (pub fn (bsIsLocal b n)
   (if (!= (bsFind b n) 0)
       1
@@ -3934,7 +3934,7 @@
 ; stage0's `param_alias_of`: the parameter index this name stands
 ; for, or -1. A shadow entry answers with the alias it recorded; an
 ; unshadowed name falls through to the parameter list.
-(pub :: bsParamAlias (-> Int Int Int))
+(pub :: bsParamAlias (-> Int String Int))
 (pub fn (bsParamAlias b n)
   (let ((ent (bsFind b n)))
     (if (!= ent 0)
@@ -4302,17 +4302,17 @@
 
 ; The type of a named constructor field, searching every data type in
 ; declaration order, or 0. Mirrors stage0's `find_data_field_by_name`.
-(pub :: dataFieldTy (-> Int Int Int))
+(pub :: dataFieldTy (-> Int String Int))
 (pub fn (dataFieldTy tc fname) (dataFieldTyFrom (tcDatas tc) fname 0))
 
-(pub :: dataFieldTyFrom (-> Int Int Int Int))
+(pub :: dataFieldTyFrom (-> Int String Int Int))
 (pub fn (dataFieldTyFrom datas fname i)
   (if (>= i (vecLen datas))
       0
       (let ((r (dataFieldTyInCtors (memGetWord (vecGet datas i) 1) fname 0)))
         (if (!= r 0) r (dataFieldTyFrom datas fname (+ i 1))))))
 
-(pub :: dataFieldTyInCtors (-> Int Int Int Int))
+(pub :: dataFieldTyInCtors (-> Int String Int Int))
 (pub fn (dataFieldTyInCtors ctors fname i)
   (if (>= i (vecLen ctors))
       0
@@ -4326,14 +4326,14 @@
                     (let ((tys (memGetWord c 1)))
                       (if (< j (vecLen tys)) (vecGet tys j) mkI64Ty)))))))))
 
-(pub :: declaredFieldIndex (-> Int Int Int Int))
+(pub :: declaredFieldIndex (-> Int String Int Int))
 (pub fn (declaredFieldIndex declared fname i)
   (if (>= i (vecLen declared))
       (- 0 1)
       (if (strEq (vecGet declared i) fname) i
           (declaredFieldIndex declared fname (+ i 1)))))
 
-(pub :: emitFieldNotFound (-> Int Int Int Int Int))
+(pub :: emitFieldNotFound (-> Int Int String Int Int))
 (pub fn (emitFieldNotFound tc fname tyName span)
   (if (== span 0)
       0
@@ -4444,11 +4444,11 @@
 ; answers AX3001 (probed), which the fallthrough here preserves. An
 ; entry-file sig-less `fn` also stays AX3001: a plain `fn` never
 ; parks a scope entry in stage0 either.
-(pub :: setTargetCovered (-> Int Int Int))
+(pub :: setTargetCovered (-> Int String Int))
 (pub fn (setTargetCovered tc name)
   (setTargetCoveredFrom (memGetWord tc 10) name 0))
 
-(pub :: setTargetCoveredFrom (-> Int Int Int Int))
+(pub :: setTargetCoveredFrom (-> Int String Int Int))
 (pub fn (setTargetCoveredFrom decls name i)
   (if (>= i (vecLen decls))
       0
@@ -4562,7 +4562,7 @@
           (missingCtors ctors covered acc (+ i 1))
         })))
 
-(pub :: coveredHas (-> Int Int Int Int))
+(pub :: coveredHas (-> Int String Int Int))
 (pub fn (coveredHas covered name i)
   (if (>= i (vecLen covered))
       0
@@ -4570,7 +4570,7 @@
           1
           (coveredHas covered name (+ i 1)))))
 
-(pub :: joinComma (-> Int Int Int Int))
+(pub :: joinComma (-> Int Int String Int))
 (pub fn (joinComma xs i acc)
   (if (>= i (vecLen xs))
       acc
@@ -4645,7 +4645,7 @@
 
 ; Each field the pattern names must be declared. AX3007's message and
 ; help are the field-access ones, byte for byte.
-(pub :: checkNamedPatFields (-> Int Int Int Int Int Int))
+(pub :: checkNamedPatFields (-> Int Int Int String Int Int))
 (pub fn (checkNamedPatFields tc names declared tyName i)
   (if (>= i (vecLen names))
       0
@@ -4657,7 +4657,7 @@
         (checkNamedPatFields tc names declared tyName (+ i 1))
       }))
 
-(pub :: checkCtorPattern (-> Int Int Int Int Int))
+(pub :: checkCtorPattern (-> Int String Int Int Int))
 (pub fn (checkCtorPattern tc cname args span)
   (let ((ctor (findCtor tc cname)))
     (if (== ctor 0)
@@ -4736,7 +4736,7 @@
             (checkPatternTyped tc arg 0)
             0))))
 
-(pub :: emitUndefinedCtor (-> Int Int Int Int))
+(pub :: emitUndefinedCtor (-> Int String Int Int))
 (pub fn (emitUndefinedCtor tc cname span)
   (if (== span 0)
       0
@@ -4776,7 +4776,7 @@
 ; struct name draws no suggestion) - then every constructor, the
 ; builtin Option's first.
 ; ------------------------------------------------------------------
-(pub :: levenshtein (-> Int Int Int))
+(pub :: levenshtein (-> String String Int))
 (pub fn (levenshtein a b)
   (let ((la (strLen a))
         (lb (strLen b)))
@@ -4793,7 +4793,7 @@
       0
       { (memSetWord row j j) (levInitRow row lb (+ j 1)) }))
 
-(pub :: levRows (-> Int Int Int Int Int Int Int Int))
+(pub :: levRows (-> String String Int Int Int Int Int Int))
 (pub fn (levRows a b la lb prev cur i)
   (if (> i la)
       (memGetWord prev lb)
@@ -4804,7 +4804,7 @@
         (levRows a b la lb prev cur (+ i 1))
       }))
 
-(pub :: levCols (-> Int Int Int Int Int Int Int Int))
+(pub :: levCols (-> String String Int Int Int Int Int Int))
 (pub fn (levCols a b lb prev cur i j)
   (if (> j lb)
       0
@@ -4842,7 +4842,7 @@
   (let ((c (memAlloc 16)))
     { (memSetWord c 0 0) (memSetWord c 1 999) c }))
 
-(pub :: offerCandidate (-> Int Int Int Int))
+(pub :: offerCandidate (-> Int String String Int))
 (pub fn (offerCandidate best name cand)
   (if (|| (strEq cand name) (strStartsWith cand "__"))
       0
@@ -4852,28 +4852,28 @@
             { (memSetWord best 0 cand) (memSetWord best 1 d) 0 }
             0))))
 
-(pub :: offerScope (-> Int Int Int Int Int))
+(pub :: offerScope (-> Int String Int Int Int))
 (pub fn (offerScope best name scope i)
   (if (>= i (vecLen scope))
       0
       { (offerCandidate best name (memGetWord (vecGet scope i) 0))
         (offerScope best name scope (+ i 1)) }))
 
-(pub :: offerFnEnts (-> Int Int Int Int Int))
+(pub :: offerFnEnts (-> Int String Int Int Int))
 (pub fn (offerFnEnts best name fns i)
   (if (>= i (vecLen fns))
       0
       { (offerCandidate best name (bareOf (memGetWord (vecGet fns i) 0)))
         (offerFnEnts best name fns (+ i 1)) }))
 
-(pub :: offerCtorEnts (-> Int Int Int Int Int))
+(pub :: offerCtorEnts (-> Int String Int Int Int))
 (pub fn (offerCtorEnts best name datas i)
   (if (>= i (vecLen datas))
       0
       { (offerCtorsOf best name (memGetWord (vecGet datas i) 1) 0)
         (offerCtorEnts best name datas (+ i 1)) }))
 
-(pub :: offerCtorsOf (-> Int Int Int Int Int))
+(pub :: offerCtorsOf (-> Int String Int Int Int))
 (pub fn (offerCtorsOf best name ctors i)
   (if (>= i (vecLen ctors))
       0
@@ -4883,7 +4883,7 @@
 ; A declaration's source-spelled name: import resolution rewrites an
 ; imported one to `Mod$name` in place, and a suggestion has to read
 ; back as something the programmer could type.
-(pub :: bareOf (-> Int Int))
+(pub :: bareOf (-> String Int))
 (pub fn (bareOf s) (bareOfFrom s (- (strLen s) 1)))
 
 ; The MODULE part of a qualified name `Mod$name`, or 0 when there is
@@ -4893,15 +4893,15 @@
 ; diagnostic that quotes it back reports a name that appears nowhere in
 ; the source: `undefined variable `Nope$Red`` for a line reading
 ; `Nope::Red`. stage0 reports the source spelling; so does this now.
-(pub :: srcSpelling (-> Int Int))
+(pub :: srcSpelling (-> String String))
 (pub fn (srcSpelling s)
   (let ((m (modOf s)))
     (if (== m 0) s (strConcat (strConcat m "::") (bareOf s)))))
 
-(pub :: modOf (-> Int Int))
+(pub :: modOf (-> String Int))
 (pub fn (modOf s) (modOfFrom s (- (strLen s) 1)))
 
-(pub :: modOfFrom (-> Int Int Int))
+(pub :: modOfFrom (-> String Int Int))
 (pub fn (modOfFrom s i)
   (if (< i 0)
       0
@@ -4927,7 +4927,7 @@
 ; there, measured 2026-08-08. This is the stricter of the two answers,
 ; applied uniformly: a qualified reference names a module or it does
 ; not resolve.
-(pub :: declMatches (-> Int Int Int Int))
+(pub :: declMatches (-> String String String Int))
 (pub fn (declMatches declMod declName ref)
   (let ((m (modOf ref)))
     (if (== m 0)
@@ -4937,7 +4937,7 @@
             1
             0))))
 
-(pub :: bareOfFrom (-> Int Int Int))
+(pub :: bareOfFrom (-> String Int Int))
 (pub fn (bareOfFrom s i)
   (if (< i 0)
       s
@@ -5007,7 +5007,7 @@
 ; `content` is what followed `;@axiom:` - either `key` or
 ; `key(value)`. Only `pure` and `effect` are validated; every other
 ; key is metadata stage0 records and does not check.
-(pub :: checkOneAxtag (-> Int Int Int Int Int Int))
+(pub :: checkOneAxtag (-> Int Int String Int Int Int))
 (pub fn (checkOneAxtag tc d content eff eparams)
   (let ((op (strFindByte content 40 0)))
     (let ((key (if (< op 0) content (strSlice content 0 op)))
@@ -5025,11 +5025,11 @@
 
 ; The LAST `)`, scanned backwards, which is stage0's `rfind` - a
 ; value may contain parens of its own.
-(pub :: axtagCloseAt (-> Int Int))
+(pub :: axtagCloseAt (-> String Int))
 (pub fn (axtagCloseAt content)
   (axtagCloseFrom content (- (strLen content) 1)))
 
-(pub :: axtagCloseFrom (-> Int Int Int))
+(pub :: axtagCloseFrom (-> String Int Int))
 (pub fn (axtagCloseFrom content i)
   (if (< i 0)
       (strLen content)
@@ -5039,13 +5039,13 @@
 
 ; ASCII case-insensitive equality, for matching `effect(console)`
 ; against a declared `Console`.
-(pub :: strEqCI (-> Int Int Int))
+(pub :: strEqCI (-> String String Int))
 (pub fn (strEqCI a b)
   (if (!= (strLen a) (strLen b))
       0
       (strEqCIFrom a b 0)))
 
-(pub :: strEqCIFrom (-> Int Int Int Int))
+(pub :: strEqCIFrom (-> String String Int Int))
 (pub fn (strEqCIFrom a b i)
   (if (>= i (strLen a))
       1
@@ -5058,7 +5058,7 @@
   (if (&& (>= c 65) (<= c 90)) (+ c 32) c))
 
 ; A `pure` claim is contradicted by ANY concrete effect.
-(pub :: axtagContradicted (-> Int Int Int Int Int))
+(pub :: axtagContradicted (-> Int Int String Int Int))
 (pub fn (axtagContradicted tc d label eff)
   (if (== (vecLen (effSorted eff)) 0)
       0
@@ -5071,7 +5071,7 @@
 ; function has effect-transparent parameters, and this check only
 ; runs when it has none (the completeness gate), so every missing
 ; claim here is one stage0 also reports.
-(pub :: axtagUnsupported (-> Int Int Int Int Int Int))
+(pub :: axtagUnsupported (-> Int Int String Int Int Int))
 (pub fn (axtagUnsupported tc d val eff eparams)
   (let ((want (axtagEffectOf tc val)))
     (if (== (strLen want) 0)
@@ -5092,7 +5092,7 @@
                     (effRender want))))))))
 
 ; Only a CUSTOM effect can fail to exist; the built-ins always do.
-(pub :: axtagCouldExist (-> Int Int Int))
+(pub :: axtagCouldExist (-> Int String Int))
 (pub fn (axtagCouldExist tc e)
   (if (strEq (strSlice e 0 2) "b:")
       1
@@ -5102,7 +5102,7 @@
 ; custom effect, matched against the declarations case-insensitively
 ; and canonicalised to the DECLARED spelling - stage0's rule, and the
 ; reason `effect(console)` validates against `(effect Console ...)`.
-(pub :: axtagEffectOf (-> Int Int Int))
+(pub :: axtagEffectOf (-> Int String String))
 (pub fn (axtagEffectOf tc val)
   (if (strEq val "io") (builtinEff "IO")
   (if (strEq val "mut") (builtinEff "Mut")
@@ -5111,7 +5111,7 @@
   (if (== (strLen val) 0) ""
   (customEff (canonicalEffectName tc val))))))))
 
-(pub :: canonicalEffectName (-> Int Int Int))
+(pub :: canonicalEffectName (-> Int String Int))
 (pub fn (canonicalEffectName tc val)
   (let ((exact (findEffectDecl tc val)))
     (if (!= exact 0)
@@ -5119,7 +5119,7 @@
         (let ((ci (findEffectDeclCI (tcEffects tc) val 0)))
           (if (== ci 0) val (nodeA ci))))))
 
-(pub :: findEffectDeclCI (-> Int Int Int Int))
+(pub :: findEffectDeclCI (-> Int String Int Int))
 (pub fn (findEffectDeclCI effs val i)
   (if (>= i (vecLen effs))
       0
@@ -5128,7 +5128,7 @@
             dd
             (findEffectDeclCI effs val (+ i 1))))))
 
-(pub :: emitAxtag (-> Int Int Int Int))
+(pub :: emitAxtag (-> Int Int String Int))
 (pub fn (emitAxtag tc d msg)
   (if (== (nodeSpan d) 0)
       0
@@ -5299,7 +5299,7 @@
                   1
                   0)))))
 
-(pub :: tyIsReprScalar (-> Int Bool))
+(pub :: tyIsReprScalar (-> String Bool))
 (pub fn (tyIsReprScalar name)
   (|| (strEq name "Bool") (strEq name "Float")))
 

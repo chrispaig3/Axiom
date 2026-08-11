@@ -88,13 +88,13 @@
 ; ------------------------------------------------------------------
 ; Convert a decimal digit Str to Int. Returns 0 on non-digit.
 ; ------------------------------------------------------------------
-(pub :: strToInt (-> Int Int))
+(pub :: strToInt (-> String Int))
 (pub fn (strToInt s)
   (if (&& (> (strLen s) 0) (== (strByte s 0) 45))
       (- 0 (strToIntFrom s 1 0))
       (strToIntFrom s 0 0)))
 
-(pub :: strToIntFrom (-> Int Int Int Int))
+(pub :: strToIntFrom (-> String Int Int Int))
 (pub fn (strToIntFrom s i acc)
   (if (>= i (strLen s))
       acc

@@ -112,7 +112,7 @@
       })))
 
 ; `s` padded on the left with spaces to at least `width` bytes.
-(pub :: fmtPadLeft (-> Int Int Int))
+(pub :: fmtPadLeft (-> String Int Int))
 (pub fn (fmtPadLeft s width)
   (let ((len (strLen s)))
     (if (>= len width)

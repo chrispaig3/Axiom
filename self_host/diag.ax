@@ -36,7 +36,7 @@
 ; are the only numbers AXDL prints and both are at least 1, so a local
 ; unsigned renderer is three lines and no dependency at all.
 ; ------------------------------------------------------------------
-(pub :: decStr (-> Int Int))
+(pub :: decStr (-> Int String))
 (pub fn (decStr n)
   (if (< n 10)
       (strSlice "0123456789" n 1)
@@ -261,11 +261,11 @@
 ; `stdlib/Utf8.ax` existed to own it.
 ; ------------------------------------------------------------------
 ; Byte offset of the start of the line containing `off`.
-(pub :: lineStartOf (-> Int Int Int))
+(pub :: lineStartOf (-> String Int Int))
 (pub fn (lineStartOf src off)
   (lineStartScan src off 0 0))
 
-(pub :: lineStartScan (-> Int Int Int Int Int))
+(pub :: lineStartScan (-> String Int Int Int Int))
 (pub fn (lineStartScan src off i start)
   (if (>= i off)
       start
@@ -274,11 +274,11 @@
           (lineStartScan src off (+ i 1) start))))
 
 ; 1-based line number of byte offset `off`.
-(pub :: lineOf (-> Int Int Int))
+(pub :: lineOf (-> String Int Int))
 (pub fn (lineOf src off)
   (lineCount src off 0 1))
 
-(pub :: lineCount (-> Int Int Int Int Int))
+(pub :: lineCount (-> String Int Int Int Int))
 (pub fn (lineCount src off i acc)
   (if (>= i off)
       acc
@@ -287,11 +287,11 @@
           (lineCount src off (+ i 1) acc))))
 
 ; 1-based column of byte offset `off`, counted in characters.
-(pub :: colOf (-> Int Int Int))
+(pub :: colOf (-> String Int Int))
 (pub fn (colOf src off)
   (colCount src (lineStartOf src off) off 1))
 
-(pub :: colCount (-> Int Int Int Int Int))
+(pub :: colCount (-> String Int Int Int Int))
 (pub fn (colCount src i off acc)
   (if (>= i off)
       acc
@@ -303,7 +303,7 @@
 ; `line:col`, `line:col-col`, or `line:col-line:col`, exactly as
 ; stage0's `fmt_span` chooses between them.
 ; ------------------------------------------------------------------
-(pub :: fmtSpan (-> Int Int Int))
+(pub :: fmtSpan (-> String Int String))
 (pub fn (fmtSpan src span)
   (let ((s (spanStart span))
         (e0 (spanEnd span)))
@@ -332,11 +332,11 @@
 ; what it is given, and `tests/selfhost/650-quote.ax` pins the two
 ; escapes that are reachable.
 ; ------------------------------------------------------------------
-(pub :: quoteStr (-> Int Int))
+(pub :: quoteStr (-> String String))
 (pub fn (quoteStr s)
   (strConcat (strConcat "\"" (quoteBody s 0 "")) "\""))
 
-(pub :: quoteBody (-> Int Int Int Int))
+(pub :: quoteBody (-> String Int String Int))
 (pub fn (quoteBody s i acc)
   (if (>= i (strLen s))
       acc
@@ -354,11 +354,11 @@
 ; concatenating keeps the whole line one linear join (see catStrs); it
 ; is a function rather than a block inside an `if` so the callers below
 ; read as one expression each.
-(pub :: pushQ (-> Int Int Int Int))
+(pub :: pushQ (-> Int Int String Int))
 (pub fn (pushQ parts pre s)
   { (vecPush parts pre) (vecPush parts (quoteStr s)) 0 })
 
-(pub :: renderDiag (-> Int Int Int Int))
+(pub :: renderDiag (-> Int String Int Int))
 (pub fn (renderDiag d src file)
   (let ((parts vecNew))
     {
@@ -427,11 +427,11 @@
 ; Every diagnostic, one per line, newline-terminated - the whole of
 ; stage0's `render_ai`.
 ; ------------------------------------------------------------------
-(pub :: renderDiags (-> Int Int Int Int))
+(pub :: renderDiags (-> Int String Int Int))
 (pub fn (renderDiags ds src file)
   (renderDiagsFrom ds src file 0 ""))
 
-(pub :: renderDiagsFrom (-> Int Int Int Int Int Int))
+(pub :: renderDiagsFrom (-> Int String Int Int String Int))
 (pub fn (renderDiagsFrom ds src file i acc)
   (if (>= i (vecLen ds))
       acc
@@ -464,7 +464,7 @@
       (catStrs blocks)
     }))
 
-(pub :: renderDiagsUnitsFrom (-> Int Int Int Int Int))
+(pub :: renderDiagsUnitsFrom (-> Int Int Int String Int))
 (pub fn (renderDiagsUnitsFrom ds units i acc)
   (if (>= i (vecLen ds))
       acc

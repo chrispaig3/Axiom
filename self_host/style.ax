@@ -74,7 +74,7 @@
 ; is the sum of its intermediates, and painting happens per fragment,
 ; per row, per diagnostic. One `paint` is one allocation.
 ; ------------------------------------------------------------------
-(pub :: paint (-> Int Int Int))
+(pub :: paint (-> String String Int))
 (pub fn (paint sgr text)
   (let ((np (strLen sgr)) (nt (strLen text)))
     (let ((out (strAlloc (+ (+ np nt) 7))) (mut o 0))
@@ -106,7 +106,7 @@
 ; that leaked into a width computation still produces the right gutter
 ; instead of a column count inflated by seven bytes per colour.
 ; ------------------------------------------------------------------
-(pub :: visLen (-> Int Int))
+(pub :: visLen (-> String Int))
 (pub fn (visLen s)
   (let ((n (strLen s)) (mut i 0) (mut w 0))
     {

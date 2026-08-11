@@ -119,14 +119,14 @@
 ; compiler boxes - are arrays of machine words.
 ; ------------------------------------------------------------------
 
-(pub :: memGetWord (-> Int Int Int))
+(pub :: memGetWord (-> Int Int a))
 (pub fn (memGetWord addr index)
-  (__load64 addr index))
+  (cast a (__load64 addr index)))
 
-(pub :: memSetWord (-> Int Int Int Int))
+(pub :: memSetWord (-> Int Int a Int))
 (pub fn (memSetWord addr index value)
   {
-    (__store64 addr index value)
+    (__store64 addr index (cast Int value))
     addr
   })
 

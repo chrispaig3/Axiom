@@ -23,7 +23,7 @@
 
 ; The explanation for a NORMALISED code (digits only), or "" when
 ; the code is unknown.
-(pub :: explainText (-> Int Int))
+(pub :: explainText (-> String Int))
 
 (pub fn (explainText c)
   (if (strEq c "1001")

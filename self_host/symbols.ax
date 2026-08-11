@@ -51,7 +51,7 @@
 ; the negative decimal of the same bit pattern - hex literals do not
 ; exist and `*`/`^` wrap mod 2^64, which is exactly what FNV wants.
 ; ------------------------------------------------------------------
-(pub :: fnv1a64 (-> Int Int))
+(pub :: fnv1a64 (-> String Int))
 (pub fn (fnv1a64 s)
   (let ((mut h (- 0 3750763034362895579))
         (mut i 0)
@@ -83,7 +83,7 @@
       out
     }))
 
-(pub :: symNid (-> Int Int Int))
+(pub :: symNid (-> String String Int))
 (pub fn (symNid kindKey name)
   (symHex16 (fnv1a64 (strConcat kindKey name))))
 
@@ -151,7 +151,7 @@
 ; has no `@`). Metas arrive as a Vec of ready `key=value` strings and
 ; print in order, each as ` #meta`.
 ; ------------------------------------------------------------------
-(pub :: symLine (-> Int Int Int Int Int Int Int))
+(pub :: symLine (-> Int Int Int String String Int Int))
 (pub fn (symLine kind name loc ty nid metas)
   (let ((mut s kind))
     {
@@ -183,7 +183,7 @@
 ; the bare half. Maps are parallel Vecs with linear lookup: a module
 ; has tens of declarations, not thousands.
 ; ------------------------------------------------------------------
-(pub :: saIdx (-> Int Int Int))
+(pub :: saIdx (-> Int String Int))
 (pub fn (saIdx names key)
   (let ((mut i 0) (mut hit (- 0 1)))
     {
@@ -196,7 +196,7 @@
     }))
 
 ; Insert-or-overwrite (stage0's `insert`).
-(pub :: saPut (-> Int Int Int Int Int))
+(pub :: saPut (-> Int Int String Int Int))
 (pub fn (saPut names vals key val)
   (let ((i (saIdx names key)))
     (if (< i 0)
@@ -204,7 +204,7 @@
         { (vecSet vals i val) 0 })))
 
 ; Insert-if-absent (stage0's `or_insert`).
-(pub :: saPutSoft (-> Int Int Int Int Int))
+(pub :: saPutSoft (-> Int Int String Int Int))
 (pub fn (saPutSoft names vals key val)
   (if (< (saIdx names key) 0)
       { (vecPush names key) (vecPush vals val) 0 }
@@ -214,20 +214,20 @@
 ; (a span AND a unit). The single-value put breaks lockstep there: the
 ; first put pushes the name, the second then finds it present and
 ; `vecSet`s into a value Vec that has no such slot yet.
-(pub :: saPut2 (-> Int Int Int Int Int Int Int))
+(pub :: saPut2 (-> Int Int Int String Int Int Int))
 (pub fn (saPut2 names v1 v2 key a b)
   (let ((i (saIdx names key)))
     (if (< i 0)
         { (vecPush names key) (vecPush v1 a) (vecPush v2 b) 0 }
         { (vecSet v1 i a) (vecSet v2 i b) 0 })))
 
-(pub :: saPutSoft2 (-> Int Int Int Int Int Int Int))
+(pub :: saPutSoft2 (-> Int Int Int String Int Int Int))
 (pub fn (saPutSoft2 names v1 v2 key a b)
   (if (< (saIdx names key) 0)
       { (vecPush names key) (vecPush v1 a) (vecPush v2 b) 0 }
       0))
 
-(pub :: saGet (-> Int Int Int Int))
+(pub :: saGet (-> Int Int String Int))
 (pub fn (saGet names vals key)
   (let ((i (saIdx names key)))
     (if (< i 0) 0 (vecGet vals i))))
@@ -235,7 +235,7 @@
 ; Byte-wise ascending insertion sort, in place: stage0's effect list
 ; arrives sorted (probed: `Beta,zeta`), and byte order is what Rust's
 ; string ordering is.
-(pub :: strLtBytes (-> Int Int Bool))
+(pub :: strLtBytes (-> String String Bool))
 (pub fn (strLtBytes a b)
   (let ((la (strLen a)) (lb (strLen b)) (mut i 0) (mut ans (- 0 1)))
     {
@@ -285,7 +285,7 @@
 ; An AXTAG's content as its AXSYM meta: `effect(io)` is `effect=io`,
 ; a bare or empty-parens tag is its key alone - the value runs from
 ; the first `(` to the LAST `)`, exactly stage0's parse.
-(pub :: saAxMeta (-> Int Int))
+(pub :: saAxMeta (-> String Int))
 (pub fn (saAxMeta content)
   (let ((n (strLen content)) (mut paren (- 0 1)) (mut i 0))
     {
@@ -311,7 +311,7 @@
 
 ; The unit index a module's declarations render against: unit 0 is
 ; the entry file; an import's unit carries its module name.
-(pub :: saUnitOf (-> Int Int Int))
+(pub :: saUnitOf (-> Int String Int))
 (pub fn (saUnitOf units module)
   (if (== module 0)
       0
@@ -357,7 +357,7 @@
 ; declares, and the position verifier is right to refuse a claim the
 ; source does not spell. `#` is not an identifier byte, so a name that
 ; contains one cannot have been written.
-(pub :: smGenerated (-> Int Bool))
+(pub :: smGenerated (-> String Bool))
 (pub fn (smGenerated name) (>= (strFindByte name 35 0) 0))
 
 (pub :: smCollect (-> Int Int Int Int))
@@ -442,11 +442,11 @@
       0
     })))
 
-(pub :: smNid (-> Int Int Int Int))
+(pub :: smNid (-> Int String Int Int))
 (pub fn (smNid sm name variant)
   (saPut (memGetWord sm 12) (memGetWord sm 13) name variant))
 
-(pub :: smTags (-> Int Int Int Int))
+(pub :: smTags (-> Int Int String Int))
 (pub fn (smTags sm d name)
   (let ((tags (nodeAxtags d)))
     (if (== tags 0)
@@ -473,7 +473,7 @@
 ; ------------------------------------------------------------------
 ; The location string for `key` in the span namespace held at map
 ; slots (nIx, sIx, uIx), or "" when the name has no recorded span.
-(pub :: smLocReal (-> Int Int Int Int Int Int Int))
+(pub :: smLocReal (-> Int Int Int Int String Int String))
 (pub fn (smLocReal sm nIx sIx uIx key units)
   (let ((i (saIdx (memGetWord sm nIx) key)))
     (if (< i 0)
@@ -488,14 +488,14 @@
 
 ; The nid for `key`, or "" for a name with no recorded declaration
 ; (builtins, effect operations).
-(pub :: smNidFor (-> Int Int Int))
+(pub :: smNidFor (-> Int String Int))
 (pub fn (smNidFor sm key)
   (let ((i (saIdx (memGetWord sm 12) key)))
     (if (< i 0)
         ""
         (symNid (vecGet (memGetWord sm 13) i) (bareOf key)))))
 
-(pub :: smTagMetas (-> Int Int Int Int))
+(pub :: smTagMetas (-> Int String Int Int))
 (pub fn (smTagMetas sm key metas)
   (let ((tags (saGet (memGetWord sm 14) (memGetWord sm 15) key)))
     (if (== tags 0)
@@ -530,7 +530,7 @@
 ; AXSYM writes `-`. Columns are padded in CHARACTERS, so a non-ASCII
 ; name pads to the width a reader sees.
 ; ------------------------------------------------------------------
-(pub :: symKindWord (-> Int Int))
+(pub :: symKindWord (-> String Int))
 (pub fn (symKindWord k)
   (if (strEq k "F") "Fn"
   (if (strEq k "D") "Data"
@@ -541,7 +541,7 @@
 
 ; Characters, not bytes - the same rule every column in this compiler
 ; counts by.
-(pub :: symCharLen (-> Int Int))
+(pub :: symCharLen (-> String Int))
 (pub fn (symCharLen s)
   (let ((n (strLen s)) (mut i 0) (mut c 0))
     {
@@ -553,7 +553,7 @@
       c
     }))
 
-(pub :: symPad (-> Int Int Int))
+(pub :: symPad (-> String Int Int))
 (pub fn (symPad s w)
   (let ((have (symCharLen s)))
     (if (>= have w)
@@ -569,7 +569,7 @@
           }))))
 
 ; One past the last byte of the line starting at `i`.
-(pub :: symLineEnd (-> Int Int Int))
+(pub :: symLineEnd (-> String Int Int))
 (pub fn (symLineEnd s i)
   (let ((n (strLen s)) (mut j i))
     {
@@ -580,7 +580,7 @@
 ; The byte after the next space at or after `i`, and the field before
 ; it. Fields one to three of an AXSYM line are space-delimited and
 ; contain no spaces; the type that follows them is quoted and may.
-(pub :: symField (-> Int Int Int Int))
+(pub :: symField (-> String Int Int Int))
 (pub fn (symField s i e)
   (let ((mut j i))
     {
@@ -588,7 +588,7 @@
       j
     }))
 
-(pub :: symbolsHumanTable (-> Int Int))
+(pub :: symbolsHumanTable (-> String Int))
 (pub fn (symbolsHumanTable axsym)
   (let ((n (strLen axsym)) (parts vecNew) (mut i 0))
     {

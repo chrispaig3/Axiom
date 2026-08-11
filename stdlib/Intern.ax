@@ -100,7 +100,7 @@
 (:: internHashSeed Int)
 (fn (internHashSeed) 1234567891)
 
-(:: internHashStr (-> Int Int))
+(:: internHashStr (-> String Int))
 (fn (internHashStr s)
   (internFinishHash (internHashFrom s 0 internHashSeed)))
 
@@ -110,7 +110,7 @@
 (fn (internFinishHash h)
   (% (* h internStrMul) mapHashPrime))
 
-(:: internHashFrom (-> Int Int Int Int))
+(:: internHashFrom (-> String Int Int Int))
 (fn (internHashFrom s i h)
   (if (>= i (strLen s))
       h
@@ -125,7 +125,7 @@
 ; `srem` and preserves the sign of its left operand, and a negative index
 ; would be a wild store rather than a wrong answer. `internHashStr` cannot
 ; return a negative value, and the guard costs one compare.
-(pub :: internSlotOf (-> Int Int Int))
+(pub :: internSlotOf (-> String Int Int))
 (pub fn (internSlotOf s cap)
   (let ((h (% (internHashStr s) cap)))
     (if (< h 0)
@@ -238,11 +238,11 @@
 ; Nested `if`s with one comparison each, rather than `&&` or a
 ; `Bool`-returning helper, for the code generation reasons documented at
 ; length above `Map`'s probe loops.
-(pub :: internFind (-> Int Int Int))
+(pub :: internFind (-> Int String Int))
 (pub fn (internFind it s)
   (internFindFrom it s (internSlotOf s (internCap it)) (internCap it)))
 
-(:: internFindFrom (-> Int Int Int Int Int))
+(:: internFindFrom (-> Int String Int Int Int))
 (fn (internFindFrom it s i left)
   (if (<= left 0)
       (- 0 1)
@@ -289,7 +289,7 @@
 ; header, which rules out a compacting or copying arena; that is written
 ; down here because it is a real constraint on future work and not
 ; obvious from the signatures.
-(pub :: internIntern (-> Int Int Int))
+(pub :: internIntern (-> Int String Int))
 (pub fn (internIntern it s)
   (let ((existing (internFind it s)))
     (if (>= existing 0)
@@ -310,7 +310,7 @@
 ;
 ; The id is `vecLen` *before* the push, which is what makes ids dense: the
 ; nth distinct string interned gets id n.
-(:: internAdd (-> Int Int Int))
+(:: internAdd (-> Int String Int))
 (fn (internAdd it s)
   (let ((id (internCount it)))
     {

@@ -61,7 +61,7 @@
 
 ; 0-based line of a byte offset. `diag.lineOf` is 1-based, because AXDL
 ; is; LSP is not.
-(pub :: lspLine (-> Int Int Int))
+(pub :: lspLine (-> String Int Int))
 (pub fn (lspLine src off) (- (lineOf src off) 1))
 
 ; The UTF-16 code unit offset of `off` within its line.
@@ -71,14 +71,14 @@
 ; or invalid sequence - counts as one unit and advances one byte, so a
 ; malformed buffer still yields monotonic positions rather than
 ; hanging.
-(pub :: lspChar (-> Int Int Int))
+(pub :: lspChar (-> String Int Int))
 (pub fn (lspChar src off)
   (lspCharFrom src (lineStartOf src off) off))
 
 ; The same count, from a line start the caller already knows - which is
 ; what the line index makes free, and what `lineStartOf` was scanning
 ; the whole document to rediscover.
-(pub :: lspCharFrom (-> Int Int Int Int))
+(pub :: lspCharFrom (-> String Int Int Int))
 (pub fn (lspCharFrom src start off)
   (let ((mut i start) (mut acc 0))
     {
@@ -93,7 +93,7 @@
       acc
     }))
 
-(pub :: lspPos (-> Int Int Int))
+(pub :: lspPos (-> String Int Int))
 (pub fn (lspPos src off)
   (jsonObjPut (jsonObjPut jsonObj "line" (jsonNum (lspLine src off)))
               "character" (jsonNum (lspChar src off))))
@@ -101,7 +101,7 @@
 ; The range of a span. A span of 0 is the spanless diagnostic - AX5001
 ; is one - and renders at the top of the file rather than dereferencing
 ; address zero, which is what reading `spanStart` of 0 would do.
-(pub :: lspRange (-> Int Int Int))
+(pub :: lspRange (-> String Int Int))
 (pub fn (lspRange src span)
   (if (== span 0)
       (jsonObjPut (jsonObjPut jsonObj "start" (lspPos src 0)) "end" (lspPos src 0))
@@ -138,7 +138,7 @@
 ; Element 0 is 0; element k is the offset just past the k-th newline.
 ; A `while`, not a recursion: its depth would be the line count, and
 ; this backend eliminates only self tail calls.
-(pub :: lspLineIndex (-> Int Int))
+(pub :: lspLineIndex (-> String Int))
 (pub fn (lspLineIndex src)
   (let ((out vecNew) (n (strLen src)) (mut i 0))
     {
@@ -167,13 +167,13 @@
       lo
     }))
 
-(pub :: lspPosIx (-> Int Int Int Int))
+(pub :: lspPosIx (-> String Int Int Int))
 (pub fn (lspPosIx src ix off)
   (let ((ln (lspLineOfIx ix off)))
     (jsonObjPut (jsonObjPut jsonObj "line" (jsonNum ln))
                 "character" (jsonNum (lspCharFrom src (vecGet ix ln) off)))))
 
-(pub :: lspRangeIx (-> Int Int Int Int))
+(pub :: lspRangeIx (-> String Int Int Int))
 (pub fn (lspRangeIx src ix span)
   (if (== span 0)
       (jsonObjPut (jsonObjPut jsonObj "start" (lspPosIx src ix 0))
@@ -236,7 +236,7 @@
 ; Takes the line index rather than building one: its caller at the
 ; publish loop reports every diagnostic in the file, and building the
 ; index per diagnostic would keep the whole cost it exists to remove.
-(pub :: lspDiagJson (-> Int Int Int Int))
+(pub :: lspDiagJson (-> Int String Int Int))
 (pub fn (lspDiagJson d src ix)
   (jsonObjPut
     (jsonObjPut
@@ -252,7 +252,7 @@
 ; checker runs and therefore have no span to report. `lspRange` already
 ; answers the top-of-file range for a span of 0 - that is the spanless
 ; case it exists to handle - so it is reused rather than rebuilt here.
-(pub :: lspOneDiag (-> Int Int Int Int))
+(pub :: lspOneDiag (-> String Int Int Int))
 (pub fn (lspOneDiag src code msg)
   (jsonArrPush jsonArr
     (jsonObjPut
@@ -274,10 +274,10 @@
 ; import resolves and `resolveImports` is safe to call.
 ; ------------------------------------------------------------------
 
-(pub :: lspSeenHas (-> Int Int Bool))
+(pub :: lspSeenHas (-> Int String Bool))
 (pub fn (lspSeenHas seen name) (lspSeenFrom seen name 0))
 
-(pub :: lspSeenFrom (-> Int Int Int Bool))
+(pub :: lspSeenFrom (-> Int String Int Bool))
 (pub fn (lspSeenFrom seen name i)
   (if (>= i (vecLen seen))
       false
@@ -332,7 +332,7 @@
 ; URIs is a later slice.
 ; ------------------------------------------------------------------
 
-(pub :: lspCheckDoc (-> Int Int Int))
+(pub :: lspCheckDoc (-> String String Int))
 (pub fn (lspCheckDoc path src)
   (let ((toks (lex src)))
   ; A lexical error is reported before a parse one, as it is in the
@@ -422,7 +422,7 @@
       (|| (== tag TAG_D_DATA)
           (|| (== tag TAG_D_STRUCT) (== tag TAG_D_MACRO)))))
 
-(pub :: lspDocumentSymbols (-> Int Int))
+(pub :: lspDocumentSymbols (-> String Int))
 (pub fn (lspDocumentSymbols src)
   (let ((pr (parseModuleWith (lex src) (scanAxtags src))))
     (if (== (memGetWord pr 0) 0)
@@ -457,7 +457,7 @@
 ; interpret degrades to "no import directory" rather than to a refusal.
 ; ------------------------------------------------------------------
 
-(pub :: lspUriToPath (-> Int Int))
+(pub :: lspUriToPath (-> String Int))
 (pub fn (lspUriToPath uri)
   (let ((body (if (strStartsWith uri "file://")
                   (strSlice uri 7 (- (strLen uri) 7))
@@ -498,10 +498,10 @@
 ; The document store: two parallel Vecs, one writer.
 ; ------------------------------------------------------------------
 
-(pub :: docFind (-> Int Int Int))
+(pub :: docFind (-> Int String Int))
 (pub fn (docFind uris uri) (docFindFrom uris uri 0))
 
-(pub :: docFindFrom (-> Int Int Int Int))
+(pub :: docFindFrom (-> Int String Int Int))
 (pub fn (docFindFrom uris uri i)
   (if (>= i (vecLen uris))
       (- 0 1)
@@ -511,14 +511,14 @@
 
 ; The ONLY writer of the pair. Both vecs are appended together or
 ; neither is, so their indices cannot drift apart.
-(pub :: docPut (-> Int Int Int Int Int))
+(pub :: docPut (-> Int Int String Int Int))
 (pub fn (docPut uris texts uri text)
   (let ((i (docFind uris uri)))
     (if (< i 0)
         { (vecPush uris uri) (vecPush texts text) (vecLen uris) }
         { (vecSet texts i text) (vecLen uris) })))
 
-(pub :: docText (-> Int Int Int Int))
+(pub :: docText (-> Int Int String Int))
 (pub fn (docText uris texts uri)
   (let ((i (docFind uris uri)))
     (if (< i 0) "" (vecGet texts i))))
@@ -699,7 +699,7 @@
                 "version" (jsonStr "0.1.0"))))
 
 ; Check the document behind `uri` and publish the result.
-(pub :: lspRecheck (-> Int Int Int Int))
+(pub :: lspRecheck (-> Int Int String Int))
 ;@axiom:effect(io)
 (pub fn (lspRecheck uris texts uri)
   (lspPublish uri (lspCheckDoc (lspUriToPath uri) (docText uris texts uri))))

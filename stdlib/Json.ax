@@ -193,10 +193,10 @@
 ; `lsp.ax`'s dispatch does to tell a request from a notification: an
 ; absent `id` means notification, and a null `id` is a different thing
 ; the protocol does not let you answer the same way.
-(pub :: jsonGet (-> Int Int Int))
+(pub :: jsonGet (-> Int String Int))
 (pub fn (jsonGet v key) (jsonGetFrom v key 0))
 
-(:: jsonGetFrom (-> Int Int Int Int))
+(:: jsonGetFrom (-> Int String Int Int))
 (fn (jsonGetFrom v key i)
   (if (>= i (jsonObjLen v))
       0
@@ -204,10 +204,10 @@
           (jsonObjValAt v i)
           (jsonGetFrom v key (+ i 1)))))
 
-(pub :: jsonGetInt (-> Int Int Int))
+(pub :: jsonGetInt (-> Int String Int))
 (pub fn (jsonGetInt v key) (jsonInt (jsonGet v key)))
 
-(pub :: jsonGetStr (-> Int Int Int))
+(pub :: jsonGetStr (-> Int String Int))
 (pub fn (jsonGetStr v key) (jsonStrVal (jsonGet v key)))
 
 ; ------------------------------------------------------------------
@@ -247,7 +247,7 @@
           (strConcat "-" (jsonNatStr (- 0 n)))
           (jsonNatStr n))))
 
-(:: jsonNatStr (-> Int Int))
+(:: jsonNatStr (-> Int String))
 (fn (jsonNatStr n)
   (if (< n 10)
       (strSlice "0123456789" n 1)
@@ -282,7 +282,7 @@
       n
     }))
 
-(:: jsonJoinFill (-> Int Int Int))
+(:: jsonJoinFill (-> Int String Int))
 (fn (jsonJoinFill pieces out)
   (let ((mut k 0) (mut off 0))
     {
@@ -319,7 +319,7 @@
           2
           (if (< b 32) 6 1))))
 
-(:: jsonEscape (-> Int Int))
+(:: jsonEscape (-> String Int))
 (fn (jsonEscape s)
   (let ((total (jsonEscapeLen s)))
     (if (== total (strLen s))
@@ -330,7 +330,7 @@
             out
           }))))
 
-(:: jsonEscapeLen (-> Int Int))
+(:: jsonEscapeLen (-> String Int))
 (fn (jsonEscapeLen s)
   (let ((mut k 0) (mut n 0))
     {
@@ -352,7 +352,7 @@
 (pub fn (jsonByteStr b)
   (let ((s (strAlloc 1))) { (__store8 (strData s) 0 b) s }))
 
-(:: jsonEscapeFill (-> Int Int Int))
+(:: jsonEscapeFill (-> String String Int))
 (fn (jsonEscapeFill s out)
   (let ((mut k 0) (mut off 0) (d (strData out)))
     {
@@ -482,11 +482,11 @@
 (fn (jcFail c) { (memSetWord c 1 1) 0 })
 
 ; The byte at the cursor, or -1 at the end of the input.
-(:: jcPeek (-> Int Int Int))
+(:: jcPeek (-> String Int Int))
 (fn (jcPeek src c)
   (if (>= (jcPos c) (strLen src)) (- 0 1) (strByte src (jcPos c))))
 
-(:: jcSkipWs (-> Int Int Int))
+(:: jcSkipWs (-> String Int Int))
 (fn (jcSkipWs src c)
   (let ((mut p (jcPos c)))
     {
@@ -501,7 +501,7 @@
 
 ; Parse a whole document: one value, then nothing but whitespace.
 ; Answers 0 on any error, which is why every accessor tolerates 0.
-(pub :: jsonParse (-> Int Int))
+(pub :: jsonParse (-> String Int))
 (pub fn (jsonParse src)
   (let ((c jcNew))
     (let ((v (jpValue src c 0)))
@@ -510,7 +510,7 @@
         (if (|| (jcBad c) (< (jcPos c) (strLen src))) 0 v)
       })))
 
-(:: jpValue (-> Int Int Int Int))
+(:: jpValue (-> String Int Int Int))
 (fn (jpValue src c depth)
   {
     (jcSkipWs src c)
@@ -530,13 +530,13 @@
                   { (jcFail c) 0 }))))))))))
   })
 
-(:: jpLit (-> Int Int Int Int Int))
+(:: jpLit (-> String Int String Int Int))
 (fn (jpLit src c word v)
   (if (jpMatches src (jcPos c) word 0)
       { (jcSetPos c (+ (jcPos c) (strLen word))) v }
       { (jcFail c) 0 }))
 
-(:: jpMatches (-> Int Int Int Int Bool))
+(:: jpMatches (-> String Int String Int Bool))
 (fn (jpMatches src at word i)
   (if (>= i (strLen word))
       true
@@ -549,7 +549,7 @@
 ; A number, as its integer value plus the exact bytes it was written
 ; with. The fraction and exponent are CONSUMED and preserved in the
 ; text but do not contribute to the integer - see the header note.
-(:: jpNumber (-> Int Int Int))
+(:: jpNumber (-> String Int Int))
 (fn (jpNumber src c)
   (let ((start (jcPos c)))
     (let ((mut p start) (mut neg 0) (mut val 0) (mut digits 0))
@@ -601,7 +601,7 @@
 ; Escapes are decoded into a piece vector rather than a growing
 ; concatenation, and the common case - a string with no escape at all -
 ; takes a single slice and allocates nothing.
-(:: jpString (-> Int Int Int))
+(:: jpString (-> String Int Int))
 (fn (jpString src c)
   (if (!= (jcPeek src c) 34)
       { (jcFail c) "" }
@@ -639,7 +639,7 @@
 
 ; Decode one escape whose backslash was at `p - 1`, pushing its bytes.
 ; Answers the offset just past the escape.
-(:: jpEscape (-> Int Int Int Int Int))
+(:: jpEscape (-> String Int Int Int Int))
 (fn (jpEscape src c p pieces)
   (if (>= p (strLen src))
       { (jcFail c) p }
@@ -663,7 +663,7 @@
 ; written with. An unpaired surrogate is replaced by U+FFFD rather than
 ; refused: it cannot be encoded as UTF-8, and refusing a whole message
 ; over one bad character is the less useful of the two failures.
-(:: jpUnicode (-> Int Int Int Int Int))
+(:: jpUnicode (-> String Int Int Int Int))
 (fn (jpUnicode src c p pieces)
   (let ((hi (jpHex4 src c p)))
     (if (jcBad c)
@@ -690,7 +690,7 @@
                 { (vecPush pieces (utf8FromChar utf8Replacement)) (+ p 4) }
                 { (vecPush pieces (utf8FromChar hi)) (+ p 4) })))))
 
-(:: jpHex4 (-> Int Int Int Int))
+(:: jpHex4 (-> String Int Int Int))
 (fn (jpHex4 src c p)
   (if (> (+ p 4) (strLen src))
       { (jcFail c) 0 }
@@ -712,7 +712,7 @@
               (+ 10 (- b 65))
               (- 0 1)))))
 
-(:: jpArray (-> Int Int Int Int))
+(:: jpArray (-> String Int Int Int))
 (fn (jpArray src c depth)
   (let ((v jsonArr) (mut done 0) (mut first 1))
     {
@@ -748,7 +748,7 @@
       (if (jcBad c) 0 v)
     }))
 
-(:: jpObject (-> Int Int Int Int))
+(:: jpObject (-> String Int Int Int))
 (fn (jpObject src c depth)
   (let ((v jsonObj) (mut done 0) (mut first 1))
     {

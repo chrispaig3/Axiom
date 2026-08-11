@@ -21,10 +21,10 @@
 (import lsp)
 (import style)
 
-(pub :: writeStdout (-> Int Int))
+(pub :: writeStdout (-> String Int))
 (pub fn (writeStdout s) (sysWriteFd 1 (strData s) (strLen s)))
 
-(pub :: writeStderr (-> Int Int))
+(pub :: writeStderr (-> String Int))
 (pub fn (writeStderr s) (sysWriteFd 2 (strData s) (strLen s)))
 
 ; Which diagnostic renderer this invocation wants. `human` is the
@@ -133,7 +133,7 @@
 ; separates the first: ENOENT and EACCES are refused there. A one-byte
 ; read separates the third, because both Darwin and Linux open a
 ; directory happily and defer EISDIR to `read` (probed, 2026-08-08).
-(pub :: sourceReadErrno (-> Int Int))
+(pub :: sourceReadErrno (-> String Int))
 ;@axiom:effect(io)
 (pub fn (sourceReadErrno fileName)
   (let ((fd (sysOpenPath (strData fileName) 0)))
@@ -153,7 +153,7 @@
 ; reason - so which wording a user saw depended on which subcommand they
 ; had typed, and no wording ever said whether the file was missing,
 ; unreadable, or a directory.
-(pub :: readFailMsg (-> Int Int Int))
+(pub :: readFailMsg (-> String Int String))
 (pub fn (readFailMsg fileName e)
   (cat2 (cat3 "Failed to read file '" fileName "': ") (cat2 (errnoReason e) "\n")))
 
@@ -195,7 +195,7 @@
 ; a module that does not type-check. Threading the codes back through a
 ; language with no sum type at this layer would buy nothing - no caller
 ; has a second thing to try.
-(pub :: compileFile (-> Int Int Int Int Int))
+(pub :: compileFile (-> String String Int Int Int))
 ;@axiom:effect(io)
 (pub fn (compileFile fileName tname doEmit needMain)
   (let ((rerr (sourceReadErrno fileName))
@@ -421,7 +421,7 @@
                     (usageError (cat2 (cat3 "error: unrecognised subcommand `" w "`\n")
                                       (cat3 "       did you mean `" near "`?\n"))))))))))
 
-(pub :: runSubcommand (-> Int Int))
+(pub :: runSubcommand (-> String Int))
 ;@axiom:effect(io)
 (pub fn (runSubcommand cmd)
   (if (|| (strEq cmd "help") (|| (strEq cmd "--help") (strEq cmd "-h")))
@@ -754,7 +754,7 @@
 ; length. (`render.ax`'s `lineEndOf` takes an offset into a source file
 ; and this takes an offset into any string; the same three lines, but
 ; importing render here for it would be a cycle through diag.)
-(pub :: lineEndFrom (-> Int Int Int))
+(pub :: lineEndFrom (-> String Int Int))
 (pub fn (lineEndFrom s i)
   (let ((n (strLen s)) (mut j i))
     {
@@ -762,7 +762,7 @@
       j
     }))
 
-(pub :: explainNormalize (-> Int Int))
+(pub :: explainNormalize (-> String Int))
 (pub fn (explainNormalize s)
   (let ((mut a 0) (mut b (strLen s)))
     {
@@ -797,7 +797,7 @@
 ; and does not look like a flag. `positionalFrom` cannot be used here
 ; because its skip heuristic pairs every `--flag` with the argument
 ; after it, and `--check` takes no value.
-(pub :: inputArgSkipping (-> Int Int))
+(pub :: inputArgSkipping (-> String Int))
 ; The input file: `--input`, or a bare positional.
 ;
 ; `build` accepted both from the start; `check`, `emit-llvm` and `run`
@@ -862,7 +862,7 @@
 ; --verbose` passes `--verbose` on rather than refusing it as a flag
 ; this compiler does not know. A leading-dash argument that would
 ; otherwise be ambiguous can be forced across with `--`.
-(pub :: runArgv (-> Int Int))
+(pub :: runArgv (-> String Int))
 (pub fn (runArgv name)
   (let ((first (+ (positionalIndex operandStart) 1))
         (n (sysArgc)))
@@ -890,7 +890,7 @@
               (fillRunArgv v (+ from 1) to (+ slot 1))
             }))))
 
-(pub :: die (-> Int Int Int))
+(pub :: die (-> String Int Int))
 (pub fn (die msg code)
   {
     (sysWriteFd 2 (strData msg) (strLen msg))

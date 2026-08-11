@@ -219,7 +219,7 @@
 ; are not mangled) or to a name the entry file owns finds no
 ; `Mod$name` and stays bare.
 ; ------------------------------------------------------------------
-(pub :: expQualify (-> Int Int Int))
+(pub :: expQualify (-> Int String String))
 (pub fn (expQualify env name)
   (let ((m (expMacMod env)))
     (if (== m 0)
@@ -227,7 +227,7 @@
         (let ((q (strConcat (strConcat m "$") name)))
           (if (== (expDeclNamed (expDecls env) q 0) 1) q name)))))
 
-(pub :: expDeclNamed (-> Int Int Int Int))
+(pub :: expDeclNamed (-> Int String Int Int))
 (pub fn (expDeclNamed decls name i)
   (if (>= i (vecLen decls))
       0
@@ -238,7 +238,7 @@
             (expDeclNamed decls name (+ i 1))))))
 
 ; A fresh identifier. See the header for why `.` is the marker.
-(pub :: expFresh (-> Int Int Int))
+(pub :: expFresh (-> Int String Int))
 (pub fn (expFresh env base)
   (let ((n (memGetWord env 2)))
     {
@@ -303,7 +303,7 @@
         (expCollectMacros decls acc (+ i 1))
       }))
 
-(pub :: expFindMacro (-> Int Int Int))
+(pub :: expFindMacro (-> Int String Int))
 (pub fn (expFindMacro env name)
   (expFindMacroIn (expMacros env) name (memGetWord env 9)
                   (- (vecLen (expMacros env)) 1)))
@@ -322,7 +322,7 @@
 ; public macro whose template invokes a private one of its own module
 ; still expands from outside. That is the same definition-site rule
 ; `expQualify` applies to a template's free identifiers.
-(pub :: expFindMacroIn (-> Int Int Int Int Int))
+(pub :: expFindMacroIn (-> Int String String Int Int))
 (pub fn (expFindMacroIn ms name site i)
   (if (< i 0)
       0
@@ -343,11 +343,11 @@
 ; a richer version of the same thing (`SEnt`); this pass needs the
 ; names alone.
 ; ------------------------------------------------------------------
-(pub :: expBound (-> Int Int Int))
+(pub :: expBound (-> Int String Int))
 (pub fn (expBound bs name)
   (expBoundFrom bs name (- (vecLen bs) 1)))
 
-(pub :: expBoundFrom (-> Int Int Int Int))
+(pub :: expBoundFrom (-> Int String Int Int))
 (pub fn (expBoundFrom bs name i)
   (if (< i 0)
       0
@@ -365,11 +365,11 @@
 ; The rename stack: alternating old, new. Innermost wins, so the scan
 ; runs backward in pairs.
 ; ------------------------------------------------------------------
-(pub :: expRenLookup (-> Int Int Int))
+(pub :: expRenLookup (-> Int String Int))
 (pub fn (expRenLookup ren name)
   (expRenLookupFrom ren name (- (vecLen ren) 2)))
 
-(pub :: expRenLookupFrom (-> Int Int Int Int))
+(pub :: expRenLookupFrom (-> Int String Int Int))
 (pub fn (expRenLookupFrom ren name i)
   (if (< i 0)
       0
@@ -386,11 +386,11 @@
 ; expander - but a duplicate parameter is now AX3020, so the rule is
 ; unobservable on any program that compiles.
 ; ------------------------------------------------------------------
-(pub :: expParamIndex (-> Int Int Int))
+(pub :: expParamIndex (-> Int String Int))
 (pub fn (expParamIndex params name)
   (expParamIndexFrom params name (- (vecLen params) 1)))
 
-(pub :: expParamIndexFrom (-> Int Int Int Int))
+(pub :: expParamIndexFrom (-> Int String Int Int))
 (pub fn (expParamIndexFrom params name i)
   (if (< i 0)
       (- 0 1)
@@ -644,7 +644,7 @@
 ; parser would not have produced it, but a PARAMETER standing in that
 ; position can be handed any expression at all, so the case is real
 ; and is refused rather than dropped.
-(pub :: substName (-> Int Int Int Int Int Int Int))
+(pub :: substName (-> String Int Int Int Int Int Int))
 (pub fn (substName name params args ren env isp)
   (let ((r (expRenLookup ren name)))
     (if (!= r 0)
@@ -1245,7 +1245,7 @@
                   "implement the supertrait for this type first"
                   "a supertrait is a requirement on the implementation, not only on the declaration"))))))
 
-(pub :: implExistsFor (-> Int Int Int Int Int))
+(pub :: implExistsFor (-> Int String String Int Int))
 (pub fn (implExistsFor decls tname ty i)
   (if (>= i (vecLen decls))
       0
@@ -1265,7 +1265,7 @@
     0
   })
 
-(pub :: lowerImplMethods (-> Int Int Int Int Int Int Int Int))
+(pub :: lowerImplMethods (-> Int Int Int Int String Int Int Int))
 (pub fn (lowerImplMethods decls tr d methods v out i)
   (if (>= i (vecLen methods))
       0
@@ -1285,7 +1285,7 @@
 ; The generated pair: `(:: Trait#Type#m <substituted type>)` and
 ; `(fn (Trait#Type#m p0 .. pn) ((<expr> p0) .. pn))`.
 
-(pub :: lowerEmit (-> Int Int Int Int Int Int Int))
+(pub :: lowerEmit (-> Int Int Int Int Int String Int))
 (pub fn (lowerEmit decls tr d m decl v)
   (let ((ty (tySubstVar (nodeB decl) v (mkTCon (nodeC d) vecNew)))
         (nm (traitImplName (nodeA tr) (nodeC d) (nodeA m))))
@@ -1370,7 +1370,7 @@
 ; methods dispatch normally, because the generated definition has the
 ; concrete parameter types the substitution gave it.
 
-(pub :: checkImplComplete (-> Int Int Int Int Int Int Int Int))
+(pub :: checkImplComplete (-> Int Int Int Int String Int Int Int))
 (pub fn (checkImplComplete decls tr d methods v out i)
   (if (>= i (vecLen (nodeB tr)))
       0
