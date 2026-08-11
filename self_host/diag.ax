@@ -94,18 +94,18 @@
 ; exist because lsp.ax used to carry a second copy of the field list as
 ; a comment, which is the shape a layout drifts out of.
 (pub struct Diag
-  (sev : Int) (code : Int) (slug : Int) (span : Int)
-  (msg : Int) (label : Int) (unit : Int)
+  (sev : Int) (code : String) (slug : String) (span : Int)
+  (msg : String) (label : String) (unit : Int)
   (secs : Int) (notes : Int) (helps : Int) (trace : Int))
 
 ; A related location and the note that goes with it.
-(pub struct DLabel (span : Int) (msg : Int))
+(pub struct DLabel (span : Int) (msg : String))
 
 ; One help. `fixSpan` non-zero makes it MACHINE-APPLICABLE: it names a
 ; span and the text to put there, and renders `?LOC:"msg"~>"repl"`
 ; rather than a bare `?"msg"` - the whole point of the form being that a
 ; tool can apply it without parsing the English.
-(pub struct DHelp (msg : Int) (fixSpan : Int) (fixText : Int))
+(pub struct DHelp (msg : String) (fixSpan : Int) (fixText : String))
 
 (pub :: mkDiagBase (-> Int Int Int Int Int Int))
 (pub fn (mkDiagBase sev code slug span msg)
@@ -115,11 +115,11 @@
 ; Accessors.
 ; ------------------------------------------------------------------
 (pub :: diagSev   (-> Int Int)) (pub fn (diagSev   d) (memGetWord d 0))
-(pub :: diagCode  (-> Int Int)) (pub fn (diagCode  d) (memGetWord d 1))
-(pub :: diagSlug  (-> Int Int)) (pub fn (diagSlug  d) (memGetWord d 2))
+(pub :: diagCode  (-> Int String)) (pub fn (diagCode  d) (memGetWord d 1))
+(pub :: diagSlug  (-> Int String)) (pub fn (diagSlug  d) (memGetWord d 2))
 (pub :: diagSpan  (-> Int Int)) (pub fn (diagSpan  d) (memGetWord d 3))
-(pub :: diagMsg   (-> Int Int)) (pub fn (diagMsg   d) (memGetWord d 4))
-(pub :: diagLabel (-> Int Int)) (pub fn (diagLabel d) (memGetWord d 5))
+(pub :: diagMsg   (-> Int String)) (pub fn (diagMsg   d) (memGetWord d 4))
+(pub :: diagLabel (-> Int String)) (pub fn (diagLabel d) (memGetWord d 5))
 (pub :: diagUnit  (-> Int Int)) (pub fn (diagUnit  d) (memGetWord d 6))
 
 ; Returns the diagnostic, so it wraps a constructor at an emission site

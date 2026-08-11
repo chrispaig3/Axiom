@@ -276,14 +276,14 @@
 ; teaches the diagnostic everything it needs by naming its expectation,
 ; and a site that has not been taught yet answers `""`, which reports
 ; AX2003 rather than inventing an expectation it does not have.
-(pub struct PResult (ok : Int) (value : Int) (pos : Int) (exp : Int)
-                    (code : Int))
+(pub struct PResult (ok : Int) (value : Int) (pos : Int) (exp : String)
+                    (code : String))
 
 (pub :: pOk (-> Int Int Int))     (pub fn (pOk v p) (PResult 1 v p "" ""))
 (pub :: pErr (-> Int Int))        (pub fn (pErr p)   (PResult 0 0 p "" ""))
 (pub :: pErrExp (-> Int Int Int)) (pub fn (pErrExp p e) (PResult 0 0 p e ""))
-(pub :: pResExp (-> Int Int))     (pub fn (pResExp r) (memGetWord r 3))
-(pub :: pResCode (-> Int Int))    (pub fn (pResCode r) (memGetWord r 4))
+(pub :: pResExp (-> Int String))     (pub fn (pResExp r) (memGetWord r 3))
+(pub :: pResCode (-> Int String))    (pub fn (pResCode r) (memGetWord r 4))
 
 ; A keyword that USED to be Axiom. The point of keeping `union`,
 ; `region` and `foreign` reserved is that old source gets an
