@@ -70,7 +70,7 @@
 ;   lexeme — Str (shared with source wherever possible)
 ;   span   — Span (byte range in source)
 ; ------------------------------------------------------------------
-(pub struct Token (kind : TokenKind) (lexeme : Int) (span : Int))
+(pub struct Token (kind : TokenKind) (lexeme : String) (span : Int))
 
 (pub :: mkToken (-> TokenKind Int Int Int))
 (pub fn (mkToken kind lexeme span)
@@ -80,7 +80,7 @@
 (pub :: tokenKind   (-> Int TokenKind))
 (pub fn (tokenKind   t)
   (cast TokenKind (memGetWord t 0)))
-(pub :: tokenLexeme (-> Int Int)) (pub fn (tokenLexeme t) (memGetWord t 1))
+(pub :: tokenLexeme (-> Int String)) (pub fn (tokenLexeme t) (memGetWord t 1))
 (pub :: tokenSpan   (-> Int Int)) (pub fn (tokenSpan   t) (memGetWord t 2))
 (pub :: spanStart   (-> Int Int)) (pub fn (spanStart   s) (memGetWord s 0))
 (pub :: spanEnd     (-> Int Int)) (pub fn (spanEnd     s) (memGetWord s 1))
@@ -123,4 +123,4 @@
 ; and by the renderer to pick that file's text. It lives here because
 ; all three of codegen, typecheck and diag need it.
 ; ------------------------------------------------------------------
-(pub struct CUnit2 (file : Int) (src : Int) (name : Int))
+(pub struct CUnit2 (file : String) (src : String) (name : String))
