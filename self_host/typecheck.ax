@@ -416,18 +416,85 @@
 ; and never overwrites it, so three definitions of `main` produce two
 ; diagnostics that both point back at the first (verified by probe).
 ; ------------------------------------------------------------------
+; Answered from an INDEX rather than by re-scanning. `firstDefinerFrom`
+; walked `decls[0..i)` once per declaration, which is quadratic in the
+; entry file's own declaration count, and `main.ax` hides it with 21
+; entry declarations. Measured on N top-level declarations before the
+; index: N=2000 0.04s, 4000 0.19s, 8000 0.78s - ratios 4.00, 4.75,
+; 4.11 per doubling.
+;
+; `bs` is `dupIdxBuild`'s buckets. Entries are appended in declaration
+; order, so within a bucket the indices increase, so the FIRST entry
+; that matches is the smallest matching index - which is the "first,
+; not nearest" rule this check has always had, unchanged. The bucket
+; interleaves names that hash together and that does not disturb the
+; order.
 (pub :: firstDefiner (-> Int Int Int Int Int))
-(pub fn (firstDefiner decls i ns name)
-  (firstDefinerFrom decls 0 i ns name))
+(pub fn (firstDefiner bs i ns name)
+  (let ((v (vecGet bs (% (fnIdxHash name) (vecLen bs)))))
+    (if (== v 0)
+        (- 0 1)
+        (firstDefinerScan v i ns name 0))))
 
-(pub :: firstDefinerFrom (-> Int Int Int Int Int Int))
-(pub fn (firstDefinerFrom decls j i ns name)
-  (if (>= j i)
+(pub :: firstDefinerScan (-> Int Int Int Int Int Int))
+(pub fn (firstDefinerScan v i ns name k)
+  (if (>= k (vecLen v))
       (- 0 1)
-      (let ((d (vecGet decls j)))
-        (if (== (declDefinesNS d ns name) 1)
-            j
-            (firstDefinerFrom decls (+ j 1) i ns name)))))
+      (let ((e (vecGet v k)))
+        (if (&& (< (memGetWord e 2) i)
+                (&& (== (memGetWord e 1) ns)
+                    (strEq (memGetWord e 0) name)))
+            (memGetWord e 2)
+            (firstDefinerScan v i ns name (+ k 1))))))
+
+; One entry per (name, namespace) a declaration defines, carrying the
+; declaration's index. A `trait` or an `effect` contributes one per
+; method or operation, which is why this is built from `declFields`
+; and `declNamespace` rather than from `nodeA` alone - the index has
+; to answer exactly what `declDefinesNS` answers, and that predicate
+; is where the two multi-name declarations are named.
+(pub struct DupRef (name : Int) (ns : Int) (idx : Int))
+
+(pub :: dupIdxBuild (-> Int Int))
+(pub fn (dupIdxBuild decls)
+  (let ((nb (fnIdxBuckets (vecLen decls))) (bs vecNew) (mut i 0))
+    {
+      (while (< i nb) { (vecPush bs 0) (set i (+ i 1)) })
+      (set i 0)
+      (while (< i (vecLen decls))
+        {
+          (dupIdxAddDecl bs (vecGet decls i) i)
+          (set i (+ i 1))
+        })
+      bs
+    }))
+
+(pub :: dupIdxAddDecl (-> Int Int Int Int))
+(pub fn (dupIdxAddDecl bs d i)
+  (let ((fs (declFields d)))
+    (if (!= fs 0)
+        (dupIdxAddFields bs fs i 0)
+        (let ((ns (declNamespace (nodeTag d))))
+          (if (== ns NS_NONE)
+              0
+              (dupIdxPut bs (nodeA d) ns i))))))
+
+(pub :: dupIdxAddFields (-> Int Int Int Int Int))
+(pub fn (dupIdxAddFields bs fs i k)
+  (if (>= k (vecLen fs))
+      0
+      {
+        (dupIdxPut bs (nodeA (vecGet fs k)) NS_VALUE i)
+        (dupIdxAddFields bs fs i (+ k 1))
+      }))
+
+(pub :: dupIdxPut (-> Int Int Int Int Int))
+(pub fn (dupIdxPut bs name ns i)
+  (let ((b (% (fnIdxHash name) (vecLen bs))))
+    (if (== (vecGet bs b) 0)
+        (let ((v vecNew))
+          { (vecPush v (cast Int (DupRef name ns i))) (vecSet bs b v) 0 })
+        { (vecPush (vecGet bs b) (cast Int (DupRef name ns i))) 0 })))
 
 ; The TAG_FIELD vector of a declaration that defines MORE THAN ONE
 ; value name, or 0 for the ordinary kind that defines just `nodeA`.
@@ -490,8 +557,8 @@
 ; own source is worse than no checker. Duplicates *inside an imported
 ; module* go unreported until declarations carry their origin.
 ; ------------------------------------------------------------------
-(pub :: checkDuplicates (-> Int Int Int Int))
-(pub fn (checkDuplicates decls out i)
+(pub :: checkDuplicates (-> Int Int Int Int Int))
+(pub fn (checkDuplicates bs decls out i)
   (if (>= i (vecLen decls))
       out
       (let ((d (vecGet decls i)))
@@ -501,29 +568,29 @@
                 ; A trait defines one value name per method and an
                 ; effect one per operation, so these are the two
                 ; declarations that need a loop here.
-                (checkFieldDupes decls out i fs 0)
+                (checkFieldDupes bs decls out i fs 0)
                 (let ((ns (declNamespace (nodeTag d))))
                   (if (== ns NS_NONE)
                       0
                       (let ((name (nodeA d)))
-                        (let ((j (firstDefiner decls i ns name)))
+                        (let ((j (firstDefiner bs i ns name)))
                           (if (< j 0)
                               0
                               (dupDiag decls out j name (nodeSpan d)))))))))
-          (checkDuplicates decls out (+ i 1))
+          (checkDuplicates bs decls out (+ i 1))
         })))
 
-(pub :: checkFieldDupes (-> Int Int Int Int Int Int))
-(pub fn (checkFieldDupes decls out i fields k)
+(pub :: checkFieldDupes (-> Int Int Int Int Int Int Int))
+(pub fn (checkFieldDupes bs decls out i fields k)
   (if (>= k (vecLen fields))
       0
       (let ((m (vecGet fields k)))
         {
-          (let ((j (firstDefiner decls i NS_VALUE (nodeA m))))
+          (let ((j (firstDefiner bs i NS_VALUE (nodeA m))))
             (if (< j 0)
                 0
                 (dupDiag decls out j (nodeA m) (nodeSpan m))))
-          (checkFieldDupes decls out i fields (+ k 1))
+          (checkFieldDupes bs decls out i fields (+ k 1))
         })))
 
 (pub :: dupDiag (-> Int Int Int Int Int Int))
@@ -576,16 +643,77 @@
 ; signature: the entry file cannot name it, so a `(:: f T)` with only
 ; a private `M$f` behind it is still AX3015, and saying so here is
 ; what keeps it from becoming an undefined symbol at link time.
-(pub :: isDefined (-> Int Int Int Int))
-(pub fn (isDefined allDecls name i)
-  (if (>= i (vecLen allDecls))
+(pub :: isDefined (-> Int Int Int))
+(pub fn (isDefined bs name)
+  (let ((v (vecGet bs (% (fnIdxHash name) (vecLen bs)))))
+    (if (== v 0)
+        0
+        (defIdxHas v name 0))))
+
+(pub :: defIdxHas (-> Int Int Int Int))
+(pub fn (defIdxHas v name k)
+  (if (>= k (vecLen v))
       0
-      (let ((d (vecGet allDecls i)))
-        (if (&& (== (nodeTag d) TAG_D_FN)
-                (&& (== (nameMatches (nodeA d) name) 1)
-                    (== (nodeVis d) 1)))
-            1
-            (isDefined allDecls name (+ i 1))))))
+      (if (strEq (vecGet v k) name)
+          1
+          (defIdxHas v name (+ k 1)))))
+
+; The set of names an exported definition answers to, which is what
+; `isDefined` used to compute by scanning the WHOLE program per
+; signature - `main.ax` pays that 21 times against a 1,326-function
+; closure, and a generated entry file pays it per declaration.
+;
+; The keys are exactly the strings `nameMatches full k` accepts, and
+; that equivalence is the whole correctness argument: `full` itself,
+; and the suffix after every `$` at a position past the first byte.
+; The position matters - `nameMatches` demands `m > n + 1`, so a name
+; that merely BEGINS with `$` matches nothing, and inserting that
+; suffix would invent a definition. `Mod$f` answers to `Mod$f` and to
+; `f`; `$f` answers only to itself.
+(pub :: defIdxBuild (-> Int Int))
+(pub fn (defIdxBuild allDecls)
+  (let ((nb (fnIdxBuckets (vecLen allDecls))) (bs vecNew) (mut i 0))
+    {
+      (while (< i nb) { (vecPush bs 0) (set i (+ i 1)) })
+      (set i 0)
+      (while (< i (vecLen allDecls))
+        {
+          (let ((d (vecGet allDecls i)))
+            ; A definition that is not exported does not answer an
+            ; entry-file signature, so it is not in the index at all -
+            ; the `nodeVis` test the linear scan made, made once.
+            (if (&& (== (nodeTag d) TAG_D_FN) (== (nodeVis d) 1))
+                (defIdxAddKeys bs (nodeA d))
+                0))
+          (set i (+ i 1))
+        })
+      bs
+    }))
+
+(pub :: defIdxAddKeys (-> Int Int Int))
+(pub fn (defIdxAddKeys bs full)
+  {
+    (defIdxPut bs full)
+    (defIdxAddSuffixes bs full 1)
+  })
+
+(pub :: defIdxAddSuffixes (-> Int Int Int Int))
+(pub fn (defIdxAddSuffixes bs full i)
+  (if (>= i (strLen full))
+      0
+      {
+        (if (== (strByte full i) 36)
+            (defIdxPut bs (strSlice full (+ i 1) (- (strLen full) (+ i 1))))
+            0)
+        (defIdxAddSuffixes bs full (+ i 1))
+      }))
+
+(pub :: defIdxPut (-> Int Int Int))
+(pub fn (defIdxPut bs name)
+  (let ((b (% (fnIdxHash name) (vecLen bs))))
+    (if (== (vecGet bs b) 0)
+        (let ((v vecNew)) { (vecPush v name) (vecSet bs b v) 0 })
+        { (vecPush (vecGet bs b) name) 0 })))
 
 ; ------------------------------------------------------------------
 ; `(import M (a b))` naming something `M` does not export.
@@ -671,15 +799,15 @@
             (exportedFromModule allDecls modName n (+ i 1))))))
 
 (pub :: checkMissingDefs (-> Int Int Int Int Int))
-(pub fn (checkMissingDefs entryDecls allDecls out i)
+(pub fn (checkMissingDefs bs entryDecls out i)
   (if (>= i (vecLen entryDecls))
       out
       (let ((d (vecGet entryDecls i)))
         (if (!= (nodeTag d) TAG_D_SIG)
-            (checkMissingDefs entryDecls allDecls out (+ i 1))
+            (checkMissingDefs bs entryDecls out (+ i 1))
             (let ((name (nodeA d)))
-              (if (== (isDefined allDecls name 0) 1)
-                  (checkMissingDefs entryDecls allDecls out (+ i 1))
+              (if (== (isDefined bs name) 1)
+                  (checkMissingDefs bs entryDecls out (+ i 1))
                   {
                     (vecPush out
                       (diagSetLabel (mkDiag SEV_ERROR "AX3015" "missing-definition"
@@ -689,7 +817,7 @@
                               0 0
                               "add the definition, or if it lives in another module, mark that definition `pub` so the import carries it")
                         (strConcat (strConcat "no `fn` defines `" name) "`")))
-                    (checkMissingDefs entryDecls allDecls out (+ i 1))
+                    (checkMissingDefs bs entryDecls out (+ i 1))
                   }))))))
 
 ; ------------------------------------------------------------------
@@ -776,7 +904,16 @@
                ; reader indexes this record by position, which is how
                ; the unit table broke the last time it grew in the
                ; middle. See the exact-name index section.
-               (fnIdx : Int))
+               (fnIdx : Int)
+               ; The same thing for the ambiguity table, and appended
+               ; for the same reason. `ambFind` was a linear scan of a
+               ; Vec that grows with the PROGRAM, and `ambRecord` calls
+               ; it once per name it records, so building the table was
+               ; quadratic on its own - 935 of ~1200 profile samples on
+               ; a 32,000-declaration entry file, after the two entry
+               ; passes were indexed and while nothing else was close.
+               ; The name-index slice fixed `tcFns` and left this one.
+               (ambIdx : Int))
 
 (pub :: tcFns (-> Int Int))     (pub fn (tcFns tc)     (memGetWord tc 0))
 (pub :: tcDatas (-> Int Int))   (pub fn (tcDatas tc)   (memGetWord tc 1))
@@ -904,12 +1041,13 @@
                               vecNew vecNew entryDecls allDecls
                               vecNew vecNew units 0 vecNew 0
                               vecNew vecNew (collectPrivates allDecls vecNew 0)
-                              0))))
+                              0 0))))
         {
           ; The exact-name index, before collection rather than after:
           ; collection itself looks a name up per declaration.
           (memSetWord tc 20
             (fnIdxBuildSized (tcFns tc) (vecLen allDecls)))
+          (memSetWord tc 21 (ambIdxNew (vecLen allDecls)))
           (tcCollect tc allDecls 0)
           ; Type constructors named in signatures, once collection has
           ; seen every `data`/`struct`/`type` - a signature may name a
@@ -918,9 +1056,9 @@
           ; The ambiguity table, once: builtins are module-less
           ; winners and have no declaration to walk, so they are
           ; seeded rather than collected.
-          (ambRecord (memGetWord tc 15) "None" 0)
-          (ambRecord (memGetWord tc 15) "Some" 0)
-          (ambBuild (memGetWord tc 15) allDecls 0)
+          (ambRecord tc "None" 0)
+          (ambRecord tc "Some" 0)
+          (ambBuild tc allDecls 0)
           ; Effects are inferred once, after every declaration is
           ; registered and before any body is checked, because an
           ; AX3011 at a handle asks what the body performs and the
@@ -2453,44 +2591,76 @@
 ; stdlib-sized input. stage0 keeps a map for the same reason.
 (pub :: definingModules (-> Int Int Int))
 (pub fn (definingModules tc n)
-  (let ((e (ambFind (memGetWord tc 15) n 0)))
+  (let ((e (ambFind tc n)))
     (if (== e 0)
         vecNew
         (if (== (memGetWord e 2) 1) vecNew (memGetWord e 1)))))
 
 (pub struct AmbEnt (name : Int) (mods : Int) (moduleless : Int))
 
-(pub :: ambFind (-> Int Int Int Int))
-(pub fn (ambFind tbl n i)
-  (if (>= i (vecLen tbl))
+; Buckets over the entries, keyed on the name. An entry is MUTATED
+; after insert - a module appended to its list, or its module-less
+; flag set - but its NAME never changes, which is the same
+; precondition the exact-name index over `tcFns` records and relies
+; on.
+(pub :: ambIdxNew (-> Int Int))
+(pub fn (ambIdxNew hint)
+  (let ((nb (fnIdxBuckets hint)) (bs vecNew) (mut i 0))
+    { (while (< i nb) { (vecPush bs 0) (set i (+ i 1)) }) bs }))
+
+(pub :: ambFind (-> Int Int Int))
+(pub fn (ambFind tc n)
+  (let ((bs (memGetWord tc 21)))
+    (if (== bs 0)
+        0
+        (let ((v (vecGet bs (% (fnIdxHash n) (vecLen bs)))))
+          (if (== v 0) 0 (ambFindIn v n 0))))))
+
+(pub :: ambFindIn (-> Int Int Int Int))
+(pub fn (ambFindIn v n i)
+  (if (>= i (vecLen v))
       0
-      (if (strEq (memGetWord (vecGet tbl i) 0) n)
-          (vecGet tbl i)
-          (ambFind tbl n (+ i 1)))))
+      (if (strEq (memGetWord (vecGet v i) 0) n)
+          (vecGet v i)
+          (ambFindIn v n (+ i 1)))))
 
 (pub :: ambRecord (-> Int Int Int Int))
-(pub fn (ambRecord tbl n m)
-  (let ((e (ambFind tbl n 0)))
+(pub fn (ambRecord tc n m)
+  (let ((e (ambFind tc n)))
     (if (== e 0)
-        (vecPush tbl (cast Int (AmbEnt n
-                                 (let ((v vecNew))
-                                   { (if (!= m 0) (vecPush v m) 0) v })
-                                 (if (== m 0) 1 0))))
+        (let ((ent (cast Int (AmbEnt n
+                               (let ((v vecNew))
+                                 { (if (!= m 0) (vecPush v m) 0) v })
+                               (if (== m 0) 1 0)))))
+          {
+            ; Both, in step: the Vec is what `symbols` and every other
+            ; reader walks, the buckets are what `ambFind` reads.
+            (vecPush (memGetWord tc 15) ent)
+            (ambIdxPut (memGetWord tc 21) n ent)
+            0
+          })
         (if (== m 0)
             (memSetWord e 2 1)
             (if (== (strInVec (memGetWord e 1) m 0) 1)
                 0
                 { (vecPush (memGetWord e 1) m) 0 })))))
 
+(pub :: ambIdxPut (-> Int Int Int Int))
+(pub fn (ambIdxPut bs n ent)
+  (let ((b (% (fnIdxHash n) (vecLen bs))))
+    (if (== (vecGet bs b) 0)
+        (let ((v vecNew)) { (vecPush v ent) (vecSet bs b v) 0 })
+        { (vecPush (vecGet bs b) ent) 0 })))
+
 ; One pass over the merged list, recording every DEFINER's module.
 (pub :: ambBuild (-> Int Int Int Int))
-(pub fn (ambBuild tbl decls i)
+(pub fn (ambBuild tc decls i)
   (if (>= i (vecLen decls))
       0
       (let ((d (vecGet decls i)))
         {
-          (ambBuildDecl tbl d)
-          (ambBuild tbl decls (+ i 1))
+          (ambBuildDecl tc d)
+          (ambBuild tc decls (+ i 1))
         })))
 
 ; A declaration nobody outside its module may name cannot make a bare
@@ -2499,32 +2669,32 @@
 ; another module and report AX3014 about two definitions, only one of
 ; which the reference could ever have reached.
 (pub :: ambBuildDecl (-> Int Int Int))
-(pub fn (ambBuildDecl tbl d)
+(pub fn (ambBuildDecl tc d)
   (if (== (nodeVis d) 0)
       0
   (let ((tag (nodeTag d))
         (m (nodeModule d)))
     (if (== tag TAG_D_FN)
-        (ambRecord tbl (bareOf (nodeA d)) m)
+        (ambRecord tc (bareOf (nodeA d)) m)
     (if (== tag TAG_D_EFFECT)
-        (ambRecordAll tbl (nodeB d) 0 m)
+        (ambRecordAll tc (nodeB d) 0 m)
     (if (== tag TAG_D_DATA)
-        (ambRecordCtors tbl (nodeB d) 0 m)
+        (ambRecordCtors tc (nodeB d) 0 m)
     0))))))
 
 (pub :: ambRecordAll (-> Int Int Int Int Int))
-(pub fn (ambRecordAll tbl v i m)
+(pub fn (ambRecordAll tc v i m)
   (if (>= i (vecLen v))
       0
-      { (ambRecord tbl (vecGet v i) m) (ambRecordAll tbl v (+ i 1) m) }))
+      { (ambRecord tc (vecGet v i) m) (ambRecordAll tc v (+ i 1) m) }))
 
 (pub :: ambRecordCtors (-> Int Int Int Int Int))
-(pub fn (ambRecordCtors tbl ctors i m)
+(pub fn (ambRecordCtors tc ctors i m)
   (if (>= i (vecLen ctors))
       0
       {
-        (ambRecord tbl (bareOf (nodeA (vecGet ctors i))) m)
-        (ambRecordCtors tbl ctors (+ i 1) m)
+        (ambRecord tc (bareOf (nodeA (vecGet ctors i))) m)
+        (ambRecordCtors tc ctors (+ i 1) m)
       }))
 
 (pub :: tcAllDecls (-> Int Int)) (pub fn (tcAllDecls tc) (memGetWord tc 10))
@@ -5116,9 +5286,12 @@
   (let ((tc (tcNew entryDecls allDecls units)))
     (let ((out (tcOut tc)))
       {
-        (checkDuplicates entryDecls out 0)
+        ; Both indexes are built once, here, rather than by the
+        ; passes - each is used by exactly one pass and neither
+        ; survives the call.
+        (checkDuplicates (dupIdxBuild entryDecls) entryDecls out 0)
         (checkImportNames entryDecls allDecls out 0)
-        (checkMissingDefs entryDecls allDecls out 0)
+        (checkMissingDefs (defIdxBuild allDecls) entryDecls out 0)
         (tcWalkDecls tc 0)
         tc
       })))

@@ -8031,3 +8031,110 @@ The three targets this host cannot execute are covered the way every
 other syscall here is — `check-cross-targets.sh` assembles all four
 from one host, and the numbers sit in the per-target module beside the
 ones already proven.
+
+## 48. Three linear scans behind one quadratic, found one at a time
+
+Fixed 2026-08-10.
+
+`check` on an entry file of N top-level declarations, before:
+
+```
+N= 8000    0.46 s
+N=32000   12.62 s          ratio 27x for 4x the input
+```
+
+`main.ax` hides it with 21 entry declarations. Generated code and
+large single-file programs do not.
+
+The review named two passes, and they were both real:
+`checkDuplicates`/`firstDefiner` re-scans `decls[0..i)` per
+declaration, and `checkMissingDefs`/`isDefined` re-scans the WHOLE
+program per signature. Both are indexed now.
+
+That bought 15x and **left the exponent where it was**, which is the
+part worth writing down.
+
+### What the profile said after each fix
+
+A sample of the N=32000 check, once the two named passes were indexed:
+
+```
+935 of ~1200 samples   typecheck$ambBuild
+```
+
+`ambRecord` calls `ambFind` for every name it records and `ambFind`
+was a linear scan of a table that grows with the program — so
+*building* the ambiguity table was quadratic on its own. The
+name-index slice (`8942644`) fixed `tcFns` and left this one; its own
+note says the fix was "`Map` for `tcFns` and `ambTbl`", and only the
+first half landed. Indexed the same way, on a TC field appended after
+`fnIdx` for the same reason.
+
+Then, at N=64000:
+
+```
+3019 of ~3100 samples   codegen$resolveImports
+```
+
+on a file with **no imports**. `recordEntryFns` calls `mangleRecord`
+per entry function, and `mangleRecord` ends with
+`(mangleHasIn bares bare 0)` — a linear scan of a Vec that grows with
+the entry file. That is the third one, it is in codegen's bare→full
+name map rather than in the checker, and it is **not fixed**: `bares`
+and `fulls` are threaded through 53 references across four files, and
+an index there means either a fourth parallel structure or a record
+refactor of codegen's name resolution — which is where this
+repository twice records a mistake becoming a link failure rather
+than a diagnostic. It is specified, not attempted.
+
+### Where it landed
+
+| N | before | after |
+|---|---|---|
+| 8,000 | 0.46 s | 0.07 s |
+| 16,000 | — | 0.21 s |
+| 32,000 | 12.62 s | 0.83 s |
+| 64,000 | — | 4.61 s |
+
+**15.2x at N=32000**, and `check self_host/main.ax` is unchanged at
+0.49 s — the real workload has 21 entry declarations, so it neither
+gains nor pays.
+
+Doubling ratios after: 3.00, 3.95, 5.55. Still about 4 per doubling,
+because `mangleRecord` now owns the shape.
+
+### Why there is no gate
+
+The same reason the name index has none, and the reason is now
+sharper: a doubling-ratio gate cannot separate before from after,
+because the surviving quadratic keeps the ratio near 4 on both sides.
+A gate that passed on the old code is worse than a measurement written
+down with its probe. **When `mangleRecord` is indexed, a doubling
+ratio becomes a real assertion and should be added then.**
+
+### What is pinned instead
+
+Correctness, which is what an index can actually get wrong.
+`tests/diagnostics/475-duplicate-namespaces.ax` covers the four things
+the duplicate index has to keep right — three definitions producing two
+diagnostics that both point at the FIRST, `struct` against `data` in
+the type namespace, `macro` against `fn` in the value namespace, and a
+`data` against a `fn` of one spelling that must NOT collide. That last
+one is an assertion about what is absent from the golden, which a
+bucket keyed on the name without the namespace would break.
+
+The missing-definition index reproduces `nameMatches` exactly rather
+than approximately, and the argument is written at `defIdxBuild`: the
+keys are `full` itself plus the suffix after every `$` at a position
+past the first byte. The position is load-bearing — `nameMatches`
+demands `m > n + 1`, so `$f` answers only to itself, and inserting that
+suffix would invent a definition that satisfies a signature nothing
+defines.
+
+Nine adversarial programs were run through both compilers and agree on
+every byte: three-definition ordering, both namespace collisions, the
+non-collision, a signature satisfied by an imported public `Mod$f`, one
+satisfied only by a PRIVATE `Mod$f` (still `AX3015`), one satisfied by
+nothing, two modules making a name ambiguous, and a module defining
+`None` that must not make the builtin ambiguous. A 294-file corpus
+sweep diverged on 0.

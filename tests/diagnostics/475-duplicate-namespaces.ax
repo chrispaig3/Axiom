@@ -1,0 +1,34 @@
+; The duplicate check is answered from an index now rather than by
+; re-scanning `decls[0..i)` per declaration, and these are the four
+; things that index has to keep getting right. Three of them are
+; assertions about what IS reported; the fourth is an assertion about
+; what is NOT, and it is the one a golden can make and a status cannot.
+;
+;   dup     three definitions of one name produce TWO diagnostics and
+;           both point at the FIRST, not at the nearest. The index
+;           appends in declaration order, so the first matching entry
+;           in a bucket is the smallest index - that is where the rule
+;           lives now;
+;   Same    a `struct` and a `data` share the TYPE namespace, so this
+;           collides;
+;   mm      a `macro` occupies the VALUE namespace, so it collides
+;           with a function - the arm `declNamespace` records;
+;   Thing   a `data` and a `fn` of one spelling do NOT collide, and
+;           there is deliberately no diagnostic about it below. A
+;           bucket keyed on the name alone, without the namespace,
+;           would report one here and this file would fail.
+(fn (dup n) 1)
+(fn (dup n) 2)
+(fn (dup n) 3)
+
+(data Same (MkSame Int))
+(struct Same (x : Int))
+
+(macro (mm x) (+ x 1))
+(fn (mm n) 2)
+
+(data Thing (MkThing Int))
+(fn (Thing n) 1)
+
+(:: main Int)
+(fn (main) 0)

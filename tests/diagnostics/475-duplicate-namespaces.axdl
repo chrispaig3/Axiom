@@ -1,0 +1,4 @@
+E AX3006 475-duplicate-namespaces.ax:21:6-9 duplicate-definition "duplicate definition `dup`" #"`dup` redefined here" ^20:6-9:"`dup` first defined here" ?"rename one of the definitions, or remove the duplicate"
+E AX3006 475-duplicate-namespaces.ax:22:6-9 duplicate-definition "duplicate definition `dup`" #"`dup` redefined here" ^20:6-9:"`dup` first defined here" ?"rename one of the definitions, or remove the duplicate"
+E AX3006 475-duplicate-namespaces.ax:25:9-13 duplicate-definition "duplicate definition `Same`" #"`Same` redefined here" ^24:7-11:"`Same` first defined here" ?"rename one of the definitions, or remove the duplicate"
+E AX3006 475-duplicate-namespaces.ax:28:6-8 duplicate-definition "duplicate definition `mm`" #"`mm` redefined here" ^27:9-11:"`mm` first defined here" ?"rename one of the definitions, or remove the duplicate"

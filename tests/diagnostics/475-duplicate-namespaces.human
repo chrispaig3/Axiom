@@ -1,0 +1,46 @@
+[1;31merror[AX3006][0m[1m: duplicate definition `dup`[0m
+  [1;34m--> [0m475-duplicate-namespaces.ax:21:6
+[1;34m   |[0m
+[1;34m20 |[0m (fn (dup n) 1)
+[1;34m   |[0m      [1;36m--- `dup` first defined here[0m
+[1;34m21 |[0m (fn (dup n) 2)
+[1;34m   |[0m      [1;31m^^^ `dup` redefined here[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mrename one of the definitions, or remove the duplicate
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3006` for a full explanation
+
+[1;31merror[AX3006][0m[1m: duplicate definition `dup`[0m
+  [1;34m--> [0m475-duplicate-namespaces.ax:22:6
+[1;34m   |[0m
+[1;34m20 |[0m (fn (dup n) 1)
+[1;34m   |[0m      [1;36m--- `dup` first defined here[0m
+[1;34m...[0m
+[1;34m22 |[0m (fn (dup n) 3)
+[1;34m   |[0m      [1;31m^^^ `dup` redefined here[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mrename one of the definitions, or remove the duplicate
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3006` for a full explanation
+
+[1;31merror[AX3006][0m[1m: duplicate definition `Same`[0m
+  [1;34m--> [0m475-duplicate-namespaces.ax:25:9
+[1;34m   |[0m
+[1;34m24 |[0m (data Same (MkSame Int))
+[1;34m   |[0m       [1;36m---- `Same` first defined here[0m
+[1;34m25 |[0m (struct Same (x : Int))
+[1;34m   |[0m         [1;31m^^^^ `Same` redefined here[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mrename one of the definitions, or remove the duplicate
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3006` for a full explanation
+
+[1;31merror[AX3006][0m[1m: duplicate definition `mm`[0m
+  [1;34m--> [0m475-duplicate-namespaces.ax:28:6
+[1;34m   |[0m
+[1;34m27 |[0m (macro (mm x) (+ x 1))
+[1;34m   |[0m         [1;36m-- `mm` first defined here[0m
+[1;34m28 |[0m (fn (mm n) 2)
+[1;34m   |[0m      [1;31m^^ `mm` redefined here[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mrename one of the definitions, or remove the duplicate
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3006` for a full explanation
+
+compilation failed due to 4 previous errors

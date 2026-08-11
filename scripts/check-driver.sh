@@ -89,7 +89,18 @@ printf '(import NoSuchModule)\n(:: main Int)\n(fn (main) 1)\n' >badimport.ax
 # The original spelling, which five other gates depend on.
 "$s1" hello.ax >legacy.ll 2>/dev/null && grep -q 'define .*@main' legacy.ll \
   && ok "the legacy FILE spelling still emits IR to stdout" || bad "legacy spelling"
-"$s1" hello.ax linux-x86_64 2>/dev/null | grep -q 'x86_64-unknown-linux-gnu' \
+# Redirected to a file and then grepped, like the case above it, and
+# NOT piped into `grep -q`. `set -o pipefail` is on; `grep -q` exits
+# the moment it matches, and the triple is in the first few lines of
+# ~75 KB of IR, so the compiler is still writing when the read end
+# closes and dies of SIGPIPE - pipeline status 141, reported as a
+# failing target selection. Measured at 4 failures in 8 runs on the
+# compiler this was written against, so the case has been green by
+# luck since it was added; a later change that merely altered the
+# timing made it 8 in 8. The producer's status is the thing under
+# test, so it must not be a pipeline's.
+"$s1" hello.ax linux-x86_64 >legacy_t.ll 2>/dev/null
+grep -q 'x86_64-unknown-linux-gnu' legacy_t.ll \
   && ok "the legacy FILE TARGET spelling still selects a target" || bad "legacy target"
 
 # Global flags may precede the subcommand, because stage0's do and
