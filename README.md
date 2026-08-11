@@ -332,7 +332,7 @@ report points at the *declaration* as well as the assignment, because
 the declaration is where the fix goes:
 
 <!-- doc-gate:source set.ax -->
-```scheme
+```scheme refused
 (:: main Int)
 (fn (main)
   (let ((x 0)) { (set x 1) x }))
@@ -1238,7 +1238,7 @@ the pipeline above is a module you can read in the language it compiles.
 | Linear types | **Parsed only** | `linear T`, `consume`. The ownership facts they express are what the planned memory model needs; see [docs/v1-roadmap.md](docs/v1-roadmap.md) |
 | Macros | **Complete** | `tests/selfhost/365-macro-pattern-literal.ax`, `tests/selfhost/361-macro-hygiene.ax`. Pattern-substitution expansion before sema with hygiene (scope sets + gensym); `stdlib/Pre.ax` defines `when`, `unless`, `cond2`, `cond3`; cross-module macro import works; expansion backtrace on diagnostics |
 | Concurrency | **Library** | No language support and no compiler change: `stdlib/Job.ax` is a bounded pool of child processes over `Sys`'s existing `sysSpawn`/`sysWaitPid` pair, answering in submit order. Processes rather than threads, because a freestanding binary cannot create an OS thread on macOS. See [docs/v1-roadmap.md §4.4](docs/v1-roadmap.md) |
-| Editor support | **Functional** | [tree-sitter grammar](tree-sitter-axiom/) with highlighting queries, gated against all 295 `.ax` files in the repo and a 31-case tree-shape corpus. The language server is `self_host/lsp.ax`, listed four rows above and gated by `scripts/check-lsp-selfhost.sh` |
+| Editor support | **Functional** | [tree-sitter grammar](tree-sitter-axiom/) with highlighting queries, gated against all 296 `.ax` files in the repo and a 31-case tree-shape corpus. The language server is `self_host/lsp.ax`, listed four rows above and gated by `scripts/check-lsp-selfhost.sh` |
 | Imports | **Functional** | `(import Mod.Sub ...)` resolves and merges declarations from other files; qualified access via `Mod::name` disambiguates; see [Modules and imports](#modules-and-imports) |
 | Module visibility | **Complete** | `pub` on a declaration, or an import's name list, decides which names are visible outside a module — not which declarations exist. A module keeps its private helpers and behaves identically however it is imported; naming one from outside is `AX3023`. An import's name list is itself checked since `6a28103`: `(import M (noSuch))` is `AX3023`. `tests/selfhost/920-private-declaration.ax`, `930-selective-import.ax` |
 
@@ -1251,7 +1251,7 @@ exact span is underlined and labelled, and the header carries a stable
 code you can look up. Given `err.ax`:
 
 <!-- doc-gate:source err.ax -->
-```scheme
+```scheme refused
 (:: main Int)
 (fn (main)
   (if true (+ 1 2) false))
@@ -1285,7 +1285,7 @@ A report with more than one span quotes each of them, eliding the lines
 in between rather than printing them. Given `count.ax`:
 
 <!-- doc-gate:source count.ax -->
-```scheme
+```scheme refused
 (:: main Int)
 (fn (main)
   (let ((x 0))

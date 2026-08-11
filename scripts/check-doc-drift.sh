@@ -160,7 +160,11 @@ named = set()
 # that names the most fixtures, because every section ends by saying
 # what pins it.
 for doc in ("README.md", "docs/reference.md", "CONTRIBUTING.md",
-            "docs/v1-roadmap.md", "docs/self-hosting.md", "docs/macros.md"):
+            "docs/v1-roadmap.md", "docs/self-hosting.md", "docs/macros.md",
+            # The two normative specifications. A document outside this
+            # list drifts exactly as the nine claims this gate was built
+            # to catch did, and these two cite 31 fixtures between them.
+            "docs/memory-model.md", "docs/macro-system.md"):
     # The extension alternation needs the boundary: without it
     # `tests/fmt/parity/170-empty-tuple.axp` matched as `...ax` and was
     # reported missing, which is a gate finding its own bug and calling
@@ -188,7 +192,7 @@ print("== the diagnostics the README showcases are re-rendered and diffed ==")
 # the same as a reworded label.
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
 marked = re.findall(
-    r"<!-- doc-gate:(source|render) ([\w.-]+)(?: +(\w+))? -->\n```[a-z]*\n(.*?)^```",
+    r"<!-- doc-gate:(source|render) ([\w.-]+)(?: +(\w+))? -->\n```[a-z]*[^\n]*\n(.*?)^```",
     readme, re.S | re.M)
 sources = {name: body for kind, name, _fmt, body in marked if kind == "source"}
 renders = [(name, fmt, body) for kind, name, fmt, body in marked if kind == "render"]

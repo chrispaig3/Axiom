@@ -134,6 +134,21 @@
 (pub :: mkSilentWild Int)
 (pub fn (mkSilentWild) (mkTVar ""))
 
+; Is this type EXACTLY `String`? Deliberately not "compatible with
+; String": `tyCompat` says `String` and `Int` are interchangeable (the
+; uniform-representation fiat), so asking it here would answer yes for
+; every `Int` in the program and turn every integer comparison into a
+; string comparison. This asks the narrow question - did the checker
+; CONCLUDE `String` - which is the same question `tyIsFloatTy` asks for
+; the `fadd`/`add` choice.
+(pub :: tyIsStringTy (-> Int Int))
+(pub fn (tyIsStringTy t)
+  (if (== t 0)
+      0
+      (if (!= (nodeTag t) TAG_T_CON)
+          0
+          (if (strEq (nodeA t) "String") 1 0))))
+
 (pub :: tyIsFloatTy (-> Int Int))
 (pub fn (tyIsFloatTy t)
   (if (== t 0)
@@ -1022,6 +1037,15 @@
       (regFn fns "__axiom_arena_reset" (mkIntArrow 1))
       (regFn fns "__axiom_arena_reset_keeping" (mkIntArrow 3))
       (regFn fns "__addr" (mkTArr mkStringTy mkIntTy))
+      ; Not spellable in source - `checkNumeric` rewrites `==`/`!=`
+      ; into these. They are registered anyway because the rewritten
+      ; node outlives the check: `axiom symbols`, the language server
+      ; and any second pass over the same tree meet it, and an
+      ; unregistered head is AX3001 on a program that compiles.
+      (regFn fns "__streq"
+        (mkTArr mkStringTy (mkTArr mkStringTy mkBoolTy)))
+      (regFn fns "__strne"
+        (mkTArr mkStringTy (mkTArr mkStringTy mkBoolTy)))
       (regFn fns "__intToFloat" (mkTArr mkIntTy mkFloatTy))
       (regFn fns "__floatToInt" (mkTArr mkFloatTy mkIntTy))
       (let ((optRes (mkTCon "Option"
@@ -3019,7 +3043,7 @@
                     (== (checkSaturation tc e head hname) 1)))
             (mkNode TAG_T_ERR 0 0 0)
         (if (&& (== headIsVar 1) (== (isNumericTwoArg tc e hname) 1))
-            (checkNumeric tc hname (nodeB (nodeA e)) (nodeB e))
+            (checkNumeric tc hname (nodeB (nodeA e)) (nodeB e) head)
         (if (&& (== headIsVar 1) (== (isCastLike hname) 1))
             (checkCastForm tc e hname)
         (if (&& (== headIsVar 1) (== (isMacroName tc hname) 1))
@@ -3174,10 +3198,25 @@
 ; on EITHER side selects the float path where every non-float operand
 ; must be compatible with Float, otherwise both operands must be
 ; compatible with Int - which a String is, by the fiat rule.
-(pub :: checkNumeric (-> Int Int Int Int Int))
-(pub fn (checkNumeric tc op l r)
+;
+; `head` is the spine node whose word 1 is the operator's own
+; identifier, and it is here for one job: `==` and `!=` over two
+; `String`s are rewritten in place into `__streq`/`__strne`, so the
+; emitter compares CONTENT rather than the two handles. See
+; `equalityIsStringly` for when that fires and why it cannot fire on an
+; ordinary `Int`.
+(pub :: checkNumeric (-> Int Int Int Int Int Int))
+(pub fn (checkNumeric tc op l r head)
   (let ((lt (checkExprH tc l 0)))
     (let ((rt (checkExprH tc r 0)))
+      {
+      ; Word 1 of the head VAR node is the operator's name. Writing
+      ; `(nodeA head)` instead - the name STRING itself - corrupts the
+      ; interned `"=="`, and the symptom is a comparison that stops
+      ; answering `Bool` several checks later.
+      (if (== (equalityIsStringly op lt rt) 1)
+          (memSetWord head 1 (if (strEq op "==") "__streq" "__strne"))
+          0)
       (if (|| (== (tyIsErr lt) 1) (== (tyIsErr rt) 1))
           (if (== (isNumCmpOp op) 1) mkBoolTy (mkNode TAG_T_ERR 0 0 0))
           (if (|| (== (tyIsFloatTy lt) 1) (== (tyIsFloatTy rt) 1))
@@ -3200,7 +3239,36 @@
                     (emitMismatch tc "Int" (tyRender rt) (spanOf r))
                     0)
                 (if (== (isNumCmpOp op) 1) mkBoolTy mkIntTy)
-              })))))
+              }))
+      })))
+
+; Does this comparison compare two STRINGS?
+;
+; All three conditions are load-bearing:
+;
+;   - the operator is `==` or `!=`. The orderings are left alone: `<`
+;     on two strings would have to mean `strCmp`, a bigger decision
+;     than fixing equality, and an address ordering is at least not a
+;     WRONG answer to a question anyone asks.
+;   - BOTH sides are exactly `String` (`tyIsStringTy`, not `tyCompat`).
+;     One side a string and the other an `Int` is exactly the shape the
+;     fiat permits and nothing can distinguish, so it keeps the old
+;     integer comparison rather than dereferencing a number.
+;   - poison is excluded by the caller's own test, which runs after
+;     this one only because a poisoned operand must not rewrite the
+;     node and then be reported as a type error about it.
+;
+; The consequence worth stating: under the fiat most string-valued
+; expressions are typed `Int`, so this fires where the author WROTE the
+; types down and not otherwise. That is the same bargain `fadd` makes,
+; and it is an argument for removing the fiat rather than against
+; fixing equality.
+(pub :: equalityIsStringly (-> Int Int Int Int))
+(pub fn (equalityIsStringly op lt rt)
+  (if (&& (|| (strEq op "==") (strEq op "!="))
+          (&& (== (tyIsStringTy lt) 1) (== (tyIsStringTy rt) 1)))
+      1
+      0))
 
 ; `(cast Type v)`, `(sizeof Type)`, `(alignof Type)`: argument zero is
 ; a TYPE, and a type name is not a variable reference - checking it

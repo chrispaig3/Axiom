@@ -38,7 +38,7 @@
 ; The caller keeps responsibility for `bytes` outliving the `Str` and
 ; for the NUL terminator at `bytes[len]`. Every other constructor in
 ; this module goes through here.
-(pub :: strWrap (-> Int Int Int))
+(pub :: strWrap (-> Int Int String))
 (pub fn (strWrap bytes len)
   (let ((s (memAlloc 16)))
     {
@@ -51,7 +51,7 @@
 ;
 ; `len + 1` bytes are reserved so the NUL terminator never overwrites
 ; payload; the allocator zeroes, so the terminator is already in place.
-(pub :: strAlloc (-> Int Int))
+(pub :: strAlloc (-> Int String))
 (pub fn (strAlloc len)
   (strWrap (memAlloc (+ len 1)) len))
 
@@ -64,7 +64,7 @@
 ; else: a syscall's output buffer.
 ;
 ; Cost is one scan for the length; the bytes are never copied.
-(pub :: strFromLit (-> Int Int))
+(pub :: strFromLit (-> Int String))
 (pub fn (strFromLit cstr)
   (strWrap cstr (cstrLen cstr 0)))
 
@@ -79,11 +79,11 @@
 ; Accessors
 ; ------------------------------------------------------------------
 
-(pub :: strLen (-> Int Int))
+(pub :: strLen (-> String Int))
 (pub fn (strLen s)
   (memGetWord s 0))
 
-(pub :: strData (-> Int Int))
+(pub :: strData (-> String Int))
 (pub fn (strData s)
   (memGetWord s 1))
 
@@ -92,7 +92,7 @@
 ; Out-of-range reads return 0 rather than trapping because the callers
 ; that matter - a lexer's lookahead - want "one past the end" to behave
 ; like an end-of-input sentinel, and NUL is already that sentinel here.
-(pub :: strByte (-> Int Int Int))
+(pub :: strByte (-> String Int Int))
 (pub fn (strByte s i)
   (if (< i 0)
       0
@@ -104,11 +104,11 @@
 ; syscall.
 ;
 ; Free: every `Str` this module builds is already NUL-terminated.
-(pub :: strCStr (-> Int Int))
+(pub :: strCStr (-> String Int))
 (pub fn (strCStr s)
   (strData s))
 
-(pub :: strIsEmpty (-> Int Bool))
+(pub :: strIsEmpty (-> String Bool))
 (pub fn (strIsEmpty s)
   (== (strLen s) 0))
 
@@ -119,7 +119,7 @@
 ; 0 when equal; otherwise negative if `a` sorts before `b`, positive if
 ; after - lexicographic by unsigned byte, with a shorter prefix sorting
 ; first.
-(pub :: strCmp (-> Int Int Int))
+(pub :: strCmp (-> String String Int))
 (pub fn (strCmp a b)
   (let ((la (strLen a))
         (lb (strLen b)))
@@ -145,7 +145,7 @@
 ; built the same way by the same builder at `--opt 1`, best of 5 on an
 ; idle machine: 2.8121s to 1.7218s, 1.63x. The self-hosting fixpoint
 ; holds under the change.
-(pub :: strEq (-> Int Int Bool))
+(pub :: strEq (-> String String Bool))
 (pub fn (strEq a b)
   (let ((la (strLen a)))
     (if (!= la (strLen b))
@@ -166,7 +166,7 @@
 ;
 ; `start` and `count` are clamped to `s`, so an out-of-range slice is
 ; empty rather than a read of unrelated memory.
-(pub :: strSlice (-> Int Int Int Int))
+(pub :: strSlice (-> String Int Int String))
 (pub fn (strSlice s start count)
   (let ((len (strLen s)))
     (let ((from (if (< start 0) 0 (if (> start len) len start))))
@@ -175,7 +175,7 @@
           (strWrap (+ (strData s) from) n))))))
 
 ; An owned, NUL-terminated copy of `s`.
-(pub :: strDup (-> Int Int))
+(pub :: strDup (-> String String))
 (pub fn (strDup s)
   (let ((len (strLen s)))
     (let ((out (strAlloc len)))
@@ -184,7 +184,7 @@
         out
       })))
 
-(pub :: strConcat (-> Int Int Int))
+(pub :: strConcat (-> String String String))
 (pub fn (strConcat a b)
   (let ((la (strLen a))
         (lb (strLen b)))
@@ -200,7 +200,7 @@
 ; ------------------------------------------------------------------
 
 ; Index of the first `byte` at or after `from`, or -1.
-(pub :: strFindByte (-> Int Int Int Int))
+(pub :: strFindByte (-> String Int Int Int))
 (pub fn (strFindByte s byte from)
   (if (>= from (strLen s))
       (- 0 1)
@@ -208,7 +208,7 @@
           from
           (strFindByte s byte (+ from 1)))))
 
-(pub :: strStartsWith (-> Int Int Bool))
+(pub :: strStartsWith (-> String String Bool))
 (pub fn (strStartsWith s prefix)
   (let ((lp (strLen prefix)))
     (if (> lp (strLen s))
@@ -282,12 +282,12 @@
 ; NUL-terminated. `strCStr` or `strConcat` where a syscall needs a C
 ; string - the two call sites this replaced both did that already, and
 ; for that reason.
-(pub :: strSplit (-> Int Int Int))
+(pub :: strSplit (-> String Int Int))
 (pub fn (strSplit s byte)
   (let ((out vecNew))
     { (strSplitFrom s byte 0 out) out }))
 
-(pub :: strSplitFrom (-> Int Int Int Int Int))
+(pub :: strSplitFrom (-> String Int Int Int Int))
 (pub fn (strSplitFrom s byte from out)
   (let ((cut (strFindByte s byte from)))
     (let ((end (if (< cut 0) (strLen s) cut)))
