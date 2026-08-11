@@ -1,5 +1,11 @@
 # Macros
 
+**This document is the measured status of the implementation.** The
+normative specification — what a conforming implementation must do,
+including the parts not built yet — is
+[macro-system.md](macro-system.md), and the memory model it sits on is
+[memory-model.md](memory-model.md).
+
 What Axiom's macro system does, what it does not do, and the
 measurement behind each claim. This follows the convention of
 [self-hosting.md](self-hosting.md) and [v1-roadmap.md](v1-roadmap.md):

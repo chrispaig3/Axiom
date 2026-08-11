@@ -1,0 +1,61 @@
+; `==` on two `String`s compares CONTENT, not the two handles.
+;
+; Before this, `==` lowered to `icmp eq` on the handles, so it asked
+; "are these the same address". Identical literals inside one module
+; intern to a single header, so `(== "hi" "hi")` was true and every
+; obvious test passed - while `(== "hi" (strDup "hi"))`, the same
+; question about a computed string, was FALSE. A silent wrong answer in
+; a language whose strings are first class.
+;
+; The comparison is over bytes, which is what makes it correct for
+; Unicode: UTF-8 byte equality is code-point-sequence equality. The
+; length word decides the extent, so an interior NUL is compared like
+; any other byte rather than ending the string.
+;
+; Every case here is written so that the OLD behaviour and the new one
+; disagree, except the two that pin what must NOT change: integer
+; comparison, and comparison of a handle with itself.
+(import IO)
+(import Str)
+
+; A `String`-typed producer. The rewrite fires on what the checker
+; CONCLUDED, so these signatures are the thing under test as much as
+; the bodies are.
+(:: lit (-> Int String))
+(fn (lit n) (if (== n 0) "hi" "bye"))
+
+(:: copy (-> String String))
+(fn (copy s) (strDup s))
+
+(:: yes (-> Bool Int))
+(fn (yes b) (if b 1 0))
+
+(pub :: main Int)
+;@axiom:effect(io)
+(pub fn (main)
+  {
+    ; Equal content, two different allocations. THE case: 0 before.
+    (printlnInt (yes (== (lit 0) (copy (lit 0)))))
+    ; Different content.
+    (printlnInt (yes (== (lit 0) (lit 1))))
+    ; `!=` is the same question inverted, and was 1 before.
+    (printlnInt (yes (!= (lit 0) (copy (lit 0)))))
+    (printlnInt (yes (!= (lit 0) (lit 1))))
+    ; Same handle: true without reading anything.
+    (printlnInt (yes (== (lit 0) (lit 0))))
+    ; Length decides first: a prefix is not the whole string.
+    (printlnInt (yes (== (copy "abc") (copy "ab"))))
+    ; The empty string equals a computed empty string.
+    (printlnInt (yes (== (copy "") (strSlice (copy "xy") 0 0))))
+    ; Multi-byte UTF-8, compared by bytes and therefore by code points.
+    (printlnInt (yes (== (copy "héllo, 世界") (copy "héllo, 世界"))))
+    (printlnInt (yes (== (copy "世界") (copy "世堺"))))
+    ; A slice shares its parent's bytes and is not NUL-terminated; the
+    ; length word is what bounds the comparison.
+    (printlnInt (yes (== (strSlice (copy "abcdef") 1 3) (copy "bcd"))))
+    ; Integers are untouched by the rewrite.
+    (printlnInt (yes (== 3 3)))
+    (printlnInt (yes (== 3 4)))
+    (printlnInt (yes (!= 3 4)))
+    0
+  })

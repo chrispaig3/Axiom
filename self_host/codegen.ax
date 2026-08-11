@@ -1911,6 +1911,7 @@
     (emitLine cg "")
     (emitArenaHelpers cg)
     (emitDivTrap cg)
+    (emitStrEqHelper cg)
     cg
   })
 
@@ -1937,6 +1938,80 @@
 ; byte is handed to a caller.
 ; ------------------------------------------------------------------
 (pub :: emitArenaHelpers (-> Int Int))
+; String equality, emitted UNCONDITIONALLY beside the division trap and
+; for the same reason: `==` on two `String`s lowers to a call to this,
+; and a program that compares strings and declares no effects must not
+; reach `opt` with a call to a symbol nothing defines.
+;
+; WHY THIS EXISTS. `==` compiled to `icmp eq` on the two handles, so it
+; compared ADDRESSES: `(== "hi" (strDup "hi"))` was false while
+; `(strEq ...)` was true, and identical literals within a module intern
+; to one header, so `(== "hi" "hi")` was true. A test that compares a
+; literal against a literal passes; the same test against a computed
+; string fails. That is a silent wrong answer in a language whose
+; strings are first class, and its corpus population is zero - all 551
+; string comparisons in this repository are spelled `strEq`, which is
+; why nothing caught it.
+;
+; The comparison is over BYTES, which is exactly right for Unicode:
+; UTF-8 byte equality is code-point-sequence equality, and UTF-8 orders
+; bytes the way Unicode orders code points - the same argument `strCmp`,
+; `strEq` and `strStartsWith` already rest on. A `Str` may contain an
+; interior NUL, so the length word decides the extent and the NUL
+; terminator is never consulted.
+;
+; Two handles at the same address are equal without a read, which also
+; makes `(== s s)` total when `s` is 0.
+(pub :: emitStrEqHelper (-> Int Int))
+(pub fn (emitStrEqHelper cg)
+  {
+    (emitLine cg "define internal i64 @__axiom_str_eq(i64 %a, i64 %b) #0 {")
+    (emitLine cg "entry:")
+    (emitLine cg "  %same = icmp eq i64 %a, %b")
+    (emitLine cg "  br i1 %same, label %yes, label %chk")
+    (emitLine cg "chk:")
+    (emitLine cg "  %anull = icmp eq i64 %a, 0")
+    (emitLine cg "  %bnull = icmp eq i64 %b, 0")
+    (emitLine cg "  %null = or i1 %anull, %bnull")
+    (emitLine cg "  br i1 %null, label %no, label %lens")
+    (emitLine cg "lens:")
+    (emitLine cg "  %ap = inttoptr i64 %a to ptr")
+    (emitLine cg "  %la = load i64, ptr %ap")
+    (emitLine cg "  %bp = inttoptr i64 %b to ptr")
+    (emitLine cg "  %lb = load i64, ptr %bp")
+    (emitLine cg "  %lne = icmp ne i64 %la, %lb")
+    (emitLine cg "  br i1 %lne, label %no, label %data")
+    (emitLine cg "data:")
+    (emitLine cg "  %aa = add i64 %a, 8")
+    (emitLine cg "  %aap = inttoptr i64 %aa to ptr")
+    (emitLine cg "  %da = load i64, ptr %aap")
+    (emitLine cg "  %ba = add i64 %b, 8")
+    (emitLine cg "  %bap = inttoptr i64 %ba to ptr")
+    (emitLine cg "  %db = load i64, ptr %bap")
+    (emitLine cg "  br label %loop")
+    (emitLine cg "loop:")
+    (emitLine cg "  %i = phi i64 [ 0, %data ], [ %i2, %body ]")
+    (emitLine cg "  %more = icmp ult i64 %i, %la")
+    (emitLine cg "  br i1 %more, label %body, label %yes")
+    (emitLine cg "body:")
+    (emitLine cg "  %sa = add i64 %da, %i")
+    (emitLine cg "  %sap = inttoptr i64 %sa to ptr")
+    (emitLine cg "  %ca = load i8, ptr %sap")
+    (emitLine cg "  %sb = add i64 %db, %i")
+    (emitLine cg "  %sbp = inttoptr i64 %sb to ptr")
+    (emitLine cg "  %cb = load i8, ptr %sbp")
+    (emitLine cg "  %cne = icmp ne i8 %ca, %cb")
+    (emitLine cg "  %i2 = add i64 %i, 1")
+    (emitLine cg "  br i1 %cne, label %no, label %loop")
+    (emitLine cg "yes:")
+    (emitLine cg "  ret i64 1")
+    (emitLine cg "no:")
+    (emitLine cg "  ret i64 0")
+    (emitLine cg "}")
+    (emitLine cg "")
+    cg
+  })
+
 ; The division trap, emitted UNCONDITIONALLY beside the arena helpers.
 ; It first rode along with `emitUnhandledTrap`, which is emitted only
 ; when the program declares an effect - so every program that divided
@@ -4271,8 +4346,14 @@
   (if (strEq nm "__axiom_arena_mark") true
   (if (strEq nm "__axiom_arena_reset") true
   (if (strEq nm "__axiom_arena_reset_keeping") true
+  ; Not spellable in source: `checkNumeric` rewrites `==`/`!=` into
+  ; these when it can see that BOTH operands are `String`. They are
+  ; primitives rather than a `Str` call because the rewrite must work
+  ; in a program that never imported `Str`.
+  (if (strEq nm "__streq") true
+  (if (strEq nm "__strne") true
   (if (isSyscallName nm) true
-  false)))))))))))))))
+  false)))))))))))))))))
 
 ; `__syscall0` through `__syscall6`, distinguished only by how many
 ; arguments follow the syscall number.
@@ -4297,7 +4378,35 @@
     (if (strEq fnName "__axiom_arena_mark")  (emitPrimArenaMark cg)
     (if (strEq fnName "__axiom_arena_reset") (emitPrimArenaReset args cg)
     (if (strEq fnName "__axiom_arena_reset_keeping") (emitPrimArenaResetKeeping args cg)
-    (emitPrimSyscall args cg))))))))))))))))
+    (if (strEq fnName "__streq") (emitPrimStrEq args cg 1)
+    (if (strEq fnName "__strne") (emitPrimStrEq args cg 0)
+    (emitPrimSyscall args cg))))))))))))))))))
+
+; `(__streq a b)` / `(__strne a b)`: one call into `@__axiom_str_eq`,
+; with `__strne` inverting the answer. `want` is 1 for equality and 0
+; for inequality, and the inversion is `xor 1` rather than a compare
+; because the helper answers exactly 0 or 1.
+;
+; Both operands are emitted before the call, left then right, which is
+; the evaluation order every other two-operand form here uses.
+(pub :: emitPrimStrEq (-> Int Int Int Int))
+(pub fn (emitPrimStrEq args cg want)
+  (let ((cg1 (emitExpr (vecGet args 0) cg)))
+    (let ((a (strDup (memGetWord cg1 2))))
+      (let ((cg2 (emitExpr (vecGet args 1) cg1)))
+        (let ((b (strDup (memGetWord cg2 2)))
+              (r (regStr (allocReg cg2))))
+          (let ((cg3 (emitLine cg2
+                       (cat4 (cat2 "  " r)
+                             " = call i64 @__axiom_str_eq(i64 "
+                             a
+                             (cat3 ", i64 " b ")")))))
+            (if (== want 1)
+                { (memSetWord cg3 2 r) cg3 }
+                (let ((n (regStr (allocReg cg3))))
+                  (let ((cg4 (emitLine cg3
+                               (cat4 (cat2 "  " n) " = xor i64 " r ", 1"))))
+                    { (memSetWord cg4 2 n) cg4 })))))))))
 
 ; Both primitives are ONE CALL into the helpers `emitArenaHelpers`
 ; emitted beside the allocator - see there for what a mark saves and

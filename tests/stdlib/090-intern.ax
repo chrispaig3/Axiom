@@ -101,7 +101,15 @@
 
       ; --- THE POINT: equal content, four unrelated handles, one id ---
       ; The handles differ...
-      (printlnInt (itBit (== alpha built)))            ; 0: different Ints
+      ;
+      ; This asks about IDENTITY, and it has to say so. `==` on two
+      ; `String`s compares CONTENT (`tests/stdlib/035-string-equality.ax`),
+      ; and these two are content-equal by construction - that is the
+      ; premise of the whole section. Casting both to `Int` asks the
+      ; question this line has always meant: are they the same handle.
+      ; Written as `(== alpha built)` it now answers 1, and would be
+      ; asserting the opposite of what the comment says.
+      (printlnInt (itBit (== (cast Int alpha) (cast Int built))))    ; 0: different Ints
       ; ...but the ids do not.
       (printlnInt (internIntern it built))             ; 0
       (printlnInt (internIntern it (strSlice haystack 4 5)))        ; 0
