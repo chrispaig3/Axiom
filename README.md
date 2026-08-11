@@ -328,17 +328,36 @@ two variables needs no extra brackets. The form evaluates to `0` — a
 loop that ran zero times has no last iteration to take a value from.
 
 Assigning to a binding that is not `mut` is a compile error, and the
-report points at the *declaration*, because that is where the fix goes:
+report points at the *declaration* as well as the assignment, because
+the declaration is where the fix goes:
 
+<!-- doc-gate:source set.ax -->
+```scheme
+(:: main Int)
+(fn (main)
+  (let ((x 0)) { (set x 1) x }))
 ```
-Error: [AX3012] cannot assign to immutable binding `x`
- 5 │   (let ((x 0))
-   │          ┬
-   │          ╰── `x` is bound here
- 6 │     { (set x 1) ... }
-   │            ┬
-   │            ╰── `x` cannot be assigned
+
+<!-- doc-gate:render set.ax human -->
 ```
+error[AX3012]: cannot assign to immutable binding `x`
+ --> set.ax:3:23
+  |
+3 |   (let ((x 0)) { (set x 1) x }))
+  |          - `x` is bound here
+3 |   (let ((x 0)) { (set x 1) x }))
+  |                       ^ `x` cannot be assigned
+  |
+  = help: declare it mutable: `(mut x ...)` ~> mut x
+  = help: only a binding introduced by `(let ((mut x ...)) ...)` may be the target of `set`
+  = help: run `axiom explain AX3012` for a full explanation
+
+compilation failed due to 1 previous error
+```
+
+The `~> mut x` is not decoration: it is the replacement text, and a tool
+can apply it as a byte-range substitution. See
+[Error Messages](#error-messages).
 
 `set` also writes a field, through a dotted path — `(set c.n 40)`. The
 field is resolved by name, so its offset is the compiler's problem, and
@@ -1050,11 +1069,15 @@ axiom run source.ax
 # Start interactive REPL
 axiom repl
 
-# Look up a diagnostic code
+# Look up a diagnostic code, or list every one of them
 axiom explain AX3001
+axiom explain --list
 
 # Render diagnostics in Axiom's AI-optimized notation (see docs/diagnostics.md)
 axiom --diagnostic-format=ai check source.ax
+
+# Or as JSON Lines, one object per diagnostic
+axiom --diagnostic-format=json check source.ax
 
 # List every top-level symbol (functions, types, constructors, structs,
 # aliases, traits, ...) and its type/shape in Axiom's AI-optimized
@@ -1223,44 +1246,113 @@ the pipeline above is a module you can read in the language it compiles.
 
 ## Error Messages
 
-Axiom uses pretty diagnostics with source snippets, each carrying a
-stable code you can look up:
+The default render is rustc-flavored: the offending line is quoted, the
+exact span is underlined and labelled, and the header carries a stable
+code you can look up. Given `err.ax`:
 
+<!-- doc-gate:source err.ax -->
+```scheme
+(:: main Int)
+(fn (main)
+  (if true (+ 1 2) false))
 ```
-Error: [AX3004] type mismatch: expected Int, found Bool
-   ╭─[err.ax:3:20]
-   │
- 3 │   (if true (+ 1 2) false))
-   │                    ──┬──
-   │                      ╰──── this has type `Bool`, expected `Int`
-   │
-   │ Help: run `axiom explain AX3004` for a full explanation
-───╯
+
+<!-- doc-gate:render err.ax human -->
 ```
+error[AX3004]: type mismatch: expected Int, found Bool
+ --> err.ax:3:20
+  |
+3 |   (if true (+ 1 2) false))
+  |                    ^^^^^ this has type `Bool`, expected `Int`
+  |
+  = help: run `axiom explain AX3004` for a full explanation
+
+compilation failed due to 1 previous error
+```
+
+**The real output is coloured** — severity and carets in the severity's
+colour, the gutter blue, the `= help:` marker green — and always is,
+including when stderr is redirected. It is shown plain here because a
+markdown code fence is not a terminal. The palette is one table in
+`self_host/style.ax`.
 
 Codes are namespaced by pipeline stage — `AX1xxx` lexer, `AX2xxx`
 parser, `AX3xxx` semantics, `AX4xxx` codegen, `AX5xxx` modules — and are
 stable across wording changes, so they can be grepped and matched on.
 `axiom explain --list` prints them all.
 
-For agents and tooling, `--diagnostic-format=ai` renders the same
-diagnostic as one dense, colourless, greppable line — no re-printed
-source, no box drawing:
+A report with more than one span quotes each of them, eliding the lines
+in between rather than printing them. Given `count.ax`:
 
-```
-E AX3004 err.ax:3:20-25 type-mismatch "type mismatch: expected Int, found Bool"
-```
-
-Where a fix is machine-applicable it travels with the diagnostic. `set`
-on an immutable binding, for instance, points at the *declaration* and
-supplies the replacement text:
-
-```
-E AX3012 main.ax:6:12-13 assign-to-immutable "cannot assign to immutable binding `x`"
-  ^5:10-11:"`x` is bound here" ?5:10-11:"declare it mutable: `(mut x ...)`"~>"mut x"
+<!-- doc-gate:source count.ax -->
+```scheme
+(:: main Int)
+(fn (main)
+  (let ((x 0))
+    {
+      (set x 1)
+      x
+    }))
 ```
 
-See [docs/diagnostics.md](docs/diagnostics.md) for the full grammar.
+<!-- doc-gate:render count.ax human -->
+```
+error[AX3012]: cannot assign to immutable binding `x`
+ --> count.ax:5:12
+  |
+3 |   (let ((x 0))
+  |          - `x` is bound here
+...
+5 |       (set x 1)
+  |            ^ `x` cannot be assigned
+  |
+  = help: declare it mutable: `(mut x ...)` ~> mut x
+  = help: only a binding introduced by `(let ((mut x ...)) ...)` may be the target of `set`
+  = help: run `axiom explain AX3012` for a full explanation
+
+compilation failed due to 1 previous error
+```
+
+Columns count characters, not bytes, so a caret under a line containing
+an em dash lands where the eye expects; tabs expand to the next multiple
+of four; and a line wider than 160 columns is quoted as a window, marked
+`...` on whichever side was elided.
+
+### For agents and tooling
+
+`--diagnostic-format=ai` renders the same diagnostic as **AXDL**: one
+dense, colourless, greppable line per diagnostic — no re-printed source,
+no box drawing, so `grep -c '^E '` counts errors and nothing needs a
+multi-line state machine.
+
+<!-- doc-gate:render err.ax ai -->
+```
+E AX3004 err.ax:3:20-25 type-mismatch "type mismatch: expected Int, found Bool" #"this has type `Bool`, expected `Int`"
+compilation failed due to 1 previous error
+```
+
+Every fact the diagnostic carries is on that one line — the primary
+label, every related span, every note and every help. What is *not*
+there is the `run axiom explain AX####` footer, which the human render
+adds for a reader who wants prose. Where a fix is machine-applicable it
+travels with the diagnostic as `<loc>:"<msg>"~>"<replacement>"`, so a
+tool can apply it with a byte-range substitution instead of parsing
+English — `count.ax` above, in AXDL:
+
+<!-- doc-gate:render count.ax ai -->
+```
+E AX3012 count.ax:5:12-13 assign-to-immutable "cannot assign to immutable binding `x`" #"`x` cannot be assigned" ^3:10-11:"`x` is bound here" ?3:10-11:"declare it mutable: `(mut x ...)`"~>"mut x" ?"only a binding introduced by `(let ((mut x ...)) ...)` may be the target of `set`"
+compilation failed due to 1 previous error
+```
+
+Reading order is fixed: severity, code, file and span, slug, message,
+then the primary label `#`, related spans `^`, notes `!`, helps `?`, and
+macro-expansion frames `&`. `--diagnostic-format=json` emits the same
+facts as JSON Lines where a parser is easier than a grammar.
+
+Every block above is real compiler output, re-rendered and compared by
+`scripts/check-doc-drift.sh` on every run. See
+[docs/diagnostics.md](docs/diagnostics.md) for the full grammar.
 
 ---
 

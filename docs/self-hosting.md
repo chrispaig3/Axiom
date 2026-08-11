@@ -7713,11 +7713,25 @@ project's history. `scripts/check-doc-drift.sh`:
   weaker in the direction that matters: a code CONSTRUCTED but never
   reached by a corpus fixture escapes it, and `AX4001` sat in the table
   with no construction site for months;
-* **every `tests/` path the docs name exists** — 44 of them.
+* **every `tests/` path the docs name exists** — 109 of them;
+* **every diagnostic the README showcases is re-rendered and diffed.**
+  The "Error Messages" section showed a box-drawn `╭─[err.ax:3:20]`
+  frame with a `Help:` footer, and an AXDL line missing its primary
+  label. Neither had been this compiler's output at any point: the
+  self-hosted renderer is rustc-flavored, elides the lines between two
+  spans with `...`, and prints a machine-applicable replacement after
+  `~>`. The renders were the Rust implementation's, carried forward
+  unread — so the one surface a reader meets first was the one the
+  README described wrongest. Each block is now marked
+  `<!-- doc-gate:source|render -->` over the source it came from, and
+  the gate compiles it and diffs stderr. Documentation of what a
+  program prints is a golden test with worse ergonomics; this gives it
+  the ergonomics.
 
-All three sections were ablated: a wrong count, a `**Complete**` row
-stripped of its fixture, and a construction site for a code nobody
-explains. Each fails, individually.
+All five sections were ablated: a wrong count, a `**Complete**` row
+stripped of its fixture, a construction site for a code nobody
+explains, a named fixture deleted, and `= help:` retyped as `= Help:`
+in the README. Each fails, individually.
 
 The registry check strips comments before grepping. Without that it
 counts a code MENTIONED in prose, and these files quote codes

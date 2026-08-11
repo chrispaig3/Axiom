@@ -38,6 +38,20 @@
 #      behaviour that did not exist.
 #
 #   4  EVERY tests/ PATH NAMED IN THE DOCS EXISTS.
+#
+#   5  EVERY DIAGNOSTIC THE README SHOWCASES IS RE-RENDERED. The
+#      "Error Messages" section showed a box-drawn `╭─[err.ax:3:20]`
+#      frame with a `Help:` footer, and an AXDL line missing its primary
+#      label. Neither had been the compiler's output since the Rust
+#      implementation was replaced: the self-hosted renderer is
+#      rustc-flavored, elides the lines between two spans with `...`,
+#      and prints the machine-applicable replacement after `~>`. A
+#      reader arrived expecting the wrong thing about the one surface
+#      they meet first. So the showcase is now source plus output, both
+#      marked with `<!-- doc-gate:source|render -->`, and this gate
+#      compiles the source and diffs the output. Documentation of what a
+#      program prints is a golden test with worse ergonomics; this gives
+#      it the ergonomics.
 # ---------------------------------------------------------------------
 set -uo pipefail
 
@@ -83,11 +97,11 @@ fi
 [[ -z "${orphan// /}${unreach// /}" ]] && echo "ok   $nc constructed, $nl explained, sets equal"
 
 # ---------------------------------------------------------------
-# 2, 3, 4 - the documents themselves
+# 2, 3, 4, 5 - the documents themselves
 # ---------------------------------------------------------------
-python3 - "$repo_root" <<'PY'
-import os, re, sys, glob
-root = sys.argv[1]
+python3 - "$repo_root" "$axc" <<'PY'
+import os, re, sys, glob, shutil, subprocess, tempfile
+root, axc = sys.argv[1], sys.argv[2]
 os.chdir(root)
 bad = 0
 readme = open("README.md", encoding="utf-8").read()
@@ -164,6 +178,54 @@ if missing:
 else:
     print(f"ok   all {len(named)} tests/ paths named in the docs exist")
 
+print("== the diagnostics the README showcases are re-rendered and diffed ==")
+# Every diagnostic block in the README is a `<!-- doc-gate:render NAME
+# FMT -->` marker over a fence, and the file it came from is a
+# `<!-- doc-gate:source NAME -->` marker over a fence. Markdown does not
+# render an HTML comment, so the prose stays clean and the gate has a
+# handle. Everything the compiler prints goes to stderr, so stdout is
+# not consulted: a diagnostic that started arriving on stdout is drift
+# the same as a reworded label.
+ANSI = re.compile(r"\x1b\[[0-9;]*m")
+marked = re.findall(
+    r"<!-- doc-gate:(source|render) ([\w.-]+)(?: +(\w+))? -->\n```[a-z]*\n(.*?)^```",
+    readme, re.S | re.M)
+sources = {name: body for kind, name, _fmt, body in marked if kind == "source"}
+renders = [(name, fmt, body) for kind, name, fmt, body in marked if kind == "render"]
+if len(renders) < 4:
+    print(f"FAIL showcase: only {len(renders)} rendered blocks are marked; the floor is 4 "
+          f"(the markers were dropped and this check silently stopped applying)")
+    bad += 1
+work = tempfile.mkdtemp()
+try:
+    for name, body in sources.items():
+        with open(os.path.join(work, name), "w", encoding="utf-8") as fh:
+            fh.write(body)
+    for name, fmt, expected in renders:
+        if name not in sources:
+            print(f"FAIL showcase: the {fmt} block for {name} has no doc-gate:source block "
+                  f"- the README shows output nobody can reproduce")
+            bad += 1
+            continue
+        # cwd is the temp dir so the compiler reports the bare filename,
+        # which is what the README shows.
+        proc = subprocess.run([axc, "check", f"--diagnostic-format={fmt}", name],
+                              cwd=work, capture_output=True, text=True)
+        actual = ANSI.sub("", proc.stderr)
+        if actual.strip("\n") != expected.strip("\n"):
+            print(f"FAIL showcase: the {fmt} block for {name} is not what the compiler prints")
+            print("  --- README says ---")
+            for line in expected.rstrip("\n").splitlines():
+                print(f"  | {line}")
+            print("  --- compiler prints ---")
+            for line in actual.rstrip("\n").splitlines():
+                print(f"  | {line}")
+            bad += 1
+        else:
+            print(f"ok   {name} ({fmt}) renders exactly as documented")
+finally:
+    shutil.rmtree(work, ignore_errors=True)
+
 sys.exit(1 if bad else 0)
 PY
 [[ $? -eq 0 ]] || failed=$((failed+1))
@@ -173,4 +235,5 @@ if (( failed )); then
   echo "check-doc-drift: $failed section(s) failed"
   exit 1
 fi
-echo "check-doc-drift: registry, counts, status rows and fixture paths all agree with the tree"
+echo "check-doc-drift: registry, counts, status rows, fixture paths and the"
+echo "                 diagnostic showcase all agree with the tree"
