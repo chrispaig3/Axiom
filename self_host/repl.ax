@@ -53,7 +53,7 @@
 
 ; All REPL output is stdout - stage0's rule, measured: stderr stayed
 ; empty in every probed session, errors included.
-(pub :: replOut (-> Int Int))
+(pub :: replOut (-> String Int))
 (pub fn (replOut s) (sysWriteFd 1 (strData s) (strLen s)))
 
 ; ------------------------------------------------------------------
@@ -96,7 +96,7 @@
 
 ; ASCII whitespace trim, both ends - stage0 trims every line before
 ; classifying it.
-(pub :: replTrim (-> Int Int))
+(pub :: replTrim (-> String Int))
 (pub fn (replTrim s)
   (let ((mut a 0) (mut b (strLen s)))
     {
@@ -110,7 +110,7 @@
   (|| (== c 32) (|| (== c 9) (|| (== c 10) (== c 13)))))
 
 ; First `:word` of a command line, and the rest after it (trimmed).
-(pub :: cmdWordEnd (-> Int Int))
+(pub :: cmdWordEnd (-> String Int))
 (pub fn (cmdWordEnd line)
   (let ((n (strLen line)) (mut i 0))
     {
@@ -119,10 +119,10 @@
       i
     }))
 
-(pub :: cmdWord (-> Int Int))
+(pub :: cmdWord (-> String String))
 (pub fn (cmdWord line) (strSlice line 0 (cmdWordEnd line)))
 
-(pub :: cmdRest (-> Int Int))
+(pub :: cmdRest (-> String Int))
 (pub fn (cmdRest line)
   (replTrim (strSlice line (cmdWordEnd line)
                       (- (strLen line) (cmdWordEnd line)))))
@@ -135,7 +135,7 @@
 ; `(+ 1 2)` as a module is gone) - so the head is inspected before
 ; choosing a parser.
 ; ------------------------------------------------------------------
-(pub :: isDeclLine (-> Int Bool))
+(pub :: isDeclLine (-> String Bool))
 (pub fn (isDeclLine line)
   (if (< (strLen line) 2)
       false
@@ -163,7 +163,7 @@
                 (strEq w "impl"))))))))))))))))
 
 ; The identifier (or `::`) immediately after the opening paren.
-(pub :: declHeadWord (-> Int Int))
+(pub :: declHeadWord (-> String Int))
 (pub fn (declHeadWord line)
   (let ((n (strLen line)) (mut i 1))
     {
@@ -193,7 +193,7 @@
 ; the count of `Type error:` lines it printed (nonzero means the
 ; caller stops).
 ; ------------------------------------------------------------------
-(pub :: typeExprAgainst (-> Int Int Int))
+(pub :: typeExprAgainst (-> String String Int))
 ;@axiom:effect(io)
 (pub fn (typeExprAgainst declsSrc exprLine)
   (let ((toks (lex exprLine)))
@@ -258,7 +258,7 @@
 ; string, the result carrier is declared `(-> Int <carrier>)`, and
 ; Bool is converted at the source because nothing prints one.
 ; ------------------------------------------------------------------
-(pub :: replWrapper (-> Int Int Int Int))
+(pub :: replWrapper (-> Int Int String Int))
 (pub fn (replWrapper declsSrc exprLine tyStr)
   (let ((printExpr
           (if (strEq tyStr "Bool")
@@ -294,7 +294,7 @@
 ; a line failure; recorded.
 ; Answers ok+IR, or prints the failure and answers pErr.
 ; ------------------------------------------------------------------
-(pub :: replCompile (-> Int Int))
+(pub :: replCompile (-> String Int))
 ;@axiom:effect(io)
 (pub fn (replCompile wrapper)
   (let ((pr (parseModuleWith (lex wrapper) (scanAxtags wrapper))))
@@ -357,7 +357,7 @@
 ; Darwin's posix_spawn file_actions descriptor is not a documented
 ; shape (docs/self-hosting.md, phase-5 notes).
 ; ------------------------------------------------------------------
-(pub :: replEval (-> Int Int))
+(pub :: replEval (-> String Int))
 ;@axiom:effect(io)
 (pub fn (replEval ir)
   (let ((pid sysGetPid))
@@ -418,7 +418,7 @@
         }))))
 
 ; One expression, end to end: type, announce, wrap, compile, run.
-(pub :: replExpr (-> Int Int Int))
+(pub :: replExpr (-> String String Int))
 ;@axiom:effect(io)
 (pub fn (replExpr declsSrc line)
   (let ((tr (typeExprAgainst declsSrc line)))
@@ -438,7 +438,7 @@
 ; error is still appended, and the error surfaces when something
 ; uses it). The OK line names fn and sig declarations; data-shaped
 ; ones say so; anything else is a bare OK.
-(pub :: replDecl (-> Int Int Int))
+(pub :: replDecl (-> String String Int))
 ;@axiom:effect(io)
 (pub fn (replDecl declsSrc line)
   (let ((dr (parseDecls (lex line) 0 vecNew)))
@@ -503,7 +503,7 @@
   })
 
 ; :type - the argument as typed, colon, its type. Does not evaluate.
-(pub :: replCmdType (-> Int Int Int))
+(pub :: replCmdType (-> String String Int))
 ;@axiom:effect(io)
 (pub fn (replCmdType declsSrc arg)
   (if (== (strLen arg) 0)
@@ -525,7 +525,7 @@
 
 ; :load - the whole file must parse; type errors refuse the load;
 ; warnings load and are said out loud (stage0's rule).
-(pub :: replCmdLoad (-> Int Int Int))
+(pub :: replCmdLoad (-> String String Int))
 ;@axiom:effect(io)
 (pub fn (replCmdLoad declsSrc arg)
   (if (== (strLen arg) 0)
@@ -579,7 +579,7 @@
                             (strConcat (strConcat declsSrc src) "\n")
                           })))))))))))
 
-(pub :: replCmdLlvm (-> Int Int Int))
+(pub :: replCmdLlvm (-> String String Int))
 ;@axiom:effect(io)
 (pub fn (replCmdLlvm declsSrc arg)
   (if (== (strLen arg) 0)
@@ -668,7 +668,7 @@
 ; :defs - what THIS session defined, one line per parsed declaration
 ; name. stage0 renders its whole builtin table here; reproducing
 ; that render is recorded divergent until someone needs it.
-(pub :: replCmdDefs (-> Int Int))
+(pub :: replCmdDefs (-> String Int))
 ;@axiom:effect(io)
 (pub fn (replCmdDefs declsSrc)
   {

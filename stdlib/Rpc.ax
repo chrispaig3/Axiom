@@ -158,7 +158,7 @@
 (fn (rdLower b) (if (&& (>= b 65) (<= b 90)) (+ b 32) b))
 
 ; Does the buffer hold `word` at `at`, compared case-insensitively?
-(:: rdMatchCI (-> Int Int Int Int Bool))
+(:: rdMatchCI (-> Int Int String Int Bool))
 (fn (rdMatchCI r at word i)
   (if (>= i (strLen word))
       true
@@ -249,7 +249,7 @@
 ; Write all of `s`, looping: a single `write` may transfer fewer bytes
 ; than asked, and treating a short write as success is how a reply gets
 ; silently truncated.
-(:: rpcPut (-> Int Int Int))
+(:: rpcPut (-> Int String Int))
 ;@axiom:effect(io)
 (fn (rpcPut fd s)
   (let ((mut done 0) (mut bad 0))
@@ -261,7 +261,7 @@
     }))
 
 ; Frame `body` and write it.
-(pub :: rpcWrite (-> Int Int Int))
+(pub :: rpcWrite (-> Int String Int))
 ;@axiom:effect(io)
 (pub fn (rpcWrite fd body)
   {
@@ -272,7 +272,7 @@
     (strLen body)
   })
 
-(:: rpcNat (-> Int Int))
+(:: rpcNat (-> Int String))
 (fn (rpcNat n)
   (if (< n 10)
       (strSlice "0123456789" n 1)

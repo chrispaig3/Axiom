@@ -187,15 +187,18 @@
 (pub :: TAG_P_CONNAMED Int) (pub fn (TAG_P_CONNAMED) 43)
 
 (pub :: nodeTag (-> Int Int))   (pub fn (nodeTag n) (memGetWord n 0))
-(pub :: nodeA   (-> Int Int))   (pub fn (nodeA   n) (memGetWord n 1))
-(pub :: nodeB   (-> Int Int))   (pub fn (nodeB   n) (memGetWord n 2))
-(pub :: nodeC   (-> Int Int))   (pub fn (nodeC   n) (memGetWord n 3))
+(pub :: nodeA   (-> Int a))   (pub fn (nodeA   n) (memGetWord n 1))
+(pub :: nodeB   (-> Int a))   (pub fn (nodeB   n) (memGetWord n 2))
+(pub :: nodeC   (-> Int a))   (pub fn (nodeC   n) (memGetWord n 3))
 
-(pub :: mkNode (-> Int Int Int Int Int))  (pub fn (mkNode t a b c) (ASTNode t a b c 0 0 0 0 0 0))
-(pub :: mkNodeAt (-> Int Int Int Int Int Int))
-(pub fn (mkNodeAt t a b c sp) (ASTNode t a b c sp 0 0 0 0 0))
+(pub :: mkNode (-> Int a b c Int))
+(pub fn (mkNode t a b c)
+  (ASTNode t (cast Int a) (cast Int b) (cast Int c) 0 0 0 0 0 0))
+(pub :: mkNodeAt (-> Int a b c Int Int))
+(pub fn (mkNodeAt t a b c sp)
+  (ASTNode t (cast Int a) (cast Int b) (cast Int c) sp 0 0 0 0 0))
 (pub :: nodeSpan (-> Int Int))  (pub fn (nodeSpan n) (memGetWord n 4))
-(pub :: nodeModule (-> Int Int)) (pub fn (nodeModule n) (memGetWord n 8))
+(pub :: nodeModule (-> Int a)) (pub fn (nodeModule n) (memGetWord n 8))
 (pub :: nodeFieldNames (-> Int Int)) (pub fn (nodeFieldNames n) (memGetWord n 9))
 (pub :: mkEInt (-> Int Int))              (pub fn (mkEInt v)     (mkNode TAG_E_INT v 0 0))
 (pub :: mkEFlt (-> Int Int))              (pub fn (mkEFlt bits)  (mkNode TAG_E_FLT bits 0 0))
@@ -344,7 +347,7 @@
         d
       })))
 
-(pub :: parseErrDiag (-> Int Int Int Int))
+(pub :: parseErrDiag (-> Int Int String Int))
 (pub fn (parseErrDiag tokens r src)
   (let ((pos (memGetWord r 2))
         (exp (pResExp r)))
@@ -416,7 +419,7 @@
 ; which is an unexpected character. Keying off the byte gave the bare
 ; one AX1005 where stage0 says AX1001 - found by sweeping all 94
 ; printable bytes through both compilers, not by reading.
-(pub :: lexErrDiag (-> Int Int Int))
+(pub :: lexErrDiag (-> Int String Int))
 (pub fn (lexErrDiag tokens src)
   (let ((mut i 0) (mut found 0) (mut isEsc false))
     {
@@ -479,13 +482,13 @@
 ; text had to agree; `foreign` is stage1's own, written when the FFI
 ; went. The whole construct exists to be read by a person porting old
 ; source, which is why the text is here and not a generic refusal.
-(pub :: removedHelp (-> Int Int))
+(pub :: removedHelp (-> String String))
 ; WHY the construct is gone, phrased as a statement about the language
 ; rather than about the parser's expectations - stage0's `rationale()`,
 ; which is what its primary label carried while `removedHelp` here is
 ; its `replacement()`. Two halves of one explanation that stage1 had
 ; only one of.
-(pub :: removedRationale (-> Int Int))
+(pub :: removedRationale (-> String String))
 (pub fn (removedRationale kw)
   (if (strEq kw "union")
       (strConcat "`union` was removed: C interoperability is no longer a goal, "
@@ -573,7 +576,7 @@
 ; Escapes are stage0's set: \n \t \r \0, and \\ \' \" denote
 ; themselves - as does any other escaped byte here, where stage0
 ; instead reports an error this parser has no channel for.
-(pub :: charLexemeCode (-> Int Int))
+(pub :: charLexemeCode (-> String Int))
 (pub fn (charLexemeCode lex)
   (if (== (strByte lex 1) 92)
       (let ((e (strByte lex 2)))
@@ -597,7 +600,7 @@
 ; corpus (`0.0`, `0.5`, `10.0`, ...) is exactly representable, so the
 ; results agree today; byte-identical emission for arbitrary literals
 ; (phase 4) needs a single-rounding conversion here.
-(pub :: floatLexemeBits (-> Int Int))
+(pub :: floatLexemeBits (-> String Int))
 (pub fn (floatLexemeBits lex)
   ; A negative literal negates the whole magnitude - summing a negative
   ; integer part with a positive fraction would be off by twice the
@@ -606,7 +609,7 @@
       (cast Int (- 0.0 (cast Float (floatMagBits lex 1))))
       (floatMagBits lex 0)))
 
-(pub :: floatMagBits (-> Int Int Int))
+(pub :: floatMagBits (-> String Int Int))
 (pub fn (floatMagBits lex start)
   (let ((dot (floatDotIndex lex 0)))
     (let ((ip (strToIntFrom lex start 0))
@@ -617,7 +620,7 @@
 
 ; Index of the `.` - the lexer guarantees exactly one, with digits on
 ; both sides.
-(pub :: floatDotIndex (-> Int Int Int))
+(pub :: floatDotIndex (-> String Int Int))
 (pub fn (floatDotIndex lex i)
   (if (>= i (strLen lex))
       i
@@ -628,7 +631,7 @@
 ; 10^(number of digits from `i` to the end of `lex`). A `_` separator
 ; is part of the lexeme but not a digit, so it must not scale the
 ; denominator - `1.5_0` has two fractional digits, not three.
-(pub :: powTenAt (-> Int Int Int Int))
+(pub :: powTenAt (-> String Int Int Int))
 (pub fn (powTenAt lex i acc)
   (if (>= i (strLen lex))
       acc
@@ -694,12 +697,12 @@
 ; `[A B name]` -> `A.B$name`: the module segments joined by `.`, then
 ; `$`, then the name. That is the spelling `mangleDecl` gives an
 ; imported declaration, so the reference and the definition meet.
-(pub :: mangledFromChain (-> Int Int))
+(pub :: mangledFromChain (-> Int String))
 (pub fn (mangledFromChain chain)
   (strConcat (strConcat (joinDotted chain 0 "") "$")
              (vecGet chain (- (vecLen chain) 1))))
 
-(pub :: joinDotted (-> Int Int Int Int))
+(pub :: joinDotted (-> Int Int String Int))
 (pub fn (joinDotted chain i acc)
   (if (>= i (- (vecLen chain) 1))
       acc
@@ -794,7 +797,7 @@
 (pub :: kwCond  Int) (pub fn (kwCond)  "cond")
 (pub :: kwElse  Int) (pub fn (kwElse)  "else")
 
-(pub :: kwEq (-> Int Int Bool))
+(pub :: kwEq (-> String String Bool))
 (pub fn (kwEq name lit)
   (strEq name lit))
 
@@ -1014,7 +1017,7 @@
 ; One recognised supertrait name, threaded on. Only the first is kept:
 ; a second `(...)` group before `where` is an effect list, and there is
 ; no syntax that distinguishes them beyond position.
-(pub :: parseTraitRestSup (-> Int Int Int Int Int Int Int Int))
+(pub :: parseTraitRestSup (-> Int Int Int Int Int String Int Int))
 (pub fn (parseTraitRestSup tokens pos name nameSpan tvs sup origPos)
   (let ((r (parseTraitRest tokens pos name nameSpan tvs origPos)))
     {
@@ -1251,7 +1254,7 @@
 ; golden behind it; naming the type the documentation promises is not,
 ; so only the second is done here and the first is recorded.
 ; ------------------------------------------------------------------
-(pub :: typeKeywordCanon (-> Int Int))
+(pub :: typeKeywordCanon (-> String Int))
 (pub fn (typeKeywordCanon n)
   (if (strEq n "Int") "Int" (if (strEq n "Integer") "Int"
   (if (strEq n "Float") "Float" (if (strEq n "Double") "Double"
@@ -1268,7 +1271,7 @@
   (if (strEq n "F32") "F32" (if (strEq n "F64") "F64"
   0)))))))))))))))))))))))))
 
-(pub :: lexStartsLower (-> Int Int))
+(pub :: lexStartsLower (-> String Int))
 (pub fn (lexStartsLower s)
   (if (== (strLen s) 0)
       0
@@ -1496,7 +1499,7 @@
     (if (== (memGetWord nr 0) 0) nr
         (parseModPathRest tokens (memGetWord nr 2) (memGetWord nr 1)))))
 
-(pub :: parseModPathRest (-> Int Int Int Int))
+(pub :: parseModPathRest (-> Int Int String Int))
 (pub fn (parseModPathRest tokens pos acc)
   (if (peekIs tokens pos TK_DOT)
       (let ((nr (parseIdentName tokens (advance pos))))
@@ -2562,7 +2565,7 @@
 
 ; Where the pattern mentions field `n`, or -1. `names` holds spanned
 ; TAG_E_VAR nodes so a miss can be reported at the field name.
-(pub :: namedFieldIndex (-> Int Int Int Int))
+(pub :: namedFieldIndex (-> Int String Int Int))
 (pub fn (namedFieldIndex names n i)
   (if (>= i (vecLen names))
       (- 0 1)
@@ -2571,11 +2574,11 @@
           (namedFieldIndex names n (+ i 1)))))
 
 ; Is `n` one of the constructor's declared fields?
-(pub :: declaredHasField (-> Int Int Int))
+(pub :: declaredHasField (-> Int String Int))
 (pub fn (declaredHasField declared n)
   (if (== declared 0) 0 (declaredHasFieldFrom declared n 0)))
 
-(pub :: declaredHasFieldFrom (-> Int Int Int Int))
+(pub :: declaredHasFieldFrom (-> Int String Int Int))
 (pub fn (declaredHasFieldFrom declared n i)
   (if (>= i (vecLen declared))
       0
@@ -2906,11 +2909,11 @@
 
 (pub :: traitSep (-> Int Int)) (pub fn (traitSep s) (strConcat s "#"))
 
-(pub :: traitImplName (-> Int Int Int Int))
+(pub :: traitImplName (-> Int String String String))
 (pub fn (traitImplName tname ty method)
   (strConcat (traitSep (strConcat (traitSep tname) ty)) method))
 
-(pub :: findTraitDecl (-> Int Int Int Int))
+(pub :: findTraitDecl (-> Int String Int Int))
 (pub fn (findTraitDecl decls name i)
   (if (>= i (vecLen decls))
       0
@@ -2919,7 +2922,7 @@
             d
             (findTraitDecl decls name (+ i 1))))))
 
-(pub :: findFieldNamed (-> Int Int Int Int))
+(pub :: findFieldNamed (-> Int String Int Int))
 (pub fn (findFieldNamed fields name i)
   (if (>= i (vecLen fields))
       0
@@ -2938,7 +2941,7 @@
 
 ; Substitute the implementing type for the trait's parameter.
 
-(pub :: tySubstVar (-> Int Int Int Int))
+(pub :: tySubstVar (-> Int String Int Int))
 (pub fn (tySubstVar t v ty)
   (if (== t 0)
       0
@@ -2951,7 +2954,7 @@
             (mkTCon (nodeA t) (tySubstVarVec (nodeB t) v ty vecNew 0))
         t))))))
 
-(pub :: tySubstVarVec (-> Int Int Int Int Int Int))
+(pub :: tySubstVarVec (-> Int String Int Int Int Int))
 (pub fn (tySubstVarVec xs v ty out i)
   (if (>= i (vecLen xs))
       out
@@ -2973,7 +2976,7 @@
 ; parameter never mentions it - `(fromInt :: (-> Int a))` - cannot be
 ; dispatched by a compiler with no return-type inference, and says so.
 
-(pub :: traitDispatchIdx (-> Int Int Int Int))
+(pub :: traitDispatchIdx (-> Int String Int Int))
 (pub fn (traitDispatchIdx t v i)
   (if (== t 0)
       (- 0 1)

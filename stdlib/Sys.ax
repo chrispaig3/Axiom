@@ -155,7 +155,7 @@
 ; loop - so a pipe delivers its whole stream too. The final byte after
 ; `used` is NUL because `strAlloc` reserves len+1 zeroed bytes and
 ; every growth copies into a fresh zeroed buffer.
-(:: sysReadAll (-> Int Int Int Int Int))
+(:: sysReadAll (-> Int String Int Int Int))
 (fn (sysReadAll fd buf used cap)
   (let ((n (sysReadFd fd (+ (strData buf) used) (- cap used))))
     (if (<= n 0)
@@ -189,7 +189,7 @@
 ; is out of range. The bytes are the process's own argv storage -
 ; NUL-terminated, alive for the whole run, never freed or moved - so
 ; wrapping them without copying is sound.
-(pub :: sysArg (-> Int Int))
+(pub :: sysArg (-> Int String))
 (pub fn (sysArg i)
   (if (|| (< i 0) (>= i (__argc)))
       ""
@@ -202,7 +202,7 @@
 ; direction of file I/O the library did not have: it could read a file
 ; and it could write to an already-open descriptor, but nothing put a
 ; string on disk under a name.
-(pub :: sysWriteFile (-> Int Int Int))
+(pub :: sysWriteFile (-> Int String Int))
 ;@axiom:effect(io)
 (pub fn (sysWriteFile path s)
   (let ((fd (sysOpenPath path oWronlyCreateTrunc)))
@@ -333,11 +333,11 @@
 ; so it is not NUL-terminated - `strSlice` wraps an interior pointer.
 ; Anything handing it to a syscall as a path must copy it first, which
 ; `strConcat` and `strDup` both do.
-(pub :: sysEnv (-> Int Int))
+(pub :: sysEnv (-> String Int))
 (pub fn (sysEnv name)
   (sysEnvLookup (strConcat name "=") 0))
 
-(:: sysEnvLookup (-> Int Int Int))
+(:: sysEnvLookup (-> String Int Int))
 (fn (sysEnvLookup prefix i)
   (let ((p (sysEnvSlot i)))
     (if (== p 0)
@@ -552,7 +552,7 @@
 ;
 ; With `PATH` unset or exhausted the answer is `-2` (ENOENT), which is
 ; what a caller distinguishing "not installed" from "failed" reads.
-(pub :: sysRunPath (-> Int Int Int Int))
+(pub :: sysRunPath (-> String Int Int Int))
 ;@axiom:effect(io)
 (pub fn (sysRunPath name argv envp)
   (if (>= (strFindByte name 47 0) 0)
@@ -560,7 +560,7 @@
       (sysRunSearch name argv envp (sysEnv "PATH") 0)))
 
 ; Try `name` in each `:`-separated entry of `path` starting at `from`.
-(:: sysRunSearch (-> Int Int Int Int Int Int))
+(:: sysRunSearch (-> String Int Int String Int Int))
 ;@axiom:effect(io)
 (fn (sysRunSearch name argv envp path from)
   (if (> from (strLen path))

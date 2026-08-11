@@ -27,7 +27,7 @@
 ; transfer fewer bytes than asked (a pipe with a full buffer, a signal),
 ; and treating a short write as success is the classic way to silently
 ; truncate output.
-(pub :: writeStr (-> Int Int Int))
+(pub :: writeStr (-> Int String Int))
 ;@axiom:effect(io)
 (pub fn (writeStr fd s)
   (writeAll fd (strData s) (strLen s) 0))
@@ -42,12 +42,12 @@
             (if (< n 0) n done)
             (writeAll fd buf count (+ done n))))))
 
-(pub :: print (-> Int Int))
+(pub :: print (-> String Int))
 ;@axiom:effect(io)
 (pub fn (print s)
   (writeStr stdout s))
 
-(pub :: println (-> Int Int))
+(pub :: println (-> String Int))
 ;@axiom:effect(io)
 (pub fn (println s)
   {
@@ -88,12 +88,12 @@
 
 ; Write to standard error - for diagnostics, which must not be captured
 ; by a caller redirecting stdout.
-(:: eprint (-> Int Int))
+(:: eprint (-> String Int))
 ;@axiom:effect(io)
 (fn (eprint s)
   (writeStr stderr s))
 
-(pub :: eprintln (-> Int Int))
+(pub :: eprintln (-> String Int))
 ;@axiom:effect(io)
 (pub fn (eprintln s)
   {
@@ -111,7 +111,7 @@
 ; empty `Str` rather than a sentinel the caller has to remember to check.
 ; A read error returns an empty `Str` too; `readFile` distinguishes the
 ; cases where it matters.
-(:: readUpTo (-> Int Int Int))
+(:: readUpTo (-> Int Int String))
 ;@axiom:effect(io)
 (fn (readUpTo fd count)
   (let ((s (strAlloc count)))
@@ -130,7 +130,7 @@
 (fn (readAll fd chunk)
   (readAllInto fd (strAlloc chunk) 0 chunk))
 
-(:: readAllInto (-> Int Int Int Int Int))
+(:: readAllInto (-> Int String Int Int Int))
 ;@axiom:effect(io)
 (fn (readAllInto fd buf len cap)
   (if (>= len cap)
@@ -162,7 +162,7 @@
             contents
           }))))
 
-(pub :: readFile (-> Int Int))
+(pub :: readFile (-> String Int))
 ;@axiom:effect(io)
 (pub fn (readFile path)
   (readFileLit (strCStr path)))
@@ -177,7 +177,7 @@
   (sysExitWith code))
 
 ; Print `s` to standard error and exit with `code`. Never returns.
-(pub :: die (-> Int Int Int))
+(pub :: die (-> String Int Int))
 ;@axiom:effect(io)
 (pub fn (die s code)
   {

@@ -101,12 +101,12 @@
 ; process. A caller that stores 0 as a real element and needs to tell it
 ; from "absent" must check `vecLen` first; that is the honest cost of
 ; this choice, and it is stated rather than hidden.
-(pub :: vecGet (-> Int Int Int))
+(pub :: vecGet (-> Int Int a))
 (pub fn (vecGet v i)
   (if (< i 0)
-      0
+      (cast a 0)
       (if (>= i (vecLen v))
-          0
+          (cast a 0)
           (memGetWord (vecData v) i))))
 
 ; Overwrite the element at `i`. Returns the handle.
@@ -115,7 +115,7 @@
 ; caller that meant to append should say `vecPush`, and silently
 ; extending on a stray index turns an off-by-one into a slow leak instead
 ; of a wrong answer that `vecLen` makes visible.
-(pub :: vecSet (-> Int Int Int Int))
+(pub :: vecSet (-> Int Int a Int))
 (pub fn (vecSet v i x)
   (if (< i 0)
       v
@@ -181,7 +181,7 @@
 ; replaced the data pointer. Reading it into a `let` before the reserve
 ; would write the element into the abandoned block, and the bug would be
 ; invisible until the vector happened to grow.
-(pub :: vecPush (-> Int Int Int))
+(pub :: vecPush (-> Int a Int))
 (pub fn (vecPush v x)
   (let ((len (vecLen v)))
     {

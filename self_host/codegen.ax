@@ -46,24 +46,24 @@
 ; name: with a `(struct P ...)` in scope, `(+ a b)` found `P` in the type
 ; registry and was emitted as a struct construction. The length is kept
 ; as a cheap pre-filter, but equality is decided by comparing the bytes.
-(pub :: nameHash (-> Int Int))
+(pub :: nameHash (-> String Int))
 (pub fn (nameHash s)
   (strLen s))
 
 (pub :: eName (-> Int Int)) (pub fn (eName e) (memGetWord e 0))
 
-(pub :: addType (-> Int Int Int Int Int Int Int Int))
+(pub :: addType (-> Int String Int Int Int Int Int Int))
 (pub fn (addType types name kind arity tag rep fieldFlags)
   (addTypeNamed types name kind arity tag rep fieldFlags 0))
 
-(pub :: addTypeNamed (-> Int Int Int Int Int Int Int Int Int))
+(pub :: addTypeNamed (-> Int String Int Int Int Int Int Int Int))
 (pub fn (addTypeNamed types name kind arity tag rep fieldFlags fieldNames)
   (let ((nl (strLen name))
         (nh (nameHash name)))
     (vecPush types (cast Int (TypeEntry name nl nh kind arity tag rep fieldFlags fieldNames)))))
 (pub :: eFieldNames (-> Int Int)) (pub fn (eFieldNames e) (memGetWord e 8))
 
-(pub :: lookupType (-> Int Int Int))
+(pub :: lookupType (-> Int String Int))
 (pub fn (lookupType types name)
   (lookupByIdx types name (strLen name) 0))
 
@@ -81,7 +81,7 @@
 ; to eliminate the frames. `lldb` named it in one backtrace: 25 frames
 ; of `codegen$lookupByIdx`, and `Vec$vecGet` on top of them holding
 ; the address that had run off the stack.
-(pub :: lookupByIdx (-> Int Int Int Int Int))
+(pub :: lookupByIdx (-> Int String Int Int Int))
 (pub fn (lookupByIdx types name nLen i)
   (let ((mut k i) (mut found 0))
     {
@@ -96,7 +96,7 @@
       found
     }))
 
-(pub :: lookupTypeIn (-> Int Int Int Int))
+(pub :: lookupTypeIn (-> Int String Int Int))
 (pub fn (lookupTypeIn types name i)
   (lookupType types name))
 
@@ -122,7 +122,7 @@
 ; stage0's `effect_slot_name`: `__axiom_ev_` over the mangled effect
 ; name, so an entry-file `Console` is `__axiom_ev_Console` and an
 ; imported one `__axiom_ev_M$Console`.
-(pub :: effSlotFor (-> Int Int Int))
+(pub :: effSlotFor (-> String String String))
 (pub fn (effSlotFor name modName)
   (if (== modName 0)
       (cat2 "__axiom_ev_" name)
@@ -131,12 +131,12 @@
 ; Entry file first, then whatever module defines it - the resolution
 ; rule every other bare-name lookup in this compiler uses. A first
 ; match alone would let an import outrank the file being compiled.
-(pub :: lookupEff (-> Int Int Int))
+(pub :: lookupEff (-> Int String Int))
 (pub fn (lookupEff tbl name)
   (let ((e (lookupEffIn tbl name 1 0)))
     (if (!= e 0) e (lookupEffIn tbl name 0 0))))
 
-(pub :: lookupEffIn (-> Int Int Int Int Int))
+(pub :: lookupEffIn (-> Int String Int Int Int))
 (pub fn (lookupEffIn tbl name entryOnly i)
   (if (>= i (vecLen tbl))
       0
@@ -150,7 +150,7 @@
 ; reference sits in - `mangledFor`'s rule, applied to effects. A name
 ; the module does not declare falls through to `lookupEff`, so this
 ; only ever prepends a candidate.
-(pub :: lookupEffFor (-> Int Int Int Int))
+(pub :: lookupEffFor (-> Int Int String Int))
 (pub fn (lookupEffFor cg tbl name)
   (let ((m (memGetWord cg 34)))
     (let ((local (if (== m 0)
@@ -160,7 +160,7 @@
           local
           (lookupEff tbl name)))))
 
-(pub :: effSlotRegistered (-> Int Int Int Bool))
+(pub :: effSlotRegistered (-> Int String Int Bool))
 (pub fn (effSlotRegistered tbl slot i)
   (if (>= i (vecLen tbl))
       false
@@ -322,11 +322,11 @@
         (scanFloatSigs decls sigs (+ i 1))
       }))
 
-(pub :: findFSig (-> Int Int Int))
+(pub :: findFSig (-> Int String Int))
 (pub fn (findFSig sigs name)
   (findFSigIn sigs name (strLen name) 0))
 
-(pub :: findFSigIn (-> Int Int Int Int Int))
+(pub :: findFSigIn (-> Int String Int Int Int))
 (pub fn (findFSigIn sigs name nl i)
   (if (>= i (vecLen sigs))
       0
@@ -339,7 +339,7 @@
 ; names answer 0: a function with no signature cannot traffic in floats,
 ; because nothing could have told the emitter which of its words are
 ; bit patterns.
-(pub :: fnRetIsFloat (-> Int Int Int))
+(pub :: fnRetIsFloat (-> Int String Int))
 (pub fn (fnRetIsFloat cg name)
   (let ((e (findFSig (memGetWord cg 15) name)))
     (if (== e 0)
@@ -363,14 +363,14 @@
             0
             (vecGet flags idx)))))
 
-(pub :: paramFloatByName (-> Int Int Int))
+(pub :: paramFloatByName (-> Int String Int))
 (pub fn (paramFloatByName cg name)
   (let ((params (memGetWord cg 17)))
     (if (== params 0)
         0
         (paramFloatIdx cg params name 0))))
 
-(pub :: paramFloatIdx (-> Int Int Int Int Int))
+(pub :: paramFloatIdx (-> Int Int String Int Int))
 (pub fn (paramFloatIdx cg params name i)
   (if (>= i (vecLen params))
       0
@@ -393,7 +393,7 @@
 ; turns a stale reader into a silent wrong answer.
 ; ------------------------------------------------------------------
 
-(pub :: emitLine (-> Int Int Int))
+(pub :: emitLine (-> Int String Int))
 (pub fn (emitLine cg line)
   (let ((updated (vecPush (memGetWord cg 0) (strDup line))))
     {
@@ -497,17 +497,17 @@
 ; ------------------------------------------------------------------
 ; String helpers.
 ; ------------------------------------------------------------------
-(pub :: cat2 (-> Int Int Int))
+(pub :: cat2 (-> String String String))
 (pub fn (cat2 a b) (strConcat a b))
 
-(pub :: cat3 (-> Int Int Int Int))
+(pub :: cat3 (-> String String String String))
 (pub fn (cat3 a b c) (strConcat (strConcat a b) c))
 
-(pub :: cat4 (-> Int Int Int Int Int))
+(pub :: cat4 (-> String String String String String))
 (pub fn (cat4 a b c d)
   (strConcat (strConcat a (strConcat b c)) d))
 
-(pub :: regStr (-> Int Int))
+(pub :: regStr (-> Int String))
 (pub fn (regStr n) (cat2 "%t" (fmtInt n)))
 
 (pub :: constStr (-> Int Int))
@@ -523,7 +523,7 @@
 ; close the constant early, and no judgement is needed about which bytes
 ; LLVM considers printable.
 ; ------------------------------------------------------------------
-(pub :: internString (-> Int Int Int))
+(pub :: internString (-> Int String Int))
 (pub fn (internString cg lexeme)
   (let ((tbl (memGetWord cg 10))
         (found (findString tbl lexeme 0)))
@@ -535,7 +535,7 @@
             id
           }))))
 
-(pub :: findString (-> Int Int Int Int))
+(pub :: findString (-> Int String Int Int))
 (pub fn (findString tbl s i)
   (if (>= i (vecLen tbl))
       (- 0 1)
@@ -568,7 +568,7 @@
 
 ; `lexeme` still carries its surrounding quotes, so the body runs from
 ; index 1 to len-1.
-(pub :: escBody (-> Int Int Int Int Int))
+(pub :: escBody (-> String Int Int String Int))
 (pub fn (escBody s i limit acc)
   (if (>= i limit)
       acc
@@ -627,7 +627,7 @@
 ; `@42` is LLVM's NUMBERED global, which is a different thing from a
 ; global whose name is "42". `isIdentStart` cannot produce one today
 ; and this does not rely on that staying true.
-(pub :: llvmSymIsPlain (-> Int Int Int Bool))
+(pub :: llvmSymIsPlain (-> String Int Int Bool))
 (pub fn (llvmSymIsPlain s i n)
   (if (>= i n)
       true
@@ -643,7 +643,7 @@
 ; in `isIdentChar`, so neither is reachable from a source name today;
 ; they are handled because the quoting rule belongs to LLVM and must
 ; not depend on where Axiom's set happens to stop.
-(pub :: llvmSymBody (-> Int Int Int Int Int))
+(pub :: llvmSymBody (-> String Int Int String Int))
 (pub fn (llvmSymBody s i n acc)
   (if (>= i n)
       acc
@@ -655,7 +655,7 @@
 
 ; The empty name quotes rather than emitting a bare sigil: `@` alone is
 ; not an identifier, and `@""` is.
-(pub :: llvmSym (-> Int Int))
+(pub :: llvmSym (-> String String))
 (pub fn (llvmSym name)
   (let ((n (strLen name)))
     (if (&& (> n 0) (llvmSymIsPlain name 0 n))
@@ -693,11 +693,11 @@
 ; ------------------------------------------------------------------
 ; Nullary top-level functions read like variables but lower to calls.
 ; ------------------------------------------------------------------
-(pub :: isNullaryFn (-> Int Int Bool))
+(pub :: isNullaryFn (-> Int String Bool))
 (pub fn (isNullaryFn decls name)
   (if (== decls 0) false (isNullaryFnIn decls name 0)))
 
-(pub :: isNullaryFnIn (-> Int Int Int Bool))
+(pub :: isNullaryFnIn (-> Int String Int Bool))
 (pub fn (isNullaryFnIn decls name i)
   (if (>= i (vecLen decls))
       false
@@ -754,7 +754,7 @@
 ; `EffMod$ask`, and an `effect` declaration is one of the two kinds
 ; `mangleDecl` never rewrites. Both spellings dispatch through the one
 ; slot, which is the only thing that has to be single.
-(pub :: scanEffectOps (-> Int Int Int Int Int Int Int))
+(pub :: scanEffectOps (-> Int Int Int String Int Int Int))
 (pub fn (scanEffectOps ops slot isEntry modName tbl i)
   (if (>= i (vecLen ops))
       0
@@ -838,14 +838,14 @@
 ; changes no rule: the tag, arity and representation are the SAME
 ; values, which is what keeps a constructor reached under either
 ; spelling one constructor rather than two.
-(pub :: addQualified (-> Int Int Int Int Int Int Int Int Int Int))
+(pub :: addQualified (-> Int String String Int Int Int Int Int Int Int))
 (pub fn (addQualified types modName name kind arity tag rep fieldFlags fieldNames)
   (if (== modName 0)
       types
       (addTypeNamed types (cat3 (strDup modName) "$" (strDup name))
                     kind arity tag rep fieldFlags fieldNames)))
 
-(pub :: scanCtors (-> Int Int Int Int Int Int))
+(pub :: scanCtors (-> Int Int Int Int String Int))
 (pub fn (scanCtors ctors cg i rep modName)
   (if (>= i (vecLen ctors)) cg
       (let ((node (vecGet ctors i)))
@@ -896,7 +896,7 @@
 ; module path onto a relative file path: Sys.Platform -> Sys/Platform.
 ; `strDup` gives an owned, NUL-terminated buffer, so rewriting the bytes
 ; in place cannot disturb the original.
-(pub :: modPathToFile (-> Int Int))
+(pub :: modPathToFile (-> String Int))
 (pub fn (modPathToFile s)
   (let ((out (strDup s)))
     {
@@ -922,7 +922,7 @@
 ; live in Axiom source rather than in a table inside the compiler.
 ; Without it the platform module resolves to nothing and every constant
 ; it defines - `sysWrite`, `oRdonly` - is an undefined symbol.
-(pub :: readModuleSrc (-> Int Int Int Int))
+(pub :: readModuleSrc (-> String Int Int Int))
 (pub fn (readModuleSrc name tcode entryDir)
   (let ((p (moduleSrcPath name tcode entryDir)))
     (if (== (strLen p) 0)
@@ -935,7 +935,7 @@
 ; the path away, so an imported module that failed to parse could not
 ; be reported against anything. The ladder lives here once and
 ; `readModuleSrc` reads through it, rather than being stated twice.
-(pub :: moduleSrcPath (-> Int Int Int Int))
+(pub :: moduleSrcPath (-> String Int Int Int))
 (pub fn (moduleSrcPath name tcode entryDir)
   (let ((stem (modPathToFile name)))
     (let ((a (tryModulePath stem (targetOsArchSuffix tcode) entryDir)))
@@ -946,7 +946,7 @@
                 b
                 (tryModulePath stem ".ax" entryDir)))))))
 
-(pub :: tryModuleFile (-> Int Int Int Int))
+(pub :: tryModuleFile (-> String String Int Int))
 ; Answers the PATH that was read, or "" - the unit table needs the
 ; filename a diagnostic will be rendered against, and only the search
 ; knows which candidate won.
@@ -997,7 +997,7 @@
     }))
 
 ; Append each non-empty `:`-separated entry of `list`, slash-terminated.
-(pub :: pushPathList (-> Int Int Int Int))
+(pub :: pushPathList (-> Int String Int Int))
 (pub fn (pushPathList v list from)
   ; `strSplit` owns the colon scan now. This was one of two open-coded
   ; copies of it - the other is `Sys.sysRunSearch`, which keeps its
@@ -1028,7 +1028,7 @@
 ; The argument may be a slice of the environment's bytes, which shares
 ; storage and is not NUL-terminated; `strConcat` copies, so the answer
 ; always is.
-(pub :: withTrailingSlash (-> Int Int))
+(pub :: withTrailingSlash (-> String String))
 (pub fn (withTrailingSlash d)
   (if (== (strLen d) 0)
       ""
@@ -1036,7 +1036,7 @@
           (strDup d)
           (cat2 d "/"))))
 
-(pub :: tryModulePath (-> Int Int Int Int))
+(pub :: tryModulePath (-> String String Int Int))
 (pub fn (tryModulePath stem suffix entryDir)
   (searchDirsFor (moduleSearchDirs entryDir) (cat2 stem suffix) 0))
 
@@ -1047,7 +1047,7 @@
 ; predecessor did too - `sysReadFile` answers "" for both - and is
 ; recorded rather than fixed, because an empty module contributes no
 ; declarations and so fails identically one step later.
-(pub :: searchDirsFor (-> Int Int Int Int))
+(pub :: searchDirsFor (-> Int String Int Int))
 (pub fn (searchDirsFor dirs base i)
   (if (>= i (vecLen dirs))
       ""
@@ -1056,7 +1056,7 @@
             cand
             (searchDirsFor dirs base (+ i 1))))))
 
-(pub :: modulePathOf (-> Int Int Int Int))
+(pub :: modulePathOf (-> String Int Int Int))
 (pub fn (modulePathOf name tcode entryDir)
   (let ((stem (modPathToFile name)))
     (let ((a (tryModulePath stem (targetOsArchSuffix tcode) entryDir)))
@@ -1080,10 +1080,10 @@
 
 ; Everything up to and including the last `/` of a path, or "" when
 ; the path names a file in the working directory.
-(pub :: dirOfPath (-> Int Int))
+(pub :: dirOfPath (-> String Int))
 (pub fn (dirOfPath p) (dirOfPathFrom p (- (strLen p) 1)))
 
-(pub :: dirOfPathFrom (-> Int Int Int))
+(pub :: dirOfPathFrom (-> String Int Int))
 (pub fn (dirOfPathFrom p i)
   (if (< i 0)
       ""
@@ -1099,7 +1099,7 @@
 ; visibly imported it. Refusing at the point of failure names the
 ; module, and matches the rule held everywhere else: a malformed input
 ; produces a diagnostic, not something worse further away.
-(pub :: dieImport (-> Int Int Int))
+(pub :: dieImport (-> String String Int))
 (pub fn (dieImport msg name)
   {
     (sysWriteFd 2 (strData msg) (strLen msg))
@@ -1127,7 +1127,7 @@
 ; The exit status is `dieImport`'s, unchanged, because it is the one
 ; every gate already expects for a codegen bail-out and this commit is
 ; about the diagnostic rather than the status.
-(pub :: dieCodegenDiag (-> Int Int Int))
+(pub :: dieCodegenDiag (-> String String Int))
 ;@axiom:effect(io)
 (pub fn (dieCodegenDiag msg name)
   (let ((d (mkDiag SEV_ERROR "AX4002" "codegen-failure" 0
@@ -1155,12 +1155,12 @@
 
 ; Declaration Vec for module `name`; a module that cannot be read or
 ; parsed is a fatal diagnostic, never a 0 this returns.
-(pub :: parseModuleOrDie (-> Int Int Int Int))
+(pub :: parseModuleOrDie (-> String Int Int Int))
 ; As `parseModuleOrDie`, and additionally records the module in the
 ; UNIT TABLE - the path a diagnostic about this module renders
 ; against, its text, and its name so the checker can find the index
 ; from a declaration's `module` stamp.
-(pub :: parseModuleOrDieUnit (-> Int Int Int Int Int))
+(pub :: parseModuleOrDieUnit (-> String Int Int Int Int))
 (pub fn (parseModuleOrDieUnit name tcode entryDir units)
   {
     (if (== (unitIndexOf units name 0) (- 0 1))
@@ -1171,7 +1171,7 @@
     (parseModuleOrDie name tcode entryDir)
   })
 
-(pub :: unitIndexOf (-> Int Int Int Int))
+(pub :: unitIndexOf (-> Int String Int Int))
 (pub fn (unitIndexOf units name i)
   (if (>= i (vecLen units))
       (- 0 1)
@@ -1220,7 +1220,7 @@
 ; `looked for 'A' or 'B' or 'C' in 'd1', 'd2', ...` - the same
 ; candidates and directories readModuleSrc searched, in the same
 ; order, so the help never claims a search that did not happen.
-(pub :: importHelpText (-> Int Int Int Int))
+(pub :: importHelpText (-> String Int Int Int))
 (pub fn (importHelpText name tcode entryDir)
   (let ((stem (modPathToFile name))
         (dirs (moduleSearchDirs entryDir)))
@@ -1245,7 +1245,7 @@
         (catStrs parts)
       })))
 
-(pub :: dieImportDiag (-> Int Int Int Int))
+(pub :: dieImportDiag (-> String Int Int Int))
 ;@axiom:effect(io)
 (pub fn (dieImportDiag name tcode entryDir)
   (let ((d (mkDiag SEV_ERROR "AX5001" "module-not-found" 0
@@ -1279,7 +1279,7 @@
 ; This was the last surface untouched by the parse-error port, and it
 ; is the one a person compiling a multi-module program meets first: it
 ; is what a compiler prints when a file it was told to read is broken.
-(pub :: dieModuleParse (-> Int Int Int Int Int Int Int Int))
+(pub :: dieModuleParse (-> String String Int Int Int Int Int Int))
 ;@axiom:effect(io)
 (pub fn (dieModuleParse name src toks pr lexD tcode entryDir)
   (let ((path (moduleSrcPath name tcode entryDir))
@@ -1320,11 +1320,11 @@
               (dieModuleParse name src toks pr lexD tcode entryDir)
               (memGetWord pr 1))))))))
 
-(pub :: seenHas (-> Int Int Bool))
+(pub :: seenHas (-> Int String Bool))
 (pub fn (seenHas seen name)
   (seenHasIn seen name 0))
 
-(pub :: seenHasIn (-> Int Int Int Bool))
+(pub :: seenHasIn (-> Int String Int Bool))
 (pub fn (seenHasIn seen name i)
   (if (>= i (vecLen seen))
       false
@@ -1357,7 +1357,7 @@
 ; already claimed. First-writer-wins is what makes the entry file win:
 ; `resolveImports` records every entry-file function before any import
 ; is read.
-(pub :: mangleRecord (-> Int Int Int Int Int))
+(pub :: mangleRecord (-> Int Int String String Int))
 (pub fn (mangleRecord bares fulls bare full)
   {
     ; The mangled name maps to itself, recorded whether or not the bare
@@ -1386,7 +1386,7 @@
         })
   })
 
-(pub :: mangleHasIn (-> Int Int Int Bool))
+(pub :: mangleHasIn (-> Int String Int Bool))
 (pub fn (mangleHasIn bares bare i)
   (if (>= i (vecLen bares))
       false
@@ -1407,7 +1407,7 @@
 ; a module could silently rewrite what that module does. stage0 applies
 ; the same rule in `mangled_name_for`, and the two have to agree
 ; symbol for symbol or the fixpoint is comparing different programs.
-(pub :: mangledFor (-> Int Int Int))
+(pub :: mangledFor (-> Int String Int))
 (pub fn (mangledFor cg name)
   ; A reference to `main` - a recursive call, or main as a value -
   ; must reach the renamed user function, never the argv wrapper,
@@ -1422,7 +1422,7 @@
                   local
                   (mangledForIn (memGetWord cg 12) (memGetWord cg 13) name 0)))))))
 
-(pub :: mangledForIn (-> Int Int Int Int Int))
+(pub :: mangledForIn (-> Int Int String Int Int))
 (pub fn (mangledForIn bares fulls name i)
   (if (>= i (vecLen bares))
       name
@@ -1446,7 +1446,7 @@
 ; reference that gets past it lands here as a name this map does not
 ; hold and is emitted unchanged - an undefined symbol reported by
 ; `opt` against generated code.
-(pub :: mangleDecl (-> Int Int Int Int Int Int))
+(pub :: mangleDecl (-> Int String Int Int Int Int))
 (pub fn (mangleDecl node modName bares fulls exported)
   (if (== modName 0)
       0
@@ -1469,7 +1469,7 @@
 ; The half of `mangleRecord` that a private declaration gets: the
 ; mangled name maps to itself, and the bare slot is left for whoever
 ; can legitimately claim it.
-(pub :: mangleRecordSelf (-> Int Int Int Int))
+(pub :: mangleRecordSelf (-> Int Int String Int))
 (pub fn (mangleRecordSelf bares fulls full)
   (if (mangleHasIn bares full 0)
       0
@@ -1516,7 +1516,7 @@
 ; `acc` and `seen` are threaded rather than rebuilt: `vecPush` mutates in
 ; place and returns the same handle, so both stay stable across the whole
 ; traversal and siblings observe each other's additions.
-(pub :: resolveDecls (-> Int Int Int Int Int Int Int Int Int Int Int Int))
+(pub :: resolveDecls (-> Int Int Int Int String Int Int Int Int Int Int Int))
 (pub fn (resolveDecls decls acc seen i modName bares fulls filter tcode entryDir units)
   ; Two passes: stage0 partitions a module's imports into
   ; `Module::imports` and resolves ALL of them before any of the
@@ -1534,7 +1534,7 @@
 ; One pass: phase 0 consumes only the `(import ...)` entries (each
 ; imported module resolving BOTH its phases depth-first), phase 1 only
 ; the module's own declarations.
-(pub :: resolveDeclsPhase (-> Int Int Int Int Int Int Int Int Int Int Int Int Int))
+(pub :: resolveDeclsPhase (-> Int Int Int Int String Int Int Int Int Int Int Int Int))
 (pub fn (resolveDeclsPhase decls acc seen i modName bares fulls filter tcode entryDir units phase)
   (if (>= i (vecLen decls)) acc
       (let ((first (vecGet decls i)))
@@ -1599,7 +1599,7 @@
                     (resolveDeclsPhase decls (vecPush acc first) seen (+ i 1) modName bares fulls filter tcode entryDir units phase)
                   }))))))
 
-(pub :: filterKeeps (-> Int Int Bool))
+(pub :: filterKeeps (-> Int String Bool))
 (pub fn (filterKeeps filter name)
   (if (== filter 0)
       true
@@ -1621,7 +1621,7 @@
 ; 2 linux-aarch64, 3 linux-x86_64; -1 is "unknown", refused loudly.
 ; ------------------------------------------------------------------
 
-(pub :: targetCode (-> Int Int))
+(pub :: targetCode (-> String Int))
 (pub fn (targetCode name)
   (if (strEq name "darwin-aarch64") 0
   (if (strEq name "darwin-x86_64") 1
@@ -2225,7 +2225,7 @@
 ; The convenience entry point, for a caller with no path to derive a
 ; module search directory from; imports resolve against `self_host/`
 ; and `stdlib/` only, as they always did.
-(pub :: emitModule (-> Int Int Int))
+(pub :: emitModule (-> Int String Int))
 (pub fn (emitModule decls target)
   (let ((tcode (checkedTargetCode target))
         (bares vecNew)
@@ -2248,7 +2248,7 @@
 ; binary that dies at its first write. Split out so the driver can
 ; resolve imports itself (the type checker needs the resolved
 ; declaration list) without duplicating the refusal.
-(pub :: checkedTargetCode (-> Int Int))
+(pub :: checkedTargetCode (-> String Int))
 (pub fn (checkedTargetCode target)
   (let ((tcode (targetCode target)))
     (if (< tcode 0)
@@ -2526,11 +2526,11 @@
 ; Everything after the last `$`: the source-spelled name of a
 ; declaration whose node `mangleDecl` may have rewritten to
 ; `Mod$name`.
-(pub :: bareName (-> Int Int))
+(pub :: bareName (-> String Int))
 (pub fn (bareName s)
   (bareNameFrom s (- (strLen s) 1)))
 
-(pub :: bareNameFrom (-> Int Int Int))
+(pub :: bareNameFrom (-> String Int Int))
 (pub fn (bareNameFrom s i)
   (if (< i 0)
       s
@@ -2538,7 +2538,7 @@
           (strSlice s (+ i 1) (- (strLen s) (+ i 1)))
           (bareNameFrom s (- i 1)))))
 
-(pub :: openTailLoop (-> Int Int Int Int))
+(pub :: openTailLoop (-> String Int Int Int))
 (pub fn (openTailLoop name params cg)
   (let ((slots vecNew)
         (hdrN (allocReg cg)))
@@ -2640,7 +2640,7 @@
 ; expression of a `{}` block, both arms of an `if`, the body of a
 ; `let`, and the expression itself.
 ; ------------------------------------------------------------------
-(pub :: tailCallsSelf (-> Int Int Int Int))
+(pub :: tailCallsSelf (-> Int String Int Int))
 (pub fn (tailCallsSelf e name arity)
   (let ((tag (nodeTag e)))
     (if (== tag TAG_E_APP)
@@ -2672,7 +2672,7 @@
 ; `while` bodies and `&&`/`||` operands are not tail positions either,
 ; for the same reason stage0 excludes them.
 
-(pub :: armsCallSelf (-> Int Int Int Int Int))
+(pub :: armsCallSelf (-> Int String Int Int Int))
 (pub fn (armsCallSelf arms name arity i)
   (if (>= i (vecLen arms))
       0
@@ -2768,7 +2768,7 @@
         (_4 (memSetWord cg3 31 0)))
     cg3))
 
-(pub :: emitArmsTail (-> Int Int Int Int Int Int Int Int))
+(pub :: emitArmsTail (-> Int String String String Int Int Int Int))
 (pub fn (emitArmsTail arms sv cell mergeB cg i ff)
   (if (>= i (vecLen arms))
       {
@@ -2885,7 +2885,7 @@
                       cg3
                     })))))))
 
-(pub :: emitParams (-> Int Int Int Int))
+(pub :: emitParams (-> Int Int Int String))
 (pub fn (emitParams params cg i)
   (if (>= i (vecLen params))
       ""
@@ -2951,13 +2951,13 @@
             (capFromVec src lparams out (+ i 1))
           })))
 
-(pub :: strIndexIn (-> Int Int Int))
+(pub :: strIndexIn (-> Int String Int))
 (pub fn (strIndexIn v name)
   (if (== v 0)
       (- 0 1)
       (strIndexFrom v name 0)))
 
-(pub :: strIndexFrom (-> Int Int Int Int))
+(pub :: strIndexFrom (-> Int String Int Int))
 (pub fn (strIndexFrom v name i)
   (if (>= i (vecLen v))
       (- 0 1)
@@ -3031,7 +3031,7 @@
             }))
       })))
 
-(pub :: storeCaps (-> Int Int Int Int Int))
+(pub :: storeCaps (-> Int String Int Int Int))
 (pub fn (storeCaps cg base capRegs i)
   (if (>= i (vecLen capRegs))
       cg
@@ -3099,7 +3099,7 @@
 
 ; A forwarding thunk for a bare top-level function used as a value:
 ; takes the record it ignores, forwards the declared parameters.
-(pub :: thunkIndexFor (-> Int Int Int Int))
+(pub :: thunkIndexFor (-> Int String Int Int))
 (pub fn (thunkIndexFor cg full ar)
   (let ((idx (strIndexIn (memGetWord cg 23) full)))
     (if (>= idx 0)
@@ -3111,11 +3111,11 @@
             n
           }))))
 
-(pub :: fnArityOf (-> Int Int Int))
+(pub :: fnArityOf (-> Int String Int))
 (pub fn (fnArityOf decls full)
   (fnArityIn decls full 0))
 
-(pub :: fnArityIn (-> Int Int Int Int))
+(pub :: fnArityIn (-> Int String Int Int))
 (pub fn (fnArityIn decls full i)
   (if (>= i (vecLen decls))
       0
@@ -3150,13 +3150,13 @@
                                           ")"))))
         (emitLine (emitLine cg2 "  ret i64 %r") "}")))))
 
-(pub :: thunkParamStr (-> Int Int Int))
+(pub :: thunkParamStr (-> Int Int String))
 (pub fn (thunkParamStr ar j)
   (if (>= j ar)
       ""
       (cat3 (cat2 ", i64 %a" (fmtInt j)) (thunkParamStr ar (+ j 1)) "")))
 
-(pub :: thunkArgStr (-> Int Int Int))
+(pub :: thunkArgStr (-> Int Int String))
 (pub fn (thunkArgStr ar j)
   (if (>= j ar)
       ""
@@ -3188,7 +3188,7 @@
           (patHead (nodeA pat))
           0)))
 
-(pub :: loadWordAt (-> Int Int Int Int))
+(pub :: loadWordAt (-> Int String Int Int))
 (pub fn (loadWordAt cg base idx)
   (let ((pn (allocReg cg))
         (pr (regStr pn))
@@ -3271,7 +3271,7 @@
         (_3 (memSetWord cg3 14 (if (== armFlag (- 0 1)) 0 armFlag))))
     cg3))
 
-(pub :: emitArms (-> Int Int Int Int Int Int Int Int))
+(pub :: emitArms (-> Int String String String Int Int Int Int))
 (pub fn (emitArms arms sv cell mergeB cg i ff)
   (if (>= i (vecLen arms))
       ; No arm matched. The cell still holds zero, which is what a
@@ -3319,7 +3319,7 @@
 ; of an arm (the scrutinee's own float-ness is not tracked), the
 ; field's declared flag when descending into a constructor.
 ; ------------------------------------------------------------------
-(pub :: emitPatMatch (-> Int Int Int Int Int Int))
+(pub :: emitPatMatch (-> Int String String Int Int Int))
 (pub fn (emitPatMatch pat vr failB cg isFloat)
   (let ((tag (nodeTag pat)))
     (if (== tag TAG_E_INT)
@@ -3415,7 +3415,7 @@
 ; against any constructor's compare. The result travels through a
 ; one-word heap cell rather than a phi, the same idiom `match` uses
 ; for its own result.
-(pub :: emitCondTagRead (-> Int Int Int))
+(pub :: emitCondTagRead (-> String Int Int))
 (pub fn (emitCondTagRead vr cg)
   (let ((cellN (allocReg cg))
         (cn (allocReg cg))
@@ -3450,7 +3450,7 @@
 
 ; One `icmp eq` against `want`, branching to `failB` on mismatch and
 ; into a fresh block on success.
-(pub :: emitPatTest (-> Int Int Int Int Int))
+(pub :: emitPatTest (-> String String String Int Int))
 (pub fn (emitPatTest want vr failB cg)
   (let ((tn (allocReg cg))
         (cn (allocReg cg)))
@@ -3472,7 +3472,7 @@
 ; Load each field of the block in `vr` (fields start at word 1, past
 ; the tag) and recurse into the subpattern, carrying the field's
 ; declared float flag to whatever binder it bottoms out in.
-(pub :: emitPatFields (-> Int Int Int Int Int Int Int))
+(pub :: emitPatFields (-> Int Int String String Int Int Int))
 (pub fn (emitPatFields subs flags vr failB cg i)
   (if (>= i (vecLen subs))
       cg
@@ -3587,7 +3587,7 @@
         ; the unquoted spelling stays the registry's key.
         (emitHandleDyn node (llvmSym (effSlot ent)) cg))))
 
-(pub :: emitHandleDyn (-> Int Int Int Int))
+(pub :: emitHandleDyn (-> Int String Int Int))
 (pub fn (emitHandleDyn node slot cg)
   ; The body is deliberately NOT emitted in tail position: the restore
   ; below has to run after it, and a self tail call rewritten to a
@@ -3690,7 +3690,7 @@
 ; value absorbs exactly one, so a two-argument operation takes a
 ; curried handler chain and applying both at once would answer with
 ; the inner closure's address.
-(pub :: emitApplyRegs (-> Int Int Int Int Int))
+(pub :: emitApplyRegs (-> Int Int String Int Int))
 (pub fn (emitApplyRegs regs cg rec i)
   (if (>= i (vecLen regs))
       {
@@ -3733,7 +3733,7 @@
 
 ; The index of the first entry carrying `slot`, or -1. Two entries may
 ; share one slot; only the first of them emits its global.
-(pub :: slotFirstIndex (-> Int Int Int Int))
+(pub :: slotFirstIndex (-> Int String Int Int))
 (pub fn (slotFirstIndex tbl slot i)
   (if (>= i (vecLen tbl))
       (- 0 1)
@@ -3830,10 +3830,10 @@
 
 ; A data constructor's named field as an inert (index, floatFlag)
 ; node, or 0. Searched in registry order, first match winning.
-(pub :: findDataField (-> Int Int Int))
+(pub :: findDataField (-> Int String Int))
 (pub fn (findDataField types fname) (findDataFieldFrom types fname 0))
 
-(pub :: findDataFieldFrom (-> Int Int Int Int))
+(pub :: findDataFieldFrom (-> Int String Int Int))
 (pub fn (findDataFieldFrom types fname i)
   (if (>= i (vecLen types))
       0
@@ -3848,7 +3848,7 @@
                               (vecGet (eFieldFlags e) j) 0)
                           0)))))))
 
-(pub :: dataFieldIndexIn (-> Int Int Int Int))
+(pub :: dataFieldIndexIn (-> Int String Int Int))
 (pub fn (dataFieldIndexIn names fname i)
   (if (>= i (vecLen names))
       (- 0 1)
@@ -3857,11 +3857,11 @@
 
 ; The field's (index, floatFlag) as an inert node, 0 when no struct
 ; declares the name.
-(pub :: findStructField (-> Int Int Int))
+(pub :: findStructField (-> Int String Int))
 (pub fn (findStructField types name)
   (findStructFieldIn types name 0))
 
-(pub :: findStructFieldIn (-> Int Int Int Int))
+(pub :: findStructFieldIn (-> Int String Int Int))
 (pub fn (findStructFieldIn types name i)
   (if (>= i (vecLen types))
       0
@@ -3874,7 +3874,7 @@
                           (nodeB (vecGet (eFieldFlags e) idx)) 0)))
             (findStructFieldIn types name (+ i 1))))))
 
-(pub :: fieldIndexIn (-> Int Int Int Int))
+(pub :: fieldIndexIn (-> Int String Int Int))
 (pub fn (fieldIndexIn fields name i)
   (if (>= i (vecLen fields))
       (- 0 1)
@@ -4040,14 +4040,14 @@
 
 ; Index of `name` in the current function's parameter list, -1 when it
 ; is no parameter.
-(pub :: paramIndexOf (-> Int Int Int))
+(pub :: paramIndexOf (-> Int String Int))
 (pub fn (paramIndexOf cg name)
   (let ((params (memGetWord cg 17)))
     (if (== params 0)
         (- 0 1)
         (paramIndexIn params name 0))))
 
-(pub :: paramIndexIn (-> Int Int Int Int))
+(pub :: paramIndexIn (-> Int String Int Int))
 (pub fn (paramIndexIn params name i)
   (if (>= i (vecLen params))
       (- 0 1)
@@ -4055,13 +4055,13 @@
           i
           (paramIndexIn params name (+ i 1)))))
 
-(pub :: isDefinedFn (-> Int Int Bool))
+(pub :: isDefinedFn (-> Int String Bool))
 (pub fn (isDefinedFn decls name)
   (if (== decls 0)
       false
       (isDefinedFnIn decls name 0)))
 
-(pub :: isDefinedFnIn (-> Int Int Int Bool))
+(pub :: isDefinedFnIn (-> Int String Int Bool))
 (pub fn (isDefinedFnIn decls name i)
   (if (>= i (vecLen decls))
       false
@@ -4071,17 +4071,17 @@
             true
             (isDefinedFnIn decls name (+ i 1))))))
 
-(pub :: lookupSymKind (-> Int Int Int))
+(pub :: lookupSymKind (-> Int String Int))
 (pub fn (lookupSymKind cg name)
   (lookupSymFloatIn (memGetWord cg 6) (memGetWord cg 20) name
                     (- (vecLen (memGetWord cg 6)) 1)))
 
-(pub :: lookupSymFloat (-> Int Int Int))
+(pub :: lookupSymFloat (-> Int String Int))
 (pub fn (lookupSymFloat cg name)
   (lookupSymFloatIn (memGetWord cg 6) (memGetWord cg 16) name
                     (- (vecLen (memGetWord cg 6)) 1)))
 
-(pub :: lookupSymFloatIn (-> Int Int Int Int Int))
+(pub :: lookupSymFloatIn (-> Int Int String Int Int))
 (pub fn (lookupSymFloatIn syms flags name i)
   (if (< i 0)
       0
@@ -4089,13 +4089,13 @@
           (if (< i (vecLen flags)) (vecGet flags i) 0)
           (lookupSymFloatIn syms flags name (- i 1)))))
 
-(pub :: lookupSym (-> Int Int Int))
+(pub :: lookupSym (-> Int String Int))
 (pub fn (lookupSym cg name)
   (let ((syms (memGetWord cg 6))
         (regs (memGetWord cg 7)))
     (lookupSymIn syms regs name (- (vecLen syms) 1))))
 
-(pub :: lookupSymIn (-> Int Int Int Int Int))
+(pub :: lookupSymIn (-> Int Int String Int Int))
 (pub fn (lookupSymIn syms regs name i)
   (if (< i 0)
       0
@@ -4149,7 +4149,7 @@
           })))))
 
 ; Dispatch after flattening.
-(pub :: dispatchCall (-> Int Int Int))
+(pub :: dispatchCall (-> String Int Int))
 (pub fn (dispatchCall fnName cg)
   (let ((revArgs (memGetWord cg 5))
         (args (reverseVec revArgs))
@@ -4252,7 +4252,7 @@
                   (emitOverApplied fnName args cg))
               (zeroFloat (emitConstructor fnName args (eKind entry) (eArity entry) (eTag entry) (eRep entry) cg))))))))))))))
 
-(pub :: isLocalValue (-> Int Int Bool))
+(pub :: isLocalValue (-> Int String Bool))
 (pub fn (isLocalValue cg name)
   (if (!= (lookupSym cg name) 0)
       true
@@ -4276,7 +4276,7 @@
   (let ((cgH (emitVar (mkEVar fnName) cg)))
     (emitApplyChain args cgH (strDup (memGetWord cgH 2)) 0)))
 
-(pub :: emitApplyChain (-> Int Int Int Int Int))
+(pub :: emitApplyChain (-> Int Int String Int Int))
 (pub fn (emitApplyChain args cg rec i)
   (if (>= i (vecLen args))
       {
@@ -4298,7 +4298,7 @@
 ; before applying it, `emitApplyRegs` takes registers already
 ; evaluated, which is what an effect operation needs so that an
 ; argument's side effects happen before a missing handler traps.
-(pub :: applyOneArg (-> Int Int Int Int))
+(pub :: applyOneArg (-> Int String String Int))
 (pub fn (applyOneArg cg rec a)
   (let ((cgL (loadWordAt cg rec 0)))
     (let ((cp (strDup (memGetWord cgL 2)))
@@ -4326,7 +4326,7 @@
 ; ------------------------------------------------------------------
 ; Freestanding primitives.
 ; ------------------------------------------------------------------
-(pub :: isPrimName (-> Int Bool))
+(pub :: isPrimName (-> String Bool))
 (pub fn (isPrimName nm)
   (if (strEq nm "__alloc") true
   (if (strEq nm "__load64") true
@@ -4357,12 +4357,12 @@
 
 ; `__syscall0` through `__syscall6`, distinguished only by how many
 ; arguments follow the syscall number.
-(pub :: isSyscallName (-> Int Bool))
+(pub :: isSyscallName (-> String Bool))
 (pub fn (isSyscallName nm)
   (&& (== (strLen nm) 10)
       (strStartsWith nm "__syscall")))
 
-(pub :: emitPrim (-> Int Int Int Int))
+(pub :: emitPrim (-> String Int Int Int))
 (pub fn (emitPrim fnName args cg)
   (if (strEq fnName "__intToFloat") (emitPrimIntToFloat args cg)
   (if (strEq fnName "__floatToInt") (emitPrimFloatToInt args cg)
@@ -4577,7 +4577,7 @@
         cg1
       })))
 
-(pub :: padZeros (-> Int Int Int))
+(pub :: padZeros (-> Int String Int))
 (pub fn (padZeros n acc)
   (if (<= n 0)
       acc
@@ -4685,7 +4685,7 @@
                   cg5
                 }))))))))
 
-(pub :: narrowByte (-> Int Int Int))
+(pub :: narrowByte (-> Int String Int))
 (pub fn (narrowByte cg val)
   (let ((tn (allocReg cg)))
     (let ((tr (regStr tn)))
@@ -4717,7 +4717,7 @@
               cg
             })))))
 
-(pub :: isCastName (-> Int Bool))
+(pub :: isCastName (-> String Bool))
 (pub fn (isCastName nm)
   (strEq nm "cast"))
 
@@ -4745,7 +4745,7 @@
 ; name answers arity 0, and treating every builtin and binary operator
 ; as over-applied would route `(+ a b)` through a closure record that
 ; does not exist.
-(pub :: emitOverApplied (-> Int Int Int Int))
+(pub :: emitOverApplied (-> String Int Int Int))
 (pub fn (emitOverApplied fnName args cg)
   (let ((decls (memGetWord cg 8)))
     (if (isDefinedFn decls fnName)
@@ -4772,7 +4772,7 @@
   (if (>= i (vecLen v)) acc (dropInto v (+ i 1) (vecPush acc (vecGet v i)))))
 
 ; Emit regular call: check binops/comparisons first.
-(pub :: emitCall (-> Int Int Int Int))
+(pub :: emitCall (-> String Int Int Int))
 (pub fn (emitCall fnName args cg)
   (if (&& (== (vecLen args) 2) (isBinop fnName))
       (emitBinop2 fnName args cg)
@@ -4793,7 +4793,7 @@
 ; once. Either operand being a float makes the operation a float
 ; operation; a program mixing the two would be a type error under
 ; stage0, and this compiler compiles what it is given.
-(pub :: emitBinop2 (-> Int Int Int Int))
+(pub :: emitBinop2 (-> String Int Int Int))
 (pub fn (emitBinop2 fnName args cg)
   (let ((cg1 (emitExpr (vecGet args 0) cg)))
     (let ((a (strDup (memGetWord cg1 2)))
@@ -4814,7 +4814,7 @@
 ; Guarded now: a compare and a branch to a shared trap that names the
 ; fault on fd 2 and exits 72. One predictable branch, paid only by
 ; `/` and `%`.
-(pub :: emitIBinop (-> Int Int Int Int Int))
+(pub :: emitIBinop (-> String String String Int Int))
 (pub fn (emitIBinop fnName a b cg)
   (let ((cgG (if (isDivOp fnName) (emitDivGuard b cg) cg)))
     (let ((rn (allocReg cgG)))
@@ -4829,12 +4829,12 @@
           cgG
         }))))
 
-(pub :: isDivOp (-> Int Bool))
+(pub :: isDivOp (-> String Bool))
 (pub fn (isDivOp nm) (|| (strEq nm "/") (strEq nm "%")))
 
 ; `if divisor == 0 then trap`. The trap block ends `unreachable`, so
 ; nothing downstream has to know it is there.
-(pub :: emitDivGuard (-> Int Int Int))
+(pub :: emitDivGuard (-> String Int Int))
 (pub fn (emitDivGuard b cg)
   (let ((cn (allocReg cg)))
     (let ((zn (allocReg cg))
@@ -4856,7 +4856,7 @@
 ; The operands hold bits; the arithmetic wants a double. `bitcast` in,
 ; one float instruction, `bitcast` back out - free at runtime, and the
 ; register allocator keeps a chain of them in FP registers.
-(pub :: emitFBinop (-> Int Int Int Int Int))
+(pub :: emitFBinop (-> String String String Int Int))
 (pub fn (emitFBinop fnName a b cg)
   (let ((an (allocReg cg))
         (bn (allocReg cg))
@@ -4879,7 +4879,7 @@
         cg
       })))
 
-(pub :: emitCmp2 (-> Int Int Int Int))
+(pub :: emitCmp2 (-> String Int Int Int))
 (pub fn (emitCmp2 fnName args cg)
   (let ((cg1 (emitExpr (vecGet args 0) cg)))
     (let ((a (strDup (memGetWord cg1 2)))
@@ -4891,7 +4891,7 @@
               (emitFCmp fnName a b cg2)
               (emitICmp fnName a b cg2)))))))
 
-(pub :: emitICmp (-> Int Int Int Int Int))
+(pub :: emitICmp (-> String String String Int Int))
 (pub fn (emitICmp fnName a b cg)
   (let ((cn (allocReg cg))
         (rn (allocReg cg)))
@@ -4910,7 +4910,7 @@
 
 ; Ordered comparisons, so a NaN operand compares false - the same
 ; choice stage0 makes.
-(pub :: emitFCmp (-> Int Int Int Int Int))
+(pub :: emitFCmp (-> String String String Int Int))
 (pub fn (emitFCmp fnName a b cg)
   (let ((an (allocReg cg))
         (bn (allocReg cg))
@@ -4933,7 +4933,7 @@
         cg
       })))
 
-(pub :: emitPlainCall (-> Int Int Int Int))
+(pub :: emitPlainCall (-> String Int Int Int))
 (pub fn (emitPlainCall fnName args cg)
   (let ((argStrCg (emitArgsList args cg 0)))
     (let ((argStrT (memGetWord argStrCg 9))
@@ -4970,13 +4970,13 @@
 ;
 ; So they become branches, like `if`.
 ; ------------------------------------------------------------------
-(pub :: isAndOr (-> Int Bool))
+(pub :: isAndOr (-> String Bool))
 (pub fn (isAndOr nm)
   (if (strEq nm "&&")
       true
       (strEq nm "||")))
 
-(pub :: emitAndOr (-> Int Int Int Int))
+(pub :: emitAndOr (-> String Int Int Int))
 (pub fn (emitAndOr op args cg)
   (let ((isAnd (strEq op "&&"))
         (cg1 (emitExpr (vecGet args 0) cg))
@@ -5036,7 +5036,7 @@
 ; `&&`/`||` never reach this table - `dispatchCall` routes them to the
 ; short-circuit branches first - so a single `&` or `|` here is
 ; unambiguously the bitwise operator.
-(pub :: isBinop (-> Int Bool))
+(pub :: isBinop (-> String Bool))
 (pub fn (isBinop nm)
   (if (strEq nm "+") true
   (if (strEq nm "-") true
@@ -5050,7 +5050,7 @@
   (if (strEq nm ">>") true
   false)))))))))))
 
-(pub :: binopToLLVM (-> Int Int))
+(pub :: binopToLLVM (-> String Int))
 (pub fn (binopToLLVM nm)
   (if (strEq nm "+") "add"
   (if (strEq nm "-") "sub"
@@ -5064,7 +5064,7 @@
   (if (strEq nm ">>") "ashr"     ; arithmetic, matching stage0
   "add")))))))))))
 
-(pub :: isCmpOp (-> Int Bool))
+(pub :: isCmpOp (-> String Bool))
 (pub fn (isCmpOp nm)
   (if (strEq nm "==") true
   (if (strEq nm "!=") true
@@ -5074,7 +5074,7 @@
   (if (strEq nm ">=") true
   false)))))))
 
-(pub :: cmpToLLVM (-> Int Int))
+(pub :: cmpToLLVM (-> String Int))
 (pub fn (cmpToLLVM nm)
   (if (strEq nm "==") "eq"
   (if (strEq nm "!=") "ne"
@@ -5084,7 +5084,7 @@
   (if (strEq nm ">=") "sge"
   "eq")))))))
 
-(pub :: fbinopToLLVM (-> Int Int))
+(pub :: fbinopToLLVM (-> String Int))
 (pub fn (fbinopToLLVM nm)
   (if (strEq nm "+") "fadd"
   (if (strEq nm "-") "fsub"
@@ -5095,7 +5095,7 @@
 
 ; Ordered variants throughout: `o` requires neither operand be NaN, so
 ; a NaN compares false under every operator, matching stage0.
-(pub :: fcmpToLLVM (-> Int Int))
+(pub :: fcmpToLLVM (-> String Int))
 (pub fn (fcmpToLLVM nm)
   (if (strEq nm "==") "oeq"
   (if (strEq nm "!=") "one"
@@ -5176,7 +5176,7 @@
 ; An `inttoptr` folded into the `getelementptr` operand would be a
 ; constant expression, and a constant expression cannot name a register.
 ; It gets its own instruction.
-(pub :: storeWordAt (-> Int Int Int Int Int))
+(pub :: storeWordAt (-> Int String Int String Int))
 (pub fn (storeWordAt cg base idx val)
   (let ((pn (allocReg cg)))
     (let ((pr (regStr pn)))
@@ -5197,7 +5197,7 @@
                                   ", ptr "
                                   ar)))))))))
 
-(pub :: emitFieldStores (-> Int Int Int Int Int Int))
+(pub :: emitFieldStores (-> Int String Int Int Int Int))
 (pub fn (emitFieldStores cg ptr args i base)
   (if (>= i (vecLen args)) cg
       (let ((argNode (vecGet args i)))
@@ -5368,7 +5368,7 @@
     cg3))
 
 ; Emit a block label and record it as the block now being written into.
-(pub :: emitLabel (-> Int Int Int))
+(pub :: emitLabel (-> Int String Int))
 (pub fn (emitLabel cg name)
   {
     (emitLine cg (cat2 name ":"))

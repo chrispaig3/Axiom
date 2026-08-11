@@ -80,7 +80,7 @@
 (pub :: ftKind (-> Int Int))  (pub fn (ftKind t) (memGetWord t 0))
 (pub :: ftStart (-> Int Int)) (pub fn (ftStart t) (memGetWord t 1))
 (pub :: ftEnd (-> Int Int))   (pub fn (ftEnd t) (memGetWord t 2))
-(pub :: ftText (-> Int Int Int))
+(pub :: ftText (-> String Int String))
 (pub fn (ftText src t) (strSlice src (ftStart t) (- (ftEnd t) (ftStart t))))
 
 ; A comment recovered from the source, with what the printer needs to
@@ -105,7 +105,7 @@
 ; delimiters, with trailing whitespace removed - stage0 trims the end,
 ; and a comment that keeps its trailing spaces is a line that changes
 ; every time someone else's editor strips them.
-(pub :: fcText (-> Int Int Int))
+(pub :: fcText (-> String Int Int))
 (pub fn (fcText src c)
   (let ((mut e (fcEnd c)))
     {
@@ -134,7 +134,7 @@
 ; whitespace. stage0 skips anything Rust's `char::is_whitespace`
 ; accepts - probed with a NBSP, which formats under stage0 - so the
 ; scan has to skip the same set or refuse files stage0 formats.
-(pub :: fpWsWidth (-> Int Int Int Int))
+(pub :: fpWsWidth (-> String Int Int Int))
 (pub fn (fpWsWidth src i len)
   (let ((b (strByte src i)))
     (if (isFSpace b) 1
@@ -215,7 +215,7 @@
 ; A line index: the byte offset of the first character of each line.
 ; Built once, so the comment scan can answer "which line" without
 ; walking the file again per comment.
-(pub :: lineStarts (-> Int Int))
+(pub :: lineStarts (-> String Int))
 (pub fn (lineStarts src)
   (let ((starts (vecPush vecNew 0))
         (mut i 0)
@@ -244,7 +244,7 @@
     }))
 
 ; Whether only whitespace precedes `start` on its line.
-(pub :: onlySpaceBefore (-> Int Int Bool))
+(pub :: onlySpaceBefore (-> String Int Bool))
 (pub fn (onlySpaceBefore src start)
   (let ((mut i (- start 1))
         (mut answer true)
@@ -264,7 +264,7 @@
 
 ; Past the end of a line comment: the newline itself, not past it, so
 ; the recorded span stops where stage0's does.
-(pub :: scanLineComment (-> Int Int Int Int))
+(pub :: scanLineComment (-> String Int Int Int))
 (pub fn (scanLineComment src pos len)
   (let ((mut p pos))
     {
@@ -277,7 +277,7 @@
 ; tracks depth, probed with `#| a #| b |# c |#`, which stage0 keeps
 ; as one comment. The earlier claim here that stage0 does not nest
 ; was wrong.
-(pub :: scanBlockComment (-> Int Int Int Int))
+(pub :: scanBlockComment (-> String Int Int Int))
 (pub fn (scanBlockComment src pos len)
   (let ((mut p pos)
         (mut depth 1)
@@ -300,7 +300,7 @@
 
 ; Past the closing quote of a string literal. A backslash escapes the
 ; next byte, so a `\"` does not end it.
-(pub :: scanStringLit (-> Int Int Int Int))
+(pub :: scanStringLit (-> String Int Int Int))
 (pub fn (scanStringLit src pos len)
   (let ((mut p pos)
         (mut done 0))
@@ -319,7 +319,7 @@
 
 ; Past the closing quote of a character literal: quote, one escape or
 ; one whole UTF-8 sequence, quote.
-(pub :: scanCharLit (-> Int Int Int Int))
+(pub :: scanCharLit (-> String Int Int Int))
 (pub fn (scanCharLit src pos len)
   (let ((body (if (>= pos len)
                   pos
@@ -331,7 +331,7 @@
 ; Whether the `;` at `pos` begins an AXTAG (`;@axiom:`), which is a
 ; token rather than a comment - it is compiler-checked metadata, and
 ; the one category `fmt` used to delete without even a refusal.
-(pub :: isAxtagAt (-> Int Int Int Bool))
+(pub :: isAxtagAt (-> String Int Int Bool))
 (pub fn (isAxtagAt src pos len)
   (if (> (+ pos 8) len)
       false
@@ -353,7 +353,7 @@
 (pub :: fsToks (-> Int Int)) (pub fn (fsToks s) (memGetWord s 0))
 (pub :: fsComs (-> Int Int)) (pub fn (fsComs s) (memGetWord s 1))
 
-(pub :: fscan (-> Int Int))
+(pub :: fscan (-> String Int))
 (pub fn (fscan src)
   (let ((toks vecNew)
         (coms vecNew)
@@ -390,7 +390,7 @@
 
 ; One non-trivia token. Returns the position just past it, and is the
 ; only place that decides what a byte begins.
-(pub :: fscanToken (-> Int Int Int Int Int))
+(pub :: fscanToken (-> String Int Int Int Int))
 (pub fn (fscanToken src p len toks)
   (let ((ch (strByte src p)))
     (if (== ch 40) { (vecPush toks (mkFTok FT_LPAREN p (+ p 1))) (+ p 1) }
@@ -436,7 +436,7 @@
 
 ; A number, integer or float. `_` is a digit separator and a `.` makes
 ; it a float only when a digit follows, so `1.foo` is `1` then `.foo`.
-(pub :: fscanNumber (-> Int Int Int Int Int))
+(pub :: fscanNumber (-> String Int Int Int Int))
 (pub fn (fscanNumber src p len toks)
   (let ((mut e p)
         (mut isFloat 0)
@@ -460,7 +460,7 @@
 ; and `->` is an identifier like any other operator run, which is why
 ; there is no arrow kind here: stage0 lexes `->` as an operator token
 ; and the printer only ever re-emits its text.
-(pub :: fscanOperator (-> Int Int Int Int Int))
+(pub :: fscanOperator (-> String Int Int Int Int))
 (pub fn (fscanOperator src p len toks)
   (let ((mut e p))
     {
@@ -506,7 +506,7 @@
 ; `-5` adjacency rule, and because `? ~ $` are operator bytes here and
 ; not identifier bytes at all. What that leaves is recorded in
 ; docs/self-hosting.md §15.3 rather than guessed at.
-(pub :: fscanName (-> Int Int Int Int Int))
+(pub :: fscanName (-> String Int Int Int Int))
 (pub fn (fscanName src p len toks)
   (let ((mut e p))
     {
@@ -528,7 +528,7 @@
 ;
 ; Answers 1 when every byte is accounted for, 0 otherwise.
 ; ------------------------------------------------------------------
-(pub :: fscanCovers (-> Int Int Int))
+(pub :: fscanCovers (-> String Int Int))
 (pub fn (fscanCovers src sc)
   (let ((toks (fsToks sc))
         (coms (fsComs sc))
@@ -563,7 +563,7 @@
       (if (== ok 1) (gapIsSpace src prev len) 0)
     }))
 
-(pub :: gapIsSpace (-> Int Int Int Int))
+(pub :: gapIsSpace (-> String Int Int Int))
 (pub fn (gapIsSpace src from to)
   (let ((mut i from)
         (mut ok 1))
@@ -643,11 +643,11 @@
 
 ; An atom's source text, and the head atom's text for a group - the two
 ; questions the printer asks constantly.
-(pub :: fnText (-> Int Int Int))
+(pub :: fnText (-> String Int String))
 (pub fn (fnText src n)
   (if (== (fnKind n) FN_ATOM) (ftText src (fnTok n)) ""))
 
-(pub :: fnHeadText (-> Int Int Int))
+(pub :: fnHeadText (-> String Int String))
 (pub fn (fnHeadText src n)
   (if (== (fnKind n) FN_PAREN)
       (if (> (fnLen n) 0)
@@ -824,7 +824,7 @@
 (pub :: foBad (-> Int Int))    (pub fn (foBad o) (memGetWord o 3))
 (pub :: foSetBad (-> Int Int)) (pub fn (foSetBad o) { (memSetWord o 3 1) o })
 
-(pub :: foPush (-> Int Int Int))
+(pub :: foPush (-> Int String Int))
 (pub fn (foPush o s)
   {
     (vecPush (foFrags o) s)
@@ -832,7 +832,7 @@
     o
   })
 
-(pub :: countNewlines (-> Int Int))
+(pub :: countNewlines (-> String Int))
 (pub fn (countNewlines s)
   (let ((mut i 0) (mut n 0))
     {
@@ -922,7 +922,7 @@
 ; `flushTrailing`. Moving it to its own line is a formatting change;
 ; dropping it is data loss, and only one of those is recoverable by
 ; whoever reads the file next.
-(pub :: flushLeading (-> Int Int Int Int Int))
+(pub :: flushLeading (-> String Int Int Int Int))
 (pub fn (flushLeading src q o before)
   {
     (while (&& (fqPending q) (< (fcStart (fqHead q)) before))
@@ -948,7 +948,7 @@
 ; after the closing paren and the next pass would move it again. Such a
 ; comment stays in the queue and goes on its own line instead - it moves
 ; once, and then it is stable.
-(pub :: flushTrailing (-> Int Int Int Int Int Int Int))
+(pub :: flushTrailing (-> String Int Int Int Int Int Int))
 (pub fn (flushTrailing src q o starts anchor mark)
   (if (!= (foNl o) mark)
       o
@@ -966,7 +966,7 @@
 ; Comments after the last declaration - a trailing footnote, or a
 ; commented-out block at the end of a file - have no following construct
 ; to attach to, and would otherwise be dropped.
-(pub :: flushRemaining (-> Int Int Int Int))
+(pub :: flushRemaining (-> String Int Int Int))
 (pub fn (flushRemaining src q o) (flushLeading src q o 2147483647))
 
 ; ------------------------------------------------------------------
@@ -979,7 +979,7 @@
 ; "is this a group whose head is not a keyword, all of whose children
 ; are simple" - with `{ }` never simple, since stage0's `EBegin` is not.
 ; ------------------------------------------------------------------
-(pub :: isKeywordHead (-> Int Bool))
+(pub :: isKeywordHead (-> String Bool))
 (pub fn (isKeywordHead name)
   (if (strEq name "fn") true
   (if (strEq name "define") true
@@ -1000,7 +1000,7 @@
   (if (strEq name "::") true
   false))))))))))))))))))
 
-(pub :: isSimpleForm (-> Int Int Bool))
+(pub :: isSimpleForm (-> String Int Bool))
 (pub fn (isSimpleForm src n)
   (if (== (fnKind n) FN_ATOM) true
   ; A singleton brace block parses to its inner expression - `{e}` IS
@@ -1018,7 +1018,7 @@
   (if (isKeywordHead (fnHeadText src n)) false
   (allSimple src n 0))))))))
 
-(pub :: allSimple (-> Int Int Int Bool))
+(pub :: allSimple (-> String Int Int Bool))
 (pub fn (allSimple src n i)
   (let ((mut j i) (mut ok 1))
     {
@@ -1053,7 +1053,7 @@
 (pub :: fpQ (-> Int Int))      (pub fn (fpQ p) (memGetWord p 2))
 (pub :: fpOut (-> Int Int))    (pub fn (fpOut p) (memGetWord p 3))
 
-(pub :: fpP (-> Int Int Int))
+(pub :: fpP (-> Int String Int))
 (pub fn (fpP p s) { (foPush (fpOut p) s) p })
 (pub :: fpByte (-> Int Int Int))
 (pub fn (fpByte p b)
@@ -1289,7 +1289,7 @@
 ; Type-name keywords (`Int`, `IO`, ...) are deliberately absent - they
 ; are legal in name positions and the corpus never puts one in an
 ; expression.
-(pub :: fpIsReservedWord (-> Int Bool))
+(pub :: fpIsReservedWord (-> String Bool))
 (pub fn (fpIsReservedWord t)
   (if (strEq t "define") true
   (if (strEq t "lambda") true
@@ -1330,7 +1330,7 @@
 ; the `!` token and prints as `!`. Any other operator run in
 ; expression position is a stage0 parse error, so it answers "" and
 ; the caller refuses - `=`, `->`, `~>` and `>>=` are all refusals.
-(pub :: fpOperSpelling (-> Int Int))
+(pub :: fpOperSpelling (-> String Int))
 (pub fn (fpOperSpelling t)
   (if (strEq t "+") t
   (if (strEq t "*") t
@@ -1357,7 +1357,7 @@
 ; stage0's LEXER parses every integer through i64 and refuses the
 ; file on overflow, before any sign applies (probed:
 ; `-9223372036854775808` refuses even though it would fit signed).
-(pub :: fpIntFits (-> Int Int Int Bool))
+(pub :: fpIntFits (-> String Int Int Bool))
 (pub fn (fpIntFits src from0 to)
   (let ((from (if (== (strByte src from0) 45) (+ from0 1) from0))
         (limit "9223372036854775807")
@@ -1424,13 +1424,13 @@
 ; The body of a form that takes `expr...`: one expression stays
 ; itself, several are an implicit `{}` block, which is exactly
 ; stage0's `parse_body_exprs`.
-(pub :: fpBodyVecSimple (-> Int Int Int Bool))
+(pub :: fpBodyVecSimple (-> String Int Int Bool))
 (pub fn (fpBodyVecSimple src elems from)
   (if (== (- (vecLen elems) from) 1)
       (isSimpleForm src (vecGet elems from))
       false))
 
-(pub :: fpBodyVecAnchor (-> Int Int Int Int))
+(pub :: fpBodyVecAnchor (-> String Int Int Int))
 (pub fn (fpBodyVecAnchor src elems from)
   (if (> (vecLen elems) from) (fpAnchor src (vecGet elems from)) 0))
 
@@ -1552,7 +1552,7 @@
 ; stage0's `parse_let` would refuse. The init may span two kids - a
 ; fused negative literal - so the caller validates it as ONE fused
 ; expression element, not one kid.
-(pub :: fpBindInit (-> Int Int Int))
+(pub :: fpBindInit (-> String Int Int))
 (pub fn (fpBindInit src b)
   (if (!= (fnKind b) FN_PAREN)
       (- 0 1)
@@ -1809,7 +1809,7 @@
 ; condition under which stage0's `format_app` splices it into its
 ; caller's spine. A keyword form, the unary-minus form, a singleton
 ; and the empty tuple all parse to non-`EApp` nodes and stay whole.
-(pub :: fpIsAppForm (-> Int Int Bool))
+(pub :: fpIsAppForm (-> String Int Bool))
 (pub fn (fpIsAppForm src n)
   (if (!= (fnKind n) FN_PAREN)
       false
@@ -2120,7 +2120,7 @@
 ; expression's, an application's is its head's. This is the same
 ; recursion over the form tree.
 ; ------------------------------------------------------------------
-(pub :: fpCondAnchor (-> Int Int Int))
+(pub :: fpCondAnchor (-> String Int Int))
 (pub fn (fpCondAnchor src n)
   (if (< (fnLen n) 2)
       0
@@ -2299,7 +2299,7 @@
       v
     }))
 
-(pub :: fpIsUpperIdent (-> Int Int Bool))
+(pub :: fpIsUpperIdent (-> String Int Bool))
 (pub fn (fpIsUpperIdent src n)
   (if (== (fnKind n) FN_ATOM)
       (if (== (ftKind (fnTok n)) FT_IDENT)
@@ -2308,7 +2308,7 @@
           false)
       false))
 
-(pub :: fpIsAtomText (-> Int Int Int Bool))
+(pub :: fpIsAtomText (-> String Int String Bool))
 (pub fn (fpIsAtomText src n t)
   (if (== (fnKind n) FN_ATOM) (strEq (fnText src n) t) false))
 
@@ -2316,7 +2316,7 @@
 ; when a bare uppercase ident is followed by a paren group - stage0's
 ; `parse_pattern` fuses `C (h t)` into the constructor pattern
 ; `(C h t)` in every pattern position - and one otherwise.
-(pub :: fpPatWidth (-> Int Int Int Int))
+(pub :: fpPatWidth (-> String Int Int Int))
 (pub fn (fpPatWidth src v i)
   (if (&& (fpIsUpperIdent src (vecGet v i))
           (if (< (+ i 1) (vecLen v))
@@ -2327,7 +2327,7 @@
 
 ; The number of patterns a fused walk reads from `v` starting at
 ; `from` - the count stage0's pattern loops see.
-(pub :: fpPatVecCount (-> Int Int Int Int))
+(pub :: fpPatVecCount (-> String Int Int Int))
 (pub fn (fpPatVecCount src v from)
   (let ((mut i from) (mut n 0))
     {
@@ -2472,7 +2472,7 @@
                         })))))
     (fpBad p))))))
 
-(pub :: fpAnchor (-> Int Int Int))
+(pub :: fpAnchor (-> String Int Int))
 (pub fn (fpAnchor src n)
   (let ((k (fnKind n)))
     (if (== k FN_ATOM) (fnStart n)
@@ -2508,18 +2508,18 @@
 ; ------------------------------------------------------------------
 
 ; Whether the declaration opens with `pub`: 1 shifts every index.
-(pub :: fpDeclBase (-> Int Int Int))
+(pub :: fpDeclBase (-> String Int Int))
 (pub fn (fpDeclBase src n)
   (if (&& (> (fnLen n) 0) (fpIsAtomText src (fnKid n 0) "pub")) 1 0))
 
-(pub :: fpDeclHead (-> Int Int Int))
+(pub :: fpDeclHead (-> String Int String))
 (pub fn (fpDeclHead src n)
   (let ((b (fpDeclBase src n)))
     (if (> (fnLen n) b)
         (fnText src (fnKid n b))
         "")))
 
-(pub :: fpIsDeclHead (-> Int Bool))
+(pub :: fpIsDeclHead (-> String Bool))
 (pub fn (fpIsDeclHead h)
   (if (strEq h "import") true
   (if (strEq h "fn") true
@@ -2537,7 +2537,7 @@
 
 ; The offset stage0's `decl_start` answers: the NAME token's start,
 ; which sits a few tokens into the form. Comments order against it.
-(pub :: fpDeclAnchor (-> Int Int Int))
+(pub :: fpDeclAnchor (-> String Int Int))
 (pub fn (fpDeclAnchor src n)
   (let ((b (fpDeclBase src n)) (h (fpDeclHead src n)))
     (if (< (fnLen n) (+ b 2))
@@ -2559,7 +2559,7 @@
 ; The end of a tyvar run starting at `from`: consecutive bare
 ; lowercase idents, or one parenthesised all-lowercase list (empty
 ; counts), mirroring `parse_tyvars`/`looks_like_tyvar_list`.
-(pub :: fpIsLowerIdent (-> Int Int Bool))
+(pub :: fpIsLowerIdent (-> String Int Bool))
 (pub fn (fpIsLowerIdent src n)
   (if (== (fnKind n) FN_ATOM)
       (if (== (ftKind (fnTok n)) FT_IDENT)
@@ -2568,7 +2568,7 @@
           false)
       false))
 
-(pub :: fpIsTyvarList (-> Int Int Bool))
+(pub :: fpIsTyvarList (-> String Int Bool))
 (pub fn (fpIsTyvarList src n)
   (if (!= (fnKind n) FN_PAREN)
       false
@@ -2582,7 +2582,7 @@
           (== ok 1)
         })))
 
-(pub :: fpTyvarsEnd (-> Int Int Int Int))
+(pub :: fpTyvarsEnd (-> String Int Int Int))
 (pub fn (fpTyvarsEnd src n from)
   (if (>= from (fnLen n))
       from
@@ -3350,7 +3350,7 @@
 ; above everything else (stage0 keeps them in `Module::imports` and
 ; chains them first), and emit with the comment queue threaded
 ; through.
-(pub :: fmtPrint (-> Int Int Int Int Int))
+(pub :: fmtPrint (-> String Int Int Int Int))
 (pub fn (fmtPrint src forms coms starts)
   (let ((o (mkFOut 0))
         (q (mkFCq coms)))
@@ -3441,7 +3441,7 @@
 (pub :: fzOk (-> Int Int))   (pub fn (fzOk r) (memGetWord r 0))
 (pub :: fzText (-> Int Int)) (pub fn (fzText r) (memGetWord r 1))
 
-(pub :: fmtOnce (-> Int Int))
+(pub :: fmtOnce (-> String Int))
 (pub fn (fmtOnce src)
   (let ((sc (fscan src)))
     (if (== (fscanHasError sc) 1)
@@ -3457,7 +3457,7 @@
                         (cast Int (FRes 1 (foFinish out)))))))))))
 
 ; The comment texts of `src`, for the count-and-content check.
-(pub :: fmtComTexts (-> Int Int))
+(pub :: fmtComTexts (-> String Int))
 (pub fn (fmtComTexts src)
   (let ((sc (fscan src)) (v vecNew))
     (let ((coms (fsComs sc)) (mut i 0))
@@ -3474,7 +3474,7 @@
 ; rescan and re-read, must carry exactly the comments the input
 ; carried, and must be a fixed point of a second pass. Refusal is the
 ; only alternative to a faithful rewrite.
-(pub :: fmtFormat (-> Int Int))
+(pub :: fmtFormat (-> String Int))
 (pub fn (fmtFormat src)
   (let ((r1 (fmtOnce src)))
     (if (== (fzOk r1) 0)

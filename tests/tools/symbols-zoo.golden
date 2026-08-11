@@ -5,8 +5,8 @@ F memSet stdlib/Mem.ax:79:9-15 "(Int -> (Int -> (Int -> Int)))" @b8cc3a7d70814fa
 F memSetFrom stdlib/Mem.ax:83:5-15 "(Int -> (Int -> (Int -> (Int -> Int))))" @65d5b9b99d880178
 F memCmp stdlib/Mem.ax:97:9-15 "(Int -> (Int -> (Int -> Int)))" @30029e7d2389e32c
 F memCmpFrom stdlib/Mem.ax:101:5-15 "(Int -> (Int -> (Int -> (Int -> Int))))" @49581b3d94e680f4
-F memGetWord stdlib/Mem.ax:122:9-19 "(Int -> (Int -> Int))" @b5f8fe0f14e0113c
-F memSetWord stdlib/Mem.ax:126:9-19 "(Int -> (Int -> (Int -> Int)))" @577fd648169c96a8
+F memGetWord stdlib/Mem.ax:122:9-19 "(Int -> (Int -> a))" @b5f8fe0f14e0113c
+F memSetWord stdlib/Mem.ax:126:9-19 "(Int -> (Int -> (a -> Int)))" @577fd648169c96a8 #effect-params=value
 F memGetByte stdlib/Mem.ax:133:9-19 "(Int -> (Int -> Int))" @b36a11af3f07101e
 F memPutByte stdlib/Mem.ax:137:9-19 "(Int -> (Int -> (Int -> Int)))" @a42c84e86afc6d53
 F sysRead stdlib/Sys/Platform.darwin.ax:21:9-16 "Int" @d99009b49c22cd84

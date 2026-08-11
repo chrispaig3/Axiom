@@ -85,7 +85,7 @@
 ;
 ; `argv[0]` is the tool's own name, which the kernel does not supply and
 ; which several tools read back out of their own argv.
-(pub :: runTool (-> Int Int Int))
+(pub :: runTool (-> String Int Int))
 ;@axiom:effect(io)
 (pub fn (runTool tool args)
   (let ((n (vecLen args)))
@@ -242,7 +242,7 @@
 ; PRE-`opt` IR - also stage0's choice, and worth knowing before writing
 ; a gate that greps it, since it is the optimiser's input rather than
 ; what llc consumed.
-(pub :: buildToExecutable (-> Int Int Int Int Int))
+(pub :: buildToExecutable (-> String String Int Int Int))
 ;@axiom:effect(io)
 (pub fn (buildToExecutable ir outPath optLevel keepLl)
   (let ((llPath (cat2 outPath ".ll"))
@@ -267,7 +267,7 @@
                 }))))))
 
 
-(pub :: writeStderrStr (-> Int Int))
+(pub :: writeStderrStr (-> String Int))
 ;@axiom:effect(io)
 (pub fn (writeStderrStr s) (sysWriteFd 2 (strData s) (strLen s)))
 
@@ -287,7 +287,7 @@
 ; Argument parsing.
 ; ------------------------------------------------------------------
 
-(pub :: isSubcommand (-> Int Bool))
+(pub :: isSubcommand (-> String Bool))
 (pub fn (isSubcommand s)
   (|| (strEq s "build")
       (|| (strEq s "lsp")
@@ -310,7 +310,7 @@
 ; remained, and the compiler fell back to reading `in.ax` and reported
 ; `cannot read input`. A compiler whose --help is an obscure file error
 ; is a compiler nobody gets past.
-(pub :: usageText Int)
+(pub :: usageText String)
 (pub fn (usageText)
   (cat3 "axiom - the Axiom compiler, written in Axiom\n\nUSAGE:\n  axiom [OPTIONS] <COMMAND> [ARGS]\n  axiom [OPTIONS] <FILE> [TARGET]   emit LLVM IR to stdout\n\nCOMMANDS:\n  build      compile a source file to an executable\n  check      check syntax and types, emitting no code\n  run        compile a source file and run it, forwarding any further ARGS\n  emit-llvm  print the generated LLVM IR\n  fmt        format a source file in place (--check to only report)\n  explain    describe a diagnostic code (--list for all codes)\n  symbols    list every top-level symbol in AXSYM (--builtins too)\n  repl       start the interactive read-eval-print loop\n  lsp        run the language server on stdin/stdout (JSON-RPC)\n  version    print the version\n  help       print this message, or `help <COMMAND>` for one command\n\n"
         "OPTIONS:\n  --input <PATH>     input file (build, check, run, emit-llvm; a bare\n                     path also works)\n  --output <PATH>    output file (build, emit-llvm; default `output`)\n  -o <PATH>          short for --output\n  --target <NAME>    darwin-aarch64, darwin-x86_64, linux-aarch64, linux-x86_64\n  --opt <0-3>        optimisation level (build, run; default 1)\n  --emit-llvm        keep the generated .ll beside the executable (build)\n  --check            report whether the file is formatted, do not write (fmt)\n  --builtins         also list the built-in operators (symbols)\n  --list             list every diagnostic code (explain)\n  --no-banner        skip the startup banner (repl)\n  --diagnostic-format <human|ai|json>  how to render diagnostics (default human)\n  -h, --help         print help; accepted anywhere, including after the file\n  -V, --version      print the version; before the command\n  --                 end of options, so a file whose name begins with `-`\n                     can be named at all\n\n"
@@ -328,7 +328,7 @@
 ; the part a reader cannot guess, and check-driver.sh asserts that every
 ; flag the table accepts appears in `axiom --help`, so the two cannot
 ; drift apart silently.
-(pub :: helpForCommand (-> Int Int))
+(pub :: helpForCommand (-> String Int))
 (pub fn (helpForCommand c)
   (if (strEq c "build")
       "axiom build - compile a source file to an executable\n\nUSAGE:\n  axiom build [--input] <FILE> [--output <PATH>] [--opt <0-3>] [--emit-llvm]\n\n  --input <PATH>   the source file; a bare path works too\n  --output <PATH>  where to write the executable (default `output`)\n  -o <PATH>        short for --output\n  --opt <0-3>      optimisation level (default 1)\n  --emit-llvm      keep the generated .ll beside the executable\n"
@@ -353,11 +353,11 @@
       usageText)))))))))))
 
 ; The value of `--name` / `--name=value`, or "" when absent.
-(pub :: flagValue (-> Int Int Int))
+(pub :: flagValue (-> String Int Int))
 (pub fn (flagValue name from)
   (flagValueAt name from (sysArgc)))
 
-(pub :: flagValueAt (-> Int Int Int Int))
+(pub :: flagValueAt (-> String Int Int Int))
 (pub fn (flagValueAt name i n)
   (if (>= i n)
       ""
@@ -369,10 +369,10 @@
                   (strSlice a (strLen eq) (- (strLen a) (strLen eq)))
                   (flagValueAt name (+ i 1) n)))))))
 
-(pub :: hasFlag (-> Int Bool))
+(pub :: hasFlag (-> String Bool))
 (pub fn (hasFlag name) (hasFlagAt name 1 (sysArgc)))
 
-(pub :: hasFlagAt (-> Int Int Int Bool))
+(pub :: hasFlagAt (-> String Int Int Bool))
 (pub fn (hasFlagAt name i n)
   (if (>= i n)
       false
@@ -404,7 +404,7 @@
 ; indistinguishable from accepting, which is why `axiom check --bogus
 ; f.ax` used to print OK and exit 0, and why a mistyped
 ; `--diagnostic-formt=json` quietly produced human output.
-(pub :: flagArity (-> Int Int))
+(pub :: flagArity (-> String Int))
 (pub fn (flagArity a)
   (if (|| (strEq a "--input")
       (|| (strEq a "--output")
@@ -441,19 +441,19 @@
 ; A silent downgrade of a memory-management request is exactly the
 ; failure its user cannot detect, so this refuses while the collector
 ; does not exist. Recorded in docs/self-hosting.md section 8.4.
-(pub :: flagUnimplemented (-> Int Bool))
+(pub :: flagUnimplemented (-> String Bool))
 (pub fn (flagUnimplemented a) (strEq a "--gc"))
 
 ; `--name=value` split into its two halves.
-(pub :: flagNamePart (-> Int Int))
+(pub :: flagNamePart (-> String String))
 (pub fn (flagNamePart a)
   (let ((e (strFindByte a 61 0)))
     (if (< e 0) a (strSlice a 0 e))))
 
-(pub :: flagHasValuePart (-> Int Bool))
+(pub :: flagHasValuePart (-> String Bool))
 (pub fn (flagHasValuePart a) (>= (strFindByte a 61 0) 0))
 
-(pub :: flagValuePart (-> Int Int))
+(pub :: flagValuePart (-> String String))
 (pub fn (flagValuePart a)
   (let ((e (strFindByte a 61 0)))
     (if (< e 0) "" (strSlice a (+ e 1) (- (strLen a) (+ e 1))))))
@@ -461,7 +461,7 @@
 ; Is this argument written as a flag at all? A bare `-` is not: it names
 ; standard input by convention, and refusing it here would be a worse
 ; answer than the read error a caller gives it.
-(pub :: looksLikeFlag (-> Int Bool))
+(pub :: looksLikeFlag (-> String Bool))
 (pub fn (looksLikeFlag a)
   (&& (strStartsWith a "-") (> (strLen a) 1)))
 
@@ -492,7 +492,7 @@
                     (positionalIndex (+ from 1))))
             from)))))
 
-(pub :: positionalFrom (-> Int Int))
+(pub :: positionalFrom (-> Int String))
 (pub fn (positionalFrom from)
   (let ((i (positionalIndex from)))
     (if (< i 0) "" (sysArg i))))
@@ -507,7 +507,7 @@
   (let ((a1 (if (> (sysArgc) 1) (sysArg 1) "")))
     (if (isSubcommand a1) 1 (positionalIndex 1))))
 
-(pub :: subcommandName Int)
+(pub :: subcommandName String)
 (pub fn (subcommandName)
   (let ((i subcommandIndex))
     (if (< i 0)
@@ -583,7 +583,7 @@
 ; syntax errors to 1, so nothing has produced 2 since. The split that
 ; matters is stream and status together - help the user ASKED for goes
 ; to stdout with 0, an invocation they got wrong goes to stderr with 2.
-(pub :: usageError (-> Int Int))
+(pub :: usageError (-> String Int))
 ;@axiom:effect(io)
 (pub fn (usageError msg)
   {
@@ -600,7 +600,7 @@
 ; `cannot read input: buidl` and their real filename was discarded -
 ; whereas `unrecognised flag `--diagnostic-formt`` already names the
 ; thing that is wrong.
-(pub :: editDistance (-> Int Int Int))
+(pub :: editDistance (-> String String Int))
 (pub fn (editDistance a b)
   (let ((n (strLen a)) (m (strLen b)) (mut prev vecNew))
     {
@@ -657,10 +657,10 @@
 ; A wrong suggestion costs nothing here: the caller only asks after the
 ; operand has already failed to open, so there is no reading of the
 ; argument under which the invocation was going to work.
-(pub :: nearestSubcommand (-> Int Int))
+(pub :: nearestSubcommand (-> String Int))
 (pub fn (nearestSubcommand w) (nearestSubcommandFrom w subcommandNames 0))
 
-(pub :: nearestSubcommandFrom (-> Int Int Int Int))
+(pub :: nearestSubcommandFrom (-> String Int Int Int))
 (pub fn (nearestSubcommandFrom w v i)
   (if (>= i (vecLen v))
       ""
@@ -679,10 +679,10 @@
 ; After `run`'s own file operand every argument belongs to the PROGRAM,
 ; so the scan stops there: `axiom run prog.ax --help` asks prog.ax for
 ; its help, not this compiler for its own.
-(pub :: hasFlagAnywhere (-> Int Int Bool))
+(pub :: hasFlagAnywhere (-> String String Bool))
 (pub fn (hasFlagAnywhere cmd want) (hasFlagAnywhereFrom cmd want 1 0))
 
-(pub :: hasFlagAnywhereFrom (-> Int Int Int Int Bool))
+(pub :: hasFlagAnywhereFrom (-> String String Int Int Bool))
 (pub fn (hasFlagAnywhereFrom cmd want i endOpts)
   (if (>= i (sysArgc))
       false
@@ -705,11 +705,11 @@
 ;
 ; Answers 0 for a well-formed invocation; a bad one never returns,
 ; because there is nothing a caller could do with the news.
-(pub :: checkArgs (-> Int Int))
+(pub :: checkArgs (-> String Int))
 ;@axiom:effect(io)
 (pub fn (checkArgs cmd) (checkArgsFrom cmd 1 0))
 
-(pub :: checkArgsFrom (-> Int Int Int Int))
+(pub :: checkArgsFrom (-> String Int Int Int))
 ;@axiom:effect(io)
 (pub fn (checkArgsFrom cmd i endOpts)
   (if (>= i (sysArgc))
@@ -768,7 +768,7 @@
 ; degrade the report, not fail the build. `--target` is not here either,
 ; because `checkedTargetCode` already refuses it by name with the list
 ; of valid targets.
-(pub :: checkFlagValue (-> Int Int Int))
+(pub :: checkFlagValue (-> String String Int))
 ;@axiom:effect(io)
 (pub fn (checkFlagValue name v)
   (if (strEq name "--opt")

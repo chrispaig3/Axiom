@@ -49,7 +49,7 @@
 ; Skip whitespace and comments.
 ; ------------------------------------------------------------------
 
-(pub :: skipWhitespace (-> Int Int Int Int))
+(pub :: skipWhitespace (-> String Int Int Int))
 ; A loop rather than a recursion, and `skipLineComment` returns to it
 ; rather than calling back, for the reason `lexTokens` below is a loop:
 ; the two used to call each other in tail position, one frame per byte
@@ -77,7 +77,7 @@
 ; The position just past the newline that ends this comment, or `len`.
 ; It used to continue into `skipWhitespace` itself; the caller's loop
 ; does that now, which is the same walk without the mutual recursion.
-(pub :: skipLineComment (-> Int Int Int Int))
+(pub :: skipLineComment (-> String Int Int Int))
 (pub fn (skipLineComment src pos len)
   (if (>= pos len)
       pos
@@ -96,7 +96,7 @@
 ; file - costs one comparison and no call. `scanAxtags` is why that is
 ; worth writing down: it walks one byte per step over every module the
 ; compiler resolves.
-(pub :: isBlockOpen (-> Int Int Int Bool))
+(pub :: isBlockOpen (-> String Int Int Bool))
 (pub fn (isBlockOpen src pos len)
   (&& (== (strByte src pos) 35)
       (&& (< (+ pos 1) len) (== (strByte src (+ pos 1)) 124))))
@@ -120,7 +120,7 @@
 ; file is one: depth here is source length, and a stage1-built compiler
 ; eliminates only SELF tail calls, so a recursive spelling costs a
 ; frame per byte of comment.
-(pub :: skipBlockComment (-> Int Int Int Int))
+(pub :: skipBlockComment (-> String Int Int Int))
 (pub fn (skipBlockComment src pos len)
   (let ((mut p pos)
         (mut depth 1))
@@ -139,7 +139,7 @@
 ; Emit a token.
 ; ------------------------------------------------------------------
 
-(pub :: emitToken (-> TokenKind Int Int Int Int Int))
+(pub :: emitToken (-> TokenKind Int Int Int String Int))
 (pub fn (emitToken kind start end tokens src)
   (let ((lex (strSlice src start (- end start))))
     (vecPush tokens (mkToken kind lex (mkSpan start end)))))
@@ -148,7 +148,7 @@
 ; Skip helpers.
 ; ------------------------------------------------------------------
 
-(pub :: skipIdent (-> Int Int Int Int))
+(pub :: skipIdent (-> String Int Int Int))
 (pub fn (skipIdent src pos len)
   (if (>= pos len)
       pos
@@ -162,7 +162,7 @@
 ; stage0's `consume_number` treats it. Stopping at the `_` split the
 ; literal into an integer and an identifier, and the identifier went on
 ; to be emitted as an SSA name nothing defines.
-(pub :: skipDigits (-> Int Int Int Int))
+(pub :: skipDigits (-> String Int Int Int))
 (pub fn (skipDigits src pos len)
   (if (>= pos len)
       pos
@@ -177,7 +177,7 @@
 ; end the literal. Without this, `"c\""` ended at the middle quote and
 ; the rest of the file lexed as garbage - which is exactly what a
 ; compiler emitting LLVM has to write.
-(pub :: scanStringEnd (-> Int Int Int Int))
+(pub :: scanStringEnd (-> String Int Int Int))
 (pub fn (scanStringEnd src pos len)
   ; Terminated answers one past the closing quote; UNTERMINATED
   ; answers the negative of the stop position, minus one so stop 0
@@ -241,7 +241,7 @@
 ; i64::MAX and a leading `-` buys nothing (probed:
 ; `-9223372036854775808` is refused too). `_` separators are ignored,
 ; as they are everywhere else.
-(pub :: intLitFits (-> Int Int Int Bool))
+(pub :: intLitFits (-> String Int Int Bool))
 (pub fn (intLitFits src start end)
   (let ((mut i start) (mut acc 0) (mut ok true))
     {
@@ -272,7 +272,7 @@
 ; The position of the first invalid escape inside the string literal
 ; spanning [start, end) - `start` on the opening quote, `end` one past
 ; the closing one - or -1 when every escape is one stage0 accepts.
-(pub :: badEscapeIn (-> Int Int Int Int))
+(pub :: badEscapeIn (-> String Int Int Int))
 (pub fn (badEscapeIn src start end)
   (let ((mut i (+ start 1)) (mut found (- 0 1)))
     {
@@ -312,7 +312,7 @@
 ; position, so the loop owns the only frame. Every branch advances by
 ; at least one byte, which is what makes the loop terminate where the
 ; recursion terminated by running out of input.
-(pub :: lexTokens (-> Int Int Int Int Int))
+(pub :: lexTokens (-> String Int Int Int Int))
 (pub fn (lexTokens src pos len tokens)
   (let ((mut p pos))
     {
@@ -324,7 +324,7 @@
       (emitToken TK_EOF p p tokens src)
     }))
 
-(pub :: stepToken (-> Int Int Int Int Int Int))
+(pub :: stepToken (-> String Int Int Int Int Int))
 (pub fn (stepToken src pos len tokens ch)
   (if (== ch 45)
       (if (&& (< (+ pos 1) len) (== (strByte src (+ pos 1)) 62))
@@ -425,7 +425,7 @@
 ; not a byte: `'é'` is four bytes and `'😀'` six. Hardcoding three made
 ; stage1 fail to parse any non-ASCII char literal at all, where stage0
 ; - which lexes a Vec<char> - reads it fine.
-(pub :: stepCharToken (-> Int Int Int Int Int))
+(pub :: stepCharToken (-> String Int Int Int Int))
 (pub fn (stepCharToken src pos len tokens)
   (let ((esc (== (strByte src (+ pos 1)) 92)))
   (let ((ep (if esc (+ pos 4) (+ (+ pos 2) (utf8SeqLen (strByte src (+ pos 1))))))
@@ -445,7 +445,7 @@
               (let ((estop (if (> (- ep 1) len) len (- ep 1))))
                 { (emitToken TK_ERROR pos estop tokens src) stop })))))))
 
-(pub :: stepIdentToken (-> Int Int Int Int Int))
+(pub :: stepIdentToken (-> String Int Int Int Int))
 (pub fn (stepIdentToken src pos len tokens)
   (let ((ep (skipIdent src (+ pos 1) len)))
     { (emitToken TK_IDENT pos ep tokens src) ep }))
@@ -455,7 +455,7 @@
 ; Deciding by the character *after* the dot is what stage0's lexer does
 ; too. `numStart` may sit on a leading `-`; the scan begins at
 ; `scanFrom`.
-(pub :: stepNumberFrom (-> Int Int Int Int Int Int))
+(pub :: stepNumberFrom (-> String Int Int Int Int Int))
 (pub fn (stepNumberFrom src numStart scanFrom len tokens)
   (let ((ep (skipDigits src scanFrom len)))
     (if (&& (< (+ ep 1) len)
@@ -474,7 +474,7 @@
 ; Public lexer interface.
 ; ------------------------------------------------------------------
 
-(pub :: lex (-> Int Int))
+(pub :: lex (-> String Int))
 (pub fn (lex src)
   (lexTokens src 0 (strLen src) (vecNew)))
 
@@ -509,7 +509,7 @@
 ; single file was big enough to reach it; adding to `self_host/codegen.ax`
 ; reached it, through `check-fmt.sh`, whose formatted copy of the
 ; repository is the largest input anything in this project reads.
-(pub :: scanAxtags (-> Int Int))
+(pub :: scanAxtags (-> String Int))
 (pub fn (scanAxtags src)
   (let ((acc vecNew) (len (strLen src)) (mut pos 0))
     {
@@ -565,7 +565,7 @@
 
 ; `@axiom:` is seven bytes; the tag's content starts one past them,
 ; which is why the slice above begins at pos+8 (the `;` plus seven).
-(pub :: hasAxiomPrefix (-> Int Int Int Int))
+(pub :: hasAxiomPrefix (-> String Int Int Int))
 (pub fn (hasAxiomPrefix src pos len)
   (if (> (+ pos 7) len)
       0
@@ -579,7 +579,7 @@
           1
           0)))
 
-(pub :: findNewline (-> Int Int Int Int))
+(pub :: findNewline (-> String Int Int Int))
 (pub fn (findNewline src pos len)
   (if (>= pos len)
       len
@@ -587,7 +587,7 @@
           pos
           (findNewline src (+ pos 1) len))))
 
-(pub :: skipStringBody (-> Int Int Int Int))
+(pub :: skipStringBody (-> String Int Int Int))
 (pub fn (skipStringBody src pos len)
   (if (>= pos len)
       len
@@ -598,7 +598,7 @@
             (+ pos 1)
         (skipStringBody src (+ pos 1) len))))))
 
-(pub :: skipCharBody (-> Int Int Int Int))
+(pub :: skipCharBody (-> String Int Int Int))
 (pub fn (skipCharBody src pos len)
   (if (>= pos len)
       len

@@ -1137,39 +1137,58 @@ is the same bargain Swift makes. Today nothing is reclaimed at all, so
 even a leaky ARC is strictly better than the status quo; a cycle
 collector beside it stays available as a later, separable decision.
 
-**The prerequisite, measured.** ARC needs to know which words are
-references, and `MM-ALLOC-20` records why nothing can tell today. The
-static half of that blocker has a price this specification can now
-quote rather than estimate: **removing the `String`/`Int` fiat from
-`tyCompat` produces 2,733 type errors across the compiler and standard
-library**, and 3,490 once the string API declares its own types. The
-errors are not distributed like a bug; they are the count of positions
-that carry a string while declaring `Int`, across roughly 500
-declarations in twelve files.
+**The prerequisite, and how far it has come.** ARC needs to know which
+words are references, and `MM-ALLOC-20` records why nothing can tell
+today. That blocker is the `String`/`Int` fiat, and this specification
+can now quote its price and its progress rather than estimate either.
 
-Two things were learned trying it, and both belong in the plan rather
-than in a later surprise:
+Removing the fiat from `tyCompat` produced **2,733** type errors when
+first measured, and **3,882** once `stdlib/Str.ax` declared its own
+string positions — the rise is progress, not regression: more strings
+became visible to the checker. Inference over the tree has since brought
+that to **1,431**, by annotating **604 declarations across 25 files**.
 
-1. **The untyped containers are the hard part, not the string API.**
-   `Vec`, `Map` and every AST node word hold either a handle or an
-   integer, so their accessors need *parametric* types, not `String` —
-   `(-> Int Int a)` with a `cast` at the machine boundary, which is
-   sound and which `nodeA`/`vecGet`/`memGetWord` were converted to as a
-   probe. A signature's type variable is **rigid inside its own body**,
-   so each such body needs an explicit `cast a`.
-2. **It cannot be done by mechanical rewriting.** Driving the retyping
-   from the compiler's own diagnostics converges to roughly a third of
-   the errors and then oscillates, because a parameter that genuinely
-   carries both types is retyped one way by one call site and back by
-   another. The remainder is per-declaration judgement about what each
-   position actually holds — which is the work, and it is the work that
-   makes the annotations *true* rather than merely accepted.
+The annotations were derived from **what each body does with the value**,
+not from the diagnostic list. A parameter handed to `strLen` is a string,
+and that conclusion does not depend on which call site the checker
+happened to complain about — which is why this pass converges (it
+terminated with zero further changes) where an error-driven rewrite
+oscillates. Three rules, applied to a fixpoint:
 
-Because `String` and `Int` share a representation and `cast` is free,
-the refactor is **behaviour-preserving by construction**: it changes
-what the checker accepts and emits identical code, so the existing gate
-battery — 122 self-host cases, 39 standard-library goldens, and the
-stage2/stage3 fixpoint — is a sufficient safety net for it.
+- a parameter passed to a `String` position of any declared signature is
+  a `String`, the table of such positions being *derived from the tree's
+  own declarations* so that typing one function propagates to its
+  callers;
+- a function whose **every** tail position is a string — literal,
+  `String` parameter, or a call to a `String`-returning function —
+  returns a `String`. Every tail, not any: a function answering `""` on
+  one branch and a node handle on another is not a string function;
+- `let`-bound locals are typed from their initialisers, one level down
+  by the same rule.
+
+**The change is provably behaviour-neutral.** `String` and `Int` share a
+representation and `cast` is free, so annotating cannot alter generated
+code — and it did not: the IR emitted from the annotated tree is
+**byte-identical** to the IR from before it, compared with the same
+compiler. The full gate battery passes, including the stage2/stage3
+fixpoint.
+
+Two things remain, and they are the reason this is not finished:
+
+1. **The untyped containers had to become parametric first.** `Vec`,
+   `Map` and every AST node word hold either a handle or an integer, so
+   their accessors take a type variable and `cast` at the machine
+   boundary — `memGetWord`, `vecGet`/`vecPush`/`vecSet`, `nodeA`/`nodeB`/
+   `nodeC` and `mkNode` are converted. A signature's type variable is
+   **rigid inside its own body**, so each such body needs an explicit
+   `cast a`. (One visible consequence: a parametric parameter is read as
+   effect-transparent, so `memSetWord` now reports `#effect-params=value`.)
+2. **The last 1,431 need per-declaration judgement.** They are dominated
+   by values that reach a string position through a local whose producer
+   is still untyped, and by positions that genuinely carry both. No
+   syntactic rule decides these; deciding them is what makes an
+   annotation *true* rather than merely accepted, and it is the
+   remaining work before the fiat can actually be deleted.
 
 **MM-LIFE-2 (R).** Axiom has **no tracing garbage collector**, and
 `--gc` is refused by name rather than silently ignored. The retired Rust
