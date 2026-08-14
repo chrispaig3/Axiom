@@ -578,8 +578,9 @@ What works, and what to know:
   across an editing session. There is no tracing collector: the retired
   Rust compiler had one behind `--gc`, it was not ported, and the flag is
   now refused by name rather than silently ignored
-  (`docs/self-hosting.md` §8.4). Not the end state - see the memory model
-  in [docs/v1-roadmap.md](docs/v1-roadmap.md).
+  (`docs/self-hosting.md` §8.4). Not the end state - the chosen strategy
+  is reference counting; see the memory model specification in
+  [docs/memory-model.md](docs/memory-model.md).
 - **Field access by name** works on `data` and `struct` alike: `s.r`
   reads a field of a value whose constructor declared one.
 
@@ -847,7 +848,7 @@ Iteration has three spellings, and only one of them is bounded:
 | | Depth at `-O0` |
 |---|---|
 | `while` | Unbounded — it is a real loop. 10⁷ iterations in constant stack |
-| Tail recursion | Unbounded — guaranteed in the IR, not dependent on `--opt` |
+| **Self** tail recursion | Unbounded — the loop is built by Axiom's own codegen at every `--opt` level ([docs/memory-model.md](docs/memory-model.md) MM-EXEC-6b). Mutual tail recursion is flattened only by LLVM at `--opt 1`+ (MM-EXEC-6c) |
 | **Non-tail** recursion | **Bounded**: 60,000–80,000 frames on an 8 MiB stack |
 
 So the shape to avoid at scale is a fold whose combining step happens
@@ -869,8 +870,9 @@ So the shape to avoid at scale is a fold whose combining step happens
 axiom build --input main.ax --output main --opt 2
 ```
 
-Worth using for anything hot, but no longer needed for *correctness* —
-that was true when tail-call elimination depended on the optimiser.
+Worth using for anything hot, and still needed for the *correctness* of
+mutual tail recursion — only a **self** tail call is a loop without the
+optimiser ([docs/memory-model.md](docs/memory-model.md) MM-EXEC-6b/6c).
 
 ## Built-ins
 
@@ -1217,7 +1219,7 @@ the pipeline above is a module you can read in the language it compiles.
 | FFI | **Removed** | `foreign` never worked: it emitted a call to a symbol the module never declared, so a program that used one passed `check` and then died in `opt` or the linker. C interoperability is not a goal and the standard library needs none. `foreign` stays reserved and reports `AX2004` |
 | Standard library | **Functional** | `Pre`, `Mem`, `Str`, `Vec`, `Map`, `Fmt`, `Intern`, `Sys`, `IO`, written in Axiom over syscall primitives. `Vec`/`Map`/`Intern` are golden-tested and validated at 10⁵ elements; against Rust at 10⁶, `Intern` is *faster* (0.75×), `Vec` is 2.5×, and `Map` is 1.80× — the cause was an affine hash, not the allocator, and `docs/v1-roadmap.md` §2.4 B3 records the three theories that were measured and rejected first. `scripts/bench-datastructures.sh` |
 | Syscalls | **Complete** | `tests/selfhost/230-syscall.ax`. `__syscall0`-`__syscall6` on Darwin and Linux, x86-64 and AArch64; errors normalised to `-errno` on every platform |
-| Allocation | **Functional; unbounded by default** | `mmap`-backed bump allocator emitted by the backend, overridable by defining `axiom_alloc`. No `free`, so memory tracks *total* allocations; `__axiom_arena_mark`/`__axiom_arena_reset` reclaim explicitly where peak memory matters. No tracing collector — the Rust compiler's `--gc` was not ported and the flag is now refused (`docs/self-hosting.md` §8.4). Not the end state; see the memory model in [docs/v1-roadmap.md](docs/v1-roadmap.md) |
+| Allocation | **Functional; unbounded by default** | `mmap`-backed bump allocator emitted by the backend. (Defining `axiom_alloc` yourself does *not* override it: the program passes `check` and dies in `opt` with a redefinition error — [docs/memory-model.md](docs/memory-model.md) MM-ALLOC-8.) No `free`, so memory tracks *total* allocations; `__axiom_arena_mark`/`__axiom_arena_reset` reclaim explicitly where peak memory matters. No tracing collector — the Rust compiler's `--gc` was not ported and the flag is now refused (`docs/self-hosting.md` §8.4). Not the end state; the chosen strategy is reference counting — see the memory model specification, [docs/memory-model.md](docs/memory-model.md) |
 | Cross-compilation | **Functional** | `--target` selects ABI and platform stdlib modules; codegen verified for all four targets |
 | Self-hosting | **Done** | Axiom's compiler is written in Axiom. It compiles itself and reproduces itself byte-for-byte (`stage2 == stage3`, as objects and as IR), and a clean checkout builds it from `bootstrap/` with nothing but `llc` and a C linker. The Rust implementation it replaced has been removed. See [docs/self-hosting.md](docs/self-hosting.md) |
 | ADTs / data types | **Complete** | `tests/selfhost/140-data.ax`, `tests/selfhost/400-mixed-nullary.ax`. Constructors (nullary and with fields, including recursive types like `List`/`Tree`) compile to heap-boxed tagged values; see [Algebraic data types](#algebraic-data-types-how-they-actually-run) |
@@ -1231,12 +1233,12 @@ the pipeline above is a module you can read in the language it compiles.
 | Type classes | **Replaced** | Renamed to traits; see [Traits](#traits) |
 | Unions | **Removed** | C interoperability is not a goal, and an untagged union has no meaning under linear types. Use `data` for a tagged sum or `struct` for a product. `union` stays reserved and reports `AX2004` |
 | Struct layout modifiers | **Removed** | `packed`, `repr(C)` and `align(N)` were documented and formatted but never parsed - all three are `AX2001`. C layout has no meaning without C |
-| Region syntax | **Removed** | Allocation lifetime is inferred, not written by hand. `region` stays reserved and reports `AX2004` |
+| Region syntax | **Removed** | Reclamation is never written by hand as a region annotation — the chosen automatic strategy is reference counting ([docs/memory-model.md](docs/memory-model.md) MM-LIFE-2a). `region` stays reserved and reports `AX2004` |
 | Traits | **Functional** | Declarations, implementations (`impl`), and compile-time dispatch on the type of an argument: a call to a trait method resolves to the `impl` for that type and becomes a direct call, with no table and no indirection. Until 2026-08-10 `impl` was consumed as an inert node — its body was never type-checked and its methods were bound to nothing, so the example below was `AX3001 undefined variable eq` on its first use. Supertraits are enforced and default method bodies are generated; what remains is that a function generic over a trait cannot call its methods, because dispatch needs a concrete type at the call site. Every other shape is `AX3025`. `tests/selfhost/970-traits.ax` |
 | Effects | **Complete** | `tests/selfhost/820-effect-handlers.ax`, `tests/diagnostics/450-effect-op-arity.ax`. Effect declarations, `handle` expressions, effect checking (`IO`, `Pure`, `Alloc`, `Mut`, `Div`), AXTAG validation. Effects propagate transitively through calls, so a claim on a caller is checked against what its callees do |
-| Loops | **Complete** | `tests/selfhost/500-while-mut.ax`. `while` plus `mut` local bindings and `set`; 10⁷ iterations in constant stack at `-O0`. Tail calls are guaranteed in the IR independently of `--opt`. Non-tail recursion is still stack-bounded at 60,000–80,000 frames |
-| Linear types | **Parsed only** | `linear T`, `consume`. The ownership facts they express are what the planned memory model needs; see [docs/v1-roadmap.md](docs/v1-roadmap.md) |
-| Macros | **Complete** | `tests/selfhost/365-macro-pattern-literal.ax`, `tests/selfhost/361-macro-hygiene.ax`. Pattern-substitution expansion before sema with hygiene (scope sets + gensym); `stdlib/Pre.ax` defines `when`, `unless`, `cond2`, `cond3`; cross-module macro import works; expansion backtrace on diagnostics |
+| Loops | **Complete** | `tests/selfhost/500-while-mut.ax`. `while` plus `mut` local bindings and `set`; 10⁷ iterations in constant stack at `-O0`. Self tail calls are guaranteed in the IR independently of `--opt`; mutual tail recursion still needs `--opt 1`+ ([docs/memory-model.md](docs/memory-model.md) MM-EXEC-6b/6c). Non-tail recursion is still stack-bounded at 60,000–80,000 frames |
+| Linear types | **Parsed only** | `linear T`, `consume`. No longer what the memory model relies on: deterministic reclamation comes from the chosen reference counting without them ([docs/memory-model.md](docs/memory-model.md) MM-LIFE-2a/MM-LIFE-7); what linearity would still buy is retain/release-free moves and early drops |
+| Macros | **Partial** | `tests/selfhost/365-macro-pattern-literal.ax`, `tests/selfhost/361-macro-hygiene.ax`. Single-rule substitution macros, expanded in their own pass (`self_host/expand.ax`) between import resolution and the checker, so everything a macro generates is type-checked; hygiene by renaming (`<name>.<counter>` gensym) — binder direction complete, and a module-defined macro's template resolves free identifiers at its definition site. `stdlib/Pre.ax` defines `when`, `unless`, `cond2`, `cond3`; cross-module macro import works. No patterns, no repetition, no declaration-level macros, no `derive`, no expansion backtrace — the spec is [docs/macro-system.md](docs/macro-system.md). This row read "**Complete** — … hygiene (scope sets + gensym) … expansion backtrace on diagnostics" until 2026-08-14, and every clause of that was false: the mechanism is renaming, not scope sets, and the backtrace field is populated by nothing |
 | Concurrency | **Library** | No language support and no compiler change: `stdlib/Job.ax` is a bounded pool of child processes over `Sys`'s existing `sysSpawn`/`sysWaitPid` pair, answering in submit order. Processes rather than threads, because a freestanding binary cannot create an OS thread on macOS. See [docs/v1-roadmap.md §4.4](docs/v1-roadmap.md) |
 | Editor support | **Functional** | [tree-sitter grammar](tree-sitter-axiom/) with highlighting queries, gated against all 296 `.ax` files in the repo and a 31-case tree-shape corpus. The language server is `self_host/lsp.ax`, listed four rows above and gated by `scripts/check-lsp-selfhost.sh` |
 | Imports | **Functional** | `(import Mod.Sub ...)` resolves and merges declarations from other files; qualified access via `Mod::name` disambiguates; see [Modules and imports](#modules-and-imports) |
@@ -1370,7 +1372,7 @@ axiom/
 ├── tests/diagnostics/  # AXDL and human-render goldens, per diagnostic code
 ├── tests/{fmt,repl,lsp,tools}/  # Goldens for each tool surface
 ├── scripts/            # The gates — each one is what CI runs
-└── docs/               # diagnostics.md, reference.md, self-hosting.md, v1-roadmap.md
+└── docs/               # reference.md, memory-model.md, macro-system.md, diagnostics.md, self-hosting.md, v1-roadmap.md
 ```
 
 Every CI gate is a script in `scripts/`, so a contributor runs locally
@@ -1419,7 +1421,12 @@ what is left, and — the part that determines the schedule — which items
 actually block which. The headline result is that most of the remaining
 work is *not* parallelizable: the macro system, the HTTP
 library, and the LSP all depend on the memory model, and the LSP depends on
-self-hosting.
+self-hosting. Both of the roadmap's open designs are now decided and
+specified as normative documents: the memory model
+([docs/memory-model.md](docs/memory-model.md) — reference counting,
+behind a measured pointerhood prerequisite) and the macro system
+([docs/macro-system.md](docs/macro-system.md) — substitution macros
+shipped, patterns and `derive` specified).
 
 [docs/self-hosting.md](docs/self-hosting.md) is the record of replacing
 the Rust compiler with one written in Axiom — the measured gap analysis

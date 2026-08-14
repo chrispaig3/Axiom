@@ -1,14 +1,14 @@
-F memAlloc stdlib/Mem.ax:34:9-17 "(Int -> Int)" @0fd03fba89121d1d
-F memCopy stdlib/Mem.ax:43:9-16 "(Int -> (Int -> (Int -> Int)))" @3082f9a36dd5daa5
-F memCopyFrom stdlib/Mem.ax:66:5-16 "(Int -> (Int -> (Int -> (Int -> Int))))" @b67c8b212d3e4815
-F memSet stdlib/Mem.ax:79:9-15 "(Int -> (Int -> (Int -> Int)))" @b8cc3a7d70814fa8
-F memSetFrom stdlib/Mem.ax:83:5-15 "(Int -> (Int -> (Int -> (Int -> Int))))" @65d5b9b99d880178
-F memCmp stdlib/Mem.ax:97:9-15 "(Int -> (Int -> (Int -> Int)))" @30029e7d2389e32c
-F memCmpFrom stdlib/Mem.ax:101:5-15 "(Int -> (Int -> (Int -> (Int -> Int))))" @49581b3d94e680f4
-F memGetWord stdlib/Mem.ax:122:9-19 "(Int -> (Int -> a))" @b5f8fe0f14e0113c
-F memSetWord stdlib/Mem.ax:126:9-19 "(Int -> (Int -> (a -> Int)))" @577fd648169c96a8 #effect-params=value
-F memGetByte stdlib/Mem.ax:133:9-19 "(Int -> (Int -> Int))" @b36a11af3f07101e
-F memPutByte stdlib/Mem.ax:137:9-19 "(Int -> (Int -> (Int -> Int)))" @a42c84e86afc6d53
+F memAlloc stdlib/Mem.ax:39:9-17 "(Int -> Int)" @0fd03fba89121d1d
+F memCopy stdlib/Mem.ax:48:9-16 "(Int -> (Int -> (Int -> Int)))" @3082f9a36dd5daa5
+F memCopyFrom stdlib/Mem.ax:73:5-16 "(Int -> (Int -> (Int -> (Int -> Int))))" @b67c8b212d3e4815
+F memSet stdlib/Mem.ax:86:9-15 "(Int -> (Int -> (Int -> Int)))" @b8cc3a7d70814fa8
+F memSetFrom stdlib/Mem.ax:90:5-15 "(Int -> (Int -> (Int -> (Int -> Int))))" @65d5b9b99d880178
+F memCmp stdlib/Mem.ax:104:9-15 "(Int -> (Int -> (Int -> Int)))" @30029e7d2389e32c
+F memCmpFrom stdlib/Mem.ax:108:5-15 "(Int -> (Int -> (Int -> (Int -> Int))))" @49581b3d94e680f4
+F memGetWord stdlib/Mem.ax:129:9-19 "(Int -> (Int -> a))" @b5f8fe0f14e0113c
+F memSetWord stdlib/Mem.ax:133:9-19 "(Int -> (Int -> (a -> Int)))" @577fd648169c96a8 #effect-params=value
+F memGetByte stdlib/Mem.ax:140:9-19 "(Int -> (Int -> Int))" @b36a11af3f07101e
+F memPutByte stdlib/Mem.ax:144:9-19 "(Int -> (Int -> (Int -> Int)))" @a42c84e86afc6d53
 F sysRead stdlib/Sys/Platform.darwin.ax:21:9-16 "Int" @d99009b49c22cd84
 F sysWrite stdlib/Sys/Platform.darwin.ax:25:9-17 "Int" @74cf7b68f9a13d7f
 F sysOpen stdlib/Sys/Platform.darwin.ax:29:9-16 "Int" @48be4da44965be58

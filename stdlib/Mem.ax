@@ -17,9 +17,14 @@
 ; `mmap`), so allocation is a pointer bump in the common case and there
 ; is no `free`: an Axiom process reclaims everything at exit. That is
 ; the right trade for a compiler, and the wrong one for a long-running
-; server - which is why this is `memAlloc` and not `new`, and why the
-; allocator itself is replaceable (define `axiom_alloc` and the backend
-; defers to it).
+; server - which is why this is `memAlloc` and not `new`. (This comment
+; used to add "the allocator is replaceable: define `axiom_alloc` and
+; the backend defers to it". It does not defer - the backend emits its
+; definition unconditionally, so a program defining `axiom_alloc`
+; passes `check` and dies in `opt` as a duplicate symbol. Measured in
+; docs/memory-model.md MM-ALLOC-8; the chosen long-running answer is
+; reference counting, MM-LIFE-2a, with the explicit arena primitives
+; the reclamation until it lands.)
 ;
 ; ZEROED IS A PROMISE, not an artefact of where the memory came from,
 ; and this comment used to be describing the artefact. Fresh pages
@@ -48,19 +53,21 @@
 ; WHY THESE THREE ARE LOOPS AND NOT RECURSIONS
 ;
 ; Each walks one byte per step, so its depth is the SIZE OF THE DATA -
-; a 100 KB copy is 100,000 frames. Written as a self tail call that is
-; free, but only where the compiler turns it into a jump, and only
-; stage0 does: stage1 emits no tail-call optimisation at all, so the
-; recursive form was a real call chain that overflowed the stack once
-; the compiler's own output grew past a few hundred kilobytes. It
-; surfaced as a SIGSEGV inside `memCopyFrom` from a stage1-built
-; compiler, which looks like a codegen bug in whatever was being
-; compiled and is not one.
+; a 100 KB copy is 100,000 frames. When this block was written the
+; recursive form was a real call chain ("stage1 emits no tail-call
+; optimisation at all") that overflowed the stack once the compiler's
+; own output grew past a few hundred kilobytes, surfacing as a SIGSEGV
+; inside `memCopyFrom` that looked like a codegen bug in whatever was
+; being compiled. That REASON is stale: the compiler now turns a direct
+; self tail call into a loop at every --opt level, in its own codegen
+; (docs/memory-model.md MM-EXEC-6b).
 ;
-; A `while` loop needs no such optimisation to be flat, and stage1
-; compiles one in constant stack (`tests/selfhost/500-while-mut.ax`).
-; The recursive spelling is the better one to read; it is not the one
-; that survives both compilers, and the standard library has to.
+; The SPELLING stays, for the rule that outlives the reason: the
+; standard library must not owe its stack safety to an optimisation or
+; to a call's exact shape. A mutual or let-bound tail call is still a
+; real call chain without `opt` (MM-EXEC-6c), and one refactor away is
+; all it takes to turn the former into the latter. A `while` loop is
+; flat by construction (`tests/selfhost/500-while-mut.ax`).
 ; ------------------------------------------------------------------
 
 (:: memCopyFrom (-> Int Int Int Int Int))

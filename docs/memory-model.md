@@ -46,6 +46,7 @@ not exist yet. Every rule therefore carries one of:
 | **H** | **Holds today.** The implementation conforms, and the rule names the probe or source that shows it. |
 | **P** | **Planned.** Normative for a conforming implementation; the current one does not conform. The rule states what happens *today* instead, so nobody mistakes the specification for a description. |
 | **R** | **Refused.** The rule states something the language deliberately does not provide, and why. |
+| **W** | **Withdrawn.** The rule was normative and was superseded before it was implemented. It keeps its number and its text (§0.1), and the marker names what superseded it — a withdrawn rule that vanished would leave its citations dangling and its lesson unlearned. |
 
 An **H** rule with no evidence is a bug in this document. A **P** rule
 that does not say what happens today is the failure mode
@@ -139,11 +140,12 @@ The tail positions recognised are exactly: the expression itself, both
 arms of an `if`, the last expression of a `{}` block, every `match` arm,
 and every `cond` clause. **A `let` body is not a tail position.**
 
-> `docs/reference.md` attributes this to LLVM — "at `--opt 0` each
-> recursive iteration costs a stack frame; `--opt 1` … turn[s]
-> self-tail-recursion into a real loop". Measured, the loop is in the
-> emitted IR at `--opt 0` too. (`axiom run` ignores `--opt` entirely and
-> always builds at 1, which is a separate defect.)
+> `docs/reference.md` attributed this to LLVM until 2026-08-14 — "at
+> `--opt 0` each recursive iteration costs a stack frame; `--opt 1` …
+> turn[s] self-tail-recursion into a real loop" — and now records the
+> correction. Measured, the loop is in the emitted IR at `--opt 0` too.
+> (`axiom run` ignores `--opt` entirely and always builds at 1, which
+> is a separate defect, and still current.)
 
 **MM-EXEC-6c (H).** **A mutual tail call does not.** The compiler emits
 a plain `call`; mutual tail recursion runs in constant space only
@@ -156,14 +158,14 @@ Measured on an 8176 KiB stack: **174,000–175,000** frames at `--opt 0`
 and **260,000–262,000** at `--opt 1`, beyond which the process dies with
 SIGSEGV (status 139).
 
-> `stdlib/Mem.ax` writes its byte loops as `while` and explains that
-> "stage1 emits no tail-call optimisation at all", so the recursive
-> spelling "was a real call chain that overflowed the stack". That
-> reason is **stale** — `MM-EXEC-6b` is measured on today's binary, and
-> those loops are self tail calls. The `while` spelling is still the
-> right one (it needs no optimisation to be flat, and `MM-EXEC-6c` means
-> a mutual spelling would still be unsafe), but the comment's stated
-> cause no longer holds.
+> `stdlib/Mem.ax` writes its byte loops as `while`, and until
+> 2026-08-14 its comment gave the reason as "stage1 emits no tail-call
+> optimisation at all" — stale, since `MM-EXEC-6b` is measured on
+> today's binary and those loops are self tail calls. The comment now
+> quotes its old reason as history and keeps the spelling for the rule
+> that outlives it: the `while` needs no optimisation to be flat, and
+> `MM-EXEC-6c` means a mutual or let-bound respelling would still be
+> unsafe.
 
 **MM-EXEC-7 (R).** A top-level function **MUST NOT** be partially
 applied. It has no closure record to hold the missing arguments, and
@@ -264,10 +266,11 @@ Measured end to end:
 ```
 prints `from deep`, exits 7; with the `handle` removed, exits 71.
 
-> `docs/reference.md` states that "Stage1 does not parse `effect`/`handle`
-> yet". That sentence is **stale**: the self-hosted compiler parses,
-> checks and emits both, including the evidence globals
-> (`codegen.ax:3468–3700`). The probe above is the refutation.
+> `docs/reference.md` stated, until 2026-08-14, that "Stage1 does not
+> parse `effect`/`handle` yet" — stale long before it was corrected:
+> the self-hosted compiler parses, checks and emits both, including
+> the evidence globals (`codegen.ax:3468–3700`). The probe above is
+> the refutation, and reference.md now records the correction.
 
 ### 1.3 Determinism
 
@@ -333,14 +336,6 @@ Pinned by `tests/stdlib/035-string-equality.ax`, whose thirteen cases
 include the Unicode pair, the interior-NUL/slice case, and the integer
 comparisons that must NOT change; the pre-change compiler answers six of
 them differently.
-
-| Escape hatch | What leaks |
-|---|---|
-| `(__alloc n)` | the address itself, as an `Int` |
-| `(__addr "lit")` | a literal's address |
-| `Vec`/`Map`/`Str` handles | addresses, since a handle *is* an address |
-| `sysGetPid`, `sysNowMicros` | process and wall-clock state |
-| `sysEnv`, `sysArg` | the environment |
 
 A program that prints `(__alloc 8)` prints a different number under a
 different allocation history. This is a **program obligation**: a
@@ -804,7 +799,8 @@ string whose `cstrLen` measured 17.
 There is no recoverable out-of-memory condition and no way for a program
 to observe one.
 
-**MM-ALLOC-8 (P, and three documents are wrong about it).** The
+**MM-ALLOC-8 (P; three documents described the seam as working until
+2026-08-14, when all three were corrected).** The
 allocator **SHALL** be replaceable by a program that defines
 `axiom_alloc`, which then assumes `MM-ALLOC-6`'s zeroing and
 `MM-ALLOC-3`'s alignment obligations, and in which the arena primitives
@@ -824,13 +820,17 @@ opt: aa.ll:242:12: error: invalid redefinition of function 'axiom_alloc'
 ```
 
 There is no diagnostic for the arena primitives either — no code, no
-check. `stdlib/Mem.ax:21`, `docs/reference.md` and
-`docs/self-hosting.md` each describe this seam as working. It does not,
-and a conforming implementation **MUST** either build it (emit the
-runtime allocator only when no declaration named `axiom_alloc` is in
-scope, and specify the required signature `Int -> Int` returning
-16-byte-aligned zeroed memory, with failure behaviour) or delete the
-claim from all three documents.
+check. `stdlib/Mem.ax`, `docs/reference.md` and
+`docs/self-hosting.md` each described this seam as working; all three
+were corrected on 2026-08-14, each keeping the false claim as quoted
+history. That discharges half of this rule's obligation — the claims no
+longer mislead — and the other half stays open: a conforming
+implementation **MUST** either build the seam (emit the runtime
+allocator only when no declaration named `axiom_alloc` is in scope, and
+specify the required signature `Int -> Int` returning 16-byte-aligned
+zeroed memory, with failure behaviour) or refuse the declaration, and
+under ARC the seam interacts with `MM-LIFE-2e`'s release path and must
+be re-decided there.
 
 **MM-ALLOC-8a (H).** `__alloc` is an **unshadowable primitive name**. A
 program may declare a function called `__alloc`, and it type-checks and
@@ -964,13 +964,21 @@ restored pointer and survive by `MM-ALLOC-14`. Flat at ~1.4 MiB from 80
 through 20,000 generations, against ~16 KiB per generation forever for
 the same loop unbracketed.
 
-### 3.4 The inferred model
+### 3.4 The inferred arena model — withdrawn
 
-This section is the specification of the model
-[v1-roadmap.md §4.1](v1-roadmap.md) describes and the implementation
-does not yet have. Every rule is **P**.
+This section was the specification of the model
+[v1-roadmap.md §4.1](v1-roadmap.md) sketched: per-activation arenas
+with escape promotion and a tail-call reset. **It is superseded by the
+reference-counting decision of `MM-LIFE-2a`** (the decision landed
+2026-08-11; these rules were marked withdrawn on 2026-08-14, when the
+choice was fleshed out into `MM-LIFE-2b`–`2f`) — §10
+records why — and its rules are kept under §0.1's convention:
+withdrawn, numbered, cited, never deleted. Two survive with their
+content intact: `MM-ALLOC-20` is the prerequisite for *any* automatic
+strategy and is not withdrawn, and `MM-ALLOC-21`'s write-barrier
+obligation lives on as the field-store event of `MM-LIFE-2c`.
 
-**MM-ALLOC-17 (P).** Each function activation **SHALL** have an implicit
+**MM-ALLOC-17 (W).** Each function activation **SHALL** have an implicit
 arena. A value allocated during the activation and not escaping it
 **SHALL** be reclaimed when the activation returns, by restoring the
 watermark — O(1) per activation, with no per-object bookkeeping.
@@ -978,7 +986,11 @@ watermark — O(1) per activation, with no per-object bookkeeping.
 *Today:* nothing is reclaimed at return. Peak memory is proportional to
 total allocation.
 
-**MM-ALLOC-18 (P).** A value that **escapes** — returned, stored into a
+*Withdrawn:* the returning-frame case is `MM-LIFE-2c`'s event 3 —
+frame-owned references release at return, per object instead of per
+watermark, and without needing to know what escaped.
+
+**MM-ALLOC-18 (W).** A value that **escapes** — returned, stored into a
 longer-lived structure, or captured by an escaping closure — **SHALL**
 be allocated in the caller's arena instead. This is Tofte–Talpin region
 inference with the annotations removed, which is why `region` was
@@ -987,7 +999,11 @@ compiler can derive is an annotation that will eventually be wrong.
 
 *Today:* there is **no escape analysis of any kind** in the compiler.
 
-**MM-ALLOC-19 (P).** A **self tail call SHALL reset its activation's
+*Withdrawn:* under counts, escape needs no analysis — ownership follows
+the reference wherever it is stored (`MM-LIFE-2c`, events 2 and 6), and
+`region` stays deleted either way.
+
+**MM-ALLOC-19 (W).** A **self tail call SHALL reset its activation's
 arena to the entry watermark**, and this is the rule that matters. A
 tail-recursive loop never returns, so `MM-ALLOC-17` alone reclaims
 nothing from the one shape every compiler pass, request handler and
@@ -1013,10 +1029,16 @@ other two need. The machinery in question is already built and gated
 (`MM-ALLOC-12`–`MM-ALLOC-16`, `tests/stdlib/165-arena-keep.ax`); what
 remains is the compiler *inserting* it.
 
-**MM-ALLOC-20 (P).** Before any of `MM-ALLOC-17`–`MM-ALLOC-19` can be
-implemented, **the implementation MUST be able to tell a pointer from an
-integer**. It cannot today, for two independent reasons, and both are
-prerequisites rather than details:
+*Withdrawn:* under ARC the same boundary reclaims with no copy and no
+discharge obligation at all — `MM-LIFE-2c`, event 4. This rule was the
+hard case of the arena design, and its dissolving is most of the reason
+the design lost (§10).
+
+**MM-ALLOC-20 (P).** Before any automatic reclamation strategy —
+`MM-LIFE-2a`'s ARC, the withdrawn rules above, or any collector —
+can be implemented, **the implementation MUST be able to tell a pointer
+from an integer**. It cannot today, for two independent reasons, and
+both are prerequisites rather than details:
 
 1. **No runtime discrimination.** A word carries no tag (`MM-VAL-2`) and
    a heap block no header (`MM-VAL-6`), so a runtime scan cannot
@@ -1029,16 +1051,18 @@ prerequisites rather than details:
    every `Int` as possibly-a-pointer, which is the same as treating
    nothing as one.
 
-A conforming implementation of §3.4 **MUST** first introduce a
-type-level distinction between a heap handle and an integer, or a
-per-type shape map the emitter records for each block it allocates.
-This rule exists because a compiler-inserted copy has already been
-tried without it once — the `ArenaCompact` instruction, removed rather
-than finished, which misidentified a `Vec` header as a constructor
-cell, wrote past the end of its chunk, and could not see `Str` or `Vec`
-at all (`self-hosting.md`).
+A conforming implementation of automatic reclamation **MUST** first
+introduce a type-level distinction between a heap handle and an integer
+— the static half, whose measured progress `MM-LIFE-2a` quotes — and
+`MM-LIFE-2d` adds the runtime half: a per-block reference map, plus
+pointerhood evidence where a type variable hides the answer. This rule
+exists because a compiler-inserted copy has already been tried without
+it once — the `ArenaCompact` instruction, removed rather than finished,
+which misidentified a `Vec` header as a constructor cell, wrote past
+the end of its chunk, and could not see `Str` or `Vec` at all
+(`self-hosting.md`).
 
-**MM-ALLOC-21 (P).** Mutation and arenas interact, and
+**MM-ALLOC-21 (W).** Mutation and arenas interact, and
 [v1-roadmap.md §4.1](v1-roadmap.md) does not account for it because it
 assumes Axiom's data is immutable — which is false (`MM-MUT-2`). A field
 store can install a reference to a *younger* value into an *older* one:
@@ -1052,6 +1076,11 @@ the target of a field store as an escape of the stored value into the
 target's arena — the obligation a generational collector discharges with
 a write barrier. Without it, a per-activation arena reclaims memory that
 an older value still points at.
+
+*Withdrawn with the model; the obligation did not die.* It is
+`MM-LIFE-2c`'s event 5, where a field store retains the stored value
+and releases the overwritten one — the same barrier, holding a count
+instead of promoting an arena.
 
 ---
 
@@ -1190,6 +1219,241 @@ Two things remain, and they are the reason this is not finished:
    annotation *true* rather than merely accepted, and it is the
    remaining work before the fiat can actually be deleted.
 
+What the strategy requires of the machine — a count word, the ownership
+events, a reference map, a release path in the allocator, and a stated
+cycle obligation — is `MM-LIFE-2b`–`MM-LIFE-2f`. Each is **P**, each
+says what happens today, and together they are the specification the
+one-paragraph decision above was not.
+
+**MM-LIFE-2b (P). The count word.** Every counted block **SHALL** carry
+a 16-byte header immediately below its address: word −2 the reference
+count, word −1 the shape word of `MM-LIFE-2d` — which carries the
+block's word count as well as its reference map, because release needs
+both: the map to walk the dead block's fields, and the size to hand the
+block to the right free list (`MM-LIFE-2e`). A block that did not
+record its own size would make the release path unimplementable against
+`MM-VAL-6`'s blocks, which know nothing. The block's own
+address and every field offset are unchanged — the header is invisible
+to every consumer that exists today, and only `axiom_alloc`, retain,
+release and the map writer know it is there. The cost is exactly 16
+bytes per counted block: `MM-ALLOC-3` rounds every size to a multiple
+of 16, so a 16-byte header moves each block up by one rounding step and
+never more.
+
+Three classes of word are exempt, each by a test that already exists:
+
+- **Immediates.** A word below 4096 is a tag, not an address
+  (`MM-VAL-9`, `I3`). Retain and release on a reference-typed position
+  **MUST** skip it with the same compare a mixed-representation `match`
+  already emits. Rep-1 values and rep-2 nullary constructors therefore
+  cost nothing — exactly as they allocate nothing (`MM-ALLOC-10`).
+- **Statics.** A literal's header and bytes are loader-resident and
+  **MUST NOT** be written (`MM-FFI-2`). The emitter **SHALL** lay
+  static constants out under the same header shape with the count word
+  all-ones, and retain and release **MUST** read the count first and
+  leave a sentinel untouched: a static is never reclaimed, and never
+  written even by the machinery that reclaims.
+- **Non-reference positions.** An `Int`, `Float`, `Bool` or `Char`
+  position is never retained or released at all. The decision is
+  static, which is why `MM-ALLOC-20` is a prerequisite rather than an
+  optimisation.
+
+*Today:* no header exists and nothing writes a count. This rule amends
+`MM-VAL-6` by exactly two words of self-description, and no more — a
+block still does not know its own size or type, only its count and
+which of its words are references.
+
+**MM-LIFE-2c (P). Ownership.** The events, exactly — each is a place
+the compiler **SHALL** emit a retain (+1), a release (−1, reclaiming at
+zero), or deliberately neither:
+
+1. **A call borrows its arguments.** No retain at the call boundary:
+   the caller's frame outlives the callee's (`MM-ALLOC-11` — frames
+   strictly nest and the stack holds no data), so the caller's
+   ownership covers the callee's use.
+2. **A function returns its result owned.** The caller receives +1 and
+   must release it, store it, or return it in turn; returning a
+   borrowed argument therefore retains it first.
+3. **Frame slots own.** A reference bound or `set` into a local slot
+   is owned by the slot: an owned value *moves* in, a borrowed one is
+   retained on the way in. `(set x v)` releases the owned value it
+   overwrites (`MM-MUT-1`) — sound precisely because the slot retained
+   what it holds, whatever its provenance — and a returning frame, or
+   event 4's boundary, releases every live owned slot that did not
+   escape by being returned or stored. The elision licence below is
+   what keeps the common borrow-bind-read shape free of traffic.
+4. **A self tail call is a release boundary, and its function owns its
+   reference parameters.** Entry retains each reference parameter once
+   — without this, iteration one would hold its arguments borrowed
+   where every later iteration holds them owned, and there is no
+   caller frame left to do the borrowing (`MM-EXEC-6b` replaces the
+   frame with a branch). Owned references dead across the call are
+   then released before control branches back to
+   `MM-EXEC-6b`'s loop header. This is the rule that replaces the
+   withdrawn `MM-ALLOC-19`, and it is the point of the strategy: the
+   loop shape that defeats per-activation arenas — the activation that
+   never returns — reclaims each dead generation at the boundary with
+   no copy, no linearity requirement and no region inference. The
+   trilemma `MM-ALLOC-19` tabulated dissolves rather than being solved,
+   and the sharing that made a copy-at-the-boundary corrupt
+   (`MM-ALLOC-15`'s reason to exist) is under counts just arithmetic:
+   substructure the new generation shares ends the release walk at a
+   nonzero count.
+5. **A field store retains the new value and releases the old**
+   (`(set e.f v)`, `MM-MUT-2`). This is `MM-ALLOC-21`'s old-to-young
+   obligation surviving that rule's withdrawal — a write barrier by
+   another name, and the reason mutation composes with counting where
+   it did not compose with arena inference.
+6. **Building a block stores its reference fields owned** — constructor
+   fields, struct fields, closure captures (`MM-VAL-15`'s over-capture
+   acquires a price: a captured reference is a retained reference), and
+   both words of an evidence record.
+7. **`handle` releases its evidence record at exit**, closing
+   `MM-ALLOC-9a`'s sixteen bytes per loop entry.
+
+A conforming implementation **MAY** cancel a retain against a release
+it can pair statically. The licence costs nothing observable: a
+conforming program observes no address (`MM-EXEC-12`), so reclamation
+timing surfaces only as peak RSS — and determinism (`MM-EXEC-11`)
+holds, because counts are a function of program text and input, never
+of layout.
+
+*Today:* none of these events emit anything, and event 3's release
+walk is exactly the code that cannot be written until `MM-LIFE-2d`
+answers what a dead block's words are.
+
+**MM-LIFE-2d (P, prerequisite). The reference map.** Release at count
+zero must release the dead block's own reference fields, and nothing at
+runtime can name them: a word carries no tag (`MM-VAL-2`), a struct
+block carries no header at all (`MM-VAL-10`), and assuming otherwise is
+how `ArenaCompact` corrupted `scanDecls` (`I2`). The header's word −1
+therefore **SHALL** hold a **shape word**, written once at allocation
+by the allocation site, in one of two forms and carrying the block's
+word count in both:
+
+- **record form** — an inline reference bitmap plus the word count, for
+  constructor blocks, structs, closure records and evidence records,
+  all of which are statically small. The form has a capacity, and the
+  capacity is a stated cliff in the style of `MM-VAL-8b`: a declaration
+  whose block would not fit the bitmap **MUST** be refused with a
+  diagnostic, not truncated.
+- **array form** — one element-pointerhood bit plus an element count,
+  for the homogeneous buffers the containers and `Str` allocate, where
+  a bitmap over the words would not fit and should not need to.
+
+`memAlloc` itself **SHALL** answer a **leaf** — a shape word saying *no
+reference words*, whatever is stored there later. That is the unsafe
+layer staying the unsafe layer (§10): a reference kept *only* in
+`memAlloc`'d memory is invisible to counting, which under ARC becomes a
+program obligation where today it is merely a fact. The containers
+therefore migrate their data buffers from `memAlloc` to an array-form
+allocation whose element bit comes from the evidence word below — that
+migration is part of `MM-LIFE-2e`'s work, not an afterthought, and it
+is what makes the container claim below true rather than asserted.
+
+The site knows the bitmap statically **except in one place**, and the
+place is structural: a polymorphic field. `(Just x)` is emitted once
+for every `x` (`MM-VAL-1a` — uniform representation, no
+monomorphisation), there is no Hindley–Milner inference and a
+signature's type variable is never solved (`MAC-INT-2`), so the site
+that stores `x` cannot know whether `x` is a reference. Three designs
+answer that, and this specification chooses the first:
+
+| Design | Mechanism | Price |
+|---|---|---|
+| **Pointerhood evidence** | a polymorphic function receives one hidden word: bit *i* set iff type parameter *i* is instantiated at a reference type; map-writing sites consult it | one extra word on polymorphic calls; the first and only runtime type information in the language |
+| Immortalise on unknown | a value stored through a variable-typed position is retained permanently | every container leaks — `Vec` and `Map` hold this compiler's every AST node, which is the workload the strategy exists to serve |
+| Tag the word | reserve a bit in every value | changes `MM-VAL-3`'s arithmetic, every literal, and every syscall boundary — a different language |
+
+Pointerhood evidence keeps `MM-VAL-1a` intact — still one emitted body
+per function — and it is what gives the containers exact element maps:
+a `Vec` releases its elements precisely when its evidence bit says they
+are references, because its buffer's array-form shape word was written
+from that bit. It is **not** trait dictionary-passing, and
+`MAC-INT-4`'s warning that generated code must not assume dictionaries
+exist still stands: the evidence word answers one bit per type
+parameter and can call nothing. Two edges of the design are stated
+rather than discovered later. **Evidence flows by capture, not by
+convention**: a lambda whose body needs a bit captures its creator's
+evidence word as an ordinary capture (`MM-VAL-15`), and a thunk built
+over a polymorphic function bakes its instantiation's word into the
+record at build time — a call through a value stays exactly two words
+(`MM-VAL-18`). And **one word caps type parameters at 64**: a
+declaration with more **MUST** be refused with a diagnostic, the same
+honesty `MM-VAL-8b` applies to its own cliff.
+
+Two prerequisites, in order. The **static half** is `MM-ALLOC-20` — a
+checker that cannot tell `String` from `Int` cannot set a bit — and its
+measured progress is quoted in `MM-LIFE-2a`. The **`Str` half** is that
+a slice's byte pointer is interior to its parent's buffer (`MM-VAL-7`,
+`MM-LIFE-6`), and no count reachable from the slice can free an
+interior address: under this rule the byte buffer becomes a counted
+block of its own, the `Str` header gains a third word naming it, and
+`strSlice` retains the owner — a slice then keeps its parent alive by
+arithmetic rather than by accident, and `MM-LIFE-6`'s obligation
+dissolves.
+
+*Today:* no map exists, no evidence is passed, and the `Str` header is
+two words.
+
+**MM-LIFE-2e (P). The release path.** A bump pointer cannot reuse an
+interior free. Release at zero **SHALL** hand the block — header
+included — to a size-class free list that `axiom_alloc` consults before
+bumping. Everything §3.1 promises survives unchanged: alignment
+(`MM-ALLOC-3`), because every size class is a multiple of 16; zeroing
+(`MM-ALLOC-6`), because the scrub at hand-out already covers recycled
+bytes — `MM-ALLOC-5a`'s safe direction doing its job; freestanding
+(`MM-ALLOC-1`), because retain, release and the free-list walk are
+emitted runtime functions under the same `no-builtins` attribute
+(`MM-ALLOC-8c`); and chunks are still never unmapped (`MM-ALLOC-4a`).
+
+The explicit primitives of §3.3 do not compose with this. A reset
+reclaims without releasing, so a compiler-emitted release after one
+would walk a header the allocator has already re-issued — a write into
+someone else's block. When ARC lands, `__axiom_arena_mark`,
+`__axiom_arena_reset` and `__axiom_arena_reset_keeping` **MUST** be
+refused under it with a diagnostic; until it lands they remain the only
+reclamation there is, and every rule in §3.3 stays load-bearing.
+
+The acceptance measurement is already written, twice. The *unmanaged*
+column of `scripts/measure-memory-baseline.sh` — ~16 KiB per generation,
+forever (§11.1) — **MUST** go flat with no bracket in the source, and
+`scripts/check-lsp-selfhost.sh`'s 200-edit session **MUST** hold its
+~6.8 MB with the explicit boundary removed, which is exactly the
+ablation that gate already knows how to run.
+
+One allocation class the events of `MM-LIFE-2c` deliberately do not
+reach: the emitter's own one-word cells — a `match`'s result cell, a
+mixed-representation tag read (`MM-ALLOC-9`). Counting them would put a
+header and a release on every `match` in the program. Under ARC they
+**SHALL** stop being heap allocations at all — the idiom becomes a
+register or an `alloca`, amending `MM-ALLOC-9` and `I10` in the commit
+that lands it — because the alternative, with §3.3 refused, is a
+sixteen-byte leak per `match` executed.
+
+*Today:* there is no release path; the free list of `MM-ALLOC-4b` holds
+whole chunks only.
+
+**MM-LIFE-2f (P, program obligation). Cycles under counting.** An
+unreachable cycle is never reclaimed — `MM-LIFE-3` measures both
+construction routes — and that is the cost `MM-LIFE-2a` accepts. A
+program that builds a knot and needs the memory back **MUST** break the
+cycle before dropping its last external reference: store a
+non-reference into one edge (`(set a.next (cast Node 0))` — the word 0
+is below 4096, and release skips it). Nothing checks this, which is
+what *program obligation* means everywhere else in this document.
+
+*Today:* `MM-LIFE-1` reclaims nothing at all, so the obligation is
+vacuous until `MM-LIFE-2e` ships — recorded now so that it does not
+arrive as a surprise then.
+
+The deferral is separable, and choosing ARC builds **toward** the
+alternative rather than away from it: the reference maps of
+`MM-LIFE-2d` are exactly the tracing information whose absence made the
+last collector conservative and wrong (`MM-ALLOC-20`, §10). A cycle
+collector beside ARC is a later decision that arrives with its hard
+part already paid for.
+
 **MM-LIFE-2 (R).** Axiom has **no tracing garbage collector**, and
 `--gc` is refused by name rather than silently ignored. The retired Rust
 backend had one — conservative, non-moving, with per-chunk object-start
@@ -1201,9 +1465,10 @@ interior pointers.
 
 **MM-LIFE-3 (H, correcting the roadmap).** **Cycles in the heap graph
 are constructible**, so the justification
-[v1-roadmap.md §4.1](v1-roadmap.md) gives for not needing cycle
+[v1-roadmap.md §4.1](v1-roadmap.md) gave for not needing cycle
 collection — "Axiom's data is immutable and inductive, so cycles are not
-constructible" — is **false as written**. Two independent routes,
+constructible" — is **false as written**; the roadmap has recorded the
+correction since 2026-08-14. Two independent routes,
 measured:
 
 ```scheme
@@ -1221,9 +1486,14 @@ The first needs nothing but `stdlib/Vec`, because a `Vec` element is an
 This costs nothing today — `MM-LIFE-1` reclaims nothing, so an
 unreachable cycle is no worse than an unreachable tree. It is recorded
 here because it is a **precondition on every future reclamation
-strategy**: a collector for Axiom must handle cycles, and a
-reference-counting scheme (ARC) is therefore **not** a sound choice for
-this language without a cycle collector beside it.
+strategy**: a tracing collector for Axiom must trace cycles, and a
+counting scheme must either carry a cycle collector or state the leak
+as a cost. This rule used to end "ARC is therefore **not** a sound
+choice for this language without a cycle collector beside it", and the
+arbitration went the other way — `MM-LIFE-2a` prices the leak in and
+`MM-LIFE-2f` states the obligation. The reversal is argued in §10
+rather than hidden by rewording, because the measurement above is what
+both positions stand on.
 
 **MM-LIFE-4 (H).** What a program may assume about a value's lifetime,
 stated positively:
@@ -1236,16 +1506,20 @@ stated positively:
 There is no third case. In particular, no value's lifetime is tied to a
 lexical scope, a function activation, or a variable going out of scope.
 
-**MM-LIFE-5 (P).** Under §3.4 a third case is added: a value's lifetime
-is its arena's. `MM-LIFE-4` **SHALL** then read "until its arena is
-reclaimed", and the compiler **SHALL** guarantee that no reachable
-reference outlives it — which is the whole content of `MM-ALLOC-18`
-and `MM-ALLOC-21`.
+**MM-LIFE-5 (P).** Under `MM-LIFE-2a`–`2f` a third case is added: a
+value's lifetime ends when its last reference dies. `MM-LIFE-4`
+**SHALL** then read "until its count reaches zero", and the compiler
+**SHALL** guarantee that no reachable value is reclaimed — which is the
+whole content of `MM-LIFE-2c` and `MM-LIFE-2d`. (While §3.4 was the
+plan, this rule read "a value's lifetime is its arena's"; the
+withdrawal note there says why it no longer is.)
 
 **MM-LIFE-6 (H, program obligation).** A `strSlice` result keeps its
 parent's byte buffer live and points into its middle. A program that
 resets an arena containing the parent invalidates every slice of it,
-and nothing says so.
+and nothing says so. Under `MM-LIFE-2d` this obligation dissolves: the
+byte buffer becomes a counted block the slice retains, and the reset
+that could strand a slice is refused under ARC anyway (`MM-LIFE-2e`).
 
 **MM-LIFE-7 (P).** **Linear types.** `(linear T)` and `(consume e)`
 parse today and enforce nothing: a linear value may be used twice or
@@ -1282,10 +1556,19 @@ A conforming implementation **SHALL** enforce:
 1. A value of linear type **MUST** be consumed **exactly once** on every
    path — using it twice is an error, and not using it is an error.
 2. `(consume e)` is that use, and is a **deterministic drop point**: the
-   value's storage is reclaimed there.
-3. A linear value's arena is its owner's arena, which is what makes
-   `MM-ALLOC-19`'s discharge B available: a linear loop parameter is
-   provably dead at the tail call, so no copy is needed.
+   value's storage is reclaimed there — under `MM-LIFE-2c`, a release
+   emitted at the consume rather than at frame exit.
+3. A linear value **moves**: handing it to a callee or into a block
+   transfers ownership, so no retain/release pair is emitted on the
+   hand-off.
+
+Clause 3 read differently while §3.4 was the plan — linearity was
+discharge B of `MM-ALLOC-19`, the *proof* that a tail-call arena reset
+was sound. The chosen ARC needs no such proof (`MM-LIFE-2c`, event 4),
+which demotes linear types from the memory model's precision mechanism
+to an optimisation and a protocol checker: still worth having, no
+longer load-bearing. `MM-LIFE-2a` says the same thing from the other
+side — deterministic reclamation, "obtained without linear types".
 
 *Today:* all three are unimplemented, and `;@axiom:owned(arena=frame)`
 is an accepted tag with no meaning.
@@ -1316,10 +1599,11 @@ private after `fork` and fresh after `exec`.
 > allocator words plus the evidence slots. Measured, the seven are the
 > five plus argc/argv; evidence slots are additional, and a program with
 > no declared effects has exactly seven globals and no slots. The
-> conclusion is unaffected — it is *all* of them, whatever the count. The allocator therefore
-needs no atomics, no lock and no thread-local storage, and the effect
-slots inherit correctly for free. This is why `Job` needed no compiler
-change at all.
+> conclusion is unaffected — it is *all* of them, whatever the count.
+
+The allocator therefore needs no atomics, no lock and no thread-local
+storage, and the effect slots inherit correctly for free. This is why
+`Job` needed no compiler change at all.
 
 **MM-PAR-4 (H, with a stated escape).** **Nothing the language or the
 standard library provides shares mutable memory between processes.**
@@ -1430,7 +1714,7 @@ breaks if it is violated, because that is the useful half.
 | **I11** | All allocator state is process-private | `MM-PAR-3` | `Job` would need atomics |
 | **I12** | Compilation is deterministic and reproducible | `MM-EXEC-13` | `check-reproducible.sh` |
 | **I13** | The compiler executes no user code | `MM-EXEC-14` | the threat model |
-| **I14** | The heap graph **may** contain cycles | `MM-LIFE-3` | ARC would leak; a future collector must trace |
+| **I14** | The heap graph **may** contain cycles | `MM-LIFE-3` | the chosen ARC leaks them by stated cost (`MM-LIFE-2f`); any future cycle collector must trace them, with the maps `MM-LIFE-2d` specifies |
 | **I15** | Nothing is reclaimed except by §3.3 or process exit | `MM-LIFE-1` | — |
 
 **Two invariants are narrower than their one-line form**, and the
@@ -1447,6 +1731,10 @@ narrowing is stated here rather than left to careful reading:
   initialises it, and the padding up to the 16-byte rounding holds
   whatever was there. Memory that reaches a program by that route has
   not been zeroed.
+- **I15** is the status quo `MM-LIFE-2a` exists to end. It holds until
+  `MM-LIFE-2e`'s release path ships, and every rule in §3 may assume it
+  until then; the day it stops holding, this row changes in the same
+  commit.
 
 ---
 
@@ -1456,15 +1744,15 @@ Ranges below EXCLUDE any rule listed in another column of the same row —
 a range that swallowed a **P** or **R** rule would report the opposite of
 that rule's status, which is the failure this table exists to prevent.
 
-| Area | Holds today | Planned | Refused |
-|---|---|---|---|
-| Execution | EXEC-1…6d, 8…13, 15…17 | — | EXEC-7, EXEC-14 |
-| Representation | VAL-1…11, 14…20 | — | VAL-12, VAL-13 |
-| Allocation | ALLOC-1…7, 8a…16b | ALLOC-8, ALLOC-17…21 | — |
-| Mutation | MUT-1…5 | — | MUT-6 |
-| Lifetimes | LIFE-1, 3, 4, 6 | LIFE-5, LIFE-7 | LIFE-2 |
-| Parallelism | PAR-1…5 | PAR-6 | — |
-| Foreign | FFI-2…4 | FFI-5 | FFI-1 |
+| Area | Holds today | Planned | Withdrawn | Refused |
+|---|---|---|---|---|
+| Execution | EXEC-1…6d, 8…13, 15…17 | — | — | EXEC-7, EXEC-14 |
+| Representation | VAL-1…11, 14…20 | — | — | VAL-12, VAL-13 |
+| Allocation | ALLOC-1…7, 8a…16b | ALLOC-8, ALLOC-20 | ALLOC-17…19, ALLOC-21 | — |
+| Mutation | MUT-1…5 | — | — | MUT-6 |
+| Lifetimes | LIFE-1, 3, 4, 6 | LIFE-2a…2f, LIFE-5, LIFE-7 | — | LIFE-2 |
+| Parallelism | PAR-1…5 | PAR-6 | — | — |
+| Foreign | FFI-2…4 | FFI-5 | — | FFI-1 |
 
 `MM-VAL-21` appears in no column: it is neither held, planned nor
 refused, but **defective** — see §9.0.
@@ -1478,7 +1766,7 @@ document.
 
 | Rule | Defect |
 |---|---|
-| `MM-ALLOC-8` | the `axiom_alloc` override seam does not exist; `check` says `OK` and `opt` refuses a duplicate symbol. Three documents describe it as working |
+| `MM-ALLOC-8` | the `axiom_alloc` override seam does not exist; `check` says `OK` and `opt` refuses a duplicate symbol. Three documents described it as working until 2026-08-14 |
 | `MM-ALLOC-8b` | `(__alloc 0)` returns an unadvanced bump pointer — address 0 before any chunk exists |
 | `MM-VAL-3c` | `I8`…`U128` have no width; incompatible with `Int`; no unsigned operations exist |
 | `MM-VAL-4b` | `Double`/`F32`/`F64` emit **integer** arithmetic on double bit patterns, silently |
@@ -1488,7 +1776,7 @@ document.
 | `MM-VAL-9b` | an all-literal `match` is not exhaustiveness-checked and answers 0 on no match |
 | `MM-VAL-21` | `alloc` types as `*mut T`, which is unspellable, evaluates to 0, and still reports `#effects=Alloc` |
 | `MM-MUT-1a` | `set` on a captured binding or a parameter reaches codegen as `AX4002`, whose own note says a check that should have run did not |
-| `MM-EXEC-9a` | effect inference is an under-approximation in five measured ways, including across trait dispatch |
+| `MM-EXEC-9a` | effect inference is an under-approximation in six measured ways, including across trait dispatch |
 | `MM-EXEC-15a` | a reference to `main` emits an undefined register; `check` says `OK` and `opt` refuses |
 | `MM-LIFE-7` | `consume` and `alloc` win as expression heads, so a function of either name is definable but uncallable |
 
@@ -1530,22 +1818,28 @@ the only evidence. In this repository's terms those rules are
 documentation, not specification, until a fixture exists. The
 highest-value gaps, in order: `MM-VAL-9`'s 4096 boundary (a silent
 wrong-arm bug if it ever moves), `MM-MUT-2`'s visibility through
-aliases, `MM-EXEC-6b`'s self-TCO (which a reader of `reference.md` would
-attribute to LLVM), and `MM-LIFE-3`'s cycles stated *as* a property.
+aliases, `MM-EXEC-6b`'s self-TCO (which `reference.md` misattributed to
+LLVM until 2026-08-14 — a fixture would keep it from drifting back),
+and `MM-LIFE-3`'s cycles stated *as* a property.
 
 Two of `MM-EXEC-16`'s three exit statuses are already gated — 71 by
 `tests/stdlib/310-effect-unhandled.ax` and 72 by the division fixtures —
 so only 70 is unpinned, and it is the one no fixture can reach without
 exhausting memory.
 
-**This document is not yet read by `check-doc-drift.sh`.** That gate
-scans a fixed list — `README.md`, `docs/reference.md`, `CONTRIBUTING.md`,
-`docs/v1-roadmap.md`, `docs/self-hosting.md`, `docs/macros.md` — and a
-document outside it drifts exactly as the nine claims it was built to
-catch did. Adding `docs/memory-model.md` and `docs/macro-system.md` to
-that tuple is a one-line change and **SHOULD** be made in the commit
-that lands them; every `tests/` path named here already exists, which is
-the gate's rule 4.
+**This document is read by `check-doc-drift.sh`** — both specifications
+joined the gate's fixed list in the commit that landed them, so every
+`tests/` path named here is checked for existence (the gate's rule 4).
+What was *not* swept until 2026-08-14 was the fenced code:
+`verify-doc-code.py`'s balance check read five documents and neither
+specification — the same drift class this repository keeps finding, a
+document outside a sweep's list being invisible to it. Both specs are
+in that sweep now, and the fence markers (`fragment`, `refused`,
+`excerpt`) mean here what they mean everywhere else. What no gate
+checks is still the prose itself: a status-row rule cannot see that a
+sentence is false, which is how the README's Macros row stayed
+**Complete** for a season of being wrong — the arbitration recorded in
+[macro-system.md](macro-system.md)'s preamble.
 
 ---
 
@@ -1560,28 +1854,64 @@ deleted along with the backend that emitted it. Stating `MM-ALLOC-20` as
 a *prerequisite* is worth more than shipping a collector that
 misidentifies a `Vec` header — which has already happened once.
 
-**Why not reference counting.** ARC is the obvious alternative to a
-tracing collector for a language with no runtime type information, and
-it is **unsound for Axiom as specified**: `MM-LIFE-3` shows a cycle
-built from `stdlib/Vec` alone. Adopting ARC would mean either a cycle
-collector beside it — which needs `MM-ALLOC-20`'s discrimination anyway,
-so nothing is saved — or a language change that makes cycles
-unconstructible, which means removing `MM-MUT-2`. That is a real option
-and this specification does not foreclose it; it just names the price.
+**Why reference counting — and why the reversal is written down.** An
+earlier revision of this paragraph was titled *Why not reference
+counting* and called ARC "unsound for Axiom as specified", because
+`MM-LIFE-3` measures cycles as constructible. That argument mistook
+*incomplete* for *unsound*: a counting scheme never frees a live
+object; what it fails to do is free a dead knot. `MM-LIFE-2a` chooses
+it anyway and prices the leak in, for four reasons, each of which is a
+measurement elsewhere in this document rather than a preference:
 
-**Why arenas, and why inferred.** The measured shape of every program
-this compiler is written to compile — a pass, a request, an expansion —
-is a loop whose activation never returns. Per-activation arenas cost one
-watermark and no per-object bookkeeping, which is the right price for a
-process that exits in milliseconds. They are inferred rather than
-written because `region` was a surface annotation for exactly this and
-was deleted: an annotation the compiler can derive is one that will
-eventually disagree with the compiler, silently.
+1. **Every alternative needs `MM-ALLOC-20` just as much.** Pointer
+   discrimination is the shared prerequisite of counting, tracing and
+   escape analysis alike, so paying it buys progress toward all three
+   and forecloses none.
+2. **The loop case reclaims with no copy.** The activation that never
+   returns — every pass, request and expansion this compiler runs — is
+   the shape per-activation arenas cannot help and `MM-ALLOC-19`'s
+   tail-call reset could serve only through a copy, a linearity proof,
+   or region inference. Under counts the dead generation releases at
+   the same boundary for free (`MM-LIFE-2c`, event 4), and the shared
+   substructure that made the copy corrupt (`MM-ALLOC-15`) is just
+   arithmetic.
+3. **Reclamation is deterministic** — at the last reference's death,
+   the property `consume` was reaching for, obtained without finishing
+   linear types (`MM-LIFE-7`).
+4. **The deferral builds its own escape hatch.** The reference maps ARC
+   requires (`MM-LIFE-2d`) are exactly the tracing information whose
+   absence made the last collector conservative and wrong. If the
+   cycle leak ever costs more than it saves, the collector that fixes
+   it arrives with its hard part already built.
+
+The alternative the old paragraph named — making cycles unconstructible
+by removing `MM-MUT-2` — remains real and remains unforeclosed; it just
+stopped being the cheapest honest option.
+
+**Why the inferred-arena model lost.** Its own argument was the
+measured workload: a loop whose activation never returns, served by a
+watermark at no per-object cost. But that exact shape is the one
+`MM-ALLOC-17` cannot touch — nothing returns — so the design's whole
+weight fell on `MM-ALLOC-19`'s tail-call reset, whose soundness
+obligation could be discharged only by a copy priced at the live set
+per iteration, a linearity proof requiring `MM-LIFE-7` finished, or
+region inference. The copy was built, gated, and measured corrupting
+the moment shared substructure entered (`MM-ALLOC-15`); counting makes
+the same sharing just arithmetic, needs no escape analysis at all, and
+turns `MM-ALLOC-21`'s write barrier into an ordinary field-store event
+(`MM-LIFE-2c`). And `region` stays deleted either way: an annotation
+the compiler can derive is one that will eventually disagree with the
+compiler, silently.
 
 **Why explicit primitives exist anyway.** `MM-ALLOC-12`–`MM-ALLOC-16`
-are what a programmer uses until §3.4 lands, and they are also the
-machinery §3.4 needs. Building the automation on primitives that are
-already gated is the difference between a plan and a schedule.
+are what a programmer uses until `MM-LIFE-2a`'s ARC lands, and they are
+the only reclamation the language has today — the LSP's flat memory is
+built on them. They are also the machinery whose gates proved the
+allocator could be trusted at all. Building the automation over
+primitives that are already gated is the difference between a plan and
+a schedule; that the automation chosen no longer *inserts* them
+(`MM-LIFE-2e` refuses them under ARC instead) does not return the
+lesson.
 
 **Why the unsafe layer is named rather than hidden.** `Mem` hands out
 addresses as plain `Int`s and says so in its own header: it is the layer
@@ -1600,8 +1930,10 @@ library.
 ### 11.1 A loop with flat memory, today
 
 The contract of `MM-ALLOC-16`, written the way a program must write it
-until `MM-ALLOC-19` is implemented. This is the "managed" variant the
-memory baseline gates.
+until the ARC of `MM-LIFE-2a`–`2f` lands — at which point the bracket
+disappears from the source instead of being inserted by the compiler,
+and this script's *unmanaged* column is the acceptance measurement
+(`MM-LIFE-2e`).
 
 This is the "managed" variant `scripts/measure-memory-baseline.sh`
 gates, verbatim in shape: mark once, then per iteration **copy up,
@@ -1708,8 +2040,12 @@ rebuild (`(Cfg 1)`), and nothing in the language will point this out.
 
 ### 11.4 What a linear loop parameter would buy
 
-Under `MM-LIFE-7`, discharge B of `MM-ALLOC-19` replaces the copy in
-§11.1 with a proof:
+Under the withdrawn arena model this example was load-bearing:
+discharge B of `MM-ALLOC-19` replaced §11.1's copy with a proof. Under
+ARC the loop reclaims without it (`MM-LIFE-2c`, event 4), and what
+`MM-LIFE-7` would still buy here is thinner and still real — the
+hand-off moves instead of retaining, and `consume` releases the old
+board at the call rather than at the boundary:
 
 ```scheme
 (:: advance (-> (linear Board) Int (linear Board)))
@@ -1744,23 +2080,29 @@ the nominal barrier: `Linear Int` will not pass where `Int` is expected.
 
 Corrections this specification makes to the normative documents, each
 measured. They are listed because a plan built on a false premise costs
-more than a missing feature.
+more than a missing feature. *Status 2026-08-14: every correction below
+is applied in its target document; the list stays as the record of what
+drifted and how it was caught.*
 
 **To [v1-roadmap.md §4.1](v1-roadmap.md):**
 
+0. **The section's strategy is superseded.** Automatic reclamation is
+   reference counting (`MM-LIFE-2a`–`2f`), not inferred arenas; the
+   roadmap keeps its sketch as the record of the alternative, under a
+   dated supersession note.
 1. **"Cycles are not constructible" is false** (`MM-LIFE-3`). Two
-   routes, one of which uses only `stdlib/Vec`. This makes ARC unsound
-   for Axiom without a cycle collector, and it is a requirement on every
-   future reclamation strategy.
+   routes, one of which uses only `stdlib/Vec`. It is a requirement on
+   every future reclamation strategy: a tracer must trace them, and the
+   chosen ARC states their leak as a cost (`MM-LIFE-2f`).
 2. **"Axiom's data is immutable" is false** for `struct` fields
-   (`MM-MUT-2`), which adds the old-to-young obligation `MM-ALLOC-21` to
-   the escape-promotion design — a write barrier the sketch does not
-   mention because it assumed immutability.
+   (`MM-MUT-2`), which adds the old-to-young obligation the sketch did
+   not mention because it assumed immutability — `MM-ALLOC-21` then,
+   `MM-LIFE-2c`'s field-store event now.
 3. **Chunk stranding is fixed.** The roadmap lists it among the
    automation slice's prerequisites; the chunk list and free list of
-   `MM-ALLOC-13` discharge it. The remaining prerequisites are
-   `MM-ALLOC-20`'s pointer discrimination and a compiler-inserted copy
-   that survives it.
+   `MM-ALLOC-13` discharge it. The remaining prerequisite is
+   `MM-ALLOC-20`'s pointer discrimination, static and runtime halves
+   both (`MM-LIFE-2d`).
 
 **To [v1-roadmap.md §4.4](v1-roadmap.md):** the "seven process-wide
 mutable globals" are the five allocator words plus argc/argv, not the
@@ -1783,6 +2125,6 @@ unaffected.
 
 **To [self-hosting.md](self-hosting.md) / `stdlib/Mem.ax`:** the reason
 given for writing the `Mem` byte loops as `while` — "stage1 emits no
-tail-call optimisation at all" — no longer holds (`MM-EXEC-6d`). The
+tail-call optimisation at all" — no longer holds (`MM-EXEC-6b`). The
 spelling is still correct; the justification needs replacing with
 `MM-EXEC-6c`, which is the one that still bites.

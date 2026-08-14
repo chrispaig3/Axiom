@@ -246,7 +246,7 @@ These words are reserved and cannot be used as identifiers:
 | `impl` | Trait implementation |
 | `import` | Import a module |
 | `pub` | Public visibility |
-| `deriving` | Derive a trait for a data type |
+| `deriving` | Parses and is discarded; to be refused — `derive` will be explicit macros ([macro-system.md](macro-system.md) MAC-CAP-9) |
 | `where` | Trait method bodies |
 | `effect` | Declare an effect type |
 | `handle` | Handle effects |
@@ -763,7 +763,13 @@ Every value of a `data` type — nullary constructors like `Nothing` included �
 
 ### Deriving Traits
 
-You can automatically derive trait implementations for data types:
+There is no working `derive` today. The `deriving` clause **parses and
+is discarded** — the names never reach the AST, and no instance is
+generated — and the settled design refuses the clause outright: `derive`
+will be explicit declaration macros, `(deriveEq T)`, built on the macro
+system ([macro-system.md](macro-system.md) MAC-CAP-8/MAC-CAP-9). Until
+that lands, write the `impl` by hand. The clause's shape, shown only so
+its inertness is recognisable:
 
 ```scheme
 (data Maybe (a)
@@ -990,9 +996,11 @@ The rules that make this predictable:
 Current limits, each a stable diagnostic rather than a silent
 miscompile: one custom effect per `handle` (nest them for more), only
 single-operation effects handled dynamically, and a `handle` list
-naming an undeclared effect is `AX3016`. Stage1 does not parse
-`effect`/`handle` yet - neither form appears in the self-hosting
-subset.
+naming an undeclared effect is `AX3016`. The self-hosted compiler
+parses, checks and emits both `effect` and `handle`, evidence globals
+and the unhandled-operation trap included — this paragraph said the
+opposite until 2026-08-14, long after it stopped being true
+(`docs/memory-model.md` MM-EXEC-10 is the measured probe).
 
 ---
 
@@ -1102,8 +1110,9 @@ template is an ordinary diagnostic — including exhaustiveness on a
 What macros cannot do yet: produce declarations (so there is no
 `derive`), match on the shape of their arguments, or repeat a template
 over a variable number of them. `deriving (Eq)` parses and is
-discarded. See [macros.md](macros.md) for the measured detail and the
-order the rest is planned in.
+discarded. The normative specification is
+[macro-system.md](macro-system.md); [macros.md](macros.md) is the
+measured detail and the order the rest is planned in.
 
 ---
 
@@ -1129,7 +1138,7 @@ Syscall numbers are not built into the compiler — they live in `stdlib/Sys/Pla
   (__alloc bytes))
 ```
 
-Memory comes from the backend's `mmap`-backed bump allocator. There is no `free` — an Axiom process reclaims everything at exit. The allocator itself is replaceable by defining `axiom_alloc`.
+Memory comes from the backend's `mmap`-backed bump allocator. There is no `free` — an Axiom process reclaims everything at exit. Defining `axiom_alloc` yourself does **not** replace the allocator: the program passes `check` and then fails in `opt` with `invalid redefinition of function 'axiom_alloc'` (`docs/memory-model.md` MM-ALLOC-8, which requires a conforming implementation to either build the seam or keep this sentence honest).
 
 ---
 
@@ -1248,7 +1257,7 @@ AXTAGs are source-embedded agent metadata preserved from `;@axiom:<key>(<value>)
 | `effect(io)` | Declares that the function performs I/O |
 | `pure` | Declares that the function has no side effects |
 | `no_refactor` | Hints that the declaration should not be modified by automated refactoring |
-| `owned(arena=frame)` | Specifies ownership semantics for linear types |
+| `owned(arena=frame)` | Ownership metadata; accepted and unenforced — the wording predates the reference-counting decision (`docs/memory-model.md` MM-LIFE-7) |
 
 The compiler validates `effect(io)` claims against what the body actually performs - a `__syscallN`, or a call to something that performs one - and `pure` claims against the absence of any effect. Mismatches emit a warning (`AX3010`).
 
@@ -1256,7 +1265,7 @@ The compiler validates `effect(io)` claims against what the body actually perfor
 
 ## Linear Types and Consume
 
-Axiom supports linear types — types where values have exactly one owner and cannot be duplicated or discarded.
+Axiom parses linear type syntax — intended for types where values have exactly one owner and cannot be duplicated or discarded. Nothing enforces it today.
 
 ### Linear Type Marker
 
@@ -1264,7 +1273,7 @@ Axiom supports linear types — types where values have exactly one owner and ca
 (linear T)
 ```
 
-**Parsed only.** `linear T` parses to the nominal type constructor `Linear T`, and nothing counts uses: a value used twice, or zero times, is accepted and runs. The ownership fact the syntax expresses is what the planned memory model needs (`docs/v1-roadmap.md` §4.1); the enforcement is not written.
+**Parsed only.** `linear T` parses to the nominal type constructor `Linear T`, and nothing counts uses: a value used twice, or zero times, is accepted and runs. The memory model no longer depends on this — deterministic reclamation is the chosen reference counting, obtained without linear types (`docs/memory-model.md` MM-LIFE-2a); what linearity would still buy is retain/release-free moves and early drops (MM-LIFE-7). The enforcement is not written.
 
 ### Consume
 
@@ -1272,7 +1281,7 @@ Axiom supports linear types — types where values have exactly one owner and ca
 (consume expr)
 ```
 
-**Parsed only.** `consume` is a parse-time identity that keeps the `Linear` wrapper; consuming twice is accepted, and no memory is reclaimed at that point or any other — there is no `free`. Deterministic reclamation today is `__axiom_arena_mark` / `__axiom_arena_reset_keeping`, written by hand; see `docs/v1-roadmap.md` §4.1.
+**Parsed only.** `consume` is a parse-time identity that keeps the `Linear` wrapper; consuming twice is accepted, and no memory is reclaimed at that point or any other — there is no `free`. Deterministic reclamation today is `__axiom_arena_mark` / `__axiom_arena_reset_keeping`, written by hand; the specified end state is reference counting — see `docs/memory-model.md`.
 
 ---
 
@@ -1286,7 +1295,7 @@ C interoperability is no longer a goal, and an untagged union has no meaning und
 
 ### `region` — Removed
 
-Allocation lifetime is inferred from where a value is created and how far it escapes, not written by hand. Delete the `region` wrapper and keep its body.
+Reclamation is never written by hand as a region annotation — the chosen automatic strategy is reference counting, and the region-inference sketch that originally justified this sentence is withdrawn (`docs/memory-model.md` MM-LIFE-2a, §3.4). Delete the `region` wrapper and keep its body.
 
 ### `foreign` — Removed
 
@@ -1375,9 +1384,12 @@ memory therefore tracks *total* allocation, not live data. Where that
 matters, `__axiom_arena_mark`, `__axiom_arena_reset` and
 `__axiom_arena_reset_keeping` let a program reclaim explicitly by
 rolling the allocator's waterline back — which is how the language
-server holds flat memory across an editing session. They are a compile
-error in a program that defines its own `axiom_alloc`, which replaces
-the allocator whose position they move.
+server holds flat memory across an editing session. (Two claims stood
+here until 2026-08-14 and both were false: defining `axiom_alloc` does
+not replace the allocator — it is a duplicate-symbol failure in `opt` —
+and no compile error refuses the arena primitives alongside such a
+definition; no check exists. `docs/memory-model.md` MM-ALLOC-8 measures
+both.)
 
 The three carry a contract the compiler cannot check: after a reset,
 nothing allocated since the matching mark may be read again. What the
@@ -1469,7 +1481,7 @@ Supported targets: `darwin-aarch64`, `darwin-x86_64`, `linux-aarch64`, `linux-x8
 
 ## Optimisation
 
-Axiom has `while` with `mut` and `set` (see [Loops](#loops)), used 241 times in the compiler's own sources. Iteration may also be written as recursion, and at `--opt 0` each recursive iteration costs a stack frame. `--opt 1` (the default) and above run LLVM's mid-level passes, which turn self-tail-recursion into a real loop:
+Axiom has `while` with `mut` and `set` (see [Mutable Bindings and `while`](#mutable-bindings-and-while)), used 241 times in the compiler's own sources. Iteration may also be written as recursion. A **self** tail call runs in constant stack at every `--opt` level, including 0 — the loop is built by Axiom's own codegen, not by LLVM (`docs/memory-model.md` MM-EXEC-6b; this sentence attributed it to `--opt 1`'s LLVM passes until 2026-08-14). What still needs `--opt 1` (the default) and above is **mutual** tail recursion and a tail call sitting in a `let` body, which only LLVM's passes flatten (MM-EXEC-6c):
 
 ```bash
 axiom build --input main.ax --output main --opt 2
@@ -1557,6 +1569,8 @@ Use `--opt 2` for anything that iterates over a large input.
 
 ## Further Reading
 
+- [The Memory Model](memory-model.md) — the normative specification: representation, allocation, mutation, lifetimes; reference counting is the chosen reclamation strategy
+- [The Macro System](macro-system.md) — the normative specification: expansion, hygiene, budgets, and what `derive` will be built on
 - [Macros](macros.md) — what expansion guarantees, what it does not, and the probes behind each claim
 - [Diagnostics & Agent Notations](diagnostics.md) — AXDL, AXSYM, NID, AXTAG reference
 - [Self-Hosting](self-hosting.md) — how the Rust compiler was replaced with one written in Axiom, and how a clean checkout builds it

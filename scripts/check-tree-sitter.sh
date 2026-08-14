@@ -54,11 +54,15 @@ echo "--- documented Axiom code blocks balance their delimiters ---"
 # second is 7,000+ lines and grows by a section per fix, every one of
 # them quoting real programs - exactly the shape that goes stale
 # unread. Adding two paths takes the sweep from 114 fenced blocks to
-# 139 at zero design cost.
+# 139 at zero design cost. The two normative specifications joined on
+# 2026-08-14 for the same reason: memory-model.md and macro-system.md
+# quote probes throughout, and a document outside a sweep's list is
+# invisible to it.
 python3 "$repo_root/tests/docs/verify-doc-code.py" \
   "$repo_root/README.md" "$repo_root/docs/reference.md" \
   "$repo_root/CONTRIBUTING.md" \
-  "$repo_root/docs/macros.md" "$repo_root/docs/self-hosting.md"
+  "$repo_root/docs/macros.md" "$repo_root/docs/self-hosting.md" \
+  "$repo_root/docs/memory-model.md" "$repo_root/docs/macro-system.md"
 
 # Prefer a project-local install, then anything on PATH.
 if [[ -x "$repo_root/tree-sitter-axiom/node_modules/.bin/tree-sitter" ]]; then

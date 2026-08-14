@@ -379,7 +379,8 @@ echo "== docs: every documented whole program compiles =="
 if ! python3 "$repo_root/tests/docs/verify-doc-code.py" --compile "$work/axc" \
      "$repo_root/README.md" "$repo_root/docs/reference.md" \
      "$repo_root/CONTRIBUTING.md" \
-     "$repo_root/docs/macros.md" "$repo_root/docs/self-hosting.md"; then
+     "$repo_root/docs/macros.md" "$repo_root/docs/self-hosting.md" \
+     "$repo_root/docs/memory-model.md" "$repo_root/docs/macro-system.md"; then
   failed=$((failed + 1))
 fi
 

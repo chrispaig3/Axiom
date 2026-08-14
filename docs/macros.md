@@ -13,11 +13,15 @@ every capability claim is stated with the observation that established
 it, so a reader can re-run the probe rather than take the claim on
 trust.
 
-Status as of 2026-08-09: expansion is a pass of its own, hygienic in
-the binder direction, and everything it generates is type-checked.
-Declaration-level macros, repetition patterns and `derive` do not
-exist. Section 5 is the list, and section 6 is why the order is what it
-is.
+Status as of 2026-08-14: expansion is a pass of its own, hygienic in
+the binder direction and — for a module-defined macro — at the
+definition site, and everything it generates is type-checked, with one
+recorded exception: a macro invoked inside an `impl` method or a trait
+default body is never expanded at all
+([macro-system.md](macro-system.md) `MAC-EXP-3a` — `check` passes and
+the build dies in `opt`). Declaration-level macros, repetition patterns
+and `derive` do not exist. Section 5 is the list, and section 6 is why
+the order is what it is.
 
 ---
 
@@ -41,7 +45,8 @@ parameter reference replaced by that argument's syntax tree.
 
 There is no compile-time evaluation. The compiler executes no code from
 a source file: expansion is a rewrite and nothing else. That is the
-tier-1 decision recorded in [v1-roadmap.md §4.2](v1-roadmap.md), and it
+tier-1 decision, normative as [macro-system.md](macro-system.md)
+`MAC-LANG-13` (first recorded in [v1-roadmap.md §4.2](v1-roadmap.md)), and it
 is a property of the threat model, not an implementation convenience.
 
 A macro's arguments are substituted as *syntax*, so an argument used
@@ -150,9 +155,10 @@ table keyed by exactly those, and `mangledFor` passes an
 already-mangled name through unchanged. Neither resolver learns
 anything about macros. The rewrite is conditional on `Mod$name` really
 being a declaration, which is what keeps it from touching a reference
-to `+`, to a constructor (constructors are not mangled), or to a name
-the macro's own module merely imported — each of those finds nothing
-and stays bare, resolving outward exactly as before.
+to `+` or to a constructor (constructors are not mangled) — each finds
+nothing and stays bare, resolving outward exactly as before. A name the
+macro's own module merely **imported** also finds nothing and stays
+bare, and that one is not benign: it is the fourth hole below.
 
 **Three bare names in pattern position are not binders**, and the
 renamer treated them as if they were. `true` and `false` are literal
@@ -202,6 +208,18 @@ about the wrong thing: the author defined a function and is told about
 a macro's arity. Within ONE file the collision is caught properly (see
 below); across an import boundary it is not.
 
+**A name the macro's module merely imported is still capturable.** The
+definition-site rewrite tries exactly one spelling, `Mod$name` for the
+macro's *own* module. A template calling a function its module imported
+finds no such declaration, stays bare, and resolves at the call site —
+the same one-macro-two-meanings failure the definition-site fix closed,
+in the case it does not reach
+([macro-system.md](macro-system.md) `MAC-HYG-8`.4; absent from this
+list until 2026-08-14, when the spec called out that this section read
+the residue as benign). Closing it means resolving a free identifier to
+its *true* defining module, which is the same lookup module-qualified
+macro names need.
+
 ### Macros occupy the value namespace
 
 A macro and a function cannot share a name in the same file. Expansion
@@ -232,7 +250,7 @@ Pinned by `tests/diagnostics/993-macro-shadows-function`.
 
 ## 4. Diagnostics
 
-Five codes, all in the semantic range because expansion is
+Seven codes, all in the semantic range because expansion is
 semantic-analysis-time work:
 
 | Code | Slug | What it catches |
@@ -242,6 +260,8 @@ semantic-analysis-time work:
 | `AX3020` | `macro-duplicate-parameter` | two parameters sharing a name |
 | `AX3021` | `macro-template-unsupported` | a template form the expander cannot substitute into |
 | `AX3022` | `macro-set-target` | a parameter used as a `set` target, given an expression |
+| `AX3023` | `private-name` | reaching a macro its module does not export — the general visibility code, shared by macros since they joined the value namespace |
+| `AX3024` | `macro-expansion-limit` | the expansion's OUTPUT exceeded a budget: nested deeper than 1024 forms, or more than 2,000,000 forms produced. The parser's limits measure the source; these measure what expansion produced from it |
 
 `AX3006` (duplicate definition) also reaches macros now — see
 "Macros occupy the value namespace" above.
@@ -347,10 +367,14 @@ the bank that pins it is `scripts/check-degenerate.sh`, and
    (expansion must run before the declaration list is fixed), and
    `format.ax`, which refuses every declaration head in expression
    position and whose refusals are whole-file.
-4. **`derive`** — criterion 1. The spelling is an unmade decision:
-   threading `deriving`'s names into the AST touches the parser, the
-   node layout, AXSYM and the formatter; an explicit `(derive-eq T)`
-   macro call needs only (3). Choosing the first pulls in the second.
+4. **`derive`** — criterion 1. The spelling is settled
+   ([macro-system.md](macro-system.md) `MAC-CAP-9`, 2026-08-14):
+   explicit declaration macros — `(deriveEq T)`, needing only (3) —
+   and the `deriving` clause is to be refused rather than implemented.
+   (This item read "the spelling is an unmade decision" until then;
+   the costs it weighed — threading `deriving`'s names into the AST
+   touches the parser, the node layout, AXSYM and the formatter — are
+   what decided it.)
 5. **Repetition patterns** — the boilerplate case. Needs the lexer,
    `format.ax` and the tree-sitter grammar to move together, and flips
    a checked-in refusal golden (`tests/fmt/parity/060-splice-refused`)
@@ -359,8 +383,8 @@ the bank that pins it is `scripts/check-degenerate.sh`, and
 ## 7. Reproducing everything above
 
 ```bash
-scripts/check-self-host.sh 36        # 360-363, the macro corpus
-scripts/check-diagnostics.sh 99      # 990-992, the refusals
+scripts/check-self-host.sh 36        # 360-365, the macro corpus
+scripts/check-diagnostics.sh 99      # 990-993, the refusals
 ```
 
 The ablation that gives the "was" column of every table here is a

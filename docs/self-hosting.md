@@ -56,9 +56,12 @@ That layer is now gone:
   standard library has a single portable error test instead of a per-OS
   special case.
 - **An Axiom-owned allocator**: `HeapAlloc` no longer calls `malloc`. The
-  backend emits an `mmap`-backed bump allocator, and a program that
-  defines `axiom_alloc` itself replaces it - the seam that lets the
-  allocator move into Axiom later without another backend change.
+  backend emits an `mmap`-backed bump allocator under the symbol
+  `axiom_alloc`. (The intended override seam — a program defining
+  `axiom_alloc` replaces it - does **not** survive `opt`: the emitter
+  defines the symbol unconditionally, so the program passes `check` and
+  dies as a duplicate definition. `docs/memory-model.md` MM-ALLOC-8
+  measures it; this bullet claimed the seam worked until 2026-08-14.)
 - **A standard library in Axiom** (`stdlib/`): `Pre`, `Mem`, `Str`,
   `Vec`, `Map`, `Fmt`, `Intern`, `Sys`, `IO`, with per-platform
   syscall tables under `Sys/`.
@@ -115,7 +118,8 @@ depends on an optimisation flag, non-tail recursion is still bounded,
 and `opt` becomes a de-facto dependency. Axiom needs either guaranteed
 tail calls in the IR or an explicit loop form.
 
-*Both now exist.* Tail calls are guaranteed in the IR, and `while` (S5)
+*Both now exist.* Self tail calls are guaranteed in the IR (mutual ones
+still need `opt` — `docs/memory-model.md` MM-EXEC-6b/6c), and `while` (S5)
 gives an explicit loop that runs 10⁷ iterations in constant stack at
 `-O0`. What remains bounded is *non*-tail recursion, measured at
 60,000–80,000 frames on an 8 MiB stack — so a fold written as
@@ -494,7 +498,9 @@ a macro with matching arity has its template instantiated and emitted
 in the call's place, and emission re-enters the same dispatch, so
 nested and chained expansions recurse exactly as stage0's expander
 does. Substitution is deliberately unhygienic (no macro in the corpus
-introduces a binder; hygiene is macro-system work, roadmap P3) and an
+introduces a binder; hygiene is macro-system work, roadmap P3 — since
+superseded: expansion moved into its own pass, `self_host/expand.ax`,
+hygienic by renaming, per `docs/macro-system.md`) and an
 argument used twice shares one tree rather than two clones - the same
 double evaluation textual substitution has always meant. Pinned by
 `tests/selfhost/360-macro.ax` and `370-pre-import.ax`, both agreeing
@@ -1698,7 +1704,9 @@ project and which two of them were missing.
 
 The `-O0` half cannot be applied uniformly, and the reason is worth
 recording because the two hazards pull opposite ways: at `-O0` the
-allocator is correct but there is no tail-call elimination, and stage2
+allocator is correct but mutual and let-body tail recursion are not
+flattened (a *self* tail call is a loop at every level — the compiler's
+own codegen builds it, `docs/memory-model.md` MM-EXEC-6b/6c), and stage2
 compiling its own source overflows its stack - measured, it
 segfaults. So `check-stdlib-selfhost.sh` uses `-O0`, where the
 allocator matters and the stack does not, and the bootstrap and
@@ -1887,7 +1895,7 @@ driver last).
 |---|---|
 | A stage0 bug is baked into stage1 and reproduced by stage2, making a wrong compiler look self-consistent | Differential testing against stage0 at every phase, not just at the end; keep the Rust compiler runnable and CI-tested for at least two releases past self-hosting |
 | Correctness depends on `--opt` (B2) | Treat guaranteed tail calls as phase-1 blocking work; until then, CI runs the golden suite at both `-O0` and `--opt 2` |
-| Bump allocator makes a long-running Axiom program leak by design (S1) | Document as compiler-process-only; keep `axiom_alloc` overridable so a real allocator can be dropped in from Axiom |
+| Bump allocator makes a long-running Axiom program leak by design (S1) | Document as compiler-process-only; explicit `__axiom_arena_mark`/`reset`/`reset_keeping` reclaim by hand (shipped — the LSP holds flat), and the chosen automatic strategy is reference counting (`docs/memory-model.md` MM-LIFE-2a). The original mitigation here — "keep `axiom_alloc` overridable" — described a seam that does not work (MM-ALLOC-8) |
 | Inline assembly is per-target and unverifiable by the type system | `scripts/check-cross-targets.sh` assembles every target on every CI run; the CI matrix *runs* the suite on Linux x86-64, Linux AArch64, and macOS ARM |
 | Flat namespace (B4) forces sweeping renames late in the port | (RESOLVED) B4 implemented with qualified access before any Axiom code was written |
 | A regression in diagnostics is invisible to output-only tests | Byte-for-byte AXDL comparison is the acceptance criterion for phase 3 |
@@ -2657,8 +2665,13 @@ The replacement walks the vector twice: once adding up
 `strLen(line) + 1`, once copying into a single buffer of exactly that
 size. Both walks are `while` loops rather than self tail calls, for the
 reason `stdlib/Mem.ax` records at length — their depth is the size of
-the data, and stage1 emits no tail-call elimination, so the recursive
-spelling is a real call chain one frame deep per line.
+the data, and a standard library must not owe its stack safety to an
+optimisation: a self tail call in these shapes tends to land in a `let`
+body, which is not a tail position under the compiler's own rewrite
+(`docs/memory-model.md` MM-EXEC-6b/6c), and then survives only through
+LLVM's passes at `--opt 1`+. (This sentence blamed "stage1 emits no
+tail-call elimination", which stopped being true when self-TCO landed
+in the compiler's own codegen.)
 
 **The shape mattered more than the constant.** At `(bytes × lines) / 2`,
 every module added to `self_host/` paid for itself twice: the compiler
@@ -3299,7 +3312,9 @@ mid-header and a body split across three writes.
 
 **And the honest limit: one edit costs 198 KB that is never returned.**
 The server is a long-running process on a bump allocator with no
-`free`, which is the case §4.1 of the roadmap exists for, so the
+`free`, which is the case the memory model exists for
+(`docs/memory-model.md` — reference counting chosen; the roadmap §4.1
+sketch this sentence originally cited is withdrawn), so the
 question is not whether it leaks but how fast. Measured directly —
 N `didChange` notifications carrying `self_host/diag.ax` (16,432
 bytes), peak RSS from `/usr/bin/time -l`:
@@ -3326,10 +3341,12 @@ AST, the diagnostics and the type state for version N are unreachable
 once version N+1 arrives. That is precisely the watermark-and-reset
 case, without the aliasing obligation that makes the general problem
 hard — nothing from the previous check is retained across the
-boundary except the document text, which the store owns. `Mem.ax`
-already notes that the allocator is replaceable (`define axiom_alloc`
-and the backend defers to it), so this need not wait for full arena
-inference.
+boundary except the document text, which the store owns. (This
+paragraph originally added that `Mem.ax` "already notes the allocator
+is replaceable" — a seam that measurably does not work,
+`docs/memory-model.md` MM-ALLOC-8. What actually shipped is the
+explicit mark/reset bracket recorded below, and the automatic strategy
+since chosen is reference counting, MM-LIFE-2a — not arena inference.)
 
 ### What a quality pass found the day after, and why the gate had missed it
 
@@ -3556,11 +3573,14 @@ of the source. One frame per byte. The return address in that frame
 symbolised to `lexer$scanAxtagsFrom`.
 
 It is the same finding as `lexTokens`/`dispatchChar`: a walk written as
-a tail call, which is free only where the compiler turns it into a
-jump, and a stage1-built binary that has not been through `opt` does
-not. `check-self-host.sh` deliberately runs `llc` without `opt`, so
-that is exactly the binary under test. Rewritten as a `while`, its
-depth is constant.
+recursion in a shape the compiler's own rewrite does not reach — a
+direct self tail call is a loop at every `--opt` level
+(`docs/memory-model.md` MM-EXEC-6b), but mutual and let-bound tail
+calls are free only where LLVM's passes turn them into a jump
+(MM-EXEC-6c), and a stage1-built binary that has not been through
+`opt` does not get them. `check-self-host.sh` deliberately runs `llc`
+without `opt`, so that is exactly the binary under test. Rewritten as
+a `while`, its depth is constant.
 
 Two measurements confirm the reading, both on an imported module -
 which is what reaches `scanAxtags` at all, since a module is
@@ -4790,7 +4810,8 @@ which emitted a block that assigns no register — invalid IR, which `opt`
 rejects and the driver reports as `AX4003 opt failed` against
 `<toolchain>`. The compiler blaming the toolchain for its own output,
 with no span into the source, is the failure mode
-[macros.md §2](macros.md) records for templates and is here for a
+[macro-system.md](macro-system.md) `MAC-EXP-1` and
+[macros.md §2](macros.md) record for templates and is here for a
 two-character program.
 
 ### 13.1 The language server died on what typing looks like

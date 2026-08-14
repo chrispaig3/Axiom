@@ -103,7 +103,8 @@ axiom/
 ├── tree-sitter-axiom/  editor grammar for highlighting and structural editing
 ├── tests/              stdlib/ diagnostics/ selfhost/ fmt/ repl/ lsp/ tools/
 ├── scripts/            the gates — each one is what CI runs, runnable locally
-├── docs/               diagnostics.md, self-hosting.md, v1-roadmap.md, reference.md
+├── docs/               reference.md, memory-model.md, macro-system.md, diagnostics.md,
+│                       self-hosting.md, v1-roadmap.md, macros.md
 └── README.md
 ```
 
@@ -504,6 +505,8 @@ If you're unsure about how something works or where to make a change, open an is
 |---|---|
 | [README](README.md) | Project overview, installation, quick start |
 | [docs/reference.md](docs/reference.md) | Comprehensive Axiom language reference |
+| [docs/memory-model.md](docs/memory-model.md) | The memory model specification — reference counting chosen, rules MM-* |
+| [docs/macro-system.md](docs/macro-system.md) | The macro system specification — rules MAC-* |
 | [docs/diagnostics.md](docs/diagnostics.md) | AXDL, AXSYM, NID, AXTAG notation reference |
 | [docs/self-hosting.md](docs/self-hosting.md) | Plan to replace the Rust compiler with Axiom |
 | [docs/v1-roadmap.md](docs/v1-roadmap.md) | Roadmap to v1 — what's done, what's left |
@@ -525,7 +528,7 @@ If you're unsure about how something works or where to make a change, open an is
 | FFI | **Removed** | `foreign` emitted a call to a symbol the module never declared, so it never linked. `foreign` stays reserved and reports `AX2004` |
 | Standard library | **Functional** | `Pre`, `Mem`, `Str`, `Vec`, `Map`, `Fmt`, `Intern`, `Sys`, `IO`, written in Axiom over syscall primitives |
 | Syscalls | **Complete** | `__syscall0`-`__syscall6` on Darwin and Linux, x86-64 and AArch64 |
-| Allocation | **Functional, unbounded** | `mmap`-backed bump allocator; no `free` |
+| Allocation | **Functional, unbounded** | `mmap`-backed bump allocator; no `free`. The chosen end state is reference counting — [docs/memory-model.md](docs/memory-model.md) |
 | Cross-compilation | **Functional** | `--target` selects ABI and platform stdlib modules |
 | Self-hosting | **In progress** | Foundations landed; see [docs/self-hosting.md](docs/self-hosting.md) |
 | ADTs / data types | **Complete** | Constructors (nullary and with fields), recursive types, match exhaustiveness |
@@ -536,9 +539,9 @@ If you're unsure about how something works or where to make a change, open an is
 | Tuples | **Partial** | Syntax and type checking; codegen pending |
 | Traits | **Complete** | Declarations, supertraits, effects, default methods, implementations (`impl`) |
 | Effects | **Complete** | Effect declarations, `handle` expressions, effect checking, AXTAG validation, transitive inference |
-| Loops | **Missing** | Iteration is recursion; `--opt 1`+ turns tail recursion into a loop |
-| Linear types | **Parsed only** | `linear T`, `consume` — the ownership facts the memory model needs |
-| Macros | **Partial** | Substitution expansion before sema, hygienic in the binder direction, arity- and depth-checked. One pattern per macro, no repetition, no declaration-level macros, no `derive`. See [docs/macros.md](docs/macros.md) for what is measured and what is not. This row read "**Complete** — Pattern-substitution expansion before sema with hygiene" until 2026-08-09, and every clause of it was false: expansion ran inside codegen *after* the checker, there was no hygiene of any kind, and there were no patterns |
+| Loops | **Complete** | `while` plus `mut` locals and `set`; self tail calls become loops in Axiom's own codegen at every `--opt` level, and mutual tail recursion is flattened by LLVM at `--opt 1`+ ([docs/memory-model.md](docs/memory-model.md) MM-EXEC-6b/6c). This row said "**Missing** — `--opt 1`+ turns tail recursion into a loop" long after both halves stopped being true |
+| Linear types | **Parsed only** | `linear T`, `consume` — no longer the memory model's mechanism: deterministic reclamation comes from the chosen reference counting without them ([docs/memory-model.md](docs/memory-model.md) MM-LIFE-2a) |
+| Macros | **Partial** | Substitution expansion before sema, hygienic in the binder direction, arity- and depth-checked. One positional parameter list per macro — no patterns, no repetition, no declaration-level macros, no `derive`. The spec is [docs/macro-system.md](docs/macro-system.md); [docs/macros.md](docs/macros.md) is what is measured and what is not. This row read "**Complete** — Pattern-substitution expansion before sema with hygiene" until 2026-08-09, and every clause of it was false: expansion ran inside codegen *after* the checker, there was no hygiene of any kind, and there were no patterns |
 | Concurrency | **Library** | `stdlib/Job.ax`: a bounded pool of child processes over `Sys`'s `sysSpawn`/`sysWaitPid`, submit-order results. No language support, no compiler change. Processes, not threads - a freestanding binary cannot create an OS thread on macOS |
 | Editor support | **Functional** | Tree-sitter grammar with highlighting queries, and `axiom lsp` — lifecycle, full-text sync, `publishDiagnostics` and `documentSymbol` over JSON-RPC (`self_host/lsp.ax`, gated by `scripts/check-lsp-selfhost.sh`). Hover, completion and go-to-definition are not implemented. This row said "no LSP yet" until 2026-08-09, three commits after the server landed |
 | Imports | **Functional** | `(import Mod.Sub ...)` with transitive/diamond-safe resolution, qualified access |

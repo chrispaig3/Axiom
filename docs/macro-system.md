@@ -11,18 +11,20 @@ planned in; [v1-roadmap.md §4.2](v1-roadmap.md) is the design sketch
 this expands. Where they disagree with this document, this document is
 wrong until it is fixed.
 
-**One disagreement is already live, and this document arbitrates it.**
-`README.md` marks Macros **Complete** and asserts "pattern-substitution
-expansion before sema with hygiene (scope sets + gensym) … expansion
-backtrace on diagnostics". `CONTRIBUTING.md` marks the same feature
-**Partial** — "no repetition, no declaration-level macros, no derive" —
-and [macros.md](macros.md) agrees with it. The binary agrees with the
-second: there are no scope sets (`MAC-HYG-2` is renaming), no patterns
-(`MAC-LANG-14`), and the backtrace field is populated by nothing
-(`MAC-DIAG-4`). `check-doc-drift.sh` cannot arbitrate, because its
-status-row rule only checks that a **Complete** row names an existing
-fixture, never that the row's prose is true — so the false claim passes
-CI today. The README row **MUST** be corrected to **Partial**.
+**One disagreement was live when this document landed, and it
+arbitrated.** `README.md` marked Macros **Complete** and asserted
+"pattern-substitution expansion before sema with hygiene (scope sets +
+gensym) … expansion backtrace on diagnostics". `CONTRIBUTING.md` marked
+the same feature **Partial** — "no repetition, no declaration-level
+macros, no derive" — and [macros.md](macros.md) agreed with it. The
+binary agreed with the second: there are no scope sets (`MAC-HYG-2` is
+renaming), no patterns (`MAC-LANG-14`), and the backtrace field is
+populated by nothing (`MAC-DIAG-4`). The README row was corrected to
+**Partial** on 2026-08-14. What the episode proves is kept here:
+`check-doc-drift.sh` could not arbitrate, because its status-row rule
+only checks that a **Complete** row names an existing fixture, never
+that the row's prose is true — a false claim passed CI for as long as
+it existed, and would again.
 
 Conventions — rule identifiers, RFC 2119 keywords, and the **H** / **P**
 / **R** status markers — are as defined in
@@ -727,7 +729,7 @@ bare, resolving outward exactly as before.
 
 ### 3.4 What hygiene does not yet cover
 
-**MAC-HYG-8 (P).** These three holes **SHALL** close. Each is stated
+**MAC-HYG-8 (P).** These four holes **SHALL** close. Each is stated
 with what happens today, because each is a place a reader could
 reasonably believe the guarantee is total:
 
@@ -752,11 +754,11 @@ reasonably believe the guarantee is total:
    function its module imported transitively finds no such declaration,
    stays bare, and is captured by the caller — the same
    one-macro-two-meanings failure `MAC-HYG-6` closed, in the case
-   `MAC-HYG-6` does not reach. This hole is **not** recorded in
-   [macros.md](macros.md) §3, which presents the residue as benign.
-   Closing it means resolving a free identifier to its *true* defining
-   module rather than to the macro's, which is the same lookup
-   `MAC-LANG-12` needs.
+   `MAC-HYG-6` does not reach. This hole was absent from
+   [macros.md](macros.md) §3 until 2026-08-14 — the residue read as
+   benign there; it is recorded now. Closing it means resolving a free
+   identifier to its *true* defining module rather than to the macro's,
+   which is the same lookup `MAC-LANG-12` needs.
 
 **MAC-HYG-9 (P).** The mechanism **SHALL** become **scope sets**: an
 identifier is a `(name, scopes)` pair rather than a bare name, every
@@ -843,13 +845,19 @@ the declaration list it already holds:
 | `(syntax/name x)` | the identifier `x` as a string literal | generated `Show` |
 | `(syntax/join a b)` | one identifier from two (`lens` + `Point` → `lensPoint`) | naming generated declarations |
 | `(syntax/defined? n)` | whether `n` names a declaration | conditional derivation |
-| `(syntax/for (x seq) tpl)` | `tpl` once per element of a sequence answer, spliced in place | the only iteration form |
+| `(syntax/same? a b)` | whether `a` and `b` are the same **binding or declaration slot** — two answers naming field `f` of `S` compare equal, spelling alone never suffices; `MAC-LANG-17`'s binding comparison is the pattern-side instance | `deriveLenses`' diagonal (§10.3) |
+| `(syntax/binders C p)` | `(syntax/arity C)` fresh identifiers derived from prefix `p` — the *same* sequence at every mention within one expansion, each a template binder that `MAC-HYG-2` renames | fieldful `derive` (§10.2) |
+| `(syntax/for ((x xs) …) tpl)` | `tpl` once per element, spliced in place; several sequences zip in lockstep and **MUST** have equal length — a mismatch is a diagnostic at the invocation | the iteration form |
+| `(syntax/fold f z ((x xs) …) tpl)` | the right-fold `(f tpl₁ (f tpl₂ … z))` — `tpl` instantiated per element and nested under a two-argument head, since `&&` takes exactly two | chaining `&&` over field comparisons |
 
-`syntax/for` is the only construct that turns a query's *sequence*
-answer into repeated output, and it is bounded by the length of that
-sequence — which is a property of the program's declarations, not of
-anything a macro computes. That is what keeps `MAC-EXP-9`'s budgets a
-backstop rather than the primary termination argument.
+`syntax/for` and `syntax/fold` are the only constructs that turn a
+query's *sequence* answer into repeated output, and both are bounded by
+the length of that sequence — which is a property of the program's
+declarations, not of anything a macro computes. That is what keeps
+`MAC-EXP-9`'s budgets a backstop rather than the primary termination
+argument. (`syntax/for`'s one-sequence form `(syntax/for (x xs) tpl)`
+is the common case and reads as before; the parenthesised-pairs form is
+what the fieldful examples need.)
 
 **MAC-CAP-6 (P).** The vocabulary **MUST** be closed. Every entry
 **MUST** be total, terminating, and a pure function of the declaration
@@ -913,14 +921,23 @@ declaration:
 *Today:* `deriving (Eq Show)` **parses and is discarded** — measured:
 the clause's names never reach the AST, and a program carrying one
 checks `OK`. That is the documented-but-inert shape this repository
-keeps finding; a conforming implementation **MUST** either implement the
-clause or refuse it.
+keeps finding, and the next rule is the decision it demanded.
 
-The spelling is a decision this specification records rather than
-settles. Threading `deriving`'s names into the AST touches the parser,
-the node layout, AXSYM and the formatter; an explicit `(derive-eq T)`
-macro call needs only `MAC-CAP-8`. Choosing the first pulls in the
-second.
+**The spelling is settled: explicit invocation.** `derive` is a library
+of declaration macros — `(deriveEq T)`, written where the author wants
+the instance — and the `deriving` clause **SHALL** be **refused** rather
+than implemented: a clause that parses and is discarded is the
+documented-but-inert failure class, and refusal is the smallest true
+behaviour. The costs decided it. Threading `deriving`'s names into the
+AST touches the parser, the node layout, AXSYM and the formatter, while
+the explicit call needs only `MAC-CAP-8`; and the clause's corpus
+population is **one file pair** — `tests/fmt/syntax-zoo.ax` and its
+expected output, written deliberately by someone reading the parser to
+pin the formatter's spelling of a clause the compiler ignores. The
+refusal flips that fixture (and `reference.md`'s Deriving Traits
+example), and those flips are the change's whole migration cost —
+counted here so the commit that implements the refusal knows its blast
+radius before it lands.
 
 ---
 
@@ -1060,8 +1077,8 @@ disagreeing.
 ## 7. Diagnostics
 
 **MAC-DIAG-1 (H).** Macro diagnostics live in the semantic range,
-because expansion is semantic-analysis-time work. Seven codes exist —
-two more than [macros.md](macros.md) lists:
+because expansion is semantic-analysis-time work. Seven codes exist
+(macros.md listed five until 2026-08-14; it lists all seven now):
 
 | Code | Slug | Fires when |
 |---|---|---|
@@ -1281,14 +1298,49 @@ Two properties this example exists to demonstrate:
   `syntax/join` are answered by the expander from the declaration list
   (`MAC-CAP-6`).
 
-Constructors *with* fields need `(syntax/arity C)` and a field-wise
-comparison, which needs one more thing this design does not yet have: a
-way to name the *i*-th field of a bound pattern. That is the honest edge
-of `MAC-CAP-5` — the vocabulary is closed (`MAC-CAP-6`), so extending it
-to the fieldful case is a language change with a table row, not
-something a macro author can work around. It is listed here rather than
-hidden because the nullary case is exactly the one that looks like the
-whole problem and is not.
+Constructors *with* fields are the same shape one vocabulary rung up:
+`syntax/binders` names a constructor's fields as fresh pattern binders,
+the parallel forms of `syntax/for`/`syntax/fold` zip the two sides, and
+the field comparison is written `(eq xi yi)` — dispatching through the
+trait lowering `MAC-INT-4` describes, selected by the field's concrete
+type per constructor. (An earlier revision called the fieldful case
+"the honest edge" because nothing could name the *i*-th field of a
+bound pattern; `syntax/binders` is the table row that closed it, argued
+for exactly as `MAC-CAP-6` requires.)
+
+The fieldful form generates an **`impl`**, not the free function the
+nullary sketch above generates — and the difference is load-bearing,
+not stylistic. Its own field comparisons dispatch through `Eq`, so a
+derived type's instance must *be* an `Eq` instance for a containing
+type's derive to find: `(deriveEq Point)` then `(deriveEq Shape)` works
+precisely because the first left an `Eq#Point#eq` behind for the
+second's `(eq xi yi)` to resolve to. An `impl` is a declaration, which
+is exactly what `MAC-CAP-8` produces:
+
+```scheme fragment
+(pub macro deriveEq
+  ((deriveEq T)
+   (impl (Eq T) where
+     ((eq (lambda (a b)
+       (match a
+         (syntax/for (C (syntax/constructors T))
+           ((C (syntax/binders C x))
+            (match b
+              ((C (syntax/binders C y))
+               (syntax/fold && true
+                            ((xi (syntax/binders C x))
+                             (yi (syntax/binders C y)))
+                 (eq xi yi)))
+              (_ false)))))))))))
+```
+
+The honest edge moves rather than disappears, and it is `MAC-INT-4`'s
+rather than this section's: a **polymorphic** field — `(Just a)`'s
+payload — has no concrete type for that dispatch to select on, and no
+dictionary exists to pass. `deriveEq` over a parameterised type
+therefore draws the same refusal the hand-written comparison would,
+which is `MAC-EXP-2` doing its job: generated code is checked exactly
+as written code, and it cannot call what the language cannot dispatch.
 
 ### 10.3 Deriving lenses
 
@@ -1316,10 +1368,10 @@ makes a *functional* accessor worth generating:
 `withX` expands to `(fn (withX s v) (Point v s.y))` — a **rebuild**,
 which is the difference between a lens and a field store: `(set p.x 1)`
 mutates through every alias (`MM-MUT-2`), and `(withX p 1)` does not.
-This example also shows the vocabulary growing by one entry the moment a
-real macro is written against it (`syntax/same?`), which is what
-`MAC-CAP-6`'s closure rule is for — the entry is a language change, and
-this is where it would be argued for.
+This example is also why `syntax/same?` has a row in `MAC-CAP-5`'s
+table: the entry earned its place the moment a real macro needed it,
+which is what `MAC-CAP-6`'s closure rule is for — the entry is a
+language change, argued for here and recorded there.
 
 
 ### 10.4 An algebraic optimiser as rewrite rules
@@ -1395,6 +1447,19 @@ nicety: without an expansion backtrace, the author of `(machine Door
 | Diagnostics | DIAG-1…3 | DIAG-4, DIAG-5 | — |
 | Tooling | TOOL-1, TOOL-6 | TOOL-2…5 | — |
 
+Seven rules in the Holds column are held-but-defective, each with the
+defect stated inline where it is defined — `MAC-EXP-3a` (impl and trait
+bodies are never expanded: a wrong answer, not a limitation),
+`MAC-EXP-8` (the over-application diagnostic anchors at the expansion,
+not the surplus argument), `MAC-EXP-11a` (the node budget counts
+unexpanded nodes and its message blames macros that may not exist),
+`MAC-EXP-14a` (a template literal keeps the defining file's byte
+offsets), `MAC-HYG-3a` (a renamed binder reaches a machine-applicable
+fix as an unspellable token), `MAC-CAP-3a` (`AX3022` reports and then
+emits the bad node anyway), and `MAC-TOOL-6` (`fmt` rewrites what
+`check` refuses to lex). This is [memory-model.md §9.0](memory-model.md)'s
+convention; the list, not any one entry, is the argument for gating.
+
 ### 11.1 What is gated
 
 | Pinned by | Rules |
@@ -1425,7 +1490,8 @@ Unpinned, and therefore documentation rather than specification:
 `MAC-EXP-6`'s ordering (that an unused argument is not expanded),
 `MAC-LANG-10`'s private-macro-from-a-public-template case,
 `MAC-LANG-11`'s last-definition-wins rule, and `MAC-EXP-14`'s span
-assignment.
+assignment. Each is measurable in a fixture of a few lines, and each is
+a rule a future change could break silently.
 
 **Four documented limitations have no fixture either**, and all four
 reproduce exactly as documented — which is precisely the state in which
@@ -1436,7 +1502,7 @@ entry-file function (`MAC-HYG-8`.3); a macro in declaration position is
 `AX2003` (`MAC-LANG-5`). `MAC-EXP-3a`'s `impl`-body miscompile has no
 fixture either, and it is a wrong-answer bug rather than a limitation.
 
-### 11.3 Are the limits normative?
+### 11.2 Are the limits normative?
 
 `AX3019` names 128, and `AX3024` names 1024 and 2,000,000 — all three in
 **user-visible diagnostic text**, so changing one changes a checked-in
@@ -1445,13 +1511,13 @@ fixture either, and it is a wrong-answer bug rather than a limitation.
 choose others, but each diagnostic **MUST** state the limit it enforced.
 That is what makes the number a fact about the run rather than a
 constant a reader has to look up, and it is why the goldens pin the text
-rather than the value alone. Each is measurable in a fixture of a few lines, and each is
-a rule a future change could break silently.
+rather than the value alone.
 
-### 11.2 The order the rest should land in
+### 11.3 The order the rest should land in
 
 1. **`MAC-LANG-12` + `MAC-HYG-8`** — macro names qualifiable and
-   mangled. Closes two of the three hygiene holes and is a prerequisite
+   mangled. Closes three of the four hygiene holes (the entry-file
+   capture stays for `MAC-HYG-9`'s scope sets) and is a prerequisite
    for neither of the big items, which is what makes it the cheapest
    real progress.
 2. **`MAC-DIAG-4`** — the `Diag` layout change. Every later item makes
