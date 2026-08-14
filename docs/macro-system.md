@@ -148,25 +148,35 @@ the importing file's, this is also what lets an entry file's macro
 shadow an imported one. This ordering is a language rule, not an
 implementation detail: changing it changes which macro a program means.
 
-**MAC-LANG-12 (P).** A macro name **SHALL** be qualifiable as
-`Mod::name`, like any other declaration.
+**MAC-LANG-12 (H).** A macro name is qualifiable as `Mod::name`, like
+any other declaration: `(QualMac::qdbl 21)` expands, a zero-parameter
+macro's bare-qualified spelling `QualMac::qfive` expands
+(`MAC-LANG-3`, through the same split), and a qualified reference to a
+**private** macro is `AX3023` naming the module, not a false `AX3001`.
+Pinned by `tests/selfhost/368-macro-qualified.ax` (47; the unfixed
+compiler refuses it with two `AX3001`s) and
+`tests/diagnostics/485-qualified-private-macro.ax`.
 
-*Today:* `Pre::when` is `AX3001 undefined variable`. Macro names are a
-flat, program-wide table with no module recorded on the name, so two
-imported modules defining the same macro name resolve last-wins with no
-`AX3014` ambiguity report.
+The mechanism is a **split, not a mangle** — the reverse of what this
+rule sketched while it was planned. `Mod::name` is not a distinct AST
+node: the parser flattens it to `Mod$name`, the spelling import
+resolution writes onto `fn`/`::` declarations. Macro declarations keep
+their bare names, and the lookup splits the *reference* instead,
+matching the bare part against the macro's name and the module part
+against the module already stamped on its declaration — `declMatches`'
+rule, the same one that fixed qualified constructors. Mangling the
+declarations would have moved every bare-name behaviour this document
+gates (`MAC-LANG-11`'s ordering, `MAC-LANG-8`'s collisions, five
+hygiene fixtures); splitting the reference moved none of them, and the
+checker's `isMacroName` applies the identical split so the two sides
+keep agreeing.
 
-The mechanism explains both the gap and the fix. **`Mod::name` is not a
-distinct AST node**: the parser joins the module segments with `.`,
-appends `$`, and produces exactly the `Mod$name` spelling that import
-resolution writes onto declarations. So qualification resolves whatever
-was mangled — and import resolution mangles **only** `fn` and `::`
-declarations. Implementing `MAC-LANG-12` therefore means mangling macro
-declarations too, which is the same change `MAC-HYG-8` needs and the
-same one `data`, `struct`, `trait` and `effect` declarations need for
-their own reasons (their names are program-global today and collide
-silently across modules, with `Mod::Type` a parse error in type
-position).
+Two residues, stated so nobody reads this as more than it is: two
+imported modules defining the same macro name still resolve a **bare**
+invocation last-wins with no `AX3014` — which `MAC-LANG-11` blesses as
+a language rule, and qualification now disambiguates on demand — and
+`Mod::name` in **type** position is still a parse error, which is a
+type-grammar gap, not a macro one.
 
 ### 1.4 The no-evaluation invariant
 
@@ -740,7 +750,8 @@ bare, resolving outward exactly as before.
 
 ### 3.4 What hygiene does not yet cover
 
-**MAC-HYG-8 (P).** These four holes **SHALL** close. Each is stated
+**MAC-HYG-8 (P; two of the four closed 2026-08-14).** These four holes
+**SHALL** close, and the second and third have. Each is stated
 with what happens today, because each is a place a reader could
 reasonably believe the guarantee is total:
 
@@ -751,14 +762,22 @@ reasonably believe the guarantee is total:
    (`AX3004 expected function type, found Int`), but it is not a
    diagnostic about capture and it names neither the macro nor the
    binding that shadowed it.
-2. **Qualified reference to a macro** — `MAC-LANG-12`.
+2. **Qualified reference to a macro** — **closed**: `MAC-LANG-12`
+   holds, by splitting the reference rather than mangling the
+   declarations.
 3. **An imported macro outranks an entry-file function of the same
-   name.** `(fn (when n) ...)` beside `(import Pre)` gets the macro at
-   every call site. It is loud — `AX3018 macro `when` takes 2 arguments,
-   but was given 1` — but the diagnostic is about the wrong thing: the
-   author defined a function and is told about a macro's arity. Within
-   one file the collision is caught properly (`MAC-LANG-8`); across an
-   import boundary it is not.
+   name** — **closed**: a bare invocation whose name a bare `fn`/`::`
+   declares resolves to the function, mirroring `findFnEnt`'s
+   entry-file resolution, unless the macro belongs to the invocation
+   site's own module; the macro stays reachable by qualification.
+   Pinned by `tests/selfhost/369-macro-vs-function.ax` (15; the
+   unfixed compiler answers 10). The old behaviour was loud only when
+   the arities disagreed — `AX3018 macro `when` takes 2 arguments, but
+   was given 1`, a diagnostic about the wrong thing — and **silent**
+   when they agreed, which is the measured 10: the macro's answer, no
+   diagnostic from anything. Within one file the collision was always
+   caught (`MAC-LANG-8`); now the import boundary resolves instead of
+   ambushing.
 4. **A free identifier naming something the macro's module merely
    imported is still captured.** `MAC-HYG-7`'s rewrite tries exactly one
    spelling, `Mod$n` for the macro's *own* module. A template calling a
@@ -768,8 +787,14 @@ reasonably believe the guarantee is total:
    `MAC-HYG-6` does not reach. This hole was absent from
    [macros.md](macros.md) §3 until 2026-08-14 — the residue read as
    benign there; it is recorded now. Closing it means resolving a free
-   identifier to its *true* defining module rather than to the macro's,
-   which is the same lookup `MAC-LANG-12` needs.
+   identifier to its *true* defining module rather than to the macro's
+   — and the measured blocker is that the merged declaration list has
+   no import edges to resolve through: `resolveDeclsPhase` consumes
+   each `(import ...)` during the merge and pushes nothing into the
+   merged list, so which modules the macro's module imported is not
+   recoverable after resolution. `MAC-LANG-12` closed without this (a
+   qualified reference names its module in the source); this hole
+   cannot.
 
 **MAC-HYG-9 (P).** The mechanism **SHALL** become **scope sets**: an
 identifier is a `(name, scopes)` pair rather than a bare name, every
@@ -1449,7 +1474,7 @@ nicety: without an expansion backtrace, the author of `(machine Door
 
 | Area | Holds today | Planned | Refused |
 |---|---|---|---|
-| Language | LANG-1…11 | LANG-12, 14…18 | LANG-13 |
+| Language | LANG-1…12 | LANG-14…18 | LANG-13 |
 | Expansion | EXP-1…15 | EXP-16, EXP-17 | — |
 | Hygiene | HYG-1…7 | HYG-8, HYG-9 | — |
 | Capabilities | CAP-1…3 | CAP-4, 6…9 | CAP-5 (with replacement) |
@@ -1478,6 +1503,9 @@ convention; the list, not any one entry, is the argument for gating.
 | `tests/selfhost/361-macro-hygiene.ax` (143) | HYG-1, HYG-2 |
 | `tests/selfhost/362-macro-coverage.ax` (57) | CAP-1 |
 | `tests/selfhost/367-macro-in-impl.ax` (93) | EXP-3a — the unfixed compiler exits 4 |
+| `tests/selfhost/368-macro-qualified.ax` (47) | LANG-12 — the unfixed compiler refuses with two `AX3001`s |
+| `tests/selfhost/369-macro-vs-function.ax` (15) | HYG-8.3 — the unfixed compiler answers 10, silently |
+| `tests/diagnostics/485-qualified-private-macro.ax` | LANG-12's `AX3023` route for a qualified private macro |
 | `tests/selfhost/363-macro-shadowing.ax` (3) | EXP-5 |
 | `tests/selfhost/364-macro-definition-site.ax` (157) | HYG-6, HYG-7 |
 | `tests/selfhost/365-macro-pattern-literal.ax` (95) | HYG-5 |
@@ -1504,15 +1532,17 @@ Unpinned, and therefore documentation rather than specification:
 assignment. Each is measurable in a fixture of a few lines, and each is
 a rule a future change could break silently.
 
-**Four documented limitations have no fixture either**, and all four
-reproduce exactly as documented — which is precisely the state in which
-a "fix" can silently change behaviour with every gate still green:
-`Pre::when` is `AX3001` (`MAC-LANG-12`); an entry-file macro's free
-identifier is capturable (`MAC-HYG-8`.1); an imported macro outranks an
-entry-file function (`MAC-HYG-8`.3); a macro in declaration position is
-`AX2003` (`MAC-LANG-5`). (`MAC-EXP-3a`'s `impl`-body miscompile sat in
-this list as the one wrong-answer bug among the limitations, fixtureless
-— fixed and pinned on 2026-08-14, `tests/selfhost/367-macro-in-impl.ax`.)
+**Two documented limitations have no fixture**, and both reproduce
+exactly as documented — which is precisely the state in which a "fix"
+can silently change behaviour with every gate still green: an
+entry-file macro's free identifier is capturable (`MAC-HYG-8`.1), and a
+macro in declaration position is `AX2003` (`MAC-LANG-5`). (This list
+held four on 2026-08-13, plus one wrong-answer bug: `MAC-LANG-12`'s
+`Pre::when`-is-`AX3001` and `MAC-HYG-8`.3's imported-macro-outranks
+were fixed and pinned on 2026-08-14 by
+`tests/selfhost/368-macro-qualified.ax` and
+`369-macro-vs-function.ax`, and `MAC-EXP-3a`'s `impl`-body miscompile
+by `367-macro-in-impl.ax`.)
 
 ### 11.2 Are the limits normative?
 
@@ -1527,11 +1557,14 @@ rather than the value alone.
 
 ### 11.3 The order the rest should land in
 
-1. **`MAC-LANG-12` + `MAC-HYG-8`** — macro names qualifiable and
-   mangled. Closes three of the four hygiene holes (the entry-file
-   capture stays for `MAC-HYG-9`'s scope sets) and is a prerequisite
-   for neither of the big items, which is what makes it the cheapest
-   real progress.
+1. ~~**`MAC-LANG-12` + `MAC-HYG-8`**~~ — **landed 2026-08-14**, by
+   splitting the reference instead of mangling the declarations:
+   qualification works (hole 2), an entry-file function outranks an
+   imported macro (hole 3), and a qualified private macro is `AX3023`.
+   What remains under this heading: the entry-file capture (hole 1,
+   which needs `MAC-HYG-9`'s scope sets) and the imported-name capture
+   (hole 4, which needs import edges the merged declaration list does
+   not carry).
 2. **`MAC-DIAG-4`** — the `Diag` layout change. Every later item makes
    diagnostics *inside* expansions more common, so this comes before
    them, not after.

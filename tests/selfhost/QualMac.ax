@@ -1,0 +1,8 @@
+; The module half of the macro-qualification fixtures (368, 369).
+; Two exported macros - one parameterful, one zero-parameter, so both
+; invocation spellings of a QUALIFIED reference are exercised - and a
+; private one, which stays reachable from nowhere else however it is
+; spelled.
+(pub macro (qdbl x) (+ x x))
+(pub macro (qfive) 5)
+(macro (qsecret x) (+ x 100))

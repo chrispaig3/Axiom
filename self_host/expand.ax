@@ -303,10 +303,97 @@
         (expCollectMacros decls acc (+ i 1))
       }))
 
+; ------------------------------------------------------------------
+; Qualified macro names. `Pre::when` reaches this pass as `Pre$when` -
+; the flat spelling the parser gives EVERY qualified reference
+; (`mangledFromChain`). Macro declarations keep their bare names;
+; nothing mangles them; so a qualified invocation resolves by
+; SPLITTING the reference instead: the bare part against the macro's
+; name, the module part against the module stamped on its declaration
+; (word 8). That is `declMatches`' rule for types and constructors,
+; re-spelt here because this pass must not depend on the checker.
+; Until 2026-08-14, `Pre::when` was AX3001: the macro table had no
+; module on the NAME and nothing split the reference
+; (macro-system.md MAC-LANG-12).
+; ------------------------------------------------------------------
+(pub :: expModOf (-> String Int))
+(pub fn (expModOf s) (expModOfFrom s (- (strLen s) 1)))
+
+(pub :: expModOfFrom (-> String Int Int))
+(pub fn (expModOfFrom s i)
+  (if (< i 0)
+      0
+      (if (== (strByte s i) 36)
+          (strSlice s 0 i)
+          (expModOfFrom s (- i 1)))))
+
+(pub :: expBareOf (-> String String))
+(pub fn (expBareOf s) (expBareOfFrom s (- (strLen s) 1)))
+
+(pub :: expBareOfFrom (-> String Int String))
+(pub fn (expBareOfFrom s i)
+  (if (< i 0)
+      s
+      (if (== (strByte s i) 36)
+          (strSlice s (+ i 1) (- (strLen s) (+ i 1)))
+          (expBareOfFrom s (- i 1)))))
+
+; A reference as the programmer wrote it, for diagnostics: the parser
+; flattened `Mod::name` to `Mod$name`, and quoting THAT back reports a
+; spelling that appears nowhere in the source. Bare names pass through
+; untouched, which is what keeps every existing golden byte-stable.
+(pub :: expSrcSpelling (-> String String))
+(pub fn (expSrcSpelling s)
+  (let ((m (expModOf s)))
+    (if (== m 0) s (strConcat (strConcat m "::") (expBareOf s)))))
+
+(pub :: expSameMod (-> String String Int))
+(pub fn (expSameMod a b)
+  (if (== a 0)
+      (if (== b 0) 1 0)
+      (if (== b 0) 0 (if (strEq a b) 1 0))))
+
 (pub :: expFindMacro (-> Int String Int))
 (pub fn (expFindMacro env name)
-  (expFindMacroIn (expMacros env) name (memGetWord env 9)
-                  (- (vecLen (expMacros env)) 1)))
+  (let ((site (memGetWord env 9))
+        (qm (expModOf name)))
+    (if (!= qm 0)
+        (expFindMacroQual (expMacros env) (expBareOf name) qm site
+                          (- (vecLen (expMacros env)) 1))
+        (let ((mac (expFindMacroIn (expMacros env) name site
+                                   (- (vecLen (expMacros env)) 1))))
+          (if (== mac 0)
+              0
+              ; MAC-HYG-8's third hole: an imported macro used to
+              ; outrank an entry-file FUNCTION of the same name at
+              ; every call site - silently when the arities agreed.
+              ; Function resolution is local-first, then the entry
+              ; file's bare declarations (`findFnEnt`), so a bare
+              ; invocation whose name a bare `fn`/`::` declares is the
+              ; function's - unless the macro belongs to the site's
+              ; own module, whose local names win there for the same
+              ; reason. `isMacroName` in the checker applies the
+              ; identical veto; the two have to agree.
+              (if (&& (!= (nodeModule mac) 0)
+                      (&& (== (expSameMod (nodeModule mac) site) 0)
+                          (== (expDeclNamed (expDecls env) name 0) 1)))
+                  0
+                  mac))))))
+
+; The backward walk for a QUALIFIED reference: name and module both,
+; visible when exported or when the invocation site IS that module.
+(pub :: expFindMacroQual (-> Int String String String Int Int))
+(pub fn (expFindMacroQual ms bare qm site i)
+  (if (< i 0)
+      0
+      (let ((m (vecGet ms i)))
+        (if (&& (strEq (nodeA m) bare)
+                (&& (!= (nodeModule m) 0)
+                    (&& (strEq (nodeModule m) qm)
+                        (|| (== (nodeVis m) 1)
+                            (&& (!= site 0) (strEq site qm))))))
+            m
+            (expFindMacroQual ms bare qm site (- i 1))))))
 
 ; A macro its module does not export is invisible from anywhere else.
 ;
@@ -965,7 +1052,7 @@
             e
             (if (> (vecLen (nodeB mac)) 0)
                 {
-                  (expArityDiag env (nodeA e) (vecLen (nodeB mac)) 0 (nodeSpan e))
+                  (expArityDiag env (expSrcSpelling (nodeA e)) (vecLen (nodeB mac)) 0 (nodeSpan e))
                   (mkEInt 0)
                 }
                 (expandInstantiate mac vecNew env bs (nodeSpan e)))))))
@@ -998,7 +1085,7 @@
         (isp (if (!= (nodeSpan head) 0) (nodeSpan head) (nodeSpan e))))
     (if (< (vecLen args) (vecLen params))
         {
-          (expArityDiag env (nodeA head) (vecLen params) (vecLen args) isp)
+          (expArityDiag env (expSrcSpelling (nodeA head)) (vecLen params) (vecLen args) isp)
           (mkEInt 0)
         }
         ; Exactly `arity` arguments feed the macro; a longer spine

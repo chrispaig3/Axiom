@@ -1,0 +1,15 @@
+; expect 15
+; An entry-file FUNCTION beside an imported macro of the same name.
+; The macro used to win at every call site - and with the arities
+; agreeing, silently: this file answered 10 (the macro's doubling)
+; where the function says 15, with no diagnostic from anything.
+; That is MAC-HYG-8's third hole, closed 2026-08-14: a bare
+; invocation whose name a bare `fn`/`::` declares is the function's,
+; mirroring `findFnEnt`'s entry-file resolution, unless the macro
+; belongs to the invocation site's own module. The macro stays
+; reachable by qualification - 368 exercises that spelling.
+(import QualMac)
+(:: qdbl (-> Int Int))
+(fn (qdbl n) (* n 3))
+(:: main Int)
+(fn (main) (qdbl 5))

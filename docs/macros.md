@@ -196,19 +196,31 @@ free identifier. It is a loud failure rather than a wrong answer
 is not a diagnostic about capture and it names neither the macro nor
 the binding that shadowed it.
 
-**Qualified reference to a macro.** `Pre::when` is `AX3001`: macro
-names are still a flat program-wide table with no module recorded, so a
-macro cannot be disambiguated the way a function can, and two imported
-modules defining the same macro name resolve last-wins with no
-`AX3014`.
+~~**Qualified reference to a macro.**~~ **Closed, 2026-08-14.**
+`(QualMac::qdbl 21)` expands, a zero-parameter macro's bare-qualified
+spelling expands, and a qualified private macro is `AX3023` naming its
+module. The mechanism is a split of the reference — bare part against
+the macro's name, module part against its declaration's module — not a
+mangle of the declarations, which is what keeps every bare-name
+behaviour in this file byte-stable. `tests/selfhost/368-macro-qualified.ax`
+(47; the unfixed compiler refuses with two `AX3001`s) and
+`tests/diagnostics/485-qualified-private-macro.ax` pin it. Two imported
+modules defining the same macro name still resolve a BARE invocation
+last-wins — the documented ordering rule — and qualification now
+disambiguates on demand.
 
-**An imported macro still outranks an entry-file function of the same
-name.** `(fn (when n) ...)` beside `(import Pre)` gets the macro at
-every call site. It is loud now rather than silent — `AX3018 macro
-`when` takes 2 arguments, but was given 1` — but the diagnostic is
-about the wrong thing: the author defined a function and is told about
-a macro's arity. Within ONE file the collision is caught properly (see
-below); across an import boundary it is not.
+~~**An imported macro still outranks an entry-file function of the
+same name.**~~ **Closed, 2026-08-14.** A bare invocation whose name a
+bare `fn`/`::` declares resolves to the function — mirroring
+`findFnEnt`'s entry-file resolution — unless the macro belongs to the
+invocation site's own module; the macro stays reachable by
+qualification. `tests/selfhost/369-macro-vs-function.ax` (15) pins it,
+and its ablation is the reason the hole mattered more than its
+paragraph here admitted: with the arities AGREEING the old behaviour
+was not the loud-but-wrong `AX3018` this section described — it was
+the macro's answer, 10 against the function's 15, silently. Within ONE
+file the collision was always caught (see below); the import boundary
+now resolves instead of ambushing.
 
 **A name the macro's module merely imported is still capturable.** The
 definition-site rewrite tries exactly one spelling, `Mod$name` for the
@@ -350,16 +362,21 @@ the bank that pins it is `scripts/check-degenerate.sh`, and
 - **Repetition.** No `...`; `.` cannot lex as part of a token, so this
   needs a lexer change that ripples to `tree-sitter-axiom/grammar.js`
   and `format.ax`, both of which re-implement the token set.
-- **Module-qualified macros.** See §3.
+
+(Module-qualified macros stood in this list until 2026-08-14 — §3
+records the close.)
 
 ## 6. The order the rest should land in
 
-1. ~~**Module qualification for macros**~~ — **done** for a template's
-   free identifiers, and macros now occupy the value namespace so a
-   same-file collision is `AX3006` (§3). What remains under this
-   heading: `Pre::when` is still `AX3001`, an imported macro still
-   outranks an entry-file function of the same name, and an entry-file
-   macro's free identifiers are still capturable.
+1. ~~**Module qualification for macros**~~ — **done**, in three
+   instalments: a template's free identifiers resolve at the
+   definition site and macros occupy the value namespace, so a
+   same-file collision is `AX3006` (§3); and since 2026-08-14,
+   `Pre::when`-style qualified invocation works (private ones are
+   `AX3023`), and an entry-file function outranks an imported macro
+   of the same name. What remains under this heading: an entry-file
+   macro's free identifiers are still capturable, and a name the
+   macro's module merely imported still is too (§3's two open holes).
 2. **`Diag` frames carrying a span and a unit** — criterion 3. Touches
    `diag.ax`'s word 10, all four renderers, the published AXDL grammar,
    `tests/selfhost/645-axdl-repetition.ax`'s hand-built expected string

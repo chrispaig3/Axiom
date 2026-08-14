@@ -1,0 +1,11 @@
+; expect 47
+; A macro invoked by its QUALIFIED name - `QualMac::qdbl` - and a
+; zero-parameter one referenced bare-qualified, `QualMac::qfive`
+; (MAC-LANG-3's other spelling, through MAC-LANG-12's split). Until
+; 2026-08-14 both were `AX3001 undefined variable QualMac::qdbl`:
+; the parser flattens a qualified reference to `QualMac$qdbl`, macro
+; declarations keep bare names, and nothing split the reference.
+; docs/macro-system.md MAC-LANG-12.
+(import QualMac)
+(:: main Int)
+(fn (main) (+ (QualMac::qdbl 21) QualMac::qfive))

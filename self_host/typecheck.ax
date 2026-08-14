@@ -2368,29 +2368,77 @@
 
 (pub :: isMacroName (-> Int String Int))
 (pub fn (isMacroName tc n)
-  (isMacroVisible (tcMacros tc) n (memGetWord tc 16) 0))
+  (let ((qm (modOf n)))
+    (if (!= qm 0)
+        ; A QUALIFIED reference - `Pre::when`, flattened by the parser
+        ; to `Pre$when` - splits: bare part against the macro's name,
+        ; module part against the declaration's module. MAC-LANG-12.
+        (if (== (macroQualVisible (tcMacros tc) (bareOf n) qm
+                                  (memGetWord tc 16)
+                                  (- (vecLen (tcMacros tc)) 1)) 0)
+            0 1)
+        (let ((m (isMacroVisible (tcMacros tc) n (memGetWord tc 16)
+                                 (- (vecLen (tcMacros tc)) 1))))
+          (if (== m 0)
+              0
+              ; The fn-wins veto, mirroring `expFindMacro`: a bare
+              ; invocation whose name a bare `fn`/`::` declares is the
+              ; function's, unless the macro belongs to the module
+              ; being checked. MAC-HYG-8's third hole; the two sides
+              ; have to agree or the checker types against one meaning
+              ; while expansion produced the other.
+              (if (&& (!= (nodeModule m) 0)
+                      (&& (== (macroSameMod (nodeModule m)
+                                            (memGetWord tc 16)) 0)
+                          (!= (fnEntExact tc n) 0)))
+                  0
+                  1))))))
 
 ; Visible from the module being checked: exported, or the entry
-; file's, or this module's own. The same rule `expFindMacroIn`
-; applies, and the two have to agree - one decides whether the name
-; type-checks and the other whether it expands.
+; file's, or this module's own - answering the NODE, walked BACKWARD
+; so a later declaration wins, exactly as `expFindMacroIn` walks. The
+; same rule and the same veto apply in the expander - one side decides
+; whether the name type-checks and the other whether it expands.
 (pub :: isMacroVisible (-> Int String String Int Int))
 (pub fn (isMacroVisible ms n curMod i)
-  (if (>= i (vecLen ms))
+  (if (< i 0)
       0
       (let ((m (vecGet ms i)))
         (if (&& (strEq (nodeA m) n)
                 (|| (== (nodeVis m) 1)
                     (|| (== (nodeModule m) 0)
                         (&& (!= curMod 0) (strEq (nodeModule m) curMod)))))
-            1
-            (isMacroVisible ms n curMod (+ i 1))))))
+            m
+            (isMacroVisible ms n curMod (- i 1))))))
+
+(pub :: macroQualVisible (-> Int String String String Int Int))
+(pub fn (macroQualVisible ms bare qm curMod i)
+  (if (< i 0)
+      0
+      (let ((m (vecGet ms i)))
+        (if (&& (strEq (nodeA m) bare)
+                (&& (!= (nodeModule m) 0)
+                    (&& (strEq (nodeModule m) qm)
+                        (|| (== (nodeVis m) 1)
+                            (&& (!= curMod 0) (strEq curMod qm))))))
+            m
+            (macroQualVisible ms bare qm curMod (- i 1))))))
+
+(pub :: macroSameMod (-> String String Int))
+(pub fn (macroSameMod a b)
+  (if (== a 0)
+      (if (== b 0) 1 0)
+      (if (== b 0) 0 (if (strEq a b) 1 0))))
 
 ; Declared anywhere, visible or not - for telling "no such macro" from
-; "a macro you may not name".
+; "a macro you may not name". Split-aware, so a QUALIFIED reference to
+; a private macro routes to AX3023 rather than a false AX3001.
 (pub :: isMacroAnywhere (-> Int String Int))
 (pub fn (isMacroAnywhere tc n)
-  (isMacroNamedIn (tcMacros tc) n 0))
+  (let ((qm (modOf n)))
+    (if (!= qm 0)
+        (isMacroQualNamedIn (tcMacros tc) (bareOf n) qm 0)
+        (isMacroNamedIn (tcMacros tc) n 0))))
 
 (pub :: isMacroNamedIn (-> Int String Int Int))
 (pub fn (isMacroNamedIn ms n i)
@@ -2399,6 +2447,16 @@
       (if (strEq (nodeA (vecGet ms i)) n)
           1
           (isMacroNamedIn ms n (+ i 1)))))
+
+(pub :: isMacroQualNamedIn (-> Int String String Int Int))
+(pub fn (isMacroQualNamedIn ms bare qm i)
+  (if (>= i (vecLen ms))
+      0
+      (let ((m (vecGet ms i)))
+        (if (&& (strEq (nodeA m) bare)
+                (&& (!= (nodeModule m) 0) (strEq (nodeModule m) qm)))
+            1
+            (isMacroQualNamedIn ms bare qm (+ i 1))))))
 
 (pub :: isEffectName (-> Int String Int))
 (pub fn (isEffectName tc n)
@@ -3057,7 +3115,8 @@
         (emitPrivateVar tc name span (memGetWord hidden 0))
         (if (== (isMacroAnywhere tc name) 1)
             (emitPrivateVar tc name span
-                            (privKey (macroModuleOf (tcMacros tc) name 0) name))
+                            (privKey (macroModuleOf (tcMacros tc) name 0)
+                                     (bareOf name)))
             (let ((cm (ctorHiddenModule tc name)))
               (if (!= cm 0)
                   (emitPrivateVar tc name span (privKey cm name))
@@ -3085,11 +3144,16 @@
 
 (pub :: macroModuleOf (-> Int String Int Int))
 (pub fn (macroModuleOf ms n i)
+  (let ((bare (bareOf n)))
+    (macroModuleOfBare ms bare i)))
+
+(pub :: macroModuleOfBare (-> Int String Int Int))
+(pub fn (macroModuleOfBare ms n i)
   (if (>= i (vecLen ms))
       0
       (if (strEq (nodeA (vecGet ms i)) n)
           (nodeModule (vecGet ms i))
-          (macroModuleOf ms n (+ i 1)))))
+          (macroModuleOfBare ms n (+ i 1)))))
 
 (pub :: emitUndefinedVarPlain (-> Int String Int Int))
 (pub fn (emitUndefinedVarPlain tc name span)

@@ -1,0 +1,1 @@
+E AX3023 485-qualified-private-macro.ax:9:13-19 private-name "`VisAll::privMac` is private to module `VisAll`" #"`privMac` is not exported by its module" ?"a name leaves its module when its declaration is written `pub`; if the import that brought the module in carries a name list, the name has to appear there too"
