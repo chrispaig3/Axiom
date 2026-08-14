@@ -219,8 +219,12 @@
       (set i 0)
       (while (< i (diagTraceCount d))
         {
-          (vecPush parts "\n\nnote: in this expansion of ")
-          (vecPush parts (diagTrace d i))
+          ; Name only: this function has no unit table in reach, and
+          ; the editor's cursor is already AT the invocation the
+          ; frame explains.
+          (vecPush parts "\n\nnote: in this expansion of `")
+          (vecPush parts (diagTraceName d i))
+          (vecPush parts "`")
           (set i (+ i 1))
         })
       (set i 0)
@@ -367,7 +371,8 @@
                     ; checker. An editor that reported a different set
                     ; of diagnostics from `axiom check` on the same file
                     ; would be worse than one that reported none.
-                    (let ((eds (let ((v vecNew)) { (expandProgram allDecls v) (lowerImpls allDecls v) v })))
+                    (let ((ftbl vecNew)
+                          (eds (let ((v vecNew)) { (expandProgram allDecls v ftbl) (lowerImpls allDecls v) v })))
                     ; Expansion's refusals are published ALONE when it
                     ; refused. Running the checker over a tree
                     ; expansion gave up on is how `check` used to
@@ -375,7 +380,9 @@
                     ; is a server that stops answering the editor.
                     (let ((ds (if (> (countErrorDiags eds) 0)
                                   (orderDiags eds)
-                                  (orderDiags (expMergeInto eds (checkModule decls allDecls units))))))
+                                  (orderDiags (expMergeInto eds
+                                    (let ((cds (checkModule decls allDecls units)))
+                                      { (expAttachFrames cds ftbl units) cds }))))))
                       (let ((out jsonArr) (ix (lspLineIndex src)) (mut i 0))
                         {
                           (while (< i (vecLen ds))

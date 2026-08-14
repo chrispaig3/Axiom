@@ -1,0 +1,7 @@
+; The module half of the expansion-backtrace case (490): a macro whose
+; template calls an undefined name, and one that invokes it, so a
+; single diagnostic carries one frame and, through the second, two -
+; outermost first. Both exported; the fixture's errors are the
+; CHECKER's, arising inside the expansions.
+(pub macro (frameBad x) (noSuchFn x))
+(pub macro (frameOuter x) (frameBad x))

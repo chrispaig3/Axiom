@@ -42,9 +42,9 @@
         (diagAddNote d "second note")
         (diagAddHelp d "plain help")
         (diagAddFixHelp d "fix help" (mkSpan 5 6) "z")
-        (diagAddTrace d "outer!")
-        (diagAddTrace d "inner!")
-        (let ((got (renderDiag d src "k.ax"))
+        (diagAddTrace d "outer!" 0 0)
+        (diagAddTrace d "inner!" 0 0)
+        (let ((got (renderDiag d src "k.ax" 0))
               (want (strConcat (strConcat (strConcat (strConcat
                       "E AX9999 k.ax:1:6-7 kitchen-sink \"everything at once\" #\"the label\""
                       " ^2:6-7:\"first related\" ^3:6-7:\"second related\"")

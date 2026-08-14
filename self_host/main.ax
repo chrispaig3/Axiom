@@ -171,6 +171,26 @@
 (pub :: declsHaveMain (-> Int Bool))
 (pub fn (declsHaveMain ds) (declsHaveMainFrom ds 0))
 
+; Run the checker and join the expansion frames onto its diagnostics -
+; a diagnostic anchored at a recorded macro invocation gains the
+; frame(s) naming the macro, with the declaration's span and unit
+; (macro-system.md MAC-DIAG-4). One expression, so the two call shapes
+; below swap in without moving any parentheses around them.
+(:: checkWithFrames (-> Int Int Int Int Int))
+(fn (checkWithFrames decls allDecls units ftbl)
+  (let ((cds (checkModule decls allDecls units)))
+    {
+      (expAttachFrames cds ftbl units)
+      cds
+    }))
+
+(:: attachTcFrames (-> Int Int Int Int))
+(fn (attachTcFrames tc ftbl units)
+  {
+    (expAttachFrames (tcOut tc) ftbl units)
+    (tcOut tc)
+  })
+
 (pub :: declsHaveMainFrom (-> Int Int Bool))
 (pub fn (declsHaveMainFrom ds i)
   (if (>= i (vecLen ds))
@@ -262,9 +282,9 @@
                   ; `check` never saw an expansion at all and accepted
                   ; programs `build` could not compile - see the header
                   ; of `self_host/expand.ax` for what that cost.
-                  (let ((eds vecNew))
+                  (let ((eds vecNew) (ftbl vecNew))
                   {
-                    (expandProgram allDecls eds)
+                    (expandProgram allDecls eds ftbl)
                     ; Impls become ordinary declarations before the
                     ; checker runs, so their bodies are checked like
                     ; any others - they used to be checked not at all.
@@ -296,7 +316,7 @@
                     ; trailer prints in every format because stage0's
                     ; does; the AXDL gate never saw it because its
                     ; grep keeps only `^[EWNH] ` lines.
-                    (let ((ds (orderDiags (expMergeInto eds (checkModule decls allDecls units)))))
+                    (let ((ds (orderDiags (expMergeInto eds (checkWithFrames decls allDecls units ftbl)))))
                       {
                         (if (> (vecLen ds) 0)
                             (writeStderr (renderDiagsFormat dfmt ds units))
@@ -580,7 +600,8 @@
                             ; disagreed with `check` about whether a
                             ; file is well-formed is the drift this
                             ; repository names most often.
-                            (let ((eds (let ((v vecNew)) { (expandProgram allDecls v) (lowerImpls allDecls v) v })))
+                            (let ((ftbl vecNew)
+                                  (eds (let ((v vecNew)) { (expandProgram allDecls v ftbl) (lowerImpls allDecls v) v })))
                             ; Expansion refused: do not type-check what
                             ; it gave up on. `compileFile` says why.
                             (let ((_stop (if (> (countErrorDiags eds) 0)
@@ -591,7 +612,7 @@
                                              }
                                              0)))
                             (let ((tc (checkModuleTc decls allDecls units)))
-                              (let ((ds (orderDiags (expMergeInto eds (tcOut tc)))))
+                              (let ((ds (orderDiags (expMergeInto eds (attachTcFrames tc ftbl units)))))
                                 ; Warnings do not gate: stage0 prints
                                 ; them to stderr and emits the full
                                 ; list with exit 0. Only an E line

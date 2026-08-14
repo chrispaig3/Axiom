@@ -451,6 +451,11 @@ axdl_fields() {
   local label_re='#$'
   local note_re='!$'
   local trace_re='&$'
+  # A frame with the macro declaration's location - the one field on
+  # the line whose file is NOT the diagnostic's own. The prefix is
+  # `&file:L:C[-C]:` (or the cross-line `L:C-L:C`), and the string it
+  # precedes is the macro's NAME.
+  local trace_loc_re='&([^[:space:]]+):([0-9]+:[0-9]+(-([0-9]+:)?[0-9]+)?):$'
   local -a parts
   esc="${line//\\\\/$'\001'}"
   esc="${esc//\\\"/$'\002'}"
@@ -472,6 +477,8 @@ axdl_fields() {
       printf 'label\t%s\n' "$s"
     elif [[ "$pre" =~ $note_re ]]; then
       printf 'note\t%s\n' "$s"
+    elif [[ "$pre" =~ $trace_loc_re ]]; then
+      printf 'traceloc\t%s\t%s\n' "${BASH_REMATCH[1]}:${BASH_REMATCH[2]}" "$s"
     elif [[ "$pre" =~ $trace_re ]]; then
       printf 'trace\t%s\n' "$s"
     elif [[ "$pre" =~ $help_re ]]; then
@@ -667,8 +674,13 @@ axdl_facts() {
         help)  helps[${#helps[@]}]="$text"; helpfix[${#helpfix[@]}]="" ;;
         note)  notes[${#notes[@]}]="$text" ;;
         # An expansion-backtrace frame renders as a note, the way rustc
-        # reports the same thing.
-        trace) notes[${#notes[@]}]="in this expansion of $text" ;;
+        # reports the same thing - the name backticked, and, when the
+        # AXDL field carried the declaration's location, that location
+        # parenthesised. `traceNoteText` in render.ax is the other half
+        # of this sentence; the two must keep agreeing.
+        trace) notes[${#notes[@]}]="in this expansion of \`$text\`" ;;
+        traceloc)
+          notes[${#notes[@]}]="in this expansion of \`${text#*$'\t'}\` (${text%%$'\t'*})" ;;
         # The replacement half of a fix attaches to the help it follows.
         # Parsed and paired here, but NOT yet folded into the help-line
         # equality below: the renderer does not print it yet, and a gate
@@ -1264,10 +1276,11 @@ floor_fail() {
 # starts emitting the field, and a floor still sitting at 0 afterwards is
 # the signal that the renderer and the gate went out of step.
 # Notes: AX3013 explains why a partial application cannot be held, and
-# AX2005 why the nesting limit exists. `&` expansion frames have no
-# producer and will not until macro expansion reports through
-# diagnostics, so nothing here counts one - tests/selfhost/645 is what
-# renders that field.
+# AX2005 why the nesting limit exists. `&` expansion frames HAVE a
+# producer since 2026-08-14 - expansion joins frames onto the checker's
+# diagnostics (MAC-DIAG-4) - and 490-expansion-backtrace's three frames
+# count into this floor through the traceloc arm above;
+# tests/selfhost/645 still pins the bare form's bytes.
 [[ "$f_note"  -lt 4 ]] && floor_fail "note-line equality"                "$f_note"     4
 
 # Labels, on every diagnostic that has something to say the heading does

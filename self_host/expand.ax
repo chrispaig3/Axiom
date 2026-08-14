@@ -141,7 +141,24 @@
                  ; instantiated. A private macro is reachable only
                  ; from its own module, and this is the module the
                  ; comparison is against.
-                 (site : Int))
+                 (site : Int)
+                 ; One ExpFrame per instantiation, in instantiation
+                 ; order - outermost first for any one invocation,
+                 ; since an outer macro instantiates before the
+                 ; template it produced is walked. `expAttachFrames`
+                 ; joins these to the CHECKER's diagnostics afterwards,
+                 ; by span HANDLE: every node a template produces is
+                 ; rebuilt carrying the invocation's span (MAC-EXP-14),
+                 ; the same record by reference, so the join is pointer
+                 ; equality and cannot collide across files.
+                 (frames : Int)
+                 ; The module of the DECLARATION being expanded. Word 9
+                 ; is overwritten during each template walk (that is
+                 ; what makes nested private macros resolve); this one
+                 ; is not, and it is the module the checker will stamp
+                 ; on a diagnostic inside this declaration - the frame
+                 ; join needs exactly that.
+                 (declmod : Int))
 
 (pub :: expMacros (-> Int Int)) (pub fn (expMacros env) (memGetWord env 0))
 (pub :: expOut    (-> Int Int)) (pub fn (expOut    env) (memGetWord env 1))
@@ -1135,6 +1152,12 @@
         }
         (let ((prevMod (expMacMod env))
               (prevSite (memGetWord env 9))
+              ; The frame, recorded before the walk so that an outer
+              ; macro's frame precedes any macro its template invokes.
+              (_frame (vecPush (memGetWord env 10)
+                        (cast Int (ExpFrame (memGetWord env 11) isp
+                                            (nodeA mac) (nodeSpan mac)
+                                            (nodeModule mac)))))
               (_setmod (expSetMacMod env (nodeModule mac)))
               (_setsite (memSetWord env 9 (nodeModule mac))))
         (let ((body (substTpl (nodeC mac) (nodeB mac) args vecNew env isp)))
@@ -1234,10 +1257,14 @@
   (if (>= i (vecLen decls))
       0
       {
-        ; The invocation site's module, for macro visibility.
+        ; The invocation site's module, for macro visibility - and the
+        ; declaration's module for the frame table, which word 9's
+        ; template-walk overwrites must not touch.
         (memSetWord env 9 (nodeModule (vecGet decls i)))
+        (memSetWord env 11 (nodeModule (vecGet decls i)))
         (expandDecl (vecGet decls i) env)
         (memSetWord env 9 0)
+        (memSetWord env 11 0)
         (expandDeclsIn decls env (+ i 1))
       }))
 
@@ -1284,14 +1311,90 @@
 ; declaration list, with the same diagnostic Vec the checker will add
 ; to. Answers nothing: the declarations are rewritten in place.
 ; ------------------------------------------------------------------
-(pub :: expandProgram (-> Int Int Int))
-(pub fn (expandProgram decls out)
-  (let ((env (cast Int (MEnv (expCollectMacros decls vecNew 0) out 0 0 decls 0 0 0 0 0))))
+(pub :: expandProgram (-> Int Int Int Int))
+(pub fn (expandProgram decls out frames)
+  (let ((env (cast Int (MEnv (expCollectMacros decls vecNew 0) out 0 0 decls 0 0 0 0 0 frames 0))))
     {
       (expCheckMacros env 0)
       (expandDeclsIn decls env 0)
       0
     }))
+
+; ------------------------------------------------------------------
+; The join: a diagnostic anchored at a recorded invocation - same span
+; HANDLE, same declaration module - gains that invocation's frames,
+; outermost first. This is what MAC-DIAG-4 calls the expansion
+; backtrace, and it is a post-pass rather than provenance on nodes
+; because MAC-EXP-14 already makes the invocation span the one thing
+; every generated node carries.
+;
+; `units` is the CUnit2 table (file, src, name); a frame stores the
+; macro's MODULE and is resolved to that table here, where the table
+; exists - the expander itself never sees units.
+; ------------------------------------------------------------------
+(pub struct ExpFrame (site : Int) (span : Int) (name : String)
+                     (defSpan : Int) (defMod : Int))
+
+; Module identity where 0 and "" both mean the entry file.
+(pub :: expModEq (-> Int Int Int))
+(pub fn (expModEq a b)
+  (let ((an (if (== a 0) 1 (if (== (strLen a) 0) 1 0)))
+        (bn (if (== b 0) 1 (if (== (strLen b) 0) 1 0))))
+    (if (== an 1)
+        bn
+        (if (== bn 1) 0 (if (strEq a b) 1 0)))))
+
+(pub :: expUnitMod (-> Int Int Int))
+(pub fn (expUnitMod units idx)
+  (if (|| (== units 0) (>= idx (vecLen units)))
+      0
+      (memGetWord (vecGet units idx) 2)))
+
+(pub :: expUnitOfMod (-> Int Int Int))
+(pub fn (expUnitOfMod units m)
+  (if (== units 0)
+      0
+      (expUnitOfModFrom units m 0)))
+
+(pub :: expUnitOfModFrom (-> Int Int Int Int))
+(pub fn (expUnitOfModFrom units m i)
+  (if (>= i (vecLen units))
+      0
+      (if (== (expModEq (memGetWord (vecGet units i) 2) m) 1)
+          i
+          (expUnitOfModFrom units m (+ i 1)))))
+
+(pub :: expAttachFrames (-> Int Int Int Int))
+(pub fn (expAttachFrames diags table units)
+  (if (== table 0)
+      0
+      (let ((mut i 0))
+        {
+          (while (< i (vecLen diags))
+            (let ((d (vecGet diags i)))
+              {
+                (if (== (diagSpan d) 0)
+                    0
+                    (expAttachTo d table units
+                                 (expUnitMod units (diagUnit d)) 0))
+                (set i (+ i 1))
+              }))
+          0
+        })))
+
+(pub :: expAttachTo (-> Int Int Int Int Int Int))
+(pub fn (expAttachTo d table units dmod j)
+  (if (>= j (vecLen table))
+      0
+      (let ((e (vecGet table j)))
+        {
+          (if (&& (== (diagSpan d) (memGetWord e 1))
+                  (== (expModEq (memGetWord e 0) dmod) 1))
+              (diagAddTrace d (memGetWord e 2) (memGetWord e 3)
+                            (expUnitOfMod units (memGetWord e 4)))
+              0)
+          (expAttachTo d table units dmod (+ j 1))
+        })))
 
 ; Push every diagnostic of `src` onto `dst`, answering `dst`. The
 ; expander runs before the checker, so its diagnostics are collected

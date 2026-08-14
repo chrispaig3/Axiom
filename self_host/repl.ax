@@ -318,7 +318,11 @@
             ; came for free; now it does not, and without this line a
             ; macro defined at the prompt emitted a call to a symbol
             ; nothing defines - `use of undefined value '@twice'`.
-            (let ((eds (let ((v vecNew)) { (expandProgram allDecls v) (lowerImpls allDecls v) v })))
+            ; The frame table is discarded here on purpose: the REPL's
+            ; error line joins bare MESSAGES (`joinDiagMsgs`), its
+            ; goldens pin those bytes, and the prompt IS the invocation
+            ; site the frame would point back at.
+            (let ((eds (let ((v vecNew)) { (expandProgram allDecls v vecNew) (lowerImpls allDecls v) v })))
             (let ((ds (expMergeInto eds (checkModule decls allDecls units))))
               (if (> (countErrorDiags ds) 0)
                   {
@@ -567,7 +571,7 @@
                     (let ((allDecls (resolveImports decls bares fulls tcode
                                                     (dirOfPath arg) units)))
                     (let ((eds (let ((v vecNew))
-                                 { (expandProgram allDecls v)
+                                 { (expandProgram allDecls v vecNew)
                                    (lowerImpls allDecls v)
                                    v })))
                     (let ((ds (orderDiags (expMergeInto eds (checkModule decls allDecls units)))))

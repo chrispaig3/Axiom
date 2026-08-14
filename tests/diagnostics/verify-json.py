@@ -32,7 +32,9 @@ WHAT IS DERIVED, per diagnostic:
     wrong - which is the same trap `060-nonascii-earlier-line` and
     `070-nonascii-same-line` were added to the AXDL corpus for.
   * `label` from the AXDL's `#` field, `related` from `^`, `notes` from
-    `!`, `help` from `?`, `expansion` from `&`.
+    `!`, `help` from `?`, `expansion` from `&` - one object per frame,
+    `{"macro": name}` plus `file`/`line`/`col` when the AXDL field
+    carries the macro declaration's location (`&file:L:C-C:"name"`).
 
 The comparison is on the whole decoded object, so a key the renderer
 invented and a key it dropped are both failures; a derivation that
@@ -116,11 +118,19 @@ def parse_full(line):
         mark = line[i]
         i += 1
         if mark in '!&#':
+            if mark == '&':
+                fm = axdl.FRAME.match(line, i)
+                if fm:
+                    fpath, fl1, fc1, _fl2, _fc2 = fm.groups()
+                    text, i = axdl.read_string(line, fm.end())
+                    out['frames'].append({'macro': text, 'file': fpath,
+                                          'line': int(fl1), 'col': int(fc1)})
+                    continue
             text, i = axdl.read_string(line, i)
             if mark == '!':
                 out['notes'].append(text)
             elif mark == '&':
-                out['frames'].append(text)
+                out['frames'].append({'macro': text})
             else:
                 out['label'] = text
             continue

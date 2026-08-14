@@ -438,8 +438,26 @@
     }))
 
 ; One diagnostic as its human block, blank-line terminated.
-(pub :: renderDiagHuman (-> Int String String String))
-(pub fn (renderDiagHuman d src file)
+; The one note line an expansion frame renders as, shared by the human
+; renderer below and derived by check-render-selfhost from the AXDL
+; `&` field's name and LOC - three spellings, one decision. The
+; parenthetical repeats fmtSpan's exact text, so the derivation is a
+; concatenation and not a re-parse.
+(pub :: traceNoteText (-> Int Int Int Int))
+(pub fn (traceNoteText d i units)
+  (let ((base (strConcat (strConcat "in this expansion of `"
+                                    (diagTraceName d i)) "`")))
+    (let ((fs (diagTraceSpan d i))
+          (fu (diagTraceUnit d i)))
+      (if (|| (== fs 0) (|| (== units 0) (>= fu (vecLen units))))
+          base
+          (let ((u (vecGet units fu)))
+            (strConcat (strConcat (strConcat (strConcat (strConcat
+              base " (") (memGetWord u 0)) ":")
+              (fmtSpan (memGetWord u 1) fs)) ")"))))))
+
+(pub :: renderDiagHuman (-> Int String String Int String))
+(pub fn (renderDiagHuman d src file units)
   (let ((sev (diagSev d))
         (code (diagCode d))
         (span (diagSpan d))
@@ -483,12 +501,14 @@
                                  (set i (+ i 1))
                                })
                              ; An expansion frame reads as a note, the
-                             ; way rustc reports the same thing.
+                             ; way rustc reports the same thing - the
+                             ; macro's name, and its declaration's
+                             ; file:LOC when the frame carries one.
                              (set i 0)
                              (while (< i (diagTraceCount d))
                                {
-                                 (vecPush acc (noteLine gw (strConcat
-                                   "in this expansion of " (diagTrace d i))))
+                                 (vecPush acc (noteLine gw
+                                   (traceNoteText d i units)))
                                  (set i (+ i 1))
                                })
                              (catStrs acc)
@@ -534,7 +554,7 @@
                                      0))))
             {
               (vecPush blocks
-                (renderDiagHuman d (memGetWord u 1) (memGetWord u 0)))
+                (renderDiagHuman d (memGetWord u 1) (memGetWord u 0) units))
               (set i (+ i 1))
             })))
       ; A single linear join, not a strConcat fold - the fold's peak
@@ -635,13 +655,41 @@
       (jsonStrArray v)
     }))
 
-(pub :: jsonTraceArray (-> Int Int))
-(pub fn (jsonTraceArray d)
-  (let ((v vecNew) (mut i 0))
+; One object per frame: `{"macro":name}` bare, plus
+; `"file"/"line"/"col"` - the macro declaration's START position in
+; ITS OWN unit - when the frame carries a span the unit table can
+; resolve. The numbers are the same ones the AXDL LOC prints, which is
+; what lets verify-json.py derive this array from that field.
+(pub :: jsonTraceArray (-> Int Int Int))
+(pub fn (jsonTraceArray d units)
+  (let ((parts vecNew) (mut i 0))
     {
+      (vecPush parts "[")
       (while (< i (diagTraceCount d))
-        { (vecPush v (diagTrace d i)) (set i (+ i 1)) })
-      (jsonStrArray v)
+        {
+          (if (> i 0) (vecPush parts ",") 0)
+          (vecPush parts "{\"macro\":\"")
+          (vecPush parts (jsonEsc (diagTraceName d i)))
+          (vecPush parts "\"")
+          (let ((fs (diagTraceSpan d i))
+                (fu (diagTraceUnit d i)))
+            (if (|| (== fs 0) (|| (== units 0) (>= fu (vecLen units))))
+                0
+                (let ((u (vecGet units fu)))
+                  (let ((fsrc (memGetWord u 1)))
+                    {
+                      (vecPush parts ",\"file\":\"")
+                      (vecPush parts (jsonEsc (memGetWord u 0)))
+                      (vecPush parts "\",\"line\":")
+                      (vecPush parts (decStr (lineOf fsrc (spanStart fs))))
+                      (vecPush parts ",\"col\":")
+                      (vecPush parts (decStr (colOf fsrc (spanStart fs))))
+                    }))))
+          (vecPush parts "}")
+          (set i (+ i 1))
+        })
+      (vecPush parts "]")
+      (catStrs parts)
     }))
 
 (pub :: jsonRelatedArray (-> Int String Int))
@@ -663,8 +711,8 @@
       (catStrs parts)
     }))
 
-(pub :: renderDiagJson (-> Int String String String))
-(pub fn (renderDiagJson d src file)
+(pub :: renderDiagJson (-> Int String String Int String))
+(pub fn (renderDiagJson d src file units)
   (let ((sev (diagSev d))
         (code (diagCode d))
         (slug (diagSlug d))
@@ -692,7 +740,7 @@
         (strConcat (strConcat "\"notes\":" (jsonNoteArray d)) ","))
       (strConcat (strConcat (strConcat (strConcat
         "\"help\":" (jsonHelpArray d))
-        ",\"expansion\":") (jsonTraceArray d)) "}"))))
+        ",\"expansion\":") (jsonTraceArray d units)) "}"))))
 
 (pub :: renderDiagsJsonUnits (-> Int Int Int))
 (pub fn (renderDiagsJsonUnits ds units)
@@ -705,7 +753,7 @@
                                      0))))
             {
               (vecPush blocks
-                (renderDiagJson d (memGetWord u 1) (memGetWord u 0)))
+                (renderDiagJson d (memGetWord u 1) (memGetWord u 0) units))
               (vecPush blocks "\n")
               (set i (+ i 1))
             })))

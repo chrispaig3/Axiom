@@ -1,0 +1,21 @@
+; The expansion backtrace (macro-system.md MAC-DIAG-4). A diagnostic
+; arising INSIDE an expansion anchors at the invocation, in this file -
+; that much was always true - and since 2026-08-14 it also carries one
+; `&` frame per enclosing instantiation, naming the macro with the span
+; of its DECLARATION in ITS OWN file: the two-source diagnostic the
+; one-unit `Diag` could not express while a frame was a bare string.
+;
+;   (frameBad 1)    one frame - `frameBad`, declared in MacFrame.ax
+;   (frameOuter 2)  two frames, outermost first: `frameOuter` invoked
+;                   here, whose template invoked `frameBad`
+;
+; Until then this file's two AX3001s rendered with no mention of any
+; macro: an error about a name that appears nowhere on the line it
+; points at.
+(import MacFrame)
+(:: one (-> Int Int))
+(fn (one n) (frameBad n))
+(:: two (-> Int Int))
+(fn (two n) (frameOuter n))
+(:: main Int)
+(fn (main) (+ (one 1) (two 2)))

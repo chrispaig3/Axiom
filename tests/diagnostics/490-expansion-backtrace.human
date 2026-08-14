@@ -1,0 +1,22 @@
+[1;31merror[AX3001][0m[1m: undefined variable `noSuchFn`[0m
+  [1;34m--> [0m490-expansion-backtrace.ax:17:14
+[1;34m   |[0m
+[1;34m17 |[0m (fn (one n) (frameBad n))
+[1;34m   |[0m              [1;31m^^^^^^^^ no binding named `noSuchFn` in scope[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0min this expansion of `frameBad` (MacFrame.ax:6:13-21)
+  [1;34m = [0m[1;32mhelp: [0mvariables must be defined (via `define`/`fn`, a `let` binding, or a lambda parameter) before they are used; check for typos
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3001` for a full explanation
+
+[1;31merror[AX3001][0m[1m: undefined variable `noSuchFn`[0m
+  [1;34m--> [0m490-expansion-backtrace.ax:19:14
+[1;34m   |[0m
+[1;34m19 |[0m (fn (two n) (frameOuter n))
+[1;34m   |[0m              [1;31m^^^^^^^^^^ no binding named `noSuchFn` in scope[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0min this expansion of `frameOuter` (MacFrame.ax:7:13-23)
+  [1;34m = [0m[1mnote: [0min this expansion of `frameBad` (MacFrame.ax:6:13-21)
+  [1;34m = [0m[1;32mhelp: [0mvariables must be defined (via `define`/`fn`, a `let` binding, or a lambda parameter) before they are used; check for typos
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3001` for a full explanation
+
+compilation failed due to 2 previous errors

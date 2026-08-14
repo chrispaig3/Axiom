@@ -880,7 +880,7 @@ process.
 
 > The normative specification for this section is now
 > [docs/macro-system.md](macro-system.md) — what is implemented today
-> (single-rule substitution, renaming hygiene, qualified macro names, budgets, seven `AX30xx`
+> (single-rule substitution, renaming hygiene, qualified macro names, expansion backtraces, budgets, seven `AX30xx`
 > macro codes; status **Partial**) and what remains normative-but-unbuilt
 > (patterns, repetition, declaration macros, `derive`, the closed
 > `syntax/*` query vocabulary).
@@ -932,11 +932,11 @@ The premise being false is why the sentence after it was the wrong
 worry. The stated problem was that a type error in expanded code points
 *inside the macro*, at source the author never wrote; the actual
 problem was that there was no diagnostic to point anywhere. What
-remains of the original concern is real and is criterion 3 above:
-`Diag` needs an expansion backtrace whose frames carry a span and a
-unit, and the AXDL `&` field needs a location. Today a diagnostic from
-inside an expansion anchors at the invocation — a real span, in the
-right file — and does not name the macro.
+remains of the original concern was real and became criterion 3 above:
+`Diag` needed an expansion backtrace whose frames carry a span and a
+unit, and the AXDL `&` field needed a location. Both landed 2026-08-14
+— a diagnostic from inside an expansion anchors at the invocation and
+names each enclosing macro with its declaration's span in its own file.
 
 **The field is rendered, and it is narrower than this section assumed.**
 `Diag` carries a `trace` vector, AXDL renders it as `&"frame"` per
@@ -948,10 +948,14 @@ visible from the rendering side: its element type is `Vec of Str`, so a
 frame can carry pre-rendered English but **not a span**, and a `Diag`
 carries **one** unit, so a macro defined in one file and invoked in
 another cannot have both its spans resolved against the right source
-text. Criterion 3 is therefore a `diag.ax` layout change plus all four
+text. Criterion 3 was therefore a `diag.ax` layout change plus all four
 renderers plus the published AXDL grammar plus
 `tests/selfhost/645-axdl-repetition`'s hand-built expected string —
-not the wiring job the paragraph above described.
+not the wiring job the paragraph above described. That is the change
+that landed on 2026-08-14, at exactly that shape, with one economy the
+prediction missed: the join between frames and diagnostics is the
+invocation-span HANDLE every generated node already carries, so no
+node grew provenance and the parser was untouched.
 
 **Acceptance criteria, and where each stands (2026-08-09).**
 
@@ -959,7 +963,7 @@ not the wiring job the paragraph above described.
 |---|---|
 | A `derive`-style macro generates a working `Eq` instance for a `data` type, with exhaustiveness still checked on the generated `match` | **Half.** Exhaustiveness *is* now checked on a generated `match` — the same `AX3005` the hand-written one draws, pinned by `tests/diagnostics/`. The `derive` half is untouched: a template is an expression, a macro in declaration position is `AX2003`, and `deriving (Eq)` still parses and is discarded |
 | A macro that introduces a binding named `x` does not capture a user's `x`, and the reverse | **Half, and the halves are not symmetric.** The forward direction is done for every binder a template can introduce — `let`, `let mut`, `lambda`, `match` arm patterns — by renaming to `<name>.<counter>`, gated by `tests/selfhost/361-macro-hygiene.ax` (143; the unfixed compiler answers 208). The reverse direction is **also done for a macro defined in a module** (`tests/selfhost/364-macro-definition-site.ax`, 157 against the unfixed compiler's `AX3004`): a template's free identifier now resolves where the macro was written, which closed a live wrong-answer bug — one macro in one module used to mean two different things depending on the caller's module, 6 against 50, with no diagnostic from either compiler because both were resolving a name that really was in scope. It does **not** reach a macro defined in the ENTRY file, whose declarations are left bare and so have no distinct name to resolve to; that residue is a loud `AX3004` rather than a wrong answer. The macro NAME itself is qualifiable since 2026-08-14 — `Pre::when` expands, and a qualified private macro is `AX3023` (this cell said "`Pre::when` is `AX3001`" until then). See [macros.md §3](macros.md) and the spec, [macro-system.md](macro-system.md) §3 |
-| A type error inside an expansion reports the macro *and* the invocation site, both with real spans | **Half.** The invocation site is real and in the right file; the macro is not named. This is a `Diag` data-model limit, not missing wiring — a `Diag` carries one unit, the realistic case is a stdlib macro invoked from a user file, and the `trace` element type is `Vec of Str`, which can hold pre-rendered English but not a span |
+| A type error inside an expansion reports the macro *and* the invocation site, both with real spans | **Done** (2026-08-14). The invocation is the primary span, in the file being compiled, and each enclosing macro is a frame naming it with its declaration's span in its OWN file — the `trace` element widened to `(name, span, unit)`, the AXDL `&` field gained a location, and `tests/diagnostics/490-expansion-backtrace.ax` pins one frame and a nested two. The data-model limit this cell used to record (a `Diag` carries one unit, `Vec of Str` frames) was resolved by widening the FRAME, not the Diag: the primary stays one-unit, and the frame carries the second. See [macro-system.md](macro-system.md) MAC-DIAG-4; the second-file snippet (MAC-DIAG-5) is the remaining renderer work |
 | Macros work over `data`, `struct`, lambdas, lists, and tuples — one corpus case each | **Done, and it was not a corpus problem.** Substitution reached 8 of the 16 forms a template can contain and returned the rest *unrebuilt*, so `struct` construction, field access, field store, `let mut`, `set`, `while`, `alloc` and `handle` each leaked the template's own identifiers into the IR — all eight silently, all eight surfacing as `AX4003 opt failed` against `<toolchain>`. Every form now has a case and the default arm **refuses** (`AX3021`) instead of passing the node through, which is what stops the ninth. `tests/selfhost/362-macro-coverage.ax` (57; the unfixed compiler exits 4). Lists and tuples turn out to need no case at all: `[T]` and tuples are TYPE nodes, so a list or tuple value is a constructor application, which was always covered |
 
 **Also landed, and not on the original list.** A macro name used to
@@ -1193,7 +1197,7 @@ completing together is not a plan.
 |---|---|
 | The memory model is attempted at full generality and stalls | Resolved by decision rather than generality: the strategy is reference counting ([memory-model.md](memory-model.md) MM-LIFE-2a) — no whole-program inference at all; the cycle leak is priced in and a cycle collector stays separable. The copy-at-boundary machinery shipped as the explicit primitives and remains the reclamation until ARC lands |
 | Procedural macros arrive as an implementation detail and silently make the compiler an arbitrary-code executor | Tier 1 only; tier 2 requires an explicit, documented decision and a sandbox |
-| Macros degrade diagnostics | Partly realised, in the direction nobody was watching: expansion ran *after* the checker, so an expansion was never checked at all — an undefined name, an under-applied call and a non-exhaustive `match` inside a template each compiled clean and exited 0, and a template using `while` or a field access produced invalid LLVM reported as `AX4003` against `<toolchain>`. Fixed by moving expansion into `self_host/expand.ax` ahead of the checker; those are now `AX3001`/`AX3013`/`AX3005` anchored at the invocation. The remaining half is naming the *macro* as well as the invocation, which the `trace` field cannot express as typed — see §4.2 |
+| Macros degrade diagnostics | Partly realised, in the direction nobody was watching: expansion ran *after* the checker, so an expansion was never checked at all — an undefined name, an under-applied call and a non-exhaustive `match` inside a template each compiled clean and exited 0, and a template using `while` or a field access produced invalid LLVM reported as `AX4003` against `<toolchain>`. Fixed by moving expansion into `self_host/expand.ax` ahead of the checker; those are now `AX3001`/`AX3013`/`AX3005` anchored at the invocation. The remaining half — naming the *macro* as well as the invocation — landed 2026-08-14 as typed expansion frames; see §4.2 and [macro-system.md](macro-system.md) MAC-DIAG-4 |
 | The LSP is started early "in parallel" and blocks on missing language features | The dependency edges in §1 are the schedule; the tree-sitter grammar covers editor basics meanwhile |
 | A gate passes while the property it protects is broken — as happened for PIE relocations | Every new gate gets a negative test proving it fails when it should. Done for the relocation and grammar gates. It happened again on 2026-08-09 in a form no negative test would have caught, because the gate's assertion was satisfied by the compiler *dying*: `check-fmt-selfhost.sh` §5b hands every formatted output back to the compiler and fails if it carries an `AX1xxx` or `AX2xxx`, and `tests/fmt/parity/170-empty-tuple.axp` is the file `(fn (f) ())`, on which `check` was SIGSEGV — no output, so no diagnostic, so the case passed, in CI, for as long as it has existed. **A process killed by a signal satisfies every check written as "the output must not contain X."** Fixed by reading the status before believing the output, and generalised by `scripts/check-degenerate.sh`, whose assertions are about the process rather than its output; see [self-hosting.md §13](self-hosting.md) |
 | A tool with no CI gate is silently broken, as `fmt` was | Either gate it or make it fail loudly. `fmt` now verifies its own output before writing and is gated by `check-fmt.sh`, which checks behaviour — it formats a copy of the repo and re-runs the suites — because the worst of its six bugs produced a program that parsed, compiled and ran, and returned the wrong answer. The prediction held for the other two surfaces this row used to name: `repl` could not evaluate a single expression (§2.4), `explain` was sound. Both are now covered by tests that drive the real binary |

@@ -305,7 +305,10 @@ as rendered-but-unpopulated.
 
 ### What a diagnostic inside an expansion looks like
 
-It anchors at the **invocation**, in the file being compiled:
+It anchors at the **invocation**, in the file being compiled, and — 
+since 2026-08-14 — carries one **expansion frame** per enclosing
+instantiation, naming the macro with the span of its declaration in its
+own file:
 
 ```
 error[AX3001]: undefined variable `noSuchFunction`
@@ -313,22 +316,28 @@ error[AX3001]: undefined variable `noSuchFunction`
   |
 3 | (fn (main) (bad 1))
   |             ^^^ no binding named `noSuchFunction` in scope
+  |
+ = note: in this expansion of `bad` (MacLib.ax:2:13-16)
 ```
 
-The span is real and it is in the right file. It does not yet name the
-macro, which is the second half of roadmap criterion 3, and a reader
-sees an error about a name that does not appear on that line.
+AXDL renders the frame as `&MacLib.ax:2:13-16:"bad"` — the one field
+on the line whose file is not the diagnostic's own — JSON as a
+`{"macro","file","line","col"}` object in `expansion`, and the LSP
+appends the name. A nested invocation carries two frames, outermost
+first. `tests/diagnostics/490-expansion-backtrace.ax` pins all of it,
+and `verify-axdl-spans.py` checks the frame's span against the macro's
+file exactly as it checks every other claim.
 
-The reason it is not simply added is a data-model limit, not missing
-wiring. A `Diag` carries **one** unit, and the realistic case is a
-stdlib macro invoked from a user file — two different source texts on
-one diagnostic. Anchoring at the macro's own span instead would point
-at a real line of the *wrong* file, which reads as a correct diagnostic
-about unrelated code and is worse than pointing nowhere. `Diag`'s
-`trace` field exists and all four renderers consume it, but its element
-type is `Vec of Str`: a frame can hold pre-rendered English, not a
-span. Criterion 3 needs the element widened to carry `(name, span,
-unit)` and the AXDL `&"frame"` grammar to gain a location.
+The mechanism dodged the data-model rewrite this section used to
+predict. A `Diag` still carries one *primary* unit; the frame element
+widened to `(name, span, unit)`; and no node grew provenance — every
+node a template produces already carries the invocation's span *by
+reference*, so the expander records one table entry per instantiation
+and a post-pass attaches frames to any checker diagnostic whose
+primary span is a recorded handle. What has NOT landed is
+[macro-system.md](macro-system.md) `MAC-DIAG-5`'s second snippet: the
+human renderer names the declaration's location but does not yet open
+the second file to caret it.
 
 ### One crash this did not fix — since fixed, 2026-08-09
 
@@ -377,10 +386,17 @@ records the close.)
    of the same name. What remains under this heading: an entry-file
    macro's free identifiers are still capturable, and a name the
    macro's module merely imported still is too (§3's two open holes).
-2. **`Diag` frames carrying a span and a unit** — criterion 3. Touches
-   `diag.ax`'s word 10, all four renderers, the published AXDL grammar,
-   `tests/selfhost/645-axdl-repetition.ax`'s hand-built expected string
-   and `verify-axdl-spans.py`.
+2. ~~**`Diag` frames carrying a span and a unit**~~ — **done,
+   2026-08-14** (criterion 3): a diagnostic inside an expansion now
+   names each enclosing macro with its declaration's span in its own
+   file, in all four renderings —
+   `tests/diagnostics/490-expansion-backtrace.ax` pins one frame and a
+   nested two. It touched exactly what this item predicted:
+   `diag.ax`'s word 10, the four renderers, the published grammar,
+   `645-axdl-repetition`'s hand-built string (which survived
+   byte-for-byte — the bare `&"name"` form still renders) and
+   `verify-axdl-spans.py`, which now checks a frame's span against the
+   MACRO's file.
 3. **Declaration-level macros** — criterion 1's prerequisite. Parser
    surface (a template in declaration position), pipeline surface
    (expansion must run before the declaration list is fixed), and

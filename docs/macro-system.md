@@ -596,8 +596,8 @@ diagnostic anchored at a template node would point at a real line of the
 and is worse than pointing nowhere.
 
 **MAC-EXP-15 (H).** A diagnostic from inside an expansion therefore
-anchors at the invocation, in the file being compiled, and does **not
-name the macro**:
+anchors at the invocation, in the file being compiled — and names the
+macro in an expansion frame (`MAC-DIAG-4`, since 2026-08-14):
 
 ```
 error[AX3001]: undefined variable `noSuchFunction`
@@ -605,10 +605,12 @@ error[AX3001]: undefined variable `noSuchFunction`
   |
 3 | (fn (main) (bad 1))
   |             ^^^ no binding named `noSuchFunction` in scope
+  |
+ = note: in this expansion of `bad` (MacLib.ax:2:13-16)
 ```
 
-A reader sees an error about a name that does not appear on that line.
-`MAC-DIAG-4` specifies the fix.
+Until then the note line did not exist, and a reader saw an error about
+a name that appears nowhere on the line pointed at.
 
 ### 2.6 Phases
 
@@ -1136,31 +1138,45 @@ its message, since it cannot point at it.
 budgets set a "blown" flag so that the refusal is reported at the first
 node rather than at every node after it.
 
-**MAC-DIAG-4 (P).** A diagnostic arising inside an expansion **SHALL**
-carry an **expansion backtrace** naming the macro *and* the invocation,
-both with real spans.
+**MAC-DIAG-4 (H).** A diagnostic arising inside an expansion carries an
+**expansion backtrace**: one frame per enclosing instantiation,
+outermost first, each naming the macro with the span of its
+**declaration** in its **own unit** — the two-source diagnostic the
+one-unit `Diag` could not express while a frame was a bare string.
+AXDL renders each as `&FILE:LOC:"name"`, the one field on the line
+whose file is not the diagnostic's own; the human renderer prints
+``in this expansion of `name` (FILE:LOC)`` as a note; JSON's
+`expansion` array holds `{"macro", "file", "line", "col"}` objects; the
+LSP appends the name. Pinned by
+`tests/diagnostics/490-expansion-backtrace.ax` — one frame on a direct
+invocation, two on a nested one — whose frame spans
+`verify-axdl-spans.py` checks against the macro's file the way it
+checks every claim, boundary rules and name anchoring included.
 
-*Today:* the invocation's span is real and in the right file; the macro
-is not named. This is a data-model limit rather than missing wiring, and
-the specification records the shape of the change because it is larger
-than it looks:
+Two decisions made it small where this rule used to warn it was large:
 
-- `Diag` carries a `trace` field whose element type is `Vec of Str` — a
-  frame can hold pre-rendered English but **not a span**;
-- a `Diag` carries **one** unit, and the realistic case is a stdlib
-  macro invoked from a user file — two source texts on one diagnostic;
-- anchoring at the macro's own span instead would point at a real line
-  of the *wrong* file, which reads as a correct diagnostic about
-  unrelated code and is **worse than pointing nowhere**.
+- **Frames join by span handle, not by node provenance.** Every node a
+  template produces is rebuilt carrying the invocation's span
+  (`MAC-EXP-14`) — the same record *by reference* — so the expander
+  records one `(declaration module, invocation span, macro, its span,
+  its module)` entry per instantiation, and a post-pass after the
+  checker attaches frames to any diagnostic whose primary span IS a
+  recorded handle. Pointer equality cannot collide across files, no
+  node grew a provenance word, and the parser is untouched.
+- **The widening cost what it predicted and no goldens.** The frame
+  element became `(name, span, unit)` (`DFrame`), the four renderers
+  and the published grammar in [diagnostics.md](diagnostics.md) moved
+  together, and `645-axdl-repetition`'s hand-built string survived
+  byte-for-byte because a span-less frame still renders the bare
+  `&"name"` the grammar always had — and nothing had ever populated
+  the field, so no existing golden held one.
 
-A conforming implementation **MUST** widen the frame element to
-`(name, span, unit)` and extend the published AXDL `&"frame"` grammar to
-carry a location. That touches `diag.ax`, all four renderers, the AXDL
-grammar in [diagnostics.md](diagnostics.md),
-`tests/selfhost/645-axdl-repetition.ax`'s hand-built expected string,
-and `verify-axdl-spans.py`.
+The invocation stays primary, exactly as `MAC-DIAG-5` wants: it is the
+line the author can change. The REPL deliberately discards frames —
+its error line joins bare messages, and the prompt *is* the invocation.
 
-**MAC-DIAG-5 (P).** With `MAC-DIAG-4`, the rendered form **SHALL** be:
+**MAC-DIAG-5 (P; the location renders, the second snippet does not
+yet).** With `MAC-DIAG-4`, the rendered form **SHALL** be:
 
 ```
 error[AX3005]: non-exhaustive match: `Blue` not covered
@@ -1176,6 +1192,12 @@ error[AX3005]: non-exhaustive match: `Blue` not covered
 ```
 
 The invocation stays primary — it is the line the author can change.
+
+*Today:* the human renderer prints the frame as a note —
+``= note: in this expansion of `deriveEq` (stdlib/Derive.ax:8:14)`` —
+which names the macro and its declaration but does not open the second
+file for a snippet. The data the snippet needs is on the frame since
+`MAC-DIAG-4` closed; what remains is renderer work alone.
 
 ---
 
@@ -1480,7 +1502,7 @@ nicety: without an expansion backtrace, the author of `(machine Door
 | Capabilities | CAP-1…3 | CAP-4, 6…9 | CAP-5 (with replacement) |
 | Safety | SAFE-1…4 | — | SAFE-5 |
 | Integration | INT-1…3, INT-5 | INT-4, INT-6 | — |
-| Diagnostics | DIAG-1…3 | DIAG-4, DIAG-5 | — |
+| Diagnostics | DIAG-1…4 | DIAG-5 | — |
 | Tooling | TOOL-1, TOOL-6 | TOOL-2…5 | — |
 
 Six rules in the Holds column are held-but-defective, each with the
@@ -1506,6 +1528,7 @@ convention; the list, not any one entry, is the argument for gating.
 | `tests/selfhost/368-macro-qualified.ax` (47) | LANG-12 — the unfixed compiler refuses with two `AX3001`s |
 | `tests/selfhost/369-macro-vs-function.ax` (15) | HYG-8.3 — the unfixed compiler answers 10, silently |
 | `tests/diagnostics/485-qualified-private-macro.ax` | LANG-12's `AX3023` route for a qualified private macro |
+| `tests/diagnostics/490-expansion-backtrace.ax` | DIAG-4 — one frame and a nested two, spans verified against the macro's own file |
 | `tests/selfhost/363-macro-shadowing.ax` (3) | EXP-5 |
 | `tests/selfhost/364-macro-definition-site.ax` (157) | HYG-6, HYG-7 |
 | `tests/selfhost/365-macro-pattern-literal.ax` (95) | HYG-5 |
@@ -1565,9 +1588,11 @@ rather than the value alone.
    which needs `MAC-HYG-9`'s scope sets) and the imported-name capture
    (hole 4, which needs import edges the merged declaration list does
    not carry).
-2. **`MAC-DIAG-4`** — the `Diag` layout change. Every later item makes
-   diagnostics *inside* expansions more common, so this comes before
-   them, not after.
+2. ~~**`MAC-DIAG-4`**~~ — **landed 2026-08-14**, before the items that
+   make diagnostics inside expansions more common, as this list
+   ordered. The frame element is `(name, span, unit)`, the join is by
+   invocation-span handle, and `MAC-DIAG-5`'s second snippet is what
+   remains of the rendering.
 3. **`MAC-CAP-8`** — declaration macros, with `MAC-EXP-16`'s phase
    split. The prerequisite for everything in §10.2–§10.5.
 4. **`MAC-CAP-5`/`MAC-CAP-6`** — the query vocabulary. Small, closed,

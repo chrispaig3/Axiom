@@ -15,9 +15,12 @@ all. An AXDL line is
 
     SEV CODE file:line:colStart-colEnd slug "message" ^L:C-C:"note" ?"help"
 
-with three further text-only fields the grammar allows and this parser
-reads without deriving a claim from: `#"label"` (the primary label),
-`!"note"` and `&"frame"` (an expansion-backtrace frame). Every one of
+with two further text-only fields the grammar allows and this parser
+reads without deriving a claim from - `#"label"` (the primary label) and
+`!"note"` - and one that DOES carry a claim since 2026-08-14:
+`&file:L:C-C:"name"`, an expansion-backtrace frame, whose span points at
+the named macro's declaration in the named file (the bare `&"name"` form
+still parses and claims nothing). Every one of
 the *positions* above is a claim about a file this repository
 also contains. `tests/diagnostics/010-duplicate-fn.ax` really does or
 does not have a line 3 whose characters 6 through 9 spell `main`. That
@@ -81,6 +84,7 @@ HEAD = re.compile(r'^([EWNH]) (AX\d{4}) (\S+) (\S+) ')
 SPAN = re.compile(r'^(\S+):(\d+):(\d+)(?:-(?:(\d+):)?(\d+))?$')
 # A secondary span on a `^note` or `?help`: same file, no path repeated.
 SECONDARY = re.compile(r'(\d+):(\d+)(?:-(?:(\d+):)?(\d+))?:')
+FRAME = re.compile(r'([^\s:"]+):(\d+):(\d+)(?:-(?:(\d+):)?(\d+))?:')
 BACKTICKED = re.compile(r'`([^`]*)`')
 # Per AX1001's own help text: letters, digits, `_`, and `'`.
 IDENT_CH = re.compile(r"[^\W]|'", re.UNICODE)
@@ -136,7 +140,7 @@ def parse(line):
         raise ValueError('unparsable primary span %r' % span_tok)
     path, l1, c1, l2, c2 = sm.groups()
     spans = [(int(l1), int(c1), int(l2) if l2 else None,
-              int(c2) if c2 else None, 'primary')]
+              int(c2) if c2 else None, 'primary', None, None)]
     message, i = read_string(line, m.end())
     while i < len(line):
         if line[i] == ' ':
@@ -161,6 +165,22 @@ def parse(line):
         # label naming the same identifier as the span would turn the
         # corroboration into a tautology.
         if mark in '!#&':
+            # A frame MAY carry its own location - `&file:L:C-C:"name"`
+            # - and uniquely on the line, the file it names is NOT the
+            # primary's: the span points at the macro's declaration in
+            # the macro's own unit. That is a claim like any other and
+            # is checked like one, against THAT file; the name doubles
+            # as the anchor text, since the span is the name token.
+            if mark == '&':
+                fm = FRAME.match(line, i)
+                if fm:
+                    fpath, fl1, fc1, fl2, fc2 = fm.groups()
+                    fname, i = read_string(line, fm.end())
+                    spans.append((int(fl1), int(fc1),
+                                  int(fl2) if fl2 else None,
+                                  int(fc2) if fc2 else None,
+                                  'frame', fpath, fname))
+                    continue
             _text, i = read_string(line, i)
             continue
         sec = SECONDARY.match(line, i)
@@ -168,7 +188,7 @@ def parse(line):
             sl1, sc1, sl2, sc2 = sec.groups()
             spans.append((int(sl1), int(sc1), int(sl2) if sl2 else None,
                           int(sc2) if sc2 else None,
-                          'note' if mark == '^' else 'help'))
+                          'note' if mark == '^' else 'help', None, None))
             i = sec.end()
         _text, i = read_string(line, i)
         if line[i:i + 2] == '~>':          # a machine-applicable fix
@@ -244,26 +264,36 @@ def main(argv):
                         % (golden, lineno, path, root))
                     continue
                 names = BACKTICKED.findall(message)
-                for (l1, c1, l2, c2, kind) in spans:
+                for (l1, c1, l2, c2, kind, fpath, fname) in spans:
                     claims += 1
-                    where = '%s:%d:%d' % (path, l1, c1)
-                    if not 1 <= l1 <= len(src):
+                    if fpath is not None:
+                        csrc = fixtures.lines(fpath)
+                        if csrc is None:
+                            failures.append(
+                                '%s:%d: frame names `%s`, which is no fixture in %s'
+                                % (golden, lineno, fpath, root))
+                            continue
+                        cpath, src_here = fpath, csrc
+                    else:
+                        cpath, src_here = path, src
+                    where = '%s:%d:%d' % (cpath, l1, c1)
+                    if not 1 <= l1 <= len(src_here):
                         failures.append(
                             '%s - %s span claims line %d, the file has %d lines'
-                            % (where, kind, l1, len(src)))
+                            % (where, kind, l1, len(src_here)))
                         continue
-                    line = src[l1 - 1]
+                    line = src_here[l1 - 1]
                     if l2 is not None:
                         # A span across lines (AX1002's unterminated
                         # string is the only one today): both ends must
                         # exist and be in order. There is no slice to
                         # compare, so it stops here.
-                        if not 1 <= l2 <= len(src) or l2 < l1:
+                        if not 1 <= l2 <= len(src_here) or l2 < l1:
                             failures.append(
                                 '%s-%d:%d - %s span ends on a line that does not '
                                 'follow it (%d lines in the file)'
-                                % (where, l2, c2, kind, len(src)))
-                        elif c1 < 1 or c1 > len(line) + 1 or c2 < 1 or c2 > len(src[l2 - 1]) + 1:
+                                % (where, l2, c2, kind, len(src_here)))
+                        elif c1 < 1 or c1 > len(line) + 1 or c2 < 1 or c2 > len(src_here[l2 - 1]) + 1:
                             failures.append(
                                 '%s-%d:%d - %s span starts or ends outside its line'
                                 % (where, l2, c2, kind))
@@ -279,7 +309,7 @@ def main(argv):
                         # file. Bounds are all there is to check.
                         continue
                     slice_ = line[c1 - 1:c2 - 1]
-                    if slice_ in names:
+                    if slice_ == fname if fname is not None else slice_ in names:
                         anchored += 1
                     if slice_ and '\\' not in slice_:
                         boundary_checked += 1

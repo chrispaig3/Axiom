@@ -189,7 +189,7 @@ an LLM agent burns reading compiler output. The design rationale:
 | `^LOC:"msg"` | A secondary/related span, e.g. the other side of a type mismatch |
 | `!"note"` | An additional note: a fact about why the program is wrong, as against a help, which is an action that would make it right |
 | `?"msg"` or `?LOC:"msg"~>"replacement"` | A help suggestion; the `~>` form is machine-applicable |
-| `&"frame"` | One frame of the expansion backtrace, outermost first |
+| `&"name"` or `&FILE:LOC:"name"` | One frame of the expansion backtrace, outermost first: the macro's name, and - in the located form - the span of its DECLARATION. Uniquely among the line's fields, that `FILE` is not the diagnostic's own: the span indexes the macro's file, which is why the file is spelled out where `^` and `?` leave it implied |
 
 Every field marked `*` repeats. Fields appear in exactly the order
 above, and a consumer that meets one it does not know should fail rather

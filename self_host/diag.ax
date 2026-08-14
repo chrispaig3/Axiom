@@ -65,7 +65,13 @@
 ;   secs   — Vec of DLabel, or 0: related locations
 ;   notes  — Vec of Str, or 0
 ;   helps  — Vec of DHelp, or 0
-;   trace  — Vec of Str, or 0: the expansion backtrace, outermost first
+;   trace  — Vec of DFrame, or 0: the expansion backtrace, outermost
+;            first. A frame names the macro and carries the span of
+;            its DECLARATION and the unit that span indexes - which is
+;            the second source text on one diagnostic, and the reason
+;            the element could not stay a Str (macro-system.md
+;            MAC-DIAG-4: the realistic case is a stdlib macro invoked
+;            from a user file)
 ;
 ; THE WIDENING. Six scalar slots - relSpan, relMsg, help, fixSpan,
 ; fixText, help2 - were one secondary and two helps, and the comment
@@ -106,6 +112,14 @@
 ; rather than a bare `?"msg"` - the whole point of the form being that a
 ; tool can apply it without parsing the English.
 (pub struct DHelp (msg : String) (fixSpan : Int) (fixText : String))
+
+; One expansion frame: the macro's name, the span of its DECLARATION,
+; and the unit that span indexes. `span` 0 means the frame carries a
+; name alone and renders the bare `&"name"` the grammar always had;
+; with a span and a reachable unit it renders `&file:LOC:"name"` - the
+; file spelled out because, uniquely among the line's fields, this one
+; points into a DIFFERENT source than the diagnostic's own unit.
+(pub struct DFrame (name : String) (span : Int) (unit : Int))
 
 (pub :: mkDiagBase (-> Int Int Int Int Int Int))
 (pub fn (mkDiagBase sev code slug span msg)
@@ -164,8 +178,12 @@
 (pub fn (diagHelpFixText d i) (memGetWord (vecGet (memGetWord d 9) i) 2))
 
 (pub :: diagTraceCount (-> Int Int)) (pub fn (diagTraceCount d) (diagCountAt d 10))
-(pub :: diagTrace (-> Int Int Int))
-(pub fn (diagTrace d i) (vecGet (memGetWord d 10) i))
+(pub :: diagTraceName (-> Int Int Int))
+(pub fn (diagTraceName d i) (memGetWord (vecGet (memGetWord d 10) i) 0))
+(pub :: diagTraceSpan (-> Int Int Int))
+(pub fn (diagTraceSpan d i) (memGetWord (vecGet (memGetWord d 10) i) 1))
+(pub :: diagTraceUnit (-> Int Int Int))
+(pub fn (diagTraceUnit d i) (memGetWord (vecGet (memGetWord d 10) i) 2))
 
 ; ------------------------------------------------------------------
 ; Builders. Each returns the diagnostic, so they chain.
@@ -186,9 +204,9 @@
 (pub fn (diagAddFixHelp d msg fixSpan fixText)
   { (vecPush (diagVecAt d 9) (cast Int (DHelp msg fixSpan fixText))) d })
 
-(pub :: diagAddTrace (-> Int Int Int))
-(pub fn (diagAddTrace d s)
-  { (vecPush (diagVecAt d 10) s) d })
+(pub :: diagAddTrace (-> Int Int Int Int Int))
+(pub fn (diagAddTrace d name span unit)
+  { (vecPush (diagVecAt d 10) (cast Int (DFrame name span unit))) d })
 
 ; ------------------------------------------------------------------
 ; The three constructors every existing emission site calls, kept as
@@ -358,8 +376,8 @@
 (pub fn (pushQ parts pre s)
   { (vecPush parts pre) (vecPush parts (quoteStr s)) 0 })
 
-(pub :: renderDiag (-> Int String Int Int))
-(pub fn (renderDiag d src file)
+(pub :: renderDiag (-> Int String Int Int Int))
+(pub fn (renderDiag d src file units)
   (let ((parts vecNew))
     {
       (vecPush parts (sevSigil (diagSev d)))
@@ -416,9 +434,30 @@
                 })
             (set i (+ i 1))
           }))
+      ; A frame's LOC carries its FILE, unlike every other field on
+      ; the line: the span indexes the macro's own unit, not the
+      ; diagnostic's. Span 0 - or no unit table to resolve against,
+      ; the single-unit path - renders the bare `&"name"` the grammar
+      ; always had.
       (let ((mut i 0))
         (while (< i (diagTraceCount d))
-          { (pushQ parts " &" (diagTrace d i)) (set i (+ i 1)) }))
+          {
+            (vecPush parts " &")
+            (let ((fs (diagTraceSpan d i))
+                  (fu (diagTraceUnit d i)))
+              (if (|| (== fs 0)
+                      (|| (== units 0) (>= fu (vecLen units))))
+                  0
+                  (let ((u (vecGet units fu)))
+                    {
+                      (vecPush parts (memGetWord u 0))
+                      (vecPush parts ":")
+                      (vecPush parts (fmtSpan (memGetWord u 1) fs))
+                      (vecPush parts ":")
+                    })))
+            (vecPush parts (quoteStr (diagTraceName d i)))
+            (set i (+ i 1))
+          }))
 
       (catStrs parts)
     }))
@@ -436,7 +475,7 @@
   (if (>= i (vecLen ds))
       acc
       (renderDiagsFrom ds src file (+ i 1)
-        (strConcat (strConcat acc (renderDiag (vecGet ds i) src file)) "\n"))))
+        (strConcat (strConcat acc (renderDiag (vecGet ds i) src file 0)) "\n"))))
 
 ; The multi-unit form. `units` is a Vec of CUnit records - one per
 ; source file that contributed declarations - and each diagnostic
@@ -457,7 +496,8 @@
                                      (diagUnit d)
                                      0))))
             {
-              (vecPush blocks (renderDiag d (memGetWord u 1) (memGetWord u 0)))
+              (vecPush blocks (renderDiag d (memGetWord u 1) (memGetWord u 0)
+                                          units))
               (vecPush blocks "\n")
               (set i (+ i 1))
             })))
@@ -474,7 +514,7 @@
                                    0))))
           (renderDiagsUnitsFrom ds units (+ i 1)
             (strConcat (strConcat acc
-              (renderDiag d (memGetWord u 1) (memGetWord u 0))) "\n"))))))
+              (renderDiag d (memGetWord u 1) (memGetWord u 0) units)) "\n"))))))
 
 ; ------------------------------------------------------------------
 ; Linear concatenation of a Vec of Str: sum the lengths, allocate

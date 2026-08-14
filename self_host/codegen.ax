@@ -2239,7 +2239,7 @@
         ; renderer and no units to render against - it is the
         ; convenience form, and a caller that wants diagnostics uses
         ; the pipeline in `main.ax` that has them.
-        { (expandProgram allDecls vecNew) (lowerImpls allDecls vecNew) }
+        { (expandProgram allDecls vecNew vecNew) (lowerImpls allDecls vecNew) }
         (emitResolved allDecls bares fulls tcode)
       })))
 
