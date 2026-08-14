@@ -148,6 +148,17 @@
 ; well-formed poison arm, because the REPL runs the checker even
 ; after expansion errors.
 (pub :: TAG_M_FOR Int) (pub fn (TAG_M_FOR) 51)
+; `(syntax/for (f seq) decl...)` standing where a DECLARATION stands -
+; the same iteration form one position up (MAC-CAP-5): the template
+; declarations instantiated once per element, spliced into the
+; generated-declaration list by phase D. a=the binder name (Str),
+; b=the sequence expression node, c=Vec of declaration nodes,
+; span=the `syntax/for` token. Meaningful only inside a rule-form
+; macro's template; one written at top level in ordinary code parses
+; here too - the hook sits in parseTopForm, so the template parser
+; inherits it - and phase D refuses it (AX3028) and re-tags it inert,
+; because the checker walks whatever the parse produced.
+(pub :: TAG_D_SYNFOR Int) (pub fn (TAG_D_SYNFOR) 52)
 ; A `cond` form, kept structural rather than desugared at parse time:
 ; stage0's checker treats `cond` unlike nested `if` (clause bodies are
 ; never joined against each other; only a real `else` is compared, and
@@ -904,6 +915,14 @@
   ; tolerance until the tolerance dies.
   (if (kwEq name "impl")
       (parseImplDecl tokens (advance pos) pos)
+  ; `syntax/for` in declaration position (MAC-CAP-5). The hook lives
+  ; HERE, ahead of the macrocall fallthrough, so one arm covers a
+  ; rule-form template (parseTplDecls delegates to this function), a
+  ; nested iteration's interior, the `pub` recursion above, and a
+  ; stray top-level occurrence - which phase D refuses rather than
+  ; resolving as a macro named syntax/for.
+  (if (kwEq name "syntax/for")
+      (parseDeclFor tokens pos)
   ; Any OTHER identifier head is a DECLARATION MACRO INVOCATION
   ; (TAG_D_MACROCALL), resolved - or refused with a diagnostic that
   ; names the head - by the expander's phase D. This is NOT the old
@@ -916,8 +935,44 @@
   ; Operator-charactered heads (`+` is a lexical identifier here)
   ; take this path too and refuse in phase D, since none can name a
   ; macro a declaration position accepts.
-  (parseMacroCall tokens pos))))))))))))))
+  (parseMacroCall tokens pos)))))))))))))))
   (pErr pos))))
+
+; Parse `syntax/for (VAR SEQ) DECL...` with the form's `(` already
+; consumed and `pos` at the `syntax/for` token; consumes the closing
+; paren. The declarations are parsed by the REAL declaration parsers -
+; the same delegation the rule-form template uses - so a nested
+; syntax/for parses through the parseTopForm hook above. At least one
+; declaration is required.
+(pub :: parseDeclFor (-> Int Int Int))
+(pub fn (parseDeclFor tokens pos)
+  (let ((sp (tokenSpan (vecGet tokens pos)))
+        (p1 (advance pos)))
+    (if (&& (peekIs tokens p1 TK_LPAREN)
+            (peekIs tokens (advance p1) TK_IDENT))
+        (let ((var (tokenLexeme (vecGet tokens (advance p1)))))
+          (let ((seqR (parseExpr tokens (advance (advance p1)))))
+            (if (== (memGetWord seqR 0) 0) seqR
+                (let ((seq (memGetWord seqR 1))
+                      (afterSeq (memGetWord seqR 2)))
+                  (if (peekIs tokens afterSeq TK_RPAREN)
+                      (parseDeclForBody tokens (advance afterSeq) var seq sp vecNew)
+                      (pErrExp afterSeq ")"))))))
+        (pErrExp p1 "("))))
+
+(pub :: parseDeclForBody (-> Int Int Int Int Int Int Int))
+(pub fn (parseDeclForBody tokens pos var seq sp acc)
+  (if (peekIs tokens pos TK_RPAREN)
+      (if (== (vecLen acc) 0)
+          (pErr pos)
+          (pOk (mkNodeAt TAG_D_SYNFOR var seq acc sp) (advance pos)))
+      (if (peekIs tokens pos TK_LPAREN)
+          (let ((r (parseTopForm tokens (advance pos))))
+            (if (== (memGetWord r 0) 0)
+                r
+                (parseDeclForBody tokens (memGetWord r 2) var seq sp
+                                  (vecPush acc (memGetWord r 1)))))
+          (pErrExp pos "("))))
 
 ; A form this parser does not know - `type`, `trait` - is consumed and
 ; stands in the declaration list as an inert TAG_NIL node.

@@ -1,0 +1,13 @@
+; Declaration-position syntax/for OUTSIDE any macro template: refused
+; (AX3028) and re-tagged inert, so the checker walks a well-formed
+; list. `.axbad` because the formatter must not learn the shape - a
+; top-level syntax/for prints through the expression printer, which
+; rewrites its interior `fn` forms - so committing it as `.ax` would
+; bake a different tree.
+(struct P (x : Int))
+
+(syntax/for (f (syntax/fields P))
+  (fn (g) 1))
+
+(:: main Int)
+(fn (main) 0)

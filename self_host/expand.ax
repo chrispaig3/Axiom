@@ -744,6 +744,46 @@
                       "pass a plain name in this argument position"
                       (expMacMod env)))))))))
 
+; `(syntax/fields S)`: the field names of entry-file struct S, in
+; declaration order - the same two-pass shape as expConstructorsOf.
+(pub :: expFieldsOf (-> Int String Int Int))
+(pub fn (expFieldsOf env s isp)
+  (let ((d (expFindDeclNamed env s 1)))
+    (if (!= d 0)
+        (if (== (nodeTag d) TAG_D_STRUCT)
+            (let ((names vecNew) (fs (nodeB d)) (mut i 0))
+              {
+                (while (< i (vecLen fs))
+                  {
+                    (vecPush names (nodeA (vecGet fs i)))
+                    (set i (+ i 1))
+                  })
+                (let ((r vecNew))
+                  {
+                    (vecPush r (strConcat "fields " s))
+                    (vecPush r names)
+                    r
+                  })
+              })
+            (expQueryErr env isp
+              (strConcat (strConcat "`" s)
+                         "` is not a `struct` declaration, so it has no fields")
+              "syntax/fields answers structs; a data type's query is syntax/constructors"
+              (expMacMod env)))
+        (let ((any (expFindDeclNamed env s 0)))
+          (if (!= any 0)
+              (expQueryErr env isp
+                (strConcat (strConcat (strConcat "`" s)
+                           "` is declared in module `")
+                           (strConcat (nodeModule any) "`; v1 queries answer entry-file types only"))
+                "declare the type in the entry file, or write the declarations by hand"
+                (expMacMod env))
+              (expQueryErr env isp
+                (strConcat (strConcat "no declaration named `" s)
+                           "` for syntax/fields to answer")
+                "the query reads the declaration list; check the spelling, and declare the struct before deriving over it"
+                (expMacMod env)))))))
+
 ; `(syntax/constructors T)`: the constructor names of entry-file
 ; `data` type T, in declaration order. Two passes over the
 ; declaration list - entry-only for the ANSWER, any-module for the
@@ -819,11 +859,16 @@
               (if (== t 0)
                   0
                   (expConstructorsOf env t isp)))
+        (if (strEq head "syntax/fields")
+            (let ((s (expResolveQueryName env (nodeA (nodeB seq)) params args isp)))
+              (if (== s 0)
+                  0
+                  (expFieldsOf env s isp)))
             (expQueryErr env (nodeSpan seq)
               (strConcat (strConcat "`" head)
                          "` is not an iteration sequence this vocabulary answers")
-              "v1 sequences are `(syntax/constructors T)`; syntax/fields, syntax/binders and the parallel form are specified (macro-system.md MAC-CAP-5) and refuse until they land"
-              (expMacMod env))))
+              "sequences are `(syntax/constructors T)` and `(syntax/fields S)`; syntax/binders and the parallel form are specified (macro-system.md MAC-CAP-5) and refuse until they land"
+              (expMacMod env)))))
       (expQueryErr env (if (!= (nodeSpan seq) 0) (nodeSpan seq) isp)
         "syntax/for's sequence must be a query spine - `(syntax/constructors T)` in v1"
         "write the sequence as a single one-argument query"
@@ -880,6 +925,182 @@
       acc
     }))
 
+; The FULL binding record for an active for-variable - `syntax/same`
+; needs the sequence key and the element index, not just the element.
+(pub :: expForBindOf (-> Int String Int))
+(pub fn (expForBindOf env name)
+  (let ((fs (expForStack env)))
+    (expForBindOfFrom fs name (- (vecLen fs) 1))))
+
+(pub :: expForBindOfFrom (-> Int String Int Int))
+(pub fn (expForBindOfFrom fs name i)
+  (if (< i 0)
+      0
+      (let ((b (vecGet fs i)))
+        (if (strEq (memGetWord b 0) name)
+            b
+            (expForBindOfFrom fs name (- i 1))))))
+
+; `(syntax/same f g)`: whether two iteration variables currently
+; denote the same element - the same declaration SLOT, so both sides
+; must range over the same sequence (equal keys) and the answer is
+; index equality. Comparing across different sequences is refused
+; rather than answered false: a false from mismatched sequences is a
+; wrong-answer generator, and spelling alone never suffices
+; (MAC-CAP-5's own rule). Answers the node to splice - `true`,
+; `false`, or a refusal's poison 0-literal.
+(pub :: expEvalSame (-> Int Int Int Int))
+(pub fn (expEvalSame env qargs isp)
+  (if (!= (vecLen qargs) 2)
+      { (expQueryErr env isp
+          "syntax/same compares exactly two iteration variables"
+          "write `(syntax/same f g)` with both names bound by an enclosing syntax/for"
+          (expMacMod env))
+        (mkEInt 0) }
+      (let ((an (vecGet qargs 0)) (bn (vecGet qargs 1)))
+        (if (|| (!= (nodeTag an) TAG_E_VAR) (!= (nodeTag bn) TAG_E_VAR))
+            { (expQueryErr env isp
+                "syntax/same's arguments must be bare iteration variables"
+                "write `(syntax/same f g)` with both names bound by an enclosing syntax/for"
+                (expMacMod env))
+              (mkEInt 0) }
+            (let ((ba (expForBindOf env (nodeA an)))
+                  (bb (expForBindOf env (nodeA bn))))
+              (if (|| (== ba 0) (== bb 0))
+                  { (expQueryErr env isp
+                      (strConcat (strConcat "`"
+                        (nodeA (if (== ba 0) an bn)))
+                        "` is not bound by an enclosing syntax/for")
+                      "syntax/same compares iteration variables; bind both with syntax/for first"
+                      (expMacMod env))
+                    (mkEInt 0) }
+                  (if (strEq (memGetWord ba 2) (memGetWord bb 2))
+                      (if (== (memGetWord ba 3) (memGetWord bb 3))
+                          (mkEVarAt "true" isp)
+                          (mkEVarAt "false" isp))
+                      { (expQueryErr env isp
+                          (strConcat (strConcat (strConcat (strConcat
+                            "`" (nodeA an)) "` ranges over `")
+                            (strConcat (strConcat (memGetWord ba 2) "` and `")
+                                       (nodeA bn)))
+                            (strConcat (strConcat "` over `" (memGetWord bb 2)) "`"))
+                          "syntax/same compares positions within ONE sequence; iterate both variables over the same query"
+                          (expMacMod env))
+                        (mkEInt 0) })))))))
+
+; Is this expression a `(syntax/for (x seq) tpl)` spine?
+(pub :: expIsForSpine (-> Int Int))
+(pub fn (expIsForSpine e)
+  (let ((h (expSpineHead e)))
+    (if (&& (== (nodeTag h) TAG_E_VAR) (strEq (nodeA h) "syntax/for"))
+        1
+        0)))
+
+; Splice an ARGUMENT-position `(syntax/for (x seq) tpl)` into the
+; enclosing application's argument vector: the template expression
+; instantiated once per element, each pushed where the form stood -
+; `(S (syntax/for (g (syntax/fields S)) e))` becomes `(S e1 e2 ...)`.
+; The spine shape is APP(APP(syntax/for, (x seq)), tpl): argument 0
+; is the binding form - a one-argument application of the binder to
+; the sequence - and argument 1 the template. Anything else refuses.
+(pub :: expSpliceForArg (-> Int Int Int Int Int Int Int Int))
+(pub fn (expSpliceForArg f params args ren env isp out)
+  (let ((qargs (expSpineArgs f vecNew)))
+    (if (!= (vecLen qargs) 2)
+        { (expQueryErr env isp
+            "argument-position syntax/for takes a binding form and ONE template expression"
+            "write `(syntax/for (x seq) tpl)`"
+            (expMacMod env))
+          (vecPush out (mkEInt 0))
+          0 }
+        (let ((bind (vecGet qargs 0)))
+          (if (|| (!= (nodeTag bind) TAG_E_APP)
+                  (!= (nodeTag (nodeA bind)) TAG_E_VAR))
+              { (expQueryErr env isp
+                  "syntax/for's first form binds one variable to one sequence"
+                  "write `(syntax/for (x seq) tpl)`"
+                  (expMacMod env))
+                (vecPush out (mkEInt 0))
+                0 }
+              (let ((sr (expEvalSeq env (nodeB bind) params args isp)))
+                (if (== sr 0)
+                    { (vecPush out (mkEInt 0)) 0 }
+                    (expSpliceForArgElems (nodeA (nodeA bind)) (vecGet qargs 1)
+                                          params args ren env isp out
+                                          (vecGet sr 0) (vecGet sr 1) 0))))))))
+
+(pub :: expSpliceForArgElems (-> Int Int Int Int Int Int Int Int Int Int Int Int))
+(pub fn (expSpliceForArgElems var tpl params args ren env isp out key names j)
+  (if (>= j (vecLen names))
+      0
+      (let ((mark (vecLen (expForStack env))))
+        {
+          (vecPush (expForStack env)
+                   (cast Int (ForBind var (vecGet names j) key j)))
+          (vecPush out (substTpl tpl params args ren env isp))
+          (expTrunc (expForStack env) mark)
+          (expSpliceForArgElems var tpl params args ren env isp out
+                                key names (+ j 1))
+        })))
+
+; An application in a template, substituted SPINE-AT-ONCE rather than
+; through the binary halves: the flatten is what lets an ARGUMENT
+; whose own head is `syntax/for` splice several arguments into the
+; enclosing call - `(S (syntax/for (g (syntax/fields S)) e))` becomes
+; `(S e1 e2)` - and what lets a scalar query at the head answer in
+; place. The binary recursion could see neither: the enclosing
+; spine's head is `S`, not the query, and one node cannot return two.
+; Rebuilt left-nested, the shape every consumer reads; inner
+; applications reach this same function through their own walk, so
+; nothing is processed twice.
+(pub :: substTplApp (-> Int Int Int Int Int Int Int))
+(pub fn (substTplApp tpl params args ren env isp)
+  (let ((head (expSpineHead tpl))
+        (qargs (expSpineArgs tpl vecNew)))
+    (if (&& (== (nodeTag head) TAG_E_VAR)
+            (strStartsWith (nodeA head) "syntax/"))
+        (if (strEq (nodeA head) "syntax/same")
+            (expEvalSame env qargs isp)
+        (if (strEq (nodeA head) "syntax/for")
+            { (expQueryErr env isp
+                "syntax/for stands where several results can splice - a match arm, a template declaration, an argument - not where ONE value is needed"
+                "iterate with syntax/for in arm, declaration, or argument position; a scalar position has no room for a sequence"
+                (expMacMod env))
+              (mkEInt 0) }
+        (if (|| (strEq (nodeA head) "syntax/constructors")
+                (strEq (nodeA head) "syntax/fields"))
+            { (expQueryErr env isp
+                (strConcat (strConcat "`" (nodeA head))
+                           "` answers a SEQUENCE, and this position needs one value")
+                "sequence queries stand in a syntax/for's sequence slot"
+                (expMacMod env))
+              (mkEInt 0) }
+            { (expQueryErr env isp
+                (strConcat (strConcat "`" (nodeA head))
+                           "` is not a query this position answers")
+                "the applied queries are syntax/same here, and syntax/constructors / syntax/fields in a syntax/for's sequence slot; the rest of the MAC-CAP-5 table refuses until it lands"
+                (expMacMod env))
+              (mkEInt 0) })))
+        (let ((out vecNew) (mut i 0))
+          {
+            (while (< i (vecLen qargs))
+              (let ((a (vecGet qargs i)))
+                {
+                  (if (&& (== (nodeTag a) TAG_E_APP) (== (expIsForSpine a) 1))
+                      (expSpliceForArg a params args ren env isp out)
+                      (vecPush out (substTpl a params args ren env isp)))
+                  (set i (+ i 1))
+                }))
+            (expRebuildSpine (substTpl head params args ren env isp) out isp 0)
+          }))))
+
+(pub :: expRebuildSpine (-> Int Int Int Int Int))
+(pub fn (expRebuildSpine f outArgs isp i)
+  (if (>= i (vecLen outArgs))
+      f
+      (expRebuildSpine (mkNodeAt TAG_E_APP f (vecGet outArgs i) 0 isp)
+                       outArgs isp (+ i 1))))
+
 (pub :: substTpl (-> Int Int Int Int Int Int Int))
 (pub fn (substTpl tpl params args ren env isp)
   (if (== tpl 0)
@@ -926,15 +1147,29 @@
                                   (mkEVarAt (expQualify env (nodeA tpl)) isp))
                               (vecGet args idx)))))))
         (if (== tag TAG_E_APP)
-            (mkNodeAt TAG_E_APP
-                      (substTpl (nodeA tpl) params args ren env isp)
-                      (substTpl (nodeB tpl) params args ren env isp)
-                      0 isp)
+            (substTplApp tpl params args ren env isp)
         (if (== tag TAG_E_IF)
-            (mkNodeAt TAG_E_IF
-                      (substTpl (nodeA tpl) params args ren env isp)
+            ; A condition that is a `syntax/same` spine is decided at
+            ; expansion time, and the CHOSEN BRANCH is spliced in the
+            ; if's place - so `(if (syntax/same f g) v s.g)` expands
+            ; to `v` on the diagonal and `s.g` off it, which is what
+            ; makes section 10.3's "withX expands to (Point v s.y)"
+            ; literally true rather than behaviourally true.
+            (if (&& (== (nodeTag (nodeA tpl)) TAG_E_APP)
+                    (let ((h (expSpineHead (nodeA tpl))))
+                      (&& (== (nodeTag h) TAG_E_VAR)
+                          (strEq (nodeA h) "syntax/same"))))
+                (let ((v (expEvalSame env (expSpineArgs (nodeA tpl) vecNew) isp)))
+                  (if (&& (== (nodeTag v) TAG_E_VAR) (strEq (nodeA v) "true"))
                       (substTpl (nodeB tpl) params args ren env isp)
-                      (substTpl (nodeC tpl) params args ren env isp) isp)
+                      (if (&& (== (nodeTag v) TAG_E_VAR) (strEq (nodeA v) "false"))
+                          (substTpl (nodeC tpl) params args ren env isp)
+                          ; the refusal's poison: keep the tree shaped
+                          v)))
+                (mkNodeAt TAG_E_IF
+                          (substTpl (nodeA tpl) params args ren env isp)
+                          (substTpl (nodeB tpl) params args ren env isp)
+                          (substTpl (nodeC tpl) params args ren env isp) isp))
         ; --- binders: value first, then body under the new name ----
         (if (|| (== tag TAG_E_LET) (== tag TAG_E_LETM))
             (let ((val (substTpl (nodeB tpl) params args ren env isp))
@@ -968,14 +1203,23 @@
             (mkNodeAt TAG_E_SET
                       (substName (nodeA tpl) params args ren env isp)
                       (substTpl (nodeB tpl) params args ren env isp) 0 isp)
+        ; A FIELD NAME substitutes only from an active for-binding -
+        ; `s.f` with f iterating (syntax/fields S) names each field
+        ; in turn (section 10.3's getters). A macro PARAMETER in
+        ; field-name position stays verbatim, as it always has: the
+        ; name lives in word b as a bare string, and rewriting it
+        ; against params would change what existing templates mean.
         (if (== tag TAG_E_FIELD)
             (mkNodeAt TAG_E_FIELD
                       (substTpl (nodeA tpl) params args ren env isp)
-                      (nodeB tpl) 0 isp)
+                      (let ((fe (expForLookup env (nodeB tpl))))
+                        (if (== fe 0) (nodeB tpl) fe))
+                      0 isp)
         (if (== tag TAG_E_SETF)
             (mkNodeAt TAG_E_SETF
                       (substTpl (nodeA tpl) params args ren env isp)
-                      (nodeB tpl)
+                      (let ((fe (expForLookup env (nodeB tpl))))
+                        (if (== fe 0) (nodeB tpl) fe))
                       (substTpl (nodeC tpl) params args ren env isp) isp)
         (if (== tag TAG_E_STRUCTCON)
             (mkNodeAt TAG_E_STRUCTCON (nodeA tpl)
@@ -1697,21 +1941,38 @@
         (if (>= i (vecLen tpl))
             0
             {
-              (let ((t (vecGet tpl i)))
-                (if (|| (== (nodeTag t) TAG_D_FN)
-                        (|| (== (nodeTag t) TAG_D_SIG)
-                            (== (nodeTag t) TAG_D_MACROCALL)))
-                    0
-                    (expEmit env (expMarkUnit env (mkDiagNote SEV_ERROR "AX3021" "macro-template-unsupported"
-                      (if (== (nodeSpan t) 0) (nodeSpan mac) (nodeSpan t))
-                      (strConcat (strConcat "macro `" (nodeA mac))
-                                 "`'s template may generate `fn` and `::` declarations, or further macro invocations - this form is not supported yet")
-                      0 0
-                      "generate the declaration by hand, or split it out of the template"
-                      "data, struct, trait, impl, effect and import templates refuse here, at the macro's own line, rather than passing through silently (MAC-CAP-2)")
-                      (nodeModule mac)))))
+              (expCheckTplKind mac (vecGet tpl i) env)
               (expCheckTplKinds mac env (+ i 1))
             }))))
+
+; One template declaration's KIND, recursively: a syntax/for is
+; accepted and its interior checked with the same rule, so a `data`
+; hiding inside an iteration still refuses at the macro's own line.
+(pub :: expCheckTplKind (-> Int Int Int Int))
+(pub fn (expCheckTplKind mac t env)
+  (if (|| (== (nodeTag t) TAG_D_FN)
+          (|| (== (nodeTag t) TAG_D_SIG)
+              (== (nodeTag t) TAG_D_MACROCALL)))
+      0
+      (if (== (nodeTag t) TAG_D_SYNFOR)
+          (expCheckTplKindVec mac (nodeC t) env 0)
+          (expEmit env (expMarkUnit env (mkDiagNote SEV_ERROR "AX3021" "macro-template-unsupported"
+            (if (== (nodeSpan t) 0) (nodeSpan mac) (nodeSpan t))
+            (strConcat (strConcat "macro `" (nodeA mac))
+                       "`'s template may generate `fn` and `::` declarations, further macro invocations, or a syntax/for over them - this form is not supported yet")
+            0 0
+            "generate the declaration by hand, or split it out of the template"
+            "data, struct, trait, impl, effect and import templates refuse here, at the macro's own line, rather than passing through silently (MAC-CAP-2)")
+            (nodeModule mac))))))
+
+(pub :: expCheckTplKindVec (-> Int Int Int Int Int))
+(pub fn (expCheckTplKindVec mac ts env i)
+  (if (>= i (vecLen ts))
+      0
+      {
+        (expCheckTplKind mac (vecGet ts i) env)
+        (expCheckTplKindVec mac ts env (+ i 1))
+      }))
 
 ; The `syntax/` prefix is RESERVED in declaration names: a declared
 ; fn, signature, or macro spelled `syntax/...` would shadow the query
@@ -1729,6 +1990,20 @@
       (let ((d (vecGet decls i)))
         {
           (let ((tag (nodeTag d)))
+            (if (== tag TAG_D_SYNFOR)
+                ; Declaration-position iteration OUTSIDE any macro
+                ; template - refused, then re-tagged INERT, because
+                ; the checker walks whatever this list holds and a
+                ; tag it does not know is a garbage traversal in the
+                ; one pipeline that runs it ungated (the REPL).
+                {
+                  (expQueryErr env (nodeSpan d)
+                    "syntax/for stands in a declaration macro's template, not at top level"
+                    "iteration is an expansion-time facility: move these declarations into a rule-form macro's template, or write them by hand"
+                    (nodeModule d))
+                  (memSetWord d 0 TAG_NIL)
+                  0
+                }
             (if (|| (== tag TAG_D_FN)
                     (|| (== tag TAG_D_SIG) (== tag TAG_D_MACRO)))
                 (if (strStartsWith (nodeA d) "syntax/")
@@ -1740,7 +2015,7 @@
                       "the syntax/ spellings belong to the query vocabulary (macro-system.md MAC-CAP-5/6); pick another name, or move the declaration into a macro template"
                       (nodeModule d))
                     0)
-                0))
+                0)))
           (expCheckDeclNames decls env (+ i 1))
         })))
 
@@ -1956,13 +2231,50 @@
 (pub fn (expBuildDecls tpl params args env isp acc i)
   (if (>= i (vecLen tpl))
       acc
-      (let ((g (expBuildOneDecl (vecGet tpl i) params args env isp)))
-        (if (== g 0)
-            0
+      (let ((t (vecGet tpl i)))
+        (if (== (nodeTag t) TAG_D_SYNFOR)
+            ; Declaration-position iteration: the interior
+            ; declarations instantiated once per element, spliced
+            ; where the form stood - through this same function, so
+            ; nested iterations compose exactly as the arm-position
+            ; splice does.
+            (if (== (expBuildForDecls t params args env isp acc) 0)
+                0
+                (expBuildDecls tpl params args env isp acc (+ i 1)))
+            (let ((g (expBuildOneDecl t params args env isp)))
+              (if (== g 0)
+                  0
+                  {
+                    (vecPush acc g)
+                    (expBuildDecls tpl params args env isp acc (+ i 1))
+                  }))))))
+
+(pub :: expBuildForDecls (-> Int Int Int Int Int Int Int))
+(pub fn (expBuildForDecls f params args env isp acc)
+  (let ((sr (expEvalSeq env (nodeB f) params args
+                        (if (!= (nodeSpan f) 0) (nodeSpan f) isp))))
+    (if (== sr 0)
+        0
+        (expBuildForElems f params args env isp acc
+                          (vecGet sr 0) (vecGet sr 1) 0))))
+
+(pub :: expBuildForElems (-> Int Int Int Int Int Int Int Int Int Int))
+(pub fn (expBuildForElems f params args env isp acc key names j)
+  (if (>= j (vecLen names))
+      1
+      (let ((mark (vecLen (expForStack env))))
+        {
+          (vecPush (expForStack env)
+                   (cast Int (ForBind (nodeA f) (vecGet names j) key j)))
+          (let ((r (expBuildDecls (nodeC f) params args env isp acc 0)))
             {
-              (vecPush acc g)
-              (expBuildDecls tpl params args env isp acc (+ i 1))
-            }))))
+              (expTrunc (expForStack env) mark)
+              (if (== r 0)
+                  0
+                  (expBuildForElems f params args env isp acc
+                                    key names (+ j 1)))
+            })
+        })))
 
 ; A name position: a macro parameter substitutes its argument, which
 ; MUST be a bare identifier. Answers 0 - refusal already emitted -

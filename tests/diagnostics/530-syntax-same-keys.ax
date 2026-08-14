@@ -1,0 +1,29 @@
+; syntax/same's two refusals (MAC-CAP-5: "spelling alone never
+; suffices"), both AX3028 rather than a silently wrong answer:
+;
+;   crossKeys  compares variables ranging over DIFFERENT sequences -
+;              a false here would be a wrong-answer generator, so the
+;              refusal names both sequences
+;   unbound    compares a name no enclosing syntax/for binds (here a
+;              macro parameter)
+(struct P
+  (x : Int))
+
+(struct Q
+  (z : Int))
+
+(macro crossKeys ((crossKeys S U)
+   (syntax/for (a (syntax/fields S))
+     (syntax/for (b (syntax/fields U))
+       (fn ((syntax/join got a) s) (if (syntax/same a b) 1 2))))))
+
+(macro unbound ((unbound S)
+   (fn (ub) (if (syntax/same S S) 1 2))))
+
+(crossKeys P Q)
+
+(unbound P)
+
+(:: main Int)
+
+(fn (main) 0)

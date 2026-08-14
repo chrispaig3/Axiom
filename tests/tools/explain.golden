@@ -498,21 +498,28 @@ AX3028 - a syntax/* query with no answer
 The `syntax/` spellings are the compile-time QUERY VOCABULARY: a
 closed, compiler-implemented set of questions a macro template asks
 about the declaration list, answered at expansion time with no user
-code running. v1 answers `(syntax/join a b)` in a declaration NAME
-position, `(syntax/constructors T)` as an iteration sequence, and
-`(syntax/for (x seq) arm...)` where a match ARM stands. This code
+code running. The vocabulary answers `(syntax/join a b)` in a
+declaration NAME position, `(syntax/constructors T)` and
+`(syntax/fields S)` as iteration sequences, `(syntax/for (x seq) ...)`
+where a match ARM, a template DECLARATION, or a call ARGUMENT stands,
+and `(syntax/same f g)` over two iteration variables. This code
 covers every way a query has no answer:
 
   - a `syntax/` head the vocabulary does not implement, or one
     standing in a position it does not own - the vocabulary is
     CLOSED, so unknowns refuse by name instead of dying later as
-    undefined variables
-  - a subject with nothing to answer: syntax/constructors of a
-    struct, of a name that declares nothing, or of a type declared
-    in an imported module (v1 answers entry-file types only)
+    undefined variables; a sequence in a one-value position and a
+    syntax/for at expression root land here too
+  - a subject with nothing to answer: constructors of a struct,
+    fields of a data type, either of a name that declares nothing or
+    of a type declared in an imported module (v1 answers entry-file
+    types only)
+  - syntax/same over variables ranging over DIFFERENT sequences - a
+    false there would be a wrong answer, not a comparison - or over
+    a name no enclosing syntax/for binds
   - a query written OUTSIDE a macro template - a (syntax/join ...)
-    name or a syntax/for arm in ordinary code has no instantiation
-    to resolve it
+    name, a syntax/for arm, or a top-level syntax/for in ordinary
+    code has no instantiation to resolve it
   - a declaration NAMED into the reserved `syntax/` prefix, including
     the near-miss `(fn (syntax/join a b) ...)` - one paren short of a
     joined name, which would otherwise silently declare a function

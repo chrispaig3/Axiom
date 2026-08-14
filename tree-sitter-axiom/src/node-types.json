@@ -36,6 +36,10 @@
         "named": true
       },
       {
+        "type": "syntax_for_declaration",
+        "named": true
+      },
+      {
         "type": "trait_declaration",
         "named": true
       },
@@ -1640,6 +1644,46 @@
         "types": [
           {
             "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "sequence": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "_expression",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "syntax_for_declaration",
+    "named": true,
+    "fields": {
+      "binder": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "declaration": {
+        "multiple": true,
+        "required": true,
+        "types": [
+          {
+            "type": "_declaration",
+            "named": true
+          },
+          {
+            "type": "_expression",
             "named": true
           }
         ]

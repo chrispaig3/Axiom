@@ -1,0 +1,21 @@
+[1;31merror[AX3028][0m[1m: `a` ranges over `fields P` and `b` over `fields Q`[0m
+  [1;34m--> [0m530-syntax-same-keys.ax:23:2
+[1;34m   |[0m
+[1;34m23 |[0m (crossKeys P Q)
+[1;34m   |[0m  [1;31m^^^^^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0mthe query vocabulary is CLOSED and compiler-implemented (macro-system.md MAC-CAP-5/6): every query is answered from the declaration list at expansion time, and a query with no answer is this refusal, never a default value
+  [1;34m = [0m[1;32mhelp: [0msyntax/same compares positions within ONE sequence; iterate both variables over the same query
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3028` for a full explanation
+
+[1;31merror[AX3028][0m[1m: `S` is not bound by an enclosing syntax/for[0m
+  [1;34m--> [0m530-syntax-same-keys.ax:25:2
+[1;34m   |[0m
+[1;34m25 |[0m (unbound P)
+[1;34m   |[0m  [1;31m^^^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0mthe query vocabulary is CLOSED and compiler-implemented (macro-system.md MAC-CAP-5/6): every query is answered from the declaration list at expansion time, and a query with no answer is this refusal, never a default value
+  [1;34m = [0m[1;32mhelp: [0msyntax/same compares iteration variables; bind both with syntax/for first
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3028` for a full explanation
+
+compilation failed due to 2 previous errors

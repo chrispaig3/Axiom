@@ -206,6 +206,7 @@ module.exports = grammar({
       $.import,
       $.effect_declaration,
       $.macro_declaration,
+      $.syntax_for_declaration,
     ),
 
     // `(:: subject Type)`
@@ -802,6 +803,17 @@ module.exports = grammar({
     syntax_join_name: $ => seq(
       '(', 'syntax/join',
       field('left', $.identifier), field('right', $.identifier),
+      ')',
+    ),
+
+    // `(syntax/for (f seq) decl...)` where a DECLARATION stands -
+    // the iteration form one position up from syntax_for_arm,
+    // matching the compiler's parseTopForm hook: the interior is
+    // declarations, instantiated per element by phase D.
+    syntax_for_declaration: $ => seq(
+      '(', 'syntax/for',
+      seq('(', field('binder', $.identifier), field('sequence', $._expression), ')'),
+      repeat1(field('declaration', $._form)),
       ')',
     ),
 

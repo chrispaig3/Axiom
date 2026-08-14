@@ -1,4 +1,4 @@
-[1;31merror[AX3021][0m[1m: macro `defData`'s template may generate `fn` and `::` declarations, or further macro invocations - this form is not supported yet[0m
+[1;31merror[AX3021][0m[1m: macro `defData`'s template may generate `fn` and `::` declarations, further macro invocations, or a syntax/for over them - this form is not supported yet[0m
  [1;34m--> [0m510-decl-macro-template-kind.ax:8:10
 [1;34m  |[0m
 [1;34m8 |[0m    (data nm () (Mk Int))))

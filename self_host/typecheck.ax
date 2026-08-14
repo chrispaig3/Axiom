@@ -1154,6 +1154,21 @@
       (let ((d (vecGet decls i)))
         (let ((tag (nodeTag d)))
           {
+            ; An UNEXPANDED declaration-position `syntax/for`. The
+            ; main pipelines never deliver one - the expander refuses
+            ; it and re-tags it TAG_NIL before the checker runs - but
+            ; the REPL accumulates declaration lines lazily and types
+            ; the next expression WITHOUT expansion, so the tag can
+            ; arrive here. Refuse it the way the expander would (and
+            ; the way checkArms refuses an unexpanded arm), rather
+            ; than silently skipping a declaration the user typed.
+            (if (== tag TAG_D_SYNFOR)
+                (emitDiag tc (mkDiagNote SEV_ERROR "AX3028" "syntax-query"
+                  (nodeSpan d)
+                  "syntax/for stands in a declaration macro's template, not at top level"
+                  0 0
+                  "iteration is an expansion-time facility: move these declarations into a rule-form macro's template, or write them by hand"
+                  "the query vocabulary is CLOSED and compiler-implemented (macro-system.md MAC-CAP-5/6): every query is answered from the declaration list at expansion time"))
             (if (== tag TAG_D_DATA)
                 (tcCollectData tc d)
             (if (== tag TAG_D_STRUCT)
@@ -1192,7 +1207,7 @@
                 (vecPush (tcAliases tc) d)
             (if (== tag TAG_D_TRAIT)
                 (vecPush (tcTraits tc) d)
-            0))))))))
+            0)))))))))
             (tcCollect tc decls (+ i 1))
           }))))
 

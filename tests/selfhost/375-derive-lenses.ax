@@ -1,0 +1,40 @@
+; expect 34
+; macro-system.md section 10.3, verbatim: deriveLenses over a struct,
+; carried by the lens half of the query vocabulary (2026-08-14):
+;
+;   syntax/for      in DECLARATION position - four declarations per
+;                   field, spliced by phase D - and in ARGUMENT
+;                   position, where each element splices one argument
+;                   into the rebuild `(Point ...)`
+;   syntax/fields   x, y - the declaration list answering
+;   syntax/join     getX/withX and friends, computed names
+;   syntax/same     the diagonal: decided at expansion time, and the
+;                   chosen branch SPLICED, so withX's body really is
+;                   `(Point v s.y)` - a rebuild, not a mutation, which
+;                   is the difference between a lens and a field store
+;                   (MM-MUT-2)
+;   s.f             a field name substituting from the iteration
+;                   variable
+;
+; getX(withY(withX(Point 1 2) 30) 4) = 30, getY(same) = 4 -> 34.
+; The unfixed compiler dies parsing the declaration-position
+; syntax/for.
+(pub macro deriveLenses ((deriveLenses S)
+   (syntax/for (f (syntax/fields S))
+     (:: (syntax/join get f) (-> S Int))
+     (fn ((syntax/join get f) s) s.f)
+
+     (:: (syntax/join with f) (-> S Int S))
+     (fn ((syntax/join with f) s v)
+       (S (syntax/for (g (syntax/fields S))
+            (if (syntax/same f g) v s.g)))))))
+
+(struct Point
+  (x : Int)
+  (y : Int))
+
+(deriveLenses Point)
+
+(:: main Int)
+
+(fn (main) (+ (getX (withY (withX (Point 1 2) 30) 4)) (getY (withY (withX (Point 1 2) 30) 4))))

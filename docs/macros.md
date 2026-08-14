@@ -399,17 +399,20 @@ the bank that pins it is `scripts/check-degenerate.sh`, and
   What does not: module-side invocation (`AX3027`, reason in the
   note), and `data`/`struct`/`trait`/`impl`/`effect`/`import`
   templates (`AX3021` at the macro's line).
-- **`derive` as a stdlib library.** The mechanism is DONE for sums:
-  declaration macros plus the query vocabulary's v1 (`syntax/join`,
-  `syntax/constructors`, `syntax/for`, 2026-08-14) run
-  macro-system.md §10.2's nullary `deriveEq` verbatim
-  (`tests/selfhost/374-derive-eq.ax`, 101). What does not exist:
-  `syntax/fields`/`syntax/same`/declaration-position `for` (the lens
-  set), `syntax/binders`/`syntax/fold` (fieldful constructors), a
-  `deriveEq` shipped in `stdlib/Pre.ax` (needs module-side types —
-  queries answer entry-file types only in v1), and the `deriving`
-  clause still parses and is discarded (refusal is the settled
-  replacement, MAC-CAP-9).
+- **`derive` as a stdlib library.** The mechanism is DONE for sums
+  AND for struct lenses: declaration macros plus the query vocabulary
+  (2026-08-14, two commits) run macro-system.md §10.2's nullary
+  `deriveEq` verbatim (`tests/selfhost/374-derive-eq.ax`, 101) and
+  §10.3's `deriveLenses` verbatim (`375-derive-lenses.ax`, 34 —
+  declaration/argument-position `syntax/for`, `syntax/fields`,
+  `syntax/same`'s expansion-time diagonal, field-name substitution).
+  What does not exist: `syntax/binders`/`syntax/fold` (fieldful
+  constructors — the last rung `deriveEq` over fieldful sums needs),
+  nested `syntax/join` (nested declaration iteration cannot name its
+  products), a `deriveEq` shipped in `stdlib/Pre.ax` (needs
+  module-side types — queries answer entry-file types only in v1),
+  and the `deriving` clause still parses and is discarded (refusal is
+  the settled replacement, MAC-CAP-9).
 - **Patterns.** The rule-list *surface* exists with exactly one rule
   (the declaration form). No multiple rules, no literal atoms, no
   nested patterns, no alternatives; an expression macro is still one
