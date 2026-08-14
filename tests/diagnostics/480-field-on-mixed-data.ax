@@ -1,0 +1,11 @@
+; Field access by name on a data type that has a NULLARY
+; constructor. Under the mixed representation (MM-VAL-8) a value of
+; `T` may be an immediate tag, and field access emits an unguarded
+; load - only `match` emits the immediate-or-address guard. So
+; `x.v` on `(E)` passed `check` and died of SIGSEGV at run time.
+; docs/memory-model.md MM-VAL-9a; refused since 2026-08-14. On a
+; data type whose every constructor is fieldful, field access stays
+; legal - tests/stdlib/210-struct-variants.ax exercises that half.
+(data T () (E) (N { v : Int }))
+(:: main Int)
+(fn (main) (let ((x (E))) x.v))

@@ -58,10 +58,11 @@ That layer is now gone:
 - **An Axiom-owned allocator**: `HeapAlloc` no longer calls `malloc`. The
   backend emits an `mmap`-backed bump allocator under the symbol
   `axiom_alloc`. (The intended override seam — a program defining
-  `axiom_alloc` replaces it - does **not** survive `opt`: the emitter
-  defines the symbol unconditionally, so the program passes `check` and
-  dies as a duplicate definition. `docs/memory-model.md` MM-ALLOC-8
-  measures it; this bullet claimed the seam worked until 2026-08-14.)
+  `axiom_alloc` replaces it - does not exist: the emitter defines the
+  symbol unconditionally, and the name is refused outright, `AX3026`.
+  Before the refusal such a program passed `check` and died in `opt` as
+  a duplicate definition. `docs/memory-model.md` MM-ALLOC-8; this
+  bullet claimed the seam worked until 2026-08-14.)
 - **A standard library in Axiom** (`stdlib/`): `Pre`, `Mem`, `Str`,
   `Vec`, `Map`, `Fmt`, `Intern`, `Sys`, `IO`, with per-platform
   syscall tables under `Sys/`.

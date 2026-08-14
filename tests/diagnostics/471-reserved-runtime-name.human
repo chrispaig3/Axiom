@@ -1,0 +1,11 @@
+[1;31merror[AX3026][0m[1m: `axiom_alloc` is the emitted runtime's allocator symbol; a program cannot define it[0m
+ [1;34m--> [0m471-reserved-runtime-name.ax:8:6
+[1;34m  |[0m
+[1;34m8 |[0m (fn (axiom_alloc n) 0)
+[1;34m  |[0m      [1;31m^^^^^^^^^^^ this name belongs to the runtime[0m
+[1;34m  |[0m
+ [1;34m = [0m[1mnote: [0mthe backend emits its own definition of `axiom_alloc` unconditionally; before this refusal the build died in `opt` as a duplicate symbol after `check` said OK
+ [1;34m = [0m[1;32mhelp: [0mrename the function - the override seam does not exist (docs/memory-model.md MM-ALLOC-8)
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3026` for a full explanation
+
+compilation failed due to 1 previous error

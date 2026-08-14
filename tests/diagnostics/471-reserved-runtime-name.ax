@@ -1,0 +1,10 @@
+; An entry-file definition of `axiom_alloc`. The backend emits its
+; own definition of that symbol unconditionally (the allocator), so
+; this program used to pass `check` and die in `opt` with
+;   invalid redefinition of function 'axiom_alloc'
+; - the documented "override seam" that never worked. Refused as
+; AX3026 since 2026-08-14; docs/memory-model.md MM-ALLOC-8.
+(:: axiom_alloc (-> Int Int))
+(fn (axiom_alloc n) 0)
+(:: main Int)
+(fn (main) 0)

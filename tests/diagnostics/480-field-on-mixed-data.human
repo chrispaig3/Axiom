@@ -1,0 +1,11 @@
+[1;31merror[AX3008][0m[1m: field access `.v` is unsafe on `T`: the type has a nullary constructor, so a value may be an immediate tag with no fields to read[0m
+  [1;34m--> [0m480-field-on-mixed-data.ax:11:29
+[1;34m   |[0m
+[1;34m11 |[0m (fn (main) (let ((x (E))) x.v))
+[1;34m   |[0m                             [1;31m^ the value may not be a block at all[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0man unguarded load on an immediate dereferences a small integer: this passed `check` and died of SIGSEGV (docs/memory-model.md MM-VAL-9a)
+  [1;34m = [0m[1;32mhelp: [0mmatch on the value instead, and read the field in the fieldful arm - a `match` emits the immediate-or-address guard that field access cannot
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3008` for a full explanation
+
+compilation failed due to 1 previous error

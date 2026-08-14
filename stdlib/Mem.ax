@@ -20,11 +20,11 @@
 ; server - which is why this is `memAlloc` and not `new`. (This comment
 ; used to add "the allocator is replaceable: define `axiom_alloc` and
 ; the backend defers to it". It does not defer - the backend emits its
-; definition unconditionally, so a program defining `axiom_alloc`
-; passes `check` and dies in `opt` as a duplicate symbol. Measured in
-; docs/memory-model.md MM-ALLOC-8; the chosen long-running answer is
-; reference counting, MM-LIFE-2a, with the explicit arena primitives
-; the reclamation until it lands.)
+; definition unconditionally, and a program defining `axiom_alloc` is
+; refused outright, AX3026; it used to pass `check` and die in `opt`
+; as a duplicate symbol. docs/memory-model.md MM-ALLOC-8; the chosen
+; long-running answer is reference counting, MM-LIFE-2a, with the
+; explicit arena primitives the reclamation until it lands.)
 ;
 ; ZEROED IS A PROMISE, not an artefact of where the memory came from,
 ; and this comment used to be describing the artefact. Fresh pages

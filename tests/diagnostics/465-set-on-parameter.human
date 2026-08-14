@@ -1,0 +1,11 @@
+[1;31merror[AX3012][0m[1m: cannot assign to `x`: it is a parameter, and parameters are immutable[0m
+ [1;34m--> [0m465-set-on-parameter.ax:8:18
+[1;34m  |[0m
+[1;34m8 |[0m (fn (f x) { (set x 1) x })
+[1;34m  |[0m                  [1;31m^ `x` is a parameter[0m
+[1;34m  |[0m
+ [1;34m = [0m[1mnote: [0mthis used to pass `check` and fail inside codegen as AX4002; the check runs here now
+ [1;34m = [0m[1;32mhelp: [0mcopy it into a mutable local first: `(let ((mut x2 x)) ...)`
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3012` for a full explanation
+
+compilation failed due to 1 previous error

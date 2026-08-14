@@ -595,6 +595,43 @@
           (checkDuplicates bs decls out (+ i 1))
         })))
 
+; ------------------------------------------------------------------
+; Names the emitted runtime owns. The backend defines `axiom_alloc`
+; unconditionally (the allocator - MM-ALLOC-2), so an entry-file
+; definition of the same name passed `check` and died in `opt` as
+;   error: invalid redefinition of function 'axiom_alloc'
+; - the documented "override seam" that never worked (MM-ALLOC-8;
+; three documents described it as working until 2026-08-14). Refusal
+; is the option that rule names, and whether a real seam should exist
+; is re-decided with the ARC release path (MM-LIFE-2e). Only the
+; ENTRY file can collide: a module's declaration is mangled to
+; `Mod$axiom_alloc`, a different symbol.
+; ------------------------------------------------------------------
+(pub :: checkReservedNames (-> Int Int Int Int))
+(pub fn (checkReservedNames decls out i)
+  (if (>= i (vecLen decls))
+      0
+      (let ((d (vecGet decls i)))
+        {
+          ; The FN only: the DEFINITION is what emits the colliding
+          ; symbol. A signature alone emits nothing (and draws
+          ; AX3015), and refusing both would report one collision
+          ; twice.
+          (if (&& (== (nodeTag d) TAG_D_FN)
+                  (strEq (nodeA d) "axiom_alloc"))
+              (vecPush out
+                (diagSetLabel
+                  (mkDiagNote SEV_ERROR "AX3026" "reserved-runtime-name"
+                    (nodeSpan d)
+                    "`axiom_alloc` is the emitted runtime's allocator symbol; a program cannot define it"
+                    0 0
+                    "rename the function - the override seam does not exist (docs/memory-model.md MM-ALLOC-8)"
+                    "the backend emits its own definition of `axiom_alloc` unconditionally; before this refusal the build died in `opt` as a duplicate symbol after `check` said OK")
+                  "this name belongs to the runtime"))
+              0)
+          (checkReservedNames decls out (+ i 1))
+        })))
+
 (pub :: checkFieldDupes (-> Int Int Int Int Int Int Int))
 (pub fn (checkFieldDupes bs decls out i fields k)
   (if (>= k (vecLen fields))
@@ -928,7 +965,17 @@
                ; a 32,000-declaration entry file, after the two entry
                ; passes were indexed and while nothing else was close.
                ; The name-index slice fixed `tcFns` and left this one.
-               (ambIdx : Int))
+               (ambIdx : Int)
+               ; The scope length at the innermost lambda's entry, or 0
+               ; outside every lambda. `checkSet` compares the target's
+               ; scope INDEX against it: an entry below it was captured,
+               ; capture is by value (MM-VAL-16), and an assignment to
+               ; it could never be observed - codegen refused exactly
+               ; this as AX4002, whose own note says the check that
+               ; should have run did not (MM-MUT-1a). Saved and
+               ; restored around each lambda body, so nesting keeps the
+               ; innermost boundary.
+               (lamBase : Int))
 
 (pub :: tcFns (-> Int Int))     (pub fn (tcFns tc)     (memGetWord tc 0))
 (pub :: tcDatas (-> Int Int))   (pub fn (tcDatas tc)   (memGetWord tc 1))
@@ -1065,7 +1112,7 @@
                               vecNew vecNew entryDecls allDecls
                               vecNew vecNew units 0 vecNew 0
                               vecNew vecNew (collectPrivates allDecls vecNew 0)
-                              0 0))))
+                              0 0 0))))
         {
           ; The exact-name index, before collection rather than after:
           ; collection itself looks a name up per declaration.
@@ -2120,6 +2167,21 @@
           (vecGet scope i)
           (scopeFindFrom scope name (- i 1)))))
 
+; The innermost entry's INDEX, or -1. `checkSet` needs the position,
+; not just the entry: whether the target sits below the innermost
+; lambda's boundary is what decides the capture refusal (MM-MUT-1a).
+(pub :: scopeFindIdx (-> Int String Int))
+(pub fn (scopeFindIdx scope name)
+  (scopeFindIdxFrom scope name (- (vecLen scope) 1)))
+
+(pub :: scopeFindIdxFrom (-> Int String Int Int))
+(pub fn (scopeFindIdxFrom scope name i)
+  (if (< i 0)
+      (- 0 1)
+      (if (strEq (memGetWord (vecGet scope i) 0) name)
+          i
+          (scopeFindIdxFrom scope name (- i 1)))))
+
 ; The innermost FRAME entry - value resolution reads only the current
 ; function's bindings; module-level names resolve through the
 ; function table (same types, stage0's route).
@@ -2217,6 +2279,52 @@
         (strConcat "mut " name)
         "only a binding introduced by `(let ((mut x ...)) ...)` may be the target of `set`")
         (strConcat (strConcat "`" name) "` cannot be assigned")))
+    0
+  })
+
+; `set` on a PARAMETER. This passed `check` until 2026-08-14 - the
+; refusal above was suppressed whenever the entry recorded no binder
+; span, and parameters record none - and then died in codegen as
+; AX4002, whose own note says "this is a compiler bug: the check that
+; should have refused this program did not run" (docs/memory-model.md
+; MM-MUT-1a). Same code as the immutable-binding refusal; no binder
+; span to point at, and the `mut` fix would be wrong advice - a
+; parameter list has no `mut`.
+(pub :: emitSetOnParam (-> String Int Int Int))
+(pub fn (emitSetOnParam name tspan out)
+  {
+    (vecPush out
+      (diagSetLabel (mkDiagNote SEV_ERROR "AX3012" "assign-to-immutable"
+        tspan
+        (strConcat (strConcat "cannot assign to `" name)
+                   "`: it is a parameter, and parameters are immutable")
+        0 0
+        (strConcat (strConcat (strConcat (strConcat
+          "copy it into a mutable local first: `(let ((mut " name)
+          "2 ") name) ")) ...)`")
+        "this used to pass `check` and fail inside codegen as AX4002; the check runs here now")
+        (strConcat (strConcat "`" name) "` is a parameter")))
+    0
+  })
+
+; `set` from inside a lambda on a binding OUTSIDE it. The binding may
+; well be `mut` - but a closure captures the VALUE it saw when its
+; record was built (docs/memory-model.md MM-VAL-16), so there is no
+; cell this store could reach, and codegen refused it as AX4002 after
+; `check` said OK (MM-MUT-1a).
+(pub :: emitSetCaptured (-> String Int Int Int Int))
+(pub fn (emitSetCaptured name tspan bspan out)
+  {
+    (vecPush out
+      (diagSetLabel (mkDiagNote SEV_ERROR "AX3012" "assign-to-immutable"
+        tspan
+        (strConcat (strConcat "cannot assign to `" name)
+                   "` from inside a lambda: the lambda captured its value, not the binding")
+        bspan
+        (strConcat (strConcat "`" name) "` is bound outside the lambda, here")
+        "return the new value instead, or restructure so the assignment happens where the binding lives"
+        "a closure captures by value when its record is built, so a later `set` inside it could never be observed outside; this used to pass `check` and fail inside codegen as AX4002")
+        (strConcat (strConcat "`" name) "` was captured, not shared")))
     0
   })
 
@@ -2525,14 +2633,22 @@
               "this lambda takes no parameters"))
           0)
       (bindLamParams tc params ptys 0)
-      (let ((bodyTy (checkExprH tc (nodeB e) 0)))
+      ; The lambda boundary for `checkSet`: entries below `mark` are
+      ; captured (by value, MM-VAL-16), and assigning one is refused.
+      ; Saved and restored so nesting keeps the innermost boundary.
+      (let ((savedLB (memGetWord tc 22)))
         {
-          (scopeTrunc (tcScope tc) mark)
-          (if (== (vecLen ptys) 0)
-              (mkTArr mkUnitTy bodyTy)
-              (if (== (vecLen ptys) 1)
-                  (mkTArr (vecGet ptys 0) bodyTy)
-                  (mkTArr (mkTTup ptys) bodyTy)))
+          (memSetWord tc 22 mark)
+          (let ((bodyTy (checkExprH tc (nodeB e) 0)))
+            {
+              (memSetWord tc 22 savedLB)
+              (scopeTrunc (tcScope tc) mark)
+              (if (== (vecLen ptys) 0)
+                  (mkTArr mkUnitTy bodyTy)
+                  (if (== (vecLen ptys) 1)
+                      (mkTArr (vecGet ptys 0) bodyTy)
+                      (mkTArr (mkTTup ptys) bodyTy)))
+            })
         })
     }))
 
@@ -4295,7 +4411,23 @@
                 ; accepts.
                 (let ((dty (dataFieldTy tc (nodeB e))))
                   (if (!= dty 0)
-                      dty
+                      ; The field exists on a DATA constructor - but a
+                      ; type with a NULLARY constructor may hand this
+                      ; access an immediate tag (MM-VAL-8, rep 2), and
+                      ; field access emits an unguarded load: `check`
+                      ; said OK and `(let ((x (E))) x.v)` died of
+                      ; SIGSEGV (MM-VAL-9a). A `match` emits the guard;
+                      ; this form cannot, so on such a type it is
+                      ; refused.
+                      (let ((own (dataFieldOwner tc (nodeB e))))
+                        (if (&& (!= own 0) (== (dataHasNullary own) 1))
+                            {
+                              (emitFieldOnMixed tc (nodeB e)
+                                                (memGetWord own 0)
+                                                (nodeSpan e))
+                              (mkNode TAG_T_ERR 0 0 0)
+                            }
+                            dty))
                       {
                         (emitFieldNotFound tc (nodeB e) (nodeA baseTy) (nodeSpan e))
                         mkI64Ty
@@ -4312,6 +4444,50 @@
 ; declaration order, or 0. Mirrors stage0's `find_data_field_by_name`.
 (pub :: dataFieldTy (-> Int String Int))
 (pub fn (dataFieldTy tc fname) (dataFieldTyFrom (tcDatas tc) fname 0))
+
+; The DataEnt whose constructor declares the field - the same walk,
+; answering the owner instead of the type, for MM-VAL-9a's refusal.
+(pub :: dataFieldOwner (-> Int String Int))
+(pub fn (dataFieldOwner tc fname) (dataFieldOwnerFrom (tcDatas tc) fname 0))
+
+(pub :: dataFieldOwnerFrom (-> Int String Int Int))
+(pub fn (dataFieldOwnerFrom datas fname i)
+  (if (>= i (vecLen datas))
+      0
+      (if (!= (dataFieldTyInCtors (memGetWord (vecGet datas i) 1) fname 0) 0)
+          (vecGet datas i)
+          (dataFieldOwnerFrom datas fname (+ i 1)))))
+
+; Does the type declare a nullary constructor? Under MM-VAL-8 its
+; values may then be immediate tags, and a field load on an immediate
+; dereferences a small integer.
+(pub :: dataHasNullary (-> Int Int))
+(pub fn (dataHasNullary dent)
+  (dataHasNullaryIn (memGetWord dent 1) 0))
+
+(pub :: dataHasNullaryIn (-> Int Int Int))
+(pub fn (dataHasNullaryIn ctors i)
+  (if (>= i (vecLen ctors))
+      0
+      (if (== (vecLen (memGetWord (vecGet ctors i) 1)) 0)
+          1
+          (dataHasNullaryIn ctors (+ i 1)))))
+
+(pub :: emitFieldOnMixed (-> Int String String Int Int))
+(pub fn (emitFieldOnMixed tc fname tyname span)
+  {
+    (emitDiag tc
+      (diagSetLabel (mkDiagNote SEV_ERROR "AX3008" "semantic-error"
+        span
+        (strConcat (strConcat (strConcat (strConcat
+          "field access `." fname) "` is unsafe on `") tyname)
+          "`: the type has a nullary constructor, so a value may be an immediate tag with no fields to read")
+        0 0
+        "match on the value instead, and read the field in the fieldful arm - a `match` emits the immediate-or-address guard that field access cannot"
+        "an unguarded load on an immediate dereferences a small integer: this passed `check` and died of SIGSEGV (docs/memory-model.md MM-VAL-9a)")
+        "the value may not be a block at all"))
+    0
+  })
 
 (pub :: dataFieldTyFrom (-> Int String Int Int))
 (pub fn (dataFieldTyFrom datas fname i)
@@ -4397,13 +4573,36 @@
 (pub fn (checkSet tc e)
   (let ((valTy (checkExprH tc (nodeB e) 0)))
     (let ((name (nodeA e)))
-      (let ((ent (scopeFind (tcScope tc) name)))
-        (if (!= ent 0)
+      (let ((idx (scopeFindIdx (tcScope tc) name)))
+        (if (>= idx 0)
+            (let ((ent (vecGet (tcScope tc) idx)))
             (let ((suppressed
                     (if (== (memGetWord ent 1) 1)
-                        0
+                        ; Mutable - but only assignable from the frame
+                        ; that owns the cell. Below the innermost
+                        ; lambda's boundary (tc word 22) the binding
+                        ; was CAPTURED, capture is by value
+                        ; (MM-VAL-16), so the assignment could never
+                        ; be observed - and codegen refused exactly
+                        ; this as AX4002 after `check` said OK, its
+                        ; own note calling it a compiler bug
+                        ; (MM-MUT-1a). The check runs here now.
+                        (if (&& (!= (memGetWord tc 22) 0)
+                                (< idx (memGetWord tc 22)))
+                            { (emitSetCaptured name (nodeSpan e)
+                                               (memGetWord ent 2) (tcOut tc))
+                              1 }
+                            0)
                         (if (== (memGetWord ent 2) 0)
-                            1
+                            ; A span-less entry is a PARAMETER -
+                            ; bindFnParams and bindLamParams are the
+                            ; only pushers that record none. This used
+                            ; to SUPPRESS instead of report, which is
+                            ; how `set` on a parameter passed `check`
+                            ; and died in codegen as AX4002
+                            ; (MM-MUT-1a).
+                            { (emitSetOnParam name (nodeSpan e) (tcOut tc))
+                              1 }
                             { (emitAX3012 name (nodeSpan e) (memGetWord ent 2)
                                           (tcOut tc))
                               0 }))))
@@ -4416,7 +4615,7 @@
                                   (spanOf (nodeB e)))
                     0)
                 (sEntTy ent)
-              })
+              }))
             (if (== (isBuiltinName name) 1)
                 mkSilentWild
                 (if (== (setTargetCovered tc name) 1)
@@ -4489,15 +4688,66 @@
       (let ((resTy (checkArms tc (nodeB e) 0 covered catchall
                               (freshTVar tc 0))))
         {
-          (if (&& (== (memGetWord catchall 0) 0)
-                  (== (nodeTag scrutTy) TAG_T_CON))
-              (let ((dent (findData tc (nodeA scrutTy))))
-                (if (== dent 0)
-                    0
-                    (checkExhaustive tc dent covered (spanOf (nodeA e)))))
-              0)
+          (let ((ctorChecked
+                  (if (&& (== (memGetWord catchall 0) 0)
+                          (== (nodeTag scrutTy) TAG_T_CON))
+                      (let ((dent (findData tc (nodeA scrutTy))))
+                        (if (== dent 0)
+                            0
+                            { (checkExhaustive tc dent covered
+                                               (spanOf (nodeA e)))
+                              1 }))
+                      0)))
+            ; A match whose arms cover no constructor and bind no
+            ; catch-all can FALL THROUGH: when nothing matched, the
+            ; merge block answered the result cell's zeroed contents -
+            ; 0, at exit 0, indistinguishable from a real result
+            ; (MM-VAL-9b: `(match 7 ((1) 11) ((2) 22))` checked OK and
+            ; answered 0). Constructor matches are exhaustiveness-
+            ; checked above; `true`/`false` are literal TESTS that
+            ; cover nothing in `covered`, so a match carrying BOTH is
+            ; the one all-literal shape that cannot fall through.
+            (if (&& (== ctorChecked 0)
+                    (&& (== (memGetWord catchall 0) 0)
+                        (&& (== (vecLen covered) 0)
+                            (&& (> (vecLen (nodeB e)) 0)
+                                (&& (== (armsBoolComplete (nodeB e)) 0)
+                                    (&& (== (tyIsErr scrutTy) 0)
+                                        (!= (spanOf (nodeA e)) 0)))))))
+                (emitDiag tc
+                  (diagSetLabel (mkDiagNote SEV_ERROR "AX3005"
+                    "non-exhaustive-match"
+                    (spanOf (nodeA e))
+                    "this match can fall through: no arm is a constructor and nothing catches the rest"
+                    0 0
+                    "add a `_` arm"
+                    "a match no arm matched used to answer 0 silently at exit 0 - the result cell's zeroed contents, indistinguishable from a real answer (docs/memory-model.md MM-VAL-9b)")
+                    "no arm catches a non-matching value"))
+                0))
           resTy
         })
+    }))
+
+; Every arm a literal `true`/`false` test, both present - the one
+; all-literal match that cannot fall through. `recordCoverage` pushes
+; nothing for these (they are tests, not binders - the hygiene slice
+; measured why), so `covered` cannot make the distinction.
+(pub :: armsBoolComplete (-> Int Int))
+(pub fn (armsBoolComplete arms)
+  (let ((mut hasT 0) (mut hasF 0) (mut i 0))
+    {
+      (while (< i (vecLen arms))
+        {
+          (let ((p (nodeA (vecGet arms i))))
+            (if (== (nodeTag p) TAG_E_VAR)
+                {
+                  (if (strEq (nodeA p) "true") (set hasT 1) 0)
+                  (if (strEq (nodeA p) "false") (set hasF 1) 0)
+                }
+                0))
+          (set i (+ i 1))
+        })
+      (if (&& (== hasT 1) (== hasF 1)) 1 0)
     }))
 
 (pub :: checkArms (-> Int Int Int Int Int Int Int))
@@ -5366,6 +5616,7 @@
         ; passes - each is used by exactly one pass and neither
         ; survives the call.
         (checkDuplicates (dupIdxBuild entryDecls) entryDecls out 0)
+        (checkReservedNames entryDecls out 0)
         (checkImportNames entryDecls allDecls out 0)
         (checkMissingDefs (defIdxBuild allDecls) entryDecls out 0)
         (tcWalkDecls tc 0)

@@ -1,0 +1,11 @@
+; `set` from inside a lambda on a `mut` binding OUTSIDE it. The
+; binding is mutable, so the old check passed it - and codegen
+; refused it as AX4002, because a closure captures the VALUE it saw
+; when its record was built (docs/memory-model.md MM-VAL-16): there
+; is no cell this store could reach, and the assignment could never
+; be observed. MM-MUT-1a; refused in the checker since 2026-08-14.
+(:: main Int)
+(fn (main)
+  (let ((mut n 0))
+    (let ((bump (lambda (k) { (set n (+ n k)) n })))
+      { (bump 5) n })))

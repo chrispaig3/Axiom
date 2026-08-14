@@ -1,0 +1,10 @@
+; A match whose arms are all literals, with nothing to catch the
+; rest. Exhaustiveness only ran when the scrutinee's type named a
+; declared `data`, so this checked OK - and when no arm matched at
+; run time, control fell through to the merge block and the match
+; answered its freshly allocated result cell's contents: 0, at exit
+; 0, indistinguishable from a real answer. docs/memory-model.md
+; MM-VAL-9b; refused since 2026-08-14. (A bool match carrying BOTH
+; `true` and `false` arms still checks - it cannot fall through.)
+(:: main Int)
+(fn (main) (match 7 ((1) 11) ((2) 22)))

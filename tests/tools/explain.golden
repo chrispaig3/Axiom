@@ -39,6 +39,7 @@
   [93mAX3023[0m  a name its module does not export  (private-name)
   [93mAX3024[0m  macro expansion produced more than the limit  (macro-expansion-limit)
   [93mAX3025[0m  a trait implementation the compiler cannot use  (trait-impl)
+  [93mAX3026[0m  a name the emitted runtime owns  (reserved-runtime-name)
   [93mAX4001[0m  no `main` function  (missing-main)
   [93mAX4002[0m  code generation failed  (codegen-failure)
   [93mAX4003[0m  external toolchain command failed  (toolchain-failure)
@@ -448,6 +449,24 @@ implementation, with no table and no indirection. A type variable is
 not a type, so a function that is generic over the trait cannot yet
 call its methods - see docs/self-hosting.md 22.
 
+### explain AX3026
+AX3026 - a name the emitted runtime owns
+
+A compiled Axiom program contains its own runtime - the allocator, the
+traps, the arena primitives - emitted into the module it is built
+from, and `axiom_alloc` is the allocator's symbol. The backend emits
+its definition unconditionally, so a program defining the same name
+is two definitions of one symbol.
+
+Before this refusal that program passed `check` and died in `opt`
+with `invalid redefinition of function 'axiom_alloc'` - the
+documented "override seam" that never worked. The seam does not
+exist; whether it should is re-decided with the reclamation work.
+See docs/memory-model.md MM-ALLOC-8.
+
+Only an entry-file definition collides: a module's declaration is
+mangled to `Mod$axiom_alloc`, a different symbol.
+
 ### explain AX4001
 AX4001 - no `main` function
 
@@ -549,6 +568,7 @@ run `axiom explain --list` to see all known codes
   [93mAX3023[0m  a name its module does not export  (private-name)
   [93mAX3024[0m  macro expansion produced more than the limit  (macro-expansion-limit)
   [93mAX3025[0m  a trait implementation the compiler cannot use  (trait-impl)
+  [93mAX3026[0m  a name the emitted runtime owns  (reserved-runtime-name)
   [93mAX4001[0m  no `main` function  (missing-main)
   [93mAX4002[0m  code generation failed  (codegen-failure)
   [93mAX4003[0m  external toolchain command failed  (toolchain-failure)

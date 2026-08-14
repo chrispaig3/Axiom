@@ -87,9 +87,27 @@
     ((Wrap { inner = (Circle { r }), tag = t }) (+ r t))
     ((Wrap { tag = t }) t)))
 
-; Field access by name, on a value whose constructor is known.
+; Field access by name on a DATA value is legal only when every
+; constructor is fieldful: no value can be an immediate tag, so the
+; unguarded load always reads a block. On a type with a nullary
+; constructor - this file's `Shape` - it is refused (AX3008), because
+; `(radius (Point))` was a measured SIGSEGV after a clean `check`
+; (docs/memory-model.md MM-VAL-9a). Until 2026-08-14 `radius` below
+; WAS that unguarded spelling, "on a value whose constructor is
+; known" - known to the caller, invisible to the checker - and this
+; fixture was the hazard's whole corpus population: 1.
+(pub data Labeled
+  (Tagged { id : Int })
+  (Named { id : Int, extra : Int }))
+
+(pub :: firstId (-> Labeled Int))
+(pub fn (firstId v) v.id)
+
 (pub :: radius (-> Shape Int))
-(pub fn (radius s) s.r)
+(pub fn (radius s)
+  (match s
+    ((Circle { r }) r)
+    (_ (- 0 1))))
 
 (pub :: main Int)
 ;@axiom:effect(io)
@@ -126,5 +144,8 @@
 
       ; --- field access by name ---
       (printlnInt (radius c))            ; 7
+      (printlnInt (radius p))            ; -1: the safe spelling answers
+      (printlnInt (firstId (Tagged 5)))  ; 5: legal - every ctor fieldful
+      (printlnInt (firstId (Named 6 9))) ; 6
       0
     }))

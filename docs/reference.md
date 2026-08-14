@@ -1138,7 +1138,7 @@ Syscall numbers are not built into the compiler — they live in `stdlib/Sys/Pla
   (__alloc bytes))
 ```
 
-Memory comes from the backend's `mmap`-backed bump allocator. There is no `free` — an Axiom process reclaims everything at exit. Defining `axiom_alloc` yourself does **not** replace the allocator: the program passes `check` and then fails in `opt` with `invalid redefinition of function 'axiom_alloc'` (`docs/memory-model.md` MM-ALLOC-8, which requires a conforming implementation to either build the seam or keep this sentence honest).
+Memory comes from the backend's `mmap`-backed bump allocator. There is no `free` — an Axiom process reclaims everything at exit. Defining `axiom_alloc` yourself does **not** replace the allocator: the name is refused (`AX3026`) — the override seam does not exist. Until 2026-08-14 the program instead passed `check` and failed in `opt` with `invalid redefinition of function 'axiom_alloc'` (`docs/memory-model.md` MM-ALLOC-8).
 
 ---
 
@@ -1385,11 +1385,11 @@ matters, `__axiom_arena_mark`, `__axiom_arena_reset` and
 `__axiom_arena_reset_keeping` let a program reclaim explicitly by
 rolling the allocator's waterline back — which is how the language
 server holds flat memory across an editing session. (Two claims stood
-here until 2026-08-14 and both were false: defining `axiom_alloc` does
-not replace the allocator — it is a duplicate-symbol failure in `opt` —
-and no compile error refuses the arena primitives alongside such a
-definition; no check exists. `docs/memory-model.md` MM-ALLOC-8 measures
-both.)
+here until 2026-08-14 and both were false: defining `axiom_alloc` did
+not replace the allocator — it was a duplicate-symbol failure in `opt`,
+and is now refused outright as `AX3026` — and no compile error ever
+refused the arena primitives alongside such a definition.
+`docs/memory-model.md` MM-ALLOC-8 records both.)
 
 The three carry a contract the compiler cannot check: after a reset,
 nothing allocated since the matching mark may be read again. What the

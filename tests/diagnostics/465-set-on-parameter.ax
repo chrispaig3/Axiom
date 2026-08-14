@@ -1,0 +1,10 @@
+; `set` on a PARAMETER. This passed `check` until 2026-08-14 - the
+; AX3012 refusal was suppressed whenever the binding recorded no
+; binder span, and parameters record none - and then died inside
+; codegen as AX4002, whose own note says "this is a compiler bug: the
+; check that should have refused this program did not run".
+; docs/memory-model.md MM-MUT-1a.
+(:: f (-> Int Int))
+(fn (f x) { (set x 1) x })
+(:: main Int)
+(fn (main) (f 2))

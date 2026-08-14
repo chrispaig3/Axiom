@@ -591,31 +591,44 @@ address comes from `mmap`, which never returns the zero page.
 br i1 %c5, label %immediate, label %boxed
 ```
 
-**MM-VAL-9a (H, defective).** The guard is emitted by `match` and **not**
-by field access. `d.v` on a `data` value emits an unguarded load at the
-field's word offset with no tag check, so on a mixed-representation type
-it dereferences a small immediate:
+**MM-VAL-9a (H).** The guard is emitted by `match` and **not** by field
+access, so field access on a `data` type **with a nullary constructor**
+is **refused** (`AX3008`): a value of such a type may be an immediate
+tag, and the unguarded load would dereference a small integer. On a
+`data` type whose every constructor is fieldful the access stays legal
+— no value can be an immediate — and
+`tests/stdlib/210-struct-variants.ax` exercises that half beside
+`tests/diagnostics/480-field-on-mixed-data.ax`, which pins the refusal.
 
-```scheme
+```scheme refused
 (data T () (E) (N { v : Int }))
-(fn (main) (let ((x (E))) x.v))     ; check: OK      run: exit 139 (SIGSEGV)
+(fn (main) (let ((x (E))) x.v))     ; AX3008 since 2026-08-14
 ```
 
-A conforming implementation **MUST** either emit the same guard or
-refuse field access on a type whose representation is mixed.
+Until then that program was `check: OK, run: exit 139` — a SIGSEGV
+after a clean check. The rule offered a guard or a refusal; refusal is
+what landed, because a guard needs an invented answer for the
+missing-field case, and a silently invented value is this repository's
+best-documented failure class. The corpus population of the unsafe
+shape was **one** — the struct-variants fixture itself, whose comment
+said "on a value whose constructor is known": known to the author,
+invisible to the checker. It now matches.
 
-**MM-VAL-9b (H, defective).** A `match` whose arms are **all literals**
-is not checked for exhaustiveness. When no arm matches, control falls
-through to the merge block and the match yields the contents of its
-freshly allocated result cell — which `MM-ALLOC-6` guarantees is zero:
+**MM-VAL-9b (H).** A `match` whose arms cover no constructor and bind
+no catch-all is **refused** (`AX3005`): it could fall through, and a
+fall-through answered the match's freshly allocated result cell — which
+`MM-ALLOC-6` guarantees is zero, indistinguishable from a legitimate
+`0`. Pinned by `tests/diagnostics/476-literal-match-fallthrough.ax`.
 
-```scheme
-(fn (main) (match 7 ((1) 11) ((2) 22)))   ; check: OK      run: exit 0
+```scheme refused
+(fn (main) (match 7 ((1) 11) ((2) 22)))   ; AX3005 since 2026-08-14
 ```
 
-So a non-matching literal `match` answers `0` rather than trapping, and
-`0` is indistinguishable from a legitimate result. A conforming
-implementation **MUST** require a `_` arm on a literal match, or trap.
+Until then that program was `check: OK, run: exit 0`, answering the
+zeroed cell. One all-literal shape stays accepted, because it cannot
+fall through: a `Bool` match carrying **both** `true` and `false` arms
+— those two are literal *tests* that contribute nothing to constructor
+coverage (`MAC-HYG-5` measured why), and both present is exhaustive.
 
 **MM-VAL-10 (H).** A `struct` is a heap block of `fields * 8` bytes with
 field *i* at word *i*, in declaration order, and **no tag**. The
@@ -625,9 +638,11 @@ the identical block.
 **MM-VAL-11 (H).** A struct variant — `(Circle { r : Int })` — is an
 ordinary constructor block under `MM-VAL-8`; the field names are a
 compile-time mapping to positions, honoured by patterns in any order.
-Field *access* by name is available on a `struct` type only: `c.r` on a
-`data` type is `AX3007`, because which variant a sum holds is not known
-without a match.
+Field *access* by name is available on a `struct` type, and on a `data`
+type only when every constructor is fieldful — no value can then be an
+immediate, so the load always reads a block. On a type with a nullary
+constructor it is refused (`AX3008`, `MM-VAL-9a`); a field name that no
+type declares is `AX3007`.
 
 **MM-VAL-12 (R).** There are **no first-class continuations**, and none
 of the machinery for them: no stack copying, no segmented stack, no
@@ -807,30 +822,34 @@ allocator **SHALL** be replaceable by a program that defines
 of §3.3 **SHALL** be refused with a diagnostic, since they move the
 position of an allocator that is no longer there.
 
-*Today: none of that is true.* `emitAllocator` runs unconditionally, so
-a program defining `axiom_alloc` emits **two** definitions of the
-symbol; `check` reports `OK`, and the build dies in the native
+*Today the seam does not exist, and the name is **refused**:* an
+entry-file definition of `axiom_alloc` is `AX3026`
+`reserved-runtime-name` at `check` time, pinned by
+`tests/diagnostics/471-reserved-runtime-name.ax`. That is the
+"refuse the declaration" arm of this rule's obligation, taken on
+2026-08-14. Until then `emitAllocator` ran against the definition
+unconditionally, so the program emitted **two** definitions of one
+symbol; `check` reported `OK`, and the build died in the native
 toolchain:
 
 ```
-$ axiom check aa.ax
+$ axiom check aa.ax        # before 2026-08-14
 OK
 $ axiom build --input aa.ax --output aa
 opt: aa.ll:242:12: error: invalid redefinition of function 'axiom_alloc'
 ```
 
-There is no diagnostic for the arena primitives either — no code, no
-check. `stdlib/Mem.ax`, `docs/reference.md` and
-`docs/self-hosting.md` each described this seam as working; all three
-were corrected on 2026-08-14, each keeping the false claim as quoted
-history. That discharges half of this rule's obligation — the claims no
-longer mislead — and the other half stays open: a conforming
-implementation **MUST** either build the seam (emit the runtime
-allocator only when no declaration named `axiom_alloc` is in scope, and
-specify the required signature `Int -> Int` returning 16-byte-aligned
-zeroed memory, with failure behaviour) or refuse the declaration, and
-under ARC the seam interacts with `MM-LIFE-2e`'s release path and must
-be re-decided there.
+(Only the entry file could ever collide: a module's declaration is
+mangled to `Mod$axiom_alloc`, a different symbol.) The three documents
+that described the seam as working — `stdlib/Mem.ax`,
+`docs/reference.md`, `docs/self-hosting.md` — were corrected the same
+day, each keeping the false claim as quoted history. What remains **P**
+is the rule's head: a real replacement seam, which under ARC interacts
+with `MM-LIFE-2e`'s release path and is re-decided there; building one
+means emitting the runtime allocator only when no declaration named
+`axiom_alloc` is in scope, and specifying the required signature
+`Int -> Int` returning 16-byte-aligned zeroed memory, with failure
+behaviour.
 
 **MM-ALLOC-8a (H).** `__alloc` is an **unshadowable primitive name**. A
 program may declare a function called `__alloc`, and it type-checks and
@@ -1097,12 +1116,20 @@ observed by anyone else.
 store i64 0, ptr %a0
 ```
 
-**MM-MUT-1a (H, defective).** `set` on a binding a lambda merely
-captured, and `set` on a function parameter, both pass `axiom check` and
-fail in codegen with `AX4002 set target is not a mut binding`, whose own
-note reads *"this is a compiler bug: the check that should have refused
-this program did not run"*. A conforming implementation **MUST** refuse
-both in the checker.
+**MM-MUT-1a (H).** `set` on a binding a lambda merely captured, and
+`set` on a function parameter, are both **refused in the checker** —
+`AX3012`, with a message per shape: a parameter is immutable and has no
+`mut` spelling to suggest, and a captured binding may well be `mut` but
+the lambda holds its *value* (`MM-VAL-16`), so no store could ever be
+observed. Pinned by `tests/diagnostics/465-set-on-parameter.ax` and
+`466-set-captured.ax`. Until 2026-08-14 both passed `axiom check` and
+failed in codegen with `AX4002 set target is not a mut binding`, whose
+own note read *"this is a compiler bug: the check that should have
+refused this program did not run"* — the parameter case because the
+refusal was suppressed whenever the binding recorded no binder span,
+which is exactly the parameters, and the capture case because the
+target lookup ignored the lambda boundary. `AX4002` remains as the
+backstop it was always meant to be.
 
 **MM-MUT-2 (H).** `(set e.f v)` stores into a heap field **in place**,
 and the write is visible through **every** alias of `e`. It performs the
@@ -1766,19 +1793,25 @@ document.
 
 | Rule | Defect |
 |---|---|
-| `MM-ALLOC-8` | the `axiom_alloc` override seam does not exist; `check` says `OK` and `opt` refuses a duplicate symbol. Three documents described it as working until 2026-08-14 |
 | `MM-ALLOC-8b` | `(__alloc 0)` returns an unadvanced bump pointer — address 0 before any chunk exists |
 | `MM-VAL-3c` | `I8`…`U128` have no width; incompatible with `Int`; no unsigned operations exist |
 | `MM-VAL-4b` | `Double`/`F32`/`F64` emit **integer** arithmetic on double bit patterns, silently |
 | `MM-VAL-4c` | `(!= NaN NaN)` is `false`; `Fmt.fmtFloat` cannot render inf or NaN |
 | `MM-VAL-3b` | `INT_MIN / -1` and shifts ≥ 64 are undefined and answer differently per `--opt` |
-| `MM-VAL-9a` | field access on a `data` value is unguarded; on a mixed type it dereferences an immediate and segfaults |
-| `MM-VAL-9b` | an all-literal `match` is not exhaustiveness-checked and answers 0 on no match |
 | `MM-VAL-21` | `alloc` types as `*mut T`, which is unspellable, evaluates to 0, and still reports `#effects=Alloc` |
-| `MM-MUT-1a` | `set` on a captured binding or a parameter reaches codegen as `AX4002`, whose own note says a check that should have run did not |
 | `MM-EXEC-9a` | effect inference is an under-approximation in six measured ways, including across trait dispatch |
 | `MM-EXEC-15a` | a reference to `main` emits an undefined register; `check` says `OK` and `opt` refuses |
 | `MM-LIFE-7` | `consume` and `alloc` win as expression heads, so a function of either name is definable but uncallable |
+
+Four rows left this table on 2026-08-14, each fixed as a checker
+refusal and pinned by the fixture its rule names: `MM-ALLOC-8`'s
+silent duplicate symbol (now `AX3026` at `check`), `MM-VAL-9a`'s
+unguarded field access (now `AX3008` on any `data` type with a nullary
+constructor), `MM-VAL-9b`'s literal-match fall-through (now `AX3005`),
+and `MM-MUT-1a`'s parameter/capture `set` (now `AX3012` in the
+checker, where `AX4002` had been catching it after the fact). The
+rows are recorded here rather than silently deleted, because a
+shrinking defect table is a claim, and a claim needs its evidence.
 
 ### 9.1 What is gated, and what is only written down
 
@@ -1801,6 +1834,10 @@ equivalent honesty for this one.
 | `scripts/check-reproducible.sh` | EXEC-13 |
 | `tests/stdlib/302-job.ax` | PAR-5 |
 | `tests/selfhost/500-while-mut.ax` | MUT-1 in constant stack |
+| `tests/diagnostics/465-set-on-parameter.ax`, `466-set-captured.ax` | MUT-1a — both refusals, byte-pinned in all three renderings |
+| `tests/diagnostics/471-reserved-runtime-name.ax` | ALLOC-8's refusal arm (`AX3026`) |
+| `tests/diagnostics/476-literal-match-fallthrough.ax` | VAL-9b |
+| `tests/diagnostics/480-field-on-mixed-data.ax` + `tests/stdlib/210-struct-variants.ax` | VAL-9a — the refusal and the still-legal all-fieldful half |
 
 **Incidentally covered, which is not the same as pinned.** Several rules
 are *exercised* by fixtures written for another purpose, so a regression

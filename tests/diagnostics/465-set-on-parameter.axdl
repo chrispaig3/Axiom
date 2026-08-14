@@ -1,0 +1,1 @@
+E AX3012 465-set-on-parameter.ax:8:18-19 assign-to-immutable "cannot assign to `x`: it is a parameter, and parameters are immutable" #"`x` is a parameter" !"this used to pass `check` and fail inside codegen as AX4002; the check runs here now" ?"copy it into a mutable local first: `(let ((mut x2 x)) ...)`"
