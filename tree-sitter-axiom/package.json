@@ -7,8 +7,13 @@
   "tree-sitter": [
     {
       "scope": "source.axiom",
-      "file-types": ["ax"],
+      "file-types": [
+        "ax"
+      ],
       "injection-regex": "^axiom$"
     }
-  ]
+  ],
+  "dependencies": {
+    "tree-sitter-cli": "^0.26.12"
+  }
 }

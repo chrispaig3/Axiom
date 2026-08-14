@@ -1158,6 +1158,30 @@
           }
         ]
       },
+      "rule_name": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "template": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "_declaration",
+            "named": true
+          },
+          {
+            "type": "_expression",
+            "named": true
+          }
+        ]
+      },
       "visibility": {
         "multiple": false,
         "required": false,

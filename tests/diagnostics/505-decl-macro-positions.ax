@@ -1,0 +1,20 @@
+; The position rules of the two macro kinds, and the name rule -
+; three refusals in one file:
+;
+;   line 14: an EXPRESSION macro in declaration position (its
+;            template is one expression, not declarations)
+;   line 16: a name-position argument that is not a bare identifier
+;   line 20: a DECLARATION macro referenced in expression position
+;
+; docs/macro-system.md MAC-CAP-8; all three are AX3027.
+(macro (exprM x) (+ x x))
+
+(macro declM ((declM nm) (fn (nm) 1)))
+
+(exprM 1)
+
+(declM (+ 1 2))
+
+(:: main Int)
+
+(fn (main) (declM 2))

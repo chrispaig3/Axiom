@@ -1,0 +1,31 @@
+[1;31merror[AX3027][0m[1m: macro `exprM` has an expression template and cannot stand in declaration position[0m
+  [1;34m--> [0m505-decl-macro-positions.ax:14:2
+[1;34m   |[0m
+[1;34m14 |[0m (exprM 1)
+[1;34m   |[0m  [1;31m^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0man expression macro's template is one expression; a declaration position needs declarations (macro-system.md MAC-CAP-8)
+  [1;34m = [0m[1;32mhelp: [0mgive it a rule form - `(macro name ((name args ...) (fn ...) ...))` - whose template is declarations
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3027` for a full explanation
+
+[1;31merror[AX3027][0m[1m: a generated declaration's name must be a bare identifier; `nm` was given an expression[0m
+  [1;34m--> [0m505-decl-macro-positions.ax:16:2
+[1;34m   |[0m
+[1;34m16 |[0m (declM (+ 1 2))
+[1;34m   |[0m  [1;31m^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0mthe parameter stands in a NAME position of the template - a declaration head or a parameter list - and only an identifier can be a name
+  [1;34m = [0m[1;32mhelp: [0mpass a plain name in this argument position
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3027` for a full explanation
+
+[1;31merror[AX3027][0m[1m: declaration macro `declM` invoked in expression position[0m
+  [1;34m--> [0m505-decl-macro-positions.ax:20:13
+[1;34m   |[0m
+[1;34m20 |[0m (fn (main) (declM 2))
+[1;34m   |[0m             [1;31m^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0mthe two template kinds are disjoint: an expression position needs a value, and this macro generates declarations (macro-system.md MAC-CAP-8)
+  [1;34m = [0m[1;32mhelp: [0ma rule-form macro's template is declarations; invoke it at top level
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3027` for a full explanation
+
+compilation failed due to 3 previous errors

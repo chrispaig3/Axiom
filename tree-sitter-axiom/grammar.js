@@ -311,11 +311,27 @@ module.exports = grammar({
 
     // `(macro (name params...) body)` - pattern-free template macros,
     // which is all `stdlib/Pre.ax` uses.
-    macro_declaration: $ => seq(
-      '(', optional(field('visibility', 'pub')), 'macro',
-      '(', field('name', $.identifier), repeat(field('parameter', $.identifier)), ')',
-      repeat(field('body', $._expression)),
-      ')',
+    // Two forms, split by one token of lookahead after `macro`: a
+    // paren opens the HEAD-LIST (expression-template) form, an
+    // identifier the RULE form (macro-system.md MAC-LANG-14, one rule
+    // today), whose template is DECLARATIONS - including further
+    // declaration-macro invocations, which parse as top-level calls.
+    macro_declaration: $ => choice(
+      seq(
+        '(', optional(field('visibility', 'pub')), 'macro',
+        '(', field('name', $.identifier), repeat(field('parameter', $.identifier)), ')',
+        repeat(field('body', $._expression)),
+        ')',
+      ),
+      seq(
+        '(', optional(field('visibility', 'pub')), 'macro',
+        field('name', $.identifier),
+        '(',
+        '(', field('rule_name', $.identifier), repeat(field('parameter', $.identifier)), ')',
+        repeat(field('template', $._form)),
+        ')',
+        ')',
+      ),
     ),
 
     // `deriving (Eq Show)` - the keyword OUTSIDE the parentheses, which

@@ -1,0 +1,21 @@
+[1;31merror[AX3027][0m[1m: `fnn` is neither a declaration keyword nor a visible macro[0m
+ [1;34m--> [0m500-unknown-decl-head.ax:7:2
+[1;34m  |[0m
+[1;34m7 |[0m (fnn broken 3)
+[1;34m  |[0m  [1;31m^^^[0m
+[1;34m  |[0m
+ [1;34m = [0m[1mnote: [0mthis used to be a bare `syntax error` that also stopped the parse at the first unknown head, hiding every later diagnostic in the file
+ [1;34m = [0m[1;32mhelp: [0ma top-level form is a declaration - fn, ::, data, struct, type, trait, impl, effect, import, macro - or an invocation of a declaration macro
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3027` for a full explanation
+
+[1;31merror[AX3027][0m[1m: `strcut` is neither a declaration keyword nor a visible macro[0m
+ [1;34m--> [0m500-unknown-decl-head.ax:9:2
+[1;34m  |[0m
+[1;34m9 |[0m (strcut alsoBroken 4)
+[1;34m  |[0m  [1;31m^^^^^^[0m
+[1;34m  |[0m
+ [1;34m = [0m[1mnote: [0mthis used to be a bare `syntax error` that also stopped the parse at the first unknown head, hiding every later diagnostic in the file
+ [1;34m = [0m[1;32mhelp: [0ma top-level form is a declaration - fn, ::, data, struct, type, trait, impl, effect, import, macro - or an invocation of a declaration macro
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3027` for a full explanation
+
+compilation failed due to 2 previous errors

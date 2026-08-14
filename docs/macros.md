@@ -29,15 +29,37 @@ the order is what it is.
 
 ## 1. The form
 
+There are two, and their templates are disjoint kinds:
+
 ```scheme
+; expression macro: the template is ONE EXPRESSION
 (macro (name param...) template)
 (pub macro (name param...) template)
+
+; declaration macro (rule form): everything after the pattern is the
+; template, each form one generated DECLARATION (2026-08-14)
+(macro name
+  ((name param...)
+   (:: ...)
+   (fn ...)))
 ```
 
-The name lives *inside* the head parens, exactly as a function's does.
-A macro is applied to exactly as many arguments as it declares
-parameters; the invocation is replaced by the template with each
-parameter reference replaced by that argument's syntax tree.
+The expression form's name lives *inside* the head parens, exactly as
+a function's does; the rule form's pattern must repeat the macro's
+name in head position. A macro is applied to exactly as many arguments
+as it declares parameters; the invocation is replaced by the template
+with each parameter reference replaced by that argument's syntax tree.
+An expression macro expands in expression position only, a declaration
+macro in declaration position only; either crossing is `AX3027`
+(`tests/diagnostics/505-decl-macro-positions.ax`). A declaration
+template may generate `fn` and `::` declarations and further macro
+invocations — any other declaration kind is `AX3021` at the macro's
+own line — a name-position argument must be a bare identifier, and v1
+invocation is entry-file only
+([macro-system.md](macro-system.md) `MAC-CAP-8` for all three limits).
+Measured: `tests/selfhost/372-decl-macro.ax` (144) and
+`373-decl-macro-types.ax` (10, type-position substitution with the
+float flags recomputed).
 
 ```scheme
 (macro (when test body) (if test body 0))
@@ -62,7 +84,13 @@ twice in a template is evaluated twice:
 ## 2. Where expansion happens
 
 Between import resolution and the type checker, in
-`self_host/expand.ax`, over the merged declaration list.
+`self_host/expand.ax`, over the merged declaration list — in two
+phases since 2026-08-14: phase D expands declaration-position
+invocations to a fixpoint first, so the declarations they generate are
+in the list before any body is walked (a generated fn's body can
+invoke expression macros, and a later declaration can call a generated
+function, order-independently); phase E then expands
+expression-position invocations inside every declaration body.
 
 This is load-bearing and it is a change. Expansion used to run inside
 `codegen.ax` at emit time, which meant the checker never saw an
@@ -264,18 +292,19 @@ Pinned by `tests/diagnostics/993-macro-shadows-function`.
 
 ## 4. Diagnostics
 
-Seven codes, all in the semantic range because expansion is
+Eight codes, all in the semantic range because expansion is
 semantic-analysis-time work:
 
 | Code | Slug | What it catches |
 |---|---|---|
-| `AX3018` | `macro-arity` | too FEW arguments. A longer spine is not an error: the surplus is applied to whatever the macro produced, which is how a macro expanding to a function stays usable. Measured: `(macro (one x) x)` invoked as `(one 5 6)` is `AX3004 expected function type, found Int` at the surplus argument, not `AX3018` |
+| `AX3018` | `macro-arity` | too FEW arguments. A longer spine is not an error in expression position: the surplus is applied to whatever the macro produced, which is how a macro expanding to a function stays usable. Measured: `(macro (one x) x)` invoked as `(one 5 6)` is `AX3004 expected function type, found Int` at the surplus argument, not `AX3018`. In DECLARATION position arity is exact — the result is declarations, not a value |
 | `AX3019` | `macro-recursion-limit` | expansion did not terminate (limit 128) |
 | `AX3020` | `macro-duplicate-parameter` | two parameters sharing a name |
-| `AX3021` | `macro-template-unsupported` | a template form the expander cannot substitute into |
+| `AX3021` | `macro-template-unsupported` | a template form the expander cannot substitute into — including a declaration template generating a kind outside the v1 surface, at the macro's own line |
 | `AX3022` | `macro-set-target` | a parameter used as a `set` target, given an expression |
 | `AX3023` | `private-name` | reaching a macro its module does not export — the general visibility code, shared by macros since they joined the value namespace |
 | `AX3024` | `macro-expansion-limit` | the expansion's OUTPUT exceeded a budget: nested deeper than 1024 forms, or more than 2,000,000 forms produced. The parser's limits measure the source; these measure what expansion produced from it |
+| `AX3027` | `declaration-macro` | every way a declaration-position invocation fails: unknown head (a typo'd keyword lands here, where it used to be a bare `AX2003` that stopped the parse), an expression macro in declaration position or a declaration macro in expression position, a non-identifier argument in a name position, a module-side invocation (the v1 limit). `axiom explain AX3027` is the catalogue |
 
 `AX3006` (duplicate definition) also reaches macros now — see
 "Macros occupy the value namespace" above.
@@ -290,18 +319,20 @@ and a type error when it is wrong; and
 `(macro (loopy x) (loopy x))` segfaulted the compiler with no output
 and no diagnostic, in about 10 ms of CPU time.
 
-`AX3021` **has no reachable producer today**, and that is on purpose.
-Every form a template can contain has a case in `substTpl`, so nothing
-reaches the default arm. It exists because the default arm used to
-return the node *unchanged*, and that single decision was eight
-separate silent miscompiles: `let mut`, `set`, `while`, field access,
-field store, struct construction, `alloc` and `handle` each survived
-into the generated code carrying the template's own identifiers. The
-next form added to the language will reach `AX3021` and say so, in the
-commit that adds it, instead of miscompiling quietly. It is recorded
-here as unreachable so nobody mistakes its silence for coverage — the
-same way [v1-roadmap.md](v1-roadmap.md) records the `&` backtrace field
-as rendered-but-unpopulated.
+`AX3021`'s *expression-template* default arm **has no reachable
+producer today**, and that is on purpose. Every form an expression
+template can contain has a case in `substTpl`, so nothing reaches the
+default arm. It exists because that arm used to return the node
+*unchanged*, and that single decision was eight separate silent
+miscompiles: `let mut`, `set`, `while`, field access, field store,
+struct construction, `alloc` and `handle` each survived into the
+generated code carrying the template's own identifiers. The promise
+recorded here — "the next form added to the language will reach
+`AX3021` and say so, in the commit that adds it" — was kept on
+2026-08-14: declaration templates are the next form, and the kinds
+outside their v1 surface reach `AX3021` at the macro's own line
+(`tests/diagnostics/510-decl-macro-template-kind.ax`), the code's
+first reachable producer.
 
 ### What a diagnostic inside an expansion looks like
 
@@ -361,19 +392,28 @@ the bank that pins it is `scripts/check-degenerate.sh`, and
 
 ## 5. What does not exist
 
-- **Declaration-level macros.** A template is an expression. A macro in
-  declaration position is `AX2003`. `derive` needs this.
+- **Declaration macros beyond the v1 surface.** The v1 form exists
+  (§1, 2026-08-14): rule-form macros generating `fn`/`::`
+  declarations and further invocations, invoked from the entry file.
+  What does not: module-side invocation (`AX3027`, reason in the
+  note), and `data`/`struct`/`trait`/`impl`/`effect`/`import`
+  templates (`AX3021` at the macro's line).
 - **`derive`.** `deriving (Eq Show)` parses and is discarded; the
-  clause's names never reach the AST.
-- **Patterns.** One parameter list per macro, positional, no literal
-  atoms, no nested patterns, no alternatives. "Pattern-based" in the
-  roadmap's tier-1 sense is not implemented; this is substitution.
+  clause's names never reach the AST. Its mechanism — declaration
+  macros — now exists; what it still needs is the field-inspection
+  query vocabulary (`MAC-CAP-5`/`MAC-CAP-6`).
+- **Patterns.** The rule-list *surface* exists with exactly one rule
+  (the declaration form). No multiple rules, no literal atoms, no
+  nested patterns, no alternatives; an expression macro is still one
+  positional parameter list. "Pattern-based" in the roadmap's tier-1
+  sense is not implemented; this is substitution.
 - **Repetition.** No `...`; `.` cannot lex as part of a token, so this
   needs a lexer change that ripples to `tree-sitter-axiom/grammar.js`
   and `format.ax`, both of which re-implement the token set.
 
 (Module-qualified macros stood in this list until 2026-08-14 — §3
-records the close.)
+records the close. Declaration-level macros as a whole stood here
+until the same date.)
 
 ## 6. The order the rest should land in
 
@@ -397,11 +437,19 @@ records the close.)
    byte-for-byte — the bare `&"name"` form still renders) and
    `verify-axdl-spans.py`, which now checks a frame's span against the
    MACRO's file.
-3. **Declaration-level macros** — criterion 1's prerequisite. Parser
-   surface (a template in declaration position), pipeline surface
-   (expansion must run before the declaration list is fixed), and
-   `format.ax`, which refuses every declaration head in expression
-   position and whose refusals are whole-file.
+3. ~~**Declaration-level macros**~~ — **v1 done, 2026-08-14**
+   (criterion 1's prerequisite). It touched exactly the three surfaces
+   this item predicted: the parser (an unknown top-level head now
+   parses as an invocation, `TAG_D_MACROCALL`, instead of dying as
+   `AX2003`; the rule form parses its template with the real
+   declaration parsers), the pipeline (phase D expands
+   declaration-position invocations to a fixpoint before the
+   declaration list is fixed, then phase E walks bodies as before),
+   and `format.ax` (invocation heads print as expressions; a rule
+   form's interior prints verbatim from source, because `fpExpr`
+   would rewrite `fn` to `lambda` inside it). Entry-file invocation
+   only; `AX3027` covers every refusal, `axiom explain AX3027` the
+   catalogue.
 4. **`derive`** — criterion 1. The spelling is settled
    ([macro-system.md](macro-system.md) `MAC-CAP-9`, 2026-08-14):
    explicit declaration macros — `(deriveEq T)`, needing only (3) —

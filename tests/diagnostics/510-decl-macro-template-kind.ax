@@ -1,0 +1,12 @@
+; A declaration template generating a `data` declaration - not part
+; of the v1 surface, and refused AT THE MACRO'S OWN LINE, before any
+; invocation exists: the loud-at-definition shape, and the reachable
+; producer AX3021 was promised when its default-arm-refuses rule was
+; written (macro-system.md MAC-CAP-2 - "the ninth form refuses in the
+; commit that adds it").
+(macro defData ((defData nm)
+   (data nm () (Mk Int))))
+
+(:: main Int)
+
+(fn (main) 0)

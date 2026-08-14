@@ -1,0 +1,13 @@
+; A typo'd declaration keyword. Until 2026-08-14 this was a FATAL bare
+; `AX2003 "syntax error"` that also stopped the parse at the first
+; unknown head, so the second typo below went unreported. An unknown
+; head now parses as a declaration-macro invocation (TAG_D_MACROCALL)
+; and phase D refuses each one with a diagnostic that names it.
+; docs/macro-system.md MAC-CAP-8.
+(fnn broken 3)
+
+(strcut alsoBroken 4)
+
+(:: main Int)
+
+(fn (main) 0)

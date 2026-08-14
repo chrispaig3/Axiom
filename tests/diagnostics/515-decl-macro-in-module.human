@@ -1,0 +1,11 @@
+[1;31merror[AX3027][0m[1m: a declaration-macro invocation inside an imported module is not supported yet[0m
+ [1;34m--> [0mDeclIn.ax:9:2
+[1;34m  |[0m
+[1;34m9 |[0m (dmk insideModule)
+[1;34m  |[0m  [1;31m^^^[0m
+[1;34m  |[0m
+ [1;34m = [0m[1mnote: [0mgenerated declarations in a module would need the module's mangling and visibility applied after import resolution has already run; entry-file invocation is the v1 surface, and this refusal is what keeps the limit loud
+ [1;34m = [0m[1;32mhelp: [0minvoke the macro from the entry file, or write the declarations directly
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3027` for a full explanation
+
+compilation failed due to 1 previous error

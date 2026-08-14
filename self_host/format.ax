@@ -3244,6 +3244,33 @@
 (pub :: fpDeclMacro (-> Int Int Int))
 (pub fn (fpDeclMacro p n)
   (let ((src (fpSrc p)) (b (fpDeclBase src n)))
+    ; The RULE form - `(macro name ((name args...) decl...))` - is a
+    ; bare identifier where the head-list form has a paren. Its
+    ; interior is copied VERBATIM from the source: the template holds
+    ; DECLARATIONS, and the expression printer's normalisations are
+    ; semantically destructive there - probed, it rewrote a template
+    ; `(fn (nm) 42)` into `(lambda (nm) 42)` and flattened the
+    ; pattern's parens, turning a compiling file into a refused one.
+    ; A formatter region it does not understand is copied, not
+    ; normalised; comments inside the template survive for the same
+    ; reason.
+    (if (&& (>= (fnLen n) (+ b 3))
+            (&& (fpIsIdentAtom (fnKid n (+ b 1)))
+                (== (fnKind (fnKid n (+ b 2))) FN_PAREN)))
+        (let ((tail (fpExprElems n (+ b 2))))
+          (if (!= (vecLen tail) 1)
+              (fpBad p)
+              (let ((rule (vecGet tail 0)))
+                {
+                  (fpP p "(")
+                  (fpVis p n)
+                  (fpP p "macro ")
+                  (fpP p (fnText src (fnKid n (+ b 1))))
+                  (fpP p " ")
+                  (fpP p (strSlice src (fnStart rule)
+                                    (- (fnEnd rule) (fnStart rule))))
+                  (fpP p ")")
+                })))
     (let ((tmpl (fpExprElems n (+ b 2))))
       (if (|| (< (fnLen n) (+ b 3))
               (|| (!= (vecLen tmpl) 1)
@@ -3265,7 +3292,7 @@
               (fpP p ") ")
               (fpExpr p (vecGet tmpl 0))
               (fpP p ")")
-            })))))
+            }))))))
 
 (pub :: fpDecl (-> Int Int Int))
 (pub fn (fpDecl p n)
@@ -3281,7 +3308,14 @@
     (if (strEq h "impl") (fpDeclImpl p n)
     (if (strEq h "effect") (fpDeclEffect p n)
     (if (strEq h "macro") (fpDeclMacro p n)
-    (fpBad p))))))))))))))
+    ; Any other head is a DECLARATION MACRO INVOCATION (the parser's
+    ; TAG_D_MACROCALL since 2026-08-14), printed through the
+    ; expression printer - which already normalises spacing and glues
+    ; qualified names - because an invocation IS call-shaped. This
+    ; used to be `fpBad`, so every file using the feature was
+    ; unformattable with the least informative refusal in the
+    ; toolchain.
+    (fpExpr p n))))))))))))))
 
 ; An AXTAG line, reconstructed the way stage0's parser splits it: the
 ; key up to the first `(`, the value to the LAST `)`. Text outside
@@ -3404,7 +3438,18 @@
                                   (vecPush importTags (cast Int pending))
                                   (set pending vecNew)
                                 }
-                                (if (fpIsDeclHead h)
+                                ; A known declaration head - or ANY
+                                ; identifier head, which is a
+                                ; declaration-macro invocation since
+                                ; 2026-08-14 (TAG_D_MACROCALL). A
+                                ; non-identifier head (`(1 2)`) stays
+                                ; a refusal, as it is in the parser.
+                                (if (|| (fpIsDeclHead h)
+                                        (let ((hk (fnKid f (fpDeclBase src f))))
+                                          ; a qualified head - `Pre::when`
+                                          ; - is one FN_QUAL node here
+                                          (|| (fpIsIdentAtom hk)
+                                              (== (fnKind hk) FN_QUAL))))
                                     {
                                       (vecPush declTags (cast Int pending))
                                       (vecPush declNodes f)

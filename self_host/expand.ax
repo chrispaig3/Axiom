@@ -158,7 +158,17 @@
                  ; is not, and it is the module the checker will stamp
                  ; on a diagnostic inside this declaration - the frame
                  ; join needs exactly that.
-                 (declmod : Int))
+                 (declmod : Int)
+                 ; The CUnit2 table (file, src, name), 0 for callers
+                 ; that have none (repl, codegen's re-expansion). A
+                 ; diagnostic anchored at a MODULE's node must carry
+                 ; that module's unit index, or the renderer resolves
+                 ; its span against the entry file's bytes and the
+                 ; location lands mid-identifier in whatever text
+                 ; happens to share the offset - the derivability
+                 ; gate caught exactly that on the first module-side
+                 ; declaration-macro refusal.
+                 (units : Int))
 
 (pub :: expMacros (-> Int Int)) (pub fn (expMacros env) (memGetWord env 0))
 (pub :: expOut    (-> Int Int)) (pub fn (expOut    env) (memGetWord env 1))
@@ -1067,12 +1077,24 @@
       (let ((mac (expFindMacro env (nodeA e))))
         (if (== mac 0)
             e
+            (if (!= (memGetWord mac 9) 0)
+                {
+                  (expEmit env (expMarkUnit env (mkDiagNote SEV_ERROR "AX3027" "declaration-macro"
+                    (nodeSpan e)
+                    (strConcat (strConcat "declaration macro `" (expSrcSpelling (nodeA e)))
+                               "` referenced in expression position")
+                    0 0
+                    "a rule-form macro's template is declarations; invoke it at top level"
+                    "the two template kinds are disjoint (macro-system.md MAC-CAP-8)")
+                    (memGetWord env 11)))
+                  (mkEInt 0)
+                }
             (if (> (vecLen (nodeB mac)) 0)
                 {
                   (expArityDiag env (expSrcSpelling (nodeA e)) (vecLen (nodeB mac)) 0 (nodeSpan e))
                   (mkEInt 0)
                 }
-                (expandInstantiate mac vecNew env bs (nodeSpan e)))))))
+                (expandInstantiate mac vecNew env bs (nodeSpan e))))))))
 
 ; ------------------------------------------------------------------
 ; An application whose head names a macro.
@@ -1100,6 +1122,20 @@
   (let ((args (expSpineArgs e vecNew))
         (params (nodeB mac))
         (isp (if (!= (nodeSpan head) 0) (nodeSpan head) (nodeSpan e))))
+    ; A DECLARATION macro (rule form, template in word 9) has no
+    ; expression template to instantiate here.
+    (if (!= (memGetWord mac 9) 0)
+        {
+          (expEmit env (expMarkUnit env (mkDiagNote SEV_ERROR "AX3027" "declaration-macro"
+            isp
+            (strConcat (strConcat "declaration macro `" (expSrcSpelling (nodeA head)))
+                       "` invoked in expression position")
+            0 0
+            "a rule-form macro's template is declarations; invoke it at top level"
+            "the two template kinds are disjoint: an expression position needs a value, and this macro generates declarations (macro-system.md MAC-CAP-8)")
+            (memGetWord env 11)))
+          (mkEInt 0)
+        }
     (if (< (vecLen args) (vecLen params))
         {
           (expArityDiag env (expSrcSpelling (nodeA head)) (vecLen params) (vecLen args) isp)
@@ -1109,7 +1145,7 @@
         ; applies the surplus to whatever the macro produced.
         (let ((taken (takeArgs args (vecLen params) env bs)))
           (applyRest (expandInstantiate mac taken env bs isp)
-                     args (vecLen params) env bs)))))
+                     args (vecLen params) env bs))))))
 
 (pub :: takeArgs (-> Int Int Int Int Int))
 (pub fn (takeArgs args n env bs)
@@ -1275,14 +1311,54 @@
 ; emit-time expander: `(macro (dup a a) (+ a a))` invoked as
 ; `(dup 10 20)` answered 40.
 ; ------------------------------------------------------------------
+; Stamp a diagnostic with the unit of the module its span indexes,
+; answering the diagnostic so the call wraps a `mkDiagNote` in place.
+; Module 0 (the entry file) resolves to unit 0, so stamping is safe
+; on every path.
+(pub :: expMarkUnit (-> Int Int Int Int))
+(pub fn (expMarkUnit env dg m)
+  { (diagSetUnit dg (expUnitOfMod (memGetWord env 12) m)) dg })
+
 (pub :: expCheckMacros (-> Int Int Int))
 (pub fn (expCheckMacros env i)
   (if (>= i (vecLen (expMacros env)))
       0
       {
         (expCheckDupParams (vecGet (expMacros env) i) env 0)
+        (expCheckTplKinds (vecGet (expMacros env) i) env 0)
         (expCheckMacros env (+ i 1))
       }))
+
+; A rule-form macro's template is checked ONCE, at the macro's own
+; line: v1 generates `fn` and `::` declarations and further macro
+; invocations, and any other declaration kind in a template is AX3021
+; here, before any invocation exists - the loud-at-definition shape
+; MAC-SAFE-4 uses for the empty form, and the reachable producer
+; AX3021 was promised (MAC-CAP-2: the ninth form refuses in the commit
+; that adds it).
+(pub :: expCheckTplKinds (-> Int Int Int Int))
+(pub fn (expCheckTplKinds mac env i)
+  (let ((tpl (memGetWord mac 9)))
+    (if (== tpl 0)
+        0
+        (if (>= i (vecLen tpl))
+            0
+            {
+              (let ((t (vecGet tpl i)))
+                (if (|| (== (nodeTag t) TAG_D_FN)
+                        (|| (== (nodeTag t) TAG_D_SIG)
+                            (== (nodeTag t) TAG_D_MACROCALL)))
+                    0
+                    (expEmit env (expMarkUnit env (mkDiagNote SEV_ERROR "AX3021" "macro-template-unsupported"
+                      (if (== (nodeSpan t) 0) (nodeSpan mac) (nodeSpan t))
+                      (strConcat (strConcat "macro `" (nodeA mac))
+                                 "`'s template may generate `fn` and `::` declarations, or further macro invocations - this form is not supported yet")
+                      0 0
+                      "generate the declaration by hand, or split it out of the template"
+                      "data, struct, trait, impl, effect and import templates refuse here, at the macro's own line, rather than passing through silently (MAC-CAP-2)")
+                      (nodeModule mac)))))
+              (expCheckTplKinds mac env (+ i 1))
+            }))))
 
 (pub :: expCheckDupParams (-> Int Int Int Int))
 (pub fn (expCheckDupParams mac env i)
@@ -1311,14 +1387,452 @@
 ; declaration list, with the same diagnostic Vec the checker will add
 ; to. Answers nothing: the declarations are rewritten in place.
 ; ------------------------------------------------------------------
-(pub :: expandProgram (-> Int Int Int Int))
-(pub fn (expandProgram decls out frames)
-  (let ((env (cast Int (MEnv (expCollectMacros decls vecNew 0) out 0 0 decls 0 0 0 0 0 frames 0))))
+(pub :: expandProgram (-> Int Int Int Int Int Int))
+(pub fn (expandProgram entryDecls decls out frames units)
+  (let ((env (cast Int (MEnv (expCollectMacros decls vecNew 0) out 0 0 decls 0 0 0 0 0 frames 0 units))))
     {
       (expCheckMacros env 0)
+      ; Phase D before phase E (MAC-EXP-16): declaration-position
+      ; invocations resolve to a fixpoint FIRST, so the declarations
+      ; they generate are in the list before any body is walked - a
+      ; generated fn's body can invoke expression macros, and a later
+      ; declaration can call a generated function, order-independently
+      ; like everything else at top level.
+      (expandDeclPhase entryDecls decls env)
       (expandDeclsIn decls env 0)
       0
     }))
+
+; ==================================================================
+; PHASE D - declaration macros (MAC-CAP-8, MAC-EXP-16/17).
+;
+; A rule-form macro's template is a vector of DECLARATION nodes,
+; parsed by the real declaration parsers at the macro's own line
+; (word 9 of the macro node; an expression macro's word 9 is 0). A
+; TAG_D_MACROCALL resolves against the same table, with the same
+; visibility and the same qualified-name split, and instantiates by
+; DECLARATION-level substitution:
+;
+;   - a name position (a generated fn/sig's name, a fn's parameters,
+;     a nested invocation's head) substitutes a macro parameter for
+;     its argument, which MUST be a bare identifier - a generated
+;     declaration's name has to be spellable;
+;   - a body substitutes through `substTpl`, so hygiene, spans and
+;     the definition-site rule are the expression machinery's,
+;     unchanged;
+;   - a signature's type substitutes structurally (TCON/TVAR whose
+;     name is a parameter), and its per-arrow float flags are
+;     RECOMPUTED from the substituted node - the type-alias slice's
+;     lesson: a type rewritten without its flags prints 0.00 at exit
+;     0.
+;
+; The FIRST generated declaration overwrites the invocation node in
+; place - the entry list and the merged list share node handles, the
+; same invariant expression expansion rewrites through - and the rest
+; append to BOTH lists, because checkDuplicates and checkReservedNames
+; walk the entry list specifically: a generated second `main` or a
+; generated `axiom_alloc` must be refused exactly as a written one.
+; Every generated node carries vis 1 (resolveImports stamped the
+; written entry declarations before this pass ran), module 0, and the
+; INVOCATION's span handle, which is what joins backtrace frames and
+; anchors `symbols` (MAC-TOOL-4).
+; ==================================================================
+
+(pub :: expDeclMacroRounds Int) (pub fn (expDeclMacroRounds) 128)
+
+(pub :: expandDeclPhase (-> Int Int Int Int))
+(pub fn (expandDeclPhase entryDecls decls env)
+  (expandDeclRounds entryDecls decls env 0))
+
+(pub :: expandDeclRounds (-> Int Int Int Int Int))
+(pub fn (expandDeclRounds entryDecls decls env round)
+  (if (>= round (expDeclMacroRounds))
+      (let ((d (expFirstMacroCall decls 0)))
+        {
+          (expEmit env
+            (mkDiagNote SEV_ERROR "AX3019" "macro-recursion-limit"
+                        (if (== d 0) 0 (nodeSpan d))
+                        "declaration-macro expansion exceeded 128 rounds"
+                        0 0
+                        "check whether a declaration macro, directly or through another, generates an invocation of itself with no case that stops"
+                        "each round resolves every declaration-position invocation the previous round generated; a template that always generates another invocation never terminates"))
+          0
+        })
+      (if (== (expBlown env) 1)
+          0
+          (if (== (expandDeclRound entryDecls decls env 0 0) 0)
+              0
+              (expandDeclRounds entryDecls decls env (+ round 1))))))
+
+(pub :: expFirstMacroCall (-> Int Int Int))
+(pub fn (expFirstMacroCall decls i)
+  (if (>= i (vecLen decls))
+      0
+      (if (== (nodeTag (vecGet decls i)) TAG_D_MACROCALL)
+          (vecGet decls i)
+          (expFirstMacroCall decls (+ i 1)))))
+
+; One round; answers 1 when any invocation instantiated. A REFUSED
+; invocation is marked (word 3 = 1) and reported once - it stays in
+; the list, the driver's error gate keeps it from the checker.
+(pub :: expandDeclRound (-> Int Int Int Int Int Int))
+(pub fn (expandDeclRound entryDecls decls env i progress)
+  (if (>= i (vecLen decls))
+      progress
+      (let ((d (vecGet decls i)))
+        (if (&& (== (nodeTag d) TAG_D_MACROCALL)
+                (== (memGetWord d 3) 0))
+            (if (== (expandDeclCall entryDecls decls env d) 1)
+                (expandDeclRound entryDecls decls env (+ i 1) 1)
+                (expandDeclRound entryDecls decls env (+ i 1) progress))
+            (expandDeclRound entryDecls decls env (+ i 1) progress)))))
+
+(pub :: expDeclCallErr (-> Int Int Int Int Int Int))
+(pub fn (expDeclCallErr env d msg help note)
+  {
+    (expEmit env (expMarkUnit env
+                   (mkDiagNote SEV_ERROR "AX3027" "declaration-macro"
+                               (nodeSpan d) msg 0 0 help note)
+                   (nodeModule d)))
+    (memSetWord d 3 1)
+    0
+  })
+
+(pub :: expandDeclCall (-> Int Int Int Int Int))
+(pub fn (expandDeclCall entryDecls decls env d)
+  (if (!= (nodeModule d) 0)
+      (expDeclCallErr env d
+        "a declaration-macro invocation inside an imported module is not supported yet"
+        "invoke the macro from the entry file, or write the declarations directly"
+        "generated declarations in a module would need the module's mangling and visibility applied after import resolution has already run; entry-file invocation is the v1 surface, and this refusal is what keeps the limit loud")
+      (let ((mac (expFindMacro env (nodeA d))))
+        (if (== mac 0)
+            (expDeclCallErr env d
+              (strConcat (strConcat "`" (expSrcSpelling (nodeA d)))
+                         "` is neither a declaration keyword nor a visible macro")
+              "a top-level form is a declaration - fn, ::, data, struct, type, trait, impl, effect, import, macro - or an invocation of a declaration macro"
+              "this used to be a bare `syntax error` that also stopped the parse at the first unknown head, hiding every later diagnostic in the file"
+            )
+            (if (== (memGetWord mac 9) 0)
+                (expDeclCallErr env d
+                  (strConcat (strConcat "macro `" (expSrcSpelling (nodeA d)))
+                             "` has an expression template and cannot stand in declaration position")
+                  "give it a rule form - `(macro name ((name args ...) (fn ...) ...))` - whose template is declarations"
+                  "an expression macro's template is one expression; a declaration position needs declarations (macro-system.md MAC-CAP-8)")
+                (if (!= (vecLen (nodeB mac)) (vecLen (nodeB d)))
+                    ; EXACT arity in declaration position: there is no
+                    ; "surplus applies to the result" story here, since
+                    ; the result is declarations, not a value.
+                    {
+                      (expArityDiag env (expSrcSpelling (nodeA d))
+                                    (vecLen (nodeB mac))
+                                    (vecLen (nodeB d))
+                                    (nodeSpan d))
+                      (memSetWord d 3 1)
+                      0
+                    }
+                    (expInstantiateDecl entryDecls decls env d mac)))))))
+
+(pub :: expInstantiateDecl (-> Int Int Int Int Int Int))
+(pub fn (expInstantiateDecl entryDecls decls env d mac)
+  (let ((isp (nodeSpan d))
+        (tags (memGetWord d 7))
+        (prevMod (expMacMod env))
+        (prevSite (memGetWord env 9))
+        (prevDecl (memGetWord env 11)))
+    {
+      (expSetMacMod env (nodeModule mac))
+      (memSetWord env 9 (nodeModule mac))
+      (memSetWord env 11 0)
+      (vecPush (memGetWord env 10)
+        (cast Int (ExpFrame 0 isp (nodeA mac) (nodeSpan mac)
+                            (nodeModule mac))))
+      (let ((made (expBuildDecls (memGetWord mac 9) (nodeB mac) (nodeB d)
+                                 env isp vecNew 0)))
+        {
+          (expSetMacMod env prevMod)
+          (memSetWord env 9 prevSite)
+          (memSetWord env 11 prevDecl)
+          (if (|| (== made 0) (== (expBlown env) 1))
+              { (memSetWord d 3 1) 0 }
+              {
+                (expCopyDeclInto d (vecGet made 0))
+                (expAppendRest entryDecls decls made 1)
+                (expGiveTags d made tags)
+                1
+              })
+        })
+    }))
+
+(pub :: expBuildDecls (-> Int Int Int Int Int Int Int Int))
+(pub fn (expBuildDecls tpl params args env isp acc i)
+  (if (>= i (vecLen tpl))
+      acc
+      (let ((g (expBuildOneDecl (vecGet tpl i) params args env isp)))
+        (if (== g 0)
+            0
+            {
+              (vecPush acc g)
+              (expBuildDecls tpl params args env isp acc (+ i 1))
+            }))))
+
+; A name position: a macro parameter substitutes its argument, which
+; MUST be a bare identifier. Answers 0 - refusal already emitted -
+; when it is not.
+(pub :: expSubstName (-> Int Int Int Int Int Int))
+(pub fn (expSubstName s params args env isp)
+  (let ((idx (expParamIndex params s)))
+    (if (< idx 0)
+        s
+        (let ((a (vecGet args idx)))
+          (if (== (nodeTag a) TAG_E_VAR)
+              (nodeA a)
+              {
+                (expEmit env (mkDiagNote SEV_ERROR "AX3027" "declaration-macro"
+                  isp
+                  (strConcat (strConcat "a generated declaration's name must be a bare identifier; `" s)
+                             "` was given an expression")
+                  0 0
+                  "pass a plain name in this argument position"
+                  "the parameter stands in a NAME position of the template - a declaration head or a parameter list - and only an identifier can be a name"))
+                0
+              })))))
+
+(pub :: expSubstNames (-> Int Int Int Int Int Int))
+(pub fn (expSubstNames ss params args env isp)
+  (expSubstNamesIn ss params args env isp vecNew 0))
+
+(pub :: expSubstNamesIn (-> Int Int Int Int Int Int Int Int))
+(pub fn (expSubstNamesIn ss params args env isp acc i)
+  (if (>= i (vecLen ss))
+      acc
+      (let ((n (expSubstName (vecGet ss i) params args env isp)))
+        (if (== n 0)
+            0
+            {
+              (vecPush acc n)
+              (expSubstNamesIn ss params args env isp acc (+ i 1))
+            }))))
+
+; Structural substitution over a TYPE node: a TCON or TVAR whose name
+; is a macro parameter becomes the argument identifier - lowercase a
+; variable, uppercase a constructor, the grammar's own rule. Rebuilt,
+; never mutated (MAC-HYG-4).
+(pub :: expSubstTy (-> Int Int Int Int Int Int))
+(pub fn (expSubstTy t params args env isp)
+  (if (== t 0)
+      0
+      (let ((tag (nodeTag t)))
+        (if (== tag TAG_T_CON)
+            (let ((n (expSubstName (nodeA t) params args env isp)))
+              (if (== n 0)
+                  (mkNode TAG_T_ERR 0 0 0)
+                  (if (== (lexStartsLower n) 1)
+                      (mkTVar n)
+                      (mkTCon n (expSubstTyVec (nodeB t) params args env isp)))))
+        (if (== tag TAG_T_VAR)
+            (let ((n (expSubstName (nodeA t) params args env isp)))
+              (if (== n 0)
+                  (mkNode TAG_T_ERR 0 0 0)
+                  (if (== (lexStartsLower n) 1)
+                      (mkTVar n)
+                      (mkTCon n vecNew))))
+        (if (== tag TAG_T_ARR)
+            (mkTArr (expSubstTy (nodeA t) params args env isp)
+                    (expSubstTy (nodeB t) params args env isp))
+        (if (== tag TAG_T_TUP)
+            (mkTTup (expSubstTyVec (nodeA t) params args env isp))
+        (if (== tag TAG_T_LIST)
+            (mkNode TAG_T_LIST (expSubstTy (nodeA t) params args env isp) 0 0)
+        (if (== tag TAG_T_PTR)
+            (mkTPtr (expSubstTy (nodeA t) params args env isp) (nodeB t))
+            t)))))))))
+
+(pub :: expSubstTyVec (-> Int Int Int Int Int Int))
+(pub fn (expSubstTyVec v params args env isp)
+  (if (== v 0)
+      vecNew
+      (expSubstTyVecIn v params args env isp vecNew 0)))
+
+(pub :: expSubstTyVecIn (-> Int Int Int Int Int Int Int Int))
+(pub fn (expSubstTyVecIn v params args env isp acc i)
+  (if (>= i (vecLen v))
+      acc
+      {
+        (vecPush acc (expSubstTy (vecGet v i) params args env isp))
+        (expSubstTyVecIn v params args env isp acc (+ i 1))
+      }))
+
+; Per-arrow float flags, recomputed from the SUBSTITUTED type - one
+; flag per source arrow position, the parser's own rule, over the same
+; count the template's flags carried.
+(pub :: expSigFlags (-> Int Int Int))
+(pub fn (expSigFlags ty n)
+  (expSigFlagsIn ty n vecNew))
+
+(pub :: expSigFlagsIn (-> Int Int Int Int))
+(pub fn (expSigFlagsIn ty n acc)
+  (if (<= n 0)
+      acc
+      (if (&& (!= ty 0) (== (nodeTag ty) TAG_T_ARR))
+          {
+            (vecPush acc (expTyIsFloatCon (nodeA ty)))
+            (expSigFlagsIn (nodeB ty) (- n 1) acc)
+          }
+          {
+            (vecPush acc (expTyIsFloatCon ty))
+            (expSigFlagsIn ty (- n 1) acc)
+          })))
+
+(pub :: expTyIsFloatCon (-> Int Int))
+(pub fn (expTyIsFloatCon t)
+  (if (== t 0)
+      0
+      (if (&& (== (nodeTag t) TAG_T_CON) (strEq (nodeA t) "Float")) 1 0)))
+
+; The span a generated declaration CARRIES AS ITS OWN: the name
+; argument's, when the name came from a parameter - `(defPair p q)`
+; generates a declaration whose name the user really spelled at `q`,
+; and `axiom symbols`, go-to-definition and the duplicate-definition
+; diagnostic all read the declaration's span as "where the name is".
+; A template-fixed name has no spelling at the invocation and keeps
+; the invocation span (no corpus case yet; the AXSYM position sweep
+; will refuse the first one that claims a name the source lacks).
+; Body nodes still carry the invocation span (MAC-EXP-14) - this is
+; only the declaration node itself.
+(pub :: expNameSpan (-> Int Int Int Int Int))
+(pub fn (expNameSpan s params args isp)
+  (let ((idx (expParamIndex params s)))
+    (if (< idx 0)
+        isp
+        (let ((a (vecGet args idx)))
+          (if (&& (== (nodeTag a) TAG_E_VAR) (!= (nodeSpan a) 0))
+              (nodeSpan a)
+              isp)))))
+
+; One template declaration instantiated. fn and :: are the v1 surface;
+; a nested TAG_D_MACROCALL re-tags for the next round; the default arm
+; REFUSES (MAC-CAP-2's rule: a rewriter's unknown case is never a
+; passthrough) - though `expCheckMacros` already refused the template
+; at the macro's own line, so reaching this arm is the belt after the
+; braces.
+(pub :: expBuildOneDecl (-> Int Int Int Int Int Int))
+(pub fn (expBuildOneDecl t params args env isp)
+  (let ((tag (nodeTag t)))
+    (if (== tag TAG_D_FN)
+        (let ((nsp (expNameSpan (nodeA t) params args isp))
+              (nm (expSubstName (nodeA t) params args env isp)))
+          (if (== nm 0)
+              0
+              (let ((ps (expSubstNames (nodeB t) params args env isp)))
+                (if (== ps 0)
+                    0
+                    (let ((body (substTpl (nodeC t) params args vecNew env isp)))
+                      (let ((g (mkNodeAt TAG_D_FN nm ps body nsp)))
+                        {
+                          (memSetWord g 5 1)
+                          (memSetWord g 9 (memGetWord t 9))
+                          g
+                        }))))))
+    (if (== tag TAG_D_SIG)
+        (let ((nsp (expNameSpan (nodeA t) params args isp))
+              (nm (expSubstName (nodeA t) params args env isp)))
+          (if (== nm 0)
+              0
+              (let ((ty (expSubstTy (memGetWord t 6) params args env isp)))
+                (let ((g (mkNodeAt TAG_D_SIG nm
+                                   (expSigFlags ty (if (== (memGetWord t 2) 0)
+                                                       0
+                                                       (vecLen (memGetWord t 2))))
+                                   0 nsp)))
+                  {
+                    (memSetWord g 5 1)
+                    (memSetWord g 6 ty)
+                    g
+                  }))))
+    (if (== tag TAG_D_MACROCALL)
+        (let ((hd (expSubstName (nodeA t) params args env isp)))
+          (if (== hd 0)
+              0
+              (let ((as (expSubstArgs (nodeB t) params args env isp)))
+                (mkNodeAt TAG_D_MACROCALL hd as 0 isp))))
+        {
+          (expEmit env (mkDiagNote SEV_ERROR "AX3021" "macro-template-unsupported"
+            isp
+            "a declaration template may generate `fn` and `::` declarations, or further macro invocations - this form is not supported yet"
+            0 0
+            "generate the declaration by hand, or extend the template surface"
+            "data, struct, trait, impl, effect and import templates are refusals rather than silent passthroughs, so the commit that adds one adds it loudly (MAC-CAP-2)"))
+          0
+        })))))
+
+(pub :: expSubstArgs (-> Int Int Int Int Int Int))
+(pub fn (expSubstArgs v params args env isp)
+  (expSubstArgsIn v params args env isp vecNew 0))
+
+(pub :: expSubstArgsIn (-> Int Int Int Int Int Int Int Int))
+(pub fn (expSubstArgsIn v params args env isp acc i)
+  (if (>= i (vecLen v))
+      acc
+      {
+        (vecPush acc (substTpl (vecGet v i) params args vecNew env isp))
+        (expSubstArgsIn v params args env isp acc (+ i 1))
+      }))
+
+; The in-place half: the first generated declaration takes over the
+; invocation node - words 0-4, 6 and 9; module stays 0, vis is
+; stamped 1, and the AXTAGs are re-homed by `expGiveTags`.
+(pub :: expCopyDeclInto (-> Int Int Int))
+(pub fn (expCopyDeclInto d g)
+  {
+    (memSetWord d 0 (memGetWord g 0))
+    (memSetWord d 1 (memGetWord g 1))
+    (memSetWord d 2 (memGetWord g 2))
+    (memSetWord d 3 (memGetWord g 3))
+    ; The span too: `g` carries the name argument's span
+    ; (expNameSpan), and keeping the invocation head's here made the
+    ; FIRST generated declaration claim its name at `(defPair` - the
+    ; AXSYM position sweep caught exactly that.
+    (memSetWord d 4 (memGetWord g 4))
+    (memSetWord d 5 1)
+    (memSetWord d 6 (memGetWord g 6))
+    (memSetWord d 7 0)
+    (memSetWord d 9 (memGetWord g 9))
+    0
+  })
+
+(pub :: expAppendRest (-> Int Int Int Int Int))
+(pub fn (expAppendRest entryDecls decls made i)
+  (if (>= i (vecLen made))
+      0
+      {
+        (vecPush decls (vecGet made i))
+        (vecPush entryDecls (vecGet made i))
+        (expAppendRest entryDecls decls made (+ i 1))
+      }))
+
+; AXTAGs written above the invocation attach to the FIRST generated
+; `fn` - `checkAxtags` validates fn declarations only, so parking a
+; claim on a generated sig would leave it accepted and unenforced, the
+; forged-claim shape MAC-SAFE-3 forbids. A template that generates no
+; fn leaves the tags on the first declaration, where they are inert
+; and visible.
+(pub :: expGiveTags (-> Int Int Int Int))
+(pub fn (expGiveTags d made tags)
+  (if (== tags 0)
+      0
+      (expGiveTagsIn d made tags 0)))
+
+(pub :: expGiveTagsIn (-> Int Int Int Int Int))
+(pub fn (expGiveTagsIn d made tags i)
+  (if (>= i (vecLen made))
+      ; no fn generated: first declaration keeps them
+      { (memSetWord d 7 tags) 0 }
+      (if (== (nodeTag (vecGet made i)) TAG_D_FN)
+          (if (== i 0)
+              { (memSetWord d 7 tags) 0 }
+              { (memSetWord (vecGet made i) 7 tags) 0 })
+          (expGiveTagsIn d made tags (+ i 1)))))
 
 ; ------------------------------------------------------------------
 ; The join: a diagnostic anchored at a recorded invocation - same span

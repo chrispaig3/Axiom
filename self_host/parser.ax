@@ -127,6 +127,16 @@
 ; methods were bound to nothing - the README's own trait example was
 ; `AX3001 undefined variable eq` on its first use.
 (pub :: TAG_D_IMPL Int)    (pub fn (TAG_D_IMPL) 49)
+; A top-level form whose head is an identifier that names no
+; declaration keyword: a DECLARATION MACRO INVOCATION, resolved by the
+; expander's phase D (macro-system.md MAC-CAP-8/MAC-EXP-16). a=head
+; name, b=Vec of argument expression nodes, span=the head token. Until
+; 2026-08-14 this was a FATAL bare AX2003 "syntax error" that also
+; stopped the parse at the first such form; phase D refuses an
+; unresolvable head with a diagnostic that names it, and reports every
+; one in a run. The removed-construct arms (union/foreign/region) stay
+; AHEAD of this in parseTopForm, so their migration advice survives.
+(pub :: TAG_D_MACROCALL Int) (pub fn (TAG_D_MACROCALL) 50)
 ; A `cond` form, kept structural rather than desugared at parse time:
 ; stage0's checker treats `cond` unlike nested `if` (clause bodies are
 ; never joined against each other; only a real `else` is compared, and
@@ -857,18 +867,19 @@
   ; tolerance until the tolerance dies.
   (if (kwEq name "impl")
       (parseImplDecl tokens (advance pos) pos)
-  ; Any OTHER head is a PARSE ERROR now, as it is in stage0
-  ; (AX2001 "expected declaration keyword"). The skip was cover for
-  ; forms this parser had not learned - type, trait, impl - and every
-  ; one of those is now parsed or named above, so all the tolerance
-  ; still accepted was invalid programs: `(+ 1 2)` at top level
-  ; checked clean under stage1 (exit 0, OK) while stage0 refused it,
-  ; and anything typo'd into an unknown head VANISHED from the
-  ; declaration list with no diagnostic - silent code loss wearing
-  ; exit 0 (probed 2026-08-07). Malformed spellings of KNOWN keywords
-  ; still degrade inside their own parsers, which is a different
-  ; tolerance with a different blast radius.
-  (pErr pos))))))))))))))
+  ; Any OTHER identifier head is a DECLARATION MACRO INVOCATION
+  ; (TAG_D_MACROCALL), resolved - or refused with a diagnostic that
+  ; names the head - by the expander's phase D. This is NOT the old
+  ; skipUnknownDecl tolerance returning: that skip produced silence
+  ; and this produces a node that phase D must account for, so a
+  ; typo'd keyword now draws "neither a declaration nor a visible
+  ; macro" where it used to draw a fatal bare "syntax error" that
+  ; also hid every later diagnostic in the file (the old refusal
+  ; stopped the parse at the first unknown head; probed 2026-08-14).
+  ; Operator-charactered heads (`+` is a lexical identifier here)
+  ; take this path too and refuse in phase D, since none can name a
+  ; macro a declaration position accepts.
+  (parseMacroCall tokens pos))))))))))))))
   (pErr pos))))
 
 ; A form this parser does not know - `type`, `trait` - is consumed and
@@ -1850,8 +1861,119 @@
 ; a spelling that appears nowhere in the language, so every macro in
 ; `stdlib/Pre.ax` was a parse error and the whole module was refused.
 ; ------------------------------------------------------------------
+; A top-level declaration-macro invocation: the head token, then zero
+; or more argument expressions; `parseExprList` consumes the form's
+; closing paren. The node must be a REAL handle (`parseDecls` reads a
+; parse value of 0 as the clean end of the module - the historical
+; skipParens trap), and `mkNodeAt` provides one.
+(pub :: parseMacroCall (-> Int Int Int))
+(pub fn (parseMacroCall tokens pos)
+  (let ((head (vecGet tokens pos)))
+    ; A QUALIFIED head - `Pre::when` - is three tokens here, exactly
+    ; as it is in expression position, and joins to the same flat
+    ; `Mod$name` spelling the whole pipeline resolves.
+    (let ((chain vecNew))
+      {
+        (vecPush chain (tokenLexeme head))
+        (let ((afterHead (parseQualChainTail tokens (advance pos) chain)))
+          (let ((name (if (== (vecLen chain) 1)
+                          (tokenLexeme head)
+                          (mangledFromChain chain))))
+            (let ((argsR (parseExprList tokens afterHead vecNew)))
+              (if (== (memGetWord argsR 0) 0)
+                  argsR
+                  (pOk (mkNodeAt TAG_D_MACROCALL name
+                                 (memGetWord argsR 1) 0 (tokenSpan head))
+                       (memGetWord argsR 2))))))
+      })))
+
+; `:: IDENT` pairs after a head identifier, pushed onto the chain;
+; answers the position after the last one consumed.
+(pub :: parseQualChainTail (-> Int Int Int Int))
+(pub fn (parseQualChainTail tokens pos chain)
+  (if (&& (peekIs tokens pos TK_DOUBLE_COLON)
+          (peekIs tokens (advance pos) TK_IDENT))
+      {
+        (vecPush chain (tokenLexeme (vecGet tokens (advance pos))))
+        (parseQualChainTail tokens (advance (advance pos)) chain)
+      }
+      pos))
+
+; Zero or more parenthesized DECLARATIONS - a rule-form macro's
+; template - up to the rule's closing paren (consumed). Parsed by
+; `parseTopForm`, the real declaration grammar, which is what makes
+; `pub`, signature float flags and every refusal behave at the macro's
+; OWN line rather than at expansion time; an unknown head inside a
+; template becomes a nested TAG_D_MACROCALL for phase D's next round.
+; An EMPTY template is refused here: MAC-CAP-8 permits "zero or more"
+; in principle, but in-place instantiation needs a first declaration
+; to stand where the invocation stood, so v1 demands at least one.
+(pub :: parseTplDecls (-> Int Int Int Int))
+(pub fn (parseTplDecls tokens pos acc)
+  (if (peekIs tokens pos TK_RPAREN)
+      (if (== (vecLen acc) 0)
+          (pErr pos)
+          (pOk acc (advance pos)))
+      (if (peekIs tokens pos TK_LPAREN)
+          (let ((r (parseTopForm tokens (advance pos))))
+            (if (== (memGetWord r 0) 0)
+                r
+                {
+                  (vecPush acc (memGetWord r 1))
+                  (parseTplDecls tokens (memGetWord r 2) acc)
+                }))
+          (pErr pos))))
+
+; The RULE form of a macro declaration (MAC-LANG-14's spelling, one
+; rule only today):
+;
+;   (macro name ((name p1 .. pn) decl1 decl2 ...))
+;
+; One token of lookahead splits the two forms: `(macro (` is the
+; head-list (expression) form, `(macro <ident>` a rule. The pattern
+; repeats the macro's name in head position, as syntax-rules does, and
+; everything after it is the template - each form ONE generated
+; declaration. The template vec rides in the macro node's word 9
+; (unused for macros); word 3, an expression macro's template, stays
+; 0, and that pairing is the discriminator everywhere else.
+(pub :: parseDeclMacro (-> Int Int Int))
+(pub fn (parseDeclMacro tokens pos)
+  (let ((macName (tokenLexeme (vecGet tokens pos)))
+        (macSpan (tokenSpan (vecGet tokens pos)))
+        (p1 (advance pos)))
+    (if (peekIs tokens p1 TK_LPAREN)
+        (if (peekIs tokens (advance p1) TK_LPAREN)
+            (let ((nr (parseIdentName tokens (advance (advance p1)))))
+              (if (== (memGetWord nr 0) 0)
+                  nr
+                  ; The pattern's head must BE the macro's name -
+                  ; syntax-rules' convention, and the hook multi-rule
+                  ; dispatch will hang from.
+                  (if (strEq (memGetWord nr 1) macName)
+                      (let ((paramsR (parseIdentList tokens (memGetWord nr 2) vecNew)))
+                        (if (== (memGetWord paramsR 0) 0)
+                            paramsR
+                            (let ((tplR (parseTplDecls tokens (memGetWord paramsR 2) vecNew)))
+                              (if (== (memGetWord tplR 0) 0)
+                                  tplR
+                                  (let ((after (memGetWord tplR 2)))
+                                    ; the macro form's own closer.
+                                    (if (peekIs tokens after TK_RPAREN)
+                                        (let ((node (mkDMacroAt macName (memGetWord paramsR 1) 0 macSpan)))
+                                          {
+                                            (memSetWord node 9 (memGetWord tplR 1))
+                                            (pOk node (advance after))
+                                          })
+                                        (pErr after)))))))
+                      ; pattern head does not repeat the macro's name
+                      (pErr (advance (advance p1))))))
+            (pErr (advance p1)))
+        (pErr p1))))
+
 (pub :: parseMacroDecl (-> Int Int Int))
 (pub fn (parseMacroDecl tokens pos)
+  (if (peekIs tokens pos TK_IDENT)
+      (parseDeclMacro tokens pos)
   (if (peekIs tokens pos TK_LPAREN)
       (let ((nr (parseIdentName tokens (advance pos))))
         (if (== (memGetWord nr 0) 0) nr
@@ -1877,7 +1999,7 @@
                           (if (peekIs tokens afterBody TK_RPAREN)
                               (pOk (mkDMacroAt macName params body macSpan) (advance afterBody))
                               (pErr afterBody)))))))))
-      (pErr pos)))
+      (pErr pos))))
 
 ; ------------------------------------------------------------------
 ; Parse (fn (name args...) body) at top level.

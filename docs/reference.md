@@ -1110,10 +1110,34 @@ Because the expansion is checked like ordinary code, a mistake inside a
 template is an ordinary diagnostic — including exhaustiveness on a
 `match` the macro generated. The diagnostic anchors at the invocation.
 
-What macros cannot do yet: produce declarations (so there is no
-`derive`), match on the shape of their arguments, or repeat a template
-over a variable number of them. `deriving (Eq)` parses and is
-discarded. The normative specification is
+**A macro can also produce declarations** (2026-08-14). The rule form
+— the macro's bare name, then one rule whose pattern head repeats it —
+generates one declaration per template form when invoked at top level:
+
+```scheme
+(macro defWrap
+  ((defWrap nm target extra)
+   (:: nm (-> Int Int))
+   (fn (nm x) (+ (target x) extra))))
+
+(defWrap w1 base 1)             ; declares w1, a wrapped base
+(defWrap w2 base 100)           ; and w2 - names are parameters
+```
+
+Templates may generate `fn` and `::` declarations and further macro
+invocations; an argument standing in a name position must be a bare
+identifier; invocation is entry-file only. Everything outside that
+surface is refused loudly — `AX3027` at the invocation (`axiom explain
+AX3027`), or `AX3021` at the macro's own line for an unsupported
+template kind. A useful side effect of the form existing: a typo'd
+declaration keyword like `(fnn (broken) 3)` is now `AX3027` naming
+`fnn`, where it used to be a bare `syntax error` that stopped the
+parse.
+
+What macros cannot do yet: match on the shape of their arguments,
+repeat a template over a variable number of them, or inspect a type's
+fields (so there is still no `derive` — `deriving (Eq)` parses and is
+discarded). The normative specification is
 [macro-system.md](macro-system.md); [macros.md](macros.md) is the
 measured detail and the order the rest is planned in.
 

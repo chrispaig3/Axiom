@@ -1,0 +1,23 @@
+; expect 10
+; A macro parameter in TYPE position, and the half that makes it
+; dangerous: a signature's per-arrow float flags are derived from its
+; TOKENS at parse time and codegen keys `fadd` against `add` on them,
+; so substituting `T := Float` without recomputing the flags emits
+; integer arithmetic on double bit patterns - the type-alias slice's
+; measured lesson, and MM-VAL-4b's whole defect class. Phase D
+; recomputes the flags from the substituted type (`expSigFlags`), so
+; `(idFloat 3.5)` really is float-typed end to end:
+;
+;   (idInt 7)                          -> 7
+;   (__floatToInt (idFloat 3.5))      -> 3
+(macro defT ((defT nm T)
+   (:: nm (-> T T))
+   (fn (nm x) x)))
+
+(defT idInt Int)
+
+(defT idFloat Float)
+
+(:: main Int)
+
+(fn (main) (+ (idInt 7) (__floatToInt (idFloat 3.5))))

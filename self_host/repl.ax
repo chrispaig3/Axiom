@@ -322,7 +322,7 @@
             ; error line joins bare MESSAGES (`joinDiagMsgs`), its
             ; goldens pin those bytes, and the prompt IS the invocation
             ; site the frame would point back at.
-            (let ((eds (let ((v vecNew)) { (expandProgram allDecls v vecNew) (lowerImpls allDecls v) v })))
+            (let ((eds (let ((v vecNew)) { (expandProgram decls allDecls v vecNew 0) (lowerImpls allDecls v) v })))
             (let ((ds (expMergeInto eds (checkModule decls allDecls units))))
               (if (> (countErrorDiags ds) 0)
                   {
@@ -571,7 +571,7 @@
                     (let ((allDecls (resolveImports decls bares fulls tcode
                                                     (dirOfPath arg) units)))
                     (let ((eds (let ((v vecNew))
-                                 { (expandProgram allDecls v vecNew)
+                                 { (expandProgram decls allDecls v vecNew 0)
                                    (lowerImpls allDecls v)
                                    v })))
                     (let ((ds (orderDiags (expMergeInto eds (checkModule decls allDecls units)))))

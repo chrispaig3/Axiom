@@ -1,0 +1,49 @@
+; expect 144
+; Declaration macros (macro-system.md MAC-CAP-8, phase D of
+; MAC-EXP-16), the v1 surface in one file:
+;
+;   defWrap   a rule-form macro generating a `::` and an `fn`, its
+;             parameters substituted in NAME position (nm), VALUE
+;             position (extra) and CALL position (target) - invoked
+;             TWICE with different names, which is the case that
+;             proves generated names are parameterised (a fixed-name
+;             template's second invocation would be AX3006)
+;   defPair   a template whose declarations are FURTHER macro
+;             invocations, resolved by the next fixpoint round
+;   QualMac::qmk  a module-defined declaration macro, invoked
+;             qualified from the entry file - the deriveEq story's
+;             realistic shape (stdlib-defined, entry-invoked)
+;
+; Until 2026-08-14 every one of these forms was a fatal bare AX2003
+; "syntax error" at the first unknown head. The unfixed compiler
+; exits 1 on this file.
+(import QualMac)
+
+(macro defWrap ((defWrap nm target extra)
+   (:: nm (-> Int Int))
+   (fn (nm x) (+ (target x) extra))))
+
+(macro defPair ((defPair a b)
+   (defOne a)
+   (defOne b)))
+
+(macro defOne ((defOne nm)
+   (fn (nm) 7)))
+
+(:: base (-> Int Int))
+
+(fn (base n) (* n 2))
+
+(defWrap w1 base 1)
+
+(defWrap w2 base 100)
+
+(defPair p q)
+
+(QualMac::qmk
+  made
+)
+
+(:: main Int)
+
+(fn (main) (+ (+ (w1 5) (w2 5)) (+ (+ p q) made)))

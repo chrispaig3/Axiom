@@ -1,0 +1,11 @@
+; A declaration-macro invocation INSIDE an imported module. The v1
+; surface is entry-file invocation - a module-side one is refused
+; (AX3027) with the reason recorded, not half-supported: generated
+; declarations there would need the module's mangling and visibility
+; applied after import resolution has already run.
+; docs/macro-system.md MAC-CAP-8.
+(import DeclIn)
+
+(:: main Int)
+
+(fn (main) touch)

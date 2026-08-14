@@ -372,7 +372,7 @@
                     ; of diagnostics from `axiom check` on the same file
                     ; would be worse than one that reported none.
                     (let ((ftbl vecNew)
-                          (eds (let ((v vecNew)) { (expandProgram allDecls v ftbl) (lowerImpls allDecls v) v })))
+                          (eds (let ((v vecNew)) { (expandProgram decls allDecls v ftbl units) (lowerImpls allDecls v) v })))
                     ; Expansion's refusals are published ALONE when it
                     ; refused. Running the checker over a tree
                     ; expansion gave up on is how `check` used to

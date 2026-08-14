@@ -71,21 +71,28 @@ is written. It is expanded once per invocation, against that
 invocation's arguments; expanding it in place would rewrite it against
 no arguments at all.
 
-**MAC-LANG-5 (H).** **A macro invocation in declaration position is
-`AX2003`.** Expansion is an expression-position facility only:
+**MAC-LANG-5 (H, 2026-08-14).** **A macro invocation in declaration
+position expands** (`MAC-CAP-8` v1). A top-level form whose head is not
+a declaration keyword parses as a declaration-macro invocation and
+resolves against the same table, with the same visibility and the same
+qualified-name split as expression invocations. A head that names no
+visible rule-form macro — a typo'd keyword lands here too — is
+`AX3027` with the head's name in the message, where it used to be a
+bare `AX2003 "syntax error"` that also stopped the parse at the first
+unknown head, hiding every later diagnostic in the file (measured:
+`tests/diagnostics/500-unknown-decl-head.ax` reports both of its
+typos; the pre-change compiler reported only the first).
 
-```
-$ axiom check m5.ax
-E AX2003 m5.ax:2:2-8 syntax-error "syntax error"
-```
+The two template kinds are disjoint, both ways, and each mismatch is
+`AX3027` at the invocation: an expression macro cannot stand in
+declaration position, and a rule-form macro cannot stand in expression
+position (`tests/diagnostics/505-decl-macro-positions.ax` pins all
+three refusals).
 
-This is a limitation, not a refusal — `MAC-CAP-8` specifies removing it,
-and it is the single restriction that keeps `derive` out of reach.
-
-Note what is *not* refused: a template may be written as a declaration
-form. `(macro (defTwo nm) (fn (nm) 2))` checks `OK`, because an
-uninvoked template is never examined at all (`MAC-EXP-1a`). The refusal
-happens at the invocation, not at the definition.
+An expression macro's template written as a declaration form —
+`(macro (defTwo nm) (fn (nm) 2))` — still checks `OK` uninvoked
+(`MAC-EXP-1a`), and still expands as an *expression* where invoked;
+declaration generation is the rule form's alone (`MAC-CAP-8`).
 
 ### 1.2 The compile-time environment
 
@@ -222,9 +229,14 @@ introduces a head list, `(macro <name>` introduces a rule list — so no
 existing program changes meaning. Each rule's pattern repeats the macro
 name in head position, as `syntax-rules` does.
 
-*Today:* one positional parameter list per macro, no alternatives. A
-mismatched invocation is an arity error, never a fall-through to another
-rule.
+*Today (2026-08-14):* the **rule-list surface exists, with exactly one
+rule, and it is the declaration-macro form** — `MAC-CAP-8` parses
+`(macro name ((name p ...) decl ...))`, the pattern head must repeat
+the macro's name (`AX2001` otherwise), and the parameters are still a
+flat positional list of distinct identifiers. What this rule still
+specifies beyond that: multiple rules tried in order, non-identifier
+patterns (`MAC-LANG-15`), and ellipsis (`MAC-LANG-16`). A mismatched
+invocation is an arity error, never a fall-through to another rule.
 
 **MAC-LANG-14a (P, prerequisite).** **Patterns are not a distinct
 syntactic category today**, and a pattern-macro design must say what it
@@ -614,25 +626,45 @@ a name that appears nowhere on the line pointed at.
 
 ### 2.6 Phases
 
-**MAC-EXP-16 (P).** With declaration macros (`MAC-CAP-8`), expansion
-**SHALL** become a two-phase pass over the declaration list:
+**MAC-EXP-16 (H, v1 2026-08-14).** With declaration macros
+(`MAC-CAP-8`), expansion is a two-phase pass over the declaration list:
 
 1. **Phase D** — expand declaration-position invocations, appending
    their results to the declaration list, to a fixpoint under the
    budgets of `MAC-EXP-9`. A macro invoked in phase D **MAY** produce
-   further declaration invocations; the budgets bound the recursion.
+   further declaration invocations
+   (`tests/selfhost/372-decl-macro.ax`'s `defPair` generates two);
+   the round count is bounded by the depth budget, and a round that
+   resolves nothing new terminates the fixpoint.
 2. **Phase E** — expand expression-position invocations inside every
-   declaration body, exactly as today.
+   declaration body, exactly as before.
 
-Phase D **MUST** complete before the declaration list is fixed, because
-name resolution, `declNamespace` and the checker all read that list.
-Phase D **MUST** run after import resolution, so that a generated
-declaration can refer to imported names.
+Phase D completes before the declaration list is fixed, because name
+resolution, `declNamespace` and the checker all read that list — a
+generated fn's body can invoke expression macros, and a later
+declaration can call a generated function, order-independently like
+everything else at top level (`MAC-LANG-3a`). Phase D runs after
+import resolution, so an invocation can name an imported macro
+qualified (`QualMac::qmk` in fixture 372) and a generated declaration
+can refer to imported names.
 
-**MAC-EXP-17 (P).** A declaration a macro generates **MUST** be
-indistinguishable, to every later pass, from one the author wrote:
-`axiom symbols` lists it, the duplicate-definition check sees it, and
-its visibility is decided by the same `pub` rule.
+*v1 limit:* phase D expands **entry-file invocations only**. An
+invocation inside an imported module is `AX3027` with the reason in
+the note (`tests/diagnostics/515-decl-macro-in-module.ax`): generated
+declarations in a module would need the module's mangling and
+visibility applied after import resolution has already run. The
+refusal is what keeps the limit loud until that is built.
+
+**MAC-EXP-17 (H, v1 2026-08-14).** A declaration a macro generates is
+indistinguishable, to every later pass, from one the author wrote: the
+checker types it, the duplicate-definition check sees it (a fixed-name
+template invoked twice is `AX3006` on the second generated
+declaration), codegen emits it, and a generated signature's per-arrow
+float flags are **recomputed from the substituted type** rather than
+copied from the template's tokens
+(`tests/selfhost/373-decl-macro-types.ax`: `(defT idFloat Float)`
+really is float-typed end to end — the type-alias slice's measured
+defect class, not repeated here).
 
 ---
 
@@ -938,10 +970,11 @@ code is checked — depend on which macro was used.
 
 ### 4.5 Declaration macros and `derive`
 
-**MAC-CAP-8 (P).** A macro **SHALL** be invocable in declaration
-position, producing zero or more declarations, under the phase rules of
-`MAC-EXP-16`. In a declaration macro's rule, **everything after the
-pattern is the template**, and each form in it is one generated
+**MAC-CAP-8 (H, v1 2026-08-14).** A macro is invocable in declaration
+position, producing one or more declarations, under the phase rules of
+`MAC-EXP-16`. The declaration form is the **rule form** — one rule,
+whose pattern head must repeat the macro's name — and **everything
+after the pattern is the template**, each form in it one generated
 declaration:
 
 ```scheme
@@ -951,7 +984,42 @@ declaration:
    (fn ...)))                            ; declaration 2
 ```
 
-*Today:* `AX2003` (`MAC-LANG-5`).
+The v1 surface, all of it measured
+(`tests/selfhost/372-decl-macro.ax` = 144,
+`tests/selfhost/373-decl-macro-types.ax` = 10):
+
+- **Templates generate `fn` and `::` declarations, and further macro
+  invocations** (resolved by the next fixpoint round). Any other
+  declaration kind in a template — `data`, `struct`, `trait`, `impl`,
+  `effect`, `import` — is `AX3021` **at the macro's own line**, before
+  any invocation exists (`MAC-SAFE-4`'s loud-at-definition shape;
+  `tests/diagnostics/510-decl-macro-template-kind.ax`).
+- **A parameter substitutes in name position, type position and
+  expression position.** A name position — a generated declaration's
+  head, a fn's parameter list, a nested invocation's head — requires
+  the argument to be a **bare identifier** (`AX3027` otherwise): a
+  generated declaration's name has to be spellable. A type position
+  recomputes the signature's per-arrow float flags from the
+  substituted type (`MAC-EXP-17`). An expression position substitutes
+  through the expression machinery, so hygiene, spans and the
+  definition-site rule are `MAC-HYG-*`'s, unchanged.
+- **Same table, same visibility, same qualified-name split** as
+  expression macros: a `pub macro` in a module is invocable as
+  `Mod::name` from the entry file (fixture 372's `QualMac::qmk`), a
+  private one is not, and the fn-wins veto (`MAC-HYG-8` item 3)
+  applies.
+- **Arity is exact.** Declaration position has no "surplus applies to
+  the result" story — the result is declarations, not a value — so a
+  count mismatch is the arity diagnostic, not a partial application.
+- **Invocation is entry-file only** in v1; a module-side invocation is
+  `AX3027` with the reason in the note (`MAC-EXP-16`'s limit,
+  `tests/diagnostics/515-decl-macro-in-module.ax`).
+
+Diagnostic: `AX3027` (`declaration-macro`) covers every way a
+declaration-position invocation fails — see `axiom explain AX3027`.
+What `derive` still needs from this rule is `data`/`struct` field
+*inspection* (`MAC-CAP-5`/`MAC-CAP-6`), not more template kinds: a
+`deriveEq` writes `fn` and `::` declarations only.
 
 **MAC-CAP-9 (P).** `derive` **SHALL** be built on `MAC-CAP-8` and
 `MAC-CAP-5`, not on a compiler-internal deriving mechanism.
@@ -1496,10 +1564,10 @@ nicety: without an expansion backtrace, the author of `(machine Door
 
 | Area | Holds today | Planned | Refused |
 |---|---|---|---|
-| Language | LANG-1…12 | LANG-14…18 | LANG-13 |
-| Expansion | EXP-1…15 | EXP-16, EXP-17 | — |
+| Language | LANG-1…12, LANG-14 (one rule — the declaration form) | LANG-14 (multi-rule), LANG-15…18 | LANG-13 |
+| Expansion | EXP-1…15, EXP-16/17 (v1 — entry-file invocation, `fn`/`::`/invocation templates) | EXP-16 (module-side invocation) | — |
 | Hygiene | HYG-1…7 | HYG-8, HYG-9 | — |
-| Capabilities | CAP-1…3 | CAP-4, 6…9 | CAP-5 (with replacement) |
+| Capabilities | CAP-1…3, CAP-8 (v1) | CAP-4, 6, 7, 9 | CAP-5 (with replacement) |
 | Safety | SAFE-1…4 | — | SAFE-5 |
 | Integration | INT-1…3, INT-5 | INT-4, INT-6 | — |
 | Diagnostics | DIAG-1…4 | DIAG-5 | — |
@@ -1527,6 +1595,12 @@ convention; the list, not any one entry, is the argument for gating.
 | `tests/selfhost/367-macro-in-impl.ax` (93) | EXP-3a — the unfixed compiler exits 4 |
 | `tests/selfhost/368-macro-qualified.ax` (47) | LANG-12 — the unfixed compiler refuses with two `AX3001`s |
 | `tests/selfhost/369-macro-vs-function.ax` (15) | HYG-8.3 — the unfixed compiler answers 10, silently |
+| `tests/selfhost/372-decl-macro.ax` (144) | CAP-8, EXP-16 — two invocations of one macro, nested generation, qualified module invocation; the unfixed compiler exits 1 |
+| `tests/selfhost/373-decl-macro-types.ax` (10) | EXP-17 — type-position substitution recomputes the float flags |
+| `tests/diagnostics/500-unknown-decl-head.ax` | CAP-8's unknown-head `AX3027`, twice — the parse no longer stops at the first |
+| `tests/diagnostics/505-decl-macro-positions.ax` | CAP-8's position rules: both template kinds refused across the boundary, and the bare-identifier name rule |
+| `tests/diagnostics/510-decl-macro-template-kind.ax` | CAP-8's template-kind `AX3021`, at the macro's own line |
+| `tests/diagnostics/515-decl-macro-in-module.ax` | EXP-16's v1 limit — module-side invocation refused, at the module's own line |
 | `tests/diagnostics/485-qualified-private-macro.ax` | LANG-12's `AX3023` route for a qualified private macro |
 | `tests/diagnostics/490-expansion-backtrace.ax` | DIAG-4 — one frame and a nested two, spans verified against the macro's own file |
 | `tests/selfhost/363-macro-shadowing.ax` (3) | EXP-5 |
@@ -1555,17 +1629,18 @@ Unpinned, and therefore documentation rather than specification:
 assignment. Each is measurable in a fixture of a few lines, and each is
 a rule a future change could break silently.
 
-**Two documented limitations have no fixture**, and both reproduce
+**One documented limitation has no fixture**, and it reproduces
 exactly as documented — which is precisely the state in which a "fix"
 can silently change behaviour with every gate still green: an
-entry-file macro's free identifier is capturable (`MAC-HYG-8`.1), and a
-macro in declaration position is `AX2003` (`MAC-LANG-5`). (This list
-held four on 2026-08-13, plus one wrong-answer bug: `MAC-LANG-12`'s
-`Pre::when`-is-`AX3001` and `MAC-HYG-8`.3's imported-macro-outranks
-were fixed and pinned on 2026-08-14 by
+entry-file macro's free identifier is capturable (`MAC-HYG-8`.1).
+(This list held four on 2026-08-13, plus one wrong-answer bug:
+`MAC-LANG-12`'s `Pre::when`-is-`AX3001` and `MAC-HYG-8`.3's
+imported-macro-outranks were fixed and pinned on 2026-08-14 by
 `tests/selfhost/368-macro-qualified.ax` and
-`369-macro-vs-function.ax`, and `MAC-EXP-3a`'s `impl`-body miscompile
-by `367-macro-in-impl.ax`.)
+`369-macro-vs-function.ax`, `MAC-EXP-3a`'s `impl`-body miscompile by
+`367-macro-in-impl.ax`, and `MAC-LANG-5`'s
+declaration-position-is-`AX2003` became `MAC-CAP-8` v1, pinned by
+`372-decl-macro.ax`.)
 
 ### 11.2 Are the limits normative?
 
@@ -1593,8 +1668,14 @@ rather than the value alone.
    ordered. The frame element is `(name, span, unit)`, the join is by
    invocation-span handle, and `MAC-DIAG-5`'s second snippet is what
    remains of the rendering.
-3. **`MAC-CAP-8`** — declaration macros, with `MAC-EXP-16`'s phase
-   split. The prerequisite for everything in §10.2–§10.5.
+3. ~~**`MAC-CAP-8`**~~ — **v1 landed 2026-08-14**, with `MAC-EXP-16`'s
+   phase split: rule-form declaration macros generating `fn`/`::`
+   declarations and further invocations, invoked from the entry file,
+   parameters substituting in name, type and expression positions.
+   What remains under this heading: module-side invocation
+   (`MAC-EXP-16`'s stated limit) and the other template kinds
+   (`AX3021` today, at the macro's line). The prerequisite for
+   everything in §10.2–§10.5 now exists.
 4. **`MAC-CAP-5`/`MAC-CAP-6`** — the query vocabulary. Small, closed,
    and the piece that makes `derive` a library rather than a compiler
    feature.

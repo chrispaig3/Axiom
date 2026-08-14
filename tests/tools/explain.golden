@@ -40,6 +40,7 @@
   [93mAX3024[0m  macro expansion produced more than the limit  (macro-expansion-limit)
   [93mAX3025[0m  a trait implementation the compiler cannot use  (trait-impl)
   [93mAX3026[0m  a name the emitted runtime owns  (reserved-runtime-name)
+  [93mAX3027[0m  a declaration-macro invocation the expander cannot resolve  (declaration-macro)
   [93mAX4001[0m  no `main` function  (missing-main)
   [93mAX4002[0m  code generation failed  (codegen-failure)
   [93mAX4003[0m  external toolchain command failed  (toolchain-failure)
@@ -467,6 +468,29 @@ See docs/memory-model.md MM-ALLOC-8.
 Only an entry-file definition collides: a module's declaration is
 mangled to `Mod$axiom_alloc`, a different symbol.
 
+### explain AX3027
+AX3027 - a declaration-macro invocation the expander cannot resolve
+
+A top-level form whose head is not a declaration keyword is a
+DECLARATION MACRO INVOCATION: the head must name a visible rule-form
+macro - `(macro name ((name args ...) (fn ...) ...))` - whose
+template declarations are instantiated in its place. This code covers
+every way that fails:
+
+  - the head names no visible macro (a typo'd keyword lands here too,
+    where it used to be a bare `syntax error`)
+  - the head names an EXPRESSION macro, whose template is one
+    expression and cannot stand in declaration position
+  - a declaration macro is referenced in EXPRESSION position - the
+    two template kinds are disjoint
+  - the invocation sits inside an imported module (the v1 surface is
+    entry-file invocation; generated declarations in a module would
+    need its mangling and visibility applied after resolution)
+  - an argument bound to a NAME position of the template - a
+    declaration head or a parameter list - is not a bare identifier
+
+See docs/macro-system.md MAC-CAP-8.
+
 ### explain AX4001
 AX4001 - no `main` function
 
@@ -569,6 +593,7 @@ run `axiom explain --list` to see all known codes
   [93mAX3024[0m  macro expansion produced more than the limit  (macro-expansion-limit)
   [93mAX3025[0m  a trait implementation the compiler cannot use  (trait-impl)
   [93mAX3026[0m  a name the emitted runtime owns  (reserved-runtime-name)
+  [93mAX3027[0m  a declaration-macro invocation the expander cannot resolve  (declaration-macro)
   [93mAX4001[0m  no `main` function  (missing-main)
   [93mAX4002[0m  code generation failed  (codegen-failure)
   [93mAX4003[0m  external toolchain command failed  (toolchain-failure)

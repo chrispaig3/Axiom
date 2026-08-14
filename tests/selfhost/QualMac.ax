@@ -4,5 +4,12 @@
 ; private one, which stays reachable from nowhere else however it is
 ; spelled.
 (pub macro (qdbl x) (+ x x))
+
 (pub macro (qfive) 5)
+
 (macro (qsecret x) (+ x 100))
+
+; The declaration-macro half (fixture 372): exported rule-form macro,
+; invoked qualified from the entry file.
+(pub macro qmk ((qmk nm)
+   (pub fn (nm) 9)))

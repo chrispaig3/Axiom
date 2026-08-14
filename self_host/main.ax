@@ -284,7 +284,7 @@
                   ; of `self_host/expand.ax` for what that cost.
                   (let ((eds vecNew) (ftbl vecNew))
                   {
-                    (expandProgram allDecls eds ftbl)
+                    (expandProgram decls allDecls eds ftbl units)
                     ; Impls become ordinary declarations before the
                     ; checker runs, so their bodies are checked like
                     ; any others - they used to be checked not at all.
@@ -601,7 +601,7 @@
                             ; file is well-formed is the drift this
                             ; repository names most often.
                             (let ((ftbl vecNew)
-                                  (eds (let ((v vecNew)) { (expandProgram allDecls v ftbl) (lowerImpls allDecls v) v })))
+                                  (eds (let ((v vecNew)) { (expandProgram decls allDecls v ftbl units) (lowerImpls allDecls v) v })))
                             ; Expansion refused: do not type-check what
                             ; it gave up on. `compileFile` says why.
                             (let ((_stop (if (> (countErrorDiags eds) 0)
