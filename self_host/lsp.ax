@@ -440,7 +440,17 @@
             (while (< i (vecLen decls))
               (let ((n (vecGet decls i)))
                 {
-                  (if (&& (lspWantsSymbol (nodeTag n)) (!= (nodeSpan n) 0))
+                  ; A `(syntax/join a b)` name parses to the marker
+                  ; string "syntax/join a b" (space-joined). The
+                  ; outline reads the RAW parse tree - deliberately,
+                  ; see the header - so a half-written derive macro's
+                  ; marker would otherwise publish its space-bearing
+                  ; spelling to the editor. Skipped: the expander is
+                  ; what resolves or refuses it, and either way the
+                  ; marker is not a name anyone can navigate to.
+                  (if (&& (lspWantsSymbol (nodeTag n))
+                          (&& (!= (nodeSpan n) 0)
+                              (== (expIsJoinMarker (nodeA n)) 0)))
                       (jsonArrPush out
                         (jsonObjPut
                           (jsonObjPut

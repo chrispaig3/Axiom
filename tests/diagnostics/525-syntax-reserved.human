@@ -1,0 +1,41 @@
+[1;31merror[AX3028][0m[1m: a `(syntax/join ...)` name stands in a declaration macro's template, not in ordinary code[0m
+  [1;34m--> [0m525-syntax-reserved.ax:15:5
+[1;34m   |[0m
+[1;34m15 |[0m (:: (syntax/join eq T) (-> Int Int))
+[1;34m   |[0m     [1;31m^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0mthe query vocabulary is CLOSED and compiler-implemented (macro-system.md MAC-CAP-5/6): every query is answered from the declaration list at expansion time, and a query with no answer is this refusal, never a default value
+  [1;34m = [0m[1;32mhelp: [0mthe syntax/ spellings belong to the query vocabulary (macro-system.md MAC-CAP-5/6); pick another name, or move the declaration into a macro template
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3028` for a full explanation
+
+[1;31merror[AX3028][0m[1m: a `(syntax/join ...)` name stands in a declaration macro's template, not in ordinary code[0m
+  [1;34m--> [0m525-syntax-reserved.ax:16:6
+[1;34m   |[0m
+[1;34m16 |[0m (fn ((syntax/join eq T) x) x)
+[1;34m   |[0m      [1;31m^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0mthe query vocabulary is CLOSED and compiler-implemented (macro-system.md MAC-CAP-5/6): every query is answered from the declaration list at expansion time, and a query with no answer is this refusal, never a default value
+  [1;34m = [0m[1;32mhelp: [0mthe syntax/ spellings belong to the query vocabulary (macro-system.md MAC-CAP-5/6); pick another name, or move the declaration into a macro template
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3028` for a full explanation
+
+[1;31merror[AX3028][0m[1m: `syntax/join` declares a name in the reserved `syntax/` prefix[0m
+  [1;34m--> [0m525-syntax-reserved.ax:18:6
+[1;34m   |[0m
+[1;34m18 |[0m (fn (syntax/join a b) (+ a b))
+[1;34m   |[0m      [1;31m^^^^^^^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0mthe query vocabulary is CLOSED and compiler-implemented (macro-system.md MAC-CAP-5/6): every query is answered from the declaration list at expansion time, and a query with no answer is this refusal, never a default value
+  [1;34m = [0m[1;32mhelp: [0mthe syntax/ spellings belong to the query vocabulary (macro-system.md MAC-CAP-5/6); pick another name, or move the declaration into a macro template
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3028` for a full explanation
+
+[1;31merror[AX3028][0m[1m: syntax/for stands in a macro template's match, not in ordinary code[0m
+  [1;34m--> [0m525-syntax-reserved.ax:21:19
+[1;34m   |[0m
+[1;34m21 |[0m (fn (g) (match 1 (syntax/for (C (syntax/constructors X)) ((C) 1)) (_ 0)))
+[1;34m   |[0m                   [1;31m^^^^^^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0mthe query vocabulary is CLOSED and compiler-implemented (macro-system.md MAC-CAP-5/6): every query is answered from the declaration list at expansion time, and a query with no answer is this refusal, never a default value
+  [1;34m = [0m[1;32mhelp: [0miteration is an expansion-time facility: move the match into a declaration macro's template, or write the arms by hand
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3028` for a full explanation
+
+compilation failed due to 4 previous errors

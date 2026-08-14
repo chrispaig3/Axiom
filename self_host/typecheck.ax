@@ -4819,17 +4819,36 @@
 (pub fn (checkArms tc arms i covered catchall resTy)
   (if (>= i (vecLen arms))
       resTy
-      (let ((arm (vecGet arms i))
-            (mark (vecLen (tcScope tc))))
-        {
-          (recordCoverage (nodeA arm) covered catchall)
-          (checkPatternTyped tc (nodeA arm) 0)
-          (let ((t (checkExprH tc (nodeB arm) 0)))
+      (let ((arm (vecGet arms i)))
+        (if (== (nodeTag arm) TAG_M_FOR)
+            ; An UNEXPANDED `syntax/for` arm. The main pipelines never
+            ; deliver one - phase E refuses it and substitutes a
+            ; poison arm - but the REPL's bare-expression path types
+            ; WITHOUT expansion (stage0 parity), and walking this
+            ; node's words as a pattern and a body reads a Str handle
+            ; as a node: for a one-byte binder the length word
+            ; happens to mimic TAG_E_INT and the walk survives by
+            ; luck; a longer one is garbage. Refuse it as the
+            ; expander would, and skip the arm.
             {
-              (scopeTrunc (tcScope tc) mark)
-              (checkArms tc arms (+ i 1) covered catchall t)
-            })
-        })))
+              (emitDiag tc (mkDiagNote SEV_ERROR "AX3028" "syntax-query"
+                (nodeSpan arm)
+                "syntax/for stands in a macro template's match, not in ordinary code"
+                0 0
+                "iteration is an expansion-time facility: move the match into a declaration macro's template, or write the arms by hand"
+                "the query vocabulary is CLOSED and compiler-implemented (macro-system.md MAC-CAP-5/6): every query is answered from the declaration list at expansion time"))
+              (checkArms tc arms (+ i 1) covered catchall resTy)
+            }
+            (let ((mark (vecLen (tcScope tc))))
+              {
+                (recordCoverage (nodeA arm) covered catchall)
+                (checkPatternTyped tc (nodeA arm) 0)
+                (let ((t (checkExprH tc (nodeB arm) 0)))
+                  {
+                    (scopeTrunc (tcScope tc) mark)
+                    (checkArms tc arms (+ i 1) covered catchall t)
+                  })
+              })))))
 
 ; What an arm covers: a parenthesised nullary constructor or a
 ; fieldful pattern's head name. A bare identifier is a catch-all -

@@ -1,0 +1,31 @@
+[1;31merror[AX3028][0m[1m: `syntax/nope` is not a query this position answers[0m
+  [1;34m--> [0m520-syntax-query-misuse.ax:23:2
+[1;34m   |[0m
+[1;34m23 |[0m (badQuery D)
+[1;34m   |[0m  [1;31m^^^^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0mthe query vocabulary is CLOSED and compiler-implemented (macro-system.md MAC-CAP-5/6): every query is answered from the declaration list at expansion time, and a query with no answer is this refusal, never a default value
+  [1;34m = [0m[1;32mhelp: [0mv1 answers syntax/join in declaration-name position, syntax/constructors as an iteration sequence, and syntax/for in match-arm position; the rest of the MAC-CAP-5 table refuses until it lands
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3028` for a full explanation
+
+[1;31merror[AX3028][0m[1m: `Pt` is not a `data` declaration, so it has no constructors[0m
+  [1;34m--> [0m520-syntax-query-misuse.ax:21:23
+[1;34m   |[0m
+[1;34m21 |[0m    (fn (os) (match 1 (syntax/for (C (syntax/constructors T)) ((C) 1))))))
+[1;34m   |[0m                       [1;31m^^^^^^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0mthe query vocabulary is CLOSED and compiler-implemented (macro-system.md MAC-CAP-5/6): every query is answered from the declaration list at expansion time, and a query with no answer is this refusal, never a default value
+  [1;34m = [0m[1;32mhelp: [0msyntax/constructors answers `data` types; a struct's query is syntax/fields
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3028` for a full explanation
+
+[1;31merror[AX3028][0m[1m: no declaration named `Ghost` for syntax/constructors to answer[0m
+  [1;34m--> [0m520-syntax-query-misuse.ax:21:23
+[1;34m   |[0m
+[1;34m21 |[0m    (fn (os) (match 1 (syntax/for (C (syntax/constructors T)) ((C) 1))))))
+[1;34m   |[0m                       [1;31m^^^^^^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0mthe query vocabulary is CLOSED and compiler-implemented (macro-system.md MAC-CAP-5/6): every query is answered from the declaration list at expansion time, and a query with no answer is this refusal, never a default value
+  [1;34m = [0m[1;32mhelp: [0mthe query reads the declaration list; check the spelling, and declare the type before deriving over it
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3028` for a full explanation
+
+compilation failed due to 3 previous errors

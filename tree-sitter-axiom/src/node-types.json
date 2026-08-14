@@ -761,6 +761,10 @@
           {
             "type": "identifier",
             "named": true
+          },
+          {
+            "type": "syntax_join_name",
+            "named": true
           }
         ]
       },
@@ -1231,6 +1235,10 @@
           {
             "type": "match_arm",
             "named": true
+          },
+          {
+            "type": "syntax_for_arm",
+            "named": true
           }
         ]
       },
@@ -1603,6 +1611,72 @@
           {
             "type": "pub",
             "named": false
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "syntax_for_arm",
+    "named": true,
+    "fields": {
+      "arm": {
+        "multiple": true,
+        "required": true,
+        "types": [
+          {
+            "type": "match_arm",
+            "named": true
+          },
+          {
+            "type": "syntax_for_arm",
+            "named": true
+          }
+        ]
+      },
+      "binder": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "sequence": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "_expression",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "syntax_join_name",
+    "named": true,
+    "fields": {
+      "left": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "right": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
           }
         ]
       }
@@ -2215,6 +2289,14 @@
   },
   {
     "type": "struct",
+    "named": false
+  },
+  {
+    "type": "syntax/for",
+    "named": false
+  },
+  {
+    "type": "syntax/join",
     "named": false
   },
   {

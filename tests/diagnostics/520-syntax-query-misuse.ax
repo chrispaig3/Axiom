@@ -1,0 +1,31 @@
+; The query vocabulary is CLOSED and its misuses refuse by name
+; (MAC-CAP-6) - three AX3028s, all anchored where the offense is:
+;
+;   badQuery   a `syntax/` head the vocabulary does not answer, or one
+;              standing in a position it does not own
+;   overStruct syntax/constructors asked about a STRUCT
+;   overGhost  syntax/constructors asked about a name that declares
+;              nothing
+;
+; Every template here is otherwise well-formed, so each refusal is the
+; query's own, not a parse artifact.
+(struct Pt
+  (x : Int))
+
+(data D (A))
+
+(macro badQuery ((badQuery T)
+   (fn (bq) (syntax/nope T))))
+
+(macro overStruct ((overStruct T)
+   (fn (os) (match 1 (syntax/for (C (syntax/constructors T)) ((C) 1))))))
+
+(badQuery D)
+
+(overStruct Pt)
+
+(overStruct Ghost)
+
+(:: main Int)
+
+(fn (main) 0)

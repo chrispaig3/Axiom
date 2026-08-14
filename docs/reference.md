@@ -1134,12 +1134,37 @@ declaration keyword like `(fnn (broken) 3)` is now `AX3027` naming
 `fnn`, where it used to be a bare `syntax error` that stopped the
 parse.
 
+**A declaration macro can ask about the program's types** — through
+the `syntax/*` query vocabulary, a closed set of questions the
+expander answers from the declaration list at compile time, with no
+user code running. Three queries exist, and together they make
+`deriveEq` over any sum type an ordinary macro:
+
+```scheme
+(pub macro deriveEq
+  ((deriveEq T)
+   (:: (syntax/join eq T) (-> T T Bool))       ; names eqColor
+   (fn ((syntax/join eq T) a b)
+     (match a
+       (syntax/for (C (syntax/constructors T)) ; one arm per ctor
+         ((C) (match b ((C) true) (_ false))))))))
+
+(data Color () (Red) (Green) (Blue))
+(deriveEq Color)                               ; eqColor, checked code
+```
+
+A query with no answer — an unknown `syntax/` head, `constructors` of
+a struct, a query outside a template — is `AX3028` (`axiom explain
+AX3028`), never a default. The `syntax/` prefix is reserved in
+declaration names.
+
 What macros cannot do yet: match on the shape of their arguments,
-repeat a template over a variable number of them, or inspect a type's
-fields (so there is still no `derive` — `deriving (Eq)` parses and is
-discarded). The normative specification is
-[macro-system.md](macro-system.md); [macros.md](macros.md) is the
-measured detail and the order the rest is planned in.
+repeat a template over a variable number of them, or inspect a
+struct's or constructor's *fields* (so fieldful `derive` is still to
+come — `deriving (Eq)` parses and is discarded). The normative
+specification is [macro-system.md](macro-system.md);
+[macros.md](macros.md) is the measured detail and the order the rest
+is planned in.
 
 ---
 

@@ -168,7 +168,19 @@
                  ; happens to share the offset - the derivability
                  ; gate caught exactly that on the first module-side
                  ; declaration-macro refusal.
-                 (units : Int))
+                 (units : Int)
+                 ; The syntax/for binding stack (MAC-CAP-5): one
+                 ; 4-word record per ACTIVE iteration - the binder's
+                 ; name, the current element, the sequence's identity
+                 ; key ("constructors Color"), and the element index.
+                 ; Innermost binding last, searched backward. Saved,
+                 ; RESET to empty, and restored around each template
+                 ; instantiation - a nested macro's template must not
+                 ; see the enclosing template's iteration variables,
+                 ; exactly as `macmod` is scoped - and restored BEFORE
+                 ; the output walk, because a binding is dead the
+                 ; moment `substTpl` returns.
+                 (forstack : Int))
 
 (pub :: expMacros (-> Int Int)) (pub fn (expMacros env) (memGetWord env 0))
 (pub :: expOut    (-> Int Int)) (pub fn (expOut    env) (memGetWord env 1))
@@ -621,6 +633,253 @@
 ; which made one template node reachable from every call site - safe
 ; only for as long as nothing writes to a node, and renaming writes.
 ; ------------------------------------------------------------------
+; ==================================================================
+; The syntax/* query vocabulary (MAC-CAP-5/6), v1: syntax/join in
+; declaration NAME position, syntax/constructors as an iteration
+; sequence, syntax/for in match-ARM position. Every query is answered
+; at INSTANTIATION time, from the declaration list the expander
+; already holds - reading that table is not evaluation (MAC-CAP-6) -
+; and every miss, misuse, or out-of-template occurrence is AX3028 at
+; the offending node, never a default value. The vocabulary is CLOSED:
+; a `syntax/`-prefixed head this file does not implement refuses by
+; name, and the prefix is reserved in declaration names outright
+; (`expCheckDeclNames`; corpus population was zero when the
+; reservation landed, 2026-08-14).
+; ==================================================================
+
+; One ACTIVE iteration binding: the binder's spelling, the element it
+; currently denotes, the sequence's identity key ("constructors
+; Color") and the element's index. The key and index exist for
+; `syntax/same` (commit B) and cost nothing to record now.
+(pub struct ForBind (name : String) (elem : String) (key : String) (idx : Int))
+
+(pub :: expForStack (-> Int Int))
+(pub fn (expForStack env) (memGetWord env 13))
+
+(pub :: expForLookup (-> Int String Int))
+(pub fn (expForLookup env name)
+  (let ((fs (expForStack env)))
+    (expForLookupFrom fs name (- (vecLen fs) 1))))
+
+(pub :: expForLookupFrom (-> Int String Int Int))
+(pub fn (expForLookupFrom fs name i)
+  (if (< i 0)
+      0
+      (let ((b (vecGet fs i)))
+        (if (strEq (memGetWord b 0) name)
+            (memGetWord b 1)
+            (expForLookupFrom fs name (- i 1))))))
+
+(pub :: expUpperFirst (-> String String))
+(pub fn (expUpperFirst s)
+  (if (== (strLen s) 0)
+      s
+      (let ((b (strByte s 0)))
+        (if (&& (>= b 97) (<= b 122))
+            (let ((out (strDup s)))
+              { (memPutByte (strData out) 0 (- b 32)) out })
+            s))))
+
+; `lens` + `Point` is `lensPoint`, `get` + `x` is `getX`: the second
+; part's first letter is upcased, nothing else moves.
+(pub :: expJoinName (-> String String String))
+(pub fn (expJoinName a b) (strConcat a (expUpperFirst b)))
+
+; The join marker the parser writes into a declaration's name slot:
+; "syntax/join a b", space-joined, unambiguous because a space can
+; never appear in a lexed identifier.
+(pub :: expIsJoinMarker (-> String Int))
+(pub fn (expIsJoinMarker s)
+  (if (strStartsWith s "syntax/join ") 1 0))
+
+(pub :: expMarkerSpaceAt (-> String Int Int))
+(pub fn (expMarkerSpaceAt s i)
+  (if (>= i (strLen s))
+      (strLen s)
+      (if (== (strByte s i) 32)
+          i
+          (expMarkerSpaceAt s (+ i 1)))))
+
+; Part 0 or part 1 of the marker's payload (the two joined names).
+(pub :: expMarkerPart (-> String Int String))
+(pub fn (expMarkerPart s which)
+  (let ((from 12))
+    (let ((sp (expMarkerSpaceAt s from)))
+      (if (== which 0)
+          (strSlice s from (- sp from))
+          (strSlice s (+ sp 1) (- (strLen s) (+ sp 1)))))))
+
+; The family's one diagnostic. `m` is the module whose file the span
+; indexes (0 = the entry file), resolved to a unit exactly as the
+; other expander diagnostics resolve theirs.
+(pub :: expQueryErr (-> Int Int Int Int Int Int))
+(pub fn (expQueryErr env sp msg help m)
+  {
+    (expEmit env (expMarkUnit env
+                   (mkDiagNote SEV_ERROR "AX3028" "syntax-query"
+                               sp msg 0 0 help
+                               "the query vocabulary is CLOSED and compiler-implemented (macro-system.md MAC-CAP-5/6): every query is answered from the declaration list at expansion time, and a query with no answer is this refusal, never a default value")
+                   m))
+    0
+  })
+
+; Resolve a query-argument identifier: an active for-binding first
+; (innermost wins), then a macro parameter - whose argument must be a
+; bare identifier, the same rule a name position enforces - then the
+; identifier itself.
+(pub :: expResolveQueryName (-> Int String Int Int Int Int))
+(pub fn (expResolveQueryName env s params args isp)
+  (let ((fe (expForLookup env s)))
+    (if (!= fe 0)
+        fe
+        (let ((idx (expParamIndex params s)))
+          (if (< idx 0)
+              s
+              (let ((a (vecGet args idx)))
+                (if (== (nodeTag a) TAG_E_VAR)
+                    (nodeA a)
+                    (expQueryErr env isp
+                      (strConcat (strConcat "a syntax/* query's argument must be a bare identifier; `" s)
+                                 "` was given an expression")
+                      "pass a plain name in this argument position"
+                      (expMacMod env)))))))))
+
+; `(syntax/constructors T)`: the constructor names of entry-file
+; `data` type T, in declaration order. Two passes over the
+; declaration list - entry-only for the ANSWER, any-module for the
+; refusal's wording - mirroring the declaration-macro v1 limit.
+(pub :: expConstructorsOf (-> Int String Int Int))
+(pub fn (expConstructorsOf env t isp)
+  (let ((d (expFindDeclNamed env t 1)))
+    (if (!= d 0)
+        (if (== (nodeTag d) TAG_D_DATA)
+            (let ((names vecNew) (cs (nodeB d)) (mut i 0))
+              {
+                (while (< i (vecLen cs))
+                  {
+                    (vecPush names (nodeA (vecGet cs i)))
+                    (set i (+ i 1))
+                  })
+                (let ((r vecNew))
+                  {
+                    (vecPush r (strConcat "constructors " t))
+                    (vecPush r names)
+                    r
+                  })
+              })
+            (expQueryErr env isp
+              (strConcat (strConcat "`" t)
+                         "` is not a `data` declaration, so it has no constructors")
+              "syntax/constructors answers `data` types; a struct's query is syntax/fields"
+              (expMacMod env)))
+        (let ((any (expFindDeclNamed env t 0)))
+          (if (!= any 0)
+              (expQueryErr env isp
+                (strConcat (strConcat (strConcat "`" t)
+                           "` is declared in module `")
+                           (strConcat (nodeModule any) "`; v1 queries answer entry-file types only"))
+                "declare the type in the entry file, or write the declarations by hand"
+                (expMacMod env))
+              (expQueryErr env isp
+                (strConcat (strConcat "no declaration named `" t)
+                           "` for syntax/constructors to answer")
+                "the query reads the declaration list; check the spelling, and declare the type before deriving over it"
+                (expMacMod env)))))))
+
+; Type-namespace lookup for a query subject. entryOnly=1 answers only
+; entry-file declarations (module word 0 or "").
+(pub :: expFindDeclNamed (-> Int String Int Int))
+(pub fn (expFindDeclNamed env t entryOnly)
+  (expFindDeclNamedFrom (expDecls env) t entryOnly 0))
+
+(pub :: expFindDeclNamedFrom (-> Int String Int Int Int))
+(pub fn (expFindDeclNamedFrom decls t entryOnly i)
+  (if (>= i (vecLen decls))
+      0
+      (let ((d (vecGet decls i)))
+        (if (&& (|| (== (nodeTag d) TAG_D_DATA) (== (nodeTag d) TAG_D_STRUCT))
+                (&& (strEq (nodeA d) t)
+                    (|| (== entryOnly 0)
+                        (== (expModEq (nodeModule d) 0) 1))))
+            d
+            (expFindDeclNamedFrom decls t entryOnly (+ i 1))))))
+
+; Evaluate an iteration SEQUENCE expression. v1 accepts exactly the
+; one-argument `(syntax/constructors T)` spine; the answer is a
+; two-slot record - the identity key, then the name vector - or 0
+; with the refusal already emitted.
+(pub :: expEvalSeq (-> Int Int Int Int Int Int))
+(pub fn (expEvalSeq env seq params args isp)
+  (if (&& (== (nodeTag seq) TAG_E_APP)
+          (&& (== (nodeTag (nodeA seq)) TAG_E_VAR)
+              (== (nodeTag (nodeB seq)) TAG_E_VAR)))
+      (let ((head (nodeA (nodeA seq))))
+        (if (strEq head "syntax/constructors")
+            (let ((t (expResolveQueryName env (nodeA (nodeB seq)) params args isp)))
+              (if (== t 0)
+                  0
+                  (expConstructorsOf env t isp)))
+            (expQueryErr env (nodeSpan seq)
+              (strConcat (strConcat "`" head)
+                         "` is not an iteration sequence this vocabulary answers")
+              "v1 sequences are `(syntax/constructors T)`; syntax/fields, syntax/binders and the parallel form are specified (macro-system.md MAC-CAP-5) and refuse until they land"
+              (expMacMod env))))
+      (expQueryErr env (if (!= (nodeSpan seq) 0) (nodeSpan seq) isp)
+        "syntax/for's sequence must be a query spine - `(syntax/constructors T)` in v1"
+        "write the sequence as a single one-argument query"
+        (expMacMod env))))
+
+; For-variable substitution on the PATTERN side, run before the
+; binder renaming: a for-variable substitutes in CONSTRUCTOR
+; positions - a parenthesised nullary test, a named-field pattern's
+; head, a fieldful spine's head - and nowhere else. A bare variable
+; spelled like the for-variable stays what a bare variable in pattern
+; position is, a binder, which then shadows the iteration variable in
+; its arm - the same rule a template binder follows.
+(pub :: expSubstPatFor (-> Int Int Int Int))
+(pub fn (expSubstPatFor p env isp)
+  (if (|| (== p 0) (== (vecLen (expForStack env)) 0))
+      p
+      (let ((tag (nodeTag p)))
+        (if (== tag TAG_P_CON0)
+            (let ((e (expForLookup env (nodeA p))))
+              (if (== e 0)
+                  p
+                  (mkNodeAt TAG_P_CON0 e 0 0 isp)))
+        (if (== tag TAG_P_CONNAMED)
+            (let ((e (expForLookup env (nodeA p))))
+              (mkNodeAt TAG_P_CONNAMED
+                        (if (== e 0) (nodeA p) e)
+                        (nodeB p)
+                        (expSubstPatForVec (nodeC p) env isp) isp))
+        (if (== tag TAG_E_APP)
+            (expSubstPatForSpine p env isp)
+        p))))))
+
+(pub :: expSubstPatForSpine (-> Int Int Int Int))
+(pub fn (expSubstPatForSpine p env isp)
+  (if (== (nodeTag p) TAG_E_APP)
+      (mkEApp (expSubstPatForSpine (nodeA p) env isp)
+              (expSubstPatFor (nodeB p) env isp))
+      (if (== (nodeTag p) TAG_E_VAR)
+          (let ((e (expForLookup env (nodeA p))))
+            (if (== e 0)
+                p
+                (mkEVarAt e isp)))
+          p)))
+
+(pub :: expSubstPatForVec (-> Int Int Int Int))
+(pub fn (expSubstPatForVec ps env isp)
+  (let ((acc vecNew) (mut i 0))
+    {
+      (while (< i (vecLen ps))
+        {
+          (vecPush acc (expSubstPatFor (vecGet ps i) env isp))
+          (set i (+ i 1))
+        })
+      acc
+    }))
+
 (pub :: substTpl (-> Int Int Int Int Int Int Int))
 (pub fn (substTpl tpl params args ren env isp)
   (if (== tpl 0)
@@ -631,18 +890,41 @@
                 (|| (== tag TAG_E_STR)
                     (|| (== tag TAG_E_FLT) (== tag TAG_E_CHAR))))
             tpl
-        ; --- a name: a rename, a parameter, or itself --------------
+        ; --- a name: a rename, a for-binding, a parameter, or ------
+        ; --- itself, in that order ---------------------------------
         (if (== tag TAG_E_VAR)
             (let ((r (expRenLookup ren (nodeA tpl))))
               (if (!= r 0)
                   (mkEVarAt r isp)
-                  (let ((idx (expParamIndex params (nodeA tpl))))
-                    (if (< idx 0)
-                        ; Neither a template binder nor a parameter, so
-                        ; a FREE identifier: resolved where the macro
-                        ; was written, not where it was called.
-                        (mkEVarAt (expQualify env (nodeA tpl)) isp)
-                        (vecGet args idx)))))
+                  (let ((fe (expForLookup env (nodeA tpl))))
+                    (if (!= fe 0)
+                        (mkEVarAt fe isp)
+                        (let ((idx (expParamIndex params (nodeA tpl))))
+                          (if (< idx 0)
+                              ; A `syntax/`-spelled name that survived
+                              ; the lookups above is a query this
+                              ; vocabulary does not answer, or one
+                              ; standing in a position it does not
+                              ; own - the vocabulary is CLOSED
+                              ; (MAC-CAP-6), so it refuses by name
+                              ; instead of drifting into expQualify
+                              ; and dying later as an undefined
+                              ; variable that blames the wrong thing.
+                              (if (strStartsWith (nodeA tpl) "syntax/")
+                                  {
+                                    (expQueryErr env isp
+                                      (strConcat (strConcat "`" (nodeA tpl))
+                                                 "` is not a query this position answers")
+                                      "v1 answers syntax/join in declaration-name position, syntax/constructors as an iteration sequence, and syntax/for in match-arm position; the rest of the MAC-CAP-5 table refuses until it lands"
+                                      (expMacMod env))
+                                    (mkEInt 0)
+                                  }
+                                  ; Neither a template binder nor a
+                                  ; parameter, so a FREE identifier:
+                                  ; resolved where the macro was
+                                  ; written, not where it was called.
+                                  (mkEVarAt (expQualify env (nodeA tpl)) isp))
+                              (vecGet args idx)))))))
         (if (== tag TAG_E_APP)
             (mkNodeAt TAG_E_APP
                       (substTpl (nodeA tpl) params args ren env isp)
@@ -803,16 +1085,62 @@
 (pub fn (substArmsIn arms params args ren env isp acc i)
   (if (>= i (vecLen arms))
       acc
-      (let ((arm (vecGet arms i))
-            (mark (vecLen ren)))
-        (let ((pat (expRenamePat (nodeA arm) ren env isp)))
-          (let ((body (substTpl (nodeB arm) params args ren env isp)))
+      (let ((arm (vecGet arms i)))
+        (if (== (nodeTag arm) TAG_M_FOR)
             {
-              (expTrunc ren mark)
-              (substArmsIn arms params args ren env isp
-                           (vecPush acc (mkNodeAt TAG_M_ARM pat body 0 isp))
-                           (+ i 1))
-            })))))
+              (expSpliceForArms arm params args ren env isp acc)
+              (substArmsIn arms params args ren env isp acc (+ i 1))
+            }
+            (let ((mark (vecLen ren)))
+              ; For-variable substitution runs BEFORE the binder
+              ; renaming, on EVERY arm while an iteration is active -
+              ; deriveEq's inner `(match b ((C) true) ...)` is the
+              ; for-arm's BODY, so its patterns arrive here through
+              ; the ordinary TAG_E_MATCH walk, not through the
+              ; TAG_M_FOR dispatch above.
+              (let ((pat (expRenamePat (expSubstPatFor (nodeA arm) env isp)
+                                       ren env isp)))
+                (let ((body (substTpl (nodeB arm) params args ren env isp)))
+                  {
+                    (expTrunc ren mark)
+                    (substArmsIn arms params args ren env isp
+                                 (vecPush acc (mkNodeAt TAG_M_ARM pat body 0 isp))
+                                 (+ i 1))
+                  })))))))
+
+; Splice a TAG_M_FOR: evaluate the sequence, then instantiate the
+; template arms once per element with the binding pushed - through
+; substArmsIn itself, so a NESTED syntax/for inside the template arms
+; splices the same way. Each element's instantiation gets its own
+; binder renames (the mark/trunc inside substArmsIn), so two spliced
+; arms can never share a renamed binder. A refused sequence splices
+; one poison arm - `_` answering 0 - because the REPL runs the
+; checker even after expansion refused, and the tree it walks must be
+; well-formed.
+(pub :: expSpliceForArms (-> Int Int Int Int Int Int Int Int))
+(pub fn (expSpliceForArms farm params args ren env isp acc)
+  (let ((sr (expEvalSeq env (nodeB farm) params args
+                        (if (!= (nodeSpan farm) 0) (nodeSpan farm) isp))))
+    (if (== sr 0)
+        {
+          (vecPush acc (mkNodeAt TAG_M_ARM (mkEVarAt "_" isp) (mkEInt 0) 0 isp))
+          0
+        }
+        (expSpliceForElems farm params args ren env isp acc
+                           (vecGet sr 0) (vecGet sr 1) 0))))
+
+(pub :: expSpliceForElems (-> Int Int Int Int Int Int Int Int Int Int Int))
+(pub fn (expSpliceForElems farm params args ren env isp acc key names j)
+  (if (>= j (vecLen names))
+      0
+      (let ((mark (vecLen (expForStack env))))
+        {
+          (vecPush (expForStack env)
+                   (cast Int (ForBind (nodeA farm) (vecGet names j) key j)))
+          (substArmsIn (nodeC farm) params args ren env isp acc 0)
+          (expTrunc (expForStack env) mark)
+          (expSpliceForElems farm params args ren env isp acc key names (+ j 1))
+        })))
 
 ; A `cond` clause is a TAG_M_ARM holding a TEST and a body. It binds
 ; nothing, so no renaming happens here - the shape is shared with a
@@ -1010,19 +1338,36 @@
 (pub fn (expandArmsIn arms env bs acc i)
   (if (>= i (vecLen arms))
       acc
-      (let ((arm (vecGet arms i))
-            (mark (vecLen bs)))
-        {
-          (expPatBinders (nodeA arm) bs)
-          (let ((body (expandExpr (nodeB arm) env bs)))
+      (let ((arm (vecGet arms i)))
+        (if (== (nodeTag arm) TAG_M_FOR)
+            ; `syntax/for` in an ordinary match - the user's own code,
+            ; outside any macro template - has no iteration to splice
+            ; and is refused, then REPLACED with a well-formed poison
+            ; arm: the REPL runs the checker even after expansion
+            ; refused, and checkMatch reads every arm as TAG_M_ARM.
             {
-              (expTrunc bs mark)
+              (expQueryErr env (nodeSpan arm)
+                "syntax/for stands in a macro template's match, not in ordinary code"
+                "iteration is an expansion-time facility: move the match into a declaration macro's template, or write the arms by hand"
+                (memGetWord env 11))
               (expandArmsIn arms env bs
-                            (vecPush acc (mkNodeAt TAG_M_ARM (nodeA arm) body 0
-                                                   (nodeSpan arm)))
+                            (vecPush acc (mkNodeAt TAG_M_ARM
+                                                   (mkEVarAt "_" (nodeSpan arm))
+                                                   (mkEInt 0) 0 (nodeSpan arm)))
                             (+ i 1))
-            })
-        })))
+            }
+            (let ((mark (vecLen bs)))
+              {
+                (expPatBinders (nodeA arm) bs)
+                (let ((body (expandExpr (nodeB arm) env bs)))
+                  {
+                    (expTrunc bs mark)
+                    (expandArmsIn arms env bs
+                                  (vecPush acc (mkNodeAt TAG_M_ARM (nodeA arm) body 0
+                                                         (nodeSpan arm)))
+                                  (+ i 1))
+                  })
+              })))))
 
 (pub :: expPatBinders (-> Int Int Int))
 (pub fn (expPatBinders p bs)
@@ -1188,6 +1533,12 @@
         }
         (let ((prevMod (expMacMod env))
               (prevSite (memGetWord env 9))
+              ; This template's iteration stack starts EMPTY: a nested
+              ; macro's template must not see the enclosing template's
+              ; for-variables, exactly as macmod is scoped. Restored
+              ; before the output walk - a binding is dead the moment
+              ; substTpl returns.
+              (prevFors (memGetWord env 13))
               ; The frame, recorded before the walk so that an outer
               ; macro's frame precedes any macro its template invokes.
               (_frame (vecPush (memGetWord env 10)
@@ -1195,10 +1546,12 @@
                                             (nodeA mac) (nodeSpan mac)
                                             (nodeModule mac)))))
               (_setmod (expSetMacMod env (nodeModule mac)))
-              (_setsite (memSetWord env 9 (nodeModule mac))))
+              (_setsite (memSetWord env 9 (nodeModule mac)))
+              (_setfors (memSetWord env 13 vecNew)))
         (let ((body (substTpl (nodeC mac) (nodeB mac) args vecNew env isp)))
           {
             (expSetMacMod env prevMod)
+            (memSetWord env 13 prevFors)
             (expSetDepth env d)
             (let ((out (expandExpr body env bs)))
               {
@@ -1360,6 +1713,37 @@
               (expCheckTplKinds mac env (+ i 1))
             }))))
 
+; The `syntax/` prefix is RESERVED in declaration names: a declared
+; fn, signature, or macro spelled `syntax/...` would shadow the query
+; vocabulary's spellings in the positions the parser reserves for
+; them, and the near-miss `(fn (syntax/join a b) body)` - one paren
+; short of a joined NAME - would otherwise silently declare a
+; function named syntax/join with parameters a and b. Template
+; declarations never enter this list (they live in the macro's word
+; 9), so a marker name arriving here is one written OUTSIDE a macro.
+; Corpus population when the reservation landed: zero.
+(pub :: expCheckDeclNames (-> Int Int Int Int))
+(pub fn (expCheckDeclNames decls env i)
+  (if (>= i (vecLen decls))
+      0
+      (let ((d (vecGet decls i)))
+        {
+          (let ((tag (nodeTag d)))
+            (if (|| (== tag TAG_D_FN)
+                    (|| (== tag TAG_D_SIG) (== tag TAG_D_MACRO)))
+                (if (strStartsWith (nodeA d) "syntax/")
+                    (expQueryErr env (nodeSpan d)
+                      (if (== (expIsJoinMarker (nodeA d)) 1)
+                          "a `(syntax/join ...)` name stands in a declaration macro's template, not in ordinary code"
+                          (strConcat (strConcat "`" (nodeA d))
+                                     "` declares a name in the reserved `syntax/` prefix"))
+                      "the syntax/ spellings belong to the query vocabulary (macro-system.md MAC-CAP-5/6); pick another name, or move the declaration into a macro template"
+                      (nodeModule d))
+                    0)
+                0))
+          (expCheckDeclNames decls env (+ i 1))
+        })))
+
 (pub :: expCheckDupParams (-> Int Int Int Int))
 (pub fn (expCheckDupParams mac env i)
   (let ((ps (nodeB mac)))
@@ -1389,9 +1773,10 @@
 ; ------------------------------------------------------------------
 (pub :: expandProgram (-> Int Int Int Int Int Int))
 (pub fn (expandProgram entryDecls decls out frames units)
-  (let ((env (cast Int (MEnv (expCollectMacros decls vecNew 0) out 0 0 decls 0 0 0 0 0 frames 0 units))))
+  (let ((env (cast Int (MEnv (expCollectMacros decls vecNew 0) out 0 0 decls 0 0 0 0 0 frames 0 units vecNew))))
     {
       (expCheckMacros env 0)
+      (expCheckDeclNames decls env 0)
       ; Phase D before phase E (MAC-EXP-16): declaration-position
       ; invocations resolve to a fixpoint FIRST, so the declarations
       ; they generate are in the list before any body is walked - a
@@ -1539,11 +1924,13 @@
         (tags (memGetWord d 7))
         (prevMod (expMacMod env))
         (prevSite (memGetWord env 9))
-        (prevDecl (memGetWord env 11)))
+        (prevDecl (memGetWord env 11))
+        (prevFors (memGetWord env 13)))
     {
       (expSetMacMod env (nodeModule mac))
       (memSetWord env 9 (nodeModule mac))
       (memSetWord env 11 0)
+      (memSetWord env 13 vecNew)
       (vecPush (memGetWord env 10)
         (cast Int (ExpFrame 0 isp (nodeA mac) (nodeSpan mac)
                             (nodeModule mac))))
@@ -1553,6 +1940,7 @@
           (expSetMacMod env prevMod)
           (memSetWord env 9 prevSite)
           (memSetWord env 11 prevDecl)
+          (memSetWord env 13 prevFors)
           (if (|| (== made 0) (== (expBlown env) 1))
               { (memSetWord d 3 1) 0 }
               {
@@ -1581,6 +1969,21 @@
 ; when it is not.
 (pub :: expSubstName (-> Int Int Int Int Int Int))
 (pub fn (expSubstName s params args env isp)
+  ; The join marker resolves each of its two names through this same
+  ; function - so a side that is a parameter follows the
+  ; bare-identifier rule and draws the same diagnostic - and joins
+  ; the results: `eq` + `Color` is `eqColor`.
+  (if (== (expIsJoinMarker s) 1)
+      (let ((ra (expSubstName (expMarkerPart s 0) params args env isp)))
+        (if (== ra 0)
+            0
+            (let ((rb (expSubstName (expMarkerPart s 1) params args env isp)))
+              (if (== rb 0)
+                  0
+                  (expJoinName ra rb)))))
+  (let ((fe (expForLookup env s)))
+    (if (!= fe 0)
+        fe
   (let ((idx (expParamIndex params s)))
     (if (< idx 0)
         s
@@ -1596,7 +1999,7 @@
                   "pass a plain name in this argument position"
                   "the parameter stands in a NAME position of the template - a declaration head or a parameter list - and only an identifier can be a name"))
                 0
-              })))))
+              }))))))))
 
 (pub :: expSubstNames (-> Int Int Int Int Int Int))
 (pub fn (expSubstNames ss params args env isp)
@@ -1695,20 +2098,25 @@
 ; generates a declaration whose name the user really spelled at `q`,
 ; and `axiom symbols`, go-to-definition and the duplicate-definition
 ; diagnostic all read the declaration's span as "where the name is".
-; A template-fixed name has no spelling at the invocation and keeps
-; the invocation span (no corpus case yet; the AXSYM position sweep
-; will refuse the first one that claims a name the source lacks).
+; A name with NO source spelling - a `(syntax/join ...)` marker, a
+; template-fixed name - records span 0, which AXSYM renders as its
+; sanctioned positionless `-` row: the alternative was the invocation
+; head's span, and the AXSYM position sweep rightly refused a symbol
+; claimed at bytes that spell something else (it caught exactly that
+; on the first fixed-name probe). The costs are owned: no
+; go-to-definition target for a computed name, and a duplicate
+; definition against one reports spanless.
 ; Body nodes still carry the invocation span (MAC-EXP-14) - this is
 ; only the declaration node itself.
 (pub :: expNameSpan (-> Int Int Int Int Int))
 (pub fn (expNameSpan s params args isp)
   (let ((idx (expParamIndex params s)))
     (if (< idx 0)
-        isp
+        0
         (let ((a (vecGet args idx)))
           (if (&& (== (nodeTag a) TAG_E_VAR) (!= (nodeSpan a) 0))
               (nodeSpan a)
-              isp)))))
+              0)))))
 
 ; One template declaration instantiated. fn and :: are the v1 surface;
 ; a nested TAG_D_MACROCALL re-tags for the next round; the default arm

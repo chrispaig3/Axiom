@@ -292,7 +292,7 @@ Pinned by `tests/diagnostics/993-macro-shadows-function`.
 
 ## 4. Diagnostics
 
-Eight codes, all in the semantic range because expansion is
+Nine codes, all in the semantic range because expansion is
 semantic-analysis-time work:
 
 | Code | Slug | What it catches |
@@ -305,6 +305,7 @@ semantic-analysis-time work:
 | `AX3023` | `private-name` | reaching a macro its module does not export — the general visibility code, shared by macros since they joined the value namespace |
 | `AX3024` | `macro-expansion-limit` | the expansion's OUTPUT exceeded a budget: nested deeper than 1024 forms, or more than 2,000,000 forms produced. The parser's limits measure the source; these measure what expansion produced from it |
 | `AX3027` | `declaration-macro` | every way a declaration-position invocation fails: unknown head (a typo'd keyword lands here, where it used to be a bare `AX2003` that stopped the parse), an expression macro in declaration position or a declaration macro in expression position, a non-identifier argument in a name position, a module-side invocation (the v1 limit). `axiom explain AX3027` is the catalogue |
+| `AX3028` | `syntax-query` | every `syntax/*` query with no answer (MAC-CAP-5/6): an unknown or wrong-position head (the vocabulary is CLOSED), a subject with nothing to answer (constructors of a struct, of nothing, of an imported type), a query written outside a macro template, a declaration named into the reserved `syntax/` prefix. `axiom explain AX3028` is the catalogue |
 
 `AX3006` (duplicate definition) also reaches macros now — see
 "Macros occupy the value namespace" above.
@@ -398,10 +399,17 @@ the bank that pins it is `scripts/check-degenerate.sh`, and
   What does not: module-side invocation (`AX3027`, reason in the
   note), and `data`/`struct`/`trait`/`impl`/`effect`/`import`
   templates (`AX3021` at the macro's line).
-- **`derive`.** `deriving (Eq Show)` parses and is discarded; the
-  clause's names never reach the AST. Its mechanism — declaration
-  macros — now exists; what it still needs is the field-inspection
-  query vocabulary (`MAC-CAP-5`/`MAC-CAP-6`).
+- **`derive` as a stdlib library.** The mechanism is DONE for sums:
+  declaration macros plus the query vocabulary's v1 (`syntax/join`,
+  `syntax/constructors`, `syntax/for`, 2026-08-14) run
+  macro-system.md §10.2's nullary `deriveEq` verbatim
+  (`tests/selfhost/374-derive-eq.ax`, 101). What does not exist:
+  `syntax/fields`/`syntax/same`/declaration-position `for` (the lens
+  set), `syntax/binders`/`syntax/fold` (fieldful constructors), a
+  `deriveEq` shipped in `stdlib/Pre.ax` (needs module-side types —
+  queries answer entry-file types only in v1), and the `deriving`
+  clause still parses and is discarded (refusal is the settled
+  replacement, MAC-CAP-9).
 - **Patterns.** The rule-list *surface* exists with exactly one rule
   (the declaration form). No multiple rules, no literal atoms, no
   nested patterns, no alternatives; an expression macro is still one

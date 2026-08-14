@@ -902,23 +902,41 @@ from *substitution* into *pattern-based rewriting*, which is what
 
 ### 4.3 Compile-time evaluation
 
-**MAC-CAP-5 (R, with a replacement).** Compile-time evaluation of **user
-code** is refused (`MAC-LANG-13`). What replaces it is a **closed,
-compiler-implemented query vocabulary** evaluated by the expander over
-the declaration list it already holds:
+**MAC-CAP-5 (R, with a replacement — v1 of the replacement landed
+2026-08-14).** Compile-time evaluation of **user code** is refused
+(`MAC-LANG-13`). What replaces it is a **closed, compiler-implemented
+query vocabulary** evaluated by the expander over the declaration list
+it already holds:
 
-| Query | Answers | Needed by |
-|---|---|---|
-| `(syntax/constructors T)` | the constructor names of `data` type `T`, in declaration order | `derive` for any sum |
-| `(syntax/arity C)` | the field count of constructor `C` | generated `match` arms |
-| `(syntax/fields S)` | the field names of `struct` `S`, in declaration order | lenses, `Eq`, serializers |
-| `(syntax/name x)` | the identifier `x` as a string literal | generated `Show` |
-| `(syntax/join a b)` | one identifier from two (`lens` + `Point` → `lensPoint`) | naming generated declarations |
-| `(syntax/defined? n)` | whether `n` names a declaration | conditional derivation |
-| `(syntax/same? a b)` | whether `a` and `b` are the same **binding or declaration slot** — two answers naming field `f` of `S` compare equal, spelling alone never suffices; `MAC-LANG-17`'s binding comparison is the pattern-side instance | `deriveLenses`' diagonal (§10.3) |
-| `(syntax/binders C p)` | `(syntax/arity C)` fresh identifiers derived from prefix `p` — the *same* sequence at every mention within one expansion, each a template binder that `MAC-HYG-2` renames | fieldful `derive` (§10.2) |
-| `(syntax/for ((x xs) …) tpl)` | `tpl` once per element, spliced in place; several sequences zip in lockstep and **MUST** have equal length — a mismatch is a diagnostic at the invocation | the iteration form |
-| `(syntax/fold f z ((x xs) …) tpl)` | the right-fold `(f tpl₁ (f tpl₂ … z))` — `tpl` instantiated per element and nested under a two-argument head, since `&&` takes exactly two | chaining `&&` over field comparisons |
+| Query | Status | Answers | Needed by |
+|---|---|---|---|
+| `(syntax/constructors T)` | **H** (v1: entry-file `T`, as a `syntax/for` sequence) | the constructor names of `data` type `T`, in declaration order | `derive` for any sum |
+| `(syntax/arity C)` | P | the field count of constructor `C` | generated `match` arms |
+| `(syntax/fields S)` | P | the field names of `struct` `S`, in declaration order | lenses, `Eq`, serializers |
+| `(syntax/name x)` | P | the identifier `x` as a string literal | generated `Show` |
+| `(syntax/join a b)` | **H** (declaration NAME position) | one identifier from two, the second's first letter upcased (`lens` + `Point` → `lensPoint`, `eq` + `Color` → `eqColor`) | naming generated declarations |
+| `(syntax/defined n)` | P | whether `n` names a declaration | conditional derivation |
+| `(syntax/same a b)` | P | whether `a` and `b` are the same **binding or declaration slot** — two answers naming field `f` of `S` compare equal, spelling alone never suffices; `MAC-LANG-17`'s binding comparison is the pattern-side instance | `deriveLenses`' diagonal (§10.3) |
+| `(syntax/binders C p)` | P | `(syntax/arity C)` fresh identifiers derived from prefix `p` — the *same* sequence at every mention within one expansion, each a template binder that `MAC-HYG-2` renames | fieldful `derive` (§10.2) |
+| `(syntax/for ((x xs) …) tpl)` | **H** (v1: one sequence, match-ARM position; the for-variable substitutes in constructor patterns, nested iterations compose) | `tpl` once per element, spliced in place; several sequences zip in lockstep and **MUST** have equal length — a mismatch is a diagnostic at the invocation | the iteration form |
+| `(syntax/fold f z ((x xs) …) tpl)` | P | the right-fold `(f tpl₁ (f tpl₂ … z))` — `tpl` instantiated per element and nested under a two-argument head, since `&&` takes exactly two | chaining `&&` over field comparisons |
+
+Two rows were RESPELLED on 2026-08-14, when implementation reached
+them: this table wrote `syntax/defined?` and `syntax/same?`, and `?`
+is deliberately not an identifier character in the lexer
+(`lexer.ax`'s own comment reserves admitting it as a separate language
+change), so the specified spellings could not lex. A spec whose
+spelling the lexer refuses is wrong the moment someone types it; the
+`?`-free names are the specification now.
+
+The v1 rows are pinned by `tests/selfhost/374-derive-eq.ax` (101 —
+§10.2's nullary `deriveEq`, the roadmap's acceptance criterion,
+verbatim), `376-syntax-nested-for.ax` (7 — nested iteration over two
+types), and `tests/frontend/070-derive-macro.ax` (42, through every
+frontend consumer). A generated declaration whose name came from
+`syntax/join` has **no source spelling**, so it records no span and
+`axiom symbols` reports it positionless rather than claiming bytes
+that spell something else.
 
 `syntax/for` and `syntax/fold` are the only constructs that turn a
 query's *sequence* answer into repeated output, and both are bounded by
@@ -929,11 +947,24 @@ argument. (`syntax/for`'s one-sequence form `(syntax/for (x xs) tpl)`
 is the common case and reads as before; the parenthesised-pairs form is
 what the fieldful examples need.)
 
-**MAC-CAP-6 (P).** The vocabulary **MUST** be closed. Every entry
-**MUST** be total, terminating, and a pure function of the declaration
-list; adding one is a language change with a diagnostic, a gate and a
-line in this table. A query with no answer — `(syntax/fields Int)` — is
-a diagnostic at the invocation, never a default value.
+**MAC-CAP-6 (H, 2026-08-14).** The vocabulary **MUST** be closed. Every
+entry **MUST** be total, terminating, and a pure function of the
+declaration list; adding one is a language change with a diagnostic, a
+gate and a line in this table. A query with no answer — a `syntax/`
+head the vocabulary does not implement, `syntax/constructors` of a
+struct or of nothing — is a diagnostic, never a default value.
+
+The closure is enforced, with one code for the family: **`AX3028`**
+(`syntax-query`), covering unknown heads, wrong positions, subjects
+with nothing to answer, queries written outside a macro template, and
+the reservation below (`tests/diagnostics/520-syntax-query-misuse.ax`,
+`525-syntax-reserved.axbad`; `axiom explain AX3028` is the catalogue).
+The `syntax/` prefix is **reserved in declaration names** — the
+near-miss `(fn (syntax/join a b) body)`, one paren short of a joined
+name, would otherwise silently declare a function called `syntax/join`
+taking `a` and `b` — and in the arm and name positions the vocabulary
+owns. Corpus population of `syntax/`-prefixed identifiers when the
+reservation landed: zero, measured.
 
 This is the boundary the design turns on. Reading the declaration table
 is not evaluation: it terminates, it runs no user code, and its answers
@@ -1388,7 +1419,12 @@ A guarded accumulator, showing hygiene doing its job — the template's
 ### 10.2 Deriving structural equality
 
 Under `MAC-CAP-5` and `MAC-CAP-8`. This is the acceptance criterion
-[v1-roadmap.md §4.2](v1-roadmap.md) states, written out:
+[v1-roadmap.md §4.2](v1-roadmap.md) states, written out — and since
+2026-08-14 the nullary form below is **measured, verbatim**:
+`tests/selfhost/374-derive-eq.ax` is this section's macro, data type
+and invocation, and it answers 101 from three `eqColor` probes on the
+first complete run of the query vocabulary. The fieldful form further
+down still waits on `syntax/binders` and `syntax/fold`.
 
 ```scheme
 (pub macro deriveEq
@@ -1483,7 +1519,7 @@ makes a *functional* accessor worth generating:
      (:: (syntax/join with f) (-> S Int S))
      (fn ((syntax/join with f) s v)
        (S (syntax/for (g (syntax/fields S))
-            (if (syntax/same? f g) v s.g)))))))
+            (if (syntax/same f g) v s.g)))))))
 
 (struct Point (x : Int) (y : Int))
 (deriveLenses Point)
@@ -1494,7 +1530,7 @@ makes a *functional* accessor worth generating:
 `withX` expands to `(fn (withX s v) (Point v s.y))` — a **rebuild**,
 which is the difference between a lens and a field store: `(set p.x 1)`
 mutates through every alias (`MM-MUT-2`), and `(withX p 1)` does not.
-This example is also why `syntax/same?` has a row in `MAC-CAP-5`'s
+This example is also why `syntax/same` has a row in `MAC-CAP-5`'s
 table: the entry earned its place the moment a real macro needed it,
 which is what `MAC-CAP-6`'s closure rule is for — the entry is a
 language change, argued for here and recorded there.
@@ -1567,7 +1603,7 @@ nicety: without an expansion backtrace, the author of `(machine Door
 | Language | LANG-1…12, LANG-14 (one rule — the declaration form) | LANG-14 (multi-rule), LANG-15…18 | LANG-13 |
 | Expansion | EXP-1…15, EXP-16/17 (v1 — entry-file invocation, `fn`/`::`/invocation templates) | EXP-16 (module-side invocation) | — |
 | Hygiene | HYG-1…7 | HYG-8, HYG-9 | — |
-| Capabilities | CAP-1…3, CAP-8 (v1) | CAP-4, 6, 7, 9 | CAP-5 (with replacement) |
+| Capabilities | CAP-1…3, CAP-6, CAP-8 (v1) | CAP-4, 7, 9 | CAP-5 (replacement's v1 landed: join, constructors, for) |
 | Safety | SAFE-1…4 | — | SAFE-5 |
 | Integration | INT-1…3, INT-5 | INT-4, INT-6 | — |
 | Diagnostics | DIAG-1…4 | DIAG-5 | — |
@@ -1601,6 +1637,11 @@ convention; the list, not any one entry, is the argument for gating.
 | `tests/diagnostics/505-decl-macro-positions.ax` | CAP-8's position rules: both template kinds refused across the boundary, and the bare-identifier name rule |
 | `tests/diagnostics/510-decl-macro-template-kind.ax` | CAP-8's template-kind `AX3021`, at the macro's own line |
 | `tests/diagnostics/515-decl-macro-in-module.ax` | EXP-16's v1 limit — module-side invocation refused, at the module's own line |
+| `tests/selfhost/374-derive-eq.ax` (101) | CAP-5/CAP-6 — §10.2's nullary deriveEq verbatim, the roadmap's acceptance criterion; the unfixed compiler dies parsing the joined name |
+| `tests/selfhost/376-syntax-nested-for.ax` (7) | CAP-5 — nested syntax/for over two types, inner splice under the live outer binding |
+| `tests/frontend/070-derive-macro.ax` (42) | the derive shape through check, run, symbols, :load, LSP and fmt in one place |
+| `tests/diagnostics/520-syntax-query-misuse.ax` | CAP-6's closure — unknown query, wrong-kind subject, missing subject, all AX3028 |
+| `tests/diagnostics/525-syntax-reserved.axbad` | CAP-6's reservation — syntax/ spellings outside a template, including the one-paren-short near-miss (`.axbad`: the formatter must not learn these shapes) |
 | `tests/diagnostics/485-qualified-private-macro.ax` | LANG-12's `AX3023` route for a qualified private macro |
 | `tests/diagnostics/490-expansion-backtrace.ax` | DIAG-4 — one frame and a nested two, spans verified against the macro's own file |
 | `tests/selfhost/363-macro-shadowing.ax` (3) | EXP-5 |
@@ -1676,9 +1717,16 @@ rather than the value alone.
    (`MAC-EXP-16`'s stated limit) and the other template kinds
    (`AX3021` today, at the macro's line). The prerequisite for
    everything in §10.2–§10.5 now exists.
-4. **`MAC-CAP-5`/`MAC-CAP-6`** — the query vocabulary. Small, closed,
-   and the piece that makes `derive` a library rather than a compiler
-   feature.
+4. ~~**`MAC-CAP-5`/`MAC-CAP-6`**~~ — **v1 landed 2026-08-14**: the
+   closed vocabulary exists and refuses (`AX3028`), and its three
+   landed entries — `syntax/join` in name position,
+   `syntax/constructors` as a sequence, `syntax/for` in arm position
+   — are exactly the set §10.2's nullary `deriveEq` needs, which now
+   runs verbatim (fixture 374, the roadmap's acceptance criterion).
+   What remains under this heading: `syntax/fields`, `syntax/same`
+   and declaration-position `syntax/for` (§10.3's lens set), then
+   `syntax/binders`/`syntax/fold` (the fieldful rung), each landing
+   as an H row in `MAC-CAP-5`'s table with its own fixture.
 5. **`MAC-LANG-14`–`MAC-LANG-18`** — rules, patterns and ellipsis. The
    largest surface change, touching three implementations of the token
    set, and the one that should land last because the others do not

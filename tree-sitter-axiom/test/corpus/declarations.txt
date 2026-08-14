@@ -227,3 +227,50 @@ data declaration with a bare type parameter
     (data_constructor
       (constructor_identifier)
       (type_variable))))
+
+================================================================
+derive-style macro: syntax/join name, syntax/for arm
+================================================================
+
+(macro deriveEq ((deriveEq T)
+   (:: (syntax/join eq T) (-> T T Bool))
+   (fn ((syntax/join eq T) a b)
+     (match a
+       (syntax/for (C (syntax/constructors T))
+         ((C) true))))))
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (macro_declaration
+    name: (identifier)
+    rule_name: (identifier)
+    parameter: (identifier)
+    template: (type_signature
+      subject: (application
+        operand: (identifier)
+        operand: (identifier)
+        operand: (identifier))
+      type: (function_type
+        operand: (type_constructor
+          (constructor_identifier))
+        operand: (type_constructor
+          (constructor_identifier))
+        operand: (builtin_type)))
+    template: (function_definition
+      name: (syntax_join_name
+        left: (identifier)
+        right: (identifier))
+      parameter: (identifier)
+      parameter: (identifier)
+      body: (match_expression
+        scrutinee: (identifier)
+        arm: (syntax_for_arm
+          binder: (identifier)
+          sequence: (application
+            operand: (identifier)
+            operand: (identifier))
+          arm: (match_arm
+            pattern: (constructor_pattern
+              constructor: (constructor_identifier))
+            body: (boolean_literal)))))))

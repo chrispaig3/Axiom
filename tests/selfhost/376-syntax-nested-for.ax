@@ -1,0 +1,29 @@
+; expect 7
+; Nested iteration: a syntax/for inside a syntax/for's template arm,
+; each over a DIFFERENT type's constructors, with the inner splice
+; running while the outer binding is still live (the for stack, MEnv
+; word 13 - innermost wins, and here the two binders differ so both
+; resolve). The generated tagD1 is a full D1 x D2 case table; the
+; probe reaches the (B)(Y) cell. The unfixed compiler exits 1.
+(data D1
+  (A)
+  (B))
+
+(data D2
+  (X)
+  (Y))
+
+(macro cross ((cross T U)
+   (:: (syntax/join tag T) (-> T U Int))
+   (fn ((syntax/join tag T) a b)
+     (match a
+       (syntax/for (C (syntax/constructors T))
+         ((C) (match b
+                (syntax/for (K (syntax/constructors U))
+                  ((K) 7)))))))))
+
+(cross D1 D2)
+
+(:: main Int)
+
+(fn (main) (tagD1 B Y))

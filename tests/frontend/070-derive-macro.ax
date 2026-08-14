@@ -1,0 +1,29 @@
+; expect 42
+; The derive shape, as a frontend-parity case: every consumer of the
+; frontend - check, run, symbols, the REPL's :load, the LSP - must
+; agree this program is accepted and computes 42, which pins the
+; query vocabulary (MAC-CAP-5) and declaration macros (MAC-CAP-8)
+; through every pipeline in one place. The generated eqSig has no
+; source spelling, so `symbols` reports it POSITIONLESS rather than
+; claiming bytes that spell something else.
+(pub macro deriveEq ((deriveEq T)
+   (:: (syntax/join eq T) (-> T T Bool))
+   (fn ((syntax/join eq T) a b)
+     (match a
+       (syntax/for (C (syntax/constructors T))
+         ((C) (match b ((C) true) (_ false))))))))
+
+(data Sig
+  (Lo)
+  (Hi))
+
+(deriveEq Sig)
+
+(:: main Int)
+
+(fn (main)
+  (if (eqSig Hi Hi)
+    42
+    0
+  )
+)

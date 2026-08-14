@@ -1,0 +1,24 @@
+; The `syntax/` spellings outside a macro template - reserved, and
+; each shape refused where it stands (AX3028). This file is `.axbad`
+; because the formatter must not learn these shapes: a name-position
+; join outside a template is a formatter REFUSAL, and an arm-position
+; syntax/for outside one is silently rewritten into a different tree,
+; so committing them as `.ax` would either turn check-fmt red or bake
+; mangled bytes.
+;
+;   line 15/16: a (syntax/join ...) name in ordinary declarations
+;   line 18:    a declaration NAMED into the reserved prefix - the
+;               one-paren-short near-miss of the join form, which
+;               would otherwise silently declare a function called
+;               syntax/join taking a and b
+;   line 21:    syntax/for in an ordinary match
+(:: (syntax/join eq T) (-> Int Int))
+(fn ((syntax/join eq T) x) x)
+
+(fn (syntax/join a b) (+ a b))
+
+(:: g Int)
+(fn (g) (match 1 (syntax/for (C (syntax/constructors X)) ((C) 1)) (_ 0)))
+
+(:: main Int)
+(fn (main) 0)

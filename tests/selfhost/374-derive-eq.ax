@@ -1,0 +1,45 @@
+; expect 101
+; The v1-roadmap section 4.2 acceptance criterion, written out exactly
+; as macro-system.md section 10.2 specifies it: a derive-style macro
+; generates a working equality for a data type, with the generated
+; match checked like a hand-written one. Three queries carry it
+; (MAC-CAP-5, 2026-08-14):
+;
+;   syntax/join          eq + Color -> eqColor, in NAME position of
+;                        both generated declarations
+;   syntax/constructors  Red, Green, Blue - the declaration list
+;                        answering at expansion time (MAC-CAP-6: no
+;                        user code runs)
+;   syntax/for           one outer arm per constructor, the for-var C
+;                        substituting in BOTH matches' constructor
+;                        patterns - the inner one reaches the splice
+;                        through the ordinary body walk
+;
+; 100 eqColor(Red,Red) + 10*0 eqColor(Green,Blue) + 1 eqColor(Blue,Blue).
+; The unfixed compiler dies parsing `(:: (syntax/join eq T) ...)`.
+(pub macro deriveEq ((deriveEq T)
+   (:: (syntax/join eq T) (-> T T Bool))
+   (fn ((syntax/join eq T) a b)
+     (match a
+       (syntax/for (C (syntax/constructors T))
+         ((C) (match b ((C) true) (_ false))))))))
+
+(data Color
+  (Red)
+  (Green)
+  (Blue))
+
+(deriveEq Color)
+
+(:: b2i (-> Bool Int))
+
+(fn (b2i x)
+  (if x
+    1
+    0
+  )
+)
+
+(:: main Int)
+
+(fn (main) (+ (* 100 (b2i (eqColor Red Red))) (+ (* 10 (b2i (eqColor Green Blue))) (b2i (eqColor Blue Blue)))))

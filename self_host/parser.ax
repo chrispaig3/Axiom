@@ -137,6 +137,17 @@
 ; one in a run. The removed-construct arms (union/foreign/region) stay
 ; AHEAD of this in parseTopForm, so their migration advice survives.
 (pub :: TAG_D_MACROCALL Int) (pub fn (TAG_D_MACROCALL) 50)
+; `(syntax/for (C seq) arm...)` standing where a match ARM stands
+; (macro-system.md MAC-CAP-5): one template arm per element of the
+; sequence, spliced in place by the expander during template
+; instantiation. a=the binder name (Str), b=the sequence expression
+; node, c=Vec of template TAG_M_ARM nodes, span=the `syntax/for`
+; token. The checker and the emitter never see this tag: inside a
+; template the expander splices it away, and outside one the
+; expander's phase E refuses it (AX3028) and replaces it with a
+; well-formed poison arm, because the REPL runs the checker even
+; after expansion errors.
+(pub :: TAG_M_FOR Int) (pub fn (TAG_M_FOR) 51)
 ; A `cond` form, kept structural rather than desugared at parse time:
 ; stage0's checker treats `cond` unlike nested `if` (clause bodies are
 ; never joined against each other; only a real `else` is compared, and
@@ -747,6 +758,32 @@
       (let ((t (vecGet tokens pos)))
         (pOk (tokenLexeme t) (advance pos)))
   (pErrExp pos "identifier")))
+
+; A declaration NAME position: a bare identifier, or the query form
+; `(syntax/join a b)` (macro-system.md MAC-CAP-5) standing in for the
+; identifier phase D computes at instantiation. The parsed spelling is
+; the MARKER STRING "syntax/join a b" - the three parts space-joined,
+; and a space can never appear in a lexed identifier, so no real name
+; collides with it and the node layout is untouched. `expSubstName`
+; resolves the marker inside a template; one that reaches any other
+; consumer - written outside a macro - is refused there (AX3028), the
+; same shape as the unknown-declaration-head refusal.
+(pub :: parseDeclName (-> Int Int Int))
+(pub fn (parseDeclName tokens pos)
+  (if (&& (peekIs tokens pos TK_LPAREN)
+          (&& (peekIs tokens (advance pos) TK_IDENT)
+              (strEq (tokenLexeme (vecGet tokens (advance pos))) "syntax/join")))
+      (let ((p1 (advance (advance pos))))
+        (if (&& (peekIs tokens p1 TK_IDENT)
+                (&& (peekIs tokens (advance p1) TK_IDENT)
+                    (peekIs tokens (advance (advance p1)) TK_RPAREN)))
+            (pOk (strConcat (strConcat (strConcat "syntax/join "
+                                                  (tokenLexeme (vecGet tokens p1)))
+                                       " ")
+                            (tokenLexeme (vecGet tokens (advance p1))))
+                 (advance (advance (advance p1))))
+            (pErrExp p1 "identifier")))
+      (parseIdentName tokens pos)))
 
 ; ------------------------------------------------------------------
 ; Parse a list of identifiers until ), returning a Vec of Str handles.
@@ -1396,7 +1433,7 @@
 ; ------------------------------------------------------------------
 (pub :: parseSigDecl (-> Int Int Int))
 (pub fn (parseSigDecl tokens pos)
-  (let ((nr (parseIdentName tokens pos)))
+  (let ((nr (parseDeclName tokens pos)))
     (if (== (memGetWord nr 0) 0) nr
         (let ((name (memGetWord nr 1))
               (typePos (memGetWord nr 2)))
@@ -2008,7 +2045,7 @@
 (pub fn (parseFnDecl tokens pos kwName)
   (if (peekIs tokens pos TK_LPAREN)
       (let ((headerStart (advance pos)))
-        (let ((nr (parseIdentName tokens headerStart)))
+        (let ((nr (parseDeclName tokens headerStart)))
           (if (== (memGetWord nr 0) 0) nr
               (let ((fnName (memGetWord nr 1))
                     (afterName (memGetWord nr 2)))
@@ -2622,12 +2659,52 @@
   (if (peekIs tokens pos TK_RPAREN)
       (pOk acc pos)
   (if (peekIs tokens pos TK_LPAREN)
-      (let ((armR (parseMatchArm tokens (advance pos))))
-        (if (== (memGetWord armR 0) 0) armR
-            (let ((arm (memGetWord armR 1))
-                  (afterArm (memGetWord armR 2)))
-              (parseMatchArms tokens afterArm (vecPush acc arm)))))
+      ; `(syntax/for ...)` where an arm stands is the iteration form
+      ; (MAC-CAP-5), not an arm whose pattern is a variable named
+      ; syntax/for - the head spelling is reserved in this position,
+      ; and the corpus population of `syntax/`-prefixed identifiers
+      ; was zero when the reservation landed (measured 2026-08-14).
+      (if (&& (peekIs tokens (advance pos) TK_IDENT)
+              (strEq (tokenLexeme (vecGet tokens (advance pos))) "syntax/for"))
+          (let ((forR (parseMatchForArm tokens (advance pos))))
+            (if (== (memGetWord forR 0) 0) forR
+                (parseMatchArms tokens (memGetWord forR 2)
+                                (vecPush acc (memGetWord forR 1)))))
+          (let ((armR (parseMatchArm tokens (advance pos))))
+            (if (== (memGetWord armR 0) 0) armR
+                (let ((arm (memGetWord armR 1))
+                      (afterArm (memGetWord armR 2)))
+                  (parseMatchArms tokens afterArm (vecPush acc arm))))))
   (pErr pos))))
+
+; Parse `syntax/for (VAR SEQ) ARM...` with the form's own `(` already
+; consumed and `pos` at the `syntax/for` token; consumes the closing
+; paren. At least one template arm is required - an empty iteration
+; body generates nothing and means nothing.
+(pub :: parseMatchForArm (-> Int Int Int))
+(pub fn (parseMatchForArm tokens pos)
+  (let ((sp (tokenSpan (vecGet tokens pos)))
+        (p1 (advance pos)))
+    (if (&& (peekIs tokens p1 TK_LPAREN)
+            (peekIs tokens (advance p1) TK_IDENT))
+        (let ((var (tokenLexeme (vecGet tokens (advance p1)))))
+          (let ((seqR (parseExpr tokens (advance (advance p1)))))
+            (if (== (memGetWord seqR 0) 0) seqR
+                (let ((seq (memGetWord seqR 1))
+                      (afterSeq (memGetWord seqR 2)))
+                  (if (peekIs tokens afterSeq TK_RPAREN)
+                      (let ((armsR (parseMatchArms tokens (advance afterSeq) vecNew)))
+                        (if (== (memGetWord armsR 0) 0) armsR
+                            (let ((arms (memGetWord armsR 1))
+                                  (afterArms (memGetWord armsR 2)))
+                              (if (== (vecLen arms) 0)
+                                  (pErr afterArms)
+                                  (if (peekIs tokens afterArms TK_RPAREN)
+                                      (pOk (mkNodeAt TAG_M_FOR var seq arms sp)
+                                           (advance afterArms))
+                                      (pErr afterArms))))))
+                      (pErrExp afterSeq ")"))))))
+        (pErrExp p1 "("))))
 
 ; Parse `(pat body)`.
 ;

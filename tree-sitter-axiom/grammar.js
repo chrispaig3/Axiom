@@ -237,7 +237,11 @@ module.exports = grammar({
       choice(
         // `(fn (name p1 p2) body)` - the parenthesised form, which is
         // also how a nullary function is written: `(fn (main) ...)`.
-        seq('(', field('name', $.identifier), repeat(field('parameter', $._pattern)), ')'),
+        // The name may also be the query form `(syntax/join a b)`
+        // (MAC-CAP-5), standing in for the identifier a declaration
+        // macro computes at instantiation.
+        seq('(', field('name', choice($.identifier, $.syntax_join_name)),
+            repeat(field('parameter', $._pattern)), ')'),
         // `(fn name body)` - a named constant.
         field('name', $.identifier),
       ),
@@ -773,12 +777,32 @@ module.exports = grammar({
     match_expression: $ => seq(
       '(', 'match',
       field('scrutinee', $._expression),
-      repeat(field('arm', $.match_arm)),
+      repeat(field('arm', choice($.match_arm, $.syntax_for_arm))),
       ')',
     ),
 
     match_arm: $ => seq(
       '(', field('pattern', $._pattern), repeat(field('body', $._expression)), ')',
+    ),
+
+    // `(syntax/for (C seq) arm...)` where an arm stands - the query
+    // vocabulary's iteration form (macro-system.md MAC-CAP-5): one
+    // template arm per element, spliced by the expander during
+    // template instantiation. The head is a reserved spelling in this
+    // position, matching the compiler's parseMatchArms.
+    syntax_for_arm: $ => seq(
+      '(', 'syntax/for',
+      seq('(', field('binder', $.identifier), field('sequence', $._expression), ')'),
+      repeat1(field('arm', choice($.match_arm, $.syntax_for_arm))),
+      ')',
+    ),
+
+    // `(syntax/join a b)` in a declaration NAME position - the joined
+    // identifier phase D computes (`eq` + `Color` -> `eqColor`).
+    syntax_join_name: $ => seq(
+      '(', 'syntax/join',
+      field('left', $.identifier), field('right', $.identifier),
+      ')',
     ),
 
     handle_expression: $ => seq(
