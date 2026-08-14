@@ -1098,7 +1098,49 @@
               (memSetWord d 3 (expandExpr (nodeC d) env bs))
               0
             })
-          0)))
+          (if (== (nodeTag d) TAG_D_IMPL)
+              (expandImplMethods (nodeB d) env 0)
+              (if (== (nodeTag d) TAG_D_TRAIT)
+                  (expandTraitDefaults (nodeB d) env 0)
+                  0)))))
+
+; ------------------------------------------------------------------
+; An `impl` method's expression and a trait method's DEFAULT body are
+; the two expression positions the TAG_D_FN arm does not reach, and
+; both lower into ordinary declarations only AFTER this pass runs
+; (`lowerImpls`), so a macro invoked in either was never expanded at
+; all: `check` said OK - the checker's macro-head arm answers a silent
+; wildcard - and the build died in `opt` with `use of undefined value
+; '@dbl'`, the compiler blaming the toolchain for its own bug. This is
+; MAC-EXP-3a in docs/macro-system.md, the exact failure moving
+; expansion before the checker was supposed to have eliminated,
+; surviving in the one place the pass did not walk.
+;
+; The expression is expanded under an EMPTY bound set: it is
+; self-contained, and a lambda pushes its own parameters
+; (`expandExprInner`'s TAG_E_LAM arm).
+; ------------------------------------------------------------------
+(pub :: expandImplMethods (-> Int Int Int Int))
+(pub fn (expandImplMethods methods env i)
+  (if (>= i (vecLen methods))
+      0
+      (let ((m (vecGet methods i)))
+        {
+          (memSetWord m 2 (expandExpr (nodeB m) env vecNew))
+          (expandImplMethods methods env (+ i 1))
+        })))
+
+(pub :: expandTraitDefaults (-> Int Int Int Int))
+(pub fn (expandTraitDefaults methods env i)
+  (if (>= i (vecLen methods))
+      0
+      (let ((m (vecGet methods i)))
+        {
+          (if (!= (nodeC m) 0)
+              (memSetWord m 3 (expandExpr (nodeC m) env vecNew))
+              0)
+          (expandTraitDefaults methods env (+ i 1))
+        })))
 
 (pub :: expandDeclsIn (-> Int Int Int Int))
 (pub fn (expandDeclsIn decls env i)

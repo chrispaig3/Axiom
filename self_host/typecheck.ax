@@ -3047,10 +3047,18 @@
         (if (&& (== headIsVar 1) (== (isCastLike hname) 1))
             (checkCastForm tc e hname)
         (if (&& (== headIsVar 1) (== (isMacroName tc hname) 1))
-            ; A macro call cannot be typed before expansion, and
-            ; expansion lives in codegen. The arguments are still
-            ; REAL expressions the expansion will splice, so they
-            ; are checked as expressions; the spine structure is not.
+            ; Expansion runs BEFORE this checker and walks every body
+            ; a declaration can carry (fn, impl method, trait default
+            ; - expandDecl), so a macro head that reaches this arm at
+            ; all means expansion did not rewrite it - which, on the
+            ; driver's path, means expansion already REFUSED and the
+            ; process exits before checking (MAC-EXP-1b). This arm is
+            ; for the consumers that keep checking anyway (the LSP on
+            ; a mid-edit file): going quiet stops a wrong AX3001 from
+            ; landing on top of the expansion's own diagnostic. Until
+            ; 2026-08-14 impl and trait-default bodies were NOT
+            ; walked, and this silence is what let a macro invocation
+            ; there pass `check` and die in `opt` (MAC-EXP-3a).
             {
               (checkSpineArgsOnly tc e)
               mkSilentWild

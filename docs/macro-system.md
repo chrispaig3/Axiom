@@ -349,13 +349,17 @@ import resolution answers a merged list that *shares* declaration nodes
 with the entry list the checker also holds. Rebuilding would expand one
 view of the program and leave the other unexpanded.
 
-**MAC-EXP-3a (H, defective).** **Every body that can contain an
-expression MUST be expanded.** One class is not: the pass walks `fn`
-declarations only, and trait/`impl` lowering runs *after* it, so a macro
-invoked inside an `impl` method body or a trait default body is never
-expanded. Measured — and it is the exact failure `MAC-EXP-1` was
-supposed to have eliminated, surviving in the one place the pass does
-not reach:
+**MAC-EXP-3a (H).** **Every body that can contain an expression MUST
+be expanded**, and every one is: `fn` bodies, `impl` method
+expressions, and trait **default** bodies (`expandDecl`'s three arms).
+Pinned by `tests/selfhost/367-macro-in-impl.ax` (93), whose impl method
+and trait default each invoke a macro — the unfixed compiler exits 4.
+
+Until 2026-08-14 the pass walked `fn` declarations only, and trait and
+`impl` bodies lower into ordinary declarations *after* it
+(`lowerImpls`), so a macro invoked in either was never expanded at all
+— the exact failure `MAC-EXP-1` was supposed to have eliminated,
+surviving in the one place the pass did not reach:
 
 ```scheme
 (macro (dbl x) (+ x x))
@@ -364,25 +368,32 @@ not reach:
 (fn (main) (dub 21))
 ```
 ```
-$ axiom check impl2.ax
+$ axiom check impl2.ax        # before the fix
 OK
 $ axiom run impl2.ax
 opt: ...ll:247:18: error: use of undefined value '@dbl'
 E AX4003 <toolchain>:- toolchain-failure "opt failed"
 ```
 
-`check` and `build` disagree, and the diagnostic blames the toolchain
-for the compiler's own bug with no span into the source. What keeps it
-silent through the checker is a **residual macro-head path** in
-`checkApp`, which skips typing any spine whose head names a visible
-macro and answers a silent wildcard — a leftover from when expansion
-lived in `codegen.ax`, whose comment still says so.
+`check` and `build` disagreed, and the diagnostic blamed the toolchain
+for the compiler's own bug with no span into the source. The fix
+expands the two body classes *before* lowering — inside the same pass,
+so no pass order moved in `main.ax`, `repl.ax` or `lsp.ax` — and each
+expression expands under an empty bound set, since a lambda pushes its
+own parameters.
 
-A conforming implementation **MUST** either expand trait and `impl`
-bodies (moving the pass after lowering, which the pass order in
-`main.ax`, `repl.ax` and `lsp.ax` must change together to do) or refuse
-a macro invocation there with a diagnostic. Silence is not an option
-this rule permits.
+What kept the miscompile silent through the checker was a **residual
+macro-head path** in `checkApp`, answering a silent wildcard for any
+spine whose head names a visible macro. That arm stays, deliberately,
+with its stale "expansion lives in codegen" comment corrected: on the
+driver's path an unexpanded macro means expansion already refused and
+the process exits before checking (`MAC-EXP-1b`), so the arm exists
+for the consumers that keep checking a broken file — the LSP — where
+its silence stops a wrong `AX3001` landing on top of the expansion's
+own diagnostic. A future body class the pass does not walk would be
+hidden by the same silence, which is why this rule's first sentence is
+normative rather than descriptive: the commit that adds a fourth body
+class **MUST** add the fourth arm.
 
 ### 2.2 The algorithm
 
@@ -1447,9 +1458,8 @@ nicety: without an expansion backtrace, the author of `(machine Door
 | Diagnostics | DIAG-1…3 | DIAG-4, DIAG-5 | — |
 | Tooling | TOOL-1, TOOL-6 | TOOL-2…5 | — |
 
-Seven rules in the Holds column are held-but-defective, each with the
-defect stated inline where it is defined — `MAC-EXP-3a` (impl and trait
-bodies are never expanded: a wrong answer, not a limitation),
+Six rules in the Holds column are held-but-defective, each with the
+defect stated inline where it is defined —
 `MAC-EXP-8` (the over-application diagnostic anchors at the expansion,
 not the surplus argument), `MAC-EXP-11a` (the node budget counts
 unexpanded nodes and its message blames macros that may not exist),
@@ -1467,6 +1477,7 @@ convention; the list, not any one entry, is the argument for gating.
 | `tests/selfhost/360-macro.ax` (45) | LANG-1, EXP-6 (nested invocation), EXP-7 (double evaluation) |
 | `tests/selfhost/361-macro-hygiene.ax` (143) | HYG-1, HYG-2 |
 | `tests/selfhost/362-macro-coverage.ax` (57) | CAP-1 |
+| `tests/selfhost/367-macro-in-impl.ax` (93) | EXP-3a — the unfixed compiler exits 4 |
 | `tests/selfhost/363-macro-shadowing.ax` (3) | EXP-5 |
 | `tests/selfhost/364-macro-definition-site.ax` (157) | HYG-6, HYG-7 |
 | `tests/selfhost/365-macro-pattern-literal.ax` (95) | HYG-5 |
@@ -1499,8 +1510,9 @@ a "fix" can silently change behaviour with every gate still green:
 `Pre::when` is `AX3001` (`MAC-LANG-12`); an entry-file macro's free
 identifier is capturable (`MAC-HYG-8`.1); an imported macro outranks an
 entry-file function (`MAC-HYG-8`.3); a macro in declaration position is
-`AX2003` (`MAC-LANG-5`). `MAC-EXP-3a`'s `impl`-body miscompile has no
-fixture either, and it is a wrong-answer bug rather than a limitation.
+`AX2003` (`MAC-LANG-5`). (`MAC-EXP-3a`'s `impl`-body miscompile sat in
+this list as the one wrong-answer bug among the limitations, fixtureless
+— fixed and pinned on 2026-08-14, `tests/selfhost/367-macro-in-impl.ax`.)
 
 ### 11.2 Are the limits normative?
 

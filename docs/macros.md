@@ -15,11 +15,13 @@ trust.
 
 Status as of 2026-08-14: expansion is a pass of its own, hygienic in
 the binder direction and — for a module-defined macro — at the
-definition site, and everything it generates is type-checked, with one
-recorded exception: a macro invoked inside an `impl` method or a trait
-default body is never expanded at all
-([macro-system.md](macro-system.md) `MAC-EXP-3a` — `check` passes and
-the build dies in `opt`). Declaration-level macros, repetition patterns
+definition site, and everything it generates is type-checked —
+including an `impl` method's body and a trait default's, which until
+the same day were never expanded at all: `check` passed and the build
+died in `opt` blaming the toolchain
+([macro-system.md](macro-system.md) `MAC-EXP-3a`, pinned by
+`tests/selfhost/367-macro-in-impl.ax`, 93 where the unfixed compiler
+exits 4). Declaration-level macros, repetition patterns
 and `derive` do not exist. Section 5 is the list, and section 6 is why
 the order is what it is.
 
