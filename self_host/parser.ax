@@ -1254,22 +1254,30 @@
 ; golden behind it; naming the type the documentation promises is not,
 ; so only the second is done here and the first is recorded.
 ; ------------------------------------------------------------------
+; Double, F32, F64 and the sized integers (I8..I128, U8..U128, Isize,
+; Usize) were in this table until 2026-08-14, and every one was a name
+; with no representational effect: the sized types all lowered to a
+; full-width i64 with no truncation, no extension and no width-specific
+; arithmetic while being INCOMPATIBLE with Int, and the float spellings
+; were worse - the checker's tyIsFloatTy called them floats while the
+; emitter keyed float arithmetic on the name `Float` alone, so `Double`
+; arithmetic emitted integer `add` on double bit patterns, silently
+; (docs/memory-model.md MM-VAL-3c, MM-VAL-4b: "a conforming
+; implementation MUST either give them widths or remove them"). They
+; are removed: each now parses as an ordinary unknown type constructor
+; and draws AX3002 where a signature names it. Their corpus population
+; was zero. `I64` is gone from here too - the checker still constructs
+; it internally as the `set` form's type (mkI64Ty), which is a leaked
+; internal, not a surface type a program may claim.
 (pub :: typeKeywordCanon (-> String Int))
 (pub fn (typeKeywordCanon n)
   (if (strEq n "Int") "Int" (if (strEq n "Integer") "Int"
-  (if (strEq n "Float") "Float" (if (strEq n "Double") "Double"
+  (if (strEq n "Float") "Float"
   (if (strEq n "Bool") "Bool" (if (strEq n "Char") "Char"
   (if (strEq n "String") "String" (if (strEq n "Void") "Void"
   (if (strEq n "Unit") "Unit"
   (if (strEq n "Any") "Any"
-  (if (strEq n "I8") "I8" (if (strEq n "I16") "I16"
-  (if (strEq n "I32") "I32" (if (strEq n "I64") "I64"
-  (if (strEq n "I128") "I128" (if (strEq n "Isize") "Isize"
-  (if (strEq n "U8") "U8" (if (strEq n "U16") "U16"
-  (if (strEq n "U32") "U32" (if (strEq n "U64") "U64"
-  (if (strEq n "U128") "U128" (if (strEq n "Usize") "Usize"
-  (if (strEq n "F32") "F32" (if (strEq n "F64") "F64"
-  0)))))))))))))))))))))))))
+  0))))))))))
 
 (pub :: lexStartsLower (-> String Int))
 (pub fn (lexStartsLower s)

@@ -285,14 +285,17 @@ These words are reserved but no longer have a grammar rule. Using them reports a
 | `Void` | Void |
 | `Any` | Generic pointer |
 
-### Sized Integers and Floats
+### Sized Integers and Floats — Removed
 
-| Type | Size |
-|---|---|
-| `I8`, `I16`, `I32`, `I64`, `I128` | Signed integers |
-| `U8`, `U16`, `U32`, `U64`, `U128` | Unsigned integers |
-| `Isize`, `Usize` | Pointer-sized integers |
-| `F32`, `F64` | Floating point |
+`I8`–`I128`, `U8`–`U128`, `Isize`/`Usize`, `Double` and `F32`/`F64`
+are refused (`AX3002`) since 2026-08-14. They were accepted names with
+no representational effect — every one lowered to a full-width `i64`,
+incompatible with `Int` so no operator accepted one — and the float
+spellings emitted **integer** arithmetic on double bit patterns,
+silently, because the emitter keys float arithmetic on the name
+`Float` alone (`docs/memory-model.md` MM-VAL-3c, MM-VAL-4b). `Int` is
+the one integer type and `Float` the one floating type; the real
+conversions are `__intToFloat`/`__floatToInt`.
 
 ### Compound Types
 

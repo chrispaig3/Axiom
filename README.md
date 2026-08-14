@@ -731,14 +731,19 @@ Effect annotations are also supported on traits and implementations:
 | `Void` | Void | `void` |
 | `Any` | Generic pointer | `ptr` |
 
-### Sized integers and floats
+### Sized integers and floats — removed
 
-| Type | Size |
-|---|---|
-| `I8`, `I16`, `I32`, `I64`, `I128` | Signed integers |
-| `U8`, `U16`, `U32`, `U64`, `U128` | Unsigned integers |
-| `Isize`, `Usize` | Pointer-sized integers |
-| `F32`, `F64` | Floating point |
+`I8`–`I128`, `U8`–`U128`, `Isize`/`Usize`, `Double` and `F32`/`F64`
+were accepted names with **no representational effect**: every one
+lowered to a full-width `i64` with no truncation, no extension and no
+width-specific arithmetic while being incompatible with `Int`, and the
+float spellings were worse — the checker called them floats while the
+emitter keyed float arithmetic on `Float` alone, so `Double` arithmetic
+was integer `add` on double bit patterns, silently. All are refused
+since 2026-08-14 (`AX3002`; their corpus population was zero), per
+[docs/memory-model.md](docs/memory-model.md) MM-VAL-3c/MM-VAL-4b:
+"give them widths or remove them". `Float` is the one floating type;
+`Int` the one integer.
 
 ### Compound types
 
@@ -753,7 +758,7 @@ Effect annotations are also supported on traits and implementations:
 ### Type casting
 
 ```scheme
-(cast I32 someInt)
+(cast Float someBits)
 ```
 
 ---
@@ -1240,7 +1245,7 @@ the pipeline above is a module you can read in the language it compiles.
 | Linear types | **Parsed only** | `linear T`, `consume`. No longer what the memory model relies on: deterministic reclamation comes from the chosen reference counting without them ([docs/memory-model.md](docs/memory-model.md) MM-LIFE-2a/MM-LIFE-7); what linearity would still buy is retain/release-free moves and early drops |
 | Macros | **Partial** | `tests/selfhost/365-macro-pattern-literal.ax`, `tests/selfhost/361-macro-hygiene.ax`. Single-rule substitution macros, expanded in their own pass (`self_host/expand.ax`) between import resolution and the checker, so everything a macro generates is type-checked; hygiene by renaming (`<name>.<counter>` gensym) — binder direction complete, and a module-defined macro's template resolves free identifiers at its definition site. `stdlib/Pre.ax` defines `when`, `unless`, `cond2`, `cond3`; cross-module macro import works, `Mod::name` qualification works (a qualified private macro is `AX3023`), an entry-file function outranks an imported macro of the same name, and a diagnostic inside an expansion carries a backtrace naming each enclosing macro with its declaration's own file and span (`tests/diagnostics/490-expansion-backtrace.ax`). No patterns, no repetition, no declaration-level macros, no `derive` — the spec is [docs/macro-system.md](docs/macro-system.md). This row read "**Complete** — … hygiene (scope sets + gensym) … expansion backtrace on diagnostics" until 2026-08-14, and every clause of that was false then: the mechanism is renaming, not scope sets, and the backtrace field was populated by nothing — the real backtrace landed the same day the row was corrected |
 | Concurrency | **Library** | No language support and no compiler change: `stdlib/Job.ax` is a bounded pool of child processes over `Sys`'s existing `sysSpawn`/`sysWaitPid` pair, answering in submit order. Processes rather than threads, because a freestanding binary cannot create an OS thread on macOS. See [docs/v1-roadmap.md §4.4](docs/v1-roadmap.md) |
-| Editor support | **Functional** | [tree-sitter grammar](tree-sitter-axiom/) with highlighting queries, gated against all 308 `.ax` files in the repo and a 31-case tree-shape corpus. The language server is `self_host/lsp.ax`, listed four rows above and gated by `scripts/check-lsp-selfhost.sh` |
+| Editor support | **Functional** | [tree-sitter grammar](tree-sitter-axiom/) with highlighting queries, gated against all 310 `.ax` files in the repo and a 31-case tree-shape corpus. The language server is `self_host/lsp.ax`, listed four rows above and gated by `scripts/check-lsp-selfhost.sh` |
 | Imports | **Functional** | `(import Mod.Sub ...)` resolves and merges declarations from other files; qualified access via `Mod::name` disambiguates; see [Modules and imports](#modules-and-imports) |
 | Module visibility | **Complete** | `pub` on a declaration, or an import's name list, decides which names are visible outside a module — not which declarations exist. A module keeps its private helpers and behaves identically however it is imported; naming one from outside is `AX3023`. An import's name list is itself checked since `6a28103`: `(import M (noSuch))` is `AX3023`. `tests/selfhost/920-private-declaration.ax`, `930-selective-import.ax` |
 

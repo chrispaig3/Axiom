@@ -149,18 +149,19 @@
           0
           (if (strEq (nodeA t) "String") 1 0))))
 
+; `Float` and no other: `Double`/`F32`/`F64` stood here while the
+; emitter keyed float arithmetic on `Float` alone, which is the
+; split-brain MM-VAL-4b measured - the checker called them floats, the
+; emitter emitted integer `add` on double bit patterns. The names are
+; refused now (`typeKeywordCanon`), and this list matches the emitter's
+; one-name rule by construction.
 (pub :: tyIsFloatTy (-> Int Int))
 (pub fn (tyIsFloatTy t)
   (if (== t 0)
       0
       (if (!= (nodeTag t) TAG_T_CON)
           0
-          (let ((n (nodeA t)))
-            (if (strEq n "Float") 1
-            (if (strEq n "Double") 1
-            (if (strEq n "F32") 1
-            (if (strEq n "F64") 1
-            0))))))))
+          (if (strEq (nodeA t) "Float") 1 0))))
 
 (pub :: mkIntTy Int)    (pub fn (mkIntTy)    (mkTCon "Int" vecNew))
 (pub :: mkBoolTy Int)   (pub fn (mkBoolTy)   (mkTCon "Bool" vecNew))

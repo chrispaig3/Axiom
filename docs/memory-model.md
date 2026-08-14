@@ -374,26 +374,34 @@ two parameters into `@__axiom_argc`/`@__axiom_argv` and calls the user's
 no arguments. The process's exit status is the low 8 bits of `main`'s
 result. Measured: a `main` answering 5,000,001 exits 65.
 
-**MM-EXEC-15a (H, defective).** The rename covers the *definition* and
-not *references*. A call to `main` — recursive, or from another
-entry-file function — emits the undefined register `%main`:
+**MM-EXEC-15a (H).** The rename covers references as well as the
+definition, since 2026-08-14: a call to `main` — recursive, or from
+another entry-file function — reaches `@__axiom_user_main`, and
+`tests/selfhost/371-main-recursive.ax` runs to 5 where the unfixed
+compiler exits 4. Until then it emitted the undefined register
+`%main`:
 
 ```scheme
 (:: main Int)
 (fn (main) (if (< 1 0) (main) 5))
 ```
 ```
-$ axiom check mainrec.ax
+$ axiom check mainrec.ax        # before the fix
 OK
 $ axiom run mainrec.ax
 opt: ...ll:252:19: error: use of undefined value '%main'
   %t6 = phi i64 [ %main, %label_3 ], [ 5, %label_4 ]
 ```
 
-`check` and `build` disagree, and the emitter's own comment claims the
-opposite ("a reference to `main` … must reach the renamed user
-function"). Only an entry file's `main` is renamed at all; an imported
-module's `main` is module-mangled and coexists with the wrapper.
+`check` and `build` disagreed while the emitter's own comment claimed
+the opposite ("a reference to `main` … must reach the renamed user
+function") — `mangledFor` did map the name, and then every table
+lookup (`isNullaryFn`, `isDefinedFn`, `fnArityOf`, `findFSig`) asked
+for the *emitted* symbol in tables that hold the *declared* spelling,
+missed, and fell through to the parameter arm. The lookups now
+normalise through `declSpellingOf`. Only an entry file's `main` is
+renamed at all; an imported module's `main` is module-mangled and
+coexists with the wrapper.
 
 **MM-EXEC-16 (H).** These exit statuses are **reserved** by the emitted
 runtime and **MUST NOT** be reused by a program as a normal result:
@@ -463,14 +471,19 @@ Shift amounts of 64 or more, and negative shift amounts, are undefined;
 no masking is emitted. A conforming implementation **SHOULD** guard the
 first and define the rest.
 
-**MM-VAL-3c (H, defective).** The sized integer types — `I8`…`I128`,
-`U8`…`U128`, `Isize`, `Usize` — are **recognised names with no
-representational effect**. All lower to a full-width `i64` with no
-truncation, no sign or zero extension, and no width-specific
-arithmetic. They are also incompatible with `Int`, so no operator
-accepts one: they are inhabited only by bare literals and by `cast`.
-There are **no unsigned operations at all**. A conforming
-implementation **MUST** either give them widths or remove them.
+**MM-VAL-3c (H).** The sized integer types — `I8`…`I128`, `U8`…`U128`,
+`Isize`, `Usize` — are **refused** (`AX3002`), the "remove them" arm of
+the choice this rule used to demand, taken 2026-08-14. Until then they
+were recognised names with **no representational effect**: all lowered
+to a full-width `i64` with no truncation, no sign or zero extension,
+and no width-specific arithmetic, while being incompatible with `Int`
+so that no operator accepted one — inhabited only by bare literals and
+`cast`. There are still **no unsigned operations at all**, and `Int`
+is the one integer type. Their corpus population was zero. Pinned by
+`tests/diagnostics/495-widthless-types.ax`. (`I64` survives as a
+**leaked internal**: the checker constructs it as the `set` form's
+type, and diagnostics may print it, but a program can no longer spell
+it.)
 
 **MM-VAL-4 (H).** A `Float` is an IEEE-754 binary64 **bit-cast into the
 same word**. The compiler decides statically, from declared types, which
@@ -496,12 +509,17 @@ compiler's float flag when the target type is spelled `Float`. The real
 numeric conversions are `__intToFloat` and `__floatToInt`, which lower
 to `sitofp` and `fptosi`.
 
-**MM-VAL-4b (H, defective).** Float arithmetic is selected by the type
-name `Float` **and no other**. `Double`, `F32` and `F64` are accepted as
-type names and emit **integer** `add` on double bit patterns — silently
-wrong numerics, with no diagnostic. `F32` and `F64` additionally reject
-float literals, so nothing can construct one. A conforming
-implementation **MUST** refuse these names or implement them.
+**MM-VAL-4b (H).** Float arithmetic is selected by the type name
+`Float` **and no other**, and since 2026-08-14 the other spellings are
+**refused** (`AX3002`) rather than accepted-and-lied-about: `Double`,
+`F32` and `F64` used to check as float types (`tyIsFloatTy` listed
+them) while the emitter keyed float arithmetic on `Float` alone, so
+their arithmetic was **integer** `add` on double bit patterns —
+silently wrong numerics, with no diagnostic — and `F32`/`F64` rejected
+float literals besides, so nothing could even construct one. The
+refusal is the choice this rule demanded; `tyIsFloatTy` now matches
+the emitter's one-name rule by construction. Pinned by
+`tests/diagnostics/495-widthless-types.ax`.
 
 **MM-VAL-4c (H).** Float comparisons use LLVM's **ordered** predicates,
 so every comparison involving NaN is false — **including `!=`**, which
@@ -1794,23 +1812,25 @@ document.
 | Rule | Defect |
 |---|---|
 | `MM-ALLOC-8b` | `(__alloc 0)` returns an unadvanced bump pointer — address 0 before any chunk exists |
-| `MM-VAL-3c` | `I8`…`U128` have no width; incompatible with `Int`; no unsigned operations exist |
-| `MM-VAL-4b` | `Double`/`F32`/`F64` emit **integer** arithmetic on double bit patterns, silently |
 | `MM-VAL-4c` | `(!= NaN NaN)` is `false`; `Fmt.fmtFloat` cannot render inf or NaN |
 | `MM-VAL-3b` | `INT_MIN / -1` and shifts ≥ 64 are undefined and answer differently per `--opt` |
 | `MM-VAL-21` | `alloc` types as `*mut T`, which is unspellable, evaluates to 0, and still reports `#effects=Alloc` |
 | `MM-EXEC-9a` | effect inference is an under-approximation in six measured ways, including across trait dispatch |
-| `MM-EXEC-15a` | a reference to `main` emits an undefined register; `check` says `OK` and `opt` refuses |
 | `MM-LIFE-7` | `consume` and `alloc` win as expression heads, so a function of either name is definable but uncallable |
 
-Four rows left this table on 2026-08-14, each fixed as a checker
-refusal and pinned by the fixture its rule names: `MM-ALLOC-8`'s
-silent duplicate symbol (now `AX3026` at `check`), `MM-VAL-9a`'s
-unguarded field access (now `AX3008` on any `data` type with a nullary
-constructor), `MM-VAL-9b`'s literal-match fall-through (now `AX3005`),
-and `MM-MUT-1a`'s parameter/capture `set` (now `AX3012` in the
-checker, where `AX4002` had been catching it after the fact). The
-rows are recorded here rather than silently deleted, because a
+Seven rows left this table on 2026-08-14, each fixed and pinned by
+the fixture its rule names: `MM-ALLOC-8`'s silent duplicate symbol
+(now `AX3026` at `check`), `MM-VAL-9a`'s unguarded field access (now
+`AX3008` on any `data` type with a nullary constructor),
+`MM-VAL-9b`'s literal-match fall-through (now `AX3005`),
+`MM-MUT-1a`'s parameter/capture `set` (now `AX3012` in the checker,
+where `AX4002` had been catching it after the fact), `MM-VAL-3c`'s
+and `MM-VAL-4b`'s width-less type names (removed - `AX3002`; the
+float spellings had the checker calling them floats while the
+emitter emitted integer arithmetic), and `MM-EXEC-15a`'s `main`
+reference (the table lookups now normalise the emitted symbol back
+to the declared spelling, so a recursive `main` compiles and runs).
+The rows are recorded here rather than silently deleted, because a
 shrinking defect table is a claim, and a claim needs its evidence.
 
 ### 9.1 What is gated, and what is only written down
@@ -1838,6 +1858,8 @@ equivalent honesty for this one.
 | `tests/diagnostics/471-reserved-runtime-name.ax` | ALLOC-8's refusal arm (`AX3026`) |
 | `tests/diagnostics/476-literal-match-fallthrough.ax` | VAL-9b |
 | `tests/diagnostics/480-field-on-mixed-data.ax` + `tests/stdlib/210-struct-variants.ax` | VAL-9a — the refusal and the still-legal all-fieldful half |
+| `tests/diagnostics/495-widthless-types.ax` | VAL-3c, VAL-4b — the removed names refuse |
+| `tests/selfhost/371-main-recursive.ax` | EXEC-15a — 5, where the unfixed compiler exits 4 |
 
 **Incidentally covered, which is not the same as pinned.** Several rules
 are *exercised* by fixtures written for another purpose, so a regression

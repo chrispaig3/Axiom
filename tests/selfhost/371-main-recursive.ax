@@ -1,0 +1,13 @@
+; expect 5
+; A reference to `main` from inside the entry file. The definition is
+; emitted as `__axiom_user_main` (the argv wrapper owns the linker's
+; `main`), but every table the emitter consults still holds the
+; declaration's spelling - so a recursive call missed every
+; known-function arm, fell through to the parameter arm, and left the
+; bare register `%main` in the IR: `check` said OK and `opt` refused,
+; while `mangledFor`'s own comment claimed the rename was handled.
+; docs/memory-model.md MM-EXEC-15a; fixed 2026-08-14 by asking the
+; tables under the declared name (`declSpellingOf`). The unfixed
+; compiler exits 4 on this file.
+(:: main Int)
+(fn (main) (if (< 1 0) (main) 5))

@@ -1,0 +1,16 @@
+; The width-less type names, refused. `Double` and `U8` here stand for
+; the whole family (I8-I128, U8-U128, Isize/Usize, F32/F64): until
+; 2026-08-14 each was an accepted name with no representational effect
+; - a full-width i64, incompatible with Int - and the float spellings
+; emitted INTEGER arithmetic on double bit patterns, silently, because
+; the emitter keys float arithmetic on the name `Float` alone while
+; the checker's tyIsFloatTy called these floats too.
+; docs/memory-model.md MM-VAL-3c and MM-VAL-4b: "a conforming
+; implementation MUST either give them widths or remove them." They
+; are removed; the corpus population was zero.
+(:: d (-> Double Double))
+(fn (d x) x)
+(:: u (-> U8 Int))
+(fn (u x) 0)
+(:: main Int)
+(fn (main) 0)
