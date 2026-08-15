@@ -43,6 +43,10 @@
 (pub :: oWronlyCreateTrunc Int)
 (pub fn (oWronlyCreateTrunc) 577)
 
+; O_WRONLY | O_CREAT | O_APPEND = 0x1 | 0x40 | 0x400
+(pub :: oWronlyCreateAppend Int)
+(pub fn (oWronlyCreateAppend) 1089)
+
 (pub :: seekEnd Int)
 (pub fn (seekEnd) 2)
 
@@ -92,6 +96,55 @@
 ; rmdir(path) - 84.
 (pub :: sysRmdirNum Int)
 (pub fn (sysRmdirNum) 84)
+
+; rename(from, to) - 82. x86-64 still has the plain two-argument call,
+; the same way it still has `open` and `unlink`.
+(pub :: sysRenameNum Int)
+(pub fn (sysRenameNum) 82)
+
+; getdents64(fd, buf, count) - 217. Three arguments: the scan position
+; lives on the descriptor, where Darwin needs a fourth argument
+; pointing at a cookie - see `dirReadNeedsPosition` there.
+(pub :: sysGetdentsNum Int)
+(pub fn (sysGetdentsNum) 217)
+
+(pub :: dirReadNeedsPosition Int)
+(pub fn (dirReadNeedsPosition) 0)
+
+; `struct linux_dirent64` is
+;
+;   u64 d_ino; s64 d_off; u16 d_reclen; u8 d_type; char d_name[];
+;
+; so d_reclen is at 16 - agreeing with Darwin, which portable code
+; relies on - and the name begins at 19. This layout is the generic
+; one: AArch64 Linux has the same offsets under a different syscall
+; number.
+(pub :: direntNameOffset Int)
+(pub fn (direntNameOffset) 19)
+
+; Linux has a real `getcwd(buf, size)`, so no descriptor and no
+; `fcntl` detour - see the Darwin module for the target that has
+; neither.
+(pub :: cwdUsesFcntlPath Int)
+(pub fn (cwdUsesFcntlPath) 0)
+
+; getcwd(buf, size) - 79. Answers the length INCLUDING the NUL on
+; success, where Darwin's `fcntl` answers 0; `sysGetCwd` reads the
+; length back off the bytes rather than off the result, which is the
+; one reading both conventions support.
+(pub :: sysCwdNum Int)
+(pub fn (sysCwdNum) 79)
+
+; Unused on Linux (see `cwdUsesFcntlPath`), defined so `Sys.ax`
+; type-checks against every platform module.
+(pub :: fGetPath Int)
+(pub fn (fGetPath) 0)
+
+(pub :: eExist Int)
+(pub fn (eExist) 17)
+
+(pub :: eIsDir Int)
+(pub fn (eIsDir) 21)
 
 ; getpid() - 39
 (pub :: sysGetPidNum Int)

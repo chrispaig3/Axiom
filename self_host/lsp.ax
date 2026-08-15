@@ -46,6 +46,7 @@
 (import Vec)
 (import Utf8)
 (import Sys)
+(import Path)
 (import Json)
 (import Rpc)
 (import lexer)
@@ -357,7 +358,7 @@
                        (lspLineIndex src)))
         (let ((decls (memGetWord pr 1))
               (tcode (checkedTargetCode hostTarget))
-              (entryDir (dirOfPath path)))
+              (entryDir (pathDir path)))
           (let ((missing (lspPreflight decls tcode entryDir vecNew)))
             (if (> (strLen missing) 0)
                 (lspOneDiag src "AX5001"

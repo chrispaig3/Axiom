@@ -1,0 +1,174 @@
+; Path - taking a filesystem path apart and putting one together.
+;
+; No syscalls: every function here is a decision about bytes, and the
+; decision is always the same one - where is the last `/`, and is there
+; a `.` after it. The module exists because `Sys` grew a directory
+; lister, and a list of NAMES is not usable without a way to attach
+; them back to the directory they came from.
+;
+; It also finishes a loose end this repository has been carrying since
+; the filesystem surface first grew (docs/self-hosting.md §47):
+; `dirOfPath` and `withTrailingSlash` were private helpers in
+; `self_host/codegen.ax` "because there was nowhere else to put them".
+; There is now.
+;
+; ------------------------------------------------------------------
+; EVERY ANSWER IS OWNED AND NUL-TERMINATED.
+;
+; That is a departure from `Str`, where slicing SHARES and a slice is
+; deliberately not terminated - a tokenizer that copied every lexeme
+; would allocate once per token, and `strSlice` exists so it does not
+; have to.
+;
+; A path is not a token. Every path in a program is on its way to a
+; syscall, and a syscall wants a `char*` ending in NUL, so a shared
+; slice here would mean `(sysIsDir (strCStr (pathDir p)))` reading past
+; the end of the answer into the rest of `p` - which for
+; `"src/main.ax"` is `pathDir` answering `src/` and `strCStr` handing
+; the kernel `src/main.ax`. Silent, and wrong in the direction that
+; still finds a file.
+;
+; So these copy. A path is short and the copy is once per path, not
+; once per byte of input.
+; ------------------------------------------------------------------
+
+(import Str)
+
+; The last `/` in `p`, or -1. Everything below is a decision about
+; this one index.
+;
+; Scanned backwards rather than with `strFindByte`'s forward walk,
+; because the LAST separator is what splits a path and finding it
+; forwards means finding all the others first.
+(pub :: pathLastSlash (-> String Int))
+(pub fn (pathLastSlash p)
+  (pathLastSlashFrom p (- (strLen p) 1)))
+
+(:: pathLastSlashFrom (-> String Int Int))
+(fn (pathLastSlashFrom p i)
+  (if (< i 0)
+      (- 0 1)
+      (if (== (strByte p i) 47)
+          i
+          (pathLastSlashFrom p (- i 1)))))
+
+; Everything up to and INCLUDING the last `/`, or "" when `p` names
+; something in the working directory.
+;
+; The trailing slash is kept because the answer's job is to be
+; prefixed onto a name, and `""` is then exactly right for the
+; working-directory case - `(strConcat (pathDir "x.ax") "x.ax")` is
+; `"x.ax"`, with no special case anywhere. This is the rule
+; `codegen.ax`'s `dirOfPath` established and it does not change here.
+(pub :: pathDir (-> String String))
+(pub fn (pathDir p)
+  (let ((i (pathLastSlash p)))
+    (if (< i 0)
+        ""
+        (strDup (strSlice p 0 (+ i 1))))))
+
+; Everything after the last `/` - the file name on its own, or `p`
+; entire when there is no separator.
+;
+; A path ending in `/` has an EMPTY base, which is the honest answer:
+; `"src/"` names a directory and no file within it.
+(pub :: pathBase (-> String String))
+(pub fn (pathBase p)
+  (let ((i (pathLastSlash p)))
+    (if (< i 0)
+        (strDup p)
+        (strDup (strSlice p (+ i 1) (- (strLen p) (+ i 1)))))))
+
+; A directory name that ends in `/`, so concatenation forms a path.
+;
+; `""` stays `""` - see `pathDir` for why that is the useful answer
+; rather than `"/"`. The argument may be a slice of the environment's
+; bytes, which shares storage and is not NUL-terminated; the answer
+; always is.
+(pub :: pathWithSlash (-> String String))
+(pub fn (pathWithSlash d)
+  (if (== (strLen d) 0)
+      ""
+      (if (== (strByte d (- (strLen d) 1)) 47)
+          (strDup d)
+          (strConcat d "/"))))
+
+; `dir` and `name` as one path, with exactly one `/` between them.
+;
+; Two cases answer `name` alone, and both are the rule a shell
+; follows: an empty `dir` is the working directory, and an ABSOLUTE
+; `name` ignores whatever it was offered as a prefix. The second is
+; what keeps `(pathJoin d n)` safe to write over a whole directory
+; listing without inspecting each name first.
+(pub :: pathJoin (-> String String String))
+(pub fn (pathJoin dir name)
+  (if (== (strLen dir) 0)
+      (strDup name)
+      (if (== (strByte name 0) 47)
+          (strDup name)
+          (strConcat (pathWithSlash dir) name))))
+
+; The index of the extension's `.` within `p`, or -1.
+;
+; A dot only starts an extension if it is INSIDE the base name and not
+; the first byte of it. So `".axiomrc"` has no extension - the dot is
+; what makes it a hidden file, not what separates a type - and
+; `"src/v1.0/README"` has none either, because its only dot is in a
+; directory component. Both are cases a naive "find the last dot" gets
+; wrong, and both occur in this repository.
+(pub :: pathExtIndex (-> String Int))
+(pub fn (pathExtIndex p)
+  (let ((slash (pathLastSlash p)))
+    (let ((dot (pathLastDotFrom p (- (strLen p) 1) slash)))
+      (if (<= dot (+ slash 1)) (- 0 1) dot))))
+
+(:: pathLastDotFrom (-> String Int Int Int))
+(fn (pathLastDotFrom p i stop)
+  (if (<= i stop)
+      (- 0 1)
+      (if (== (strByte p i) 46)
+          i
+          (pathLastDotFrom p (- i 1) stop))))
+
+; The extension INCLUDING its dot (`".ax"`), or "" when there is none.
+;
+; The dot is kept for the same reason `pathDir` keeps its slash: the
+; answer is meant to be compared (`(strEq (pathExt f) ".ax")`) or
+; concatenated, and both are simpler when the separator travels with
+; the part it separates.
+(pub :: pathExt (-> String String))
+(pub fn (pathExt p)
+  (let ((i (pathExtIndex p)))
+    (if (< i 0)
+        ""
+        (strDup (strSlice p i (- (strLen p) i))))))
+
+; The base name with its extension removed: `"src/main.ax"` is
+; `"main"`. What a driver names an output after.
+(pub :: pathStem (-> String String))
+(pub fn (pathStem p)
+  (let ((i (pathExtIndex p)))
+    (if (< i 0)
+        (pathBase p)
+        (pathBase (strSlice p 0 i)))))
+
+; `p` with its extension replaced by `ext`, which carries its own dot.
+; `(pathReplaceExt "build/main.ax" ".ll")` is `"build/main.ll"`, and a
+; path with no extension simply gains one.
+;
+; The directory is preserved, which is what separates this from
+; `(strConcat (pathStem p) ext)` - the spelling every driver reaches
+; for first, and the one that quietly writes its output to the
+; working directory instead of beside its input.
+(pub :: pathReplaceExt (-> String String String))
+(pub fn (pathReplaceExt p ext)
+  (let ((i (pathExtIndex p)))
+    (if (< i 0)
+        (strConcat p ext)
+        (strConcat (strSlice p 0 i) ext))))
+
+; True when `p` starts at the root. A relative path is resolved
+; against the working directory, which is why `Sys.sysGetCwd` exists.
+(pub :: pathIsAbsolute (-> String Bool))
+(pub fn (pathIsAbsolute p)
+  (== (strByte p 0) 47))

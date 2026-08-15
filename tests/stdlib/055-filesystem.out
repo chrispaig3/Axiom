@@ -1,0 +1,61 @@
+ok   dir absent
+ok   makeDir
+ok   dir exists
+ok   dir is a dir
+ok   makeDir twice is EEXIST
+ok   makeDirAll nested
+ok   nested parent made
+ok   makeDirAll is idempotent
+ok   writeFile bytes
+ok   readFile
+ok   appendFile bytes
+ok   append accumulates
+ok   fileSize
+ok   writeFile truncates
+ok   truncated contents
+ok   append creates
+ok   created by append
+ok   readErrno on a file
+ok   readErrno on a directory
+ok   readErrno on nothing
+ok   empty file is readable
+ok   empty file reads empty
+ok   file exists
+ok   file is not a dir
+ok   empty file is not a dir
+ok   nothing is not a dir
+ok   copyFile bytes
+ok   copy has the bytes
+ok   source survives a copy
+ok   copy from nothing refuses
+ok   destination untouched
+ok   renamePath
+ok   old name is gone
+ok   new name has the bytes
+ok   listDir is sorted, without . and ..
+ok   listDir of a leaf directory
+ok   listDir of a file is empty
+ok   listDir of nothing is empty
+ok   cwd is absolute
+ok   cwd names this file's directory
+ok   pathDir
+ok   pathDir of a bare name
+ok   pathBase
+ok   pathBase of a bare name
+ok   pathExt
+ok   pathExt of a dotfile
+ok   pathExt across a directory dot
+ok   pathStem
+ok   pathReplaceExt keeps the directory
+ok   pathJoin
+ok   pathJoin does not double the slash
+ok   pathJoin onto nothing
+ok   an absolute name ignores its prefix
+ok   pathWithSlash
+ok   pathWithSlash of nothing
+ok   removeDir refuses a non-empty directory
+ok   removeFile refuses a directory
+ok   removeDir of an emptied directory
+ok   and it is gone
+checks 59
+failures 0

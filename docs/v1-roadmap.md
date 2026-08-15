@@ -99,7 +99,7 @@ they unblock everything downstream.
 | `union` removed, `region` removed | `AX2004` with migration advice; 3 regression tests |
 
 | Editor grammar | [tree-sitter-axiom/](../tree-sitter-axiom/), 190/190 repo files, ~17 MB/s. The 18/18 this used to claim was true when the repo had 18 `.ax` files; the gate then silently skipped for want of its CLI while the real figure fell to 27/70. See the risk table |
-| Freestanding stdlib | `Pre`, `Mem`, `Str`, `Vec`, `Map`, `Fmt`, `Intern`, `Sys`, `IO` over syscalls; no libc |
+| Freestanding stdlib | `Pre`, `Mem`, `Str`, `Vec`, `Map`, `Fmt`, `Intern`, `Sys`, `Path`, `IO` over syscalls; no libc. The filesystem surface — create, read, append, rename, delete, list, and the working directory — is [self-hosting.md §47 and §49](self-hosting.md), gated by `tests/selfhost/993-filesystem-verbs.ax`, `tests/selfhost/994-directory-listing.ax` and `tests/stdlib/055-filesystem.ax` |
 | Reproducible builds | byte-identical IR across runs, gated in CI |
 
 Reproduce all of it:

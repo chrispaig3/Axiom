@@ -59,6 +59,16 @@
 (pub :: oWronlyCreateTrunc Int)
 (pub fn (oWronlyCreateTrunc) 1537)
 
+; O_WRONLY | O_CREAT | O_APPEND = 0x0001 | 0x0200 | 0x0008
+;
+; The mode `sysWriteFile` could not express. O_APPEND makes every write
+; seek to the current end ATOMICALLY, which is not the same as opening
+; for writing and seeking once: two processes appending to one log with
+; a seek would overwrite each other's last line, and with this flag
+; they interleave whole writes instead.
+(pub :: oWronlyCreateAppend Int)
+(pub fn (oWronlyCreateAppend) 521)
+
 (pub :: seekEnd Int)
 (pub fn (seekEnd) 2)
 
@@ -129,6 +139,83 @@
 ; rmdir(path) - BSD 137.
 (pub :: sysRmdirNum Int)
 (pub fn (sysRmdirNum) 33554569)
+
+; rename(from, to) - BSD 128. Darwin has the plain two-argument call,
+; so `openNeedsDirFd` is 0 here and `sysRename` uses it directly.
+(pub :: sysRenameNum Int)
+(pub fn (sysRenameNum) 33554560)
+
+; ------------------------------------------------------------------
+; Reading a directory.
+;
+; `getdirentries64(fd, buf, bufsize, off_t *position)` - BSD 344, and
+; NOT `getdirentries` (BSD 196), which carries the 32-bit-inode
+; `struct dirent` that APFS cannot express.
+;
+; The fourth argument is an in/out cookie the kernel keeps the scan
+; position in, and it has no Linux counterpart - `getdents64` is three
+; arguments and keeps the position on the descriptor. That difference
+; is what `dirReadNeedsPosition` selects, the same way
+; `openNeedsDirFd` selects `open` from `openat`.
+(pub :: sysGetdentsNum Int)
+(pub fn (sysGetdentsNum) 33554776)
+
+(pub :: dirReadNeedsPosition Int)
+(pub fn (dirReadNeedsPosition) 1)
+
+; Where the name starts inside one record. Darwin's 64-bit `dirent` is
+;
+;   u64 d_ino; u64 d_seekoff; u16 d_reclen; u16 d_namlen; u8 d_type;
+;   char d_name[];
+;
+; so d_reclen sits at 16 - which Linux's `linux_dirent64` also does,
+; and portable code relies on - and the name begins at 21 rather than
+; Linux's 19, because of the d_namlen field Linux has no room for.
+; Probed on this host 2026-08-15: `.` and `..` come back with
+; d_reclen 32, d_namlen 1 and 2, d_type 4.
+(pub :: direntNameOffset Int)
+(pub fn (direntNameOffset) 21)
+
+; ------------------------------------------------------------------
+; The working directory.
+;
+; Darwin's syscall table HAS NO `getcwd`. Number 326 was `__getcwd`
+; historically and is a hole in the current table - probed on this
+; host 2026-08-15, a program calling it dies with SIGSYS - so the
+; portable spelling cannot be "one number per platform".
+;
+; `fcntl(fd, F_GETPATH, buf)` is the way in, and the reason it is
+; acceptable where `stat` is not (see `Sys.ax`) is that its answer is
+; BYTES, not a record: a NUL-terminated path written into a
+; caller-supplied buffer, with no offsets, widths or padding to get
+; wrong. It needs a descriptor, so `sysGetCwd` opens `.` first.
+;
+; `sysCwdNum` is `fcntl` here and `getcwd` on Linux; the two have
+; different shapes and `cwdUsesFcntlPath` picks between them.
+(pub :: cwdUsesFcntlPath Int)
+(pub fn (cwdUsesFcntlPath) 1)
+
+; fcntl(fd, cmd, arg) - BSD 92.
+(pub :: sysCwdNum Int)
+(pub fn (sysCwdNum) 33554524)
+
+(pub :: fGetPath Int)
+(pub fn (fGetPath) 50)
+
+; ------------------------------------------------------------------
+; The two errno values portable code above compares against.
+;
+; They live here because errno numbering is per-OS ABI and DOES
+; diverge - EAGAIN is 35 on Darwin and 11 on Linux - so a portable
+; `(== e 21)` is a coincidence waiting to be wrong on the next target
+; rather than a fact. These two happen to agree across all four
+; targets today, and naming them here is what keeps that a
+; measurement instead of an assumption.
+(pub :: eExist Int)
+(pub fn (eExist) 17)
+
+(pub :: eIsDir Int)
+(pub fn (eIsDir) 21)
 
 ; getpid() - BSD 20
 (pub :: sysGetPidNum Int)
