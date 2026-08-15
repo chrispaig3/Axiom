@@ -201,9 +201,11 @@ fi
 # The zoo imports `Sys`, `Sys` imports `Sys.Platform`, and that module is
 # selected by TARGET - `Platform.darwin.ax` here, `Platform.linux-aarch64.ax`
 # on one CI runner, `Platform.linux-x86_64.ax` on another. Its symbols land
-# in the table with the resolved file's name AND its line numbers, so 22 of
-# the zoo's 89 rows are a statement about the host rather than about the
-# fixture. Blessed on darwin, the golden could only ever match on darwin:
+# in the table with the resolved file's name AND its line numbers, so 34 of
+# the zoo's 99 rows are a statement about the host rather than about the
+# fixture - 22 of 89 until the filesystem verbs of self-hosting.md §49 added
+# ten constants to every platform module. Blessed on darwin, the golden
+# could only ever match on darwin:
 #
 #     < F sysRead stdlib/Sys/Platform.darwin.ax:21:9-16 "Int" @d99009b49c22cd84
 #     > F sysRead stdlib/Sys/Platform.linux-aarch64.ax:8:9-16 "Int" @d99009b49c22cd84

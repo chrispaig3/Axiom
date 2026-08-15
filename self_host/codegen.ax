@@ -6,6 +6,7 @@
 (import Str)
 (import Vec)
 (import Sys)
+(import Path)
 (import parser)
 (import diag)
 (import expand)
@@ -1282,8 +1283,8 @@
       (pushPathList v (sysEnv "AXIOM_PATH") 0)
       (let ((sl (sysEnv "AXIOM_STDLIB")))
         (if (> (strLen sl) 0)
-            (vecPush v (cast Int (withTrailingSlash sl)))
-            (let ((exe (dirOfPath (sysArg 0))))
+            (vecPush v (cast Int (pathWithSlash sl)))
+            (let ((exe (pathDir (sysArg 0))))
               {
                 (vecPush v (cast Int (cat2 exe "../stdlib/")))
                 (vecPush v (cast Int (cat2 exe "../../stdlib/")))
@@ -1315,23 +1316,10 @@
       {
         (let ((d (vecGet parts i)))
           (if (> (strLen d) 0)
-              (vecPush v (cast Int (withTrailingSlash d)))
+              (vecPush v (cast Int (pathWithSlash d)))
               0))
         (pushPathParts v parts (+ i 1))
       }))
-
-; A directory name that ends in `/`, so concatenation forms a path.
-;
-; The argument may be a slice of the environment's bytes, which shares
-; storage and is not NUL-terminated; `strConcat` copies, so the answer
-; always is.
-(pub :: withTrailingSlash (-> String String))
-(pub fn (withTrailingSlash d)
-  (if (== (strLen d) 0)
-      ""
-      (if (== (strByte d (- (strLen d) 1)) 47)
-          (strDup d)
-          (cat2 d "/"))))
 
 (pub :: tryModulePath (-> String String String String))
 (pub fn (tryModulePath stem suffix entryDir)
@@ -1377,19 +1365,6 @@
         ; so the honest String from sysReadFile crosses back with the
         ; cast (MM-ALLOC-20's optional convention).
         (cast Int (sysReadFile (strCStr p))))))
-
-; Everything up to and including the last `/` of a path, or "" when
-; the path names a file in the working directory.
-(pub :: dirOfPath (-> String String))
-(pub fn (dirOfPath p) (dirOfPathFrom p (- (strLen p) 1)))
-
-(pub :: dirOfPathFrom (-> String Int String))
-(pub fn (dirOfPathFrom p i)
-  (if (< i 0)
-      ""
-      (if (== (strByte p i) 47)
-          (strSlice p 0 (+ i 1))
-          (dirOfPathFrom p (- i 1)))))
 
 ; A module that cannot be read or parsed used to be *skipped*, so every
 ; function it defined surfaced later as `use of undefined value` out of

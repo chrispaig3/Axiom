@@ -6,6 +6,7 @@
 (import Str)
 (import Vec)
 (import Sys)
+(import Path)
 (import lexer)
 (import parser)
 (import diag)
@@ -129,22 +130,19 @@
 ; `sysReadFile` answers "" for a missing file, an EMPTY file, and a
 ; DIRECTORY alike - three different facts collapsed into one, which is
 ; why an empty file used to be reported as unreadable (a statement about
-; the filesystem, and a false one) and a directory as missing. Opening
-; separates the first: ENOENT and EACCES are refused there. A one-byte
-; read separates the third, because both Darwin and Linux open a
-; directory happily and defer EISDIR to `read` (probed, 2026-08-08).
+; the filesystem, and a false one) and a directory as missing.
+;
+; The probe that separates them is `Sys.sysReadErrno` now. It was
+; written here, because this was the program that needed it, and it is
+; a question every program reading a path has: opening separates
+; ENOENT and EACCES, and a one-byte read separates EISDIR, because
+; both Darwin and Linux open a directory happily and defer it to
+; `read` (probed, 2026-08-08). What is left here is the `Str`-taking
+; spelling, which is this file's convention.
 (pub :: sourceReadErrno (-> String Int))
 ;@axiom:effect(io)
 (pub fn (sourceReadErrno fileName)
-  (let ((fd (sysOpenPath (strData fileName) 0)))
-    (if (sysFailed fd)
-        (sysErrno fd)
-        (let ((probe (strAlloc 1)))
-          (let ((n (sysReadFd fd (strData probe) 1)))
-            {
-              (sysCloseFd fd)
-              (if (< n 0) (sysErrno n) 0)
-            })))))
+  (sysReadErrno (strData fileName)))
 
 ; One spelling of the read failure, everywhere.
 ;
@@ -274,7 +272,7 @@
                   (let ((units (let ((v vecNew))
                                  { (vecPush v (cast Int (CUnit2 fileName src (cast String 0)))) v })))
                   (let ((allDecls (resolveImports decls bares fulls tcode
-                                                  (dirOfPath fileName) units)))
+                                                  (pathDir fileName) units)))
                   ; Macros expand HERE, between import resolution and
                   ; the checker, so the checker sees what a macro
                   ; generated and reports about it like any other
@@ -593,7 +591,7 @@
                           (let ((units (let ((v vecNew))
                                          { (vecPush v (cast Int (CUnit2 f src (cast String 0)))) v })))
                           (let ((allDecls (resolveImports decls bares fulls tcode
-                                                          (dirOfPath f) units)))
+                                                          (pathDir f) units)))
                             ; `symbols` type-checks to get the types it
                             ; prints, so it expands first for the same
                             ; reason `check` does. A listing tool that

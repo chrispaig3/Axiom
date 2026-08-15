@@ -42,6 +42,7 @@
 (import Str)
 (import Vec)
 (import Sys)
+(import Path)
 (import lexer)
 (import parser)
 (import diag)
@@ -638,7 +639,7 @@
                     ; unexpanded list reports an implementation's body
                     ; as undefined names.
                     (let ((allDecls (resolveImports decls bares fulls tcode
-                                                    (dirOfPath arg) units)))
+                                                    (pathDir arg) units)))
                     (let ((eds (let ((v vecNew))
                                  { (expandProgram decls allDecls v vecNew 0)
                                    (lowerImpls allDecls v)

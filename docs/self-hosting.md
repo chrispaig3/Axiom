@@ -8187,3 +8187,215 @@ satisfied only by a PRIVATE `Mod$f` (still `AX3015`), one satisfied by
 nothing, two modules making a name ambiguous, and a module defining
 `None` that must not make the builtin ambiguous. A 294-file corpus
 sweep diverged on 0.
+
+## 49. The filesystem verbs, and the one record layout worth having
+
+Added 2026-08-15.
+
+§47 gave `Sys` a way to make a directory. What it still could not do
+was put anything into one and find it again. The surface after that
+section was `open`, `read`, `write`, `close`, `seek`, `unlink`,
+`mkdir`, `rmdir`, `readFile`, `writeFile`, `fileExists`, `fileSize` —
+which is create, read, overwrite and delete, and nothing else. A
+program could not
+
+* **append** to a file. `sysWriteFile` truncates, so adding a line
+  meant reading the whole file, concatenating and writing it back:
+  quadratic in the number of lines, and a window in which a crash
+  loses the file entirely.
+* **rename** one. Moving a file meant copying the bytes and unlinking
+  the original, which is a different operation — `rename` is atomic
+  within a filesystem, so a reader of the destination sees the whole
+  old contents or the whole new ones and never a half-written prefix.
+* **list** a directory. There was no way to discover a name the
+  program had not been told.
+* **ask where it is**. No `getcwd`, so a relative path could not be
+  resolved and a diagnostic could not say what it was relative to.
+* **tell a directory from a file**. `sysFileExists` answers true for
+  both, and `sysFileSize` answers a *number* for a directory —
+  measured 416 for `.` on darwin-aarch64 — so nothing in the library
+  could refuse one.
+
+Added: `sysAppendFile`, `sysRename`, `sysReadDir`, `sysGetCwd`,
+`sysIsDir`, `sysReadErrno`, `sysWriteAllFd`; a `Path` module; and the
+`Str`-taking half of all of it in `IO`.
+
+### When a per-target record layout is worth it
+
+§47 refused `stat` and the refusal still holds. The rule it was
+applying, said properly, is not "never read a kernel record" — it is
+*a record layout is worth its cost only when there is no other call
+that answers the question*, and its cost is the number of layouts.
+
+| | layouts | alternative | verdict |
+|---|---|---|---|
+| `struct stat` | four, one per target, every offset and pad free to move | `open`, `read` and `lseek` answer "is it there", "is it a directory" and "how big" | refused, still |
+| `dirent` | **two**, differing in **one** number | none — no combination of `open`, `read` and `lseek` enumerates names | accepted |
+
+The whole per-target knowledge for reading a directory is
+`direntNameOffset`: **19** on Linux, **21** on Darwin. `d_reclen` — the
+only other field portable code reads — is at offset 16 on both. That
+one constant sits in the platform module beside the syscall number,
+which is where this library already keeps ABI facts, and `Sys.ax`
+stays free of an OS name.
+
+Two fields are deliberately **not** read. `d_namlen` exists on Darwin
+and not on Linux, so the length comes from scanning for the NUL that
+both write. `d_type` exists on both and is not exposed, because a
+filesystem is permitted to answer `DT_UNKNOWN` — a caller that trusted
+it would be wrong on those, and a caller that handled it would have to
+call `sysIsDir` anyway. One correct way to ask beats a fast way that is
+sometimes silent about not knowing.
+
+### Darwin has no `getcwd`, and that is measured, not assumed
+
+The obvious portable spelling — one syscall number per platform — does
+not exist. Number 326 was `__getcwd` historically, is a hole in the
+current table (`/usr/include/sys/syscall.h` jumps from `munlockall`
+325 to `issetugid` 327), and a program calling it **dies with SIGSYS**.
+Probed on this host 2026-08-15: exit 140, no output.
+
+`fcntl(fd, F_GETPATH, buf)` — BSD 92, `F_GETPATH` 50 — is the way in,
+and it does not repeat `stat`'s mistake because its answer is **bytes**:
+a NUL-terminated path into a caller-supplied buffer, with no offsets,
+widths or padding to get wrong. `sysGetCwd` opens `.` and asks it.
+Linux has a real `getcwd(buf, size)`, so `cwdUsesFcntlPath` selects
+between the two shapes the way `openNeedsDirFd` and
+`spawnUsesPosixSpawn` already select between others.
+
+The two also disagree about the *result*: Linux answers the length
+including the NUL, Darwin's `fcntl` answers 0. So the length is read
+off the bytes rather than off the result, which is the one reading both
+conventions support.
+
+There is no `chdir` to match, deliberately: nothing in this library or
+above it changes directory, a process that does has invalidated every
+relative path any other part of it holds, and a setter with no caller
+is a syscall number nobody has run.
+
+### `listDir` sorts, and that is not a nicety
+
+`readdir` order is the filesystem's. It is not stable across machines,
+and not stable across runs on one machine once entries have been added
+and removed. A program that lists a directory and then prints, hashes
+or *compiles* what it finds is not reproducible unless something sorts
+— and this repository gates reproducibility (`check-reproducible.sh`).
+
+So `IO.listDir` sorts, by byte, and drops `.` and `..`.
+`Sys.sysReadDir` does neither, and the split is load-bearing in both
+directions:
+
+* `sysReadDir` **keeps** the dot entries, which is what lets it answer
+  a bare `Vec` with no second channel for an errno: a readable
+  directory can never be empty, so an empty answer can only be
+  failure. Dropping them is what costs `listDir` that distinction, and
+  it is dropped anyway, because a caller that forgets to skip `..`
+  walks the whole filesystem.
+* The sort is an insertion sort, quadratic in the entry count, and
+  that is the right shape here: one pass for an already-ordered
+  listing, no scratch allocation, and `Vec` has no comparison sort to
+  borrow. A directory large enough to notice wants `sysReadDir` and
+  its own ordering. Recorded rather than hidden.
+
+### The names are copied, and one buffer cannot show it
+
+`getdents` hands back packed records in a buffer the *next* call
+overwrites. Wrapping a name over that buffer instead of copying it is
+invisible in every directory that fits in one 32 KB call — and in a
+larger one it makes every name read back as whatever the last pass
+left there. `994-directory-listing` therefore uses 300 entries with
+190-byte names, ~65 KB, three passes, and checks that a name from the
+*first* pass survived. Ablated by removing the `strDup`: exit 1.
+
+### Three things that were one layer too high
+
+* **`sourceReadErrno`** was `main.ax`'s private fix for "`readFile`
+  answers `""` for a missing file, an empty file and a directory
+  alike". Every program reading a path has that question; it is
+  `Sys.sysReadErrno` now, and `sysIsDir` is one call to it — a path
+  that reads back `EISDIR` is a directory, and there is no other way
+  to earn that errno from a successful `open`.
+* **`IO.writeAll`** was the only short-write loop in the library, so
+  everything writing a *descriptor* retried and everything writing a
+  *file* was single-shot. It is `Sys.sysWriteAllFd` now, and
+  `sysWriteFile` and `sysAppendFile` both go through it.
+* **`dirOfPath` and `withTrailingSlash`** were private helpers in
+  `codegen.ax` "because there was nowhere else to put them" — §47's
+  own words. `stdlib/Path.ax` is the somewhere: `pathDir`, `pathBase`,
+  `pathExt`, `pathStem`, `pathJoin`, `pathReplaceExt`,
+  `pathWithSlash`, `pathIsAbsolute`. `codegen.ax`, `repl.ax`,
+  `lsp.ax` and `main.ax` call the stdlib names now.
+
+`Path` departs from `Str` on one point and says so at the top of the
+file: every answer is **owned and NUL-terminated**, where `strSlice`
+shares and is deliberately not. A path is not a token. Every path is on
+its way to a syscall, so a shared slice would mean
+`(sysIsDir (strCStr (pathDir p)))` reading past the answer into the
+rest of `p` — for `"src/main.ax"` that hands the kernel `src/main.ax`
+again, which is silent and wrong in the direction that still finds a
+file.
+
+`pathExt` refuses two dots that a "find the last dot" spelling claims,
+and both occur in this repository: `.axiomrc`'s dot makes it hidden and
+does not start an extension, and `src/v1.0/README`'s dot is in a
+directory component.
+
+### What is still absent, and why
+
+The boundary of this section, said out loud, so that the next person
+asking "does the library do X" gets an answer rather than a silence.
+
+| absent | why |
+|---|---|
+| `stat` | four record layouts; `open`, `read` and `lseek` answer the questions. §47's argument, unchanged |
+| `chdir` | exists on every target; no caller, and a process that changes directory invalidates every relative path anything else holds |
+| symlinks (`symlink`, `readlink`, `lstat`) | three more numbers, and every predicate above would grow a follow/do-not-follow variant. Nothing in this repository creates or reads one, and `open` follows them already, so a program that only *uses* the filesystem sees no gap |
+| `chmod` | the only file this project makes executable is made by `cc` |
+| `truncate`/`ftruncate` | `writeFile` truncates to what it writes, which is every case anything here has |
+| recursive delete | a loop over `listDir` and four lines, and it is the caller's to write: a library that deletes a tree on one call is a library that deletes the wrong tree once |
+| a streaming copy | `copyFile` puts the whole file through memory, which fits the sizes a source tree holds. A fixed buffer and a loop is the change when something needs it |
+
+Each of these is a syscall number and a wrapper away. None is blocked;
+they are simply not yet earned, which is the same standard `mkdir` was
+held to until a caller wanted it.
+
+### What pins it
+
+Three fixtures, each a round trip rather than a status check — a
+syscall number for something else entirely can return 0; what it cannot
+do is leave the filesystem in the state the call claims.
+
+| fixture | what it is |
+|---|---|
+| `tests/selfhost/993-filesystem-verbs.ax` | 30 checks at the `Sys` layer: append creates and accumulates where write truncates, rename moves *and* the source stops existing, the four errnos, `sysIsDir` in all three states, `sysGetCwd`'s shape |
+| `tests/selfhost/994-directory-listing.ax` | 18 checks: a directory is never empty, entries appear, a file and a missing path answer empty, and the three-pass listing above |
+| `tests/stdlib/055-filesystem.ax` | 59 self-graded checks over the whole `IO` and `Path` surface, and the first case in that corpus to exercise `Path` at all |
+
+`055-filesystem` grades itself in the shape
+`tests/stdlib/verify-stdlib-out.py` recognises, so all 59 of its
+expected lines are derived from its own source and survive a re-bless;
+it took that verifier from 32 covered files to 33 and from 54
+self-graded lines to 113.
+
+Ablations, each reverted:
+
+| ablation | result |
+|---|---|
+| `direntNameOffset` 19 on Darwin instead of 21 | 994 exits 1 |
+| decode wraps the shared buffer instead of copying | 994 exits 1 |
+| `sysAppendFile` opens with `O_TRUNC` | 993 exits 1, 055 prints 2 `FAIL` lines |
+| `sysRenameNum` off by one (BSD 129) | 993 dies with SIGSYS |
+| `listDir`'s comparison reversed | 055 prints a `FAIL` line |
+| `copyFile` without its `readErrno` guard | 055 prints 3 `FAIL` lines |
+
+The last one is the check worth naming. `(writeFile dst (readFile src))`
+is the spelling `copyFile` reaches for first, and because `readFile`
+answers `""` for a missing source it reports success having *truncated*
+`dst` on behalf of a file that does not exist. The guard is one call to
+`readErrno`, and the fixture asserts both that the copy is refused and
+that the destination still holds its old bytes.
+
+The three targets this host cannot execute are covered the way every
+other syscall here is: `check-cross-targets.sh` assembles all four from
+one host at `-O0` and `-O2`, and the numbers sit in the per-target
+module beside the ones already proven.

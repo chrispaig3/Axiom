@@ -14,6 +14,8 @@
 
 (import Sys)
 (import Str)
+(import Vec)
+(import Path)
 (import Fmt)
 ; The printing macros expand to `show`, so `IO` is where a program
 ; picks up the `Show` instances by importing one module rather than
@@ -32,20 +34,16 @@
 ; transfer fewer bytes than asked (a pipe with a full buffer, a signal),
 ; and treating a short write as success is the classic way to silently
 ; truncate output.
+;
+; The loop itself is `Sys.sysWriteAllFd` now, and was a private
+; `writeAll` here. It moved down because `sysWriteFile` needed it and
+; could not reach up: everything writing a FILE was single-shot while
+; everything writing a DESCRIPTOR was not, which is the same bug
+; sitting on the other side of one import.
 (pub :: writeStr (-> Int String Int))
 ;@axiom:effect(io)
 (pub fn (writeStr fd s)
-  (writeAll fd (strData s) (strLen s) 0))
-
-(:: writeAll (-> Int Int Int Int Int))
-;@axiom:effect(io)
-(fn (writeAll fd buf count done)
-  (if (>= done count)
-      done
-      (let ((n (sysWriteFd fd (+ buf done) (- count done))))
-        (if (< n 1)
-            (if (< n 0) n done)
-            (writeAll fd buf count (+ done n))))))
+  (sysWriteAllFd fd (strData s) (strLen s) 0))
 
 ; ------------------------------------------------------------------
 ; Printing is FIVE MACROS AND NO FUNCTIONS.
@@ -75,7 +73,7 @@
 (:: printLit (-> Int Int))
 ;@axiom:effect(io)
 (fn (printLit cstr)
-  (writeAll stdout cstr (cstrLen cstr 0) 0))
+  (sysWriteAllFd stdout cstr (cstrLen cstr 0) 0))
 
 (pub :: printlnLit (-> Int Int))
 ;@axiom:effect(io)
@@ -195,7 +193,252 @@
 (pub :: readFile (-> String String))
 ;@axiom:effect(io)
 (pub fn (readFile path)
-  (readFileLit (strCStr path)))
+  (readFileLit (ioPath path)))
+
+; ------------------------------------------------------------------
+; Files and directories, by name.
+;
+; `Sys` takes a raw NUL-terminated `char*` for every path, because it
+; hands one straight to a syscall. This is the layer that takes a
+; `Str`, and the split is the rule the library already stated for
+; `sysReadFile` versus `readFile` above - applied to the whole surface
+; rather than to the one function that happened to need it first.
+;
+; The convenience is not only the type. Each of these answers the
+; question a caller actually has:
+;
+;   - `fileExists` cannot tell a file from a directory; `isDir` can.
+;   - `writeFile` truncates and `appendFile` does not, which used to
+;     be read-concatenate-rewrite at every call site that wanted it.
+;   - `listDir` sorts, so a program that walks a directory produces
+;     the same output on two machines.
+;   - `makeDirAll` creates the parents, which is what a build writing
+;     `build/obj/x.o` means by "make the directory".
+;
+; PATHS ARE COPIED BEFORE THEY CROSS. `strSlice` shares storage and a
+; slice is NOT NUL-terminated, so handing one to `open` reads past its
+; end into whatever the parent string holds - for a slice of
+; `"src/main.ax"` that is a path that still exists, which is the worst
+; possible failure mode. Every function here copies first. One small
+; allocation, once, next to a syscall.
+; ------------------------------------------------------------------
+
+; `path` as a `char*` a syscall can take, always by copy - see above.
+(:: ioPath (-> String Int))
+(fn (ioPath path)
+  (strCStr (strDup path)))
+
+; Write `s` to `path`, creating it or TRUNCATING what is there.
+; Answers the bytes written, or a negative errno.
+(pub :: writeFile (-> String String Int))
+;@axiom:effect(io)
+(pub fn (writeFile path s)
+  (sysWriteFile (ioPath path) s))
+
+; Add `s` to the end of `path`, creating it if absent. Answers the
+; bytes written, or a negative errno.
+(pub :: appendFile (-> String String Int))
+;@axiom:effect(io)
+(pub fn (appendFile path s)
+  (sysAppendFile (ioPath path) s))
+
+; Remove the file `path`. Answers 0, or a negative errno.
+;
+; It does NOT remove a directory - the kernel refuses with EPERM on
+; Darwin and EISDIR on Linux (probed 2026-08-15: `-1` here). That is
+; `removeDir`'s job, and the two are separate calls on every platform
+; except AArch64 Linux, where they are one call and a flag.
+(pub :: removeFile (-> String Int))
+;@axiom:effect(io)
+(pub fn (removeFile path)
+  (sysUnlink (ioPath path)))
+
+; Move `old` to `new`, answering 0 or a negative errno.
+;
+; Atomic within one filesystem: a reader of `new` sees the whole old
+; contents or the whole new ones, never a prefix. Across filesystems
+; the kernel refuses with EXDEV (18) and `copyFile` + `removeFile` is
+; the fallback - which is not atomic, and that is the difference the
+; two spellings are for.
+(pub :: renamePath (-> String String Int))
+;@axiom:effect(io)
+(pub fn (renamePath old new)
+  (sysRename (ioPath old) (ioPath new)))
+
+; Copy `src` onto `dst`, answering the bytes written or a negative
+; errno. `dst` is created or truncated.
+;
+; The whole file goes through memory, so this is for the sizes a
+; source tree holds rather than for arbitrary ones - a streaming copy
+; would want a fixed buffer and a loop, and no caller has needed one.
+; The read is checked FIRST, because `readFile` answers "" for a
+; missing file and copying that would report success having created an
+; empty `dst` - destroying whatever was at `dst` on behalf of a source
+; that does not exist.
+(pub :: copyFile (-> String String Int))
+;@axiom:effect(io)
+(pub fn (copyFile src dst)
+  (let ((e (readErrno src)))
+    (if (!= e 0)
+        (- 0 e)
+        (writeFile dst (readFile src)))))
+
+; True when `path` names something that can be opened for reading -
+; a directory included. `isDir` separates them.
+(pub :: fileExists (-> String Bool))
+;@axiom:effect(io)
+(pub fn (fileExists path)
+  (sysFileExists (ioPath path)))
+
+; True when `path` names a directory.
+(pub :: isDir (-> String Bool))
+;@axiom:effect(io)
+(pub fn (isDir path)
+  (sysIsDir (ioPath path)))
+
+; The size of `path` in bytes, or a negative errno.
+;
+; A DIRECTORY answers a positive number here, and it is the size of
+; the directory file rather than anything a caller means - ask `isDir`
+; first if that matters. See `Sys.sysFileSize`.
+(pub :: fileSize (-> String Int))
+;@axiom:effect(io)
+(pub fn (fileSize path)
+  (sysFileSize (ioPath path)))
+
+; 0 when `path` can be read as a file, otherwise the errno saying why
+; not: 2 missing, 13 not permitted, 21 a directory.
+;
+; The three-way answer `readFile` cannot give, because it reports all
+; three - and an empty file - as "". A caller that must distinguish
+; "the file is empty" from "there is no file" asks this first.
+(pub :: readErrno (-> String Int))
+;@axiom:effect(io)
+(pub fn (readErrno path)
+  (sysReadErrno (ioPath path)))
+
+; Create the directory `path`, mode 0755. Answers 0, or a negative
+; errno - `-17` (EEXIST) when it is already there.
+(pub :: makeDir (-> String Int))
+;@axiom:effect(io)
+(pub fn (makeDir path)
+  (sysMkdir (ioPath path) sysDirMode))
+
+; Create `path` and every missing directory above it. Answers 0, or
+; the negative errno of the first component that could not be made.
+;
+; An existing directory is SUCCESS at every level, which is the whole
+; difference from `makeDir` and the reason a build can call this
+; unconditionally instead of testing first - testing first is a race,
+; and treating EEXIST as success is not.
+(pub :: makeDirAll (-> String Int))
+;@axiom:effect(io)
+(pub fn (makeDirAll path)
+  ; From 1, not 0: a leading `/` is the root, which exists and cannot
+  ; be created, and asking to create "" fails with ENOENT.
+  (makeDirAllFrom path 1))
+
+(:: makeDirAllFrom (-> String Int Int))
+;@axiom:effect(io)
+(fn (makeDirAllFrom path i)
+  (if (>= i (strLen path))
+      (makeDirOk path)
+      (if (== (strByte path i) 47)
+          (let ((rc (makeDirOk (strSlice path 0 i))))
+            (if (< rc 0) rc (makeDirAllFrom path (+ i 1))))
+          (makeDirAllFrom path (+ i 1)))))
+
+; `makeDir`, with "it was already there" counted as success.
+(:: makeDirOk (-> String Int))
+;@axiom:effect(io)
+(fn (makeDirOk p)
+  (let ((rc (makeDir p)))
+    (if (== (sysErrno rc) eExist) 0 rc)))
+
+; Remove the EMPTY directory `path`. Answers 0, or a negative errno -
+; `-66`/`-39` (ENOTEMPTY) when it still holds entries. Nothing here
+; removes a tree: that is a loop over `listDir`, and it is the
+; caller's to write, because a library that deletes recursively on
+; one call is a library that deletes the wrong subtree once.
+(pub :: removeDir (-> String Int))
+;@axiom:effect(io)
+(pub fn (removeDir path)
+  (sysRmdir (ioPath path)))
+
+; The entries of the directory `path`, as a Vec of `Str` - sorted by
+; byte, with `.` and `..` removed.
+;
+; An empty Vec means an empty directory OR a path that is not a
+; readable directory; `isDir` separates them. That ambiguity is
+; introduced HERE and not by the syscall: `Sys.sysReadDir` keeps `.`
+; and `..`, so its empty answer can only be failure, and dropping them
+; is what costs the distinction. It is dropped anyway, because a
+; caller that walks a directory and forgets to skip `..` walks the
+; whole filesystem, and that mistake is worse than the one this makes.
+;
+; SORTED, and that is not a nicety. `readdir` order is the
+; filesystem's - unstable across machines, and across runs on the same
+; machine after entries are added and removed - so a program that
+; lists a directory and prints, hashes or compiles what it finds is
+; not reproducible unless something sorts. Doing it here means nothing
+; has to remember to.
+;
+; The sort is an insertion sort, quadratic in the entry count, and
+; that is the right shape for a directory: it is one pass for an
+; already-ordered listing (which is what most filesystems hand back),
+; it needs no scratch allocation, and `Vec` has no comparison sort to
+; borrow. A directory large enough to notice wants `Sys.sysReadDir`
+; and its own ordering.
+(pub :: listDir (-> String Int))
+;@axiom:effect(io)
+(pub fn (listDir path)
+  (let ((raw (sysReadDir (ioPath path)))
+        (out vecNew))
+    { (listDirKeep raw 0 out) out }))
+
+(:: listDirKeep (-> Int Int Int Int))
+(fn (listDirKeep raw i out)
+  (if (>= i (vecLen raw))
+      0
+      (let ((name (cast String (vecGet raw i))))
+        {
+          (if (|| (strEq name ".") (strEq name ".."))
+              0
+              (listDirInsert out name))
+          (listDirKeep raw (+ i 1) out)
+        })))
+
+; Push, then bubble the new entry down to where it belongs. The Vec
+; below it is already sorted, so this settles in one comparison when
+; the listing arrives in order.
+(:: listDirInsert (-> Int String Int))
+(fn (listDirInsert v s)
+  {
+    (vecPush v (cast Int s))
+    (listDirSift v (- (vecLen v) 1))
+  })
+
+(:: listDirSift (-> Int Int Int))
+(fn (listDirSift v i)
+  (if (<= i 0)
+      0
+      (let ((a (cast String (vecGet v (- i 1))))
+            (b (cast String (vecGet v i))))
+        (if (<= (strCmp a b) 0)
+            0
+            {
+              (vecSet v (- i 1) (cast Int b))
+              (vecSet v i (cast Int a))
+              (listDirSift v (- i 1))
+            }))))
+
+; The process's working directory as an absolute path, or "" if it
+; cannot be determined. See `Sys.sysGetCwd` for why this is two
+; different syscalls underneath.
+(pub :: cwd String)
+;@axiom:effect(io)
+(pub fn (cwd)
+  sysGetCwd)
 
 ; ------------------------------------------------------------------
 ; Process exit

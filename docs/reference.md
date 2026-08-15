@@ -1393,8 +1393,79 @@ Axiom ships a standard library written **in Axiom**. It reaches the operating sy
 | `Fmt` | `fmtInt`, `fmtHex`, `fmtHexUpper`, `fmtFloat`, `fmtFloatPrec`, `fmtPadLeft`, `fmtPadRight`, `fmtPadCenter`, `fmtPadZerosLeft`, `fmtIntWidth` — the functions a format specifier selects |
 | `Show` | the `Show` trait and its `show` method (`Int`, `String`, `Bool`, `Float`), and the `format` macro |
 | `Intern` | `internNew`, `internIntern`, `internFind`, `internLookup`, `internCount` (string interner) |
-| `Sys` | `sysWriteFd`, `sysReadFd`, `sysOpenPath`, `sysCloseFd`, `sysSeek`, `sysExitWith`, `sysFailed`, `sysErrno`, `stdin`/`stdout`/`stderr` |
-| `IO` | `println`, `eprintln` (**macros** — see Printing and Formatting), `writeStr`, `printlnLit`, `readUpTo`, `readAll`, `readFile`, `readFileLit`, `exit`, `die` |
+| `Sys` | `sysWriteFd`, `sysReadFd`, `sysWriteAllFd`, `sysOpenPath`, `sysCloseFd`, `sysExitWith`, `sysFailed`, `sysErrno`, `stdin`/`stdout`/`stderr`; the filesystem (below); and the process layer `sysSpawn`, `sysRun`, `sysRunPath`, `sysWaitPid`, `sysEnv`, `sysArgc`, `sysArg`, `sysGetPid`, `sysNowMicros` |
+| `Path` | `pathDir`, `pathBase`, `pathExt`, `pathStem`, `pathJoin`, `pathReplaceExt`, `pathWithSlash`, `pathIsAbsolute`, `pathLastSlash`, `pathExtIndex` — decisions about bytes, no syscalls |
+| `IO` | `println`, `eprintln` (**macros** — see Printing and Formatting), `writeStr`, `printlnLit`, `readFileLit`, `exit`, `die`; and the filesystem (below) |
+
+### The Filesystem
+
+Two layers over the same syscalls. `Sys` takes a raw NUL-terminated
+`char*` because it hands one straight to the kernel; `IO` takes a
+`Str`, copies it so a `strSlice` cannot be handed on unterminated, and
+is the one to reach for.
+
+| Question | `IO` (takes a `Str`) | `Sys` (takes a `char*`) |
+|---|---|---|
+| read a whole file | `readFile` | `sysReadFile` |
+| write one, truncating | `writeFile` | `sysWriteFile` |
+| add to the end of one | `appendFile` | `sysAppendFile` |
+| duplicate one | `copyFile` | — |
+| move or rename | `renamePath` | `sysRename` |
+| delete a file | `removeFile` | `sysUnlink` |
+| is it there? | `fileExists` | `sysFileExists` |
+| is it a directory? | `isDir` | `sysIsDir` |
+| how big? | `fileSize` | `sysFileSize` |
+| *why* can it not be read? | `readErrno` | `sysReadErrno` |
+| make a directory | `makeDir` | `sysMkdir` |
+| make it and its parents | `makeDirAll` | — |
+| remove an empty directory | `removeDir` | `sysRmdir` |
+| what is in a directory? | `listDir` | `sysReadDir` |
+| where am I? | `cwd` | `sysGetCwd` |
+
+Every call answers a value or a negative errno; nothing throws.
+
+Three things are worth knowing before using them.
+
+**`readFile` answers `""` for four different situations** — a missing
+file, an empty file, a directory, and a file that could not be opened.
+`readErrno` is the discriminator: `0` readable, `2` missing, `13` not
+permitted, `21` a directory.
+
+**`listDir` is sorted and drops `.` and `..`.** `readdir` order is the
+filesystem's and differs between machines, so a program that walks a
+directory is not reproducible unless something sorts.
+`Sys.sysReadDir` is the unsorted primitive, and it keeps the two dot
+entries — which is what lets its empty answer mean *failure* and
+nothing else, since a readable directory always holds them.
+
+**There is no `stat`, and no `chdir`.** `struct stat`'s layout differs
+on all four targets, so the questions it answers are `open`, `read`
+and `lseek` here instead. `chdir` exists on every target and is absent
+because nothing calls it: a process that changes directory has
+invalidated every relative path anything else is holding. See
+[self-hosting.md §47 and §49](self-hosting.md).
+
+```scheme
+(import IO)
+(import Path)
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  {
+    (makeDirAll "build/out")
+    (writeFile (pathJoin "build/out" "notes.txt") "first\n")
+    (appendFile "build/out/notes.txt" "second\n")
+    (println (readFile "build/out/notes.txt"))
+    (println (pathExt "build/out/notes.txt"))       ; .txt
+    (println (pathStem "build/out/notes.txt"))      ; notes
+    (println (pathReplaceExt "build/out/notes.txt" ".md"))
+    (removeFile "build/out/notes.txt")
+    (removeDir "build/out")
+    (removeDir "build")
+    0
+  })
+```
 
 ### A `Str` Is...
 
