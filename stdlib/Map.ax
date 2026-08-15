@@ -274,7 +274,7 @@
 (fn (mapKeyAt m i)
   (memGetWord (memGetWord m 2) i))
 
-(:: mapValAt (-> Int Int Int))
+(:: mapValAt (-> Int Int a))
 (fn (mapValAt m i)
   (memGetWord (memGetWord m 3) i))
 
@@ -415,7 +415,7 @@
 ; and lets each call site pick a sentinel it knows cannot occur in its
 ; own value range; a caller with no such value uses `mapHas` first and
 ; pays the second probe only where it actually needs the distinction.
-(pub :: mapGet (-> Int Int Int Int))
+(pub :: mapGet (-> Int Int a a))
 (pub fn (mapGet m key dflt)
   (let ((i (mapFindSlot m key)))
     (if (< i 0)
@@ -450,7 +450,7 @@
 ; gets back is never over its load factor. Growing after would let a
 ; single insert push `used` to `cap` and leave the next lookup's probe
 ; with no empty slot to stop at.
-(pub :: mapInsert (-> Int Int Int Int))
+(pub :: mapInsert (-> Int Int a Int))
 (pub fn (mapInsert m key value)
   {
     (if (mapNeedsGrow m)
@@ -473,7 +473,7 @@
 ; recursive loop cannot be inlined, and most inserts are decided at the
 ; home slot. A tombstone there falls into the loop remembering it, so
 ; the reuse rule is exactly the loop's.
-(:: mapInsertNoGrow (-> Int Int Int Int))
+(:: mapInsertNoGrow (-> Int Int a Int))
 (fn (mapInsertNoGrow m key value)
   (let ((cap (mapCap m))
         (keys (memGetWord m 2))
@@ -494,7 +494,7 @@
                 (mapInsertLoop m keys vals states cap key value
                                (mapNextSlot h cap) h (- cap 1))))))))
 
-(:: mapInsertLoop (-> Int Int Int Int Int Int Int Int Int Int Int))
+(:: mapInsertLoop (-> Int Int Int Int Int Int a Int Int Int Int))
 (fn (mapInsertLoop m keys vals states cap key value i firstTomb left)
   (if (<= left 0)
       m
@@ -546,7 +546,7 @@
 ; because the failure mode described above the probe loops is silent and
 ; stack-dependent, and this is the layer everything else is going to
 ; trust.
-(:: mapFillAt (-> Int Int Int Int Int Int Int Int Int))
+(:: mapFillAt (-> Int Int Int Int Int Int a Int Int))
 (fn (mapFillAt m keys vals states i key value consumesEmpty)
   {
     (memSetWord keys i key)

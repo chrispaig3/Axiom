@@ -171,13 +171,15 @@ without a length — from a syscall buffer, say. Applied to a literal it
 is redundant: `(strFromLit (__addr "hi"))` scans for a length the
 compiler already knew, and `"hi"` is the same value.
 
-> **A `String` is a machine word.** Every Axiom value is one word, and a
-> `String` is the address of a `Str` header, so `String` and `Int` are
-> interchangeable. This is what lets a literal be stored in a `Vec`,
-> used as a `Map` key, or read by the `Int`-typed accessors that
-> implement `Str`. The cost is that `(+ 1 "hi")` type-checks — it adds
-> one to an address — which is the same latitude the language gives
-> every other handle.
+> **A `String` is a machine word, and the checker knows which words
+> are strings.** Every Axiom value is one word, and a `String` is the
+> address of a `Str` header — but since 2026-08-15 `String` and `Int`
+> are DISTINCT types: the fiat that unified them is deleted, and
+> `(+ 1 "hi")` is the `AX3004` it always deserved. A literal still
+> goes into a `Vec` or a `Map` value slot, because the containers
+> carry type variables rather than spending the fiat; the explicit
+> crossing where a handle is deliberately read as a word is spelled
+> `(cast Int s)`, and it appears exactly once in `Str` itself.
 
 ---
 

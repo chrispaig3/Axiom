@@ -21,7 +21,7 @@
 (:: checks Int)
 (fn (checks) 0)
 
-(:: eq (-> Int Int Int Int))
+(:: eq (-> String String String Int))
 ;@axiom:effect(io)
 (fn (eq name got want)
   (if (strEq got want)
@@ -33,7 +33,7 @@
         1
       }))
 
-(:: eqInt (-> Int Int Int Int))
+(:: eqInt (-> String Int Int Int))
 ;@axiom:effect(io)
 (fn (eqInt name got want)
   (if (== got want)

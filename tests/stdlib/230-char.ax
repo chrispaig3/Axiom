@@ -23,13 +23,13 @@
 
 ; And one that round-trips through memory, so the literal's width has to
 ; agree with what `strByte` reads back.
-(pub :: firstByte (-> Int Int))
+(pub :: firstByte (-> String Int))
 (pub fn (firstByte s)
   (strByte s 0))
 
 ; Build a one-character `Str` from a `Char`, which is what the REPL does
 ; to print a character result.
-(pub :: charToStr (-> Char Int))
+(pub :: charToStr (-> Char String))
 (pub fn (charToStr c)
   (let ((s (strAlloc 1)))
     {

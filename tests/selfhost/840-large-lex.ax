@@ -17,7 +17,7 @@
 (import Vec)
 (import lexer)
 
-(:: rep (-> Int Int Int))
+(:: rep (-> String Int String))
 (fn (rep s n)
   (if (== n 0) s (rep (strConcat s s) (- n 1))))
 

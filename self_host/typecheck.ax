@@ -15,9 +15,10 @@
 ;   * Types are structural nodes (TAG_T_* in parser.ax). There is no
 ;     unification and no substitution anywhere: `tyCompat` treats a
 ;     type VARIABLE on either side, at any depth, as matching
-;     anything, `String` and `Int` are mutually compatible by fiat
-;     (a Str handle is a machine word; without this rule every string
-;     in a Vec would be a type error), and the poison type TAG_T_ERR
+;     anything (the fiat that made `String` and `Int` mutually
+;     compatible was deleted 2026-08-15 - containers carry type
+;     variables now, so a string in a Vec types honestly), and the
+;     poison type TAG_T_ERR
 ;     matches everything so one root cause never cascades.
 ;
 ;   * Function types come from signatures, authoritatively. A `fn`
@@ -135,10 +136,12 @@
 (pub fn (mkSilentWild) (mkTVar ""))
 
 ; Is this type EXACTLY `String`? Deliberately not "compatible with
-; String": `tyCompat` says `String` and `Int` are interchangeable (the
-; uniform-representation fiat), so asking it here would answer yes for
-; every `Int` in the program and turn every integer comparison into a
-; string comparison. This asks the narrow question - did the checker
+; String": while the uniform-representation fiat lived, `tyCompat`
+; said the two names were interchangeable, and asking it here would
+; have answered yes for every `Int` in the program - turning every
+; integer comparison into a string comparison. The fiat is deleted;
+; the narrow question stays narrow because a type VARIABLE still
+; matches anything. This asks the narrow question - did the checker
 ; CONCLUDE `String` - which is the same question `tyIsFloatTy` asks for
 ; the `fadd`/`add` choice.
 (pub :: tyIsStringTy (-> Int Int))
@@ -197,13 +200,23 @@
         (if (|| (== ta TAG_T_VAR) (== tb TAG_T_VAR))
             (tyVarCompat a b ta tb)
         (if (&& (== ta TAG_T_CON) (== tb TAG_T_CON))
-            (if (|| (&& (strEq (nodeA a) "String") (strEq (nodeA b) "Int"))
-                    (&& (strEq (nodeA a) "Int") (strEq (nodeA b) "String")))
-                1
-                (if (&& (strEq (nodeA a) (nodeA b))
-                        (== (vecLen (nodeB a)) (vecLen (nodeB b))))
-                    (tyCompatVec (nodeB a) (nodeB b) 0)
-                    0))
+            ; The String/Int fiat lived here from the first checker
+            ; until 2026-08-15: the two names were mutually compatible
+            ; so that `Int` could be the universal heap-handle type.
+            ; Its deletion was priced before it happened - a four-slice
+            ; campaign took the fiat-off error count to zero for the
+            ; compiler and the whole stdlib, and the corpus's 17
+            ; dependent fixtures were retyped honestly (container
+            ; value positions became type variables; string equality
+            ; answers Bool ahead of the numeric matrix) until the
+            ; exit-status differential read zero across all 297. A
+            ; string is a String now, everywhere, which is what
+            ; MM-ALLOC-20's static half demanded and what MM-LIFE-2d's
+            ; reference maps stand on.
+            (if (&& (strEq (nodeA a) (nodeA b))
+                    (== (vecLen (nodeB a)) (vecLen (nodeB b))))
+                (tyCompatVec (nodeB a) (nodeB b) 0)
+                0)
         (if (&& (== ta TAG_T_ARR) (== tb TAG_T_ARR))
             (if (== (tyCompat (nodeA a) (nodeA b)) 1)
                 (tyCompat (nodeB a) (nodeB b))
@@ -3420,7 +3433,9 @@
 ; comparison still answers Bool; arithmetic answers poison), a float
 ; on EITHER side selects the float path where every non-float operand
 ; must be compatible with Float, otherwise both operands must be
-; compatible with Int - which a String is, by the fiat rule.
+; compatible with Int. (A String no longer is - the stringly
+; equality arm answers Bool ahead of this matrix since the fiat's
+; deletion.)
 ;
 ; `head` is the spine node whose word 1 is the operator's own
 ; identifier, and it is here for one job: `==` and `!=` over two
@@ -3440,6 +3455,15 @@
       (if (== (equalityIsStringly op lt rt) 1)
           (memSetWord head 1 (if (strEq op "==") "__streq" "__strne"))
           0)
+      ; A STRINGLY equality answers Bool here, before the numeric
+      ; matrix: its operands are legitimately Strings and the node was
+      ; just rewritten to the content comparison. Under the fiat the
+      ; Int arm accepted them anyway, so this arm is what makes string
+      ; equality survive the fiat's deletion - the comparison the
+      ; rewrite exists to serve must not be refused by the matrix it
+      ; bypasses.
+      (if (== (equalityIsStringly op lt rt) 1)
+          mkBoolTy
       (if (|| (== (tyIsErr lt) 1) (== (tyIsErr rt) 1))
           (if (== (isNumCmpOp op) 1) mkBoolTy (mkNode TAG_T_ERR 0 0 0))
           (if (|| (== (tyIsFloatTy lt) 1) (== (tyIsFloatTy rt) 1))
@@ -3462,7 +3486,7 @@
                     (emitMismatch tc "Int" (tyRender rt) (spanOf r))
                     0)
                 (if (== (isNumCmpOp op) 1) mkBoolTy mkIntTy)
-              }))
+              })))
       })))
 
 ; Does this comparison compare two STRINGS?
@@ -3474,9 +3498,10 @@
 ;     than fixing equality, and an address ordering is at least not a
 ;     WRONG answer to a question anyone asks.
 ;   - BOTH sides are exactly `String` (`tyIsStringTy`, not `tyCompat`).
-;     One side a string and the other an `Int` is exactly the shape the
-;     fiat permits and nothing can distinguish, so it keeps the old
-;     integer comparison rather than dereferencing a number.
+;     One side a string and the other an `Int` was the shape the fiat
+;     permitted; since its deletion that shape is a type error at the
+;     numeric matrix, and this test's remaining job is keeping an
+;     `Int`-vs-`Int` comparison integer.
 ;   - poison is excluded by the caller's own test, which runs after
 ;     this one only because a poisoned operand must not rewrite the
 ;     node and then be reported as a type error about it.

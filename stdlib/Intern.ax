@@ -211,7 +211,7 @@
 ; returning it would turn a caller's off-by-one into a null dereference
 ; inside `strLen` instead of a visible empty string. The cost is a 17-byte
 ; allocation on a path that only a buggy caller takes.
-(pub :: internLookup (-> Int Int Int))
+(pub :: internLookup (-> Int Int String))
 (pub fn (internLookup it id)
   (if (< id 0)
       (strAlloc 0)

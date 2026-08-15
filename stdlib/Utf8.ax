@@ -222,7 +222,7 @@
                 4)))))
 
 ; A freshly allocated `Str` holding `cp` alone.
-(pub :: utf8FromChar (-> Int Int))
+(pub :: utf8FromChar (-> Int String))
 (pub fn (utf8FromChar cp0)
   (let ((cp (utf8Encodable cp0))
         (n (utf8Width cp0)))

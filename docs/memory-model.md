@@ -1083,13 +1083,18 @@ both are prerequisites rather than details:
    shape word is written by nothing yet (`MM-LIFE-2d`), so a runtime
    scan still cannot trace fields; roots remain untrackable either
    way until the ownership events land (`MM-LIFE-2c`).
-2. **No static discrimination.** `String` and `Int` are *unified by
-   fiat* in `tyCompat` (`typecheck.ax:180`) — a deliberate compatibility
-   rule that makes `Int` the universal heap-handle type. Every `Vec`,
-   `Map`, `Intern` and `Str` handle is an `Int` to the checker. An
-   escape analysis over today's types would therefore have to treat
-   every `Int` as possibly-a-pointer, which is the same as treating
-   nothing as one.
+2. **No static discrimination — RESOLVED 2026-08-15.** `String` and
+   `Int` were *unified by fiat* in `tyCompat`, the deliberate
+   compatibility rule that made `Int` the universal heap-handle type.
+   The fiat is DELETED: a string is a `String` to the checker
+   everywhere in the compiler, the stdlib and the corpus, the
+   containers carry type variables instead of spending the rule, and
+   `(+ 1 "hi")` is the `AX3004` it always deserved
+   (`tests/diagnostics/555-string-int-distinct.ax`; string EQUALITY
+   survives through the content rewrite, answering Bool ahead of the
+   numeric matrix). What static discrimination still cannot see: a
+   type VARIABLE hides pointerhood by design — `MM-LIFE-2d`'s
+   evidence word is that answer, not more checking.
 
 A conforming implementation of automatic reclamation **MUST** first
 introduce a type-level distinction between a heap handle and an integer
@@ -1227,12 +1232,13 @@ became visible to the checker. Inference over the tree brought that to
 2026-08-14/15 a four-slice campaign took it to **ZERO for the compiler
 and the entire standard library** (`5399acf`..`ba57f65`: constructor
 families first, then eleven parallel per-file judgement passes, then
-the cross-file producers those passes named). The fiat itself is still
-ON: deleting it is a language change whose corpus price is measured at
-**17 of 294 fixtures** (exit-status differential, fiat-on against
-fiat-off builds of the same tree), dominated by `Map`/`Intern`-style
-key positions that want the same type-variable treatment `vecGet`
-already has.
+the cross-file producers those passes named). The fiat was DELETED on
+2026-08-15, one commit after the measurement: the 17 dependent
+fixtures were retyped honestly (container VALUE positions became type
+variables; the fixtures' own helper signatures told the truth; string
+equality gained its Bool answer ahead of the numeric matrix), the
+corpus's exit-status differential read zero across all 297 files, and
+the clause came out of `tyCompat` with its history recorded in place.
 
 The annotations were derived from **what each body does with the value**,
 not from the diagnostic list. A parameter handed to `strLen` is a string,

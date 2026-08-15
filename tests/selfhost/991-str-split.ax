@@ -18,10 +18,10 @@
 (import Str)
 (import Vec)
 
-(:: nseg (-> Int Int Int))
+(:: nseg (-> String Int Int))
 (fn (nseg s b) (vecLen (strSplit s b)))
 
-(:: segEq (-> Int Int Int Int Bool))
+(:: segEq (-> String Int Int String Bool))
 (fn (segEq s b i want) (strEq (vecGet (strSplit s b) i) want))
 
 ; Counted, not `&&`-chained and not nested: the answer says HOW MANY

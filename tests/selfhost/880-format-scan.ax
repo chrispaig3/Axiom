@@ -20,7 +20,7 @@
 (import Str)
 (import format)
 
-(:: sample Int)
+(:: sample String)
 (fn (sample)
   (strConcat
     (strConcat
@@ -31,7 +31,7 @@
 ; The reader pairs delimiters and refuses rather than guessing. Both
 ; directions matter: an unclosed group and a mismatched closer would
 ; each let a formatter re-nest a file silently.
-(:: formCount (-> Int Int))
+(:: formCount (-> String Int))
 (fn (formCount src)
   (let ((f (readForms src (fsToks (fscan src)))))
     (if (== f 0) 99 (vecLen f))))
@@ -41,7 +41,7 @@
 ; elements - `(g x.y)` would print as an application of three things.
 ; The join is on ADJACENCY, which is what keeps a trait method's
 ; `show :: (-> a Int)` three separate forms.
-(:: kidsOf (-> Int Int))
+(:: kidsOf (-> String Int))
 (fn (kidsOf src)
   (let ((f (readForms src (fsToks (fscan src)))))
     (if (== f 0) 99 (fnLen (vecGet f 0)))))

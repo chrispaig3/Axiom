@@ -253,10 +253,14 @@
     }))
 
 ; ------------------------------------------------------------------
-; The wrapper module - stage0's generate_repl_wrapper, byte for
-; byte in intent: how a value prints is decided by the RENDERED type
-; string, the result carrier is declared `(-> Int <carrier>)`, and
-; Bool is converted at the source because nothing prints one.
+; The wrapper module - stage0's generate_repl_wrapper in intent: how
+; a value prints is decided by the RENDERED type string, the result
+; carrier is declared `(-> Int <carrier>)`, and Bool is converted at
+; the source because nothing prints one. One divergence from stage0,
+; forced 2026-08-15: a String result declares a String carrier -
+; stage0 declared Int and leaned on the String/Int fiat, and the
+; wrapper is a compiled program like any other, so the fiat's
+; deletion reached it too.
 ; ------------------------------------------------------------------
 (pub :: replWrapper (-> String String String String))
 (pub fn (replWrapper declsSrc exprLine tyStr)
@@ -268,7 +272,8 @@
           (if (strEq tyStr "Char")
               "(let ((s (strAlloc 1)))\n  {\n    (memPutByte (strData s) 0 (cast Int (__repl_result 0)))\n    (println s)\n  })"
               "(printlnInt (__repl_result 0))"))))
-        (carrier (if (strEq tyStr "Char") "Char" "Int"))
+        (carrier (if (strEq tyStr "Char") "Char"
+                 (if (|| (strEq tyStr "String") (strEq tyStr "Str")) "String" "Int")))
         (body (if (strEq tyStr "Bool")
                   (strConcat (strConcat "(if " exprLine) " 1 0)")
                   exprLine)))

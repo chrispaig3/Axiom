@@ -1,0 +1,32 @@
+; A string is a String and an integer is an Int - the fiat that
+; unified them BY NAME in tyCompat was deleted on 2026-08-15, after a
+; campaign took the fiat-off error count to zero for the compiler,
+; the stdlib, and the corpus. Three shapes it used to accept, each
+; now the plain AX3004 it always deserved:
+;
+;   line 27: arithmetic on a string - `(+ 1 "hi")` added one to an
+;            address for as long as the language existed
+;   line 28: a string into an Int-declared parameter
+;   line 29: an integer into a String-declared parameter
+;
+; String EQUALITY is untouched: `==` on two Strings answers Bool
+; through the content rewrite (035-string-equality pins it).
+; The pre-deletion compiler accepts this whole file, exit 0.
+(:: addOne (-> Int Int))
+
+(fn (addOne n) (+ n 1))
+
+(:: shout (-> String String))
+
+(fn (shout s) s)
+
+(:: main Int)
+
+(fn (main)
+  {
+    (+ 1 "hi")
+    (addOne "three")
+    (shout 42)
+    0
+  }
+)

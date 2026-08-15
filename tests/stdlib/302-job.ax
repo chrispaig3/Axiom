@@ -42,7 +42,7 @@
 (import Vec)
 (import Job)
 
-(pub :: sh3 (-> Int Int))
+(pub :: sh3 (-> String Int))
 (pub fn (sh3 script)
   (let ((v vecNew))
     {

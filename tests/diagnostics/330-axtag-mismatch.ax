@@ -8,9 +8,9 @@
 (:: claims (-> Int Int))
 ;@axiom:effect(console)
 (fn (claims n) n)
-(:: honest (-> Int Int))
+(:: honest (-> String Int))
 ;@axiom:effect(console)
-(fn (honest n) (log n))
+(fn (honest s) (log s))
 (:: higher (-> (-> Int Int) Int Int))
 ;@axiom:pure
 (fn (higher f x) (f x))

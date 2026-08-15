@@ -83,7 +83,7 @@
 ;
 ; Used for addresses and bit patterns in compiler diagnostics, where
 ; decimal is unreadable.
-(pub :: fmtHex (-> Int Int))
+(pub :: fmtHex (-> Int String))
 (pub fn (fmtHex n)
   (if (== n 0)
       "0"
@@ -112,7 +112,7 @@
       })))
 
 ; `s` padded on the left with spaces to at least `width` bytes.
-(pub :: fmtPadLeft (-> String Int Int))
+(pub :: fmtPadLeft (-> String Int String))
 (pub fn (fmtPadLeft s width)
   (let ((len (strLen s)))
     (if (>= len width)

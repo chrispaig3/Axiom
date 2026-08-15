@@ -44,7 +44,7 @@
 ; not fit in a readable test, and because a generated name is a fresh
 ; `Str` handle every time it is called - which is exactly the condition
 ; the re-interning check below needs.
-(pub :: itName (-> Int Int))
+(pub :: itName (-> Int String))
 (pub fn (itName n)
   (strConcat "id" (fmtInt n)))
 

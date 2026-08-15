@@ -136,7 +136,7 @@
 
 ; Distinct, variable-length keys. `fmtInt` gives 1- to 6-byte strings
 ; over this range, so the hash sees every length rather than one.
-(pub :: scName (-> Int Int))
+(pub :: scName (-> Int String))
 (pub fn (scName i)
   (strConcat "sym" (fmtInt i)))
 

@@ -183,9 +183,12 @@
       (printlnInt (mapGet x (- 0 1) (- 0 1)))       ; 333
       (printlnInt (mtBit (mapHas x (- 0 2))))       ; 0
 
-      ; --- a Map of Str values, on the uniform-representation claim ---
+      ; --- a Map of Str values: the value position is a type variable,
+      ; so the table that held Ints above holds a String here, and the
+      ; get's default is the same variable as its return - so it must be
+      ; a String too.
       (mapInsert x 1000 "interned")
-      (println (mapGet x 1000 0))                   ; interned
+      (println (mapGet x 1000 ""))                  ; interned
 
       ; --- the hash is pinned against an independent fmix64 ---
       ; Values computed by a Python reimplementation working in

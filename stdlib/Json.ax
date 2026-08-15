@@ -125,7 +125,7 @@
 (pub fn (jsonInt v)
   (if (== (jsonTag v) JNUM) (memGetWord v 1) 0))
 
-(pub :: jsonNumText (-> Int Int))
+(pub :: jsonNumText (-> Int String))
 (pub fn (jsonNumText v)
   (if (== (jsonTag v) JNUM) (memGetWord v 2) ""))
 
@@ -239,7 +239,7 @@
 (:: jsonIsMostNegative (-> Int Bool))
 (fn (jsonIsMostNegative n) (&& (< n 0) (== (- 0 n) n)))
 
-(:: jsonIntStr (-> Int Int))
+(:: jsonIntStr (-> Int String))
 (fn (jsonIntStr n)
   (if (jsonIsMostNegative n)
       "-9223372036854775808"
@@ -319,7 +319,7 @@
           2
           (if (< b 32) 6 1))))
 
-(:: jsonEscape (-> String Int))
+(:: jsonEscape (-> String String))
 (fn (jsonEscape s)
   (let ((total (jsonEscapeLen s)))
     (if (== total (strLen s))
@@ -348,7 +348,7 @@
 
 ; A one-byte string holding `b`. Needed for the control characters
 ; Axiom's own string syntax cannot spell.
-(pub :: jsonByteStr (-> Int Int))
+(pub :: jsonByteStr (-> Int String))
 (pub fn (jsonByteStr b)
   (let ((s (strAlloc 1))) { (__store8 (strData s) 0 b) s }))
 

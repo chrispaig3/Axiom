@@ -13,7 +13,7 @@
 ; them. 41 + byte 2 of "abc" = 41 + 99.
 (import Str)
 
-(:: strLen (-> Int Int))
+(:: strLen (-> String Int))
 (fn (strLen s) 41)
 
 (:: main Int)
