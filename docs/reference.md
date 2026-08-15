@@ -246,7 +246,7 @@ These words are reserved and cannot be used as identifiers:
 | `impl` | Trait implementation |
 | `import` | Import a module |
 | `pub` | Public visibility |
-| `deriving` | Parses and is discarded; to be refused — `derive` will be explicit macros ([macro-system.md](macro-system.md) MAC-CAP-9) |
+| `deriving` | **Refused** (`AX2004`, 2026-08-14) — it parsed and derived nothing; `derive` is explicit declaration macros ([macro-system.md](macro-system.md) MAC-CAP-9) |
 | `where` | Trait method bodies |
 | `effect` | Declare an effect type |
 | `handle` | Handle effects |
@@ -766,19 +766,22 @@ Every value of a `data` type — nullary constructors like `Nothing` included �
 
 ### Deriving Traits
 
-There is no working `derive` today. The `deriving` clause **parses and
-is discarded** — the names never reach the AST, and no instance is
-generated — and the settled design refuses the clause outright: `derive`
-will be explicit declaration macros, `(deriveEq T)`, built on the macro
-system ([macro-system.md](macro-system.md) MAC-CAP-8/MAC-CAP-9). Until
-that lands, write the `impl` by hand. The clause's shape, shown only so
-its inertness is recognisable:
+`derive` is **explicit declaration macros**, not a clause: write
+`(deriveEq T)` where you want the instance, and the macro generates a
+real `impl` — checked, compiled, and dispatched like a written one
+(see [Macros](#macros) for a complete `deriveEq` and
+[macro-system.md](macro-system.md) §10.2 for the fieldful form whose
+derived instances compose).
 
-```scheme
-(data Maybe (a)
-  (Nothing)
-  (Just a))
-(deriving Eq)
+The `deriving` **clause is refused** (`AX2004`, since 2026-08-14). It
+had parsed and been silently discarded from the day it was written —
+its names never reached the AST, and no instance was ever derived —
+and a clause that does nothing is worse than one that does not parse
+(MAC-CAP-9's settled decision):
+
+```scheme fragment
+(data Colour () (Red) (Green) deriving (Eq Show))
+; error[AX2004]: `deriving` parsed and derived nothing, and is now refused
 ```
 
 ---
@@ -1158,11 +1161,15 @@ a struct, a query outside a template — is `AX3028` (`axiom explain
 AX3028`), never a default. The `syntax/` prefix is reserved in
 declaration names.
 
-What macros cannot do yet: match on the shape of their arguments,
-repeat a template over a variable number of them, or inspect a
-struct's or constructor's *fields* (so fieldful `derive` is still to
-come — `deriving (Eq)` parses and is discarded). The normative
-specification is [macro-system.md](macro-system.md);
+Structs and fieldful constructors are covered too: `(syntax/fields
+S)` iterates a struct's field names, `(syntax/binders C x)` names a
+constructor's fields as hygienic pattern binders, and `(syntax/fold
+&& true ...)` chains a comparison over them — the spec's `deriveEq`
+and `deriveLenses` both run verbatim, and a derived `impl` composes
+with the next derive. What macros cannot do yet: match on the shape
+of their arguments, or repeat a template over a variable number of
+them (`deriving (Eq)` is refused outright — see Deriving Traits).
+The normative specification is [macro-system.md](macro-system.md);
 [macros.md](macros.md) is the measured detail and the order the rest
 is planned in.
 

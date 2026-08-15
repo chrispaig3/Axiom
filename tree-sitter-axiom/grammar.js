@@ -250,13 +250,12 @@ module.exports = grammar({
       ')',
     ),
 
-    // `(data Name (tyvars...) (Ctor field...)... (deriving C...))`
+    // `(data Name (tyvars...) (Ctor field...)...)`
     data_declaration: $ => seq(
       '(', optional(field('visibility', 'pub')), 'data',
       field('name', $.identifier),
       optional(field('type_parameters', $._data_type_parameters)),
       repeat(field('constructor', $.data_constructor)),
-      optional($.deriving_clause),
       ')',
     ),
 
@@ -339,12 +338,11 @@ module.exports = grammar({
       ),
     ),
 
-    // `deriving (Eq Show)` - the keyword OUTSIDE the parentheses, which
-    // is what `parse_data` accepts. This described `(deriving Eq Show)`,
-    // the spelling the *formatter* emitted and the compiler rejects, so
-    // all three implementations of the grammar disagreed and no file in
-    // the repository used the construct to say so.
-    deriving_clause: $ => seq('deriving', '(', repeat($.identifier), ')'),
+    // The `deriving_clause` rule was DELETED on 2026-08-14, the day
+    // the compiler started refusing the clause (AX2004, MAC-CAP-9):
+    // a grammar that accepts what the compiler refuses is the drift
+    // this file's history keeps recording, and an AST arm without a
+    // producer is dead syntax.
 
     // `(struct Name (field : Type)...)`
     //

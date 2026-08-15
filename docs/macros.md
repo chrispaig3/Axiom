@@ -417,10 +417,11 @@ the bank that pins it is `scripts/check-degenerate.sh`, and
   the first instance by its static type
   (`tests/selfhost/378-derive-eq-impl.ax`, 30). What does not exist:
   nested `syntax/join` (nested declaration iteration cannot name its
-  products), a `deriveEq` shipped in `stdlib/Pre.ax` (needs
-  module-side types — queries answer entry-file types only in v1),
-  and the `deriving` clause still parses and is discarded (refusal is
-  the settled replacement, MAC-CAP-9).
+  products), and a `deriveEq` shipped in `stdlib/Pre.ax` (needs
+  module-side types — queries answer entry-file types only in v1).
+  The `deriving` clause is REFUSED as of the fifth commit (`AX2004`
+  naming the replacement; the formatter poisons rather than rewrites
+  — the two grammars refuse together, MAC-CAP-9).
 - **Patterns.** The rule-list *surface* exists with exactly one rule
   (the declaration form). No multiple rules, no literal atoms, no
   nested patterns, no alternatives; an expression macro is still one
@@ -469,14 +470,14 @@ until the same date.)
    would rewrite `fn` to `lambda` inside it). Entry-file invocation
    only; `AX3027` covers every refusal, `axiom explain AX3027` the
    catalogue.
-4. **`derive`** — criterion 1. The spelling is settled
-   ([macro-system.md](macro-system.md) `MAC-CAP-9`, 2026-08-14):
-   explicit declaration macros — `(deriveEq T)`, needing only (3) —
-   and the `deriving` clause is to be refused rather than implemented.
-   (This item read "the spelling is an unmade decision" until then;
-   the costs it weighed — threading `deriving`'s names into the AST
-   touches the parser, the node layout, AXSYM and the formatter — are
-   what decided it.)
+4. ~~**`derive`**~~ — **done as a mechanism, 2026-08-14** (criterion
+   1): explicit declaration macros, with the spec's `deriveEq`s
+   running verbatim (fixtures 374/377/378, the impl form's instances
+   composing) and the `deriving` clause REFUSED the same day - the
+   blast radius macro-system.md counted (one zoo file pair,
+   reference.md's example) and nothing else. What remains is the
+   *stdlib shipping* of the library, blocked on module-side query
+   subjects.
 5. **Repetition patterns** — the boilerplate case. Needs the lexer,
    `format.ax` and the tree-sitter grammar to move together, and flips
    a checked-in refusal golden (`tests/fmt/parity/060-splice-refused`)

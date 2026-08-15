@@ -546,31 +546,6 @@
           }
         ]
       }
-    },
-    "children": {
-      "multiple": false,
-      "required": false,
-      "types": [
-        {
-          "type": "deriving_clause",
-          "named": true
-        }
-      ]
-    }
-  },
-  {
-    "type": "deriving_clause",
-    "named": true,
-    "fields": {},
-    "children": {
-      "multiple": true,
-      "required": false,
-      "types": [
-        {
-          "type": "identifier",
-          "named": true
-        }
-      ]
     }
   },
   {
@@ -2255,10 +2230,6 @@
   },
   {
     "type": "define",
-    "named": false
-  },
-  {
-    "type": "deriving",
     "named": false
   },
   {

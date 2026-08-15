@@ -1,0 +1,3 @@
+(data Colour
+  (Red)
+  (Green) deriving (Eq Show))

@@ -149,7 +149,6 @@
   "handle"
   "consume"
   "where"
-  "deriving"
   "pub"
   "import"
 ] @keyword

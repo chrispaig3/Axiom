@@ -30,15 +30,17 @@
   (Leaf)
   (Node (Tree a) a (Tree a)))
 
-; --- data: a deriving clause ----------------------------------------
-; `deriving` sits OUTSIDE the parentheses. The formatter printed
-; `(deriving Eq Show)` with the keyword inside, which `parse_data` does
-; not accept, so it refused every `data` declaration carrying one - and
-; no file in the repository carried one.
-(data Colour
-  (Red)
-  (Green) deriving (Eq Show))
-
+; --- data: a deriving clause - REFUSED, 2026-08-14 -------------------
+; This zoo carried the repository's ONLY `deriving` clause, written
+; deliberately to pin the formatter's spelling of a clause the
+; compiler parsed and DISCARDED - no instance was ever derived from
+; it. MAC-CAP-9 settled on refusing the clause (`derive` is explicit
+; declaration macros), and macro-system.md counted this file pair as
+; the change's whole migration cost before the commit landed. The
+; refusal is AX2004 from the parser and a poison from the formatter -
+; the two grammars refuse together - pinned by
+; tests/fmt/parity/070-deriving-refused.axp and
+; tests/diagnostics/545-deriving-refused.axbad.
 ; --- struct ---------------------------------------------------------
 ; `mut` sits INSIDE the field's parentheses, before the name. The
 ; formatter printed `(y : Int) mut`, which does not parse either, and

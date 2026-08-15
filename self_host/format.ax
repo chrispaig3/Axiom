@@ -2694,24 +2694,6 @@
           (fpP p ")")
         })))
 
-(pub :: fpDeriving (-> Int Int Int))
-(pub fn (fpDeriving p grp)
-  (let ((src (fpSrc p)) (mut i 0))
-    (if (!= (fnKind grp) FN_PAREN)
-        (fpBad p)
-        {
-          (fpP p " deriving (")
-          (while (< i (fnLen grp))
-            (if (fpIsIdentAtom (fnKid grp i))
-                {
-                  (if (> i 0) (fpP p " ") p)
-                  (fpP p (fnText src (fnKid grp i)))
-                  (set i (+ i 1))
-                }
-                { (fpBad p) (set i (fnLen grp)) }))
-          (fpP p ")")
-        })))
-
 (pub :: fpDeclData (-> Int Int Int))
 (pub fn (fpDeclData p n)
   (let ((src (fpSrc p)) (o (fpOut p)) (b (fpDeclBase src n)))
@@ -2724,15 +2706,19 @@
             (fpP p "data ")
             (fpP p (fnText src (fnKid n (+ b 1))))
             (fpTyvars p n (+ b 2) tvEnd)
-            ; Constructors run to the `deriving` keyword or the end.
-            (let ((mut end (fnLen n)) (mut dgrp 0) (mut i tvEnd))
+            ; A `deriving` clause POISONS the file instead of
+            ; printing: the compiler refuses the clause (AX2004,
+            ; MAC-CAP-9), and a formatter that accepts and rewrites
+            ; what `check` refuses is the MAC-TOOL-6 defect class -
+            ; the two grammars must refuse together. `fpDeriving`,
+            ; which printed it, is deleted rather than left as a dead
+            ; arm: an AST arm without a producer is dead syntax.
+            (let ((mut end (fnLen n)) (mut i tvEnd))
               {
                 (while (< i (fnLen n))
                   {
                     (if (fpIsAtomText src (fnKid n i) "deriving")
-                        (if (== (+ i 2) (fnLen n))
-                            { (set end i) (set dgrp (fnKid n (+ i 1))) (set i (fnLen n)) }
-                            { (fpBad p) (set i (fnLen n)) })
+                        { (fpBad p) (set i (fnLen n)) }
                         0)
                     (set i (+ i 1))
                   })
@@ -2750,7 +2736,7 @@
                           {
                             (fpP p " ")
                             (fpDataCon p (fnKid n tvEnd))
-                            (if (!= dgrp 0) (fpDeriving p dgrp) p)
+                            p
                             (fpP p ")")
                           }
                           (let ((mut j tvEnd))
@@ -2764,7 +2750,7 @@
                                   (foPopIndent o)
                                   (set j (+ j 1))
                                 })
-                              (if (!= dgrp 0) (fpDeriving p dgrp) p)
+                              p
                               (fpP p ")")
                             }))))
               })

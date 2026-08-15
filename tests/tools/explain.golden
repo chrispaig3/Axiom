@@ -129,6 +129,15 @@ determined by where it is created and how far it escapes, and it is
 dropped deterministically at the end of that arena. Delete the `region`
 wrapper; the body is the program.
 
+`deriving` is refused rather than removed: the clause parsed and was
+silently DISCARDED from the day it was written - its names never
+reached the AST, no instance was ever derived, and a program carrying
+one checked OK. A clause that does nothing is worse than one that does
+not parse. Derive instances explicitly, where you want them:
+`(deriveEq T)` is an ordinary declaration macro, and the instance it
+generates is checked, compiled, and dispatched like a written one
+(docs/macro-system.md MAC-CAP-9).
+
 ### explain AX2005
 AX2005 - nesting too deep
 

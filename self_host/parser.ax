@@ -409,7 +409,14 @@
           (if (strEq (pResCode r) "AX2004")
               (diagSetLabel (mkDiag SEV_ERROR "AX2004" "removed-construct"
                       (tokenSpan tok)
-                      (strConcat (strConcat "`" exp) "` is no longer part of Axiom")
+                      ; `deriving` gets its own verb: union/foreign/
+                      ; region once WORKED and were removed, but the
+                      ; deriving clause never derived anything - saying
+                      ; "no longer part of Axiom" about it would claim
+                      ; a history it does not have.
+                      (if (strEq exp "deriving")
+                          "`deriving` parsed and derived nothing, and is now refused"
+                          (strConcat (strConcat "`" exp) "` is no longer part of Axiom"))
                       0 "" (removedHelp exp))
                 (removedRationale exp))
           ; NO LABEL, deliberately, and the same for AX3008, AX3011,
@@ -528,8 +535,11 @@
   (if (strEq kw "foreign")
       (strConcat "`foreign` was removed: C interoperability is no longer a goal, "
                  "and generated code links no C library to call into")
+  (if (strEq kw "deriving")
+      (strConcat "`deriving` was refused rather than implemented: the clause parsed and was silently discarded - "
+                 "no instance was ever derived from it, and a clause that does nothing is worse than one that does not parse")
       (strConcat "`region` was removed: allocation lifetime is inferred from "
-                 "where a value is created and how far it escapes, not written by hand"))))
+                 "where a value is created and how far it escapes, not written by hand")))))
 
 (pub fn (removedHelp kw)
   (if (strEq kw "union")
@@ -538,8 +548,11 @@
   (if (strEq kw "foreign")
       (strConcat "use the standard library, which reaches the kernel through "
                  "`__syscall0`-`__syscall6` rather than through libc")
+  (if (strEq kw "deriving")
+      (strConcat "derive instances explicitly, where you want them: "
+                 "`(deriveEq T)` is an ordinary declaration macro (docs/macro-system.md MAC-CAP-9)")
       (strConcat "delete the `region` wrapper and keep its body; values are dropped "
-                 "deterministically at the end of the arena they belong to"))))
+                 "deterministically at the end of the arena they belong to")))))
 
 ; ------------------------------------------------------------------
 ; Token helpers.
@@ -1742,20 +1755,21 @@
                   (nextPos (memGetWord r 2)))
               (parseConstructors tokens nextPos dataName nameSpan
                                  (vecPush acc ctor) tvs))))
-  ; `deriving (Eq Show)` after the last constructor. Consumed and
-  ; dropped: no derive machinery exists in this compiler yet, and
-  ; AXSYM has no field for it either - but refusing the keyword made
-  ; the zoo unparseable the moment `symbols` first fed it through
-  ; this parser.
+  ; `deriving (Eq Show)` after the last constructor - REFUSED
+  ; (AX2004), the settled MAC-CAP-9 decision. The clause parsed and
+  ; was silently DISCARDED from the day it was written: its names
+  ; never reached the AST, no instance was ever derived, and a
+  ; program carrying one checked OK - the documented-but-inert
+  ; failure class this repository keeps finding. `derive` is explicit
+  ; declaration macros - `(deriveEq T)` at the point of use - and
+  ; the diagnostic points there. Corpus population when the refusal
+  ; landed: exactly one file pair, the fmt syntax zoo, written
+  ; deliberately to pin the formatter's spelling of a clause the
+  ; compiler ignored (macro-system.md MAC-CAP-9 counted it before
+  ; the commit).
   (if (&& (peekIs tokens pos TK_IDENT)
           (strEq (tokenLexeme (vecGet tokens pos)) "deriving"))
-      (if (peekIs tokens (advance pos) TK_LPAREN)
-          (let ((r (skipParens tokens (advance (advance pos)) 1)))
-            (if (== (memGetWord r 0) 0)
-                r
-                (parseConstructors tokens (memGetWord r 2) dataName nameSpan
-                                   acc tvs)))
-          (pErrExp pos "identifier"))
+      (pErrRemoved pos "deriving")
   (pErrExp pos "identifier")))))
 
 (pub :: parseOneCtor (-> Int Int Int))

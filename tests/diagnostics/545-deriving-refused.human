@@ -1,0 +1,10 @@
+[1;31merror[AX2004][0m[1m: `deriving` parsed and derived nothing, and is now refused[0m
+ [1;34m--> [0m545-deriving-refused.ax:7:31
+[1;34m  |[0m
+[1;34m7 |[0m (data Colour () (Red) (Green) deriving (Eq Show))
+[1;34m  |[0m                               [1;31m^^^^^^^^ `deriving` was refused rather than implemented: the clause parsed and was silently discarded - no instance was ever derived from it, and a clause that does nothing is worse than one that does not parse[0m
+[1;34m  |[0m
+ [1;34m = [0m[1;32mhelp: [0mderive instances explicitly, where you want them: `(deriveEq T)` is an ordinary declaration macro (docs/macro-system.md MAC-CAP-9)
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX2004` for a full explanation
+
+compilation failed due to 1 previous error

@@ -1052,32 +1052,41 @@ The v1 surface, all of it measured
 Diagnostic: `AX3027` (`declaration-macro`) covers every way a
 declaration-position invocation fails — see `axiom explain AX3027`.
 What `derive` still needs from this rule is `data`/`struct` field
-*inspection* (`MAC-CAP-5`/`MAC-CAP-6`), not more template kinds: a
-`deriveEq` writes `fn` and `::` declarations only.
+*inspection* (`MAC-CAP-5`/`MAC-CAP-6`), which now exists — and the
+`impl` template kind, which joined the surface the same day so the
+fieldful form's derived instances compose.
 
-**MAC-CAP-9 (P).** `derive` **SHALL** be built on `MAC-CAP-8` and
-`MAC-CAP-5`, not on a compiler-internal deriving mechanism.
+**MAC-CAP-9 (H, 2026-08-14).** `derive` is built on `MAC-CAP-8` and
+`MAC-CAP-5`, not on a compiler-internal deriving mechanism — the
+worked `deriveEq`s of §10.2 are ordinary macros in ordinary source.
 
-*Today:* `deriving (Eq Show)` **parses and is discarded** — measured:
-the clause's names never reach the AST, and a program carrying one
-checks `OK`. That is the documented-but-inert shape this repository
-keeps finding, and the next rule is the decision it demanded.
-
-**The spelling is settled: explicit invocation.** `derive` is a library
-of declaration macros — `(deriveEq T)`, written where the author wants
-the instance — and the `deriving` clause **SHALL** be **refused** rather
-than implemented: a clause that parses and is discarded is the
+**The spelling is settled and enforced: explicit invocation.**
+`derive` is a library of declaration macros — `(deriveEq T)`, written
+where the author wants the instance — and the `deriving` clause is
+**refused** (`AX2004`, with the replacement named in the help) rather
+than implemented. It had parsed and been silently discarded from the
+day it was written: its names never reached the AST, no instance was
+ever derived, and a program carrying one checked `OK` — the
 documented-but-inert failure class, and refusal is the smallest true
 behaviour. The costs decided it. Threading `deriving`'s names into the
 AST touches the parser, the node layout, AXSYM and the formatter, while
 the explicit call needs only `MAC-CAP-8`; and the clause's corpus
-population is **one file pair** — `tests/fmt/syntax-zoo.ax` and its
+population was **one file pair** — `tests/fmt/syntax-zoo.ax` and its
 expected output, written deliberately by someone reading the parser to
-pin the formatter's spelling of a clause the compiler ignores. The
-refusal flips that fixture (and `reference.md`'s Deriving Traits
-example), and those flips are the change's whole migration cost —
-counted here so the commit that implements the refusal knows its blast
-radius before it lands.
+pin the formatter's spelling of a clause the compiler ignored. The
+refusal flipped exactly that fixture and `reference.md`'s Deriving
+Traits example — the blast radius this paragraph counted before the
+commit landed, and nothing else. The formatter refuses WITH the parser
+(a `deriving` clause poisons the output rather than being rewritten),
+because a formatter that accepts what `check` refuses is the
+`MAC-TOOL-6` defect class; the refusal itself is pinned by
+`tests/fmt/parity/070-deriving-refused.axp` and
+`tests/diagnostics/545-deriving-refused.axbad`.
+
+What still separates `derive` from a **stdlib-shipped** library:
+module-side query subjects — a macro in `stdlib/Pre.ax` deriving over
+an entry file's type needs queries to answer across the module
+boundary, and v1 answers entry-file types only.
 
 ---
 
@@ -1626,7 +1635,7 @@ nicety: without an expansion backtrace, the author of `(machine Door
 | Language | LANG-1…12, LANG-14 (one rule — the declaration form) | LANG-14 (multi-rule), LANG-15…18 | LANG-13 |
 | Expansion | EXP-1…15, EXP-16/17 (v1 — entry-file invocation, `fn`/`::`/invocation templates) | EXP-16 (module-side invocation) | — |
 | Hygiene | HYG-1…7 | HYG-8, HYG-9 | — |
-| Capabilities | CAP-1…3, CAP-6, CAP-8 (v1) | CAP-4, 7, 9 | CAP-5 (replacement's v1 landed: join, constructors, for) |
+| Capabilities | CAP-1…3, CAP-6, CAP-8 (v1: `fn`/`::`/`impl`/invocation/iteration templates), CAP-9 (the deriving clause refuses) | CAP-4, 7 | CAP-5 (replacement landed: join, constructors, fields, same, for, binders, fold — name/arity/defined wait for consumers) |
 | Safety | SAFE-1…4 | — | SAFE-5 |
 | Integration | INT-1…3, INT-5 | INT-4, INT-6 | — |
 | Diagnostics | DIAG-1…4 | DIAG-5 | — |

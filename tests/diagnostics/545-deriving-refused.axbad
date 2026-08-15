@@ -1,0 +1,9 @@
+; The `deriving` clause, REFUSED (MAC-CAP-9, 2026-08-14). It parsed
+; and was silently DISCARDED from the day it was written - its names
+; never reached the AST, no instance was ever derived, and a program
+; carrying one checked OK. The refusal names the replacement: derive
+; instances explicitly with declaration macros. `.axbad` because the
+; file no longer parses - which is the point.
+(data Colour () (Red) (Green) deriving (Eq Show))
+(:: main Int)
+(fn (main) 0)
