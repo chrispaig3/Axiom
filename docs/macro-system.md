@@ -917,9 +917,9 @@ it already holds:
 | `(syntax/join a b)` | **H** (declaration NAME position) | one identifier from two, the second's first letter upcased (`lens` + `Point` → `lensPoint`, `eq` + `Color` → `eqColor`) | naming generated declarations |
 | `(syntax/defined n)` | P | whether `n` names a declaration | conditional derivation |
 | `(syntax/same a b)` | **H** (both sides must be iteration variables over the SAME sequence; different sequences refuse rather than answer false) | whether `a` and `b` are the same **binding or declaration slot** — two answers naming field `f` of `S` compare equal, spelling alone never suffices; `MAC-LANG-17`'s binding comparison is the pattern-side instance. An `if` whose condition is a `syntax/same` is decided at expansion time and the CHOSEN BRANCH spliced, which is what makes §10.3's expansion shapes literal | `deriveLenses`' diagonal (§10.3) |
-| `(syntax/binders C p)` | P | `(syntax/arity C)` fresh identifiers derived from prefix `p` — the *same* sequence at every mention within one expansion, each a template binder that `MAC-HYG-2` renames | fieldful `derive` (§10.2) |
+| `(syntax/binders C p)` | **H** (spelled `p#i` — deterministic, which is what "same sequence at every mention" requires, and `#` cannot lex in a user identifier; a pattern mention splices them as binders `MAC-HYG-2` renames, and later mentions land on the same renamed binders through the rename table) | arity-of-`C` fresh identifiers derived from prefix `p` — the *same* sequence at every mention within one expansion, each a template binder that `MAC-HYG-2` renames | fieldful `derive` (§10.2) |
 | `(syntax/for ((x xs) …) tpl)` | **H** (v1: one sequence, in match-ARM, template-DECLARATION, and call-ARGUMENT positions; the for-variable substitutes in constructor patterns, field-name positions and name positions, and nested iterations compose — though nested DECLARATION iteration cannot yet name its products, since `syntax/join` takes two identifiers, not a nested join) | `tpl` once per element, spliced in place; several sequences zip in lockstep and **MUST** have equal length — a mismatch is a diagnostic at the invocation | the iteration form |
-| `(syntax/fold f z ((x xs) …) tpl)` | P | the right-fold `(f tpl₁ (f tpl₂ … z))` — `tpl` instantiated per element and nested under a two-argument head, since `&&` takes exactly two | chaining `&&` over field comparisons |
+| `(syntax/fold f z ((x xs) …) tpl)` | **H** (single and parallel forms; parallel sequences must have equal length — a mismatch is `AX3028`, never a truncation; the empty fold answers `z`, which is how a nullary constructor's equality costs no special case) | the right-fold `(f tpl₁ (f tpl₂ … z))` — `tpl` instantiated per element and nested under a two-argument head, since `&&` takes exactly two | chaining `&&` over field comparisons |
 
 Two rows were RESPELLED on 2026-08-14, when implementation reached
 them: this table wrote `syntax/defined?` and `syntax/same?`, and `?`
@@ -1461,17 +1461,24 @@ Two properties this example exists to demonstrate:
   `syntax/join` are answered by the expander from the declaration list
   (`MAC-CAP-6`).
 
-Constructors *with* fields are the same shape one vocabulary rung up:
+Constructors *with* fields are the same shape one vocabulary rung up —
+**and that rung holds too (2026-08-14, third commit)**:
 `syntax/binders` names a constructor's fields as fresh pattern binders,
-the parallel forms of `syntax/for`/`syntax/fold` zip the two sides, and
-the field comparison is written `(eq xi yi)` — dispatching through the
-trait lowering `MAC-INT-4` describes, selected by the field's concrete
-type per constructor. (An earlier revision called the fieldful case
-"the honest edge" because nothing could name the *i*-th field of a
-bound pattern; `syntax/binders` is the table row that closed it, argued
-for exactly as `MAC-CAP-6` requires.)
+the parallel form of `syntax/fold` zips the two sides, and
+`tests/selfhost/377-derive-eq-fieldful.ax` (30) runs the free-function
+form over a sum whose constructors carry 1, 2 and 0 fields — one
+template, with the nullary case falling out of the empty fold
+answering `true`. The field comparison there is written `(== xi yi)`,
+which covers `Int` fields; the trait-dispatching `(eq xi yi)` of the
+`impl` form below is what still waits. (An earlier revision called the
+fieldful case "the honest edge" because nothing could name the *i*-th
+field of a bound pattern; `syntax/binders` is the table row that
+closed it, argued for exactly as `MAC-CAP-6` requires.)
 
-The fieldful form generates an **`impl`**, not the free function the
+The `impl`-generating form remains normative-but-unbuilt: an `impl`
+template is `AX3021` at the macro's own line today, and the trait
+dispatch its `(eq xi yi)` needs is `MAC-INT-4`'s. The fieldful form
+generates an **`impl`**, not the free function the
 nullary sketch above generates — and the difference is load-bearing,
 not stylistic. Its own field comparisons dispatch through `Eq`, so a
 derived type's instance must *be* an `Eq` instance for a containing
@@ -1653,6 +1660,8 @@ convention; the list, not any one entry, is the argument for gating.
 | `tests/selfhost/375-derive-lenses.ax` (34) | CAP-5's lens set — §10.3 verbatim: declaration/argument-position for, fields, same's spliced diagonal, field-name substitution |
 | `tests/diagnostics/530-syntax-same-keys.ax` | syntax/same's refusals — cross-sequence comparison names both sequences; an unbound side names itself |
 | `tests/diagnostics/535-syntax-for-toplevel.axbad` | declaration-position for outside a template, refused and re-tagged inert (`.axbad`: the formatter rewrites the shape) |
+| `tests/selfhost/377-derive-eq-fieldful.ax` (30) | CAP-5's fieldful rung — binders' deterministic `p#i` spelling through the renamer, fold's parallel zip, the empty fold as the nullary case |
+| `tests/diagnostics/540-syntax-fold-misuse.ax` | fold/binders refusals — zip-length mismatch, unknown constructor, sequence in scalar position, fold arity |
 | `tests/diagnostics/520-syntax-query-misuse.ax` | CAP-6's closure — unknown query, wrong-kind subject, missing subject, all AX3028 |
 | `tests/diagnostics/525-syntax-reserved.axbad` | CAP-6's reservation — syntax/ spellings outside a template, including the one-paren-short near-miss (`.axbad`: the formatter must not learn these shapes) |
 | `tests/diagnostics/485-qualified-private-macro.ax` | LANG-12's `AX3023` route for a qualified private macro |
@@ -1730,19 +1739,22 @@ rather than the value alone.
    (`MAC-EXP-16`'s stated limit) and the other template kinds
    (`AX3021` today, at the macro's line). The prerequisite for
    everything in §10.2–§10.5 now exists.
-4. ~~**`MAC-CAP-5`/`MAC-CAP-6`**~~ — **v1 landed 2026-08-14, in two
+4. ~~**`MAC-CAP-5`/`MAC-CAP-6`**~~ — **v1 landed 2026-08-14, in three
    commits the same day**: the closed vocabulary exists and refuses
    (`AX3028`); `syntax/join`, `syntax/constructors` and arm-position
    `syntax/for` run §10.2's nullary `deriveEq` verbatim (fixture 374,
-   the roadmap's acceptance criterion), and `syntax/fields`,
+   the roadmap's acceptance criterion); `syntax/fields`,
    `syntax/same`, declaration- and argument-position `syntax/for` and
    field-name substitution run §10.3's `deriveLenses` verbatim
-   (fixture 375). What remains under this heading:
-   `syntax/binders`/`syntax/fold` (the fieldful rung),
+   (fixture 375); and `syntax/binders`/`syntax/fold` run the fieldful
+   free-function `deriveEq` over a mixed-arity sum (fixture 377).
+   What remains under this heading: `impl` templates with
+   `MAC-INT-4` dispatch (the spec's own fieldful form),
    `syntax/name`/`arity`/`defined` (each waiting for the real macro
-   that needs it, per `MAC-CAP-6`'s closure rule), nested
-   `syntax/join` (nested declaration iteration cannot yet name its
-   products), and module-side query subjects.
+   that needs it, per `MAC-CAP-6`'s closure rule), the parallel
+   `syntax/for` form (fold's parallel form exists; for's does not),
+   nested `syntax/join` (nested declaration iteration cannot yet
+   name its products), and module-side query subjects.
 5. **`MAC-LANG-14`–`MAC-LANG-18`** — rules, patterns and ellipsis. The
    largest surface change, touching three implementations of the token
    set, and the one that should land last because the others do not

@@ -406,9 +406,14 @@ the bank that pins it is `scripts/check-degenerate.sh`, and
   §10.3's `deriveLenses` verbatim (`375-derive-lenses.ax`, 34 —
   declaration/argument-position `syntax/for`, `syntax/fields`,
   `syntax/same`'s expansion-time diagonal, field-name substitution).
-  What does not exist: `syntax/binders`/`syntax/fold` (fieldful
-  constructors — the last rung `deriveEq` over fieldful sums needs),
-  nested `syntax/join` (nested declaration iteration cannot name its
+  `syntax/binders` and `syntax/fold` landed the same day (third
+  commit): the fieldful free-function `deriveEq` runs over a
+  mixed-arity sum from one template
+  (`tests/selfhost/377-derive-eq-fieldful.ax`, 30 — the nullary case
+  falls out of the empty fold). What does not exist: `impl`
+  templates with trait-dispatched field comparison (the spec's own
+  fieldful form — `(== xi yi)` covers `Int` fields today), nested
+  `syntax/join` (nested declaration iteration cannot name its
   products), a `deriveEq` shipped in `stdlib/Pre.ax` (needs
   module-side types — queries answer entry-file types only in v1),
   and the `deriving` clause still parses and is discarded (refusal is

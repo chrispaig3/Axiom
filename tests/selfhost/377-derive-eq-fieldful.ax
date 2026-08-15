@@ -1,0 +1,59 @@
+; expect 30
+; The fieldful rung of the query vocabulary (syntax/binders and
+; syntax/fold, 2026-08-14, third commit): structural equality over a
+; sum whose constructors carry 1, 2 and 0 fields, from ONE template.
+;
+;   (syntax/binders C x)   arity-of-C names spelled x#i - the same
+;                          deterministic sequence at every mention
+;                          within one expansion, so the pattern
+;                          mention introduces them as binders (which
+;                          hygiene renames like any template binder)
+;                          and the fold's mention lands on the SAME
+;                          renamed binders through the rename table
+;   (syntax/fold && true ((xi ...) (yi ...)) tpl)
+;                          the right-fold (&& tpl1 (&& tpl2 true)) -
+;                          parallel sequences zip in lockstep, and
+;                          the EMPTY fold is just `true`, which is
+;                          how (Dot) equality costs no special case
+;
+; 27 eqShape(Circle 3, Circle 3) - field compared through the fold
+;  9 eqShape(Rect 1 2, Rect 1 3) - second field differs: 0
+;  3 eqShape(Dot, Dot)           - empty fold answers the zero
+;  1 eqShape(Circle 3, Dot)      - cross-constructor arm: 0
+;
+; The unfixed compiler refuses at expansion (AX3028: syntax/fold not
+; yet in the vocabulary), exit 1 - binders/fold added NO parse
+; surface, only expansion behavior.
+(data Shape
+  (Circle Int)
+  (Rect Int Int)
+  (Dot))
+
+(pub macro deriveEqF ((deriveEqF T)
+   (:: (syntax/join eq T) (-> T T Bool))
+   (fn ((syntax/join eq T) a b)
+     (match a
+       (syntax/for (C (syntax/constructors T))
+         ((C (syntax/binders C x))
+          (match b
+            ((C (syntax/binders C y))
+             (syntax/fold && true
+                          ((xi (syntax/binders C x))
+                           (yi (syntax/binders C y)))
+               (== xi yi)))
+            (_ false))))))))
+
+(deriveEqF Shape)
+
+(:: b2i (-> Bool Int))
+
+(fn (b2i x)
+  (if x
+    1
+    0
+  )
+)
+
+(:: main Int)
+
+(fn (main) (+ (* 27 (b2i (eqShape (Circle 3) (Circle 3)))) (+ (* 9 (b2i (eqShape (Rect 1 2) (Rect 1 3)))) (+ (* 3 (b2i (eqShape Dot Dot))) (b2i (eqShape (Circle 3) Dot))))))

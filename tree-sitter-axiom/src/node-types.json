@@ -194,6 +194,10 @@
         "named": true
       },
       {
+        "type": "syntax_binders_pattern",
+        "named": true
+      },
+      {
         "type": "tuple_pattern",
         "named": true
       },
@@ -1621,6 +1625,32 @@
     }
   },
   {
+    "type": "syntax_binders_pattern",
+    "named": true,
+    "fields": {
+      "constructor": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "prefix": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
     "type": "syntax_for_arm",
     "named": true,
     "fields": {
@@ -2333,6 +2363,10 @@
   },
   {
     "type": "struct",
+    "named": false
+  },
+  {
+    "type": "syntax/binders",
     "named": false
   },
   {

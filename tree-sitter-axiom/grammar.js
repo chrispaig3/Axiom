@@ -621,6 +621,16 @@ module.exports = grammar({
       $.parenthesized_pattern,
       $.tuple_pattern,
       $.list_pattern,
+      $.syntax_binders_pattern,
+    ),
+
+    // `(syntax/binders C x)` standing where a pattern ARGUMENT
+    // stands (MAC-CAP-5): arity-of-C binder names spliced by the
+    // expander during template instantiation.
+    syntax_binders_pattern: $ => seq(
+      '(', 'syntax/binders',
+      field('constructor', $.identifier), field('prefix', $.identifier),
+      ')',
     ),
 
     wildcard_pattern: _ => '_',

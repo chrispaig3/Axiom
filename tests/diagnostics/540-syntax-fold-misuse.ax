@@ -1,0 +1,34 @@
+; syntax/binders and syntax/fold refusing (MAC-CAP-6) - four AX3028s:
+;
+;   zipSkew    parallel fold sequences of DIFFERENT lengths - the zip
+;              rule is a diagnostic, never a truncation
+;   ghostCtor  binders of a constructor that declares nothing
+;   seqScalar  binders standing where one value is needed
+;   foldArity  a fold missing its binding form and template
+(data D
+  (A Int)
+  (B Int Int))
+
+(macro zipSkew ((zipSkew T)
+   (fn (zs q) (match q ((A (syntax/binders A x)) (syntax/fold + 0 ((xi (syntax/binders A x)) (yi (syntax/binders B y))) xi)) (_ 0)))))
+
+(macro ghostCtor ((ghostCtor T)
+   (fn (gc q) (match q ((Ghost (syntax/binders Ghost x)) 1) (_ 0)))))
+
+(macro seqScalar ((seqScalar T)
+   (fn (sc) (syntax/binders A x))))
+
+(macro foldArity ((foldArity T)
+   (fn (fa) (syntax/fold + 0))))
+
+(zipSkew D)
+
+(ghostCtor D)
+
+(seqScalar D)
+
+(foldArity D)
+
+(:: main Int)
+
+(fn (main) 0)

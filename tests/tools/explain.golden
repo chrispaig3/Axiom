@@ -499,9 +499,11 @@ The `syntax/` spellings are the compile-time QUERY VOCABULARY: a
 closed, compiler-implemented set of questions a macro template asks
 about the declaration list, answered at expansion time with no user
 code running. The vocabulary answers `(syntax/join a b)` in a
-declaration NAME position, `(syntax/constructors T)` and
-`(syntax/fields S)` as iteration sequences, `(syntax/for (x seq) ...)`
-where a match ARM, a template DECLARATION, or a call ARGUMENT stands,
+declaration NAME position; `(syntax/constructors T)`,
+`(syntax/fields S)` and `(syntax/binders C p)` as iteration
+sequences; `(syntax/for (x seq) ...)` where a match ARM, a template
+DECLARATION, or a call ARGUMENT stands; `(syntax/fold f z binds tpl)`
+as the right-fold over one sequence or several zipped in lockstep;
 and `(syntax/same f g)` over two iteration variables. This code
 covers every way a query has no answer:
 
@@ -511,9 +513,12 @@ covers every way a query has no answer:
     undefined variables; a sequence in a one-value position and a
     syntax/for at expression root land here too
   - a subject with nothing to answer: constructors of a struct,
-    fields of a data type, either of a name that declares nothing or
-    of a type declared in an imported module (v1 answers entry-file
-    types only)
+    fields of a data type, binders of a name that is not a
+    constructor, any of them of a name that declares nothing or of a
+    type declared in an imported module (v1 answers entry-file types
+    only)
+  - parallel fold sequences of different lengths - the zip rule is a
+    diagnostic, never a truncation
   - syntax/same over variables ranging over DIFFERENT sequences - a
     false there would be a wrong answer, not a comparison - or over
     a name no enclosing syntax/for binds

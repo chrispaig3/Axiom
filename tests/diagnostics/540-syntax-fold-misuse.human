@@ -1,0 +1,41 @@
+[1;31merror[AX3028][0m[1m: syntax/fold's parallel sequences have different lengths[0m
+  [1;34m--> [0m540-syntax-fold-misuse.ax:24:2
+[1;34m   |[0m
+[1;34m24 |[0m (zipSkew D)
+[1;34m   |[0m  [1;31m^^^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0mthe query vocabulary is CLOSED and compiler-implemented (macro-system.md MAC-CAP-5/6): every query is answered from the declaration list at expansion time, and a query with no answer is this refusal, never a default value
+  [1;34m = [0m[1;32mhelp: [0mparallel sequences zip in lockstep and must have equal length (macro-system.md MAC-CAP-5)
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3028` for a full explanation
+
+[1;31merror[AX3028][0m[1m: no constructor named `Ghost` for syntax/binders to count[0m
+  [1;34m--> [0m540-syntax-fold-misuse.ax:26:2
+[1;34m   |[0m
+[1;34m26 |[0m (ghostCtor D)
+[1;34m   |[0m  [1;31m^^^^^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0mthe query vocabulary is CLOSED and compiler-implemented (macro-system.md MAC-CAP-5/6): every query is answered from the declaration list at expansion time, and a query with no answer is this refusal, never a default value
+  [1;34m = [0m[1;32mhelp: [0mthe query reads the declaration list; syntax/binders' first argument names a data constructor
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3028` for a full explanation
+
+[1;31merror[AX3028][0m[1m: `syntax/binders` answers a SEQUENCE, and this position needs one value[0m
+  [1;34m--> [0m540-syntax-fold-misuse.ax:28:2
+[1;34m   |[0m
+[1;34m28 |[0m (seqScalar D)
+[1;34m   |[0m  [1;31m^^^^^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0mthe query vocabulary is CLOSED and compiler-implemented (macro-system.md MAC-CAP-5/6): every query is answered from the declaration list at expansion time, and a query with no answer is this refusal, never a default value
+  [1;34m = [0m[1;32mhelp: [0msequence queries stand in a syntax/for's sequence slot or a syntax/fold's binding
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3028` for a full explanation
+
+[1;31merror[AX3028][0m[1m: syntax/fold takes a head, a zero, a binding form, and one template[0m
+  [1;34m--> [0m540-syntax-fold-misuse.ax:30:2
+[1;34m   |[0m
+[1;34m30 |[0m (foldArity D)
+[1;34m   |[0m  [1;31m^^^^^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0mthe query vocabulary is CLOSED and compiler-implemented (macro-system.md MAC-CAP-5/6): every query is answered from the declaration list at expansion time, and a query with no answer is this refusal, never a default value
+  [1;34m = [0m[1;32mhelp: [0mwrite `(syntax/fold f z (x xs) tpl)` or the parallel `((x xs) (y ys))` form
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3028` for a full explanation
+
+compilation failed due to 4 previous errors

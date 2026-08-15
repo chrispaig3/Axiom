@@ -2053,6 +2053,43 @@
         {
           "type": "SYMBOL",
           "name": "list_pattern"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "syntax_binders_pattern"
+        }
+      ]
+    },
+    "syntax_binders_pattern": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "("
+        },
+        {
+          "type": "STRING",
+          "value": "syntax/binders"
+        },
+        {
+          "type": "FIELD",
+          "name": "constructor",
+          "content": {
+            "type": "SYMBOL",
+            "name": "identifier"
+          }
+        },
+        {
+          "type": "FIELD",
+          "name": "prefix",
+          "content": {
+            "type": "SYMBOL",
+            "name": "identifier"
+          }
+        },
+        {
+          "type": "STRING",
+          "value": ")"
         }
       ]
     },
