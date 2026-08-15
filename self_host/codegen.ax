@@ -2829,6 +2829,69 @@
           }))
       cg))
 
+
+; Does this (lowered) body contain a match? Decides whether the
+; function gets the merge scratch: an UNCONDITIONAL alloca grew
+; every frame by sixteen bytes, and 320-effect-gc-roots' deep
+; non-TCO recursion found the stack guard at raw `llc -O2` - the
+; growth mode self-hosting.md calls meeting a distant limit as an
+; unrelated-looking failure, this time in frames rather than bytes.
+; A missed tag here under-emits and llc refuses the undefined
+; register LOUDLY; `cond` answers 1 unconditionally because its
+; lowering happens per-declaration and a lambda body may carry one.
+(pub :: bodyHasMatch (-> Int Int))
+(pub fn (bodyHasMatch e)
+  (if (== e 0)
+      0
+      (let ((tg (nodeTag e)))
+        (if (== tg TAG_E_MATCH)
+            1
+        (if (== tg TAG_E_COND)
+            1
+        (if (== tg TAG_E_APP)
+            (if (== (bodyHasMatch (nodeA e)) 1) 1 (bodyHasMatch (nodeB e)))
+        (if (|| (== tg TAG_E_LET) (== tg TAG_E_LETM))
+            (if (== (bodyHasMatch (nodeB e)) 1) 1 (bodyHasMatch (nodeC e)))
+        (if (== tg TAG_E_IF)
+            (if (== (bodyHasMatch (nodeA e)) 1)
+                1
+                (if (== (bodyHasMatch (nodeB e)) 1)
+                    1
+                    (bodyHasMatch (nodeC e))))
+        (if (== tg TAG_E_BEGIN)
+            (bodyHasMatchVec (nodeA e))
+        (if (== tg TAG_E_SET)
+            (bodyHasMatch (nodeB e))
+        (if (== tg TAG_E_SETF)
+            (if (== (bodyHasMatch (nodeA e)) 1) 1 (bodyHasMatch (nodeC e)))
+        (if (== tg TAG_E_WHILE)
+            (if (== (bodyHasMatch (nodeA e)) 1) 1 (bodyHasMatch (nodeB e)))
+        (if (== tg TAG_E_FIELD)
+            (bodyHasMatch (nodeA e))
+        (if (== tg TAG_E_LAM)
+            (bodyHasMatch (nodeC e))
+        (if (== tg TAG_E_STRUCTCON)
+            (bodyHasMatchVec (nodeB e))
+        (if (== tg TAG_E_ALLOC)
+            (bodyHasMatch (nodeA e))
+        (if (== tg TAG_E_HANDLE)
+            (if (== (bodyHasMatch (nodeB e)) 1) 1 (bodyHasMatch (nodeC e)))
+        0)))))))))))))))))
+
+(pub :: bodyHasMatchVec (-> Int Int))
+(pub fn (bodyHasMatchVec xs)
+  (if (== xs 0)
+      0
+      (let ((mut i 0) (mut found 0))
+        {
+          (while (< i (vecLen xs))
+            {
+              (if (== (bodyHasMatch (vecGet xs i)) 1) (set found 1) 0)
+              (set i (+ i 1))
+            })
+          found
+        })))
+
 ; ------------------------------------------------------------------
 ; Function definition.
 ; ------------------------------------------------------------------
@@ -2951,7 +3014,19 @@
         (let ((cg0e (if (== takesEv 1)
                         (bindSym cg "__evw." "%__evw.h" 0 0)
                         cg)))
-        (let ((cg1 (emitLine cg0e hdr)))
+        ; MM-ALLOC-9 as amended: the merge cells (a match's result, a
+        ; mixed-representation tag read) are no longer heap
+        ; allocations - one scratch alloca per function serves them
+        ; all, because a cell's live range is store-as-the-arm's-
+        ; last-act to load-at-the-merge with nothing between, and
+        ; nested matches complete strictly inside their arm. Emitted
+        ; only where a match exists: raw `llc -O2` runs no dead-
+        ; alloca elimination, and sixteen bytes on every frame found
+        ; a deep recursion's stack guard.
+        (let ((cg1 (let ((cgH (emitLine cg0e hdr)))
+                     (if (== (bodyHasMatch body) 1)
+                         (emitLine cgH "  %__scr.h = alloca i64")
+                         cgH))))
           ; NO re-scan here. This used to read
           ;
           ;   ; Re-scan declarations to ensure types Vec is fresh
@@ -3309,7 +3384,7 @@
         (cn (allocReg cg1))
         (cell (regStr cn))
         (_1 (emitLine cg1 (cat3 (cat2 "  " cell)
-                                " = call i64 @axiom_alloc(i64 8)"
+                                " = ptrtoint ptr %__scr.h to i64"
                                 "")))
         (mn (allocReg cg1))
         (mergeB (cat2 "label_" (fmtInt mn)))
@@ -3325,6 +3400,8 @@
 (pub fn (emitArmsTail arms sv cell mergeB cg i ff)
   (if (>= i (vecLen arms))
       {
+        ; the explicit fall-through zero - see emitArms' comment
+        (storeWordAt cg cell 0 "0")
         (emitLine cg (cat2 "  br label %" mergeB))
         cg
       }
@@ -3626,7 +3703,10 @@
                                       ""
                                       (cat2 ", " paramStr)))
                             ") #0 {")))
-        (let ((cg1 (emitLine cg hdr)))
+        (let ((cg1 (let ((cgH (emitLine cg hdr)))
+                     (if (== (bodyHasMatch body) 1)
+                         (emitLine cgH "  %__scr.h = alloca i64")
+                         cgH))))
           ; The lifted-lambda twin of the re-scan deleted in `emitFnDef`,
           ; and redundant for the same reason: slot 8 is `allDecls`,
           ; already scanned once by `emitResolved`, and nothing clears
@@ -3824,7 +3904,7 @@
         (cn (allocReg cg1))
         (cell (regStr cn))
         (_1 (emitLine cg1 (cat3 (cat2 "  " cell)
-                                " = call i64 @axiom_alloc(i64 8)"
+                                " = ptrtoint ptr %__scr.h to i64"
                                 "")))
         (mn (allocReg cg1))
         (mergeB (cat2 "label_" (fmtInt mn)))
@@ -3838,10 +3918,15 @@
 (pub :: emitArms (-> Int String String String Int Int Int Int))
 (pub fn (emitArms arms sv cell mergeB cg i ff)
   (if (>= i (vecLen arms))
-      ; No arm matched. The cell still holds zero, which is what a
-      ; non-exhaustive match answers here; stage0 reports that as a
-      ; diagnostic, and this compiler has no checker yet.
+      ; No arm matched. The scratch is an alloca now, not an
+      ; allocator-zeroed cell, so the zero a fall-through answers is
+      ; stored EXPLICITLY here. The checker refuses non-exhaustive
+      ; matches as AX3005 (MM-VAL-9b, amended 2026-08-14), so this
+      ; path is hygiene for the emission surfaces that skip the
+      ; checker, not a semantics anyone reaches from a checked
+      ; program.
       {
+        (storeWordAt cg cell 0 "0")
         (emitLine cg (cat2 "  br label %" mergeB))
         cg
       }
@@ -3992,7 +4077,7 @@
           (boxB (cat2 "label_" (fmtInt boxN)))
           (mergeB (cat2 "label_" (fmtInt mergeN))))
       (let ((cg1 (emitLine cg (cat3 (cat2 "  " cell)
-                                    " = call i64 @axiom_alloc(i64 8)"
+                                    " = ptrtoint ptr %__scr.h to i64"
                                     ""))))
         (let ((cg2 (emitLine cg1 (cat4 (cat2 "  " cr)
                                        " = icmp slt i64 "

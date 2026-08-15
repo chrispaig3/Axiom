@@ -897,8 +897,8 @@ binary (`MM-ALLOC-1`).
 | `Str` construction, `strDup`, `strConcat`, `strAlloc` | 2-word header, plus bytes where not shared |
 | a `lambda` that is evaluated | closure record, `(1 + captures) * 8` bytes |
 | `Vec`, `Map`, `Intern` operations | library-level, over `memAlloc` |
-| a `match`'s result | a one-word cell, the idiom the emitter uses instead of a phi |
-| a mixed-representation tag read | a one-word cell (`emitCondTagRead`) |
+| a `match`'s result | since 2026-08-15: one scratch `alloca` per function, shared by every merge - a cell's live range is store-at-the-arm's-end to load-at-the-merge with nothing between, so one slot serves nested and tail shapes alike; before that, a one-word heap cell per `match` |
+| a mixed-representation tag read | the same shared scratch `alloca` (`emitCondTagRead`); the fall-through zero a heap cell got from the allocator is stored explicitly now |
 | `__axiom_arena_mark` | a three-word cell |
 | `handle` on a declared effect | a two-word evidence record `{handler, previous}`; the form performs `Alloc` |
 
@@ -1568,7 +1568,11 @@ header and a release on every `match` in the program. Under ARC they
 **SHALL** stop being heap allocations at all — the idiom becomes a
 register or an `alloca`, amending `MM-ALLOC-9` and `I10` in the commit
 that lands it — because the alternative, with §3.3 refused, is a
-sixteen-byte leak per `match` executed.
+sixteen-byte leak per `match` executed. *Held since 2026-08-15*
+(`tests/stdlib/356-match-no-heap.ax`, 3): one scratch `alloca` per
+function serves every merge cell, the bump pointer no longer moves
+across a thousand-iteration match loop, and the fall-through zero is
+an explicit store rather than an inherited allocator promise.
 
 *The mechanism holds since 2026-08-15* (`tests/stdlib/351-arc-reuse.ax`,
 42): release at zero hands the block - header included - to its exact
@@ -1866,7 +1870,7 @@ breaks if it is violated, because that is the useful half.
 | **I7** | A reset writes nothing to what it reclaims | `MM-ALLOC-14` | copy-at-boundary reads scrubbed bytes — 39,841 of 40,000 wrong |
 | **I8** | Marks nest, and a mark is never reclaimed by its own reset | `MM-ALLOC-12` | a doubly-reset mark restores a position from freed memory |
 | **I9** | Chunk addresses are unordered | `MM-ALLOC-5` | a backward copy across chunks corrupts |
-| **I10** | The stack holds no data, only frames and `mut` cells | `MM-ALLOC-11` | dangling values would become possible |
+| **I10** | The stack holds no data, only frames, `mut` cells, and the per-function merge scratch (one `alloca` whose value never outlives the merge that loads it - amended 2026-08-15 with `MM-ALLOC-9`) | `MM-ALLOC-11` | dangling values would become possible |
 | **I11** | All allocator state is process-private | `MM-PAR-3` | `Job` would need atomics |
 | **I12** | Compilation is deterministic and reproducible | `MM-EXEC-13` | `check-reproducible.sh` |
 | **I13** | The compiler executes no user code | `MM-EXEC-14` | the threat model |

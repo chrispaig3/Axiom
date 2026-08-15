@@ -1,0 +1,60 @@
+; exit 3 (see .exit)
+; MM-ALLOC-9 as amended: a match's result cell and a mixed-
+; representation tag read are no longer heap allocations - one
+; scratch alloca per function serves every merge, because a cell's
+; live range is store-at-the-arm's-end to load-at-the-merge with
+; nothing between. Two probes:
+;
+;   2  a thousand mixed-rep matches answer the same sum they always
+;      did - the de-heaped cells carry values correctly through
+;      nested tag reads and merges
+;   1  the allocator's bump moved by LESS THAN 4 KiB across those
+;      thousand iterations: no per-match cell, no per-match tag
+;      cell. The unfixed compiler allocates two 32-byte blocks per
+;      iteration and moves the bump by ~64 KiB, so it answers 2.
+(data T3
+  (TA)
+  (TB)
+  (TC Int))
+
+(:: b2i (-> Bool Int))
+
+(fn (b2i x)
+  (if x
+    1
+    0
+  )
+)
+
+(:: spin (-> Int Int Int Int))
+
+(fn (spin n v acc)
+  (if (<= n 0)
+    acc
+    (spin
+      (- n 1)      v      (+
+        acc        (match (cast T3 v)
+          ((TA) 1)
+          ((TB) 2)
+          ((TC k) k)
+        )
+      )
+    )
+  )
+)
+
+(:: main Int)
+
+(fn (main)
+  (let ((v 
+    (cast Int (TC 5))
+  ))
+    (let ((h1 (__alloc 8)))
+      (let ((r (spin 1000 v 0)))
+        (let ((h2 (__alloc 8)))
+          (+ (* 2 (b2i (== r 5000))) (b2i (< (- h2 h1) 4096)))
+        )
+      )
+    )
+  )
+)
