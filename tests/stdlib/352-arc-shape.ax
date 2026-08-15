@@ -1,37 +1,40 @@
 ; exit 255 (see .exit)
-; MM-LIFE-2d, the monomorphic half - the shape word carries a
-; reference map computed from DECLARED field types, and a dead
-; block's map is walked before it files. Eight probes, one bit each:
+; MM-LIFE-2d, the monomorphic half, under MM-LIFE-2c's births: a
+; constructor cell is BORN at count 1 (the constructing expression's
+; own share), its reference fields are retained as they store in
+; (event 6), and a dead cell's map is walked before it files. Eight
+; probes, one bit each:
 ;
 ;   128  a (PSD String Int) cell's shape reads record form, padded
-;        count 4, and ONE map bit - word 1, the String; the tag word
-;        and the Int are not in the map (131072 + 8)
-;    64  releasing the pair released the string it held: the count a
-;        double __retain raised to 2 reads 1 after the wrapper dies,
-;        on a still-live block - no word the slab push repurposes
+;        count 4, and ONE map bit - word 1, the String (131072 + 8)
+;    64  releasing the pair spends its birth share: the walk returns
+;        the String's field retain, and the count a double __retain
+;        raised reads 2 after the pair dies - strDup births at 0,
+;        two retains and the field store made 3, the walk took 1
 ;    32  a type-variable field with an INTEGER witness reads the
-;        leaf: (BoxOne 5) is count 2 with an empty map - since the
-;        evidence half landed the bit comes from the call's witness
-;        (354 probes the String side), and an Int witness justifies
-;        no bit
+;        leaf: (BoxOne 5) is count 2 with an empty map (354 probes
+;        the String side)
 ;    16  a struct maps word 0 when its first field is a String and
 ;        skips its Int (65536 + 4)
-;     8  reuse by the SITE's count: the dead pair filed under
-;        class count>>1, and a 17-byte request - padded to the same
-;        32 bytes by the ALLOCATOR's arithmetic - gets its block
-;        back; the two writers share one convention or this fails
-;     4  the walk is transitive through two cells: wrapper -> pair
-;        -> string, @axiom_release calling itself
+;     8  reuse by the SITE's count: the dead pair filed under class
+;        count>>1, and a 17-byte request - padded to the same 32
+;        bytes by the ALLOCATOR's arithmetic - gets its block back
+;     4  the walk is transitive through two cells with NO explicit
+;        retain anywhere: births plus field retains alone, two
+;        hand-off releases, and the middle cell's block re-issues
 ;     2  a payload past 32767 words overflows the count field and
 ;        the allocator stamps the 0 sentinel instead of a wrong size
 ;     1  a LITERAL in a mapped field: the walk hands the static to
 ;        release, whose sentinel guard leaves the all-ones count
-;        untouched - the map does not exempt statics, the callee does
+;        untouched
 ;
-; The unfixed compiler answers 9: its shape word is the raw padded
-; byte size (probe 8 passes because both conventions agree on the
-; class of a 32-byte block; probe 1 passes only here), and it has no
-; walk at all.
+; The unfixed (pre-events) compiler answers 243: its cells birth at
+; 0, so every single release FLOORS and nothing dies - probes 8 and
+; 4 lose their reuse. Probe 64 passes there too, for the opposite
+; reason: no walk ran, and s's two explicit retains alone read 2 -
+; the same number this compiler reaches by 3 minus the walk's 1,
+; which is why the reuse probes and not the count probe carry the
+; ablation.
 (import Str)
 
 (data PairSD
@@ -75,7 +78,6 @@
       ))
         {
           (set acc (+ acc (* 128 (b2i (== (__load64 (- p 16) 1) 131080)))))
-          (__retain p)
           (__release p)
           (set acc (+
             acc            (*
@@ -85,7 +87,7 @@
                     (-
                       (cast Int s)                      16
                     )                    0
-                  )                  1
+                  )                  2
                 )
               )
             )
@@ -102,29 +104,21 @@
           )
           (set acc (+ acc (* 8 (b2i (== (__alloc 17) p)))))
           (let ((s2 (strDup "x")))
-            {
-              (__retain
-                (cast Int s2)
-              )
-              (let ((p2 
-                (cast Int (PSD s2 3))
+            (let ((p2 
+              (cast Int (PSD s2 3))
+            ))
+              (let ((w2 
+                (cast Int (WrapP
+                  (cast PairSD p2)
+                ))
               ))
                 {
-                  (__retain p2)
-                  (let ((w2 
-                    (cast Int (WrapP
-                      (cast PairSD p2)
-                    ))
-                  ))
-                    {
-                      (__retain w2)
-                      (__release w2)
-                      (set acc (+ acc (* 4 (b2i (== (__alloc 17) p2)))))
-                    }
-                  )
+                  (__release p2)
+                  (__release w2)
+                  (set acc (+ acc (* 4 (b2i (== (__alloc 17) p2)))))
                 }
               )
-            }
+            )
           )
           (set acc (+ acc (* 2 (b2i (== (__load64 (- (__alloc 300000) 16) 1) 0)))))
           (let ((lit "static"))
@@ -132,7 +126,6 @@
               (cast Int (PSD lit 1))
             ))
               {
-                (__retain p3)
                 (__release p3)
                 (set acc (+
                   acc                  (b2i

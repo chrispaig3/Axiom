@@ -902,8 +902,12 @@ binary (`MM-ALLOC-1`).
 | `__axiom_arena_mark` | a three-word cell |
 | `handle` on a declared effect | a two-word evidence record `{handler, previous}`; the form performs `Alloc` |
 
-**MM-ALLOC-9a (H).** An evidence record is never freed, so entering a
-`handle` inside a loop costs 16 bytes per entry, retained until the
+**MM-ALLOC-9a (H, amended 2026-08-15).** The cost this rule recorded
+is paid no longer: `MM-LIFE-2c`'s event 7 releases the record at the
+pop and the block recycles (`tests/stdlib/355-arc-events.ax`). The
+original text, kept for the ledger: an evidence record is never
+freed, so entering a `handle` inside a loop costs 16 bytes per
+entry, retained until the
 enclosing arena scope is reclaimed. A `handle` naming only built-in
 effects allocates nothing, because it lowers to its body.
 
@@ -1395,9 +1399,43 @@ timing surfaces only as peak RSS — and determinism (`MM-EXEC-11`)
 holds, because counts are a function of program text and input, never
 of layout.
 
-*Today:* none of these events emit anything, and event 3's release
-walk is exactly the code that cannot be written until `MM-LIFE-2d`
-answers what a dead block's words are.
+*Held in part since 2026-08-15* (`tests/stdlib/355-arc-events.ax`,
+7 - reclamation with no `__retain`/`__release` in the source; `352`
+and `354` re-pinned under the new arithmetic). What emits: every
+compiler-built ownership-creating block - constructor cell, struct
+block, closure record, evidence record - is BORN at count 1, the
+constructing expression's own share (raw `__alloc`/`memAlloc` and
+`strWrap` stay birth-0: a second birth would double-count every
+String); event 6's field retains land at construction, mirroring
+the shape word's classification exactly and MOVING a directly-built
+argument instead of retaining it; event 7 releases the evidence
+record at the pop, so a `handle` in a loop recycles its record - a
+thousand entries move the bump by less than one block; and a
+directly-built construction discarded in statement position
+releases on the spot. Every retain this slice emits is one an
+EXISTING map can return - that is the slice's rule.
+
+What deliberately does not emit yet, and why: events 2, 3 and 4's
+RELEASES wait for the co-ownership audit's findings to clear - the
+corpus measurably stashes borrowed references in count-invisible
+containers (~40-55 let-bound sites, 5 of 141 TCO functions, ~45
+statement-position stash calls, measured 2026-08-15), and a slot-
+exit or boundary release over those shapes is a use-after-free, not
+a leak. They land with the container element maps and the checker's
+binder-class stamps. Event 5 rides with them (no release path can
+reach a mutated field in this slice's release set). Closure capture
+words and the evidence record's two words are stored UNRETAINED
+until their records carry maps: a retain no walk can return is a
+permanent leak, and the closure-outlives-frame dangle stays a
+recorded program obligation beside `MM-VAL-15`'s price sentence
+until then. The §3.3 primitives remain LEGAL through this interim -
+ARC has not landed until the acceptance measurements pass, and
+until then the arenas remain the only whole-program reclamation
+there is; the refusal ships with the container rung. Composing the
+two in the meantime is guarded at the runtime: an arena reset
+scrubs the slab heads first, because a release-to-zero inside an
+arena extent files a block the reset would otherwise leave dangling
+into re-issuable memory.
 
 **MM-LIFE-2d (P, prerequisite). The reference map.** Release at count
 zero must release the dead block's own reference fields, and nothing at

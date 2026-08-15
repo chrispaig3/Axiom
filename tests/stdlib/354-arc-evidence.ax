@@ -19,12 +19,19 @@
 ;        instantiates fresh never-solved placeholders, so every bit
 ;        is unknowable BY CONSTRUCTION and the cell it builds is a
 ;        leaf even holding a String; the honest under-reclaim
-;     1  the walk believes the evidence: a doubly-retained string
-;        wrapped by (mkBox s) reads count 1 after the box dies
+;     1  the walk believes the evidence, and so does every probe
+;        before it: five of the seven earlier probes each built a
+;        box around s, and each box's SYMBOLIC field retain - gated
+;        by the evidence bit at run time - left a share on s. Only
+;        the thunk probe did not (its word is 0). So s reads
+;        strDup's 0, plus five field retains, plus two explicit
+;        ones, minus the released box's walk: 6. The pre-events
+;        compiler emits no field retains and never walks - it reads
+;        2 and fails here.
 ;
-; The unfixed compiler answers 82: every tyvar cell is a leaf (the
-; 4-expecting probes pass, the mapped ones fail, and the walk frees
-; nothing).
+; The pre-EVIDENCE compiler answers 82: every tyvar cell is a leaf
+; (the 4-expecting probes pass, the mapped ones fail, and the walk
+; frees nothing).
 (import Str)
 
 (:: mkBox (-> a (Option a)))
@@ -130,7 +137,6 @@
         (cast Int (mkBox s))
       ))
         {
-          (__retain b)
           (__release b)
           (set acc (+
             acc            (b2i
@@ -139,7 +145,7 @@
                   (-
                     (cast Int s)                    16
                   )                  0
-                )                1
+                )                6
               )
             )
           ))

@@ -2534,6 +2534,22 @@
     (emitLine cg "")
     (emitLine cg "define internal i64 @__axiom_arena_reset_fn(i64 %cell) #0 {")
     (emitLine cg "entry:")
+    ; A release-to-zero FILES its block on @__axiom_slabs; a reset
+    ; rewinds the bump beneath those heads, and a dangling head
+    ; double-issues storage on the next same-class allocation. The
+    ; ownership events made compiler-emitted releases real, so every
+    ; reset scrubs the slab heads first - 65 stores, the price of
+    ; composing §3.3 with counting at all (the review's judge found
+    ; this by composing three lenses' half-facts; none saw it alone).
+    (emitLine cg "  br label %slabclear")
+    (emitLine cg "slabclear:")
+    (emitLine cg "  %si = phi i64 [ 0, %entry ], [ %si1, %slabclear ]")
+    (emitLine cg "  %sp = getelementptr [65 x i64], ptr @__axiom_slabs, i64 0, i64 %si")
+    (emitLine cg "  store i64 0, ptr %sp")
+    (emitLine cg "  %si1 = add i64 %si, 1")
+    (emitLine cg "  %sdone = icmp eq i64 %si1, 65")
+    (emitLine cg "  br i1 %sdone, label %resetbody, label %slabclear")
+    (emitLine cg "resetbody:")
     (emitLine cg "  %p0 = inttoptr i64 %cell to ptr")
     (emitLine cg "  %sbump = load i64, ptr %p0")
     (emitLine cg "  %a1 = add i64 %cell, 8")
@@ -2550,7 +2566,7 @@
     ; dirty from the restored waterline to its end - it was abandoned
     ; because it filled up - and saying so is one store.
     (emitLine cg "unwind:")
-    (emitLine cg "  %c = phi i64 [ %chead, %entry ], [ %cnext, %unwind_body ]")
+    (emitLine cg "  %c = phi i64 [ %chead, %resetbody ], [ %cnext, %unwind_body ]")
     (emitLine cg "  %reached = icmp eq i64 %c, %schunk")
     (emitLine cg "  %ranout = icmp eq i64 %c, 0")
     (emitLine cg "  %stop = or i1 %reached, %ranout")
@@ -3361,7 +3377,14 @@
       cg
       (if (== i (- (vecLen exprs) 1))
           (emitExprTail (vecGet exprs i) cg)
-          (emitSeqTail exprs (emitExpr (vecGet exprs i) cg) (+ i 1)))))
+          (let ((e (vecGet exprs i)))
+            (let ((cg1 (emitExpr e cg)))
+              ; the same discard rule as emitSeq - a TCO loop body is
+              ; exactly where a per-iteration build-and-drop lives
+              (let ((cg2 (if (== (argIsDirectCon cg1 e) 1)
+                             (emitReleaseOf cg1 (strDup (memGetWord cg1 2)))
+                             cg1)))
+                (emitSeqTail exprs cg2 (+ i 1))))))))
 
 ; `match` in tail position: every arm body inherits it. This is the
 ; shape most recursive Axiom is written in - a walk over a `data`
@@ -3651,6 +3674,12 @@
                                  (llvmSym (strDup lname))
                                  " to i64"))
               (storeWordAt cg pr 0 fr)
+              ; A1: the record births owned. Captures are stored
+              ; UNRETAINED until lambda-record maps land (E4): a
+              ; retain no walk can return is a permanent leak, and
+              ; the closure-outlives-frame dangle stays the recorded
+              ; program obligation beside MM-VAL-15's price sentence.
+              (storeCountOneAt cg pr)
               (storeCaps cg pr capRegs 0)
               (memSetWord cg 21 (vecPush (memGetWord cg 21)
                                          (mkLamDesc lname lparams body
@@ -4250,6 +4279,9 @@
               (old (regStr oldN)))
           (let ((_1 (emitLine cgH (cat2 (cat2 "  " rec)
                                         " = call i64 @axiom_alloc(i64 16)")))
+                ; A1: the evidence record births owned; event 7's
+                ; release at the pop is what spends it
+                (_1b (storeCountOneAt cgH rec))
                 (_2 (storeWordAt cgH rec 0 hval))
                 (_3 (emitLine cgH (cat4 (cat2 "  " old) " = load i64, ptr @" slot "")))
                 (_4 (storeWordAt cgH rec 1 old))
@@ -4259,7 +4291,16 @@
               (let ((res (strDup (memGetWord cgB 2)))
                     (flag (memGetWord cgB 14)))
                 {
-                  (emitLine cgB (cat4 "  store i64 " old ", ptr @" slot))
+                  {
+                    (emitLine cgB (cat4 "  store i64 " old ", ptr @" slot))
+                    ; MM-LIFE-2c event 7: the evidence record dies at
+                    ; the pop - header-deep (its two words carry no
+                    ; retains until record maps land, E4) - closing
+                    ; sixteen of MM-ALLOC-9a's sixteen bytes per loop
+                    ; entry; the block files and the next entry
+                    ; reuses it.
+                    (emitReleaseOf cgB (strDup rec))
+                  }
                   (memSetWord cgB 2 res)
                   (memSetWord cgB 14 flag)
                   cgB
@@ -5949,6 +5990,81 @@
 (pub fn (storeShapeAt cg base shape)
   (storeShapeValAt cg base (constStr shape)))
 
+; MM-LIFE-2c, A1: a compiler-emitted OWNERSHIP-CREATING site births
+; its block at count 1 - the constructing expression's own share.
+; Raw __alloc/memAlloc and strWrap stay birth-0: the type-gated
+; machinery supplies their +1 elsewhere, and a second birth would
+; double-count every String.
+(pub :: storeCountOneAt (-> Int String Int))
+(pub fn (storeCountOneAt cg base)
+  (let ((sn (allocReg cg)))
+    (let ((sr (regStr sn)))
+      (let ((cg1 (emitLine cg (cat4 (cat2 "  " sr)
+                                    " = add i64 "
+                                    base
+                                    ", -16"))))
+        (let ((pn (allocReg cg1)))
+          (let ((pr (regStr pn)))
+            (let ((cg2 (emitLine cg1 (cat4 (cat2 "  " pr)
+                                           " = inttoptr i64 "
+                                           sr
+                                           " to ptr"))))
+              (emitLine cg2 (cat3 "  store i64 1, ptr "
+                                  pr
+                                  "")))))))))
+
+(pub :: emitRetainOf (-> Int String Int))
+(pub fn (emitRetainOf cg v)
+  (emitLine cg (cat3 "  call void @axiom_retain(i64 "
+                     v
+                     ")")))
+
+(pub :: emitReleaseOf (-> Int String Int))
+(pub fn (emitReleaseOf cg v)
+  (emitLine cg (cat3 "  call void @axiom_release(i64 "
+                     v
+                     ")")))
+
+; retain V only when bit k of the enclosing evidence word is set -
+; the conditional twin every symbolic witness needs (a retain on a
+; non-reference word is a wild count, so the guard is soundness).
+(pub :: emitRetainIfEvBit (-> Int String Int Int))
+(pub fn (emitRetainIfEvBit cg v k)
+  (let ((cgR (emitEvwRead cg)))
+    (let ((src (strDup (memGetWord cgR 2)))
+          (an (allocReg cgR)))
+      (let ((ar (regStr an)))
+        (let ((cgA (emitLine cgR (cat4 (cat3 (cat2 "  " ar)
+                                            " = lshr i64 "
+                                            src)
+                                      ", "
+                                      (constStr k) ""))))
+          (let ((bn (allocReg cgA)))
+            (let ((br (regStr bn)))
+              (let ((cgB (emitLine cgA (cat3 (cat2 "  " br)
+                                            " = and i64 "
+                                            (cat2 ar ", 1")))))
+                (let ((cn (allocReg cgB)))
+                  (let ((cr (regStr cn)))
+                    (let ((cgC (emitLine cgB (cat4 (cat3 (cat2 "  " cr)
+                                                        " = icmp ne i64 "
+                                                        br)
+                                                  ", "
+                                                  "0" ""))))
+                      (let ((dn (allocReg cgC))
+                            (kn (allocReg cgC)))
+                        (let ((doB (cat2 "label_" (fmtInt dn)))
+                              (skB (cat2 "label_" (fmtInt kn))))
+                          (let ((cgD (emitLine cgC (cat4 (cat3 "  br i1 "
+                                                              cr
+                                                              ", label %")
+                                                        doB
+                                                        (cat2 ", label %" skB) ""))))
+                            (let ((cgE (emitLabel cgD doB)))
+                              (let ((cgF (emitRetainOf cgE v)))
+                                (let ((cgG (emitLine cgF (cat2 "  br label %" skB))))
+                                  (emitLabel cgG skB))))))))))))))))))
+
 ; MM-LIFE-2d, the evidence consumer: a data cell whose declared
 ; field type is a TYPE VARIABLE takes its map bit from the call's
 ; stamp instead of falling to the leaf - constant bits fold into
@@ -6127,11 +6243,13 @@
                                      (storeWordAt cgS ptr 0 (constStr ctorTag))
                                      cgS)))
                         (let ((base (if (== kind TF_DATA) 1 0)))
-                          (let ((cg3 (emitFieldStores cg2 ptr args 0 base)))
+                          ; A1: the constructing expression's own share
+                          (let ((cgC (storeCountOneAt cg2 ptr)))
+                          (let ((cg3 (emitFieldStores cgC ptr args 0 base entry stamp)))
                             {
                               (memSetWord cg3 2 ptr)
                               cg3
-                            })))))))))))))
+                            }))))))))))))))
 
 ; Store `val` at word `idx` of the block whose address is in `base`.
 ; An `inttoptr` folded into the `getelementptr` operand would be a
@@ -6159,12 +6277,87 @@
                                   ar)))))))))
 
 (pub :: emitFieldStores (-> Int String Int Int Int Int))
-(pub fn (emitFieldStores cg ptr args i base)
+; MM-LIFE-2c event 6: a block's REFERENCE fields are stored owned -
+; a borrowed value is retained on the way in, a directly-built
+; construction MOVES (its birth count IS the field's share; a retain
+; would double-count). The classification mirrors ctorShapeEmit
+; exactly: the retain set and the shape word's map must agree, or
+; the walk at death returns counts the stores never took. Retains
+; here are BALANCED by construction: the cell's own map walks these
+; fields when it dies. tyvar fields with a symbolic witness retain
+; under the same evidence-bit guard the shape store uses.
+(pub :: argIsDirectCon (-> Int Int Int))
+(pub fn (argIsDirectCon cg an)
+  (let ((tg (nodeTag an)))
+    (if (== tg TAG_E_STRUCTCON)
+        1
+    (if (== tg TAG_E_LAM)
+        1
+    (if (== tg TAG_E_APP)
+        (let ((h (spineHeadE an)))
+          (if (!= (nodeTag h) TAG_E_VAR)
+              0
+              (if (!= (lookupType (memGetWord cg 3) (nodeA h)) 0) 1 0)))
+        0)))))
+
+; the innermost head of an application spine (codegen's own walk;
+; the checker's spineHead lives in another module)
+(pub :: spineHeadE (-> Int Int))
+(pub fn (spineHeadE e)
+  (if (== (nodeTag e) TAG_E_APP)
+      (spineHeadE (nodeA e))
+      e))
+
+; -1 = no retain, 1 = unconditional, k>=0 encoded as 2+k = evidence
+; bit k - the same per-field answer ctorShapeEmit derives
+(pub :: fieldRetainCode (-> Int Int Int Int Int))
+(pub fn (fieldRetainCode cg entry stamp j)
+  (let ((kind (eKind entry)))
+    (let ((tn (if (== kind TF_DATA)
+                  (let ((ftys (eFieldTys entry)))
+                    (if (== ftys 0)
+                        0
+                        (if (< j (vecLen ftys)) (vecGet ftys j) 0)))
+                  (let ((fs (eFieldFlags entry)))
+                    (if (< j (vecLen fs)) (nodeTy (vecGet fs j)) 0)))))
+      (if (== tn 0)
+          (- 0 1)
+          (if (== (cgTyIsSrcVar tn) 1)
+              (if (== stamp 0)
+                  (- 0 1)
+                  (let ((vars vecNew))
+                    {
+                      (if (== kind TF_DATA)
+                          (cgSigVarsVec (eFieldTys entry) vars)
+                          0)
+                      (let ((vi (cgNameVecIdx vars (nodeA tn))))
+                        (if (if (< vi 0)
+                                true
+                                (>= vi (vecLen (nodeB stamp))))
+                            (- 0 1)
+                            (let ((wv (cast Int (vecGet (nodeB stamp) vi))))
+                              (if (== wv 1)
+                                  1
+                                  (if (>= wv 2) wv (- 0 1))))))
+                    }))
+              (if (== (fldClass cg tn) 2) 1 (- 0 1)))))))
+
+(pub :: emitFieldStores (-> Int String Int Int Int Int Int Int))
+(pub fn (emitFieldStores cg ptr args i base entry stamp)
   (if (>= i (vecLen args)) cg
       (let ((argNode (vecGet args i)))
         (let ((cg1 (emitExpr argNode cg)))
           (let ((reg (strDup (memGetWord cg1 2))))
-            (emitFieldStores (storeWordAt cg1 ptr (+ base i) reg) ptr args (+ i 1) base))))))
+            (let ((rc (if (== (argIsDirectCon cg1 argNode) 1)
+                          (- 0 1)
+                          (fieldRetainCode cg1 entry stamp i))))
+              (let ((cgR (if (== rc 1)
+                             (emitRetainOf cg1 reg)
+                             (if (>= rc 2)
+                                 (emitRetainIfEvBit cg1 reg (- rc 2))
+                                 cg1))))
+                (emitFieldStores (storeWordAt cgR ptr (+ base i) reg)
+                                 ptr args (+ i 1) base entry stamp))))))))
 
 ; ------------------------------------------------------------------
 ; E_Let / E_If / E_Begin.
@@ -6343,9 +6536,22 @@
     (emitSeq exprs cg 0)))
 
 (pub :: emitSeq (-> Int Int Int Int))
+; MM-LIFE-2c event 2, the sound subset: a DIRECTLY-BUILT construction
+; discarded in statement position is released on the spot - its birth
+; count is the only share (the stash audit proved co-owners exist for
+; call results and locals, so only the syntactic direct-build shape
+; releases in this slice; its fields were retained by event 6, so the
+; walk hands their shares back correctly).
 (pub fn (emitSeq exprs cg i)
   (if (>= i (vecLen exprs)) cg
-      (emitSeq exprs (emitExpr (vecGet exprs i) cg) (+ i 1))))
+      (let ((e (vecGet exprs i)))
+        (let ((cg1 (emitExpr e cg)))
+          (let ((cg2 (if (if (>= (+ i 1) (vecLen exprs))
+                             false
+                             (== (argIsDirectCon cg1 e) 1))
+                         (emitReleaseOf cg1 (strDup (memGetWord cg1 2)))
+                         cg1)))
+            (emitSeq exprs cg2 (+ i 1)))))))
 
 ; A bare string *is* a `Str`: it evaluates to the address of the static
 ; `{ len, bytes }` header emitted alongside its bytes, so the length is

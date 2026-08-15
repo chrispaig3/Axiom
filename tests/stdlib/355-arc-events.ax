@@ -1,0 +1,82 @@
+; exit 7 (see .exit)
+; MM-LIFE-2c, the first events with NO explicit __retain/__release
+; anywhere in this file - the compiler's own ownership arithmetic
+; reclaims:
+;
+;   4  a constructor built and DISCARDED in statement position, a
+;      thousand times around a TCO loop, moves the allocator's bump
+;      by less than 4 KiB: each cell is born owned, the discard
+;      releases it, the class files it, and the next iteration gets
+;      the same block back
+;   2  the loop under a handled effect still answers its sum -
+;      1..1000 through a handler, 500500
+;   1  the handle's evidence record dies at every exit (event 7):
+;      a thousand handle entries move the bump by less than 8 KiB,
+;      where MM-ALLOC-9a's sixteen bytes per entry - thirty-two
+;      with the header - used to accumulate forever. The handler
+;      lambda is built ONCE outside the loop; its record still
+;      leaks by design until record maps land.
+;
+; The unfixed compiler answers 2: births at zero make every
+; compiler-emitted release floor, both bump probes see ~32 KiB of
+; growth, and only the sum survives.
+(effect Tick
+  (tick :: (-> Int Int)))
+
+(data Cell
+  (MkCell Int Int))
+
+(:: b2i (-> Bool Int))
+
+(fn (b2i x)
+  (if x
+    1
+    0
+  )
+)
+
+(:: spin (-> Int Int))
+
+(fn (spin n)
+  (if (<= n 0)
+    0
+    {
+      (MkCell n n)
+      (spin (- n 1))
+    }
+  )
+)
+
+(:: hspin (-> Int Int a Int))
+
+(fn (hspin n acc h)
+  (if (<= n 0)
+    acc
+    (hspin
+      (- n 1)      (+
+        acc        (handle (tick n) (Tick) h)
+      )      h
+    )
+  )
+)
+
+(:: main Int)
+
+(fn (main)
+  (let ((h1 (__alloc 8)))
+    {
+      (spin 1000)
+      (let ((h2 (__alloc 8)))
+        (let ((r 
+          (hspin
+            1000            0            (lambda (k) k)
+          )
+        ))
+          (let ((h3 (__alloc 8)))
+            (+ (* 4 (b2i (< (- h2 h1) 4096))) (+ (* 2 (b2i (== r 500500))) (b2i (< (- h3 h2) 8192))))
+          )
+        )
+      )
+    }
+  )
+)
