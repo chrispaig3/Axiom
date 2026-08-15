@@ -58,7 +58,7 @@
 ; (the 16.9 GB lesson in docs/self-hosting.md), and a caret line for
 ; a wide span would pay it per character.
 ; ------------------------------------------------------------------
-(pub :: repByte (-> Int Int Int))
+(pub :: repByte (-> Int Int String))
 (pub fn (repByte n ch)
   (let ((m (if (< n 0) 0 n)))
     (let ((s (strAlloc m)) (mut i 0))
@@ -71,7 +71,7 @@
         s
       })))
 
-(pub :: spacesN (-> Int Int))
+(pub :: spacesN (-> Int String))
 (pub fn (spacesN n) (repByte n 32))
 
 ; `n` right-justified in `w` columns.
@@ -109,7 +109,7 @@
 
 ; ASCII-lowercased copy, for flag-value comparison - stage0 accepts
 ; `HUMAN` and `Json` (`to_ascii_lowercase` in render.rs).
-(pub :: lowerAscii (-> String Int))
+(pub :: lowerAscii (-> String String))
 (pub fn (lowerAscii s)
   (let ((n (strLen s)))
     (let ((out (strAlloc n)) (mut i 0))
@@ -148,7 +148,7 @@
 ; ------------------------------------------------------------------
 ; The human renderer.
 ; ------------------------------------------------------------------
-(pub :: sevWord (-> Int Int))
+(pub :: sevWord (-> Int String))
 (pub fn (sevWord sev)
   (if (== sev SEV_ERROR) "error" "warning"))
 
@@ -235,7 +235,7 @@
 ; expanded. A tab is emitted column by column, so one straddling the
 ; window's edge contributes only the columns inside it; a multi-byte
 ; character is emitted whole at its lead byte.
-(pub :: expandWindow (-> String Int Int Int Int Int))
+(pub :: expandWindow (-> String Int Int Int Int String))
 (pub fn (expandWindow src ls le a b)
   (let ((parts vecNew) (mut i ls) (mut col 0))
     {
@@ -269,14 +269,14 @@
 ; byte - `^` for the primary span, `-` for the related one. The run
 ; covers the span clamped to its own line and to the quoted window, and
 ; is never shorter than one column even for an empty span.
-(pub :: labelBlock (-> String Int Int Int Int Int String String))
+(pub :: labelBlock (-> String Int Int Int Int String String String))
 (pub fn (labelBlock src gw start end ch msg sgr)
   (let ((ls (lineStartOf src start))
         (le (lineEndOf src start))
         (ln (lineOf src start)))
     (let ((dcol (dispColAt src start))
           (dw (dispWidthLine src ls le))
-          (m (if (== msg 0) "" msg)))
+          (m (if (== (cast Int msg) 0) "" msg)))
       (let ((dend (dispColAt src (if (< end le) end le)))
             (ws (winStart dw dcol))
             (we (winEnd dw dcol)))
@@ -332,7 +332,7 @@
     (spacesN gw) (paint SGR_GUT " = ")) (paint SGR_HELP "help: ")) 
     (strConcat text "\n")))
 
-(pub :: helpLineFix (-> Int String Int String))
+(pub :: helpLineFix (-> Int String String String))
 (pub fn (helpLineFix gw text repl)
   (helpLine gw (strConcat text (paint SGR_FIX (strConcat " ~> " repl)))))
 
@@ -350,12 +350,12 @@
 ; related - because the Diag record held at most one related span. It
 ; now holds a vector of them, so the snippet is a sorted list.
 ; ------------------------------------------------------------------
-(pub struct SnipRow (span : Int) (ch : Int) (msg : Int) (sgr : Int))
+(pub struct SnipRow (span : Int) (ch : Int) (msg : String) (sgr : String))
 
 (pub :: rowSpan (-> Int Int)) (pub fn (rowSpan r) (memGetWord r 0))
 (pub :: rowCh   (-> Int Int)) (pub fn (rowCh   r) (memGetWord r 1))
-(pub :: rowMsg  (-> Int Int)) (pub fn (rowMsg  r) (memGetWord r 2))
-(pub :: rowSgr  (-> Int Int)) (pub fn (rowSgr  r) (memGetWord r 3))
+(pub :: rowMsg  (-> Int String)) (pub fn (rowMsg  r) (memGetWord r 2))
+(pub :: rowSgr  (-> Int String)) (pub fn (rowSgr  r) (memGetWord r 3))
 
 ; Insertion sort by span START. The code this replaces compared LINE
 ; numbers and put the related span first on a tie, which agreed with
@@ -417,7 +417,7 @@
 
 ; The labeled blocks, in order, with a `...` row wherever two adjacent
 ; rows are more than one line apart.
-(pub :: snipBody (-> String Int Int Int))
+(pub :: snipBody (-> String Int Int String))
 (pub fn (snipBody src gw rows)
   (let ((out vecNew) (mut i 0) (mut prev 0))
     {
@@ -443,7 +443,7 @@
 ; `&` field's name and LOC - three spellings, one decision. The
 ; parenthetical repeats fmtSpan's exact text, so the derivation is a
 ; concatenation and not a re-parse.
-(pub :: traceNoteText (-> Int Int Int Int))
+(pub :: traceNoteText (-> Int Int Int String))
 (pub fn (traceNoteText d i units)
   (let ((base (strConcat (strConcat "in this expansion of `"
                                     (diagTraceName d i)) "`")))
@@ -586,7 +586,7 @@
 ; stage0 carried the backtrace in its Diagnostic and its AXDL grammar,
 ; but never in its JSON, because nothing ever populated it.
 ; ------------------------------------------------------------------
-(pub :: jsonEsc (-> String Int))
+(pub :: jsonEsc (-> String String))
 (pub fn (jsonEsc s)
   (let ((n (strLen s)) (mut i 0) (mut acc ""))
     {
@@ -620,7 +620,7 @@
         (strConcat (strConcat ",\"char_end\":" (decStr (charsBetween src 0 e))) "}")))))
 
 ; A JSON array of quoted strings.
-(pub :: jsonStrArray (-> Int Int))
+(pub :: jsonStrArray (-> Int String))
 (pub fn (jsonStrArray items)
   (let ((parts vecNew) (mut i 0))
     {
@@ -637,7 +637,7 @@
       (catStrs parts)
     }))
 
-(pub :: jsonHelpArray (-> Int Int))
+(pub :: jsonHelpArray (-> Int String))
 (pub fn (jsonHelpArray d)
   (let ((v vecNew) (mut i 0))
     {
@@ -646,7 +646,7 @@
       (jsonStrArray v)
     }))
 
-(pub :: jsonNoteArray (-> Int Int))
+(pub :: jsonNoteArray (-> Int String))
 (pub fn (jsonNoteArray d)
   (let ((v vecNew) (mut i 0))
     {
@@ -660,7 +660,7 @@
 ; ITS OWN unit - when the frame carries a span the unit table can
 ; resolve. The numbers are the same ones the AXDL LOC prints, which is
 ; what lets verify-json.py derive this array from that field.
-(pub :: jsonTraceArray (-> Int Int Int))
+(pub :: jsonTraceArray (-> Int Int String))
 (pub fn (jsonTraceArray d units)
   (let ((parts vecNew) (mut i 0))
     {
@@ -692,7 +692,7 @@
       (catStrs parts)
     }))
 
-(pub :: jsonRelatedArray (-> Int String Int))
+(pub :: jsonRelatedArray (-> Int String String))
 (pub fn (jsonRelatedArray d src)
   (let ((parts vecNew) (mut i 0))
     {
@@ -703,7 +703,7 @@
           (vecPush parts "{\"span\":")
           (vecPush parts (jsonSpan src (diagSecSpan d i)))
           (vecPush parts ",\"label\":\"")
-          (vecPush parts (jsonEsc (if (== (diagSecMsg d i) 0) "" (diagSecMsg d i))))
+          (vecPush parts (jsonEsc (if (== (cast Int (diagSecMsg d i)) 0) "" (diagSecMsg d i))))
           (vecPush parts "\"}")
           (set i (+ i 1))
         })
@@ -718,7 +718,7 @@
         (slug (diagSlug d))
         (span (diagSpan d))
         (msg (diagMsg d))
-        (label (if (== (diagLabel d) 0) "" (diagLabel d))))
+        (label (if (== (cast Int (diagLabel d)) 0) "" (diagLabel d))))
     (strConcat
       (strConcat
         (strConcat

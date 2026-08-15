@@ -30,7 +30,7 @@
 ; `fieldNames` is a data constructor's declared field names when it
 ; was written as a struct variant, 0 otherwise; a named pattern is
 ; reordered against it at emission.
-(pub struct TypeEntry (name : Int) (nameLen : Int) (nameHash : Int) (kind : Int) (arity : Int) (tag : Int) (rep : Int) (fieldFlags : Int) (fieldNames : Int))
+(pub struct TypeEntry (name : String) (nameLen : Int) (nameHash : Int) (kind : Int) (arity : Int) (tag : Int) (rep : Int) (fieldFlags : Int) (fieldNames : Int))
 (pub :: TF_DATA   Int) (pub fn (TF_DATA)   0)
 (pub :: TF_STRUCT Int) (pub fn (TF_STRUCT) 1)
 (pub :: eNameLen (-> Int Int)) (pub fn (eNameLen e) (memGetWord e 1))
@@ -50,7 +50,7 @@
 (pub fn (nameHash s)
   (strLen s))
 
-(pub :: eName (-> Int Int)) (pub fn (eName e) (memGetWord e 0))
+(pub :: eName (-> Int String)) (pub fn (eName e) (memGetWord e 0))
 
 (pub :: addType (-> Int String Int Int Int Int Int Int))
 (pub fn (addType types name kind arity tag rep fieldFlags)
@@ -114,19 +114,19 @@
 ; each declare a `Console`, and stage0 keys their slots by
 ; (name, module), so they are two globals rather than one shared one.
 ; ------------------------------------------------------------------
-(pub struct EffEnt (name : Int) (slot : Int) (isEntry : Int))
-(pub :: effName (-> Int Int))    (pub fn (effName e) (memGetWord e 0))
-(pub :: effSlot (-> Int Int))    (pub fn (effSlot e) (memGetWord e 1))
+(pub struct EffEnt (name : String) (slot : String) (isEntry : Int))
+(pub :: effName (-> Int String))    (pub fn (effName e) (memGetWord e 0))
+(pub :: effSlot (-> Int String))    (pub fn (effSlot e) (memGetWord e 1))
 (pub :: effIsEntry (-> Int Int)) (pub fn (effIsEntry e) (memGetWord e 2))
 
 ; stage0's `effect_slot_name`: `__axiom_ev_` over the mangled effect
 ; name, so an entry-file `Console` is `__axiom_ev_Console` and an
 ; imported one `__axiom_ev_M$Console`.
-(pub :: effSlotFor (-> String String String))
+(pub :: effSlotFor (-> String a String))
 (pub fn (effSlotFor name modName)
-  (if (== modName 0)
+  (if (== (cast Int modName) 0)
       (cat2 "__axiom_ev_" name)
-      (cat4 "__axiom_ev_" modName "$" name)))
+      (cat4 "__axiom_ev_" (cast String modName) "$" name)))
 
 ; Entry file first, then whatever module defines it - the resolution
 ; rule every other bare-name lookup in this compiler uses. A first
@@ -239,7 +239,7 @@
 ; Field 34 = curModule (Str, the module whose declaration is being
 ;            emitted, or 0 for the entry file; `mangledFor` resolves a
 ;            bare reference to that module's own definition first)
-(pub struct CG (lines : Int) (tmp : Int) (result : String) (types : Int) (tagN : Int) (argVec : Int) (symnames : Int) (symregs : Int) (decls : Int) (argsTyped : String) (strings : Int) (curBlock : String) (mangleBares : Int) (mangleFulls : Int) (resultIsFloat : Int) (floatSigs : Int) (symfloats : Int) (curParams : Int) (curFlags : Int) (macros : Int) (symkinds : Int) (pendingLams : Int) (lamN : Int) (thunkFulls : Int) (thunkArities : Int) (thunksEmitted : Int) (target : String) (tcoName : Int) (tcoSlots : Int) (tcoLabel : Int) (tailOK : Int) (terminated : Int) (effDecls : Int) (effOps : Int) (curModule : Int))
+(pub struct CG (lines : Int) (tmp : Int) (result : String) (types : Int) (tagN : Int) (argVec : Int) (symnames : Int) (symregs : Int) (decls : Int) (argsTyped : String) (strings : Int) (curBlock : String) (mangleBares : Int) (mangleFulls : Int) (resultIsFloat : Int) (floatSigs : Int) (symfloats : Int) (curParams : Int) (curFlags : Int) (macros : Int) (symkinds : Int) (pendingLams : Int) (lamN : Int) (thunkFulls : Int) (thunkArities : Int) (thunksEmitted : Int) (target : Int) (tcoName : Int) (tcoSlots : Int) (tcoLabel : String) (tailOK : Int) (terminated : Int) (effDecls : Int) (effOps : Int) (curModule : Int))
 
 ; ------------------------------------------------------------------
 ; Tail-call optimisation, fields 27-31.
@@ -308,7 +308,7 @@
 ; `flags` is one 0/1 per arrow position, return type last - the shape
 ; `sigFloatFlags` in the parser produces.
 ; ------------------------------------------------------------------
-(pub struct FSig (name : Int) (nameLen : Int) (flags : Int))
+(pub struct FSig (name : String) (nameLen : Int) (flags : Int))
 
 (pub :: scanFloatSigs (-> Int Int Int Int))
 (pub fn (scanFloatSigs decls sigs i)
@@ -413,7 +413,7 @@
 ; ------------------------------------------------------------------
 ; Integer formatting.
 ; ------------------------------------------------------------------
-(pub :: fmtInt (-> Int Int))
+(pub :: fmtInt (-> Int String))
 (pub fn (fmtInt n)
   (if (< n 0)
       (cat2 "-" (fmtInt (- 0 n)))
@@ -459,7 +459,7 @@
 ; the data, and stage1 emits no tail-call elimination, so the recursive
 ; spelling is a real call chain one frame deep per line.
 ; ------------------------------------------------------------------
-(pub :: renderCG (-> Int Int))
+(pub :: renderCG (-> Int String))
 (pub fn (renderCG cg)
   (joinLines (memGetWord cg 0)))
 
@@ -477,7 +477,7 @@
       n
     }))
 
-(pub :: joinLines (-> Int Int))
+(pub :: joinLines (-> Int String))
 (pub fn (joinLines lines)
   (let ((out (strAlloc (joinSize lines)))
         (mut i 0)
@@ -511,7 +511,7 @@
 (pub :: regStr (-> Int String))
 (pub fn (regStr n) (cat2 "%t" (fmtInt n)))
 
-(pub :: constStr (-> Int Int))
+(pub :: constStr (-> Int String))
 (pub fn (constStr n) (fmtInt n))
 
 
@@ -548,7 +548,7 @@
 (pub fn (hexDigit n)
   (if (< n 10) (+ 48 n) (+ 55 n)))
 
-(pub :: hex2 (-> Int Int))
+(pub :: hex2 (-> Int String))
 (pub fn (hex2 n)
   (let ((s (strAlloc 2)))
     {
@@ -569,7 +569,7 @@
 
 ; `lexeme` still carries its surrounding quotes, so the body runs from
 ; index 1 to len-1.
-(pub :: escBody (-> String Int Int String Int))
+(pub :: escBody (-> String Int Int String String))
 (pub fn (escBody s i limit acc)
   (if (>= i limit)
       acc
@@ -644,7 +644,7 @@
 ; in `isIdentChar`, so neither is reachable from a source name today;
 ; they are handled because the quoting rule belongs to LLVM and must
 ; not depend on where Axiom's set happens to stop.
-(pub :: llvmSymBody (-> String Int Int String Int))
+(pub :: llvmSymBody (-> String Int Int String String))
 (pub fn (llvmSymBody s i n acc)
   (if (>= i n)
       acc
@@ -769,15 +769,15 @@
 ; `EffMod$ask`, and an `effect` declaration is one of the two kinds
 ; `mangleDecl` never rewrites. Both spellings dispatch through the one
 ; slot, which is the only thing that has to be single.
-(pub :: scanEffectOps (-> Int Int Int String Int Int Int))
+(pub :: scanEffectOps (-> Int String Int a Int Int Int))
 (pub fn (scanEffectOps ops slot isEntry modName tbl i)
   (if (>= i (vecLen ops))
       0
       {
         (vecPush tbl (cast Int (EffEnt (vecGet ops i) slot isEntry)))
-        (if (== modName 0)
+        (if (== (cast Int modName) 0)
             0
-            (vecPush tbl (cast Int (EffEnt (cat3 modName "$" (vecGet ops i))
+            (vecPush tbl (cast Int (EffEnt (cat3 (cast String modName) "$" (vecGet ops i))
                                            slot isEntry))))
         (scanEffectOps ops slot isEntry modName tbl (+ i 1))
       }))
@@ -853,11 +853,11 @@
 ; changes no rule: the tag, arity and representation are the SAME
 ; values, which is what keeps a constructor reached under either
 ; spelling one constructor rather than two.
-(pub :: addQualified (-> Int String String Int Int Int Int Int Int Int))
+(pub :: addQualified (-> Int a String Int Int Int Int Int Int Int))
 (pub fn (addQualified types modName name kind arity tag rep fieldFlags fieldNames)
-  (if (== modName 0)
+  (if (== (cast Int modName) 0)
       types
-      (addTypeNamed types (cat3 (strDup modName) "$" (strDup name))
+      (addTypeNamed types (cat3 (strDup (cast String modName)) "$" (strDup name))
                     kind arity tag rep fieldFlags fieldNames)))
 
 (pub :: scanCtors (-> Int Int Int Int String Int))
@@ -911,7 +911,7 @@
 ; module path onto a relative file path: Sys.Platform -> Sys/Platform.
 ; `strDup` gives an owned, NUL-terminated buffer, so rewriting the bytes
 ; in place cannot disturb the original.
-(pub :: modPathToFile (-> String Int))
+(pub :: modPathToFile (-> String String))
 (pub fn (modPathToFile s)
   (let ((out (strDup s)))
     {
@@ -937,7 +937,7 @@
 ; live in Axiom source rather than in a table inside the compiler.
 ; Without it the platform module resolves to nothing and every constant
 ; it defines - `sysWrite`, `oRdonly` - is an undefined symbol.
-(pub :: readModuleSrc (-> String Int Int Int))
+(pub :: readModuleSrc (-> String Int String Int))
 (pub fn (readModuleSrc name tcode entryDir)
   (let ((p (moduleSrcPath name tcode entryDir)))
     (if (== (strLen p) 0)
@@ -950,7 +950,7 @@
 ; the path away, so an imported module that failed to parse could not
 ; be reported against anything. The ladder lives here once and
 ; `readModuleSrc` reads through it, rather than being stated twice.
-(pub :: moduleSrcPath (-> String Int Int Int))
+(pub :: moduleSrcPath (-> String Int String String))
 (pub fn (moduleSrcPath name tcode entryDir)
   (let ((stem (modPathToFile name)))
     (let ((a (tryModulePath stem (targetOsArchSuffix tcode) entryDir)))
@@ -961,7 +961,7 @@
                 b
                 (tryModulePath stem ".ax" entryDir)))))))
 
-(pub :: tryModuleFile (-> String String Int Int))
+(pub :: tryModuleFile (-> String String String Int))
 ; Answers the PATH that was read, or "" - the unit table needs the
 ; filename a diagnostic will be rendered against, and only the search
 ; knows which candidate won.
@@ -992,7 +992,7 @@
 ; entries against the working directory instead. That degrades to the
 ; old behaviour rather than to something wrong, and `AXIOM_STDLIB`
 ; overrides it.
-(pub :: moduleSearchDirs (-> Int Int))
+(pub :: moduleSearchDirs (-> String Int))
 (pub fn (moduleSearchDirs entryDir)
   (let ((v vecNew))
     {
@@ -1051,7 +1051,7 @@
           (strDup d)
           (cat2 d "/"))))
 
-(pub :: tryModulePath (-> String String Int Int))
+(pub :: tryModulePath (-> String String String String))
 (pub fn (tryModulePath stem suffix entryDir)
   (searchDirsFor (moduleSearchDirs entryDir) (cat2 stem suffix) 0))
 
@@ -1062,7 +1062,7 @@
 ; predecessor did too - `sysReadFile` answers "" for both - and is
 ; recorded rather than fixed, because an empty module contributes no
 ; declarations and so fails identically one step later.
-(pub :: searchDirsFor (-> Int String Int Int))
+(pub :: searchDirsFor (-> Int String Int String))
 (pub fn (searchDirsFor dirs base i)
   (if (>= i (vecLen dirs))
       ""
@@ -1071,7 +1071,7 @@
             cand
             (searchDirsFor dirs base (+ i 1))))))
 
-(pub :: modulePathOf (-> String Int Int Int))
+(pub :: modulePathOf (-> String Int String String))
 (pub fn (modulePathOf name tcode entryDir)
   (let ((stem (modPathToFile name)))
     (let ((a (tryModulePath stem (targetOsArchSuffix tcode) entryDir)))
@@ -1095,10 +1095,10 @@
 
 ; Everything up to and including the last `/` of a path, or "" when
 ; the path names a file in the working directory.
-(pub :: dirOfPath (-> String Int))
+(pub :: dirOfPath (-> String String))
 (pub fn (dirOfPath p) (dirOfPathFrom p (- (strLen p) 1)))
 
-(pub :: dirOfPathFrom (-> String Int Int))
+(pub :: dirOfPathFrom (-> String Int String))
 (pub fn (dirOfPathFrom p i)
   (if (< i 0)
       ""
@@ -1159,7 +1159,7 @@
       0
     }))
 
-(pub :: firstOperandArg (-> Int Int))
+(pub :: firstOperandArg (-> Int String))
 (pub fn (firstOperandArg i)
   (if (>= i (sysArgc))
       ""
@@ -1170,12 +1170,12 @@
 
 ; Declaration Vec for module `name`; a module that cannot be read or
 ; parsed is a fatal diagnostic, never a 0 this returns.
-(pub :: parseModuleOrDie (-> String Int Int Int))
+(pub :: parseModuleOrDie (-> String Int String Int))
 ; As `parseModuleOrDie`, and additionally records the module in the
 ; UNIT TABLE - the path a diagnostic about this module renders
 ; against, its text, and its name so the checker can find the index
 ; from a declaration's `module` stamp.
-(pub :: parseModuleOrDieUnit (-> String Int Int Int Int))
+(pub :: parseModuleOrDieUnit (-> String Int String Int Int))
 (pub fn (parseModuleOrDieUnit name tcode entryDir units)
   {
     (if (== (unitIndexOf units name 0) (- 0 1))
@@ -1235,7 +1235,7 @@
 ; `looked for 'A' or 'B' or 'C' in 'd1', 'd2', ...` - the same
 ; candidates and directories readModuleSrc searched, in the same
 ; order, so the help never claims a search that did not happen.
-(pub :: importHelpText (-> String Int Int Int))
+(pub :: importHelpText (-> String Int String Int))
 (pub fn (importHelpText name tcode entryDir)
   (let ((stem (modPathToFile name))
         (dirs (moduleSearchDirs entryDir)))
@@ -1260,7 +1260,7 @@
         (catStrs parts)
       })))
 
-(pub :: dieImportDiag (-> String Int Int Int))
+(pub :: dieImportDiag (-> String Int String Int))
 ;@axiom:effect(io)
 (pub fn (dieImportDiag name tcode entryDir)
   (let ((d (mkDiag SEV_ERROR "AX5001" "module-not-found" 0
@@ -1294,7 +1294,7 @@
 ; This was the last surface untouched by the parse-error port, and it
 ; is the one a person compiling a multi-module program meets first: it
 ; is what a compiler prints when a file it was told to read is broken.
-(pub :: dieModuleParse (-> String String Int Int Int Int Int Int))
+(pub :: dieModuleParse (-> String String Int Int Int Int String Int))
 ;@axiom:effect(io)
 (pub fn (dieModuleParse name src toks pr lexD tcode entryDir)
   (let ((path (moduleSrcPath name tcode entryDir))
@@ -1326,13 +1326,13 @@
         ; entry file's do, or `symbols` prints `#effects=IO` beside a
         ; missing `#effect=io` claim and every tag check on imported
         ; code silently never runs.
-        (let ((toks (lex src)))
-        (let ((lexD (lexErrDiag toks src)))
+        (let ((toks (lex (cast String src))))
+        (let ((lexD (lexErrDiag toks (cast String src))))
         (let ((pr (if (== lexD 0)
-                      (parseModuleWith toks (scanAxtags src))
+                      (parseModuleWith toks (scanAxtags (cast String src)))
                       (pErr 0))))
           (if (|| (> lexD 0) (== (memGetWord pr 0) 0))
-              (dieModuleParse name src toks pr lexD tcode entryDir)
+              (dieModuleParse name (cast String src) toks pr lexD tcode entryDir)
               (memGetWord pr 1))))))))
 
 (pub :: seenHas (-> Int String Bool))
@@ -1422,7 +1422,7 @@
 ; a module could silently rewrite what that module does. stage0 applies
 ; the same rule in `mangled_name_for`, and the two have to agree
 ; symbol for symbol or the fixpoint is comparing different programs.
-(pub :: mangledFor (-> Int String Int))
+(pub :: mangledFor (-> Int String String))
 (pub fn (mangledFor cg name)
   ; A reference to `main` - a recursive call, or main as a value -
   ; must reach the renamed user function, never the argv wrapper,
@@ -1430,14 +1430,14 @@
   (if (strEq name "main")
       "__axiom_user_main"
       (let ((m (memGetWord cg 34)))
-        (if (== m 0)
+        (if (== (cast Int m) 0)
             (mangledForIn (memGetWord cg 12) (memGetWord cg 13) name 0)
             (let ((local (cat3 m "$" name)))
               (if (mangleHasIn (memGetWord cg 12) local 0)
                   local
                   (mangledForIn (memGetWord cg 12) (memGetWord cg 13) name 0)))))))
 
-(pub :: mangledForIn (-> Int Int String Int Int))
+(pub :: mangledForIn (-> Int Int String Int String))
 (pub fn (mangledForIn bares fulls name i)
   (if (>= i (vecLen bares))
       name
@@ -1463,11 +1463,11 @@
 ; `opt` against generated code.
 (pub :: mangleDecl (-> Int String Int Int Int Int))
 (pub fn (mangleDecl node modName bares fulls exported)
-  (if (== modName 0)
+  (if (== (cast Int modName) 0)
       0
       (if (== (nodeTag node) TAG_D_FN)
           (let ((bare (nodeA node)))
-            (let ((full (cat3 (strDup modName) "$" (strDup bare))))
+            (let ((full (cat3 (strDup (cast String modName)) "$" (strDup bare))))
               {
                 (memSetWord node 1 full)
                 (if (== exported 1)
@@ -1476,7 +1476,7 @@
               }))
           (if (== (nodeTag node) TAG_D_SIG)
               {
-                (memSetWord node 1 (cat3 (strDup modName) "$" (strDup (nodeA node))))
+                (memSetWord node 1 (cat3 (strDup (cast String modName)) "$" (strDup (nodeA node))))
                 0
               }
               0))))
@@ -1508,7 +1508,7 @@
         (recordEntryFns decls bares fulls (+ i 1))
       }))
 
-(pub :: resolveImports (-> Int Int Int Int Int Int Int))
+(pub :: resolveImports (-> Int Int Int Int String Int Int))
 (pub fn (resolveImports decls bares fulls tcode entryDir units)
   {
     (recordEntryFns decls bares fulls 0)
@@ -1597,7 +1597,7 @@
                 ; recorded on the node, where the checker reads it -
                 ; says whether anything outside may name it.
                 (let ((exported (if (&& (filterKeeps filter (nodeA first))
-                                        (|| (== modName 0) (== (nodeVis first) 1)))
+                                        (|| (== (cast Int modName) 0) (== (nodeVis first) 1)))
                                     1
                                     0)))
                   {
@@ -1644,7 +1644,7 @@
   (if (strEq name "linux-x86_64") 3
   (- 0 1))))))
 
-(pub :: targetTriple (-> Int Int))
+(pub :: targetTriple (-> Int String))
 (pub fn (targetTriple t)
   (if (== t 0) "arm64-apple-macosx14.0.0"
   (if (== t 1) "x86_64-apple-macosx14.0.0"
@@ -1655,7 +1655,7 @@
 ; escaped and quoted ready to sit between `asm sideeffect ` and the
 ; argument list. One fragment per target, byte-for-byte the strings
 ; stage0 emits.
-(pub :: targetSyscallAsm (-> Int Int))
+(pub :: targetSyscallAsm (-> Int String))
 (pub fn (targetSyscallAsm t)
   ; The argument registers are CLOBBERS as well as inputs on arm64,
   ; because Darwin's `svc` destroys them - probed, x1 comes back 0.
@@ -1731,14 +1731,14 @@
 
 ; Platform module suffixes, most specific first: `.{os}-{arch}.ax`,
 ; then `.{os}.ax`, then `.ax` - the same order stage0 searches.
-(pub :: targetOsArchSuffix (-> Int Int))
+(pub :: targetOsArchSuffix (-> Int String))
 (pub fn (targetOsArchSuffix t)
   (if (== t 0) ".darwin-aarch64.ax"
   (if (== t 1) ".darwin-x86_64.ax"
   (if (== t 2) ".linux-aarch64.ax"
   ".linux-x86_64.ax"))))
 
-(pub :: targetOsSuffix (-> Int Int))
+(pub :: targetOsSuffix (-> Int String))
 (pub fn (targetOsSuffix t)
   (if (|| (== t 0) (== t 1)) ".darwin.ax" ".linux.ax"))
 
@@ -2240,7 +2240,7 @@
 ; The convenience entry point, for a caller with no path to derive a
 ; module search directory from; imports resolve against `self_host/`
 ; and `stdlib/` only, as they always did.
-(pub :: emitModule (-> Int String Int))
+(pub :: emitModule (-> Int String String))
 (pub fn (emitModule decls target)
   (let ((tcode (checkedTargetCode target))
         (bares vecNew)
@@ -2274,7 +2274,7 @@
 ; `emitModule` so import resolution happens exactly once per run: the
 ; checker needs `allDecls` too, and resolving twice would read every
 ; module from disk twice.
-(pub :: emitResolved (-> Int Int Int Int Int))
+(pub :: emitResolved (-> Int Int Int Int String))
 (pub fn (emitResolved allDecls bares fulls tcode)
     (let ((cg (newCG)))
       (let ((_ (memSetWord cg 12 bares))
@@ -2291,7 +2291,7 @@
                   (let ((cg4 (emitLine cg3 "")))
                     (emitModuleTail allDecls cg4 0)))))))))))
 
-(pub :: emitModuleTail (-> Int Int Int Int))
+(pub :: emitModuleTail (-> Int Int Int String))
 (pub fn (emitModuleTail decls cg i)
   (let ((nextCg (if (>= i (vecLen decls))
                     cg
@@ -2541,11 +2541,11 @@
 ; Everything after the last `$`: the source-spelled name of a
 ; declaration whose node `mangleDecl` may have rewritten to
 ; `Mod$name`.
-(pub :: bareName (-> String Int))
+(pub :: bareName (-> String String))
 (pub fn (bareName s)
   (bareNameFrom s (- (strLen s) 1)))
 
-(pub :: bareNameFrom (-> String Int Int))
+(pub :: bareNameFrom (-> String Int String))
 (pub fn (bareNameFrom s i)
   (if (< i 0)
       s
@@ -2697,7 +2697,7 @@
 
 ; The head of an application spine, as a name, or "" when the head is
 ; not a plain name.
-(pub :: spineHeadName (-> Int Int))
+(pub :: spineHeadName (-> Int String))
 (pub fn (spineHeadName e)
   (if (== (nodeTag e) TAG_E_APP)
       (spineHeadName (nodeA e))
@@ -2997,7 +2997,7 @@
 ; A lifted lambda, waiting for the enclosing function to close:
 ; word 0 name, word 1 params, word 2 body, word 3 capture names,
 ; word 4 capture float flags.
-(pub :: mkLamDesc (-> Int Int Int Int Int Int))
+(pub :: mkLamDesc (-> String Int Int Int Int Int))
 (pub fn (mkLamDesc lname lparams body capNames capFloats)
   (let ((d (memAlloc 40)))
     {
@@ -3231,7 +3231,7 @@
 ; The four symbol vectors stay parallel by construction: this is the
 ; only place that pushes them. `kind` 0 binds a value register, 1 an
 ; alloca whose reads load.
-(pub :: bindSym (-> Int Int Int Int Int Int))
+(pub :: bindSym (-> Int String String Int Int Int))
 (pub fn (bindSym cg name reg isFloat kind)
   {
     (memSetWord cg 6 (vecPush (memGetWord cg 6) name))
@@ -3401,7 +3401,7 @@
                             vr failB cg isFloat)))
     (if (== tag TAG_E_APP)
         (let ((cname (patHead pat)))
-          (let ((entry (if (== cname 0) 0 (lookupType (memGetWord cg 3) cname))))
+          (let ((entry (if (== cname 0) 0 (lookupType (memGetWord cg 3) (cast String cname)))))
             (if (== entry 0)
                 ; An application whose head is no constructor - nothing
                 ; well-typed produces this; match everything, bind
@@ -3954,14 +3954,14 @@
                   {
                     (emitLine cg (cat4 (cat2 "  " r)
                                        " = load i64, ptr "
-                                       (strDup symReg)
+                                       (strDup (cast String symReg))
                                        ""))
                     (memSetWord cg 2 r)
                     (memSetWord cg 14 (lookupSymFloat cg name))
                     cg
                   }))
               {
-                (memSetWord cg 2 (strDup symReg))
+                (memSetWord cg 2 (strDup (cast String symReg)))
                 (memSetWord cg 14 (lookupSymFloat cg name))
                 cg
               })
@@ -4286,7 +4286,7 @@
 ; closure's address, the same bug stage0's local-head path had. The
 ; result's float-ness is unknown (no signature to ask), so it reads
 ; as integer.
-(pub :: emitIndirectCall (-> Int Int Int Int))
+(pub :: emitIndirectCall (-> String Int Int Int))
 (pub fn (emitIndirectCall fnName args cg)
   (let ((cgH (emitVar (mkEVar fnName) cg)))
     (emitApplyChain args cgH (strDup (memGetWord cgH 2)) 0)))
@@ -4592,7 +4592,7 @@
         cg1
       })))
 
-(pub :: padZeros (-> Int String Int))
+(pub :: padZeros (-> Int String String))
 (pub fn (padZeros n acc)
   (if (<= n 0)
       acc
@@ -4616,7 +4616,7 @@
 ; The element type is what makes `__load8` and `__load64` differ: both
 ; index from a base, but one steps a byte and the other a word, and the
 ; byte form has to widen to a machine word on the way out.
-(pub :: elemTy (-> Int Int))
+(pub :: elemTy (-> Int String))
 (pub fn (elemTy width)
   (if (== width 8) "i64" "i8"))
 
@@ -4700,7 +4700,7 @@
                   cg5
                 }))))))))
 
-(pub :: narrowByte (-> Int String Int))
+(pub :: narrowByte (-> Int String String))
 (pub fn (narrowByte cg val)
   (let ((tn (allocReg cg)))
     (let ((tr (regStr tn)))
@@ -5065,7 +5065,7 @@
   (if (strEq nm ">>") true
   false)))))))))))
 
-(pub :: binopToLLVM (-> String Int))
+(pub :: binopToLLVM (-> String String))
 (pub fn (binopToLLVM nm)
   (if (strEq nm "+") "add"
   (if (strEq nm "-") "sub"
@@ -5089,7 +5089,7 @@
   (if (strEq nm ">=") true
   false)))))))
 
-(pub :: cmpToLLVM (-> String Int))
+(pub :: cmpToLLVM (-> String String))
 (pub fn (cmpToLLVM nm)
   (if (strEq nm "==") "eq"
   (if (strEq nm "!=") "ne"
@@ -5099,7 +5099,7 @@
   (if (strEq nm ">=") "sge"
   "eq")))))))
 
-(pub :: fbinopToLLVM (-> String Int))
+(pub :: fbinopToLLVM (-> String String))
 (pub fn (fbinopToLLVM nm)
   (if (strEq nm "+") "fadd"
   (if (strEq nm "-") "fsub"
@@ -5110,7 +5110,7 @@
 
 ; Ordered variants throughout: `o` requires neither operand be NaN, so
 ; a NaN compares false under every operator, matching stage0.
-(pub :: fcmpToLLVM (-> String Int))
+(pub :: fcmpToLLVM (-> String String))
 (pub fn (fcmpToLLVM nm)
   (if (strEq nm "==") "oeq"
   (if (strEq nm "!=") "one"
@@ -5150,7 +5150,7 @@
 ; ------------------------------------------------------------------
 ; Constructor emission: alloc + field stores.
 ; ------------------------------------------------------------------
-(pub :: emitConstructor (-> Int Int Int Int Int Int Int Int))
+(pub :: emitConstructor (-> String Int Int Int Int Int Int Int))
 (pub fn (emitConstructor fnName args kind arity ctorTag rep cg)
   ; A nullary constructor of any type that unboxes (all-nullary OR
   ; mixed) is its immediate tag - stage0's S1 representation. The
@@ -5286,7 +5286,7 @@
               (let ((cg1 (emitExpr valExpr cg)))
                 (let ((v (strDup (memGetWord cg1 2))))
                   {
-                    (emitLine cg1 (cat4 "  store i64 " v ", ptr " (strDup storage)))
+                    (emitLine cg1 (cat4 "  store i64 " v ", ptr " (strDup (cast String storage))))
                     (memSetWord cg1 2 v)
                     cg1
                   })))))))

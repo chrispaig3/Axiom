@@ -117,7 +117,7 @@
 ; The C library's own wording for the three errnos a source path
 ; realistically produces. Anything else is reported by number rather
 ; than guessed at, because a wrong reason is worse than a bare one.
-(pub :: errnoReason (-> Int Int))
+(pub :: errnoReason (-> Int String))
 (pub fn (errnoReason e)
   (if (== e 2) "No such file or directory"
   (if (== e 13) "Permission denied"
@@ -215,13 +215,13 @@
 ; a module that does not type-check. Threading the codes back through a
 ; language with no sum type at this layer would buy nothing - no caller
 ; has a second thing to try.
-(pub :: compileFile (-> String String Int Int Int))
+(pub :: compileFile (-> String String Int Int String))
 ;@axiom:effect(io)
 (pub fn (compileFile fileName tname doEmit needMain)
   (let ((rerr (sourceReadErrno fileName))
         (dfmt diagFormatArg))
     (if (!= rerr 0)
-        (die (readFailMsg fileName rerr) 1)
+        { (die (readFailMsg fileName rerr) 1) "" }
         ; An empty file is READ, not refused: it lexes to no tokens and
         ; parses to a module with no declarations, which `check` accepts
         ; and `build` rejects for having no `main` - the same answers
@@ -325,7 +325,7 @@
                             {
                               (writeStderr (renderFailTrailer (countErrorDiags ds)))
                               (sysExitWith 1)
-                              1
+                              ""
                             }
                             (if (== doEmit 0)
                                 ""
@@ -744,7 +744,7 @@
 ; is two spaces then six characters of code. A line that is not shaped
 ; that way is passed through untouched, which is what the heading and
 ; any future blank line are.
-(pub :: explainListColored Int)
+(pub :: explainListColored String)
 (pub fn (explainListColored)
   (let ((n (strLen explainListText)) (parts vecNew) (mut i 0) (mut first true))
     {
@@ -783,7 +783,7 @@
       j
     }))
 
-(pub :: explainNormalize (-> String Int))
+(pub :: explainNormalize (-> String String))
 (pub fn (explainNormalize s)
   (let ((mut a 0) (mut b (strLen s)))
     {
@@ -818,7 +818,7 @@
 ; and does not look like a flag. `positionalFrom` cannot be used here
 ; because its skip heuristic pairs every `--flag` with the argument
 ; after it, and `--check` takes no value.
-(pub :: inputArgSkipping (-> String Int))
+(pub :: inputArgSkipping (-> String String))
 ; The input file: `--input`, or a bare positional.
 ;
 ; `build` accepted both from the start; `check`, `emit-llvm` and `run`
@@ -835,7 +835,7 @@
 ; check-driver assertions while fixing nothing a user can see. Accepting
 ; the flag wherever a file is expected is the weaker rule that kills the
 ; class, and it is what the usage text now says.
-(pub :: inputOperand Int)
+(pub :: inputOperand String)
 (pub fn (inputOperand)
   (let ((v (flagValue "--input" 1)))
     (if (> (strLen v) 0) v (positionalFrom operandStart))))
@@ -859,14 +859,14 @@
                             (if (== endOpts 1)
                                 true
                                 (if (strStartsWith a "-") false true))))
-                    (set f a)
+                    { (set f a) 0 }
                     0))
             (set i (+ i 1))
           }))
       f
     }))
 
-(pub :: fmtInputArg (-> Int Int))
+(pub :: fmtInputArg (-> Int String))
 (pub fn (fmtInputArg _u) (inputArgSkipping "--check"))
 
 ; argv for the program `run` spawns: its own name, then every argument

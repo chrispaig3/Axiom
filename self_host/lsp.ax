@@ -205,7 +205,7 @@
 ; direction already: it appended word 7 and nothing else, so a
 ; diagnostic carrying two helps showed one of them in the editor. All of
 ; them show now.
-(pub :: lspDiagText (-> Int Int))
+(pub :: lspDiagText (-> Int String))
 (pub fn (lspDiagText d)
   (let ((parts vecNew) (mut i 0))
     {
@@ -256,7 +256,7 @@
 ; checker runs and therefore have no span to report. `lspRange` already
 ; answers the top-of-file range for a span of 0 - that is the spanless
 ; case it exists to handle - so it is reused rather than rebuilt here.
-(pub :: lspOneDiag (-> String Int Int Int))
+(pub :: lspOneDiag (-> String String String Int))
 (pub fn (lspOneDiag src code msg)
   (jsonArrPush jsonArr
     (jsonObjPut
@@ -289,7 +289,7 @@
           true
           (lspSeenFrom seen name (+ i 1)))))
 
-(pub :: lspPreflight (-> Int Int Int Int Int))
+(pub :: lspPreflight (-> Int Int Int Int String))
 (pub fn (lspPreflight decls tcode entryDir seen)
   (let ((mut i 0) (mut missing ""))
     {
@@ -304,7 +304,7 @@
                         (vecPush seen name)
                         (let ((src (readModuleSrc name tcode entryDir)))
                           (if (== src 0)
-                              (set missing name)
+                              { (set missing name) 0 }
                               ; The module reads. Its own imports are
                               ; the same question one level down; a
                               ; module that does not parse is not a
@@ -313,9 +313,9 @@
                               (let ((pr (parseModuleWith (lex src) (scanAxtags src))))
                                 (if (== (memGetWord pr 0) 0)
                                     0
-                                    (set missing
-                                         (lspPreflight (memGetWord pr 1)
-                                                       tcode entryDir seen))))))
+                                    { (set missing
+                                           (lspPreflight (memGetWord pr 1)
+                                                         tcode entryDir seen)) 0 }))))
                       }))
                 0)
             (set i (+ i 1))
@@ -365,7 +365,7 @@
                 (let ((bares vecNew)
                       (fulls vecNew)
                       (units (let ((v vecNew))
-                               { (vecPush v (cast Int (CUnit2 path src 0))) v })))
+                               { (vecPush v (cast Int (CUnit2 path src (cast String 0)))) v })))
                   (let ((allDecls (resolveImports decls bares fulls tcode entryDir units)))
                     ; Same order as `compileFile`: expansion, then the
                     ; checker. An editor that reported a different set
@@ -474,7 +474,7 @@
 ; interpret degrades to "no import directory" rather than to a refusal.
 ; ------------------------------------------------------------------
 
-(pub :: lspUriToPath (-> String Int))
+(pub :: lspUriToPath (-> String String))
 (pub fn (lspUriToPath uri)
   (let ((body (if (strStartsWith uri "file://")
                   (strSlice uri 7 (- (strLen uri) 7))
@@ -528,14 +528,14 @@
 
 ; The ONLY writer of the pair. Both vecs are appended together or
 ; neither is, so their indices cannot drift apart.
-(pub :: docPut (-> Int Int String Int Int))
+(pub :: docPut (-> Int Int String String Int))
 (pub fn (docPut uris texts uri text)
   (let ((i (docFind uris uri)))
     (if (< i 0)
         { (vecPush uris uri) (vecPush texts text) (vecLen uris) }
         { (vecSet texts i text) (vecLen uris) })))
 
-(pub :: docText (-> Int Int String Int))
+(pub :: docText (-> Int Int String String))
 (pub fn (docText uris texts uri)
   (let ((i (docFind uris uri)))
     (if (< i 0) "" (vecGet texts i))))
@@ -671,7 +671,7 @@
                                    "id" id)
                        "result" result)))
 
-(pub :: lspError (-> Int Int Int Int))
+(pub :: lspError (-> Int Int String Int))
 ;@axiom:effect(io)
 (pub fn (lspError id code msg)
   (lspSend (jsonObjPut (jsonObjPut (jsonObjPut jsonObj "jsonrpc" (jsonStr "2.0"))
@@ -680,14 +680,14 @@
                        (jsonObjPut (jsonObjPut jsonObj "code" (jsonNum code))
                                    "message" (jsonStr msg)))))
 
-(pub :: lspNotify (-> Int Int Int))
+(pub :: lspNotify (-> String Int Int))
 ;@axiom:effect(io)
 (pub fn (lspNotify method params)
   (lspSend (jsonObjPut (jsonObjPut (jsonObjPut jsonObj "jsonrpc" (jsonStr "2.0"))
                                    "method" (jsonStr method))
                        "params" params)))
 
-(pub :: lspPublish (-> Int Int Int))
+(pub :: lspPublish (-> String Int Int))
 ;@axiom:effect(io)
 (pub fn (lspPublish uri diags)
   (lspNotify "textDocument/publishDiagnostics"
@@ -722,14 +722,14 @@
   (lspPublish uri (lspCheckDoc (lspUriToPath uri) (docText uris texts uri))))
 
 ; The URI a `textDocument`-shaped params object names.
-(pub :: lspParamsUri (-> Int Int))
+(pub :: lspParamsUri (-> Int String))
 (pub fn (lspParamsUri params)
   (jsonGetStr (jsonGet params "textDocument") "uri"))
 
 ; The whole new text of a full-sync `didChange`: the LAST content
 ; change wins, because a full-sync server receives exactly one and a
 ; client that sent several would mean the last to be the final state.
-(pub :: lspChangeText (-> Int Int))
+(pub :: lspChangeText (-> Int String))
 (pub fn (lspChangeText params)
   (let ((cs (jsonGet params "contentChanges")))
     (if (== (jsonArrLen cs) 0)

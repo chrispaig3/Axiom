@@ -104,7 +104,7 @@
       {
         ; Every element is copied, because a Str produced by slicing
         ; shares its bytes with a larger string and stops at no NUL.
-        (memSetWord v (+ i 1) (strCStr (strDup (cast Int (vecGet args i)))))
+        (memSetWord v (+ i 1) (strCStr (strDup (vecGet args i))))
         (fillArgv v args (+ i 1) n)
       }))
 
@@ -131,7 +131,7 @@
 ; `R_X86_64_32S against .bss`. It is masked at -O2, where the x86
 ; backend picks PC-relative addressing anyway, and cannot be reproduced
 ; on macOS at all.
-(pub :: llcRelocArg Int)
+(pub :: llcRelocArg String)
 (pub fn (llcRelocArg) "-relocation-model=pic")
 
 ; Optimise `llPath` into `<base>.opt.ll`, answering the path llc should
@@ -143,7 +143,7 @@
 ; is not always installed - and it has to be survivable, because
 ; without its tail-call pass a stage2 compiling its own source
 ; overflows its stack.
-(pub :: runOpt (-> Int Int Int Int))
+(pub :: runOpt (-> String Int String String))
 ;@axiom:effect(io)
 (pub fn (runOpt llPath optLevel outPath)
   (if (<= optLevel 0)
@@ -185,7 +185,7 @@
 ; Spanless, like AX4001 and AX5001: there is no source position for "the
 ; assembler exited 1". Returns `exitToolFailed` so the call sites read
 ; the way they did.
-(pub :: toolFailDiag (-> Int Int Int))
+(pub :: toolFailDiag (-> String String Int))
 ;@axiom:effect(io)
 (pub fn (toolFailDiag msg help)
   (let ((d (mkDiag SEV_ERROR "AX4003" "toolchain-failure" 0 msg 0 0 help))
@@ -202,7 +202,7 @@
 
 ; Assemble `llPath` to `objPath`, then link it to `outPath`.
 ; Answers 0, or `exitToolFailed`.
-(pub :: assembleAndLink (-> Int Int Int Int Int))
+(pub :: assembleAndLink (-> String String String Int Int))
 ;@axiom:effect(io)
 (pub fn (assembleAndLink llPath objPath outPath optLevel)
   (let ((lvl (if (> optLevel 3) 3 (if (< optLevel 0) 0 optLevel))))
@@ -276,7 +276,7 @@
 ; `Fmt` is not imported here: the compiler's own modules keep their
 ; import surface small, and the only numbers this module renders are 0
 ; through 3.
-(pub :: fmtIntStr (-> Int Int))
+(pub :: fmtIntStr (-> Int String))
 (pub fn (fmtIntStr n)
   (if (== n 0) "0"
   (if (== n 1) "1"
@@ -328,7 +328,7 @@
 ; the part a reader cannot guess, and check-driver.sh asserts that every
 ; flag the table accepts appears in `axiom --help`, so the two cannot
 ; drift apart silently.
-(pub :: helpForCommand (-> String Int))
+(pub :: helpForCommand (-> String String))
 (pub fn (helpForCommand c)
   (if (strEq c "build")
       "axiom build - compile a source file to an executable\n\nUSAGE:\n  axiom build [--input] <FILE> [--output <PATH>] [--opt <0-3>] [--emit-llvm]\n\n  --input <PATH>   the source file; a bare path works too\n  --output <PATH>  where to write the executable (default `output`)\n  -o <PATH>        short for --output\n  --opt <0-3>      optimisation level (default 1)\n  --emit-llvm      keep the generated .ll beside the executable\n"
@@ -353,11 +353,11 @@
       usageText)))))))))))
 
 ; The value of `--name` / `--name=value`, or "" when absent.
-(pub :: flagValue (-> String Int Int))
+(pub :: flagValue (-> String Int String))
 (pub fn (flagValue name from)
   (flagValueAt name from (sysArgc)))
 
-(pub :: flagValueAt (-> String Int Int Int))
+(pub :: flagValueAt (-> String Int Int String))
 (pub fn (flagValueAt name i n)
   (if (>= i n)
       ""
@@ -543,7 +543,7 @@
         (- (strByte v 0) 48)
         1)))
 
-(pub :: targetArg (-> Int Int))
+(pub :: targetArg (-> String String))
 (pub fn (targetArg fallback)
   (let ((v (flagValue "--target" 1)))
     (if (== (strLen v) 0) fallback v)))
@@ -657,14 +657,14 @@
 ; A wrong suggestion costs nothing here: the caller only asks after the
 ; operand has already failed to open, so there is no reading of the
 ; argument under which the invocation was going to work.
-(pub :: nearestSubcommand (-> String Int))
+(pub :: nearestSubcommand (-> String String))
 (pub fn (nearestSubcommand w) (nearestSubcommandFrom w subcommandNames 0))
 
-(pub :: nearestSubcommandFrom (-> String Int Int Int))
+(pub :: nearestSubcommandFrom (-> String Int Int String))
 (pub fn (nearestSubcommandFrom w v i)
   (if (>= i (vecLen v))
       ""
-      (let ((c (cast Int (vecGet v i))))
+      (let ((c (vecGet v i)))
         (if (<= (editDistance w c) 2)
             c
             (nearestSubcommandFrom w v (+ i 1))))))

@@ -186,7 +186,7 @@
 (pub :: expOut    (-> Int Int)) (pub fn (expOut    env) (memGetWord env 1))
 (pub :: expDepth  (-> Int Int)) (pub fn (expDepth  env) (memGetWord env 3))
 (pub :: expDecls  (-> Int Int)) (pub fn (expDecls  env) (memGetWord env 4))
-(pub :: expMacMod (-> Int Int)) (pub fn (expMacMod env) (memGetWord env 5))
+(pub :: expMacMod (-> Int a)) (pub fn (expMacMod env) (memGetWord env 5))
 
 ; The output limits, and why these numbers.
 ;
@@ -211,7 +211,7 @@
 
 ; Report once, then stay reported: every node after the first refusal
 ; would otherwise emit its own copy.
-(pub :: expBlow (-> Int Int Int Int))
+(pub :: expBlow (-> Int Int String Int))
 (pub fn (expBlow env sp msg)
   {
     (if (== (memGetWord env 8) 0)
@@ -261,7 +261,7 @@
 (pub :: expQualify (-> Int String String))
 (pub fn (expQualify env name)
   (let ((m (expMacMod env)))
-    (if (== m 0)
+    (if (== (cast Int m) 0)
         name
         (let ((q (strConcat (strConcat m "$") name)))
           (if (== (expDeclNamed (expDecls env) q 0) 1) q name)))))
@@ -277,7 +277,7 @@
             (expDeclNamed decls name (+ i 1))))))
 
 ; A fresh identifier. See the header for why `.` is the marker.
-(pub :: expFresh (-> Int String Int))
+(pub :: expFresh (-> Int String String))
 (pub fn (expFresh env base)
   (let ((n (memGetWord env 2)))
     {
@@ -288,7 +288,7 @@
 ; Decimal rendering. `codegen.ax` has one of these and `Fmt` has
 ; another, but the compiler's own modules do not import `Fmt` and this
 ; pass must not depend on codegen.
-(pub :: expFmtInt (-> Int Int))
+(pub :: expFmtInt (-> Int String))
 (pub fn (expFmtInt n)
   (if (< n 10)
       (let ((ch (strAlloc 1)))
@@ -355,13 +355,13 @@
 ; module on the NAME and nothing split the reference
 ; (macro-system.md MAC-LANG-12).
 ; ------------------------------------------------------------------
-(pub :: expModOf (-> String Int))
+(pub :: expModOf (-> String String))
 (pub fn (expModOf s) (expModOfFrom s (- (strLen s) 1)))
 
-(pub :: expModOfFrom (-> String Int Int))
+(pub :: expModOfFrom (-> String Int String))
 (pub fn (expModOfFrom s i)
   (if (< i 0)
-      0
+      (cast String 0)
       (if (== (strByte s i) 36)
           (strSlice s 0 i)
           (expModOfFrom s (- i 1)))))
@@ -384,19 +384,19 @@
 (pub :: expSrcSpelling (-> String String))
 (pub fn (expSrcSpelling s)
   (let ((m (expModOf s)))
-    (if (== m 0) s (strConcat (strConcat m "::") (expBareOf s)))))
+    (if (== (cast Int m) 0) s (strConcat (strConcat m "::") (expBareOf s)))))
 
 (pub :: expSameMod (-> String String Int))
 (pub fn (expSameMod a b)
-  (if (== a 0)
-      (if (== b 0) 1 0)
-      (if (== b 0) 0 (if (strEq a b) 1 0))))
+  (if (== (cast Int a) 0)
+      (if (== (cast Int b) 0) 1 0)
+      (if (== (cast Int b) 0) 0 (if (strEq a b) 1 0))))
 
 (pub :: expFindMacro (-> Int String Int))
 (pub fn (expFindMacro env name)
   (let ((site (memGetWord env 9))
         (qm (expModOf name)))
-    (if (!= qm 0)
+    (if (!= (cast Int qm) 0)
         (expFindMacroQual (expMacros env) (expBareOf name) qm site
                           (- (vecLen (expMacros env)) 1))
         (let ((mac (expFindMacroIn (expMacros env) name site
@@ -430,7 +430,7 @@
                 (&& (!= (nodeModule m) 0)
                     (&& (strEq (nodeModule m) qm)
                         (|| (== (nodeVis m) 1)
-                            (&& (!= site 0) (strEq site qm))))))
+                            (&& (!= (cast Int site) 0) (strEq site qm))))))
             m
             (expFindMacroQual ms bare qm site (- i 1))))))
 
@@ -456,7 +456,7 @@
         (if (&& (strEq (nodeA m) name)
                 (|| (== (nodeVis m) 1)
                     (|| (== (nodeModule m) 0)
-                        (&& (!= site 0) (strEq (nodeModule m) site)))))
+                        (&& (!= (cast Int site) 0) (strEq (nodeModule m) site)))))
             m
             (expFindMacroIn ms name site (- i 1))))))
 
@@ -491,19 +491,19 @@
 ; The rename stack: alternating old, new. Innermost wins, so the scan
 ; runs backward in pairs.
 ; ------------------------------------------------------------------
-(pub :: expRenLookup (-> Int String Int))
+(pub :: expRenLookup (-> Int String String))
 (pub fn (expRenLookup ren name)
   (expRenLookupFrom ren name (- (vecLen ren) 2)))
 
-(pub :: expRenLookupFrom (-> Int String Int Int))
+(pub :: expRenLookupFrom (-> Int String Int String))
 (pub fn (expRenLookupFrom ren name i)
   (if (< i 0)
-      0
+      (cast String 0)
       (if (strEq (vecGet ren i) name)
           (vecGet ren (+ i 1))
           (expRenLookupFrom ren name (- i 2)))))
 
-(pub :: expRenPush (-> Int Int Int Int))
+(pub :: expRenPush (-> Int String String Int))
 (pub fn (expRenPush ren old new)
   { (vecPush ren old) (vecPush ren new) ren })
 
@@ -656,15 +656,15 @@
 (pub :: expForStack (-> Int Int))
 (pub fn (expForStack env) (memGetWord env 13))
 
-(pub :: expForLookup (-> Int String Int))
+(pub :: expForLookup (-> Int String String))
 (pub fn (expForLookup env name)
   (let ((fs (expForStack env)))
     (expForLookupFrom fs name (- (vecLen fs) 1))))
 
-(pub :: expForLookupFrom (-> Int String Int Int))
+(pub :: expForLookupFrom (-> Int String Int String))
 (pub fn (expForLookupFrom fs name i)
   (if (< i 0)
-      0
+      (cast String 0)
       (let ((b (vecGet fs i)))
         (if (strEq (memGetWord b 0) name)
             (memGetWord b 1)
@@ -712,7 +712,7 @@
 ; The family's one diagnostic. `m` is the module whose file the span
 ; indexes (0 = the entry file), resolved to a unit exactly as the
 ; other expander diagnostics resolve theirs.
-(pub :: expQueryErr (-> Int Int Int Int Int Int))
+(pub :: expQueryErr (-> Int Int String String a Int))
 (pub fn (expQueryErr env sp msg help m)
   {
     (expEmit env (expMarkUnit env
@@ -727,10 +727,10 @@
 ; (innermost wins), then a macro parameter - whose argument must be a
 ; bare identifier, the same rule a name position enforces - then the
 ; identifier itself.
-(pub :: expResolveQueryName (-> Int String Int Int Int Int))
+(pub :: expResolveQueryName (-> Int String Int Int Int String))
 (pub fn (expResolveQueryName env s params args isp)
   (let ((fe (expForLookup env s)))
-    (if (!= fe 0)
+    (if (!= (cast Int fe) 0)
         fe
         (let ((idx (expParamIndex params s)))
           (if (< idx 0)
@@ -738,11 +738,12 @@
               (let ((a (vecGet args idx)))
                 (if (== (nodeTag a) TAG_E_VAR)
                     (nodeA a)
-                    (expQueryErr env isp
-                      (strConcat (strConcat "a syntax/* query's argument must be a bare identifier; `" s)
-                                 "` was given an expression")
-                      "pass a plain name in this argument position"
-                      (expMacMod env)))))))))
+                    (cast String
+                      (expQueryErr env isp
+                        (strConcat (strConcat "a syntax/* query's argument must be a bare identifier; `" s)
+                                   "` was given an expression")
+                        "pass a plain name in this argument position"
+                        (expMacMod env))))))))))
 
 ; `(syntax/fields S)`: the field names of struct S, in declaration
 ; order - any visible module's, the same rule as expConstructorsOf.
@@ -944,14 +945,14 @@
                 (&& (== (vecLen qargs) 1)
                     (== (nodeTag (vecGet qargs 0)) TAG_E_VAR)))
             (let ((t (expResolveQueryName env (nodeA (vecGet qargs 0)) params args isp)))
-              (if (== t 0)
+              (if (== (cast Int t) 0)
                   0
                   (expConstructorsOf env t isp)))
         (if (&& (strEq (nodeA head) "syntax/fields")
                 (&& (== (vecLen qargs) 1)
                     (== (nodeTag (vecGet qargs 0)) TAG_E_VAR)))
             (let ((s (expResolveQueryName env (nodeA (vecGet qargs 0)) params args isp)))
-              (if (== s 0)
+              (if (== (cast Int s) 0)
                   0
                   (expFieldsOf env s isp)))
         (if (&& (strEq (nodeA head) "syntax/binders")
@@ -959,10 +960,10 @@
                     (&& (== (nodeTag (vecGet qargs 0)) TAG_E_VAR)
                         (== (nodeTag (vecGet qargs 1)) TAG_E_VAR))))
             (let ((c (expResolveQueryName env (nodeA (vecGet qargs 0)) params args isp)))
-              (if (== c 0)
+              (if (== (cast Int c) 0)
                   0
                   (let ((p (expResolveQueryName env (nodeA (vecGet qargs 1)) params args isp)))
-                    (if (== p 0)
+                    (if (== (cast Int p) 0)
                         0
                         (expBindersOf env c p isp)))))
             (expQueryErr env (if (!= (nodeSpan seq) 0) (nodeSpan seq) isp)
@@ -992,13 +993,13 @@
       (let ((tag (nodeTag p)))
         (if (== tag TAG_P_CON0)
             (let ((e (expForLookup env (nodeA p))))
-              (if (== e 0)
+              (if (== (cast Int e) 0)
                   p
                   (mkNodeAt TAG_P_CON0 e 0 0 isp)))
         (if (== tag TAG_P_CONNAMED)
             (let ((e (expForLookup env (nodeA p))))
               (mkNodeAt TAG_P_CONNAMED
-                        (if (== e 0) (nodeA p) e)
+                        (if (== (cast Int e) 0) (nodeA p) e)
                         (nodeB p)
                         (expSubstPatForVec (nodeC p) params args env isp) isp))
         (if (== tag TAG_E_APP)
@@ -1011,7 +1012,7 @@
         (pargs (expSpineArgs p vecNew)))
     (let ((newHead (if (== (nodeTag head) TAG_E_VAR)
                        (let ((e (expForLookup env (nodeA head))))
-                         (if (== e 0)
+                         (if (== (cast Int e) 0)
                              head
                              (mkEVarAt e isp)))
                        head))
@@ -1300,7 +1301,7 @@
                                           params args ren env isp out
                                           (vecGet sr 0) (vecGet sr 1) 0))))))))
 
-(pub :: expSpliceForArgElems (-> Int Int Int Int Int Int Int Int Int Int Int Int))
+(pub :: expSpliceForArgElems (-> String Int Int Int Int Int Int Int String Int Int Int))
 (pub fn (expSpliceForArgElems var tpl params args ren env isp out key names j)
   (if (>= j (vecLen names))
       0
@@ -1389,10 +1390,10 @@
         ; --- itself, in that order ---------------------------------
         (if (== tag TAG_E_VAR)
             (let ((r (expRenLookup ren (nodeA tpl))))
-              (if (!= r 0)
+              (if (!= (cast Int r) 0)
                   (mkEVarAt r isp)
                   (let ((fe (expForLookup env (nodeA tpl))))
-                    (if (!= fe 0)
+                    (if (!= (cast Int fe) 0)
                         ; The element itself may be a renamed binder:
                         ; a fold variable over `(syntax/binders C x)`
                         ; resolves to `x#i`, whose pattern mention the
@@ -1400,7 +1401,7 @@
                         ; table is consulted for the ELEMENT so the
                         ; body reference lands on the renamed binder.
                         (let ((r2 (expRenLookup ren fe)))
-                          (mkEVarAt (if (!= r2 0) r2 fe) isp))
+                          (mkEVarAt (if (!= (cast Int r2) 0) r2 fe) isp))
                         (let ((idx (expParamIndex params (nodeA tpl))))
                           (if (< idx 0)
                               ; A `syntax/`-spelled name that survived
@@ -1494,13 +1495,13 @@
             (mkNodeAt TAG_E_FIELD
                       (substTpl (nodeA tpl) params args ren env isp)
                       (let ((fe (expForLookup env (nodeB tpl))))
-                        (if (== fe 0) (nodeB tpl) fe))
+                        (if (== (cast Int fe) 0) (nodeB tpl) fe))
                       0 isp)
         (if (== tag TAG_E_SETF)
             (mkNodeAt TAG_E_SETF
                       (substTpl (nodeA tpl) params args ren env isp)
                       (let ((fe (expForLookup env (nodeB tpl))))
-                        (if (== fe 0) (nodeB tpl) fe))
+                        (if (== (cast Int fe) 0) (nodeB tpl) fe))
                       (substTpl (nodeC tpl) params args ren env isp) isp)
         (if (== tag TAG_E_STRUCTCON)
             (mkNodeAt TAG_E_STRUCTCON (nodeA tpl)
@@ -1565,10 +1566,10 @@
 ; parser would not have produced it, but a PARAMETER standing in that
 ; position can be handed any expression at all, so the case is real
 ; and is refused rather than dropped.
-(pub :: substName (-> String Int Int Int Int Int Int))
+(pub :: substName (-> String Int Int Int Int Int String))
 (pub fn (substName name params args ren env isp)
   (let ((r (expRenLookup ren name)))
-    (if (!= r 0)
+    (if (!= (cast Int r) 0)
         r
         (let ((idx (expParamIndex params name)))
           (if (< idx 0)
@@ -1654,7 +1655,7 @@
         (expSpliceForElems farm params args ren env isp acc
                            (vecGet sr 0) (vecGet sr 1) 0))))
 
-(pub :: expSpliceForElems (-> Int Int Int Int Int Int Int Int Int Int Int))
+(pub :: expSpliceForElems (-> Int Int Int Int Int Int Int String Int Int Int))
 (pub fn (expSpliceForElems farm params args ren env isp acc key names j)
   (if (>= j (vecLen names))
       0
@@ -2086,7 +2087,7 @@
               })
           })))))
 
-(pub :: expArityDiag (-> Int Int Int Int Int Int))
+(pub :: expArityDiag (-> Int String Int Int Int Int))
 (pub fn (expArityDiag env name want got isp)
   (expEmit env
     (mkDiagNote SEV_ERROR "AX3018" "macro-arity"
@@ -2193,7 +2194,7 @@
 ; answering the diagnostic so the call wraps a `mkDiagNote` in place.
 ; Module 0 (the entry file) resolves to unit 0, so stamping is safe
 ; on every path.
-(pub :: expMarkUnit (-> Int Int Int Int))
+(pub :: expMarkUnit (-> Int Int a Int))
 (pub fn (expMarkUnit env dg m)
   { (diagSetUnit dg (expUnitOfMod (memGetWord env 12) m)) dg })
 
@@ -2429,7 +2430,7 @@
                 (expandDeclRound entryDecls decls env (+ i 1) progress))
             (expandDeclRound entryDecls decls env (+ i 1) progress)))))
 
-(pub :: expDeclCallErr (-> Int Int Int Int Int Int))
+(pub :: expDeclCallErr (-> Int Int String String String Int))
 (pub fn (expDeclCallErr env d msg help note)
   {
     (expEmit env (expMarkUnit env
@@ -2540,7 +2541,7 @@
         (expBuildForElems f params args env isp acc
                           (vecGet sr 0) (vecGet sr 1) 0))))
 
-(pub :: expBuildForElems (-> Int Int Int Int Int Int Int Int Int Int))
+(pub :: expBuildForElems (-> Int Int Int Int Int Int String Int Int Int))
 (pub fn (expBuildForElems f params args env isp acc key names j)
   (if (>= j (vecLen names))
       1
@@ -2561,7 +2562,7 @@
 ; A name position: a macro parameter substitutes its argument, which
 ; MUST be a bare identifier. Answers 0 - refusal already emitted -
 ; when it is not.
-(pub :: expSubstName (-> Int Int Int Int Int Int))
+(pub :: expSubstName (-> String Int Int Int Int String))
 (pub fn (expSubstName s params args env isp)
   ; The join marker resolves each of its two names through this same
   ; function - so a side that is a parameter follows the
@@ -2569,14 +2570,14 @@
   ; the results: `eq` + `Color` is `eqColor`.
   (if (== (expIsJoinMarker s) 1)
       (let ((ra (expSubstName (expMarkerPart s 0) params args env isp)))
-        (if (== ra 0)
-            0
+        (if (== (cast Int ra) 0)
+            (cast String 0)
             (let ((rb (expSubstName (expMarkerPart s 1) params args env isp)))
-              (if (== rb 0)
-                  0
+              (if (== (cast Int rb) 0)
+                  (cast String 0)
                   (expJoinName ra rb)))))
   (let ((fe (expForLookup env s)))
-    (if (!= fe 0)
+    (if (!= (cast Int fe) 0)
         fe
   (let ((idx (expParamIndex params s)))
     (if (< idx 0)
@@ -2592,7 +2593,7 @@
                   0 0
                   "pass a plain name in this argument position"
                   "the parameter stands in a NAME position of the template - a declaration head or a parameter list - and only an identifier can be a name"))
-                0
+                (cast String 0)
               }))))))))
 
 (pub :: expSubstNames (-> Int Int Int Int Int Int))
@@ -2604,7 +2605,7 @@
   (if (>= i (vecLen ss))
       acc
       (let ((n (expSubstName (vecGet ss i) params args env isp)))
-        (if (== n 0)
+        (if (== (cast Int n) 0)
             0
             {
               (vecPush acc n)
@@ -2622,14 +2623,14 @@
       (let ((tag (nodeTag t)))
         (if (== tag TAG_T_CON)
             (let ((n (expSubstName (nodeA t) params args env isp)))
-              (if (== n 0)
+              (if (== (cast Int n) 0)
                   (mkNode TAG_T_ERR 0 0 0)
                   (if (== (lexStartsLower n) 1)
                       (mkTVar n)
                       (mkTCon n (expSubstTyVec (nodeB t) params args env isp)))))
         (if (== tag TAG_T_VAR)
             (let ((n (expSubstName (nodeA t) params args env isp)))
-              (if (== n 0)
+              (if (== (cast Int n) 0)
                   (mkNode TAG_T_ERR 0 0 0)
                   (if (== (lexStartsLower n) 1)
                       (mkTVar n)
@@ -2702,7 +2703,7 @@
 ; definition against one reports spanless.
 ; Body nodes still carry the invocation span (MAC-EXP-14) - this is
 ; only the declaration node itself.
-(pub :: expNameSpan (-> Int Int Int Int Int))
+(pub :: expNameSpan (-> String Int Int Int Int))
 (pub fn (expNameSpan s params args isp)
   (let ((idx (expParamIndex params s)))
     (if (< idx 0)
@@ -2724,7 +2725,7 @@
     (if (== tag TAG_D_FN)
         (let ((nsp (expNameSpan (nodeA t) params args isp))
               (nm (expSubstName (nodeA t) params args env isp)))
-          (if (== nm 0)
+          (if (== (cast Int nm) 0)
               0
               (let ((ps (expSubstNames (nodeB t) params args env isp)))
                 (if (== ps 0)
@@ -2739,7 +2740,7 @@
     (if (== tag TAG_D_SIG)
         (let ((nsp (expNameSpan (nodeA t) params args isp))
               (nm (expSubstName (nodeA t) params args env isp)))
-          (if (== nm 0)
+          (if (== (cast Int nm) 0)
               0
               (let ((ty (expSubstTy (memGetWord t 6) params args env isp)))
                 (let ((g (mkNodeAt TAG_D_SIG nm
@@ -2763,10 +2764,10 @@
         ; derived instance BE an instance for a containing type's
         ; derive to dispatch to (MAC-INT-4, macro-system.md §10.2).
         (let ((tn (expSubstName (nodeA t) params args env isp)))
-          (if (== tn 0)
+          (if (== (cast Int tn) 0)
               0
               (let ((ty (expSubstName (nodeC t) params args env isp)))
-                (if (== ty 0)
+                (if (== (cast Int ty) 0)
                     0
                     (let ((ms (expBuildImplMethods (nodeB t) params args env isp)))
                       (if (== ms 0)
@@ -2778,7 +2779,7 @@
                             })))))))
     (if (== tag TAG_D_MACROCALL)
         (let ((hd (expSubstName (nodeA t) params args env isp)))
-          (if (== hd 0)
+          (if (== (cast Int hd) 0)
               0
               (let ((as (expSubstArgs (nodeB t) params args env isp)))
                 (mkNodeAt TAG_D_MACROCALL hd as 0 isp))))
@@ -2807,7 +2808,7 @@
       acc
       (let ((m (vecGet ms i)))
         (let ((nm (expSubstName (nodeA m) params args env isp)))
-          (if (== nm 0)
+          (if (== (cast Int nm) 0)
               0
               (let ((body (substTpl (nodeB m) params args vecNew env isp)))
                 {
@@ -2899,13 +2900,13 @@
                      (defSpan : Int) (defMod : Int))
 
 ; Module identity where 0 and "" both mean the entry file.
-(pub :: expModEq (-> Int Int Int))
+(pub :: expModEq (-> a b Int))
 (pub fn (expModEq a b)
-  (let ((an (if (== a 0) 1 (if (== (strLen a) 0) 1 0)))
-        (bn (if (== b 0) 1 (if (== (strLen b) 0) 1 0))))
+  (let ((an (if (== (cast Int a) 0) 1 (if (== (strLen (cast String a)) 0) 1 0)))
+        (bn (if (== (cast Int b) 0) 1 (if (== (strLen (cast String b)) 0) 1 0))))
     (if (== an 1)
         bn
-        (if (== bn 1) 0 (if (strEq a b) 1 0)))))
+        (if (== bn 1) 0 (if (strEq (cast String a) (cast String b)) 1 0)))))
 
 (pub :: expUnitMod (-> Int Int Int))
 (pub fn (expUnitMod units idx)
@@ -2913,13 +2914,13 @@
       0
       (memGetWord (vecGet units idx) 2)))
 
-(pub :: expUnitOfMod (-> Int Int Int))
+(pub :: expUnitOfMod (-> Int a Int))
 (pub fn (expUnitOfMod units m)
   (if (== units 0)
       0
       (expUnitOfModFrom units m 0)))
 
-(pub :: expUnitOfModFrom (-> Int Int Int Int))
+(pub :: expUnitOfModFrom (-> Int a Int Int))
 (pub fn (expUnitOfModFrom units m i)
   (if (>= i (vecLen units))
       0
@@ -3050,7 +3051,7 @@
             1
             (implExistsFor decls tname ty (+ i 1))))))
 
-(pub :: implDiag (-> Int Int Int Int Int Int))
+(pub :: implDiag (-> Int Int String String String Int))
 (pub fn (implDiag out sp msg help note)
   {
     (vecPush out

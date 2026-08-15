@@ -35,7 +35,7 @@
 ; would make every bare `fmtInt` in the program ambiguous. Reached
 ; only by the effect-params index fallback, which no probed checker
 ; state can construct.
-(pub :: symsDigits (-> Int Int))
+(pub :: symsDigits (-> Int String))
 (pub fn (symsDigits n)
   (if (< n 10)
       (let ((s (strAlloc 1)))
@@ -70,7 +70,7 @@
 ; hash with the top bit set needs its nibbles extracted by shift and
 ; mask instead: an arithmetic shift sign-fills only ABOVE bit 3, and
 ; `& 15` keeps bits 0-3, so every nibble comes out true.
-(pub :: symHex16 (-> Int Int))
+(pub :: symHex16 (-> Int String))
 (pub fn (symHex16 h)
   (let ((out (strAlloc 16)) (mut k 0))
     {
@@ -83,7 +83,7 @@
       out
     }))
 
-(pub :: symNid (-> String String Int))
+(pub :: symNid (-> String String String))
 (pub fn (symNid kindKey name)
   (symHex16 (fnv1a64 (strConcat kindKey name))))
 
@@ -100,7 +100,7 @@
 ;   TList         [a]
 ;   TPtr          *a  or  *mut a
 ; ------------------------------------------------------------------
-(pub :: symTy (-> Int Int))
+(pub :: symTy (-> Int String))
 (pub fn (symTy t)
   (if (== t 0)
       "{unknown}"
@@ -131,7 +131,7 @@
                     0
                     (while (< i (vecLen xs))
                       {
-                        (if (> i 0) (set s (strConcat s ", ")) 0)
+                        (if (> i 0) (set s (strConcat s ", ")) "")
                         (set s (strConcat s (symTy (vecGet xs i))))
                         (set i (+ i 1))
                       }))
@@ -151,7 +151,7 @@
 ; has no `@`). Metas arrive as a Vec of ready `key=value` strings and
 ; print in order, each as ` #meta`.
 ; ------------------------------------------------------------------
-(pub :: symLine (-> Int Int Int String String Int Int))
+(pub :: symLine (-> String String String String String Int String))
 (pub fn (symLine kind name loc ty nid metas)
   (let ((mut s kind))
     {
@@ -160,7 +160,7 @@
       (set s (strConcat s (strConcat " \"" (strConcat ty "\""))))
       (if (> (strLen nid) 0)
           (set s (strConcat s (strConcat " @" nid)))
-          0)
+          "")
       (let ((mut i 0))
         (if (== metas 0)
             0
@@ -196,7 +196,7 @@
     }))
 
 ; Insert-or-overwrite (stage0's `insert`).
-(pub :: saPut (-> Int Int String Int Int))
+(pub :: saPut (-> Int Int String a Int))
 (pub fn (saPut names vals key val)
   (let ((i (saIdx names key)))
     (if (< i 0)
@@ -269,13 +269,13 @@
       v
     }))
 
-(pub :: saJoinComma (-> Int Int))
+(pub :: saJoinComma (-> Int String))
 (pub fn (saJoinComma v)
   (let ((mut s "") (mut i 0))
     {
       (while (< i (vecLen v))
         {
-          (if (> i 0) (set s (strConcat s ",")) 0)
+          (if (> i 0) (set s (strConcat s ",")) "")
           (set s (strConcat s (vecGet v i)))
           (set i (+ i 1))
         })
@@ -285,7 +285,7 @@
 ; An AXTAG's content as its AXSYM meta: `effect(io)` is `effect=io`,
 ; a bare or empty-parens tag is its key alone - the value runs from
 ; the first `(` to the LAST `)`, exactly stage0's parse.
-(pub :: saAxMeta (-> String Int))
+(pub :: saAxMeta (-> String String))
 (pub fn (saAxMeta content)
   (let ((n (strLen content)) (mut paren (- 0 1)) (mut i 0))
     {
@@ -311,16 +311,16 @@
 
 ; The unit index a module's declarations render against: unit 0 is
 ; the entry file; an import's unit carries its module name.
-(pub :: saUnitOf (-> Int String Int))
+(pub :: saUnitOf (-> Int a Int))
 (pub fn (saUnitOf units module)
-  (if (== module 0)
+  (if (== (cast Int module) 0)
       0
       (let ((mut i 1) (mut hit 0))
         {
           (while (< i (vecLen units))
             {
               (if (&& (== hit 0)
-                      (strEq (memGetWord (vecGet units i) 2) module))
+                      (strEq (memGetWord (vecGet units i) 2) (cast String module)))
                   (set hit i)
                   0)
               (set i (+ i 1))
@@ -442,7 +442,7 @@
       0
     })))
 
-(pub :: smNid (-> Int String Int Int))
+(pub :: smNid (-> Int String String Int))
 (pub fn (smNid sm name variant)
   (saPut (memGetWord sm 12) (memGetWord sm 13) name variant))
 
@@ -488,7 +488,7 @@
 
 ; The nid for `key`, or "" for a name with no recorded declaration
 ; (builtins, effect operations).
-(pub :: smNidFor (-> Int String Int))
+(pub :: smNidFor (-> Int String String))
 (pub fn (smNidFor sm key)
   (let ((i (saIdx (memGetWord sm 12) key)))
     (if (< i 0)
@@ -530,7 +530,7 @@
 ; AXSYM writes `-`. Columns are padded in CHARACTERS, so a non-ASCII
 ; name pads to the width a reader sees.
 ; ------------------------------------------------------------------
-(pub :: symKindWord (-> String Int))
+(pub :: symKindWord (-> String String))
 (pub fn (symKindWord k)
   (if (strEq k "F") "Fn"
   (if (strEq k "D") "Data"
@@ -553,7 +553,7 @@
       c
     }))
 
-(pub :: symPad (-> String Int Int))
+(pub :: symPad (-> String Int String))
 (pub fn (symPad s w)
   (let ((have (symCharLen s)))
     (if (>= have w)
@@ -627,7 +627,7 @@
       (catStrs parts)
     }))
 
-(pub :: symbolsRender (-> Int Int Int))
+(pub :: symbolsRender (-> Int Int String))
 (pub fn (symbolsRender tc builtins)
   (let ((units (memGetWord tc 13))
         (decls (tcAllDecls tc))

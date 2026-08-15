@@ -904,13 +904,13 @@
 ; EFFECT-TRANSPARENT in: it performs whatever a value passed there
 ; performs. `apply` is `{effects: [], eparams: [0]}` - exactly as pure
 ; as its argument.
-(pub struct FnEnt (name : Int) (ty : Int) (paramCount : Int)
+(pub struct FnEnt (name : String) (ty : Int) (paramCount : Int)
                   (isBuiltin : Int) (isEffectOp : Int)
                   (effects : Int) (eparams : Int))
 ; `fieldNames` is the constructor's declared field names when it was
 ; written as a struct variant, and 0 otherwise. A NAMED pattern is
 ; reordered against it.
-(pub struct CtorEnt (name : Int) (fieldTys : Int) (resTy : Int) (ctorTy : Int) (fieldNames : Int))
+(pub struct CtorEnt (name : String) (fieldTys : Int) (resTy : Int) (ctorTy : Int) (fieldNames : Int))
 ; `module` is the module that DECLARED this type, or 0 for the entry
 ; file and for builtins. It exists so a QUALIFIED reference can be
 ; checked rather than merely stripped: `mangleDecl` rewrites `fn` and
@@ -925,7 +925,7 @@
 ; and dropped - see docs/self-hosting.md 22 for what this slice covers.
 (pub struct TraitEnt (name : Int) (tyvar : Int) (methods : Int))
 
-(pub struct DataEnt (name : Int) (ctors : Int) (module : Int))
+(pub struct DataEnt (name : String) (ctors : Int) (module : Int))
 (pub struct StructEnt (name : Int) (fields : Int) (module : Int))
 (pub struct TC (fns : Int) (datas : Int) (structs : Int) (scope : Int)
                (out : Int) (counter : Int) (frameBase : Int)
@@ -1009,7 +1009,7 @@
       mkIntTy
       (mkTArr mkIntTy (mkIntArrow (- arity 1)))))
 
-(pub :: regFn (-> Int Int Int Int))
+(pub :: regFn (-> Int String Int Int))
 (pub fn (regFn fns name ty)
   (vecPush fns (cast Int (FnEnt name ty (- 0 1) 1 0 vecNew vecNew))))
 
@@ -1260,7 +1260,7 @@
 ; arity -1 instead. One site discarding a type the parser already
 ; kept, which is the same sentence `docs/self-hosting.md` 29 writes
 ; about `parseSigDecl`.
-(pub :: tcCollectEffectOps (-> Int Int Int Int String Int))
+(pub :: tcCollectEffectOps (-> Int Int Int String a Int))
 (pub fn (tcCollectEffectOps tc fields i effName modName)
   (if (== fields 0)
       0
@@ -1269,14 +1269,14 @@
           (let ((f (vecGet fields i)))
             {
               (tcAddEffectOp tc (nodeA f) (nodeB f) effName)
-              (if (== modName 0)
+              (if (== (cast Int modName) 0)
                   0
                   ; `strConcat` twice rather than `cat3`, which lives in
                   ; codegen.ax and is not imported here - stage0's flat
                   ; namespace resolves it across the merged declaration list
                   ; and stage1 refuses it, which is the open B4 item and the
                   ; stricter of the two answers.
-                  (tcAddEffectOp tc (strConcat (strConcat modName "$")
+                  (tcAddEffectOp tc (strConcat (strConcat (cast String modName) "$")
                                                (nodeA f))
                                  (nodeB f) effName))
               (tcCollectEffectOps tc fields (+ i 1) effName modName)
@@ -1291,7 +1291,7 @@
 ; A type the parser could not read leaves 0 in the field, and that
 ; keeps the old under-report: silent wildcard, arity -1, calls check
 ; quietly. Under-report, never mis-report.
-(pub :: tcAddEffectOp (-> Int Int Int Int Int))
+(pub :: tcAddEffectOp (-> Int String Int String Int))
 (pub fn (tcAddEffectOp tc name ty effName)
   (tcPushFn tc
     (cast Int (FnEnt name
@@ -1307,10 +1307,10 @@
 ; is why the tag has to be part of the string rather than a separate
 ; word: these live in Vecs and are compared by value.
 ; ------------------------------------------------------------------
-(pub :: builtinEff (-> Int String))
+(pub :: builtinEff (-> String String))
 (pub fn (builtinEff n) (strConcat "b:" n))
 
-(pub :: customEff (-> Int String))
+(pub :: customEff (-> String String))
 (pub fn (customEff n) (strConcat "c:" n))
 
 ; The name stage0's `Display for Effect` prints, which is what an
@@ -1461,18 +1461,18 @@
 ; `fn` and `::` are - so their key is built from the module recorded
 ; beside them.
 ; ------------------------------------------------------------------
-(pub :: privKey (-> String String String))
+(pub :: privKey (-> a String String))
 (pub fn (privKey declMod name)
-  (if (== declMod 0) name (strConcat (strConcat declMod "$") name)))
+  (if (== (cast Int declMod) 0) name (strConcat (strConcat (cast String declMod) "$") name)))
 
 ; 1 when a reference made from `curMod` may NOT name `key`.
-(pub :: privBlocks (-> Int String String Int))
+(pub :: privBlocks (-> Int String a Int))
 (pub fn (privBlocks privs key curMod)
   (if (== (strInVec privs key 0) 0)
       0
-      (if (== curMod 0)
+      (if (== (cast Int curMod) 0)
           1
-          (if (strStartsWith key (strConcat curMod "$")) 0 1))))
+          (if (strStartsWith key (strConcat (cast String curMod) "$")) 0 1))))
 
 (pub :: findFnEntVisibleExact (-> Int Int String String Int))
 (pub fn (findFnEntVisibleExact privs fns name curMod)
@@ -1746,7 +1746,7 @@
   (findStructFrom (tcStructs tc) name (memGetWord tc 19)
                   (memGetWord tc 16) 0))
 
-(pub :: findStructFrom (-> Int String Int String Int Int))
+(pub :: findStructFrom (-> Int String Int a Int Int))
 (pub fn (findStructFrom structs name privs curMod i)
   (if (>= i (vecLen structs))
       0
@@ -1763,7 +1763,7 @@
   (findDataFrom (tcDatas tc) name (memGetWord tc 19)
                 (memGetWord tc 16) 0))
 
-(pub :: findDataFrom (-> Int String Int String Int Int))
+(pub :: findDataFrom (-> Int String Int a Int Int))
 (pub fn (findDataFrom datas name privs curMod i)
   (if (>= i (vecLen datas))
       0
@@ -1850,10 +1850,10 @@
 ; The name of the first type constructor in `t` that resolves to
 ; nothing, or 0. A known head with an unknown ARGUMENT is still a
 ; miss, so `(Box Nope)` reports `Nope`.
-(pub :: tyUnknownCon (-> Int Int Int))
+(pub :: tyUnknownCon (-> Int Int a))
 (pub fn (tyUnknownCon tc t)
   (if (== t 0)
-      0
+      (cast a 0)
       (if (== (nodeTag t) TAG_T_CON)
           (if (== (tyConKnown tc (nodeA t)) 0)
               (nodeA t)
@@ -2281,7 +2281,7 @@
         0
       }))
 
-(pub :: emitAX3012 (-> Int Int Int Int Int))
+(pub :: emitAX3012 (-> String Int Int Int Int))
 (pub fn (emitAX3012 name tspan bspan out)
   {
     (vecPush out
@@ -2415,7 +2415,7 @@
 ; so a later declaration wins, exactly as `expFindMacroIn` walks. The
 ; same rule and the same veto apply in the expander - one side decides
 ; whether the name type-checks and the other whether it expands.
-(pub :: isMacroVisible (-> Int String String Int Int))
+(pub :: isMacroVisible (-> Int String a Int Int))
 (pub fn (isMacroVisible ms n curMod i)
   (if (< i 0)
       0
@@ -2423,11 +2423,11 @@
         (if (&& (strEq (nodeA m) n)
                 (|| (== (nodeVis m) 1)
                     (|| (== (nodeModule m) 0)
-                        (&& (!= curMod 0) (strEq (nodeModule m) curMod)))))
+                        (&& (!= (cast Int curMod) 0) (strEq (nodeModule m) (cast String curMod))))))
             m
             (isMacroVisible ms n curMod (- i 1))))))
 
-(pub :: macroQualVisible (-> Int String String String Int Int))
+(pub :: macroQualVisible (-> Int String String a Int Int))
 (pub fn (macroQualVisible ms bare qm curMod i)
   (if (< i 0)
       0
@@ -2436,15 +2436,15 @@
                 (&& (!= (nodeModule m) 0)
                     (&& (strEq (nodeModule m) qm)
                         (|| (== (nodeVis m) 1)
-                            (&& (!= curMod 0) (strEq curMod qm))))))
+                            (&& (!= (cast Int curMod) 0) (strEq (cast String curMod) qm))))))
             m
             (macroQualVisible ms bare qm curMod (- i 1))))))
 
-(pub :: macroSameMod (-> String String Int))
+(pub :: macroSameMod (-> a b Int))
 (pub fn (macroSameMod a b)
-  (if (== a 0)
-      (if (== b 0) 1 0)
-      (if (== b 0) 0 (if (strEq a b) 1 0))))
+  (if (== (cast Int a) 0)
+      (if (== (cast Int b) 0) 1 0)
+      (if (== (cast Int b) 0) 0 (if (strEq (cast String a) (cast String b)) 1 0))))
 
 ; Declared anywhere, visible or not - for telling "no such macro" from
 ; "a macro you may not name". Split-aware, so a QUALIFIED reference to
@@ -2810,7 +2810,7 @@
         vecNew
         (if (== (memGetWord e 2) 1) vecNew (memGetWord e 1)))))
 
-(pub struct AmbEnt (name : Int) (mods : Int) (moduleless : Int))
+(pub struct AmbEnt (name : String) (mods : Int) (moduleless : Int))
 
 ; Buckets over the entries, keyed on the name. An entry is MUTATED
 ; after insert - a module appended to its list, or its module-less
@@ -2838,14 +2838,14 @@
           (vecGet v i)
           (ambFindIn v n (+ i 1)))))
 
-(pub :: ambRecord (-> Int String String Int))
+(pub :: ambRecord (-> Int String a Int))
 (pub fn (ambRecord tc n m)
   (let ((e (ambFind tc n)))
     (if (== e 0)
         (let ((ent (cast Int (AmbEnt n
                                (let ((v vecNew))
-                                 { (if (!= m 0) (vecPush v m) 0) v })
-                               (if (== m 0) 1 0)))))
+                                 { (if (!= (cast Int m) 0) (vecPush v m) 0) v })
+                               (if (== (cast Int m) 0) 1 0)))))
           {
             ; Both, in step: the Vec is what `symbols` and every other
             ; reader walks, the buckets are what `ambFind` reads.
@@ -2853,9 +2853,9 @@
             (ambIdxPut (memGetWord tc 21) n ent)
             0
           })
-        (if (== m 0)
+        (if (== (cast Int m) 0)
             (memSetWord e 2 1)
-            (if (== (strInVec (memGetWord e 1) m 0) 1)
+            (if (== (strInVec (memGetWord e 1) (cast String m) 0) 1)
                 0
                 { (vecPush (memGetWord e 1) m) 0 })))))
 
@@ -2918,9 +2918,9 @@
 ; cannot forget to do it.
 ; The unit a declaration's spans index: 0 (the entry file) when it
 ; carries no module stamp, else that module's entry.
-(pub :: unitIndexFor (-> Int String Int))
+(pub :: unitIndexFor (-> Int a Int))
 (pub fn (unitIndexFor units m)
-  (if (== m 0) 0 (unitIndexForFrom units m 0)))
+  (if (== (cast Int m) 0) 0 (unitIndexForFrom units (cast String m) 0)))
 
 (pub :: unitIndexForFrom (-> Int String Int Int))
 (pub fn (unitIndexForFrom units m i)
@@ -2962,7 +2962,7 @@
           1
           (ctorNamedIn ctors n (+ i 1)))))
 
-(pub :: joinModules (-> Int Int String Int))
+(pub :: joinModules (-> Int Int String String))
 (pub fn (joinModules v i acc)
   (if (>= i (vecLen v))
       acc
@@ -2971,7 +2971,7 @@
             (vecGet v i)
             (strConcat (strConcat acc ", ") (vecGet v i))))))
 
-(pub :: joinQualified (-> Int String Int String Int))
+(pub :: joinQualified (-> Int String Int String String))
 (pub fn (joinQualified v n i acc)
   (if (>= i (vecLen v))
       acc
@@ -3361,7 +3361,7 @@
           (vecGet trs i)
           (findTraitOwning trs name (+ i 1)))))
 
-(pub :: traitDiag (-> Int Int Int Int Int Int))
+(pub :: traitDiag (-> Int Int String String String Int))
 (pub fn (traitDiag tc sp msg help note)
   {
     (emitDiag tc
@@ -4000,18 +4000,18 @@
 ; stage1's concrete set equals stage0's and its `effect_params` is
 ; empty - which is also the condition stage0 uses to decide whether a
 ; missing claimed effect is a lie. Anything else stays silent.
-(pub :: effIncomplete Int)
+(pub :: effIncomplete String)
 (pub fn (effIncomplete) "?:incomplete")
 
 (pub :: effIsComplete (-> Int Int))
 (pub fn (effIsComplete v) (if (== (effIn v effIncomplete) 1) 0 1))
 
 ; The concrete effects, sorted by display name, joined with ", ".
-(pub :: effJoin (-> Int Int))
+(pub :: effJoin (-> Int String))
 (pub fn (effJoin v)
   (effJoinFrom (effSorted v) 0 ""))
 
-(pub :: effJoinFrom (-> Int Int String Int))
+(pub :: effJoinFrom (-> Int Int String String))
 (pub fn (effJoinFrom v i acc)
   (if (>= i (vecLen v))
       acc
@@ -4597,7 +4597,7 @@
       (if (strEq (vecGet declared i) fname) i
           (declaredFieldIndex declared fname (+ i 1)))))
 
-(pub :: emitFieldNotFound (-> Int Int String Int Int))
+(pub :: emitFieldNotFound (-> Int String String Int Int))
 (pub fn (emitFieldNotFound tc fname tyName span)
   (if (== span 0)
       0
@@ -4927,7 +4927,7 @@
           1
           (coveredHas covered name (+ i 1)))))
 
-(pub :: joinComma (-> Int Int String Int))
+(pub :: joinComma (-> Int Int String String))
 (pub fn (joinComma xs i acc)
   (if (>= i (vecLen xs))
       acc
@@ -5240,7 +5240,7 @@
 ; A declaration's source-spelled name: import resolution rewrites an
 ; imported one to `Mod$name` in place, and a suggestion has to read
 ; back as something the programmer could type.
-(pub :: bareOf (-> String Int))
+(pub :: bareOf (-> String String))
 (pub fn (bareOf s) (bareOfFrom s (- (strLen s) 1)))
 
 ; The MODULE part of a qualified name `Mod$name`, or 0 when there is
@@ -5255,15 +5255,15 @@
   (let ((m (modOf s)))
     (if (== m 0) s (strConcat (strConcat m "::") (bareOf s)))))
 
-(pub :: modOf (-> String Int))
+(pub :: modOf (-> String a))
 (pub fn (modOf s) (modOfFrom s (- (strLen s) 1)))
 
-(pub :: modOfFrom (-> String Int Int))
+(pub :: modOfFrom (-> String Int a))
 (pub fn (modOfFrom s i)
   (if (< i 0)
-      0
+      (cast a 0)
       (if (== (strByte s i) 36)
-          (strSlice s 0 i)
+          (cast a (strSlice s 0 i))
           (modOfFrom s (- i 1)))))
 
 ; Does a type or constructor named `declName`, declared by module
@@ -5284,17 +5284,17 @@
 ; there, measured 2026-08-08. This is the stricter of the two answers,
 ; applied uniformly: a qualified reference names a module or it does
 ; not resolve.
-(pub :: declMatches (-> String String String Int))
+(pub :: declMatches (-> a String String Int))
 (pub fn (declMatches declMod declName ref)
   (let ((m (modOf ref)))
     (if (== m 0)
         (nameMatches declName ref)
-        (if (&& (!= declMod 0)
-                (&& (strEq declMod m) (strEq declName (bareOf ref))))
+        (if (&& (!= (cast Int declMod) 0)
+                (&& (strEq (cast String declMod) m) (strEq declName (bareOf ref))))
             1
             0))))
 
-(pub :: bareOfFrom (-> String Int Int))
+(pub :: bareOfFrom (-> String Int String))
 (pub fn (bareOfFrom s i)
   (if (< i 0)
       s
@@ -5468,7 +5468,7 @@
   (if (== (strLen val) 0) ""
   (customEff (canonicalEffectName tc val))))))))
 
-(pub :: canonicalEffectName (-> Int String Int))
+(pub :: canonicalEffectName (-> Int String String))
 (pub fn (canonicalEffectName tc val)
   (let ((exact (findEffectDecl tc val)))
     (if (!= exact 0)

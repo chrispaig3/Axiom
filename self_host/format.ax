@@ -105,7 +105,7 @@
 ; delimiters, with trailing whitespace removed - stage0 trims the end,
 ; and a comment that keeps its trailing spaces is a line that changes
 ; every time someone else's editor strips them.
-(pub :: fcText (-> String Int Int))
+(pub :: fcText (-> String Int String))
 (pub fn (fcText src c)
   (let ((mut e (fcEnd c)))
     {
@@ -691,7 +691,7 @@
 ; file, so it needs no loop: a source nested a thousand deep would be
 ; unreadable long before it were a stack problem, and the file-sized
 ; walks in this module are all loops already.
-(pub :: readForm (-> Int Int Int Int))
+(pub :: readForm (-> String Int Int Int))
 (pub fn (readForm src toks pos)
   (let ((t (vecGet toks pos))
         (k (ftKind (vecGet toks pos))))
@@ -713,7 +713,7 @@
           (mkFRead 1 (mkFNode FN_ATOM t 0 (ftStart t) (ftEnd t)) (+ pos 1)))))))))
 
 ; Absorb any `.name` and `::name` that TOUCH what was just read.
-(pub :: readPostfix (-> Int Int Int Int))
+(pub :: readPostfix (-> String Int Int Int))
 (pub fn (readPostfix src toks r)
   (if (== (frOk r) 0)
       r
@@ -746,7 +746,7 @@
           cur
         })))
 
-(pub :: readGroup (-> Int Int Int Int))
+(pub :: readGroup (-> String Int Int Int))
 (pub fn (readGroup src toks pos)
   (let ((open (vecGet toks pos))
         (want (closerFor (ftKind (vecGet toks pos))))
@@ -778,7 +778,7 @@
     }))
 
 ; Every top-level form in the file, in source order.
-(pub :: readForms (-> Int Int Int))
+(pub :: readForms (-> String Int Int))
 (pub fn (readForms src toks)
   (let ((forms vecNew)
         (mut p 0)
@@ -855,7 +855,7 @@
   { (memSetWord o 2 (if (> (foIndent o) 0) (- (foIndent o) 1) 0)) o })
 
 ; Two spaces per level, stage0's `INDENT.repeat(level)`.
-(pub :: foIndentStr (-> Int Int))
+(pub :: foIndentStr (-> Int String))
 (pub fn (foIndentStr o)
   (let ((mut i 0) (mut s ""))
     {
@@ -868,7 +868,7 @@
 
 ; Join the fragments: measure, allocate once, copy - the same shape
 ; `renderCG` uses, and for the same reason.
-(pub :: foFinish (-> Int Int))
+(pub :: foFinish (-> Int String))
 (pub fn (foFinish o)
   (let ((v (foFrags o))
         (mut i 0)
@@ -1045,10 +1045,10 @@
 
 ; The printer context: the source, the line index, the comment queue,
 ; and the output buffer, threaded as one word.
-(pub struct FPr (src : Int) (starts : Int) (q : Int) (out : Int))
-(pub :: mkFPr (-> Int Int Int Int Int))
+(pub struct FPr (src : String) (starts : Int) (q : Int) (out : Int))
+(pub :: mkFPr (-> String Int Int Int Int))
 (pub fn (mkFPr src starts q out) (FPr src starts q out))
-(pub :: fpSrc (-> Int Int))    (pub fn (fpSrc p) (memGetWord p 0))
+(pub :: fpSrc (-> Int String))    (pub fn (fpSrc p) (memGetWord p 0))
 (pub :: fpStarts (-> Int Int)) (pub fn (fpStarts p) (memGetWord p 1))
 (pub :: fpQ (-> Int Int))      (pub fn (fpQ p) (memGetWord p 2))
 (pub :: fpOut (-> Int Int))    (pub fn (fpOut p) (memGetWord p 3))
@@ -1330,7 +1330,7 @@
 ; the `!` token and prints as `!`. Any other operator run in
 ; expression position is a stage0 parse error, so it answers "" and
 ; the caller refuses - `=`, `->`, `~>` and `>>=` are all refusals.
-(pub :: fpOperSpelling (-> String Int))
+(pub :: fpOperSpelling (-> String String))
 (pub fn (fpOperSpelling t)
   (if (strEq t "+") t
   (if (strEq t "*") t
@@ -3468,9 +3468,9 @@
       })))
 
 ; The result of one formatting pass: `ok` and the text.
-(pub struct FRes (ok : Int) (text : Int))
+(pub struct FRes (ok : Int) (text : String))
 (pub :: fzOk (-> Int Int))   (pub fn (fzOk r) (memGetWord r 0))
-(pub :: fzText (-> Int Int)) (pub fn (fzText r) (memGetWord r 1))
+(pub :: fzText (-> Int String)) (pub fn (fzText r) (memGetWord r 1))
 
 (pub :: fmtOnce (-> String Int))
 (pub fn (fmtOnce src)

@@ -311,9 +311,9 @@
 (pub struct PResult (ok : Int) (value : Int) (pos : Int) (exp : String)
                     (code : String))
 
-(pub :: pOk (-> Int Int Int))     (pub fn (pOk v p) (PResult 1 v p "" ""))
+(pub :: pOk (-> a Int Int))     (pub fn (pOk v p) (PResult 1 (cast Int v) p "" ""))
 (pub :: pErr (-> Int Int))        (pub fn (pErr p)   (PResult 0 0 p "" ""))
-(pub :: pErrExp (-> Int Int Int)) (pub fn (pErrExp p e) (PResult 0 0 p e ""))
+(pub :: pErrExp (-> Int String Int)) (pub fn (pErrExp p e) (PResult 0 0 p e ""))
 (pub :: pResExp (-> Int String))     (pub fn (pResExp r) (memGetWord r 3))
 (pub :: pResCode (-> Int String))    (pub fn (pResCode r) (memGetWord r 4))
 
@@ -322,7 +322,7 @@
 ; explanation instead of being silently reinterpreted as an ordinary
 ; identifier, so the explanation is the diagnostic and `exp` carries
 ; the keyword.
-(pub :: pErrRemoved (-> Int Int Int))
+(pub :: pErrRemoved (-> Int String Int))
 (pub fn (pErrRemoved p kw) (PResult 0 0 p kw "AX2004"))
 
 ; A failure that names its own code and expects nothing - AX2005 is the
@@ -330,7 +330,7 @@
 ; rather than a bare `(PResult ...)` at the call site for the reason the
 ; three above are: the struct's type is not `Int`, and every caller here
 ; is in a position that wants one.
-(pub :: pErrCode (-> Int Int Int))
+(pub :: pErrCode (-> Int String Int))
 (pub fn (pErrCode p c) (PResult 0 0 p "" c))
 
 ; The diagnostic for a failed parse, from the failure's token position.
@@ -510,7 +510,7 @@
     }))
 
 ; The EOF token has no lexeme; stage0 spells it `EOF` in the message.
-(pub :: foundText (-> Int Int))
+(pub :: foundText (-> Int String))
 (pub fn (foundText tok)
   (if (== (kindInt (tokenKind tok)) (kindInt TK_EOF))
       "EOF"
@@ -747,7 +747,7 @@
   (strConcat (strConcat (joinDotted chain 0 "") "$")
              (vecGet chain (- (vecLen chain) 1))))
 
-(pub :: joinDotted (-> Int Int String Int))
+(pub :: joinDotted (-> Int Int String String))
 (pub fn (joinDotted chain i acc)
   (if (>= i (- (vecLen chain) 1))
       acc
@@ -850,23 +850,23 @@
 ; ------------------------------------------------------------------
 ; Keyword string literals for comparison.
 ; ------------------------------------------------------------------
-(pub :: kwFn    Int) (pub fn (kwFn)    "fn")
+(pub :: kwFn    String) (pub fn (kwFn)    "fn")
 ; stage0 parses `define` and `fn` through the same function, and the
 ; reference documents both. Without this a `(define (f x) ...)` became
 ; an inert TAG_NIL node, so the checker saw a signature with no
 ; definition behind it and reported AX3015 on a valid program.
-(pub :: kwDefine Int) (pub fn (kwDefine) "define")
-(pub :: kwEffect Int) (pub fn (kwEffect) "effect")
-(pub :: kwData  Int) (pub fn (kwData)  "data")
-(pub :: kwStruct Int)(pub fn (kwStruct)"struct")
-(pub :: kwLet   Int) (pub fn (kwLet)   "let")
-(pub :: kwIf    Int) (pub fn (kwIf)    "if")
-(pub :: kwMatch Int) (pub fn (kwMatch) "match")
-(pub :: kwImport Int)(pub fn (kwImport)"import")
-(pub :: kwMacro Int) (pub fn (kwMacro) "macro")
-(pub :: kwPub   Int) (pub fn (kwPub)   "pub")
-(pub :: kwCond  Int) (pub fn (kwCond)  "cond")
-(pub :: kwElse  Int) (pub fn (kwElse)  "else")
+(pub :: kwDefine String) (pub fn (kwDefine) "define")
+(pub :: kwEffect String) (pub fn (kwEffect) "effect")
+(pub :: kwData  String) (pub fn (kwData)  "data")
+(pub :: kwStruct String)(pub fn (kwStruct)"struct")
+(pub :: kwLet   String) (pub fn (kwLet)   "let")
+(pub :: kwIf    String) (pub fn (kwIf)    "if")
+(pub :: kwMatch String) (pub fn (kwMatch) "match")
+(pub :: kwImport String)(pub fn (kwImport)"import")
+(pub :: kwMacro String) (pub fn (kwMacro) "macro")
+(pub :: kwPub   String) (pub fn (kwPub)   "pub")
+(pub :: kwCond  String) (pub fn (kwCond)  "cond")
+(pub :: kwElse  String) (pub fn (kwElse)  "else")
 
 (pub :: kwEq (-> String String Bool))
 (pub fn (kwEq name lit)
@@ -973,7 +973,7 @@
                       (pErrExp afterSeq ")"))))))
         (pErrExp p1 "("))))
 
-(pub :: parseDeclForBody (-> Int Int Int Int Int Int Int))
+(pub :: parseDeclForBody (-> Int Int String Int Int Int Int))
 (pub fn (parseDeclForBody tokens pos var seq sp acc)
   (if (peekIs tokens pos TK_RPAREN)
       (if (== (vecLen acc) 0)
@@ -1133,7 +1133,7 @@
 ; One recognised supertrait name, threaded on. Only the first is kept:
 ; a second `(...)` group before `where` is an effect list, and there is
 ; no syntax that distinguishes them beyond position.
-(pub :: parseTraitRestSup (-> Int Int Int Int Int String Int Int))
+(pub :: parseTraitRestSup (-> Int Int String Int Int String Int Int))
 (pub fn (parseTraitRestSup tokens pos name nameSpan tvs sup origPos)
   (let ((r (parseTraitRest tokens pos name nameSpan tvs origPos)))
     {
@@ -1144,7 +1144,7 @@
       r
     }))
 
-(pub :: parseTraitRest (-> Int Int Int Int Int Int Int))
+(pub :: parseTraitRest (-> Int Int String Int Int Int Int))
 (pub fn (parseTraitRest tokens pos name nameSpan tvs origPos)
   (if (peekIs tokens pos TK_RPAREN)
       (pOk (mkNodeAt TAG_D_TRAIT name vecNew tvs nameSpan) (advance pos))
@@ -1201,7 +1201,7 @@
 ; A type node's head NAME: `Int` for `Int`, `List` for `(List Int)`,
 ; and the empty string for anything with no name to give (an arrow, a
 ; tuple), which no impl can be keyed on.
-(pub :: implTypeName (-> Int Int))
+(pub :: implTypeName (-> Int String))
 (pub fn (implTypeName t)
   (if (== t 0)
       ""
@@ -1209,7 +1209,7 @@
           (nodeA t)
           (if (== (nodeTag t) TAG_T_VAR) (nodeA t) ""))))
 
-(pub :: parseImplRest (-> Int Int Int Int Int Int Int))
+(pub :: parseImplRest (-> Int Int String String Int Int Int))
 (pub fn (parseImplRest tokens pos tname tyName tspan origPos)
   (if (peekIs tokens pos TK_RPAREN)
       (pOk (mkNodeAt TAG_D_IMPL tname vecNew tyName tspan) (advance pos))
@@ -1385,7 +1385,7 @@
 ; was zero. `I64` is gone from here too - the checker still constructs
 ; it internally as the `set` form's type (mkI64Ty), which is a leaked
 ; internal, not a surface type a program may claim.
-(pub :: typeKeywordCanon (-> String Int))
+(pub :: typeKeywordCanon (-> String String))
 (pub fn (typeKeywordCanon n)
   (if (strEq n "Int") "Int" (if (strEq n "Integer") "Int"
   (if (strEq n "Float") "Float"
@@ -1393,7 +1393,7 @@
   (if (strEq n "String") "String" (if (strEq n "Void") "Void"
   (if (strEq n "Unit") "Unit"
   (if (strEq n "Any") "Any"
-  0))))))))))
+  (cast String 0)))))))))))
 
 (pub :: lexStartsLower (-> String Int))
 (pub fn (lexStartsLower s)
@@ -1430,7 +1430,7 @@
                                (let ((v vecNew)) { (vecPush v (memGetWord r 1)) v }))
                        (memGetWord r 2))))
         (let ((canon (typeKeywordCanon s)))
-          (if (!= canon 0)
+          (if (!= (cast Int canon) 0)
               (pOk (mkTCon canon vecNew) (advance pos))
           (if (== (lexStartsLower s) 1)
               (pOk (mkTVar s) (advance pos))
@@ -1473,7 +1473,7 @@
       (pOk (mkTTup vecNew) (advance pos))
   (if (&& (peekIs tokens pos TK_IDENT)
           (&& (identStartsUpper tokens pos)
-              (== (typeKeywordCanon (tokenLexeme (vecGet tokens pos))) 0)))
+              (== (cast Int (typeKeywordCanon (tokenLexeme (vecGet tokens pos)))) 0)))
       ; Type application: (Maybe Int), (Vec Float). A keyword head -
       ; (Int Bool) - is NOT an application; it falls through to the
       ; tuple loop, stage0's rule.
@@ -1744,7 +1744,7 @@
               (skipTypeParams tokens (advance pos)))
           pos)))
 
-(pub :: parseConstructors (-> Int Int Int Int Int Int Int))
+(pub :: parseConstructors (-> Int Int String Int Int Int Int))
 (pub fn (parseConstructors tokens pos dataName nameSpan acc tvs)
   (if (peekIs tokens pos TK_RPAREN)
       (pOk (setNodeTy (mkDDataAt dataName acc nameSpan) tvs) (advance pos))
@@ -1904,7 +1904,7 @@
           (parseFields tokens nextPos name
                        (tokenSpan (vecGet tokens pos)) vecNew)))))
 
-(pub :: parseFields (-> Int Int Int Int Int Int))
+(pub :: parseFields (-> Int Int String Int Int Int))
 (pub fn (parseFields tokens pos structName nameSpan acc)
   (if (peekIs tokens pos TK_RPAREN)
       (pOk (mkDStructAt structName acc nameSpan) (advance pos))
@@ -2110,7 +2110,7 @@
 ; ------------------------------------------------------------------
 ; Parse (fn (name args...) body) at top level.
 ; ------------------------------------------------------------------
-(pub :: parseFnDecl (-> Int Int Int Int))
+(pub :: parseFnDecl (-> Int Int String Int))
 (pub fn (parseFnDecl tokens pos kwName)
   (if (peekIs tokens pos TK_LPAREN)
       (let ((headerStart (advance pos)))
@@ -2827,7 +2827,7 @@
 ; A field the pattern omits becomes `_`, which binds nothing - stage0
 ; fills the same hole with a wildcard, so a partial named pattern is
 ; legal by construction and needs no arity check.
-(pub :: namedPatSpine (-> Int Int Int Int Int Int))
+(pub :: namedPatSpine (-> String Int Int Int Int Int))
 (pub fn (namedPatSpine cname declared names pats sp)
   (namedPatSpineFrom declared names pats 0 (mkEVarAt cname sp)))
 
@@ -2869,7 +2869,7 @@
 ; `{ f = pat, g }` to the closing brace. A bare name PUNS: `{ w, h }`
 ; means `{ w = w, h = h }`, which is stage0's rule and is resolved
 ; here at parse time, since it needs no knowledge of the declaration.
-(pub :: parseNamedPatFields (-> Int Int Int Int Int Int Int))
+(pub :: parseNamedPatFields (-> Int Int String Int Int Int Int))
 (pub fn (parseNamedPatFields tokens pos cname csp names pats)
   (if (peekIs tokens pos TK_RBRACE)
       (if (peekIs tokens (advance pos) TK_RPAREN)
@@ -3183,9 +3183,9 @@
 ; `tests/selfhost/290-emit.ax` said so.
 ; ------------------------------------------------------------------
 
-(pub :: traitSep (-> Int Int)) (pub fn (traitSep s) (strConcat s "#"))
+(pub :: traitSep (-> String String)) (pub fn (traitSep s) (strConcat s "#"))
 
-(pub :: traitImplName (-> Int String String String))
+(pub :: traitImplName (-> String String String String))
 (pub fn (traitImplName tname ty method)
   (strConcat (traitSep (strConcat (traitSep tname) ty)) method))
 
