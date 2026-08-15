@@ -161,7 +161,7 @@
     (if (<= n 0)
         (if (== used 0)
             ""
-            (strWrap (strData buf) used))
+            (strWrapOwned (strData buf) used (strOwner buf)))
         (let ((used2 (+ used n)))
           (if (< used2 cap)
               (sysReadAll fd buf used2 cap)

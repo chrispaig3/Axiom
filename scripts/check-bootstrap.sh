@@ -60,9 +60,11 @@
 #                 tests/fmt/syntax-zoo.expected.ax, and leaves that
 #                 golden alone when re-run on it.
 #
-#   memory        one self-compile's peak RSS, under a 400 MiB ceiling
-#                 and over an 8 MiB floor, with the IR it produced
-#                 compared against the IR the ladder already has.
+#   memory        one self-compile's peak RSS, under a ceiling (540
+#                 MiB today; every move of it is dated and measured
+#                 at the constant itself) and over an 8 MiB floor,
+#                 with the IR it produced compared against the IR
+#                 the ladder already has.
 #
 # WHAT IS DELIBERATELY NOT HERE. scripts/bootstrap-from-seed.sh already
 # runs the OTHER ladder - seed -> stage1 -> stage2 -> stage3 with this
@@ -573,10 +575,23 @@ floor=8192       # 8 MiB
 # 392 to 414 MiB - 14.24 -> 14.37 KiB per source line, i.e. the
 # LINEAR shape this ceiling exists to protect, held flat; the same
 # source under the pre-evidence compiler peaks within 4 MiB of the
-# evidence one, so the cost is input size, not machinery. 460 leaves
-# room for ~3,000 more lines at the measured slope, and a quadratic
-# still crosses it in one slice.
-ceiling=471040   # 460 MiB
+# evidence one, so the cost is input size, not machinery.
+#
+# 460 -> 540 MiB later the same day, and this one is a PER-ALLOCATION
+# constant rather than source growth, measured three ways on one
+# input before it was moved: the `Str` header grew from two words to
+# three (MM-VAL-7's owner word), which crosses an allocator size
+# class - 32-byte block to 48 - and the peak went 416 -> 475 MiB.
+# Widening the header one class FURTHER, as a probe, cost another
+# 63 MB (475 -> 535), and the pre-slice compiler on the same source
+# peaks at 416. So each 16 bytes of `Str` header costs ~62 MB, which
+# says this self-compile allocates ~3.9 MILLION string headers and
+# frees none of them yet - the count is what the number measures,
+# and the shape is still exactly linear. When MM-LIFE-2c's releases
+# reach `Str` headers this comes back down; until then the ceiling
+# leaves ~12% of headroom and a quadratic still crosses it in one
+# slice.
+ceiling=552960   # 540 MiB
 if (( peak < floor )); then
   fail "the self-compile peaked at $peak KiB, under the $((floor / 1024)) MiB floor - that is not a measurement of compiling 61,688 lines"
 fi

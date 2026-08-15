@@ -146,11 +146,13 @@ layout `Str.strWrap` builds. The first two words are the MM-LIFE-2b
 count/shape header every heap block carries, with the count all-ones:
 a static is never reclaimed, and the runtime's retain/release read the
 sentinel and leave it untouched. The literal's value points at the
-{length, bytes} pair, so every consumer loads at +0/+8 as before:
+{length, bytes, owner} triple, so every consumer loads at +0/+8 as
+before; the owner word is zero, because a literal's bytes are
+loader-resident and no block's death may free them (`MM-VAL-7`):
 
 ```llvm
 @str_0    = private unnamed_addr constant [14 x i8] c"Hello, Axiom!\00"
-@strhdr_0 = private unnamed_addr constant { i64, i64, i64, ptr } { i64 -1, i64 0, i64 13, ptr @str_0 }
+@strhdr_0 = private unnamed_addr constant { i64, i64, i64, ptr, i64 } { i64 -1, i64 0, i64 13, ptr @str_0, i64 0 }
 ```
 
 The literal evaluates to the header's address. Its **length is computed

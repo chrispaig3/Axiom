@@ -540,18 +540,28 @@ constructor tag that `MM-VAL-8` places at word 0 for one of the three
 representations. Given an address, nothing in the running program can
 recover what is stored there.
 
-**MM-VAL-7 (H).** A `Str` is the address of a two-word header:
+**MM-VAL-7 (H, amended 2026-08-15).** A `Str` is the address of a
+**three-word** header:
 
 | Word | Contents |
 |---|---|
 | 0 | length in bytes |
 | 1 | address of the bytes |
+| 2 | the block that OWNS those bytes, or 0 |
 
 The bytes are NUL-terminated *in addition to* being length-counted, so
 `strCStr` hands a path to a syscall without copying, and a `Str` may
 contain an interior NUL. `strSlice` **shares** the original's bytes
 rather than copying them, so a slice keeps its parent's buffer live and
-points into its middle (`MM-LIFE-6`).
+points into its middle (`MM-LIFE-6`) — and word 2 is what makes that
+keeping *arithmetic* rather than accident: a slice INHERITS its
+parent's owner rather than naming the parent, so the chain is one hop
+deep however many times a slice is cut, and the counted address is
+never interior. Zero means no block owns the bytes and nothing may
+free them: a literal's are loader-resident, a syscall buffer's are the
+kernel's, an arena keep block's interior belongs to the arena.
+`strAlloc` names the buffer it just allocated and takes one share of
+it; every `strSlice` takes one more.
 
 **MM-VAL-7a (H).** A **string literal allocates nothing**. It evaluates
 to the address of a static constant header whose length is a
@@ -1566,12 +1576,21 @@ baking edge above). `AX3030` holds the 64-variable cliff
 (`tests/diagnostics/482-evidence-word-capacity.ax`); the widest
 signature in this repository declares 4.
 
+*The `Str` half holds since 2026-08-15*
+(`tests/stdlib/357-str-owner.ax`, 63): the header's third word names
+the owning block, `strAlloc` and every `strSlice` take a share, and
+a literal's zero says its loader-resident bytes are nobody's to
+free. The counts are correct in every running program; what they
+still lack is a consumer, because a `Str` header is itself a
+`memAlloc` leaf whose death returns nothing — that release, with
+the container element maps it shares a rung with, is `MM-LIFE-2e`
+extension work.
+
 *Still P:* the array form's writers and the container buffer
-migration (the `Vec`/`Map` element maps this word exists to feed —
-2e-extension work), closure and evidence records' own maps, and the
-`Str` third word — the `Str` header is two words, so a released
-string is header-deep today (its byte buffer leaks; `352` says so
-in its own comment).
+migration (the `Vec`/`Map` element maps this word exists to feed),
+closure and evidence records' own maps, and the release side of the
+`Str` buffer — a released string is header-deep today, and its
+bytes' count simply stands.
 
 **MM-LIFE-2e (P). The release path.** A bump pointer cannot reuse an
 interior free. Release at zero **SHALL** hand the block — header
@@ -1712,12 +1731,19 @@ whole content of `MM-LIFE-2c` and `MM-LIFE-2d`. (While §3.4 was the
 plan, this rule read "a value's lifetime is its arena's"; the
 withdrawal note there says why it no longer is.)
 
-**MM-LIFE-6 (H, program obligation).** A `strSlice` result keeps its
-parent's byte buffer live and points into its middle. A program that
-resets an arena containing the parent invalidates every slice of it,
-and nothing says so. Under `MM-LIFE-2d` this obligation dissolves: the
-byte buffer becomes a counted block the slice retains, and the reset
-that could strand a slice is refused under ARC anyway (`MM-LIFE-2e`).
+**MM-LIFE-6 (H, program obligation — half discharged 2026-08-15).** A
+`strSlice` result keeps its parent's byte buffer live and points into
+its middle. A program that resets an arena containing the parent
+invalidates every slice of it, and nothing says so. Under `MM-LIFE-2d`
+this obligation dissolves: the byte buffer becomes a counted block the
+slice retains, and the reset that could strand a slice is refused under
+ARC anyway (`MM-LIFE-2e`). The COUNTING half is done
+(`tests/stdlib/357-str-owner.ax`, 63): the buffer is named by word 2,
+`strAlloc` and every `strSlice` take a share, and the arithmetic a
+release rule needs is already correct in every running program. What
+remains is the release side — a `Str` header is a `memAlloc` leaf, so
+its death returns nothing yet — and the §3.3 refusal; both ride with
+the container rung.
 
 **MM-LIFE-7 (P).** **Linear types.** `(linear T)` and `(consume e)`
 parse today and enforce nothing: a linear value may be used twice or

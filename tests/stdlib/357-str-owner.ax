@@ -1,0 +1,75 @@
+; exit 63 (see .exit)
+; MM-LIFE-2d's `Str` half: the header's third word names the block
+; that OWNS the bytes, so a slice keeps its parent's buffer alive by
+; arithmetic rather than by accident (MM-LIFE-6's obligation). Six
+; probes:
+;
+;   32  a LITERAL owns nothing: its bytes are loader-resident, and
+;       no block's death may free them - the word reads 0
+;   16  a fresh string's buffer owns itself: strAlloc names the
+;       block it just allocated, which is where the bytes are
+;    8  a slice INHERITS the owner rather than naming its parent
+;       header - the header is a leaf that will die first
+;    4  a slice of a slice names the same buffer: the chain is one
+;       hop deep however many times a slice is cut
+;    2  the buffer's count is 1 + the number of live slices: the
+;       header's own share from strAlloc, plus one per slice - the
+;       arithmetic a release rule can be uniform about
+;    1  a slice of a LITERAL retains nothing and inherits 0, and
+;       the literal's all-ones count is untouched by the machinery
+;
+; The unfixed compiler has no `strOwner` - AX3001, exit 1.
+(import Str)
+
+(:: b2i (-> Bool Int))
+
+(fn (b2i x)
+  (if x
+    1
+    0
+  )
+)
+
+(:: main Int)
+
+(fn (main)
+  (let (
+    (lit "abcdef")
+    (d (strDup "abcdef"))
+    (mut acc 0)
+  )
+    {
+      (set acc (+ acc (* 32 (b2i (== (strOwner lit) 0)))))
+      (set acc (+ acc (* 16 (b2i (== (strOwner d) (strData d))))))
+      (let ((s1 (strSlice d 1 3)))
+        {
+          (set acc (+ acc (* 8 (b2i (== (strOwner s1) (strOwner d))))))
+          (let ((s2 (strSlice s1 1 1)))
+            {
+              (set acc (+ acc (* 4 (b2i (== (strOwner s2) (strOwner d))))))
+              (set acc (+ acc (* 2 (b2i (== (__load64 (- (strOwner d) 16) 0) 3)))))
+            }
+          )
+        }
+      )
+      (let ((ls (strSlice lit 2 2)))
+        (set acc (+
+          acc          (*
+            1            (b2i
+              (&&
+                (== (strOwner ls) 0)                (==
+                  (__load64
+                    (-
+                      (cast Int lit)                      16
+                    )                    0
+                  )                  (- 0 1)
+                )
+              )
+            )
+          )
+        ))
+      )
+      acc
+    }
+  )
+)

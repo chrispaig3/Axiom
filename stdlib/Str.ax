@@ -1,6 +1,6 @@
 ; Str - length-prefixed strings, in Axiom.
 ;
-; A `Str` is the address of a two-word header:
+; A `Str` is the address of a THREE-word header:
 ;
 ;     word 0 : length in bytes
 ;     word 1 : address of the bytes
@@ -40,10 +40,23 @@
 ; this module goes through here.
 (pub :: strWrap (-> Int Int String))
 (pub fn (strWrap bytes len)
-  (let ((s (memAlloc 16)))
+  (strWrapOwned bytes len 0))
+
+; The same, naming the block that OWNS the bytes (MM-LIFE-2d's `Str`
+; half): word 2 holds the handle whose death should free them, or 0
+; when no such block exists - a literal's bytes are loader-resident,
+; a syscall's are the kernel's, and an interior wrap over an arena
+; keep block belongs to the arena. A slice inherits its parent's
+; owner rather than naming the parent, so the chain is one hop deep
+; however many times a slice is sliced, and the address counted is
+; never interior.
+(pub :: strWrapOwned (-> Int Int Int String))
+(pub fn (strWrapOwned bytes len owner)
+  (let ((s (memAlloc 24)))
     {
       (memSetWord s 0 len)
       (memSetWord s 1 bytes)
+      (memSetWord s 2 owner)
       s
     }))
 
@@ -53,7 +66,15 @@
 ; payload; the allocator zeroes, so the terminator is already in place.
 (pub :: strAlloc (-> Int String))
 (pub fn (strAlloc len)
-  (strWrap (memAlloc (+ len 1)) len))
+  (let ((bytes (memAlloc (+ len 1))))
+    {
+      ; the header's own share of its buffer - one retain here makes
+      ; the rule uniform ("a `Str` header's death releases its owner
+      ; once"), which is what lets a slice outlive the header it was
+      ; cut from without the buffer going early or staying forever
+      (__retain bytes)
+      (strWrapOwned bytes len bytes)
+    }))
 
 ; A `Str` sharing the bytes at a NUL-terminated address.
 ;
@@ -90,6 +111,12 @@
 (pub :: strData (-> String Int))
 (pub fn (strData s)
   (memGetWord (cast Int s) 1))
+
+; The block owning this string's bytes, or 0 for bytes no block owns
+; (a literal's, a syscall buffer's, an arena keep block's interior).
+(pub :: strOwner (-> String Int))
+(pub fn (strOwner s)
+  (memGetWord (cast Int s) 2))
 
 ; The byte at `i`, or 0 when `i` is out of range.
 ;
@@ -176,7 +203,12 @@
     (let ((from (if (< start 0) 0 (if (> start len) len start))))
       (let ((avail (- len from)))
         (let ((n (if (< count 0) 0 (if (> count avail) avail count))))
-          (strWrap (+ (strData s) from) n))))))
+          (let ((owner (strOwner s)))
+            {
+              ; the slice's own share of the bytes it now points into
+              (__retain owner)
+              (strWrapOwned (+ (strData s) from) n owner)
+            }))))))
 
 ; An owned, NUL-terminated copy of `s`.
 (pub :: strDup (-> String String))

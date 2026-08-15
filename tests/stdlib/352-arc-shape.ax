@@ -1,4 +1,8 @@
 ; exit 255 (see .exit)
+; (The `Str` bytes a released header pointed at are COUNTED since
+; 2026-08-15 - the header's third word names them - but nothing
+; releases a header yet, so they still stand rather than leak: the
+; distinction MM-LIFE-6 now draws.)
 ; MM-LIFE-2d, the monomorphic half, under MM-LIFE-2c's births: a
 ; constructor cell is BORN at count 1 (the constructing expression's
 ; own share), its reference fields are retained as they store in

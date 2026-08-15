@@ -956,12 +956,16 @@
                 ; retain/release read the sentinel and stop. The
                 ; circulating address is element 2, so every consumer
                 ; still loads len at +0 and bytes at +8 from the
-                ; handle it holds.
+                ; handle it holds. The fifth word is MM-LIFE-2d's
+                ; OWNER (`Str` half): zero, because a literal's bytes
+                ; are loader-resident and no block's death may free
+                ; them - a slice of a literal inherits that zero and
+                ; retains nothing.
                 (emitLine cg
                   (cat4 (cat3 "@strhdr_" (fmtInt i)
-                              " = private unnamed_addr constant { i64, i64, i64, ptr } { i64 -1, i64 0, i64 ")
+                              " = private unnamed_addr constant { i64, i64, i64, ptr, i64 } { i64 -1, i64 0, i64 ")
                         (cat3 (fmtInt (- n 1)) ", ptr @str_" (fmtInt i))
-                        " }, align 16"
+                        ", i64 0 }, align 16"
                         ""))
                 (emitStringGlobals cg (+ i 1))
               }))))))
@@ -6570,7 +6574,7 @@
         ; count/shape words physically at handle-16 like every heap
         ; block's.
         (emitLine cg (cat4 (cat2 "  " r)
-                           " = ptrtoint ptr getelementptr inbounds ({ i64, i64, i64, ptr }, ptr @strhdr_"
+                           " = ptrtoint ptr getelementptr inbounds ({ i64, i64, i64, ptr, i64 }, ptr @strhdr_"
                            (fmtInt id)
                            ", i64 0, i32 2) to i64"))
         (memSetWord cg 2 r)
