@@ -1,0 +1,36 @@
+Hello world
+42 true false 3.141590
+world and world again
+no holes at all
+
+42
+ax
+true
+{n} is not a hole, 42 is
+{42}
+}{
+tab	here 42
+[      42]
+[      42]
+[ax      ]
+[   ax   ]
+[   ax    ]
+[42]
+[42]
+[000042]
+[-00007]
+[000]
+[beef] [BEEF]
+[0]
+[      beef]
+[000000BEEF]
+[3.14]
+[3]
+[     3.142]
+[3.1       ]
+[42]
+row=[ax        42]
+plain=42 lit=static val=42
+nested=[ax        42]
+a42  ax|
+raw, no newline: 42

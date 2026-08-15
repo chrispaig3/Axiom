@@ -184,10 +184,38 @@
 ; Typing an expression against the accumulated declarations -
 ; stage0's check_single_expr re-expressed. The declaration text is
 ; parsed and checked FRESH (stage0 re-registers per line; the cost
-; and the semantics both clone), imports deliberately unresolved:
-; stage0's REPL type-checks with a bare TypeChecker, which is why
-; `(println "x")` is an undefined-variable error at the prompt even
-; though the eval wrapper imports IO. Bug-for-bug.
+; and the semantics both clone).
+;
+; IMPORTS ARE RESOLVED AND MACROS ARE EXPANDED HERE, and until
+; 2026-08-15 neither was. This paragraph used to end "imports
+; deliberately unresolved: stage0's REPL type-checks with a bare
+; TypeChecker, which is why `(println "x")` is an undefined-variable
+; error at the prompt even though the eval wrapper imports IO.
+; Bug-for-bug." Three things retired that:
+;
+;   - stage0 is deleted, so bug-for-bug parity with it is no longer a
+;     property anything can check. The roadmap set this precedent when
+;     it replaced phase 4's byte-identity criterion: a criterion that
+;     asks stage1 to keep the retiring compiler's design choices is
+;     the wrong criterion (v1-roadmap.md P4).
+;   - The EVAL path already resolves and expands - `replCompile`
+;     below - so the two halves of one prompt line disagreed about
+;     what was in scope. The typing half ran first and rejected the
+;     line, so the eval half's correctness was unobservable.
+;   - `println` is a MACRO now (macro-system.md MAC-CAP-10). An
+;     unexpanded prompt cannot print at all, and `(when true 5)` was
+;     already `undefined variable `when`` for the same reason - the
+;     defect was never about `IO`, it was about every imported macro
+;     in the language.
+;
+; The blast radius is zero for the checked-in sessions: not one of the
+; twelve imports anything, so resolution and expansion are both no-ops
+; over them and `check-repl-selfhost.sh`'s goldens do not move. What
+; changes is only what was impossible before.
+;
+; The frame table is discarded, exactly as `replCompile` discards it
+; and for the same reason: the REPL's error line joins bare messages
+; and the prompt IS the invocation site a frame would point back at.
 ;
 ; Answers a PResult-shaped record: ok, the rendered type Str, and
 ; the count of `Type error:` lines it printed (nonzero means the
@@ -222,21 +250,57 @@
                     ; the prompt ran correctly and was rejected before
                     ; it got the chance: `(sz 5)` answered `no
                     ; implementation of `Sz` for `Int`` about one
-                    ; sitting two lines above it. Imports stay
-                    ; unresolved - that is the stage0 parity this
-                    ; function's header records, and it is a different
-                    ; question.
-                    (let ((_lw (lowerImpls decls vecNew)))
-                    (let ((tc (checkModuleTc decls decls units)))
+                    ; sitting two lines above it.
+                    ;
+                    ; Imports and expansion now run here too, in the
+                    ; order the file path uses: resolve, expand, lower,
+                    ; check. The expression itself is expanded with the
+                    ; same call, because a macro invocation at the
+                    ; prompt - `(println "n={n}")` - is an EXPRESSION,
+                    ; and typing it unexpanded asks about a name no
+                    ; program ever contains.
+                    ;
+                    ; The expression rides into expansion as a
+                    ; synthetic declaration and rides back out as its
+                    ; body. There is no expression-level entry point
+                    ; into the expander and there should not be one:
+                    ; `expandProgram` is what the file path calls, so
+                    ; routing the prompt through it is what keeps the
+                    ; two agreeing about hygiene, budgets and
+                    ; refusals. `expandDeclsIn` rewrites a body in
+                    ; place, which is why the handle taken before the
+                    ; call still answers after it.
+                    (let ((probe (mkDFnAt "__repl_type_probe" vecNew
+                                          (memGetWord er 1) 0)))
+                    (let ((_pp (vecPush decls probe)))
+                    (let ((allDecls (resolveImports decls vecNew vecNew
+                                                    (checkedTargetCode hostTarget)
+                                                    "." units)))
+                    ; Expansion's diagnostics are COLLECTED, not
+                    ; discarded into a fresh Vec. Discarded, a line
+                    ; whose macro refused still printed a type -
+                    ; `(println "unclosed {x")` answered `type : Int`
+                    ; and only then failed in the eval half, which
+                    ; reads as the prompt contradicting itself.
+                    (let ((exDiags vecNew))
+                    (let ((_ex (expandProgram decls allDecls exDiags vecNew 0)))
+                    (if (> (countErrorDiags exDiags) 0)
+                        { (printTypeErrors exDiags 0) (pErr 0) }
+                    (let ((_lw (lowerImpls allDecls vecNew)))
+                    (let ((tc (checkModuleTc allDecls allDecls units)))
+                      ; `before` is taken AFTER the module walk, so the
+                      ; probe's own pass over the expression is not
+                      ; counted twice - only what `checkExpr` adds is
+                      ; printed.
                       (let ((before (vecLen (tcOut tc))))
-                        (let ((ty (checkExpr tc (memGetWord er 1))))
+                        (let ((ty (checkExpr tc (nodeC probe))))
                           (let ((after (tcOut tc)))
                             (if (> (vecLen after) before)
                                 {
                                   (printTypeErrors after before)
                                   (pErr 0)
                                 }
-                                (pOk (tyRender ty) 0)))))))))))))))
+                                (pOk (tyRender ty) 0)))))))))))))))))))))
 
 (pub :: printTypeErrors (-> Int Int Int))
 ;@axiom:effect(io)
@@ -271,7 +335,7 @@
               "(println (__repl_result 0))"
           (if (strEq tyStr "Char")
               "(let ((s (strAlloc 1)))\n  {\n    (memPutByte (strData s) 0 (cast Int (__repl_result 0)))\n    (println s)\n  })"
-              "(printlnInt (__repl_result 0))"))))
+              "(println (__repl_result 0))"))))
         (carrier (if (strEq tyStr "Char") "Char"
                  (if (|| (strEq tyStr "String") (strEq tyStr "Str")) "String" "Int")))
         (body (if (strEq tyStr "Bool")

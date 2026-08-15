@@ -230,7 +230,7 @@ $advance
 ;@axiom:effect(io)
 (fn (main)
   {
-    (printlnInt (population (advance seed $n)))
+    (println (population (advance seed $n)))
     0
   })
 AX

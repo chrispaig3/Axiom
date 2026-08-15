@@ -42,8 +42,8 @@
 (pub fn (main)
   {
     (println (charToStr (letterZ 0)))     ; Z
-    (printlnInt (cast Int (letterZ 0)))   ; 90
-    (printlnInt (firstByte "abc"))        ; 97
+    (println (cast Int (letterZ 0)))   ; 90
+    (println (firstByte "abc"))        ; 97
     (println (charToStr 'q'))             ; q
     0
   })

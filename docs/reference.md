@@ -25,6 +25,7 @@ A friendly, comprehensive guide to the Axiom programming language — a function
 17. [Handle Expressions](#handle-expressions)
 18. [Modules and Imports](#modules-and-imports)
 18b. [Macros](#macros)
+18c. [Printing and Formatting](#printing-and-formatting)
 19. [Memory Primitives](#memory-primitives)
 20. [Standard Library](#standard-library)
 21. [AXTAG Metadata](#axtag-metadata)
@@ -980,7 +981,10 @@ return value is the operation's result, and execution continues.
 (handle
   (log "hi")            ; dispatches to the lambda below
   (Console)
-  (lambda (s) { (println s) 0 }))
+  ; `cast String`: a handler parameter's type is a variable, and
+  ; `println` is a macro over `show`, whose implementation is keyed on
+  ; a type NAME (AX3025).
+  (lambda (s) { (println (cast String s)) 0 }))
 ```
 
 The rules that make this predictable:
@@ -1199,6 +1203,151 @@ is planned in.
 
 ---
 
+## Printing and Formatting
+
+Printing is **two macros and no per-type functions**. `println` and
+`eprintln` come from `IO`; `format`, which answers a `String` instead
+of writing one, comes from `Show` (and arrives with `IO`, which imports
+it).
+
+There is deliberately no newline-less `print`. A partial-line printer
+exists in C-descended libraries because assembling a line out of pieces
+was expensive, so you emitted the pieces instead; here the line is
+assembled at compile time, so `(println "ok {name} in {ms:>4}ms")` is
+one call and one syscall where four `print`s were four. For bytes with
+no newline and no rendering there is `writeStr`, which is the
+primitive and is also one call.
+
+```scheme
+(import IO)
+
+;@axiom:effect(io)
+(fn (main)
+  (let ((name "world") (n 42) (pi 3.14159))
+    {
+      (println "Hello {name}")            ; Hello world
+      (println "n={n} pi={pi:.2}")        ; n=42 pi=3.14
+      (println n)                         ; 42
+      (let ((row (format "{name:<10}{n:>5}")))
+        (println "[{row}]"))              ; [world        42]
+      0
+    }))
+```
+
+### Holes
+
+A hole names a binding **in scope at the call**. There is no argument
+list and no positional `{}`: the name goes in the string.
+
+```
+{name}          render `name` through its `Show` instance
+{name:SPEC}     render it the way SPEC says
+{{   }}         a literal brace
+```
+
+`name` may be anything the language can name, because the hole uses
+the lexer's own identifier charset — `{empty-list}` works.
+
+### Specifiers
+
+```
+SPEC := [align] ['0'] [width] ['.' precision] [type]
+align := '<' (left) | '^' (centre) | '>' (right, the default)
+type  := 'x' (lowercase hex) | 'X' (uppercase hex)
+```
+
+| Written | Means | Expands to |
+|---|---|---|
+| `{n}` | the value's own rendering | `(show n)` |
+| `{n:x}` | hexadecimal | `(fmtHex n)` |
+| `{x:.2}` | two decimal places | `(fmtFloatPrec x 2)` |
+| `{n:>8}` | right-aligned in 8 columns | `(fmtPadLeft (show n) 8)` |
+| `{s:<8}` | left-aligned | `(fmtPadRight (show s) 8)` |
+| `{s:^8}` | centred | `(fmtPadCenter (show s) 8)` |
+| `{n:04}` | zero-padded, sign kept in front | `(fmtPadZerosLeft (show n) 4)` |
+| `{x:>10.2}` | both, composed | `(fmtPadLeft (fmtFloatPrec x 2) 10)` |
+
+**Everything above happens at compile time.** A specifier is not
+interpreted while the program runs — it *chooses a function*, once,
+during macro expansion. `(println "hi")` compiles to a single
+`writeStr` of a single static constant whose bytes already end in a
+newline; nothing parses a format string at run time, because no format
+string survives to run time.
+
+### Both halves are checked
+
+- **Shape** is the expander's: an unclosed `{`, a stray `}`, an empty
+  `{}`, or a malformed specifier is `AX3031`, with the caret inside
+  the string on the offending byte.
+- **Type** is the checker's: a specifier picks a function with a type,
+  so `{s:.2}` on a `String` is `AX3004` on `fmtFloatPrec`'s `Float`
+  parameter. An unbound hole is `AX3001`; a type with no `Show`
+  instance is `AX3025`.
+
+### Rendering your own types
+
+`show` is an ordinary trait method, so a type becomes interpolable by
+implementing it. `Pre`'s `deriveShow` writes the function half:
+
+```scheme
+(import IO)
+(import Pre)
+
+(data Colour (Red) (Green) (Blue))
+(deriveShow Colour)                       ; gives showColour : Colour -> String
+
+(impl (Show Colour) where
+  ((show (lambda (v) (showColour v)))))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let ((c (Green)))
+    { (println "the colour is {c}")       ; the colour is Green
+      0 }))
+```
+
+### When the type is not known
+
+Dispatch is on the **static** type, so a value whose type the compiler
+cannot name selects no instance and is `AX3025`. Two shapes do this:
+
+```scheme
+(println (vecGet v 0))                    ; AX3025: vecGet answers `a`
+(println (handle (ask 3 4) (Ask) h))      ; AX3025: an effect result
+```
+
+Name the type and both work — which is exactly the information the old
+`printlnInt` carried in its name:
+
+```scheme
+(println (cast Int (vecGet v 0)))
+```
+
+### Migrating from the old surface
+
+`IO` used to export a function per type. It no longer does.
+
+| Was | Now |
+|---|---|
+| `(println s)` where `s : String` | unchanged — `Show`'s `String` instance is the identity |
+| `(printlnInt n)` | `(println n)` |
+| `(printInt n)` | `(println n)`, or `(writeStr stdout (format "{n}"))` to keep the line open |
+| `(println (fmtInt n))` | `(println n)` |
+| `(println (fmtHex n))` | `(println "{n:x}")` |
+| `(println (fmtPadLeft (fmtInt n) 8))` | `(println "{n:>8}")` |
+| `(println (fmtFloatPrec x 2))` | `(println "{x:.2}")` |
+| `(println (strConcat "n=" (fmtInt n)))` | `(println "n={n}")` |
+| `(print "a") (print b) (println c)` | `(println "a{b}{c}")` — one call, one syscall |
+| `(print s)` (no newline wanted) | `(writeStr stdout s)` |
+| `(println (vecGet v 0))` | `(println (cast Int (vecGet v 0)))` |
+| a literal containing `{` or `}` | double it: `{{`, `}}` |
+
+`printLit` and `printlnLit` are unchanged: they take an address of
+NUL-terminated bytes, which is not a type-rendering question.
+
+---
+
 ## Memory Primitives
 
 The standard library is built on these low-level primitives, and so is any code that needs to talk to the machine directly. They are the layer where the type system stops — every argument and result is an `Int`.
@@ -1235,16 +1384,17 @@ Axiom ships a standard library written **in Axiom**. It reaches the operating sy
 
 | Module | Provides |
 |---|---|
-| `Pre` | `when`, `unless`, `cond2`, `cond3` (conditional macros) |
+| `Pre` | `when`, `unless`, `cond2`, `cond3` (conditional macros), `deriveEq`, `deriveShow`, `deriveArity`, `showOr` |
 | `Mem` | `memAlloc`, `memAllocMapped`, `memCopy`, `memSet`, `memCmp`, `memGetByte`/`memPutByte`, `memGetWord`/`memSetWord` |
 | `Str` | `strFromLit`, `strAlloc`, `strLen`, `strByte`, `strCmp`, `strEq`, `strSlice`, `strDup`, `strConcat`, `strFindByte`, `strStartsWith`, `strCStr` |
 | `Utf8` | `utf8Len`, `utf8CharAt`, `utf8DecodeAt`, `utf8FromChar`, `utf8Next`, `utf8Offset`, `utf8Slice`, `utf8Width`, `utf8SeqLen`, `utf8IsCont`, `utf8Valid` (the character view of a `Str`) |
 | `Vec` | `vecNew`, `vecPush`, `vecPop`, `vecGet`, `vecSet`, `vecLen`, `vecCap`, `vecReserve`, `vecClear` |
 | `Map` | `mapNew`, `mapHas`, `mapGet`, `mapInsert`, `mapRemove`, `mapLen`, `mapCap`, `mapNew`, `mapRehash` (open-addressing `Int→Int` hash map) |
-| `Fmt` | `fmtInt`, `fmtHex`, `fmtPadLeft`, `fmtIntWidth` |
+| `Fmt` | `fmtInt`, `fmtHex`, `fmtHexUpper`, `fmtFloat`, `fmtFloatPrec`, `fmtPadLeft`, `fmtPadRight`, `fmtPadCenter`, `fmtPadZerosLeft`, `fmtIntWidth` — the functions a format specifier selects |
+| `Show` | the `Show` trait and its `show` method (`Int`, `String`, `Bool`, `Float`), and the `format` macro |
 | `Intern` | `internNew`, `internIntern`, `internFind`, `internLookup`, `internCount` (string interner) |
 | `Sys` | `sysWriteFd`, `sysReadFd`, `sysOpenPath`, `sysCloseFd`, `sysSeek`, `sysExitWith`, `sysFailed`, `sysErrno`, `stdin`/`stdout`/`stderr` |
-| `IO` | `print`, `println`, `printLit`, `printlnLit`, `printInt`, `printlnInt`, `eprint`, `eprintln`, `writeStr`, `readUpTo`, `readAll`, `readFile`, `readFileLit`, `exit`, `die` |
+| `IO` | `println`, `eprintln` (**macros** — see Printing and Formatting), `writeStr`, `printlnLit`, `readUpTo`, `readAll`, `readFile`, `readFileLit`, `exit`, `die` |
 
 ### A `Str` Is...
 
@@ -1661,11 +1811,12 @@ Use `--opt 2` for anything that iterates over a large input.
 (:: main Int)
 ;@axiom:effect(io)
 (fn (main)
-  {
-    (printlnInt 42)
-    (println (strConcat "sum=" (fmtInt (+ 1 2))))
-    0
-  })
+  (let ((total (+ 1 2)))
+    {
+      (println 42)
+      (println "sum={total}")
+      0
+    }))
 ```
 
 ---

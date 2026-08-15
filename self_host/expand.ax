@@ -90,6 +90,7 @@
 (import Str)
 (import Vec)
 (import core)
+(import lexer)
 (import parser)
 (import diag)
 
@@ -1092,7 +1093,27 @@
                   (vecPush out (expSubstPatFor a params args env isp)))
               (set i (+ i 1))
             }))
-        (expRebuildSpine newHead out isp 0)
+        ; AN EMPTY BINDER SPLICE IS A NULLARY CONSTRUCTOR, NOT A
+        ; BINDER. `expSpineArgs` of an application never answers
+        ; nothing, so `out` is empty only when the one argument was a
+        ; `(syntax/binders C f)` that supplied no binders - the
+        ; arity-0 case that lets one template cover every arity.
+        ; Rebuilt as a spine it collapsed back to the bare head, and a
+        ; bare identifier in pattern position BINDS (`expRenamePat`'s
+        ; header says so): the arm matched every value instead of one
+        ; constructor.
+        ;
+        ; It answered wrongly and silently. `(deriveShow Colour)` over
+        ; an all-nullary `data` generated `(match v (Red "Red")
+        ; (Green "Green") (Blue "Blue"))`, whose first arm swallows
+        ; everything - `showColour (Green)` answered "Red", at exit 0.
+        ; `tests/selfhost/380-syntax-scalar-queries.ax` could not see
+        ; it: the only type it derives `show` for is `Shape`, whose
+        ; nullary `Dot` is the LAST arm, where a wildcard and the
+        ; right answer are indistinguishable.
+        (if (&& (== (vecLen out) 0) (== (nodeTag newHead) TAG_E_VAR))
+            (mkNodeAt TAG_P_CON0 (nodeA newHead) 0 0 isp)
+            (expRebuildSpine newHead out isp 0))
       })))
 
 (pub :: expPushBinderVars (-> Int Int Int Int Int))
@@ -1286,6 +1307,538 @@
             (if (== (expIsDefinedName env n) 1)
                 (mkEVarAt "true" isp)
                 (mkEVarAt "false" isp))))))
+
+; ==================================================================
+; syntax/format — the compile-time format-string parser
+; ==================================================================
+;
+; `(syntax/format e)` is the one query that reads a LITERAL rather
+; than the declaration list, and it is what makes `(println "x =
+; {x}")` a rewrite instead of a runtime parse. It is the whole of the
+; compiler's involvement in formatting: the printing macros in
+; `stdlib/IO.ax` and `format` in `stdlib/Show.ax` are four lines each
+; on top of it (macro-system.md MAC-CAP-10).
+;
+; WHY THIS IS A COMPILER PRIMITIVE AND NOT A MACRO. Tier 1 is a
+; rewrite system over syntax NODES. A format string arrives as one
+; node - a `TAG_E_STR` whose payload is an opaque lexeme - and the
+; query vocabulary has no way to take it apart: there is no
+; `syntax/`-anything that indexes a string, and adding one would be
+; a string-processing language inside the template language. The
+; decomposition therefore happens here, in compiler code, over a
+; literal the compiler already holds. That is NOT tier 2: no user
+; code runs, the input is a literal rather than a program, and the
+; output is a tree built by this function. The threat-model line the
+; roadmap draws (§4.2) is "the compiler must never execute arbitrary
+; code from source files", and parsing a string the compiler lexed
+; is on the safe side of it, exactly as `syntax/constructors`
+; reading a `data` declaration is.
+;
+; WHAT IT ANSWERS. Two shapes, decided by what the argument IS:
+;
+;   a string literal   parse it, and answer the concatenation of its
+;                      literal runs with a rendering call per hole
+;   anything else      answer `(show e)` - one call, dispatched on
+;                      the argument's STATIC type
+;
+; The second case is why taking the name `println` for a macro cost
+; no call site: every `(println expr)` written before this existed
+; still means what it meant, because `Show`'s `String` instance is
+; the identity. It is also `format`'s whole definition - `(format x)`
+; is "render x", which is what `format!("{}", x)` spells in Rust.
+;
+; `syntax/formatln` is the same thing with a newline folded into the
+; last literal run at expansion time, so `(println "hi")` emits one
+; `write` of `"hi\n"`: one syscall and no allocation, against the two
+; writes the `println` FUNCTION did.
+;
+; THE HOLE GRAMMAR, and why it is this one:
+;
+;   {name}                    render `name` with its `Show` instance
+;   {name:SPEC}               render it the way SPEC says
+;   {{  }}                    a literal brace
+;
+;   SPEC := [align] ['0'] [width] ['.' precision] [type]
+;   align     := '<' | '^' | '>'          (default '>')
+;   type      := 'x' | 'X'                (hexadecimal)
+;
+; A specifier is not a formatting MINI-LANGUAGE interpreted at run
+; time - there is no run time here. Each part chooses a different
+; `Fmt` FUNCTION, and the choice is made once, during expansion:
+;
+;   {n}        (show n)
+;   {n:x}      (fmtHex n)
+;   {x:.2}     (fmtFloatPrec x 2)
+;   {n:>8}     (fmtPadLeft (show n) 8)
+;   {s:<12}    (fmtPadRight (show s) 12)
+;   {s:^12}    (fmtPadCenter (show s) 12)
+;   {n:04}     (fmtPadZerosLeft (show n) 4)
+;   {x:>10.2}  (fmtPadLeft (fmtFloatPrec x 2) 10)
+;
+; This is what replaces a print function per type. `printInt` existed
+; because rendering an `Int` was a different CALL from rendering a
+; `String`; the rendering call is now chosen by the specifier and the
+; instance, so there is one `println` and no `printInt`.
+;
+; It is also where "validated at compile time" stops being a slogan.
+; The parser rejects a malformed specifier (AX3031), and the CHECKER
+; rejects a well-formed one applied to the wrong type, because the
+; function the specifier chose has a type: `{s:.2}` on a `String`
+; reaches `fmtFloatPrec`'s `Float` parameter and is `AX3004` at the
+; invocation. No specifier can be "ignored at run time", because none
+; of them survives to run time.
+;
+; WHAT IT DOES NOT DO. There is no argument list: `{name}` names a
+; binding at the INVOCATION, and a macro that took N arguments would
+; need repetition patterns (MAC-LANG-15..18), which do not exist.
+; Capture is not a workaround for their absence - it is the form the
+; language's own examples are written in - but the absence is why
+; there is no positional `{}`, and `{}` is refused by name rather
+; than left to fail as an empty identifier.
+;
+; TYPES ARE NOT CONSULTED HERE, and cannot be (MAC-CAP-7). A hole
+; becomes a CALL, and which instance or overload that call reaches is
+; the checker's business, decided after expansion from the argument's
+; static type. A hole naming a type with no `Show` instance is
+; `AX3025` at the invocation, with the expansion backtrace pointing
+; at the macro - which is the correct place for it, and is why this
+; needs no diagnostic of its own for the case.
+; ------------------------------------------------------------------
+
+; A parsed specifier. `align` is the byte `<`, `^` or `>`; `prec` is
+; -1 when absent, `ty` is 0 when absent, and `ok` is 0 once a refusal
+; has been emitted - the poison convention the rest of this family
+; uses.
+(pub struct FmtSpec (align : Int) (zero : Int) (width : Int)
+                    (prec : Int) (ty : Int) (ok : Int))
+
+; Constructed through a function answering `Int`, which is `mkSpan`'s
+; pattern in `core.ax` and for the same reason: every reader indexes
+; the record with `memGetWord`, so the handle travels as a word.
+(pub :: mkFmtSpec (-> Int Int Int Int Int Int Int))
+(pub fn (mkFmtSpec align zero width prec ty ok)
+  (FmtSpec align zero width prec ty ok))
+
+; The generated call `(f x)`, with `f` resolved the way a template's
+; free identifier resolves - at the macro's DEFINITION site
+; (MAC-HYG-6). `strConcat` and `show` are the only two names this
+; query invents, and neither is written in any template, so they
+; cannot go through substTpl's path and have to take the same rule
+; explicitly.
+;
+; The residue this leaves is MAC-HYG-8's, unchanged and now shared:
+; `expQualify` rewrites a name the MACRO's own module declares, and
+; `strConcat` belongs to `Str` rather than to `IO`, so it stays bare
+; and an entry file defining `show` or `strConcat` CAPTURES it.
+;
+; That capture is SILENT and answers wrongly. This comment claimed the
+; opposite - "loud, a type error at the invocation" - until it was
+; measured, and the measurement is two programs:
+;
+;   (:: show (-> a String)) (fn (show x) "HIJACKED")
+;   ... (println "n={n}")            prints  n=HIJACKED
+;
+;   (:: strConcat (-> String String String))
+;   (fn (strConcat a b) "HIJACKED")
+;   ... (println "n={n}")            prints  HIJACKED
+;
+; both at exit 0. A capture that happens to be ill-typed is loud, and
+; that is the case the old claim generalised from; a well-typed one is
+; not. Scope sets (MAC-HYG-9) are what close this, and until they land
+; it is pinned by tests/selfhost/383-format-capture.ax so the fix has
+; a test to flip.
+(pub :: expFmtCall (-> Int String Int Int Int))
+(pub fn (expFmtCall env f x sp)
+  (mkEApp (mkEVarAt (expQualify env f) sp) x))
+
+; `(f x n)` - the shape every width and precision specifier lowers
+; to, since each of them is a `Fmt` function of a rendered String (or
+; a Float) and a count.
+(pub :: expFmtCall2 (-> Int String Int Int Int Int))
+(pub fn (expFmtCall2 env f x y sp)
+  (mkEApp (mkEApp (mkEVarAt (expQualify env f) sp) x) y))
+
+; Append `node` to the concatenation built so far. 0 means "nothing
+; yet", so a one-part format string produces that part and no call:
+; `(println "hi")` emits exactly the literal it was given.
+(pub :: expFmtCat (-> Int Int Int Int Int))
+(pub fn (expFmtCat env acc node sp)
+  (if (== acc 0)
+      node
+      (mkEApp (expFmtCall env "strConcat" acc sp) node)))
+
+; The same, for a literal RUN that may be empty - which it is at every
+; boundary a hole sits on. `"{a}{b}"` has three runs and all three are
+; empty, and concatenating them cost three `strConcat` calls per line
+; printed, at run time, to append nothing. An empty run contributes
+; nothing to the answer and is dropped instead.
+(pub :: expFmtCatRun (-> Int Int String Int Int))
+(pub fn (expFmtCatRun env acc run sp)
+  (if (== (strLen run) 0)
+      acc
+      (expFmtCat env acc (expFmtLit run sp) sp)))
+
+; A literal run, as the node the lexer would have produced for it.
+; `TAG_E_STR` carries the LEXEME - quotes and escapes included, which
+; is why the runs are sliced out of the original lexeme rather than
+; unescaped and re-escaped: every escape the source wrote survives
+; byte for byte, and none is interpreted twice.
+;
+; WORD B IS THE "ALREADY PARSED" MARK, and it is what stops a format
+; string being parsed TWICE. Expansion runs to a fixpoint over its own
+; output, so a macro whose result is a literal hands that literal to
+; whatever encloses it: `(println (format "a{{b}}"))` collapsed the
+; inner `format` to the literal `a{b}` and then let the outer
+; `println` parse THAT, reading the `{b}` a doubled brace had just
+; produced as a hole - `undefined variable b`, for a program with no
+; `b` and no hole in it. A literal this pass built is not source and
+; must not be re-read as source. The parser writes 0 here
+; (`parser.ax` line 645) and nothing else reads the word: the checker
+; looks at the tag, and codegen at the lexeme.
+(pub :: expFmtLit (-> String Int Int))
+(pub fn (expFmtLit body sp)
+  (mkNodeAt TAG_E_STR (strConcat (strConcat "\"" body) "\"") 1 0 sp))
+
+; The end of the identifier starting at `i`, or `i` itself when there
+; is no identifier there. The charset is the LEXER's, not a second
+; one invented here: a hole may name anything the language can name,
+; so `{empty-list}` and `{ok?}`-minus-the-`?` follow `isIdentChar`
+; and drift with it rather than against it.
+(pub :: expFmtIdentEnd (-> String Int Int Int))
+(pub fn (expFmtIdentEnd body i n)
+  (if (>= i n)
+      i
+      (if (isIdentStart (strByte body i))
+          (expFmtIdentScan body (+ i 1) n)
+          i)))
+
+(pub :: expFmtIdentScan (-> String Int Int Int))
+(pub fn (expFmtIdentScan body i n)
+  (if (>= i n)
+      i
+      (if (isIdentChar (strByte body i))
+          (expFmtIdentScan body (+ i 1) n)
+          i)))
+
+; A malformed format string. The span is computed INSIDE the literal
+; - `base` is the offset of the body's first byte, so a caret lands
+; on the offending brace or hole rather than on the whole
+; invocation, which is the one thing a format string's diagnostics
+; have to get right to be worth having.
+;
+; The unit is `declmod` (word 11) and NOT `macmod`, and the
+; difference is the whole diagnostic. `macmod` is the module the
+; MACRO was written in - `IO` - and these spans index the file the
+; format string was written in, which is the file being expanded.
+; Stamped with `macmod` the renderer resolves a caller's byte offset
+; against `stdlib/IO.ax`'s text and reports a location inside the
+; standard library, which is what this did before the offsets were
+; checked against real source: `IO.ax:3:17` for a mistake four lines
+; into the user's own file. Word 11 exists for exactly this and is
+; the reason it is not overwritten by the template walk.
+(pub :: expFmtErr (-> Int Int Int String String Int))
+(pub fn (expFmtErr env from to msg help)
+  {
+    (expEmit env (expMarkUnit env
+                   (mkDiagNote SEV_ERROR "AX3031" "malformed-format-string"
+                               (mkSpan from to) msg 0 0 help
+                               "a format string is parsed at expansion time, so every hole in it is checked before the program runs; `{{` and `}}` write a literal brace")
+                   (memGetWord env 11)))
+    0
+  })
+
+; The largest width or precision a format specifier may name.
+;
+; Implementation-defined, like every other limit this compiler
+; enforces (macro-system.md 11.2), and stated in the diagnostic rather
+; than left for a reader to look up. One million is far past any
+; layout - the widest column in this repository's own output is 10 -
+; and far below where the accumulator that reads the digits could
+; wrap.
+(pub :: expFmtMaxCount Int) (pub fn (expFmtMaxCount) 1000000)
+(pub :: expFmtMaxCountMsg String) (pub fn (expFmtMaxCountMsg) "1000000")
+
+; The specifier between `:` and `}`, as a `FmtSpec`.
+;
+; Parsed in the order the grammar writes it, each part optional, and
+; anything left over at the end is a refusal rather than a silent
+; ignore - a format specifier that is quietly dropped is the exact
+; failure this whole design exists to make impossible.
+(pub :: expFmtParseSpec (-> Int String Int Int Int Int))
+(pub fn (expFmtParseSpec env body from to base)
+  (let ((mut p from) (mut align 62) (mut zero 0) (mut width 0)
+        (mut prec (- 0 1)) (mut ty 0) (mut ok 1))
+    {
+      (if (&& (< p to)
+              (|| (== (strByte body p) 60)
+                  (|| (== (strByte body p) 94) (== (strByte body p) 62))))
+          { (set align (strByte body p)) (set p (+ p 1)) }
+          0)
+      ; A leading `0` is the zero-pad FLAG, not the first digit of the
+      ; width: `{n:04}` is width 4 zero-padded, exactly as in Rust,
+      ; and a width of literally zero pads nothing anyway.
+      (if (&& (< p to) (== (strByte body p) 48))
+          { (set zero 1) (set p (+ p 1)) }
+          0)
+      ; The accumulator STOPS at the cap rather than wrapping, and the
+      ; cap is then reported. Unbounded, these two loops were the only
+      ; way a format string could take the compiler off a cliff:
+      ; `{n:99999999999999999999}` wrapped the width to a huge value
+      ; and the program trapped in the allocator at exit 70 with no
+      ; diagnostic, and the same digits as a PRECISION made the
+      ; expansion hang - `powTen` counting to a wrapped bound. Both are
+      ; AX3031 now, at expansion time, and the message names the limit
+      ; it enforced (macro-system.md 11.2's rule for every limit this
+      ; compiler states).
+      (while (&& (< p to) (isDigit (strByte body p)))
+        { (set width (if (> width (expFmtMaxCount))
+                         width
+                         (+ (* width 10) (- (strByte body p) 48))))
+          (set p (+ p 1)) })
+      (if (&& (== ok 1) (> width (expFmtMaxCount)))
+          (set ok (expFmtErr env (+ base from) (+ base to)
+                    (strConcat "a format width above " (expFmtMaxCountMsg))
+                    "a width is a byte count the padding allocates; this one is a typo rather than a layout"))
+          0)
+      (if (&& (== ok 1) (&& (< p to) (== (strByte body p) 46)))
+          {
+            (set p (+ p 1))
+            (if (if (>= p to) true (if (isDigit (strByte body p)) false true))
+                ; From the `.` rather than from after it: at the end
+                ; of a specifier there is nothing after it to point
+                ; at, and a zero-width caret marks no byte at all.
+                (set ok (expFmtErr env (+ base (- p 1)) (+ base to)
+                          "a `.` in a format specifier needs a digit count after it"
+                          "write `{x:.2}` for two decimal places"))
+                (set prec 0))
+            (while (&& (< p to) (isDigit (strByte body p)))
+              { (set prec (if (> prec (expFmtMaxCount))
+                              prec
+                              (+ (* prec 10) (- (strByte body p) 48))))
+                (set p (+ p 1)) })
+            (if (&& (== ok 1) (> prec (expFmtMaxCount)))
+                (set ok (expFmtErr env (+ base from) (+ base to)
+                          (strConcat "a format precision above " (expFmtMaxCountMsg))
+                          "a precision is a digit count; `{x:.2}` is two decimal places"))
+                0)
+          }
+          0)
+      (if (&& (== ok 1) (< p to))
+          (if (|| (== (strByte body p) 120) (== (strByte body p) 88))
+              { (set ty (strByte body p)) (set p (+ p 1)) }
+              (set ok (expFmtErr env (+ base p) (+ base (+ p 1))
+                        (strConcat (strConcat "`" (strSlice body p 1))
+                                   "` is not a format-specifier type")
+                        "the types are `x` and `X`, both hexadecimal. Alignment and width come first (`{n:>8x}`) and a precision is `.N` (`{x:.2}`)")))
+          0)
+      (if (&& (== ok 1) (< p to))
+          (set ok (expFmtErr env (+ base p) (+ base to)
+                    "this is left over after the format specifier"
+                    "a specifier is [align][0][width][.precision][type], in that order - `{x:>08.2}`"))
+          0)
+      (mkFmtSpec align zero width prec ty ok)
+    }))
+
+; A HOLE NAMES A BINDING AT THE INVOCATION, ALWAYS - and it cannot
+; name a macro parameter. `(macro (logIt v) (println "value is {v}"))`
+; does not interpolate `logIt`'s argument; it emits a bare `v`, which
+; is `AX3001` at the call unless the caller happens to have one.
+;
+; That is structural rather than an omission. A string literal is a
+; LEAF to `substTpl`, copied through untouched, so by the time
+; `println`'s own expansion reaches the query the enclosing macro's
+; parameters are long out of scope - and they could not be spliced in
+; anyway, because a hole is a place for an EXPRESSION and a literal
+; has room only for text. Making it work would mean scanning every
+; string in every template for braces, which would change the meaning
+; of every template that prints a brace for some other reason.
+;
+; A macro that wants to render its own argument composes instead:
+;
+;   (macro (logIt v) (println (strConcat "value is " (show v))))
+;
+; The failure is loud, at the macro's own line, and pinned by
+; tests/diagnostics/570-format-refusals.ax.
+; The rendering call for one hole: a conversion, then a padding.
+;
+; Both layers are chosen HERE, at expansion time, so the generated
+; code contains no test of a format flag - `{n:>8x}` becomes exactly
+; `(fmtPadLeft (fmtHex n) 8)` and carries no specifier with it.
+(pub :: expFmtHole (-> Int Int Int Int Int))
+(pub fn (expFmtHole env v spec vsp)
+  (let ((align (memGetWord spec 0)) (zero (memGetWord spec 1))
+        (width (memGetWord spec 2)) (prec (memGetWord spec 3))
+        (ty (memGetWord spec 4)))
+    (let ((rendered
+            (if (== ty 120)
+                (expFmtCall env "fmtHex" v vsp)
+                (if (== ty 88)
+                    (expFmtCall env "fmtHexUpper" v vsp)
+                    (if (>= prec 0)
+                        (expFmtCall2 env "fmtFloatPrec" v (mkEInt prec) vsp)
+                        (expFmtCall env "show" v vsp))))))
+      (if (== width 0)
+          rendered
+          (if (== zero 1)
+              (expFmtCall2 env "fmtPadZerosLeft" rendered (mkEInt width) vsp)
+              (if (== align 60)
+                  (expFmtCall2 env "fmtPadRight" rendered (mkEInt width) vsp)
+                  (if (== align 94)
+                      (expFmtCall2 env "fmtPadCenter" rendered (mkEInt width) vsp)
+                      (expFmtCall2 env "fmtPadLeft" rendered (mkEInt width) vsp))))))))
+
+(pub :: expEvalFormat (-> Int Int Int Int Int Int Int))
+(pub fn (expEvalFormat env qargs params args isp nl)
+  (if (!= (vecLen qargs) 1)
+      { (expQueryErr env isp
+          "syntax/format takes exactly one argument"
+          "write `(syntax/format e)`; the printing macros pass their single parameter to it"
+          (expMacMod env))
+        (mkEInt 0) }
+      (let ((a (vecGet qargs 0)))
+        (let ((e (expFmtArgNode env a params args)))
+          (if (|| (!= (nodeTag e) TAG_E_STR) (!= (cast Int (nodeB e)) 0))
+              ; Not a source literal: one `show`, dispatched on the
+              ; static type. This is the arm that keeps `(println x)`
+              ; meaning what it meant before `println` was a macro,
+              ; and (via the word-b mark) the arm that stops an
+              ; expansion's own output being parsed a second time.
+              (let ((sp (if (!= (nodeSpan e) 0) (nodeSpan e) isp)))
+                (let ((r (expFmtCall env "show" e sp)))
+                  (if (== nl 0)
+                      r
+                      (expFmtCat env r (expFmtLit "\\n" sp) sp))))
+              (expFmtParse env e isp nl))))))
+
+; The argument as the caller wrote it: a macro parameter standing in
+; the template resolves to the argument node, and anything else is
+; itself. Unlike `expQueryArgName` this wants the NODE, because a
+; format string is a literal rather than a name.
+(pub :: expFmtArgNode (-> Int Int Int Int Int))
+(pub fn (expFmtArgNode env a params args)
+  (if (!= (nodeTag a) TAG_E_VAR)
+      a
+      (let ((idx (expParamIndex params (nodeA a))))
+        (if (< idx 0)
+            a
+            (vecGet args idx)))))
+
+; The end of the hole opened at `i`: the offset of its closing `}`,
+; or `n` when there is none. Scanned rather than assumed, because a
+; specifier can contain `<`, `>`, `.` and digits but never a brace.
+(pub :: expFmtCloseAt (-> String Int Int Int))
+(pub fn (expFmtCloseAt body i n)
+  (if (>= i n)
+      n
+      (if (== (strByte body i) 125)
+          i
+          (expFmtCloseAt body (+ i 1) n))))
+
+(pub :: expFmtParse (-> Int Int Int Int Int))
+(pub fn (expFmtParse env lit isp nl)
+  (let ((lex (nodeA lit))
+        (lsp (if (!= (nodeSpan lit) 0) (nodeSpan lit) isp)))
+    (let ((body (strSlice lex 1 (- (strLen lex) 2)))
+          ; The body's first byte, in source: past the opening quote.
+          ; A literal whose span the expander lost falls back to the
+          ; invocation's, and then every caret is the invocation -
+          ; degraded, never wrong.
+          (base (+ (spanStart lsp) 1)))
+      (let ((n (strLen body)))
+        (let ((mut acc 0) (mut chunk "") (mut i 0) (mut ok 1))
+          {
+            (while (&& (< i n) (== ok 1))
+              (let ((ch (strByte body i)))
+                (if (== ch 92)
+                    ; A backslash escape is copied as a PAIR, so its
+                    ; second byte can never be read as a brace and
+                    ; the run stays exactly what the source wrote.
+                    (let ((w (if (< (+ i 1) n) 2 1)))
+                      { (set chunk (strConcat chunk (strSlice body i w)))
+                        (set i (+ i w)) })
+                (if (== ch 123)
+                    (if (&& (< (+ i 1) n) (== (strByte body (+ i 1)) 123))
+                        { (set chunk (strConcat chunk "{")) (set i (+ i 2)) }
+                        (let ((j (expFmtIdentEnd body (+ i 1) n)))
+                          (if (== j (+ i 1))
+                              { (set ok (expFmtErr env (+ base i) (+ base (+ i 1))
+                                          (if (&& (< (+ i 1) n) (== (strByte body (+ i 1)) 125))
+                                              "an empty hole `{}` names nothing to interpolate"
+                                              "this `{` opens a hole that does not name a binding")
+                                          "a hole names a binding in scope at the CALL - `{count}` interpolates `count`. There are no positional arguments and no argument list: write the name in the string, or `{{` for a literal brace")) }
+                              (if (>= j n)
+                                  { (set ok (expFmtErr env (+ base i) (+ base n)
+                                              "this `{` is never closed"
+                                              "close the hole with `}`, or write `{{` for a literal brace")) }
+                                  ; The name is done. Either the hole
+                                  ; closes here, or a `:` introduces
+                                  ; the specifier, or the byte is
+                                  ; simply wrong.
+                                  (let ((close (if (== (strByte body j) 125)
+                                                   j
+                                                   (if (== (strByte body j) 58)
+                                                       (expFmtCloseAt body (+ j 1) n)
+                                                       (- 0 1)))))
+                                    (if (< close 0)
+                                        ; The span is `{name` - it
+                                        ; opens at the brace and stops
+                                        ; BEFORE the offending byte,
+                                        ; which the message quotes
+                                        ; instead. That byte is very
+                                        ; often a space (`{a b}`), and
+                                        ; `check-diagnostics` refuses
+                                        ; to bless a primary span that
+                                        ; begins or ends on
+                                        ; whitespace - correctly: a
+                                        ; caret under a space marks
+                                        ; nothing a reader can see.
+                                        { (set ok (expFmtErr env (+ base i) (+ base j)
+                                                    (strConcat (strConcat "this hole is not closed: `" (strSlice body j 1))
+                                                               "` is neither `}` nor `:`")
+                                                    "a hole is `{name}`, or `{name:SPEC}` with a format specifier - `{n:>8}`, `{x:.2}`, `{n:04x}`")) }
+                                        (if (>= close n)
+                                            { (set ok (expFmtErr env (+ base i) (+ base n)
+                                                        "this `{` is never closed"
+                                                        "close the hole with `}` after its format specifier")) }
+                                            (let ((spec (if (== close j)
+                                                            (mkFmtSpec 62 0 0 (- 0 1) 0 1)
+                                                            (expFmtParseSpec env body (+ j 1) close base))))
+                                              (if (== (memGetWord spec 5) 0)
+                                                  (set ok 0)
+                                                  {
+                                                    (set acc (expFmtCatRun env acc chunk lsp))
+                                                    (set chunk "")
+                                                    (set acc (expFmtCat env acc
+                                                               (expFmtHole env
+                                                                 (mkEVarAt (strSlice body (+ i 1) (- j (+ i 1)))
+                                                                           (mkSpan (+ base (+ i 1)) (+ base j)))
+                                                                 spec
+                                                                 (mkSpan (+ base (+ i 1)) (+ base j)))
+                                                               lsp))
+                                                    (set i (+ close 1))
+                                                  })))))))))
+                (if (== ch 125)
+                    (if (&& (< (+ i 1) n) (== (strByte body (+ i 1)) 125))
+                        { (set chunk (strConcat chunk "}")) (set i (+ i 2)) }
+                        { (set ok (expFmtErr env (+ base i) (+ base (+ i 1))
+                                    "this `}` closes a hole that was never opened"
+                                    "write `}}` for a literal closing brace")) })
+                    { (set chunk (strConcat chunk (strSlice body i 1)))
+                      (set i (+ i 1)) })))))
+            ; The newline joins the trailing literal run rather than
+            ; becoming a concatenation of its own, which is what makes
+            ; `(println "hi")` one `write` of one literal.
+            (set chunk (if (== nl 1) (strConcat chunk "\\n") chunk))
+            (if (== ok 0)
+                (mkEInt 0)
+                ; A trailing run, and the empty-format case: with no
+                ; holes at all `acc` is still 0 here, so the answer
+                ; is the literal itself and `(println "hi")` emits
+                ; exactly one node.
+                (if (&& (== acc 0) (== (strLen chunk) 0))
+                    (expFmtLit "" lsp)
+                    (expFmtCatRun env acc chunk lsp)))
+          })))))
 
 ; The name of the expansion-time query at the head of an `if`
 ; condition, or "" when the condition is an ordinary runtime
@@ -1559,6 +2112,10 @@
             (expEvalArity env qargs params args isp)
         (if (strEq (nodeA head) "syntax/defined")
             (expEvalDefined env qargs params args isp)
+        (if (strEq (nodeA head) "syntax/format")
+            (expEvalFormat env qargs params args isp 0)
+        (if (strEq (nodeA head) "syntax/formatln")
+            (expEvalFormat env qargs params args isp 1)
         (if (strEq (nodeA head) "syntax/join")
             ; A join in EXPRESSION position is a REFERENCE to the
             ; declaration a join in name position generates -
@@ -1588,9 +2145,9 @@
             { (expQueryErr env isp
                 (strConcat (strConcat "`" (nodeA head))
                            "` is not a query this position answers")
-                "the applied queries are syntax/same, syntax/fold, syntax/name, syntax/arity and syntax/defined here, and syntax/constructors / syntax/fields / syntax/binders in an iteration's sequence slot"
+                "the applied queries are syntax/same, syntax/fold, syntax/name, syntax/arity, syntax/defined, syntax/format and syntax/formatln here, and syntax/constructors / syntax/fields / syntax/binders in an iteration's sequence slot"
                 (expMacMod env))
-              (mkEInt 0) }))))))))
+              (mkEInt 0) }))))))))))
         (let ((out vecNew) (mut i 0))
           {
             (while (< i (vecLen qargs))

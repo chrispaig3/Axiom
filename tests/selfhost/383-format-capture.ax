@@ -1,0 +1,49 @@
+; expect 20
+; MAC-CAP-10.5 - the capture the format lowering inherits from
+; MAC-HYG-8, measured rather than asserted.
+;
+; The re-parse defect this used to share a file with is
+; `382-format-macros.ax`'s bit 2: it cannot be tested here, because
+; the hijack below intercepts the `show` a nested format goes through.
+;
+;  1  A HOLE NAMES A BINDING AT THE INVOCATION, and `show`/`strConcat`
+;     are ordinary free identifiers of the expansion. An entry file
+;     that declares either one CAPTURES it, silently. That is
+;     MAC-HYG-8's residue and it is not fixed here - it is MEASURED
+;     here, so the scope-sets work (MAC-HYG-9) has a test to flip
+;     rather than a paragraph to re-read. `capture` below answers 9
+;     BECAUSE the hijack works; when hygiene closes, it answers 3 and
+;     this fixture fails loudly at the line that documents why.
+;
+;  2  A hole with a specifier still resolves the same way, so the two
+;     interact: the capture applies before the padding, not instead
+;     of it.
+(import IO)
+(import Show)
+(import Str)
+
+; The hijack. `(-> a String)` is deliberately type-COMPATIBLE with
+; every use the expansion makes of it - an ill-typed capture is loud
+; and would prove nothing about the silent one.
+(:: show (-> a String))
+(fn (show x) "xyz")
+
+(:: bit (-> Bool Int Int))
+(fn (bit b w) (if b w 0))
+
+; 1: every hole in the file goes through the entry file's `show`, so a
+;    3-character answer is the capture and a 2-character one would be
+;    `fmtInt`. Measured, not asserted: `xyz` is 3.
+(:: capture (-> Int Int))
+(fn (capture n) (strLen (format "{n}")))
+
+; 2: the capture feeds the padding rather than bypassing it - width 6
+;    over the captured 3 characters.
+(:: captureWidth (-> Int Int))
+(fn (captureWidth n) (strLen (format "{n:>6}")))
+
+(:: main Int)
+(fn (main)
+  (let ((n 42))
+    (+ (bit (== (capture n) 3) 4)
+       (bit (== (captureWidth n) 6) 16))))

@@ -41,9 +41,9 @@
 #      them - in order, as a subsequence - against what the program
 #      printed and what it returned. It never opens a `.out` file. Three
 #      sources of claim: the expectation the corpus writes beside its own
-#      calls (`(printlnInt (& 12 10))  ; 8`, `(describe (CInt 7))  ; 7`);
+#      calls (`(println (& 12 10))  ; 8`, `(describe (CInt 7))  ; 7`);
 #      a Python model of the literal-only part of `Str`/`Utf8`
-#      (`(printlnInt (strLen "héllo"))` must print 6 because the literal
+#      (`(println (strLen "héllo"))` must print 6 because the literal
 #      is six bytes); and, for a case that GRADES ITSELF, the verdict the
 #      fixture publishes about each of its own checks. See that file's
 #      header for the extraction rules and for why claims are matched as

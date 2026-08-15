@@ -1173,6 +1173,196 @@ the same visibility rule the checker's own lookups apply, enforced in
 the query so the refusal is one diagnostic at the right place rather
 than checker errors scattered over generated code.
 
+### 4.6 Format strings
+
+**MAC-CAP-10 (H, 2026-08-15).** Two queries — `(syntax/format e)` and
+`(syntax/formatln e)` — answer the expression that renders `e` as a
+`String`, parsing `e` at expansion time when it is a **string
+literal**. They are the only members of the vocabulary that read a
+literal rather than the declaration list, and the whole of the
+compiler's involvement in formatting: the printing surface is five
+macros in `stdlib/`, four lines each.
+
+```scheme
+; stdlib/IO.ax
+(pub macro (println e)  (writeStr stdout (syntax/formatln e)))
+(pub macro (eprintln e) (writeStr stderr (syntax/formatln e)))
+; stdlib/Show.ax
+(pub macro (format e)   (syntax/format e))
+```
+
+There is deliberately no newline-less `print`. A partial-line printer
+exists in C-descended libraries because assembling a line was
+expensive, so you emitted the pieces; here the line is assembled at
+compile time and `(println "ok {name} in {ms:>4}ms")` is one call and
+one syscall. `writeStr` remains for bytes with no newline and no
+rendering. Removing it took `tests/stdlib/340-json.ax`'s self-grading
+harness from six print statements per verdict to one, with
+byte-identical output.
+
+**Why this is a compiler primitive and not a macro.** Tier 1 rewrites
+syntax *nodes*. A format string arrives as one node — a `TAG_E_STR`
+whose payload is an opaque lexeme — and nothing in the vocabulary can
+take a string apart. Adding a query that could would be a
+string-processing language inside the template language. So the
+decomposition happens in compiler code, over a literal the compiler
+already holds. **This is not tier 2** and does not move the line
+[v1-roadmap.md §4.2](v1-roadmap.md) draws: no user code runs, the
+input is a literal rather than a program, and the output is a tree the
+compiler builds — exactly as `syntax/constructors` reads a `data`
+declaration.
+
+**MAC-CAP-10.1 — what the queries answer.** Two shapes, decided by
+what the argument *is*:
+
+| argument | answer |
+|---|---|
+| a string literal | the concatenation of its literal runs with one rendering call per hole |
+| anything else | `(show e)` — one call, dispatched on `e`'s static type |
+
+The second row is load-bearing rather than a convenience: it is why
+`println` could *take the name* of the function it replaced. All 78
+`(println expr)` that predate the macro still mean what they meant,
+because `Show`'s `String` instance is the identity.
+
+That is not the same as "no call site changed", and an earlier
+revision of this paragraph said so and was wrong. **Forty did**, all
+of one shape: a value printed straight out of a polymorphic accessor
+(`vecGet`, `mapGet`, `memGetWord`) or out of a `handle`, where there
+is no named type to select an instance and the answer is `AX3025`
+(MAC-CAP-10.6). Each took a `cast`, which is the same fact
+`printlnInt` used to carry in its name.
+
+`syntax/formatln` folds `\n` into the **last literal run**, at
+expansion time. `(println "hi")` therefore emits one `write` of one
+static constant — measured: `@str_9 = ... c"\68\69\0A\00"`, length 3,
+one `call @IO$writeStr`, no allocation. The `println` *function* it
+replaced did two writes.
+
+**MAC-CAP-10.2 — the hole grammar.**
+
+```
+hole   := '{' name [ ':' spec ] '}'
+spec   := [align] ['0'] [width] ['.' precision] [type]
+align  := '<' | '^' | '>'                       (default '>')
+type   := 'x' | 'X'
+`{{` and `}}` are a literal brace.
+```
+
+`name` is an identifier in the **lexer's** charset, not a second one
+invented for format strings, so any name the language can spell can be
+interpolated and the two cannot drift.
+
+**A specifier is not a mini-language interpreted at run time — there
+is no run time here.** Each part selects a different `Fmt` *function*,
+once, during expansion:
+
+| written | expands to |
+|---|---|
+| `{n}` | `(show n)` |
+| `{n:x}` / `{n:X}` | `(fmtHex n)` / `(fmtHexUpper n)` |
+| `{x:.2}` | `(fmtFloatPrec x 2)` |
+| `{n:>8}`, `{n:8}` | `(fmtPadLeft (show n) 8)` |
+| `{s:<12}` | `(fmtPadRight (show s) 12)` |
+| `{s:^12}` | `(fmtPadCenter (show s) 12)` |
+| `{n:04}` | `(fmtPadZerosLeft (show n) 4)` |
+| `{x:>10.2}` | `(fmtPadLeft (fmtFloatPrec x 2) 10)` |
+
+**This is what replaces a print function per type.** `printInt`
+existed because rendering an `Int` was a different *call* from
+rendering a `String`; the call is now chosen by the specifier and the
+instance, so there is one `println` and the per-type family is gone
+(`IO` exported `printInt`/`printlnInt` until 2026-08-15; 445 call
+sites moved to `println`).
+
+**MAC-CAP-10.3 — validation, and who owns which half.** The claim
+"format specifiers are validated at compile time" decomposes into two
+mechanisms, and neither is a runtime check:
+
+- The **expander** owns the string's shape. A malformed format string
+  is `AX3031 malformed-format-string`, at expansion time, with the
+  caret **inside the literal** on the offending byte. Nine cases, one
+  fixture each (`tests/diagnostics/570-format-refusals.ax`).
+- The **checker** owns the value's type. A specifier chooses a
+  function with a type, so a well-formed specifier applied to the
+  wrong type is an ordinary `AX3004` at the invocation — `{s:.2}` on a
+  `String` reaches `fmtFloatPrec`'s `Float` parameter. A hole naming
+  an unbound name is `AX3001`; one whose type has no `Show` instance
+  is `AX3025`.
+
+No specifier can be "ignored at run time", because none of them
+survives to run time.
+
+**MAC-CAP-10.4 — no argument list, and why.** There is no positional
+`{}` and no trailing argument list: a macro takes a fixed number of
+arguments (`MAC-LANG-2`), and a variadic one needs repetition patterns
+(`MAC-LANG-15`–`MAC-LANG-18`, unbuilt). Capture is the form the
+language has, and it is the form Rust's own 2021 edition settled on;
+`{}` is refused **by name** — naming the capture form in its help —
+rather than left to fail as an empty identifier.
+
+**MAC-CAP-10.5 (H, defective).** The two names these queries invent —
+`strConcat` and `show` — resolve through `expQualify`, the same
+definition-site rule a template's free identifier follows
+(`MAC-HYG-6`). Because `expQualify` only rewrites a name the *macro's
+own module* declares, and `strConcat` belongs to `Str` rather than to
+`IO`, both stay bare: an entry file defining `show` or `strConcat`
+captures them. This is `MAC-HYG-8`'s residue, now shared by the format
+lowering.
+
+**The capture is silent and answers wrongly**, and this paragraph said
+the opposite — "loud rather than silent, a type error at the
+invocation carrying the expansion backtrace" — until it was run. Two
+programs, both at exit 0:
+
+```scheme
+(import IO)
+(:: show (-> a String))
+(fn (show x) "HIJACKED")
+;@axiom:effect(io)
+(fn (main) (let ((n 42)) { (println "n={n}") 0 }))   ; prints n=HIJACKED
+```
+
+```scheme
+(import IO)
+(:: strConcat (-> String String String))
+(fn (strConcat a b) "HIJACKED")
+;@axiom:effect(io)
+(fn (main) (let ((n 42)) { (println "n={n}") 0 }))   ; prints HIJACKED
+```
+
+A capture that happens to be *ill-typed* is loud — an entry-file
+`(:: show (-> Int String))` fails, though it fails inside
+`stdlib/IO.ax` with no backtrace, which is its own defect — and that
+is the case the old claim generalised from. A well-typed capture is
+not loud at all. Scope sets (`MAC-HYG-9`) are what close this; until
+they land it is pinned by `tests/selfhost/383-format-capture.ax`, so
+the fix has a test to flip rather than a paragraph to re-read.
+
+**MAC-CAP-10.6 — the dispatch cliff, and the two compiler bugs it
+exposed.** A hole becomes a *call*, and which instance it reaches is
+decided from the argument's **static type**. Where there is no named
+type there is no instance, and the corpus has two such shapes: a
+polymorphic accessor's return (`vecGet : (-> Int Int a)`) and an
+effect operation's result (the checker's silent wildcard). Both are
+now `AX3025` naming the situation; the fix is to name the type
+(`(println (cast Int (vecGet v 0)))`), which is exactly the
+information `printlnInt` used to carry.
+
+Reaching that cliff found two live defects that predate this work and
+were latent only because nothing in the repository had called a trait
+method on a failing or non-concrete expression:
+
+1. **Dispatch emitted a call to a function that does not exist.** With
+   no head name, `traitRewrite` answered 0 and left the head spelled
+   `show`; the emitter wrote `call i64 @show` and `opt` rejected the
+   module — `AX4003` against `<toolchain>`, no span into the source.
+2. **Every diagnostic inside a dispatch argument was doubled.**
+   Selecting an implementation means checking that argument for its
+   type, and the ordinary argument walk checks it again; both
+   reported. Reproduced with an entry-file trait, one impl, and no
+   macros at all: `(sz nope)` answered two identical `AX3001`s.
+
 ---
 
 ## 5. Safety
@@ -1733,13 +1923,13 @@ nicety: without an expansion backtrace, the author of `(machine Door
 | Language | LANG-1…12, LANG-14 (one rule — the declaration form) | LANG-14 (multi-rule), LANG-15…18 | LANG-13 |
 | Expansion | EXP-1…15, EXP-16/17 (v1 — entry-file invocation, `fn`/`::`/invocation templates) | EXP-16 (module-side invocation) | — |
 | Hygiene | HYG-1…7 | HYG-8, HYG-9 | — |
-| Capabilities | CAP-1…3, CAP-6, CAP-7, CAP-8 (`fn`/`::`/`data`/`struct`/`impl`/invocation/iteration templates), CAP-9 (the deriving clause refuses) | CAP-4 | CAP-5 (replacement landed, and the table is now COMPLETE: join — in name, reference and argument position — constructors, fields, same, for, binders, fold, name, arity, defined) |
+| Capabilities | CAP-1…3, CAP-6, CAP-7, CAP-8 (`fn`/`::`/`data`/`struct`/`impl`/invocation/iteration templates), CAP-9 (the deriving clause refuses), CAP-10 (format strings; 10.5 held-but-defective) | CAP-4 | CAP-5 (replacement landed, and the table is now COMPLETE: join — in name, reference and argument position — constructors, fields, same, for, binders, fold, name, arity, defined, format, formatln) |
 | Safety | SAFE-1…4 | — | SAFE-5 |
 | Integration | INT-1…3, INT-5 | INT-4, INT-6 | — |
 | Diagnostics | DIAG-1…4 | DIAG-5 | — |
 | Tooling | TOOL-1, TOOL-6 | TOOL-2…5 | — |
 
-Six rules in the Holds column are held-but-defective, each with the
+Seven rules in the Holds column are held-but-defective, each with the
 defect stated inline where it is defined —
 `MAC-EXP-8` (the over-application diagnostic anchors at the expansion,
 not the surplus argument), `MAC-EXP-11a` (the node budget counts
@@ -1747,8 +1937,9 @@ unexpanded nodes and its message blames macros that may not exist),
 `MAC-EXP-14a` (a template literal keeps the defining file's byte
 offsets), `MAC-HYG-3a` (a renamed binder reaches a machine-applicable
 fix as an unspellable token), `MAC-CAP-3a` (`AX3022` reports and then
-emits the bad node anyway), and `MAC-TOOL-6` (`fmt` rewrites what
-`check` refuses to lex). This is [memory-model.md §9.0](memory-model.md)'s
+emits the bad node anyway), `MAC-CAP-10.5` (the format lowering's
+`show` and `strConcat` are capturable by an entry file), and
+`MAC-TOOL-6` (`fmt` rewrites what `check` refuses to lex). This is [memory-model.md §9.0](memory-model.md)'s
 convention; the list, not any one entry, is the argument for gating.
 
 ### 11.1 What is gated
@@ -1783,6 +1974,9 @@ convention; the list, not any one entry, is the argument for gating.
 | `tests/selfhost/380-syntax-scalar-queries.ax` (41) | CAP-5's scalar rows — `syntax/name`, `syntax/arity`, `syntax/defined`, and a join standing as a callable reference; `stdlib/Pre.ax`'s `deriveShow`/`deriveArity`/`showOr` are the consumers |
 | `tests/diagnostics/560-syntax-scalar-misuse.ax` | the scalar rows' refusals — an arity of nothing (naming `syntax/arity`, not the counter it shares a slot with), a bare query head, a non-identifier argument, a one-part join |
 | `tests/diagnostics/520-syntax-query-misuse.ax` | CAP-6's closure — unknown query, wrong-kind subject, missing subject, all AX3028 |
+| `tests/selfhost/382-format-macros.ax` (255) | CAP-10's lowering — eight independent claims, one bit each, so a partial regression names itself in the exit status: interpolation, escaped braces, the three alignments, signed zero-padding, both hex cases, precision, conversion-inside-padding, and the degenerate literals |
+| `tests/stdlib/365-format.ax` | CAP-10 end to end, against a golden stdout — what actually reaches the descriptor |
+| `tests/diagnostics/570-format-refusals.ax` | CAP-10.3's expander half — all nine `AX3031` cases, each caret inside the literal on the offending byte |
 | `tests/diagnostics/525-syntax-reserved.axbad` | CAP-6's reservation — syntax/ spellings outside a template, including the one-paren-short near-miss (`.axbad`: the formatter must not learn these shapes) |
 | `tests/diagnostics/485-qualified-private-macro.ax` | LANG-12's `AX3023` route for a qualified private macro |
 | `tests/diagnostics/490-expansion-backtrace.ax` | DIAG-4 — one frame and a nested two, spans verified against the macro's own file |

@@ -27,7 +27,7 @@
   (if (<= n 0)
       v
       {
-        (printlnInt (vecPop v))
+        (println (vecPop v))
         (popTimes v (- n 1))
       }))
 
@@ -39,84 +39,89 @@
         (zeroCap (vecWithCapacity 0)))
     {
       ; --- a fresh Vec ---
-      (printlnInt (vecLen v))                  ; 0
-      (printlnInt (vecCap v))                  ; 8, vecDefaultCap
-      (printlnInt (vecSum v))                  ; 0
-      (printlnInt (vecPop v))                  ; 0: pop of empty
-      (printlnInt (vecLen v))                  ; 0: still empty, not -1
+      (println (vecLen v))                  ; 0
+      (println (vecCap v))                  ; 8, vecDefaultCap
+      (println (vecSum v))                  ; 0
+      (println (vecPop v))                  ; 0: pop of empty
+      (println (vecLen v))                  ; 0: still empty, not -1
 
       ; --- fill to exactly the initial capacity: no growth yet ---
       (pushRange v 8)
-      (printlnInt (vecLen v))                  ; 8
-      (printlnInt (vecCap v))                  ; 8: full, but untouched
-      (printlnInt (vecSum v))                  ; 28 = 0+1+..+7
+      (println (vecLen v))                  ; 8
+      (println (vecCap v))                  ; 8: full, but untouched
+      (println (vecSum v))                  ; 28 = 0+1+..+7
 
       ; --- one more push must double ---
       (vecPush v 100)
-      (printlnInt (vecLen v))                  ; 9
-      (printlnInt (vecCap v))                  ; 16
-      (printlnInt (vecGet v 0))                ; 0: survived the realloc
-      (printlnInt (vecGet v 7))                ; 7: last pre-growth element
-      (printlnInt (vecGet v 8))                ; 100
-      (printlnInt (vecSum v))                  ; 128
+      (println (vecLen v))                  ; 9
+      (println (vecCap v))                  ; 16
+      (println (cast Int (vecGet v 0)))                ; 0: survived the realloc
+      (println (cast Int (vecGet v 7)))                ; 7: last pre-growth element
+      (println (cast Int (vecGet v 8)))                ; 100
+      (println (vecSum v))                  ; 128
 
       ; --- growth across several doublings at once ---
       (pushRange v 70)
-      (printlnInt (vecLen v))                  ; 70
-      (printlnInt (vecCap v))                  ; 128: 16 -> 32 -> 64 -> 128
-      (printlnInt (vecGet v 8))                ; 100: still there
-      (printlnInt (vecGet v 9))                ; 9: pushRange resumed at len
-      (printlnInt (vecGet v 69))               ; 69
+      (println (vecLen v))                  ; 70
+      (println (vecCap v))                  ; 128: 16 -> 32 -> 64 -> 128
+      (println (cast Int (vecGet v 8)))                ; 100: still there
+      (println (cast Int (vecGet v 9)))                ; 9: pushRange resumed at len
+      (println (cast Int (vecGet v 69)))               ; 69
 
       ; --- out of range on both sides ---
-      (printlnInt (vecGet v (- 0 1)))          ; 0
-      (printlnInt (vecGet v (- 0 1000)))       ; 0
-      (printlnInt (vecGet v 70))               ; 0: one past the end
-      (printlnInt (vecGet v 100000))           ; 0: inside cap, past len
+      (println (cast Int (vecGet v (- 0 1))))          ; 0
+      (println (cast Int (vecGet v (- 0 1000))))       ; 0
+      (println (cast Int (vecGet v 70)))               ; 0: one past the end
+      (println (cast Int (vecGet v 100000)))           ; 0: inside cap, past len
 
       ; --- set then get, including rejected out-of-range sets ---
       (vecSet v 0 999)
-      (printlnInt (vecGet v 0))                ; 999
+      (println (cast Int (vecGet v 0)))                ; 999
       (vecSet v 70 777)                        ; ignored: index == len
-      (printlnInt (vecGet v 70))               ; 0
-      (printlnInt (vecLen v))                  ; 70: set did not append
+      (println (cast Int (vecGet v 70)))               ; 0
+      (println (vecLen v))                  ; 70: set did not append
       (vecSet v (- 0 1) 555)                   ; ignored
-      (printlnInt (vecLen v))                  ; 70
+      (println (vecLen v))                  ; 70
 
       ; --- order matters: vecHash catches a permutation, vecSum does not
-      (printlnInt (vecLast v))                 ; 69
-      (printlnInt (vecHash v))                 ; position-sensitive digest
+      (println (vecLast v))                 ; 69
+      (println (vecHash v))                 ; position-sensitive digest
 
       ; --- clear keeps capacity, drops contents ---
       (vecClear v)
-      (printlnInt (vecLen v))                  ; 0
-      (printlnInt (vecCap v))                  ; 128: capacity retained
-      (printlnInt (vecSum v))                  ; 0: stale words not visible
-      (printlnInt (vecGet v 0))                ; 0: even though 999 is there
+      (println (vecLen v))                  ; 0
+      (println (vecCap v))                  ; 128: capacity retained
+      (println (vecSum v))                  ; 0: stale words not visible
+      (println (cast Int (vecGet v 0)))                ; 0: even though 999 is there
 
       ; --- pop to empty and past it ---
       (pushRange v 3)
-      (printlnInt (vecLen v))                  ; 3
+      (println (vecLen v))                  ; 3
       (popTimes v 5)                           ; 2 1 0 0 0
-      (printlnInt (vecLen v))                  ; 0: never negative
-      (printlnInt (vecCap v))                  ; 128
+      (println (vecLen v))                  ; 0: never negative
+      (println (vecCap v))                  ; 128
 
       ; --- a capacity-1 vector: doubling from the smallest legal size ---
       (pushRange small 5)
-      (printlnInt (vecCap small))              ; 8: 1 -> 2 -> 4 -> 8
-      (printlnInt (vecSum small))              ; 10 = 0+1+2+3+4
+      (println (vecCap small))              ; 8: 1 -> 2 -> 4 -> 8
+      (println (vecSum small))              ; 10 = 0+1+2+3+4
 
       ; --- capacity 0 is clamped to 1, so doubling terminates ---
-      (printlnInt (vecCap zeroCap))            ; 1
+      (println (vecCap zeroCap))            ; 1
       (vecPush zeroCap 41)
       (vecPush zeroCap 1)
-      (printlnInt (vecCap zeroCap))            ; 2
-      (printlnInt (vecSum zeroCap))            ; 42
+      (println (vecCap zeroCap))            ; 2
+      (println (vecSum zeroCap))            ; 42
 
       ; --- a Vec of Str handles: the uniform-representation claim ---
-      (println (vecGet (vecPush (vecPush (vecNew)
+      ; `cast String`: `vecGet` answers the ELEMENT type, which is a
+      ; type variable, and a `Show` implementation is keyed on a type
+      ; NAME (AX3025). The cast is the claim this test is making
+      ; anyway - that the handle round-tripped through the Vec is
+      ; still a `Str`.
+      (println (cast String (vecGet (vecPush (vecPush (vecNew)
                                          "alpha")
                                 "omega")
-                       1))                     ; omega
+                       1)))                    ; omega
       0
     }))

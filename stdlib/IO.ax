@@ -15,6 +15,11 @@
 (import Sys)
 (import Str)
 (import Fmt)
+; The printing macros expand to `show`, so `IO` is where a program
+; picks up the `Show` instances by importing one module rather than
+; two. `Show` does not import `IO` - rendering has no effects and
+; must not acquire one - so the edge is one-way.
+(import Show)
 
 ; ------------------------------------------------------------------
 ; Writing
@@ -42,18 +47,22 @@
             (if (< n 0) n done)
             (writeAll fd buf count (+ done n))))))
 
-(pub :: print (-> String Int))
-;@axiom:effect(io)
-(pub fn (print s)
-  (writeStr stdout s))
-
-(pub :: println (-> String Int))
-;@axiom:effect(io)
-(pub fn (println s)
-  {
-    (writeStr stdout s)
-    (writeStr stdout "\n")
-  })
+; ------------------------------------------------------------------
+; Printing is FIVE MACROS AND NO FUNCTIONS.
+;
+; `writeStr` above is the whole runtime side: bytes, to a descriptor.
+; Everything between a value and those bytes is decided at expansion
+; time, so this module exports no `printInt`, no `printFloat`, and no
+; per-type anything - a type is rendered by the `Show` instance the
+; checker selects, and a WIDTH or a RADIX is chosen by a format
+; specifier rather than by picking a different function to call.
+;
+; That is the whole of the unification. Before it, printing an `Int`
+; padded to eight columns meant `(print (fmtPadLeft (fmtInt n) 8))` -
+; three names, composed by hand, at every call site. It is now
+; `(print "{n:>8}")`, and the three calls are still there, written by
+; the expander instead of by the programmer.
+; ------------------------------------------------------------------
 
 ; Print NUL-terminated bytes at an address: `(printLit (__addr "hi"))`.
 ;
@@ -76,30 +85,51 @@
     (printLit (__addr "\n"))
   })
 
-(pub :: printInt (-> Int Int))
-;@axiom:effect(io)
-(pub fn (printInt n)
-  (print (fmtInt n)))
+; ------------------------------------------------------------------
+; The two.
+;
+; One parameter each, and that is the design rather than a limitation
+; waiting to be lifted. A hole names a binding at the CALL:
+;
+;   (println "hello, {name}")
+;   (println "{done:>4}/{total} done")
+;   (eprintln "{file}:{line}: {msg}")
+;
+; so the argument count never depends on the number of holes, and no
+; repetition pattern (MAC-LANG-15..18, unbuilt) is needed to write
+; either of them. `syntax/format` does the parse; see
+; docs/macro-system.md MAC-CAP-10 for the grammar, the lowering and
+; the refusals.
+;
+; Given anything that is NOT a literal, `syntax/format` answers
+; `(show e)` - so these are equally the general "print a value"
+; spelling. `(println n)` on an `Int` prints the integer, and
+; `(println s)` on a `String` is the identity instance, which is why
+; the seventy-eight `(println expr)` call sites that predate the macros
+; did not have to change.
+;
+; `syntax/formatln` is `syntax/format` with the newline folded into the
+; last literal run AT EXPANSION TIME, so `(println "hi")` is one
+; `write` of `"hi\n"` - one syscall and no allocation, where the
+; function this replaced did two writes.
+;
+; THERE IS NO `print`, AND THAT IS THE POINT. A newline-less printer
+; exists in C-descended libraries because building a line out of pieces
+; was expensive, so you emitted the pieces instead. Here the line is
+; built at COMPILE time: `(println "ok {name} in {ms:>4}ms")` is one
+; call, one syscall, and one place to read the line's shape. The four
+; calls it replaces - `(print "ok ") (print name) (print " in ")
+; (println ms)` - were four syscalls and a shape no reader could see
+; without executing it in their head. `340-json`'s self-grading harness
+; went from six print statements per verdict to one.
+;
+; A program that genuinely wants bytes on the descriptor with no
+; newline and no rendering has `writeStr` above it, unchanged and
+; public - that is the primitive, and it is one call too.
+; ------------------------------------------------------------------
 
-(pub :: printlnInt (-> Int Int))
-;@axiom:effect(io)
-(pub fn (printlnInt n)
-  (println (fmtInt n)))
-
-; Write to standard error - for diagnostics, which must not be captured
-; by a caller redirecting stdout.
-(:: eprint (-> String Int))
-;@axiom:effect(io)
-(fn (eprint s)
-  (writeStr stderr s))
-
-(pub :: eprintln (-> String Int))
-;@axiom:effect(io)
-(pub fn (eprintln s)
-  {
-    (writeStr stderr s)
-    (writeStr stderr "\n")
-  })
+(pub macro (println e)  (writeStr stdout (syntax/formatln e)))
+(pub macro (eprintln e) (writeStr stderr (syntax/formatln e)))
 
 ; ------------------------------------------------------------------
 ; Reading
@@ -181,6 +211,9 @@
 ;@axiom:effect(io)
 (pub fn (die s code)
   {
+    ; `s` is already a String and its type is DECLARED, so the macro's
+    ; `show` resolves to the identity instance; this is an ordinary
+    ; `(eprintln s)` and not a special case.
     (eprintln s)
     (exit code)
   })

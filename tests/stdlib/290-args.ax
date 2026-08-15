@@ -13,9 +13,9 @@
 ;@axiom:effect(io)
 (pub fn (main)
   {
-    (printlnInt (sysArgc))                            ; 1
-    (printlnInt (if (> (strLen (sysArg 0)) 0) 1 0))   ; 1: program name
-    (printlnInt (strLen (sysArg 5)))                  ; 0: out of range
-    (printlnInt (strLen (sysArg (- 0 1))))            ; 0: negative
+    (println (sysArgc))                            ; 1
+    (println (if (> (strLen (sysArg 0)) 0) 1 0))   ; 1: program name
+    (println (strLen (sysArg 5)))                  ; 0: out of range
+    (println (strLen (sysArg (- 0 1))))            ; 0: negative
     0
   })

@@ -49,15 +49,15 @@
         (b (memAlloc 64))
         (afterAlloc (memAlloc 0)))
     {
-      (printlnInt (if (> afterAlloc a) 1 0))   ; 1: allocation advances the waterline
-      (printlnInt (- b a))                     ; 80: contiguous, 64 + the 16-byte MM-LIFE-2b header
+      (println (if (> afterAlloc a) 1 0))   ; 1: allocation advances the waterline
+      (println (- b a))                     ; 80: contiguous, 64 + the 16-byte MM-LIFE-2b header
 
       ; --- reset reclaims, and the next allocation reuses the space ---
       (__axiom_arena_reset m)
-      (printlnInt (if (== (memAlloc 64) a) 1 0))  ; 1
+      (println (if (== (memAlloc 64) a) 1 0))  ; 1
 
       ; --- nesting: an inner mark/reset leaves the outer one intact ---
-      (printlnInt
+      (println
         (let ((outer (__axiom_arena_mark))
               (p (memAlloc 64))
               (inner (__axiom_arena_mark))
@@ -69,7 +69,7 @@
           (if (&& (== q2 q) (== p2 p)) 1 0)))    ; 1
 
       ; --- a reset across a chunk boundary must still yield usable memory ---
-      (printlnInt
+      (println
         (let ((far (__axiom_arena_mark))
               (junk (burn 40))                   ; > 1 MiB, so the chunk changes
               (r2 (__axiom_arena_reset far))
@@ -87,14 +87,14 @@
       ; not hold then: this case measured 255 and a `cstrLen` of 17 for
       ; a 3-byte string, which is `strCStr` running off the end of a
       ; string into whatever the arena last held.
-      (printlnInt
+      (println
         (let ((z (__axiom_arena_mark))
               (scribble (memSet (memAlloc 256) 255 256))
               (r3 (__axiom_arena_reset z))
               (again (memAlloc 256)))
           (+ (memGetByte again 0) (memGetByte again 200))))   ; 0
 
-      (printlnInt
+      (println
         (let ((z2 (__axiom_arena_mark))
               (fill (memSet (memAlloc 64) 65 64))
               (r4 (__axiom_arena_reset z2))
@@ -112,7 +112,7 @@
       ; the two rounds hand out the same address. If it stranded them -
       ; which it did, at a measured 576 KiB per iteration - the second
       ; round maps new memory and the addresses differ.
-      (printlnInt
+      (println
         (let ((c0 (__axiom_arena_mark))
               (j1 (burn 40))
               (a1 (memAlloc 64))

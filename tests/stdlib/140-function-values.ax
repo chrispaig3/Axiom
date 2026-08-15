@@ -52,15 +52,15 @@
 ;@axiom:effect(io)
 (pub fn (main)
   {
-    (printlnInt ((adder 10) 5))                  ; 15
-    (printlnInt ((adder 0) 7))                   ; 7: capture of 0, not "no capture"
-    (printlnInt ((scaler 2 3) 10))               ; 50
-    (printlnInt (((add3 1) 2) 3))                ; 6
-    (printlnInt (applyTo (adder 100) 5))         ; 105: closure as an argument
-    (printlnInt (applyTo (lambda (x) (- x 1)) 10)) ; 9: lambda written inline
-    (printlnInt (applyTo double 21))             ; 42: named function as a value
-    (printlnInt (twice double 3))                ; 12: called twice indirectly
-    (printlnInt (twice (adder 5) 0))             ; 10: closure called twice
-    (printlnInt (runHeld (Hold (adder 100)) 5))  ; 105: through a constructor
+    (println ((adder 10) 5))                  ; 15
+    (println ((adder 0) 7))                   ; 7: capture of 0, not "no capture"
+    (println ((scaler 2 3) 10))               ; 50
+    (println (((add3 1) 2) 3))                ; 6
+    (println (applyTo (adder 100) 5))         ; 105: closure as an argument
+    (println (applyTo (lambda (x) (- x 1)) 10)) ; 9: lambda written inline
+    (println (applyTo double 21))             ; 42: named function as a value
+    (println (twice double 3))                ; 12: called twice indirectly
+    (println (twice (adder 5) 0))             ; 10: closure called twice
+    (println (runHeld (Hold (adder 100)) 5))  ; 105: through a constructor
     0
   })

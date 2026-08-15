@@ -26,10 +26,10 @@
 ;@axiom:effect(io)
 (pub fn (main)
   {
-    (printlnInt (label 10))            ; 11: this file's own
-    (printlnInt (Q.Inner::label 10))   ; 110
-    (printlnInt (Q.Other::label 10))   ; 210
-    (printlnInt (Q.Other::viaInner 10)); 110: qualified call from inside a module
-    (printlnInt (Q.Inner::only))       ; 7: a nullary function, qualified
+    (println (label 10))            ; 11: this file's own
+    (println (Q.Inner::label 10))   ; 110
+    (println (Q.Other::label 10))   ; 210
+    (println (Q.Other::viaInner 10)); 110: qualified call from inside a module
+    (println (Q.Inner::only))       ; 7: a nullary function, qualified
     0
   })

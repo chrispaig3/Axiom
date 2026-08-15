@@ -23,33 +23,33 @@
         (escapes "a\tb\nc\\d\"e"))
     {
       ; Same length, same bytes, same comparison result.
-      (printlnInt (strLen direct))
-      (printlnInt (strLen viaAddr))
-      (printlnInt (strCmp direct viaAddr))
+      (println (strLen direct))
+      (println (strLen viaAddr))
+      (println (strCmp direct viaAddr))
       (println direct)
       (println viaAddr)
 
       ; An empty literal has length zero and is not confused with a
       ; NUL byte of payload.
-      (printlnInt (strLen empty))
-      (printlnInt (if (strIsEmpty empty) 1 0))
-      (printlnInt (if (strIsEmpty direct) 1 0))
+      (println (strLen empty))
+      (println (if (strIsEmpty empty) 1 0))
+      (println (if (strIsEmpty direct) 1 0))
 
       ; Escapes are resolved before the length is computed, so the
       ; header's length counts bytes, not source characters.
-      (printlnInt (strLen escapes))
+      (println (strLen escapes))
       (println escapes)
 
       ; A literal is an ordinary `Str` everywhere: concatenation,
       ; slicing and byte access do not care where it came from.
       (println (strConcat direct ", world"))
       (println (strSlice "abcdef" 2 3))
-      (printlnInt (strByte "abc" 1))
-      (printlnInt (if (strEq "abc" "abc") 1 0))
-      (printlnInt (if (strEq "abc" "abd") 1 0))
+      (println (strByte "abc" 1))
+      (println (if (strEq "abc" "abc") 1 0))
+      (println (if (strEq "abc" "abd") 1 0))
 
       ; Two occurrences of the same text share one global, so they are
       ; equal by value; identity is not promised and is not checked.
-      (printlnInt (strCmp "same" "same"))
+      (println (strCmp "same" "same"))
       0
     }))

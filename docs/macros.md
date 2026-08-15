@@ -435,11 +435,19 @@ the bank that pins it is `scripts/check-degenerate.sh`, and
   sense is not implemented; this is substitution.
 - **Repetition.** No `...`; `.` cannot lex as part of a token, so this
   needs a lexer change that ripples to `tree-sitter-axiom/grammar.js`
-  and `format.ax`, both of which re-implement the token set.
+  and `format.ax`, both of which re-implement the token set. This is
+  also why the printing macros interpolate by CAPTURE (`{name}`) and
+  have no positional `{}` or argument list: a macro takes a fixed
+  number of arguments, and a variadic `println` is repetition's first
+  real customer. See [macro-system.md](macro-system.md) MAC-CAP-10.4.
 
 (Module-qualified macros stood in this list until 2026-08-14 — §3
 records the close. Declaration-level macros as a whole stood here
-until the same date.)
+until the same date. Format strings stood here until 2026-08-15:
+`(syntax/format e)` and `(syntax/formatln e)` parse a string literal
+at expansion time, and `println`/`print`/`eprintln`/`eprint`/`format`
+are ordinary macros over them — MAC-CAP-10, and the reason `IO` no
+longer exports a print function per type.)
 
 ## 6. The order the rest should land in
 

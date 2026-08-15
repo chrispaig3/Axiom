@@ -56,13 +56,13 @@
 ;@axiom:effect(io)
 (pub fn (main)
   {
-    (printlnInt (classify (- 0 5)))   ; 1
-    (printlnInt (classify 0))         ; 2
-    (printlnInt (classify 5))         ; 3
-    (printlnInt (classify 99))        ; 4
-    (printlnInt (sequenced 4))        ; 40
-    (printlnInt (noElse 1))           ; 0: no clause matched, no else
-    (printlnInt (noElse 200))         ; 7
-    (printlnInt (countdown 3000000 0)); 3000000
+    (println (classify (- 0 5)))   ; 1
+    (println (classify 0))         ; 2
+    (println (classify 5))         ; 3
+    (println (classify 99))        ; 4
+    (println (sequenced 4))        ; 40
+    (println (noElse 1))           ; 0: no clause matched, no else
+    (println (noElse 200))         ; 7
+    (println (countdown 3000000 0)); 3000000
     0
   })

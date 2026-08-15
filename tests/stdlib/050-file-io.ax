@@ -14,11 +14,13 @@
             (sysCloseFd fd)
             (let ((contents (readFileLit path)))
               {
-                (printlnInt (strLen contents))
-                (print contents)
-                (printlnInt (strFindByte contents 10 0))
+                (println (strLen contents))
+                ; no newline of its own, and no rendering: this is
+                ; the primitive, and `print` no longer exists
+                (writeStr stdout contents)
+                (println (strFindByte contents 10 0))
                 (println (strSlice contents 0 8))
-                (printlnInt (strLen (readFileLit (__addr "no-such-file-here"))))
+                (println (strLen (readFileLit (__addr "no-such-file-here"))))
                 0
               })
           }))))

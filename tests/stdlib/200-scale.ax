@@ -170,31 +170,31 @@
         (it (scIntern internNew 0 (scN))))
     {
       ; --- Vec ---
-      (printlnInt (vecLen v))                            ; 100000
-      (printlnInt (scVecIntact v 0 (scN) 0))             ; 100000
-      (printlnInt (vecSum v))                            ; 4999950000
-      (printlnInt (vecGet v 0))                          ; 0
-      (printlnInt (vecGet v 99999))                      ; 99999
+      (println (vecLen v))                            ; 100000
+      (println (scVecIntact v 0 (scN) 0))             ; 100000
+      (println (vecSum v))                            ; 4999950000
+      (println (cast Int (vecGet v 0)))                          ; 0
+      (println (cast Int (vecGet v 99999)))                      ; 99999
       ; Capacity grows geometrically, so it stays within 2x of the
       ; length. A linear growth policy is correct and quadratic, and
       ; this is the assertion that notices.
-      (printlnInt (if (< (vecCap v) (* 2 (vecLen v))) 1 0))  ; 1
+      (println (if (< (vecCap v) (* 2 (vecLen v))) 1 0))  ; 1
 
       ; --- Map ---
-      (printlnInt (mapLen m))                            ; 100000
-      (printlnInt (scMapIntact m 0 (scN) 0))             ; 100000
-      (printlnInt (scMapAbsent m 0 (scN) 0))             ; 0
-      (printlnInt (mapSumKeys m))                        ; 4999950000
-      (printlnInt (mapSumVals m))                        ; 14999850000
+      (println (mapLen m))                            ; 100000
+      (println (scMapIntact m 0 (scN) 0))             ; 100000
+      (println (scMapAbsent m 0 (scN) 0))             ; 0
+      (println (mapSumKeys m))                        ; 4999950000
+      (println (mapSumVals m))                        ; 14999850000
 
       ; --- Map after removing every even key ---
-      (printlnInt (mapLen (scRemoveEven m 0 (scN))))     ; 50000
-      (printlnInt (scOddsIntact m 1 (scN) 0))            ; 50000
-      (printlnInt (scEvensGone m 0 (scN) 0))             ; 0
+      (println (mapLen (scRemoveEven m 0 (scN))))     ; 50000
+      (println (scOddsIntact m 1 (scN) 0))            ; 50000
+      (println (scEvensGone m 0 (scN) 0))             ; 0
 
       ; --- Intern ---
-      (printlnInt (internCount it))                      ; 100000
-      (printlnInt (scInternStable it 0 (scN) 0))         ; 100000
-      (printlnInt (internCount it))                      ; 100000, re-interning added nothing
+      (println (internCount it))                      ; 100000
+      (println (scInternStable it 0 (scN) 0))         ; 100000
+      (println (internCount it))                      ; 100000, re-interning added nothing
       0
     }))

@@ -78,7 +78,7 @@
           (println "submit order")
           (while (< k (vecLen res))
             {
-              (printlnInt (vecGet res k))
+              (println (cast Int (vecGet res k)))
               (set k (+ k 1))
             })
         })
@@ -91,7 +91,7 @@
         {
           (vecPush c2 (sh3 (strSlice long 2 7)))
           (println "slice argument")
-          (printlnInt (vecGet (jobRunAll c2 2) 0))
+          (println (cast Int (vecGet (jobRunAll c2 2) 0)))
         })
 
       ; Term 3: a program that does not exist keeps its own slot, and
@@ -106,10 +106,10 @@
           (let ((r3 (jobRunAll c3 3)))
             {
               (println "missing program")
-              (printlnInt (vecLen r3))
-              (printlnInt (vecGet r3 0))
+              (println (vecLen r3))
+              (println (cast Int (vecGet r3 0)))
               (println (if (< (vecGet r3 1) 0) "negative" "NOT-NEGATIVE"))
-              (printlnInt (vecGet r3 2))
+              (println (cast Int (vecGet r3 2)))
             })
         })
       0

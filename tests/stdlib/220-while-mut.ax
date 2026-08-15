@@ -116,18 +116,18 @@
 ;@axiom:effect(io)
 (pub fn (main)
   {
-    (printlnInt (sumTo 0))          ; 0
-    (printlnInt (sumTo 1))          ; 0
-    (printlnInt (sumTo 10))         ; 45
-    (printlnInt (sumTo 100))        ; 4950
-    (printlnInt (countDown 5))      ; 0
-    (printlnInt (countDown 0))      ; 0
-    (printlnInt neverRuns)          ; 0
-    (printlnInt (gridSum 3 3))      ; 9: (0+1+2)*(0+1+2)
-    (printlnInt (gridSum 4 5))      ; 60: (0+1+2+3)*(0+1+2+3+4)
-    (printlnInt (gridSum 0 5))      ; 0
-    (printlnInt (joinDigits 7))     ; 7
-    (printlnInt shadowed)           ; 200
-    (printlnInt bigLoop)            ; 1000000
+    (println (sumTo 0))          ; 0
+    (println (sumTo 1))          ; 0
+    (println (sumTo 10))         ; 45
+    (println (sumTo 100))        ; 4950
+    (println (countDown 5))      ; 0
+    (println (countDown 0))      ; 0
+    (println neverRuns)          ; 0
+    (println (gridSum 3 3))      ; 9: (0+1+2)*(0+1+2)
+    (println (gridSum 4 5))      ; 60: (0+1+2+3)*(0+1+2+3+4)
+    (println (gridSum 0 5))      ; 0
+    (println (joinDigits 7))     ; 7
+    (println shadowed)           ; 200
+    (println bigLoop)            ; 1000000
     0
   })

@@ -117,35 +117,35 @@
         (p (Point)))
     {
       ; --- all five spellings agree, on every constructor ---
-      (printlnInt (byPosition c))        ; 7
-      (printlnInt (byName c))            ; 7
-      (printlnInt (byNameReversed c))    ; 7
-      (printlnInt (byPun c))             ; 7
-      (printlnInt (byMixed c))           ; 7
+      (println (byPosition c))        ; 7
+      (println (byName c))            ; 7
+      (println (byNameReversed c))    ; 7
+      (println (byPun c))             ; 7
+      (println (byMixed c))           ; 7
 
-      (printlnInt (byPosition r))        ; 34
-      (printlnInt (byName r))            ; 34
-      (printlnInt (byNameReversed r))    ; 34: by name, not position
-      (printlnInt (byPun r))             ; 34
-      (printlnInt (byMixed r))           ; 34
+      (println (byPosition r))        ; 34
+      (println (byName r))            ; 34
+      (println (byNameReversed r))    ; 34: by name, not position
+      (println (byPun r))             ; 34
+      (println (byMixed r))           ; 34
 
-      (printlnInt (byPosition p))        ; 0
-      (printlnInt (byName p))            ; 0
-      (printlnInt (byPun p))             ; 0
+      (println (byPosition p))        ; 0
+      (println (byName p))            ; 0
+      (println (byPun p))             ; 0
 
       ; --- a pattern may name a subset of the fields ---
-      (printlnInt (widthOnly r))         ; 3
-      (printlnInt (widthOnly c))         ; -1
+      (println (widthOnly r))         ; 3
+      (println (widthOnly c))         ; -1
 
       ; --- nested named patterns ---
-      (printlnInt (unwrapArea (Wrap r 100)))   ; 112: 3*4 + 100
-      (printlnInt (unwrapArea (Wrap c 100)))   ; 107: 7 + 100
-      (printlnInt (unwrapArea (Wrap p 100)))   ; 100
+      (println (unwrapArea (Wrap r 100)))   ; 112: 3*4 + 100
+      (println (unwrapArea (Wrap c 100)))   ; 107: 7 + 100
+      (println (unwrapArea (Wrap p 100)))   ; 100
 
       ; --- field access by name ---
-      (printlnInt (radius c))            ; 7
-      (printlnInt (radius p))            ; -1: the safe spelling answers
-      (printlnInt (firstId (Tagged 5)))  ; 5: legal - every ctor fieldful
-      (printlnInt (firstId (Named 6 9))) ; 6
+      (println (radius c))            ; 7
+      (println (radius p))            ; -1: the safe spelling answers
+      (println (firstId (Tagged 5)))  ; 5: legal - every ctor fieldful
+      (println (firstId (Named 6 9))) ; 6
       0
     }))

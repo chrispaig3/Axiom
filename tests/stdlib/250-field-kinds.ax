@@ -37,9 +37,9 @@
 ;@axiom:effect(io)
 (pub fn (describe c)
   (match c
-    ((CInt n) (printlnInt n))
-    ((CBool b) (printlnInt (if b 1 0)))
-    ((CChar ch) (printlnInt (cast Int ch)))
+    ((CInt n) (println n))
+    ((CBool b) (println (if b 1 0)))
+    ((CChar ch) (println (cast Int ch)))
     ((CFloat f) (println (fmtFloatPrec f 2)))
     ((CStr s) (println s))))
 
@@ -54,9 +54,9 @@
   (match m
     ((Mk n b ch f s)
       {
-        (printlnInt n)
-        (printlnInt (if b 1 0))
-        (printlnInt (cast Int ch))
+        (println n)
+        (println (if b 1 0))
+        (println (cast Int ch))
         (println (fmtFloatPrec f 2))
         (println s)
         0
@@ -77,9 +77,9 @@
 ;@axiom:effect(io)
 (pub fn (showRec r)
   {
-    (printlnInt r.n)
-    (printlnInt (if r.on 1 0))
-    (printlnInt (cast Int r.initial))
+    (println r.n)
+    (println (if r.on 1 0))
+    (println (cast Int r.initial))
     (println (fmtFloatPrec r.ratio 2))
     (println r.label)
     0

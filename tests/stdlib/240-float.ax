@@ -58,10 +58,10 @@
     (println (fmtFloatPrec (/ 10.0 4.0) 2))        ; 2.50
 
     ; --- comparison yields Bool, and is ordered ---
-    (printlnInt (if (< 1.5 2.5) 1 0))              ; 1
-    (printlnInt (if (> 1.5 2.5) 1 0))              ; 0
-    (printlnInt (if (== 0.5 0.5) 1 0))             ; 1
-    (printlnInt (if (>= 2.5 2.5) 1 0))             ; 1
+    (println (if (< 1.5 2.5) 1 0))              ; 1
+    (println (if (> 1.5 2.5) 1 0))              ; 0
+    (println (if (== 0.5 0.5) 1 0))             ; 1
+    (println (if (>= 2.5 2.5) 1 0))             ; 1
 
     ; --- parameters, locals and returns ---
     (println (fmtFloatPrec (half (area 2.5 4.0)) 2))  ; 5.00
@@ -73,8 +73,8 @@
     (println (fmtFloatPrec (throughVec 1.5 2.5) 2))   ; 4.00
 
     ; --- numeric conversion, which `cast` is not ---
-    (printlnInt (__floatToInt 3.99))                  ; 3
-    (printlnInt (__floatToInt (- 0.0 3.99)))          ; -3
+    (println (__floatToInt 3.99))                  ; 3
+    (println (__floatToInt (- 0.0 3.99)))          ; -3
     (println (fmtFloatPrec (__intToFloat 7) 3))       ; 7.000
 
     ; --- formatting: rounding carries into the integer part ---

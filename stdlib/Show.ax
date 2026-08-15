@@ -1,0 +1,75 @@
+; Show.ax — one value, one String, chosen by the value's static type.
+;
+; This module is the target the printing macros lower onto. It exists
+; so that `(println "n = {n}")` can be a REWRITE: the expander turns
+; the hole into `(show n)` and stops there, and everything about
+; *how* an `Int` renders is ordinary Axiom code in this file, checked
+; and compiled like any other.
+;
+; WHY A TRAIT AND NOT A BUILT-IN. A hole has to pick a printer, and a
+; macro cannot see a type (docs/macro-system.md MAC-CAP-7) - so the
+; choice cannot be made at expansion time, and it must not be made at
+; RUN time, because that would mean carrying a type tag on every value
+; and reading it in the printer. That is reflection, and this language
+; does not have it. A trait method is the third option and the only
+; one that fits both constraints: the call `(show n)` is emitted
+; blind, and the CHECKER resolves it to an instance from the static
+; type of `n`, at compile time, into a direct call with no table and
+; no indirection (AX3025's note). A hole whose type has no instance
+; is a compile error naming the type - which is the property that
+; makes format strings type-checked rather than best-effort.
+;
+; WHY `String`'s INSTANCE IS THE IDENTITY, AND WHY THAT MATTERS. It
+; looks like a tautology and it is load-bearing: `(println e)` for a
+; non-literal `e` lowers to `(println_ (show e))`, so every call
+; written before the printing macros existed - all of which passed an
+; already-built `String` - still means exactly what it meant. The
+; rename in `IO.ax` cost zero call sites because of this line.
+;
+; WHAT IS NOT HERE. No `Debug`, no alternate representation, no
+; width or precision in the trait: `show` answers the one rendering a
+; type has. Padding and rounding are `Fmt`'s functions, applied to the
+; result and interpolated - `(println "{padded}")` after
+; `(let ((padded (fmtPadLeft (show n) 8))) ...)` - rather than a
+; specifier grammar inside the string. That keeps the format-string
+; language to holes and braces, which is the whole of what AX3031
+; has to explain.
+
+(import Fmt)
+(import Str)
+
+(pub trait (Show a) where
+  (show :: (-> a String)))
+
+; The four instances the language's own literals produce. A program
+; adds its own for its own types, and `stdlib/Pre.ax`'s `deriveShow`
+; generates the FUNCTION half for a `data` type - `(deriveShow Color)`
+; gives `showColor`, and one line makes it interpolable:
+;
+;   (impl (Show Color) where ((show (lambda (c) (showColor c)))))
+;
+(pub impl (Show String) where
+  ((show (lambda (s) s))))
+
+(pub impl (Show Int) where
+  ((show (lambda (n) (fmtInt n)))))
+
+(pub impl (Show Bool) where
+  ((show (lambda (b) (if b "true" "false")))))
+
+; `fmtFloat`'s own default precision, so `{x}` on a Float renders the
+; way `fmtFloat` renders and the two cannot drift.
+(pub impl (Show Float) where
+  ((show (lambda (x) (fmtFloat x)))))
+
+; `format` — a String, built at compile time from a literal's runs and
+; holes, or `show` applied to anything else.
+;
+;   (format "x = {x}, y = {y}")   ; the interpolating form
+;   (format n)                    ; = (show n); Rust's format!("{}", n)
+;
+; The macro is four tokens because `syntax/format` is the whole
+; implementation: it reads the literal, splits it, and emits the
+; `strConcat` chain with a `show` call per hole. See
+; docs/macro-system.md MAC-CAP-10 for the grammar and the lowering.
+(pub macro (format e) (syntax/format e))

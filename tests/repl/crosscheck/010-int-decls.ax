@@ -5,4 +5,4 @@
 (fn (sq x) (* x x))
 (:: main Int)
 ;@axiom:effect(io)
-(fn (main) { (printlnInt (sq (add 3 4))) 0 })
+(fn (main) { (println (sq (add 3 4))) 0 })

@@ -33,6 +33,8 @@
         0
       }
       (Console IO Alloc)
-      (lambda (s) { (println s) 0 }))
+      ; `cast String`: a handler parameter's type is a variable, so it
+      ; selects no `Show` implementation (AX3025).
+      (lambda (s) { (println (cast String s)) 0 }))
     0
   })

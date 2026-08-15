@@ -25,11 +25,8 @@
 ;@axiom:effect(io)
 (fn (eq name got want)
   (if (strEq got want)
-      { (print "ok   ") (println name) 0 }
-      {
-        (print "FAIL ") (print name)
-        (print " got=") (print got)
-        (print " want=") (println want)
+      { (println "ok   {name}") 0 }
+      { (println "FAIL {name} got={got} want={want}")
         1
       }))
 
@@ -37,11 +34,11 @@
 ;@axiom:effect(io)
 (fn (eqInt name got want)
   (if (== got want)
-      { (print "ok   ") (println name) 0 }
-      {
-        (print "FAIL ") (print name)
-        (print " got=") (printInt got)
-        (print " want=") (printlnInt want)
+      { (println "ok   {name}") 0 }
+      ; the SAME format string as `eq` above, over `Int` rather than
+      ; `String` holes: the rendering is the `Show` instance the checker
+      ; selects, so one spelling covers both harnesses
+      { (println "FAIL {name} got={got} want={want}")
         1
       }))
 
@@ -179,9 +176,7 @@
                              (jsonArrLen (jsonParse "[[[[[[[[1]]]]]]]]")) 1)))
       (set n (+ n 1))
 
-      (print "checks ")
-      (printlnInt n)
-      (print "failures ")
-      (printlnInt bad)
+      (println "checks {n}")
+      (println "failures {bad}")
       bad
     }))

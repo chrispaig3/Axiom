@@ -50,13 +50,13 @@
     {
       ; A child that exits 0, and one that exits 1: the status has to
       ; travel, not merely the fact that something ran.
-      (printlnInt (sysRun (strCStr "/usr/bin/true") (argv3 "/usr/bin/true" "" "") env))   ; 0
-      (printlnInt (sysRun (strCStr "/usr/bin/false") (argv3 "/usr/bin/false" "" "") env)) ; 1
+      (println (sysRun (strCStr "/usr/bin/true") (argv3 "/usr/bin/true" "" "") env))   ; 0
+      (println (sysRun (strCStr "/usr/bin/false") (argv3 "/usr/bin/false" "" "") env)) ; 1
 
       ; THE discriminator: an exit code that can only arise if both
       ; arguments reached the child. With a NULL argv, `sh` reads EOF
       ; from stdin and exits 0 instead.
-      (printlnInt (sysRun (strCStr "/bin/sh") (argv3 "/bin/sh" "-c" "exit 7") env))       ; 7
+      (println (sysRun (strCStr "/bin/sh") (argv3 "/bin/sh" "-c" "exit 7") env))       ; 7
 
       ; A path that does not exist must report the spawn's own failure
       ; rather than some exit code, so a driver can tell "llc is not
@@ -70,22 +70,22 @@
       ; `sysSpawn` grew a pre-fork test. Ablating that test and running
       ; on macOS passes, which is a property of the defect rather than
       ; a weak case.
-      (printlnInt (if (< (sysRun (strCStr "/nonexistent/tool") (argv3 "x" "" "") env) 0) 1 0)) ; 1
+      (println (if (< (sysRun (strCStr "/nonexistent/tool") (argv3 "x" "" "") env) 0) 1 0)) ; 1
 
       ; PATH search finds a bare name, and still delivers arguments.
-      (printlnInt (sysRunPath "sh" (argv3 "sh" "-c" "exit 3") env))                       ; 3
+      (println (sysRunPath "sh" (argv3 "sh" "-c" "exit 3") env))                       ; 3
 
       ; A bare name that is on no PATH entry answers -ENOENT, not an
       ; exit code that could be confused with success.
-      (printlnInt (if (< (sysRunPath "axiom-no-such-tool" (argv3 "x" "" "") env) 0) 1 0))  ; 1
+      (println (if (< (sysRunPath "axiom-no-such-tool" (argv3 "x" "" "") env) 0) 1 0))  ; 1
 
       ; The environment is readable, and is the process's own: PATH is
       ; set for every process that got here through a shell.
-      (printlnInt (if (> (strLen (sysEnv "PATH")) 0) 1 0))                                ; 1
-      (printlnInt (strLen (sysEnv "AXIOM_NO_SUCH_VARIABLE_IS_SET")))                      ; 0
+      (println (if (> (strLen (sysEnv "PATH")) 0) 1 0))                                ; 1
+      (println (strLen (sysEnv "AXIOM_NO_SUCH_VARIABLE_IS_SET")))                      ; 0
 
       ; The forwarded environment reaches the child: `sh` can see PATH
       ; only if `envp` was passed through rather than emptied.
-      (printlnInt (sysRunPath "sh" (argv3 "sh" "-c" "test -n \"$PATH\" && exit 5") env))  ; 5
+      (println (sysRunPath "sh" (argv3 "sh" "-c" "test -n \"$PATH\" && exit 5") env))  ; 5
       0
     }))

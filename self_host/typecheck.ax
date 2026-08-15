@@ -3848,6 +3848,39 @@
                         })))
             }))))))))))))
 
+; The dispatch probe must not REPORT.
+;
+; Selecting an implementation means knowing the dispatch argument's
+; type, and the only way to know a type here is to check the
+; expression - so that argument is checked TWICE: once by the probe
+; in `traitRewrite` below, and once by the ordinary argument walk in
+; `checkApp`. Both walks reported, so every diagnostic inside a trait
+; method's dispatch argument arrived doubled. Measured on an entry
+; file with one trait, one impl and no macros at all: `(sz nope)`
+; answers two identical `AX3001`s.
+;
+; It was latent for as long as traits have existed and stayed cheap
+; because nothing in this repository called a trait method on a
+; failing expression. The printing macros make it the common case -
+; every `{hole}` is a `show` call, so every misspelled hole is a
+; doubled diagnostic - which is what turned a curiosity into a fix.
+;
+; The PROBE's diagnostics are dropped rather than the second walk's,
+; because the second walk is the one whose spans and whose poison the
+; rest of checking reads. Dropping is sound because the two are the
+; same walk over the same node: anything the probe found, the real
+; check finds again a moment later. Nothing else the probe did is
+; undone - a rewritten head, a recorded ambiguity and a poisoned type
+; all survive; only the report is taken back.
+(pub :: tcOutMark (-> Int Int))
+(pub fn (tcOutMark tc) (vecLen (tcOut tc)))
+
+(pub :: tcOutTrunc (-> Int Int Int))
+(pub fn (tcOutTrunc tc mark)
+  (if (<= (vecLen (tcOut tc)) mark)
+      0
+      { (vecPop (tcOut tc)) (tcOutTrunc tc mark) }))
+
 ; Rewrite a trait-method call to the implementation its dispatch
 ; argument selects. Answers 0 always; it works by mutating the head
 ; node, which the emitter reads later from the same tree.
@@ -3876,10 +3909,92 @@
                     (let ((args (spineArgVec e vecNew)))
                       (if (<= (vecLen args) di)
                           0
-                          (let ((at (checkExprH tc (vecGet args di) 0)))
+                          (let ((mark (tcOutMark tc))
+                                (at (checkExprH tc (vecGet args di) 0))
+                                (_quiet (tcOutTrunc tc mark)))
                             (let ((tn (tyHeadName at)))
                               (if (== (strLen tn) 0)
-                                  0
+                                  ; No head name, so nothing to key an
+                                  ; implementation on. This answered 0
+                                  ; and left the head spelled `show` -
+                                  ; which the emitter then wrote out
+                                  ; as a call to a function that does
+                                  ; not exist, and `opt` rejected the
+                                  ; module: `use of undefined value
+                                  ; '@show'`, an AX4003 about generated
+                                  ; code carrying no span into the
+                                  ; source. It stayed latent because
+                                  ; nothing in this repository called a
+                                  ; trait method on a non-concrete
+                                  ; type until the printing macros
+                                  ; routed `(println (vecGet v 1))`
+                                  ; through one - `vecGet` answers a
+                                  ; type VARIABLE, and three
+                                  ; `tests/stdlib` cases failed exactly
+                                  ; there.
+                                  ;
+                                  ; ONE shape stays silent, and it is
+                                  ; the cascade rule rather than
+                                  ; politeness: poison, which means a
+                                  ; diagnostic about this expression
+                                  ; has already been reported.
+                                  ;
+                                  ; The silent wildcard is NOT silent
+                                  ; here, and that is deliberate. It
+                                  ; means the checker could not
+                                  ; represent the type - an effect
+                                  ; operation's result is the case
+                                  ; this repository has - and a
+                                  ; dispatch it cannot resolve is a
+                                  ; call it cannot emit. Staying quiet
+                                  ; leaves the head spelled `show` and
+                                  ; hands `opt` a call to a symbol
+                                  ; that was never defined, which is
+                                  ; how `(println (handle (ask 3 4)
+                                  ; ...))` failed: `check` said OK and
+                                  ; `build` died in the toolchain.
+                                  ; "The checker does not know" is a
+                                  ; fact about the program that the
+                                  ; program can fix - by naming the
+                                  ; type - so it is reported rather
+                                  ; than swallowed.
+                                  (if (== (tyIsErr at) 1)
+                                      0
+                                      (traitDiag tc (spanOf (vecGet args di))
+                                        (strConcat
+                                          (strConcat "cannot select an implementation of `" (nodeA tr))
+                                          ; A fresh unification variable
+                                          ; renders as `_t248`, which
+                                          ; tells a reader nothing. Say
+                                          ; what it IS instead, and keep
+                                          ; the rendering for the shapes
+                                          ; that have a readable one.
+                                          ;
+                                          ; The `at == 0` test is FIRST
+                                          ; and is not folded into an
+                                          ; `||`: a 0 type is the absent
+                                          ; one, and both `nodeTag` and
+                                          ; `tyRender` read through it.
+                                          ; Guarded by `tyIsSilentWild`
+                                          ; this was unreachable; the
+                                          ; moment the wildcard branch
+                                          ; started reporting, `check`
+                                          ; died on SIGKILL with no
+                                          ; output - the failure mode
+                                          ; `check-degenerate.sh` exists
+                                          ; to catch, found here by
+                                          ; reading the exit status
+                                          ; rather than the (empty)
+                                          ; output.
+                                          (if (== at 0)
+                                              "`: this argument's type is not known here"
+                                              (if (== (nodeTag at) TAG_T_VAR)
+                                                  "`: this argument's type is a type variable, not a named type"
+                                                  (strConcat
+                                                    (strConcat "`: this argument's type is `" (tyRender at))
+                                                    "`, which is not a named type"))))
+                                        "an implementation is keyed on a type NAME, so the dispatch argument needs a concrete one: bind it to a `let` with a signature, or write the type at the call - a generic function's own type variable cannot select one either"
+                                        "a trait method is dispatched on the STATIC type of its argument, and a type variable is not a type"))
                                   (let ((full (traitImplName (nodeA tr) tn hname)))
                                     (if (!= (fnEntExact tc full) 0)
                                         {

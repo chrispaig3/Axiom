@@ -58,26 +58,26 @@
 (pub fn (main)
   {
     ; --- nested-pattern fallthrough ---
-    (printlnInt (firstTwo (Cons 10 (Cons 20 (Nil)))))  ; 30: first arm
-    (printlnInt (firstTwo (Cons 7 (Nil))))             ; 7: second arm
-    (printlnInt (firstTwo (Nil)))                      ; 0: third arm
+    (println (firstTwo (Cons 10 (Cons 20 (Nil)))))  ; 30: first arm
+    (println (firstTwo (Cons 7 (Nil))))             ; 7: second arm
+    (println (firstTwo (Nil)))                      ; 0: third arm
 
     ; --- an all-nullary value crossing a call boundary ---
-    (printlnInt (rank (Red)))                          ; 1
-    (printlnInt (rank (Green)))                        ; 2
-    (printlnInt (rank (Blue)))                         ; 3
+    (println (rank (Red)))                          ; 1
+    (println (rank (Green)))                        ; 2
+    (println (rank (Blue)))                         ; 3
 
     ; --- an unboxed tag as a field of a boxed constructor ---
-    (printlnInt (describe (Wrap (Red) 1)))             ; 101
-    (printlnInt (describe (Wrap (Green) 2)))           ; 202
-    (printlnInt (describe (Wrap (Blue) 3)))            ; 303
+    (println (describe (Wrap (Red) 1)))             ; 101
+    (println (describe (Wrap (Green) 2)))           ; 202
+    (println (describe (Wrap (Blue) 3)))            ; 303
 
     ; --- integer payloads on tag-numbered values ---
-    (printlnInt (addPair (Mk 1 1)))                    ; 2
-    (printlnInt (addPair (Mk 2 2)))                    ; 4
-    (printlnInt (addPair (Mk 3 4)))                    ; 7
+    (println (addPair (Mk 1 1)))                    ; 2
+    (println (addPair (Mk 2 2)))                    ; 4
+    (println (addPair (Mk 3 4)))                    ; 7
 
     ; --- a bare tag through a let, then matched again ---
-    (printlnInt (let ((c (Green))) (rank c)))          ; 2
+    (println (let ((c (Green))) (rank c)))          ; 2
     0
   })

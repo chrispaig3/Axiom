@@ -1,0 +1,111 @@
+; The printing macros, end to end: every hole shape, every specifier,
+; and the three refusal-adjacent cases that must NOT refuse.
+;
+; This is the behavioural half of the format work. The compile-time
+; half - that a malformed format string is AX3031 and never reaches
+; run time - is `tests/diagnostics/570-format-refusals.ax`, and the
+; lowering itself is `tests/selfhost/382-format-macros.ax`, which
+; asserts the generated Strings rather than the printed bytes.
+;
+; WHAT THIS CASE IS FOR. Every line below used to need a different
+; function: an `Int` was `printlnInt`, a padded `Int` was
+; `(println (fmtPadLeft (fmtInt n) 8))`, a hex `Int` was
+; `(println (fmtHex n))`. There is one `println` now, and the choice
+; between `fmtInt`, `fmtHex` and `fmtPadLeft` is made by the specifier
+; at expansion time. If that choice ever silently stops being made -
+; a specifier parsed and then dropped - these are the lines that say
+; so, because a dropped specifier prints the unpadded value and the
+; golden holds the padded one.
+(import IO)
+(import Show)
+
+(pub :: main Int)
+;@axiom:effect(io)
+(pub fn (main)
+  (let ((name "world")
+        (n 42)
+        (neg (- 0 7))
+        (big 48879)
+        (zero 0)
+        (pi 3.14159)
+        (ok true)
+        (no false)
+        (s "ax"))
+    {
+      ; --- interpolation, and the four Show instances -------------
+      (println "Hello {name}")                    ; Hello world
+      (println "{n} {ok} {no} {pi}")              ; 42 true false 3.141590
+      (println "{name} and {name} again")         ; world and world again
+
+      ; --- a literal with no holes is passed through unchanged ----
+      (println "no holes at all")                 ; no holes at all
+      (println "")                                ;
+
+      ; --- a NON-literal argument is one `show` -------------------
+      ; This is what keeps every `(println expr)` written before the
+      ; macros existed meaning what it meant.
+      (println n)                                 ; 42
+      (println s)                                 ; ax
+      (println ok)                                ; true
+
+      ; --- escaped braces -----------------------------------------
+      (println "{{n}} is not a hole, {n} is")     ; {n} is not a hole, 42 is
+      (println "{{{n}}}")                         ; {42}
+      (println "}}{{")                            ; }{
+
+      ; --- a backslash escape next to a brace ---------------------
+      ; The escape is copied as a PAIR, so the `n` of `\n` can never
+      ; be read as the start of a hole.
+      (println "tab\there {n}")                   ; a tab, then "here 42"
+
+      ; --- width and alignment ------------------------------------
+      (println "[{n:>8}]")                        ; [      42]
+      (println "[{n:8}]")                         ; [      42]
+      (println "[{s:<8}]")                        ; [ax      ]
+      (println "[{s:^8}]")                        ; [   ax   ]
+      (println "[{s:^9}]")                        ; [   ax    ]
+      (println "[{n:>1}]")                        ; [42]
+      (println "[{n:>0}]")                        ; [42]
+
+      ; --- zero padding keeps the sign in front -------------------
+      (println "[{n:06}]")                        ; [000042]
+      (println "[{neg:06}]")                      ; [-00007]
+      (println "[{zero:03}]")                     ; [000]
+
+      ; --- hexadecimal, both cases --------------------------------
+      (println "[{big:x}] [{big:X}]")             ; [beef] [BEEF]
+      (println "[{zero:x}]")                      ; [0]
+      (println "[{big:>10x}]")                    ; [      beef]
+      (println "[{big:010X}]")                    ; [000000BEEF]
+
+      ; --- precision ----------------------------------------------
+      (println "[{pi:.2}]")                       ; [3.14]
+      (println "[{pi:.0}]")                       ; [3]
+      (println "[{pi:>10.3}]")                    ; [     3.142]
+      (println "[{pi:<10.1}]")                    ; [3.1       ]
+
+      ; --- an empty specifier is the default ----------------------
+      (println "[{n:}]")                          ; [42]
+
+      ; --- format builds a String for a variable ------------------
+      (let ((row (format "{s:<6}{n:>6}"))
+            (plain (format "{n}"))
+            (lit (format "static"))
+            (val (format n)))
+        {
+          (println "row=[{row}]")                 ; row=[ax        42]
+          (println "plain={plain} lit={lit} val={val}")
+          ; a format result is an ordinary String: it interpolates
+          (println "nested=[{row}]")
+        })
+
+      ; --- there is no `print`, and nothing needs one --------------
+      ; A line assembled from pieces is one format string, so the four
+      ; calls this replaces are one call and one syscall. `writeStr` is
+      ; still there for bytes with no newline and no rendering.
+      (println "a{n}{s:>4}|")                     ; a42  ax|
+      (writeStr stdout "raw, no newline: ")
+      (println "{n}")                             ; raw, no newline: 42
+
+      0
+    }))

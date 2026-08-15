@@ -4725,7 +4725,7 @@ FAIL 300-process (stdout)
 Both Linux targets, identically; darwin green. Line 4 of that case is
 
 ```
-(printlnInt (if (< (sysRun (strCStr "/nonexistent/tool") (argv3 "x" "" "") env) 0) 1 0))
+(println (if (< (sysRun (strCStr "/nonexistent/tool") (argv3 "x" "" "") env) 0) 1 0))
 ```
 
 which is the **direct** path — no `PATH` search, nothing for
@@ -5209,7 +5209,7 @@ that name, the imported module's own call lands on the importer's
 definition.** Measured against `875b79b`, with `stdlib/IO.ax` as the
 victim and nothing but documented syntax:
 
-```scheme
+```scheme refused
 (import Sys)
 (:: writeStr (-> Int Int Int))
 (fn (writeStr fd s) (sysWriteFd fd (__addr "PWNED\n") 6))
@@ -5217,6 +5217,16 @@ victim and nothing but documented syntax:
 (:: main Int)
 (fn main { (println "hello") 0 })
 ```
+
+The block is marked `refused` because this program no longer *builds*,
+and the reason is a second demonstration of the same fix rather than an
+accident. `println` became a macro over `writeStr` on 2026-08-15
+([macro-system.md](macro-system.md) MAC-CAP-10), so the expansion needs
+`writeStr` visible - and `(import IO (println))` says it is not.
+`AX3023` is exactly the diagnostic the visibility work added, refusing
+at the import list what this section describes silently landing on the
+entry file's definition. The historical measurement stands as written;
+what changed is that the hijack can no longer be spelled.
 
 ```
 $ axiom run sel8.ax
@@ -6412,7 +6422,7 @@ Fixed 2026-08-10.
 ```scheme refused
 (:: zero Int)
 (fn (zero) 0)
-(fn (main) (printlnInt (/ 10 (zero))))
+(fn (main) (println (/ 10 (zero))))
 ```
 
 ```

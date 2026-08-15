@@ -35,27 +35,27 @@
 (pub fn (main)
   {
     ; Equal content, two different allocations. THE case: 0 before.
-    (printlnInt (yes (== (lit 0) (copy (lit 0)))))
+    (println (yes (== (lit 0) (copy (lit 0)))))
     ; Different content.
-    (printlnInt (yes (== (lit 0) (lit 1))))
+    (println (yes (== (lit 0) (lit 1))))
     ; `!=` is the same question inverted, and was 1 before.
-    (printlnInt (yes (!= (lit 0) (copy (lit 0)))))
-    (printlnInt (yes (!= (lit 0) (lit 1))))
+    (println (yes (!= (lit 0) (copy (lit 0)))))
+    (println (yes (!= (lit 0) (lit 1))))
     ; Same handle: true without reading anything.
-    (printlnInt (yes (== (lit 0) (lit 0))))
+    (println (yes (== (lit 0) (lit 0))))
     ; Length decides first: a prefix is not the whole string.
-    (printlnInt (yes (== (copy "abc") (copy "ab"))))
+    (println (yes (== (copy "abc") (copy "ab"))))
     ; The empty string equals a computed empty string.
-    (printlnInt (yes (== (copy "") (strSlice (copy "xy") 0 0))))
+    (println (yes (== (copy "") (strSlice (copy "xy") 0 0))))
     ; Multi-byte UTF-8, compared by bytes and therefore by code points.
-    (printlnInt (yes (== (copy "héllo, 世界") (copy "héllo, 世界"))))
-    (printlnInt (yes (== (copy "世界") (copy "世堺"))))
+    (println (yes (== (copy "héllo, 世界") (copy "héllo, 世界"))))
+    (println (yes (== (copy "世界") (copy "世堺"))))
     ; A slice shares its parent's bytes and is not NUL-terminated; the
     ; length word is what bounds the comparison.
-    (printlnInt (yes (== (strSlice (copy "abcdef") 1 3) (copy "bcd"))))
+    (println (yes (== (strSlice (copy "abcdef") 1 3) (copy "bcd"))))
     ; Integers are untouched by the rewrite.
-    (printlnInt (yes (== 3 3)))
-    (printlnInt (yes (== 3 4)))
-    (printlnInt (yes (!= 3 4)))
+    (println (yes (== 3 3)))
+    (println (yes (== 3 4)))
+    (println (yes (!= 3 4)))
     0
   })

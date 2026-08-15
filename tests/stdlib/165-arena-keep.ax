@@ -60,7 +60,7 @@
     ;
     ; 40 KB live against 64 bytes of garbage per round, so the restored
     ; waterline is always far below the block being kept.
-    (printlnInt
+    (println
       (let ((m (__axiom_arena_mark))
             (live (paint (memAlloc 40000) 40000)))
         (wrong (churn m live 40000 500) 40000)))          ; 0
@@ -70,7 +70,7 @@
     ; The garbage crosses into chunks mapped after the mark, which the
     ; reclaim returns to the free list; the kept block is copied back
     ; into the marked chunk.
-    (printlnInt
+    (println
       (let ((m2 (__axiom_arena_mark))
             (live2 (paint (memAlloc 4096) 4096))
             (junk (burn 40))
@@ -82,7 +82,7 @@
     ; 2 MiB will not fit in what remains of a 1 MiB chunk, so the
     ; destination comes from a fresh mapping rather than from the free
     ; list - which at that moment holds the source's own chunk.
-    (printlnInt
+    (println
       (let ((m3 (__axiom_arena_mark))
             (big (paint (memAlloc 2097152) 2097152))
             (kept3 (__axiom_arena_reset_keeping m3 big 2097152)))
@@ -92,7 +92,7 @@
     ;
     ; Whatever the reclaim leaves behind, the next `memAlloc` still
     ; answers zeroed memory.
-    (printlnInt
+    (println
       (let ((m4 (__axiom_arena_mark))
             (live4 (paint (memAlloc 1024) 1024))
             (dirt (memSet (memAlloc 4096) 255 4096))

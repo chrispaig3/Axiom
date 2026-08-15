@@ -21,6 +21,6 @@
           (sysWriteFd 1 0 0)
           (set n (- n 1))
         })
-      (printlnInt n)
+      (println n)
       0
     }))

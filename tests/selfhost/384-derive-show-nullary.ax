@@ -1,0 +1,48 @@
+; expect 63
+; `deriveShow` over a data type whose constructors are ALL nullary -
+; the shape no fixture derived over, and the shape that was wrong.
+;
+; `(syntax/binders C f)` supplies arity-many binders so that one
+; template covers every arity (MAC-CAP-5). At arity 0 it supplies
+; none, the arm was rebuilt as a spine with no arguments, and a spine
+; with no arguments is just its head - a bare identifier, which in
+; pattern position BINDS rather than naming a constructor. Every arm
+; therefore matched every value, and the FIRST one answered:
+;
+;   (data Colour (Red) (Green) (Blue))
+;   (deriveShow Colour)
+;   (showColour (Green))            answered "Red", at exit 0
+;
+; `380-syntax-scalar-queries.ax` could not see it. The only type it
+; derives `show` for is `Shape`, whose sole nullary constructor `Dot`
+; is the LAST arm - the one position where a wildcard and the correct
+; answer are the same answer. This case puts a nullary constructor
+; first, middle and last, and asserts all three, so the wildcard
+; behaviour is distinguishable at every position.
+;
+; The mixed type is here too: a wildcard in a MIDDLE arm swallows the
+; constructors after it, which is the failure a last-position-only
+; test cannot produce.
+(import IO)
+(import Pre)
+(import Str)
+
+(data Colour (Red) (Green) (Blue))
+(deriveShow Colour)
+
+; Nullary FIRST and LAST, with a fieldful constructor between them, so
+; a wildcard in arm 1 would swallow `Mid` and `Last` alike.
+(data Mixed (First) (Mid Int) (Last))
+(deriveShow Mixed)
+
+(:: bit (-> Bool Int Int))
+(fn (bit b w) (if b w 0))
+
+(:: main Int)
+(fn (main)
+  (+ (bit (strEq (showColour (Red)) "Red") 1)
+     (+ (bit (strEq (showColour (Green)) "Green") 2)
+        (+ (bit (strEq (showColour (Blue)) "Blue") 4)
+           (+ (bit (strEq (showMixed (First)) "First") 8)
+              (+ (bit (strEq (showMixed (Mid 7)) "Mid") 16)
+                 (bit (strEq (showMixed (Last)) "Last") 32)))))))

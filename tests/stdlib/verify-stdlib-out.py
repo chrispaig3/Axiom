@@ -440,41 +440,77 @@ def ev(node, env):
     return UNMODELLED
 
 
-# Only the `println` family, never `print`/`printInt`: those emit no
-# newline, so their argument is part of a line rather than a line, and
-# `(print "checks ")` followed by `(printlnInt n)` is one output line
-# whose text neither call names on its own.
-PRINT_INT = {'printlnInt'}
+# Only the `println` family, never `print`: those emit no newline, so
+# their argument is part of a line rather than a line, and
+# `(print "checks ")` followed by `(println n)` is one output line whose
+# text neither call names on its own.
+#
+# `printlnInt` was here until 2026-08-15 and no longer exists: `println`
+# is a MACRO over the `Show` trait, so one name renders every type and
+# an Int argument prints the integer that `printlnInt` used to print.
+# The model follows by asking what `ev` answered rather than which
+# function was called.
 PRINT_STR = {'println', 'printlnLit'}
+
+
+def defmt(text):
+    """What a format-string LITERAL prints, or None when it interpolates.
+
+    `println` parses a bare string literal at expansion time
+    (macro-system.md MAC-CAP-10): `{{` and `}}` collapse to one brace,
+    and anything else in braces is a HOLE whose value the model cannot
+    see. A hole yields no claim rather than a guess, which is this
+    model's standing rule.
+    """
+    out = []
+    i, n = 0, len(text)
+    while i < n:
+        c = text[i]
+        if c in '{}':
+            if i + 1 < n and text[i + 1] == c:
+                out.append(c)
+                i += 2
+                continue
+            return None
+        out.append(c)
+        i += 1
+    return ''.join(out)
 
 
 def rendered(node, env):
     """The line a print statement must produce, or None."""
     h = head_of(node)
     args = node[2][1:]
-    if h in PRINT_INT and len(args) == 1:
-        v = ev(args[0], env)
-        if isinstance(v, bool) or not isinstance(v, int):
+    if h not in PRINT_STR or len(args) != 1:
+        return None
+    arg = args[0]
+    if h == 'printlnLit':
+        # `printlnLit` takes the ADDRESS of the bytes, and is a function
+        # rather than a macro - no format string, nothing to collapse.
+        if not is_form(arg, '__addr') or len(arg[2]) != 2:
             return None
+        arg = arg[2][1]
+    v = ev(arg, env)
+    if isinstance(v, bool):
+        return None          # Show's Bool instance, deliberately not modelled
+    if isinstance(v, int):
         return str(v)
-    if h in PRINT_STR and len(args) == 1:
-        arg = args[0]
-        if h == 'printlnLit':
-            # `printlnLit` takes the ADDRESS of the bytes.
-            if not is_form(arg, '__addr') or len(arg[2]) != 2:
-                return None
-            arg = arg[2][1]
-        v = ev(arg, env)
-        if not isinstance(v, Str):
+    if not isinstance(v, Str):
+        return None
+    try:
+        text = v.b.decode('utf-8')
+    except UnicodeDecodeError:
+        return None
+    if h == 'println' and arg[0] == 'str':
+        # A BARE literal is the format string. Anything else - a
+        # `strConcat`, a binding - reaches `println` as a value and is
+        # printed byte for byte, braces included.
+        text = defmt(text)
+        if text is None:
             return None
-        try:
-            text = v.b.decode('utf-8')
-        except UnicodeDecodeError:
-            return None
-        if '\n' in text:
-            return None      # more than one output line; not modelled
-        return text
-    return None
+    if '\n' in text:
+        return None      # more than one output line; not modelled
+    return text
 
 
 # ---------------------------------------------------------------
@@ -508,6 +544,20 @@ def rendered(node, env):
 # prints that same parameter. Anything else yields no checker and no
 # claims - a silence the min-harness floor in main() turns into a
 # failure.
+#
+# Since 2026-08-15 those pieces usually arrive as ONE call. `println` is
+# a macro over a compile-time format string, so the harness above is now
+#
+#   (fn (eq name got want)
+#     (if (strEq got want)
+#         { (println "ok   {name}") 0 }
+#         { (println "FAIL {name} got={got} want={want}") 1 }))
+#
+# which is the same vocabulary in a different arrangement: the literal
+# runs and the holes of one format string are exactly the alternating
+# literals and parameters the recogniser already wanted. `fmt_parts`
+# splits them back apart, so `branch_prints` sees what it always saw and
+# `checker_from` is unchanged.
 
 SKIPPED_HEADS = ('if', 'lambda', 'match', 'when', 'while', 'handle')
 
@@ -521,6 +571,50 @@ class Checker:
         self.ok, self.fail, self.idx = ok, fail, idx
 
 
+def fmt_parts(text):
+    """A format string as alternating ('lit', run) and ('var', name), or
+    None when the model should not have an opinion.
+
+    A hole carrying a SPECIFIER answers None: `{n:>8}` does not print
+    the parameter, it prints a padded rendering of it, and this class
+    claims exact lines. Doubled braces are literal braces.
+    """
+    parts, run, i, n = [], [], 0, len(text)
+
+    def flush():
+        if run:
+            parts.append(('lit', ''.join(run)))
+            del run[:]
+
+    while i < n:
+        c = text[i]
+        if c == '}':
+            if i + 1 < n and text[i + 1] == '}':
+                run.append('}')
+                i += 2
+                continue
+            return None
+        if c != '{':
+            run.append(c)
+            i += 1
+            continue
+        if i + 1 < n and text[i + 1] == '{':
+            run.append('{')
+            i += 2
+            continue
+        j = text.find('}', i + 1)
+        if j < 0:
+            return None
+        name = text[i + 1:j]
+        if not name or not re.match(r'^[A-Za-z_][A-Za-z0-9_\'-]*$', name):
+            return None      # a specifier, or something not a bare name
+        flush()
+        parts.append(('var', name))
+        i = j + 1
+    flush()
+    return parts
+
+
 def branch_prints(node):
     """The leading run of print statements in a branch, as ('lit', text)
     for a literal and ('var', name) for a parameter. Stops at the first
@@ -532,7 +626,7 @@ def branch_prints(node):
             break
         h = head_of(s)
         args = s[2][1:]
-        if h not in ('print', 'println', 'printLit', 'printlnLit') or len(args) != 1:
+        if h not in ('println', 'printLit', 'printlnLit') or len(args) != 1:
             break
         arg = args[0]
         if h in ('printLit', 'printlnLit'):
@@ -543,7 +637,15 @@ def branch_prints(node):
             t = unescape(arg[2])
             if t is None:
                 break
-            out.append(('lit', t))
+            if h == 'println':
+                # A bare literal is a FORMAT string: its runs and holes
+                # are the literals and parameters this recogniser wants.
+                ps = fmt_parts(t)
+                if ps is None:
+                    break
+                out.extend(ps)
+            else:
+                out.append(('lit', t))
         elif arg[0] == 'atom':
             out.append(('var', arg[2]))
         else:

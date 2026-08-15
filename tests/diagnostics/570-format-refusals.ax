@@ -1,0 +1,75 @@
+; AX3031, every way a format string can be malformed, and one case
+; per way. The point of the code is that all of them are found at
+; EXPANSION time - before the checker, and long before the program
+; runs - so none of them can be a runtime formatting failure. There is
+; no runtime format parser to fail in.
+;
+; Each caret has to land INSIDE the string literal, on the byte at
+; fault, and not on the invocation: a format string is a small
+; language embedded in a literal, and a diagnostic that points at the
+; whole call is no better than no diagnostic. The `.human` golden is
+; what pins that.
+;
+; Not here, because they are not this code:
+;   {nope}   an unbound hole is AX3001, at the hole's own span
+;   {c}      a type with no `Show` instance is AX3025
+;   {s:.2}   a well-formed specifier applied to the wrong type is
+;            AX3004, on `fmtFloatPrec`'s Float parameter
+; Those three are the division of labour this design turns on - the
+; expander owns the STRING's shape, the checker owns the VALUE's type
+; - and each is asserted where it belongs.
+(import IO)
+
+(:: unclosed (-> Int Int))
+;@axiom:effect(io)
+(fn (unclosed n) (println "a {n"))
+
+(:: stray (-> Int Int))
+;@axiom:effect(io)
+(fn (stray n) (println "a } b"))
+
+(:: empty (-> Int Int))
+;@axiom:effect(io)
+(fn (empty n) (println "a {} b"))
+
+(:: notAName (-> Int Int))
+;@axiom:effect(io)
+(fn (notAName n) (println "a {1n} b"))
+
+(:: badByteAfterName (-> Int Int))
+;@axiom:effect(io)
+(fn (badByteAfterName n) (println "a {n b"))
+
+(:: unclosedWithSpec (-> Int Int))
+;@axiom:effect(io)
+(fn (unclosedWithSpec n) (println "a {n:>8"))
+
+(:: badSpecType (-> Int Int))
+;@axiom:effect(io)
+(fn (badSpecType n) (println "a {n:q} b"))
+
+(:: precisionWithoutDigits (-> Int Int))
+;@axiom:effect(io)
+(fn (precisionWithoutDigits n) (println "a {n:.} b"))
+
+; The precision written AFTER the type instead of before it - the one
+; specifier mistake whose parts are each individually valid.
+(:: specTrailing (-> Int Int))
+;@axiom:effect(io)
+(fn (specTrailing n) (println "a {n:8x.2} b"))
+
+; The two that were not refusals but CRASHES until the accumulators
+; were capped: an unbounded width wrapped and the program trapped in
+; the allocator at exit 70 with no diagnostic at all, and the same
+; digits as a precision made expansion hang. Both are compile-time
+; refusals naming the limit they enforced.
+(:: widthOverflow (-> Int Int))
+;@axiom:effect(io)
+(fn (widthOverflow n) (println "a {n:99999999999999999999} b"))
+
+(:: precisionOverflow (-> Float Int))
+;@axiom:effect(io)
+(fn (precisionOverflow x) (println "a {x:.99999999999999999999} b"))
+
+(:: main Int)
+(fn (main) 0)

@@ -1,0 +1,111 @@
+[1;31merror[AX3031][0m[1m: this `{` is never closed[0m
+  [1;34m--> [0m570-format-refusals.ax:25:30
+[1;34m   |[0m
+[1;34m25 |[0m (fn (unclosed n) (println "a {n"))
+[1;34m   |[0m                              [1;31m^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0ma format string is parsed at expansion time, so every hole in it is checked before the program runs; `{{` and `}}` write a literal brace
+  [1;34m = [0m[1;32mhelp: [0mclose the hole with `}`, or write `{{` for a literal brace
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3031` for a full explanation
+
+[1;31merror[AX3031][0m[1m: this `}` closes a hole that was never opened[0m
+  [1;34m--> [0m570-format-refusals.ax:29:27
+[1;34m   |[0m
+[1;34m29 |[0m (fn (stray n) (println "a } b"))
+[1;34m   |[0m                           [1;31m^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0ma format string is parsed at expansion time, so every hole in it is checked before the program runs; `{{` and `}}` write a literal brace
+  [1;34m = [0m[1;32mhelp: [0mwrite `}}` for a literal closing brace
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3031` for a full explanation
+
+[1;31merror[AX3031][0m[1m: an empty hole `{}` names nothing to interpolate[0m
+  [1;34m--> [0m570-format-refusals.ax:33:27
+[1;34m   |[0m
+[1;34m33 |[0m (fn (empty n) (println "a {} b"))
+[1;34m   |[0m                           [1;31m^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0ma format string is parsed at expansion time, so every hole in it is checked before the program runs; `{{` and `}}` write a literal brace
+  [1;34m = [0m[1;32mhelp: [0ma hole names a binding in scope at the CALL - `{count}` interpolates `count`. There are no positional arguments and no argument list: write the name in the string, or `{{` for a literal brace
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3031` for a full explanation
+
+[1;31merror[AX3031][0m[1m: this `{` opens a hole that does not name a binding[0m
+  [1;34m--> [0m570-format-refusals.ax:37:30
+[1;34m   |[0m
+[1;34m37 |[0m (fn (notAName n) (println "a {1n} b"))
+[1;34m   |[0m                              [1;31m^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0ma format string is parsed at expansion time, so every hole in it is checked before the program runs; `{{` and `}}` write a literal brace
+  [1;34m = [0m[1;32mhelp: [0ma hole names a binding in scope at the CALL - `{count}` interpolates `count`. There are no positional arguments and no argument list: write the name in the string, or `{{` for a literal brace
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3031` for a full explanation
+
+[1;31merror[AX3031][0m[1m: this hole is not closed: ` ` is neither `}` nor `:`[0m
+  [1;34m--> [0m570-format-refusals.ax:41:38
+[1;34m   |[0m
+[1;34m41 |[0m (fn (badByteAfterName n) (println "a {n b"))
+[1;34m   |[0m                                      [1;31m^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0ma format string is parsed at expansion time, so every hole in it is checked before the program runs; `{{` and `}}` write a literal brace
+  [1;34m = [0m[1;32mhelp: [0ma hole is `{name}`, or `{name:SPEC}` with a format specifier - `{n:>8}`, `{x:.2}`, `{n:04x}`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3031` for a full explanation
+
+[1;31merror[AX3031][0m[1m: this `{` is never closed[0m
+  [1;34m--> [0m570-format-refusals.ax:45:38
+[1;34m   |[0m
+[1;34m45 |[0m (fn (unclosedWithSpec n) (println "a {n:>8"))
+[1;34m   |[0m                                      [1;31m^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0ma format string is parsed at expansion time, so every hole in it is checked before the program runs; `{{` and `}}` write a literal brace
+  [1;34m = [0m[1;32mhelp: [0mclose the hole with `}` after its format specifier
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3031` for a full explanation
+
+[1;31merror[AX3031][0m[1m: `q` is not a format-specifier type[0m
+  [1;34m--> [0m570-format-refusals.ax:49:36
+[1;34m   |[0m
+[1;34m49 |[0m (fn (badSpecType n) (println "a {n:q} b"))
+[1;34m   |[0m                                    [1;31m^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0ma format string is parsed at expansion time, so every hole in it is checked before the program runs; `{{` and `}}` write a literal brace
+  [1;34m = [0m[1;32mhelp: [0mthe types are `x` and `X`, both hexadecimal. Alignment and width come first (`{n:>8x}`) and a precision is `.N` (`{x:.2}`)
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3031` for a full explanation
+
+[1;31merror[AX3031][0m[1m: a `.` in a format specifier needs a digit count after it[0m
+  [1;34m--> [0m570-format-refusals.ax:53:47
+[1;34m   |[0m
+[1;34m53 |[0m (fn (precisionWithoutDigits n) (println "a {n:.} b"))
+[1;34m   |[0m                                               [1;31m^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0ma format string is parsed at expansion time, so every hole in it is checked before the program runs; `{{` and `}}` write a literal brace
+  [1;34m = [0m[1;32mhelp: [0mwrite `{x:.2}` for two decimal places
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3031` for a full explanation
+
+[1;31merror[AX3031][0m[1m: this is left over after the format specifier[0m
+  [1;34m--> [0m570-format-refusals.ax:59:39
+[1;34m   |[0m
+[1;34m59 |[0m (fn (specTrailing n) (println "a {n:8x.2} b"))
+[1;34m   |[0m                                       [1;31m^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0ma format string is parsed at expansion time, so every hole in it is checked before the program runs; `{{` and `}}` write a literal brace
+  [1;34m = [0m[1;32mhelp: [0ma specifier is [align][0][width][.precision][type], in that order - `{x:>08.2}`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3031` for a full explanation
+
+[1;31merror[AX3031][0m[1m: a format width above 1000000[0m
+  [1;34m--> [0m570-format-refusals.ax:68:38
+[1;34m   |[0m
+[1;34m68 |[0m (fn (widthOverflow n) (println "a {n:99999999999999999999} b"))
+[1;34m   |[0m                                      [1;31m^^^^^^^^^^^^^^^^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0ma format string is parsed at expansion time, so every hole in it is checked before the program runs; `{{` and `}}` write a literal brace
+  [1;34m = [0m[1;32mhelp: [0ma width is a byte count the padding allocates; this one is a typo rather than a layout
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3031` for a full explanation
+
+[1;31merror[AX3031][0m[1m: a format precision above 1000000[0m
+  [1;34m--> [0m570-format-refusals.ax:72:42
+[1;34m   |[0m
+[1;34m72 |[0m (fn (precisionOverflow x) (println "a {x:.99999999999999999999} b"))
+[1;34m   |[0m                                          [1;31m^^^^^^^^^^^^^^^^^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0ma format string is parsed at expansion time, so every hole in it is checked before the program runs; `{{` and `}}` write a literal brace
+  [1;34m = [0m[1;32mhelp: [0ma precision is a digit count; `{x:.2}` is two decimal places
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3031` for a full explanation
+
+compilation failed due to 11 previous errors

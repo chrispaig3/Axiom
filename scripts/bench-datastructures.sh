@@ -111,7 +111,7 @@ cat > "$work/b_empty.ax" <<'AX'
 (import IO)
 (pub :: main Int)
 ;@axiom:effect(io)
-(pub fn (main) { (printlnInt 0) 0 })
+(pub fn (main) { (println 0) 0 })
 AX
 
 cat > "$work/b_vec.ax" <<AX
@@ -129,7 +129,7 @@ cat > "$work/b_vec.ax" <<AX
 ;@axiom:effect(io)
 (pub fn (main)
   (let ((v (push vecNew 0 (bN))))
-    { (printlnInt (sum v 0 (bN) 0)) 0 }))
+    { (println (sum v 0 (bN) 0)) 0 }))
 AX
 
 cat > "$work/b_map.ax" <<AX
@@ -147,7 +147,7 @@ cat > "$work/b_map.ax" <<AX
 ;@axiom:effect(io)
 (pub fn (main)
   (let ((m (ins mapNew 0 (bN))))
-    { (printlnInt (look m 0 (bN) 0)) 0 }))
+    { (println (look m 0 (bN) 0)) 0 }))
 AX
 
 cat > "$work/b_intern.ax" <<AX
@@ -157,7 +157,13 @@ cat > "$work/b_intern.ax" <<AX
 (import Fmt)
 (pub :: bN Int)
 (pub fn (bN) $N)
-(pub :: nm (-> Int Int))
+; `nm` answers a String. It was declared `(-> Int Int)` and had been
+; since it was written: the String/Int fiat made the two
+; interchangeable, and deleting the fiat (2026-08-15) left this probe
+; type-erroring with nothing running it - `bench-` scripts are not
+; `check-` gates. Found by the printing sweep, which had to touch this
+; file anyway.
+(pub :: nm (-> Int String))
 (pub fn (nm i) (strConcat "sym" (fmtInt i)))
 (pub :: fill (-> Int Int Int Int))
 (pub fn (fill it lo hi)
@@ -169,7 +175,7 @@ cat > "$work/b_intern.ax" <<AX
 ;@axiom:effect(io)
 (pub fn (main)
   (let ((it (fill internNew 0 (bN))))
-    { (printlnInt (relook it 0 (bN) 0)) 0 }))
+    { (println (relook it 0 (bN) 0)) 0 }))
 AX
 
 # ------------------------------------------------------------------

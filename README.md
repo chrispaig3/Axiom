@@ -252,7 +252,7 @@ Functions are the heart of Axiom. Every function has an optional type signature 
 
 ; Multi-statement body with braces
 (fn (verboseAdd x y)
-  { (println (strConcat "adding " (fmtInt x)))
+  { (println "adding {x}")
     (+ x y) })
 
 ; A constant (function with no parameters)
@@ -782,13 +782,22 @@ external symbol.
 (:: main Int)
 ;@axiom:effect(io)
 (fn (main)
-  {
-    (println "hello, world")
-    (printlnInt 42)
-    (println (strConcat "sum=" (fmtInt (+ 1 2))))
-    0
-  })
+  (let ((total (+ 1 2)))
+    {
+      (println "hello, world")
+      (println 42)                ; any type with a `Show` instance
+      (println "sum={total}")     ; a hole names a binding in scope
+      (println "hex={total:>6x}") ; ...with a Rust-style specifier
+      0
+    }))
 ```
+
+Printing is five macros and no per-type functions: the format string is
+parsed by the compiler, each hole becomes a `show` call chosen by the
+value's static type, and each specifier chooses a `Fmt` function.
+Nothing is parsed at run time, so a malformed format string or a
+specifier applied to the wrong type is a compile error. See
+[Printing and Formatting](docs/reference.md#printing-and-formatting).
 
 ### Modules
 
@@ -802,7 +811,8 @@ external symbol.
 | `Fmt` | `fmtInt`, `fmtHex`, `fmtPadLeft`, `fmtIntWidth` |
 | `Intern` | `internNew`, `internIntern`, `internFind`, `internLookup`, `internCount` (string interner) |
 | `Sys` | `sysWriteFd`, `sysReadFd`, `sysOpenPath`, `sysCloseFd`, `sysSeek`, `sysExitWith`, `sysFailed`, `sysErrno`, `sysReadFile`, `stdin`/`stdout`/`stderr` |
-| `IO` | `print`, `println`, `printInt`, `printlnInt`, `eprint`, `eprintln`, `writeStr`, `readUpTo`, `readAll`, `readFile`, `exit`, `die`, and the raw-address variants `printLit`, `printlnLit`, `readFileLit` |
+| `IO` | `println`, `eprintln` — **macros**, with compile-time format strings — plus `writeStr` (bytes, no newline, no rendering), `readUpTo`, `readAll`, `readFile`, `exit`, `die`, and the raw-address variants `printlnLit`, `readFileLit` |
+| `Show` | the `Show` trait (`show`) and the `format` macro |
 
 A `Str` is a length-prefixed, NUL-terminated string: slicing shares
 storage, and `strCStr` hands the bytes to a syscall without copying.
@@ -935,7 +945,7 @@ for safe null handling:
 (fn (main)
   {
     (println "a literal")
-    (printlnInt 42)
+    (println 42)
     (println (strConcat "formatted: " (fmtInt 42)))
     0
   })
@@ -954,8 +964,8 @@ primitives.
 (fn (main)
   (let ((contents (readFile "input.txt")))
     {
-      (printlnInt (strLen contents))
-      (print contents)
+      (println (strLen contents))
+      (writeStr stdout contents)   ; bytes as they are: no newline, no rendering
       0
     }))
 ```
@@ -1249,7 +1259,7 @@ the pipeline above is a module you can read in the language it compiles.
 | Linear types | **Parsed only** | `linear T`, `consume`. No longer what the memory model relies on: deterministic reclamation comes from the chosen reference counting without them ([docs/memory-model.md](docs/memory-model.md) MM-LIFE-2a/MM-LIFE-7); what linearity would still buy is retain/release-free moves and early drops |
 | Macros | **Partial** | `tests/selfhost/365-macro-pattern-literal.ax`, `tests/selfhost/361-macro-hygiene.ax`. Single-rule substitution macros, expanded in their own pass (`self_host/expand.ax`) between import resolution and the checker, so everything a macro generates is type-checked; hygiene by renaming (`<name>.<counter>` gensym) — binder direction complete, and a module-defined macro's template resolves free identifiers at its definition site. `stdlib/Pre.ax` defines `when`, `unless`, `cond2`, `cond3`; cross-module macro import works, `Mod::name` qualification works (a qualified private macro is `AX3023`), an entry-file function outranks an imported macro of the same name, and a diagnostic inside an expansion carries a backtrace naming each enclosing macro with its declaration's own file and span (`tests/diagnostics/490-expansion-backtrace.ax`). Declaration macros v1 (2026-08-14): a rule-form macro — `(macro name ((name p...) decl...))` — invoked in declaration position generates `fn` and `::` declarations and further macro invocations, expanded to a fixpoint before any body is walked, checked and compiled like hand-written code, with parameters substituting in name, type (float flags recomputed) and expression positions (`tests/selfhost/372-decl-macro.ax`, 144; `373-decl-macro-types.ax`, 10); a typo'd declaration keyword is now `AX3027` naming the head instead of a bare `syntax error` that hid every later diagnostic. Entry-file invocation only, `fn`/`::`/invocation templates only. The `syntax/*` query vocabulary landed the same day — `(syntax/join eq T)` names a generated declaration, `(syntax/constructors T)` and `(syntax/fields S)` answer from the declaration list at expansion time (no user code runs, ever — the vocabulary is closed and compiler-implemented), `(syntax/for (C seq) ...)` splices per element in match-arm, declaration, and argument positions, `(syntax/same f g)` decides a lens's diagonal at expansion time, `(syntax/binders C x)` names a constructor's fields as hygienic pattern binders, and `(syntax/fold && true ...)` chains a comparison over them (zipped in lockstep, the empty fold answering the zero) — which is enough for a working `deriveEq` over any sum type including fieldful constructors, a working `deriveLenses` over any struct, and the `impl`-generating form whose derived instances compose through static trait dispatch — all written as ordinary macros from the spec's worked examples (`tests/selfhost/374-derive-eq.ax`, `375-derive-lenses.ax`, `377-derive-eq-fieldful.ax`, `378-derive-eq-impl.ax`) — and `stdlib/Pre.ax` ships `deriveEq`, which derives over imported types too (`379-derive-imported.ax`). **The query table closed on 2026-08-15**: `(syntax/name C)` answers a constructor's spelling as a `String` and `(syntax/arity C)` its field count as an `Int` — neither is recoverable at run time, where a block records its tag and nothing else — `(syntax/defined n)` answers whether a name is declared and folds the `if` around it at expansion time so the losing branch is deleted rather than compiled, and a join now stands where a *reference* stands, so a macro can call what it names. Each landed with the prelude macro that spends it: `deriveShow`, `deriveArity`, `showOr` (`tests/selfhost/380-syntax-scalar-queries.ax`, 41). **A template may generate types**, not only functions (2026-08-15): `data` and `struct` joined `impl` on the template surface, a constructor's name is a name position so `(syntax/join Off N)` names one, two invocations of one macro give two distinct types, and a type generated in a round is queryable in that same round — `deriveEq` derives over a type a macro invented (`tests/selfhost/381-macro-type-templates.ax`, 32). `type` and `effect` templates still refuse; `import` and nested `macro` refuse by decision, because each would reopen a phase that has already run. No multi-rule patterns, no repetition — the spec is [docs/macro-system.md](docs/macro-system.md). This row read "**Complete** — … hygiene (scope sets + gensym) … expansion backtrace on diagnostics" until 2026-08-14, and every clause of that was false then: the mechanism is renaming, not scope sets, and the backtrace field was populated by nothing — the real backtrace landed the same day the row was corrected |
 | Concurrency | **Library** | No language support and no compiler change: `stdlib/Job.ax` is a bounded pool of child processes over `Sys`'s existing `sysSpawn`/`sysWaitPid` pair, answering in submit order. Processes rather than threads, because a freestanding binary cannot create an OS thread on macOS. See [docs/v1-roadmap.md §4.4](docs/v1-roadmap.md) |
-| Editor support | **Functional** | [tree-sitter grammar](tree-sitter-axiom/) with highlighting queries, gated against all 350 `.ax` files in the repo and a 32-case tree-shape corpus. The language server is `self_host/lsp.ax`, listed four rows above and gated by `scripts/check-lsp-selfhost.sh` |
+| Editor support | **Functional** | [tree-sitter grammar](tree-sitter-axiom/) with highlighting queries, gated against all 356 `.ax` files in the repo and a 32-case tree-shape corpus. The language server is `self_host/lsp.ax`, listed four rows above and gated by `scripts/check-lsp-selfhost.sh` |
 | Imports | **Functional** | `(import Mod.Sub ...)` resolves and merges declarations from other files; qualified access via `Mod::name` disambiguates; see [Modules and imports](#modules-and-imports) |
 | Module visibility | **Complete** | `pub` on a declaration, or an import's name list, decides which names are visible outside a module — not which declarations exist. A module keeps its private helpers and behaves identically however it is imported; naming one from outside is `AX3023`. An import's name list is itself checked since `6a28103`: `(import M (noSuch))` is `AX3023`. `tests/selfhost/920-private-declaration.ax`, `930-selective-import.ax` |
 
@@ -1428,9 +1438,11 @@ runner is a flaky test:
 [docs/v1-roadmap.md](docs/v1-roadmap.md) is the plan to v1: what is done,
 what is left, and — the part that determines the schedule — which items
 actually block which. The headline result is that most of the remaining
-work is *not* parallelizable: the macro system, the HTTP
-library, and the LSP all depend on the memory model, and the LSP depends on
-self-hosting. Both of the roadmap's open designs are now decided and
+work is *not* parallelizable: the macro system and the LSP both depend on
+the memory model, and the LSP depends on self-hosting. It also records
+what v1 is *not*: HTTP is out of scope for the standard library
+(§4.5) — the core owes an external package non-blocking sockets, and
+nothing above them. Both of the roadmap's open designs are now decided and
 specified as normative documents: the memory model
 ([docs/memory-model.md](docs/memory-model.md) — reference counting,
 behind a measured pointerhood prerequisite) and the macro system

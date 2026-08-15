@@ -66,7 +66,7 @@ axiom="$PWD/.axiom-bin/axiom"          # or your own build
 
 A program's answer is observed as its **exit status**, which is the low
 8 bits of `main`'s result (`MM-EXEC-11`). Probes below that print use
-`IO.printlnInt` instead.
+`IO.println` instead.
 
 ---
 
@@ -262,7 +262,9 @@ Measured end to end:
 ;@axiom:effect(console)
 (fn (greet n) { (log "from deep") n })
 ;@axiom:effect(io)
-(fn (main) (handle (greet 7) (Console IO) (lambda (s) { (println s) 0 })))
+; `cast String`: a handler parameter's type is a variable, and `println`
+; is a macro over `show`, whose instance is keyed on a type NAME
+(fn (main) (handle (greet 7) (Console IO) (lambda (s) { (println (cast String s)) 0 })))
 ```
 prints `from deep`, exits 7; with the `handle` removed, exits 71.
 
@@ -1200,7 +1202,7 @@ does **not** stop it being the value of a function returning `Int`:
 
 ```scheme
 (let ((p (P 1 2)) (q p))
-  { (set p.x 99) (printlnInt q.x) })   ; prints 99
+  { (set p.x 99) (println q.x) })   ; prints 99
 ```
 
 **MM-MUT-3 (H).** Field stores are available on **named fields of a

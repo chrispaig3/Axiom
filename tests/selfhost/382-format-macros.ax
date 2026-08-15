@@ -1,0 +1,87 @@
+; expect 255
+; MAC-CAP-10 - `syntax/format` and `syntax/formatln`, asserted on the
+; STRINGS they build rather than on printed bytes.
+;
+; `tests/stdlib/365-format.ax` checks what reaches the descriptor;
+; this checks the value, which is the half that can be compared with
+; `strEq` and therefore the half that fails LOUDLY. A golden of
+; printed output tells you a line changed; this tells you which
+; specifier stopped being applied.
+;
+; Eight independent claims, one bit each, summed - so a partial
+; regression names itself in the exit status instead of collapsing to
+; "not 255":
+;
+;   1   interpolation and literal runs, in both orders
+;   2   escaped braces, and a backslash escape beside one
+;   4   width and the three alignments
+;   8   zero padding, with the sign kept in front
+;  16   both hexadecimal cases
+;  32   precision, including zero places
+;  64   composition - a conversion inside a padding
+; 128   the degenerate literals: no holes, empty, hole-only
+;
+; The one thing NOT asserted here is the newline fold, because
+; `format` does not add one and `println` writes rather than answers.
+; That claim is `365-format.ax`'s, and it is checked at the level it
+; is made: the emitted module holds `c"hi\0A\00"` as ONE constant, so
+; `(println "hi")` is one `write` of one static literal.
+(import IO)
+(import Show)
+(import Str)
+
+(:: bit (-> Bool Int Int))
+(fn (bit b w) (if b w 0))
+
+(:: main Int)
+(fn (main)
+  (let ((n 42)
+        (neg (- 0 7))
+        (big 48879)
+        (pi 3.14159)
+        (s "ax")
+        (name "world")
+        (ok true))
+    (+ (bit (&& (strEq (format "Hello {name}") "Hello world")
+                (&& (strEq (format "{n} and {ok}") "42 and true")
+                    (strEq (format "{name}{name}") "worldworld")))
+            1)
+       (+ (bit (&& (strEq (format "{{n}} is not {n}") "{n} is not 42")
+                   (&& (strEq (format "}}{{") "}{")
+                       (&& (strEq (format "x\ty {n}") "x\ty 42")
+                           ; a literal this pass BUILT is not source:
+                           ; the inner format collapses `{{` to `{`,
+                           ; and the outer must print that verbatim
+                           ; rather than read it as a fresh hole
+                           (strEq (format (format "a{{b}}")) "a{b}"))))
+               2)
+          (+ (bit (&& (strEq (format "[{n:>8}]") "[      42]")
+                      (&& (strEq (format "[{n:8}]") "[      42]")
+                          (&& (strEq (format "[{s:<8}]") "[ax      ]")
+                              (strEq (format "[{s:^8}]") "[   ax   ]"))))
+                  4)
+             (+ (bit (&& (strEq (format "{n:06}") "000042")
+                         (strEq (format "{neg:06}") "-00007"))
+                     8)
+                (+ (bit (&& (strEq (format "{big:x}") "beef")
+                            (strEq (format "{big:X}") "BEEF"))
+                        16)
+                   (+ (bit (&& (strEq (format "{pi:.2}") "3.14")
+                               (strEq (format "{pi:.0}") "3"))
+                           32)
+                      (+ (bit (&& (strEq (format "{big:>10x}") "      beef")
+                                  (&& (strEq (format "{big:010X}") "000000BEEF")
+                                      (strEq (format "{pi:>10.3}") "     3.142")))
+                              64)
+                         (bit (&& (strEq (format "no holes") "no holes")
+                                  (&& (strEq (format "") "")
+                                      (&& (strEq (format "{n}") "42")
+                                          (&& (strEq (format "{n:}") "42")
+                                              ; a non-literal argument
+                                              ; is one `show`, which is
+                                              ; what keeps every
+                                              ; pre-macro `(println e)`
+                                              ; meaning what it meant
+                                              (&& (strEq (format n) "42")
+                                                  (strEq (format s) "ax"))))))
+                              128))))))))))
