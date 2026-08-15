@@ -155,7 +155,7 @@
 ; loop - so a pipe delivers its whole stream too. The final byte after
 ; `used` is NUL because `strAlloc` reserves len+1 zeroed bytes and
 ; every growth copies into a fresh zeroed buffer.
-(:: sysReadAll (-> Int String Int Int Int))
+(:: sysReadAll (-> Int String Int Int String))
 (fn (sysReadAll fd buf used cap)
   (let ((n (sysReadFd fd (+ (strData buf) used) (- cap used))))
     (if (<= n 0)
@@ -333,11 +333,11 @@
 ; so it is not NUL-terminated - `strSlice` wraps an interior pointer.
 ; Anything handing it to a syscall as a path must copy it first, which
 ; `strConcat` and `strDup` both do.
-(pub :: sysEnv (-> String Int))
+(pub :: sysEnv (-> String String))
 (pub fn (sysEnv name)
   (sysEnvLookup (strConcat name "=") 0))
 
-(:: sysEnvLookup (-> String Int Int))
+(:: sysEnvLookup (-> String Int String))
 (fn (sysEnvLookup prefix i)
   (let ((p (sysEnvSlot i)))
     (if (== p 0)

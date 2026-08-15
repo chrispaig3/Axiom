@@ -72,7 +72,7 @@
 ; ------------------------------------------------------------------
 (pub struct Token (kind : TokenKind) (lexeme : String) (span : Int))
 
-(pub :: mkToken (-> TokenKind Int Int Int))
+(pub :: mkToken (-> TokenKind String Int Int))
 (pub fn (mkToken kind lexeme span)
   (Token kind lexeme span))
 

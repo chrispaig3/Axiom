@@ -53,7 +53,7 @@
     }))
 
 (:: rdFd (-> Int Int))       (pub fn (rdFd r)       (memGetWord r 0))
-(pub :: rdBuf (-> Int Int))      (pub fn (rdBuf r)      (memGetWord r 1))
+(pub :: rdBuf (-> Int String))      (pub fn (rdBuf r)      (memGetWord r 1))
 (pub :: rdFilled (-> Int Int))   (pub fn (rdFilled r)   (memGetWord r 2))
 (pub :: rdConsumed (-> Int Int)) (pub fn (rdConsumed r) (memGetWord r 3))
 

@@ -121,9 +121,11 @@
 ; points into a DIFFERENT source than the diagnostic's own unit.
 (pub struct DFrame (name : String) (span : Int) (unit : Int))
 
-(pub :: mkDiagBase (-> Int Int Int Int Int Int))
+(pub :: mkDiagBase (-> Int String String Int String Int))
 (pub fn (mkDiagBase sev code slug span msg)
-  (Diag sev code slug span msg 0 0 0 0 0 0))
+  ; The absent label is the 0 sentinel, spelled with the cast the
+  ; optional-string convention uses (MM-ALLOC-20).
+  (Diag sev code slug span msg (cast String 0) 0 0 0 0 0))
 
 ; ------------------------------------------------------------------
 ; Accessors.
@@ -138,7 +140,7 @@
 
 ; Returns the diagnostic, so it wraps a constructor at an emission site
 ; without the site having to name a local.
-(pub :: diagSetLabel (-> Int Int Int))
+(pub :: diagSetLabel (-> Int String Int))
 (pub fn (diagSetLabel d s) { (memSetWord d 5 s) d })
 
 (pub :: diagSetUnit (-> Int Int Int))
@@ -166,19 +168,19 @@
 (pub fn (diagSecMsg  d i) (memGetWord (vecGet (memGetWord d 7) i) 1))
 
 (pub :: diagNoteCount (-> Int Int)) (pub fn (diagNoteCount d) (diagCountAt d 8))
-(pub :: diagNote (-> Int Int Int))
+(pub :: diagNote (-> Int Int String))
 (pub fn (diagNote d i) (vecGet (memGetWord d 8) i))
 
 (pub :: diagHelpCount (-> Int Int)) (pub fn (diagHelpCount d) (diagCountAt d 9))
-(pub :: diagHelpMsg (-> Int Int Int))
+(pub :: diagHelpMsg (-> Int Int String))
 (pub fn (diagHelpMsg d i) (memGetWord (vecGet (memGetWord d 9) i) 0))
 (pub :: diagHelpFixSpan (-> Int Int Int))
 (pub fn (diagHelpFixSpan d i) (memGetWord (vecGet (memGetWord d 9) i) 1))
-(pub :: diagHelpFixText (-> Int Int Int))
+(pub :: diagHelpFixText (-> Int Int String))
 (pub fn (diagHelpFixText d i) (memGetWord (vecGet (memGetWord d 9) i) 2))
 
 (pub :: diagTraceCount (-> Int Int)) (pub fn (diagTraceCount d) (diagCountAt d 10))
-(pub :: diagTraceName (-> Int Int Int))
+(pub :: diagTraceName (-> Int Int String))
 (pub fn (diagTraceName d i) (memGetWord (vecGet (memGetWord d 10) i) 0))
 (pub :: diagTraceSpan (-> Int Int Int))
 (pub fn (diagTraceSpan d i) (memGetWord (vecGet (memGetWord d 10) i) 1))
@@ -188,23 +190,23 @@
 ; ------------------------------------------------------------------
 ; Builders. Each returns the diagnostic, so they chain.
 ; ------------------------------------------------------------------
-(pub :: diagAddSecondary (-> Int Int Int Int))
+(pub :: diagAddSecondary (-> Int Int String Int))
 (pub fn (diagAddSecondary d span msg)
   { (vecPush (diagVecAt d 7) (cast Int (DLabel span msg))) d })
 
-(pub :: diagAddNote (-> Int Int Int))
+(pub :: diagAddNote (-> Int String Int))
 (pub fn (diagAddNote d s)
   { (vecPush (diagVecAt d 8) s) d })
 
-(pub :: diagAddHelp (-> Int Int Int))
+(pub :: diagAddHelp (-> Int String Int))
 (pub fn (diagAddHelp d s)
-  { (vecPush (diagVecAt d 9) (cast Int (DHelp s 0 0))) d })
+  { (vecPush (diagVecAt d 9) (cast Int (DHelp s 0 (cast String 0)))) d })
 
-(pub :: diagAddFixHelp (-> Int Int Int Int Int))
+(pub :: diagAddFixHelp (-> Int String Int String Int))
 (pub fn (diagAddFixHelp d msg fixSpan fixText)
   { (vecPush (diagVecAt d 9) (cast Int (DHelp msg fixSpan fixText))) d })
 
-(pub :: diagAddTrace (-> Int Int Int Int Int))
+(pub :: diagAddTrace (-> Int String Int Int Int))
 (pub fn (diagAddTrace d name span unit)
   { (vecPush (diagVecAt d 10) (cast Int (DFrame name span unit))) d })
 
@@ -222,11 +224,11 @@
 ; output is byte-identical by construction, and the whole corpus passing
 ; with no re-bless is the check on it.
 ; ------------------------------------------------------------------
-(pub :: mkDiag (-> Int Int Int Int Int Int Int Int Int))
+(pub :: mkDiag (-> Int String String Int String Int a b Int))
 (pub fn (mkDiag sev code slug span msg relSpan relMsg help)
   (mkDiagFix2 sev code slug span msg relSpan relMsg help 0 0 0))
 
-(pub :: mkDiagFix (-> Int Int Int Int Int Int Int Int Int Int Int))
+(pub :: mkDiagFix (-> Int String String Int String Int a b Int c Int))
 (pub fn (mkDiagFix sev code slug span msg relSpan relMsg help fixSpan fixText)
   (mkDiagFix2 sev code slug span msg relSpan relMsg help fixSpan fixText 0))
 
@@ -237,21 +239,25 @@
 ; needs the note. AXDL renders them as separate fields and the human
 ; renderer as separate lines, so the two never have to be crammed into
 ; one sentence.
-(pub :: mkDiagNote (-> Int Int Int Int Int Int Int Int Int Int))
+(pub :: mkDiagNote (-> Int String String Int String Int a b c Int))
 (pub fn (mkDiagNote sev code slug span msg relSpan relMsg help note)
-  (diagAddNote (mkDiag sev code slug span msg relSpan relMsg help) note))
+  (diagAddNote (mkDiag sev code slug span msg relSpan relMsg help) (cast String note)))
 
-(pub :: mkDiagFix2 (-> Int Int Int Int Int Int Int Int Int Int Int Int))
+(pub :: mkDiagFix2 (-> Int String String Int String Int a b Int c d Int))
 (pub fn (mkDiagFix2 sev code slug span msg relSpan relMsg help fixSpan fixText help2)
   (let ((d (mkDiagBase sev code slug span msg)))
     {
-      (if (== relSpan 0) 0 (diagAddSecondary d relSpan relMsg))
-      (if (== help 0)
+      ; The optional strings arrive as TYPE VARIABLES - `0` means
+      ; absent, so the position genuinely carries both, and the cast
+      ; at consumption is the boundary marker MM-ALLOC-20's
+      ; convention asks for.
+      (if (== relSpan 0) 0 (diagAddSecondary d relSpan (cast String relMsg)))
+      (if (== (cast Int help) 0)
           0
           (if (== fixSpan 0)
-              (diagAddHelp d help)
-              (diagAddFixHelp d help fixSpan fixText)))
-      (if (== help2 0) 0 (diagAddHelp d help2))
+              (diagAddHelp d (cast String help))
+              (diagAddFixHelp d (cast String help) fixSpan (cast String fixText))))
+      (if (== (cast Int help2) 0) 0 (diagAddHelp d (cast String help2)))
       d
     }))
 
@@ -354,7 +360,7 @@
 (pub fn (quoteStr s)
   (strConcat (strConcat "\"" (quoteBody s 0 "")) "\""))
 
-(pub :: quoteBody (-> String Int String Int))
+(pub :: quoteBody (-> String Int String String))
 (pub fn (quoteBody s i acc)
   (if (>= i (strLen s))
       acc

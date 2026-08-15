@@ -74,7 +74,7 @@
 ; Construction
 ; ------------------------------------------------------------------
 
-(:: jsonMake (-> Int Int Int Int))
+(:: jsonMake (-> Int a b Int))
 (fn (jsonMake tag a b)
   (let ((v (memAlloc 24)))
     {
@@ -158,7 +158,7 @@
 (pub fn (jsonObjLen v)
   (if (== (jsonTag v) JOBJ) (vecLen (memGetWord v 1)) 0))
 
-(:: jsonObjKeyAt (-> Int Int Int))
+(:: jsonObjKeyAt (-> Int Int String))
 (fn (jsonObjKeyAt v i)
   (if (|| (< i 0) (>= i (jsonObjLen v))) "" (vecGet (memGetWord v 1) i)))
 
@@ -261,7 +261,7 @@
 ; single most expensive mistake this project has measured.
 ; ------------------------------------------------------------------
 
-(:: jsonJoin (-> Int Int))
+(:: jsonJoin (-> Int String))
 (fn (jsonJoin pieces)
   (let ((total (jsonJoinLen pieces)))
     (let ((out (strAlloc total)))

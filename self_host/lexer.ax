@@ -497,7 +497,7 @@
 ; It must skip exactly what the lexer skips, or a `;@axiom:` inside a
 ; string literal becomes a tag: string bodies with their escapes, and
 ; char literals.
-(pub struct AxtagEnt (off : Int) (content : Int))
+(pub struct AxtagEnt (off : Int) (content : String))
 
 ; A LOOP, not a recursion, for the same reason `lexTokens` and
 ; `dispatchChar` are loops: this walks ONE BYTE PER STEP, so its depth
