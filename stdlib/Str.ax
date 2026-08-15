@@ -55,9 +55,19 @@
 ; owner rather than naming the parent, so the chain is one hop deep
 ; however many times a slice is sliced, and the address counted is
 ; never interior.
+;
+; The header is allocated MAPPED, with bit 2 set: word 2 is the only
+; word of a `Str` that holds a handle to a counted block, so a header
+; whose count reaches zero releases its owner and the owner's count
+; reaches zero in turn. That is what turns the share this function
+; records into reclamation instead of bookkeeping - before it, a dead
+; `Str` was header-deep and its bytes' count simply stood
+; (docs/memory-model.md MM-LIFE-2d). Word 1 is deliberately NOT
+; mapped: for a slice it is an INTERIOR address, and no count
+; reachable from a slice may free an interior pointer.
 (pub :: strWrapOwned (-> Int Int Int String))
 (pub fn (strWrapOwned bytes len owner)
-  (let ((s (memAlloc 24)))
+  (let ((s (memAllocMapped 24 4)))
     {
       (memSetWord s 0 len)
       (memSetWord s 1 bytes)

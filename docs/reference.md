@@ -1234,7 +1234,7 @@ Axiom ships a standard library written **in Axiom**. It reaches the operating sy
 | Module | Provides |
 |---|---|
 | `Pre` | `when`, `unless`, `cond2`, `cond3` (conditional macros) |
-| `Mem` | `memAlloc`, `memCopy`, `memSet`, `memCmp`, `memGetByte`/`memPutByte`, `memGetWord`/`memSetWord` |
+| `Mem` | `memAlloc`, `memAllocMapped`, `memCopy`, `memSet`, `memCmp`, `memGetByte`/`memPutByte`, `memGetWord`/`memSetWord` |
 | `Str` | `strFromLit`, `strAlloc`, `strLen`, `strByte`, `strCmp`, `strEq`, `strSlice`, `strDup`, `strConcat`, `strFindByte`, `strStartsWith`, `strCStr` |
 | `Utf8` | `utf8Len`, `utf8CharAt`, `utf8DecodeAt`, `utf8FromChar`, `utf8Next`, `utf8Offset`, `utf8Slice`, `utf8Width`, `utf8SeqLen`, `utf8IsCont`, `utf8Valid` (the character view of a `Str`) |
 | `Vec` | `vecNew`, `vecPush`, `vecPop`, `vecGet`, `vecSet`, `vecLen`, `vecCap`, `vecReserve`, `vecClear` |
@@ -1490,6 +1490,15 @@ one useful pattern depends on it:
 
 - `memAlloc` answers **zeroed** memory always, including memory a
   reset has reclaimed and handed out again.
+- `memAlloc` also answers a **leaf**: a block it hands out is declared
+  to hold no references, because a byte count is all it was told.
+  `(memAllocMapped bytes map)` is the same allocation with bit *i* of
+  `map` naming payload word *i* as a handle to another counted block,
+  so releasing this block releases that one too. `Str`'s header is the
+  first user — word 2 owns the bytes — and it is what makes a dead
+  string free its buffer rather than just its header. The map is
+  clamped to the block, so it can name the wrong word of your own
+  block and never a word outside it.
 - A reset **writes nothing** to what it reclaims. Memory above the
   restored waterline keeps its contents until it is handed out again.
 - `(__axiom_arena_reset_keeping mark addr bytes)` reclaims to `mark`

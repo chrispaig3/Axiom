@@ -1604,17 +1604,38 @@ signature in this repository declares 4.
 (`tests/stdlib/357-str-owner.ax`, 63): the header's third word names
 the owning block, `strAlloc` and every `strSlice` take a share, and
 a literal's zero says its loader-resident bytes are nobody's to
-free. The counts are correct in every running program; what they
-still lack is a consumer, because a `Str` header is itself a
-`memAlloc` leaf whose death returns nothing — that release, with
-the container element maps it shares a rung with, is `MM-LIFE-2e`
-extension work.
+free.
+
+*And its consumer landed the same day* (`tests/stdlib/359-arc-str-bytes.ax`,
+63): the header is now allocated **mapped**, one bit, naming word 2,
+so a header whose count reaches zero releases its owner and the
+owner's count reaches zero in turn. Word 1 is deliberately not
+mapped — for a slice it is an INTERIOR address, and no count
+reachable from a slice may free one. A thousand build-and-drop
+iterations of `(MkBox (strDup <48 bytes>))` move the allocator's
+bump by **384 bytes**; without the bit the same run reads **80,304**,
+which is 80 bytes an iteration — exactly the payload block and its
+header. The compiler's own output is unchanged, byte for byte, and
+its self-compile time (1.18 s) and peak RSS (484.3 MiB) are the same
+to the digit either way.
+
+The stamping needed **no new primitive**, which is a property worth
+recording rather than a coincidence: the shape word is an ordinary
+word at `h - 8` and the encoding is arithmetic, so `Mem.memAllocMapped`
+is six operations over `__load64`/`__store64`. `stdlib/` is compiled
+by the committed seed, and a standard library that spells a primitive
+the seed does not know cannot be built at all until the seed moves —
+so an implementation that stays inside the existing primitive set
+costs one reseed less than the equivalent backend change, for the
+same clamp. The clamp is real: the map is masked to the block's own
+recorded word count and to the 47-word capacity, so a caller can mark
+the wrong word of its own block — its business, exactly as
+`memSetWord`'s index is — and cannot mark a word outside it, set the
+form bit, or disturb the count.
 
 *Still P:* the array form's writers and the container buffer
 migration (the `Vec`/`Map` element maps this word exists to feed),
-closure and evidence records' own maps, and the release side of the
-`Str` buffer — a released string is header-deep today, and its
-bytes' count simply stands.
+and closure and evidence records' own maps.
 
 **MM-LIFE-2e (P). The release path.** A bump pointer cannot reuse an
 interior free. Release at zero **SHALL** hand the block — header
@@ -2057,6 +2078,8 @@ equivalent honesty for this one.
 | `tests/stdlib/160-arena.ax` | ALLOC-12, ALLOC-13 (waterline, 64-byte contiguity, reuse, nesting, chunk crossing, zero-on-reuse) |
 | `tests/stdlib/110-tail-loop-alloc.ax` | that a self tail call does **not** reclaim what its iteration allocated — the negative of ALLOC-19 |
 | `tests/stdlib/040-mem.ax` | the `Mem` primitives over ALLOC-3, ALLOC-6 |
+| `tests/stdlib/358-str-owner-shares.ax` | VAL-7's counting rule — every header that NAMES an owner holds a share of it |
+| `tests/stdlib/359-arc-str-bytes.ax` | LIFE-2d's `Str` half end to end — a dead string frees its bytes, a live slice keeps its parent's |
 | `tests/stdlib/220-while-mut.ax` | MUT-1 across 1,000,000 iterations |
 | `tests/stdlib/035-string-equality.ax` | VAL-7's content equality, including the Unicode and interior-NUL cases |
 | `scripts/measure-memory-baseline.sh --gate` | ALLOC-16's managed contract; the unsound variant must *fail* |

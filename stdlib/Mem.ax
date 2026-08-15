@@ -40,6 +40,51 @@
 (pub fn (memAlloc bytes)
   (__alloc bytes))
 
+; The same allocation, declaring which of the block's words hold
+; REFERENCES: bit i of `map` says payload word i is a handle to
+; another counted block, so releasing this block releases that one
+; too (docs/memory-model.md MM-LIFE-2d, the record form).
+;
+; `memAlloc` cannot answer this and never will - it sees a byte count
+; and nothing else, so it stamps every block a LEAF, which is the
+; unsafe layer staying the unsafe layer. A module that builds a header
+; with a handle in it - `Str`'s owner word is the first - has to say
+; so, once, at the allocation.
+;
+; The map is CLAMPED here to the block just allocated and to the
+; 47-word capacity of the encoding, so this can name the wrong word of
+; your own block and cannot name a word outside it. Getting the bit
+; wrong is the same class of mistake as getting a `memSetWord` index
+; wrong, with one difference worth stating plainly: a word wrongly
+; marked as a reference is released at this block's death, and a
+; release of something that is not a counted block is a wild write,
+; not a wrong answer. Mark only words you allocated and own.
+;
+; NO NEW PRIMITIVE. The shape word is an ordinary word at `h - 8` and
+; the encoding is arithmetic, so this is six operations over
+; `__load64`/`__store64` rather than a fifth entry in the backend's
+; primitive table - which matters because `stdlib/` is compiled by the
+; SEED, and a standard library that spells a primitive the committed
+; seed does not know cannot be built at all until the seed moves. The
+; clamp is the same clamp either way; what changes is who has to be
+; reseeded to get it.
+;
+; A zero-byte request keeps MM-ALLOC-8b's behaviour exactly: no block,
+; no header, nothing stamped.
+(pub :: memAllocMapped (-> Int Int Int))
+(pub fn (memAllocMapped bytes map)
+  (let ((h (__alloc bytes)))
+    (if (== bytes 0)
+        h
+        (let ((sw (__load64 (- h 8) 0)))
+          (let ((cnt (& (>> sw 1) 32767)))
+            (let ((lim (if (> cnt 47) 47 cnt)))
+              {
+                (__store64 (- h 8) 0
+                           (| sw (<< (& map (- (<< 1 lim) 1)) 16)))
+                h
+              }))))))
+
 ; Copy `count` bytes from `src` to `dst`. Returns `dst`.
 ;
 ; Copies forwards, so overlapping ranges are only safe when

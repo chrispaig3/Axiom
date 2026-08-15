@@ -1,0 +1,115 @@
+; exit 63 (see .exit)
+; MM-LIFE-2d's last "still P" line for the `Str` half: a released
+; string was HEADER-DEEP, and its bytes' count simply stood. The
+; header is a `memAlloc` block, the allocator stamps every one of
+; those a LEAF because it cannot know a field from an int, and a leaf
+; has no map to walk - so the owner word MM-VAL-7 added was a share
+; nobody ever gave back.
+;
+; `strWrapOwned` now allocates the header MAPPED, one bit, naming word
+; 2. Word 1 is deliberately not mapped: for a slice it is an interior
+; address, and no count reachable from a slice may free one.
+;
+;   32  a build-and-drop loop is FLAT. One thousand iterations of
+;       `(MkBox (strDup <48 bytes>))` discarded in statement position
+;       move the allocator's bump by 384 bytes. Each iteration
+;       allocates two blocks - a 48-byte payload and a 32-byte header
+;       - and event 6 retained the String into the cell, so the
+;       cell's death walks to the header, the header's death walks to
+;       the bytes, and both file. Without the map the header files
+;       and the payload does not: the same run reads 80,304.
+;   16  the same chain, one level and no loop: the payload block a
+;       dead string owned is handed back to the very next request of
+;       its size class.
+;    8  a slice keeps its parent's bytes alive BY ARITHMETIC. The
+;       parent header dies while the slice lives, and the slice still
+;       reads 'c' - the owner's count went 2 -> 1, not 2 -> 0. This
+;       term is a CONTROL, and it is stated as one: it passes on the
+;       unfixed library too, where the parent's bytes survive for the
+;       duller reason that nothing frees them. It earns its place
+;       beside 4, which fails there.
+;    4  and when the slice dies too the owner reaches zero and its
+;       block is re-issued. Two headers, two shares, one buffer.
+;    2  a header over bytes NOBODY owns (owner 0) dies without
+;       touching anything: release skips the zero by the same
+;       immediates guard everything else uses.
+;    1  every step above ran.
+;
+; The unfixed standard library answers 11: 8, 2 and 1 hold there for
+; the reasons above, and 32, 16 and 4 - every term that asks whether
+; the payload came BACK - are exactly what the bit adds.
+(import Str)
+(import Mem)
+
+(data Box
+  (MkBox String))
+
+(:: b2i (-> Bool Int))
+(fn (b2i x) (if x 1 0))
+
+(:: wide (-> Int String))
+(fn (wide n) (strDup "0123456789abcdef0123456789abcdef0123456789abcdef"))
+
+(:: spin (-> Int Int))
+(fn (spin n)
+  (if (<= n 0)
+      0
+      {
+        (MkBox (wide n))
+        (spin (- n 1))
+      }))
+
+(:: main Int)
+(fn (main)
+  (let ((mut acc 0) (mut steps 0))
+    {
+      ; --- 32: the loop is flat -----------------------------------
+      ; The probe allocates 200 bytes because the loop does not.
+      ; Spelled `(memAlloc 8)` - the size every other ARC fixture
+      ; probes with - it measured NOTHING: the `Box` cell is one word,
+      ; so it lands in the same 16-byte class, and the second probe
+      ; popped the cell the last iteration had just released. Both the
+      ; fixed and the ablated library then answered "32 bytes of
+      ; growth", which is a harness manufacturing the finding it
+      ; exists to detect. At 200 bytes the same run reads 384 fixed
+      ; and 80,304 ablated - 80 bytes per iteration, which is exactly
+      ; the payload block and its header.
+      (let ((b1 (memAlloc 200)))
+        {
+          (spin 1000)
+          (let ((b2 (memAlloc 200)))
+            (set acc (+ acc (* 32 (b2i (< (- b2 b1) 4096))))))
+          (set steps (+ steps 1))
+        })
+      ; --- 16: one dead string hands its payload back -------------
+      (let ((d (wide 0)))
+        (let ((ba (strData d)))
+          {
+            (__retain (cast Int d))
+            (__release (cast Int d))
+            (set acc (+ acc (* 16 (b2i (== (memAlloc 49) ba)))))
+            (set steps (+ steps 1))
+          }))
+      ; --- 8 and 4: the slice holds the parent up -----------------
+      (let ((p (strDup "abcdefgh")))
+        (let ((s (strSlice p 2 3)))
+          (let ((pd (strData p)))
+            {
+              (__retain (cast Int p))
+              (__release (cast Int p))
+              (set acc (+ acc (* 8 (b2i (== (strByte s 0) 99)))))
+              (__retain (cast Int s))
+              (__release (cast Int s))
+              (set acc (+ acc (* 4 (b2i (== (memAlloc 9) pd)))))
+              (set steps (+ steps 1))
+            })))
+      ; --- 2: owner 0 releases harmlessly -------------------------
+      (let ((u (strWrap (__addr "unowned") 7)))
+        {
+          (__retain (cast Int u))
+          (__release (cast Int u))
+          (set acc (+ acc (* 2 (b2i (== (strLen "unowned") 7)))))
+          (set steps (+ steps 1))
+        })
+      (if (== steps 4) (+ acc 1) acc)
+    }))
