@@ -1020,11 +1020,13 @@ The v1 surface, all of it measured
 (`tests/selfhost/372-decl-macro.ax` = 144,
 `tests/selfhost/373-decl-macro-types.ax` = 10):
 
-- **Templates generate `fn` and `::` declarations, and further macro
-  invocations** (resolved by the next fixpoint round). Any other
-  declaration kind in a template — `data`, `struct`, `trait`, `impl`,
-  `effect`, `import` — is `AX3021` **at the macro's own line**, before
-  any invocation exists (`MAC-SAFE-4`'s loud-at-definition shape;
+- **Templates generate `fn`, `::` and `impl` declarations, further
+  macro invocations** (resolved by the next fixpoint round), **and
+  `syntax/for` iterations over them** (`impl` and the iteration form
+  joined later the same day). Any other declaration kind in a
+  template — `data`, `struct`, `trait`, `effect`, `import` — is
+  `AX3021` **at the macro's own line**, before any invocation exists
+  (`MAC-SAFE-4`'s loud-at-definition shape;
   `tests/diagnostics/510-decl-macro-template-kind.ax`).
 - **A parameter substitutes in name position, type position and
   expression position.** A name position — a generated declaration's
@@ -1470,15 +1472,19 @@ form over a sum whose constructors carry 1, 2 and 0 fields — one
 template, with the nullary case falling out of the empty fold
 answering `true`. The field comparison there is written `(== xi yi)`,
 which covers `Int` fields; the trait-dispatching `(eq xi yi)` of the
-`impl` form below is what still waits. (An earlier revision called the
+`impl` form below landed one commit later. (An earlier revision called the
 fieldful case "the honest edge" because nothing could name the *i*-th
 field of a bound pattern; `syntax/binders` is the table row that
 closed it, argued for exactly as `MAC-CAP-6` requires.)
 
-The `impl`-generating form remains normative-but-unbuilt: an `impl`
-template is `AX3021` at the macro's own line today, and the trait
-dispatch its `(eq xi yi)` needs is `MAC-INT-4`'s. The fieldful form
-generates an **`impl`**, not the free function the
+**The `impl`-generating form holds too (2026-08-14, fourth commit)**:
+`tests/selfhost/378-derive-eq-impl.ax` (30) is the fragment below
+running verbatim, measured as COMPOSITION — `(deriveEq Inner)` leaves
+`Eq#Inner#eq` behind, and `(deriveEq Outer)`'s comparison of its
+`Inner`-typed field dispatches to it by the field's static type,
+while its `Int` field dispatches to a hand-written `(Eq Int)`
+instance and the nullary constructor falls out of the empty fold. The
+fieldful form generates an **`impl`**, not the free function the
 nullary sketch above generates — and the difference is load-bearing,
 not stylistic. Its own field comparisons dispatch through `Eq`, so a
 derived type's instance must *be* an `Eq` instance for a containing
@@ -1662,6 +1668,7 @@ convention; the list, not any one entry, is the argument for gating.
 | `tests/diagnostics/535-syntax-for-toplevel.axbad` | declaration-position for outside a template, refused and re-tagged inert (`.axbad`: the formatter rewrites the shape) |
 | `tests/selfhost/377-derive-eq-fieldful.ax` (30) | CAP-5's fieldful rung — binders' deterministic `p#i` spelling through the renamer, fold's parallel zip, the empty fold as the nullary case |
 | `tests/diagnostics/540-syntax-fold-misuse.ax` | fold/binders refusals — zip-length mismatch, unknown constructor, sequence in scalar position, fold arity |
+| `tests/selfhost/378-derive-eq-impl.ax` (30) | CAP-8's impl templates + §10.2's fieldful form verbatim — derived instances COMPOSE through MAC-INT-4 dispatch |
 | `tests/diagnostics/520-syntax-query-misuse.ax` | CAP-6's closure — unknown query, wrong-kind subject, missing subject, all AX3028 |
 | `tests/diagnostics/525-syntax-reserved.axbad` | CAP-6's reservation — syntax/ spellings outside a template, including the one-paren-short near-miss (`.axbad`: the formatter must not learn these shapes) |
 | `tests/diagnostics/485-qualified-private-macro.ax` | LANG-12's `AX3023` route for a qualified private macro |
@@ -1748,13 +1755,15 @@ rather than the value alone.
    field-name substitution run §10.3's `deriveLenses` verbatim
    (fixture 375); and `syntax/binders`/`syntax/fold` run the fieldful
    free-function `deriveEq` over a mixed-arity sum (fixture 377).
-   What remains under this heading: `impl` templates with
-   `MAC-INT-4` dispatch (the spec's own fieldful form),
+   `impl` templates landed in the fourth commit — fixture 378 runs
+   the spec's own fieldful form and measures instance COMPOSITION
+   through `MAC-INT-4` dispatch. What remains under this heading:
    `syntax/name`/`arity`/`defined` (each waiting for the real macro
    that needs it, per `MAC-CAP-6`'s closure rule), the parallel
    `syntax/for` form (fold's parallel form exists; for's does not),
    nested `syntax/join` (nested declaration iteration cannot yet
-   name its products), and module-side query subjects.
+   name its products), and module-side query subjects — which are
+   also what a stdlib-shipped `deriveEq` waits on.
 5. **`MAC-LANG-14`–`MAC-LANG-18`** — rules, patterns and ellipsis. The
    largest surface change, touching three implementations of the token
    set, and the one that should land last because the others do not

@@ -2227,17 +2227,18 @@
 (pub fn (expCheckTplKind mac t env)
   (if (|| (== (nodeTag t) TAG_D_FN)
           (|| (== (nodeTag t) TAG_D_SIG)
-              (== (nodeTag t) TAG_D_MACROCALL)))
+              (|| (== (nodeTag t) TAG_D_MACROCALL)
+                  (== (nodeTag t) TAG_D_IMPL))))
       0
       (if (== (nodeTag t) TAG_D_SYNFOR)
           (expCheckTplKindVec mac (nodeC t) env 0)
           (expEmit env (expMarkUnit env (mkDiagNote SEV_ERROR "AX3021" "macro-template-unsupported"
             (if (== (nodeSpan t) 0) (nodeSpan mac) (nodeSpan t))
             (strConcat (strConcat "macro `" (nodeA mac))
-                       "`'s template may generate `fn` and `::` declarations, further macro invocations, or a syntax/for over them - this form is not supported yet")
+                       "`'s template may generate `fn`, `::` and `impl` declarations, further macro invocations, or a syntax/for over them - this form is not supported yet")
             0 0
             "generate the declaration by hand, or split it out of the template"
-            "data, struct, trait, impl, effect and import templates refuse here, at the macro's own line, rather than passing through silently (MAC-CAP-2)")
+            "data, struct, trait, effect and import templates refuse here, at the macro's own line, rather than passing through silently (MAC-CAP-2)")
             (nodeModule mac))))))
 
 (pub :: expCheckTplKindVec (-> Int Int Int Int Int))
@@ -2745,6 +2746,30 @@
                     (memSetWord g 6 ty)
                     g
                   }))))
+    (if (== tag TAG_D_IMPL)
+        ; An impl template: `(impl (Eq T) where ((eq (lambda ...))))`
+        ; - the trait and TYPE names substitute like any name
+        ; position, and each method's body substitutes through the
+        ; expression machinery. The generated impl joins the list
+        ; before `lowerImpls` runs (every driver lowers after
+        ; expansion), so it lowers to the same `Trait#Type#m`
+        ; declarations a written impl does - which is what lets a
+        ; derived instance BE an instance for a containing type's
+        ; derive to dispatch to (MAC-INT-4, macro-system.md §10.2).
+        (let ((tn (expSubstName (nodeA t) params args env isp)))
+          (if (== tn 0)
+              0
+              (let ((ty (expSubstName (nodeC t) params args env isp)))
+                (if (== ty 0)
+                    0
+                    (let ((ms (expBuildImplMethods (nodeB t) params args env isp)))
+                      (if (== ms 0)
+                          0
+                          (let ((g (mkNodeAt TAG_D_IMPL tn ms ty isp)))
+                            {
+                              (memSetWord g 5 1)
+                              g
+                            })))))))
     (if (== tag TAG_D_MACROCALL)
         (let ((hd (expSubstName (nodeA t) params args env isp)))
           (if (== hd 0)
@@ -2757,9 +2782,32 @@
             "a declaration template may generate `fn` and `::` declarations, or further macro invocations - this form is not supported yet"
             0 0
             "generate the declaration by hand, or extend the template surface"
-            "data, struct, trait, impl, effect and import templates are refusals rather than silent passthroughs, so the commit that adds one adds it loudly (MAC-CAP-2)"))
+            "data, struct, trait, effect and import templates are refusals rather than silent passthroughs, so the commit that adds one adds it loudly (MAC-CAP-2)"))
           0
-        })))))
+        }))))))
+
+; Each impl method is a TAG_FIELD (name, expression): the name
+; substitutes like any name position - a parameterised method name is
+; unusual but legal - and the body substitutes through substTpl, so
+; hygiene, spans and query evaluation inside it are the expression
+; machinery's, unchanged.
+(pub :: expBuildImplMethods (-> Int Int Int Int Int Int))
+(pub fn (expBuildImplMethods ms params args env isp)
+  (expBuildImplMethodsIn ms params args env isp vecNew 0))
+
+(pub :: expBuildImplMethodsIn (-> Int Int Int Int Int Int Int Int))
+(pub fn (expBuildImplMethodsIn ms params args env isp acc i)
+  (if (>= i (vecLen ms))
+      acc
+      (let ((m (vecGet ms i)))
+        (let ((nm (expSubstName (nodeA m) params args env isp)))
+          (if (== nm 0)
+              0
+              (let ((body (substTpl (nodeB m) params args vecNew env isp)))
+                {
+                  (vecPush acc (mkNodeAt TAG_FIELD nm body 0 isp))
+                  (expBuildImplMethodsIn ms params args env isp acc (+ i 1))
+                }))))))
 
 (pub :: expSubstArgs (-> Int Int Int Int Int Int))
 (pub fn (expSubstArgs v params args env isp)

@@ -397,8 +397,9 @@ the bank that pins it is `scripts/check-degenerate.sh`, and
   (§1, 2026-08-14): rule-form macros generating `fn`/`::`
   declarations and further invocations, invoked from the entry file.
   What does not: module-side invocation (`AX3027`, reason in the
-  note), and `data`/`struct`/`trait`/`impl`/`effect`/`import`
-  templates (`AX3021` at the macro's line).
+  note), and `data`/`struct`/`trait`/`effect`/`import` templates
+  (`AX3021` at the macro's line; `impl` templates joined the surface
+  in the fourth commit of 2026-08-14).
 - **`derive` as a stdlib library.** The mechanism is DONE for sums
   AND for struct lenses: declaration macros plus the query vocabulary
   (2026-08-14, two commits) run macro-system.md §10.2's nullary
@@ -410,10 +411,12 @@ the bank that pins it is `scripts/check-degenerate.sh`, and
   commit): the fieldful free-function `deriveEq` runs over a
   mixed-arity sum from one template
   (`tests/selfhost/377-derive-eq-fieldful.ax`, 30 — the nullary case
-  falls out of the empty fold). What does not exist: `impl`
-  templates with trait-dispatched field comparison (the spec's own
-  fieldful form — `(== xi yi)` covers `Int` fields today), nested
-  `syntax/join` (nested declaration iteration cannot name its
+  falls out of the empty fold). The `impl`-generating form landed in
+  the fourth commit: derived instances COMPOSE — `(deriveEq Inner)`
+  then `(deriveEq Outer)` dispatches the inner field's comparison to
+  the first instance by its static type
+  (`tests/selfhost/378-derive-eq-impl.ax`, 30). What does not exist:
+  nested `syntax/join` (nested declaration iteration cannot name its
   products), a `deriveEq` shipped in `stdlib/Pre.ax` (needs
   module-side types — queries answer entry-file types only in v1),
   and the `deriving` clause still parses and is discarded (refusal is

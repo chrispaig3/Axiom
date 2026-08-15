@@ -1,10 +1,10 @@
-[1;31merror[AX3021][0m[1m: macro `defData`'s template may generate `fn` and `::` declarations, further macro invocations, or a syntax/for over them - this form is not supported yet[0m
+[1;31merror[AX3021][0m[1m: macro `defData`'s template may generate `fn`, `::` and `impl` declarations, further macro invocations, or a syntax/for over them - this form is not supported yet[0m
  [1;34m--> [0m510-decl-macro-template-kind.ax:8:10
 [1;34m  |[0m
 [1;34m8 |[0m    (data nm () (Mk Int))))
 [1;34m  |[0m          [1;31m^^[0m
 [1;34m  |[0m
- [1;34m = [0m[1mnote: [0mdata, struct, trait, impl, effect and import templates refuse here, at the macro's own line, rather than passing through silently (MAC-CAP-2)
+ [1;34m = [0m[1mnote: [0mdata, struct, trait, effect and import templates refuse here, at the macro's own line, rather than passing through silently (MAC-CAP-2)
  [1;34m = [0m[1;32mhelp: [0mgenerate the declaration by hand, or split it out of the template
  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3021` for a full explanation
 
