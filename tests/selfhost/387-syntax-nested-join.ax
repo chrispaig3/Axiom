@@ -1,0 +1,79 @@
+; expect 47
+; A nested `syntax/join` (MAC-CAP-5, 2026-08-15): either side of a
+; join may be a join of its own, so a generated name carries more than
+; two parts.
+;
+; What it is FOR, measured rather than asserted: with the two-part
+; form, a lens set over two structs that share a field name generates
+; `getX` twice, and the program is `AX3006 duplicate definition
+; getX` - the derived accessor was unusable for exactly the case a
+; derive macro exists to serve, two record types in one program.
+; Naming the products `getPointX` and `getRectX` needs three parts.
+;
+; Five independent claims, one bit each:
+;
+;    1  the type-qualified accessor exists and reads its field
+;    2  a SECOND struct sharing the field name coexists with the first
+;       (this is the bit the two-part form cannot buy at any price)
+;    4  the non-shared field of the second struct is named the same way
+;    8  three-deep nesting works - the marker is prefix-encoded, so
+;       depth is the reader's business, not the encoding's
+;   32  the SECOND field of the first struct - so a bug that pairs
+;       every field with the struct's first one still reads 15, not
+;       47, and the exit status says which half broke
+;
+; The unfixed compiler refuses at PARSE time - `AX2001 expected
+; identifier, found `(`` at the inner join - exit 1.
+(struct Point
+  (x : Int)
+  (y : Int))
+
+(struct Rect
+  (x : Int)
+  (w : Int))
+
+;; The lens set of macro-system.md section 10.3, named by TYPE and
+;; field rather than by field alone.
+(pub macro deriveGetQ
+  ((deriveGetQ S)
+   (syntax/for (f (syntax/fields S))
+     (pub :: (syntax/join (syntax/join get S) f) (-> S Int))
+     (pub fn ((syntax/join (syntax/join get S) f) s) s.f))))
+
+;; Three parts on the left, one on the right - the nesting is not
+;; special-cased to depth one.
+(pub macro deriveMyGet
+  ((deriveMyGet S)
+   (syntax/for (f (syntax/fields S))
+     (pub :: (syntax/join (syntax/join (syntax/join my get) S) f) (-> S Int))
+     (pub fn ((syntax/join (syntax/join (syntax/join my get) S) f) s) s.f))))
+
+(deriveGetQ Point)
+
+(deriveGetQ Rect)
+
+(deriveMyGet Point)
+
+(:: main Int)
+
+(fn (main)
+  (+ (if (== (getPointX (Point 1 2)) 1)
+       1
+       0
+     )
+     (+ (if (== (getRectX (Rect 3 4)) 3)
+          2
+          0
+        )
+        (+ (if (== (getRectW (Rect 3 4)) 4)
+             4
+             0
+           )
+           (+ (if (== (myGetPointY (Point 1 2)) 2)
+                8
+                0
+              )
+              (if (== (getPointY (Point 5 6)) 6)
+                32
+                0
+              ))))))

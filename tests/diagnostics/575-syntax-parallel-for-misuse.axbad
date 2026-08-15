@@ -1,0 +1,60 @@
+; The parallel `syntax/for` refusing (MAC-CAP-5/6) - four AX3028s,
+; one per position the iteration form owns plus the malformed binding:
+;
+;   armSkew    zipped sequences of DIFFERENT lengths in ARM position -
+;              the zip rule is a diagnostic, never a truncation, and
+;              never the shorter sequence's length
+;   declSkew   the same skew in DECLARATION position, where a silent
+;              truncation would generate a declaration set that is
+;              merely incomplete rather than wrong
+;   argSkew    the same skew in ARGUMENT position - a struct whose
+;              field count does not match the constructor's arity is
+;              what the second sequence is bound for
+;   pairShape  a parallel binding that is not a `(y ys)` pair
+;
+; Each macro is otherwise well-formed, so every refusal here is the
+; iteration's own rather than a parse artifact.
+;
+; `.axbad`: `pairShape`'s binding is an ordinary expression to the
+; compiler's parser - which is why the expander is what refuses it -
+; but the tree-sitter grammar models the SURFACE, where a parallel
+; binding is a run of `(y ys)` pairs. A shape the grammar must not
+; learn cannot sit in a file the repository-wide parse sweep reads,
+; the same reason 525 and 565 carry the extension.
+(data D
+  (A)
+  (B))
+
+(data E
+  (P)
+  (Q)
+  (R))
+
+(struct S
+  (f : Int))
+
+(macro armSkew ((armSkew T U)
+   (fn (as v) (match v (syntax/for ((C (syntax/constructors T)) (X (syntax/constructors U))) ((C) 1))))))
+
+(macro declSkew ((declSkew T U)
+   (syntax/for ((C (syntax/constructors T)) (X (syntax/constructors U)))
+     (:: (syntax/join ds C) Int)
+     (fn ((syntax/join ds C)) 1))))
+
+(macro argSkew ((argSkew W C)
+   (fn (ag s) (C (syntax/for ((f (syntax/fields W)) (b (syntax/binders C p))) s.f)))))
+
+(macro pairShape ((pairShape T)
+   (fn (ps v) (match v (syntax/for ((C (syntax/constructors T)) X) ((C) 1))))))
+
+(armSkew D E)
+
+(declSkew D E)
+
+(argSkew S B)
+
+(pairShape D)
+
+(:: main Int)
+
+(fn (main) 0)

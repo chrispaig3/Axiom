@@ -824,22 +824,40 @@
 ; resolves the marker inside a template; one that reaches any other
 ; consumer - written outside a macro - is refused there (AX3028), the
 ; same shape as the unknown-declaration-head refusal.
+; Either side may be a join of its own, so a generated name can carry
+; more than two parts: `(syntax/join (syntax/join get S) f)` is
+; `getPointX`, which is what a lens set over two structs sharing a
+; field name needs - `getX` twice is one program with two definitions
+; of one symbol. The marker stays the same space-joined string,
+; PREFIX-encoded, and `expMarkerPart` reads it back.
 (pub :: parseDeclName (-> Int Int Int))
 (pub fn (parseDeclName tokens pos)
   (if (&& (peekIs tokens pos TK_LPAREN)
           (&& (peekIs tokens (advance pos) TK_IDENT)
               (strEq (tokenLexeme (vecGet tokens (advance pos))) "syntax/join")))
       (let ((p1 (advance (advance pos))))
-        (if (&& (peekIs tokens p1 TK_IDENT)
-                (&& (peekIs tokens (advance p1) TK_IDENT)
-                    (peekIs tokens (advance (advance p1)) TK_RPAREN)))
-            (pOk (strConcat (strConcat (strConcat "syntax/join "
-                                                  (tokenLexeme (vecGet tokens p1)))
-                                       " ")
-                            (tokenLexeme (vecGet tokens (advance p1))))
-                 (advance (advance (advance p1))))
-            (pErrExp p1 "identifier")))
+        (let ((lr (parseJoinOperand tokens p1)))
+          (if (== (memGetWord lr 0) 0) lr
+              (let ((rr (parseJoinOperand tokens (memGetWord lr 2))))
+                (if (== (memGetWord rr 0) 0) rr
+                    (if (peekIs tokens (memGetWord rr 2) TK_RPAREN)
+                        (pOk (strConcat (strConcat (strConcat "syntax/join "
+                                                              (memGetWord lr 1))
+                                                   " ")
+                                        (memGetWord rr 1))
+                             (advance (memGetWord rr 2)))
+                        (pErrExp (memGetWord rr 2) ")")))))))
       (parseIdentName tokens pos)))
+
+; A join's operand: a bare identifier, or a nested join. Answers the
+; operand's own marker text, which the caller splices into its own.
+(pub :: parseJoinOperand (-> Int Int Int))
+(pub fn (parseJoinOperand tokens pos)
+  (if (peekIs tokens pos TK_LPAREN)
+      (parseDeclName tokens pos)
+      (if (peekIs tokens pos TK_IDENT)
+          (pOk (tokenLexeme (vecGet tokens pos)) (advance pos))
+          (pErrExp pos "identifier"))))
 
 ; ------------------------------------------------------------------
 ; Parse a list of identifiers until ), returning a Vec of Str handles.
@@ -983,7 +1001,27 @@
   (parseMacroCall tokens pos)))))))))))))))
   (pErr pos))))
 
-; Parse `syntax/for (VAR SEQ) DECL...` with the form's `(` already
+; An iteration's BINDING FORM, parsed as one expression: `(x xs)` is
+; the application APP(VAR x, xs), and the parallel form
+; `((x xs) (y ys))` is an application whose head is that application,
+; which is exactly the shape `syntax/fold`'s binding form has always
+; had (MAC-CAP-5). Storing the whole form means one grammar for both
+; arities, and the expander's `expIterPairs` normalises it in one
+; place for `for` and `fold` alike.
+;
+; The FIRST binder is the spine head, in both forms - `expSpineHead`
+; walks nodeA, and nodeA of `((x xs) (y ys))` is `(x xs)`. It is kept
+; in the node's name slot because a diagnostic wants a name to quote,
+; not because the expander reads it.
+(pub :: parseIterBinder (-> Int String))
+(pub fn (parseIterBinder e)
+  (if (== (nodeTag e) TAG_E_VAR)
+      (nodeA e)
+      (if (== (nodeTag e) TAG_E_APP)
+          (parseIterBinder (nodeA e))
+          "")))
+
+; Parse `syntax/for BINDS DECL...` with the form's `(` already
 ; consumed and `pos` at the `syntax/for` token; consumes the closing
 ; paren. The declarations are parsed by the REAL declaration parsers -
 ; the same delegation the rule-form template uses - so a nested
@@ -993,16 +1031,15 @@
 (pub fn (parseDeclFor tokens pos)
   (let ((sp (tokenSpan (vecGet tokens pos)))
         (p1 (advance pos)))
-    (if (&& (peekIs tokens p1 TK_LPAREN)
-            (peekIs tokens (advance p1) TK_IDENT))
-        (let ((var (tokenLexeme (vecGet tokens (advance p1)))))
-          (let ((seqR (parseExpr tokens (advance (advance p1)))))
-            (if (== (memGetWord seqR 0) 0) seqR
-                (let ((seq (memGetWord seqR 1))
-                      (afterSeq (memGetWord seqR 2)))
-                  (if (peekIs tokens afterSeq TK_RPAREN)
-                      (parseDeclForBody tokens (advance afterSeq) var seq sp vecNew)
-                      (pErrExp afterSeq ")"))))))
+    (if (peekIs tokens p1 TK_LPAREN)
+        (let ((bindR (parseExpr tokens p1)))
+          (if (== (memGetWord bindR 0) 0) bindR
+              (let ((binds (memGetWord bindR 1))
+                    (afterSeq (memGetWord bindR 2)))
+                (let ((var (parseIterBinder binds)))
+                  (if (strEq var "")
+                      (pErrExp (advance p1) "identifier")
+                      (parseDeclForBody tokens afterSeq var binds sp vecNew))))))
         (pErrExp p1 "("))))
 
 (pub :: parseDeclForBody (-> Int Int String Int Int Int Int))
@@ -2794,33 +2831,33 @@
                   (parseMatchArms tokens afterArm (vecPush acc arm))))))
   (pErr pos))))
 
-; Parse `syntax/for (VAR SEQ) ARM...` with the form's own `(` already
+; Parse `syntax/for BINDS ARM...` with the form's own `(` already
 ; consumed and `pos` at the `syntax/for` token; consumes the closing
 ; paren. At least one template arm is required - an empty iteration
-; body generates nothing and means nothing.
+; body generates nothing and means nothing. BINDS is `parseIterBinder`'s
+; form: one pair, or several zipped in lockstep.
 (pub :: parseMatchForArm (-> Int Int Int))
 (pub fn (parseMatchForArm tokens pos)
   (let ((sp (tokenSpan (vecGet tokens pos)))
         (p1 (advance pos)))
-    (if (&& (peekIs tokens p1 TK_LPAREN)
-            (peekIs tokens (advance p1) TK_IDENT))
-        (let ((var (tokenLexeme (vecGet tokens (advance p1)))))
-          (let ((seqR (parseExpr tokens (advance (advance p1)))))
-            (if (== (memGetWord seqR 0) 0) seqR
-                (let ((seq (memGetWord seqR 1))
-                      (afterSeq (memGetWord seqR 2)))
-                  (if (peekIs tokens afterSeq TK_RPAREN)
-                      (let ((armsR (parseMatchArms tokens (advance afterSeq) vecNew)))
+    (if (peekIs tokens p1 TK_LPAREN)
+        (let ((bindR (parseExpr tokens p1)))
+          (if (== (memGetWord bindR 0) 0) bindR
+              (let ((binds (memGetWord bindR 1))
+                    (afterSeq (memGetWord bindR 2)))
+                (let ((var (parseIterBinder binds)))
+                  (if (strEq var "")
+                      (pErrExp (advance p1) "identifier")
+                      (let ((armsR (parseMatchArms tokens afterSeq vecNew)))
                         (if (== (memGetWord armsR 0) 0) armsR
                             (let ((arms (memGetWord armsR 1))
                                   (afterArms (memGetWord armsR 2)))
                               (if (== (vecLen arms) 0)
                                   (pErr afterArms)
                                   (if (peekIs tokens afterArms TK_RPAREN)
-                                      (pOk (mkNodeAt TAG_M_FOR var seq arms sp)
+                                      (pOk (mkNodeAt TAG_M_FOR var binds arms sp)
                                            (advance afterArms))
-                                      (pErr afterArms))))))
-                      (pErrExp afterSeq ")"))))))
+                                      (pErr afterArms)))))))))))
         (pErrExp p1 "("))))
 
 ; Parse `(pat body)`.

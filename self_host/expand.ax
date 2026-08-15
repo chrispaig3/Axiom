@@ -689,6 +689,13 @@
 ; The join marker the parser writes into a declaration's name slot:
 ; "syntax/join a b", space-joined, unambiguous because a space can
 ; never appear in a lexed identifier.
+;
+; NESTED joins are the same string in PREFIX form: `(syntax/join
+; (syntax/join get S) f)` is "syntax/join syntax/join get S f", and
+; prefix notation over a fixed arity needs no brackets to stay
+; unambiguous - which is why the encoding did not have to change, only
+; the reader. Splitting on the FIRST space was the reader that could
+; not see it, and it is what limited a generated name to two parts.
 (pub :: expIsJoinMarker (-> String Int))
 (pub fn (expIsJoinMarker s)
   (if (strStartsWith s "syntax/join ") 1 0))
@@ -701,11 +708,29 @@
           i
           (expMarkerSpaceAt s (+ i 1)))))
 
-; Part 0 or part 1 of the marker's payload (the two joined names).
+; Does a nested marker head start at `i`?
+(pub :: expMarkerJoinAt (-> String Int Int))
+(pub fn (expMarkerJoinAt s i)
+  (if (> (+ i 12) (strLen s))
+      0
+      (if (strEq (strSlice s i 12) "syntax/join ") 1 0)))
+
+; One operand of the marker, as the index just past it: a nested join
+; consumes its own two operands, a plain identifier runs to the next
+; space. This is the whole of the prefix parse.
+(pub :: expMarkerOperandEnd (-> String Int Int))
+(pub fn (expMarkerOperandEnd s from)
+  (if (== (expMarkerJoinAt s from) 1)
+      (expMarkerOperandEnd s (+ (expMarkerOperandEnd s (+ from 12)) 1))
+      (expMarkerSpaceAt s from)))
+
+; Part 0 or part 1 of the marker's payload (the two joined names, each
+; possibly a marker of its own - `expSubstName` recurses on whatever
+; comes back, so depth costs nothing here).
 (pub :: expMarkerPart (-> String Int String))
 (pub fn (expMarkerPart s which)
   (let ((from 12))
-    (let ((sp (expMarkerSpaceAt s from)))
+    (let ((sp (expMarkerOperandEnd s from)))
       (if (== which 0)
           (strSlice s from (- sp from))
           (strSlice s (+ sp 1) (- (strLen s) (+ sp 1)))))))
@@ -1030,7 +1055,7 @@
             (expQueryErr env (if (!= (nodeSpan seq) 0) (nodeSpan seq) isp)
               (strConcat (strConcat "`" (nodeA head))
                          "` is not an iteration sequence this vocabulary answers, or its arguments are not bare identifiers")
-              "sequences are `(syntax/constructors T)`, `(syntax/fields S)`, and `(syntax/binders C p)`; the parallel syntax/for form is specified (macro-system.md MAC-CAP-5) and refuses until it lands"
+              "sequences are `(syntax/constructors T)`, `(syntax/fields S)`, and `(syntax/binders C p)`; several of them zip in one iteration as `((x xs) (y ys))`"
               (expMacMod env))))))))
 
 ; For-variable substitution on the PATTERN side, run before the
@@ -1907,31 +1932,38 @@
 ; sequences MUST have equal length; a mismatch is the diagnostic the
 ; spec promises, at the invocation.
 ;
-; The binding-form grammar: the single form's spine is
-; APP(VAR x, seq) - head IS the binder; the parallel form's is
-; APP(APP(VAR x, s1), (y s2), ...) - the same head, the first
-; sequence as argument 0, and each further pair an APP(VAR, seq) of
-; its own. expFoldPairs normalises both to a vector of
-; (binder, seqExpr) pairs.
-(pub :: expFoldPairs (-> Int Int Int Int))
-(pub fn (expFoldPairs env binds isp)
+; The binding-form grammar, shared by `syntax/for` and `syntax/fold`:
+; the single form's spine is APP(VAR x, seq) - head IS the binder; the
+; parallel form's is APP(APP(VAR x, s1), (y s2), ...) - the same head,
+; the first sequence as argument 0, and each further pair an
+; APP(VAR, seq) of its own. expIterPairs normalises both to a vector
+; of (binder, seqExpr) pairs.
+;
+; ONE normaliser for both forms is the point: `for` and `fold` are the
+; two constructs that turn a sequence into program text, and a zip
+; that agreed for one and not the other would be a rule with two
+; spellings. `who` names the construct in the refusals, which is the
+; only thing that differs between them.
+(pub :: expIterPairs (-> Int Int Int String Int))
+(pub fn (expIterPairs env binds isp who)
   (let ((h (expSpineHead binds))
         (bargs (expSpineArgs binds vecNew)))
     (if (|| (!= (nodeTag h) TAG_E_VAR) (== (vecLen bargs) 0))
         { (expQueryErr env isp
-            "syntax/fold's binding form is `(x xs)` or `((x xs) (y ys) ...)`"
-            "bind each fold variable to one sequence"
+            (strConcat (strConcat "`" who)
+                       "`'s binding form is `(x xs)` or `((x xs) (y ys) ...)`")
+            "bind each iteration variable to one sequence"
             (expMacMod env))
           0 }
         (let ((pairs vecNew))
           {
             (let ((p0 vecNew))
               { (vecPush p0 (nodeA h)) (vecPush p0 (vecGet bargs 0)) (vecPush pairs p0) })
-            (expFoldPairsRest env bargs isp pairs 1)
+            (expIterPairsRest env bargs isp pairs 1 who)
           }))))
 
-(pub :: expFoldPairsRest (-> Int Int Int Int Int Int))
-(pub fn (expFoldPairsRest env bargs isp pairs i)
+(pub :: expIterPairsRest (-> Int Int Int Int Int String Int))
+(pub fn (expIterPairsRest env bargs isp pairs i who)
   (if (>= i (vecLen bargs))
       pairs
       (let ((b (vecGet bargs i)))
@@ -1940,8 +1972,9 @@
           (if (|| (!= (nodeTag b) TAG_E_APP)
                   (|| (!= (nodeTag bh) TAG_E_VAR) (!= (vecLen bas) 1)))
               { (expQueryErr env isp
-                  "each parallel fold binding is a `(y ys)` pair"
-                  "bind each fold variable to one sequence"
+                  (strConcat (strConcat "each parallel `" who)
+                             "` binding is a `(y ys)` pair")
+                  "bind each iteration variable to one sequence"
                   (expMacMod env))
                 0 }
               (let ((p vecNew))
@@ -1949,8 +1982,33 @@
                   (vecPush p (nodeA bh))
                   (vecPush p (vecGet bas 0))
                   (vecPush pairs p)
-                  (expFoldPairsRest env bargs isp pairs (+ i 1))
+                  (expIterPairsRest env bargs isp pairs (+ i 1) who)
                 }))))))
+
+; The binding form of an ARM- or DECLARATION-position `syntax/for`,
+; evaluated: pairs normalised, each sequence answered, and every
+; sequence required to have the same length. Answers the (var, names,
+; key) triples `expIterPush` binds from, or 0 with the refusal already
+; emitted.
+(pub :: expIterSeqsOf (-> Int Int Int Int Int Int))
+(pub fn (expIterSeqsOf env binds params args sp)
+  (let ((pairs (expIterPairs env binds sp "syntax/for")))
+    (if (== pairs 0)
+        0
+        (let ((seqs (expIterSeqs env pairs params args sp vecNew 0)))
+          (if (== seqs 0)
+              0
+              (let ((n (vecLen (vecGet (vecGet seqs 0) 1))))
+                (if (== (expIterSameLen seqs n 1) 0)
+                    (expQueryErr env sp
+                      "syntax/for's parallel sequences have different lengths"
+                      "parallel sequences zip in lockstep and must have equal length (macro-system.md MAC-CAP-5)"
+                      (expMacMod env))
+                    seqs)))))))
+
+; How many elements one evaluated binding set iterates.
+(pub :: expIterLen (-> Int Int))
+(pub fn (expIterLen seqs) (vecLen (vecGet (vecGet seqs 0) 1)))
 
 (pub :: expEvalFold (-> Int Int Int Int Int Int Int))
 (pub fn (expEvalFold env qargs params args ren isp)
@@ -1960,14 +2018,14 @@
           "write `(syntax/fold f z (x xs) tpl)` or the parallel `((x xs) (y ys))` form"
           (expMacMod env))
         (mkEInt 0) }
-      (let ((pairs (expFoldPairs env (vecGet qargs 2) isp)))
+      (let ((pairs (expIterPairs env (vecGet qargs 2) isp "syntax/fold")))
         (if (== pairs 0)
             (mkEInt 0)
-            (let ((seqs (expFoldSeqs env pairs params args isp vecNew 0)))
+            (let ((seqs (expIterSeqs env pairs params args isp vecNew 0)))
               (if (== seqs 0)
                   (mkEInt 0)
                   (let ((n (vecLen (vecGet (vecGet seqs 0) 1))))
-                    (if (== (expFoldSameLen seqs n 1) 0)
+                    (if (== (expIterSameLen seqs n 1) 0)
                         { (expQueryErr env isp
                             "syntax/fold's parallel sequences have different lengths"
                             "parallel sequences zip in lockstep and must have equal length (macro-system.md MAC-CAP-5)"
@@ -1979,10 +2037,10 @@
                                         (substTpl (vecGet qargs 1) params args ren env isp)
                                         (- n 1)))))))))))
 
-; Evaluate each pair's sequence; answers a vec of (var, key, names)
+; Evaluate each pair's sequence; answers a vec of (var, names, key)
 ; triples, or 0.
-(pub :: expFoldSeqs (-> Int Int Int Int Int Int Int Int))
-(pub fn (expFoldSeqs env pairs params args isp acc i)
+(pub :: expIterSeqs (-> Int Int Int Int Int Int Int Int))
+(pub fn (expIterSeqs env pairs params args isp acc i)
   (if (>= i (vecLen pairs))
       acc
       (let ((p (vecGet pairs i)))
@@ -1995,15 +2053,15 @@
                   (vecPush t (vecGet sr 1))
                   (vecPush t (vecGet sr 0))
                   (vecPush acc t)
-                  (expFoldSeqs env pairs params args isp acc (+ i 1))
+                  (expIterSeqs env pairs params args isp acc (+ i 1))
                 }))))))
 
-(pub :: expFoldSameLen (-> Int Int Int Int))
-(pub fn (expFoldSameLen seqs n i)
+(pub :: expIterSameLen (-> Int Int Int Int))
+(pub fn (expIterSameLen seqs n i)
   (if (>= i (vecLen seqs))
       1
       (if (== (vecLen (vecGet (vecGet seqs i) 1)) n)
-          (expFoldSameLen seqs n (+ i 1))
+          (expIterSameLen seqs n (+ i 1))
           0)))
 
 ; Build `(f tpl_i acc)` from the right: acc starts as z, and index i
@@ -2014,7 +2072,7 @@
       acc
       (let ((mark (vecLen (expForStack env))))
         {
-          (expFoldPush env seqs i 0)
+          (expIterPush env seqs i 0)
           (let ((ti (substTpl tpl params args ren env isp)))
             {
               (expTrunc (expForStack env) mark)
@@ -2026,8 +2084,11 @@
             })
         })))
 
-(pub :: expFoldPush (-> Int Int Int Int Int))
-(pub fn (expFoldPush env seqs idx j)
+; Push every parallel binding for element `idx` - all of them, so the
+; template sees the whole zipped tuple while it is instantiated, and
+; one mark/truncate around the group pops them together.
+(pub :: expIterPush (-> Int Int Int Int Int))
+(pub fn (expIterPush env seqs idx j)
   (if (>= j (vecLen seqs))
       0
       (let ((t (vecGet seqs j)))
@@ -2036,54 +2097,48 @@
                    (cast Int (ForBind (vecGet t 0)
                                       (vecGet (vecGet t 1) idx)
                                       (vecGet t 2) idx)))
-          (expFoldPush env seqs idx (+ j 1))
+          (expIterPush env seqs idx (+ j 1))
         })))
 
-; Splice an ARGUMENT-position `(syntax/for (x seq) tpl)` into the
+; Splice an ARGUMENT-position `(syntax/for BINDS tpl)` into the
 ; enclosing application's argument vector: the template expression
 ; instantiated once per element, each pushed where the form stood -
 ; `(S (syntax/for (g (syntax/fields S)) e))` becomes `(S e1 e2 ...)`.
-; The spine shape is APP(APP(syntax/for, (x seq)), tpl): argument 0
-; is the binding form - a one-argument application of the binder to
-; the sequence - and argument 1 the template. Anything else refuses.
+; The spine shape is APP(APP(syntax/for, BINDS), tpl): argument 0
+; is the binding form - `expIterPairs`' grammar, one pair or several
+; zipped - and argument 1 the template. Anything else refuses.
 (pub :: expSpliceForArg (-> Int Int Int Int Int Int Int Int))
 (pub fn (expSpliceForArg f params args ren env isp out)
-  (let ((qargs (expSpineArgs f vecNew)))
+  (let ((qargs (expSpineArgs f vecNew))
+        ; The form's OWN span where it has one, as the arm- and
+        ; declaration-position splices already do: a skewed zip is a
+        ; fact about the macro's text, so the caret belongs on the
+        ; `syntax/for` that wrote it rather than on the invocation
+        ; that reached it.
+        (fsp (if (!= (nodeSpan f) 0) (nodeSpan f) isp)))
     (if (!= (vecLen qargs) 2)
-        { (expQueryErr env isp
+        { (expQueryErr env fsp
             "argument-position syntax/for takes a binding form and ONE template expression"
-            "write `(syntax/for (x seq) tpl)`"
+            "write `(syntax/for (x seq) tpl)`, or `((x xs) (y ys))` to zip two sequences"
             (expMacMod env))
           (vecPush out (mkEInt 0))
           0 }
-        (let ((bind (vecGet qargs 0)))
-          (if (|| (!= (nodeTag bind) TAG_E_APP)
-                  (!= (nodeTag (nodeA bind)) TAG_E_VAR))
-              { (expQueryErr env isp
-                  "syntax/for's first form binds one variable to one sequence"
-                  "write `(syntax/for (x seq) tpl)`"
-                  (expMacMod env))
-                (vecPush out (mkEInt 0))
-                0 }
-              (let ((sr (expEvalSeq env (nodeB bind) params args isp)))
-                (if (== sr 0)
-                    { (vecPush out (mkEInt 0)) 0 }
-                    (expSpliceForArgElems (nodeA (nodeA bind)) (vecGet qargs 1)
-                                          params args ren env isp out
-                                          (vecGet sr 0) (vecGet sr 1) 0))))))))
+        (let ((seqs (expIterSeqsOf env (vecGet qargs 0) params args fsp)))
+          (if (== seqs 0)
+              { (vecPush out (mkEInt 0)) 0 }
+              (expSpliceForArgElems (vecGet qargs 1) params args ren env isp out
+                                    seqs (expIterLen seqs) 0))))))
 
-(pub :: expSpliceForArgElems (-> String Int Int Int Int Int Int Int String Int Int Int))
-(pub fn (expSpliceForArgElems var tpl params args ren env isp out key names j)
-  (if (>= j (vecLen names))
+(pub :: expSpliceForArgElems (-> Int Int Int Int Int Int Int Int Int Int Int))
+(pub fn (expSpliceForArgElems tpl params args ren env isp out seqs n j)
+  (if (>= j n)
       0
       (let ((mark (vecLen (expForStack env))))
         {
-          (vecPush (expForStack env)
-                   (cast Int (ForBind var (vecGet names j) key j)))
+          (expIterPush env seqs j 0)
           (vecPush out (substTpl tpl params args ren env isp))
           (expTrunc (expForStack env) mark)
-          (expSpliceForArgElems var tpl params args ren env isp out
-                                key names (+ j 1))
+          (expSpliceForArgElems tpl params args ren env isp out seqs n (+ j 1))
         })))
 
 ; An application in a template, substituted SPINE-AT-ONCE rather than
@@ -2443,27 +2498,26 @@
 ; well-formed.
 (pub :: expSpliceForArms (-> Int Int Int Int Int Int Int Int))
 (pub fn (expSpliceForArms farm params args ren env isp acc)
-  (let ((sr (expEvalSeq env (nodeB farm) params args
-                        (if (!= (nodeSpan farm) 0) (nodeSpan farm) isp))))
-    (if (== sr 0)
+  (let ((seqs (expIterSeqsOf env (nodeB farm) params args
+                             (if (!= (nodeSpan farm) 0) (nodeSpan farm) isp))))
+    (if (== seqs 0)
         {
           (vecPush acc (mkNodeAt TAG_M_ARM (mkEVarAt "_" isp) (mkEInt 0) 0 isp))
           0
         }
         (expSpliceForElems farm params args ren env isp acc
-                           (vecGet sr 0) (vecGet sr 1) 0))))
+                           seqs (expIterLen seqs) 0))))
 
-(pub :: expSpliceForElems (-> Int Int Int Int Int Int Int String Int Int Int))
-(pub fn (expSpliceForElems farm params args ren env isp acc key names j)
-  (if (>= j (vecLen names))
+(pub :: expSpliceForElems (-> Int Int Int Int Int Int Int Int Int Int Int))
+(pub fn (expSpliceForElems farm params args ren env isp acc seqs n j)
+  (if (>= j n)
       0
       (let ((mark (vecLen (expForStack env))))
         {
-          (vecPush (expForStack env)
-                   (cast Int (ForBind (nodeA farm) (vecGet names j) key j)))
+          (expIterPush env seqs j 0)
           (substArmsIn (nodeC farm) params args ren env isp acc 0)
           (expTrunc (expForStack env) mark)
-          (expSpliceForElems farm params args ren env isp acc key names (+ j 1))
+          (expSpliceForElems farm params args ren env isp acc seqs n (+ j 1))
         })))
 
 ; A `cond` clause is a TAG_M_ARM holding a TEST and a body. It binds
@@ -3367,28 +3421,26 @@
 
 (pub :: expBuildForDecls (-> Int Int Int Int Int Int Int))
 (pub fn (expBuildForDecls f params args env isp acc)
-  (let ((sr (expEvalSeq env (nodeB f) params args
-                        (if (!= (nodeSpan f) 0) (nodeSpan f) isp))))
-    (if (== sr 0)
+  (let ((seqs (expIterSeqsOf env (nodeB f) params args
+                             (if (!= (nodeSpan f) 0) (nodeSpan f) isp))))
+    (if (== seqs 0)
         0
         (expBuildForElems f params args env isp acc
-                          (vecGet sr 0) (vecGet sr 1) 0))))
+                          seqs (expIterLen seqs) 0))))
 
-(pub :: expBuildForElems (-> Int Int Int Int Int Int String Int Int Int))
-(pub fn (expBuildForElems f params args env isp acc key names j)
-  (if (>= j (vecLen names))
+(pub :: expBuildForElems (-> Int Int Int Int Int Int Int Int Int Int))
+(pub fn (expBuildForElems f params args env isp acc seqs n j)
+  (if (>= j n)
       1
       (let ((mark (vecLen (expForStack env))))
         {
-          (vecPush (expForStack env)
-                   (cast Int (ForBind (nodeA f) (vecGet names j) key j)))
+          (expIterPush env seqs j 0)
           (let ((r (expBuildDecls (nodeC f) params args env isp acc 0)))
             {
               (expTrunc (expForStack env) mark)
               (if (== r 0)
                   0
-                  (expBuildForElems f params args env isp acc
-                                    key names (+ j 1)))
+                  (expBuildForElems f params args env isp acc seqs n (+ j 1)))
             })
         })))
 

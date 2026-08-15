@@ -419,12 +419,18 @@ the bank that pins it is `scripts/check-degenerate.sh`, and
   the fourth commit: derived instances COMPOSE — `(deriveEq Inner)`
   then `(deriveEq Outer)` dispatches the inner field's comparison to
   the first instance by its static type
-  (`tests/selfhost/378-derive-eq-impl.ax`, 30). What does not exist:
-  nested `syntax/join` (nested declaration iteration cannot name its
-  products), and a `deriveEq` shipped in `stdlib/Pre.ax` (needs
+  (`tests/selfhost/378-derive-eq-impl.ax`, 30). Two gaps this list
+  carried are closed: a `deriveEq` shipped in `stdlib/Pre.ax` (needs
   module-side types — LIFTED in the seventh commit: `stdlib/Pre.ax`
   ships `deriveEq`, and it derives over imported types too,
-  `tests/selfhost/379-derive-imported.ax`).
+  `tests/selfhost/379-derive-imported.ax`), and nested `syntax/join`
+  (2026-08-15: either side of a join may be a join, so nested
+  declaration iteration names its products — a lens set over two
+  structs sharing a field name generated `getX` twice and was
+  `AX3006`, `tests/selfhost/387-syntax-nested-join.ax`, 47). The
+  parallel `syntax/for` landed beside it, zipping several sequences
+  in each of the three iteration positions
+  (`tests/selfhost/386-syntax-parallel-for.ax`, 63).
   The `deriving` clause is REFUSED as of the fifth commit (`AX2004`
   naming the replacement; the formatter poisons rather than rewrites
   — the two grammars refuse together, MAC-CAP-9).

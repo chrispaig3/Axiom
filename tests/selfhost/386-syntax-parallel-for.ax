@@ -1,0 +1,107 @@
+; expect 63
+; The parallel `syntax/for` (MAC-CAP-5, 2026-08-15): several sequences
+; zipped in lockstep, in all three positions the iteration form owns.
+; `syntax/fold` has had its parallel form since the fieldful rung
+; (fixture 377); `for` refused it - `((C ...) (D ...))` did not parse
+; at all - and one binding-form normaliser now answers for both.
+;
+; Six independent claims, one bit each, so a partial regression names
+; itself in the exit status rather than reading as one broken fixture:
+;
+;    1  arm position, element 0     toHue Red   is Rojo
+;    2  arm position, element 1     toHue Green is Verde  (not Rojo:
+;                                   the zip is positional, and a first-
+;                                   element-wins bug answers 1 alone)
+;    4  arm position, element 2     toHue Blue  is Azul
+;    8  declaration position        constRed    is Rojo - the two
+;                                   declarations of one template body
+;                                   generated per zipped pair
+;   16  declaration position, last  constBlue   is Azul
+;   32  argument position           ofPt (Pt 6 7) is (Mk 6 7) - both
+;                                   fields spliced, in order
+;
+; The unfixed compiler refuses the whole file at PARSE time, at the
+; first parallel binding's inner paren - `AX2001 expected (, found
+; `(`` - exit 1. The parallel binding form is new surface, which is
+; why this slice carries a reseed.
+(data Color (Red) (Green) (Blue))
+
+(data Hue (Rojo) (Verde) (Azul))
+
+(struct Pt
+  (x : Int)
+  (y : Int))
+
+(data Two (Mk Int Int))
+
+;; ARM position: one arm per zipped pair. Converting one enumeration
+;; into a parallel one is the shape this form exists for - a hand-
+;; written version repeats the pairing, and a repeated pairing drifts.
+(pub macro deriveConvert
+  ((deriveConvert T U)
+   (:: (syntax/join to U) (-> T U))
+   (fn ((syntax/join to U) v)
+     (match v
+       (syntax/for ((C (syntax/constructors T)) (D (syntax/constructors U)))
+         ((C) (D)))))))
+
+;; DECLARATION position: the whole template body per zipped element,
+;; here a signature and its nullary definition. `U` stands in TYPE
+;; position (MAC-EXP-17) and `C`/`D` in name and expression positions.
+(pub macro deriveConst
+  ((deriveConst T U)
+   (syntax/for ((C (syntax/constructors T)) (D (syntax/constructors U)))
+     (pub :: (syntax/join const C) U)
+     (pub fn ((syntax/join const C)) (D)))))
+
+;; ARGUMENT position: a struct's fields spliced as a constructor's
+;; arguments. The second sequence is bound for its LENGTH - zipping
+;; the target constructor's binders is what makes a struct whose field
+;; count does not match the constructor a diagnostic
+;; (tests/diagnostics/575) instead of a silently wrong-arity call.
+(pub macro deriveOf
+  ((deriveOf S C)
+   (:: (syntax/join of S) (-> S Two))
+   (fn ((syntax/join of S) s)
+     (C (syntax/for ((f (syntax/fields S)) (b (syntax/binders C p))) s.f)))))
+
+(deriveConvert Color Hue)
+
+(deriveConst Color Hue)
+
+(deriveOf Pt Mk)
+
+(:: hueBit (-> Hue Int Int Int))
+
+(fn (hueBit h want bit)
+  (if (== (hueTag h) want)
+    bit
+    0
+  )
+)
+
+(:: hueTag (-> Hue Int))
+
+(fn (hueTag h)
+  (match h
+    ((Rojo) 0)
+    ((Verde) 1)
+    ((Azul) 2)
+  )
+)
+
+(:: main Int)
+
+(fn (main)
+  (+ (hueBit (toHue Red) 0 1)
+     (+ (hueBit (toHue Green) 1 2)
+        (+ (hueBit (toHue Blue) 2 4)
+           (+ (hueBit (constRed) 0 8)
+              (+ (hueBit (constBlue) 2 16)
+                 (match (ofPt (Pt 6 7))
+                   ((Mk a b) (if (&& (== a 6) (== b 7))
+                               32
+                               0
+                             ))
+                 ))))))
+)

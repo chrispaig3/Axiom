@@ -1,0 +1,41 @@
+[1;31merror[AX3028][0m[1m: syntax/for's parallel sequences have different lengths[0m
+  [1;34m--> [0m575-syntax-parallel-for-misuse.ax:37:25
+[1;34m   |[0m
+[1;34m37 |[0m    (fn (as v) (match v (syntax/for ((C (syntax/constructors T)) (X (syntax/constructors U))) ((C) 1))))))
+[1;34m   |[0m                         [1;31m^^^^^^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0mthe query vocabulary is CLOSED and compiler-implemented (macro-system.md MAC-CAP-5/6): every query is answered from the declaration list at expansion time, and a query with no answer is this refusal, never a default value
+  [1;34m = [0m[1;32mhelp: [0mparallel sequences zip in lockstep and must have equal length (macro-system.md MAC-CAP-5)
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3028` for a full explanation
+
+[1;31merror[AX3028][0m[1m: syntax/for's parallel sequences have different lengths[0m
+  [1;34m--> [0m575-syntax-parallel-for-misuse.ax:40:5
+[1;34m   |[0m
+[1;34m40 |[0m    (syntax/for ((C (syntax/constructors T)) (X (syntax/constructors U)))
+[1;34m   |[0m     [1;31m^^^^^^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0mthe query vocabulary is CLOSED and compiler-implemented (macro-system.md MAC-CAP-5/6): every query is answered from the declaration list at expansion time, and a query with no answer is this refusal, never a default value
+  [1;34m = [0m[1;32mhelp: [0mparallel sequences zip in lockstep and must have equal length (macro-system.md MAC-CAP-5)
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3028` for a full explanation
+
+[1;31merror[AX3028][0m[1m: syntax/for's parallel sequences have different lengths[0m
+  [1;34m--> [0m575-syntax-parallel-for-misuse.ax:45:19
+[1;34m   |[0m
+[1;34m45 |[0m    (fn (ag s) (C (syntax/for ((f (syntax/fields W)) (b (syntax/binders C p))) s.f)))))
+[1;34m   |[0m                   [1;31m^^^^^^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0mthe query vocabulary is CLOSED and compiler-implemented (macro-system.md MAC-CAP-5/6): every query is answered from the declaration list at expansion time, and a query with no answer is this refusal, never a default value
+  [1;34m = [0m[1;32mhelp: [0mparallel sequences zip in lockstep and must have equal length (macro-system.md MAC-CAP-5)
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3028` for a full explanation
+
+[1;31merror[AX3028][0m[1m: each parallel `syntax/for` binding is a `(y ys)` pair[0m
+  [1;34m--> [0m575-syntax-parallel-for-misuse.ax:48:25
+[1;34m   |[0m
+[1;34m48 |[0m    (fn (ps v) (match v (syntax/for ((C (syntax/constructors T)) X) ((C) 1))))))
+[1;34m   |[0m                         [1;31m^^^^^^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0mthe query vocabulary is CLOSED and compiler-implemented (macro-system.md MAC-CAP-5/6): every query is answered from the declaration list at expansion time, and a query with no answer is this refusal, never a default value
+  [1;34m = [0m[1;32mhelp: [0mbind each iteration variable to one sequence
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3028` for a full explanation
+
+compilation failed due to 4 previous errors

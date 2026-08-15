@@ -945,11 +945,11 @@ it already holds:
 | `(syntax/arity C)` | **H** (2026-08-15; same declaration slot `syntax/binders` counts, same two refusals) | the field count of constructor `C`, as an integer literal | `stdlib/Pre.ax`'s `deriveArity` — a value's field count is not recoverable at run time, since a block records its tag and never its arity (`memory-model.md` MM-VAL-6) |
 | `(syntax/fields S)` | **H** (any struct an entry-file reference could name — a private one refuses; as a `syntax/for` sequence) | the field names of `struct` `S`, in declaration order | lenses, `Eq`, serializers |
 | `(syntax/name x)` | **H** (2026-08-15) | the identifier `x` as a string literal | `stdlib/Pre.ax`'s `deriveShow` — a constructor's SPELLING reaches a running program no other way, since a tag is an integer at run time |
-| `(syntax/join a b)` | **H** (declaration NAME position; **since 2026-08-15** also as a REFERENCE to what such a name declares — `((syntax/join show T) x)` calls `showColor` — and as another query's argument, which is what lets `syntax/defined` ask about a name no source spells) | one identifier from two, the second's first letter upcased (`lens` + `Point` → `lensPoint`, `eq` + `Color` → `eqColor`) | naming generated declarations, and calling them |
+| `(syntax/join a b)` | **H** (declaration NAME position; **since 2026-08-15** also as a REFERENCE to what such a name declares — `((syntax/join show T) x)` calls `showColor` — and as another query's argument, which is what lets `syntax/defined` ask about a name no source spells; **either side may be a join of its own since 2026-08-15**, so a name carries more than two parts) | one identifier from two, the second's first letter upcased (`lens` + `Point` → `lensPoint`, `eq` + `Color` → `eqColor`); nested, `(syntax/join (syntax/join get S) f)` is `getPointX` | naming generated declarations, and calling them |
 | `(syntax/defined n)` | **H** (2026-08-15; an `if` whose condition is one is decided at expansion time and the CHOSEN BRANCH spliced, exactly as for `syntax/same`) | whether `n` names a visible declaration — a `fn`/`::`, a `data`/`struct`, or a constructor: exactly the names a generated body could refer to | `stdlib/Pre.ax`'s `showOr`. The folding is not a nicety here but the rule that makes the query useful: the losing branch names a declaration the program does not have, so a runtime `if` over both arms would be `AX3001` in every program that did not derive |
 | `(syntax/same a b)` | **H** (both sides must be iteration variables over the SAME sequence; different sequences refuse rather than answer false) | whether `a` and `b` are the same **binding or declaration slot** — two answers naming field `f` of `S` compare equal, spelling alone never suffices; `MAC-LANG-17`'s binding comparison is the pattern-side instance. An `if` whose condition is a `syntax/same` is decided at expansion time and the CHOSEN BRANCH spliced, which is what makes §10.3's expansion shapes literal | `deriveLenses`' diagonal (§10.3) |
 | `(syntax/binders C p)` | **H** (spelled `p#i` — deterministic, which is what "same sequence at every mention" requires, and `#` cannot lex in a user identifier; a pattern mention splices them as binders `MAC-HYG-2` renames, and later mentions land on the same renamed binders through the rename table) | arity-of-`C` fresh identifiers derived from prefix `p` — the *same* sequence at every mention within one expansion, each a template binder that `MAC-HYG-2` renames | fieldful `derive` (§10.2) |
-| `(syntax/for ((x xs) …) tpl)` | **H** (v1: one sequence, in match-ARM, template-DECLARATION, and call-ARGUMENT positions; the for-variable substitutes in constructor patterns, field-name positions and name positions, and nested iterations compose — though nested DECLARATION iteration cannot yet name its products, since `syntax/join` takes two identifiers, not a nested join) | `tpl` once per element, spliced in place; several sequences zip in lockstep and **MUST** have equal length — a mismatch is a diagnostic at the invocation | the iteration form |
+| `(syntax/for ((x xs) …) tpl)` | **H** (match-ARM, template-DECLARATION and call-ARGUMENT positions; the for-variable substitutes in constructor patterns, field-name positions and name positions, and nested iterations compose. **The parallel form landed 2026-08-15** in all three positions, sharing one binding-form normaliser with `syntax/fold`; nested DECLARATION iteration can name its products since the same day, because `syntax/join` nests) | `tpl` once per element, spliced in place; several sequences zip in lockstep and **MUST** have equal length — a mismatch is `AX3028` at the `syntax/for` that wrote it, never a truncation to the shorter | the iteration form |
 | `(syntax/fold f z ((x xs) …) tpl)` | **H** (single and parallel forms; parallel sequences must have equal length — a mismatch is `AX3028`, never a truncation; the empty fold answers `z`, which is how a nullary constructor's equality costs no special case) | the right-fold `(f tpl₁ (f tpl₂ … z))` — `tpl` instantiated per element and nested under a two-argument head, since `&&` takes exactly two | chaining `&&` over field comparisons |
 
 Two rows were RESPELLED on 2026-08-14, when implementation reached
@@ -997,6 +997,31 @@ declarations, not of anything a macro computes. That is what keeps
 argument. (`syntax/for`'s one-sequence form `(syntax/for (x xs) tpl)`
 is the common case and reads as before; the parenthesised-pairs form is
 what the fieldful examples need.)
+
+**The two forms the previous revision of this section listed as
+remaining both landed on 2026-08-15**, and each is the same shape as
+the rule it generalises rather than a new mechanism:
+
+- **Parallel `syntax/for`.** One normaliser now answers the binding
+  form for `for` and `fold` alike — `(x xs)` is the application
+  `APP(VAR x, xs)`, and `((x xs) (y ys))` is an application whose head
+  is that application, so both arities are one grammar. The parser
+  stores the whole binding form and keeps the first binder in the
+  node's name slot for diagnostics; the three splice sites push every
+  parallel binding for an element together and pop them together, so a
+  template sees the whole zipped tuple. Its consumer is the shape a
+  zip is *for*: converting one enumeration into a parallel one, where
+  a hand-written version repeats the pairing and a repeated pairing
+  drifts (`tests/selfhost/386-syntax-parallel-for.ax`, 63).
+- **Nested `syntax/join`.** The marker string the parser writes into a
+  declaration's name slot was already unambiguous for nesting — it is
+  prefix notation over a fixed arity — and what limited a name to two
+  parts was the READER, which split on the first space. What the third
+  part buys is measured rather than asserted: with two parts, a lens
+  set over two structs that share a field name generates `getX` twice
+  and the program is `AX3006 duplicate definition`, so the derived
+  accessor was unusable for the case a `derive` exists to serve
+  (`tests/selfhost/387-syntax-nested-join.ax`, 47).
 
 **MAC-CAP-6 (H, 2026-08-14).** The vocabulary **MUST** be closed. Every
 entry **MUST** be total, terminating, and a pure function of the
@@ -1923,7 +1948,7 @@ nicety: without an expansion backtrace, the author of `(machine Door
 | Language | LANG-1…12, LANG-14 (one rule — the declaration form) | LANG-14 (multi-rule), LANG-15…18 | LANG-13 |
 | Expansion | EXP-1…15, EXP-16/17 (v1 — entry-file invocation, `fn`/`::`/invocation templates) | EXP-16 (module-side invocation) | — |
 | Hygiene | HYG-1…7 | HYG-8, HYG-9 | — |
-| Capabilities | CAP-1…3, CAP-6, CAP-7, CAP-8 (`fn`/`::`/`data`/`struct`/`impl`/invocation/iteration templates), CAP-9 (the deriving clause refuses), CAP-10 (format strings; 10.5 held-but-defective) | CAP-4 | CAP-5 (replacement landed, and the table is now COMPLETE: join — in name, reference and argument position — constructors, fields, same, for, binders, fold, name, arity, defined, format, formatln) |
+| Capabilities | CAP-1…3, CAP-6, CAP-7, CAP-8 (`fn`/`::`/`data`/`struct`/`impl`/invocation/iteration templates), CAP-9 (the deriving clause refuses), CAP-10 (format strings; 10.5 held-but-defective) | CAP-4 | CAP-5 (replacement landed, and the table is now COMPLETE: join — in name, reference and argument position, nested to any depth — constructors, fields, same, for including its parallel form, binders, fold, name, arity, defined, format, formatln) |
 | Safety | SAFE-1…4 | — | SAFE-5 |
 | Integration | INT-1…3, INT-5 | INT-4, INT-6 | — |
 | Diagnostics | DIAG-1…4 | DIAG-5 | — |
@@ -1962,6 +1987,9 @@ convention; the list, not any one entry, is the argument for gating.
 | `tests/diagnostics/515-decl-macro-in-module.ax` | EXP-16's v1 limit — module-side invocation refused, at the module's own line |
 | `tests/selfhost/374-derive-eq.ax` (101) | CAP-5/CAP-6 — §10.2's nullary deriveEq verbatim, the roadmap's acceptance criterion; the unfixed compiler dies parsing the joined name |
 | `tests/selfhost/376-syntax-nested-for.ax` (7) | CAP-5 — nested syntax/for over two types, inner splice under the live outer binding |
+| `tests/selfhost/386-syntax-parallel-for.ax` (63) | CAP-5's parallel `syntax/for` — the zip in all three positions, one bit each, positional past the first element; the unfixed compiler does not parse the file |
+| `tests/diagnostics/575-syntax-parallel-for-misuse.axbad` | the zip's refusals — a skewed pair in each of the three positions, and a parallel binding that is not a pair (`.axbad`: the last is an expression to the parser and a non-shape to the grammar) |
+| `tests/selfhost/387-syntax-nested-join.ax` (47) | CAP-5's nested `syntax/join` — a lens set over two structs sharing a field name, three-deep nesting, and the `getX`-twice collision that made the two-part form unusable |
 | `tests/frontend/070-derive-macro.ax` (42) | the derive shape through check, run, symbols, :load, LSP and fmt in one place |
 | `tests/selfhost/375-derive-lenses.ax` (34) | CAP-5's lens set — §10.3 verbatim: declaration/argument-position for, fields, same's spliced diagonal, field-name substitution |
 | `tests/diagnostics/530-syntax-same-keys.ax` | syntax/same's refusals — cross-sequence comparison names both sequences; an unbound side names itself |
@@ -2074,12 +2102,13 @@ rather than the value alone.
    macro that spends it (`deriveShow`, `deriveArity`, `showOr`),
    which is what `MAC-CAP-6`'s closure rule asks for, and a join
    became usable as a REFERENCE and as another query's argument so
-   that a macro can call what it names. What remains under this
-   heading: the parallel `syntax/for` form (fold's parallel form
-   exists; for's does not) and nested `syntax/join` (nested
-   declaration iteration cannot yet name its products) — and the
-   module-side INVOCATION limit (`MAC-EXP-16`'s, a MAC-CAP-8 item,
-   not a query one).
+   that a macro can call what it names. **The heading CLOSED on
+   2026-08-15**, ninth commit: the parallel `syntax/for` form landed
+   in all three positions against one shared binding-form normaliser,
+   and `syntax/join` nests, so nested declaration iteration can name
+   its products. What remains near this heading belongs to
+   `MAC-CAP-8`, not to the queries: the module-side INVOCATION limit
+   (`MAC-EXP-16`'s), and `type` and `effect` templates.
 5. **`MAC-LANG-14`–`MAC-LANG-18`** — rules, patterns and ellipsis. The
    largest surface change and the one that should land last, because
    the others do not depend on it. Three notes from probing it on

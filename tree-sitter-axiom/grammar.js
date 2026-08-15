@@ -808,16 +808,40 @@ module.exports = grammar({
     // position, matching the compiler's parseMatchArms.
     syntax_for_arm: $ => seq(
       '(', 'syntax/for',
-      seq('(', field('binder', $.identifier), field('sequence', $._expression), ')'),
+      $._syntax_iter_binding,
       repeat1(field('arm', choice($.match_arm, $.syntax_for_arm))),
       ')',
     ),
 
+    // One iteration variable bound to one sequence, or several zipped
+    // in lockstep - the binding form `syntax/for` and `syntax/fold`
+    // share (MAC-CAP-5). The two branches cannot collide: the single
+    // form has an identifier where the parallel form has `(`, which
+    // is the same one-token decision the compiler's `parseIterBinder`
+    // makes off the parsed spine's head.
+    //
+    // HIDDEN (leading `_`), so the single form's tree is byte-for-byte
+    // what it was before the parallel form existed: `binder` and
+    // `sequence` stay fields of the iteration itself, and the parallel
+    // form repeats them there. A named rule here would have renested
+    // every existing tree - which the corpus tests caught, doing
+    // exactly the job this gate's header claims for them.
+    _syntax_iter_binding: $ => choice(
+      seq('(', field('binder', $.identifier), field('sequence', $._expression), ')'),
+      seq('(',
+          repeat1(seq('(', field('binder', $.identifier),
+                      field('sequence', $._expression), ')')),
+          ')'),
+    ),
+
     // `(syntax/join a b)` in a declaration NAME position - the joined
     // identifier phase D computes (`eq` + `Color` -> `eqColor`).
+    // Either side may be a join of its own, which is how a generated
+    // name carries more than two parts (`getPointX`).
     syntax_join_name: $ => seq(
       '(', 'syntax/join',
-      field('left', $.identifier), field('right', $.identifier),
+      field('left', choice($.identifier, $.syntax_join_name)),
+      field('right', choice($.identifier, $.syntax_join_name)),
       ')',
     ),
 
@@ -827,7 +851,7 @@ module.exports = grammar({
     // declarations, instantiated per element by phase D.
     syntax_for_declaration: $ => seq(
       '(', 'syntax/for',
-      seq('(', field('binder', $.identifier), field('sequence', $._expression), ')'),
+      $._syntax_iter_binding,
       repeat1(field('declaration', $._form)),
       ')',
     ),

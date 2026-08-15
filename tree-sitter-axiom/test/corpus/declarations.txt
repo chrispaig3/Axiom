@@ -274,3 +274,41 @@ derive-style macro: syntax/join name, syntax/for arm
             pattern: (constructor_pattern
               constructor: (constructor_identifier))
             body: (boolean_literal)))))))
+
+================================================================
+derive-style macro: parallel syntax/for binds two sequences
+================================================================
+
+(macro deriveTo ((deriveTo T U)
+   (fn (to v)
+     (match v
+       (syntax/for ((C (syntax/constructors T)) (D (syntax/constructors U)))
+         ((C) (D)))))))
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (macro_declaration
+    name: (identifier)
+    rule_name: (identifier)
+    parameter: (identifier)
+    parameter: (identifier)
+    template: (function_definition
+      name: (identifier)
+      parameter: (identifier)
+      body: (match_expression
+        scrutinee: (identifier)
+        arm: (syntax_for_arm
+          binder: (identifier)
+          sequence: (application
+            operand: (identifier)
+            operand: (identifier))
+          binder: (identifier)
+          sequence: (application
+            operand: (identifier)
+            operand: (identifier))
+          arm: (match_arm
+            pattern: (constructor_pattern
+              constructor: (constructor_identifier))
+            body: (application
+              operand: (identifier))))))))

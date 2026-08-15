@@ -1656,7 +1656,7 @@
         ]
       },
       "binder": {
-        "multiple": false,
+        "multiple": true,
         "required": true,
         "types": [
           {
@@ -1666,7 +1666,7 @@
         ]
       },
       "sequence": {
-        "multiple": false,
+        "multiple": true,
         "required": true,
         "types": [
           {
@@ -1682,7 +1682,7 @@
     "named": true,
     "fields": {
       "binder": {
-        "multiple": false,
+        "multiple": true,
         "required": true,
         "types": [
           {
@@ -1706,7 +1706,7 @@
         ]
       },
       "sequence": {
-        "multiple": false,
+        "multiple": true,
         "required": true,
         "types": [
           {
@@ -1728,6 +1728,10 @@
           {
             "type": "identifier",
             "named": true
+          },
+          {
+            "type": "syntax_join_name",
+            "named": true
           }
         ]
       },
@@ -1737,6 +1741,10 @@
         "types": [
           {
             "type": "identifier",
+            "named": true
+          },
+          {
+            "type": "syntax_join_name",
             "named": true
           }
         ]
