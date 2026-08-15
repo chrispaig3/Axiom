@@ -1497,8 +1497,22 @@ register or an `alloca`, amending `MM-ALLOC-9` and `I10` in the commit
 that lands it — because the alternative, with §3.3 refused, is a
 sixteen-byte leak per `match` executed.
 
-*Today:* there is no release path; the free list of `MM-ALLOC-4b` holds
-whole chunks only.
+*The mechanism holds since 2026-08-15* (`tests/stdlib/351-arc-reuse.ax`,
+42): release at zero hands the block - header included - to its exact
+16-byte size class (classes 16..1024; the dead block's count word
+doubles as the link), and `axiom_alloc` pops before bumping, re-entering
+the same `handout` scrub every landing takes - MM-ALLOC-6's zeroing on
+the same path, measured by the fixture writing garbage before the
+release and reading zero after the reuse. The shape word now carries
+the size half MM-LIFE-2b demanded (the whole word IS the padded byte
+size until `MM-LIFE-2d` packs the map beside it; only release's class
+lookup reads it). What remains of this rule: the large-block policy
+(blocks above 1024 bytes are not pooled - nothing dies at all until
+`MM-LIFE-2c`'s events, so the policy waits for a measured need), the
+acceptance measurements (the unmanaged column going flat NEEDS the
+events), the §3.3 refusal, and the match-cell amendment - each 2c-era.
+The free list of `MM-ALLOC-4b` still holds whole chunks, unchanged and
+separate.
 
 **MM-LIFE-2f (P, program obligation). Cycles under counting.** An
 unreachable cycle is never reclaimed — `MM-LIFE-3` measures both

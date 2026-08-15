@@ -1798,6 +1798,16 @@
     ; the program wrote, and has to be scrubbed before it is handed out
     ; again - see `handout`.
     (emitLine cg "@__axiom_high = internal global i64 0")
+    ; MM-LIFE-2e: one free-list head per 16-byte size class, classes
+    ; 16..1024 (index = size/16; slot 0 unused). Release at zero
+    ; pushes a block - header included - onto its class; the
+    ; allocator pops before bumping. EXACT-size classes, so reuse
+    ; never splits a block and MM-ALLOC-3's alignment holds by
+    ; construction. Blocks above 1024 bytes are not pooled in this
+    ; slice - with no ownership events, nothing dies at all yet, and
+    ; the large-block policy is 2e work that can wait for a measured
+    ; need.
+    (emitLine cg "@__axiom_slabs = internal global [65 x i64] zeroinitializer")
     (emitLine cg "")
     (emitLine cg "define i64 @axiom_alloc(i64 %size) #0 {")
     (emitLine cg "entry:")
@@ -1816,6 +1826,27 @@
     ; MM-LIFE-2b: the 16-byte count/shape header below every counted
     ; block - one rounding step, never more.
     (emitLine cg "  %sz = add i64 %sz0, 16")
+    ; The pop path re-enters `handout` like any other landing: the
+    ; recycled block sits below the high-water mark, so the existing
+    ; scrub wipes its old contents - link word included - and
+    ; `wiped` rewrites the header. Zeroing (MM-ALLOC-6) is the same
+    ; promise on the same path.
+    (emitLine cg "  %small = icmp ule i64 %sz0, 1024")
+    (emitLine cg "  br i1 %small, label %try_pop, label %bump_path")
+    (emitLine cg "try_pop:")
+    (emitLine cg "  %cls = lshr i64 %sz0, 4")
+    (emitLine cg "  %slotp = getelementptr [65 x i64], ptr @__axiom_slabs, i64 0, i64 %cls")
+    (emitLine cg "  %shead = load i64, ptr %slotp")
+    (emitLine cg "  %sempty = icmp eq i64 %shead, 0")
+    (emitLine cg "  br i1 %sempty, label %bump_path, label %pop")
+    (emitLine cg "pop:")
+    (emitLine cg "  %pnextp = inttoptr i64 %shead to ptr")
+    (emitLine cg "  %pnext = load i64, ptr %pnextp")
+    (emitLine cg "  store i64 %pnext, ptr %slotp")
+    (emitLine cg "  %pe = add i64 %shead, %sz")
+    (emitLine cg "  %ph = load i64, ptr @__axiom_high")
+    (emitLine cg "  br label %handout")
+    (emitLine cg "bump_path:")
     (emitLine cg "  %cur = load i64, ptr @__axiom_bump")
     (emitLine cg "  %next = add i64 %cur, %sz")
     (emitLine cg "  %end = load i64, ptr @__axiom_bump_end")
@@ -1918,9 +1949,9 @@
     ; restored waterline, in memory the reset gave back, and must
     ; survive being read until the copy finishes.
     (emitLine cg "handout:")
-    (emitLine cg "  %hb = phi i64 [ %cur, %fast ], [ %data, %install ]")
-    (emitLine cg "  %he = phi i64 [ %next, %fast ], [ %new_bump, %install ]")
-    (emitLine cg "  %hh = phi i64 [ %high, %fast ], [ %chunk_high, %install ]")
+    (emitLine cg "  %hb = phi i64 [ %cur, %fast ], [ %data, %install ], [ %shead, %pop ]")
+    (emitLine cg "  %he = phi i64 [ %next, %fast ], [ %new_bump, %install ], [ %pe, %pop ]")
+    (emitLine cg "  %hh = phi i64 [ %high, %fast ], [ %chunk_high, %install ], [ %ph, %pop ]")
     (emitLine cg "  %past = icmp ugt i64 %he, %hh")
     (emitLine cg "  %stop = select i1 %past, i64 %hh, i64 %he")
     (emitLine cg "  %newhigh = select i1 %past, i64 %he, i64 %hh")
@@ -1936,12 +1967,18 @@
     (emitLine cg "  %wnext = add i64 %wi, 8")
     (emitLine cg "  br label %wipe")
     (emitLine cg "wiped:")
-    ; The count word, explicitly zero: the scrub or the kernel already
-    ; zeroed it on every path, but the store is the header's one
-    ; self-description and costs nothing. The SHAPE word is left to
-    ; MM-LIFE-2d's map writer - the allocator is not a shape writer.
+    ; The count word, explicitly zero, and the SIZE half of the shape
+    ; word: MM-LIFE-2b says a block that does not record its own size
+    ; makes the release path unimplementable, and only the allocator
+    ; knows the size of a raw allocation. The MAP half is still
+    ; MM-LIFE-2d's - the shape word currently IS the padded byte
+    ; size, and 2d re-encodes the word when the map bits arrive
+    ; (nothing but release's class lookup reads it today).
     (emitLine cg "  %cwp = inttoptr i64 %hb to ptr")
     (emitLine cg "  store i64 0, ptr %cwp")
+    (emitLine cg "  %shpw = add i64 %hb, 8")
+    (emitLine cg "  %shpwp = inttoptr i64 %shpw to ptr")
+    (emitLine cg "  store i64 %sz0, ptr %shpwp")
     (emitLine cg "  %user = add i64 %hb, 16")
     (emitLine cg "  ret i64 %user")
     (emitLine cg "oom:")
@@ -1999,6 +2036,31 @@
     (emitLine cg "dec:")
     (emitLine cg "  %c1 = add i64 %c, -1")
     (emitLine cg "  store i64 %c1, ptr %cp")
+    ; MM-LIFE-2e: the release path. At zero the block - header
+    ; included - joins its size class; the shape word's size half is
+    ; what makes the class computable, and a shape of zero (a block
+    ; born before the size was recorded, or one the keep helper has
+    ; not yet stamped) is skipped rather than misfiled. The dead
+    ; block's count word doubles as the free-list link: it is dead
+    ; storage, and the handout scrub rewrites it on reuse.
+    (emitLine cg "  %isdead = icmp eq i64 %c1, 0")
+    (emitLine cg "  br i1 %isdead, label %dead, label %done")
+    (emitLine cg "dead:")
+    (emitLine cg "  %shq = add i64 %h, -8")
+    (emitLine cg "  %shqp = inttoptr i64 %shq to ptr")
+    (emitLine cg "  %bsz = load i64, ptr %shqp")
+    (emitLine cg "  %ok1 = icmp ne i64 %bsz, 0")
+    (emitLine cg "  %ok2 = icmp ule i64 %bsz, 1024")
+    (emitLine cg "  %ok = and i1 %ok1, %ok2")
+    (emitLine cg "  br i1 %ok, label %push, label %done")
+    (emitLine cg "push:")
+    (emitLine cg "  %pcls = lshr i64 %bsz, 4")
+    (emitLine cg "  %pslotp = getelementptr [65 x i64], ptr @__axiom_slabs, i64 0, i64 %pcls")
+    (emitLine cg "  %ohead = load i64, ptr %pslotp")
+    (emitLine cg "  %pbase = add i64 %h, -16")
+    (emitLine cg "  %pbasep = inttoptr i64 %pbase to ptr")
+    (emitLine cg "  store i64 %ohead, ptr %pbasep")
+    (emitLine cg "  store i64 %pbase, ptr %pslotp")
     (emitLine cg "  br label %done")
     (emitLine cg "done:")
     (emitLine cg "  ret void")
@@ -2294,7 +2356,7 @@
     (emitLine cg "  store i64 0, ptr %dcp")
     (emitLine cg "  %dsh = add i64 %dstbase, 8")
     (emitLine cg "  %dshp = inttoptr i64 %dsh to ptr")
-    (emitLine cg "  store i64 0, ptr %dshp")
+    (emitLine cg "  store i64 %szr, ptr %dshp")
     (emitLine cg "  %dst = add i64 %dstbase, 16")
     (emitLine cg "  br label %loop")
     (emitLine cg "loop:")

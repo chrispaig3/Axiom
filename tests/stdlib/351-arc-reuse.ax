@@ -1,0 +1,49 @@
+; exit 42 (see .exit)
+; MM-LIFE-2e's release path, mechanics only - a 1 -> 0 release hands
+; the block to its exact-size class and the next allocation of that
+; class gets it back, scrubbed:
+;
+;   27 x 1   h2 == h1: a released 24-byte block is reused by the next
+;            24-byte request (exact class, header included)
+;    9 x 1   the reused block reads ZERO where garbage was written
+;            before the release - the handout scrub covers recycled
+;            blocks, MM-ALLOC-6's promise on the same path
+;    3 x 1   class separation: a released 24-byte block does NOT
+;            satisfy a 40-byte request
+;    1 x ..  an unreleased block is never reused (h5 != h1)
+;
+; No fixture may mix __release with the section-3.3 resets: release
+; and reset do not compose (MM-LIFE-2e's own rule - a reset reclaims
+; without releasing), and their mutual refusal is MM-LIFE-2c's
+; obligation, not this slice's.
+;
+; The unfixed compiler has no __retain primitive - AX3001, exit 1.
+(:: b2i (-> Bool Int))
+(fn (b2i x) (if x 1 0))
+
+(:: main Int)
+(fn (main)
+  (let ((h1 (__alloc 24)) (mut acc 0))
+    {
+      (__store64 h1 0 12345)
+      (__retain h1)
+      (__release h1)
+      (let ((h2 (__alloc 24)))
+        {
+          (set acc (+ acc (* 27 (b2i (== h2 h1)))))
+          (set acc (+ acc (* 9 (b2i (== (__load64 h2 0) 0)))))
+          (__retain h2)
+          (__release h2)
+          (let ((h3 (__alloc 40)))
+            {
+              (set acc (+ acc (* 3 (b2i (if (== h3 h2) false true)))))
+              (let ((h4 (__alloc 24)))
+                (let ((h5 (__alloc 24)))
+                  {
+                    (set acc (+ acc (* 2 (b2i (== h4 h2)))))
+                    (set acc (+ acc (b2i (if (== h5 h4) false true))))
+                    acc
+                  }))
+            })
+        })
+    }))
