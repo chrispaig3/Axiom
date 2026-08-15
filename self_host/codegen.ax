@@ -4504,6 +4504,23 @@
 ; a read does, and the value is stored at its offset. The whole form
 ; evaluates to 0 - stage0's rule, and NOT plain `set`'s, which answers
 ; the stored value.
+; MM-LIFE-2c event 5, in full: a store into a REFERENCE field
+; retains the new value and releases the one it overwrites. The order
+; is load-old, evaluate-new, retain-new, store, release-old, and the
+; retain-before-release half of it is what makes `(set e.f e.f)`
+; survive rather than free what it just stored.
+;
+; This is the one event whose balance is LOCAL and provable without
+; escape analysis: a mapped field's old value is owned by the block,
+; because the store that put it there took a share - either
+; `emitFieldStores` at construction or this function on a previous
+; pass - so handing that share back here is arithmetic, not a
+; judgement about who else might be holding it. The classification is
+; `fldClass`'s, the same one that decided the block's map, so the
+; release set and the walk set cannot disagree.
+;
+; A directly-built value MOVES, exactly as it does at construction: a
+; retain would double-count its birth.
 (pub :: emitSetF (-> Int Int Int))
 (pub fn (emitSetF node cg)
   (let ((cgB (emitExpr (nodeA node) cg)))
@@ -4511,14 +4528,21 @@
           (fi (findStructField (memGetWord cgB 3) (nodeB node))))
       (if (== fi 0)
           (dieCodegenDiag "unknown struct field: " (nodeB node))
-          (let ((cgV (emitExpr (nodeC node) cgB)))
-            (let ((v (strDup (memGetWord cgV 2))))
-              (let ((cgS (storeWordAt cgV base (nodeA fi) v)))
-                {
-                  (memSetWord cgS 2 (constStr 0))
-                  (memSetWord cgS 14 0)
-                  cgS
-                })))))))
+          (let ((owns (== (fldClass cgB (nodeC fi)) 2)))
+            (let ((cgL (if owns (loadWordAt cgB base (nodeA fi)) cgB)))
+              (let ((old (if owns (strDup (memGetWord cgL 2)) "")))
+                (let ((cgV (emitExpr (nodeC node) cgL)))
+                  (let ((v (strDup (memGetWord cgV 2))))
+                    (let ((cgR (if (&& owns (!= (argIsDirectCon cgV (nodeC node)) 1))
+                                   (emitRetainOf cgV v)
+                                   cgV)))
+                      (let ((cgS (storeWordAt cgR base (nodeA fi) v)))
+                        (let ((cgD (if owns (emitReleaseOf cgS old) cgS)))
+                          {
+                            (memSetWord cgD 2 (constStr 0))
+                            (memSetWord cgD 14 0)
+                            cgD
+                          }))))))))))))
 
 ; `base.field`: the field resolves by name across the struct registry -
 ; first declaring struct wins, the same simplification stage0 makes for
@@ -4589,8 +4613,13 @@
             (let ((idx (fieldIndexIn (eFieldFlags e) name 0)))
               (if (< idx 0)
                   (findStructFieldIn types name (+ i 1))
+                  ; Word 3 is the field's declared TYPE node, which
+                  ; `emitSetF` classifies to decide whether the store
+                  ; is an ownership transfer (MM-LIFE-2c event 5).
+                  ; The read side ignores it, as it always has.
                   (mkNode TAG_NIL idx
-                          (nodeB (vecGet (eFieldFlags e) idx)) 0)))
+                          (nodeB (vecGet (eFieldFlags e) idx))
+                          (nodeTy (vecGet (eFieldFlags e) idx)))))
             (findStructFieldIn types name (+ i 1))))))
 
 (pub :: fieldIndexIn (-> Int String Int Int))

@@ -1,0 +1,102 @@
+; exit 63 (see .exit)
+; MM-LIFE-2c event 5: a store into a REFERENCE field retains the new
+; value and releases the one it overwrites. Before it, `(set e.f v)`
+; was a bare word store - the overwritten block kept a share nothing
+; would ever return, and the stored block got none at all, so a
+; mutable field was a slow leak on one side and invisible to counting
+; on the other.
+;
+; This is the one event whose balance is LOCAL. A mapped field's old
+; value is owned BY THE BLOCK, because the store that put it there
+; took a share, so handing that share back is arithmetic rather than
+; a judgement about who else might be holding it. That is why it
+; lands while events 2, 3 and 4 wait: those need to know whether a
+; value escaped, and this one does not.
+;
+;   32  a thousand overwrites of one field with a fresh 48-byte
+;       string move the allocator's bump by under 4 KiB. Each
+;       iteration's string dies at the next store: the release walks
+;       the header, the header's map walks to the bytes, and both
+;       file. Unfixed, every iteration leaks both.
+;   16  the overwritten value's count reaches 0 - measured on the
+;       header, not inferred from the flatness.
+;    8  and the stored value's reaches 1.
+;    4  `(set e.f e.f)` SURVIVES. Retain-then-release is the order,
+;       so a self-assignment cannot free what it just stored; the
+;       string still reads its own first byte afterwards.
+;    2  an `Int` field is not a reference and takes none of this: the
+;       classification is `fldClass`'s, the same one that decided the
+;       block's map, so the release set and the walk set cannot
+;       disagree.
+;    1  every step above ran.
+;
+; The unfixed compiler answers 7: 4, 2 and 1 hold there - the
+; self-assignment is safe when nothing counts, and an Int field was
+; never in question - and the three terms that measure ownership do
+; not.
+(import Str)
+(import Mem)
+
+(struct Slot
+  (s : String)
+  (n : Int))
+
+(:: b2i (-> Bool Int))
+(fn (b2i x) (if x 1 0))
+
+(:: cnt (-> String Int))
+(fn (cnt s) (__load64 (- (cast Int s) 16) 0))
+
+(:: wide (-> Int String))
+(fn (wide k) (strDup "0123456789abcdef0123456789abcdef0123456789abcdef"))
+
+(:: churn (-> Slot Int Int))
+(fn (churn sl n)
+  (if (<= n 0)
+      0
+      {
+        (set sl.s (wide n))
+        (churn sl (- n 1))
+      }))
+
+(:: main Int)
+(fn (main)
+  (let ((mut acc 0) (mut steps 0))
+    {
+      ; --- 32: the loop is flat -----------------------------------
+      (let ((seed (wide 0)))
+        (let ((sl (struct Slot seed 0)))
+          (let ((b1 (memAlloc 200)))
+            {
+              (churn sl 1000)
+              (let ((b2 (memAlloc 200)))
+                (set acc (+ acc (* 32 (b2i (< (- b2 b1) 4096))))))
+              (set steps (+ steps 1))
+            })))
+      ; --- 16 and 8: the counts move both ways --------------------
+      (let ((a (strDup "aaaa")) (b (strDup "bbbb")))
+        (let ((sl (struct Slot a 0)))
+          {
+            (set sl.s b)
+            (set acc (+ acc (* 16 (b2i (== (cnt a) 0)))))
+            (set acc (+ acc (* 8 (b2i (== (cnt b) 1)))))
+            (set steps (+ steps 1))
+          }))
+      ; --- 4: a self-assignment is not a free ---------------------
+      (let ((c (strDup "cccc")))
+        (let ((sl (struct Slot c 0)))
+          {
+            (set sl.s sl.s)
+            (set acc (+ acc (* 4 (b2i (== (strByte sl.s 0) 99)))))
+            (set steps (+ steps 1))
+          }))
+      ; --- 2: a scalar field is left alone ------------------------
+      (let ((d (strDup "dddd")))
+        (let ((sl (struct Slot d 7)))
+          {
+            (set sl.n 9)
+            (set acc (+ acc (* 2 (b2i (&& (== sl.n 9) (== (cnt d) 1))))))
+            (set steps (+ steps 1))
+          }))
+      (if (== steps 4) (+ acc 1) acc)
+    }))

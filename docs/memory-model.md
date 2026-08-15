@@ -1449,6 +1449,20 @@ directly-built construction discarded in statement position
 releases on the spot. Every retain this slice emits is one an
 EXISTING map can return - that is the slice's rule.
 
+**Event 5 emits since 2026-08-15** (`tests/stdlib/361-arc-field-store.ax`,
+63 against the unfixed compiler's 7): `(set e.f v)` into a reference
+field retains the new value and releases the one it overwrites, in
+that order, so a self-assignment cannot free what it just stored. It
+went ahead of events 2, 3 and 4 because its balance is **local and
+provable without escape analysis**: a mapped field's old value is
+owned BY THE BLOCK, since the store that put it there took a share —
+`emitFieldStores` at construction, or this same function on a
+previous pass — so handing that share back is arithmetic rather than
+a judgement about who else is holding it. The classification is
+`fldClass`'s, the same one that wrote the block's map, so the release
+set and the walk set cannot disagree. A thousand overwrites of one
+field with a fresh 48-byte string move the bump by under 4 KiB.
+
 What deliberately does not emit yet, and why: events 2, 3 and 4's
 RELEASES wait for the co-ownership audit's findings to clear - the
 corpus measurably stashes borrowed references in count-invisible
@@ -1456,8 +1470,7 @@ containers (~40-55 let-bound sites, 5 of 141 TCO functions, ~45
 statement-position stash calls, measured 2026-08-15), and a slot-
 exit or boundary release over those shapes is a use-after-free, not
 a leak. They land with the container element maps and the checker's
-binder-class stamps. Event 5 rides with them (no release path can
-reach a mutated field in this slice's release set). Closure capture
+binder-class stamps. Closure capture
 words are stored UNRETAINED until closure records carry maps: a
 retain no walk can return is a permanent leak, and the
 closure-outlives-frame dangle stays a recorded program obligation
@@ -2102,6 +2115,7 @@ equivalent honesty for this one.
 | `tests/stdlib/358-str-owner-shares.ax` | VAL-7's counting rule — every header that NAMES an owner holds a share of it |
 | `tests/stdlib/359-arc-str-bytes.ax` | LIFE-2d's `Str` half end to end — a dead string frees its bytes, a live slice keeps its parent's |
 | `tests/stdlib/360-arc-evidence-map.ax` | LIFE-2c event 6 for the evidence record — its map, its two retains, and the handler lambda reclaimed with it |
+| `tests/stdlib/361-arc-field-store.ax` | LIFE-2c event 5 — a field store's retain and release, both counts measured, and `(set e.f e.f)` surviving |
 | `tests/stdlib/220-while-mut.ax` | MUT-1 across 1,000,000 iterations |
 | `tests/stdlib/035-string-equality.ax` | VAL-7's content equality, including the Unicode and interior-NUL cases |
 | `scripts/measure-memory-baseline.sh --gate` | ALLOC-16's managed contract; the unsound variant must *fail* |
