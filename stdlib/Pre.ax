@@ -32,3 +32,49 @@
      (match a
        (syntax/for (C (syntax/constructors T))
          ((C) (match b ((C) true) (_ false))))))))
+
+;; deriveShow — the constructor's own name, as a String, for any
+;; `data` type: `(deriveShow Shape)` generates `showShape : Shape ->
+;; String`. This is what `syntax/name` exists for (macro-system.md
+;; MAC-CAP-5), and the only way to get a constructor's spelling into
+;; a running program: a tag is an integer at run time and the name
+;; lives only in the declaration list the expander reads.
+;;
+;; Fieldful constructors are matched and their fields ignored -
+;; `(syntax/binders C f)` supplies exactly arity-of-C binders, so one
+;; template covers arities 0, 1 and n without an arity test. Rendering
+;; the FIELDS would need each field's type to pick a printer, and a
+;; macro cannot see a type (MAC-CAP-7); a program that wants that
+;; writes the arm itself.
+(pub macro deriveShow
+  ((deriveShow T)
+   (:: (syntax/join show T) (-> T String))
+   (fn ((syntax/join show T) v)
+     (match v
+       (syntax/for (C (syntax/constructors T))
+         ((C (syntax/binders C f)) (syntax/name C)))))))
+
+;; deriveArity — how many fields the value's constructor carries:
+;; `(deriveArity Shape)` generates `arityShape : Shape -> Int`. The
+;; count is `syntax/arity`'s answer, folded to a literal per arm, and
+;; it is not derivable any other way at run time: a heap block records
+;; its tag, never its field count (memory-model.md MM-VAL-6).
+(pub macro deriveArity
+  ((deriveArity T)
+   (:: (syntax/join arity T) (-> T Int))
+   (fn ((syntax/join arity T) v)
+     (match v
+       (syntax/for (C (syntax/constructors T))
+         ((C (syntax/binders C f)) (syntax/arity C)))))))
+
+;; showOr — `(showOr T x fallback)` renders `x` with the type's
+;; derived `showT` when the program has one, and answers `fallback`
+;; when it does not. `syntax/defined` decides that at expansion time
+;; and the losing branch is DELETED rather than compiled, which is
+;; the whole point: the branch that names `showT` is only well-typed
+;; in a program that derived it, so a runtime `if` over both arms
+;; would be AX3001 in every program that did not.
+(pub macro (showOr T x fallback)
+  (if (syntax/defined (syntax/join show T))
+      ((syntax/join show T) x)
+      fallback))

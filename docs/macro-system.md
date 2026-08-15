@@ -911,11 +911,11 @@ it already holds:
 | Query | Status | Answers | Needed by |
 |---|---|---|---|
 | `(syntax/constructors T)` | **H** (any type an entry-file reference could name — a private one refuses; as a `syntax/for` sequence) | the constructor names of `data` type `T`, in declaration order | `derive` for any sum |
-| `(syntax/arity C)` | P | the field count of constructor `C` | generated `match` arms |
+| `(syntax/arity C)` | **H** (2026-08-15; same declaration slot `syntax/binders` counts, same two refusals) | the field count of constructor `C`, as an integer literal | `stdlib/Pre.ax`'s `deriveArity` — a value's field count is not recoverable at run time, since a block records its tag and never its arity (`memory-model.md` MM-VAL-6) |
 | `(syntax/fields S)` | **H** (any struct an entry-file reference could name — a private one refuses; as a `syntax/for` sequence) | the field names of `struct` `S`, in declaration order | lenses, `Eq`, serializers |
-| `(syntax/name x)` | P | the identifier `x` as a string literal | generated `Show` |
-| `(syntax/join a b)` | **H** (declaration NAME position) | one identifier from two, the second's first letter upcased (`lens` + `Point` → `lensPoint`, `eq` + `Color` → `eqColor`) | naming generated declarations |
-| `(syntax/defined n)` | P | whether `n` names a declaration | conditional derivation |
+| `(syntax/name x)` | **H** (2026-08-15) | the identifier `x` as a string literal | `stdlib/Pre.ax`'s `deriveShow` — a constructor's SPELLING reaches a running program no other way, since a tag is an integer at run time |
+| `(syntax/join a b)` | **H** (declaration NAME position; **since 2026-08-15** also as a REFERENCE to what such a name declares — `((syntax/join show T) x)` calls `showColor` — and as another query's argument, which is what lets `syntax/defined` ask about a name no source spells) | one identifier from two, the second's first letter upcased (`lens` + `Point` → `lensPoint`, `eq` + `Color` → `eqColor`) | naming generated declarations, and calling them |
+| `(syntax/defined n)` | **H** (2026-08-15; an `if` whose condition is one is decided at expansion time and the CHOSEN BRANCH spliced, exactly as for `syntax/same`) | whether `n` names a visible declaration — a `fn`/`::`, a `data`/`struct`, or a constructor: exactly the names a generated body could refer to | `stdlib/Pre.ax`'s `showOr`. The folding is not a nicety here but the rule that makes the query useful: the losing branch names a declaration the program does not have, so a runtime `if` over both arms would be `AX3001` in every program that did not derive |
 | `(syntax/same a b)` | **H** (both sides must be iteration variables over the SAME sequence; different sequences refuse rather than answer false) | whether `a` and `b` are the same **binding or declaration slot** — two answers naming field `f` of `S` compare equal, spelling alone never suffices; `MAC-LANG-17`'s binding comparison is the pattern-side instance. An `if` whose condition is a `syntax/same` is decided at expansion time and the CHOSEN BRANCH spliced, which is what makes §10.3's expansion shapes literal | `deriveLenses`' diagonal (§10.3) |
 | `(syntax/binders C p)` | **H** (spelled `p#i` — deterministic, which is what "same sequence at every mention" requires, and `#` cannot lex in a user identifier; a pattern mention splices them as binders `MAC-HYG-2` renames, and later mentions land on the same renamed binders through the rename table) | arity-of-`C` fresh identifiers derived from prefix `p` — the *same* sequence at every mention within one expansion, each a template binder that `MAC-HYG-2` renames | fieldful `derive` (§10.2) |
 | `(syntax/for ((x xs) …) tpl)` | **H** (v1: one sequence, in match-ARM, template-DECLARATION, and call-ARGUMENT positions; the for-variable substitutes in constructor patterns, field-name positions and name positions, and nested iterations compose — though nested DECLARATION iteration cannot yet name its products, since `syntax/join` takes two identifiers, not a nested join) | `tpl` once per element, spliced in place; several sequences zip in lockstep and **MUST** have equal length — a mismatch is a diagnostic at the invocation | the iteration form |
@@ -928,6 +928,25 @@ is deliberately not an identifier character in the lexer
 change), so the specified spellings could not lex. A spec whose
 spelling the lexer refuses is wrong the moment someone types it; the
 `?`-free names are the specification now.
+
+**The three SCALAR rows landed 2026-08-15, each with the library macro
+that needs it** — which is `MAC-CAP-6`'s closure rule read literally,
+since a vocabulary entry with no consumer is one nothing measures.
+`stdlib/Pre.ax` grew `deriveShow` (`syntax/name`), `deriveArity`
+(`syntax/arity`) and `showOr` (`syntax/defined`), and the composition
+those three needed — a join standing as a reference, so a macro can
+CALL what it names and not only name it — landed with them.
+`tests/selfhost/380-syntax-scalar-queries.ax` (41) is the gate;
+`tests/diagnostics/560-syntax-scalar-misuse.ax` pins the four
+refusals.
+
+One clarification the third row forces, and this specification states
+it rather than leaving it to be inferred: `MAC-CAP-6` says a query
+with no answer is a diagnostic and never a default value, and
+`syntax/defined`'s `false` is **not** a default — it is the answer to
+a predicate, the same way `syntax/same`'s `false` is. What refuses is
+a malformed argument: a subject that is neither a bare identifier nor
+a `(syntax/join a b)`.
 
 The v1 rows are pinned by `tests/selfhost/374-derive-eq.ax` (101 —
 §10.2's nullary `deriveEq`, the roadmap's acceptance criterion,
@@ -1657,7 +1676,7 @@ nicety: without an expansion backtrace, the author of `(machine Door
 | Language | LANG-1…12, LANG-14 (one rule — the declaration form) | LANG-14 (multi-rule), LANG-15…18 | LANG-13 |
 | Expansion | EXP-1…15, EXP-16/17 (v1 — entry-file invocation, `fn`/`::`/invocation templates) | EXP-16 (module-side invocation) | — |
 | Hygiene | HYG-1…7 | HYG-8, HYG-9 | — |
-| Capabilities | CAP-1…3, CAP-6, CAP-8 (v1: `fn`/`::`/`impl`/invocation/iteration templates), CAP-9 (the deriving clause refuses) | CAP-4, 7 | CAP-5 (replacement landed: join, constructors, fields, same, for, binders, fold — name/arity/defined wait for consumers) |
+| Capabilities | CAP-1…3, CAP-6, CAP-8 (v1: `fn`/`::`/`impl`/invocation/iteration templates), CAP-9 (the deriving clause refuses) | CAP-4, 7 | CAP-5 (replacement landed, and the table is now COMPLETE: join — in name, reference and argument position — constructors, fields, same, for, binders, fold, name, arity, defined) |
 | Safety | SAFE-1…4 | — | SAFE-5 |
 | Integration | INT-1…3, INT-5 | INT-4, INT-6 | — |
 | Diagnostics | DIAG-1…4 | DIAG-5 | — |
@@ -1702,6 +1721,8 @@ convention; the list, not any one entry, is the argument for gating.
 | `tests/selfhost/378-derive-eq-impl.ax` (30) | CAP-8's impl templates + §10.2's fieldful form verbatim — derived instances COMPOSE through MAC-INT-4 dispatch |
 | `tests/selfhost/379-derive-imported.ax` (30) | CAP-9's shipped library — stdlib/Pre.ax's deriveEq over an entry-file type and an imported one |
 | `tests/diagnostics/550-derive-private-type.ax` | the query visibility rule — a private subject refuses at the invocation, one diagnostic in the right place |
+| `tests/selfhost/380-syntax-scalar-queries.ax` (41) | CAP-5's scalar rows — `syntax/name`, `syntax/arity`, `syntax/defined`, and a join standing as a callable reference; `stdlib/Pre.ax`'s `deriveShow`/`deriveArity`/`showOr` are the consumers |
+| `tests/diagnostics/560-syntax-scalar-misuse.ax` | the scalar rows' refusals — an arity of nothing (naming `syntax/arity`, not the counter it shares a slot with), a bare query head, a non-identifier argument, a one-part join |
 | `tests/diagnostics/520-syntax-query-misuse.ax` | CAP-6's closure — unknown query, wrong-kind subject, missing subject, all AX3028 |
 | `tests/diagnostics/525-syntax-reserved.axbad` | CAP-6's reservation — syntax/ spellings outside a template, including the one-paren-short near-miss (`.axbad`: the formatter must not learn these shapes) |
 | `tests/diagnostics/485-qualified-private-macro.ax` | LANG-12's `AX3023` route for a qualified private macro |
@@ -1790,16 +1811,20 @@ rather than the value alone.
    free-function `deriveEq` over a mixed-arity sum (fixture 377).
    `impl` templates landed in the fourth commit — fixture 378 runs
    the spec's own fieldful form and measures instance COMPOSITION
-   through `MAC-INT-4` dispatch. What remains under this heading:
-   `syntax/name`/`arity`/`defined` (each waiting for the real macro
-   that needs it, per `MAC-CAP-6`'s closure rule), the parallel
-   `syntax/for` form (fold's parallel form exists; for's does not),
-   nested `syntax/join` (nested declaration iteration cannot yet
-   name its products). Module-side query SUBJECTS landed in the
-   seventh commit — `stdlib/Pre.ax` ships `deriveEq`, and fixture
-   379 derives over an imported type — so what this list still
-   holds is the module-side INVOCATION limit (`MAC-EXP-16`'s, a
-   MAC-CAP-8 item, not a query one).
+   through `MAC-INT-4` dispatch. Module-side query SUBJECTS landed
+   in the seventh commit — `stdlib/Pre.ax` ships `deriveEq`, and
+   fixture 379 derives over an imported type. **The vocabulary
+   CLOSED on 2026-08-15**, eighth commit: `syntax/name`,
+   `syntax/arity` and `syntax/defined` each landed with the library
+   macro that spends it (`deriveShow`, `deriveArity`, `showOr`),
+   which is what `MAC-CAP-6`'s closure rule asks for, and a join
+   became usable as a REFERENCE and as another query's argument so
+   that a macro can call what it names. What remains under this
+   heading: the parallel `syntax/for` form (fold's parallel form
+   exists; for's does not) and nested `syntax/join` (nested
+   declaration iteration cannot yet name its products) — and the
+   module-side INVOCATION limit (`MAC-EXP-16`'s, a MAC-CAP-8 item,
+   not a query one).
 5. **`MAC-LANG-14`–`MAC-LANG-18`** — rules, patterns and ellipsis. The
    largest surface change, touching three implementations of the token
    set, and the one that should land last because the others do not

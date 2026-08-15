@@ -512,13 +512,16 @@ The `syntax/` spellings are the compile-time QUERY VOCABULARY: a
 closed, compiler-implemented set of questions a macro template asks
 about the declaration list, answered at expansion time with no user
 code running. The vocabulary answers `(syntax/join a b)` in a
-declaration NAME position; `(syntax/constructors T)`,
-`(syntax/fields S)` and `(syntax/binders C p)` as iteration
+declaration NAME position and, applied, as a REFERENCE to what such
+a name declares - `((syntax/join show T) x)`; `(syntax/constructors
+T)`, `(syntax/fields S)` and `(syntax/binders C p)` as iteration
 sequences; `(syntax/for (x seq) ...)` where a match ARM, a template
 DECLARATION, or a call ARGUMENT stands; `(syntax/fold f z binds tpl)`
 as the right-fold over one sequence or several zipped in lockstep;
-and `(syntax/same f g)` over two iteration variables. This code
-covers every way a query has no answer:
+`(syntax/same f g)` over two iteration variables; and the three
+SCALAR queries `(syntax/name x)`, `(syntax/arity C)` and
+`(syntax/defined n)`, which answer one node where one value is
+needed. This code covers every way a query has no answer:
 
   - a `syntax/` head the vocabulary does not implement, or one
     standing in a position it does not own - the vocabulary is
@@ -526,10 +529,13 @@ covers every way a query has no answer:
     undefined variables; a sequence in a one-value position and a
     syntax/for at expression root land here too
   - a subject with nothing to answer: constructors of a struct,
-    fields of a data type, binders of a name that is not a
-    constructor, any of them of a name that declares nothing or of a
-    type declared in an imported module (v1 answers entry-file types
-    only)
+    fields of a data type, binders or an arity of a name that is not
+    a constructor, any of them of a name that declares nothing or of
+    a type its module keeps private
+  - a query ARGUMENT that is neither a bare identifier nor a
+    `(syntax/join a b)` - the one query whose answer is itself a
+    name, and therefore the only one that can feed another's
+    argument
   - parallel fold sequences of different lengths - the zip rule is a
     diagnostic, never a truncation
   - syntax/same over variables ranging over DIFFERENT sequences - a

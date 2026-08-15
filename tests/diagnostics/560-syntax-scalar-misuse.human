@@ -1,0 +1,41 @@
+[1;31merror[AX3028][0m[1m: no constructor named `Ghost` for syntax/arity to measure[0m
+  [1;34m--> [0m560-syntax-scalar-misuse.ax:39:2
+[1;34m   |[0m
+[1;34m39 |[0m (badArity D)
+[1;34m   |[0m  [1;31m^^^^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0mthe query vocabulary is CLOSED and compiler-implemented (macro-system.md MAC-CAP-5/6): every query is answered from the declaration list at expansion time, and a query with no answer is this refusal, never a default value
+  [1;34m = [0m[1;32mhelp: [0mthe query reads the declaration list; syntax/arity's first argument names a data constructor
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3028` for a full explanation
+
+[1;31merror[AX3028][0m[1m: `syntax/name` is not a query this position answers[0m
+  [1;34m--> [0m560-syntax-scalar-misuse.ax:41:2
+[1;34m   |[0m
+[1;34m41 |[0m (badName D)
+[1;34m   |[0m  [1;31m^^^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0mthe query vocabulary is CLOSED and compiler-implemented (macro-system.md MAC-CAP-5/6): every query is answered from the declaration list at expansion time, and a query with no answer is this refusal, never a default value
+  [1;34m = [0m[1;32mhelp: [0mevery query is APPLIED - `(syntax/name x)`, `(syntax/constructors T)` - so a bare `syntax/` name is a query missing its arguments, or a spelling the vocabulary does not answer
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3028` for a full explanation
+
+[1;31merror[AX3028][0m[1m: a syntax/* query's argument must be a bare identifier or a `(syntax/join a b)`[0m
+  [1;34m--> [0m560-syntax-scalar-misuse.ax:34:33
+[1;34m   |[0m
+[1;34m34 |[0m    (fn (bg) (if (syntax/defined 1) 1 0))))
+[1;34m   |[0m                                 [1;31m^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0mthe query vocabulary is CLOSED and compiler-implemented (macro-system.md MAC-CAP-5/6): every query is answered from the declaration list at expansion time, and a query with no answer is this refusal, never a default value
+  [1;34m = [0m[1;32mhelp: [0mpass a plain name here, or join two of them with `(syntax/join a b)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3028` for a full explanation
+
+[1;31merror[AX3028][0m[1m: syntax/join takes exactly two identifiers[0m
+  [1;34m--> [0m560-syntax-scalar-misuse.ax:45:2
+[1;34m   |[0m
+[1;34m45 |[0m (badJoin D)
+[1;34m   |[0m  [1;31m^^^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0mthe query vocabulary is CLOSED and compiler-implemented (macro-system.md MAC-CAP-5/6): every query is answered from the declaration list at expansion time, and a query with no answer is this refusal, never a default value
+  [1;34m = [0m[1;32mhelp: [0mwrite `(syntax/join a b)`, or `((syntax/join a b) x)` to call what it names
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3028` for a full explanation
+
+compilation failed due to 4 previous errors

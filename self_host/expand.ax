@@ -745,6 +745,46 @@
                         "pass a plain name in this argument position"
                         (expMacMod env))))))))))
 
+; The same resolution from a query argument's NODE rather than its
+; spelling, which is what lets one query's answer feed another's
+; argument: `(syntax/defined (syntax/join show T))` asks about the
+; name `(deriveShow T)` would generate, and `syntax/join` is the only
+; query whose answer is a single identifier, so it is the only one
+; that can stand here. A bare identifier takes the path above
+; unchanged; the join form nests, because each side resolves through
+; this same function.
+;
+; Answering 0 means a refusal has already been emitted (the String
+; cast of a 0 handle is the family's existing poison convention -
+; every caller compares against 0 before spending the answer).
+(pub :: expQueryArgName (-> Int Int Int Int Int String))
+(pub fn (expQueryArgName env a params args isp)
+  (if (== (nodeTag a) TAG_E_VAR)
+      (expResolveQueryName env (nodeA a) params args isp)
+      (if (== (nodeTag a) TAG_E_APP)
+          (let ((h (expSpineHead a))
+                (ps (expSpineArgs a vecNew)))
+            (if (&& (== (nodeTag h) TAG_E_VAR)
+                    (&& (strEq (nodeA h) "syntax/join")
+                        (== (vecLen ps) 2)))
+                (let ((l (expQueryArgName env (vecGet ps 0) params args isp)))
+                  (if (== (cast Int l) 0)
+                      (cast String 0)
+                      (let ((r (expQueryArgName env (vecGet ps 1) params args isp)))
+                        (if (== (cast Int r) 0)
+                            (cast String 0)
+                            (expJoinName l r)))))
+                (cast String
+                  (expQueryErr env (if (!= (nodeSpan a) 0) (nodeSpan a) isp)
+                    "a syntax/* query's argument must be a bare identifier or a `(syntax/join a b)`"
+                    "pass a plain name here, or join two of them with `(syntax/join a b)`"
+                    (expMacMod env)))))
+          (cast String
+            (expQueryErr env (if (!= (nodeSpan a) 0) (nodeSpan a) isp)
+              "a syntax/* query's argument must be a bare identifier or a `(syntax/join a b)`"
+              "pass a plain name here, or join two of them with `(syntax/join a b)`"
+              (expMacMod env))))))
+
 ; `(syntax/fields S)`: the field names of struct S, in declaration
 ; order - any visible module's, the same rule as expConstructorsOf.
 (pub :: expFieldsOf (-> Int String Int Int))
@@ -852,9 +892,27 @@
 
 ; The arity of entry-file constructor C - the field count its
 ; declaration carries - or -1 with the refusal emitted. Same two-pass
-; shape as the type lookups.
+; shape as the type lookups. `who` names the query in the miss
+; message, because two of them count the same thing for different
+; reasons and a diagnostic that always says `syntax/binders` sends a
+; reader of `(syntax/arity Ghost)` to the wrong row of the table.
 (pub :: expCtorArity (-> Int String Int Int))
 (pub fn (expCtorArity env c isp)
+  (expCtorArityFor env c isp "syntax/binders" "count"))
+
+; English's possessive, because the two queries that share this
+; message end differently: `syntax/binders'` and `syntax/arity's`.
+; The golden that pinned the first spelling is what caught the naive
+; concatenation - "syntax/binders's" - which is the kind of wording
+; regression a re-bless would otherwise have absorbed silently.
+(pub :: expPossessive (-> String String))
+(pub fn (expPossessive w)
+  (if (== (strByte w (- (strLen w) 1)) 115)
+      (strConcat w "'")
+      (strConcat w "'s")))
+
+(pub :: expCtorArityFor (-> Int String Int String String Int))
+(pub fn (expCtorArityFor env c isp who verb)
   (let ((k (expFindCtorNamed env c 1)))
     (if (!= k 0)
         (nodeB k)
@@ -866,9 +924,11 @@
                 (expMacMod env))
               (- 0 1) }
             { (expQueryErr env isp
-                (strConcat (strConcat "no constructor named `" c)
-                           "` for syntax/binders to count")
-                "the query reads the declaration list; syntax/binders' first argument names a data constructor"
+                (strConcat (strConcat (strConcat "no constructor named `" c)
+                                      (strConcat "` for " who))
+                           (strConcat " to " verb))
+                (strConcat (strConcat "the query reads the declaration list; " (expPossessive who))
+                           " first argument names a data constructor")
                 (expMacMod env))
               (- 0 1) }))))
 
@@ -1119,6 +1179,164 @@
                           (expMacMod env))
                         (mkEInt 0) })))))))
 
+; ------------------------------------------------------------------
+; The three SCALAR queries (MAC-CAP-5's `syntax/name`, `syntax/arity`
+; and `syntax/defined`), which answer one node where one value is
+; needed - the position `syntax/constructors` and `syntax/fields`
+; refuse in, because a sequence has no room there.
+;
+; Each landed with the macro that needs it, which is MAC-CAP-6's
+; closure rule read literally: `stdlib/Pre.ax`'s `deriveShow` spends
+; `syntax/name`, its `deriveArity` spends `syntax/arity`, and
+; `showOr` spends `syntax/defined`. A query with no consumer is a
+; vocabulary entry nothing measures.
+; ------------------------------------------------------------------
+
+; `(syntax/name x)`: the identifier `x` as a STRING LITERAL. The
+; resolution is the argument resolver's, so the useful spelling is
+; the one inside an iteration - `(syntax/name C)` under
+; `(syntax/for (C (syntax/constructors T)) ...)` answers each
+; constructor's own name, which is what a generated `show` prints.
+; The answer carries the invocation's span like every other node
+; substitution builds (MAC-EXP-14).
+(pub :: expEvalName (-> Int Int Int Int Int Int))
+(pub fn (expEvalName env qargs params args isp)
+  (if (!= (vecLen qargs) 1)
+      { (expQueryErr env isp
+          "syntax/name takes exactly one identifier"
+          "write `(syntax/name x)`"
+          (expMacMod env))
+        (mkEInt 0) }
+      (let ((n (expQueryArgName env (vecGet qargs 0) params args isp)))
+        (if (== (cast Int n) 0)
+            (mkEInt 0)
+            ; A TAG_E_STR node carries the LEXEME, quotes and escapes
+            ; included - `internString` stores it verbatim and the
+            ; emitter unescapes on the way out - so a synthesised
+            ; literal has to be spelled the way the lexer would have
+            ; spelled it. Without the quotes the emitter strips the
+            ; first and last BYTES of the name itself: `Circle`
+            ; printed as `ircl`, at exit 0, which is the wrong-answer
+            ; class this repository's fixtures assert values to catch.
+            ; An identifier needs no escaping - `"` and `\` cannot lex
+            ; in one - so quoting is the whole conversion.
+            (mkNodeAt TAG_E_STR
+                      (strConcat (strConcat "\"" n) "\"")
+                      0 0 isp)))))
+
+; `(syntax/arity C)`: the field count of constructor `C`, as an
+; integer literal. Reads the same declaration slot `syntax/binders`
+; counts, and refuses identically on a missing or private one - the
+; two queries differ in what they DO with the number, not in what
+; they can see.
+(pub :: expEvalArity (-> Int Int Int Int Int Int))
+(pub fn (expEvalArity env qargs params args isp)
+  (if (!= (vecLen qargs) 1)
+      { (expQueryErr env isp
+          "syntax/arity takes exactly one constructor name"
+          "write `(syntax/arity C)`"
+          (expMacMod env))
+        (mkEInt 0) }
+      (let ((c (expQueryArgName env (vecGet qargs 0) params args isp)))
+        (if (== (cast Int c) 0)
+            (mkEInt 0)
+            (let ((n (expCtorArityFor env c isp "syntax/arity" "measure")))
+              (if (< n 0)
+                  (mkEInt 0)
+                  (mkNodeAt TAG_E_INT n 0 0 isp)))))))
+
+; Does `n` name a visible top-level declaration - a function or its
+; signature, a `data` or `struct` type, or one of that type's
+; constructors? Those are exactly the names a generated body could
+; REFER to, which is the question a conditional derivation is
+; actually asking. A module's declaration answers under its mangled
+; spelling, so the lookup goes through `expQualify` - the same
+; definition-site rule a template's free identifier follows
+; (MAC-HYG-6), and the reason `(syntax/defined println)` is true
+; inside a macro whose file imports `IO` and false in one that does
+; not.
+(pub :: expIsDefinedName (-> Int String Int))
+(pub fn (expIsDefinedName env n)
+  (if (== (expDeclNamed (expDecls env) n 0) 1)
+      1
+      (if (!= (expFindDeclNamed env n 1) 0)
+          1
+          (if (!= (expFindCtorNamed env n 1) 0)
+              1
+              (let ((q (expQualify env n)))
+                (if (strEq q n) 0 1))))))
+
+; `(syntax/defined n)`: `true` or `false`, decided here and spliced.
+; A `syntax/defined` standing as an `if` condition is folded at
+; expansion time exactly as `syntax/same` is (substTpl's TAG_E_IF
+; arm), so the branch that survives is the only one the checker ever
+; sees - which is what makes conditional derivation *conditional*
+; rather than "both branches must type".
+(pub :: expEvalDefined (-> Int Int Int Int Int Int))
+(pub fn (expEvalDefined env qargs params args isp)
+  (if (!= (vecLen qargs) 1)
+      { (expQueryErr env isp
+          "syntax/defined takes exactly one name"
+          "write `(syntax/defined n)`, or `(syntax/defined (syntax/join f T))` for a generated one"
+          (expMacMod env))
+        (mkEInt 0) }
+      (let ((n (expQueryArgName env (vecGet qargs 0) params args isp)))
+        (if (== (cast Int n) 0)
+            (mkEInt 0)
+            (if (== (expIsDefinedName env n) 1)
+                (mkEVarAt "true" isp)
+                (mkEVarAt "false" isp))))))
+
+; The name of the expansion-time query at the head of an `if`
+; condition, or "" when the condition is an ordinary runtime
+; expression. Exactly two queries answer a Bool, and both are folded
+; by substTpl's TAG_E_IF arm.
+(pub :: expCondQuery (-> Int String))
+(pub fn (expCondQuery c)
+  (if (!= (nodeTag c) TAG_E_APP)
+      ""
+      (let ((h (expSpineHead c)))
+        (if (!= (nodeTag h) TAG_E_VAR)
+            ""
+            (if (strEq (nodeA h) "syntax/same")
+                "syntax/same"
+                (if (strEq (nodeA h) "syntax/defined")
+                    "syntax/defined"
+                    ""))))))
+
+; `(syntax/join a b)` where an expression stands: the joined
+; identifier as a reference, with any further arguments of the
+; flattened spine applied to it. The name goes through `expQualify`
+; like every other free identifier a template mentions (MAC-HYG-6),
+; which is a no-op for the usual case - the declaration the join
+; names was generated in the entry file and is not mangled - and the
+; right answer when a module generated it.
+(pub :: expEvalJoinRef (-> Int Int Int Int Int Int Int))
+(pub fn (expEvalJoinRef env qargs params args ren isp)
+  (if (< (vecLen qargs) 2)
+      { (expQueryErr env isp
+          "syntax/join takes exactly two identifiers"
+          "write `(syntax/join a b)`, or `((syntax/join a b) x)` to call what it names"
+          (expMacMod env))
+        (mkEInt 0) }
+      (let ((l (expQueryArgName env (vecGet qargs 0) params args isp)))
+        (if (== (cast Int l) 0)
+            (mkEInt 0)
+            (let ((r (expQueryArgName env (vecGet qargs 1) params args isp)))
+              (if (== (cast Int r) 0)
+                  (mkEInt 0)
+                  (let ((f (mkEVarAt (expQualify env (expJoinName l r)) isp))
+                        (out vecNew)
+                        (mut i 2))
+                    {
+                      (while (< i (vecLen qargs))
+                        {
+                          (vecPush out (substTpl (vecGet qargs i) params args ren env isp))
+                          (set i (+ i 1))
+                        })
+                      (expRebuildSpine f out isp 0)
+                    })))))))
+
 ; Is this expression a `(syntax/for (x seq) tpl)` spine?
 (pub :: expIsForSpine (-> Int Int))
 (pub fn (expIsForSpine e)
@@ -1335,6 +1553,23 @@
             (expEvalSame env qargs isp)
         (if (strEq (nodeA head) "syntax/fold")
             (expEvalFold env qargs params args ren isp)
+        (if (strEq (nodeA head) "syntax/name")
+            (expEvalName env qargs params args isp)
+        (if (strEq (nodeA head) "syntax/arity")
+            (expEvalArity env qargs params args isp)
+        (if (strEq (nodeA head) "syntax/defined")
+            (expEvalDefined env qargs params args isp)
+        (if (strEq (nodeA head) "syntax/join")
+            ; A join in EXPRESSION position is a REFERENCE to the
+            ; declaration a join in name position generates -
+            ; `((syntax/join show T) x)` calls `showColor`. Spines are
+            ; flattened, so the call arrives here as one spine headed
+            ; by the query with the joined parts first and the call's
+            ; own arguments after; rebuilding is what separates them.
+            ; Without this a macro could NAME a generated declaration
+            ; and never call one, which is why `showOr` needs it and
+            ; `deriveEq` did not.
+            (expEvalJoinRef env qargs params args ren isp)
         (if (strEq (nodeA head) "syntax/for")
             { (expQueryErr env isp
                 "syntax/for stands where several results can splice - a match arm, a template declaration, an argument - not where ONE value is needed"
@@ -1353,9 +1588,9 @@
             { (expQueryErr env isp
                 (strConcat (strConcat "`" (nodeA head))
                            "` is not a query this position answers")
-                "the applied queries are syntax/same and syntax/fold here, and syntax/constructors / syntax/fields / syntax/binders in an iteration's sequence slot; the rest of the MAC-CAP-5 table refuses until it lands"
+                "the applied queries are syntax/same, syntax/fold, syntax/name, syntax/arity and syntax/defined here, and syntax/constructors / syntax/fields / syntax/binders in an iteration's sequence slot"
                 (expMacMod env))
-              (mkEInt 0) }))))
+              (mkEInt 0) }))))))))
         (let ((out vecNew) (mut i 0))
           {
             (while (< i (vecLen qargs))
@@ -1418,7 +1653,7 @@
                                     (expQueryErr env isp
                                       (strConcat (strConcat "`" (nodeA tpl))
                                                  "` is not a query this position answers")
-                                      "v1 answers syntax/join in declaration-name position, syntax/constructors as an iteration sequence, and syntax/for in match-arm position; the rest of the MAC-CAP-5 table refuses until it lands"
+                                      "every query is APPLIED - `(syntax/name x)`, `(syntax/constructors T)` - so a bare `syntax/` name is a query missing its arguments, or a spelling the vocabulary does not answer"
                                       (expMacMod env))
                                     (mkEInt 0)
                                   }
@@ -1431,27 +1666,33 @@
         (if (== tag TAG_E_APP)
             (substTplApp tpl params args ren env isp)
         (if (== tag TAG_E_IF)
-            ; A condition that is a `syntax/same` spine is decided at
-            ; expansion time, and the CHOSEN BRANCH is spliced in the
-            ; if's place - so `(if (syntax/same f g) v s.g)` expands
-            ; to `v` on the diagonal and `s.g` off it, which is what
-            ; makes section 10.3's "withX expands to (Point v s.y)"
-            ; literally true rather than behaviourally true.
-            (if (&& (== (nodeTag (nodeA tpl)) TAG_E_APP)
-                    (let ((h (expSpineHead (nodeA tpl))))
-                      (&& (== (nodeTag h) TAG_E_VAR)
-                          (strEq (nodeA h) "syntax/same"))))
-                (let ((v (expEvalSame env (expSpineArgs (nodeA tpl) vecNew) isp)))
-                  (if (&& (== (nodeTag v) TAG_E_VAR) (strEq (nodeA v) "true"))
-                      (substTpl (nodeB tpl) params args ren env isp)
-                      (if (&& (== (nodeTag v) TAG_E_VAR) (strEq (nodeA v) "false"))
-                          (substTpl (nodeC tpl) params args ren env isp)
-                          ; the refusal's poison: keep the tree shaped
-                          v)))
-                (mkNodeAt TAG_E_IF
-                          (substTpl (nodeA tpl) params args ren env isp)
-                          (substTpl (nodeB tpl) params args ren env isp)
-                          (substTpl (nodeC tpl) params args ren env isp) isp))
+            ; A condition that is a `syntax/same` or `syntax/defined`
+            ; spine is decided at expansion time, and the CHOSEN
+            ; BRANCH is spliced in the if's place - so
+            ; `(if (syntax/same f g) v s.g)` expands to `v` on the
+            ; diagonal and `s.g` off it, which is what makes section
+            ; 10.3's "withX expands to (Point v s.y)" literally true
+            ; rather than behaviourally true. For `syntax/defined`
+            ; the folding is not a nicety but the whole point: the
+            ; branch that did NOT survive names a declaration that
+            ; does not exist, so a runtime `if` over both would be
+            ; AX3001 on the arm the query exists to avoid.
+            (let ((cq (expCondQuery (nodeA tpl))))
+              (if (!= (strLen cq) 0)
+                  (let ((v (if (strEq cq "syntax/same")
+                               (expEvalSame env (expSpineArgs (nodeA tpl) vecNew) isp)
+                               (expEvalDefined env (expSpineArgs (nodeA tpl) vecNew)
+                                               params args isp))))
+                    (if (&& (== (nodeTag v) TAG_E_VAR) (strEq (nodeA v) "true"))
+                        (substTpl (nodeB tpl) params args ren env isp)
+                        (if (&& (== (nodeTag v) TAG_E_VAR) (strEq (nodeA v) "false"))
+                            (substTpl (nodeC tpl) params args ren env isp)
+                            ; the refusal's poison: keep the tree shaped
+                            v)))
+                  (mkNodeAt TAG_E_IF
+                            (substTpl (nodeA tpl) params args ren env isp)
+                            (substTpl (nodeB tpl) params args ren env isp)
+                            (substTpl (nodeC tpl) params args ren env isp) isp)))
         ; --- binders: value first, then body under the new name ----
         (if (|| (== tag TAG_E_LET) (== tag TAG_E_LETM))
             (let ((val (substTpl (nodeB tpl) params args ren env isp))

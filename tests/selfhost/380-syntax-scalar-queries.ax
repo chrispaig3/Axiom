@@ -1,0 +1,62 @@
+; expect 41
+; MAC-CAP-5's three SCALAR queries, each landing with the library
+; macro that needs it (MAC-CAP-6's closure rule: a vocabulary entry
+; with no consumer is one nothing measures).
+;
+;   (syntax/name C)      the constructor's spelling as a String
+;                        literal - `stdlib/Pre.ax`'s deriveShow, and
+;                        the only way a tag's NAME reaches a running
+;                        program (a tag is an integer at run time)
+;   (syntax/arity C)     the constructor's field count as an Int
+;                        literal - deriveArity, and not derivable at
+;                        run time either (MM-VAL-6: a block records
+;                        its tag, never its field count)
+;   (syntax/defined n)   whether `n` names a visible declaration,
+;                        DECIDED AT EXPANSION TIME so the losing
+;                        branch is deleted rather than compiled -
+;                        showOr, whose taken branch names a
+;                        declaration the other program does not have
+;
+; and the composition the three of them needed:
+;
+;   ((syntax/join a b) x) calls what a join NAMES. Spines flatten, so
+;                        the call arrives as one spine headed by the
+;                        query; separating the joined parts from the
+;                        call's own arguments is what makes a
+;                        generated declaration callable from a macro
+;                        rather than only nameable.
+;
+;   16  strLen (showShape (Rect 1 2))  = 4, times 4
+;    9  arityShape (Rect 1 2)          = 2, plus 7
+;   12  arityShape (Dot)               = 0, plus 12
+;    3  showOr Shape (Dot) -> showShape (Dot) = "Dot", strLen 3
+;    1  showOr Colour ... -> the fallback, because no deriveShow
+;                            Colour was invoked: strLen "?" = 1
+;
+; 16 + 9 + 12 + 3 + 1 = 41.
+;
+; The unfixed compiler refuses at expansion: syntax/name is not in
+; its vocabulary (AX3028), exit 1.
+(import Pre)
+(import Str)
+
+(data Shape
+  (Circle Int)
+  (Rect Int Int)
+  (Dot))
+
+(data Colour
+  (Red)
+  (Green))
+
+(deriveShow Shape)
+(deriveArity Shape)
+
+(:: main Int)
+
+(fn (main)
+  (+ (* 4 (strLen (showShape (Rect 1 2))))
+     (+ (+ 7 (arityShape (Rect 1 2)))
+        (+ (+ 12 (arityShape Dot))
+           (+ (strLen (showOr Shape Dot "?"))
+              (strLen (showOr Colour Red "?")))))))

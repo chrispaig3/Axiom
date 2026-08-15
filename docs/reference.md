@@ -1148,8 +1148,8 @@ parse.
 **A declaration macro can ask about the program's types** — through
 the `syntax/*` query vocabulary, a closed set of questions the
 expander answers from the declaration list at compile time, with no
-user code running. Three queries exist, and together they make
-`deriveEq` over any sum type an ordinary macro:
+user code running. Three of them are enough to make `deriveEq` over
+any sum type an ordinary macro:
 
 ```scheme
 (pub macro deriveEq
@@ -1174,7 +1174,23 @@ S)` iterates a struct's field names, `(syntax/binders C x)` names a
 constructor's fields as hygienic pattern binders, and `(syntax/fold
 && true ...)` chains a comparison over them — the spec's `deriveEq`
 and `deriveLenses` both run verbatim, and a derived `impl` composes
-with the next derive. What macros cannot do yet: match on the shape
+with the next derive.
+
+Three more answer one value where one value is needed, and each is
+what a shipped prelude macro is written in terms of:
+
+| Query | Answers | The macro that spends it |
+|---|---|---|
+| `(syntax/name C)` | the constructor's spelling, as a `String` literal | `deriveShow` — `(deriveShow Shape)` gives you `showShape : Shape -> String`. A tag is an integer at run time, so this is the only route from a constructor to its name |
+| `(syntax/arity C)` | its field count, as an `Int` literal | `deriveArity` — a heap block records its tag and never its arity, so this is the only route to that number either |
+| `(syntax/defined n)` | whether `n` names a visible declaration | `showOr` — `(showOr T x "?")` renders with `showT` if the program derived one and answers the fallback if it did not. The `if` is decided at expansion time and the losing branch is deleted, which is what makes the query useful: the branch naming `showT` would not type in a program without it |
+
+`(syntax/join a b)` also stands where a *reference* stands, so a macro
+can call what it names — `((syntax/join show T) x)` — and can feed
+another query's argument, which is how `showOr` asks about a name no
+source file spells.
+
+What macros cannot do yet: match on the shape
 of their arguments, or repeat a template over a variable number of
 them (`deriving (Eq)` is refused outright — see Deriving Traits).
 The normative specification is [macro-system.md](macro-system.md);

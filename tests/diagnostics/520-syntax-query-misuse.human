@@ -5,7 +5,7 @@
 [1;34m   |[0m  [1;31m^^^^^^^^[0m
 [1;34m   |[0m
   [1;34m = [0m[1mnote: [0mthe query vocabulary is CLOSED and compiler-implemented (macro-system.md MAC-CAP-5/6): every query is answered from the declaration list at expansion time, and a query with no answer is this refusal, never a default value
-  [1;34m = [0m[1;32mhelp: [0mthe applied queries are syntax/same and syntax/fold here, and syntax/constructors / syntax/fields / syntax/binders in an iteration's sequence slot; the rest of the MAC-CAP-5 table refuses until it lands
+  [1;34m = [0m[1;32mhelp: [0mthe applied queries are syntax/same, syntax/fold, syntax/name, syntax/arity and syntax/defined here, and syntax/constructors / syntax/fields / syntax/binders in an iteration's sequence slot
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3028` for a full explanation
 
 [1;31merror[AX3028][0m[1m: `Pt` is not a `data` declaration, so it has no constructors[0m

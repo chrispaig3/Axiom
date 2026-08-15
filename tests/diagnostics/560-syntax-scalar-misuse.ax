@@ -1,0 +1,49 @@
+; The scalar half of the query vocabulary refuses like the rest of it
+; (MAC-CAP-6: closed, total, and a diagnostic rather than a default) -
+; four AX3028s, one per way a scalar query has no answer:
+;
+;   badArity    (syntax/arity Ghost) - a name that declares no
+;               constructor. The message names syntax/arity, not
+;               syntax/binders: the two count the same declaration
+;               slot, and a refusal that always blames the counter
+;               sends the reader to the wrong row of the table.
+;   badName     a BARE `syntax/name` - every query is applied, so a
+;               query without its arguments is not an expression the
+;               vocabulary answers. (A one-element form is a bare
+;               name in this language, which is why this case is
+;               spelled without parentheses and reaches the same
+;               refusal.)
+;   badArg      (syntax/defined 1) - a query argument is a bare
+;               identifier or a (syntax/join a b), the one query
+;               whose own answer is a name.
+;   badJoin     (syntax/join x) - the join takes two parts, and the
+;               applied form ((syntax/join a b) x) needs both before
+;               the call's own arguments start.
+;
+; Each macro is otherwise well-formed, so each refusal is the query's
+; own rather than a parse artifact.
+(data D (A))
+
+(macro badArity ((badArity T)
+   (fn (ba) (syntax/arity Ghost))))
+
+(macro badName ((badName T)
+   (fn (bn) syntax/name)))
+
+(macro badArg ((badArg T)
+   (fn (bg) (if (syntax/defined 1) 1 0))))
+
+(macro badJoin ((badJoin T)
+   (fn (bj) (syntax/join x))))
+
+(badArity D)
+
+(badName D)
+
+(badArg D)
+
+(badJoin D)
+
+(:: main Int)
+
+(fn (main) 0)
