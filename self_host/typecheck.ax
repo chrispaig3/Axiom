@@ -1478,6 +1478,20 @@
       (regFn fns "__alloc" (mkIntArrow 1))
       (regFn fns "__retain" (mkIntArrow 1))
       (regFn fns "__release" (mkIntArrow 1))
+      ; `__retainref` is `__retain`'s TYPE-DIRECTED twin, and the only
+      ; primitive whose signature is polymorphic on purpose: it takes
+      ; a share of its argument exactly when the argument is a
+      ; reference, which the call's evidence stamp answers - a
+      ; constant for a known type, a bit of the caller's own evidence
+      ; word for a type variable, and NOTHING AT ALL for an Int.
+      ; `__retain` cannot do this and must not try: it is `Int -> Int`
+      ; and retaining an Int above 4096 dereferences it.
+      ;
+      ; It exists for the two places a reference LEAVES the type
+      ; system through a `cast Int` - `Mem.memSetWord` and the AST's
+      ; `mkNode` - which is where MM-LIFE-2c's co-ownership blocker
+      ; actually lives (docs/memory-model.md).
+      (regFn fns "__retainref" (mkTArr (mkTVar "a") mkIntTy))
       (regFn fns "__argc" (mkIntArrow 0))
       (regFn fns "__argv" (mkIntArrow 1))
       (regFn fns "__axiom_arena_mark" (mkIntArrow 0))

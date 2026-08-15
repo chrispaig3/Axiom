@@ -1463,55 +1463,123 @@ a judgement about who else is holding it. The classification is
 set and the walk set cannot disagree. A thousand overwrites of one
 field with a fresh 48-byte string move the bump by under 4 KiB.
 
-What deliberately does not emit yet, and why: events 2, 3 and 4's
-RELEASES wait for the co-ownership audit's findings to clear - the
-corpus measurably stashes borrowed references in count-invisible
-containers (~40-55 let-bound sites, 5 of 141 TCO functions, ~45
-statement-position stash calls, measured 2026-08-15), and a slot-
-exit or boundary release over those shapes is a use-after-free, not
-a leak. They land with the container element maps and the checker's
-binder-class stamps.
+**Event 4 emits since 2026-08-15**
+(`tests/stdlib/362-arc-tail-boundary.ax`, 63), and it is the event
+this whole strategy exists for: the activation that never returns,
+which no per-activation arena can reclaim. A tail loop allocating a
+fresh 32-byte string per iteration and dropping the previous one
+moves the allocator's bump by **480 bytes over 2000 iterations**,
+where the same run without the event reads **224,304**.
 
-**"Count-invisible" is two numbers, and they are the whole blocker**
-(both probed 2026-08-15 against the tree at that commit). A `String`
-whose header count reads 0, pushed into a `Vec` and interned into an
-`Intern`, reads **0 after both**: the containers take no share,
-because they store through `memSetWord` and the checker sees a
-machine word. The same string stored into a struct field reads **0**
-through a field declared `Int` and **1** through a field declared
-`String` - the declared type is the entire difference, because
-`fldClass` is what decides whether the site emits a retain at all.
+The shape is: retain each reference parameter once before the loop
+header - converting the caller's borrow (event 1) into a share this
+frame owns - then at each jump **retain every new value, release
+every old one, and only then store**. The retain-first order is not
+a nicety: a parameter passed through unchanged, which is the common
+shape, would otherwise release the block it is about to keep. The
+last iteration's share is never handed back, which leaks one value
+per loop; that is the safe direction.
 
-`ASTNode` declares all ten of its fields `Int`, and `Vec`, `Map` and
-`Intern` store their elements through `memSetWord`. Every reference
-this compiler holds in its own data structures is therefore in the
+Which parameters is a question the DECLARED TYPE answers, through
+`fldClass` - the same classifier that writes a block's reference map,
+so the release set and every other ownership decision in this backend
+agree by construction. An `Int` parameter is never retained and never
+released, which is exactly why the Life probe of `MM-LIFE-2e` is
+untouched by this: its board is a `Vec` behind `(-> Int Int Int)`.
+
+What made this event unsafe for so long was never its arithmetic but
+the stashes, and `MM-LIFE-2g` is what closed that. The fixture asserts
+both halves, because either alone is a wrong conclusion: with the
+event and without the share, the loop is still flat and a `Vec`
+element pushed 300 boundaries ago reads a length of **2** - freed,
+re-issued, and read back as garbage.
+
+One further hole had to close with it, and it is the reason closure
+captures are no longer uniformly unretained: a lambda captures
+everything in scope, so a closure escaping the loop would hold a
+parameter the next boundary releases. A capture that is a **reference
+parameter of the enclosing function** now takes a share. Captures that
+are `let` bindings stay unretained on purpose - nothing releases a
+binding, so nothing can free one out from under a closure. The rule is
+not "retain every capture" but "retain what something else may hand
+back".
+
+What deliberately does not emit yet: events 2 and 3's releases - a
+function returning its result owned, and a frame slot releasing at
+exit. Both need to know whether a value ESCAPED the frame, which is
+the one analysis none of the machinery above supplies; event 4 needs
+no such analysis, because its entry retain and boundary release are a
+matched pair over the same slot.
+
+**The blocker was two numbers, and it is solved.** Probed
+2026-08-15, before: a `String` whose header count reads 0, pushed into
+a `Vec` and interned into an `Intern`, read **0 after both** - the
+containers took no share, because they store through `memSetWord` and
+the checker sees a machine word. The same string stored into a struct
+field read **0** through a field declared `Int` and **1** through a
+field declared `String`. The declared type was the entire difference,
+because `fldClass` is what decides whether a site emits a retain -
+and `ASTNode` declares all ten of its fields `Int`, so every
+reference this compiler holds in its own data structures was in the
 first column.
 
-That is why **event 4 cannot ship even though its arithmetic
-balances**, and it is worth writing out because the balance argument
-is seductive. Entry retains a reference parameter and the boundary
-releases it, which is balanced *for the parameter*. But the value an
-iteration is about to drop reached count 1 only through that entry
-retain, so the boundary release takes it to 0 and files the block -
-and if any iteration stashed it in a `Vec`, an `Intern`, or an
-`Int`-declared field, that stash is now a pointer into a block on a
-size-class free list, which `axiom_alloc` pops before bumping. The
-next allocation of that size hands the same bytes to someone else.
-Under-reclaiming leaks; this frees early, and the two are not
-symmetric.
+What that cost is worth writing out, because the balance argument for
+event 4 is seductive. Entry retains a reference parameter and the
+boundary releases it, which is balanced *for the parameter*. But the
+value an iteration is about to drop reached count 1 only through that
+entry retain, so the boundary release takes it to 0 and files the
+block - and if any iteration stashed it where counting could not
+follow, that stash became a pointer into a block on a size-class free
+list, which `axiom_alloc` pops before bumping. The next allocation of
+that size hands the same bytes to someone else. Under-reclaiming
+leaks; this frees early, and the two are not symmetric.
 
-The prerequisite is therefore **not more ownership machinery**. It is
-that the containers and the AST carry types the checker can see - the
-campaign `MM-ALLOC-20` ran for `String` against `Int`, applied to
-`Vec`, `Map` and `ASTNode`. That is the next slice, and it is a
-campaign rather than a rung: `Vec`'s handle is `Int` in every
-signature it has, and so is every AST node word.
+**MM-LIFE-2g (H, 2026-08-15). The invisible-store rule.** A store that
+erases a value's type **SHALL** take a share of it. There are exactly
+two such places in this implementation, and both are a `cast Int`
+inside a polymorphic function:
+
+- `Mem.memSetWord`, which every container and every raw word store
+  goes through;
+- the AST's `mkNode`/`mkNodeAt`, whose three payload words are
+  `ASTNode`'s `Int`-declared fields.
+
+The share is taken by **`__retainref`**, `__retain`'s type-directed
+twin and the only primitive whose signature is polymorphic on purpose.
+It retains exactly when its argument is a reference, and the call's
+evidence stamp (`MM-LIFE-2d`) answers that: a constant for a known
+type, a bit of the caller's own evidence word for a type variable, and
+**nothing emitted at all** for an `Int`. That last case is why this is
+affordable on the hottest store in the compiler - a tag, a span or a
+length costs zero instructions. Measured: self-compile 1.22 s and peak
+RSS 492.6 MiB, against 1.24 s and 492.4 MiB without it.
+
+The share is deliberately **unbalanced**, and cannot be otherwise:
+nothing tells the unsafe layer when a word is overwritten or its block
+dies. So a reference stored through either place is immortal - a
+**leak**, the safe direction, and no worse than before, since a value
+reachable only from `memAlloc`'d memory was never reclaimed anyway.
+What it buys is that the value is no longer *invisible*, which is the
+precondition every remaining ownership event was waiting on. This is
+§10's unsafe layer discharging its own obligation at the two points
+where the layer is actually crossed, rather than leaving it to every
+caller.
+
+*What the rule does NOT cover, stated rather than discovered:* a
+program that casts a reference into an `Int`-declared field of its own
+`struct` writes a word this rule never sees. `cast` is the marker for
+leaving the type system, and keeping such a value alive is the
+program's obligation - the same position §10 already takes for
+`memAlloc`. The compiler's own instance of that shape is `mkNode`, and
+it is discharged above.
 
 Closure capture
-words are stored UNRETAINED until closure records carry maps: a
-retain no walk can return is a permanent leak, and the
+words are stored UNRETAINED until closure records carry maps - with
+the one exception event 4 required, a capture that is a reference
+PARAMETER of the enclosing function, which takes a share. A retain no
+walk can return is a permanent leak, and that is what those are; the
 closure-outlives-frame dangle stays a recorded program obligation
-beside `MM-VAL-15`'s price sentence until then. **The evidence
+beside `MM-VAL-15`'s price sentence for every other capture. **The evidence
 record's two words stopped being in that sentence on 2026-08-15**,
 when its map landed and its retains became legal
 (`MM-LIFE-2d`, `tests/stdlib/360-arc-evidence-map.ax`). The §3.3 primitives remain LEGAL through this interim -
@@ -1757,8 +1825,15 @@ with a pass-through of the same snapshot and rebuilding the server:
 
 | server | 5 edits | 200 edits | per edit |
 |---|---|---|---|
-| boundary intact | 1968 KiB | 2128 KiB | **840 bytes** |
-| boundary removed | 2656 KiB | 39,440 KiB | **193,163 bytes** |
+| boundary intact | 2016 KiB | 2176 KiB | **840 bytes** |
+| boundary removed | 2672 KiB | 39,472 KiB | **193,247 bytes** |
+
+(Re-run after `MM-LIFE-2g` and event 4 landed, since both change what
+the compiler's frontend allocates per message. The per-edit figures
+move by 0.04% and 0%: what the boundary reclaims is AST garbage, and
+ARC does not reach it — `ASTNode`'s ten `Int` fields are why, and
+`MM-LIFE-2g`'s share makes those words *visible* without making them
+*reclaimable*.)
 
 The gate's ceiling is 2048 KiB over those 195 edits. The
 boundary-removed session misses it by a factor of eighteen, and the
@@ -2198,6 +2273,7 @@ equivalent honesty for this one.
 | `tests/stdlib/359-arc-str-bytes.ax` | LIFE-2d's `Str` half end to end — a dead string frees its bytes, a live slice keeps its parent's |
 | `tests/stdlib/360-arc-evidence-map.ax` | LIFE-2c event 6 for the evidence record — its map, its two retains, and the handler lambda reclaimed with it |
 | `tests/stdlib/361-arc-field-store.ax` | LIFE-2c event 5 — a field store's retain and release, both counts measured, and `(set e.f e.f)` surviving |
+| `tests/stdlib/362-arc-tail-boundary.ax` | LIFE-2c event 4 and LIFE-2g together — 480 bytes over 2000 iterations, and a stashed parameter surviving 300 boundaries |
 | `tests/stdlib/220-while-mut.ax` | MUT-1 across 1,000,000 iterations |
 | `tests/stdlib/035-string-equality.ax` | VAL-7's content equality, including the Unicode and interior-NUL cases |
 | `scripts/measure-memory-baseline.sh --gate` | ALLOC-16's managed contract; the unsound variant must *fail* |

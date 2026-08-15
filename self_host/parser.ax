@@ -230,12 +230,37 @@
 (pub :: nodeB   (-> Int a))   (pub fn (nodeB   n) (memGetWord n 2))
 (pub :: nodeC   (-> Int a))   (pub fn (nodeC   n) (memGetWord n 3))
 
+; The AST's three payload words are the compiler's own instance of
+; `Mem.memSetWord`'s problem, and they carry it at scale: `ASTNode`
+; declares all ten of its fields `Int`, so the three `cast Int`s below
+; hide every lexeme, every child handle and every Vec this compiler
+; stores in a node. `fldClass` sees `Int`, no field retain is emitted,
+; and the node holds a reference nothing counts.
+;
+; `__retainref` on each is type-directed, so a tag or a span - which
+; is what most of these words are - emits nothing at all, and a
+; `String` or a node handle takes a share. As at the `Mem` layer the
+; share is unbalanced and therefore a leak: an AST node is never
+; released, so what it holds was already immortal. What changes is
+; that it is no longer invisible, which is what lets an owner
+; elsewhere release its own share safely (docs/memory-model.md
+; MM-LIFE-2c).
 (pub :: mkNode (-> Int a b c Int))
 (pub fn (mkNode t a b c)
-  (ASTNode t (cast Int a) (cast Int b) (cast Int c) 0 0 0 0 0 0))
+  {
+    (__retainref a)
+    (__retainref b)
+    (__retainref c)
+    (ASTNode t (cast Int a) (cast Int b) (cast Int c) 0 0 0 0 0 0)
+  })
 (pub :: mkNodeAt (-> Int a b c Int Int))
 (pub fn (mkNodeAt t a b c sp)
-  (ASTNode t (cast Int a) (cast Int b) (cast Int c) sp 0 0 0 0 0))
+  {
+    (__retainref a)
+    (__retainref b)
+    (__retainref c)
+    (ASTNode t (cast Int a) (cast Int b) (cast Int c) sp 0 0 0 0 0)
+  })
 (pub :: nodeSpan (-> Int Int))  (pub fn (nodeSpan n) (memGetWord n 4))
 (pub :: nodeModule (-> Int a)) (pub fn (nodeModule n) (memGetWord n 8))
 (pub :: nodeFieldNames (-> Int Int)) (pub fn (nodeFieldNames n) (memGetWord n 9))

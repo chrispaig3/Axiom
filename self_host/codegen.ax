@@ -3173,12 +3173,60 @@
         (bindSym cg "__evw." ar 0 1)
       })))
 
+; ------------------------------------------------------------------
+; MM-LIFE-2c event 4: the self tail call is a release boundary, and
+; the function OWNS its reference parameters across it.
+;
+; Parameter `i` of the declaration being emitted is a reference iff
+; its declared type says so - read off the signature's arrow spine and
+; classified by `fldClass`, the same function that writes a block's
+; reference map, so every ownership decision in this backend agrees by
+; construction. An `Int` parameter is never retained and never
+; released, which is why the Life probe's board - a `Vec` behind
+; `(-> Int Int Int)` - is untouched by any of this.
+; ------------------------------------------------------------------
+(pub :: arrowParamTy (-> Int Int Int))
+(pub fn (arrowParamTy ty i)
+  (if (== ty 0)
+      0
+      (if (!= (nodeTag ty) TAG_T_ARR)
+          0
+          (if (<= i 0)
+              (nodeA ty)
+              (arrowParamTy (nodeB ty) (- i 1))))))
+
+(pub :: curParamRefClass (-> Int Int Int))
+(pub fn (curParamRefClass cg i)
+  (let ((d (memGetWord cg 36)))
+    (if (== d 0)
+        0
+        (let ((e (findFSig (memGetWord cg 15) (nodeA d))))
+          (if (== e 0)
+              0
+              (if (== (fldClass cg (arrowParamTy (memGetWord e 3) i)) 2)
+                  1
+                  0))))))
+
+; The entry retain, once per reference parameter, before the loop
+; header. It converts the caller's BORROW (event 1) into a share this
+; frame owns, which is what makes the boundary release below legal:
+; the release hands back a count this retain took, never the caller's.
+(pub :: retainRefParams (-> Int Int Int Int))
+(pub fn (retainRefParams params cg i)
+  (if (>= i (vecLen params))
+      cg
+      (let ((cg1 (if (== (curParamRefClass cg i) 1)
+                     (emitRetainOf cg (cat2 "%" (llvmSym (strDup (vecGet params i)))))
+                     cg)))
+        (retainRefParams params cg1 (+ i 1)))))
+
 (pub fn (openTailLoop name params cg)
   (let ((slots vecNew)
         (hdrN (allocReg cg)))
     (let ((hdrB (cat2 "label_" (fmtInt hdrN))))
       {
         (allocParamSlots params slots cg 0)
+        (retainRefParams params cg 0)
         (memSetWord cg 27 (strDup name))
         (memSetWord cg 28 slots)
         (memSetWord cg 29 hdrB)
@@ -3245,12 +3293,76 @@
                                   ", ptr "
                                   (strDup (cast String sreg)))))
             0))
-      (storeTailSlots (memGetWord cg 28) vals cg 0)
+      ; MM-LIFE-2c event 4, the boundary itself. RETAIN EVERY NEW
+      ; VALUE FIRST, then release every old one, then store - the same
+      ; order event 5 uses at a field, and for the same reason: an
+      ; iteration that passes a parameter through unchanged, which is
+      ; the common shape, would otherwise release the block it is
+      ; about to keep. With the retains first the two cancel and the
+      ; count is unmoved.
+      ;
+      ; The old value has to be LOADED before the store overwrites it,
+      ; so the release walks the slots twice: once to read, once to
+      ; hand back. Reading after `evalTailArgs` is deliberate - an
+      ; argument expression may still mention the parameter it is
+      ; about to replace.
+      (retainTailVals (memGetWord cg 28) vals cg 0)
+      (let ((olds vecNew))
+        {
+          (loadTailOlds (memGetWord cg 28) olds cg 0)
+          (storeTailSlots (memGetWord cg 28) vals cg 0)
+          (releaseTailOlds (memGetWord cg 28) olds cg 0)
+        })
       (emitLine cg (cat2 "  br label %" (memGetWord cg 29)))
       (memSetWord cg 31 1)
       (memSetWord cg 2 "0")
       cg
     }))
+
+(pub :: retainTailVals (-> Int Int Int Int Int))
+(pub fn (retainTailVals slots vals cg i)
+  (if (>= i (vecLen slots))
+      cg
+      (let ((cg1 (if (== (curParamRefClass cg i) 1)
+                     (emitRetainOf cg (vecGet vals i))
+                     cg)))
+        (retainTailVals slots vals cg1 (+ i 1)))))
+
+(pub :: loadTailOlds (-> Int Int Int Int Int))
+(pub fn (loadTailOlds slots olds cg i)
+  (if (>= i (vecLen slots))
+      cg
+      {
+        (if (== (curParamRefClass cg i) 1)
+            {
+              (loadFromSlot cg (vecGet slots i))
+              (vecPush olds (strDup (memGetWord cg 2)))
+            }
+            (vecPush olds ""))
+        (loadTailOlds slots olds cg (+ i 1))
+      }))
+
+(pub :: releaseTailOlds (-> Int Int Int Int Int))
+(pub fn (releaseTailOlds slots olds cg i)
+  (if (>= i (vecLen olds))
+      cg
+      (let ((cg1 (if (== (curParamRefClass cg i) 1)
+                     (emitReleaseOf cg (vecGet olds i))
+                     cg)))
+        (releaseTailOlds slots olds cg1 (+ i 1)))))
+
+; A parameter slot is an `alloca`; reading it is the same load
+; `emitVar` emits for a kind-2 binding, without going through the
+; symbol table (the slot is what we hold, not the name).
+(pub :: loadFromSlot (-> Int String Int))
+(pub fn (loadFromSlot cg slot)
+  (let ((rn (allocReg cg)))
+    (let ((r (regStr rn)))
+      {
+        (emitLine cg (cat4 (cat2 "  " r) " = load i64, ptr " slot ""))
+        (memSetWord cg 2 r)
+        cg
+      })))
 
 (pub :: evalTailArgs (-> Int Int Int Int Int))
 (pub fn (evalTailArgs args vals cg i)
@@ -3678,12 +3790,26 @@
                                  (llvmSym (strDup lname))
                                  " to i64"))
               (storeWordAt cg pr 0 fr)
-              ; A1: the record births owned. Captures are stored
-              ; UNRETAINED until lambda-record maps land (E4): a
-              ; retain no walk can return is a permanent leak, and
-              ; the closure-outlives-frame dangle stays the recorded
-              ; program obligation beside MM-VAL-15's price sentence.
+              ; A1: the record births owned.
               (storeCountOneAt cg pr)
+              ; A capture that is a REFERENCE PARAMETER of the
+              ; enclosing function takes a share, and this is the one
+              ; hole that would make event 4's boundary release
+              ; unsound rather than merely incomplete: a lambda
+              ; captures everything in scope, so a closure escaping
+              ; the loop would otherwise hold a parameter the next
+              ; boundary releases. The share is unbalanced - a
+              ; closure record still carries no map - so it leaks,
+              ; which is the safe direction and no worse than the
+              ; unretained store it replaces.
+              ;
+              ; Captures that are `let` bindings stay unretained on
+              ; purpose: nothing releases a binding, so nothing can
+              ; free one out from under a closure. The rule is not
+              ; "retain every capture", it is "retain what something
+              ; else may hand back", and today that is exactly the
+              ; reference parameters.
+              (retainParamCaps cg capNames capRegs 0)
               (storeCaps cg pr capRegs 0)
               (memSetWord cg 21 (vecPush (memGetWord cg 21)
                                          (mkLamDesc lname lparams body
@@ -3693,6 +3819,25 @@
               cg
             }))
       })))
+
+; The index of `name` in the enclosing function's parameter list, or
+; -1. `cg 17` is that list, set by `emitFnDef` before the body runs.
+(pub :: curParamIndex (-> Int String Int))
+(pub fn (curParamIndex cg name)
+  (let ((ps (memGetWord cg 17)))
+    (if (== ps 0)
+        (- 0 1)
+        (strIndexIn ps name))))
+
+(pub :: retainParamCaps (-> Int Int Int Int Int))
+(pub fn (retainParamCaps cg capNames capRegs i)
+  (if (>= i (vecLen capNames))
+      cg
+      (let ((pi (curParamIndex cg (vecGet capNames i))))
+        (let ((cg1 (if (if (< pi 0) false (== (curParamRefClass cg pi) 1))
+                       (emitRetainOf cg (vecGet capRegs i))
+                       cg)))
+          (retainParamCaps cg1 capNames capRegs (+ i 1))))))
 
 (pub :: storeCaps (-> Int String Int Int Int))
 (pub fn (storeCaps cg base capRegs i)
@@ -4674,8 +4819,10 @@
     ; value nothing defines, and llc rejected the module. stage0
     ; carries a comment about hitting exactly this, for exactly this
     ; primitive, and calls it "the only one that could go wrong".
+    ; Both are nullary and neither is polymorphic, so the stamp a
+    ; bare reference cannot carry is the constant 0 here.
     (if (|| (strEq name "__argc") (strEq name "__axiom_arena_mark"))
-        (zeroFloat (emitPrim name vecNew cg))
+        (zeroFloat (emitPrim name vecNew cg 0))
     (let ((symReg (lookupSym cg name)))
       (if (!= symReg 0)
           (if (>= (lookupSymKind cg name) 1)
@@ -4974,7 +5121,7 @@
     (if (isAndOr fnName)
         (zeroFloat (emitAndOr fnName args cg))
     (if (isPrimName fnName)
-        (emitPrim fnName args cg)
+        (emitPrim fnName args cg stamp)
     ; A head that names a local or a parameter is a function VALUE -
     ; a closure record - so the call goes indirect through its code
     ; pointer. Checked before the constructor table: locals shadow.
@@ -5083,6 +5230,7 @@
 (pub fn (isPrimName nm)
   (if (strEq nm "__alloc") true
   (if (strEq nm "__retain") true
+  (if (strEq nm "__retainref") true
   (if (strEq nm "__release") true
   (if (strEq nm "__load64") true
   (if (strEq nm "__store64") true
@@ -5108,7 +5256,7 @@
   (if (strEq nm "__streq") true
   (if (strEq nm "__strne") true
   (if (isSyscallName nm) true
-  false)))))))))))))))))))
+  false))))))))))))))))))))
 
 ; `__syscall0` through `__syscall6`, distinguished only by how many
 ; arguments follow the syscall number.
@@ -5117,13 +5265,14 @@
   (&& (== (strLen nm) 10)
       (strStartsWith nm "__syscall")))
 
-(pub :: emitPrim (-> String Int Int Int))
-(pub fn (emitPrim fnName args cg)
+(pub :: emitPrim (-> String Int Int Int Int))
+(pub fn (emitPrim fnName args cg stamp)
   (if (strEq fnName "__intToFloat") (emitPrimIntToFloat args cg)
   (if (strEq fnName "__floatToInt") (emitPrimFloatToInt args cg)
   (zeroFloat
     (if (strEq fnName "__alloc")   (emitPrimAlloc args cg)
     (if (strEq fnName "__retain")  (emitPrimRetRel args cg "@axiom_retain")
+    (if (strEq fnName "__retainref") (emitPrimRetainRef args cg stamp)
     (if (strEq fnName "__release") (emitPrimRetRel args cg "@axiom_release")
     (if (strEq fnName "__load64")  (emitPrimLoad args cg 8)
     (if (strEq fnName "__store64") (emitPrimStore args cg 8)
@@ -5137,7 +5286,7 @@
     (if (strEq fnName "__axiom_arena_reset_keeping") (emitPrimArenaResetKeeping args cg)
     (if (strEq fnName "__streq") (emitPrimStrEq args cg 1)
     (if (strEq fnName "__strne") (emitPrimStrEq args cg 0)
-    (emitPrimSyscall args cg))))))))))))))))))))
+    (emitPrimSyscall args cg)))))))))))))))))))))
 
 ; `(__retain h)` / `(__release h)`: one call into the emitted
 ; ownership primitive of MM-LIFE-2b. The result is 0 - retain and
@@ -5154,6 +5303,43 @@
         (memSetWord cg1 14 0)
         cg1
       })))
+
+; `(__retainref v)`: a share of `v`, taken exactly when `v` is a
+; reference. The answer comes from the CALL's evidence stamp, whose
+; single witness covers `__retainref`'s single type variable:
+;
+;   0     `v` is not a reference here - NOTHING is emitted, which is
+;         why this is affordable on `memSetWord`, whose arguments are
+;         overwhelmingly integers
+;   1     `v` is a reference at this call site - an unconditional
+;         retain
+;   2+k   `v` is the caller's own type variable k - the retain runs
+;         under bit k of the caller's evidence word, at run time
+;
+; A missing or foreign stamp answers 0, which under-retains: the same
+; conservative direction `evStampOk` takes everywhere else, and the
+; one that leaks rather than frees early.
+;
+; The result is 0. A share is an effect on a header, not a value.
+(pub :: emitPrimRetainRef (-> Int Int Int Int))
+(pub fn (emitPrimRetainRef args cg stamp)
+  (let ((cg1 (emitExpr (vecGet args 0) cg)))
+    (let ((v (strDup (memGetWord cg1 2)))
+          (wv (if (== stamp 0)
+                  0
+                  (if (== (vecLen (nodeB stamp)) 0)
+                      0
+                      (cast Int (vecGet (nodeB stamp) 0))))))
+      (let ((cgR (if (== wv 1)
+                     (emitRetainOf cg1 v)
+                     (if (>= wv 2)
+                         (emitRetainIfEvBit cg1 v (- wv 2))
+                         cg1))))
+        {
+          (memSetWord cgR 2 "0")
+          (memSetWord cgR 14 0)
+          cgR
+        }))))
 
 ; `(__streq a b)` / `(__strne a b)`: one call into `@__axiom_str_eq`,
 ; with `__strne` inverting the answer. `want` is 1 for equality and 0

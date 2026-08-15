@@ -175,9 +175,34 @@
 (pub fn (memGetWord addr index)
   (cast a (__load64 addr index)))
 
+; Storing a word here is the moment a value can leave the type
+; system's sight: `(cast Int value)` erases whatever `value` was, and
+; the machine word that lands in `addr` is indistinguishable from an
+; integer forever after. That is the whole of MM-LIFE-2c's
+; co-ownership blocker, and the fix is one line - the store takes a
+; SHARE of what it is about to hide.
+;
+; `__retainref` is type-directed, so this is free where it should be:
+; the overwhelming majority of word stores put an integer somewhere,
+; the call's evidence witness is 0, and NOTHING is emitted. A
+; reference costs one retain, and a type variable - `vecPush`'s
+; element, `mapInsert`'s value - costs a test of one bit of the
+; caller's evidence word.
+;
+; The share is deliberately NOT balanced by a release, and cannot be:
+; nothing tells this layer when the word is overwritten or the block
+; dies, which is exactly why the layer is unsafe. So a reference
+; stored through here is immortal, and that is a LEAK - the safe
+; direction, and no worse than before, since a value only reachable
+; from `memAlloc`'d memory was never reclaimed anyway. What it buys
+; is that the value is no longer INVISIBLE: an owner elsewhere may
+; now hand back its own share without freeing a block this word still
+; points at, which is the precondition every remaining ownership
+; event was waiting on.
 (pub :: memSetWord (-> Int Int a Int))
 (pub fn (memSetWord addr index value)
   {
+    (__retainref value)
     (__store64 addr index (cast Int value))
     addr
   })

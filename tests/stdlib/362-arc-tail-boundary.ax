@@ -1,0 +1,114 @@
+; exit 63 (see .exit)
+; MM-LIFE-2c event 4: a self tail call is a release boundary, and the
+; function owns its reference parameters across it. This is the event
+; the whole strategy exists for - the activation that never returns,
+; which no per-activation arena can reclaim - and it is the one that
+; spent longest deferred, because its arithmetic balances while its
+; SAFETY did not.
+;
+; What made it unsafe was never the arithmetic. A value the loop is
+; about to drop reached count 1 only through the entry retain, so the
+; boundary release takes it to 0 and files the block; and if any
+; iteration stashed that value somewhere counting could not see - a
+; `Vec`, an `Intern`, an AST node, anything reached through
+; `memSetWord`'s `cast Int` - the stash became a pointer into a block
+; on a free list that `axiom_alloc` pops before bumping. `memSetWord`
+; and `mkNode` take a share now (`__retainref`, type-directed, so an
+; integer store still emits nothing), which is what makes this event
+; land.
+;
+; Both halves are asserted here, because either one alone is a wrong
+; conclusion:
+;
+;   32  the loop is FLAT. 2000 iterations, each allocating a fresh
+;       32-byte string and dropping the previous one, move the
+;       allocator's bump by 480 bytes. Without the event the same run
+;       reads 224,304 - which is the event's whole value, measured.
+;   16  a parameter STASHED into a Vec survives 300 boundaries: the
+;       element pushed on iteration 5 still reads its own length.
+;    8  and so does the one pushed last.
+;    4  a parameter passed through UNCHANGED is not freed. Retain the
+;       new value before releasing the old and the two cancel; do it
+;       the other way round and this loop frees the string it is
+;       about to keep.
+;    2  an `Int` parameter takes none of this. The classification is
+;       the declared type's, so a `Vec` handle - `Int` in every
+;       signature `stdlib/Vec.ax` has - is never retained and never
+;       released. The accumulator here climbs far past the 4096
+;       immediates guard, so a release of it would be a wild write
+;       rather than a no-op.
+;    1  every step above ran.
+;
+; Ablations, both run 2026-08-15. Remove the event: 31, and the bump
+; grows 224,304 bytes. Keep the event and remove `memSetWord`'s share
+; instead: the loop stays flat and term 16 reads a length of 2 - the
+; stashed header freed, re-issued, and read back as garbage. That
+; second number is the co-ownership blocker itself, and it is why the
+; two halves ship together.
+(import Str)
+(import Vec)
+(import Mem)
+
+(:: b2i (-> Bool Int))
+(fn (b2i x) (if x 1 0))
+
+(:: wide (-> Int String))
+(fn (wide k) (strDup "0123456789abcdef0123456789abcdef"))
+
+; a fresh reference per iteration, dead the moment the next is built
+(:: grind (-> String Int Int))
+(fn (grind s n)
+  (if (<= n 0)
+      (strLen s)
+      (grind (wide n) (- n 1))))
+
+; the same loop, with the parameter stashed where counting could not
+; see it until `memSetWord` began taking a share
+(:: hoard (-> Int String Int Int))
+(fn (hoard v s n)
+  (if (<= n 0)
+      0
+      {
+        (vecPush v s)
+        (hoard v (wide n) (- n 1))
+      }))
+
+; a parameter that never changes: the retain and the release must
+; cancel, not free it
+(:: hold (-> String Int Int))
+(fn (hold s n)
+  (if (<= n 0)
+      (strLen s)
+      (hold s (- n 1))))
+
+; an Int accumulator, climbing well past the immediates guard
+(:: climb (-> Int Int Int))
+(fn (climb acc n)
+  (if (<= n 0)
+      acc
+      (climb (+ acc 1000000) (- n 1))))
+
+(:: main Int)
+(fn (main)
+  (let ((mut acc 0) (mut steps 0))
+    {
+      (let ((b1 (memAlloc 200)))
+        {
+          (grind (wide 0) 2000)
+          (let ((b2 (memAlloc 200)))
+            (set acc (+ acc (* 32 (b2i (< (- b2 b1) 4096))))))
+          (set steps (+ steps 1))
+        })
+      (let ((v vecNew))
+        {
+          (hoard v (wide 0) 300)
+          (set acc (+ acc (* 16 (b2i (== (strLen (vecGet v 5)) 32)))))
+          (set acc (+ acc (* 8 (b2i (== (strLen (vecGet v 299)) 32)))))
+          (set steps (+ steps 1))
+        })
+      (set acc (+ acc (* 4 (b2i (== (hold (wide 0) 1000) 32)))))
+      (set steps (+ steps 1))
+      (set acc (+ acc (* 2 (b2i (== (climb 0 1000) 1000000000)))))
+      (set steps (+ steps 1))
+      (if (== steps 4) (+ acc 1) acc)
+    }))

@@ -1209,6 +1209,8 @@ The standard library is built on these low-level primitives, and so is any code 
 | `(__load8 base i)` / `(__store8 base i v)` | Byte at `base + i` |
 | `(__load64 base i)` / `(__store64 base i v)` | Machine word at `base + i * 8` |
 | `(__alloc bytes)` | Address of `bytes` fresh zeroed bytes |
+| `(__retain h)` / `(__release h)` | Take or hand back a share of the counted block at `h` |
+| `(__retainref v)` | Take a share of `v` **iff `v` is a reference** — decided from the call's type, so an `Int` argument emits nothing. The store that hides a value behind a `cast Int` uses this |
 | `(__addr "literal")` | Address of a string literal's bytes |
 
 Syscall numbers are not built into the compiler — they live in `stdlib/Sys/Platform.<os>[-<arch>].ax`, and the module resolver picks the file matching `--target`.
