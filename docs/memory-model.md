@@ -1077,9 +1077,12 @@ can be implemented, **the implementation MUST be able to tell a pointer
 from an integer**. It cannot today, for two independent reasons, and
 both are prerequisites rather than details:
 
-1. **No runtime discrimination.** A word carries no tag (`MM-VAL-2`) and
-   a heap block no header (`MM-VAL-6`), so a runtime scan cannot
-   identify roots or trace fields.
+1. **No runtime discrimination.** A word carries no tag (`MM-VAL-2`),
+   and — until 2026-08-15 — a heap block no header. `MM-LIFE-2b`'s
+   count/shape header now exists on every allocation path, but the
+   shape word is written by nothing yet (`MM-LIFE-2d`), so a runtime
+   scan still cannot trace fields; roots remain untrackable either
+   way until the ownership events land (`MM-LIFE-2c`).
 2. **No static discrimination.** `String` and `Int` are *unified by
    fiat* in `tyCompat` (`typecheck.ax:180`) — a deliberate compatibility
    rule that makes `Int` the universal heap-handle type. Every `Vec`,
@@ -1219,8 +1222,17 @@ can now quote its price and its progress rather than estimate either.
 Removing the fiat from `tyCompat` produced **2,733** type errors when
 first measured, and **3,882** once `stdlib/Str.ax` declared its own
 string positions — the rise is progress, not regression: more strings
-became visible to the checker. Inference over the tree has since brought
-that to **1,431**, by annotating **604 declarations across 25 files**.
+became visible to the checker. Inference over the tree brought that to
+**1,431** by annotating **604 declarations across 25 files** — and on
+2026-08-14/15 a four-slice campaign took it to **ZERO for the compiler
+and the entire standard library** (`5399acf`..`ba57f65`: constructor
+families first, then eleven parallel per-file judgement passes, then
+the cross-file producers those passes named). The fiat itself is still
+ON: deleting it is a language change whose corpus price is measured at
+**17 of 294 fixtures** (exit-status differential, fiat-on against
+fiat-off builds of the same tree), dominated by `Map`/`Intern`-style
+key positions that want the same type-variable treatment `vecGet`
+already has.
 
 The annotations were derived from **what each body does with the value**,
 not from the diagnostic list. A parameter handed to `strLen` is a string,
@@ -1303,7 +1315,16 @@ Three classes of word are exempt, each by a test that already exists:
   static, which is why `MM-ALLOC-20` is a prerequisite rather than an
   optimisation.
 
-*Today:* no header exists and nothing writes a count. This rule amends
+*Held since 2026-08-15* (`tests/stdlib/350-arc-header.ax`, 19 — the
+count word reads 0 at birth, `__retain`/`__release` move it, a
+release at zero floors rather than forging the statics sentinel, a
+literal's all-ones count is read and never written, and a negative
+immediate is skipped by the signed compare). The header is written on
+BOTH allocation paths — `axiom_alloc` and the arena keep helper,
+which the design review caught as a second path the LSP crosses every
+message. The shape word is emitted zero and read by nothing: the
+allocator is not a shape writer, and `MM-LIFE-2d`'s map writer is
+what will own it. This rule amends
 `MM-VAL-6` by exactly two words of self-description, and no more — a
 block still does not know its own size or type, only its count and
 which of its words are references.

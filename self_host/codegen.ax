@@ -682,11 +682,18 @@
                 ; The `Str` header the literal itself evaluates to, over
                 ; the bytes just emitted. `n` counts the NUL, the length
                 ; word does not.
+                ; MM-LIFE-2b statics: the literal's block is laid out
+                ; under the same header shape, count all-ones - a
+                ; static is never reclaimed and never written, and
+                ; retain/release read the sentinel and stop. The
+                ; circulating address is element 2, so every consumer
+                ; still loads len at +0 and bytes at +8 from the
+                ; handle it holds.
                 (emitLine cg
                   (cat4 (cat3 "@strhdr_" (fmtInt i)
-                              " = private unnamed_addr constant { i64, ptr } { i64 ")
+                              " = private unnamed_addr constant { i64, i64, i64, ptr } { i64 -1, i64 0, i64 ")
                         (cat3 (fmtInt (- n 1)) ", ptr @str_" (fmtInt i))
-                        " }, align 8"
+                        " }, align 16"
                         ""))
                 (emitStringGlobals cg (+ i 1))
               }))))))
@@ -1794,8 +1801,21 @@
     (emitLine cg "")
     (emitLine cg "define i64 @axiom_alloc(i64 %size) #0 {")
     (emitLine cg "entry:")
+    ; A zero-byte request keeps its MM-ALLOC-8b behavior exactly: the
+    ; unadvanced bump, no chunk mapped, no header written - a 0-byte
+    ; block is not a counted block, and 160-arena's waterline probe
+    ; spends that rule.
+    (emitLine cg "  %iszero = icmp eq i64 %size, 0")
+    (emitLine cg "  br i1 %iszero, label %zero, label %sized")
+    (emitLine cg "zero:")
+    (emitLine cg "  %zb = load i64, ptr @__axiom_bump")
+    (emitLine cg "  ret i64 %zb")
+    (emitLine cg "sized:")
     (emitLine cg "  %padded = add i64 %size, 15")
-    (emitLine cg "  %sz = and i64 %padded, -16")
+    (emitLine cg "  %sz0 = and i64 %padded, -16")
+    ; MM-LIFE-2b: the 16-byte count/shape header below every counted
+    ; block - one rounding step, never more.
+    (emitLine cg "  %sz = add i64 %sz0, 16")
     (emitLine cg "  %cur = load i64, ptr @__axiom_bump")
     (emitLine cg "  %next = add i64 %cur, %sz")
     (emitLine cg "  %end = load i64, ptr @__axiom_bump_end")
@@ -1916,7 +1936,14 @@
     (emitLine cg "  %wnext = add i64 %wi, 8")
     (emitLine cg "  br label %wipe")
     (emitLine cg "wiped:")
-    (emitLine cg "  ret i64 %hb")
+    ; The count word, explicitly zero: the scrub or the kernel already
+    ; zeroed it on every path, but the store is the header's one
+    ; self-description and costs nothing. The SHAPE word is left to
+    ; MM-LIFE-2d's map writer - the allocator is not a shape writer.
+    (emitLine cg "  %cwp = inttoptr i64 %hb to ptr")
+    (emitLine cg "  store i64 0, ptr %cwp")
+    (emitLine cg "  %user = add i64 %hb, 16")
+    (emitLine cg "  ret i64 %user")
     (emitLine cg "oom:")
     (emitLine cg (strConcat
                    (cat4 "  call i64 asm sideeffect "
@@ -1925,6 +1952,56 @@
                          (fmtInt (targetExitNum (memGetWord cg 26))))
                    ", i64 70, i64 0, i64 0, i64 0, i64 0, i64 0)"))
     (emitLine cg "  unreachable")
+    (emitLine cg "}")
+    (emitLine cg "")
+    ; MM-LIFE-2b's other two owners of the header. Emitted, exempted,
+    ; and - in this slice - called only by the `__retain`/`__release`
+    ; primitives a fixture spends; the ownership events of MM-LIFE-2c
+    ; are what will make the compiler call them. Three exemptions,
+    ; each by a test that already exists: an immediate is skipped with
+    ; the SAME signed compare a mixed-representation match emits
+    ; (MM-VAL-9's `icmp slt`), a static's all-ones count is read and
+    ; never written, and a count of zero is never decremented -
+    ; 0 - 1 IS the statics sentinel, so an unbalanced release must
+    ; not be able to forge one (the double-release stays a no-op the
+    ; fixture can observe, instead of an immortal block it cannot).
+    (emitLine cg "define void @axiom_retain(i64 %h) #0 {")
+    (emitLine cg "entry:")
+    (emitLine cg "  %imm = icmp slt i64 %h, 4096")
+    (emitLine cg "  br i1 %imm, label %done, label %chk")
+    (emitLine cg "chk:")
+    (emitLine cg "  %hoff = add i64 %h, -16")
+    (emitLine cg "  %cp = inttoptr i64 %hoff to ptr")
+    (emitLine cg "  %c = load i64, ptr %cp")
+    (emitLine cg "  %stat = icmp eq i64 %c, -1")
+    (emitLine cg "  br i1 %stat, label %done, label %bump")
+    (emitLine cg "bump:")
+    (emitLine cg "  %c1 = add i64 %c, 1")
+    (emitLine cg "  store i64 %c1, ptr %cp")
+    (emitLine cg "  br label %done")
+    (emitLine cg "done:")
+    (emitLine cg "  ret void")
+    (emitLine cg "}")
+    (emitLine cg "")
+    (emitLine cg "define void @axiom_release(i64 %h) #0 {")
+    (emitLine cg "entry:")
+    (emitLine cg "  %imm = icmp slt i64 %h, 4096")
+    (emitLine cg "  br i1 %imm, label %done, label %chk")
+    (emitLine cg "chk:")
+    (emitLine cg "  %hoff = add i64 %h, -16")
+    (emitLine cg "  %cp = inttoptr i64 %hoff to ptr")
+    (emitLine cg "  %c = load i64, ptr %cp")
+    (emitLine cg "  %stat = icmp eq i64 %c, -1")
+    (emitLine cg "  br i1 %stat, label %done, label %live")
+    (emitLine cg "live:")
+    (emitLine cg "  %zero = icmp eq i64 %c, 0")
+    (emitLine cg "  br i1 %zero, label %done, label %dec")
+    (emitLine cg "dec:")
+    (emitLine cg "  %c1 = add i64 %c, -1")
+    (emitLine cg "  store i64 %c1, ptr %cp")
+    (emitLine cg "  br label %done")
+    (emitLine cg "done:")
+    (emitLine cg "  ret void")
     (emitLine cg "}")
     (emitLine cg "")
     (emitArenaHelpers cg)
@@ -2158,7 +2235,14 @@
     (emitLine cg "entry:")
     (emitLine cg "  %r = call i64 @__axiom_arena_reset_fn(i64 %cell)")
     (emitLine cg "  %sz0 = add i64 %bytes, 15")
-    (emitLine cg "  %sz = and i64 %sz0, -16")
+    (emitLine cg "  %szr = and i64 %sz0, -16")
+    ; The kept block is a counted block like any other: its 16-byte
+    ; MM-LIFE-2b header travels with it, reserved on BOTH landing
+    ; paths - the review of this slice caught that this helper is a
+    ; SECOND allocation path (the LSP crosses it every message), and
+    ; a header only on axiom_alloc's path would ship a spec-false
+    ; SHALL.
+    (emitLine cg "  %sz = add i64 %szr, 16")
     (emitLine cg "  %bump = load i64, ptr @__axiom_bump")
     (emitLine cg "  %end = load i64, ptr @__axiom_bump_end")
     (emitLine cg "  %stop = add i64 %bump, %sz")
@@ -2202,7 +2286,16 @@
     ; caller asked to keep, and the bytes past `%bytes` up to the
     ; 16-byte rounding are padding no caller can name.
     (emitLine cg "copy:")
-    (emitLine cg "  %dst = phi i64 [ %bump, %inplace ], [ %fdata, %adopt ]")
+    (emitLine cg "  %dstbase = phi i64 [ %bump, %inplace ], [ %fdata, %adopt ]")
+    ; The destination is deliberately unscrubbed, so BOTH header words
+    ; are written here - dirty memory below a restored waterline would
+    ; otherwise read as a count.
+    (emitLine cg "  %dcp = inttoptr i64 %dstbase to ptr")
+    (emitLine cg "  store i64 0, ptr %dcp")
+    (emitLine cg "  %dsh = add i64 %dstbase, 8")
+    (emitLine cg "  %dshp = inttoptr i64 %dsh to ptr")
+    (emitLine cg "  store i64 0, ptr %dshp")
+    (emitLine cg "  %dst = add i64 %dstbase, 16")
     (emitLine cg "  br label %loop")
     (emitLine cg "loop:")
     (emitLine cg "  %i = phi i64 [ 0, %copy ], [ %i2, %loop_body ]")
@@ -4347,6 +4440,8 @@
 (pub :: isPrimName (-> String Bool))
 (pub fn (isPrimName nm)
   (if (strEq nm "__alloc") true
+  (if (strEq nm "__retain") true
+  (if (strEq nm "__release") true
   (if (strEq nm "__load64") true
   (if (strEq nm "__store64") true
   (if (strEq nm "__load8") true
@@ -4371,7 +4466,7 @@
   (if (strEq nm "__streq") true
   (if (strEq nm "__strne") true
   (if (isSyscallName nm) true
-  false)))))))))))))))))
+  false)))))))))))))))))))
 
 ; `__syscall0` through `__syscall6`, distinguished only by how many
 ; arguments follow the syscall number.
@@ -4386,6 +4481,8 @@
   (if (strEq fnName "__floatToInt") (emitPrimFloatToInt args cg)
   (zeroFloat
     (if (strEq fnName "__alloc")   (emitPrimAlloc args cg)
+    (if (strEq fnName "__retain")  (emitPrimRetRel args cg "@axiom_retain")
+    (if (strEq fnName "__release") (emitPrimRetRel args cg "@axiom_release")
     (if (strEq fnName "__load64")  (emitPrimLoad args cg 8)
     (if (strEq fnName "__store64") (emitPrimStore args cg 8)
     (if (strEq fnName "__load8")   (emitPrimLoad args cg 1)
@@ -4398,7 +4495,23 @@
     (if (strEq fnName "__axiom_arena_reset_keeping") (emitPrimArenaResetKeeping args cg)
     (if (strEq fnName "__streq") (emitPrimStrEq args cg 1)
     (if (strEq fnName "__strne") (emitPrimStrEq args cg 0)
-    (emitPrimSyscall args cg))))))))))))))))))
+    (emitPrimSyscall args cg))))))))))))))))))))
+
+; `(__retain h)` / `(__release h)`: one call into the emitted
+; ownership primitive of MM-LIFE-2b. The result is 0 - retain and
+; release are effects on the header, not values - and in this slice
+; the ONLY callers are fixtures: the compiler does not insert
+; ownership events until MM-LIFE-2c.
+(pub :: emitPrimRetRel (-> Int Int String Int))
+(pub fn (emitPrimRetRel args cg sym)
+  (let ((cg1 (emitExpr (vecGet args 0) cg)))
+    (let ((h (strDup (memGetWord cg1 2))))
+      {
+        (emitLine cg1 (cat4 "  call void " sym "(i64 " (cat2 h ")")))
+        (memSetWord cg1 2 "0")
+        (memSetWord cg1 14 0)
+        cg1
+      })))
 
 ; `(__streq a b)` / `(__strne a b)`: one call into `@__axiom_str_eq`,
 ; with `__strne` inverting the answer. `want` is 1 for equality and 0
@@ -5416,10 +5529,14 @@
         (rn (allocReg cg)))
     (let ((r (regStr rn)))
       {
+        ; Element 2 of the headered static (MM-LIFE-2b): the handle
+        ; the program holds points AT the {len, bytes} pair, with the
+        ; count/shape words physically at handle-16 like every heap
+        ; block's.
         (emitLine cg (cat4 (cat2 "  " r)
-                           " = ptrtoint ptr @strhdr_"
+                           " = ptrtoint ptr getelementptr inbounds ({ i64, i64, i64, ptr }, ptr @strhdr_"
                            (fmtInt id)
-                           " to i64"))
+                           ", i64 0, i32 2) to i64"))
         (memSetWord cg 2 r)
         (memSetWord cg 14 0)
         cg

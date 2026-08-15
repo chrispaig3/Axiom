@@ -464,10 +464,12 @@ call its methods - see docs/self-hosting.md 22.
 AX3026 - a name the emitted runtime owns
 
 A compiled Axiom program contains its own runtime - the allocator, the
-traps, the arena primitives - emitted into the module it is built
-from, and `axiom_alloc` is the allocator's symbol. The backend emits
-its definition unconditionally, so a program defining the same name
-is two definitions of one symbol.
+traps, the arena primitives, and since 2026-08-15 the reference-count
+primitives - emitted into the module it is built from. `axiom_alloc`
+is the allocator's symbol, and `axiom_retain`/`axiom_release` are the
+ownership primitives' (docs/memory-model.md MM-LIFE-2b). The backend
+emits all three definitions unconditionally, so a program defining
+any of the names is two definitions of one symbol.
 
 Before this refusal that program passed `check` and died in `opt`
 with `invalid redefinition of function 'axiom_alloc'` - the

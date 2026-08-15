@@ -617,18 +617,35 @@
           ; The FN only: the DEFINITION is what emits the colliding
           ; symbol. A signature alone emits nothing (and draws
           ; AX3015), and refusing both would report one collision
-          ; twice.
-          (if (&& (== (nodeTag d) TAG_D_FN)
-                  (strEq (nodeA d) "axiom_alloc"))
-              (vecPush out
-                (diagSetLabel
-                  (mkDiagNote SEV_ERROR "AX3026" "reserved-runtime-name"
-                    (nodeSpan d)
-                    "`axiom_alloc` is the emitted runtime's allocator symbol; a program cannot define it"
-                    0 0
-                    "rename the function - the override seam does not exist (docs/memory-model.md MM-ALLOC-8)"
-                    "the backend emits its own definition of `axiom_alloc` unconditionally; before this refusal the build died in `opt` as a duplicate symbol after `check` said OK")
-                  "this name belongs to the runtime"))
+          ; twice. The set grew from one name to three when the
+          ; MM-LIFE-2b ownership primitives joined the emitted
+          ; runtime; each name carries its own message, because
+          ; "reserved" is only half the fact - WHAT the runtime does
+          ; with the name is the half a reader can act on.
+          (if (== (nodeTag d) TAG_D_FN)
+              (if (strEq (nodeA d) "axiom_alloc")
+                  (vecPush out
+                    (diagSetLabel
+                      (mkDiagNote SEV_ERROR "AX3026" "reserved-runtime-name"
+                        (nodeSpan d)
+                        "`axiom_alloc` is the emitted runtime's allocator symbol; a program cannot define it"
+                        0 0
+                        "rename the function - the override seam does not exist (docs/memory-model.md MM-ALLOC-8)"
+                        "the backend emits its own definition of `axiom_alloc` unconditionally; before this refusal the build died in `opt` as a duplicate symbol after `check` said OK")
+                      "this name belongs to the runtime"))
+              (if (|| (strEq (nodeA d) "axiom_retain")
+                      (strEq (nodeA d) "axiom_release"))
+                  (vecPush out
+                    (diagSetLabel
+                      (mkDiagNote SEV_ERROR "AX3026" "reserved-runtime-name"
+                        (nodeSpan d)
+                        (strConcat (strConcat "`" (nodeA d))
+                                   "` is the emitted runtime's ownership primitive; a program cannot define it")
+                        0 0
+                        "rename the function - retain and release belong to the reference-counting runtime (docs/memory-model.md MM-LIFE-2b)"
+                        "the backend emits its own definition unconditionally, exactly as it does `axiom_alloc`'s")
+                      "this name belongs to the runtime"))
+                  0))
               0)
           (checkReservedNames decls out (+ i 1))
         })))
@@ -1079,6 +1096,8 @@
       (regFn fns "__load64" (mkIntArrow 2))
       (regFn fns "__store64" (mkIntArrow 3))
       (regFn fns "__alloc" (mkIntArrow 1))
+      (regFn fns "__retain" (mkIntArrow 1))
+      (regFn fns "__release" (mkIntArrow 1))
       (regFn fns "__argc" (mkIntArrow 0))
       (regFn fns "__argv" (mkIntArrow 1))
       (regFn fns "__axiom_arena_mark" (mkIntArrow 0))

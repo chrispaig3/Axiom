@@ -140,13 +140,17 @@ go anywhere a `Str` from the standard library can:
 (strSlice "abcdef" 2 3)             ; "cde"
 ```
 
-The compiler emits two globals per literal — the bytes, and a two-word
-header over them holding the length and the byte address, which is
-exactly the layout `Str.strWrap` builds:
+The compiler emits two globals per literal — the bytes, and a header
+whose last two words hold the length and the byte address, exactly the
+layout `Str.strWrap` builds. The first two words are the MM-LIFE-2b
+count/shape header every heap block carries, with the count all-ones:
+a static is never reclaimed, and the runtime's retain/release read the
+sentinel and leave it untouched. The literal's value points at the
+{length, bytes} pair, so every consumer loads at +0/+8 as before:
 
 ```llvm
 @str_0    = private unnamed_addr constant [14 x i8] c"Hello, Axiom!\00"
-@strhdr_0 = private unnamed_addr constant { i64, ptr } { i64 13, ptr @str_0 }
+@strhdr_0 = private unnamed_addr constant { i64, i64, i64, ptr } { i64 -1, i64 0, i64 13, ptr @str_0 }
 ```
 
 The literal evaluates to the header's address. Its **length is computed

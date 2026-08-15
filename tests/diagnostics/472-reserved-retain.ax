@@ -1,0 +1,13 @@
+; The ownership primitives joined the emitted runtime with the
+; MM-LIFE-2b header (2026-08-15), and their names joined the reserved
+; set the same commit - the axiom_alloc precedent: the backend emits
+; its own definitions unconditionally, so a program defining either
+; is two definitions of one symbol, refused here instead of dying in
+; `opt`.
+(fn (axiom_retain h) 0)
+
+(fn (axiom_release h) 0)
+
+(:: main Int)
+
+(fn (main) 0)

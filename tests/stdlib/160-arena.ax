@@ -50,7 +50,7 @@
         (afterAlloc (memAlloc 0)))
     {
       (printlnInt (if (> afterAlloc a) 1 0))   ; 1: allocation advances the waterline
-      (printlnInt (- b a))                     ; 64: blocks are contiguous
+      (printlnInt (- b a))                     ; 80: contiguous, 64 + the 16-byte MM-LIFE-2b header
 
       ; --- reset reclaims, and the next allocation reuses the space ---
       (__axiom_arena_reset m)

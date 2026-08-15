@@ -1,0 +1,21 @@
+[1;31merror[AX3026][0m[1m: `axiom_retain` is the emitted runtime's ownership primitive; a program cannot define it[0m
+ [1;34m--> [0m472-reserved-retain.ax:7:6
+[1;34m  |[0m
+[1;34m7 |[0m (fn (axiom_retain h) 0)
+[1;34m  |[0m      [1;31m^^^^^^^^^^^^ this name belongs to the runtime[0m
+[1;34m  |[0m
+ [1;34m = [0m[1mnote: [0mthe backend emits its own definition unconditionally, exactly as it does `axiom_alloc`'s
+ [1;34m = [0m[1;32mhelp: [0mrename the function - retain and release belong to the reference-counting runtime (docs/memory-model.md MM-LIFE-2b)
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3026` for a full explanation
+
+[1;31merror[AX3026][0m[1m: `axiom_release` is the emitted runtime's ownership primitive; a program cannot define it[0m
+ [1;34m--> [0m472-reserved-retain.ax:9:6
+[1;34m  |[0m
+[1;34m9 |[0m (fn (axiom_release h) 0)
+[1;34m  |[0m      [1;31m^^^^^^^^^^^^^ this name belongs to the runtime[0m
+[1;34m  |[0m
+ [1;34m = [0m[1mnote: [0mthe backend emits its own definition unconditionally, exactly as it does `axiom_alloc`'s
+ [1;34m = [0m[1;32mhelp: [0mrename the function - retain and release belong to the reference-counting runtime (docs/memory-model.md MM-LIFE-2b)
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3026` for a full explanation
+
+compilation failed due to 2 previous errors

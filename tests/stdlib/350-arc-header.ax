@@ -1,0 +1,37 @@
+; exit 19 (see .exit)
+; MM-LIFE-2b, mechanics only - the assertions here are chosen to
+; SURVIVE the ownership events (2c) and the reference maps (2d), so
+; this fixture pins the header's existence and the primitives'
+; exemptions, not any birth-count convention:
+;
+;   27 x 0   a fresh block's count word reads 0 at handle-16
+;    9 x 2   two __retain calls read back as 2
+;    3 x 0   three __release calls FLOOR at zero - 0 - 1 is the
+;            statics sentinel, and an unbalanced release must not be
+;            able to forge one (the double-release is a no-op this
+;            fixture can observe, not an immortal block it cannot)
+;    1 x 1   a string literal's count reads the all-ones sentinel,
+;            and the __retain before the read left it untouched - a
+;            static is never written, even by the machinery
+;   no fault: __retain of a negative immediate is skipped by the
+;            SAME signed compare a mixed-representation match emits
+;
+; The unfixed compiler has no __retain primitive - this fixture is
+; AX3001 there, exit 1.
+(:: main Int)
+(fn (main)
+  (let ((h (__alloc 24)) (lit "hello") (mut acc 0))
+    {
+      (set acc (+ acc (* 27 (__load64 (- h 16) 0))))
+      (__retain h)
+      (__retain h)
+      (set acc (+ acc (* 9 (__load64 (- h 16) 0))))
+      (__release h)
+      (__release h)
+      (__release h)
+      (set acc (+ acc (* 3 (__load64 (- h 16) 0))))
+      (__retain (cast Int lit))
+      (set acc (+ acc (if (== (__load64 (- (cast Int lit) 16) 0) (- 0 1)) 1 0)))
+      (__retain (- 0 7))
+      acc
+    }))

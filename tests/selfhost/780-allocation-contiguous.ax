@@ -21,4 +21,8 @@
 (fn (main)
   (let ((a (memAlloc 64))
         (b (memAlloc 64)))
-    (if (== (- b a) 64) 42 1)))
+    ; 80 = the request rounded to 64 plus MM-LIFE-2b's 16-byte
+    ; header; the CONSTANT is incidental - this fixture pins that a
+    ; second allocation cannot clobber the first, and any fixed
+    ; spacing proves it.
+    (if (== (- b a) 80) 42 1)))
