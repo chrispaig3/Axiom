@@ -251,9 +251,12 @@ module.exports = grammar({
     ),
 
     // `(data Name (tyvars...) (Ctor field...)...)`
+    // The name may also be `(syntax/join a b)`, since `data` became a
+    // declaration-macro template kind (MAC-CAP-7/8): a generated type
+    // is named the same way a generated function is.
     data_declaration: $ => seq(
       '(', optional(field('visibility', 'pub')), 'data',
-      field('name', $.identifier),
+      field('name', choice($.identifier, $.syntax_join_name)),
       optional(field('type_parameters', $._data_type_parameters)),
       repeat(field('constructor', $.data_constructor)),
       ')',
@@ -301,9 +304,13 @@ module.exports = grammar({
     // `(Just a)` or `(Circle { r : Int })`. The braced form is a struct
     // variant: fields are named, and a pattern may then bind them by
     // name and in any order.
+    // A constructor's name is a NAME POSITION too, so a template may
+    // spell it `(syntax/join Off N)` - which is what lets two
+    // invocations of one macro generate two distinct types rather
+    // than colliding on a fixed constructor name.
     data_constructor: $ => seq(
       '(',
-      field('name', $.constructor_identifier),
+      field('name', choice($.constructor_identifier, $.syntax_join_name)),
       choice(
         repeat(field('field', $._type)),
         seq('{', repeat(seq(field('field', $.named_field), optional(','))), '}'),
@@ -353,7 +360,7 @@ module.exports = grammar({
     // compile, and C layout means nothing in a language that links no C.
     struct_declaration: $ => seq(
       '(', optional(field('visibility', 'pub')), 'struct',
-      field('name', $.identifier),
+      field('name', choice($.identifier, $.syntax_join_name)),
       optional(field('type_parameters', $.type_parameters)),
       repeat(field('field', $.field_declaration)),
       ')',

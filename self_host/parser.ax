@@ -1669,7 +1669,12 @@
 ; ------------------------------------------------------------------
 (pub :: parseDataDecl (-> Int Int Int))
 (pub fn (parseDataDecl tokens pos)
-  (let ((nr (parseIdentName tokens pos)))
+  ; `parseDeclName`, not `parseIdentName`: a `data` template may name
+  ; its type with `(syntax/join Box T)`, exactly as a `fn` template
+  ; names its function. Outside a macro template the marker reaches
+  ; `expCheckDeclNames` and is refused there (AX3028), which is the
+  ; same route the fn and sig spellings take.
+  (let ((nr (parseDeclName tokens pos)))
     (if (== (memGetWord nr 0) 0) nr
         (let ((name (memGetWord nr 1))
               (nextPos (memGetWord nr 2)))
@@ -1694,7 +1699,15 @@
         (if (peekIs tokens inPos TK_RPAREN)
             (advance inPos)
             (if (peekIs tokens inPos TK_IDENT)
-                (if (identStartsUpper tokens inPos)
+                ; A type-parameter list is a parenthesised run of
+                ; LOWERCASE names, and `syntax/join` is lowercase - so
+                ; a constructor named `((syntax/join Mk N) ...)` read
+                ; as one and collected `syntax/join`, `Mk` and `N` as
+                ; three type variables. The prefix is reserved
+                ; (MAC-CAP-6), so declining it here costs nothing and
+                ; is the same test the other positions make.
+                (if (|| (identStartsUpper tokens inPos)
+                        (strStartsWith (tokenLexeme (vecGet tokens inPos)) "syntax/"))
                     pos
                     (let ((r (skipParens tokens inPos 1)))
                       (if (== (memGetWord r 0) 0)
@@ -1735,7 +1748,10 @@
         (if (peekIs tokens inPos TK_RPAREN)
             (advance inPos)
             (if (peekIs tokens inPos TK_IDENT)
-                (if (identStartsUpper tokens inPos)
+                ; position-identical to collectTyParams, including
+                ; the reserved-prefix decline
+                (if (|| (identStartsUpper tokens inPos)
+                        (strStartsWith (tokenLexeme (vecGet tokens inPos)) "syntax/"))
                     pos
                     (let ((r (skipParens tokens inPos 1)))
                       (if (== (memGetWord r 0) 0)
@@ -1794,7 +1810,7 @@
 
 (pub :: parseOneCtorInner (-> Int Int Int))
 (pub fn (parseOneCtorInner tokens pos)
-  (let ((nr (parseIdentName tokens pos)))
+  (let ((nr (parseDeclName tokens pos)))
     (if (== (memGetWord nr 0) 0) nr
         (let ((ctorName (memGetWord nr 1))
               (nextPos (memGetWord nr 2)))
@@ -1904,7 +1920,7 @@
 ; ------------------------------------------------------------------
 (pub :: parseStructDecl (-> Int Int Int))
 (pub fn (parseStructDecl tokens pos)
-  (let ((nr (parseIdentName tokens pos)))
+  (let ((nr (parseDeclName tokens pos)))
     (if (== (memGetWord nr 0) 0) nr
         (let ((name (memGetWord nr 1))
               (nextPos (memGetWord nr 2)))

@@ -1,0 +1,35 @@
+; `data` and `struct` became template kinds; the rest did not, and the
+; reserved prefix followed them into the type namespace. Four AX
+; refusals, each at the place the reader can act on:
+;
+;   badAlias   a `type` template - still AX3021 at the MACRO's own
+;              line, before any invocation exists, because a
+;              template kind is a property of the macro
+;   badImport  an `import` template - refused by DECISION rather than
+;              by schedule: an import inside a template reopens
+;              resolution ordering, which has already run when phase
+;              D starts
+;   the data   a `(syntax/join ...)` type name written OUTSIDE a
+;              macro - AX3028, the same reservation a `fn` name gets,
+;              now that a data name is parsed by the same function
+;   the ctor   and the same for a constructor name
+;
+; The last two could not be written at all before this commit: the
+; parser demanded a bare identifier in both positions, so the
+; near-miss died as a syntax error naming the paren instead of the
+; rule.
+(macro badAlias ((badAlias T)
+   (type T = Int)))
+
+(macro badImport ((badImport T)
+   (import Str)))
+
+(data (syntax/join Loose Ends)
+  (Only))
+
+(data Astray
+  ((syntax/join Wander Off)))
+
+(:: main Int)
+
+(fn (main) 0)

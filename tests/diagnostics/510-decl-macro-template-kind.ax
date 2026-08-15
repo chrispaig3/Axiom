@@ -1,11 +1,22 @@
-; A declaration template generating a `data` declaration - not part
-; of the v1 surface, and refused AT THE MACRO'S OWN LINE, before any
-; invocation exists: the loud-at-definition shape, and the reachable
-; producer AX3021 was promised when its default-arm-refuses rule was
-; written (macro-system.md MAC-CAP-2 - "the ninth form refuses in the
-; commit that adds it").
-(macro defData ((defData nm)
-   (data nm () (Mk Int))))
+; A declaration template generating a form outside the template
+; surface - refused AT THE MACRO'S OWN LINE, before any invocation
+; exists: the loud-at-definition shape, and the reachable producer
+; AX3021 was promised when its default-arm-refuses rule was written
+; (macro-system.md MAC-CAP-2 - "the ninth form refuses in the commit
+; that adds it").
+;
+; This fixture used a `data` template until 2026-08-15, when `data`
+; and `struct` became template kinds and it stopped producing a
+; diagnostic at all - a golden going silent because the language grew
+; under it, which the JSON derivation caught rather than the eye. A
+; `type` alias is the refusal now, and the reason it is one is
+; scheduling rather than decision: the surface grows by measured
+; commits, not by default. (`trait` was tried here first and does not
+; reach AX3021 at all - a trait declaration inside a template is
+; AX2003 at the parser, which is a different fact about a different
+; layer.)
+(macro defAlias ((defAlias nm)
+   (type nm = Int)))
 
 (:: main Int)
 

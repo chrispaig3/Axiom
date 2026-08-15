@@ -381,6 +381,16 @@ produced code referring to names that existed only inside the macro.
 Rewrite the template without the form, or add a case for it to
 `substTpl` in `self_host/expand.ax`.
 
+A DECLARATION template has the same code with a fixed list: it may
+generate `fn`, `::`, `data`, `struct` and `impl` declarations,
+further macro invocations, and a `syntax/for` over them. `type`,
+`trait`, `effect` and `import` refuse, at the MACRO's own line rather
+than at an invocation, because a template kind is a property of the
+macro. Two of those four are refusals by decision rather than by
+schedule: an `import` inside a template would reopen module
+resolution, which has already run when declaration expansion starts,
+and a nested `macro` would reopen the fixpoint that expands it.
+
 ### explain AX3022
 AX3022 - a macro parameter used as a `set` target was given an expression
 

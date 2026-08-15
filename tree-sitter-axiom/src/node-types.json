@@ -497,6 +497,10 @@
           {
             "type": "constructor_identifier",
             "named": true
+          },
+          {
+            "type": "syntax_join_name",
+            "named": true
           }
         ]
       }
@@ -522,6 +526,10 @@
         "types": [
           {
             "type": "identifier",
+            "named": true
+          },
+          {
+            "type": "syntax_join_name",
             "named": true
           }
         ]
@@ -1573,6 +1581,10 @@
         "types": [
           {
             "type": "identifier",
+            "named": true
+          },
+          {
+            "type": "syntax_join_name",
             "named": true
           }
         ]

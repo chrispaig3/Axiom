@@ -2474,19 +2474,21 @@
 (pub :: expCheckTplKind (-> Int Int Int Int))
 (pub fn (expCheckTplKind mac t env)
   (if (|| (== (nodeTag t) TAG_D_FN)
-          (|| (== (nodeTag t) TAG_D_SIG)
-              (|| (== (nodeTag t) TAG_D_MACROCALL)
-                  (== (nodeTag t) TAG_D_IMPL))))
+      (|| (== (nodeTag t) TAG_D_SIG)
+      (|| (== (nodeTag t) TAG_D_MACROCALL)
+      (|| (== (nodeTag t) TAG_D_DATA)
+      (|| (== (nodeTag t) TAG_D_STRUCT)
+          (== (nodeTag t) TAG_D_IMPL))))))
       0
       (if (== (nodeTag t) TAG_D_SYNFOR)
           (expCheckTplKindVec mac (nodeC t) env 0)
           (expEmit env (expMarkUnit env (mkDiagNote SEV_ERROR "AX3021" "macro-template-unsupported"
             (if (== (nodeSpan t) 0) (nodeSpan mac) (nodeSpan t))
             (strConcat (strConcat "macro `" (nodeA mac))
-                       "`'s template may generate `fn`, `::` and `impl` declarations, further macro invocations, or a syntax/for over them - this form is not supported yet")
+                       "`'s template may generate `fn`, `::`, `data`, `struct` and `impl` declarations, further macro invocations, or a syntax/for over them - this form is not supported yet")
             0 0
             "generate the declaration by hand, or split it out of the template"
-            "data, struct, trait, effect and import templates refuse here, at the macro's own line, rather than passing through silently (MAC-CAP-2)")
+            "type, trait, effect and import templates refuse here, at the macro's own line, rather than passing through silently (MAC-CAP-2). An import inside a template would reopen resolution ordering and a nested macro the phase-D fixpoint, which is why those two are refusals by decision rather than by schedule")
             (nodeModule mac))))))
 
 (pub :: expCheckTplKindVec (-> Int Int Int Int Int))
@@ -2528,20 +2530,53 @@
                   (memSetWord d 0 TAG_NIL)
                   0
                 }
+            ; `data` and `struct` joined this list when their
+            ; templates landed: their names go through `parseDeclName`
+            ; now, so a marker can reach the declaration list from
+            ; outside a macro exactly as a fn's could, and the
+            ; constructors of a `data` are checked with it.
             (if (|| (== tag TAG_D_FN)
-                    (|| (== tag TAG_D_SIG) (== tag TAG_D_MACRO)))
-                (if (strStartsWith (nodeA d) "syntax/")
-                    (expQueryErr env (nodeSpan d)
-                      (if (== (expIsJoinMarker (nodeA d)) 1)
-                          "a `(syntax/join ...)` name stands in a declaration macro's template, not in ordinary code"
-                          (strConcat (strConcat "`" (nodeA d))
-                                     "` declares a name in the reserved `syntax/` prefix"))
-                      "the syntax/ spellings belong to the query vocabulary (macro-system.md MAC-CAP-5/6); pick another name, or move the declaration into a macro template"
-                      (nodeModule d))
-                    0)
+                (|| (== tag TAG_D_SIG)
+                (|| (== tag TAG_D_MACRO)
+                (|| (== tag TAG_D_DATA) (== tag TAG_D_STRUCT)))))
+                {
+                  (if (strStartsWith (nodeA d) "syntax/")
+                      (expQueryErr env (nodeSpan d)
+                        (if (== (expIsJoinMarker (nodeA d)) 1)
+                            "a `(syntax/join ...)` name stands in a declaration macro's template, not in ordinary code"
+                            (strConcat (strConcat "`" (nodeA d))
+                                       "` declares a name in the reserved `syntax/` prefix"))
+                        "the syntax/ spellings belong to the query vocabulary (macro-system.md MAC-CAP-5/6); pick another name, or move the declaration into a macro template"
+                        (nodeModule d))
+                      0)
+                  (if (== tag TAG_D_DATA)
+                      (expCheckCtorNames (nodeB d) d env 0)
+                      0)
+                }
                 0)))
           (expCheckDeclNames decls env (+ i 1))
         })))
+
+; A `data`'s constructor names go through the same reserved-prefix
+; test its type name does - `((syntax/join Mk N) Int)` is a legal
+; constructor spelling inside a template and nowhere else.
+(pub :: expCheckCtorNames (-> Int Int Int Int Int))
+(pub fn (expCheckCtorNames cs d env i)
+  (if (>= i (vecLen cs))
+      0
+      {
+        (let ((c (vecGet cs i)))
+          (if (strStartsWith (nodeA c) "syntax/")
+              (expQueryErr env (if (== (nodeSpan c) 0) (nodeSpan d) (nodeSpan c))
+                (if (== (expIsJoinMarker (nodeA c)) 1)
+                    "a `(syntax/join ...)` constructor name stands in a declaration macro's template, not in ordinary code"
+                    (strConcat (strConcat "`" (nodeA c))
+                               "` declares a constructor in the reserved `syntax/` prefix"))
+                "the syntax/ spellings belong to the query vocabulary (macro-system.md MAC-CAP-5/6); pick another name, or move the declaration into a macro template"
+                (nodeModule d))
+              0))
+        (expCheckCtorNames cs d env (+ i 1))
+      }))
 
 (pub :: expCheckDupParams (-> Int Int Int Int))
 (pub fn (expCheckDupParams mac env i)
@@ -3018,6 +3053,45 @@
                               (memSetWord g 5 1)
                               g
                             })))))))
+    (if (== tag TAG_D_DATA)
+        ; A `data` template (MAC-CAP-7: a macro that generates TYPE
+        ; declarations). The type's name and each constructor's name
+        ; are name positions; each field type is a type position; the
+        ; per-field float flags are RECOMPUTED from the substituted
+        ; types, which is MAC-EXP-17's rule applied one level down
+        ; from a signature. The type-PARAMETER list is copied
+        ; verbatim: a parameter standing for a type variable would be
+        ; a binder a macro introduces into the type namespace, and
+        ; nothing in MAC-HYG-* renames those yet.
+        (let ((nsp (expNameSpan (nodeA t) params args isp))
+              (nm (expSubstName (nodeA t) params args env isp)))
+          (if (== (cast Int nm) 0)
+              0
+              (let ((cs (expBuildCtors (nodeB t) params args env isp)))
+                (if (== cs 0)
+                    0
+                    (let ((g (mkNodeAt TAG_D_DATA nm cs 0 nsp)))
+                      {
+                        (memSetWord g 5 1)
+                        (setNodeTy g (nodeTy t))
+                        g
+                      })))))
+    (if (== tag TAG_D_STRUCT)
+        ; A `struct` template. Field NAMES are name positions like
+        ; everything else, so `(syntax/for (f (syntax/fields S)) ...)`
+        ; can build one struct out of another's fields.
+        (let ((nsp (expNameSpan (nodeA t) params args isp))
+              (nm (expSubstName (nodeA t) params args env isp)))
+          (if (== (cast Int nm) 0)
+              0
+              (let ((fs (expBuildStructFields (nodeB t) params args env isp)))
+                (if (== fs 0)
+                    0
+                    (let ((g (mkNodeAt TAG_D_STRUCT nm fs 0 nsp)))
+                      {
+                        (memSetWord g 5 1)
+                        g
+                      })))))
     (if (== tag TAG_D_MACROCALL)
         (let ((hd (expSubstName (nodeA t) params args env isp)))
           (if (== (cast Int hd) 0)
@@ -3027,12 +3101,85 @@
         {
           (expEmit env (mkDiagNote SEV_ERROR "AX3021" "macro-template-unsupported"
             isp
-            "a declaration template may generate `fn` and `::` declarations, or further macro invocations - this form is not supported yet"
+            "a declaration template may generate `fn`, `::`, `data`, `struct` and `impl` declarations, or further macro invocations - this form is not supported yet"
             0 0
             "generate the declaration by hand, or extend the template surface"
-            "data, struct, trait, effect and import templates are refusals rather than silent passthroughs, so the commit that adds one adds it loudly (MAC-CAP-2)"))
+            "type, trait, effect and import templates are refusals rather than silent passthroughs, so the commit that adds one adds it loudly (MAC-CAP-2)"))
           0
-        }))))))
+        }))))))))
+
+; Each constructor of a `data` template: name substituted, field
+; types substituted, arity and float flags recomputed from what came
+; out. A struct-variant's field names (word 9) ride along unchanged -
+; they are already identifiers, and nothing in the substitution can
+; reach them.
+(pub :: expBuildCtors (-> Int Int Int Int Int Int))
+(pub fn (expBuildCtors cs params args env isp)
+  (expBuildCtorsIn cs params args env isp vecNew 0))
+
+(pub :: expBuildCtorsIn (-> Int Int Int Int Int Int Int Int))
+(pub fn (expBuildCtorsIn cs params args env isp acc i)
+  (if (>= i (vecLen cs))
+      acc
+      (let ((c (vecGet cs i)))
+        (let ((cn (expSubstName (nodeA c) params args env isp)))
+          (if (== (cast Int cn) 0)
+              0
+              (let ((ftys (if (== (nodeTy c) 0)
+                              vecNew
+                              (expSubstTyVec (nodeTy c) params args env isp))))
+                ; `expNameSpan`, not the template constructor's own
+                ; span: a name that came from a join has NO source
+                ; spelling, and pointing at the template's `(` made
+                ; `symbols` claim bytes that spell something else -
+                ; caught by the AXSYM position sweep, which is the
+                ; check that cannot be satisfied by re-blessing
+                ; anything. Positionless is the honest answer, and
+                ; the same one a generated `fn` gives.
+                (let ((g (mkNodeAt TAG_CTOR cn (vecLen ftys)
+                                   (expCtorFlags ftys)
+                                   (expNameSpan (nodeA c) params args 0))))
+                  {
+                    (setNodeTy g ftys)
+                    (memSetWord g 9 (memGetWord c 9))
+                    (expBuildCtorsIn cs params args env isp (vecPush acc g) (+ i 1))
+                  })))))))
+
+; One float flag per field, from the SUBSTITUTED type - the same
+; recomputation `expSigFlags` does per arrow, and for the same reason:
+; a type rewritten without its flags prints 0.00 at exit 0.
+(pub :: expCtorFlags (-> Int Int))
+(pub fn (expCtorFlags ftys)
+  (let ((acc vecNew) (mut i 0))
+    {
+      (while (< i (vecLen ftys))
+        {
+          (vecPush acc (expTyIsFloatCon (vecGet ftys i)))
+          (set i (+ i 1))
+        })
+      acc
+    }))
+
+(pub :: expBuildStructFields (-> Int Int Int Int Int Int))
+(pub fn (expBuildStructFields fs params args env isp)
+  (expBuildStructFieldsIn fs params args env isp vecNew 0))
+
+(pub :: expBuildStructFieldsIn (-> Int Int Int Int Int Int Int Int))
+(pub fn (expBuildStructFieldsIn fs params args env isp acc i)
+  (if (>= i (vecLen fs))
+      acc
+      (let ((f (vecGet fs i)))
+        (let ((fn0 (expSubstName (nodeA f) params args env isp)))
+          (if (== (cast Int fn0) 0)
+              0
+              (let ((ty (expSubstTy (nodeB f) params args env isp)))
+                (expBuildStructFieldsIn fs params args env isp
+                  ; same rule as a generated constructor's name: a
+                  ; substituted field name records the argument's own
+                  ; span, and a literal or joined one records none
+                  (vecPush acc (mkNodeAt TAG_FIELD fn0 ty 0
+                                         (expNameSpan (nodeA f) params args 0)))
+                  (+ i 1))))))))
 
 ; Each impl method is a TAG_FIELD (name, expression): the name
 ; substitutes like any name position - a parameterised method name is

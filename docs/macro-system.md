@@ -994,13 +994,21 @@ the back door, which `MAC-LANG-13` forbids.
 
 ### 4.4 Type-level macros
 
-**MAC-CAP-7 (P).** "Type-level macro" in Axiom means **a macro that
+**MAC-CAP-7 (H, 2026-08-15).** "Type-level macro" in Axiom means **a macro that
 generates type and instance declarations**, keyed on declared types via
 `MAC-CAP-5`. It does **not** mean type-level computation, and cannot:
 Axiom's type system has parametric polymorphism, aliases and traits, and
 no type-level functions, no higher-kinded abstraction over them, and no
 dependency of types on values. A macro cannot inspect an *inferred*
 type at all, because expansion precedes inference (`MAC-EXP-1`).
+
+It **holds** since 2026-08-15, when `data` and `struct` joined
+`MAC-CAP-8`'s template surface beside `impl`: the three declaration
+kinds this rule is about are all generable now, and
+`tests/selfhost/381-macro-type-templates.ax` derives equality over a
+type a macro invented. What the rule denies is unchanged and is the
+half worth reading — the sentences below are what "type-level" does
+*not* buy here.
 
 The measured position is stronger than "no type-level functions": the
 type grammar is purely structural — pointer, `linear`, keyword, type
@@ -1039,14 +1047,32 @@ The v1 surface, all of it measured
 (`tests/selfhost/372-decl-macro.ax` = 144,
 `tests/selfhost/373-decl-macro-types.ax` = 10):
 
-- **Templates generate `fn`, `::` and `impl` declarations, further
-  macro invocations** (resolved by the next fixpoint round), **and
-  `syntax/for` iterations over them** (`impl` and the iteration form
-  joined later the same day). Any other declaration kind in a
-  template — `data`, `struct`, `trait`, `effect`, `import` — is
+- **Templates generate `fn`, `::`, `data`, `struct` and `impl`
+  declarations, further macro invocations** (resolved by the next
+  fixpoint round), **and `syntax/for` iterations over them** (`impl`
+  and the iteration form joined later the same day; `data` and
+  `struct` on 2026-08-15, which is what makes `MAC-CAP-7` real —
+  `tests/selfhost/381-macro-type-templates.ax`, 32). A constructor's
+  name is a name position like any other, so `(syntax/join Off N)`
+  names one, and two invocations of one macro therefore generate two
+  distinct types. A generated type is queryable in the **same** phase-D
+  round that generated it: `(deriveEq Mode)` reads
+  `syntax/constructors` off a `data` that `(defFlag Mode)` appended
+  moments earlier, because generated declarations join the merged
+  list the queries read.
+
+  The remaining kinds — `type`, `trait`, `effect`, `import` — are
   `AX3021` **at the macro's own line**, before any invocation exists
   (`MAC-SAFE-4`'s loud-at-definition shape;
-  `tests/diagnostics/510-decl-macro-template-kind.ax`).
+  `tests/diagnostics/510-decl-macro-template-kind.ax`,
+  `565-macro-type-template-limits.ax`). Two of the four are refusals
+  by **decision** rather than by schedule, and this specification says
+  so rather than leaving them on a list: an `import` inside a template
+  would reopen module resolution, which has already run when phase D
+  starts, and a nested `macro` would reopen the fixpoint that is
+  expanding it. A `trait` template does not even reach `AX3021` — a
+  trait declaration inside a template is `AX2003` at the parser, which
+  is a fact about a different layer.
 - **A parameter substitutes in name position, type position and
   expression position.** A name position — a generated declaration's
   head, a fn's parameter list, a nested invocation's head — requires
@@ -1676,7 +1702,7 @@ nicety: without an expansion backtrace, the author of `(machine Door
 | Language | LANG-1…12, LANG-14 (one rule — the declaration form) | LANG-14 (multi-rule), LANG-15…18 | LANG-13 |
 | Expansion | EXP-1…15, EXP-16/17 (v1 — entry-file invocation, `fn`/`::`/invocation templates) | EXP-16 (module-side invocation) | — |
 | Hygiene | HYG-1…7 | HYG-8, HYG-9 | — |
-| Capabilities | CAP-1…3, CAP-6, CAP-8 (v1: `fn`/`::`/`impl`/invocation/iteration templates), CAP-9 (the deriving clause refuses) | CAP-4, 7 | CAP-5 (replacement landed, and the table is now COMPLETE: join — in name, reference and argument position — constructors, fields, same, for, binders, fold, name, arity, defined) |
+| Capabilities | CAP-1…3, CAP-6, CAP-7, CAP-8 (`fn`/`::`/`data`/`struct`/`impl`/invocation/iteration templates), CAP-9 (the deriving clause refuses) | CAP-4 | CAP-5 (replacement landed, and the table is now COMPLETE: join — in name, reference and argument position — constructors, fields, same, for, binders, fold, name, arity, defined) |
 | Safety | SAFE-1…4 | — | SAFE-5 |
 | Integration | INT-1…3, INT-5 | INT-4, INT-6 | — |
 | Diagnostics | DIAG-1…4 | DIAG-5 | — |
@@ -1709,6 +1735,8 @@ convention; the list, not any one entry, is the argument for gating.
 | `tests/diagnostics/500-unknown-decl-head.ax` | CAP-8's unknown-head `AX3027`, twice — the parse no longer stops at the first |
 | `tests/diagnostics/505-decl-macro-positions.ax` | CAP-8's position rules: both template kinds refused across the boundary, and the bare-identifier name rule |
 | `tests/diagnostics/510-decl-macro-template-kind.ax` | CAP-8's template-kind `AX3021`, at the macro's own line |
+| `tests/selfhost/381-macro-type-templates.ax` (32) | CAP-7/CAP-8's `data` and `struct` templates — joined constructor names, two invocations giving two distinct types, and `deriveEq` querying a type generated in the same round |
+| `tests/diagnostics/565-macro-type-template-limits.axbad` | what still refuses — `type` and `import` templates at the macro's line, and the reserved `syntax/` prefix in a data name and a constructor name, both positions the parser could not even express before (`.axbad`: a joined name at top level is a shape the formatter must not learn, the same reason `525` carries the extension) |
 | `tests/diagnostics/515-decl-macro-in-module.ax` | EXP-16's v1 limit — module-side invocation refused, at the module's own line |
 | `tests/selfhost/374-derive-eq.ax` (101) | CAP-5/CAP-6 — §10.2's nullary deriveEq verbatim, the roadmap's acceptance criterion; the unfixed compiler dies parsing the joined name |
 | `tests/selfhost/376-syntax-nested-for.ax` (7) | CAP-5 — nested syntax/for over two types, inner splice under the live outer binding |
@@ -1796,10 +1824,12 @@ rather than the value alone.
    phase split: rule-form declaration macros generating `fn`/`::`
    declarations and further invocations, invoked from the entry file,
    parameters substituting in name, type and expression positions.
-   What remains under this heading: module-side invocation
-   (`MAC-EXP-16`'s stated limit) and the other template kinds
-   (`AX3021` today, at the macro's line). The prerequisite for
-   everything in §10.2–§10.5 now exists.
+   `data` and `struct` templates joined on 2026-08-15, which is what
+   makes `MAC-CAP-7` hold. What remains under this heading:
+   module-side invocation (`MAC-EXP-16`'s stated limit), and `type`
+   and `effect` templates — `import` and nested `macro` are refusals
+   by decision, not schedule. The prerequisite for everything in
+   §10.2–§10.5 now exists.
 4. ~~**`MAC-CAP-5`/`MAC-CAP-6`**~~ — **v1 landed 2026-08-14, in three
    commits the same day**: the closed vocabulary exists and refuses
    (`AX3028`); `syntax/join`, `syntax/constructors` and arm-position
