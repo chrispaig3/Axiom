@@ -4,6 +4,11 @@
 ;
 ;     word 0 : length in bytes
 ;     word 1 : address of the bytes
+;     word 2 : the block owning those bytes, or 0 when no block does
+;              (a literal's belong to the loader, a syscall buffer's
+;              to the kernel) - memory-model.md MM-VAL-7. This line
+;              was missing from the day the third word was added: the
+;              sentence above said THREE and the list showed two.
 ;
 ; The bytes are always NUL-terminated *in addition* to being
 ; length-counted. Carrying the length makes slicing, comparison, and

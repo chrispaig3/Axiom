@@ -161,7 +161,19 @@
     (if (<= n 0)
         (if (== used 0)
             ""
-            (strWrapOwned (strData buf) used (strOwner buf)))
+            ; The retain is the same rule `strSlice` follows and for
+            ; the same reason: this is a SECOND header naming `buf`'s
+            ; owner, so it must take a second share (memory-model.md
+            ; MM-VAL-7). Without it two headers claim one count, and
+            ; the day something releases a `Str` header - MM-LIFE-2e's
+            ; extension work - the first release frees a buffer the
+            ; other header still points into. It was inert when it was
+            ; written, which is the only reason it read as correct.
+            (let ((own (strOwner buf)))
+              {
+                (__retain own)
+                (strWrapOwned (strData buf) used own)
+              }))
         (let ((used2 (+ used n)))
           (if (< used2 cap)
               (sysReadAll fd buf used2 cap)

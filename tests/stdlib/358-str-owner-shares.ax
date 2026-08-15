@@ -1,0 +1,58 @@
+; MM-VAL-7's counting rule, on the one path that broke it: a SECOND
+; `Str` header naming an existing owner must take a second share.
+;
+; `strSlice` has always done this (`Str.ax`'s `(__retain owner)`).
+; `Sys.sysReadAll` did not: at EOF it answers a fresh header over the
+; read buffer's bytes, naming the buffer's owner, and took no share -
+; so two headers claimed one count. That is inert while nothing
+; releases a `Str` header, and a use-after-free the day something
+; does (MM-LIFE-2e's extension work): the first release frees a
+; buffer the other header still points into, and the block is on a
+; size-class free list, so the next allocation re-issues it.
+;
+; This fixture asserts the COUNT, not a byte, because the bytes are
+; identical either way - which is exactly why the defect survived
+; being written.
+;
+;   32  the file round-trips: 5 bytes back out of sysReadFile
+;   16  the answer's owner is a real block (not a literal's 0)
+;    8  that owner's count word reads 2 - one share for the buffer
+;       header strAlloc made, one for the header sysReadAll answered
+;    4  a slice of the answer takes a third: count 3
+;    2  the file is gone again
+;    1  and nothing above was skipped
+;
+; 63 fixed. Against the unfixed standard library the same run reads
+; the count as 1 and the slice's as 2, so both count terms fail and
+; it answers 51 - the two terms that measure the share are exactly
+; the two the fix adds.
+(import Sys)
+(import Str)
+
+(:: b2i (-> Bool Int))
+(fn (b2i x) (if x 1 0))
+
+(:: ownerCount (-> String Int))
+(fn (ownerCount s) (__load64 (- (strOwner s) 16) 0))
+
+(:: main Int)
+(fn (main)
+  (let ((f (strCStr "axiom_test_file_358"))
+        (mut acc 0)
+        (mut steps 0))
+    {
+      (sysWriteFile f "hello")
+      (set steps (+ steps 1))
+      (let ((got (sysReadFile f)))
+        {
+          (if (== (strLen got) 5) (set acc (+ acc 32)) 0)
+          (if (!= (strOwner got) 0) (set acc (+ acc 16)) 0)
+          (if (== (ownerCount got) 2) (set acc (+ acc 8)) 0)
+          (let ((sl (strSlice got 1 3)))
+            (if (== (ownerCount sl) 3) (set acc (+ acc 4)) 0))
+          (set steps (+ steps 1))
+        })
+      (if (== (sysUnlink f) 0) (set acc (+ acc 2)) 0)
+      (if (== steps 2) (set acc (+ acc 1)) 0)
+      acc
+    }))

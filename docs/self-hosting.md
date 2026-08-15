@@ -1088,9 +1088,12 @@ of agreement, and stage1's `tyCompat` is a transliteration of it - a
 type VARIABLE on either side at any depth matches anything, so
 `Tree a` against `Tree Int` passes without any substitution existing
 to make it pass; the poison type matches everything, so one root cause
-never cascades; and `String` and `Int` are mutually compatible by
-fiat, which is the uniform-representation rule (§2.2 S1) made visible
-in one place instead of worked around at every boundary. Writing a
+never cascades; and `String` and `Int` were mutually compatible by
+fiat — the uniform-representation rule (§2.2 S1) made visible in one
+place instead of worked around at every boundary — **until
+2026-08-15, when that clause was deleted** and the containers took
+type variables instead of spending it (MM-ALLOC-20). The rest of the
+paragraph still describes `tyCompat` exactly. Writing a
 real unifier here would have been easier and wrong: the acceptance
 criterion is byte-identical AXDL, and a checker that knows more than
 stage0 reports diagnostics stage0 does not.

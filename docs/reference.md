@@ -1230,10 +1230,19 @@ Axiom ships a standard library written **in Axiom**. It reaches the operating sy
 
 ### A `Str` Is...
 
-A `Str` is a length-prefixed, NUL-terminated string. It is the address of a two-word header:
+A `Str` is a length-prefixed, NUL-terminated string. It is the address of a three-word header:
 
 - Word 0: length in bytes
 - Word 1: address of the bytes
+- Word 2: the block owning those bytes, or 0 when no block does
+
+The owner word (added 2026-08-15) is what lets a slice keep its
+parent's buffer alive by arithmetic: `strSlice` shares the bytes and
+inherits the owner rather than naming its parent, so the chain is one
+hop deep however many times a slice is cut. Zero means the bytes are
+nobody's to free — a literal's belong to the loader, a syscall
+buffer's to the kernel. See [memory-model.md](memory-model.md)
+MM-VAL-7.
 
 The bytes are always NUL-terminated in addition to being length-counted. This means `strCStr` can hand a path straight to a syscall without copying, and a `Str` can contain a NUL byte.
 

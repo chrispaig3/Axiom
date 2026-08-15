@@ -563,6 +563,22 @@ kernel's, an arena keep block's interior belongs to the arena.
 `strAlloc` names the buffer it just allocated and takes one share of
 it; every `strSlice` takes one more.
 
+**The rule is: every header that NAMES an owner holds a share of it**,
+and the one place that broke it was found by writing this sentence
+down. `Sys.sysReadAll` answers a second header over the read buffer's
+bytes, inheriting the buffer's owner — and took no share, so two
+headers claimed one count. Nothing releases a `Str` header yet, so it
+was inert; the day `MM-LIFE-2e`'s extension work lands it is a
+use-after-free into a block already on a size-class free list, not a
+dangle into quiet memory. Fixed and gated 2026-08-15,
+`tests/stdlib/358-str-owner-shares.ax` (63; the unfixed library
+answers 51, and the two terms it loses are exactly the two that
+measure the share). A defect that is *inert until a later rung* is
+the class this specification's §9.0 exists to hold, and it is the
+class a fixture written at the time of the rule cannot catch — this
+one needed the rule stated in one sentence and then checked against
+every caller.
+
 **MM-VAL-7a (H).** A **string literal allocates nothing**. It evaluates
 to the address of a static constant header whose length is a
 compile-time constant, and literals are **interned by content**, so two
@@ -1216,9 +1232,17 @@ by `MM-MUT-3` and therefore share freely and safely.
 
 ## 5. Lifetimes and reclamation
 
-**MM-LIFE-1 (H).** The lifetime of every heap value is **the process**,
-unless a program reclaims explicitly with §3.3. There is no `free`, no
-destructor, no reference count, and no collector.
+**MM-LIFE-1 (H, amended 2026-08-15).** The lifetime of every heap value
+is **the process**, unless a program reclaims explicitly with §3.3 — or
+unless the counting machinery reclaims it, which since the first
+ownership events (`MM-LIFE-2c`) it does for the shapes those events
+reach: a directly-built construction discarded in statement position,
+and a `handle`'s evidence record at its exit. There is no `free` and no
+destructor, and there is still no collector; there IS now a reference
+count on every heap block, and a block whose count reaches zero joins
+its size class and is handed out again (`MM-LIFE-2b`, `2e`). What has
+not changed is the DEFAULT: a value nobody releases still lives as long
+as the process, because most of the events are not emitted yet.
 
 **MM-LIFE-2a (P) — the chosen strategy: reference counting.**
 Automatic reclamation **SHALL** be automatic reference counting. Every
@@ -1644,10 +1668,13 @@ padded payload WORD count (the class is count >> 1, one convention at
 every writer; a block files iff 0 < count <= 128), bits 16..62 the
 record form's reference bitmap. Release's class lookup reads the
 count field, and the dead-path walk reads the map. What remains of this rule: the large-block policy
-(blocks above 1024 bytes are not pooled - nothing dies at all until
-`MM-LIFE-2c`'s events, so the policy waits for a measured need), the
-acceptance measurements (the unmanaged column going flat NEEDS the
-events), the §3.3 refusal, and the match-cell amendment - each 2c-era.
+(blocks above 1024 bytes are still not pooled; since `MM-LIFE-2c`'s
+first events things DO die, so this now waits on a measurement of what
+actually dies large rather than on there being nothing), the acceptance
+measurements (which need the events the co-ownership audit deferred,
+and the container element maps under them), and the §3.3 refusal. The
+match-cell amendment is done - those cells are not allocations any more
+(`MM-ALLOC-9`, `tests/stdlib/356-match-no-heap.ax`).
 The free list of `MM-ALLOC-4b` still holds whole chunks, unchanged and
 separate.
 
@@ -1660,9 +1687,13 @@ non-reference into one edge (`(set a.next (cast Node 0))` — the word 0
 is below 4096, and release skips it). Nothing checks this, which is
 what *program obligation* means everywhere else in this document.
 
-*Today:* `MM-LIFE-1` reclaims nothing at all, so the obligation is
-vacuous until `MM-LIFE-2e` ships — recorded now so that it does not
-arrive as a surprise then.
+*Today:* the obligation is no longer vacuous, but it is still narrow.
+Reclamation exists (`MM-LIFE-2e`'s path, `MM-LIFE-2c`'s first events),
+so a knot built out of the block shapes those events release will be
+leaked exactly as this rule says — and a knot built out of everything
+else is leaked because nothing releases it at all, which is the older
+and blunter reason. The obligation becomes load-bearing across the
+board when the remaining events land.
 
 The deferral is separable, and choosing ARC builds **toward** the
 alternative rather than away from it: the reference maps of
@@ -1700,8 +1731,10 @@ measured:
 The first needs nothing but `stdlib/Vec`, because a `Vec` element is an
 `Int` and a `Vec` handle *is* an `Int` (`MM-ALLOC-20`).
 
-This costs nothing today — `MM-LIFE-1` reclaims nothing, so an
-unreachable cycle is no worse than an unreachable tree. It is recorded
+This cost nothing while `MM-LIFE-1` reclaimed nothing, and it is
+beginning to cost something now: where the ownership events do release,
+an unreachable tree is reclaimed and an unreachable cycle is not, which
+is the first place the two differ. It is recorded
 here because it is a **precondition on every future reclamation
 strategy**: a tracing collector for Axiom must trace cycles, and a
 counting scheme must either carry a cycle collector or state the leak
