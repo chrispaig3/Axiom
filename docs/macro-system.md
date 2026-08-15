@@ -1295,8 +1295,8 @@ The invocation stays primary, exactly as `MAC-DIAG-5` wants: it is the
 line the author can change. The REPL deliberately discards frames —
 its error line joins bare messages, and the prompt *is* the invocation.
 
-**MAC-DIAG-5 (P; the location renders, the second snippet does not
-yet).** With `MAC-DIAG-4`, the rendered form **SHALL** be:
+**MAC-DIAG-5 (H, 2026-08-15).** With `MAC-DIAG-4`, the rendered form
+**SHALL** be:
 
 ```
 error[AX3005]: non-exhaustive match: `Blue` not covered
@@ -1311,13 +1311,26 @@ error[AX3005]: non-exhaustive match: `Blue` not covered
   |    ^^^^^ the match generated here
 ```
 
-The invocation stays primary — it is the line the author can change.
+The invocation stays primary — it is the line the author can change —
+and the frames follow it outermost first, each opened in its own file.
 
-*Today:* the human renderer prints the frame as a note —
-``= note: in this expansion of `deriveEq` (stdlib/Derive.ax:8:14)`` —
-which names the macro and its declaration but does not open the second
-file for a snippet. The data the snippet needs is on the frame since
-`MAC-DIAG-4` closed; what remains is renderer work alone.
+*Held since 2026-08-15* (`tests/diagnostics/490-expansion-backtrace`,
+one frame and a nested two): a frame whose unit the renderer can reach
+becomes a location block of its own, with the macro's declaration line
+quoted and its span under a caret labelled ``in this expansion of
+`name` ``. A frame with no span, or one whose unit is out of reach,
+still renders as the note `MAC-DIAG-4` shipped — a location block
+needs a file to open. The gutter is computed across the primary and
+every frame together, so one report keeps one bar column however many
+files it spans.
+
+The machine surfaces did not move: the AXDL `&` field and the JSON
+`expansion` array are byte-identical before and after, which is what
+"renderer work alone" meant. `scripts/check-render-selfhost.sh`
+derives the block from the AXDL the same way it derives the primary —
+header line, quoted source line, caret row of the span's width and the
+frame's label — reading the right-hand side out of the frame's own
+fixture bytes.
 
 ---
 

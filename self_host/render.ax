@@ -456,6 +456,78 @@
               base " (") (memGetWord u 0)) ":")
               (fmtSpan (memGetWord u 1) fs)) ")"))))))
 
+; MAC-DIAG-5: a frame whose unit the caller supplied renders as a
+; SECOND location block - the macro's own file, opened, with its
+; template's line under a caret - instead of the one-line note above.
+; The note form remains for a frame with no span or no reachable
+; unit, which is what a REPL-shaped or spanless expansion leaves.
+(pub :: traceResolvable (-> Int Int Int Int))
+(pub fn (traceResolvable d i units)
+  (let ((fs (diagTraceSpan d i))
+        (fu (diagTraceUnit d i)))
+    (if (|| (== fs 0) (|| (== units 0) (>= fu (vecLen units)))) 0 1)))
+
+(pub :: traceRows (-> Int Int Int))
+(pub fn (traceRows d i)
+  (let ((rows vecNew))
+    {
+      (vecPush rows (cast Int (SnipRow (diagTraceSpan d i) 94
+        (strConcat (strConcat "in this expansion of `"
+                              (diagTraceName d i)) "`")
+        SGR_SEC)))
+      rows
+    }))
+
+; The gutter is one width for the whole report: a frame's line number
+; can be wider than the primary's, and two blocks whose bars do not
+; line up read as two reports.
+(pub :: traceGutterWidth (-> Int Int Int Int))
+(pub fn (traceGutterWidth d units w0)
+  (let ((mut i 0) (mut w w0))
+    {
+      (while (< i (diagTraceCount d))
+        {
+          (if (== (traceResolvable d i units) 1)
+              (let ((u (vecGet units (diagTraceUnit d i))))
+                (let ((n (rowsGutterWidth (memGetWord u 1) (traceRows d i))))
+                  (if (> n w) (set w n) 0)))
+              0)
+          (set i (+ i 1))
+        })
+      w
+    }))
+
+(pub :: traceBlocks (-> Int Int Int String))
+(pub fn (traceBlocks d units gw)
+  (let ((out vecNew) (mut i 0))
+    {
+      (while (< i (diagTraceCount d))
+        {
+          (if (== (traceResolvable d i units) 1)
+              (let ((u (vecGet units (diagTraceUnit d i)))
+                    (rows (traceRows d i)))
+                (let ((fsrc (memGetWord u 1))
+                      (ffile (memGetWord u 0))
+                      (fs (diagTraceSpan d i)))
+                  (let ((bar (strConcat (paint SGR_GUT
+                               (strConcat (spacesN gw) " |")) "\n")))
+                    {
+                      (vecPush out (strConcat (strConcat (spacesN gw)
+                                                (paint SGR_GUT "--> "))
+                        (strConcat (strConcat (strConcat (strConcat
+                          (cast String ffile) ":")
+                          (decStr (lineOf fsrc (spanStart fs)))) ":")
+                          (strConcat (decStr (colOf fsrc (spanStart fs))) "\n"))))
+                      (vecPush out bar)
+                      (vecPush out (snipBody fsrc gw rows))
+                      (vecPush out bar)
+                    })))
+              0)
+          (set i (+ i 1))
+        })
+      (catStrs out)
+    }))
+
 (pub :: renderDiagHuman (-> Int String String Int String))
 (pub fn (renderDiagHuman d src file units)
   (let ((sev (diagSev d))
@@ -480,7 +552,8 @@
       ; A spanless diagnostic draws no snippet, so it has no rows and
       ; its gutter is one column wide.
       (let ((rows (if spanless vecNew (snipRowsOf d span))))
-        (let ((gw (if spanless 1 (rowsGutterWidth src rows))))
+        (let ((gw (traceGutterWidth d units
+                    (if spanless 1 (rowsGutterWidth src rows)))))
           (let ((loc (strConcat (strConcat (spacesN gw) (paint SGR_GUT "--> "))
                        (if spanless
                            (strConcat file "\n")
@@ -490,9 +563,11 @@
                              (strConcat (decStr (colOf src (spanStart span))) "\n")))))
                 (bar (strConcat (paint SGR_GUT (strConcat (spacesN gw) " |")) "\n")))
             (let ((snippet
-                    (if spanless
-                        ""
-                        (strConcat (strConcat bar (snipBody src gw rows)) bar)))
+                    (strConcat
+                      (if spanless
+                          ""
+                          (strConcat (strConcat bar (snipBody src gw rows)) bar))
+                      (traceBlocks d units gw)))
                   (notes (let ((acc vecNew) (mut i 0))
                            {
                              (while (< i (diagNoteCount d))
@@ -500,15 +575,18 @@
                                  (vecPush acc (noteLine gw (diagNote d i)))
                                  (set i (+ i 1))
                                })
-                             ; An expansion frame reads as a note, the
-                             ; way rustc reports the same thing - the
-                             ; macro's name, and its declaration's
-                             ; file:LOC when the frame carries one.
+                             ; An expansion frame whose file this
+                             ; renderer could open became a location
+                             ; block above (MAC-DIAG-5); one it could
+                             ; not still reads as a note, which is
+                             ; the whole of what MAC-DIAG-4 shipped.
                              (set i 0)
                              (while (< i (diagTraceCount d))
                                {
-                                 (vecPush acc (noteLine gw
-                                   (traceNoteText d i units)))
+                                 (if (== (traceResolvable d i units) 1)
+                                     0
+                                     (vecPush acc (noteLine gw
+                                       (traceNoteText d i units))))
                                  (set i (+ i 1))
                                })
                              (catStrs acc)

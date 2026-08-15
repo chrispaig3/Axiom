@@ -666,6 +666,7 @@ axdl_facts() {
     helps=()
     helpfix=()
     notes=()
+    tracelocs=()
     while IFS=$'\t' read -r kind text; do
       case "$kind" in
         msg)   primary="$text" ;;
@@ -673,14 +674,16 @@ axdl_facts() {
         label) plabel="$text" ;;
         help)  helps[${#helps[@]}]="$text"; helpfix[${#helpfix[@]}]="" ;;
         note)  notes[${#notes[@]}]="$text" ;;
-        # An expansion-backtrace frame renders as a note, the way rustc
-        # reports the same thing - the name backticked, and, when the
-        # AXDL field carried the declaration's location, that location
-        # parenthesised. `traceNoteText` in render.ax is the other half
-        # of this sentence; the two must keep agreeing.
+        # An expansion-backtrace frame with NO location renders as a
+        # note - the name backticked, nothing to open. One that CARRIES
+        # a location renders as a second location block instead
+        # (MAC-DIAG-5), asserted below with the same derivation the
+        # primary block gets. `traceNoteText` and `traceBlocks` in
+        # render.ax are the other half of this sentence; the three must
+        # keep agreeing.
         trace) notes[${#notes[@]}]="in this expansion of \`$text\`" ;;
         traceloc)
-          notes[${#notes[@]}]="in this expansion of \`${text#*$'\t'}\` (${text%%$'\t'*})" ;;
+          tracelocs[${#tracelocs[@]}]="$text" ;;
         # The replacement half of a fix attaches to the help it follows.
         # Parsed and paired here, but NOT yet folded into the help-line
         # equality below: the renderer does not print it yet, and a gate
@@ -798,11 +801,17 @@ axdl_facts() {
       echo "FAIL $label (block $((k + 1)): no caret row at col $dC width $drun for span $locspan${plabel:+ labelled \`$plabel\`})"
       rc=1
     fi
-    local ncaret ndash
+    # One diagnostic underlines one primary span - plus one span per
+    # LOCATED expansion frame since MAC-DIAG-5, each in its own macro's
+    # file. The count is still an equality, and it is still derived
+    # from the AXDL rather than from the golden: a renderer drawing a
+    # caret nobody asked for fails here exactly as before.
+    local ncaret ndash want_carets
+    want_carets=$(( 1 + ${#tracelocs[@]} ))
     ncaret="$(block_count_re "$bs" "$be" '^ *\| *\^+( .*)?$')"
     facts=$((facts + 1)); f_caret=$((f_caret + 1))
-    if [[ "$ncaret" != 1 ]]; then
-      echo "FAIL $label (block $((k + 1)) draws $ncaret caret rows; one diagnostic underlines one primary span)"
+    if [[ "$ncaret" != "$want_carets" ]]; then
+      echo "FAIL $label (block $((k + 1)) draws $ncaret caret rows; the AXDL calls for $want_carets - one primary span and ${#tracelocs[@]} located expansion frame(s))"
       rc=1
     fi
 
@@ -843,8 +852,59 @@ axdl_facts() {
       [[ "$ndash" == 0 ]] || { echo "FAIL $label (block $((k + 1)) draws $ndash dash rows; the AXDL gives it no related span)"; rc=1; }
     fi
 
+    # MAC-DIAG-5: a frame carrying a location opens its macro's own
+    # file. Everything the primary block is held to, this is held to -
+    # the header line, the quoted source line in the gutter, and a
+    # caret row equal to the span's width followed by the frame's
+    # label - and the right-hand side comes from the FRAME's fixture
+    # bytes, which is the half no bless can write.
+    local tl tlloc tlname tfile tsrc trest2 tL tC tTail trun
+    local traw tdw tdC tdEnd tdrun twstart twend tcpad twant
+    for tl in ${tracelocs[@]+"${tracelocs[@]}"}; do
+      tlloc="${tl%%$'\t'*}"; tlname="${tl#*$'\t'}"
+      tfile="${tlloc%%:*}"; trest2="${tlloc#*:}"
+      tL="${trest2%%:*}"; trest2="${trest2#*:}"
+      if [[ "$trest2" == *-* ]]; then
+        tC="${trest2%%-*}"; tTail="${trest2#*-}"
+      else
+        tC="$trest2"; tTail=""
+      fi
+      if ! tsrc="$(resolve_fixture "$tfile")"; then
+        echo "FAIL $label (an expansion frame names $tfile, which is not a file in tests/diagnostics)"
+        rc=1
+        continue
+      fi
+      if [[ -n "$tTail" && "$tTail" != *:* ]]; then trun=$((tTail - tC)); else trun=1; fi
+      [[ "$trun" -lt 1 ]] && trun=1
+
+      facts=$((facts + 3)); f_loc=$((f_loc + 1)); f_gutter=$((f_gutter + 1)); f_caret=$((f_caret + 1))
+      if ! block_trim_eq "$bs" "$be" "--> $tfile:$tL:$tC"; then
+        echo "FAIL $label (block $((k + 1)) has no expansion-frame header \`--> $tfile:$tL:$tC\`)"
+        rc=1
+      fi
+      if ! block_re "$bs" "$be" "^ *${tL} \\| "; then
+        echo "FAIL $label (block $((k + 1)): frame source line $tL of $tfile not in the snippet gutter)"
+        rc=1
+      fi
+      traw="$(fixture_line "$tsrc" "$tL")"
+      tdw="$(disp_width "$traw")"
+      tdC="$(disp_col "$traw" "$tC")"
+      tdEnd="$(disp_col "$traw" "$((tC + trun))")"
+      tdrun=$((tdEnd - tdC)); [[ "$tdrun" -lt 1 ]] && tdrun=1
+      read -r twstart twend < <(trunc_window "$tdw" "$tdC")
+      (( tdC - 1 + tdrun > twend )) && tdrun=$(( twend - (tdC - 1) ))
+      [[ "$tdrun" -lt 1 ]] && tdrun=1
+      tcpad=$(( 1 + (twstart > 0 ? 3 : 0) + (tdC - 1 - twstart) ))
+      twant="$(printf '%*s' "$tcpad" '')$(printf '%*s' "$tdrun" '' | tr ' ' '^') in this expansion of \`$tlname\`"
+      if ! block_bar_eq "$bs" "$be" "$twant"; then
+        echo "FAIL $label (block $((k + 1)): no frame caret row at col $tdC width $tdrun labelled \`in this expansion of \\\`$tlname\\\`\`)"
+        rc=1
+      fi
+    done
+
     # Notes, before the helps, the way the renderer orders them. An
-    # expansion-backtrace frame has already been turned into one above.
+    # expansion-backtrace frame with no location has already been
+    # turned into one above.
     local nt
     for nt in ${notes[@]+"${notes[@]}"}; do
       facts=$((facts + 1)); f_note=$((f_note + 1))

@@ -4,7 +4,11 @@
 [1;34m17 |[0m (fn (one n) (frameBad n))
 [1;34m   |[0m              [1;31m^^^^^^^^ no binding named `noSuchFn` in scope[0m
 [1;34m   |[0m
-  [1;34m = [0m[1mnote: [0min this expansion of `frameBad` (MacFrame.ax:6:13-21)
+  [1;34m--> [0mMacFrame.ax:6:13
+[1;34m   |[0m
+[1;34m 6 |[0m (pub macro (frameBad x) (noSuchFn x))
+[1;34m   |[0m             [1;36m^^^^^^^^ in this expansion of `frameBad`[0m
+[1;34m   |[0m
   [1;34m = [0m[1;32mhelp: [0mvariables must be defined (via `define`/`fn`, a `let` binding, or a lambda parameter) before they are used; check for typos
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3001` for a full explanation
 
@@ -14,8 +18,16 @@
 [1;34m19 |[0m (fn (two n) (frameOuter n))
 [1;34m   |[0m              [1;31m^^^^^^^^^^ no binding named `noSuchFn` in scope[0m
 [1;34m   |[0m
-  [1;34m = [0m[1mnote: [0min this expansion of `frameOuter` (MacFrame.ax:7:13-23)
-  [1;34m = [0m[1mnote: [0min this expansion of `frameBad` (MacFrame.ax:6:13-21)
+  [1;34m--> [0mMacFrame.ax:7:13
+[1;34m   |[0m
+[1;34m 7 |[0m (pub macro (frameOuter x) (frameBad x))
+[1;34m   |[0m             [1;36m^^^^^^^^^^ in this expansion of `frameOuter`[0m
+[1;34m   |[0m
+  [1;34m--> [0mMacFrame.ax:6:13
+[1;34m   |[0m
+[1;34m 6 |[0m (pub macro (frameBad x) (noSuchFn x))
+[1;34m   |[0m             [1;36m^^^^^^^^ in this expansion of `frameBad`[0m
+[1;34m   |[0m
   [1;34m = [0m[1;32mhelp: [0mvariables must be defined (via `define`/`fn`, a `let` binding, or a lambda parameter) before they are used; check for typos
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3001` for a full explanation
 
