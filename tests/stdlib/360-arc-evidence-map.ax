@@ -1,0 +1,77 @@
+; exit 7 (see .exit)
+; MM-LIFE-2c event 6, the half the evidence record never had. A
+; `handle` allocates a two-word record - word 0 the handler value,
+; word 1 the record this entry displaced - and event 7 has released it
+; at the pop since the first ownership slice. But the release was
+; HEADER-DEEP: the record was an allocator leaf, so its walk returned
+; nothing, and both words were stored unretained because "a retain no
+; walk can return is a permanent leak".
+;
+; The record now carries its own map - two payload words, both
+; references - and both words are stored owned. A handler built AT the
+; handle, which is how anyone writes one, is a closure record born at
+; that site and MOVED into word 0; the pop releases the evidence
+; record, the walk releases the closure, and the next entry gets both
+; blocks back.
+;
+;   4  one thousand handle entries, each building its own handler
+;      lambda, move the allocator's bump by under 4 KiB. Without the
+;      map the closure records accumulate: one per entry, forever.
+;   2  the effect still WORKS through all thousand entries - the sum
+;      1..1000 comes back as 500500, so the handler that was
+;      reclaimed is the handler that ran.
+;   1  and the displaced record's share is symmetric: a NESTED handle
+;      answers through both handlers, which is the case where word 1
+;      is a real block rather than the initial zero.
+;
+; The probe allocates 200 bytes because nothing else here does - the
+; lesson `359-arc-str-bytes.ax` records, applied rather than
+; rediscovered: a probe sharing a size class with what the loop frees
+; measures the free list, not the bump.
+;
+; The unfixed compiler answers 3: the sum survives and the nesting
+; answers, and the bump grows by ~48 KiB.
+(import Mem)
+
+(effect Tick
+  (tick :: (-> Int Int)))
+
+(effect Tock
+  (tock :: (-> Int Int)))
+
+(:: b2i (-> Bool Int))
+(fn (b2i x) (if x 1 0))
+
+(:: hspin (-> Int Int Int))
+(fn (hspin n acc)
+  (if (<= n 0)
+      acc
+      (hspin (- n 1)
+             (+ acc (handle (tick n) (Tick) (lambda (k) k))))))
+
+; The handlers are BOUND here rather than built at the handle, which
+; makes this the retain case rather than the move case: word 0 holds a
+; block the caller also holds, so the record has to take a share and
+; give it back, where `hspin`'s inline lambda simply moves in.
+(:: nested (-> Int Int))
+(fn (nested n)
+  (let ((inner (lambda (b) (* b 10)))
+        (outer (lambda (a) a)))
+    (handle (+ (tick n)
+               (handle (tock n) (Tock) inner))
+            ; `Alloc` rides in the effect list because the inner
+            ; `handle` allocates its own evidence record, and the
+            ; outer handle's body is where that allocation happens -
+            ; the same list `tests/stdlib/300-effect-handlers.ax`
+            ; writes for its nesting.
+            (Tick Alloc)
+            outer)))
+
+(:: main Int)
+(fn (main)
+  (let ((b1 (memAlloc 200)))
+    (let ((r (hspin 1000 0)))
+      (let ((b2 (memAlloc 200)))
+        (+ (* 4 (b2i (< (- b2 b1) 4096)))
+           (+ (* 2 (b2i (== r 500500)))
+              (b2i (== (nested 3) 33))))))))

@@ -4283,11 +4283,34 @@
               (old (regStr oldN)))
           (let ((_1 (emitLine cgH (cat2 (cat2 "  " rec)
                                         " = call i64 @axiom_alloc(i64 16)")))
+                ; MM-LIFE-2d, the evidence record's own map: two
+                ; payload words and both of them references - word 0
+                ; the handler value, word 1 the record this entry
+                ; displaced. Spelled through the same helpers every
+                ; other writer uses rather than as a constant,
+                ; because the encoding is a rule and not a number.
+                (_1a (storeShapeAt cgH rec
+                       (+ (* (paddedWords 2) 2)
+                          (+ (pow2 16) (pow2 17)))))
                 ; A1: the evidence record births owned; event 7's
                 ; release at the pop is what spends it
                 (_1b (storeCountOneAt cgH rec))
+                ; MM-LIFE-2c event 6, the half this record was
+                ; missing: both words are stored OWNED. The handler
+                ; is retained unless it was built right here - a
+                ; directly-built lambda MOVES, its birth count IS the
+                ; field's share - and the displaced record is
+                ; retained because the slot refers to it again after
+                ; the restore. Both shares come back at the pop, when
+                ; the release below walks the map above; this is the
+                ; balance the standing rule demands, that a retain
+                ; must be one an existing map can return.
+                (_1c (if (== (argIsDirectCon cgH (nodeC node)) 1)
+                         cgH
+                         (emitRetainOf cgH hval)))
                 (_2 (storeWordAt cgH rec 0 hval))
                 (_3 (emitLine cgH (cat4 (cat2 "  " old) " = load i64, ptr @" slot "")))
+                (_3b (emitRetainOf cgH old))
                 (_4 (storeWordAt cgH rec 1 old))
                 (_5 (emitLine cgH (cat4 "  store i64 " rec ", ptr @" slot)))
                 (_6 (memSetWord cgH 30 0)))
@@ -4298,11 +4321,15 @@
                   {
                     (emitLine cgB (cat4 "  store i64 " old ", ptr @" slot))
                     ; MM-LIFE-2c event 7: the evidence record dies at
-                    ; the pop - header-deep (its two words carry no
-                    ; retains until record maps land, E4) - closing
-                    ; sixteen of MM-ALLOC-9a's sixteen bytes per loop
-                    ; entry; the block files and the next entry
-                    ; reuses it.
+                    ; the pop, closing sixteen of MM-ALLOC-9a's
+                    ; sixteen bytes per loop entry; the block files
+                    ; and the next entry reuses it. Since the map
+                    ; above it is no longer header-deep: the walk
+                    ; hands back the handler's share and the
+                    ; displaced record's, so a handler built AT the
+                    ; handle - the common `(handle e (Eff) (lambda
+                    ; ...))` - is reclaimed with its record instead
+                    ; of accumulating one closure per entry.
                     (emitReleaseOf cgB (strDup rec))
                   }
                   (memSetWord cgB 2 res)

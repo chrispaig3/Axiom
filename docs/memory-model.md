@@ -1458,11 +1458,13 @@ exit or boundary release over those shapes is a use-after-free, not
 a leak. They land with the container element maps and the checker's
 binder-class stamps. Event 5 rides with them (no release path can
 reach a mutated field in this slice's release set). Closure capture
-words and the evidence record's two words are stored UNRETAINED
-until their records carry maps: a retain no walk can return is a
-permanent leak, and the closure-outlives-frame dangle stays a
-recorded program obligation beside `MM-VAL-15`'s price sentence
-until then. The §3.3 primitives remain LEGAL through this interim -
+words are stored UNRETAINED until closure records carry maps: a
+retain no walk can return is a permanent leak, and the
+closure-outlives-frame dangle stays a recorded program obligation
+beside `MM-VAL-15`'s price sentence until then. **The evidence
+record's two words stopped being in that sentence on 2026-08-15**,
+when its map landed and its retains became legal
+(`MM-LIFE-2d`, `tests/stdlib/360-arc-evidence-map.ax`). The §3.3 primitives remain LEGAL through this interim -
 ARC has not landed until the acceptance measurements pass, and
 until then the arenas remain the only whole-program reclamation
 there is; the refusal ships with the container rung. Composing the
@@ -1633,9 +1635,28 @@ the wrong word of its own block — its business, exactly as
 `memSetWord`'s index is — and cannot mark a word outside it, set the
 form bit, or disturb the count.
 
+*The evidence record's map holds since 2026-08-15*
+(`tests/stdlib/360-arc-evidence-map.ax`, 7): two payload words, both
+references — word 0 the handler value, word 1 the record this entry
+displaced — so event 7's release at the pop stopped being
+header-deep. Both words are now stored OWNED under event 6's rule: a
+handler built AT the handle moves in, one named by a variable is
+retained, and the displaced record is retained because the slot
+refers to it again after the restore. A thousand handle entries each
+building their own handler lambda move the bump by under 4 KiB where
+they used to accumulate one closure record per entry. This is the
+first record whose map made its own retains legal — the standing
+rule, that a retain must be one an existing map can return, read
+forwards instead of as a prohibition.
+
 *Still P:* the array form's writers and the container buffer
 migration (the `Vec`/`Map` element maps this word exists to feed),
-and closure and evidence records' own maps.
+and the CLOSURE record's map — which needs something the evidence
+record did not: the evidence record's two words are references by
+construction, where a closure's captures are references only if
+their binders are, and codegen's symbol table records a name, a
+register, a float flag and a slot kind, and no type. That is the
+binder-class stamp `MM-LIFE-2c` names.
 
 **MM-LIFE-2e (P). The release path.** A bump pointer cannot reuse an
 interior free. Release at zero **SHALL** hand the block — header
@@ -2080,6 +2101,7 @@ equivalent honesty for this one.
 | `tests/stdlib/040-mem.ax` | the `Mem` primitives over ALLOC-3, ALLOC-6 |
 | `tests/stdlib/358-str-owner-shares.ax` | VAL-7's counting rule — every header that NAMES an owner holds a share of it |
 | `tests/stdlib/359-arc-str-bytes.ax` | LIFE-2d's `Str` half end to end — a dead string frees its bytes, a live slice keeps its parent's |
+| `tests/stdlib/360-arc-evidence-map.ax` | LIFE-2c event 6 for the evidence record — its map, its two retains, and the handler lambda reclaimed with it |
 | `tests/stdlib/220-while-mut.ax` | MUT-1 across 1,000,000 iterations |
 | `tests/stdlib/035-string-equality.ax` | VAL-7's content equality, including the Unicode and interior-NUL cases |
 | `scripts/measure-memory-baseline.sh --gate` | ALLOC-16's managed contract; the unsound variant must *fail* |
