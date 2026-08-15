@@ -30,7 +30,12 @@
 ; `fieldNames` is a data constructor's declared field names when it
 ; was written as a struct variant, 0 otherwise; a named pattern is
 ; reordered against it at emission.
-(pub struct TypeEntry (name : String) (nameLen : Int) (nameHash : Int) (kind : Int) (arity : Int) (tag : Int) (rep : Int) (fieldFlags : Int) (fieldNames : Int))
+; `fieldTys` is a data constructor's Vec of declared field TYPE nodes
+; (the parser's ty slot, one TAG_T_* node per field), 0 when nothing
+; recorded one - it is what MM-LIFE-2d's shape constant is computed
+; from at construction sites. A struct's field types ride inside its
+; slot-7 TAG_FIELD nodes already, so struct entries leave this 0.
+(pub struct TypeEntry (name : String) (nameLen : Int) (nameHash : Int) (kind : Int) (arity : Int) (tag : Int) (rep : Int) (fieldFlags : Int) (fieldNames : Int) (fieldTys : Int))
 (pub :: TF_DATA   Int) (pub fn (TF_DATA)   0)
 (pub :: TF_STRUCT Int) (pub fn (TF_STRUCT) 1)
 (pub :: eNameLen (-> Int Int)) (pub fn (eNameLen e) (memGetWord e 1))
@@ -54,14 +59,15 @@
 
 (pub :: addType (-> Int String Int Int Int Int Int Int))
 (pub fn (addType types name kind arity tag rep fieldFlags)
-  (addTypeNamed types name kind arity tag rep fieldFlags 0))
+  (addTypeNamed types name kind arity tag rep fieldFlags 0 0))
 
-(pub :: addTypeNamed (-> Int String Int Int Int Int Int Int Int))
-(pub fn (addTypeNamed types name kind arity tag rep fieldFlags fieldNames)
+(pub :: addTypeNamed (-> Int String Int Int Int Int Int Int Int Int))
+(pub fn (addTypeNamed types name kind arity tag rep fieldFlags fieldNames fieldTys)
   (let ((nl (strLen name))
         (nh (nameHash name)))
-    (vecPush types (cast Int (TypeEntry name nl nh kind arity tag rep fieldFlags fieldNames)))))
+    (vecPush types (cast Int (TypeEntry name nl nh kind arity tag rep fieldFlags fieldNames fieldTys)))))
 (pub :: eFieldNames (-> Int Int)) (pub fn (eFieldNames e) (memGetWord e 8))
+(pub :: eFieldTys (-> Int Int)) (pub fn (eFieldTys e) (memGetWord e 9))
 
 (pub :: lookupType (-> Int String Int))
 (pub fn (lookupType types name)
@@ -239,7 +245,14 @@
 ; Field 34 = curModule (Str, the module whose declaration is being
 ;            emitted, or 0 for the entry file; `mangledFor` resolves a
 ;            bare reference to that module's own definition first)
-(pub struct CG (lines : Int) (tmp : Int) (result : String) (types : Int) (tagN : Int) (argVec : Int) (symnames : Int) (symregs : Int) (decls : Int) (argsTyped : String) (strings : Int) (curBlock : String) (mangleBares : Int) (mangleFulls : Int) (resultIsFloat : Int) (floatSigs : Int) (symfloats : Int) (curParams : Int) (curFlags : Int) (macros : Int) (symkinds : Int) (pendingLams : Int) (lamN : Int) (thunkFulls : Int) (thunkArities : Int) (thunksEmitted : Int) (target : Int) (tcoName : Int) (tcoSlots : Int) (tcoLabel : String) (tailOK : Int) (terminated : Int) (effDecls : Int) (effOps : Int) (curModule : Int))
+; Field 35 = dataTyNames (Vec of Str, every declared data TYPE name -
+;            the registry's rows are per-CONSTRUCTOR, so `Maybe` in a
+;            field's declared type finds nothing there; this Vec is
+;            what MM-LIFE-2d's field classifier asks. Bare names only:
+;            a module-qualified type spelling in a field position
+;            classifies as unknown and the block stays a leaf, which
+;            under-reclaims and never over-frees)
+(pub struct CG (lines : Int) (tmp : Int) (result : String) (types : Int) (tagN : Int) (argVec : Int) (symnames : Int) (symregs : Int) (decls : Int) (argsTyped : String) (strings : Int) (curBlock : String) (mangleBares : Int) (mangleFulls : Int) (resultIsFloat : Int) (floatSigs : Int) (symfloats : Int) (curParams : Int) (curFlags : Int) (macros : Int) (symkinds : Int) (pendingLams : Int) (lamN : Int) (thunkFulls : Int) (thunkArities : Int) (thunksEmitted : Int) (target : Int) (tcoName : Int) (tcoSlots : Int) (tcoLabel : String) (tailOK : Int) (terminated : Int) (effDecls : Int) (effOps : Int) (curModule : Int) (dataTyNames : Int))
 
 ; ------------------------------------------------------------------
 ; Tail-call optimisation, fields 27-31.
@@ -293,7 +306,7 @@
     {
       (addType ts "Some" TF_DATA 1 0 2 (let ((f vecNew)) { (vecPush f 0) f }))
       (addType ts "None" TF_DATA 0 1 2 vecNew)
-      (CG vecNew 0 "" ts 2 vecNew vecNew vecNew 0 "" vecNew "entry" vecNew vecNew 0 vecNew vecNew 0 0 vecNew vecNew vecNew 0 vecNew vecNew 0 0 0 vecNew "" 0 0 vecNew vecNew 0)
+      (CG vecNew 0 "" ts 2 vecNew vecNew vecNew 0 "" vecNew "entry" vecNew vecNew 0 vecNew vecNew 0 0 vecNew vecNew vecNew 0 vecNew vecNew 0 0 0 vecNew "" 0 0 vecNew vecNew 0 vecNew)
     }))
 
 (pub :: zeroFloat (-> Int Int))
@@ -797,8 +810,11 @@
     (if (== tag TAG_D_DATA)
         (let ((name (nodeA node))
               (ctors (nodeB node)))
-          (scanCtors ctors cg 0 (ctorsRep ctors (memGetWord cg 4))
-                     (nodeModule node)))
+          {
+            (vecPush (memGetWord cg 35) (cast Int name))
+            (scanCtors ctors cg 0 (ctorsRep ctors (memGetWord cg 4))
+                       (nodeModule node))
+          })
     (if (== tag TAG_D_STRUCT)
         (let ((name (nodeA node))
               (fields (nodeB node))
@@ -810,7 +826,7 @@
             (memSetWord cg 3 (addQualified
                                 (addType types name TF_STRUCT (vecLen fields) 0 0 fields)
                                 (nodeModule node) name
-                                TF_STRUCT (vecLen fields) 0 0 fields 0))
+                                TF_STRUCT (vecLen fields) 0 0 fields 0 0))
             cg
           })
     cg)))))
@@ -860,12 +876,12 @@
 ; changes no rule: the tag, arity and representation are the SAME
 ; values, which is what keeps a constructor reached under either
 ; spelling one constructor rather than two.
-(pub :: addQualified (-> Int a String Int Int Int Int Int Int Int))
-(pub fn (addQualified types modName name kind arity tag rep fieldFlags fieldNames)
+(pub :: addQualified (-> Int a String Int Int Int Int Int Int Int Int))
+(pub fn (addQualified types modName name kind arity tag rep fieldFlags fieldNames fieldTys)
   (if (== (cast Int modName) 0)
       types
       (addTypeNamed types (cat3 (strDup (cast String modName)) "$" (strDup name))
-                    kind arity tag rep fieldFlags fieldNames)))
+                    kind arity tag rep fieldFlags fieldNames fieldTys)))
 
 (pub :: scanCtors (-> Int Int Int Int String Int))
 (pub fn (scanCtors ctors cg i rep modName)
@@ -883,9 +899,9 @@
             (memSetWord cg 4 (+ t 1))
             (memSetWord cg 3 (addQualified
                                 (addTypeNamed types n TF_DATA a t rep (nodeC node)
-                                              (nodeFieldNames node))
+                                              (nodeFieldNames node) (nodeTy node))
                                 modName n TF_DATA a t rep (nodeC node)
-                                (nodeFieldNames node)))
+                                (nodeFieldNames node) (nodeTy node)))
             (scanCtors ctors cg (+ i 1) rep modName)
           }))))
 
@@ -1967,18 +1983,28 @@
     (emitLine cg "  %wnext = add i64 %wi, 8")
     (emitLine cg "  br label %wipe")
     (emitLine cg "wiped:")
-    ; The count word, explicitly zero, and the SIZE half of the shape
-    ; word: MM-LIFE-2b says a block that does not record its own size
-    ; makes the release path unimplementable, and only the allocator
-    ; knows the size of a raw allocation. The MAP half is still
-    ; MM-LIFE-2d's - the shape word currently IS the padded byte
-    ; size, and 2d re-encodes the word when the map bits arrive
-    ; (nothing but release's class lookup reads it today).
+    ; The count word, explicitly zero, and the LEAF shape:
+    ; MM-LIFE-2b says a block that does not record its own size makes
+    ; the release path unimplementable, and only the allocator knows
+    ; the size of a raw allocation. MM-LIFE-2d's encoding: bit 0 the
+    ; form (0 = record), bits 1..15 the padded payload WORD count,
+    ; bits 16..62 the reference bitmap - which the allocator leaves
+    ; EMPTY, because it cannot know a field from an int. memAlloc'd
+    ; memory is therefore a leaf by construction, the unsafe layer's
+    ; own rule; monomorphic construction sites overwrite the word
+    ; with their record shape. A payload past 32767 words overflows
+    ; the count field and stores 0 - the unknown-size sentinel
+    ; release refuses to file (262KB read buffers exist; the clamp is
+    ; not decorative).
     (emitLine cg "  %cwp = inttoptr i64 %hb to ptr")
     (emitLine cg "  store i64 0, ptr %cwp")
     (emitLine cg "  %shpw = add i64 %hb, 8")
     (emitLine cg "  %shpwp = inttoptr i64 %shpw to ptr")
-    (emitLine cg "  store i64 %sz0, ptr %shpwp")
+    (emitLine cg "  %wcnt = lshr i64 %sz0, 3")
+    (emitLine cg "  %wbig = icmp ugt i64 %wcnt, 32767")
+    (emitLine cg "  %wleaf = select i1 %wbig, i64 0, i64 %wcnt")
+    (emitLine cg "  %wshp = shl i64 %wleaf, 1")
+    (emitLine cg "  store i64 %wshp, ptr %shpwp")
     (emitLine cg "  %user = add i64 %hb, 16")
     (emitLine cg "  ret i64 %user")
     (emitLine cg "oom:")
@@ -2036,25 +2062,59 @@
     (emitLine cg "dec:")
     (emitLine cg "  %c1 = add i64 %c, -1")
     (emitLine cg "  store i64 %c1, ptr %cp")
-    ; MM-LIFE-2e: the release path. At zero the block - header
-    ; included - joins its size class; the shape word's size half is
-    ; what makes the class computable, and a shape of zero (a block
-    ; born before the size was recorded, or one the keep helper has
-    ; not yet stamped) is skipped rather than misfiled. The dead
-    ; block's count word doubles as the free-list link: it is dead
-    ; storage, and the handout scrub rewrites it on reuse.
+    ; MM-LIFE-2e + 2d: the release path. Before a dead block files,
+    ; its record-form reference map is WALKED - every set bit is a
+    ; payload word holding a reference this block owned, and
+    ; @axiom_release calls itself on each (the callee's own guards
+    ; cover immediates, statics, and zero counts, so the walk needs
+    ; none). Recursion depth is object-graph depth - acceptable for
+    ; the compiler's own shapes; 2c revisits with an explicit stack
+    ; if a measured need arises. At zero the block - header included
+    ; - joins its size class: class = count >> 1, THE one convention,
+    ; and a count of zero (a pre-encoding block, or a payload too
+    ; large for the field) or above 128 (past the 1024-byte pool
+    ; ceiling) is skipped rather than misfiled. The dead block's
+    ; count word doubles as the free-list link: it is dead storage,
+    ; and the handout scrub rewrites it on reuse.
     (emitLine cg "  %isdead = icmp eq i64 %c1, 0")
     (emitLine cg "  br i1 %isdead, label %dead, label %done")
     (emitLine cg "dead:")
     (emitLine cg "  %shq = add i64 %h, -8")
     (emitLine cg "  %shqp = inttoptr i64 %shq to ptr")
-    (emitLine cg "  %bsz = load i64, ptr %shqp")
-    (emitLine cg "  %ok1 = icmp ne i64 %bsz, 0")
-    (emitLine cg "  %ok2 = icmp ule i64 %bsz, 1024")
+    (emitLine cg "  %shw = load i64, ptr %shqp")
+    (emitLine cg "  %formb = and i64 %shw, 1")
+    (emitLine cg "  %isrec = icmp eq i64 %formb, 0")
+    (emitLine cg "  %map0 = lshr i64 %shw, 16")
+    (emitLine cg "  %hasmap = icmp ne i64 %map0, 0")
+    (emitLine cg "  %dowalk = and i1 %isrec, %hasmap")
+    (emitLine cg "  br i1 %dowalk, label %walk, label %filechk")
+    (emitLine cg "walk:")
+    (emitLine cg "  %wi = phi i64 [ 0, %dead ], [ %wi1, %wnext ]")
+    (emitLine cg "  %wm = phi i64 [ %map0, %dead ], [ %wm1, %wnext ]")
+    (emitLine cg "  %wbit = and i64 %wm, 1")
+    (emitLine cg "  %wset = icmp ne i64 %wbit, 0")
+    (emitLine cg "  br i1 %wset, label %wrel, label %wnext")
+    (emitLine cg "wrel:")
+    (emitLine cg "  %woff = shl i64 %wi, 3")
+    (emitLine cg "  %waddr = add i64 %h, %woff")
+    (emitLine cg "  %waddrp = inttoptr i64 %waddr to ptr")
+    (emitLine cg "  %wval = load i64, ptr %waddrp")
+    (emitLine cg "  call void @axiom_release(i64 %wval)")
+    (emitLine cg "  br label %wnext")
+    (emitLine cg "wnext:")
+    (emitLine cg "  %wi1 = add i64 %wi, 1")
+    (emitLine cg "  %wm1 = lshr i64 %wm, 1")
+    (emitLine cg "  %wleft = icmp ne i64 %wm1, 0")
+    (emitLine cg "  br i1 %wleft, label %walk, label %filechk")
+    (emitLine cg "filechk:")
+    (emitLine cg "  %bcnt0 = lshr i64 %shw, 1")
+    (emitLine cg "  %bcnt = and i64 %bcnt0, 32767")
+    (emitLine cg "  %ok1 = icmp ne i64 %bcnt, 0")
+    (emitLine cg "  %ok2 = icmp ule i64 %bcnt, 128")
     (emitLine cg "  %ok = and i1 %ok1, %ok2")
     (emitLine cg "  br i1 %ok, label %push, label %done")
     (emitLine cg "push:")
-    (emitLine cg "  %pcls = lshr i64 %bsz, 4")
+    (emitLine cg "  %pcls = lshr i64 %bcnt, 1")
     (emitLine cg "  %pslotp = getelementptr [65 x i64], ptr @__axiom_slabs, i64 0, i64 %pcls")
     (emitLine cg "  %ohead = load i64, ptr %pslotp")
     (emitLine cg "  %pbase = add i64 %h, -16")
@@ -2356,7 +2416,15 @@
     (emitLine cg "  store i64 0, ptr %dcp")
     (emitLine cg "  %dsh = add i64 %dstbase, 8")
     (emitLine cg "  %dshp = inttoptr i64 %dsh to ptr")
-    (emitLine cg "  store i64 %szr, ptr %dshp")
+    ; the keep helper is the third shape writer, and it stamps the
+    ; LEAF of its dynamic size - the kept bytes' declared types are
+    ; gone by run time - with the allocator's exact clamp, because a
+    ; kept block can be a 262KB read buffer as easily as a cell
+    (emitLine cg "  %kcnt = lshr i64 %szr, 3")
+    (emitLine cg "  %kbig = icmp ugt i64 %kcnt, 32767")
+    (emitLine cg "  %kleaf = select i1 %kbig, i64 0, i64 %kcnt")
+    (emitLine cg "  %kshp = shl i64 %kleaf, 1")
+    (emitLine cg "  store i64 %kshp, ptr %dshp")
     (emitLine cg "  %dst = add i64 %dstbase, 16")
     (emitLine cg "  br label %loop")
     (emitLine cg "loop:")
@@ -3950,9 +4018,7 @@
             (memSetWord cg 14 0)
             cg
           }
-          (zeroFloat (emitConstructor (nodeA node) args (eKind entry)
-                                      (eArity entry) (eTag entry)
-                                      (eRep entry) cg))))))
+          (zeroFloat (emitConstructor (nodeA node) args entry cg))))))
 
 ; `(set base.field v)`: the base evaluates once, the field resolves as
 ; a read does, and the value is stored at its offset. The whole form
@@ -4146,7 +4212,7 @@
                     ; A bare nullary constructor: an immediate tag for
                     ; an all-nullary type, a fresh one-word block
                     ; otherwise - the same split construction makes.
-                    (zeroFloat (emitConstructor name vecNew (eKind entry) 0 (eTag entry) (eRep entry) cg))
+                    (zeroFloat (emitConstructor name vecNew entry cg))
                     (let ((z 0))
                       {
                         (memSetWord cg 2 (constStr z))
@@ -4423,7 +4489,7 @@
                               (== (vecLen args) (vecLen (memGetWord cg 28))))))
                   (emitTailJump args cg)
                   (emitOverApplied fnName args cg))
-              (zeroFloat (emitConstructor fnName args (eKind entry) (eArity entry) (eTag entry) (eRep entry) cg))))))))))))))
+              (zeroFloat (emitConstructor fnName args entry cg))))))))))))))
 
 (pub :: isLocalValue (-> Int String Bool))
 (pub fn (isLocalValue cg name)
@@ -5326,10 +5392,143 @@
                     }))))))))
 
 ; ------------------------------------------------------------------
-; Constructor emission: alloc + field stores.
+; MM-LIFE-2d, monomorphic half: the reference map is computed at
+; COMPILE time from the declared field types and stored into the
+; shape word at each construction site. A field is a REFERENCE iff
+; its declared type guarantees the word at run time is an immediate,
+; a static, or a pointer to a counted block - String, a declared
+; data or struct type, a tuple, an arrow. Scalars (Int, Float, Bool,
+; Char, the fixed-width family) never enter the map: an Int can hold
+; any bit pattern, and @axiom_release dereferencing one past the
+; immediates guard is the wild read this classification exists to
+; make impossible. Anything UNCLASSIFIABLE - a type variable, a Ptr,
+; an alias, a qualified spelling - forces the whole block to the
+; LEAF (empty map): under-reclaiming leaks, a wrong bit
+; use-after-frees, and only one of those is survivable.
 ; ------------------------------------------------------------------
-(pub :: emitConstructor (-> String Int Int Int Int Int Int Int))
-(pub fn (emitConstructor fnName args kind arity ctorTag rep cg)
+(pub :: scalarTyName (-> String Int))
+(pub fn (scalarTyName n)
+  (if (|| (strEq n "Int")
+      (|| (strEq n "Bool")
+      (|| (strEq n "Char")
+      (|| (strEq n "Float")
+      (|| (strEq n "I8")
+      (|| (strEq n "I16")
+      (|| (strEq n "I32")
+      (|| (strEq n "I64")
+      (|| (strEq n "U8")
+      (|| (strEq n "U16")
+      (|| (strEq n "U32")
+      (|| (strEq n "U64")
+      (|| (strEq n "F32") (strEq n "F64"))))))))))))))
+      1 0))
+
+(pub :: dataTyKnown (-> Int String Int Int))
+(pub fn (dataTyKnown names n i)
+  (if (>= i (vecLen names))
+      0
+      (if (strEq (cast String (vecGet names i)) n)
+          1
+          (dataTyKnown names n (+ i 1)))))
+
+; 0 = machine scalar, 2 = reference, 1 = unclassifiable (forces leaf)
+(pub :: fldClass (-> Int Int Int))
+(pub fn (fldClass cg tn)
+  (if (== tn 0)
+      1
+      (let ((tg (nodeTag tn)))
+        (if (== tg TAG_T_ARR)
+            2
+        (if (== tg TAG_T_TUP)
+            (if (== (vecLen (nodeA tn)) 0) 0 2)
+        (if (== tg TAG_T_CON)
+            (let ((n (cast String (nodeA tn))))
+              (if (== (scalarTyName n) 1)
+                  0
+              (if (strEq n "String")
+                  2
+              (if (== (dataTyKnown (memGetWord cg 35) n 0) 1)
+                  2
+                  (let ((e (lookupType (memGetWord cg 3) n)))
+                    (if (if (== e 0) false (== (eKind e) TF_STRUCT)) 2 1))))))
+            1))))))
+
+; The PADDED payload word count - THE one count convention
+; (docs/memory-model.md MM-LIFE-2d): ((words*8)+15 & -16)/8, always
+; even; the size class is count >> 1, exactly the allocator's
+; `lshr %sz0, 4`; a dead block files iff 0 < count <= 128.
+(pub :: paddedWords (-> Int Int))
+(pub fn (paddedWords w) (* (/ (+ (* w 8) 15) 16) 2))
+
+(pub :: pow2 (-> Int Int))
+(pub fn (pow2 k) (if (<= k 0) 1 (* 2 (pow2 (- k 1)))))
+
+; The reference bitmap already shifted to bits 16.., or -1 when any
+; field is unclassifiable. Bit 16+i covers BLOCK word i, so a data
+; cell's fields sit at base 1 (word 0 is the tag, never mapped) and
+; a struct's at base 0. Word 47 would be bit 63 - the sign bit - so
+; the map's capacity is 47 words and AX3029 refuses wider blocks
+; before emission; every shape constant stays non-negative, which is
+; what keeps `fmtInt` honest about it.
+(pub :: shapeBits (-> Int Int Int Int Int Int))
+(pub fn (shapeBits cg ftys isStruct base i)
+  (if (>= i (vecLen ftys))
+      0
+      (let ((tn (if (== isStruct 1) (nodeTy (vecGet ftys i)) (vecGet ftys i))))
+        (let ((c (fldClass cg tn))
+              (rest (shapeBits cg ftys isStruct base (+ i 1))))
+          (if (|| (== c 1) (== rest (- 0 1)))
+              (- 0 1)
+              (+ rest (if (== c 2) (pow2 (+ 16 (+ base i))) 0)))))))
+
+(pub :: ctorShapeConst (-> Int Int Int))
+(pub fn (ctorShapeConst cg entry)
+  (let ((kind (eKind entry))
+        (arity (eArity entry)))
+    (let ((words (if (== kind TF_DATA) (+ arity 1) arity)))
+      (let ((cnt (paddedWords words))
+            (ftys (if (== kind TF_DATA) (eFieldTys entry) (eFieldFlags entry)))
+            (base (if (== kind TF_DATA) 1 0))
+            (isStruct (if (== kind TF_DATA) 0 1)))
+        (let ((bits (if (> words 47)
+                        (- 0 1)
+                        (if (== ftys 0)
+                            (if (== arity 0) 0 (- 0 1))
+                            (shapeBits cg ftys isStruct base 0)))))
+          (+ (* cnt 2) (if (== bits (- 0 1)) 0 bits)))))))
+
+; The site's shape store - the third writer beside the allocator's
+; leaf and the keep helper's re-stamp. The -8 is a literal in the
+; instruction text: a GEP index of -1 would pass through `fmtInt`,
+; which renders negatives wrong (the tag counter's `/` lesson).
+(pub :: storeShapeAt (-> Int String Int Int))
+(pub fn (storeShapeAt cg base shape)
+  (let ((sn (allocReg cg)))
+    (let ((sr (regStr sn)))
+      (let ((cg1 (emitLine cg (cat4 (cat2 "  " sr)
+                                    " = add i64 "
+                                    base
+                                    ", -8"))))
+        (let ((pn (allocReg cg1)))
+          (let ((pr (regStr pn)))
+            (let ((cg2 (emitLine cg1 (cat4 (cat2 "  " pr)
+                                           " = inttoptr i64 "
+                                           sr
+                                           " to ptr"))))
+              (emitLine cg2 (cat4 "  store i64 "
+                                  (constStr shape)
+                                  ", ptr "
+                                  pr)))))))))
+
+; ------------------------------------------------------------------
+; Constructor emission: alloc + shape + field stores.
+; ------------------------------------------------------------------
+(pub :: emitConstructor (-> String Int Int Int Int))
+(pub fn (emitConstructor fnName args entry cg)
+  (let ((kind (eKind entry))
+        (arity (eArity entry))
+        (ctorTag (eTag entry))
+        (rep (eRep entry)))
   ; A nullary constructor of any type that unboxes (all-nullary OR
   ; mixed) is its immediate tag - stage0's S1 representation. The
   ; match sites carry the matching discipline: direct compare when
@@ -5355,15 +5554,21 @@
                                        " = call i64 @axiom_alloc(i64 "
                                        (cat2 (constStr size) ")"))))
                   (let ((cg1 (emitLine cg allocInst)))
-                    (let ((cg2 (if (== kind TF_DATA)
-                                   (storeWordAt cg1 ptr 0 (constStr ctorTag))
-                                   cg1)))
-                      (let ((base (if (== kind TF_DATA) 1 0)))
-                        (let ((cg3 (emitFieldStores cg2 ptr args 0 base)))
-                          {
-                            (memSetWord cg3 2 ptr)
-                            cg3
-                          })))))))))))
+                    ; the allocator stamped the LEAF inside the call;
+                    ; this store overwrites it with the site's record
+                    ; shape - one redundant word store per
+                    ; construction, the price of a site-agnostic
+                    ; allocator
+                    (let ((cgS (storeShapeAt cg1 ptr (ctorShapeConst cg1 entry))))
+                      (let ((cg2 (if (== kind TF_DATA)
+                                     (storeWordAt cgS ptr 0 (constStr ctorTag))
+                                     cgS)))
+                        (let ((base (if (== kind TF_DATA) 1 0)))
+                          (let ((cg3 (emitFieldStores cg2 ptr args 0 base)))
+                            {
+                              (memSetWord cg3 2 ptr)
+                              cg3
+                            })))))))))))))
 
 ; Store `val` at word `idx` of the block whose address is in `base`.
 ; An `inttoptr` folded into the `getelementptr` operand would be a

@@ -1,0 +1,154 @@
+; exit 255 (see .exit)
+; MM-LIFE-2d, the monomorphic half - the shape word carries a
+; reference map computed from DECLARED field types, and a dead
+; block's map is walked before it files. Eight probes, one bit each:
+;
+;   128  a (PSD String Int) cell's shape reads record form, padded
+;        count 4, and ONE map bit - word 1, the String; the tag word
+;        and the Int are not in the map (131072 + 8)
+;    64  releasing the pair released the string it held: the count a
+;        double __retain raised to 2 reads 1 after the wrapper dies,
+;        on a still-live block - no word the slab push repurposes
+;    32  a type-variable field forces the LEAF: (BoxOne a) reads
+;        count 2 and an empty map, because a map bit the types
+;        cannot justify would be a use-after-free, not a leak
+;    16  a struct maps word 0 when its first field is a String and
+;        skips its Int (65536 + 4)
+;     8  reuse by the SITE's count: the dead pair filed under
+;        class count>>1, and a 17-byte request - padded to the same
+;        32 bytes by the ALLOCATOR's arithmetic - gets its block
+;        back; the two writers share one convention or this fails
+;     4  the walk is transitive through two cells: wrapper -> pair
+;        -> string, @axiom_release calling itself
+;     2  a payload past 32767 words overflows the count field and
+;        the allocator stamps the 0 sentinel instead of a wrong size
+;     1  a LITERAL in a mapped field: the walk hands the static to
+;        release, whose sentinel guard leaves the all-ones count
+;        untouched - the map does not exempt statics, the callee does
+;
+; The unfixed compiler answers 9: its shape word is the raw padded
+; byte size (probe 8 passes because both conventions agree on the
+; class of a 32-byte block; probe 1 passes only here), and it has no
+; walk at all.
+(import Str)
+
+(data PairSD
+  (PSD String Int))
+
+(data BoxT
+  (BoxOne a))
+
+(data WrapD
+  (WrapP PairSD))
+
+(struct STwo
+  (a : String)
+  (b : Int))
+
+(:: b2i (-> Bool Int))
+
+(fn (b2i x)
+  (if x
+    1
+    0
+  )
+)
+
+(:: main Int)
+
+(fn (main)
+  (let (
+    (s (strDup "arc"))
+    (mut acc 0)
+  )
+    {
+      (__retain
+        (cast Int s)
+      )
+      (__retain
+        (cast Int s)
+      )
+      (let ((p 
+        (cast Int (PSD s 7))
+      ))
+        {
+          (set acc (+ acc (* 128 (b2i (== (__load64 (- p 16) 1) 131080)))))
+          (__retain p)
+          (__release p)
+          (set acc (+
+            acc            (*
+              64              (b2i
+                (==
+                  (__load64
+                    (-
+                      (cast Int s)                      16
+                    )                    0
+                  )                  1
+                )
+              )
+            )
+          ))
+          (let ((b 
+            (cast Int (BoxOne 5))
+          ))
+            (set acc (+ acc (* 32 (b2i (== (__load64 (- b 16) 1) 4)))))
+          )
+          (let ((t 
+            (cast Int (struct STwo "hi" 9))
+          ))
+            (set acc (+ acc (* 16 (b2i (== (__load64 (- t 16) 1) 65540)))))
+          )
+          (set acc (+ acc (* 8 (b2i (== (__alloc 17) p)))))
+          (let ((s2 (strDup "x")))
+            {
+              (__retain
+                (cast Int s2)
+              )
+              (let ((p2 
+                (cast Int (PSD s2 3))
+              ))
+                {
+                  (__retain p2)
+                  (let ((w2 
+                    (cast Int (WrapP
+                      (cast PairSD p2)
+                    ))
+                  ))
+                    {
+                      (__retain w2)
+                      (__release w2)
+                      (set acc (+ acc (* 4 (b2i (== (__alloc 17) p2)))))
+                    }
+                  )
+                }
+              )
+            }
+          )
+          (set acc (+ acc (* 2 (b2i (== (__load64 (- (__alloc 300000) 16) 1) 0)))))
+          (let ((lit "static"))
+            (let ((p3 
+              (cast Int (PSD lit 1))
+            ))
+              {
+                (__retain p3)
+                (__release p3)
+                (set acc (+
+                  acc                  (b2i
+                    (==
+                      (__load64
+                        (-
+                          (cast Int lit)                          16
+                        )                        0
+                      )                      (- 0 1)
+                    )
+                  )
+                ))
+              }
+            )
+          )
+          acc
+        }
+      )
+    }
+  )
+)

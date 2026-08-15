@@ -1,0 +1,57 @@
+; exit 13 (see .exit)
+; The arena keep helper is MM-LIFE-2d's third shape writer, and it
+; can only stamp the LEAF of its dynamic size - the kept bytes'
+; declared types are gone by run time. Three keeps, three reads:
+;
+;    9  24 kept bytes round to 32: count 4, empty map, form 0 - 8
+;    3  4096 kept bytes: count 512 - 1024
+;    1  a 2 MiB keep overflows the 15-bit count field, and the
+;       helper stamps the 0 sentinel with the allocator's exact
+;       clamp instead of a truncated lie release would misfile by
+;
+; No __release appears here: a keep IS a section-3.3 reset, and
+; release does not compose with resets (MM-LIFE-2e's rule, 2c's
+; refusal obligation).
+;
+; The unfixed compiler answers 0: its keep helper stamped the raw
+; rounded byte size (32, 4096, 2097152), which matches none of the
+; three encodings.
+(:: b2i (-> Bool Int))
+
+(fn (b2i x)
+  (if x
+    1
+    0
+  )
+)
+
+(:: main Int)
+
+(fn (main)
+  (let ((mut acc 0))
+    {
+      (let ((m __axiom_arena_mark))
+        (let ((a (__alloc 24)))
+          (let ((k (__axiom_arena_reset_keeping m a 24)))
+            (set acc (+ acc (* 9 (b2i (== (__load64 (- k 16) 1) 8)))))
+          )
+        )
+      )
+      (let ((m2 __axiom_arena_mark))
+        (let ((a2 (__alloc 4096)))
+          (let ((k2 (__axiom_arena_reset_keeping m2 a2 4096)))
+            (set acc (+ acc (* 3 (b2i (== (__load64 (- k2 16) 1) 1024)))))
+          )
+        )
+      )
+      (let ((m3 __axiom_arena_mark))
+        (let ((a3 (__alloc 2097152)))
+          (let ((k3 (__axiom_arena_reset_keeping m3 a3 2097152)))
+            (set acc (+ acc (b2i (== (__load64 (- k3 16) 1) 0))))
+          )
+        )
+      )
+      acc
+    }
+  )
+)

@@ -42,6 +42,7 @@
   [93mAX3026[0m  a name the emitted runtime owns  (reserved-runtime-name)
   [93mAX3027[0m  a declaration-macro invocation the expander cannot resolve  (declaration-macro)
   [93mAX3028[0m  a syntax/* query with no answer  (syntax-query)
+  [93mAX3029[0m  a declaration too wide for the reference map  (record-bitmap-capacity)
   [93mAX4001[0m  no `main` function  (missing-main)
   [93mAX4002[0m  code generation failed  (codegen-failure)
   [93mAX4003[0m  external toolchain command failed  (toolchain-failure)
@@ -543,6 +544,33 @@ covers every way a query has no answer:
 
 See docs/macro-system.md MAC-CAP-5 and MAC-CAP-6.
 
+### explain AX3029
+AX3029 - a declaration too wide for the reference map
+
+Every heap block born of `axiom_alloc` carries a 16-byte header,
+and the header's shape word packs three fields: the form bit, the
+block's padded payload word count, and - for the record form - one
+bit per payload word saying whether that word is a REFERENCE the
+release path must follow (docs/memory-model.md MM-LIFE-2d). Bits
+16..62 carry the map; bit 63 is the i64 sign bit, reserved so every
+shape constant the compiler emits is non-negative. That gives 47
+mappable payload words: a struct may declare 47 fields, and a data
+constructor 46 beside its tag word.
+
+A declaration past the cliff is REFUSED at check time rather than
+truncated at run time - a map that silently dropped its widest
+field would free everything it named and leak the one it could
+not. The largest declaration in this repository, the 36-field CG
+record in the compiler's own code generator, fits with a quarter
+of the map to spare; the cliff is far from real programs.
+
+The escape hatch is structural: split the declaration. A nested
+struct or constructor cell is ONE word of the outer block - the
+walk follows the pointer, and the inner block carries its own map -
+so any record too wide for one map becomes two that fit.
+
+See docs/memory-model.md MM-LIFE-2d.
+
 ### explain AX4001
 AX4001 - no `main` function
 
@@ -647,6 +675,7 @@ run `axiom explain --list` to see all known codes
   [93mAX3026[0m  a name the emitted runtime owns  (reserved-runtime-name)
   [93mAX3027[0m  a declaration-macro invocation the expander cannot resolve  (declaration-macro)
   [93mAX3028[0m  a syntax/* query with no answer  (syntax-query)
+  [93mAX3029[0m  a declaration too wide for the reference map  (record-bitmap-capacity)
   [93mAX4001[0m  no `main` function  (missing-main)
   [93mAX4002[0m  code generation failed  (codegen-failure)
   [93mAX4003[0m  external toolchain command failed  (toolchain-failure)

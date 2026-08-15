@@ -1179,6 +1179,40 @@
 ; (name, module) key spelled as one string. A later signature for the
 ; same name overwrites (stage0 1905).
 ; ------------------------------------------------------------------
+; MM-LIFE-2d's capacity cliff, constructor half: a cell's payload is
+; the tag word plus the fields, the shape word's reference map covers
+; payload words 0..46 (bit 63 is the i64 sign bit, reserved by
+; construction), so a constructor may declare at most 46 fields.
+; Refusing at the declaration is the whole point - a map that
+; silently dropped a field would free what it named and leak what it
+; could not, which is the quiet wrongness a diagnostic exists to
+; prevent.
+(pub :: checkCtorWidths (-> Int Int Int))
+(pub fn (checkCtorWidths tc ctors)
+  (let ((mut i 0))
+    {
+      (while (< i (vecLen ctors))
+        {
+          (let ((c (vecGet ctors i)))
+            (if (> (nodeB c) 46)
+                (emitDiag tc
+                  (diagSetLabel
+                    (mkDiagNote SEV_ERROR "AX3029" "record-bitmap-capacity"
+                      (nodeSpan c)
+                      (strConcat (strConcat (strConcat
+                        "constructor `" (cast String (nodeA c)))
+                        "` has ") (strConcat (decStr (nodeB c))
+                        " fields, and a cell's reference map covers 46 beside the tag word"))
+                      0 0
+                      "split the declaration: a nested struct or constructor cell is ONE word of the outer block, and every block carries its own map"
+                      "the shape word packs one bit per payload word - is this word a reference the release path must follow - beside the form bit and the word count; bits 16..62 give 47 mappable words, the tag takes the first, and the widest declaration in this repository is the compiler's own 36-field CG record (docs/memory-model.md MM-LIFE-2d)")
+                    "too wide for one reference map"))
+                0))
+          (set i (+ i 1))
+        })
+      0
+    }))
+
 (pub :: tcCollect (-> Int Int Int Int))
 (pub fn (tcCollect tc decls i)
   (if (>= i (vecLen decls))
@@ -1202,10 +1236,37 @@
                   "iteration is an expansion-time facility: move these declarations into a rule-form macro's template, or write them by hand"
                   "the query vocabulary is CLOSED and compiler-implemented (macro-system.md MAC-CAP-5/6): every query is answered from the declaration list at expansion time"))
             (if (== tag TAG_D_DATA)
-                (tcCollectData tc d)
+                {
+                  (checkCtorWidths tc (nodeB d))
+                  (tcCollectData tc d)
+                }
             (if (== tag TAG_D_STRUCT)
-                (vecPush (tcStructs tc)
-                         (cast Int (StructEnt (nodeA d) (nodeB d) (nodeModule d))))
+                {
+                  ; MM-LIFE-2d's capacity cliff, struct half: the
+                  ; shape word maps payload words 0..46 (bit 63 is
+                  ; the sign bit, reserved), so a struct block wider
+                  ; than 47 fields cannot describe itself to the
+                  ; release path. Refused here, at declaration, not
+                  ; truncated at run time - a map that dropped its
+                  ; 48th field would free everything it named and
+                  ; leak the one it could not.
+                  (if (> (vecLen (nodeB d)) 47)
+                      (emitDiag tc
+                        (diagSetLabel
+                          (mkDiagNote SEV_ERROR "AX3029" "record-bitmap-capacity"
+                            (nodeSpan d)
+                            (strConcat (strConcat (strConcat
+                              "struct `" (cast String (nodeA d)))
+                              "` has ") (strConcat (decStr (vecLen (nodeB d)))
+                              " fields, and a block's reference map covers 47"))
+                            0 0
+                            "split the declaration: a nested struct or constructor cell is ONE word of the outer block, and every block carries its own map"
+                            "the shape word packs one bit per payload word - is this word a reference the release path must follow - beside the form bit and the word count; bits 16..62 give 47 mappable words, and the widest declaration in this repository is the compiler's own 36-field CG record (docs/memory-model.md MM-LIFE-2d)")
+                          "too wide for one reference map"))
+                      0)
+                  (vecPush (tcStructs tc)
+                           (cast Int (StructEnt (nodeA d) (nodeB d) (nodeModule d))))
+                }
             (if (== tag TAG_D_SIG)
                 (tcCollectSig tc d)
             (if (== tag TAG_D_FN)

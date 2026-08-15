@@ -1,0 +1,21 @@
+[1;31merror[AX3029][0m[1m: struct `Wide` has 48 fields, and a block's reference map covers 47[0m
+ [1;34m--> [0m481-record-bitmap-capacity.ax:8:9
+[1;34m  |[0m
+[1;34m8 |[0m (struct Wide
+[1;34m  |[0m         [1;31m^^^^ too wide for one reference map[0m
+[1;34m  |[0m
+ [1;34m = [0m[1mnote: [0mthe shape word packs one bit per payload word - is this word a reference the release path must follow - beside the form bit and the word count; bits 16..62 give 47 mappable words, and the widest declaration in this repository is the compiler's own 36-field CG record (docs/memory-model.md MM-LIFE-2d)
+ [1;34m = [0m[1;32mhelp: [0msplit the declaration: a nested struct or constructor cell is ONE word of the outer block, and every block carries its own map
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3029` for a full explanation
+
+[1;31merror[AX3029][0m[1m: constructor `WD` has 47 fields, and a cell's reference map covers 46 beside the tag word[0m
+  [1;34m--> [0m481-record-bitmap-capacity.ax:59:4
+[1;34m   |[0m
+[1;34m59 |[0m   (WD Int Int Int Int Int Int Int Int Int Int Int Int Int Int Int Int Int Int Int Int Int Int Int Int Int Int Int Int Int Int Int Int Int Int Int Int Int Int In...
+[1;34m   |[0m    [1;31m^^ too wide for one reference map[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0mthe shape word packs one bit per payload word - is this word a reference the release path must follow - beside the form bit and the word count; bits 16..62 give 47 mappable words, the tag takes the first, and the widest declaration in this repository is the compiler's own 36-field CG record (docs/memory-model.md MM-LIFE-2d)
+  [1;34m = [0m[1;32mhelp: [0msplit the declaration: a nested struct or constructor cell is ONE word of the outer block, and every block carries its own map
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3029` for a full explanation
+
+compilation failed due to 2 previous errors

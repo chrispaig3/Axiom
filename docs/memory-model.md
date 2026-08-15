@@ -1077,12 +1077,14 @@ can be implemented, **the implementation MUST be able to tell a pointer
 from an integer**. It cannot today, for two independent reasons, and
 both are prerequisites rather than details:
 
-1. **No runtime discrimination.** A word carries no tag (`MM-VAL-2`),
-   and — until 2026-08-15 — a heap block no header. `MM-LIFE-2b`'s
-   count/shape header now exists on every allocation path, but the
-   shape word is written by nothing yet (`MM-LIFE-2d`), so a runtime
-   scan still cannot trace fields; roots remain untrackable either
-   way until the ownership events land (`MM-LIFE-2c`).
+1. **No runtime discrimination — PARTLY RESOLVED 2026-08-15.** A word
+   carries no tag (`MM-VAL-2`), but a heap block now knows its own
+   words: `MM-LIFE-2b`'s header exists on every allocation path, and
+   `MM-LIFE-2d`'s monomorphic half writes the shape word's reference
+   map at constructor and struct sites from DECLARED field types, so
+   release walks a dead block's fields transitively. A type variable
+   still hides pointerhood (the evidence word remains P), and roots
+   remain untrackable until the ownership events land (`MM-LIFE-2c`).
 2. **No static discrimination — RESOLVED 2026-08-15.** `String` and
    `Int` were *unified by fiat* in `tyCompat`, the deliberate
    compatibility rule that made `Int` the universal heap-handle type.
@@ -1328,9 +1330,10 @@ literal's all-ones count is read and never written, and a negative
 immediate is skipped by the signed compare). The header is written on
 BOTH allocation paths — `axiom_alloc` and the arena keep helper,
 which the design review caught as a second path the LSP crosses every
-message. The shape word is emitted zero and read by nothing: the
-allocator is not a shape writer, and `MM-LIFE-2d`'s map writer is
-what will own it. This rule amends
+message. The shape word was emitted zero and read by nothing when
+this held; `MM-LIFE-2e` then made the allocator the size writer and
+`MM-LIFE-2d`'s monomorphic slice re-encoded the word and added the
+map writers, as each of those rules records. This rule amends
 `MM-VAL-6` by exactly two words of self-description, and no more — a
 block still does not know its own size or type, only its count and
 which of its words are references.
@@ -1465,8 +1468,34 @@ block of its own, the `Str` header gains a third word naming it, and
 arithmetic rather than by accident, and `MM-LIFE-6`'s obligation
 dissolves.
 
-*Today:* no map exists, no evidence is passed, and the `Str` header is
-two words.
+*The monomorphic half holds since 2026-08-15*
+(`tests/stdlib/352-arc-shape.ax`, 255, and
+`tests/stdlib/353-arc-keep-shape.ax`, 13): the encoding is decided —
+bit 0 the form (0 = record), bits 1..15 the padded payload word
+count, bits 16..62 the record form's reference bitmap over block
+words, uniform block-relative indexing so the walk is form-blind (a
+constructor cell's writer simply never sets bit 0, the tag). Bit 63
+is the i64 sign bit, reserved so every shape constant the compiler
+emits is non-negative — which sets the record capacity at **47
+payload words**, refused past the cliff as `AX3029` at the
+declaration (`tests/diagnostics/481-record-bitmap-capacity.ax`; the
+widest real declaration is the compiler's own 36-field `CG` record).
+Constructor and struct sites whose fields are all classifiable write
+their record shape over the allocator's leaf; a type-variable field,
+a `Ptr`, an alias, or a qualified type spelling forces the whole
+block to the leaf — under-reclaiming is safe, a wrong bit is a
+use-after-free. `@axiom_release`'s dead path walks the map and calls
+itself per set bit (its own guards cover immediates, statics, and
+zero counts), then files the block. The allocator and the arena keep
+helper stamp the LEAF of their dynamic size with a shared clamp: a
+payload past 32767 words stores count 0, the unknown-size sentinel
+release refuses to file.
+
+*Still P:* the evidence word (polymorphic fields), the array form's
+writers and the container buffer migration, closure and evidence
+records' maps, and the `Str` third word — no evidence is passed, and
+the `Str` header is two words, so a released string is header-deep
+today (its byte buffer leaks; `352` says so in its own comment).
 
 **MM-LIFE-2e (P). The release path.** A bump pointer cannot reuse an
 interior free. Release at zero **SHALL** hand the block — header
@@ -1510,9 +1539,12 @@ doubles as the link), and `axiom_alloc` pops before bumping, re-entering
 the same `handout` scrub every landing takes - MM-ALLOC-6's zeroing on
 the same path, measured by the fixture writing garbage before the
 release and reading zero after the reuse. The shape word now carries
-the size half MM-LIFE-2b demanded (the whole word IS the padded byte
-size until `MM-LIFE-2d` packs the map beside it; only release's class
-lookup reads it). What remains of this rule: the large-block policy
+the size half MM-LIFE-2b demanded, and — since `MM-LIFE-2d`'s
+monomorphic slice — the map beside it: bit 0 the form, bits 1..15 the
+padded payload WORD count (the class is count >> 1, one convention at
+every writer; a block files iff 0 < count <= 128), bits 16..62 the
+record form's reference bitmap. Release's class lookup reads the
+count field, and the dead-path walk reads the map. What remains of this rule: the large-block policy
 (blocks above 1024 bytes are not pooled - nothing dies at all until
 `MM-LIFE-2c`'s events, so the policy waits for a measured need), the
 acceptance measurements (the unmanaged column going flat NEEDS the
