@@ -232,11 +232,42 @@ name in head position, as `syntax-rules` does.
 *Today (2026-08-14):* the **rule-list surface exists, with exactly one
 rule, and it is the declaration-macro form** — `MAC-CAP-8` parses
 `(macro name ((name p ...) decl ...))`, the pattern head must repeat
-the macro's name (`AX2001` otherwise), and the parameters are still a
+the macro's name, and the parameters are still a
 flat positional list of distinct identifiers. What this rule still
 specifies beyond that: multiple rules tried in order, non-identifier
 patterns (`MAC-LANG-15`), and ellipsis (`MAC-LANG-16`). A mismatched
 invocation is an arity error, never a fall-through to another rule.
+
+*Two corrections, measured 2026-08-15 by running the example above
+through the compiler rather than reading the parser.*
+
+1. **The head-mismatch refusal is `AX2003`, not `AX2001`.**
+   `parseDeclMacro` calls `pErr`, which carries no expectation, so it
+   renders as a bare `syntax error` — the shape this repository
+   replaced for declaration heads and has not yet replaced here.
+2. **The multi-rule example in this section does not mean what it
+   shows, and would not even if the rule loop existed.** As written it
+   is `AX2003` at the second rule's `(` — there is no loop. Reduced to
+   one rule it *parses*, and becomes a **declaration** macro whose
+   template is one form headed by `if`; invoking it in expression
+   position is then `AX3027`, "declaration macro `when` invoked in
+   expression position". The rule-list form's template is
+   declarations, and `(if test body 0)` in a template is read as a
+   nested declaration-macro invocation of `if`.
+
+   So multi-rule cannot simply be "add a loop": the rule form and the
+   head-list form differ in what a template *is*, and this section's
+   example silently assumes they do not. Deciding it by the template's
+   head is not sound either — a declaration template's first form is
+   legitimately a nested invocation (`372-decl-macro.ax`'s `defPair`
+   generates two), so "not a declaration keyword" would misread it as
+   an expression. **What multi-rule needs first is a decision about
+   which form carries rules**, and this specification does not yet
+   make one; it is recorded here as a hole rather than left for the
+   implementation to discover. The unambiguous half — multiple rules
+   over DECLARATION templates, selected by arity — is implementable
+   today and is what `MAC-LANG-14` should be read as specifying until
+   the question above is answered.
 
 **MAC-LANG-14a (P, prerequisite).** **Patterns are not a distinct
 syntactic category today**, and a pattern-macro design must say what it
@@ -1856,6 +1887,24 @@ rather than the value alone.
    module-side INVOCATION limit (`MAC-EXP-16`'s, a MAC-CAP-8 item,
    not a query one).
 5. **`MAC-LANG-14`–`MAC-LANG-18`** — rules, patterns and ellipsis. The
-   largest surface change, touching three implementations of the token
-   set, and the one that should land last because the others do not
-   depend on it.
+   largest surface change and the one that should land last, because
+   the others do not depend on it. Three notes from probing it on
+   2026-08-15 rather than reading it:
+
+   - it touches **four** implementations of the token set, not three —
+     `self_host/lexer.ax`, `self_host/format.ax`'s own `FT_*` kinds,
+     `tree-sitter-axiom/`'s `grammar.js` **and** `src/scanner.c`, and
+     `tests/fmt/verify-fmt.py`. `MAC-LANG-16`'s own table already
+     enumerates four; this list said three.
+   - the ellipsis is blocked on a byte, not a design: `.` is `TK_DOT`
+     and never an identifier character, so `(macro (m x ...) …)` is
+     `AX2001 expected identifier, found '.'` today. Making `.` gluable
+     is not a local change — it is also the gensym separator
+     `MAC-HYG-3` relies on being unspellable, and the emitted
+     `%__evw.h` / `%__scr.h` registers depend on the same
+     unspellability with no reserved-name diagnostic behind them.
+   - **`MAC-LANG-14` is not ready to implement as written.** Its own
+     example does not parse, and the reduced form means something
+     else; §1.5 now records the measurement and names the decision the
+     spec has to make first. Multi-rule over DECLARATION templates,
+     selected by arity, is the half that is unambiguous today.

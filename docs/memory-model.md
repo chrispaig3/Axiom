@@ -1470,7 +1470,44 @@ containers (~40-55 let-bound sites, 5 of 141 TCO functions, ~45
 statement-position stash calls, measured 2026-08-15), and a slot-
 exit or boundary release over those shapes is a use-after-free, not
 a leak. They land with the container element maps and the checker's
-binder-class stamps. Closure capture
+binder-class stamps.
+
+**"Count-invisible" is two numbers, and they are the whole blocker**
+(both probed 2026-08-15 against the tree at that commit). A `String`
+whose header count reads 0, pushed into a `Vec` and interned into an
+`Intern`, reads **0 after both**: the containers take no share,
+because they store through `memSetWord` and the checker sees a
+machine word. The same string stored into a struct field reads **0**
+through a field declared `Int` and **1** through a field declared
+`String` - the declared type is the entire difference, because
+`fldClass` is what decides whether the site emits a retain at all.
+
+`ASTNode` declares all ten of its fields `Int`, and `Vec`, `Map` and
+`Intern` store their elements through `memSetWord`. Every reference
+this compiler holds in its own data structures is therefore in the
+first column.
+
+That is why **event 4 cannot ship even though its arithmetic
+balances**, and it is worth writing out because the balance argument
+is seductive. Entry retains a reference parameter and the boundary
+releases it, which is balanced *for the parameter*. But the value an
+iteration is about to drop reached count 1 only through that entry
+retain, so the boundary release takes it to 0 and files the block -
+and if any iteration stashed it in a `Vec`, an `Intern`, or an
+`Int`-declared field, that stash is now a pointer into a block on a
+size-class free list, which `axiom_alloc` pops before bumping. The
+next allocation of that size hands the same bytes to someone else.
+Under-reclaiming leaks; this frees early, and the two are not
+symmetric.
+
+The prerequisite is therefore **not more ownership machinery**. It is
+that the containers and the AST carry types the checker can see - the
+campaign `MM-ALLOC-20` ran for `String` against `Int`, applied to
+`Vec`, `Map` and `ASTNode`. That is the next slice, and it is a
+campaign rather than a rung: `Vec`'s handle is `Int` in every
+signature it has, and so is every AST node word.
+
+Closure capture
 words are stored UNRETAINED until closure records carry maps: a
 retain no walk can return is a permanent leak, and the
 closure-outlives-frame dangle stays a recorded program obligation
@@ -1480,7 +1517,10 @@ when its map landed and its retains became legal
 (`MM-LIFE-2d`, `tests/stdlib/360-arc-evidence-map.ax`). The §3.3 primitives remain LEGAL through this interim -
 ARC has not landed until the acceptance measurements pass, and
 until then the arenas remain the only whole-program reclamation
-there is; the refusal ships with the container rung. Composing the
+there is. An earlier revision of this sentence said the refusal
+"ships with the container rung"; that was a schedule written before
+the measurement, and `MM-LIFE-2e` now records what the measurement
+says instead. Composing the
 two in the meantime is guarded at the runtime: an arena reset
 scrubs the slab heads first, because a release-to-zero inside an
 arena extent files a block the reset would otherwise leave dangling
@@ -1690,12 +1730,54 @@ someone else's block. When ARC lands, `__axiom_arena_mark`,
 refused under it with a diagnostic; until it lands they remain the only
 reclamation there is, and every rule in §3.3 stays load-bearing.
 
-The acceptance measurement is already written, twice. The *unmanaged*
-column of `scripts/measure-memory-baseline.sh` — ~16 KiB per generation,
-forever (§11.1) — **MUST** go flat with no bracket in the source, and
-`scripts/check-lsp-selfhost.sh`'s 200-edit session **MUST** hold its
-~6.8 MB with the explicit boundary removed, which is exactly the
-ablation that gate already knows how to run.
+**The acceptance measurement is written twice, and on 2026-08-15 both
+halves were run rather than quoted.** Neither passes, and the reason
+is the same one in both — which is what makes it a prerequisite rather
+than a schedule.
+
+*The unmanaged column* of `scripts/measure-memory-baseline.sh` **MUST**
+go flat with no bracket in the source. It reads **33,568 KiB at 2000
+generations — 16 KiB per generation**, unchanged. It cannot move under
+this strategy as the probe is written: `advance` is declared
+`(-> Int Int Int)` and the board it carries is a `Vec`, whose handle
+is an `Int` in every signature `stdlib/Vec.ax` has. A type-directed
+ownership event can never fire on it. The measurement is not failing
+because the events are missing; it is unreachable until container
+handles carry a type the checker can see.
+
+*The LSP's 200-edit session* **MUST** hold flat with the explicit
+boundary removed. An earlier revision of this paragraph said that was
+"exactly the ablation that gate already knows how to run" — **false,
+and now corrected**: `scripts/check-lsp-selfhost.sh`'s six ablations
+are LSP-correctness drills that patch `lspChar`, `lspSeverity`,
+`lspSymKind` and the publish loop, and not one of them touches the
+arena boundary at `lsp.ax`'s `__axiom_arena_mark` / 
+`__axiom_arena_reset_keeping` pair. Run by hand, replacing the reset
+with a pass-through of the same snapshot and rebuilding the server:
+
+| server | 5 edits | 200 edits | per edit |
+|---|---|---|---|
+| boundary intact | 1968 KiB | 2128 KiB | **840 bytes** |
+| boundary removed | 2656 KiB | 39,440 KiB | **193,163 bytes** |
+
+The gate's ceiling is 2048 KiB over those 195 edits. The
+boundary-removed session misses it by a factor of eighteen, and the
+per-edit figure is 230× the bracketed one. **The LSP's flatness is the
+arena boundary's doing, entirely**, and what the boundary is
+reclaiming is per-message AST garbage — the class `MM-LIFE-2c`'s two
+probes show counting cannot see, because `ASTNode` declares all ten of
+its fields `Int`.
+
+**The consequence for the §3.3 refusal, stated as a decision rather
+than left implicit: it does not ship yet, and shipping it on schedule
+would be a regression.** Refusing `__axiom_arena_mark` and its pair
+today takes the language server from 840 bytes per edit to 193 KB per
+edit, because nothing else reclaims what it reclaims. The refusal is
+gated on the acceptance measurements, exactly as this rule already
+says; what the measurements are gated on is the container-and-AST
+typing campaign above, not on the ownership events. Recording the
+order that way is the point — the rung that looked next is not the one
+that unblocks this.
 
 One allocation class the events of `MM-LIFE-2c` deliberately do not
 reach: the emitter's own one-word cells — a `match`'s result cell, a
@@ -2433,6 +2515,19 @@ drifted and how it was caught.*
    `MM-ALLOC-13` discharge it. The remaining prerequisite is
    `MM-ALLOC-20`'s pointer discrimination, static and runtime halves
    both (`MM-LIFE-2d`).
+4. **The prerequisite is narrower than "pointer discrimination", and
+   naming it precisely is the 2026-08-15 correction.** Both halves of
+   `MM-ALLOC-20` are built — the fiat is deleted and the evidence word
+   answers a type variable at run time — and the ownership events
+   still cannot ship, because what they need is not a compiler that
+   *can* tell a pointer from an integer but a corpus that *tells it*.
+   `ASTNode` declares all ten of its fields `Int`; `Vec`, `Map` and
+   `Intern` store elements through `memSetWord`; so the compiler's own
+   data structures are invisible to counting by declaration, not by
+   limitation. Two probes measure it and `MM-LIFE-2c` records them.
+   The next slice is a typing campaign over the containers and the
+   AST, of the same shape as the one that deleted the `String`/`Int`
+   fiat — not another ownership rung.
 
 **To [v1-roadmap.md §4.4](v1-roadmap.md):** the "seven process-wide
 mutable globals" are the five allocator words plus argc/argv, not the
