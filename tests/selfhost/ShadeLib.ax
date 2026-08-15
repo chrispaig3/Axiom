@@ -1,0 +1,11 @@
+; The module half of fixture 379: a PUBLIC data type an entry file
+; imports and derives over. Public is load-bearing - the query
+; answers what an entry-file reference could name, and 550 pins the
+; private refusal.
+(pub data Shade
+  (Lite)
+  (Dark))
+
+(pub :: shadeTouch Int)
+
+(pub fn (shadeTouch) 1)

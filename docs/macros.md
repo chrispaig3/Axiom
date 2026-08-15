@@ -21,9 +21,12 @@ the same day were never expanded at all: `check` passed and the build
 died in `opt` blaming the toolchain
 ([macro-system.md](macro-system.md) `MAC-EXP-3a`, pinned by
 `tests/selfhost/367-macro-in-impl.ax`, 93 where the unfixed compiler
-exits 4). Declaration-level macros, repetition patterns
-and `derive` do not exist. Section 5 is the list, and section 6 is why
-the order is what it is.
+exits 4). Declaration macros, the syntax/* query vocabulary, and
+`derive` — shipped in `stdlib/Pre.ax`, with the spec's worked
+examples running verbatim as fixtures 374-379 — all landed on
+2026-08-14, across seven commits. Multi-rule patterns and repetition
+do not exist. Section 5 is the list, and section 6 is why the order
+is what it is.
 
 ---
 
@@ -52,11 +55,12 @@ with each parameter reference replaced by that argument's syntax tree.
 An expression macro expands in expression position only, a declaration
 macro in declaration position only; either crossing is `AX3027`
 (`tests/diagnostics/505-decl-macro-positions.ax`). A declaration
-template may generate `fn` and `::` declarations and further macro
-invocations — any other declaration kind is `AX3021` at the macro's
-own line — a name-position argument must be a bare identifier, and v1
-invocation is entry-file only
-([macro-system.md](macro-system.md) `MAC-CAP-8` for all three limits).
+template may generate `fn`, `::` and `impl` declarations, further
+macro invocations, and `syntax/for` iterations over them — any other
+declaration kind is `AX3021` at the macro's own line — a
+name-position argument must be a bare identifier, and invocation is
+entry-file only
+([macro-system.md](macro-system.md) `MAC-CAP-8` for the limits).
 Measured: `tests/selfhost/372-decl-macro.ax` (144) and
 `373-decl-macro-types.ax` (10, type-position substitution with the
 float flags recomputed).
@@ -418,7 +422,9 @@ the bank that pins it is `scripts/check-degenerate.sh`, and
   (`tests/selfhost/378-derive-eq-impl.ax`, 30). What does not exist:
   nested `syntax/join` (nested declaration iteration cannot name its
   products), and a `deriveEq` shipped in `stdlib/Pre.ax` (needs
-  module-side types — queries answer entry-file types only in v1).
+  module-side types — LIFTED in the seventh commit: `stdlib/Pre.ax`
+  ships `deriveEq`, and it derives over imported types too,
+  `tests/selfhost/379-derive-imported.ax`).
   The `deriving` clause is REFUSED as of the fifth commit (`AX2004`
   naming the replacement; the formatter poisons rather than rewrites
   — the two grammars refuse together, MAC-CAP-9).
@@ -476,8 +482,10 @@ until the same date.)
    composing) and the `deriving` clause REFUSED the same day - the
    blast radius macro-system.md counted (one zoo file pair,
    reference.md's example) and nothing else. What remains is the
-   *stdlib shipping* of the library, blocked on module-side query
-   subjects.
+   *stdlib shipping* of the library — which landed the same day:
+   `stdlib/Pre.ax` carries `deriveEq`, fixture 379 uses it over an
+   entry-file type and an imported one, and a private subject
+   refuses (fixture 550).
 5. **Repetition patterns** — the boilerplate case. Needs the lexer,
    `format.ax` and the tree-sitter grammar to move together, and flips
    a checked-in refusal golden (`tests/fmt/parity/060-splice-refused`)

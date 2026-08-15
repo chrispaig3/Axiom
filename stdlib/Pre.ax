@@ -17,3 +17,18 @@
 ;; cond3 — three-condition branching plus else
 ;; (cond3 t1 b1 t2 b2 t3 b3 els) -> (if t1 b1 (if t2 b2 (if t3 b3 els)))
 (pub macro (cond3 t1 b1 t2 b2 t3 b3 els) (if t1 b1 (if t2 b2 (if t3 b3 els))))
+
+;; deriveEq — structural equality for a data type, derived at the
+;; point of use: `(deriveEq Color)` generates `eqColor : Color ->
+;; Color -> Bool`, one match arm per constructor, answered from the
+;; declaration list at expansion time (macro-system.md MAC-CAP-5/9).
+;; The nullary form: works for any sum of nullary constructors, which
+;; is the enum case. Fieldful sums want the impl form written where
+;; the Eq trait is in scope — see macro-system.md section 10.2.
+(pub macro deriveEq
+  ((deriveEq T)
+   (:: (syntax/join eq T) (-> T T Bool))
+   (fn ((syntax/join eq T) a b)
+     (match a
+       (syntax/for (C (syntax/constructors T))
+         ((C) (match b ((C) true) (_ false))))))))

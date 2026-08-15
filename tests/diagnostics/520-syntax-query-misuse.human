@@ -25,7 +25,7 @@
 [1;34m   |[0m                       [1;31m^^^^^^^^^^[0m
 [1;34m   |[0m
   [1;34m = [0m[1mnote: [0mthe query vocabulary is CLOSED and compiler-implemented (macro-system.md MAC-CAP-5/6): every query is answered from the declaration list at expansion time, and a query with no answer is this refusal, never a default value
-  [1;34m = [0m[1;32mhelp: [0mthe query reads the declaration list; check the spelling, and declare the type before deriving over it
+  [1;34m = [0m[1;32mhelp: [0mthe query reads the declaration list; check the spelling, and declare (or import) the type before deriving over it
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3028` for a full explanation
 
 compilation failed due to 3 previous errors

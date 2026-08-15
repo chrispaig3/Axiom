@@ -1,0 +1,22 @@
+; Deriving over a PRIVATE type - refused at the invocation (AX3028),
+; not scattered over the generated code as checker errors: a query
+; answers what an entry-file reference could name, the same
+; visibility rule the checker's own lookups apply. The macro is
+; local so the refusal's span lands in THIS file; the stdlib-shipped
+; deriveEq draws the identical refusal from Pre.ax's own line
+; (probed, unpinnable here: a golden may not name a file outside
+; tests/diagnostics, and stdlib's path is the machine's).
+(import PrivShade)
+
+(macro deriveLocalEq ((deriveLocalEq T)
+   (:: (syntax/join eq T) (-> T T Bool))
+   (fn ((syntax/join eq T) a b)
+     (match a
+       (syntax/for (C (syntax/constructors T))
+         ((C) (match b ((C) true) (_ false))))))))
+
+(deriveLocalEq Veiled)
+
+(:: main Int)
+
+(fn (main) privTouch)

@@ -744,8 +744,8 @@
                       "pass a plain name in this argument position"
                       (expMacMod env)))))))))
 
-; `(syntax/fields S)`: the field names of entry-file struct S, in
-; declaration order - the same two-pass shape as expConstructorsOf.
+; `(syntax/fields S)`: the field names of struct S, in declaration
+; order - any visible module's, the same rule as expConstructorsOf.
 (pub :: expFieldsOf (-> Int String Int Int))
 (pub fn (expFieldsOf env s isp)
   (let ((d (expFindDeclNamed env s 1)))
@@ -774,14 +774,14 @@
           (if (!= any 0)
               (expQueryErr env isp
                 (strConcat (strConcat (strConcat "`" s)
-                           "` is declared in module `")
-                           (strConcat (nodeModule any) "`; v1 queries answer entry-file types only"))
-                "declare the type in the entry file, or write the declarations by hand"
+                           "` is private to module `")
+                           (strConcat (nodeModule any) "`"))
+                "a query answers what an entry-file reference could name; mark the struct `pub`, or derive by hand inside its module"
                 (expMacMod env))
               (expQueryErr env isp
                 (strConcat (strConcat "no declaration named `" s)
                            "` for syntax/fields to answer")
-                "the query reads the declaration list; check the spelling, and declare the struct before deriving over it"
+                "the query reads the declaration list; check the spelling, and declare (or import) the struct before deriving over it"
                 (expMacMod env)))))))
 
 ; `(syntax/constructors T)`: the constructor names of entry-file
@@ -816,33 +816,38 @@
           (if (!= any 0)
               (expQueryErr env isp
                 (strConcat (strConcat (strConcat "`" t)
-                           "` is declared in module `")
-                           (strConcat (nodeModule any) "`; v1 queries answer entry-file types only"))
-                "declare the type in the entry file, or write the declarations by hand"
+                           "` is private to module `")
+                           (strConcat (nodeModule any) "`"))
+                "a query answers what an entry-file reference could name; mark the type `pub`, or derive by hand inside its module"
                 (expMacMod env))
               (expQueryErr env isp
                 (strConcat (strConcat "no declaration named `" t)
                            "` for syntax/constructors to answer")
-                "the query reads the declaration list; check the spelling, and declare the type before deriving over it"
+                "the query reads the declaration list; check the spelling, and declare (or import) the type before deriving over it"
                 (expMacMod env)))))))
 
-; Type-namespace lookup for a query subject. entryOnly=1 answers only
-; entry-file declarations (module word 0 or "").
+; Type-namespace lookup for a query subject. visibleOnly=1 answers
+; entry-file declarations and PUBLIC module declarations - the same
+; visibility rule the checker's own `findDataFrom` applies, enforced
+; here so a private type refuses loudly AT THE INVOCATION instead of
+; scattering checker refusals over the generated code. visibleOnly=0
+; finds anything, for the refusal's wording.
 (pub :: expFindDeclNamed (-> Int String Int Int))
-(pub fn (expFindDeclNamed env t entryOnly)
-  (expFindDeclNamedFrom (expDecls env) t entryOnly 0))
+(pub fn (expFindDeclNamed env t visibleOnly)
+  (expFindDeclNamedFrom (expDecls env) t visibleOnly 0))
 
 (pub :: expFindDeclNamedFrom (-> Int String Int Int Int))
-(pub fn (expFindDeclNamedFrom decls t entryOnly i)
+(pub fn (expFindDeclNamedFrom decls t visibleOnly i)
   (if (>= i (vecLen decls))
       0
       (let ((d (vecGet decls i)))
         (if (&& (|| (== (nodeTag d) TAG_D_DATA) (== (nodeTag d) TAG_D_STRUCT))
                 (&& (strEq (nodeA d) t)
-                    (|| (== entryOnly 0)
-                        (== (expModEq (nodeModule d) 0) 1))))
+                    (|| (== visibleOnly 0)
+                        (|| (== (expModEq (nodeModule d) 0) 1)
+                            (== (nodeVis d) 1)))))
             d
-            (expFindDeclNamedFrom decls t entryOnly (+ i 1))))))
+            (expFindDeclNamedFrom decls t visibleOnly (+ i 1))))))
 
 ; The arity of entry-file constructor C - the field count its
 ; declaration carries - or -1 with the refusal emitted. Same two-pass
@@ -855,8 +860,8 @@
         (if (!= (expFindCtorNamed env c 0) 0)
             { (expQueryErr env isp
                 (strConcat (strConcat "`" c)
-                           "` is a constructor of a type declared in an imported module; v1 queries answer entry-file types only")
-                "declare the type in the entry file, or write the declarations by hand"
+                           "` is a constructor of a type its module keeps private")
+                "a query answers what an entry-file reference could name; mark the type `pub`, or derive by hand inside its module"
                 (expMacMod env))
               (- 0 1) }
             { (expQueryErr env isp
@@ -867,22 +872,23 @@
               (- 0 1) }))))
 
 (pub :: expFindCtorNamed (-> Int String Int Int))
-(pub fn (expFindCtorNamed env c entryOnly)
-  (expFindCtorFrom (expDecls env) c entryOnly 0))
+(pub fn (expFindCtorNamed env c visibleOnly)
+  (expFindCtorFrom (expDecls env) c visibleOnly 0))
 
 (pub :: expFindCtorFrom (-> Int String Int Int Int))
-(pub fn (expFindCtorFrom decls c entryOnly i)
+(pub fn (expFindCtorFrom decls c visibleOnly i)
   (if (>= i (vecLen decls))
       0
       (let ((d (vecGet decls i)))
         (if (&& (== (nodeTag d) TAG_D_DATA)
-                (|| (== entryOnly 0)
-                    (== (expModEq (nodeModule d) 0) 1)))
+                (|| (== visibleOnly 0)
+                    (|| (== (expModEq (nodeModule d) 0) 1)
+                        (== (nodeVis d) 1))))
             (let ((k (expFindCtorIn (nodeB d) c 0)))
               (if (!= k 0)
                   k
-                  (expFindCtorFrom decls c entryOnly (+ i 1))))
-            (expFindCtorFrom decls c entryOnly (+ i 1))))))
+                  (expFindCtorFrom decls c visibleOnly (+ i 1))))
+            (expFindCtorFrom decls c visibleOnly (+ i 1))))))
 
 (pub :: expFindCtorIn (-> Int String Int Int))
 (pub fn (expFindCtorIn cs c i)

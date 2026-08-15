@@ -910,9 +910,9 @@ it already holds:
 
 | Query | Status | Answers | Needed by |
 |---|---|---|---|
-| `(syntax/constructors T)` | **H** (v1: entry-file `T`, as a `syntax/for` sequence) | the constructor names of `data` type `T`, in declaration order | `derive` for any sum |
+| `(syntax/constructors T)` | **H** (any type an entry-file reference could name — a private one refuses; as a `syntax/for` sequence) | the constructor names of `data` type `T`, in declaration order | `derive` for any sum |
 | `(syntax/arity C)` | P | the field count of constructor `C` | generated `match` arms |
-| `(syntax/fields S)` | **H** (v1: entry-file `S`, as a `syntax/for` sequence) | the field names of `struct` `S`, in declaration order | lenses, `Eq`, serializers |
+| `(syntax/fields S)` | **H** (any struct an entry-file reference could name — a private one refuses; as a `syntax/for` sequence) | the field names of `struct` `S`, in declaration order | lenses, `Eq`, serializers |
 | `(syntax/name x)` | P | the identifier `x` as a string literal | generated `Show` |
 | `(syntax/join a b)` | **H** (declaration NAME position) | one identifier from two, the second's first letter upcased (`lens` + `Point` → `lensPoint`, `eq` + `Color` → `eqColor`) | naming generated declarations |
 | `(syntax/defined n)` | P | whether `n` names a declaration | conditional derivation |
@@ -1083,10 +1083,19 @@ because a formatter that accepts what `check` refuses is the
 `tests/fmt/parity/070-deriving-refused.axp` and
 `tests/diagnostics/545-deriving-refused.axbad`.
 
-What still separates `derive` from a **stdlib-shipped** library:
-module-side query subjects — a macro in `stdlib/Pre.ax` deriving over
-an entry file's type needs queries to answer across the module
-boundary, and v1 answers entry-file types only.
+**The library SHIPS (2026-08-14, seventh commit): `stdlib/Pre.ax`
+carries `deriveEq`**, invoked like any prelude macro over entry-file
+AND imported types (`tests/selfhost/379-derive-imported.ax`, 30). An
+earlier revision of this paragraph claimed a stdlib macro deriving
+over an entry file's type needed cross-module queries — measured
+false: the subject resolves through the invocation's arguments, and
+the entry-file case always worked. What the seventh commit actually
+lifted was the SUBJECT limit: a query now answers any type an
+entry-file reference could name, with a private type refusing loudly
+at the invocation (`tests/diagnostics/550-derive-private-type.ax`) —
+the same visibility rule the checker's own lookups apply, enforced in
+the query so the refusal is one diagnostic at the right place rather
+than checker errors scattered over generated code.
 
 ---
 
@@ -1678,6 +1687,8 @@ convention; the list, not any one entry, is the argument for gating.
 | `tests/selfhost/377-derive-eq-fieldful.ax` (30) | CAP-5's fieldful rung — binders' deterministic `p#i` spelling through the renamer, fold's parallel zip, the empty fold as the nullary case |
 | `tests/diagnostics/540-syntax-fold-misuse.ax` | fold/binders refusals — zip-length mismatch, unknown constructor, sequence in scalar position, fold arity |
 | `tests/selfhost/378-derive-eq-impl.ax` (30) | CAP-8's impl templates + §10.2's fieldful form verbatim — derived instances COMPOSE through MAC-INT-4 dispatch |
+| `tests/selfhost/379-derive-imported.ax` (30) | CAP-9's shipped library — stdlib/Pre.ax's deriveEq over an entry-file type and an imported one |
+| `tests/diagnostics/550-derive-private-type.ax` | the query visibility rule — a private subject refuses at the invocation, one diagnostic in the right place |
 | `tests/diagnostics/520-syntax-query-misuse.ax` | CAP-6's closure — unknown query, wrong-kind subject, missing subject, all AX3028 |
 | `tests/diagnostics/525-syntax-reserved.axbad` | CAP-6's reservation — syntax/ spellings outside a template, including the one-paren-short near-miss (`.axbad`: the formatter must not learn these shapes) |
 | `tests/diagnostics/485-qualified-private-macro.ax` | LANG-12's `AX3023` route for a qualified private macro |
@@ -1771,8 +1782,11 @@ rather than the value alone.
    that needs it, per `MAC-CAP-6`'s closure rule), the parallel
    `syntax/for` form (fold's parallel form exists; for's does not),
    nested `syntax/join` (nested declaration iteration cannot yet
-   name its products), and module-side query subjects — which are
-   also what a stdlib-shipped `deriveEq` waits on.
+   name its products). Module-side query SUBJECTS landed in the
+   seventh commit — `stdlib/Pre.ax` ships `deriveEq`, and fixture
+   379 derives over an imported type — so what this list still
+   holds is the module-side INVOCATION limit (`MAC-EXP-16`'s, a
+   MAC-CAP-8 item, not a query one).
 5. **`MAC-LANG-14`–`MAC-LANG-18`** — rules, patterns and ellipsis. The
    largest surface change, touching three implementations of the token
    set, and the one that should land last because the others do not

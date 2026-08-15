@@ -1,0 +1,9 @@
+; The module half of 550: a type deliberately NOT `pub`, so deriving
+; over it from the entry file refuses.
+(data Veiled
+  (VA)
+  (VB))
+
+(pub :: privTouch Int)
+
+(pub fn (privTouch) 1)

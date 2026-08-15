@@ -1,0 +1,40 @@
+; expect 30
+; The stdlib-shipped derive, end to end (MAC-CAP-9's library goal,
+; sixth commit of 2026-08-14): `deriveEq` lives in stdlib/Pre.ax and
+; is invoked here like any prelude macro - over an ENTRY-FILE type
+; and over an IMPORTED module's type in one file, because query
+; subjects answer across the module boundary now (any type an
+; entry-file reference could name; a private one refuses, fixture
+; 550).
+;
+; 27 eqShade(Lite,Lite)  - the imported type, derived
+;  9 eqShade(Lite,Dark)  - 0
+;  3 eqColor(Red,Red)    - the entry type, derived by the same macro
+;  1 eqColor(Red,Green)  - 0
+;
+; The unfixed compiler refuses the imported subject with "v1 queries
+; answer entry-file types only", exit 1.
+(import Pre)
+
+(import ShadeLib)
+
+(data Color
+  (Red)
+  (Green))
+
+(deriveEq Shade)
+
+(deriveEq Color)
+
+(:: b2i (-> Bool Int))
+
+(fn (b2i x)
+  (if x
+    1
+    0
+  )
+)
+
+(:: main Int)
+
+(fn (main) (+ (* 27 (b2i (eqShade Lite Lite))) (+ (* 9 (b2i (eqShade Lite Dark))) (+ (* 3 (b2i (eqColor Red Red))) (b2i (eqColor Red Green))))))
