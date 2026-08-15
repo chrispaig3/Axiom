@@ -164,7 +164,7 @@
 (pub :: diagSecCount (-> Int Int)) (pub fn (diagSecCount d) (diagCountAt d 7))
 (pub :: diagSecSpan  (-> Int Int Int))
 (pub fn (diagSecSpan d i) (memGetWord (vecGet (memGetWord d 7) i) 0))
-(pub :: diagSecMsg   (-> Int Int Int))
+(pub :: diagSecMsg   (-> Int Int String))
 (pub fn (diagSecMsg  d i) (memGetWord (vecGet (memGetWord d 7) i) 1))
 
 (pub :: diagNoteCount (-> Int Int)) (pub fn (diagNoteCount d) (diagCountAt d 8))
@@ -378,11 +378,11 @@
 ; concatenating keeps the whole line one linear join (see catStrs); it
 ; is a function rather than a block inside an `if` so the callers below
 ; read as one expression each.
-(pub :: pushQ (-> Int Int String Int))
+(pub :: pushQ (-> Int String String Int))
 (pub fn (pushQ parts pre s)
   { (vecPush parts pre) (vecPush parts (quoteStr s)) 0 })
 
-(pub :: renderDiag (-> Int String Int Int Int))
+(pub :: renderDiag (-> Int String String Int String))
 (pub fn (renderDiag d src file units)
   (let ((parts vecNew))
     {
@@ -406,7 +406,7 @@
       ; AXDL line - `#` is this compiler's field, added so the human
       ; renderer's label has a machine-readable counterpart to be
       ; checked against rather than only a golden.
-      (if (== (diagLabel d) 0) 0 (pushQ parts " #" (diagLabel d)))
+      (if (== (cast Int (diagLabel d)) 0) 0 (pushQ parts " #" (diagLabel d)))
 
       ; Then, in stage0's emission order: related spans, notes, helps,
       ; expansion frames. Each repeats.
@@ -472,11 +472,11 @@
 ; Every diagnostic, one per line, newline-terminated - the whole of
 ; stage0's `render_ai`.
 ; ------------------------------------------------------------------
-(pub :: renderDiags (-> Int String Int Int))
+(pub :: renderDiags (-> Int String String String))
 (pub fn (renderDiags ds src file)
   (renderDiagsFrom ds src file 0 ""))
 
-(pub :: renderDiagsFrom (-> Int String Int Int String Int))
+(pub :: renderDiagsFrom (-> Int String String Int String String))
 (pub fn (renderDiagsFrom ds src file i acc)
   (if (>= i (vecLen ds))
       acc
@@ -487,7 +487,7 @@
 ; source file that contributed declarations - and each diagnostic
 ; names the one its spans index.
 
-(pub :: renderDiagsUnits (-> Int Int Int))
+(pub :: renderDiagsUnits (-> Int Int String))
 (pub fn (renderDiagsUnits ds units)
   ; A linear join rather than the old recursive strConcat fold, whose
   ; peak was measured at 829 MiB RSS for a 2000-diagnostic file - the
@@ -510,7 +510,7 @@
       (catStrs blocks)
     }))
 
-(pub :: renderDiagsUnitsFrom (-> Int Int Int String Int))
+(pub :: renderDiagsUnitsFrom (-> Int Int Int String String))
 (pub fn (renderDiagsUnitsFrom ds units i acc)
   (if (>= i (vecLen ds))
       acc
@@ -531,7 +531,7 @@
 ; file. Rendering is the code that runs when something is already
 ; wrong, which is the worst moment to add an allocation storm.
 ; ------------------------------------------------------------------
-(pub :: catStrs (-> Int Int))
+(pub :: catStrs (-> Int String))
 (pub fn (catStrs v)
   (let ((n (vecLen v)) (mut total 0) (mut i 0))
     {

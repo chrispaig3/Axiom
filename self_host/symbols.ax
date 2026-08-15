@@ -588,7 +588,7 @@
       j
     }))
 
-(pub :: symbolsHumanTable (-> String Int))
+(pub :: symbolsHumanTable (-> String String))
 (pub fn (symbolsHumanTable axsym)
   (let ((n (strLen axsym)) (parts vecNew) (mut i 0))
     {

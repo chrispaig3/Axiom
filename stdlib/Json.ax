@@ -95,7 +95,7 @@
 (pub :: jsonNum (-> Int Int))
 (pub fn (jsonNum n) (jsonMake JNUM n (jsonIntStr n)))
 
-(pub :: jsonStr (-> Int Int))
+(pub :: jsonStr (-> String Int))
 (pub fn (jsonStr s) (jsonMake JSTR s 0))
 
 (pub :: jsonArr Int)
@@ -129,7 +129,7 @@
 (pub fn (jsonNumText v)
   (if (== (jsonTag v) JNUM) (memGetWord v 2) ""))
 
-(pub :: jsonStrVal (-> Int Int))
+(pub :: jsonStrVal (-> Int String))
 (pub fn (jsonStrVal v)
   (if (== (jsonTag v) JSTR) (memGetWord v 1) ""))
 
@@ -172,7 +172,7 @@
 ; the first, matching the usual last-writer-loses reading being avoided
 ; here deliberately - LSP never sends duplicates, and inventing a
 ; replacement policy would be inventing behaviour no test can pin.
-(pub :: jsonObjPut (-> Int Int Int Int))
+(pub :: jsonObjPut (-> Int String Int Int))
 (pub fn (jsonObjPut v k x)
   {
     (if (== (jsonTag v) JOBJ)
@@ -207,7 +207,7 @@
 (pub :: jsonGetInt (-> Int String Int))
 (pub fn (jsonGetInt v key) (jsonInt (jsonGet v key)))
 
-(pub :: jsonGetStr (-> Int String Int))
+(pub :: jsonGetStr (-> Int String String))
 (pub fn (jsonGetStr v key) (jsonStrVal (jsonGet v key)))
 
 ; ------------------------------------------------------------------
@@ -393,7 +393,7 @@
 ; Serialisation
 ; ------------------------------------------------------------------
 
-(pub :: jsonWrite (-> Int Int))
+(pub :: jsonWrite (-> Int String))
 (pub fn (jsonWrite v)
   (let ((pieces vecNew))
     {
@@ -601,7 +601,7 @@
 ; Escapes are decoded into a piece vector rather than a growing
 ; concatenation, and the common case - a string with no escape at all -
 ; takes a single slice and allocates nothing.
-(:: jpString (-> String Int Int))
+(:: jpString (-> String Int String))
 (fn (jpString src c)
   (if (!= (jcPeek src c) 34)
       { (jcFail c) "" }

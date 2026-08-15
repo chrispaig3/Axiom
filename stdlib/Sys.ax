@@ -138,7 +138,7 @@
 ; "path.txt")` resolved to *this* function, which took the `Str`
 ; header's address as a char*, opened garbage, and reported every file
 ; as missing.
-(pub :: sysReadFile (-> Int Int))
+(pub :: sysReadFile (-> Int String))
 (pub fn (sysReadFile path)
   (let ((fd (sysOpenPath path 0)))
     (if (sysFailed fd)

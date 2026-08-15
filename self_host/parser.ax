@@ -3209,7 +3209,7 @@
 ; The trait's own type parameter, or the empty string when it declares
 ; none - a trait with no parameter has nothing to dispatch on.
 
-(pub :: traitTyvar (-> Int Int))
+(pub :: traitTyvar (-> Int String))
 (pub fn (traitTyvar d)
   (if (== (nodeC d) 0)
       ""
@@ -3241,7 +3241,7 @@
 
 ; A type's head NAME, which is what an impl is keyed on.
 
-(pub :: tyHeadName (-> Int Int))
+(pub :: tyHeadName (-> Int String))
 (pub fn (tyHeadName t)
   (if (== t 0)
       ""

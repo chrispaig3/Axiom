@@ -201,7 +201,7 @@
 ; Read one whole message and answer its body. An empty Str means the
 ; stream ended or broke - the caller stops, which is what an LSP does
 ; when its client goes away without saying `exit`.
-(pub :: rpcRead (-> Int Int))
+(pub :: rpcRead (-> Int String))
 ;@axiom:effect(io)
 (pub fn (rpcRead r)
   (let ((mut hdr (- 0 1)) (mut dead 0))

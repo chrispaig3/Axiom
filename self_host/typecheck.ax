@@ -1835,7 +1835,7 @@
 ; type.
 (pub :: tyConKnown (-> Int String Int))
 (pub fn (tyConKnown tc name)
-  (if (!= (typeKeywordCanon name) 0)
+  (if (!= (cast Int (typeKeywordCanon name)) 0)
       1
   (if (strEq name "Linear")
       1
@@ -3555,7 +3555,7 @@
 (pub :: typeNameToType (-> String Int))
 (pub fn (typeNameToType n)
   (let ((canon (typeKeywordCanon n)))
-    (if (!= canon 0)
+    (if (!= (cast Int canon) 0)
         (mkTCon canon vecNew)
         (if (== (lexStartsLower n) 1)
             (mkTVar n)

@@ -937,12 +937,12 @@
 ; live in Axiom source rather than in a table inside the compiler.
 ; Without it the platform module resolves to nothing and every constant
 ; it defines - `sysWrite`, `oRdonly` - is an undefined symbol.
-(pub :: readModuleSrc (-> String Int String Int))
+(pub :: readModuleSrc (-> String Int String a))
 (pub fn (readModuleSrc name tcode entryDir)
   (let ((p (moduleSrcPath name tcode entryDir)))
     (if (== (strLen p) 0)
-        0
-        (sysReadFile (strCStr p)))))
+        (cast a 0)
+        (cast a (sysReadFile (strCStr p))))))
 
 ; The path the suffix ladder resolved, or "". A diagnostic about a
 ; module has to name the FILE, and only the search knows which
@@ -1067,7 +1067,7 @@
   (if (>= i (vecLen dirs))
       ""
       (let ((cand (cat2 (vecGet dirs i) base)))
-        (if (!= (strLen (sysReadFile (strCStr cand))) 0)
+        (if (!= (strLen (cast String (sysReadFile (strCStr cand)))) 0)
             cand
             (searchDirsFor dirs base (+ i 1))))))
 
@@ -1091,7 +1091,10 @@
   (let ((p (tryModulePath stem suffix entryDir)))
     (if (== (strLen p) 0)
         0
-        (sysReadFile (strCStr p)))))
+        ; source-or-0: the empty arm keeps the 0-as-absent contract,
+        ; so the honest String from sysReadFile crosses back with the
+        ; cast (MM-ALLOC-20's optional convention).
+        (cast Int (sysReadFile (strCStr p))))))
 
 ; Everything up to and including the last `/` of a path, or "" when
 ; the path names a file in the working directory.
@@ -1152,8 +1155,8 @@
         (units vecNew))
     {
       (vecPush ds d)
-      (vecPush units (cast Int (CUnit2 "<codegen>" "" 0)))
-      (let ((out (renderDiagsFormat diagFormatFromArgv ds units)))
+      (vecPush units (cast Int (CUnit2 "<codegen>" "" (cast String 0))))
+      (let ((out (cast String (renderDiagsFormat diagFormatFromArgv ds units))))
         (sysWriteFd 2 (strData out) (strLen out)))
       (sysExitWith (if (strEq (firstOperandArg 1) "symbols") 1 3))
       0
@@ -1270,8 +1273,8 @@
         (units vecNew))
     {
       (vecPush ds d)
-      (vecPush units (cast Int (CUnit2 "<import>" "" 0)))
-      (let ((out (renderDiagsFormat diagFormatFromArgv ds units)))
+      (vecPush units (cast Int (CUnit2 "<import>" "" (cast String 0))))
+      (let ((out (cast String (renderDiagsFormat diagFormatFromArgv ds units))))
         (sysWriteFd 2 (strData out) (strLen out)))
       ; Exit 1, stage0's code for this failure. The old 3 had exactly
       ; two consumers, both gates, both updated in this commit; the
@@ -1304,8 +1307,8 @@
       (vecPush ds (if (== lexD 0) (parseErrDiag toks pr src) lexD))
       ; The unit carries the RESOLVED path, not the module name, so the
       ; `-->` line names a file the reader can open.
-      (vecPush units (cast Int (CUnit2 path src 0)))
-      (let ((out (renderDiagsFormat diagFormatFromArgv ds units)))
+      (vecPush units (cast Int (CUnit2 path src (cast String 0))))
+      (let ((out (cast String (renderDiagsFormat diagFormatFromArgv ds units))))
         (sysWriteFd 2 (strData out) (strLen out)))
       (let ((tr (renderFailTrailer 1)))
         (sysWriteFd 2 (strData tr) (strLen tr)))
@@ -1512,7 +1515,7 @@
 (pub fn (resolveImports decls bares fulls tcode entryDir units)
   {
     (recordEntryFns decls bares fulls 0)
-    (resolveDecls decls vecNew vecNew 0 0 bares fulls 0 tcode entryDir units)
+    (resolveDecls decls vecNew vecNew 0 (cast String 0) bares fulls 0 tcode entryDir units)
   })
 
 ; Append every non-import declaration reachable from `decls` onto `acc`,
@@ -1531,7 +1534,7 @@
 ; `acc` and `seen` are threaded rather than rebuilt: `vecPush` mutates in
 ; place and returns the same handle, so both stay stable across the whole
 ; traversal and siblings observe each other's additions.
-(pub :: resolveDecls (-> Int Int Int Int String Int Int Int Int Int Int Int))
+(pub :: resolveDecls (-> Int Int Int Int String Int Int Int Int String Int Int))
 (pub fn (resolveDecls decls acc seen i modName bares fulls filter tcode entryDir units)
   ; Two passes: stage0 partitions a module's imports into
   ; `Module::imports` and resolves ALL of them before any of the
@@ -1549,7 +1552,7 @@
 ; One pass: phase 0 consumes only the `(import ...)` entries (each
 ; imported module resolving BOTH its phases depth-first), phase 1 only
 ; the module's own declarations.
-(pub :: resolveDeclsPhase (-> Int Int Int Int String Int Int Int Int Int Int Int Int))
+(pub :: resolveDeclsPhase (-> Int Int Int Int String Int Int Int Int String Int Int Int))
 (pub fn (resolveDeclsPhase decls acc seen i modName bares fulls filter tcode entryDir units phase)
   (if (>= i (vecLen decls)) acc
       (let ((first (vecGet decls i)))

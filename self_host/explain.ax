@@ -17,13 +17,13 @@
 (import Str)
 
 ; The `--list` text, byte-for-byte stage0's.
-(pub :: explainListText Int)
+(pub :: explainListText String)
 
 (pub fn (explainListText) "Known Axiom diagnostic codes:\n  AX1001  unexpected character  (unexpected-char)\n  AX1002  unterminated string literal  (unterminated-string)\n  AX1003  unterminated character literal  (unterminated-char)\n  AX1004  invalid number literal  (invalid-number-literal)\n  AX1005  invalid escape sequence  (invalid-escape-sequence)\n  AX2001  unexpected token  (unexpected-token)\n  AX2002  unexpected end of file  (unexpected-eof)\n  AX2003  syntax error  (syntax-error)\n  AX2004  removed language construct  (removed-construct)\n  AX2005  nesting too deep  (recursion-limit)\n  AX3001  undefined variable  (undefined-variable)\n  AX3002  undefined type  (undefined-type)\n  AX3003  undefined constructor  (undefined-constructor)\n  AX3004  type mismatch  (type-mismatch)\n  AX3005  non-exhaustive pattern match  (non-exhaustive-match)\n  AX3006  duplicate definition  (duplicate-definition)\n  AX3007  field not found  (field-not-found)\n  AX3008  semantic error  (semantic-error)\n  AX3009  constructor arity mismatch  (constructor-arity-mismatch)\n  AX3010  agent metadata mismatch  (axtag-mismatch)\n  AX3011  effect mismatch  (effect-mismatch)\n  AX3012  cannot assign to an immutable binding  (assign-to-immutable)\n  AX3014  a bare name is defined in more than one imported module  (ambiguous-name)\n  AX3015  a signature with no definition behind it  (missing-definition)\n  AX3013  partial application is not supported  (partial-application)\n  AX3016  a handle list names an effect that is not declared  (unknown-effect)\n  AX3017  an effect-handler shape the compiler does not support yet  (effect-handler-unsupported)\n  AX3018  wrong number of arguments to a macro  (macro-arity)\n  AX3019  macro expansion did not terminate  (macro-recursion-limit)\n  AX3020  a macro declares the same parameter twice  (macro-duplicate-parameter)\n  AX3021  a macro template contains a form the expander cannot substitute into  (macro-template-unsupported)\n  AX3022  a macro parameter used as a `set` target was given an expression  (macro-set-target)\n  AX3023  a name its module does not export  (private-name)\n  AX3024  macro expansion produced more than the limit  (macro-expansion-limit)\n  AX3025  a trait implementation the compiler cannot use  (trait-impl)\n  AX3026  a name the emitted runtime owns  (reserved-runtime-name)\n  AX3027  a declaration-macro invocation the expander cannot resolve  (declaration-macro)\n  AX3028  a syntax/* query with no answer  (syntax-query)\n  AX4001  no `main` function  (missing-main)\n  AX4002  code generation failed  (codegen-failure)\n  AX4003  external toolchain command failed  (toolchain-failure)\n  AX5001  cannot resolve import  (module-not-found)\n")
 
 ; The explanation for a NORMALISED code (digits only), or "" when
 ; the code is unknown.
-(pub :: explainText (-> String Int))
+(pub :: explainText (-> String String))
 
 (pub fn (explainText c)
   (if (strEq c "1001")

@@ -49,7 +49,7 @@
 ; Detected with `intIsMostNegative`, not by comparing against a literal:
 ; the guard here used to read `(== n (- 0 9223372036854775807))`, which
 ; is `MIN + 1` and therefore never true of `MIN` itself.
-(pub :: fmtInt (-> Int Int))
+(pub :: fmtInt (-> Int String))
 (pub fn (fmtInt n)
   (if (intIsMostNegative n)
       "-9223372036854775808"
@@ -58,7 +58,7 @@
           (fmtNat n))))
 
 ; `n` (assumed non-negative) in base 10.
-(:: fmtNat (-> Int Int))
+(:: fmtNat (-> Int String))
 (fn (fmtNat n)
   (let ((width (fmtIntWidth n)))
     (let ((out (strAlloc width)))
@@ -147,7 +147,7 @@
 ; Distinct from `fmtPadLeft`, which pads with spaces: a fractional part
 ; needs `0.05` rather than `0. 5`, so the digits it is missing on the
 ; left are zeros.
-(:: fmtPadZeros (-> Int Int Int))
+(:: fmtPadZeros (-> Int Int String))
 (fn (fmtPadZeros n width)
   (let ((s (fmtNat n))
         (len (strLen s)))
@@ -161,12 +161,12 @@
           }))))
 
 ; `x` with six decimal places.
-(pub :: fmtFloat (-> Float Int))
+(pub :: fmtFloat (-> Float String))
 (pub fn (fmtFloat x)
   (fmtFloatPrec x 6))
 
 ; `x` with `places` decimal places, rounded half away from zero.
-(pub :: fmtFloatPrec (-> Float Int Int))
+(pub :: fmtFloatPrec (-> Float Int String))
 (pub fn (fmtFloatPrec x places)
   (if (< x 0.0)
       (strConcat "-" (fmtFloatAbs (- 0.0 x) places))
@@ -177,7 +177,7 @@
 ; Rounding is applied to the scaled fraction and can carry - `0.999` at
 ; two places is `1.00`, not `0.100` - so the carry is folded back into
 ; the integer part rather than left to overflow the fraction field.
-(:: fmtFloatAbs (-> Float Int Int))
+(:: fmtFloatAbs (-> Float Int String))
 (fn (fmtFloatAbs x places)
   (let ((whole (__floatToInt x))
         (frac (- x (__intToFloat whole)))

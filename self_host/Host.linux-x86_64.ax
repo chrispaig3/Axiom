@@ -2,5 +2,5 @@
 ; See `Host.darwin-aarch64.ax` for why this is a compile-time constant
 ; selected by module resolution rather than a runtime query.
 
-(pub :: hostTarget Int)
+(pub :: hostTarget String)
 (pub fn (hostTarget) "linux-x86_64")

@@ -125,12 +125,12 @@
 ; Doubling on each refill keeps the total copying linear in the file
 ; size. `chunk` is the initial capacity; files smaller than it cost
 ; exactly one allocation and one `read`.
-(:: readAll (-> Int Int Int))
+(:: readAll (-> Int Int String))
 ;@axiom:effect(io)
 (fn (readAll fd chunk)
   (readAllInto fd (strAlloc chunk) 0 chunk))
 
-(:: readAllInto (-> Int String Int Int Int))
+(:: readAllInto (-> Int String Int Int String))
 ;@axiom:effect(io)
 (fn (readAllInto fd buf len cap)
   (if (>= len cap)
@@ -150,7 +150,7 @@
 ; Callers that must distinguish "empty file" from "no such file" should
 ; use `sysOpenPath` directly; this is the convenience form, and it is
 ; the one a compiler driver wants for reading a source file.
-(pub :: readFileLit (-> Int Int))
+(pub :: readFileLit (-> Int String))
 ;@axiom:effect(io)
 (pub fn (readFileLit cstr)
   (let ((fd (sysOpenPath cstr oRdonly)))
@@ -162,7 +162,7 @@
             contents
           }))))
 
-(pub :: readFile (-> String Int))
+(pub :: readFile (-> String String))
 ;@axiom:effect(io)
 (pub fn (readFile path)
   (readFileLit (strCStr path)))

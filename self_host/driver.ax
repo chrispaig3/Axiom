@@ -108,7 +108,7 @@
         (fillArgv v args (+ i 1) n)
       }))
 
-(pub :: argsOf3 (-> Int Int Int Int))
+(pub :: argsOf3 (-> String String String Int))
 (pub fn (argsOf3 a b c)
   (let ((v vecNew))
     { (vecPush v (cast Int a)) (vecPush v (cast Int b)) (vecPush v (cast Int c)) v }))
@@ -193,7 +193,7 @@
         (units vecNew))
     {
       (vecPush ds d)
-      (vecPush units (cast Int (CUnit2 "<toolchain>" "" 0)))
+      (vecPush units (cast Int (CUnit2 "<toolchain>" "" (cast String 0))))
       (let ((out (renderDiagsFormat diagFormatFromArgv ds units)))
         (sysWriteFd 2 (strData out) (strLen out)))
       exitToolFailed

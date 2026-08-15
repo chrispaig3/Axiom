@@ -289,7 +289,7 @@
           true
           (lspSeenFrom seen name (+ i 1)))))
 
-(pub :: lspPreflight (-> Int Int Int Int String))
+(pub :: lspPreflight (-> Int Int String Int String))
 (pub fn (lspPreflight decls tcode entryDir seen)
   (let ((mut i 0) (mut missing ""))
     {
@@ -310,7 +310,7 @@
                               ; module that does not parse is not a
                               ; missing-import failure and is left for
                               ; the checker to report.
-                              (let ((pr (parseModuleWith (lex src) (scanAxtags src))))
+                              (let ((pr (parseModuleWith (lex (cast String src)) (scanAxtags (cast String src)))))
                                 (if (== (memGetWord pr 0) 0)
                                     0
                                     { (set missing

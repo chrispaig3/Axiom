@@ -51,19 +51,19 @@
 ; ------------------------------------------------------------------
 ; The palette. One table; swapping the scheme is editing these lines.
 ; ------------------------------------------------------------------
-(pub :: SGR_ERROR Int) (pub fn (SGR_ERROR) "1;31")  ; bold red
-(pub :: SGR_WARN  Int) (pub fn (SGR_WARN)  "1;33")  ; bold yellow
-(pub :: SGR_TITLE Int) (pub fn (SGR_TITLE) "1")     ; bold
-(pub :: SGR_GUT   Int) (pub fn (SGR_GUT)   "1;34")  ; bold blue
-(pub :: SGR_SEC   Int) (pub fn (SGR_SEC)   "1;36")  ; bold cyan
-(pub :: SGR_HELP  Int) (pub fn (SGR_HELP)  "1;32")  ; bold green
-(pub :: SGR_FIX   Int) (pub fn (SGR_FIX)   "1;35")  ; bold magenta
-(pub :: SGR_LIST  Int) (pub fn (SGR_LIST)  "1;96")  ; bold bright cyan
-(pub :: SGR_CODE  Int) (pub fn (SGR_CODE)  "93")    ; bright yellow
+(pub :: SGR_ERROR String) (pub fn (SGR_ERROR) "1;31")  ; bold red
+(pub :: SGR_WARN  String) (pub fn (SGR_WARN)  "1;33")  ; bold yellow
+(pub :: SGR_TITLE String) (pub fn (SGR_TITLE) "1")     ; bold
+(pub :: SGR_GUT   String) (pub fn (SGR_GUT)   "1;34")  ; bold blue
+(pub :: SGR_SEC   String) (pub fn (SGR_SEC)   "1;36")  ; bold cyan
+(pub :: SGR_HELP  String) (pub fn (SGR_HELP)  "1;32")  ; bold green
+(pub :: SGR_FIX   String) (pub fn (SGR_FIX)   "1;35")  ; bold magenta
+(pub :: SGR_LIST  String) (pub fn (SGR_LIST)  "1;96")  ; bold bright cyan
+(pub :: SGR_CODE  String) (pub fn (SGR_CODE)  "93")    ; bright yellow
 
 ; The colour of a diagnostic's own severity, which the heading and the
 ; primary underline both take.
-(pub :: sgrForSev (-> Int Int))
+(pub :: sgrForSev (-> Int String))
 (pub fn (sgrForSev sev) (if (== sev 0) SGR_ERROR SGR_WARN))
 
 ; ------------------------------------------------------------------
@@ -74,7 +74,7 @@
 ; is the sum of its intermediates, and painting happens per fragment,
 ; per row, per diagnostic. One `paint` is one allocation.
 ; ------------------------------------------------------------------
-(pub :: paint (-> String String Int))
+(pub :: paint (-> String String String))
 (pub fn (paint sgr text)
   (let ((np (strLen sgr)) (nt (strLen text)))
     (let ((out (strAlloc (+ (+ np nt) 7))) (mut o 0))

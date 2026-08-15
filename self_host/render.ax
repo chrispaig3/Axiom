@@ -543,7 +543,7 @@
 
 ; Every diagnostic, each rendered against the source file its `unit`
 ; field names - the same table renderDiagsUnits (AXDL) reads.
-(pub :: renderDiagsHumanUnits (-> Int Int Int))
+(pub :: renderDiagsHumanUnits (-> Int Int String))
 (pub fn (renderDiagsHumanUnits ds units)
   (let ((blocks vecNew) (mut i 0))
     {
@@ -742,7 +742,7 @@
         "\"help\":" (jsonHelpArray d))
         ",\"expansion\":") (jsonTraceArray d units)) "}"))))
 
-(pub :: renderDiagsJsonUnits (-> Int Int Int))
+(pub :: renderDiagsJsonUnits (-> Int Int String))
 (pub fn (renderDiagsJsonUnits ds units)
   (let ((blocks vecNew) (mut i 0))
     {
@@ -763,7 +763,7 @@
 ; ------------------------------------------------------------------
 ; The dispatch every diagnostic-printing call site goes through.
 ; ------------------------------------------------------------------
-(pub :: renderDiagsFormat (-> Int Int Int Int))
+(pub :: renderDiagsFormat (-> Int Int Int String))
 (pub fn (renderDiagsFormat fmt ds units)
   (if (== fmt FMT_AI)
       (renderDiagsUnits ds units)
