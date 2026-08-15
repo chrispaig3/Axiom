@@ -252,7 +252,11 @@
 ;            a module-qualified type spelling in a field position
 ;            classifies as unknown and the block stays a leaf, which
 ;            under-reclaims and never over-frees)
-(pub struct CG (lines : Int) (tmp : Int) (result : String) (types : Int) (tagN : Int) (argVec : Int) (symnames : Int) (symregs : Int) (decls : Int) (argsTyped : String) (strings : Int) (curBlock : String) (mangleBares : Int) (mangleFulls : Int) (resultIsFloat : Int) (floatSigs : Int) (symfloats : Int) (curParams : Int) (curFlags : Int) (macros : Int) (symkinds : Int) (pendingLams : Int) (lamN : Int) (thunkFulls : Int) (thunkArities : Int) (thunksEmitted : Int) (target : Int) (tcoName : Int) (tcoSlots : Int) (tcoLabel : String) (tailOK : Int) (terminated : Int) (effDecls : Int) (effOps : Int) (curModule : Int) (dataTyNames : Int))
+; Field 36 = curDeclNode (the top-level declaration being emitted;
+;            an evidence stamp names its author, and `evStampOk`
+;            refuses a stamp another declaration wrote - a
+;            macro-spliced argument node is a shared object)
+(pub struct CG (lines : Int) (tmp : Int) (result : String) (types : Int) (tagN : Int) (argVec : Int) (symnames : Int) (symregs : Int) (decls : Int) (argsTyped : String) (strings : Int) (curBlock : String) (mangleBares : Int) (mangleFulls : Int) (resultIsFloat : Int) (floatSigs : Int) (symfloats : Int) (curParams : Int) (curFlags : Int) (macros : Int) (symkinds : Int) (pendingLams : Int) (lamN : Int) (thunkFulls : Int) (thunkArities : Int) (thunksEmitted : Int) (target : Int) (tcoName : Int) (tcoSlots : Int) (tcoLabel : String) (tailOK : Int) (terminated : Int) (effDecls : Int) (effOps : Int) (curModule : Int) (dataTyNames : Int) (curDeclNode : Int))
 
 ; ------------------------------------------------------------------
 ; Tail-call optimisation, fields 27-31.
@@ -304,9 +308,12 @@
 (pub fn (newCG)
   (let ((ts vecNew))
     {
-      (addType ts "Some" TF_DATA 1 0 2 (let ((f vecNew)) { (vecPush f 0) f }))
+      (addTypeNamed ts "Some" TF_DATA 1 0 2
+                    (let ((f vecNew)) { (vecPush f 0) f })
+                    0
+                    (let ((ft vecNew)) { (vecPush ft (cast Int (mkTVar "a"))) ft }))
       (addType ts "None" TF_DATA 0 1 2 vecNew)
-      (CG vecNew 0 "" ts 2 vecNew vecNew vecNew 0 "" vecNew "entry" vecNew vecNew 0 vecNew vecNew 0 0 vecNew vecNew vecNew 0 vecNew vecNew 0 0 0 vecNew "" 0 0 vecNew vecNew 0 vecNew)
+      (CG vecNew 0 "" ts 2 vecNew vecNew vecNew 0 "" vecNew "entry" vecNew vecNew 0 vecNew vecNew 0 0 vecNew vecNew vecNew 0 vecNew vecNew 0 0 0 vecNew "" 0 0 vecNew vecNew 0 vecNew 0)
     }))
 
 (pub :: zeroFloat (-> Int Int))
@@ -321,7 +328,10 @@
 ; `flags` is one 0/1 per arrow position, return type last - the shape
 ; `sigFloatFlags` in the parser produces.
 ; ------------------------------------------------------------------
-(pub struct FSig (name : String) (nameLen : Int) (flags : Int))
+; `sigTy` is the D_SIG's parsed type tree (node word 6) - the SAME
+; object the checker walked, which is what keeps MM-LIFE-2d's
+; evidence ordering agreed between the phases without a protocol.
+(pub struct FSig (name : String) (nameLen : Int) (flags : Int) (sigTy : Int) (takesEv : Int))
 
 (pub :: scanFloatSigs (-> Int Int Int Int))
 (pub fn (scanFloatSigs decls sigs i)
@@ -330,7 +340,8 @@
       {
         (let ((d (vecGet decls i)))
           (if (== (nodeTag d) TAG_D_SIG)
-              (vecPush sigs (cast Int (FSig (nodeA d) (strLen (nodeA d)) (nodeB d))))
+              (vecPush sigs (cast Int (FSig (nodeA d) (strLen (nodeA d)) (nodeB d) (nodeTy d)
+                                            (cgTakesEvidence (nodeTy d)))))
               0))
         (scanFloatSigs decls sigs (+ i 1))
       }))
@@ -348,6 +359,250 @@
         (if (&& (== (memGetWord e 1) nl) (strEq (memGetWord e 0) name))
             e
             (findFSigIn sigs name nl (+ i 1))))))
+
+; ------------------------------------------------------------------
+; MM-LIFE-2d evidence, emission side. A polymorphic function - one
+; whose signature has a type variable in a PARAM position - takes
+; one hidden trailing `i64 %__evw.h`; every direct call to it passes
+; the word the checker's stamp describes: constant bits, plus
+; `(lshr caller-word, k) & 1` per symbolic entry. The register and
+; its symbol-table name both contain a dot, which no Axiom
+; identifier can spell - collision with user code is impossible by
+; construction, so no reserved-name diagnostic exists for it.
+;
+; The walks below mirror typecheck's sigTyVarsInto/evParamPosVars
+; over the SAME D_SIG tree (FSig now carries it): one ordering
+; convention, two implementations, pinned against each other by the
+; evidence fixture.
+; ------------------------------------------------------------------
+(pub :: cgTyIsSrcVar (-> Int Int))
+(pub fn (cgTyIsSrcVar t)
+  (if (!= (nodeTag t) TAG_T_VAR)
+      0
+      (let ((n (nodeA t)))
+        (if (== (strLen n) 0)
+            0
+            (if (== (strByte n 0) 95) 0 1)))))
+
+(pub :: cgNameVecHas (-> Int String Int))
+(pub fn (cgNameVecHas xs n)
+  (let ((mut i 0) (mut found 0))
+    {
+      (while (< i (vecLen xs))
+        {
+          (if (strEq (cast String (vecGet xs i)) n) (set found 1) 0)
+          (set i (+ i 1))
+        })
+      found
+    }))
+
+(pub :: cgSigVarsInto (-> Int Int Int))
+(pub fn (cgSigVarsInto t acc)
+  (if (== t 0)
+      0
+      (let ((tg (nodeTag t)))
+        (if (== tg TAG_T_VAR)
+            (if (== (cgTyIsSrcVar t) 1)
+                (if (== (cgNameVecHas acc (nodeA t)) 1)
+                    0
+                    (vecPush acc (cast Int (nodeA t))))
+                0)
+        (if (== tg TAG_T_CON)
+            (cgSigVarsVec (nodeB t) acc)
+        (if (== tg TAG_T_ARR)
+            {
+              (cgSigVarsInto (nodeA t) acc)
+              (cgSigVarsInto (nodeB t) acc)
+            }
+        (if (== tg TAG_T_TUP)
+            (cgSigVarsVec (nodeA t) acc)
+        (if (|| (== tg TAG_T_LIST) (== tg TAG_T_PTR))
+            (cgSigVarsInto (nodeA t) acc)
+        0))))))))
+
+(pub :: cgSigVarsVec (-> Int Int Int))
+(pub fn (cgSigVarsVec xs acc)
+  (if (== xs 0)
+      0
+      (let ((mut i 0))
+        {
+          (while (< i (vecLen xs))
+            {
+              (cgSigVarsInto (vecGet xs i) acc)
+              (set i (+ i 1))
+            })
+          0
+        })))
+
+(pub :: cgParamPosVars (-> Int Int Int))
+(pub fn (cgParamPosVars t acc)
+  (if (&& (!= t 0) (== (nodeTag t) TAG_T_ARR))
+      {
+        (cgSigVarsInto (nodeA t) acc)
+        (cgParamPosVars (nodeB t) acc)
+      }
+      0))
+
+; A signature whose every variable is return-only takes no word: no
+; param position can ever witness one, so the bits would be zeros
+; forever - which exempts the hottest accessors (memGetWord, vecGet,
+; nodeA/B/C) from the extra argument outright.
+(pub :: cgTakesEvidence (-> Int Int))
+(pub fn (cgTakesEvidence t)
+  (if (== t 0)
+      0
+      (let ((acc vecNew))
+        {
+          (cgParamPosVars t acc)
+          (if (> (vecLen acc) 0) 1 0)
+        })))
+
+; memoized at scan time - a walk and a Vec per CALL was 14 MiB of
+; the bootstrap gate's self-compile ceiling
+(pub :: fnTakesEvw (-> Int String Int))
+(pub fn (fnTakesEvw cg full)
+  (let ((e (findFSig (memGetWord cg 15) full)))
+    (if (== e 0) 0 (memGetWord e 4))))
+
+; A stamp is a function of the node alone: a macro-spliced argument
+; node is a shared object, so a stamp written while checking one
+; declaration must not steer emission inside another. The stamp
+; carries its author; a mismatch demotes to no-stamp (all zeros -
+; the conservative direction).
+(pub :: evStampOk (-> Int Int Int))
+(pub fn (evStampOk cg stamp)
+  (if (== stamp 0)
+      0
+      (if (!= (nodeTag stamp) TAG_EVSTAMP)
+          0
+          (if (== (nodeA stamp) (memGetWord cg 36))
+              stamp
+              0))))
+
+; Read the enclosing function's own evidence word into field 2 - the
+; direct param register, or a load when TCO parked it in a slot. A
+; monomorphic caller answers the constant 0 (unreachable from a
+; checked stamp; defensive).
+(pub :: emitEvwRead (-> Int Int))
+(pub fn (emitEvwRead cg)
+  (let ((symReg (lookupSym cg "__evw.")))
+    (if (== symReg 0)
+        {
+          (memSetWord cg 2 (constStr 0))
+          cg
+        }
+        (if (>= (lookupSymKind cg "__evw.") 1)
+            (let ((rn (allocReg cg)))
+              (let ((r (regStr rn)))
+                {
+                  (emitLine cg (cat4 (cat2 "  " r)
+                                     " = load i64, ptr "
+                                     (strDup (cast String symReg))
+                                     ""))
+                  (memSetWord cg 2 r)
+                  cg
+                }))
+            {
+              (memSetWord cg 2 (strDup (cast String symReg)))
+              cg
+            }))))
+
+; The callee's evidence word from a validated stamp: constant bits
+; first (bit 63 via `shl 1, 63` - a literal with the sign bit set
+; would pass through fmtInt, which renders negatives wrong), then
+; one lshr/and/shl/or chain per symbolic entry. Answers cg with the
+; value string in field 2. An absent stamp answers "0".
+(pub :: emitEvWordVal (-> Int Int Int))
+(pub fn (emitEvWordVal cg stamp)
+  (if (== stamp 0)
+      {
+        (memSetWord cg 2 (constStr 0))
+        cg
+      }
+      (let ((w (nodeB stamp))
+            (mut c 0)
+            (mut hasHigh 0)
+            (mut hasSym 0))
+        {
+          (let ((mut i 0))
+            (while (< i (vecLen w))
+              {
+                (let ((v (vecGet w i)))
+                  (if (== v 1)
+                      (if (>= i 63) (set hasHigh 1) (set c (+ c (pow2 i))))
+                      (if (>= (cast Int v) 2) (set hasSym 1) 0)))
+                (set i (+ i 1))
+              }))
+          (if (&& (== hasSym 0) (== hasHigh 0))
+              {
+                (memSetWord cg 2 (constStr c))
+                cg
+              }
+              (let ((cgR (if (== hasSym 1) (emitEvwRead cg) cg)))
+                (let ((src (if (== hasSym 1) (strDup (memGetWord cgR 2)) ""))
+                      (mut acc (constStr c))
+                      (mut cgX cgR))
+                  {
+                    (if (== hasHigh 1)
+                        (let ((hn (allocReg cgX)))
+                          (let ((hr (regStr hn)))
+                            (let ((cgH (emitLine cgX (cat2 (cat2 "  " hr)
+                                                          " = shl i64 1, 63"))))
+                              (let ((on (allocReg cgH)))
+                                (let ((orr (regStr on)))
+                                  {
+                                    (set cgX (emitLine cgH (cat4 (cat3 (cat2 "  " orr)
+                                                                       " = or i64 "
+                                                                       acc)
+                                                                 ", "
+                                                                 hr "")))
+                                    (set acc orr)
+                                    0
+                                  })))))
+                        0)
+                    (let ((mut i2 0))
+                      (while (< i2 (vecLen w))
+                        {
+                          (let ((v2 (cast Int (vecGet w i2))))
+                            (if (>= v2 2)
+                                (let ((k (- v2 2)))
+                                  (let ((an (allocReg cgX)))
+                                    (let ((ar (regStr an)))
+                                      (let ((cgA (emitLine cgX (cat4 (cat3 (cat2 "  " ar)
+                                                                          " = lshr i64 "
+                                                                          src)
+                                                                    ", "
+                                                                    (constStr k) ""))))
+                                        (let ((bn (allocReg cgA)))
+                                          (let ((br (regStr bn)))
+                                            (let ((cgB (emitLine cgA (cat3 (cat2 "  " br)
+                                                                          " = and i64 "
+                                                                          (cat2 ar ", 1")))))
+                                              (let ((sn (allocReg cgB)))
+                                                (let ((sr (regStr sn)))
+                                                  (let ((cgS (emitLine cgB (cat4 (cat3 (cat2 "  " sr)
+                                                                                      " = shl i64 "
+                                                                                      br)
+                                                                                ", "
+                                                                                (constStr i2) ""))))
+                                                    (let ((on2 (allocReg cgS)))
+                                                      (let ((or2 (regStr on2)))
+                                                        {
+                                                          (set cgX (emitLine cgS (cat4 (cat3 (cat2 "  " or2)
+                                                                                            " = or i64 "
+                                                                                            acc)
+                                                                                      ", "
+                                                                                      sr "")))
+                                                          (set acc or2)
+                                                          0
+                                                        }))))))))))))
+                                0))
+                          (set i2 (+ i2 1))
+                        }))
+                    (memSetWord cgX 2 acc)
+                    cgX
+                  })))
+        })))
 
 ; Whether function `name` (already mangled) returns a float. Unknown
 ; names answer 0: a function with no signature cannot traffic in floats,
@@ -2564,10 +2819,12 @@
       ; The module travels across both, because a lifted lambda's body
       ; is still code written in that module and its bare references
       ; resolve the same way the enclosing function's do.
-      (let ((_ (memSetWord cg 34 (nodeModule node))))
+      (let ((_ (memSetWord cg 34 (nodeModule node)))
+            (_e (memSetWord cg 36 node)))
         (let ((cgD (drainPending (emitFnDef node cg))))
           {
             (memSetWord cgD 34 0)
+            (memSetWord cgD 36 0)
             cgD
           }))
       cg))
@@ -2674,12 +2931,27 @@
           (_6 (memSetWord cg 18
                 (let ((e (findFSig (memGetWord cg 15) name)))
                   (if (== e 0) 0 (memGetWord e 2))))))
+      ; MM-LIFE-2d: a polymorphic function's hidden evidence word.
+      ; Appended to the RENDERED parameter list only - the AST param
+      ; vec is untouched, so every arity computation stays blind to
+      ; it by construction. The symbol-table binding under "__evw."
+      ; (a name no Axiom identifier can spell) is what the body's
+      ; call sites and lambda captures read it through.
+      (let ((takesEv (fnTakesEvw cg name)))
+      (let ((paramStr2 (if (== takesEv 0)
+                           paramStr
+                           (if (== (strLen paramStr) 0)
+                               "i64 %__evw.h"
+                               (cat2 paramStr ", i64 %__evw.h")))))
       (let ((hdr (strConcat (cat4 "define i64 @"
                                   (llvmSym (strDup name))
                                   "("
-                                  paramStr)
+                                  paramStr2)
                             ") #0 {")))
-        (let ((cg1 (emitLine cg hdr)))
+        (let ((cg0e (if (== takesEv 1)
+                        (bindSym cg "__evw." "%__evw.h" 0 0)
+                        cg)))
+        (let ((cg1 (emitLine cg0e hdr)))
           ; NO re-scan here. This used to read
           ;
           ;   ; Re-scan declarations to ensure types Vec is fresh
@@ -2738,9 +3010,18 @@
             ; its test only because the test was an entry file.
             (let ((selfName (bareName (nodeA node))))
             (let ((wantsTCO (tailCallsSelf body selfName (vecLen params))))
-              (let ((cg1c (if (== wantsTCO 1)
-                              (openTailLoop selfName params cg1b)
+              ; MM-LIFE-2d + TCO: the hidden word gets a slot beside
+              ; the parameters' - NEVER inside tcoSlots, whose length
+              ; gates the rewrite - because a self tail call can
+              ; re-instantiate (the word is recomputed and stored per
+              ; jump, like any argument). Parked BEFORE the loop
+              ; header so the alloca sits in the entry block.
+              (let ((cg1p (if (&& (== wantsTCO 1) (== takesEv 1))
+                              (evwParkSlot cg1b)
                               cg1b)))
+              (let ((cg1c (if (== wantsTCO 1)
+                              (openTailLoop selfName params cg1p)
+                              cg1p)))
                 (let ((cg2 (if (== wantsTCO 1)
                                (emitExprTail body cg1c)
                                (emitExpr body cg1c))))
@@ -2757,7 +3038,7 @@
                         }
                         (let ((ret (cat3 "  ret i64 " (strDup (memGetWord cg2 2)) "")))
                           (emitLine (emitLine cg2 ret) "}")))
-                  }))))))))))
+                  }))))))))))))))
 
 ; Move every parameter into an alloca, bind it as mutable storage so
 ; body references load it, and open the loop the tail call jumps back
@@ -2780,6 +3061,23 @@
           (bareNameFrom s (- i 1)))))
 
 (pub :: openTailLoop (-> String Int Int Int))
+; Park the evidence word in an alloca and rebind its unspellable
+; name as mutable storage, exactly the registration `mut` locals
+; use - `emitEvwRead` then loads it without knowing about TCO, and
+; `emitTailJump` stores the next iteration's word into it.
+(pub :: evwParkSlot (-> Int Int))
+(pub fn (evwParkSlot cg)
+  (let ((an (allocReg cg)))
+    (let ((ar (regStr an)))
+      {
+        (emitLine cg (cat2 (cat2 "  " ar) " = alloca i64"))
+        (emitLine cg (cat4 "  store i64 "
+                           "%__evw.h"
+                           ", ptr "
+                           ar))
+        (bindSym cg "__evw." ar 0 1)
+      })))
+
 (pub fn (openTailLoop name params cg)
   (let ((slots vecNew)
         (hdrN (allocReg cg)))
@@ -2833,11 +3131,25 @@
 ; FIRST, and only then are the parameter slots written. Assigning as
 ; each argument is computed would clobber a parameter a later argument
 ; still reads - `(go (- n 1) n)` would see the decremented `n` twice.
-(pub :: emitTailJump (-> Int Int Int))
-(pub fn (emitTailJump args cg)
+(pub :: emitTailJump (-> Int Int Int Int))
+(pub fn (emitTailJump args stamp cg)
   (let ((vals vecNew))
     {
       (evalTailArgs args vals cg 0)
+      ; MM-LIFE-2d: the next iteration's evidence word - computed
+      ; from the CURRENT slot value after the arguments evaluate,
+      ; stored back before the jump like any reassigned parameter.
+      ; The slot exists iff this function is polymorphic (evwParkSlot
+      ; bound "__evw." as mutable storage); the tcoSlots vec is
+      ; untouched, so the arity gate never sees it.
+      (let ((sreg (lookupSym cg "__evw.")))
+        (if (if (== sreg 0) false (>= (lookupSymKind cg "__evw.") 1))
+            (let ((cgV (emitEvWordVal cg stamp)))
+              (emitLine cgV (cat4 "  store i64 "
+                                  (strDup (memGetWord cgV 2))
+                                  ", ptr "
+                                  (strDup (cast String sreg)))))
+            0))
       (storeTailSlots (memGetWord cg 28) vals cg 0)
       (emitLine cg (cat2 "  br label %" (memGetWord cg 29)))
       (memSetWord cg 31 1)
@@ -3384,12 +3696,23 @@
                                              "(i64 %_env"
                                              (thunkParamStr ar 0))
                                        ") #0 {"))))
-      (let ((cg2 (emitLine cg1 (strConcat (cat4 "  %r = call i64 @"
+      ; MM-LIFE-2d: a thunk over a polymorphic function forwards the
+      ; constant 0 as its evidence - a bare reference instantiates
+      ; fresh never-solved placeholders (MAC-INT-2), so every bit is
+      ; unknowable BY CONSTRUCTION and 0 is the honest word, not a
+      ; fallback. The record stays one word; the spec's baking
+      ; sentence is unreachable under this type system, and
+      ; memory-model.md now says so.
+      (let ((evTail (if (== (fnTakesEvw cg1 full) 1)
+                        (if (== (cast Int ar) 0) "i64 0" ", i64 0")
+                        "")))
+      (let ((cg2 (emitLine cg1 (strConcat (cat3 (cat4 "  %r = call i64 @"
                                                 (llvmSym (strDup full))
                                                 "("
                                                 (thunkArgStr ar 0))
+                                                evTail "")
                                           ")"))))
-        (emitLine (emitLine cg2 "  ret i64 %r") "}")))))
+        (emitLine (emitLine cg2 "  ret i64 %r") "}"))))))
 
 (pub :: thunkParamStr (-> Int Int String))
 (pub fn (thunkParamStr ar j)
@@ -4018,7 +4341,7 @@
             (memSetWord cg 14 0)
             cg
           }
-          (zeroFloat (emitConstructor (nodeA node) args entry cg))))))
+          (zeroFloat (emitConstructor (nodeA node) args entry 0 cg))))))
 
 ; `(set base.field v)`: the base evaluates once, the field resolves as
 ; a read does, and the value is stored at its offset. The whole form
@@ -4212,7 +4535,7 @@
                     ; A bare nullary constructor: an immediate tag for
                     ; an all-nullary type, a fresh one-word block
                     ; otherwise - the same split construction makes.
-                    (zeroFloat (emitConstructor name vecNew entry cg))
+                    (zeroFloat (emitConstructor name vecNew entry 0 cg))
                     (let ((z 0))
                       {
                         (memSetWord cg 2 (constStr z))
@@ -4360,7 +4683,12 @@
       (vecPush (memGetWord cg 5) argNode)
     }
     (if (== (nodeTag fnNode) TAG_E_VAR)
-        (dispatchCall (nodeA fnNode) cg)
+        ; the stamp is snapshotted HERE, validated against the
+        ; declaration being emitted, and threaded as a parameter - a
+        ; CG-stash read later would be clobbered by any nested
+        ; polymorphic call in an argument (MM-LIFE-2d)
+        (dispatchCall (nodeA fnNode)
+                      (evStampOk cg (memGetWord fnNode 6)) cg)
     (if (== (nodeTag fnNode) TAG_E_APP)
         (walkAppChain fnNode cg)
         ; A head that is neither a name nor another application - a
@@ -4388,8 +4716,8 @@
           })))))
 
 ; Dispatch after flattening.
-(pub :: dispatchCall (-> String Int Int))
-(pub fn (dispatchCall fnName cg)
+(pub :: dispatchCall (-> String Int Int Int))
+(pub fn (dispatchCall fnName stamp cg)
   (let ((revArgs (memGetWord cg 5))
         (args (reverseVec revArgs))
         ; Read and clear in one step: tail position belongs to this
@@ -4487,9 +4815,9 @@
                       (&& (!= (memGetWord cg 27) 0)
                           (&& (strEq fnName (memGetWord cg 27))
                               (== (vecLen args) (vecLen (memGetWord cg 28))))))
-                  (emitTailJump args cg)
-                  (emitOverApplied fnName args cg))
-              (zeroFloat (emitConstructor fnName args entry cg))))))))))))))
+                  (emitTailJump args stamp cg)
+                  (emitOverApplied fnName args stamp cg))
+              (zeroFloat (emitConstructor fnName args entry stamp cg))))))))))))))
 
 (pub :: isLocalValue (-> Int String Bool))
 (pub fn (isLocalValue cg name)
@@ -5004,17 +5332,17 @@
 ; name answers arity 0, and treating every builtin and binary operator
 ; as over-applied would route `(+ a b)` through a closure record that
 ; does not exist.
-(pub :: emitOverApplied (-> String Int Int Int))
-(pub fn (emitOverApplied fnName args cg)
+(pub :: emitOverApplied (-> String Int Int Int Int))
+(pub fn (emitOverApplied fnName args stamp cg)
   (let ((decls (memGetWord cg 8)))
     (if (isDefinedFn decls fnName)
         (let ((ar (fnArityOf decls fnName)))
           (if (|| (<= (vecLen args) ar) (== ar 0))
-              (emitCall fnName args cg)
-              (let ((cgD (emitCall fnName (takeVec args ar) cg)))
+              (emitCall fnName args stamp cg)
+              (let ((cgD (emitCall fnName (takeVec args ar) stamp cg)))
                 (emitApplyChain (dropVec args ar) cgD
                                 (strDup (memGetWord cgD 2)) 0))))
-        (emitCall fnName args cg))))
+        (emitCall fnName args stamp cg))))
 
 (pub :: takeVec (-> Int Int Int))
 (pub fn (takeVec v n) (takeInto v n 0 vecNew))
@@ -5031,8 +5359,8 @@
   (if (>= i (vecLen v)) acc (dropInto v (+ i 1) (vecPush acc (vecGet v i)))))
 
 ; Emit regular call: check binops/comparisons first.
-(pub :: emitCall (-> String Int Int Int))
-(pub fn (emitCall fnName args cg)
+(pub :: emitCall (-> String Int Int Int Int))
+(pub fn (emitCall fnName args stamp cg)
   (if (&& (== (vecLen args) 2) (isBinop fnName))
       (emitBinop2 fnName args cg)
   (if (&& (== (vecLen args) 2) (isCmpOp fnName))
@@ -5044,7 +5372,7 @@
   ; argument, and reported AX3013 partial-application on a program
   ; stage0 compiles: the form was handled at the end of the pipeline and
   ; absent at the front, so nothing that reached here ever got here.
-  (emitPlainCall fnName args cg))))
+  (emitPlainCall fnName args stamp cg))))
 
 ; An operator's spelling depends on its operands - `fadd` against
 ; `add` - so the two are evaluated one at a time and their float flags
@@ -5192,28 +5520,40 @@
         cg
       })))
 
-(pub :: emitPlainCall (-> String Int Int Int))
-(pub fn (emitPlainCall fnName args cg)
+(pub :: emitPlainCall (-> String Int Int Int Int))
+(pub fn (emitPlainCall fnName args stamp cg)
   (let ((argStrCg (emitArgsList args cg 0)))
-    (let ((argStrT (memGetWord argStrCg 9))
+    (let ((argStrT (strDup (memGetWord argStrCg 9)))
           ; The callee's defining module may have renamed it - a bare
           ; reference reaches whatever symbol the map says (entry file
           ; first, then first import). Operators and primitives never
           ; enter the map, so `full` is `fnName` for them.
-          (full (mangledFor argStrCg fnName))
-          (rn (allocReg argStrCg)))
+          (full (mangledFor argStrCg fnName)))
+      ; MM-LIFE-2d: presence of the hidden argument is SIG-driven -
+      ; every call to a polymorphic callee passes a word even when no
+      ; stamp survived (the unchecked emitModule path, a demoted
+      ; shared-node stamp) - and only the VALUE is stamp-driven, so a
+      ; missing stamp means constant 0, never a missing argument.
+      (let ((takesEv (fnTakesEvw argStrCg full)))
+      (let ((cgE (if (== takesEv 1)
+                     (emitEvWordVal argStrCg stamp)
+                     argStrCg)))
+      (let ((evStr (if (== takesEv 1)
+                       (cat2 ", i64 " (strDup (memGetWord cgE 2)))
+                       "")))
+      (let ((rn (allocReg cgE)))
       (let ((r (regStr rn)))
         (let ((callInst (cat3 (cat3 (cat2 "  " r)
                                     " = call i64 @"
                                     (llvmSym (strDup full)))
                               "(i64 "
-                              (cat2 argStrT ")"))))
+                              (cat3 argStrT evStr ")"))))
           {
-            (emitLine argStrCg callInst)
-            (memSetWord argStrCg 2 r)
-            (memSetWord argStrCg 14 (fnRetIsFloat argStrCg full))
-            argStrCg
-          })))))
+            (emitLine cgE callInst)
+            (memSetWord cgE 2 r)
+            (memSetWord cgE 14 (fnRetIsFloat cgE full))
+            cgE
+          })))))))))
 
 
 ; ------------------------------------------------------------------
@@ -5501,8 +5841,8 @@
 ; leaf and the keep helper's re-stamp. The -8 is a literal in the
 ; instruction text: a GEP index of -1 would pass through `fmtInt`,
 ; which renders negatives wrong (the tag counter's `/` lesson).
-(pub :: storeShapeAt (-> Int String Int Int))
-(pub fn (storeShapeAt cg base shape)
+(pub :: storeShapeValAt (-> Int String String Int))
+(pub fn (storeShapeValAt cg base val)
   (let ((sn (allocReg cg)))
     (let ((sr (regStr sn)))
       (let ((cg1 (emitLine cg (cat4 (cat2 "  " sr)
@@ -5516,15 +5856,153 @@
                                            sr
                                            " to ptr"))))
               (emitLine cg2 (cat4 "  store i64 "
-                                  (constStr shape)
+                                  val
                                   ", ptr "
                                   pr)))))))))
+
+(pub :: storeShapeAt (-> Int String Int Int))
+(pub fn (storeShapeAt cg base shape)
+  (storeShapeValAt cg base (constStr shape)))
+
+; MM-LIFE-2d, the evidence consumer: a data cell whose declared
+; field type is a TYPE VARIABLE takes its map bit from the call's
+; stamp instead of falling to the leaf - constant bits fold into
+; the stored constant, and a symbolic witness reads its bit out of
+; the enclosing function's word at run time. A field the types
+; cannot classify AND is not a variable (a Ptr, an alias) still
+; forces the whole block to the leaf; a variable with no stamp, or
+; a witness of 0, contributes no bit - which IS the leaf answer for
+; that field, with every classifiable neighbour's bit kept.
+(pub :: cgNameVecIdx (-> Int String Int))
+(pub fn (cgNameVecIdx xs n)
+  (let ((mut i 0) (mut found (- 0 1)))
+    {
+      (while (< i (vecLen xs))
+        {
+          (if (&& (== found (- 0 1)) (strEq (cast String (vecGet xs i)) n))
+              (set found i)
+              0)
+          (set i (+ i 1))
+        })
+      found
+    }))
+
+(pub :: ctorShapeEmit (-> Int String Int Int Int))
+(pub fn (ctorShapeEmit cg ptr entry stamp)
+  (let ((kind (eKind entry))
+        (arity (eArity entry)))
+    (let ((words (if (== kind TF_DATA) (+ arity 1) arity)))
+      (if (|| (!= kind TF_DATA)
+              (|| (> words 47)
+                  (== (eFieldTys entry) 0)))
+          (storeShapeAt cg ptr (ctorShapeConst cg entry))
+          (let ((ftys0 (eFieldTys entry))
+                (mut anyVar 0))
+          {
+            (let ((mut j0 0))
+              (while (< j0 (vecLen ftys0))
+                {
+                  (if (== (cgTyIsSrcVar (vecGet ftys0 j0)) 1) (set anyVar 1) 0)
+                  (set j0 (+ j0 1))
+                }))
+            (if (== anyVar 0)
+                ; no variable field: the static path allocates nothing
+                (storeShapeAt cg ptr (ctorShapeConst cg entry))
+          (let ((cnt (paddedWords words))
+                (ftys (eFieldTys entry))
+                (vars vecNew)
+                (symPos vecNew)
+                (symK vecNew)
+                (mut stat 0)
+                (mut leaf 0))
+            {
+              ; the ctor arrow's variable ordering = the fields walk,
+              ; in order - the checker's stamp walked fields-then-
+              ; result, and result-only variables sit past every
+              ; field index, so the prefix agrees by construction
+              (cgSigVarsVec ftys vars)
+              (let ((mut j 0))
+                (while (< j (vecLen ftys))
+                  {
+                    (let ((tn (vecGet ftys j)))
+                      (if (== (cgTyIsSrcVar tn) 1)
+                          (if (!= stamp 0)
+                              (let ((vi (cgNameVecIdx vars (nodeA tn))))
+                                (if (if (< vi 0)
+                                        true
+                                        (>= vi (vecLen (nodeB stamp))))
+                                    0
+                                    (let ((wv (cast Int (vecGet (nodeB stamp) vi))))
+                                      (if (== wv 1)
+                                          (set stat (+ stat (pow2 (+ 17 j))))
+                                          (if (>= wv 2)
+                                              {
+                                                (vecPush symPos (+ 17 j))
+                                                (vecPush symK (- wv 2))
+                                              }
+                                              0)))))
+                              0)
+                          (let ((c (fldClass cg tn)))
+                            (if (== c 1)
+                                (set leaf 1)
+                                (if (== c 2)
+                                    (set stat (+ stat (pow2 (+ 17 j))))
+                                    0)))))
+                    (set j (+ j 1))
+                  }))
+              (if (== leaf 1)
+                  (storeShapeAt cg ptr (* cnt 2))
+                  (if (== (vecLen symPos) 0)
+                      (storeShapeAt cg ptr (+ (* cnt 2) stat))
+                      (let ((cgR (emitEvwRead cg)))
+                        (let ((src (strDup (memGetWord cgR 2)))
+                              (mut acc (constStr (+ (* cnt 2) stat)))
+                              (mut cgX cgR)
+                              (mut q 0))
+                          {
+                            (while (< q (vecLen symPos))
+                              {
+                                (let ((an (allocReg cgX)))
+                                  (let ((ar (regStr an)))
+                                    (let ((cgA (emitLine cgX (cat4 (cat3 (cat2 "  " ar)
+                                                                        " = lshr i64 "
+                                                                        src)
+                                                                  ", "
+                                                                  (constStr (cast Int (vecGet symK q))) ""))))
+                                      (let ((bn (allocReg cgA)))
+                                        (let ((br (regStr bn)))
+                                          (let ((cgB (emitLine cgA (cat3 (cat2 "  " br)
+                                                                        " = and i64 "
+                                                                        (cat2 ar ", 1")))))
+                                            (let ((sn2 (allocReg cgB)))
+                                              (let ((sr2 (regStr sn2)))
+                                                (let ((cgS (emitLine cgB (cat4 (cat3 (cat2 "  " sr2)
+                                                                                    " = shl i64 "
+                                                                                    br)
+                                                                              ", "
+                                                                              (constStr (cast Int (vecGet symPos q))) ""))))
+                                                  (let ((on (allocReg cgS)))
+                                                    (let ((orr (regStr on)))
+                                                      {
+                                                        (set cgX (emitLine cgS (cat4 (cat3 (cat2 "  " orr)
+                                                                                          " = or i64 "
+                                                                                          acc)
+                                                                                    ", "
+                                                                                    sr2 "")))
+                                                        (set acc orr)
+                                                      })))))))))))
+                                (set q (+ q 1))
+                              })
+                            (storeShapeValAt cgX ptr acc)
+                          }))))
+            }))
+          })))))
 
 ; ------------------------------------------------------------------
 ; Constructor emission: alloc + shape + field stores.
 ; ------------------------------------------------------------------
-(pub :: emitConstructor (-> String Int Int Int Int))
-(pub fn (emitConstructor fnName args entry cg)
+(pub :: emitConstructor (-> String Int Int Int Int Int))
+(pub fn (emitConstructor fnName args entry stamp cg)
   (let ((kind (eKind entry))
         (arity (eArity entry))
         (ctorTag (eTag entry))
@@ -5559,7 +6037,7 @@
                     ; shape - one redundant word store per
                     ; construction, the price of a site-agnostic
                     ; allocator
-                    (let ((cgS (storeShapeAt cg1 ptr (ctorShapeConst cg1 entry))))
+                    (let ((cgS (ctorShapeEmit cg1 ptr entry stamp)))
                       (let ((cg2 (if (== kind TF_DATA)
                                      (storeWordAt cgS ptr 0 (constStr ctorTag))
                                      cgS)))

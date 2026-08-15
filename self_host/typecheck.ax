@@ -396,6 +396,364 @@
             (tyInstVec tc xs env acc (+ i 1))
           })))
 
+; ------------------------------------------------------------------
+; MM-LIFE-2d, the evidence half - checker side. A call to a
+; polymorphic function is STAMPED: the head E_VAR's ty slot gains a
+; TAG_EVSTAMP node whose witness vec says, per callee type
+; parameter, what this call instantiates it at - 0 (not a
+; reference, or unknowable: the conservative direction), 1 (a
+; reference), or 2+k (whatever bit k of the CALLER's own evidence
+; word says at run time). Codegen reads the stamp and passes the
+; word; a stamp is a function of the node alone, so it also carries
+; the declaration that wrote it, and emission ignores a stamp
+; written under a different declaration.
+;
+; THE ONE ORDERING CONVENTION: a signature's type parameters are
+; ordered by first occurrence in a left-to-right depth-first walk
+; of its type tree. codegen derives the same ordering from the same
+; D_SIG tree with the same walk (sigEvVars there); the two are
+; pinned against each other by fixture. Alias expansion writes ONE
+; tree into both the D_SIG node and the entry (tcExpandSigAliases),
+; so the walks see the same object; the poisoned copy a bad
+; signature gets stamps all zeros instead of trusting a diverged
+; ordering.
+; ------------------------------------------------------------------
+(pub :: evNameVecHas (-> Int String Int))
+(pub fn (evNameVecHas xs n)
+  (let ((mut i 0) (mut found 0))
+    {
+      (while (< i (vecLen xs))
+        {
+          (if (strEq (cast String (vecGet xs i)) n) (set found 1) 0)
+          (set i (+ i 1))
+        })
+      found
+    }))
+
+(pub :: evNameVecIdx (-> Int String Int))
+(pub fn (evNameVecIdx xs n)
+  (let ((mut i 0) (mut found (- 0 1)))
+    {
+      (while (< i (vecLen xs))
+        {
+          (if (&& (== found (- 0 1)) (strEq (cast String (vecGet xs i)) n))
+              (set found i)
+              0)
+          (set i (+ i 1))
+        })
+      found
+    }))
+
+(pub :: sigTyVarsInto (-> Int Int Int))
+(pub fn (sigTyVarsInto t acc)
+  (if (== t 0)
+      0
+      (let ((tg (nodeTag t)))
+        (if (== tg TAG_T_VAR)
+            (if (== (tyIsSrcVar t) 1)
+                (if (== (evNameVecHas acc (nodeA t)) 1)
+                    0
+                    (vecPush acc (cast Int (nodeA t))))
+                0)
+        (if (== tg TAG_T_CON)
+            (sigTyVarsVec (nodeB t) acc)
+        (if (== tg TAG_T_ARR)
+            {
+              (sigTyVarsInto (nodeA t) acc)
+              (sigTyVarsInto (nodeB t) acc)
+            }
+        (if (== tg TAG_T_TUP)
+            (sigTyVarsVec (nodeA t) acc)
+        (if (|| (== tg TAG_T_LIST) (== tg TAG_T_PTR))
+            (sigTyVarsInto (nodeA t) acc)
+        0))))))))
+
+(pub :: sigTyVarsVec (-> Int Int Int))
+(pub fn (sigTyVarsVec xs acc)
+  (if (== xs 0)
+      0
+      (let ((mut i 0))
+        {
+          (while (< i (vecLen xs))
+            {
+              (sigTyVarsInto (vecGet xs i) acc)
+              (set i (+ i 1))
+            })
+          0
+        })))
+
+; A variable with no PARAM-position occurrence can never receive a
+; nonzero witness, so a signature whose every variable is
+; return-only takes no evidence word at all - which exempts the
+; hottest accessors (memGetWord, vecGet, nodeA/B/C) outright.
+(pub :: evParamPosVars (-> Int Int Int))
+(pub fn (evParamPosVars t acc)
+  (if (&& (!= t 0) (== (nodeTag t) TAG_T_ARR))
+      {
+        (sigTyVarsInto (nodeA t) acc)
+        (evParamPosVars (nodeB t) acc)
+      }
+      0))
+
+(pub :: fnTakesEvidence (-> Int Int))
+(pub fn (fnTakesEvidence t)
+  (if (== (tyHasSrcVar t) 0)
+      0
+      (let ((acc vecNew))
+        {
+          (evParamPosVars t acc)
+          (if (> (vecLen acc) 0) 1 0)
+        })))
+
+(pub :: tyHasPoison (-> Int Int))
+(pub fn (tyHasPoison t)
+  (if (== t 0)
+      0
+      (let ((tg (nodeTag t)))
+        (if (== tg TAG_T_ERR)
+            1
+        (if (== tg TAG_T_CON)
+            (tyHasPoisonVec (nodeB t))
+        (if (== tg TAG_T_ARR)
+            (if (== (tyHasPoison (nodeA t)) 1) 1 (tyHasPoison (nodeB t)))
+        (if (== tg TAG_T_TUP)
+            (tyHasPoisonVec (nodeA t))
+        (if (|| (== tg TAG_T_LIST) (== tg TAG_T_PTR))
+            (tyHasPoison (nodeA t))
+        0))))))))
+
+(pub :: tyHasPoisonVec (-> Int Int))
+(pub fn (tyHasPoisonVec xs)
+  (if (== xs 0)
+      0
+      (let ((mut i 0) (mut found 0))
+        {
+          (while (< i (vecLen xs))
+            {
+              (if (== (tyHasPoison (vecGet xs i)) 1) (set found 1) 0)
+              (set i (+ i 1))
+            })
+          found
+        })))
+
+; The scalar family, spelled once here and once in codegen's
+; scalarTyName - the two lists must agree, and the evidence fixture
+; is what notices a drift.
+(pub :: evScalarName (-> String Int))
+(pub fn (evScalarName n)
+  (if (|| (strEq n "Int")
+      (|| (strEq n "Bool")
+      (|| (strEq n "Char")
+      (|| (strEq n "Float")
+      (|| (strEq n "I8")
+      (|| (strEq n "I16")
+      (|| (strEq n "I32")
+      (|| (strEq n "I64")
+      (|| (strEq n "U8")
+      (|| (strEq n "U16")
+      (|| (strEq n "U32")
+      (|| (strEq n "U64")
+      (|| (strEq n "F32") (strEq n "F64"))))))))))))))
+      1 0))
+
+(pub :: evDataTyKnown (-> Int String Int))
+(pub fn (evDataTyKnown tc n)
+  (let ((ds (tcDatas tc)) (mut i 0) (mut found 0))
+    {
+      (while (< i (vecLen ds))
+        {
+          (if (strEq (memGetWord (vecGet ds i) 0) n) (set found 1) 0)
+          (set i (+ i 1))
+        })
+      (if (== found 1)
+          1
+          (let ((ss (tcStructs tc)) (mut j 0) (mut sf 0))
+            {
+              (while (< j (vecLen ss))
+                {
+                  (if (strEq (cast String (memGetWord (vecGet ss j) 0)) n)
+                      (set sf 1)
+                      0)
+                  (set j (+ j 1))
+                })
+              sf
+            }))
+    }))
+
+; Classify one witness type: 0 scalar-or-unknowable, 1 reference,
+; 2+k the enclosing signature's own variable k. The 0 default is the
+; safe direction everywhere - a missed bit under-reclaims, a wrong
+; bit is a use-after-free.
+(pub :: evClassOf (-> Int Int Int))
+(pub fn (evClassOf tc t)
+  (if (== t 0)
+      0
+      (let ((tg (nodeTag t)))
+        (if (== tg TAG_T_VAR)
+            (if (== (tyIsSrcVar t) 1)
+                (let ((sv (memGetWord tc 23)))
+                  (if (== sv 0)
+                      0
+                      (let ((k (evNameVecIdx sv (nodeA t))))
+                        (if (< k 0) 0 (+ 2 k)))))
+                0)
+        (if (== tg TAG_T_ARR)
+            1
+        (if (== tg TAG_T_TUP)
+            (if (== (vecLen (nodeA t)) 0) 0 1)
+        (if (== tg TAG_T_LIST)
+            1
+        (if (== tg TAG_T_CON)
+            (let ((n (nodeA t)))
+              (if (== (evScalarName n) 1)
+                  0
+                  (if (strEq n "String")
+                      1
+                      (evDataTyKnown tc n))))
+        0))))))))
+
+; MEET over every occurrence of one variable: unset takes the new
+; class, agreement keeps it, and ANY disagreement - including a
+; second distinct symbolic - collapses to 0. First-occurrence-wins
+; was the review's wrong-free generator: tyCompat accepts
+; `(f "s" 42)` against `(-> a a Int)`, and a bit-1 stamp with an
+; integer in the cell frees the integer.
+(pub :: evMeet (-> Int Int Int))
+(pub fn (evMeet old new)
+  (if (== old (- 0 1))
+      new
+      (if (== old new) old 0)))
+
+; Instantiate AND stamp: same answer as tyInst, plus a TAG_EVSTAMP
+; on the reference node when the declaration has type variables. A
+; poisoned signature stamps all zeros through an EMPTY env - no
+; fill can land, so the zeros survive.
+(pub :: tyInstStamped (-> Int Int Int Int))
+(pub fn (tyInstStamped tc t e)
+  (if (== (tyHasSrcVar t) 0)
+      t
+      (let ((env vecNew))
+        (let ((it (tyInstIn tc t env)))
+          {
+            (let ((vars vecNew))
+              {
+                (sigTyVarsInto t vars)
+                (if (== (vecLen vars) 0)
+                    0
+                    (let ((w vecNew)
+                          (poisoned (tyHasPoison t)))
+                      (let ((mut i 0))
+                        {
+                          (while (< i (vecLen vars))
+                            {
+                              (vecPush w (if (== poisoned 1) 0 (- 0 1)))
+                              (set i (+ i 1))
+                            })
+                          (memSetWord e 6
+                            (cast Int (setNodeTy
+                              (mkNode TAG_EVSTAMP (memGetWord tc 24) w
+                                      (if (== poisoned 1) vecNew env))
+                              vars)))
+                        })))
+              })
+            it
+          }))))
+
+; Fill one call level's witnesses: co-walk the instantiated param
+; tree beside the argument's inferred type; wherever the param tree
+; is one of this stamp's minted placeholders, the matching subtree
+; of the argument type is that variable's witness at this level. An
+; argument whose root is a `cast` classifies 0 outright - the cast
+; launders a word past the checker, and evidence must not trust it.
+(pub :: evStampFill (-> Int Int Int Int Int))
+(pub fn (evStampFill tc e funcTy argTy)
+  (if (!= (nodeTag funcTy) TAG_T_ARR)
+      0
+      (let ((head (spineHead e)))
+        (if (!= (nodeTag head) TAG_E_VAR)
+            0
+            (let ((st (memGetWord head 6)))
+              (if (== st 0)
+                  0
+                  (if (!= (nodeTag st) TAG_EVSTAMP)
+                      0
+                      (let ((an (nodeB e)))
+                        (let ((castArg
+                                (let ((ah (spineHead an)))
+                                  (if (&& (== (nodeTag ah) TAG_E_VAR)
+                                          (== (isCastLike (nodeA ah)) 1))
+                                      1 0))))
+                          (evWalk tc st (nodeA funcTy) argTy castArg))))))))))
+
+(pub :: evWalk (-> Int Int Int Int Int Int))
+(pub fn (evWalk tc st pt at castArg)
+  (if (== pt 0)
+      0
+      (let ((tg (nodeTag pt)))
+        (if (== tg TAG_T_VAR)
+            (evWalkVar tc st pt at castArg)
+        (if (== tg TAG_T_CON)
+            (if (&& (!= at 0)
+                    (&& (== (nodeTag at) TAG_T_CON)
+                        (strEq (nodeA pt) (nodeA at))))
+                (evWalkVec tc st (nodeB pt) (nodeB at) castArg)
+                0)
+        (if (== tg TAG_T_ARR)
+            (if (&& (!= at 0) (== (nodeTag at) TAG_T_ARR))
+                {
+                  (evWalk tc st (nodeA pt) (nodeA at) castArg)
+                  (evWalk tc st (nodeB pt) (nodeB at) castArg)
+                }
+                0)
+        (if (== tg TAG_T_TUP)
+            (if (&& (!= at 0) (== (nodeTag at) TAG_T_TUP))
+                (evWalkVec tc st (nodeA pt) (nodeA at) castArg)
+                0)
+        (if (== tg TAG_T_LIST)
+            (if (&& (!= at 0) (== (nodeTag at) TAG_T_LIST))
+                (evWalk tc st (nodeA pt) (nodeA at) castArg)
+                0)
+        0))))))))
+
+(pub :: evWalkVec (-> Int Int Int Int Int Int))
+(pub fn (evWalkVec tc st ps as castArg)
+  (if (|| (== ps 0) (== as 0))
+      0
+      (let ((mut i 0))
+        {
+          (while (&& (< i (vecLen ps)) (< i (vecLen as)))
+            {
+              (evWalk tc st (vecGet ps i) (vecGet as i) castArg)
+              (set i (+ i 1))
+            })
+          0
+        })))
+
+(pub :: evWalkVar (-> Int Int Int Int Int Int))
+(pub fn (evWalkVar tc st pt at castArg)
+  (let ((env (nodeC st)))
+    (let ((mut i 0) (mut src 0))
+      {
+        ; the minted placeholder is one shared node per variable, so
+        ; identity finds its source name
+        (while (< i (vecLen env))
+          {
+            (if (== (cast Int (vecGet env (+ i 1))) pt)
+                (set src (cast Int (vecGet env i)))
+                0)
+            (set i (+ i 2))
+          })
+        (if (== src 0)
+            0
+            (let ((idx (evNameVecIdx (nodeTy st) (cast String src))))
+              (if (< idx 0)
+                  0
+                  (let ((w (nodeB st)))
+                    (vecSet w idx
+                      (evMeet (vecGet w idx)
+                              (if (== castArg 1) 0 (evClassOf tc at))))))))
+      })))
+
 (pub :: arrowDepth (-> Int Int))
 (pub fn (arrowDepth t)
   (if (== t 0)
@@ -1006,7 +1364,16 @@
                ; should have run did not (MM-MUT-1a). Saved and
                ; restored around each lambda body, so nesting keeps the
                ; innermost boundary.
-               (lamBase : Int))
+               (lamBase : Int)
+               ; MM-LIFE-2d evidence: the ordered tyvar names of the
+               ; function whose body is being checked (0 outside a
+               ; body, or when its signature has none) - what turns a
+               ; witness that IS one of those variables into the
+               ; symbolic code 2+k - and the declaration node itself,
+               ; stamped into every evidence stamp the body creates so
+               ; emission can refuse a stamp another declaration wrote
+               ; (a macro-spliced argument node is a shared object).
+               (curSigVars : Int) (curDeclNode : Int))
 
 (pub :: tcFns (-> Int Int))     (pub fn (tcFns tc)     (memGetWord tc 0))
 (pub :: tcDatas (-> Int Int))   (pub fn (tcDatas tc)   (memGetWord tc 1))
@@ -1145,7 +1512,7 @@
                               vecNew vecNew entryDecls allDecls
                               vecNew vecNew units 0 vecNew 0
                               vecNew vecNew (collectPrivates allDecls vecNew 0)
-                              0 0 0))))
+                              0 0 0 0 0))))
         {
           ; The exact-name index, before collection rather than after:
           ; collection itself looks a name up per declaration.
@@ -1205,13 +1572,70 @@
                         " fields, and a cell's reference map covers 46 beside the tag word"))
                       0 0
                       "split the declaration: a nested struct or constructor cell is ONE word of the outer block, and every block carries its own map"
-                      "the shape word packs one bit per payload word - is this word a reference the release path must follow - beside the form bit and the word count; bits 16..62 give 47 mappable words, the tag takes the first, and the widest declaration in this repository is the compiler's own 36-field CG record (docs/memory-model.md MM-LIFE-2d)")
+                      "the shape word packs one bit per payload word - is this word a reference the release path must follow - beside the form bit and the word count; bits 16..62 give 47 mappable words, the tag takes the first, and the widest declaration in this repository is the compiler's own 37-field CG record (docs/memory-model.md MM-LIFE-2d)")
                     "too wide for one reference map"))
                 0))
           (set i (+ i 1))
         })
       0
     }))
+
+(pub :: evSigVarCount (-> Int Int))
+(pub fn (evSigVarCount t)
+  (if (== (tyHasSrcVar t) 0)
+      0
+      (let ((acc vecNew))
+        {
+          (sigTyVarsInto t acc)
+          (vecLen acc)
+        })))
+
+(pub :: evCapDiag (-> Int Int String Int Int))
+(pub fn (evCapDiag tc span what n)
+  (emitDiag tc
+    (diagSetLabel
+      (mkDiagNote SEV_ERROR "AX3030" "evidence-word-capacity"
+        span
+        (strConcat (strConcat (strConcat
+          "this " what) " declares ") (strConcat (decStr n)
+          " type variables, and the evidence word carries 64"))
+        0 0
+        "split the declaration, or make some positions concrete - each variable needs one bit"
+        "a symbolic witness reads its bit with a shift by the variable's index, and a shift of 64 or more is poison in the emitted LLVM - an arbitrary answer at run time, which under reference maps is a wrong free; the widest signature in this repository declares 4")
+      "too many type variables for one word")))
+
+; An effect operation's declared type must stay variable-free: the
+; handler protocol carries no evidence word (EffEnt has no types at
+; emission), so a variable there would be silently unevidenced -
+; refused instead, MM-LIFE-2d. AX3017 because the shape is
+; unsupported, not wrong.
+(pub :: checkEffectOpTyvars (-> Int Int Int))
+(pub fn (checkEffectOpTyvars tc fields)
+  (if (== fields 0)
+      0
+      (let ((mut i 0))
+        {
+          (while (< i (vecLen fields))
+            {
+              ; the operation's declared TYPE rides in slot b of its
+              ; TAG_FIELD node - the same slot tcCollectEffectOps
+              ; registers from
+              (let ((f (vecGet fields i)))
+                (if (== (tyHasSrcVar (nodeB f)) 1)
+                    (emitDiag tc
+                      (diagSetLabel
+                        (mkDiagNote SEV_ERROR "AX3017" "effect-handler-unsupported"
+                          (nodeSpan f)
+                          "an effect operation's type cannot mention a type variable"
+                          0 0
+                          "give the operation a concrete type"
+                          "a handler is installed and called through a protocol that carries no pointerhood evidence, so a variable here would be invisible to the reference maps (docs/memory-model.md MM-LIFE-2d)")
+                        "no evidence crosses a handler"))
+                    0))
+              (set i (+ i 1))
+            })
+          0
+        })))
 
 (pub :: tcCollect (-> Int Int Int Int))
 (pub fn (tcCollect tc decls i)
@@ -1238,6 +1662,12 @@
             (if (== tag TAG_D_DATA)
                 {
                   (checkCtorWidths tc (nodeB d))
+                  (if (if (== (nodeTy d) 0)
+                          false
+                          (> (vecLen (nodeTy d)) 64))
+                      (evCapDiag tc (nodeSpan d) "data type"
+                                 (vecLen (nodeTy d)))
+                      0)
                   (tcCollectData tc d)
                 }
             (if (== tag TAG_D_STRUCT)
@@ -1261,14 +1691,27 @@
                               " fields, and a block's reference map covers 47"))
                             0 0
                             "split the declaration: a nested struct or constructor cell is ONE word of the outer block, and every block carries its own map"
-                            "the shape word packs one bit per payload word - is this word a reference the release path must follow - beside the form bit and the word count; bits 16..62 give 47 mappable words, and the widest declaration in this repository is the compiler's own 36-field CG record (docs/memory-model.md MM-LIFE-2d)")
+                            "the shape word packs one bit per payload word - is this word a reference the release path must follow - beside the form bit and the word count; bits 16..62 give 47 mappable words, and the widest declaration in this repository is the compiler's own 37-field CG record (docs/memory-model.md MM-LIFE-2d)")
                           "too wide for one reference map"))
                       0)
                   (vecPush (tcStructs tc)
                            (cast Int (StructEnt (nodeA d) (nodeB d) (nodeModule d))))
                 }
             (if (== tag TAG_D_SIG)
-                (tcCollectSig tc d)
+                {
+                  ; MM-LIFE-2d's OTHER capacity, and this one is
+                  ; soundness rather than honesty: a symbolic
+                  ; witness emits `lshr %__evw.h, k`, and a shift of
+                  ; 64 or more is LLVM poison - an arbitrary bit at
+                  ; run time, which is a wrong free. Refused on the
+                  ; MERGED list, because an imported signature's
+                  ; bits are read too. Measured max today: 4.
+                  (if (> (evSigVarCount (nodeTy d)) 64)
+                      (evCapDiag tc (nodeSpan d) "signature"
+                                 (evSigVarCount (nodeTy d)))
+                      0)
+                  (tcCollectSig tc d)
+                }
             (if (== tag TAG_D_FN)
                 (tcCollectFn tc d)
             (if (== tag TAG_D_EFFECT)
@@ -1277,6 +1720,12 @@
                   ; AX3017 reports how many operations an effect
                   ; declares, and that count is `(vecLen (nodeB d))`.
                   (vecPush (tcEffects tc) d)
+                  ; MM-LIFE-2d: an effect operation whose declared
+                  ; type mentions a variable would need evidence the
+                  ; handler protocol does not carry (EffEnt has no
+                  ; types by emission); refused rather than silently
+                  ; unevidenced. Population today: zero.
+                  (checkEffectOpTyvars tc (nodeC d))
                   ; Slot c, not slot b: the TYPES the parser kept
                   ; beside the names, so an operation is a callable
                   ; with a real arrow and a real arity. It used to
@@ -3095,11 +3544,15 @@
                           ; fresh where a caller does; this is the
                           ; only place a declaration's type becomes a
                           ; reference's type, so it is the only place
-                          ; that distinction has to be made.
-                          (tyInst tc (memGetWord ent 1))
+                          ; that distinction has to be made - and the
+                          ; only place an evidence stamp is born
+                          ; (MM-LIFE-2d): the stamped variant also
+                          ; hangs a TAG_EVSTAMP on this reference
+                          ; when the declaration is polymorphic.
+                          (tyInstStamped tc (memGetWord ent 1) e)
                           (let ((ctor (findCtor tc name)))
                             (if (!= ctor 0)
-                                (tyInst tc (memGetWord ctor 3))
+                                (tyInstStamped tc (memGetWord ctor 3) e)
                                 ; A trait method is always in scope and
                                 ; is never a top-level function:
                                 ; dispatch rewrites a CALL to a concrete
@@ -3357,6 +3810,11 @@
             (checkStructCon tc e (findStructIfConstruct tc e hname))
         (let ((funcTy (checkExprH tc (nodeA e) 1)))
           (let ((argTy (checkExprH tc (nodeB e) 0)))
+            {
+            ; MM-LIFE-2d: this level's argument witnesses the callee's
+            ; type parameters; meet into the head's stamp (no-op when
+            ; the head carries none).
+            (evStampFill tc e funcTy argTy)
             (if (== (nodeTag funcTy) TAG_T_ARR)
                 {
                   (if (== (tyCompat argTy (nodeA funcTy)) 0)
@@ -3373,7 +3831,8 @@
                           (emitMismatch tc "function type" (tyRender funcTy)
                                         (spanOf e))
                           (mkNode TAG_T_ERR 0 0 0)
-                        })))))))))))))))
+                        })))
+            }))))))))))))
 
 ; Rewrite a trait-method call to the implementation its dispatch
 ; argument selects. Answers 0 always; it works by mutating the head
@@ -3409,7 +3868,17 @@
                                   0
                                   (let ((full (traitImplName (nodeA tr) tn hname)))
                                     (if (!= (fnEntExact tc full) 0)
-                                        { (memSetWord head 1 full) 0 }
+                                        {
+                                          (memSetWord head 1 full)
+                                          ; the head now names the
+                                          ; impl; a stamp ordered
+                                          ; against the trait
+                                          ; method's signature must
+                                          ; not ride under it
+                                          ; (MM-LIFE-2d)
+                                          (memSetWord head 6 0)
+                                          0
+                                        }
                                         (traitDiag tc (spanOf (vecGet args di))
                                           (strConcat (strConcat (strConcat (strConcat
                                             "no implementation of `" (nodeA tr))
@@ -5623,6 +6092,17 @@
       (let ((sigTy (if (== ent 0) 0 (memGetWord ent 1)))
             (ptys vecNew))
         {
+          ; MM-LIFE-2d: the body's evidence context - this function's
+          ; own ordered tyvars (what a symbolic witness indexes into)
+          ; and the declaration every stamp it writes is tagged with.
+          (memSetWord tc 24 d)
+          (if (== (tyHasSrcVar sigTy) 1)
+              (let ((sv vecNew))
+                {
+                  (sigTyVarsInto sigTy sv)
+                  (memSetWord tc 23 (if (== (tyHasPoison sigTy) 1) 0 sv))
+                })
+              (memSetWord tc 23 0))
           (bindFnParams tc params ptys sigTy 0)
           (let ((bodyTy (checkExprH tc (nodeC d) 0)))
             {
@@ -5635,6 +6115,8 @@
                   0)
               (scopeTrunc (tcScope tc) base)
               (memSetWord tc 16 0)
+              (memSetWord tc 23 0)
+              (memSetWord tc 24 0)
             })
         })
     }))

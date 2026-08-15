@@ -1083,8 +1083,10 @@ both are prerequisites rather than details:
    `MM-LIFE-2d`'s monomorphic half writes the shape word's reference
    map at constructor and struct sites from DECLARED field types, so
    release walks a dead block's fields transitively. A type variable
-   still hides pointerhood (the evidence word remains P), and roots
-   remain untrackable until the ownership events land (`MM-LIFE-2c`).
+   still hides pointerhood from STATIC classification, and the
+   evidence word now answers it at run time (`MM-LIFE-2d`'s evidence
+   half, held 2026-08-15); roots remain untrackable until the
+   ownership events land (`MM-LIFE-2c`).
 2. **No static discrimination — RESOLVED 2026-08-15.** `String` and
    `Int` were *unified by fiat* in `tyCompat`, the deliberate
    compatibility rule that made `Int` the universal heap-handle type.
@@ -1450,12 +1452,21 @@ exist still stands: the evidence word answers one bit per type
 parameter and can call nothing. Two edges of the design are stated
 rather than discovered later. **Evidence flows by capture, not by
 convention**: a lambda whose body needs a bit captures its creator's
-evidence word as an ordinary capture (`MM-VAL-15`), and a thunk built
-over a polymorphic function bakes its instantiation's word into the
-record at build time — a call through a value stays exactly two words
-(`MM-VAL-18`). And **one word caps type parameters at 64**: a
-declaration with more **MUST** be refused with a diagnostic, the same
-honesty `MM-VAL-8b` applies to its own cliff.
+evidence word as an ordinary capture (`MM-VAL-15`). The second edge
+as originally written — a thunk built over a polymorphic function
+*bakes its instantiation's word into the record at build time* — is
+**unreachable under this type system**: a bare reference
+instantiates fresh placeholders that are never solved (`MAC-INT-2`),
+so every bit of that word is unknowable *by construction*, and the
+implementation forwards the constant 0 from a one-word record
+instead — a call through a value stays exactly two words
+(`MM-VAL-18`, `tests/stdlib/354-arc-evidence.ax` pins the honest
+under-reclaim). And **one word caps type parameters at 64**: a
+declaration with more is refused as `AX3030`, on the merged list,
+because the cap is *soundness* rather than honesty — a variable's
+bit is read with a shift by its index, and a shift of 64 or more is
+poison in the emitted LLVM, an arbitrary answer that under reference
+maps becomes a wrong free.
 
 Two prerequisites, in order. The **static half** is `MM-ALLOC-20` — a
 checker that cannot tell `String` from `Int` cannot set a bit — and its
@@ -1479,23 +1490,50 @@ is the i64 sign bit, reserved so every shape constant the compiler
 emits is non-negative — which sets the record capacity at **47
 payload words**, refused past the cliff as `AX3029` at the
 declaration (`tests/diagnostics/481-record-bitmap-capacity.ax`; the
-widest real declaration is the compiler's own 36-field `CG` record).
+widest real declaration is the compiler's own 37-field `CG` record).
 Constructor and struct sites whose fields are all classifiable write
-their record shape over the allocator's leaf; a type-variable field,
-a `Ptr`, an alias, or a qualified type spelling forces the whole
-block to the leaf — under-reclaiming is safe, a wrong bit is a
-use-after-free. `@axiom_release`'s dead path walks the map and calls
+their record shape over the allocator's leaf; a `Ptr`, an alias, or
+a qualified type spelling forces the whole block to the leaf —
+under-reclaiming is safe, a wrong bit is a use-after-free. A
+TYPE-VARIABLE field takes its bit from the evidence word since the
+evidence half landed (below); with no stamp or a zero witness it
+contributes no bit, which is the leaf answer for that field with
+every classifiable neighbour's bit kept. `@axiom_release`'s dead path walks the map and calls
 itself per set bit (its own guards cover immediates, statics, and
 zero counts), then files the block. The allocator and the arena keep
 helper stamp the LEAF of their dynamic size with a shared clamp: a
 payload past 32767 words stores count 0, the unknown-size sentinel
 release refuses to file.
 
-*Still P:* the evidence word (polymorphic fields), the array form's
-writers and the container buffer migration, closure and evidence
-records' maps, and the `Str` third word — no evidence is passed, and
-the `Str` header is two words, so a released string is header-deep
-today (its byte buffer leaks; `352` says so in its own comment).
+*The evidence half holds since 2026-08-15*
+(`tests/stdlib/354-arc-evidence.ax`, 255): a function whose
+signature puts a type variable in a PARAM position takes one hidden
+trailing `i64` — the register and its symbol-table name both
+contain a dot no Axiom identifier can spell, so collision with user
+code is impossible by construction and no reserved name exists. The
+checker stamps every reference to a polymorphic declaration with
+per-variable witness codes (constant 0, constant 1, or *bit k of
+the caller's own word*), MEETING over every occurrence — any
+disagreement, cast-rooted argument, or unclassifiable witness
+collapses to 0, because first-occurrence-wins was a wrong-free
+generator on programs the checker accepts. Codegen passes the word
+at every direct call (presence signature-driven, value
+stamp-driven), lambdas capture it as an ordinary capture, a
+self-tail-call recomputes it into a slot beside the parameters',
+and construction sites read variable-field bits out of it at run
+time. Signatures whose every variable is return-only take no word —
+the hottest accessors (`memGetWord`, `vecGet`, `nodeA/B/C`) are
+exempt outright. Thunks forward the constant 0 (see the unreachable
+baking edge above). `AX3030` holds the 64-variable cliff
+(`tests/diagnostics/482-evidence-word-capacity.ax`); the widest
+signature in this repository declares 4.
+
+*Still P:* the array form's writers and the container buffer
+migration (the `Vec`/`Map` element maps this word exists to feed —
+2e-extension work), closure and evidence records' own maps, and the
+`Str` third word — the `Str` header is two words, so a released
+string is header-deep today (its byte buffer leaks; `352` says so
+in its own comment).
 
 **MM-LIFE-2e (P). The release path.** A bump pointer cannot reuse an
 interior free. Release at zero **SHALL** hand the block — header

@@ -9,9 +9,11 @@
 ;    64  releasing the pair released the string it held: the count a
 ;        double __retain raised to 2 reads 1 after the wrapper dies,
 ;        on a still-live block - no word the slab push repurposes
-;    32  a type-variable field forces the LEAF: (BoxOne a) reads
-;        count 2 and an empty map, because a map bit the types
-;        cannot justify would be a use-after-free, not a leak
+;    32  a type-variable field with an INTEGER witness reads the
+;        leaf: (BoxOne 5) is count 2 with an empty map - since the
+;        evidence half landed the bit comes from the call's witness
+;        (354 probes the String side), and an Int witness justifies
+;        no bit
 ;    16  a struct maps word 0 when its first field is a String and
 ;        skips its Int (65536 + 4)
 ;     8  reuse by the SITE's count: the dead pair filed under

@@ -1,0 +1,151 @@
+; exit 255 (see .exit)
+; MM-LIFE-2d, the evidence half - a polymorphic function receives
+; one hidden word (bit i: is type parameter i a reference), and a
+; cell whose declared field is a TYPE VARIABLE takes its map bit
+; from that word instead of falling to the leaf. Eight probes:
+;
+;   128  a String witness maps the cell: (mkBox s) reads record
+;        count 2 with bit 17 set - 131076
+;    64  an Int witness leaves the leaf - 4
+;    32  the SYMBOLIC hop: boxShapeOf's own variable carries the
+;        caller's bit through a second signature at run time
+;    16  the symbolic hop with an Int stays a leaf
+;     8  a lambda reads the word by CAPTURE: the closure body boxes
+;        its creator's variable-typed binding two frames down
+;     4  a self-TAIL-CALLING polymorphic function keeps its word in
+;        a slot beside the parameters', recomputed per jump - the
+;        loop's last iteration still answers the mapped shape
+;     2  a THUNK forwards the constant 0 - a bare reference
+;        instantiates fresh never-solved placeholders, so every bit
+;        is unknowable BY CONSTRUCTION and the cell it builds is a
+;        leaf even holding a String; the honest under-reclaim
+;     1  the walk believes the evidence: a doubly-retained string
+;        wrapped by (mkBox s) reads count 1 after the box dies
+;
+; The unfixed compiler answers 82: every tyvar cell is a leaf (the
+; 4-expecting probes pass, the mapped ones fail, and the walk frees
+; nothing).
+(import Str)
+
+(:: mkBox (-> a (Option a)))
+
+(fn (mkBox x) (Some x))
+
+(:: boxShapeOf (-> a Int))
+
+(fn (boxShapeOf y)
+  (__load64
+    (-
+      (cast Int (mkBox y))      16
+    )    1
+  )
+)
+
+(:: viaLam (-> a Int))
+
+(fn (viaLam z)
+  (let ((f 
+    (lambda (q) (boxShapeOf z))
+  ))
+    (f 0)
+  )
+)
+
+(:: evLoop (-> Int a Int))
+
+(fn (evLoop n x)
+  (if (<= n 0)
+    (boxShapeOf x)
+    (evLoop (- n 1) x)
+  )
+)
+
+(:: viaThunk (-> a Int))
+
+(fn (viaThunk w)
+  (let ((g mkBox))
+    (__load64
+      (-
+        (cast Int (g w))        16
+      )      1
+    )
+  )
+)
+
+(:: b2i (-> Bool Int))
+
+(fn (b2i x)
+  (if x
+    1
+    0
+  )
+)
+
+(:: main Int)
+
+(fn (main)
+  (let (
+    (s (strDup "e"))
+    (mut acc 0)
+  )
+    {
+      (set acc (+
+        acc        (*
+          128          (b2i
+            (==
+              (__load64
+                (-
+                  (cast Int (mkBox s))                  16
+                )                1
+              )              131076
+            )
+          )
+        )
+      ))
+      (set acc (+
+        acc        (*
+          64          (b2i
+            (==
+              (__load64
+                (-
+                  (cast Int (mkBox 7000))                  16
+                )                1
+              )              4
+            )
+          )
+        )
+      ))
+      (set acc (+ acc (* 32 (b2i (== (boxShapeOf s) 131076)))))
+      (set acc (+ acc (* 16 (b2i (== (boxShapeOf 7000) 4)))))
+      (set acc (+ acc (* 8 (b2i (== (viaLam s) 131076)))))
+      (set acc (+ acc (* 4 (b2i (== (evLoop 3 s) 131076)))))
+      (set acc (+ acc (* 2 (b2i (== (viaThunk s) 4)))))
+      (__retain
+        (cast Int s)
+      )
+      (__retain
+        (cast Int s)
+      )
+      (let ((b 
+        (cast Int (mkBox s))
+      ))
+        {
+          (__retain b)
+          (__release b)
+          (set acc (+
+            acc            (b2i
+              (==
+                (__load64
+                  (-
+                    (cast Int s)                    16
+                  )                  0
+                )                1
+              )
+            )
+          ))
+        }
+      )
+      acc
+    }
+  )
+)

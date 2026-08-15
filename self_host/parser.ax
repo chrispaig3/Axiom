@@ -177,6 +177,13 @@
 (pub :: TAG_T_LIST Int)    (pub fn (TAG_T_LIST) 36)  ; a=inner
 (pub :: TAG_T_PTR Int)     (pub fn (TAG_T_PTR) 37)   ; a=inner, b=mut
 (pub :: TAG_T_ERR Int)     (pub fn (TAG_T_ERR) 38)   ; poison, no payload
+; The checker's evidence stamp on a call head (MM-LIFE-2d): a=the
+; enclosing declaration node, b=witness-code Vec (-1 unset, 0 const
+; zero, 1 const one, 2+k bit k of the caller's own word), c=the
+; instantiation env; ty slot = the callee's ordered tyvar names.
+; Never produced by the parser; lives here so the tag space has one
+; owner.
+(pub :: TAG_EVSTAMP Int)   (pub fn (TAG_EVSTAMP) 53)
 ; A character literal. It used to collapse into TAG_E_INT, but stage0
 ; types a char literal `Char`, not `Int`, and `Char` has no
 ; compatibility fiat with `Int` - `(charToStr 'q')` against

@@ -43,6 +43,7 @@
   [93mAX3027[0m  a declaration-macro invocation the expander cannot resolve  (declaration-macro)
   [93mAX3028[0m  a syntax/* query with no answer  (syntax-query)
   [93mAX3029[0m  a declaration too wide for the reference map  (record-bitmap-capacity)
+  [93mAX3030[0m  too many type variables for one evidence word  (evidence-word-capacity)
   [93mAX4001[0m  no `main` function  (missing-main)
   [93mAX4002[0m  code generation failed  (codegen-failure)
   [93mAX4003[0m  external toolchain command failed  (toolchain-failure)
@@ -560,7 +561,7 @@ constructor 46 beside its tag word.
 A declaration past the cliff is REFUSED at check time rather than
 truncated at run time - a map that silently dropped its widest
 field would free everything it named and leak the one it could
-not. The largest declaration in this repository, the 36-field CG
+not. The largest declaration in this repository, the 37-field CG
 record in the compiler's own code generator, fits with a quarter
 of the map to spare; the cliff is far from real programs.
 
@@ -568,6 +569,31 @@ The escape hatch is structural: split the declaration. A nested
 struct or constructor cell is ONE word of the outer block - the
 walk follows the pointer, and the inner block carries its own map -
 so any record too wide for one map becomes two that fit.
+
+See docs/memory-model.md MM-LIFE-2d.
+
+### explain AX3030
+AX3030 - too many type variables for one evidence word
+
+A polymorphic function receives one hidden machine word beside its
+arguments: bit i says whether type parameter i is instantiated at a
+REFERENCE type, and the reference maps of MM-LIFE-2d read those
+bits where a declared type is a variable (docs/memory-model.md).
+One word carries 64 bits, so a declaration may introduce at most 64
+type variables.
+
+The cap is soundness, not tidiness: a variable's bit is read with a
+shift by its index, and a shift of 64 or more is poison in the
+emitted LLVM - an arbitrary answer at run time, which under
+reference maps becomes a wrong free. A sixty-fifth variable is
+therefore refused at the declaration, on the merged declaration
+list, imported modules included. The widest signature in this
+repository declares 4.
+
+Signatures whose every variable appears only in RETURN position
+take no evidence word at all - no argument can ever witness one -
+so the hottest accessors are exempt from the hidden argument
+entirely; the cap still applies to the declaration's spelling.
 
 See docs/memory-model.md MM-LIFE-2d.
 
@@ -676,6 +702,7 @@ run `axiom explain --list` to see all known codes
   [93mAX3027[0m  a declaration-macro invocation the expander cannot resolve  (declaration-macro)
   [93mAX3028[0m  a syntax/* query with no answer  (syntax-query)
   [93mAX3029[0m  a declaration too wide for the reference map  (record-bitmap-capacity)
+  [93mAX3030[0m  too many type variables for one evidence word  (evidence-word-capacity)
   [93mAX4001[0m  no `main` function  (missing-main)
   [93mAX4002[0m  code generation failed  (codegen-failure)
   [93mAX4003[0m  external toolchain command failed  (toolchain-failure)

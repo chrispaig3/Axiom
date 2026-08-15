@@ -568,7 +568,15 @@ if ! cmp -s "$work/peak.ll" "$work/d3/axc.ll"; then
   fail "the measured self-compile did not emit the compiler - the number below would be of something else"
 fi
 floor=8192       # 8 MiB
-ceiling=409600   # 400 MiB
+# 400 -> 460 MiB on 2026-08-15, measured before moved: the evidence
+# slice (MM-LIFE-2d) grew self_host by 969 lines and the peak from
+# 392 to 414 MiB - 14.24 -> 14.37 KiB per source line, i.e. the
+# LINEAR shape this ceiling exists to protect, held flat; the same
+# source under the pre-evidence compiler peaks within 4 MiB of the
+# evidence one, so the cost is input size, not machinery. 460 leaves
+# room for ~3,000 more lines at the measured slope, and a quadratic
+# still crosses it in one slice.
+ceiling=471040   # 460 MiB
 if (( peak < floor )); then
   fail "the self-compile peaked at $peak KiB, under the $((floor / 1024)) MiB floor - that is not a measurement of compiling 61,688 lines"
 fi

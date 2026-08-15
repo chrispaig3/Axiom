@@ -1,0 +1,11 @@
+[1;31merror[AX3030][0m[1m: this signature declares 65 type variables, and the evidence word carries 64[0m
+ [1;34m--> [0m482-evidence-word-capacity.ax:7:5
+[1;34m  |[0m
+[1;34m7 |[0m (:: wide (-> v0 v1 v2 v3 v4 v5 v6 v7 v8 v9 v10 v11 v12 v13 v14 v15 v16 v17 v18 v19 v20 v21 v22 v23 v24 v25 v26 v27 v28 v29 v30 v31 v32 v33 v34 v35 v36 v37 v38 v...
+[1;34m  |[0m     [1;31m^^^^ too many type variables for one word[0m
+[1;34m  |[0m
+ [1;34m = [0m[1mnote: [0ma symbolic witness reads its bit with a shift by the variable's index, and a shift of 64 or more is poison in the emitted LLVM - an arbitrary answer at run time, which under reference maps is a wrong free; the widest signature in this repository declares 4
+ [1;34m = [0m[1;32mhelp: [0msplit the declaration, or make some positions concrete - each variable needs one bit
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3030` for a full explanation
+
+compilation failed due to 1 previous error
