@@ -239,7 +239,7 @@
 ; Field 34 = curModule (Str, the module whose declaration is being
 ;            emitted, or 0 for the entry file; `mangledFor` resolves a
 ;            bare reference to that module's own definition first)
-(pub struct CG (lines : Int) (tmp : Int) (result : Int) (types : Int) (tagN : Int) (argVec : Int) (symnames : Int) (symregs : Int) (decls : Int) (argsTyped : Int) (strings : Int) (curBlock : Int) (mangleBares : Int) (mangleFulls : Int) (resultIsFloat : Int) (floatSigs : Int) (symfloats : Int) (curParams : Int) (curFlags : Int) (macros : Int) (symkinds : Int) (pendingLams : Int) (lamN : Int) (thunkFulls : Int) (thunkArities : Int) (thunksEmitted : Int) (target : Int) (tcoName : Int) (tcoSlots : Int) (tcoLabel : Int) (tailOK : Int) (terminated : Int) (effDecls : Int) (effOps : Int) (curModule : Int))
+(pub struct CG (lines : Int) (tmp : Int) (result : String) (types : Int) (tagN : Int) (argVec : Int) (symnames : Int) (symregs : Int) (decls : Int) (argsTyped : String) (strings : Int) (curBlock : String) (mangleBares : Int) (mangleFulls : Int) (resultIsFloat : Int) (floatSigs : Int) (symfloats : Int) (curParams : Int) (curFlags : Int) (macros : Int) (symkinds : Int) (pendingLams : Int) (lamN : Int) (thunkFulls : Int) (thunkArities : Int) (thunksEmitted : Int) (target : String) (tcoName : Int) (tcoSlots : Int) (tcoLabel : Int) (tailOK : Int) (terminated : Int) (effDecls : Int) (effOps : Int) (curModule : Int))
 
 ; ------------------------------------------------------------------
 ; Tail-call optimisation, fields 27-31.

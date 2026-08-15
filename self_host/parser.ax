@@ -234,12 +234,12 @@
 (pub :: nodeFieldNames (-> Int Int)) (pub fn (nodeFieldNames n) (memGetWord n 9))
 (pub :: mkEInt (-> Int Int))              (pub fn (mkEInt v)     (mkNode TAG_E_INT v 0 0))
 (pub :: mkEFlt (-> Int Int))              (pub fn (mkEFlt bits)  (mkNode TAG_E_FLT bits 0 0))
-(pub :: mkEStr (-> Int Int))              (pub fn (mkEStr s)     (mkNode TAG_E_STR s 0 0))
-(pub :: mkEVar (-> Int Int))              (pub fn (mkEVar n)     (mkNode TAG_E_VAR n 0 0))
+(pub :: mkEStr (-> String Int))           (pub fn (mkEStr s)     (mkNode TAG_E_STR s 0 0))
+(pub :: mkEVar (-> String Int))           (pub fn (mkEVar n)     (mkNode TAG_E_VAR n 0 0))
 ; Type-node constructors. parseType builds these; only the checker
 ; reads them.
-(pub :: mkTVar (-> Int Int))   (pub fn (mkTVar n)     (mkNode TAG_T_VAR n 0 0))
-(pub :: mkTCon (-> Int Int Int)) (pub fn (mkTCon n args) (mkNode TAG_T_CON n args 0))
+(pub :: mkTVar (-> String Int)) (pub fn (mkTVar n)    (mkNode TAG_T_VAR n 0 0))
+(pub :: mkTCon (-> String Int Int)) (pub fn (mkTCon n args) (mkNode TAG_T_CON n args 0))
 (pub :: mkTArr (-> Int Int Int)) (pub fn (mkTArr p r)   (mkNode TAG_T_ARR p r 0))
 (pub :: mkTTup (-> Int Int))   (pub fn (mkTTup xs)    (mkNode TAG_T_TUP xs 0 0))
 (pub :: mkTPtr (-> Int Int Int)) (pub fn (mkTPtr inner m) (mkNode TAG_T_PTR inner m 0))
@@ -251,7 +251,7 @@
 ; word instead of a walk.
 (pub :: mkEApp (-> Int Int Int))
 (pub fn (mkEApp f x)   (mkNodeAt TAG_E_APP f x 0 (nodeSpan f)))
-(pub :: mkEVarAt (-> Int Int Int))
+(pub :: mkEVarAt (-> String Int Int))
 (pub fn (mkEVarAt n sp) (mkNodeAt TAG_E_VAR n 0 0 sp))
 (pub :: mkELam (-> Int Int Int))          (pub fn (mkELam p b)   (mkNode TAG_E_LAM p b 0))
 ; A `let` node's span is its BINDER's - the token the name came from.
@@ -259,35 +259,35 @@
 ; nothing in stage1 asks that question; what its diagnostics need is
 ; where the binding was introduced, which is where AX3012's secondary
 ; and its `mut` fix point.
-(pub :: mkELet (-> Int Int Int Int))      (pub fn (mkELet n v b) (mkNode TAG_E_LET n v b))
-(pub :: mkELetAt (-> Int Int Int Int Int))
+(pub :: mkELet (-> String Int Int Int))   (pub fn (mkELet n v b) (mkNode TAG_E_LET n v b))
+(pub :: mkELetAt (-> String Int Int Int Int))
 (pub fn (mkELetAt n v b sp) (mkNodeAt TAG_E_LET n v b sp))
 (pub :: mkEIf  (-> Int Int Int Int))      (pub fn (mkEIf  t c a) (mkNode TAG_E_IF  t c a))
 (pub :: mkEBegin (-> Int Int))            (pub fn (mkEBegin xs)  (mkNode TAG_E_BEGIN xs 0 0))
-(pub :: mkDFn   (-> Int Int Int Int))     (pub fn (mkDFn n p b)  (mkNode TAG_D_FN n p b))
-(pub :: mkDSig  (-> Int Int Int))         (pub fn (mkDSig n t)   (mkNode TAG_D_SIG n t 0))
+(pub :: mkDFn   (-> String Int Int Int))  (pub fn (mkDFn n p b)  (mkNode TAG_D_FN n p b))
+(pub :: mkDSig  (-> String Int Int))      (pub fn (mkDSig n t)   (mkNode TAG_D_SIG n t 0))
 ; Span-carrying variants. A diagnostic about a declaration points at
 ; its *name*, so the name token's span is the one worth keeping - and
 ; the only one this slice's checks ever report. Everything else keeps
 ; span 0, which no consumer reads.
-(pub :: mkDFnAt  (-> Int Int Int Int Int))
+(pub :: mkDFnAt  (-> String Int Int Int Int))
 (pub fn (mkDFnAt n p b sp)  (mkNodeAt TAG_D_FN n p b sp))
-(pub :: mkDSigAt (-> Int Int Int Int))
+(pub :: mkDSigAt (-> String Int Int Int))
 (pub fn (mkDSigAt n t sp)   (mkNodeAt TAG_D_SIG n t 0 sp))
-(pub :: mkDImport (-> Int Int Int))       (pub fn (mkDImport m ns) (mkNode TAG_D_IMPORT m ns 0))
+(pub :: mkDImport (-> String Int Int))    (pub fn (mkDImport m ns) (mkNode TAG_D_IMPORT m ns 0))
 ; With the module path's span, so a diagnostic about the import - an
 ; unexported name in its list - has somewhere to point. `mkDImport`
 ; stays for callers that have no token to hand.
-(pub :: mkDImportAt (-> Int Int Int Int))
+(pub :: mkDImportAt (-> String Int Int Int))
 (pub fn (mkDImportAt m ns sp) (mkNodeAt TAG_D_IMPORT m ns 0 sp))
-(pub :: mkDData (-> Int Int Int))         (pub fn (mkDData n cs)   (mkNode TAG_D_DATA n cs 0))
-(pub :: mkDStruct (-> Int Int Int))        (pub fn (mkDStruct n fs) (mkNode TAG_D_STRUCT n fs 0))
-(pub :: mkDDataAt (-> Int Int Int Int))
+(pub :: mkDData (-> String Int Int))      (pub fn (mkDData n cs)   (mkNode TAG_D_DATA n cs 0))
+(pub :: mkDStruct (-> String Int Int))     (pub fn (mkDStruct n fs) (mkNode TAG_D_STRUCT n fs 0))
+(pub :: mkDDataAt (-> String Int Int Int))
 (pub fn (mkDDataAt n cs sp)   (mkNodeAt TAG_D_DATA n cs 0 sp))
-(pub :: mkDStructAt (-> Int Int Int Int))
+(pub :: mkDStructAt (-> String Int Int Int))
 (pub fn (mkDStructAt n fs sp) (mkNodeAt TAG_D_STRUCT n fs 0 sp))
-(pub :: mkDMacro (-> Int Int Int Int))     (pub fn (mkDMacro n ps b) (mkNode TAG_D_MACRO n ps b))
-(pub :: mkDMacroAt (-> Int Int Int Int Int))
+(pub :: mkDMacro (-> String Int Int Int))  (pub fn (mkDMacro n ps b) (mkNode TAG_D_MACRO n ps b))
+(pub :: mkDMacroAt (-> String Int Int Int Int))
 (pub fn (mkDMacroAt n ps b sp) (mkNodeAt TAG_D_MACRO n ps b sp))
 (pub :: mkCtor (-> Int Int Int Int))       (pub fn (mkCtor n a fl) (mkNode TAG_CTOR n a fl))
 (pub :: mkField (-> Int Int Int))          (pub fn (mkField n t)   (mkNode TAG_FIELD n t 0))

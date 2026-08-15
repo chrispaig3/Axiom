@@ -74,7 +74,7 @@
 ;   [Int]                            list
 ;   *Any / *mut Any                  pointer
 ; ------------------------------------------------------------------
-(pub :: tyRender (-> Int Int))
+(pub :: tyRender (-> Int String))
 (pub fn (tyRender t)
   (if (== t 0)
       "{unknown}"
@@ -95,7 +95,7 @@
                        (tyRender (nodeA t)))
         "{unknown}")))))))))
 
-(pub :: tyRenderApp (-> String Int Int Int))
+(pub :: tyRenderApp (-> String Int Int String))
 (pub fn (tyRenderApp acc args i)
   (if (>= i (vecLen args))
       acc
@@ -103,7 +103,7 @@
                               (tyRender (vecGet args i)))
                    args (+ i 1))))
 
-(pub :: tyRenderJoin (-> Int Int String Int))
+(pub :: tyRenderJoin (-> Int Int String String))
 (pub fn (tyRenderJoin xs i acc)
   (if (>= i (vecLen xs))
       acc
@@ -469,7 +469,7 @@
 ; and `declNamespace` rather than from `nodeA` alone - the index has
 ; to answer exactly what `declDefinesNS` answers, and that predicate
 ; is where the two multi-name declarations are named.
-(pub struct DupRef (name : Int) (ns : Int) (idx : Int))
+(pub struct DupRef (name : String) (ns : Int) (idx : Int))
 
 (pub :: dupIdxBuild (-> Int Int))
 (pub fn (dupIdxBuild decls)
@@ -817,7 +817,7 @@
         (checkImportNameList modName names sp allDecls out (+ i 1))
       }))
 
-(pub :: importDiag (-> Int Int Int Int Int))
+(pub :: importDiag (-> Int Int String String Int))
 (pub fn (importDiag out sp msg help)
   {
     (vecPush out
