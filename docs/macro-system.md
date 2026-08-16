@@ -1606,7 +1606,7 @@ implementation **MUST** keep validating claims against the expanded
 program — validating them against the source would let a macro's
 rewrite silently falsify a claim in the other direction.
 
-**MAC-INT-4 (P).** **Traits.** Traits and `impl` are implemented: an
+**MAC-INT-4 (H).** **Traits.** Traits and `impl` are implemented: an
 `impl` lowers to an ordinary declaration named `Trait#Type#method`, and
 a trait-method call is statically rewritten to a direct call to that
 symbol, selected by the concrete type of the first argument. They are
@@ -1632,7 +1632,7 @@ expansions, which do not exist in the file. A conforming formatter
 re-implemented the token set and has changed a literal's meaning before
 (`0.05` became `0.5`).
 
-**MAC-INT-6 (P).** **tree-sitter.** `tree-sitter-axiom/grammar.js` is
+**MAC-INT-6 (H).** **tree-sitter.** `tree-sitter-axiom/grammar.js` is
 one of the four implementations of the surface syntax `MAC-LANG-16`
 enumerates. Any change under
 `MAC-LANG-14`–`MAC-LANG-16` **MUST** land in the lexer, the formatter
@@ -2139,7 +2139,7 @@ nicety: without an expansion backtrace, the author of `(machine Door
 | Hygiene | HYG-1…7 | HYG-8, HYG-9 | — |
 | Capabilities | CAP-1…3, CAP-6, CAP-7, CAP-8 (`fn`/`::`/`data`/`struct`/`impl`/invocation/iteration templates), CAP-9 (the deriving clause refuses), CAP-10 (format strings; 10.5 held-but-defective) | CAP-4 | CAP-5 (replacement landed, and the table is now COMPLETE: join — in name, reference and argument position, nested to any depth — constructors, fields, same, for including its parallel form, binders, fold, name, arity, defined, format, formatln) |
 | Safety | SAFE-1…4 | — | SAFE-5 |
-| Integration | INT-1…3, INT-5 | INT-4, INT-6 | — |
+| Integration | INT-1…6 | — | — |
 | Diagnostics | DIAG-1…4 | DIAG-5 | — |
 | Tooling | TOOL-1…6 (TOOL-6 held-but-defective) | — | — |
 
