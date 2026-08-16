@@ -655,28 +655,39 @@ AX3032 - a macro's own name is shadowed at the invocation
 
 A template's free identifier means what it meant WHERE THE MACRO WAS
 WRITTEN, not where it was called (docs/macro-system.md MAC-HYG-6).
-For a macro defined in a module that is enforced by qualification:
-the reference is rewritten to `Mod$name`, and nothing at a call site
-can shadow that. A macro defined in the ENTRY FILE has nothing to
-qualify to - the entry file's declarations are deliberately left bare
-- so a binding of the same name at the invocation would capture the
-reference, and the program would quietly compute with the local one.
+For a macro defined in a module that is enforced by QUALIFICATION:
+the reference is rewritten to the module that declares the name -
+the macro's own if it declares it, otherwise the one module among
+the program's that does - and nothing at a call site can shadow a
+`Mod$name`. This code is what is left when that rewrite finds no
+module to name, and something at the invocation binds the name.
 
-This code is that capture, refused rather than performed. Before it,
-an entry-file `(macro (useHelper v) (helper v))` invoked under
+There are two ways to arrive, and the message says which:
+
+  - the macro is defined in the ENTRY FILE. Entry-file declarations
+    are deliberately left bare, so there is no `Mod$name` to rewrite
+    to at all;
+  - the macro is in a module, but the name is declared by no single
+    module: not by the macro's own, and not by exactly one other, so
+    choosing between them would be guessing. Two candidates is the
+    same ambiguity AX3014 reports for a bare reference.
+
+In both, the capture is refused rather than performed. Before this
+code, an entry-file `(macro (useHelper v) (helper v))` invoked under
 `(let ((helper (lambda (y) 0))) ...)` answered 0 where the macro's
 own `helper` answers 40, at exit 0, with no diagnostic from any pass.
 
 Three ways out:
 
   - rename the binding at the call site;
-  - move the macro into a module, where its free identifiers resolve
-    to that module and nothing outside can shadow them;
+  - give the reference a module: move an entry-file macro into one,
+    or - if it is already in one - declare the name there, or import
+    it from exactly one module rather than from several;
   - pass the value as an argument instead of referring to it freely.
 
-The permanent fix is scope sets (MAC-HYG-9), which make an identifier
-carry the scopes it was written in. Until that lands, this refusal is
-what keeps the hole from being silent.
+The permanent fix for the entry-file half is scope sets (MAC-HYG-9),
+which make an identifier carry the scopes it was written in. Until
+that lands, this refusal is what keeps the hole from being silent.
 
 ### explain AX4001
 AX4001 - no `main` function

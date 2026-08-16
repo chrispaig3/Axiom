@@ -1,0 +1,103 @@
+; expect 31
+; MAC-HYG-8's FOURTH hole: a template's free identifier naming
+; something the macro's module merely IMPORTED (2026-08-16).
+;
+; MAC-HYG-7 rewrites a template's free identifier to `Mod$name` for
+; the macro's own module, and `364-macro-definition-site.ax` pins what
+; that buys. It tries exactly ONE spelling, so a name the macro's
+; module imported rather than declared found no such declaration,
+; stayed bare, and meant whatever the CALL SITE could see - the same
+; one-macro-two-meanings failure MAC-HYG-6 closed, in the case it did
+; not reach.
+;
+; The rule said closing this needed import EDGES, which the merge
+; consumes: `resolveDeclsPhase` reads each `(import ...)` and pushes
+; nothing into the merged list. It does not need them. Every merged
+; declaration carries the module it came from, so "which module
+; declares this name" is answerable from the list, and when exactly
+; ONE module answers, that is the one the macro's module reached.
+;
+; Exactly one, because two is AX3014's ambiguity by another name and
+; this rewrite has no more right to choose than a bare reference does.
+; Ambiguity therefore leaves the name alone, which is a REFUSAL and
+; not a wrong answer: `AX3014` at the invocation, carrying the
+; expansion frame that names the macro.
+;
+; Five claims, one bit each (31 when all hold). Two are the hole and
+; three are controls, and the ablation below says which is which:
+;
+;    1  a LOCAL of the template's free name at the invocation does not
+;       capture it: 40, the imported `tenTimes`, not the local's 0.
+;       This is the hole itself
+;    2  the same macro with nothing shadowing it answers 40 too, where
+;       this FILE's `tenTimes` answers 9. Same macro, two meanings,
+;       chosen by the caller - the failure MAC-HYG-6 closed for a
+;       macro's own module, reappearing for its imports
+;    4  a name the macro's module declares AND imports resolves to its
+;       OWN: 6 through `LibImp$both`, where `HelpImp$both` gives 5.
+;       A control - the one spelling MAC-HYG-7 already tried answers
+;       it - but it is what proves the search cannot overrule the
+;       module the macro is written in. Ablated (drop `LibImp`'s own
+;       `both`) this file answers 27, so the search does answer it
+;       when nothing else does
+;    8  this file's own reference to its own `tenTimes` still means
+;       this file's: 9. A control, in the direction a rewrite of bare
+;       names would break first
+;   16  the search reaches two edges - `deepFn` lives in `DeepImp`,
+;       which `MidImp` imports and `LibImp` does not - so what it
+;       walks is the merged list and not a direct-import list. This
+;       file declares its own `deepFn` (answering 2) precisely so the
+;       claim can fail
+;
+; Two ablations, both measured. The compiler before this commit
+; REFUSES this file: `AX3032` at the shadowed invocation, the capture
+; refusal that caught this hole without resolving it - a program that
+; is correct being rejected, which is why closing the hole and not
+; only reporting it was worth a commit. With that one term removed so
+; the refusal cannot mask the rest, it answers 13 against 31: bits 2
+; and 16 fail, each to this file's own declaration of the name.
+(import LibImp)
+
+;; This file's own `tenTimes`, which is not the macro's.
+(:: tenTimes (-> Int Int))
+
+(fn (tenTimes n) (+ n 5))
+
+;; and its own `deepFn`, so `useDeep` has something to be captured BY
+(:: deepFn (-> Int Int))
+
+(fn (deepFn n) (- n 1))
+
+(:: b2i (-> Bool Int))
+
+(fn (b2i x)
+  (if x
+    1
+    0
+  )
+)
+
+;; the hole: a local of the template's free name at the invocation
+(:: shadowed Int)
+
+(fn (shadowed)
+  (let ((tenTimes 
+    (lambda (y) 0)
+  ))
+    (useImported 4)
+  )
+)
+
+(:: main Int)
+
+(fn (main)
+  (let (
+    (one (== shadowed 40))
+    (two (== (useImported 4) 40))
+    (four (== (useBoth 4) 6))
+    (eight (== (tenTimes 4) 9))
+    (sixteen (== (useDeep 3) 300))
+  )
+    (+ (b2i one) (+ (* 2 (b2i two)) (+ (* 4 (b2i four)) (+ (* 8 (b2i eight)) (* 16 (b2i sixteen))))))
+  )
+)

@@ -257,17 +257,24 @@ the macro's answer, 10 against the function's 15, silently. Within ONE
 file the collision was always caught (see below); the import boundary
 now resolves instead of ambushing.
 
-**A name the macro's module merely imported is still capturable.** The
-definition-site rewrite tries exactly one spelling, `Mod$name` for the
-macro's *own* module. A template calling a function its module imported
-finds no such declaration, stays bare, and resolves at the call site —
-the same one-macro-two-meanings failure the definition-site fix closed,
-in the case it does not reach
+**A name the macro's module merely imported was capturable until
+2026-08-16.** The definition-site rewrite tried exactly one spelling,
+`Mod$name` for the macro's *own* module, so a template calling a
+function its module imported found no such declaration, stayed bare,
+and resolved at the call site — the same one-macro-two-meanings failure
+the definition-site fix closed, in the case it did not reach
 ([macro-system.md](macro-system.md) `MAC-HYG-8`.4; absent from this
 list until 2026-08-14, when the spec called out that this section read
-the residue as benign). Closing it means resolving a free identifier to
-its *true* defining module, which is the same lookup module-qualified
-macro names need.
+the residue as benign).
+
+It now resolves to the free identifier's *true* defining module. That
+sounds like it needs to know what the macro's module imported, and the
+import list is gone by then — but it does not: every declaration in the
+merged program carries the module it came from, so the rewrite asks
+which module declares the name and takes the answer when there is
+exactly one. Two answers is an ambiguity it has no right to settle, so
+it leaves the name bare and the invocation reports `AX3014` with the
+expansion frame that names the macro.
 
 ### Macros occupy the value namespace
 
@@ -312,7 +319,7 @@ semantic-analysis-time work:
 | `AX3023` | `private-name` | reaching a macro its module does not export — the general visibility code, shared by macros since they joined the value namespace |
 | `AX3024` | `macro-expansion-limit` | the expansion's OUTPUT exceeded a budget: nested deeper than 1024 forms, or more than 2,000,000 forms produced. The parser's limits measure the source; these measure what expansion produced from it |
 | `AX3027` | `declaration-macro` | every way a declaration-position invocation fails: unknown head (a typo'd keyword lands here, where it used to be a bare `AX2003` that stopped the parse), an expression macro in declaration position or a declaration macro in expression position, a non-identifier argument in a name position, and a module-side invocation reaching a pipeline that carries no mangling records. `axiom explain AX3027` is the catalogue |
-| `AX3032` | `macro-capture` | an entry-file macro's own free identifier is shadowed at the invocation (MAC-HYG-8.1). Refused rather than captured: before it, the program quietly computed with the local binding - 0 where the macro's own `helper` answers 40, at exit 0 |
+| `AX3032` | `macro-capture` | a macro's own free identifier is shadowed at the invocation and qualification had nothing to rewrite it to (MAC-HYG-8.1). Refused rather than captured: before it, the program quietly computed with the local binding - 0 where the macro's own `helper` answers 40, at exit 0. The message branches on whether the macro has a module: without one there is nothing to qualify to, with one the reference resolved to no single module |
 | `AX3028` | `syntax-query` | every `syntax/*` query with no answer (MAC-CAP-5/6): an unknown or wrong-position head (the vocabulary is CLOSED), a subject with nothing to answer (constructors of a struct, of nothing, of an imported type), a query written outside a macro template, a declaration named into the reserved `syntax/` prefix. `axiom explain AX3028` is the catalogue |
 
 `AX3006` (duplicate definition) also reaches macros now — see
@@ -470,9 +477,11 @@ longer exports a print function per type.)
    same-file collision is `AX3006` (§3); and since 2026-08-14,
    `Pre::when`-style qualified invocation works (private ones are
    `AX3023`), and an entry-file function outranks an imported macro
-   of the same name. What remains under this heading: an entry-file
-   macro's free identifiers are still capturable, and a name the
-   macro's module merely imported still is too (§3's two open holes).
+   of the same name; and since 2026-08-16, a name the macro's module
+   merely imported resolves to the module that declares it rather than
+   at the call site. What remains under this heading: an entry-file
+   macro's free identifiers are still capturable, which needs scope
+   sets (§3's one open hole; it refuses in the meantime).
 2. ~~**`Diag` frames carrying a span and a unit**~~ — **done,
    2026-08-14** (criterion 3): a diagnostic inside an expansion now
    names each enclosing macro with its declaration's span in its own

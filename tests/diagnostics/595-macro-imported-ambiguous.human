@@ -1,0 +1,15 @@
+[1;31merror[AX3014][0m[1m: ambiguous name `dup`: defined in AmbB, AmbA[0m
+  [1;34m--> [0m595-macro-imported-ambiguous.ax:25:13
+[1;34m   |[0m
+[1;34m25 |[0m (fn (main) (useDup 4))
+[1;34m   |[0m             [1;31m^^^^^^ `dup` could mean more than one definition[0m
+[1;34m   |[0m
+  [1;34m--> [0mAmbMac.ax:11:13
+[1;34m   |[0m
+[1;34m11 |[0m (pub macro (useDup v) (dup v))
+[1;34m   |[0m             [1;36m^^^^^^ in this expansion of `useDup`[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mqualify the reference: `AmbB::dup` or `AmbA::dup`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3014` for a full explanation
+
+compilation failed due to 1 previous error

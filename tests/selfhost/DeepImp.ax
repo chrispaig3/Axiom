@@ -1,0 +1,8 @@
+; Two import edges away from the macro that names it, for
+; `391-macro-imported-name.ax`. See that file for what it pins.
+;
+; Modules sit beside the cases and are told apart by name:
+; digit-prefixed is a case and must declare `; expect N`.
+(pub :: deepFn (-> Int Int))
+
+(pub fn (deepFn n) (* n 100))

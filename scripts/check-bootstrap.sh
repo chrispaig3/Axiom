@@ -591,7 +591,28 @@ floor=8192       # 8 MiB
 # reach `Str` headers this comes back down; until then the ceiling
 # leaves ~12% of headroom and a quadratic still crosses it in one
 # slice.
-ceiling=552960   # 540 MiB
+#
+# 540 -> 420 MiB on 2026-08-16, and the interesting half is what the
+# old number had become. It was set with ~12% of headroom over 475;
+# by the time it next failed the measurement was 534 and the headroom
+# was 1%, eaten a slice at a time by commits that each passed. A
+# ceiling only reports the run that crosses it, so the margin it is
+# leaving is invisible until there is none - which is why this number
+# now carries the measurement it was set from, and why moving it DOWN
+# after a win is part of taking the win.
+#
+# The win: `escBody` (codegen.ax) escaped a string literal by growing
+# an accumulator one byte at a time, quadratic in the literal's
+# length, on every literal the compiler emits. Counting the bytes
+# first and filling a single allocation took the same self-compile,
+# on the same input, from 542 to 393 MiB - 27% - with BYTE-IDENTICAL
+# IR out. It was found by the failure text below being right: a
+# 1.4 KB addition to one diagnostic's prose in `explain.ax`, zero new
+# lines, had moved the peak 5.3 MiB.
+#
+# 420 leaves ~7% over the measured 393. Re-introducing the quadratic
+# costs 38%, so this catches it on the first run.
+ceiling=430080   # 420 MiB, over a measured 393
 if (( peak < floor )); then
   fail "the self-compile peaked at $peak KiB, under the $((floor / 1024)) MiB floor - that is not a measurement of compiling 61,688 lines"
 fi

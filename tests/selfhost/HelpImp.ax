@@ -1,0 +1,13 @@
+; What `LibImp`'s macros name but do not declare, for
+; `391-macro-imported-name.ax`.
+(pub :: tenTimes (-> Int Int))
+
+(pub fn (tenTimes n) (* n 10))
+
+; Also declared by `LibImp`. Qualification tries the macro's OWN
+; module first, so this one must lose - and it is `pub`, so it is
+; genuinely a candidate rather than one filtered out for being
+; invisible.
+(pub :: both (-> Int Int))
+
+(pub fn (both n) (+ n 1))

@@ -896,9 +896,9 @@ bare, resolving outward exactly as before.
 
 ### 3.4 What hygiene does not yet cover
 
-**MAC-HYG-8 (P; two of the four closed 2026-08-14, and the first
-refuses since 2026-08-15).** These four holes **SHALL** close, and the
-second and third have. Each is stated with what happens today, because
+**MAC-HYG-8 (P; three of the four closed, the last on 2026-08-16, and
+the first refuses since 2026-08-15).** These four holes **SHALL**
+close, and the second, third and fourth have. Each is stated with what happens today, because
 each is a place a reader could reasonably believe the guarantee is
 total:
 
@@ -916,10 +916,18 @@ total:
 
    **It refuses now** (`AX3032`, `macro-capture`,
    `tests/diagnostics/590-macro-capture.ax`): a template's free
-   identifier that qualification left unchanged — which is exactly the
-   entry-file case — and that is shadowed at the invocation is a
-   diagnostic naming the macro's own name, at the invocation, per
-   invocation rather than per macro. That is not the guarantee; the
+   identifier that qualification left unchanged and that is shadowed at
+   the invocation is a diagnostic naming the macro's own name, at the
+   invocation, per invocation rather than per macro.
+
+   Since hole 4 closed, "qualification left it unchanged" is no longer
+   a synonym for "the entry-file case", so the diagnostic **MUST** say
+   which one it is: a macro with no module is told to move into one,
+   and a macro that *has* one is told its reference resolved to no
+   single module — the macro's own does not declare it and it is not
+   the unique import either. Telling either author the other's story
+   wastes the refusal, and the branch is exactly whether the macro has
+   a module, because qualification is what a module buys. That is not the guarantee; the
    guarantee is scope sets (`MAC-HYG-9`), which make the reference
    resolve where it was written. It is the difference between a wrong
    answer nobody can see and a refusal that says which line to change,
@@ -941,22 +949,48 @@ total:
    caught (`MAC-LANG-8`); now the import boundary resolves instead of
    ambushing.
 4. **A free identifier naming something the macro's module merely
-   imported is still captured.** `MAC-HYG-7`'s rewrite tries exactly one
-   spelling, `Mod$n` for the macro's *own* module. A template calling a
-   function its module imported transitively finds no such declaration,
-   stays bare, and is captured by the caller — the same
+   imported** — **closed 2026-08-16.** `MAC-HYG-7`'s rewrite tries
+   exactly one spelling, `Mod$n` for the macro's *own* module, so a
+   template calling a function its module imported found no such
+   declaration, stayed bare, and was captured by the caller — the same
    one-macro-two-meanings failure `MAC-HYG-6` closed, in the case
    `MAC-HYG-6` does not reach. This hole was absent from
    [macros.md](macros.md) §3 until 2026-08-14 — the residue read as
-   benign there; it is recorded now. Closing it means resolving a free
-   identifier to its *true* defining module rather than to the macro's
-   — and the measured blocker is that the merged declaration list has
-   no import edges to resolve through: `resolveDeclsPhase` consumes
-   each `(import ...)` during the merge and pushes nothing into the
-   merged list, so which modules the macro's module imported is not
-   recoverable after resolution. `MAC-LANG-12` closed without this (a
-   qualified reference names its module in the source); this hole
-   cannot.
+   benign there.
+
+   **The blocker this rule recorded was wrong, and the correction is
+   the whole of the fix.** It said closing the hole needs import
+   *edges*, which the merge consumes — `resolveDeclsPhase` reads each
+   `(import ...)` and pushes nothing into the merged list — and
+   concluded that which modules the macro's module imported is not
+   recoverable after resolution. That is true and it does not matter.
+   Every merged declaration carries the module it came from
+   (`nodeModule`), so *which module declares this name* is answerable
+   from the list itself, without any edge. `expQualify` therefore
+   falls back, when `Mod$n` is not a declaration, to the unique
+   `pub` declaration whose bare name is `n`, and rewrites to that.
+
+   **Unique, or nothing.** Two modules declaring the name is
+   `AX3014`'s ambiguity by another name, and this rewrite has no more
+   right to choose between them than a bare reference does — so it
+   leaves the name alone, and the invocation reports `AX3014` carrying
+   the expansion frame that names the macro. The soundness argument
+   for taking the unique one is that a template naming something its
+   module could not see would not have compiled where it was written;
+   the rewrite is choosing among modules the macro's module reached,
+   not searching the world.
+
+   Pinned by `tests/selfhost/391-macro-imported-name.ax` (31) over the
+   modules `LibImp`, `HelpImp`, `MidImp` and `DeepImp`. Two of its five
+   bits are the hole (a local at the invocation, and the unshadowed
+   two-meanings case) and three are controls, including the one that
+   matters for precedence: a name the macro's module declares *and*
+   imports resolves to its own, because the one spelling is still tried
+   before the search. The search reaches two import edges, which is the
+   evidence that what it walks is the merged list and not a
+   direct-import list. The compiler before the commit refuses the file
+   (`AX3032`, below); with that one term removed so the refusal cannot
+   mask the rest, it answers **13 against 31**.
 
 **MAC-HYG-9 (P).** The mechanism **SHALL** become **scope sets**: an
 identifier is a `(name, scopes)` pair rather than a bare name, every
@@ -2262,10 +2296,12 @@ rather than the value alone.
    splitting the reference instead of mangling the declarations:
    qualification works (hole 2), an entry-file function outranks an
    imported macro (hole 3), and a qualified private macro is `AX3023`.
-   What remains under this heading: the entry-file capture (hole 1,
-   which needs `MAC-HYG-9`'s scope sets) and the imported-name capture
-   (hole 4, which needs import edges the merged declaration list does
-   not carry).
+   Hole 4, the imported-name capture, followed on 2026-08-16 — this
+   list said it needed import edges the merged declaration list does
+   not carry, and it does not: the list carries each declaration's
+   module, which is the only thing the lookup ever needed. What
+   remains under this heading is the entry-file capture (hole 1),
+   which needs `MAC-HYG-9`'s scope sets.
 2. ~~**`MAC-DIAG-4`**~~ — **landed 2026-08-14**, before the items that
    make diagnostics inside expansions more common, as this list
    ordered. The frame element is `(name, span, unit)`, the join is by

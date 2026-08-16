@@ -305,7 +305,83 @@
     (if (== (cast Int m) 0)
         name
         (let ((q (strConcat (strConcat m "$") name)))
-          (if (== (expDeclNamed (expDecls env) q 0) 1) q name)))))
+          (if (== (expDeclNamed (expDecls env) q 0) 1)
+              q
+              ; MAC-HYG-8's FOURTH hole. `MAC-HYG-7`'s rewrite tries
+              ; exactly one spelling - `Mod$name` for the macro's own
+              ; module - so a template calling something its module
+              ; merely IMPORTED found no such declaration, stayed bare,
+              ; and was captured by the caller: the same
+              ; one-macro-two-meanings failure `MAC-HYG-6` closed, in
+              ; the case `MAC-HYG-6` did not reach.
+              ;
+              ; This rule said closing it needed import EDGES, which
+              ; the merge consumes. It does not. Every declaration in
+              ; the merged list carries the module it came from, so
+              ; the question "which module declares this name" is
+              ; answerable from the list itself - and when exactly ONE
+              ; module answers, that is the one the macro's module
+              ; reached, because a template that names something
+              ; unreachable would not have compiled where it was
+              ; written.
+              ;
+              ; Exactly one. Two candidates is `AX3014`'s ambiguity by
+              ; another name, and this rewrite has no more right to
+              ; pick between them than a bare reference does, so it
+              ; leaves the name alone and the capture refusal
+              ; (`AX3032`) reports it if a caller shadows it.
+              (expUniqueModuleName (expDecls env) name))))))
+
+; The single mangled declaration whose BARE name is `name`, or the
+; name unchanged. `Mod$name` is the mangled spelling, so the match is
+; on the suffix after the `$` and only for declarations that carry a
+; module.
+(pub :: expUniqueModuleName (-> Int String String))
+(pub fn (expUniqueModuleName decls name)
+  (let ((hit (expUniqueModuleFrom decls name 0 (cast String 0))))
+    (if (== (cast Int hit) 0) name hit)))
+
+(pub :: expUniqueModuleFrom (-> Int String Int String String))
+(pub fn (expUniqueModuleFrom decls name i found)
+  (if (>= i (vecLen decls))
+      found
+      (let ((d (vecGet decls i)))
+        (if (&& (== (nodeTag d) TAG_D_FN)
+                (&& (!= (cast Int (nodeModule d)) 0)
+                    (&& (== (nodeVis d) 1)
+                        (== (expMangledIs (nodeA d) name) 1))))
+            (if (== (cast Int found) 0)
+                (expUniqueModuleFrom decls name (+ i 1) (nodeA d))
+                ; a second module declares it: ambiguous, leave bare
+                (cast String 0))
+            (expUniqueModuleFrom decls name (+ i 1) found)))))
+
+; Is `s` the mangled spelling `Mod$name` of the bare `name`?
+;
+; This is written as a comparison and not as "slice off the module and
+; `strEq`" because the slice ALLOCATES, once per declaration and once
+; per template identifier the first spelling missed. The self-compile
+; already allocates ~3.9 million string headers and frees none of
+; them, and check-bootstrap's 540 MiB ceiling is calibrated on exactly
+; that count: the slicing version measured 540 MiB against 528 and
+; failed the gate, which is the ceiling doing its stated job of
+; catching a per-allocation constant rather than a shape change.
+(pub :: expMangledIs (-> String String Int))
+(pub fn (expMangledIs s name)
+  (let ((i (strFindByte s 36 0)))
+    (if (< i 0)
+        0
+        (if (!= (- (strLen s) (+ i 1)) (strLen name))
+            0
+            (expTailEq s (+ i 1) name 0 (strLen name))))))
+
+(pub :: expTailEq (-> String Int String Int Int Int))
+(pub fn (expTailEq s off name i n)
+  (if (>= i n)
+      1
+      (if (== (strByte s (+ off i)) (strByte name i))
+          (expTailEq s off name (+ i 1) n)
+          0)))
 
 (pub :: expDeclNamed (-> Int String Int Int))
 (pub fn (expDeclNamed decls name i)
@@ -3048,11 +3124,38 @@
                     (strConcat (strConcat "the macro's own `" name)
                                "` is shadowed at this invocation")
                     0 0
-                    (strConcat (strConcat "rename the binding at the call site, or move the macro into a module, where its free identifiers resolve to that module and nothing here can shadow them (`" name)
-                               "` would become `Mod$` + the name)")
-                    "a template's free identifier means what it meant where the macro was WRITTEN (macro-system.md MAC-HYG-6). An entry-file macro has nothing to qualify to, so this reference would silently become the local one - MAC-HYG-8's first hole, which scope sets (MAC-HYG-9) close and this refusal makes visible in the meantime")
-        (expMacMod env)))
+                    (expCaptureHelp env name)
+                    (expCaptureNote env))
+        ; `isp` is the INVOCATION's span, so the unit that resolves it
+        ; is the module being expanded (word 11, the same one the
+        ; ExpFrame pairs with this span) and NOT the macro's. Stamping
+        ; the macro's module read the invocation's offset against the
+        ; macro's file: a module-defined macro reported at
+        ; `Lib.ax:3:44-50` for a two-line `Lib.ax`. It went unseen
+        ; because the only gated case is an ENTRY-FILE macro, where
+        ; the two modules are both 0 and the bug is invisible.
+        (memGetWord env 11)))
       0))
+
+; The refusal reaches TWO different authors, and telling either one
+; the other's story wastes the diagnostic. Which one is exactly
+; whether the macro has a module: qualification (`MAC-HYG-7`) is what
+; a module buys, so a macro that HAS one and still arrives here has a
+; reference qualification could not place, not a reference it never
+; tried to place.
+(pub :: expCaptureHelp (-> Int String String))
+(pub fn (expCaptureHelp env name)
+  (if (== (cast Int (expMacMod env)) 0)
+      (strConcat (strConcat "rename the binding at the call site, or move the macro into a module, where its free identifiers resolve to that module and nothing here can shadow them (`" name)
+                 "` would become `Mod$` + the name)")
+      (strConcat (strConcat "rename the binding at the call site, or make `" name)
+                 "` unambiguous where the macro is written - declare it in the macro's own module, or import it from exactly one module rather than from several")))
+
+(pub :: expCaptureNote (-> Int String))
+(pub fn (expCaptureNote env)
+  (if (== (cast Int (expMacMod env)) 0)
+      "a template's free identifier means what it meant where the macro was WRITTEN (macro-system.md MAC-HYG-6). An entry-file macro has nothing to qualify to, so this reference would silently become the local one - MAC-HYG-8's first hole, which scope sets (MAC-HYG-9) close and this refusal makes visible in the meantime"
+      "a template's free identifier means what it meant where the macro was WRITTEN (macro-system.md MAC-HYG-6), which qualification enforces by rewriting it to the module that declares it. This one is declared by NO single module - the macro's own does not declare it, and it is not the unique import either - so there was nothing to rewrite it to and the binding here would capture it"))
 
 (pub :: expArityRuleDiag (-> Int String String Int Int Int))
 (pub fn (expArityRuleDiag env name arities got isp)

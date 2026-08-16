@@ -839,16 +839,68 @@
 
 ; `lexeme` still carries its surrounding quotes, so the body runs from
 ; index 1 to len-1.
-(pub :: escBody (-> String Int Int String String))
-(pub fn (escBody s i limit acc)
+;
+; Two passes over the literal, and the reason is a MEASUREMENT. This
+; was one pass that grew an accumulator - `(cat3 acc "\\" (hex2 c))`
+; per byte - which allocates a fresh string per byte, each about as
+; long as everything escaped so far: quadratic in the literal's
+; length, and nothing here is freed yet. `self_host/explain.ax` holds
+; the longest literals in the tree, and lengthening ONE of them by
+; about 1.4 KB - `AX3032`'s text, zero new lines - moved the
+; self-compile's peak RSS by 5.3 MiB, from 534 to 539 against
+; check-bootstrap's 540 MiB ceiling. That gate's failure text guesses
+; "suspect an accumulator that copies", and this was the accumulator.
+;
+; Counting first costs one allocation-free scan and makes the fill
+; linear. What that is worth was much larger than the literal that
+; exposed it, because the square was being paid on EVERY literal the
+; compiler emits: the same self-compile, same input, went 542 -> 393
+; MiB, and the two emit BYTE-IDENTICAL IR. 149 MiB, or 27%, was the
+; compiler escaping its own strings a character at a time.
+;
+; (`llvmSymBody` below still folds this way. It escapes a symbol NAME,
+; where the corpus's longest is 48 bytes against this literal's 3,300,
+; so the square is not worth a second pass there - recorded so the
+; asymmetry reads as a decision.)
+(pub :: escBody (-> String Int Int String))
+(pub fn (escBody s i limit)
+  (let ((out (strAlloc (* 3 (escCount s i limit 0)))))
+    { (escFill s i limit (strData out) 0) out }))
+
+; How many BYTES the literal denotes: a source escape is two bytes and
+; denotes one, which is why this cannot be `limit - i`.
+(pub :: escCount (-> String Int Int Int Int))
+(pub fn (escCount s i limit n)
   (if (>= i limit)
-      acc
-      (let ((c (strByte s i)))
-        (if (&& (== c 92) (< (+ i 1) limit))
-            (escBody s (+ i 2) limit
-                     (cat3 acc "\\" (hex2 (unescByte (strByte s (+ i 1))))))
-            (escBody s (+ i 1) limit
-                     (cat3 acc "\\" (hex2 c)))))))
+      n
+      (if (&& (== (strByte s i) 92) (< (+ i 1) limit))
+          (escCount s (+ i 2) limit (+ n 1))
+          (escCount s (+ i 1) limit (+ n 1)))))
+
+(pub :: escFill (-> String Int Int Int Int Int))
+(pub fn (escFill s i limit p o)
+  (if (>= i limit)
+      o
+      (if (&& (== (strByte s i) 92) (< (+ i 1) limit))
+          {
+            (escPut p o (unescByte (strByte s (+ i 1))))
+            (escFill s (+ i 2) limit p (+ o 3))
+          }
+          {
+            (escPut p o (strByte s i))
+            (escFill s (+ i 1) limit p (+ o 3))
+          })))
+
+; One byte as LLVM's `\XX`, the three characters `emitStringGlobals`
+; divides by to recover the count.
+(pub :: escPut (-> Int Int Int Int))
+(pub fn (escPut p o c)
+  {
+    (__store8 p o 92)
+    (__store8 p (+ o 1) (hexDigit (/ c 16)))
+    (__store8 p (+ o 2) (hexDigit (% c 16)))
+    0
+  })
 
 ; ------------------------------------------------------------------
 ; A user's name, as LLVM has to read it.
@@ -941,7 +993,7 @@
     (if (>= i (vecLen tbl))
         cg
         (let ((lex (vecGet tbl i)))
-          (let ((body (escBody lex 1 (- (strLen lex) 1) ""))) 
+          (let ((body (escBody lex 1 (- (strLen lex) 1)))) 
             (let ((n (+ (/ (strLen body) 3) 1)))
               {
                 (emitLine cg

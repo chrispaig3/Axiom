@@ -1,0 +1,8 @@
+; The middle of the import chain for `391-macro-imported-name.ax`: it
+; imports `DeepImp` and is imported by `LibImp`, so `LibImp`'s macro
+; names `deepFn` across two edges and never one.
+(import DeepImp)
+
+(pub :: midFn (-> Int Int))
+
+(pub fn (midFn n) (+ n 1))

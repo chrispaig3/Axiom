@@ -1,0 +1,25 @@
+; The "unique, or nothing" half of MAC-HYG-8's fourth hole
+; (2026-08-16). A template's free identifier naming something the
+; macro's module imported resolves to the module that DECLARES it -
+; and when more than one module declares it, the rewrite has no more
+; right to choose than a bare reference does, so it chooses nothing
+; and the name stays bare.
+;
+; What that produces is `AX3014`: the same ambiguity a bare reference
+; draws, reported at the INVOCATION - which mentions neither `dup`
+; nor either module - and carrying the expansion frame that names
+; `useDup`. The frame is the whole of what makes the line actionable,
+; and `AmbMac` imports only `AmbB`: it is THIS file's second import
+; that makes the name ambiguous, so the author who must act is here.
+;
+; The other way the same rewrite refuses is `AX3032`, in
+; `596-macro-capture-in-module.ax`. It cannot be a second term in
+; this file: expansion refuses before the checker runs, so a capture
+; anywhere would leave this ambiguity unreported.
+(import AmbMac)
+
+(import AmbA)
+
+(:: main Int)
+
+(fn (main) (useDup 4))

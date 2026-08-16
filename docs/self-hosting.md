@@ -2685,11 +2685,25 @@ while it is still growing — and the next thing to be added to it is a
 formatter.
 
 `check-bootstrap.sh` now measures one self-compile's peak RSS and
-refuses over 400 MiB. A ceiling, not a benchmark: the number to protect
-is the shape. Quadratic growth crosses 400 MiB long before it crosses a
+refuses over a ceiling — 400 MiB when this was written, 420 MiB since
+2026-08-16, and the script carries the measurement each number was set
+from. A ceiling, not a benchmark: the number to protect is the shape.
+Quadratic growth crosses it long before it crosses a
 CI runner's limit, and when it does it presents as a SIGKILL in a job
 that looks unrelated — which is exactly how the two bootstrap failures
-this document already records presented. The measurement fails rather
+this document already records presented. **It caught one on
+2026-08-16, and the shape was exactly the one this paragraph names.**
+Lengthening a single diagnostic's prose in `explain.ax` by about
+1.4 KB — zero new lines — moved the peak 5.3 MiB and crossed the
+ceiling. The cause was `escBody` in `codegen.ax`, which escaped a
+string literal for the IR by growing an accumulator one byte at a
+time: quadratic in the literal's length, paid on every literal the
+compiler emits. Counting the bytes first and filling one allocation
+took the same self-compile from 542 to 393 MiB — 27% — with
+byte-identical IR out, which is why the ceiling moved DOWN with the
+fix rather than up around the failure. The gate's own failure text
+("suspect an accumulator that copies") named the defect before anyone
+looked. The measurement fails rather
 than skips when neither `/usr/bin/time -l` nor `-v` works, because a
 resource check that silently skips is this repository's most-repeated
 mistake.

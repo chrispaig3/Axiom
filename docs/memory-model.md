@@ -2037,7 +2037,9 @@ The ceiling is 64 KiB rather than the 262,128 bytes the count field
 can describe, and that choice is measured too: **the wider array buys
 nothing.** A self-compile peaks at 534.3 MB under a 1 KiB ceiling, a
 64 KiB one and a 256 KiB one alike, because nothing large *dies* in
-it — the compiler's own containers are `Int`-typed and events 2 and 3
+it (the absolute figure is 393 MB since 2026-08-16, when `escBody`
+stopped escaping string literals quadratically — the three ceilings
+still measure alike, which is the claim) — the compiler's own containers are `Int`-typed and events 2 and 3
 do not emit. What a ceiling costs is the head array (4,097 words of
 BSS, 352 bytes of binary) and the per-reset scrub, and neither is
 worth paying for classes no measurement reaches. The last row of the

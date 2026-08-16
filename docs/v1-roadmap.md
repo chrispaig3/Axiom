@@ -907,13 +907,16 @@ compiler's threat model and needs a sandbox and an explicit decision.
 **Hygiene.** The mechanism as built is renaming, not scope sets: every
 binder a template introduces is gensym-renamed to `<name>.<counter>`
 (that direction is complete), and a template's free identifiers resolve
-at the macro's *definition* site for module-defined macros
+at the macro's *definition* site for module-defined macros — including
+names the module merely imported, since 2026-08-16
 ([macro-system.md](macro-system.md) MAC-HYG-1–7). Scope sets — an
 identifier as a `(name, scopes)` pair, a fresh scope per expansion,
 resolution matching on both — remain the planned upgrade (MAC-HYG-9),
-required by pattern literals and by the holes renaming cannot
-close (MAC-HYG-8); the migration must preserve every gated hygiene
-case byte for byte.
+required by pattern literals and by the ONE hole renaming cannot close:
+a macro defined in the ENTRY file has no mangled name to resolve to,
+so its free identifiers refuse (`AX3032`) rather than resolve
+(MAC-HYG-8.1). The migration must preserve every gated hygiene case
+byte for byte.
 
 **Type-checked output is free; good diagnostics are not.** This
 paragraph used to open "Expansion runs before semantic analysis, so
