@@ -31,7 +31,7 @@
   [93mAX3013[0m  partial application is not supported  (partial-application)
   [93mAX3016[0m  a handle list names an effect that is not declared  (unknown-effect)
   [93mAX3017[0m  an effect-handler shape the compiler does not support yet  (effect-handler-unsupported)
-  [93mAX3018[0m  wrong number of arguments to a macro  (macro-arity)
+  [93mAX3018[0m  an invocation no macro rule accepts  (macro-arity)
   [93mAX3019[0m  macro expansion did not terminate  (macro-recursion-limit)
   [93mAX3020[0m  a macro declares the same parameter twice  (macro-duplicate-parameter)
   [93mAX3021[0m  a macro template contains a form the expander cannot substitute into  (macro-template-unsupported)
@@ -46,6 +46,7 @@
   [93mAX3030[0m  too many type variables for one evidence word  (evidence-word-capacity)
   [93mAX3031[0m  malformed format string  (malformed-format-string)
   [93mAX3032[0m  a macro's own name is shadowed at the invocation  (macro-capture)
+  [93mAX3033[0m  a macro rule that can never match  (macro-unreachable-rule)
   [93mAX4001[0m  no `main` function  (missing-main)
   [93mAX4002[0m  code generation failed  (codegen-failure)
   [93mAX4003[0m  external toolchain command failed  (toolchain-failure)
@@ -339,6 +340,29 @@ side effects silently did not happen.
 
 Count the parameters and pass that many.
 
+THE RULE FORM IS NOT ONLY ABOUT COUNTING, since MAC-LANG-15 made a
+rule's parameters PATTERNS and MAC-LANG-18 made selection a match.
+There the message reads
+
+    no rule of macro `defN` matches this invocation;
+    it accepts (defN (a b)) or (defN T 7)
+
+and the invocation may well have passed a count some rule
+declares - what failed is the SHAPE of an argument, or the value of
+a literal the pattern spells out. The shapes listed are the rules'
+own patterns as their author wrote them; a plain identifier in one
+matches anything, and everything else has to be written as it
+stands.
+
+The code and its `macro-arity` slug are shared deliberately rather
+than split, because MAC-LANG-18 specifies this generalisation by
+name - "the arity diagnostic AX3018 generalised. Today's AX3018
+becomes the one-rule case of it". The slug is narrower than the
+condition it now carries, and that is the cost of keeping a stable
+code the specification names. (The unreachable-RULE refusal went
+the other way and took a new code, AX3033, because nothing
+specified it sharing AX3020 - see that entry.)
+
 ### explain AX3019
 AX3019 - macro expansion did not terminate
 
@@ -363,6 +387,15 @@ in the template has no single meaning. The expander resolves it to the
 LAST argument, which means the earlier ones are accepted, evaluated in
 source order, and then discarded - measured: `(macro (dup a a) (+ a a))`
 invoked as `(dup 10 20)` answered 40.
+
+Since MAC-LANG-15 a rule-form macro's parameters are PATTERNS, so
+the binders this counts are every binder the patterns introduce,
+nested ones included: `((m a (f a)) ...)` binds `a` twice and is
+this code. `_` is exempt - it binds nothing, so several of them in
+one rule are legal.
+
+A rule that can never MATCH is a different thing and a different
+code (AX3033). This one used to cover both.
 
 Give each parameter a distinct name.
 
@@ -689,6 +722,36 @@ The permanent fix for the entry-file half is scope sets (MAC-HYG-9),
 which make an identifier carry the scopes it was written in. Until
 that lands, this refusal is what keeps the hole from being silent.
 
+### explain AX3033
+AX3033 - a macro rule that can never match
+
+A rule-form macro's rules are tried IN ORDER and the first whose
+pattern matches wins (docs/macro-system.md MAC-LANG-18). A rule
+nothing can reach is therefore a program someone wrote expecting it
+to run, and this code refuses it at the macro's own line rather than
+letting it sit there looking live.
+
+A rule is unreachable when an EARLIER rule of the same arity is
+IRREFUTABLE - every one of its elements is a plain binder, so it
+matches every invocation of that arity and consumes them all.
+
+    (macro defU ((defU T)      ; matches any one argument
+                 ...)
+                ((defU (a b))  ; AX3033: nothing reaches it
+                 ...))
+
+Swap them and both are reachable: `(defU (a b))` fails on an
+argument that is not a two-element form, and `(defU T)` then takes
+everything else. Ordering a pattern table from most specific to most
+general is the shape this diagnostic is steering toward.
+
+Two rules of one arity are NOT refused by themselves. That was the
+older rule, when arity was the whole selector and this condition
+shared AX3020 with a repeated parameter; patterns made the two
+different claims, so they became different codes. A macro whose
+rules all take one argument and are told apart by shape is exactly
+what the pattern language is for.
+
 ### explain AX4001
 AX4001 - no `main` function
 
@@ -782,7 +845,7 @@ run `axiom explain --list` to see all known codes
   [93mAX3013[0m  partial application is not supported  (partial-application)
   [93mAX3016[0m  a handle list names an effect that is not declared  (unknown-effect)
   [93mAX3017[0m  an effect-handler shape the compiler does not support yet  (effect-handler-unsupported)
-  [93mAX3018[0m  wrong number of arguments to a macro  (macro-arity)
+  [93mAX3018[0m  an invocation no macro rule accepts  (macro-arity)
   [93mAX3019[0m  macro expansion did not terminate  (macro-recursion-limit)
   [93mAX3020[0m  a macro declares the same parameter twice  (macro-duplicate-parameter)
   [93mAX3021[0m  a macro template contains a form the expander cannot substitute into  (macro-template-unsupported)
@@ -797,6 +860,7 @@ run `axiom explain --list` to see all known codes
   [93mAX3030[0m  too many type variables for one evidence word  (evidence-word-capacity)
   [93mAX3031[0m  malformed format string  (malformed-format-string)
   [93mAX3032[0m  a macro's own name is shadowed at the invocation  (macro-capture)
+  [93mAX3033[0m  a macro rule that can never match  (macro-unreachable-rule)
   [93mAX4001[0m  no `main` function  (missing-main)
   [93mAX4002[0m  code generation failed  (codegen-failure)
   [93mAX4003[0m  external toolchain command failed  (toolchain-failure)

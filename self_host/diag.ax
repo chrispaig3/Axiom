@@ -376,12 +376,24 @@
 ; Rust `{:?}` for a string: wrap in quotes, escaping `\` and `"`.
 ;
 ; Debug also escapes control characters as `\n`, `\t` and `\u{..}`.
-; None of this slice's messages contain one - they are compiler
-; literals over identifiers copied from source, and an identifier
-; cannot hold a control character - so implementing those escapes
-; would produce code no test could reach. `quoteStr` is written for
-; what it is given, and `tests/selfhost/650-quote.ax` pins the two
-; escapes that are reachable.
+; This used to implement none of them, on the recorded ground that no
+; message could contain one: "they are compiler literals over
+; identifiers copied from source, and an identifier cannot hold a
+; control character".
+;
+; MAC-LANG-18 falsified that on 2026-08-16. Its refusal lists a
+; macro's accepted SHAPES, and a shape is the author's own pattern
+; spelling - which for a string literal is a source slice that CAN
+; hold one. Measured: a pattern spelling a string with a newline in it
+; put a raw newline inside the quoted message, and one AXDL
+; diagnostic rendered as three lines, breaking the one-per-line format
+; every consumer of `--diagnostic-format=ai` parses by.
+;
+; The three implemented are the three a source literal can carry: a
+; typed newline, tab or carriage return. Any other control byte can
+; only reach a lexeme as an ESCAPE, which is already two ordinary
+; characters by the time it is here. `tests/selfhost/650-quote.ax`
+; pins the escapes that are reachable.
 ; ------------------------------------------------------------------
 (pub :: quoteStr (-> String String))
 (pub fn (quoteStr s)
@@ -396,7 +408,13 @@
             (quoteBody s (+ i 1) (strConcat acc "\\\\"))
         (if (== b 34)
             (quoteBody s (+ i 1) (strConcat acc "\\\""))
-            (quoteBody s (+ i 1) (strConcat acc (strSlice s i 1))))))))
+        (if (== b 10)
+            (quoteBody s (+ i 1) (strConcat acc "\\n"))
+        (if (== b 9)
+            (quoteBody s (+ i 1) (strConcat acc "\\t"))
+        (if (== b 13)
+            (quoteBody s (+ i 1) (strConcat acc "\\r"))
+            (quoteBody s (+ i 1) (strConcat acc (strSlice s i 1)))))))))))
 
 ; ------------------------------------------------------------------
 ; One AXDL line, without its terminating newline.

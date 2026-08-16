@@ -1,21 +1,21 @@
-[1;31merror[AX3020][0m[1m: macro `sameArity` declares two rules taking 1 arguments[0m
-  [1;34m--> [0m585-multi-rule-misuse.ax:24:8
+[1;31merror[AX3033][0m[1m: macro `sameArity` has a rule that can never match: rule 2 is shadowed by rule 1[0m
+  [1;34m--> [0m585-multi-rule-misuse.ax:38:8
 [1;34m   |[0m
-[1;34m24 |[0m (macro sameArity ((sameArity T)
+[1;34m38 |[0m (macro sameArity ((sameArity T)
 [1;34m   |[0m        [1;31m^^^^^^^^^[0m
 [1;34m   |[0m
-  [1;34m = [0m[1mnote: [0ma rule-form macro selects its rule by ARITY (macro-system.md MAC-LANG-14), so the second rule of a repeated arity can never be reached
-  [1;34m = [0m[1;32mhelp: [0mgive the rules different parameter counts, or merge them
-  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3020` for a full explanation
+  [1;34m = [0m[1mnote: [0mrules are tried IN ORDER and the first whose pattern matches wins (macro-system.md MAC-LANG-18); an earlier rule of the same arity whose elements are all plain binders matches every invocation of that arity, so nothing of that arity after it is reachable
+  [1;34m = [0m[1;32mhelp: [0mgive the earlier rule a pattern that can FAIL - a literal, or a parenthesised shape of two or more elements - or delete this one. A one-element `(p)` is the bare binder `p`: the parentheses are the same ones an argument loses, so it still matches everything
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3033` for a full explanation
 
-[1;31merror[AX3018][0m[1m: macro `spread` takes 1 or 3 arguments, but was given 2[0m
-  [1;34m--> [0m585-multi-rule-misuse.ax:40:2
+[1;31merror[AX3018][0m[1m: no rule of macro `spread` matches this invocation; it accepts (spread T) or (spread T a b)[0m
+  [1;34m--> [0m585-multi-rule-misuse.ax:54:2
 [1;34m   |[0m
-[1;34m40 |[0m (spread D 9)
+[1;34m54 |[0m (spread D 9)
 [1;34m   |[0m  [1;31m^^^^^^[0m
 [1;34m   |[0m
-  [1;34m = [0m[1mnote: [0ma rule-form macro selects its rule by ARITY (macro-system.md MAC-LANG-14): the rules are tried in order and the first whose parameter count matches wins, so an invocation matching none is this refusal rather than a fall-through
-  [1;34m = [0m[1;32mhelp: [0mpass as many arguments as one of the macro's rules declares parameters
+  [1;34m = [0m[1mnote: [0mrules are tried IN ORDER and the first whose pattern matches wins (macro-system.md MAC-LANG-18): an invocation matching none is this refusal rather than a fall-through. A plain identifier in a shape matches any argument; a literal matches its own VALUE, and a parenthesised shape matches a form of that many elements - but not a form headed by a keyword (`if`, `let`, `lambda`, `match`), which the parser gives a shape of its own
+  [1;34m = [0m[1;32mhelp: [0mwrite the invocation in one of the shapes above
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3018` for a full explanation
 
 compilation failed due to 2 previous errors

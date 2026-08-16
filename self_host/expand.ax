@@ -3157,17 +3157,25 @@
       "a template's free identifier means what it meant where the macro was WRITTEN (macro-system.md MAC-HYG-6). An entry-file macro has nothing to qualify to, so this reference would silently become the local one - MAC-HYG-8's first hole, which scope sets (MAC-HYG-9) close and this refusal makes visible in the meantime"
       "a template's free identifier means what it meant where the macro was WRITTEN (macro-system.md MAC-HYG-6), which qualification enforces by rewriting it to the module that declares it. This one is declared by NO single module - the macro's own does not declare it, and it is not the unique import either - so there was nothing to rewrite it to and the binding here would capture it"))
 
-(pub :: expArityRuleDiag (-> Int String String Int Int Int))
-(pub fn (expArityRuleDiag env name arities got isp)
+; MAC-LANG-18's refusal: an invocation matching no rule names the
+; macro and lists the SHAPES it accepts.
+;
+; It used to list arities - "takes 1 or 3 arguments" - which was all
+; arity-selection could say, and which says nothing at all once two
+; rules of one arity differ by shape. The shapes are the rules'
+; patterns as the author wrote them, so the reader compares their
+; invocation against the thing they would have to change.
+(pub :: expNoRuleDiag (-> Int String String Int Int))
+(pub fn (expNoRuleDiag env name shapes isp)
   (expEmit env
     (mkDiagNote SEV_ERROR "AX3018" "macro-arity"
                 isp
-                (strConcat (strConcat (strConcat (strConcat (strConcat
-                  "macro `" name) "` takes ") arities)
-                  " arguments, but was given ") (expFmtInt got))
+                (strConcat (strConcat (strConcat
+                  "no rule of macro `" name) "` matches this invocation; it accepts ")
+                  shapes)
                 0 0
-                "pass as many arguments as one of the macro's rules declares parameters"
-                "a rule-form macro selects its rule by ARITY (macro-system.md MAC-LANG-14): the rules are tried in order and the first whose parameter count matches wins, so an invocation matching none is this refusal rather than a fall-through")))
+                "write the invocation in one of the shapes above"
+                "rules are tried IN ORDER and the first whose pattern matches wins (macro-system.md MAC-LANG-18): an invocation matching none is this refusal rather than a fall-through. A plain identifier in a shape matches any argument; a literal matches its own VALUE, and a parenthesised shape matches a form of that many elements - but not a form headed by a keyword (`if`, `let`, `lambda`, `match`), which the parser gives a shape of its own")))
 
 (pub :: expArityDiag (-> Int String Int Int Int Int))
 (pub fn (expArityDiag env name want got isp)
@@ -3303,16 +3311,33 @@
         (if (>= i (vecLen rules))
             0
             {
-              (expCheckDupParamsIn mac (expRuleParams (vecGet rules i)) env 0)
+              ; Slot 0 stops at the TOP LEVEL, so once a pattern can
+              ; nest (MAC-LANG-15) it is no longer the list of what a
+              ; rule binds: `((m a (f a)) ...)` binds `a` twice and
+              ; slot 0 sees `a` and one marker. The binders are what
+              ; the check is about, so the check walks the patterns.
+              (expCheckDupParamsIn mac
+                (expRuleBinders (expRulePats (vecGet rules i)) 0 vecNew)
+                env 0)
               (expCheckRuleParams mac env (+ i 1))
             }))))
 
-; TWO RULES OF ONE ARITY are refused at the macro's own line. Arity is
-; what selects a rule (MAC-LANG-14), so a second rule of the same
-; arity is unreachable - and an unreachable rule is a program someone
-; wrote expecting it to run. First-match-wins makes the behaviour
-; DEFINED; refusing makes it visible, which is the choice this
-; repository makes everywhere else it has made it.
+; AN UNREACHABLE RULE is refused at the macro's own line.
+;
+; This refusal used to be "two rules of one ARITY", and its stated
+; reason - "arity is what selects a rule, so the second is
+; unreachable" - stopped being true the moment a pattern could be
+; something other than a binder (MAC-LANG-15). Two rules of one arity
+; and DIFFERENT SHAPES are both reachable, and refusing them would
+; refuse the whole point: the specification's own `simplify` example
+; (§10.4) is seven rules of arity one.
+;
+; What survives is the part that was always the real claim. A rule
+; whose every element is a plain binder matches EVERY invocation of
+; its arity - it is irrefutable - so nothing of that arity after it
+; can ever be reached. That is the narrowed test, it refuses exactly
+; what the old one refused among all-binder rules, and it admits
+; exactly what patterns are for.
 (pub :: expCheckRuleArities (-> Int Int Int Int))
 (pub fn (expCheckRuleArities mac env i)
   (let ((rules (memGetWord mac 9)))
@@ -3321,28 +3346,42 @@
         (if (>= i (vecLen rules))
             0
             {
-              (let ((n (vecLen (expRuleParams (vecGet rules i)))))
-                (if (!= (expRuleIndexOfArity rules n 0) i)
+              (let ((j (expShadowingRule rules i 0)))
+                (if (>= j 0)
                     (expEmit env
-                      (mkDiagNote SEV_ERROR "AX3020" "macro-duplicate-parameter"
+                      ; Its OWN code since 2026-08-16. This shared
+                      ; `AX3020` while the refusal was "two rules of
+                      ; one arity", on the stated ground that both
+                      ; cases say "this macro declares the same thing
+                      ; twice" (MAC-LANG-14). Under MAC-LANG-15 they
+                      ; do not: a repeated PARAMETER is one name meaning
+                      ; two things, an unreachable RULE is a distinct
+                      ; thing that can never run, and a slug reading
+                      ; `macro-duplicate-parameter` on the second is a
+                      ; machine-readable field that is simply wrong.
+                      (mkDiagNote SEV_ERROR "AX3033" "macro-unreachable-rule"
                                   (nodeSpan mac)
-                                  (strConcat (strConcat (strConcat
-                                    "macro `" (nodeA mac)) "` declares two rules taking ")
-                                    (strConcat (expFmtInt n) " arguments"))
+                                  (strConcat (strConcat (strConcat (strConcat
+                                    "macro `" (nodeA mac)) "` has a rule that can never match: rule ")
+                                    (strConcat (expFmtInt (+ i 1)) " is shadowed by rule "))
+                                    (expFmtInt (+ j 1)))
                                   0 0
-                                  "give the rules different parameter counts, or merge them"
-                                  "a rule-form macro selects its rule by ARITY (macro-system.md MAC-LANG-14), so the second rule of a repeated arity can never be reached"))
+                                  "give the earlier rule a pattern that can FAIL - a literal, or a parenthesised shape of two or more elements - or delete this one. A one-element `(p)` is the bare binder `p`: the parentheses are the same ones an argument loses, so it still matches everything"
+                                  "rules are tried IN ORDER and the first whose pattern matches wins (macro-system.md MAC-LANG-18); an earlier rule of the same arity whose elements are all plain binders matches every invocation of that arity, so nothing of that arity after it is reachable"))
                     0))
               (expCheckRuleArities mac env (+ i 1))
             }))))
 
-(pub :: expRuleIndexOfArity (-> Int Int Int Int))
-(pub fn (expRuleIndexOfArity rules n i)
-  (if (>= i (vecLen rules))
+; The index of an earlier IRREFUTABLE rule of rule `i`'s arity, or -1.
+(pub :: expShadowingRule (-> Int Int Int Int))
+(pub fn (expShadowingRule rules i j)
+  (if (>= j i)
       (- 0 1)
-      (if (== (vecLen (expRuleParams (vecGet rules i))) n)
-          i
-          (expRuleIndexOfArity rules n (+ i 1)))))
+      (if (&& (== (vecLen (expRulePats (vecGet rules j)))
+                  (vecLen (expRulePats (vecGet rules i))))
+              (== (expRuleIrrefutable (vecGet rules j)) 1))
+          j
+          (expShadowingRule rules i (+ j 1)))))
 
 ; A rule-form macro's template is checked ONCE, at the macro's own
 ; line: v1 generates `fn` and `::` declarations and further macro
@@ -3372,6 +3411,235 @@
 
 (pub :: expRuleTpl (-> Int Int))
 (pub fn (expRuleTpl r) (vecGet r 1))
+
+; Slots 2 and 3, appended by `parseMacroPatList` (MAC-LANG-15): the
+; pattern NODE per top-level element, and that element's source
+; spelling. Slot 0 still holds one name per element, so its length is
+; still the arity and every reader that only ever wanted the arity is
+; unchanged.
+(pub :: expRulePats (-> Int Int))
+(pub fn (expRulePats r) (vecGet r 2))
+
+(pub :: expRuleSpells (-> Int Int))
+(pub fn (expRuleSpells r) (vecGet r 3))
+
+; ------------------------------------------------------------------
+; MATCHING (macro-system.md MAC-LANG-15).
+;
+; The whole of what a match produces is the two PARALLEL VECTORS
+; substitution has always taken - a `Vec String` of names and a
+; `Vec node` of forms, read by `expParamIndex` and then `vecGet`. That
+; is why nothing below `expInstantiateDecl` changes: for an
+; all-binder pattern the vectors a match builds are the same contents
+; in the same order as the rule's own slot 0 and the invocation's own
+; argument vector, which is the regression argument for the 49
+; rule-form macros already in the tree.
+;
+; The order is left-to-right because both sides walk left-to-right,
+; and `expParamIndex` is a name lookup rather than a position, so the
+; only thing the order has to be is CONSISTENT between the two
+; vectors - which building them in one pass makes true by
+; construction.
+; ------------------------------------------------------------------
+
+; One pattern element against one argument FORM. 1 on a match, 0 on a
+; refusal. Binders are pushed as they are met; a refusal may leave a
+; partial push behind, which is why a failed rule's vectors are
+; DISCARDED rather than truncated (`expRuleForForms` makes a fresh
+; pair per rule).
+(pub :: expMatchPat (-> Int Int Int Int Int))
+(pub fn (expMatchPat p a names vals)
+  (let ((pt (nodeTag p)))
+    (if (== pt TAG_E_VAR)
+        ; `_` matches anything and binds nothing - which is also why
+        ; several `_` in one rule are legal where two of any other
+        ; name are not.
+        (if (strEq (nodeA p) "_")
+            1
+            { (vecPush names (nodeA p)) (vecPush vals a) 1 })
+    (if (== pt TAG_E_INT)
+        (if (&& (== (nodeTag a) TAG_E_INT) (== (cast Int (nodeA a)) (cast Int (nodeA p)))) 1 0)
+    (if (== pt TAG_E_CHAR)
+        (if (&& (== (nodeTag a) TAG_E_CHAR) (== (cast Int (nodeA a)) (cast Int (nodeA p)))) 1 0)
+    (if (== pt TAG_E_FLT)
+        ; Its BITS, which is what the node holds - `parseLit` ran
+        ; `floatLexemeBits` on the way in - so this is a comparison of
+        ; VALUES and `1.0` matches `1.00`. The same is true one arm up:
+        ; `parseLit` ran `strToInt`, so `10` matches `1_0`. Measured
+        ; both ways round, because an earlier revision of this comment
+        ; claimed the opposite.
+        (if (&& (== (nodeTag a) TAG_E_FLT) (== (cast Int (nodeA a)) (cast Int (nodeA p)))) 1 0)
+    (if (== pt TAG_E_STR)
+        ; A string is the ONE literal whose node keeps its lexeme
+        ; verbatim - quotes and escapes included, by a design the
+        ; whole compiler relies on, with the emitter unescaping on the
+        ; way out. So `strEq` on the nodes would compare SPELLINGS
+        ; where every other literal kind compares values, and
+        ; `(m T "\t")` would refuse an argument written as a real tab.
+        ; Measured: it did, answering the fall-through rule while the
+        ; identically-spelled argument took this one. Decoding here
+        ; rather than changing the node keeps that design and makes
+        ; the five arms agree.
+        (if (&& (== (nodeTag a) TAG_E_STR)
+                (== (expStrLitEq (nodeA a) (nodeA p)) 1)) 1 0)
+    (if (== pt TAG_E_APP)
+        (if (!= (nodeTag a) TAG_E_APP)
+            0
+            (let ((ps (expSpineArgs p vecNew))
+                  (as (expSpineArgs a vecNew)))
+              (if (!= (vecLen ps) (vecLen as))
+                  0
+                  (if (== (expMatchPat (expSpineHead p) (expSpineHead a) names vals) 0)
+                      0
+                      (expMatchVec ps as 0 names vals)))))
+    ; A tag no pattern can carry. `parseMacroPat` builds only the five
+    ; above, so this is unreachable from source and answers a refusal
+    ; rather than a crash if that ever stops being true.
+    0))))))))
+
+; Do two string LITERALS denote the same string? Compares decoded
+; bytes over the lexeme bodies, so a spelling difference that is not a
+; value difference is not a pattern difference.
+(pub :: expStrLitEq (-> String String Int))
+(pub fn (expStrLitEq a b)
+  (expStrLitEqAt a 1 (- (strLen a) 1) b 1 (- (strLen b) 1)))
+
+(pub :: expStrLitEqAt (-> String Int Int String Int Int Int))
+(pub fn (expStrLitEqAt a i ae b j be)
+  (if (>= i ae)
+      (if (>= j be) 1 0)
+      (if (>= j be)
+          0
+          (let ((ca (strByte a i))
+                (cb (strByte b j)))
+            (let ((na (if (&& (== ca 92) (< (+ i 1) ae)) 2 1))
+                  (nb (if (&& (== cb 92) (< (+ j 1) be)) 2 1)))
+              (if (== (if (== na 2) (expUnescByte (strByte a (+ i 1))) ca)
+                      (if (== nb 2) (expUnescByte (strByte b (+ j 1))) cb))
+                  (expStrLitEqAt a (+ i na) ae b (+ j nb) be)
+                  0))))))
+
+; The byte a source escape denotes; anything unrecognised stands for
+; itself, which is what `\\`, `\'` and `\"` need. The same table
+; `codegen.ax` carries under this name - duplicated because `codegen`
+; imports `expand` and not the other way round.
+(pub :: expUnescByte (-> Int Int))
+(pub fn (expUnescByte c)
+  (if (== c 110) 10
+  (if (== c 116) 9
+  (if (== c 114) 13
+  (if (== c 48) 0
+  c)))))
+
+(pub :: expMatchVec (-> Int Int Int Int Int Int))
+(pub fn (expMatchVec ps as i names vals)
+  (if (>= i (vecLen ps))
+      1
+      (if (== (expMatchPat (vecGet ps i) (vecGet as i) names vals) 0)
+          0
+          (expMatchVec ps as (+ i 1) names vals))))
+
+; A match record: the rule, the names, the forms.
+(pub :: expMatchOf (-> Int Int))
+(pub fn (expMatchOf m) (vecGet m 0))
+
+(pub :: expMatchNames (-> Int Int))
+(pub fn (expMatchNames m) (vecGet m 1))
+
+(pub :: expMatchVals (-> Int Int))
+(pub fn (expMatchVals m) (vecGet m 2))
+
+; MAC-LANG-18: the rules are tried IN ORDER and the FIRST whose
+; pattern matches wins. Arity is now a pre-filter rather than the
+; selector - a rule whose element count differs cannot match, and
+; skipping it is cheaper than walking it.
+(pub :: expRuleForForms (-> Int Int Int Int))
+(pub fn (expRuleForForms rules args i)
+  (if (>= i (vecLen rules))
+      0
+      (let ((r (vecGet rules i)))
+        (if (!= (vecLen (expRulePats r)) (vecLen args))
+            (expRuleForForms rules args (+ i 1))
+            (let ((names vecNew)
+                  (vals vecNew))
+              (if (== (expMatchVec (expRulePats r) args 0 names vals) 0)
+                  (expRuleForForms rules args (+ i 1))
+                  (let ((m vecNew))
+                    {
+                      (vecPush m (cast Int r))
+                      (vecPush m (cast Int names))
+                      (vecPush m (cast Int vals))
+                      (cast Int m)
+                    })))))))
+
+; Is every top-level element of this rule a BINDER? Such a rule
+; matches every invocation of its arity, so any later rule of that
+; arity is unreachable - which is the narrowed form of the refusal
+; `MAC-LANG-14` shipped when arity was the whole selector.
+(pub :: expRuleIrrefutable (-> Int Int))
+(pub fn (expRuleIrrefutable r)
+  (expPatsIrrefutable (expRulePats r) 0))
+
+(pub :: expPatsIrrefutable (-> Int Int Int))
+(pub fn (expPatsIrrefutable ps i)
+  (if (>= i (vecLen ps))
+      1
+      (if (== (nodeTag (vecGet ps i)) TAG_E_VAR)
+          (expPatsIrrefutable ps (+ i 1))
+          0)))
+
+; The SHAPES a macro accepts, for MAC-LANG-18's refusal: one
+; parenthesised form per rule, named after the macro, joined by
+; " or ". This replaces a list of arities, which could only ever say
+; how many arguments and never which shape.
+(pub :: expRuleShapes (-> Int String Int String String))
+(pub fn (expRuleShapes rules name i acc)
+  (if (>= i (vecLen rules))
+      acc
+      (expRuleShapes rules name (+ i 1)
+        (let ((one (expOneShape (vecGet rules i) name)))
+          (if (== (strLen acc) 0)
+              one
+              (strConcat (strConcat acc " or ") one))))))
+
+(pub :: expOneShape (-> Int String String))
+(pub fn (expOneShape r name)
+  (strConcat (expShapeElems (expRuleSpells r) 0 (strConcat "(" name)) ")"))
+
+(pub :: expShapeElems (-> Int Int String String))
+(pub fn (expShapeElems spells i acc)
+  (if (>= i (vecLen spells))
+      acc
+      (expShapeElems spells (+ i 1)
+        (strConcat (strConcat acc " ") (vecGet spells i)))))
+
+; Every BINDER a rule's patterns introduce, nested ones included. The
+; duplicate check runs over this rather than over slot 0, because slot
+; 0 stops at the top level and a repeat can be nested: `((m a (f a))
+; ...)` binds `a` twice, and `expParamIndex` is last-wins, so the
+; first would be silently discarded.
+;
+; Not `expPatBinders`, which walks a MATCH ARM's pattern and therefore
+; skips the spine HEAD - correct there, where the head is a
+; constructor, and wrong here, where `(nm T)` binds `nm` as much as it
+; binds `T`.
+(pub :: expRuleBinders (-> Int Int Int Int))
+(pub fn (expRuleBinders ps i acc)
+  (if (>= i (vecLen ps))
+      acc
+      { (expRuleBindersOf (vecGet ps i) acc) (expRuleBinders ps (+ i 1) acc) }))
+
+(pub :: expRuleBindersOf (-> Int Int Int))
+(pub fn (expRuleBindersOf p acc)
+  (if (== (nodeTag p) TAG_E_VAR)
+      (if (strEq (nodeA p) "_") acc { (vecPush acc (nodeA p)) acc })
+  (if (== (nodeTag p) TAG_E_APP)
+      {
+        (expRuleBindersOf (nodeA p) acc)
+        (expRuleBindersOf (nodeB p) acc)
+        acc
+      }
+      acc)))
 
 ; The rule whose parameter count matches `n`, or 0. FIRST match wins,
 ; which with distinct arities is the only match; `expCheckMacros`
@@ -3512,7 +3780,15 @@
 
 (pub :: expCheckDupParams (-> Int Int Int Int))
 (pub fn (expCheckDupParams mac env i)
-  (expCheckDupParamsIn mac (nodeB mac) env i))
+  ; A RULE-FORM macro's node B is rule zero's slot 0, which since
+  ; MAC-LANG-15 holds a `syntax/pat` MARKER wherever an element is not
+  ; a plain binder - so two `_` in one rule read as one name twice.
+  ; `expCheckRuleParams` is the check for that form and walks the
+  ; patterns instead, so this one answers the head-list form only
+  ; rather than duplicating it wrongly.
+  (if (!= (memGetWord mac 9) 0)
+      0
+      (expCheckDupParamsIn mac (nodeB mac) env i)))
 
 (pub :: expCheckDupParamsIn (-> Int Int Int Int Int))
 (pub fn (expCheckDupParamsIn mac ps env i)
@@ -3531,7 +3807,14 @@
                             "give each parameter a distinct name"
                             "every reference to a repeated parameter resolves to the LAST argument, so the earlier ones are silently discarded"))
               0)
-          (expCheckDupParams mac env (+ i 1))
+          ; `expCheckDupParamsIn`, not `expCheckDupParams`: the latter
+          ; re-reads `(nodeB mac)`, so a caller that passed its OWN
+          ; vector had it silently swapped for rule zero's after the
+          ; first element. Measured before this line changed: a
+          ; duplicate in a later rule at any index but 0 - `((mk x)
+          ; ...) ((mk a b b) ...)` - checked CLEAN, where the same
+          ; duplicate at index 0 refused.
+          (expCheckDupParamsIn mac ps env (+ i 1))
         })))
 
 ; ------------------------------------------------------------------
@@ -3699,22 +3982,26 @@
                 ; several rules the arity is what SELECTS one
                 ; (MAC-LANG-14). An invocation matching none names
                 ; every arity the macro offers.
-                (let ((rule (expRuleForArity (memGetWord mac 9)
-                                             (vecLen (nodeB d)) 0)))
-                  (if (== rule 0)
+                (let ((m (expRuleForForms (memGetWord mac 9) (nodeB d) 0)))
+                  (if (== m 0)
                       {
-                        (expArityRuleDiag env (expSrcSpelling (nodeA d))
-                                          (expRuleArities (memGetWord mac 9) 0 "")
-                                          (vecLen (nodeB d))
-                                          (nodeSpan d))
+                        (expNoRuleDiag env (expSrcSpelling (nodeA d))
+                                       (expRuleShapes (memGetWord mac 9)
+                                                      (expSrcSpelling (nodeA d)) 0 "")
+                                       (nodeSpan d))
                         (memSetWord d 3 1)
                         0
                       }
-                      (expInstantiateDecl entryDecls decls env d mac rule))))))))
+                      (expInstantiateDecl entryDecls decls env d mac m))))))))
       { (memSetWord env 9 prevSite) r }))))
 
+; Takes the MATCH rather than the rule: the two parallel vectors it
+; hands to `expBuildDecls` are the match's, not the rule's own slot 0
+; and the invocation's own arguments. For an all-binder pattern those
+; are the same contents in the same order, which is why the 49
+; rule-form macros already in the tree emit identical IR.
 (pub :: expInstantiateDecl (-> Int Int Int Int Int Int Int))
-(pub fn (expInstantiateDecl entryDecls decls env d mac rule)
+(pub fn (expInstantiateDecl entryDecls decls env d mac m)
   (let ((isp (nodeSpan d))
         (tags (memGetWord d 7))
         (prevMod (expMacMod env))
@@ -3739,7 +4026,8 @@
       (vecPush (memGetWord env 10)
         (cast Int (ExpFrame (nodeModule d) isp (nodeA mac) (nodeSpan mac)
                             (nodeModule mac))))
-      (let ((made (expBuildDecls (expRuleTpl rule) (expRuleParams rule) (nodeB d)
+      (let ((made (expBuildDecls (expRuleTpl (expMatchOf m))
+                                 (expMatchNames m) (expMatchVals m)
                                  env isp vecNew 0)))
         {
           (expSetMacMod env prevMod)

@@ -1,0 +1,47 @@
+; MAC-LANG-18's other half: an invocation matching NO rule names the
+; macro and lists the SHAPES it accepts (2026-08-16).
+;
+; It used to list arities - "macro `spread` takes 1 or 3 arguments" -
+; which was everything arity-selection could say and says nothing at
+; all once two rules of one arity differ by shape. A reader told
+; "takes 1 argument" about `(defN D)`, which passes exactly one, has
+; been told the one thing that is not wrong with their program.
+;
+; The shapes are the rules' own patterns, spelled as the author wrote
+; them: joined from the TOKENS each pattern consumed rather than
+; printed back from the tree, because a float pattern holds its bits
+; and a char its codepoint, and printing either back would show a
+; spelling nobody wrote.
+;
+; Three invocations, because there are three ways to match no rule and
+; the shape list is the answer to all three:
+;
+;   (defN D)       arity 1, which rule 1 takes - and its SHAPE does
+;                  not, because `D` is not a two-element form
+;   (defN D 8)     arity 2, which rule 2 takes - and `8` is not `7`,
+;                  so a LITERAL is what fails
+;   (defN D 8 9)   arity 3, which no rule takes at all
+;
+; The first two are the cases an arity list could not describe: both
+; pass a count some rule declares. An earlier draft of this file
+; carried only those two and claimed in this header that one of them
+; matched no arity, which was false of both - caught by re-reading the
+; fixture against its own header rather than by any gate.
+(data D (A))
+
+(macro defN ((defN (a b))
+   (:: (syntax/join n a) Int)
+   (fn ((syntax/join n a)) 1))
+  ((defN T 7)
+   (:: (syntax/join n T) Int)
+   (fn ((syntax/join n T)) 2)))
+
+(defN D)
+
+(defN D 8)
+
+(defN D 8 9)
+
+(:: main Int)
+
+(fn (main) 0)

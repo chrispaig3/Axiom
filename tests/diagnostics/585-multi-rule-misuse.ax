@@ -1,24 +1,38 @@
-; The two ways a multi-rule macro is written wrong (MAC-LANG-14,
-; 2026-08-15), one refusal each:
+; The two ways a multi-rule macro is written wrong, one refusal each.
+; Both refusals changed on 2026-08-16, when MAC-LANG-15 made a rule's
+; parameters PATTERNS, and the change is the point of this file:
 ;
-;   sameArity   two rules taking the same number of arguments. Arity
-;               is what SELECTS a rule, so the second is unreachable -
-;               a program someone wrote expecting it to run. First
-;               match wins, which makes the behaviour defined;
-;               refusing at the macro's own line makes it visible,
-;               which is the choice this repository makes wherever it
-;               has made it. `AX3020`, the code a duplicate PARAMETER
-;               already draws, because both say "this macro declares
-;               the same thing twice"
-;   the call    an invocation whose arity matches no rule. The
-;               diagnostic names EVERY arity the macro offers -
-;               `takes 1 or 3 arguments` - where the single-rule form
-;               could only ever name one, and an author who wrote two
-;               rules would otherwise be told what the first one takes
-;               and left to guess about the second
+;   sameArity   two rules that nothing can tell apart. This used to be
+;               stated as "two rules taking the same number of
+;               arguments", because arity was the whole selector and a
+;               second rule of a repeated arity could never be
+;               reached. That reason is now false - three rules of
+;               arity one, told apart by shape, are what
+;               `tests/selfhost/392-macro-patterns.ax` is - so the
+;               test narrowed to what was always the real claim: an
+;               IRREFUTABLE rule, every element a plain binder, takes
+;               every invocation of its arity and starves anything of
+;               that arity after it. Both rules here are all-binder,
+;               so both the old rule and the new one refuse, and the
+;               file measures that the narrowing did not lose the
+;               case it was narrowed from.
+;
+;               It also became its own code. `AX3020` was chosen when
+;               the two conditions could be said to agree ("this macro
+;               declares the same thing twice"); a repeated PARAMETER
+;               and an unreachable RULE do not agree, and a slug
+;               reading `macro-duplicate-parameter` on the second is a
+;               machine-readable field that is simply wrong. It is
+;               `AX3033`, `macro-unreachable-rule`
+;   the call    an invocation matching no rule. The diagnostic used to
+;               name every ARITY the macro offers - `takes 1 or 3
+;               arguments` - and now names every SHAPE: `(spread T) or
+;               (spread T a b)`. An arity list is everything
+;               arity-selection could say and says nothing once two
+;               rules of one arity differ by shape
 ;
 ; Both are at the place the reader can act on: the macro for the
-; unreachable rule, the invocation for the arity that matched none.
+; unreachable rule, the invocation for the shape that matched none.
 (data D (A))
 
 (macro sameArity ((sameArity T)

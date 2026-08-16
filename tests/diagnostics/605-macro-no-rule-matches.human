@@ -1,0 +1,31 @@
+[1;31merror[AX3018][0m[1m: no rule of macro `defN` matches this invocation; it accepts (defN (a b)) or (defN T 7)[0m
+  [1;34m--> [0m605-macro-no-rule-matches.ax:39:2
+[1;34m   |[0m
+[1;34m39 |[0m (defN D)
+[1;34m   |[0m  [1;31m^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0mrules are tried IN ORDER and the first whose pattern matches wins (macro-system.md MAC-LANG-18): an invocation matching none is this refusal rather than a fall-through. A plain identifier in a shape matches any argument; a literal matches its own VALUE, and a parenthesised shape matches a form of that many elements - but not a form headed by a keyword (`if`, `let`, `lambda`, `match`), which the parser gives a shape of its own
+  [1;34m = [0m[1;32mhelp: [0mwrite the invocation in one of the shapes above
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3018` for a full explanation
+
+[1;31merror[AX3018][0m[1m: no rule of macro `defN` matches this invocation; it accepts (defN (a b)) or (defN T 7)[0m
+  [1;34m--> [0m605-macro-no-rule-matches.ax:41:2
+[1;34m   |[0m
+[1;34m41 |[0m (defN D 8)
+[1;34m   |[0m  [1;31m^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0mrules are tried IN ORDER and the first whose pattern matches wins (macro-system.md MAC-LANG-18): an invocation matching none is this refusal rather than a fall-through. A plain identifier in a shape matches any argument; a literal matches its own VALUE, and a parenthesised shape matches a form of that many elements - but not a form headed by a keyword (`if`, `let`, `lambda`, `match`), which the parser gives a shape of its own
+  [1;34m = [0m[1;32mhelp: [0mwrite the invocation in one of the shapes above
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3018` for a full explanation
+
+[1;31merror[AX3018][0m[1m: no rule of macro `defN` matches this invocation; it accepts (defN (a b)) or (defN T 7)[0m
+  [1;34m--> [0m605-macro-no-rule-matches.ax:43:2
+[1;34m   |[0m
+[1;34m43 |[0m (defN D 8 9)
+[1;34m   |[0m  [1;31m^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0mrules are tried IN ORDER and the first whose pattern matches wins (macro-system.md MAC-LANG-18): an invocation matching none is this refusal rather than a fall-through. A plain identifier in a shape matches any argument; a literal matches its own VALUE, and a parenthesised shape matches a form of that many elements - but not a form headed by a keyword (`if`, `let`, `lambda`, `match`), which the parser gives a shape of its own
+  [1;34m = [0m[1;32mhelp: [0mwrite the invocation in one of the shapes above
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3018` for a full explanation
+
+compilation failed due to 3 previous errors

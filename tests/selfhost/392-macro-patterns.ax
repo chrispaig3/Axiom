@@ -1,0 +1,157 @@
+; expect 127
+; MAC-LANG-15: a macro rule's parameter is a PATTERN (2026-08-16).
+;
+; Until this commit a rule head was a flat list of distinct bare
+; identifiers and the invocation's ARGUMENT COUNT chose the rule.
+; `parseIdentList` refused anything else at the pattern's own paren -
+; `AX2001 expected identifier, found `(`` - which is what the compiler
+; before this commit answers for this whole file.
+;
+; Four of MAC-LANG-15's six pattern kinds land here. The two that do
+; not are named because each is blocked on something real, not on
+; effort:
+;
+;   `(p ...)`             ellipsis, MAC-LANG-16, which needs `...` to
+;                         lex - `.` is `TK_DOT` and three of them are
+;                         three tokens
+;   a LITERAL IDENTIFIER  MAC-LANG-17, which needs scope sets: a
+;                         literal identifier matches by BINDING and
+;                         renaming has nothing to compare a binding
+;                         against
+;
+; The second is why the head of a nested pattern here is a BINDER and
+; not a keyword. `(shape (h T))` matches `(a Two)` AND `(a b Two)`
+; would match `(shape (h g T))` - what discriminates is the form's
+; SHAPE, never the head's spelling. Measured, because the first draft
+; of this fixture assumed otherwise: `((defOp (unary T)) ...)` and
+; `((defOp (binary T)) ...)` both matched `(defOp (binary E))`, the
+; first rule won, and the file answered 2 where it expected 3. So the
+; discriminating powers this commit ships are exactly two - the shape
+; of a nested form, and the value of a literal - and the spec's own
+; `simplify` table (§10.4), whose rules are told apart by `+` and `*`
+; in head position, still needs MAC-LANG-17.
+;
+; Three more limits, each the PARSER showing through a design that
+; keeps pattern-ness positional (MAC-LANG-14a), and each measured
+; rather than reasoned:
+;
+;   ((f x) y)   is the same tree as (f x y) - a spine does not record
+;               where its parens were. Symmetric, so matching stays
+;               consistent, but two RULES differing only that way are
+;               one rule and the second dies unreported
+;   (p)         is the bare binder `p`, because a one-element form
+;               loses its parens on the ARGUMENT side too. So a rule
+;               written `((m (x)) ...)` matches everything of arity
+;               one, and AX3033 says so by name rather than telling
+;               its author to write the parens they already wrote
+;   (if a b)    and `let`, `lambda`, `match` - a keyword-headed form
+;               arrives under its OWN tag, not as a spine, so no
+;               parenthesised pattern matches one. Such an argument
+;               falls through to a plain binder
+;
+; A literal compares its VALUE and not its spelling, in every kind:
+; `10` matches `1_0`, `1.0` matches `1.00`, `"\t"` matches a real tab.
+; The first two are free - the parser decodes them - and the third is
+; not, because a string node keeps its lexeme verbatim; the matcher
+; decodes as it compares. An earlier revision did not, and refused the
+; tab.
+;
+; Seven claims, one bit each (127 when all hold):
+;
+;    1  a nested TWO-element form selects the two-element rule
+;    2  a nested THREE-element form selects the three-element rule -
+;       and both rules take ONE argument, which is the case the
+;       previous refusal forbade outright (`AX3020`, "declares two
+;       rules taking 1 arguments"). Ablated - delete the
+;       three-element rule - the file does not answer 125 but
+;       REFUSES: the invocation falls through to the bare-identifier
+;       rule, `T` binds the whole form `(a b Three)`, and a
+;       `syntax/join` over a form that is not a name is `AX3027`.
+;       Which is a sharper claim than a wrong number, and was
+;       measured rather than predicted
+;    4  a bare identifier selects the identifier rule, so an
+;       all-binder rule is still the default it always was
+;    8  a LITERAL selects a rule: `(lit Zero 0)` takes the `0` rule.
+;       Ablated - delete the `0` rule - this file answers 119, because
+;       `(lit T n)` then binds `n` to `0` and reports 0
+;   16  a binder in the OTHER rule of that pair still binds: `n` is
+;       64 and reaches the template
+;   32  a binder INSIDE a nested pattern reaches the template as a
+;       NAME - `(named (nm T))` invoked as `(named (pick Two))`
+;       generates `pickTwo`, so `syntax/join` composes with a pattern
+;       binder and not only with a parameter
+;   64  `_` matches and binds NOTHING, and two of them in one rule are
+;       legal where two of any other name are `AX3020`. Before this
+;       commit `_` was an ordinary identifier: `((hole T _ _) ...)`
+;       drew two AX3020s, measured
+;
+; Selection is MAC-LANG-18's: the rules are tried IN ORDER and the
+; first whose pattern matches wins. `tests/diagnostics/600` pins what
+; that costs - an all-binder rule matches everything of its arity, so
+; a later rule of that arity can never run and is refused at the
+; macro's own line.
+(data Two (T2))
+
+(data Three (T3))
+
+(data Bare (TB))
+
+(data Zero (Z0))
+
+(data Some (S1))
+
+;; three rules, ALL of arity one, told apart by the shape of the form
+(macro shape ((shape (h T))
+   (:: (syntax/join s T) (-> T Int))
+   (fn ((syntax/join s T) v) 1))
+  ((shape (h g T))
+   (:: (syntax/join s T) (-> T Int))
+   (fn ((syntax/join s T) v) 2))
+  ((shape T)
+   (:: (syntax/join s T) (-> T Int))
+   (fn ((syntax/join s T) v) 4)))
+
+;; two rules of arity two, told apart by a LITERAL
+(macro lit ((lit T 0)
+   (:: (syntax/join l T) (-> T Int))
+   (fn ((syntax/join l T) v) 8))
+  ((lit T n)
+   (:: (syntax/join l T) (-> T Int))
+   (fn ((syntax/join l T) v) n)))
+
+;; a binder inside a nested pattern, used as a NAME
+(macro named ((named (nm T))
+   (:: (syntax/join nm T) (-> T Int))
+   (fn ((syntax/join nm T) v) 16)))
+
+;; two wildcards in one rule
+(macro hole ((hole T _ _)
+   (:: (syntax/join h T) (-> T Int))
+   (fn ((syntax/join h T) v) 32)))
+
+(shape (a Two))
+
+(shape (a b Three))
+
+(shape Bare)
+
+(lit Zero 0)
+
+(lit Some 64)
+
+(named (pick Two))
+
+(hole Three 9 9)
+
+(:: b2i (-> Bool Int))
+
+(fn (b2i x)
+  (if x
+    1
+    0
+  )
+)
+
+(:: main Int)
+
+(fn (main) (+ (b2i (== (sTwo T2) 1)) (+ (* 2 (b2i (== (sThree T3) 2))) (+ (* 4 (b2i (== (sBare TB) 4))) (+ (* 8 (b2i (== (lZero Z0) 8))) (+ (* 16 (b2i (== (lSome S1) 64))) (+ (* 32 (b2i (== (pickTwo T2) 16))) (* 64 (b2i (== (hThree T3) 32))))))))))

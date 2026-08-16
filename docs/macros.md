@@ -52,6 +52,39 @@ a function's does; the rule form's pattern must repeat the macro's
 name in head position. A macro is applied to exactly as many arguments
 as it declares parameters; the invocation is replaced by the template
 with each parameter reference replaced by that argument's syntax tree.
+
+**A rule-form macro's parameters are PATTERNS** (2026-08-16), and a
+macro may carry several rules:
+
+```scheme
+(macro shape
+  ((shape (h T))      ...)   ; a two-element form
+  ((shape (h g T))    ...)   ; a three-element form
+  ((shape T 0)        ...)   ; a literal: the second argument is 0
+  ((shape T _)        ...)   ; `_` matches anything and binds nothing
+  ((shape T)          ...))  ; a plain binder: anything of that arity
+```
+
+The rules are tried **in order** and the first whose pattern matches
+wins. A pattern is a binder, `_`, an integer/float/char/string
+literal, or a parenthesised form whose elements are patterns.
+
+Two things that catch people, both because a pattern's head is an
+ordinary binder like any other element:
+
+- **shapes discriminate, spellings do not.** `(shape (h T))` matches
+  `(shape (anything X))` — `h` binds `anything`. Dispatching on a
+  head's *spelling* is a separate feature (literal identifiers, which
+  need scope sets).
+- **`(p)` is `p`.** A one-element parenthesised pattern is the bare
+  binder, because a one-element form on the argument side loses its
+  parens the same way. Write two or more elements for a shape that can
+  fail.
+
+An invocation matching no rule names the macro and lists the shapes it
+accepts. A rule nothing can reach — one whose arity is already taken
+by an earlier rule of all-plain-binders — is `AX3033` at the macro's
+own line.
 An expression macro expands in expression position only, a declaration
 macro in declaration position only; either crossing is `AX3027`
 (`tests/diagnostics/505-decl-macro-positions.ax`). A declaration
@@ -319,6 +352,7 @@ semantic-analysis-time work:
 | `AX3023` | `private-name` | reaching a macro its module does not export — the general visibility code, shared by macros since they joined the value namespace |
 | `AX3024` | `macro-expansion-limit` | the expansion's OUTPUT exceeded a budget: nested deeper than 1024 forms, or more than 2,000,000 forms produced. The parser's limits measure the source; these measure what expansion produced from it |
 | `AX3027` | `declaration-macro` | every way a declaration-position invocation fails: unknown head (a typo'd keyword lands here, where it used to be a bare `AX2003` that stopped the parse), an expression macro in declaration position or a declaration macro in expression position, a non-identifier argument in a name position, and a module-side invocation reaching a pipeline that carries no mangling records. `axiom explain AX3027` is the catalogue |
+| `AX3033` | `macro-unreachable-rule` | a rule an earlier one starves: rules are tried in order, and a rule whose every element is a plain binder matches everything of its arity, so nothing of that arity after it can run. Order a pattern table most-specific first. Two rules of one arity are fine when their shapes differ - that is what patterns are for |
 | `AX3032` | `macro-capture` | a macro's own free identifier is shadowed at the invocation and qualification had nothing to rewrite it to (MAC-HYG-8.1). Refused rather than captured: before it, the program quietly computed with the local binding - 0 where the macro's own `helper` answers 40, at exit 0. The message branches on whether the macro has a module: without one there is nothing to qualify to, with one the reference resolved to no single module |
 | `AX3028` | `syntax-query` | every `syntax/*` query with no answer (MAC-CAP-5/6): an unknown or wrong-position head (the vocabulary is CLOSED), a subject with nothing to answer (constructors of a struct, of nothing, of an imported type), a query written outside a macro template, a declaration named into the reserved `syntax/` prefix. `axiom explain AX3028` is the catalogue |
 

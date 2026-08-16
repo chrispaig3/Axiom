@@ -1,0 +1,30 @@
+; What MAC-LANG-18's ordering costs, made loud (2026-08-16).
+;
+; Rules are tried IN ORDER and the first whose pattern matches wins,
+; so a rule that nothing can reach is a program someone wrote
+; expecting it to run. Which rules those are changed with MAC-LANG-15:
+; the refusal used to be "two rules of one ARITY", whose stated reason
+; - arity is what selects, so the second is unreachable - stopped
+; being true the moment a pattern could fail. Two rules of one arity
+; and different SHAPES are both reachable, and `392-macro-patterns.ax`
+; is three of them.
+;
+; What survives is the part that was always the real claim: a rule
+; whose every element is a plain BINDER matches every invocation of
+; its arity, so nothing of that arity after it can ever run. That is
+; irrefutability, it is decidable from the patterns alone, and it
+; refuses exactly what the old rule refused among all-binder rules.
+;
+; The diagnostic names both rules by POSITION rather than by shape,
+; because two rules of one arity may spell their patterns alike and a
+; reader given only a shape would not know which line to delete.
+(macro defU ((defU T)
+   (:: (syntax/join u T) Int)
+   (fn ((syntax/join u T)) 1))
+  ((defU (a b))
+   (:: (syntax/join u a) Int)
+   (fn ((syntax/join u a)) 2)))
+
+(:: main Int)
+
+(fn (main) 0)

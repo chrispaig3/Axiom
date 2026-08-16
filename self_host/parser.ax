@@ -873,6 +873,125 @@
   (pErrExp pos "identifier"))))
 
 ; ------------------------------------------------------------------
+; A MACRO RULE's pattern (macro-system.md MAC-LANG-15).
+;
+; Deliberately NOT `parseArmPattern`. That one reads an UPPERCASE head
+; as a constructor - `TAG_P_CON0`, named fields - and a macro pattern
+; has no notion of a constructor: MAC-LANG-15's table has four
+; implementable rows (identifier, `_`, a literal, `(p1 ... pn)`) and
+; none of them is one. Here every parenthesised form is a form of n
+; elements whatever its head spells, which is also what the ARGUMENT
+; side is - `parseExprList` builds the invocation's arguments - and
+; the two must be shaped alike for matching to be a comparison rather
+; than a translation.
+;
+; The nesting is `mkEApp`'s left spine, the same one an application
+; gets, which is what makes `(f x y)` the same tree on both sides. It
+; also makes `((f x) y)` the same tree as `(f x y)`: an ambiguity
+; inherited from the AST rather than introduced here, and symmetric,
+; so a pattern and an argument that spell alike still match.
+; ------------------------------------------------------------------
+(pub :: parseMacroPat (-> Int Int Int))
+(pub fn (parseMacroPat tokens pos)
+  (if (peekIs tokens pos TK_IDENT)
+      (let ((t (vecGet tokens pos)))
+        (pOk (mkEVarAt (tokenLexeme t) (tokenSpan t)) (advance pos)))
+  (if (peekIs tokens pos TK_LPAREN)
+      (parseMacroPatArgs tokens (advance pos) 0)
+  (if (|| (peekIs tokens pos TK_INT)
+          (|| (peekIs tokens pos TK_FLOAT)
+              (|| (peekIs tokens pos TK_CHARLIT)
+                  (peekIs tokens pos TK_STRING))))
+      (parseLit tokens pos)
+  (pErrExp pos "a pattern")))))
+
+; The elements of a parenthesised pattern, folded into a spine. An
+; EMPTY one is refused: `()` would match a form of zero elements, and
+; no argument is one, so it is a rule that could never fire.
+(pub :: parseMacroPatArgs (-> Int Int Int Int))
+(pub fn (parseMacroPatArgs tokens pos acc)
+  (if (peekIs tokens pos TK_RPAREN)
+      (if (== acc 0)
+          (pErrExp pos "a pattern")
+          (pOk acc (advance pos)))
+  (if (peekIs tokens pos TK_EOF)
+      (pErr pos)
+      (let ((r (parseMacroPat tokens pos)))
+        (if (== (memGetWord r 0) 0)
+            r
+            (parseMacroPatArgs tokens (memGetWord r 2)
+              (if (== acc 0)
+                  (memGetWord r 1)
+                  (mkEApp acc (memGetWord r 1)))))))))
+
+; A rule head's argument list. Answers three parallel vectors, one
+; entry per TOP-LEVEL element: the pattern nodes, the names slot the
+; rule record has always carried, and each element's source spelling
+; for the shape list MAC-LANG-18's refusal prints.
+;
+; The names slot keeps its old meaning exactly - one entry per
+; top-level element, so its length is still the rule's ARITY and
+; everything that reads it as one is untouched. A bare binder
+; contributes its own name, as it always did; anything else
+; contributes the marker `syntax/pat`. A space cannot occur in a lexed
+; identifier, so no template name can resolve to the marker - the same
+; trick `(syntax/join a b)` uses one screen up, and for the same
+; reason.
+(pub :: parseMacroPatList (-> Int Int Int Int Int Int))
+(pub fn (parseMacroPatList tokens pos pats names spells)
+  (if (peekIs tokens pos TK_RPAREN)
+      (let ((out vecNew))
+        {
+          (vecPush out (cast Int pats))
+          (vecPush out (cast Int names))
+          (vecPush out (cast Int spells))
+          (pOk out (advance pos))
+        })
+      (let ((r (parseMacroPat tokens pos)))
+        (if (== (memGetWord r 0) 0)
+            r
+            {
+              (vecPush pats (memGetWord r 1))
+              (vecPush names (patSlotName (memGetWord r 1)))
+              (vecPush spells
+                (patTokensSpelling tokens pos (memGetWord r 2) ""))
+              (parseMacroPatList tokens (memGetWord r 2) pats names spells)
+            }))))
+
+; The names-slot entry for one top-level pattern element.
+(pub :: patSlotName (-> Int String))
+(pub fn (patSlotName p)
+  (if (== (nodeTag p) TAG_E_VAR)
+      (if (strEq (nodeA p) "_")
+          "syntax/pat"
+          (nodeA p))
+      "syntax/pat"))
+
+; One pattern element as source, joined from the TOKENS it consumed
+; rather than reconstructed from the tree. The tree cannot answer it:
+; a float pattern holds its bits and a char its codepoint, so printing
+; either back would need a formatter the parser does not import, and
+; would print a spelling the author did not write. The tokens are what
+; the author wrote.
+(pub :: patTokensSpelling (-> Int Int Int String String))
+(pub fn (patTokensSpelling tokens from to acc)
+  (if (>= from to)
+      acc
+      (let ((lx (tokenLexeme (vecGet tokens from))))
+        (patTokensSpelling tokens (+ from 1) to
+          (if (== (strLen acc) 0)
+              lx
+              (if (|| (strEq lx ")") (strEq (patLastByte acc) "("))
+                  (strConcat acc lx)
+                  (strConcat (strConcat acc " ") lx)))))))
+
+(pub :: patLastByte (-> String String))
+(pub fn (patLastByte s)
+  (if (== (strLen s) 0)
+      ""
+      (strSlice s (- (strLen s) 1) 1)))
+
+; ------------------------------------------------------------------
 ; Parse an expression list until ), returning a Vec of Expr handles.
 ; ------------------------------------------------------------------
 (pub :: parseExprList (-> Int Int Int Int))
@@ -2143,16 +2262,24 @@
             ; syntax-rules' convention, and what multi-rule dispatch
             ; hangs from.
             (if (strEq (memGetWord nr 1) macName)
-                (let ((paramsR (parseIdentList tokens (memGetWord nr 2) vecNew)))
+                (let ((paramsR (parseMacroPatList tokens (memGetWord nr 2)
+                                                  vecNew vecNew vecNew)))
                   (if (== (memGetWord paramsR 0) 0)
                       paramsR
                       (let ((tplR (parseTplDecls tokens (memGetWord paramsR 2) vecNew)))
                         (if (== (memGetWord tplR 0) 0)
                             tplR
-                            (let ((rule vecNew))
+                            (let ((rule vecNew)
+                                  (three (memGetWord paramsR 1)))
                               {
-                                (vecPush rule (memGetWord paramsR 1))
+                                ; Slots 0 and 1 are the wire format the
+                                ; expander has always read; 2 and 3 are
+                                ; appended, so every reader that stops
+                                ; at 1 is untouched by construction.
+                                (vecPush rule (vecGet three 1))
                                 (vecPush rule (memGetWord tplR 1))
+                                (vecPush rule (vecGet three 0))
+                                (vecPush rule (vecGet three 2))
                                 (vecPush acc (cast Int rule))
                                 (parseMacroRules tokens (memGetWord tplR 2) macName acc)
                               })))))

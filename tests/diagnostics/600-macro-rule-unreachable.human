@@ -1,0 +1,11 @@
+[1;31merror[AX3033][0m[1m: macro `defU` has a rule that can never match: rule 2 is shadowed by rule 1[0m
+  [1;34m--> [0m600-macro-rule-unreachable.ax:21:8
+[1;34m   |[0m
+[1;34m21 |[0m (macro defU ((defU T)
+[1;34m   |[0m        [1;31m^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0mrules are tried IN ORDER and the first whose pattern matches wins (macro-system.md MAC-LANG-18); an earlier rule of the same arity whose elements are all plain binders matches every invocation of that arity, so nothing of that arity after it is reachable
+  [1;34m = [0m[1;32mhelp: [0mgive the earlier rule a pattern that can FAIL - a literal, or a parenthesised shape of two or more elements - or delete this one. A one-element `(p)` is the bare binder `p`: the parentheses are the same ones an argument loses, so it still matches everything
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3033` for a full explanation
+
+compilation failed due to 1 previous error

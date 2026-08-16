@@ -236,30 +236,43 @@ existing program changes meaning, and one rule is the list of length
 one. Each rule's pattern repeats the macro name in head position, as
 `syntax-rules` does.
 
-**Selection is by parameter COUNT, first match wins, and two rules of
-one arity are refused** (`AX3020`, at the macro's own line): arity is
-what chooses, so a second rule of a repeated arity can never be
-reached, and an unreachable rule is a program someone wrote expecting
-it to run. An invocation matching no rule is `AX3018` naming every
-arity the macro offers — `takes 1 or 3 arguments` — where the
-single-rule form could only ever name one.
-`tests/selfhost/390-multi-rule-macro.ax` (51) pins the selection
-across three arities and `tests/diagnostics/585-multi-rule-misuse.ax`
-the two refusals.
+**Selection was by parameter COUNT until 2026-08-16 and is a MATCH
+now** (`MAC-LANG-15`, `MAC-LANG-18`): the rules are tried in order and
+the first whose pattern matches wins, where a pattern may be a binder,
+`_`, a literal or a parenthesised shape. Arity survives as a
+pre-filter — a rule whose element count differs cannot match — so
+`tests/selfhost/390-multi-rule-macro.ax` (51), which selects across
+three arities, is unchanged, and
+`tests/selfhost/392-macro-patterns.ax` (127) is the same macro shape
+selected by something other than counting.
+
+Two refusals hang off this, and BOTH changed with the selector:
+
+- an **unreachable rule**, refused at the macro's own line. The old
+  test was "two rules of one arity", whose stated reason — arity
+  chooses, so the second can never be reached — patterns falsify. It
+  narrowed to irrefutability, and took its own code (`AX3033`); see
+  `MAC-LANG-18` for both halves.
+- an invocation matching **no rule**, `AX3018`, which named every
+  arity the macro offers (`takes 1 or 3 arguments`) and now names
+  every SHAPE. `tests/diagnostics/585-multi-rule-misuse.ax` pins both,
+  and `600`/`605` pin them apart.
 
 **What this rule still specifies and does not yet hold:** rules over
 EXPRESSION templates, which is the question the measurement below
-leaves open, and the pattern language of `MAC-LANG-15`–`18` that would
-make selection something other than counting.
+leaves open. The pattern language landed in part — see `MAC-LANG-15`
+for which four of its six kinds, and which two are still blocked and
+on what.
 
-*Today (2026-08-15):* the **rule list takes one or more rules and it
+*Today (2026-08-16):* the **rule list takes one or more rules and it
 is the declaration-macro form** — `MAC-CAP-8` parses
-`(macro name ((name p ...) decl ...) ...)`, each pattern head must
-repeat the macro's name, and the parameters are still a flat
-positional list of distinct identifiers. What this rule still
-specifies beyond that: non-identifier patterns (`MAC-LANG-15`) and
-ellipsis (`MAC-LANG-16`). A mismatched invocation is an arity error,
-never a fall-through to another rule — with several rules, "mismatched"
+`(macro name ((name p ...) decl ...) ...)` and each pattern head must
+repeat the macro's name. The parameters are no longer a flat list of
+identifiers: each is a PATTERN (`MAC-LANG-15`), and selection is a
+match in rule order (`MAC-LANG-18`). What this rule still specifies
+beyond that: ellipsis (`MAC-LANG-16`) and literal identifiers
+(`MAC-LANG-17`). A mismatched invocation is still a refusal and never
+a fall-through past the last rule — with several rules, "mismatched"
 means matching none of them.
 
 *Two corrections, measured 2026-08-15 by running the example above
@@ -322,16 +335,75 @@ Choice 2 costs nothing structurally and has one consequence that
 pattern or expression position, so a macro usable in both **MUST**
 expand to a form valid in both.
 
-**MAC-LANG-15 (P).** A pattern **SHALL** be one of:
+**MAC-LANG-15 (P; four of the six landed 2026-08-16).** A pattern
+**SHALL** be one of:
 
-| Pattern | Matches |
-|---|---|
-| an identifier | any single form, binding it |
-| `_` | any single form, binding nothing |
-| a literal integer, float, char or string | itself |
-| `(p1 ... pn)` | a form of exactly *n* elements, each matching |
-| `(p ...)` | zero or more forms matching `p` (`MAC-LANG-16`) |
-| a **literal identifier** declared in the macro's literal list | itself, by *binding*, not by spelling (`MAC-LANG-17`) |
+| Pattern | Matches | |
+|---|---|---|
+| an identifier | any single form, binding it | **holds** |
+| `_` | any single form, binding nothing | **holds** |
+| a literal integer, float, char or string | itself | **holds** |
+| `(p1 ... pn)` | a form of exactly *n* elements, each matching | **holds** |
+| `(p ...)` | zero or more forms matching `p` (`MAC-LANG-16`) | needs `...` to lex |
+| a **literal identifier** declared in the macro's literal list | itself, by *binding*, not by spelling (`MAC-LANG-17`) | needs scope sets |
+
+(The `...` in the fourth row is this document's metasyntax for "p₁
+through pₙ" and not the ellipsis operator, which is why that row cites
+no rule and the fifth does.)
+
+**What the four buy, stated as a limit rather than a promise.** A
+pattern's head is an ordinary binder, so a nested pattern
+discriminates by the SHAPE of a form and never by its head's spelling:
+`(m (h T))` matches `(m (anything X))`. Measured while building this —
+the first draft of `tests/selfhost/392-macro-patterns.ax` wrote
+`((defOp (unary T)) ...)` and `((defOp (binary T)) ...)` expecting two
+rules, and both invocations took the first, answering 2 where the file
+claimed 3. So the discriminating powers this landed are exactly two:
+the shape of a nested form, and the value of a literal. Discriminating
+by a head's spelling is `MAC-LANG-17`, and §10.4's `simplify` table —
+whose rules are told apart by `+` and `*` in head position — needs it.
+
+The representation discharges `MAC-LANG-14a`'s choice 2 literally: a
+pattern is an ordinary expression node in a slot the parser knows is a
+pattern, so no tag was added and none renumbered. A nested pattern is
+`mkEApp`'s left spine, the same tree an application gets, which is
+what makes a pattern and an argument comparable at all — both sides
+come out of the same parser.
+
+**Three consequences of that choice, which `MAC-LANG-14a` requires be
+stated rather than discovered.** Each is the parser showing through,
+and each was measured:
+
+- `((f x) y)` is the same tree as `(f x y)`, because a spine does not
+  record where its parentheses were. Symmetric, so two forms that
+  spell alike still match; but two RULES whose patterns differ only
+  that way are one pattern, and the second is dead without drawing
+  `AX3033`.
+- `(p)` is the bare binder `p`. A one-element form loses its
+  parentheses on the argument side too, so this is symmetric and the
+  irrefutability test is right to call such a rule irrefutable — but
+  an author who wrote parentheses expecting a shape gets a rule that
+  matches everything. `AX3033`'s help says so by name.
+- **a parenthesised pattern never matches a KEYWORD-headed form.**
+  Arguments are parsed by the ordinary expression parser, so
+  `(if p q r)`, `(let ((p 1)) p)`, `(lambda (p) q)` and `(match …)`
+  arrive under their own tags and not as spines; a shape pattern of
+  the right element count refuses them, and the invocation falls
+  through to a more general rule. A macro that must accept those
+  shapes takes them under a plain binder.
+
+A literal pattern compares VALUES, not spellings, in all four kinds:
+`10` matches `1_0`, `1.0` matches `1.00`, and `"\t"` matches an
+argument written as a real tab. The first two come free — the parser
+decodes an int and a float on the way in — and the third does not: a
+string node keeps its lexeme verbatim by a design the emitter relies
+on, so the matcher decodes as it compares. Measured, after an earlier
+revision compared string spellings and refused the tab.
+
+A rule's parameters are its patterns' BINDERS, nested ones included,
+and `AX3020` refuses a repeated one — `((m a (f a)) ...)` binds `a`
+twice and `expParamIndex` is last-wins, so the first would be silently
+discarded. `_` is exempt because it binds nothing.
 
 **MAC-LANG-16 (P).** Ellipsis repetition `...` **SHALL** be available in
 both patterns and templates, and a template **MUST** use a repeated
@@ -378,10 +450,40 @@ is the pattern-side half of hygiene and it is why `MAC-HYG-9`'s scope
 sets are a prerequisite: with renaming alone there is nothing to compare
 a literal *against*.
 
-**MAC-LANG-18 (P).** Rules are tried in order; the first whose pattern
-matches wins. If no rule matches, the diagnostic **MUST** name the macro
-and list the shapes it accepts — the arity diagnostic `AX3018`
-generalised. Today's `AX3018` becomes the one-rule case of it.
+**MAC-LANG-18 (H, 2026-08-16).** Rules are tried in order; the first
+whose pattern matches wins. If no rule matches, the diagnostic **MUST**
+name the macro and list the shapes it accepts — the arity diagnostic
+`AX3018` generalised. Today's `AX3018` becomes the one-rule case of it.
+
+Both halves hold. `AX3018` reads *no rule of macro `defN` matches this
+invocation; it accepts `(defN (a b))` or `(defN T 7)`* — the rules'
+patterns as the author spelled them, joined from the TOKENS each
+consumed rather than printed back from the tree, because a float
+pattern holds its bits and a char its codepoint and printing either
+back would show a spelling nobody wrote.
+`tests/diagnostics/605-macro-no-rule-matches.ax` pins it.
+
+**What ordering costs, and the refusal that survived it.**
+`MAC-LANG-14` shipped a refusal for two rules of one ARITY, on the
+ground that arity was the selector and the second could never be
+reached. Patterns falsify that: three rules of arity one told apart by
+shape are what `392-macro-patterns.ax` is, and this document's own
+`simplify` table is seven rules of arity one. The test narrowed to
+what was always the real claim — a rule whose every element is a plain
+binder is IRREFUTABLE, matches every invocation of its arity, and
+starves anything of that arity after it. That is decidable from the
+patterns alone and refuses exactly what the old test refused among
+all-binder rules.
+
+It also became its own code. `AX3020` was chosen because both
+conditions could be said to say "this macro declares the same thing
+twice"; a repeated PARAMETER and an unreachable RULE do not say that,
+and a slug reading `macro-duplicate-parameter` on the second is a
+machine-readable field that is simply wrong. It is **`AX3033`**,
+`macro-unreachable-rule`, pinned by
+`tests/diagnostics/600-macro-rule-unreachable.ax` and by
+`585-multi-rule-misuse.ax`, which measures that the narrowing did not
+lose the case it was narrowed from.
 
 ---
 
@@ -1058,11 +1160,20 @@ node with a poison value, as every other refusal in the pass does.
 
 ### 4.2 Pattern matching on syntax
 
-**MAC-CAP-4 (P).** With `MAC-LANG-14`–`MAC-LANG-18`, a macro **SHALL**
-be able to dispatch on the *shape* of its arguments: arity, literal
-heads, nesting, and repetition. This is what turns the current facility
-from *substitution* into *pattern-based rewriting*, which is what
+**MAC-CAP-4 (P; two of the four dispatch axes landed 2026-08-16).** With
+`MAC-LANG-14`–`MAC-LANG-18`, a macro **SHALL** be able to dispatch on
+the *shape* of its arguments: arity, literal heads, nesting, and
+repetition. This is what turns the current facility from
+*substitution* into *pattern-based rewriting*, which is what
 [v1-roadmap.md §4.2](v1-roadmap.md) means by tier 1.
+
+**Arity** and **nesting** hold (`MAC-LANG-15`, `MAC-LANG-18`), and so
+does dispatch on a literal argument's VALUE, which this list did not
+separate out. **Literal heads** need `MAC-LANG-17` and **repetition**
+needs `MAC-LANG-16`; each is blocked on something named rather than on
+effort — scope sets for the first, `...` lexing for the second. So the
+facility is pattern-based rewriting over shapes and values today, and
+not yet over head spellings or sequences.
 
 ### 4.3 Compile-time evaluation
 
@@ -1477,7 +1588,8 @@ survives to run time.
 **MAC-CAP-10.4 — no argument list, and why.** There is no positional
 `{}` and no trailing argument list: a macro takes a fixed number of
 arguments (`MAC-LANG-2`), and a variadic one needs repetition patterns
-(`MAC-LANG-15`–`MAC-LANG-18`, unbuilt). Capture is the form the
+(`MAC-LANG-16`'s ellipsis, still unbuilt — `MAC-LANG-15`'s other four
+kinds landed 2026-08-16 and none of them repeats). Capture is the form the
 language has, and it is the form Rust's own 2021 edition settled on;
 `{}` is refused **by name** — naming the capture form in its help —
 rather than left to fail as an empty identifier.
@@ -2131,6 +2243,28 @@ write (`(simplify e)` falling through to itself would otherwise hang the
 compiler), and `MAC-LANG-18`'s ordering is what makes the last rule a
 default rather than an ambiguity.
 
+**What this example still needs, itemised on 2026-08-16 rather than
+left implied.** `MAC-LANG-18`'s ordering holds and the seven rules of
+arity one are no longer refused — that refusal narrowed the same day,
+and refusing this table six times over was the measurement that showed
+it had to. Three things are still missing, and every one is a named
+rule rather than an omission:
+
+- the heads. `+` and `*` in `(+ e 0)` are what tell rule 1 from rule 3,
+  and a pattern's head is an ordinary binder, so `(+ e 0)` as written
+  matches `(* n 1)` too. Literal identifiers are `MAC-LANG-17` and
+  they need `MAC-HYG-9`'s scope sets, exactly as `MAC-LANG-17` says.
+- `(f a ...)`, which is `MAC-LANG-16`'s ellipsis.
+- `(- e e)`, a repeated binder, which `MAC-LANG-15` refuses (`AX3020`)
+  rather than reading as a same-form test: `expParamIndex` is
+  last-wins, so permitting it would silently bind the second
+  occurrence, and there is no structural form-equality to compare
+  against — `syntax/same` is not one.
+
+And the templates here are EXPRESSIONS, which the rule form does not
+take (`MAC-LANG-14`'s decision of 2026-08-15). So this section is
+still a sketch of where the rules point, and it now says which ones.
+
 ### 10.5 A small DSL
 
 A state machine, where the value of a macro is that the *shape* is
@@ -2320,8 +2454,16 @@ rather than the value alone.
    decision, not schedule. Module-side invocation,
    `MAC-EXP-16`'s stated limit, landed 2026-08-15: a module invokes a
    declaration macro over its own declarations, and phase D applies
-   the mangling and visibility import resolution would have. The prerequisite for everything in
-   §10.2–§10.5 now exists.
+   the mangling and visibility import resolution would have. The
+   prerequisite for everything in §10.2–§10.5 now exists.
+   **`MAC-LANG-15` and `MAC-LANG-18` followed on 2026-08-16**: a rule's
+   parameters are patterns, selection is a match in rule order, and
+   the two refusals around it were re-derived rather than kept — the
+   unreachable-rule test narrowed to irrefutability and took its own
+   code, and the no-match diagnostic lists shapes instead of arities.
+   What remains under this heading is `MAC-LANG-16`'s ellipsis, which
+   needs `...` to lex across four implementations of the token set,
+   and `MAC-LANG-17`'s literal identifiers, which need `MAC-HYG-9`.
 4. ~~**`MAC-CAP-5`/`MAC-CAP-6`**~~ — **v1 landed 2026-08-14, in three
    commits the same day**: the closed vocabulary exists and refuses
    (`AX3028`); `syntax/join`, `syntax/constructors` and arm-position

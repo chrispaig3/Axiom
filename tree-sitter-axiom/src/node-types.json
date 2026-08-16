@@ -1184,6 +1184,41 @@
     }
   },
   {
+    "type": "macro_pattern_form",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "character_literal",
+          "named": true
+        },
+        {
+          "type": "float_literal",
+          "named": true
+        },
+        {
+          "type": "identifier",
+          "named": true
+        },
+        {
+          "type": "integer_literal",
+          "named": true
+        },
+        {
+          "type": "macro_pattern_form",
+          "named": true
+        },
+        {
+          "type": "string_literal",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
     "type": "macro_rule",
     "named": true,
     "fields": {
@@ -1192,7 +1227,27 @@
         "required": false,
         "types": [
           {
+            "type": "character_literal",
+            "named": true
+          },
+          {
+            "type": "float_literal",
+            "named": true
+          },
+          {
             "type": "identifier",
+            "named": true
+          },
+          {
+            "type": "integer_literal",
+            "named": true
+          },
+          {
+            "type": "macro_pattern_form",
+            "named": true
+          },
+          {
+            "type": "string_literal",
             "named": true
           }
         ]

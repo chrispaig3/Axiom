@@ -655,7 +655,7 @@
             "name": "parameter",
             "content": {
               "type": "SYMBOL",
-              "name": "identifier"
+              "name": "_macro_pattern"
             }
           }
         },
@@ -672,6 +672,55 @@
               "type": "SYMBOL",
               "name": "_form"
             }
+          }
+        },
+        {
+          "type": "STRING",
+          "value": ")"
+        }
+      ]
+    },
+    "_macro_pattern": {
+      "type": "CHOICE",
+      "members": [
+        {
+          "type": "SYMBOL",
+          "name": "identifier"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "integer_literal"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "float_literal"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "character_literal"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "string_literal"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "macro_pattern_form"
+        }
+      ]
+    },
+    "macro_pattern_form": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "("
+        },
+        {
+          "type": "REPEAT1",
+          "content": {
+            "type": "SYMBOL",
+            "name": "_macro_pattern"
           }
         },
         {

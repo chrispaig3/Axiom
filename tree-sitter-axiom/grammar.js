@@ -352,10 +352,35 @@ module.exports = grammar({
 
     macro_rule: $ => seq(
       '(',
-      '(', field('rule_name', $.identifier), repeat(field('parameter', $.identifier)), ')',
+      '(', field('rule_name', $.identifier), repeat(field('parameter', $._macro_pattern)), ')',
       repeat(field('template', $._form)),
       ')',
     ),
+
+    // MAC-LANG-15: a rule's parameter is a PATTERN, not only a name.
+    // Four kinds, matching `parseMacroPat` (self_host/parser.ax): an
+    // identifier (a binder, or `_` binding nothing), a literal, or a
+    // parenthesised form of patterns.
+    //
+    // Hidden, so an all-identifier rule - which is every rule written
+    // before 2026-08-16 - still parses to `(identifier)` directly
+    // under `macro_rule` and no existing corpus tree renests.
+    //
+    // `boolean_literal` is deliberately NOT here: `true` and `false`
+    // are ordinary identifiers to the compiler's lexer, so a pattern
+    // spelling one binds it rather than matching it, and a grammar
+    // that called it a literal would describe a language this
+    // compiler does not have.
+    _macro_pattern: $ => choice(
+      $.identifier,
+      $.integer_literal,
+      $.float_literal,
+      $.character_literal,
+      $.string_literal,
+      $.macro_pattern_form,
+    ),
+
+    macro_pattern_form: $ => seq('(', repeat1($._macro_pattern), ')'),
 
     // The `deriving_clause` rule was DELETED on 2026-08-14, the day
     // the compiler started refusing the clause (AX2004, MAC-CAP-9):

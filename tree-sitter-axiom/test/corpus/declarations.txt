@@ -229,6 +229,53 @@ data declaration with a bare type parameter
       (type_variable))))
 
 ================================================================
+macro rule patterns: nested form, literals, wildcard
+================================================================
+
+(macro shape ((shape (h T))
+   (:: (syntax/join s T) Int))
+  ((shape T 0 _)
+   (:: (syntax/join s T) Int))
+  ((shape T "x" 'c')
+   (:: (syntax/join s T) Int)))
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (macro_declaration
+    name: (identifier)
+    rule: (macro_rule
+      rule_name: (identifier)
+      parameter: (macro_pattern_form
+        (identifier)
+        (identifier))
+      template: (type_signature
+        subject: (syntax_join_name
+          left: (identifier)
+          right: (identifier))
+        type: (builtin_type)))
+    rule: (macro_rule
+      rule_name: (identifier)
+      parameter: (identifier)
+      parameter: (integer_literal)
+      parameter: (identifier)
+      template: (type_signature
+        subject: (syntax_join_name
+          left: (identifier)
+          right: (identifier))
+        type: (builtin_type)))
+    rule: (macro_rule
+      rule_name: (identifier)
+      parameter: (identifier)
+      parameter: (string_literal)
+      parameter: (character_literal)
+      template: (type_signature
+        subject: (syntax_join_name
+          left: (identifier)
+          right: (identifier))
+        type: (builtin_type)))))
+
+================================================================
 derive-style macro: syntax/join name, syntax/for arm
 ================================================================
 
