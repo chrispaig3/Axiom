@@ -389,11 +389,27 @@
 ; diagnostic rendered as three lines, breaking the one-per-line format
 ; every consumer of `--diagnostic-format=ai` parses by.
 ;
-; The three implemented are the three a source literal can carry: a
-; typed newline, tab or carriage return. Any other control byte can
+; Newline, tab and carriage return get their two-character forms.
+;
+; The claim that those three were ENOUGH - "any other control byte can
 ; only reach a lexeme as an ESCAPE, which is already two ordinary
-; characters by the time it is here. `tests/selfhost/650-quote.ax`
-; pins the escapes that are reachable.
+; characters by the time it is here" - was itself falsified on
+; 2026-08-16, the same way and for the same reason as the sentence it
+; replaced. A lexeme is a SOURCE SLICE, copied byte for byte, so
+; whatever the file holds is what arrives here. Found with a one-line
+; `data` declaration whose AX2001 message echoed a literal carrying a
+; 0x01, which went into the AXDL line raw; the fixture reaches the
+; same place through a macro rule's accepted SHAPE instead, because
+; the grammar gate requires every checked-in `.ax` file to parse and
+; that first repro is a parse error. AXDL's contract is that it is
+; colourless and greppable - a raw control byte is neither, and a raw
+; ESC would let a diagnostic write terminal escape sequences into any
+; consumer that prints it. `tests/diagnostics/478-json-control-bytes.ax`
+; pins it; `tests/selfhost/650-quote.ax` still pins the reachable
+; two-character escapes.
+;
+; Everything else below 0x20, plus DEL, takes Rust Debug's `\u{..}` -
+; the form this comment named from the start.
 ; ------------------------------------------------------------------
 (pub :: quoteStr (-> String String))
 (pub fn (quoteStr s)
@@ -414,7 +430,27 @@
             (quoteBody s (+ i 1) (strConcat acc "\\t"))
         (if (== b 13)
             (quoteBody s (+ i 1) (strConcat acc "\\r"))
-            (quoteBody s (+ i 1) (strConcat acc (strSlice s i 1)))))))))))
+        (if (|| (< b 32) (== b 127))
+            (quoteBody s (+ i 1) (strConcat acc (quoteUesc b)))
+            (quoteBody s (+ i 1) (strConcat acc (strSlice s i 1))))))))))))
+
+; Rust Debug's `\u{..}`: lowercase hex, no leading zeros.
+(pub :: quoteUesc (-> Int String))
+(pub fn (quoteUesc b)
+  (strConcat (strConcat "\\u{"
+                        (if (< b 16)
+                            (quoteHexDigit b)
+                            (strConcat (quoteHexDigit (/ b 16))
+                                       (quoteHexDigit (% b 16)))))
+             "}"))
+
+(pub :: quoteHexDigit (-> Int String))
+(pub fn (quoteHexDigit n)
+  (let ((s (strAlloc 1)))
+    {
+      (__store8 (strData s) 0 (if (< n 10) (+ 48 n) (+ 87 n)))
+      s
+    }))
 
 ; ------------------------------------------------------------------
 ; One AXDL line, without its terminating newline.

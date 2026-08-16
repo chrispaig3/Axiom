@@ -326,22 +326,87 @@
 ; a log. A machine-applicable replacement takes its own colour, because
 ; it is the one part of a help that is text to type rather than text to
 ; read.
+; ------------------------------------------------------------------
+; Control bytes in a diagnostic's own TEXT, escaped for the human
+; surface.
+;
+; This is not `quoteStr`: human text is not quoted, so `"` and `\`
+; stand for themselves and only the bytes a TERMINAL would act on are
+; rewritten. Diagnostic text can hold one, because some of it is a
+; source slice - a macro rule's accepted shape is the author's own
+; pattern spelling (MAC-LANG-18), and a string literal's spelling is
+; whatever bytes the file holds. Two reasons this matters more here
+; than in AXDL:
+;
+;   * this surface goes to a terminal, so a raw ESC lets a diagnostic
+;     write escape SEQUENCES into whatever prints it - the renderer's
+;     own colours are chosen by `style.ax`, and nothing from a source
+;     file should be able to add to them;
+;   * a raw newline splits one diagnostic's heading across lines, and
+;     `scripts/check-render-selfhost.sh` cross-derives this surface
+;     from the AXDL golden, which escapes them - so the two disagree
+;     the moment either sees one.
+;
+; Found 2026-08-16, with the AXDL and JSON halves of the same hole;
+; `tests/diagnostics/478-json-control-bytes.ax` pins all three.
+; A diagnostic with no label carries 0 rather than an empty String, and
+; every caller downstream already tests for it (`renderDiagJson` does,
+; at the `diagLabel` read). Walking one here read `strLen` off a null
+; handle and took the whole renderer down with SIGSEGV - a crash that
+; only the human surface showed, because it is the only one that walks
+; a label unconditionally. Answer the null back and let the existing
+; tests keep deciding what an absent label prints as.
+(pub :: ctlEsc (-> String String))
+(pub fn (ctlEsc s)
+  (if (== (cast Int s) 0)
+      s
+  (let ((n (strLen s)) (mut i 0) (mut acc ""))
+    {
+      (while (< i n)
+        (let ((b (strByte s i)))
+          {
+            (set acc
+              (if (== b 10)
+                  (strConcat acc "\\n")
+              (if (== b 9)
+                  (strConcat acc "\\t")
+              (if (== b 13)
+                  (strConcat acc "\\r")
+              (if (|| (< b 32) (== b 127))
+                  (strConcat acc (quoteUesc b))
+                  (strConcat acc (strSlice s i 1)))))))
+            (set i (+ i 1))
+          }))
+      acc
+    })))
+
+; `ctlEsc` is applied to the DIAGNOSTIC'S OWN text at the point it
+; enters a line, never to a composed one: `helpLineFix` hands
+; `helpLine` a string that already carries `paint`'s SGR escapes, and
+; escaping those turns the renderer's own colours into the literal
+; text `\u{1b}[...`. Seven fixtures with a machine-applicable fix said
+; so immediately when the escape sat inside `helpLine` instead.
 (pub :: helpLine (-> Int String String))
 (pub fn (helpLine gw text)
   (strConcat (strConcat (strConcat
-    (spacesN gw) (paint SGR_GUT " = ")) (paint SGR_HELP "help: ")) 
+    (spacesN gw) (paint SGR_GUT " = ")) (paint SGR_HELP "help: "))
     (strConcat text "\n")))
+
+(pub :: helpLineEsc (-> Int String String))
+(pub fn (helpLineEsc gw text)
+  (helpLine gw (ctlEsc text)))
 
 (pub :: helpLineFix (-> Int String String String))
 (pub fn (helpLineFix gw text repl)
-  (helpLine gw (strConcat text (paint SGR_FIX (strConcat " ~> " repl)))))
+  (helpLine gw (strConcat (ctlEsc text)
+                          (paint SGR_FIX (strConcat " ~> " (ctlEsc repl))))))
 
 ; `   = note: ...`, which renders before the helps.
 (pub :: noteLine (-> Int String String))
 (pub fn (noteLine gw text)
   (strConcat (strConcat (strConcat
     (spacesN gw) (paint SGR_GUT " = ")) (paint SGR_TITLE "note: "))
-    (strConcat text "\n")))
+    (strConcat (ctlEsc text) "\n")))
 
 ; ------------------------------------------------------------------
 ; The rows of one snippet: one per labeled span, in source order.
@@ -392,10 +457,10 @@
     {
       ; The primary underline takes the diagnostic's own severity
       ; colour; a related one is always secondary.
-      (vecPush rows (cast Int (SnipRow span 94 (diagLabel d) (sgrForSev (diagSev d)))))
+      (vecPush rows (cast Int (SnipRow span 94 (ctlEsc (diagLabel d)) (sgrForSev (diagSev d)))))
       (while (< i (diagSecCount d))
         {
-          (vecPush rows (cast Int (SnipRow (diagSecSpan d i) 45 (diagSecMsg d i) SGR_SEC)))
+          (vecPush rows (cast Int (SnipRow (diagSecSpan d i) 45 (ctlEsc (diagSecMsg d i)) SGR_SEC)))
           (set i (+ i 1))
         })
       (sortRows rows)
@@ -537,7 +602,7 @@
     (let ((head (strConcat
                    (paint (sgrForSev sev)
                      (strConcat (strConcat (strConcat (sevWord sev) "[") code) "]"))
-                   (strConcat (paint SGR_TITLE (strConcat ": " msg)) "\n")))
+                   (strConcat (paint SGR_TITLE (strConcat ": " (ctlEsc msg))) "\n")))
           ; A span that starts AT the end of the source is the
           ; end-of-file diagnostic - an unclosed `(` is the commonest
           ; syntax error there is - and it used to render spanless,
@@ -606,7 +671,7 @@
                                    ; reader is looking at.
                                    (vecPush acc
                                      (if (== (diagHelpFixSpan d i) 0)
-                                         (helpLine gw (diagHelpMsg d i))
+                                         (helpLineEsc gw (diagHelpMsg d i))
                                          (helpLineFix gw (diagHelpMsg d i)
                                                       (diagHelpFixText d i))))
                                    (set i (+ i 1))
@@ -664,6 +729,40 @@
 ; stage0 carried the backtrace in its Diagnostic and its AXDL grammar,
 ; but never in its JSON, because nothing ever populated it.
 ; ------------------------------------------------------------------
+; A hex digit, and the `\u00XX` form for a control byte with no
+; two-character escape. Named apart from codegen's `hexDigit`/`hex2`
+; because imports join one flat top-level namespace.
+(pub :: jsonHexDigit (-> Int Int))
+(pub fn (jsonHexDigit n)
+  (if (< n 10) (+ 48 n) (+ 55 n)))
+
+(pub :: jsonUesc (-> Int String))
+(pub fn (jsonUesc b)
+  (let ((s (strAlloc 6)))
+    {
+      (__store8 (strData s) 0 92)   ; \
+      (__store8 (strData s) 1 117)  ; u
+      (__store8 (strData s) 2 48)   ; 0
+      (__store8 (strData s) 3 48)   ; 0
+      (__store8 (strData s) 4 (jsonHexDigit (/ b 16)))
+      (__store8 (strData s) 5 (jsonHexDigit (% b 16)))
+      s
+    }))
+
+; RFC 8259 forbids a raw byte below 0x20 inside a string, and this
+; escaped three of them: `\"`, `\\` and `\n`, stage0's set. Every
+; other control byte went through untouched, so any diagnostic that
+; QUOTED a source lexeme carrying one emitted JSON no parser accepts.
+; A tab is the easy one - `(data D "a<TAB>b")` is a one-line program
+; whose AX2001 message echoes the literal - and a CR arrives free on
+; every CRLF file. Found 2026-08-16; `tests/diagnostics/478-json-
+; control-bytes.ax` pins it, and the `.json` golden is machine-checked
+; as parseable rather than only diffed.
+;
+; The two-character forms are used where JSON defines them, so the
+; common cases stay readable in a log; the rest take `\u00XX`. Bytes
+; at or above 0x20 are copied as-is, which keeps UTF-8 sequences
+; intact - JSON strings carry them literally.
 (pub :: jsonEsc (-> String String))
 (pub fn (jsonEsc s)
   (let ((n (strLen s)) (mut i 0) (mut acc ""))
@@ -678,7 +777,17 @@
                   (strConcat acc "\\\\")
               (if (== b 10)
                   (strConcat acc "\\n")
-                  (strConcat acc (strSlice s i 1))))))
+              (if (== b 9)
+                  (strConcat acc "\\t")
+              (if (== b 13)
+                  (strConcat acc "\\r")
+              (if (== b 8)
+                  (strConcat acc "\\b")
+              (if (== b 12)
+                  (strConcat acc "\\f")
+              (if (< b 32)
+                  (strConcat acc (jsonUesc b))
+                  (strConcat acc (strSlice s i 1)))))))))))
             (set i (+ i 1))
           }))
       acc

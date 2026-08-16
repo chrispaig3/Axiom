@@ -113,6 +113,25 @@ def read_string(text, i):
         if c == '\\':
             if i + 1 >= len(text):
                 raise ValueError('trailing backslash')
+            # `\u{XX}`, Rust Debug's form for a control byte with no
+            # two-character escape. AXDL gained these on 2026-08-16,
+            # when `quoteBody` stopped passing such bytes through raw;
+            # without this arm the fallback below dropped the backslash
+            # and read `\u{1}` as the four characters `u{1}`, so the
+            # message this verifier derived disagreed with the one the
+            # JSON golden carried and 478-json-control-bytes could not
+            # be pinned at all.
+            if text[i + 1] == 'u' and i + 2 < len(text) and text[i + 2] == '{':
+                close = text.find('}', i + 3)
+                if close < 0:
+                    raise ValueError('unterminated \\u{...} escape')
+                digits = text[i + 3:close]
+                if not digits or any(d not in '0123456789abcdefABCDEF'
+                                     for d in digits):
+                    raise ValueError('bad \\u{...} escape %r' % digits)
+                out.append(chr(int(digits, 16)))
+                i = close + 1
+                continue
             out.append(ESCAPES.get(text[i + 1], text[i + 1]))
             i += 2
             continue

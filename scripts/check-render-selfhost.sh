@@ -1254,6 +1254,40 @@ for axdl in tests/diagnostics/*.axdl; do
     ok=0
   fi
 
+  # The JSON is PARSED, not only diffed against a golden.
+  #
+  # This is the half a re-bless cannot satisfy. Every other check on
+  # this stream compares it to a file that `AXIOM_BLESS=1` rewrites
+  # from the same renderer, so a renderer that started emitting
+  # malformed JSON would rewrite the golden to match and every
+  # comparison would stay green. Being a parser's idea of valid JSON is
+  # the one property the renderer cannot define into truth.
+  #
+  # Not hypothetical: `jsonEsc` escaped only the quote, the backslash
+  # and newline until 2026-08-16, so any diagnostic quoting a source
+  # lexeme with a raw tab in it emitted output no parser accepts - and
+  # nothing here noticed, because the golden held the same bad bytes.
+  # `tests/diagnostics/478-json-control-bytes.ax` is the case; this is
+  # the check that would have caught it.
+  facts=$((facts + 1)); f_esc=$((f_esc + 1))
+  if ! python3 -c '
+import sys, json
+bad = 0
+for i, line in enumerate(open(sys.argv[1], encoding="utf-8", errors="surrogateescape")):
+    line = line.rstrip("\n")
+    if not line.strip():
+        continue
+    try:
+        json.loads(line)
+    except Exception as e:
+        print("    line %d: %s" % (i + 1, e))
+        bad = 1
+sys.exit(bad)
+' "$work/j.err"; then
+    echo "FAIL $name (\`--diagnostic-format=json\` emitted text no JSON parser accepts)"
+    ok=0
+  fi
+
   # Checks 3, 4 and 5. Three and four read a colour-STRIPPED copy: their
   # right-hand sides are the AXDL golden and the fixture, neither of
   # which has any colour in it to compare against, so leaving the

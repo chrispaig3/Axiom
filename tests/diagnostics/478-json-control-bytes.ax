@@ -1,0 +1,57 @@
+; Control bytes in a diagnostic message, and the three renderers that
+; have to survive them.
+;
+; A macro rule's accepted SHAPE is the author's own pattern spelling,
+; joined from the tokens the pattern consumed - so for a string
+; literal it is a SOURCE SLICE, carrying whatever bytes the file
+; holds. That is the route by which a control byte reaches a message
+; from a program that is otherwise well-formed, and it is why this
+; fixture is a macro rather than the one-line `data` declaration that
+; first exposed it: the grammar has to accept every `.ax` file in the
+; repository (scripts/check-tree-sitter.sh), so a fixture whose error
+; is a PARSE error cannot live here.
+;
+; Three independent bugs, one byte. All found 2026-08-16.
+;
+;   AXDL (self_host/diag.ax, `quoteBody`) escaped newline, tab and
+;   carriage return and passed every other control byte through RAW,
+;   on the recorded ground that anything else "can only reach a
+;   lexeme as an ESCAPE". A source slice falsifies that. AXDL's
+;   contract is that it is colourless and greppable, and a raw byte
+;   is neither - a raw ESC would let a lexeme write terminal escape
+;   sequences into any consumer that prints the line.
+;
+;   JSON (self_host/render.ax, `jsonEsc`) escaped only the quote, the
+;   backslash and newline. RFC 8259 forbids a raw byte below 0x20
+;   inside a string, so this one byte was enough to emit JSON that no
+;   parser accepts - and nothing noticed, because the golden held the
+;   same bad bytes. `check-render-selfhost.sh` now PARSES the JSON
+;   rather than only diffing it, which is the half a re-bless cannot
+;   satisfy.
+;
+;   HUMAN (self_host/render.ax, `ctlEsc`) printed the message, label,
+;   notes and helps verbatim. That surface goes to a TERMINAL, so it
+;   is the one where a raw ESC matters most - the renderer's colours
+;   are style.ax's to choose, not a lexeme's.
+;
+; The byte is 0x01, which has a two-character escape in none of the
+; three formats and so takes the `\u{1}` form in AXDL and human and
+; the four-hex-digit form in JSON. It is deliberately the ONLY
+; control byte here, because each of the three AXDL spells in two
+; characters is unusable in a checked-in fixture: a newline ends the
+; one-diagnostic-per-line format the AXDL goldens are read with, a
+; carriage return splits a LINE for any reader using universal
+; newlines while this compiler counts LF only (so the span gate and
+; the compiler would disagree about which line this is on), and a tab
+; is refused outright by check-fmt-selfhost's preservation sweep,
+; which reads a tab anywhere in formatted output as the indentation
+; it bans. One byte with no two-character form anywhere exercises
+; every path the three bugs shared.
+(macro pick ((pick "ac")
+   (:: picked Int)
+   (fn (picked) 1)))
+
+(pick 0)
+
+(:: main Int)
+(fn (main) 0)
