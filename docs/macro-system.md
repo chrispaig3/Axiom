@@ -898,9 +898,9 @@ bare, resolving outward exactly as before.
 
 **MAC-HYG-8 (P; three of the four closed, the last on 2026-08-16, and
 the first refuses since 2026-08-15).** These four holes **SHALL**
-close, and the second, third and fourth have. Each is stated with what happens today, because
-each is a place a reader could reasonably believe the guarantee is
-total:
+close, and the second, third and fourth have. Each is stated with what
+happens today, because each is a place a reader could reasonably
+believe the guarantee is total:
 
 1. **A macro defined in the entry file.** Entry-file declarations are
    left bare by import resolution — there is no `Mod$name` to resolve
@@ -927,9 +927,11 @@ total:
    single module — the macro's own does not declare it and it is not
    the unique import either. Telling either author the other's story
    wastes the refusal, and the branch is exactly whether the macro has
-   a module, because qualification is what a module buys. That is not the guarantee; the
-   guarantee is scope sets (`MAC-HYG-9`), which make the reference
-   resolve where it was written. It is the difference between a wrong
+   a module, because qualification is what a module buys.
+
+   Neither branch is the guarantee; the guarantee is scope sets
+   (`MAC-HYG-9`), which make the reference resolve where it was
+   written. It is the difference between a wrong
    answer nobody can see and a refusal that says which line to change,
    which is the trade this repository makes wherever it has made it.
 2. **Qualified reference to a macro** — **closed**: `MAC-LANG-12`
