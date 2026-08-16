@@ -378,9 +378,20 @@ module.exports = grammar({
       $.character_literal,
       $.string_literal,
       $.macro_pattern_form,
+      $.ellipsis,
     ),
 
     macro_pattern_form: $ => seq('(', repeat1($._macro_pattern), ')'),
+
+    // MAC-LANG-16. `...` is an ordinary IDENTIFIER to the compiler's
+    // lexer - three dots, one token, no new token kind - which is what
+    // let that rule's token half be one implementation rather than the
+    // four it predicted. This grammar's identifier rule already
+    // admitted it for the same reason, so a named node here is a
+    // FIDELITY change and not a fix: it marks the element before it as
+    // repeating, where an `(identifier)` said only that something was
+    // spelled with dots.
+    ellipsis: _ => '...',
 
     // The `deriving_clause` rule was DELETED on 2026-08-14, the day
     // the compiler started refusing the clause (AX2004, MAC-CAP-9):

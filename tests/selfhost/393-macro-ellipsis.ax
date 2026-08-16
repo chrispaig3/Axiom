@@ -1,0 +1,151 @@
+; expect 63
+; MAC-LANG-16: a rule's last element may REPEAT (2026-08-16).
+;
+; `(m T v ...)` takes one argument and then any number, and `v` is
+; bound to all of them at once. That is the variadic macro
+; MAC-CAP-10.4 says the language lacks, and it is the first binding in
+; this expander that is a SEQUENCE rather than a value: MAC-LANG-15's
+; representation spends each name on exactly one form -
+; `expParamIndex` then `vecGet` - so a repeat needed a channel of its
+; own, and got one beside the `syntax/for` stack it is modelled on.
+;
+; THE TOKEN HALF COST ONE IMPLEMENTATION, not the four this rule
+; predicted. `...` lexes as an ORDINARY IDENTIFIER - three dots, one
+; token, no new token kind - so `format.ax` needed nothing (it copies
+; a rule form's interior verbatim) and tree-sitter needed nothing to
+; PARSE it (its identifier rule already admits `.`; it gained an
+; `ellipsis` node for fidelity, not for correctness). A single `.` is
+; untouched, so field access, module paths and MAC-HYG-3's gensym
+; separator are all untouched - one dot still cannot sit inside an
+; identifier.
+;
+; Six claims, one bit each (63 when all hold):
+;
+;    1  a repeat absorbs SEVERAL arguments and the template splices
+;       them: `(sum4 n ...)` becomes `(sum4 1 2 3 4)`
+;    2  the SAME rule takes a different number - two arguments here,
+;       three there - and each invocation generates the call it needs.
+;       This is the bit that makes it variadic rather than a fixed
+;       arity spelled differently
+;    4  a repeat absorbs ZERO arguments: `(zed v ...)` with nothing
+;       to splice is `(zed)`, a nullary call
+;    8  TWO fixed elements before the repeat each bind one form, and
+;       the repeat starts after the last of them
+;   16  a repeat composes with MAC-LANG-15's patterns, BOTH ways: a
+;       literal in a fixed position selects the rule that spells it,
+;       and an argument that is not that literal falls to the rule
+;       that binds it
+;   32  two rules where the first does NOT repeat and the second does:
+;       selection is still MAC-LANG-18's, so the fixed rule wins at
+;       its own arity and the repeating one takes the rest
+;
+; What v1 does NOT do, refused rather than half-built and pinned in
+; tests/diagnostics/610: more than one `...` in a rule (where the
+; arguments split would be the expander's guess), a repeat over a
+; PATTERN rather than a bare name (which binds each of its binders to
+; a sequence in lockstep - a second thing), and either half of the
+; depth rule broken, which is `AX3034` in three shapes.
+;
+; The compiler before this commit refuses this file at the first `...`
+; with `AX2001 expected a pattern, found `.`` - three tokens where the
+; language now has one.
+(struct P2
+  (a : Int)
+  (b : Int))
+
+(struct P3
+  (a : Int)
+  (b : Int)
+  (c : Int))
+
+(:: sum4 (-> Int Int Int Int Int))
+
+(fn (sum4 a b c d) (+ a (+ b (+ c d))))
+
+(:: sum3 (-> Int Int Int Int))
+
+(fn (sum3 a b c) (+ a (+ b c)))
+
+(:: zed Int)
+
+(fn (zed) 5)
+
+;; one fixed element, then any number
+(macro build ((build T v ...)
+   (:: (syntax/join make T) T)
+   (fn ((syntax/join make T)) (T v ...))))
+
+;; the repeat spliced into a fixed-arity call
+(macro four ((four T v ...)
+   (:: (syntax/join f T) Int)
+   (fn ((syntax/join f T)) (sum4 v ...))))
+
+;; a repeat that absorbs nothing
+(macro nil ((nil T v ...)
+   (:: (syntax/join n T) Int)
+   (fn ((syntax/join n T)) (zed v ...))))
+
+;; TWO fixed elements, then the repeat
+(macro pre ((pre T k v ...)
+   (:: (syntax/join w T) Int)
+   (fn ((syntax/join w T)) (+ k (sum3 v ...)))))
+
+;; a literal in a fixed position selects, and the repeat follows it
+(macro tag ((tag T 7 v ...)
+   (:: (syntax/join t T) Int)
+   (fn ((syntax/join t T)) (sum4 v ...)))
+  ((tag T n v ...)
+   (:: (syntax/join t T) Int)
+   (fn ((syntax/join t T)) 0)))
+
+;; a NON-repeating rule beside a repeating one: both stay live,
+;; because a fixed rule covers one arity and the repeat covers the rest
+(macro pick ((pick T a)
+   (:: (syntax/join p T) Int)
+   (fn ((syntax/join p T)) 1))
+  ((pick T a b ...)
+   (:: (syntax/join p T) Int)
+   (fn ((syntax/join p T)) 2)))
+
+(build P2 1 2)
+
+(build P3 3 4 5)
+
+(four P2 1 2 3 4)
+
+(nil P2)
+
+(pre P2 100 1 2 3)
+
+(tag P2 7 1 2 3 4)
+
+(tag P3 8 1 2 3 4)
+
+(pick P2 9)
+
+(pick P3 9 9 9)
+
+(:: b2i (-> Bool Int))
+
+(fn (b2i x)
+  (if x
+    1
+    0
+  )
+)
+
+(:: main Int)
+
+(fn (main)
+  (let (
+    (two (makeP2))
+    (three (makeP3))
+  )
+    (+ (b2i (== (fP2) 10))
+       (+ (* 2 (b2i (== (+ two.a (+ two.b (+ three.a (+ three.b three.c)))) 15)))
+          (+ (* 4 (b2i (== (nP2) 5)))
+             (+ (* 8 (b2i (== (wP2) 106)))
+                (+ (* 16 (b2i (&& (== (tP2) 10) (== (tP3) 0))))
+                   (* 32 (b2i (== (+ (pP2) (pP3)) 3))))))))
+  )
+)

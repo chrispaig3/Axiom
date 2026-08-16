@@ -217,7 +217,16 @@
                  ; identifier is shadowed at the call site, which is
                  ; MAC-HYG-8's first hole and a silent wrong answer
                  ; until something looks.
-                 (callbs : Int))
+                 (callbs : Int)
+                 ; Word 20: the SEQUENCE bindings of the rule being
+                 ; instantiated (MAC-LANG-16) - `Vec SeqBind`, a name
+                 ; against the forms a repeating element absorbed.
+                 ; On the env rather than threaded through `substTpl`
+                 ; for the same reason `forstack` is: the walk that
+                 ; needs it is twenty signatures below the walk that
+                 ; knows it, and every one of those signatures already
+                 ; carries `env`.
+                 (seqbinds : Int))
 
 (pub :: expMacros (-> Int Int)) (pub fn (expMacros env) (memGetWord env 0))
 (pub :: expOut    (-> Int Int)) (pub fn (expOut    env) (memGetWord env 1))
@@ -2348,11 +2357,57 @@
                 {
                   (if (&& (== (nodeTag a) TAG_E_APP) (== (expIsForSpine a) 1))
                       (expSpliceForArg a params args ren env isp out)
-                      (vecPush out (substTpl a params args ren env isp)))
+                  ; MAC-LANG-16: `x ...` splices the forms `x` absorbed.
+                  ; The ellipsis lexes as an identifier, so it is the
+                  ; NEXT argument in the spine rather than a suffix of
+                  ; this one - which is also how `expRuleShapes` prints
+                  ; it back.
+                  (if (== (expEllipsisAt env qargs i) 1)
+                      {
+                        (expSpliceSeq env (expSeqLookup (expSeqBinds env) (nodeA a))
+                                      params args ren isp out 0)
+                        (set i (+ i 1))
+                      }
+                  (if (&& (== (nodeTag a) TAG_E_VAR) (strEq (nodeA a) "..."))
+                      {
+                        (expEllipsisDiag env "..."
+                          "follows nothing that repeats"
+                          "put `...` directly after the name of a repeating element, or drop it"
+                          isp)
+                        (vecPush out (mkEInt 0))
+                      }
+                      (vecPush out (substTpl a params args ren env isp)))))
                   (set i (+ i 1))
                 }))
             (expRebuildSpine (substTpl head params args ren env isp) out isp 0)
           }))))
+
+(pub :: expSeqBinds (-> Int Int))
+(pub fn (expSeqBinds env) (memGetWord env 20))
+
+; Is `qargs[i]` a sequence-bound name whose next neighbour is `...`?
+(pub :: expEllipsisAt (-> Int Int Int Int))
+(pub fn (expEllipsisAt env qargs i)
+  (if (>= (+ i 1) (vecLen qargs))
+      0
+      (let ((a (vecGet qargs i))
+            (n (vecGet qargs (+ i 1))))
+        (if (&& (== (nodeTag a) TAG_E_VAR)
+                (&& (== (nodeTag n) TAG_E_VAR)
+                    (&& (strEq (nodeA n) "...")
+                        (!= (expSeqLookup (expSeqBinds env) (nodeA a)) 0))))
+            1
+            0))))
+
+; Each absorbed form, substituted and pushed where the pair stood.
+(pub :: expSpliceSeq (-> Int Int Int Int Int Int Int Int Int))
+(pub fn (expSpliceSeq env forms params args ren isp out i)
+  (if (>= i (vecLen forms))
+      0
+      {
+        (vecPush out (substTpl (vecGet forms i) params args ren env isp))
+        (expSpliceSeq env forms params args ren isp out (+ i 1))
+      }))
 
 (pub :: expRebuildSpine (-> Int Int Int Int Int))
 (pub fn (expRebuildSpine f outArgs isp i)
@@ -2407,6 +2462,21 @@
                                       (expMacMod env))
                                     (mkEInt 0)
                                   }
+                              ; A name bound to a SEQUENCE reaching a
+                              ; position that takes one form is
+                              ; MAC-LANG-16's depth rule broken. It
+                              ; would otherwise fall through to the
+                              ; free-identifier arm below and die as
+                              ; `AX3001 undefined variable`, blaming
+                              ; the name rather than the missing `...`.
+                              (if (!= (expSeqLookup (expSeqBinds env) (nodeA tpl)) 0)
+                                  {
+                                    (expEllipsisDiag env (nodeA tpl)
+                                      "repeats, and this position takes one form"
+                                      "write `... ` after it to splice every form it took, or match it with a non-repeating element"
+                                      isp)
+                                    (mkEInt 0)
+                                  }
                                   ; Neither a template binder nor a
                                   ; parameter, so a FREE identifier:
                                   ; resolved where the macro was
@@ -2415,7 +2485,7 @@
                                     {
                                       (expCaptureCheck env (nodeA tpl) q isp)
                                       (mkEVarAt q isp)
-                                    }))
+                                    })))
                               (vecGet args idx)))))))
         (if (== tag TAG_E_APP)
             (substTplApp tpl params args ren env isp)
@@ -3296,6 +3366,7 @@
         (expCheckDupParams (vecGet (expMacros env) i) env 0)
         (expCheckRuleParams (vecGet (expMacros env) i) env 0)
         (expCheckRuleArities (vecGet (expMacros env) i) env 0)
+        (expCheckRuleEllipsis (vecGet (expMacros env) i) env 0)
         (expCheckTplKinds (vecGet (expMacros env) i) env 0)
         (expCheckMacros env (+ i 1))
       }))
@@ -3338,6 +3409,64 @@
 ; can ever be reached. That is the narrowed test, it refuses exactly
 ; what the old one refused among all-binder rules, and it admits
 ; exactly what patterns are for.
+; MAC-LANG-16 admits ONE repeating element per rule. With two,
+; "the arguments left over" stops having an answer - `(m a ... b ...)`
+; can split its arguments anywhere - and a macro system that picks for
+; you is one whose expansion nobody can predict.
+(pub :: expCheckRuleEllipsis (-> Int Int Int Int))
+(pub fn (expCheckRuleEllipsis mac env i)
+  (let ((rules (memGetWord mac 9)))
+    (if (== rules 0)
+        0
+        (if (>= i (vecLen rules))
+            0
+            {
+              (let ((k (expRepIndex (vecGet rules i))))
+                (if (if (< k 0)
+                        false
+                        (!= (nodeTag (vecGet (expRulePats (vecGet rules i)) k))
+                            TAG_E_VAR))
+                    (expEmit env
+                      (mkDiagNote SEV_ERROR "AX3034" "macro-ellipsis"
+                                  (nodeSpan mac)
+                                  (strConcat (strConcat
+                                    "macro `" (nodeA mac))
+                                    "` repeats something that is not a plain name")
+                                  0 0
+                                  "repeat a bare binder - `(m T v ...)` - and take the shape apart in the template"
+                                  "v1 of MAC-LANG-16 binds ONE name to the forms a repeat absorbs. A repeated PATTERN binds each of its binders to a sequence of its own, in lockstep, which is a second thing and is not built"))
+                    0))
+              (if (> (expRepCount (expRuleReps (vecGet rules i)) 0 0) 1)
+                  (expEmit env
+                    (mkDiagNote SEV_ERROR "AX3034" "macro-ellipsis"
+                                (nodeSpan mac)
+                                (strConcat (strConcat
+                                  "macro `" (nodeA mac))
+                                  "` has a rule with more than one `...`")
+                                0 0
+                                "keep one repeating element per rule; the arguments a second one would take are the ones the first already took"
+                                "a repeating element absorbs every argument left after the fixed ones (macro-system.md MAC-LANG-16), so a second has nothing defined to absorb and where the split fell would be the expander's guess"))
+                  0)
+              (expCheckRuleEllipsis mac env (+ i 1))
+            }))))
+
+(pub :: expRepCount (-> Int Int Int Int))
+(pub fn (expRepCount reps i n)
+  (if (>= i (vecLen reps))
+      n
+      (expRepCount reps (+ i 1) (+ n (vecGet reps i)))))
+
+(pub :: expEllipsisDiag (-> Int String String String Int Int))
+(pub fn (expEllipsisDiag env name msg help isp)
+  (expEmit env (expMarkUnit env
+    (mkDiagNote SEV_ERROR "AX3034" "macro-ellipsis"
+                isp
+                (strConcat (strConcat (strConcat "`" name) "` ") msg)
+                0 0
+                help
+                "a template MUST use a repeated binding under an ellipsis of the same depth (macro-system.md MAC-LANG-16): a name bound to a SEQUENCE is many forms, and every position that takes one form needs to be told which")
+    (memGetWord env 11))))
+
 (pub :: expCheckRuleArities (-> Int Int Int Int))
 (pub fn (expCheckRuleArities mac env i)
   (let ((rules (memGetWord mac 9)))
@@ -3372,16 +3501,41 @@
               (expCheckRuleArities mac env (+ i 1))
             }))))
 
-; The index of an earlier IRREFUTABLE rule of rule `i`'s arity, or -1.
+; The index of an earlier IRREFUTABLE rule that takes every
+; invocation rule `i` could take, or -1.
+;
+; Without a repeat both rules take exactly one arity, so the test is
+; equality. WITH one the earlier rule's arity is a floor and it takes
+; everything from there up, so it starves any later rule whose own
+; floor is at least as high - which is how `(m a ...)` first makes
+; every rule after it dead.
 (pub :: expShadowingRule (-> Int Int Int Int))
 (pub fn (expShadowingRule rules i j)
   (if (>= j i)
       (- 0 1)
-      (if (&& (== (vecLen (expRulePats (vecGet rules j)))
-                  (vecLen (expRulePats (vecGet rules i))))
-              (== (expRuleIrrefutable (vecGet rules j)) 1))
-          j
-          (expShadowingRule rules i (+ j 1)))))
+      (let ((e (vecGet rules j))
+            (l (vecGet rules i)))
+        (let ((ke (expRepIndex e))
+              (kl (expRepIndex l)))
+          (if (&& (== (expRuleIrrefutable e) 1)
+                  (if (>= ke 0)
+                      ; The earlier rule repeats, so it covers every
+                      ; arity from `ke` up. It starves the later one
+                      ; when the later's LOWEST arity is already
+                      ; inside that range.
+                      (>= (if (>= kl 0) kl (vecLen (expRulePats l))) ke)
+                      ; The earlier rule is fixed, so it covers one
+                      ; arity. That can starve another FIXED rule of
+                      ; the same arity and nothing else - a later
+                      ; REPEATING rule still has every higher arity to
+                      ; itself, which is why `((m T a) …)` before
+                      ; `((m T a b ...) …)` is two live rules and not
+                      ; a mistake.
+                      (&& (< kl 0)
+                          (== (vecLen (expRulePats e))
+                              (vecLen (expRulePats l))))))
+              j
+              (expShadowingRule rules i (+ j 1)))))))
 
 ; A rule-form macro's template is checked ONCE, at the macro's own
 ; line: v1 generates `fn` and `::` declarations and further macro
@@ -3422,6 +3576,27 @@
 
 (pub :: expRuleSpells (-> Int Int))
 (pub fn (expRuleSpells r) (vecGet r 3))
+
+; Slot 4 (MAC-LANG-16): 1 where the element repeats, 0 where it does
+; not. A rule with a repeating element matches a RANGE of arities
+; rather than one, which is why `expRuleForForms` stopped comparing
+; lengths and started asking this.
+(pub :: expRuleReps (-> Int Int))
+(pub fn (expRuleReps r) (vecGet r 4))
+
+; The index of the rule's repeating element, or -1. v1 admits ONE, and
+; `expCheckRuleEllipsis` refuses the rest: with two, "the remaining
+; arguments" stops having an answer - `(m a ... b ...)` can split its
+; arguments anywhere, and a macro system that picks for you is a macro
+; system whose expansion nobody can predict.
+(pub :: expRepIndex (-> Int Int))
+(pub fn (expRepIndex r) (expRepIndexFrom (expRuleReps r) 0))
+
+(pub :: expRepIndexFrom (-> Int Int Int))
+(pub fn (expRepIndexFrom reps i)
+  (if (>= i (vecLen reps))
+      (- 0 1)
+      (if (== (vecGet reps i) 1) i (expRepIndexFrom reps (+ i 1)))))
 
 ; ------------------------------------------------------------------
 ; MATCHING (macro-system.md MAC-LANG-15).
@@ -3557,20 +3732,85 @@
 (pub fn (expRuleForForms rules args i)
   (if (>= i (vecLen rules))
       0
-      (let ((r (vecGet rules i)))
-        (if (!= (vecLen (expRulePats r)) (vecLen args))
+      (let ((r (vecGet rules i))
+            (k (expRepIndex (vecGet rules i))))
+        ; Arity is a pre-filter still, but a repeating rule's arity is
+        ; a FLOOR rather than an equality: `(m a b ...)` takes one
+        ; argument and then any number.
+        (if (if (< k 0)
+                (!= (vecLen (expRulePats r)) (vecLen args))
+                (< (vecLen args) k))
             (expRuleForForms rules args (+ i 1))
             (let ((names vecNew)
-                  (vals vecNew))
-              (if (== (expMatchVec (expRulePats r) args 0 names vals) 0)
+                  (vals vecNew)
+                  (seqs vecNew))
+              (if (== (expMatchRuleAt r args names vals seqs) 0)
                   (expRuleForForms rules args (+ i 1))
                   (let ((m vecNew))
                     {
                       (vecPush m (cast Int r))
                       (vecPush m (cast Int names))
                       (vecPush m (cast Int vals))
+                      (vecPush m (cast Int seqs))
                       (cast Int m)
                     })))))))
+
+; One rule against the invocation's arguments, splitting at the
+; repeating element if there is one. The elements BEFORE it match one
+; argument each; the element itself absorbs every argument left, as a
+; SEQUENCE binding rather than a value binding.
+(pub :: expMatchRuleAt (-> Int Int Int Int Int Int))
+(pub fn (expMatchRuleAt r args names vals seqs)
+  (let ((ps (expRulePats r))
+        (k (expRepIndex r)))
+    (if (< k 0)
+        (expMatchVec ps args 0 names vals)
+        (if (== (expMatchFixed ps args 0 k names vals) 0)
+            0
+            {
+              (vecPush seqs
+                (cast Int (SeqBind (nodeA (vecGet ps k))
+                                   (expTailFrom args k vecNew))))
+              1
+            }))))
+
+; The first `n` elements, one argument each.
+(pub :: expMatchFixed (-> Int Int Int Int Int Int Int))
+(pub fn (expMatchFixed ps args i n names vals)
+  (if (>= i n)
+      1
+      (if (== (expMatchPat (vecGet ps i) (vecGet args i) names vals) 0)
+          0
+          (expMatchFixed ps args (+ i 1) n names vals))))
+
+(pub :: expTailFrom (-> Int Int Int Int))
+(pub fn (expTailFrom args i acc)
+  (if (>= i (vecLen args))
+      acc
+      { (vecPush acc (vecGet args i)) (expTailFrom args (+ i 1) acc) }))
+
+; A name bound to a SEQUENCE of argument forms. Distinct from the
+; flat `names`/`vals` pair because that pair spends each name on
+; exactly one node - `expParamIndex` then `vecGet` - which is the
+; representation `MAC-LANG-16` could not use and said so.
+(pub struct SeqBind (name : String) (forms : Int))
+
+(pub :: expMatchSeqs (-> Int Int))
+(pub fn (expMatchSeqs m) (vecGet m 3))
+
+; The forms `name` is bound to, or 0.
+(pub :: expSeqLookup (-> Int String Int))
+(pub fn (expSeqLookup seqs name)
+  (expSeqLookupFrom seqs name 0))
+
+(pub :: expSeqLookupFrom (-> Int String Int Int))
+(pub fn (expSeqLookupFrom seqs name i)
+  (if (>= i (vecLen seqs))
+      0
+      (let ((b (vecGet seqs i)))
+        (if (strEq (memGetWord b 0) name)
+            (memGetWord b 1)
+            (expSeqLookupFrom seqs name (+ i 1))))))
 
 ; Is every top-level element of this rule a BINDER? Such a rule
 ; matches every invocation of its arity, so any later rule of that
@@ -3827,7 +4067,7 @@
 (pub :: expandProgram (-> Int Int Int Int Int Int Int Int Int))
 (pub fn (expandProgram entryDecls decls out frames units bares fulls mods)
   (let ((env (cast Int (MEnv (expCollectMacros decls vecNew 0) out 0 0 decls 0 0 0 0 0 frames 0 units vecNew
-                             bares fulls mods 0 vecNew 0))))
+                             bares fulls mods 0 vecNew 0 vecNew))))
     {
       (expCheckMacros env 0)
       (expCheckDeclNames decls env 0)
@@ -4007,8 +4247,10 @@
         (prevMod (expMacMod env))
         (prevSite (memGetWord env 9))
         (prevDecl (memGetWord env 11))
-        (prevFors (memGetWord env 13)))
+        (prevFors (memGetWord env 13))
+        (prevSeqs (memGetWord env 20)))
     {
+      (memSetWord env 20 (expMatchSeqs m))
       (expSetMacMod env (nodeModule mac))
       (memSetWord env 9 (nodeModule mac))
       (memSetWord env 17 (nodeModule d))
@@ -4030,6 +4272,7 @@
                                  (expMatchNames m) (expMatchVals m)
                                  env isp vecNew 0)))
         {
+          (memSetWord env 20 prevSeqs)
           (expSetMacMod env prevMod)
           (memSetWord env 9 prevSite)
           (memSetWord env 17 0)

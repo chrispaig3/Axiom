@@ -47,6 +47,7 @@
   [93mAX3031[0m  malformed format string  (malformed-format-string)
   [93mAX3032[0m  a macro's own name is shadowed at the invocation  (macro-capture)
   [93mAX3033[0m  a macro rule that can never match  (macro-unreachable-rule)
+  [93mAX3034[0m  an ellipsis used at the wrong depth  (macro-ellipsis)
   [93mAX4001[0m  no `main` function  (missing-main)
   [93mAX4002[0m  code generation failed  (codegen-failure)
   [93mAX4003[0m  external toolchain command failed  (toolchain-failure)
@@ -752,6 +753,44 @@ different claims, so they became different codes. A macro whose
 rules all take one argument and are told apart by shape is exactly
 what the pattern language is for.
 
+### explain AX3034
+AX3034 - an ellipsis used at the wrong depth
+
+A rule's last element may REPEAT: `(m T v ...)` takes one argument
+and then any number, and `v` is bound to all of them at once
+(docs/macro-system.md MAC-LANG-16). A name bound that way is many
+forms, not one, and the template has to say where they go.
+
+    (macro mk ((mk T v ...)
+       (:: (syntax/join make T) T)
+       (fn ((syntax/join make T)) (T v ...))))
+
+    (mk Pair 1 2)      ; (Pair 1 2)
+    (mk Trip 3 4 5)    ; (Trip 3 4 5)
+
+Four ways to get the depth wrong, and this code is all of them:
+
+  - the template names a repeating element with no `...` after it.
+    That position takes ONE form and the name is many, so there is
+    nothing to put there. Add `...`, or stop the element repeating.
+  - `...` follows something that does not repeat - a fixed element,
+    or nothing at all. There is no sequence to splice.
+  - a rule declares more than one `...`. A repeating element absorbs
+    every argument left after the fixed ones, so a second has nothing
+    defined to take, and where the split fell would be the expander
+    guessing.
+  - a rule repeats a PATTERN rather than a bare name. v1 binds ONE
+    name to the forms a repeat absorbs; repeating `(a b) ...` would
+    bind `a` and `b` to a sequence each, in lockstep, which is a
+    second feature and is not built.
+
+The first two are reported at the invocation, the last two at the
+macro's own line - the place each author can act on.
+
+`...` is an ordinary identifier to the lexer, spelled with three
+dots. That is why it stands beside the name it repeats rather than
+gluing to it, and why a single `.` still means field access.
+
 ### explain AX4001
 AX4001 - no `main` function
 
@@ -861,6 +900,7 @@ run `axiom explain --list` to see all known codes
   [93mAX3031[0m  malformed format string  (malformed-format-string)
   [93mAX3032[0m  a macro's own name is shadowed at the invocation  (macro-capture)
   [93mAX3033[0m  a macro rule that can never match  (macro-unreachable-rule)
+  [93mAX3034[0m  an ellipsis used at the wrong depth  (macro-ellipsis)
   [93mAX4001[0m  no `main` function  (missing-main)
   [93mAX4002[0m  code generation failed  (codegen-failure)
   [93mAX4003[0m  external toolchain command failed  (toolchain-failure)

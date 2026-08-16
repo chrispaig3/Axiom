@@ -369,7 +369,27 @@
 (if (== ch 41)
       { (emitToken TK_RPAREN pos (+ pos 1) tokens src) (+ pos 1) }
 (if (== ch 46)
-      { (emitToken TK_DOT pos (+ pos 1) tokens src) (+ pos 1) }
+      ; THREE dots are one token, and that token is an ORDINARY
+      ; IDENTIFIER spelled `...` (macro-system.md MAC-LANG-16).
+      ;
+      ; Not a token kind of its own, which is what this rule's cost
+      ; estimate assumed and what would have made it a four-way
+      ; change: `format.ax` has its own `FT_*` kinds and would need
+      ; one, and tree-sitter would need a node. As an identifier it
+      ; needs neither - tree-sitter's identifier rule already admits
+      ; `.` and already parses `...` this way, and `format.ax` copies
+      ; a rule form's interior verbatim. Measured one implementation
+      ; at a time before this line was written: only this one refused.
+      ;
+      ; A single `.` is untouched, so field access and module paths
+      ; are untouched, and `MAC-HYG-3`'s gensym separator stays
+      ; unspellable - one dot still cannot sit inside an identifier,
+      ; and it is one dot that separates `name` from `counter`.
+      (if (&& (< (+ pos 2) len)
+              (&& (== (strByte src (+ pos 1)) 46)
+                  (== (strByte src (+ pos 2)) 46)))
+          { (emitToken TK_IDENT pos (+ pos 3) tokens src) (+ pos 3) }
+          { (emitToken TK_DOT pos (+ pos 1) tokens src) (+ pos 1) })
 (if (== ch 39)
       ; A leading `'` starts a char literal unless what follows is a
       ; space, `(` or `[` - stage0's exact rule; a mid-identifier `'`

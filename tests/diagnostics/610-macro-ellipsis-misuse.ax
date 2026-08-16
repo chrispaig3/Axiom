@@ -1,0 +1,59 @@
+; MAC-LANG-16's depth rule, made loud (AX3034, 2026-08-16).
+;
+; A repeating element binds a name to MANY forms - "a template MUST
+; use a repeated binding under an ellipsis of the same depth" is the
+; rule, and every way of breaking it is this code. Four shapes, and
+; the split between them is WHERE the author can act:
+;
+;   at the MACRO's line, because the rule itself is wrong however it
+;   is invoked:
+;
+;     twice     two `...` in one rule. A repeat absorbs every argument
+;               left after the fixed ones, so a second has nothing
+;               defined to take and where the split fell would be the
+;               expander guessing
+;     shaped    a repeat over a PATTERN rather than a bare name. That
+;               binds each of the pattern's binders to a sequence of
+;               its own, in lockstep - a second feature, refused
+;               rather than half-built
+;
+;   at the INVOCATION, because the rule is fine and this expansion is
+;   not:
+;
+;     bare      the template names a repeating element with no `...`.
+;               That position takes one form and the name is many.
+;               Without this it fell through to the free-identifier
+;               path and died as `AX3001 undefined variable`, blaming
+;               the name instead of the missing ellipsis
+;     loose     `...` after something that does not repeat. There is
+;               no sequence to splice
+;
+; `...` is an ordinary identifier to the lexer - three dots, one
+; token - which is why it stands beside the name it repeats rather
+; than gluing to it, and why a single `.` still means field access.
+(struct P
+  (a : Int))
+
+(macro twice ((twice T v ... w ...)
+   (:: (syntax/join x T) Int)
+   (fn ((syntax/join x T)) 1)))
+
+(macro shaped ((shaped T (a b) ...)
+   (:: (syntax/join y T) Int)
+   (fn ((syntax/join y T)) 2)))
+
+(macro bare ((bare T v ...)
+   (:: (syntax/join z T) Int)
+   (fn ((syntax/join z T)) v)))
+
+(macro loose ((loose T v)
+   (:: (syntax/join q T) Int)
+   (fn ((syntax/join q T)) (sum3 v ...))))
+
+(bare P 1 2)
+
+(loose P 1)
+
+(:: main Int)
+
+(fn (main) 0)

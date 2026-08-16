@@ -1196,6 +1196,10 @@
           "named": true
         },
         {
+          "type": "ellipsis",
+          "named": true
+        },
+        {
           "type": "float_literal",
           "named": true
         },
@@ -1228,6 +1232,10 @@
         "types": [
           {
             "type": "character_literal",
+            "named": true
+          },
+          {
+            "type": "ellipsis",
             "named": true
           },
           {
@@ -2352,6 +2360,10 @@
   {
     "type": "effect",
     "named": false
+  },
+  {
+    "type": "ellipsis",
+    "named": true
   },
   {
     "type": "else",

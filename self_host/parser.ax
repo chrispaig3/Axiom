@@ -937,26 +937,42 @@
 ; identifier, so no template name can resolve to the marker - the same
 ; trick `(syntax/join a b)` uses one screen up, and for the same
 ; reason.
-(pub :: parseMacroPatList (-> Int Int Int Int Int Int))
-(pub fn (parseMacroPatList tokens pos pats names spells)
+(pub :: parseMacroPatList (-> Int Int Int Int Int Int Int))
+(pub fn (parseMacroPatList tokens pos pats names spells reps)
   (if (peekIs tokens pos TK_RPAREN)
       (let ((out vecNew))
         {
           (vecPush out (cast Int pats))
           (vecPush out (cast Int names))
           (vecPush out (cast Int spells))
+          (vecPush out (cast Int reps))
           (pOk out (advance pos))
         })
       (let ((r (parseMacroPat tokens pos)))
         (if (== (memGetWord r 0) 0)
             r
-            {
-              (vecPush pats (memGetWord r 1))
-              (vecPush names (patSlotName (memGetWord r 1)))
-              (vecPush spells
-                (patTokensSpelling tokens pos (memGetWord r 2) ""))
-              (parseMacroPatList tokens (memGetWord r 2) pats names spells)
-            }))))
+            ; An element followed by `...` REPEATS (MAC-LANG-16). The
+            ; ellipsis lexes as an ordinary identifier, so this is a
+            ; spelling test and not a token kind - see `lexer.ax` for
+            ; why that was the cheap way in.
+            (let ((afterPat (memGetWord r 2)))
+              (let ((rep (if (patIsEllipsis tokens afterPat) 1 0)))
+                {
+                  (vecPush pats (memGetWord r 1))
+                  (vecPush names (patSlotName (memGetWord r 1)))
+                  (vecPush spells
+                    (strConcat (patTokensSpelling tokens pos afterPat "")
+                               (if (== rep 1) " ..." "")))
+                  (vecPush reps rep)
+                  (parseMacroPatList tokens (if (== rep 1) (advance afterPat) afterPat)
+                                     pats names spells reps)
+                }))))))
+
+(pub :: patIsEllipsis (-> Int Int Bool))
+(pub fn (patIsEllipsis tokens pos)
+  (if (peekIs tokens pos TK_IDENT)
+      (strEq (tokenLexeme (vecGet tokens pos)) "...")
+      false))
 
 ; The names-slot entry for one top-level pattern element.
 (pub :: patSlotName (-> Int String))
@@ -2263,7 +2279,7 @@
             ; hangs from.
             (if (strEq (memGetWord nr 1) macName)
                 (let ((paramsR (parseMacroPatList tokens (memGetWord nr 2)
-                                                  vecNew vecNew vecNew)))
+                                                  vecNew vecNew vecNew vecNew)))
                   (if (== (memGetWord paramsR 0) 0)
                       paramsR
                       (let ((tplR (parseTplDecls tokens (memGetWord paramsR 2) vecNew)))
@@ -2280,6 +2296,7 @@
                                 (vecPush rule (memGetWord tplR 1))
                                 (vecPush rule (vecGet three 0))
                                 (vecPush rule (vecGet three 2))
+                                (vecPush rule (vecGet three 3))
                                 (vecPush acc (cast Int rule))
                                 (parseMacroRules tokens (memGetWord tplR 2) macName acc)
                               })))))

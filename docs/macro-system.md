@@ -405,9 +405,40 @@ and `AX3020` refuses a repeated one — `((m a (f a)) ...)` binds `a`
 twice and `expParamIndex` is last-wins, so the first would be silently
 discarded. `_` is exempt because it binds nothing.
 
-**MAC-LANG-16 (P).** Ellipsis repetition `...` **SHALL** be available in
-both patterns and templates, and a template **MUST** use a repeated
-binding under an ellipsis of the same depth.
+**MAC-LANG-16 (H, v1 landed 2026-08-16).** Ellipsis repetition `...`
+**SHALL** be available in both patterns and templates, and a template
+**MUST** use a repeated binding under an ellipsis of the same depth.
+
+**v1: one repeating element per rule, and it is a bare name.**
+`(m T v ...)` takes one argument and then any number; `v` is bound to
+all of them at once, and `(f v ...)` splices them where the pair
+stands. That is the variadic macro `MAC-CAP-10.4` says the language
+lacks, and `tests/selfhost/393-macro-ellipsis.ax` (63) is one rule
+generating a two-field constructor call and a three-field one.
+
+It is the first binding in this expander that is a SEQUENCE rather
+than a value. `MAC-LANG-15`'s representation spends each name on
+exactly one form — `expParamIndex` then `vecGet` — which is what that
+rule said it could not carry; the repeat got a channel of its own on
+the env, modelled on the `syntax/for` stack beside it.
+
+The depth rule is `AX3034`, `macro-ellipsis`, in four shapes and split
+by where the author can act
+(`tests/diagnostics/610-macro-ellipsis-misuse.ax`). At the macro's
+line: two `...` in one rule, and a repeat over a PATTERN rather than a
+bare name. At the invocation: a repeating name used with no `...`
+(which without this refusal died as `AX3001 undefined variable`,
+blaming the name), and `...` after something that does not repeat.
+
+Selection composes with `MAC-LANG-18` by turning a rule's arity into a
+FLOOR. So a fixed rule and a repeating rule of the same fixed count
+are both live — the fixed one takes its own arity, the repeat takes
+everything above it — and `AX3033` had to learn the difference between
+covering one arity and covering a range.
+
+**What v1 does not do:** a repeat over a nested pattern, which binds
+each of that pattern's binders to a sequence in lockstep. That is a
+second feature and is refused rather than half-built.
 
 *Today:* `...` does not lex **for the compiler**. `.` is `TK_DOT`,
 never an identifier character, so `...` is three separate tokens and
@@ -1184,11 +1215,10 @@ repetition. This is what turns the current facility from
 
 **Arity** and **nesting** hold (`MAC-LANG-15`, `MAC-LANG-18`), and so
 does dispatch on a literal argument's VALUE, which this list did not
-separate out. **Literal heads** need `MAC-LANG-17` and **repetition**
-needs `MAC-LANG-16`; each is blocked on something named rather than on
-effort — scope sets for the first, `...` lexing for the second. So the
-facility is pattern-based rewriting over shapes and values today, and
-not yet over head spellings or sequences.
+separate out. **Repetition** followed on 2026-08-16 (`MAC-LANG-16` v1). **Literal
+heads** need `MAC-LANG-17`, which needs `MAC-HYG-9`'s scope sets — the
+one axis of the four still blocked, and blocked on something named
+rather than on effort.
 
 ### 4.3 Compile-time evaluation
 
@@ -1601,10 +1631,10 @@ No specifier can be "ignored at run time", because none of them
 survives to run time.
 
 **MAC-CAP-10.4 — no argument list, and why.** There is no positional
-`{}` and no trailing argument list: a macro takes a fixed number of
-arguments (`MAC-LANG-2`), and a variadic one needs repetition patterns
-(`MAC-LANG-16`'s ellipsis, still unbuilt — `MAC-LANG-15`'s other four
-kinds landed 2026-08-16 and none of them repeats). Capture is the form the
+`{}` and no trailing argument list: a macro took a fixed number of
+arguments (`MAC-LANG-2`) until `MAC-LANG-16` v1 landed on 2026-08-16,
+and a variadic one is a rule with a repeating last element rather than
+an argument list on the format call. Capture is the form the
 language has, and it is the form Rust's own 2021 edition settled on;
 `{}` is refused **by name** — naming the capture form in its help —
 rather than left to fail as an empty identifier.
@@ -2476,9 +2506,12 @@ rather than the value alone.
    the two refusals around it were re-derived rather than kept — the
    unreachable-rule test narrowed to irrefutability and took its own
    code, and the no-match diagnostic lists shapes instead of arities.
-   What remains under this heading is `MAC-LANG-16`'s ellipsis, which
-   needs `...` to lex across four implementations of the token set,
-   and `MAC-LANG-17`'s literal identifiers, which need `MAC-HYG-9`.
+   **`MAC-LANG-16` v1 followed the same day**: one repeating
+   element per rule, bound as a sequence and spliced by `...`, which
+   cost one lexer rather than the four implementations this list
+   predicted. What remains under this heading is `MAC-LANG-17`'s
+   literal identifiers, which need `MAC-HYG-9`, and a repeat over a
+   nested pattern.
 4. ~~**`MAC-CAP-5`/`MAC-CAP-6`**~~ — **v1 landed 2026-08-14, in three
    commits the same day**: the closed vocabulary exists and refuses
    (`AX3028`); `syntax/join`, `syntax/constructors` and arm-position

@@ -706,6 +706,10 @@
         {
           "type": "SYMBOL",
           "name": "macro_pattern_form"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "ellipsis"
         }
       ]
     },
@@ -728,6 +732,10 @@
           "value": ")"
         }
       ]
+    },
+    "ellipsis": {
+      "type": "STRING",
+      "value": "..."
     },
     "struct_declaration": {
       "type": "SEQ",

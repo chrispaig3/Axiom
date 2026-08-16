@@ -1,0 +1,51 @@
+[1;31merror[AX3034][0m[1m: macro `twice` has a rule with more than one `...`[0m
+  [1;34m--> [0m610-macro-ellipsis-misuse.ax:37:8
+[1;34m   |[0m
+[1;34m37 |[0m (macro twice ((twice T v ... w ...)
+[1;34m   |[0m        [1;31m^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0ma repeating element absorbs every argument left after the fixed ones (macro-system.md MAC-LANG-16), so a second has nothing defined to absorb and where the split fell would be the expander's guess
+  [1;34m = [0m[1;32mhelp: [0mkeep one repeating element per rule; the arguments a second one would take are the ones the first already took
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3034` for a full explanation
+
+[1;31merror[AX3034][0m[1m: macro `shaped` repeats something that is not a plain name[0m
+  [1;34m--> [0m610-macro-ellipsis-misuse.ax:41:8
+[1;34m   |[0m
+[1;34m41 |[0m (macro shaped ((shaped T (a b) ...)
+[1;34m   |[0m        [1;31m^^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0mv1 of MAC-LANG-16 binds ONE name to the forms a repeat absorbs. A repeated PATTERN binds each of its binders to a sequence of its own, in lockstep, which is a second thing and is not built
+  [1;34m = [0m[1;32mhelp: [0mrepeat a bare binder - `(m T v ...)` - and take the shape apart in the template
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3034` for a full explanation
+
+[1;31merror[AX3034][0m[1m: `v` repeats, and this position takes one form[0m
+  [1;34m--> [0m610-macro-ellipsis-misuse.ax:53:2
+[1;34m   |[0m
+[1;34m53 |[0m (bare P 1 2)
+[1;34m   |[0m  [1;31m^^^^[0m
+[1;34m   |[0m
+  [1;34m--> [0m610-macro-ellipsis-misuse.ax:45:8
+[1;34m   |[0m
+[1;34m45 |[0m (macro bare ((bare T v ...)
+[1;34m   |[0m        [1;36m^^^^ in this expansion of `bare`[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0ma template MUST use a repeated binding under an ellipsis of the same depth (macro-system.md MAC-LANG-16): a name bound to a SEQUENCE is many forms, and every position that takes one form needs to be told which
+  [1;34m = [0m[1;32mhelp: [0mwrite `... ` after it to splice every form it took, or match it with a non-repeating element
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3034` for a full explanation
+
+[1;31merror[AX3034][0m[1m: `...` follows nothing that repeats[0m
+  [1;34m--> [0m610-macro-ellipsis-misuse.ax:55:2
+[1;34m   |[0m
+[1;34m55 |[0m (loose P 1)
+[1;34m   |[0m  [1;31m^^^^^[0m
+[1;34m   |[0m
+  [1;34m--> [0m610-macro-ellipsis-misuse.ax:49:8
+[1;34m   |[0m
+[1;34m49 |[0m (macro loose ((loose T v)
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loose`[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0ma template MUST use a repeated binding under an ellipsis of the same depth (macro-system.md MAC-LANG-16): a name bound to a SEQUENCE is many forms, and every position that takes one form needs to be told which
+  [1;34m = [0m[1;32mhelp: [0mput `...` directly after the name of a repeating element, or drop it
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3034` for a full explanation
+
+compilation failed due to 4 previous errors
