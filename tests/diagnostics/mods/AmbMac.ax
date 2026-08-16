@@ -1,11 +1,11 @@
 ; A macro whose template names something this module IMPORTED, for
-; `595-macro-imported-ambiguous.ax` and
-; `596-macro-capture-in-module.ax`.
-;
-; `dup` resolves here to `AmbB`'s, and that is what the macro means
-; wherever it is invoked. An entry file that imports `AmbA` as well
-; makes the name ambiguous, and one that binds `dup` at the
-; invocation would capture it - one refusal each.
+; `595-macro-imported-ambiguous.ax`. `dup` resolves here to `AmbB`'s,
+; and that is what the macro means wherever it is invoked; an entry
+; file that imports `AmbA` as well makes the name ambiguous, and the
+; rewrite refuses to choose. A second reader BOUND `dup` at the
+; invocation until 2026-08-16, when that stopped being capture and
+; became an ordinary reference to the macro's own scope - so this file
+; names one fixture now, not two, and carries the ambiguity alone.
 (import AmbB)
 
 (pub macro (useDup v) (dup v))

@@ -2,13 +2,25 @@
 ; MAC-LANG-14's implementable half: a rule-form macro is a LIST of
 ; rules, and the invocation's ARITY selects one (2026-08-15).
 ;
+; Arity stopped being the selector the next day. MAC-LANG-15 made a
+; rule's parameters PATTERNS and MAC-LANG-18 made selection a match
+; tried in rule order, with arity surviving inside it as a pre-filter;
+; `392-macro-patterns.ax` is three rules of ONE arity told apart by
+; shape, which this file's compiler refused outright. Every rule here
+; is all-binders and arity-distinct, so a match and a count agree on
+; every case below - which is exactly why this file is the regression
+; test for that change and answers 51 unchanged across it.
+;
 ; The spec could not simply "add a loop", and said so: the rule form
 ; and the head-list form differ in what a template IS - declarations
 ; against one expression - and its own worked example silently assumed
 ; they did not. The decision this lands is the narrow one that needs
 ; no pattern language: RULES BELONG TO THE RULE FORM, they are chosen
 ; by parameter count, and an expression macro stays single-rule until
-; MAC-LANG-15/16 give patterns a design. Nothing about an existing
+; MAC-LANG-15/16 give patterns a design. (They did, on 2026-08-16, and
+; the expression form is still single-rule: what a template IS still
+; differs between the two forms, which is the reason MAC-LANG-14 gave
+; and patterns did not change.) Nothing about an existing
 ; macro changes: one rule is the list of length one.
 ;
 ; Six claims, one bit each (51 when all hold - the weights are 1, 2,

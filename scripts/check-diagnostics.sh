@@ -179,7 +179,7 @@ colorless=0   # runs whose `ai` stderr carried no ANSI escape
 # that is a file that deliberately does NOT parse - the AX1xxx and
 # AX2xxx codes cannot be provoked by a file that does - but it is also
 # where a file lands that parses and that `fmt` refuses, which
-# `395-sizeof-surplus.ax` does: `format.ax` and the tree-sitter grammar
+# `395-sizeof-surplus.axbad` does: `format.ax` and the tree-sitter grammar
 # both already encode that `sizeof` takes exactly one type, and the
 # checker is what did not. Either way it cannot be spelled `.ax`:
 # check-fmt.sh and check-tree-sitter.sh sweep every `*.ax` in the

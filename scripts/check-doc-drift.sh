@@ -37,7 +37,13 @@
 #      polymorphic signatures and type aliases - were describing
 #      behaviour that did not exist.
 #
-#   4  EVERY tests/ PATH NAMED IN THE DOCS EXISTS.
+#   4  EVERY FIXTURE A COMMENT NAMES EXISTS. In the docs; in the
+#      SOURCES too, which is where this repository writes most of them,
+#      because every refusal names the fixture that pins it; and in
+#      both spellings, the `tests/`-prefixed path and the bare
+#      `NNN-name.ext` a comment reaches for when the number makes the
+#      directory obvious. All three halves were added after a fixture
+#      was deleted and its four surviving mentions failed nothing.
 #
 #   5  EVERY DIAGNOSTIC THE README SHOWCASES IS RE-RENDERED. The
 #      "Error Messages" section showed a box-drawn `╭─[err.ax:3:20]`
@@ -181,6 +187,110 @@ if missing:
     bad += len(missing)
 else:
     print(f"ok   all {len(named)} tests/ paths named in the docs exist")
+
+# The same check over SOURCE and FIXTURE comments, which this gate did
+# not reach and which dangle exactly as readily. Found on 2026-08-16:
+# retiring a diagnostic deleted a fixture under `tests/diagnostics/`
+# and left two comments pointing at it - one in `self_host/expand.ax`
+# explaining the retirement, one in the fixture that replaced it - and
+# nothing failed, because both live outside `docs/`. A comment naming a
+# file that is not there is drift whatever file the comment is in, and
+# these are the comments this repository writes most, because every
+# refusal names the fixture that pins it.
+#
+# This check found its own author on its first run, twice: the sentence
+# above originally spelled the deleted path out, and a sibling script
+# spells a message template the same way. Both are why the placeholder
+# list below exists and why this paragraph does not name a file.
+#
+# Scripts are included: three of them name `.axp` cases, which is how
+# the extension-boundary trap above was found in the first place.
+print("== every tests/ path named in the sources exists ==")
+src_named = {}
+for root, dirs, files in os.walk("."):
+    dirs[:] = [d for d in dirs
+               if d not in (".git", "target", "node_modules", ".axiom-bin")]
+    for fn in files:
+        if not fn.endswith((".ax", ".sh", ".py")):
+            continue
+        path = os.path.join(root, fn).lstrip("./")
+        try:
+            text = open(path, encoding="utf-8", errors="ignore").read()
+        except OSError:
+            continue
+        for p in re.findall(r"tests/[\w./-]+\.(?:axbad|axp|ax|py|sh|out|golden|axdl|human|json)(?![\w])",
+                            text):
+            # Every naming file, not the first: a deleted fixture is
+            # named by as many comments as explained it, and a report
+            # that stops at one is a gate you have to run four times.
+            src_named.setdefault(p, []).append(path)
+# Placeholders rather than paths: two message templates with the case
+# name spliced in at run time, and the REPL's own `:load` example.
+for placeholder in ("tests/diagnostics/NAME.human",
+                    "tests/stdlib/NAME.out",
+                    "tests/selfhost/x.ax"):
+    src_named.pop(placeholder, None)
+if len(src_named) < 20:
+    print(f"FAIL paths: only {len(src_named)} tests/ paths named across the sources; floor is 20")
+    bad += 1
+src_missing = sorted((p, fs) for p, fs in src_named.items() if not os.path.exists(p))
+if src_missing:
+    for p, fs in src_missing:
+        for f in sorted(set(fs)):
+            print(f"FAIL paths: {f} names {p}, which does not exist")
+    bad += len(src_missing)
+else:
+    print(f"ok   all {len(src_named)} tests/ paths named in the sources exist")
+
+# The SAME class again, in the spelling this repository actually writes
+# most: a bare `NNN-name.ext`, no directory, because the directory is
+# obvious from the number. Measured on 2026-08-16 the bare spelling
+# outnumbers the path spelling in the sources, 86 distinct names to 68 -
+# and every one of the two checks above was blind to it.
+#
+# It found four dangling names on its first run, in four different
+# files, and only one of them was the retirement that prompted it.
+# The other three each spelled an `.axbad` case `.ax` - including the
+# comment in `check-diagnostics.sh` whose whole subject is that such a
+# file CANNOT be spelled `.ax`, because check-fmt and check-tree-sitter
+# sweep every `*.ax` in the repository and would judge it. So the
+# extension is not incidental here: it is the fact the fixture exists
+# to record, and a comment that gets it wrong points at nothing while
+# reading as though it points at the case.
+#
+# Resolution is by BASENAME, against an index of everything under
+# `tests/`, because that is what a reader does with a bare name.
+print("== every fixture named by bare filename exists ==")
+tests_index = set()
+for root, dirs, files in os.walk("tests"):
+    tests_index.update(files)
+bare_pat = re.compile(
+    r"(?<![\w/.-])(\d{3}-[\w-]+\.(?:axbad|axp|ax|py|sh|out|golden|axdl|human|json))(?![\w])")
+bare_named = {}
+for root, dirs, files in os.walk("."):
+    dirs[:] = [d for d in dirs
+               if d not in (".git", "target", "node_modules", ".axiom-bin")]
+    for fn in files:
+        if not fn.endswith((".ax", ".sh", ".py", ".md")):
+            continue
+        path = os.path.join(root, fn).lstrip("./")
+        try:
+            text = open(path, encoding="utf-8", errors="ignore").read()
+        except OSError:
+            continue
+        for p in bare_pat.findall(text):
+            bare_named.setdefault(p, []).append(path)
+if len(bare_named) < 60:
+    print(f"FAIL paths: only {len(bare_named)} bare fixture names found; floor is 60")
+    bad += 1
+bare_missing = sorted((p, fs) for p, fs in bare_named.items() if p not in tests_index)
+if bare_missing:
+    for p, fs in bare_missing:
+        for f in sorted(set(fs)):
+            print(f"FAIL paths: {f} names {p}, which is not a file under tests/")
+    bad += len(bare_missing)
+else:
+    print(f"ok   all {len(bare_named)} bare fixture names resolve under tests/")
 
 print("== the diagnostics the README showcases are re-rendered and diffed ==")
 # Every diagnostic block in the README is a `<!-- doc-gate:render NAME

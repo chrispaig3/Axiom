@@ -1,7 +1,7 @@
 ; expect 130
-; MAC-HYG-8's FIRST hole, closed (2026-08-16). This file is what
-; `tests/diagnostics/590-macro-capture.ax` was, measuring the ANSWER
-; where that measured the refusal.
+; MAC-HYG-8's FIRST hole, closed (2026-08-16). This file is what the
+; diagnostics fixture `590-macro-capture` was - deleted with its three
+; goldens - measuring the ANSWER where that measured the refusal.
 ;
 ; A template's free identifier means what it meant WHERE THE MACRO WAS
 ; WRITTEN. For a module macro `MAC-HYG-7` enforces that by rewriting

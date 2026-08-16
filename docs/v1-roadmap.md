@@ -912,11 +912,16 @@ names the module merely imported, since 2026-08-16
 ([macro-system.md](macro-system.md) MAC-HYG-1–7). Scope sets — an
 identifier as a `(name, scopes)` pair, a fresh scope per expansion,
 resolution matching on both — remain the planned upgrade (MAC-HYG-9),
-required by pattern literals and by the ONE hole renaming cannot close:
-a macro defined in the ENTRY file has no mangled name to resolve to,
-so its free identifiers refuse (`AX3032`) rather than resolve
-(MAC-HYG-8.1). The migration must preserve every gated hygiene case
-byte for byte.
+now required by ONE thing: pattern literals (MAC-LANG-17), where a
+literal identifier is compared by BINDING and both sides must carry
+theirs. The entry-file hole was on that list until 2026-08-16 and came
+off it. A macro defined in the ENTRY file has no mangled name to
+resolve to, which is what made its free identifiers capturable — but a
+macro is a top-level declaration, so those identifiers have exactly
+one definition scope, and one bit on the reference says so without any
+`(name, scopes)` pair. `AX3032`, the refusal that stood in for the
+fix, is retired and its number burned (MAC-HYG-8.1). The migration
+must still preserve every gated hygiene case byte for byte.
 
 **Type-checked output is free; good diagnostics are not.** This
 paragraph used to open "Expansion runs before semantic analysis, so

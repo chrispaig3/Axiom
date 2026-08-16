@@ -240,8 +240,10 @@ class Fixtures(object):
                 break
         # split('\n'), not splitlines(): a file ending in a newline gains
         # a final empty line, and that is exactly where an EOF diagnostic
-        # points. `900-unexpected-eof.ax` has three lines of source and
-        # AX2002 at 4:1.
+        # points. The `900-unexpected-eof` case has three lines of
+        # source and AX2002 at 4:1. (Named without its extension on
+        # purpose: on disk it is `.axbad`, and what the diagnostic says
+        # is `.ax`, because the harness copies every case in as `.ax`.)
         self.cache[named] = None if text is None else text.split('\n')
         return self.cache[named]
 

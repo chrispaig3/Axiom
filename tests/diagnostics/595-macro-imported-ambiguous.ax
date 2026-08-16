@@ -12,10 +12,14 @@
 ; and `AmbMac` imports only `AmbB`: it is THIS file's second import
 ; that makes the name ambiguous, so the author who must act is here.
 ;
-; The other way the same rewrite refuses is `AX3032`, in
-; `596-macro-capture-in-module.ax`. It cannot be a second term in
-; this file: expansion refuses before the checker runs, so a capture
-; anywhere would leave this ambiguity unreported.
+; This used to have a sibling. `596-macro-capture-in-module` (deleted,
+; with its three goldens) held the other way the same rewrite refused
+; - `AX3032`, when a binder at the invocation would have captured the
+; name left bare - and it is gone as of 2026-08-16: a template's free
+; identifier resolves at the macro's own scope now, so nothing at a
+; call site can capture it, and the code is retired. Ambiguity is what
+; is left, and it is a CHECKER refusal rather than an expansion one,
+; which is why this file can carry it alone.
 (import AmbMac)
 
 (import AmbA)

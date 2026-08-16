@@ -217,6 +217,12 @@
                  ; identifier is shadowed at the call site, which is
                  ; MAC-HYG-8's first hole and a silent wrong answer
                  ; until something looks.
+                 ; Vestigial since 2026-08-16: this held the call
+                 ; site's binders for the capture check `AX3032`'s
+                 ; retirement deleted. Kept rather than removed because
+                 ; the numbering is additive - taking a field out of
+                 ; the middle moves every word after it - and written
+                 ; and read by nothing now.
                  (callbs : Int)
                  ; Word 20: the SEQUENCE bindings of the rule being
                  ; instantiated (MAC-LANG-16) - `Vec SeqBind`, a name
@@ -348,8 +354,13 @@
               ; Exactly one. Two candidates is `AX3014`'s ambiguity by
               ; another name, and this rewrite has no more right to
               ; pick between them than a bare reference does, so it
-              ; leaves the name alone and the capture refusal
-              ; (`AX3032`) reports it if a caller shadows it.
+              ; leaves the name alone and the CHECKER reports the
+              ; ambiguity at the invocation, carrying the expansion
+              ; frame that names the macro. (This used to say the
+              ; capture refusal `AX3032` reported it; that code was
+              ; retired on 2026-08-16 when the reference stopped being
+              ; capturable at all, and `AX3014` was always the one
+              ; that fired for two candidates.)
               (expUniqueModuleName (expDecls env) name))))))
 
 ; The single mangled declaration whose BARE name is `name`, or the
@@ -3169,15 +3180,19 @@
                                             (nodeModule mac)))))
               (_setmod (expSetMacMod env (nodeModule mac)))
               (_setsite (memSetWord env 9 (nodeModule mac)))
-              (_setfors (memSetWord env 13 vecNew))
-              ; The call site's binders, for the capture check in
-              ; substTpl's free-identifier arm.
-              (prevBs (memGetWord env 19))
-              (_setbs (memSetWord env 19 bs)))
+              (_setfors (memSetWord env 13 vecNew)))
+        ; Word 19 - the call site's binders - used to be saved, set and
+        ; restored here, for the capture check in `substTpl`'s
+        ; free-identifier arm. That check was retired on 2026-08-16
+        ; with `AX3032`: a template's free identifier resolves at the
+        ; macro's own scope now, so what the call site binds cannot
+        ; capture it and does not need carrying. The slot stays
+        ; because the word numbering is additive by house rule -
+        ; removing a field in the middle renumbers every one after it -
+        ; and it is written by nothing and read by nothing.
         (let ((body (substTpl (nodeC mac) (nodeB mac) args vecNew env isp)))
           {
             (expSetMacMod env prevMod)
-            (memSetWord env 19 prevBs)
             (memSetWord env 13 prevFors)
             (expSetDepth env d)
             (let ((out (expandExpr body env bs)))
@@ -3188,10 +3203,6 @@
               })
           })))))
 
-; The same refusal for a RULE-form macro, whose arities are a list:
-; one rule reads exactly as `expArityDiag` did, several name all of
-; them, so an author who wrote two rules is told which one they
-; missed rather than only what the first one takes.
 ; MAC-HYG-8's first hole CLOSED, and `AX3032` retired with it
 ; (2026-08-16).
 ;
@@ -3221,9 +3232,9 @@
 ; The refusal would now reject correct programs, so it is deleted
 ; rather than left unreachable. **`AX3032` is burned**: out of the
 ; registry, `explain` no longer answers it, and the number is never
-; reused - the standing rule for a code, retired or not. What used to
-; be `tests/diagnostics/590-macro-capture.ax` is
-; `tests/selfhost/394-macro-entry-capture.ax`, the same program
+; reused - the standing rule for a code, retired or not. The refusal's
+; fixture, `590-macro-capture` (deleted, with its three goldens), is
+; now `tests/selfhost/394-macro-entry-capture.ax` - the same program
 ; measuring the answer instead of the refusal.
 
 ; MAC-LANG-18's refusal: an invocation matching no rule names the
@@ -3880,30 +3891,21 @@
       }
       acc)))
 
-; The rule whose parameter count matches `n`, or 0. FIRST match wins,
-; which with distinct arities is the only match; `expCheckMacros`
-; refuses a macro that declares two rules of one arity, so "first" is
-; a statement about determinism and not about precedence.
-(pub :: expRuleForArity (-> Int Int Int Int))
-(pub fn (expRuleForArity rules n i)
-  (if (>= i (vecLen rules))
-      0
-      (let ((r (vecGet rules i)))
-        (if (== (vecLen (expRuleParams r)) n)
-            r
-            (expRuleForArity rules n (+ i 1))))))
-
-; The arities a macro offers, for the diagnostic an invocation that
-; matches none deserves: "takes 1 or 3 arguments" beats "takes 1".
-(pub :: expRuleArities (-> Int Int String String))
-(pub fn (expRuleArities rules i acc)
-  (if (>= i (vecLen rules))
-      acc
-      (expRuleArities rules (+ i 1)
-        (if (== (strLen acc) 0)
-            (expFmtInt (vecLen (expRuleParams (vecGet rules i))))
-            (strConcat (strConcat acc " or ")
-                       (expFmtInt (vecLen (expRuleParams (vecGet rules i)))))))))
+; `expRuleForArity` and `expRuleArities` lived here until 2026-08-16.
+; They were rule selection and its diagnostic when ARITY was the
+; selector: the first rule whose parameter count matched, and the list
+; of counts an invocation matching none was told about.
+;
+; `MAC-LANG-15` replaced both. `expRuleForForms` selects by MATCHING a
+; rule's patterns against the argument forms - arity survives inside it
+; as a pre-filter, and as a FLOOR rather than an equality once a rule
+; can repeat (`MAC-LANG-16`) - and `expRuleShapes` prints the rules'
+; patterns rather than their lengths, because a list of counts says
+; nothing to an author who passed a count some rule declares.
+;
+; Recorded rather than silently removed: an arity-only selector is the
+; thing this rule shipped first, and knowing it was deleted rather than
+; forgotten is what keeps a reader from re-deriving it.
 
 ; One template declaration's KIND, recursively: a syntax/for is
 ; accepted and its interior checked with the same rule, so a `data`

@@ -1,7 +1,7 @@
 [1;31merror[AX3014][0m[1m: ambiguous name `dup`: defined in AmbB, AmbA[0m
-  [1;34m--> [0m595-macro-imported-ambiguous.ax:25:13
+  [1;34m--> [0m595-macro-imported-ambiguous.ax:29:13
 [1;34m   |[0m
-[1;34m25 |[0m (fn (main) (useDup 4))
+[1;34m29 |[0m (fn (main) (useDup 4))
 [1;34m   |[0m             [1;31m^^^^^^ `dup` could mean more than one definition[0m
 [1;34m   |[0m
   [1;34m--> [0mAmbMac.ax:11:13

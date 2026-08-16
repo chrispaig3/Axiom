@@ -211,11 +211,13 @@ output (`MM-EXEC-14`).
 
 ### 1.5 Pattern macros
 
-**MAC-LANG-14 (H in part, 2026-08-15).** A macro **SHALL** be a
-sequence of rules, each a pattern and a template, tried in order. **The
-rules belong to the RULE FORM, and they are selected by ARITY** —
-which is the decision the 2026-08-15 measurement below forced, and the
-half that needs no pattern language:
+**MAC-LANG-14 (H in part; rules 2026-08-15, patterns 2026-08-16).** A
+macro **SHALL** be a sequence of rules, each a pattern and a template,
+tried in order. **The rules belong to the RULE FORM**, which is the
+decision the 2026-08-15 measurement below forced. They were selected
+by ARITY for one day; since `MAC-LANG-15` they are selected by a
+MATCH, and arity survives as a pre-filter — see the paragraph after
+the example:
 
 ```scheme
 ; the head-list form: one template, one expression, unchanged
@@ -1150,8 +1152,9 @@ believe the guarantee is total:
    before the search. The search reaches two import edges, which is the
    evidence that what it walks is the merged list and not a
    direct-import list. The compiler before the commit refuses the file
-   (`AX3032`, below); with that one term removed so the refusal cannot
-   mask the rest, it answers **13 against 31**.
+   — with `AX3032`, the capture refusal that item 1 above records as
+   retired the following day; with that one term removed so the
+   refusal cannot mask the rest, it answers **13 against 31**.
 
 **MAC-HYG-9 (P).** The mechanism **SHALL** become **scope sets**: an
 identifier is a `(name, scopes)` pair rather than a bare name, every
@@ -1454,7 +1457,7 @@ The v1 surface, all of it measured
   `AX3021` **at the macro's own line**, before any invocation exists
   (`MAC-SAFE-4`'s loud-at-definition shape;
   `tests/diagnostics/510-decl-macro-template-kind.ax`,
-  `565-macro-type-template-limits.ax`). Two of the four are refusals
+  `565-macro-type-template-limits.axbad`). Two of the four are refusals
   by **decision** rather than by schedule, and this specification says
   so rather than leaving them on a list: an `import` inside a template
   would reopen module resolution, which has already run when phase D
