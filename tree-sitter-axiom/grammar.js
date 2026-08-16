@@ -331,9 +331,10 @@ module.exports = grammar({
     // which is all `stdlib/Pre.ax` uses.
     // Two forms, split by one token of lookahead after `macro`: a
     // paren opens the HEAD-LIST (expression-template) form, an
-    // identifier the RULE form (macro-system.md MAC-LANG-14, one rule
-    // today), whose template is DECLARATIONS - including further
-    // declaration-macro invocations, which parse as top-level calls.
+    // identifier the RULE form (macro-system.md MAC-LANG-14), whose
+    // template is DECLARATIONS - including further declaration-macro
+    // invocations, which parse as top-level calls. The rule form takes
+    // ONE OR MORE rules since 2026-08-15, selected by arity.
     macro_declaration: $ => choice(
       seq(
         '(', optional(field('visibility', 'pub')), 'macro',
@@ -344,12 +345,16 @@ module.exports = grammar({
       seq(
         '(', optional(field('visibility', 'pub')), 'macro',
         field('name', $.identifier),
-        '(',
-        '(', field('rule_name', $.identifier), repeat(field('parameter', $.identifier)), ')',
-        repeat(field('template', $._form)),
-        ')',
+        repeat1(field('rule', $.macro_rule)),
         ')',
       ),
+    ),
+
+    macro_rule: $ => seq(
+      '(',
+      '(', field('rule_name', $.identifier), repeat(field('parameter', $.identifier)), ')',
+      repeat(field('template', $._form)),
+      ')',
     ),
 
     // The `deriving_clause` rule was DELETED on 2026-08-14, the day

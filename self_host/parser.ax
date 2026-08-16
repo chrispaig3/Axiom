@@ -2125,6 +2125,42 @@
 ; An EMPTY template is refused here: MAC-CAP-8 permits "zero or more"
 ; in principle, but in-place instantiation needs a first declaration
 ; to stand where the invocation stood, so v1 demands at least one.
+; `((name p ...) decl ...)` repeated. Answers a Vec of rules, each a
+; two-slot Vec of (parameter names, template declarations). At least
+; one rule is required; a rule whose pattern head is not the macro's
+; own name stops the list, which is what makes a malformed second rule
+; a refusal rather than a silent truncation - the caller then demands
+; the closing paren and fails there.
+(pub :: parseMacroRules (-> Int Int String Int Int))
+(pub fn (parseMacroRules tokens pos macName acc)
+  (if (if (peekIs tokens pos TK_LPAREN)
+          (peekIs tokens (advance pos) TK_LPAREN)
+          false)
+      (let ((nr (parseIdentName tokens (advance (advance pos)))))
+        (if (== (memGetWord nr 0) 0)
+            nr
+            ; The pattern's head must BE the macro's name -
+            ; syntax-rules' convention, and what multi-rule dispatch
+            ; hangs from.
+            (if (strEq (memGetWord nr 1) macName)
+                (let ((paramsR (parseIdentList tokens (memGetWord nr 2) vecNew)))
+                  (if (== (memGetWord paramsR 0) 0)
+                      paramsR
+                      (let ((tplR (parseTplDecls tokens (memGetWord paramsR 2) vecNew)))
+                        (if (== (memGetWord tplR 0) 0)
+                            tplR
+                            (let ((rule vecNew))
+                              {
+                                (vecPush rule (memGetWord paramsR 1))
+                                (vecPush rule (memGetWord tplR 1))
+                                (vecPush acc (cast Int rule))
+                                (parseMacroRules tokens (memGetWord tplR 2) macName acc)
+                              })))))
+                (pErr (advance (advance pos))))))
+      (if (== (vecLen acc) 0)
+          (pErr pos)
+          (pOk acc pos))))
+
 (pub :: parseTplDecls (-> Int Int Int Int))
 (pub fn (parseTplDecls tokens pos acc)
   (if (peekIs tokens pos TK_RPAREN)
@@ -2160,30 +2196,25 @@
         (p1 (advance pos)))
     (if (peekIs tokens p1 TK_LPAREN)
         (if (peekIs tokens (advance p1) TK_LPAREN)
-            (let ((nr (parseIdentName tokens (advance (advance p1)))))
-              (if (== (memGetWord nr 0) 0)
-                  nr
-                  ; The pattern's head must BE the macro's name -
-                  ; syntax-rules' convention, and the hook multi-rule
-                  ; dispatch will hang from.
-                  (if (strEq (memGetWord nr 1) macName)
-                      (let ((paramsR (parseIdentList tokens (memGetWord nr 2) vecNew)))
-                        (if (== (memGetWord paramsR 0) 0)
-                            paramsR
-                            (let ((tplR (parseTplDecls tokens (memGetWord paramsR 2) vecNew)))
-                              (if (== (memGetWord tplR 0) 0)
-                                  tplR
-                                  (let ((after (memGetWord tplR 2)))
-                                    ; the macro form's own closer.
-                                    (if (peekIs tokens after TK_RPAREN)
-                                        (let ((node (mkDMacroAt macName (memGetWord paramsR 1) 0 macSpan)))
-                                          {
-                                            (memSetWord node 9 (memGetWord tplR 1))
-                                            (pOk node (advance after))
-                                          })
-                                        (pErr after)))))))
-                      ; pattern head does not repeat the macro's name
-                      (pErr (advance (advance p1))))))
+            ; One or more RULES (MAC-LANG-14). Word 9 holds them all,
+            ; each a two-slot record of (parameters, template); node B
+            ; keeps the FIRST rule's parameters, which is what every
+            ; reader that wants "the" parameters already indexes and
+            ; what a single-rule macro has always meant.
+            (let ((rulesR (parseMacroRules tokens p1 macName vecNew)))
+              (if (== (memGetWord rulesR 0) 0)
+                  rulesR
+                  (let ((rules (memGetWord rulesR 1))
+                        (after (memGetWord rulesR 2)))
+                    (if (peekIs tokens after TK_RPAREN)
+                        (let ((node (mkDMacroAt macName
+                                                (vecGet (vecGet rules 0) 0)
+                                                0 macSpan)))
+                          {
+                            (memSetWord node 9 rules)
+                            (pOk node (advance after))
+                          })
+                          (pErr after)))))
             (pErr (advance p1)))
         (pErr p1))))
 

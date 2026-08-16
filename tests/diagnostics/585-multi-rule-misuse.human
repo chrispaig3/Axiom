@@ -1,0 +1,21 @@
+[1;31merror[AX3020][0m[1m: macro `sameArity` declares two rules taking 1 arguments[0m
+  [1;34m--> [0m585-multi-rule-misuse.ax:24:8
+[1;34m   |[0m
+[1;34m24 |[0m (macro sameArity ((sameArity T)
+[1;34m   |[0m        [1;31m^^^^^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0ma rule-form macro selects its rule by ARITY (macro-system.md MAC-LANG-14), so the second rule of a repeated arity can never be reached
+  [1;34m = [0m[1;32mhelp: [0mgive the rules different parameter counts, or merge them
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3020` for a full explanation
+
+[1;31merror[AX3018][0m[1m: macro `spread` takes 1 or 3 arguments, but was given 2[0m
+  [1;34m--> [0m585-multi-rule-misuse.ax:40:2
+[1;34m   |[0m
+[1;34m40 |[0m (spread D 9)
+[1;34m   |[0m  [1;31m^^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0ma rule-form macro selects its rule by ARITY (macro-system.md MAC-LANG-14): the rules are tried in order and the first whose parameter count matches wins, so an invocation matching none is this refusal rather than a fall-through
+  [1;34m = [0m[1;32mhelp: [0mpass as many arguments as one of the macro's rules declares parameters
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3018` for a full explanation
+
+compilation failed due to 2 previous errors

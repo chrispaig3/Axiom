@@ -2987,6 +2987,22 @@
               })
           })))))
 
+; The same refusal for a RULE-form macro, whose arities are a list:
+; one rule reads exactly as `expArityDiag` did, several name all of
+; them, so an author who wrote two rules is told which one they
+; missed rather than only what the first one takes.
+(pub :: expArityRuleDiag (-> Int String String Int Int Int))
+(pub fn (expArityRuleDiag env name arities got isp)
+  (expEmit env
+    (mkDiagNote SEV_ERROR "AX3018" "macro-arity"
+                isp
+                (strConcat (strConcat (strConcat (strConcat (strConcat
+                  "macro `" name) "` takes ") arities)
+                  " arguments, but was given ") (expFmtInt got))
+                0 0
+                "pass as many arguments as one of the macro's rules declares parameters"
+                "a rule-form macro selects its rule by ARITY (macro-system.md MAC-LANG-14): the rules are tried in order and the first whose parameter count matches wins, so an invocation matching none is this refusal rather than a fall-through")))
+
 (pub :: expArityDiag (-> Int String Int Int Int Int))
 (pub fn (expArityDiag env name want got isp)
   (expEmit env
@@ -3104,9 +3120,63 @@
       0
       {
         (expCheckDupParams (vecGet (expMacros env) i) env 0)
+        (expCheckRuleParams (vecGet (expMacros env) i) env 0)
+        (expCheckRuleArities (vecGet (expMacros env) i) env 0)
         (expCheckTplKinds (vecGet (expMacros env) i) env 0)
         (expCheckMacros env (+ i 1))
       }))
+
+; Every rule's parameters, not only the first's - `expCheckDupParams`
+; reads node B, which is rule zero's, and a duplicate in a later rule
+; is the same silent wrong answer at the same cost (MAC-LANG-2).
+(pub :: expCheckRuleParams (-> Int Int Int Int))
+(pub fn (expCheckRuleParams mac env i)
+  (let ((rules (memGetWord mac 9)))
+    (if (== rules 0)
+        0
+        (if (>= i (vecLen rules))
+            0
+            {
+              (expCheckDupParamsIn mac (expRuleParams (vecGet rules i)) env 0)
+              (expCheckRuleParams mac env (+ i 1))
+            }))))
+
+; TWO RULES OF ONE ARITY are refused at the macro's own line. Arity is
+; what selects a rule (MAC-LANG-14), so a second rule of the same
+; arity is unreachable - and an unreachable rule is a program someone
+; wrote expecting it to run. First-match-wins makes the behaviour
+; DEFINED; refusing makes it visible, which is the choice this
+; repository makes everywhere else it has made it.
+(pub :: expCheckRuleArities (-> Int Int Int Int))
+(pub fn (expCheckRuleArities mac env i)
+  (let ((rules (memGetWord mac 9)))
+    (if (== rules 0)
+        0
+        (if (>= i (vecLen rules))
+            0
+            {
+              (let ((n (vecLen (expRuleParams (vecGet rules i)))))
+                (if (!= (expRuleIndexOfArity rules n 0) i)
+                    (expEmit env
+                      (mkDiagNote SEV_ERROR "AX3020" "macro-duplicate-parameter"
+                                  (nodeSpan mac)
+                                  (strConcat (strConcat (strConcat
+                                    "macro `" (nodeA mac)) "` declares two rules taking ")
+                                    (strConcat (expFmtInt n) " arguments"))
+                                  0 0
+                                  "give the rules different parameter counts, or merge them"
+                                  "a rule-form macro selects its rule by ARITY (macro-system.md MAC-LANG-14), so the second rule of a repeated arity can never be reached"))
+                    0))
+              (expCheckRuleArities mac env (+ i 1))
+            }))))
+
+(pub :: expRuleIndexOfArity (-> Int Int Int Int))
+(pub fn (expRuleIndexOfArity rules n i)
+  (if (>= i (vecLen rules))
+      (- 0 1)
+      (if (== (vecLen (expRuleParams (vecGet rules i))) n)
+          i
+          (expRuleIndexOfArity rules n (+ i 1)))))
 
 ; A rule-form macro's template is checked ONCE, at the macro's own
 ; line: v1 generates `fn` and `::` declarations and further macro
@@ -3115,17 +3185,52 @@
 ; MAC-SAFE-4 uses for the empty form, and the reachable producer
 ; AX3021 was promised (MAC-CAP-2: the ninth form refuses in the commit
 ; that adds it).
+; Every rule's template, not just the first: a kind refusal is a
+; property of the macro, and a macro is now a list of rules
+; (MAC-LANG-14).
 (pub :: expCheckTplKinds (-> Int Int Int Int))
 (pub fn (expCheckTplKinds mac env i)
-  (let ((tpl (memGetWord mac 9)))
-    (if (== tpl 0)
+  (let ((rules (memGetWord mac 9)))
+    (if (== rules 0)
         0
-        (if (>= i (vecLen tpl))
+        (if (>= i (vecLen rules))
             0
             {
-              (expCheckTplKind mac (vecGet tpl i) env)
+              (expCheckTplKindVec mac (expRuleTpl (vecGet rules i)) env 0)
               (expCheckTplKinds mac env (+ i 1))
             }))))
+
+; The two halves of a rule, named rather than indexed at every site.
+(pub :: expRuleParams (-> Int Int))
+(pub fn (expRuleParams r) (vecGet r 0))
+
+(pub :: expRuleTpl (-> Int Int))
+(pub fn (expRuleTpl r) (vecGet r 1))
+
+; The rule whose parameter count matches `n`, or 0. FIRST match wins,
+; which with distinct arities is the only match; `expCheckMacros`
+; refuses a macro that declares two rules of one arity, so "first" is
+; a statement about determinism and not about precedence.
+(pub :: expRuleForArity (-> Int Int Int Int))
+(pub fn (expRuleForArity rules n i)
+  (if (>= i (vecLen rules))
+      0
+      (let ((r (vecGet rules i)))
+        (if (== (vecLen (expRuleParams r)) n)
+            r
+            (expRuleForArity rules n (+ i 1))))))
+
+; The arities a macro offers, for the diagnostic an invocation that
+; matches none deserves: "takes 1 or 3 arguments" beats "takes 1".
+(pub :: expRuleArities (-> Int Int String String))
+(pub fn (expRuleArities rules i acc)
+  (if (>= i (vecLen rules))
+      acc
+      (expRuleArities rules (+ i 1)
+        (if (== (strLen acc) 0)
+            (expFmtInt (vecLen (expRuleParams (vecGet rules i))))
+            (strConcat (strConcat acc " or ")
+                       (expFmtInt (vecLen (expRuleParams (vecGet rules i)))))))))
 
 ; One template declaration's KIND, recursively: a syntax/for is
 ; accepted and its interior checked with the same rule, so a `data`
@@ -3241,7 +3346,11 @@
 
 (pub :: expCheckDupParams (-> Int Int Int Int))
 (pub fn (expCheckDupParams mac env i)
-  (let ((ps (nodeB mac)))
+  (expCheckDupParamsIn mac (nodeB mac) env i))
+
+(pub :: expCheckDupParamsIn (-> Int Int Int Int Int))
+(pub fn (expCheckDupParamsIn mac ps env i)
+  (let ((ps ps))
     (if (>= i (vecLen ps))
         0
         {
@@ -3418,23 +3527,28 @@
                              "` has an expression template and cannot stand in declaration position")
                   "give it a rule form - `(macro name ((name args ...) (fn ...) ...))` - whose template is declarations"
                   "an expression macro's template is one expression; a declaration position needs declarations (macro-system.md MAC-CAP-8)")
-                (if (!= (vecLen (nodeB mac)) (vecLen (nodeB d)))
-                    ; EXACT arity in declaration position: there is no
-                    ; "surplus applies to the result" story here, since
-                    ; the result is declarations, not a value.
-                    {
-                      (expArityDiag env (expSrcSpelling (nodeA d))
-                                    (vecLen (nodeB mac))
-                                    (vecLen (nodeB d))
-                                    (nodeSpan d))
-                      (memSetWord d 3 1)
-                      0
-                    }
-                    (expInstantiateDecl entryDecls decls env d mac)))))))
+                ; EXACT arity in declaration position - there is no
+                ; "surplus applies to the result" story here, since the
+                ; result is declarations, not a value - and with
+                ; several rules the arity is what SELECTS one
+                ; (MAC-LANG-14). An invocation matching none names
+                ; every arity the macro offers.
+                (let ((rule (expRuleForArity (memGetWord mac 9)
+                                             (vecLen (nodeB d)) 0)))
+                  (if (== rule 0)
+                      {
+                        (expArityRuleDiag env (expSrcSpelling (nodeA d))
+                                          (expRuleArities (memGetWord mac 9) 0 "")
+                                          (vecLen (nodeB d))
+                                          (nodeSpan d))
+                        (memSetWord d 3 1)
+                        0
+                      }
+                      (expInstantiateDecl entryDecls decls env d mac rule))))))))
       { (memSetWord env 9 prevSite) r }))))
 
-(pub :: expInstantiateDecl (-> Int Int Int Int Int Int))
-(pub fn (expInstantiateDecl entryDecls decls env d mac)
+(pub :: expInstantiateDecl (-> Int Int Int Int Int Int Int))
+(pub fn (expInstantiateDecl entryDecls decls env d mac rule)
   (let ((isp (nodeSpan d))
         (tags (memGetWord d 7))
         (prevMod (expMacMod env))
@@ -3459,7 +3573,7 @@
       (vecPush (memGetWord env 10)
         (cast Int (ExpFrame (nodeModule d) isp (nodeA mac) (nodeSpan mac)
                             (nodeModule mac))))
-      (let ((made (expBuildDecls (memGetWord mac 9) (nodeB mac) (nodeB d)
+      (let ((made (expBuildDecls (expRuleTpl rule) (expRuleParams rule) (nodeB d)
                                  env isp vecNew 0)))
         {
           (expSetMacMod env prevMod)

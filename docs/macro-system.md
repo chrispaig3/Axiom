@@ -211,32 +211,56 @@ output (`MM-EXEC-14`).
 
 ### 1.5 Pattern macros
 
-**MAC-LANG-14 (P).** A macro **SHALL** be a sequence of rules, each a
-pattern and a template, tried in order:
+**MAC-LANG-14 (H in part, 2026-08-15).** A macro **SHALL** be a
+sequence of rules, each a pattern and a template, tried in order. **The
+rules belong to the RULE FORM, and they are selected by ARITY** —
+which is the decision the 2026-08-15 measurement below forced, and the
+half that needs no pattern language:
 
 ```scheme
-; today's single-rule form, unchanged
+; the head-list form: one template, one expression, unchanged
 (macro (when test body) (if test body 0))
 
-; the multi-rule form: a bare name, then rules
-(macro when
-  ((when test body)      (if test body 0))
-  ((when test body else) (if test body else)))
+; the rule form: a bare name, then one or more rules, each a pattern
+; and a DECLARATION template
+(macro deriveTag
+  ((deriveTag T)      (:: (syntax/join tag T) Int)
+                      (fn ((syntax/join tag T)) 1))
+  ((deriveTag T base) (:: (syntax/join tag T) Int)
+                      (fn ((syntax/join tag T)) base)))
 ```
 
 The two forms are distinguished by one token of lookahead — `(macro (`
 introduces a head list, `(macro <name>` introduces a rule list — so no
-existing program changes meaning. Each rule's pattern repeats the macro
-name in head position, as `syntax-rules` does.
+existing program changes meaning, and one rule is the list of length
+one. Each rule's pattern repeats the macro name in head position, as
+`syntax-rules` does.
 
-*Today (2026-08-14):* the **rule-list surface exists, with exactly one
-rule, and it is the declaration-macro form** — `MAC-CAP-8` parses
-`(macro name ((name p ...) decl ...))`, the pattern head must repeat
-the macro's name, and the parameters are still a
-flat positional list of distinct identifiers. What this rule still
-specifies beyond that: multiple rules tried in order, non-identifier
-patterns (`MAC-LANG-15`), and ellipsis (`MAC-LANG-16`). A mismatched
-invocation is an arity error, never a fall-through to another rule.
+**Selection is by parameter COUNT, first match wins, and two rules of
+one arity are refused** (`AX3020`, at the macro's own line): arity is
+what chooses, so a second rule of a repeated arity can never be
+reached, and an unreachable rule is a program someone wrote expecting
+it to run. An invocation matching no rule is `AX3018` naming every
+arity the macro offers — `takes 1 or 3 arguments` — where the
+single-rule form could only ever name one.
+`tests/selfhost/390-multi-rule-macro.ax` (51) pins the selection
+across three arities and `tests/diagnostics/585-multi-rule-misuse.ax`
+the two refusals.
+
+**What this rule still specifies and does not yet hold:** rules over
+EXPRESSION templates, which is the question the measurement below
+leaves open, and the pattern language of `MAC-LANG-15`–`18` that would
+make selection something other than counting.
+
+*Today (2026-08-15):* the **rule list takes one or more rules and it
+is the declaration-macro form** — `MAC-CAP-8` parses
+`(macro name ((name p ...) decl ...) ...)`, each pattern head must
+repeat the macro's name, and the parameters are still a flat
+positional list of distinct identifiers. What this rule still
+specifies beyond that: non-identifier patterns (`MAC-LANG-15`) and
+ellipsis (`MAC-LANG-16`). A mismatched invocation is an arity error,
+never a fall-through to another rule — with several rules, "mismatched"
+means matching none of them.
 
 *Two corrections, measured 2026-08-15 by running the example above
 through the compiler rather than reading the parser.*
@@ -257,17 +281,21 @@ through the compiler rather than reading the parser.*
 
    So multi-rule cannot simply be "add a loop": the rule form and the
    head-list form differ in what a template *is*, and this section's
-   example silently assumes they do not. Deciding it by the template's
+   example silently assumed they do not. Deciding it by the template's
    head is not sound either — a declaration template's first form is
    legitimately a nested invocation (`372-decl-macro.ax`'s `defPair`
    generates two), so "not a declaration keyword" would misread it as
-   an expression. **What multi-rule needs first is a decision about
-   which form carries rules**, and this specification does not yet
-   make one; it is recorded here as a hole rather than left for the
-   implementation to discover. The unambiguous half — multiple rules
-   over DECLARATION templates, selected by arity — is implementable
-   today and is what `MAC-LANG-14` should be read as specifying until
-   the question above is answered.
+   an expression.
+
+   **THE DECISION, made 2026-08-15: rules belong to the rule form, and
+   the head-list form stays single-template.** The example above was
+   rewritten to a declaration macro to match. A rule list over
+   EXPRESSION templates would need the two forms to agree about what a
+   template is, and nothing forces that question until patterns exist
+   (`MAC-LANG-15`): an expression macro selected by arity alone buys
+   little, since its one template already takes whatever arity it
+   declares. The narrow half is what shipped, and the wide half is
+   held open rather than guessed at.
 
 **MAC-LANG-14a (P, prerequisite).** **Patterns are not a distinct
 syntactic category today**, and a pattern-macro design must say what it
@@ -2064,7 +2092,7 @@ nicety: without an expansion backtrace, the author of `(machine Door
 
 | Area | Holds today | Planned | Refused |
 |---|---|---|---|
-| Language | LANG-1…12, LANG-14 (one rule — the declaration form) | LANG-14 (multi-rule), LANG-15…18 | LANG-13 |
+| Language | LANG-1…12, LANG-14 (multi-rule over the declaration form, selected by arity) | LANG-14 (rules over expression templates), LANG-15…18 | LANG-13 |
 | Expansion | EXP-1…17 (module-side invocation landed 2026-08-15) | — | — |
 | Hygiene | HYG-1…7 | HYG-8, HYG-9 | — |
 | Capabilities | CAP-1…3, CAP-6, CAP-7, CAP-8 (`fn`/`::`/`data`/`struct`/`impl`/invocation/iteration templates), CAP-9 (the deriving clause refuses), CAP-10 (format strings; 10.5 held-but-defective) | CAP-4 | CAP-5 (replacement landed, and the table is now COMPLETE: join — in name, reference and argument position, nested to any depth — constructors, fields, same, for including its parallel form, binders, fold, name, arity, defined, format, formatln) |
@@ -2110,6 +2138,8 @@ convention; the list, not any one entry, is the argument for gating.
 | `tests/selfhost/374-derive-eq.ax` (101) | CAP-5/CAP-6 — §10.2's nullary deriveEq verbatim, the roadmap's acceptance criterion; the unfixed compiler dies parsing the joined name |
 | `tests/selfhost/376-syntax-nested-for.ax` (7) | CAP-5 — nested syntax/for over two types, inner splice under the live outer binding |
 | `tests/selfhost/386-syntax-parallel-for.ax` (63) | CAP-5's parallel `syntax/for` — the zip in all three positions, one bit each, positional past the first element; the unfixed compiler does not parse the file |
+| `tests/selfhost/390-multi-rule-macro.ax` (51) | LANG-14's arity selection across three rules, each a template in its own right |
+| `tests/diagnostics/585-multi-rule-misuse.ax` | LANG-14's refusals — two rules of one arity at the macro's line, and an invocation matching none, which names every arity the macro offers |
 | `tests/diagnostics/575-syntax-parallel-for-misuse.axbad` | the zip's refusals — a skewed pair in each of the three positions, and a parallel binding that is not a pair (`.axbad`: the last is an expression to the parser and a non-shape to the grammar) |
 | `tests/selfhost/387-syntax-nested-join.ax` (47) | CAP-5's nested `syntax/join` — a lens set over two structs sharing a field name, three-deep nesting, and the `getX`-twice collision that made the two-part form unusable |
 | `tests/frontend/070-derive-macro.ax` (42) | the derive shape through check, run, symbols, :load, LSP and fmt in one place |
@@ -2236,10 +2266,13 @@ rather than the value alone.
    `MAC-CAP-8`, not to the queries — and both closed on 2026-08-15:
    the module-side INVOCATION limit, and the `type` and `effect`
    template kinds.
-5. **`MAC-LANG-14`–`MAC-LANG-18`** — rules, patterns and ellipsis. The
-   largest surface change and the one that should land last, because
-   the others do not depend on it. Three notes from probing it on
-   2026-08-15 rather than reading it:
+5. **`MAC-LANG-14`–`MAC-LANG-18`** — rules, patterns and ellipsis.
+   **`MAC-LANG-14`'s implementable half landed 2026-08-15**: the rule
+   form takes a list of rules, selected by arity, with the two
+   refusals a selection rule needs. What is left here is the pattern
+   language, which remains the largest surface change and the one that
+   should land last, because the others do not depend on it. Three
+   notes from probing it on 2026-08-15 rather than reading it:
 
    - it touches **four** implementations of the token set, not three —
      `self_host/lexer.ax`, `self_host/format.ax`'s own `FT_*` kinds,

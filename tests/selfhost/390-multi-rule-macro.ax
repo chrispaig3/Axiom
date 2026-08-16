@@ -1,0 +1,82 @@
+; expect 51
+; MAC-LANG-14's implementable half: a rule-form macro is a LIST of
+; rules, and the invocation's ARITY selects one (2026-08-15).
+;
+; The spec could not simply "add a loop", and said so: the rule form
+; and the head-list form differ in what a template IS - declarations
+; against one expression - and its own worked example silently assumed
+; they did not. The decision this lands is the narrow one that needs
+; no pattern language: RULES BELONG TO THE RULE FORM, they are chosen
+; by parameter count, and an expression macro stays single-rule until
+; MAC-LANG-15/16 give patterns a design. Nothing about an existing
+; macro changes: one rule is the list of length one.
+;
+; Six claims, one bit each (51 when all hold - the weights are 1, 2,
+; 16 and 32):
+;
+;    1  the one-parameter rule is selected by a one-argument
+;       invocation
+;    2  the two-parameter rule by a two-argument one - and it is a
+;       DIFFERENT template, not the same one with a spare argument
+;   16  the two rules generate declarations that coexist, so a rule
+;       is a template in its own right rather than a variant spelling
+;   32  a THIRD arity picks the third rule, so selection is by count
+;       and not by first-or-last
+;
+; What refuses, pinned in tests/diagnostics/585: two rules of one
+; arity (unreachable by construction), and an invocation whose arity
+; matches no rule - which names every arity the macro offers rather
+; than only the first rule's.
+;
+; The unfixed compiler refuses this file at the second rule's own
+; paren with `AX2003 syntax error`, exit 1: there was no loop, so the
+; rule list ended after one.
+(data Colour
+  (Red)
+  (Green))
+
+(pub macro deriveTag ((deriveTag T)
+   (pub :: (syntax/join tag T) (-> T Int))
+   (pub fn ((syntax/join tag T) v) 1))
+  ((deriveTag T base)
+   (pub :: (syntax/join tag T) (-> T Int))
+   (pub fn ((syntax/join tag T) v) base))
+  ((deriveTag T base extra)
+   (pub :: (syntax/join tag T) (-> T Int))
+   (pub fn ((syntax/join tag T) v) (+ base extra))))
+
+;; one argument: the first rule
+(deriveTag Colour)
+
+;; two arguments over a second type: the second rule, a different
+;; template
+(data Hue (Rojo))
+
+(deriveTag Hue 2)
+
+;; three: the third
+(data Tone (Lo))
+
+(deriveTag Tone 10 22)
+
+(:: b2i (-> Bool Int))
+
+(fn (b2i x)
+  (if x
+    1
+    0
+  )
+)
+
+(:: main Int)
+
+(fn (main)
+  (let (
+    (one (== (tagColour Red) 1))
+    (two (== (tagHue Rojo) 2))
+    (both (== (+ (tagColour Green) (tagHue Rojo)) 3))
+    (three (== (tagTone Lo) 32))
+  )
+    (+ (b2i one) (+ (* 2 (b2i two)) (+ (* 16 (b2i both)) (* 32 (b2i three)))))
+  )
+)

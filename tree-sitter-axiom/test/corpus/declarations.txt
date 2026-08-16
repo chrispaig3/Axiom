@@ -244,35 +244,36 @@ derive-style macro: syntax/join name, syntax/for arm
 (source_file
   (macro_declaration
     name: (identifier)
-    rule_name: (identifier)
-    parameter: (identifier)
-    template: (type_signature
-      subject: (syntax_join_name
-        left: (identifier)
-        right: (identifier))
-      type: (function_type
-        operand: (type_constructor
-          (constructor_identifier))
-        operand: (type_constructor
-          (constructor_identifier))
-        operand: (builtin_type)))
-    template: (function_definition
-      name: (syntax_join_name
-        left: (identifier)
-        right: (identifier))
+    rule: (macro_rule
+      rule_name: (identifier)
       parameter: (identifier)
-      parameter: (identifier)
-      body: (match_expression
-        scrutinee: (identifier)
-        arm: (syntax_for_arm
-          binder: (identifier)
-          sequence: (application
-            operand: (identifier)
-            operand: (identifier))
-          arm: (match_arm
-            pattern: (constructor_pattern
-              constructor: (constructor_identifier))
-            body: (boolean_literal)))))))
+      template: (type_signature
+        subject: (syntax_join_name
+          left: (identifier)
+          right: (identifier))
+        type: (function_type
+          operand: (type_constructor
+            (constructor_identifier))
+          operand: (type_constructor
+            (constructor_identifier))
+          operand: (builtin_type)))
+      template: (function_definition
+        name: (syntax_join_name
+          left: (identifier)
+          right: (identifier))
+        parameter: (identifier)
+        parameter: (identifier)
+        body: (match_expression
+          scrutinee: (identifier)
+          arm: (syntax_for_arm
+            binder: (identifier)
+            sequence: (application
+              operand: (identifier)
+              operand: (identifier))
+            arm: (match_arm
+              pattern: (constructor_pattern
+                constructor: (constructor_identifier))
+              body: (boolean_literal))))))))
 
 ================================================================
 derive-style macro: parallel syntax/for binds two sequences
@@ -289,28 +290,29 @@ derive-style macro: parallel syntax/for binds two sequences
 (source_file
   (macro_declaration
     name: (identifier)
-    rule_name: (identifier)
-    parameter: (identifier)
-    parameter: (identifier)
-    template: (function_definition
-      name: (identifier)
+    rule: (macro_rule
+      rule_name: (identifier)
       parameter: (identifier)
-      body: (match_expression
-        scrutinee: (identifier)
-        arm: (syntax_for_arm
-          binder: (identifier)
-          sequence: (application
-            operand: (identifier)
-            operand: (identifier))
-          binder: (identifier)
-          sequence: (application
-            operand: (identifier)
-            operand: (identifier))
-          arm: (match_arm
-            pattern: (constructor_pattern
-              constructor: (constructor_identifier))
-            body: (application
-              operand: (identifier))))))))
+      parameter: (identifier)
+      template: (function_definition
+        name: (identifier)
+        parameter: (identifier)
+        body: (match_expression
+          scrutinee: (identifier)
+          arm: (syntax_for_arm
+            binder: (identifier)
+            sequence: (application
+              operand: (identifier)
+              operand: (identifier))
+            binder: (identifier)
+            sequence: (application
+              operand: (identifier)
+              operand: (identifier))
+            arm: (match_arm
+              pattern: (constructor_pattern
+                constructor: (constructor_identifier))
+              body: (application
+                operand: (identifier)))))))))
 
 ================================================================
 type and effect templates: joined names, and a join in type position
@@ -326,28 +328,74 @@ type and effect templates: joined names, and a join in type position
 (source_file
   (macro_declaration
     name: (identifier)
-    rule_name: (identifier)
-    parameter: (identifier)
-    parameter: (identifier)
-    template: (type_alias
-      name: (syntax_join_name
-        left: (identifier)
-        right: (identifier))
-      target: (type_constructor
-        (constructor_identifier)))
-    template: (type_signature
-      subject: (syntax_join_name
-        left: (identifier)
-        right: (identifier))
-      type: (function_type
-        operand: (type_constructor
-          (constructor_identifier))
-        operand: (syntax_join_name
-          left: (identifier)
-          right: (identifier))))
-    template: (function_definition
-      name: (syntax_join_name
-        left: (identifier)
-        right: (identifier))
+    rule: (macro_rule
+      rule_name: (identifier)
       parameter: (identifier)
-      body: (identifier))))
+      parameter: (identifier)
+      template: (type_alias
+        name: (syntax_join_name
+          left: (identifier)
+          right: (identifier))
+        target: (type_constructor
+          (constructor_identifier)))
+      template: (type_signature
+        subject: (syntax_join_name
+          left: (identifier)
+          right: (identifier))
+        type: (function_type
+          operand: (type_constructor
+            (constructor_identifier))
+          operand: (syntax_join_name
+            left: (identifier)
+            right: (identifier))))
+      template: (function_definition
+        name: (syntax_join_name
+          left: (identifier)
+          right: (identifier))
+        parameter: (identifier)
+        body: (identifier)))))
+
+================================================================
+multi-rule declaration macro, selected by arity
+================================================================
+
+(macro deriveTag
+  ((deriveTag T)
+   (:: (syntax/join tag T) Int)
+   (fn ((syntax/join tag T)) 1))
+  ((deriveTag T base)
+   (:: (syntax/join tag T) Int)
+   (fn ((syntax/join tag T)) base)))
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (macro_declaration
+    name: (identifier)
+    rule: (macro_rule
+      rule_name: (identifier)
+      parameter: (identifier)
+      template: (type_signature
+        subject: (syntax_join_name
+          left: (identifier)
+          right: (identifier))
+        type: (builtin_type))
+      template: (function_definition
+        name: (syntax_join_name
+          left: (identifier)
+          right: (identifier))
+        body: (integer_literal)))
+    rule: (macro_rule
+      rule_name: (identifier)
+      parameter: (identifier)
+      parameter: (identifier)
+      template: (type_signature
+        subject: (syntax_join_name
+          left: (identifier)
+          right: (identifier))
+        type: (builtin_type))
+      template: (function_definition
+        name: (syntax_join_name
+          left: (identifier)
+          right: (identifier))
+        body: (identifier)))))

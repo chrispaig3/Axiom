@@ -3244,17 +3244,30 @@
             (&& (fpIsIdentAtom (fnKid n (+ b 1)))
                 (== (fnKind (fnKid n (+ b 2))) FN_PAREN)))
         (let ((tail (fpExprElems n (+ b 2))))
-          (if (!= (vecLen tail) 1)
+          (if (< (vecLen tail) 1)
               (fpBad p)
-              (let ((rule (vecGet tail 0)))
+              ; EVERY rule, verbatim and in order (MAC-LANG-14): a
+              ; rule-form macro is a list of rules now, and printing
+              ; only the first would delete the others from a file the
+              ; formatter claims to round-trip. Rules after the first
+              ; are laid out one per line at the macro's own indent,
+              ; which is the shape the corpus writes them in.
+              (let ((mut ri 0))
                 {
                   (fpP p "(")
                   (fpVis p n)
                   (fpP p "macro ")
                   (fpP p (fnText src (fnKid n (+ b 1))))
-                  (fpP p " ")
-                  (fpP p (strSlice src (fnStart rule)
-                                    (- (fnEnd rule) (fnStart rule))))
+                  (while (< ri (vecLen tail))
+                    (let ((rule (vecGet tail ri)))
+                      {
+                        (if (== ri 0)
+                            (fpP p " ")
+                            (fpP p "\n  "))
+                        (fpP p (strSlice src (fnStart rule)
+                                          (- (fnEnd rule) (fnStart rule))))
+                        (set ri (+ ri 1))
+                      }))
                   (fpP p ")")
                 })))
     (let ((tmpl (fpExprElems n (+ b 2))))

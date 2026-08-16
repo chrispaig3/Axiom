@@ -1161,9 +1161,45 @@
           }
         ]
       },
-      "rule_name": {
+      "rule": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "macro_rule",
+            "named": true
+          }
+        ]
+      },
+      "visibility": {
         "multiple": false,
         "required": false,
+        "types": [
+          {
+            "type": "pub",
+            "named": false
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "macro_rule",
+    "named": true,
+    "fields": {
+      "parameter": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "rule_name": {
+        "multiple": false,
+        "required": true,
         "types": [
           {
             "type": "identifier",
@@ -1182,16 +1218,6 @@
           {
             "type": "_expression",
             "named": true
-          }
-        ]
-      },
-      "visibility": {
-        "multiple": false,
-        "required": false,
-        "types": [
-          {
-            "type": "pub",
-            "named": false
           }
         ]
       }
