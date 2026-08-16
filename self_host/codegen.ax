@@ -4819,7 +4819,11 @@
     ; bare reference cannot carry is the constant 0 here.
     (if (|| (strEq name "__argc") (strEq name "__axiom_arena_mark"))
         (zeroFloat (emitPrim name vecNew cg 0))
-    (let ((symReg (lookupSym cg name)))
+    ; Same rule as `checkVar`: a reference a macro template produced
+    ; is resolved at the scope the template was written in, and the
+    ; two resolvers have to agree or the checker types one binding
+    ; while the emitter reads another.
+    (let ((symReg (if (== (nodeDefScope node) 1) 0 (lookupSym cg name))))
       (if (!= symReg 0)
           (if (>= (lookupSymKind cg name) 1)
               ; A mutable binding: the register is its storage, and the
@@ -5017,7 +5021,8 @@
         ; CG-stash read later would be clobbered by any nested
         ; polymorphic call in an argument (MM-LIFE-2d)
         (dispatchCall (nodeA fnNode)
-                      (evStampOk cg (memGetWord fnNode 6)) cg)
+                      (evStampOk cg (memGetWord fnNode 6)) cg
+                      (nodeDefScope fnNode))
     (if (== (nodeTag fnNode) TAG_E_APP)
         (walkAppChain fnNode cg)
         ; A head that is neither a name nor another application - a
@@ -5045,8 +5050,15 @@
           })))))
 
 ; Dispatch after flattening.
-(pub :: dispatchCall (-> String Int Int Int))
-(pub fn (dispatchCall fnName stamp cg)
+; `defscope` is the head node's word 10: 1 when this reference came
+; out of a macro template and therefore resolves where the template
+; was written - top level - rather than in the scope the call landed
+; in. It has to reach `isLocalValue`, because the head of a call is
+; the one reference that never passes through `emitVar`, and the two
+; resolvers disagreeing is a checker typing one binding while the
+; emitter reads another.
+(pub :: dispatchCall (-> String Int Int Int Int))
+(pub fn (dispatchCall fnName stamp cg defscope)
   (let ((revArgs (memGetWord cg 5))
         (args (reverseVec revArgs))
         ; Read and clear in one step: tail position belongs to this
@@ -5121,7 +5133,7 @@
     ; A head that names a local or a parameter is a function VALUE -
     ; a closure record - so the call goes indirect through its code
     ; pointer. Checked before the constructor table: locals shadow.
-    (if (isLocalValue cg fnName)
+    (if (&& (!= defscope 1) (isLocalValue cg fnName))
         (emitIndirectCall fnName args cg)
     ; An effect operation is dispatch, not a call: there is no symbol
     ; to reach, only the handler the innermost `handle` installed.

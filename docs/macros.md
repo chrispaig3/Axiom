@@ -309,6 +309,15 @@ the macro's answer, 10 against the function's 15, silently. Within ONE
 file the collision was always caught (see below); the import boundary
 now resolves instead of ambushing.
 
+**An entry-file macro's free identifiers were capturable until
+2026-08-16.** A template's free identifier means what it meant where
+the macro was written, and for a macro in a module that is enforced by
+rewriting the name to `Mod$name`. An entry-file macro had nothing to
+rewrite to, so a caller's `let` of the same name captured the
+reference — silently, then as a refusal, and now not at all: a macro
+is a top-level declaration, so a template's free identifiers resolve
+at the top level and the local scope is not consulted for them.
+
 **A name the macro's module merely imported was capturable until
 2026-08-16.** The definition-site rewrite tried exactly one spelling,
 `Mod$name` for the macro's *own* module, so a template calling a
@@ -373,7 +382,6 @@ semantic-analysis-time work:
 | `AX3027` | `declaration-macro` | every way a declaration-position invocation fails: unknown head (a typo'd keyword lands here, where it used to be a bare `AX2003` that stopped the parse), an expression macro in declaration position or a declaration macro in expression position, a non-identifier argument in a name position, and a module-side invocation reaching a pipeline that carries no mangling records. `axiom explain AX3027` is the catalogue |
 | `AX3034` | `macro-ellipsis` | an ellipsis at the wrong depth: a repeating name used without `...`, `...` after something that does not repeat, two `...` in one rule, or a repeat over a pattern rather than a bare name. The first two report at the invocation, the last two at the macro |
 | `AX3033` | `macro-unreachable-rule` | a rule an earlier one starves: rules are tried in order, and a rule whose every element is a plain binder matches everything of its arity, so nothing of that arity after it can run. Order a pattern table most-specific first. Two rules of one arity are fine when their shapes differ - that is what patterns are for |
-| `AX3032` | `macro-capture` | a macro's own free identifier is shadowed at the invocation and qualification had nothing to rewrite it to (MAC-HYG-8.1). Refused rather than captured: before it, the program quietly computed with the local binding - 0 where the macro's own `helper` answers 40, at exit 0. The message branches on whether the macro has a module: without one there is nothing to qualify to, with one the reference resolved to no single module |
 | `AX3028` | `syntax-query` | every `syntax/*` query with no answer (MAC-CAP-5/6): an unknown or wrong-position head (the vocabulary is CLOSED), a subject with nothing to answer (constructors of a struct, of nothing, of an imported type), a query written outside a macro template, a declaration named into the reserved `syntax/` prefix. `axiom explain AX3028` is the catalogue |
 
 `AX3006` (duplicate definition) also reaches macros now — see

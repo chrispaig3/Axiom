@@ -29,7 +29,7 @@
 ; for a positional one. Tenth word for the same reason `axtags` was
 ; eighth and `module` ninth: every existing reader indexes by
 ; position, so appending is the only change that is free.
-(pub struct ASTNode (tag : Int) (a : Int) (b : Int) (c : Int) (span : Int) (vis : Int) (ty : Int) (axtags : Int) (module : Int) (fieldNames : Int))
+(pub struct ASTNode (tag : Int) (a : Int) (b : Int) (c : Int) (span : Int) (vis : Int) (ty : Int) (axtags : Int) (module : Int) (fieldNames : Int) (defscope : Int))
 
 ; A declaration's visibility: 1 when it was written `pub`, 0 otherwise.
 ; stage0 splices only the PUBLIC declarations of an imported module
@@ -251,7 +251,7 @@
     (__retainref a)
     (__retainref b)
     (__retainref c)
-    (ASTNode t (cast Int a) (cast Int b) (cast Int c) 0 0 0 0 0 0)
+    (ASTNode t (cast Int a) (cast Int b) (cast Int c) 0 0 0 0 0 0 0)
   })
 (pub :: mkNodeAt (-> Int a b c Int Int))
 (pub fn (mkNodeAt t a b c sp)
@@ -259,11 +259,29 @@
     (__retainref a)
     (__retainref b)
     (__retainref c)
-    (ASTNode t (cast Int a) (cast Int b) (cast Int c) sp 0 0 0 0 0)
+    (ASTNode t (cast Int a) (cast Int b) (cast Int c) sp 0 0 0 0 0 0)
   })
 (pub :: nodeSpan (-> Int Int))  (pub fn (nodeSpan n) (memGetWord n 4))
 (pub :: nodeModule (-> Int a)) (pub fn (nodeModule n) (memGetWord n 8))
 (pub :: nodeFieldNames (-> Int Int)) (pub fn (nodeFieldNames n) (memGetWord n 9))
+
+; WORD 10, and the whole of what it means: this reference resolves
+; where the MACRO TEMPLATE that produced it was written, which is
+; always top level, and never in the scope it happens to land in.
+;
+; It is the operational content of MAC-HYG-9's scope sets for the one
+; case renaming could not reach. A macro is a top-level declaration,
+; so a template's free identifier had no enclosing local scope where
+; its author wrote it; a caller's `let` of that name is therefore not
+; a rebinding of it but a different variable that happens to agree on
+; spelling. Both resolvers - `checkVar` and `emitVar` - ask locals
+; first, and this is the bit that tells them not to.
+;
+; A template's own binders never carry it: they are gensym-renamed
+; (MAC-HYG-3) and resolve through the rename table long before the
+; free-identifier arm is reached.
+(pub :: nodeDefScope (-> Int Int)) (pub fn (nodeDefScope n) (memGetWord n 10))
+(pub :: setNodeDefScope (-> Int Int)) (pub fn (setNodeDefScope n) { (memSetWord n 10 1) n })
 (pub :: mkEInt (-> Int Int))              (pub fn (mkEInt v)     (mkNode TAG_E_INT v 0 0))
 (pub :: mkEFlt (-> Int Int))              (pub fn (mkEFlt bits)  (mkNode TAG_E_FLT bits 0 0))
 (pub :: mkEStr (-> String Int))           (pub fn (mkEStr s)     (mkNode TAG_E_STR s 0 0))

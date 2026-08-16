@@ -1044,44 +1044,55 @@ bare, resolving outward exactly as before.
 
 ### 3.4 What hygiene does not yet cover
 
-**MAC-HYG-8 (P; three of the four closed, the last on 2026-08-16, and
-the first refuses since 2026-08-15).** These four holes **SHALL**
-close, and the second, third and fourth have. Each is stated with what
+**MAC-HYG-8 (H; all four closed, the last two on 2026-08-16).** These
+four holes **SHALL** close, and all four have. Each is stated with what
 happens today, because each is a place a reader could reasonably
 believe the guarantee is total:
 
-1. **A macro defined in the entry file.** Entry-file declarations are
-   left bare by import resolution — there is no `Mod$name` to resolve
-   to — so a caller's local binding *would* capture a template's free
-   identifier. The earlier revision of this paragraph called that "a
-   loud failure rather than a wrong answer"; **measured, it was a
-   silent wrong answer**: an entry-file `(macro (useHelper v) (helper
-   v))` invoked under `(let ((helper (lambda (y) 0))) …)` answered
-   **0** where the macro's own `helper` answers 40, at exit 0, with no
-   diagnostic from any pass. The `AX3004` that paragraph quoted comes
-   from an arity mismatch between the two `helper`s, not from the
-   capture, and vanishes as soon as they agree.
+1. **A macro defined in the entry file** — **closed 2026-08-16.**
+   Entry-file declarations are left bare by import resolution — there
+   is no `Mod$name` to resolve to — so a caller's local binding
+   captured a template's free identifier. The earlier revision of this
+   paragraph called that "a loud failure rather than a wrong answer";
+   **measured, it was a silent wrong answer**: an entry-file `(macro
+   (useHelper v) (helper v))` invoked under `(let ((helper (lambda (y)
+   0))) …)` answered **0** where the macro's own `helper` answers 40,
+   at exit 0, with no diagnostic from any pass. From 2026-08-15 it
+   refused (`AX3032`), which was loud but rejected a correct program.
 
-   **It refuses now** (`AX3032`, `macro-capture`,
-   `tests/diagnostics/590-macro-capture.ax`): a template's free
-   identifier that qualification left unchanged and that is shadowed at
-   the invocation is a diagnostic naming the macro's own name, at the
-   invocation, per invocation rather than per macro.
+   **It resolves now, and not by the mechanism this rule predicted.**
+   `MAC-HYG-9` says the fix is scope sets, an identifier becoming a
+   `(name, scopes)` pair — a change to what an identifier *is*. This
+   case needs one bit of that and no representation change: a macro is
+   a **top-level declaration**, so a template's free identifiers had
+   no enclosing local scope where they were written, and every one of
+   them means something top level. `substTpl` stamps each with
+   `setNodeDefScope` (node word 10, appended) and both resolvers skip
+   the local scope for a stamped reference — `checkVar`, and
+   `emitVar` through `dispatchCall`.
 
-   Since hole 4 closed, "qualification left it unchanged" is no longer
-   a synonym for "the entry-file case", so the diagnostic **MUST** say
-   which one it is: a macro with no module is told to move into one,
-   and a macro that *has* one is told its reference resolved to no
-   single module — the macro's own does not declare it and it is not
-   the unique import either. Telling either author the other's story
-   wastes the refusal, and the branch is exactly whether the macro has
-   a module, because qualification is what a module buys.
+   **Both, and that is the part worth recording.** With only the
+   checker taught, the program type-checked against the macro's
+   `helper` and the emitter still called the local: a checker typing
+   one binding while the emitter reads another. The head of a call is
+   the one reference that never passes through `emitVar`, which is why
+   `dispatchCall` had to carry the bit too.
 
-   Neither branch is the guarantee; the guarantee is scope sets
-   (`MAC-HYG-9`), which make the reference resolve where it was
-   written. It is the difference between a wrong
-   answer nobody can see and a refusal that says which line to change,
-   which is the trade this repository makes wherever it has made it.
+   A template's own binders must NOT be stamped, and the corpus said
+   so: a generated function's PARAMETERS reach the same arm — they are
+   not gensym-renamed, because a fresh function has nothing to be
+   protected from — and stamping them made
+   `tests/selfhost/372-decl-macro.ax` `AX3001 undefined variable x`.
+   They are bound by an env scope of their own for the length of the
+   body's substitution.
+
+   Pinned by `tests/selfhost/394-macro-entry-capture.ax` (130), which
+   is the old refusal fixture measuring the answer instead.
+   **`AX3032` is retired**: it would now reject correct programs, so
+   it is deleted rather than left unreachable, and it is out of the
+   registry — `explain` no longer answers it. The number is never
+   reused, which is the standing rule for a code whether retired or
+   live.
 2. **Qualified reference to a macro** — **closed**: `MAC-LANG-12`
    holds, by splitting the reference rather than mangling the
    declarations.
@@ -1148,10 +1159,24 @@ expansion introduces a fresh scope, and resolution matches on both.
 
 Renaming is a sound implementation of the *forward* direction and
 nothing more. Scope sets are required by `MAC-LANG-17` (a literal
-identifier must be comparable *as a binding*), by `MAC-HYG-8`'s first
-hole (an entry-file macro has no mangled name to resolve to, but it does
-have a definition scope), and by any nested-pattern macro where one
-expansion's binder must be visible to another's template.
+identifier must be comparable *as a binding*) and by any
+nested-pattern macro where one expansion's binder must be visible to
+another's template.
+
+**`MAC-HYG-8`'s first hole was on that list and came off it on
+2026-08-16**, which narrows what remains. The hole was stated as "an
+entry-file macro has no mangled name to resolve to, but it does have a
+definition scope", and the second clause turned out to be the whole
+fix: a macro is a top-level declaration, so its template's free
+identifiers have exactly ONE definition scope, the top level, and one
+bit on the reference says so. No `(name, scopes)` pair and no change
+to what an identifier is. See `MAC-HYG-8`.1.
+
+So this rule is now required by **one** thing — `MAC-LANG-17` — and a
+conforming implementation should read it as scoped to that. A literal
+identifier is compared by BINDING, and comparing bindings needs both
+sides to carry theirs; the entry-file hole only needed one side to
+carry that it had none.
 
 **The migration MUST preserve every case gated today.** Concretely, a
 conforming implementation replacing renaming with scope sets **MUST**
@@ -2449,8 +2474,10 @@ a rule a future change could break silently.
 without — an entry-file macro's free identifier being capturable
 (`MAC-HYG-8`.1) — was measured on 2026-08-15, found to be a SILENT
 wrong answer rather than the loud failure this section claimed, and
-made a refusal (`AX3032`,
-`tests/diagnostics/590-macro-capture.ax`).
+made a refusal (`AX3032`). It stopped being a limitation on
+2026-08-16: the reference resolves at the macro's own scope now, the
+refusal is retired with its code, and the fixture measures the answer
+(`tests/selfhost/394-macro-entry-capture.ax`, 130).
 (This list held four on 2026-08-13, plus one wrong-answer bug:
 `MAC-LANG-12`'s `Pre::when`-is-`AX3001` and `MAC-HYG-8`.3's
 imported-macro-outranks were fixed and pinned on 2026-08-14 by

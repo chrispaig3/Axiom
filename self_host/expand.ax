@@ -226,7 +226,18 @@
                  ; needs it is twenty signatures below the walk that
                  ; knows it, and every one of those signatures already
                  ; carries `env`.
-                 (seqbinds : Int))
+                 (seqbinds : Int)
+                 ; Word 21: the names the TEMPLATE itself binds around
+                 ; the substitution in flight - a generated function's
+                 ; parameters. They look exactly like free identifiers
+                 ; to `substTpl`, because a generated function's
+                 ; parameters are NOT gensym-renamed (there is nothing
+                 ; to protect them from: the function is fresh), and
+                 ; without this they would be stamped "resolve at top
+                 ; level" and resolve to nothing. Measured:
+                 ; `372-decl-macro.ax` was `AX3001 undefined variable
+                 ; x` for `(fn (nm x) (+ (target x) extra))`.
+                 (tplbinds : Int))
 
 (pub :: expMacros (-> Int Int)) (pub fn (expMacros env) (memGetWord env 0))
 (pub :: expOut    (-> Int Int)) (pub fn (expOut    env) (memGetWord env 1))
@@ -2382,6 +2393,18 @@
             (expRebuildSpine (substTpl head params args ren env isp) out isp 0)
           }))))
 
+; Does the TEMPLATE bind this name around the substitution in flight?
+(pub :: expTplBound (-> Int String Int))
+(pub fn (expTplBound env name)
+  (let ((tb (memGetWord env 21)))
+    (if (== tb 0) 0 (expTplBoundIn tb name 0))))
+
+(pub :: expTplBoundIn (-> Int String Int Int))
+(pub fn (expTplBoundIn tb name i)
+  (if (>= i (vecLen tb))
+      0
+      (if (strEq (vecGet tb i) name) 1 (expTplBoundIn tb name (+ i 1)))))
+
 (pub :: expSeqBinds (-> Int Int))
 (pub fn (expSeqBinds env) (memGetWord env 20))
 
@@ -2481,11 +2504,19 @@
                                   ; parameter, so a FREE identifier:
                                   ; resolved where the macro was
                                   ; written, not where it was called.
-                                  (let ((q (expQualify env (nodeA tpl))))
-                                    {
-                                      (expCaptureCheck env (nodeA tpl) q isp)
-                                      (mkEVarAt q isp)
-                                    })))
+                                  ; A FREE identifier of the template,
+                                  ; so it means what it meant where the
+                                  ; macro was WRITTEN - top level, since
+                                  ; a macro is a top-level declaration.
+                                  ; Qualification says WHICH top-level
+                                  ; thing when a module can name it;
+                                  ; word 10 says "top level" even when
+                                  ; nothing can, which is the entry-file
+                                  ; case qualification never reached.
+                                  (let ((v (mkEVarAt (expQualify env (nodeA tpl)) isp)))
+                                    (if (== (expTplBound env (nodeA tpl)) 1)
+                                        v
+                                        (setNodeDefScope v)))))
                               (vecGet args idx)))))))
         (if (== tag TAG_E_APP)
             (substTplApp tpl params args ren env isp)
@@ -3161,71 +3192,39 @@
 ; one rule reads exactly as `expArityDiag` did, several name all of
 ; them, so an author who wrote two rules is told which one they
 ; missed rather than only what the first one takes.
-; MAC-HYG-8's first hole, made LOUD. A template's free identifier means
-; what it meant where the macro was written; for a macro defined in a
-; MODULE that is enforced by qualification (`expQualify` rewrites the
-; name to `Mod$name`, which nothing at the call site can shadow). For a
-; macro defined in the ENTRY FILE there is nothing to qualify to - its
+; MAC-HYG-8's first hole CLOSED, and `AX3032` retired with it
+; (2026-08-16).
+;
+; This is where the capture refusal lived. A template's free
+; identifier means what it meant where the macro was WRITTEN; for a
+; module macro `expQualify` enforces that by rewriting the name to
+; `Mod$name`, which nothing at a call site can shadow, and for an
+; ENTRY-FILE macro there was nothing to qualify to - entry
 ; declarations are left bare, deliberately - so a binder of that name
-; at the invocation CAPTURES the reference, and the program answers the
-; local's value with no diagnostic from any pass.
+; at the invocation captured the reference. Measured before the
+; refusal existed: `(macro (useHelper v) (helper v))` invoked under
+; `(let ((helper (lambda (y) 0))) ...)` answered 0 where the macro's
+; own `helper` answers 40, at exit 0, with no diagnostic from any
+; pass. The refusal made that loud, and said so in its own note: the
+; permanent fix is scope sets, and until they land the refusal is what
+; keeps the hole from being silent.
 ;
-; Measured: an entry-file `(macro (useHelper v) (helper v))` invoked
-; under `(let ((helper (lambda (y) 0))) ...)` answers 0 where the
-; macro's own `helper` answers 40, at exit 0.
+; It RESOLVES now. `substTpl` stamps every template free identifier
+; with `setNodeDefScope`, and both resolvers - `checkVar`, and
+; `emitVar` through `dispatchCall` - skip the local scope for a
+; reference so stamped. That is scope sets' operational content for
+; this one case: a macro is a top-level declaration, so its template's
+; free identifiers had NO enclosing local scope where they were
+; written, and a caller's `let` of the same spelling is a different
+; variable rather than a rebinding of theirs.
 ;
-; The fix the specification names is scope sets (MAC-HYG-9), which is a
-; change to what an identifier IS. Until it lands, this refuses: a
-; wrong answer nobody can see becomes a diagnostic at the invocation,
-; which is the trade this repository makes wherever it has made it. The
-; check fires only when qualification did nothing (the entry-file
-; case) and the name is actually shadowed, so no module-defined macro
-; and no unshadowed reference reaches it.
-(pub :: expCaptureCheck (-> Int String String Int Int))
-(pub fn (expCaptureCheck env name qualified isp)
-  (if (if (strEq name qualified)
-          (if (== (memGetWord env 19) 0)
-              false
-              (== (expBound (memGetWord env 19) name) 1))
-          false)
-      (expEmit env (expMarkUnit env
-        (mkDiagNote SEV_ERROR "AX3032" "macro-capture"
-                    isp
-                    (strConcat (strConcat "the macro's own `" name)
-                               "` is shadowed at this invocation")
-                    0 0
-                    (expCaptureHelp env name)
-                    (expCaptureNote env))
-        ; `isp` is the INVOCATION's span, so the unit that resolves it
-        ; is the module being expanded (word 11, the same one the
-        ; ExpFrame pairs with this span) and NOT the macro's. Stamping
-        ; the macro's module read the invocation's offset against the
-        ; macro's file: a module-defined macro reported at
-        ; `Lib.ax:3:44-50` for a two-line `Lib.ax`. It went unseen
-        ; because the only gated case is an ENTRY-FILE macro, where
-        ; the two modules are both 0 and the bug is invisible.
-        (memGetWord env 11)))
-      0))
-
-; The refusal reaches TWO different authors, and telling either one
-; the other's story wastes the diagnostic. Which one is exactly
-; whether the macro has a module: qualification (`MAC-HYG-7`) is what
-; a module buys, so a macro that HAS one and still arrives here has a
-; reference qualification could not place, not a reference it never
-; tried to place.
-(pub :: expCaptureHelp (-> Int String String))
-(pub fn (expCaptureHelp env name)
-  (if (== (cast Int (expMacMod env)) 0)
-      (strConcat (strConcat "rename the binding at the call site, or move the macro into a module, where its free identifiers resolve to that module and nothing here can shadow them (`" name)
-                 "` would become `Mod$` + the name)")
-      (strConcat (strConcat "rename the binding at the call site, or make `" name)
-                 "` unambiguous where the macro is written - declare it in the macro's own module, or import it from exactly one module rather than from several")))
-
-(pub :: expCaptureNote (-> Int String))
-(pub fn (expCaptureNote env)
-  (if (== (cast Int (expMacMod env)) 0)
-      "a template's free identifier means what it meant where the macro was WRITTEN (macro-system.md MAC-HYG-6). An entry-file macro has nothing to qualify to, so this reference would silently become the local one - MAC-HYG-8's first hole, which scope sets (MAC-HYG-9) close and this refusal makes visible in the meantime"
-      "a template's free identifier means what it meant where the macro was WRITTEN (macro-system.md MAC-HYG-6), which qualification enforces by rewriting it to the module that declares it. This one is declared by NO single module - the macro's own does not declare it, and it is not the unique import either - so there was nothing to rewrite it to and the binding here would capture it"))
+; The refusal would now reject correct programs, so it is deleted
+; rather than left unreachable. **`AX3032` is burned**: out of the
+; registry, `explain` no longer answers it, and the number is never
+; reused - the standing rule for a code, retired or not. What used to
+; be `tests/diagnostics/590-macro-capture.ax` is
+; `tests/selfhost/394-macro-entry-capture.ax`, the same program
+; measuring the answer instead of the refusal.
 
 ; MAC-LANG-18's refusal: an invocation matching no rule names the
 ; macro and lists the SHAPES it accepts.
@@ -4067,7 +4066,7 @@
 (pub :: expandProgram (-> Int Int Int Int Int Int Int Int Int))
 (pub fn (expandProgram entryDecls decls out frames units bares fulls mods)
   (let ((env (cast Int (MEnv (expCollectMacros decls vecNew 0) out 0 0 decls 0 0 0 0 0 frames 0 units vecNew
-                             bares fulls mods 0 vecNew 0 vecNew))))
+                             bares fulls mods 0 vecNew 0 vecNew vecNew))))
     {
       (expCheckMacros env 0)
       (expCheckDeclNames decls env 0)
@@ -4597,7 +4596,10 @@
               (let ((ps (expSubstNames (nodeB t) params args env isp)))
                 (if (== ps 0)
                     0
-                    (let ((body (substTpl (nodeC t) params args vecNew env isp)))
+                    (let ((prevTb (memGetWord env 21))
+                          (_pushTb (memSetWord env 21 ps))
+                          (body (substTpl (nodeC t) params args vecNew env isp))
+                          (_popTb (memSetWord env 21 prevTb)))
                       (let ((g (mkNodeAt TAG_D_FN nm ps body nsp)))
                         {
                           (memSetWord g 5 (expGenVis env t))

@@ -1,0 +1,95 @@
+; expect 130
+; MAC-HYG-8's FIRST hole, closed (2026-08-16). This file is what
+; `tests/diagnostics/590-macro-capture.ax` was, measuring the ANSWER
+; where that measured the refusal.
+;
+; A template's free identifier means what it meant WHERE THE MACRO WAS
+; WRITTEN. For a module macro `MAC-HYG-7` enforces that by rewriting
+; the name to `Mod$name`, which nothing at a call site can shadow, and
+; `364-macro-definition-site.ax` pins it. An ENTRY-FILE macro had
+; nothing to qualify to - the entry file's declarations are left bare,
+; deliberately - so a binding of the same name at the invocation
+; captured the reference and the program computed with the local. This
+; file's `shadowed` answered 0 where the macro's own `helper` answers
+; 40, at exit 0, with no diagnostic from any pass; then `AX3032`
+; refused it, which was loud but rejected a correct program.
+;
+; WHAT CLOSED IT is not what the specification predicted. `MAC-HYG-9`
+; says the mechanism must become scope sets - an identifier as a
+; `(name, scopes)` pair - and that is a change to what an identifier
+; IS. What this case actually needs is one bit of that: a macro is a
+; TOP-LEVEL declaration, so a template's free identifiers had no
+; enclosing local scope where they were written, and every one of them
+; means something top level. `substTpl` stamps them (`setNodeDefScope`,
+; node word 10) and both resolvers skip the local scope for a stamped
+; reference - `checkVar`, and `emitVar` through `dispatchCall`.
+;
+; Both, because they disagreed at first: with only the checker taught,
+; this file type-checked against the macro's `helper` and the emitter
+; still called the local, so `shadowed` answered 0 while a version
+; whose local was an `Int` checked clean. A checker typing one binding
+; while the emitter reads another is the shape worth naming.
+;
+; Four claims, and the weights are 1, 2, 32 and 95:
+;
+;    1  a `let` binding of the template's free name at the invocation
+;       does not capture it: 40, not the local's 0. This is the hole
+;    2  TWO invocations under one such binding each resolve to the
+;       macro's own `helper`: 10 + 20 = 30, not the local's 1 + 1.
+;       So the fix is per REFERENCE and not per macro
+;   32  the same macro where NOTHING shadows it still answers 40 -
+;       the case that always worked and must keep working
+;   95  this file's own reference to its own `helper` still means its
+;       own: `(helper 9)` is 90. Hygiene runs in both directions, and
+;       a rewrite that sent every bare name to the top level would
+;       break nothing here - but a template binder is not a free
+;       identifier, and `372-decl-macro.ax` is the fixture that says
+;       so: a generated function's PARAMETERS reach the same arm and
+;       must not be stamped. Measured - they were, and 372 became
+;       `AX3001 undefined variable x`
+;
+; 1 + 2 + 32 + 95 = 130. The compiler before this commit refuses this
+; file with three `AX3032`s; the one before THAT answers 122, which is
+; this total with the two captured terms reading 0.
+(macro (useHelper v) (helper v))
+
+(:: helper (-> Int Int))
+
+(fn (helper x) (* x 10))
+
+(:: shadowed Int)
+
+(fn (shadowed)
+  (let ((helper 
+    (lambda (y) 0)
+  ))
+    (useHelper 4)
+  )
+)
+
+(:: shadowedTwice Int)
+
+(fn (shadowedTwice)
+  (let ((helper 
+    (lambda (y) 1)
+  ))
+    (+ (useHelper 1) (useHelper 2))
+  )
+)
+
+(:: safe Int)
+
+(fn (safe) (useHelper 4))
+
+(:: b2i (-> Bool Int))
+
+(fn (b2i x)
+  (if x
+    1
+    0
+  )
+)
+
+(:: main Int)
+
+(fn (main) (+ (b2i (== shadowed 40)) (+ (* 2 (b2i (== shadowedTwice 30))) (+ (* 32 (b2i (== safe 40))) (* 95 (b2i (== (helper 9) 90)))))))

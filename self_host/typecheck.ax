@@ -3548,7 +3548,10 @@
   (let ((name (nodeA e)))
     (if (|| (strEq name "true") (strEq name "false"))
         mkBoolTy
-        (let ((fr (scopeFindFrame tc name)))
+        ; A reference a macro template produced resolves where the
+        ; template was written, which is top level, so the local scope
+        ; is not consulted for it at all (MAC-HYG-9 / MAC-HYG-8.1).
+        (let ((fr (if (== (nodeDefScope e) 1) 0 (scopeFindFrame tc name))))
           (if (!= fr 0)
               (sEntTy fr)
             (if (== (checkAmbiguous tc name (nodeSpan e)) 1)
