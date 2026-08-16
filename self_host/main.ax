@@ -694,7 +694,7 @@
       ; else written there would be read by the client as a frame.
       (lspMain)
   (if (strEq cmd "run")
-      (let ((f inputOperand))
+      (let ((f runInputOperand))
         (if (== (strLen f) 0)
             (die "error: run needs an input file\n" 1)
             (let ((ir (compileFile f hostTarget 1 1)))
@@ -855,6 +855,36 @@
 (pub fn (inputOperand)
   (let ((v (flagValue "--input" 1)))
     (if (> (strLen v) 0) v (positionalFrom operandStart))))
+
+; `run`'s input file, which is deliberately NOT `inputOperand`.
+;
+; `run` is the one subcommand whose argv has a SECOND owner: everything
+; from the script name onward belongs to the program, and `runArgv`
+; already forwards exactly that range. `inputOperand` did not agree with
+; it, because `flagValue` scans the whole of argv for `--input` with no
+; idea where the compiler's own arguments stop. So
+;
+;   axiom run prog.ax --input other.ax
+;
+; compiled and ran `other.ax` while handing `prog.ax` nothing - a
+; silently different program, at exit 0 - and `--` did not stop it,
+; since that scan never looked for one. Found 2026-08-16.
+;
+; A program that forwards its own arguments cannot be asked to avoid
+; this compiler's flag spellings, so the rule is positional: if a bare
+; operand is present it IS the file, and nothing after it is read as a
+; compiler flag. `--input` still names the file when no operand does,
+; which is the `axiom run --input prog.ax` spelling and leaves nothing
+; after it that could have been a program argument.
+; `scripts/check-driver.sh` pins both, numerically: the two probe
+; programs answer different numbers, so the exit status IS which file
+; the compiler chose.
+(pub :: runInputOperand String)
+(pub fn (runInputOperand)
+  (let ((p (positionalIndex operandStart)))
+    (if (< p 0)
+        (flagValue "--input" 1)
+        (sysArg p))))
 
 (pub fn (inputArgSkipping bare)
   (let ((n (sysArgc)) (mut i operandStart) (mut f "") (mut endOpts 0))

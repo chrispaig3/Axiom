@@ -663,6 +663,43 @@ EOF
 "$s1" run argc.ax -- --verbose x >/dev/null 2>&1; [[ $? == 3 ]] \
   && ok "run passes dash-prefixed arguments through after \`--\`" || bad "run \`--\` passthrough"
 
+# A forwarded argument that happens to spell one of the COMPILER's own
+# flags is still the program's.
+#
+# `run`'s input file came from `inputOperand`, which asks `flagValue`
+# for `--input` across the whole of argv with no idea where the
+# compiler's own arguments stop - while `runArgv` forwards from the
+# first positional onward. The two disagreed, so
+# `axiom run prog.ax --input other.ax` compiled and ran `other.ax`,
+# silently, at exit 0, and `--` did not stop it because that scan never
+# looked for one. A program forwarding its own arguments cannot be
+# asked to avoid this compiler's flag spellings. Found 2026-08-16.
+#
+# Asserted through exit status again: `seven.ax` and `fortytwo.ax`
+# answer different numbers, so the number IS which file got compiled.
+cat >seven.ax <<'EOF'
+(:: main Int)
+(fn (main) 7)
+EOF
+cat >fortytwo.ax <<'EOF'
+(:: main Int)
+(fn (main) 42)
+EOF
+"$s1" run seven.ax --input fortytwo.ax >/dev/null 2>&1; [[ $? == 7 ]] \
+  && ok "run compiles its own operand, not a forwarded \`--input\`" \
+  || bad "run compiled the file named by a forwarded \`--input\`"
+"$s1" run seven.ax -- --input fortytwo.ax >/dev/null 2>&1; [[ $? == 7 ]] \
+  && ok "run ignores a forwarded \`--input\` after \`--\` too" \
+  || bad "run \`--\` did not stop the \`--input\` scan"
+# The flag spelling still names the file when no operand does - there is
+# nothing after it that could have been a program argument.
+"$s1" run --input fortytwo.ax >/dev/null 2>&1; [[ $? == 42 ]] \
+  && ok "\`run --input FILE\` still names the file" || bad "run --input regressed"
+# And the forwarded flag reaches the program rather than being eaten.
+"$s1" run argc.ax --input x >/dev/null 2>&1; [[ $? == 3 ]] \
+  && ok "a forwarded \`--input\` counts as the program's own argument" \
+  || bad "forwarded \`--input\` did not reach the program"
+
 # ---------------------------------------------------------------
 # A successful command says so, and names what it produced.
 "$s1" build --input hello.ax --output bs >bs.out 2>&1
