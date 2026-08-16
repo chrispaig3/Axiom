@@ -1,0 +1,2 @@
+E AX3004 556-match-binder-typed.ax:39:16-17 type-mismatch "type mismatch: expected String, found Int" #"this has type `Int`, expected `String`"
+E AX3004 556-match-binder-typed.ax:44:11-12 type-mismatch "type mismatch: expected Int, found String" #"this has type `String`, expected `Int`"

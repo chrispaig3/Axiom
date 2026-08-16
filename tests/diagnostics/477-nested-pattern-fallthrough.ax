@@ -1,0 +1,61 @@
+; A match whose constructor arms name every constructor, but whose
+; SUB-patterns leave a shape uncovered. Exhaustiveness collected each
+; arm's head constructor and subtracted that set from the type's
+; declaration list, so it never looked past the head:
+; `(Cons h (Cons h2 t))` counted as covering `Cons` entirely, both
+; arms together looked total, and this checked OK. At run time a
+; one-element list matched neither arm, fell through to the merge
+; block, and the match answered its freshly allocated result cell's
+; contents - 0, at exit 0, indistinguishable from a real answer. At a
+; reference field type the same hole answers a null handle, so the
+; next field read segfaults rather than lying quietly.
+;
+; This is MM-VAL-9b's fall-through reached through a CONSTRUCTOR arm
+; instead of a literal one, which 476 pins. Exhaustiveness is now
+; Maranget's usefulness check over a pattern matrix, so the witness is
+; the constructor missing at the hole - `Nil` in the tail column, not
+; `Cons` at the head - and a nested arm that IS total still checks
+; (tests/selfhost/740-nested-nullary-pattern.ax and 620, 810,
+; tests/stdlib/120 and 270 are all that shape).
+;
+; `deep` is the same hole two levels down, which is what pins that
+; the check RECURSES rather than special-casing one level: `Nil` and
+; `Cons` are both covered at the head, the tail column covers both
+; again, and it is the tail's tail that no arm leaves total. Note
+; `(Nil)` is written parenthesised throughout - a bare `Nil` is a
+; BINDER that matches anything, and an arm ending in one is total.
+(data List (a)
+  (Nil)
+  (Cons a (List a)))
+
+(:: firstTwo (-> (List Int) Int))
+(fn (firstTwo l)
+  (match l
+    ((Nil) 0)
+    ((Cons h (Cons h2 t)) (+ h h2))))
+
+(:: deep (-> (List Int) Int))
+(fn (deep l)
+  (match l
+    ((Nil) 0)
+    ((Cons h (Nil)) h)
+    ((Cons h (Cons h2 (Cons h3 t))) h3)))
+
+; The CROSS-COLUMN case, and the reason the check is the real
+; algorithm rather than a per-column merge. Each column of `pair`
+; holds both `R` and `G`, so a check that asked "is every constructor
+; present in this column?" one column at a time would call it total -
+; and `(Mk (R) (R))` would fall through. Specialization asks the
+; question per COMBINATION, so it refuses this and accepts the
+; four-arm version (tests/selfhost/745-nested-pattern-total.ax).
+(data C (R) (G))
+(data P (Mk C C))
+
+(:: pair (-> P Int))
+(fn (pair p)
+  (match p
+    ((Mk (R) (G)) 1)
+    ((Mk (G) (R)) 2)))
+
+(:: main Int)
+(fn (main) 0)

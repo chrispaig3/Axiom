@@ -5518,7 +5518,7 @@
     {
       (memSetWord catchall 0 0)
       (let ((resTy (checkArms tc (nodeB e) 0 covered catchall
-                              (freshTVar tc 0))))
+                              (freshTVar tc 0) scrutTy)))
         {
           (let ((ctorChecked
                   (if (&& (== (memGetWord catchall 0) 0)
@@ -5526,8 +5526,8 @@
                       (let ((dent (findData tc (nodeA scrutTy))))
                         (if (== dent 0)
                             0
-                            { (checkExhaustive tc dent covered
-                                               (spanOf (nodeA e)))
+                            { (checkExhaustiveMatrix tc (nodeB e) scrutTy
+                                                     (spanOf (nodeA e)))
                               1 }))
                       0)))
             ; A match whose arms cover no constructor and bind no
@@ -5582,8 +5582,26 @@
       (if (&& (== hasT 1) (== hasF 1)) 1 0)
     }))
 
-(pub :: checkArms (-> Int Int Int Int Int Int Int))
-(pub fn (checkArms tc arms i covered catchall resTy)
+; `scrutTy` is threaded so a bare-identifier arm binds at the type the
+; match is OVER.
+;
+; It used to pass a literal 0 here, and `checkPatternTyped`'s 0 case
+; binds at `mkSilentWild` - `(mkTVar "")`, which `tyCompat` matches
+; against everything. So the binder of a catch-all arm was a hole in
+; the type system: `(fn (f n) (match n (x (strLen x))))` declared
+; `(-> Int Int)` type-checked clean, because `x` was compatible with
+; `String`. That is the same String/Int fiat that
+; tests/diagnostics/555-string-int-distinct.ax pins as deleted,
+; reachable through a match arm instead of through a parameter;
+; tests/diagnostics/556-match-binder-typed.ax pins this half. A NESTED
+; binder was never affected: `bindPatternArgs` already binds each one
+; at its field type.
+;
+; `checkPatternTyped` keeps its 0 case, because the nested-pattern
+; caller at the bottom of this file genuinely has no expected type to
+; offer.
+(pub :: checkArms (-> Int Int Int Int Int Int Int Int))
+(pub fn (checkArms tc arms i covered catchall resTy scrutTy)
   (if (>= i (vecLen arms))
       resTy
       (let ((arm (vecGet arms i)))
@@ -5604,16 +5622,16 @@
                 0 0
                 "iteration is an expansion-time facility: move the match into a declaration macro's template, or write the arms by hand"
                 "the query vocabulary is CLOSED and compiler-implemented (macro-system.md MAC-CAP-5/6): every query is answered from the declaration list at expansion time"))
-              (checkArms tc arms (+ i 1) covered catchall resTy)
+              (checkArms tc arms (+ i 1) covered catchall resTy scrutTy)
             }
             (let ((mark (vecLen (tcScope tc))))
               {
                 (recordCoverage (nodeA arm) covered catchall)
-                (checkPatternTyped tc (nodeA arm) 0)
+                (checkPatternTyped tc (nodeA arm) scrutTy)
                 (let ((t (checkExprH tc (nodeB arm) 0)))
                   {
                     (scopeTrunc (tcScope tc) mark)
-                    (checkArms tc arms (+ i 1) covered catchall t)
+                    (checkArms tc arms (+ i 1) covered catchall t scrutTy)
                   })
               })))))
 
@@ -5621,6 +5639,12 @@
 ; fieldful pattern's head name. A bare identifier is a catch-all -
 ; except `true`/`false`, which are literal TESTS (codegen agrees),
 ; and literals, which cover nothing.
+;
+; This is deliberately SHALLOW, and no longer decides exhaustiveness:
+; `covered` now feeds only the MM-VAL-9b fall-through guard above,
+; which asks whether any arm is a constructor at all. Whether the
+; constructor arms TOGETHER cover the type is `checkExhaustiveMatrix`'s
+; question, and it has to look at sub-patterns to answer it.
 (pub :: recordCoverage (-> Int Int Int Int))
 (pub fn (recordCoverage pat covered catchall)
   (let ((tag (nodeTag pat)))
@@ -5640,44 +5664,280 @@
                     { (memSetWord catchall 0 1) 0 })
                 0)))))
 
-(pub :: checkExhaustive (-> Int Int Int Int Int))
-(pub fn (checkExhaustive tc dent covered span)
-  (if (== span 0)
-      0
-      (let ((missing (missingCtors (memGetWord dent 1) covered vecNew 0)))
-        (if (== (vecLen missing) 0)
-            0
-            {
-              (emitDiag tc
-                (diagSetLabel (mkDiag SEV_ERROR "AX3005" "non-exhaustive-match"
-                        span
-                        (strConcat "non-exhaustive pattern match: missing "
-                                   (joinComma missing 0 ""))
-                        0 0
-                        "add the missing arms, or a wildcard `_` arm to catch the rest")
-                  (strConcat "this `match` does not cover: " (joinComma missing 0 ""))))
-              0
-            }))))
+; ------------------------------------------------------------------
+; Exhaustiveness, by SPECIALIZATION over a pattern matrix.
+;
+; The check used to be one shallow set difference: collect each arm's
+; head constructor into `covered`, subtract from the type's
+; declaration list, report the remainder. That answers the question
+; only for a match whose arms are all one level deep. It reads
+; `(Cons h (Cons h2 t))` as covering `Cons` ENTIRELY, because it never
+; looks past the head - so
+;
+;     (match l ((Nil) 7) ((Cons h (Cons h2 t)) (+ h h2)))
+;
+; type-checked clean and then answered 0 for a one-element list: the
+; one `Cons` shape no arm matched fell through to the merge block's
+; zeroed result cell, at exit 0, indistinguishable from a real answer.
+; That is MM-VAL-9b's silent 0 reached through a constructor arm
+; instead of a literal one, and at a reference field type it is a null
+; handle rather than a 0, so the same hole segfaults.
+;
+; The replacement is Maranget's usefulness check restricted to the
+; exhaustiveness question ("Warnings for pattern matching", JFP 2007),
+; which is the standard algorithm and is both SOUND and COMPLETE: it
+; rejects exactly the matches that can fall through, so it neither
+; misses `(Cons h (Cons h2 t))` nor wrongly refuses
+; `((Wrap (Red)) ...) ((Wrap (Green)) ...)`, which a coarse
+; "any refutable sub-pattern disqualifies" rule does refuse - fixtures
+; 740, 810, 620, 270 and 120 are all that shape and are all total.
+;
+; The state is a MATRIX: one row per arm, one column per value still
+; to be discriminated, plus a parallel vector of the columns' types.
+; The recursion is the textbook one:
+;
+;   no columns left     -> exhaustive iff some row survives
+;   column 0's type is
+;     not a `data` type -> nothing to enumerate (Int, String, a
+;                          tyvar), so only a binder covers it: recurse
+;                          on the DEFAULT matrix, or fail
+;     a `data` type     -> if every constructor appears in column 0,
+;                          recurse into each one's SPECIALIZED matrix
+;                          with its field types spliced in front;
+;                          otherwise a binder must cover the rest, so
+;                          recurse on the DEFAULT matrix, or fail with
+;                          the missing constructors as the witness
+;
+; The witness travels in `missOut`, a one-word cell, so AX3005's
+; message and label are constructed exactly as before - the missing
+; list for a top-level hole is byte-identical to what the shallow
+; check produced, which is what keeps the existing goldens.
+; ------------------------------------------------------------------
 
-(pub :: missingCtors (-> Int Int Int Int Int))
-(pub fn (missingCtors ctors covered acc i)
+; Does this pattern bind unconditionally? Only a bare identifier does
+; - `_` and any binder - and `true`/`false` are the exception, since
+; those are literal TESTS (codegen agrees, and `armsBoolComplete`
+; above reads them the same way). Every other shape can fail to match.
+(pub :: patIrrefutable (-> Int Int))
+(pub fn (patIrrefutable pat)
+  (if (== (nodeTag pat) TAG_E_VAR)
+      (if (|| (strEq (nodeA pat) "true") (strEq (nodeA pat) "false"))
+          0
+          1)
+      0))
+
+; The constructor a pattern tests, bare, or "" for a binder or a
+; literal. A literal tests something this algorithm cannot enumerate,
+; so it names no constructor and is covered by neither branch - which
+; is why a literal-only arm leaves its constructor missing.
+(pub :: patCtorName (-> Int String))
+(pub fn (patCtorName pat)
+  (let ((tag (nodeTag pat)))
+    (if (|| (== tag TAG_P_CON0) (== tag TAG_P_CONNAMED))
+        (bareOf (nodeA pat))
+        (if (== tag TAG_E_APP)
+            (let ((head (spineHead pat)))
+              (if (== (nodeTag head) TAG_E_VAR) (bareOf (nodeA head)) ""))
+            ""))))
+
+; A constructor pattern's sub-patterns, positionally. A NAMED pattern
+; is reordered against the constructor's declared fields first, and an
+; omitted field becomes `_` - the same spine `checkPatternTyped`
+; builds, so the two agree on what each field position holds.
+(pub :: patCtorArgs (-> Int Int Int))
+(pub fn (patCtorArgs tc pat)
+  (let ((tag (nodeTag pat)))
+    (if (== tag TAG_E_APP)
+        (spineArgVec pat vecNew)
+        (if (== tag TAG_P_CONNAMED)
+            (let ((ctor (findCtor tc (nodeA pat))))
+              (if (== ctor 0)
+                  vecNew
+                  (let ((declared (memGetWord ctor 4)))
+                    (if (== declared 0)
+                        vecNew
+                        (spineArgVec
+                          (namedPatSpine (nodeA pat) declared
+                                         (nodeB pat) (nodeC pat)
+                                         (nodeSpan pat))
+                          vecNew)))))
+            vecNew))))
+
+; Row helpers. A row is a Vec of patterns; `rowFrom` copies the tail
+; from `i`, `vecAppendFrom` concatenates.
+(pub :: vecAppendFrom (-> Int Int Int Int))
+(pub fn (vecAppendFrom src acc i)
+  (if (>= i (vecLen src))
+      acc
+      { (vecPush acc (vecGet src i)) (vecAppendFrom src acc (+ i 1)) }))
+
+(pub :: rowTail (-> Int Int))
+(pub fn (rowTail row) (vecAppendFrom row vecNew 1))
+
+; `n` wildcards, for a binder row meeting a constructor of arity `n`.
+(pub :: pushWilds (-> Int Int Int Int))
+(pub fn (pushWilds acc n i)
+  (if (>= i n)
+      acc
+      { (vecPush acc (mkEVar "_")) (pushWilds acc n (+ i 1)) }))
+
+; Any row whose first column binds unconditionally.
+(pub :: colHasWild (-> Int Int Int))
+(pub fn (colHasWild matrix i)
+  (if (>= i (vecLen matrix))
+      0
+      (if (== (patIrrefutable (vecGet (vecGet matrix i) 0)) 1)
+          1
+          (colHasWild matrix (+ i 1)))))
+
+; Any row whose first column tests constructor `cn`.
+(pub :: colHasCtor (-> Int String Int Int))
+(pub fn (colHasCtor matrix cn i)
+  (if (>= i (vecLen matrix))
+      0
+      (if (strEq (patCtorName (vecGet (vecGet matrix i) 0)) cn)
+          1
+          (colHasCtor matrix cn (+ i 1)))))
+
+; The constructors of this type that column 0 never tests.
+(pub :: matMissing (-> Int Int Int Int Int))
+(pub fn (matMissing matrix ctors acc i)
   (if (>= i (vecLen ctors))
       acc
-      (let ((cn (bareOf (memGetWord (vecGet ctors i) 0))))
+      {
+        (let ((cn (bareOf (memGetWord (vecGet ctors i) 0))))
+          (if (== (colHasCtor matrix cn 0) 0) (vecPush acc cn) 0))
+        (matMissing matrix ctors acc (+ i 1))
+      }))
+
+; S(c, P): rows that can match `c`, with `c`'s fields spliced in.
+; A binder row matches every constructor and contributes wildcards.
+; An arity-mismatched pattern already drew AX3009; pad it so the
+; matrix stays rectangular and the walk cannot read past a row.
+(pub :: matSpecialize (-> Int Int String Int Int Int Int))
+(pub fn (matSpecialize tc matrix cn arity acc i)
+  (if (>= i (vecLen matrix))
+      acc
+      {
+        (let ((row (vecGet matrix i)))
+          (let ((p (vecGet row 0)))
+            (if (== (patIrrefutable p) 1)
+                (vecPush acc (vecAppendFrom (rowTail row)
+                                            (pushWilds vecNew arity 0) 0))
+                (if (strEq (patCtorName p) cn)
+                    (let ((args (patCtorArgs tc p)))
+                      (vecPush acc
+                        (vecAppendFrom (rowTail row)
+                                       (pushWilds (vecAppendFrom args vecNew 0)
+                                                  arity (vecLen args))
+                                       0)))
+                    0))))
+        (matSpecialize tc matrix cn arity acc (+ i 1))
+      }))
+
+; D(P): rows whose first column binds unconditionally, minus it.
+(pub :: matDefault (-> Int Int Int Int))
+(pub fn (matDefault matrix acc i)
+  (if (>= i (vecLen matrix))
+      acc
+      {
+        (let ((row (vecGet matrix i)))
+          (if (== (patIrrefutable (vecGet row 0)) 1)
+              (vecPush acc (rowTail row))
+              0))
+        (matDefault matrix acc (+ i 1))
+      }))
+
+(pub :: matExhaustive (-> Int Int Int Int Int))
+(pub fn (matExhaustive tc matrix types missOut)
+  (if (== (vecLen types) 0)
+      (if (> (vecLen matrix) 0) 1 0)
+      (let ((ty (vecGet types 0))
+            (rest (rowTail types)))
+        (let ((dent (if (== (nodeTag ty) TAG_T_CON)
+                        (findData tc (nodeA ty))
+                        0)))
+          (if (== dent 0)
+              ; Nothing enumerable in this column: only a binder covers
+              ; it. `Int`, `String`, a type variable and an unresolved
+              ; name all land here, which is why a literal arm never
+              ; makes a match total on its own.
+              (if (== (colHasWild matrix 0) 1)
+                  (matExhaustive tc (matDefault matrix vecNew 0) rest missOut)
+                  { (memSetWord missOut 0 vecNew) 0 })
+              (let ((missing (matMissing matrix (memGetWord dent 1) vecNew 0)))
+                (if (> (vecLen missing) 0)
+                    ; An incomplete constructor set is covered only by
+                    ; a binder, and then the binder's row is the only
+                    ; one that can still match here.
+                    (if (== (colHasWild matrix 0) 1)
+                        (matExhaustive tc (matDefault matrix vecNew 0) rest missOut)
+                        { (memSetWord missOut 0 missing) 0 })
+                    (matCtorsExh tc matrix rest (memGetWord dent 1) missOut 0))))))))
+
+(pub :: matCtorsExh (-> Int Int Int Int Int Int Int))
+(pub fn (matCtorsExh tc matrix rest ctors missOut i)
+  (if (>= i (vecLen ctors))
+      1
+      (let ((c (vecGet ctors i)))
+        (let ((fieldTys (memGetWord c 1)))
+          (if (== (matExhaustive tc
+                    (matSpecialize tc matrix (bareOf (memGetWord c 0))
+                                   (vecLen fieldTys) vecNew 0)
+                    (vecAppendFrom rest (vecAppendFrom fieldTys vecNew 0) 0)
+                    missOut)
+                  0)
+              0
+              (matCtorsExh tc matrix rest ctors missOut (+ i 1)))))))
+
+; One column wide, one row per arm - the entry point from checkMatch.
+(pub :: checkExhaustiveMatrix (-> Int Int Int Int Int))
+(pub fn (checkExhaustiveMatrix tc arms scrutTy span)
+  (if (== span 0)
+      0
+      (let ((matrix (armsMatrix arms vecNew 0))
+            (types (vecPush vecNew scrutTy))
+            (missOut (memAlloc 8)))
         {
-          (if (== (coveredHas covered cn 0) 0)
-              (vecPush acc cn)
-              0)
-          (missingCtors ctors covered acc (+ i 1))
+          (memSetWord missOut 0 vecNew)
+          (if (== (matExhaustive tc matrix types missOut) 1)
+              0
+              (let ((missing (memGetWord missOut 0)))
+                {
+                  (emitDiag tc
+                    (diagSetLabel (mkDiag SEV_ERROR "AX3005" "non-exhaustive-match"
+                            span
+                            (if (== (vecLen missing) 0)
+                                "non-exhaustive pattern match: some values are not covered"
+                                (strConcat "non-exhaustive pattern match: missing "
+                                           (joinComma missing 0 "")))
+                            0 0
+                            "add the missing arms, or a wildcard `_` arm to catch the rest")
+                      (if (== (vecLen missing) 0)
+                          "this `match` does not cover every value"
+                          (strConcat "this `match` does not cover: "
+                                     (joinComma missing 0 "")))))
+                  0
+                }))
         })))
 
-(pub :: coveredHas (-> Int String Int Int))
-(pub fn (coveredHas covered name i)
-  (if (>= i (vecLen covered))
-      0
-      (if (strEq (bareOf (vecGet covered i)) name)
-          1
-          (coveredHas covered name (+ i 1)))))
+(pub :: armsMatrix (-> Int Int Int Int))
+(pub fn (armsMatrix arms acc i)
+  (if (>= i (vecLen arms))
+      acc
+      {
+        (let ((arm (vecGet arms i)))
+          (if (== (nodeTag arm) TAG_M_FOR)
+              0
+              (vecPush acc (vecPush vecNew (nodeA arm)))))
+        (armsMatrix arms acc (+ i 1))
+      }))
+
+; `missingCtors` and `coveredHas` lived here: the shallow set
+; difference over `covered` that decided exhaustiveness before
+; `matExhaustive` replaced it. `matMissing` asks the same question of
+; a matrix COLUMN, which is the only place the answer was ever
+; correct, so the pair had no remaining caller.
 
 (pub :: joinComma (-> Int Int String String))
 (pub fn (joinComma xs i acc)

@@ -1,0 +1,52 @@
+; A `match` arm's bare-identifier binder binds at the SCRUTINEE's
+; type, and 555's String/Int distinction therefore holds through a
+; match arm as well as through a call.
+;
+; `checkArms` passed a literal 0 as the expected type into
+; `checkPatternTyped`, whose 0 case binds at `mkSilentWild` -
+; `(mkTVar "")`, which `tyCompat` matches against everything. So a
+; catch-all binder was compatible with every type at once and its arm
+; body went effectively unchecked: `strLen` on an `Int`, arithmetic on
+; a `String`, and a `String` returned where the signature says `Int`
+; all type-checked clean. That is exactly the fiat 555 pins as
+; deleted, reachable through a match instead of through a parameter.
+;
+; A NESTED binder was never affected - `bindPatternArgs` already binds
+; each constructor argument at its declared field type - which is why
+; this is about the top-level arm only, and why fixing it needed no
+; change to pattern binding itself, only the type to bind at.
+;
+;   line 39: `strLen` on a binder over an `Int` scrutinee
+;   line 44: arithmetic on a binder over a `String` scrutinee
+;
+; The wildcard `_` binds nothing and is unaffected, and a binder over a
+; scrutinee whose type is genuinely unknown still binds at a wildcard,
+; so nothing that used to check has stopped checking.
+;
+; `viaReturn` is here and emits NOTHING, deliberately. Its binder is
+; now correctly typed `String`, but returning it from a function
+; declared `-> Int` is a different check - `checkDeclaredReturn`
+; compares REPRESENTATION and its comparison is Bool/Float-only, so
+; every other wrong return type satisfies it, `String` included. That
+; hole is not this one and is not closed here; the case sits in this
+; file so that closing it shows up as a change to this golden rather
+; than as a silence nobody notices.
+(import Str)
+
+(:: viaInt (-> Int Int))
+(fn (viaInt n)
+  (match n
+    (x (strLen x))))
+
+(:: viaString (-> String Int))
+(fn (viaString s)
+  (match s
+    (x (+ x 1))))
+
+(:: viaReturn (-> String Int))
+(fn (viaReturn s)
+  (match s
+    (x x)))
+
+(:: main Int)
+(fn (main) 0)
