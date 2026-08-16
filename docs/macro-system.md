@@ -409,22 +409,37 @@ discarded. `_` is exempt because it binds nothing.
 both patterns and templates, and a template **MUST** use a repeated
 binding under an ellipsis of the same depth.
 
-*Today:* `...` does not lex. `.` is `TK_DOT`, never an identifier
-character, so `...` is three separate tokens and `(macro (m x ...) ...)`
-is `AX2001 expected identifier, found ` `.` ``.
+*Today:* `...` does not lex **for the compiler**. `.` is `TK_DOT`,
+never an identifier character, so `...` is three separate tokens and
+`(macro m ((m x ...) ...))` is `AX2001` at the first dot — since
+2026-08-16 reported as *expected a pattern, found `.`*, `MAC-LANG-15`'s
+message rather than the old *expected identifier*.
 
-The cost is stated here rather than discovered later. **Four
-implementations of the token set must move together** — not three:
+**The cost this rule stated was wrong, and it was wrong in the
+expensive direction.** Re-derived by probe on 2026-08-16, one
+implementation at a time, on
+`(macro m ((m T a ...) (:: (syntax/join z T) Int) …))`:
 
-| Implementation | Role |
-|---|---|
-| `self_host/lexer.ax` | the compiler |
-| `self_host/format.ax` | the formatter, with its own `FT_*` kinds |
-| `tree-sitter-axiom/grammar.js` + `src/scanner.c` | the editor grammar |
-| `tests/fmt/verify-fmt.py` | the independent formatter verifier |
+| Implementation | Stated | Measured |
+|---|---|---|
+| `self_host/lexer.ax` | must move | **must move** — the only one that refuses |
+| `self_host/format.ax` | must move | **accepts it already**, unchanged: the rule form's interior is copied VERBATIM, and the ellipsis survived a format byte for byte |
+| `tree-sitter-axiom/grammar.js` | must move | **parses it already**, no `ERROR` node — its identifier rule admits `.`, which this rule notes two paragraphs down without drawing the conclusion. It reads `...` as an `(identifier)` parameter, so it should still move to model an ellipsis *properly*; that is a fidelity change, not a blocker |
+| `tests/fmt/verify-fmt.py` | must move | **models no macro at all** — the word does not appear in it |
 
-and the checked-in refusal golden
-`tests/fmt/parity/060-splice-refused.axp` becomes an acceptance.
+And `tests/fmt/parity/060-splice-refused.axp` is not this feature: it
+is `` (macro (all es) `(+ ,@es)) ``, a QUASIQUOTE splice, and nothing
+about `...` turns it into an acceptance.
+
+So the token half of this rule is one lexer plus a grammar-fidelity
+follow-up, not a four-way lockstep. **The real cost is the other
+half**, which this rule did not price: a binder under an ellipsis
+binds a SEQUENCE, and `MAC-LANG-15`'s binding representation cannot
+carry one — a match flattens to a `Vec String` of names beside a
+`Vec node` of forms, and `expParamIndex` then `vecGet` spends each
+name on exactly one node. Sequences need the for-binding stack
+`syntax/for` already uses (`expForLookup`), which is where the seam
+was deliberately left.
 
 Two facts make this more delicate than a token addition sounds:
 
