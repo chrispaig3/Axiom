@@ -1,0 +1,133 @@
+; exit 53 (see .exit)
+; MM-LIFE-2c event 3, the subset that needs no escape analysis to be
+; sound: a `let` binding whose initialiser is a DIRECT CONSTRUCTION and
+; whose name is only ever the object of a field READ is released when
+; its scope ends.
+;
+; Both conditions are syntactic on purpose. The rule as specified is
+; stated over an escape analysis this compiler does not have; what it
+; does have is a shape whose answer needs none - the binding holds the
+; block's birth share and no one else's, and a field read answers a
+; field, which took its own share at construction (event 6) if it is
+; itself a reference. The walker that decides the second condition
+; DEFAULTS TO ESCAPES: a tag it does not recognise answers "escapes",
+; so widening the surface is a deliberate edit rather than an
+; omission, and the failure direction is the leak rather than the
+; early free.
+;
+;   32  20,000 build-read-drop calls move the allocator's bump by 256
+;       bytes. The same loop before this event moved it by 640,224 -
+;       one 32-byte block per call, never reclaimed
+;   16  THE CONTROL, which must go the other way: the same loop with
+;       the record RETURNED instead of read grows by 160,224 bytes
+;       over 5,000 calls, because the name is the let's own value and
+;       the walker refuses to release it. A rule that released this
+;       one would be a use-after-free, and a control that cannot fail
+;       is not a control
+;    4  the value is still right - the release is emitted after the
+;       body, not before it
+;    1  every step above ran
+;
+; What this event does NOT reach, measured rather than assumed: the
+; compiler's own IR gains ZERO release sites under it (112 before, 112
+; after, over 36,000 lines). 13 of 2,337 `let` bindings in
+; `self_host/` and `stdlib/` bind a direct construction at all, and
+; none survives the escape test - the corpus builds its records through
+; `mk*` functions returning `Int`-declared handles, which is the same
+; reason MM-LIFE-2e's acceptance measurements cannot move. The event is
+; for programs, not for this one.
+;
+; The unfixed compiler answers 21: the two flatness claims fail and the
+; control passes, which is what a compiler that releases nothing looks
+; like.
+(import Mem)
+
+(struct Pair
+  (a : Int)
+  (b : Int))
+
+(:: b2i (-> Bool Int))
+
+(fn (b2i x)
+  (if x
+    1
+    0
+  )
+)
+
+; the shape event 3 owns: build, read fields, drop
+(:: score (-> Int Int))
+
+(fn (score n)
+  (let ((p (Pair n n)))
+    (+ p.a p.b)
+  )
+)
+
+; the same build, but the record IS the value - it escapes, and the
+; walker must refuse to release it
+(:: keep (-> Int Pair))
+
+(fn (keep n)
+  (let ((p (Pair n n)))
+    p
+  )
+)
+
+(:: readA (-> Pair Int))
+
+(fn (readA p) p.a)
+
+(:: sumDropped (-> Int Int Int))
+
+(fn (sumDropped n acc)
+  (if (<= n 0)
+    acc
+    (sumDropped (- n 1) (+ acc (score n)))
+  )
+)
+
+(:: sumEscaped (-> Int Int Int))
+
+(fn (sumEscaped n acc)
+  (if (<= n 0)
+    acc
+    (sumEscaped (- n 1) (+ acc (readA (keep n))))
+  )
+)
+
+(:: main Int)
+
+(fn (main)
+  (let (
+    (mut acc 0)
+    (mut steps 0)
+  )
+    {
+      (let ((b1 (memAlloc 200)))
+        {
+          (sumDropped 20000 0)
+          (let ((b2 (memAlloc 200)))
+            (set acc (+ acc (* 32 (b2i (< (- b2 b1) 4096)))))
+          )
+          (set steps (+ steps 1))
+        }
+      )
+      (let ((c1 (memAlloc 200)))
+        {
+          (sumEscaped 5000 0)
+          (let ((c2 (memAlloc 200)))
+            (set acc (+ acc (* 16 (b2i (> (- c2 c1) 100000)))))
+          )
+          (set steps (+ steps 1))
+        }
+      )
+      (set acc (+ acc (* 4 (b2i (== (score 7) 14)))))
+      (set steps (+ steps 1))
+      (if (== steps 3)
+        (+ acc 1)
+        acc
+      )
+    }
+  )
+)

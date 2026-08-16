@@ -1545,12 +1545,50 @@ binding, so nothing can free one out from under a closure. The rule is
 not "retain every capture" but "retain what something else may hand
 back".
 
-What deliberately does not emit yet: events 2 and 3's releases - a
-function returning its result owned, and a frame slot releasing at
-exit. Both need to know whether a value ESCAPED the frame, which is
-the one analysis none of the machinery above supplies; event 4 needs
-no such analysis, because its entry retain and boundary release are a
-matched pair over the same slot.
+**Event 3 emits for one shape since 2026-08-15**
+(`tests/stdlib/364-arc-frame-release.ax`, 53 against the unfixed
+compiler's 21): a `let` binding whose initialiser is a DIRECT
+CONSTRUCTION and whose name is only ever the object of a field READ is
+released when its scope ends. Both conditions are syntactic on
+purpose. The binding holds the block's birth share and no one else's -
+the same predicate the statement-position release already spends - and
+a field read answers a field, which took its own share at construction
+(event 6) if it is itself a reference, so the value the body computes
+cannot alias the block being released. The release is emitted at the
+binding's scope end, in the block that defines its register, rather
+than before the function's `ret`: a `let` inside a branch defines a
+register that does not dominate the return.
+
+The decision that makes this sound is the walker's DEFAULT. A tag it
+does not recognise answers "escapes", so the surface widens by
+deliberate edit and never by omission - a lambda that could capture
+the binding, a `set` that could store it, a `match`, a struct
+construction and a `handle` all answer "escapes" today without being
+read. Measured, both directions: 20,000 build-read-drop calls move the
+bump **256 bytes where they moved 640,224**, and the control - the
+same loop with the record RETURNED rather than read - still grows
+160,224 bytes over 5,000 calls, because the name is the let's own
+value and the walker refuses it.
+
+*What it does not reach, measured rather than assumed:* the compiler's
+own IR gains **zero** release sites under this event (112 before, 112
+after, across 36,000 lines). 13 of 2,337 `let` bindings in
+`self_host/` and `stdlib/` bind a direct construction at all, and none
+survives the escape test - the corpus builds its records through `mk*`
+functions that return `Int`-declared handles, which is the same reason
+`MM-LIFE-2e`'s acceptance measurements cannot move. The event is for
+programs, not for this one.
+
+What deliberately does not emit: event 2, and the rest of event 3. A
+function returning its result owned is not implementable without event
+3 releasing call RESULTS - a retain on every reference return with no
+matching release is a leak on every call - and releasing a call result
+needs the binding's TYPE, which codegen does not have for a `let`.
+That is the same missing node-to-type table that blocks the language
+server's hover, so one prerequisite serves two rungs; it is a table,
+not an analysis, and naming it precisely is what this paragraph is
+for. The escape question the rules are stated over is answered
+syntactically above for the shape that needs no types at all.
 
 **The blocker was two numbers, and it is solved.** Probed
 2026-08-15, before: a `String` whose header count reads 0, pushed into
@@ -2302,7 +2340,7 @@ that rule's status, which is the failure this table exists to prevent.
 | Representation | VAL-1…11, 14…20 | — | — | VAL-12, VAL-13 |
 | Allocation | ALLOC-1…7, 8a…16b | ALLOC-8, ALLOC-20 | ALLOC-17…19, ALLOC-21 | — |
 | Mutation | MUT-1…5 | — | — | MUT-6 |
-| Lifetimes | LIFE-1, 3, 4, 6 | LIFE-2a…2f, LIFE-5, LIFE-7 | — | LIFE-2 |
+| Lifetimes | LIFE-1, 3, 4, 6, 2g | LIFE-2a…2f (2c events 1, 4, 5, 6, 7 and event 3's direct-construction subset hold; event 2 and the rest of 3 wait on a node-to-type table), LIFE-5, LIFE-7 | — | LIFE-2 |
 | Parallelism | PAR-1…5 | PAR-6 | — | — |
 | Foreign | FFI-2…4 | FFI-5 | — | FFI-1 |
 
@@ -2358,6 +2396,7 @@ equivalent honesty for this one.
 | `tests/stdlib/361-arc-field-store.ax` | LIFE-2c event 5 — a field store's retain and release, both counts measured, and `(set e.f e.f)` surviving |
 | `tests/stdlib/362-arc-tail-boundary.ax` | LIFE-2c event 4 and LIFE-2g together — 480 bytes over 2000 iterations, and a stashed parameter surviving 300 boundaries |
 | `tests/stdlib/363-arc-large-block.ax` | LIFE-2e's large-block policy — a 2 KiB block reused and scrubbed, class separation above 1 KiB, and the 64 KiB ceiling pinned in both directions |
+| `tests/stdlib/364-arc-frame-release.ax` | LIFE-2c event 3's direct-construction subset — 640,224 bytes to 256 over 20,000 builds, with the escaping control still growing |
 | `tests/stdlib/220-while-mut.ax` | MUT-1 across 1,000,000 iterations |
 | `tests/stdlib/035-string-equality.ax` | VAL-7's content equality, including the Unicode and interior-NUL cases |
 | `scripts/measure-memory-baseline.sh --gate` | ALLOC-16's managed contract; the unsound variant must *fail* |

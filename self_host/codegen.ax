@@ -6554,8 +6554,93 @@
             (mark (symMark cg1)))
         (bindSym cg1 name valReg valFlag 0)
         (let ((cgB (emitExpr body cg1)))
-          (symRestore cgB mark)
-          cgB)))))
+          {
+            (symRestore cgB mark)
+            ; MM-LIFE-2c event 3, the subset that needs no escape
+            ; analysis to be sound. The release goes HERE - at the
+            ; binding's scope end, in the block that defines its
+            ; register - rather than before the function's `ret`,
+            ; because a `let` inside a branch defines a register that
+            ; does not dominate the return.
+            (if (== (letReleasable cg1 valExpr name body) 1)
+                (let ((res (strDup (memGetWord cgB 2)))
+                      (cgR (emitReleaseOf cgB valReg)))
+                  {
+                    (memSetWord cgR 2 res)
+                    cgR
+                  })
+                cgB)
+          })))))
+
+; Is this `let` binding one the frame may release when its scope ends?
+;
+; Two conditions, and both are syntactic on purpose - MM-LIFE-2c's
+; events 2 and 3 are stated over an escape analysis this compiler does
+; not have, and what it does have is a shape whose answer needs none.
+;
+;   the INITIALISER is a direct construction, so the binding holds the
+;   block's birth share and no one else's - the same predicate the
+;   statement-position release already spends (`argIsDirectCon`);
+;
+;   every occurrence of the NAME in the let's body is the object of a
+;   field READ. A read answers a field, and a field that is itself a
+;   reference took its own share at construction (event 6), so the
+;   value the body computes never aliases the block being released.
+;
+; The second condition is decided by a walker that defaults to ESCAPES:
+; a tag it does not recognise answers 1, so widening the surface is a
+; deliberate edit rather than an omission. That is the direction that
+; leaks rather than the one that frees early, which is the asymmetry
+; this whole strategy turns on.
+(pub :: letReleasable (-> Int Int String Int Int))
+(pub fn (letReleasable cg valExpr name body)
+  (if (!= (argIsDirectCon cg valExpr) 1)
+      0
+      (if (== (nameEscapes name body) 1) 0 1)))
+
+(pub :: nameEscapes (-> String Int Int))
+(pub fn (nameEscapes name e)
+  (if (== e 0)
+      0
+      (let ((tg (nodeTag e)))
+        (if (== tg TAG_E_VAR)
+            (if (strEq (nodeA e) name) 1 0)
+        (if (|| (== tg TAG_E_INT) (|| (== tg TAG_E_FLT) (== tg TAG_E_STR)))
+            0
+        (if (== tg TAG_E_FIELD)
+            ; `x.f` where x IS the binding is the safe shape; anything
+            ; else recurses into the object.
+            (let ((o (nodeA e)))
+              (if (&& (== (nodeTag o) TAG_E_VAR) (strEq (nodeA o) name))
+                  0
+                  (nameEscapes name o)))
+        (if (== tg TAG_E_APP)
+            (if (== (nameEscapes name (nodeA e)) 1)
+                1
+                (nameEscapes name (nodeB e)))
+        (if (== tg TAG_E_IF)
+            (if (== (nameEscapes name (nodeA e)) 1)
+                1
+                (if (== (nameEscapes name (nodeB e)) 1)
+                    1
+                    (nameEscapes name (nodeC e))))
+        (if (== tg TAG_E_BEGIN)
+            (nameEscapesVec name (nodeA e) 0)
+            ; Every other shape - a lambda that could capture it, a
+            ; `set` that could store it, a `match`, a struct
+            ; construction, a handle - answers ESCAPES without being
+            ; read. The list grows by measured commits.
+              1)))))))))
+
+(pub :: nameEscapesVec (-> String Int Int Int))
+(pub fn (nameEscapesVec name v i)
+  (if (== v 0)
+      0
+      (if (>= i (vecLen v))
+          0
+          (if (== (nameEscapes name (vecGet v i)) 1)
+              1
+              (nameEscapesVec name v (+ i 1))))))
 
 ; A mutable binding: the initialiser's value goes into an alloca, the
 ; name binds the alloca (kind 1), and reads load. `alloca` in a body
