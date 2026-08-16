@@ -1500,6 +1500,35 @@ expression and answers the written type for both, and the IR generator
 is transparent for both. No new checker case and no new emitter case is
 the point — the pairing this compiler has already been bitten by.
 
+**The lowering shares `cast`'s hole, and it was measured on
+2026-08-16.** `exprToType` — the function that reads `cast`'s first
+argument as a type — answers the **silent wildcard** for any shape it
+cannot convert, and a wildcard unifies with everything. So a literal
+in that position was accepted: `(cast "hello" 7)` and `(cast 4 7)`
+both checked clean, and through the ascription spelling so did
+`(::helper 4)`, which is `(cast 4 helper)` — a cast of a *function
+value* to the "type" `4`. That program returned a closure address from
+a function declaring `Int`, and answered **32 whatever argument it was
+given**. Found by probing whether the entry file can be named in a
+qualified reference the way `Mod::name` names a module; `::helper` was
+the third spelling tried and the only one that did not draw `AX3001`.
+
+A literal now refuses (`AX3002`,
+`tests/diagnostics/615-cast-literal-type.ax`). The wildcard is kept for
+shapes that *might* be a type this pass cannot resolve — that is what
+it is for — but no type is spelled `4`, so nothing that was working
+pays for the refusal.
+
+**The fixture reaches the case through a MACRO, and the reason is the
+finding restated.** The direct spellings cannot live in the corpus:
+every `.ax` file in the tree must also format and must parse under the
+tree-sitter grammar, and *both* of those model `cast`'s first argument
+as a type and refuse a literal there. Two of the three implementations
+already knew; the checker was the one that did not. A macro parameter
+is a type variable to the formatter and to the grammar, so the source
+is well formed for both, and only the expansion puts a literal where
+the type goes.
+
 **And the ascription was worse in the other compiler.** stage0's parser
 and type checker both knew the form; its IR generator had no arm for it
 at all, so it fell through to the catch-all and `(:: 42 Int)` evaluated

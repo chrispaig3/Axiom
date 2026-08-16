@@ -1,0 +1,11 @@
+[1;31merror[AX3002][0m[1m: a literal is not a type, and `cast` takes a type first[0m
+  [1;34m--> [0m615-cast-literal-type.ax:40:13
+[1;34m   |[0m
+[1;34m40 |[0m (viaMacro D 4)
+[1;34m   |[0m             [1;31m^ not a type[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0man unconvertible shape here used to answer a silent wildcard, which unifies with everything: the cast was performed, the result had no type anyone could object to, and a function returning it satisfied any declaration
+  [1;34m = [0m[1;32mhelp: [0mwrite the type to cast TO - `(cast Int e)` - or, for an ascription, `(:: e Int)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3002` for a full explanation
+
+compilation failed due to 1 previous error

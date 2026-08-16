@@ -4214,7 +4214,33 @@
           0)
       (if (strEq hname "cast")
           (if (>= (vecLen args) 1)
-              (exprToType (vecGet args 0))
+              (if (== (castTypeIsLiteral (vecGet args 0)) 1)
+                  ; A LITERAL cannot name a type, and `exprToType`
+                  ; answers the SILENT WILDCARD for every shape it
+                  ; cannot convert - a type that unifies with anything,
+                  ; so nothing downstream ever objects. Measured:
+                  ; `(cast "hello" 7)` and `(cast 4 helper)` both check
+                  ; clean, and the second returns a closure address
+                  ; from a function declaring `Int` - 32, whatever the
+                  ; argument. Type ascription `(:: e T)` desugars to
+                  ; `(cast T e)`, so `(::helper 4)` reached it too.
+                  ;
+                  ; The wildcard stays for shapes that MIGHT be a type
+                  ; this pass cannot resolve; a literal is not one of
+                  ; those, and saying so costs nothing that was working.
+                  {
+                    (emitDiag tc
+                      (diagSetLabel
+                        (mkDiagNote SEV_ERROR "AX3002" "undefined-type"
+                                    (spanOf (vecGet args 0))
+                                    "a literal is not a type, and `cast` takes a type first"
+                                    0 0
+                                    "write the type to cast TO - `(cast Int e)` - or, for an ascription, `(:: e Int)`"
+                                    "an unconvertible shape here used to answer a silent wildcard, which unifies with everything: the cast was performed, the result had no type anyone could object to, and a function returning it satisfied any declaration")
+                        "not a type"))
+                    (mkNode TAG_T_ERR 0 0 0)
+                  }
+                  (exprToType (vecGet args 0)))
               mkSilentWild)
           mkIntTy)
     }))
@@ -4231,6 +4257,19 @@
 ; A type spelled in expression position (cast's first argument),
 ; converted by the type grammar's atom rules. Unconvertible shapes
 ; answer the silent wildcard.
+; Can this shape never be a type? Only literals answer yes: every
+; other shape is either a type or a name this pass may not know yet.
+(pub :: castTypeIsLiteral (-> Int Int))
+(pub fn (castTypeIsLiteral e)
+  (if (== e 0)
+      0
+      (let ((t (nodeTag e)))
+        (if (|| (== t TAG_E_INT)
+                (|| (== t TAG_E_STR)
+                    (|| (== t TAG_E_FLT) (== t TAG_E_CHAR))))
+            1
+            0))))
+
 (pub :: exprToType (-> Int Int))
 (pub fn (exprToType e)
   (if (== e 0)

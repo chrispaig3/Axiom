@@ -1,0 +1,44 @@
+; `cast` takes a TYPE first, and a literal is not one (2026-08-16).
+;
+; Found by probe while asking a different question - whether the entry
+; file can be NAMED in a qualified reference the way `Mod::name` names
+; a module, because MAC-HYG-8's first hole would close if it could.
+; `(::helper 4)` was the third spelling tried. It checked CLEAN and
+; the program answered 32 whatever argument it was given.
+;
+; What it was doing: `(:: e T)` in expression position is a type
+; ASCRIPTION and lowers onto `cast`, so `(::helper 4)` is
+; `(cast 4 helper)` - a cast of the function VALUE `helper` to the
+; "type" `4`. `exprToType` answers the SILENT WILDCARD for any shape
+; it cannot convert, and a wildcard unifies with everything, so
+; nothing downstream objected: the cast was performed, `main` returned
+; a closure address, and a function declaring `Int` handed back a
+; pointer. 32 was that pointer's low byte.
+;
+; The wildcard stays for shapes that MIGHT be a type this pass cannot
+; resolve - that is what it is for. A literal is not one of those.
+;
+; THE CASE IS REACHED THROUGH A MACRO, and that is not a flourish. The
+; direct spellings - `(cast 4 7)`, `(cast "hello" 7)`, `(::helper 4)` -
+; cannot live in this corpus, because every `.ax` file in the tree must
+; also format and must parse under the tree-sitter grammar, and BOTH of
+; those model `cast`'s first argument as a type and refuse a literal
+; there. Which is the finding stated another way: two of the three
+; implementations already knew, and the checker was the one that did
+; not. A macro parameter is a type variable to the formatter and to the
+; grammar, so the source is well formed for both; only the EXPANSION
+; puts a literal where the type goes, and only the checker sees it.
+;
+; So the diagnostic lands at the invocation and carries the expansion
+; frame, which is also the only place an author could act.
+(data D (A))
+
+(macro viaMacro ((viaMacro T v)
+   (:: (syntax/join m T) Int)
+   (fn ((syntax/join m T)) (cast v 7))))
+
+(viaMacro D 4)
+
+(:: main Int)
+
+(fn (main) 0)
