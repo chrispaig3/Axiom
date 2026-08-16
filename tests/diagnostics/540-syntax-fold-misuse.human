@@ -4,6 +4,11 @@
 [1;34m24 |[0m (zipSkew D)
 [1;34m   |[0m  [1;31m^^^^^^^[0m
 [1;34m   |[0m
+  [1;34m--> [0m540-syntax-fold-misuse.ax:12:8
+[1;34m   |[0m
+[1;34m12 |[0m (macro zipSkew ((zipSkew T)
+[1;34m   |[0m        [1;36m^^^^^^^ in this expansion of `zipSkew`[0m
+[1;34m   |[0m
   [1;34m = [0m[1mnote: [0mthe query vocabulary is CLOSED and compiler-implemented (macro-system.md MAC-CAP-5/6): every query is answered from the declaration list at expansion time, and a query with no answer is this refusal, never a default value
   [1;34m = [0m[1;32mhelp: [0mparallel sequences zip in lockstep and must have equal length (macro-system.md MAC-CAP-5)
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3028` for a full explanation
@@ -13,6 +18,11 @@
 [1;34m   |[0m
 [1;34m26 |[0m (ghostCtor D)
 [1;34m   |[0m  [1;31m^^^^^^^^^[0m
+[1;34m   |[0m
+  [1;34m--> [0m540-syntax-fold-misuse.ax:15:8
+[1;34m   |[0m
+[1;34m15 |[0m (macro ghostCtor ((ghostCtor T)
+[1;34m   |[0m        [1;36m^^^^^^^^^ in this expansion of `ghostCtor`[0m
 [1;34m   |[0m
   [1;34m = [0m[1mnote: [0mthe query vocabulary is CLOSED and compiler-implemented (macro-system.md MAC-CAP-5/6): every query is answered from the declaration list at expansion time, and a query with no answer is this refusal, never a default value
   [1;34m = [0m[1;32mhelp: [0mthe query reads the declaration list; syntax/binders' first argument names a data constructor
@@ -24,6 +34,11 @@
 [1;34m28 |[0m (seqScalar D)
 [1;34m   |[0m  [1;31m^^^^^^^^^[0m
 [1;34m   |[0m
+  [1;34m--> [0m540-syntax-fold-misuse.ax:18:8
+[1;34m   |[0m
+[1;34m18 |[0m (macro seqScalar ((seqScalar T)
+[1;34m   |[0m        [1;36m^^^^^^^^^ in this expansion of `seqScalar`[0m
+[1;34m   |[0m
   [1;34m = [0m[1mnote: [0mthe query vocabulary is CLOSED and compiler-implemented (macro-system.md MAC-CAP-5/6): every query is answered from the declaration list at expansion time, and a query with no answer is this refusal, never a default value
   [1;34m = [0m[1;32mhelp: [0msequence queries stand in a syntax/for's sequence slot or a syntax/fold's binding
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3028` for a full explanation
@@ -33,6 +48,11 @@
 [1;34m   |[0m
 [1;34m30 |[0m (foldArity D)
 [1;34m   |[0m  [1;31m^^^^^^^^^[0m
+[1;34m   |[0m
+  [1;34m--> [0m540-syntax-fold-misuse.ax:21:8
+[1;34m   |[0m
+[1;34m21 |[0m (macro foldArity ((foldArity T)
+[1;34m   |[0m        [1;36m^^^^^^^^^ in this expansion of `foldArity`[0m
 [1;34m   |[0m
   [1;34m = [0m[1mnote: [0mthe query vocabulary is CLOSED and compiler-implemented (macro-system.md MAC-CAP-5/6): every query is answered from the declaration list at expansion time, and a query with no answer is this refusal, never a default value
   [1;34m = [0m[1;32mhelp: [0mwrite `(syntax/fold f z (x xs) tpl)` or the parallel `((x xs) (y ys))` form

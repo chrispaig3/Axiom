@@ -405,9 +405,11 @@ the bank that pins it is `scripts/check-degenerate.sh`, and
   declarations and further invocations. Module-side invocation joined
   it on 2026-08-15 - a module derives over its own types, the
   template's `pub` deciding what leaves it. What does not exist:
-  `trait`/`effect`/`import` templates (`AX3021` at the macro's line;
-  `impl` templates joined in the fourth commit of 2026-08-14, `data`
-  and `struct` on 2026-08-15).
+  `trait` templates (`AX2003` - a template position does not parse the
+  form at all), and `import`/nested-`macro` templates, which are
+  `AX3021` at the macro's line and refusals by decision. `impl`
+  templates joined in the fourth commit of 2026-08-14, `data` and
+  `struct` on 2026-08-15, `type` and `effect` the same day.
 - **`derive` as a stdlib library.** The mechanism is DONE for sums
   AND for struct lenses: declaration macros plus the query vocabulary
   (2026-08-14, two commits) run macro-system.md §10.2's nullary

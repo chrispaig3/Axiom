@@ -284,6 +284,17 @@
                   (let ((eds vecNew) (ftbl vecNew))
                   {
                     (expandProgram decls allDecls eds ftbl units bares fulls mods)
+                    ; The expander's OWN refusals get the frames too.
+                    ; They are diagnostics from inside an expansion by
+                    ; construction - AX3021, AX3027, AX3028 - and the
+                    ; join is the same one MAC-DIAG-4 computes for the
+                    ; checker's: a diagnostic anchored at a recorded
+                    ; invocation names the macro that was being
+                    ; instantiated. Without it a reader of `AX3028
+                    ; parallel sequences have different lengths` got a
+                    ; span and no macro name, and the two iteration
+                    ; constructs disagreed about which span to give.
+                    (expAttachFrames eds ftbl units)
                     ; Impls become ordinary declarations before the
                     ; checker runs, so their bodies are checked like
                     ; any others - they used to be checked not at all.

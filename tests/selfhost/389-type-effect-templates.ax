@@ -1,0 +1,61 @@
+; expect 38
+; `type` and `effect` templates (MAC-CAP-8's last two kinds,
+; 2026-08-15). A declaration template could generate `fn`, `::`,
+; `data`, `struct`, `impl` and further invocations; the two remaining
+; families were `AX3021` at the macro's own line. What is left
+; refusing is refused by DECISION, not schedule: `import` reopens
+; resolution ordering and a nested `macro` would join the table the
+; phase-D fixpoint is reading (tests/diagnostics/565).
+;
+; Both kinds needed the same thing the type kinds needed and one more:
+; their NAMES go through `parseDeclName`, so a template can join them
+; - and a joined name has to be writable in TYPE position too, since
+; the signature beside a generated alias is the first thing that wants
+; to name it. `(syntax/join nm Handle)` had no type-position parse: a
+; type application needs an UPPERCASE head, so the form fell into the
+; tuple branch and a generated signature took a three-tuple where its
+; alias belonged, reported at the CALL SITE as `expected Int, found
+; (_t321, {unknown}, {unknown})`.
+;
+;   8   the alias exists, is named `BoxHandle` by a join, and the
+;       generated signature beside it names that alias in type
+;       position - so the wrapper type-checks and answers its argument
+;  30   the effect exists, is named by the invocation's argument, its
+;       operation is named by another, its declared arrow came through
+;       type substitution, and a handler installed here runs it
+;
+; The unfixed compiler refuses this file at the `type` line with
+; `AX2003 syntax error`, exit 1 - the joined alias name did not parse
+; there, which is one layer earlier than the `AX3021` an unsupported
+; template kind draws.
+(import IO)
+
+;; a `type` template, and a `::`/`fn` pair that names what it declared
+(pub macro mkAlias ((mkAlias nm T)
+   (type (syntax/join nm Handle) = T)
+   (:: (syntax/join wrap nm) (-> T (syntax/join nm Handle)))
+   (fn ((syntax/join wrap nm) v) v)))
+
+(mkAlias Box Int)
+
+;; an `effect` template: the effect's name, its operation's name and
+;; its operation's arrow are all the invocation's
+(pub macro mkEffect ((mkEffect E op T)
+   (effect E
+     (op :: (-> T T)))))
+
+(mkEffect Tick bump Int)
+
+;@axiom:effect(Tick)
+(:: useIt (-> Int Int))
+
+;@axiom:effect(Tick)
+(fn (useIt n) (bump n))
+
+(:: main Int)
+
+(fn (main)
+  (+
+    (wrapBox 8)    (handle (useIt 3) (Tick) (lambda (v) (+ v 27)))
+  )
+)

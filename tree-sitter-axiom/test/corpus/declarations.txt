@@ -247,10 +247,9 @@ derive-style macro: syntax/join name, syntax/for arm
     rule_name: (identifier)
     parameter: (identifier)
     template: (type_signature
-      subject: (application
-        operand: (identifier)
-        operand: (identifier)
-        operand: (identifier))
+      subject: (syntax_join_name
+        left: (identifier)
+        right: (identifier))
       type: (function_type
         operand: (type_constructor
           (constructor_identifier))
@@ -312,3 +311,43 @@ derive-style macro: parallel syntax/for binds two sequences
               constructor: (constructor_identifier))
             body: (application
               operand: (identifier))))))))
+
+================================================================
+type and effect templates: joined names, and a join in type position
+================================================================
+
+(macro mkAlias ((mkAlias nm T)
+   (type (syntax/join nm Handle) = T)
+   (:: (syntax/join wrap nm) (-> T (syntax/join nm Handle)))
+   (fn ((syntax/join wrap nm) v) v)))
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (macro_declaration
+    name: (identifier)
+    rule_name: (identifier)
+    parameter: (identifier)
+    parameter: (identifier)
+    template: (type_alias
+      name: (syntax_join_name
+        left: (identifier)
+        right: (identifier))
+      target: (type_constructor
+        (constructor_identifier)))
+    template: (type_signature
+      subject: (syntax_join_name
+        left: (identifier)
+        right: (identifier))
+      type: (function_type
+        operand: (type_constructor
+          (constructor_identifier))
+        operand: (syntax_join_name
+          left: (identifier)
+          right: (identifier))))
+    template: (function_definition
+      name: (syntax_join_name
+        left: (identifier)
+        right: (identifier))
+      parameter: (identifier)
+      body: (identifier))))

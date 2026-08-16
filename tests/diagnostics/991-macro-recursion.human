@@ -4,6 +4,646 @@
 [1;34m7 |[0m (fn (main) (loopy 1))
 [1;34m  |[0m             [1;31m^^^^^[0m
 [1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
+ [1;34m--> [0m991-macro-recursion.ax:4:9
+[1;34m  |[0m
+[1;34m4 |[0m (macro (loopy x) (loopy x))
+[1;34m  |[0m         [1;36m^^^^^ in this expansion of `loopy`[0m
+[1;34m  |[0m
  [1;34m = [0m[1mnote: [0mexpansion is a rewrite, so a macro that always rewrites to itself never terminates; the limit is 128
  [1;34m = [0m[1;32mhelp: [0mcheck whether this macro, directly or through another, invokes itself with no case that stops
  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3019` for a full explanation

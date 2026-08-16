@@ -1,10 +1,10 @@
-[1;31merror[AX3021][0m[1m: macro `defAlias`'s template may generate `fn`, `::`, `data`, `struct` and `impl` declarations, further macro invocations, or a syntax/for over them - this form is not supported yet[0m
-  [1;34m--> [0m510-decl-macro-template-kind.ax:19:10
+[1;31merror[AX3021][0m[1m: macro `defAlias`'s template may generate `fn`, `::`, `data`, `struct`, `type`, `effect` and `impl` declarations, further macro invocations, or a syntax/for over them - this form is not supported yet[0m
+  [1;34m--> [0m510-decl-macro-template-kind.ax:24:12
 [1;34m   |[0m
-[1;34m19 |[0m    (type nm = Int)))
-[1;34m   |[0m          [1;31m^^[0m
+[1;34m24 |[0m    (macro (nm x) x)))
+[1;34m   |[0m            [1;31m^^[0m
 [1;34m   |[0m
-  [1;34m = [0m[1mnote: [0mtype, trait, effect and import templates refuse here, at the macro's own line, rather than passing through silently (MAC-CAP-2). An import inside a template would reopen resolution ordering and a nested macro the phase-D fixpoint, which is why those two are refusals by decision rather than by schedule
+  [1;34m = [0m[1mnote: [0mtrait, import and nested macro templates refuse here, at the macro's own line, rather than passing through silently (MAC-CAP-2). An import inside a template would reopen resolution ordering and a nested macro the phase-D fixpoint, which is why those two are refusals by decision rather than by schedule
   [1;34m = [0m[1;32mhelp: [0mgenerate the declaration by hand, or split it out of the template
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3021` for a full explanation
 

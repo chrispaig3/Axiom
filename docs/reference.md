@@ -1139,8 +1139,8 @@ generates one declaration per template form when invoked at top level:
 (defWrap w2 base 100)           ; and w2 - names are parameters
 ```
 
-Templates may generate `fn`, `::`, `data`, `struct` and `impl`
-declarations and further macro invocations; an argument standing in a
+Templates may generate `fn`, `::`, `data`, `struct`, `type`, `effect`
+and `impl` declarations and further macro invocations; an argument standing in a
 name position must be a bare identifier; a macro is invocable from the
 entry file and from a module over its own declarations, where the
 template's own `pub` decides what leaves the module. Everything

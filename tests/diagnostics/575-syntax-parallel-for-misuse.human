@@ -1,37 +1,52 @@
 [1;31merror[AX3028][0m[1m: syntax/for's parallel sequences have different lengths[0m
-  [1;34m--> [0m575-syntax-parallel-for-misuse.ax:37:25
+  [1;34m--> [0m575-syntax-parallel-for-misuse.ax:56:2
 [1;34m   |[0m
-[1;34m37 |[0m    (fn (as v) (match v (syntax/for ((C (syntax/constructors T)) (X (syntax/constructors U))) ((C) 1))))))
-[1;34m   |[0m                         [1;31m^^^^^^^^^^[0m
+[1;34m56 |[0m (armSkew D E)
+[1;34m   |[0m  [1;31m^^^^^^^[0m
 [1;34m   |[0m
-  [1;34m = [0m[1mnote: [0mthe query vocabulary is CLOSED and compiler-implemented (macro-system.md MAC-CAP-5/6): every query is answered from the declaration list at expansion time, and a query with no answer is this refusal, never a default value
-  [1;34m = [0m[1;32mhelp: [0mparallel sequences zip in lockstep and must have equal length (macro-system.md MAC-CAP-5)
-  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3028` for a full explanation
-
-[1;31merror[AX3028][0m[1m: syntax/for's parallel sequences have different lengths[0m
-  [1;34m--> [0m575-syntax-parallel-for-misuse.ax:40:5
+  [1;34m--> [0m575-syntax-parallel-for-misuse.ax:42:8
 [1;34m   |[0m
-[1;34m40 |[0m    (syntax/for ((C (syntax/constructors T)) (X (syntax/constructors U)))
-[1;34m   |[0m     [1;31m^^^^^^^^^^[0m
+[1;34m42 |[0m (macro armSkew ((armSkew T U)
+[1;34m   |[0m        [1;36m^^^^^^^ in this expansion of `armSkew`[0m
 [1;34m   |[0m
   [1;34m = [0m[1mnote: [0mthe query vocabulary is CLOSED and compiler-implemented (macro-system.md MAC-CAP-5/6): every query is answered from the declaration list at expansion time, and a query with no answer is this refusal, never a default value
   [1;34m = [0m[1;32mhelp: [0mparallel sequences zip in lockstep and must have equal length (macro-system.md MAC-CAP-5)
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3028` for a full explanation
 
 [1;31merror[AX3028][0m[1m: syntax/for's parallel sequences have different lengths[0m
-  [1;34m--> [0m575-syntax-parallel-for-misuse.ax:45:19
+  [1;34m--> [0m575-syntax-parallel-for-misuse.ax:58:2
 [1;34m   |[0m
-[1;34m45 |[0m    (fn (ag s) (C (syntax/for ((f (syntax/fields W)) (b (syntax/binders C p))) s.f)))))
-[1;34m   |[0m                   [1;31m^^^^^^^^^^[0m
+[1;34m58 |[0m (declSkew D E)
+[1;34m   |[0m  [1;31m^^^^^^^^[0m
+[1;34m   |[0m
+  [1;34m--> [0m575-syntax-parallel-for-misuse.ax:45:8
+[1;34m   |[0m
+[1;34m45 |[0m (macro declSkew ((declSkew T U)
+[1;34m   |[0m        [1;36m^^^^^^^^ in this expansion of `declSkew`[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0mthe query vocabulary is CLOSED and compiler-implemented (macro-system.md MAC-CAP-5/6): every query is answered from the declaration list at expansion time, and a query with no answer is this refusal, never a default value
+  [1;34m = [0m[1;32mhelp: [0mparallel sequences zip in lockstep and must have equal length (macro-system.md MAC-CAP-5)
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3028` for a full explanation
+
+[1;31merror[AX3028][0m[1m: syntax/for's parallel sequences have different lengths[0m
+  [1;34m--> [0m575-syntax-parallel-for-misuse.ax:60:2
+[1;34m   |[0m
+[1;34m60 |[0m (argSkew S B)
+[1;34m   |[0m  [1;31m^^^^^^^[0m
+[1;34m   |[0m
+  [1;34m--> [0m575-syntax-parallel-for-misuse.ax:50:8
+[1;34m   |[0m
+[1;34m50 |[0m (macro argSkew ((argSkew W C)
+[1;34m   |[0m        [1;36m^^^^^^^ in this expansion of `argSkew`[0m
 [1;34m   |[0m
   [1;34m = [0m[1mnote: [0mthe query vocabulary is CLOSED and compiler-implemented (macro-system.md MAC-CAP-5/6): every query is answered from the declaration list at expansion time, and a query with no answer is this refusal, never a default value
   [1;34m = [0m[1;32mhelp: [0mparallel sequences zip in lockstep and must have equal length (macro-system.md MAC-CAP-5)
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3028` for a full explanation
 
 [1;31merror[AX3028][0m[1m: each parallel `syntax/for` binding is a `(y ys)` pair[0m
-  [1;34m--> [0m575-syntax-parallel-for-misuse.ax:48:25
+  [1;34m--> [0m575-syntax-parallel-for-misuse.ax:54:25
 [1;34m   |[0m
-[1;34m48 |[0m    (fn (ps v) (match v (syntax/for ((C (syntax/constructors T)) X) ((C) 1))))))
+[1;34m54 |[0m    (fn (ps v) (match v (syntax/for ((C (syntax/constructors T)) X) ((C) 1))))))
 [1;34m   |[0m                         [1;31m^^^^^^^^^^[0m
 [1;34m   |[0m
   [1;34m = [0m[1mnote: [0mthe query vocabulary is CLOSED and compiler-implemented (macro-system.md MAC-CAP-5/6): every query is answered from the declaration list at expansion time, and a query with no answer is this refusal, never a default value

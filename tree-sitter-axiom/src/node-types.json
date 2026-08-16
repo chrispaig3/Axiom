@@ -236,6 +236,10 @@
         "named": true
       },
       {
+        "type": "syntax_join_name",
+        "named": true
+      },
+      {
         "type": "tuple_type",
         "named": true
       },
@@ -585,6 +589,10 @@
         "types": [
           {
             "type": "identifier",
+            "named": true
+          },
+          {
+            "type": "syntax_join_name",
             "named": true
           }
         ]
@@ -1896,6 +1904,10 @@
           {
             "type": "identifier",
             "named": true
+          },
+          {
+            "type": "syntax_join_name",
+            "named": true
           }
         ]
       },
@@ -1992,6 +2004,10 @@
         "types": [
           {
             "type": "_expression",
+            "named": true
+          },
+          {
+            "type": "syntax_join_name",
             "named": true
           }
         ]

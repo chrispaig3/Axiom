@@ -15,6 +15,12 @@
 ; Each macro is otherwise well-formed, so every refusal here is the
 ; iteration's own rather than a parse artifact.
 ;
+; The three skews anchor at their INVOCATIONS and carry a frame naming
+; the macro; `pairShape`'s malformed binding anchors at the macro's own
+; text and carries none. That is MAC-DIAG-5 one level down: a skew is
+; the arguments' doing and a bad pair is the template's, and the author
+; edits a different line for each.
+;
 ; `.axbad`: `pairShape`'s binding is an ordinary expression to the
 ; compiler's parser - which is why the expander is what refuses it -
 ; but the tree-sitter grammar models the SURFACE, where a parallel

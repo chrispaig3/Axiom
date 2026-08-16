@@ -1156,12 +1156,31 @@ The v1 surface, all of it measured
 (`tests/selfhost/372-decl-macro.ax` = 144,
 `tests/selfhost/373-decl-macro-types.ax` = 10):
 
-- **Templates generate `fn`, `::`, `data`, `struct` and `impl`
-  declarations, further macro invocations** (resolved by the next
-  fixpoint round), **and `syntax/for` iterations over them** (`impl`
-  and the iteration form joined later the same day; `data` and
-  `struct` on 2026-08-15, which is what makes `MAC-CAP-7` real —
-  `tests/selfhost/381-macro-type-templates.ax`, 32). A constructor's
+- **Templates generate `fn`, `::`, `data`, `struct`, `type`,
+  `effect` and `impl` declarations, further macro invocations**
+  (resolved by the next fixpoint round), **and `syntax/for`
+  iterations over them** (`impl` and the iteration form joined later
+  the same day; `data` and `struct` on 2026-08-15, which is what
+  makes `MAC-CAP-7` real — `tests/selfhost/381-macro-type-templates.ax`,
+  32; `type` and `effect` the same day —
+  `tests/selfhost/389-type-effect-templates.ax`, 38). What still
+  refuses is refused by DECISION rather than schedule: an `import`
+  template would reopen resolution ordering, which has already run
+  when phase D starts, and a nested `macro` template would add to the
+  table the same fixpoint is reading. (`trait` refuses one layer
+  earlier — a template position does not parse it at all.)
+
+  The two late kinds each needed their name to go through
+  `parseDeclName`, as the type kinds did, and one thing more that the
+  earlier kinds never asked for: **a joined name has to be writable in
+  TYPE position**, because the signature beside a generated alias is
+  the first thing that wants to name it. It had no parse there — a
+  type application needs an uppercase head, so `(syntax/join nm
+  Handle)` fell into the tuple branch, and a generated signature took
+  a three-tuple where its alias belonged. The failure surfaced at the
+  CALL SITE as `expected Int, found (_t321, {unknown}, {unknown})`,
+  which is the shape of every defect this document keeps a list of:
+  well-typed nonsense reported far from its cause. A constructor's
   name is a name position like any other, so `(syntax/join Off N)`
   names one, and two invocations of one macro therefore generate two
   distinct types. A generated type is queryable in the **same** phase-D
@@ -1643,18 +1662,24 @@ The invocation stays primary, exactly as `MAC-DIAG-5` wants: it is the
 line the author can change. The REPL deliberately discards frames —
 its error line joins bare messages, and the prompt *is* the invocation.
 
-**What carries no frame, measured rather than assumed:** the join runs
-over the CHECKER's diagnostics only (`checkWithFrames`,
-`attachTcFrames`), so the EXPANDER's own refusals — `AX3021`,
-`AX3027`, `AX3028` — carry none, and a reader of one gets whichever
-span the refusal chose and no macro name. The two iteration
-constructs then differ in that choice: a skewed zip refuses at the
-`syntax/for` that wrote the pairing and at the INVOCATION for
-`syntax/fold`, and neither points at the other. Both are worth fixing
-together — attach frames to the expander's vector and the anchoring
-question answers itself, since the invocation becomes primary and the
-macro's text becomes the frame. Recorded rather than done, because
-every `AX302x` golden gains an `&` field the day it lands.
+**The expander's own refusals carry frames too, since 2026-08-15.**
+The join used to run over the CHECKER's diagnostics only, so `AX3021`,
+`AX3027` and `AX3028` — the refusals that are, by construction, from
+inside an expansion — gave a span and no macro name. They go through
+the same `expAttachFrames` now, and nine `.axdl` goldens gained an `&`
+field the day it landed, which is the whole visible cost.
+
+Attaching them forced a rule this specification had left to accident,
+and it is `MAC-DIAG-5`'s rule applied one level down. **A refusal
+about the TEMPLATE's shape anchors at the macro; a refusal about the
+ARGUMENTS' values anchors at the invocation and carries the frame.**
+The author edits a different line in each case: a binding form that is
+not a `(y ys)` pair is the macro's text however it is invoked, while a
+SKEW is the invocation's doing — the template pairs the sequences and
+the arguments decide their lengths. `syntax/fold` had always reported
+its skew at the invocation and `syntax/for` at the form; that was a
+coincidence of two authors, and now it is one rule with the same
+answer on both sides.
 
 **MAC-DIAG-5 (H, 2026-08-15).** With `MAC-DIAG-4`, the rendered form
 **SHALL** be:
@@ -2078,6 +2103,7 @@ convention; the list, not any one entry, is the argument for gating.
 | `tests/diagnostics/505-decl-macro-positions.ax` | CAP-8's position rules: both template kinds refused across the boundary, and the bare-identifier name rule |
 | `tests/diagnostics/510-decl-macro-template-kind.ax` | CAP-8's template-kind `AX3021`, at the macro's own line |
 | `tests/selfhost/381-macro-type-templates.ax` (32) | CAP-7/CAP-8's `data` and `struct` templates — joined constructor names, two invocations giving two distinct types, and `deriveEq` querying a type generated in the same round |
+| `tests/selfhost/389-type-effect-templates.ax` (38) | CAP-8's `type` and `effect` templates — a joined alias name written in TYPE position by the signature beside it, and an effect whose name, operation and arrow all come from the invocation |
 | `tests/diagnostics/565-macro-type-template-limits.axbad` | what still refuses — `type` and `import` templates at the macro's line, and the reserved `syntax/` prefix in a data name and a constructor name, both positions the parser could not even express before (`.axbad`: a joined name at top level is a shape the formatter must not learn, the same reason `525` carries the extension) |
 | `tests/selfhost/388-module-side-decl-macro.ax` (47) | EXP-16's module-side invocation — the prelude's derive spent by a module on its own type, a private product the module calls, and an entry-file name coexisting with the module's mangled one; the unfixed compiler refuses at the module's line |
 | `tests/diagnostics/515-decl-macro-in-module.ax` | EXP-16's visibility rule — a generated declaration from a non-`pub` template is `AX3023` outside its module, and the module's own call to it still works |
@@ -2176,8 +2202,9 @@ rather than the value alone.
    parameters substituting in name, type and expression positions.
    `data` and `struct` templates joined on 2026-08-15, which is what
    makes `MAC-CAP-7` hold. What remains under this heading:
-   `type` and `effect` templates — `import` and nested `macro` are
-   refusals by decision, not schedule. Module-side invocation,
+   `type` and `effect` templates, which landed 2026-08-15 and close
+   the kind list — `import` and nested `macro` are refusals by
+   decision, not schedule. Module-side invocation,
    `MAC-EXP-16`'s stated limit, landed 2026-08-15: a module invokes a
    declaration macro over its own declarations, and phase D applies
    the mangling and visibility import resolution would have. The prerequisite for everything in
@@ -2206,8 +2233,9 @@ rather than the value alone.
    in all three positions against one shared binding-form normaliser,
    and `syntax/join` nests, so nested declaration iteration can name
    its products. What remains near this heading belongs to
-   `MAC-CAP-8`, not to the queries: `type` and `effect` templates.
-   The module-side INVOCATION limit closed on 2026-08-15.
+   `MAC-CAP-8`, not to the queries — and both closed on 2026-08-15:
+   the module-side INVOCATION limit, and the `type` and `effect`
+   template kinds.
 5. **`MAC-LANG-14`–`MAC-LANG-18`** — rules, patterns and ellipsis. The
    largest surface change and the one that should land last, because
    the others do not depend on it. Three notes from probing it on

@@ -224,7 +224,14 @@ module.exports = grammar({
     // top-level signature's subject is always a bare identifier:
     // `(type_signature subject: (identifier))`.
     type_signature: $ => seq(
-      '(', optional(field('visibility', 'pub')), '::', field('subject', $._expression), field('type', $._type), ')',
+      '(', optional(field('visibility', 'pub')), '::',
+      // `syntax_join_name` FIRST: `(:: (syntax/join wrap nm) ...)` is a
+      // joined declaration name inside a template, and `_expression`
+      // would take it as an ordinary application of `syntax/join` to
+      // two arguments - a tree that says the wrong thing about the
+      // same bytes.
+      field('subject', choice($.syntax_join_name, $._expression)),
+      field('type', $._type), ')',
     ),
 
     // `(fn (name params...) body)` or `(define name body)`.
@@ -380,7 +387,7 @@ module.exports = grammar({
     // parser, so it is optional here.
     type_alias: $ => seq(
       '(', optional(field('visibility', 'pub')), 'type',
-      field('name', $.identifier),
+      field('name', choice($.identifier, $.syntax_join_name)),
       optional(field('type_parameters', $.type_parameters)),
       optional('='),
       field('target', $._type),
@@ -464,7 +471,7 @@ module.exports = grammar({
 
     effect_declaration: $ => seq(
       '(', optional(field('visibility', 'pub')), 'effect',
-      field('name', $.identifier),
+      field('name', choice($.identifier, $.syntax_join_name)),
       repeat(field('operation', $.effect_operation)),
       ')',
     ),
@@ -549,6 +556,10 @@ module.exports = grammar({
       $.pointer_type,
       $.linear_type,
       $.effect_type,
+      // `(syntax/join a b)` where a TYPE stands - a `type` template
+      // names its alias with a join, and the signature beside it has
+      // to be able to write that name (MAC-CAP-8).
+      $.syntax_join_name,
     ),
 
     builtin_type: _ => choice(...BUILTIN_TYPES),

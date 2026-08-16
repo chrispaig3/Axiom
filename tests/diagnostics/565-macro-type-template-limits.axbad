@@ -1,10 +1,15 @@
-; `data` and `struct` became template kinds; the rest did not, and the
-; reserved prefix followed them into the type namespace. Four AX
-; refusals, each at the place the reader can act on:
+; `data`, `struct`, `type` and `effect` are template kinds; the rest
+; are not, and the reserved prefix followed them into the type
+; namespace. Four AX refusals, each at the place the reader can act on:
 ;
-;   badAlias   a `type` template - still AX3021 at the MACRO's own
-;              line, before any invocation exists, because a
-;              template kind is a property of the macro
+;   badMacro   a nested `macro` template - AX3021 at the MACRO's own
+;              line, before any invocation exists, because a template
+;              kind is a property of the macro. Refused by DECISION:
+;              a macro generated in phase D would have to join the
+;              macro table the same fixpoint is reading
+;              (`trait` does not reach this refusal at all - it does
+;              not parse in a template position, so it is AX2003 from
+;              the parser, which is why the case here is a macro)
 ;   badImport  an `import` template - refused by DECISION rather than
 ;              by schedule: an import inside a template reopens
 ;              resolution ordering, which has already run when phase
@@ -18,8 +23,8 @@
 ; parser demanded a bare identifier in both positions, so the
 ; near-miss died as a syntax error naming the paren instead of the
 ; rule.
-(macro badAlias ((badAlias T)
-   (type T = Int)))
+(macro badMacro ((badMacro T)
+   (macro (inner x) x)))
 
 (macro badImport ((badImport T)
    (import Str)))

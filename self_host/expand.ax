@@ -2028,17 +2028,26 @@
 ; sequence required to have the same length. Answers the (var, names,
 ; key) triples `expIterPush` binds from, or 0 with the refusal already
 ; emitted.
-(pub :: expIterSeqsOf (-> Int Int Int Int Int Int))
-(pub fn (expIterSeqsOf env binds params args sp)
-  (let ((pairs (expIterPairs env binds sp "syntax/for")))
+;
+; TWO spans, because two kinds of thing go wrong here and the author
+; changes a different line for each (MAC-DIAG-5). A malformed binding
+; form is a fact about the MACRO's text - `shapeSp` - and the author
+; edits the template. A SKEW is a fact about the arguments: the
+; template pairs the sequences, the invocation decides their lengths,
+; so it anchors at the invocation and carries the frame naming the
+; macro. `syntax/fold` has always reported its skew at the invocation;
+; this is the same rule stated rather than inherited.
+(pub :: expIterSeqsOf (-> Int Int Int Int Int Int Int))
+(pub fn (expIterSeqsOf env binds params args shapeSp isp)
+  (let ((pairs (expIterPairs env binds shapeSp "syntax/for")))
     (if (== pairs 0)
         0
-        (let ((seqs (expIterSeqs env pairs params args sp vecNew 0)))
+        (let ((seqs (expIterSeqs env pairs params args shapeSp vecNew 0)))
           (if (== seqs 0)
               0
               (let ((n (vecLen (vecGet (vecGet seqs 0) 1))))
                 (if (== (expIterSameLen seqs n 1) 0)
-                    (expQueryErr env sp
+                    (expQueryErr env isp
                       "syntax/for's parallel sequences have different lengths"
                       "parallel sequences zip in lockstep and must have equal length (macro-system.md MAC-CAP-5)"
                       (expMacMod env))
@@ -2161,7 +2170,7 @@
             (expMacMod env))
           (vecPush out (mkEInt 0))
           0 }
-        (let ((seqs (expIterSeqsOf env (vecGet qargs 0) params args fsp)))
+        (let ((seqs (expIterSeqsOf env (vecGet qargs 0) params args fsp isp)))
           (if (== seqs 0)
               { (vecPush out (mkEInt 0)) 0 }
               (expSpliceForArgElems (vecGet qargs 1) params args ren env isp out
@@ -2537,7 +2546,8 @@
 (pub :: expSpliceForArms (-> Int Int Int Int Int Int Int Int))
 (pub fn (expSpliceForArms farm params args ren env isp acc)
   (let ((seqs (expIterSeqsOf env (nodeB farm) params args
-                             (if (!= (nodeSpan farm) 0) (nodeSpan farm) isp))))
+                             (if (!= (nodeSpan farm) 0) (nodeSpan farm) isp)
+                             isp)))
     (if (== seqs 0)
         {
           (vecPush acc (mkNodeAt TAG_M_ARM (mkEVarAt "_" isp) (mkEInt 0) 0 isp))
@@ -3127,17 +3137,19 @@
       (|| (== (nodeTag t) TAG_D_MACROCALL)
       (|| (== (nodeTag t) TAG_D_DATA)
       (|| (== (nodeTag t) TAG_D_STRUCT)
-          (== (nodeTag t) TAG_D_IMPL))))))
+      (|| (== (nodeTag t) TAG_D_ALIAS)
+      (|| (== (nodeTag t) TAG_D_EFFECT)
+          (== (nodeTag t) TAG_D_IMPL))))))))
       0
       (if (== (nodeTag t) TAG_D_SYNFOR)
           (expCheckTplKindVec mac (nodeC t) env 0)
           (expEmit env (expMarkUnit env (mkDiagNote SEV_ERROR "AX3021" "macro-template-unsupported"
             (if (== (nodeSpan t) 0) (nodeSpan mac) (nodeSpan t))
             (strConcat (strConcat "macro `" (nodeA mac))
-                       "`'s template may generate `fn`, `::`, `data`, `struct` and `impl` declarations, further macro invocations, or a syntax/for over them - this form is not supported yet")
+                       "`'s template may generate `fn`, `::`, `data`, `struct`, `type`, `effect` and `impl` declarations, further macro invocations, or a syntax/for over them - this form is not supported yet")
             0 0
             "generate the declaration by hand, or split it out of the template"
-            "type, trait, effect and import templates refuse here, at the macro's own line, rather than passing through silently (MAC-CAP-2). An import inside a template would reopen resolution ordering and a nested macro the phase-D fixpoint, which is why those two are refusals by decision rather than by schedule")
+            "trait, import and nested macro templates refuse here, at the macro's own line, rather than passing through silently (MAC-CAP-2). An import inside a template would reopen resolution ordering and a nested macro the phase-D fixpoint, which is why those two are refusals by decision rather than by schedule")
             (nodeModule mac))))))
 
 (pub :: expCheckTplKindVec (-> Int Int Int Int Int))
@@ -3514,7 +3526,8 @@
 (pub :: expBuildForDecls (-> Int Int Int Int Int Int Int))
 (pub fn (expBuildForDecls f params args env isp acc)
   (let ((seqs (expIterSeqsOf env (nodeB f) params args
-                             (if (!= (nodeSpan f) 0) (nodeSpan f) isp))))
+                             (if (!= (nodeSpan f) 0) (nodeSpan f) isp)
+                             isp)))
     (if (== seqs 0)
         0
         (expBuildForElems f params args env isp acc
@@ -3598,6 +3611,27 @@
   (if (== t 0)
       0
       (let ((tag (nodeTag t)))
+        ; A JOIN in type position. `(syntax/join nm Handle)` parses
+        ; here as a type CONSTRUCTOR applied to two arguments, and
+        ; without this arm it substituted into a three-part
+        ; application - the type a `type` template's own alias name
+        ; has, which is exactly the name a signature beside it wants
+        ; to write. Each side resolves through `expSubstName`, so a
+        ; parameter, a for-variable and a literal all work, and the
+        ; answer is one constructor with no arguments.
+        (if (&& (== tag TAG_T_CON)
+                (&& (strEq (nodeA t) "syntax/join")
+                    (if (== (nodeB t) 0) false (== (vecLen (nodeB t)) 2))))
+            (let ((l (expSubstTyName (vecGet (nodeB t) 0) params args env isp)))
+              (if (== (cast Int l) 0)
+                  (mkNode TAG_T_ERR 0 0 0)
+                  (let ((r (expSubstTyName (vecGet (nodeB t) 1) params args env isp)))
+                    (if (== (cast Int r) 0)
+                        (mkNode TAG_T_ERR 0 0 0)
+                        (let ((j (expJoinName l r)))
+                          (if (== (lexStartsLower j) 1)
+                              (mkTVar j)
+                              (mkTCon j vecNew)))))))
         (if (== tag TAG_T_CON)
             (let ((n (expSubstName (nodeA t) params args env isp)))
               (if (== (cast Int n) 0)
@@ -3621,7 +3655,26 @@
             (mkNode TAG_T_LIST (expSubstTy (nodeA t) params args env isp) 0 0)
         (if (== tag TAG_T_PTR)
             (mkTPtr (expSubstTy (nodeA t) params args env isp) (nodeB t))
-            t)))))))))
+            t))))))))))
+
+; One side of a type-position join: a bare type name, resolved the way
+; a name position resolves. A nested join is a type node of its own,
+; so it recurses through `expSubstTy` and reads its answer back off
+; the constructor it built.
+(pub :: expSubstTyName (-> Int Int Int Int Int String))
+(pub fn (expSubstTyName t params args env isp)
+  (if (|| (== (nodeTag t) TAG_T_CON) (== (nodeTag t) TAG_T_VAR))
+      (if (if (== (nodeB t) 0) true (== (vecLen (nodeB t)) 0))
+          (expSubstName (nodeA t) params args env isp)
+          (let ((sub (expSubstTy t params args env isp)))
+            (if (== (nodeTag sub) TAG_T_ERR)
+                (cast String 0)
+                (nodeA sub))))
+      (cast String
+        (expQueryErr env isp
+          "a `(syntax/join ...)` in type position joins two type NAMES"
+          "write `(syntax/join a b)` with a name on each side, or a join of two on either"
+          (expMacMod env)))))
 
 (pub :: expSubstTyVec (-> Int Int Int Int Int Int))
 (pub fn (expSubstTyVec v params args env isp)
@@ -3817,6 +3870,48 @@
                         (memSetWord g 5 (expGenVis env t))
                         g
                       })))))
+    (if (== tag TAG_D_ALIAS)
+        ; A `type` template. The alias's name is a name position, its
+        ; TARGET is a type position, and the type-parameter list is
+        ; copied verbatim for the reason the `data` arm gives. Nothing
+        ; else is needed: `tcExpandSigAliases` rewrites uses of an
+        ; alias during checking, and phase D has finished by then, so
+        ; a generated alias is indistinguishable from a written one -
+        ; which is what MAC-EXP-17 says and what makes this arm four
+        ; lines rather than a pass.
+        (let ((nsp (expNameSpan (nodeA t) params args isp))
+              (nm (expSubstName (nodeA t) params args env isp)))
+          (if (== (cast Int nm) 0)
+              0
+              (let ((ty (expSubstTy (nodeB t) params args env isp)))
+                (if (== ty 0)
+                    0
+                    (let ((g (mkNodeAt TAG_D_ALIAS nm ty (nodeC t) nsp)))
+                      {
+                        (memSetWord g 5 (expGenVis env t))
+                        g
+                      })))))
+    (if (== tag TAG_D_EFFECT)
+        ; An `effect` template. The effect's name and each operation's
+        ; name are name positions; each operation's declared arrow is a
+        ; type position. The two vectors are rebuilt in lockstep - the
+        ; bare names every existing reader indexes (codegen's evidence
+        ; slots, the ambiguity table, AX3017's count) and the fields
+        ; that carry the types - because a reader that found them
+        ; disagreeing would read one operation's name beside another's
+        ; arrow.
+        (let ((nsp (expNameSpan (nodeA t) params args isp))
+              (nm (expSubstName (nodeA t) params args env isp)))
+          (if (== (cast Int nm) 0)
+              0
+              (let ((ops vecNew) (ofs vecNew))
+                (if (== (expBuildEffectOps (nodeB t) (nodeC t) params args env isp ops ofs 0) 0)
+                    0
+                    (let ((g (mkNodeAt TAG_D_EFFECT nm ops ofs nsp)))
+                      {
+                        (memSetWord g 5 (expGenVis env t))
+                        g
+                      })))))
     (if (== tag TAG_D_MACROCALL)
         (let ((hd (expSubstName (nodeA t) params args env isp)))
           (if (== (cast Int hd) 0)
@@ -3826,12 +3921,35 @@
         {
           (expEmit env (mkDiagNote SEV_ERROR "AX3021" "macro-template-unsupported"
             isp
-            "a declaration template may generate `fn`, `::`, `data`, `struct` and `impl` declarations, or further macro invocations - this form is not supported yet"
+            "a declaration template may generate `fn`, `::`, `data`, `struct`, `type`, `effect` and `impl` declarations, or further macro invocations - this form is not supported yet"
             0 0
             "generate the declaration by hand, or extend the template surface"
-            "type, trait, effect and import templates are refusals rather than silent passthroughs, so the commit that adds one adds it loudly (MAC-CAP-2)"))
+            "trait, import and nested macro templates are refusals rather than silent passthroughs, so the commit that adds one adds it loudly (MAC-CAP-2)"))
           0
-        }))))))))
+        }))))))))))
+
+; An `effect` template's operations, both vectors at once. Answers 1,
+; or 0 with the refusal already emitted.
+(pub :: expBuildEffectOps (-> Int Int Int Int Int Int Int Int Int Int))
+(pub fn (expBuildEffectOps ops ofs params args env isp outOps outFs i)
+  (if (>= i (vecLen ops))
+      1
+      (let ((nm (expSubstName (vecGet ops i) params args env isp)))
+        (if (== (cast Int nm) 0)
+            0
+            (let ((f (if (< i (vecLen ofs)) (vecGet ofs i) 0)))
+              {
+                (vecPush outOps (cast Int nm))
+                (vecPush outFs
+                  (if (== f 0)
+                      0
+                      (mkNodeAt TAG_FIELD nm
+                                (if (== (nodeB f) 0)
+                                    0
+                                    (expSubstTy (nodeB f) params args env isp))
+                                0 isp)))
+                (expBuildEffectOps ops ofs params args env isp outOps outFs (+ i 1))
+              })))))
 
 ; Each constructor of a `data` template: name substituted, field
 ; types substituted, arity and float flags recomputed from what came

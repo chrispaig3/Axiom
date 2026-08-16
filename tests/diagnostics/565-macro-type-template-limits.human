@@ -1,27 +1,27 @@
-[1;31merror[AX3021][0m[1m: macro `badAlias`'s template may generate `fn`, `::`, `data`, `struct` and `impl` declarations, further macro invocations, or a syntax/for over them - this form is not supported yet[0m
-  [1;34m--> [0m565-macro-type-template-limits.ax:22:10
+[1;31merror[AX3021][0m[1m: macro `badMacro`'s template may generate `fn`, `::`, `data`, `struct`, `type`, `effect` and `impl` declarations, further macro invocations, or a syntax/for over them - this form is not supported yet[0m
+  [1;34m--> [0m565-macro-type-template-limits.ax:27:12
 [1;34m   |[0m
-[1;34m22 |[0m    (type T = Int)))
-[1;34m   |[0m          [1;31m^[0m
+[1;34m27 |[0m    (macro (inner x) x)))
+[1;34m   |[0m            [1;31m^^^^^[0m
 [1;34m   |[0m
-  [1;34m = [0m[1mnote: [0mtype, trait, effect and import templates refuse here, at the macro's own line, rather than passing through silently (MAC-CAP-2). An import inside a template would reopen resolution ordering and a nested macro the phase-D fixpoint, which is why those two are refusals by decision rather than by schedule
+  [1;34m = [0m[1mnote: [0mtrait, import and nested macro templates refuse here, at the macro's own line, rather than passing through silently (MAC-CAP-2). An import inside a template would reopen resolution ordering and a nested macro the phase-D fixpoint, which is why those two are refusals by decision rather than by schedule
   [1;34m = [0m[1;32mhelp: [0mgenerate the declaration by hand, or split it out of the template
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3021` for a full explanation
 
-[1;31merror[AX3021][0m[1m: macro `badImport`'s template may generate `fn`, `::`, `data`, `struct` and `impl` declarations, further macro invocations, or a syntax/for over them - this form is not supported yet[0m
-  [1;34m--> [0m565-macro-type-template-limits.ax:25:12
+[1;31merror[AX3021][0m[1m: macro `badImport`'s template may generate `fn`, `::`, `data`, `struct`, `type`, `effect` and `impl` declarations, further macro invocations, or a syntax/for over them - this form is not supported yet[0m
+  [1;34m--> [0m565-macro-type-template-limits.ax:30:12
 [1;34m   |[0m
-[1;34m25 |[0m    (import Str)))
+[1;34m30 |[0m    (import Str)))
 [1;34m   |[0m            [1;31m^^^[0m
 [1;34m   |[0m
-  [1;34m = [0m[1mnote: [0mtype, trait, effect and import templates refuse here, at the macro's own line, rather than passing through silently (MAC-CAP-2). An import inside a template would reopen resolution ordering and a nested macro the phase-D fixpoint, which is why those two are refusals by decision rather than by schedule
+  [1;34m = [0m[1mnote: [0mtrait, import and nested macro templates refuse here, at the macro's own line, rather than passing through silently (MAC-CAP-2). An import inside a template would reopen resolution ordering and a nested macro the phase-D fixpoint, which is why those two are refusals by decision rather than by schedule
   [1;34m = [0m[1;32mhelp: [0mgenerate the declaration by hand, or split it out of the template
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3021` for a full explanation
 
 [1;31merror[AX3028][0m[1m: a `(syntax/join ...)` name stands in a declaration macro's template, not in ordinary code[0m
-  [1;34m--> [0m565-macro-type-template-limits.ax:27:7
+  [1;34m--> [0m565-macro-type-template-limits.ax:32:7
 [1;34m   |[0m
-[1;34m27 |[0m (data (syntax/join Loose Ends)
+[1;34m32 |[0m (data (syntax/join Loose Ends)
 [1;34m   |[0m       [1;31m^[0m
 [1;34m   |[0m
   [1;34m = [0m[1mnote: [0mthe query vocabulary is CLOSED and compiler-implemented (macro-system.md MAC-CAP-5/6): every query is answered from the declaration list at expansion time, and a query with no answer is this refusal, never a default value
@@ -29,9 +29,9 @@
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3028` for a full explanation
 
 [1;31merror[AX3028][0m[1m: a `(syntax/join ...)` constructor name stands in a declaration macro's template, not in ordinary code[0m
-  [1;34m--> [0m565-macro-type-template-limits.ax:31:4
+  [1;34m--> [0m565-macro-type-template-limits.ax:36:4
 [1;34m   |[0m
-[1;34m31 |[0m   ((syntax/join Wander Off)))
+[1;34m36 |[0m   ((syntax/join Wander Off)))
 [1;34m   |[0m    [1;31m^[0m
 [1;34m   |[0m
   [1;34m = [0m[1mnote: [0mthe query vocabulary is CLOSED and compiler-implemented (macro-system.md MAC-CAP-5/6): every query is answered from the declaration list at expansion time, and a query with no answer is this refusal, never a default value

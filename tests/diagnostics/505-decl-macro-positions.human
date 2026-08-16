@@ -14,6 +14,11 @@
 [1;34m16 |[0m (declM (+ 1 2))
 [1;34m   |[0m  [1;31m^^^^^[0m
 [1;34m   |[0m
+  [1;34m--> [0m505-decl-macro-positions.ax:12:8
+[1;34m   |[0m
+[1;34m12 |[0m (macro declM ((declM nm) (fn (nm) 1)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `declM`[0m
+[1;34m   |[0m
   [1;34m = [0m[1mnote: [0mthe parameter stands in a NAME position of the template - a declaration head or a parameter list - and only an identifier can be a name
   [1;34m = [0m[1;32mhelp: [0mpass a plain name in this argument position
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3027` for a full explanation

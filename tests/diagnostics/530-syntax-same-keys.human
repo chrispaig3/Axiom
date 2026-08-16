@@ -4,6 +4,11 @@
 [1;34m23 |[0m (crossKeys P Q)
 [1;34m   |[0m  [1;31m^^^^^^^^^[0m
 [1;34m   |[0m
+  [1;34m--> [0m530-syntax-same-keys.ax:15:8
+[1;34m   |[0m
+[1;34m15 |[0m (macro crossKeys ((crossKeys S U)
+[1;34m   |[0m        [1;36m^^^^^^^^^ in this expansion of `crossKeys`[0m
+[1;34m   |[0m
   [1;34m = [0m[1mnote: [0mthe query vocabulary is CLOSED and compiler-implemented (macro-system.md MAC-CAP-5/6): every query is answered from the declaration list at expansion time, and a query with no answer is this refusal, never a default value
   [1;34m = [0m[1;32mhelp: [0msyntax/same compares positions within ONE sequence; iterate both variables over the same query
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3028` for a full explanation
@@ -13,6 +18,11 @@
 [1;34m   |[0m
 [1;34m25 |[0m (unbound P)
 [1;34m   |[0m  [1;31m^^^^^^^[0m
+[1;34m   |[0m
+  [1;34m--> [0m530-syntax-same-keys.ax:20:8
+[1;34m   |[0m
+[1;34m20 |[0m (macro unbound ((unbound S)
+[1;34m   |[0m        [1;36m^^^^^^^ in this expansion of `unbound`[0m
 [1;34m   |[0m
   [1;34m = [0m[1mnote: [0mthe query vocabulary is CLOSED and compiler-implemented (macro-system.md MAC-CAP-5/6): every query is answered from the declaration list at expansion time, and a query with no answer is this refusal, never a default value
   [1;34m = [0m[1;32mhelp: [0msyntax/same compares iteration variables; bind both with syntax/for first

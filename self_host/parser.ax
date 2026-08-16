@@ -1070,7 +1070,9 @@
 ; record.
 (pub :: parseEffectDecl (-> Int Int Int))
 (pub fn (parseEffectDecl tokens pos)
-  (let ((nr (parseIdentName tokens pos)))
+  ; `parseDeclName` for the same reason `data` uses it: an `effect`
+  ; template may join its name.
+  (let ((nr (parseDeclName tokens pos)))
     (if (== (memGetWord nr 0) 0)
         nr
         (let ((name (memGetWord nr 1))
@@ -1131,8 +1133,16 @@
 ; gain a node.
 (pub :: parseAliasDecl (-> Int Int Int Int))
 (pub fn (parseAliasDecl tokens pos origPos)
-  (if (peekIs tokens pos TK_IDENT)
-      (let ((nr (parseIdentName tokens pos)))
+  ; `(` as well as an identifier, because the name may be a
+  ; `(syntax/join ...)` inside a template. The old guard tested for an
+  ; identifier only, so a joined alias name fell through to the
+  ; skip-unknown fallback and read as `AX2003 syntax error`.
+  (if (|| (peekIs tokens pos TK_IDENT) (peekIs tokens pos TK_LPAREN))
+      ; `parseDeclName`, not `parseIdentName`: a `type` template may
+      ; name its alias with `(syntax/join Ref T)`, exactly as a `data`
+      ; template names its type. Outside a macro the marker reaches
+      ; `expCheckDeclNames` and refuses there.
+      (let ((nr (parseDeclName tokens pos)))
         (if (== (memGetWord nr 0) 0)
             (pErr origPos)
             (let ((name (memGetWord nr 1))
@@ -1541,6 +1551,22 @@
   (if (peekIs tokens pos TK_RPAREN)
       (pOk (mkTTup vecNew) (advance pos))
   (if (&& (peekIs tokens pos TK_IDENT)
+          (strEq (tokenLexeme (vecGet tokens pos)) "syntax/join"))
+      ; `(syntax/join a b)` where a TYPE stands: the same marker string
+      ; a declaration NAME position writes, carried as a constructor
+      ; with no arguments, so `expSubstTy`'s existing name resolution
+      ; decodes it. A `type` template names an alias with a join and
+      ; the signature beside it has to be able to write that name;
+      ; without this the form fell into the tuple branch below - the
+      ; head is lowercase, so it is not a type application - and a
+      ; generated signature took a THREE-TUPLE where its alias should
+      ; have been, reported as `expected Int, found (_t321, {unknown},
+      ; {unknown})` at the call site.
+      (let ((mr (parseDeclName tokens (- pos 1))))
+        (if (== (memGetWord mr 0) 0)
+            mr
+            (pOk (mkTCon (memGetWord mr 1) vecNew) (memGetWord mr 2))))
+  (if (&& (peekIs tokens pos TK_IDENT)
           (&& (identStartsUpper tokens pos)
               (== (cast Int (typeKeywordCanon (tokenLexeme (vecGet tokens pos)))) 0)))
       ; Type application: (Maybe Int), (Vec Float). A keyword head -
@@ -1555,7 +1581,7 @@
         (let ((tys (memGetWord r 1)))
           (if (== (vecLen tys) 1)
               (pOk (vecGet tys 0) (memGetWord r 2))
-              (pOk (mkTTup tys) (memGetWord r 2))))))))))
+              (pOk (mkTTup tys) (memGetWord r 2)))))))))))
 
 ; `(-> A B C)` folds right: A -> (B -> C). `i` walks from the second-
 ; to-last element down to 0, wrapping `acc` each step.

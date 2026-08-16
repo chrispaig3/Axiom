@@ -5,18 +5,23 @@
 ; (macro-system.md MAC-CAP-2 - "the ninth form refuses in the commit
 ; that adds it").
 ;
-; This fixture used a `data` template until 2026-08-15, when `data`
-; and `struct` became template kinds and it stopped producing a
+; This fixture has now been overtaken TWICE by the surface it guards:
+; it used a `data` template until 2026-08-15, when `data` and `struct`
+; became template kinds, and then a `type` alias until later the same
+; day, when `type` and `effect` did. Each time it stopped producing a
 ; diagnostic at all - a golden going silent because the language grew
-; under it, which the JSON derivation caught rather than the eye. A
-; `type` alias is the refusal now, and the reason it is one is
-; scheduling rather than decision: the surface grows by measured
-; commits, not by default. (`trait` was tried here first and does not
+; under it, which the JSON derivation caught both times rather than
+; the eye.
+;
+; A nested `macro` is the refusal now, and it is a refusal by DECISION
+; rather than by schedule, which is what makes it a stable subject: a
+; macro generated in phase D would have to join the macro table the
+; same fixpoint is reading. (`trait` was tried here first and does not
 ; reach AX3021 at all - a trait declaration inside a template is
 ; AX2003 at the parser, which is a different fact about a different
 ; layer.)
 (macro defAlias ((defAlias nm)
-   (type nm = Int)))
+   (macro (nm x) x)))
 
 (:: main Int)
 

@@ -4,6 +4,11 @@
 [1;34m39 |[0m (badArity D)
 [1;34m   |[0m  [1;31m^^^^^^^^[0m
 [1;34m   |[0m
+  [1;34m--> [0m560-syntax-scalar-misuse.ax:27:8
+[1;34m   |[0m
+[1;34m27 |[0m (macro badArity ((badArity T)
+[1;34m   |[0m        [1;36m^^^^^^^^ in this expansion of `badArity`[0m
+[1;34m   |[0m
   [1;34m = [0m[1mnote: [0mthe query vocabulary is CLOSED and compiler-implemented (macro-system.md MAC-CAP-5/6): every query is answered from the declaration list at expansion time, and a query with no answer is this refusal, never a default value
   [1;34m = [0m[1;32mhelp: [0mthe query reads the declaration list; syntax/arity's first argument names a data constructor
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3028` for a full explanation
@@ -13,6 +18,11 @@
 [1;34m   |[0m
 [1;34m41 |[0m (badName D)
 [1;34m   |[0m  [1;31m^^^^^^^[0m
+[1;34m   |[0m
+  [1;34m--> [0m560-syntax-scalar-misuse.ax:30:8
+[1;34m   |[0m
+[1;34m30 |[0m (macro badName ((badName T)
+[1;34m   |[0m        [1;36m^^^^^^^ in this expansion of `badName`[0m
 [1;34m   |[0m
   [1;34m = [0m[1mnote: [0mthe query vocabulary is CLOSED and compiler-implemented (macro-system.md MAC-CAP-5/6): every query is answered from the declaration list at expansion time, and a query with no answer is this refusal, never a default value
   [1;34m = [0m[1;32mhelp: [0mevery query is APPLIED - `(syntax/name x)`, `(syntax/constructors T)` - so a bare `syntax/` name is a query missing its arguments, or a spelling the vocabulary does not answer
@@ -33,6 +43,11 @@
 [1;34m   |[0m
 [1;34m45 |[0m (badJoin D)
 [1;34m   |[0m  [1;31m^^^^^^^[0m
+[1;34m   |[0m
+  [1;34m--> [0m560-syntax-scalar-misuse.ax:36:8
+[1;34m   |[0m
+[1;34m36 |[0m (macro badJoin ((badJoin T)
+[1;34m   |[0m        [1;36m^^^^^^^ in this expansion of `badJoin`[0m
 [1;34m   |[0m
   [1;34m = [0m[1mnote: [0mthe query vocabulary is CLOSED and compiler-implemented (macro-system.md MAC-CAP-5/6): every query is answered from the declaration list at expansion time, and a query with no answer is this refusal, never a default value
   [1;34m = [0m[1;32mhelp: [0mwrite `(syntax/join a b)`, or `((syntax/join a b) x)` to call what it names
