@@ -1,0 +1,84 @@
+[1;31merror[AX3012][0m[1m: cannot assign to immutable binding `tmp`[0m
+  [1;34m--> [0mBumpMod.ax:29:12
+[1;34m   |[0m
+[1;34m27 |[0m   (let ((tmp 1))
+[1;34m   |[0m          [1;36m--- `tmp` is bound here[0m
+[1;34m...[0m
+[1;34m29 |[0m       (set tmp 2)
+[1;34m   |[0m            [1;31m^^^ `tmp` cannot be assigned[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mdeclare it mutable: `(mut tmp ...)`[1;35m ~> mut tmp[0m
+  [1;34m = [0m[1;32mhelp: [0monly a binding introduced by `(let ((mut x ...)) ...)` may be the target of `set`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3012` for a full explanation
+
+[1;31merror[AX3012][0m[1m: cannot assign to immutable binding `tmp.1`[0m
+  [1;34m--> [0m580-expansion-fix-suppressed.ax:50:23
+[1;34m   |[0m
+[1;34m50 |[0m (fn (fromMacro n) (+ (bumpIt n) (callIt n)))
+[1;34m   |[0m                       [1;31m^^^^^^ `tmp.1` cannot be assigned[0m
+[1;34m50 |[0m (fn (fromMacro n) (+ (bumpIt n) (callIt n)))
+[1;34m   |[0m                       [1;36m------ `tmp.1` is bound here[0m
+[1;34m   |[0m
+  [1;34m--> [0m580-expansion-fix-suppressed.ax:35:9
+[1;34m   |[0m
+[1;34m35 |[0m (macro (bumpIt v) (let ((tmp 1))
+[1;34m   |[0m         [1;36m^^^^^^ in this expansion of `bumpIt`[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mdeclare it mutable: `(mut tmp.1 ...)`
+  [1;34m = [0m[1;32mhelp: [0monly a binding introduced by `(let ((mut x ...)) ...)` may be the target of `set`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3012` for a full explanation
+
+[1;31merror[AX3001][0m[1m: undefined variable `helperr`[0m
+  [1;34m--> [0m580-expansion-fix-suppressed.ax:50:34
+[1;34m   |[0m
+[1;34m50 |[0m (fn (fromMacro n) (+ (bumpIt n) (callIt n)))
+[1;34m   |[0m                                  [1;31m^^^^^^ no binding named `helperr` in scope[0m
+[1;34m   |[0m
+  [1;34m--> [0m580-expansion-fix-suppressed.ax:42:9
+[1;34m   |[0m
+[1;34m42 |[0m (macro (callIt x) (helperr x))
+[1;34m   |[0m         [1;36m^^^^^^ in this expansion of `callIt`[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0ma similarly named binding `helper` is in scope; did you mean this?
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3001` for a full explanation
+
+[1;31merror[AX3012][0m[1m: cannot assign to immutable binding `tmp`[0m
+  [1;34m--> [0m580-expansion-fix-suppressed.ax:57:12
+[1;34m   |[0m
+[1;34m55 |[0m   (let ((tmp 1))
+[1;34m   |[0m          [1;36m--- `tmp` is bound here[0m
+[1;34m...[0m
+[1;34m57 |[0m       (set tmp 2)
+[1;34m   |[0m            [1;31m^^^ `tmp` cannot be assigned[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mdeclare it mutable: `(mut tmp ...)`[1;35m ~> mut tmp[0m
+  [1;34m = [0m[1;32mhelp: [0monly a binding introduced by `(let ((mut x ...)) ...)` may be the target of `set`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3012` for a full explanation
+
+[1;31merror[AX3001][0m[1m: undefined variable `helperr`[0m
+  [1;34m--> [0m580-expansion-fix-suppressed.ax:58:15
+[1;34m   |[0m
+[1;34m58 |[0m       (+ tmp (helperr n))
+[1;34m   |[0m               [1;31m^^^^^^^ no binding named `helperr` in scope[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0ma similarly named binding `helper` is in scope; did you mean this?[1;35m ~> helper[0m
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3001` for a full explanation
+
+[1;31merror[AX3012][0m[1m: cannot assign to immutable binding `tmp.0`[0m
+  [1;34m--> [0mBumpMod.ax:18:2
+[1;34m   |[0m
+[1;34m18 |[0m (mkBump Thing)
+[1;34m   |[0m  [1;31m^^^^^^ `tmp.0` cannot be assigned[0m
+[1;34m18 |[0m (mkBump Thing)
+[1;34m   |[0m  [1;36m------ `tmp.0` is bound here[0m
+[1;34m   |[0m
+  [1;34m--> [0mBumpMod.ax:8:12
+[1;34m   |[0m
+[1;34m 8 |[0m (pub macro mkBump
+[1;34m   |[0m            [1;36m^^^^^^ in this expansion of `mkBump`[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mdeclare it mutable: `(mut tmp.0 ...)`
+  [1;34m = [0m[1;32mhelp: [0monly a binding introduced by `(let ((mut x ...)) ...)` may be the target of `set`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3012` for a full explanation
+
+compilation failed due to 6 previous errors

@@ -1,4 +1,4 @@
-; expect 47
+; expect 239
 ; MAC-EXP-16's module-side declaration-macro invocation (2026-08-15).
 ; The v1 phase-D surface expanded ENTRY-FILE invocations only and
 ; refused a module's own with AX3027, because a declaration generated
@@ -10,7 +10,8 @@
 ; `deriveEq`, and until this landed no LIBRARY could spend it on its
 ; own types - only the entry file could.
 ;
-; Five claims, one bit each (47 when every one holds):
+; Seven claims, one bit each (239 when every one holds - the weights
+; are 1, 2, 4, 8, 32, 64, 128):
 ;
 ;    1  the entry file calls a function the MODULE derived
 ;       (`eqSignal`, from the prelude's `pub` template)
@@ -26,6 +27,18 @@
 ;       `Mod$name` is for
 ;   32  the entry file's own declaration-macro invocation still works
 ;       beside all of it - phase D did not become module-only
+;   64  when BOTH sides generate the same bare name, the ENTRY file's
+;       wins - `markSignal` answers 42 here and 7 inside the module.
+;       This failed silently at exit 0 answering 7: expansion walks
+;       the merged list, where a module's declarations come first, so
+;       the module claimed the bare slot and the entry file's
+;       generated definition could not
+;  128  a `pub` macro whose TEMPLATE omits `pub`, invoked HERE,
+;       generates declarations this file can use. Deciding that from
+;       the MACRO's module rather than the INVOCATION's made the
+;       generated `fn` invisible to the definition index and the
+;       program failed `AX3015 has a signature but no definition` -
+;       a program the compiler that predates this slice compiled
 ;
 ; The unfixed compiler refuses the whole file at `ModDerive.ax`'s
 ; first invocation, AX3027, exit 1.
@@ -49,6 +62,24 @@
 
 (fn (eqSignal a b) false)
 
+; the same collision one level up: BOTH sides generated. The module
+; invoked `mkMark` on its own type and so did this file, so
+; `markSignal` names two EXPORTED functions - and the entry file's
+; must win the bare slot, exactly as a hand-written one does. It
+; answers 42 here and 7 there.
+(macro mkMarkHere ((mkMarkHere T)
+   (:: (syntax/join mark T) Int)
+   (fn ((syntax/join mark T)) 42)))
+
+(mkMarkHere Signal)
+
+; a `pub` macro from the module whose template does NOT say `pub`,
+; invoked HERE: the products are the entry file's own declarations and
+; must be usable, whatever the library's template omitted. Getting
+; this axis wrong made the generated `fn` invisible to the definition
+; index and the program failed with AX3015.
+(mkTag Local)
+
 (:: b2i (-> Bool Int))
 
 (fn (b2i x)
@@ -69,6 +100,8 @@
     (local (== (localSum Green) 1))
     (ours (eqSignal Red Red))
     (entry (eqLocal Yes Yes))
+    (slot (== markSignal 42))
+    (lib (== tagLocal 7))
   )
     (+
       (b2i mine)      (+
@@ -81,7 +114,7 @@
                   true
                 )
               )
-            )            (* 32 (b2i entry))
+            )            (+ (* 32 (b2i entry)) (+ (* 64 (b2i slot)) (* 128 (b2i lib))))
           )
         )
       )

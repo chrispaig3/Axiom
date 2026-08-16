@@ -3435,8 +3435,17 @@
       (memSetWord env 17 (nodeModule d))
       (memSetWord env 11 0)
       (memSetWord env 13 vecNew)
+      ; The frame's SITE is the module the invocation was written in,
+      ; not the literal 0 this carried while phase D was entry-file
+      ; only: `expAttachTo` joins a frame to a diagnostic by span AND
+      ; by module, so a module-side invocation's frames could never
+      ; match once the diagnostic carried its own module - which is
+      ; both halves of MAC-DIAG-4's backtrace and MAC-TOOL-5's fix
+      ; suppression, silently absent for exactly the invocations this
+      ; slice made legal. The expression path (`expandDecl`) has always
+      ; read its site from the declaration being expanded.
       (vecPush (memGetWord env 10)
-        (cast Int (ExpFrame 0 isp (nodeA mac) (nodeSpan mac)
+        (cast Int (ExpFrame (nodeModule d) isp (nodeA mac) (nodeSpan mac)
                             (nodeModule mac))))
       (let ((made (expBuildDecls (memGetWord mac 9) (nodeB mac) (nodeB d)
                                  env isp vecNew 0)))
@@ -3454,6 +3463,12 @@
                       (expCopyDeclInto d (vecGet made 0))
                       (expAppendRest entryDecls decls made 1)
                       (expGiveTags d made tags)
+                      ; The entry file wins the bare slot, generated
+                      ; declarations included - `recordEntryFns` does
+                      ; this for the ones the parser produced, before
+                      ; any import is read, and these did not exist
+                      ; then.
+                      (expClaimEntryNames made env 0)
                       1
                     }
                     ; Module-side: every generated declaration joins
@@ -3689,11 +3704,22 @@
 ; MODULE-side generation is the case where the question has an answer:
 ; the template's own `pub` is what decides whether anything outside
 ; that module may name the product, exactly as it decides for a
-; declaration written by hand there. Read off the invocation site,
-; which phase D sets before it resolves the macro.
+; declaration written by hand there.
+;
+; The axis is the INVOCATION SITE (word 17), and reading word 9 here
+; was wrong in both directions, measured: word 9 holds the MACRO's
+; defining module by the time a template is built - `expInstantiateDecl`
+; moves it there so a nested private macro resolves at its definition
+; site - so the test asked "was this macro DEFINED in the entry file".
+; An entry file invoking an imported macro whose template omits `pub`
+; got a generated `fn` stamped 0, `defIdxBuild` indexes only visible
+; `fn`s, and the program failed with `AX3015 zeroColor has a signature
+; but no definition` - a program the compiler that predates this slice
+; compiles. The mirror leaked: a module invoking an ENTRY-FILE macro
+; exported every product whatever its template said.
 (pub :: expGenVis (-> Int Int Int))
 (pub fn (expGenVis env t)
-  (if (== (memGetWord env 9) 0) 1 (nodeVis t)))
+  (if (== (cast Int (expQSite env)) 0) 1 (nodeVis t)))
 
 (pub fn (expBuildOneDecl t params args env isp)
   (let ((tag (nodeTag t)))
@@ -3975,6 +4001,24 @@
                             (if (== i 0) exported vis0))
           }))))
 
+; Every generated entry-file `fn` claims its bare name, overriding an
+; import's claim exactly as an entry-file declaration written by hand
+; does by being recorded first. Signatures are not recorded, mirroring
+; `recordEntryFns`, which indexes definitions.
+(pub :: expClaimEntryNames (-> Int Int Int Int))
+(pub fn (expClaimEntryNames made env i)
+  (if (== (expBares env) 0)
+      0
+      (if (>= i (vecLen made))
+          0
+          {
+            (if (== (nodeTag (vecGet made i)) TAG_D_FN)
+                (mangleRecordEntry (expBares env) (expFulls env)
+                                   (nodeA (vecGet made i)))
+                0)
+            (expClaimEntryNames made env (+ i 1))
+          })))
+
 (pub :: expAppendRestMod (-> Int Int Int Int))
 (pub fn (expAppendRestMod decls made i)
   (if (>= i (vecLen made))
@@ -4072,8 +4116,21 @@
               {
                 (if (== (diagSpan d) 0)
                     0
-                    (expAttachTo d table units
-                                 (expUnitMod units (diagUnit d)) 0))
+                    {
+                      (expAttachTo d table units
+                                   (expUnitMod units (diagUnit d)) 0)
+                      ; MAC-TOOL-5: a diagnostic that acquired a frame
+                      ; is a diagnostic about generated text, and its
+                      ; machine-applicable replacement was computed
+                      ; against text the author's file does not
+                      ; contain. The span it carries is the
+                      ; INVOCATION's - that is what makes the report
+                      ; useful and the FIX wrong, since applying it
+                      ; pastes the replacement over the macro call.
+                      (if (> (diagTraceCount d) 0)
+                          (diagDisarmFixes d)
+                          0)
+                    })
                 (set i (+ i 1))
               }))
           0

@@ -60,6 +60,41 @@
   }
 )
 
+; The entry file's claim on a bare name, which OVERRIDES whatever an
+; import recorded. `mangleRecord` gives the entry file the bare slot by
+; running first (`recordEntryFns`, before any import is read), and that
+; is enough for declarations the parser produced. It is not enough for
+; declarations phase D GENERATES: expansion runs after import
+; resolution, and it walks the merged list, where a module's
+; declarations come before the entry file's - so a module-side
+; invocation claimed the slot first and a bare call in the entry file
+; reached the MODULE's function.
+;
+; Measured before this existed: an entry file generating `tagShape`
+; answering 42, importing a module that generates its own `tagShape`
+; answering 7, checked clean and answered 7.
+(pub :: mangleRecordEntry (-> Int Int String Int))
+(pub fn (mangleRecordEntry bares fulls name)
+  (let ((i (mangleIndexOf bares name 0)))
+    (if (< i 0)
+        {
+          (vecPush bares name)
+          (vecPush fulls name)
+          0
+        }
+        {
+          (vecSet fulls i name)
+          0
+        })))
+
+(pub :: mangleIndexOf (-> Int String Int Int))
+(pub fn (mangleIndexOf bares name i)
+  (if (>= i (vecLen bares))
+      (- 0 1)
+      (if (strEq (vecGet bares i) name)
+          i
+          (mangleIndexOf bares name (+ i 1)))))
+
 (pub :: mangleHasIn (-> Int String Int Bool))
 
 (pub fn (mangleHasIn bares bare i)

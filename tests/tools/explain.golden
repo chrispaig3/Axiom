@@ -508,9 +508,9 @@ every way that fails:
     expression and cannot stand in declaration position
   - a declaration macro is referenced in EXPRESSION position - the
     two template kinds are disjoint
-  - the invocation sits inside an imported module (the v1 surface is
-    entry-file invocation; generated declarations in a module would
-    need its mangling and visibility applied after resolution)
+  - the invocation sits in a pipeline carrying no mangling records -
+    a re-expansion of an already-resolved program - so a module-side
+    invocation there could generate a declaration nothing can name
   - an argument bound to a NAME position of the template - a
     declaration head or a parameter list - is not a bare identifier
 
@@ -527,7 +527,8 @@ declaration NAME position and, applied, as a REFERENCE to what such
 a name declares - `((syntax/join show T) x)`; `(syntax/constructors
 T)`, `(syntax/fields S)` and `(syntax/binders C p)` as iteration
 sequences; `(syntax/for (x seq) ...)` where a match ARM, a template
-DECLARATION, or a call ARGUMENT stands; `(syntax/fold f z binds tpl)`
+DECLARATION, or a call ARGUMENT stands, over one sequence or
+several zipped in lockstep as `((x xs) (y ys))`; `(syntax/fold f z binds tpl)`
 as the right-fold over one sequence or several zipped in lockstep;
 `(syntax/same f g)` over two iteration variables; and the three
 SCALAR queries `(syntax/name x)`, `(syntax/arity C)` and
@@ -547,8 +548,10 @@ needed. This code covers every way a query has no answer:
     `(syntax/join a b)` - the one query whose answer is itself a
     name, and therefore the only one that can feed another's
     argument
-  - parallel fold sequences of different lengths - the zip rule is a
-    diagnostic, never a truncation
+  - parallel sequences of different lengths, in a syntax/for or a
+    syntax/fold alike - the zip rule is a diagnostic, never a
+    truncation to the shorter
+  - a parallel binding that is not a `(y ys)` pair
   - syntax/same over variables ranging over DIFFERENT sequences - a
     false there would be a wrong answer, not a comparison - or over
     a name no enclosing syntax/for binds

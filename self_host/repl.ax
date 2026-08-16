@@ -274,7 +274,15 @@
                     (let ((probe (mkDFnAt "__repl_type_probe" vecNew
                                           (memGetWord er 1) 0)))
                     (let ((_pp (vecPush decls probe)))
-                    (let ((allDecls (resolveImports decls vecNew vecNew vecNew
+                    ; The mangling records and the module filters are
+                    ; kept and handed to expansion, rather than thrown
+                    ; away as three `vecNew`s were: `:type` and the
+                    ; eval half must agree about the program, and a
+                    ; loaded module carrying a declaration-macro
+                    ; invocation (MAC-EXP-16) is exactly a program the
+                    ; one would refuse and the other compile.
+                    (let ((tbares vecNew) (tfulls vecNew) (tmods vecNew))
+                    (let ((allDecls (resolveImports decls tbares tfulls tmods
                                                     (checkedTargetCode hostTarget)
                                                     "." units)))
                     ; Expansion's diagnostics are COLLECTED, not
@@ -284,7 +292,7 @@
                     ; and only then failed in the eval half, which
                     ; reads as the prompt contradicting itself.
                     (let ((exDiags vecNew))
-                    (let ((_ex (expandProgram decls allDecls exDiags vecNew 0 0 0 0)))
+                    (let ((_ex (expandProgram decls allDecls exDiags vecNew 0 tbares tfulls tmods)))
                     (if (> (countErrorDiags exDiags) 0)
                         { (printTypeErrors exDiags 0) (pErr 0) }
                     (let ((_lw (lowerImpls allDecls vecNew)))
@@ -301,7 +309,7 @@
                                   (printTypeErrors after before)
                                   (pErr 0)
                                 }
-                                (pOk (tyRender ty) 0)))))))))))))))))))))
+                                (pOk (tyRender ty) 0))))))))))))))))))))))
 
 (pub :: printTypeErrors (-> Int Int Int))
 ;@axiom:effect(io)

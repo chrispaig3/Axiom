@@ -13,7 +13,18 @@
 
 (dmk insideModule)
 
+(dmk alsoExported)
+
 (dhidden hiddenInside)
+
+; A macro the ENTRY FILE defines, invoked here. The entry file's
+; declarations are visible from every module (the flat namespace), so
+; this resolves - and the products are THIS module's, because the
+; visibility a generated declaration is born with is decided by the
+; module the invocation was written in and not by the macro's. Reading
+; that axis off the macro instead stamped these `pub` and let them out
+; of the module.
+(entryMk fromEntryMacro)
 
 (pub :: touch Int)
 

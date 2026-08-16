@@ -2837,10 +2837,17 @@
         0
       }))
 
+; `tc`, not a bare `out`: a diagnostic carries the UNIT its span
+; indexes, and these two pushed straight into the vector, so an
+; `AX3012` raised while checking an imported MODULE's body was stamped
+; unit 0 and rendered against the ENTRY file's bytes - measured on a
+; three-line entry file that reported `p3.ax:4:45-48`, a line it does
+; not have. Every other site in this checker goes through `emitDiag`,
+; which is where the stamp lives.
 (pub :: emitAX3012 (-> String Int Int Int Int))
-(pub fn (emitAX3012 name tspan bspan out)
+(pub fn (emitAX3012 name tspan bspan tc)
   {
-    (vecPush out
+    (emitDiag tc
       (diagSetLabel (mkDiagFix2 SEV_ERROR "AX3012" "assign-to-immutable"
         tspan
         (strConcat (strConcat "cannot assign to immutable binding `" name) "`")
@@ -2863,9 +2870,9 @@
 ; span to point at, and the `mut` fix would be wrong advice - a
 ; parameter list has no `mut`.
 (pub :: emitSetOnParam (-> String Int Int Int))
-(pub fn (emitSetOnParam name tspan out)
+(pub fn (emitSetOnParam name tspan tc)
   {
-    (vecPush out
+    (emitDiag tc
       (diagSetLabel (mkDiagNote SEV_ERROR "AX3012" "assign-to-immutable"
         tspan
         (strConcat (strConcat "cannot assign to `" name)
@@ -5384,10 +5391,10 @@
                             ; how `set` on a parameter passed `check`
                             ; and died in codegen as AX4002
                             ; (MM-MUT-1a).
-                            { (emitSetOnParam name (nodeSpan e) (tcOut tc))
+                            { (emitSetOnParam name (nodeSpan e) tc)
                               1 }
                             { (emitAX3012 name (nodeSpan e) (memGetWord ent 2)
-                                          (tcOut tc))
+                                          tc)
                               0 }))))
               {
                 (if (&& (== suppressed 0)

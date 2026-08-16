@@ -2126,13 +2126,38 @@
     ; copy-at-boundary work: the value being copied down sits above the
     ; restored waterline, in memory the reset gave back, and must
     ; survive being read until the copy finishes.
+    ; A RECYCLED block is dirty to its last byte and belongs to
+    ; whichever chunk it was allocated from, so neither of the
+    ; watermark's two jobs applies to it.
+    ;
+    ; `@__axiom_high` describes the CURRENT chunk - `install` resets it
+    ; to the new chunk's base and a reset rewinds it - while a block on
+    ; a size-class free list may have come from any chunk the program
+    ; has ever mapped. Comparing the two is comparing addresses from
+    ; different mappings, and mmap does not promise they ascend. Where
+    ; the popped block sits above the current chunk's watermark, the
+    ; old `%stop` came out BELOW `%hb`, the wipe loop ran zero times,
+    ; and the block was handed back with its previous contents -
+    ; against MM-ALLOC-6, which `strAlloc` (never writes its NUL) and
+    ; `Map`/`Intern` (read all-zero as "empty") both spend. The same
+    ; comparison then stored a foreign address into the watermark.
+    ;
+    ; So the pop path scrubs the whole block and leaves the watermark
+    ; alone. It costs nothing in the cases that were already right: for
+    ; a popped block below the watermark `%bstop` was `%he` already.
+    ; This is a pre-existing hazard - the pop path has always compared
+    ; these two - which raising the pool ceiling to 64 KiB widened from
+    ; blocks under 1 KiB to blocks under 64 KiB.
     (emitLine cg "handout:")
     (emitLine cg "  %hb = phi i64 [ %cur, %fast ], [ %data, %install ], [ %shead, %pop ]")
     (emitLine cg "  %he = phi i64 [ %next, %fast ], [ %new_bump, %install ], [ %pe, %pop ]")
     (emitLine cg "  %hh = phi i64 [ %high, %fast ], [ %chunk_high, %install ], [ %ph, %pop ]")
+    (emitLine cg "  %recyc = phi i1 [ false, %fast ], [ false, %install ], [ true, %pop ]")
     (emitLine cg "  %past = icmp ugt i64 %he, %hh")
-    (emitLine cg "  %stop = select i1 %past, i64 %hh, i64 %he")
-    (emitLine cg "  %newhigh = select i1 %past, i64 %he, i64 %hh")
+    (emitLine cg "  %bstop = select i1 %past, i64 %hh, i64 %he")
+    (emitLine cg "  %stop = select i1 %recyc, i64 %he, i64 %bstop")
+    (emitLine cg "  %nh = select i1 %past, i64 %he, i64 %hh")
+    (emitLine cg "  %newhigh = select i1 %recyc, i64 %hh, i64 %nh")
     (emitLine cg "  store i64 %newhigh, ptr @__axiom_high")
     (emitLine cg "  br label %wipe")
     (emitLine cg "wipe:")

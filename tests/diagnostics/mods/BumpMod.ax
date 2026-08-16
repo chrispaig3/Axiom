@@ -1,0 +1,31 @@
+; A module whose own declaration macro generates a body the checker
+; refuses, for 580: a diagnostic raised inside a MODULE-side expansion
+; has to name the module's file, carry the expansion frame, and lose
+; its machine-applicable fix (MAC-TOOL-5, MAC-DIAG-4).
+(pub data Thing
+  (One))
+
+(pub macro mkBump
+  ((mkBump T)
+   (pub :: (syntax/join bump T) (-> T Int))
+   (pub fn ((syntax/join bump T) v)
+     (let ((tmp 1))
+       {
+         (set tmp 2)
+         tmp
+       }))))
+
+(mkBump Thing)
+
+; the same refusal written by hand in this module, which is the
+; control: its span is real text here, so its `~>` survives - and it
+; is the case that reported against the ENTRY file's bytes until the
+; unit stamp reached these two emitters.
+(pub :: handBump (-> Thing Int))
+
+(pub fn (handBump v)
+  (let ((tmp 1))
+    {
+      (set tmp 2)
+      tmp
+    }))

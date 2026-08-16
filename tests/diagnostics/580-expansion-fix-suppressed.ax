@@ -1,0 +1,65 @@
+; MAC-TOOL-5: a machine-applicable fix is suppressed inside an
+; expansion, and only inside one.
+;
+; A diagnostic reported from generated code is anchored at the
+; INVOCATION - the line the author can change (MAC-DIAG-5) - and that
+; is exactly what makes its `~>` replacement wrong: the replacement
+; was computed against text the author's file does not contain, so
+; applying it pastes it over the macro call. Measured before the rule:
+; `bumpIt` below offered `~>"mut tmp.0"` across the bytes of
+; `(bumpIt 3)`, and `tmp.0` is a renamed binder no source can spell
+; (MAC-HYG-3a) - the AXDL `~>` field is consumed by tools that apply
+; it without asking.
+;
+; Six diagnostics, in pairs, so the golden shows the rule and its
+; boundary in one file:
+;
+;   1  AX3012 inside an expansion - help TEXT kept, `~>` gone, frame
+;      naming `bumpIt`
+;   2  AX3012 written by hand - `~>"mut tmp"` intact
+;   3  AX3001 inside an expansion - the did-you-mean help kept, `~>`
+;      gone, frame naming `callIt`
+;   4  AX3001 written by hand - `~>"helper"` intact
+;   5  AX3012 inside a MODULE-side expansion (BumpMod.ax) - the same
+;      rule where the invocation is not in this file at all. It needed
+;      two fixes to hold: the phase-D frame carried site 0, so it
+;      could not join a diagnostic that knew its own module, and
+;      without the join nothing disarmed the fix
+;   6  AX3012 written by hand IN THE MODULE - keeps its `~>`, and
+;      names BumpMod.ax. It reported against THIS file's bytes until
+;      the two AX3012 emitters stamped the unit like every other
+;      emitter in the checker: a three-line entry file was told its
+;      own line 4 was at fault
+(import BumpMod)
+
+(macro (bumpIt v) (let ((tmp 1))
+  {
+    (set tmp 2)
+    (+ tmp v)
+  }
+))
+
+(macro (callIt x) (helperr x))
+
+(:: helper (-> Int Int))
+
+(fn (helper y) y)
+
+(:: fromMacro (-> Int Int))
+
+(fn (fromMacro n) (+ (bumpIt n) (callIt n)))
+
+(:: byHand (-> Int Int))
+
+(fn (byHand n)
+  (let ((tmp 1))
+    {
+      (set tmp 2)
+      (+ tmp (helperr n))
+    }
+  )
+)
+
+(:: main Int)
+
+(fn (main) (+ (+ (fromMacro 1) (byHand 2)) (+ (bumpThing One) (handBump One))))

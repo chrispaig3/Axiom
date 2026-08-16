@@ -55,9 +55,10 @@ with each parameter reference replaced by that argument's syntax tree.
 An expression macro expands in expression position only, a declaration
 macro in declaration position only; either crossing is `AX3027`
 (`tests/diagnostics/505-decl-macro-positions.ax`). A declaration
-template may generate `fn`, `::` and `impl` declarations, further
-macro invocations, and `syntax/for` iterations over them — any other
-declaration kind is `AX3021` at the macro's own line — a
+template may generate `fn`, `::`, `data`, `struct` and `impl`
+declarations, further macro invocations, and `syntax/for` iterations
+over them — any other declaration kind is `AX3021` at the macro's own
+line — a
 name-position argument must be a bare identifier, and a macro is
 invocable from the entry file and from a module alike — a module's own
 invocation puts its products in that module's namespace, with the

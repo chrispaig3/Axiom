@@ -32,3 +32,29 @@
 (pub :: localSum (-> Signal Int))
 
 (pub fn (localSum s) (+ (countSignal s) 1))
+
+; A `pub` macro whose TEMPLATE says nothing about visibility, exported
+; for the entry file to invoke. It is the off-diagonal case the first
+; version of this slice got wrong in both directions: the visibility a
+; generated declaration is born with is decided by the INVOCATION's
+; module, not by the macro's. Invoked here it would be private; the
+; entry file invokes it, where every declaration is visible.
+(pub macro mkTag ((mkTag T)
+   (:: (syntax/join tag T) Int)
+   (fn ((syntax/join tag T)) 7)))
+
+; and the same macro invoked HERE: its product is private (the
+; template says nothing), which is what makes `tagSignal` this
+; module's own and leaves the bare name unclaimed
+(mkTag Signal)
+
+; An EXPORTED product, so this one does claim the bare name - and the
+; entry file generates `markSignal` too. First-writer-wins would give
+; it to this module, because expansion walks the merged list and a
+; module's declarations come first; the entry file has to win anyway,
+; exactly as it does for a name written by hand here.
+(pub macro mkMark ((mkMark T)
+   (pub :: (syntax/join mark T) Int)
+   (pub fn ((syntax/join mark T)) 7)))
+
+(mkMark Signal)

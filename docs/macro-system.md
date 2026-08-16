@@ -802,7 +802,11 @@ would also land in the wrong file's text.
 
 A conforming implementation **MUST** render a renamed binder under its
 original spelling in every diagnostic, and **MUST NOT** emit one inside
-a `~>` replacement — the general form of which is `MAC-TOOL-5`.
+a `~>` replacement — the general form of which is `MAC-TOOL-5`, and
+the `~>` half of it holds since 2026-08-15: a diagnostic carrying an
+expansion frame loses its machine-applicable replacements. What
+remains defective here is the *rendering* — the message still quotes
+`tmpvar.0` rather than `tmpvar`.
 
 **MAC-HYG-4 (H).** Nodes are **rebuilt**, never mutated. Returning a
 template's own node would make one node reachable from every call site,
@@ -1639,6 +1643,19 @@ The invocation stays primary, exactly as `MAC-DIAG-5` wants: it is the
 line the author can change. The REPL deliberately discards frames —
 its error line joins bare messages, and the prompt *is* the invocation.
 
+**What carries no frame, measured rather than assumed:** the join runs
+over the CHECKER's diagnostics only (`checkWithFrames`,
+`attachTcFrames`), so the EXPANDER's own refusals — `AX3021`,
+`AX3027`, `AX3028` — carry none, and a reader of one gets whichever
+span the refusal chose and no macro name. The two iteration
+constructs then differ in that choice: a skewed zip refuses at the
+`syntax/for` that wrote the pairing and at the INVOCATION for
+`syntax/fold`, and neither points at the other. Both are worth fixing
+together — attach frames to the expander's vector and the anchoring
+question answers itself, since the invocation becomes primary and the
+macro's text becomes the frame. Recorded rather than done, because
+every `AX302x` golden gains an `&` field the day it lands.
+
 **MAC-DIAG-5 (H, 2026-08-15).** With `MAC-DIAG-4`, the rendered form
 **SHALL** be:
 
@@ -1700,18 +1717,42 @@ generated declarations, attributed to the file containing the
 invocation, and **SHOULD** mark them as generated so a reader can tell
 why a name has no visible definition.
 
-**MAC-TOOL-5 (P).** **Lints run on the program the author wrote, not on
-the program expansion produced.** A diagnostic whose span lies inside an
-expansion and whose fix would edit generated text **MUST NOT** be
-offered as machine-applicable: there is nothing at that location to
-edit. Concretely, a conforming implementation **MUST** suppress a
-machine-applicable `~>` replacement whose span belongs to a generated
-node, and **MUST NOT** emit a replacement string containing a renamed
-binder (`MAC-HYG-3a`).
+**MAC-TOOL-5 (H, 2026-08-15).** **Lints run on the program the author
+wrote, not on the program expansion produced.** A diagnostic whose span
+lies inside an expansion and whose fix would edit generated text
+**MUST NOT** be offered as machine-applicable: there is nothing at that
+location to edit. Concretely, a conforming implementation **MUST**
+suppress a machine-applicable `~>` replacement whose span belongs to a
+generated node, and **MUST NOT** emit a replacement string containing a
+renamed binder (`MAC-HYG-3a`).
 
 This is a rule about a hazard the language already has rather than a
 future one: the AXDL grammar's `~>` field is consumed by tools that
-apply it without asking.
+apply it without asking. It was being violated, measured on two
+diagnostics rather than argued:
+
+```
+E AX3012 ... "cannot assign to immutable binding `tmp.0`"
+    ?4:13-17:"declare it mutable: `(mut tmp.0 ...)`"~>"mut tmp.0"
+    &tool5.ax:1:9-13:"bump"
+E AX3001 ... "undefined variable `helperr`"
+    ?7:13-19:"a similarly named binding `helper` is in scope"~>"helper"
+    &tool5b.ax:1:9-15:"callIt"
+```
+
+Both spans are the INVOCATION's — which is what `MAC-DIAG-5` wants for
+the report and what makes the fix wrong, since applying it pastes the
+replacement over the macro call. The first also carries `tmp.0`, a
+renamed binder no source can spell, which is `MAC-HYG-3a`'s half of
+this rule.
+
+The implementation is the join `MAC-DIAG-4` already computes: a
+diagnostic that acquired an expansion FRAME is a diagnostic about
+generated text, so `expAttachFrames` disarms its helps as it attaches
+them — the help's text survives, its span-and-replacement pair does
+not. Nothing outside an expansion moves, which the fixture asserts by
+carrying the same two diagnostics twice, once from a macro and once
+written by hand (`tests/diagnostics/580-expansion-fix-suppressed.ax`).
 
 **MAC-TOOL-6 (H, defective).** `axiom fmt` **MUST NOT** disagree with
 `axiom check` about what lexes. It does today — the formatter carries
@@ -2005,7 +2046,7 @@ nicety: without an expansion backtrace, the author of `(machine Door
 | Safety | SAFE-1…4 | — | SAFE-5 |
 | Integration | INT-1…3, INT-5 | INT-4, INT-6 | — |
 | Diagnostics | DIAG-1…4 | DIAG-5 | — |
-| Tooling | TOOL-1, TOOL-6 | TOOL-2…5 | — |
+| Tooling | TOOL-1, TOOL-5, TOOL-6 | TOOL-2…4 | — |
 
 Seven rules in the Holds column are held-but-defective, each with the
 defect stated inline where it is defined —
@@ -2013,8 +2054,9 @@ defect stated inline where it is defined —
 not the surplus argument), `MAC-EXP-11a` (the node budget counts
 unexpanded nodes and its message blames macros that may not exist),
 `MAC-EXP-14a` (a template literal keeps the defining file's byte
-offsets), `MAC-HYG-3a` (a renamed binder reaches a machine-applicable
-fix as an unspellable token), `MAC-CAP-3a` (`AX3022` reports and then
+offsets), `MAC-HYG-3a` (a renamed binder is still RENDERED under its
+gensym spelling; the `~>` half of that defect closed with
+`MAC-TOOL-5` on 2026-08-15), `MAC-CAP-3a` (`AX3022` reports and then
 emits the bad node anyway), `MAC-CAP-10.5` (the format lowering's
 `show` and `strConcat` are capturable by an entry file), and
 `MAC-TOOL-6` (`fmt` rewrites what `check` refuses to lex). This is [memory-model.md §9.0](memory-model.md)'s
@@ -2062,6 +2104,7 @@ convention; the list, not any one entry, is the argument for gating.
 | `tests/diagnostics/525-syntax-reserved.axbad` | CAP-6's reservation — syntax/ spellings outside a template, including the one-paren-short near-miss (`.axbad`: the formatter must not learn these shapes) |
 | `tests/diagnostics/485-qualified-private-macro.ax` | LANG-12's `AX3023` route for a qualified private macro |
 | `tests/diagnostics/490-expansion-backtrace.ax` | DIAG-4 — one frame and a nested two, spans verified against the macro's own file |
+| `tests/diagnostics/580-expansion-fix-suppressed.ax` | TOOL-5 — the same two diagnostics from a macro and by hand: the expansion pair keeps its help text and loses its `~>`, the hand-written pair keeps both |
 | `tests/selfhost/363-macro-shadowing.ax` (3) | EXP-5 |
 | `tests/selfhost/364-macro-definition-site.ax` (157) | HYG-6, HYG-7 |
 | `tests/selfhost/365-macro-pattern-literal.ax` (95) | HYG-5 |

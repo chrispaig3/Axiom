@@ -1,10 +1,38 @@
-[1;31merror[AX3023][0m[1m: `hiddenInside` is private to module `DeclIn`[0m
-  [1;34m--> [0m515-decl-macro-in-module.ax:17:38
+[1;31merror[AX3023][0m[1m: module `DeclIn` declares `fromEntryMacro` but does not export it[0m
+  [1;34m--> [0m515-decl-macro-in-module.ax:38:9
 [1;34m   |[0m
-[1;34m17 |[0m (fn (main) (+ (+ touch insideModule) hiddenInside))
-[1;34m   |[0m                                      [1;31m^^^^^^^^^^^^ `hiddenInside` is not exported by its module[0m
+[1;34m38 |[0m (import DeclIn (touch insideModule fromEntryMacro))
+[1;34m   |[0m         [1;31m^^^^^^ not exported[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0man import's name list is checked against what the module exports
+  [1;34m = [0m[1;32mhelp: [0mwrite `pub` on its declaration
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3023` for a full explanation
+
+[1;31merror[AX3023][0m[1m: `hiddenInside` is private to module `DeclIn`[0m
+  [1;34m--> [0m515-decl-macro-in-module.ax:49:44
+[1;34m   |[0m
+[1;34m49 |[0m (fn (main) (+ (+ (+ (+ touch insideModule) hiddenInside) alsoExported) fromEntryMacro))
+[1;34m   |[0m                                            [1;31m^^^^^^^^^^^^ `hiddenInside` is not exported by its module[0m
 [1;34m   |[0m
   [1;34m = [0m[1;32mhelp: [0ma name leaves its module when its declaration is written `pub`; if the import that brought the module in carries a name list, the name has to appear there too
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3023` for a full explanation
 
-compilation failed due to 1 previous error
+[1;31merror[AX3023][0m[1m: `alsoExported` is private to module `DeclIn`[0m
+  [1;34m--> [0m515-decl-macro-in-module.ax:49:58
+[1;34m   |[0m
+[1;34m49 |[0m (fn (main) (+ (+ (+ (+ touch insideModule) hiddenInside) alsoExported) fromEntryMacro))
+[1;34m   |[0m                                                          [1;31m^^^^^^^^^^^^ `alsoExported` is not exported by its module[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0ma name leaves its module when its declaration is written `pub`; if the import that brought the module in carries a name list, the name has to appear there too
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3023` for a full explanation
+
+[1;31merror[AX3023][0m[1m: `fromEntryMacro` is private to module `DeclIn`[0m
+  [1;34m--> [0m515-decl-macro-in-module.ax:49:72
+[1;34m   |[0m
+[1;34m49 |[0m (fn (main) (+ (+ (+ (+ touch insideModule) hiddenInside) alsoExported) fromEntryMacro))
+[1;34m   |[0m                                                                        [1;31m^^^^^^^^^^^^^^ `fromEntryMacro` is not exported by its module[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0ma name leaves its module when its declaration is written `pub`; if the import that brought the module in carries a name list, the name has to appear there too
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3023` for a full explanation
+
+compilation failed due to 4 previous errors

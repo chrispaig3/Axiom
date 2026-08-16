@@ -856,6 +856,36 @@ free list (which is dirty to its last byte), and a reset that crosses
 chunks. The consequence is that `MM-ALLOC-6` may scrub bytes that were
 already zero, never that it skips bytes that were not.
 
+**MM-ALLOC-5b (H, 2026-08-15).** The watermark describes **the current
+chunk**, so nothing may compare it against an address from another one
+— which is `MM-ALLOC-5`'s rule applied to the allocator's own code, and
+`MM-LIFE-2e`'s release path was breaking it. A block popped off a
+size-class free list may come from any chunk the program ever mapped;
+the hand-out scrub bounded its wipe by `min(block end, watermark)` and
+the store that follows moved the watermark to the block's end. Where
+the block sat above the current chunk's watermark, the bound came out
+*below* the block's own base, the wipe ran zero times, and the block
+was handed back **with its previous contents** — `MM-ALLOC-6` broken by
+a comparison `MM-ALLOC-5` forbids, and the watermark left pointing into
+a foreign mapping. A recycled block is dirty to its last byte by
+construction, so the pop path now scrubs all of it and leaves the
+watermark alone; the two paths that bump-allocate are unchanged, and so
+is the cost, because for a block below the watermark the old bound was
+already the block's end (8 KiB × 20,000 iterations: 0.30 s before,
+0.29 s after, same peak RSS).
+
+*Not gated, and the reason is worth stating rather than leaving to be
+discovered.* Reaching the broken case requires `mmap` to place a later
+chunk **below** an earlier one, which is exactly what `MM-ALLOC-5` says
+may happen and exactly what no program can force: the pool, the reset
+and the free list all cooperate to keep the current chunk the newest
+one, and the arena reset scrubs the slab heads (`MM-LIFE-2e`) which
+closes the one route a program could steer. The hazard is therefore
+argued from the code and priced at zero, not measured — and the
+fixtures that do exist (`tests/stdlib/351-arc-reuse.ax`,
+`363-arc-large-block.ax`) pass both before and after, which is the
+honest statement of what they cover.
+
 **MM-ALLOC-6 (H).** **Allocation answers zeroed memory. Always.** This
 is a promise the standard library spends — `Map` and `Intern` read an
 all-zero state array as "every slot empty", `strAlloc` reserves a byte
@@ -1860,10 +1890,15 @@ would be a regression.** Refusing `__axiom_arena_mark` and its pair
 today takes the language server from 840 bytes per edit to 193 KB per
 edit, because nothing else reclaims what it reclaims. The refusal is
 gated on the acceptance measurements, exactly as this rule already
-says; what the measurements are gated on is the container-and-AST
-typing campaign above, not on the ownership events. Recording the
-order that way is the point — the rung that looked next is not the one
-that unblocks this.
+says. What the measurements are gated on was recorded here as the
+container-and-AST typing campaign, and **that was superseded the same
+day**: the declared type is discarded in exactly two places, both a
+`cast Int` inside a polymorphic function, and `MM-LIFE-2g` closes them
+with `__retainref` — so the campaign was never the prerequisite. What
+remains between here and the acceptance measurements is `MM-LIFE-2c`'s
+events 2 and 3, the two that need an escape analysis. Recording the
+order that way is still the point — the rung that looked next was not
+the one that unblocks this, and it was not the one that landed either.
 
 One allocation class the events of `MM-LIFE-2c` deliberately do not
 reach: the emitter's own one-word cells — a `match`'s result cell, a
@@ -2650,14 +2685,24 @@ drifted and how it was caught.*
    `Intern` store elements through `memSetWord`; so the compiler's own
    data structures are invisible to counting by declaration, not by
    limitation. Two probes measure it and `MM-LIFE-2c` records them.
-   The next slice is a typing campaign over the containers and the
-   AST, of the same shape as the one that deleted the `String`/`Int`
-   fiat — not another ownership rung.
+   **The conclusion this paragraph drew — "the next slice is a typing
+   campaign over the containers and the AST" — was wrong, and the
+   correction is dated the same day.** The declared type is discarded
+   in exactly two places, both a `cast Int` inside a polymorphic
+   function, and `MM-LIFE-2g`'s `__retainref` closes them: two lines,
+   not a campaign, and event 4 landed on top of them within hours. The
+   sentence stays because a wrong estimate recorded beside its
+   correction is worth more than a deleted one — the finding was
+   "where is the type erased", and the answer was findable by grepping
+   `cast Int` inside polymorphic functions.
 
 **To [v1-roadmap.md §4.4](v1-roadmap.md):** the "seven process-wide
 mutable globals" are the five allocator words plus argc/argv, not the
-five plus the evidence slots (`MM-PAR-3`). The safety conclusion is
-unaffected.
+five plus the evidence slots (`MM-PAR-3`). Since `MM-LIFE-2e`'s
+release path there is also the size-class head array, which is a
+global and not a word — `MM-ALLOC-2` carries the row and `MM-PAR-3`
+the clause. The safety conclusion is unaffected in both cases: every
+one of them is private after `fork`.
 
 **To [reference.md](reference.md):**
 

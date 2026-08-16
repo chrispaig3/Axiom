@@ -5,13 +5,45 @@
 ; declaration answers: the template's own `pub` decides whether the
 ; product leaves the module.
 ;
-; `insideModule` comes from a `pub` template and is nameable here;
-; `hiddenInside` does not, so naming it is AX3023 - the same
-; diagnostic, with the same wording, that a private hand-written
-; declaration draws. The module's own call to it still works, which
-; is what makes this a visibility rule rather than a deletion.
-(import DeclIn)
+; `insideModule` comes from a `pub` template and is named by this
+; import's name list, so it is nameable here. Four diagnostics say
+; what is not - three uses, and the import's own name list, which is
+; checked against what the module exports and so reports the fourth at
+; the import rather than at a use:
+;
+;   hiddenInside   its template omits `pub`, so it never leaves the
+;                  module - the same diagnostic, with the same
+;                  wording, that a private hand-written declaration
+;                  draws. The module's own call to it still works,
+;                  which is what makes this a visibility rule rather
+;                  than a deletion
+;   alsoExported   its template says `pub`, and the import's NAME
+;                  LIST does not mention it. The list is applied to a
+;                  generated name exactly as to a written one, which
+;                  it cannot be where it is applied to everything
+;                  else: the name does not exist when a module's
+;                  declarations land, so import resolution records the
+;                  filter and phase D asks for it
+;   fromEntryMacro  generated inside DeclIn by a macro THIS file
+;                   defines - and NAMED by the import's list above, so
+;                   the filter cannot be what hides it and the
+;                   template's missing `pub` is. The products are the
+;                   invoking module's,
+;                   whatever the macro's own module is - the axis the
+;                   first version of this slice read backwards, which
+;                   let a non-`pub` template's products out of the
+;                   module in this direction and made an entry file's
+;                   own generated definitions invisible in the other
+;                   (tests/selfhost/388)
+(import DeclIn (touch insideModule fromEntryMacro))
+
+; a macro defined HERE and invoked inside DeclIn: its products belong
+; to DeclIn, and its template says nothing about `pub`, so they stay
+; there
+(macro entryMk ((entryMk nm)
+   (:: nm Int)
+   (fn (nm) 5)))
 
 (:: main Int)
 
-(fn (main) (+ (+ touch insideModule) hiddenInside))
+(fn (main) (+ (+ (+ (+ touch insideModule) hiddenInside) alsoExported) fromEntryMacro))

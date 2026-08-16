@@ -206,6 +206,33 @@
 (pub fn (diagAddFixHelp d msg fixSpan fixText)
   { (vecPush (diagVecAt d 9) (cast Int (DHelp msg fixSpan fixText))) d })
 
+; Take the machine-applicable half off every help this diagnostic
+; carries: the help TEXT survives, the span-and-replacement pair does
+; not, so the report still explains itself and no tool applies it.
+;
+; The caller is `expAttachFrames` (macro-system.md MAC-TOOL-5): a
+; diagnostic reported from inside a macro expansion is anchored at the
+; INVOCATION, which is the line the author can change, and its
+; replacement was computed against text that is not there. Measured
+; before the rule: an `AX3012` inside a template offered
+; `~>"mut tmp.0"` over the invocation's own bytes - a renamed binder,
+; which no source can even spell (MAC-HYG-3a), pasted over the macro
+; call.
+(pub :: diagDisarmFixes (-> Int Int))
+(pub fn (diagDisarmFixes d)
+  (let ((hs (memGetWord d 9)))
+    (if (== hs 0)
+        0
+        (let ((mut i 0))
+          {
+            (while (< i (vecLen hs))
+              {
+                (memSetWord (vecGet hs i) 1 0)
+                (set i (+ i 1))
+              })
+            0
+          }))))
+
 (pub :: diagAddTrace (-> Int String Int Int Int))
 (pub fn (diagAddTrace d name span unit)
   { (vecPush (diagVecAt d 10) (cast Int (DFrame name span unit))) d })
