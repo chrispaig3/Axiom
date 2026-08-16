@@ -55,6 +55,19 @@ export AXIOM_STDLIB="$repo_root/stdlib"
 libc_names='printf|puts|malloc|calloc|realloc|free|strlen|strcmp|fopen|fwrite|fread'
 libc_names="$libc_names"'|fork|vfork|execv|execve|execvp|execl|execlp|posix_spawn|posix_spawnp'
 libc_names="$libc_names"'|wait|waitpid|wait3|wait4|system|popen|pclose|getenv|setenv|pipe|dup2'
+# The mem/str family. The stage1 paragraph below records the measured
+# bug as "linked against `_strlen` and `_memset`" - and `memset` was
+# never on this list, so of the two symbols that motivated the stage1
+# pass only ONE could ever have been caught. Found 2026-08-16: an
+# executable importing `_memset` or `_bzero` got a green `ok`.
+#
+# These are the names the loop-idiom recogniser reaches for, which is
+# the exact door the stage1 pass exists to watch: it rewrites a byte
+# loop into `strlen`, a zeroing loop into `memset`, and a copy loop
+# into `memcpy`. None of them is defined by Axiom's stdlib, so unlike
+# `exit`/`write`/`read` there is no replacement code to flag.
+libc_names="$libc_names"'|memset|memcpy|memmove|memcmp|memchr|bzero|bcopy'
+libc_names="$libc_names"'|strcpy|strncpy|strcat|strncat|strncmp|strchr|strrchr|strstr|strdup'
 
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
@@ -70,6 +83,20 @@ for case_file in tests/stdlib/*.ax; do
   if grep -nE "call[^\"]*@($libc_names)\(" "$ir" > "$work/$name.hits"; then
     echo "FAIL $name: generated IR calls libc"
     sed 's/^/    /' "$work/$name.hits"
+    status=1
+    continue
+  fi
+
+  # The INTRINSIC spelling of the same thing, which the pattern above
+  # structurally cannot match: `@llvm.memset.p0.i64` does not begin
+  # with `memset` after the `@`, so adding the name to `libc_names`
+  # would not have found it either. An `llvm.mem*` intrinsic is not a
+  # libc call in the IR, but the backend lowers anything it cannot
+  # expand inline into one - so a program can arrive at `memcpy` with
+  # no libc name appearing in the IR at any point.
+  if grep -nE "@llvm\.(memset|memcpy|memmove)\." "$ir" > "$work/$name.intr"; then
+    echo "FAIL $name: generated IR uses an llvm.mem* intrinsic, which lowers to libc"
+    sed 's/^/    /' "$work/$name.intr"
     status=1
     continue
   fi
@@ -200,6 +227,37 @@ if [[ -n "$kept" ]]; then
   status=1
 else
   echo "ok   negative probe: the IR check leaves Axiom's own call names alone"
+fi
+
+# The OTHER direction, which nothing here asserted: that the patterns
+# above actually FIRE. A gate is only worth its green when it has been
+# shown to go red, and this one had been silently half-blind - the
+# stage1 paragraph below names `_memset` as a symbol it caught, while
+# `memset` was absent from `libc_names` until 2026-08-16, so that half
+# of the claim had never been true. Each line here is a shape the
+# corpus cannot produce today; if the recogniser ever emits one, the
+# check that notices is the one being probed.
+missed=""
+for bad_line in \
+  '  %r = call i64 @memset(i64 0, i64 0, i64 8)' \
+  '  %r = call i64 @memcpy(i64 0, i64 0, i64 8)' \
+  '  %r = call i64 @strlen(i64 0)' \
+  '  %r = call i64 @malloc(i64 8)' \
+  '  %r = call i64 @posix_spawn(i64 0)' ; do
+  grep -qE "call[^\"]*@($libc_names)\(" <<< "$bad_line" \
+    || missed="$missed ${bad_line##*@}"
+done
+for intr_line in \
+  '  call void @llvm.memset.p0.i64(ptr %d, i8 0, i64 8, i1 false)' \
+  '  call void @llvm.memcpy.p0.p0.i64(ptr %d, ptr %s, i64 8, i1 false)' ; do
+  grep -qE "@llvm\.(memset|memcpy|memmove)\." <<< "$intr_line" \
+    || missed="$missed ${intr_line##*@}"
+done
+if [[ -n "$missed" ]]; then
+  echo "FAIL negative probe: the IR checks do NOT flag$missed"
+  status=1
+else
+  echo "ok   negative probe: the IR checks flag libc calls and llvm.mem* intrinsics"
 fi
 
 # 2. The door is shut in the language, not merely unused by the corpus.
