@@ -896,18 +896,34 @@ bare, resolving outward exactly as before.
 
 ### 3.4 What hygiene does not yet cover
 
-**MAC-HYG-8 (P; two of the four closed 2026-08-14).** These four holes
-**SHALL** close, and the second and third have. Each is stated
-with what happens today, because each is a place a reader could
-reasonably believe the guarantee is total:
+**MAC-HYG-8 (P; two of the four closed 2026-08-14, and the first
+refuses since 2026-08-15).** These four holes **SHALL** close, and the
+second and third have. Each is stated with what happens today, because
+each is a place a reader could reasonably believe the guarantee is
+total:
 
 1. **A macro defined in the entry file.** Entry-file declarations are
-   left bare by import resolution — there is no `Mod$name` to resolve to
-   — so a caller's local binding can still capture a template's free
-   identifier. It is a loud failure rather than a wrong answer
-   (`AX3004 expected function type, found Int`), but it is not a
-   diagnostic about capture and it names neither the macro nor the
-   binding that shadowed it.
+   left bare by import resolution — there is no `Mod$name` to resolve
+   to — so a caller's local binding *would* capture a template's free
+   identifier. The earlier revision of this paragraph called that "a
+   loud failure rather than a wrong answer"; **measured, it was a
+   silent wrong answer**: an entry-file `(macro (useHelper v) (helper
+   v))` invoked under `(let ((helper (lambda (y) 0))) …)` answered
+   **0** where the macro's own `helper` answers 40, at exit 0, with no
+   diagnostic from any pass. The `AX3004` that paragraph quoted comes
+   from an arity mismatch between the two `helper`s, not from the
+   capture, and vanishes as soon as they agree.
+
+   **It refuses now** (`AX3032`, `macro-capture`,
+   `tests/diagnostics/590-macro-capture.ax`): a template's free
+   identifier that qualification left unchanged — which is exactly the
+   entry-file case — and that is shadowed at the invocation is a
+   diagnostic naming the macro's own name, at the invocation, per
+   invocation rather than per macro. That is not the guarantee; the
+   guarantee is scope sets (`MAC-HYG-9`), which make the reference
+   resolve where it was written. It is the difference between a wrong
+   answer nobody can see and a refusal that says which line to change,
+   which is the trade this repository makes wherever it has made it.
 2. **Qualified reference to a macro** — **closed**: `MAC-LANG-12`
    holds, by splitting the reference rather than mangling the
    declarations.
@@ -2214,10 +2230,12 @@ Unpinned, and therefore documentation rather than specification:
 assignment. Each is measurable in a fixture of a few lines, and each is
 a rule a future change could break silently.
 
-**One documented limitation has no fixture**, and it reproduces
-exactly as documented — which is precisely the state in which a "fix"
-can silently change behaviour with every gate still green: an
-entry-file macro's free identifier is capturable (`MAC-HYG-8`.1).
+**Every documented limitation now has a fixture.** The last one
+without — an entry-file macro's free identifier being capturable
+(`MAC-HYG-8`.1) — was measured on 2026-08-15, found to be a SILENT
+wrong answer rather than the loud failure this section claimed, and
+made a refusal (`AX3032`,
+`tests/diagnostics/590-macro-capture.ax`).
 (This list held four on 2026-08-13, plus one wrong-answer bug:
 `MAC-LANG-12`'s `Pre::when`-is-`AX3001` and `MAC-HYG-8`.3's
 imported-macro-outranks were fixed and pinned on 2026-08-14 by
