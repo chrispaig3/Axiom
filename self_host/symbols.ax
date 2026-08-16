@@ -28,6 +28,9 @@
 (import Utf8)
 (import parser)
 (import typecheck)
+; for `expGenOf`: the (name, macro) pairs phase D answers, which is
+; what marks a row `#generated` (MAC-TOOL-4).
+(import expand)
 (import diag)
 
 ; A minimal digit formatter, local so this module need not import
@@ -629,6 +632,15 @@
 
 (pub :: symbolsRender (-> Int Int String))
 (pub fn (symbolsRender tc builtins)
+  (symbolsRenderGens tc builtins 0))
+
+; `gens` is `expandProgram`'s answer - the (name, macro) pairs of every
+; declaration phase D generated. A row it names carries `#generated=`
+; and the macro's own name, which is what tells a reader why a symbol
+; has no visible definition (MAC-TOOL-4). 0 means "no table", which is
+; every caller that did not expand.
+(pub :: symbolsRenderGens (-> Int Int Int String))
+(pub fn (symbolsRenderGens tc builtins gens)
   (let ((units (memGetWord tc 13))
         (decls (tcAllDecls tc))
         (lines vecNew))
@@ -658,6 +670,10 @@
                             (loc (smLocReal sm 0 1 2 name units)))
                         {
                           (smTagMetas sm name metas)
+                          (let ((gm (expGenOf gens name)))
+                            (if (== (cast Int gm) 0)
+                                0
+                                (vecPush metas (strConcat "generated=" gm))))
                           (let ((effs (memGetWord e 5)))
                             (if (&& (> (vecLen effs) 0) (== isB 0))
                                 (let ((disp vecNew) (mut k 0))

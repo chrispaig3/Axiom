@@ -1755,20 +1755,46 @@ did not until recently, which also left the language server's
 `documentSymbol` arm for macros dead since it was written, and made
 `AX3006`'s "first defined here" line point nowhere.
 
-**MAC-TOOL-2 (P).** The language server **SHALL** treat a macro
-invocation as a reference to its declaration: go-to-definition jumps to
-the `macro` form, hover shows the template, and `documentSymbol` lists
-macros beside functions.
+**MAC-TOOL-2 (H, 2026-08-15).** The language server **SHALL** treat a
+macro invocation as a reference to its declaration: go-to-definition
+jumps to the `macro` form, hover shows the template, and
+`documentSymbol` lists macros beside functions. All three hold —
+`definitionProvider` and `hoverProvider` are advertised, a position on
+a macro name answers the declaration's own name range, and hover
+answers the declaration verbatim from the document's bytes in an
+`axiom` code fence. A position on a name that is not a macro answers
+`null`, which is the protocol's "nothing here" and what every other
+word in a file gets.
 
-**MAC-TOOL-3 (P).** A conforming language server **SHALL NOT** expand
-macros to answer a request that does not need it. Expansion is bounded
-but not free (`MAC-EXP-10` measured 41.4 s on a fan-out probe), and the
-budgets exist precisely because an editor cannot wait.
+*The v1 limit, stated rather than discovered:* the lookup reads THIS
+document's declarations, so a macro imported from another module
+answers null rather than jumping into that module's file. Resolving it
+means walking the import graph for a navigation request, which is the
+work `MAC-TOOL-3` exists to keep out of the fast path, and it wants
+the module-URI mapping the server does not otherwise need.
 
-**MAC-TOOL-4 (P).** With `MAC-CAP-8`, `axiom symbols` **SHALL** list
-generated declarations, attributed to the file containing the
-invocation, and **SHOULD** mark them as generated so a reader can tell
-why a name has no visible definition.
+**MAC-TOOL-3 (H, 2026-08-15).** A conforming language server **SHALL
+NOT** expand macros to answer a request that does not need it.
+Expansion is bounded but not free (`MAC-EXP-10` measured 41.4 s on a
+fan-out probe), and the budgets exist precisely because an editor
+cannot wait. The three requests that are not diagnostics —
+`documentSymbol`, `definition`, `hover` — read the RAW parse tree and
+expand nothing; only `didOpen` and `didChange`, which publish
+diagnostics, run the full pipeline, because a diagnostic about
+generated code is exactly what expansion is for.
+
+**MAC-TOOL-4 (H, 2026-08-15).** With `MAC-CAP-8`, `axiom symbols`
+**SHALL** list generated declarations, attributed to the file
+containing the invocation, and **SHOULD** mark them as generated so a
+reader can tell why a name has no visible definition. Both hold: a
+generated row carries `#generated=<macro>`, naming the macro that
+produced it, and phase D answers the (name, macro) table that says so
+— `expandProgram` RETURNS it, rather than taking a tenth parameter,
+and every caller that does not care discards it exactly as it
+discarded the 0 that came back before. A generated declaration whose
+name came from `syntax/join` still reports no position, because the
+file spells no such name; `#generated=` is what now explains that
+dash.
 
 **MAC-TOOL-5 (H, 2026-08-15).** **Lints run on the program the author
 wrote, not on the program expansion produced.** A diagnostic whose span
@@ -2099,7 +2125,7 @@ nicety: without an expansion backtrace, the author of `(machine Door
 | Safety | SAFE-1…4 | — | SAFE-5 |
 | Integration | INT-1…3, INT-5 | INT-4, INT-6 | — |
 | Diagnostics | DIAG-1…4 | DIAG-5 | — |
-| Tooling | TOOL-1, TOOL-5, TOOL-6 | TOOL-2…4 | — |
+| Tooling | TOOL-1…6 (TOOL-6 held-but-defective) | — | — |
 
 Seven rules in the Holds column are held-but-defective, each with the
 defect stated inline where it is defined —
@@ -2178,6 +2204,7 @@ convention; the list, not any one entry, is the argument for gating.
 | `scripts/check-diagnostics.sh` | the seven macro AXDL goldens above, byte for byte, plus a silence sweep with a floor of 80 files over `tests/selfhost/` |
 | `scripts/check-tree-sitter.sh` | INT-6 — `grammar.js`'s `macro_declaration` must parse every `.ax` in the repository |
 | `scripts/check-reproducible.sh` | EXP-12 |
+| `tests/lsp/drive.py`'s macro-navigation case | TOOL-2 and TOOL-3 — definition lands on the macro's own name, hover quotes its declaration, a non-macro name answers null, and both are derived from the document's bytes rather than from a golden |
 
 Unpinned, and therefore documentation rather than specification:
 `MAC-LANG-3`'s two spellings of a zero-parameter invocation,

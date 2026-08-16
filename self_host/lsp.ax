@@ -431,6 +431,148 @@
       (|| (== tag TAG_D_DATA)
           (|| (== tag TAG_D_STRUCT) (== tag TAG_D_MACRO)))))
 
+; ------------------------------------------------------------------
+; Navigation: a macro invocation is a REFERENCE to its declaration
+; (MAC-TOOL-2).
+;
+; Both requests read the RAW parse tree and expand NOTHING, which is
+; MAC-TOOL-3's rule: expansion is bounded but not free (41.4 s on a
+; measured fan-out probe), and neither question needs it - the macro's
+; declaration is in the document's own text, and hover shows what is
+; written there rather than what it produces.
+;
+; The identifier under a position, by the lexer's own rule for what an
+; identifier byte is, so `deriveEq` and `+` and `syntax/join` all
+; answer the same way the compiler would read them.
+(pub :: lspWordAt (-> String Int String))
+(pub fn (lspWordAt src off)
+  (let ((n (strLen src)))
+    (if (if (>= off n) true (if (isIdentChar (strByte src off)) false true))
+        ""
+        (let ((mut s off) (mut e off))
+          {
+            (while (if (> s 0) (isIdentChar (strByte src (- s 1))) false)
+              (set s (- s 1)))
+            (while (if (< e n) (isIdentChar (strByte src e)) false)
+              (set e (+ e 1)))
+            (strSlice src s (- e s))
+          }))))
+
+; The byte offset a `{line, character}` names. The inverse of `lspPos`,
+; and the same UTF-16 rule read backwards: `character` counts code
+; UNITS, so a surrogate pair costs two and every other code point one.
+(pub :: lspOffsetOf (-> String Int Int Int))
+(pub fn (lspOffsetOf src ix pos)
+  (let ((ln (jsonGetInt pos "line"))
+        (ch (jsonGetInt pos "character")))
+    (if (|| (< ln 0) (>= ln (vecLen ix)))
+        (strLen src)
+        (let ((start (vecGet ix ln)) (n (strLen src)))
+          (let ((mut i start) (mut u 0))
+            {
+              (while (if (< i n)
+                         (if (< u ch) (!= (strByte src i) 10) false)
+                         false)
+                (let ((cp (utf8DecodeAt src i)))
+                  (if (< cp 0)
+                      { (set u (+ u 1)) (set i (+ i 1)) }
+                      {
+                        (set u (+ u (if (>= cp 65536) 2 1)))
+                        (set i (+ i (utf8SeqLen (strByte src i))))
+                      })))
+              i
+            })))))
+
+; The macro declaration this document makes under `name`, or 0. The
+; LAST one wins, which is `MAC-LANG-11`'s rule - the same answer the
+; expander would give a reference at that name.
+(pub :: lspFindMacroDecl (-> Int String Int Int))
+(pub fn (lspFindMacroDecl decls name i)
+  (if (< i 0)
+      0
+      (let ((d (vecGet decls i)))
+        (if (&& (== (nodeTag d) TAG_D_MACRO)
+                (&& (strEq (nodeA d) name) (!= (nodeSpan d) 0)))
+            d
+            (lspFindMacroDecl decls name (- i 1))))))
+
+; `textDocument/definition`: the macro's own declaration span, as a
+; Location in this document. A position that is not a macro name
+; answers null rather than an error - the protocol's way of saying
+; "nothing here", and what an editor expects for every other word in
+; the file.
+(pub :: lspDefinition (-> String String Int Int))
+(pub fn (lspDefinition src uri params)
+  (let ((pr (parseModuleWith (lex src) (scanAxtags src))))
+    (if (== (memGetWord pr 0) 0)
+        jsonNull
+        (let ((decls (memGetWord pr 1)) (ix (lspLineIndex src)))
+          (let ((w (lspWordAt src (lspOffsetOf src ix (jsonGet params "position")))))
+            (if (== (strLen w) 0)
+                jsonNull
+                (let ((d (lspFindMacroDecl decls w (- (vecLen decls) 1))))
+                  (if (== d 0)
+                      jsonNull
+                      (jsonObjPut (jsonObjPut jsonObj "uri" (jsonStr uri))
+                                  "range" (lspRange src (nodeSpan d)))))))))))
+
+; `textDocument/hover`: the macro's declaration, verbatim from the
+; document's own bytes, in an Axiom code fence. The TEMPLATE is what a
+; reader wants and what MAC-TOOL-2 asks for, and the declaration's
+; source text is the template plus its pattern - which is more useful
+; than either half and costs no rendering.
+(pub :: lspHover (-> String Int Int))
+(pub fn (lspHover src params)
+  (let ((pr (parseModuleWith (lex src) (scanAxtags src))))
+    (if (== (memGetWord pr 0) 0)
+        jsonNull
+        (let ((decls (memGetWord pr 1)) (ix (lspLineIndex src)))
+          (let ((w (lspWordAt src (lspOffsetOf src ix (jsonGet params "position")))))
+            (if (== (strLen w) 0)
+                jsonNull
+                (let ((d (lspFindMacroDecl decls w (- (vecLen decls) 1))))
+                  (if (== d 0)
+                      jsonNull
+                      (let ((sp (nodeSpan d)))
+                        (let ((txt (lspDeclText src sp)))
+                          (jsonObjPut
+                            (jsonObjPut jsonObj "contents"
+                              (jsonObjPut (jsonObjPut jsonObj "kind" (jsonStr "markdown"))
+                                          "value"
+                                          (jsonStr (strConcat (strConcat "```axiom\n" txt)
+                                                              "\n```"))))
+                            "range" (lspRange src sp))))))))))))
+
+; The declaration's own source text: from the `(` that opens the form
+; to its matching `)`. The span names the macro's NAME, not the form,
+; so the opener is found by walking back to the nearest `(` and the
+; closer by counting depth forward - the same balance the formatter's
+; scanner keeps, at a hundredth of the code, because nothing here has
+; to understand what it is skipping except quotes and comments.
+(pub :: lspDeclText (-> String Int String))
+(pub fn (lspDeclText src sp)
+  (let ((s (spanStart sp)) (n (strLen src)))
+    (let ((mut o s))
+      {
+        (while (if (> o 0) (!= (strByte src o) 40) false)
+          (set o (- o 1)))
+        (let ((mut i o) (mut depth 0) (mut stop (- 0 1)))
+          {
+            (while (if (< i n) (< stop 0) false)
+              {
+                (if (== (strByte src i) 40) (set depth (+ depth 1)) 0)
+                (if (== (strByte src i) 41)
+                    {
+                      (set depth (- depth 1))
+                      (if (<= depth 0) (set stop (+ i 1)) 0)
+                    }
+                    0)
+                (set i (+ i 1))
+              })
+            (strSlice src o (- (if (< stop 0) n stop) o))
+          })
+      })))
+
 (pub :: lspDocumentSymbols (-> String Int))
 (pub fn (lspDocumentSymbols src)
   (let ((pr (parseModuleWith (lex src) (scanAxtags src))))
@@ -711,8 +853,16 @@
 (pub fn (lspCapabilities)
   (jsonObjPut
     (jsonObjPut jsonObj "capabilities"
-      (jsonObjPut (jsonObjPut jsonObj "textDocumentSync" (jsonNum 1))
-                  "documentSymbolProvider" (jsonBool 1)))
+      ; `definitionProvider` and `hoverProvider` joined on 2026-08-15
+      ; with the macro navigation they describe (MAC-TOOL-2). Both are
+      ; answered from the raw parse tree, so a client that sends them
+      ; per keystroke costs a parse and no expansion (MAC-TOOL-3).
+      (jsonObjPut
+        (jsonObjPut
+          (jsonObjPut (jsonObjPut jsonObj "textDocumentSync" (jsonNum 1))
+                      "documentSymbolProvider" (jsonBool 1))
+          "definitionProvider" (jsonBool 1))
+        "hoverProvider" (jsonBool 1)))
     "serverInfo"
     (jsonObjPut (jsonObjPut jsonObj "name" (jsonStr "axiom"))
                 "version" (jsonStr "0.1.0"))))
@@ -798,6 +948,17 @@
                           (lspReply id
                             (lspDocumentSymbols
                               (docText uris texts (lspParamsUri params))))
+                      (if (strEq method "textDocument/definition")
+                          (lspReply id
+                            (lspDefinition
+                              (docText uris texts (lspParamsUri params))
+                              (lspParamsUri params)
+                              params))
+                      (if (strEq method "textDocument/hover")
+                          (lspReply id
+                            (lspHover
+                              (docText uris texts (lspParamsUri params))
+                              params))
                       (if (strEq method "textDocument/didClose")
                           (let ((uri (lspParamsUri params)))
                             {
@@ -813,7 +974,7 @@
                           (if (== id 0)
                               0
                               (lspError id (- 0 32601)
-                                        (strConcat "method not found: " method))))))))))))))))
+                                        (strConcat "method not found: " method))))))))))))))))))
         ; The boundary. Everything this message touched goes back,
         ; except the store and the reader's unconsumed bytes, which
         ; travel down to the waterline in one block.

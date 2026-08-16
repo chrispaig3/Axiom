@@ -202,7 +202,15 @@
                  ; module deriving over its own type asks about a name
                  ; its neighbours can see, whatever an importer's name
                  ; list says.
-                 (qsite : Int))
+                 (qsite : Int)
+                 ; Every declaration phase D generated, as (final name,
+                 ; macro name) pairs, for the one consumer that has to
+                 ; tell them apart from what the file declares:
+                 ; `axiom symbols` (MAC-TOOL-4). It is the pass's
+                 ; ANSWER rather than another parameter - the callers
+                 ; that do not care discard it, as they discarded the 0
+                 ; this returned before.
+                 (gens : Int))
 
 (pub :: expMacros (-> Int Int)) (pub fn (expMacros env) (memGetWord env 0))
 (pub :: expOut    (-> Int Int)) (pub fn (expOut    env) (memGetWord env 1))
@@ -3378,7 +3386,7 @@
 (pub :: expandProgram (-> Int Int Int Int Int Int Int Int Int))
 (pub fn (expandProgram entryDecls decls out frames units bares fulls mods)
   (let ((env (cast Int (MEnv (expCollectMacros decls vecNew 0) out 0 0 decls 0 0 0 0 0 frames 0 units vecNew
-                             bares fulls mods 0))))
+                             bares fulls mods 0 vecNew))))
     {
       (expCheckMacros env 0)
       (expCheckDeclNames decls env 0)
@@ -3390,7 +3398,7 @@
       ; like everything else at top level.
       (expandDeclPhase entryDecls decls env)
       (expandDeclsIn decls env 0)
-      0
+      (memGetWord env 18)
     }))
 
 ; ==================================================================
@@ -3589,6 +3597,7 @@
                       (expCopyDeclInto d (vecGet made 0))
                       (expAppendRest entryDecls decls made 1)
                       (expGiveTags d made tags)
+                      (expRecordGens env made (nodeA mac) 0)
                       ; The entry file wins the bare slot, generated
                       ; declarations included - `recordEntryFns` does
                       ; this for the ones the parser produced, before
@@ -3610,6 +3619,7 @@
                         (memSetWord d 8 mod)
                         (expAppendRestMod decls made 1)
                         (expGiveTags d made tags)
+                        (expRecordGens env made (nodeA mac) 0)
                         1
                       }))))
         })
@@ -4232,6 +4242,42 @@
             (expModuleizeIn made env mod filter (+ i 1)
                             (if (== i 0) exported vis0))
           }))))
+
+; What `axiom symbols` needs to say `#generated` about a row: the name
+; each generated declaration ended up with, and the macro that made it.
+; Recorded after the names are final, so a mangled module-side product
+; is recorded under the name a reader will see.
+(pub :: expRecordGens (-> Int Int String Int Int))
+(pub fn (expRecordGens env made macName i)
+  (if (== (memGetWord env 18) 0)
+      0
+      (if (>= i (vecLen made))
+          0
+          {
+            (let ((g (vecGet made i)) (pair vecNew))
+              {
+                (vecPush pair (cast Int (nodeA g)))
+                (vecPush pair (cast Int macName))
+                (vecPush (memGetWord env 18) (cast Int pair))
+              })
+            (expRecordGens env made macName (+ i 1))
+          })))
+
+; The macro that generated `name`, or 0.
+(pub :: expGenOf (-> Int String String))
+(pub fn (expGenOf gens name)
+  (if (== gens 0)
+      (cast String 0)
+      (expGenOfIn gens name 0)))
+
+(pub :: expGenOfIn (-> Int String Int String))
+(pub fn (expGenOfIn gens name i)
+  (if (>= i (vecLen gens))
+      (cast String 0)
+      (let ((p (vecGet gens i)))
+        (if (strEq (cast String (vecGet p 0)) name)
+            (cast String (vecGet p 1))
+            (expGenOfIn gens name (+ i 1))))))
 
 ; Every generated entry-file `fn` claims its bare name, overriding an
 ; import's claim exactly as an entry-file declaration written by hand

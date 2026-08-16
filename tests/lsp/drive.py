@@ -829,6 +829,97 @@ expect_named += 1
 expect_symbols += N + 1
 
 # ---------------------------------------------------------------------
+# Macro navigation: an invocation is a reference to its declaration.
+#
+# MAC-TOOL-2. Both answers are DERIVED here from the document's own
+# bytes - the declaration's name position for `definition`, the
+# declaration's source text for `hover` - so no re-bless of any golden
+# can satisfy them, and the document is written in this file rather
+# than read from a fixture so the positions cannot drift away from the
+# text they describe.
+#
+# The third request is the one that says the feature has a boundary: a
+# position on a name that is NOT a macro must answer null, which is the
+# protocol's "nothing here" and what every other word in a file gets.
+# ---------------------------------------------------------------------
+NAV = """(pub macro deriveTag
+  ((deriveTag T)
+   (pub :: (syntax/join tag T) Int)
+   (pub fn ((syntax/join tag T)) 7)))
+
+(data Colour (Red))
+
+(deriveTag Colour)
+
+(:: main Int)
+(fn (main) (tagColour))
+"""
+nav_uri = "file://" + os.path.join(os.path.abspath(fixdir), "nav-generated.ax")
+NAV_DECL = locate(NAV, "deriveTag", 1)      # the macro's own name
+NAV_USE = locate(NAV, "deriveTag", 3)       # the invocation (2 is the rule head)
+NAV_MAIN = locate(NAV, "main", 2)           # a name that is not a macro
+
+nav_session = b"".join(frame(m) for m in [
+    {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
+    {"jsonrpc": "2.0", "method": "textDocument/didOpen",
+     "params": {"textDocument": {"uri": nav_uri, "languageId": "axiom",
+                                 "version": 1, "text": NAV}}},
+    {"jsonrpc": "2.0", "id": 2, "method": "textDocument/definition",
+     "params": {"textDocument": {"uri": nav_uri},
+                "position": {"line": NAV_USE["line"], "character": NAV_USE["start"]}}},
+    {"jsonrpc": "2.0", "id": 3, "method": "textDocument/hover",
+     "params": {"textDocument": {"uri": nav_uri},
+                "position": {"line": NAV_USE["line"], "character": NAV_USE["start"]}}},
+    {"jsonrpc": "2.0", "id": 4, "method": "textDocument/definition",
+     "params": {"textDocument": {"uri": nav_uri},
+                "position": {"line": NAV_MAIN["line"], "character": NAV_MAIN["start"]}}},
+    {"jsonrpc": "2.0", "id": 5, "method": "shutdown", "params": None},
+    {"jsonrpc": "2.0", "method": "exit", "params": None},
+])
+
+np_ = subprocess.run([stage1, "lsp"], input=nav_session, capture_output=True,
+                     cwd=fixdir)
+nmsgs, ntail = unframe(np_.stdout)
+nresp = {m["id"]: m for m in nmsgs if "id" in m}
+nwhy = ""
+caps = (nresp.get(1, {}).get("result") or {}).get("capabilities") or {}
+want_range = {"start": {"line": NAV_DECL["line"], "character": NAV_DECL["start"]},
+              "end": {"line": NAV_DECL["line"], "character": NAV_DECL["end"]}}
+if np_.returncode != 0:
+    nwhy = f"the server exited {np_.returncode}"
+elif ntail:
+    nwhy = f"{len(ntail)} trailing bytes after the last frame"
+elif caps.get("definitionProvider") is not True:
+    nwhy = ("the server answers textDocument/definition and does not advertise "
+            f"definitionProvider: capabilities were {sorted(caps)}")
+elif caps.get("hoverProvider") is not True:
+    nwhy = ("the server answers textDocument/hover and does not advertise "
+            f"hoverProvider: capabilities were {sorted(caps)}")
+elif nresp.get(2, {}).get("result") is None:
+    nwhy = "definition at the invocation answered null"
+elif nresp[2]["result"].get("uri") != nav_uri:
+    nwhy = f"definition answered another document: {nresp[2]['result'].get('uri')}"
+elif nresp[2]["result"].get("range") != want_range:
+    nwhy = (f"definition range {nresp[2]['result'].get('range')} is not the "
+            f"macro's own name at {want_range}")
+elif "```axiom" not in ((nresp.get(3, {}).get("result") or {}).get("contents") or {}).get("value", ""):
+    nwhy = "hover did not answer an axiom code fence"
+elif NAV[NAV.index("(pub macro"):NAV.index("\n\n(data")] not in \
+        nresp[3]["result"]["contents"]["value"]:
+    nwhy = "hover did not quote the macro declaration verbatim from the document"
+elif nresp.get(4, {}).get("result") is not None:
+    nwhy = f"definition on a non-macro name answered {nresp[4]['result']}, want null"
+
+if nwhy:
+    print(f"FAIL macro-navigation: {nwhy}")
+    failed += 1
+else:
+    print("ok   macro-navigation (definition lands on the macro's own name at "
+          f"{NAV_DECL['line']}:{NAV_DECL['start']}, hover quotes its declaration, "
+          "a non-macro name answers null)")
+    passed += 1
+
+# ---------------------------------------------------------------------
 # An editing session does not grow.
 #
 # This is the roadmap's §1 dependency edge measured on the thing that
