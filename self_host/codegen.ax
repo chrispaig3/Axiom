@@ -2049,15 +2049,31 @@
     ; again - see `handout`.
     (emitLine cg "@__axiom_high = internal global i64 0")
     ; MM-LIFE-2e: one free-list head per 16-byte size class, classes
-    ; 16..1024 (index = size/16; slot 0 unused). Release at zero
+    ; 16..65536 (index = size/16; slot 0 unused). Release at zero
     ; pushes a block - header included - onto its class; the
     ; allocator pops before bumping. EXACT-size classes, so reuse
     ; never splits a block and MM-ALLOC-3's alignment holds by
-    ; construction. Blocks above 1024 bytes are not pooled in this
-    ; slice - with no ownership events, nothing dies at all yet, and
-    ; the large-block policy is 2e work that can wait for a measured
-    ; need.
-    (emitLine cg "@__axiom_slabs = internal global [65 x i64] zeroinitializer")
+    ; construction.
+    ;
+    ; The ceiling was 1024 bytes until 2026-08-15, and the measurement
+    ; that moved it is a cliff: 20,000 iterations of a tail loop
+    ; allocating one string and dropping the previous one peak at
+    ; 1,312 KiB for a 1008-byte payload and 21,936 KiB for a 1024-byte
+    ; one - a program whose buffers are a kilobyte and a byte
+    ; reclaimed NOTHING, and its RSS tracked the iteration count
+    ; rather than the live set. At 8 KiB the same loop was 162,560 KiB
+    ; and is now 1,328 KiB, and FASTER (0.27s against 0.44s): reusing
+    ; a hot block beats faulting fresh pages, so the handout scrub is
+    ; more than repaid.
+    ;
+    ; 64 KiB rather than the 262,128 the shape word's count field can
+    ; describe, because the wider array was measured to buy nothing: a
+    ; self-compile peaks at 534.3 MB under both, and at 1 KiB, since
+    ; nothing large DIES in it - the compiler's own containers are
+    ; Int-typed and events 2 and 3 do not emit. What the ceiling costs
+    ; is this array (4097 words of BSS, 352 bytes of binary) and the
+    ; per-reset scrub below.
+    (emitLine cg "@__axiom_slabs = internal global [4097 x i64] zeroinitializer")
     (emitLine cg "")
     (emitLine cg "define i64 @axiom_alloc(i64 %size) #0 {")
     (emitLine cg "entry:")
@@ -2081,11 +2097,11 @@
     ; scrub wipes its old contents - link word included - and
     ; `wiped` rewrites the header. Zeroing (MM-ALLOC-6) is the same
     ; promise on the same path.
-    (emitLine cg "  %small = icmp ule i64 %sz0, 1024")
+    (emitLine cg "  %small = icmp ule i64 %sz0, 65536")
     (emitLine cg "  br i1 %small, label %try_pop, label %bump_path")
     (emitLine cg "try_pop:")
     (emitLine cg "  %cls = lshr i64 %sz0, 4")
-    (emitLine cg "  %slotp = getelementptr [65 x i64], ptr @__axiom_slabs, i64 0, i64 %cls")
+    (emitLine cg "  %slotp = getelementptr [4097 x i64], ptr @__axiom_slabs, i64 0, i64 %cls")
     (emitLine cg "  %shead = load i64, ptr %slotp")
     (emitLine cg "  %sempty = icmp eq i64 %shead, 0")
     (emitLine cg "  br i1 %sempty, label %bump_path, label %pop")
@@ -2306,7 +2322,7 @@
     ; if a measured need arises. At zero the block - header included
     ; - joins its size class: class = count >> 1, THE one convention,
     ; and a count of zero (a pre-encoding block, or a payload too
-    ; large for the field) or above 128 (past the 1024-byte pool
+    ; large for the field) or above 8192 (past the 64 KiB pool
     ; ceiling) is skipped rather than misfiled. The dead block's
     ; count word doubles as the free-list link: it is dead storage,
     ; and the handout scrub rewrites it on reuse.
@@ -2344,12 +2360,12 @@
     (emitLine cg "  %bcnt0 = lshr i64 %shw, 1")
     (emitLine cg "  %bcnt = and i64 %bcnt0, 32767")
     (emitLine cg "  %ok1 = icmp ne i64 %bcnt, 0")
-    (emitLine cg "  %ok2 = icmp ule i64 %bcnt, 128")
+    (emitLine cg "  %ok2 = icmp ule i64 %bcnt, 8192")
     (emitLine cg "  %ok = and i1 %ok1, %ok2")
     (emitLine cg "  br i1 %ok, label %push, label %done")
     (emitLine cg "push:")
     (emitLine cg "  %pcls = lshr i64 %bcnt, 1")
-    (emitLine cg "  %pslotp = getelementptr [65 x i64], ptr @__axiom_slabs, i64 0, i64 %pcls")
+    (emitLine cg "  %pslotp = getelementptr [4097 x i64], ptr @__axiom_slabs, i64 0, i64 %pcls")
     (emitLine cg "  %ohead = load i64, ptr %pslotp")
     (emitLine cg "  %pbase = add i64 %h, -16")
     (emitLine cg "  %pbasep = inttoptr i64 %pbase to ptr")
@@ -2517,16 +2533,17 @@
     ; rewinds the bump beneath those heads, and a dangling head
     ; double-issues storage on the next same-class allocation. The
     ; ownership events made compiler-emitted releases real, so every
-    ; reset scrubs the slab heads first - 65 stores, the price of
-    ; composing §3.3 with counting at all (the review's judge found
-    ; this by composing three lenses' half-facts; none saw it alone).
+    ; reset scrubs the slab heads first - 4097 stores since the pool
+    ; ceiling moved to 64 KiB, the price of composing §3.3 with
+    ; counting at all (the review's judge found this by composing
+    ; three lenses' half-facts; none saw it alone).
     (emitLine cg "  br label %slabclear")
     (emitLine cg "slabclear:")
     (emitLine cg "  %si = phi i64 [ 0, %entry ], [ %si1, %slabclear ]")
-    (emitLine cg "  %sp = getelementptr [65 x i64], ptr @__axiom_slabs, i64 0, i64 %si")
+    (emitLine cg "  %sp = getelementptr [4097 x i64], ptr @__axiom_slabs, i64 0, i64 %si")
     (emitLine cg "  store i64 0, ptr %sp")
     (emitLine cg "  %si1 = add i64 %si, 1")
-    (emitLine cg "  %sdone = icmp eq i64 %si1, 65")
+    (emitLine cg "  %sdone = icmp eq i64 %si1, 4097")
     (emitLine cg "  br i1 %sdone, label %resetbody, label %slabclear")
     (emitLine cg "resetbody:")
     (emitLine cg "  %p0 = inttoptr i64 %cell to ptr")
@@ -6143,7 +6160,7 @@
 ; The PADDED payload word count - THE one count convention
 ; (docs/memory-model.md MM-LIFE-2d): ((words*8)+15 & -16)/8, always
 ; even; the size class is count >> 1, exactly the allocator's
-; `lshr %sz0, 4`; a dead block files iff 0 < count <= 128.
+; `lshr %sz0, 4`; a dead block files iff 0 < count <= 8192.
 (pub :: paddedWords (-> Int Int))
 (pub fn (paddedWords w) (* (/ (+ (* w 8) 15) 16) 2))
 

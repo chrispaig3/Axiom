@@ -799,7 +799,7 @@ the program. Nothing is linked: a compiled Axiom program contains no
 call to libc, and `scripts/check-freestanding.sh` gates it.
 
 **MM-ALLOC-2 (H).** The allocator is a **bump allocator over
-`mmap`-mapped chunks**, with exactly five words of mutable global state:
+`mmap`-mapped chunks**, with five words of scalar mutable global state:
 
 | Global | Meaning |
 |---|---|
@@ -808,6 +808,15 @@ call to libc, and `scripts/check-freestanding.sh` gates it.
 | `@__axiom_chunk` | head of the active-chunk list |
 | `@__axiom_free` | head of the reclaimed-chunk free list |
 | `@__axiom_high` | dirty watermark for the current chunk — a **conservative upper bound** on how far into it memory has ever been handed out |
+
+Beside them, since `MM-LIFE-2e`'s release path, one **array**:
+`@__axiom_slabs`, a free-list head per 16-byte size class (4,097
+words, classes 16..65536). This row is stated because the sentence
+above it said "exactly five words" for as long as the array has
+existed; the count was the drift, not the design. Nothing else about
+that sentence changes — the array is zero-initialised BSS, is
+private after `fork` exactly as the five words are (`MM-PAR-3`), and
+holds only addresses of blocks the program has released.
 
 **MM-ALLOC-3 (H).** Every allocation is rounded up to a multiple of 16
 bytes and every returned address is 16-byte aligned
@@ -1871,7 +1880,7 @@ an explicit store rather than an inherited allocator promise.
 
 *The mechanism holds since 2026-08-15* (`tests/stdlib/351-arc-reuse.ax`,
 42): release at zero hands the block - header included - to its exact
-16-byte size class (classes 16..1024; the dead block's count word
+16-byte size class (classes 16..65536; the dead block's count word
 doubles as the link), and `axiom_alloc` pops before bumping, re-entering
 the same `handout` scrub every landing takes - MM-ALLOC-6's zeroing on
 the same path, measured by the fixture writing garbage before the
@@ -1879,14 +1888,50 @@ release and reading zero after the reuse. The shape word now carries
 the size half MM-LIFE-2b demanded, and — since `MM-LIFE-2d`'s
 monomorphic slice — the map beside it: bit 0 the form, bits 1..15 the
 padded payload WORD count (the class is count >> 1, one convention at
-every writer; a block files iff 0 < count <= 128), bits 16..62 the
+every writer; a block files iff 0 < count <= 8192), bits 16..62 the
 record form's reference bitmap. Release's class lookup reads the
-count field, and the dead-path walk reads the map. What remains of this rule: the large-block policy
-(blocks above 1024 bytes are still not pooled; since `MM-LIFE-2c`'s
-first events things DO die, so this now waits on a measurement of what
-actually dies large rather than on there being nothing), the acceptance
-measurements (which need the events the co-ownership audit deferred,
-and the container element maps under them), and the §3.3 refusal. The
+count field, and the dead-path walk reads the map.
+
+*The large-block policy landed 2026-08-15*
+(`tests/stdlib/363-arc-large-block.ax`, 63), and the measurement this
+rule was waiting for is a **cliff**, not a gradient. Twenty thousand
+iterations of a tail loop allocating one string per iteration and
+dropping the previous one, peak RSS:
+
+| payload | ceiling 1 KiB | ceiling 64 KiB |
+|---|---|---|
+| 1008 B | 1,312 KiB | 1,312 KiB |
+| 1024 B | **21,936 KiB** | 1,312 KiB |
+| 2048 B | 41,936 KiB | 1,312 KiB |
+| 8192 B | 162,560 KiB | 1,328 KiB |
+| 65536 B | 321,312 KiB | 321,312 KiB |
+
+A program whose buffers were a kilobyte and a byte reclaimed
+**nothing**, and its RSS tracked the iteration count rather than the
+live set — while the same program one byte smaller was flat. The 8 KiB
+row is also **faster** pooled (0.27 s against 0.44 s over the same
+20,000 iterations): reusing a hot block beats faulting fresh pages, so
+the handout scrub is more than repaid, which is the answer to the
+obvious objection that recycling a large block means re-wiping it.
+
+The ceiling is 64 KiB rather than the 262,128 bytes the count field
+can describe, and that choice is measured too: **the wider array buys
+nothing.** A self-compile peaks at 534.3 MB under a 1 KiB ceiling, a
+64 KiB one and a 256 KiB one alike, because nothing large *dies* in
+it — the compiler's own containers are `Int`-typed and events 2 and 3
+do not emit. What a ceiling costs is the head array (4,097 words of
+BSS, 352 bytes of binary) and the per-reset scrub, and neither is
+worth paying for classes no measurement reaches. The last row of the
+table is the new ceiling stated as a measurement rather than a
+constant: a 64 KiB payload plus its NUL plus the header lands above
+it, and above the ceiling nothing is pooled.
+
+What remains of this rule: blocks above 64 KiB (recorded, with the
+measurement that says they are one-shot in every workload here — two
+source files rarely share a size, so exact-size pooling could not
+reuse them anyway), the acceptance measurements (which need the
+events the co-ownership audit deferred, and the container element
+maps under them), and the §3.3 refusal. The
 match-cell amendment is done - those cells are not allocations any more
 (`MM-ALLOC-9`, `tests/stdlib/356-match-no-heap.ax`).
 The free list of `MM-ALLOC-4b` still holds whole chunks, unchanged and
@@ -2062,9 +2107,10 @@ symbol (`MM-FFI-1`).
 
 **MM-PAR-3 (H).** **Memory safety across processes is by construction,
 not by discipline.** *Every* process-wide mutable global — the five
-allocator words of `MM-ALLOC-2`, the two argument words `@__axiom_argc`
-and `@__axiom_argv`, and one evidence slot per declared effect — is
-private after `fork` and fresh after `exec`.
+allocator words of `MM-ALLOC-2`, its size-class head array, the two
+argument words `@__axiom_argc` and `@__axiom_argv`, and one evidence
+slot per declared effect — is private after `fork` and fresh after
+`exec`.
 
 > [v1-roadmap.md §4.4](v1-roadmap.md) counts "all seven" as the five
 > allocator words plus the evidence slots. Measured, the seven are the
@@ -2276,6 +2322,7 @@ equivalent honesty for this one.
 | `tests/stdlib/360-arc-evidence-map.ax` | LIFE-2c event 6 for the evidence record — its map, its two retains, and the handler lambda reclaimed with it |
 | `tests/stdlib/361-arc-field-store.ax` | LIFE-2c event 5 — a field store's retain and release, both counts measured, and `(set e.f e.f)` surviving |
 | `tests/stdlib/362-arc-tail-boundary.ax` | LIFE-2c event 4 and LIFE-2g together — 480 bytes over 2000 iterations, and a stashed parameter surviving 300 boundaries |
+| `tests/stdlib/363-arc-large-block.ax` | LIFE-2e's large-block policy — a 2 KiB block reused and scrubbed, class separation above 1 KiB, and the 64 KiB ceiling pinned in both directions |
 | `tests/stdlib/220-while-mut.ax` | MUT-1 across 1,000,000 iterations |
 | `tests/stdlib/035-string-equality.ax` | VAL-7's content equality, including the Unicode and interior-NUL cases |
 | `scripts/measure-memory-baseline.sh --gate` | ALLOC-16's managed contract; the unsound variant must *fail* |
