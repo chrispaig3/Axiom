@@ -27,8 +27,8 @@
 ;; the Eq trait is in scope — see macro-system.md section 10.2.
 (pub macro deriveEq
   ((deriveEq T)
-   (:: (syntax/join eq T) (-> T T Bool))
-   (fn ((syntax/join eq T) a b)
+   (pub :: (syntax/join eq T) (-> T T Bool))
+   (pub fn ((syntax/join eq T) a b)
      (match a
        (syntax/for (C (syntax/constructors T))
          ((C) (match b ((C) true) (_ false))))))))
@@ -48,8 +48,8 @@
 ;; writes the arm itself.
 (pub macro deriveShow
   ((deriveShow T)
-   (:: (syntax/join show T) (-> T String))
-   (fn ((syntax/join show T) v)
+   (pub :: (syntax/join show T) (-> T String))
+   (pub fn ((syntax/join show T) v)
      (match v
        (syntax/for (C (syntax/constructors T))
          ((C (syntax/binders C f)) (syntax/name C)))))))
@@ -61,8 +61,8 @@
 ;; its tag, never its field count (memory-model.md MM-VAL-6).
 (pub macro deriveArity
   ((deriveArity T)
-   (:: (syntax/join arity T) (-> T Int))
-   (fn ((syntax/join arity T) v)
+   (pub :: (syntax/join arity T) (-> T Int))
+   (pub fn ((syntax/join arity T) v)
      (match v
        (syntax/for (C (syntax/constructors T))
          ((C (syntax/binders C f)) (syntax/arity C)))))))

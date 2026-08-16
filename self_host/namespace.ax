@@ -1,0 +1,232 @@
+; The declaration NAMESPACE: how a bare name reaches a definition, and
+; which names may leave a module.
+;
+; This module exists because two passes need the same answers and the
+; import graph will not let them share a file. Import resolution
+; (codegen.ax) mangles a module's declarations to `Mod$name` and
+; records which of them are exported; declaration-macro expansion
+; (expand.ax) generates declarations in a module AFTER that pass has
+; run and has to put them in the same namespace by the same rules
+; (macro-system.md MAC-EXP-16). `codegen` imports `expand`, so the
+; helpers cannot live in either - and duplicating them is the failure
+; this repository keeps finding, two implementations of one rule that
+; drift.
+;
+; Everything here is a pure function over the two lockstep Vecs the
+; resolver threads (`bares` / `fulls`), the import filters it records,
+; and the AST nodes it renames.
+(import Mem)
+
+(import Str)
+
+(import Vec)
+
+(import parser)
+
+; Record how a bare reference reaches `full`, unless the bare name is
+; already claimed. First-writer-wins is what makes the entry file win:
+; `resolveImports` records every entry-file function before any import
+; is read.
+(pub :: mangleRecord (-> Int Int String String Int))
+
+(pub fn (mangleRecord bares fulls bare full)
+  ; The mangled name maps to itself, recorded whether or not the bare
+  ; name was already claimed - which it usually is, by the entry
+  ; file. This is how a reference made INSIDE a module asks whether
+  ; that module defines the name at all, and the bare slot cannot
+  ; answer it: it holds exactly one winner per name.
+  ;
+  ; It changes no existing lookup. The only name that can match one
+  ; of these entries is a qualified reference, `Mod::name`, which
+  ; stage1 already spells `Mod$name` and which already resolved to
+  ; itself by falling off the end of the map.
+  {
+    (if (|| (strEq bare full) (mangleHasIn bares full 0))
+      0
+      {
+        (vecPush bares full)
+        (vecPush fulls full)
+        0
+      }
+    )
+    (if (mangleHasIn bares bare 0)
+      0
+      {
+        (vecPush bares bare)
+        (vecPush fulls full)
+        0
+      }
+    )
+  }
+)
+
+(pub :: mangleHasIn (-> Int String Int Bool))
+
+(pub fn (mangleHasIn bares bare i)
+  (if (>= i (vecLen bares))
+    false
+    (if (strEq (vecGet bares i) bare)
+      true
+      (mangleHasIn bares bare (+ i 1))
+    )
+  )
+)
+
+; Rewrite an imported function's definition to its mangled name, in
+; place - `emitFnDef` reads the same node later, so the header and the
+; map cannot disagree. Entry-file declarations (modName 0) are left
+; bare; they were already recorded by `recordEntryFns`. A signature is
+; renamed the same way, so the float-signature registry and the
+; definitions it describes stay keyed identically.
+;
+; `exported` decides which of `mangleRecord`'s two recordings happens.
+; A declaration that is carried but NOT exported records only
+; `Mod$name -> Mod$name`, so a reference made inside its own module
+; still reaches it and no bare name anywhere else can. That split is
+; the whole of module privacy in the emitter; the checker enforces the
+; other side (see `findFnEnt`), and it has to, because a bare
+; reference that gets past it lands here as a name this map does not
+; hold and is emitted unchanged - an undefined symbol reported by
+; `opt` against generated code.
+(pub :: mangleDecl (-> Int String Int Int Int Int))
+
+(pub fn (mangleDecl node modName bares fulls exported)
+  (if (==
+    (cast Int modName)    0
+  )
+    0
+    (if (== (nodeTag node) TAG_D_FN)
+      (let ((bare (nodeA node)))
+        (let ((full 
+          (strConcat
+            (strConcat
+              (strDup
+                (cast String modName)
+              )              "$"
+            )            (strDup bare)
+          )
+        ))
+          {
+            (memSetWord node 1 full)
+            (if (== exported 1)
+              (mangleRecord bares fulls bare full)
+              (mangleRecordSelf bares fulls full)
+            )
+          }
+        )
+      )
+      (if (== (nodeTag node) TAG_D_SIG)
+        {
+          (memSetWord
+            node            1            (strConcat
+              (strConcat
+                (strDup
+                  (cast String modName)
+                )                "$"
+              )              (strDup (nodeA node))
+            )
+          )
+          0
+        }
+        0
+      )
+    )
+  )
+)
+
+; The half of `mangleRecord` that a private declaration gets: the
+; mangled name maps to itself, and the bare slot is left for whoever
+; can legitimately claim it.
+(pub :: mangleRecordSelf (-> Int Int String Int))
+
+(pub fn (mangleRecordSelf bares fulls full)
+  (if (mangleHasIn bares full 0)
+    0
+    {
+      (vecPush bares full)
+      (vecPush fulls full)
+      0
+    }
+  )
+)
+
+; Is `name` in this Vec of names? The set test both the resolver's
+; `seen` list and an import's name list are asked. It lives here
+; rather than beside its first caller because its SECOND caller is
+; the filter test below, which expansion needs.
+(pub :: seenHasIn (-> Int String Int Bool))
+
+(pub fn (seenHasIn seen name i)
+  (if (>= i (vecLen seen))
+    false
+    (if (strEq (vecGet seen i) name)
+      true
+      (seenHasIn seen name (+ i 1))
+    )
+  )
+)
+
+(pub :: filterKeeps (-> Int String Bool))
+
+(pub fn (filterKeeps filter name)
+  (if (== filter 0)
+    true
+    (seenHasIn filter name 0)
+  )
+)
+
+; `mods` is a vector of (module name, filter) pairs, one per module
+; resolution merged. It exists for one reader: phase D, which
+; instantiates declaration macros AFTER this pass and so has to apply
+; a module's import filter to names that did not exist while the pass
+; was running (MAC-EXP-16). A pair rather than two parallel vectors,
+; because a parallel pair is one push away from desyncing and this
+; table is written in exactly one place.
+(pub :: modFilterRecord (-> Int String Int Int))
+
+(pub fn (modFilterRecord mods name filter)
+  (if (== mods 0)
+    0
+    (let ((pair vecNew))
+      {
+        (vecPush
+          pair          (cast Int name)
+        )
+        (vecPush pair filter)
+        (vecPush
+          mods          (cast Int pair)
+        )
+        0
+      }
+    )
+  )
+)
+
+; The filter recorded for `name`, or 0 - which `filterKeeps` reads as
+; "the import named nothing, so everything is kept". The entry file
+; (module 0) has no import and therefore no filter, which is the same
+; answer.
+(pub :: modFilterFor (-> Int String Int))
+
+(pub fn (modFilterFor mods name)
+  (if (== mods 0)
+    0
+    (modFilterForIn mods name 0)
+  )
+)
+
+(pub :: modFilterForIn (-> Int String Int Int))
+
+(pub fn (modFilterForIn mods name i)
+  (if (>= i (vecLen mods))
+    0
+    (let ((pair (vecGet mods i)))
+      (if (strEq
+        (cast String (vecGet pair 0))        name
+      )
+        (vecGet pair 1)
+        (modFilterForIn mods name (+ i 1))
+      )
+    )
+  )
+)

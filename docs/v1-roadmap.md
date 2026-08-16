@@ -879,9 +879,9 @@ process.
 > expansion backtraces, budgets, declaration macros v1 (rule-form
 > `fn`/`::` generation from the entry file, 2026-08-14), eight
 > `AX30xx` macro codes; status **Partial**) and what remains
-> normative-but-unbuilt (multi-rule patterns, repetition, module-side
-> declaration invocation, `derive`, the closed `syntax/*` query
-> vocabulary).
+> normative-but-unbuilt (multi-rule patterns and repetition — the
+> `derive` library, the closed `syntax/*` query vocabulary and
+> module-side declaration invocation all landed on 2026-08-14/15).
 
 **The tier decision, made explicitly.** There are two designs available,
 and they differ in a security property this project has already committed

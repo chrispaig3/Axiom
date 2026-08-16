@@ -92,6 +92,7 @@
 (import core)
 (import lexer)
 (import parser)
+(import namespace)
 (import diag)
 
 ; ------------------------------------------------------------------
@@ -181,13 +182,37 @@
                  ; exactly as `macmod` is scoped - and restored BEFORE
                  ; the output walk, because a binding is dead the
                  ; moment `substTpl` returns.
-                 (forstack : Int))
+                 (forstack : Int)
+                 ; What a MODULE-SIDE generated declaration needs, and
+                 ; the reason MAC-EXP-16's v1 refused to make one: the
+                 ; two mangling records import resolution built
+                 ; (bare -> Mod$name, and the self-mapping a private
+                 ; declaration gets), and the (module, import filter)
+                 ; table it recorded on the way past. A declaration
+                 ; generated in a module has to land in the namespace
+                 ; its neighbours landed in, and the pass that puts
+                 ; them there has already run.
+                 (bares : Int) (fulls : Int) (mods : Int)
+                 ; The module a declaration-macro invocation was
+                 ; written in, held across the whole instantiation -
+                 ; word 9 cannot serve, because instantiation moves it
+                 ; to the MACRO's module so that a nested private
+                 ; macro resolves at its definition site. What needs
+                 ; the invocation's module is the query vocabulary: a
+                 ; module deriving over its own type asks about a name
+                 ; its neighbours can see, whatever an importer's name
+                 ; list says.
+                 (qsite : Int))
 
 (pub :: expMacros (-> Int Int)) (pub fn (expMacros env) (memGetWord env 0))
 (pub :: expOut    (-> Int Int)) (pub fn (expOut    env) (memGetWord env 1))
 (pub :: expDepth  (-> Int Int)) (pub fn (expDepth  env) (memGetWord env 3))
 (pub :: expDecls  (-> Int Int)) (pub fn (expDecls  env) (memGetWord env 4))
 (pub :: expMacMod (-> Int a)) (pub fn (expMacMod env) (memGetWord env 5))
+(pub :: expQSite  (-> Int a)) (pub fn (expQSite  env) (memGetWord env 17))
+(pub :: expBares  (-> Int Int)) (pub fn (expBares  env) (memGetWord env 14))
+(pub :: expFulls  (-> Int Int)) (pub fn (expFulls  env) (memGetWord env 15))
+(pub :: expMods   (-> Int Int)) (pub fn (expMods   env) (memGetWord env 16))
 
 ; The output limits, and why these numbers.
 ;
@@ -894,17 +919,29 @@
                 (expMacMod env)))))))
 
 ; Type-namespace lookup for a query subject. visibleOnly=1 answers
-; entry-file declarations and PUBLIC module declarations - the same
+; what a reference AT THE INVOCATION SITE could name - the same
 ; visibility rule the checker's own `findDataFrom` applies, enforced
 ; here so a private type refuses loudly AT THE INVOCATION instead of
 ; scattering checker refusals over the generated code. visibleOnly=0
 ; finds anything, for the refusal's wording.
+;
+; The site, not the entry file: a module deriving over its OWN type
+; (MAC-EXP-16's module-side invocation) names a type its neighbours
+; can see whatever anyone else may. Reading the rule as "entry-file
+; visible" made a `pub data` refuse inside the module that declared
+; it, the moment an importer's name list did not mention it - the
+; filter is a fact about the importer, and the query is asked on the
+; other side of it.
 (pub :: expFindDeclNamed (-> Int String Int Int))
 (pub fn (expFindDeclNamed env t visibleOnly)
-  (expFindDeclNamedFrom (expDecls env) t visibleOnly 0))
+  (expFindDeclNamedFrom (expDecls env) t visibleOnly
+                        (if (== (cast Int (expQSite env)) 0)
+                            (memGetWord env 9)
+                            (expQSite env))
+                        0))
 
-(pub :: expFindDeclNamedFrom (-> Int String Int Int Int))
-(pub fn (expFindDeclNamedFrom decls t visibleOnly i)
+(pub :: expFindDeclNamedFrom (-> Int String Int a Int Int))
+(pub fn (expFindDeclNamedFrom decls t visibleOnly site i)
   (if (>= i (vecLen decls))
       0
       (let ((d (vecGet decls i)))
@@ -912,9 +949,10 @@
                 (&& (strEq (nodeA d) t)
                     (|| (== visibleOnly 0)
                         (|| (== (expModEq (nodeModule d) 0) 1)
-                            (== (nodeVis d) 1)))))
+                            (|| (== (expModEq (nodeModule d) site) 1)
+                                (== (nodeVis d) 1))))))
             d
-            (expFindDeclNamedFrom decls t visibleOnly (+ i 1))))))
+            (expFindDeclNamedFrom decls t visibleOnly site (+ i 1))))))
 
 ; The arity of entry-file constructor C - the field count its
 ; declaration carries - or -1 with the refusal emitted. Same two-pass
@@ -3216,9 +3254,10 @@
 ; declaration list, with the same diagnostic Vec the checker will add
 ; to. Answers nothing: the declarations are rewritten in place.
 ; ------------------------------------------------------------------
-(pub :: expandProgram (-> Int Int Int Int Int Int))
-(pub fn (expandProgram entryDecls decls out frames units)
-  (let ((env (cast Int (MEnv (expCollectMacros decls vecNew 0) out 0 0 decls 0 0 0 0 0 frames 0 units vecNew))))
+(pub :: expandProgram (-> Int Int Int Int Int Int Int Int Int))
+(pub fn (expandProgram entryDecls decls out frames units bares fulls mods)
+  (let ((env (cast Int (MEnv (expCollectMacros decls vecNew 0) out 0 0 decls 0 0 0 0 0 frames 0 units vecNew
+                             bares fulls mods 0))))
     {
       (expCheckMacros env 0)
       (expCheckDeclNames decls env 0)
@@ -3330,11 +3369,29 @@
 
 (pub :: expandDeclCall (-> Int Int Int Int Int))
 (pub fn (expandDeclCall entryDecls decls env d)
-  (if (!= (nodeModule d) 0)
+  ; A MODULE-SIDE invocation is expanded like an entry-file one and
+  ; then put into the module's namespace by hand (`expModuleize`),
+  ; because the pass that would have done it - import resolution -
+  ; ran before this one. What it needs from that pass is the two
+  ; mangling records and the module's import filter; a caller that
+  ; supplies neither (the REPL's re-expansion, codegen's) cannot have
+  ; an imported module's declaration in front of it, and the refusal
+  ; below says so rather than generating a declaration nothing can
+  ; name.
+  (if (&& (!= (nodeModule d) 0) (== (expBares env) 0))
       (expDeclCallErr env d
-        "a declaration-macro invocation inside an imported module is not supported yet"
-        "invoke the macro from the entry file, or write the declarations directly"
-        "generated declarations in a module would need the module's mangling and visibility applied after import resolution has already run; entry-file invocation is the v1 surface, and this refusal is what keeps the limit loud")
+        "a declaration-macro invocation inside an imported module needs the module's mangling records, and this pipeline has none"
+        "invoke the macro from the entry file"
+        "module-side invocation puts generated declarations into the module's namespace, which needs the bare-to-mangled records import resolution builds; a pipeline that re-expands an already-resolved program does not carry them")
+      ; The invocation SITE decides which macros are visible
+      ; (MAC-LANG-9): a module's own private macro is reachable from
+      ; that module and nowhere else. Phase E sets this per
+      ; declaration in `expandDeclsIn`; phase D has to set it here, or
+      ; a module invoking its own private macro reads as an unknown
+      ; declaration head - which is what it did on the first probe.
+      (let ((prevSite (memGetWord env 9))
+            (_s (memSetWord env 9 (nodeModule d))))
+      (let ((r
       (let ((mac (expFindMacro env (nodeA d))))
         (if (== mac 0)
             (expDeclCallErr env d
@@ -3362,6 +3419,7 @@
                       0
                     }
                     (expInstantiateDecl entryDecls decls env d mac)))))))
+      { (memSetWord env 9 prevSite) r }))))
 
 (pub :: expInstantiateDecl (-> Int Int Int Int Int Int))
 (pub fn (expInstantiateDecl entryDecls decls env d mac)
@@ -3374,6 +3432,7 @@
     {
       (expSetMacMod env (nodeModule mac))
       (memSetWord env 9 (nodeModule mac))
+      (memSetWord env 17 (nodeModule d))
       (memSetWord env 11 0)
       (memSetWord env 13 vecNew)
       (vecPush (memGetWord env 10)
@@ -3384,16 +3443,34 @@
         {
           (expSetMacMod env prevMod)
           (memSetWord env 9 prevSite)
+          (memSetWord env 17 0)
           (memSetWord env 11 prevDecl)
           (memSetWord env 13 prevFors)
           (if (|| (== made 0) (== (expBlown env) 1))
               { (memSetWord d 3 1) 0 }
-              {
-                (expCopyDeclInto d (vecGet made 0))
-                (expAppendRest entryDecls decls made 1)
-                (expGiveTags d made tags)
-                1
-              })
+              (let ((mod (nodeModule d)))
+                (if (== (cast Int mod) 0)
+                    {
+                      (expCopyDeclInto d (vecGet made 0))
+                      (expAppendRest entryDecls decls made 1)
+                      (expGiveTags d made tags)
+                      1
+                    }
+                    ; Module-side: every generated declaration joins
+                    ; the module's namespace before anything reads the
+                    ; list, and NONE of them joins the entry file's -
+                    ; checkDuplicates and checkReservedNames walk that
+                    ; one, and a module's declarations have never been
+                    ; theirs to judge.
+                    (let ((vis0 (expModuleize made env mod)))
+                      {
+                        (expCopyDeclInto d (vecGet made 0))
+                        (memSetWord d 5 vis0)
+                        (memSetWord d 8 mod)
+                        (expAppendRestMod decls made 1)
+                        (expGiveTags d made tags)
+                        1
+                      }))))
         })
     }))
 
@@ -3605,6 +3682,19 @@
 ; at the macro's own line, so reaching this arm is the belt after the
 ; braces.
 (pub :: expBuildOneDecl (-> Int Int Int Int Int Int))
+; What `pub` a generated declaration is born with. The entry file's
+; own declarations are all visible - nothing imports them, and import
+; resolution stamps every one of them 1 - so an entry-side generation
+; keeps the 1 it has always had, whatever the template says. A
+; MODULE-side generation is the case where the question has an answer:
+; the template's own `pub` is what decides whether anything outside
+; that module may name the product, exactly as it decides for a
+; declaration written by hand there. Read off the invocation site,
+; which phase D sets before it resolves the macro.
+(pub :: expGenVis (-> Int Int Int))
+(pub fn (expGenVis env t)
+  (if (== (memGetWord env 9) 0) 1 (nodeVis t)))
+
 (pub fn (expBuildOneDecl t params args env isp)
   (let ((tag (nodeTag t)))
     (if (== tag TAG_D_FN)
@@ -3618,7 +3708,7 @@
                     (let ((body (substTpl (nodeC t) params args vecNew env isp)))
                       (let ((g (mkNodeAt TAG_D_FN nm ps body nsp)))
                         {
-                          (memSetWord g 5 1)
+                          (memSetWord g 5 (expGenVis env t))
                           (memSetWord g 9 (memGetWord t 9))
                           g
                         }))))))
@@ -3634,7 +3724,7 @@
                                                        (vecLen (memGetWord t 2))))
                                    0 nsp)))
                   {
-                    (memSetWord g 5 1)
+                    (memSetWord g 5 (expGenVis env t))
                     (memSetWord g 6 ty)
                     g
                   }))))
@@ -3659,7 +3749,7 @@
                           0
                           (let ((g (mkNodeAt TAG_D_IMPL tn ms ty isp)))
                             {
-                              (memSetWord g 5 1)
+                              (memSetWord g 5 (expGenVis env t))
                               g
                             })))))))
     (if (== tag TAG_D_DATA)
@@ -3681,7 +3771,7 @@
                     0
                     (let ((g (mkNodeAt TAG_D_DATA nm cs 0 nsp)))
                       {
-                        (memSetWord g 5 1)
+                        (memSetWord g 5 (expGenVis env t))
                         (setNodeTy g (nodeTy t))
                         g
                       })))))
@@ -3698,7 +3788,7 @@
                     0
                     (let ((g (mkNodeAt TAG_D_STRUCT nm fs 0 nsp)))
                       {
-                        (memSetWord g 5 1)
+                        (memSetWord g 5 (expGenVis env t))
                         g
                       })))))
     (if (== tag TAG_D_MACROCALL)
@@ -3847,6 +3937,52 @@
     (memSetWord d 9 (memGetWord g 9))
     0
   })
+
+; Put every generated declaration into its module's namespace,
+; exactly as `resolveDeclsPhase` put the module's written ones there:
+; provenance in word 8, "may anything outside name it" in word 5, and
+; the name rewritten to `Mod$name` with the bare slot claimed only
+; when it is exported. Answers element 0's visibility, because
+; `expCopyDeclInto` writes the invocation node's word 5 unconditionally
+; and the module's answer is not always 1.
+;
+; The visibility rule is the written declaration's, read from the two
+; halves that decide it there: the template's own `pub`, and the
+; import filter that brought the module in - which phase D has to
+; apply itself, since the generated NAME did not exist when import
+; resolution applied it to everything else.
+(pub :: expModuleize (-> Int Int a Int))
+(pub fn (expModuleize made env mod)
+  (let ((filter (modFilterFor (expMods env) (cast String mod))))
+    (expModuleizeIn made env mod filter 0 0)))
+
+(pub :: expModuleizeIn (-> Int Int a Int Int Int Int))
+(pub fn (expModuleizeIn made env mod filter i vis0)
+  (if (>= i (vecLen made))
+      vis0
+      (let ((g (vecGet made i)))
+        (let ((exported (if (&& (== (nodeVis g) 1)
+                                (filterKeeps filter (nodeA g)))
+                            1
+                            0)))
+          {
+            (memSetWord g 8 mod)
+            (memSetWord g 5 exported)
+            ; After the stamps, because it rewrites the name the
+            ; filter was asked about.
+            (mangleDecl g (cast String mod) (expBares env) (expFulls env) exported)
+            (expModuleizeIn made env mod filter (+ i 1)
+                            (if (== i 0) exported vis0))
+          }))))
+
+(pub :: expAppendRestMod (-> Int Int Int Int))
+(pub fn (expAppendRestMod decls made i)
+  (if (>= i (vecLen made))
+      0
+      {
+        (vecPush decls (vecGet made i))
+        (expAppendRestMod decls made (+ i 1))
+      }))
 
 (pub :: expAppendRest (-> Int Int Int Int Int))
 (pub fn (expAppendRest entryDecls decls made i)

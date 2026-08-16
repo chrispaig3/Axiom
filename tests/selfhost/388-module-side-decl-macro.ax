@@ -1,0 +1,90 @@
+; expect 47
+; MAC-EXP-16's module-side declaration-macro invocation (2026-08-15).
+; The v1 phase-D surface expanded ENTRY-FILE invocations only and
+; refused a module's own with AX3027, because a declaration generated
+; in a module needs the module's mangling and visibility applied and
+; the pass that applies them - import resolution - has already run.
+; Phase D now applies them itself, from the records that pass built.
+;
+; The consequence is the one that mattered: `stdlib/Pre.ax` ships
+; `deriveEq`, and until this landed no LIBRARY could spend it on its
+; own types - only the entry file could.
+;
+; Five claims, one bit each (47 when every one holds):
+;
+;    1  the entry file calls a function the MODULE derived
+;       (`eqSignal`, from the prelude's `pub` template)
+;    2  and the second derived family too (`showSignal`), so the
+;       module's phase-D round generated more than one invocation's
+;       worth
+;    4  the module calls its OWN generated declaration, from a
+;       template that is not `pub` - privacy is about what leaves the
+;       module, and `localSum` never does
+;    8  the generated name is MANGLED into the module's namespace: an
+;       entry-file `eqSignal` of its own coexists with the module's
+;       and the two answer differently, which is exactly what
+;       `Mod$name` is for
+;   32  the entry file's own declaration-macro invocation still works
+;       beside all of it - phase D did not become module-only
+;
+; The unfixed compiler refuses the whole file at `ModDerive.ax`'s
+; first invocation, AX3027, exit 1.
+(import Pre)
+
+(import Str)
+
+(import ModDerive)
+
+; the entry file's own derive, over its own type: the surface that
+; already worked, kept alive beside the new one
+(data Local
+  (Yes)
+  (No))
+
+(deriveEq Local)
+
+; an entry-file function whose name collides with the module's
+; generated one; the module's is `ModDerive$eqSignal`, so both exist
+(:: eqSignal (-> Signal Signal Bool))
+
+(fn (eqSignal a b) false)
+
+(:: b2i (-> Bool Int))
+
+(fn (b2i x)
+  (if x
+    1
+    0
+  )
+)
+
+(:: main Int)
+
+(fn (main)
+  (let (
+    (mine (ModDerive::eqSignal
+      Red      Red
+    ))
+    (shown (strEq (showSignal Amber) "Amber"))
+    (local (== (localSum Green) 1))
+    (ours (eqSignal Red Red))
+    (entry (eqLocal Yes Yes))
+  )
+    (+
+      (b2i mine)      (+
+        (* 2 (b2i shown))        (+
+          (* 4 (b2i local))          (+
+            (*
+              8              (b2i
+                (if ours
+                  false
+                  true
+                )
+              )
+            )            (* 32 (b2i entry))
+          )
+        )
+      )
+    )
+  )
+)

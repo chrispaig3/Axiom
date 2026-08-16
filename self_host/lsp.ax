@@ -365,15 +365,16 @@
                             (strConcat (strConcat "cannot resolve import `" missing) "`"))
                 (let ((bares vecNew)
                       (fulls vecNew)
+                      (mods vecNew)
                       (units (let ((v vecNew))
                                { (vecPush v (cast Int (CUnit2 path src (cast String 0)))) v })))
-                  (let ((allDecls (resolveImports decls bares fulls tcode entryDir units)))
+                  (let ((allDecls (resolveImports decls bares fulls mods tcode entryDir units)))
                     ; Same order as `compileFile`: expansion, then the
                     ; checker. An editor that reported a different set
                     ; of diagnostics from `axiom check` on the same file
                     ; would be worse than one that reported none.
                     (let ((ftbl vecNew)
-                          (eds (let ((v vecNew)) { (expandProgram decls allDecls v ftbl units) (lowerImpls allDecls v) v })))
+                          (eds (let ((v vecNew)) { (expandProgram decls allDecls v ftbl units bares fulls mods) (lowerImpls allDecls v) v })))
                     ; Expansion's refusals are published ALONE when it
                     ; refused. Running the checker over a tree
                     ; expansion gave up on is how `check` used to

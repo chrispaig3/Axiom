@@ -265,13 +265,14 @@
               (let ((decls (memGetWord pr 1)))
                 (let ((tcode (checkedTargetCode tname))
                       (bares vecNew)
-                      (fulls vecNew))
+                      (fulls vecNew)
+                      (mods vecNew))
                   ; Unit 0 is the entry file; `resolveImports` appends
                   ; one per module it reads, and every diagnostic names
                   ; the unit its spans index.
                   (let ((units (let ((v vecNew))
                                  { (vecPush v (cast Int (CUnit2 fileName src (cast String 0)))) v })))
-                  (let ((allDecls (resolveImports decls bares fulls tcode
+                  (let ((allDecls (resolveImports decls bares fulls mods tcode
                                                   (pathDir fileName) units)))
                   ; Macros expand HERE, between import resolution and
                   ; the checker, so the checker sees what a macro
@@ -282,7 +283,7 @@
                   ; of `self_host/expand.ax` for what that cost.
                   (let ((eds vecNew) (ftbl vecNew))
                   {
-                    (expandProgram decls allDecls eds ftbl units)
+                    (expandProgram decls allDecls eds ftbl units bares fulls mods)
                     ; Impls become ordinary declarations before the
                     ; checker runs, so their bodies are checked like
                     ; any others - they used to be checked not at all.
@@ -587,10 +588,11 @@
                         (let ((decls (memGetWord pr 1))
                               (tcode (checkedTargetCode (targetArg hostTarget)))
                               (bares vecNew)
-                              (fulls vecNew))
+                              (fulls vecNew)
+                              (mods vecNew))
                           (let ((units (let ((v vecNew))
                                          { (vecPush v (cast Int (CUnit2 f src (cast String 0)))) v })))
-                          (let ((allDecls (resolveImports decls bares fulls tcode
+                          (let ((allDecls (resolveImports decls bares fulls mods tcode
                                                           (pathDir f) units)))
                             ; `symbols` type-checks to get the types it
                             ; prints, so it expands first for the same
@@ -599,7 +601,7 @@
                             ; file is well-formed is the drift this
                             ; repository names most often.
                             (let ((ftbl vecNew)
-                                  (eds (let ((v vecNew)) { (expandProgram decls allDecls v ftbl units) (lowerImpls allDecls v) v })))
+                                  (eds (let ((v vecNew)) { (expandProgram decls allDecls v ftbl units bares fulls mods) (lowerImpls allDecls v) v })))
                             ; Expansion refused: do not type-check what
                             ; it gave up on. `compileFile` says why.
                             (let ((_stop (if (> (countErrorDiags eds) 0)

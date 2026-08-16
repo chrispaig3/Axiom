@@ -1139,10 +1139,12 @@ generates one declaration per template form when invoked at top level:
 (defWrap w2 base 100)           ; and w2 - names are parameters
 ```
 
-Templates may generate `fn` and `::` declarations and further macro
-invocations; an argument standing in a name position must be a bare
-identifier; invocation is entry-file only. Everything outside that
-surface is refused loudly — `AX3027` at the invocation (`axiom explain
+Templates may generate `fn`, `::`, `data`, `struct` and `impl`
+declarations and further macro invocations; an argument standing in a
+name position must be a bare identifier; a macro is invocable from the
+entry file and from a module over its own declarations, where the
+template's own `pub` decides what leaves the module. Everything
+outside that surface is refused loudly — `AX3027` at the invocation (`axiom explain
 AX3027`), or `AX3021` at the macro's own line for an unsupported
 template kind. A useful side effect of the form existing: a typo'd
 declaration keyword like `(fnn (broken) 3)` is now `AX3027` naming

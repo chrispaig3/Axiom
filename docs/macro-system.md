@@ -679,12 +679,61 @@ import resolution, so an invocation can name an imported macro
 qualified (`QualMac::qmk` in fixture 372) and a generated declaration
 can refer to imported names.
 
-*v1 limit:* phase D expands **entry-file invocations only**. An
-invocation inside an imported module is `AX3027` with the reason in
-the note (`tests/diagnostics/515-decl-macro-in-module.ax`): generated
-declarations in a module would need the module's mangling and
-visibility applied after import resolution has already run. The
-refusal is what keeps the limit loud until that is built.
+*The v1 limit is lifted (2026-08-15).* Phase D expanded **entry-file
+invocations only**, and an invocation inside an imported module was
+`AX3027` with the reason in the note: generated declarations in a
+module would need the module's mangling and visibility applied after
+import resolution has already run. Phase D now applies them itself,
+from the records that pass built — the bare-to-`Mod$name` mapping, and
+a (module, import filter) table import resolution records as it goes.
+A generated declaration is therefore indistinguishable from a written
+one on the module's side too, which is `MAC-EXP-17` extended by one
+namespace.
+
+Three rules decide what leaves the module, and each is the rule a
+hand-written declaration already followed:
+
+- **The template's own `pub`** decides whether the product is
+  exported. It is the only signal available — an invocation cannot
+  carry `pub` — and it is the right one: a library that derives says
+  what it publishes, exactly as it does for the functions it writes.
+  `stdlib/Pre.ax`'s templates say `pub`; a module-local `derive` that
+  omits it keeps its products to itself, and the module's own calls to
+  them still work, because privacy is about what leaves a module and
+  not about what the module may do.
+- **The import's name list** applies to a generated name as it does to
+  a written one. It cannot be applied where it is applied to
+  everything else — the name does not exist yet when the module's
+  declarations land — so import resolution records the filter against
+  the module and phase D asks for it. `(import M (a))` beside a
+  generated `pub b` is `AX3023` on `b`.
+- **The query vocabulary answers from the invocation site.** A module
+  deriving over its own type asks about a name its neighbours can see,
+  whatever an importer's name list says. Reading the rule as
+  "entry-file visible" made a module's own `pub data` refuse inside
+  the module that declared it the moment an importer's name list did
+  not mention it, which is the kind of coupling a module system exists
+  to prevent.
+
+The two passes share one implementation of those rules, in a module of
+its own: `codegen.ax` imports `expand.ax`, so the mangling and filter
+helpers could live in neither, and duplicating them is the failure
+this repository keeps finding — two implementations of one rule that
+drift. `self_host/namespace.ax` holds them, and the compiler's
+own self-clean sweep is what forced the split: with the helpers left
+in `codegen.ax`, `expand.ax` compiled as part of the whole program and
+drew three `AX3001`s the moment anything checked it alone.
+
+What still refuses: a pipeline that re-expands an already-resolved
+program (codegen's re-expansion, the REPL's type probe) carries no
+mangling records, and a module-side invocation reaching it is
+`AX3027` naming that rather than generating a declaration nothing can
+name. `tests/selfhost/388-module-side-decl-macro.ax` (47) is the
+positive gate — the prelude's `deriveEq` and `deriveShow` spent by a
+module on its own type, a private product the module calls, and an
+entry-file `eqSignal` coexisting with the module's mangled one — and
+`tests/diagnostics/515-decl-macro-in-module.ax` pins the visibility
+refusal.
 
 **MAC-EXP-17 (H, v1 2026-08-14).** A declaration a macro generates is
 indistinguishable, to every later pass, from one the author wrote: the
@@ -1146,8 +1195,12 @@ The v1 surface, all of it measured
 - **Arity is exact.** Declaration position has no "surplus applies to
   the result" story — the result is declarations, not a value — so a
   count mismatch is the arity diagnostic, not a partial application.
-- **Invocation is entry-file only** in v1; a module-side invocation is
-  `AX3027` with the reason in the note (`MAC-EXP-16`'s limit,
+- **Invocation works on both sides** since 2026-08-15: the entry
+  file's, and a module's own over its own declarations. What the
+  template says `pub` about is what leaves the module, and the
+  import's name list applies to a generated name as it does to a
+  written one (`MAC-EXP-16`,
+  `tests/selfhost/388-module-side-decl-macro.ax`,
   `tests/diagnostics/515-decl-macro-in-module.ax`).
 
 Diagnostic: `AX3027` (`declaration-macro`) covers every way a
@@ -1946,7 +1999,7 @@ nicety: without an expansion backtrace, the author of `(machine Door
 | Area | Holds today | Planned | Refused |
 |---|---|---|---|
 | Language | LANG-1…12, LANG-14 (one rule — the declaration form) | LANG-14 (multi-rule), LANG-15…18 | LANG-13 |
-| Expansion | EXP-1…15, EXP-16/17 (v1 — entry-file invocation, `fn`/`::`/invocation templates) | EXP-16 (module-side invocation) | — |
+| Expansion | EXP-1…17 (module-side invocation landed 2026-08-15) | — | — |
 | Hygiene | HYG-1…7 | HYG-8, HYG-9 | — |
 | Capabilities | CAP-1…3, CAP-6, CAP-7, CAP-8 (`fn`/`::`/`data`/`struct`/`impl`/invocation/iteration templates), CAP-9 (the deriving clause refuses), CAP-10 (format strings; 10.5 held-but-defective) | CAP-4 | CAP-5 (replacement landed, and the table is now COMPLETE: join — in name, reference and argument position, nested to any depth — constructors, fields, same, for including its parallel form, binders, fold, name, arity, defined, format, formatln) |
 | Safety | SAFE-1…4 | — | SAFE-5 |
@@ -1984,7 +2037,8 @@ convention; the list, not any one entry, is the argument for gating.
 | `tests/diagnostics/510-decl-macro-template-kind.ax` | CAP-8's template-kind `AX3021`, at the macro's own line |
 | `tests/selfhost/381-macro-type-templates.ax` (32) | CAP-7/CAP-8's `data` and `struct` templates — joined constructor names, two invocations giving two distinct types, and `deriveEq` querying a type generated in the same round |
 | `tests/diagnostics/565-macro-type-template-limits.axbad` | what still refuses — `type` and `import` templates at the macro's line, and the reserved `syntax/` prefix in a data name and a constructor name, both positions the parser could not even express before (`.axbad`: a joined name at top level is a shape the formatter must not learn, the same reason `525` carries the extension) |
-| `tests/diagnostics/515-decl-macro-in-module.ax` | EXP-16's v1 limit — module-side invocation refused, at the module's own line |
+| `tests/selfhost/388-module-side-decl-macro.ax` (47) | EXP-16's module-side invocation — the prelude's derive spent by a module on its own type, a private product the module calls, and an entry-file name coexisting with the module's mangled one; the unfixed compiler refuses at the module's line |
+| `tests/diagnostics/515-decl-macro-in-module.ax` | EXP-16's visibility rule — a generated declaration from a non-`pub` template is `AX3023` outside its module, and the module's own call to it still works |
 | `tests/selfhost/374-derive-eq.ax` (101) | CAP-5/CAP-6 — §10.2's nullary deriveEq verbatim, the roadmap's acceptance criterion; the unfixed compiler dies parsing the joined name |
 | `tests/selfhost/376-syntax-nested-for.ax` (7) | CAP-5 — nested syntax/for over two types, inner splice under the live outer binding |
 | `tests/selfhost/386-syntax-parallel-for.ax` (63) | CAP-5's parallel `syntax/for` — the zip in all three positions, one bit each, positional past the first element; the unfixed compiler does not parse the file |
@@ -2079,9 +2133,11 @@ rather than the value alone.
    parameters substituting in name, type and expression positions.
    `data` and `struct` templates joined on 2026-08-15, which is what
    makes `MAC-CAP-7` hold. What remains under this heading:
-   module-side invocation (`MAC-EXP-16`'s stated limit), and `type`
-   and `effect` templates — `import` and nested `macro` are refusals
-   by decision, not schedule. The prerequisite for everything in
+   `type` and `effect` templates — `import` and nested `macro` are
+   refusals by decision, not schedule. Module-side invocation,
+   `MAC-EXP-16`'s stated limit, landed 2026-08-15: a module invokes a
+   declaration macro over its own declarations, and phase D applies
+   the mangling and visibility import resolution would have. The prerequisite for everything in
    §10.2–§10.5 now exists.
 4. ~~**`MAC-CAP-5`/`MAC-CAP-6`**~~ — **v1 landed 2026-08-14, in three
    commits the same day**: the closed vocabulary exists and refuses
@@ -2107,8 +2163,8 @@ rather than the value alone.
    in all three positions against one shared binding-form normaliser,
    and `syntax/join` nests, so nested declaration iteration can name
    its products. What remains near this heading belongs to
-   `MAC-CAP-8`, not to the queries: the module-side INVOCATION limit
-   (`MAC-EXP-16`'s), and `type` and `effect` templates.
+   `MAC-CAP-8`, not to the queries: `type` and `effect` templates.
+   The module-side INVOCATION limit closed on 2026-08-15.
 5. **`MAC-LANG-14`–`MAC-LANG-18`** — rules, patterns and ellipsis. The
    largest surface change and the one that should land last, because
    the others do not depend on it. Three notes from probing it on

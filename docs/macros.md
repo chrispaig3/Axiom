@@ -58,8 +58,10 @@ macro in declaration position only; either crossing is `AX3027`
 template may generate `fn`, `::` and `impl` declarations, further
 macro invocations, and `syntax/for` iterations over them — any other
 declaration kind is `AX3021` at the macro's own line — a
-name-position argument must be a bare identifier, and invocation is
-entry-file only
+name-position argument must be a bare identifier, and a macro is
+invocable from the entry file and from a module alike — a module's own
+invocation puts its products in that module's namespace, with the
+template's `pub` deciding what leaves it (2026-08-15)
 ([macro-system.md](macro-system.md) `MAC-CAP-8` for the limits).
 Measured: `tests/selfhost/372-decl-macro.ax` (144) and
 `373-decl-macro-types.ax` (10, type-position substitution with the
@@ -308,7 +310,7 @@ semantic-analysis-time work:
 | `AX3022` | `macro-set-target` | a parameter used as a `set` target, given an expression |
 | `AX3023` | `private-name` | reaching a macro its module does not export — the general visibility code, shared by macros since they joined the value namespace |
 | `AX3024` | `macro-expansion-limit` | the expansion's OUTPUT exceeded a budget: nested deeper than 1024 forms, or more than 2,000,000 forms produced. The parser's limits measure the source; these measure what expansion produced from it |
-| `AX3027` | `declaration-macro` | every way a declaration-position invocation fails: unknown head (a typo'd keyword lands here, where it used to be a bare `AX2003` that stopped the parse), an expression macro in declaration position or a declaration macro in expression position, a non-identifier argument in a name position, a module-side invocation (the v1 limit). `axiom explain AX3027` is the catalogue |
+| `AX3027` | `declaration-macro` | every way a declaration-position invocation fails: unknown head (a typo'd keyword lands here, where it used to be a bare `AX2003` that stopped the parse), an expression macro in declaration position or a declaration macro in expression position, a non-identifier argument in a name position, and a module-side invocation reaching a pipeline that carries no mangling records. `axiom explain AX3027` is the catalogue |
 | `AX3028` | `syntax-query` | every `syntax/*` query with no answer (MAC-CAP-5/6): an unknown or wrong-position head (the vocabulary is CLOSED), a subject with nothing to answer (constructors of a struct, of nothing, of an imported type), a query written outside a macro template, a declaration named into the reserved `syntax/` prefix. `axiom explain AX3028` is the catalogue |
 
 `AX3006` (duplicate definition) also reaches macros now — see
@@ -399,11 +401,12 @@ the bank that pins it is `scripts/check-degenerate.sh`, and
 
 - **Declaration macros beyond the v1 surface.** The v1 form exists
   (§1, 2026-08-14): rule-form macros generating `fn`/`::`
-  declarations and further invocations, invoked from the entry file.
-  What does not: module-side invocation (`AX3027`, reason in the
-  note), and `data`/`struct`/`trait`/`effect`/`import` templates
-  (`AX3021` at the macro's line; `impl` templates joined the surface
-  in the fourth commit of 2026-08-14).
+  declarations and further invocations. Module-side invocation joined
+  it on 2026-08-15 - a module derives over its own types, the
+  template's `pub` deciding what leaves it. What does not exist:
+  `trait`/`effect`/`import` templates (`AX3021` at the macro's line;
+  `impl` templates joined in the fourth commit of 2026-08-14, `data`
+  and `struct` on 2026-08-15).
 - **`derive` as a stdlib library.** The mechanism is DONE for sums
   AND for struct lenses: declaration macros plus the query vocabulary
   (2026-08-14, two commits) run macro-system.md §10.2's nullary
@@ -487,9 +490,9 @@ longer exports a print function per type.)
    declaration list is fixed, then phase E walks bodies as before),
    and `format.ax` (invocation heads print as expressions; a rule
    form's interior prints verbatim from source, because `fpExpr`
-   would rewrite `fn` to `lambda` inside it). Entry-file invocation
-   only; `AX3027` covers every refusal, `axiom explain AX3027` the
-   catalogue.
+   would rewrite `fn` to `lambda` inside it). Invocable from the
+   entry file and from a module alike since 2026-08-15; `AX3027`
+   covers every refusal, `axiom explain AX3027` the catalogue.
 4. ~~**`derive`**~~ — **done as a mechanism, 2026-08-14** (criterion
    1): explicit declaration macros, with the spec's `deriveEq`s
    running verbatim (fixtures 374/377/378, the impl form's instances

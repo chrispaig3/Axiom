@@ -8,6 +8,7 @@
 (import Sys)
 (import Path)
 (import parser)
+(import namespace)
 (import diag)
 (import expand)
 (import render)
@@ -1599,13 +1600,6 @@
 (pub fn (seenHas seen name)
   (seenHasIn seen name 0))
 
-(pub :: seenHasIn (-> Int String Int Bool))
-(pub fn (seenHasIn seen name i)
-  (if (>= i (vecLen seen))
-      false
-      (if (strEq (vecGet seen i) name)
-          true
-          (seenHasIn seen name (+ i 1)))))
 
 ; ------------------------------------------------------------------
 ; Name mangling.
@@ -1628,46 +1622,6 @@
 ; is small (one entry per top-level function) and built once.
 ; ------------------------------------------------------------------
 
-; Record how a bare reference reaches `full`, unless the bare name is
-; already claimed. First-writer-wins is what makes the entry file win:
-; `resolveImports` records every entry-file function before any import
-; is read.
-(pub :: mangleRecord (-> Int Int String String Int))
-(pub fn (mangleRecord bares fulls bare full)
-  {
-    ; The mangled name maps to itself, recorded whether or not the bare
-    ; name was already claimed - which it usually is, by the entry
-    ; file. This is how a reference made INSIDE a module asks whether
-    ; that module defines the name at all, and the bare slot cannot
-    ; answer it: it holds exactly one winner per name.
-    ;
-    ; It changes no existing lookup. The only name that can match one
-    ; of these entries is a qualified reference, `Mod::name`, which
-    ; stage1 already spells `Mod$name` and which already resolved to
-    ; itself by falling off the end of the map.
-    (if (|| (strEq bare full) (mangleHasIn bares full 0))
-        0
-        {
-          (vecPush bares full)
-          (vecPush fulls full)
-          0
-        })
-    (if (mangleHasIn bares bare 0)
-        0
-        {
-          (vecPush bares bare)
-          (vecPush fulls full)
-          0
-        })
-  })
-
-(pub :: mangleHasIn (-> Int String Int Bool))
-(pub fn (mangleHasIn bares bare i)
-  (if (>= i (vecLen bares))
-      false
-      (if (strEq (vecGet bares i) bare)
-          true
-          (mangleHasIn bares bare (+ i 1)))))
 
 ; The symbol a bare reference reaches: the DEFINING MODULE'S OWN
 ; definition when the reference is made inside a module that has one,
@@ -1705,54 +1659,6 @@
           (vecGet fulls i)
           (mangledForIn bares fulls name (+ i 1)))))
 
-; Rewrite an imported function's definition to its mangled name, in
-; place - `emitFnDef` reads the same node later, so the header and the
-; map cannot disagree. Entry-file declarations (modName 0) are left
-; bare; they were already recorded by `recordEntryFns`. A signature is
-; renamed the same way, so the float-signature registry and the
-; definitions it describes stay keyed identically.
-;
-; `exported` decides which of `mangleRecord`'s two recordings happens.
-; A declaration that is carried but NOT exported records only
-; `Mod$name -> Mod$name`, so a reference made inside its own module
-; still reaches it and no bare name anywhere else can. That split is
-; the whole of module privacy in the emitter; the checker enforces the
-; other side (see `findFnEnt`), and it has to, because a bare
-; reference that gets past it lands here as a name this map does not
-; hold and is emitted unchanged - an undefined symbol reported by
-; `opt` against generated code.
-(pub :: mangleDecl (-> Int String Int Int Int Int))
-(pub fn (mangleDecl node modName bares fulls exported)
-  (if (== (cast Int modName) 0)
-      0
-      (if (== (nodeTag node) TAG_D_FN)
-          (let ((bare (nodeA node)))
-            (let ((full (cat3 (strDup (cast String modName)) "$" (strDup bare))))
-              {
-                (memSetWord node 1 full)
-                (if (== exported 1)
-                    (mangleRecord bares fulls bare full)
-                    (mangleRecordSelf bares fulls full))
-              }))
-          (if (== (nodeTag node) TAG_D_SIG)
-              {
-                (memSetWord node 1 (cat3 (strDup (cast String modName)) "$" (strDup (nodeA node))))
-                0
-              }
-              0))))
-
-; The half of `mangleRecord` that a private declaration gets: the
-; mangled name maps to itself, and the bare slot is left for whoever
-; can legitimately claim it.
-(pub :: mangleRecordSelf (-> Int Int String Int))
-(pub fn (mangleRecordSelf bares fulls full)
-  (if (mangleHasIn bares full 0)
-      0
-      {
-        (vecPush bares full)
-        (vecPush fulls full)
-        0
-      }))
 
 ; Every entry-file function maps to itself, recorded ahead of every
 ; import so that a collision resolves to the file being compiled.
@@ -1768,11 +1674,11 @@
         (recordEntryFns decls bares fulls (+ i 1))
       }))
 
-(pub :: resolveImports (-> Int Int Int Int String Int Int))
-(pub fn (resolveImports decls bares fulls tcode entryDir units)
+(pub :: resolveImports (-> Int Int Int Int Int String Int Int))
+(pub fn (resolveImports decls bares fulls mods tcode entryDir units)
   {
     (recordEntryFns decls bares fulls 0)
-    (resolveDecls decls vecNew vecNew 0 (cast String 0) bares fulls 0 tcode entryDir units)
+    (resolveDecls decls vecNew vecNew 0 (cast String 0) bares fulls mods 0 tcode entryDir units)
   })
 
 ; Append every non-import declaration reachable from `decls` onto `acc`,
@@ -1791,8 +1697,8 @@
 ; `acc` and `seen` are threaded rather than rebuilt: `vecPush` mutates in
 ; place and returns the same handle, so both stay stable across the whole
 ; traversal and siblings observe each other's additions.
-(pub :: resolveDecls (-> Int Int Int Int String Int Int Int Int String Int Int))
-(pub fn (resolveDecls decls acc seen i modName bares fulls filter tcode entryDir units)
+(pub :: resolveDecls (-> Int Int Int Int String Int Int Int Int Int String Int Int))
+(pub fn (resolveDecls decls acc seen i modName bares fulls mods filter tcode entryDir units)
   ; Two passes: stage0 partitions a module's imports into
   ; `Module::imports` and resolves ALL of them before any of the
   ; module's own declarations, at every level. Splicing an import at
@@ -1803,22 +1709,22 @@
   ; differential: stage0 listed Mem's functions before Sys's own, this
   ; resolver the other way round.
   (resolveDeclsPhase decls
-    (resolveDeclsPhase decls acc seen i modName bares fulls filter tcode entryDir units 0)
-    seen i modName bares fulls filter tcode entryDir units 1))
+    (resolveDeclsPhase decls acc seen i modName bares fulls mods filter tcode entryDir units 0)
+    seen i modName bares fulls mods filter tcode entryDir units 1))
 
 ; One pass: phase 0 consumes only the `(import ...)` entries (each
 ; imported module resolving BOTH its phases depth-first), phase 1 only
 ; the module's own declarations.
-(pub :: resolveDeclsPhase (-> Int Int Int Int String Int Int Int Int String Int Int Int))
-(pub fn (resolveDeclsPhase decls acc seen i modName bares fulls filter tcode entryDir units phase)
+(pub :: resolveDeclsPhase (-> Int Int Int Int String Int Int Int Int Int String Int Int Int))
+(pub fn (resolveDeclsPhase decls acc seen i modName bares fulls mods filter tcode entryDir units phase)
   (if (>= i (vecLen decls)) acc
       (let ((first (vecGet decls i)))
         (if (== (nodeTag first) TAG_D_IMPORT)
             (if (== phase 1)
-                (resolveDeclsPhase decls acc seen (+ i 1) modName bares fulls filter tcode entryDir units phase)
+                (resolveDeclsPhase decls acc seen (+ i 1) modName bares fulls mods filter tcode entryDir units phase)
                 (let ((name (memGetWord first 1)))
                   (if (seenHas seen name)
-                      (resolveDeclsPhase decls acc seen (+ i 1) modName bares fulls filter tcode entryDir units phase)
+                      (resolveDeclsPhase decls acc seen (+ i 1) modName bares fulls mods filter tcode entryDir units phase)
                       {
                         (vecPush seen name)
                         (let ((modDecls (parseModuleOrDieUnit name tcode entryDir units))
@@ -1826,14 +1732,25 @@
                                            (if (== ns 0)
                                                0
                                                (if (== (vecLen ns) 0) 0 ns)))))
+                          {
+                          ; The import's name list, recorded against
+                          ; the module it filtered. A module is merged
+                          ; exactly once (the `seen` test above), so
+                          ; there is exactly one filter per module -
+                          ; and phase D needs it, because a
+                          ; declaration a macro generates INSIDE this
+                          ; module does not exist yet when the filter
+                          ; is applied here (MAC-EXP-16).
+                          (modFilterRecord mods name subFilter)
                           (resolveDeclsPhase decls
-                                        (resolveDecls modDecls acc seen 0 name bares fulls subFilter tcode entryDir units)
+                                        (resolveDecls modDecls acc seen 0 name bares fulls mods subFilter tcode entryDir units)
                                         seen
                                         (+ i 1)
-                                        modName bares fulls filter tcode entryDir units phase))
+                                        modName bares fulls mods filter tcode entryDir units phase)
+                          })
                       })))
             (if (== phase 0)
-                (resolveDeclsPhase decls acc seen (+ i 1) modName bares fulls filter tcode entryDir units phase)
+                (resolveDeclsPhase decls acc seen (+ i 1) modName bares fulls mods filter tcode entryDir units phase)
                 ; `pub` and the import's name list decide which BARE
                 ; NAMES are visible, not which declarations exist. They
                 ; used to decide both, through this one `if`, and the
@@ -1871,14 +1788,9 @@
                     ; visible; nothing imports them.
                     (memSetWord first 5 exported)
                     (mangleDecl first modName bares fulls exported)
-                    (resolveDeclsPhase decls (vecPush acc first) seen (+ i 1) modName bares fulls filter tcode entryDir units phase)
+                    (resolveDeclsPhase decls (vecPush acc first) seen (+ i 1) modName bares fulls mods filter tcode entryDir units phase)
                   }))))))
 
-(pub :: filterKeeps (-> Int String Bool))
-(pub fn (filterKeeps filter name)
-  (if (== filter 0)
-      true
-      (seenHasIn filter name 0)))
 
 
 ; ------------------------------------------------------------------
@@ -2738,7 +2650,7 @@
   (let ((tcode (checkedTargetCode target))
         (bares vecNew)
         (fulls vecNew))
-    (let ((allDecls (resolveImports decls bares fulls tcode "" vecNew)))
+    (let ((allDecls (resolveImports decls bares fulls vecNew tcode "" vecNew)))
       {
         ; Expansion, for the same reason every other path runs it: this
         ; one reaches EMISSION, so without it a macro invocation is
@@ -2747,7 +2659,7 @@
         ; renderer and no units to render against - it is the
         ; convenience form, and a caller that wants diagnostics uses
         ; the pipeline in `main.ax` that has them.
-        { (expandProgram allDecls allDecls vecNew vecNew 0) (lowerImpls allDecls vecNew) }
+        { (expandProgram allDecls allDecls vecNew vecNew 0 0 0 0) (lowerImpls allDecls vecNew) }
         (emitResolved allDecls bares fulls tcode)
       })))
 

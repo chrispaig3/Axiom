@@ -1,13 +1,23 @@
-; A module containing a declaration-macro invocation, for 515: the
-; v1 surface is entry-file invocation, and a module-side one is
-; refused rather than half-supported (generated declarations here
-; would need the module's mangling and visibility applied after
-; import resolution has already run).
+; A module that invokes declaration macros of its own (MAC-EXP-16's
+; module-side invocation, 2026-08-15). Two of them, because what the
+; entry file may name is the question 515 asks: a template's own `pub`
+; decides whether its products leave the module, exactly as it decides
+; for a declaration written here by hand.
 (pub macro dmk ((dmk nm)
-   (fn (nm) 3)))
+   (pub :: nm Int)
+   (pub fn (nm) 3)))
+
+(macro dhidden ((dhidden nm)
+   (:: nm Int)
+   (fn (nm) 4)))
 
 (dmk insideModule)
 
+(dhidden hiddenInside)
+
 (pub :: touch Int)
 
-(pub fn (touch) 1)
+; The module's own call to its own generated private declaration -
+; which must keep working, since privacy is about what leaves the
+; module and this call does not.
+(pub fn (touch) (+ 1 hiddenInside))
