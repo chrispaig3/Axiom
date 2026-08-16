@@ -1,46 +1,75 @@
-; exit 53 (see .exit)
+; exit 127 (see .exit)
 ; MM-LIFE-2c event 3, the subset that needs no escape analysis to be
-; sound: a `let` binding whose initialiser is a DIRECT CONSTRUCTION and
-; whose name is only ever the object of a field READ is released when
-; its scope ends.
+; sound: a `let` binding whose initialiser is a DIRECT CONSTRUCTION is
+; released when its scope ends, unless the binding can outlive the
+; frame.
 ;
-; Both conditions are syntactic on purpose. The rule as specified is
-; stated over an escape analysis this compiler does not have; what it
-; does have is a shape whose answer needs none - the binding holds the
-; block's birth share and no one else's, and a field read answers a
-; field, which took its own share at construction (event 6) if it is
-; itself a reference. The walker that decides the second condition
-; DEFAULTS TO ESCAPES: a tag it does not recognise answers "escapes",
-; so widening the surface is a deliberate edit rather than an
-; omission, and the failure direction is the leak rather than the
-; early free.
+; The initialiser condition is what makes the frame the owner: a
+; direct construction is born at count 1 and that birth is the
+; binding's, so handing it back is arithmetic and not a judgement
+; about who else holds it. The second condition is a POSITIONAL walk,
+; and its permissions are the interesting half - each is a place the
+; ownership events already guarantee a share:
 ;
-;   32  20,000 build-read-drop calls move the allocator's bump by 256
-;       bytes. The same loop before this event moved it by 640,224 -
-;       one 32-byte block per call, never reclaimed
-;   16  THE CONTROL, which must go the other way: the same loop with
-;       the record RETURNED instead of read grows by 160,224 bytes
-;       over 5,000 calls, because the name is the let's own value and
-;       the walker refuses to release it. A rule that released this
-;       one would be a use-after-free, and a control that cannot fail
-;       is not a control
-;    4  the value is still right - the release is emitted after the
+;   passing it to a function is a BORROW (event 1). Every store the
+;   callee can make takes a share: a field store by event 5, a
+;   constructor field by event 6, a container or any other word store
+;   through `memSetWord`, which retains by MM-LIFE-2g. A callee that
+;   RETURNS it hands back a value the caller's own binding rules
+;   cover. Those four are the whole of how a reference leaves a frame;
+;   reading a FIELD answers the field, never the block;
+;   sequencing, conditions and loops move no value out.
+;
+; What escapes, and why each is a place the guarantee stops:
+;
+;   the binding IS the let's value - nothing took a share on the way
+;     out;
+;   a LAMBDA mentions it - a capture takes no share, deliberately
+;     (MM-VAL-15);
+;   a `set` RHS - a slot store takes no share;
+;   `cast`, `__addr`, `strData`, `strOwner` - the four ways to get a
+;     WORD out of a reference, and a word is invisible to counting by
+;     construction (MM-LIFE-2g's own stated limit).
+;
+; Any tag the walk does not know answers ESCAPE, so the surface widens
+; by deliberate edit and never by omission - the leak direction.
+;
+;   64  a record CAPTURED BY A LAMBDA is not released: 400,224 bytes
+;       over 5,000 iterations, and a release here would free a block
+;       the closure still names
+;   32  a record whose WORD escapes through `cast` is not released:
+;       291,328 bytes over 5,000. This is the one the permissive half
+;       of the walk makes possible and therefore the one it has to
+;       refuse
+;   16  a record RETURNED rather than read is not released: 160,224
+;       bytes over 5,000
+;    8  a record built, PASSED TO A FUNCTION, and dropped IS released:
+;       20,000 calls move the bump 256 bytes where they moved 640,224.
+;       This is what the positional walk buys over "field reads only"
+;    4  the same for a record built, read, and dropped
+;    2  the value is still right - the release is emitted after the
 ;       body, not before it
 ;    1  every step above ran
 ;
 ; What this event does NOT reach, measured rather than assumed: the
-; compiler's own IR gains ZERO release sites under it (112 before, 112
-; after, over 36,000 lines). 13 of 2,337 `let` bindings in
-; `self_host/` and `stdlib/` bind a direct construction at all, and
-; none survives the escape test - the corpus builds its records through
-; `mk*` functions returning `Int`-declared handles, which is the same
-; reason MM-LIFE-2e's acceptance measurements cannot move. The event is
-; for programs, not for this one.
+; compiler's own IR carries 116 release sites under it against 112
+; before - four. 13 of 2,337 `let` bindings in `self_host/` and
+; `stdlib/` bind a direct construction at all, because the corpus
+; builds its records through `mk*` functions returning `Int`-declared
+; handles. That is the same reason MM-LIFE-2e's acceptance
+; measurements cannot move, and it is why MM-LIFE-2c's event 2 is
+; implemented, measured and NOT shipped - see the rule.
 ;
-; The unfixed compiler answers 21: the two flatness claims fail and the
-; control passes, which is what a compiler that releases nothing looks
-; like.
+; Two ablations, because this fixture pins two commits' worth of rule.
+; The compiler that predates the event answers 115 - both flatness
+; claims fail and the three escape controls pass, which is what a
+; compiler that releases nothing looks like. The compiler with the
+; event but with the earlier "field reads only" walk answers 119: it
+; releases the record it read and not the one it passed, which is
+; exactly the widening this commit is.
 (import Mem)
+
+(import Vec)
 
 (struct Pair
   (a : Int)
@@ -55,7 +84,11 @@
   )
 )
 
-; the shape event 3 owns: build, read fields, drop
+(:: total (-> Pair Int))
+
+(fn (total p) (+ p.a p.b))
+
+; built, read, dropped
 (:: score (-> Int Int))
 
 (fn (score n)
@@ -64,8 +97,16 @@
   )
 )
 
-; the same build, but the record IS the value - it escapes, and the
-; walker must refuse to release it
+; built, PASSED, dropped - the shape the positional walk adds
+(:: passed (-> Int Int))
+
+(fn (passed n)
+  (let ((p (Pair n n)))
+    (total p)
+  )
+)
+
+; the record IS the value: it escapes
 (:: keep (-> Int Pair))
 
 (fn (keep n)
@@ -78,12 +119,47 @@
 
 (fn (readA p) p.a)
 
+; the record's WORD escapes through a cast, into a container that
+; retains the integer and not the block
+(:: viaCast (-> Int Int Int))
+
+(fn (viaCast v n)
+  (let ((p (Pair n n)))
+    {
+      (vecPush
+        v        (cast Int p)
+      )
+      1
+    }
+  )
+)
+
+; the record is captured by a lambda
+(:: viaLambda (-> Int Int))
+
+(fn (viaLambda n)
+  (let ((p (Pair n n)))
+    ((lambda (k) p.a)
+      0
+    )
+  )
+)
+
 (:: sumDropped (-> Int Int Int))
 
 (fn (sumDropped n acc)
   (if (<= n 0)
     acc
     (sumDropped (- n 1) (+ acc (score n)))
+  )
+)
+
+(:: sumPassed (-> Int Int Int))
+
+(fn (sumPassed n acc)
+  (if (<= n 0)
+    acc
+    (sumPassed (- n 1) (+ acc (passed n)))
   )
 )
 
@@ -95,6 +171,28 @@
     (sumEscaped (- n 1) (+ acc (readA (keep n))))
   )
 )
+
+(:: sumCast (-> Int Int Int Int))
+
+(fn (sumCast v n acc)
+  (if (<= n 0)
+    acc
+    (sumCast v (- n 1) (+ acc (viaCast v n)))
+  )
+)
+
+(:: sumLambda (-> Int Int Int))
+
+(fn (sumLambda n acc)
+  (if (<= n 0)
+    acc
+    (sumLambda (- n 1) (+ acc (viaLambda n)))
+  )
+)
+
+(:: grew (-> Int Int Bool))
+
+(fn (grew before after) (> (- after before) 100000))
 
 (:: main Int)
 
@@ -108,23 +206,53 @@
         {
           (sumDropped 20000 0)
           (let ((b2 (memAlloc 200)))
-            (set acc (+ acc (* 32 (b2i (< (- b2 b1) 4096)))))
+            (set acc (+ acc (* 4 (b2i (< (- b2 b1) 4096)))))
           )
           (set steps (+ steps 1))
         }
       )
       (let ((c1 (memAlloc 200)))
         {
-          (sumEscaped 5000 0)
+          (sumPassed 20000 0)
           (let ((c2 (memAlloc 200)))
-            (set acc (+ acc (* 16 (b2i (> (- c2 c1) 100000)))))
+            (set acc (+ acc (* 8 (b2i (< (- c2 c1) 4096)))))
           )
           (set steps (+ steps 1))
         }
       )
-      (set acc (+ acc (* 4 (b2i (== (score 7) 14)))))
+      (let ((d1 (memAlloc 200)))
+        {
+          (sumEscaped 5000 0)
+          (let ((d2 (memAlloc 200)))
+            (set acc (+ acc (* 16 (b2i (grew d1 d2)))))
+          )
+          (set steps (+ steps 1))
+        }
+      )
+      (let (
+        (v vecNew)
+        (e1 (memAlloc 200))
+      )
+        {
+          (sumCast v 5000 0)
+          (let ((e2 (memAlloc 200)))
+            (set acc (+ acc (* 32 (b2i (grew e1 e2)))))
+          )
+          (set steps (+ steps 1))
+        }
+      )
+      (let ((f1 (memAlloc 200)))
+        {
+          (sumLambda 5000 0)
+          (let ((f2 (memAlloc 200)))
+            (set acc (+ acc (* 64 (b2i (grew f1 f2)))))
+          )
+          (set steps (+ steps 1))
+        }
+      )
+      (set acc (+ acc (* 2 (b2i (== (score 7) 14)))))
       (set steps (+ steps 1))
-      (if (== steps 3)
+      (if (== steps 6)
         (+ acc 1)
         acc
       )

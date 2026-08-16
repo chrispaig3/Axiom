@@ -1545,30 +1545,48 @@ binding, so nothing can free one out from under a closure. The rule is
 not "retain every capture" but "retain what something else may hand
 back".
 
-**Event 3 emits for one shape since 2026-08-15**
-(`tests/stdlib/364-arc-frame-release.ax`, 53 against the unfixed
-compiler's 21): a `let` binding whose initialiser is a DIRECT
-CONSTRUCTION and whose name is only ever the object of a field READ is
-released when its scope ends. Both conditions are syntactic on
-purpose. The binding holds the block's birth share and no one else's -
-the same predicate the statement-position release already spends - and
-a field read answers a field, which took its own share at construction
-(event 6) if it is itself a reference, so the value the body computes
-cannot alias the block being released. The release is emitted at the
-binding's scope end, in the block that defines its register, rather
-than before the function's `ret`: a `let` inside a branch defines a
-register that does not dominate the return.
+**Event 3 emits since 2026-08-15**
+(`tests/stdlib/364-arc-frame-release.ax`, 127): a `let` binding whose
+initialiser is a DIRECT CONSTRUCTION is released when its scope ends,
+unless the binding can outlive the frame. The initialiser condition is
+what makes the frame the owner - the block is born at count 1 and that
+birth is the binding's - and the escape condition is a POSITIONAL
+walk. The release is emitted at the binding's scope end, in the block
+that defines its register, rather than before the function's `ret`: a
+`let` inside a branch defines a register that does not dominate the
+return.
 
-The decision that makes this sound is the walker's DEFAULT. A tag it
-does not recognise answers "escapes", so the surface widens by
-deliberate edit and never by omission - a lambda that could capture
-the binding, a `set` that could store it, a `match`, a struct
-construction and a `handle` all answer "escapes" today without being
-read. Measured, both directions: 20,000 build-read-drop calls move the
-bump **256 bytes where they moved 640,224**, and the control - the
-same loop with the record RETURNED rather than read - still grows
-160,224 bytes over 5,000 calls, because the name is the let's own
-value and the walker refuses it.
+**What the walk PERMITS is the load-bearing half, and each permission
+is a place an ownership event already guarantees a share.** Passing
+the binding to a function is a borrow (event 1); every store a callee
+can make takes one - a field store by event 5, a constructor field by
+event 6, a container or any other word store through `memSetWord`,
+which retains by `MM-LIFE-2g`. Reading a FIELD answers the field,
+never the block. Sequencing, conditions and loops move no value out.
+Those are the whole of how a reference leaves a frame, which is what
+makes this a proof rather than a heuristic - and the corpus agrees by
+count: `__store64` appears at exactly two store sites in
+`stdlib/` + `self_host/`, one of them `memSetWord`'s own body, and no
+site anywhere stashes a `strData` pointer.
+
+**What escapes** is each place that guarantee stops: the binding being
+the let's own value (nothing took a share on the way out); a LAMBDA
+that mentions it (a capture takes no share, deliberately -
+`MM-VAL-15`); a `set` RHS (a slot store takes none); and `cast`,
+`__addr`, `strData`, `strOwner` - the four ways to get a WORD out of a
+reference, which is invisible to counting by construction
+(`MM-LIFE-2g`'s own stated limit). A tag the walk does not recognise
+answers ESCAPE, so the surface widens by deliberate edit and never by
+omission.
+
+Measured, all five directions. A record built, read and dropped:
+20,000 calls move the bump **256 bytes where they moved 640,224**. A
+record built, PASSED TO A FUNCTION and dropped: the same 256 against
+640,224, which is what the positional walk buys over "field reads
+only". And the three controls still grow - 160,224 bytes when the
+record is returned, 291,328 when its word escapes through a `cast`,
+400,224 when a lambda captures it - because a release there would free
+a block something else still names.
 
 *What it does not reach, measured rather than assumed:* the compiler's
 own IR gains **zero** release sites under this event (112 before, 112
@@ -1579,16 +1597,44 @@ functions that return `Int`-declared handles, which is the same reason
 `MM-LIFE-2e`'s acceptance measurements cannot move. The event is for
 programs, not for this one.
 
-What deliberately does not emit: event 2, and the rest of event 3. A
-function returning its result owned is not implementable without event
-3 releasing call RESULTS - a retain on every reference return with no
-matching release is a leak on every call - and releasing a call result
-needs the binding's TYPE, which codegen does not have for a `let`.
-That is the same missing node-to-type table that blocks the language
-server's hover, so one prerequisite serves two rungs; it is a table,
-not an analysis, and naming it precisely is what this paragraph is
-for. The escape question the rules are stated over is answered
-syntactically above for the shape that needs no types at all.
+**Event 2 is implemented, measured, and NOT shipped — and the
+measurement is the reason.** The paragraph that stood here said event
+2 was blocked on a node-to-type table: codegen has no type for a `let`
+binding, so it cannot tell whether a call's result is a reference. That
+was true and it was cheap to fix — the checker knows `initTy` at the
+`let` it is checking, and word 6 of a `let` node is free (an
+application's word 6 already carries the evidence stamp of a
+polymorphic call, which is why a GENERAL node-to-type table cannot live
+there, but a `let` is never a call). Three lines, one store per
+binding, and the emitted IR is byte-identical.
+
+With that in hand both halves were built: event 2 retaining a
+reference result before every return, and event 3 releasing a `let`
+bound to a call whose declared result is a reference. Then they were
+measured on this compiler:
+
+| | before | after |
+|---|---|---|
+| release sites in the compiler's own IR | 112 | **120** |
+| retain sites | 335 | **620** |
+| self-compile peak RSS | 535 MiB | **535 MiB** |
+| self-compile wall clock | 6.3 s | **6.9 s** |
+
+**285 new retains to enable 8 new releases, 9.5% of a self-compile,
+and not one byte reclaimed.** So the pair is not shipped, and the
+reason is neither the analysis nor the table: it is that this corpus
+holds its references behind `Int`-declared handles, so a type-directed
+event has nothing to fire on. That is the same finding as the Life
+probe and as the LSP's per-message AST garbage, arrived at a third
+way — from the emitting side rather than the consuming one — and it is
+now a number rather than an expectation.
+
+What would change the answer is the corpus, not the compiler: the day
+`Vec`, `Map` and `ASTNode` name their element types, the ratio inverts
+and the pair is three small diffs away. The node-to-type table the
+language server wants for hover is a separate, larger thing — a type
+per NODE, which word 6 cannot carry — and this experiment says nothing
+about its cost.
 
 **The blocker was two numbers, and it is solved.** Probed
 2026-08-15, before: a `String` whose header count reads 0, pushed into

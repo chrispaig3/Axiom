@@ -3060,6 +3060,21 @@
                           (memSetWord cg2 31 0)
                           (emitLine cg2 "}")
                         }
+                        ; MM-LIFE-2c event 2: a function returns its
+                        ; result OWNED. A body that is a direct
+                        ; construction already hands back the birth
+                        ; share and MOVES it; anything else - a
+                        ; parameter, a field read, another call's
+                        ; result - is borrowed here, so returning it
+                        ; retains first. The caller then owns exactly
+                        ; one share, which is what lets event 3
+                        ; release a `let` bound to a call.
+                        ;
+                        ; Over-retaining is the safe direction and the
+                        ; test is deliberately coarse: a tail that
+                        ; ends in a construction inside a branch is
+                        ; retained too, which leaks a share rather
+                        ; than freeing one.
                         (let ((ret (cat3 "  ret i64 " (strDup (memGetWord cg2 2)) "")))
                           (emitLine (emitLine cg2 ret) "}")))
                   }))))))))))))))
@@ -6562,7 +6577,7 @@
             ; register - rather than before the function's `ret`,
             ; because a `let` inside a branch defines a register that
             ; does not dominate the return.
-            (if (== (letReleasable cg1 valExpr name body) 1)
+            (if (== (letReleasable cg1 node valExpr name body) 1)
                 (let ((res (strDup (memGetWord cgB 2)))
                       (cgR (emitReleaseOf cgB valReg)))
                   {
@@ -6592,56 +6607,214 @@
 ; deliberate edit rather than an omission. That is the direction that
 ; leaks rather than the one that frees early, which is the asymmetry
 ; this whole strategy turns on.
-(pub :: letReleasable (-> Int Int String Int Int))
-(pub fn (letReleasable cg valExpr name body)
-  (if (!= (argIsDirectCon cg valExpr) 1)
+(pub :: letReleasable (-> Int Int Int String Int Int))
+(pub fn (letReleasable cg node valExpr name body)
+  (if (!= (letOwned cg node valExpr) 1)
       0
-      (if (== (nameEscapes name body) 1) 0 1)))
+      (if (== (escapes name body 1) 1) 0 1)))
 
-(pub :: nameEscapes (-> String Int Int))
-(pub fn (nameEscapes name e)
+; Does this frame OWN the binding's value - hold a share nobody else
+; handed it?
+;
+; Two ways, and they are the two ways a share is created. A DIRECT
+; CONSTRUCTION is born at count 1 and that birth is the binding's. A
+; CALL to a function whose declared result is a reference hands back a
+; share, because MM-LIFE-2c's event 2 retains a reference result
+; before returning it - which is why the two events are one commit:
+; each is unsound without the other, event 2 leaking on every call and
+; event 3 freeing the caller's value.
+;
+; Anything else - a parameter, a bare name, a field read - is BORROWED,
+; and a borrowed value is never released here. That is the leak side of
+; the asymmetry, taken deliberately.
+(pub :: letOwned (-> Int Int Int Int))
+(pub fn (letOwned cg node valExpr)
+  (argIsDirectCon cg valExpr))
+
+
+
+; Could the binding OUTLIVE this frame through `e`?
+;
+; Positional, because the answer depends on where the name stands. In
+; VALUE position - the expression whose value the `let` answers - a
+; bare mention escapes, because that value flows to the caller with no
+; share taken. In ARGUMENT position it does not: a callee borrows
+; (event 1), every store a callee can make takes a share (a field
+; store by event 5, a constructor field by event 6, a container or any
+; other word store through `memSetWord`, which retains by MM-LIFE-2g),
+; and a callee that RETURNS the value retains it first (event 2). Those
+; four are the whole of how a reference leaves a frame, which is what
+; makes this walk a proof rather than a heuristic.
+;
+; Three shapes escape whatever their position, and each is a place the
+; invariant above does not reach:
+;
+;   a LAMBDA that mentions it - a capture takes no share, deliberately
+;     (MM-VAL-15: nothing releases a binding, so nothing may free one
+;     out from under a closure);
+;   a `set` RHS - a slot store takes no share;
+;   `cast`, `__addr` and `strData` - the three ways to get a WORD out
+;     of a reference. A word stashed anywhere is invisible to counting
+;     by construction (MM-LIFE-2g's own stated limit), so a binding
+;     that reaches one of them is the program's to keep alive.
+;
+; Every tag this walk does not know answers ESCAPE, so the surface
+; widens by deliberate edit and never by omission.
+(pub :: escapes (-> String Int Int Int))
+(pub fn (escapes name e vp)
   (if (== e 0)
       0
       (let ((tg (nodeTag e)))
-        (if (== tg TAG_E_VAR)
-            (if (strEq (nodeA e) name) 1 0)
-        (if (|| (== tg TAG_E_INT) (|| (== tg TAG_E_FLT) (== tg TAG_E_STR)))
+        (if (|| (== tg TAG_E_INT)
+            (|| (== tg TAG_E_FLT)
+            (|| (== tg TAG_E_STR) (== tg TAG_E_CHAR))))
             0
+        (if (== tg TAG_E_VAR)
+            (if (strEq (nodeA e) name) vp 0)
         (if (== tg TAG_E_FIELD)
-            ; `x.f` where x IS the binding is the safe shape; anything
-            ; else recurses into the object.
-            (let ((o (nodeA e)))
-              (if (&& (== (nodeTag o) TAG_E_VAR) (strEq (nodeA o) name))
-                  0
-                  (nameEscapes name o)))
+            ; a field READ answers the field, never the block
+            (escapes name (nodeA e) 0)
         (if (== tg TAG_E_APP)
-            (if (== (nameEscapes name (nodeA e)) 1)
-                1
-                (nameEscapes name (nodeB e)))
-        (if (== tg TAG_E_IF)
-            (if (== (nameEscapes name (nodeA e)) 1)
-                1
-                (if (== (nameEscapes name (nodeB e)) 1)
+            (if (== (wordTakingHead (spineHeadE e)) 1)
+                ; `cast`/`__addr`/`strData` of the binding hands out a
+                ; word, and a word takes no share
+                (mentions name e)
+                (if (== (escapes name (nodeA e) 0) 1)
                     1
-                    (nameEscapes name (nodeC e))))
+                    (escapes name (nodeB e) 0)))
+        (if (== tg TAG_E_IF)
+            (if (== (escapes name (nodeA e) 0) 1)
+                1
+                (if (== (escapes name (nodeB e) vp) 1)
+                    1
+                    (escapes name (nodeC e) vp)))
         (if (== tg TAG_E_BEGIN)
-            (nameEscapesVec name (nodeA e) 0)
-            ; Every other shape - a lambda that could capture it, a
-            ; `set` that could store it, a `match`, a struct
-            ; construction, a handle - answers ESCAPES without being
-            ; read. The list grows by measured commits.
-              1)))))))))
+            (escapesSeq name (nodeA e) vp 0)
+        (if (== tg TAG_E_MATCH)
+            (if (== (escapes name (nodeA e) 0) 1)
+                1
+                (escapesArms name (nodeB e) vp 0))
+        (if (== tg TAG_E_COND)
+            (escapesArms name (nodeA e) vp 0)
+        (if (|| (== tg TAG_E_LET) (== tg TAG_E_LETM))
+            ; the initialiser inherits the position: `(let ((t s)) t)`
+            ; makes the binding the let's value through an alias
+            (if (== (escapes name (nodeB e) vp) 1)
+                1
+                (escapes name (nodeC e) vp))
+        (if (== tg TAG_E_WHILE)
+            (if (== (escapes name (nodeA e) 0) 1)
+                1
+                (escapesSeq name (nodeB e) 0 0))
+        (if (== tg TAG_E_SET)
+            ; a slot store takes no share
+            (mentions name (nodeB e))
+        (if (== tg TAG_E_SETF)
+            ; `(set b.f v)` retains v (event 5), so only the base is
+            ; read here - and reading a base is a borrow
+            (escapes name (nodeA e) 0)
+            (mentions name e))))))))))))))))
 
-(pub :: nameEscapesVec (-> String Int Int Int))
-(pub fn (nameEscapesVec name v i)
+(pub :: escapesSeq (-> String Int Int Int Int))
+(pub fn (escapesSeq name v vp i)
   (if (== v 0)
       0
       (if (>= i (vecLen v))
           0
-          (if (== (nameEscapes name (vecGet v i)) 1)
+          (if (== (escapes name (vecGet v i)
+                           (if (== i (- (vecLen v) 1)) vp 0)) 1)
               1
-              (nameEscapesVec name v (+ i 1))))))
+              (escapesSeq name v vp (+ i 1))))))
 
+; A match arm or cond clause: word 2 is the body, and it inherits the
+; position. An arm PATTERN cannot mention an outer binding as a value.
+(pub :: escapesArms (-> String Int Int Int Int))
+(pub fn (escapesArms name v vp i)
+  (if (== v 0)
+      0
+      (if (>= i (vecLen v))
+          0
+          (if (== (escapes name (nodeB (vecGet v i)) vp) 1)
+              1
+              (escapesArms name v vp (+ i 1))))))
+
+; Does `name` appear anywhere below `e` at all? The answer for the
+; shapes that take no share, where position stops mattering. Unknown
+; tags answer 1: not knowing a node's children is not knowing whether
+; the name is under it.
+(pub :: mentions (-> String Int Int))
+(pub fn (mentions name e)
+  (if (== e 0)
+      0
+      (let ((tg (nodeTag e)))
+        (if (|| (== tg TAG_E_INT)
+            (|| (== tg TAG_E_FLT)
+            (|| (== tg TAG_E_STR) (== tg TAG_E_CHAR))))
+            0
+        (if (== tg TAG_E_VAR)
+            (if (strEq (nodeA e) name) 1 0)
+        (if (|| (== tg TAG_E_APP)
+            (|| (== tg TAG_E_IF)
+            (|| (== tg TAG_E_LET)
+            (|| (== tg TAG_E_LETM) (== tg TAG_E_SETF)))))
+            (if (== (mentions name (nodeA e)) 1)
+                1
+                (if (== (mentions name (nodeB e)) 1)
+                    1
+                    (mentions name (nodeC e))))
+        (if (== tg TAG_E_FIELD)
+            (mentions name (nodeA e))
+        (if (== tg TAG_E_SET)
+            (mentions name (nodeB e))
+        (if (|| (== tg TAG_E_BEGIN) (== tg TAG_E_COND))
+            (mentionsVec name (nodeA e) 0)
+        (if (== tg TAG_E_MATCH)
+            (if (== (mentions name (nodeA e)) 1)
+                1
+                (mentionsArms name (nodeB e) 0))
+        (if (== tg TAG_E_WHILE)
+            (if (== (mentions name (nodeA e)) 1)
+                1
+                (mentionsVec name (nodeB e) 0))
+        (if (== tg TAG_E_LAM)
+            ; a capture takes no share, so any mention counts
+            (mentions name (nodeB e))
+            1))))))))))))
+
+(pub :: mentionsVec (-> String Int Int Int))
+(pub fn (mentionsVec name v i)
+  (if (== v 0)
+      0
+      (if (>= i (vecLen v))
+          0
+          (if (== (mentions name (vecGet v i)) 1)
+              1
+              (mentionsVec name v (+ i 1))))))
+
+(pub :: mentionsArms (-> String Int Int Int))
+(pub fn (mentionsArms name v i)
+  (if (== v 0)
+      0
+      (if (>= i (vecLen v))
+          0
+          (if (== (mentions name (nodeB (vecGet v i))) 1)
+              1
+              (mentionsArms name v (+ i 1))))))
+
+; The three heads that hand a WORD out of a reference. A word takes no
+; share and nothing can give it one, so a binding that reaches any of
+; them is the program's to keep alive (MM-LIFE-2g states the same limit
+; for the store side).
+(pub :: wordTakingHead (-> Int Int))
+(pub fn (wordTakingHead h)
+  (if (!= (nodeTag h) TAG_E_VAR)
+      0
+      (if (|| (strEq (nodeA h) "cast")
+          (|| (strEq (nodeA h) "__addr")
+          (|| (strEq (nodeA h) "strData")
+              (strEq (nodeA h) "strOwner"))))
+          1
+          0)))
 ; A mutable binding: the initialiser's value goes into an alloca, the
 ; name binds the alloca (kind 1), and reads load. `alloca` in a body
 ; block rather than the entry block is legal LLVM; at -O0 nothing cares,
