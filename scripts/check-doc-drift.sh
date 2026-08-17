@@ -169,10 +169,16 @@ named = set()
 # what pins it.
 for doc in ("README.md", "docs/reference.md", "CONTRIBUTING.md",
             "docs/v1-roadmap.md", "docs/self-hosting.md", "docs/macros.md",
-            # The two normative specifications. A document outside this
+            # The normative specifications. A document outside this
             # list drifts exactly as the nine claims this gate was built
-            # to catch did, and these two cite 31 fixtures between them.
-            "docs/memory-model.md", "docs/macro-system.md"):
+            # to catch did, and these cite 31 fixtures between them.
+            # docs/error-model.md joined them on 2026-08-16, on the day
+            # it was written rather than after its first stale sentence:
+            # it is the document whose every rule cites the probe that
+            # established it, so it has the most to lose from a fixture
+            # that quietly stops existing.
+            "docs/memory-model.md", "docs/macro-system.md",
+            "docs/error-model.md"):
     # The extension alternation needs the boundary: without it
     # `tests/fmt/parity/170-empty-tuple.axp` matched as `...ax` and was
     # reported missing, which is a gate finding its own bug and calling
