@@ -326,25 +326,27 @@ conversions are `__intToFloat`/`__floatToInt`.
 
 The `(a)` after the type name introduces a type parameter. Types can be polymorphic — the same `Maybe` can hold any type.
 
-A lowercase name in a *signature* is a type variable too, and a call to
-such a function answers the type it was **applied at**:
+A lowercase name in a *signature* is a type variable too. It is checked
+for compatibility at each call, but the compiler does **not** infer what
+it was instantiated at: a call to `(-> a a)` answers an unresolved
+variable, which is compatible with every type.
 
 ```scheme
 (:: idf (-> a a))
 (fn (idf x) x)
 
-(strLen (idf 7))    ; AX3004 — `idf` was applied at Int, so it answers Int
+(strLen 7)          ; AX3004, correctly
+(strLen (idf 7))    ; accepted — `idf`'s result is unresolved
 ```
 
-The variable is resolved per call site, in both directions: an argument
-resolves a parameter's variable, and a parameter resolves an argument
-that is itself unresolved — which is how a lambda's parameter type is
-learned from its own body. Resolution descends into structure, so the
-`a` in `(Option a)` or `(-> a Int)` is resolved as well.
-
-Until 2026-08-17 the result of a polymorphic call was an unconstrained
-variable that matched every type, so `(strLen (idf 7))` compiled and
-segfaulted while `(strLen 7)` was correctly refused.
+This is a known hole and it is the largest one left in the checker. A
+unifier was implemented and withdrawn on 2026-08-17: resolving the
+variable contradicts the `Int`-as-universal-handle convention this
+language is built on (a word legitimately has several types), and the
+in-place binding it used was visible to the ARC evidence machinery,
+which turned a correct program into a segfault. Closing it properly
+needs the handle convention decided first — see `docs/memory-model.md`
+and the `tyReprClash` comment in `self_host/typecheck.ax`.
 
 ### Type Signatures
 

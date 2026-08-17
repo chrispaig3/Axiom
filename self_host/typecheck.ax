@@ -385,98 +385,6 @@
           (vecGet env (+ i 1))
           (tyInstVar tc name env (+ i 2)))))
 
-; Bind a minted instantiation variable to the type it was applied at.
-;
-; This is the whole of the inference the checker has, and it needs no
-; substitution table because of how `tyInstVar` above works: it mints
-; ONE node per (call site, source variable) and hands the same node
-; back for every occurrence. `(-> a a)` instantiates to `(-> _t5 _t5)`
-; where both positions are the SAME node, so overwriting that node with
-; the argument's type resolves the result position too - union-find
-; where the union is the only operation and find is free.
-;
-; Without it, `checkApp` answered `(nodeB funcTy)` unsubstituted, so
-; every call to a polymorphic function produced a fresh `_tN` that
-; `tyCompat` then matched against anything:
-;
-;   (:: idf (-> a a))  (fn (idf x) x)
-;   (strLen (idf 7))    ->  check OK, exit 139
-;
-; while `(strLen 7)` was refused. That is one hole in the surface, not
-; a class of them, but everything downstream of a polymorphic call
-; inherited it: `match` arms whose type came through `vecGet` were
-; never joined, a lambda's parameter was never checked against what it
-; was applied to, and the exhaustiveness backstop's `Bool` exemption
-; could be reached by laundering the scrutinee through `idf`.
-;
-; What it deliberately does NOT do: bind a SOURCE variable (a
-; signature's promise to its caller is not the checker's to resolve),
-; bind to poison, or bind to another variable. The last is what keeps
-; this terminating and cycle-free without an occurs check - a binding
-; always makes a type strictly more concrete, so there is no chain to
-; walk and `_t5 := _t5` cannot arise.
-(pub :: tyBindVar (-> Int Int Int))
-(pub fn (tyBindVar v t)
-  (if (== v 0)
-      0
-  (if (== t 0)
-      0
-  (if (== v t)
-      0
-  (if (&& (== (nodeTag v) TAG_T_VAR) (== (tyIsSrcVar v) 1))
-      ; A SOURCE variable is the signature's promise to its caller and
-      ; not this call's to resolve.
-      0
-  (if (== (tyIsErr t) 1)
-      0
-  (if (== (nodeTag v) TAG_T_VAR)
-      ; `v` is a bindable instantiation variable. Binding it to another
-      ; VARIABLE is refused - a binding must make the type strictly
-      ; more concrete, which is what keeps this cycle-free without an
-      ; occurs check.
-      (if (== (nodeTag t) TAG_T_VAR)
-          0
-          {
-            (memSetWord v 0 (nodeTag t))
-            (memSetWord v 1 (memGetWord t 1))
-            (memSetWord v 2 (memGetWord t 2))
-            (memSetWord v 3 (memGetWord t 3))
-            0
-          })
-      ; STRUCTURAL. A variable nested inside the parameter's type is
-      ; just as much this call's to resolve as one at the top: without
-      ; descending, `(-> (Option a) Int)` applied to an `(Option Int)`
-      ; left `a` unbound and every later use of it unchecked.
-      (if (&& (== (nodeTag v) TAG_T_ARR) (== (nodeTag t) TAG_T_ARR))
-          {
-            (tyBindVar (nodeA v) (nodeA t))
-            (tyBindVar (nodeB v) (nodeB t))
-            0
-          }
-      (if (&& (== (nodeTag v) TAG_T_LIST) (== (nodeTag t) TAG_T_LIST))
-          (tyBindVar (nodeA v) (nodeA t))
-      (if (&& (== (nodeTag v) TAG_T_PTR) (== (nodeTag t) TAG_T_PTR))
-          (tyBindVar (nodeA v) (nodeA t))
-      (if (&& (== (nodeTag v) TAG_T_CON) (== (nodeTag t) TAG_T_CON))
-          (if (&& (strEq (nodeA v) (nodeA t))
-                  (== (vecLen (nodeB v)) (vecLen (nodeB t))))
-              (tyBindVec (nodeB v) (nodeB t) 0)
-              0)
-      (if (&& (== (nodeTag v) TAG_T_TUP) (== (nodeTag t) TAG_T_TUP))
-          (if (== (vecLen (nodeA v)) (vecLen (nodeA t)))
-              (tyBindVec (nodeA v) (nodeA t) 0)
-              0)
-          0))))))))))))
-
-(pub :: tyBindVec (-> Int Int Int Int))
-(pub fn (tyBindVec vs ts i)
-  (if (>= i (vecLen vs))
-      0
-      {
-        (tyBindVar (vecGet vs i) (vecGet ts i))
-        (tyBindVec vs ts (+ i 1))
-      }))
-
 (pub :: tyInstVec (-> Int Int Int Int Int Int))
 (pub fn (tyInstVec tc xs env acc i)
   (if (== xs 0)
@@ -4145,29 +4053,7 @@
                   (if (== (tyCompat argTy (nodeA funcTy)) 0)
                       (emitMismatch tc (tyRender (nodeA funcTy))
                                     (tyRender argTy) (spanOf (nodeB e)))
-                      ; Compatible, so LEARN from it - in ONE
-                      ; direction only. The parameter's instantiation
-                      ; variable takes the argument's type, which is
-                      ; what resolves a polymorphic call's result.
-                      ;
-                      ; The reverse - an argument that is itself an
-                      ; unresolved variable taking the parameter's type
-                      ; - is wrong here, and the corpus says so. A
-                      ; value read out of a `Vec` or a scope entry
-                      ; arrives as `memGetWord`'s minted result and is
-                      ; then passed to one callee that declares the
-                      ; parameter `String` and another that declares it
-                      ; `Int`. Under the handle convention both are
-                      ; true of the same word; binding backwards makes
-                      ; the first callee decide, and the second one
-                      ; then disagrees. `seedFrameBinders` was the
-                      ; measured case, and it is idiomatic rather than
-                      ; wrong.
-                      {
-                        (tyBindVar (nodeA funcTy) argTy)
-                        (tyBindVar argTy (nodeA funcTy))
-                        0
-                      })
+                      0)
                   (nodeB funcTy)
                 }
                 (if (== (tyIsErr funcTy) 1)
