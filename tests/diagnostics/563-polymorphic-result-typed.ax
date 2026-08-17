@@ -1,0 +1,82 @@
+; A call to a polymorphic function answers the type it was APPLIED at.
+;
+; `checkApp` returned the arrow's result position unsubstituted, so
+; `(-> a a)` instantiated to `(-> _t5 _t5)` and the call answered
+; `_t5` - a minted variable `tyCompat` matches against everything:
+;
+;   (:: idf (-> a a))  (fn (idf x) x)
+;   (strLen (idf 7))     ->  check OK, exit 139
+;   (strLen 7)           ->  AX3004, correctly
+;
+; The same expression, one call apart, with opposite answers. And
+; everything downstream inherited it - a `match` arm whose type arrived
+; through a polymorphic call was never joined, and the fall-through
+; backstop's `Bool` exemption was reachable by laundering the scrutinee
+; through `idf`.
+;
+; THIS IS THE SECOND ATTEMPT. The first (5f2a616) bound by OVERWRITING
+; the instantiated type node, on the argument that `tyInstVar` mints
+; one node per (call site, variable) so nobody else owns it. Two things
+; were wrong and both were measured:
+;
+;   the type checker is not the only reader. `evStampFill` classifies
+;   each argument against the same nodes to compute the ARC evidence
+;   word, so a resolved parameter made `evMeet` miss a disagreement and
+;   a callee retained a raw integer as a heap pointer - `check` OK,
+;   segfault where the program had answered 32;
+;
+;   it bound BACKWARDS too, into the argument's node - and a local's
+;   type lives in ONE scope entry that every reference answers with, so
+;   the first callee a value met monomorphised it forever. 32 correct
+;   programs stopped compiling.
+;
+; What is here instead: no mutation (`tyMatchInto` collects into a local
+; env, `tySubstEnv` answers a COPY), no backward binding, and
+; resolution ONLY at the spine root, where the value is a value and not
+; a callee so nothing walks it again. That last condition is what keeps
+; the evidence word pristine - resolving an intermediate result is
+; visible to the NEXT level's `evStampFill` whether or not a node was
+; mutated, which the non-mutating rewrite still got wrong until it was
+; measured.
+;
+; THE NULL HANDLE is the other half, and it is the handle convention
+; stated as one rule the checker knows. `0` is this language's null and
+; inhabits every reference type - it is the default argument of every
+; accessor in the tree - so a `0` passed at a type variable must not
+; decide what that variable was instantiated at. Without that rule,
+; `(strLen (mapGet m 7 0))` is AX3004 on correct code; 15 of the 18
+; remaining false positives were exactly this shape and nothing else.
+;
+; Cost, measured against 116 programs that compile AND run correctly on
+; the compiler before this: 3 refusals, all defensible - two effect
+; operations declared `(-> String Int)` while answering a Str handle
+; (the same imprecise declaration `sevSigil`, `importHelpText`,
+; `BEnt.name` and `bsWith` each had), and one signature claiming a
+; polymorphism its `strConcat` body does not have.
+;
+; STILL OPEN, deliberately: a LAMBDA's parameter type is not learned
+; from its body, because that needs the backward direction that
+; monomorphises locals. `(ap (lambda (s) (strLen s)) 7)` at
+; `(-> (-> a Int) a Int)` still checks clean and still crashes. Closing
+; it needs the handle convention decided rather than encoded one rule
+; at a time - see the `tyReprClash` comment.
+
+(import Str)
+
+(:: idf (-> a a))
+(fn (idf x) x)
+
+; Refused: `idf` was applied at `Int`, so it answers `Int`.
+(:: viaCall (-> Int Int))
+(fn (viaCall n) (strLen (idf n)))
+
+; Accepted, and the point of the null rule: the `0` default does not
+; get to decide what `pick` was instantiated at.
+(:: pick (-> Bool a a a))
+(fn (pick b x y) (if b x y))
+
+(:: viaNull (-> Bool String))
+(fn (viaNull b) (pick b "hello" 0))
+
+(:: main Int)
+(fn (main) (strLen (viaNull true)))

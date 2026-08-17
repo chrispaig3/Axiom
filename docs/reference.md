@@ -326,27 +326,44 @@ conversions are `__intToFloat`/`__floatToInt`.
 
 The `(a)` after the type name introduces a type parameter. Types can be polymorphic — the same `Maybe` can hold any type.
 
-A lowercase name in a *signature* is a type variable too. It is checked
-for compatibility at each call, but the compiler does **not** infer what
-it was instantiated at: a call to `(-> a a)` answers an unresolved
-variable, which is compatible with every type.
+A lowercase name in a *signature* is a type variable too, and a call to
+such a function answers the type it was **applied at**:
 
 ```scheme
 (:: idf (-> a a))
 (fn (idf x) x)
 
-(strLen 7)          ; AX3004, correctly
-(strLen (idf 7))    ; accepted — `idf`'s result is unresolved
+(strLen (idf 7))    ; AX3004 — `idf` was applied at Int, so it answers Int
 ```
 
-This is a known hole and it is the largest one left in the checker. A
-unifier was implemented and withdrawn on 2026-08-17: resolving the
-variable contradicts the `Int`-as-universal-handle convention this
-language is built on (a word legitimately has several types), and the
-in-place binding it used was visible to the ARC evidence machinery,
-which turned a correct program into a segfault. Closing it properly
-needs the handle convention decided first — see `docs/memory-model.md`
-and the `tyReprClash` comment in `self_host/typecheck.ax`.
+Resolution is per call site and one-directional: an argument resolves a
+parameter's variable, never the reverse. It descends into structure, so
+the `a` in `(Option a)` or `(-> a Int)` is resolved as well, and it
+happens only where the call's value is used as a value — a curried
+application keeps an unresolved result rather than resolving one the ARC
+evidence machinery still needs to see as a variable.
+
+**`0` is the null handle and resolves nothing.** It inhabits every
+reference type — it is the default argument of every accessor in the
+tree — so a `0` passed where a type variable stands is checked but does
+not decide what that variable was instantiated at:
+
+```scheme
+(mapInsert m 7 "hello")
+(strLen (mapGet m 7 0))   ; fine: the 0 default does not pin the value type
+```
+
+Only the literal counts; an `Int`-typed expression that happens to be
+zero is an ordinary argument.
+
+**What is not inferred:** a lambda's parameter type is not learned from
+its own body, because that needs the reverse direction, and a local's
+type lives in one place that every reference shares — resolving it there
+monomorphises the value permanently, which the handle convention makes
+wrong. So `(ap (lambda (s) (strLen s)) 7)` at `(-> (-> a Int) a Int)`
+still type-checks and still crashes. This is the largest hole left in
+the checker, and closing it is gated on deciding the handle convention
+rather than encoding it one rule at a time.
 
 ### Type Signatures
 

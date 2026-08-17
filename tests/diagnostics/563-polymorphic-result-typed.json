@@ -1,0 +1,1 @@
+{"severity":"error","code":"AX3004","slug":"type-mismatch","message":"type mismatch: expected String, found Int","file":"563-polymorphic-result-typed.ax","span":{"start":{"line":71,"col":26},"end":{"line":71,"col":29},"char_start":3455,"char_end":3458},"label":"this has type `Int`, expected `String`","related":[],"notes":[],"help":[],"expansion":[]}
