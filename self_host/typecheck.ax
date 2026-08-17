@@ -385,6 +385,98 @@
           (vecGet env (+ i 1))
           (tyInstVar tc name env (+ i 2)))))
 
+; Bind a minted instantiation variable to the type it was applied at.
+;
+; This is the whole of the inference the checker has, and it needs no
+; substitution table because of how `tyInstVar` above works: it mints
+; ONE node per (call site, source variable) and hands the same node
+; back for every occurrence. `(-> a a)` instantiates to `(-> _t5 _t5)`
+; where both positions are the SAME node, so overwriting that node with
+; the argument's type resolves the result position too - union-find
+; where the union is the only operation and find is free.
+;
+; Without it, `checkApp` answered `(nodeB funcTy)` unsubstituted, so
+; every call to a polymorphic function produced a fresh `_tN` that
+; `tyCompat` then matched against anything:
+;
+;   (:: idf (-> a a))  (fn (idf x) x)
+;   (strLen (idf 7))    ->  check OK, exit 139
+;
+; while `(strLen 7)` was refused. That is one hole in the surface, not
+; a class of them, but everything downstream of a polymorphic call
+; inherited it: `match` arms whose type came through `vecGet` were
+; never joined, a lambda's parameter was never checked against what it
+; was applied to, and the exhaustiveness backstop's `Bool` exemption
+; could be reached by laundering the scrutinee through `idf`.
+;
+; What it deliberately does NOT do: bind a SOURCE variable (a
+; signature's promise to its caller is not the checker's to resolve),
+; bind to poison, or bind to another variable. The last is what keeps
+; this terminating and cycle-free without an occurs check - a binding
+; always makes a type strictly more concrete, so there is no chain to
+; walk and `_t5 := _t5` cannot arise.
+(pub :: tyBindVar (-> Int Int Int))
+(pub fn (tyBindVar v t)
+  (if (== v 0)
+      0
+  (if (== t 0)
+      0
+  (if (== v t)
+      0
+  (if (&& (== (nodeTag v) TAG_T_VAR) (== (tyIsSrcVar v) 1))
+      ; A SOURCE variable is the signature's promise to its caller and
+      ; not this call's to resolve.
+      0
+  (if (== (tyIsErr t) 1)
+      0
+  (if (== (nodeTag v) TAG_T_VAR)
+      ; `v` is a bindable instantiation variable. Binding it to another
+      ; VARIABLE is refused - a binding must make the type strictly
+      ; more concrete, which is what keeps this cycle-free without an
+      ; occurs check.
+      (if (== (nodeTag t) TAG_T_VAR)
+          0
+          {
+            (memSetWord v 0 (nodeTag t))
+            (memSetWord v 1 (memGetWord t 1))
+            (memSetWord v 2 (memGetWord t 2))
+            (memSetWord v 3 (memGetWord t 3))
+            0
+          })
+      ; STRUCTURAL. A variable nested inside the parameter's type is
+      ; just as much this call's to resolve as one at the top: without
+      ; descending, `(-> (Option a) Int)` applied to an `(Option Int)`
+      ; left `a` unbound and every later use of it unchecked.
+      (if (&& (== (nodeTag v) TAG_T_ARR) (== (nodeTag t) TAG_T_ARR))
+          {
+            (tyBindVar (nodeA v) (nodeA t))
+            (tyBindVar (nodeB v) (nodeB t))
+            0
+          }
+      (if (&& (== (nodeTag v) TAG_T_LIST) (== (nodeTag t) TAG_T_LIST))
+          (tyBindVar (nodeA v) (nodeA t))
+      (if (&& (== (nodeTag v) TAG_T_PTR) (== (nodeTag t) TAG_T_PTR))
+          (tyBindVar (nodeA v) (nodeA t))
+      (if (&& (== (nodeTag v) TAG_T_CON) (== (nodeTag t) TAG_T_CON))
+          (if (&& (strEq (nodeA v) (nodeA t))
+                  (== (vecLen (nodeB v)) (vecLen (nodeB t))))
+              (tyBindVec (nodeB v) (nodeB t) 0)
+              0)
+      (if (&& (== (nodeTag v) TAG_T_TUP) (== (nodeTag t) TAG_T_TUP))
+          (if (== (vecLen (nodeA v)) (vecLen (nodeA t)))
+              (tyBindVec (nodeA v) (nodeA t) 0)
+              0)
+          0))))))))))))
+
+(pub :: tyBindVec (-> Int Int Int Int))
+(pub fn (tyBindVec vs ts i)
+  (if (>= i (vecLen vs))
+      0
+      {
+        (tyBindVar (vecGet vs i) (vecGet ts i))
+        (tyBindVec vs ts (+ i 1))
+      }))
+
 (pub :: tyInstVec (-> Int Int Int Int Int Int))
 (pub fn (tyInstVec tc xs env acc i)
   (if (== xs 0)
@@ -4031,7 +4123,29 @@
                   (if (== (tyCompat argTy (nodeA funcTy)) 0)
                       (emitMismatch tc (tyRender (nodeA funcTy))
                                     (tyRender argTy) (spanOf (nodeB e)))
-                      0)
+                      ; Compatible, so LEARN from it - in ONE
+                      ; direction only. The parameter's instantiation
+                      ; variable takes the argument's type, which is
+                      ; what resolves a polymorphic call's result.
+                      ;
+                      ; The reverse - an argument that is itself an
+                      ; unresolved variable taking the parameter's type
+                      ; - is wrong here, and the corpus says so. A
+                      ; value read out of a `Vec` or a scope entry
+                      ; arrives as `memGetWord`'s minted result and is
+                      ; then passed to one callee that declares the
+                      ; parameter `String` and another that declares it
+                      ; `Int`. Under the handle convention both are
+                      ; true of the same word; binding backwards makes
+                      ; the first callee decide, and the second one
+                      ; then disagrees. `seedFrameBinders` was the
+                      ; measured case, and it is idiomatic rather than
+                      ; wrong.
+                      {
+                        (tyBindVar (nodeA funcTy) argTy)
+                        (tyBindVar argTy (nodeA funcTy))
+                        0
+                      })
                   (nodeB funcTy)
                 }
                 (if (== (tyIsErr funcTy) 1)
@@ -5021,7 +5135,11 @@
 ; separate list so `param_index` can still find one, and a parameter
 ; masked as a shadow of itself would be invisible to the
 ; effect-transparency marks that are the whole point of tracking it.
-(pub struct BEnt (name : Int) (pidx : Int))
+; `name` holds a binder's spelling and `bsFindFrom` compares it with
+; `strEq`; the field said `Int`. Same class as `bsWith`'s parameter
+; just below - a declaration that was imprecise rather than wrong while
+; nothing could contradict it.
+(pub struct BEnt (name : String) (pidx : Int))
 (pub struct BScope (names : Int) (params : Int) (callable : Int)
                    (eparams : Int))
 
@@ -5034,7 +5152,15 @@
 (pub :: bsCallable (-> Int Int)) (pub fn (bsCallable b) (memGetWord b 2))
 (pub :: bsEparams (-> Int Int))  (pub fn (bsEparams b)  (memGetWord b 3))
 
-(pub :: bsWith (-> Int Int Int Int))
+; `n` is a binder NAME - it lands in a `BEnt` that `bsFindFrom` looks
+; up with `strEq` - and the signature said `Int`. Nothing caught it
+; while a polymorphic result was an unconstrained `_tN`; with
+; `checkApp` binding an instantiation variable to the type it is
+; applied at, the same word reaching `nameIndexIn` (which declares
+; `String`) and `bsWith` (which declared `Int`) is a contradiction, and
+; the imprecise declaration is this one. Third of its kind, after
+; `sevSigil` and `importHelpText`.
+(pub :: bsWith (-> Int String Int Int))
 (pub fn (bsWith b n pidx)
   (let ((v vecNew))
     {
@@ -5806,6 +5932,52 @@
             0
             (memGetWord ce 2)))))
 
+; A bare identifier in pattern position that names a CONSTRUCTOR.
+;
+; `recordCoverage` reads a TAG_E_VAR pattern as a catch-all binder, so
+; `(match o (None 0) ((Some x) x))` binds `o` to a variable called
+; `None` and takes the first arm for every value. It is not an error
+; today, it covers nothing, the exhaustiveness checker is satisfied by
+; the catch-all, and there is no unreachable-arm detection - so the
+; program compiles clean and answers the wrong arm:
+;
+;   (f (Some 42))  ->  111
+;
+; Every ML-family language in the reader's background writes nullary
+; constructors bare in patterns, and the built-in `Option` guarantees
+; a new user meets this early. It is the single most likely way to
+; write a wrong Axiom program.
+;
+; The refusal is on the SPELLING resolving to a constructor, not on
+; case, so it costs nothing to a lowercase binder. The fix is
+; machine-applicable and safe to auto-apply: `None` and `(None)` are
+; the same span rewritten to a form the pattern grammar accepts, which
+; is the property AX3012's fix did not have.
+(pub :: checkBareCtorPattern (-> Int Int Int))
+(pub fn (checkBareCtorPattern tc pat)
+  (if (!= (nodeTag pat) TAG_E_VAR)
+      0
+      (let ((nm (nodeA pat)))
+        (if (|| (strEq nm "true") (strEq nm "false"))
+            0
+            (if (== (findCtor tc nm) 0)
+                0
+                (if (== (nodeSpan pat) 0)
+                    0
+                    (emitDiag tc
+                      (diagSetLabel
+                        (mkDiagFix SEV_ERROR "AX3008" "semantic-error"
+                          (nodeSpan pat)
+                          (strConcat (strConcat
+                            "`" nm) "` is a constructor, but written bare here it is an ordinary binder")
+                          0 0
+                          (strConcat (strConcat
+                            "write `(" nm) ")` to match the constructor, or rename the binder if a catch-all was intended")
+                          (nodeSpan pat)
+                          (strConcat (strConcat "(" nm) ")"))
+                        (strConcat (strConcat
+                          "this binds every value to a variable named `" nm) "`, so no later arm can run")))))))))
+
 ; Every arm a literal `true`/`false` test, both present - the one
 ; all-literal match that cannot fall through. `recordCoverage` pushes
 ; nothing for these (they are tests, not binders - the hygiene slice
@@ -5900,6 +6072,7 @@
             }
             (let ((mark (vecLen (tcScope tc))))
               {
+                (checkBareCtorPattern tc (nodeA arm))
                 (recordCoverage (nodeA arm) covered catchall)
                 (checkPatternTyped tc (nodeA arm) scrutTy)
                 (let ((t (checkExprH tc (nodeB arm) 0)))
@@ -6817,6 +6990,7 @@
                   (memSetWord tc 23 (if (== (tyHasPoison sigTy) 1) 0 sv))
                 })
               (memSetWord tc 23 0))
+          (checkDupParams tc d params 0)
           (bindFnParams tc params ptys sigTy 0)
           (let ((bodyTy (checkExprH tc (nodeC d) 0)))
             {
@@ -7008,6 +7182,58 @@
 ; where the type came from - `_tN` names render, so the discipline is
 ; not a style choice.
 (pub :: bindFnParams (-> Int Int Int Int Int Int))
+; The index of the first parameter with this name, or -1.
+(pub :: paramFirstIdx (-> Int String Int Int))
+(pub fn (paramFirstIdx params name i)
+  (if (>= i (vecLen params))
+      (- 0 1)
+      (if (strEq (cast String (vecGet params i)) name)
+          i
+          (paramFirstIdx params name (+ i 1)))))
+
+; Two parameters of one function may not share a name.
+;
+; `pushScope` below binds them in order, so a reference resolves to the
+; LAST - the earlier one is unreachable and its argument is evaluated
+; and discarded, which is the same defect AX3020 refuses for a macro's
+; parameters. The louder half is that codegen names an LLVM register
+; after each parameter, so two of them emit `%x` twice: a well-typed,
+; `check`-clean program that no LLVM tool will accept, reported as
+; `AX4003 opt failed` against `<toolchain>` with no span into the
+; user's file. Measured on `(fn (f x x) x)` and on `(fn (f _ _) 0)`.
+;
+; `_` is NOT exempt, and that is a real difference from AX3020's rule.
+; A macro pattern's `_` binds nothing, so several are free; a function
+; parameter always binds a register whatever it is called, so a second
+; `_` collides exactly as a second `x` does. The idiomatic ML spelling
+; `(fn (f _ _) 0)` therefore has to be written `(fn (f _a _b) 0)` here.
+; Making `_` a fresh anonymous binder instead is the better end state
+; and costs a codegen change - each occurrence would need its own
+; register name - which is worth doing when something in the tree wants
+; it. The corpus population of `_` as a function parameter is 0.
+(pub :: checkDupParams (-> Int Int Int Int Int))
+(pub fn (checkDupParams tc d params i)
+  (if (>= i (vecLen params))
+      0
+      {
+        (let ((nm (cast String (vecGet params i))))
+          (if (== (paramFirstIdx params nm 0) i)
+              0
+              (if (== (nodeSpan d) 0)
+                  0
+                  (emitDiag tc
+                    (diagSetLabel (mkDiagNote SEV_ERROR "AX3006"
+                      "duplicate-definition"
+                      (nodeSpan d)
+                      (strConcat (strConcat
+                        "duplicate parameter `" nm) "`")
+                      0 0
+                      "give each parameter a distinct name; `_` binds a register too, so a second one needs its own spelling"
+                      "a reference resolves to the last binding, and codegen names an LLVM register after each parameter - two of a name emit the same register and the module is rejected")
+                      (strConcat (strConcat "`" nm) "` is already a parameter of this function"))))))
+        (checkDupParams tc d params (+ i 1))
+      }))
+
 (pub fn (bindFnParams tc params ptys sigTy i)
   (if (>= i (vecLen params))
       0

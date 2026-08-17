@@ -326,6 +326,26 @@ conversions are `__intToFloat`/`__floatToInt`.
 
 The `(a)` after the type name introduces a type parameter. Types can be polymorphic — the same `Maybe` can hold any type.
 
+A lowercase name in a *signature* is a type variable too, and a call to
+such a function answers the type it was **applied at**:
+
+```scheme
+(:: idf (-> a a))
+(fn (idf x) x)
+
+(strLen (idf 7))    ; AX3004 — `idf` was applied at Int, so it answers Int
+```
+
+The variable is resolved per call site, in both directions: an argument
+resolves a parameter's variable, and a parameter resolves an argument
+that is itself unresolved — which is how a lambda's parameter type is
+learned from its own body. Resolution descends into structure, so the
+`a` in `(Option a)` or `(-> a Int)` is resolved as well.
+
+Until 2026-08-17 the result of a polymorphic call was an unconstrained
+variable that matched every type, so `(strLen (idf 7))` compiled and
+segfaulted while `(strLen 7)` was correctly refused.
+
 ### Type Signatures
 
 Every function has an optional type signature declared with `::`:
@@ -627,6 +647,34 @@ arms do; a clause that disagrees is `AX3004` anchored at that clause.
 ## Pattern Matching
 
 `match` is one of Axiom's most powerful features. It lets you destructure values by their shape.
+
+**A constructor pattern is always parenthesised**, including a nullary
+one. A bare identifier in pattern position is a *binder* — it matches
+everything and binds the scrutinee to that name — so writing a
+constructor without its parentheses silently swallows every later arm:
+
+```scheme
+; refused (AX3008): `None` here binds, it does not test
+(match o
+  (None 0)
+  ((Some x) x))
+
+; correct
+(match o
+  ((None) 0)
+  ((Some x) x))
+```
+
+Until 2026-08-17 the first form compiled and always took the first arm,
+which made it the most likely way to write a wrong Axiom program. The
+diagnostic carries a machine-applicable fix rewriting `None` to
+`(None)`. An ordinary lowercase binder is unaffected — the test is
+whether the spelling resolves to a constructor.
+
+**Every arm must agree on a result type**, as `if` branches do; a
+disagreeing arm is `AX3004` anchored at that arm. And a `match` must
+have at least one arm: a form with no arms has no value, and used to
+answer a zeroed cell.
 
 ### Basic Matching
 

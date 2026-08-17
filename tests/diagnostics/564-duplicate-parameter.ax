@@ -1,0 +1,42 @@
+; Two parameters of one function may not share a name.
+;
+; `pushScope` binds them in order, so a reference resolves to the LAST
+; and the earlier one is unreachable - its argument is evaluated and
+; discarded, which is the same defect AX3020 refuses for a macro's
+; parameters. The louder half is codegen: it names an LLVM register
+; after each parameter, so two of a name emit `%x` twice. That is a
+; well-typed, `check`-clean program no LLVM tool will accept, and the
+; driver reports it as `AX4003 opt failed` against `<toolchain>` with
+; no span into the user's file - the compiler blaming the toolchain for
+; its own output.
+;
+; `_` is NOT exempt, and that is a real difference from AX3020's rule.
+; A macro pattern's `_` binds nothing, so several are free; a function
+; parameter always binds a register whatever it is called, so a second
+; `_` collides exactly as a second `x` does. The idiomatic ML spelling
+; `(fn (f _ _) 0)` has to be written `(fn (f _a _b) 0)` here.
+;
+; Making `_` a fresh anonymous binder instead is the better end state
+; and costs a codegen change - each occurrence would need its own
+; register name - which is worth doing when something in the tree wants
+; it. The corpus population of `_` as a function parameter is 0, so
+; nothing does today.
+;
+; It reuses AX3006 rather than taking a number: "this name is bound
+; twice here" is the claim that code already makes, and a parameter is
+; a binding.
+
+; Refused: `x` twice.
+(:: dup (-> Int Int Int))
+(fn (dup x x) x)
+
+; Refused: `_` twice, for the same reason.
+(:: ignoreBoth (-> Int Int Int))
+(fn (ignoreBoth _ _) 0)
+
+; Accepted, and unchanged: one `_` binds one register.
+(:: ignoreOne (-> Int Int))
+(fn (ignoreOne _) 7)
+
+(:: main Int)
+(fn (main) (ignoreOne 1))

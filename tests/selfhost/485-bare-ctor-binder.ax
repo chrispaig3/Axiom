@@ -1,10 +1,36 @@
-; expect 5
-; A BARE constructor name in pattern position is a binder - stage0's
-; rule, its parser makes bare identifiers variable patterns - so the
-; first arm matches everything; only parenthesised (Nil2) tests the
-; tag.
+; expect 6
+; A bare constructor name in pattern position is REFUSED since
+; 2026-08-17. This fixture used to pin the opposite - stage0's rule,
+; whose parser makes every bare identifier a variable pattern, so the
+; first arm matched everything - and it pinned a wrong answer to do it:
+; `(f (Cons2 1 (Nil2)))` expected 5, which is the `Nil2` arm, for a
+; value that is a `Cons2`.
+;
+; That is not a type error and it never was; `Nil2` is a perfectly
+; well-typed binder. It is the other thing this project refuses on
+; sight - a silent wrong answer, indistinguishable from a real one
+; (docs/memory-model.md MM-VAL-9b) - and it is reachable by writing
+; what every ML-family language in the reader's background writes.
+; The built-in `Option` guarantees a new user meets it early:
+; `(match o (None 0) ((Some x) x))` always takes the first arm.
+;
+; The refusal is AX3008 with a machine-applicable fix rewriting the
+; span from `Nil2` to `(Nil2)`, which is safe to auto-apply because
+; both are patterns the grammar accepts. A lowercase binder is
+; unaffected: the test is whether the spelling resolves to a
+; constructor, not what case it is in.
+;
+; `tests/diagnostics/562-bare-ctor-pattern.ax` pins the diagnostic.
+; This case now pins the BEHAVIOUR of the parenthesised form, which is
+; what the old comment already said was the only spelling that tests
+; the tag.
 (data L2 (Nil2) (Cons2 Int L2))
+
 (:: f (-> L2 Int))
-(fn (f l) (match l (Nil2 5) ((Cons2 h t) 6)))
+(fn (f l)
+  (match l
+    ((Nil2) 5)
+    ((Cons2 h t) 6)))
+
 (:: main Int)
 (fn (main) (f (Cons2 1 (Nil2))))

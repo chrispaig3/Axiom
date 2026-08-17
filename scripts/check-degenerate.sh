@@ -282,11 +282,22 @@ deg empty-lambda-params 1 <<'AXEOF'
 (:: main Int)
 (fn (main) ((lambda () 1)))
 AXEOF
-deg empty-match-arms 0 <<'AXEOF'
+# Both of these were pinned at 0 with no comment, one line under the
+# `empty-lambda-params` case that got a five-line paragraph for the
+# same flip. They are the same defect: a form with no arms and a form
+# with no clauses each have no value, so the merge block answered the
+# result cell's zeroed contents - `(+ 40 (match 1))` was 40, and at a
+# declared `String` the same 0 was a null header that exited 133 on
+# the first read. AX3005 could not reach either, because the backstop
+# asks about arms that fail to cover and there were none to ask about.
+#
+# The parser refuses both since 2026-08-17, for the reason
+# `parseBlockBody` has always refused `{}`.
+deg empty-match-arms 1 <<'AXEOF'
 (:: main Int)
 (fn (main) (match 1))
 AXEOF
-deg empty-cond 0 <<'AXEOF'
+deg empty-cond 1 <<'AXEOF'
 (:: main Int)
 (fn (main) (cond))
 AXEOF

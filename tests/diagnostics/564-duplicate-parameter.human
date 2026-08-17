@@ -1,0 +1,21 @@
+[1;31merror[AX3006][0m[1m: duplicate parameter `x`[0m
+  [1;34m--> [0m564-duplicate-parameter.ax:31:6
+[1;34m   |[0m
+[1;34m31 |[0m (fn (dup x x) x)
+[1;34m   |[0m      [1;31m^^^ `x` is already a parameter of this function[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0ma reference resolves to the last binding, and codegen names an LLVM register after each parameter - two of a name emit the same register and the module is rejected
+  [1;34m = [0m[1;32mhelp: [0mgive each parameter a distinct name; `_` binds a register too, so a second one needs its own spelling
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3006` for a full explanation
+
+[1;31merror[AX3006][0m[1m: duplicate parameter `_`[0m
+  [1;34m--> [0m564-duplicate-parameter.ax:35:6
+[1;34m   |[0m
+[1;34m35 |[0m (fn (ignoreBoth _ _) 0)
+[1;34m   |[0m      [1;31m^^^^^^^^^^ `_` is already a parameter of this function[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0ma reference resolves to the last binding, and codegen names an LLVM register after each parameter - two of a name emit the same register and the module is rejected
+  [1;34m = [0m[1;32mhelp: [0mgive each parameter a distinct name; `_` binds a register too, so a second one needs its own spelling
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3006` for a full explanation
+
+compilation failed due to 2 previous errors

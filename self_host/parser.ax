@@ -2807,7 +2807,17 @@
 (pub :: parseCondClauses (-> Int Int Int Int))
 (pub fn (parseCondClauses tokens pos clauses)
   (if (peekIs tokens pos TK_RPAREN)
-      (pOk (mkNode TAG_E_COND clauses 0 0) (advance pos))
+      ; `(cond)` with no clauses at all is the same shape as a
+      ; zero-arm `match`: nothing can fire, so the form has no value
+      ; and answered the zeroed result cell. It also slipped past both
+      ; of `checkCond`'s guards - the fall-through refusal requires at
+      ; least one clause to have a type to complain about - and its
+      ; node carries no span, so it was additionally an expression that
+      ; switched the match backstop's own span guard off wherever it
+      ; was nested.
+      (if (== (vecLen clauses) 0)
+          (pErrExp pos "at least one cond clause")
+          (pOk (mkNode TAG_E_COND clauses 0 0) (advance pos)))
   (if (peekIs tokens pos TK_LPAREN)
       (let ((inPos (advance pos)))
         (if (&& (peekIs tokens inPos TK_IDENT)
@@ -3041,7 +3051,20 @@
 (pub :: parseMatchArms (-> Int Int Int Int))
 (pub fn (parseMatchArms tokens pos acc)
   (if (peekIs tokens pos TK_RPAREN)
-      (pOk acc pos)
+      ; A match with NO arms has no value, for exactly the reason
+      ; `parseBlockBody` refuses `{}` twenty lines down: the form's
+      ; value is the arm that fired, and when there are no arms none
+      ; can. It checked clean and answered the result cell's zeroed
+      ; contents - `(+ 40 (match 7))` was 40, and at a declared
+      ; `String` the same 0 was a null header address that exited 133
+      ; in `strLen`. AX3005 could not reach it either, because the
+      ; backstop asks about arms that do not cover and there were
+      ; none. `scripts/check-degenerate.sh` pinned both at exit 0
+      ; with no comment beside the `empty-lambda-params` case that
+      ; got a paragraph for the same flip.
+      (if (== (vecLen acc) 0)
+          (pErrExp pos "at least one match arm")
+          (pOk acc pos))
   (if (peekIs tokens pos TK_LPAREN)
       ; `(syntax/for ...)` where an arm stands is the iteration form
       ; (MAC-CAP-5), not an arm whose pattern is a variable named

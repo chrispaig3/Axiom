@@ -79,16 +79,28 @@
 (fn (b2i x) (if x 1 0))
 
 ; --- 1: an argument to a callee that stashes it ---------------------
-; `a` stands in two parameter positions and the two arguments
-; disagree, so the evidence witness collapses and `vecPush`'s
-; `memSetWord` takes no share.
-(:: stash (-> Int a a Int))
-(fn (stash v x y) { (vecPush v x) 1 })
+; The callee launders the argument through `cast` before storing it, so
+; `evClassOf` answers 0 for a cast-rooted argument and `vecPush`'s
+; `memSetWord` takes no share. The CALL SITE mentions no cast at all,
+; which is what made the positional walk permit it.
+;
+; This term used to spell the collapse a different way - `(-> Int a a
+; Int)` invoked with a `Cell` and an `Int`, so the two occurrences of
+; `a` disagreed and `evMeet` collapsed the witness. That route closed
+; on 2026-08-17 when `checkApp` learned to bind an instantiation
+; variable to the type it is applied at: the disagreeing call is now
+; AX3004, and a well-typed polymorphic `stash` propagates the evidence
+; word symbolically and DOES take a share (measured). A hazard that
+; became a type error is the best possible outcome for a fixture, and
+; the honest record of it is to re-spell the term at a route that is
+; still reachable rather than to delete it.
+(:: stash (-> Int a Int))
+(fn (stash v x) { (vecPush v (cast Int x)) 1 })
 
 (:: viaArg (-> Int Int Int))
 (fn (viaArg v n)
   (let ((c (Cell n (+ n 1000))))
-    (stash v c 0)))
+    (stash v c)))
 
 (:: readCellA (-> Int Int))
 (fn (readCellA v)

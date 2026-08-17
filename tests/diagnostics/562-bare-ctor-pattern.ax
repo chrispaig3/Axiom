@@ -1,0 +1,51 @@
+; A bare identifier in pattern position that names a constructor.
+;
+; `recordCoverage` reads a `TAG_E_VAR` pattern as a catch-all binder,
+; so this arm binds the scrutinee to a variable called `None` and takes
+; the first arm for every value. Nothing objected: it is well-typed, it
+; covers no constructor so exhaustiveness is satisfied by the
+; catch-all, and there is no unreachable-arm detection to notice that
+; the later arms are dead.
+;
+; Measured before 2026-08-17:
+;
+;   (:: f (-> (Option Int) Int))
+;   (fn (f o) (match o (None 111) ((Some x) x)))
+;   (f (Some 42))     ->  111, at exit 0
+;
+; That is a silent wrong answer, the category MM-VAL-9b names as the
+; worst outcome, and it is what every ML-family language in a reader's
+; background spells this way. The built-in `Option` guarantees a new
+; user meets it in their first hour.
+;
+; The old behaviour was deliberate - stage0's parser makes every bare
+; identifier a variable pattern - and `tests/selfhost/485-bare-ctor-
+; binder.ax` pinned it, with an expectation of 5 for a value that is a
+; `Cons2`. A fixture that pins a wrong answer is the argument for
+; changing the rule rather than against it.
+;
+; The fix is machine-applicable and safe to auto-apply: `None` and
+; `(None)` are the same span rewritten into a form the pattern grammar
+; accepts, which is the property AX3012's fix did not have (see 190).
+; A lowercase binder is unaffected - the test is whether the spelling
+; RESOLVES to a constructor, not what case it is written in.
+
+(data Shape (Circle Int) (Square Int))
+
+; Refused: `Circle` here binds, it does not test.
+(:: area (-> Shape Int))
+(fn (area s)
+  (match s
+    (Circle 1)
+    ((Square w) (* w w))))
+
+; Accepted, and unchanged: an ordinary binder that names no
+; constructor is still a catch-all.
+(:: firstOr (-> Shape Int))
+(fn (firstOr s)
+  (match s
+    ((Circle r) r)
+    (other 0)))
+
+(:: main Int)
+(fn (main) (firstOr (Circle 3)))

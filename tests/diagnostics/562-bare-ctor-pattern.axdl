@@ -1,0 +1,1 @@
+E AX3008 562-bare-ctor-pattern.ax:39:6-12 semantic-error "`Circle` is a constructor, but written bare here it is an ordinary binder" #"this binds every value to a variable named `Circle`, so no later arm can run" ?39:6-12:"write `(Circle)` to match the constructor, or rename the binder if a catch-all was intended"~>"(Circle)"
