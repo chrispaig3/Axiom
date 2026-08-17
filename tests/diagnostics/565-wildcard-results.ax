@@ -1,0 +1,55 @@
+; The last two expressions that answered a type matching everything.
+;
+; A minted wildcard is `tyCompat`-compatible with every type, so any
+; form that answers one launders its value into whatever the context
+; wants. `checkApp` was the big one and closed on 2026-08-17 (563);
+; these two are the rest of the set, found by asking which other
+; expression forms mint a wildcard rather than answering what they
+; compute.
+;
+; 1. `handle` threw its body's type away and answered `mkSilentWild`.
+;    A handler runs an operation and RESUMES into the body - it does
+;    not replace what the body answers - so the form's value is the
+;    body's value and its type is the body's type. Measured:
+;
+;      (strLen (handle (useIt 3) (Tick) (lambda (v) (+ v 27))))
+;
+;    where `useIt` is `(-> Int Int)` checked clean and exited 139.
+;
+; 2. An `else`-less `cond` at an ARROW type. `tyZeroInhabits` permitted
+;    arrows, lists and pointers deliberately - the corpus population
+;    was 0 and widening a refusal on no evidence is how a checker
+;    acquires rules nobody can justify later. The evidence arrived, and
+;    the arrow is the loudest of the three because the fall-through 0
+;    is a null CLOSURE:
+;
+;      (:: f (-> Int (-> Int Int)))
+;      (fn (f n) (cond ((> n 5) (lambda (x) (+ x 1)))))
+;      ((f 0) 3)     ->  check OK, exit 133
+;
+;    A list and a pointer are the same null one step quieter. All three
+;    are refused now; the unit tuple still is not, because 0 does
+;    inhabit it. Corpus population is still 0, so this cost nothing.
+
+(import Str)
+
+(effect Tick
+  (bump :: (-> Int Int)))
+
+(:: useIt (-> Int Int))
+;@axiom:effect(Tick)
+(fn (useIt n) (bump n))
+
+; Refused: the handle answers `Int`, which `strLen` does not take.
+(:: viaHandle (-> Int Int))
+(fn (viaHandle n)
+  (strLen (handle (useIt n) (Tick) (lambda (v) (+ v 27)))))
+
+; Refused: nothing answers when n is 0, and a null closure is not a
+; function.
+(:: viaArrow (-> Int (-> Int Int)))
+(fn (viaArrow n)
+  (cond ((> n 5) (lambda (x) (+ x 1)))))
+
+(:: main Int)
+(fn (main) 0)

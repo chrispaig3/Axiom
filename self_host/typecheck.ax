@@ -3428,11 +3428,33 @@
       1
   (if (== (tyIsErr t) 1)
       1
-  (if (!= (nodeTag t) TAG_T_CON)
+  (if (== (nodeTag t) TAG_T_VAR)
       1
-  (if (|| (strEq (nodeA t) "Int") (strEq (nodeA t) "Bool"))
-      1
-      0)))))
+  (if (== (nodeTag t) TAG_T_TUP)
+      ; The unit tuple is the one aggregate 0 inhabits; anything wider
+      ; is a null block.
+      (if (== (vecLen (nodeA t)) 0) 1 0)
+  (if (== (nodeTag t) TAG_T_CON)
+      (if (|| (strEq (nodeA t) "Int") (strEq (nodeA t) "Bool"))
+          1
+          0)
+      ; Arrows, lists and pointers were PERMITTED here on the grounds
+      ; that none of them appeared in an `else`-less `cond` anywhere in
+      ; the tree, and that widening a refusal on no evidence is how a
+      ; checker acquires rules nobody can justify later. The evidence
+      ; arrived: an arrow is the loudest of the three, because 0 is a
+      ; null CLOSURE and calling it is a trap rather than a wrong
+      ; answer.
+      ;
+      ;   (:: f (-> Int (-> Int Int)))
+      ;   (fn (f n) (cond ((> n 5) (lambda (x) (+ x 1)))))
+      ;   ((f 0) 3)     ->  check OK, exit 133
+      ;
+      ; A list and a pointer are the same null one step quieter. All
+      ; three are refused now, and the corpus population is still 0 -
+      ; so this costs nothing and closes the last shape the fall-through
+      ; rule could not see.
+      0))))))
 
 ; `cond`: every clause's test must be Bool; clause bodies are joined
 ; against each other and against a real `else` by `tyJoinBranch`, and
@@ -5358,8 +5380,8 @@
 ; omit lines; neither reorders or invents one.
 (pub :: checkHandle (-> Int Int Int))
 (pub fn (checkHandle tc e)
+  (let ((bodyTy (checkExprH tc (nodeA e) 0)))
   {
-    (checkExprH tc (nodeA e) 0)
     (checkExprH tc (nodeC e) 0)
     ; The form's own span is its BODY's - stage0's `Expr::span()`
     ; recurses into the first field of an EHandle exactly as it does
@@ -5381,8 +5403,21 @@
     (checkUnhandled tc
       (collectEffects tc (nodeA e) (handleScopeOf tc))
       (nodeB e) 0 (spanOf (nodeA e)))
-    mkSilentWild
-  })
+    ; The form's value is its BODY's value - a handler runs an
+    ; operation and resumes into the body, it does not replace what the
+    ; body answers - so the form has the body's type. It answered
+    ; `mkSilentWild` instead, which `tyCompat` matches against
+    ; everything, so a `handle` laundered any value into any type:
+    ;
+    ;   (strLen (handle (useIt 3) (Tick) (lambda (v) (+ v 27))))
+    ;
+    ; where `useIt` is `(-> Int Int)` checked clean and exited 139.
+    ; That is the same hole a polymorphic call had before `checkApp`
+    ; learned to bind an instantiation variable, reached through the
+    ; one other expression form that minted a wildcard and threw the
+    ; real answer away.
+    bodyTy
+  }))
 
 (pub :: checkUnhandled (-> Int Int Int Int Int Int))
 (pub fn (checkUnhandled tc inner effs i span)

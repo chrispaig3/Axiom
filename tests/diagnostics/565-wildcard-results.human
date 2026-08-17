@@ -1,0 +1,19 @@
+[1;31merror[AX3004][0m[1m: type mismatch: expected String, found Int[0m
+  [1;34m--> [0m565-wildcard-results.ax:46:20
+[1;34m   |[0m
+[1;34m46 |[0m   (strLen (handle (useIt n) (Tick) (lambda (v) (+ v 27)))))
+[1;34m   |[0m                    [1;31m^^^^^ this has type `Int`, expected `String`[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation
+
+[1;31merror[AX3005][0m[1m: this cond can fall through: no clause need fire, and there is no `else` to answer `(_t133 -> Int)`[0m
+  [1;34m--> [0m565-wildcard-results.ax:52:11
+[1;34m   |[0m
+[1;34m52 |[0m   (cond ((> n 5) (lambda (x) (+ x 1)))))
+[1;34m   |[0m           [1;31m^ no clause catches a value the tests all refuse[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0ma cond with no else answers the integer 0 when no test fires - a null at every type but Int and Bool (docs/memory-model.md MM-VAL-9b)
+  [1;34m = [0m[1;32mhelp: [0madd an `(else ...)` clause
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3005` for a full explanation
+
+compilation failed due to 2 previous errors
