@@ -1,0 +1,43 @@
+; The signature-vs-body check compares only representations that
+; cannot be punned, because `Int` is this language's universal heap
+; handle: `mkSpan` answers a `Span` through an `(-> Int Int Int)`
+; signature, `jobPoolNew` a `JobPool` through an `Int`, and comparing
+; declared against inferred with `tyCompat` reports 21 files that are
+; all doing that on purpose. `tyIsReprScalar` names the exceptions.
+;
+; It named `Bool` and `Float`. `String` belonged there too and was
+; left out for a reason that expired: it used to be the other side of
+; the `Int`/`String` fiat, so naming it would have reported every
+; handle in the tree. The fiat was deleted from `tyCompat` on
+; 2026-08-15 and the corpus retyped honestly, which is what made this
+; affordable on 2026-08-17.
+;
+; It is not a naming difference. A `String` is a header address and an
+; `Int` is a number, so a declared `String` over an integer body is a
+; null dereference the moment anyone reads it:
+;
+;   (:: f (-> Int String))  (fn (f x) 42)
+;   (strLen (f 1))   ->  `check` OK, exit 139, no output
+;
+; the `Float`-over-`Int` case one step louder, not a different one.
+;
+; Measured cost of naming it: 145 diagnostics across 117 of 261 files,
+; every one of them inherited through an import from THREE
+; declarations. Two were simply wrong - `diag.ax`'s `sevSigil`
+; answered `"E"`/`"W"` through a declared `Int`, `codegen.ax`'s
+; `importHelpText` built a String through one - and were corrected.
+; The third is `stdlib/Str.ax`'s `strWrapOwned`, where a `Str` is BORN
+; out of three raw words; it says `(cast String s)` now, which is the
+; one site in the tree entitled to say it.
+
+; Refused: the signature promises a header address, the body answers a
+; number.
+(:: labelOf (-> Int String))
+(fn (labelOf x) 42)
+
+; Refused in the other direction, for the same reason.
+(:: countOf (-> String Int))
+(fn (countOf s) "nine")
+
+(:: main Int)
+(fn (main) 0)

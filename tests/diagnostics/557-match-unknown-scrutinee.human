@@ -1,0 +1,20 @@
+[1;31merror[AX3005][0m[1m: non-exhaustive pattern match: missing Tri[0m
+  [1;34m--> [0m557-match-unknown-scrutinee.ax:53:12
+[1;34m   |[0m
+[1;34m53 |[0m     (match s
+[1;34m   |[0m            [1;31m^ this `match` does not cover: Tri[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0madd the missing arms, or a wildcard `_` arm to catch the rest
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3005` for a full explanation
+
+[1;31merror[AX3005][0m[1m: this match can fall through: no arm is known to cover the scrutinee, and nothing catches the rest[0m
+  [1;34m--> [0m557-match-unknown-scrutinee.ax:60:10
+[1;34m   |[0m
+[1;34m60 |[0m   (match n
+[1;34m   |[0m          [1;31m^ no arm catches a non-matching value[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0ma match no arm matched used to answer 0 silently at exit 0 - the result cell's zeroed contents, indistinguishable from a real answer (docs/memory-model.md MM-VAL-9b)
+  [1;34m = [0m[1;32mhelp: [0madd a `_` arm
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3005` for a full explanation
+
+compilation failed due to 2 previous errors

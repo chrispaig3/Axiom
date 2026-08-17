@@ -48,7 +48,15 @@
 (pub :: SEV_ERROR Int)   (pub fn (SEV_ERROR)   0)
 (pub :: SEV_WARNING Int) (pub fn (SEV_WARNING) 1)
 
-(pub :: sevSigil (-> Int Int))
+; The signature said `(-> Int Int)` while both branches answer a
+; string literal. Nothing caught it: `String` was not a
+; representation the signature-vs-body check knew about, because
+; naming it there would have reported every heap handle in the tree
+; while the `Int`/`String` fiat was still in `tyCompat`. With the
+; fiat gone and `String` named (typecheck.ax `tyIsReprScalar`), this
+; is one of exactly three sites in the repository that were punning,
+; and the other two are the same shape.
+(pub :: sevSigil (-> Int String))
 (pub fn (sevSigil sev)
   (if (== sev SEV_ERROR) "E" "W"))
 

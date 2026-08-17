@@ -1,0 +1,65 @@
+; A `match` is exhaustiveness-checked by the matrix walk only when the
+; scrutinee's type names a declared `data`. The AX3005 backstop that
+; catches everything else additionally required that NO arm be a
+; constructor - "no arm is a constructor and nothing catches the rest"
+; - and those two conditions between them left a hole neither covered:
+; a match whose arms ARE constructors, over a scrutinee whose type the
+; checker cannot name. Both checks were off at once, which is the only
+; combination that is unsound.
+;
+; The shapes that land there are not exotic. `ctorChecked` is 1 only
+; for a TAG_T_CON naming a known `data`, so a lambda parameter (bound
+; at a fresh `_tN`), any result of a polymorphic function - `vecGet`,
+; `mapGet`, a user `(-> a a)` - and any macro spine all fell outside
+; it. Measured, with a compiler from before 2026-08-17:
+;
+;   (fn (pick s) (match s ((Circle r) "circle") ((Sq w) "square")))
+;
+; over `(idf (Tri 3))` checked clean and answered a null `String`;
+; `strLen` on it was exit 139 with no output.
+;
+; The first attempt at this widened the FALL-THROUGH backstop to cover
+; the case, and that was wrong in a way worth recording: it refused 8
+; correct programs out of 30 written in stdlib idiom - `(match (vecGet
+; v i) ((Circle r) ..) ((Square w) ..))` and the same through
+; `mapGet`, a lambda parameter, an effect handler's command, a user
+; `(-> a a)` - because enumerating every constructor is not something
+; the backstop can see. Worse, the `_` arm the diagnostic asked for
+; would have turned a total match into a silent 0 at exit 0, which is
+; the very outcome MM-VAL-9b names. A check whose suggested fix makes
+; the program less correct is not a conservative check.
+;
+; What runs instead is the MATRIX walk, seeded from the constructors
+; the ARMS name when the scrutinee's type cannot be named. So the case
+; below reports `missing Tri` - the real answer - rather than a
+; fall-through warning, and the eight programs are accepted again.
+; The backstop still covers what the matrix cannot reach: arms that
+; name no constructor at all.
+;
+; The second half is the `true`/`false` exemption asked of the
+; SCRUTINEE. Both literals present is an exhaustiveness argument only
+; when the thing matched is a `Bool`; over an `Int` they are ordinary
+; value tests covering 1 and 0, and everything else falls through.
+
+(data Shape (Circle Int) (Sq Int) (Tri Int))
+
+(:: idf (-> a a))
+(fn (idf x) x)
+
+; Constructor arms, scrutinee type unknown: neither check ran.
+(:: viaPoly (-> Int Int))
+(fn (viaPoly n)
+  (let ((s (idf (Tri n))))
+    (match s
+      ((Circle r) r)
+      ((Sq w) w))))
+
+; `true`/`false` over a non-Bool scrutinee: 7 is neither.
+(:: viaBoolArms (-> Int Int))
+(fn (viaBoolArms n)
+  (match n
+    ((true) 1)
+    ((false) 2)))
+
+(:: main Int)
+(fn (main) (+ (viaPoly 3) (viaBoolArms 7)))

@@ -1548,7 +1548,11 @@
 ; `looked for 'A' or 'B' or 'C' in 'd1', 'd2', ...` - the same
 ; candidates and directories readModuleSrc searched, in the same
 ; order, so the help never claims a search that did not happen.
-(pub :: importHelpText (-> String Int String Int))
+; Answers a String - it builds one out of `parts` and joins it. The
+; result type said `Int` until the signature-vs-body check learned
+; about `String`; the one caller passes it straight into a diagnostic's
+; help field, which is a String, so nothing downstream changes.
+(pub :: importHelpText (-> String Int String String))
 (pub fn (importHelpText name tcode entryDir)
   (let ((stem (modPathToFile name))
         (dirs (moduleSearchDirs entryDir)))
@@ -6675,57 +6679,133 @@
 (pub fn (letReleasable cg node valExpr name body)
   (if (!= (letOwned cg node valExpr) 1)
       0
-      (if (== (escapes name body 1) 1) 0 1)))
+      (if (== (escapes cg name body 1 0) 0) 1 0)))
 
 ; Does this frame OWN the binding's value - hold a share nobody else
 ; handed it?
 ;
-; Two ways, and they are the two ways a share is created. A DIRECT
-; CONSTRUCTION is born at count 1 and that birth is the binding's. A
-; CALL to a function whose declared result is a reference hands back a
-; share, because MM-LIFE-2c's event 2 retains a reference result
-; before returning it - which is why the two events are one commit:
-; each is unsound without the other, event 2 leaking on every call and
-; event 3 freeing the caller's value.
-;
-; Anything else - a parameter, a bare name, a field read - is BORROWED,
-; and a borrowed value is never released here. That is the leak side of
-; the asymmetry, taken deliberately.
+; A DIRECT CONSTRUCTION is born at count 1 and that birth is the
+; binding's. Anything else - a parameter, a bare name, a field read,
+; and a CALL, because MM-LIFE-2c's event 2 is specified but does not
+; emit - is BORROWED, and a borrowed value is never released here.
+; That is the leak side of the asymmetry, taken deliberately.
 (pub :: letOwned (-> Int Int Int Int))
 (pub fn (letOwned cg node valExpr)
   (argIsDirectCon cg valExpr))
 
+; Does EVERY struct that declares a field of this name declare it at a
+; SCALAR type?
+;
+; A field read is the one place the walk can afford to look past the
+; block to the field, and whether it can depends entirely on the
+; field's class: reading an `Int` out of a record takes nothing, while
+; reading a `String` or a nested struct answers a block whose share
+; came from the record's own reference map - so releasing the record
+; releases it too.
+;
+; The lookup is by NAME, because that is what a `.f` node carries and
+; what `emitSetF` already resolves with (`findStructField`). Two
+; structs may declare the same field name at different classes, and
+; that ambiguity is resolved to ESCAPE: one non-scalar match answers 0
+; immediately, and a name no struct declares answers 0 as well. Not
+; knowing is the leak direction, which is the one this analysis is
+; documented to take.
+(pub :: fieldAlwaysScalar (-> Int String Int))
+(pub fn (fieldAlwaysScalar cg name)
+  (fieldAlwaysScalarIn cg (memGetWord cg 3) name 0 0))
 
+(pub :: fieldAlwaysScalarIn (-> Int Int String Int Int Int))
+(pub fn (fieldAlwaysScalarIn cg types name i seen)
+  (if (>= i (vecLen types))
+      seen
+      (let ((e (vecGet types i)))
+        (if (== (eKind e) TF_STRUCT)
+            (let ((idx (fieldIndexIn (eFieldFlags e) name 0)))
+              (if (< idx 0)
+                  (fieldAlwaysScalarIn cg types name (+ i 1) seen)
+                  (if (== (fldClass cg (nodeTy (vecGet (eFieldFlags e) idx))) 0)
+                      (fieldAlwaysScalarIn cg types name (+ i 1) 1)
+                      0)))
+            (fieldAlwaysScalarIn cg types name (+ i 1) seen)))))
 
-; Could the binding OUTLIVE this frame through `e`?
+; Find a `fn` declaration by its mangled name.
+(pub :: findFnDecl (-> Int String Int Int))
+(pub fn (findFnDecl decls name i)
+  (if (>= i (vecLen decls))
+      0
+      (let ((dd (vecGet decls i)))
+        (if (&& (== (nodeTag dd) TAG_D_FN) (strEq (nodeA dd) name))
+            dd
+            (findFnDecl decls name (+ i 1))))))
+
+; Does parameter `i` of this function provably NOT escape its body?
 ;
-; Positional, because the answer depends on where the name stands. In
-; VALUE position - the expression whose value the `let` answers - a
-; bare mention escapes, because that value flows to the caller with no
-; share taken. In ARGUMENT position it does not: a callee borrows
-; (event 1), every store a callee can make takes a share (a field
-; store by event 5, a constructor field by event 6, a container or any
-; other word store through `memSetWord`, which retains by MM-LIFE-2g),
-; and a callee that RETURNS the value retains it first (event 2). Those
-; four are the whole of how a reference leaves a frame, which is what
-; makes this walk a proof rather than a heuristic.
+; This is the interprocedural half, and it is what makes event 3 worth
+; having. The positional walk can only answer "the binding leaves this
+; frame through a call"; whether that is a problem depends entirely on
+; what the callee does with it, and the callee is right there in the
+; declaration list.
 ;
-; Three shapes escape whatever their position, and each is a place the
-; invariant above does not reach:
+; Two shapes in the tree depend on it, and both are load-bearing:
 ;
-;   a LAMBDA that mentions it - a capture takes no share, deliberately
-;     (MM-VAL-15: nothing releases a binding, so nothing may free one
-;     out from under a closure);
-;   a `set` RHS - a slot store takes no share;
-;   `cast`, `__addr` and `strData` - the three ways to get a WORD out
-;     of a reference. A word stashed anywhere is invisible to counting
-;     by construction (MM-LIFE-2g's own stated limit), so a binding
-;     that reaches one of them is the program's to keep alive.
+;   `(let ((p (Pair n n))) (total p))` - `total` is `(+ p.a p.b)`, so
+;   the parameter never leaves it and the record is releasable. This
+;   is the term `tests/stdlib/364-arc-frame-release.ax` scores as bit
+;   8, worth 640,224 bytes against 256 over 20,000 calls;
 ;
-; Every tag this walk does not know answers ESCAPE, so the surface
-; widens by deliberate edit and never by omission.
-(pub :: escapes (-> String Int Int Int))
-(pub fn (escapes name e vp)
+;   `(let ((next (Bad (wide n)))) (carry next (- n 1)))` - `carry`
+;   ignores its first parameter entirely, so the block is releasable
+;   and the error-propagation loop is flat. That is bit 4 of
+;   `tests/stdlib/370-error-propagation.ax`, 176 bytes against
+;   288,176 over 2,000 iterations.
+;
+; CONSERVATIVE ON EVERY EDGE IT CANNOT FOLLOW, which is the whole
+; discipline this analysis runs on. A name with no `fn` declaration in
+; this module's list - a builtin, a primitive like `memSetWord`, an
+; effect operation, a closure, an imported function whose body is not
+; here - answers 0, meaning "assume it escapes". So does an index out
+; of range, and so does a query nested deeper than two calls: the
+; depth cap is what terminates the walk on mutual recursion, and
+; capping in the ESCAPE direction means a cycle costs a leak and never
+; a free.
+;
+; Cost is not a consideration here, measured rather than assumed:
+; `letReleasable` is only ever asked about a `let` whose initialiser is
+; a direct construction, and 13 of the 2,337 `let` bindings in
+; `self_host/` and `stdlib/` are. The analysis runs thirteen times.
+(pub :: paramKept (-> Int String Int Int Int))
+(pub fn (paramKept cg fname i d)
+  (if (> d 1)
+      0
+      (let ((decl (findFnDecl (memGetWord cg 8) fname 0)))
+        (if (== decl 0)
+            0
+            (let ((ps (nodeB decl)))
+              (if (|| (< i 0) (>= i (vecLen ps)))
+                  0
+                  ; REBIND THE MODULE for the walk. The callee's body
+                  ; names things in the CALLEE's module, and
+                  ; `mangledFor` resolves a bare name against `cg` word
+                  ; 34 - which, while this query runs, still holds the
+                  ; CALLER's. `recordEntryFns` records entry-file names
+                  ; first, so an entry-file namesake was answering for
+                  ; an imported callee: a module whose private `hold`
+                  ; stashes its argument was vouched for by an
+                  ; entry-file `hold` that does not, and the caller's
+                  ; block was released while the module still pointed
+                  ; at it. Measured at exit 111 where 7 is correct.
+                  (let ((savedMod (memGetWord cg 34)))
+                    (let ((_set (memSetWord cg 34
+                                  (cast Int (nodeModule decl)))))
+                      (let ((esc (escapes cg (cast String (vecGet ps i))
+                                          (nodeC decl) 1 (+ d 1))))
+                        {
+                          (memSetWord cg 34 savedMod)
+                          (if (== esc 1) 0 1)
+                        })))))))))
+
+(pub :: escapes (-> Int String Int Int Int Int))
+(pub fn (escapes cg name e vp d)
   (if (== e 0)
       0
       (let ((tg (nodeTag e)))
@@ -6736,71 +6816,159 @@
         (if (== tg TAG_E_VAR)
             (if (strEq (nodeA e) name) vp 0)
         (if (== tg TAG_E_FIELD)
-            ; a field READ answers the field, never the block
-            (escapes name (nodeA e) 0)
+            ; A field read answers the FIELD - but releasing the block
+            ; walks its reference map and releases that field's own
+            ; share too (event 6 gave the field one at construction),
+            ; so a reference-typed field read in VALUE position hands
+            ; back a block this frame is about to free. Measured:
+            ;
+            ;   (fn (pull n) (let ((o (Outer (Inner n ...) 0))) o.f))
+            ;
+            ; answered a block whose contents were the SECOND
+            ; subsequent allocation's. So the base inherits the
+            ; position - EXCEPT when the field is scalar, where the
+            ; original reasoning does hold: an `Int` field is a number
+            ; the record's map does not own, so reading it while
+            ; releasing the record is exactly as safe as it always was.
+            ; That exemption is what keeps `(let ((p (Pair n n))) (+ p.a
+            ; p.b))` releasable, which is the shape this event was
+            ; introduced for.
+            (escapes cg name (nodeA e)
+                     (if (== (fieldAlwaysScalar cg (nodeB e)) 1) 0 vp) d)
         (if (== tg TAG_E_APP)
             (if (== (wordTakingHead (spineHeadE e)) 1)
                 ; `cast`/`__addr`/`strData` of the binding hands out a
                 ; word, and a word takes no share
                 (mentions name e)
-                (if (== (escapes name (nodeA e) 0) 1)
+                ; ARGUMENT POSITION USED TO ANSWER 0 HERE, on the
+                ; premise that "every store a callee can make takes a
+                ; share". That premise is false in three measured ways,
+                ; and none of them needs an unsafe form:
+                ;
+                ;   - a parameter declared `Int` - the universal handle
+                ;     type - stores without retaining, because
+                ;     `fldClass` and `memSetWord`'s `__retainref` both
+                ;     key off the DECLARED type. A monomorphic callee
+                ;     that launders its argument through `cast` into an
+                ;     Int field dangles the caller's binding outright;
+                ;   - a type-variable parameter whose evidence witness
+                ;     collapsed to 0, which happens whenever two
+                ;     occurrences of the variable classify differently;
+                ;   - an argument whose root is a `cast`, or whose
+                ;     inferred type is a fresh `_tN`, classifies 0
+                ;     before any meet.
+                ;
+                ; Each was reproduced as a use-after-free: the block
+                ; was released at scope end, popped off the size-class
+                ; free list by the next same-size allocation, and read
+                ; back as the new occupant.
+                ;
+                ; Deciding this per call would mean resolving the head
+                ; to its FSig, indexing the arrow spine for parameter
+                ; i, and reading the call's evidence stamp - and the
+                ; first bullet shows that even a correct evidence test
+                ; would not close it, because the unsound case has no
+                ; type variable to test. So an argument is walked in
+                ; VALUE position: passing the binding hands it out with
+                ; nobody provably taking a share, and that escapes.
+                ;
+                ; Value position rather than `mentions`, deliberately.
+                ; `mentions` would refuse `(+ p.a p.b)` as well, because
+                ; `p` is somewhere under it - and a SCALAR field read is
+                ; the one shape the field rule above proves safe. The
+                ; spine keeps position 0 so the head still resolves as
+                ; a callee; each level's own argument is `nodeB`, so
+                ; every argument of a curried application is asked at 1.
+                ; ...unless the CALLEE is known not to let that
+                ; parameter escape, which is what `paramKept` goes and
+                ; finds out. That query is the actual escape analysis:
+                ; the positional walk above is intraprocedural and can
+                ; only say "this leaves the frame", while whether that
+                ; matters depends on what the function at the other end
+                ; does with it.
+                (if (== (escapes cg name (nodeA e) 0 d) 1)
                     1
-                    (escapes name (nodeB e) 0)))
+                    (if (== (escapes cg name (nodeB e) 1 d) 0)
+                        0
+                        (if (== (paramKept cg
+                                  (mangledFor cg (spineHeadName e))
+                                  (- (spineArgCount e 0) 1) d) 1)
+                            0
+                            1))))
         (if (== tg TAG_E_IF)
-            (if (== (escapes name (nodeA e) 0) 1)
+            (if (== (escapes cg name (nodeA e) 0 d) 1)
                 1
-                (if (== (escapes name (nodeB e) vp) 1)
+                (if (== (escapes cg name (nodeB e) vp d) 1)
                     1
-                    (escapes name (nodeC e) vp)))
+                    (escapes cg name (nodeC e) vp d)))
         (if (== tg TAG_E_BEGIN)
-            (escapesSeq name (nodeA e) vp 0)
+            (escapesSeq cg name (nodeA e) vp 0 d)
         (if (== tg TAG_E_MATCH)
-            (if (== (escapes name (nodeA e) 0) 1)
+            ; The scrutinee inherits the position, for the same reason
+            ; a field read's base does: an arm binder names one of the
+            ; scrutinee's FIELDS, and releasing the scrutinee releases
+            ; that field's share, so an arm returning a reference-typed
+            ; binder returns a block the release just freed. Measured
+            ; the same way - the value read back was the next
+            ; allocation's.
+            (if (== (escapes cg name (nodeA e) vp d) 1)
                 1
-                (escapesArms name (nodeB e) vp 0))
+                (escapesArms cg name (nodeB e) vp 0 d))
         (if (== tg TAG_E_COND)
-            (escapesArms name (nodeA e) vp 0)
+            (escapesArms cg name (nodeA e) vp 0 d)
         (if (|| (== tg TAG_E_LET) (== tg TAG_E_LETM))
             ; the initialiser inherits the position: `(let ((t s)) t)`
             ; makes the binding the let's value through an alias
-            (if (== (escapes name (nodeB e) vp) 1)
+            (if (== (escapes cg name (nodeB e) vp d) 1)
                 1
-                (escapes name (nodeC e) vp))
+                (escapes cg name (nodeC e) vp d))
         (if (== tg TAG_E_WHILE)
-            (if (== (escapes name (nodeA e) 0) 1)
+            (if (== (escapes cg name (nodeA e) 0 d) 1)
                 1
-                (escapesSeq name (nodeB e) 0 0))
+                (escapesSeq cg name (nodeB e) 0 0 d))
         (if (== tg TAG_E_SET)
             ; a slot store takes no share
             (mentions name (nodeB e))
         (if (== tg TAG_E_SETF)
-            ; `(set b.f v)` retains v (event 5), so only the base is
-            ; read here - and reading a base is a borrow
-            (escapes name (nodeA e) 0)
+            ; `(set b.f v)` was walked through its BASE only, on the
+            ; grounds that event 5 retains the stored value - and the
+            ; value subtree (`nodeC`) was never visited at all. But
+            ; `emitSetF` retains only when `fldClass` says the field's
+            ; DECLARED type is a reference, so storing into a field
+            ; declared `Int` takes no share. That needs no type
+            ; variable and no evidence collapse: measured at exit 111
+            ; where the sound answer is 7.
+            ;
+            ; The base stays a borrow - reading it does not extend
+            ; anything's lifetime - and the stored value is now asked
+            ; about.
+            (if (== (escapes cg name (nodeA e) 0 d) 1)
+                1
+                (mentions name (nodeC e)))
             (mentions name e))))))))))))))))
 
-(pub :: escapesSeq (-> String Int Int Int Int))
-(pub fn (escapesSeq name v vp i)
+(pub :: escapesSeq (-> Int String Int Int Int Int Int))
+(pub fn (escapesSeq cg name v vp i d)
   (if (== v 0)
       0
       (if (>= i (vecLen v))
           0
-          (if (== (escapes name (vecGet v i)
-                           (if (== i (- (vecLen v) 1)) vp 0)) 1)
+          (if (== (escapes cg name (vecGet v i)
+                           (if (== i (- (vecLen v) 1)) vp 0) d) 1)
               1
-              (escapesSeq name v vp (+ i 1))))))
+              (escapesSeq cg name v vp (+ i 1) d)))))
 
 ; A match arm or cond clause: word 2 is the body, and it inherits the
 ; position. An arm PATTERN cannot mention an outer binding as a value.
-(pub :: escapesArms (-> String Int Int Int Int))
-(pub fn (escapesArms name v vp i)
+(pub :: escapesArms (-> Int String Int Int Int Int Int))
+(pub fn (escapesArms cg name v vp i d)
   (if (== v 0)
       0
       (if (>= i (vecLen v))
           0
-          (if (== (escapes name (nodeB (vecGet v i)) vp) 1)
+          (if (== (escapes cg name (nodeB (vecGet v i)) vp d) 1)
               1
-              (escapesArms name v vp (+ i 1))))))
+              (escapesArms cg name v vp (+ i 1) d)))))
 
 ; Does `name` appear anywhere below `e` at all? The answer for the
 ; shapes that take no share, where position stops mattering. Unknown

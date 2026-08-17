@@ -1,0 +1,2 @@
+E AX3004 558-branch-result-join.ax:33:14-21 type-mismatch "type mismatch: expected Int, found String" #"this has type `String`, expected `Int`"
+E AX3004 558-branch-result-join.ax:41:14-15 type-mismatch "type mismatch: expected String, found Int" #"this has type `Int`, expected `String`"

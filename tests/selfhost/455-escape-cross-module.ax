@@ -1,0 +1,49 @@
+; expect 7
+; `paramKept` - MM-LIFE-2c event 3's interprocedural half - answers
+; "does parameter i escape the callee's body" by walking that body.
+; The body belongs to the CALLEE's module, and a bare name in it must
+; resolve there.
+;
+; It did not. `mangledFor` resolves against `cg` word 34, which still
+; held the CALLER's module while the query ran, and `recordEntryFns`
+; records entry-file names first - so an entry-file namesake answered
+; for an imported callee. `EscMod`'s public `keeper` delegates to its
+; own private `hold`, which stashes the argument as a raw word and
+; takes no share; the `hold` below does not stash. The walk found this
+; one, called the parameter kept, and the caller's block was released
+; while `EscMod` still pointed at it: the next allocation of that size
+; popped it off the free list and `p.a` read 111 instead of 7.
+;
+; The query now saves word 34, sets it to the callee declaration's own
+; module for the walk, and restores it. This is the shape no
+; single-file probe can reach, which is why it is here rather than in
+; `tests/stdlib/365-escape-analysis.ax` beside the other five.
+
+(import Mem)
+(import EscMod)
+
+(struct Cell
+  (a : Int)
+  (b : Int))
+
+; The namesake. It does NOT stash, and it is in the entry file, so it
+; is what a caller-module lookup finds first.
+(:: hold (-> Slot a Int))
+(fn (hold s c) 1)
+
+(:: leak (-> Slot Int Int))
+(fn (leak s n)
+  (let ((c (Cell n (+ n 1000))))
+    (EscMod::keeper s c)))
+
+(:: main Int)
+(fn (main)
+  (let ((s (Slot 0)))
+    {
+      (leak s 7)
+      ; a same-size allocation would pop `c`'s block off the free list
+      ; if it had been released
+      (let ((d (Cell 111 222)))
+        (let ((p (cast Cell s.w)))
+          (+ (* 0 d.a) p.a)))
+    }))

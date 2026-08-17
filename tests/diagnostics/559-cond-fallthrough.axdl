@@ -1,0 +1,1 @@
+E AX3005 559-cond-fallthrough.ax:36:7-8 non-exhaustive-match "this cond can fall through: no clause need fire, and there is no `else` to answer `String`" #"no clause catches a value the tests all refuse" !"a cond with no else answers the integer 0 when no test fires - a null at every type but Int and Bool (docs/memory-model.md MM-VAL-9b)" ?"add an `(else ...)` clause"

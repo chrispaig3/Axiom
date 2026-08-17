@@ -1,0 +1,45 @@
+; `if` has compared its two branches since the first checker. `match`
+; and `cond` never compared theirs: the accumulator was overwritten
+; with each arm's type in turn, so the form took the LAST arm's type
+; and every earlier arm went unchecked at any type at all.
+;
+; That is a wrong answer, not a missing warning. Measured, with a
+; compiler from before 2026-08-17:
+;
+;   (:: name (-> Color String))
+;   (fn (name c) (match c ((Red) 1) ((Green) 2) ((Blue) "blue")))
+;   (strLen (name (Red)))     ->  `check` OK, exit 139, no output
+;
+; The `Int` from the first arm reached `strLen` as a Str header
+; address. Because the declared return type is compared against the
+; LAST arm only, neither check caught the other's blind spot: the
+; signature agreed with `"blue"` and nothing ever looked at `1`.
+;
+; The relation is `tyCompat`, the same one `if` spends - not the
+; narrow `tyReprClash` the SIGNATURE-vs-body comparison needs. Two
+; branches of one form are both INFERRED, so neither is a declaration
+; anyone is punning a handle through, which is why `if` could afford
+; the strict relation from the beginning and why these two can now.
+; Measured: the strict relation over `match` and `cond` reports 0 of
+; the 261 files the clean-corpus sweep covers.
+
+(data Color (Red) (Green) (Blue))
+
+; The arms disagree; the report anchors at the arm that broke ranks.
+(:: nameOf (-> Color String))
+(fn (nameOf c)
+  (match c
+    ((Red) 1)
+    ((Green) "green")
+    ((Blue) "blue")))
+
+; The same hole one door down, in `cond`.
+(:: sizeOf (-> Int String))
+(fn (sizeOf n)
+  (cond
+    ((> n 100) "big")
+    ((> n 2) 7)
+    (else "small")))
+
+(:: main Int)
+(fn (main) 0)

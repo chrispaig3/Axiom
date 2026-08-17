@@ -590,10 +590,37 @@ You can also write `let` bindings sequentially:
 (fn (classify n)
   (cond ((< n 0) "negative")
         ((== n 0) "zero")
+        (else "positive")))
+```
+
+Each branch is a `(test body)` pair. The first matching branch wins.
+
+**The `else` is not optional at every type.** A `cond` with no `else`
+answers the integer `0` when no test fires — literally: the clauses are
+folded around `(mkEInt 0)`. That is a real value at `Int` and at `Bool`
+(where it is `false`), and a null at every other type. So a `cond`
+without an `else` whose clauses produce a `String`, a struct or a `data`
+value is refused with `AX3005`:
+
+```scheme
+; refused: nothing answers when n is 0
+(fn (classify n)
+  (cond ((< n 0) "negative")
         ((> n 0) "positive")))
 ```
 
-Each branch is a `(test body)` pair. The first matching branch wins. An optional `else` clause can be added as the last argument.
+The three tests above happen to cover every `Int`, but the checker does
+not evaluate predicates — write the last one as `else` and the totality
+becomes something both you and the compiler can see. A final clause
+whose test is the literal `true` is accepted for the same reason it is
+an `else` in all but name.
+
+This example used the refused spelling until 2026-08-17, when `cond`
+gained the fall-through check that `if` (`AX3004`) and `match`
+(`AX3005`) had always had.
+
+Clause bodies must also agree on a type, as `if` branches and `match`
+arms do; a clause that disagrees is `AX3004` anchored at that clause.
 
 ---
 

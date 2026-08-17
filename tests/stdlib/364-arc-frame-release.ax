@@ -7,17 +7,22 @@
 ; The initialiser condition is what makes the frame the owner: a
 ; direct construction is born at count 1 and that birth is the
 ; binding's, so handing it back is arithmetic and not a judgement
-; about who else holds it. The second condition is a POSITIONAL walk,
-; and its permissions are the interesting half - each is a place the
-; ownership events already guarantee a share:
+; about who else holds it. The second condition is a walk that is
+; positional AND interprocedural, and its permissions are the
+; interesting half:
 ;
-;   passing it to a function is a BORROW (event 1). Every store the
-;   callee can make takes a share: a field store by event 5, a
-;   constructor field by event 6, a container or any other word store
-;   through `memSetWord`, which retains by MM-LIFE-2g. A callee that
-;   RETURNS it hands back a value the caller's own binding rules
-;   cover. Those four are the whole of how a reference leaves a frame;
-;   reading a FIELD answers the field, never the block;
+;   passing it to a function is permitted only when the CALLEE is
+;   known not to let that parameter escape - `paramKept` reads the
+;   callee's own declaration and walks its body. The positional
+;   permission this replaced ("passing it is a borrow, and every store
+;   the callee can make takes a share") was false in three measured
+;   ways and produced use-after-frees; `tests/stdlib/365-escape-
+;   analysis.ax` is the five of them, with the reasoning. What the
+;   query buys back is term 8 below, which is why it exists at all;
+;   reading a SCALAR field answers a number the block's reference map
+;   does not own. Reading a REFERENCE field does not: releasing the
+;   block releases that field's share too, so a reference field read
+;   in value position escapes;
 ;   sequencing, conditions and loops move no value out.
 ;
 ; What escapes, and why each is a place the guarantee stops:
@@ -45,7 +50,11 @@
 ;       bytes over 5,000
 ;    8  a record built, PASSED TO A FUNCTION, and dropped IS released:
 ;       20,000 calls move the bump 256 bytes where they moved 640,224.
-;       This is what the positional walk buys over "field reads only"
+;       This is what the INTERPROCEDURAL query buys over "field reads
+;       only" - `total` never lets its parameter escape, and that is a
+;       fact about `total`, not about argument position. The purely
+;       positional version of this permission scored the same 8 here
+;       and freed the caller's block in five other shapes
 ;    4  the same for a record built, read, and dropped
 ;    2  the value is still right - the release is emitted after the
 ;       body, not before it

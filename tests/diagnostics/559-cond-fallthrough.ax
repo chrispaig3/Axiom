@@ -1,0 +1,47 @@
+; A `cond` with no `else` answers the integer 0 when no test fires -
+; literally: `lowerConds` folds the clauses right to left around
+; `(mkEInt 0)`. That is a real value at `Int` and at `Bool`, where 0
+; is `false`. At every other type it is a null wearing whatever the
+; signature claims.
+;
+; Nothing refused it. `if` has AX3004 and `match` has AX3005; `cond`
+; had neither, which is the shape a reader has no way to predict -
+; and `docs/reference.md`'s own `classify` example is an `else`-less
+; `cond` returning `String`. Measured, before 2026-08-17:
+;
+;   (:: f (-> Int String))
+;   (fn (f n) (cond ((> n 100) "big") ((> n 2) "mid")))
+;   (strLen (f 0))    ->  `check` OK, exit 139, no output
+;
+; It gets AX3005 rather than a number of its own: the property is the
+; one that code already names - the form can fall through - and one
+; explanation covering both forms is honest where a second number
+; would only record that `cond` was written later.
+;
+; The anchor is the first clause's TEST. The `cond` node itself has no
+; span to offer - `parseCondClauses` builds it with `mkNode`, which
+; stamps 0 - so a guard written against `(nodeSpan e)` can never fire,
+; which is how the first version of this refusal passed every probe by
+; doing nothing.
+;
+; Arrows, tuples, lists and pointers stay permitted, deliberately:
+; none of them appears in an `else`-less `cond` anywhere in the tree,
+; and widening a refusal on no evidence is how a checker acquires
+; rules nobody can justify later.
+
+; Refused: 0 is not a `String`.
+(:: sizeName (-> Int String))
+(fn (sizeName n)
+  (cond
+    ((> n 100) "big")
+    ((> n 2) "mid")))
+
+; Accepted: 0 is an `Int`, so this one really does have an answer.
+(:: sizeRank (-> Int Int))
+(fn (sizeRank n)
+  (cond
+    ((> n 100) 2)
+    ((> n 2) 1)))
+
+(:: main Int)
+(fn (main) (sizeRank 5))

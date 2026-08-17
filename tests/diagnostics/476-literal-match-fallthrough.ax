@@ -5,6 +5,17 @@
 ; answered its freshly allocated result cell's contents: 0, at exit
 ; 0, indistinguishable from a real answer. docs/memory-model.md
 ; MM-VAL-9b; refused since 2026-08-14. (A bool match carrying BOTH
-; `true` and `false` arms still checks - it cannot fall through.)
+; `true` and `false` arms still checks - it cannot fall through -
+; but only over a scrutinee that IS a `Bool`: over an `Int` those two
+; are ordinary value tests covering 1 and 0, and `(match n ((true) 1)
+; ((false) 2))` at `n = 7` answered the result cell. `armsBoolComplete`
+; asked about the arms alone until 2026-08-17.)
+;
+; The guard also required that NO arm be a constructor, which quietly
+; exempted every match whose arms are constructors but whose scrutinee
+; type the checker cannot name - a lambda parameter, any result of a
+; polymorphic function, a macro spine. Both the matrix check and this
+; backstop were off at once for those, which is the only combination
+; that is unsound; 557 is that case.
 (:: main Int)
 (fn (main) (match 7 ((1) 11) ((2) 22)))

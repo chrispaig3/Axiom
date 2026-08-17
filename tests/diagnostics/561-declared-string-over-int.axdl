@@ -1,0 +1,2 @@
+E AX3004 561-declared-string-over-int.ax:36:17-19 type-mismatch "type mismatch: expected String, found Int" #"this has type `Int`, expected `String`"
+E AX3004 561-declared-string-over-int.ax:40:17-23 type-mismatch "type mismatch: expected Int, found String" #"this has type `String`, expected `Int`"

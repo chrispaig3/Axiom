@@ -72,7 +72,14 @@
       (memSetWord s 0 len)
       (memSetWord s 1 bytes)
       (memSetWord s 2 owner)
-      s
+      ; The cast is where a `Str` is BORN: three raw words become a
+      ; value of the type. It was implicit until `String` joined the
+      ; signature-vs-body check (typecheck.ax `tyIsReprScalar`), and an
+      ; implicit one here is exactly what let a declared `String` over
+      ; an integer body go unreported everywhere else. This site is the
+      ; constructor and is allowed to say so; the other two the check
+      ; found were wrong signatures and were corrected instead.
+      (cast String s)
     }))
 
 ; A `Str` over freshly allocated, zeroed space for `len` bytes.

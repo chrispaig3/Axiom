@@ -1,0 +1,194 @@
+; exit 63 (see .exit)
+; The escape analysis behind MM-LIFE-2c event 3, and the five ways the
+; walk that preceded it freed a block the program was still using.
+;
+; Event 3 releases a `let` binding whose initialiser is a direct
+; construction when the binding cannot outlive the frame. Deciding the
+; second half is the analysis, and the version this fixture replaces
+; decided it with four PERMISSIONS, each stated as a guarantee some
+; other ownership event supplies. Four of the five were false, and each
+; was measured as a use-after-free: the block was released at scope
+; end, popped off its size-class free list by the next allocation of
+; that size, and read back as the new occupant. The signature is
+; reading someone else's value out of a live-looking handle.
+;
+;   1  AN ARGUMENT. "Passing it to a function is a borrow, and every
+;      store the callee can make takes a share." It does not: the
+;      retain `memSetWord` emits is gated on an evidence bit, and that
+;      bit is 0 whenever a type variable's occurrences disagree. A
+;      helper `(-> Int a a Int)` called with a record and an integer
+;      pushes the record into a `Vec` taking no share at all.
+;
+;   2  A `set` ON A FIELD. "Event 5 retains the stored value." Only
+;      when `fldClass` calls the field's DECLARED type a reference -
+;      and the value subtree of a `TAG_E_SETF` was never walked at
+;      all, so storing into a field declared `Int` took no share and
+;      was not even asked about.
+;
+;   4  A FIELD READ. "A field read answers the field, never the
+;      block." But releasing the block walks its reference map and
+;      releases the field's own share, which event 6 gave it at
+;      construction. A reference-typed field read in value position
+;      therefore hands back a block the frame is about to free.
+;
+;   8  A MATCH ARM. The scrutinee was walked at position 0 for the
+;      same reason, and an arm binder names one of its fields.
+;
+;  16  AN ARGUMENT AGAIN, with no type variable anywhere. A
+;      monomorphic callee that `cast`s its parameter into a field
+;      declared `Int` dangles the caller's binding, which is why no
+;      test of the CALL'S evidence word could have closed term 1 -
+;      the unsound case has no evidence to test.
+;
+; Terms 1 and 16 are why argument position is no longer permitted
+; positionally. What replaced it is an interprocedural question -
+; `paramKept` reads the callee's own declaration and asks whether that
+; parameter escapes ITS body - which is what keeps the permission
+; where it is sound, and term 32 is the control that pins it:
+;
+;  32  PRECISION. A record passed to a function that only READS it is
+;      still released. Without this the analysis would be sound and
+;      useless: `tests/stdlib/364-arc-frame-release.ax` bit 8 and
+;      `tests/stdlib/370-error-propagation.ax` bit 4 both depend on
+;      it, worth 640,224 bytes against 256 and 288,176 against 176
+;      respectively. Conservatism has a price and this is where it is
+;      charged.
+;
+; Every edge the query cannot follow answers ESCAPE: a builtin, a
+; primitive, an effect operation, a closure, an out-of-range index,
+; and any query nested more than two calls deep. A cycle therefore
+; costs a leak and never a free, which is the asymmetry the whole
+; strategy turns on.
+
+(import Mem)
+(import Vec)
+
+(struct Cell
+  (a : Int)
+  (b : Int))
+
+(struct Box
+  (w : Int))
+
+(struct Inner (a : Int) (b : Int))
+(struct Outer (f : Inner) (g : Int))
+
+(data Wrap (One Inner) (Two Int))
+
+(:: b2i (-> Bool Int))
+(fn (b2i x) (if x 1 0))
+
+; --- 1: an argument to a callee that stashes it ---------------------
+; `a` stands in two parameter positions and the two arguments
+; disagree, so the evidence witness collapses and `vecPush`'s
+; `memSetWord` takes no share.
+(:: stash (-> Int a a Int))
+(fn (stash v x y) { (vecPush v x) 1 })
+
+(:: viaArg (-> Int Int Int))
+(fn (viaArg v n)
+  (let ((c (Cell n (+ n 1000))))
+    (stash v c 0)))
+
+(:: readCellA (-> Int Int))
+(fn (readCellA v)
+  (let ((p (cast Cell (vecGet v 0))))
+    p.a))
+
+; --- 2: a `set` whose field is declared Int -------------------------
+(:: viaSetF (-> Box Int Int))
+(fn (viaSetF b n)
+  (let ((c (Cell n (+ n 1000))))
+    { (set b.w (cast Int c)) 1 }))
+
+; --- 4: a reference-typed field read in value position --------------
+(:: viaField (-> Int Inner))
+(fn (viaField n)
+  (let ((o (Outer (Inner n (+ n 1000)) 0)))
+    o.f))
+
+; --- 8: a match arm binder naming the scrutinee's field -------------
+(:: viaMatch (-> Int Inner))
+(fn (viaMatch n)
+  (let ((w (One (Inner n (+ n 1000)))))
+    (match w
+      ((One i) i)
+      ((Two k) (Inner k k)))))
+
+; --- 16: a monomorphic callee laundering through `cast` -------------
+(:: keepWord (-> Box Cell Int))
+(fn (keepWord b c) { (set b.w (cast Int c)) 1 })
+
+(:: viaMono (-> Box Int Int))
+(fn (viaMono b n)
+  (let ((c (Cell n (+ n 1000))))
+    (keepWord b c)))
+
+; --- 32: the precision control - a callee that only reads -----------
+(:: total (-> Cell Int))
+(fn (total c) (+ c.a c.b))
+
+(:: readOnly (-> Int Int))
+(fn (readOnly n)
+  (let ((c (Cell n n)))
+    (total c)))
+
+(:: sumReadOnly (-> Int Int Int))
+(fn (sumReadOnly n acc)
+  (if (<= n 0)
+      acc
+      (sumReadOnly (- n 1) (+ acc (readOnly n)))))
+
+(:: main Int)
+(fn (main)
+  (let ((mut acc 0))
+    {
+      ; 1 - the stashed record still reads 7 after a same-size
+      ; allocation would have reused a freed block
+      (let ((v vecNew))
+        {
+          (viaArg v 7)
+          (let ((d (Cell 111 222)))
+            (set acc (+ acc (* 1 (b2i (== (+ (* 0 d.a) (readCellA v)) 7))))))
+        })
+
+      ; 2
+      (let ((b (Box 0)))
+        {
+          (viaSetF b 7)
+          (let ((d (Cell 111 222)))
+            (let ((p (cast Cell b.w)))
+              (set acc (+ acc (* 2 (b2i (== (+ (* 0 d.a) p.a) 7)))))))
+        })
+
+      ; 4
+      (let ((x (viaField 7)))
+        (let ((d1 (Inner 111 222)))
+          (let ((d2 (Inner 333 444)))
+            (set acc (+ acc (* 4 (b2i (== (+ (* 0 (+ d1.a d2.a)) x.a) 7))))))))
+
+      ; 8
+      (let ((y (viaMatch 7)))
+        (let ((d3 (Inner 111 222)))
+          (set acc (+ acc (* 8 (b2i (== (+ (* 0 d3.a) y.a) 7)))))))
+
+      ; 16
+      (let ((b2 (Box 0)))
+        {
+          (viaMono b2 7)
+          (let ((d (Cell 111 222)))
+            (let ((p (cast Cell b2.w)))
+              (set acc (+ acc (* 16 (b2i (== (+ (* 0 d.a) p.a) 7)))))))
+        })
+
+      ; 32 - and the loop above stays flat, which is the permission
+      ; the interprocedural query buys back
+      (let ((g1 (memAlloc 200)))
+        {
+          (sumReadOnly 20000 0)
+          (let ((g2 (memAlloc 200)))
+            (set acc (+ acc (* 32 (b2i (< (- g2 g1) 4096))))))
+        })
+
+      acc
+    }))

@@ -1,0 +1,17 @@
+; A module for `455-escape-cross-module.ax`. Its public `keeper`
+; delegates to a PRIVATE `hold` that stashes the argument as a raw
+; word, taking no share. The entry file declares a `hold` of its own
+; that does not stash, which is the whole point of the pair.
+(import Mem)
+
+(pub struct Slot (w : Int))
+
+(:: hold (-> Slot a Int))
+(fn (hold s c)
+  {
+    (set s.w (cast Int c))
+    1
+  })
+
+(pub :: keeper (-> Slot a Int))
+(pub fn (keeper s c) (hold s c))

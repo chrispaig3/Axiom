@@ -1556,18 +1556,51 @@ that defines its register, rather than before the function's `ret`: a
 `let` inside a branch defines a register that does not dominate the
 return.
 
-**What the walk PERMITS is the load-bearing half, and each permission
-is a place an ownership event already guarantees a share.** Passing
-the binding to a function is a borrow (event 1); every store a callee
-can make takes one - a field store by event 5, a constructor field by
-event 6, a container or any other word store through `memSetWord`,
-which retains by `MM-LIFE-2g`. Reading a FIELD answers the field,
-never the block. Sequencing, conditions and loops move no value out.
-Those are the whole of how a reference leaves a frame, which is what
-makes this a proof rather than a heuristic - and the corpus agrees by
-count: `__store64` appears at exactly two store sites in
-`stdlib/` + `self_host/`, one of them `memSetWord`'s own body, and no
-site anywhere stashes a `strData` pointer.
+**What the walk PERMITS is the load-bearing half, and the first
+version of this paragraph got it wrong in four places.** It read:
+"passing the binding to a function is a borrow (event 1); every store
+a callee can make takes one - a field store by event 5, a constructor
+field by event 6, a container or any other word store through
+`memSetWord`, which retains by `MM-LIFE-2g`. Reading a FIELD answers
+the field, never the block. Sequencing, conditions and loops move no
+value out. Those are the whole of how a reference leaves a frame,
+which is what makes this a proof rather than a heuristic."
+
+It was not a proof. Four of those claims are false, each measured as a
+use-after-free on 2026-08-17 — the block released at scope end, popped
+off its size-class free list by the next allocation of that size, and
+read back as the new occupant. `tests/stdlib/365-escape-analysis.ax`
+is all five shapes with their arithmetic:
+
+| claim | why it fails |
+|---|---|
+| an argument is stored with a share | `memSetWord`'s retain is gated on an evidence bit that is 0 whenever a type variable's occurrences disagree — and, with no type variable at all, on the parameter's DECLARED class, so a monomorphic callee `cast`ing into an `Int` field takes no share either |
+| `(set e.f v)` retains `v` | only when `fldClass` calls the field's declared type a reference; and the walk never visited a `TAG_E_SETF`'s value subtree at all |
+| a field read answers the field, never the block | releasing the block runs its reference map and releases the field's own share (event 6 gave it one), so a REFERENCE-typed field read hands back a block the frame is about to free |
+| a match scrutinee is only read | an arm binder names one of its fields, same mechanism |
+
+The correction is that argument position is not decided
+**positionally** at all. Whether an argument escapes is a fact about
+the CALLEE, so the walk asks it: `paramKept` finds the callee's own
+declaration and walks its body with that parameter in value position.
+Every edge it cannot follow answers ESCAPE — a builtin, a primitive, an
+effect operation, a closure, an imported body that is not in the
+declaration list, an out-of-range index, and any query nested more
+than two calls deep, which is what terminates the walk on mutual
+recursion. A cycle therefore costs a leak and never a free.
+
+Field reads keep their permission, narrowed to what was actually true:
+a SCALAR field is a number the block's reference map does not own, so
+reading one while releasing the block is safe; a reference field is
+not. Sequencing, conditions and loops still move no value out.
+
+The corpus count that used to be offered as corroboration —
+`__store64` appears at exactly two store sites in `stdlib/` +
+`self_host/`, one of them `memSetWord`'s own body, and no site
+anywhere stashes a `strData` pointer — is left here because it is
+true, and struck as evidence because it was never the question: the
+stores that broke this were `memSetWord` and `set e.f`, both of which
+the count includes and neither of which it indicts.
 
 **What escapes** is each place that guarantee stops: the binding being
 the let's own value (nothing took a share on the way out); a LAMBDA
@@ -1582,11 +1615,21 @@ omission.
 Measured, all five directions. A record built, read and dropped:
 20,000 calls move the bump **256 bytes where they moved 640,224**. A
 record built, PASSED TO A FUNCTION and dropped: the same 256 against
-640,224, which is what the positional walk buys over "field reads
-only". And the three controls still grow - 160,224 bytes when the
-record is returned, 291,328 when its word escapes through a `cast`,
-400,224 when a lambda captures it - because a release there would free
-a block something else still names.
+640,224 — and this is now what the INTERPROCEDURAL query buys, not
+what argument position buys. `total` never lets its parameter escape,
+which is a fact about `total`; the positional version scored the same
+number here and freed the caller's block in five other shapes. And the
+three controls still grow - 160,224 bytes when the record is returned,
+291,328 when its word escapes through a `cast`, 400,224 when a lambda
+captures it - because a release there would free a block something
+else still names.
+
+The precision is not decoration. `tests/stdlib/370-error-propagation.ax`
+term 4 — the error-propagating loop staying flat at **176 bytes over
+2,000 iterations against 288,176** — is exactly this permission: the
+loop passes a freshly built `Bad` to a function that ignores it, and
+without the query the release is refused and every generation strands.
+A sound analysis that gave that up would be sound and useless.
 
 *What it does not reach, measured rather than assumed:* the compiler's
 own IR gains **zero** release sites under this event (112 before, 112

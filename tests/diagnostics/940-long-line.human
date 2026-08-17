@@ -7,4 +7,12 @@
  [1;34m = [0m[1;32mhelp: [0mvariables must be defined (via `define`/`fn`, a `let` binding, or a lambda parameter) before they are used; check for typos
  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3001` for a full explanation
 
-compilation failed due to 1 previous error
+[1;31merror[AX3004][0m[1m: type mismatch: expected Int, found String[0m
+ [1;34m--> [0m940-long-line.ax:2:14
+[1;34m  |[0m
+[1;34m2 |[0m (fn (main) { "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA...
+[1;34m  |[0m              [1;31m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ this has type `String`, expected `Int`[0m
+[1;34m  |[0m
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation
+
+compilation failed due to 2 previous errors

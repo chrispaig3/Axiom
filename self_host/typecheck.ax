@@ -1292,9 +1292,24 @@
 ; EFFECT-TRANSPARENT in: it performs whatever a value passed there
 ; performs. `apply` is `{effects: [], eparams: [0]}` - exactly as pure
 ; as its argument.
+; `declared` is 1 when `ty` came from a `::` (or from a builtin or an
+; effect operation, whose types are likewise the whole truth) and 0
+; when the checker INFERRED it from a body.
+;
+; The distinction is only visible after the fact, and it is
+; load-bearing: `tcCheckFn` writes a signature-less function's
+; inferred arrow back into this same slot so call sites can be
+; checked, which makes an inferred type indistinguishable from a
+; declared one by inspection. A SECOND definition of the same name
+; shares the entry, so `checkDeclaredReturn` then compared its body
+; against the first definition's body and reported a type mismatch on
+; top of the AX3006 that had already named the real mistake - one
+; error, two diagnostics, the second of them about a declaration
+; nobody wrote.
 (pub struct FnEnt (name : String) (ty : Int) (paramCount : Int)
                   (isBuiltin : Int) (isEffectOp : Int)
-                  (effects : Int) (eparams : Int))
+                  (effects : Int) (eparams : Int)
+                  (declared : Int))
 ; `fieldNames` is the constructor's declared field names when it was
 ; written as a struct variant, and 0 otherwise. A NAMED pattern is
 ; reordered against it.
@@ -1408,7 +1423,7 @@
 
 (pub :: regFn (-> Int String Int Int))
 (pub fn (regFn fns name ty)
-  (vecPush fns (cast Int (FnEnt name ty (- 0 1) 1 0 vecNew vecNew))))
+  (vecPush fns (cast Int (FnEnt name ty (- 0 1) 1 0 vecNew vecNew 1))))
 
 ; ------------------------------------------------------------------
 ; Registration: stage0's TypeChecker::new(), in its order - the order
@@ -1856,7 +1871,8 @@
                      0 1
                      (let ((v vecNew))
                        { (vecPush v (customEff effName)) v })
-                     vecNew))))
+                     vecNew
+                     1))))
 
 ; ------------------------------------------------------------------
 ; Effects, as tagged strings. `effEq` is plain string equality, which
@@ -1946,8 +1962,15 @@
   (let ((ty (if (== (nodeTy d) 0) mkSilentWild (nodeTy d))))
     (let ((ent (fnEntExact tc (nodeA d))))
       (if (== ent 0)
-          (tcPushFn tc (cast Int (FnEnt (nodeA d) ty (- 0 1) 0 0 vecNew vecNew)))
-          (memSetWord ent 1 ty)))))
+          (tcPushFn tc (cast Int (FnEnt (nodeA d) ty (- 0 1) 0 0 vecNew vecNew 1)))
+          ; A `fn` seen before its `::` already made the entry, with
+          ; `declared` 0. The signature is arriving now, so raise it -
+          ; otherwise declaration order alone would decide whether a
+          ; function's declared result is checked.
+          {
+            (memSetWord ent 1 ty)
+            (memSetWord ent 7 1)
+          }))))
 
 ; Every push to `fns` goes through here, so the exact-name index cannot
 ; fall behind the table it indexes - including if a later pass ever
@@ -1966,7 +1989,7 @@
                    (let ((ph (mkTVar (strConcat "_fn_" (decStr (tcCounter tc))))))
                      {
                        (tcBumpCounter tc)
-                       (tcPushFn tc (cast Int (FnEnt (nodeA d) ph (- 0 1) 0 0 vecNew vecNew)))
+                       (tcPushFn tc (cast Int (FnEnt (nodeA d) ph (- 0 1) 0 0 vecNew vecNew 0)))
                      }))))
       (memSetWord ent 2 (vecLen (nodeB d))))))
 
@@ -3194,6 +3217,83 @@
       cty
     }))
 
+; A minted `_tN` variable, as opposed to one the SOURCE wrote. The
+; distinction is already load-bearing in `tyVarCompat` - a source `a`
+; refuses a concrete type and a minted one accepts it - and the branch
+; join needs the same split for a different reason: a minted variable
+; means "not known yet", so it must YIELD to a real type rather than
+; fix a whole form at a wildcard.
+(pub :: tyIsMintedVar (-> Int Int))
+(pub fn (tyIsMintedVar t)
+  (if (== t 0)
+      0
+      (if (!= (nodeTag t) TAG_T_VAR)
+          0
+          (if (== (tyIsSrcVar t) 1) 0 1))))
+
+; Join one branch's result into the accumulated result of a
+; multi-branch form, reporting at the branch that disagrees.
+;
+; `if` has compared its two branches since the first checker
+; (`checkIf`, just below) and the whole tree is clean under that rule.
+; `match` and `cond` never compared theirs: `checkArms` overwrote the
+; accumulator with each arm's type in turn, so the form took the LAST
+; arm's type and every earlier arm was unchecked at any type at all.
+; Measured, with a compiler built from the commit before this one:
+;
+;   (:: name (-> Color String))
+;   (fn (name c) (match c ((Red) 1) ((Green) 2) ((Blue) "blue")))
+;   (println (strLen (name (Red))))   ->  exit 139, no output
+;
+; `check` printed OK. The `Int` from the first arm reached `strLen` as
+; a Str header address. `cond` had the same hole one door down, and
+; `tests/diagnostics/` pins both now.
+;
+; Why `tyCompat` and not `tyReprClash`: the narrow relation exists for
+; the SIGNATURE-vs-BODY comparison, where `Int` is the universal heap
+; handle and 21 of this repository's files return a `Span` or a
+; `JobPool` through an `Int` signature on purpose. Two branches of one
+; form are not that shape - both sides are INFERRED, so neither is a
+; declaration anyone is punning through - which is exactly why `if`
+; could afford the strict relation from the beginning. Measured: the
+; strict relation over `match` and `cond` reports 0 of the 261 files
+; the sweep calls clean.
+;
+; Poison and minted variables both YIELD rather than win, so one bad
+; arm draws one diagnostic and does not switch the rest of the form's
+; checking off - the same asymmetry `checkIf` spends on `tyIsErr`.
+(pub :: tyJoinBranch (-> Int Int Int Int Int))
+(pub fn (tyJoinBranch tc acc t span)
+  (if (== acc 0)
+      t
+  (if (== t 0)
+      acc
+  (if (== (tyIsErr acc) 1)
+      ; Poison is ABSORBING, not yielding. Handing back `t` here
+      ; un-poisons the form, so a later arm gets compared against a
+      ; real type and reports a second diagnostic for the first
+      ; mistake - the cascade this whole rule is written to avoid.
+      acc
+  (if (== (tyIsErr t) 1)
+      acc
+  (if (== (tyIsMintedVar acc) 1)
+      t
+  (if (== (tyIsMintedVar t) 1)
+      acc
+  (if (== (tyCompat acc t) 0)
+      ; POISON, not `acc`. Keeping `acc` reports every later arm that
+      ; disagrees with it, and then hands the declared-return check a
+      ; type it will disagree with too: a three-arm `match` whose
+      ; second arm broke ranks drew three diagnostics for one mistake.
+      ; Poison makes the rest of the join yield (the `tyIsErr` arms
+      ; above) and `checkDeclaredReturn` skip, which is the cascade
+      ; discipline the rest of this checker already runs on.
+      {
+        (emitMismatch tc (tyRender acc) (tyRender t) span)
+        mkTErr
+      }
+      acc))))))))
+
 (pub :: checkIf (-> Int Int Int))
 (pub fn (checkIf tc e)
   {
@@ -3213,25 +3313,111 @@
         }))
   })
 
-; `cond`: every clause's test must be Bool; clause bodies are NEVER
-; joined against each other; only a real `else` is compared, against
-; the LAST clause's type; the result is the last clause's type -
-; stage0's ECond, probed.
+; Is the integer 0 a value of this type? The question is asked of a
+; `cond` that has no `else`, because that is literally what the form
+; answers when no test fires: `lowerConds` folds the clauses around
+; `(mkEInt 0)` (codegen.ax), so the fall-through is the integer zero
+; wearing whatever type the signature claims.
+;
+; `Int` and `Bool` are the two names where that is a real value - 0 is
+; an Int, and 0 is `false`. Everything else is a null: a `Float` 0 is
+; the bit pattern, not 0.0; a `String` 0 is a null header address; a
+; data or struct type 0 is a null block, and reading a field of it is
+; the segfault this refusal exists to stop. Applied constructors
+; (`Option Int`) fall on the null side for the same reason.
+;
+; Arrows, tuples, lists and pointers stay permitted - conservative,
+; deliberately, because none of them appears in an `else`-less `cond`
+; anywhere in the tree and widening a refusal on no evidence is how a
+; checker acquires rules nobody can justify later.
+(pub :: tyZeroInhabits (-> Int Int))
+(pub fn (tyZeroInhabits t)
+  (if (== t 0)
+      1
+  (if (== (tyIsErr t) 1)
+      1
+  (if (!= (nodeTag t) TAG_T_CON)
+      1
+  (if (|| (strEq (nodeA t) "Int") (strEq (nodeA t) "Bool"))
+      1
+      0)))))
+
+; `cond`: every clause's test must be Bool; clause bodies are joined
+; against each other and against a real `else` by `tyJoinBranch`, and
+; the result is that join.
+;
+; Both halves of this were open. The bodies were never joined - the
+; accumulator was overwritten with each clause's type, so the form
+; took the LAST clause's - and an `else`-less `cond` was never refused
+; at all, though it answers the integer 0 at whatever type the
+; signature declares. Measured, before this change:
+;
+;   (:: f (-> Int String))
+;   (fn (f n) (cond ((> n 100) "big") ((> n 2) "mid")))
+;   (strLen (f 0))    ->  `check` OK, exit 139
+;
+; `if` has AX3004 and `match` has AX3005; `cond` had neither, which is
+; the shape a reader has no way to predict. It gets AX3005: the
+; property is the same one - the form can fall through - and one code
+; with one explanation covering both forms is honest where a second
+; number would only record that `cond` was written later.
+; Where a diagnostic about a `cond` AS A FORM points. The node itself
+; has no span to offer: `parseCondClauses` builds it with `mkNode`,
+; which stamps 0, so `(nodeSpan e)` on a TAG_E_COND is always zero and
+; a guard written against it can never fire - which is how the first
+; version of the refusal below passed every probe by doing nothing.
+; The first clause's TEST is the anchor, for the reason `checkMatch`
+; anchors at its scrutinee: it is the leftmost thing the form owns.
+(pub :: condAnchor (-> Int Int))
+(pub fn (condAnchor e)
+  (if (== (vecLen (nodeA e)) 0)
+      0
+      (spanOf (nodeA (vecGet (nodeA e) 0)))))
+
+; Does the LAST clause's test always fire? `(cond (p a) (true b))` is
+; an `else` written the long way, and `lowerConds` folds it into a
+; branch nothing can fall past. Refusing it would report a form that
+; provably has an answer - which is the failure mode this whole
+; refusal has to avoid, because the fix a reader would apply is to
+; delete the check rather than the bug.
+;
+; Only the literal is recognised. Anything else - `(== 1 1)`, a
+; constant-folding expression, a call - is a test as far as this pass
+; is concerned, and answers NO.
+(pub :: condLastAlwaysFires (-> Int Int))
+(pub fn (condLastAlwaysFires clauses)
+  (if (== (vecLen clauses) 0)
+      0
+      (let ((t (nodeA (vecGet clauses (- (vecLen clauses) 1)))))
+        (if (== (nodeTag t) TAG_E_VAR)
+            (if (strEq (nodeA t) "true") 1 0)
+            0))))
+
 (pub :: checkCond (-> Int Int Int))
 (pub fn (checkCond tc e)
   (let ((resTy (checkCondClauses tc (nodeA e) 0 (freshTVar tc 0))))
     (if (== (nodeB e) 0)
-        resTy
+        {
+          (if (&& (== (tyZeroInhabits resTy) 0)
+                  (&& (> (vecLen (nodeA e)) 0)
+                      (&& (== (condLastAlwaysFires (nodeA e)) 0)
+                          (!= (condAnchor e) 0))))
+              (emitDiag tc
+                (diagSetLabel (mkDiagNote SEV_ERROR "AX3005"
+                  "non-exhaustive-match"
+                  (condAnchor e)
+                  (strConcat (strConcat
+                    "this cond can fall through: no clause need fire, and there is no `else` to answer `"
+                    (tyRender resTy)) "`")
+                  0 0
+                  "add an `(else ...)` clause"
+                  "a cond with no else answers the integer 0 when no test fires - a null at every type but Int and Bool (docs/memory-model.md MM-VAL-9b)")
+                  "no clause catches a value the tests all refuse"))
+              0)
+          resTy
+        }
         (let ((elseTy (checkExprH tc (nodeB e) 0)))
-          {
-            (if (&& (== (tyIsErr resTy) 0)
-                    (&& (== (tyIsErr elseTy) 0)
-                        (== (tyCompat resTy elseTy) 0)))
-                (emitMismatch tc (tyRender resTy) (tyRender elseTy)
-                              (spanOf (nodeB e)))
-                0)
-            resTy
-          }))))
+          (tyJoinBranch tc resTy elseTy (spanOf (nodeB e)))))))
 
 (pub :: checkCondClauses (-> Int Int Int Int Int))
 (pub fn (checkCondClauses tc clauses i resTy)
@@ -3240,8 +3426,9 @@
       (let ((cl (vecGet clauses i)))
         {
           (checkCondBool tc (nodeA cl))
-          (checkCondClauses tc clauses (+ i 1)
-                            (checkExprH tc (nodeB cl) 0))
+          (let ((t (checkExprH tc (nodeB cl) 0)))
+            (checkCondClauses tc clauses (+ i 1)
+                              (tyJoinBranch tc resTy t (spanOf (nodeB cl)))))
         })))
 
 (pub :: checkLam (-> Int Int Int))
@@ -5520,50 +5707,137 @@
       (let ((resTy (checkArms tc (nodeB e) 0 covered catchall
                               (freshTVar tc 0) scrutTy)))
         {
+          ; The type the matrix walk runs against. The SCRUTINEE's, when
+          ; it names a declared `data` - and otherwise the one the ARMS
+          ; name, which is the same answer by a different route and the
+          ; one that keeps this check working over a scrutinee the
+          ; checker cannot type.
+          ;
+          ; That second route is not a nicety. Seeding only from the
+          ; scrutinee meant `(match (vecGet v i) ((Circle r) ..)
+          ; ((Square w) ..))` was never exhaustiveness-checked at all,
+          ; because `vecGet` is polymorphic and its result is a fresh
+          ; `_tN`; the same for `mapGet`, for a lambda parameter, for an
+          ; effect handler's command, and for a value travelling through
+          ; an `Int` parameter under the handle convention. Widening the
+          ; FALL-THROUGH backstop to cover those refused all of them
+          ; outright, which is worse than the hole: the `_` arm the
+          ; diagnostic asked for turns a total match into a silent 0.
+          ; Reading the type off the constructors the arms already name -
+          ; `covered` holds them - checks the program instead of
+          ; refusing it.
+          (let ((matTy (if (&& (== (nodeTag scrutTy) TAG_T_CON)
+                               (!= (findData tc (nodeA scrutTy)) 0))
+                           scrutTy
+                           (armsDataTy tc covered))))
           (let ((ctorChecked
                   (if (&& (== (memGetWord catchall 0) 0)
-                          (== (nodeTag scrutTy) TAG_T_CON))
-                      (let ((dent (findData tc (nodeA scrutTy))))
-                        (if (== dent 0)
-                            0
-                            { (checkExhaustiveMatrix tc (nodeB e) scrutTy
-                                                     (spanOf (nodeA e)))
-                              1 }))
+                          (&& (!= matTy 0)
+                              (&& (== (nodeTag matTy) TAG_T_CON)
+                                  (!= (findData tc (nodeA matTy)) 0))))
+                      { (checkExhaustiveMatrix tc (nodeB e) matTy
+                                               (spanOf (nodeA e)))
+                        1 }
                       0)))
-            ; A match whose arms cover no constructor and bind no
+            ; A match that was not exhaustiveness-checked and binds no
             ; catch-all can FALL THROUGH: when nothing matched, the
             ; merge block answered the result cell's zeroed contents -
             ; 0, at exit 0, indistinguishable from a real result
             ; (MM-VAL-9b: `(match 7 ((1) 11) ((2) 22))` checked OK and
-            ; answered 0). Constructor matches are exhaustiveness-
-            ; checked above; `true`/`false` are literal TESTS that
-            ; cover nothing in `covered`, so a match carrying BOTH is
-            ; the one all-literal shape that cannot fall through.
+            ; answered 0). `true`/`false` are literal TESTS that cover
+            ; nothing in `covered`, so a match carrying BOTH is the one
+            ; all-literal shape that cannot fall through.
+            ;
+            ; This used to require `(vecLen covered) == 0` as well -
+            ; "no arm is a constructor" - which silently exempted every
+            ; match whose arms ARE constructors but whose scrutinee
+            ; type the checker could not name. That is not a rare
+            ; shape: `ctorChecked` is 1 only when the scrutinee is a
+            ; TAG_T_CON naming a known `data`, so a lambda parameter (a
+            ; fresh `_tN`), any result of a polymorphic function
+            ; (`vecGet`, `mapGet`, a user `(-> a a)`) and any macro
+            ; spine all landed outside it. Both the matrix check and
+            ; the backstop were off at once, which is the only
+            ; combination that is unsound. Measured:
+            ;
+            ;   (:: idf (-> a a))  (fn (idf x) x)
+            ;   (match (idf (Tri 3)) ((Circle r) "c") ((Sq w) "s"))
+            ;
+            ; checked clean and answered a null String. The condition
+            ; the guard actually wants is "the matrix check did not run
+            ; and nothing binds unconditionally", and a constructor arm
+            ; over an unknown scrutinee is exactly that shape: the
+            ; author adds a `_` arm and the refusal goes away.
             (if (&& (== ctorChecked 0)
                     (&& (== (memGetWord catchall 0) 0)
-                        (&& (== (vecLen covered) 0)
-                            (&& (> (vecLen (nodeB e)) 0)
-                                (&& (== (armsBoolComplete (nodeB e)) 0)
-                                    (&& (== (tyIsErr scrutTy) 0)
-                                        (!= (spanOf (nodeA e)) 0)))))))
+                        (&& (> (vecLen (nodeB e)) 0)
+                            (&& (== (armsBoolCompleteFor (nodeB e) scrutTy) 0)
+                                (&& (== (tyIsErr scrutTy) 0)
+                                    (!= (spanOf (nodeA e)) 0))))))
                 (emitDiag tc
                   (diagSetLabel (mkDiagNote SEV_ERROR "AX3005"
                     "non-exhaustive-match"
                     (spanOf (nodeA e))
-                    "this match can fall through: no arm is a constructor and nothing catches the rest"
+                    "this match can fall through: no arm is known to cover the scrutinee, and nothing catches the rest"
                     0 0
                     "add a `_` arm"
                     "a match no arm matched used to answer 0 silently at exit 0 - the result cell's zeroed contents, indistinguishable from a real answer (docs/memory-model.md MM-VAL-9b)")
                     "no arm catches a non-matching value"))
-                0))
+                0)))
           resTy
         })
     }))
+
+; The data type the ARMS name, for a match whose scrutinee the checker
+; could not type. `covered` already holds every constructor an arm
+; matched - `recordCoverage` pushes the name for the positional, the
+; named and the nullary forms alike - so the type is one lookup away:
+; a CtorEnt's word 2 is the `data` it belongs to.
+;
+; The first constructor decides. Arms naming constructors of two
+; DIFFERENT types are a mistake the matrix walk reports anyway, as
+; missing constructors of the first one's type.
+(pub :: armsDataTy (-> Int Int Int))
+(pub fn (armsDataTy tc covered)
+  (if (== (vecLen covered) 0)
+      0
+      (let ((ce (findCtor tc (cast String (vecGet covered 0)))))
+        (if (== ce 0)
+            0
+            (memGetWord ce 2)))))
 
 ; Every arm a literal `true`/`false` test, both present - the one
 ; all-literal match that cannot fall through. `recordCoverage` pushes
 ; nothing for these (they are tests, not binders - the hygiene slice
 ; measured why), so `covered` cannot make the distinction.
+; The exemption above, asked of the SCRUTINEE as well as the arms.
+;
+; `armsBoolComplete` answers a question about the arms alone - are
+; both `true` and `false` written - and that is only an exhaustiveness
+; argument when the thing being matched is a `Bool`. Over anything
+; else the two literals are ordinary value tests that cover two of the
+; type's values and leave the rest to fall through:
+;
+;   (:: f (-> Int Int))
+;   (fn (f n) (match n ((true) 1) ((false) 2)))
+;   (f 7)   ->  `check` OK, answered 0
+;
+; 7 is neither 1 nor 0, so no arm fired and the form answered the
+; result cell. The scrutinee must be a known `Bool` for the exemption
+; to hold; an unknown scrutinee keeps it, because the backstop is
+; about what the checker can PROVE covers, and refusing every
+; `true`/`false` match over a type variable would report shapes that
+; are correct far more often than not.
+(pub :: armsBoolCompleteFor (-> Int Int Int))
+(pub fn (armsBoolCompleteFor arms scrutTy)
+  (if (== (armsBoolComplete arms) 0)
+      0
+      (if (== scrutTy 0)
+          1
+          (if (!= (nodeTag scrutTy) TAG_T_CON)
+              1
+              (if (strEq (nodeA scrutTy) "Bool") 1 0)))))
+
 (pub :: armsBoolComplete (-> Int Int))
 (pub fn (armsBoolComplete arms)
   (let ((mut hasT 0) (mut hasF 0) (mut i 0))
@@ -5631,7 +5905,9 @@
                 (let ((t (checkExprH tc (nodeB arm) 0)))
                   {
                     (scopeTrunc (tcScope tc) mark)
-                    (checkArms tc arms (+ i 1) covered catchall t scrutTy)
+                    (checkArms tc arms (+ i 1) covered catchall
+                               (tyJoinBranch tc resTy t (spanOf (nodeB arm)))
+                               scrutTy)
                   })
               })))))
 
@@ -6544,7 +6820,15 @@
           (bindFnParams tc params ptys sigTy 0)
           (let ((bodyTy (checkExprH tc (nodeC d) 0)))
             {
-              (checkDeclaredReturn tc d (peelArrows sigTy (vecLen params)) bodyTy)
+              ; Only against a type somebody DECLARED. A signature-less
+              ; function has no declared result to disagree with, and
+              ; the arrow sitting in its entry after the writeback below
+              ; is this checker's own inference - comparing a second
+              ; definition against it reported a mismatch on top of the
+              ; AX3006 that had already named the duplicate.
+              (if (== (if (== ent 0) 0 (memGetWord ent 7)) 1)
+                  (checkDeclaredReturn tc d (peelArrows sigTy (vecLen params)) bodyTy)
+                  0)
               (if (&& (!= ent 0)
                       (&& (!= (memGetWord ent 1) 0)
                           (== (nodeTag (memGetWord ent 1)) TAG_T_VAR)))
@@ -6681,9 +6965,40 @@
                   1
                   0)))))
 
+; `String` joined `Bool` and `Float` here on 2026-08-17. It belongs
+; for the same reason and was left out for a reason that expired: it
+; used to be the OTHER side of the `Int`/`String` fiat, so naming it
+; would have reported every handle in the tree. That fiat was deleted
+; from `tyCompat` on 2026-08-15 and the corpus was retyped honestly -
+; "a string is a String now, everywhere" - which is what makes this
+; affordable.
+;
+; Measured, and the number is the interesting part: naming `String`
+; reported 145 diagnostics across 117 of the 261 files the clean-corpus
+; sweep covers, and all 145 came from THREE declarations - every other
+; file inherited them through an import. Two were simply wrong:
+; `diag.ax`'s `sevSigil` answered `"E"`/`"W"` through a declared `Int`,
+; and `codegen.ax`'s `importHelpText` built a String through one. Both
+; are corrected. The third is `stdlib/Str.ax`'s `strWrapOwned`, where a
+; `Str` is BORN out of three raw words; it says `(cast String s)` now,
+; which is the one site in the tree entitled to say it. With those
+; three, the sweep is clean again - so the cost of this rule was two
+; latent bugs and one honest cast, not a campaign.
+;
+; And it is not a naming difference. A `String` is a header address
+; and an `Int` is a number, so a declared `String` over an integer
+; body is a null dereference the moment anyone reads it:
+;
+;   (:: f (-> Int String))  (fn (f x) 42)
+;   (strLen (f 1))   ->  exit 139, no output
+;
+; which is the `Float`-over-`Int` case one step louder, not a
+; different one. Everything else stays permitted: `Span`, `JobPool`
+; and the rest of the tree's named handles are still returned through
+; `Int` on purpose, and this predicate is deliberately not `tyCompat`.
 (pub :: tyIsReprScalar (-> String Bool))
 (pub fn (tyIsReprScalar name)
-  (|| (strEq name "Bool") (strEq name "Float")))
+  (|| (strEq name "Bool") (|| (strEq name "Float") (strEq name "String"))))
 
 ; Parameter types: peel the signature's arrows left to right. The
 ; walk keeps its own cursor because a non-arrow signature - or none -

@@ -1,0 +1,11 @@
+[1;31merror[AX3005][0m[1m: this cond can fall through: no clause need fire, and there is no `else` to answer `String`[0m
+  [1;34m--> [0m559-cond-fallthrough.ax:36:7
+[1;34m   |[0m
+[1;34m36 |[0m     ((> n 100) "big")
+[1;34m   |[0m       [1;31m^ no clause catches a value the tests all refuse[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0ma cond with no else answers the integer 0 when no test fires - a null at every type but Int and Bool (docs/memory-model.md MM-VAL-9b)
+  [1;34m = [0m[1;32mhelp: [0madd an `(else ...)` clause
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3005` for a full explanation
+
+compilation failed due to 1 previous error
