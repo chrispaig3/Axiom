@@ -1,0 +1,31 @@
+[1;31merror[AX3035][0m[1m: a macro parameter used as a binder was given something that is not a variable[0m
+  [1;34m--> [0m590-macro-binder-target.ax:24:7
+[1;34m   |[0m
+[1;34m24 |[0m   (+ (bind! (f 1) 41 7)
+[1;34m   |[0m       [1;31m^^^^^[0m
+[1;34m   |[0m
+  [1;34m--> [0m590-macro-binder-target.ax:12:9
+[1;34m   |[0m
+[1;34m12 |[0m (macro (bind! x e body) (let ((x e)) body))
+[1;34m   |[0m         [1;36m^^^^^ in this expansion of `bind!`[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0ma `let`, `lambda` or pattern binder is a NAME, so a parameter standing in one can only be given a name - this is the same rule `set` targets follow (AX3022)
+  [1;34m = [0m[1;32mhelp: [0mpass a variable name for this parameter, or rewrite the template so the parameter is not a binder
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3035` for a full explanation
+
+[1;31merror[AX3035][0m[1m: a macro parameter used as a binder was given something that is not a variable[0m
+  [1;34m--> [0m590-macro-binder-target.ax:25:7
+[1;34m   |[0m
+[1;34m25 |[0m      (pick! (f 2) (Some 3) 9)))
+[1;34m   |[0m       [1;31m^^^^^[0m
+[1;34m   |[0m
+  [1;34m--> [0m590-macro-binder-target.ax:14:9
+[1;34m   |[0m
+[1;34m14 |[0m (macro (pick! x e body)
+[1;34m   |[0m         [1;36m^^^^^ in this expansion of `pick!`[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0ma `let`, `lambda` or pattern binder is a NAME, so a parameter standing in one can only be given a name - this is the same rule `set` targets follow (AX3022)
+  [1;34m = [0m[1;32mhelp: [0mpass a variable name for this parameter, or rewrite the template so the parameter is not a binder
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3035` for a full explanation
+
+compilation failed due to 2 previous errors

@@ -1,0 +1,116 @@
+; exit 127 (see .exit)
+; `stdlib/Err.ax` — the failure type, the error record, the checked
+; operators, and the propagation form, exercised across a module
+; boundary because that is where every one of them will be used from.
+;
+; The form is the part worth stating plainly: `try!` could not be
+; written at all before 2026-08-16. A macro parameter standing in a
+; binder position was gensymed like a template's own binder, so
+; `(try! v e body)` bound `v.N` and spliced a body that still said `v`
+; - AX3001, on the macro whose whole job is to bind it. The expander
+; takes the caller's name there now (`expBinderParam`), and term 16
+; below is the first program in this repository that depends on it.
+;
+; Term 2 pins the shape every error-inspecting combinator in `Err` had
+; to take. A `match` binder over a polymorphic scrutinee does not
+; carry its instantiated type, so reading `y.code` inside an arm of a
+; `(Result a Error)` match is AX3004 `expected struct or data type,
+; found _t206`; handing the binder to a function whose parameter is
+; DECLARED `Error` gets the concrete type back. `withContext` is built
+; that way and this term is what would notice if it stopped being.
+;
+;   64  divChecked answers Ok, and Err with the right code on zero
+;   32  the INT_MIN / -1 guard fires, and shlChecked refuses 64
+;   16  try! propagates an error unchanged through a two-step chain
+;    8  mapErr converts an error type and andThen sequences
+;    4  okOr and toOption convert in both directions
+;    2  withContext attaches, and errorText renders what it attached
+;    1  every step above ran
+;
+; Ablation, run 2026-08-16: revert `expBinderParam`'s pattern-binder
+; arm and this file does not compile at all - AX3001 on `a` and `b` at
+; the two `try!` sites, which is the diagnostic the fix exists to
+; remove.
+(import Err)
+(import Str)
+
+(:: b2i (-> Bool Int))
+(fn (b2i x) (if x 1 0))
+
+; a two-step fallible chain written with the form
+(:: chain (-> Int (Result Int Error)))
+(fn (chain n)
+  (try! a (divChecked 100 n)
+    (try! b (divChecked a 2)
+      (Ok (+ b 1)))))
+
+(:: codeOf (-> (Result Int Error) Int))
+(fn (codeOf r)
+  (match r
+    ((Ok x) 0)
+    ((Err e) (errCode e))))
+
+(:: valueOr (-> (Result Int Error) Int Int))
+(fn (valueOr r d)
+  (match r
+    ((Ok x) x)
+    ((Err e) d)))
+
+; mapErr's target type: a different error type entirely, which is what
+; ERR-TYPE-3 leaves in place of a `From` instance
+(:: toCode (-> Error Int))
+(fn (toCode e) (+ 100 e.code))
+
+(:: double (-> Int (Result Int Error)))
+(fn (double n) (Ok (* n 2)))
+
+(:: textOf (-> (Result Int Error) String))
+(fn (textOf r)
+  (match r
+    ((Ok x) "")
+    ((Err e) (errorText e))))
+
+(:: main Int)
+(fn (main)
+  (let ((mut acc 0) (mut steps 0))
+    {
+      (set acc (+ acc (* 64 (b2i (&& (== (valueOr (divChecked 10 2) 0) 5)
+                                     (== (codeOf (divChecked 10 0))
+                                         (errDivideByZero)))))))
+      (set steps (+ steps 1))
+
+      (set acc (+ acc (* 32 (b2i (&& (== (codeOf (divChecked (intMin) (- 0 1)))
+                                         (errOverflow))
+                                     (== (codeOf (shlChecked 1 100))
+                                         (errShiftTooWide)))))))
+      (set steps (+ steps 1))
+
+      (set acc (+ acc (* 16 (b2i (&& (== (valueOr (chain 10) 0) 6)
+                                     (== (codeOf (chain 0))
+                                         (errDivideByZero)))))))
+      (set steps (+ steps 1))
+
+      (set acc (+ acc (* 8 (b2i (&& (== (match (mapErr (divChecked 1 0) toCode)
+                                          ((Ok x) 0)
+                                          ((Err c) c))
+                                        101)
+                                    (== (valueOr (andThen (divChecked 12 3) double) 0)
+                                        8))))))
+      (set steps (+ steps 1))
+
+      (set acc (+ acc (* 4 (b2i (&& (== (valueOr (okOr (Some 7)
+                                                       (mkError 9 "absent"))
+                                                 0)
+                                        7)
+                                    (match (toOption (divChecked 1 0))
+                                      ((Some x) false)
+                                      ((None) true)))))))
+      (set steps (+ steps 1))
+
+      (set acc (+ acc (* 2 (b2i (strEq (textOf (withContext (divChecked 1 0)
+                                                            "reading the manifest"))
+                                       "divided by zero while reading the manifest")))))
+      (set steps (+ steps 1))
+
+      (if (== steps 6) (+ acc 1) acc)
+    }))

@@ -1,0 +1,242 @@
+; Err — Axiom's failure type, its error record, and the propagation
+; form that binds one.
+;
+; The specification is `docs/error-model.md`; this module is its
+; `ERR-TYPE-*` and `ERR-REC-2` rules made real. Three of its decisions
+; are measured rather than preferred, and each is noted where it lands:
+;
+;   - `Result` is an ordinary declaration, not a built-in beside
+;     `Option`. A user-declared two-parameter ADT already checks, is
+;     pure to construct and inspect, and is reclaimed at a release
+;     boundary; a built-in would cost a seed rebuild for none of that
+;     (ERR-TYPE-2).
+;   - conversion between error types is a FUNCTION, because a
+;     two-parameter trait declares and checks and its `impl` is
+;     AX2003, so there is no `From` to hang it on (ERR-TYPE-3).
+;   - every payload field declares its real type. The reference map is
+;     built from declared types, so a `String` behind an `Int` field is
+;     invisible to release and leaks (ERR-TYPE-5 / ERR-MEM-1).
+
+(import Str)
+(import Show)
+
+; ------------------------------------------------------------------
+; The failure type.
+;
+; Success first: `Result Int Error` reads "an Int, or an Error". The
+; type-parameter list is ONE group - `(a e)` - because `(a) (e)` reads
+; the second group as a constructor named `e`.
+; ------------------------------------------------------------------
+(pub data Result (a e)
+  (Ok a)
+  (Err e))
+
+; ------------------------------------------------------------------
+; The canonical error record.
+;
+; `code` is a stable number, `message` says what happened with no
+; trailing punctuation, and `context` says what the caller was doing -
+; "" when nobody said. Three fields, well inside AX3029's 46-word
+; cliff, and every one of them declared at the type it holds.
+; ------------------------------------------------------------------
+(pub struct Error
+  (code : Int)
+  (message : String)
+  (context : String))
+
+; The codes this module raises itself. A program's own codes live in
+; its own space; these are the ones `ERR-REC-2` needs.
+(pub :: errDivideByZero Int) (pub fn (errDivideByZero) 1)
+(pub :: errOverflow     Int) (pub fn (errOverflow)     2)
+(pub :: errShiftTooWide Int) (pub fn (errShiftTooWide) 3)
+
+(pub :: mkError (-> Int String Error))
+(pub fn (mkError code message)
+  (Error code message ""))
+
+(pub :: errCode (-> Error Int))
+(pub fn (errCode e) e.code)
+
+(pub :: errMessage (-> Error String))
+(pub fn (errMessage e) e.message)
+
+(pub :: errContext (-> Error String))
+(pub fn (errContext e) e.context)
+
+; The rendering `main` writes to fd 2 (ERR-REC-4), and the one a
+; program builds a longer report out of. A plain function rather than a
+; `Show` instance: dispatch is keyed on a type NAME, so an instance
+; reached through a type variable is AX3025, and every caller here has
+; a concrete `Error` in hand anyway.
+(pub :: errorText (-> Error String))
+(pub fn (errorText e)
+  (if (== (strLen e.context) 0)
+      e.message
+      (strConcat (strConcat e.message " while ") e.context)))
+
+; ------------------------------------------------------------------
+; Inspecting.
+; ------------------------------------------------------------------
+(pub :: isOk (-> (Result a e) Bool))
+(pub fn (isOk r)
+  (match r
+    ((Ok x) true)
+    ((Err y) false)))
+
+(pub :: isErr (-> (Result a e) Bool))
+(pub fn (isErr r)
+  (match r
+    ((Ok x) false)
+    ((Err y) true)))
+
+(pub :: unwrapOr (-> (Result a e) a a))
+(pub fn (unwrapOr r fallback)
+  (match r
+    ((Ok x) x)
+    ((Err y) fallback)))
+
+; ------------------------------------------------------------------
+; Transforming.
+;
+; `mapErr` is what `ERR-TYPE-3` leaves in place of `From`: conversion
+; between two error types is a function the program calls, and the
+; compiler finds nothing on its behalf.
+; ------------------------------------------------------------------
+(pub :: mapOk (-> (Result a e) (-> a b) (Result b e)))
+(pub fn (mapOk r f)
+  (match r
+    ((Ok x) (Ok (f x)))
+    ((Err y) (Err y))))
+
+(pub :: mapErr (-> (Result a e) (-> e f) (Result a f)))
+(pub fn (mapErr r f)
+  (match r
+    ((Ok x) (Ok x))
+    ((Err y) (Err (f y)))))
+
+(pub :: andThen (-> (Result a e) (-> a (Result b e)) (Result b e)))
+(pub fn (andThen r f)
+  (match r
+    ((Ok x) (f x))
+    ((Err y) (Err y))))
+
+; Attach what the caller was doing to an error in flight, passing `Ok`
+; through untouched. It needs no binder, so it is a function and not a
+; form.
+;
+; The field reads go through `errContextOf` rather than being written
+; inline in the arm, and that is not tidiness. A `match` binder over a
+; polymorphic scrutinee does not carry its instantiated type: reading
+; `y.code` in the arm below is AX3004 `expected struct or data type,
+; found _t206`, because the checker instantiates `Result a Error`'s
+; constructor field to a variable and never resolves it against the
+; signature. Handing `y` to a function whose PARAMETER is declared
+; `Error` gets the concrete type back, which is the shape every
+; error-inspecting combinator in this module has to take.
+(pub :: errContextOf (-> Error String Error))
+(pub fn (errContextOf e ctx)
+  (Error e.code e.message ctx))
+
+(pub :: withContext (-> (Result a Error) String (Result a Error)))
+(pub fn (withContext r ctx)
+  (match r
+    ((Ok x) (Ok x))
+    ((Err y) (Err (errContextOf y ctx)))))
+
+; ------------------------------------------------------------------
+; Option, converted explicitly.
+;
+; `Option` says ABSENT and `Result` says FAILED, AND HERE IS WHY. A
+; missing map key and a failed syscall are different facts, so there is
+; no implicit coercion in either direction (ERR-TYPE-4).
+; ------------------------------------------------------------------
+(pub :: okOr (-> (Option a) e (Result a e)))
+(pub fn (okOr o e)
+  (match o
+    ((Some x) (Ok x))
+    ((None) (Err e))))
+
+(pub :: toOption (-> (Result a e) (Option a)))
+(pub fn (toOption r)
+  (match r
+    ((Ok x) (Some x))
+    ((Err y) (None))))
+
+; ------------------------------------------------------------------
+; ERR-REC-2: a value-returning alternative for every trap.
+;
+; `/` and `%` are unchanged and still trap - the compiler emits a zero
+; test even for a literal zero divisor, writes `axiom: division by
+; zero` to fd 2 and exits 72 (MM-VAL-3a). These are different functions
+; with a different return type, so no existing program's meaning moves
+; and no hot loop pays for a check it did not ask for.
+;
+; `INT_MIN / -1` is guarded here too. It is one of MM-VAL-3b's three
+; genuinely undefined cases - it answers -9223372036854775808 at
+; `--opt 0` and 1 at `--opt 1`, which is the kind of disagreement a
+; checked operator exists to end.
+; ------------------------------------------------------------------
+(pub :: intMin Int)
+(pub fn (intMin) (- (- 0 9223372036854775807) 1))
+
+(pub :: divChecked (-> Int Int (Result Int Error)))
+(pub fn (divChecked a b)
+  (if (== b 0)
+      (Err (mkError (errDivideByZero) "divided by zero"))
+      (if (&& (== a (intMin)) (== b (- 0 1)))
+          (Err (mkError (errOverflow) "quotient is not representable"))
+          (Ok (/ a b)))))
+
+(pub :: remChecked (-> Int Int (Result Int Error)))
+(pub fn (remChecked a b)
+  (if (== b 0)
+      (Err (mkError (errDivideByZero) "took the remainder by zero"))
+      (if (&& (== a (intMin)) (== b (- 0 1)))
+          (Err (mkError (errOverflow) "remainder is not representable"))
+          (Ok (% a b)))))
+
+; A shift amount of 64 or more, and a negative one, are undefined and
+; no masking is emitted - `(<< 1 100)` answers 68719476736 at `--opt 0`
+; and 1 at `--opt 1`.
+(pub :: shlChecked (-> Int Int (Result Int Error)))
+(pub fn (shlChecked a n)
+  (if (|| (< n 0) (>= n 64))
+      (Err (mkError (errShiftTooWide) "shifted by 64 or more"))
+      (Ok (<< a n))))
+
+(pub :: shrChecked (-> Int Int (Result Int Error)))
+(pub fn (shrChecked a n)
+  (if (|| (< n 0) (>= n 64))
+      (Err (mkError (errShiftTooWide) "shifted by 64 or more"))
+      (Ok (>> a n))))
+
+; ------------------------------------------------------------------
+; ERR-SUGAR-2: the propagation form.
+;
+; `(try! x e body)` binds `x` to `e`'s success and answers its error
+; unchanged:
+;
+;   (try! v (parse s) (use v))
+;     ->  (match (parse s)
+;           ((Err er) (Err er))
+;           ((Ok v) (use v)))
+;
+; The body lands in the ARM, which is exactly the shape ERR-PROP-3
+; requires: a self call there is in tail position and converts to a
+; loop, where the same call in the SCRUTINEE costs a frame per step and
+; dies at 262,144. So the form makes the stack-correct spelling the
+; default one and leaves the dangerous spelling to be written by hand.
+;
+; This could not be written until 2026-08-16. A macro parameter in a
+; binder position was gensymed like a template's own binder, so the
+; arm bound `x.N` while the caller's body still said `v` - AX3001, on
+; the macro whose whole job is to bind it. `x` is the caller's name
+; now (`expBinderParam`, self_host/expand.ax), and an argument that is
+; not a name is AX3035 rather than a silently wrong expansion.
+;
+; `er` is the template's own binder and is still renamed at every
+; expansion, so a caller whose body mentions `er` means their own.
+(pub macro (try! x e body)
+  (match e
+    ((Err er) (Err er))
+    ((Ok x) body)))

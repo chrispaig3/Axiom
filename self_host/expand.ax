@@ -681,6 +681,66 @@
           (expParamIndexFrom params name (- i 1)))))
 
 ; ------------------------------------------------------------------
+; A BINDER POSITION HOLDING A MACRO PARAMETER.
+;
+; A template binder is renamed so it cannot capture the caller's names
+; (the header's forward half). A binder that IS a macro parameter is
+; the opposite case and needs the opposite treatment: the CALLER named
+; it, so it must capture exactly what the caller wrote.
+;
+; Renaming one anyway is what made every binding form impossible:
+;
+;   (macro (bind! x e body) (let ((x e)) body))
+;   (bind! v 41 (+ v 1))
+;
+; `x` was gensymed to `x.N` and `body` was spliced verbatim, so the
+; output bound `x.N` and read `v` - `AX3001 undefined variable v`, on a
+; macro whose whole job is to bind `v`. The bug hid behind the case
+; that happens to work: when the template both binds and reads through
+; the SAME parameter - `(macro (m x e) (let ((x e)) x))` - the rename
+; table maps the template's `x` to the gensym on both sides and the
+; expansion answers correctly, for the wrong reason, with the caller's
+; chosen name appearing nowhere. So the defect was invisible to every
+; macro that did not take a separate body.
+;
+; The rule is `substName`'s, which has been right about `set` targets
+; all along: a parameter in a name position answers the ARGUMENT's
+; name, and an argument that is not a name is refused rather than
+; dropped. Nothing is pushed onto the rename stack - a reference to the
+; parameter elsewhere in the template already substitutes to the same
+; identifier through the ordinary parameter path, so a rename entry
+; would be a second route to one answer.
+;
+; The reverse half still holds and is not this function's business: a
+; template's FREE identifier that the caller's binder happens to shadow
+; resolves at the definition site through `expQualify` and the def-scope
+; stamp, so `(bind! helper 1 ...)` does not steal the template's own
+; `helper`.
+;
+; docs/macro-system.md MAC-HYG-10. `tests/diagnostics/590-macro-binder-target.ax`
+; pins the refusal; `tests/stdlib/371-err-module.ax` is the first
+; program that depends on the rule and does not compile without it.
+; ------------------------------------------------------------------
+(pub :: expBinderParam (-> String Int Int Int Int String))
+(pub fn (expBinderParam name params args env isp)
+  (let ((idx (expParamIndex params name)))
+    (if (< idx 0)
+        (cast String 0)
+        (let ((a (vecGet args idx)))
+          (if (== (nodeTag a) TAG_E_VAR)
+              (nodeA a)
+              {
+                (expEmit env
+                  (mkDiagNote SEV_ERROR "AX3035" "macro-binder-target"
+                              isp
+                              "a macro parameter used as a binder was given something that is not a variable"
+                              0 0
+                              "pass a variable name for this parameter, or rewrite the template so the parameter is not a binder"
+                              "a `let`, `lambda` or pattern binder is a NAME, so a parameter standing in one can only be given a name - this is the same rule `set` targets follow (AX3022)"))
+                name
+              })))))
+
+; ------------------------------------------------------------------
 ; Pattern binders.
 ;
 ; A match arm's pattern binds names, and a template's arm binders have
@@ -699,8 +759,8 @@
 ; TAG_P_CONNAMED holds its sub-patterns in word c and its field NAMES
 ; in word b; the field names are the struct's, not binders.
 ; ------------------------------------------------------------------
-(pub :: expRenamePat (-> Int Int Int Int Int))
-(pub fn (expRenamePat p ren env isp)
+(pub :: expRenamePat (-> Int Int Int Int Int Int Int))
+(pub fn (expRenamePat p params args ren env isp)
   (if (== p 0)
       0
       (let ((tag (nodeTag p)))
@@ -733,37 +793,45 @@
             (if (|| (strEq (nodeA p) "true")
                     (|| (strEq (nodeA p) "false") (strEq (nodeA p) "_")))
                 (mkEVarAt (nodeA p) isp)
-                (let ((new (expFresh env (nodeA p))))
-                  {
-                    (expRenPush ren (nodeA p) new)
-                    (mkEVarAt new isp)
-                  }))
+                ; A pattern binder that is a macro PARAMETER takes the
+                ; caller's name and is not renamed - the arm's body may
+                ; be another parameter's syntax, which spells that name
+                ; and must bind to it. This is the `try!` case, and the
+                ; one that made a propagation form writable at all.
+                (let ((pb (expBinderParam (nodeA p) params args env isp)))
+                  (if (!= (cast Int pb) 0)
+                      (mkEVarAt pb isp)
+                      (let ((new (expFresh env (nodeA p))))
+                        {
+                          (expRenPush ren (nodeA p) new)
+                          (mkEVarAt new isp)
+                        }))))
         (if (== tag TAG_E_APP)
-            (expRenamePatSpine p ren env isp)
+            (expRenamePatSpine p params args ren env isp)
         (if (== tag TAG_P_CONNAMED)
             (mkNodeAt TAG_P_CONNAMED (nodeA p) (nodeB p)
-                      (expRenamePatVec (nodeC p) ren env isp) isp)
+                      (expRenamePatVec (nodeC p) params args ren env isp) isp)
         p))))))
 
 ; The head of a constructor spine is the constructor's NAME and must
 ; survive; every argument is a sub-pattern.
-(pub :: expRenamePatSpine (-> Int Int Int Int Int))
-(pub fn (expRenamePatSpine p ren env isp)
+(pub :: expRenamePatSpine (-> Int Int Int Int Int Int Int))
+(pub fn (expRenamePatSpine p params args ren env isp)
   (if (== (nodeTag p) TAG_E_APP)
-      (mkEApp (expRenamePatSpine (nodeA p) ren env isp)
-              (expRenamePat (nodeB p) ren env isp))
+      (mkEApp (expRenamePatSpine (nodeA p) params args ren env isp)
+              (expRenamePat (nodeB p) params args ren env isp))
       p))
 
-(pub :: expRenamePatVec (-> Int Int Int Int Int))
-(pub fn (expRenamePatVec ps ren env isp)
-  (expRenamePatVecIn ps ren env isp vecNew 0))
+(pub :: expRenamePatVec (-> Int Int Int Int Int Int Int))
+(pub fn (expRenamePatVec ps params args ren env isp)
+  (expRenamePatVecIn ps params args ren env isp vecNew 0))
 
-(pub :: expRenamePatVecIn (-> Int Int Int Int Int Int Int))
-(pub fn (expRenamePatVecIn ps ren env isp acc i)
+(pub :: expRenamePatVecIn (-> Int Int Int Int Int Int Int Int Int))
+(pub fn (expRenamePatVecIn ps params args ren env isp acc i)
   (if (>= i (vecLen ps))
       acc
-      (expRenamePatVecIn ps ren env isp
-                      (vecPush acc (expRenamePat (vecGet ps i) ren env isp))
+      (expRenamePatVecIn ps params args ren env isp
+                      (vecPush acc (expRenamePat (vecGet ps i) params args ren env isp))
                       (+ i 1))))
 
 ; ------------------------------------------------------------------
@@ -2569,20 +2637,26 @@
                             (substTpl (nodeC tpl) params args ren env isp) isp)))
         ; --- binders: value first, then body under the new name ----
         (if (|| (== tag TAG_E_LET) (== tag TAG_E_LETM))
+            ; A binder that is a macro parameter keeps the caller's
+            ; name and takes no rename entry (`expBinderParam`); one the
+            ; template introduced is gensymed as before.
             (let ((val (substTpl (nodeB tpl) params args ren env isp))
                   (mark (vecLen ren))
-                  (new (expFresh env (nodeA tpl))))
-              {
-                (expRenPush ren (nodeA tpl) new)
-                (let ((body (substTpl (nodeC tpl) params args ren env isp)))
-                  {
-                    (expTrunc ren mark)
-                    (mkNodeAt tag new val body isp)
-                  })
-              })
+                  (pb (expBinderParam (nodeA tpl) params args env isp)))
+              (let ((new (if (!= (cast Int pb) 0) pb (expFresh env (nodeA tpl)))))
+                {
+                  (if (== (cast Int pb) 0)
+                      (expRenPush ren (nodeA tpl) new)
+                      ren)
+                  (let ((body (substTpl (nodeC tpl) params args ren env isp)))
+                    {
+                      (expTrunc ren mark)
+                      (mkNodeAt tag new val body isp)
+                    })
+                }))
         (if (== tag TAG_E_LAM)
             (let ((mark (vecLen ren))
-                  (ps (substLamParams (nodeA tpl) ren env)))
+                  (ps (substLamParams (nodeA tpl) params args ren env isp)))
               (let ((body (substTpl (nodeB tpl) params args ren env isp)))
                 {
                   (expTrunc ren mark)
@@ -2659,20 +2733,26 @@
         })))))))))))))))))))
 
 ; A lambda's parameter list is a Vec of NAMES. Each is a binder the
-; template introduces, so each is renamed.
-(pub :: substLamParams (-> Int Int Int Int))
-(pub fn (substLamParams ps ren env)
-  (substLamParamsIn ps ren env vecNew 0))
+; template introduces and is renamed - unless it is a MACRO parameter,
+; in which case the caller named it and it keeps that name
+; (`expBinderParam`), which is what lets a template take the binder of
+; the lambda it builds from its own caller.
+(pub :: substLamParams (-> Int Int Int Int Int Int Int))
+(pub fn (substLamParams ps params args ren env isp)
+  (substLamParamsIn ps params args ren env isp vecNew 0))
 
-(pub :: substLamParamsIn (-> Int Int Int Int Int Int))
-(pub fn (substLamParamsIn ps ren env acc i)
+(pub :: substLamParamsIn (-> Int Int Int Int Int Int Int Int Int))
+(pub fn (substLamParamsIn ps params args ren env isp acc i)
   (if (>= i (vecLen ps))
       acc
-      (let ((new (expFresh env (vecGet ps i))))
-        {
-          (expRenPush ren (vecGet ps i) new)
-          (substLamParamsIn ps ren env (vecPush acc new) (+ i 1))
-        })))
+      (let ((pb (expBinderParam (vecGet ps i) params args env isp)))
+        (if (!= (cast Int pb) 0)
+            (substLamParamsIn ps params args ren env isp (vecPush acc pb) (+ i 1))
+            (let ((new (expFresh env (vecGet ps i))))
+              {
+                (expRenPush ren (vecGet ps i) new)
+                (substLamParamsIn ps params args ren env isp (vecPush acc new) (+ i 1))
+              })))))
 
 ; `(set name v)` names a binder rather than evaluating an expression.
 ; A renamed template binder answers its new name; a macro parameter
@@ -2740,7 +2820,7 @@
               ; the ordinary TAG_E_MATCH walk, not through the
               ; TAG_M_FOR dispatch above.
               (let ((pat (expRenamePat (expSubstPatFor (nodeA arm) params args env isp)
-                                       ren env isp)))
+                                       params args ren env isp)))
                 (let ((body (substTpl (nodeB arm) params args ren env isp)))
                   {
                     (expTrunc ren mark)

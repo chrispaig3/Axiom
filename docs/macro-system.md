@@ -1186,6 +1186,59 @@ identifiers have exactly ONE definition scope, the top level, and one
 bit on the reference says so. No `(name, scopes)` pair and no change
 to what an identifier is. See `MAC-HYG-8`.1.
 
+**MAC-HYG-10 (H, 2026-08-16).** A binder position holding a macro
+**PARAMETER** takes the **argument's** name and **MUST NOT** be
+renamed. A binder the *template* introduces is renamed as `MAC-HYG-1`
+says; these are opposite cases and the distinction is which side named
+the binding.
+
+Renaming both is what made **every binding form impossible**, and the
+rule exists because that went unnoticed for as long as it did:
+
+```scheme
+(macro (bind! x e body) (let ((x e)) body))
+(bind! v 41 (+ v 1))
+; before: AX3001 undefined variable `v`
+; after:  42
+```
+
+`x` was gensymed to `x.N` and `body` — arriving through a *different*
+parameter — was spliced verbatim, so the expansion bound one name and
+read another. The defect hid behind the case that happens to work:
+when a template binds and reads through the **same** parameter,
+`(macro (m x e) (let ((x e)) x))`, the rename table maps the template's
+`x` to the gensym on both sides and the answer is right for the wrong
+reason, with the caller's chosen name appearing nowhere in the output.
+Only a macro taking a separate body could see it, and until this rule
+none existed — `stdlib/Pre.ax`'s macros are all single-expression
+templates.
+
+The rule is `substName`'s, which has been right about `set` targets
+since it was written: a parameter in a name position answers the
+argument's name, and an argument that is not a name is refused. That
+refusal is **`AX3035`** (`macro-binder-target`) — `(bind! (f 1) 41 7)`
+has nothing to bind, and before the rule it *silently expanded*,
+binding a gensym nobody could reference and discarding the argument.
+
+All three binder positions the expander owns follow it: `let`/`let mut`
+binders, `lambda` parameters, and match-arm pattern binders
+(`expBinderParam`, `self_host/expand.ax`). Nothing is pushed onto the
+rename stack for such a binder — a reference to the parameter elsewhere
+in the template already substitutes to the same identifier through the
+ordinary parameter path, so a rename entry would be a second route to
+one answer.
+
+The reverse half is unaffected and is `MAC-HYG-8`'s: a template's free
+identifier that the caller's binder happens to shadow still resolves at
+the definition site, so `(bind! helper 1 ...)` does not steal the
+template's own `helper`.
+
+`tests/diagnostics/590-macro-binder-target.ax` pins the refusal in both
+positions; `tests/stdlib/371-err-module.ax` is the first program that
+depends on the rule, and does not compile without it. This is what
+made a propagation form writable, and `docs/error-model.md`
+`ERR-SUGAR-2` is the form.
+
 So this rule is now required by **one** thing — `MAC-LANG-17` — and a
 conforming implementation should read it as scoped to that. A literal
 identifier is compared by BINDING, and comparing bindings needs both

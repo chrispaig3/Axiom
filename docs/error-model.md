@@ -127,7 +127,8 @@ returning, and `ERR-REC-2` is the rule that fixes it.
 
 ## 2. The canonical types
 
-**ERR-TYPE-1 (P). The failure type is `Result`, a two-parameter sum.**
+**ERR-TYPE-1 (H). The failure type is `Result`, a two-parameter sum.**
+Shipped in `stdlib/Err.ax`.
 
 ```scheme
 (pub data Result (a e)
@@ -140,7 +141,7 @@ The success parameter comes first because that is the reading order of
 the thing being computed; `Result Int IoErr` is "an `Int`, or an
 `IoErr`".
 
-**ERR-TYPE-2 (P). `Result` ships as an ordinary declaration in
+**ERR-TYPE-2 (H). `Result` ships as an ordinary declaration in
 `stdlib/`, not as a built-in.** This is a deliberate reversal of the
 obvious design, and the reason is that a user-declared two-parameter
 ADT already does everything a built-in would:
@@ -160,7 +161,7 @@ before the model has users. Promotion to built-in stays available and
 is deferred, not refused; the trigger would be a measured ergonomic
 cost of the `(import ...)`, not a preference.
 
-**ERR-TYPE-3 (P). The canonical error payload is a concrete record, and
+**ERR-TYPE-3 (H). The canonical error payload is a concrete record, and
 conversion between error types is explicit.**
 
 ```scheme
@@ -185,13 +186,34 @@ finds. This is recorded as blocker **B2** in §8; if two-parameter
 `impl` ever lands, `ERR-TYPE-3` may be revisited, and it keeps its
 number when it is.
 
-**ERR-TYPE-4 (P). `Option` is not an error type, and the conversion is
+**ERR-TYPE-3a (H). An error-inspecting combinator MUST take the error
+through a parameter declared at its concrete type.** Reading a field
+off a `match` binder does not work when the scrutinee is polymorphic:
+
+```scheme
+(fn (withContext r ctx)
+  (match r
+    ((Err y) (Err (Error y.code y.message ctx)))))
+; AX3004 type mismatch: expected struct or data type, found _t206
+```
+
+The checker instantiates `(Result a Error)`'s constructor field to a
+fresh variable and never resolves it against the signature, so `y` has
+no fields as far as the arm is concerned. Handing `y` to a function
+whose *parameter* is declared `Error` gets the concrete type back, and
+`stdlib/Err.ax`'s `errContextOf` exists for exactly that reason.
+
+This is a checker limitation rather than a design choice, and it is
+recorded as **B5** in §8. It shapes every combinator in the module, so
+it is a rule and not a footnote.
+
+**ERR-TYPE-4 (H). `Option` is not an error type, and the conversion is
 named.** `Option` says *absent*; `Result` says *failed, and here is
 why*. `(okOr o e)` and `(toOption r)` convert explicitly. There is no
 implicit coercion in either direction: a missing map key and a failed
 syscall are different facts and the type is where they stay different.
 
-**ERR-TYPE-5 (P). Error payload fields MUST declare their real types.**
+**ERR-TYPE-5 (H). Error payload fields MUST declare their real types.**
 Not `Int`. See `ERR-MEM-1` — this is a memory-safety obligation wearing
 a type-design hat.
 
@@ -268,7 +290,7 @@ scrutinee shape run as its ablation.
 
 **ERR-PROP-4 (P). The compiler SHOULD diagnose a self-recursive call in
 the scrutinee of a `match` on its own return type.** Proposed
-`AX3035`, `recursion-in-scrutinee`, a **warning**, with a help naming
+`AX3036`, `recursion-in-scrutinee`, a **warning**, with a help naming
 the arm-tail rewrite. Today nothing says anything: the program compiles,
 runs, and dies on an input large enough, which is the failure mode
 `ERR-PROP-3` exists to prevent and the one a programmer is least
@@ -392,8 +414,9 @@ exception, and the model does not add one.** Recovery is a value
 arriving at a `match`. This is not asceticism; it is the only option
 the runtime leaves open, and §5.2 says why.
 
-**ERR-REC-2 (P). Every trap gets a value-returning alternative; the
-raw operator keeps its semantics.**
+**ERR-REC-2 (H). Every trap gets a value-returning alternative; the
+raw operator keeps its semantics.** Shipped in `stdlib/Err.ax`, gated
+by `tests/stdlib/371-err-module.ax` terms 64 and 32.
 
 | Trap today | Alternative | Answers |
 |---|---|---|
@@ -445,15 +468,16 @@ stable code and a kebab-case slug, and has long-form text in
 compiler reports; the rule is here so a future contributor does not
 invent a second channel for "error-model errors".
 
-**ERR-DIAG-2 (P). Proposed codes, none allocated.** The next free
-semantic number is `AX3035` (`AX3034` is the highest constructed;
-`AX3032` is retired and **MUST NOT** be reused):
+**ERR-DIAG-2 (P). Proposed codes.** `AX3035` was allocated on
+2026-08-16 — not to this model, but to the expander defect that stood
+in its way (`macro-binder-target`, §7). The next free semantic number
+is therefore `AX3036` (`AX3032` is retired and **MUST NOT** be reused):
 
 | Proposed | Slug | Condition |
 |---|---|---|
-| `AX3035` | `recursion-in-scrutinee` | `ERR-PROP-4` — warning |
-| `AX3036` | `discarded-result` | a `Result`-typed expression in statement position, its value unused — warning |
-| `AX3037` | `error-payload-untyped` | a payload field declared `Int` in a type whose constructor is applied to a reference — warning, `ERR-TYPE-5`/`ERR-MEM-1` |
+| `AX3036` | `recursion-in-scrutinee` | `ERR-PROP-4` — warning |
+| `AX3037` | `discarded-result` | a `Result`-typed expression in statement position, its value unused — warning |
+| `AX3038` | `error-payload-untyped` | a payload field declared `Int` in a type whose constructor is applied to a reference — warning, `ERR-TYPE-5`/`ERR-MEM-1` |
 
 Each needs, before it is listed: a construction site, `explain.ax`
 text, a `tests/diagnostics/` case with `.axdl`, `.human` and `.json`
@@ -483,12 +507,11 @@ together. And the change would not be enough, because Rust's `?` means
 *return from the enclosing function* and Axiom has no early return: the
 operator would have nothing to expand into.
 
-**ERR-SUGAR-2 (B). The propagation form is a binding form, and it
-cannot be written today.**
+**ERR-SUGAR-2 (H). The propagation form is a binding form.**
 
-The specified surface is a macro, because expansion runs before the
-checker (`self_host/expand.ax`) so everything it generates is
-type-checked, and because a macro costs no seed rebuild:
+The surface is a macro, because expansion runs before the checker
+(`self_host/expand.ax`) so everything it generates is type-checked, and
+because a macro costs no seed rebuild:
 
 ```scheme
 (try! x (mayFail 1)
@@ -496,7 +519,7 @@ type-checked, and because a macro costs no seed rebuild:
 
 ; expands to
 (match (mayFail 1)
-  ((Err e) (Err e))
+  ((Err er) (Err er))
   ((Ok x) (use x)))
 ```
 
@@ -505,53 +528,66 @@ shape — so the sugar makes the TCO-correct spelling the default one and
 the dangerous spelling the one you have to write out by hand. That is
 the whole argument for having it.
 
-**It does not work.** A macro parameter used as a binder is renamed by
-hygiene, and the renaming does not extend to syntax arriving through a
-*different* parameter, so the caller's body cannot see the binding:
+**It could not be written until 2026-08-16, and this rule is the
+reason the expander changed.** A macro parameter standing in a binder
+position was gensymed like a template's own binder, and the renaming
+did not extend to syntax arriving through a *different* parameter, so
+the caller's body could not see the binding:
 
 ```scheme
 (macro (bind! x e body) (let ((x e)) body))
 (fn (main) (bind! v 41 (+ v 1)))
-; E AX3001 undefined-variable "undefined variable `v`"
+; before: E AX3001 undefined-variable "undefined variable `v`"
+; after:  42
 ```
 
-The mechanism is pinned rather than guessed. A template that binds and
-reads through the **same** parameter works:
+The mechanism was pinned rather than guessed, and the pinning is what
+made the fix small. A template that binds and reads through the
+**same** parameter always worked —
 
 ```scheme
 (macro (bindSelf! x e) (let ((x e)) x))
-(fn (main) (bindSelf! v 42))     ; exits 42
+(fn (main) (bindSelf! v 42))     ; exits 42, before and after
 ```
 
-So it is not "a macro parameter cannot be a binder". It is precisely:
-**a binder introduced through one macro parameter does not scope over
-the syntax arriving through another.** That is blocker **B1** in §8, it
-blocks every binding form and not just this one — `let*`, `for`, `with`
-and any `try!` — and `ERR-SUGAR-2` is `B` rather than `P` because the
-design is finished and the expander is what stands in the way.
+— because the rename table mapped the template's `x` to the gensym on
+both sides. Right answer, wrong reason, and the caller's chosen name
+appearing nowhere. So it was never "a macro parameter cannot be a
+binder"; it was precisely **a binder introduced through one macro
+parameter did not scope over the syntax arriving through another**.
 
-Until it lifts, the propagation spelling is the `match` above, written
-out. It is four lines, it is checked, and it has the right stack
-behaviour; it is only the repetition that the sugar was going to buy.
+The fix is `docs/macro-system.md` **MAC-HYG-10**: a binder position
+holding a parameter takes the *argument's* name and is not renamed,
+across all three binder positions the expander owns — `let`, `lambda`
+parameters, and pattern binders. An argument that is not a name is
+`AX3035` rather than the silent wrong expansion it used to be.
 
-**ERR-SUGAR-3 (P). A contextual wrapper is a function, not a form.**
+`try!` ships in `stdlib/Err.ax` and is gated by
+`tests/stdlib/371-err-module.ax` term 16, which does not compile
+against an expander without the rule.
+
+**ERR-SUGAR-3 (H). A contextual wrapper is a function, not a form.**
 `(withContext r "reading the manifest")` replaces an `Err`'s `context`
-and passes `Ok` through. It needs no binder, so `B1` does not reach it,
-and it can ship with the stdlib slice.
+and passes `Ok` through. It needs no binder, so it never depended on
+`MAC-HYG-10`; it does depend on `ERR-TYPE-3a`, which is why it reads
+the error's fields through `errContextOf` rather than in the arm.
 
 ---
 
 ## 8. What this specification found
 
-Four defects, none of them recorded anywhere before, each found by
-probing a claim rather than reading one.
+Five defects, none of them recorded anywhere before, each found by
+probing a claim rather than reading one. One is fixed.
 
-**B1 — a macro binder does not scope over another parameter's syntax.**
-`(macro (bind! x e body) (let ((x e)) body))` puts the caller's `body`
-outside the binding `x` introduces, so `body` cannot see it; the
-same-parameter form works and answers 42. Blocks every binding-form
-macro. `docs/macro-system.md` records binder-direction hygiene as
-complete; this is the case it does not cover. Blocks `ERR-SUGAR-2`.
+**B1 — a macro binder did not scope over another parameter's syntax.
+FIXED 2026-08-16.** `(macro (bind! x e body) (let ((x e)) body))` put
+the caller's `body` outside the binding `x` introduced, so `body` could
+not see it; the same-parameter form worked and answered 42, which is
+what kept it hidden. It blocked every binding-form macro — `let*`,
+`for`, `with`, and `try!` — and `docs/macro-system.md` recorded
+binder-direction hygiene as complete, which it was for the direction
+anyone had tested. Fixed as `MAC-HYG-10`, with `AX3035` for the
+argument that is not a name; `ERR-SUGAR-2` is the form it unblocked.
 
 **B2 — a two-parameter trait declares and checks, and cannot be
 implemented.** `(trait (From a b) where (from :: (-> a b)))` is
@@ -572,36 +608,53 @@ catch, in a table that gate does not read.
 **B4 — a fallible call leaks 32 bytes.** `ERR-MEM-4`. Not a defect of
 this model; a defect this model is the first to have a number for.
 
+**B5 — a `match` binder over a polymorphic scrutinee has no type.**
+`(match r ((Err y) y.code))` where `r : (Result a Error)` is `AX3004
+expected struct or data type, found _t206`: the checker instantiates
+the constructor's field to a fresh variable and never resolves it
+against the signature, so the binder has no fields. Passing the binder
+to a function whose parameter is declared at the concrete type
+recovers it, which is `ERR-TYPE-3a` and the shape every combinator in
+`stdlib/Err.ax` takes. Found while writing `withContext`, which is the
+first function in this repository to read a field off a polymorphic
+match binder.
+
 ---
 
 ## 9. Conformance summary
 
 | Rule | Status | Held by |
 |---|---|---|
-| `ERR-TYPE-1`…`5` | P | — design only |
+| `ERR-TYPE-1`, `2` | **H, gated** | `stdlib/Err.ax`; `tests/stdlib/371-err-module.ax` |
+| `ERR-TYPE-3` | **H, gated** | `mapErr`, `371-err-module.ax` term 8 |
+| `ERR-TYPE-3a` | H | `AX3004 _t206`; `errContextOf` is the workaround |
+| `ERR-TYPE-4` | **H, gated** | `okOr`/`toOption`, `371` term 4 |
+| `ERR-TYPE-5` | H | `fldClass` classifies from declared types |
 | `ERR-PROP-1` | H | the language having no other mechanism |
 | `ERR-PROP-2` | H | `#pure` accepted on construct and inspect |
 | `ERR-PROP-3` | **H, gated** | `tests/stdlib/370-error-propagation.ax` term 16 + ablation |
-| `ERR-PROP-4` | P | — proposed `AX3035`, not constructed |
+| `ERR-PROP-4` | P | — proposed `AX3036`, not constructed |
 | `ERR-PROP-5` | H | effect inference, unchanged |
 | `ERR-MEM-1` | H | `fldClass`, `self_host/codegen.ax` |
 | `ERR-MEM-2` | **H, gated** | `370-error-propagation.ax` term 4 + ablation |
 | `ERR-MEM-3` | H | 176 / 288 bytes, mono / poly, 2000 iterations |
-| `ERR-MEM-4` | P | 32 bytes per call; control gated as term 8 |
+| `ERR-MEM-4` | P | 32 bytes per call; control gated as `370` term 8 |
 | `ERR-MEM-5` | H | `AX3029` / `AX3030` |
 | `ERR-MEM-6` | R | `linear` enforces nothing |
 | `ERR-REC-1` | R | no unwinding exists |
-| `ERR-REC-2` | P | traps measured: 72, 71 |
+| `ERR-REC-2` | **H, gated** | `371-err-module.ax` terms 64 and 32 |
 | `ERR-REC-3` | R | handlers are tail-resumptive |
 | `ERR-REC-4`, `5` | P | — |
 | `ERR-DIAG-1` | H | `mkDiag` is the only channel |
-| `ERR-DIAG-2`, `3` | P | — no code allocated |
+| `ERR-DIAG-2`, `3` | P | — `AX3036`–`AX3038` not constructed |
 | `ERR-SUGAR-1` | R | `?` is `AX1001` |
-| `ERR-SUGAR-2` | **B** | blocked by B1 |
-| `ERR-SUGAR-3` | P | — |
+| `ERR-SUGAR-2` | **H, gated** | `try!`; `371` term 16, MAC-HYG-10 |
+| `ERR-SUGAR-3` | **H, gated** | `withContext`; `371` term 2 |
 
-Two rules are gated. Nothing else in this document is implemented, and
-the document says so in every row rather than in a note at the end.
+Fourteen rules hold, nine of them gated by a fixture with an ablation.
+What remains is `ERR-PROP-4`, `ERR-MEM-4`, `ERR-REC-4`/`5`,
+`ERR-DIAG-2`/`3` and the migration itself — and the document says so in
+every row rather than in a note at the end.
 
 ---
 
@@ -610,9 +663,12 @@ the document says so in every row rather than in a note at the end.
 **ERR-ADOPT-1 (P). The migration is 65 sites and it is not one
 commit.** Order, each slice green before the next:
 
-1. `stdlib/Err.ax` — `Result`, `Error`, `mapErr`, `withContext`,
-   `okOr`, `toOption`, `andThen`, and the `ERR-REC-2` checked
-   operators. Nothing else changes; nothing imports it yet.
+1. ~~`stdlib/Err.ax`~~ **DONE 2026-08-16** — `Result`, `Error`,
+   `mapErr`, `withContext`, `okOr`, `toOption`, `andThen`, `mapOk`,
+   `unwrapOr`, the `ERR-REC-2` checked operators, and `try!`. Nothing
+   else changed and nothing imports it yet, which is the point of
+   doing it first: `tests/stdlib/371-err-module.ax` exercises the whole
+   surface across a module boundary and no existing caller moved.
 2. `stdlib/Utf8.ax`, `stdlib/Str.ax`, `stdlib/Path.ax` — 11 sites, no
    `errno`, pure, no callers outside `stdlib/`. The rehearsal.
 3. `stdlib/IO.ax` and `stdlib/Sys.ax` — 33 sites and the `-errno`
@@ -647,17 +703,25 @@ crosses a boundary:
 ```scheme
 (import Err)
 
-(:: parseAll (-> Vec Int (Result Int Error)))
+; The form: the fallible call is the scrutinee, the recursion is the
+; arm's answer, and `try!` is what writes that without saying it.
+(:: parseAll (-> Int Int (Result Int Error)))
 (fn (parseAll toks acc)
   (if (== (vecLen toks) 0)
       (Ok acc)
-      (match (parseOne (vecGet toks 0))          ; fallible: scrutinee
-        ((Err e)
-         (let ((wrapped (withContext e "parsing the manifest")))
-           (Err wrapped)))                        ; ERR-MEM-2: let-bound
-        ((Ok v)
-         (parseAll (vecTail toks) (+ acc v)))))) ; ERR-PROP-3: the arm
+      (try! v (parseOne (vecGet toks 0))
+        (parseAll (vecTail toks) (+ acc v)))))   ; ERR-PROP-3: the arm
+
+; The caller attaches what it was doing. `withContext` takes the
+; RESULT, not the error - ERR-TYPE-3a is why nothing here reaches into
+; an `Err` binder for its fields.
+(:: parseManifest (-> Int (Result Int Error)))
+(fn (parseManifest toks)
+  (withContext (parseAll toks 0) "parsing the manifest"))
 ```
 
-Three rules, one shape, and each of them is there because a probe said
-so rather than because it reads well.
+The recursion sits where `ERR-PROP-3` measured that it must, because
+that is where `try!` puts it. Each rule behind this shape is there
+because a probe said so rather than because it reads well — and the
+one that made the shape *writable* was a hygiene defect in the
+expander, not anything about errors at all.

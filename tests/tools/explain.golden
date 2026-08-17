@@ -47,6 +47,7 @@
   [93mAX3031[0m  malformed format string  (malformed-format-string)
   [93mAX3033[0m  a macro rule that can never match  (macro-unreachable-rule)
   [93mAX3034[0m  an ellipsis used at the wrong depth  (macro-ellipsis)
+  [93mAX3035[0m  a macro parameter used as a binder was given something that is not a variable  (macro-binder-target)
   [93mAX4001[0m  no `main` function  (missing-main)
   [93mAX4002[0m  code generation failed  (codegen-failure)
   [93mAX4003[0m  external toolchain command failed  (toolchain-failure)
@@ -772,6 +773,35 @@ macro's own line - the place each author can act on.
 dots. That is why it stands beside the name it repeats rather than
 gluing to it, and why a single `.` still means field access.
 
+### explain AX3035
+AX3035 - a macro parameter used as a binder was given something that is not a variable
+
+A template may put a macro parameter in a BINDER position - a `let`
+binding, a `lambda` parameter, or a pattern binder in a match arm:
+
+    (macro (try! x e body)
+      (match e
+        ((Err er) (Err er))
+        ((Ok x) body)))
+
+    (try! v (parse s) (use v))
+
+The parameter names the binding the CALLER wants, so the expansion
+binds `v` and the caller's body reads `v`. That only works if the
+argument is a name: handed `(try! (f 1) ...)` there is nothing to
+bind, and the invocation is refused here rather than expanded into an
+arm that binds an application.
+
+This is the same rule `set` targets follow (AX3022), for the same
+reason - a position that takes a NAME cannot take an expression, and
+a macro parameter is the one way an expression can arrive in one.
+
+A binder the TEMPLATE introduces is unaffected. It is renamed at every
+expansion so it cannot capture a name the caller passed in, which is
+the forward half of hygiene; a parameter in binder position is the
+opposite case, where the caller named the binding and must be able to
+read it (docs/macro-system.md MAC-HYG-10).
+
 ### explain AX4001
 AX4001 - no `main` function
 
@@ -881,6 +911,7 @@ run `axiom explain --list` to see all known codes
   [93mAX3031[0m  malformed format string  (malformed-format-string)
   [93mAX3033[0m  a macro rule that can never match  (macro-unreachable-rule)
   [93mAX3034[0m  an ellipsis used at the wrong depth  (macro-ellipsis)
+  [93mAX3035[0m  a macro parameter used as a binder was given something that is not a variable  (macro-binder-target)
   [93mAX4001[0m  no `main` function  (missing-main)
   [93mAX4002[0m  code generation failed  (codegen-failure)
   [93mAX4003[0m  external toolchain command failed  (toolchain-failure)

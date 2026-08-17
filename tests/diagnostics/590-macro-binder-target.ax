@@ -1,0 +1,25 @@
+; AX3035: a macro parameter standing in a binder position was handed
+; something that is not a name.
+;
+; The parameter names the binding the CALLER wants, so the expansion
+; can only bind what the caller spelled. `(f 1)` is an application and
+; there is nothing there to bind, so the invocation is refused rather
+; than expanded into a `let` binding an application - the same rule a
+; `set` target follows (AX3022).
+;
+; Both binder positions the expander owns are exercised: a `let`
+; binding and a match-arm pattern binder.
+(macro (bind! x e body) (let ((x e)) body))
+
+(macro (pick! x e body)
+  (match e
+    ((None) 0)
+    ((Some x) body)))
+
+(:: f (-> Int Int))
+(fn (f n) n)
+
+(:: main Int)
+(fn (main)
+  (+ (bind! (f 1) 41 7)
+     (pick! (f 2) (Some 3) 9)))
