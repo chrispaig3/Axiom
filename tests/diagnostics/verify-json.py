@@ -71,14 +71,21 @@ def _sibling(name, path):
 # what an AXDL line is.
 axdl = _sibling('axdl_spans', 'verify-axdl-spans.py')
 
-# Floors, all under what the corpus produces today: 56 goldens, 90
-# objects, 1860 fields. A verifier that reads nothing reports the same
-# silence as one that verifies everything, and the failure mode this
-# guards is a derivation that stops producing rather than one that
-# produces a wrong answer.
-MIN_GOLDENS = 54
-MIN_OBJECTS = 86
-MIN_FIELDS = 1800
+# Floors, all just under what the corpus produces: 126 goldens, 227
+# objects, 5195 fields (re-derived 2026-08-16). A verifier that reads
+# nothing reports the same silence as one that verifies everything, and
+# the failure mode this guards is a derivation that stops producing
+# rather than one that produces a wrong answer.
+#
+# These were 54/86/1800 against a corpus of 56/90/1860 - and they
+# stayed there while the corpus more than doubled, so 57% of the JSON
+# goldens could have stopped being read with the gate still green. The
+# sibling verifier's own note carries the measurement of what that
+# costs; this file globs the SAME `*.axdl` set, so it inherits both the
+# problem and the margin.
+MIN_GOLDENS = 120
+MIN_OBJECTS = 215
+MIN_FIELDS = 4900
 
 
 def norm_span(l1, c1, l2, c2):

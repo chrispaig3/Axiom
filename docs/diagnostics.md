@@ -201,11 +201,20 @@ implemented in none.
 diagnostic this compiler builds is an error or a warning, and a note or
 a help is a FIELD of one rather than a diagnostic of its own.
 
-`&` has no producer yet. Macro expansion does not report through
-diagnostics (docs/v1-roadmap.md records the backtrace as part of that
-work), so the field is rendered only by
-`tests/selfhost/645-axdl-repetition`, which builds one diagnostic
-carrying two of every repeating field and pins the whole line.
+`&` is macro expansion's field, and it had no producer until
+2026-08-14. A diagnostic raised inside an expansion now carries one
+frame per enclosing macro, outermost first, each naming the macro and
+the span of its own declaration in its own file:
+`tests/diagnostics/490-expansion-backtrace.ax` pins one frame and a
+nested two, and `tests/diagnostics/595-macro-imported-ambiguous.ax`
+pins an `AX3014` reported at an invocation that mentions neither the
+name nor the modules, where the frame is the whole of what makes the
+line actionable.
+
+`tests/selfhost/645-axdl-repetition` is still the case that pins the
+GRAMMAR: it builds one diagnostic carrying two of every repeating
+field and renders the whole line, which is how a combination no real
+producer emits stays covered.
 
 **Severity decides the exit status.** Only `E` fails a build: a run that
 produces nothing but `W` still exits zero, and the summary

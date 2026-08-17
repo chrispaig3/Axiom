@@ -494,11 +494,14 @@ done
 # handful of values, has lost its corpus or its parser - and either
 # reads exactly like a compiler that answers everything correctly.
 distinct="$(sort -u "$work/wants" | grep -c .)"
-if (( swept < 60 )); then
-  fail "the sweep ran only $swept cases; the floor is 60 - tests/selfhost/ moved or the glob broke"
+# Floor re-derived 2026-08-16 against 144 cases; it was 60, set when
+# the tree held ~65, so more than half the corpus could have gone
+# missing with the gate still green.
+if (( swept < 135 )); then
+  fail "the sweep ran only $swept cases; the floor is 135 - tests/selfhost/ moved or the glob broke"
 fi
-if (( distinct < 5 )); then
-  fail "the $swept cases carry only $distinct distinct expected statuses; the floor is 5 - a compiler that answers one number would pass"
+if (( distinct < 45 )); then
+  fail "the $swept cases carry only $distinct distinct expected statuses; the floor is 45 (50 today) - a compiler that answers one number would pass"
 fi
 if (( corpus_failed > 0 )); then
   fail "$corpus_failed of $swept conformance cases disagree with the status their own source declares"

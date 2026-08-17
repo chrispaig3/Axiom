@@ -232,8 +232,8 @@ for af in $(find "$orig" -name '*.ax' | sort); do
   fi
 done
 echo "     $swept files swept, $refused refused"
-if [[ $swept -lt 150 ]]; then
-  echo "FAIL: the sweep read $swept files; the floor is 150 - a tree is missing from the find"
+if [[ $swept -lt 370 ]]; then
+  echo "FAIL: the sweep read $swept files; the floor is 370 (390 today) - a tree is missing from the find"
   failed=$((failed + 1))
 fi
 failed=$((failed + nonidem + dirty_after + wrote_on_refusal))
@@ -272,8 +272,8 @@ else
     head -10 "$work/table.bad"
     failed=$((failed + 1))
   fi
-  if [[ $entries -lt 200 ]]; then
-    echo "FAIL: the table has $entries entries; the floor is 200"
+  if [[ $entries -lt 340 ]]; then
+    echo "FAIL: the table has $entries entries; the floor is 340 (354 today)"
     failed=$((failed + 1))
   fi
   # A table of one repeated value would be satisfied by a formatter that
@@ -285,9 +285,9 @@ else
   # Retirement is expected; retirement of everything is the vacuum this
   # gate is built to refuse. Regenerate per the golden's header when the
   # hit count nears the floor.
-  if [[ $hits -lt 150 ]]; then
+  if [[ $hits -lt 250 ]]; then
     echo "FAIL: only $hits of $entries table entries still match a file in the tree;"
-    echo "      the floor is 150 - the table has decayed and must be regenerated"
+    echo "      the floor is 250 (328 of 354 hit today) - the table has decayed and must be regenerated"
     failed=$((failed + 1))
   elif [[ $bad -eq 0 ]]; then
     echo "ok   $hits of $entries pinned source->formatted mappings reproduced"
@@ -440,8 +440,8 @@ failed=$((failed + unreadable))
 # The floor is the usual one: this check reports silence, and a
 # `pairs.txt` that stopped being written would report the same silence
 # from zero files.
-if [[ $read_swept -lt 150 ]]; then
-  echo "FAIL: only $read_swept formatted outputs were re-read; the floor is 150"
+if [[ $read_swept -lt 385 ]]; then
+  echo "FAIL: only $read_swept formatted outputs were re-read; the floor is 385 (407 today)"
   failed=$((failed + 1))
 elif [[ $unreadable -eq 0 ]]; then
   echo "ok   $read_swept formatted outputs carry no lexical or syntactic error"

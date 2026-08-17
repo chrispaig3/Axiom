@@ -346,7 +346,7 @@ expand to a form valid in both.
 | `_` | any single form, binding nothing | **holds** |
 | a literal integer, float, char or string | itself | **holds** |
 | `(p1 ... pn)` | a form of exactly *n* elements, each matching | **holds** |
-| `(p ...)` | zero or more forms matching `p` (`MAC-LANG-16`) | needs `...` to lex |
+| `(p ...)` | zero or more forms matching `p` (`MAC-LANG-16`) | `...` lexes since 2026-08-16; a repeat over a PATTERN rather than a bare NAME is still `AX3034` |
 | a **literal identifier** declared in the macro's literal list | itself, by *binding*, not by spelling (`MAC-LANG-17`) | needs scope sets |
 
 (The `...` in the fourth row is this document's metasyntax for "p₁
@@ -442,11 +442,22 @@ covering one arity and covering a range.
 each of that pattern's binders to a sequence in lockstep. That is a
 second feature and is refused rather than half-built.
 
-*Today:* `...` does not lex **for the compiler**. `.` is `TK_DOT`,
-never an identifier character, so `...` is three separate tokens and
-`(macro m ((m x ...) ...))` is `AX2001` at the first dot — since
-2026-08-16 reported as *expected a pattern, found `.`*, `MAC-LANG-15`'s
-message rather than the old *expected identifier*.
+*This paragraph read "`...` does not lex **for the compiler**" until
+v1 landed on 2026-08-16*, and it described that day's compiler
+exactly: `.` was `TK_DOT` and never an identifier character, so `...`
+was three tokens and `(macro m ((m x ...) …))` was `AX2001` at the
+first dot — latterly reported as *expected a pattern, found `.`*,
+`MAC-LANG-15`'s message rather than the old *expected identifier*.
+
+**`...` lexes now, and it lexes as an ORDINARY IDENTIFIER.** Three
+dots are one token and there is no new token kind: `self_host/lexer.ax`
+meets byte 46, looks at the next two, and emits `TK_IDENT` spanning
+all three when they are dots too, falling back to `TK_DOT` for a
+single one. A lone `.` is untouched, so field access, module paths and
+`MAC-HYG-3`'s gensym separator are untouched with it — one dot still
+cannot sit inside an identifier. Reading the ellipsis as an identifier
+is what made the price below collapse from four implementations to
+one.
 
 **The cost this rule stated was wrong, and it was wrong in the
 expensive direction.** Re-derived by probe on 2026-08-16, one
@@ -906,7 +917,7 @@ What still refuses: a pipeline that re-expands an already-resolved
 program (codegen's re-expansion, the REPL's type probe) carries no
 mangling records, and a module-side invocation reaching it is
 `AX3027` naming that rather than generating a declaration nothing can
-name. `tests/selfhost/388-module-side-decl-macro.ax` (47) is the
+name. `tests/selfhost/388-module-side-decl-macro.ax` (239) is the
 positive gate — the prelude's `deriveEq` and `deriveShow` spent by a
 module on its own type, a private product the module calls, and an
 entry-file `eqSignal` coexisting with the module's mangled one — and
@@ -1453,11 +1464,18 @@ The v1 surface, all of it measured
   moments earlier, because generated declarations join the merged
   list the queries read.
 
-  The remaining kinds — `type`, `trait`, `effect`, `import` — are
-  `AX3021` **at the macro's own line**, before any invocation exists
-  (`MAC-SAFE-4`'s loud-at-definition shape;
+  The remaining kinds — an `import` template and a nested `macro` —
+  are `AX3021` **at the macro's own line**, before any invocation
+  exists (`MAC-SAFE-4`'s loud-at-definition shape;
   `tests/diagnostics/510-decl-macro-template-kind.ax`,
-  `565-macro-type-template-limits.axbad`). Two of the four are refusals
+  `565-macro-type-template-limits.axbad`). This sentence listed
+  `type`, `trait`, `effect` and `import` until 2026-08-16: `type` and
+  `effect` joined the template surface on 2026-08-15 and stopped
+  refusing at all — `tests/selfhost/389-type-effect-templates.ax`
+  (38) is where a macro generates an alias and an effect declaration
+  and names both from its arguments — and `trait` never produced
+  `AX3021` in the first place, as the paragraph's own last sentence
+  has always said. Both survivors are refusals
   by **decision** rather than by schedule, and this specification says
   so rather than leaving them on a list: an `import` inside a template
   would reopen module resolution, which has already run when phase D
@@ -2159,7 +2177,11 @@ Under `MAC-CAP-5` and `MAC-CAP-8`. This is the acceptance criterion
 `tests/selfhost/374-derive-eq.ax` is this section's macro, data type
 and invocation, and it answers 101 from three `eqColor` probes on the
 first complete run of the query vocabulary. The fieldful form further
-down still waits on `syntax/binders` and `syntax/fold`.
+down is measured too, since later the same day:
+`tests/selfhost/377-derive-eq-fieldful.ax` (30). That sentence read
+"still waits on `syntax/binders` and `syntax/fold`" until 2026-08-16 —
+those two rows landed with the fixture that spends them, and the
+waiting ended the day it was written down.
 
 ```scheme
 (pub macro deriveEq
@@ -2377,13 +2399,13 @@ nicety: without an expansion backtrace, the author of `(machine Door
 
 | Area | Holds today | Planned | Refused |
 |---|---|---|---|
-| Language | LANG-1…12, LANG-14 (multi-rule over the declaration form, selected by arity) | LANG-14 (rules over expression templates), LANG-15…18 | LANG-13 |
+| Language | LANG-1…12, LANG-14 (multi-rule over the declaration form — selected by ARITY for one day, and by a pattern MATCH in rule order since 2026-08-16, with arity surviving inside the match as a pre-filter), LANG-15 (four of its six pattern kinds), LANG-16 (v1: one repeating bare NAME as a rule's last element), LANG-18 | LANG-14 (rules over expression templates), LANG-15's last two kinds — a repeat over a PATTERN (LANG-16's second half) and a literal identifier (LANG-17) | LANG-13 |
 | Expansion | EXP-1…17 (module-side invocation landed 2026-08-15) | — | — |
-| Hygiene | HYG-1…7 | HYG-8, HYG-9 | — |
-| Capabilities | CAP-1…3, CAP-6, CAP-7, CAP-8 (`fn`/`::`/`data`/`struct`/`impl`/invocation/iteration templates), CAP-9 (the deriving clause refuses), CAP-10 (format strings; 10.5 held-but-defective) | CAP-4 | CAP-5 (replacement landed, and the table is now COMPLETE: join — in name, reference and argument position, nested to any depth — constructors, fields, same, for including its parallel form, binders, fold, name, arity, defined, format, formatln) |
+| Hygiene | HYG-1…8 (HYG-8's four holes are all closed, the last two on 2026-08-16; HYG-3a held-but-defective) | HYG-9 | — |
+| Capabilities | CAP-1…3, CAP-6, CAP-7, CAP-8 (`fn`/`::`/`data`/`struct`/`type`/`effect`/`impl`/invocation/iteration templates — the kind list closed 2026-08-15), CAP-9 (the deriving clause refuses), CAP-10 (format strings; 10.5 held-but-defective) | CAP-4 | CAP-5 (replacement landed, and the table is now COMPLETE: join — in name, reference and argument position, nested to any depth — constructors, fields, same, for including its parallel form, binders, fold, name, arity, defined, format, formatln) |
 | Safety | SAFE-1…4 | — | SAFE-5 |
 | Integration | INT-1…6 | — | — |
-| Diagnostics | DIAG-1…4 | DIAG-5 | — |
+| Diagnostics | DIAG-1…5 (DIAG-5's second snippet landed 2026-08-15) | — | — |
 | Tooling | TOOL-1…6 (TOOL-6 held-but-defective) | — | — |
 
 Seven rules in the Holds column are held-but-defective, each with the
@@ -2417,8 +2439,8 @@ convention; the list, not any one entry, is the argument for gating.
 | `tests/diagnostics/510-decl-macro-template-kind.ax` | CAP-8's template-kind `AX3021`, at the macro's own line |
 | `tests/selfhost/381-macro-type-templates.ax` (32) | CAP-7/CAP-8's `data` and `struct` templates — joined constructor names, two invocations giving two distinct types, and `deriveEq` querying a type generated in the same round |
 | `tests/selfhost/389-type-effect-templates.ax` (38) | CAP-8's `type` and `effect` templates — a joined alias name written in TYPE position by the signature beside it, and an effect whose name, operation and arrow all come from the invocation |
-| `tests/diagnostics/565-macro-type-template-limits.axbad` | what still refuses — `type` and `import` templates at the macro's line, and the reserved `syntax/` prefix in a data name and a constructor name, both positions the parser could not even express before (`.axbad`: a joined name at top level is a shape the formatter must not learn, the same reason `525` carries the extension) |
-| `tests/selfhost/388-module-side-decl-macro.ax` (47) | EXP-16's module-side invocation — the prelude's derive spent by a module on its own type, a private product the module calls, and an entry-file name coexisting with the module's mangled one; the unfixed compiler refuses at the module's line |
+| `tests/diagnostics/565-macro-type-template-limits.axbad` | what still refuses — an `import` template and a nested `macro` at the macro's line (this row named `type` and `import` until 2026-08-16; the fixture's two `AX3021` subjects are `badMacro` and `badImport`, and it has carried no `type` case since `type` became a template kind), and the reserved `syntax/` prefix in a data name and a constructor name, both positions the parser could not even express before (`.axbad`: a joined name at top level is a shape the formatter must not learn, the same reason `525` carries the extension) |
+| `tests/selfhost/388-module-side-decl-macro.ax` (239) | EXP-16's module-side invocation — the prelude's derive spent by a module on its own type, a private product the module calls, and an entry-file name coexisting with the module's mangled one; the unfixed compiler refuses at the module's line |
 | `tests/diagnostics/515-decl-macro-in-module.ax` | EXP-16's visibility rule — a generated declaration from a non-`pub` template is `AX3023` outside its module, and the module's own call to it still works |
 | `tests/selfhost/374-derive-eq.ax` (101) | CAP-5/CAP-6 — §10.2's nullary deriveEq verbatim, the roadmap's acceptance criterion; the unfixed compiler dies parsing the joined name |
 | `tests/selfhost/376-syntax-nested-for.ax` (7) | CAP-5 — nested syntax/for over two types, inner splice under the live outer binding |
@@ -2510,23 +2532,34 @@ rather than the value alone.
    Hole 4, the imported-name capture, followed on 2026-08-16 — this
    list said it needed import edges the merged declaration list does
    not carry, and it does not: the list carries each declaration's
-   module, which is the only thing the lookup ever needed. What
-   remains under this heading is the entry-file capture (hole 1),
-   which needs `MAC-HYG-9`'s scope sets.
+   module, which is the only thing the lookup ever needed. Hole 1, the
+   entry-file capture, closed the same day and closed the heading with
+   it — and it did not need `MAC-HYG-9`'s scope sets either, which is
+   twice this item has priced a hole against a mechanism it turned out
+   not to require. A macro is a top-level declaration, so its
+   template's free identifiers had no enclosing local scope where they
+   were written; one bit on the reference says so, and both resolvers
+   read it (`tests/selfhost/394-macro-entry-capture.ax`, 130). Nothing
+   remains under this heading. It read "what remains under this
+   heading is the entry-file capture (hole 1), which needs
+   `MAC-HYG-9`'s scope sets" until 2026-08-16.
 2. ~~**`MAC-DIAG-4`**~~ — **landed 2026-08-14**, before the items that
    make diagnostics inside expansions more common, as this list
    ordered. The frame element is `(name, span, unit)`, the join is by
-   invocation-span handle, and `MAC-DIAG-5`'s second snippet is what
-   remains of the rendering.
+   invocation-span handle, and `MAC-DIAG-5`'s second snippet followed
+   on 2026-08-15, which finished the rendering. This sentence named
+   that snippet as what remained until 2026-08-16.
 3. ~~**`MAC-CAP-8`**~~ — **v1 landed 2026-08-14**, with `MAC-EXP-16`'s
    phase split: rule-form declaration macros generating `fn`/`::`
    declarations and further invocations, invoked from the entry file,
    parameters substituting in name, type and expression positions.
    `data` and `struct` templates joined on 2026-08-15, which is what
-   makes `MAC-CAP-7` hold. What remains under this heading:
-   `type` and `effect` templates, which landed 2026-08-15 and close
-   the kind list — `import` and nested `macro` are refusals by
-   decision, not schedule. Module-side invocation,
+   makes `MAC-CAP-7` hold. `type` and `effect` templates followed on
+   2026-08-15 and closed the kind list; `import` and nested `macro`
+   are refusals by decision, not schedule, so nothing remains under
+   this heading. (It read "what remains under this heading: `type` and
+   `effect` templates" while naming the date they landed, which is the
+   sentence half-updated rather than swept.) Module-side invocation,
    `MAC-EXP-16`'s stated limit, landed 2026-08-15: a module invokes a
    declaration macro over its own declarations, and phase D applies
    the mangling and visibility import resolution would have. The
@@ -2569,28 +2602,37 @@ rather than the value alone.
    `MAC-CAP-8`, not to the queries — and both closed on 2026-08-15:
    the module-side INVOCATION limit, and the `type` and `effect`
    template kinds.
-5. **`MAC-LANG-14`–`MAC-LANG-18`** — rules, patterns and ellipsis.
-   **`MAC-LANG-14`'s implementable half landed 2026-08-15**: the rule
-   form takes a list of rules, selected by arity, with the two
-   refusals a selection rule needs. What is left here is the pattern
-   language, which remains the largest surface change and the one that
-   should land last, because the others do not depend on it. Three
-   notes from probing it on 2026-08-15 rather than reading it:
+5. ~~**`MAC-LANG-14`–`MAC-LANG-18`** — rules, patterns and ellipsis.~~
+   **Rules landed 2026-08-15; patterns, selection and repetition on
+   2026-08-16.** The rule form takes a list of rules whose parameters
+   are PATTERNS, tried in rule order with the first match winning
+   (`MAC-LANG-15`, `MAC-LANG-18`), and a rule's last element may
+   REPEAT (`MAC-LANG-16` v1) — `tests/selfhost/390-multi-rule-macro.ax`
+   51, `392-macro-patterns.ax` 127, `393-macro-ellipsis.ax` 63.
+   What is left under this heading is `MAC-LANG-17`'s literal
+   identifiers, which need scope sets, a repeat over a nested pattern,
+   and rules over EXPRESSION templates.
 
-   - it touches **four** implementations of the token set, not three —
-     `self_host/lexer.ax`, `self_host/format.ax`'s own `FT_*` kinds,
-     `tree-sitter-axiom/`'s `grammar.js` **and** `src/scanner.c`, and
-     `tests/fmt/verify-fmt.py`. `MAC-LANG-16`'s own table already
-     enumerates four; this list said three.
-   - the ellipsis is blocked on a byte, not a design: `.` is `TK_DOT`
-     and never an identifier character, so `(macro (m x ...) …)` is
-     `AX2001 expected identifier, found '.'` today. Making `.` gluable
-     is not a local change — it is also the gensym separator
-     `MAC-HYG-3` relies on being unspellable, and the emitted
-     `%__evw.h` / `%__scr.h` registers depend on the same
-     unspellability with no reserved-name diagnostic behind them.
-   - **`MAC-LANG-14` is not ready to implement as written.** Its own
-     example does not parse, and the reduced form means something
-     else; §1.5 now records the measurement and names the decision the
-     spec has to make first. Multi-rule over DECLARATION templates,
-     selected by arity, is the half that is unambiguous today.
+   Three notes were probed here on 2026-08-15 and this item scheduled
+   the work behind them. **Two of the three were wrong, and doing the
+   work is what showed it** — the record is kept because a price
+   quoted and then measured is the most useful thing this list holds:
+
+   - *"it touches **four** implementations of the token set, not
+     three."* It touched ONE. `...` lexes as an ordinary identifier —
+     three dots, one token, no new token kind — so `format.ax` needed
+     nothing (a rule form's interior is copied verbatim) and
+     tree-sitter already parsed it, its identifier rule admitting `.`.
+   - *"the ellipsis is blocked on a byte, not a design: making `.`
+     gluable is not a local change — it is also the gensym separator
+     `MAC-HYG-3` relies on being unspellable."* A single `.` was never
+     made gluable. The lexer looks at the next two bytes and takes all
+     three or none, so one dot is untouched and the gensym separator,
+     `%__evw.h` and `%__scr.h` are all exactly as unspellable as
+     before.
+   - *"`MAC-LANG-14` is not ready to implement as written. Its own
+     example does not parse."* **This one held**, and it was the
+     valuable one: the example really did not parse, and the decision
+     it forced — rules belong to the RULE form, because the two forms
+     differ in what a template IS — is the shape the implementation
+     took.

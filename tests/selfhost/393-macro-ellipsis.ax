@@ -44,7 +44,11 @@
 ; arguments split would be the expander's guess), a repeat over a
 ; PATTERN rather than a bare name (which binds each of its binders to
 ; a sequence in lockstep - a second thing), and either half of the
-; depth rule broken, which is `AX3034` in three shapes.
+; depth rule broken. That is `AX3034` in FOUR shapes, not the three
+; this line claimed: the two structural ones at the macro's own line,
+; and the depth pair - a repeating name used without `...`, and `...`
+; following nothing that repeats - at the invocation. 610's golden
+; carries all four.
 ;
 ; The compiler before this commit refuses this file at the first `...`
 ; with `AX2001 expected a pattern, found `.`` - three tokens where the

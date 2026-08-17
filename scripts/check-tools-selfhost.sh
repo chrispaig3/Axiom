@@ -181,8 +181,8 @@ echo "== explain: every code the diagnostics corpus emits has an entry =="
 listed="$("$work/axc" explain --list 2>/dev/null | grep -oE 'AX[0-9]{4}' | sort -u)"
 emitted="$(grep -ohE 'AX[0-9]{4}' tests/diagnostics/*.axdl | sort -u)"
 emitted_n="$(printf '%s\n' "$emitted" | grep -c .)"
-if (( emitted_n < 20 )); then
-  echo "FAIL: only $emitted_n codes found in tests/diagnostics/*.axdl; the floor is 20 (the corpus moved or the glob broke)"
+if (( emitted_n < 40 )); then
+  echo "FAIL: only $emitted_n codes found in tests/diagnostics/*.axdl; the floor is 40 (the corpus moved or the glob broke)"
   failed=$((failed + 1))
 fi
 missing="$(comm -23 <(printf '%s\n' "$emitted") <(printf '%s\n' "$listed") | tr '\n' ' ')"
@@ -349,8 +349,10 @@ while read -r f; do
   fi
 done < <(find stdlib self_host tests -name '*.ax' | sort)
 
-if (( swept < 150 )); then
-  echo "FAIL: the sweep read only $swept files; the floor is 150 - a tree is missing from the find"
+# Re-derived 2026-08-16 against 390 files; it was 150, set when the
+# tree held ~194.
+if (( swept < 370 )); then
+  echo "FAIL: the sweep read only $swept files; the floor is 370 - a tree is missing from the find"
   failed=$((failed + 1))
 # Both outcomes have to occur, or the agreement is trivial: a `symbols`
 # that always succeeded would satisfy a corpus that always type-checks.

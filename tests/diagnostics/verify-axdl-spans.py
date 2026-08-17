@@ -50,8 +50,10 @@ Four things are required of every claim:
 And one corroboration, counted rather than required per claim: where the
 message names something in backticks and the source slice spells exactly
 that, the span is *anchored* - the golden's own text and the fixture's
-bytes independently agree on what is being pointed at. 87 of the corpus's
-109 claims are anchored today. The rest point at expressions rather than
+bytes independently agree on what is being pointed at. 322 of the
+corpus's 418 claims are anchored today, and this sentence said 87 of 109
+until 2026-08-16, which is the same staleness the floors below record.
+The unanchored rest point at expressions rather than
 names (`type mismatch: expected Bool, found Int` spans the offending
 expression, which spells nothing in particular), so anchoring cannot be
 demanded of every claim; a floor is demanded instead, because a
@@ -91,15 +93,37 @@ IDENT_CH = re.compile(r"[^\W]|'", re.UNICODE)
 
 ESCAPES = {'n': '\n', 't': '\t', 'r': '\r', '\\': '\\', '"': '"', "'": "'", '0': '\0'}
 
-# Floors, all under what the corpus produces today: 56 goldens, 113
-# claims, 90 anchored, 26 codes. A verifier that reads nothing reports
-# the same silence as one that verifies everything, and the reason this
-# gate needs floors at all is that its predecessor's sweep once read
-# zero files and passed.
-MIN_GOLDENS = 54
-MIN_CLAIMS = 108
-MIN_ANCHORED = 86
-MIN_CODES = 24
+# Floors, all just under what the corpus produces: 126 goldens, 418
+# claims, 322 anchored, 42 codes (re-derived 2026-08-16). A verifier
+# that reads nothing reports the same silence as one that verifies
+# everything, and the reason this gate needs floors at all is that its
+# predecessor's sweep once read zero files and passed.
+#
+# THE MARGIN IS THE POINT, and it is what went wrong here. These were
+# 54/108/86/24 against a corpus of 56/113/90/26 - a few per cent of
+# headroom, which is what makes a floor detect a glob that stopped
+# matching. The corpus then tripled and the floors did not move.
+# Measured 2026-08-16 by running this verifier over a prefix of the
+# goldens rather than all of them:
+#
+#   * on 100 of the 126 goldens, the old floors report NOTHING - all
+#     four pass, and a fifth of the corpus has silently stopped being
+#     checked. The new floors report four failures.
+#   * on 63 - exactly half - the old floors catch it on ONE of the
+#     four, the distinct-code count at 21 against 24. The three
+#     COUNTING floors all pass: 63 against 54, 135 claims against 108,
+#     102 anchored against 86. So the last floor still doing any work
+#     was the one measuring variety, not volume, and it was doing it
+#     by accident.
+#
+# A floor is a measurement with an expiry date, and a growing corpus is
+# what expires it - so re-derive these whenever the printed counts have
+# pulled ahead, and keep the margin small enough that losing a tenth of
+# the corpus is a failure.
+MIN_GOLDENS = 120
+MIN_CLAIMS = 400
+MIN_ANCHORED = 310
+MIN_CODES = 40
 
 
 def read_string(text, i):

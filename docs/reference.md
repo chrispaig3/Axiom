@@ -1196,9 +1196,24 @@ can call what it names — `((syntax/join show T) x)` — and can feed
 another query's argument, which is how `showOr` asks about a name no
 source file spells.
 
-What macros cannot do yet: match on the shape
-of their arguments, or repeat a template over a variable number of
-them (`deriving (Eq)` is refused outright — see Deriving Traits).
+Macros match on the shape of their arguments and repeat a template
+over a variable number of them, both since 2026-08-16. A rule-form
+macro's parameters are PATTERNS — a binder, `_`, a literal matched by
+value, or a parenthesised form of patterns — its rules are tried in
+order with the first match winning, and its last element may repeat,
+which is how a macro becomes variadic
+(`tests/selfhost/392-macro-patterns.ax` 127,
+`393-macro-ellipsis.ax` 63). This paragraph read "what macros cannot
+do yet: match on the shape of their arguments, or repeat a template
+over a variable number of them" until that date.
+
+What they still cannot do: dispatch on an argument's *spelling* rather
+than its shape — a literal identifier in a pattern needs two
+identifiers spelled alike to be the same pattern only when they mean
+the same binding, which is scope sets; and carry rules on the
+expression form, which stays one parameter list and one template
+because the two forms differ in what a template is. (`deriving (Eq)`
+is refused outright — see Deriving Traits.)
 The normative specification is [macro-system.md](macro-system.md);
 [macros.md](macros.md) is the measured detail and the order the rest
 is planned in.
@@ -1685,9 +1700,10 @@ axiom run source.ax
 ### Choosing a Memory Manager
 
 ```bash
-# Default: an mmap-backed bump allocator. Nothing is ever freed, so peak
-# memory is proportional to *total* allocation. Right for a process that
-# exits in milliseconds, and it costs nothing at runtime.
+# Default: an mmap-backed bump allocator, with per-block reference
+# counts since 2026-08-15 - a block whose count reaches zero is walked
+# and re-issued from a size class, so a dead value is freed with no
+# reclamation written in the source.
 axiom build --input source.ax --output program
 
 ```
@@ -1696,9 +1712,17 @@ The build is freestanding — it does not call libc.
 
 There is no tracing collector. The retired Rust compiler had one behind
 a `--gc` flag; it was not ported, and `--gc` is now refused by name
-rather than silently ignored (see `docs/self-hosting.md` §8.4). Peak
-memory therefore tracks *total* allocation, not live data. Where that
-matters, `__axiom_arena_mark`, `__axiom_arena_reset` and
+rather than silently ignored (see `docs/self-hosting.md` §8.4). What
+reclaims instead is reference counting: every heap block carries a
+count and a shape word, and a thousand build-and-drop iterations move
+the allocator's bump by 384 bytes where they moved it by 80,304
+(`tests/stdlib/359-arc-str-bytes.ax`). Both sentences here read "peak
+memory tracks *total* allocation, not live data" until 2026-08-16 -
+true of every day before the counts landed, and true now only of the
+two ownership events that still do not emit, which are the two that
+need an escape analysis ([memory-model.md](memory-model.md)
+MM-LIFE-2c). Where that matters explicitly,
+`__axiom_arena_mark`, `__axiom_arena_reset` and
 `__axiom_arena_reset_keeping` let a program reclaim explicitly by
 rolling the allocator's waterline back — which is how the language
 server holds flat memory across an editing session. (Two claims stood

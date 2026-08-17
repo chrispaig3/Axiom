@@ -273,15 +273,21 @@ what the existing hygiene cases depend on. Pinned by
 answers 97), which also carries `_`, an integer literal, a nullary
 constructor and a constructor spine whose binder must still be renamed.
 
-### What hygiene still does NOT cover
+### What hygiene did not cover, and no longer fails to
 
-**A macro defined in the entry file.** Entry-file declarations are left
-bare by `resolveImports` — there is no `Mod$name` to resolve to — so a
-caller's local binding of the same name can still capture a template's
-free identifier. It is a loud failure rather than a wrong answer
-(`AX3004 expected function type, found Int` on the probe above), but it
-is not a diagnostic about capture and it names neither the macro nor
-the binding that shadowed it.
+Every entry under this heading is now closed, the last two on
+2026-08-16. The heading read "What hygiene still does NOT cover" until
+then, and it is kept — with its dates — because what each of these
+cost while it was open is the argument for the mechanism that closed
+it.
+
+~~**A macro defined in the entry file.**~~ **Closed, 2026-08-16**, and
+written out below, with the `AX3032` refusal that stood between the
+silence and the fix. This paragraph used to end "it is a loud failure
+rather than a wrong answer (`AX3004 expected function type, found
+Int`)", and that was doubly wrong: measured, it was a SILENT wrong
+answer, and the `AX3004` it quoted came from an arity mismatch between
+the two functions in the probe rather than from the capture.
 
 ~~**Qualified reference to a macro.**~~ **Closed, 2026-08-14.**
 `(QualMac::qdbl 21)` expands, a zero-parameter macro's bare-qualified
@@ -367,12 +373,15 @@ Pinned by `tests/diagnostics/993-macro-shadows-function`.
 
 ## 4. Diagnostics
 
-Nine codes, all in the semantic range because expansion is
-semantic-analysis-time work:
+Eleven codes, all in the semantic range because expansion is
+semantic-analysis-time work. This line said *nine* until 2026-08-16,
+which is what it was when the table ended at `AX3028`; `AX3033` and
+`AX3034` arrived with pattern rules and the ellipsis and nobody
+recounted:
 
 | Code | Slug | What it catches |
 |---|---|---|
-| `AX3018` | `macro-arity` | too FEW arguments. A longer spine is not an error in expression position: the surplus is applied to whatever the macro produced, which is how a macro expanding to a function stays usable. Measured: `(macro (one x) x)` invoked as `(one 5 6)` is `AX3004 expected function type, found Int` at the surplus argument, not `AX3018`. In DECLARATION position arity is exact — the result is declarations, not a value |
+| `AX3018` | `macro-arity` | an invocation no rule accepts. For the head-list form that is still counting — too FEW arguments; a longer spine is not an error in expression position, since the surplus is applied to whatever the macro produced, which is how a macro expanding to a function stays usable. Measured: `(macro (one x) x)` invoked as `(one 5 6)` is `AX3004 expected function type, found Int` at the surplus argument, not `AX3018`. In DECLARATION position it stopped being about counting on 2026-08-16, when a rule's parameters became PATTERNS: the message names the SHAPES the rules accept (`it accepts (defN (a b)) or (defN T 7)`), and an invocation with a count some rule declares still lands here if no rule's shape matches. The slug stayed `macro-arity` because `MAC-LANG-18` specifies the generalisation by name |
 | `AX3019` | `macro-recursion-limit` | expansion did not terminate (limit 128) |
 | `AX3020` | `macro-duplicate-parameter` | two parameters sharing a name |
 | `AX3021` | `macro-template-unsupported` | a template form the expander cannot substitute into — including a declaration template generating a kind outside the v1 surface, at the macro's own line |
@@ -510,26 +519,48 @@ the bank that pins it is `scripts/check-degenerate.sh`, and
   The `deriving` clause is REFUSED as of the fifth commit (`AX2004`
   naming the replacement; the formatter poisons rather than rewrites
   — the two grammars refuse together, MAC-CAP-9).
-- **Patterns.** The rule-list *surface* exists with exactly one rule
-  (the declaration form). No multiple rules, no literal atoms, no
-  nested patterns, no alternatives; an expression macro is still one
-  positional parameter list. "Pattern-based" in the roadmap's tier-1
-  sense is not implemented; this is substitution.
-- **Repetition.** No `...`; `.` cannot lex as part of a token, so this
-  needs a lexer change that ripples to `tree-sitter-axiom/grammar.js`
-  and `format.ax`, both of which re-implement the token set. This is
-  also why the printing macros interpolate by CAPTURE (`{name}`) and
-  have no positional `{}` or argument list: a macro takes a fixed
-  number of arguments, and a variadic `println` is repetition's first
-  real customer. See [macro-system.md](macro-system.md) MAC-CAP-10.4.
+- **Pattern kinds past a form's shape and a literal's value.** A rule's
+  parameters became PATTERNS on 2026-08-16: several rules tried in
+  order, `_`, an integer/float/char/string literal matched by VALUE,
+  and nested parenthesised shapes — so three rules of ONE ARITY told
+  apart by shape are ordinary (`tests/selfhost/392-macro-patterns.ax`,
+  127). What is missing is a LITERAL IDENTIFIER, where a head's
+  *spelling* discriminates: that one needs scope sets, because two
+  identifiers spelled alike are the same pattern only if they mean the
+  same binding (MAC-LANG-17), and it is why macro-system.md §10.4's
+  `simplify` table does not run yet. Alternatives are not there
+  either. An expression macro is still one positional parameter list,
+  by decision rather than by schedule — patterns belong to the rule
+  form, because the two forms differ in what a template IS. This
+  bullet read "the rule-list *surface* exists with exactly one rule …
+  'Pattern-based' in the roadmap's tier-1 sense is not implemented;
+  this is substitution" until 2026-08-16.
+- **Repetition past one repeat per rule.** A rule's last element may
+  repeat as of 2026-08-16: `(build T v ...)` takes one fixed argument
+  and then any number, `v` binds all of them at once, and `v ...`
+  splices them (`tests/selfhost/393-macro-ellipsis.ax`, 63). Two `...`
+  in one rule, and a repeat over a pattern rather than a bare name,
+  are `AX3034`. **The price this bullet quoted was wrong, and that is
+  the part worth keeping**: it said `...` needed a lexer change
+  rippling to `tree-sitter-axiom/grammar.js` and `format.ax`, "both of
+  which re-implement the token set". It cost ONE implementation. Three
+  dots lex as an ordinary identifier — no new token kind — so the
+  formatter needed nothing, and tree-sitter already parsed it. A
+  single `.` is untouched. The printing macros still interpolate by
+  CAPTURE (`{name}`) with no positional `{}` or argument list, but
+  that is now something unbuilt rather than something unexpressible: a
+  variadic `println` is repetition's first real customer and it is
+  buildable today. See [macro-system.md](macro-system.md) MAC-CAP-10.4.
 
 (Module-qualified macros stood in this list until 2026-08-14 — §3
 records the close. Declaration-level macros as a whole stood here
 until the same date. Format strings stood here until 2026-08-15:
 `(syntax/format e)` and `(syntax/formatln e)` parse a string literal
-at expansion time, and `println`/`print`/`eprintln`/`eprint`/`format`
-are ordinary macros over them — MAC-CAP-10, and the reason `IO` no
-longer exports a print function per type.)
+at expansion time, and `println`, `eprintln` and `format` are ordinary
+macros over them — MAC-CAP-10, and the reason `IO` no longer exports a
+print function per type. This sentence listed `print` and `eprint`
+alongside them until 2026-08-16; neither was ever written, and `IO`'s
+own header says why there is deliberately no newline-less printer.)
 
 ## 6. The order the rest should land in
 
@@ -541,9 +572,14 @@ longer exports a print function per type.)
    `AX3023`), and an entry-file function outranks an imported macro
    of the same name; and since 2026-08-16, a name the macro's module
    merely imported resolves to the module that declares it rather than
-   at the call site. What remains under this heading: an entry-file
-   macro's free identifiers are still capturable, which needs scope
-   sets (§3's one open hole; it refuses in the meantime).
+   at the call site; and since the same day, an entry-file macro's
+   free identifiers resolve at the top level too, so nothing under
+   this heading remains. That last clause read "what remains: an
+   entry-file macro's free identifiers are still capturable, which
+   needs scope sets; it refuses in the meantime" until 2026-08-16, and
+   it did not need scope sets — only the fact that a macro is a
+   top-level declaration, so its template's free identifiers had no
+   enclosing local scope where they were written (§3).
 2. ~~**`Diag` frames carrying a span and a unit**~~ — **done,
    2026-08-14** (criterion 3): a diagnostic inside an expansion now
    names each enclosing macro with its declaration's span in its own

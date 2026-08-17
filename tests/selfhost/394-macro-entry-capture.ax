@@ -49,8 +49,11 @@
 ;       `AX3001 undefined variable x`
 ;
 ; 1 + 2 + 32 + 95 = 130. The compiler before this commit refuses this
-; file with three `AX3032`s; the one before THAT answers 122, which is
-; this total with the two captured terms reading 0.
+; file with three `AX3032`s; the one before THAT answers 127, which is
+; this total with the two captured terms reading 0. That figure read
+; 122 until 2026-08-16, and no subset of these four weights makes 122
+; - which is what makes an arithmetic claim in a header worth
+; re-deriving rather than carrying.
 (macro (useHelper v) (helper v))
 
 (:: helper (-> Int Int))

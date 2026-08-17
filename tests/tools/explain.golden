@@ -417,14 +417,21 @@ Rewrite the template without the form, or add a case for it to
 `substTpl` in `self_host/expand.ax`.
 
 A DECLARATION template has the same code with a fixed list: it may
-generate `fn`, `::`, `data`, `struct` and `impl` declarations,
-further macro invocations, and a `syntax/for` over them. `type`,
-`trait`, `effect` and `import` refuse, at the MACRO's own line rather
-than at an invocation, because a template kind is a property of the
-macro. Two of those four are refusals by decision rather than by
-schedule: an `import` inside a template would reopen module
-resolution, which has already run when declaration expansion starts,
-and a nested `macro` would reopen the fixpoint that expands it.
+generate `fn`, `::`, `data`, `struct`, `type`, `effect` and `impl`
+declarations, further macro invocations, and a `syntax/for` over
+them. An `import` template and a nested `macro` refuse, at the
+MACRO's own line rather than at an invocation, because a template
+kind is a property of the macro. Both are refusals by DECISION
+rather than by schedule: an `import` inside a template would reopen
+module resolution, which has already run when declaration expansion
+starts, and a nested `macro` would reopen the fixpoint that expands
+it. A `trait` template does not reach this code at all - a trait
+declaration inside a template is AX2003, from the parser.
+
+This paragraph named `type`, `trait`, `effect` and `import` as the
+four refusals until 2026-08-16. `type` and `effect` became template
+kinds on 2026-08-15 and this list was not swept - which the sentence
+after it gave away, naming a nested `macro` as one of "those four".
 
 ### explain AX3022
 AX3022 - a macro parameter used as a `set` target was given an expression
@@ -669,12 +676,26 @@ The grammar is small on purpose:
   }}       a literal `}`
 
 A hole holds a bare name and nothing else. There are no positional
-holes (`{}`, `{0}`) and no argument list, because a macro takes a
-fixed number of arguments and repetition patterns do not exist yet
-(docs/macro-system.md MAC-LANG-15..18); capture is the form the
-language has. There are no format specifiers (`{x:>8}`, `{x:.2}`)
-either - build the padded or rounded string with `fmtPadLeft`,
-`fmtFloatPrec` or `fmtHex` and interpolate that.
+holes (`{}`, `{0}`) and no argument list: capture is the form the
+language has. A variadic `println` is buildable since a rule may
+repeat (docs/macro-system.md MAC-LANG-16, 2026-08-16) and is
+unbuilt; this paragraph said repetition did not exist until then.
+
+A hole MAY carry a specifier, and the compiler picks the `Fmt` call
+at expansion time rather than leaving it to you:
+
+  {n:x}      (fmtHex n)
+  {x:.2}     (fmtFloatPrec x 2)
+  {n:>8}     (fmtPadLeft (show n) 8)
+  {s:<12}    (fmtPadRight (show s) 12)
+  {s:^12}    (fmtPadCenter (show s) 12)
+  {n:04}     (fmtPadZerosLeft (show n) 4)
+  {x:>10.2}  (fmtPadLeft (fmtFloatPrec x 2) 10)
+
+This paragraph said there were no specifiers and told you to build
+the padded or rounded string by hand with `fmtPadLeft`,
+`fmtFloatPrec` or `fmtHex` - the calls the specifier now emits for
+you. It said so until 2026-08-16, a day after they shipped.
 
 A hole whose name is not in scope is AX3001, and one whose type
 has no `Show` instance is AX3025; neither is this code. This code

@@ -57,13 +57,21 @@
 ; meant two things depending on the caller's module (50 against 6,
 ; `tests/selfhost/364-macro-definition-site.ax`).
 ;
-; That covers a macro defined in a MODULE, and not one defined in the
-; entry file, because the mechanism is the mangled name
-; `resolveImports` already assigns to an imported declaration and an
-; entry-file declaration keeps its bare one. The residue is a loud
-; refusal rather than a wrong answer - AX3004 `expected function type`
-; where a local shadowed the template's name - and `docs/macros.md`
-; section 3 is where the boundary is written down.
+; That covers a macro defined in a MODULE, because its mechanism is
+; the mangled name `resolveImports` already assigns to an imported
+; declaration, and an entry-file declaration keeps its bare one. An
+; entry-file macro is covered by a SECOND mechanism since 2026-08-16:
+; `substTpl` stamps a template's free identifiers, and both resolvers
+; - `checkVar`, and `emitVar` through `dispatchCall` - skip the local
+; scope for a stamped reference, because a macro is a top-level
+; declaration and its template's free identifiers therefore had no
+; enclosing local scope where they were written
+; (`tests/selfhost/394-macro-entry-capture.ax`, 130). This paragraph
+; called the entry-file residue "a loud refusal rather than a wrong
+; answer - AX3004 `expected function type`" until then, and it was a
+; SILENT wrong answer: the `AX3004` came from an arity mismatch in the
+; probe, not from the capture. `docs/macros.md` section 3 carries both
+; halves.
 ;
 ; SHADOWING. A macro name no longer outranks every binder in the
 ; program. `(macro (v) 9) (fn (f v) v)` used to answer 9, because

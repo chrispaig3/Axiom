@@ -2279,7 +2279,11 @@
 ; in principle, but in-place instantiation needs a first declaration
 ; to stand where the invocation stood, so v1 demands at least one.
 ; `((name p ...) decl ...)` repeated. Answers a Vec of rules, each a
-; two-slot Vec of (parameter names, template declarations). At least
+; FIVE-slot Vec of (parameter names, template declarations, pattern
+; nodes, source spellings, per-element repeat flags). This said
+; "two-slot" until 2026-08-16 - true of the shape the rule form
+; shipped with, and left standing through both widenings, the pattern
+; slots and then the ellipsis flag. At least
 ; one rule is required; a rule whose pattern head is not the macro's
 ; own name stops the list, which is what makes a malformed second rule
 ; a refusal rather than a silent truncation - the caller then demands
@@ -2307,9 +2311,13 @@
                                   (three (memGetWord paramsR 1)))
                               {
                                 ; Slots 0 and 1 are the wire format the
-                                ; expander has always read; 2 and 3 are
-                                ; appended, so every reader that stops
-                                ; at 1 is untouched by construction.
+                                ; expander has always read; 2, 3 and 4
+                                ; are appended, so every reader that
+                                ; stops at 1 is untouched by
+                                ; construction. (Two of them were
+                                ; appended for patterns and the fifth
+                                ; for the ellipsis, which is why the
+                                ; rule is appending and not widening.)
                                 (vecPush rule (vecGet three 1))
                                 (vecPush rule (memGetWord tplR 1))
                                 (vecPush rule (vecGet three 0))
@@ -2339,10 +2347,13 @@
                 }))
           (pErr pos))))
 
-; The RULE form of a macro declaration (MAC-LANG-14's spelling, one
-; rule only today):
+; The RULE form of a macro declaration (MAC-LANG-14's spelling). One
+; rule only until 2026-08-15; a LIST of rules since, and since
+; 2026-08-16 each rule's parameters are PATTERNS tried in rule order
+; rather than counted:
 ;
-;   (macro name ((name p1 .. pn) decl1 decl2 ...))
+;   (macro name ((name p1 .. pn) decl1 decl2 ...)
+;               ((name q1 .. qm) decl1 ...))
 ;
 ; One token of lookahead splits the two forms: `(macro (` is the
 ; head-list (expression) form, `(macro <ident>` a rule. The pattern

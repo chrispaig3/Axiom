@@ -35,10 +35,17 @@
 ;   32  a THIRD arity picks the third rule, so selection is by count
 ;       and not by first-or-last
 ;
-; What refuses, pinned in tests/diagnostics/585: two rules of one
-; arity (unreachable by construction), and an invocation whose arity
-; matches no rule - which names every arity the macro offers rather
-; than only the first rule's.
+; What refuses, pinned in tests/diagnostics/585: an earlier
+; ALL-BINDER rule that starves every later rule of its arity -
+; `AX3033`, and 585's two rules are unreachable by construction - and
+; an invocation matching no rule. Both clauses moved on 2026-08-16.
+; This paragraph read "two rules of one arity (unreachable by
+; construction)", which stopped being the rule when patterns landed:
+; two rules of one arity are fine when their shapes differ, and
+; `392-macro-patterns.ax` is three of them. And the no-match
+; diagnostic named every ARITY the macro offers while arity was the
+; selector; it names every SHAPE now - `it accepts (spread T) or
+; (spread T a b)`.
 ;
 ; The unfixed compiler refuses this file at the second rule's own
 ; paren with `AX2003 syntax error`, exit 1: there was no loop, so the

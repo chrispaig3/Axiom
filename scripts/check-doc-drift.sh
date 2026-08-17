@@ -17,7 +17,9 @@
 #   1  THE DIAGNOSTIC REGISTRY, BOTH WAYS. Every code with a
 #      construction site outside explain.ax is listed by
 #      `explain --list`, and every listed code has a construction site.
-#      It is 39/39 today. `check-tools-selfhost.sh` already checks
+#      It is 47/47 today; this line said 39/39 until 2026-08-16, and
+#      it is the kind of number this gate exists to stop anyone
+#      writing by hand. `check-tools-selfhost.sh` already checks
 #      emitted -> listed, which is weaker in the direction that
 #      matters: a code CONSTRUCTED but never reached by a corpus
 #      fixture escapes it, and AX4001 sat in the table with no
@@ -88,8 +90,8 @@ constructed="$(sed 's/;.*$//' self_host/*.ax | grep -ohE '"AX[0-9]{4}"' | tr -d 
 listed="$("$axc" explain --list 2>/dev/null | grep -oE 'AX[0-9]{4}' | sort -u)"
 nc="$(printf '%s\n' "$constructed" | grep -c .)"
 nl="$(printf '%s\n' "$listed" | grep -c .)"
-if (( nc < 35 )); then
-  echo "FAIL: only $nc constructed codes found; the floor is 35 (the grep stopped matching)"
+if (( nc < 45 )); then
+  echo "FAIL: only $nc constructed codes found; the floor is 45 (47 today; the grep stopped matching)"
   failed=$((failed+1))
 fi
 orphan="$(comm -23 <(printf '%s\n' "$constructed") <(printf '%s\n' "$listed") | tr '\n' ' ')"
@@ -177,8 +179,8 @@ for doc in ("README.md", "docs/reference.md", "CONTRIBUTING.md",
     # it drift. Caught on this gate's first run.
     named |= set(re.findall(r"tests/[\w./-]+\.(?:axbad|axp|ax|py|sh|out|golden)(?![\w])",
                             open(doc, encoding="utf-8").read()))
-if len(named) < 40:
-    print(f"FAIL paths: only {len(named)} tests/ paths named across the docs; floor is 40")
+if len(named) < 185:
+    print(f"FAIL paths: only {len(named)} tests/ paths named across the docs; floor is 185")
     bad += 1
 missing = sorted(p for p in named if not os.path.exists(p))
 if missing:
@@ -230,8 +232,8 @@ for placeholder in ("tests/diagnostics/NAME.human",
                     "tests/stdlib/NAME.out",
                     "tests/selfhost/x.ax"):
     src_named.pop(placeholder, None)
-if len(src_named) < 20:
-    print(f"FAIL paths: only {len(src_named)} tests/ paths named across the sources; floor is 20")
+if len(src_named) < 64:
+    print(f"FAIL paths: only {len(src_named)} tests/ paths named across the sources; floor is 64")
     bad += 1
 src_missing = sorted((p, fs) for p, fs in src_named.items() if not os.path.exists(p))
 if src_missing:
@@ -280,8 +282,8 @@ for root, dirs, files in os.walk("."):
             continue
         for p in bare_pat.findall(text):
             bare_named.setdefault(p, []).append(path)
-if len(bare_named) < 60:
-    print(f"FAIL paths: only {len(bare_named)} bare fixture names found; floor is 60")
+if len(bare_named) < 82:
+    print(f"FAIL paths: only {len(bare_named)} bare fixture names found; floor is 82")
     bad += 1
 bare_missing = sorted((p, fs) for p, fs in bare_named.items() if p not in tests_index)
 if bare_missing:

@@ -11,19 +11,23 @@
 # WHAT IT PINS NOW.  The Rust compiler is gone, and a differential does
 # not fail when its reference disappears: point the same variable at a
 # self-hosted binary and every comparison becomes a compiler against
-# itself - 52 cases swept, zero differences, exit 0, nothing tested.
+# itself - measured 2026-08-08 at the 52 cases of that day: swept,
+# zero differences, exit 0, nothing tested.
 # That is the failure this repository names most often, so the arm was
 # removed rather than repointed. What remains is
 #
 #   1. golden == the compiler built from self_host/, byte for byte, for
-#      all 52 cases. The goldens are checked in, so a change in the
+#      every case. The goldens are checked in, so a change in the
 #      compiler's output arrives as a diff to a file in the repository.
 #   2. tests/diagnostics/verify-axdl-spans.py: every span every golden
 #      claims, checked against THE FIXTURE'S OWN BYTES - the line must
 #      exist, the 1-based CHARACTER columns must lie inside it, and a
-#      span may not begin or end in the middle of an identifier. 109
-#      claims over the corpus today, 87 of them additionally anchored
-#      (the source slice spells exactly the name the message quotes).
+#      span may not begin or end in the middle of an identifier.
+#      (The gate prints the counts it reached, and the verifier's own
+#      floors are re-derived against them; both said 52 cases and 109
+#      claims until 2026-08-16, when the corpus had reached 126 and
+#      418. A number written into a header ages; the printed one does
+#      not, which is why this paragraph no longer carries one.)
 #   3. The per-case exit status, against an invariant read off the
 #      golden's own severity column rather than off a second compiler:
 #      a golden carrying an `E` line means the run must fail, a golden
@@ -83,8 +87,11 @@
 #     and empty == empty is agreement by silence. Every golden must be
 #     non-empty and carry at least one AXDL line, every fixture must
 #     have a golden and every golden a fixture, and the corpus must
-#     carry at least 15 distinct codes: a corpus that says one thing
-#     proves one thing.
+#     carry a floor of distinct codes - a corpus that says one thing
+#     proves one thing. That floor lives with the other three in
+#     `verify-axdl-spans.py`, which is where it is re-derived; this
+#     line said "at least 15" while the number there was 24 and then
+#     40, so it now names the owner rather than the value.
 #
 #   * False positives on the compiler's own source. A checker that
 #     rejects self_host/, stdlib/ or the stdlib test corpus is worse
@@ -313,7 +320,7 @@ fi
 # The compiler's own source must produce no diagnostics at all. This is
 # the constraint that decides whether a check is shippable: a false
 # positive here does not merely annoy, it stops the compiler compiling
-# itself. It is also this gate's positive control - 165 files the
+# itself. It is also this gate's positive control - 256 files the
 # compiler must ACCEPT, which is what stops the refusal cases below
 # being satisfied by a compiler that refuses everything.
 echo
@@ -426,10 +433,17 @@ else
   echo "ok   severity: every code not in $policy renders as an error ($(printf '%s\n' "$warn_ok" | grep -c .) permitted warning code(s))"
 fi
 
-# Floors PER TREE, not one total. A single total of 100 against ~165
-# files only notices the loss of tests/selfhost/, which is the largest
-# tree; losing all of stdlib/ or all of self_host/ left the total above
-# the floor and the sweep reported the silence it was looking for.
+# Floors PER TREE, not one total. A single total only notices the loss
+# of tests/selfhost/, which is the largest tree; losing all of stdlib/
+# or all of self_host/ left the total above the floor and the sweep
+# reported the silence it was looking for.
+#
+# Re-derived 2026-08-16 against 21/18/56/161 = 256 files. They were
+# 15/10/30/80 = 135, set against a corpus of 165, and they stayed put
+# while the corpus grew half again - so tests/selfhost/ could have lost
+# HALF its files and still cleared 80. A floor is only a floor while it
+# is near the number it guards; re-derive these when the printed count
+# has pulled ahead.
 sweep_floor() {
   local label="$1" want="$2" got
   got="$(printf '%s\n' $3 | grep -c . || true)"
@@ -438,14 +452,14 @@ sweep_floor() {
     failed=$((failed + 1))
   fi
 }
-sweep_floor "self_host/"      15 "$(ls self_host/*.ax 2>/dev/null)"
-sweep_floor "stdlib/"         10 "$(ls stdlib/*.ax stdlib/Sys/*.ax 2>/dev/null)"
-sweep_floor "tests/stdlib/"   30 "$(ls tests/stdlib/*.ax 2>/dev/null)"
-sweep_floor "tests/selfhost/" 80 "$(ls tests/selfhost/*.ax 2>/dev/null)"
+sweep_floor "self_host/"      19 "$(ls self_host/*.ax 2>/dev/null)"
+sweep_floor "stdlib/"         16 "$(ls stdlib/*.ax stdlib/Sys/*.ax 2>/dev/null)"
+sweep_floor "tests/stdlib/"   52 "$(ls tests/stdlib/*.ax 2>/dev/null)"
+sweep_floor "tests/selfhost/" 150 "$(ls tests/selfhost/*.ax 2>/dev/null)"
 
-# A floor well under the current 165 refuses outright.
-if [[ "$swept" -lt 100 ]]; then
-  echo "FAIL sweep read only $swept files (expected ~165): a tree is missing from the globs"
+# A floor just under the current 256 refuses outright.
+if [[ "$swept" -lt 240 ]]; then
+  echo "FAIL sweep read only $swept files (expected ~256): a tree is missing from the globs"
   failed=$((failed + 1))
 elif [[ "$selfclean" == 0 ]]; then
   echo "ok   all $swept files across those four trees are clean"
@@ -559,8 +573,8 @@ fi
 # debugging aid and is expected to read one case.
 # ---------------------------------------------------------------
 if [[ -z "$filter" ]]; then
-  if (( cases < 54 )); then
-    echo "FAIL: only $cases corpus cases ran (expected ~56) - the glob stopped matching"
+  if (( cases < 120 )); then
+    echo "FAIL: only $cases corpus cases ran (expected ~126) - the glob stopped matching"
     failed=$((failed + 1))
   fi
   # An exit-status column of all one value distinguishes nothing: it
@@ -573,8 +587,8 @@ if [[ -z "$filter" ]]; then
   # The colourless assertion is made per case and counted, so that it
   # cannot evaporate the way a check wired to a glob that stopped
   # matching does.
-  if (( colorless < 54 )); then
-    echo "FAIL: only $colorless run(s) were checked for ANSI escapes (expected ~56)"
+  if (( colorless < 120 )); then
+    echo "FAIL: only $colorless run(s) were checked for ANSI escapes (expected ~126)"
     failed=$((failed + 1))
   fi
 fi

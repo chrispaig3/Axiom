@@ -1328,12 +1328,12 @@ fi
 # for). Same for the derived halves: if the AXDL parse ever stops
 # producing facts, every per-case assertion becomes vacuously true and
 # the gate goes green while checking one `cmp` per case.
-if [[ "$cases" -lt 54 ]]; then
-  echo "FAIL: swept $cases cases; the floor is 54"
+if [[ "$cases" -lt 120 ]]; then
+  echo "FAIL: swept $cases cases; the floor is 120"
   failed=$((failed + 1))
 fi
-if [[ "$rows" -lt 100 ]]; then
-  echo "FAIL: only $rows snippet rows were checked against fixture bytes; the floor is 100"
+if [[ "$rows" -lt 385 ]]; then
+  echo "FAIL: only $rows snippet rows were checked against fixture bytes; the floor is 385"
   failed=$((failed + 1))
 fi
 
@@ -1356,44 +1356,45 @@ floor_fail() {
   echo "FAIL: only $2 $1 assertions were made; the floor is $3 - that family stopped matching, which is not the same as nothing being wrong"
   failed=$((failed + 1))
 }
-[[ "$f_block"  -lt 215 ]] && floor_fail "block-shape and severity-count" "$f_block"  215
-[[ "$f_head"   -lt  86 ]] && floor_fail "heading-equality"               "$f_head"    86
-[[ "$f_loc"    -lt  86 ]] && floor_fail "location-equality"              "$f_loc"     86
-[[ "$f_msg"    -lt  78 ]] && floor_fail "help/related-text equality"     "$f_msg"     78
-[[ "$f_caret"  -lt 176 ]] && floor_fail "caret-row equality and count"   "$f_caret"  176
-[[ "$f_dash"   -lt 100 ]] && floor_fail "dash-row equality and count"    "$f_dash"   100
-[[ "$f_gutter" -lt 100 ]] && floor_fail "snippet-gutter"                 "$f_gutter" 100
+[[ "$f_block"  -lt 480 ]] && floor_fail "block-shape and severity-count" "$f_block"  480
+[[ "$f_head"   -lt 215 ]] && floor_fail "heading-equality"               "$f_head"   215
+[[ "$f_loc"    -lt 360 ]] && floor_fail "location-equality"              "$f_loc"    360
+[[ "$f_msg"    -lt 205 ]] && floor_fail "help/related-text equality"     "$f_msg"    205
+[[ "$f_caret"  -lt 575 ]] && floor_fail "caret-row equality and count"   "$f_caret"  575
+[[ "$f_dash"   -lt 240 ]] && floor_fail "dash-row equality and count"    "$f_dash"   240
+[[ "$f_gutter" -lt 385 ]] && floor_fail "snippet-gutter"                 "$f_gutter" 385
 
-# Three families whose AXDL field no diagnostic emits yet. Their floors
-# are 0 BECAUSE the corpus produces none of them, which is a fact worth
-# writing down rather than an omission: each is raised by the step that
-# starts emitting the field, and a floor still sitting at 0 afterwards is
-# the signal that the renderer and the gate went out of step.
-# Notes: AX3013 explains why a partial application cannot be held, and
-# AX2005 why the nesting limit exists. `&` expansion frames HAVE a
-# producer since 2026-08-14 - expansion joins frames onto the checker's
-# diagnostics (MAC-DIAG-4) - and 490-expansion-backtrace's three frames
-# count into this floor through the traceloc arm above;
-# tests/selfhost/645 still pins the bare form's bytes.
-[[ "$f_note"  -lt 4 ]] && floor_fail "note-line equality"                "$f_note"     4
+# The note family. This paragraph used to open "three families whose
+# AXDL field no diagnostic emits yet ... their floors are 0", and it
+# was already out of date when the floor was 4: notes have producers
+# (AX3013 explains why a partial application cannot be held, AX2005 why
+# the nesting limit exists), and `&` expansion frames have had one
+# since 2026-08-14, when expansion began joining frames onto the
+# checker's diagnostics (MAC-DIAG-4) - 490-expansion-backtrace's frames
+# count in through the traceloc arm above, and tests/selfhost/645 still
+# pins the bare form's bytes. 86 today against a floor of 4, which is
+# the shape the rest of this block was in: a floor set when the family
+# was empty, and never raised by the step that filled it. That was the
+# failure this paragraph predicted, in the file that predicted it.
+[[ "$f_note"  -lt 80 ]] && floor_fail "note-line equality"               "$f_note"    80
 
 # Labels, on every diagnostic that has something to say the heading does
-# not. 72 today. The four that would only have repeated their own
+# not. 146 today. The four that would only have repeated their own
 # heading carry none, so this is not one per diagnostic and never will
 # be - see the note in parser.ax's parseErrDiag.
-[[ "$f_label" -lt 70 ]] && floor_fail "primary-label equality"           "$f_label"   70
+[[ "$f_label" -lt 138 ]] && floor_fail "primary-label equality"          "$f_label"  138
 
-# The escape family, 3087 today. This floor is the one that refuses a
+# The escape family, 10881 today. This floor is the one that refuses a
 # renderer which QUIETLY STOPPED COLOURING: every equality in checks 3
 # and 4 passes against colourless output, because they strip colour
 # before comparing, and a re-bless would make check 1 pass too. Only a
 # count can tell "no colour was emitted" from "no colour was wrong".
-[[ "$f_esc"   -lt 2900 ]] && floor_fail "escape-stream"                  "$f_esc"   2900
+[[ "$f_esc"   -lt 10300 ]] && floor_fail "escape-stream"                 "$f_esc"  10300
 
 # The machine-applicable replacements. stage0 stored these and printed
 # none of them: ariadne read only a help's message, so `~>` reached AXDL
 # and no human ever saw it.
-[[ "$f_fix"   -lt 7 ]] && floor_fail "fix-replacement equality"          "$f_fix"      7
+[[ "$f_fix"   -lt 10 ]] && floor_fail "fix-replacement equality"         "$f_fix"     10
 
 # The status derivation has to DISTINGUISH something. A corpus in which
 # every case wants the same status is satisfied by a `check` that always

@@ -33,13 +33,18 @@
 ; answer is its exit status, and the status is one byte - an earlier
 ; draft of this file totalled 322 and reported 66.
 ;
-; The boundary this does NOT cross, recorded because it is real: the
-; same protection does not reach a macro defined in the ENTRY file.
-; `resolveImports` mangles an imported declaration's name to
-; `Mod$name`, and that mangled name is what a template's free
-; identifier resolves to; an entry-file declaration is left bare, so
-; there is no distinct name to resolve to and a local can still capture
-; it. See docs/macros.md section 3.
+; The boundary this did NOT cross, closed on 2026-08-16 and kept here
+; because the reasoning is what explains the shape: THIS file's
+; protection is a NAME. `resolveImports` mangles an imported
+; declaration's name to `Mod$name`, and that mangled name is what a
+; module template's free identifier resolves to; an entry-file
+; declaration is left bare, so there was no distinct name to resolve
+; to and a local captured it - silently, then as `AX3032`, now
+; retired. It resolves by a second route instead of by a name: a macro
+; is a top-level declaration, so `substTpl` stamps every template free
+; identifier and both resolvers skip the local scope for a stamped
+; reference. `tests/selfhost/394-macro-entry-capture.ax` (130)
+; measures it. See docs/macros.md section 3.
 (import MacScope)
 
 (:: helper (-> Int Int))
