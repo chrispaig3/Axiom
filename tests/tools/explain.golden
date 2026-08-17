@@ -189,14 +189,66 @@ context (a function parameter, `if` branch, `let` binding, etc.).
 ### explain AX3005
 AX3005 - non-exhaustive pattern match
 
-A `match` expression does not cover every possible constructor/value of
-the scrutinee's type. Add the missing arms or a wildcard `_` arm.
+A `match` or a `cond` has no answer for some value it may be given, so
+control reaches the merge block having computed nothing and the form
+yields its result cell's zeroed contents: 0, at exit 0,
+indistinguishable from a real answer (docs/memory-model.md MM-VAL-9b).
+At `Int` that is a wrong number; at `String`, a struct or a `data` type
+it is a null address and the first read of it is a crash.
+
+Three conditions raise it.
+
+MISSING CONSTRUCTORS. The scrutinee's type is a known `data` and some
+of its constructors have no arm. The message names them. Add the
+missing arms, or a wildcard `_`.
+
+The type is read from the scrutinee when the checker can name it and
+otherwise from the CONSTRUCTORS THE ARMS THEMSELVES USE, which is what
+keeps this working over a scrutinee whose static type is not
+nameable - a `vecGet` result, a lambda parameter, an effect
+operation's answer.
+
+NOTHING KNOWN TO COVER. No arm is known to cover the scrutinee and no
+arm binds unconditionally. `true`/`false` arms are an exhaustiveness
+argument only over a `Bool`; over anything else they are two value
+tests like any other.
+
+A `COND` WITH NO `ELSE`, at a type where the fall-through value is not
+real. An `else`-less `cond` answers the integer 0 - literally: the
+clauses are folded around it - which is a value at `Int`, at `Bool`
+(where it is `false`) and at the unit tuple, and a null at every other
+type. Add an `(else ...)` clause. A final clause whose test is the
+literal `true` counts as one.
+
+The checker does not evaluate predicates, so a `cond` whose tests
+happen to cover the domain still needs the `else` written; that is the
+spelling that makes the totality visible to both of you.
+
+The code and its `non-exhaustive-match` slug cover `cond` as well as
+`match` deliberately rather than being split. The property is the same
+one - the form can fall through - and one explanation covering both is
+honest where a second number would only record that `cond` was written
+later. The slug is narrower than the condition it now carries, which is
+the cost of keeping a stable code, and AX3018 made the same trade.
 
 ### explain AX3006
 AX3006 - duplicate definition
 
-The same name is defined more than once at the same scope. Rename one
-of the definitions or remove the duplicate.
+The same name is bound more than once at the same scope. Rename one of
+them or remove the duplicate.
+
+It also covers two PARAMETERS of one function sharing a name.
+Parameters are bound in order, so a reference resolves to the last and
+the earlier one is unreachable - its argument is evaluated and then
+discarded. Worse, code generation names an LLVM register after each
+parameter, so two of a name emit the same register and no LLVM tool
+will accept the module; that used to surface as `AX4003 opt failed`
+against `<toolchain>`, with no span into your file.
+
+`_` is NOT exempt here, unlike the macro-parameter rule (AX3020). A
+macro pattern's `_` binds nothing, so several are free; a function
+parameter always binds a register whatever it is called, so a second
+`_` collides exactly as a second `x` does. Write `(fn (f _a _b) 0)`.
 
 ### explain AX3007
 AX3007 - field not found
@@ -209,6 +261,28 @@ AX3008 - semantic error
 
 A semantic rule was violated in a way that doesn't fit a more specific
 diagnostic code; see the message for details.
+
+The one worth naming here is a BARE CONSTRUCTOR IN A PATTERN. A
+constructor pattern is always parenthesised, including a nullary one;
+a bare identifier in pattern position is a BINDER, which matches
+everything and binds the scrutinee to that name. So
+
+    (match o
+      (None 0)
+      ((Some x) x))
+
+binds `o` to a variable called `None` and takes the first arm for
+every value, including `(Some 42)`. It is well-typed, it covers no
+constructor so exhaustiveness is satisfied by the catch-all, and
+nothing else objects - a silent wrong answer, which is the outcome
+this compiler refuses on sight.
+
+Write `((None) 0)`. The diagnostic carries a machine-applicable fix
+that does exactly that rewrite, and it is safe to apply without
+reading: both spellings are patterns the grammar accepts.
+
+An ordinary binder is unaffected - the test is whether the spelling
+resolves to a constructor, not what case it is written in.
 
 ### explain AX3009
 AX3009 - constructor arity mismatch
