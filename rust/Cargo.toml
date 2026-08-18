@@ -17,6 +17,7 @@ members = [
     "axiom-ffi",
     "axiom-bindgen",
     "examples/demo",
+    "examples/leaky",
 ]
 
 [workspace.package]

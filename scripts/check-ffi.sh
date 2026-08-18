@@ -113,6 +113,10 @@ for crate_dir in rust/examples/*/; do
   crate="$(basename "$crate_dir")"
   manifest="$crate_dir/axiom-allow.txt"
   [[ -f "$manifest" ]] || continue
+  # `leaky` is the negative probe and is expected to FAIL; sweeping it
+  # here would report its designed failure as a gate failure. It is
+  # probed at the end, where the failure is the passing outcome.
+  [[ "$crate" == "leaky" ]] && continue
 
   # `examples/nostd` is its own workspace (cargo unifies features across
   # members, and std's `panic_impl` collides with its `#[panic_handler]`),
@@ -277,6 +281,69 @@ elif ! grep -q 'AX2004' <<< "$probe_out"; then
   status=1
 else
   echo "ok   negative probe: \`foreign\` is still refused as a removed construct (AX2004)"
+fi
+
+# 5. P4 - THE ALLOWLIST CAN GO RED.
+#
+#    Every tier above asserts that a program's imports are a SUBSET of
+#    what its manifest permits, and a subset relation is also satisfied
+#    by an empty import set, a `nm` that answers nothing, and a manifest
+#    that permits everything. `rust/examples/leaky` calls
+#    `std::env::var` - dragging in `getenv` - against a manifest that
+#    deliberately lists nothing, so the comparison MUST produce
+#    unpermitted symbols. The failure is the passing outcome.
+leaky_dir="rust/examples/leaky"
+if [[ -d "$leaky_dir" ]]; then
+  if ( cd rust && cargo build --release -q -p axiom-leaky ) 2>/dev/null; then
+    leaky_exe="$work/leaky-probe"
+    if AXIOM_PATH="$repo_root/$leaky_dir/axiom" \
+       "$axiom" build --input tests/ffi/probe-leaky/010-uses-env.ax --output "$leaky_exe" \
+       --link-lib axiom_leaky --link-search rust/target/release >/dev/null 2>&1; then
+      leaky_permitted="$(grep -vE '^\s*(#|$)' "$leaky_dir/axiom-allow.txt" | tr -d ' \t' | sort -u || true)"
+      leaky_bad="$(comm -23 <(symbols_of "$leaky_exe") <(printf '%s\n' "$leaky_permitted" | grep . || true) || true)"
+      if [[ -n "$leaky_bad" ]]; then
+        echo "ok   negative probe: the allowlist goes RED on a crate that leaks ($(printf '%s\n' "$leaky_bad" | grep -c .) unpermitted)"
+      else
+        echo "FAIL negative probe: the leaky crate imported nothing unpermitted"
+        echo "     every tier above is passing vacuously"
+        status=1
+      fi
+    else
+      echo "FAIL negative probe: could not build the leaky probe"
+      status=1
+    fi
+  else
+    echo "FAIL negative probe: could not build rust/examples/leaky"
+    status=1
+  fi
+fi
+
+# 6. P5 - AN UNGROUNDED SYMBOL IS REFUSED BEFORE THE TOOLCHAIN.
+#
+#    This is the probe that tells the FFI apart from the `foreign` it
+#    replaced. `foreign` emitted a call to an undeclared symbol, passed
+#    `check`, and died two stages later inside `opt`. So this requires
+#    AX4004 AND requires the strings `opt:` and `AX4003` to be ABSENT:
+#    a refusal arriving from the native toolchain is the old bug wearing
+#    a new name, and only their absence tells the two apart.
+ung="tests/ffi/probe-ungrounded/020-missing-symbol.axbad"
+if [[ -f "$ung" ]]; then
+  if ung_out="$("$axiom" --diagnostic-format=ai build --input "$ung" --output "$work/ung" \
+                 --link-lib axiom_demo --link-search rust/target/release 2>&1)"; then
+    echo "FAIL negative probe: an extern naming a symbol nothing defines still BUILT"
+    status=1
+  elif ! grep -q 'AX4004' <<< "$ung_out"; then
+    echo "FAIL negative probe: the ungrounded symbol was refused, but not as AX4004"
+    printf '%s\n' "$ung_out" | sed 's/^/    /' | head -3
+    status=1
+  elif grep -qE 'opt:|AX4003' <<< "$ung_out"; then
+    echo "FAIL negative probe: the refusal came from the TOOLCHAIN, not the compiler"
+    echo "     that is the \`foreign\` bug wearing a new name"
+    printf '%s\n' "$ung_out" | sed 's/^/    /' | head -3
+    status=1
+  else
+    echo "ok   negative probe: an ungrounded symbol is AX4004, before opt or cc runs"
+  fi
 fi
 
 exit "$status"

@@ -1,0 +1,7 @@
+(import Mem)
+
+(pub :: peek (-> Foreign Int))
+(pub fn (peek h) (memGetWord h 0))
+
+(pub :: main Int)
+(pub fn (main) 0)

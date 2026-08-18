@@ -100,3 +100,62 @@ pub fn sum3(a: i64, b: i64, c: i64) -> i64 {
 pub fn sum5(a: i64, b: i64, c: i64, d: i64, e: i64) -> i64 {
     a.wrapping_add(b).wrapping_add(c).wrapping_add(d).wrapping_add(e)
 }
+
+// 8. The retain/release protocol.
+//
+// Rust may not keep an Axiom heap value beyond the shim that received
+// it: the borrow is the call, ARC may release the block the moment it
+// returns, and an arena reset may reclaim it wholesale. A shim that
+// wants to keep one takes a share with `axiom_retain` and pairs it with
+// `axiom_release` — both have external linkage in every emitted module.
+//
+// The slot is an `AtomicI64` and NOT for thread-safety: MM-PAR-1 says
+// Axiom has no threads at all, and all allocator state is
+// process-private (invariant I11), so a plain global would be sound.
+// It is atomic because `static mut` is being removed from Rust, and a
+// Relaxed load on a word costs nothing.
+use core::sync::atomic::{AtomicI64, Ordering};
+
+static KEPT: AtomicI64 = AtomicI64::new(0);
+
+/// Retain an Axiom value and stash it. Answers its byte length, so the
+/// caller has something to compare against later.
+///
+/// # Safety
+/// `s` must be a live Axiom `String` word.
+#[no_mangle]
+pub unsafe extern "C" fn axffi_str_keep(s: axiom_ffi::AxWord) -> i64 {
+    axiom_ffi::axiom_retain(s);
+    KEPT.store(s, Ordering::Relaxed);
+    axiom_ffi::AxStr::from_raw(s).len() as i64
+}
+
+/// Read the stashed value back. Answers -1 when nothing is held.
+///
+/// This is the call that would read freed memory without the retain
+/// above, which is why the fixture compares its answer rather than
+/// merely checking that it returned.
+///
+/// # Safety
+/// Valid only between a `keep` and its paired `drop`.
+#[no_mangle]
+pub unsafe extern "C" fn axffi_str_recall() -> i64 {
+    let w = KEPT.load(Ordering::Relaxed);
+    if w == 0 {
+        return -1;
+    }
+    axiom_ffi::AxStr::from_raw(w).len() as i64
+}
+
+/// Release the share taken by `keep`. Pairs 1:1 with it.
+///
+/// # Safety
+/// Must not be called twice for one `keep`.
+#[no_mangle]
+pub unsafe extern "C" fn axffi_str_drop() -> i64 {
+    let w = KEPT.swap(0, Ordering::Relaxed);
+    if w != 0 {
+        axiom_ffi::axiom_release(w);
+    }
+    0
+}

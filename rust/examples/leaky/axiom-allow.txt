@@ -1,0 +1,12 @@
+# DELIBERATELY INCOMPLETE. Do not "fix" this file.
+#
+# This crate calls `std::env::var`, so the linked executable imports
+# `getenv` among many others. Nothing is listed here, so
+# `scripts/check-ffi.sh`'s allowlist check MUST fail for every program
+# bound to this crate - and the gate asserts that failure rather than
+# reporting it.
+#
+# It is the negative probe for the one claim the rest of the FFI corpus
+# cannot make about itself: that the manifest comparison is computed
+# from real artifacts and can go red. A gate that has only ever been
+# seen green is a gate nobody has checked.

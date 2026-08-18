@@ -1,0 +1,14 @@
+; `.axbad` because it must NOT compile. An `extern` naming a symbol no
+; archive defines is AX4004, refused before `opt` or `cc` runs.
+;
+; This is the probe that tells the FFI apart from the `foreign` it
+; replaced. `foreign` emitted a call to an undeclared symbol, passed
+; `check`, and died two stages later inside `opt` with a message about
+; generated code. The gate requires AX4004 AND requires the strings
+; `opt:` and `AX4003` to be absent: a refusal arriving from the native
+; toolchain is the old bug wearing a new name.
+(pub extern "axiom_demo"
+  (noSuchThing :: (-> Int Int) (symbol "axffi_no_such_thing")))
+
+(pub :: main Int)
+(pub fn (main) (noSuchThing 1))

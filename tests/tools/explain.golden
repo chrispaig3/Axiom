@@ -51,6 +51,7 @@
   [93mAX4001[0m  no `main` function  (missing-main)
   [93mAX4002[0m  code generation failed  (codegen-failure)
   [93mAX4003[0m  external toolchain command failed  (toolchain-failure)
+  [93mAX4004[0m  an `extern` names a symbol no archive defines  (ungrounded-symbol)
   [93mAX5001[0m  cannot resolve import  (module-not-found)
 ### explain AX1001
 AX1001 - unexpected character
@@ -838,6 +839,35 @@ executable. This error means one of those external commands could not
 be run or exited unsuccessfully; check that LLVM (`llc`) and a C
 compiler (`cc`) are installed and on your `PATH`.
 
+### explain AX4004
+AX4004 - an `extern` names a symbol no archive defines
+
+An `extern` item binds a linker symbol, and the build checks - before
+writing a byte or spawning a tool - that some archive on the link line
+could define it. This error means none can.
+
+Usually the `(symbol "...")` clause is a typo, or the archive that
+defines it is not on the line: pass it with `--link-lib NAME` and
+`--link-search DIR`, where DIR holds `libNAME.a`.
+
+This is refused HERE, and that is the whole point. The removed
+`foreign` construct emitted a call to a symbol its module never
+declared, so a program using one passed `check` and then died inside
+`opt` or the linker, with a message about generated code and no span
+into the source. An `extern` naming a symbol that does not exist is the
+same defect, and refusing it at the compiler rather than at the
+toolchain is the difference between a diagnostic and a link error about
+a file you never wrote.
+
+What the check proves is one-directional: the name appears nowhere in
+any archive on the link line, so nothing there can define it. It does
+not claim the converse - a name that does appear might be a string
+constant rather than a definition - because a false rejection would
+break a correct build, while the case that actually happens is a typo.
+
+It is a `build` diagnostic and cannot fire under `check`, which has no
+link line to consult.
+
 ### explain AX5001
 AX5001 - cannot resolve import
 
@@ -927,6 +957,7 @@ run `axiom explain --list` to see all known codes
   [93mAX4001[0m  no `main` function  (missing-main)
   [93mAX4002[0m  code generation failed  (codegen-failure)
   [93mAX4003[0m  external toolchain command failed  (toolchain-failure)
+  [93mAX4004[0m  an `extern` names a symbol no archive defines  (ungrounded-symbol)
   [93mAX5001[0m  cannot resolve import  (module-not-found)
 
 Usage: axiom explain <CODE>

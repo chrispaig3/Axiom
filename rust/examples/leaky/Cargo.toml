@@ -1,0 +1,18 @@
+# A crate that deliberately imports MORE than its manifest permits.
+#
+# Its whole job is to make `check-ffi.sh` go RED. Everything else in
+# tests/ffi/ asserts a set relation, and a set relation is also
+# satisfied by an empty corpus, a broken `nm`, and a manifest that
+# permits everything. This crate is what proves the relation is being
+# computed at all.
+[package]
+name = "axiom-leaky"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[lib]
+crate-type = ["staticlib"]
+
+[dependencies]
+axiom-ffi = { path = "../../axiom-ffi" }

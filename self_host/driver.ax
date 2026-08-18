@@ -256,6 +256,174 @@
                                   "a C compiler drives the link step; put `cc` on PATH")
                     0))))))))
 
+; ------------------------------------------------------------------
+; GROUNDING: every `declare` the module writes must name a symbol that
+; some archive on the link line could define.
+;
+; This is the FFI's central claim, made mechanical. `foreign` emitted
+; `call i64 @putchar(...)` into a module that declared no `@putchar`;
+; `check` answered OK and the program died two stages later inside
+; `opt`, with a message about generated code and no span into the
+; source (docs/self-hosting.md 9.1). An `extern` naming a symbol that
+; does not exist is the same defect, and this refuses it BEFORE the
+; toolchain runs - which is the whole difference between a compiler
+; diagnostic and a linker error about a file the user never wrote.
+;
+; What it proves, precisely: the name appears nowhere in any archive on
+; the link line, so nothing there can define it. The converse is
+; weaker - a name that DOES appear might be a string constant rather
+; than a definition - so this refuses ABSENCE and never manufactures
+; presence. That asymmetry is the right one: a false rejection would
+; break a correct build, and the case that actually happens is a typo,
+; which is absence.
+;
+; The declares are read out of the IR the driver already holds, not
+; passed down from codegen. That is deliberate: it checks exactly the
+; text that is about to be assembled, so a declare the emitter writes
+; by some path this file does not know about is still covered.
+; ------------------------------------------------------------------
+(pub :: buildFailDiag (-> String String String String Int))
+;@axiom:effect(io)
+(pub fn (buildFailDiag code slug msg help)
+  (let ((d (mkDiag SEV_ERROR code slug 0 msg 0 0 help))
+        (ds vecNew)
+        (units vecNew))
+    {
+      (vecPush ds d)
+      (vecPush units (cast Int (CUnit2 "<link>" "" (cast String 0))))
+      (let ((out (renderDiagsFormat diagFormatFromArgv ds units)))
+        (sysWriteFd 2 (strData out) (strLen out)))
+      exitToolFailed
+    }))
+
+; The first index at or after `from` where `needle` occurs in `hay`, or
+; -1. Anchored on the first byte so the common case is one scan.
+(pub :: strFindSub (-> String String Int Int))
+(pub fn (strFindSub hay needle from)
+  (if (== (strLen needle) 0)
+      from
+      (let ((i (strFindByte hay (strByte needle 0) from)))
+        (if (< i 0)
+            (- 0 1)
+            (if (subMatchesAt hay needle i 0)
+                i
+                (strFindSub hay needle (+ i 1)))))))
+
+(pub :: subMatchesAt (-> String String Int Int Bool))
+(pub fn (subMatchesAt hay needle at k)
+  (if (>= k (strLen needle))
+      true
+      (if (>= (+ at k) (strLen hay))
+          false
+          (if (== (strByte hay (+ at k)) (strByte needle k))
+              (subMatchesAt hay needle at (+ k 1))
+              false))))
+
+; `-L<dir>` and `-l<name>` back into `<dir>/lib<name>.a` paths, every
+; directory crossed with every library, because the link line does not
+; say which archive lives where and neither does this.
+(pub :: archivePathsOf (-> Int Int))
+(pub fn (archivePathsOf linkArgs)
+  (let ((dirs vecNew) (libs vecNew) (out vecNew) (mut i 0))
+    {
+      (if (== linkArgs 0)
+          0
+          (while (< i (vecLen linkArgs))
+            {
+              (let ((a (cast String (vecGet linkArgs i))))
+                (if (strStartsWith a "-L")
+                    (vecPush dirs (cast Int (strSlice a 2 (- (strLen a) 2))))
+                    (if (strStartsWith a "-l")
+                        (vecPush libs (cast Int (strSlice a 2 (- (strLen a) 2))))
+                        0)))
+              (set i (+ i 1))
+            }))
+      (let ((mut d 0))
+        (while (< d (vecLen dirs))
+          {
+            (let ((mut l 0))
+              (while (< l (vecLen libs))
+                {
+                  (vecPush out (cast Int
+                    (cat2 (cat3 (cast String (vecGet dirs d)) "/lib"
+                                (cast String (vecGet libs l))) ".a")))
+                  (set l (+ l 1))
+                }))
+            (set d (+ d 1))
+          }))
+      out
+    }))
+
+; Read every archive once. A path that does not exist reads empty and
+; simply grounds nothing, which lets `cc` produce its own error about
+; the missing file rather than this pass inventing one.
+(pub :: readArchives (-> Int Int))
+;@axiom:effect(io)
+(pub fn (readArchives paths)
+  (let ((out vecNew) (mut i 0))
+    {
+      (while (< i (vecLen paths))
+        {
+          (vecPush out (cast Int (sysReadFile (strCStr (cast String (vecGet paths i))))))
+          (set i (+ i 1))
+        })
+      out
+    }))
+
+(pub :: symbolGrounded (-> Int String Int Bool))
+(pub fn (symbolGrounded blobs name i)
+  (if (>= i (vecLen blobs))
+      false
+      (if (>= (strFindSub (cast String (vecGet blobs i)) name 0) 0)
+          true
+          (symbolGrounded blobs name (+ i 1)))))
+
+; The name in each `declare i64 @NAME(` line of the IR.
+(pub :: declareNamesOf (-> String Int))
+(pub fn (declareNamesOf ir)
+  (let ((out vecNew) (mut at 0))
+    {
+      (while (>= at 0)
+        (let ((d (strFindSub ir "\ndeclare " at)))
+          (if (< d 0)
+              (set at (- 0 1))
+              (let ((sym (strFindByte ir 64 d)))
+                (if (< sym 0)
+                    (set at (- 0 1))
+                    (let ((open (strFindByte ir 40 sym)))
+                      (if (< open 0)
+                          (set at (- 0 1))
+                          {
+                            (vecPush out (cast Int
+                              (strSlice ir (+ sym 1) (- open (+ sym 1)))))
+                            (set at open)
+                          })))))))
+      out
+    }))
+
+; 0 when every declare is grounded; otherwise the build's exit code,
+; having reported the FIRST ungrounded symbol.
+(pub :: groundDeclares (-> String Int Int))
+;@axiom:effect(io)
+(pub fn (groundDeclares ir linkArgs)
+  (let ((names (declareNamesOf ir)))
+    (if (== (vecLen names) 0)
+        0
+        (let ((blobs (readArchives (archivePathsOf linkArgs))))
+          (groundEach names blobs 0)))))
+
+(pub :: groundEach (-> Int Int Int Int))
+;@axiom:effect(io)
+(pub fn (groundEach names blobs i)
+  (if (>= i (vecLen names))
+      0
+      (let ((n (cast String (vecGet names i))))
+        (if (symbolGrounded blobs n 0)
+            (groundEach names blobs (+ i 1))
+            (buildFailDiag "AX4004" "ungrounded-symbol"
+              (cat3 "no archive on the link line defines `" n "`")
+              "check the `(symbol \"...\")` clause against the crate, and check that `--link-lib`/`--link-search` name the archive defining it; this is refused here rather than in `opt` or `cc` because a linker error about generated code cannot point at the declaration that caused it")))))
+
 ; Write `ir` beside `outPath`, drive the toolchain, and clean up.
 ;
 ; Intermediates are removed on the FAILURE paths too, which is stage0's
@@ -268,6 +436,12 @@
 (pub :: buildToExecutable (-> String String Int Int Int Int))
 ;@axiom:effect(io)
 (pub fn (buildToExecutable ir outPath optLevel keepLl linkArgs)
+  ; Grounding FIRST, before a byte is written or a tool is spawned: an
+  ; ungrounded symbol is a defect in the program, and reporting it after
+  ; `opt` has already refused the module reports the wrong thing.
+  (let ((ug (groundDeclares ir linkArgs)))
+   (if (!= ug 0)
+    ug
   (let ((llPath (cat2 outPath ".ll"))
         (objPath (cat2 outPath ".o"))
         (optPath (cat2 outPath ".opt.ll")))
@@ -287,7 +461,7 @@
                   (if (!= (strCmp toAssemble llPath) 0) (sysUnlink (strCStr optPath)) 0)
                   (if (== keepLl 0) (sysUnlink (strCStr llPath)) 0)
                   rc
-                }))))))
+                }))))))))
 
 
 (pub :: writeStderrStr (-> String Int))

@@ -1,0 +1,1 @@
+E AX3004 720-foreign-arena-primitive.ax:4:30-31 type-mismatch "type mismatch: expected Int, found Foreign" #"this has type `Foreign`, expected `Int`"

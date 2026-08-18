@@ -1,0 +1,1 @@
+{"severity":"error","code":"AX3004","slug":"type-mismatch","message":"type mismatch: expected Int, found Foreign","file":"720-foreign-arena-primitive.ax","span":{"start":{"line":4,"col":30},"end":{"line":4,"col":31},"char_start":74,"char_end":75},"label":"this has type `Foreign`, expected `Int`","related":[],"notes":[],"help":[],"expansion":[]}
