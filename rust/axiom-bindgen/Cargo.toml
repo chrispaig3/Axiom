@@ -1,0 +1,14 @@
+[package]
+name = "axiom-bindgen"
+description = "Read a crate's #[axiom_export] surface and emit the matching Axiom `extern` module."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "axiom-bindgen"
+path = "src/main.rs"
+
+[dependencies]
+syn = { workspace = true }
+proc-macro2 = { workspace = true }

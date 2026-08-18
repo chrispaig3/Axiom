@@ -1,0 +1,27 @@
+; The tier that matters most: an FFI program that is STILL freestanding.
+;
+; `rust/examples/nostd` is `#![no_std]`, its `alloc` is wired to
+; `axiom_alloc`, and it defines the seven memory intrinsics the
+; precompiled sysroot `alloc` rlib would otherwise import. Measured,
+; an Axiom executable linked against it has an EMPTY `nm -u` - the same
+; answer a program with no `extern` at all gives.
+;
+; Its `axiom-allow.txt` therefore permits NOTHING, and an empty
+; allowlist is the strongest statement `check-ffi.sh` can make: the FFI
+; is in use and `MM-FFI-1`'s property is intact anyway.
+;
+; The value is checked against an independent implementation rather
+; than merely printed, so a wrong byte-slice layout fails here instead
+; of looking like a hash.
+(import IO)
+(import Fmt)
+
+(pub extern "axiom_nostd"
+  (fnv1a :: (-> String Int) (symbol "axffi_fnv1a")))
+
+;@axiom:effect(io)
+(pub fn (main)
+  (if (== (fnv1a "axiom") 7929549642058804759)
+      { (println "fnv1a: agree") 0 }
+      { (println (fmtInt (fnv1a "axiom"))) 1 }))
+; expect 0

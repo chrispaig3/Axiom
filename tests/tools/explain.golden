@@ -1,7 +1,7 @@
 # axiom explain, every code and every spelling.
 # AX1001-AX5001 were materialized from the Rust compiler at commit 1041f11 on
 # 2026-08-08; AX3018-AX3025 (macro expansion, module visibility, limits, traits)
-# postdate it and originate in self_host/explain.ax. The list COLOUR is RECONSTRUCTED, not captured.
+# postdate it and originate in self_host/explain.ax. The list COLOUR is RECONSTRUCTED, not captured. AX2004 was REWRITTEN on 2026-08-18 when the `extern` FFI landed: its captured text said generated code links no C library, which stopped being true for a program that binds a std Rust crate. It is the one code in the AX1001-AX5001 range that is no longer the 2026-08-08 byte.
 ### explain --list
 [1;96mKnown Axiom diagnostic codes:[0m
   [93mAX1001[0m  unexpected character  (unexpected-char)
@@ -122,12 +122,24 @@ meaning under linear typing, where every value has exactly one owner and
 one type. Use `data` for a tagged sum, whose variants the compiler can
 check for exhaustiveness, or `struct` for a product.
 
-`foreign` is gone for the same reason, and because it never worked: a
-binding emitted a call to a symbol the module never declared, so a
-program that used one passed `check` and then died inside `opt` or the
-linker. Generated code links no C library. Reach the kernel through
-the standard library, which is written in Axiom over
-`__syscall0`-`__syscall6`.
+`foreign` is gone because it never worked: a binding emitted a call to
+a symbol the module never declared, so a program that used one passed
+`check` and then died inside `opt` or the linker.
+
+It is NOT the FFI under a new name, and the FFI is not a revival of it.
+Axiom binds Rust through an `extern` BLOCK:
+
+  (pub extern "axiom_demo"
+    (add :: (-> Int Int Int) (symbol "axffi_add")))
+
+built with `--link-lib` and `--link-search`. The emitter writes a
+`declare` for each item, which is the entire difference. See
+`docs/ffi.md`.
+
+A program that declares no `extern` still links no C library at all,
+and so does one bound to a `no_std` Rust crate - measured, `nm -u` on
+both is empty. Reaching the kernel needs no FFI either: the standard
+library is written in Axiom over `__syscall0`-`__syscall6`.
 
 `region` is gone because memory is no longer scoped by an explicit
 source-level block. Allocation lifetime is inferred: a value's arena is

@@ -159,6 +159,23 @@
 ; inherits it - and phase D refuses it (AX3028) and re-tags it inert,
 ; because the checker walks whatever the parse produced.
 (pub :: TAG_D_SYNFOR Int) (pub fn (TAG_D_SYNFOR) 52)
+; An `(extern "lib" (name :: Type (symbol "s")) ...)` binding block -
+; the Rust FFI's declaration form (docs/ffi.md). 53 because 29 was
+; TAG_D_FOREIGN and stays retired: the tag numbers are the AST's wire
+; format between this file and its four readers, and a recycled one
+; turns a stale reader into a silent misparse rather than a crash.
+;
+; `foreign` itself is untouched and still reports AX2004. The two are
+; not the same construct wearing different names - `foreign` named one
+; symbol and emitted a call the module never declared, which is why it
+; never linked; `extern` names a block and emits a `declare` for each
+; item in it.
+;
+; a = library name, b = Vec of item NAME strings (the shape existing
+; readers index, exactly as TAG_D_EFFECT's ops vector is), c = Vec of
+; TAG_FIELD nodes carrying name + declared type + linker symbol,
+; span = the library-name token.
+(pub :: TAG_D_EXTERN Int) (pub fn (TAG_D_EXTERN) 53)
 ; A `cond` form, kept structural rather than desugared at parse time:
 ; stage0's checker treats `cond` unlike nested `if` (clause bodies are
 ; never joined against each other; only a real `else` is compared, and
@@ -583,8 +600,9 @@
       (strConcat "`union` was removed: C interoperability is no longer a goal, "
                  "and an untagged union has no meaning under linear types")
   (if (strEq kw "foreign")
-      (strConcat "`foreign` was removed: C interoperability is no longer a goal, "
-                 "and generated code links no C library to call into")
+      (strConcat (strConcat "`foreign` was removed because it never worked: it emitted a call "
+                            "to a symbol the module never declared, so a program using one ")
+                 "passed `check` and died in `opt`. The FFI is the `extern` block")
   (if (strEq kw "deriving")
       (strConcat "`deriving` was refused rather than implemented: the clause parsed and was silently discarded - "
                  "no instance was ever derived from it, and a clause that does nothing is worse than one that does not parse")
@@ -596,8 +614,10 @@
       (strConcat "use `data` for a tagged sum whose variants the compiler can check "
                  "for exhaustiveness, or `struct` for a product of fields")
   (if (strEq kw "foreign")
-      (strConcat "use the standard library, which reaches the kernel through "
-                 "`__syscall0`-`__syscall6` rather than through libc")
+      (strConcat (strConcat "write an `extern` block instead - `(extern \"lib\" (name :: "
+                            "(-> Int Int) (symbol \"sym\")))` - and build with ")
+                 (strConcat "`--link-lib`/`--link-search`; or reach the kernel through the "
+                            "standard library's `__syscall0`-`__syscall6`, which needs no FFI"))
   (if (strEq kw "deriving")
       (strConcat "derive instances explicitly, where you want them: "
                  "`(deriveEq T)` is an ordinary declaration macro (docs/macro-system.md MAC-CAP-9)")
@@ -1137,6 +1157,15 @@
   ; nested iteration's interior, the `pub` recursion above, and a
   ; stray top-level occurrence - which phase D refuses rather than
   ; resolving as a macro named syntax/for.
+  ; `extern` - the Rust FFI binding block (docs/ffi.md). The hook sits
+  ; here for the same reason `impl` and `syntax/for` do: an identifier
+  ; head that reaches the fallthrough below becomes a declaration-macro
+  ; invocation, and the refusal then stops naming the construct.
+  ;
+  ; Cost, stated: a program that today defines a declaration MACRO
+  ; named `extern` changes meaning. None exists in this tree.
+  (if (kwEq name "extern")
+      (parseExternDecl tokens (advance pos))
   (if (kwEq name "syntax/for")
       (parseDeclFor tokens pos)
   ; Any OTHER identifier head is a DECLARATION MACRO INVOCATION
@@ -1151,7 +1180,7 @@
   ; Operator-charactered heads (`+` is a lexical identifier here)
   ; take this path too and refuse in phase D, since none can name a
   ; macro a declaration position accepts.
-  (parseMacroCall tokens pos)))))))))))))))
+  (parseMacroCall tokens pos))))))))))))))))
   (pErr pos))))
 
 ; An iteration's BINDING FORM, parsed as one expression: `(x xs)` is
@@ -1278,6 +1307,109 @@
                           (parseEffectOps tokens (memGetWord r 2) ops opFields)))
                   })))
           (pErr pos))))
+
+; ------------------------------------------------------------------
+; `(extern "lib" (name :: Type (symbol "s")) ...)`
+;
+; The item shape is deliberately byte-for-byte `parseEffectOps`':
+; `(` ident, `::` and a type, then a clause tail `skipParens` owns.
+; `(effect Console (log :: (-> String Int)))` is the only other
+; declaration in the language whose body is A LIST OF TYPED CALLABLES,
+; and an extern block is the same thing with a linker behind it
+; instead of a handler.
+;
+; The BLOCK is the unit rather than the individual binding, for two
+; reasons that are not style. MM-FFI-5's fourth requirement is a gate
+; that ENUMERATES permitted external symbols, and the block is what it
+; enumerates. And carrying the type INLINE avoids a measured trap: a
+; detached `(:: name Type)` beside the binding would draw a false
+; AX3015 on every single item, because `defIdxBuild` indexes only
+; TAG_D_FN nodes with `nodeVis == 1`.
+; ------------------------------------------------------------------
+(pub :: parseExternDecl (-> Int Int Int))
+(pub fn (parseExternDecl tokens pos)
+  (if (peekIs tokens pos TK_STRING)
+      (let ((libTok (vecGet tokens pos)))
+        (let ((lib (strUnquoteLit (tokenLexeme libTok)))
+              (names vecNew)
+              (items vecNew))
+          (let ((r (parseExternItems tokens (advance pos) names items)))
+            (if (== (memGetWord r 0) 0)
+                r
+                (pOk (mkNodeAt TAG_D_EXTERN lib names items (tokenSpan libTok))
+                     (memGetWord r 2))))))
+      (pErrExp pos "a library name in quotes")))
+
+; One item per `(`; the closing paren of the BLOCK ends the list.
+(pub :: parseExternItems (-> Int Int Int Int Int))
+(pub fn (parseExternItems tokens pos names items)
+  (if (peekIs tokens pos TK_RPAREN)
+      (pOk 0 (advance pos))
+      (if (peekIs tokens pos TK_LPAREN)
+          (let ((nr (parseIdentName tokens (advance pos))))
+            (if (== (memGetWord nr 0) 0)
+                nr
+                (let ((tr (if (peekIs tokens (memGetWord nr 2) TK_DOUBLE_COLON)
+                              (parseType tokens (advance (memGetWord nr 2)))
+                              (pOk 0 (memGetWord nr 2)))))
+                  (let ((tyNode (if (== (memGetWord tr 0) 0) 0 (memGetWord tr 1)))
+                        ; A type that would not parse leaves 0 in the
+                        ; field and the clause scan starts where the
+                        ; type began, exactly as parseEffectOps does:
+                        ; acceptance is unchanged and only the reader
+                        ; is the poorer.
+                        (afterTy (if (== (memGetWord tr 0) 0)
+                                     (memGetWord nr 2)
+                                     (memGetWord tr 2))))
+                    {
+                      (vecPush names (memGetWord nr 1))
+                      (vecPush items
+                        (mkNodeAt TAG_FIELD (memGetWord nr 1) tyNode
+                                  (externSymbolOf tokens afterTy (memGetWord nr 1))
+                                  (tokenSpan (vecGet tokens (advance pos)))))
+                      (let ((r (skipParens tokens (memGetWord nr 2) 1)))
+                        (if (== (memGetWord r 0) 0)
+                            r
+                            (parseExternItems tokens (memGetWord r 2) names items)))
+                    }))))
+          (pErr pos))))
+
+; The `(symbol "s")` clause, or the item's own name when it is absent.
+;
+; Scanned from AFTER the type, never from the item's opening paren: a
+; type like `(-> Int Int)` carries its own parens, and a scan that
+; began earlier would stop at the type's closing one.
+;
+; Defaulting to the Axiom name is a documented footgun - a static link
+; is one flat namespace, so two blocks that each bind a `parse` and
+; omit the clause dedup to one `declare` and pick a link-time winner
+; with no diagnostic anywhere. `axiom-bindgen` therefore always writes
+; the clause explicitly; a hand-written block may omit it and is on
+; its own.
+(pub :: externSymbolOf (-> Int Int String String))
+(pub fn (externSymbolOf tokens pos dflt)
+  (if (peekIs tokens pos TK_RPAREN)
+      dflt
+      (if (&& (peekIs tokens pos TK_LPAREN)
+              (&& (peekIs tokens (advance pos) TK_IDENT)
+                  (&& (kwEq (tokenLexeme (vecGet tokens (advance pos))) "symbol")
+                      (peekIs tokens (advance (advance pos)) TK_STRING))))
+          (strUnquoteLit (tokenLexeme (vecGet tokens (advance (advance pos)))))
+          (externSymbolOf tokens (advance pos) dflt))))
+
+; A string literal's lexeme keeps its quotes: `emitToken` slices from
+; the opening quote inclusive (lexer.ax:143-145). A library or linker
+; symbol name has no use for escapes, so this strips the quotes and
+; nothing else - a backslash inside one survives and simply fails to
+; resolve at link time, which is a better failure than a symbol that
+; was silently rewritten.
+(pub :: strUnquoteLit (-> String String))
+(pub fn (strUnquoteLit s)
+  (if (< (strLen s) 2)
+      s
+      (if (== (strByte s 0) 34)
+          (strSlice s 1 (- (strLen s) 2))
+          s)))
 
 ; `(type Name [tyvars] = Type)`. The name span, the tyvars, and the
 ; target's STRUCTURE all survive - `symbols` renders the target in the

@@ -525,7 +525,7 @@ If you're unsure about how something works or where to make a change, open an is
 | begin blocks | **Removed** | Replaced by `{ }` brace blocks and implicit sequencing |
 | brace blocks | **Complete** | Modern sequencing, returns last value |
 | fn keyword | **Complete** | Modern alias for `define` |
-| FFI | **Removed** | `foreign` emitted a call to a symbol the module never declared, so it never linked. `foreign` stays reserved and reports `AX2004` |
+| FFI | **Functional** | The `extern` block binds Rust through the C ABI; the emitter writes a `declare` and the driver takes `--link-lib`/`--link-search` (`docs/ffi.md`). `foreign` stays reserved at `AX2004` - it emitted a call to a symbol the module never declared, so it never linked, and it is not this feature renamed. A `no_std` Rust crate keeps `nm -u` empty; a `std` one does not, and `scripts/check-ffi.sh` prices the difference against a per-crate `axiom-allow.txt` |
 | Standard library | **Functional** | `Pre`, `Mem`, `Str`, `Vec`, `Map`, `Fmt`, `Intern`, `Sys`, `IO`, written in Axiom over syscall primitives |
 | Syscalls | **Complete** | `__syscall0`-`__syscall6` on Darwin and Linux, x86-64 and AArch64 |
 | Allocation | **Functional, unbounded** | `mmap`-backed bump allocator; no `free`. The chosen end state is reference counting — [docs/memory-model.md](docs/memory-model.md) |

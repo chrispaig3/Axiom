@@ -3191,6 +3191,75 @@
             (fpP p ")")
           }))))
 
+; `(extern "lib" (name :: Type (symbol "s")) ...)` - the Rust FFI
+; binding block (docs/ffi.md).
+;
+; Printed on the model of `fpDeclEffect` directly above, because the
+; two forms are the same shape: a header followed by a list of typed
+; callables, one per line, indented once.
+;
+; This arm and a zoo case land together, deliberately.
+; `check-fmt.sh`'s own header records what happens otherwise - `type`,
+; `trait`, `impl` and `foreign` were all formatted into source that did
+; not parse, with CI green, because the zoo carries only what someone
+; wrote into it. An unformattable `.ax` in the tree is the OTHER half
+; of that failure and is what this arm was written to fix: the gate
+; sweeps every `.ax` in the repository, so a generated binding module
+; is judged the moment it exists.
+(pub :: fpDeclExtern (-> Int Int Int))
+(pub fn (fpDeclExtern p n)
+  (let ((src (fpSrc p)) (o (fpOut p)) (b (fpDeclBase src n)))
+    ; The library name is an ATOM (a string literal); anything else is
+    ; not this form and is refused rather than half-printed.
+    (if (|| (< (fnLen n) (+ b 2)) (!= (fnKind (fnKid n (+ b 1))) FN_ATOM))
+        (fpBad p)
+        (let ((mut i (+ b 2)))
+          {
+            (fpP p "(")
+            (fpVis p n)
+            (fpP p "extern ")
+            (fpP p (fnText src (fnKid n (+ b 1))))
+            (if (< i (fnLen n)) (foPushIndent o) o)
+            (let ((had (< i (fnLen n))))
+              {
+                (while (< i (fnLen n))
+                  (let ((it (fnKid n i)))
+                    (if (|| (!= (fnKind it) FN_PAREN)
+                            (|| (< (fnLen it) 3)
+                                (|| (if (fpIsIdentAtom (fnKid it 0)) false true)
+                                    (if (fpIsDColonAtom (fnKid it 1)) false true))))
+                        { (fpBad p) (set i (fnLen n)) }
+                        {
+                          (fpP p "\n")
+                          (foEmitIndent o)
+                          (fpP p "(")
+                          (fpP p (fnText src (fnKid it 0)))
+                          (fpP p " :: ")
+                          (fpType p (fnKid it 2))
+                          ; The clause tail - `(symbol "s")` and any
+                          ; future sibling - printed through the
+                          ; expression printer, which is what the
+                          ; declaration-macro arm already does for a
+                          ; call-shaped form.
+                          (fpExternClauses p it 3)
+                          (fpP p ")")
+                          (set i (+ i 1))
+                        })))
+                (if had (foPopIndent o) o)
+              })
+            (fpP p ")")
+          }))))
+
+(pub :: fpExternClauses (-> Int Int Int Int))
+(pub fn (fpExternClauses p it j)
+  (if (>= j (fnLen it))
+      0
+      {
+        (fpP p " ")
+        (fpExpr p (fnKid it j))
+        (fpExternClauses p it (+ j 1))
+      }))
+
 (pub :: fpDeclEffect (-> Int Int Int))
 (pub fn (fpDeclEffect p n)
   (let ((src (fpSrc p)) (o (fpOut p)) (b (fpDeclBase src n)))
@@ -3306,6 +3375,7 @@
     (if (strEq h "trait") (fpDeclTrait p n)
     (if (strEq h "impl") (fpDeclImpl p n)
     (if (strEq h "effect") (fpDeclEffect p n)
+    (if (strEq h "extern") (fpDeclExtern p n)
     (if (strEq h "macro") (fpDeclMacro p n)
     ; Any other head is a DECLARATION MACRO INVOCATION (the parser's
     ; TAG_D_MACROCALL since 2026-08-14), printed through the
@@ -3314,7 +3384,7 @@
     ; used to be `fpBad`, so every file using the feature was
     ; unformattable with the least informative refusal in the
     ; toolchain.
-    (fpExpr p n))))))))))))))
+    (fpExpr p n)))))))))))))))
 
 ; An AXTAG line, reconstructed the way stage0's parser splits it: the
 ; key up to the first `(`, the value to the LAST `)`. Text outside

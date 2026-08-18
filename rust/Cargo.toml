@@ -1,0 +1,38 @@
+# The Axiom <-> Rust FFI support workspace.
+#
+# Nothing in this directory is needed to BUILD the Axiom compiler.
+# `scripts/bootstrap-from-seed.sh` still goes from `bootstrap/*.ll`
+# through `llc` and `cc` with no Rust toolchain anywhere, which is the
+# property that lets a checkout with no cargo still produce a compiler.
+# Cargo is required only to run the FFI gates and to build a crate a
+# program actually binds.
+[workspace]
+resolver = "2"
+# `examples/nostd` is deliberately NOT a member: see its Cargo.toml.
+exclude = ["examples/nostd"]
+
+members = [
+    "axiom-abi",
+    "axiom-ffi-macros",
+    "axiom-ffi",
+    "axiom-bindgen",
+    "examples/demo",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[workspace.dependencies]
+axiom-abi = { path = "axiom-abi", version = "0.1.0" }
+axiom-ffi-macros = { path = "axiom-ffi-macros", version = "0.1.0" }
+syn = { version = "2", features = ["full", "extra-traits", "parsing", "printing", "visit"] }
+quote = "1"
+proc-macro2 = "1"
+
+[profile.release]
+# Rust `extern "C"` aborts on unwind anyway (1.81+), and Axiom has no
+# landing pads at all - its emitter never writes `invoke`. Saying so
+# explicitly also drops the unwind tables from the archive.
+panic = "abort"

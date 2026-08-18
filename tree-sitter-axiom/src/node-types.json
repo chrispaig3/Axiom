@@ -12,6 +12,10 @@
         "named": true
       },
       {
+        "type": "extern_declaration",
+        "named": true
+      },
+      {
         "type": "function_definition",
         "named": true
       },
@@ -676,6 +680,104 @@
         ]
       },
       "target": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "_type",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "extern_clause",
+    "named": true,
+    "fields": {
+      "key": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "_expression",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "extern_declaration",
+    "named": true,
+    "fields": {
+      "item": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "extern_item",
+            "named": true
+          }
+        ]
+      },
+      "library": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "string_literal",
+            "named": true
+          }
+        ]
+      },
+      "visibility": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "pub",
+            "named": false
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "extern_item",
+    "named": true,
+    "fields": {
+      "clause": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "extern_clause",
+            "named": true
+          }
+        ]
+      },
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "type": {
         "multiple": false,
         "required": true,
         "types": [
@@ -2367,6 +2469,10 @@
   },
   {
     "type": "else",
+    "named": false
+  },
+  {
+    "type": "extern",
     "named": false
   },
   {

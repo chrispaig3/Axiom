@@ -200,11 +200,24 @@
     }))
 
 
+; Copy the caller's already-formatted link arguments (`-L<dir>`,
+; `-l<name>`) onto the `cc` argument vector.
+(pub :: appendLinkArgs (-> Int Int Int Int))
+(pub fn (appendLinkArgs v linkArgs i)
+  (if (== linkArgs 0)
+      0
+      (if (>= i (vecLen linkArgs))
+          0
+          {
+            (vecPush v (vecGet linkArgs i))
+            (appendLinkArgs v linkArgs (+ i 1))
+          })))
+
 ; Assemble `llPath` to `objPath`, then link it to `outPath`.
 ; Answers 0, or `exitToolFailed`.
-(pub :: assembleAndLink (-> String String String Int Int))
+(pub :: assembleAndLink (-> String String String Int Int Int))
 ;@axiom:effect(io)
-(pub fn (assembleAndLink llPath objPath outPath optLevel)
+(pub fn (assembleAndLink llPath objPath outPath optLevel linkArgs)
   (let ((lvl (if (> optLevel 3) 3 (if (< optLevel 0) 0 optLevel))))
     (let ((llcArgs (let ((v vecNew))
                      {
@@ -223,6 +236,16 @@
             (let ((ccArgs (let ((v vecNew))
                             {
                               (vecPush v (cast Int objPath))
+                              ; The FFI's link inputs, in DECLARATION
+                              ; ORDER. `check-reproducible.sh` compares
+                              ; bytes, and an unordered link line would
+                              ; flip them run to run.
+                              ;
+                              ; Before `--link-lib`, this vector was
+                              ; three entries and the language could not
+                              ; name an external symbol, so there was
+                              ; nothing for a `-l` to resolve.
+                              (appendLinkArgs v linkArgs 0)
                               (vecPush v (cast Int "-o"))
                               (vecPush v (cast Int outPath))
                               v
@@ -242,9 +265,9 @@
 ; PRE-`opt` IR - also stage0's choice, and worth knowing before writing
 ; a gate that greps it, since it is the optimiser's input rather than
 ; what llc consumed.
-(pub :: buildToExecutable (-> String String Int Int Int))
+(pub :: buildToExecutable (-> String String Int Int Int Int))
 ;@axiom:effect(io)
-(pub fn (buildToExecutable ir outPath optLevel keepLl)
+(pub fn (buildToExecutable ir outPath optLevel keepLl linkArgs)
   (let ((llPath (cat2 outPath ".ll"))
         (objPath (cat2 outPath ".o"))
         (optPath (cat2 outPath ".opt.ll")))
@@ -258,7 +281,7 @@
                 (toolFailDiag "opt failed"
                               "`opt` is optional - a PATH without it warns and builds - so this is a failure of the one that is installed")
               }
-              (let ((rc (assembleAndLink toAssemble objPath outPath optLevel)))
+              (let ((rc (assembleAndLink toAssemble objPath outPath optLevel linkArgs)))
                 {
                   (sysUnlink (strCStr objPath))
                   (if (!= (strCmp toAssemble llPath) 0) (sysUnlink (strCStr optPath)) 0)
@@ -313,7 +336,7 @@
 (pub :: usageText String)
 (pub fn (usageText)
   (cat3 "axiom - the Axiom compiler, written in Axiom\n\nUSAGE:\n  axiom [OPTIONS] <COMMAND> [ARGS]\n  axiom [OPTIONS] <FILE> [TARGET]   emit LLVM IR to stdout\n\nCOMMANDS:\n  build      compile a source file to an executable\n  check      check syntax and types, emitting no code\n  run        compile a source file and run it, forwarding any further ARGS\n  emit-llvm  print the generated LLVM IR\n  fmt        format a source file in place (--check to only report)\n  explain    describe a diagnostic code (--list for all codes)\n  symbols    list every top-level symbol in AXSYM (--builtins too)\n  repl       start the interactive read-eval-print loop\n  lsp        run the language server on stdin/stdout (JSON-RPC)\n  version    print the version\n  help       print this message, or `help <COMMAND>` for one command\n\n"
-        "OPTIONS:\n  --input <PATH>     input file (build, check, run, emit-llvm; a bare\n                     path also works)\n  --output <PATH>    output file (build, emit-llvm; default `output`)\n  -o <PATH>          short for --output\n  --target <NAME>    darwin-aarch64, darwin-x86_64, linux-aarch64, linux-x86_64\n  --opt <0-3>        optimisation level (build, run; default 1)\n  --emit-llvm        keep the generated .ll beside the executable (build)\n  --check            report whether the file is formatted, do not write (fmt)\n  --builtins         also list the built-in operators (symbols)\n  --list             list every diagnostic code (explain)\n  --no-banner        skip the startup banner (repl)\n  --diagnostic-format <human|ai|json>  how to render diagnostics (default human)\n  -h, --help         print help; accepted anywhere, including after the file\n  -V, --version      print the version; before the command\n  --                 end of options, so a file whose name begins with `-`\n                     can be named at all\n\n"
+        "OPTIONS:\n  --input <PATH>     input file (build, check, run, emit-llvm; a bare\n                     path also works)\n  --output <PATH>    output file (build, emit-llvm; default `output`)\n  -o <PATH>          short for --output\n  --target <NAME>    darwin-aarch64, darwin-x86_64, linux-aarch64, linux-x86_64\n  --opt <0-3>        optimisation level (build, run; default 1)\n  --link-lib <NAME>  link an FFI archive, repeatable (build, run)\n  --link-search <DIR>  where to look for it, repeatable (build, run)\n  --emit-llvm        keep the generated .ll beside the executable (build)\n  --check            report whether the file is formatted, do not write (fmt)\n  --builtins         also list the built-in operators (symbols)\n  --list             list every diagnostic code (explain)\n  --no-banner        skip the startup banner (repl)\n  --diagnostic-format <human|ai|json>  how to render diagnostics (default human)\n  -h, --help         print help; accepted anywhere, including after the file\n  -V, --version      print the version; before the command\n  --                 end of options, so a file whose name begins with `-`\n                     can be named at all\n\n"
         "EXIT CODES:\n  0  success\n  1  the program is wrong: unreadable input, a syntax error, a failing\n     check, no entry point, or an unresolvable import\n  2  the command line is wrong: an unknown command or flag, or a flag\n     given the wrong number of values\n  3  a module could not be read or parsed, or a target name is unknown\n  4  a native tool failed or is missing (llc, cc)\n"))
 
 ; One command's help: its synopsis and the flags it actually reads.
@@ -353,6 +376,50 @@
       usageText)))))))))))
 
 ; The value of `--name` / `--name=value`, or "" when absent.
+; Every `--link-search DIR` and `--link-lib NAME` on the command line,
+; rendered as the `cc` arguments they become.
+;
+; Search paths first as a group, then libraries: `-L` before `-l`
+; matters to some linkers and costs nothing here. Within each group the
+; order is COMMAND-LINE order, because `check-reproducible.sh` compares
+; bytes and an unordered link line would flip them run to run.
+;
+; This is the FFI's only reach into the driver. Before it, `cc` was
+; invoked with exactly three arguments and the language had no way to
+; name an external symbol, so there was nothing for a `-l` to resolve.
+(pub :: linkArgsOf Int)
+(pub fn (linkArgsOf)
+  (let ((v vecNew))
+    {
+      (collectFlagInto v "--link-search" "-L" 1 (sysArgc))
+      (collectFlagInto v "--link-lib" "-l" 1 (sysArgc))
+      v
+    }))
+
+; Both `--flag VALUE` and `--flag=VALUE`, the two spellings
+; `flagValueAt` already accepts, but collecting EVERY occurrence rather
+; than the first: a program may bind more than one library.
+(pub :: collectFlagInto (-> Int String String Int Int Int))
+(pub fn (collectFlagInto v name prefix i n)
+  (if (>= i n)
+      0
+      (let ((a (sysArg i)))
+        (if (strEq a name)
+            (if (< (+ i 1) n)
+                {
+                  (vecPush v (cast Int (cat2 prefix (sysArg (+ i 1)))))
+                  (collectFlagInto v name prefix (+ i 2) n)
+                }
+                0)
+            (let ((eq (cat2 name "=")))
+              (if (strStartsWith a eq)
+                  {
+                    (vecPush v (cast Int (cat2 prefix
+                      (strSlice a (strLen eq) (- (strLen a) (strLen eq))))))
+                    (collectFlagInto v name prefix (+ i 1) n)
+                  }
+                  (collectFlagInto v name prefix (+ i 1) n)))))))
+
 (pub :: flagValue (-> String Int String))
 (pub fn (flagValue name from)
   (flagValueAt name from (sysArgc)))
@@ -411,7 +478,9 @@
       (|| (strEq a "-o")
       (|| (strEq a "--target")
       (|| (strEq a "--opt")
-          (strEq a "--diagnostic-format"))))))
+      (|| (strEq a "--link-lib")
+      (|| (strEq a "--link-search")
+          (strEq a "--diagnostic-format"))))))))
       1
   (if (|| (strEq a "--emit-llvm")
       (|| (strEq a "--check")

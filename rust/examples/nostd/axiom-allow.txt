@@ -1,0 +1,15 @@
+# The `nostd` crate permits NOTHING, and needs nothing.
+#
+# Measured: an Axiom executable linked against this crate has an empty
+# `nm -u`. Rust's `alloc` is wired to `axiom_alloc`, and the seven memory
+# intrinsics the sysroot `alloc` rlib references are defined inside the
+# crate rather than imported from libc.
+#
+# An empty manifest is the strongest statement this gate can make: the
+# FFI is in use, and the freestanding property of `MM-FFI-1` is intact
+# anyway. `check-freestanding.sh`'s blanket ban and `check-ffi.sh`'s
+# allowlist agree on this program.
+#
+# If a line ever appears below, something in the Rust dependency graph
+# started needing libc. That is a review-worthy change, which is the
+# entire point of the file.

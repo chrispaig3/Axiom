@@ -1053,7 +1053,40 @@
         (if (&& (== (nodeTag d) TAG_D_FN)
                 (&& (strEq (nodeA d) name) (== (vecLen (nodeB d)) 0)))
             true
-            (isNullaryFnIn decls name (+ i 1))))))
+        ; A ZERO-ARITY `extern` item is a nullary function too, and
+        ; this is the one place that decides so. Without this arm the
+        ; reference is emitted as a bare `%name` register that no
+        ; instruction defines, and the module dies in `opt` with
+        ; "use of undefined value" - the exact failure shape `foreign`
+        ; had, arriving through a different door.
+        ;
+        ; It matters only for arity 0: every other arity reaches
+        ; `emitPlainCall` through an application node.
+        (if (&& (== (nodeTag d) TAG_D_EXTERN) (externHasNullary (nodeC d) name 0))
+            true
+            (isNullaryFnIn decls name (+ i 1)))))))
+
+; Whether `name` is an item of this block whose declared type is not an
+; arrow - i.e. takes no arguments.
+(pub :: externHasNullary (-> Int String Int Bool))
+(pub fn (externHasNullary items name i)
+  (if (== items 0)
+      false
+      (if (>= i (vecLen items))
+          false
+          (let ((f (vecGet items i)))
+            ; Either spelling: the Axiom name in slot a, or the LINKER
+            ; SYMBOL in slot c. `emitVar` resolves a reference through
+            ; `mangledFor` BEFORE asking, and for an extern that map
+            ; answers the symbol - so a lookup arriving here is holding
+            ; the symbol while the declaration list holds the Axiom
+            ; name. This is the same shape the comment above
+            ; `declSpellingOf` records for `main`, which is why that
+            ; helper exists at all.
+            (if (&& (|| (strEq (nodeA f) name) (strEq (nodeC f) name))
+                    (== (externArity (nodeB f)) 0))
+                true
+                (externHasNullary items name (+ i 1)))))))
 
 ; ------------------------------------------------------------------
 ; Pre-scan declarations: build the type registry.
@@ -1722,9 +1755,30 @@
         (let ((d (vecGet decls i)))
           (if (== (nodeTag d) TAG_D_FN)
               (mangleRecord bares fulls (nodeA d) (nodeA d))
-              0))
+          ; An `extern` item maps its AXIOM name to its LINKER SYMBOL,
+          ; which is what makes the call site need no new code at all:
+          ; `mangledFor` already resolves through these two vectors, so
+          ; `emitPlainCall` emits its usual `call i64 @<sym>(...)` and
+          ; the symbol it names is the Rust one.
+          (if (== (nodeTag d) TAG_D_EXTERN)
+              (recordExternSyms bares fulls (nodeC d) 0)
+              0)))
         (recordEntryFns decls bares fulls (+ i 1))
       }))
+
+(pub :: recordExternSyms (-> Int Int Int Int Int))
+(pub fn (recordExternSyms bares fulls items i)
+  (if (== items 0)
+      0
+      (if (>= i (vecLen items))
+          0
+          {
+            ; a = the Axiom name, c = the `(symbol "s")` clause the
+            ; parser resolved (defaulting to the Axiom name).
+            (let ((f (vecGet items i)))
+              (mangleRecord bares fulls (nodeA f) (nodeC f)))
+            (recordExternSyms bares fulls items (+ i 1))
+          })))
 
 (pub :: resolveImports (-> Int Int Int Int Int String Int Int))
 (pub fn (resolveImports decls bares fulls mods tcode entryDir units)
@@ -2797,9 +2851,90 @@
         ; thing and does NOT work here - measured separately, it left all
         ; 17 in place. Only one of the two is load-bearing and they are
         ; easy to confuse.
-        (renderCG (emitLine (emitEffectGlobals (emitStringGlobals nextCg 0) 0)
+        ; The `declare` lines for every `extern` item, ahead of the
+        ; attribute group they refer to.
+        ;
+        ; This is the entire difference between `extern` and the
+        ; removed `foreign`. `foreign` emitted `call i64 @putchar(...)`
+        ; into a module that declared no `@putchar`; LLVM textual IR
+        ; REQUIRES a declare for an undeclared callee, so `check`
+        ; passed and `opt` then died with "use of undefined value"
+        ; two stages later (docs/self-hosting.md section 9.1).
+        (renderCG (emitLine (emitExternDeclares decls
+                              (emitEffectGlobals (emitStringGlobals nextCg 0) 0)
+                              0 vecNew)
                             "attributes #0 = { \"no-builtins\" }"))
         (emitModuleTail decls nextCg (+ i 1)))))
+
+; ------------------------------------------------------------------
+; `declare i64 @sym(i64, ...)` for every `extern` item in the module.
+;
+; `seen` deduplicates: two Axiom names may bind ONE symbol, and an
+; imported binding module reaches this list once per importer. A
+; repeated `declare` of the same name is an LLVM parse error, not a
+; warning, so the dedup is load-bearing rather than tidy.
+;
+; The `#0` group goes on the declare as well as the define. Without it
+; `opt` is free to reason about a declared name whose signature matches
+; a libc function it knows - which is the whole hazard
+; `check-freestanding.sh` exists to watch.
+; ------------------------------------------------------------------
+(pub :: emitExternDeclares (-> Int Int Int Int Int))
+(pub fn (emitExternDeclares decls cg i seen)
+  (if (>= i (vecLen decls))
+      cg
+      (let ((d (vecGet decls i)))
+        (emitExternDeclares decls
+          (if (== (nodeTag d) TAG_D_EXTERN)
+              (emitExternItems (nodeC d) cg 0 seen)
+              cg)
+          (+ i 1) seen))))
+
+(pub :: emitExternItems (-> Int Int Int Int Int))
+(pub fn (emitExternItems items cg i seen)
+  (if (== items 0)
+      cg
+      (if (>= i (vecLen items))
+          cg
+          (let ((f (vecGet items i)))
+            (let ((sym (nodeC f)))
+              (emitExternItems items
+                (if (== (externSeen seen sym 0) 1)
+                    cg
+                    {
+                      (vecPush seen sym)
+                      (emitLine cg
+                        (cat4 "declare i64 @" (llvmSym (strDup sym))
+                              (cat3 "(" (externParams (externArity (nodeB f)) 0) ")")
+                              " #0"))
+                    })
+                (+ i 1) seen))))))
+
+(pub :: externSeen (-> Int String Int Int))
+(pub fn (externSeen seen sym i)
+  (if (>= i (vecLen seen))
+      0
+      (if (strEq (vecGet seen i) sym) 1 (externSeen seen sym (+ i 1)))))
+
+; The declared arrow's depth. `->` right-folds, so `(-> Int Int Int)`
+; IS `(-> Int (-> Int Int))` and the depth is 2.
+(pub :: externArity (-> Int Int))
+(pub fn (externArity t)
+  (if (== t 0)
+      0
+      (if (== (nodeTag t) TAG_T_ARR)
+          (+ 1 (externArity (nodeB t)))
+          0)))
+
+; `i64, i64` for arity 2; the empty string for arity 0, which is the
+; shape a nullary extern needs - `@f()` and never `@f(i64 )`.
+(pub :: externParams (-> Int Int String))
+(pub fn (externParams n i)
+  (if (>= i n)
+      ""
+      (if (== i (- n 1))
+          "i64"
+          (cat2 "i64, " (externParams n (+ i 1))))))
 
 ; ------------------------------------------------------------------
 ; Declaration emission.

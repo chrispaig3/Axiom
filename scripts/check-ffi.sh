@@ -1,0 +1,247 @@
+#!/usr/bin/env bash
+# Assert that Axiom's FFI opens exactly the door it declares, and no other.
+#
+# This is the gate `docs/memory-model.md` MM-FFI-5 requires: the one that
+# "enumerates permitted external symbols rather than forbidding all of
+# them". It REPLACES check-freestanding.sh's blanket ban for programs
+# that use the FFI, and leaves that ban fully in force for programs that
+# do not.
+#
+# The distinction is the whole point, and it is measurable. The same
+# Axiom program, built two ways on darwin-aarch64:
+#
+#   no FFI                        `nm -u` -> 0 symbols
+#   + a no_std  Rust staticlib    `nm -u` -> 0 symbols
+#   + a std     Rust staticlib    `nm -u` -> 188 symbols, 14 of them on
+#                                 check-freestanding.sh's forbidden list
+#
+# So there are three tiers, not two, and this gate checks all three:
+#
+#   1. A program with no `extern` declaration imports NOTHING. This is
+#      the old contract, unchanged, and it is what makes "the FFI costs
+#      non-users nothing" a checked claim rather than a promise.
+#   2. A program bound to a no_std crate ALSO imports nothing. The
+#      freestanding property survives the FFI when the crate can live in
+#      core+alloc, which is the mode to reach for.
+#   3. A program bound to a std crate imports only what its manifest
+#      permits. Every name outside the manifest is a failure.
+#
+# A gate that has never been seen to fail is a gate nobody has checked,
+# so the negative probes at the end are not optional decoration - they
+# are the reason to believe the three checks above.
+
+set -euo pipefail
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$repo_root"
+
+axiom="${AXIOM:-$repo_root/.axiom-bin/axiom}"
+if [[ ! -x "$axiom" ]]; then
+  echo "no compiler at $axiom - building one from the committed seed" >&2
+  "$repo_root/scripts/bootstrap-from-seed.sh" --install "$repo_root/.axiom-bin" >&2 \
+    || { echo "FAIL: could not bootstrap a compiler from bootstrap/" >&2; exit 1; }
+fi
+export AXIOM_STDLIB="$repo_root/stdlib"
+
+# Cargo is required HERE and nowhere else. `bootstrap-from-seed.sh` still
+# goes from committed LLVM IR through llc and cc with no Rust toolchain,
+# which is what lets a checkout with no cargo still produce a compiler.
+# A machine without cargo skips this gate rather than failing it.
+if ! command -v cargo > /dev/null 2>&1; then
+  echo "skip: cargo not on PATH; the FFI gate needs it to build the Rust side"
+  echo "      (the compiler itself never does - see scripts/bootstrap-from-seed.sh)"
+  exit 0
+fi
+
+work="$(mktemp -d)"
+trap 'rm -rf "$work"' EXIT
+status=0
+
+# The names that are never permitted, whatever a manifest says. A
+# manifest is a statement about what a CRATE needs; it is not a licence
+# to reintroduce a libc dependency through the back door for names Axiom
+# implements itself.
+never_permitted='printf|puts|fopen|fwrite|fread|system|popen|execv|execve|posix_spawn'
+
+symbols_of() {
+  case "$(uname -s)" in
+    Darwin) nm -u "$1" 2>/dev/null | sed 's/^_//' | sort -u ;;
+    *)      nm -D --undefined-only "$1" 2>/dev/null | awk '{print $NF}' | sort -u ;;
+  esac
+}
+
+# ---------------------------------------------------------------
+# Tier 1: a program with no `extern` imports nothing at all.
+#
+# check-freestanding.sh already sweeps tests/stdlib for this. What it
+# cannot say is that adding the FFI to the LANGUAGE left those programs
+# alone, so this re-asserts it against the FFI corpus's own non-FFI
+# cases - the ones most likely to regress if `emitDecl` grew a arm that
+# fires too eagerly.
+# ---------------------------------------------------------------
+tier1=0
+for case_file in tests/ffi/no-extern/*.ax; do
+  [[ -e "$case_file" ]] || break
+  name="$(basename "$case_file" .ax)"
+  exe="$work/t1-$name"
+  if ! "$axiom" build --input "$case_file" --output "$exe" > "$work/t1-$name.log" 2>&1; then
+    echo "FAIL $name: could not build"; sed 's/^/    /' "$work/t1-$name.log" | head -3
+    status=1; continue
+  fi
+  imports="$(symbols_of "$exe")"
+  if [[ -n "$imports" ]]; then
+    echo "FAIL $name: a program with no \`extern\` imports symbols"
+    printf '%s\n' "$imports" | sed 's/^/    /' | head -10
+    status=1; continue
+  fi
+  tier1=$((tier1 + 1))
+done
+echo "ok   $tier1 programs with no \`extern\` import nothing"
+[[ "$tier1" -ge 3 ]] || { echo "FAIL only $tier1 cases reached the no-extern pass"; status=1; }
+
+# ---------------------------------------------------------------
+# Tiers 2 and 3: a program bound to a Rust crate imports only what that
+# crate's manifest permits.
+#
+# The manifest lives beside the crate as `axiom-allow.txt`: one symbol
+# name per line, `#` comments, blank lines ignored. It is checked in, so
+# a crate that starts needing a new libc symbol changes a reviewed file
+# rather than silently widening the boundary.
+# ---------------------------------------------------------------
+for crate_dir in rust/examples/*/; do
+  [[ -d "$crate_dir" ]] || continue
+  crate="$(basename "$crate_dir")"
+  manifest="$crate_dir/axiom-allow.txt"
+  [[ -f "$manifest" ]] || continue
+
+  # `examples/nostd` is its own workspace (cargo unifies features across
+  # members, and std's `panic_impl` collides with its `#[panic_handler]`),
+  # so it is built by manifest path and its artifacts land under its own
+  # target directory.
+  if grep -q '^\[workspace\]' "$crate_dir/Cargo.toml"; then
+    ( cd rust && cargo build --release -q --manifest-path "examples/$crate/Cargo.toml" ) \
+      || { echo "FAIL $crate: cargo build failed"; status=1; continue; }
+    lib="rust/examples/$crate/target/release/libaxiom_${crate//-/_}.a"
+    search="rust/examples/$crate/target/release"
+  else
+    ( cd rust && cargo build --release -q -p "axiom-$crate" ) \
+      || { echo "FAIL $crate: cargo build failed"; status=1; continue; }
+    lib="rust/target/release/libaxiom_${crate//-/_}.a"
+    search="rust/target/release"
+  fi
+  [[ -f "$lib" ]] || { echo "FAIL $crate: no staticlib at $lib"; status=1; continue; }
+
+  # `|| true` is load-bearing, and this script's own history is the
+  # argument for it: the `nostd` manifest permits NOTHING, so every line
+  # in it is a comment, so `grep -v` matches nothing and exits 1 - and
+  # under `set -e` a bare `x="$(cmd)"` whose command exits non-zero takes
+  # the whole script down. Measured: the gate printed its tier-1 and
+  # tier-3 lines, then vanished before every negative probe, and exited
+  # 0. A gate that skips its own probes and reports success is worse than
+  # no gate. `check-freestanding.sh` records the identical trap at its
+  # `foreign` probe; this one was written anyway.
+  permitted="$(grep -vE '^\s*(#|$)' "$manifest" | tr -d ' \t' | sort -u || true)"
+  n_permitted="$(printf '%s\n' "$permitted" | grep -c . || true)"
+
+  # A manifest may not launder a name from the never-permitted list.
+  if bad="$(printf '%s\n' "$permitted" | grep -E "^($never_permitted)$" || true)"; [[ -n "$bad" ]]; then
+    echo "FAIL $crate: manifest permits names that are never permitted:"
+    printf '%s\n' "$bad" | sed 's/^/    /'
+    status=1; continue
+  fi
+
+  for case_file in tests/ffi/"$crate"/*.ax; do
+    [[ -e "$case_file" ]] || break
+    name="$(basename "$case_file" .ax)"
+    exe="$work/$crate-$name"
+    if ! "$axiom" build --input "$case_file" --output "$exe" \
+         --link-lib "axiom_${crate//-/_}" --link-search "$search" \
+         > "$work/$crate-$name.log" 2>&1; then
+      echo "FAIL $crate/$name: could not build"
+      sed 's/^/    /' "$work/$crate-$name.log" | head -5
+      status=1; continue
+    fi
+
+    unexpected="$(comm -23 <(symbols_of "$exe") <(printf '%s\n' "$permitted" | grep . || true) || true)"
+    if [[ -n "$unexpected" ]]; then
+      echo "FAIL $crate/$name: imports symbols no manifest permits:"
+      printf '%s\n' "$unexpected" | sed 's/^/    /' | head -20
+      echo "    (add them to $manifest if they are genuinely required)"
+      status=1; continue
+    fi
+    echo "ok   $crate/$name imports only the $n_permitted permitted symbol(s)"
+  done
+done
+
+# ---------------------------------------------------------------
+# Negative probes. Everything above asserts a set relation, and a set
+# relation is also satisfied by an empty corpus, a `nm` that answers
+# nothing, and a manifest that permits everything.
+# ---------------------------------------------------------------
+
+# 1. `symbols_of` actually reports something. If it silently answers
+#    empty for every input, tiers 1-3 all pass vacuously.
+probe_c="$work/probe.c"
+cat > "$probe_c" <<'PROBE'
+extern long some_undefined_symbol_xyz(long);
+int main(void) { return (int)some_undefined_symbol_xyz(1); }
+PROBE
+if cc -c "$probe_c" -o "$work/probe.o" 2>/dev/null; then
+  if symbols_of "$work/probe.o" | grep -q '^some_undefined_symbol_xyz$'; then
+    echo "ok   negative probe: the symbol reader reports an undefined symbol"
+  else
+    echo "FAIL negative probe: the symbol reader does NOT see an undefined symbol"
+    echo "     every tier above would pass vacuously"
+    status=1
+  fi
+else
+  echo "FAIL negative probe: could not compile the symbol-reader probe"
+  status=1
+fi
+
+# 2. The manifest comparison REFUSES a symbol outside the permitted set.
+#    Checked on the comparison itself, not on a build, so it is exercised
+#    on every run rather than only when something is already broken.
+permitted_probe="$(printf 'alpha\nbeta\n')"
+actual_probe="$(printf 'alpha\ngamma\n')"
+missed="$(comm -23 <(printf '%s\n' "$actual_probe") <(printf '%s\n' "$permitted_probe"))"
+if [[ "$missed" == "gamma" ]]; then
+  echo "ok   negative probe: the manifest comparison flags an unpermitted symbol"
+else
+  echo "FAIL negative probe: the manifest comparison answered '$missed', expected 'gamma'"
+  status=1
+fi
+
+# 3. And it DISCRIMINATES - a permitted symbol is not flagged. A
+#    comparison that reported everything would satisfy probe 2 while
+#    failing every real build.
+kept="$(comm -23 <(printf 'alpha\n') <(printf '%s\n' "$permitted_probe"))"
+if [[ -z "$kept" ]]; then
+  echo "ok   negative probe: the manifest comparison leaves permitted symbols alone"
+else
+  echo "FAIL negative probe: the manifest comparison flagged the permitted '$kept'"
+  status=1
+fi
+
+# 4. The source-level door still reports the RIGHT thing for the retired
+#    keyword. `foreign` stays AX2004 forever: old source must keep
+#    getting migration advice rather than being silently reinterpreted,
+#    and the FFI is spelled `extern`, not `foreign`.
+ffi_probe="$work/foreign-probe.ax"
+cat > "$ffi_probe" <<'PROBE'
+(foreign posix_spawn :: (-> Int Int Int Int Int Int) = "posix_spawn")
+(pub :: main Int)
+(pub fn (main) (posix_spawn 0 0 0 0 0))
+PROBE
+if probe_out="$("$axiom" --diagnostic-format=ai check "$ffi_probe" 2>&1)"; then
+  echo "FAIL negative probe: a \`foreign\` binding compiles - it must stay AX2004"
+  status=1
+elif ! grep -q 'AX2004' <<< "$probe_out"; then
+  echo "FAIL negative probe: \`foreign\` is refused, but not as a removed construct"
+  printf '%s\n' "$probe_out" | sed 's/^/    /' | head -3
+  status=1
+else
+  echo "ok   negative probe: \`foreign\` is still refused as a removed construct (AX2004)"
+fi
+
+exit "$status"

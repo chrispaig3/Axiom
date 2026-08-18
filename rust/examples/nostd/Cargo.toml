@@ -1,0 +1,33 @@
+# Its OWN workspace, on purpose.
+#
+# Cargo unifies features across workspace members built together. With
+# this crate inside the root workspace, a plain `cargo build` enables
+# `axiom-ffi/std` - because `axiom-demo` asks for it - and std's
+# `panic_impl` then collides with this crate's `#[panic_handler]`:
+#
+#   error[E0152]: found duplicate lang item `panic_impl`
+#
+# `default-features = false` on the dependency does not prevent this;
+# unification is a property of the graph, not of one edge. The only
+# robust fix is a separate graph, which is what the empty [workspace]
+# table below creates.
+#
+# `scripts/check-ffi.sh` therefore builds this crate with its own
+# `cargo build --manifest-path`, not as part of the root workspace.
+[workspace]
+
+[package]
+name = "axiom-nostd"
+description = "The freestanding-preserving FFI mode: core + alloc over Axiom's own allocator."
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[lib]
+crate-type = ["staticlib"]
+
+[dependencies]
+axiom-ffi = { path = "../../axiom-ffi", default-features = false }
+
+[profile.release]
+panic = "abort"

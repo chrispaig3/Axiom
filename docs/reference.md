@@ -274,7 +274,40 @@ These words are reserved but no longer have a grammar rule. Using them reports a
 |---|---|
 | `union` | Use `data` for a tagged sum or `struct` for a product |
 | `region` | Delete the `region` wrapper; lifetimes are inferred |
-| `foreign` | Use the standard library; generated code links no C |
+| `foreign` | Write an `extern` block (see below); or use the standard library, which needs no FFI |
+
+### `extern` — binding Rust
+
+An `extern` block names symbols in a static archive. Each item carries
+its type inline and the linker symbol it binds:
+
+```scheme
+(pub extern "axiom_demo"
+  (add         :: (-> Int Int Int) (symbol "axffi_add"))
+  (countVowels :: (-> String Int)  (symbol "axffi_count_vowels")))
+```
+
+Build with the archive on the link line:
+
+```
+axiom build --input p.ax --output p \
+  --link-lib axiom_demo --link-search rust/target/release
+```
+
+The emitter writes `declare i64 @axffi_add(i64, i64) #0` and the call
+site emits the same `call i64 @sym(...)` an internal call does. Four
+rules:
+
+- The type is **inline**. A separate `(:: name Type)` draws `AX3015`.
+- An extern may **not be polymorphic** — a type variable would add a
+  hidden evidence word that must never reach the other side.
+- Calling one contributes the **`IO` effect**, exactly as `__syscallN`
+  does, and it propagates transitively.
+- Write `(symbol "...")` explicitly; a static link is one flat
+  namespace and the default is the Axiom name.
+
+`foreign` is not this feature renamed and remains `AX2004`. See
+[docs/ffi.md](ffi.md).
 
 ---
 

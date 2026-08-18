@@ -446,3 +446,32 @@ multi-rule declaration macro, selected by arity
           left: (identifier)
           right: (identifier))
         body: (identifier)))))
+
+================================================================
+extern: a Rust FFI binding block
+================================================================
+
+(pub extern "axiom_demo"
+  (add :: (-> Int Int Int) (symbol "axffi_add"))
+  (abiProbe :: Int (symbol "axffi_abi_probe")))
+
+----------------------------------------------------------------
+
+(source_file
+  (extern_declaration
+    (string_literal)
+    (extern_item
+      (identifier)
+      (function_type
+        (builtin_type)
+        (builtin_type)
+        (builtin_type))
+      (extern_clause
+        (identifier)
+        (string_literal)))
+    (extern_item
+      (identifier)
+      (builtin_type)
+      (extern_clause
+        (identifier)
+        (string_literal)))))

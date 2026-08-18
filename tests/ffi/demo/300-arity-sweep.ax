@@ -1,0 +1,33 @@
+; Every arity the emitter has a distinct path for.
+;
+; Arity 0 is the one that matters. `emitPlainCall` builds its argument
+; list with a literal `(i64 ` prefix and has no empty-args branch, so a
+; zero-argument call down that path would emit `@f(i64 )` - which is
+; not valid LLVM. It is unreachable for ordinary Axiom functions,
+; because the AST's application node always carries exactly one
+; argument and `(f)` therefore parses as a bare variable. An `extern`
+; makes it reachable, so `declare i64 @axffi_abi_probe()` and the
+; nullary reference below are both exercised here rather than
+; discovered by a user.
+(import IO)
+(import Fmt)
+
+(pub extern "axiom_demo"
+  (abiProbe :: Int                          (symbol "axffi_abi_probe"))
+  (add      :: (-> Int Int Int)             (symbol "axffi_add"))
+  (sum3     :: (-> Int Int Int Int)         (symbol "axffi_sum3"))
+  (sum5     :: (-> Int Int Int Int Int Int) (symbol "axffi_sum5")))
+
+;@axiom:effect(io)
+(pub fn (main)
+  (if (&& (== abiProbe 23061)
+      (&& (== (add 20 22) 42)
+      (&& (== (sum3 1 2 3) 6)
+          (== (sum5 1 2 3 4 5) 15))))
+      { (println "arity: 0, 2, 3 and 5 all agree") 0 }
+      {
+        (println (fmtInt abiProbe))
+        (println "arity: DISAGREE")
+        1
+      }))
+; expect 0

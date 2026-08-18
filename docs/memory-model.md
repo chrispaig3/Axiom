@@ -2277,15 +2277,39 @@ is the one thing this allocator's design cannot absorb.
 
 ## 7. Foreign memory
 
-**MM-FFI-1 (R).** **Axiom has no FFI.** `foreign` was removed and is a
-reserved word reporting `AX2004`; so are `union` and `region`. The
-language has **no way to name an external symbol**, so a program cannot
-call into C at all, and generated code links no C library.
-`scripts/check-freestanding.sh` gates that it stays that way.
+**MM-FFI-1 (H, amended).** **Axiom has an FFI, and a program that does
+not use it is unchanged.** This clause read "Axiom has no FFI" and was
+marked **(R)** until the `extern` block landed; it is amended rather
+than deleted, because the property it protected is still protected and
+the amendment is what says how.
 
-This is not an omission awaiting a section. It is the property that
-makes `MM-PAR-3`, `MM-ALLOC-1` and the whole of §3 true, and any FFI
-design must be evaluated against what it costs each of them.
+`foreign` remains removed and remains a reserved word reporting
+`AX2004`, as do `union` and `region`. It is not the FFI under a new
+name: `foreign` named ONE symbol and emitted a call the emitted module
+never declared, so every program using one passed `check` and died in
+`opt`. The FFI is the `extern` BLOCK (docs/ffi.md), and the entire
+difference is that the emitter now writes a `declare`.
+
+The freestanding property is now **tiered rather than absolute**, and
+all three tiers are measured (darwin-aarch64, `nm -u` on the linked
+executable):
+
+| program | undefined symbols | forbidden libc names |
+|---|---|---|
+| no `extern` | **0** | 0 |
+| `extern` → a `no_std` Rust crate | **0** | 0 |
+| `extern` → a `std` Rust crate | 188 | 14 |
+
+So the property that makes `MM-PAR-3`, `MM-ALLOC-1` and the whole of §3
+true is **not** traded away for the FFI. It is traded away only for
+`std`, only by the programs that ask for it, and only for the duration
+of that link. A `no_std` crate whose `alloc` is wired to `axiom_alloc`
+puts Rust's allocations INSIDE the arena, where §3 governs them.
+
+`scripts/check-freestanding.sh` still gates the first tier, unchanged,
+and still ends in the negative probe asserting `foreign` is refused as
+`AX2004`. `scripts/check-ffi.sh` gates the other two, by the allowlist
+`MM-FFI-5` requires.
 
 **MM-FFI-2 (H).** Foreign *memory* nonetheless exists, because the
 kernel writes into the process, and because a program can call `mmap`
@@ -2323,12 +2347,22 @@ program that builds a `Str` by any route other than the `Str` module —
 including `__store8` into a buffer it allocated — **MUST** maintain that
 terminator, or the syscall reads past the end.
 
-**MM-FFI-5 (P).** Should an FFI ever be added, this specification
-**SHALL** require, at minimum: that foreign memory be a distinct type
-from `Int` (which `MM-ALLOC-20` needs anyway), that no arena primitive
-apply to it, that a foreign call be an inferred effect like a syscall,
-and that `check-freestanding.sh` be replaced by a gate that enumerates
-permitted external symbols rather than forbidding all of them.
+**MM-FFI-5 (P, partially discharged).** The four minimum requirements
+this clause set for a future FFI, and where each stands now that
+`extern` has landed:
+
+| # | Requirement | Status |
+|---|---|---|
+| 1 | foreign memory is a distinct type from `Int` | **open** — `Foreign` is spelled in binding modules and is not yet a compiler-known type |
+| 2 | no arena primitive applies to it | **open** — depends on 1; the mechanism is `scalarTyName`, which decides `fldClass`'s reference bitmap, NOT `tyIsReprScalar` |
+| 3 | a foreign call is an inferred effect like a syscall | **done** — an `extern` item's `FnEnt` is seeded with `IO` at registration, exactly as an effect operation is seeded with its `Custom(E)`, and the existing monotone fixpoint propagates it transitively. `isSyscallPrim` is untouched and neither effect walk learned a new shape |
+| 4 | `check-freestanding.sh` replaced by an enumerating gate | **done** — `scripts/check-ffi.sh` reads each crate's `axiom-allow.txt`. The original gate is kept rather than replaced, because a program with no `extern` still has to answer the strict version |
+
+Requirements 1 and 2 are the remaining work and they are one piece of
+work, not two: registering `Foreign` in `scalarTyName` is what keeps a
+foreign pointer's bit CLEAR in MM-LIFE-2d's reference map, and a clear
+bit is exactly "no arena primitive applies to it". Until then a foreign
+handle travels as an `Int`, and the obligation is the programmer's.
 
 ---
 

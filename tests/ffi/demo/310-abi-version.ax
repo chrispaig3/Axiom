@@ -1,0 +1,23 @@
+; The ABI fingerprint both sides embed.
+;
+; `axffi_abi_version` is defined by `rust/axiom-ffi` and bumped on ANY
+; change to a wire representation - the word size, the `Str` layout,
+; the out-cell shape, the status encoding. Checking it turns "the Rust
+; crate was rebuilt against a different type mapping" from a silent
+; memory-corruption bug into a refused run.
+;
+; This is also the cheapest possible nullary extern, so it doubles as
+; the pin on `declare i64 @axffi_abi_version()` staying parenthesised
+; correctly.
+(import IO)
+(import Fmt)
+
+(pub extern "axiom_demo"
+  (abiVersion :: Int (symbol "axffi_abi_version")))
+
+;@axiom:effect(io)
+(pub fn (main)
+  (if (== abiVersion 1)
+      { (println "abi: 1") 0 }
+      { (println (fmtInt abiVersion)) 1 }))
+; expect 0

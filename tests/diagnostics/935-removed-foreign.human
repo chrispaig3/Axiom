@@ -2,9 +2,9 @@
  [1;34m--> [0m935-removed-foreign.ax:1:2
 [1;34m  |[0m
 [1;34m1 |[0m (foreign putchar :: (-> Int Int) = "putchar")
-[1;34m  |[0m  [1;31m^^^^^^^ `foreign` was removed: C interoperability is no longer a goal, and generated code links no C library to call into[0m
+[1;34m  |[0m  [1;31m^^^^^^^ `foreign` was removed because it never worked: it emitted a call to a symbol the module never declared, so a program using one passed `check` and died in `opt`. The FFI is the `extern` block[0m
 [1;34m  |[0m
- [1;34m = [0m[1;32mhelp: [0muse the standard library, which reaches the kernel through `__syscall0`-`__syscall6` rather than through libc
+ [1;34m = [0m[1;32mhelp: [0mwrite an `extern` block instead - `(extern "lib" (name :: (-> Int Int) (symbol "sym")))` - and build with `--link-lib`/`--link-search`; or reach the kernel through the standard library's `__syscall0`-`__syscall6`, which needs no FFI
  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX2004` for a full explanation
 
 compilation failed due to 1 previous error

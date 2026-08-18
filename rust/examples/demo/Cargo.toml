@@ -1,0 +1,12 @@
+[package]
+name = "axiom-demo"
+description = "A worked example of exporting Rust to Axiom."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["staticlib"]
+
+[dependencies]
+axiom-ffi = { path = "../../axiom-ffi" }

@@ -1,0 +1,13 @@
+; A Float crosses as its IEEE-754 BITS in an i64, because that is how
+; Axiom already carries one (codegen.ax emits a float literal as the
+; decimal of its bit pattern). The Rust shim does `f64::from_bits` on
+; the way in and `to_bits` on the way out; both are free at runtime.
+(import IO)
+(import Fmt)
+
+(pub extern "axiom_demo"
+  (hypot :: (-> Float Float Float) (symbol "axffi_hypot")))
+
+;@axiom:effect(io)
+(pub fn (main) { (println (fmtFloat (hypot 3.0 4.0))) 0 })
+; expect 0

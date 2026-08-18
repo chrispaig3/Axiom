@@ -526,7 +526,8 @@
                                 (if (> (strLen sh) 0) sh "output"))))))
               (let ((ir (compileFile inp (targetArg hostTarget) 1 1)))
                 (let ((rc (buildToExecutable ir outp optLevelArg
-                                             (if (hasFlagAnywhere cmd "--emit-llvm") 1 0))))
+                                             (if (hasFlagAnywhere cmd "--emit-llvm") 1 0)
+                                             linkArgsOf)))
                   (if (!= rc 0)
                       (die "" rc)
                       ; A successful build used to print NOTHING, so a
@@ -730,7 +731,7 @@
               ; which collides on the executable regardless.
               (let ((base (cat2 "axiom_temp_output." (decStr sysGetPid))))
                 (let ((exe (cat2 "./" base)))
-                  (let ((rc (buildToExecutable ir base 1 0)))
+                  (let ((rc (buildToExecutable ir base 1 0 linkArgsOf)))
                     (if (!= rc 0)
                         (die "" rc)
                         (let ((code (sysRunPath exe (runArgv exe) sysEnvp)))

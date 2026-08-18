@@ -1,0 +1,23 @@
+[package]
+name = "axiom-ffi"
+description = "Write Rust that Axiom can call. Re-exports the ABI and the #[axiom_export] attribute."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+axiom-abi = { workspace = true }
+axiom-ffi-macros = { workspace = true }
+
+[features]
+# `std` is the DEFAULT because it is what makes the ecosystem reachable:
+# most crates worth binding are std crates. It costs the freestanding
+# property - measured, an Axiom executable linked against a std staticlib
+# imports 188 symbols, 14 of them on check-freestanding.sh's forbidden
+# list - which is exactly what the opt-in FFI gate exists to account for.
+#
+# `no_std` keeps the property intact: the same executable linked against
+# a no_std + panic=abort staticlib has an EMPTY `nm -u`. Choose it when
+# the crate you are binding can live in `core` + `alloc`.
+default = ["std"]
+std = []

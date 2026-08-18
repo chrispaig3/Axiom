@@ -1,0 +1,27 @@
+; MM-FFI-5 requirement 3: "a foreign call is an inferred effect like a
+; syscall".
+;
+; `add`'s FnEnt is seeded with IO at registration, exactly as an effect
+; operation's is seeded with its Custom(E). The existing monotone
+; fixpoint in `inferEffects` then carries it to `layer1` and on to
+; `main` with no new inference machinery anywhere - `isSyscallPrim` is
+; untouched and neither effect walk learned a new shape.
+;
+; The pin is the AXTAG: `effect(io)` two hops from the extern call is
+; only accurate if the effect propagated.
+(import IO)
+(import Fmt)
+
+(pub extern "axiom_demo"
+  (add :: (-> Int Int Int) (symbol "axffi_add")))
+
+(pub :: layer1 (-> Int Int))
+(pub fn (layer1 n) (add n 1))
+
+;@axiom:effect(io)
+(pub :: layer2 (-> Int Int))
+(pub fn (layer2 n) (layer1 n))
+
+;@axiom:effect(io)
+(pub fn (main) { (println (fmtInt (layer2 41))) 0 })
+; expect 0

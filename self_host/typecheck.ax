@@ -789,7 +789,7 @@
 ; from either compiler.
 (pub :: declNamespace (-> Int Int))
 (pub fn (declNamespace tag)
-  (if (|| (== tag TAG_D_FN) (== tag TAG_D_MACRO))
+  (if (|| (== tag TAG_D_FN) (|| (== tag TAG_D_MACRO) (== tag TAG_D_EXTERN)))
       NS_VALUE
   (if (|| (== tag TAG_D_DATA) (== tag TAG_D_STRUCT))
       NS_TYPE
@@ -1125,11 +1125,29 @@
             ; the `nodeVis` test the linear scan made, made once.
             (if (&& (== (nodeTag d) TAG_D_FN) (== (nodeVis d) 1))
                 (defIdxAddKeys bs (nodeA d))
-                0))
+            ; An `extern` block DEFINES every name in it, so a `::`
+            ; written over one is answered rather than drawing a false
+            ; AX3015. Without this arm the index holds only TAG_D_FN
+            ; and every signature over a binding is "a signature with
+            ; no definition behind it".
+            (if (&& (== (nodeTag d) TAG_D_EXTERN) (== (nodeVis d) 1))
+                (defIdxAddExternKeys bs (nodeB d) 0)
+                0)))
           (set i (+ i 1))
         })
       bs
     }))
+
+(pub :: defIdxAddExternKeys (-> Int Int Int Int))
+(pub fn (defIdxAddExternKeys bs names i)
+  (if (== names 0)
+      0
+      (if (>= i (vecLen names))
+          0
+          {
+            (defIdxAddKeys bs (vecGet names i))
+            (defIdxAddExternKeys bs names (+ i 1))
+          })))
 
 (pub :: defIdxAddKeys (-> Int String Int))
 (pub fn (defIdxAddKeys bs full)
@@ -1749,6 +1767,12 @@
                   ; `(two 3)` check clean and answer a heap address.
                   (tcCollectEffectOps tc (nodeC d) 0 (nodeA d) (nodeModule d))
                 }
+            (if (== tag TAG_D_EXTERN)
+                ; Slot c, the TYPED items - the same choice the effect
+                ; arm above records: slot b is the bare names, and
+                ; registering those would mean a silent wildcard at
+                ; arity -1 and no saturation checking at all.
+                (tcCollectExternItems tc (nodeC d) 0 (nodeModule d))
             (if (== tag TAG_D_MACRO)
                 ; The NODE, not the name: a macro its module does not
                 ; export is not a macro name HERE, and deciding that
@@ -1763,7 +1787,7 @@
                 (vecPush (tcAliases tc) d)
             (if (== tag TAG_D_TRAIT)
                 (vecPush (tcTraits tc) d)
-            0)))))))))
+            0))))))))))
             (tcCollect tc decls (+ i 1))
           }))))
 
@@ -1857,6 +1881,53 @@
                      (let ((v vecNew))
                        { (vecPush v (customEff effName)) v })
                      vecNew))))
+
+; An `extern` item. Modelled on `tcAddEffectOp` above, and for the
+; same reason: an operation's FnEnt arrives with its effects already
+; SEEDED, so the collector needs no special case and the existing
+; monotone fixpoint in `inferEffects` propagates them transitively for
+; free.
+;
+; That is the whole of MM-FFI-5's third requirement, "a foreign call is
+; an inferred effect like a syscall". `isSyscallPrim` stays a literal
+; seven-way match on `__syscall0`..`__syscall6`; neither effect walk
+; learns a new shape; nothing else moves.
+;
+; `paramCount` is the declared arrow's real depth, NOT -1. The removed
+; `foreign` used -1, and `repArity` answers -1 for a non-builtin whose
+; paramCount is negative, which SILENTLY disables both the AX3013
+; bare-value refusal and the AX3009/AX3013 saturation check. An extern
+; therefore gets arity checking that `foreign` never had.
+(pub :: tcAddExtern (-> Int String Int Int))
+(pub fn (tcAddExtern tc name ty)
+  (tcPushFn tc
+    (cast Int (FnEnt name
+                     (if (== ty 0) mkSilentWild ty)
+                     (if (== ty 0) (- 0 1) (arrowDepth ty))
+                     0 0
+                     (let ((v vecNew))
+                       { (vecPush v (builtinEff "IO")) v })
+                     vecNew))))
+
+; Every item in an `extern` block, and the `Mod$name` spelling too when
+; the block came from an imported module - the same double registration
+; `tcCollectEffectOps` does, for the same reason.
+(pub :: tcCollectExternItems (-> Int Int Int String Int))
+(pub fn (tcCollectExternItems tc fields i modName)
+  (if (== fields 0)
+      0
+      (if (>= i (vecLen fields))
+          0
+          (let ((f (vecGet fields i)))
+            {
+              (tcAddExtern tc (nodeA f) (nodeB f))
+              (if (== (cast Int modName) 0)
+                  0
+                  (tcAddExtern tc (strConcat (strConcat (cast String modName) "$")
+                                             (nodeA f))
+                               (nodeB f)))
+              (tcCollectExternItems tc fields (+ i 1) modName)
+            }))))
 
 ; ------------------------------------------------------------------
 ; Effects, as tagged strings. `effEq` is plain string equality, which
@@ -3457,7 +3528,11 @@
         (ambRecordAll tc (nodeB d) 0 m)
     (if (== tag TAG_D_DATA)
         (ambRecordCtors tc (nodeB d) 0 m)
-    0))))))
+    ; Slot b, the bare NAMES - `ambRecordAll` wants names, and this is
+    ; the one reader for which the parallel name vector exists.
+    (if (== tag TAG_D_EXTERN)
+        (ambRecordAll tc (nodeB d) 0 m)
+    0)))))))
 
 (pub :: ambRecordAll (-> Int Int Int String Int))
 (pub fn (ambRecordAll tc v i m)

@@ -25,3 +25,10 @@ tree-sitter-axiom/package-lock.json
 # Python bytecode from the gate helpers under tests/.
 __pycache__/
 *.pyc
+
+# The FFI workspace's build artifacts. The generated `.ax` binding
+# modules under rust/examples/*/axiom/ are NOT ignored: they are
+# committed so `axiom check` and `axiom fmt` work on a checkout with no
+# cargo, which is the same property scripts/bootstrap-from-seed.sh has.
+rust/target/
+rust/examples/*/target/

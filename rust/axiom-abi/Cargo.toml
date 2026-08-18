@@ -1,0 +1,11 @@
+[package]
+name = "axiom-abi"
+description = "The Axiom <-> Rust calling contract: value layouts, borrowed views, and the retain/release protocol."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+# Deliberately not a staticlib: this crate is a dependency of the crate
+# a user actually exports, and only THAT crate is built as a staticlib.
+crate-type = ["rlib"]

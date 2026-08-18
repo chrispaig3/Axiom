@@ -205,6 +205,7 @@ module.exports = grammar({
       $.impl_declaration,
       $.import,
       $.effect_declaration,
+      $.extern_declaration,
       $.macro_declaration,
       $.syntax_for_declaration,
     ),
@@ -519,6 +520,39 @@ module.exports = grammar({
 
     effect_operation: $ => seq(
       '(', field('name', $.identifier), '::', field('type', $._type), ')',
+    ),
+
+    // `(extern "lib" (name :: Type (symbol "s")) ...)` - the Rust FFI
+    // binding block (docs/ffi.md).
+    //
+    // Shaped like `effect_declaration` directly above, because the two
+    // forms are the same shape: a header followed by a list of typed
+    // callables. The difference is that the header is a STRING (the
+    // library) rather than an identifier, and each item carries a
+    // clause tail.
+    //
+    // `extern` is a distinct token from `foreign` below and always will
+    // be: `foreign` stays a removed construct reporting AX2004, so old
+    // source keeps getting migration advice instead of being reparsed
+    // as the new form.
+    extern_declaration: $ => seq(
+      '(', optional(field('visibility', 'pub')), 'extern',
+      field('library', $.string_literal),
+      repeat(field('item', $.extern_item)),
+      ')',
+    ),
+
+    extern_item: $ => seq(
+      '(', field('name', $.identifier), '::', field('type', $._type),
+      repeat(field('clause', $.extern_clause)),
+      ')',
+    ),
+
+    // The clause tail. `symbol` is the only clause v1 defines; the rule
+    // takes any `(ident ...)` so a future clause parses as a clause
+    // rather than as an ERROR region.
+    extern_clause: $ => seq(
+      '(', field('key', $.identifier), repeat($._expression), ')',
     ),
 
 

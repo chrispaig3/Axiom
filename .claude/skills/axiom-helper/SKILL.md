@@ -133,17 +133,49 @@ Axiom has a standard library written in Axiom (`stdlib/`: `Sys`, `Mem`,
 code calls no libc function, and `scripts/check-freestanding.sh`
 enforces that.
 
-**There is no FFI.** `foreign` was removed and is a reserved word that
-reports `AX2004` with migration advice, alongside `union` and `region`.
-The language has no way to name an external symbol, so a program cannot
-call into C at all. Do not write `foreign` bindings and do not suggest
-them.
+**The FFI is `extern`, and it is never `foreign`.** `foreign` was
+removed and remains a reserved word reporting `AX2004` with migration
+advice, alongside `union` and `region` - never write one and never
+suggest one. It is not a synonym for the new form: `foreign` named one
+symbol and emitted a call the module never declared, which is why it
+never linked.
+
+A Rust binding is an `extern` BLOCK:
+
+```scheme
+(pub extern "axiom_demo"
+  (add         :: (-> Int Int Int) (symbol "axffi_add"))
+  (countVowels :: (-> String Int)  (symbol "axffi_count_vowels")))
+```
+
+and the program is built with the archive on the link line:
+
+```bash
+axiom build --input p.ax --output p --link-lib axiom_demo --link-search rust/target/release
+```
+
+Four rules matter when writing one:
+
+- The type goes INLINE in the block. A separate `(:: name Type)` beside
+  it draws a false `AX3015`.
+- An extern may not be polymorphic. A type variable would make the
+  emitter add a hidden evidence word that must never reach Rust.
+- Calling an extern contributes the `IO` effect, exactly as calling
+  `__syscallN` does, and it propagates transitively - so a caller two
+  hops away needs `;@axiom:effect(io)`.
+- Write `(symbol "...")` explicitly. A static link is one flat
+  namespace and the default is the Axiom name.
+
+Generate blocks with `cargo run -p axiom-bindgen` rather than by hand;
+see `docs/ffi.md` and `rust/README.md`. `scripts/check-ffi.sh` is the
+gate, and it enumerates permitted external symbols rather than
+forbidding all of them (`docs/memory-model.md` MM-FFI-5).
 
 - Sanitize file paths before passing them to native toolchain invocations (`llc`, `cc`). Never pass unsanitized user input to shell commands. Native tools are spawned with explicit argument vectors through `Sys.spawn`, never through a shell.
 
 ### 4.3 Memory safety discipline
 
-Axiom source has no `malloc` and no `free`: allocation goes through the backend's `mmap`-backed bump allocator (overridable by defining `axiom_alloc`). `union`, `region` and `foreign` have been removed from the language - all three are still reserved words and report `AX2004`. There is no way to reach a C allocator, because there is no way to reach C.
+Axiom source has no `malloc` and no `free`: allocation goes through the backend's `mmap`-backed bump allocator (overridable by defining `axiom_alloc`). `union`, `region` and `foreign` have been removed from the language - all three are still reserved words and report `AX2004`. C is reachable only through an `extern` block, and a Rust crate that is `no_std` with its `alloc` wired to `axiom_alloc` reaches it without importing any libc symbol at all - measured, `nm -u` on such an executable is empty.
 
 ### 4.4 Handle input validation at every pipeline stage
 

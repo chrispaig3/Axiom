@@ -1,0 +1,13 @@
+; A program with no `extern` must import nothing. This is the old
+; freestanding contract, restated inside the FFI corpus so that a
+; too-eager `emitDecl` arm is caught by the FFI's own gate and not only
+; by check-freestanding.sh.
+(import IO)
+(import Fmt)
+
+(:: double (-> Int Int))
+(fn (double n) (* n 2))
+
+;@axiom:effect(io)
+(pub fn (main) { (println (fmtInt (double 21))) 0 })
+; expect 0

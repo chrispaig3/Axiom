@@ -1,0 +1,19 @@
+; Differential over the Float wire form.
+;
+; A Float travels as its IEEE-754 bits in an i64. If the shim forgot
+; `from_bits`/`to_bits` the call still links and still returns a
+; number - it returns the bit pattern read as an integer, which is why
+; this compares a VALUE rather than checking that a call happened.
+(import IO)
+
+(pub extern "axiom_demo"
+  (hypot :: (-> Float Float Float) (symbol "axffi_hypot")))
+
+;@axiom:effect(io)
+(pub fn (main)
+  (if (&& (== (hypot 3.0 4.0) 5.0)
+      (&& (== (hypot 0.0 0.0) 0.0)
+          (== (hypot 5.0 12.0) 13.0)))
+      { (println "float: agree") 0 }
+      { (println "float: DISAGREE") 1 }))
+; expect 0
