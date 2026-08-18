@@ -7018,6 +7018,16 @@ program declares something private — the count of those in this
 repository is zero, and the module-local lookup is indexed on that path
 anyway.
 
+**Amended 2026-08-18. The sentence above stopped being true four hours
+after it was written, and nothing noticed for eight days.** `3b6d485`,
+the same afternoon, made the standard library private by default — 151
+names, 288 declarations — so "the count of those in this repository is
+zero" became 307, every program took the un-indexed branch, and this
+section's own optimisation was dead. The paragraph below it, deciding
+that the change would ship with no speed gate of its own, is why the
+number that would have shown it was never taken. Both halves are
+corrected in §50, which also carries the gate.
+
 **This change has no gate of its own, and that is a considered choice
 rather than an omission.** Its correctness is pinned comprehensively by
 gates that already exist — identical diagnostics over 273 files,
@@ -8442,3 +8452,133 @@ The three targets this host cannot execute are covered the way every
 other syscall here is: `check-cross-targets.sh` assembles all four from
 one host at `-O0` and `-O2`, and the numbers sit in the per-target
 module beside the ones already proven.
+
+## 50. The index this document added was dead four hours later
+
+Fixed 2026-08-18.
+
+§32 indexed `findFnEnt` at 14:44 on 2026-08-10 and §32.4 recorded what
+it had deliberately left as a linear scan: the visibility-filtered
+lookups, "which only run when a program declares something private —
+the count of those in this repository is zero". At 18:34 the same day,
+`3b6d485` made the standard library private by default. The count
+became 307, every name reference in every program began taking the
+scanning branch, and the 5.2x §32 measured was gone.
+
+Every gate stayed green for eight days, correctly: the answers were
+right, they were just arrived at by scanning ~1,600 entries per
+reference. §32.4 had also decided, with reasons, that the change would
+ship with no speed gate of its own.
+
+**A fast path guarded by a claim about the corpus needs a gate that
+re-asks the claim, because the corpus is what changes.** That is the
+lesson, and `scripts/check-name-scale.sh` is it.
+
+### 50.1 Four scans, and each was invisible behind the one in front
+
+A sampling profile of `check self_host/main.ax` was re-taken after each
+fix, because none of these was visible while its predecessor dominated.
+
+| profile after | dominant frame | share |
+|---|---|---|
+| — | `findFnEntVisibleExactFrom` | 54% |
+| exact indexed | `nameMatches` + `findFnEntVisibleSuffixFrom` | 38.5% |
+| suffix indexed | `privBlocks` (`strInVec` over 307 names) | 11.2% |
+| privates indexed | `axiom_release`, `modOfFrom`, `bsIsLocal` | 16 / 11 / 10% |
+
+1. **The visible-exact pass** walks the existing exact-name bucket with
+   `privBlocks` applied inside it.
+2. **The suffix pass**, which §32 declined to index, is indexed. Its
+   argument against had two halves and both had expired: it was "under
+   5% of the profile" only while the exact passes dominated, and the
+   reasoning it called hard — which strings a name answers to — was
+   already written down and implemented twenty lines away, in
+   `defIdxAddKeys`, from the same `nameMatches` predicate. A name
+   answers to itself and to the suffix after every `$` at a position
+   past the first byte. The bucket is a *superset filter*, never the
+   answer: every candidate still goes through `nameMatches` and
+   `privBlocks`, so a key derived too generously costs a comparison and
+   cannot change a result.
+3. **`privBlocks`** asked `strInVec` — a scan of all 307 private names —
+   per candidate. It asks a set now. Its ownership test also built
+   `(strConcat curMod "$")` per call and now compares in place.
+4. **The module-local probe** built `Mod$name` with two `strConcat`s per
+   reference. The hash is a left fold over bytes, so it can be fed the
+   module, then `$`, then the name; the bucket's equality test compares
+   the three pieces where they already are.
+
+`collectPrivates` was quadratic in the private count on its own — its
+duplicate test was a scan of everything collected so far — and is a set
+too. That set is sized by counting the private declarations first,
+which is not fussiness: sized by the *program's* declaration count, a
+16,000-declaration module that declares nothing private built 32,021
+bucket slots one `vecPush` at a time and read none of them, where the
+scan it replaced allocated nothing at all on that input. An adversarial
+review of this change found it; `axiom repl` calls `checkModule` per
+line and resets no arena, so it was retained for the session.
+
+### 50.2 What it bought
+
+Best of five, one machine, `--opt 1`; quote the ratios.
+
+| | before | after |
+|---|---|---|
+| `check self_host/main.ax` | 1.00 s | **0.25 s** (4.0x) |
+| peak RSS, one self-compile | 419.6 MiB | **281.3 MiB** (−33%) |
+
+The memory was not the point and is the more interesting number. Peak
+RSS fell because `privBlocks` allocated a prefix string for every
+*blocked* entry it stepped over, and the old code stepped over all 307
+of them on every lookup, on a bump allocator that never frees. Trunk was
+sitting 0.4 MiB under `check-bootstrap.sh`'s own 420 MiB ceiling.
+
+The emitted IR is byte-identical — 99,408 lines from a frozen source
+tree, across all four compilers — which is the check that matters when
+touching name resolution. Four independent adversarial reviews (key-set
+completeness, first-match order, index staleness under mutation,
+privacy semantics) found no defect, and 23 gates pass.
+
+### 50.3 The gate is a ratio between two programs, and why
+
+`scripts/check-name-scale.sh` checks two generated modules of identical
+size and call graph that differ only in whether the helper half is
+`pub`. Resolving a private name goes through the visibility filter and a
+public one does not; indexed, they are the same work.
+
+The obvious shapes were both measured and both rejected. A wall-clock
+bound is a flaky test on a shared runner. **A doubling ratio would have
+passed on the broken code**: per-doubling exponents on this corpus are
+~4x on *both* sides of the fix — 3.7/3.9 indexed against 4.2/4.7 — and
+they have to be, because `mangleHasIn` (`self_host/namespace.ax`) is a
+linear scan of `bares` and is still quadratic in the declaration count.
+A ratio between two programs of the same size charges that to both sides,
+where it cancels.
+
+Negative check, at N=4000: un-indexed 2.10, indexed 0.62, bound 1.20.
+The indexed ratio is below one because a private declaration takes
+`mangleRecordSelf` and a public one takes `mangleRecord`, which does one
+more `mangleHasIn` scan.
+
+### 50.4 Left, measured, not fixed
+
+**`mangleHasIn` is a linear scan of `bares`** and building the mangle
+map is quadratic in the declaration count: 55.7% of a check over a
+module of 8,000 declarations, against 3.3% on the compiler's own source.
+Indexing it means threading a bucket set through `mangleRecord`,
+`mangleRecordSelf`, `mangleRecordEntry`, `mangleDecl` and
+`mangleExternItems` across `namespace.ax`, `codegen.ax` and `expand.ax`
+— a wider change than any here, and one that should be measured against
+a real program that is large rather than a generated one.
+
+After it, `modOfFrom` (11.4%) allocates a slice to answer "which module
+is this name in", and `bsIsLocal` (10.4%) linear-scans the scope.
+
+### 50.5 A correction this document owed itself
+
+`scripts/bench-compile.sh` said, at length and as its most emphatic
+caveat, that `axiom check` runs code generation and throws it away —
+"`compileFile` calls `emitResolved` unconditionally (`main.ax:320`)".
+It does not, and has not since the `doEmit` guard moved: `main.ax:340`
+reads `(if (== doEmit 0) "" ... (emitResolved ...))`, and eight sampling
+profiles of `axiom check` contain zero `codegen$` frames. The line
+number was stale too. Corrected in the script.

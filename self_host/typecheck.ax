@@ -1396,7 +1396,13 @@
                ; once and 0 before that. Appended, for the reason
                ; every field before it was. Scanning `allDecls` per
                ; function instead measured 1000 -> 1233 ms.
-               (sigTags : Int))
+               (sigTags : Int)
+               ; The SUFFIX index over `fns`, or 0 before it is built.
+               ; Appended, for the reason every field before it was.
+               ; See the suffix index section.
+               (fnSufIdx : Int)
+               ; `privates` as a set. 0 exactly when `privates` is.
+               (privIdx : Int))
 
 (pub :: tcFns (-> Int Int))     (pub fn (tcFns tc)     (memGetWord tc 0))
 (pub :: tcDatas (-> Int Int))   (pub fn (tcDatas tc)   (memGetWord tc 1))
@@ -1448,8 +1454,48 @@
 ;
 ; Collected once, before anything is looked up, and empty unless the
 ; program actually declares something private.
+; The duplicate test is asked of a SET. It was `strInVec out k 0`, a
+; scan of everything collected so far, so collecting N private names
+; cost N^2/2 string compares - quadratic in the count of a thing the
+; standard library now has 151 of, and 18.4% of a check over a module
+; of 8,000 private declarations. The Vec is still what this answers,
+; because word 19 is read as a Vec; the set is scaffolding and is
+; dropped when the walk ends.
 (pub :: collectPrivates (-> Int Int Int Int))
 (pub fn (collectPrivates decls out i)
+  (let ((n (countPrivates decls 0 0)))
+    (if (== n 0)
+        0
+        (collectPrivatesSeen decls out (privSetNew n) i))))
+
+; How many declarations the walk below can record, counted first so the
+; set is sized by ITS population rather than by the program's.
+;
+; Sizing it by `vecLen decls` was wrong in the direction that costs a
+; program which declares nothing private ANYTHING - the branch that
+; writes to the set never runs, and `fnIdxBuckets` had still built
+; 2N+17 slots one `vecPush` at a time, so a 16,000-declaration public
+; module paid ~256 KB of array plus every doubling intermediate the
+; bump allocator does not free, to read none of it. The code this
+; replaced allocated nothing on that input. `axiom repl` calls
+; `checkModule` per line and resets no arena, so it was retained for
+; the session.
+;
+; A declaration count is an upper bound on the KEY count, which is the
+; same relationship `fnIdxBuildSized` takes as its hint, and zero is
+; exact: nothing private means no set at all.
+(pub :: countPrivates (-> Int Int Int Int))
+(pub fn (countPrivates decls i acc)
+  (if (>= i (vecLen decls))
+      acc
+      (countPrivates decls (+ i 1)
+        (if (&& (== (nodeVis (vecGet decls i)) 0)
+                (!= (nodeModule (vecGet decls i)) 0))
+            (+ acc 1)
+            acc))))
+
+(pub :: collectPrivatesSeen (-> Int Int Int Int Int))
+(pub fn (collectPrivatesSeen decls out seen i)
   (if (>= i (vecLen decls))
       (if (== (vecLen out) 0) 0 out)
       (let ((d (vecGet decls i)))
@@ -1459,9 +1505,11 @@
                                (== (nodeTag d) TAG_D_SIG))
                            (nodeA d)
                            (privKey (nodeModule d) (nodeA d)))))
-                (if (== (strInVec out k 0) 1) 0 (vecPush out k)))
+                (if (== (privIdxHas seen k) 1)
+                    0
+                    { (defIdxPut seen k) (vecPush out k) }))
               0)
-          (collectPrivates decls out (+ i 1))
+          (collectPrivatesSeen decls out seen (+ i 1))
         })))
 
 (pub :: tcNew (-> Int Int Int Int))
@@ -1549,13 +1597,19 @@
                               vecNew vecNew entryDecls allDecls
                               vecNew vecNew units 0 vecNew 0
                               vecNew vecNew (collectPrivates allDecls vecNew 0)
-                              0 0 0 0 0 0))))
+                              0 0 0 0 0 0 0 0))))
         {
           ; The exact-name index, before collection rather than after:
           ; collection itself looks a name up per declaration.
           (memSetWord tc 20
             (fnIdxBuildSized (tcFns tc) (vecLen allDecls)))
           (memSetWord tc 21 (ambIdxNew (vecLen allDecls)))
+          ; The suffix index, in the same place and for the same
+          ; reason: a lookup that falls through the exact pass during
+          ; collection would otherwise scan the whole table.
+          (memSetWord tc 26
+            (fnSufIdxBuildSized (tcFns tc) (vecLen allDecls)))
+          (memSetWord tc 27 (privIdxBuild (memGetWord tc 19)))
           (tcCollect tc allDecls 0)
           ; Type constructors named in signatures, once collection has
           ; seen every `data`/`struct`/`type` - a signature may name a
@@ -2105,13 +2159,77 @@
   (if (== (cast Int declMod) 0) name (strConcat (strConcat (cast String declMod) "$") name)))
 
 ; 1 when a reference made from `curMod` may NOT name `key`.
+;
+; Asked of a SET, not of the Vec. `strInVec` walked all 307 private
+; names for every candidate a lookup considered, and with the table
+; scans indexed that walk became the largest single cost left in
+; `check self_host/main.ax` at 11.2% of the profile. Word 27 is the
+; same bucket shape the other indexes use, over the same strings, and
+; `privates` at word 19 is still the Vec because `emitUndefinedVar`
+; reads it to tell "no such name" from "private" - a cold path that a
+; set would only complicate.
+;
+; The ownership test builds no string either. It ran for every
+; reference a module makes to its OWN private names, which for a
+; module of private helpers is most of them, and
+; `(strConcat curMod "$")` allocated a prefix per call on an allocator
+; that never frees.
 (pub :: privBlocks (-> Int String a Int))
 (pub fn (privBlocks privs key curMod)
-  (if (== (strInVec privs key 0) 0)
+  (if (== (privIdxHas privs key) 0)
       0
       (if (== (cast Int curMod) 0)
           1
-          (if (strStartsWith key (strConcat (cast String curMod) "$")) 0 1))))
+          (if (== (privOwnedBy key (cast String curMod)) 1) 0 1))))
+
+; Is `key` spelled `m$...`? Answered in place, without building `m$`.
+(pub :: privOwnedBy (-> String String Int))
+(pub fn (privOwnedBy key m)
+  (if (>= (strLen m) (strLen key))
+      0
+      (if (== (strByte key (strLen m)) 36)
+          (strEqAt key 0 m 0)
+          0)))
+
+; Does `s` appear in `e` starting at `off`? The one byte-compare these
+; allocation-free name tests share.
+(pub :: strEqAt (-> String Int String Int Int))
+(pub fn (strEqAt e off s i)
+  (if (>= i (strLen s))
+      1
+      (if (== (strByte e (+ off i)) (strByte s i))
+          (strEqAt e off s (+ i 1))
+          0)))
+
+; The private-name set. 0 when nothing is private, so every guard that
+; compares word 19 against 0 reads the same of word 27.
+(pub :: privSetNew (-> Int Int))
+(pub fn (privSetNew n)
+  (let ((nb (fnIdxBuckets n)) (bs vecNew) (mut i 0))
+    {
+      (while (< i nb) { (vecPush bs 0) (set i (+ i 1)) })
+      bs
+    }))
+
+(pub :: privIdxBuild (-> Int Int))
+(pub fn (privIdxBuild privs)
+  (if (== privs 0)
+      0
+      (let ((bs (privSetNew (vecLen privs))) (mut i 0))
+        {
+          (while (< i (vecLen privs))
+            { (defIdxPut bs (vecGet privs i)) (set i (+ i 1)) })
+          bs
+        })))
+
+(pub :: privIdxHas (-> Int String Int))
+(pub fn (privIdxHas bs key)
+  (if (== bs 0)
+      0
+      (let ((v (vecGet bs (% (fnIdxHash key) (vecLen bs)))))
+        (if (== v 0)
+            0
+            (defIdxHas v key 0)))))
 
 (pub :: findFnEntVisibleExact (-> Int Int String String Int))
 (pub fn (findFnEntVisibleExact privs fns name curMod)
@@ -2157,18 +2275,16 @@
 (pub :: findFnEnt (-> Int String Int))
 (pub fn (findFnEnt tc name)
   (let ((m (memGetWord tc 16)))
-    (let ((local (if (== m 0)
-                     0
-                     (fnEntExact tc (strConcat (strConcat m "$") name)))))
+    (let ((local (if (== m 0) 0 (fnEntQual tc m name))))
       (if (!= local 0)
           local
           (if (== (memGetWord tc 19) 0)
               (let ((e (fnEntExact tc name)))
-                (if (!= e 0) e (findFnEntSuffix (tcFns tc) name 0)))
-              (let ((e (findFnEntVisibleExact (memGetWord tc 19) (tcFns tc) name m)))
+                (if (!= e 0) e (fnEntSuffix tc name)))
+              (let ((e (fnEntVisibleExact tc (memGetWord tc 27) name m)))
                 (if (!= e 0)
                     e
-                    (findFnEntVisibleSuffix (memGetWord tc 19) (tcFns tc) name m))))))))
+                    (fnEntVisibleSuffix tc (memGetWord tc 27) name m))))))))
 
 ; The same question asked of the whole table rather than of the
 ; visible part of it: used only to tell "there is no such name" from
@@ -2177,7 +2293,7 @@
 (pub :: findFnEntAnywhere (-> Int String Int))
 (pub fn (findFnEntAnywhere tc name)
   (let ((e (fnEntExact tc name)))
-    (if (!= e 0) e (findFnEntSuffix (tcFns tc) name 0))))
+    (if (!= e 0) e (fnEntSuffix tc name))))
 
 ; ------------------------------------------------------------------
 ; The exact-name index.
@@ -2305,12 +2421,247 @@
       (findFnEntExact (tcFns tc) name 0)
       (fnIdxGet (memGetWord tc 20) name)))
 
-; Keep the index in step with a push. A no-op before the index exists.
+; The same question with the visibility filter on it.
+;
+; The index carried the exact pass only while `tc` word 19 was 0, and
+; the comment above `privKey` said that was every program in this
+; repository. It is not one any more - `self_host/` and `stdlib/`
+; declare 307 things without `pub` - so the private branch of
+; `findFnEnt` is the one a self-check actually takes, and it went back
+; to scanning all ~1,600 entries per reference. A sampling profile of
+; `check self_host/main.ax` put `findFnEntVisibleExactFrom` at 54% of
+; the process.
+;
+; Filtering inside the bucket answers the same entry, and the argument
+; is the one `fnIdxScan` already rests on: a bucket keeps insertion
+; order, so the first entry in it satisfying a predicate is the first
+; entry in the TABLE satisfying it, restricted to one name. The
+; predicate here is the scan's own conjunction - the name matches
+; exactly AND `privBlocks` allows it - so a blocked entry is stepped
+; over rather than ending the search, exactly as before.
+;
+; The suffix pass is deliberately left alone; see the index's note.
+(pub :: fnEntVisibleExact (-> Int Int String String Int))
+(pub fn (fnEntVisibleExact tc privs name curMod)
+  (if (== (memGetWord tc 20) 0)
+      (findFnEntVisibleExact privs (tcFns tc) name curMod)
+      (fnIdxGetVisible (memGetWord tc 20) privs name curMod)))
+
+(pub :: fnIdxGetVisible (-> Int Int String String Int))
+(pub fn (fnIdxGetVisible bs privs name curMod)
+  (let ((v (vecGet bs (% (fnIdxHash name) (vecLen bs)))))
+    (if (== v 0)
+        0
+        (fnIdxScanVisible v privs name curMod 0))))
+
+(pub :: fnIdxScanVisible (-> Int Int String String Int Int))
+(pub fn (fnIdxScanVisible v privs name curMod i)
+  (if (>= i (vecLen v))
+      0
+      (let ((e (vecGet v i)))
+        (if (strEq (memGetWord e 0) name)
+            (if (== (privBlocks privs (memGetWord e 0) curMod) 0)
+                e
+                (fnIdxScanVisible v privs name curMod (+ i 1)))
+            (fnIdxScanVisible v privs name curMod (+ i 1))))))
+
+; ------------------------------------------------------------------
+; The module-local probe, without building `Mod$name`.
+;
+; `findFnEnt` asks this FIRST for every reference made from inside a
+; module, and it built the key with two `strConcat`s - two allocations
+; and two copies, per reference, on an allocator that never frees.
+;
+; Neither is needed. The hash is a left fold over bytes, so it can be
+; fed the module, then `$`, then the name, and reach the same value
+; the concatenated string would have hashed to; and the bucket's
+; equality test can compare the three pieces where they already are.
+; So the answer is identical and the allocation is gone.
+; ------------------------------------------------------------------
+(pub :: fnEntQual (-> Int String String Int))
+(pub fn (fnEntQual tc m name)
+  (if (== (memGetWord tc 20) 0)
+      (findFnEntExact (tcFns tc) (strConcat (strConcat m "$") name) 0)
+      (fnIdxGetQual (memGetWord tc 20) m name)))
+
+; `fnIdxHash` of `m` ++ "$" ++ `name`, computed over the pieces. 36 is
+; `$`. The fold is `fnIdxHashFrom`'s, unchanged, resumed three times.
+(pub :: fnIdxHashQual (-> String String Int))
+(pub fn (fnIdxHashQual m name)
+  (fnIdxHashFrom name 0
+    (% (+ (* (fnIdxHashFrom m 0 fnIdxSeed) fnIdxMul) 36) fnIdxPrime)))
+
+(pub :: fnIdxGetQual (-> Int String String Int))
+(pub fn (fnIdxGetQual bs m name)
+  (let ((v (vecGet bs (% (fnIdxHashQual m name) (vecLen bs)))))
+    (if (== v 0)
+        0
+        (fnIdxScanQual v m name 0))))
+
+(pub :: fnIdxScanQual (-> Int String String Int Int))
+(pub fn (fnIdxScanQual v m name i)
+  (if (>= i (vecLen v))
+      0
+      (let ((e (vecGet v i)))
+        (if (== (nameIsQual (memGetWord e 0) m name) 1)
+            e
+            (fnIdxScanQual v m name (+ i 1))))))
+
+; Is `e` exactly `m` ++ "$" ++ `name`? The length test first, so the
+; two byte walks only run for a candidate that can still match.
+(pub :: nameIsQual (-> String String String Int))
+(pub fn (nameIsQual e m name)
+  (if (!= (strLen e) (+ (+ (strLen m) 1) (strLen name)))
+      0
+      (if (!= (strByte e (strLen m)) 36)
+          0
+          (if (== (strEqAt e 0 m 0) 1)
+              (strEqAt e (+ (strLen m) 1) name 0)
+              0))))
+
+; Keep the indexes in step with a push. A no-op before they exist.
 (pub :: fnIdxNote (-> Int Int Int))
 (pub fn (fnIdxNote tc ent)
-  (if (== (memGetWord tc 20) 0)
+  {
+    (if (== (memGetWord tc 20) 0) 0 (fnIdxAdd (memGetWord tc 20) ent))
+    (if (== (memGetWord tc 26) 0) 0 (fnSufIdxAdd (memGetWord tc 26) ent))
+  })
+
+; ------------------------------------------------------------------
+; The suffix index.
+;
+; The exact-name index's note left this pass a linear scan on the
+; measurement that 83% of a self-check was in the two EXACT passes and
+; under 5% here. Both halves of that have expired. The exact passes are
+; indexed, and a self-check's references are BARE (`vecPush`) while
+; every imported definition's name was rewritten to `Mod$vecPush` - so
+; the exact pass misses on purpose for every cross-module reference and
+; this pass answers it. Re-profiled after the visible-exact fix,
+; `nameMatches` plus `findFnEntVisibleSuffixFrom` were 38.5% of `check
+; self_host/main.ax` and nothing else was close.
+;
+; WHY THIS IS INDEXABLE, which the older note doubted. `nameMatches
+; full bare` is true exactly when `full` IS `bare`, or `full` ends with
+; `$bare` and that `$` is not the first byte - so the set of strings
+; one entry answers to is finite and enumerable: the name itself, and
+; the suffix after every `$` at a position past the first byte. That is
+; not a new argument. `defIdxBuild` already builds precisely this key
+; set for `isDefined`, from the same predicate, with the same reasoning
+; written above `defIdxAddKeys` - this indexes entries where that
+; indexes names.
+;
+; The bucket is a SUPERSET filter, never the answer: a candidate is
+; still put through `nameMatches` and `privBlocks`. So a key derived
+; too generously costs a comparison and cannot change a result, and the
+; correctness obligation reduces to the one direction that matters -
+; every entry the linear scan would have accepted is in the bucket for
+; the name asked. It is, because that name is one of the entry's keys.
+;
+; ORDER, which is the half the older note was right to be careful
+; about. The scan answered the FIRST match in table order, and a
+; bucket holds entries in insertion order, so the first match in a
+; bucket is the first match in the table restricted to one key. Other
+; keys hashing into the same bucket interleave and do not disturb that,
+; exactly as `dupIdxBuild` records. An entry whose own keys collide in
+; one bucket appears twice; the second copy is unreachable behind the
+; first, which answers identically.
+;
+; Sized for its own population rather than the table's: an entry
+; contributes one key per `$` in its name plus one, and a self-check's
+; names are `Mod$name`, so twice the declaration count is the hint.
+; ------------------------------------------------------------------
+(pub :: fnSufIdxBuildSized (-> Int Int Int))
+(pub fn (fnSufIdxBuildSized fns hint)
+  (let ((n (if (> hint (vecLen fns)) hint (vecLen fns))))
+   (let ((nb (fnIdxBuckets (* 2 n))) (bs vecNew) (mut i 0))
+    {
+      (while (< i nb) { (vecPush bs 0) (set i (+ i 1)) })
+      (set i 0)
+      (while (< i (vecLen fns))
+        {
+          (fnSufIdxAdd bs (vecGet fns i))
+          (set i (+ i 1))
+        })
+      bs
+    })))
+
+(pub :: fnSufIdxAdd (-> Int Int Int))
+(pub fn (fnSufIdxAdd bs ent)
+  {
+    (fnSufIdxPut bs (memGetWord ent 0) ent)
+    (fnSufIdxAddSuffixes bs (memGetWord ent 0) ent 1)
+  })
+
+; From 1, not from 0: `nameMatches` demands the `$` be past the first
+; byte, so a name that merely BEGINS with `$` answers only to itself
+; and inserting that suffix would invent a match.
+(pub :: fnSufIdxAddSuffixes (-> Int String Int Int Int))
+(pub fn (fnSufIdxAddSuffixes bs full ent i)
+  (if (>= i (strLen full))
       0
-      (fnIdxAdd (memGetWord tc 20) ent)))
+      {
+        (if (== (strByte full i) 36)
+            (fnSufIdxPut bs
+              (strSlice full (+ i 1) (- (strLen full) (+ i 1))) ent)
+            0)
+        (fnSufIdxAddSuffixes bs full ent (+ i 1))
+      }))
+
+(pub :: fnSufIdxPut (-> Int String Int Int))
+(pub fn (fnSufIdxPut bs key ent)
+  (let ((b (% (fnIdxHash key) (vecLen bs))))
+    (if (== (vecGet bs b) 0)
+        (let ((v vecNew)) { (vecPush v ent) (vecSet bs b v) 0 })
+        { (vecPush (vecGet bs b) ent) 0 })))
+
+(pub :: fnSufIdxGet (-> Int String Int))
+(pub fn (fnSufIdxGet bs name)
+  (let ((v (vecGet bs (% (fnIdxHash name) (vecLen bs)))))
+    (if (== v 0)
+        0
+        (fnSufIdxScan v name 0))))
+
+(pub :: fnSufIdxScan (-> Int String Int Int))
+(pub fn (fnSufIdxScan v name i)
+  (if (>= i (vecLen v))
+      0
+      (let ((e (vecGet v i)))
+        (if (== (nameMatches (memGetWord e 0) name) 1)
+            e
+            (fnSufIdxScan v name (+ i 1))))))
+
+(pub :: fnSufIdxGetVisible (-> Int Int String String Int))
+(pub fn (fnSufIdxGetVisible bs privs name curMod)
+  (let ((v (vecGet bs (% (fnIdxHash name) (vecLen bs)))))
+    (if (== v 0)
+        0
+        (fnSufIdxScanVisible v privs name curMod 0))))
+
+(pub :: fnSufIdxScanVisible (-> Int Int String String Int Int))
+(pub fn (fnSufIdxScanVisible v privs name curMod i)
+  (if (>= i (vecLen v))
+      0
+      (let ((e (vecGet v i)))
+        (if (== (nameMatches (memGetWord e 0) name) 1)
+            (if (== (privBlocks privs (memGetWord e 0) curMod) 0)
+                e
+                (fnSufIdxScanVisible v privs name curMod (+ i 1)))
+            (fnSufIdxScanVisible v privs name curMod (+ i 1))))))
+
+; The suffix question, however it is currently answerable - the same
+; shape as `fnEntExact`, and 0 during collection means the scan
+; answers, which is the same answer the slow way.
+(pub :: fnEntSuffix (-> Int String Int))
+(pub fn (fnEntSuffix tc name)
+  (if (== (memGetWord tc 26) 0)
+      (findFnEntSuffix (tcFns tc) name 0)
+      (fnSufIdxGet (memGetWord tc 26) name)))
+
+(pub :: fnEntVisibleSuffix (-> Int Int String String Int))
+(pub fn (fnEntVisibleSuffix tc privs name curMod)
+  (if (== (memGetWord tc 26) 0)
+      (findFnEntVisibleSuffix privs (tcFns tc) name curMod)
+      (fnSufIdxGetVisible (memGetWord tc 26) privs name curMod)))
 
 ; Constructor lookup, FORWARD order - Option's are first. Used for
 ; type resolution and patterns (stage0's find_constructor).
@@ -2323,7 +2674,7 @@
 ; module that declared it.
 (pub :: findCtor (-> Int String Int))
 (pub fn (findCtor tc name)
-  (findCtorFrom (tcDatas tc) name (memGetWord tc 19)
+  (findCtorFrom (tcDatas tc) name (memGetWord tc 27)
                 (memGetWord tc 16) 0))
 
 (pub :: findCtorFrom (-> Int String Int String Int Int))
@@ -2353,7 +2704,7 @@
 ; declare the same constructor name.
 (pub :: rfindCtor (-> Int String Int))
 (pub fn (rfindCtor tc name)
-  (rfindCtorFrom (tcDatas tc) name (memGetWord tc 19)
+  (rfindCtorFrom (tcDatas tc) name (memGetWord tc 27)
                  (memGetWord tc 16)
                  (- (vecLen (tcDatas tc)) 1)))
 
@@ -2382,7 +2733,7 @@
 
 (pub :: findStruct (-> Int String Int))
 (pub fn (findStruct tc name)
-  (findStructFrom (tcStructs tc) name (memGetWord tc 19)
+  (findStructFrom (tcStructs tc) name (memGetWord tc 27)
                   (memGetWord tc 16) 0))
 
 (pub :: findStructFrom (-> Int String Int a Int Int))
@@ -2399,7 +2750,7 @@
 
 (pub :: findData (-> Int String Int))
 (pub fn (findData tc name)
-  (findDataFrom (tcDatas tc) name (memGetWord tc 19)
+  (findDataFrom (tcDatas tc) name (memGetWord tc 27)
                 (memGetWord tc 16) 0))
 
 (pub :: findDataFrom (-> Int String Int a Int Int))
@@ -3836,7 +4187,7 @@
 (pub fn (ctorHiddenModule tc name)
   (if (== (memGetWord tc 19) 0)
       0
-      (ctorHiddenIn (tcDatas tc) (memGetWord tc 19) (memGetWord tc 16) name 0)))
+      (ctorHiddenIn (tcDatas tc) (memGetWord tc 27) (memGetWord tc 16) name 0)))
 
 (pub :: ctorHiddenIn (-> Int Int String String Int Int))
 (pub fn (ctorHiddenIn datas privs curMod name i)

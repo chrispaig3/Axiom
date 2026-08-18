@@ -40,18 +40,22 @@
 # result out, so the difference between them is printed as its own row
 # rather than left to the reader.
 #
-# READ THAT ROW CAREFULLY, because the obvious name for it is wrong.
-# `compileFile` calls `emitResolved` unconditionally (`main.ax:320`) -
-# `doEmit` decides whether the IR is WRITTEN, not whether it is
-# generated. So `axiom check` already pays for code generation and then
-# throws it away, and the `check` row below therefore includes lowering.
-# The difference row is serialisation and the write, not lowering.
+# THAT ROW IS LOWERING AND THE WRITE, and this comment said otherwise
+# for months. It read: "`compileFile` calls `emitResolved`
+# unconditionally (`main.ax:320`) - `doEmit` decides whether the IR is
+# WRITTEN, not whether it is generated. So `axiom check` already pays
+# for code generation and then throws it away."
 #
-# That is worth knowing for its own sake: `check` is what `axiom lsp`
-# runs on every keystroke. It is not obviously a bug - running codegen
-# is what makes `check` refuse programs whose lowering would crash,
-# which `scripts/check-degenerate.sh` exists because of - but it is a
-# cost nobody chose deliberately.
+# It does not. `main.ax:340` reads `(if (== doEmit 0) "" ...
+# (emitResolved ...))`, so `check` returns before a byte of IR exists.
+# Measured two ways rather than re-read: `check` is 1.32s against
+# `emit-llvm` 1.77s on `main.ax`, and eight sampling profiles of `axiom
+# check` contain ZERO `codegen$` frames. The cited line number was stale
+# as well.
+#
+# It matters because `check` is what `axiom lsp` runs on every
+# keystroke, and the old note priced that keystroke with a code
+# generator in it.
 #
 # This prints a table. It does not fail on a threshold - a wall-clock
 # bound on a shared runner is a flaky test, which is the same call
