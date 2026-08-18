@@ -5022,10 +5022,16 @@ written by people solving problems, and nobody's problem needs `()`.
   head expression alone. A named nullary call `(g)` is a direct call and
   is correct, which is why nothing noticed. Silent wrong answer, not a
   crash, and a separate defect in the application form.
-- **`(match e)` with no arms and `(cond)` with no clauses are accepted**
-  and answer 0. Exhaustiveness over a non-ADT scrutinee is not checkable,
-  so this is a runtime-trap question rather than a parse question, and
-  `173-empty-match.axp` stays a rewrite.
+- **`(match e)` with no arms and `(cond)` with no clauses are refused**
+  since 2026-08-17, in the parser, for the reason `parseBlockBody` has
+  always refused `{}`: a form whose value is the arm that fired has no
+  value when there are no arms. They used to be accepted and answer the
+  result cell's zeroed contents - `(+ 40 (match 7))` was 40, and at a
+  declared `String` the same 0 exited 133 on the first read. This entry
+  read "are accepted and answer 0 ... a runtime-trap question rather
+  than a parse question", and the formatter-parity case it named is
+  deleted: that corpus's contract is that every case must LEX AND
+  PARSE, and a zero-arm match no longer does.
 - **An unterminated `#| ... ` runs to end of input and is not an
   error** — `check` on a file whose first line is `#| never closed`
   reports `OK` and compiles an empty module. `lexer.ax` documents this as

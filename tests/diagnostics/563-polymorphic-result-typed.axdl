@@ -1,1 +1,0 @@
-E AX3004 563-polymorphic-result-typed.ax:71:26-29 type-mismatch "type mismatch: expected String, found Int" #"this has type `Int`, expected `String`"

@@ -1,9 +1,0 @@
-[1;31merror[AX3004][0m[1m: type mismatch: expected String, found Int[0m
-  [1;34m--> [0m563-polymorphic-result-typed.ax:71:26
-[1;34m   |[0m
-[1;34m71 |[0m (fn (viaCall n) (strLen (idf n)))
-[1;34m   |[0m                          [1;31m^^^ this has type `Int`, expected `String`[0m
-[1;34m   |[0m
-  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation
-
-compilation failed due to 1 previous error

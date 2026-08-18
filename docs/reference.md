@@ -326,44 +326,42 @@ conversions are `__intToFloat`/`__floatToInt`.
 
 The `(a)` after the type name introduces a type parameter. Types can be polymorphic — the same `Maybe` can hold any type.
 
-A lowercase name in a *signature* is a type variable too, and a call to
-such a function answers the type it was **applied at**:
+A lowercase name in a *signature* is a type variable too. It is checked
+for compatibility at each call, but the compiler does **not** infer what
+it was instantiated at: a call to `(-> a a)` answers an unresolved
+variable, which is compatible with every type.
 
 ```scheme
 (:: idf (-> a a))
 (fn (idf x) x)
 
-(strLen (idf 7))    ; AX3004 — `idf` was applied at Int, so it answers Int
+(strLen 7)          ; AX3004, correctly
+(strLen (idf 7))    ; accepted - `idf`'s result is unresolved
 ```
 
-Resolution is per call site and one-directional: an argument resolves a
-parameter's variable, never the reverse. It descends into structure, so
-the `a` in `(Option a)` or `(-> a Int)` is resolved as well, and it
-happens only where the call's value is used as a value — a curried
-application keeps an unresolved result rather than resolving one the ARC
-evidence machinery still needs to see as a variable.
-
-**`0` is the null handle and resolves nothing.** It inhabits every
-reference type — it is the default argument of every accessor in the
-tree — so a `0` passed where a type variable stands is checked but does
-not decide what that variable was instantiated at:
+This is the largest hole left in the checker, and it is open for a
+reason that is now measured rather than suspected. Inference was
+implemented three times and withdrawn three times, and the third
+attempt is the one that explains the other two: **a statically
+resolved type is not a predictor of pointerhood while containers are
+untyped.** The ARC evidence word (`docs/memory-model.md` MM-LIFE-2d) is
+computed from inferred argument types, so any resolution reaches it -
+and `mapGet`'s default argument decides its element type statically
+while the map holds whatever was inserted. Resolving it turns
 
 ```scheme
-(mapInsert m 7 "hello")
-(strLen (mapGet m 7 0))   ; fine: the 0 default does not pin the value type
+(mapInsert m 1 100000000)
+(vecPush v (mapGet m 1 "absent"))
 ```
 
-Only the literal counts; an `Int`-typed expression that happens to be
-zero is an ordinary argument.
+- ordinary stdlib code with no user polymorphism - into a binary that
+retains the integer 100000000 as a heap pointer and segfaults, from a
+compiler that prints `OK`.
 
-**What is not inferred:** a lambda's parameter type is not learned from
-its own body, because that needs the reverse direction, and a local's
-type lives in one place that every reference shares — resolving it there
-monomorphises the value permanently, which the handle convention makes
-wrong. So `(ap (lambda (s) (strLen s)) 7)` at `(-> (-> a Int) a Int)`
-still type-checks and still crashes. This is the largest hole left in
-the checker, and closing it is gated on deciding the handle convention
-rather than encoding it one rule at a time.
+Closing this needs the containers to name their element types first, so
+that a resolved type IS the run-time type. That is measured too: giving
+`Vec` a parameter reports 2,073 distinct sites, and does not pay off
+until `ASTNode`'s ten `Int` fields go with it.
 
 ### Type Signatures
 

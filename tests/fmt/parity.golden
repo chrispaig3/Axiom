@@ -105,12 +105,6 @@
 ### 171-singleton-unwrap.axp (exit 0)
 (fn (f x) x)
 ### 172-empty-brace-body.axp (exit 1)
-### 173-empty-match.axp (exit 0)
-(fn (f v)
-  (match v
-
-  )
-)
 ### 174-cond-only-else.axp (exit 0)
 (fn (f n)
   (cond
