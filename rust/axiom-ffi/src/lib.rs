@@ -97,13 +97,17 @@ pub mod __private {
 /// # Safety
 /// `ptr`/`len` must be exactly what a shim returned and must not have
 /// been freed.
+/// Returns `i64` because Axiom's ABI is one word in and one word out;
+/// a `void` shim makes the call site read a register the callee never
+/// set. Nothing to report, so it reports 0.
 #[no_mangle]
-pub unsafe extern "C" fn axffi_free_bytes(ptr: *mut u8, len: i64) {
+pub unsafe extern "C" fn axffi_free_bytes(ptr: *mut u8, len: i64) -> i64 {
     if ptr.is_null() || len <= 0 {
-        return;
+        return 0;
     }
     let s = core::ptr::slice_from_raw_parts_mut(ptr, len as usize);
     drop(alloc::boxed::Box::from_raw(s));
+    0
 }
 
 /// The ABI fingerprint this crate was built against.

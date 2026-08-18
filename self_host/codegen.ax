@@ -6275,7 +6275,23 @@
       (|| (strEq n "U16")
       (|| (strEq n "U32")
       (|| (strEq n "U64")
-      (|| (strEq n "F32") (strEq n "F64"))))))))))))))
+      (|| (strEq n "F32")
+      (|| (strEq n "F64")
+      ; `Foreign` - a raw pointer into memory Axiom did not allocate
+      ; and does not own (MM-FFI-3). It is class 0 for the same reason
+      ; `Int` is, and more urgently: a set bit here would make
+      ; @axiom_release subtract 16 from a Rust allocation and read the
+      ; result as a block header. That is the wild read this whole
+      ; classification exists to make impossible, and it is MM-FFI-5
+      ; requirement 2 - "no arena primitive applies to it" - discharged
+      ; where it is actually decided.
+      ;
+      ; Being classified at all is also what keeps the ENCLOSING record
+      ; mapped. An unknown name answers 1 (unclassifiable), which forces
+      ; the whole block to LEAF, so before this every struct holding a
+      ; foreign handle silently lost the reference map for all its
+      ; OTHER fields and leaked them.
+      (strEq n "Foreign")))))))))))))))
       1 0))
 
 (pub :: dataTyKnown (-> Int String Int Int))

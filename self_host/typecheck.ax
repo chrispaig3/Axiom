@@ -2669,9 +2669,42 @@
               (tcExpandSigAliases tc (vecGet decls i))
               (tcCheckSigTypeOf tc (vecGet decls i))
             }
-            0)
+        ; An `extern` item's type lives in the ITEM, not in the block
+        ; node's `ty` slot, so the walk above cannot see it - and until
+        ; this arm an extern signature could name any type at all. That
+        ; is not a cosmetic hole: the whole point of writing the type
+        ; inline is that it is the only description of the boundary the
+        ; compiler has, and `axiom-bindgen` emits `Foreign`, `Slice` and
+        ; `Outcome` into it.
+        (if (== (nodeTag (vecGet decls i)) TAG_D_EXTERN)
+            (tcCheckExternTypes tc (nodeC (vecGet decls i)) 0)
+            0))
         (tcCheckSigTypes tc decls (+ i 1))
       }))
+
+; Every item of an `extern` block, refused by name at its own span.
+(pub :: tcCheckExternTypes (-> Int Int Int Int))
+(pub fn (tcCheckExternTypes tc items i)
+  (if (== items 0)
+      0
+      (if (>= i (vecLen items))
+          0
+          {
+            (let ((f (vecGet items i)))
+              (let ((bad (tyUnknownCon tc (nodeB f))))
+                (if (== bad 0)
+                    0
+                    (if (== (nodeSpan f) 0)
+                        0
+                        (emitDiag tc
+                          (diagSetLabel (mkDiag SEV_ERROR "AX3002" "undefined-type"
+                                  (nodeSpan f)
+                                  (strConcat (strConcat "undefined type `" bad) "`")
+                                  0 0
+                                  "an `extern` item's type is the only description of the boundary the compiler has; declare the type, or use `Foreign` for an opaque handle")
+                            (strConcat (strConcat "no type named `" bad) "` is visible here")))))))
+            (tcCheckExternTypes tc items (+ i 1))
+          })))
 
 (pub :: tcExpandSigAliases (-> Int Int Int))
 (pub fn (tcExpandSigAliases tc d)
@@ -6758,7 +6791,23 @@
 
 (pub :: tyIsReprScalar (-> String Bool))
 (pub fn (tyIsReprScalar name)
-  (|| (strEq name "Bool") (strEq name "Float")))
+  ; `Foreign` joins `Bool` and `Float` as a name that is NOT a handle.
+  ; The reason differs from theirs and is worth stating: an `Int`
+  ; declared where a `Foreign` belongs is not a misread bit pattern, it
+  ; is a pointer the program invented. MM-FFI-5 requirement 1 asks for
+  ; a distinct type and this is where the distinction is enforceable -
+  ; `tyCompat` matches a handle against anything by design, so the
+  ; declared-return check is the one place a clash is caught at all.
+  ;
+  ; Scope, stated, and it is WIDER than a first reading suggests. This
+  ; function is the declared-return-vs-body check. `Foreign`'s
+  ; distinctness in ARGUMENT position comes from `tyCompat` above
+  ; instead, which since the Int/String fiat was deleted on 2026-08-15
+  ; requires two named constructors to match BY NAME - so passing a
+  ; `Foreign` where an `Int` is declared is already refused, and
+  ; MM-FFI-5 requirement 1 holds everywhere a type is compared rather
+  ; than only at a return. `(cast Foreign x)` is the explicit escape.
+  (|| (strEq name "Bool") (|| (strEq name "Float") (strEq name "Foreign"))))
 
 ; Parameter types: peel the signature's arrows left to right. The
 ; walk keeps its own cursor because a non-arrow signature - or none -

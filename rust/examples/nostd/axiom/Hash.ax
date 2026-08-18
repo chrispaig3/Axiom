@@ -9,8 +9,45 @@
 ; a `parse` and omit the clause would dedup to one `declare`, resolve
 ; both Axiom names to it, and pick a link-time winner with no
 ; diagnostic at any stage.
+; 
+; A shim that returns BYTES or that can FAIL needs two words back,
+; and Axiom emits `ret i64` for everything. So those shims take a
+; trailing OUT-CELL and their raw binding carries a `Raw` suffix;
+; the ergonomic name is an Axiom wrapper below that allocates the
+; cell, calls, decodes and frees. There is no `Slice` type and no
+; `Outcome` type - they are a protocol over ordinary words, and
+; the half that decodes it is Axiom, never Rust. That is the rule
+; the whole design rests on: only Axiom's own emitter writes an
+; Axiom heap block, because only it knows MM-LIFE-2d's shape word.
+
+(import Mem)
+(import Str)
+(import Err)
+
 (pub extern "axiom_nostd"
   (fnv1a :: (-> String Int) (symbol "axffi_fnv1a"))
   (probeFirst :: (-> String Int) (symbol "axffi_probe_first"))
   (probeLen :: (-> String Int) (symbol "axffi_probe_len"))
-  (repeatByte :: (-> Int Int Slice) (symbol "axffi_repeat_byte")))
+  (repeatByteRaw :: (-> Int Int Int Int) (symbol "axffi_repeat_byte"))
+  (ffiFreeBytes :: (-> Int Int Int) (symbol "axffi_free_bytes")))
+
+; Rust-owned bytes copied into an Axiom `Str`.
+;
+; `strAlloc` reserves len+1 and zeroes it, so the NUL terminator
+; MM-FFI-4 requires is already there and `strCStr` stays free. The
+; copy is the price of never letting Rust author a block header.
+(pub :: ffiSliceToStr (-> Int Int String))
+(pub fn (ffiSliceToStr p n)
+  (if (<= n 0)
+      ""
+      (let ((s (strAlloc n)))
+        { (memCopy (strData s) p n) s })))
+
+(pub :: repeatByte (-> Int Int String))
+(pub fn (repeatByte b n)
+  (let ((cell (memAlloc 16)))
+    (let ((st (repeatByteRaw b n cell)))
+      (let ((p (cast Int (memGetWord cell 0)))
+            (n (cast Int (memGetWord cell 1))))
+        (let ((v (ffiSliceToStr p n)))
+          { (ffiFreeBytes p n) v })))))

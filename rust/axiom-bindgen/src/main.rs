@@ -51,8 +51,8 @@ fn main() {
             Err(e) => { eprintln!("axiom-bindgen: {}: {e}", f.display()); std::process::exit(1) }
         };
         for item in ast.items {
-            if let syn::Item::Fn(f) = item {
-                if !has_export_attr(&f.attrs) { continue }
+            let syn::Item::Fn(f) = item else { continue };
+            if has_export_attr(&f.attrs) {
                 match Decl::from_fn(&f) {
                     Ok(d) => { decls.insert(d.axiom_name.clone(), d); }
                     Err(m) => {
@@ -60,9 +60,21 @@ fn main() {
                         std::process::exit(1);
                     }
                 }
+            } else if let Some(d) = Decl::from_raw_shim(&f) {
+                // A HAND-WRITTEN shim already named in the ABI namespace.
+                //
+                // Destructors are the reason this exists: freeing an
+                // opaque handle needs the raw word, so it cannot be an
+                // ordinary `#[axiom_export]` function taking `&T`. Before
+                // this the generated module could hand out handles it
+                // gave no way to release, which is a leak the type system
+                // cannot see.
+                decls.entry(d.axiom_name.clone()).or_insert(d);
             }
         }
     }
+
+    let needs_glue = decls.values().any(|d| d.needs_cell());
 
     let mut s = String::new();
     s.push_str(&format!(
@@ -78,14 +90,58 @@ fn main() {
          ; both Axiom names to it, and pick a link-time winner with no\n\
          ; diagnostic at any stage.\n"
     ));
+    if needs_glue {
+        s.push_str(
+            "; \n\
+             ; A shim that returns BYTES or that can FAIL needs two words back,\n\
+             ; and Axiom emits `ret i64` for everything. So those shims take a\n\
+             ; trailing OUT-CELL and their raw binding carries a `Raw` suffix;\n\
+             ; the ergonomic name is an Axiom wrapper below that allocates the\n\
+             ; cell, calls, decodes and frees. There is no `Slice` type and no\n\
+             ; `Outcome` type - they are a protocol over ordinary words, and\n\
+             ; the half that decodes it is Axiom, never Rust. That is the rule\n\
+             ; the whole design rests on: only Axiom's own emitter writes an\n\
+             ; Axiom heap block, because only it knows MM-LIFE-2d's shape word.\n",
+        );
+    }
+    s.push('\n');
+    if needs_glue {
+        s.push_str("(import Mem)\n(import Str)\n(import Err)\n\n");
+    }
+
     s.push_str(&format!("(pub extern \"{lib}\"\n"));
     for d in decls.values() {
         s.push_str(&d.render_item());
     }
+    if needs_glue {
+        s.push_str("  (ffiFreeBytes :: (-> Int Int Int) (symbol \"axffi_free_bytes\"))");
+    }
     // The formatter closes the block on the last item's line.
     if s.ends_with(")\n") {
         s.truncate(s.len() - 1);
-        s.push_str(")\n");
+    }
+    s.push_str(")\n");
+
+    if needs_glue {
+        s.push_str(
+            "\n; Rust-owned bytes copied into an Axiom `Str`.\n\
+             ;\n\
+             ; `strAlloc` reserves len+1 and zeroes it, so the NUL terminator\n\
+             ; MM-FFI-4 requires is already there and `strCStr` stays free. The\n\
+             ; copy is the price of never letting Rust author a block header.\n\
+             (pub :: ffiSliceToStr (-> Int Int String))\n\
+             (pub fn (ffiSliceToStr p n)\n\
+             \x20 (if (<= n 0)\n\
+             \x20     \"\"\n\
+             \x20     (let ((s (strAlloc n)))\n\
+             \x20       { (memCopy (strData s) p n) s })))\n",
+        );
+        for d in decls.values() {
+            if d.needs_cell() {
+                s.push('\n');
+                s.push_str(&d.wrapper());
+            }
+        }
     }
 
     match out {
@@ -163,13 +219,47 @@ impl Decl {
     /// TAG_D_FN nodes with `nodeVis == 1`, so `checkMissingDefs`
     /// (:1242-1262) sees a signature with nothing behind it. Carrying the
     /// type inline makes that failure structurally impossible.
+    /// A hand-written `#[no_mangle] pub extern "C" fn axffi_*`.
+    ///
+    /// Recognised by NAME rather than by an attribute, because the
+    /// attribute is what generates a shim and these already are one.
+    /// Types come from the raw signature; `AxWord` and every integer
+    /// are `Int`, which is the handle convention doing its ordinary
+    /// job - passing a `Foreign` to an `Int` parameter is exactly what
+    /// it permits.
+    fn from_raw_shim(f: &syn::ItemFn) -> Option<Decl> {
+        let name = f.sig.ident.to_string();
+        if !name.starts_with("axffi_") { return None }
+        if !matches!(f.vis, syn::Visibility::Public(_)) { return None }
+        f.sig.abi.as_ref()?;
+        let mut params = Vec::new();
+        for a in &f.sig.inputs {
+            let syn::FnArg::Typed(pt) = a else { return None };
+            let n = match &*pt.pat {
+                syn::Pat::Ident(i) => i.ident.to_string(),
+                _ => "arg".to_string(),
+            };
+            // `AxWord` means "an opaque handle" and maps to `Foreign`;
+            // a plain integer means a number and maps to `Int`. That is
+            // a real distinction the Rust author controls with the type
+            // they write, and it matters: `tyCompat` requires named
+            // constructors to match by name, so a destructor declared
+            // over `Int` cannot be handed the `Foreign` its constructor
+            // returned.
+            let ty = if type_is_axword(&pt.ty) { "Foreign" } else { "Int" };
+            params.push((camel(&n), ty.to_string()));
+        }
+        Some(Decl {
+            axiom_name: camel(name.trim_start_matches("axffi_")),
+            symbol: name,
+            params,
+            ret: "Int".to_string(),
+            fallible: false,
+        })
+    }
+
     fn render_item(&self) -> String {
-        let arrow = if self.params.is_empty() {
-            self.ret_type()
-        } else {
-            let ps: Vec<String> = self.params.iter().map(|(_, t)| t.clone()).collect();
-            format!("(-> {} {})", ps.join(" "), self.ret_type())
-        };
+        let arrow = self.raw_arrow();
         // Single spaces, not aligned columns: this is exactly the
         // formatter's normal form (`fpDeclExtern`, self_host/format.ax),
         // so `axiom fmt` leaves a generated file alone and
@@ -177,21 +267,124 @@ impl Decl {
         // `check-fmt.sh`'s sweep.
         format!(
             "  ({} :: {} (symbol \"{}\"))\n",
-            self.axiom_name, arrow, self.symbol
+            self.raw_name(), arrow, self.symbol
         )
     }
 
-    /// A fallible item returns the compiler-owned `Outcome`; a bytes
-    /// return is a `Slice`. Both are one word, per contract C2.
-    fn ret_type(&self) -> String {
-        if self.fallible {
-            "Outcome".to_string()
-        } else if self.ret == "String" {
-            "Slice".to_string()
+    /// Whether this item's shim takes a trailing OUT-CELL.
+    ///
+    /// A byte return needs two words - pointer and length - and Axiom
+    /// emits `ret i64` for everything, so those shapes take a cell the
+    /// caller allocated. Same for a fallible call, which needs a status
+    /// word AND a payload.
+    fn needs_cell(&self) -> bool {
+        self.fallible || self.ret == "String"
+    }
+
+    /// The RAW extern's declared type: exactly the shim's real arity,
+    /// with the out-cell as a trailing `Int`.
+    ///
+    /// There is no `Slice` type and no `Outcome` type. Earlier drafts of
+    /// this generator emitted those names and the compiler refused them
+    /// as undefined - correctly, because they were never types. They are
+    /// a PROTOCOL over ordinary words, and the half that decodes it is
+    /// generated Axiom below, not a compiler feature. That also keeps
+    /// the rule the whole design rests on: only Axiom's own emitter ever
+    /// writes an Axiom heap block.
+    fn raw_arrow(&self) -> String {
+        let mut ps: Vec<String> = self.params.iter().map(|(_, t)| t.clone()).collect();
+        // The RETURN is `Int` only when there is a cell, because then it
+        // is the STATUS word. Without a cell the shim returns the value
+        // itself, and its declared type has to say so - an extern
+        // returning `Foreign` declared as `Int` would put a raw pointer
+        // where the reference map expects a scalar's freedom, and a
+        // `Float` declared as `Int` is the silent-wrong-answer case
+        // `tyReprClash` exists to catch.
+        let ret = if self.needs_cell() {
+            ps.push("Int".to_string());
+            "Int".to_string()
         } else {
             self.ret.clone()
+        };
+        if ps.is_empty() {
+            ret
+        } else {
+            format!("(-> {} {})", ps.join(" "), ret)
         }
     }
+
+    /// The name the raw extern binds. Wrapped items get a `Raw` suffix so
+    /// the ergonomic name is free for the wrapper.
+    fn raw_name(&self) -> String {
+        if self.needs_cell() {
+            format!("{}Raw", self.axiom_name)
+        } else {
+            self.axiom_name.clone()
+        }
+    }
+
+    /// The wrapper's Axiom-facing type.
+    fn wrapper_arrow(&self) -> String {
+        let ret = if self.fallible {
+            format!("(Result {} String)", self.ret)
+        } else {
+            self.ret.clone()
+        };
+        let ps: Vec<String> = self.params.iter().map(|(_, t)| t.clone()).collect();
+        if ps.is_empty() {
+            ret
+        } else {
+            format!("(-> {} {})", ps.join(" "), ret)
+        }
+    }
+
+    /// The generated Axiom wrapper: allocate the cell, call, decode.
+    fn wrapper(&self) -> String {
+        let names: Vec<String> = self.params.iter().map(|(n, _)| n.clone()).collect();
+        let args = names.join(" ");
+        let call_args = if args.is_empty() {
+            "cell".to_string()
+        } else {
+            format!("{args} cell")
+        };
+        let head = if names.is_empty() {
+            self.axiom_name.clone()
+        } else {
+            format!("{} {}", self.axiom_name, args)
+        };
+        let mut s = String::new();
+        s.push_str(&format!("(pub :: {} {})\n", self.axiom_name, self.wrapper_arrow()));
+        s.push_str(&format!("(pub fn ({head})\n"));
+        s.push_str("  (let ((cell (memAlloc 16)))\n");
+        s.push_str(&format!("    (let ((st ({} {call_args})))\n", self.raw_name()));
+        s.push_str("      (let ((p (cast Int (memGetWord cell 0)))\n");
+        s.push_str("            (n (cast Int (memGetWord cell 1))))\n");
+        if self.fallible {
+            s.push_str("        (if (== st 0)\n");
+            match self.ret.as_str() {
+                // On success the payload IS the value, and there is
+                // nothing to free.
+                "String" => s.push_str(
+                    "            (let ((v (ffiSliceToStr p n))) { (ffiFreeBytes p n) (Ok v) })\n"),
+                "Float" => s.push_str("            (Ok (cast Float p))\n"),
+                "Bool"  => s.push_str("            (Ok (!= p 0))\n"),
+                _        => s.push_str("            (Ok p)\n"),
+            }
+            s.push_str("            (let ((m (ffiSliceToStr p n)))\n");
+            s.push_str("              { (ffiFreeBytes p n) (Err m) }))))))\n");
+        } else {
+            s.push_str("        (let ((v (ffiSliceToStr p n)))\n");
+            s.push_str("          { (ffiFreeBytes p n) v })))))\n");
+        }
+        s
+    }
+}
+
+/// Whether a raw shim's parameter is spelled `AxWord` (possibly
+/// qualified), which is the crate's word for "an opaque handle".
+fn type_is_axword(t: &syn::Type) -> bool {
+    let syn::Type::Path(p) = t else { return false };
+    p.path.segments.last().map(|s| s.ident == "AxWord").unwrap_or(false)
 }
 
 fn result_ok(t: &syn::Type) -> Option<&syn::Type> {

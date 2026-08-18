@@ -1757,7 +1757,14 @@
   (if (strEq n "String") "String" (if (strEq n "Void") "Void"
   (if (strEq n "Unit") "Unit"
   (if (strEq n "Any") "Any"
-  (cast String 0)))))))))))
+  ; `Foreign` - an opaque foreign pointer (docs/ffi.md, MM-FFI-5
+  ; requirement 1: "foreign memory be a DISTINCT TYPE from Int").
+  ; A builtin rather than a declared type because the two readers that
+  ; must agree about it are the checker and the EMITTER, and a
+  ; user-declarable name could be shadowed by a `data Foreign` that
+  ; the emitter would then treat as a counted block.
+  (if (strEq n "Foreign") "Foreign"
+  (cast String 0))))))))))))
 
 (pub :: lexStartsLower (-> String Int))
 (pub fn (lexStartsLower s)

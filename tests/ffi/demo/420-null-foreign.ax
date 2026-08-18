@@ -1,0 +1,31 @@
+; A NULL foreign handle, stored and released.
+;
+; Zero is the value a failed foreign constructor returns, so it is the
+; word most likely to reach a record field. If `Foreign` were in
+; MM-LIFE-2d's reference map, the release walk would subtract 16 from it
+; and read address -16. It is not in the map (measured: the shape word
+; for `(struct T (a : String) (b : Foreign) (c : String))` maps payload
+; words [0, 2]), so nothing happens at all - which is the point.
+;
+; The strings either side are the control: they ARE in the map, so this
+; also shows the walk still runs and still follows what it should.
+(import IO)
+(import Str)
+
+(pub struct Held (before : String) (handle : Foreign) (after : String))
+
+(pub :: cycle (-> Foreign Int Int))
+(pub fn (cycle h i)
+  (if (>= i 1000)
+      0
+      (let ((r (Held (strConcat "x" "y") h (strConcat "z" "w"))))
+        (if (== (strLen r.after) 2)
+            (cycle h (+ i 1))
+            (- 0 1)))))
+
+;@axiom:effect(io)
+(pub fn (main)
+  (if (== (cycle (cast Foreign 0) 0) 0)
+      { (println "null foreign: survived") 0 }
+      { (println "null foreign: FAILED") 1 }))
+; expect 0

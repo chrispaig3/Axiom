@@ -1,0 +1,51 @@
+; MM-FFI-5 requirement 2: no arena primitive applies to foreign memory.
+;
+; The place that is actually decided is `fldClass`/`scalarTyName` in
+; codegen: a field is in MM-LIFE-2d's reference map iff its declared
+; type guarantees the word is a pointer to a COUNTED block. A `Foreign`
+; is a pointer into memory Axiom never allocated, so a set bit here
+; would make @axiom_release subtract 16 from a Rust allocation and read
+; the result as a block header.
+;
+; Measured on the emitted shape word for `(struct T (a : String)
+; (b : Foreign) (c : String))`: the map is payload words [0, 2] - the
+; Foreign at index 1 is SKIPPED, not truncated at. Before `Foreign` was
+; classifiable it answered "unclassifiable", which forces the whole
+; block to LEAF, and both Strings leaked.
+;
+; This case exercises the walk rather than the constant: 2000 records
+; are built and dropped, each holding a live foreign handle beside two
+; strings the release path must follow.
+(import IO)
+(import Fmt)
+(import Str)
+
+(pub extern "axiom_demo"
+  (counterNew   :: (-> Int Foreign) (symbol "axffi_counter_new"))
+  (counterValue :: (-> Foreign Int) (symbol "axffi_counter_value"))
+  (counterClose :: (-> Foreign Int) (symbol "axffi_counter_close")))
+
+(pub struct Session (before : String) (handle : Foreign) (after : String))
+
+(pub :: roundTrip (-> Foreign Int Int))
+(pub fn (roundTrip h i)
+  (if (>= i 2000)
+      (counterValue h)
+      (let ((s (Session (strConcat "a" "b") h (strConcat "c" "d"))))
+        ; The record dies here. Its release walk must follow words 0
+        ; and 2 and must NOT touch word 1.
+        (if (== (strLen s.before) 2)
+            (roundTrip h (+ i 1))
+            (- 0 1)))))
+
+;@axiom:effect(io)
+(pub fn (main)
+  (let ((h (counterNew 41)))
+    (let ((v (roundTrip h 0)))
+      {
+        (counterClose h)
+        (if (== v 41)
+            { (println "foreign: not walked") 0 }
+            { (println (fmtInt v)) 1 })
+      })))
+; expect 0

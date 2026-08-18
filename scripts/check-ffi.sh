@@ -154,7 +154,12 @@ for crate_dir in rust/examples/*/; do
     [[ -e "$case_file" ]] || break
     name="$(basename "$case_file" .ax)"
     exe="$work/$crate-$name"
-    if ! "$axiom" build --input "$case_file" --output "$exe" \
+    # The generated `.ax` binding module goes on AXIOM_PATH, so a case
+    # that imports it exercises what `axiom-bindgen` actually wrote -
+    # the out-cell wrappers included - rather than a copy of them
+    # checked into tests/.
+    if ! AXIOM_PATH="$repo_root/$crate_dir/axiom" \
+         "$axiom" build --input "$case_file" --output "$exe" \
          --link-lib "axiom_${crate//-/_}" --link-search "$search" \
          > "$work/$crate-$name.log" 2>&1; then
       echo "FAIL $crate/$name: could not build"
@@ -170,6 +175,36 @@ for crate_dir in rust/examples/*/; do
       status=1; continue
     fi
     echo "ok   $crate/$name imports only the $n_permitted permitted symbol(s)"
+  done
+done
+
+# ---------------------------------------------------------------
+# The generated bindings are checked in, and are REGENERATED here and
+# compared. `axiom-bindgen` reads the Rust source and the proc macro
+# reads the same annotations; two independent passes over one input can
+# drift, and this is what notices. Same shape as `check-fmt.sh --check`.
+# ---------------------------------------------------------------
+for crate_dir in rust/examples/*/; do
+  [[ -d "$crate_dir" ]] || continue
+  crate="$(basename "$crate_dir")"
+  gen="$crate_dir/axiom"
+  [[ -d "$gen" ]] || continue
+  for committed in "$gen"/*.ax; do
+    [[ -e "$committed" ]] || break
+    module="$(basename "$committed" .ax)"
+    fresh="$work/$module.regen.ax"
+    if ! ( cd rust && cargo run --release -q -p axiom-bindgen -- \
+             --src "examples/$crate/src" --lib "axiom_${crate//-/_}" \
+             --module "$module" -o "$fresh" ) >/dev/null 2>&1; then
+      echo "FAIL $crate: axiom-bindgen could not regenerate $module"; status=1; continue
+    fi
+    if ! diff -q "$committed" "$fresh" >/dev/null 2>&1; then
+      echo "FAIL $crate/$module: the checked-in bindings differ from a fresh generation"
+      diff "$committed" "$fresh" | head -10 | sed 's/^/    /'
+      status=1
+    else
+      echo "ok   $crate/$module is what axiom-bindgen generates today"
+    fi
   done
 done
 

@@ -1,9 +1,10 @@
 # The Axiom Rust FFI
 
-**Status:** implemented. `extern` is in the language, the compiler
-emits the `declare`, the driver links the archive, and the gates are
-green. Two of `MM-FFI-5`'s four requirements are discharged; the other
-two are open and named in §11.
+**Status:** complete. `extern` is in the language, `Foreign` is a
+builtin type kept out of the ARC reference map, the bytes and fallible
+return protocols work through generated Axiom glue, and **all four of
+`MM-FFI-5`'s requirements are discharged**. The bootstrap fixpoint holds
+and the gates are green.
 
 This document specifies a foreign-function interface between Axiom and
 Rust in both directions, over one shared marshalling layer. It exists
@@ -32,12 +33,12 @@ authority to revisit it is in the same file that made it.
 **MM-FFI-5 (P)** already specifies what a future FFI *SHALL* require at
 minimum, and this design is built to those four clauses:
 
-| MM-FFI-5 requires | Where this design satisfies it |
+| MM-FFI-5 requires | Status |
 |---|---|
-| foreign memory is a **distinct type** from `Int` | the `Foreign` type, §5 and §6 |
-| **no arena primitive** applies to it | `scalarTyName` keeps it out of the MM-LIFE-2d reference map, §7 |
-| a foreign call is an **inferred effect** like a syscall | the `FnEnt` effect seed, §4 and §11 |
-| `check-freestanding.sh` **replaced by an allowlist gate** | `scripts/check-ffi.sh`, §10 |
+| foreign memory is a **distinct type** from `Int` | **done** - `Foreign` is a builtin (`typeKeywordCanon`), and `tyCompat` matches named constructors by name, so it is distinct everywhere a type is compared |
+| **no arena primitive** applies to it | **done** - `scalarTyName` keeps it out of MM-LIFE-2d's reference map. Measured: `(String, Foreign, String)` maps payload words `[0, 2]` - the `Foreign` is skipped, not truncated at |
+| a foreign call is an **inferred effect** like a syscall | **done** - the `FnEnt` effect seed at registration; the existing monotone fixpoint propagates it transitively |
+| `check-freestanding.sh` **replaced by an allowlist gate** | **done** - `scripts/check-ffi.sh`, reading each crate's `axiom-allow.txt` |
 
 `foreign` itself stays retired at `AX2004` forever. The new keyword is
 `extern`. Old source keeps getting migration advice rather than being
@@ -186,15 +187,21 @@ Applied to the compiler — six files, detailed in §11:
 **The bootstrap fixpoint holds**: seed → stage1 → stage2 == stage3,
 byte-identical, with every one of those files changed.
 
-Two things are deliberately NOT done, and both are `MM-FFI-5`
-requirements 1 and 2, which are one piece of work: `Foreign` is not yet
-a compiler-known opaque type, so a foreign handle travels as an `Int`
-and the obligation is the programmer's. The mechanism when it lands is
-`scalarTyName` in `codegen.ax` — which is what `fldClass` consults to
-build MM-LIFE-2d's reference bitmap — and **not** `tyIsReprScalar`,
-which is about declared-return checking and has one call site. The
-`Slice` and `Outcome` return protocols are unimplemented for the same
-reason: they are the shapes that need a real type behind them.
+`Foreign` is a builtin type name, distinct from `Int` and excluded from
+MM-LIFE-2d's reference map. `self_host/namespace.ax` also learned to
+record an **imported** block's items - a path the entry-file fixtures
+could not reach, where an imported binding module emitted its calls
+against the Axiom name beside a `declare` for the linker symbol and died
+in `opt`: the `foreign` bug arriving from the one direction still open.
+
+`Slice` and `Outcome` turned out not to be types at all. A shim
+returning bytes, or one that can fail, needs two words back; those take
+a trailing out-cell, their raw binding carries a `Raw` suffix, and
+`axiom-bindgen` emits an **Axiom wrapper** that allocates the cell,
+calls, decodes and frees. No compiler feature was needed, and the rule
+that only Axiom's emitter writes an Axiom block header is preserved.
+The compiler found this itself: extern signatures are now validated
+against the type registry, and `Slice`/`Outcome` came back `AX3002`.
 
 `axiom symbols` already reports an extern with its full type and its
 inferred effects, as an `F` line; a distinct `E` kind and a `#symbol=`
@@ -3985,17 +3992,21 @@ A third check, cheap and worth having: **a byte-identity probe.** Build a progra
 
 ## 10. Testing Strategy, Gates, and Documentation
 
-> **Which of these exist today.** The fixtures written and passing are
-> `tests/ffi/no-extern/` (010-arith, 020-string, 030-effects-unchanged)
-> and `tests/ffi/demo/` (010-add, 020-float-bits, 030-string-borrow,
+> **Which of these exist today.** Eighteen fixtures are written and
+> passing: `tests/ffi/no-extern/` (010-arith, 020-string,
+> 030-effects-unchanged), `tests/ffi/nostd/` (010-fnv1a), and
+> `tests/ffi/demo/` (010-add, 020-float-bits, 030-string-borrow,
+> 040-owned-bytes, 050-fallible, 060-opaque-handle,
 > 070-extern-effect-transitive, 200-differential-int,
 > 210-differential-float, 220-differential-string, 300-arity-sweep,
-> 310-abi-version). Every other fixture named in this section is
-> **planned** and is deliberately written without a file extension, so
-> that `scripts/check-doc-drift.sh` - which requires every `NNN-name.ext`
-> a document names to exist under `tests/` - keeps telling the truth
-> about which is which. They land with the features they exercise:
-> `Slice`, `Outcome` and `Foreign` are not in the compiler yet.
+> 310-abi-version, 410-foreign-not-walked, 420-null-foreign).
+>
+> Four are still **planned** and are deliberately written without a file
+> extension, so that `scripts/check-doc-drift.sh` - which requires every
+> `NNN-name.ext` a document names to exist under `tests/` - keeps
+> telling the truth about which is which. All four need a second example
+> crate that does not exist yet: a deliberately leaky `std` crate for the
+> allowlist probe, and an ungrounded-symbol probe.
 
 
 ### 0. What the existing tree decides before any of this is designed
@@ -4315,17 +4326,17 @@ tests/ffi/
     010-add.ax          .out
     020-float-bits.ax   .out
     030-string-borrow.ax .out
-    040-owned-bytes  .out
-    050-fallible     .out  .exit
-    060-opaque-handle .out
+    040-owned-bytes.ax  .out
+    050-fallible.ax     .out  .exit
+    060-opaque-handle.ax .out
     070-extern-effect-transitive.ax  .out  .exit   ← MM-FFI-5(3)'s pin (§2.4)
     200-differential-int.ax    .out
     210-differential-float.ax  .out
     220-differential-string.ax .out
     310-abi-version.ax  .out
     400-arc-retain   .out
-    410-foreign-not-walked  .out
-    420-null-foreign .out
+    410-foreign-not-walked.ax  .out
+    420-null-foreign.ax .out
   probe-leaky/                     P4's crate: must FAIL the gate
     010-uses-env     .out
   probe-ungrounded/                P5: must FAIL the checker, under `build`
@@ -4534,7 +4545,7 @@ Block (d) is the `measure-memory-baseline.sh --gate` discipline (`scripts/check-
 
 **`400-arc-retain` block e — C7.** Rust calls `axiom_retain` on a value it keeps past the call, then `axiom_release`. The discriminating half: a sibling case that **omits the retain**, drops the Axiom-side reference, and reads through the Rust-held pointer. Under a bump allocator with size-class freelists that read may succeed by luck, so the assertion cannot be "it crashes" — it must be "the block was handed out again", checked by allocating and comparing addresses. State plainly that this case is *probabilistic in the failing direction* and is therefore an `.out` recording what was measured, not a gate that must go red.
 
-**`410-foreign-not-walked` — C4, MM-FFI-5(1)/(2) and MM-FFI-10, the single most important memory case.** Build a record with three payload words: an Axiom `Str`, an `Int`, and a `Foreign`. Release it. Required outcome:
+**`410-foreign-not-walked.ax` — C4, MM-FFI-5(1)/(2) and MM-FFI-10, the single most important memory case.** Build a record with three payload words: an Axiom `Str`, an `Int`, and a `Foreign`. Release it. Required outcome:
 
 - the `Str` **is** released (its bytes are reclaimed — observable as in `tests/stdlib/359-arc-str-bytes.ax`),
 - the Rust destructor **did not** run (a counter the crate exposes via `#[axiom_export] pub fn counter_close_count() -> i64` reads 0),
@@ -4542,7 +4553,7 @@ Block (d) is the `measure-memory-baseline.sh --gate` discipline (`scripts/check-
 
 **This case needs a third assertion, and the reason is a soundness bug in the first draft's design that the case as originally written would have passed for the wrong reason.** See §4.1.
 
-**`420-null-foreign` — the null handle.** Round-trip a null `Foreign` through a record and a release (§7 gap 6 and the I3 amendment in §9). Rust returns null routinely — a failed constructor, an OOM allocation, a not-found lookup — and 0 is inside the range I3 reserves for immediate tags (`docs/memory-model.md:2387`). `axiom_retain` and `axiom_release` both open with `icmp slt i64 %h, 4096` and no-op below it (`codegen.ax:2274-2280`, `:2292-2296`), so a null `Foreign` is inert in the ARC path — but that is a property to *test*, not to assume, and it is the only reason the amendment's wording can be honest.
+**`420-null-foreign.ax` — the null handle.** Round-trip a null `Foreign` through a record and a release (§7 gap 6 and the I3 amendment in §9). Rust returns null routinely — a failed constructor, an OOM allocation, a not-found lookup — and 0 is inside the range I3 reserves for immediate tags (`docs/memory-model.md:2387`). `axiom_retain` and `axiom_release` both open with `icmp slt i64 %h, 4096` and no-op below it (`codegen.ax:2274-2280`, `:2292-2296`), so a null `Foreign` is inert in the ARC path — but that is a property to *test*, not to assume, and it is the only reason the amendment's wording can be honest.
 
 **`720-foreign-arena-primitive`** — `(__axiom_arena_reset_keeping mark foreignPtr 64)` must be **refused at check time** (AX3043). MM-FFI-2 already documents that passing non-arena memory as the kept block is undefined; MM-FFI-5(2) upgrades it from documented-undefined to refused, and this fixture is the upgrade.
 
@@ -4614,7 +4625,7 @@ Pinned as a string. No `...` (there is no varargs anywhere and no source syntax 
 
 **Layer 2 — the generated arity/type sweep, in `check-ffi.sh`.** This is the differential fuzz that finds real bugs, and it is the same generated corpus §5 reads its shape assertions from: for each shape in `{Int, Float, Bool, String, Foreign} × arity 0..10`, generate the Rust function, run `axiom-bindgen` over it, compile the Axiom caller, link, run, and require every argument to arrive with the sentinel value it was sent (position *i* gets `0x1000 + i`, distinct per position so a transposition is visible and a truncation is not mistaken for a zero). Argument-order and out-cell-offset bugs are where a marshalling layer actually breaks, and neither is reachable from Layer 1.
 
-The `Foreign` row of that sweep uses `0x1000 + i` like every other, which keeps every generated handle above 4096; the null case is `420-null-foreign`'s job and is not folded in here, because a sweep that sometimes sends 0 and sometimes does not is a sweep whose failures are hard to localise.
+The `Foreign` row of that sweep uses `0x1000 + i` like every other, which keeps every generated handle above 4096; the null case is `420-null-foreign.ax`'s job and is not folded in here, because a sweep that sometimes sends 0 and sometimes does not is a sweep whose failures are hard to localise.
 
 **Bindgen/proc-macro drift is not fuzzed, it is diffed.** `axiom-bindgen` reads Rust source and the proc macro reads the same annotations independently (`rust/axiom-bindgen/src/main.rs:9-12`), so they can disagree. The gate regenerates `tests/ffi/bindings/Demo.ax` and fails on any difference from what is checked in — the `check-fmt.sh --check` shape. Its negative probe: mutate one byte of the checked-in file and require the diff to fail.
 
@@ -4640,7 +4651,7 @@ The `Foreign` row of that sweep uses `0x1000 + i` like every other, which keeps 
 
    **One nuance the `scalarTyName` change forces (§4.1):** adding a name to `scalarTyName` is reachable by every record construction site in the tree, so this measurement is not a formality. If any existing type is spelled `Foreign` anywhere, its blocks' shape constants move. Grep before, and record the grep in the commit message alongside the hashes.
 
-6. **A null `Foreign` shares the immediate-tag range, and the wire contract has to say something about it.** Rust returns null routinely. 0 is below 4096, so a null `Foreign` is indistinguishable from an immediate tag by I3's own test. **Decision: both halves.** (a) `#[axiom_export]`'s generated shim diagnoses a null return at the boundary and aborts, so a *checked* extern never hands Axiom a null — but that covers only the generated path, not a hand-written `extern` (gap 1 again). (b) The normative sentence is written honestly rather than optimistically: see §9's I3 amendment. `420-null-foreign` pins the inert case. What is **not** claimed: that a null `Foreign` can be pattern-matched or discriminated. It cannot, and nothing in the design needs it to be.
+6. **A null `Foreign` shares the immediate-tag range, and the wire contract has to say something about it.** Rust returns null routinely. 0 is below 4096, so a null `Foreign` is indistinguishable from an immediate tag by I3's own test. **Decision: both halves.** (a) `#[axiom_export]`'s generated shim diagnoses a null return at the boundary and aborts, so a *checked* extern never hands Axiom a null — but that covers only the generated path, not a hand-written `extern` (gap 1 again). (b) The normative sentence is written honestly rather than optimistically: see §9's I3 amendment. `420-null-foreign.ax` pins the inert case. What is **not** claimed: that a null `Foreign` can be pattern-matched or discriminated. It cannot, and nothing in the design needs it to be.
 
 ---
 
@@ -4722,7 +4733,7 @@ Section 8 is the one that must not be trimmed. Section 9 exists because this rep
 
 - **New: MM-FFI-6 through MM-FFI-13**, carrying C1–C8 as numbered rules so the rest of the document can cite them. In particular:
   - **MM-FFI-9** — Rust may not construct an Axiom heap block.
-  - **MM-FFI-10** — *a `Foreign` word's reference-map bit is 0, and the authority for that is `scalarTyName`/`fldClass` in `self_host/codegen.ax:6134-6178`, not `tyIsReprScalar` in `typecheck.ax`.* State the failure mode explicitly, because it is not the obvious one: a `Foreign` unknown to `scalarTyName` falls to `fldClass` class 1, which forces the **whole block** to the leaf shape (`shapeBits` → −1, `ctorShapeConst` stores an empty map), so every *other* reference in that record — including a `Str` — stops being released. Under-reclaiming rather than over-reclaiming is the deliberate choice recorded at `codegen.ax:6118-6132`, and it means this bug leaks silently instead of crashing. Pinned by `410-foreign-not-walked`'s twin-record and shape-word assertions.
+  - **MM-FFI-10** — *a `Foreign` word's reference-map bit is 0, and the authority for that is `scalarTyName`/`fldClass` in `self_host/codegen.ax:6134-6178`, not `tyIsReprScalar` in `typecheck.ax`.* State the failure mode explicitly, because it is not the obvious one: a `Foreign` unknown to `scalarTyName` falls to `fldClass` class 1, which forces the **whole block** to the leaf shape (`shapeBits` → −1, `ctorShapeConst` stores an empty map), so every *other* reference in that record — including a `Str` — stops being released. Under-reclaiming rather than over-reclaiming is the deliberate choice recorded at `codegen.ax:6118-6132`, and it means this bug leaks silently instead of crashing. Pinned by `410-foreign-not-walked.ax`'s twin-record and shape-word assertions.
   - **MM-FFI-11** — a non-null `Foreign` is an opaque machine address; a null `Foreign` is 0 (see the I3 amendment).
 
 - **§8, invariant table (`:2387`).** `I2` and `I3` need a sentence, and the honest form is not the one the first draft wrote. It claimed "a `Foreign` word is an address ≥ 4096". That is false for the null case, which Rust produces routinely. The amendment, in the shape of the existing I3-narrowing paragraph at `:2403-2408`:

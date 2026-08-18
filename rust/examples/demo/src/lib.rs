@@ -67,11 +67,17 @@ pub fn counter_value(c: &Counter) -> i64 {
 ///
 /// # Safety
 /// `h` must be a handle from `counter_new` that has not been closed.
+/// Returns `i64`, not `()`, and that is not a style choice. Axiom's whole
+/// ABI is one word in and one word out: every emitted function is
+/// `define i64 @name(i64, ...)` and every `declare` the compiler writes
+/// says `i64`. A `void` shim makes the call site read a return register
+/// the callee never set. A destructor has nothing to say, so it says 0.
 #[no_mangle]
-pub unsafe extern "C" fn axffi_counter_close(h: axiom_ffi::AxWord) {
+pub unsafe extern "C" fn axffi_counter_close(h: axiom_ffi::AxWord) -> i64 {
     if h != 0 {
         drop(Box::from_raw(h as *mut Counter));
     }
+    0
 }
 
 // 7. Arity edges. A ZERO-argument extern is the one shape with a

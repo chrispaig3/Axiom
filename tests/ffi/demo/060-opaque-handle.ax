@@ -1,0 +1,34 @@
+; An arbitrary Rust type Axiom holds as one opaque word.
+;
+; This is the mechanism that makes ecosystem leverage practical: a
+; `sha2::Sha256`, a `reqwest::Client`, a `serde_json::Value` never has
+; to be describable in Axiom's type system. Axiom holds the word, hands
+; it back, and calls a registered destructor when it is done.
+;
+; The word gets `Foreign` and not `Int`, which is MM-FFI-5 requirement
+; 1. The operational half of that distinction is requirement 2: a
+; `Foreign` is excluded from MM-LIFE-2d's reference map, so no arena
+; primitive and no release walk ever dereferences it. Declaring it `Int`
+; would compile and would be a pointer the reference map is free to
+; treat as a scalar today and something else tomorrow.
+;
+; Axiom is ARC with no finalizers, so `counterClose` runs when the
+; program says so. There is no point at which the runtime could call it.
+(import IO)
+(import Fmt)
+(import Demo)
+
+;@axiom:effect(io)
+(pub fn (main)
+  (let ((a (counterNew 41))
+        (b (counterNew 100)))
+    (let ((va (counterValue a))
+          (vb (counterValue b)))
+      {
+        (counterClose a)
+        (counterClose b)
+        (if (&& (== va 41) (== vb 100))
+            { (println "opaque handle: agree") 0 }
+            { (println (fmtInt va)) (println (fmtInt vb)) 1 })
+      })))
+; expect 0

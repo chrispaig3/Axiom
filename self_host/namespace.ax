@@ -163,11 +163,42 @@
           )
           0
         }
-        0
+        ; An `extern` block from an imported module. Its items are
+        ; RECORDED and never RENAMED: `Mod$name` would be a symbol no
+        ; archive defines, and the mapping wanted here is the Axiom name
+        ; to the LINKER symbol, which is what `mangledFor` then answers
+        ; at every call site.
+        ;
+        ; Without this arm an imported binding module emits its calls
+        ; against the Axiom name - `call i64 @ffiFreeBytes(...)` beside
+        ; a `declare` for `@axffi_free_bytes` - and dies in `opt` with
+        ; "use of undefined value". That is exactly the `foreign` bug,
+        ; reached from the one direction the entry-file fixtures could
+        ; not see, because `recordEntryFns` covers only the entry file.
+        (if (== (nodeTag node) TAG_D_EXTERN)
+          (mangleExternItems (nodeC node) 0 bares fulls)
+          0
+        )
       )
     )
   )
 )
+
+; Record every item of an `extern` block: the Axiom name maps to the
+; `(symbol "...")` clause the parser resolved. Visibility does not
+; change the mapping - an unexported item is simply never referenced
+; from outside, and recording it costs one entry.
+(pub :: mangleExternItems (-> Int Int Int Int Int))
+(pub fn (mangleExternItems items i bares fulls)
+  (if (== items 0)
+      0
+      (if (>= i (vecLen items))
+          0
+          {
+            (let ((f (vecGet items i)))
+              (mangleRecord bares fulls (nodeA f) (nodeC f)))
+            (mangleExternItems items (+ i 1) bares fulls)
+          })))
 
 ; The half of `mangleRecord` that a private declaration gets: the
 ; mangled name maps to itself, and the bare slot is left for whoever

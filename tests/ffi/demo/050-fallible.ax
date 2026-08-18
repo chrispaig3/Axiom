@@ -1,0 +1,30 @@
+; A Rust `Result` coming back across the boundary.
+;
+; The encoding is the status word plus the out-cell, chosen over the two
+; alternatives for reasons Axiom's own shape forces. A wider return is
+; impossible - `ret i64`, everywhere. A global last-error slot would be
+; sound here (MM-PAR-1: no threads at all, so no race) but makes every
+; call site order-dependent, and a caller that forgets to check reads
+; the previous call's error.
+;
+; The generated wrapper turns it into `stdlib/Err.ax`'s ordinary
+; `Result`, so a failing foreign call is matched with the same `Ok`/`Err`
+; arms as a failing Axiom one.
+(import IO)
+(import Err)
+(import Demo)
+
+(pub :: describe (-> (Result Int String) String))
+(pub fn (describe r)
+  (match r
+    ((Ok n) (if (== n 42) "ok:42" "ok:other"))
+    ((Err e) e)))
+
+;@axiom:effect(io)
+(pub fn (main)
+  (let ((good (describe (parseInt "42")))
+        (bad  (describe (parseInt "not-a-number"))))
+    (if (&& (strEq good "ok:42") (!= (strLen bad) 0))
+        { (println "fallible: agree") 0 }
+        { (println good) (println bad) 1 })))
+; expect 0

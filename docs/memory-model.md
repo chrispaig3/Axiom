@@ -2347,22 +2347,30 @@ program that builds a `Str` by any route other than the `Str` module —
 including `__store8` into a buffer it allocated — **MUST** maintain that
 terminator, or the syscall reads past the end.
 
-**MM-FFI-5 (P, partially discharged).** The four minimum requirements
-this clause set for a future FFI, and where each stands now that
-`extern` has landed:
+**MM-FFI-5 (H, discharged).** All four minimum requirements this clause
+set for a future FFI are met.
 
-| # | Requirement | Status |
+| # | Requirement | How |
 |---|---|---|
-| 1 | foreign memory is a distinct type from `Int` | **open** — `Foreign` is spelled in binding modules and is not yet a compiler-known type |
-| 2 | no arena primitive applies to it | **open** — depends on 1; the mechanism is `scalarTyName`, which decides `fldClass`'s reference bitmap, NOT `tyIsReprScalar` |
-| 3 | a foreign call is an inferred effect like a syscall | **done** — an `extern` item's `FnEnt` is seeded with `IO` at registration, exactly as an effect operation is seeded with its `Custom(E)`, and the existing monotone fixpoint propagates it transitively. `isSyscallPrim` is untouched and neither effect walk learned a new shape |
-| 4 | `check-freestanding.sh` replaced by an enumerating gate | **done** — `scripts/check-ffi.sh` reads each crate's `axiom-allow.txt`. The original gate is kept rather than replaced, because a program with no `extern` still has to answer the strict version |
+| 1 | foreign memory is a distinct type from `Int` | `Foreign` is a builtin type name (`typeKeywordCanon`). `tyCompat` requires two named constructors to match BY NAME — the `Int`/`String` fiat was deleted 2026-08-15 — so `Foreign` is distinct wherever a type is compared, not only at a return. `tyIsReprScalar` adds the declared-return-vs-body case |
+| 2 | no arena primitive applies to it | `scalarTyName` classifies `Foreign` as class 0, so `fldClass` leaves its bit CLEAR in the reference map and `@axiom_release` never follows it. Measured on the emitted shape word for `(struct T (a : String) (b : Foreign) (c : String))`: the map is payload words `[0, 2]` — the `Foreign` is skipped, not truncated at |
+| 3 | a foreign call is an inferred effect like a syscall | an `extern` item's `FnEnt` is seeded with `IO` at registration, exactly as an effect operation is seeded with its `Custom(E)`; the existing monotone fixpoint propagates it transitively. `isSyscallPrim` is untouched and neither effect walk learned a shape |
+| 4 | `check-freestanding.sh` replaced by an enumerating gate | `scripts/check-ffi.sh` reads each crate's `axiom-allow.txt`. The original gate is KEPT rather than replaced, because a program with no `extern` still has to answer the strict version |
 
-Requirements 1 and 2 are the remaining work and they are one piece of
-work, not two: registering `Foreign` in `scalarTyName` is what keeps a
-foreign pointer's bit CLEAR in MM-LIFE-2d's reference map, and a clear
-bit is exactly "no arena primitive applies to it". Until then a foreign
-handle travels as an `Int`, and the obligation is the programmer's.
+Requirement 2 is the one with teeth, and being *classifiable* is half of
+it. An unknown type name answers "unclassifiable", which forces the
+whole block to LEAF — so before `Foreign` was registered, every record
+holding a foreign handle silently lost the reference map for all its
+other fields and leaked them. Correctness and reclamation moved
+together.
+
+There is no `Slice` type and no `Outcome` type, and there was never a
+need for one. A shim returning bytes, or one that can fail, needs two
+words back and Axiom emits `ret i64` for everything; those shims take a
+trailing out-cell and the decoding half is **generated Axiom**, not a
+compiler feature. That keeps the rule the whole design rests on: only
+Axiom's own emitter writes an Axiom heap block, because only it knows
+this section's shape word.
 
 ---
 

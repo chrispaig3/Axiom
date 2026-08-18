@@ -1,0 +1,33 @@
+; A Rust `String` coming back across the boundary.
+;
+; This is the shape that cannot fit contract C2 directly: it needs a
+; pointer AND a length, and Axiom emits `ret i64` for every function.
+; So the shim takes a trailing OUT-CELL, returns a status, and the
+; ergonomic name is a GENERATED AXIOM WRAPPER that allocates the cell,
+; calls `shoutRaw`, copies the bytes into a real `strAlloc` block, and
+; frees the Rust side.
+;
+; The copy is deliberate and is the design's central safety rule: only
+; Axiom's own emitter ever writes an Axiom block header, because only it
+; knows MM-LIFE-2d's shape word. A Rust-authored header with a wrong
+; reference bitmap does not fail loudly - it makes @axiom_release walk
+; into Rust memory.
+;
+; `Demo.ax` is the module `axiom-bindgen` generates; the gate puts it on
+; AXIOM_PATH, so this exercises the GENERATED wrapper rather than a copy
+; of it written by hand.
+(import IO)
+(import Str)
+(import Demo)
+
+;@axiom:effect(io)
+(pub fn (main)
+  (let ((a (shout "hello"))
+        (b (shout ""))
+        (c (shout "axiom")))
+    (if (&& (strEq a "HELLO!")
+        (&& (strEq b "!")
+            (strEq c "AXIOM!")))
+        { (println "owned bytes: agree") 0 }
+        { (println a) (println b) (println c) 1 })))
+; expect 0

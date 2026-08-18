@@ -165,6 +165,13 @@ Four rules matter when writing one:
   hops away needs `;@axiom:effect(io)`.
 - Write `(symbol "...")` explicitly. A static link is one flat
   namespace and the default is the Axiom name.
+- An opaque handle is typed `Foreign`, never `Int`. It is a real builtin
+  type and the distinction is load-bearing: a `Foreign` field is kept out
+  of the ARC reference map, so the release walk never follows it. Passing
+  a `Foreign` where `Int` is declared is `AX3004`.
+- A shim returning bytes, or one that can fail, takes a trailing
+  out-cell; its raw binding gets a `Raw` suffix and `axiom-bindgen`
+  writes the Axiom wrapper. Do not hand-write those - regenerate.
 
 Generate blocks with `cargo run -p axiom-bindgen` rather than by hand;
 see `docs/ffi.md` and `rust/README.md`. `scripts/check-ffi.sh` is the

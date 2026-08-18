@@ -326,6 +326,7 @@ rules:
 | `Unit` | A distinct type constructor spelled `Unit`, **not** a synonym for `()`. This row used to read ``| `Unit` / `()` |``, and the equivalence was never true: `symbols` renders `(:: a (-> () Int))` as `(() -> Int)` and `(:: b (-> Unit Int))` as `(Unit -> Int)`. `Unit` was also missing from the parser's type-keyword set until 2026-08-10, so it was a bare unresolvable constructor that nothing asked about until signature types began to be resolved — see [self-hosting.md §30.2](self-hosting.md) |
 | `Void` | Void |
 | `Any` | Generic pointer |
+| `Foreign` | An opaque pointer into memory Axiom did not allocate and does not own, held as one word (see [ffi.md](ffi.md)). Distinct from `Int` on purpose: `tyCompat` matches named constructors by name, and the distinction is load-bearing rather than documentary — a `Foreign` field is left OUT of the ARC reference map (`docs/memory-model.md` MM-LIFE-2d), so `@axiom_release` never follows it. Measured on `(struct T (a : String) (b : Foreign) (c : String))`: the map is payload words `[0, 2]`. `(cast Foreign x)` is the explicit way in and out |
 
 ### Sized Integers and Floats — Removed
 
