@@ -1,0 +1,7 @@
+; The same function NAME, in a different module, with NO axtag at all -
+; and a body that performs IO, so any tag wrongly applied to it would
+; be contradicted and would show.
+(import IO)
+
+(pub :: work (-> Int Int))
+(pub fn (work n) { (println "tagnone does IO") n })

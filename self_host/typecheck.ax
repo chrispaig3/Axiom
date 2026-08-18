@@ -1391,7 +1391,12 @@
                ; stamped into every evidence stamp the body creates so
                ; emission can refuse a stamp another declaration wrote
                ; (a macro-spliced argument node is a shared object).
-               (curSigVars : Int) (curDeclNode : Int))
+               (curSigVars : Int) (curDeclNode : Int)
+               ; The TAG_D_SIG nodes carrying an AXTAG, built
+               ; once and 0 before that. Appended, for the reason
+               ; every field before it was. Scanning `allDecls` per
+               ; function instead measured 1000 -> 1233 ms.
+               (sigTags : Int))
 
 (pub :: tcFns (-> Int Int))     (pub fn (tcFns tc)     (memGetWord tc 0))
 (pub :: tcDatas (-> Int Int))   (pub fn (tcDatas tc)   (memGetWord tc 1))
@@ -1544,7 +1549,7 @@
                               vecNew vecNew entryDecls allDecls
                               vecNew vecNew units 0 vecNew 0
                               vecNew vecNew (collectPrivates allDecls vecNew 0)
-                              0 0 0 0 0))))
+                              0 0 0 0 0 0))))
         {
           ; The exact-name index, before collection rather than after:
           ; collection itself looks a name up per declaration.
@@ -1904,7 +1909,14 @@
     (cast Int (FnEnt name
                      (if (== ty 0) mkSilentWild ty)
                      (if (== ty 0) (- 0 1) (arrowDepth ty))
-                     0 0
+                     ; word 4 is 2, not 0: an extern is neither an
+                     ; ordinary function nor an effect operation, and
+                     ; `symbols` has to tell it from both. Its two
+                     ; readers compare `== 1` (checkBareValue here,
+                     ; the isOp test in symbols.ax), so 2 is inert to
+                     ; each - and right for the first, since a nullary
+                     ; extern IS a legitimate bare value.
+                     0 2
                      (let ((v vecNew))
                        { (vecPush v (builtinEff "IO")) v })
                      vecNew))))
@@ -6461,16 +6473,84 @@
             (tcWalkDecls tc (+ i 1))
           }))))
 
-; Every AXTAG on one declaration, in source order.
+; Every AXTAG belonging to one function.
+;
+; A tag attaches to the declaration that FOLLOWS it, and a function has
+; two: its `(:: f ...)` and its `(fn (f ...) ...)`. `checkAxtags` runs
+; only for a `fn`, so a tag above the SIGNATURE was collected, printed
+; by `symbols` on the function's line, and never checked - `#pure`
+; beside `#effects=IO` while `check` said OK. `symbols` keys tags by
+; name and was right: a signature has no body to contradict a claim.
 (pub :: checkAxtags (-> Int Int Int))
 (pub fn (checkAxtags tc d)
-  (if (== (memGetWord d 7) 0)
+  (let ((own (memGetWord d 7))
+        (sig (sigAxtagsFor tc (nodeA d))))
+    (if (&& (== own 0) (== sig 0))
+        0
+        (let ((_m (memSetWord tc 16 (nodeModule d)))
+              (sc (bodyScopeOf tc d)))
+          (let ((eff (collectEffects tc (nodeC d) sc))
+                (_m0 (memSetWord tc 16 0)))
+            {
+              ; The signature's first: it is written first.
+              (if (== sig 0) 0 (checkAxtagsFrom tc d sig 0 eff (bsEparams sc)))
+              (if (== own 0) 0 (checkAxtagsFrom tc d own 0 eff (bsEparams sc)))
+            })))))
+
+; The AXTAGs on the `(:: name ...)` signature for `name`, or 0.
+;
+; The AXTAGs on the signature declaring `name`, or 0.
+;
+; `nameMatches name (nodeA d)` - the FUNCTION's name against the
+; SIGNATURE's, in that order, and the order is load-bearing. Both
+; spellings occur: `mangleDecl` rewrites an imported `fn` and `::`
+; alike, but an ENTRY-file signature over an IMPORTED definition stays
+; bare while the function becomes `Mod$f`.
+;
+; Reversed - `nameMatches (nodeA d) (bareOf name)` - it accepts ANY
+; module's signature for a bare name, and one module's `pure` claim
+; drew a false AX3010 in another (tests/diagnostics/342). A strict
+; `strEq` instead drops the entry-signature shape above.
+(pub :: sigAxtagsFor (-> Int String Int))
+(pub fn (sigAxtagsFor tc name)
+  {
+    ; Built, then READ BACK: `memSetWord` answers the RECORD it wrote
+    ; into, not the value (stdlib/Mem.ax:202-208). Binding its result
+    ; and walking it as a Vec walks `tc` - a segfault that printed OK
+    ; on small files and died at 139 emitting the compiler.
+    (if (== (memGetWord tc 25) 0)
+        (memSetWord tc 25 (sigTagsBuild (memGetWord tc 10) vecNew 0))
+        0)
+    (sigAxtagsFrom (memGetWord tc 25) name 0)
+  })
+
+; One pass over the declaration list, keeping only the signatures that
+; carry an AXTAG. An empty Vec is a real handle, so "built and empty"
+; and "not built" are distinguishable and the pass runs once.
+(pub :: sigTagsBuild (-> Int Int Int Int))
+(pub fn (sigTagsBuild decls acc i)
+  (if (== decls 0)
+      acc
+      (if (>= i (vecLen decls))
+          acc
+          {
+            (let ((d (vecGet decls i)))
+              (if (&& (== (nodeTag d) TAG_D_SIG) (!= (memGetWord d 7) 0))
+                  (vecPush acc d)
+                  0))
+            (sigTagsBuild decls acc (+ i 1))
+          })))
+
+(pub :: sigAxtagsFrom (-> Int String Int Int))
+(pub fn (sigAxtagsFrom tagged name i)
+  (if (== tagged 0)
       0
-      (let ((_m (memSetWord tc 16 (nodeModule d)))
-            (sc (bodyScopeOf tc d)))
-        (let ((eff (collectEffects tc (nodeC d) sc))
-              (_m0 (memSetWord tc 16 0)))
-          (checkAxtagsFrom tc d (memGetWord d 7) 0 eff (bsEparams sc))))))
+      (if (>= i (vecLen tagged))
+          0
+          (let ((d (vecGet tagged i)))
+            (if (== (nameMatches name (nodeA d)) 1)
+                (memGetWord d 7)
+                (sigAxtagsFrom tagged name (+ i 1)))))))
 
 (pub :: checkAxtagsFrom (-> Int Int Int Int Int Int Int))
 (pub fn (checkAxtagsFrom tc d tags i eff eparams)

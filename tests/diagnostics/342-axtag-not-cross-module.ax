@@ -1,0 +1,17 @@
+; A signature's AXTAG belongs to ITS OWN function, and to no other of
+; the same bare name.
+;
+; `checkAxtags` folds in the tags of the signature declaring the same
+; function (see 341). The first version of that lookup matched with
+; `nameMatches` against the BARE name, and `nameMatches "TagNone$work"
+; "work"` answers true - so `TagPure`'s `pure` claim was applied to
+; `TagNone`'s `work` as well, and `TagNone` drew a warning at its own
+; line for a claim its file does not contain.
+;
+; Exactly one AX3010 is correct here: `mangleDecl` rewrites a
+; TAG_D_SIG and a TAG_D_FN alike, so a function and its own signature
+; agree exactly and the lookup can be - and now is - an exact match.
+(import TagPure)
+(import TagNone)
+(:: main Int)
+(fn (main) 0)

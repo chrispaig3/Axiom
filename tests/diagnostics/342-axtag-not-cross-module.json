@@ -1,0 +1,1 @@
+{"severity":"warning","code":"AX3010","slug":"axtag-mismatch","message":"AXTAG mismatch on `work`: `pure` claim contradicted: body performs IO","file":"TagPure.ax","span":{"start":{"line":7,"col":10},"end":{"line":7,"col":14},"char_start":159,"char_end":163},"label":"","related":[],"notes":[],"help":[],"expansion":[]}

@@ -1,0 +1,7 @@
+; A module whose SIGNATURE carries the AXTAG, and whose body
+; contradicts it. Companion to 342.
+(import IO)
+
+;@axiom:pure
+(pub :: work (-> Int Int))
+(pub fn (work n) { (println "tagpure does IO") n })

@@ -1,0 +1,21 @@
+; The same claim as 340, written one line HIGHER.
+;
+; An AXTAG attaches to the declaration that FOLLOWS it, so a tag above
+; the `::` belongs to the SIGNATURE and a tag between `::` and `fn`
+; belongs to the function. `checkAxtags` only ever runs on a `fn`, so
+; until 2026-08-18 this placement was collected, carried, printed by
+; `symbols` on the function's own line - and never checked. The two
+; readers disagreed: `symbols` showed `#pure` and `#effects=IO` side by
+; side while `check` answered OK.
+;
+; It is the more natural placement of the two, which is why it went
+; unnoticed: an annotation above a whole declaration reads as being
+; about the whole declaration.
+;
+; The span is the FUNCTION's name, not the tag's line, because the
+; claim is about the function and `emitAxtag` has always anchored there.
+;@axiom:pure
+(:: emit (-> Int Int))
+(fn (emit fd) { (__syscall3 1 fd 0 0) (alloc Int 1) })
+(:: main Int)
+(fn (main) 0)
