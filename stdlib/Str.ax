@@ -72,7 +72,14 @@
       (memSetWord s 0 len)
       (memSetWord s 1 bytes)
       (memSetWord s 2 owner)
-      s
+      ; The one place in the standard library a `String` is BUILT from
+      ; raw words rather than received as one, so the one place the
+      ; cast is the truth: `s` is an `Int` from the allocator until
+      ; the three stores above make it a header. The checker refuses
+      ; an `Int` body under a `String` signature since 2026-08-21
+      ; (`tyIsReprScalar`), and this is the explicit escape it asks
+      ; for rather than an exemption.
+      (cast String s)
     }))
 
 ; A `Str` over freshly allocated, zeroed space for `len` bytes.

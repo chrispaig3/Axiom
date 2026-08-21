@@ -24,13 +24,13 @@
 ; so nothing that used to check has stopped checking.
 ;
 ; `viaReturn` is here and emits NOTHING, deliberately. Its binder is
-; now correctly typed `String`, but returning it from a function
-; declared `-> Int` is a different check - `checkDeclaredReturn`
-; compares REPRESENTATION and its comparison is Bool/Float-only, so
-; every other wrong return type satisfies it, `String` included. That
-; hole is not this one and is not closed here; the case sits in this
-; file so that closing it shows up as a change to this golden rather
-; than as a silence nobody notices.
+; now correctly typed `String`, and returning it from a function
+; declared `-> Int` is the OTHER check - `checkDeclaredReturn`, whose
+; representation comparison was Bool/Float-only until 2026-08-21 and
+; names `String` since (tests/diagnostics/994 pins that check on its
+; own). This case predates the closure and sat here so that closing
+; the hole would show up as a change to this golden rather than as a
+; silence nobody notices: line 48 now emits, as predicted.
 (import Str)
 
 (:: viaInt (-> Int Int))

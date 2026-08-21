@@ -699,7 +699,7 @@ Axiom checks at compile time that every constructor of the matched type is cover
 Axiom provides a built-in `Option` type with `Some` and `None` constructors, always available without a `data` declaration:
 
 ```scheme
-(:: safeDiv (-> Int Int Int))
+(:: safeDiv (-> Int Int (Option Int)))
 (fn (safeDiv a b)
   (match b
     ((0) (None))

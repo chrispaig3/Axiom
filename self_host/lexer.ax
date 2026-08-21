@@ -496,7 +496,9 @@
 
 (pub :: lex (-> String Int))
 (pub fn (lex src)
-  (lexTokens src 0 (strLen src) (vecNew)))
+  ; A leading byte order mark is not a character of the program
+  ; (core.ax's `pastBom`).
+  (lexTokens src (pastBom src 0) (strLen src) (vecNew)))
 
 ; ------------------------------------------------------------------
 ; AXTAGs, scanned separately from tokenization.

@@ -1,0 +1,28 @@
+; `String` is a representation, not a handle: a declared `String`
+; result over an `Int` body is AX3004, and so is the reverse.
+;
+; `tyIsReprScalar` named `Bool`, `Float` and `Foreign` - the types
+; that "cannot be punned" with `Int` - and not `String`, though the
+; String/Int fiat was deleted on 2026-08-15 and a `String` has been a
+; header pointer ever since. So `bad` below checked OK, built, and
+; died of SIGSEGV with 12345 as its header (the QA sweep's second
+; critical finding, 2026-08-18). No struct, no generic, no `cast` was
+; needed to reach it.
+;
+;   line 19: an `Int` body under a `String` signature
+;   line 22: a `String` body under an `Int` signature
+;
+; `fine` emits nothing: `(cast String n)` is the explicit escape, and
+; what `Str.strWrapOwned` now says at the one place the standard
+; library builds a header from raw words.
+(:: bad (-> Int String))
+(fn (bad n) n)
+
+(:: worse (-> String Int))
+(fn (worse s) s)
+
+(:: fine (-> Int String))
+(fn (fine n) (cast String n))
+
+(:: main Int)
+(fn (main) 0)

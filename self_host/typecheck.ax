@@ -3376,13 +3376,23 @@
 
 ; ------------------------------------------------------------------
 ; Operators, keywords and forms that are always in scope and are not
-; declarations. Primitives are covered by the `__` prefix instead of
-; being listed: every one of them has it, and stage0's own suggestion
-; machinery skips `__` names for the same reason.
+; declarations.
+;
+; Primitives are NOT here. Every `__` primitive the emitter lowers is
+; registered in `tcNew`'s function table with its signature - that is
+; how a call to one is typed at all - so a `__` name that reaches this
+; function is one the table does not know. Until 2026-08-21 a `__`
+; prefix answered 1 unconditionally, on the ground that "every
+; primitive has it", and the consequence ran the other way: any
+; misspelling passed `check` and failed in `opt` as `use of undefined
+; value '@__thisPrimitiveDoesNotExist'` - a native-toolchain report
+; about generated code, for a program the compiler had just called
+; well-typed (the QA sweep's AX4003 finding). Now it is AX3001, with
+; the real primitives in the suggestion pool. The REPL's synthesized
+; `__repl_result` is a real `fn` and resolves through the table.
 ; ------------------------------------------------------------------
 (pub :: isBuiltinName (-> String Int))
 (pub fn (isBuiltinName n)
-  (if (strStartsWith n "__") 1
   (if (strEq n "+") 1 (if (strEq n "-") 1 (if (strEq n "*") 1
   (if (strEq n "/") 1 (if (strEq n "%") 1 (if (strEq n "&") 1
   (if (strEq n "|") 1 (if (strEq n "^") 1 (if (strEq n "<<") 1
@@ -3402,7 +3412,7 @@
   ; Alloc)` puts each of these where an argument goes.
   (if (strEq n "IO") 1 (if (strEq n "Pure") 1 (if (strEq n "Alloc") 1
   (if (strEq n "Mut") 1 (if (strEq n "Div") 1 (if (strEq n "Err") 1
-  0))))))))))))))))))))))))))))))))
+  0)))))))))))))))))))))))))))))))
 
 (pub :: strInVec (-> Int String Int Int))
 (pub fn (strInVec v n i)
@@ -5695,6 +5705,27 @@
 ; on poison (stage0 has no guard there; probed, `found {unknown}`
 ; cascades), but stays quiet for the silent wildcard, which marks
 ; what stage1 alone cannot know.
+;
+; A RESOLVED struct field also STAMPS the node with the struct it
+; resolved through - `stampFieldStruct` - because codegen has no
+; checker to ask. Until 2026-08-21 codegen resolved `base.field` by
+; name across every struct in the program, first declaring struct
+; winning, the receiver's type never consulted; two structs sharing a
+; field name at different offsets therefore read and wrote each
+; other's slots. Measured on the QA sweep's four-line repro:
+;
+;   (pub struct P (tag : Int) (name : String))
+;   (pub struct Q (name : String) (tag : Int))
+;   (let ((q (Q "hello" 999999999999))) (println q.name))
+;
+; `check` OK, `build` success, SIGSEGV - `Q.name` is word 0 and `P`
+; answered word 1, so an Int was dereferenced as a String header. The
+; compiler's own 44 structs declare 25 field names at conflicting
+; indices and survived only by never using this syntax at all
+; (1,047 hand-written `memGetWord` accessors, zero `.field` uses).
+; The checker is the one place the receiver's type is known, so the
+; resolution is decided here and carried to the emitter in the node's
+; word 6, which no expression node used. tests/selfhost/995 pins it.
 ; ------------------------------------------------------------------
 (pub :: checkField (-> Int Int Int))
 (pub fn (checkField tc e)
@@ -5703,7 +5734,7 @@
         (let ((ent (findStruct tc (nodeA baseTy))))
           (let ((fty (if (== ent 0) (- 0 1) (structFieldTy ent (nodeB e)))))
             (if (!= fty (- 0 1))
-                fty
+                { (stampFieldStruct e ent) fty }
                 ; Not a struct field. It may still be a DATA
                 ; constructor's named field: stage0 scans every data
                 ; type and every constructor that has field names,
@@ -5730,7 +5761,11 @@
                                                 (nodeSpan e))
                               (mkNode TAG_T_ERR 0 0 0)
                             }
-                            dty))
+                            ; Stamped EMPTY: "not a struct field", so
+                            ; the emitter skips its struct scan and
+                            ; reads the data field it resolved here
+                            ; (`resolveStructField`).
+                            { (setNodeTy e (cast Int "")) dty }))
                       {
                         (emitFieldNotFound tc (nodeB e) (nodeA baseTy) (nodeSpan e))
                         mkI64Ty
@@ -5742,6 +5777,23 @@
               0)
           mkI64Ty
         })))
+
+; Record on a TAG_E_FIELD / TAG_E_SETF node which struct its field
+; resolved through, under the spelling codegen's type table is keyed
+; by: the declared name, or `Mod$Name` for a struct that arrived
+; through an import - the alias `addQualified` registers beside the
+; bare entry, and the one that cannot collide with a same-named
+; struct from another module. Word 6 (`ty`) is 0 on both node kinds
+; from the parser and the expander, and nothing between the checker
+; and the emitter rebuilds them (`lowerConds` answers the node it was
+; given), so the stamp survives to `emitField`/`emitSetF`.
+(pub :: stampFieldStruct (-> Int Int Int))
+(pub fn (stampFieldStruct e ent)
+  (let ((name (cast String (memGetWord ent 0)))
+        (m (memGetWord ent 2)))
+    (setNodeTy e (cast Int (if (== m 0)
+                               name
+                               (strConcat (strConcat (cast String m) "$") name))))))
 
 ; The type of a named constructor field, searching every data type in
 ; declaration order, or 0. Mirrors stage0's `find_data_field_by_name`.
@@ -5848,11 +5900,18 @@
                   ; Field found: the VALUE is checked, against the
                   ; field's type. On a miss the value is NEVER checked
                   ; - stage0's rule, probed; its diagnostics are lost.
+                  ; The store is stamped as the read is - the write
+                  ; path was the worse half of the by-name defect:
+                  ; `(set q.tag 123)` stored an integer over a live
+                  ; String pointer when `P` declared `tag` first.
                   (let ((vty (checkExprH tc (nodeC e) 0)))
-                    (if (== (tyCompat vty fty) 0)
-                        (emitMismatch tc (tyRender fty) (tyRender vty)
-                                      (spanOf (nodeC e)))
-                        0))
+                    {
+                      (stampFieldStruct e ent)
+                      (if (== (tyCompat vty fty) 0)
+                          (emitMismatch tc (tyRender fty) (tyRender vty)
+                                        (spanOf (nodeC e)))
+                          0)
+                    })
                   (emitFieldNotFound tc (nodeB e) (nodeA baseTy) (nodeSpan e)))))
           (if (== (tyIsSilentWild baseTy) 0)
               (emitMismatch tc "struct or data type" (tyRender baseTy)
@@ -5988,16 +6047,32 @@
         (catchall (memAlloc 8)))
     {
       (memSetWord catchall 0 0)
+      ; The type exhaustiveness is decided over, and the one every
+      ; constructor arm is held to. The scrutinee's own when the
+      ; checker concluded one; when it concluded only a placeholder
+      ; (a minted `_tN`, the silent wildcard - a type no arm could
+      ; clash with), the type of the first constructor the arms name,
+      ; which is what the arms claim the value is. Until 2026-08-21 a
+      ; placeholder scrutinee skipped the check outright, so a match
+      ; over it with constructors missing fell through to the result
+      ; cell's 0 exactly as MM-VAL-9b's literal matches once did.
+      (let ((exhTy (if (== (nodeTag scrutTy) TAG_T_CON)
+                       scrutTy
+                       (if (&& (== (nodeTag scrutTy) TAG_T_VAR)
+                               (== (tyIsSrcVar scrutTy) 0))
+                           (armsCtorTy tc (nodeB e) 0)
+                           0))))
       (let ((resTy (checkArms tc (nodeB e) 0 covered catchall
-                              (freshTVar tc 0) scrutTy)))
+                              (freshTVar tc 0) scrutTy
+                              (if (== exhTy 0) scrutTy exhTy))))
         {
           (let ((ctorChecked
                   (if (&& (== (memGetWord catchall 0) 0)
-                          (== (nodeTag scrutTy) TAG_T_CON))
-                      (let ((dent (findData tc (nodeA scrutTy))))
+                          (!= exhTy 0))
+                      (let ((dent (findData tc (nodeA exhTy))))
                         (if (== dent 0)
                             0
-                            { (checkExhaustiveMatrix tc (nodeB e) scrutTy
+                            { (checkExhaustiveMatrix tc (nodeB e) exhTy
                                                      (spanOf (nodeA e)))
                               1 }))
                       0)))
@@ -6028,8 +6103,40 @@
                     "no arm catches a non-matching value"))
                 0))
           resTy
-        })
+        }))
     }))
+
+; The declared result type of the first constructor the arms name -
+; `Color` for `((Red) 1)`, `Option a` for `((Some x) x)` - or 0 when
+; no arm is a constructor pattern or none resolves. The shapes are
+; the three `checkPatternTyped` dispatches as constructors.
+(pub :: armsCtorTy (-> Int Int Int Int))
+(pub fn (armsCtorTy tc arms i)
+  (if (>= i (vecLen arms))
+      0
+      (let ((arm (vecGet arms i)))
+        (let ((cname (if (== (nodeTag arm) TAG_M_FOR)
+                         0
+                         (patCtorHeadName (nodeA arm)))))
+          (let ((ctor (if (== cname 0) 0 (findCtor tc (cast String cname)))))
+            (if (== ctor 0)
+                (armsCtorTy tc arms (+ i 1))
+                (let ((resTy (memGetWord ctor 2)))
+                  (if (== (nodeTag resTy) TAG_T_CON)
+                      resTy
+                      (armsCtorTy tc arms (+ i 1))))))))))
+
+; The constructor a pattern names, or 0 for a binder, a literal, or
+; a shape that names none.
+(pub :: patCtorHeadName (-> Int Int))
+(pub fn (patCtorHeadName pat)
+  (let ((tag (nodeTag pat)))
+    (if (|| (== tag TAG_P_CON0) (== tag TAG_P_CONNAMED))
+        (cast Int (nodeA pat))
+        (if (== tag TAG_E_APP)
+            (let ((head (spineHead pat)))
+              (if (== (nodeTag head) TAG_E_VAR) (cast Int (nodeA head)) 0))
+            0))))
 
 ; Every arm a literal `true`/`false` test, both present - the one
 ; all-literal match that cannot fall through. `recordCoverage` pushes
@@ -6071,8 +6178,14 @@
 ; `checkPatternTyped` keeps its 0 case, because the nested-pattern
 ; caller at the bottom of this file genuinely has no expected type to
 ; offer.
-(pub :: checkArms (-> Int Int Int Int Int Int Int Int))
-(pub fn (checkArms tc arms i covered catchall resTy scrutTy)
+; `fitTy` is the type the arms' CONSTRUCTORS and literals are held to
+; (`ctorPatFits`): the scrutinee's own, or, when that is only a
+; placeholder, the type of the first constructor the arms name - so
+; `((Red) 1) ((Big) 2)` over a lambda parameter refuses `Big` instead
+; of checking exhaustiveness over whichever type came first. Binders
+; still bind at `scrutTy`.
+(pub :: checkArms (-> Int Int Int Int Int Int Int Int Int))
+(pub fn (checkArms tc arms i covered catchall resTy scrutTy fitTy)
   (if (>= i (vecLen arms))
       resTy
       (let ((arm (vecGet arms i)))
@@ -6093,16 +6206,16 @@
                 0 0
                 "iteration is an expansion-time facility: move the match into a declaration macro's template, or write the arms by hand"
                 "the query vocabulary is CLOSED and compiler-implemented (macro-system.md MAC-CAP-5/6): every query is answered from the declaration list at expansion time"))
-              (checkArms tc arms (+ i 1) covered catchall resTy scrutTy)
+              (checkArms tc arms (+ i 1) covered catchall resTy scrutTy fitTy)
             }
             (let ((mark (vecLen (tcScope tc))))
               {
                 (recordCoverage (nodeA arm) covered catchall)
-                (checkPatternTyped tc (nodeA arm) scrutTy)
+                (checkPatternTyped tc (nodeA arm) scrutTy fitTy)
                 (let ((t (checkExprH tc (nodeB arm) 0)))
                   {
                     (scopeTrunc (tcScope tc) mark)
-                    (checkArms tc arms (+ i 1) covered catchall t scrutTy)
+                    (checkArms tc arms (+ i 1) covered catchall t scrutTy fitTy)
                   })
               })))))
 
@@ -6435,8 +6548,8 @@
 ; at the scrutinee type, and so does checkMatch's caller via
 ; checkPatternTypedAt).
 ; ------------------------------------------------------------------
-(pub :: checkPatternTyped (-> Int Int Int Int))
-(pub fn (checkPatternTyped tc pat scrutTy)
+(pub :: checkPatternTyped (-> Int Int Int Int Int))
+(pub fn (checkPatternTyped tc pat scrutTy fitTy)
   (let ((tag (nodeTag pat)))
     (if (== tag TAG_E_VAR)
         (if (|| (strEq (nodeA pat) "true") (strEq (nodeA pat) "false"))
@@ -6446,15 +6559,24 @@
                 { (pushScope (tcScope tc) (nodeA pat) 0 (nodeSpan pat)
                              (if (== scrutTy 0) mkSilentWild scrutTy))
                   0 }))
+    ; A string-literal pattern is lowered to a CONTENT comparison
+    ; (`emitPatMatch`, 2026-08-21), which reads the scrutinee as a
+    ; String header. The checker is what makes that read safe: a
+    ; literal against a scrutinee the checker knows is not a String
+    ; is AX3004 here, where the old address comparison would have
+    ; silently never matched.
+    (if (== tag TAG_E_STR)
+        (checkLitPatternTy tc mkStringTy fitTy (nodeSpan pat))
     (if (== tag TAG_P_CON0)
-        (checkCtorPattern tc (nodeA pat) vecNew (nodeSpan pat))
+        (checkCtorPattern tc (nodeA pat) vecNew (nodeSpan pat) fitTy scrutTy)
     (if (== tag TAG_E_APP)
         (let ((head (spineHead pat)))
           (if (!= (nodeTag head) TAG_E_VAR)
               0
               (checkCtorPattern tc (nodeA head)
                                 (spineArgVec pat vecNew)
-                                (nodeSpan head))))
+                                (nodeSpan head)
+                                fitTy scrutTy)))
     ; A NAMED constructor pattern. Every field it mentions must be one
     ; the constructor declares - a miss is AX3007, anchored at the
     ; FIELD NAME, which is why the parser keeps each name as a spanned
@@ -6467,7 +6589,7 @@
     (if (== tag TAG_P_CONNAMED)
         (let ((ctor (findCtor tc (nodeA pat))))
           (if (== ctor 0)
-              (checkCtorPattern tc (nodeA pat) vecNew (nodeSpan pat))
+              (checkCtorPattern tc (nodeA pat) vecNew (nodeSpan pat) fitTy scrutTy)
               (let ((declared (memGetWord ctor 4)))
                 {
                   (checkNamedPatFields tc (nodeB pat) declared
@@ -6479,9 +6601,83 @@
                                                     (nodeB pat) (nodeC pat)
                                                     (nodeSpan pat))
                                      vecNew)
-                        (nodeSpan pat)))
+                        (nodeSpan pat)
+                        fitTy scrutTy))
                 })))
-    0))))))
+    0)))))))
+
+; The instantiation environment for a constructor pattern: the
+; declaring type's parameters, paired positionally with the
+; scrutinee's arguments when the scrutinee is the same constructor
+; with as many. `env` is `tyInstIn`'s flat name/node vector; a name
+; it does not hold mints a placeholder as before.
+(pub :: ctorPatEnv (-> Int Int Int Int))
+(pub fn (ctorPatEnv resTy scrutTy env)
+  (if (|| (== resTy 0) (== scrutTy 0))
+      env
+      (if (|| (!= (nodeTag resTy) TAG_T_CON) (!= (nodeTag scrutTy) TAG_T_CON))
+          env
+          (if (if (strEq (nodeA resTy) (nodeA scrutTy))
+                  (!= (vecLen (nodeB resTy)) (vecLen (nodeB scrutTy)))
+                  true)
+              env
+              (ctorPatEnvFrom (nodeB resTy) (nodeB scrutTy) env 0)))))
+
+(pub :: ctorPatEnvFrom (-> Int Int Int Int Int))
+(pub fn (ctorPatEnvFrom params args env i)
+  (if (>= i (vecLen params))
+      env
+      (let ((p (vecGet params i))
+            (a (vecGet args i)))
+        {
+          (if (&& (== (tyIsSrcVar p) 1) (!= a 0))
+              { (vecPush env (nodeA p)) (vecPush env a) 0 }
+              0)
+          (ctorPatEnvFrom params args env (+ i 1))
+        })))
+
+; A literal pattern's type against the scrutinee's. Quiet when the
+; scrutinee's type is unknown, poisoned, or a placeholder - `tyCompat`
+; already says yes to those; AX3004 when the two are known and
+; disagree, anchored at the literal.
+(pub :: checkLitPatternTy (-> Int Int Int Int Int))
+(pub fn (checkLitPatternTy tc litTy scrutTy span)
+  (if (|| (== scrutTy 0) (== span 0))
+      0
+      (if (== (tyCompat litTy scrutTy) 1)
+          0
+          { (emitMismatch tc (tyRender litTy) (tyRender scrutTy) span) 0 })))
+
+; Does a constructor pattern of `resTy` (the constructor's declared
+; result, `Option a` for `Some`) fit a scrutinee of `scrutTy`?
+;
+; Head names only, deliberately: `Option a`'s rigid `a` against a
+; scrutinee `Option Int` is not a clash, and the arguments are what
+; `bindPatternArgs` instantiates and binds. A scrutinee the checker
+; does not know - 0, poison, the silent wildcard, a minted `_tN` -
+; fits anything, as it does everywhere else. A SOURCE type variable
+; does not: inside `(:: g (-> a Int))` the parameter stands for one
+; unknown type, and `(match v ((Red) 1))` claims it is `Color`. A
+; known constructor type with a different name does not either, and
+; nor does an arrow, a tuple or a pointer. An alias name left
+; unexpanded (a cyclic one stops at the depth cap) stays nominal and
+; is not refused.
+(pub :: ctorPatFits (-> Int Int Int Int))
+(pub fn (ctorPatFits tc resTy scrutTy)
+  (if (|| (== scrutTy 0) (== resTy 0))
+      1
+      (let ((st (nodeTag scrutTy)))
+        (if (== st TAG_T_ERR)
+            1
+        (if (== st TAG_T_VAR)
+            (if (== (tyIsSrcVar scrutTy) 1) 0 1)
+        (if (!= (nodeTag resTy) TAG_T_CON)
+            1
+        (if (== st TAG_T_CON)
+            (if (strEq (nodeA scrutTy) (nodeA resTy))
+                1
+                (if (!= (tcAliasFind tc (nodeA scrutTy)) 0) 1 0))
+            0)))))))
 
 ; Each field the pattern names must be declared. AX3007's message and
 ; help are the field-access ones, byte for byte.
@@ -6497,8 +6693,21 @@
         (checkNamedPatFields tc names declared tyName (+ i 1))
       }))
 
-(pub :: checkCtorPattern (-> Int String Int Int Int))
-(pub fn (checkCtorPattern tc cname args span)
+; `scrutTy` is what the match is over, and the constructor must
+; belong to it. Until 2026-08-21 nothing compared the two: a
+; constructor of any type matched a scrutinee of any other - `Int`,
+; `Shape`, or a signature's rigid `a` - and with the scrutinee's type
+; never a data type, exhaustiveness never ran either, so
+;
+;   (:: g (-> a Int))  (fn (g v) (match v ((Red) 1)))
+;   (g 42) (g "hello")
+;
+; checked OK and answered 0 twice through the fall-through cell
+; (the QA sweep's tyvar-shaped sibling of MM-VAL-9b). A clash is
+; AX3004 at the constructor's name, expected the constructor's type;
+; the arguments are still bound so the arm's body checks once.
+(pub :: checkCtorPattern (-> Int String Int Int Int Int Int))
+(pub fn (checkCtorPattern tc cname args span scrutTy envTy)
   (let ((ctor (findCtor tc cname)))
     (if (== ctor 0)
         {
@@ -6511,8 +6720,31 @@
         ; a binder holding the declaring type's own rigid `a` would
         ; make `(match (Some 42) ((Some x) x))` answer a variable no
         ; concrete type is compatible with.
-        (let ((fieldTys (tyInstVec tc (memGetWord ctor 1) vecNew vecNew 0)))
+        ;
+        ; Instantiated AT THE SCRUTINEE'S ARGUMENTS where it has them
+        ; (`ctorPatEnv`, 2026-08-21): over `(Option Int)` the `a` of
+        ; `Some` is `Int`, not a fresh placeholder, so a nested
+        ; literal `(Some "x")` is AX3004 - the refutation pass found
+        ; it passing `check` and then dereferencing 5 as a header
+        ; under the content comparison - and a binder carries the
+        ; type it has. Over `(Option a)` the binder is the rigid `a`,
+        ; which is the policy everywhere else. A parameter the
+        ; scrutinee does not pin stays a fresh placeholder - and
+        ; `envTy` is the scrutinee's REAL type for exactly that
+        ; reason, never the fit type `checkMatch` derives from the
+        ; arms: that one is the declaration's own `Option a`, and
+        ; pinning from it bound every binder over a lambda parameter
+        ; at a rigid `a` (the third refutation pass: `(lambda (o)
+        ; (match o ((Some x) (+ x 1))))` refused).
+        (let ((fieldTys (tyInstVec tc (memGetWord ctor 1)
+                                   (ctorPatEnv (memGetWord ctor 2) envTy vecNew)
+                                   vecNew 0)))
           {
+            (if (&& (!= span 0)
+                    (== (ctorPatFits tc (memGetWord ctor 2) scrutTy) 0))
+                (emitMismatch tc (tyRender (memGetWord ctor 2))
+                              (tyRender scrutTy) span)
+                0)
             (if (!= (vecLen args) (vecLen fieldTys))
                 (if (== span 0)
                     0
@@ -6571,10 +6803,21 @@
         ; constructor pattern: without this arm `(Wrap { inner =
         ; (Rect { w, h }) })` bound nothing for `w` or `h` and every
         ; use of them was an undefined variable.
+        ; A nested constructor pattern is checked against the FIELD
+        ; type it sits in - fit and instantiation both - so `(Some
+        ; (Some x))` over `(Option (Option Int))` binds `x` at `Int`
+        ; rather than at a fresh placeholder, and a constructor of
+        ; the wrong type in a field is refused where it stands.
         (if (|| (== tag TAG_E_APP)
                 (|| (== tag TAG_P_CON0) (== tag TAG_P_CONNAMED)))
-            (checkPatternTyped tc arg 0)
-            0))))
+            (checkPatternTyped tc arg ty ty)
+            ; A nested string literal is the same content comparison
+            ; the top-level one is, and needs the same guard: against
+            ; an `Int` field - `((MkU "x") 1)` over `(MkU Int)` - the
+            ; header read would dereference the field's integer.
+            (if (== tag TAG_E_STR)
+                (checkLitPatternTy tc mkStringTy ty (nodeSpan arg))
+                0)))))
 
 (pub :: emitUndefinedCtor (-> Int String Int Int))
 (pub fn (emitUndefinedCtor tc cname span)
@@ -6682,9 +6925,13 @@
   (let ((c (memAlloc 16)))
     { (memSetWord c 0 0) (memSetWord c 1 999) c }))
 
+; A `__` primitive is offered only to a `__` query: `__stor8` should
+; hear about `__store8`, and `store` should not.
 (pub :: offerCandidate (-> Int String String Int))
 (pub fn (offerCandidate best name cand)
-  (if (|| (strEq cand name) (strStartsWith cand "__"))
+  (if (|| (strEq cand name)
+          (&& (strStartsWith cand "__")
+              (if (strStartsWith name "__") false true)))
       0
       (let ((d (levenshtein name cand)))
         (if (&& (<= d (suggestThreshold (strLen name) (strLen cand)))
@@ -7238,7 +7485,25 @@
   ; `Foreign` where an `Int` is declared is already refused, and
   ; MM-FFI-5 requirement 1 holds everywhere a type is compared rather
   ; than only at a return. `(cast Foreign x)` is the explicit escape.
-  (|| (strEq name "Bool") (|| (strEq name "Float") (strEq name "Foreign"))))
+  ;
+  ; `String` is the fourth, and its absence was the QA sweep's second
+  ; critical finding (2026-08-18): with the String/Int fiat deleted a
+  ; String IS a header pointer and an Int is not, yet
+  ;
+  ;   (:: bad (-> Int String))  (fn (bad n) n)
+  ;   (println (bad 12345))
+  ;
+  ; passed `check`, built, and died of SIGSEGV dereferencing 12345 -
+  ; the one comparison that could have caught it was this list.
+  ; Turned on, it found three disagreements in the tree, none of them
+  ; the punning the handle convention protects: `Str.strWrapOwned`
+  ; builds a header from raw words and now says `(cast String s)`,
+  ; and `diag.sevSigil` and `codegen.importHelpText` declared `Int`
+  ; over bodies that were always `String` - signatures corrected.
+  ; tests/diagnostics/994 pins the refusal as AX3004.
+  (|| (strEq name "Bool")
+      (|| (strEq name "Float")
+          (|| (strEq name "Foreign") (strEq name "String")))))
 
 ; Parameter types: peel the signature's arrows left to right. The
 ; walk keeps its own cursor because a non-arrow signature - or none -

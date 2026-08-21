@@ -15,9 +15,15 @@
 ;   callee can make takes a share: a field store by event 5, a
 ;   constructor field by event 6, a container or any other word store
 ;   through `memSetWord`, which retains by MM-LIFE-2g. A callee that
-;   RETURNS it hands back a value the caller's own binding rules
-;   cover. Those four are the whole of how a reference leaves a frame;
-;   reading a FIELD answers the field, never the block;
+;   RETURNS it is the exception, since 2026-08-21: event 2 never
+;   shipped for a borrowed value, so `(fn (ident p) p)` hands the
+;   block straight back and a release after it dangles. `passed` is
+;   still released because `total` is signed `(-> Pair Int)` - a
+;   result that cannot be the block - and that is the permission now:
+;   a call in value position whose declared result may be a reference
+;   escapes (tests/selfhost/997-let-box-value-escapes.ax). Reading a
+;   SCALAR field answers a word; reading a reference field in value
+;   position is the block (same fixture);
 ;   sequencing, conditions and loops move no value out.
 ;
 ; What escapes, and why each is a place the guarantee stops:

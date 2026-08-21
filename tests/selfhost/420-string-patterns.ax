@@ -1,7 +1,9 @@
 ; expect 42
-; A string literal pattern compares against the interned literal's
-; header - equal text shares one global - instead of binding like a
-; variable and swallowing every scrutinee.
+; A string literal pattern TESTS its text instead of binding like a
+; variable and swallowing every scrutinee. Both scrutinees here are
+; literals; 996-match-string-content.ax is the case where one is
+; built at run time, which is where comparing the interned header's
+; ADDRESS (the rule until 2026-08-21) answered 0 for equal text.
 (:: f (-> String Int))
 (fn (f s) (match s ("hi" 40) (x 2)))
 (:: main Int)

@@ -1,0 +1,56 @@
+; A constructor pattern must belong to the type the match is over,
+; and a match over a placeholder-typed value is still exhaustiveness
+; checked.
+;
+; Nothing compared the two until 2026-08-21. `checkCtorPattern`
+; resolved the constructor, checked its arity, bound its fields, and
+; never looked at the scrutinee's type, so a `Color` constructor
+; matched an `Int`, a `Shape`, or a signature's rigid `a` - and with
+; the scrutinee never a data type, exhaustiveness never ran either.
+; The QA sweep's `g` below checked OK and answered 0 for both
+; `(g 42)` and `(g "hello")` through the result cell's zeroed
+; contents, MM-VAL-9b's shape one type variable further out.
+;
+;   line 33: `(Red)` against a rigid `a`          AX3004, expected Color
+;   line 36: `(Red)` against an `Int`             AX3004
+;   line 39: `(Red)` against a `Shape`            AX3004
+;   line 42: a string literal against an `Int`    AX3004, expected String
+;   line 46: a lambda parameter - a minted `_tN` - matched against
+;            `Red` and `Green` with `Blue` missing   AX3005
+;   line 53: a string literal NESTED in `Some` over `(Option Int)`
+;            AX3004, expected String - the constructor's `a` is
+;            instantiated at the scrutinee's `Int` (`ctorPatEnv`),
+;            not minted fresh; with a fresh placeholder this passed
+;            `check` and the content comparison dereferenced 5
+;
+; `ok` emits nothing: `(Option a)` fits `Some`/`None`, because only the
+; HEAD names are compared (`ctorPatFits`) and the arguments are what
+; `bindPatternArgs` instantiates.
+(data Color () (Red) (Green) (Blue))
+(data Shape () (Circle Int) (Square Int))
+
+(:: g (-> a Int))
+(fn (g v) (match v ((Red) 1) (_ 0)))
+
+(:: h (-> Int Int))
+(fn (h n) (match n ((Red) 1) (_ 0)))
+
+(:: k (-> Shape Int))
+(fn (k s) (match s ((Red) 1) ((Circle r) r) (_ 0)))
+
+(:: lit (-> Int Int))
+(fn (lit n) (match n (("hello") 1) (_ 0)))
+
+(:: ph Int)
+(fn (ph)
+  (let ((f (lambda (x) (match x ((Red) 1) ((Green) 2)))))
+    (f Blue)))
+
+(:: ok (-> (Option a) Int))
+(fn (ok o) (match o ((Some x) 1) ((None) 0)))
+
+(:: nested (-> (Option Int) Int))
+(fn (nested o) (match o ((Some "x") 1) (_ 0)))
+
+(:: main Int)
+(fn (main) 0)

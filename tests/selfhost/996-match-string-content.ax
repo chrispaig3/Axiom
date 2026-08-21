@@ -1,0 +1,29 @@
+; expect 42
+; A string-literal pattern matches by CONTENT, so `match` and `==`
+; agree on a string built at run time.
+;
+; Until 2026-08-21 the arm compared the scrutinee's header address
+; against the interned literal's - which is equality for two literals
+; of the same text (420-string-patterns.ax) and never for a string
+; `strConcat` built a moment ago. Measured by the QA sweep:
+; `(== built "hello")` answered 1 while `(match built (("hello") 1)
+; (_ 0))` answered 0, so any dispatch on a string tag took the wrong
+; arm for every string that was not itself a literal. The arm now
+; calls the same `@__axiom_str_eq` that `==` lowers to.
+;
+; 40 + 2 + 0 = 42; the old rule answered 0 + 0 + 0.
+(import Str)
+(:: tag (-> String Int))
+(fn (tag s)
+  (match s
+    (("hello") 40)
+    (("hi") 2)
+    (_ 0)))
+(:: main Int)
+(fn (main)
+  (let ((hello (strConcat "hel" "lo"))
+        (hi (strConcat "h" "i"))
+        (yo (strConcat "y" "o")))
+    (if (== hello "hello")
+        (+ (+ (tag hello) (tag hi)) (tag yo))
+        100)))

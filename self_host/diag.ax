@@ -48,7 +48,11 @@
 (pub :: SEV_ERROR Int)   (pub fn (SEV_ERROR)   0)
 (pub :: SEV_WARNING Int) (pub fn (SEV_WARNING) 1)
 
-(pub :: sevSigil (-> Int Int))
+; `String`, as the body always was: the signature said `Int` until
+; the checker began comparing a `String` body against a declared
+; return (2026-08-21), and the one caller pushes it into a parts
+; vector that takes anything.
+(pub :: sevSigil (-> Int String))
 (pub fn (sevSigil sev)
   (if (== sev SEV_ERROR) "E" "W"))
 
@@ -337,10 +341,11 @@
           (lineCount src off (+ i 1) (+ acc 1))
           (lineCount src off (+ i 1) acc))))
 
-; 1-based column of byte offset `off`, counted in characters.
+; 1-based column of byte offset `off`, counted in characters. A byte
+; order mark at the start of the text is not one of them (`pastBom`).
 (pub :: colOf (-> String Int Int))
 (pub fn (colOf src off)
-  (colCount src (lineStartOf src off) off 1))
+  (colCount src (pastBom src (lineStartOf src off)) off 1))
 
 (pub :: colCount (-> String Int Int Int Int))
 (pub fn (colCount src i off acc)

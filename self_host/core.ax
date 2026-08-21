@@ -124,3 +124,30 @@
 ; all three of codegen, typecheck and diag need it.
 ; ------------------------------------------------------------------
 (pub struct CUnit2 (file : String) (src : String) (name : String))
+
+; ------------------------------------------------------------------
+; A UTF-8 byte order mark. Three bytes, EF BB BF, that a BOM-emitting
+; editor puts before the first character of a file and that no reader
+; of the file is meant to see. Until 2026-08-21 the lexer saw it: a
+; file saved that way failed to lex at all, with `AX1001: unexpected
+; character` pointing at an invisible character at 1:1 (the QA
+; sweep). It is skipped where a file's text is entered - the lexer's
+; entry, and the two column counters in `diag` and `render` - and
+; nowhere else: spans stay byte offsets into the text as read, so the
+; mark costs three bytes of offset and zero columns, which is the
+; position an editor that hides it reports too. Asked of a LINE START
+; rather than of the text, so a column on any later line is untouched.
+; `fmt` reads through its own scanner (`fscan`) and still refuses the
+; file - untouched, exit 1 - which is the one subcommand left that
+; does; `check`, `build`, `run`, `symbols` and the language server all
+; come through `lex`.
+; ------------------------------------------------------------------
+(pub :: pastBom (-> String Int Int))
+(pub fn (pastBom src lineStart)
+  (if (!= lineStart 0)
+      lineStart
+      (if (&& (>= (strLen src) 3)
+              (&& (== (strByte src 0) 239)
+                  (&& (== (strByte src 1) 187) (== (strByte src 2) 191))))
+          3
+          0)))

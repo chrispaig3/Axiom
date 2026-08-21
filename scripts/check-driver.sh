@@ -756,6 +756,51 @@ grep -q '"code":"AX2002"' ib.json \
   && ok "and it honours --diagnostic-format" \
   || bad "unparseable import ignores --diagnostic-format"
 
+# --- a byte order mark --------------------------------------------------
+#
+# A file a BOM-emitting editor saved begins with EF BB BF, and until
+# 2026-08-21 that was AX1001 `unexpected character` at 1:1, pointing
+# at a character nothing displays (the QA sweep). The mark is skipped
+# at the lexer's entry and ignored by both column counters, so the
+# same program with and without it must check, build, run, and report
+# a line-1 diagnostic at the same column. This lives here and not in
+# a corpus directory on purpose: check-self-host.sh reads `; expect N`
+# off a case's first bytes, check-tree-sitter.sh parses every `.ax`
+# with a grammar that knows no BOM, and the span verifier counts the
+# mark as a character - each of which would be pinning the fixture's
+# encoding rather than the compiler's behaviour.
+printf '\xEF\xBB\xBF' >bom.ax; cat hello.ax >>bom.ax
+"$s1" check bom.ax >/dev/null 2>&1 \
+  && ok "a leading byte order mark is skipped" || bad "check refuses a BOM file"
+"$s1" build --input bom.ax --output bomhi >/dev/null 2>&1 \
+  && [[ "$(./bomhi)" == "driver-ok" ]] \
+  && ok "and the program behind it builds and runs" || bad "build of a BOM file"
+printf '(fn (main) (nope 1))\n(:: main Int)\n' >bad1.ax
+printf '\xEF\xBB\xBF' >bombad1.ax; cat bad1.ax >>bombad1.ax
+"$s1" --diagnostic-format=ai check bad1.ax >/dev/null 2>bad1.axdl
+"$s1" --diagnostic-format=ai check bombad1.ax >/dev/null 2>bombad1.axdl
+grep -q '^E AX3001 bad1.ax:1:13-17 ' bad1.axdl \
+  && [[ "$(sed 's/bombad1/bad1/' bombad1.axdl)" == "$(cat bad1.axdl)" ]] \
+  && ok "a line-1 diagnostic reports the same column with the mark as without" \
+  || bad "BOM shifts columns: $(head -1 bombad1.axdl | cut -c1-60)"
+# The human renderer's caret counts the mark as zero columns too: the
+# two carets must sit at the same offset from the gutter.
+"$s1" check bad1.ax >/dev/null 2>bad1.human
+"$s1" check bombad1.ax >/dev/null 2>bombad1.human
+[[ "$(grep -c '\^' bad1.human)" -ge 1 ]] \
+  && [[ "$(grep '\^' bad1.human | sed 's/\x1b\[[0-9;]*m//g')" == "$(grep '\^' bombad1.human | sed 's/\x1b\[[0-9;]*m//g')" ]] \
+  && ok "and the human caret lands under the same character" \
+  || bad "BOM shifts the human caret"
+# Not a leading mark, not skipped: the same bytes anywhere else are
+# still an unexpected character.
+printf '(:: main Int)\n(fn (main) \xEF\xBB\xBF 0)\n' >midbom.ax
+"$s1" --diagnostic-format=ai check midbom.ax >/dev/null 2>midbom.axdl
+# `LC_ALL=C`: the message quotes the offending byte, and a UTF-8
+# locale's grep declines to search a line it cannot decode.
+LC_ALL=C grep -q '^E AX1001 midbom.ax:2:12' midbom.axdl \
+  && ok "a mark that is not leading is still AX1001" \
+  || bad "mid-file BOM: $(head -c 60 midbom.axdl)"
+
 echo
 echo "$passed passed, $failed failed"
 [[ "$failed" == 0 ]]

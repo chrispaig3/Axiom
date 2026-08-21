@@ -1,0 +1,33 @@
+; expect 42
+; Two structs that share field NAMES at different OFFSETS, read and
+; written through `.field` - the six lines the QA sweep of 2026-08-18
+; said would have caught the by-name resolution from the day it was
+; inherited from stage0.
+;
+; Until 2026-08-21 `q.tag` resolved by name across the whole struct
+; registry, first declaring struct winning: `P` declares `tag` at word
+; 0, so `q.tag` read `Q`'s word 0 - the String header `q.name` - and
+; `(set q.tag 7)` stored 7 over it. `check` said OK, `build`
+; succeeded, and the program died of SIGSEGV in `strLen`. The checker
+; now stamps every resolved field access with the receiver's struct
+; (`stampFieldStruct`) and the emitter resolves through the stamp
+; (`resolveStructField`), so each of the four accesses below lands in
+; its own struct's slot. Both declaration orders are covered by the
+; one pair: `P` is first and right either way, `Q` is the one the old
+; rule got wrong.
+;
+; 30 + 7 + 5 = 42. Under the old rule the exit status was a pointer's
+; low byte at best and a signal at worst.
+(import Str)
+(pub struct P (tag : Int) (name : String))
+(pub struct Q (name : String) (tag : Int))
+(:: main Int)
+(fn (main)
+  (let ((p (P 0 "zz"))
+        (q (Q "defgh" 0)))
+    {
+      (set p.tag 30)
+      (set p.name "abc")
+      (set q.tag 7)
+      (+ (+ p.tag q.tag) (strLen q.name))
+    }))

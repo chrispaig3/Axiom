@@ -1,9 +1,9 @@
 [1;31merror[AX3006][0m[1m: duplicate definition `dash`[0m
  [1;34m--> [0m070-nonascii-same-line.ax:3:22
 [1;34m  |[0m
-[1;34m3 |[0m (fn (dash) "—") (fn (dash) 1)
+[1;34m3 |[0m (fn (dash) "—") (fn (dash) "-")
 [1;34m  |[0m      [1;36m---- `dash` first defined here[0m
-[1;34m3 |[0m (fn (dash) "—") (fn (dash) 1)
+[1;34m3 |[0m (fn (dash) "—") (fn (dash) "-")
 [1;34m  |[0m                      [1;31m^^^^ `dash` redefined here[0m
 [1;34m  |[0m
  [1;34m = [0m[1;32mhelp: [0mrename one of the definitions, or remove the duplicate

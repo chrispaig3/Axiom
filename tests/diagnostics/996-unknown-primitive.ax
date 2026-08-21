@@ -1,0 +1,20 @@
+; A `__` name the compiler does not implement is AX3001, with the
+; real primitives in the suggestion pool.
+;
+; `isBuiltinName` answered 1 for ANY `__` prefix, so a misspelled
+; primitive passed `check` and the program failed inside `opt` -
+; `use of undefined value '@__thisPrimitiveDoesNotExist'`, reported as
+; AX4003 - a native-toolchain message about generated code, for a
+; program the compiler had just called well-typed (the QA sweep,
+; 2026-08-18). Every primitive the emitter lowers is registered in
+; `tcNew`'s function table with its signature; that table is the
+; authority now, and the prefix is not.
+;
+;   line 17: the unknown primitive
+;
+; `known` emits nothing: `__argc` is in the table.
+(:: main Int)
+(fn (main) (__thisPrimitiveDoesNotExist 1 2))
+
+(:: known Int)
+(fn (known) (__argc))

@@ -179,9 +179,11 @@
 (pub :: LEFT_CTX Int) (pub fn (LEFT_CTX) 20)
 
 ; The 1-based display column of byte offset `off` within its own line.
+; A byte order mark at the start of the text draws nothing, and is not
+; counted (`pastBom`) - the same rule `colOf` follows.
 (pub :: dispColAt (-> String Int Int))
 (pub fn (dispColAt src off)
-  (let ((mut i (lineStartOf src off)) (mut col 0))
+  (let ((mut i (pastBom src (lineStartOf src off))) (mut col 0))
     {
       (while (< i off)
         {

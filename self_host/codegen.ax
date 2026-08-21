@@ -1581,7 +1581,9 @@
 ; `looked for 'A' or 'B' or 'C' in 'd1', 'd2', ...` - the same
 ; candidates and directories readModuleSrc searched, in the same
 ; order, so the help never claims a search that did not happen.
-(pub :: importHelpText (-> String Int String Int))
+; Answers the `String` its body always built; the signature said
+; `Int` until the checker compared the two (2026-08-21).
+(pub :: importHelpText (-> String Int String String))
 (pub fn (importHelpText name tcode entryDir)
   (let ((stem (modPathToFile name))
         (dirs (moduleSearchDirs entryDir)))
@@ -4293,13 +4295,27 @@
         ; pattern also compiles to (one word against one word).
         (emitPatTest (constStr (nodeA pat)) vr failB cg)
     (if (== tag TAG_E_STR)
-        ; A string literal pattern compares against the interned
-        ; literal's header address - string literals of equal text
-        ; share one global (`internString` dedups by content), which is
-        ; also how stage0's comparison against its interned constant
-        ; behaves.
+        ; A string literal pattern compares CONTENTS, through the same
+        ; `@__axiom_str_eq` that `==` on two Strings lowers to.
+        ;
+        ; It compared the interned literal's header ADDRESS until
+        ; 2026-08-21, on the ground that literals of equal text share
+        ; one global - true, and beside the point: a string built at
+        ; run time is never that global. Measured (the QA sweep):
+        ;
+        ;   (let ((built (strConcat "hel" "lo")))
+        ;     (== built "hello")                        -> 1
+        ;     (match built (("hello") 1) (_ 0)))        -> 0
+        ;
+        ; so `==` and `match` disagreed on one value, and any dispatch
+        ; on a string tag - a command table, a parser - silently took
+        ; the wrong arm for every string that was not itself a
+        ; literal. The checker makes the header read safe: a string
+        ; literal pattern on a scrutinee known not to be a String is
+        ; AX3004 (`checkPatternTyped`). tests/selfhost/996 pins the
+        ; agreement of the two.
         (let ((cgS (emitStrExpr pat cg)))
-          (emitPatTest (strDup (memGetWord cgS 2)) vr failB cgS))
+          (emitPatStrTest (strDup (memGetWord cgS 2)) vr failB cgS))
     (if (== tag TAG_E_VAR)
         ; `true`/`false` are literal tests. Every OTHER bare name - a
         ; constructor's included - is a binder: stage0 parses a bare
@@ -4426,6 +4442,19 @@
         (emitLabel cg contB)
         cg
       })))
+
+; `emitPatTest`'s shape over string contents: one call into
+; `@__axiom_str_eq`, which answers exactly 0 or 1, then the same
+; branch. `want` is the literal's header register.
+(pub :: emitPatStrTest (-> String String String Int Int))
+(pub fn (emitPatStrTest want vr failB cg)
+  (let ((r (regStr (allocReg cg))))
+    (let ((cg1 (emitLine cg
+                 (cat4 (cat2 "  " r)
+                       " = call i64 @__axiom_str_eq(i64 "
+                       (strDup vr)
+                       (cat3 ", i64 " want ")")))))
+      (emitPatTest (constStr 1) r failB cg1))))
 
 ; Load each field of the block in `vr` (fields start at word 1, past
 ; the tag) and recurse into the subpattern, carrying the field's
@@ -4801,7 +4830,7 @@
 (pub fn (emitSetF node cg)
   (let ((cgB (emitExpr (nodeA node) cg)))
     (let ((base (strDup (memGetWord cgB 2)))
-          (fi (findStructField (memGetWord cgB 3) (nodeB node))))
+          (fi (resolveStructField (memGetWord cgB 3) node)))
       (if (== fi 0)
           (dieCodegenDiag "unknown struct field: " (nodeB node))
           (let ((owns (== (fldClass cgB (nodeC fi)) 2)))
@@ -4820,14 +4849,24 @@
                             cgD
                           }))))))))))))
 
-; `base.field`: the field resolves by name across the struct registry -
-; first declaring struct wins, the same simplification stage0 makes for
-; float-ness - and a struct carries no tag word, so field i is word i.
+; `base.field`: the field resolves through the struct the CHECKER
+; stamped on the node (`resolveStructField`), and a struct carries no
+; tag word, so field i is word i.
+;
+; It resolved by name across the whole struct registry until
+; 2026-08-21 - first declaring struct wins, "the same simplification
+; stage0 makes for float-ness" - and that simplification cost type
+; safety rather than precision: two structs sharing a field name at
+; different offsets read and wrote each other's slots, `check` said
+; OK, and the QA sweep's four-line repro died of SIGSEGV
+; (typecheck.ax's `checkField` carries the measurement). The
+; receiver's static type is the checker's to know, so the checker
+; decides and this reads its answer.
 (pub :: emitField (-> Int Int Int))
 (pub fn (emitField node cg)
   (let ((cgB (emitExpr (nodeA node) cg)))
     (let ((base (strDup (memGetWord cgB 2)))
-          (fi (findStructField (memGetWord cgB 3) (nodeB node))))
+          (fi (resolveStructField (memGetWord cgB 3) node)))
       (if (== fi 0)
           ; Not a struct field: it may be a DATA constructor's named
           ; field. Those live PAST THE TAG WORD, so the offset is
@@ -4874,6 +4913,52 @@
       (if (strEq (vecGet names i) fname) i
           (dataFieldIndexIn names fname (+ i 1)))))
 
+; The field of a TAG_E_FIELD / TAG_E_SETF node, as the inert
+; (index, floatFlag, type) node `findStructFieldIn` builds, or 0.
+;
+; Word 6 of the node is the struct the checker resolved the field
+; through - `stampFieldStruct`, keyed exactly as `lookupType` is - and
+; when it is there the field is looked up IN THAT STRUCT and nowhere
+; else. The program-wide scan below is reached only for a node the
+; checker did not stamp: a base whose type it could not know (the
+; silent wildcard - a macro head, an unparseable type), or a field
+; that resolved as a DATA constructor's named field rather than a
+; struct's, which `emitField` goes on to try next. A stamped struct
+; that the table cannot find, or that lacks the field, answers 0
+; rather than falling back: both are checker/emitter disagreements,
+; and a wrong slot is the failure this exists to refuse.
+(pub :: resolveStructField (-> Int Int Int))
+(pub fn (resolveStructField types node)
+  (if (== (nodeTy node) 0)
+      (findStructField types (nodeB node))
+      (let ((key (cast String (nodeTy node))))
+        ; The empty stamp: the checker resolved the field as a DATA
+        ; constructor's named field, and `emitField` must go straight
+        ; to `findDataField` - the struct scan it used to try first
+        ; answered an unrelated struct's slot of the same name, which
+        ; for `(data Shape () (Rect { name : String ... }))` beside
+        ; `(struct P (w : Int) (tag : Int) (name : String))` read
+        ; `r.name` at word 2 and died of SIGSEGV
+        (if (== (strLen key) 0)
+            0
+            (let ((e (lookupType types key)))
+              (if (== e 0)
+                  0
+                  (if (!= (eKind e) TF_STRUCT)
+                      0
+                      (structFieldOf e (nodeB node)))))))))
+
+; The named field of ONE struct entry, as `findStructFieldIn` shapes
+; it, or 0 when the struct does not declare the name.
+(pub :: structFieldOf (-> Int String Int))
+(pub fn (structFieldOf e name)
+  (let ((idx (fieldIndexIn (eFieldFlags e) name 0)))
+    (if (< idx 0)
+        0
+        (mkNode TAG_NIL idx
+                (nodeB (vecGet (eFieldFlags e) idx))
+                (nodeTy (vecGet (eFieldFlags e) idx))))))
+
 ; The field's (index, floatFlag) as an inert node, 0 when no struct
 ; declares the name.
 (pub :: findStructField (-> Int String Int))
@@ -4886,16 +4971,14 @@
       0
       (let ((e (vecGet types i)))
         (if (== (eKind e) TF_STRUCT)
-            (let ((idx (fieldIndexIn (eFieldFlags e) name 0)))
-              (if (< idx 0)
+            ; Word 3 of the answer is the field's declared TYPE node,
+            ; which `emitSetF` classifies to decide whether the store
+            ; is an ownership transfer (MM-LIFE-2c event 5). The read
+            ; side ignores it, as it always has.
+            (let ((fi (structFieldOf e name)))
+              (if (== fi 0)
                   (findStructFieldIn types name (+ i 1))
-                  ; Word 3 is the field's declared TYPE node, which
-                  ; `emitSetF` classifies to decide whether the store
-                  ; is an ownership transfer (MM-LIFE-2c event 5).
-                  ; The read side ignores it, as it always has.
-                  (mkNode TAG_NIL idx
-                          (nodeB (vecGet (eFieldFlags e) idx))
-                          (nodeTy (vecGet (eFieldFlags e) idx)))))
+                  fi))
             (findStructFieldIn types name (+ i 1))))))
 
 (pub :: fieldIndexIn (-> Int String Int Int))
@@ -6812,10 +6895,24 @@
 ;   block's birth share and no one else's - the same predicate the
 ;   statement-position release already spends (`argIsDirectCon`);
 ;
-;   every occurrence of the NAME in the let's body is the object of a
-;   field READ. A read answers a field, and a field that is itself a
-;   reference took its own share at construction (event 6), so the
-;   value the body computes never aliases the block being released.
+;   the NAME does not reach the let's VALUE - not bare, and not
+;   through a field of the block either. A field that is itself a
+;   reference took its own share at construction (event 6), but that
+;   share belongs to the BLOCK: the block's death walks its map and
+;   hands every one of them back, so a field read in value position
+;   aliases memory the release is about to free. This condition used
+;   to admit field reads on the ground that "a read answers a field,
+;   never the block", and the QA sweep measured what that admitted:
+;
+;     (fn (mk tag) (let ((b (Mk (strConcat "id-" tag)))) (match b ((Mk s) s))))
+;     (println (mk "one"))      -> six NUL bytes, not `id-one`
+;
+;   The destructured `s` was returned, the block was released first,
+;   its map released the string, and the caller read the allocator's
+;   scrub through a dangling reference. `b.f` in value position and
+;   `(let ((t b.f)) t)` were the same defect in two more spellings.
+;   `escapes` now treats a field read whose base mentions the name,
+;   and a match binder destructured from it, as the name itself.
 ;
 ; The second condition is decided by a walker that defaults to ESCAPES:
 ; a tag it does not recognise answers 1, so widening the surface is a
@@ -6826,7 +6923,7 @@
 (pub fn (letReleasable cg node valExpr name body)
   (if (!= (letOwned cg node valExpr) 1)
       0
-      (if (== (escapes name body 1) 1) 0 1)))
+      (if (== (escapes cg name body 1 body) 1) 0 1)))
 
 ; Does this frame OWN the binding's value - hold a share nobody else
 ; handed it?
@@ -6853,13 +6950,26 @@
 ; Positional, because the answer depends on where the name stands. In
 ; VALUE position - the expression whose value the `let` answers - a
 ; bare mention escapes, because that value flows to the caller with no
-; share taken. In ARGUMENT position it does not: a callee borrows
-; (event 1), every store a callee can make takes a share (a field
+; share taken. In STATEMENT position, and in ARGUMENT position of a
+; call that is not itself the value, it does not: a callee borrows
+; (event 1), and every store a callee can make takes a share (a field
 ; store by event 5, a constructor field by event 6, a container or any
-; other word store through `memSetWord`, which retains by MM-LIFE-2g),
-; and a callee that RETURNS the value retains it first (event 2). Those
-; four are the whole of how a reference leaves a frame, which is what
-; makes this walk a proof rather than a heuristic.
+; other word store through `memSetWord`, which retains by MM-LIFE-2g).
+;
+; What a callee ANSWERS is the exception, and it used to be stated as
+; a fourth guarantee - "a callee that returns the value retains it
+; first (event 2)" - which the emitter has never shipped for a
+; borrowed value (docs/memory-model.md, "Event 2 is implemented,
+; measured, and NOT shipped"). `(fn (ident s) s)` is `ret i64 %s`. So
+; a call in VALUE position whose arguments mention the binding is the
+; binding reaching the value, unless its head cannot answer a
+; reference - an operator, a primitive, a function signed to answer a
+; machine scalar (`callMayAnswerRef`); a
+; constructor head is the same case one event over, because a
+; tyvar-typed field without an evidence stamp takes no share. A field
+; of the block that is itself a reference, in value position, and a
+; `match` binder - a field under another name - are the block too
+; (`letReleasable` carries the measurement).
 ;
 ; Three shapes escape whatever their position, and each is a place the
 ; invariant above does not reach:
@@ -6875,8 +6985,8 @@
 ;
 ; Every tag this walk does not know answers ESCAPE, so the surface
 ; widens by deliberate edit and never by omission.
-(pub :: escapes (-> String Int Int Int))
-(pub fn (escapes name e vp)
+(pub :: escapes (-> Int String Int Int Int Int))
+(pub fn (escapes cg name e vp root)
   (if (== e 0)
       0
       (let ((tg (nodeTag e)))
@@ -6887,71 +6997,384 @@
         (if (== tg TAG_E_VAR)
             (if (strEq (nodeA e) name) vp 0)
         (if (== tg TAG_E_FIELD)
-            ; a field READ answers the field, never the block
-            (escapes name (nodeA e) 0)
+            ; a field READ answers the field - which the block owns, so
+            ; in VALUE position reading a REFERENCE field of the
+            ; binding is the binding escaping (see `letReleasable`); a
+            ; machine-scalar field cannot alias the block and its read
+            ; still releases; in argument position the callee borrows
+            ; the field as it would the block
+            (if (== (escapes cg name (nodeA e) 0 root) 1)
+                1
+                (if (&& (== vp 1) (== (mentions name (nodeA e)) 1))
+                    (if (== (fieldReadIsScalar cg e) 1) 0 1)
+                    0))
         (if (== tg TAG_E_APP)
             (if (== (wordTakingHead (spineHeadE e)) 1)
                 ; `cast`/`__addr`/`strData` of the binding hands out a
                 ; word, and a word takes no share
                 (mentions name e)
-                (if (== (escapes name (nodeA e) 0) 1)
-                    1
-                    (escapes name (nodeB e) 0)))
+                ; a CALL in value position may answer its argument, or
+                ; a field of it: event 2's retain-on-return is emitted
+                ; for no borrowed value (`emitSeq` carries the sound
+                ; subset that exists), so `(fn (ident s) s)` hands the
+                ; argument straight back and the let would free it.
+                ; A head whose DECLARED result cannot be a reference -
+                ; an operator, a primitive, a function signed to
+                ; answer a machine scalar - keeps the argument position
+                ; rule (`callMayAnswerRef`); a constructor head is
+                ; covered too, because a tyvar-typed field without an
+                ; evidence stamp takes no share (`fieldRetainCode`
+                ; answers -1)
+                (if (&& (== vp 1)
+                        (|| (== (headIsName (spineHeadE e) name) 1)
+                            (== (callMayAnswerRef cg (spineHeadE e) root) 1)))
+                    (mentions name e)
+                    (if (== (escapes cg name (nodeA e) 0 root) 1)
+                        1
+                        (escapes cg name (nodeB e) 0 root))))
         (if (== tg TAG_E_IF)
-            (if (== (escapes name (nodeA e) 0) 1)
+            (if (== (escapes cg name (nodeA e) 0 root) 1)
                 1
-                (if (== (escapes name (nodeB e) vp) 1)
+                (if (== (escapes cg name (nodeB e) vp root) 1)
                     1
-                    (escapes name (nodeC e) vp)))
+                    (escapes cg name (nodeC e) vp root)))
         (if (== tg TAG_E_BEGIN)
-            (escapesSeq name (nodeA e) vp 0)
+            (escapesSeq cg name (nodeA e) vp 0 root)
         (if (== tg TAG_E_MATCH)
-            (if (== (escapes name (nodeA e) 0) 1)
+            ; the arms' binders are the scrutinee's fields, owned by
+            ; the block exactly as a field read's answer is: when the
+            ; scrutinee mentions the binding, a binder reaching the
+            ; match's value is the binding reaching it
+            (if (== (escapes cg name (nodeA e) 0 root) 1)
                 1
-                (escapesArms name (nodeB e) vp 0))
+                (if (== (escapesArms cg name (nodeB e) vp 0 root) 1)
+                    1
+                    (if (== (mentions name (nodeA e)) 1)
+                        (escapesViaBinders cg (nodeB e) vp 0 root)
+                        0)))
         (if (== tg TAG_E_COND)
-            (escapesArms name (nodeA e) vp 0)
+            (escapesArms cg name (nodeA e) vp 0 root)
         (if (|| (== tg TAG_E_LET) (== tg TAG_E_LETM))
             ; the initialiser inherits the position: `(let ((t s)) t)`
-            ; makes the binding the let's value through an alias
-            (if (== (escapes name (nodeB e) vp) 1)
+            ; makes the binding the let's value through an alias - and
+            ; an alias that may hold (part of) the block is then asked
+            ; the same question under its own name, in the same
+            ; position, so `(let ((t s)) (set r t))` in a statement is
+            ; seen for the stash it is. An initialiser that can only
+            ; be a machine word - an operator's answer, a scalar
+            ; field - aliases nothing and is exempt.
+            ; The initialiser is walked in ARGUMENT position: it is
+            ; not the let's value, its binder is, and the alias step
+            ; below carries whatever reaches the binder on to the
+            ; body - `(let ((t b.f)) t)` escapes through `t`, while
+            ; `(let ((t b.f)) (strLen t))` no longer does.
+            (if (== (escapes cg name (nodeB e) 0 root) 1)
                 1
-                (escapes name (nodeC e) vp))
+                (if (== (escapes cg name (nodeC e) vp root) 1)
+                    1
+                    (if (== (mayAlias cg name (nodeB e) root) 1)
+                        (escapes cg (nodeA e) (nodeC e) vp root)
+                        0)))
         (if (== tg TAG_E_WHILE)
-            (if (== (escapes name (nodeA e) 0) 1)
+            (if (== (escapes cg name (nodeA e) 0 root) 1)
                 1
-                (escapesSeq name (nodeB e) 0 0))
+                (escapesSeq cg name (nodeB e) 0 0 root))
         (if (== tg TAG_E_SET)
             ; a slot store takes no share
             (mentions name (nodeB e))
         (if (== tg TAG_E_SETF)
             ; `(set b.f v)` retains v (event 5), so only the base is
             ; read here - and reading a base is a borrow
-            (escapes name (nodeA e) 0)
+            (escapes cg name (nodeA e) 0 root)
             (mentions name e))))))))))))))))
 
-(pub :: escapesSeq (-> String Int Int Int Int))
-(pub fn (escapesSeq name v vp i)
+(pub :: escapesSeq (-> Int String Int Int Int Int Int))
+(pub fn (escapesSeq cg name v vp i root)
   (if (== v 0)
       0
       (if (>= i (vecLen v))
           0
-          (if (== (escapes name (vecGet v i)
-                           (if (== i (- (vecLen v) 1)) vp 0)) 1)
+          (if (== (escapes cg name (vecGet v i)
+                           (if (== i (- (vecLen v) 1)) vp 0) root) 1)
               1
-              (escapesSeq name v vp (+ i 1))))))
+              (escapesSeq cg name v vp (+ i 1) root)))))
 
 ; A match arm or cond clause: word 2 is the body, and it inherits the
 ; position. An arm PATTERN cannot mention an outer binding as a value.
-(pub :: escapesArms (-> String Int Int Int Int))
-(pub fn (escapesArms name v vp i)
+(pub :: escapesArms (-> Int String Int Int Int Int Int))
+(pub fn (escapesArms cg name v vp i root)
   (if (== v 0)
       0
       (if (>= i (vecLen v))
           0
-          (if (== (escapes name (nodeB (vecGet v i)) vp) 1)
+          (if (== (escapes cg name (nodeB (vecGet v i)) vp root) 1)
               1
-              (escapesArms name v vp (+ i 1))))))
+              (escapesArms cg name v vp (+ i 1) root)))))
+
+; Does any arm's PATTERN BINDER escape through that arm's body? Each
+; binder is a field of the scrutinee's block, so the question is the
+; one `escapes` asks of the binding itself, asked of the binder in the
+; match's own position: bare in value position, a field of it in
+; value position, destructured again by an inner match, handed to a
+; call whose answer is the match's value - and, in ANY position, a
+; `set` RHS or a lambda capture, which is why this runs for a match in
+; statement position too (`(match b ((Mk s) (set r s)))` stashed a
+; reference the walker never looked at). A pattern shape this walk
+; cannot enumerate binders for answers ESCAPE, the walker's rule.
+(pub :: escapesViaBinders (-> Int Int Int Int Int Int))
+(pub fn (escapesViaBinders cg arms vp i root)
+  (if (== arms 0)
+      0
+      (if (>= i (vecLen arms))
+          0
+          (let ((arm (vecGet arms i)))
+            (let ((bs (patBindersCg (nodeA arm) vecNew)))
+              (if (== bs 0)
+                  1
+                  (if (== (escapesAny cg bs (nodeB arm) vp 0 root) 1)
+                      1
+                      (escapesViaBinders cg arms vp (+ i 1) root))))))))
+
+(pub :: escapesAny (-> Int Int Int Int Int Int Int))
+(pub fn (escapesAny cg names body vp i root)
+  (if (>= i (vecLen names))
+      0
+      (if (== (escapes cg (vecGet names i) body vp root) 1)
+          1
+          (escapesAny cg names body vp (+ i 1) root))))
+
+; Could a `let` initialiser that mentions `name` hand the new binder
+; a reference into the block? Anything that mentions it may, except
+; the shapes that can only answer a word: a literal, an operator or
+; primitive applied to anything, and a read of a scalar field.
+(pub :: mayAlias (-> Int String Int Int Int))
+(pub fn (mayAlias cg name init root)
+  (if (== (mentions name init) 0)
+      0
+      (let ((tg (nodeTag init)))
+        (if (== tg TAG_E_APP)
+            (callMayAnswerRef cg (spineHeadE init) root)
+            (if (== tg TAG_E_FIELD)
+                (if (== (fieldReadIsScalar cg init) 1) 0 1)
+                1)))))
+
+; Could a call with this head answer a reference it was handed? Not
+; when the head is an operator or a primitive (`scalarHead`), and not
+; when it names a function whose signature's result is a machine
+; scalar - `(-> Pair Int)` cannot hand `Pair` back, which is what
+; keeps `(let ((p (Pair n n))) (total p))` releasing `p`
+; (tests/stdlib/364-arc-frame-release.ax, the 8 bit). A head with no
+; signature - a lambda-valued local, an unsigned `fn`, a constructor -
+; may, and answers 1, the leak direction.
+; The head must be the GLOBAL the signature belongs to. A parameter
+; or a `let`-bound lambda named like a scalar-signed function - bound
+; outside the let, where the symbol table still holds it, or inside
+; its body, where only the text does (`boundWithin`) - is a value
+; nothing signed, and answers 1. Found by the refutation pass:
+; `(fn (viaParam total tag) (let ((b ...)) (total b)))` handed `b`
+; back through the parameter while the global `total :: (-> SBox
+; Int)` vouched for it. The signature is looked up under the name the
+; call resolves to (`mangledFor`), so an imported `strLen` counts as
+; the scalar it is rather than as unknown.
+(pub :: callMayAnswerRef (-> Int Int Int Int))
+(pub fn (callMayAnswerRef cg hd root)
+  (if (== (scalarHead hd) 1)
+      0
+      (if (!= (nodeTag hd) TAG_E_VAR)
+          1
+          (let ((n (nodeA hd)))
+            (if (|| (!= (lookupSym cg n) 0) (>= (paramIndexOf cg n) 0))
+                1
+                (if (== (boundWithin n root) 1)
+                    1
+                    (let ((sig (findFSig (memGetWord cg 15) (mangledFor cg n))))
+                      (if (== sig 0)
+                          1
+                          (let ((res (sigResultTy (memGetWord sig 3))))
+                            (if (== res 0)
+                                1
+                                (if (== (fldClass cg res) 0) 0 1)))))))))))
+
+; Is the call's head the binding itself? Then the binding is a
+; closure record being applied, and whatever it answers may be that
+; record or what it captured - `(let ((total (lambda (x) x))) (total
+; total))` named after an Int-signed global was the one head
+; `boundWithin` cannot see, the binder of the very let being decided.
+(pub :: headIsName (-> Int String Int))
+(pub fn (headIsName hd name)
+  (if (!= (nodeTag hd) TAG_E_VAR)
+      0
+      (if (strEq (nodeA hd) name) 1 0)))
+
+; Does anything under `e` BIND `name` - a `let`, a lambda parameter,
+; a match binder? Mirrors `mentions`, for binders instead of
+; references; an unknown tag answers 1, the direction that trusts no
+; signature.
+(pub :: boundWithin (-> String Int Int))
+(pub fn (boundWithin name e)
+  (if (== e 0)
+      0
+      (let ((tg (nodeTag e)))
+        (if (|| (== tg TAG_E_INT)
+            (|| (== tg TAG_E_FLT)
+            (|| (== tg TAG_E_STR)
+            (|| (== tg TAG_E_CHAR) (== tg TAG_E_VAR)))))
+            0
+        (if (|| (== tg TAG_E_LET) (== tg TAG_E_LETM))
+            (if (strEq (nodeA e) name)
+                1
+                (if (== (boundWithin name (nodeB e)) 1)
+                    1
+                    (boundWithin name (nodeC e))))
+        (if (== tg TAG_E_LAM)
+            (if (== (strInVecCg (nodeA e) name 0) 1)
+                1
+                (boundWithin name (nodeB e)))
+        (if (== tg TAG_E_MATCH)
+            (if (== (boundWithin name (nodeA e)) 1)
+                1
+                (boundWithinArms name (nodeB e) 0))
+        (if (|| (== tg TAG_E_APP) (|| (== tg TAG_E_IF) (== tg TAG_E_SETF)))
+            (if (== (boundWithin name (nodeA e)) 1)
+                1
+                (if (== (boundWithin name (nodeB e)) 1)
+                    1
+                    (boundWithin name (nodeC e))))
+        (if (== tg TAG_E_FIELD)
+            (boundWithin name (nodeA e))
+        (if (== tg TAG_E_SET)
+            (boundWithin name (nodeB e))
+        (if (|| (== tg TAG_E_BEGIN) (== tg TAG_E_COND))
+            (boundWithinVec name (nodeA e) 0)
+        (if (== tg TAG_E_WHILE)
+            (if (== (boundWithin name (nodeA e)) 1)
+                1
+                (boundWithinVec name (nodeB e) 0))
+            1))))))))))))
+
+(pub :: boundWithinVec (-> String Int Int Int))
+(pub fn (boundWithinVec name v i)
+  (if (== v 0)
+      0
+      (if (>= i (vecLen v))
+          0
+          (if (== (boundWithin name (vecGet v i)) 1)
+              1
+              (boundWithinVec name v (+ i 1))))))
+
+; An arm binds its pattern's names; a cond clause binds nothing, and
+; its word 1 is a condition `boundWithin` walks like any expression.
+(pub :: boundWithinArms (-> String Int Int Int))
+(pub fn (boundWithinArms name v i)
+  (if (== v 0)
+      0
+      (if (>= i (vecLen v))
+          0
+          (let ((arm (vecGet v i)))
+            (let ((bs (patBindersCg (nodeA arm) vecNew)))
+              (if (== bs 0)
+                  1
+                  (if (== (strInVecCg bs name 0) 1)
+                      1
+                      (if (== (boundWithin name (nodeB arm)) 1)
+                          1
+                          (boundWithinArms name v (+ i 1))))))))))
+
+(pub :: strInVecCg (-> Int String Int Int))
+(pub fn (strInVecCg v name i)
+  (if (== v 0)
+      0
+      (if (>= i (vecLen v))
+          0
+          (if (strEq (cast String (vecGet v i)) name)
+              1
+              (strInVecCg v name (+ i 1))))))
+
+; The result type at the end of a signature's arrow spine, or 0.
+(pub :: sigResultTy (-> Int Int))
+(pub fn (sigResultTy ty)
+  (if (== ty 0)
+      0
+      (if (== (nodeTag ty) TAG_T_ARR)
+          (sigResultTy (nodeB ty))
+          ty)))
+
+; Is this field read's declared type a machine scalar - `fldClass` 0?
+; Resolved exactly as `emitField` will resolve it, through the
+; checker's stamp; a data constructor's named field, an unstamped
+; node, or an unclassifiable type answers 0, which the walker reads
+; as "may be a reference" - the leak direction.
+(pub :: fieldReadIsScalar (-> Int Int Int))
+(pub fn (fieldReadIsScalar cg e)
+  (let ((fi (resolveStructField (memGetWord cg 3) e)))
+    (if (== fi 0)
+        0
+        (if (== (nodeC fi) 0)
+            0
+            (if (== (fldClass cg (nodeC fi)) 0) 1 0)))))
+
+; A call head that cannot answer a reference it was given: an
+; arithmetic, bitwise, comparison or logical operator, or a `__`
+; primitive. Everything else - a declared function, a constructor, a
+; lambda-valued local - may, so `escapes` treats the call's arguments
+; as the call's value.
+(pub :: scalarHead (-> Int Int))
+(pub fn (scalarHead hd)
+  (if (!= (nodeTag hd) TAG_E_VAR)
+      0
+      (let ((n (nodeA hd)))
+        (if (isBinop n)
+            1
+            (if (isCmpOp n)
+                1
+                (if (|| (strEq n "&&") (strEq n "||"))
+                    1
+                    (if (isPrimName n) 1 0)))))))
+
+; The names a pattern binds, or 0 for a pattern shape this does not
+; know - the checker's `patBinders`, with the refusal added, plus the
+; two shapes the emitter's own `emitPatMatch` dispatches that the
+; checker's walk predates: `(Nil)` binds nothing, and a NAMED
+; constructor pattern binds whatever its reordered spine would. `_`
+; and `true`/`false` are names nobody references, so listing them
+; costs nothing.
+(pub :: patBindersCg (-> Int Int Int))
+(pub fn (patBindersCg pat acc)
+  (if (== pat 0)
+      acc
+      (let ((tag (nodeTag pat)))
+        (if (|| (== tag TAG_E_INT)
+            (|| (== tag TAG_E_FLT)
+            (|| (== tag TAG_E_STR)
+            (|| (== tag TAG_E_CHAR) (== tag TAG_P_CON0)))))
+            acc
+        (if (== tag TAG_E_VAR)
+            { (vecPush acc (nodeA pat)) acc }
+        (if (== tag TAG_E_APP)
+            (if (== (patBindersCg (nodeB pat) acc) 0)
+                0
+                (patBindersCgHead (nodeA pat) acc))
+        (if (== tag TAG_P_CONNAMED)
+            (patBindersCgVec (nodeC pat) acc 0)
+        0)))))))
+
+(pub :: patBindersCgHead (-> Int Int Int))
+(pub fn (patBindersCgHead pat acc)
+  (if (== (nodeTag pat) TAG_E_APP)
+      (if (== (patBindersCg (nodeB pat) acc) 0)
+          0
+          (patBindersCgHead (nodeA pat) acc))
+      acc))
+
+(pub :: patBindersCgVec (-> Int Int Int Int))
+(pub fn (patBindersCgVec subs acc i)
+  (if (== subs 0)
+      acc
+      (if (>= i (vecLen subs))
+          acc
+          (if (== (patBindersCg (vecGet subs i) acc) 0)
+              0
+              (patBindersCgVec subs acc (+ i 1))))))
 
 ; Does `name` appear anywhere below `e` at all? The answer for the
 ; shapes that take no share, where position stops mattering. Unknown

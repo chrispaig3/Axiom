@@ -1558,14 +1558,13 @@ return.
 
 **What the walk PERMITS is the load-bearing half, and each permission
 is a place an ownership event already guarantees a share.** Passing
-the binding to a function is a borrow (event 1); every store a callee
-can make takes one - a field store by event 5, a constructor field by
-event 6, a container or any other word store through `memSetWord`,
-which retains by `MM-LIFE-2g`. Reading a FIELD answers the field,
-never the block. Sequencing, conditions and loops move no value out.
-Those are the whole of how a reference leaves a frame, which is what
-makes this a proof rather than a heuristic - and the corpus agrees by
-count: `__store64` appears at exactly two store sites in
+the binding to a function in STATEMENT or ARGUMENT position is a
+borrow (event 1); every store a callee can make takes one - a field
+store by event 5, a constructor field by event 6, a container or any
+other word store through `memSetWord`, which retains by `MM-LIFE-2g`.
+Sequencing, conditions and loops move no value out. A read of a
+machine-scalar field answers a word. The corpus agrees by count:
+`__store64` appears at exactly two store sites in
 `stdlib/` + `self_host/`, one of them `memSetWord`'s own body, and no
 site anywhere stashes a `strData` pointer.
 
@@ -1578,6 +1577,30 @@ reference, which is invisible to counting by construction
 (`MM-LIFE-2g`'s own stated limit). A tag the walk does not recognise
 answers ESCAPE, so the surface widens by deliberate edit and never by
 omission.
+
+Three more since 2026-08-21, each a place the permission above was
+taken at its word and found wanting (the QA sweep of 2026-08-18, and
+the refutation pass on its fix). A REFERENCE FIELD read in value
+position escapes: the walk used to say "reading a field answers the
+field, never the block", and it does - but the field's share belongs
+to the block, whose death hands it back, so
+`(let ((b (Mk (strConcat "id-" t)))) (match b ((Mk s) s)))` returned
+a string the allocator had already scrubbed. A `match` BINDER is the
+same field under another name, and is asked the same question in the
+match's own position - value, or, for a `set` RHS and a lambda,
+any. And a CALL in value position whose arguments mention the
+binding escapes unless its head cannot answer a reference - an
+operator, a primitive, or a GLOBAL function whose signature's result
+is a machine scalar (`(-> Pair Int)` still releases the `Pair`; a
+parameter or local that merely shares the name is a value nothing
+signed) - because
+event 2's retain-on-return is not shipped (below): `(fn (ident s) s)`
+hands its argument straight back, and a constructor head is the same
+case one event over - a tyvar-typed field without an evidence stamp
+takes no share. A `let` whose initialiser may alias the block asks
+the question again of its own binder. Each of these leaks where it
+used to free early; `tests/selfhost/997-let-box-value-escapes.ax`
+holds the seven spellings.
 
 Measured, all five directions. A record built, read and dropped:
 20,000 calls move the bump **256 bytes where they moved 640,224**. A
