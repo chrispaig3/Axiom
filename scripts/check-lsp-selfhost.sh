@@ -157,31 +157,16 @@
 
 set -uo pipefail
 
-repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-cd "$repo_root"
-
-axiom="${AXIOM:-$repo_root/.axiom-bin/axiom}"
-if [[ ! -x "$axiom" ]]; then
-  echo "no compiler at $axiom - building one from the committed seed" >&2
-  "$repo_root/scripts/bootstrap-from-seed.sh" --install "$repo_root/.axiom-bin" >&2 \
-    || { echo "FAIL: could not bootstrap a compiler" >&2; exit 1; }
-fi
-
-export AXIOM_STDLIB="$repo_root/stdlib"
+source "$(dirname "${BASH_SOURCE[0]}")/lib/gate.sh"
+gate_init
 
 filter="${1:-}"
 bless="${AXIOM_BLESS:-0}"
-work="$(mktemp -d)"
-trap 'rm -rf "$work"' EXIT
 
 # The server under test is built FROM SOURCE by `$axiom`, not `$axiom`
 # itself: this gate exists to watch self_host/, and `$axiom` may be an
 # older seed-descended binary that predates the change being tested.
-if ! "$axiom" build --input self_host/main.ax --output "$work/stage1" >"$work/build.log" 2>&1; then
-  echo "FAIL: could not build the language server under test" >&2
-  tail -20 "$work/build.log" >&2
-  exit 1
-fi
+gate_build_axc stage1
 
 # `.axbad` is the deliberately-unparseable fixture; it is not `.ax`
 # because check-fmt.sh and check-tree-sitter.sh sweep every `*.ax` file

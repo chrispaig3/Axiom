@@ -66,20 +66,8 @@
 
 set -uo pipefail
 
-repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-cd "$repo_root"
-
-axiom="${AXIOM:-$repo_root/.axiom-bin/axiom}"
-if [[ ! -x "$axiom" ]]; then
-  echo "no compiler at $axiom - building one from the committed seed" >&2
-  "$repo_root/scripts/bootstrap-from-seed.sh" --install "$repo_root/.axiom-bin" >&2 \
-    || { echo "FAIL: could not bootstrap a compiler" >&2; exit 1; }
-fi
-
-export AXIOM_STDLIB="$repo_root/stdlib"
-
-work="$(mktemp -d)"
-trap 'rm -rf "$work"' EXIT
+source "$(dirname "${BASH_SOURCE[0]}")/lib/gate.sh"
+gate_init
 
 failed=0
 
@@ -118,12 +106,7 @@ mkdir -p "$neutral"
 # harnesses depend on, and a salted work directory would let the symbols
 # sweep resolve imports it should not - which flatters the refusal half
 # of the exit-status manifest.
-echo "== building the compiler under test =="
-if ! "$axiom" build --input self_host/main.ax --output "$work/axc" >"$work/build.log" 2>&1; then
-  echo "FAIL: could not build the compiler under test" >&2
-  tail -20 "$work/build.log" >&2
-  exit 1
-fi
+gate_build_axc axc
 
 # ---------------------------------------------------------------
 # explain

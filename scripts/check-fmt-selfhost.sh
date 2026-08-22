@@ -107,20 +107,8 @@
 
 set -uo pipefail
 
-repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-cd "$repo_root"
-
-axiom="${AXIOM:-$repo_root/.axiom-bin/axiom}"
-if [[ ! -x "$axiom" ]]; then
-  echo "no compiler at $axiom - building one from the committed seed" >&2
-  "$repo_root/scripts/bootstrap-from-seed.sh" --install "$repo_root/.axiom-bin" >&2 \
-    || { echo "FAIL: could not bootstrap a compiler" >&2; exit 1; }
-fi
-
-export AXIOM_STDLIB="$repo_root/stdlib"
-
-work="$(mktemp -d)"
-trap 'rm -rf "$work"' EXIT
+source "$(dirname "${BASH_SOURCE[0]}")/lib/gate.sh"
+gate_init
 
 failed=0
 
@@ -128,13 +116,7 @@ failed=0
 # `$axiom` itself: this gate exists to test `self_host/format.ax`, and
 # `$axiom` may be an older seed-descended binary that predates the change
 # being tested.
-echo "== building the formatter under test =="
-if ! "$axiom" build --input self_host/main.ax --output "$work/axc" >"$work/build.log" 2>&1; then
-  echo "FAIL: could not build the compiler under test" >&2
-  tail -20 "$work/build.log" >&2
-  exit 1
-fi
-axc="$work/axc"
+gate_build_axc axc
 
 # ---------------------------------------------------------------
 # 1. The zoo, against the golden it has always had.

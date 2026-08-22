@@ -74,16 +74,8 @@
 
 set -uo pipefail
 
-repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-cd "$repo_root"
-
-axiom="${AXIOM:-$repo_root/.axiom-bin/axiom}"
-if [[ ! -x "$axiom" ]]; then
-  echo "no compiler at $axiom - building one from the committed seed" >&2
-  "$repo_root/scripts/bootstrap-from-seed.sh" --install "$repo_root/.axiom-bin" >&2 \
-    || { echo "FAIL: could not bootstrap a compiler from bootstrap/" >&2; exit 1; }
-fi
-export AXIOM_STDLIB="$repo_root/stdlib"
+source "$(dirname "${BASH_SOURCE[0]}")/lib/gate.sh"
+gate_init
 
 REPS="${REPS:-5}"
 opt=1
@@ -100,9 +92,6 @@ done
 for t in opt llc cc; do
   command -v "$t" >/dev/null 2>&1 || { echo "FAIL: $t is not on PATH; this script measures it" >&2; exit 1; }
 done
-
-work="$(mktemp -d)"
-trap 'rm -rf "$work"' EXIT
 
 # Best-of-REPS wall clock in seconds. Lifted from
 # `bench-datastructures.sh:286` so the two profiles are comparable.

@@ -32,16 +32,8 @@
 
 set -euo pipefail
 
-repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-cd "$repo_root"
-
-axiom="${AXIOM:-$repo_root/.axiom-bin/axiom}"
-if [[ ! -x "$axiom" ]]; then
-  echo "no compiler at $axiom - building one from the committed seed" >&2
-  "$repo_root/scripts/bootstrap-from-seed.sh" --install "$repo_root/.axiom-bin" >&2 \
-    || { echo "FAIL: could not bootstrap a compiler from bootstrap/" >&2; exit 1; }
-fi
-export AXIOM_STDLIB="$repo_root/stdlib"
+source "$(dirname "${BASH_SOURCE[0]}")/lib/gate.sh"
+gate_init
 
 # Cargo is required HERE and nowhere else. `bootstrap-from-seed.sh` still
 # goes from committed LLVM IR through llc and cc with no Rust toolchain,
@@ -53,8 +45,6 @@ if ! command -v cargo > /dev/null 2>&1; then
   exit 0
 fi
 
-work="$(mktemp -d)"
-trap 'rm -rf "$work"' EXIT
 status=0
 
 # The names that are never permitted, whatever a manifest says. A

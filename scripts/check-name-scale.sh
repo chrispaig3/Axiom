@@ -71,15 +71,8 @@
 
 set -uo pipefail
 
-repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-cd "$repo_root"
-
-axiom="${AXIOM:-$repo_root/.axiom-bin/axiom}"
-if [[ ! -x "$axiom" ]]; then
-  echo "no compiler at $axiom - building one from the committed seed" >&2
-  "$repo_root/scripts/bootstrap-from-seed.sh" --install "$repo_root/.axiom-bin" >&2 \
-    || { echo "FAIL: could not bootstrap a compiler from bootstrap/" >&2; exit 1; }
-fi
+source "$(dirname "${BASH_SOURCE[0]}")/lib/gate.sh"
+gate_init
 
 N="${N:-4000}"
 BOUND="${BOUND:-1.20}"
@@ -88,8 +81,6 @@ REPS="${REPS:-3}"
 # ratio reports whatever it likes. Raise N rather than lowering this.
 FLOOR="0.10"
 
-work="$(mktemp -d)"
-trap 'rm -rf "$work"' EXIT
 ln -s "$repo_root/stdlib" "$work/stdlib"
 
 # Two modules, same size, same call graph. In `Priv` the helper half is
@@ -109,8 +100,6 @@ gen "$work/Priv.ax" '('
 gen "$work/Publ.ax" '(pub '
 printf '(import Priv)\n(:: main Int)\n(fn (main) (p0 42))\n' > "$work/mpriv.ax"
 printf '(import Publ)\n(:: main Int)\n(fn (main) (p0 42))\n' > "$work/mpubl.ax"
-
-export AXIOM_STDLIB="$repo_root/stdlib"
 
 # Best of REPS. The distribution is one-sided - interference only ever
 # makes a run slower - so the minimum is the closest estimate of the

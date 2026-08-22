@@ -34,16 +34,13 @@
 
 set -uo pipefail
 
-repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-cd "$repo_root"
+source "$(dirname "${BASH_SOURCE[0]}")/lib/gate.sh"
+gate_init
 
 fail() { echo "FAIL: $*" >&2; exit 1; }
 
-axiom="${AXIOM:-$repo_root/.axiom-bin/axiom}"
 [[ -x "$axiom" ]] || fail "no compiler at $axiom - set AXIOM to one"
 
-work="$(mktemp -d)"
-trap 'rm -rf "$work"' EXIT
 ln -s "$repo_root/stdlib"    "$work/stdlib"
 ln -s "$repo_root/self_host" "$work/self_host"
 
@@ -51,19 +48,17 @@ ln -s "$repo_root/self_host" "$work/self_host"
 # `$axiom` directly - `$axiom` is only trusted to be new enough to
 # compile self_host/, not to be what the seed should record. So the
 # first thing that happens here is building the compiler; the seeds
-# come out of THAT. (Written while the Rust compiler still existed and
-# could be passed in; the reasoning is unchanged now that any `$axiom`
-# is itself self-hosted.)
+# come out of THAT.
+#
+# This used to fall back to a hand-rolled llc/cc pipeline when
+# `build --input` failed, for a `$axiom` old enough not to have the
+# driver. No such compiler can exist any more - every one is descended
+# from a seed this script wrote - and the fallback's only effect was to
+# turn a real build failure into "llc rejected the IR", which names the
+# wrong tool and hides the build log.
 if ! "$axiom" build --input self_host/main.ax --output "$work/gen" >"$work/build.log" 2>&1; then
-  # `$axiom` may already be a self-hosted compiler, which has no
-  # `build --input` spelled that way only if it is very old; try the
-  # plain form before giving up.
-  cp "$repo_root/self_host/main.ax" "$work/in.ax"
-  (cd "$work" && "$axiom" in.ax >"$work/gen.ll" 2>/dev/null) \
-    || { tail -20 "$work/build.log" >&2; fail "could not build a compiler with $axiom"; }
-  llc -filetype=obj -relocation-model=pic "$work/gen.ll" -o "$work/gen.o" 2>/dev/null \
-    || fail "llc rejected the IR from $axiom"
-  cc "$work/gen.o" -o "$work/gen" -e _main 2>/dev/null || fail "could not link the generator"
+  tail -20 "$work/build.log" >&2
+  fail "could not build a compiler with $axiom"
 fi
 echo "generator built"
 

@@ -63,18 +63,11 @@
 # ---------------------------------------------------------------------
 set -uo pipefail
 
-repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-cd "$repo_root" || exit 1
-axiom="${AXIOM:-$repo_root/.axiom-bin/axiom}"
-work="$(mktemp -d)"
-trap 'rm -rf "$work"' EXIT
+source "$(dirname "${BASH_SOURCE[0]}")/lib/gate.sh"
+gate_init --no-stdlib
 failed=0
 
-echo "== building the compiler under test from self_host/ =="
-if ! "$axiom" build --input self_host/main.ax -o "$work/axc" > "$work/build.log" 2>&1; then
-  echo "FAIL: could not build the compiler under test"; head -20 "$work/build.log"; exit 1
-fi
-axc="$work/axc"
+gate_build_axc axc
 
 # ---------------------------------------------------------------
 # 1. the diagnostic registry, both directions

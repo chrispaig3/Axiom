@@ -17,8 +17,8 @@
 #   stage1 -> stage2 -> stage3    the ordinary ladder, from source
 #
 # THE SEED IS NOT ASSERTED TO MATCH THE SOURCE, and that is deliberate.
-# A seed regenerated on every commit would put 8.4 MB of generated text
-# in every diff that touches the compiler, and the property it would buy
+# A seed regenerated on every commit would put 13.9 MB of generated
+# text in every diff that touches the compiler, and the property it would buy
 # - "the seed is this exact source" - is not the property a fresh clone
 # needs. What a clone needs is "the seed can build this source", which
 # is what this script checks, and which is also what catches the seed
@@ -37,13 +37,13 @@
 
 #
 # With `--install DIR` it also copies the verified compiler to
-# DIR/axiom. That is how every other gate gets a compiler once the Rust
-# crates are gone: eighteen of them default to
-# `${AXIOM:-target/release/axiom}` and seventeen fall back to
-# `cargo build --release`, so `AXIOM=<dir>/axiom` is the single knob
-# that moves all of them off it. The binary installed is stage3 - the
-# one that came out of the fixpoint, not the seed and not the first
-# thing built from it.
+# DIR/axiom. That is how every other gate gets a compiler: they share
+# one preamble (`scripts/lib/gate.sh`) whose `$axiom` defaults to
+# `${AXIOM:-.axiom-bin/axiom}` and which runs this script with
+# `--install` when nothing is there, so `AXIOM=<dir>/axiom` is the
+# single knob that moves all of them off it. The binary installed is
+# stage3 - the one that came out of the fixpoint, not the seed and not
+# the first thing built from it.
 
 set -uo pipefail
 

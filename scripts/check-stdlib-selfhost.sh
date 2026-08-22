@@ -181,20 +181,10 @@
 
 set -uo pipefail
 
-repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-cd "$repo_root"
+source "$(dirname "${BASH_SOURCE[0]}")/lib/gate.sh"
+gate_init
 
-axiom="${AXIOM:-$repo_root/.axiom-bin/axiom}"
-if [[ ! -x "$axiom" ]]; then
-  echo "no compiler at $axiom - building one from the committed seed" >&2
-  "$repo_root/scripts/bootstrap-from-seed.sh" --install "$repo_root/.axiom-bin" >&2 \
-    || { echo "FAIL: could not bootstrap a compiler" >&2; exit 1; }
-fi
-
-export AXIOM_STDLIB="$repo_root/stdlib"
 filter="${1:-}"
-work="$(mktemp -d)"
-trap 'rm -rf "$work"' EXIT
 
 corpus="tests/stdlib"
 verifier="$corpus/verify-stdlib-out.py"
@@ -308,11 +298,7 @@ echo "== building the compiler under test =="
 ln -s "$repo_root/stdlib" "$work/stdlib"
 ln -s "$repo_root/self_host" "$work/self_host"
 ln -s "$repo_root/tests" "$work/tests"
-if ! "$axiom" build --input self_host/main.ax --output "$work/axc" >"$work/build.log" 2>&1; then
-  echo "FAIL: could not build the compiler under test" >&2
-  tail -20 "$work/build.log" >&2
-  exit 1
-fi
+gate_build_axc axc
 
 mkdir -p "$work/observed" "$work/ir"
 

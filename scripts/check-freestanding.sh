@@ -17,21 +17,8 @@
 
 set -euo pipefail
 
-repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-cd "$repo_root"
-
-axiom="${AXIOM:-$repo_root/.axiom-bin/axiom}"
-if [[ ! -x "$axiom" ]]; then
-  # No `cargo` here, and none anywhere in this repository's gates: the
-  # Rust compiler this used to build has been deleted. A checkout gets
-  # a compiler from the committed seed - `bootstrap/axiom-<target>.ll`
-  # through `llc` and `cc` - which is the whole point of that directory
-  # existing. Set AXIOM to use one you already have.
-  echo "no compiler at $axiom - building one from the committed seed" >&2
-  "$repo_root/scripts/bootstrap-from-seed.sh" --install "$repo_root/.axiom-bin" >&2 \
-    || { echo "FAIL: could not bootstrap a compiler from bootstrap/" >&2; exit 1; }
-fi
-export AXIOM_STDLIB="$repo_root/stdlib"
+source "$(dirname "${BASH_SOURCE[0]}")/lib/gate.sh"
+gate_init
 
 # Names that only ever belong to C. Axiom's own standard library defines
 # `exit`, `write`, and `read`, which compile to calls on Axiom functions
@@ -68,9 +55,6 @@ libc_names="$libc_names"'|wait|waitpid|wait3|wait4|system|popen|pclose|getenv|se
 # `exit`/`write`/`read` there is no replacement code to flag.
 libc_names="$libc_names"'|memset|memcpy|memmove|memcmp|memchr|bzero|bcopy'
 libc_names="$libc_names"'|strcpy|strncpy|strcat|strncat|strncmp|strchr|strrchr|strstr|strdup'
-
-work="$(mktemp -d)"
-trap 'rm -rf "$work"' EXIT
 
 status=0
 

@@ -51,29 +51,13 @@
 
 set -uo pipefail
 
-repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-cd "$repo_root"
-
-axiom="${AXIOM:-$repo_root/.axiom-bin/axiom}"
-if [[ ! -x "$axiom" ]]; then
-  echo "no compiler at $axiom - building one from the committed seed" >&2
-  "$repo_root/scripts/bootstrap-from-seed.sh" --install "$repo_root/.axiom-bin" >&2 \
-    || { echo "FAIL: could not bootstrap a compiler from bootstrap/" >&2; exit 1; }
-fi
-export AXIOM_STDLIB="$repo_root/stdlib"
-
-work="$(mktemp -d)"
-trap 'rm -rf "$work"' EXIT
+source "$(dirname "${BASH_SOURCE[0]}")/lib/gate.sh"
+gate_init
 
 # The compiler under test is built from the tree, the way every other
 # self-hosting gate does it: `AXIOM` supplies *a* compiler, not *the*
 # compiler, so an ablation of `self_host/` is visible here.
-axc="$work/axiom"
-if ! "$axiom" build --input self_host/main.ax --output "$axc" >"$work/build.log" 2>&1; then
-  sed 's/^/    /' "$work/build.log" | head -8 >&2
-  echo "FAIL: could not build the compiler under test from self_host/" >&2
-  exit 1
-fi
+gate_build_axc axc "$work/axiom"
 
 cases=0; failed=0; signals=0; accepted=0; refused=0; codes=""
 mkdir -p "$work/c"

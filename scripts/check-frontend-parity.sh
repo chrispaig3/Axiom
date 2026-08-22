@@ -57,25 +57,14 @@
 # ---------------------------------------------------------------------
 set -uo pipefail
 
-repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-cd "$repo_root" || exit 1
+source "$(dirname "${BASH_SOURCE[0]}")/lib/gate.sh"
+gate_init --no-stdlib
 
-axiom="${AXIOM:-$repo_root/.axiom-bin/axiom}"
 filter="${1:-}"
-work="$(mktemp -d)"
-trap 'rm -rf "$work"' EXIT
-
-if [[ ! -x "$axiom" ]]; then
-  echo "FAIL: no compiler at $axiom"; exit 1
-fi
 
 # Build the compiler under test from the CURRENT sources, the way every
 # other *-selfhost gate does: $AXIOM is the builder, never the subject.
-echo "== building the compiler under test from self_host/ =="
-if ! "$axiom" build --input self_host/main.ax -o "$work/axc" > "$work/build.log" 2>&1; then
-  echo "FAIL: could not build the compiler under test"; sed 's/^/    /' "$work/build.log" | head -20; exit 1
-fi
-axc="$work/axc"
+gate_build_axc axc
 
 # stdlib and self_host have to be reachable from the work directory,
 # because `:load` and the server resolve imports relative to the FILE

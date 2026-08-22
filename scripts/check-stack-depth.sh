@@ -48,14 +48,8 @@
 # rewrite.
 set -uo pipefail
 
-repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-cd "$repo_root" || exit 1
-
-axiom="${AXIOM:-$repo_root/.axiom-bin/axiom}"
-if [[ ! -x "$axiom" ]]; then
-  echo "FAIL: no compiler at $axiom" >&2
-  exit 1
-fi
+source "$(dirname "${BASH_SOURCE[0]}")/lib/gate.sh"
+gate_init
 
 # The ceiling is deliberately loose. The measured need on darwin-aarch64
 # is ~224 KiB; a ceiling of 1 MiB still catches a regression that makes
@@ -65,10 +59,6 @@ fi
 # be a gate about the host, not about the compiler.
 ceiling_kib=1024
 subject="self_host/main.ax"
-
-work="$(mktemp -d)"
-trap 'rm -rf "$work"' EXIT
-export AXIOM_STDLIB="$repo_root/stdlib"
 
 # Measure a compiler built from the CURRENT sources, not whichever binary
 # happens to be installed: the property is about the code in this tree,

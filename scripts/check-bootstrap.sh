@@ -131,23 +131,10 @@
 
 set -uo pipefail
 
-repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-cd "$repo_root"
+source "$(dirname "${BASH_SOURCE[0]}")/lib/gate.sh"
+gate_init
 
 fail() { echo "FAIL: $*" >&2; exit 1; }
-
-axiom="${AXIOM:-$repo_root/.axiom-bin/axiom}"
-if [[ ! -x "$axiom" ]]; then
-  # No `cargo` here, and none anywhere in this repository's gates: the
-  # Rust compiler this used to build has been deleted. A checkout gets
-  # a compiler from the committed seed - the same seed this script
-  # climbs from - through `llc` and `cc`.
-  echo "no compiler at $axiom - building one from the committed seed" >&2
-  "$repo_root/scripts/bootstrap-from-seed.sh" --install "$repo_root/.axiom-bin" >&2 \
-    || fail "could not bootstrap a compiler from bootstrap/"
-fi
-
-export AXIOM_STDLIB="$repo_root/stdlib"
 
 command -v llc >/dev/null || fail "llc is not on PATH"
 command -v cc  >/dev/null || fail "cc is not on PATH"
@@ -181,9 +168,6 @@ optimised() {
     printf '%s' "$in"
   fi
 }
-
-work="$(mktemp -d)"
-trap 'rm -rf "$work"' EXIT
 
 # Every stage resolves `(import Foo)` against `self_host/` and `stdlib/`
 # relative to its working directory.
