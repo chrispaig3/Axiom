@@ -893,12 +893,15 @@
   (if (>= i n)
       0
       (| (let ((cls (fldClass cg (arrowParamTy sigTy i))))
-           ; a type-variable slot, and an `Int` slot: a word of a
-           ; binding handed to either is parked there uncounted,
-           ; and the binding must outlive the jump
-           (if (|| (== cls 1) (== cls 0))
+           ; an `Int` slot: a word of a binding handed to it is
+           ; parked there uncounted, and the binding must outlive the
+           ; jump; a type-variable slot is retained by evidence, so
+           ; only a WORD arriving there is parked (the weak bits)
+           (if (== cls 0)
                (bothForms (paramBit i))
-               0))
+               (if (== cls 1)
+                   (wordBit i)
+                   0)))
          (tyvarSlotsFrom cg sigTy n (+ i 1)))))
 
 ; The encoding: THREE forms of parameter i, twenty parameters per
@@ -1101,9 +1104,7 @@
               ; scalar; words past it are pointers into what the
               ; address aliases - `strData` and `strOwner` hand-rolled.
               ; A byte (`__load8`) is never a pointer
-              (if (&& (>= n_ 2)
-                      (&& (== (loadIndexIsZero (spineArgAt e 1)) 1)
-                          (== (addrIsHandle cg params (spineArgAt e 0)) 1)))
+              (if (&& (>= n_ 2) (== (headerWordRead cg params (spineArgAt e 0) (spineArgAt e 1)) 1))
                   0
                   (if (>= n_ 1) (toOwner (aliasFlow cg (spineArgAt e 0) params env)) 0))
           (if (isPrimName n)
@@ -1158,6 +1159,37 @@
 ; its word 0 is the header's length. An address computed by
 ; arithmetic (`(+ (cast Int s) 8)`) points anywhere, and its word 0
 ; is whatever lives there.
+; Is `(__load64 addr idx)` a read of a NUMBER: word 0 of a String
+; handle (its length), or the count or shape word of any handle -
+; `(- h 16)` at index 0 or 1, `(- h 8)` at index 0? Every other
+; 64-bit load of a handle-relative address is a pointer the handle's
+; block owns.
+(pub :: headerWordRead (-> Int Int Int Int Int))
+(pub fn (headerWordRead cg params addr idx)
+  (if (|| (== idx 0) (!= (nodeTag idx) TAG_E_INT))
+      0
+      (let ((k (nodeA idx)))
+        (if (== (minusLiteral addr) 16)
+            (if (&& (>= k 0) (&& (<= k 1) (== (addrIsHandle cg params (spineArgAt addr 0)) 1))) 1 0)
+            (if (== (minusLiteral addr) 8)
+                (if (&& (== k 0) (== (addrIsHandle cg params (spineArgAt addr 0)) 1)) 1 0)
+                (if (&& (== k 0) (== (addrIsHandle cg params addr) 1)) 1 0))))))
+
+; `(- x LIT)`: the literal, or -1 for any other shape.
+(pub :: minusLiteral (-> Int Int))
+(pub fn (minusLiteral e)
+  (if (== e 0)
+      (- 0 1)
+      (if (!= (nodeTag e) TAG_E_APP)
+          (- 0 1)
+          (let ((hd (spineHeadE e)))
+            (if (&& (== (nodeTag hd) TAG_E_VAR)
+                    (&& (strEq (nodeA hd) "-")
+                        (&& (== (spineArity e) 2)
+                            (== (nodeTag (spineArgAt e 1)) TAG_E_INT))))
+                (nodeA (spineArgAt e 1))
+                (- 0 1))))))
+
 (pub :: addrIsHandle (-> Int Int Int Int))
 (pub fn (addrIsHandle cg params e)
   (if (== e 0)
@@ -1176,7 +1208,12 @@
                   (if (!= (nodeTag hd) TAG_E_VAR)
                       0
                       (if (&& (isCastName (nodeA hd)) (== (spineArity e) 2))
-                          (addrIsHandle cg params (spineArgAt e 1))
+                          (if (== (isRefCallNode cg (spineArgAt e 1)) 1)
+                              ; a reference-returning call's answer or
+                              ; a construction is a handle: its header
+                              ; words are numbers
+                              1
+                              (addrIsHandle cg params (spineArgAt e 1)))
                           ; `(- handle 16)`, `(- handle 8)`: the block's
                           ; own count or shape word, a number; any other
                           ; offset is somewhere else
@@ -1587,7 +1624,11 @@
       (flowStashesArgs cg e n_ params env cell 0)
       (selfSlotParks cg e hd n_ params env cell)
       (if (!= (nodeTag hd) TAG_E_VAR)
-          (stashAdd cell (parkForms (flowMaskAll cg e n_ params env 0)))
+          ; a lambda applied where it stands, or a call answering a
+          ; closure: the HEAD is walked for what it captures, and
+          ; every argument is parked (a local function value)
+          { (flowStashes cg hd params env cell)
+            (stashAdd cell (parkForms (flowMaskAll cg e n_ params env 0))) }
           (let ((n (nodeA hd)))
             (if (|| (isCastName n) (|| (isBinop n) (|| (isCmpOp n) (isAndOr n))))
                 0
@@ -1756,6 +1797,24 @@
              (parkForms (paramFlowBit cg params i))
              0)
          (lamParamCaptures cg body params (+ i 1)))))
+
+; A call to a signed global whose result class is a reference, or a
+; constructor application: what it answers is a handle.
+(pub :: isRefCallNode (-> Int Int Int))
+(pub fn (isRefCallNode cg e)
+  (if (== e 0)
+      0
+      (if (!= (nodeTag e) TAG_E_APP)
+          0
+          (let ((hd (spineHeadE e)))
+            (if (!= (nodeTag hd) TAG_E_VAR)
+                0
+                (let ((n (nodeA hd)))
+                  (if (|| (isCastName n) (|| (isPrimName n) (|| (isBinop n) (|| (isCmpOp n) (isAndOr n)))))
+                      0
+                      (if (!= (lookupType (memGetWord cg 3) n) 0)
+                          1
+                          (if (== (fnResultClass cg n) 2) 1 0)))))))))
 
 (pub :: paramIsString (-> Int Int Int Int))
 (pub fn (paramIsString cg params i)
@@ -5058,6 +5117,33 @@
                   1
                   0))))))
 
+; Parameter i's evidence bit when its declared type is one of the
+; signature's own type variables and the function takes an evidence
+; word; -1 otherwise. The loop's slot for such a parameter is
+; retained and released BY EVIDENCE: a typed reference arriving sets
+; the bit, a word does not, which is exactly the share the caller's
+; side of MM-LIFE-2d counts.
+(pub :: curParamEvBit (-> Int Int Int))
+(pub fn (curParamEvBit cg i)
+  (let ((d (memGetWord cg 36)))
+    (if (== d 0)
+        (- 0 1)
+        (let ((e (findFSig (memGetWord cg 15) (nodeA d))))
+          (if (== e 0)
+              (- 0 1)
+              (if (== (memGetWord e 4) 0)
+                  (- 0 1)
+                  (let ((tn (arrowParamTy (memGetWord e 3) i)))
+                    (if (== tn 0)
+                        (- 0 1)
+                        (if (!= (cgTyIsSrcVar tn) 1)
+                            (- 0 1)
+                            (let ((vars vecNew))
+                              {
+                                (cgSigVarsInto (memGetWord e 3) vars)
+                                (cgNameVecIdx vars (nodeA tn))
+                              }))))))))))
+
 ; The entry retain, once per reference parameter, before the loop
 ; header. It converts the caller's BORROW (event 1) into a share this
 ; frame owns, which is what makes the boundary release below legal:
@@ -5068,7 +5154,12 @@
       cg
       (let ((cg1 (if (== (curParamRefClass cg i) 1)
                      (emitRetainOf cg (cat2 "%" (llvmSym (strDup (vecGet params i)))))
-                     cg)))
+                     (let ((k (curParamEvBit cg i)))
+                       (if (< k 0)
+                           cg
+                           ; a type-variable slot: by the word this
+                           ; call arrived with
+                           (emitRetainIfEvBit cg (cat2 "%" (llvmSym (strDup (vecGet params i)))) k))))))
         (retainRefParams params cg1 (+ i 1)))))
 
 (pub fn (openTailLoop name params cg)
@@ -5128,7 +5219,8 @@
 ; still reads - `(go (- n 1) n)` would see the decremented `n` twice.
 (pub :: emitTailJump (-> Int Int Int Int))
 (pub fn (emitTailJump args stamp cg)
-  (let ((vals vecNew))
+  (let ((vals vecNew)
+        (words vecNew))
     {
       (evalTailArgs args vals cg 0)
       ; MM-LIFE-2d: the next iteration's evidence word - computed
@@ -5137,14 +5229,22 @@
       ; The slot exists iff this function is polymorphic (evwParkSlot
       ; bound "__evw." as mutable storage); the tcoSlots vec is
       ; untouched, so the arity gate never sees it.
+      ; The type-variable slots' two words: the one this iteration
+      ; arrived with (old values are released by it) and the next
+      ; iteration's (new values are retained by it), stored back
+      ; like any reassigned parameter. Words 0 and 1 of `words`.
       (let ((sreg (lookupSym cg "__evw.")))
         (if (if (== sreg 0) false (>= (lookupSymKind cg "__evw.") 1))
-            (let ((cgV (emitEvWordVal cg stamp)))
-              (emitLine cgV (cat4 "  store i64 "
-                                  (strDup (memGetWord cgV 2))
-                                  ", ptr "
-                                  (strDup (cast String sreg)))))
-            0))
+            (let ((cgO (emitEvwRead cg)))
+              (let ((oldW (strDup (memGetWord cgO 2))))
+                (let ((cgV (emitEvWordVal cgO stamp)))
+                  (let ((newW (strDup (memGetWord cgV 2))))
+                    {
+                      (emitLine cgV (cat4 "  store i64 " newW ", ptr " (strDup (cast String sreg))))
+                      (vecPush words (cast Int oldW))
+                      (vecPush words (cast Int newW))
+                    }))))
+            { (vecPush words (cast Int "0")) (vecPush words (cast Int "0")) }))
       ; MM-LIFE-2c event 4, the boundary itself. RETAIN EVERY NEW
       ; VALUE FIRST, then release every old one, then store - the same
       ; order event 5 uses at a field, and for the same reason: an
@@ -5167,19 +5267,19 @@
       ; different value and pays).
       (let ((same (tailArgsUnchanged cg (memGetWord cg 28) args vecNew 0)))
         {
-          (retainTailVals (memGetWord cg 28) vals same cg 0)
+          (retainTailVals (memGetWord cg 28) vals same cg (cast String (vecGet words 1)) 0)
           (let ((olds vecNew))
             {
               (loadTailOlds (memGetWord cg 28) olds cg 0)
               (storeTailSlots (memGetWord cg 28) vals cg 0)
-              (releaseTailOlds (memGetWord cg 28) olds same cg 0)
+              (releaseTailOlds (memGetWord cg 28) olds same cg (cast String (vecGet words 0)) 0)
             })
         })
       ; and an OWNED temporary among the arguments hands its own share
       ; back, exactly as after an ordinary call (`releaseOwnedArgs`):
       ; the boundary retain above is the slot's share, and
       ; `(grind (wide n) (- n 1))` otherwise kept one per iteration
-      (releaseTailTemps (memGetWord cg 28) args vals cg 0)
+      (releaseTailTemps (memGetWord cg 28) args vals cg (cast String (vecGet words 1)) 0)
       ; and every releasable `let` (and owned scrutinee) still in scope:
       ; their scope ends are past the jump and will not be reached on
       ; this path; the values the slots keep were retained above
@@ -5221,15 +5321,27 @@
 ; the slot's, and a parameter this function parks keeps the slot's
 ; share for the stash (`releaseTailOlds` and the exit leave it), not
 ; the temporary's as well.
-(pub :: releaseTailTemps (-> Int Int Int Int Int Int))
-(pub fn (releaseTailTemps slots args vals cg i)
+(pub :: releaseTailTemps (-> Int Int Int Int String Int Int))
+(pub fn (releaseTailTemps slots args vals cg newW i)
   (if (>= i (vecLen slots))
       cg
-      (let ((cg1 (if (&& (== (curParamRefClass cg i) 1)
-                         (== (valueOwnedRef cg (vecGet args i)) 1))
-                     (emitReleaseOf cg (vecGet vals i))
-                     cg)))
-        (releaseTailTemps slots args vals cg1 (+ i 1)))))
+      (let ((owned (if (== (valueOwnedRef cg (vecGet args i)) 1)
+                       1
+                       ; a lambda is born at count 1 and the slot (an
+                       ; arrow, a reference class) took its own
+                       (if (== (nodeTag (vecGet args i)) TAG_E_LAM) 1 0))))
+        (let ((cg1 (if (== owned 0)
+                       cg
+                       (if (== (curParamRefClass cg i) 1)
+                           (emitReleaseOf cg (vecGet vals i))
+                           (let ((k (curParamEvBit cg i)))
+                             (if (< k 0)
+                                 cg
+                                 ; the slot took a share iff the bit
+                                 ; is set, and then the temporary's
+                                 ; own share goes back
+                                 (emitRcIfBitOf cg (cast String (vecGet vals i)) k newW 0)))))))
+          (releaseTailTemps slots args vals cg1 newW (+ i 1))))))
 
 ; Load and release the current value of every reference parameter's
 ; slot - the entry retain's counterpart, on the return path. Word 2
@@ -5246,26 +5358,40 @@
 (pub fn (releaseRefParamSlotsFrom cg slots i)
   (if (>= i (vecLen slots))
       cg
-      (if (&& (== (curParamRefClass cg i) 1)
-              ; not a parameter this very function parks a word of,
-              ; nor one it ANSWERS a WORD of (`(cast Int s)` as the
-              ; tail) - the slot's share is what keeps that word
-              ; alive, on the way out too. A typed answer is the
-              ; leaf's own retain (event 2), and the slot's share
-              ; goes back
-              (== (& (| (curFnStashMask cg) (paramsOf (wordParts (curFnRetMask cg)))) (| (paramBit i) (ownerBit i))) 0))
-          (let ((cgL (loadFromSlot cg (vecGet slots i))))
-            (releaseRefParamSlotsFrom (emitReleaseOf cgL (strDup (memGetWord cgL 2))) slots (+ i 1)))
-          (releaseRefParamSlotsFrom cg slots (+ i 1)))))
+      (if (!= (& (| (curFnStashMask cg) (paramsOf (wordParts (curFnRetMask cg)))) (| (paramBit i) (ownerBit i))) 0)
+          ; a parameter this very function parks a word of, or
+          ; ANSWERS a WORD of (`(cast Int s)` as the tail) - the
+          ; slot's share is what keeps that word alive, on the way
+          ; out too. A typed answer is the leaf's own retain (event
+          ; 2), and the slot's share goes back
+          (releaseRefParamSlotsFrom cg slots (+ i 1))
+          (if (== (curParamRefClass cg i) 1)
+              (let ((cgL (loadFromSlot cg (vecGet slots i))))
+                (releaseRefParamSlotsFrom (emitReleaseOf cgL (strDup (memGetWord cgL 2))) slots (+ i 1)))
+              (let ((k (curParamEvBit cg i)))
+                (if (< k 0)
+                    (releaseRefParamSlotsFrom cg slots (+ i 1))
+                    ; a type-variable slot: by the word current for it
+                    (let ((cgL (loadFromSlot cg (vecGet slots i))))
+                      (let ((v (strDup (memGetWord cgL 2))))
+                        (let ((cgW (emitEvwRead cgL)))
+                          (releaseRefParamSlotsFrom
+                            (emitRcIfBitOf cgW v k (strDup (memGetWord cgW 2)) 0)
+                            slots (+ i 1)))))))))))
 
-(pub :: retainTailVals (-> Int Int Int Int Int Int))
-(pub fn (retainTailVals slots vals same cg i)
+(pub :: retainTailVals (-> Int Int Int Int String Int Int))
+(pub fn (retainTailVals slots vals same cg newW i)
   (if (>= i (vecLen slots))
       cg
-      (let ((cg1 (if (&& (== (curParamRefClass cg i) 1) (== (vecGet same i) 0))
-                     (emitRetainOf cg (vecGet vals i))
-                     cg)))
-        (retainTailVals slots vals same cg1 (+ i 1)))))
+      (let ((cg1 (if (== (vecGet same i) 1)
+                     cg
+                     (if (== (curParamRefClass cg i) 1)
+                         (emitRetainOf cg (vecGet vals i))
+                         (let ((k (curParamEvBit cg i)))
+                           (if (< k 0)
+                               cg
+                               (emitRcIfBitOf cg (cast String (vecGet vals i)) k newW 1)))))))
+        (retainTailVals slots vals same cg1 newW (+ i 1)))))
 
 ; Flag per slot: 1 when argument i is the VAR of parameter i and the
 ; name still names the slot.
@@ -5288,7 +5414,7 @@
   (if (>= i (vecLen slots))
       cg
       {
-        (if (== (curParamRefClass cg i) 1)
+        (if (|| (== (curParamRefClass cg i) 1) (>= (curParamEvBit cg i) 0))
             {
               (loadFromSlot cg (vecGet slots i))
               (vecPush olds (strDup (memGetWord cg 2)))
@@ -5300,16 +5426,20 @@
 ; Not a parameter this function parks a word of: the iteration that
 ; parked it left the slot's share as the stash's keeper, and the
 ; jump must not take it back.
-(pub :: releaseTailOlds (-> Int Int Int Int Int Int))
-(pub fn (releaseTailOlds slots olds same cg i)
+(pub :: releaseTailOlds (-> Int Int Int Int String Int Int))
+(pub fn (releaseTailOlds slots olds same cg oldW i)
   (if (>= i (vecLen olds))
       cg
-      (let ((cg1 (if (&& (== (curParamRefClass cg i) 1)
-                         (&& (== (vecGet same i) 0)
-                             (== (& (curFnStashMask cg) (| (paramBit i) (ownerBit i))) 0)))
-                     (emitReleaseOf cg (vecGet olds i))
-                     cg)))
-        (releaseTailOlds slots olds same cg1 (+ i 1)))))
+      (let ((cg1 (if (|| (== (vecGet same i) 1)
+                         (!= (& (curFnStashMask cg) (| (paramBit i) (ownerBit i))) 0))
+                     cg
+                     (if (== (curParamRefClass cg i) 1)
+                         (emitReleaseOf cg (vecGet olds i))
+                         (let ((k (curParamEvBit cg i)))
+                           (if (< k 0)
+                               cg
+                               (emitRcIfBitOf cg (cast String (vecGet olds i)) k oldW 0)))))))
+        (releaseTailOlds slots olds same cg1 oldW (+ i 1)))))
 
 ; A parameter slot is an `alloca`; reading it is the same load
 ; `emitVar` emits for a kind-2 binding, without going through the
@@ -5677,16 +5807,24 @@
 ; list shadows is skipped - inside the lifted body the capture would
 ; be bound as a symbol, and symbols resolve ahead of parameters.
 (pub :: collectCapNames (-> Int Int Int))
-(pub fn (collectCapNames cg lparams)
+; The names a lambda captures: every parameter and local in scope
+; that its body MENTIONS (a nested lambda's mentions included), and
+; the evidence word, which a polymorphic construction inside the
+; body reads without naming. Until 2026-08-22 every name in scope
+; was captured, mentioned or not, and a loop building a closure per
+; iteration chained each to the one before it through a parameter
+; the body never used.
+(pub :: collectCapNames (-> Int Int Int Int))
+(pub fn (collectCapNames cg lparams body)
   (let ((out vecNew))
     {
-      (capFromVec (memGetWord cg 17) lparams out 0)
-      (capFromVec (memGetWord cg 6) lparams out 0)
+      (capFromVec (memGetWord cg 17) lparams body out 0)
+      (capFromVec (memGetWord cg 6) lparams body out 0)
       out
     }))
 
-(pub :: capFromVec (-> Int Int Int Int Int))
-(pub fn (capFromVec src lparams out i)
+(pub :: capFromVec (-> Int Int Int Int Int Int))
+(pub fn (capFromVec src lparams body out i)
   (if (== src 0)
       0
       (if (>= i (vecLen src))
@@ -5697,8 +5835,10 @@
                   0
                   (if (>= (strIndexIn out name) 0)
                       0
-                      (vecPush out name))))
-            (capFromVec src lparams out (+ i 1))
+                      (if (|| (strEq name "__evw.") (== (mentions name body) 1))
+                          (vecPush out name)
+                          0))))
+            (capFromVec src lparams body out (+ i 1))
           })))
 
 (pub :: strIndexIn (-> Int String Int))
@@ -5750,7 +5890,7 @@
         (body (nodeB node))
         (n (memGetWord cg 22)))
     (let ((lname (cat2 "_lam_" (fmtInt n)))
-          (capNames (collectCapNames cg lparams))
+          (capNames (collectCapNames cg lparams body))
           (capRegs vecNew)
           (capFloats vecNew))
       {
@@ -5773,6 +5913,12 @@
               (storeWordAt cg pr 0 fr)
               ; A1: the record births owned.
               (storeCountOneAt cg pr)
+              ; and its reference map names every capture that takes
+              ; a share below (`retainParamCaps`: the reference-class
+              ; parameters), so the record's death hands them back -
+              ; a closure per iteration of a loop chained a million
+              ; captured closures that nothing ever released
+              (storeShapeAt cg pr (lamShapeConst cg capNames k))
               ; A capture that is a REFERENCE PARAMETER of the
               ; enclosing function takes a share, and this is the one
               ; hole that would make event 4's boundary release
@@ -5803,6 +5949,26 @@
 
 ; The index of `name` in the enclosing function's parameter list, or
 ; -1. `cg 17` is that list, set by `emitFnDef` before the body runs.
+; A lambda record's shape word: `k + 1` words, and a map bit for
+; capture i (payload word 1 + i) iff it is a reference-class
+; parameter, the captures `retainParamCaps` retains. Past the map's
+; 47 words the record is a leaf, as a constructor's would be.
+(pub :: lamShapeConst (-> Int Int Int Int))
+(pub fn (lamShapeConst cg capNames k)
+  (let ((cnt (paddedWords (+ k 1))))
+    (+ (* cnt 2)
+       (if (> (+ k 1) 47) 0 (lamShapeBits cg capNames 0)))))
+
+(pub :: lamShapeBits (-> Int Int Int Int))
+(pub fn (lamShapeBits cg capNames i)
+  (if (>= i (vecLen capNames))
+      0
+      (let ((pi (curParamIndex cg (vecGet capNames i))))
+        (+ (if (if (< pi 0) false (== (curParamRefClass cg pi) 1))
+               (pow2 (+ 16 (+ 1 i)))
+               0)
+           (lamShapeBits cg capNames (+ i 1))))))
+
 (pub :: curParamIndex (-> Int String Int))
 (pub fn (curParamIndex cg name)
   (let ((ps (memGetWord cg 17)))
@@ -8519,7 +8685,15 @@
 (pub :: emitRetainIfEvBit (-> Int String Int Int))
 (pub fn (emitRetainIfEvBit cg v k)
   (let ((cgR (emitEvwRead cg)))
-    (let ((src (strDup (memGetWord cgR 2)))
+    (emitRcIfBitOf cgR v k (strDup (memGetWord cgR 2)) 1)))
+
+; `v` retained (op 1) or released (op 0) when bit k of the evidence
+; WORD `src` is set: the boundary of a self-tail-call loop retains a
+; type-variable slot's new value by the next iteration's word and
+; releases the old value by the word that was current for it.
+(pub :: emitRcIfBitOf (-> Int String Int String Int Int))
+(pub fn (emitRcIfBitOf cgR v k src op)
+  (let ((_unused 0)
           (an (allocReg cgR)))
       (let ((ar (regStr an)))
         (let ((cgA (emitLine cgR (cat4 (cat3 (cat2 "  " ar)
@@ -8549,9 +8723,9 @@
                                                         doB
                                                         (cat2 ", label %" skB) ""))))
                             (let ((cgE (emitLabel cgD doB)))
-                              (let ((cgF (emitRetainOf cgE v)))
+                              (let ((cgF (if (== op 1) (emitRetainOf cgE v) (emitReleaseOf cgE v))))
                                 (let ((cgG (emitLine cgF (cat2 "  br label %" skB))))
-                                  (emitLabel cgG skB))))))))))))))))))
+                                  (emitLabel cgG skB)))))))))))))))))
 
 ; MM-LIFE-2d, the evidence consumer: a data cell whose declared
 ; field type is a TYPE VARIABLE takes its map bit from the call's
@@ -9050,8 +9224,17 @@
         (if (== tg TAG_E_APP)
             (if (== (wordTakingHead (spineHeadE e)) 1)
                 ; `cast`/`__addr`/`strData` of the binding hands out a
-                ; word, and a word takes no share
-                (mentions name e)
+                ; word, and a word takes no share: in VALUE position
+                ; the word is the let's value and the binding escapes;
+                ; in argument position its consumer decides - a call
+                ; by its masks in the word's form, a raw store, a
+                ; constructor's word field, a `set` - and the operands
+                ; are walked for what they contain
+                (if (== vp 1)
+                    (mentions name e)
+                    (if (== (escapes cg name (nodeA e) 0 root) 1)
+                        1
+                        (escapes cg name (nodeB e) 0 root)))
                 ; a CALL keeps or answers an argument only as its
                 ; flow masks say (`callEscapesArg`); otherwise a
                 ; callee borrows, and the arguments are walked in

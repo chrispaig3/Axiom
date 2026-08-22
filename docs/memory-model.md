@@ -1755,15 +1755,19 @@ parameter the function PARKS a word of (its own STASH mask —
 `parseModPathRest` hands `acc` to `pOk`, which stores it through a
 `cast`): the slot's share is the stash's keeper, so neither the
 boundary nor the return path takes it back, and the parked value is
-exactly one share. Two more keep their slot's share: a parameter
+exactly one share. One more keeps its slot's share: a parameter
 the function ANSWERS A WORD OF (`(cast Int s)` as a tail — the word
-has no other keeper, so the block leaks rather than dangles), and a
-TYPE-VARIABLE parameter of a self-tail-calling function, whose slot
-takes no class-directed retain at the boundary. That slot, and every
-`Int` slot of such a function, is treated as a park: what flows into
-it — a `let`'s word through a helper, a parameter's header — is
-never released at the jump or by the caller, the leak direction,
-until the boundary retains by evidence.
+has no other keeper, so the block leaks rather than dangles). A
+TYPE-VARIABLE slot is retained and released BY EVIDENCE (since
+2026-08-22): the entry retains it by the word the call arrived with,
+the boundary retains the new value by the next iteration's word and
+releases the old by the word that was current for it, and the exit
+releases by the word current then — so a typed reference arriving
+there is one share, exactly, and a word arriving is parked (the weak
+header bit, which only a word-form argument pairs with). An `Int`
+slot stays a park: what flows into it — a `let`'s word through a
+helper, a parameter's header — is never released at the jump or by
+the caller, the leak direction.
 A function value — a bare reference to a top-level function — is
 born at count 1 like a lambda: born at 0, a record it was stored in
 adopted it and freed it under the frame still calling it. Read through the loop's name that the function
@@ -1832,16 +1836,21 @@ binder escapes from; a temporary stored through `set`; a `let` whose
 value is a field of the block it binds; a join of an owned temporary
 with a BORROWED arm (a parameter, a field) stored into a field — the
 field retains, and the owned arm's birth share has no path back; a
-closure's captures, which the closure record takes and never returns,
-and a lambda handed to a self tail call, whose birth share the
-boundary's retain doubles; a polymorphic self-tail-call loop matching
-an owned `(Some x)`; a reference-returning function whose tail is a
-`handle`, which retains its answer twice; a `let` cast to `Int`
-anywhere in its body, kept whole; a self-tail-calling function's
-type-variable and `Int` slots, and a parameter whose word it parks or
+polymorphic self-tail-call loop matching an owned `(Some x)`; a
+`let` cast to `Int` in VALUE position, kept whole (in argument
+position its consumer decides, by the masks); a self-tail-calling
+function's `Int` slots, and a parameter whose word it parks or
 answers, which keep their slot's share; blocks above the 64 KiB pool
 ceiling, never filed; and the free list's order, which a rebuild of
-a 1,000,000-cell list scrambles a little more per generation. A function whose result is a
+a 1,000,000-cell list scrambles a little more per generation. Closed
+since the ledger was written: a closure record carries a reference
+map for the captures it retained (the reference-class parameters),
+so its death hands them back, and a lambda captures only the names
+its body mentions — every name in scope was captured before, and a
+closure per loop iteration chained each to the one before it through
+a parameter it never used; a lambda handed to a self tail call is an
+owned temporary at the boundary; a `handle` as a reference-returning
+tail retains once. A function whose result is a
 type variable retains nothing on return, so a `let` bound to
 `(vecGet v i)` is never released — the container convention this
 compiler is written in stays where it was.
