@@ -353,3 +353,10 @@
         (vecPush out (cast Int (strSlice s from (- end from))))
         (if (< cut 0) 0 (strSplitFrom s byte (+ end 1) out))
       })))
+
+; A one-byte `Str` holding `b`. The compiler driver and the JSON
+; encoder each had this three-line allocate-and-store under a private
+; name; it is a `Str` constructor, so it lives with the others.
+(pub :: strFromByte (-> Int String))
+(pub fn (strFromByte b)
+  (let ((s (strAlloc 1))) { (__store8 (strData s) 0 b) s }))

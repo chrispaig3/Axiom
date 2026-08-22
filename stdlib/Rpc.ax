@@ -37,6 +37,7 @@
 ; three lines over `Sys` and costs nothing.
 (import Mem)
 (import Str)
+(import Fmt)
 (import Sys)
 
 (:: rdCap Int) (pub fn (rdCap) 65536)
@@ -260,14 +261,9 @@
 (pub fn (rpcWrite fd body)
   {
     (rpcPut fd "Content-Length: ")
-    (rpcPut fd (rpcNat (strLen body)))
+    (rpcPut fd (fmtInt (strLen body)))
     (rpcPut fd "\r\n\r\n")
     (rpcPut fd body)
     (strLen body)
   })
 
-(:: rpcNat (-> Int String))
-(fn (rpcNat n)
-  (if (< n 10)
-      (strSlice "0123456789" n 1)
-      (strConcat (rpcNat (/ n 10)) (strSlice "0123456789" (% n 10) 1))))

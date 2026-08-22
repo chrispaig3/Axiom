@@ -3671,6 +3671,44 @@
               i
               (traitDispatchIdx (nodeB t) v (+ i 1))))))
 
+; Is this type node a type variable the PROGRAMMER wrote? A `_`-prefixed
+; name is one this checker minted, and an empty name is the silent
+; wildcard; neither is rigid. Both the checker and the emitter ask this
+; of the same D_SIG tree, so it is asked in one place.
+(pub :: tyIsSrcVar (-> Int Int))
+(pub fn (tyIsSrcVar t)
+  (if (!= (nodeTag t) TAG_T_VAR)
+      0
+      (let ((n (nodeA t)))
+        (if (== (strLen n) 0)
+            0
+            (if (== (strByte n 0) 95) 0 1)))))
+
+; An application spine, which the parser builds left-nested: the head
+; it bottoms out at, its arguments in SOURCE order, and how many there
+; are. Every pass that looks through a call asks one of these three.
+(pub :: spineHead (-> Int Int))
+(pub fn (spineHead e)
+  (if (== (nodeTag e) TAG_E_APP)
+      (spineHead (nodeA e))
+      e))
+
+(pub :: spineArgVec (-> Int Int Int))
+(pub fn (spineArgVec e acc)
+  (if (== (nodeTag e) TAG_E_APP)
+      {
+        (spineArgVec (nodeA e) acc)
+        (vecPush acc (nodeB e))
+        acc
+      }
+      acc))
+
+(pub :: spineArgs (-> Int Int Int))
+(pub fn (spineArgs e acc)
+  (if (== (nodeTag e) TAG_E_APP)
+      (spineArgs (nodeA e) (+ acc 1))
+      acc))
+
 (pub :: arrowArity (-> Int Int))
 (pub fn (arrowArity t)
   (if (== t 0)

@@ -837,14 +837,6 @@
 ; length. (`render.ax`'s `lineEndOf` takes an offset into a source file
 ; and this takes an offset into any string; the same three lines, but
 ; importing render here for it would be a cycle through diag.)
-(pub :: lineEndFrom (-> String Int Int))
-(pub fn (lineEndFrom s i)
-  (let ((n (strLen s)) (mut j i))
-    {
-      (while (&& (< j n) (!= (strByte s j) 10)) (set j (+ j 1)))
-      j
-    }))
-
 (pub :: explainNormalize (-> String String))
 (pub fn (explainNormalize s)
   (let ((mut a 0) (mut b (strLen s)))

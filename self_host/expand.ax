@@ -522,17 +522,6 @@
           (strSlice s 0 i)
           (expModOfFrom s (- i 1)))))
 
-(pub :: expBareOf (-> String String))
-(pub fn (expBareOf s) (expBareOfFrom s (- (strLen s) 1)))
-
-(pub :: expBareOfFrom (-> String Int String))
-(pub fn (expBareOfFrom s i)
-  (if (< i 0)
-      s
-      (if (== (strByte s i) 36)
-          (strSlice s (+ i 1) (- (strLen s) (+ i 1)))
-          (expBareOfFrom s (- i 1)))))
-
 ; A reference as the programmer wrote it, for diagnostics: the parser
 ; flattened `Mod::name` to `Mod$name`, and quoting THAT back reports a
 ; spelling that appears nowhere in the source. Bare names pass through
@@ -540,7 +529,7 @@
 (pub :: expSrcSpelling (-> String String))
 (pub fn (expSrcSpelling s)
   (let ((m (expModOf s)))
-    (if (== (cast Int m) 0) s (strConcat (strConcat m "::") (expBareOf s)))))
+    (if (== (cast Int m) 0) s (strConcat (strConcat m "::") (bareOf s)))))
 
 (pub :: expSameMod (-> String String Int))
 (pub fn (expSameMod a b)
@@ -553,7 +542,7 @@
   (let ((site (memGetWord env 9))
         (qm (expModOf name)))
     (if (!= (cast Int qm) 0)
-        (expFindMacroQual (expMacros env) (expBareOf name) qm site
+        (expFindMacroQual (expMacros env) (bareOf name) qm site
                           (- (vecLen (expMacros env)) 1))
         (let ((mac (expFindMacroIn (expMacros env) name site
                                    (- (vecLen (expMacros env)) 1))))
@@ -1011,8 +1000,8 @@
   (if (== (nodeTag a) TAG_E_VAR)
       (expResolveQueryName env (nodeA a) params args isp)
       (if (== (nodeTag a) TAG_E_APP)
-          (let ((h (expSpineHead a))
-                (ps (expSpineArgs a vecNew)))
+          (let ((h (spineHead a))
+                (ps (spineArgVec a vecNew)))
             (if (&& (== (nodeTag h) TAG_E_VAR)
                     (&& (strEq (nodeA h) "syntax/join")
                         (== (vecLen ps) 2)))
@@ -1256,8 +1245,8 @@
 ; with the refusal already emitted.
 (pub :: expEvalSeq (-> Int Int Int Int Int Int))
 (pub fn (expEvalSeq env seq params args isp)
-  (let ((head (expSpineHead seq))
-        (qargs (expSpineArgs seq vecNew)))
+  (let ((head (spineHead seq))
+        (qargs (spineArgVec seq vecNew)))
     (if (!= (nodeTag head) TAG_E_VAR)
         (expQueryErr env (if (!= (nodeSpan seq) 0) (nodeSpan seq) isp)
           "syntax/for's sequence must be a query spine"
@@ -1330,8 +1319,8 @@
 
 (pub :: expSubstPatForSpine (-> Int Int Int Int Int Int))
 (pub fn (expSubstPatForSpine p params args env isp)
-  (let ((head (expSpineHead p))
-        (pargs (expSpineArgs p vecNew)))
+  (let ((head (spineHead p))
+        (pargs (spineArgVec p vecNew)))
     (let ((newHead (if (== (nodeTag head) TAG_E_VAR)
                        (let ((e (expForLookup env (nodeA head))))
                          (if (== (cast Int e) 0)
@@ -1344,7 +1333,7 @@
           (let ((a (vecGet pargs i)))
             {
               (if (&& (== (nodeTag a) TAG_E_APP)
-                      (let ((ah (expSpineHead a)))
+                      (let ((ah (spineHead a)))
                         (&& (== (nodeTag ah) TAG_E_VAR)
                             (strEq (nodeA ah) "syntax/binders"))))
                   (let ((sr (expEvalSeq env a params args isp)))
@@ -1355,7 +1344,7 @@
               (set i (+ i 1))
             }))
         ; AN EMPTY BINDER SPLICE IS A NULLARY CONSTRUCTOR, NOT A
-        ; BINDER. `expSpineArgs` of an application never answers
+        ; BINDER. `spineArgVec` of an application never answers
         ; nothing, so `out` is empty only when the one argument was a
         ; `(syntax/binders C f)` that supplied no binders - the
         ; arity-0 case that lets one template cover every arity.
@@ -2109,7 +2098,7 @@
 (pub fn (expCondQuery c)
   (if (!= (nodeTag c) TAG_E_APP)
       ""
-      (let ((h (expSpineHead c)))
+      (let ((h (spineHead c)))
         (if (!= (nodeTag h) TAG_E_VAR)
             ""
             (if (strEq (nodeA h) "syntax/same")
@@ -2154,7 +2143,7 @@
 ; Is this expression a `(syntax/for (x seq) tpl)` spine?
 (pub :: expIsForSpine (-> Int Int))
 (pub fn (expIsForSpine e)
-  (let ((h (expSpineHead e)))
+  (let ((h (spineHead e)))
     (if (&& (== (nodeTag h) TAG_E_VAR) (strEq (nodeA h) "syntax/for"))
         1
         0)))
@@ -2182,8 +2171,8 @@
 ; only thing that differs between them.
 (pub :: expIterPairs (-> Int Int Int String Int))
 (pub fn (expIterPairs env binds isp who)
-  (let ((h (expSpineHead binds))
-        (bargs (expSpineArgs binds vecNew)))
+  (let ((h (spineHead binds))
+        (bargs (spineArgVec binds vecNew)))
     (if (|| (!= (nodeTag h) TAG_E_VAR) (== (vecLen bargs) 0))
         { (expQueryErr env isp
             (strConcat (strConcat "`" who)
@@ -2203,8 +2192,8 @@
   (if (>= i (vecLen bargs))
       pairs
       (let ((b (vecGet bargs i)))
-        (let ((bh (expSpineHead b))
-              (bas (expSpineArgs b vecNew)))
+        (let ((bh (spineHead b))
+              (bas (spineArgVec b vecNew)))
           (if (|| (!= (nodeTag b) TAG_E_APP)
                   (|| (!= (nodeTag bh) TAG_E_VAR) (!= (vecLen bas) 1)))
               { (expQueryErr env isp
@@ -2354,7 +2343,7 @@
 ; zipped - and argument 1 the template. Anything else refuses.
 (pub :: expSpliceForArg (-> Int Int Int Int Int Int Int Int))
 (pub fn (expSpliceForArg f params args ren env isp out)
-  (let ((qargs (expSpineArgs f vecNew))
+  (let ((qargs (spineArgVec f vecNew))
         ; The form's OWN span where it has one, as the arm- and
         ; declaration-position splices already do: a skewed zip is a
         ; fact about the macro's text, so the caret belongs on the
@@ -2398,8 +2387,8 @@
 ; nothing is processed twice.
 (pub :: substTplApp (-> Int Int Int Int Int Int Int))
 (pub fn (substTplApp tpl params args ren env isp)
-  (let ((head (expSpineHead tpl))
-        (qargs (expSpineArgs tpl vecNew)))
+  (let ((head (spineHead tpl))
+        (qargs (spineArgVec tpl vecNew)))
     (if (&& (== (nodeTag head) TAG_E_VAR)
             (strStartsWith (nodeA head) "syntax/"))
         (if (strEq (nodeA head) "syntax/same")
@@ -2622,8 +2611,8 @@
             (let ((cq (expCondQuery (nodeA tpl))))
               (if (!= (strLen cq) 0)
                   (let ((v (if (strEq cq "syntax/same")
-                               (expEvalSame env (expSpineArgs (nodeA tpl) vecNew) isp)
-                               (expEvalDefined env (expSpineArgs (nodeA tpl) vecNew)
+                               (expEvalSame env (spineArgVec (nodeA tpl) vecNew) isp)
+                               (expEvalDefined env (spineArgVec (nodeA tpl) vecNew)
                                                params args isp))))
                     (if (&& (== (nodeTag v) TAG_E_VAR) (strEq (nodeA v) "true"))
                         (substTpl (nodeB tpl) params args ren env isp)
@@ -2894,20 +2883,6 @@
 ; longer than the macro's arity now re-applies the surplus to the
 ; expansion instead of dropping it.
 ; ------------------------------------------------------------------
-(pub :: expSpineHead (-> Int Int))
-(pub fn (expSpineHead e)
-  (if (== (nodeTag e) TAG_E_APP) (expSpineHead (nodeA e)) e))
-
-(pub :: expSpineArgs (-> Int Int Int))
-(pub fn (expSpineArgs e acc)
-  (if (== (nodeTag e) TAG_E_APP)
-      {
-        (expSpineArgs (nodeA e) acc)
-        (vecPush acc (nodeB e))
-        acc
-      }
-      acc))
-
 ; ------------------------------------------------------------------
 ; The walk over ORDINARY code. Its two jobs are to find macro
 ; invocations and to know which names are locally bound at each point,
@@ -3167,7 +3142,7 @@
 ; ------------------------------------------------------------------
 (pub :: expandApp (-> Int Int Int Int))
 (pub fn (expandApp e env bs)
-  (let ((head (expSpineHead e)))
+  (let ((head (spineHead e)))
     (if (!= (nodeTag head) TAG_E_VAR)
         (expandAppPlain e env bs)
         (if (== (expBound bs (nodeA head)) 1)
@@ -3185,7 +3160,7 @@
 
 (pub :: expandMacroApp (-> Int Int Int Int Int Int))
 (pub fn (expandMacroApp e head mac env bs)
-  (let ((args (expSpineArgs e vecNew))
+  (let ((args (spineArgVec e vecNew))
         (params (nodeB mac))
         (isp (if (!= (nodeSpan head) 0) (nodeSpan head) (nodeSpan e))))
     ; A DECLARATION macro (rule form, template in word 9) has no
@@ -3755,11 +3730,11 @@
     (if (== pt TAG_E_APP)
         (if (!= (nodeTag a) TAG_E_APP)
             0
-            (let ((ps (expSpineArgs p vecNew))
-                  (as (expSpineArgs a vecNew)))
+            (let ((ps (spineArgVec p vecNew))
+                  (as (spineArgVec a vecNew)))
               (if (!= (vecLen ps) (vecLen as))
                   0
-                  (if (== (expMatchPat (expSpineHead p) (expSpineHead a) names vals) 0)
+                  (if (== (expMatchPat (spineHead p) (spineHead a) names vals) 0)
                       0
                       (expMatchVec ps as 0 names vals)))))
     ; A tag no pattern can carry. `parseMacroPat` builds only the five
@@ -3784,8 +3759,8 @@
                 (cb (strByte b j)))
             (let ((na (if (&& (== ca 92) (< (+ i 1) ae)) 2 1))
                   (nb (if (&& (== cb 92) (< (+ j 1) be)) 2 1)))
-              (if (== (if (== na 2) (expUnescByte (strByte a (+ i 1))) ca)
-                      (if (== nb 2) (expUnescByte (strByte b (+ j 1))) cb))
+              (if (== (if (== na 2) (unescByte (strByte a (+ i 1))) ca)
+                      (if (== nb 2) (unescByte (strByte b (+ j 1))) cb))
                   (expStrLitEqAt a (+ i na) ae b (+ j nb) be)
                   0))))))
 
@@ -3793,14 +3768,6 @@
 ; itself, which is what `\\`, `\'` and `\"` need. The same table
 ; `codegen.ax` carries under this name - duplicated because `codegen`
 ; imports `expand` and not the other way round.
-(pub :: expUnescByte (-> Int Int))
-(pub fn (expUnescByte c)
-  (if (== c 110) 10
-  (if (== c 116) 9
-  (if (== c 114) 13
-  (if (== c 48) 0
-  c)))))
-
 (pub :: expMatchVec (-> Int Int Int Int Int Int))
 (pub fn (expMatchVec ps as i names vals)
   (if (>= i (vecLen ps))

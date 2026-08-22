@@ -96,11 +96,13 @@
       (set bad (+ bad (eq "u escape ascii"
                           (jsonStrVal (jsonParse "\"\\u0041\"")) "A")))
       ; Backspace and formfeed have no Axiom string escape, so the
-      ; expected bytes are built rather than written.
+      ; expected bytes are built rather than written - with `Str`'s
+      ; one-byte constructor, which is where that three-line allocate-
+      ; and-store lives now that `Json` and the driver share it.
       (set bad (+ bad (eq "u escape backspace"
-                          (jsonStrVal (jsonParse "\"\\b\"")) (jsonByteStr 8))))
+                          (jsonStrVal (jsonParse "\"\\b\"")) (strFromByte 8))))
       (set bad (+ bad (eq "u escape formfeed"
-                          (jsonStrVal (jsonParse "\"\\f\"")) (jsonByteStr 12))))
+                          (jsonStrVal (jsonParse "\"\\f\"")) (strFromByte 12))))
       ; Two UTF-8 bytes for U+00E9, four for U+1F600 via a surrogate
       ; pair, three for the U+FFFD an unpaired surrogate becomes.
       (set bad (+ bad (eqInt "latin1 length"
@@ -150,7 +152,7 @@
                           (jsonWrite (jsonStr "a\"b\\c\nd"))
                           "\"a\\\"b\\\\c\\nd\"")))
       (set bad (+ bad (eq "write control"
-                          (jsonWrite (jsonStr (jsonByteStr 1))) "\"\\u0001\"")))
+                          (jsonWrite (jsonStr (strFromByte 1))) "\"\\u0001\"")))
       (set bad (+ bad (eq "write object"
                           (jsonWrite (jsonObjPut (jsonObjPut jsonObj
                                        "a" (jsonNum 1)) "b" (jsonStr "x")))

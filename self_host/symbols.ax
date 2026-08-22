@@ -26,6 +26,7 @@
 (import Str)
 (import Vec)
 (import Utf8)
+(import core)
 (import parser)
 (import typecheck)
 ; for `expGenOf`: the (name, macro) pairs phase D answers, which is
@@ -593,14 +594,6 @@
           }))))
 
 ; One past the last byte of the line starting at `i`.
-(pub :: symLineEnd (-> String Int Int))
-(pub fn (symLineEnd s i)
-  (let ((n (strLen s)) (mut j i))
-    {
-      (while (&& (< j n) (!= (strByte s j) 10)) (set j (+ j 1)))
-      j
-    }))
-
 ; The byte after the next space at or after `i`, and the field before
 ; it. Fields one to three of an AXSYM line are space-delimited and
 ; contain no spaces; the type that follows them is quoted and may.
@@ -617,7 +610,7 @@
   (let ((n (strLen axsym)) (parts vecNew) (mut i 0))
     {
       (while (< i n)
-        (let ((e (symLineEnd axsym i)))
+        (let ((e (lineEndFrom axsym i)))
           {
             (if (> e i)
                 (let ((k1 (symField axsym i e)))

@@ -521,7 +521,7 @@
       (if (== ty 0)
           { (vecPush notes (cast Int (cat3 "// `" name "`: no `(pub :: name Type)` signature to bind it by\n"))) 0 }
           (let ((params (rbParamTypes ty vecNew))
-                (res (rbResultType ty))
+                (res (sigResultOf ty))
                 (names (nodeB f)))
             (if (strStartsWith name "axh_")
                 { (vecPush raws (cast Int (rbRawDecl name params res))) 0 }
@@ -553,12 +553,6 @@
   (if (&& (!= ty 0) (== (nodeTag ty) TAG_T_ARR))
       { (vecPush acc (nodeA ty)) (rbParamTypes (nodeB ty) acc) }
       acc))
-
-(pub :: rbResultType (-> Int Int))
-(pub fn (rbResultType ty)
-  (if (&& (!= ty 0) (== (nodeTag ty) TAG_T_ARR))
-      (rbResultType (nodeB ty))
-      ty))
 
 ; The Rust type of `t` in a wrapper's signature, or "" when the
 ; binding does not carry it. `pos` is 0 for a parameter, 1 for a

@@ -475,12 +475,6 @@
 (pub :: staticlibRequested Bool)
 (pub fn (staticlibRequested) (argHas "--emit-staticlib" 1))
 
-(pub :: argHas (-> String Int Bool))
-(pub fn (argHas flag i)
-  (if (>= i (sysArgc))
-      false
-      (if (strEq (sysArg i) flag) true (argHas flag (+ i 1)))))
-
 ; ------------------------------------------------------------------
 ; GROUNDING: every `declare` the module writes must name a symbol that
 ; some archive on the link line could define.
@@ -744,9 +738,9 @@
 
 (pub :: blobDefines (-> String String Bool))
 (pub fn (blobDefines blob name)
-  (if (>= (strFindSub blob (cat2 (strFromBytes1 0) (cat2 "_" name)) 0) 0)
+  (if (>= (strFindSub blob (cat2 (strFromByte 0) (cat2 "_" name)) 0) 0)
       (nulAfter blob (cat2 "_" name) 0)
-      (if (>= (strFindSub blob (cat2 (strFromBytes1 0) name) 0) 0)
+      (if (>= (strFindSub blob (cat2 (strFromByte 0) name) 0) 0)
           (nulAfter blob name 0)
           false)))
 
@@ -754,18 +748,13 @@
 ; occurrence, since the first may be a longer name's prefix.
 (pub :: nulAfter (-> String String Int Bool))
 (pub fn (nulAfter blob needle from)
-  (let ((at (strFindSub blob (cat2 (strFromBytes1 0) needle) from)))
+  (let ((at (strFindSub blob (cat2 (strFromByte 0) needle) from)))
     (if (< at 0)
         false
         (let ((end (+ at (+ 1 (strLen needle)))))
           (if (&& (< end (strLen blob)) (== (strByte blob end) 0))
               true
               (nulAfter blob needle (+ at 1)))))))
-
-(pub :: strFromBytes1 (-> Int String))
-(pub fn (strFromBytes1 b)
-  (let ((s (strAlloc 1)))
-    { (__store8 (strData s) 0 b) s }))
 
 ; Every `axffi_` name an archive's tables hold, for a did-you-mean.
 (pub :: archiveFfiNames (-> Int Int))

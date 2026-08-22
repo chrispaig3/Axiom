@@ -8,6 +8,7 @@
 
 (import Mem)
 (import Str)
+(import Vec)
 
 ; ------------------------------------------------------------------
 ; Span: a half-open [start, end) range of byte offsets into a source
@@ -142,3 +143,78 @@
                   (&& (== (strByte src 1) 187) (== (strByte src 2) 191))))
           3
           0)))
+
+; ------------------------------------------------------------------
+; Name and byte helpers every phase needs.
+;
+; A qualified reference `Mod::name` is parsed into the flat `Mod$name`
+; spelling the declarations use, so the bare name is the tail after the
+; last `$` (36). Three passes had a private copy of this walk under
+; three names; a fourth had the escape table below.
+; ------------------------------------------------------------------
+(pub :: bareOfFrom (-> String Int String))
+(pub fn (bareOfFrom s i)
+  (if (< i 0)
+      s
+      (if (== (strByte s i) 36)
+          (strSlice s (+ i 1) (- (strLen s) (+ i 1)))
+          (bareOfFrom s (- i 1)))))
+
+(pub :: bareOf (-> String String))
+(pub fn (bareOf s) (bareOfFrom s (- (strLen s) 1)))
+
+; The byte an escape sequence stands for; anything else stands for
+; itself, which is what makes `\\` and `\"` fall through correctly.
+(pub :: unescByte (-> Int Int))
+(pub fn (unescByte c)
+  (if (== c 110) 10
+  (if (== c 116) 9
+  (if (== c 114) 13
+  (if (== c 48) 0
+  c)))))
+
+; A Vec of String, searched by value: membership, and the index of the
+; FIRST match or -1. The evidence walks in the checker and the emitter
+; each had a copy under a phase-prefixed name.
+(pub :: strVecHas (-> Int String Int))
+(pub fn (strVecHas xs n)
+  (let ((mut i 0) (mut found 0))
+    {
+      (while (< i (vecLen xs))
+        {
+          (if (strEq (cast String (vecGet xs i)) n) (set found 1) 0)
+          (set i (+ i 1))
+        })
+      found
+    }))
+
+(pub :: strVecIdx (-> Int String Int))
+(pub fn (strVecIdx xs n)
+  (let ((mut i 0) (mut found (- 0 1)))
+    {
+      (while (< i (vecLen xs))
+        {
+          (if (&& (== found (- 0 1)) (strEq (cast String (vecGet xs i)) n))
+              (set found i)
+              0)
+          (set i (+ i 1))
+        })
+      found
+    }))
+
+; Append every element of `src` to `acc`, answering `acc`.
+(pub :: vecAppendFrom (-> Int Int Int Int))
+(pub fn (vecAppendFrom src acc i)
+  (if (>= i (vecLen src))
+      acc
+      { (vecPush acc (vecGet src i)) (vecAppendFrom src acc (+ i 1)) }))
+
+; The index of the newline at or after `i`, or the end of `s`. The
+; `explain` renderer and the symbol lister each walked this loop.
+(pub :: lineEndFrom (-> String Int Int))
+(pub fn (lineEndFrom s i)
+  (let ((n (strLen s)) (mut j i))
+    {
+      (while (&& (< j n) (!= (strByte s j) 10)) (set j (+ j 1)))
+      j
+    }))

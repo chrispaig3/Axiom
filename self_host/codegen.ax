@@ -4,6 +4,7 @@
 (import core)
 (import Mem)
 (import Str)
+(import Fmt)
 (import Vec)
 (import Sys)
 (import Path)
@@ -378,7 +379,7 @@
               (if (== (nodeB f) 0)
                   0
                   (vecPush sigs (cast Int (FSig (nodeC f) (strLen (nodeC f)) 0 (nodeB f)
-                                                0 1 (externArity (nodeB f)) 0 0))))
+                                                0 1 (arrowArity (nodeB f)) 0 0))))
               (scanExternSigs items sigs (+ i 1))
             }))))
 
@@ -629,7 +630,7 @@
 ; An application's ownership, by its head.
 (pub :: tailOwnedApp (-> Int Int Int Int Int))
 (pub fn (tailOwnedApp cg e params env)
-  (let ((hd (spineHeadE e)))
+  (let ((hd (spineHead e)))
     (if (!= (nodeTag hd) TAG_E_VAR)
         0
         (let ((n (nodeA hd)))
@@ -736,7 +737,7 @@
 
 (pub :: envWith (-> Int String Int Int))
 (pub fn (envWith env name flag)
-  (let ((v (envCopy env vecNew 0)))
+  (let ((v (vecAppendFrom env vecNew 0)))
     { (vecPush v (cast Int name)) (vecPush v flag) v }))
 
 ; The arms' binders with their flows: a binder of a REFERENCE field
@@ -746,7 +747,7 @@
 ; so no caller ever released one.
 (pub :: envWithPat (-> Int Int Int Int Int))
 (pub fn (envWithPat cg env pat flag)
-  (let ((v (envCopy env vecNew 0)))
+  (let ((v (vecAppendFrom env vecNew 0)))
     { (envPushPat cg v pat flag) v }))
 
 (pub :: envPushPat (-> Int Int Int Int Int))
@@ -757,7 +758,7 @@
         (if (== tag TAG_E_VAR)
             { (vecPush v (cast Int (nodeA pat))) (vecPush v flag) 0 }
         (if (== tag TAG_E_APP)
-            (let ((hd (spineHeadE pat)))
+            (let ((hd (spineHead pat)))
               (let ((entry (if (== (nodeTag hd) TAG_E_VAR)
                                (lookupType (memGetWord cg 3) (nodeA hd))
                                0)))
@@ -786,14 +787,8 @@
 
 (pub :: envWithAll (-> Int Int Int Int))
 (pub fn (envWithAll env names flag)
-  (let ((v (envCopy env vecNew 0)))
+  (let ((v (vecAppendFrom env vecNew 0)))
     (envPushAll v names flag 0)))
-
-(pub :: envCopy (-> Int Int Int Int))
-(pub fn (envCopy src acc i)
-  (if (>= i (vecLen src))
-      acc
-      { (vecPush acc (vecGet src i)) (envCopy src acc (+ i 1)) }))
 
 (pub :: envPushAll (-> Int Int Int Int Int))
 (pub fn (envPushAll v names flag i)
@@ -896,7 +891,7 @@
 ; direction until the boundary retains by evidence.
 (pub :: tyvarSlotsMask (-> Int Int Int Int))
 (pub fn (tyvarSlotsMask cg e d)
-  (if (== (tailCallsSelf (nodeC d) (bareName (nodeA d)) (vecLen (nodeB d))) 1)
+  (if (== (tailCallsSelf (nodeC d) (bareOf (nodeA d)) (vecLen (nodeB d))) 1)
       (tyvarSlotsFrom cg (memGetWord e 3) (vecLen (nodeB d)) 0)
       0))
 
@@ -1087,7 +1082,7 @@
 
 (pub :: flowMaskApp (-> Int Int Int Int Int))
 (pub fn (flowMaskApp cg e params env)
-  (let ((hd (spineHeadE e))
+  (let ((hd (spineHead e))
         (n_ (spineArity e)))
     (if (!= (nodeTag hd) TAG_E_VAR)
         (flowMaskAll cg e n_ params env 0)
@@ -1145,7 +1140,7 @@
          0
          (if (!= (nodeTag e) TAG_E_APP)
              0
-             (let ((hd (spineHeadE e)))
+             (let ((hd (spineHead e)))
                (if (!= (nodeTag hd) TAG_E_VAR)
                    0
                    (let ((n (nodeA hd)))
@@ -1190,7 +1185,7 @@
       (- 0 1)
       (if (!= (nodeTag e) TAG_E_APP)
           (- 0 1)
-          (let ((hd (spineHeadE e)))
+          (let ((hd (spineHead e)))
             (if (&& (== (nodeTag hd) TAG_E_VAR)
                     (&& (strEq (nodeA hd) "-")
                         (&& (== (spineArity e) 2)
@@ -1212,7 +1207,7 @@
         (if (== tg TAG_E_FIELD)
             (if (== (fieldReadIsScalar cg e) 1) 0 1)
             (if (== tg TAG_E_APP)
-                (let ((hd (spineHeadE e)))
+                (let ((hd (spineHead e)))
                   (if (!= (nodeTag hd) TAG_E_VAR)
                       0
                       (if (&& (isCastName (nodeA hd)) (== (spineArity e) 2))
@@ -1413,7 +1408,7 @@
                   (if (!= (& k MUST_BIT) 0) (& k (- MUST_BIT 1)) 0)
                   (paramFlowBit cg params (paramIndexIn params (nodeA e) 0))))
             (if (== tg TAG_E_APP)
-                (let ((hd (spineHeadE e)))
+                (let ((hd (spineHead e)))
                   (if (!= (nodeTag hd) TAG_E_VAR)
                       0
                       (let ((n (nodeA hd)))
@@ -1621,7 +1616,7 @@
 ; decides).
 (pub :: flowStashesApp (-> Int Int Int Int Int Int))
 (pub fn (flowStashesApp cg e params env cell)
-  (let ((hd (spineHeadE e))
+  (let ((hd (spineHead e))
         (n_ (spineArity e)))
     (if (&& (== (nodeTag hd) TAG_E_VAR) (isAndOr (nodeA hd)))
         ; `&&`/`||`: the first operand always runs, every later one
@@ -1818,7 +1813,7 @@
       0
       (if (!= (nodeTag e) TAG_E_APP)
           0
-          (let ((hd (spineHeadE e)))
+          (let ((hd (spineHead e)))
             (if (!= (nodeTag hd) TAG_E_VAR)
                 0
                 (let ((n (nodeA hd)))
@@ -1903,7 +1898,7 @@
                 (if (isLocalValue cg (nodeA e)) 0 1)
                 0)
         (if (== tg TAG_E_APP)
-            (let ((hd (spineHeadE e)))
+            (let ((hd (spineHead e)))
               (if (!= (nodeTag hd) TAG_E_VAR)
                   0
                   (let ((n (nodeA hd)))
@@ -1969,35 +1964,14 @@
 ; needs (`tyIsSrcVar`, `nameVecHas`, `nameVecIdx`) are core.ax's, so
 ; the two orderings are compared, not two copies of a list search.
 ; ------------------------------------------------------------------
-(pub :: cgTyIsSrcVar (-> Int Int))
-(pub fn (cgTyIsSrcVar t)
-  (if (!= (nodeTag t) TAG_T_VAR)
-      0
-      (let ((n (nodeA t)))
-        (if (== (strLen n) 0)
-            0
-            (if (== (strByte n 0) 95) 0 1)))))
-
-(pub :: cgNameVecHas (-> Int String Int))
-(pub fn (cgNameVecHas xs n)
-  (let ((mut i 0) (mut found 0))
-    {
-      (while (< i (vecLen xs))
-        {
-          (if (strEq (cast String (vecGet xs i)) n) (set found 1) 0)
-          (set i (+ i 1))
-        })
-      found
-    }))
-
 (pub :: cgSigVarsInto (-> Int Int Int))
 (pub fn (cgSigVarsInto t acc)
   (if (== t 0)
       0
       (let ((tg (nodeTag t)))
         (if (== tg TAG_T_VAR)
-            (if (== (cgTyIsSrcVar t) 1)
-                (if (== (cgNameVecHas acc (nodeA t)) 1)
+            (if (== (tyIsSrcVar t) 1)
+                (if (== (strVecHas acc (nodeA t)) 1)
                     0
                     (vecPush acc (cast Int (nodeA t))))
                 0)
@@ -2272,26 +2246,10 @@
       n
     }))
 
-; ------------------------------------------------------------------
-; Integer formatting.
-; ------------------------------------------------------------------
-(pub :: fmtInt (-> Int String))
-(pub fn (fmtInt n)
-  (if (< n 0)
-      (cat2 "-" (fmtInt (- 0 n)))
-  (if (< n 10)
-      (let ((ch (strAlloc 1)))
-        {
-          (__store8 (strData ch) 0 (+ n 48))
-          ch
-        })
-      (let ((prefix (fmtInt (/ n 10))))
-        (let ((suffix (strAlloc 1)))
-          {
-            (__store8 (strData suffix) 0 (+ (% n 10) 48))
-            (strConcat prefix suffix)
-          })))))
-
+; Integer formatting is `Fmt.fmtInt`. The copy that used to live here
+; negated with `(- 0 n)`, which is a no-op on the most negative Int and
+; recursed forever on it - the very bug Fmt.ax records having found and
+; fixed. One formatter, one fix.
 ; ------------------------------------------------------------------
 ; Render accumulated lines into one string.
 ;
@@ -2421,14 +2379,6 @@
 
 ; The byte a source escape denotes. Anything unrecognised stands for
 ; itself, which is what `\"` and `\\` need.
-(pub :: unescByte (-> Int Int))
-(pub fn (unescByte c)
-  (if (== c 110) 10
-  (if (== c 116) 9
-  (if (== c 114) 13
-  (if (== c 48) 0
-  c)))))
-
 ; `lexeme` still carries its surrounding quotes, so the body runs from
 ; index 1 to len-1.
 ;
@@ -2676,7 +2626,7 @@
             ; `declSpellingOf` records for `main`, which is why that
             ; helper exists at all.
             (if (&& (|| (strEq (nodeA f) name) (strEq (nodeC f) name))
-                    (== (externArity (nodeB f)) 0))
+                    (== (arrowArity (nodeB f)) 0))
                 true
                 (externHasNullary items name (+ i 1)))))))
 
@@ -3098,13 +3048,13 @@
 ; `--emit-staticlib` on the command line: the module is an archive
 ; for a host, not a program.
 (pub :: cgStaticlib Bool)
-(pub fn (cgStaticlib) (cgArgHas "--emit-staticlib" 1))
+(pub fn (cgStaticlib) (argHas "--emit-staticlib" 1))
 
-(pub :: cgArgHas (-> String Int Bool))
-(pub fn (cgArgHas flag i)
+(pub :: argHas (-> String Int Bool))
+(pub fn (argHas flag i)
   (if (>= i (sysArgc))
       false
-      (if (strEq (sysArg i) flag) true (cgArgHas flag (+ i 1)))))
+      (if (strEq (sysArg i) flag) true (argHas flag (+ i 1)))))
 
 (pub :: crateDirsOf Int)
 (pub fn (crateDirsOf)
@@ -4649,7 +4599,7 @@
                       (vecPush seen sym)
                       (emitLine cg
                         (cat4 "declare i64 @" (llvmSym (strDup sym))
-                              (cat3 "(" (externParams (externArity (nodeB f)) 0) ")")
+                              (cat3 "(" (externParams (arrowArity (nodeB f)) 0) ")")
                               " #0"))
                     })
                 (+ i 1) seen))))))
@@ -4688,14 +4638,6 @@
 
 ; The declared arrow's depth. `->` right-folds, so `(-> Int Int Int)`
 ; IS `(-> Int (-> Int Int))` and the depth is 2.
-(pub :: externArity (-> Int Int))
-(pub fn (externArity t)
-  (if (== t 0)
-      0
-      (if (== (nodeTag t) TAG_T_ARR)
-          (+ 1 (externArity (nodeB t)))
-          0)))
-
 ; `i64, i64` for arity 2; the empty string for arity 0, which is the
 ; shape a nullary extern needs - `@f()` and never `@f(i64 )`.
 (pub :: externParams (-> Int Int String))
@@ -5004,7 +4946,7 @@
             ; module - which is all of `self_host/` and `stdlib/`, and
             ; therefore all of the code this exists to fix. It passed
             ; its test only because the test was an entry file.
-            (let ((selfName (bareName (nodeA node))))
+            (let ((selfName (bareOf (nodeA node))))
             (let ((wantsTCO (tailCallsSelf body selfName (vecLen params))))
               ; MM-LIFE-2d + TCO: the hidden word gets a slot beside
               ; the parameters' - NEVER inside tcoSlots, whose length
@@ -5101,7 +5043,7 @@
         (if (|| (== tg TAG_E_FIELD) (== tg TAG_E_ALLOC))
             { (vecPush acc e) 0 }
         (if (== tg TAG_E_APP)
-            (let ((hd (spineHeadE e)))
+            (let ((hd (spineHead e)))
               (if (&& (== (nodeTag hd) TAG_E_VAR)
                       (strEq (mangledForCg cg (nodeA hd)) self))
                   0
@@ -5162,18 +5104,6 @@
 ; Everything after the last `$`: the source-spelled name of a
 ; declaration whose node `mangleDecl` may have rewritten to
 ; `Mod$name`.
-(pub :: bareName (-> String String))
-(pub fn (bareName s)
-  (bareNameFrom s (- (strLen s) 1)))
-
-(pub :: bareNameFrom (-> String Int String))
-(pub fn (bareNameFrom s i)
-  (if (< i 0)
-      s
-      (if (== (strByte s i) 36)
-          (strSlice s (+ i 1) (- (strLen s) (+ i 1)))
-          (bareNameFrom s (- i 1)))))
-
 (pub :: openTailLoop (-> String Int Int Int))
 ; Park the evidence word in an alloca and rebind its unspellable
 ; name as mutable storage, exactly the registration `mut` locals
@@ -5245,12 +5175,12 @@
                   (let ((tn (arrowParamTy (memGetWord e 3) i)))
                     (if (== tn 0)
                         (- 0 1)
-                        (if (!= (cgTyIsSrcVar tn) 1)
+                        (if (!= (tyIsSrcVar tn) 1)
                             (- 0 1)
                             (let ((vars vecNew))
                               {
                                 (cgSigVarsInto (memGetWord e 3) vars)
-                                (cgNameVecIdx vars (nodeA tn))
+                                (strVecIdx vars (nodeA tn))
                               }))))))))))
 
 ; The entry retain, once per reference parameter, before the loop
@@ -5604,7 +5534,7 @@
   (let ((tag (nodeTag e)))
     (if (== tag TAG_E_APP)
         (if (&& (strEq (spineHeadName e) name)
-                (== (spineArgCount e 0) arity))
+                (== (spineArgs e 0) arity))
             1
             0)
     (if (== tag TAG_E_BEGIN)
@@ -5658,12 +5588,6 @@
       (if (== (nodeTag e) TAG_E_VAR)
           (nodeA e)
           "")))
-
-(pub :: spineArgCount (-> Int Int Int))
-(pub fn (spineArgCount e acc)
-  (if (== (nodeTag e) TAG_E_APP)
-      (spineArgCount (nodeA e) (+ acc 1))
-      acc))
 
 ; ------------------------------------------------------------------
 ; Emit `e` knowing it sits in tail position.
@@ -8443,7 +8367,7 @@
       (if (== (nodeTag e) TAG_E_VAR)
           (if (!= (lookupType (memGetWord cg 3) (nodeA e)) 0) 1 0)
           (if (&& (== (nodeTag e) TAG_E_APP) (== (spineArity e) 0))
-              (isNullaryConNode cg (spineHeadE e))
+              (isNullaryConNode cg (spineHead e))
               0))))
 
 
@@ -8867,20 +8791,6 @@
 ; forces the whole block to the leaf; a variable with no stamp, or
 ; a witness of 0, contributes no bit - which IS the leaf answer for
 ; that field, with every classifiable neighbour's bit kept.
-(pub :: cgNameVecIdx (-> Int String Int))
-(pub fn (cgNameVecIdx xs n)
-  (let ((mut i 0) (mut found (- 0 1)))
-    {
-      (while (< i (vecLen xs))
-        {
-          (if (&& (== found (- 0 1)) (strEq (cast String (vecGet xs i)) n))
-              (set found i)
-              0)
-          (set i (+ i 1))
-        })
-      found
-    }))
-
 (pub :: ctorShapeEmit (-> Int String Int Int Int))
 (pub fn (ctorShapeEmit cg ptr entry stamp)
   (let ((kind (eKind entry))
@@ -8896,7 +8806,7 @@
             (let ((mut j0 0))
               (while (< j0 (vecLen ftys0))
                 {
-                  (if (== (cgTyIsSrcVar (vecGet ftys0 j0)) 1) (set anyVar 1) 0)
+                  (if (== (tyIsSrcVar (vecGet ftys0 j0)) 1) (set anyVar 1) 0)
                   (set j0 (+ j0 1))
                 }))
             (if (== anyVar 0)
@@ -8919,9 +8829,9 @@
                 (while (< j (vecLen ftys))
                   {
                     (let ((tn (vecGet ftys j)))
-                      (if (== (cgTyIsSrcVar tn) 1)
+                      (if (== (tyIsSrcVar tn) 1)
                           (if (!= stamp 0)
-                              (let ((vi (cgNameVecIdx vars (nodeA tn))))
+                              (let ((vi (strVecIdx vars (nodeA tn))))
                                 (if (if (< vi 0)
                                         true
                                         (>= vi (vecLen (nodeB stamp))))
@@ -9086,7 +8996,7 @@
     (if (== tg TAG_E_LAM)
         1
     (if (== tg TAG_E_APP)
-        (let ((h (spineHeadE an)))
+        (let ((h (spineHead an)))
           (if (!= (nodeTag h) TAG_E_VAR)
               0
               (if (!= (lookupType (memGetWord cg 3) (nodeA h)) 0) 1 0)))
@@ -9094,12 +9004,6 @@
 
 ; the innermost head of an application spine (codegen's own walk;
 ; the checker's spineHead lives in another module)
-(pub :: spineHeadE (-> Int Int))
-(pub fn (spineHeadE e)
-  (if (== (nodeTag e) TAG_E_APP)
-      (spineHeadE (nodeA e))
-      e))
-
 ; -1 = no retain, 1 = unconditional, k>=0 encoded as 2+k = evidence
 ; bit k - the same per-field answer ctorShapeEmit derives
 (pub :: fieldRetainCode (-> Int Int Int Int Int))
@@ -9114,7 +9018,7 @@
                     (if (< j (vecLen fs)) (nodeTy (vecGet fs j)) 0)))))
       (if (== tn 0)
           (- 0 1)
-          (if (== (cgTyIsSrcVar tn) 1)
+          (if (== (tyIsSrcVar tn) 1)
               (if (== stamp 0)
                   (- 0 1)
                   (let ((vars vecNew))
@@ -9122,7 +9026,7 @@
                       (if (== kind TF_DATA)
                           (cgSigVarsVec (eFieldTys entry) vars)
                           0)
-                      (let ((vi (cgNameVecIdx vars (nodeA tn))))
+                      (let ((vi (strVecIdx vars (nodeA tn))))
                         (if (if (< vi 0)
                                 true
                                 (>= vi (vecLen (nodeB stamp))))
@@ -9352,7 +9256,7 @@
                     (if (== (fieldReadIsScalar cg e) 1) 0 1)
                     0))
         (if (== tg TAG_E_APP)
-            (if (== (wordTakingHead (spineHeadE e)) 1)
+            (if (== (wordTakingHead (spineHead e)) 1)
                 ; `cast`/`__addr`/`strData` of the binding hands out a
                 ; word, and a word takes no share: in VALUE position
                 ; the word is the let's value and the binding escapes;
@@ -9374,7 +9278,7 @@
                     ; arithmetic and `&&`/`||` answer an operand's
                     ; word: `(+ (asWord s) 0)` in value position is
                     ; `(asWord s)` in value position
-                    (let ((vp2 (if (== (passesValueHead (spineHeadE e)) 1) vp 0)))
+                    (let ((vp2 (if (== (passesValueHead (spineHead e)) 1) vp 0)))
                       (if (== (escapes cg name (nodeA e) vp2 root) 1)
                           1
                           (escapes cg name (nodeB e) vp2 root)))))
@@ -9517,7 +9421,7 @@
       0
       (let ((tg (nodeTag init)))
         (if (== tg TAG_E_APP)
-            (if (== (passesValueHead (spineHeadE init)) 1)
+            (if (== (passesValueHead (spineHead init)) 1)
                 ; `(+ (asWord s) 0)` aliases what `(asWord s)` does
                 (mayAliasArgs cg name init (spineArity init) root 0)
                 (callEscapesArg cg init name 1 root))
@@ -9558,7 +9462,7 @@
 ; walk (a word field takes a `cast`, which escapes on its own).
 (pub :: callEscapesArg (-> Int Int String Int Int Int))
 (pub fn (callEscapesArg cg e name vp root)
-  (let ((hd (spineHeadE e))
+  (let ((hd (spineHead e))
         (n_ (spineArity e)))
     (if (!= (nodeTag hd) TAG_E_VAR)
         (mentionsArgs name e n_ 0)
@@ -9634,7 +9538,7 @@
       (if (== (fldClass cg tn) 0)
           1
           (if (== (fldClass cg tn) 1)
-              (if (== (fieldRetainCode cg entry (memGetWord (spineHeadE e) 6) i) (- 0 1)) 1 0)
+              (if (== (fieldRetainCode cg entry (memGetWord (spineHead e) 6) i) (- 0 1)) 1 0)
               0))))
 
 (pub :: mentionsArgs (-> String Int Int Int Int))

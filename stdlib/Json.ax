@@ -52,6 +52,7 @@
 
 (import Mem)
 (import Str)
+(import Fmt)
 (import Vec)
 (import Utf8)
 
@@ -93,7 +94,7 @@
 ; A number from an integer. The raw text is rendered from the value, so
 ; `jsonNumText` is total for constructed values as well as parsed ones.
 (pub :: jsonNum (-> Int Int))
-(pub fn (jsonNum n) (jsonMake JNUM n (jsonIntStr n)))
+(pub fn (jsonNum n) (jsonMake JNUM n (fmtInt n)))
 
 (pub :: jsonStr (-> String Int))
 (pub fn (jsonStr s) (jsonMake JSTR s 0))
@@ -223,36 +224,11 @@
 ; written out rather than negated.
 ; ------------------------------------------------------------------
 
-; The most negative `Int` has no positive counterpart - negating it
-; yields itself - so `jsonNatStr` would recurse on it forever, and it
-; is answered outright.
-;
-; Detected the way `Fmt.intIsMostNegative` detects it, NOT by comparing
-; against a literal. The value cannot be written (it overflows a
-; positive literal), and the obvious stand-in
-; `(- 0 9223372036854775807)` is one GREATER than it: a guard written
-; that way looks correct, never fires on the value it is for, and
-; mis-renders -9223372036854775807 as -9223372036854775808. `Fmt.ax`
-; records having made exactly that mistake and fixing it; this file
-; reproduced it three lines from the note, which is the argument for
-; `tests/stdlib/340-json.ax` pinning both boundaries.
-(:: jsonIsMostNegative (-> Int Bool))
-(fn (jsonIsMostNegative n) (&& (< n 0) (== (- 0 n) n)))
-
-(:: jsonIntStr (-> Int String))
-(fn (jsonIntStr n)
-  (if (jsonIsMostNegative n)
-      "-9223372036854775808"
-      (if (< n 0)
-          (strConcat "-" (jsonNatStr (- 0 n)))
-          (jsonNatStr n))))
-
-(:: jsonNatStr (-> Int String))
-(fn (jsonNatStr n)
-  (if (< n 10)
-      (strSlice "0123456789" n 1)
-      (strConcat (jsonNatStr (/ n 10)) (strSlice "0123456789" (% n 10) 1))))
-
+; Numbers render through `Fmt.fmtInt`. This file used to carry its own
+; decimal formatter with its own most-negative guard, three lines below
+; a comment saying `Fmt.ax` had already made and fixed that mistake -
+; which is the whole argument for one formatter. `tests/stdlib/340-json.ax`
+; pins both boundaries.
 ; ------------------------------------------------------------------
 ; Joining
 ;
@@ -348,10 +324,6 @@
 
 ; A one-byte string holding `b`. Needed for the control characters
 ; Axiom's own string syntax cannot spell.
-(pub :: jsonByteStr (-> Int String))
-(pub fn (jsonByteStr b)
-  (let ((s (strAlloc 1))) { (__store8 (strData s) 0 b) s }))
-
 (:: jsonEscapeFill (-> String String Int))
 (fn (jsonEscapeFill s out)
   (let ((mut k 0) (mut off 0) (d (strData out)))
@@ -651,8 +623,8 @@
         ; lexer accepts only \n \t \r \\ \" \' \0 and makes anything
         ; else a hard error - so their bytes are built rather than
         ; written.
-        (if (== b 98)  { (vecPush pieces (jsonByteStr 8)) (+ p 1) }
-        (if (== b 102) { (vecPush pieces (jsonByteStr 12)) (+ p 1) }
+        (if (== b 98)  { (vecPush pieces (strFromByte 8)) (+ p 1) }
+        (if (== b 102) { (vecPush pieces (strFromByte 12)) (+ p 1) }
         (if (== b 110) { (vecPush pieces "\n") (+ p 1) }
         (if (== b 114) { (vecPush pieces "\r") (+ p 1) }
         (if (== b 116) { (vecPush pieces "\t") (+ p 1) }

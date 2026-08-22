@@ -277,15 +277,6 @@
 ; `lexStartsLower` admits bytes 97-122 and nothing else, so a
 ; source-written type variable always starts with a lowercase letter
 ; and can never collide with a minted one.
-(pub :: tyIsSrcVar (-> Int Int))
-(pub fn (tyIsSrcVar t)
-  (if (!= (nodeTag t) TAG_T_VAR)
-      0
-      (let ((n (nodeA t)))
-        (if (== (strLen n) 0)
-            0
-            (if (== (strByte n 0) 95) 0 1)))))
-
 ; Compatibility when at least one side is a variable. A minted
 ; placeholder still matches anything - that is the whole reason it
 ; exists. Two source variables agree when they are the SAME variable,
@@ -412,32 +403,6 @@
 ; signature gets stamps all zeros instead of trusting a diverged
 ; ordering.
 ; ------------------------------------------------------------------
-(pub :: evNameVecHas (-> Int String Int))
-(pub fn (evNameVecHas xs n)
-  (let ((mut i 0) (mut found 0))
-    {
-      (while (< i (vecLen xs))
-        {
-          (if (strEq (cast String (vecGet xs i)) n) (set found 1) 0)
-          (set i (+ i 1))
-        })
-      found
-    }))
-
-(pub :: evNameVecIdx (-> Int String Int))
-(pub fn (evNameVecIdx xs n)
-  (let ((mut i 0) (mut found (- 0 1)))
-    {
-      (while (< i (vecLen xs))
-        {
-          (if (&& (== found (- 0 1)) (strEq (cast String (vecGet xs i)) n))
-              (set found i)
-              0)
-          (set i (+ i 1))
-        })
-      found
-    }))
-
 (pub :: sigTyVarsInto (-> Int Int Int))
 (pub fn (sigTyVarsInto t acc)
   (if (== t 0)
@@ -445,7 +410,7 @@
       (let ((tg (nodeTag t)))
         (if (== tg TAG_T_VAR)
             (if (== (tyIsSrcVar t) 1)
-                (if (== (evNameVecHas acc (nodeA t)) 1)
+                (if (== (strVecHas acc (nodeA t)) 1)
                     0
                     (vecPush acc (cast Int (nodeA t))))
                 0)
@@ -565,7 +530,7 @@
                 (let ((sv (memGetWord tc 23)))
                   (if (== sv 0)
                       0
-                      (let ((k (evNameVecIdx sv (nodeA t))))
+                      (let ((k (strVecIdx sv (nodeA t))))
                         (if (< k 0) 0 (+ 2 k)))))
                 ; a placeholder says NOTHING about the class, and the
                 ; meet must not hear it as "a scalar": inside
@@ -728,7 +693,7 @@
           })
         (if (== src 0)
             0
-            (let ((idx (evNameVecIdx (nodeTy st) (cast String src))))
+            (let ((idx (strVecIdx (nodeTy st) (cast String src))))
               (if (< idx 0)
                   0
                   (let ((w (nodeB st)))
@@ -736,14 +701,6 @@
                       (evMeet (vecGet w idx)
                               (if (== castArg 1) 0 (evClassOf tc at))))))))
       })))
-
-(pub :: arrowDepth (-> Int Int))
-(pub fn (arrowDepth t)
-  (if (== t 0)
-      0
-      (if (== (nodeTag t) TAG_T_ARR)
-          (+ 1 (arrowDepth (nodeB t)))
-          0)))
 
 ; ------------------------------------------------------------------
 ; Which namespace a declaration defines into, or 0 for a declaration
@@ -1905,7 +1862,7 @@
   (tcPushFn tc
     (cast Int (FnEnt name
                      (if (== ty 0) mkSilentWild ty)
-                     (if (== ty 0) (- 0 1) (arrowDepth ty))
+                     (if (== ty 0) (- 0 1) (arrowArity ty))
                      0 1
                      (let ((v vecNew))
                        { (vecPush v (customEff effName)) v })
@@ -1932,7 +1889,7 @@
   (tcPushFn tc
     (cast Int (FnEnt name
                      (if (== ty 0) mkSilentWild ty)
-                     (if (== ty 0) (- 0 1) (arrowDepth ty))
+                     (if (== ty 0) (- 0 1) (arrowArity ty))
                      ; word 4 is 2, not 0: an extern is neither an
                      ; ordinary function nor an effect operation, and
                      ; `symbols` has to tell it from both. Its two
@@ -3217,7 +3174,7 @@
   (if (>= (memGetWord ent 2) 0)
       (memGetWord ent 2)
       (if (== (memGetWord ent 3) 1)
-          (arrowDepth (memGetWord ent 1))
+          (arrowArity (memGetWord ent 1))
           (- 0 1))))
 
 ; ------------------------------------------------------------------
@@ -3582,29 +3539,7 @@
   0))))
 
 ; How many arguments an application spine supplies, and its head.
-(pub :: spineArgs (-> Int Int Int))
-(pub fn (spineArgs e acc)
-  (if (== (nodeTag e) TAG_E_APP)
-      (spineArgs (nodeA e) (+ acc 1))
-      acc))
-
-(pub :: spineHead (-> Int Int))
-(pub fn (spineHead e)
-  (if (== (nodeTag e) TAG_E_APP)
-      (spineHead (nodeA e))
-      e))
-
 ; The spine's arguments in SOURCE order.
-(pub :: spineArgVec (-> Int Int Int))
-(pub fn (spineArgVec e acc)
-  (if (== (nodeTag e) TAG_E_APP)
-      {
-        (spineArgVec (nodeA e) acc)
-        (vecPush acc (nodeB e))
-        acc
-      }
-      acc))
-
 ; ------------------------------------------------------------------
 ; The expression walk. checkExpr answers the expression's TYPE and
 ; pushes diagnostics in stage0's traversal order. `inHead` is true
@@ -4942,7 +4877,7 @@
                     (let ((ctor (rfindCtor tc hname)))
                       (if (== ctor 0)
                           0
-                          (let ((want (arrowDepth (memGetWord ctor 3)))
+                          (let ((want (arrowArity (memGetWord ctor 3)))
                                 (got (spineArgs e 0)))
                             (if (>= got want)
                                 0
@@ -6450,12 +6385,6 @@
 
 ; Row helpers. A row is a Vec of patterns; `rowFrom` copies the tail
 ; from `i`, `vecAppendFrom` concatenates.
-(pub :: vecAppendFrom (-> Int Int Int Int))
-(pub fn (vecAppendFrom src acc i)
-  (if (>= i (vecLen src))
-      acc
-      { (vecPush acc (vecGet src i)) (vecAppendFrom src acc (+ i 1)) }))
-
 (pub :: rowTail (-> Int Int))
 (pub fn (rowTail row) (vecAppendFrom row vecNew 1))
 
@@ -7180,9 +7109,6 @@
 ; A declaration's source-spelled name: import resolution rewrites an
 ; imported one to `Mod$name` in place, and a suggestion has to read
 ; back as something the programmer could type.
-(pub :: bareOf (-> String String))
-(pub fn (bareOf s) (bareOfFrom s (- (strLen s) 1)))
-
 ; The MODULE part of a qualified name `Mod$name`, or 0 when there is
 ; none. The mirror of `bareOf`, which answers the other half.
 ; A name as the PROGRAMMER wrote it. A qualified reference is parsed
@@ -7233,14 +7159,6 @@
                 (&& (strEq (cast String declMod) m) (strEq declName (bareOf ref))))
             1
             0))))
-
-(pub :: bareOfFrom (-> String Int String))
-(pub fn (bareOfFrom s i)
-  (if (< i 0)
-      s
-      (if (== (strByte s i) 36)
-          (strSlice s (+ i 1) (- (strLen s) (+ i 1)))
-          (bareOfFrom s (- i 1)))))
 
 ; ------------------------------------------------------------------
 ; The declaration walk: signatures park scope entries AS
