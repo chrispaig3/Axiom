@@ -11,27 +11,34 @@
 //!
 //! The classifier is CLOSED: every accepted type is enumerated and
 //! anything else is refused with a message that lists what is
-//! accepted. The old `_ => Opaque` fallback is what let `u64`,
-//! `Option<T>` and `char` become leaked boxes with no diagnostic.
+//! accepted. The old `_ => Opaque` fallback is what let `u128`,
+//! `Option<T>` and a bare `Vec<T>` become leaked boxes with no
+//! diagnostic.
 
 use syn::{GenericArgument, Meta, PathArguments, Type};
 
+/// The word scalars, as the messages list them: every type that is one
+/// word with a meaning both sides agree on.
+pub const WORD_SCALARS: &str = "i64 i32 i16 i8 u64 u32 u16 u8 usize isize bool char f64 f32";
+
 /// The parameter types the boundary accepts, as the refusal messages
 /// list them.
-pub const PARAM_TYPES: &str = "i64 i32 i16 i8 u32 u16 u8 usize isize bool f64 f32 \
-                               &str &[u8] &[&str] &[T] (T a word scalar) AxFn1 AxFn2 AxFn3 \
+pub const PARAM_TYPES: &str = "i64 i32 i16 i8 u64 u32 u16 u8 usize isize bool char f64 f32 \
+                               &str &[u8] &[&str] &[T] &[&[T]] (T a word scalar) \
+                               &mut [i64] &mut [f64] &mut [u64] AxFn1 AxFn2 AxFn3 \
                                &T &mut T (T marked `#[axiom_opaque]`) \
-                               T (T marked `#[axiom_record]`)";
+                               T &[T] (T marked `#[axiom_record]`)";
 
 /// The return types the boundary accepts, as the refusal messages list
 /// them.
-pub const RETURN_TYPES: &str = "i64 i32 i16 i8 u32 u16 u8 usize isize bool f64 f32 () \
-                                String Vec<u8> Vec<T> (T a word scalar) Vec<String> \
-                                Option<T> Result<T, E> \
-                                T (T marked `#[axiom_opaque]` or `#[axiom_record]`; E: Display)";
+pub const RETURN_TYPES: &str = "i64 i32 i16 i8 u64 u32 u16 u8 usize isize bool char f64 f32 () \
+                                String Vec<u8> Vec<T> Vec<Vec<T>> (T a word scalar) Vec<String> \
+                                Option<T> Result<T, E> Result<Option<T>, E> Option<Result<T, E>> \
+                                T (T marked `#[axiom_opaque]` or `#[axiom_record]`) \
+                                Vec<T> (T marked `#[axiom_record]`; E: Display)";
 
 /// The field types an `#[axiom_record]` accepts: the word scalars.
-pub const RECORD_FIELD_TYPES: &str = "i64 i32 i16 i8 u32 u16 u8 usize isize bool f64 f32";
+pub const RECORD_FIELD_TYPES: &str = WORD_SCALARS;
 
 /// The keys `#[axiom_export(...)]` accepts, as the refusal lists them.
 pub const EXPORT_KEYS: &str = "`symbol = \"name\"` and `utf8 = \"lossy\"`";
@@ -46,12 +53,20 @@ pub enum Scalar {
     I32,
     I16,
     I8,
+    /// The word's 64 bits read unsigned, both ways, with no range
+    /// check: nothing is lost, and Axiom sees a value >= 2^63 as
+    /// negative.
+    U64,
     U32,
     U16,
     U8,
     Usize,
     Isize,
     Bool,
+    /// A Unicode scalar value in the word: Axiom `Char`. A word that
+    /// is not one aborts on the way in, as a narrow integer out of
+    /// range does.
+    Char,
     F64,
     F32,
     /// `()` or no return type. Crosses as the word 0 and binds as `Int`.
@@ -65,12 +80,14 @@ impl Scalar {
             "i32" => Scalar::I32,
             "i16" => Scalar::I16,
             "i8" => Scalar::I8,
+            "u64" => Scalar::U64,
             "u32" => Scalar::U32,
             "u16" => Scalar::U16,
             "u8" => Scalar::U8,
             "usize" => Scalar::Usize,
             "isize" => Scalar::Isize,
             "bool" => Scalar::Bool,
+            "char" => Scalar::Char,
             "f64" => Scalar::F64,
             "f32" => Scalar::F32,
             _ => return None,
@@ -84,12 +101,14 @@ impl Scalar {
             Scalar::I32 => "i32",
             Scalar::I16 => "i16",
             Scalar::I8 => "i8",
+            Scalar::U64 => "u64",
             Scalar::U32 => "u32",
             Scalar::U16 => "u16",
             Scalar::U8 => "u8",
             Scalar::Usize => "usize",
             Scalar::Isize => "isize",
             Scalar::Bool => "bool",
+            Scalar::Char => "char",
             Scalar::F64 => "f64",
             Scalar::F32 => "f32",
             Scalar::Unit => "()",
@@ -101,6 +120,7 @@ impl Scalar {
         match self {
             Scalar::F64 | Scalar::F32 => "Float",
             Scalar::Bool => "Bool",
+            Scalar::Char => "Char",
             _ => "Int",
         }
     }
@@ -123,6 +143,13 @@ impl Scalar {
 
     pub fn is_float(self) -> bool {
         matches!(self, Scalar::F64 | Scalar::F32)
+    }
+
+    /// A word whose every bit pattern is a value of the type, at the
+    /// word's own size and alignment: an Axiom `Vec` of them is read
+    /// (and written) in place, never through a converted copy.
+    pub fn is_word_sized(self) -> bool {
+        matches!(self, Scalar::I64 | Scalar::U64 | Scalar::F64)
     }
 }
 
@@ -207,10 +234,16 @@ pub enum Param {
     /// `&T` / `&mut T`: a borrowed opaque handle.
     Opaque { ty: OpaqueTy, mutable: bool },
     /// `&[T]` for a word scalar `T`: an Axiom `Vec` handle whose words
-    /// are read as `T` for the call. `&[i64]` is read in place,
-    /// `&[f64]` reinterpreted, every other `T` converted (and
-    /// range-checked) into a temporary.
+    /// are read as `T` for the call. `&[i64]`, `&[u64]` and `&[f64]`
+    /// are read in place, every other `T` converted (and checked) into
+    /// a temporary.
     Words(Scalar),
+    /// `&mut [i64]` / `&mut [f64]` / `&mut [u64]`: the Axiom `Vec`'s
+    /// live elements, written in place for the call.
+    MutWords(Scalar),
+    /// `&[&[T]]` for a word scalar `T`: an Axiom `Vec` of `Vec`
+    /// handles, each inner `Vec` read as `&[T]` for the call.
+    WordLists(Scalar),
     /// `&[&str]`: an Axiom `Vec` of Strings, each borrowed as `&str`
     /// for the call.
     Strs,
@@ -219,6 +252,10 @@ pub enum Param {
     Callback(u8),
     /// A by-value `#[axiom_record]`: one word per field.
     Record(RecordTy),
+    /// `&[T]` for an `#[axiom_record]` `T`: an Axiom `Vec` of `ARITY`
+    /// words per element (the wrapper flattens the records on the
+    /// Axiom side), chunked into a temporary `Vec<T>` for the call.
+    Records(RecordTy),
 }
 
 /// What a fallible or optional return carries on success.
@@ -231,6 +268,10 @@ pub enum Payload {
     /// per element (ints widened, bool 0/1, floats as f64 bits), handed
     /// over through the cell.
     Words(Scalar),
+    /// `Vec<Vec<T>>` for a word scalar `T`: `(ptr, n)` where `ptr`
+    /// holds `2n` words of `(wordsPtr, len)` pairs, one owned word
+    /// buffer per inner `Vec`, handed over through the cell.
+    WordLists(Scalar),
     /// `Vec<String>`: `(ptr, n)` where `ptr` holds `2n` words of
     /// `(bytesPtr, byteLen)` pairs, handed over through the cell.
     Strs,
@@ -239,6 +280,10 @@ pub enum Payload {
     /// An `#[axiom_record]` value: its field words, written at the
     /// start of a cell of `arity` words.
     Record(RecordTy),
+    /// `Vec<T>` for an `#[axiom_record]` `T`: `(ptr, n)` where `ptr`
+    /// holds `n * ARITY` owned words, element-major in field order,
+    /// freed as `n * ARITY` words.
+    Records(RecordTy),
 }
 
 /// How the return crosses.
@@ -252,17 +297,29 @@ pub enum Ret {
     Bytes,
     /// The shim takes an out-cell, writes `(ptr, len)` of words, returns 0.
     Words(Scalar),
+    /// The shim takes an out-cell, writes `(ptr, n)` of word-buffer
+    /// pairs, returns 0.
+    WordLists(Scalar),
     /// The shim takes an out-cell, writes `(ptr, n)` of string pairs,
     /// returns 0.
     Strs,
     /// The shim takes an out-cell of `arity` words, writes the field
     /// words, returns 0.
     Record(RecordTy),
+    /// The shim takes an out-cell, writes `(ptr, n)` of `n * arity`
+    /// record words, returns 0.
+    Records(RecordTy),
     /// The shim takes an out-cell; 0 = payload in the cell, 1 = an
     /// error message's `(ptr, len)` in the cell.
     Result(Payload),
     /// The shim takes an out-cell; 0 = payload in the cell, 2 = None.
     Option(Payload),
+    /// `Result<Option<T>, E>`: 0 = `Ok(Some(payload))`, 2 = `Ok(None)`,
+    /// 1 = `Err(message)`.
+    ResultOption(Payload),
+    /// `Option<Result<T, E>>`: 0 = `Some(Ok(payload))`, 1 =
+    /// `Some(Err(message))`, 2 = `None`.
+    OptionResult(Payload),
 }
 
 impl Ret {
@@ -274,7 +331,18 @@ impl Ret {
     /// Whether an `Err` can come back (so an invalid `&str` argument is
     /// reported rather than aborting).
     pub fn is_result(&self) -> bool {
-        matches!(self, Ret::Result(_))
+        matches!(self, Ret::Result(_) | Ret::ResultOption(_) | Ret::OptionResult(_))
+    }
+
+    /// The payload behind the status word of a fallible or optional
+    /// return, whatever the nesting.
+    pub fn status_payload(&self) -> Option<&Payload> {
+        match self {
+            Ret::Result(p) | Ret::Option(p) | Ret::ResultOption(p) | Ret::OptionResult(p) => {
+                Some(p)
+            }
+            _ => None,
+        }
     }
 
     /// The number of words the out-cell must hold: two for every
@@ -282,10 +350,11 @@ impl Ret {
     /// that is more.
     pub fn cell_words(&self) -> usize {
         let arity = match self {
-            Ret::Record(r) | Ret::Result(Payload::Record(r)) | Ret::Option(Payload::Record(r)) => {
-                r.arity()
-            }
-            _ => 0,
+            Ret::Record(r) => r.arity(),
+            _ => match self.status_payload() {
+                Some(Payload::Record(r)) => r.arity(),
+                _ => 0,
+            },
         };
         arity.max(2)
     }
@@ -377,11 +446,16 @@ pub fn classify_param_with(ty: &Type, registry: &dyn Registry) -> Result<Param, 
                 }
                 Type::Slice(s) => {
                     if mutable {
-                        return Err(refuse_param(
-                            &text,
-                            " (Axiom values are immutable through the FFI; take `&[u8]` \
-                             or `&[T]`)",
-                        ));
+                        return match scalar_of(&s.elem) {
+                            Some(sc) if sc.is_word_sized() => Ok(Param::MutWords(sc)),
+                            _ => Err(refuse_param(
+                                &text,
+                                " (only `&mut [i64]`, `&mut [f64]` and `&mut [u64]` are written \
+                                 in place: an Axiom `Vec` holds words, and a converted copy \
+                                 could not be written back as the same words; take `&[T]` \
+                                 and return a `Vec<T>`)",
+                            )),
+                        };
                     }
                     if is_u8(&s.elem) {
                         return Ok(Param::Bytes);
@@ -398,22 +472,53 @@ pub fn classify_param_with(ty: &Type, registry: &dyn Registry) -> Result<Param, 
                                 " (an Axiom `Vec` of Strings is borrowed: take `&[&str]`)",
                             ));
                         }
+                        if is_two_words(&name) {
+                            return Err(refuse_param(&text, TWO_WORDS));
+                        }
                         if seg.arguments.is_none() && !is_refused_name(&name) {
-                            return Err(refuse_param(
-                                &text,
-                                " (a slice of records or handles does not cross: an Axiom \
-                                 `Vec` holds words; take the fields as `&[T]` slices, or \
-                                 hold the collection in a type marked `#[axiom_opaque]`)",
-                            ));
+                            return match registry.lookup(&name) {
+                                Some(Named::Opaque) => Err(refuse_param(
+                                    &text,
+                                    " (a slice of handles does not cross: an Axiom `Vec` \
+                                     holds words; hold the collection in a type marked \
+                                     `#[axiom_opaque]`, or take the handles one at a time)",
+                                )),
+                                Some(Named::Record(fields)) => Ok(Param::Records(RecordTy {
+                                    ty: (*s.elem).clone(),
+                                    name,
+                                    fields,
+                                })),
+                                None => Ok(Param::Records(RecordTy {
+                                    ty: (*s.elem).clone(),
+                                    name,
+                                    fields: Vec::new(),
+                                })),
+                            };
                         }
                     }
-                    if matches!(&*s.elem, Type::Reference(r) if is_str(&r.elem)) {
-                        return Ok(Param::Strs);
+                    if let Type::Reference(inner) = &*s.elem {
+                        if is_str(&inner.elem) {
+                            return Ok(Param::Strs);
+                        }
+                        if let Type::Slice(inner_slice) = &*inner.elem {
+                            if inner.mutability.is_some() {
+                                return Err(refuse_param(
+                                    &text,
+                                    " (the inner slices of a nested `Vec` are borrowed: take \
+                                     `&[&[T]]`)",
+                                ));
+                            }
+                            return match scalar_of(&inner_slice.elem) {
+                                Some(sc) => Ok(Param::WordLists(sc)),
+                                None => Err(refuse_param(&text, ONE_LEVEL_PARAM)),
+                            };
+                        }
                     }
                     Err(refuse_param(
                         &text,
-                        " (only `&[u8]`, `&[&str]` and `&[T]` over a word scalar cross; \
-                         an Axiom `Vec` holds words)",
+                        " (only `&[u8]`, `&[&str]`, `&[T]` and `&[&[T]]` over a word scalar, \
+                         and `&[T]` over an `#[axiom_record]` cross; an Axiom `Vec` holds \
+                         words)",
                     ))
                 }
                 Type::Path(_) => {
@@ -431,8 +536,8 @@ pub fn classify_param_with(ty: &Type, registry: &dyn Registry) -> Result<Param, 
                                  or hold the value in a type marked `#[axiom_opaque]`)",
                             ));
                         }
-                        "u64" | "u128" | "i128" | "char" => {
-                            return Err(refuse_param(&text, ""));
+                        "u128" | "i128" => {
+                            return Err(refuse_param(&text, TWO_WORDS));
                         }
                         "AxFn1" | "AxFn2" | "AxFn3" => {
                             return Err(refuse_param(
@@ -472,19 +577,12 @@ pub fn classify_param_with(ty: &Type, registry: &dyn Registry) -> Result<Param, 
                 }
             }
             match name.as_str() {
-                "u64" | "u128" | "i128" => Err(refuse_param(
-                    &text,
-                    " (an Axiom `Int` is an i64 and cannot hold every value; take an \
-                     `i64`, or a `&[u8]` of its bytes)",
-                )),
-                "char" => Err(refuse_param(
-                    &text,
-                    " (take an `i64` code point, or a `&str`)",
-                )),
+                "u128" | "i128" => Err(refuse_param(&text, TWO_WORDS)),
                 "String" => Err(refuse_param(&text, " (borrow it: take `&str`)")),
                 "Vec" => Err(refuse_param(
                     &text,
-                    " (borrow it: take `&[u8]`, `&[&str]` or `&[T]` over a word scalar)",
+                    " (borrow it: take `&[u8]`, `&[&str]`, `&[T]` or `&[&[T]]` over a word \
+                     scalar, or `&[T]` over an `#[axiom_record]`)",
                 )),
                 "Option" | "Result" => Err(refuse_param(
                     &text,
@@ -519,10 +617,33 @@ pub fn classify_param_with(ty: &Type, registry: &dyn Registry) -> Result<Param, 
 fn is_refused_name(name: &str) -> bool {
     matches!(
         name,
-        "u64" | "u128" | "i128" | "char" | "str" | "Vec" | "Option" | "Result" | "Box" | "Rc"
-            | "Arc" | "AxFn1" | "AxFn2" | "AxFn3"
+        "u128" | "i128" | "str" | "Vec" | "Option" | "Result" | "Box" | "Rc" | "Arc" | "AxFn1"
+            | "AxFn2" | "AxFn3"
     )
 }
+
+/// `u128` / `i128`: two words, which no slot of the boundary holds.
+fn is_two_words(name: &str) -> bool {
+    matches!(name, "u128" | "i128")
+}
+
+/// Why a 128-bit integer is refused, wherever it appears.
+const TWO_WORDS: &str = " (a 128-bit integer is two words and every slot of the boundary is one; \
+                         split it into two `u64`s - the high and low halves each cross as a \
+                         word's bits)";
+
+/// Why a nested `Vec` parameter over anything but a word scalar is refused.
+const ONE_LEVEL_PARAM: &str = " (a nested `Vec` crosses as one level of word scalars: `&[&[T]]` \
+                               with T one of i64 i32 i16 i8 u64 u32 u16 u8 usize isize bool char \
+                               f64 f32; strings and records do not nest, so take a flat `&[&str]` \
+                               or `&[T]` with a `&[i64]` of row lengths)";
+
+/// Why a nested `Vec` result over anything but a word scalar is refused.
+const ONE_LEVEL_RETURN: &str = " (a nested `Vec` crosses as one level of word scalars: \
+                                `Vec<Vec<T>>` with T one of i64 i32 i16 i8 u64 u32 u16 u8 usize \
+                                isize bool char f64 f32; strings and records do not nest, so \
+                                return a flat `Vec<String>` or `Vec<T>` with a `Vec<i64>` of row \
+                                lengths)";
 
 /// Classify the fields of an `#[axiom_record]` struct: every one a
 /// word scalar, refused otherwise with the accepted set.
@@ -544,9 +665,7 @@ where
                                                  in an `#[axiom_opaque]` type)",
                 Some("Vec") => " (a collection is not a word; pass it as a `&[T]` parameter \
                                  or hold it in an `#[axiom_opaque]` type)",
-                Some("u64") | Some("u128") | Some("i128") => " (an Axiom `Int` is an i64 and \
-                                                              cannot hold every value)",
-                Some("char") => " (store the `i64` code point)",
+                Some("u128") | Some("i128") => TWO_WORDS,
                 _ if matches!(ty, Type::Reference(_)) => " (a record owns its words; a borrow \
                                                           cannot cross as a field)",
                 _ if matches!(ty, Type::Path(_)) => " (a nested record or an opaque handle does \
@@ -620,17 +739,43 @@ fn classify_payload(
                     Some(elem) if scalar_of(elem).is_some() => {
                         Ok(Payload::Words(scalar_of(elem).unwrap()))
                     }
-                    Some(elem) if is_bare_named(elem) => Err(refuse_return(
-                        whole,
-                        " (a `Vec` of records or handles does not cross: an Axiom `Vec` \
-                         holds words; return the fields as `Vec<T>` columns, or hold the \
-                         collection in an `#[axiom_opaque]` type)",
-                    )),
+                    Some(elem) if is_named_vec(elem) => {
+                        let (inner_seg, _) = path_last(elem).unwrap();
+                        match single_generic(inner_seg).and_then(scalar_of) {
+                            Some(sc) => Ok(Payload::WordLists(sc)),
+                            None => Err(refuse_return(whole, ONE_LEVEL_RETURN)),
+                        }
+                    }
+                    Some(elem) if matches!(path_last(elem), Some((_, n)) if is_two_words(&n)) => {
+                        Err(refuse_return(whole, TWO_WORDS))
+                    }
+                    Some(elem) if is_bare_named(elem) => {
+                        let (_, elem_name) = path_last(elem).unwrap();
+                        match registry.lookup(&elem_name) {
+                            Some(Named::Opaque) => Err(refuse_return(
+                                whole,
+                                " (a `Vec` of handles does not cross: an Axiom `Vec` holds \
+                                 words; hold the collection in an `#[axiom_opaque]` type, \
+                                 or hand the values back one at a time)",
+                            )),
+                            Some(Named::Record(fields)) => Ok(Payload::Records(RecordTy {
+                                ty: elem.clone(),
+                                name: elem_name,
+                                fields,
+                            })),
+                            None => Ok(Payload::Records(RecordTy {
+                                ty: elem.clone(),
+                                name: elem_name,
+                                fields: Vec::new(),
+                            })),
+                        }
+                    }
                     _ => Err(refuse_return(
                         whole,
-                        " (only `Vec<u8>`, `Vec<String>` and `Vec<T>` over a word scalar \
-                         (i64 i32 i16 i8 u32 u16 u8 usize isize bool f64 f32) cross \
-                         directly; other collections must be serialised or held in an \
+                        " (only `Vec<u8>`, `Vec<String>`, `Vec<T>` and `Vec<Vec<T>>` over a \
+                         word scalar (i64 i32 i16 i8 u64 u32 u16 u8 usize isize bool char \
+                         f64 f32), and `Vec<T>` over an `#[axiom_record]` cross directly; \
+                         other collections must be serialised or held in an \
                          `#[axiom_opaque]` type)",
                     )),
                 },
@@ -645,19 +790,14 @@ fn classify_payload(
                     }
                     Err(refuse_return(
                         whole,
-                        &format!(" (`{name}` cannot nest inside `{outer}`: the status word \
-                                  has one slot)"),
+                        &format!(
+                            " (`{name}` cannot nest inside `{outer}`: the status word has \
+                             three states, which `Result<Option<T>, E>` and \
+                             `Option<Result<T, E>>` use up)"
+                        ),
                     ))
                 }
-                "u64" | "u128" | "i128" => Err(refuse_return(
-                    whole,
-                    " (an Axiom `Int` is an i64 and cannot hold every value; return an \
-                     `i64`, or a `Vec<u8>` of its bytes)",
-                )),
-                "char" => Err(refuse_return(
-                    whole,
-                    " (return an `i64` code point, or a `String`)",
-                )),
+                "u128" | "i128" => Err(refuse_return(whole, TWO_WORDS)),
                 "Box" | "Rc" | "Arc" => Err(refuse_return(
                     whole,
                     " (return the value itself, held in a type marked `#[axiom_opaque]`)",
@@ -700,6 +840,22 @@ fn is_bare_named(ty: &Type) -> bool {
     }
 }
 
+/// `Vec<..>`, whatever the element.
+fn is_named_vec(ty: &Type) -> bool {
+    matches!(path_last(ty), Some((seg, name)) if name == "Vec" && single_generic(seg).is_some())
+}
+
+/// `Option<T>` / `Result<T, E>` at the top of a return type: the
+/// wrapper's name and its payload type.
+fn status_wrapper(ty: &Type) -> Option<(&'static str, Option<&Type>)> {
+    let (seg, name) = path_last(ty)?;
+    match name.as_str() {
+        "Result" => Some(("Result", single_generic(seg))),
+        "Option" => Some(("Option", single_generic(seg))),
+        _ => None,
+    }
+}
+
 /// Classify the return type (`None` = no `->`) with no knowledge of
 /// named types: every bare named type is an opaque handle.
 pub fn classify_return(ty: Option<&Type>) -> Result<Ret, String> {
@@ -711,43 +867,61 @@ pub fn classify_return(ty: Option<&Type>) -> Result<Ret, String> {
 pub fn classify_return_with(ty: Option<&Type>, registry: &dyn Registry) -> Result<Ret, String> {
     let Some(ty) = ty else { return Ok(Ret::Scalar(Scalar::Unit)) };
     let whole = type_text(ty);
-    if let Some((seg, name)) = path_last(ty) {
-        match name.as_str() {
-            "Result" => {
-                let ok = single_generic(seg).ok_or_else(|| {
-                    refuse_return(&whole, " (`Result` needs its `Ok` type written out)")
-                })?;
-                return Ok(Ret::Result(classify_payload(ok, "Result", &whole, registry)?));
+    if let Some((outer, inner)) = status_wrapper(ty) {
+        let inner = inner.ok_or_else(|| {
+            refuse_return(
+                &whole,
+                if outer == "Result" {
+                    " (`Result` needs its `Ok` type written out)"
+                } else {
+                    " (`Option` needs its payload type written out)"
+                },
+            )
+        })?;
+        // One level of nesting: `Result<Option<T>, E>` and
+        // `Option<Result<T, E>>` are the three states the status word
+        // has (0, 1, 2); the same wrapper twice, or a third level, is
+        // refused by `classify_payload` with the reason.
+        let (ret, payload_ty, wrapper) = match status_wrapper(inner) {
+            Some((mid, Some(payload))) if mid != outer => {
+                let wrapper = format!("{outer}<{mid}<..>>");
+                (if outer == "Result" { "ResultOption" } else { "OptionResult" }, payload, wrapper)
             }
-            "Option" => {
-                let some = single_generic(seg).ok_or_else(|| {
-                    refuse_return(&whole, " (`Option` needs its payload type written out)")
-                })?;
-                let p = classify_payload(some, "Option", &whole, registry)?;
-                if matches!(p, Payload::Scalar(Scalar::Unit)) {
-                    return Err(refuse_return(
-                        &whole,
-                        " (`Option<()>` is a `bool`; return one)",
-                    ));
-                }
-                return Ok(Ret::Option(p));
+            Some((mid, None)) => {
+                return Err(refuse_return(
+                    &whole,
+                    &format!(" (`{mid}` needs its payload type written out)"),
+                ))
             }
-            _ => {}
+            _ => (outer, inner, outer.to_string()),
+        };
+        let p = classify_payload(payload_ty, &wrapper, &whole, registry)?;
+        if matches!(p, Payload::Scalar(Scalar::Unit)) && matches!(ret, "Option" | "ResultOption") {
+            return Err(refuse_return(&whole, " (`Option<()>` is a `bool`; return one)"));
         }
+        return Ok(match ret {
+            "Result" => Ret::Result(p),
+            "Option" => Ret::Option(p),
+            "ResultOption" => Ret::ResultOption(p),
+            _ => Ret::OptionResult(p),
+        });
     }
     Ok(match classify_payload(ty, "", &whole, registry)? {
         Payload::Scalar(s) => Ret::Scalar(s),
         Payload::Bytes => Ret::Bytes,
         Payload::Words(s) => Ret::Words(s),
+        Payload::WordLists(s) => Ret::WordLists(s),
         Payload::Strs => Ret::Strs,
         Payload::Opaque(o) => Ret::Opaque(o),
         Payload::Record(r) => Ret::Record(r),
+        Payload::Records(r) => Ret::Records(r),
     })
 }
 
-/// The bare named types a signature crosses by value or hands back:
-/// the ones whose kind (record or handle) the macro learns from their
-/// companion macros. Each name once, in order of first use.
+/// The bare named types a signature crosses by value, in a slice or a
+/// `Vec`, or hands back: the ones whose kind (record or handle) the
+/// macro learns from their companion macros. Each name once, in order
+/// of first use.
 pub fn named_types(params: &[Param], ret: &Ret) -> Vec<Type> {
     let mut out: Vec<Type> = Vec::new();
     let mut push = |ty: &Type| {
@@ -756,16 +930,46 @@ pub fn named_types(params: &[Param], ret: &Ret) -> Vec<Type> {
         }
     };
     for p in params {
-        if let Param::Record(r) = p {
+        if let Param::Record(r) | Param::Records(r) = p {
             push(&r.ty);
         }
     }
-    match ret {
-        Ret::Opaque(o) => push(&o.ty),
-        Ret::Record(r) => push(&r.ty),
-        Ret::Result(Payload::Opaque(o)) | Ret::Option(Payload::Opaque(o)) => push(&o.ty),
-        Ret::Result(Payload::Record(r)) | Ret::Option(Payload::Record(r)) => push(&r.ty),
+    let payload = match ret {
+        Ret::Opaque(o) => Some(Payload::Opaque(o.clone())),
+        Ret::Record(r) => Some(Payload::Record(r.clone())),
+        Ret::Records(r) => Some(Payload::Records(r.clone())),
+        other => other.status_payload().cloned(),
+    };
+    match payload {
+        Some(Payload::Opaque(o)) => push(&o.ty),
+        Some(Payload::Record(r)) | Some(Payload::Records(r)) => push(&r.ty),
         _ => {}
+    }
+    out
+}
+
+/// The record types a signature crosses without their field lists
+/// filled in (the macro's first pass, or a bindgen source root with no
+/// `#[axiom_record]` of that name): each such name once.
+pub fn unresolved_records(params: &[Param], ret: &Ret) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    let mut note = |r: &RecordTy| {
+        if !r.is_resolved() && !out.contains(&r.name) {
+            out.push(r.name.clone());
+        }
+    };
+    for p in params {
+        if let Param::Record(r) | Param::Records(r) = p {
+            note(r);
+        }
+    }
+    match ret {
+        Ret::Record(r) | Ret::Records(r) => note(r),
+        other => {
+            if let Some(Payload::Record(r)) | Some(Payload::Records(r)) = other.status_payload() {
+                note(r);
+            }
+        }
     }
     out
 }
@@ -792,7 +996,12 @@ fn scalar_tag(s: Scalar) -> char {
 pub fn param_tags(p: &Param) -> String {
     match p {
         Param::Scalar(s) => scalar_tag(*s).to_string(),
-        Param::Opaque { .. } | Param::Words(_) | Param::Strs => "i".to_string(),
+        Param::Opaque { .. }
+        | Param::Words(_)
+        | Param::MutWords(_)
+        | Param::WordLists(_)
+        | Param::Strs
+        | Param::Records(_) => "i".to_string(),
         Param::Str | Param::Bytes => "s".to_string(),
         Param::Callback(_) => "c".to_string(),
         Param::Record(r) => r.fields.iter().map(|f| scalar_tag(f.scalar)).collect(),
@@ -1116,33 +1325,160 @@ mod tests {
         assert!(e.contains("take `&[&str]`"), "{e}");
         let e = classify_param(&ty("Vec<String>")).err().unwrap();
         assert!(e.contains("`&[&str]`"), "{e}");
-        let e = classify_param(&ty("&[u64]")).err().unwrap();
-        assert!(e.contains("only `&[u8]`, `&[&str]` and `&[T]`"), "{e}");
-        let e = classify_param(&ty("&[Point]")).err().unwrap();
-        assert!(e.contains("a slice of records or handles does not cross"), "{e}");
-        let e = classify_param(&ty("&mut [i64]")).err().unwrap();
-        assert!(e.contains("immutable"), "{e}");
+        let e = classify_param(&ty("&[u128]")).err().unwrap();
+        assert!(e.contains("split it into two `u64`s"), "{e}");
+        let e = classify_param(&ty("&[Vec<i64>]")).err().unwrap();
+        assert!(e.contains("only `&[u8]`, `&[&str]`, `&[T]` and `&[&[T]]`"), "{e}");
+        let e = classify_param_with(&ty("&[Counter]"), &Table).err().unwrap();
+        assert!(e.contains("a slice of handles does not cross"), "{e}");
         let e = classify_param(&ty("&AxFn1")).err().unwrap();
         assert!(e.contains("take it by value"), "{e}");
         let e = classify_return(Some(&ty("AxFn1"))).err().unwrap();
         assert!(e.contains("cannot be handed back"), "{e}");
         let e = classify_return(Some(&ty("Option<AxFn2>"))).err().unwrap();
         assert!(e.contains("cannot be handed back"), "{e}");
-        let e = classify_return(Some(&ty("Vec<u64>"))).err().unwrap();
-        assert!(e.contains("`Vec<T>` over a word scalar"), "{e}");
-        let e = classify_return(Some(&ty("Vec<Point>"))).err().unwrap();
-        assert!(e.contains("a `Vec` of records or handles does not cross"), "{e}");
-        let e = classify_return(Some(&ty("Option<Vec<Point>>"))).err().unwrap();
-        assert!(e.contains("a `Vec` of records or handles does not cross"), "{e}");
+        let e = classify_return(Some(&ty("Vec<u128>"))).err().unwrap();
+        assert!(e.contains("split it into two `u64`s"), "{e}");
+        let e = classify_return(Some(&ty("Vec<(i64, i64)>"))).err().unwrap();
+        assert!(e.contains("`Vec<T>` over an `#[axiom_record]` cross directly"), "{e}");
+        let e = classify_return_with(Some(&ty("Vec<Counter>")), &Table).err().unwrap();
+        assert!(e.contains("a `Vec` of handles does not cross"), "{e}");
+        let e = classify_return_with(Some(&ty("Option<Vec<Counter>>")), &Table).err().unwrap();
+        assert!(e.contains("a `Vec` of handles does not cross"), "{e}");
+    }
+
+    #[test]
+    fn char_and_u64_are_words() {
+        assert!(matches!(classify_param(&ty("char")), Ok(Param::Scalar(Scalar::Char))));
+        assert!(matches!(classify_param(&ty("u64")), Ok(Param::Scalar(Scalar::U64))));
+        assert!(matches!(classify_return(Some(&ty("char"))), Ok(Ret::Scalar(Scalar::Char))));
+        assert!(matches!(classify_return(Some(&ty("u64"))), Ok(Ret::Scalar(Scalar::U64))));
+        assert!(matches!(classify_param(&ty("&[char]")), Ok(Param::Words(Scalar::Char))));
+        assert!(matches!(classify_param(&ty("&[u64]")), Ok(Param::Words(Scalar::U64))));
+        assert!(matches!(classify_return(Some(&ty("Vec<char>"))), Ok(Ret::Words(Scalar::Char))));
+        assert!(matches!(classify_return(Some(&ty("Option<Vec<u64>>"))), Ok(Ret::Option(Payload::Words(Scalar::U64)))));
+        assert!(matches!(classify_return(Some(&ty("Result<char, String>"))), Ok(Ret::Result(Payload::Scalar(Scalar::Char)))));
+        assert_eq!(Scalar::Char.axiom_type(), "Char");
+        assert_eq!(Scalar::U64.axiom_type(), "Int");
+        assert!(!Scalar::U64.is_narrow_int());
+        assert!(Scalar::U64.is_word_sized() && Scalar::F64.is_word_sized() && Scalar::I64.is_word_sized());
+        assert!(!Scalar::Char.is_word_sized() && !Scalar::U32.is_word_sized());
+        // Two words fit nowhere, and the message says what to do.
+        for bad in ["u128", "i128"] {
+            let e = classify_param(&ty(bad)).err().unwrap();
+            assert!(e.contains("split it into two `u64`s"), "{e}");
+            let e = classify_return(Some(&ty(bad))).err().unwrap();
+            assert!(e.contains("split it into two `u64`s"), "{e}");
+        }
+    }
+
+    #[test]
+    fn records_in_vecs() {
+        // `&[Point]` and `Vec<Point>` resolve through the registry, and
+        // are unresolved records without one (the macro's first pass).
+        match classify_param_with(&ty("&[Point]"), &Table).unwrap() {
+            Param::Records(r) => {
+                assert_eq!(r.name, "Point");
+                assert_eq!(r.arity(), 2);
+            }
+            other => panic!("{other:?}"),
+        }
+        match classify_param(&ty("&[geom::Point]")).unwrap() {
+            Param::Records(r) => assert!(!r.is_resolved()),
+            other => panic!("{other:?}"),
+        }
+        match classify_return_with(Some(&ty("Vec<Point>")), &Table).unwrap() {
+            Ret::Records(r) => assert_eq!(r.arity(), 2),
+            other => panic!("{other:?}"),
+        }
+        match classify_return(Some(&ty("Vec<Point>"))).unwrap() {
+            Ret::Records(r) => assert!(!r.is_resolved()),
+            other => panic!("{other:?}"),
+        }
+        assert!(matches!(classify_return_with(Some(&ty("Result<Vec<Point>, String>")), &Table), Ok(Ret::Result(Payload::Records(_)))));
+        assert!(matches!(classify_return_with(Some(&ty("Option<Vec<Point>>")), &Table), Ok(Ret::Option(Payload::Records(_)))));
+        // The cell of a record list is the two-word (ptr, n) pair.
+        assert_eq!(classify_return_with(Some(&ty("Vec<Point>")), &Table).unwrap().cell_words(), 2);
+        // Named types and unresolved ones are reported from every position.
+        let ps = classify_param(&ty("&[Point]")).unwrap();
+        let ret = classify_return(Some(&ty("Option<Vec<Line>>"))).unwrap();
+        let names: Vec<String> = named_types(&[ps.clone()], &ret).iter().map(type_text).collect();
+        assert_eq!(names, vec!["Point", "Line"]);
+        assert_eq!(unresolved_records(&[ps], &ret), vec!["Point", "Line"]);
+        let resolved = classify_param_with(&ty("&[Point]"), &Table).unwrap();
+        assert!(unresolved_records(&[resolved], &Ret::Bytes).is_empty());
+    }
+
+    #[test]
+    fn nested_vecs() {
+        assert!(matches!(classify_return(Some(&ty("Vec<Vec<i64>>"))), Ok(Ret::WordLists(Scalar::I64))));
+        assert!(matches!(classify_return(Some(&ty("Vec<Vec<f32>>"))), Ok(Ret::WordLists(Scalar::F32))));
+        assert!(matches!(classify_return(Some(&ty("Vec<Vec<char>>"))), Ok(Ret::WordLists(Scalar::Char))));
+        assert!(matches!(classify_return(Some(&ty("Result<Vec<Vec<u64>>, String>"))), Ok(Ret::Result(Payload::WordLists(Scalar::U64)))));
+        assert!(matches!(classify_param(&ty("&[&[i64]]")), Ok(Param::WordLists(Scalar::I64))));
+        assert!(matches!(classify_param(&ty("&[&[bool]]")), Ok(Param::WordLists(Scalar::Bool))));
+        for bad in ["Vec<Vec<String>>", "Vec<Vec<Point>>", "Vec<Vec<Vec<i64>>>", "Option<Vec<Vec<String>>>"] {
+            let e = classify_return(Some(&ty(bad))).err().expect(bad);
+            assert!(e.contains("one level of word scalars"), "{bad}: {e}");
+            assert!(e.contains(RETURN_TYPES), "{e}");
+        }
+        for bad in ["&[&[&str]]", "&[&[Point]]", "&[&[&[i64]]]"] {
+            let e = classify_param(&ty(bad)).err().expect(bad);
+            assert!(e.contains("one level of word scalars"), "{bad}: {e}");
+            assert!(e.contains(PARAM_TYPES), "{e}");
+        }
+        let e = classify_param(&ty("&[&mut [i64]]")).err().unwrap();
+        assert!(e.contains("take `&[&[T]]`"), "{e}");
+    }
+
+    #[test]
+    fn mutable_slices() {
+        assert!(matches!(classify_param(&ty("&mut [i64]")), Ok(Param::MutWords(Scalar::I64))));
+        assert!(matches!(classify_param(&ty("&mut [f64]")), Ok(Param::MutWords(Scalar::F64))));
+        assert!(matches!(classify_param(&ty("&mut [u64]")), Ok(Param::MutWords(Scalar::U64))));
+        for bad in ["&mut [i32]", "&mut [u8]", "&mut [bool]", "&mut [char]", "&mut [f32]", "&mut [Point]", "&mut [&str]"] {
+            let e = classify_param(&ty(bad)).err().expect(bad);
+            assert!(e.contains("take `&[T]` and return a `Vec<T>`"), "{bad}: {e}");
+            assert!(e.contains("could not be written back as the same words"), "{e}");
+        }
+        assert_eq!(sig_tags(&[Param::MutWords(Scalar::F64)], &Ret::Scalar(Scalar::Unit)), "i_i");
+    }
+
+    #[test]
+    fn nested_fallible() {
+        assert!(matches!(classify_return(Some(&ty("Result<Option<i64>, String>"))), Ok(Ret::ResultOption(Payload::Scalar(Scalar::I64)))));
+        assert!(matches!(classify_return(Some(&ty("Option<Result<String, E>>"))), Ok(Ret::OptionResult(Payload::Bytes))));
+        assert!(matches!(classify_return_with(Some(&ty("Result<Option<Point>, E>")), &Table), Ok(Ret::ResultOption(Payload::Record(_)))));
+        assert!(matches!(classify_return_with(Some(&ty("Option<Result<Counter, E>>")), &Table), Ok(Ret::OptionResult(Payload::Opaque(_)))));
+        assert!(matches!(classify_return(Some(&ty("Option<Result<(), E>>"))), Ok(Ret::OptionResult(Payload::Scalar(Scalar::Unit)))));
+        let r = classify_return_with(Some(&ty("Result<Option<Point>, E>")), &Table).unwrap();
+        assert!(r.is_result() && r.needs_cell());
+        assert_eq!(r.cell_words(), 2);
+        assert_eq!(sig_tags(&[], &r), "i_i");
+        // Deeper nesting, and the same wrapper twice, are refused: the
+        // status word has three states.
+        for bad in [
+            "Result<Option<Option<i64>>, E>",
+            "Option<Result<Option<i64>, E>>",
+            "Result<Result<i64, E>, E>",
+            "Option<Option<i64>>",
+            "Result<Option<Result<i64, E>>, E>",
+        ] {
+            let e = classify_return(Some(&ty(bad))).err().expect(bad);
+            assert!(e.contains("three states"), "{bad}: {e}");
+            assert!(e.contains(RETURN_TYPES), "{e}");
+        }
+        let e = classify_return(Some(&ty("Result<Option<()>, E>"))).err().unwrap();
+        assert!(e.contains("`Option<()>` is a `bool`"), "{e}");
     }
 
     #[test]
     fn refusals_list_the_set() {
-        for bad in ["u64", "char", "String", "Option<i64>", "&mut str", "&i64", "(i64, i64)", "&[String]", "&[Point]", "&AxFn1", "Wrapper<i64>"] {
+        for bad in ["u128", "String", "Option<i64>", "&mut str", "&i64", "(i64, i64)", "&[String]", "&mut [i32]", "&[&[&str]]", "&AxFn1", "Wrapper<i64>"] {
             let e = classify_param(&ty(bad)).err().expect(bad);
             assert!(e.contains(PARAM_TYPES), "{e}");
         }
-        for bad in ["u64", "char", "Vec<u64>", "Vec<Point>", "Result<Option<i64>, String>", "&str", "Option<()>", "AxFn1"] {
+        for bad in ["i128", "Vec<u128>", "Vec<Vec<String>>", "Result<Option<Option<i64>>, String>", "&str", "Option<()>", "AxFn1"] {
             let e = classify_return(Some(&ty(bad))).err().expect(bad);
             assert!(e.contains(RETURN_TYPES), "{e}");
         }
@@ -1218,17 +1554,18 @@ mod tests {
                 .collect();
             classify_record_fields(named.iter().map(|(n, t)| (n.as_str(), t)))
         };
-        let ok = fields("struct P { a: i64, b: f32, c: bool, d: u8, e: usize }").unwrap();
-        assert_eq!(ok.len(), 5);
+        let ok = fields("struct P { a: i64, b: f32, c: bool, d: u8, e: usize, f: char, g: u64 }").unwrap();
+        assert_eq!(ok.len(), 7);
         assert_eq!(ok[1].scalar, Scalar::F32);
         assert_eq!(ok[3].name, "d");
+        assert_eq!(ok[5].scalar, Scalar::Char);
+        assert_eq!(ok[6].scalar, Scalar::U64);
         for (src, why) in [
             ("struct P { s: String }", "is not a word scalar (a record is its words"),
             ("struct P { p: Inner }", "a nested record or an opaque handle does not cross as a field"),
             ("struct P { v: Vec<i64> }", "a collection is not a word"),
-            ("struct P { c: char }", "store the `i64` code point"),
             ("struct P { r: &'static str }", "a borrow cannot cross as a field"),
-            ("struct P { n: u64 }", "cannot hold every value"),
+            ("struct P { n: u128 }", "split it into two `u64`s"),
             ("struct P { }", "at least one field"),
         ] {
             let e = fields(src).err().expect(src);
@@ -1309,6 +1646,17 @@ mod tests {
         assert_eq!(sig_tags(&[], &Ret::Record(point.clone())), "i_i");
         assert_eq!(sig_tags(&[b2()], &Ret::Result(Payload::Record(point.clone()))), "ii_i");
         assert_eq!(sig_symbol("axffi_point_scale", &[Param::Record(point), i], &Ret::Option(Payload::Record(classify_point()))), "axffi_point_scale__sig_ifii_i");
+        // A char or u64 is a word; a record slice, a nested Vec and a
+        // mutable slice are each a Vec handle; a nested fallible result
+        // is a cell and a status.
+        let c = Param::Scalar(Scalar::Char);
+        let u = Param::Scalar(Scalar::U64);
+        assert_eq!(sig_tags(&[c, u], &Ret::Scalar(Scalar::Char)), "ii_i");
+        assert_eq!(sig_tags(&[Param::Records(classify_point()), b2()], &Ret::Records(classify_point())), "iii_i");
+        assert_eq!(sig_tags(&[Param::WordLists(Scalar::F64)], &Ret::WordLists(Scalar::I64)), "ii_i");
+        assert_eq!(sig_tags(&[Param::MutWords(Scalar::I64)], &Ret::Scalar(Scalar::I64)), "i_i");
+        assert_eq!(sig_tags(&[Param::Str], &Ret::ResultOption(Payload::Scalar(Scalar::I64))), "si_i");
+        assert_eq!(sig_tags(&[], &Ret::OptionResult(Payload::Bytes)), "i_i");
     }
 
     fn b2() -> Param {

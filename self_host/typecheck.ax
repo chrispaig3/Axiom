@@ -3115,6 +3115,11 @@
 ; described, or 0 when every leaf is a word. `top` is 1 along the
 ; signature's own arrow spine, where an arrow is the item's arity
 ; and not a function-typed argument.
+; An arrow whose every leaf is a plain WORD - `Int`, `Float` (its
+; bits), `Bool`, `Char` - and so a callback Rust calls through the
+; record's code word with nothing to own or free. `String` is not
+; such a leaf: a String argument or result carries a share, and the
+; Rust side has no wrapper that would release it.
 (pub :: allIntArrow (-> Int Int))
 (pub fn (allIntArrow t)
   (if (== t 0)
@@ -3122,7 +3127,11 @@
       (if (== (nodeTag t) TAG_T_ARR)
           (if (== (allIntArrow (nodeA t)) 1) (allIntArrow (nodeB t)) 0)
           (if (&& (== (nodeTag t) TAG_T_CON)
-                  (&& (strEq (nodeA t) "Int") (== (vecLen (nodeB t)) 0)))
+                  (&& (== (vecLen (nodeB t)) 0)
+                      (|| (strEq (nodeA t) "Int")
+                      (|| (strEq (nodeA t) "Float")
+                      (|| (strEq (nodeA t) "Bool")
+                          (strEq (nodeA t) "Char"))))))
               1
               0))))
 
@@ -3135,13 +3144,13 @@
             (if (== top 1)
                 (let ((a (externTypeRefusal (nodeA t) 0)))
                   (if (!= (cast Int a) 0) a (externTypeRefusal (nodeB t) 1)))
-                ; a CALLBACK: an arrow whose leaves are all `Int` is a
+                ; a CALLBACK: an arrow whose leaves are all words is a
                 ; closure record Rust calls through its code word
-                ; (`AxFn1`..`AxFn3`, docs/ffi.md); any other arrow has
-                ; no crossing
+                ; (`AxFn1`..`AxFn3`, docs/ffi.md); an arrow with a
+                ; String leaf has no crossing
                 (if (== (allIntArrow t) 1)
                     (cast String 0)
-                    "a function-typed argument (a callback is an arrow over `Int` only, `(-> Int Int)`)"))
+                    "a function-typed argument (a callback is an arrow over words only - `Int`, `Float`, `Bool`, `Char` - such as `(-> Int Float)`)"))
         (if (== tg TAG_T_VAR)
             (strConcat (strConcat "the type variable `" (nodeA t)) "`")
         (if (== tg TAG_T_TUP)

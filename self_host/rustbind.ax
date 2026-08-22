@@ -2,33 +2,64 @@
 ;
 ; `axiom build --input lib.ax --output libaxiom_lib.a --emit-staticlib
 ; --emit-rust-binding lib.rs` archives the module (driver.ax) and
-; writes, from the entry file's `pub` signatures, a Rust source file a
+; writes, from the entry file's `pub` surface, a Rust source file a
 ; host includes as a module: one `extern "C"` declaration per function
 ; under its own symbol, and one safe wrapper per function in Rust's
 ; own types - `Int` is `i64`, `Float` is `f64` carried as its bits,
 ; `Bool` is `bool` over 0/1, `Char` is `char` over the code point,
 ; `String` is `&str` in and `AxString` out (the facade's `host`
 ; module, which builds the argument with the archive's own
-; `Str$strAlloc` and adopts the result, an owned share by
-; MM-LIFE-2c event 2), `Handle` and `Foreign` are the bare word.
+; `Str$strAlloc` and adopts the result), `Handle` and `Foreign` are
+; the bare word.
+;
+; A `data` or `struct` value crosses too. The archive cannot be read
+; from outside - only the emitter knows a block's layout - so when the
+; binding is requested the compiler SYNTHESISES accessor shims into
+; the module before it is checked and compiled (`rbShimSource`, parsed
+; and appended to the entry's declarations by `rbAppendShims`): for
+; every `pub data`/`pub struct` of the file and every instantiation a
+; `pub` signature mentions (`(Option Int)`, `(Result Int String)`,
+; `(List Int)` of the file's own `List`),
+;
+;   axh_<T>_tag v            the constructor's index, declaration order
+;   axh_<T>_<Ctor> f0 f1 ..  a fresh value (an owned share)
+;   axh_<T>_<Ctor>_<i> v     field i (a reference field: an owned share)
+;
+; plus `axh_vec_new`/`axh_vec_push`/`axh_vec_len`/`axh_vec_get` for a
+; `Vec`, which has no type of its own (it is an `Int`) and so crosses
+; as a word the host builds through `AxVecBuf`. The Rust side gets a
+; `struct` (one constructor) or `enum` (several, tuple variants) per
+; type with `from_axiom`/`to_axiom`, `Option<T>` and `Result<T, E>`
+; for the two builtin sums, and wrappers that convert at the boundary.
+;
+; Ownership across the call is the convention the emitter itself
+; follows, read from its IR: an ARGUMENT is borrowed (a callee that
+; keeps one retains it - a constructor does), a RESULT is an owned
+; share (MM-LIFE-2c event 2: `(pub fn (same s) s)` retains before it
+; returns). So the binding passes borrowed words, releases the owned
+; words it built, and adopts every result.
 ;
 ; What it does not carry it SAYS it does not carry: a function whose
-; signature names a `data` type, a list, a tuple, a type variable or
-; an arrow, or a `pub fn` with no `(pub :: name Type)` signature, is
-; a `//` comment in the file naming the function and the type, so
-; the reader of the binding knows what the archive has that the
-; binding does not, instead of finding out from the linker. The
-; generated file is formatted as `rustfmt` would lay it out, so a
-; checked-in copy stays byte-identical to a fresh generation
-; (`scripts/check-ffi.sh` regenerates rust/examples/host/src/hostlib.rs
-; and diffs).
+; signature names a type variable, a tuple, an arrow, a list type, or
+; a `data` whose fields reach one of those, or a `pub fn` with no
+; `(pub :: name Type)` signature, is a `//` comment at the end of the
+; file naming the function and the type. The generated file is laid
+; out as `rustfmt` would lay it out, so a checked-in copy stays
+; byte-identical to a fresh generation (`scripts/check-ffi.sh`
+; regenerates rust/examples/host/src/hostlib.rs and diffs).
 (import Mem)
 (import Str)
 (import Vec)
 (import Path)
+(import Sys)
+(import lexer)
 (import parser)
 (import codegen)
 (import driver)
+
+; ------------------------------------------------------------------
+; The entry's `pub` names, before import resolution rewrites visibility
+; ------------------------------------------------------------------
 
 ; The names written `pub fn` in the entry file, taken BEFORE import
 ; resolution: from then on a declaration's visibility word answers
@@ -61,38 +92,409 @@
       found
     }))
 
-; The whole file, from the entry unit's declarations and the names
-; that were `pub` when parsed.
-(pub :: rustBindingOf (-> Int Int String String))
-(pub fn (rustBindingOf decls pubNames fileName)
-  (let ((raws vecNew) (wraps vecNew) (notes vecNew) (mut i 0))
+; ------------------------------------------------------------------
+; Types: what the binding carries, and how each side spells it
+; ------------------------------------------------------------------
+
+; The `data`/`struct` declaration named `name` in the entry, or 0.
+(pub :: rbDataDecl (-> Int String Int))
+(pub fn (rbDataDecl decls name)
+  (let ((mut i 0) (mut found 0))
+    {
+      (while (< i (vecLen decls))
+        {
+          (let ((d (vecGet decls i)))
+            (if (&& (|| (== (nodeTag d) TAG_D_DATA) (== (nodeTag d) TAG_D_STRUCT))
+                    (strEq (nodeA d) name))
+                { (set found d) 0 }
+                0))
+          (set i (+ i 1))
+        })
+      found
+    }))
+
+; 1 when `t` is a word leaf: Int, Float, Bool, Char, Handle, Foreign.
+(pub :: rbIsWordLeaf (-> Int Int))
+(pub fn (rbIsWordLeaf t)
+  (if (&& (!= t 0) (&& (== (nodeTag t) TAG_T_CON) (== (vecLen (nodeB t)) 0)))
+      (let ((n (nodeA t)))
+        (if (|| (strEq n "Int") (|| (strEq n "Float") (|| (strEq n "Bool")
+            (|| (strEq n "Char") (|| (strEq n "Handle") (strEq n "Foreign"))))))
+            1 0))
+      0))
+
+(pub :: rbIsString (-> Int Int))
+(pub fn (rbIsString t)
+  (if (&& (!= t 0) (&& (== (nodeTag t) TAG_T_CON)
+                       (&& (== (vecLen (nodeB t)) 0) (strEq (nodeA t) "String"))))
+      1 0))
+
+; 1 when `t` is a sum or product the binding carries as a value: the
+; builtin `Option`/`Result`, or a declaration of the entry file.
+(pub :: rbIsData (-> Int Int Int))
+(pub fn (rbIsData decls t)
+  (if (&& (!= t 0) (== (nodeTag t) TAG_T_CON))
+      (let ((n (nodeA t)))
+        (if (|| (strEq n "Option") (strEq n "Result"))
+            1
+            (if (== (rbDataDecl decls n) 0) 0 1)))
+      0))
+
+; The constructors of the data type `t` (an instantiation), each a
+; 3-slot Vec: [name, Vec of field types (instantiated), Vec of field
+; names or 0]. `Option`, `Result` and the entry's declarations.
+(pub :: rbCtorsOf (-> Int Int Int))
+(pub fn (rbCtorsOf decls t)
+  (let ((n (nodeA t)) (args (nodeB t)) (out vecNew))
+    {
+      (if (strEq n "Option")
+          {
+            (vecPush out (cast Int (rbCtor "None" vecNew 0)))
+            (vecPush out (cast Int (rbCtor "Some" (rbVec1 (vecGet args 0)) 0)))
+            0
+          }
+      (if (strEq n "Result")
+          {
+            (vecPush out (cast Int (rbCtor "Ok" (rbVec1 (vecGet args 0)) 0)))
+            (vecPush out (cast Int (rbCtor "Err" (rbVec1 (vecGet args 1)) 0)))
+            0
+          }
+          (let ((d (rbDataDecl decls n)))
+            (if (== d 0)
+                0
+                (if (== (nodeTag d) TAG_D_STRUCT)
+                    ; one constructor, the struct's name, named fields
+                    (let ((fs (nodeB d)) (tys vecNew) (names vecNew) (mut i 0))
+                      {
+                        (while (< i (vecLen fs))
+                          {
+                            (vecPush tys (nodeTy (vecGet fs i)))
+                            (vecPush names (cast Int (nodeA (vecGet fs i))))
+                            (set i (+ i 1))
+                          })
+                        (vecPush out (cast Int (rbCtor n tys names)))
+                        0
+                      })
+                    (let ((cs (nodeB d)) (vars (nodeTy d)) (mut i 0))
+                      {
+                        (while (< i (vecLen cs))
+                          {
+                            (let ((c (vecGet cs i)))
+                              (vecPush out (cast Int (rbCtor (nodeA c)
+                                                              (rbSubstAll (nodeTy c) vars args)
+                                                              (nodeFieldNames c)))))
+                            (set i (+ i 1))
+                          })
+                        0
+                      }))))))
+      out
+    }))
+
+(pub :: rbCtor (-> String Int Int Int))
+(pub fn (rbCtor name tys names)
+  (let ((v vecNew))
+    { (vecPush v (cast Int name)) (vecPush v tys) (vecPush v names) v }))
+
+(pub :: rbCtorName (-> Int String))
+(pub fn (rbCtorName c) (cast String (vecGet c 0)))
+(pub :: rbCtorTys (-> Int Int))
+(pub fn (rbCtorTys c) (vecGet c 1))
+(pub :: rbCtorNames (-> Int Int))
+(pub fn (rbCtorNames c) (vecGet c 2))
+
+(pub :: rbVec1 (-> Int Int))
+(pub fn (rbVec1 x) (let ((v vecNew)) { (vecPush v x) v }))
+
+; A type with the declaration's variables replaced by the
+; instantiation's arguments: `(Cons a (List a))` at `(List Int)` is
+; `(Cons Int (List Int))`.
+(pub :: rbSubst (-> Int Int Int Int))
+(pub fn (rbSubst t vars args)
+  (if (== t 0)
+      0
+      (let ((tag (nodeTag t)))
+        (if (== tag TAG_T_VAR)
+            (let ((k (rbIndexOfName vars (nodeA t))))
+              (if (&& (>= k 0) (< k (vecLen args))) (vecGet args k) t))
+        (if (== tag TAG_T_CON)
+            (if (== (vecLen (nodeB t)) 0)
+                t
+                (mkNode TAG_T_CON (nodeA t) (rbSubstAll (nodeB t) vars args) 0))
+        (if (== tag TAG_T_ARR)
+            (mkNode TAG_T_ARR (rbSubst (nodeA t) vars args) (rbSubst (nodeB t) vars args) 0)
+        (if (== tag TAG_T_LIST)
+            (mkNode TAG_T_LIST (rbSubst (nodeA t) vars args) 0 0)
+        (if (== tag TAG_T_TUP)
+            (mkNode TAG_T_TUP (rbSubstAll (nodeA t) vars args) 0 0)
+            t))))))))
+
+(pub :: rbSubstAll (-> Int Int Int Int))
+(pub fn (rbSubstAll ts vars args)
+  (let ((out vecNew) (mut i 0))
+    {
+      (if (== ts 0)
+          0
+          (while (< i (vecLen ts))
+            { (vecPush out (rbSubst (vecGet ts i) vars args)) (set i (+ i 1)) }))
+      out
+    }))
+
+(pub :: rbIndexOfName (-> Int String Int))
+(pub fn (rbIndexOfName names n)
+  (if (== names 0)
+      (- 0 1)
+      (let ((mut i 0) (mut at (- 0 1)))
+        {
+          (while (< i (vecLen names))
+            {
+              (if (&& (< at 0) (strEq (cast String (vecGet names i)) n)) { (set at i) 0 } 0)
+              (set i (+ i 1))
+            })
+          at
+        })))
+
+; Does the binding carry `t`? Words, String, and a data type whose
+; every field it carries. A recursive type is carried coinductively:
+; a name already being examined is assumed carried (`visiting`).
+(pub :: rbCarried (-> Int Int Int Int))
+(pub fn (rbCarried decls t visiting)
+  (if (== t 0)
+      0
+      (if (== (rbIsWordLeaf t) 1)
+          1
+          (if (== (rbIsString t) 1)
+              1
+              (if (== (rbIsData decls t) 1)
+                  (let ((m (rbMangle t)))
+                    (if (rbNamed visiting m)
+                        1
+                        (let ((cs (rbCtorsOf decls t)) (mut ok 1) (mut i 0))
+                          {
+                            (vecPush visiting (cast Int m))
+                            (while (< i (vecLen cs))
+                              {
+                                (let ((tys (rbCtorTys (vecGet cs i))) (mut k 0))
+                                  (while (< k (vecLen tys))
+                                    {
+                                      (if (== (rbCarried decls (vecGet tys k) visiting) 0)
+                                          (set ok 0)
+                                          0)
+                                      (set k (+ k 1))
+                                    }))
+                                (set i (+ i 1))
+                              })
+                            (vecPop visiting)
+                            ok
+                          })))
+                  0)))))
+
+; A type's name in a shim symbol and a Rust identifier: `Int`,
+; `Pair`, `Option_Int`, `Result_Int_String`, `List_Option_Int`.
+(pub :: rbMangle (-> Int String))
+(pub fn (rbMangle t)
+  (if (== t 0)
+      "_"
+      (if (== (nodeTag t) TAG_T_CON)
+          (let ((mut s (nodeA t)) (args (nodeB t)) (mut i 0))
+            {
+              (while (< i (vecLen args))
+                { (set s (cat3 s "_" (rbMangle (vecGet args i)))) (set i (+ i 1)) })
+              s
+            })
+          "_")))
+
+; Every data instantiation the `pub` signatures reach, including
+; through fields, each once, in first-seen order.
+(pub :: rbInstances (-> Int Int Int))
+(pub fn (rbInstances decls pubNames)
+  (let ((insts vecNew) (seen vecNew) (mut i 0))
     {
       (while (< i (vecLen decls))
         {
           (let ((d (vecGet decls i)))
             (if (&& (== (nodeTag d) TAG_D_FN) (rbNamed pubNames (nodeA d)))
+                (let ((sigd (rbFindSig decls (nodeA d) 0)))
+                  (if (== sigd 0) 0 (rbCollectInst decls (nodeTy sigd) insts seen)))
+                0))
+          (set i (+ i 1))
+        })
+      insts
+    }))
+
+(pub :: rbCollectInst (-> Int Int Int Int Int))
+(pub fn (rbCollectInst decls t insts seen)
+  (if (== t 0)
+      0
+      (let ((tag (nodeTag t)))
+        (if (== tag TAG_T_ARR)
+            { (rbCollectInst decls (nodeA t) insts seen) (rbCollectInst decls (nodeB t) insts seen) }
+            (if (&& (== tag TAG_T_CON) (== (rbIsData decls t) 1))
+                (if (== (rbCarried decls t vecNew) 0)
+                    0
+                    (let ((m (rbMangle t)))
+                      (if (rbNamed seen m)
+                          0
+                          (let ((cs (rbCtorsOf decls t)) (mut i 0))
+                            {
+                              (vecPush seen (cast Int m))
+                              (vecPush insts t)
+                              (while (< i (vecLen cs))
+                                {
+                                  (let ((tys (rbCtorTys (vecGet cs i))) (mut k 0))
+                                    (while (< k (vecLen tys))
+                                      { (rbCollectInst decls (vecGet tys k) insts seen) (set k (+ k 1)) }))
+                                  (set i (+ i 1))
+                                })
+                              0
+                            }))))
+                0)))))
+
+; ------------------------------------------------------------------
+; The synthesised Axiom shims
+; ------------------------------------------------------------------
+
+; Axiom source for every accessor shim the binding calls.
+(pub :: rbShimSource (-> Int Int String))
+(pub fn (rbShimSource decls pubNames)
+  (let ((insts (rbInstances decls pubNames)) (mut out "") (mut i 0))
+    {
+      (set out (cat2 out "(import Vec)\n(pub :: axh_vec_new Int)\n(pub fn (axh_vec_new) vecNew)\n(pub :: axh_vec_push (-> Int Int Int))\n(pub fn (axh_vec_push v w) (vecPush v w))\n(pub :: axh_vec_len (-> Int Int))\n(pub fn (axh_vec_len v) (vecLen v))\n(pub :: axh_vec_get (-> Int Int Int))\n(pub fn (axh_vec_get v i) (vecGet v i))\n"))
+      (while (< i (vecLen insts))
+        { (set out (cat2 out (rbShimsFor decls (vecGet insts i)))) (set i (+ i 1)) })
+      out
+    }))
+
+(pub :: rbShimsFor (-> Int Int String))
+(pub fn (rbShimsFor decls t)
+  (let ((m (rbMangle t)) (ts (rbSpellType t)) (cs (rbCtorsOf decls t))
+        (isStruct (rbIsStructType decls t))
+        (mut out "") (mut j 0))
+    {
+      ; the tag
+      (set out (cat2 out (cat4 "(pub :: axh_" m "_tag (-> " (cat2 ts " Int))\n"))))
+      (if (== isStruct 1)
+          (set out (cat2 out (cat3 "(pub fn (axh_" m "_tag v) 0)\n")))
+          {
+            (set out (cat2 out (cat3 "(pub fn (axh_" m "_tag v) (match v")))
+            (while (< j (vecLen cs))
+              {
+                (set out (cat2 out (cat4 " ((" (rbCtorName (vecGet cs j)) (rbBinders (vecLen (rbCtorTys (vecGet cs j))))
+                                         (cat3 ") " (fmtInt j) ")"))))
+                (set j (+ j 1))
+              })
+            (set out (cat2 out "))\n"))
+          })
+      ; constructors and accessors
+      (set j 0)
+      (while (< j (vecLen cs))
+        {
+          (let ((c (vecGet cs j)))
+            (let ((cn (rbCtorName c)) (tys (rbCtorTys c)) (mut k 0))
+              {
+                (if (== (vecLen tys) 0)
+                    (set out (cat2 out (cat4 "(pub :: axh_" m (cat2 "_" cn) (cat4 " " ts ")\n(pub fn (axh_" (cat4 m "_" cn (cat3 ") " cn ")\n"))))))
+                    (set out (cat2 out (cat4 "(pub :: axh_" m (cat2 "_" cn) (cat4 " (-> " (rbSpellEachSp tys 0) ts (cat4 "))\n(pub fn (axh_" m (cat2 "_" cn) (cat4 (rbBinders (vecLen tys)) ") (" cn (cat2 (rbBinders (vecLen tys)) "))\n"))))))))
+                (while (< k (vecLen tys))
+                  {
+                    (let ((fty (rbSpellType (vecGet tys k))))
+                      {
+                        (set out (cat2 out (cat4 "(pub :: axh_" m (cat4 "_" cn "_" (fmtInt k)) (cat4 " (-> " ts " " (cat2 fty "))\n")))))
+                        (if (== isStruct 1)
+                            (set out (cat2 out (cat4 "(pub fn (axh_" m (cat4 "_" cn "_" (fmtInt k)) (cat3 " v) v." (cast String (vecGet (rbCtorNames c) k)) ")\n"))))
+                            (set out (cat2 out (cat4 "(pub fn (axh_" m (cat4 "_" cn "_" (fmtInt k)) (cat3 " v) (match v ((" cn (cat4 (rbBinders (vecLen tys)) ") a" (fmtInt k) (cat3 ") (_ (cast " fty " 0))))\n")))))))
+                      })
+                    (set k (+ k 1))
+                  })
+              }))
+          (set j (+ j 1))
+        })
+      out
+    }))
+
+(pub :: rbIsStructType (-> Int Int Int))
+(pub fn (rbIsStructType decls t)
+  (let ((d (rbDataDecl decls (nodeA t))))
+    (if (== d 0) 0 (if (== (nodeTag d) TAG_D_STRUCT) 1 0))))
+
+; ` a0 a1 ..`
+(pub :: rbBinders (-> Int String))
+(pub fn (rbBinders n)
+  (let ((mut s "") (mut i 0))
+    { (while (< i n) { (set s (cat3 s " a" (fmtInt i))) (set i (+ i 1)) }) s }))
+
+(pub :: rbSpellEachSp (-> Int Int String))
+(pub fn (rbSpellEachSp v i)
+  (if (>= i (vecLen v))
+      ""
+      (cat3 (rbSpellType (vecGet v i)) " " (rbSpellEachSp v (+ i 1)))))
+
+; Parse the shims and append them to the entry's declarations. Called
+; before import resolution, so they are checked and compiled like the
+; file's own. Generated text is correct by construction; a parse
+; failure here is a compiler bug and says so.
+(pub :: rbAppendShims (-> Int Int Int))
+;@axiom:effect(io)
+(pub fn (rbAppendShims decls pubNames)
+  (let ((src (rbShimSource decls pubNames)))
+    (let ((toks (lex src)))
+      (let ((pr (parseModuleWith toks (scanAxtags src))))
+        (if (== (memGetWord pr 0) 0)
+            {
+              (writeStderrStr (cat3 "error: the synthesised binding shims did not parse (a compiler bug):\n" src "\n"))
+              (sysExitWith 1)
+              0
+            }
+            (let ((ds (memGetWord pr 1)) (mut i 0))
+              {
+                (while (< i (vecLen ds))
+                  { (vecPush decls (vecGet ds i)) (set i (+ i 1)) })
+                (vecLen ds)
+              }))))))
+
+; ------------------------------------------------------------------
+; The Rust file
+; ------------------------------------------------------------------
+
+; The whole file, from the entry unit's declarations (shims included)
+; and the names that were `pub` when parsed.
+(pub :: rustBindingOf (-> Int Int String String))
+(pub fn (rustBindingOf decls pubNames fileName)
+  (let ((raws vecNew) (wraps vecNew) (notes vecNew) (mut i 0)
+        (insts (rbInstances decls pubNames)))
+    {
+      (while (< i (vecLen decls))
+        {
+          (let ((d (vecGet decls i)))
+            (if (&& (== (nodeTag d) TAG_D_FN)
+                    (|| (rbNamed pubNames (nodeA d)) (strStartsWith (nodeA d) "axh_")))
                 (rbOneFn decls d raws wraps notes)
                 0))
           (set i (+ i 1))
         })
-      (cat4 (rbHeader fileName)
-            (rbRawBlock raws)
-            (rbJoin wraps)
+      (cat4 (cat2 (rbHeader fileName) (rbRawBlock raws))
+            (rbVecBuf)
+            (cat2 (rbTypesBlock decls insts) (rbJoin wraps))
             (rbNotes notes))
     }))
 
 (pub :: rbHeader (-> String String))
 (pub fn (rbHeader fileName)
   (cat4 (cat3 "//! GENERATED by `axiom build --emit-rust-binding` from " (pathBase fileName) ". Do not edit.\n")
-        "//!\n//! Link the archive `--emit-staticlib` wrote beside this file; every\n//! function below is a `pub fn` of that module, a C symbol under its own\n//! name. `String` arguments are built with the archive's own `Str$strAlloc`\n//! and a `String` result is an owned share the wrapper adopts.\n"
-        "#![allow(non_snake_case, dead_code, unused_imports, clippy::all)]\n\n"
-        "use axiom_ffi::host::AxString;\nuse axiom_ffi::AxWord;\n\n"))
+        "//!\n//! Link the archive `--emit-staticlib` wrote beside this file; every\n//! function below is a `pub fn` of that module, a C symbol under its own\n//! name. Arguments are borrowed for the call (a callee that keeps one\n//! retains it); every result is an owned share the wrapper adopts or\n//! releases. `String` arguments are built with the archive's own\n//! `Str$strAlloc`; a `data` value is built and read through the `axh_*`\n//! accessors the same build synthesised into the archive.\n"
+        "#![allow(non_snake_case, non_camel_case_types, dead_code, unused_imports, unused_unsafe, clippy::all)]\n\n"
+        "use axiom_ffi::host::AxString;\nuse axiom_ffi::{axiom_release, AxWord};\n\n"))
 
 (pub :: rbRawBlock (-> Int String))
 (pub fn (rbRawBlock raws)
   (cat3 "mod raw {\n    extern \"C\" {\n"
         (rbJoin raws)
         "    }\n}\n\n"))
+
+; `AxVecBuf`: an Axiom `Vec` the host builds and reads through the
+; synthesised shims; its share is released on drop.
+(pub :: rbVecBuf String)
+(pub fn (rbVecBuf)
+  "/// An Axiom `Vec` of words, built and read through the archive's own `Vec`.\n/// A signature spells a `Vec` as `Int`, so pass `as_word()` where one is taken\n/// and wrap a returned word with `from_owned`.\npub struct AxVecBuf(AxWord);\n\nimpl AxVecBuf {\n    pub fn from_words(words: &[AxWord]) -> AxVecBuf {\n        // SAFETY: the archive's `vecNew`/`vecPush`, answering an owned share.\n        let v = unsafe { raw::axh_vec_new() };\n        for w in words {\n            unsafe { raw::axh_vec_push(v, *w) };\n        }\n        AxVecBuf(v)\n    }\n\n    /// Adopt a `Vec` word a function answered (an owned share).\n    pub unsafe fn from_owned(word: AxWord) -> AxVecBuf {\n        AxVecBuf(word)\n    }\n\n    pub fn as_word(&self) -> AxWord {\n        self.0\n    }\n\n    pub fn len(&self) -> usize {\n        unsafe { raw::axh_vec_len(self.0) as usize }\n    }\n\n    pub fn words(&self) -> Vec<AxWord> {\n        (0..self.len()).map(|i| unsafe { raw::axh_vec_get(self.0, i as AxWord) }).collect()\n    }\n}\n\nimpl Drop for AxVecBuf {\n    fn drop(&mut self) {\n        unsafe { axiom_release(self.0) }\n    }\n}\n\n")
 
 (pub :: rbNotes (-> Int String))
 (pub fn (rbNotes notes)
@@ -110,7 +512,8 @@
       out
     }))
 
-; One `pub fn`: the raw declaration and the wrapper, or a note.
+; One `pub fn`: the raw declaration and the wrapper, or a note. A
+; synthesised `axh_*` shim gets the raw declaration only.
 (pub :: rbOneFn (-> Int Int Int Int Int Int))
 (pub fn (rbOneFn decls f raws wraps notes)
   (let ((name (nodeA f)) (sigd (rbFindSig decls (nodeA f) 0)))
@@ -120,18 +523,20 @@
           (let ((params (rbParamTypes ty vecNew))
                 (res (rbResultType ty))
                 (names (nodeB f)))
-            (let ((bad (rbFirstUnsupported params res)))
-              (if (> (strLen bad) 0)
-                  { (vecPush notes (cast Int (cat4 "// `" name "`: `" (cat3 (rbSpellType ty) "` names " (cat2 bad "\n")))))
-                    0 }
-                  (if (!= (vecLen params) (vecLen names))
-                      { (vecPush notes (cast Int (cat3 "// `" name "`: the signature and the definition disagree on arity\n")))
+            (if (strStartsWith name "axh_")
+                { (vecPush raws (cast Int (rbRawDecl name params res))) 0 }
+                (let ((bad (rbFirstUnsupported decls params res)))
+                  (if (> (strLen bad) 0)
+                      { (vecPush notes (cast Int (cat4 "// `" name "`: `" (cat3 (rbSpellType ty) "` names " (cat2 bad "\n")))))
                         0 }
-                      {
-                        (vecPush raws (cast Int (rbRawDecl name params res)))
-                        (vecPush wraps (cast Int (rbWrapper name ty params res names)))
-                        0
-                      }))))))))
+                      (if (!= (vecLen params) (vecLen names))
+                          { (vecPush notes (cast Int (cat3 "// `" name "`: the signature and the definition disagree on arity\n")))
+                            0 }
+                          {
+                            (vecPush raws (cast Int (rbRawDecl name params res)))
+                            (vecPush wraps (cast Int (rbWrapper decls name ty params res names)))
+                            0
+                          })))))))))
 
 (pub :: rbFindSig (-> Int String Int Int))
 (pub fn (rbFindSig decls name i)
@@ -155,41 +560,55 @@
       (rbResultType (nodeB ty))
       ty))
 
-; The Rust type of a leaf, or "" when the binding does not carry it.
-; A unit result `()` is carried (as `()`); a unit parameter is not.
-(pub :: rbRustType (-> Int Int String))
-(pub fn (rbRustType t isResult)
+; The Rust type of `t` in a wrapper's signature, or "" when the
+; binding does not carry it. `pos` is 0 for a parameter, 1 for a
+; result, 2 for a field of a data type (owned everywhere).
+(pub :: rbRustType (-> Int Int Int String))
+(pub fn (rbRustType decls t pos)
   (if (== t 0)
       ""
-      (if (== (nodeTag t) TAG_T_CON)
-          (if (> (vecLen (nodeB t)) 0)
+      (if (== (rbIsWordLeaf t) 1)
+          (let ((n (nodeA t)))
+            (if (strEq n "Int") "i64"
+            (if (strEq n "Float") "f64"
+            (if (strEq n "Bool") "bool"
+            (if (strEq n "Char") "char" "AxWord")))))
+      (if (== (rbIsString t) 1)
+          (if (== pos 0) "&str" "AxString")
+      (if (== (rbIsData decls t) 1)
+          (if (== (rbCarried decls t vecNew) 0)
               ""
-              (let ((n (nodeA t)))
-                (if (strEq n "Int") "i64"
-                (if (strEq n "Float") "f64"
-                (if (strEq n "Bool") "bool"
-                (if (strEq n "Char") "char"
-                (if (strEq n "String") (if (== isResult 1) "AxString" "&str")
-                (if (|| (strEq n "Handle") (strEq n "Foreign")) "AxWord"
-                    ""))))))))
-          (if (&& (== (nodeTag t) TAG_T_TUP) (&& (== isResult 1) (== (vecLen (nodeA t)) 0)))
-              "()"
-              ""))))
+              (let ((own (rbRustDataName decls t)))
+                (if (== pos 0) (cat2 "&" own) own)))
+      (if (&& (== (nodeTag t) TAG_T_TUP) (&& (== pos 1) (== (vecLen (nodeA t)) 0)))
+          "()"
+          ""))))))
+
+; The Rust spelling of a carried data type as a value: `Pair`,
+; `Option<i64>`, `Result<i64, AxString>`, `List_Int`.
+(pub :: rbRustDataName (-> Int Int String))
+(pub fn (rbRustDataName decls t)
+  (let ((n (nodeA t)))
+    (if (strEq n "Option")
+        (cat3 "Option<" (rbRustType decls (vecGet (nodeB t) 0) 2) ">")
+    (if (strEq n "Result")
+        (cat4 "Result<" (rbRustType decls (vecGet (nodeB t) 0) 2) ", " (cat2 (rbRustType decls (vecGet (nodeB t) 1) 2) ">"))
+        (rbMangle t)))))
 
 ; The first type the binding cannot carry, spelled for the note; ""
 ; when every leaf is carried.
-(pub :: rbFirstUnsupported (-> Int Int String))
-(pub fn (rbFirstUnsupported params res)
+(pub :: rbFirstUnsupported (-> Int Int Int String))
+(pub fn (rbFirstUnsupported decls params res)
   (let ((mut i 0) (mut bad ""))
     {
       (while (&& (< i (vecLen params)) (== (strLen bad) 0))
         {
-          (if (== (strLen (rbRustType (vecGet params i) 0)) 0)
+          (if (== (strLen (rbRustType decls (vecGet params i) 0)) 0)
               { (set bad (cat3 "`" (rbSpellType (vecGet params i)) "`, which the binding does not carry")) 0 }
               0)
           (set i (+ i 1))
         })
-      (if (&& (== (strLen bad) 0) (== (strLen (rbRustType res 1)) 0))
+      (if (&& (== (strLen bad) 0) (== (strLen (rbRustType decls res 1)) 0))
           (cat3 "`" (rbSpellType res) "`, which the binding does not carry")
           bad)
     }))
@@ -208,67 +627,312 @@
       (cat3 (cat2 "a" (fmtInt i)) ": i64"
             (if (< (+ i 1) n) (cat2 ", " (rbRawParams n (+ i 1))) ""))))
 
-; The safe wrapper.
-(pub :: rbWrapper (-> String Int Int Int Int String))
-(pub fn (rbWrapper name ty params res names)
+; ------------------------------------------------------------------
+; Conversions between a Rust value and the word on the wire
+; ------------------------------------------------------------------
+
+; A Rust expression for the word of `e`, a value of type `t`. `isRef`
+; is 1 when `e` is a reference (a match binder, a `&T` parameter), 0
+; when it is the value itself. A data-typed value becomes an OWNED
+; word the caller releases after the call (`rbIsOwnedWord`).
+(pub :: rbToWord (-> Int Int String Int String))
+(pub fn (rbToWord decls t e isRef)
+  (let ((deref (if (== isRef 1) "*" "")))
+    (if (== (rbIsWordLeaf t) 1)
+        (let ((n (nodeA t)))
+          (if (strEq n "Float") (cat3 "(" (cat2 deref e) ").to_bits() as i64")
+          (if (|| (strEq n "Bool") (strEq n "Char")) (cat3 "(" (cat2 deref e) ") as i64")
+              (cat2 deref e))))
+    (if (== (rbIsString t) 1)
+        (cat2 e ".as_word()")
+        (cat4 "__to_" (rbMangle t) "(" (cat2 (if (== isRef 1) e (cat2 "&" e)) ")"))))))
+
+(pub :: rbIsOwnedWord (-> Int Int Int))
+(pub fn (rbIsOwnedWord decls t)
+  (if (== (rbIsData decls t) 1) 1 0))
+
+; A Rust expression for the value of type `t` held in the OWNED word
+; `w` (a result, or an accessor's answer): adopted or consumed.
+(pub :: rbFromWord (-> Int Int String String))
+(pub fn (rbFromWord decls t w)
+  (if (== (rbIsWordLeaf t) 1)
+      (let ((n (nodeA t)))
+        (if (strEq n "Float") (cat3 "f64::from_bits(" w " as u64)")
+        (if (strEq n "Bool") (cat2 w " != 0")
+        (if (strEq n "Char") (cat3 "char::from_u32(" w " as u32).unwrap_or('\\u{FFFD}')")
+            w))))
+  (if (== (rbIsString t) 1)
+      (cat3 "unsafe { AxString::from_owned(" w ") }")
+      (cat4 "__from_" (rbMangle t) "(" (cat2 w ")")))))
+
+; ------------------------------------------------------------------
+; The Rust types and their conversion functions
+; ------------------------------------------------------------------
+
+(pub :: rbTypesBlock (-> Int Int String))
+(pub fn (rbTypesBlock decls insts)
+  (let ((mut out "") (mut i 0))
+    {
+      (while (< i (vecLen insts))
+        { (set out (cat2 out (rbTypeFor decls (vecGet insts i)))) (set i (+ i 1)) })
+      out
+    }))
+
+; The Rust side of one data instantiation: the type (unless it is
+; `Option`/`Result`, which Rust has), `__from_<M>` consuming an owned
+; word, `__to_<M>` answering one.
+(pub :: rbTypeFor (-> Int Int String))
+(pub fn (rbTypeFor decls t)
+  (let ((m (rbMangle t)) (n (nodeA t)) (cs (rbCtorsOf decls t))
+        (rn (rbRustDataName decls t)))
+    (cat4 (if (|| (strEq n "Option") (strEq n "Result")) "" (rbTypeDecl decls t cs))
+          (rbFromFn decls t cs rn)
+          (rbToFn decls t cs rn)
+          (if (|| (strEq n "Option") (strEq n "Result"))
+              ""
+              (cat4 "impl " rn " {\n    pub fn from_axiom(word: AxWord) -> " (cat4 rn " {\n        __from_" m (cat4 "(word)\n    }\n\n    pub fn to_axiom(&self) -> AxWord {\n        __to_" m "(self)\n    }\n}\n\n" "")))))))
+
+; `pub struct T { pub f0: .. }` or `pub enum T { C0(..), C1 }`.
+(pub :: rbTypeDecl (-> Int Int Int String))
+(pub fn (rbTypeDecl decls t cs)
+  (let ((rn (rbRustDataName decls t)) (m (rbMangle t)))
+    (if (== (vecLen cs) 1)
+        (let ((c (vecGet cs 0)) (mut out "") (mut k 0))
+          {
+            (set out (cat4 "/// `" (rbSpellType t) "`, one constructor\n#[derive(Debug)]\npub struct " (cat2 rn " {\n")))
+            (while (< k (vecLen (rbCtorTys c)))
+              {
+                (set out (cat2 out (cat4 "    pub " (rbFieldName c k) ": " (cat2 (rbFieldRustType decls m (vecGet (rbCtorTys c) k)) ",\n"))))
+                (set k (+ k 1))
+              })
+            (cat2 out "}\n\n")
+          })
+        (let ((mut out "") (mut j 0))
+          {
+            (set out (cat4 "/// `" (rbSpellType t) "`, one variant per constructor\n#[derive(Debug)]\npub enum " (cat2 rn " {\n")))
+            (while (< j (vecLen cs))
+              {
+                (let ((c (vecGet cs j)))
+                  (if (== (vecLen (rbCtorTys c)) 0)
+                      (set out (cat2 out (cat3 "    " (rbCtorName c) ",\n")))
+                      (set out (cat2 out (cat4 "    " (rbCtorName c) "(" (cat2 (rbFieldRustTypes decls m (rbCtorTys c) 0) "),\n"))))))
+                (set j (+ j 1))
+              })
+            (cat2 out "}\n\n")
+          }))))
+
+; A field's Rust type: owned, and boxed when it reaches the type
+; being declared (a recursive `List`'s tail).
+(pub :: rbFieldRustType (-> Int String Int String))
+(pub fn (rbFieldRustType decls m ft)
+  (let ((rt (rbRustType decls ft 2)))
+    (if (rbReaches decls ft m vecNew) (cat3 "Box<" rt ">") rt)))
+
+(pub :: rbFieldRustTypes (-> Int String Int Int String))
+(pub fn (rbFieldRustTypes decls m tys i)
+  (if (>= i (vecLen tys))
+      ""
+      (cat3 (rbFieldRustType decls m (vecGet tys i))
+            (if (< (+ i 1) (vecLen tys)) ", " "")
+            (rbFieldRustTypes decls m tys (+ i 1)))))
+
+; Does type `t` reach the data type mangled `m` through its fields?
+(pub :: rbReaches (-> Int Int String Int Bool))
+(pub fn (rbReaches decls t m visiting)
+  (if (== (rbIsData decls t) 0)
+      false
+      (let ((tm (rbMangle t)))
+        (if (strEq tm m)
+            true
+            (if (rbNamed visiting tm)
+                false
+                (let ((cs (rbCtorsOf decls t)) (mut found false) (mut j 0))
+                  {
+                    (vecPush visiting (cast Int tm))
+                    (while (< j (vecLen cs))
+                      {
+                        (let ((tys (rbCtorTys (vecGet cs j))) (mut k 0))
+                          (while (< k (vecLen tys))
+                            {
+                              (if (rbReaches decls (vecGet tys k) m visiting) { (set found true) 0 } 0)
+                              (set k (+ k 1))
+                            }))
+                        (set j (+ j 1))
+                      })
+                    found
+                  }))))))
+
+(pub :: rbFieldName (-> Int Int String))
+(pub fn (rbFieldName c k)
+  (let ((names (rbCtorNames c)))
+    (if (|| (== names 0) (>= k (vecLen names)))
+        (cat2 "f" (fmtInt k))
+        (rbSnake (cast String (vecGet names k))))))
+
+; `fn __from_M(word: AxWord) -> T`: read the tag, read each field of
+; the live constructor (an owned word each) into a local, build the
+; value, release the word.
+(pub :: rbFromFn (-> Int Int Int String String))
+(pub fn (rbFromFn decls t cs rn)
+  (let ((m (rbMangle t)) (n (nodeA t)) (mut out "") (mut j 0))
+    {
+      (set out (cat4 "fn __from_" m "(word: AxWord) -> " (cat2 rn " {\n    // SAFETY: `word` is a live value of this type, owned by the caller; every\n    // accessor answers an owned share, released here or adopted by the value.\n    let __tag = unsafe { raw::axh_")))
+      (set out (cat2 out (cat2 m "_tag(word) };\n    let __v = match __tag {\n")))
+      (while (< j (vecLen cs))
+        {
+          (let ((c (vecGet cs j)))
+            (let ((tys (rbCtorTys c)) (mut k 0) (mut args "") (mut lets ""))
+              {
+                (while (< k (vecLen tys))
+                  {
+                    (let ((fw (cat2 "__f" (fmtInt k))))
+                      (let ((val (rbFromWord decls (vecGet tys k) fw)))
+                        (let ((boxed (if (rbReaches decls (vecGet tys k) m vecNew) (cat3 "Box::new(" val ")") val)))
+                          {
+                            (set lets (cat2 lets (cat4 "            let " fw " = unsafe { raw::axh_" (cat4 m (cat4 "_" (rbCtorName c) "_" (fmtInt k)) "(word) };\n" ""))))
+                            (set args (cat2 args (cat3 (if (== (vecLen cs) 1) (cat2 (rbFieldName c k) ": ") "") boxed (if (< (+ k 1) (vecLen tys)) ", " ""))))
+                          })))
+                    (set k (+ k 1))
+                  })
+                (if (== (vecLen tys) 0)
+                    (set out (cat2 out (cat4 "        " (fmtInt j) " => " (cat2 (rbCtorExpr decls t c rn args) ",\n"))))
+                    (set out (cat2 out (cat4 "        " (fmtInt j) " => {\n" (cat4 lets "            " (rbCtorExpr decls t c rn args) "\n        }\n")))))
+              }))
+          (set j (+ j 1))
+        })
+      (set out (cat2 out "        _ => unreachable!(\"a constructor index the type does not have\"),\n    };\n    unsafe { axiom_release(word) };\n    __v\n}\n\n"))
+      out
+    }))
+
+; How a constructor is written in Rust: `Pair { a: .., b: .. }`,
+; `Shape::Rect(..)`, `Some(..)`, `Err(..)`, `None`.
+(pub :: rbCtorExpr (-> Int Int Int String String String))
+(pub fn (rbCtorExpr decls t c rn args)
+  (let ((n (nodeA t)) (cn (rbCtorName c)) (cs (rbCtorsOf decls t)))
+    (if (|| (strEq n "Option") (strEq n "Result"))
+        (if (== (vecLen (rbCtorTys c)) 0) cn (cat4 cn "(" args ")"))
+        (if (== (vecLen cs) 1)
+            (cat4 rn " { " args " }")
+            (if (== (vecLen (rbCtorTys c)) 0)
+                (cat3 rn "::" cn)
+                (cat4 rn "::" cn (cat3 "(" args ")")))))))
+
+; `fn __to_M(v: &T) -> AxWord`: build the word through the
+; constructor shim, releasing the owned words of data-typed fields
+; afterwards (the constructor retained what it kept).
+(pub :: rbToFn (-> Int Int Int String String))
+(pub fn (rbToFn decls t cs rn)
+  (let ((m (rbMangle t)) (n (nodeA t)) (mut out "") (mut j 0))
+    {
+      (set out (cat4 "fn __to_" m "(v: &" (cat2 rn ") -> AxWord {\n    match v {\n")))
+      (while (< j (vecLen cs))
+        {
+          (let ((c (vecGet cs j)))
+            (let ((tys (rbCtorTys c)) (mut k 0) (mut pat "") (mut lets "") (mut args "") (mut rels ""))
+              {
+                ; the pattern binds each field by reference
+                (while (< k (vecLen tys))
+                  {
+                    (set pat (cat2 pat (cat3 (if (== (vecLen cs) 1) (cat2 (rbFieldName c k) ": ") "") (cat2 "a" (fmtInt k)) (if (< (+ k 1) (vecLen tys)) ", " ""))))
+                    (let ((ft (vecGet tys k)))
+                      (let ((src (if (rbReaches decls ft m vecNew) (cat3 "&**a" (fmtInt k) "") (cat2 "a" (fmtInt k)))))
+                        (if (== (rbIsOwnedWord decls ft) 1)
+                            {
+                              (set lets (cat2 lets (cat4 "            let __w" (fmtInt k) " = " (cat2 (rbToWord decls ft src 1) ";\n"))))
+                              (set rels (cat2 rels (cat3 "            unsafe { axiom_release(__w" (fmtInt k) ") };\n")))
+                              (set args (cat2 args (cat3 "__w" (fmtInt k) (if (< (+ k 1) (vecLen tys)) ", " ""))))
+                            }
+                            (set args (cat2 args (cat2 (rbToWord decls ft src 1) (if (< (+ k 1) (vecLen tys)) ", " "")))))))
+                    (set k (+ k 1))
+                  })
+                (let ((head (rbCtorPat decls t c rn pat)))
+                  (set out (cat2 out (cat4 "        " head " => {\n" (cat4 lets (cat4 "            let __w = unsafe { raw::axh_" m (cat4 "_" (rbCtorName c) "(" (cat2 args ")")) " };\n") rels "            __w\n        }\n")))))
+              }))
+          (set j (+ j 1))
+        })
+      (cat2 out "    }\n}\n\n")
+    }))
+
+(pub :: rbCtorPat (-> Int Int Int String String String))
+(pub fn (rbCtorPat decls t c rn pat)
+  (let ((n (nodeA t)) (cn (rbCtorName c)) (cs (rbCtorsOf decls t)))
+    (if (|| (strEq n "Option") (strEq n "Result"))
+        (if (== (vecLen (rbCtorTys c)) 0) cn (cat4 cn "(" pat ")"))
+        (if (== (vecLen cs) 1)
+            (cat4 rn " { " pat " }")
+            (if (== (vecLen (rbCtorTys c)) 0)
+                (cat3 rn "::" cn)
+                (cat4 rn "::" cn (cat3 "(" pat ")")))))))
+
+; ------------------------------------------------------------------
+; Wrappers
+; ------------------------------------------------------------------
+
+(pub :: rbWrapper (-> Int String Int Int Int Int String))
+(pub fn (rbWrapper decls name ty params res names)
   (let ((rname (rbSnake name))
-        (rty (rbRustType res 1))
-        (sig (rbSigLine params names 0))
-        (strLets (rbStrLets params names 0))
-        (call (cat4 "raw::" name "(" (cat2 (rbArgList params names 0) ")"))))
+        (rty (rbRustType decls res 1))
+        (sig (rbSigLine decls params names 0))
+        (lets (rbArgLets decls params names 0))
+        (rels (rbArgRels decls params 0))
+        (call (cat4 "raw::" name "(" (cat2 (rbArgList decls params names 0) ")"))))
     (cat4 (cat4 "/// `(pub :: " name " " (cat2 (rbSpellType ty) ")`\n"))
           (cat4 "pub fn " rname (cat3 "(" sig ")") (if (strEq rty "()") " {\n" (cat3 " -> " rty " {\n")))
-          strLets
-          (cat2 (rbResultExpr rty call) "}\n\n"))))
+          (cat2 lets (cat3 "    // SAFETY: the archive defines the symbol with exactly this shape (one word each way).\n    let __r = unsafe { " call " };\n"))
+          (cat3 rels (rbResultExpr decls res rty) "}\n\n"))))
 
-(pub :: rbSigLine (-> Int Int Int String))
-(pub fn (rbSigLine params names i)
+(pub :: rbSigLine (-> Int Int Int Int String))
+(pub fn (rbSigLine decls params names i)
   (if (>= i (vecLen params))
       ""
-      (cat3 (cat3 (rbParamName (cast String (vecGet names i))) ": " (rbRustType (vecGet params i) 0))
+      (cat3 (cat3 (rbParamName (cast String (vecGet names i))) ": " (rbRustType decls (vecGet params i) 0))
             (if (< (+ i 1) (vecLen params)) ", " "")
-            (rbSigLine params names (+ i 1)))))
+            (rbSigLine decls params names (+ i 1)))))
 
-; A `&str` argument becomes an `AxString` for the call's duration.
-(pub :: rbStrLets (-> Int Int Int String))
-(pub fn (rbStrLets params names i)
+; A `&str` argument becomes an `AxString` for the call's duration; a
+; data argument becomes an owned word released after it.
+(pub :: rbArgLets (-> Int Int Int Int String))
+(pub fn (rbArgLets decls params names i)
   (if (>= i (vecLen params))
       ""
-      (cat2 (if (strEq (rbRustType (vecGet params i) 0) "&str")
-                (cat4 "    let __a" (fmtInt i) " = AxString::from_str(" (cat2 (rbParamName (cast String (vecGet names i))) ");\n"))
+      (let ((t (vecGet params i)) (pn (rbParamName (cast String (vecGet names i)))))
+        (cat2 (if (== (rbIsString t) 1)
+                  (cat4 "    let __a" (fmtInt i) " = AxString::from_str(" (cat2 pn ");\n"))
+                  (if (== (rbIsOwnedWord decls t) 1)
+                      (cat4 "    let __a" (fmtInt i) " = " (cat2 (rbToWord decls t pn 1) ";\n"))
+                      ""))
+              (rbArgLets decls params names (+ i 1))))))
+
+(pub :: rbArgRels (-> Int Int Int String))
+(pub fn (rbArgRels decls params i)
+  (if (>= i (vecLen params))
+      ""
+      (cat2 (if (== (rbIsOwnedWord decls (vecGet params i)) 1)
+                (cat3 "    unsafe { axiom_release(__a" (fmtInt i) ") };\n")
                 "")
-            (rbStrLets params names (+ i 1)))))
+            (rbArgRels decls params (+ i 1)))))
 
-(pub :: rbArgList (-> Int Int Int String))
-(pub fn (rbArgList params names i)
+(pub :: rbArgList (-> Int Int Int Int String))
+(pub fn (rbArgList decls params names i)
   (if (>= i (vecLen params))
       ""
-      (cat3 (rbArgExpr (rbRustType (vecGet params i) 0) (rbParamName (cast String (vecGet names i))) i)
-            (if (< (+ i 1) (vecLen params)) ", " "")
-            (rbArgList params names (+ i 1)))))
+      (let ((t (vecGet params i)) (pn (rbParamName (cast String (vecGet names i)))))
+        (cat3 (if (== (rbIsString t) 1)
+                  (cat3 "__a" (fmtInt i) ".as_word()")
+                  (if (== (rbIsOwnedWord decls t) 1)
+                      (cat2 "__a" (fmtInt i))
+                      (rbToWord decls t pn 0)))
+              (if (< (+ i 1) (vecLen params)) ", " "")
+              (rbArgList decls params names (+ i 1))))))
 
-(pub :: rbArgExpr (-> String String Int String))
-(pub fn (rbArgExpr rty pname i)
-  (if (strEq rty "f64") (cat2 pname ".to_bits() as i64")
-  (if (strEq rty "bool") (cat2 pname " as i64")
-  (if (strEq rty "char") (cat2 pname " as i64")
-  (if (strEq rty "&str") (cat3 "__a" (fmtInt i) ".as_word()")
-      pname)))))
-
-; The body: the unsafe call bound to a word, then converted back. The
-; call is a `let` rather than a bare block because a block at the
-; start of a statement is a statement to Rust, and `unsafe { .. } != 0`
-; does not parse.
-(pub :: rbResultExpr (-> String String String))
-(pub fn (rbResultExpr rty call)
-  (cat2 (cat3 "    // SAFETY: the archive defines the symbol with exactly this shape (one word each way).\n    let __r = unsafe { " call " };\n")
-        (if (strEq rty "()") "    let _ = __r;\n"
-        (if (strEq rty "f64") "    f64::from_bits(__r as u64)\n"
-        (if (strEq rty "bool") "    __r != 0\n"
-        (if (strEq rty "char") "    char::from_u32(__r as u32).unwrap_or('\\u{FFFD}')\n"
-        (if (strEq rty "AxString")
-            "    // SAFETY: a String a function answers is an owned share (MM-LIFE-2c event 2).\n    unsafe { AxString::from_owned(__r) }\n"
-            "    __r\n")))))))
+; The result: the owned word `__r`, converted.
+(pub :: rbResultExpr (-> Int Int String String))
+(pub fn (rbResultExpr decls res rty)
+  (if (strEq rty "()")
+      "    let _ = __r;\n"
+      (if (== (rbIsString res) 1)
+          "    // SAFETY: a String a function answers is an owned share (MM-LIFE-2c event 2).\n    unsafe { AxString::from_owned(__r) }\n"
+          (cat3 "    " (rbFromWord decls res "__r") "\n"))))
 
 ; `addTwo` -> `add_two`; `a-b` -> `a_b`; a Rust keyword gets a trailing
 ; underscore (`type_`).
@@ -311,7 +975,8 @@
   (|| (strEq s "extern") (|| (strEq s "dyn") (|| (strEq s "async") (|| (strEq s "await")
   (|| (strEq s "break") (|| (strEq s "continue") (strEq s "yield"))))))))))))))))))))))))))))))))))))))))
 
-; A type spelled as the source spells it, for the doc line and the notes.
+; A type spelled as the source spells it, for signatures, the doc
+; line and the notes.
 (pub :: rbSpellType (-> Int String))
 (pub fn (rbSpellType t)
   (if (== t 0)
@@ -323,7 +988,7 @@
                 (cat3 "(" (cat2 (nodeA t) (rbSpellEach (nodeB t) 0)) ")"))
         (if (== tag TAG_T_VAR) (nodeA t)
         (if (== tag TAG_T_ARR) (cat3 "(->" (rbSpellSpine t) ")")
-        (if (== tag TAG_T_LIST) (cat3 "(List " (rbSpellType (nodeA t)) ")")
+        (if (== tag TAG_T_LIST) (cat3 "[" (rbSpellType (nodeA t)) "]")
         (if (== tag TAG_T_TUP)
             (if (== (vecLen (nodeA t)) 0) "()" (cat3 "(Tuple" (rbSpellEach (nodeA t) 0) ")"))
             "?"))))))))

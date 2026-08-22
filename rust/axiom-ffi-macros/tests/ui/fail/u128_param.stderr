@@ -1,0 +1,11 @@
+error: `u128` is not supported as an `#[axiom_export]` parameter (a 128-bit integer is two words and every slot of the boundary is one; split it into two `u64`s - the high and low halves each cross as a word's bits); the supported parameter types are: i64 i32 i16 i8 u64 u32 u16 u8 usize isize bool char f64 f32 &str &[u8] &[&str] &[T] &[&[T]] (T a word scalar) &mut [i64] &mut [f64] &mut [u64] AxFn1 AxFn2 AxFn3 &T &mut T (T marked `#[axiom_opaque]`) T &[T] (T marked `#[axiom_record]`)
+ --> tests/ui/fail/u128_param.rs:5:16
+  |
+5 | pub fn wide(n: u128) -> i64 {
+  |                ^^^^
+
+error: `i128` is not supported as an `#[axiom_export]` return type (a 128-bit integer is two words and every slot of the boundary is one; split it into two `u64`s - the high and low halves each cross as a word's bits); the supported return types are: i64 i32 i16 i8 u64 u32 u16 u8 usize isize bool char f64 f32 () String Vec<u8> Vec<T> Vec<Vec<T>> (T a word scalar) Vec<String> Option<T> Result<T, E> Result<Option<T>, E> Option<Result<T, E>> T (T marked `#[axiom_opaque]` or `#[axiom_record]`) Vec<T> (T marked `#[axiom_record]`; E: Display)
+  --> tests/ui/fail/u128_param.rs:10:19
+   |
+10 | pub fn wider() -> i128 {
+   |                   ^^^^

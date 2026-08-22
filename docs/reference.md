@@ -307,9 +307,9 @@ searched too.) The emitter writes `declare i64 @axffi_add(i64, i64)
   draws `AX3015`; an item without `:: type` is a parse error.
 - An item's signature names only `Int`, `Float`, `Bool`, `Char`,
   `String` and `Foreign` — one machine word each way — plus a
-  callback parameter of type `(-> Int Int)`, `(-> Int Int Int)` or
-  `(-> Int Int Int Int)`. A type variable, a tuple, any other function
-  type or a declared type (`(Option Int)`, `Handle`, a struct) is
+  callback parameter: an arrow of arity one to three whose leaves are
+  words (`Int`, `Float`, `Bool`, `Char`). A type variable, a tuple, any
+  other function type or a declared type (`(Option Int)`, `Handle`, a struct) is
   `AX3036`: such values cross as a `Foreign` handle or through the
   generated wrapper (a `Vec<T>` result becomes a `Vec`; a Rust
   `#[axiom_record]` struct becomes a `data` type whose fields cross
@@ -336,8 +336,11 @@ The other direction is `--emit-staticlib`: `axiom build --input lib.ax
 `main`, every `pub fn` a C symbol under its own name, for a Rust (or
 C) host to link; `--emit-rust-binding lib.rs` beside it writes the
 Rust module that declares and wraps them (`Int`→`i64`, `Float`→`f64`,
-`Bool`→`bool`, `Char`→`char`, `String`→`&str` in and `AxString` out),
-naming in a comment any function whose type it does not carry.
+`Bool`→`bool`, `Char`→`char`, `String`→`&str` in and `AxString` out, a
+`data`/`struct`→a Rust `struct`/`enum`, `Option`/`Result`→Rust's own),
+synthesising the accessor shims those conversions need into the
+archive, and naming in a comment any function whose type it does not
+carry (a type variable, a tuple, an arrow).
 
 `foreign` is not this feature renamed and remains `AX2004`. See
 [docs/ffi.md](ffi.md).

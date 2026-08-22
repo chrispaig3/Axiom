@@ -45,9 +45,18 @@
 //! on, and passed through. An `#[axiom_record]` struct is a `data`
 //! type with one positional field per Rust field: a parameter is
 //! destructured into one raw argument per field, a result is rebuilt
-//! from a cell of one word per field (`ffiCellNewN`). Every generated
-//! local is `__`-prefixed so a Rust parameter named `cell` or `p` is
-//! never shadowed.
+//! from a cell of one word per field (`ffiCellNewN`). A `Vec<Record>`
+//! result and a `&[Record]` parameter go through two module-private
+//! loops per record type - `__pointFromWords` rebuilds a `Vec` of
+//! records from `n * ARITY` Rust words (`ffiWordAt`), `__pointToWords`
+//! flattens a `Vec` of records into the words the shim chunks - the
+//! one thing a generated module declares for itself, because the
+//! record's shape is the crate's. A `Vec<Vec<T>>` result is
+//! `ffiWordListsToVec` / `ffiFreeWordLists`; a nested
+//! `Result<Option<T>, E>` / `Option<Result<T, E>>` nests the
+//! constructors over the same three statuses. Every generated local
+//! is `__`-prefixed so a Rust parameter named `cell` or `p` is never
+//! shadowed.
 //!
 //! The output is byte-for-byte what `axiom fmt` produces for it: the
 //! printer in [`sexp`] follows the formatter's structural rules (an
@@ -306,16 +315,6 @@ impl Surface {
                 }
                 let p = cls::classify_param_with(&pt.ty, self)
                     .map_err(|m| Error(format!("{at}: {m}")))?;
-                if let Param::Record(r) = &p {
-                    if !r.is_resolved() {
-                        return Err(Error(format!(
-                            "{at}: `{}` is taken by value but no `#[axiom_record]` declaration \
-                             of `{}` was found under the source root; mark the struct (it \
-                             crosses as its fields), or take `&{}` with `#[axiom_opaque]`",
-                            r.name, r.name, r.name
-                        )));
-                    }
-                }
                 params.push((cls::camel_case(&pname), p));
             }
             let ret_ty = match &f.sig.output {
@@ -324,6 +323,16 @@ impl Surface {
             };
             let ret = cls::classify_return_with(ret_ty, self)
                 .map_err(|m| Error(format!("{at}: {m}")))?;
+            // A record named by value, in a slice or in a `Vec` that no
+            // `#[axiom_record]` under the source root declares.
+            let classified: Vec<Param> = params.iter().map(|(_, p)| p.clone()).collect();
+            if let Some(name) = cls::unresolved_records(&classified, &ret).first() {
+                return Err(Error(format!(
+                    "{at}: `{name}` crosses as a record but no `#[axiom_record]` declaration \
+                     of `{name}` was found under the source root; mark the struct (it \
+                     crosses as its fields), or take `&{name}` with `#[axiom_opaque]`"
+                )));
+            }
             self.decls.push(Decl {
                 axiom_name: cls::camel_case(&rust_name),
                 symbol: cls::export_symbol(&rust_name, &attr),
@@ -354,10 +363,11 @@ impl Surface {
             }
             match &d.ret {
                 Ret::Opaque(o) => used.push(&o.name),
-                Ret::Result(Payload::Opaque(o)) | Ret::Option(Payload::Opaque(o)) => {
-                    used.push(&o.name)
+                other => {
+                    if let Some(Payload::Opaque(o)) = other.status_payload() {
+                        used.push(&o.name)
+                    }
                 }
-                _ => {}
             }
             for t in used {
                 if !marked.contains(t) {
@@ -419,7 +429,37 @@ impl Surface {
         let mut opaques: Vec<&Opaque> = self.opaques.iter().collect();
         opaques.sort_by(|a, b| a.name.cmp(&b.name));
 
-        let needs_err = decls.iter().any(|d| matches!(d.ret, Ret::Result(_)));
+        let needs_err = decls
+            .iter()
+            .any(|d| matches!(d.ret, Ret::Result(_) | Ret::ResultOption(_) | Ret::OptionResult(_)));
+        // The record types that cross in a `Vec`, each way: the
+        // module declares a rebuild loop and a flatten loop for them,
+        // which is what needs `Vec`.
+        let mut from_words: Vec<&RecordTy> = Vec::new();
+        let mut to_words: Vec<&RecordTy> = Vec::new();
+        for d in decls.iter().filter(|d| !d.raw) {
+            for (_, p) in &d.params {
+                if let Param::Records(r) = p {
+                    if !to_words.iter().any(|x| x.name == r.name) {
+                        to_words.push(r);
+                    }
+                }
+            }
+            let answered = match &d.ret {
+                Ret::Records(r) => Some(r),
+                other => match other.status_payload() {
+                    Some(Payload::Records(r)) => Some(r),
+                    _ => None,
+                },
+            };
+            if let Some(r) = answered {
+                if !from_words.iter().any(|x| x.name == r.name) {
+                    from_words.push(r);
+                }
+            }
+        }
+        from_words.sort_by(|a, b| a.name.cmp(&b.name));
+        to_words.sort_by(|a, b| a.name.cmp(&b.name));
 
         let mut out = String::new();
         out.push_str(&format!(
@@ -429,6 +469,9 @@ impl Surface {
         tops.push("(import Ffi)".into());
         if needs_err {
             tops.push("(import Err)".into());
+        }
+        if !from_words.is_empty() || !to_words.is_empty() {
+            tops.push("(import Vec)".into());
         }
 
         // The extern block: one item per raw shim, plus the drop-function
@@ -458,7 +501,8 @@ impl Surface {
             let mut note = String::from(
                 "; A `Vec` is an `Int` handle holding one word per element, and the\n\
                  ; element type is whatever the program reads it as - Float bits with\n\
-                 ; `(cast Float (vecGet v i))`, a Bool as 0/1, every integer as the word:",
+                 ; `(cast Float (vecGet v i))`, a Bool as 0/1, a Char as its code point,\n\
+                 ; every integer as the word (a u64 >= 2^63 reads negative):",
             );
             for n in notes {
                 note.push_str("\n;   ");
@@ -488,6 +532,30 @@ impl Surface {
                 fields.join(", "),
                 types.join(" ")
             ));
+        }
+
+        // The record loops: a `Vec<Record>` result is `n * ARITY` Rust
+        // words rebuilt into a `Vec` of records, a `&[Record]`
+        // parameter a `Vec` of records flattened into the words the
+        // shim chunks. Module-private: the record's shape is this
+        // crate's, and two generated modules never see each other's.
+        for r in &from_words {
+            let (sig, body) = record_from_words_loop(r);
+            tops.push(format!(
+                "; A `Vec` of `{}` answered by Rust: {} words per element, rebuilt here.\n{sig}",
+                r.name,
+                r.arity()
+            ));
+            tops.push(body);
+        }
+        for r in &to_words {
+            let (sig, body) = record_to_words_loop(r);
+            tops.push(format!(
+                "; A `Vec` of `{}` handed to Rust: flattened to {} words per element here.\n{sig}",
+                r.name,
+                r.arity()
+            ));
+            tops.push(body);
         }
 
         // One `data` per opaque type, with its close wrapper.
@@ -588,8 +656,10 @@ fn payload_axiom_type(p: &Payload) -> String {
     match p {
         Payload::Scalar(s) => s.axiom_type().to_string(),
         Payload::Bytes => "String".into(),
-        // A `Vec` is an `Int` handle in the stdlib.
-        Payload::Words(_) | Payload::Strs => "Int".into(),
+        // A `Vec` is an `Int` handle in the stdlib, whatever it holds.
+        Payload::Words(_) | Payload::WordLists(_) | Payload::Strs | Payload::Records(_) => {
+            "Int".into()
+        }
         Payload::Opaque(o) => o.name.clone(),
         Payload::Record(r) => r.name.clone(),
     }
@@ -611,14 +681,18 @@ fn param_raw_type(p: &Param) -> String {
         Param::Scalar(s) => s.axiom_type().to_string(),
         Param::Str | Param::Bytes => "String".into(),
         Param::Opaque { .. } => "Foreign".into(),
-        Param::Words(_) | Param::Strs => "Int".into(),
+        Param::Words(_)
+        | Param::MutWords(_)
+        | Param::WordLists(_)
+        | Param::Strs
+        | Param::Records(_) => "Int".into(),
         Param::Callback(n) => callback_type(*n),
         Param::Record(r) => r.name.clone(),
     }
 }
 
-/// How a field word reads back as its Axiom type: a Float or Bool is
-/// the word reinterpreted, an Int is the word.
+/// How a field word reads back as its Axiom type: a Float, Bool or
+/// Char is the word reinterpreted, an Int is the word.
 fn field_from_word(scalar: Scalar, word: Ex) -> Ex {
     match scalar.axiom_type() {
         "Int" => word,
@@ -639,6 +713,98 @@ fn record_from_cell(r: &RecordTy, binds: &mut Vec<(String, Ex)>) {
     binds.push(("__r".into(), app(ctor)));
 }
 
+/// `__pointFromWords`: the module-private loop that rebuilds a `Vec`
+/// of `Point`s from the `n * ARITY` words a shim answered.
+fn from_words_name(record: &str) -> String {
+    format!("__{}FromWords", lower_first(record))
+}
+
+/// `__pointToWords`: the module-private loop that flattens a `Vec` of
+/// `Point`s into `ARITY` words per element for a shim.
+fn to_words_name(record: &str) -> String {
+    format!("__{}ToWords", lower_first(record))
+}
+
+/// The signature and body of the rebuild loop:
+///
+/// ```text
+/// (:: __pointFromWords (-> Int Int Int Int Int))
+/// (fn (__pointFromWords __v __p __n __i)
+///   (if (>= __i __n) __v
+///     (let ((__w0 (ffiWordAt __p (* __i 2))) (__w1 (cast Float ..)))
+///       { (vecPush __v (Point __w0 __w1)) (__pointFromWords __v __p __n (+ __i 1)) })))
+/// ```
+fn record_from_words_loop(r: &RecordTy) -> (String, String) {
+    let name = from_words_name(&r.name);
+    let arity = r.arity();
+    let mut binds: Vec<(String, Ex)> = Vec::new();
+    let mut ctor = vec![atom(&r.name)];
+    for (j, f) in r.fields.iter().enumerate() {
+        let base = if arity == 1 {
+            atom("__i")
+        } else {
+            app(vec![atom("*"), atom("__i"), atom(&arity.to_string())])
+        };
+        let index = if j == 0 { base } else { app(vec![atom("+"), base, atom(&j.to_string())]) };
+        let w = format!("__w{j}");
+        binds.push((w.clone(), field_from_word(f.scalar, app(vec![atom("ffiWordAt"), atom("__p"), index]))));
+        ctor.push(atom(&w));
+    }
+    let step = Ex::Block(vec![
+        app(vec![atom("vecPush"), atom("__v"), app(ctor)]),
+        app(vec![atom(&name), atom("__v"), atom("__p"), atom("__n"), app(vec![atom("+"), atom("__i"), atom("1")])]),
+    ]);
+    let body = Ex::If(
+        Box::new(app(vec![atom(">="), atom("__i"), atom("__n")])),
+        Box::new(atom("__v")),
+        Box::new(Ex::Let(binds, Box::new(step))),
+    );
+    let params = ["__v", "__p", "__n", "__i"].map(String::from);
+    (
+        format!("(:: {name} (-> Int Int Int Int Int))"),
+        sexp::decl_private_fn(&name, &params, &body),
+    )
+}
+
+/// The signature and body of the flatten loop:
+///
+/// ```text
+/// (:: __pointToWords (-> Int Int Int Int))
+/// (fn (__pointToWords __ps __w __i)
+///   (if (>= __i (vecLen __ps)) __w
+///     (match (vecGet __ps __i)
+///       ((Point __f0 __f1)
+///         { (vecPush __w __f0) (vecPush __w __f1) (__pointToWords __ps __w (+ __i 1)) }))))
+/// ```
+///
+/// Each field is pushed as the word it already is (`vecPush` is
+/// polymorphic in its element, and a Float, Bool or Char IS its word),
+/// which is what the shim's `from_words` reads back.
+fn record_to_words_loop(r: &RecordTy) -> (String, String) {
+    let name = to_words_name(&r.name);
+    let mut pat = vec![atom(&r.name)];
+    let mut stmts: Vec<Ex> = Vec::new();
+    for j in 0..r.arity() {
+        let f = format!("__f{j}");
+        stmts.push(app(vec![atom("vecPush"), atom("__w"), atom(&f)]));
+        pat.push(atom(&f));
+    }
+    stmts.push(app(vec![atom(&name), atom("__ps"), atom("__w"), app(vec![atom("+"), atom("__i"), atom("1")])]));
+    let body = Ex::If(
+        Box::new(app(vec![atom(">="), atom("__i"), app(vec![atom("vecLen"), atom("__ps")])])),
+        Box::new(atom("__w")),
+        Box::new(Ex::Match(
+            Box::new(app(vec![atom("vecGet"), atom("__ps"), atom("__i")])),
+            vec![(app(pat), Ex::Block(stmts))],
+        )),
+    );
+    let params = ["__ps", "__w", "__i"].map(String::from);
+    (
+        format!("(:: {name} (-> Int Int Int Int))"),
+        sexp::decl_private_fn(&name, &params, &body),
+    )
+}
+
 /// `(-> Int Int)` for one argument, and so on: the arrow type a
 /// callback parameter carries on both the raw item and the wrapper.
 fn callback_type(arity: u8) -> String {
@@ -650,15 +816,56 @@ fn callback_type(arity: u8) -> String {
     t
 }
 
-/// The Ffi.ax pair that builds an Axiom value from a cell-carried
-/// collection and frees the Rust side: `(build, free)`.
-fn collection_helpers(p: &Payload) -> (&'static str, &'static str) {
-    match p {
-        Payload::Bytes => ("ffiBytesToStr", "ffiFreeBytes"),
-        Payload::Words(_) => ("ffiWordsToVec", "ffiFreeWords"),
-        Payload::Strs => ("ffiStrsToVec", "ffiFreeStrList"),
+/// Whether a payload rides the cell as a `(ptr, n)` pair the wrapper
+/// copies out of and then frees.
+fn is_collection(p: &Payload) -> bool {
+    matches!(
+        p,
+        Payload::Bytes | Payload::Words(_) | Payload::WordLists(_) | Payload::Strs | Payload::Records(_)
+    )
+}
+
+/// The expression that builds the Axiom value of a cell-carried
+/// collection from `__p` and `__n`: an Ffi.ax helper, or for a `Vec`
+/// of records the module's own rebuild loop over a fresh `Vec`.
+fn collection_build(p: &Payload) -> Ex {
+    let helper = match p {
+        Payload::Bytes => "ffiBytesToStr",
+        Payload::Words(_) => "ffiWordsToVec",
+        Payload::WordLists(_) => "ffiWordListsToVec",
+        Payload::Strs => "ffiStrsToVec",
+        Payload::Records(r) => {
+            return app(vec![
+                atom(&from_words_name(&r.name)),
+                app(vec![atom("vecWithCapacity"), atom("__n")]),
+                atom("__p"),
+                atom("__n"),
+                atom("0"),
+            ])
+        }
         _ => unreachable!("only collections ride the cell as (ptr, n)"),
-    }
+    };
+    app(vec![atom(helper), atom("__p"), atom("__n")])
+}
+
+/// The expression that frees the Rust side of a cell-carried
+/// collection: a `Vec` of records is `n * ARITY` words.
+fn collection_free(p: &Payload) -> Ex {
+    let helper = match p {
+        Payload::Bytes => "ffiFreeBytes",
+        Payload::Words(_) => "ffiFreeWords",
+        Payload::WordLists(_) => "ffiFreeWordLists",
+        Payload::Strs => "ffiFreeStrList",
+        Payload::Records(r) => {
+            return app(vec![
+                atom("ffiFreeWords"),
+                atom("__p"),
+                app(vec![atom("*"), atom("__n"), atom(&r.arity().to_string())]),
+            ])
+        }
+        _ => unreachable!("only collections ride the cell as (ptr, n)"),
+    };
+    app(vec![atom(helper), atom("__p"), atom("__n")])
 }
 
 /// The payload a direct cell-carried return carries.
@@ -666,8 +873,10 @@ fn direct_payload(r: &Ret) -> Payload {
     match r {
         Ret::Bytes => Payload::Bytes,
         Ret::Words(s) => Payload::Words(*s),
+        Ret::WordLists(s) => Payload::WordLists(*s),
         Ret::Strs => Payload::Strs,
         Ret::Record(r) => Payload::Record(r.clone()),
+        Ret::Records(r) => Payload::Records(r.clone()),
         _ => unreachable!("not a direct cell-carried return"),
     }
 }
@@ -675,10 +884,8 @@ fn direct_payload(r: &Ret) -> Payload {
 /// The cell a wrapper allocates: `ffiCellNew` for the two-word
 /// protocols, `(ffiCellNewN n)` for a record of `n` words.
 fn cell_new(ret: &Ret) -> Ex {
-    let record = matches!(
-        ret,
-        Ret::Record(_) | Ret::Result(Payload::Record(_)) | Ret::Option(Payload::Record(_))
-    );
+    let record = matches!(ret, Ret::Record(_))
+        || matches!(ret.status_payload(), Some(Payload::Record(_)));
     if record {
         app(vec![atom("ffiCellNewN"), atom(&ret.cell_words().to_string())])
     } else {
@@ -690,9 +897,43 @@ fn cell_new(ret: &Ret) -> Ex {
 fn element_note(scalar: Scalar) -> String {
     match scalar {
         Scalar::I64 => "Int".into(),
+        Scalar::U64 => "u64 (the word's bits, unsigned)".into(),
         Scalar::F64 | Scalar::F32 => format!("Float bits ({})", scalar.rust_name()),
         Scalar::Bool => "Bool (0/1)".into(),
+        Scalar::Char => "Char (code points)".into(),
         other => format!("{} (each word range-checked)", other.rust_name()),
+    }
+}
+
+/// The constructor applications of a status return: `ok` wraps the
+/// payload, `none` and `err` (over `__m`) are the other two states;
+/// a plain `Result` has no `none`, a plain `Option` no `err`.
+struct StatusCtors {
+    ok: fn(Ex) -> Ex,
+    none: Option<Ex>,
+    err: Option<Ex>,
+}
+
+fn status_ctors(ret: &Ret) -> StatusCtors {
+    fn ok(v: Ex) -> Ex {
+        app(vec![atom("Ok"), v])
+    }
+    fn some(v: Ex) -> Ex {
+        app(vec![atom("Some"), v])
+    }
+    fn ok_some(v: Ex) -> Ex {
+        ok(some(v))
+    }
+    fn some_ok(v: Ex) -> Ex {
+        some(ok(v))
+    }
+    let err = app(vec![atom("Err"), atom("__m")]);
+    match ret {
+        Ret::Result(_) => StatusCtors { ok, none: None, err: Some(err) },
+        Ret::Option(_) => StatusCtors { ok: some, none: Some(atom("None")), err: None },
+        Ret::ResultOption(_) => StatusCtors { ok: ok_some, none: Some(ok(atom("None"))), err: Some(err) },
+        Ret::OptionResult(_) => StatusCtors { ok: some_ok, none: Some(atom("None")), err: Some(some(err)) },
+        _ => unreachable!("not a status return"),
     }
 }
 
@@ -708,7 +949,7 @@ impl Decl {
             || self
                 .params
                 .iter()
-                .any(|(_, p)| matches!(p, Param::Opaque { .. } | Param::Record(_)))
+                .any(|(_, p)| matches!(p, Param::Opaque { .. } | Param::Record(_) | Param::Records(_)))
     }
 
     fn raw_name(&self) -> String {
@@ -748,11 +989,12 @@ impl Decl {
         let ret = match &self.ret {
             Ret::Scalar(s) => s.axiom_type().to_string(),
             Ret::Opaque(o) => o.name.clone(),
-            Ret::Bytes | Ret::Words(_) | Ret::Strs | Ret::Record(_) => {
-                payload_axiom_type(&direct_payload(&self.ret))
-            }
+            Ret::Bytes | Ret::Words(_) | Ret::WordLists(_) | Ret::Strs | Ret::Record(_)
+            | Ret::Records(_) => payload_axiom_type(&direct_payload(&self.ret)),
             Ret::Result(p) => format!("(Result {} String)", payload_axiom_type(p)),
             Ret::Option(p) => format!("(Option {})", payload_axiom_type(p)),
+            Ret::ResultOption(p) => format!("(Result (Option {}) String)", payload_axiom_type(p)),
+            Ret::OptionResult(p) => format!("(Option (Result {} String))", payload_axiom_type(p)),
         };
         arrow(&ps, &ret)
     }
@@ -767,17 +1009,39 @@ impl Decl {
                 Param::Words(s) if *s != Scalar::I64 => {
                     out.push(format!("`{name}` reads `{pname}` as a Vec of {};", element_note(*s)))
                 }
+                Param::MutWords(s) => out.push(format!(
+                    "`{name}` writes `{pname}` in place, a Vec of {};",
+                    element_note(*s)
+                )),
+                Param::WordLists(s) => out.push(format!(
+                    "`{name}` reads `{pname}` as a Vec of Vecs of {};",
+                    element_note(*s)
+                )),
                 Param::Strs => out.push(format!("`{name}` reads `{pname}` as a Vec of String;")),
+                Param::Records(r) => out.push(format!(
+                    "`{name}` reads `{pname}` as a Vec of {} (flattened to {} words per \
+                     element for the call);",
+                    r.name,
+                    r.arity()
+                )),
                 _ => {}
             }
         }
-        let result = match &self.ret {
-            Ret::Words(s) => Some(*s),
-            Ret::Result(Payload::Words(s)) | Ret::Option(Payload::Words(s)) => Some(*s),
-            _ => None,
+        let answered = match &self.ret {
+            Ret::Words(s) => Some(Payload::Words(*s)),
+            Ret::WordLists(s) => Some(Payload::WordLists(*s)),
+            Ret::Records(r) => Some(Payload::Records(r.clone())),
+            other => other.status_payload().cloned(),
         };
-        if let Some(s) = result.filter(|s| *s != Scalar::I64) {
-            out.push(format!("`{name}` answers a Vec of {};", element_note(s)));
+        match answered {
+            Some(Payload::Words(s)) if s != Scalar::I64 => {
+                out.push(format!("`{name}` answers a Vec of {};", element_note(s)))
+            }
+            Some(Payload::WordLists(s)) => {
+                out.push(format!("`{name}` answers a Vec of Vecs of {};", element_note(s)))
+            }
+            Some(Payload::Records(r)) => out.push(format!("`{name}` answers a Vec of {};", r.name)),
+            _ => {}
         }
         out
     }
@@ -816,12 +1080,33 @@ impl Decl {
                     }
                     matches.push((name.clone(), app(pat)));
                 }
+                Param::Records(r) => {
+                    // Flattened into a fresh words Vec of ARITY words
+                    // per element, which the shim chunks back.
+                    let a = format!("__a{i}");
+                    let cap = app(vec![
+                        atom("*"),
+                        app(vec![atom("vecLen"), atom(name)]),
+                        atom(&r.arity().to_string()),
+                    ]);
+                    binds.push((
+                        a.clone(),
+                        app(vec![
+                            atom(&to_words_name(&r.name)),
+                            atom(name),
+                            app(vec![atom("vecWithCapacity"), cap]),
+                            atom("0"),
+                        ]),
+                    ));
+                    args.push(atom(&a));
+                }
                 _ => args.push(atom(name)),
             }
         }
         let raw = self.raw_name();
         let mut call = vec![atom(&raw)];
         call.extend(args);
+        let cell_free = app(vec![atom("ffiCellFree"), atom("__c")]);
 
         let body = match &self.ret {
             Ret::Scalar(_) => {
@@ -841,94 +1126,90 @@ impl Decl {
                 binds.push(("__c".into(), cell_new(&self.ret)));
                 binds.push(("__st".into(), app(call)));
                 record_from_cell(r, &mut binds);
-                Ex::Let(
-                    binds,
-                    Box::new(Ex::Block(vec![
-                        app(vec![atom("ffiCellFree"), atom("__c")]),
-                        atom("__r"),
-                    ])),
-                )
+                Ex::Let(binds, Box::new(Ex::Block(vec![cell_free, atom("__r")])))
             }
-            Ret::Bytes | Ret::Words(_) | Ret::Strs => {
-                let (build, free) = collection_helpers(&direct_payload(&self.ret));
+            Ret::Bytes | Ret::Words(_) | Ret::WordLists(_) | Ret::Strs | Ret::Records(_) => {
+                let payload = direct_payload(&self.ret);
                 call.push(atom("__c"));
                 binds.push(("__c".into(), atom("ffiCellNew")));
                 binds.push(("__st".into(), app(call)));
                 binds.push(("__p".into(), app(vec![atom("ffiCellWord"), atom("__c"), atom("0")])));
                 binds.push(("__n".into(), app(vec![atom("ffiCellWord"), atom("__c"), atom("1")])));
-                binds.push(("__v".into(), app(vec![atom(build), atom("__p"), atom("__n")])));
+                binds.push(("__v".into(), collection_build(&payload)));
                 Ex::Let(
                     binds,
-                    Box::new(Ex::Block(vec![
-                        app(vec![atom(free), atom("__p"), atom("__n")]),
-                        app(vec![atom("ffiCellFree"), atom("__c")]),
-                        atom("__v"),
-                    ])),
+                    Box::new(Ex::Block(vec![collection_free(&payload), cell_free, atom("__v")])),
                 )
             }
-            Ret::Result(p) | Ret::Option(p) => {
-                let is_result = matches!(self.ret, Ret::Result(_));
+            Ret::Result(p) | Ret::Option(p) | Ret::ResultOption(p) | Ret::OptionResult(p) => {
+                let ctors = status_ctors(&self.ret);
                 call.push(atom("__c"));
                 binds.push(("__c".into(), cell_new(&self.ret)));
                 binds.push(("__st".into(), app(call)));
                 binds.push(("__p".into(), app(vec![atom("ffiCellWord"), atom("__c"), atom("0")])));
                 binds.push(("__n".into(), app(vec![atom("ffiCellWord"), atom("__c"), atom("1")])));
-                let ctor = if is_result { "Ok" } else { "Some" };
-                // A Float payload is the word reinterpreted. The cast is
-                // bound up front (harmless on the error path, where the
-                // word is a pointer nothing reads as a Float) so the
-                // `Ok`/`Some` application stays on one line. A record
-                // is rebuilt up front the same way: on the other path
-                // the cell holds a message or zeros, read by nothing.
+                // A Float or Char payload is the word reinterpreted.
+                // The cast is bound up front (harmless on the other
+                // paths, where the word is a pointer or zero nothing
+                // reads as that type) so the constructor application
+                // stays on one line. A record is rebuilt up front the
+                // same way: on the other paths the cell holds a
+                // message or zeros, read by nothing.
                 if matches!(p, Payload::Scalar(s) if s.is_float()) {
                     binds.push(("__f".into(), Ex::Cast("Float".into(), Box::new(atom("__p")))));
+                }
+                if matches!(p, Payload::Scalar(Scalar::Char)) {
+                    binds.push(("__ch".into(), Ex::Cast("Char".into(), Box::new(atom("__p")))));
                 }
                 if let Payload::Record(r) = p {
                     record_from_cell(r, &mut binds);
                 }
-                let ok = match p {
-                    Payload::Bytes | Payload::Words(_) | Payload::Strs => {
-                        let (build, free) = collection_helpers(p);
-                        Ex::Let(
-                            vec![("__v".into(), app(vec![atom(build), atom("__p"), atom("__n")]))],
-                            Box::new(Ex::Block(vec![
-                                app(vec![atom(free), atom("__p"), atom("__n")]),
-                                app(vec![atom("ffiCellFree"), atom("__c")]),
-                                app(vec![atom(ctor), atom("__v")]),
-                            ])),
-                        )
-                    }
-                    other => {
-                        let value = match other {
-                            Payload::Scalar(s) if s.is_float() => atom("__f"),
-                            Payload::Scalar(Scalar::Bool) => {
-                                app(vec![atom("!="), atom("__p"), atom("0")])
-                            }
-                            Payload::Scalar(_) => atom("__p"),
-                            Payload::Opaque(o) => app(vec![
-                                atom(&o.name),
-                                app(vec![atom("ffiHandleNew"), atom("__p"), atom(&drop_fn_name(&o.name))]),
-                            ]),
-                            Payload::Record(_) => atom("__r"),
-                            Payload::Bytes | Payload::Words(_) | Payload::Strs => unreachable!(),
-                        };
-                        Ex::Block(vec![
-                            app(vec![atom("ffiCellFree"), atom("__c")]),
-                            app(vec![atom(ctor), value]),
-                        ])
-                    }
+                let ok = if is_collection(p) {
+                    Ex::Let(
+                        vec![("__v".into(), collection_build(p))],
+                        Box::new(Ex::Block(vec![
+                            collection_free(p),
+                            cell_free.clone(),
+                            (ctors.ok)(atom("__v")),
+                        ])),
+                    )
+                } else {
+                    let value = match p {
+                        Payload::Scalar(s) if s.is_float() => atom("__f"),
+                        Payload::Scalar(Scalar::Char) => atom("__ch"),
+                        Payload::Scalar(Scalar::Bool) => app(vec![atom("!="), atom("__p"), atom("0")]),
+                        Payload::Scalar(_) => atom("__p"),
+                        Payload::Opaque(o) => app(vec![
+                            atom(&o.name),
+                            app(vec![atom("ffiHandleNew"), atom("__p"), atom(&drop_fn_name(&o.name))]),
+                        ]),
+                        Payload::Record(_) => atom("__r"),
+                        _ => unreachable!("collections are built above"),
+                    };
+                    Ex::Block(vec![cell_free.clone(), (ctors.ok)(value)])
                 };
-                let not_ok = if is_result {
+                // Status 1: the message's bytes, copied then freed.
+                let err = ctors.err.map(|e| {
                     Ex::Let(
                         vec![("__m".into(), app(vec![atom("ffiBytesToStr"), atom("__p"), atom("__n")]))],
                         Box::new(Ex::Block(vec![
                             app(vec![atom("ffiFreeBytes"), atom("__p"), atom("__n")]),
-                            app(vec![atom("ffiCellFree"), atom("__c")]),
-                            app(vec![atom("Err"), atom("__m")]),
+                            cell_free.clone(),
+                            e,
                         ])),
                     )
-                } else {
-                    Ex::Block(vec![app(vec![atom("ffiCellFree"), atom("__c")]), atom("None")])
+                });
+                // Status 2: nothing in the cell.
+                let none = ctors.none.map(|n| Ex::Block(vec![cell_free.clone(), n]));
+                let not_ok = match (none, err) {
+                    (Some(n), Some(e)) => Ex::If(
+                        Box::new(app(vec![atom("=="), atom("__st"), atom("2")])),
+                        Box::new(n),
+                        Box::new(e),
+                    ),
+                    (Some(n), None) => n,
+                    (None, Some(e)) => e,
+                    (None, None) => unreachable!("a status return has a second state"),
                 };
                 Ex::Let(
                     binds,

@@ -511,4 +511,25 @@ impl<'a> AxVec<'a> {
         // SAFETY: Axiom guarantees `len` readable words at `data`.
         unsafe { slice::from_raw_parts(r.data, r.len as usize) }
     }
+
+    /// The live words, borrowed mutably: what a `&mut [i64]` parameter
+    /// writes through. Still the data block Axiom holds, so a write is
+    /// visible to the Axiom caller the moment the shim returns - that
+    /// is the point. The vector's length and capacity are not touched.
+    ///
+    /// # Safety
+    /// No other view of the vector's words may be live: Axiom has no
+    /// threads (MM-PAR-1), so the only way to alias is to pass the same
+    /// `Vec` twice in one call.
+    #[inline]
+    pub unsafe fn as_mut_slice(self) -> &'a mut [i64] {
+        let r = self.repr();
+        if r.len <= 0 || r.data.is_null() {
+            return &mut [];
+        }
+        // SAFETY: the data block is `cap` words of Axiom heap memory
+        // the caller owns, `len` of them live; the from_raw contract
+        // plus this function's own makes the exclusive borrow sound.
+        slice::from_raw_parts_mut(r.data as *mut i64, r.len as usize)
+    }
 }

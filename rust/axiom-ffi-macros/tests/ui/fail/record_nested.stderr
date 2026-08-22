@@ -1,4 +1,4 @@
-error: field `from: Point` is not a word scalar (a nested record or an opaque handle does not cross as a field: flatten the words into this record, or hold the value in an `#[axiom_opaque]` type); an `#[axiom_record]` field must be one of: i64 i32 i16 i8 u32 u16 u8 usize isize bool f64 f32
+error: field `from: Point` is not a word scalar (a nested record or an opaque handle does not cross as a field: flatten the words into this record, or hold the value in an `#[axiom_opaque]` type); an `#[axiom_record]` field must be one of: i64 i32 i16 i8 u64 u32 u16 u8 usize isize bool char f64 f32
   --> tests/ui/fail/record_nested.rs:12:15
    |
 12 |     pub from: Point,

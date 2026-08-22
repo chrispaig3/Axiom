@@ -176,6 +176,110 @@ pub fn concat(parts: &[&str]) -> String {
     parts.concat()
 }
 
+/// `char` and `u64` as words: `Char` on the raw item, `Int` for the
+/// bits; a `Vec<char>` result and a `&[char]` parameter are the words
+/// path with an element note; a `Char` payload is cast.
+#[axiom_export]
+pub fn next_char(c: char) -> char {
+    char::from_u32(c as u32 + 1).unwrap_or(c)
+}
+
+#[axiom_export]
+pub fn wrap_u64(x: u64) -> u64 {
+    x.wrapping_add(1)
+}
+
+#[axiom_export]
+pub fn chars_of(text: &str) -> Vec<char> {
+    text.chars().collect()
+}
+
+#[axiom_export]
+pub fn from_chars(cs: &[char]) -> String {
+    cs.iter().collect()
+}
+
+#[axiom_export]
+pub fn maybe_char(c: char) -> Option<char> {
+    (c != 'x').then_some(c)
+}
+
+/// A record with a `char` and a `u64` field: `Char` and `Int`.
+#[axiom_ffi::axiom_record]
+pub struct Glyph {
+    pub c: char,
+    pub code: u64,
+}
+
+#[axiom_export]
+pub fn glyph_of(c: char) -> Glyph {
+    Glyph { c, code: c as u64 }
+}
+
+/// Records in Vecs: `__pixelFromWords` / `__pixelToWords` loops, a
+/// flattened argument, `(ffiFreeWords __p (* __n 3))`.
+#[axiom_export]
+pub fn pixels_dim(ps: &[Pixel], by: i32) -> Vec<Pixel> {
+    ps.iter().map(|p| Pixel { level: p.level - by, weight: p.weight, on: p.on }).collect()
+}
+
+#[axiom_export]
+pub fn pixels_try(ps: &[Pixel]) -> Result<Vec<Pixel>, String> {
+    if ps.is_empty() { Err("none".into()) } else { Ok(pixels_dim(ps, 0)) }
+}
+
+#[axiom_export]
+pub fn glyphs_maybe(n: i64) -> Option<Vec<Glyph>> {
+    (n > 0).then(|| vec![Glyph { c: 'a', code: n as u64 }])
+}
+
+/// Nested Vecs: `ffiWordListsToVec` / `ffiFreeWordLists`, a `Vec` of
+/// `Vec` handles in.
+#[axiom_export]
+pub fn grid(n: i64) -> Vec<Vec<i64>> {
+    (0..n).map(|r| (0..n).map(|c| r * n + c).collect()).collect()
+}
+
+#[axiom_export]
+pub fn sum_rows(rows: &[&[i64]]) -> i64 {
+    rows.iter().map(|r| r.iter().sum::<i64>()).sum()
+}
+
+#[axiom_export]
+pub fn try_grid_f64(n: i64) -> Result<Vec<Vec<f64>>, String> {
+    if n < 0 { Err("negative".into()) } else { Ok(vec![vec![0.5; n as usize]]) }
+}
+
+/// A mutable slice: the `Vec` handle, written in place, bound raw.
+#[axiom_export]
+pub fn double_in_place(xs: &mut [i64]) -> i64 {
+    for x in xs.iter_mut() {
+        *x *= 2;
+    }
+    xs.len() as i64
+}
+
+/// Nested fallible results: the constructors nest over three statuses.
+#[axiom_export]
+pub fn maybe_parse(text: &str) -> Result<Option<i64>, String> {
+    if text.is_empty() { Ok(None) } else { text.parse().map(Some).map_err(|e: std::num::ParseIntError| e.to_string()) }
+}
+
+#[axiom_export]
+pub fn lookup(i: i64) -> Option<Result<Thing, String>> {
+    match i { 0 => None, i if i > 0 => Some(Ok(Thing { n: i })), _ => Some(Err("neg".into())) }
+}
+
+#[axiom_export]
+pub fn maybe_pixel_try(n: i64) -> Result<Option<Pixel>, String> {
+    match n { 0 => Ok(None), n if n > 0 => Ok(Some(pixel_off())), _ => Err("neg".into()) }
+}
+
+#[axiom_export]
+pub fn pieces_lookup(text: &str) -> Option<Result<Vec<String>, String>> {
+    if text.is_empty() { None } else { Some(Ok(pieces(text))) }
+}
+
 /// Not `pub`: the macro would refuse it, and bindgen skips it.
 #[axiom_export]
 fn hidden(n: i64) -> i64 {

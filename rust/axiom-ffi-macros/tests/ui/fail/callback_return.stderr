@@ -1,4 +1,4 @@
-error: `axiom_ffi::AxFn1` is not supported as an `#[axiom_export]` return type (a callback is borrowed from the Axiom caller for the call and cannot be handed back; answer a word); the supported return types are: i64 i32 i16 i8 u32 u16 u8 usize isize bool f64 f32 () String Vec<u8> Vec<T> (T a word scalar) Vec<String> Option<T> Result<T, E> T (T marked `#[axiom_opaque]` or `#[axiom_record]`; E: Display)
+error: `axiom_ffi::AxFn1` is not supported as an `#[axiom_export]` return type (a callback is borrowed from the Axiom caller for the call and cannot be handed back; answer a word); the supported return types are: i64 i32 i16 i8 u64 u32 u16 u8 usize isize bool char f64 f32 () String Vec<u8> Vec<T> Vec<Vec<T>> (T a word scalar) Vec<String> Option<T> Result<T, E> Result<Option<T>, E> Option<Result<T, E>> T (T marked `#[axiom_opaque]` or `#[axiom_record]`) Vec<T> (T marked `#[axiom_record]`; E: Display)
  --> tests/ui/fail/callback_return.rs:5:34
   |
 5 | pub fn f(g: axiom_ffi::AxFn1) -> axiom_ffi::AxFn1 {

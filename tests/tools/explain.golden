@@ -828,9 +828,12 @@ meaning both sides agree on: `Int`, `Float` (its IEEE-754 bits), `Bool`,
 `Char`, `String` (a handle Rust reads zero-copy) and `Foreign` (a word
 Rust owns).
 
-A type variable, a tuple, a list, a function-typed argument, or a declared
-type - `(Option Int)`, `(Result a e)`, `Handle`, a user `data` or `struct` -
-has no crossing the emitter could write. Until 2026-08-22 such a signature
+A type variable, a tuple, a list, a function-typed argument whose leaves
+are not all words (a callback is an arrow over `Int`, `Float`, `Bool` and
+`Char`, arity one to three - `(-> Int Float)` - and crosses as the closure
+record Rust calls through `AxFn1`..`AxFn3`), or a declared type -
+`(Option Int)`, `(Result a e)`, `Handle`, a user `data` or `struct` - has no
+crossing the emitter could write. Until 2026-08-22 such a signature
 was accepted as written, and every caller then trusted a description the
 boundary could not honour.
 

@@ -28,6 +28,7 @@ pub struct Point {
 }
 
 #[axiom_record]
+#[derive(Clone)]
 pub struct Mixed {
     pub a: i32,
     pub b: u8,
@@ -226,6 +227,141 @@ pub fn try_range(n: i64) -> Result<Vec<i64>, String> {
 #[axiom_export]
 pub fn maybe_words(s: &str) -> Option<Vec<String>> {
     if s.is_empty() { None } else { Some(words(s)) }
+}
+
+// `char` and `u64` as words: parameters, returns, record fields, Vec
+// elements, slice elements and payloads.
+#[axiom_export]
+pub fn next_char(c: char) -> char { char::from_u32(c as u32 + 1).unwrap_or(c) }
+
+#[axiom_export]
+pub fn wrap_u64(x: u64) -> u64 { x.wrapping_add(1) }
+
+#[axiom_export]
+pub fn chars_of(s: &str) -> Vec<char> { s.chars().collect() }
+
+#[axiom_export]
+pub fn from_chars(cs: &[char]) -> String { cs.iter().collect() }
+
+#[axiom_export]
+pub fn sum_u64(xs: &[u64]) -> u64 { xs.iter().fold(0u64, |a, b| a.wrapping_add(*b)) }
+
+#[axiom_export]
+pub fn big(n: i64) -> Vec<u64> { (0..n).map(|i| u64::MAX - i as u64).collect() }
+
+#[axiom_export]
+pub fn maybe_char(c: char) -> Option<char> { (c != 'x').then_some(c) }
+
+#[axiom_export]
+pub fn try_u64(s: &str) -> Result<u64, String> { s.parse::<u64>().map_err(|e| e.to_string()) }
+
+#[axiom_record]
+pub struct Glyph {
+    pub c: char,
+    pub code: u64,
+}
+
+#[axiom_export]
+pub fn glyph_of(c: char) -> Glyph { Glyph { c, code: c as u64 } }
+
+#[axiom_export]
+pub fn glyph_code(g: Glyph) -> u64 { g.code.wrapping_add(g.c as u64) }
+
+// Records in Vecs, each way, bare and behind a status.
+#[axiom_export]
+pub fn points_scale(ps: &[Point], k: i64) -> Vec<Point> {
+    ps.iter().map(|p| Point { x: p.x * k, y: p.y * k as f64 }).collect()
+}
+
+#[axiom_export]
+pub fn points_try(ps: &[Point]) -> Result<Vec<Point>, String> {
+    if ps.is_empty() { Err("no points".into()) } else { Ok(points_scale(ps, 1)) }
+}
+
+#[axiom_export]
+pub fn points_maybe(n: i64) -> Option<Vec<Point>> {
+    (n >= 0).then(|| (0..n).map(|i| Point { x: i, y: 0.5 }).collect())
+}
+
+#[axiom_export]
+pub fn mixed_all(ms: &[Mixed]) -> Vec<Mixed> { ms.to_vec() }
+
+// Nested Vecs over word scalars: in place for i64/f64/u64, converted
+// for the rest.
+#[axiom_export]
+pub fn grid(n: i64) -> Vec<Vec<i64>> { (0..n).map(|r| (0..n).map(|c| r * n + c).collect()).collect() }
+
+#[axiom_export]
+pub fn grid_f32(n: i64) -> Vec<Vec<f32>> { (0..n).map(|r| vec![r as f32 / 2.0; 2]).collect() }
+
+#[axiom_export]
+pub fn sum_rows(rows: &[&[i64]]) -> i64 { rows.iter().map(|r| r.iter().sum::<i64>()).sum() }
+
+#[axiom_export]
+pub fn sum_rows_f64(rows: &[&[f64]]) -> f64 { rows.iter().map(|r| r.iter().sum::<f64>()).sum() }
+
+#[axiom_export]
+pub fn sum_rows_u64(rows: &[&[u64]]) -> u64 { rows.iter().flat_map(|r| r.iter()).fold(0u64, |a, b| a.wrapping_add(*b)) }
+
+#[axiom_export]
+pub fn count_rows_true(rows: &[&[bool]]) -> i64 {
+    rows.iter().map(|r| r.iter().filter(|b| **b).count() as i64).sum()
+}
+
+#[axiom_export]
+pub fn try_grid(n: i64) -> Result<Vec<Vec<i64>>, String> {
+    if n < 0 { Err("negative".into()) } else { Ok(grid(n)) }
+}
+
+// Mutable slices, in place.
+#[axiom_export]
+pub fn double_in_place(xs: &mut [i64]) -> i64 {
+    for x in xs.iter_mut() { *x *= 2; }
+    xs.len() as i64
+}
+
+#[axiom_export]
+pub fn halve_in_place(xs: &mut [f64]) {
+    for x in xs.iter_mut() { *x /= 2.0; }
+}
+
+#[axiom_export]
+pub fn bump_in_place(xs: &mut [u64]) -> u64 {
+    for x in xs.iter_mut() { *x = x.wrapping_add(1); }
+    xs.iter().copied().fold(0u64, u64::wrapping_add)
+}
+
+// Nested fallible results over the three statuses.
+#[axiom_export]
+pub fn maybe_parse(s: &str) -> Result<Option<i64>, String> {
+    let s = s.trim();
+    if s.is_empty() { return Ok(None); }
+    s.parse::<i64>().map(Some).map_err(|e| e.to_string())
+}
+
+#[axiom_export]
+pub fn lookup(i: i64) -> Option<Result<i64, String>> {
+    match i { 0 => None, i if i > 0 => Some(Ok(i * 10)), i => Some(Err(format!("negative {i}"))) }
+}
+
+#[axiom_export]
+pub fn maybe_point(i: i64) -> Result<Option<Point>, String> {
+    match i { 0 => Ok(None), i if i > 0 => Ok(Some(Point { x: i, y: 1.5 })), _ => Err("neg".into()) }
+}
+
+#[axiom_export]
+pub fn find_thing(i: i64) -> Option<Result<Thing, String>> {
+    match i { 0 => None, i if i > 0 => Some(Ok(Thing { n: i })), _ => Some(Err("neg".into())) }
+}
+
+#[axiom_export]
+pub fn maybe_words_try(s: &str) -> Result<Option<Vec<i64>>, String> {
+    if s.is_empty() { Ok(None) } else { Ok(Some(vec![s.len() as i64])) }
+}
+
+#[axiom_export]
+pub fn text_lookup(s: &str) -> Option<Result<String, String>> {
+    if s.is_empty() { None } else { Some(Ok(s.to_uppercase())) }
 }
 
 /// What the compiler emits for `(lambda (x) (+ x k))` with `k` captured
@@ -495,8 +631,155 @@ fn main() {
     assert_eq!(axffi_try_flags(-1, cell_word(&mut cell)), AX_ERR);
     assert_eq!(take_bytes(&cell), b"negative");
 
+    // `char` and `u64`: the code point and the unsigned bits, in every
+    // position; a bad code point would abort (probed by the Axiom gate).
+    assert_eq!(axffi_next_char('a' as AxWord), 'b' as AxWord);
+    assert_eq!(axffi_wrap_u64(-1), 0);
+    assert_eq!(axffi_wrap_u64(5), 6);
+    let hi = AxStrRepr { len: 2, data: b"hi\0".as_ptr(), owner: 0 };
+    assert_eq!(axffi_chars_of(ax_str(&hi), cell_word(&mut cell)), AX_OK);
+    assert_eq!(take_words(&cell), vec!['h' as i64, 'i' as i64]);
+    let cdata = ['o' as i64, 'k' as i64];
+    let cvec = AxVecRepr { len: 2, cap: 2, data: cdata.as_ptr() };
+    assert_eq!(axffi_from_chars(&cvec as *const AxVecRepr as AxWord, cell_word(&mut cell)), AX_OK);
+    assert_eq!(take_bytes(&cell), b"ok");
+    let udata = [-1i64, 2];
+    let uvec = AxVecRepr { len: 2, cap: 2, data: udata.as_ptr() };
+    assert_eq!(axffi_sum_u64(&uvec as *const AxVecRepr as AxWord), 1);
+    assert_eq!(axffi_big(2, cell_word(&mut cell)), AX_OK);
+    assert_eq!(take_words(&cell), vec![-1, -2]);
+    assert_eq!(axffi_maybe_char('q' as AxWord, cell_word(&mut cell)), AX_OK);
+    assert_eq!(cell.payload, 'q' as AxWord);
+    assert_eq!(axffi_maybe_char('x' as AxWord, cell_word(&mut cell)), AX_NONE);
+    let huge = AxStrRepr { len: 20, data: b"18446744073709551615\0".as_ptr(), owner: 0 };
+    assert_eq!(axffi_try_u64(ax_str(&huge), cell_word(&mut cell)), AX_OK);
+    assert_eq!(cell.payload, -1);
+    assert_eq!(axffi_glyph_of('z' as AxWord, big_word), AX_OK);
+    assert_eq!((big[0], big[1]), ('z' as AxWord, 'z' as AxWord));
+    assert_eq!(axffi_glyph_code('z' as AxWord, -1), ('z' as u64).wrapping_add(u64::MAX) as AxWord);
+    assert_eq!(<Glyph as AxRecord>::ARITY, 2);
+
+    // Records in Vecs: `&[Point]` is ARITY words per element, chunked;
+    // `Vec<Point>` answers (ptr, n) over n * ARITY words.
+    let pdata = [1i64, 0.5f64.to_bits() as i64, -2, 1.25f64.to_bits() as i64];
+    let pvec = AxVecRepr { len: 4, cap: 4, data: pdata.as_ptr() };
+    let pvec_word = &pvec as *const AxVecRepr as AxWord;
+    assert_eq!(axffi_points_scale(pvec_word, 4, cell_word(&mut cell)), AX_OK);
+    assert_eq!(cell.extra, 2);
+    let scaled = unsafe { std::slice::from_raw_parts(cell.payload as *const i64, 4) }.to_vec();
+    unsafe { axiom_ffi::axffi_free_words(cell.payload as *mut i64, cell.extra * 2) };
+    assert_eq!(scaled, vec![4, 2.0f64.to_bits() as i64, -8, 5.0f64.to_bits() as i64]);
+    assert_eq!(axffi_points_try(pvec_word, cell_word(&mut cell)), AX_OK);
+    assert_eq!(cell.extra, 2);
+    unsafe { axiom_ffi::axffi_free_words(cell.payload as *mut i64, cell.extra * 2) };
+    assert_eq!(axffi_points_try(&empty_vec as *const AxVecRepr as AxWord, cell_word(&mut cell)), AX_ERR);
+    assert_eq!(take_bytes(&cell), b"no points");
+    assert_eq!(axffi_points_maybe(3, cell_word(&mut cell)), AX_OK);
+    assert_eq!(cell.extra, 3);
+    let three = unsafe { std::slice::from_raw_parts(cell.payload as *const i64, 6) }.to_vec();
+    unsafe { axiom_ffi::axffi_free_words(cell.payload as *mut i64, 6) };
+    assert_eq!(three[4], 2);
+    assert_eq!(axffi_points_maybe(-1, cell_word(&mut cell)), AX_NONE);
+    assert_eq!(axffi_points_maybe(0, cell_word(&mut cell)), AX_OK);
+    assert_eq!(cell.extra, 0);
+    unsafe { axiom_ffi::axffi_free_words(cell.payload as *mut i64, 0) };
+    let mdata = [-3i64, 7, 1, 1.5f64.to_bits() as i64, 9];
+    let mvec = AxVecRepr { len: 5, cap: 5, data: mdata.as_ptr() };
+    assert_eq!(axffi_mixed_all(&mvec as *const AxVecRepr as AxWord, cell_word(&mut cell)), AX_OK);
+    assert_eq!(cell.extra, 1);
+    let back = unsafe { std::slice::from_raw_parts(cell.payload as *const i64, 5) }.to_vec();
+    unsafe { axiom_ffi::axffi_free_words(cell.payload as *mut i64, 5) };
+    assert_eq!(back, mdata);
+
+    // Nested Vecs: (pairs, n) out, a Vec of Vec handles in.
+    assert_eq!(axffi_grid(2, cell_word(&mut cell)), AX_OK);
+    assert_eq!(cell.extra, 2);
+    let pairs = unsafe { std::slice::from_raw_parts(cell.payload as *const i64, 4) }.to_vec();
+    let row1 = unsafe { std::slice::from_raw_parts(pairs[2] as *const i64, pairs[3] as usize) }.to_vec();
+    assert_eq!(row1, vec![2, 3]);
+    unsafe { axiom_ffi::axffi_free_word_lists(cell.payload as *mut i64, cell.extra) };
+    assert_eq!(axffi_grid_f32(2, cell_word(&mut cell)), AX_OK);
+    let pairs = unsafe { std::slice::from_raw_parts(cell.payload as *const i64, 4) }.to_vec();
+    let row1 = unsafe { std::slice::from_raw_parts(pairs[2] as *const i64, pairs[3] as usize) }.to_vec();
+    assert_eq!(row1, vec![0.5f64.to_bits() as i64; 2]);
+    unsafe { axiom_ffi::axffi_free_word_lists(cell.payload as *mut i64, cell.extra) };
+    assert_eq!(axffi_grid(0, cell_word(&mut cell)), AX_OK);
+    assert_eq!(cell.extra, 0);
+    unsafe { axiom_ffi::axffi_free_word_lists(cell.payload as *mut i64, 0) };
+    let rows = [&vec as *const AxVecRepr as AxWord, &ivec as *const AxVecRepr as AxWord];
+    let rvec = AxVecRepr { len: 2, cap: 2, data: rows.as_ptr() };
+    assert_eq!(axffi_sum_rows(&rvec as *const AxVecRepr as AxWord), 18 + 7);
+    let frows = [&fvec as *const AxVecRepr as AxWord];
+    let frvec = AxVecRepr { len: 1, cap: 1, data: frows.as_ptr() };
+    assert_eq!(f64::from_bits(axffi_sum_rows_f64(&frvec as *const AxVecRepr as AxWord) as u64), 3.0);
+    let urows = [&uvec as *const AxVecRepr as AxWord];
+    let urvec = AxVecRepr { len: 1, cap: 1, data: urows.as_ptr() };
+    assert_eq!(axffi_sum_rows_u64(&urvec as *const AxVecRepr as AxWord), 1);
+    let brows = [&bvec as *const AxVecRepr as AxWord, &bvec as *const AxVecRepr as AxWord];
+    let brvec = AxVecRepr { len: 2, cap: 2, data: brows.as_ptr() };
+    assert_eq!(axffi_count_rows_true(&brvec as *const AxVecRepr as AxWord), 6);
+    assert_eq!(axffi_sum_rows(&empty_vec as *const AxVecRepr as AxWord), 0);
+    assert_eq!(axffi_try_grid(-1, cell_word(&mut cell)), AX_ERR);
+    assert_eq!(take_bytes(&cell), b"negative");
+
+    // Mutable slices: the Vec's own words change.
+    let mut mdata = [1i64, -2, 30];
+    let mvec = AxVecRepr { len: 3, cap: 3, data: mdata.as_mut_ptr() };
+    assert_eq!(axffi_double_in_place(&mvec as *const AxVecRepr as AxWord), 3);
+    assert_eq!(mdata, [2, -4, 60]);
+    let mut fd = [1.0f64.to_bits() as i64, 3.0f64.to_bits() as i64];
+    let fmv = AxVecRepr { len: 2, cap: 2, data: fd.as_mut_ptr() };
+    assert_eq!(axffi_halve_in_place(&fmv as *const AxVecRepr as AxWord), 0);
+    assert_eq!(fd, [0.5f64.to_bits() as i64, 1.5f64.to_bits() as i64]);
+    let mut ud = [-1i64, 1];
+    let umv = AxVecRepr { len: 2, cap: 2, data: ud.as_mut_ptr() };
+    assert_eq!(axffi_bump_in_place(&umv as *const AxVecRepr as AxWord), 2);
+    assert_eq!(ud, [0, 2]);
+    assert_eq!(axffi_double_in_place(&empty_vec as *const AxVecRepr as AxWord), 0);
+
+    // Nested fallible: 0 / 2 / 1 map onto the nested constructors.
+    let forty_two = AxStrRepr { len: 2, data: b"42\0".as_ptr(), owner: 0 };
+    assert_eq!(axffi_maybe_parse(ax_str(&forty_two), cell_word(&mut cell)), AX_OK);
+    assert_eq!(cell.payload, 42);
+    assert_eq!(axffi_maybe_parse(ax_str(&none), cell_word(&mut cell)), AX_NONE);
+    assert_eq!(axffi_maybe_parse(ax_str(&hello), cell_word(&mut cell)), AX_ERR);
+    assert_eq!(take_bytes(&cell), b"invalid digit found in string");
+    // An invalid `&str` into a nested fallible shim is the Err state.
+    assert_eq!(axffi_maybe_parse(ax_str(&bad), cell_word(&mut cell)), AX_ERR);
+    assert_eq!(take_bytes(&cell), b"argument 1 of `maybe_parse` is not valid UTF-8");
+    assert_eq!(axffi_lookup(3, cell_word(&mut cell)), AX_OK);
+    assert_eq!(cell.payload, 30);
+    assert_eq!(axffi_lookup(0, cell_word(&mut cell)), AX_NONE);
+    assert_eq!(axffi_lookup(-2, cell_word(&mut cell)), AX_ERR);
+    assert_eq!(take_bytes(&cell), b"negative -2");
+    assert_eq!(axffi_maybe_point(2, big_word), AX_OK);
+    assert_eq!((big[0], f64::from_bits(big[1] as u64)), (2, 1.5));
+    assert_eq!(axffi_maybe_point(0, big_word), AX_NONE);
+    assert_eq!(axffi_maybe_point(-1, cell_word(&mut cell)), AX_ERR);
+    assert_eq!(take_bytes(&cell), b"neg");
+    assert_eq!(axffi_find_thing(5, cell_word(&mut cell)), AX_OK);
+    assert_eq!(axffi_thing_get(cell.payload), 5);
+    assert_eq!(unsafe { axffi_thing_drop(cell.payload) }, 0);
+    assert_eq!(axffi_find_thing(0, cell_word(&mut cell)), AX_NONE);
+    assert_eq!(axffi_find_thing(-1, cell_word(&mut cell)), AX_ERR);
+    assert_eq!(take_bytes(&cell), b"neg");
+    assert_eq!(axffi_maybe_words_try(ax_str(&hello), cell_word(&mut cell)), AX_OK);
+    assert_eq!(take_words(&cell), vec![5]);
+    assert_eq!(axffi_maybe_words_try(ax_str(&none), cell_word(&mut cell)), AX_NONE);
+    assert_eq!(axffi_text_lookup(ax_str(&hello), cell_word(&mut cell)), AX_OK);
+    assert_eq!(take_bytes(&cell), b"HELLO");
+    assert_eq!(axffi_text_lookup(ax_str(&none), cell_word(&mut cell)), AX_NONE);
+
     // Every shim carries its signature descriptor, a no-op named for
     // the shape: one tag per word in, `_`, one for the word out.
+    assert_eq!(axffi_next_char__sig_i_i(), 0);
+    assert_eq!(axffi_wrap_u64__sig_i_i(), 0);
+    assert_eq!(axffi_glyph_code__sig_ii_i(), 0);
+    assert_eq!(axffi_points_scale__sig_iii_i(), 0);
+    assert_eq!(axffi_sum_rows_f64__sig_i_f(), 0);
+    assert_eq!(axffi_double_in_place__sig_i_i(), 0);
+    assert_eq!(axffi_maybe_parse__sig_si_i(), 0);
+    assert_eq!(axffi_lookup__sig_ii_i(), 0);
     assert_eq!(axffi_point_norm2__sig_if_f(), 0);
     assert_eq!(axffi_point_origin__sig_i_i(), 0);
     assert_eq!(axffi_point_scale__sig_ifii_i(), 0);

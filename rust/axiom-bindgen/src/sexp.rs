@@ -209,8 +209,18 @@ fn tail_body(body: &Ex, level: usize, out: &mut String) {
 
 /// `(pub fn (name params...) body)` as the formatter lays it out.
 pub fn decl_fn(name: &str, params: &[String], body: &Ex) -> String {
+    decl_fn_vis(true, name, params, body)
+}
+
+/// `(fn (name params...) body)`: a module-private function, laid out
+/// the same way.
+pub fn decl_private_fn(name: &str, params: &[String], body: &Ex) -> String {
+    decl_fn_vis(false, name, params, body)
+}
+
+fn decl_fn_vis(public: bool, name: &str, params: &[String], body: &Ex) -> String {
     let mut out = String::new();
-    out.push_str("(pub fn (");
+    out.push_str(if public { "(pub fn (" } else { "(fn (" });
     out.push_str(name);
     for p in params {
         out.push(' ');

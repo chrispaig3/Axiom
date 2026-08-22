@@ -272,6 +272,12 @@
                       ; what the entry file wrote `pub`, before import
                       ; resolution rewrites visibility (rustbind.ax)
                       (pubFns (rbPubNames (memGetWord pr 1)))
+                      ; and, for a binding, the accessor shims the
+                      ; binding calls, synthesised into this module
+                      ; before it is resolved, checked and compiled
+                      (_shims (if (> (strLen (flagValue "--emit-rust-binding" 1)) 0)
+                                  (rbAppendShims (memGetWord pr 1) (rbPubNames (memGetWord pr 1)))
+                                  0))
                       (bares vecNew)
                       (fulls vecNew)
                       (mods vecNew))
@@ -390,7 +396,14 @@
                                           (let ((bp (flagValue "--emit-rust-binding" 1)))
                                             (if (< (sysWriteFile (strCStr bp) (rustBindingOf decls pubFns fileName)) 0)
                                                 (die (cat3 "error: could not write " bp "\n") 1)
-                                                (writeStdout (cat3 "Rust binding written to " bp "\n"))))
+                                                {
+                                                  ; laid out by `rustfmt` when one is on
+                                                  ; PATH, so a checked-in copy is the
+                                                  ; formatted one; without it the file is
+                                                  ; as generated, and still compiles
+                                                  (runToolQuiet "rustfmt" (let ((v vecNew)) { (vecPush v (cast Int "--edition")) (vecPush v (cast Int "2021")) (vecPush v (cast Int "--quiet")) (vecPush v (cast Int bp)) v }))
+                                                  (writeStdout (cat3 "Rust binding written to " bp "\n"))
+                                                }))
                                           0)
                                       (if (== needMain 1)
                                           (let ((grc (groundExternsSpanned ir allDecls units dfmt

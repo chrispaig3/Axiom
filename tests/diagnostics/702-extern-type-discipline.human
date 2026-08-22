@@ -16,7 +16,7 @@
   [1;34m = [0m[1;32mhelp: [0man `extern` signature names only `Int`, `Float`, `Bool`, `Char`, `String` and `Foreign` (one machine word each way); a Rust value of any other shape crosses as a `Foreign` handle, or through the wrapper `axiom-bindgen` generates (a `String` result, a `Result`, an `Option`, an opaque type)
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3036` for a full explanation
 
-[1;31merror[AX3036][0m[1m: an `extern` item cannot carry a function-typed argument (a callback is an arrow over `Int` only, `(-> Int Int)`) across the boundary[0m
+[1;31merror[AX3036][0m[1m: an `extern` item cannot carry a function-typed argument (a callback is an arrow over words only - `Int`, `Float`, `Bool`, `Char` - such as `(-> Int Float)`) across the boundary[0m
   [1;34m--> [0m702-extern-type-discipline.ax:13:4
 [1;34m   |[0m
 [1;34m13 |[0m   (hof :: (-> (-> String Int) Int) (symbol "axffi_hof"))

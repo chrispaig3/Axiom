@@ -1,0 +1,17 @@
+error: `Vec<Vec<String>>` is not supported as an `#[axiom_export]` return type (a nested `Vec` crosses as one level of word scalars: `Vec<Vec<T>>` with T one of i64 i32 i16 i8 u64 u32 u16 u8 usize isize bool char f64 f32; strings and records do not nest, so return a flat `Vec<String>` or `Vec<T>` with a `Vec<i64>` of row lengths); the supported return types are: i64 i32 i16 i8 u64 u32 u16 u8 usize isize bool char f64 f32 () String Vec<u8> Vec<T> Vec<Vec<T>> (T a word scalar) Vec<String> Option<T> Result<T, E> Result<Option<T>, E> Option<Result<T, E>> T (T marked `#[axiom_opaque]` or `#[axiom_record]`) Vec<T> (T marked `#[axiom_record]`; E: Display)
+  --> tests/ui/fail/vec_vec_string_return.rs:12:25
+   |
+12 | pub fn table(n: i64) -> Vec<Vec<String>> {
+   |                         ^^^^^^^^^^^^^^^^
+
+error: `Vec<Vec<Point>>` is not supported as an `#[axiom_export]` return type (a nested `Vec` crosses as one level of word scalars: `Vec<Vec<T>>` with T one of i64 i32 i16 i8 u64 u32 u16 u8 usize isize bool char f64 f32; strings and records do not nest, so return a flat `Vec<String>` or `Vec<T>` with a `Vec<i64>` of row lengths); the supported return types are: i64 i32 i16 i8 u64 u32 u16 u8 usize isize bool char f64 f32 () String Vec<u8> Vec<T> Vec<Vec<T>> (T a word scalar) Vec<String> Option<T> Result<T, E> Result<Option<T>, E> Option<Result<T, E>> T (T marked `#[axiom_opaque]` or `#[axiom_record]`) Vec<T> (T marked `#[axiom_record]`; E: Display)
+  --> tests/ui/fail/vec_vec_string_return.rs:17:28
+   |
+17 | pub fn polygons(n: i64) -> Vec<Vec<Point>> {
+   |                            ^^^^^^^^^^^^^^^
+
+error: `&[&[&str]]` is not supported as an `#[axiom_export]` parameter (a nested `Vec` crosses as one level of word scalars: `&[&[T]]` with T one of i64 i32 i16 i8 u64 u32 u16 u8 usize isize bool char f64 f32; strings and records do not nest, so take a flat `&[&str]` or `&[T]` with a `&[i64]` of row lengths); the supported parameter types are: i64 i32 i16 i8 u64 u32 u16 u8 usize isize bool char f64 f32 &str &[u8] &[&str] &[T] &[&[T]] (T a word scalar) &mut [i64] &mut [f64] &mut [u64] AxFn1 AxFn2 AxFn3 &T &mut T (T marked `#[axiom_opaque]`) T &[T] (T marked `#[axiom_record]`)
+  --> tests/ui/fail/vec_vec_string_return.rs:22:20
+   |
+22 | pub fn names(rows: &[&[&str]]) -> i64 {
+   |                    ^^^^^^^^^^

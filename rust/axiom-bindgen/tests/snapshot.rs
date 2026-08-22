@@ -161,9 +161,73 @@ fn nested_fixture_shape() {
     assert!(fresh.contains(";   `mean` reads `weights` as a Vec of u16 (each word range-checked);"));
     assert!(fresh.contains(";   `parity` answers a Vec of Bool (0/1);"));
     assert!(fresh.contains(";   `concat` reads `parts` as a Vec of String;"));
-    // Everything shared comes from Ffi.ax: no module-local helper.
+    // `char` is `Char` on the raw item, `u64` is `Int`; a `Char`
+    // payload and field are cast from the word.
+    assert!(fresh.contains("(nextChar :: (-> Char Char) (symbol \"axffi_next_char\"))"));
+    assert!(fresh.contains("(wrapU64 :: (-> Int Int) (symbol \"axffi_wrap_u64\"))"));
+    assert!(fresh.contains("(pub :: charsOf (-> String Int))"));
+    assert!(fresh.contains(";   `charsOf` answers a Vec of Char (code points);"));
+    assert!(fresh.contains(";   `fromChars` reads `cs` as a Vec of Char (code points);"));
+    assert!(fresh.contains("(pub :: maybeChar (-> Char (Option Char)))"));
+    assert!(fresh.contains("(__ch (cast Char __p))"));
+    assert!(fresh.contains("(Some __ch)"));
+    assert!(fresh.contains("(pub data Glyph\n  (Glyph Char Int))"));
+    assert!(fresh.contains("(__w0 (cast Char (ffiCellWord __c 0)))\n    (__w1 (ffiCellWord __c 1))\n    (__r (Glyph __w0 __w1))"));
+    // Records in Vecs: the module's own loops, the flattened argument,
+    // the rebuild over `vecWithCapacity`, the `n * ARITY` free.
+    assert!(fresh.contains("(import Vec)"));
+    assert!(fresh.contains("(:: __pixelFromWords (-> Int Int Int Int Int))"));
+    assert!(fresh.contains(
+        "(fn (__pixelFromWords __v __p __n __i)\n  (if (>= __i __n)\n    __v\n    (let (\n      \
+         (__w0 (ffiWordAt __p (* __i 3)))\n      (__w1 (cast Float (ffiWordAt __p (+ (* __i 3) 1))))\n      \
+         (__w2 (cast Bool (ffiWordAt __p (+ (* __i 3) 2))))\n    )\n      {\n        \
+         (vecPush __v (Pixel __w0 __w1 __w2))\n        (__pixelFromWords __v __p __n (+ __i 1))"
+    ));
+    assert!(fresh.contains("(:: __pixelToWords (-> Int Int Int Int))"));
+    assert!(fresh.contains(
+        "(fn (__pixelToWords __ps __w __i)\n  (if (>= __i (vecLen __ps))\n    __w\n    \
+         (match (vecGet __ps __i)\n      ((Pixel __f0 __f1 __f2)\n        {\n          \
+         (vecPush __w __f0)\n          (vecPush __w __f1)\n          (vecPush __w __f2)\n          \
+         (__pixelToWords __ps __w (+ __i 1))"
+    ));
+    assert!(fresh.contains("(pixelsDimRaw :: (-> Int Int Int Int) (symbol \"axffi_pixels_dim\"))"));
+    assert!(fresh.contains("(pub :: pixelsDim (-> Int Int Int))"));
+    assert!(fresh.contains("(__a0 (__pixelToWords ps (vecWithCapacity (* (vecLen ps) 3)) 0))"));
+    assert!(fresh.contains("(__st (pixelsDimRaw __a0 by __c))"));
+    assert!(fresh.contains("(__v (__pixelFromWords (vecWithCapacity __n) __p __n 0))"));
+    assert!(fresh.contains("(ffiFreeWords __p (* __n 3))"));
+    assert!(fresh.contains("(pub :: pixelsTry (-> Int (Result Int String)))"));
+    assert!(fresh.contains("(pub :: glyphsMaybe (-> Int (Option Int)))"));
+    assert!(fresh.contains("(__glyphFromWords (vecWithCapacity __n) __p __n 0)"));
+    assert!(!fresh.contains("__glyphToWords"));
+    assert!(fresh.contains(";   `pixelsDim` reads `ps` as a Vec of Pixel (flattened to 3 words per element for the call);"));
+    assert!(fresh.contains(";   `pixelsDim` answers a Vec of Pixel;"));
+    // Nested Vecs and the mutable slice.
+    assert!(fresh.contains("(pub :: grid (-> Int Int))"));
+    assert!(fresh.contains("(__v (ffiWordListsToVec __p __n))"));
+    assert!(fresh.contains("(ffiFreeWordLists __p __n)"));
+    assert!(fresh.contains("(sumRows :: (-> Int Int) (symbol \"axffi_sum_rows\"))"));
+    assert!(fresh.contains(";   `sumRows` reads `rows` as a Vec of Vecs of Int;"));
+    assert!(fresh.contains(";   `tryGridF64` answers a Vec of Vecs of Float bits (f64);"));
+    assert!(fresh.contains("(doubleInPlace :: (-> Int Int) (symbol \"axffi_double_in_place\"))"));
+    assert!(fresh.contains(";   `doubleInPlace` writes `xs` in place, a Vec of Int;"));
+    // Nested fallible results: the constructors nest, status 2 is the
+    // middle branch.
+    assert!(fresh.contains("(pub :: maybeParse (-> String (Result (Option Int) String)))"));
+    assert!(fresh.contains("(Ok (Some __p))"));
+    assert!(fresh.contains("(if (== __st 2)\n        {\n          (ffiCellFree __c)\n          (Ok None)\n        }"));
+    assert!(fresh.contains("(pub :: lookup (-> Int (Option (Result Thing String))))"));
+    assert!(fresh.contains("(Some (Ok (Thing (ffiHandleNew __p thingDropFn))))"));
+    assert!(fresh.contains("(Some (Err __m))"));
+    assert!(fresh.contains("(pub :: maybePixelTry (-> Int (Result (Option Pixel) String)))"));
+    assert!(fresh.contains("(Ok (Some __r))"));
+    assert!(fresh.contains("(pub :: piecesLookup (-> String (Option (Result Int String))))"));
+    assert!(fresh.contains("(Some (Ok __v))"));
+    // Everything shared comes from Ffi.ax: the record loops are the
+    // only module-local declarations, and they are private.
     assert!(!fresh.contains("ffiSliceToStr"));
     assert!(!fresh.contains("axffi_free_bytes"));
+    assert!(!fresh.contains("(pub :: __"));
     assert!(fresh.starts_with("; GENERATED by axiom-bindgen from the `axiom_nested` crate. Do not edit.\n(import Ffi)\n"));
 }
 
@@ -197,8 +261,22 @@ fn unmarked_opaque_is_an_error() {
 #[test]
 fn unrecorded_by_value_is_an_error() {
     let err = axiom_bindgen::generate(&fixture("unrecorded/src"), "axiom_unrecorded").unwrap_err();
-    assert!(err.0.contains("`Plain` is taken by value but no `#[axiom_record]` declaration"), "{err}");
+    assert!(err.0.contains("`Plain` crosses as a record but no `#[axiom_record]` declaration"), "{err}");
     assert!(err.0.contains("`plain_n`"), "{err}");
+}
+
+#[test]
+fn unrecorded_in_vec_is_an_error() {
+    let err = axiom_bindgen::generate(&fixture("unrecorded_vec/src"), "axiom_unrecorded").unwrap_err();
+    assert!(err.0.contains("`Plain` crosses as a record but no `#[axiom_record]` declaration"), "{err}");
+    assert!(err.0.contains("`plains`"), "{err}");
+}
+
+#[test]
+fn vec_of_opaque_is_an_error() {
+    let err = axiom_bindgen::generate(&fixture("vec_opaque/src"), "axiom_vec_opaque").unwrap_err();
+    assert!(err.0.contains("a `Vec` of handles does not cross"), "{err}");
+    assert!(err.0.contains("`things`"), "{err}");
 }
 
 #[test]

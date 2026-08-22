@@ -61,9 +61,10 @@
 //! pads from the archive. The generated shims also abort deliberately,
 //! with a message on fd 2 and exit status 72 (the status Axiom's own
 //! runtime traps use), when an argument cannot be honoured: a narrow
-//! integer out of range, invalid UTF-8 into an infallible `&str`, a
-//! closed handle. Axiom has no way to receive an error from an
-//! infallible call, so the alternative would be a silent wrong answer.
+//! integer out of range, a `char` word that is not a Unicode scalar
+//! value, invalid UTF-8 into an infallible `&str`, a closed handle.
+//! Axiom has no way to receive an error from an infallible call, so
+//! the alternative would be a silent wrong answer.
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
@@ -140,7 +141,8 @@ pub mod __private {
     /// A scalar that is one word on the wire: the conversions the
     /// `Vec<T>` / `&[T]` shapes and record fields use. `to_word` never
     /// fails; `from_word` answers `None` for a word that holds no value
-    /// of the type (a narrow integer out of range, a bool not 0 or 1).
+    /// of the type (a narrow integer out of range, a bool not 0 or 1,
+    /// a char that is not a Unicode scalar value).
     pub trait WordScalar: Copy {
         const NAME: &'static str;
         /// How a word that holds no value is described: out of range
@@ -166,6 +168,35 @@ pub mod __private {
         )*};
     }
     int_scalar!(i64, i32, i16, i8, u32, u16, u8, usize, isize);
+
+    /// The word's 64 bits read unsigned: no range check either way,
+    /// because nothing is lost (Axiom sees a value >= 2^63 as negative).
+    impl WordScalar for u64 {
+        const NAME: &'static str = "u64";
+        #[inline]
+        fn to_word(self) -> AxWord {
+            self as AxWord
+        }
+        #[inline]
+        fn from_word(w: AxWord) -> Option<Self> {
+            Some(w as u64)
+        }
+    }
+
+    /// The code point in the word. A word that is not a Unicode scalar
+    /// value - above `0x10FFFF`, a surrogate, negative - holds no `char`.
+    impl WordScalar for char {
+        const NAME: &'static str = "char";
+        const REFUSAL: &'static str = "is not a Unicode scalar value";
+        #[inline]
+        fn to_word(self) -> AxWord {
+            self as AxWord
+        }
+        #[inline]
+        fn from_word(w: AxWord) -> Option<Self> {
+            u32::try_from(w).ok().and_then(char::from_u32)
+        }
+    }
 
     impl WordScalar for bool {
         const NAME: &'static str = "bool";
@@ -321,16 +352,18 @@ pub mod __private {
         &mut *(word as *mut T)
     }
 
-    /// Range-check a narrow integer argument. Out of range aborts: an
-    /// infallible shim has no channel for an error, and truncation is
-    /// the silent-wrong-answer case.
+    /// Check a scalar argument the word may not hold: a narrow integer
+    /// (out of range) or a `char` (not a Unicode scalar value). A word
+    /// that holds no value aborts: an infallible shim has no channel for
+    /// an error, and truncation is the silent-wrong-answer case.
     #[inline]
-    pub fn narrow<T: TryFrom<AxWord>>(word: AxWord, func: &str, idx: usize, name: &str) -> T {
-        match T::try_from(word) {
-            Ok(v) => v,
-            Err(_) => abort(format_args!(
-                "`{func}`: argument {idx} (`{name}`: {}) is out of range: {word}",
-                core::any::type_name::<T>()
+    pub fn narrow<T: WordScalar>(word: AxWord, func: &str, idx: usize, name: &str) -> T {
+        match T::from_word(word) {
+            Some(v) => v,
+            None => abort(format_args!(
+                "`{func}`: argument {idx} (`{name}`: {}) {}: {word}",
+                T::NAME,
+                T::REFUSAL
             )),
         }
     }
@@ -413,10 +446,26 @@ pub mod __private {
         core::slice::from_raw_parts(s.as_ptr() as *const f64, s.len())
     }
 
+    /// A `&[u64]` argument: the live words of an Axiom `Vec`, read as
+    /// the unsigned bits they hold. No copy, as for [`words_f64`].
+    ///
+    /// # Safety
+    /// `word` must be 0 or a live Axiom `Vec` handle for the call.
+    #[inline]
+    pub unsafe fn words_u64<'a>(word: AxWord, func: &str, idx: usize, name: &str) -> &'a [u64] {
+        if word == 0 {
+            abort(format_args!("`{func}`: argument {idx} (`{name}`: &[u64]) is not a Vec: 0"));
+        }
+        let s = AxVec::from_raw(word).as_slice();
+        // SAFETY: same size, same alignment, every bit pattern a u64.
+        core::slice::from_raw_parts(s.as_ptr() as *const u64, s.len())
+    }
+
     /// A `&[T]` argument for any other word scalar: every word of the
     /// Axiom `Vec` converted into a temporary `Vec<T>`. A word that
-    /// holds no `T` (a narrow integer out of range, a bool not 0 or 1)
-    /// aborts with the element named, as a scalar argument would.
+    /// holds no `T` (a narrow integer out of range, a bool not 0 or 1,
+    /// a char that is no Unicode scalar value) aborts with the element
+    /// named, as a scalar argument would.
     ///
     /// # Safety
     /// `word` must be 0 or a live Axiom `Vec` handle for the call.
@@ -427,16 +476,34 @@ pub mod __private {
                 T::NAME
             ));
         }
-        let s = AxVec::from_raw(word).as_slice();
+        convert_words(AxVec::from_raw(word).as_slice(), func, idx, name, T::NAME, None)
+    }
+
+    /// Convert `s` into a `Vec<T>`, aborting on a word that holds no
+    /// `T`; `row` names the inner list of a nested argument.
+    fn convert_words<T: WordScalar>(
+        s: &[i64],
+        func: &str,
+        idx: usize,
+        name: &str,
+        shown: &str,
+        row: Option<usize>,
+    ) -> Vec<T> {
         let mut out = Vec::with_capacity(s.len());
         for (k, &w) in s.iter().enumerate() {
             match T::from_word(w) {
                 Some(v) => out.push(v),
-                None => abort(format_args!(
-                    "`{func}`: argument {idx} (`{name}`: &[{}]) element {k} {}: {w}",
-                    T::NAME,
-                    T::REFUSAL
-                )),
+                None => match row {
+                    None => abort(format_args!(
+                        "`{func}`: argument {idx} (`{name}`: &[{shown}]) element {k} {}: {w}",
+                        T::REFUSAL
+                    )),
+                    Some(r) => abort(format_args!(
+                        "`{func}`: argument {idx} (`{name}`: &[&[{shown}]]) element {k} of \
+                         list {r} {}: {w}",
+                        T::REFUSAL
+                    )),
+                },
             }
         }
         out
@@ -447,6 +514,199 @@ pub mod __private {
     /// [`leak_words`].
     pub fn to_words<T: WordScalar>(v: Vec<T>) -> Vec<i64> {
         v.into_iter().map(T::to_word).collect()
+    }
+
+    /// A `&mut [i64]` argument: the live words of an Axiom `Vec`,
+    /// written in place. What the call writes is what the Axiom caller
+    /// reads back from the same `Vec`.
+    ///
+    /// # Safety
+    /// `word` must be 0 or a live Axiom `Vec` handle for the call, and
+    /// no other view of its words may be live (the same `Vec` passed
+    /// twice in one call is the only way to alias).
+    #[inline]
+    pub unsafe fn words_mut<'a>(word: AxWord, func: &str, idx: usize, name: &str) -> &'a mut [i64] {
+        if word == 0 {
+            abort(format_args!("`{func}`: argument {idx} (`{name}`: &mut [i64]) is not a Vec: 0"));
+        }
+        AxVec::from_raw(word).as_mut_slice()
+    }
+
+    /// A `&mut [f64]` argument: the live words written in place as the
+    /// floats their bits are (same size, same alignment, every bit
+    /// pattern a float, and every float a word back).
+    ///
+    /// # Safety
+    /// As [`words_mut`].
+    #[inline]
+    pub unsafe fn words_mut_f64<'a>(word: AxWord, func: &str, idx: usize, name: &str) -> &'a mut [f64] {
+        if word == 0 {
+            abort(format_args!("`{func}`: argument {idx} (`{name}`: &mut [f64]) is not a Vec: 0"));
+        }
+        let s = AxVec::from_raw(word).as_mut_slice();
+        // SAFETY: same size, same alignment, no invalid bit pattern in
+        // either direction; the lifetime and length are the word slice's.
+        core::slice::from_raw_parts_mut(s.as_mut_ptr() as *mut f64, s.len())
+    }
+
+    /// A `&mut [u64]` argument: the live words written in place as
+    /// their unsigned bits.
+    ///
+    /// # Safety
+    /// As [`words_mut`].
+    #[inline]
+    pub unsafe fn words_mut_u64<'a>(word: AxWord, func: &str, idx: usize, name: &str) -> &'a mut [u64] {
+        if word == 0 {
+            abort(format_args!("`{func}`: argument {idx} (`{name}`: &mut [u64]) is not a Vec: 0"));
+        }
+        let s = AxVec::from_raw(word).as_mut_slice();
+        // SAFETY: as `words_mut_f64`.
+        core::slice::from_raw_parts_mut(s.as_mut_ptr() as *mut u64, s.len())
+    }
+
+    /// The inner `Vec` handles of a `&[&[T]]` argument: an Axiom `Vec`
+    /// whose words are `Vec` handles, each checked against 0.
+    ///
+    /// # Safety
+    /// `word` must be 0 or a live Axiom `Vec` of `Vec` handles for the call.
+    unsafe fn list_words<'a>(word: AxWord, func: &str, idx: usize, name: &str, shown: &str) -> &'a [i64] {
+        if word == 0 {
+            abort(format_args!("`{func}`: argument {idx} (`{name}`: &[&[{shown}]]) is not a Vec: 0"));
+        }
+        let rows = AxVec::from_raw(word).as_slice();
+        for (r, &h) in rows.iter().enumerate() {
+            if h == 0 {
+                abort(format_args!(
+                    "`{func}`: argument {idx} (`{name}`: &[&[{shown}]]) list {r} is not a Vec: 0"
+                ));
+            }
+        }
+        rows
+    }
+
+    /// A `&[&[i64]]` argument: one borrowed word slice per inner `Vec`,
+    /// no copy.
+    ///
+    /// # Safety
+    /// `word` must be 0 or a live Axiom `Vec` of `Vec` handles for the call.
+    pub unsafe fn word_lists<'a>(word: AxWord, func: &str, idx: usize, name: &str) -> Vec<&'a [i64]> {
+        list_words(word, func, idx, name, "i64")
+            .iter()
+            .map(|&h| AxVec::from_raw(h).as_slice())
+            .collect()
+    }
+
+    /// A `&[&[f64]]` argument: each inner `Vec` reinterpreted in place
+    /// as [`words_f64`] does.
+    ///
+    /// # Safety
+    /// As [`word_lists`].
+    pub unsafe fn word_lists_f64<'a>(word: AxWord, func: &str, idx: usize, name: &str) -> Vec<&'a [f64]> {
+        list_words(word, func, idx, name, "f64")
+            .iter()
+            .map(|&h| {
+                let s = AxVec::from_raw(h).as_slice();
+                core::slice::from_raw_parts(s.as_ptr() as *const f64, s.len())
+            })
+            .collect()
+    }
+
+    /// A `&[&[u64]]` argument: each inner `Vec` reinterpreted in place
+    /// as [`words_u64`] does.
+    ///
+    /// # Safety
+    /// As [`word_lists`].
+    pub unsafe fn word_lists_u64<'a>(word: AxWord, func: &str, idx: usize, name: &str) -> Vec<&'a [u64]> {
+        list_words(word, func, idx, name, "u64")
+            .iter()
+            .map(|&h| {
+                let s = AxVec::from_raw(h).as_slice();
+                core::slice::from_raw_parts(s.as_ptr() as *const u64, s.len())
+            })
+            .collect()
+    }
+
+    /// A `&[&[T]]` argument for any other word scalar: every inner `Vec`
+    /// converted into a temporary `Vec<T>` (the shim borrows a
+    /// `Vec<&[T]>` over them). A word that holds no `T` aborts with the
+    /// list and element named.
+    ///
+    /// # Safety
+    /// As [`word_lists`].
+    pub unsafe fn word_lists_as<T: WordScalar>(
+        word: AxWord,
+        func: &str,
+        idx: usize,
+        name: &str,
+    ) -> Vec<Vec<T>> {
+        list_words(word, func, idx, name, T::NAME)
+            .iter()
+            .enumerate()
+            .map(|(r, &h)| {
+                convert_words(AxVec::from_raw(h).as_slice(), func, idx, name, T::NAME, Some(r))
+            })
+            .collect()
+    }
+
+    /// Hand owned word lists to Axiom as `(ptr, n)`: `ptr` holds `2n`
+    /// words, a `(wordsPtr, len)` pair per inner list, each pair what
+    /// [`leak_words`] answers. Axiom's glue builds a `Vec` of `Vec`s and
+    /// calls [`axffi_free_word_lists`](super::axffi_free_word_lists),
+    /// which frees every inner buffer and then the pairs.
+    pub fn leak_word_lists(v: Vec<Vec<i64>>) -> (AxWord, AxWord) {
+        let n = v.len() as AxWord;
+        let mut pairs: Vec<i64> = Vec::with_capacity(v.len() * 2);
+        for inner in v {
+            let (p, len) = leak_words(inner);
+            pairs.push(p);
+            pairs.push(len);
+        }
+        let (p, _) = leak_words(pairs);
+        (p, n)
+    }
+
+    /// Widen a `Vec<Vec<T>>` of word scalars into word lists, for
+    /// [`leak_word_lists`].
+    pub fn to_word_lists<T: WordScalar>(v: Vec<Vec<T>>) -> Vec<Vec<i64>> {
+        v.into_iter().map(to_words).collect()
+    }
+
+    /// A `&[R]` argument over an `#[axiom_record]`: the Axiom `Vec`
+    /// holds `R::ARITY` words per element (the generated wrapper
+    /// flattened the records), chunked into a temporary `Vec<R>`. A
+    /// word count that is not a multiple of the arity aborts: the
+    /// vector was not built by the wrapper.
+    ///
+    /// # Safety
+    /// `word` must be 0 or a live Axiom `Vec` handle for the call.
+    pub unsafe fn records<R: AxRecord>(word: AxWord, func: &str, idx: usize, name: &str, record: &str) -> Vec<R> {
+        if word == 0 {
+            abort(format_args!("`{func}`: argument {idx} (`{name}`: &[{record}]) is not a Vec: 0"));
+        }
+        let s = AxVec::from_raw(word).as_slice();
+        if s.len() % R::ARITY != 0 {
+            abort(format_args!(
+                "`{func}`: argument {idx} (`{name}`: &[{record}]) holds {} words, not a multiple \
+                 of the record's {} fields",
+                s.len(),
+                R::ARITY
+            ));
+        }
+        s.chunks_exact(R::ARITY).map(R::from_words).collect()
+    }
+
+    /// Hand owned records to Axiom as `(ptr, n)`: `ptr` holds
+    /// `n * R::ARITY` words, element-major in field order, freed by
+    /// Axiom's glue as that many words with
+    /// [`axffi_free_words`](super::axffi_free_words).
+    pub fn leak_records<R: AxRecord>(v: Vec<R>) -> (AxWord, AxWord) {
+        let n = v.len() as AxWord;
+        let mut words: Vec<i64> = alloc::vec![0; v.len() * R::ARITY];
+        for (r, chunk) in v.iter().zip(words.chunks_exact_mut(R::ARITY)) {
+            r.write_words(chunk);
+        }
+        let (p, _) = leak_words(words);
+        (p, n)
     }
 
     /// The element words of a `&[&str]` argument: an Axiom `Vec` whose
@@ -624,6 +884,26 @@ pub unsafe extern "C" fn axffi_free_str_list(ptr: *mut i64, n: i64) -> i64 {
     axffi_free_words(ptr, n * 2)
 }
 
+/// Free a word-list list handed out by a shim (a `Vec<Vec<T>>` return):
+/// `ptr` holds `2n` words of `(wordsPtr, len)` pairs. Every inner
+/// buffer is freed as [`axffi_free_words`] would free it, then the
+/// pairs.
+///
+/// # Safety
+/// `ptr`/`n` must be exactly what a shim wrote into the out-cell and
+/// must not have been freed.
+#[no_mangle]
+pub unsafe extern "C" fn axffi_free_word_lists(ptr: *mut i64, n: i64) -> i64 {
+    if ptr.is_null() || n <= 0 {
+        return 0;
+    }
+    let pairs = core::slice::from_raw_parts(ptr, n as usize * 2);
+    for pair in pairs.chunks_exact(2) {
+        axffi_free_words(pair[0] as *mut i64, pair[1]);
+    }
+    axffi_free_words(ptr, n * 2)
+}
+
 /// The ABI fingerprint this crate was built against.
 ///
 /// Every crate that depends on the facade carries it, and an Axiom
@@ -644,6 +924,10 @@ pub extern "C" fn axffi_abi_version() -> i64 {
 /// callbacks as closure records, `Vec<i64>`/`Vec<String>` through the
 /// cell as `(ptr, len)` / `(pairs, n)`, `&[i64]` over a `Vec` handle,
 /// then records as their field words through an N-word cell, `&[&str]`
-/// and `Vec<T>`/`&[T]` over every word scalar (each element a word) -
-/// because no representation a version-2 crate already uses moved.
+/// and `Vec<T>`/`&[T]` over every word scalar (each element a word),
+/// then `char` and `u64` as words, `Vec<Record>` as `n * ARITY` words,
+/// `Vec<Vec<T>>` as `(pairs, n)` of word buffers, `&mut [T]` in place
+/// and the nested `Result<Option<T>, E>` / `Option<Result<T, E>>` over
+/// the same three statuses - because no representation a version-2
+/// crate already uses moved.
 pub const ABI_VERSION: i64 = 2;

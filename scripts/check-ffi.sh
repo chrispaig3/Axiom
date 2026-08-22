@@ -449,14 +449,17 @@ if [[ -f "$hostlib" && -d rust/examples/host ]]; then
   elif nm "$work/hostlib/libaxiom_hostlib.a" 2>/dev/null | grep -qE ' T _?main$'; then
     echo "FAIL host: the archive defines \`main\`; a host has its own"
     status=1
-  elif ! cmp -s "$work/hostlib/hostlib.rs" rust/examples/host/src/hostlib.rs; then
-    # The checked-in binding IS the generated one: a host that compiled
-    # against a stale file would be calling shapes the archive no
-    # longer has.
+  elif command -v rustfmt >/dev/null 2>&1 && ! cmp -s "$work/hostlib/hostlib.rs" rust/examples/host/src/hostlib.rs; then
+    # The checked-in binding IS the generated one (the build runs
+    # `rustfmt` over it when one is on PATH, and the checked-in copy
+    # is that formatted file): a host that compiled against a stale
+    # file would be calling shapes the archive no longer has. Without
+    # rustfmt the raw text cannot be compared to the formatted copy,
+    # and the run below is the check.
     echo "FAIL host: rust/examples/host/src/hostlib.rs differs from a fresh --emit-rust-binding"
     diff rust/examples/host/src/hostlib.rs "$work/hostlib/hostlib.rs" | head -6 | sed 's/^/    /'
     status=1
-  elif command -v rustfmt >/dev/null 2>&1 && ! rustfmt --check "$work/hostlib/hostlib.rs" >/dev/null 2>&1; then
+  elif command -v rustfmt >/dev/null 2>&1 && ! rustfmt --edition 2021 --check "$work/hostlib/hostlib.rs" >/dev/null 2>&1; then
     echo "FAIL host: the generated binding is not rustfmt-clean"
     status=1
   elif ! host_out="$(cd rust && AXIOM_HOST_ARCHIVE_DIR="$work/hostlib" cargo run --release -q -p axiom-host 2>&1)"; then

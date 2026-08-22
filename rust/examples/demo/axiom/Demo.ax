@@ -3,13 +3,25 @@
 
 (import Err)
 
+(import Vec)
+
 ; A `Vec` is an `Int` handle holding one word per element, and the
 ; element type is whatever the program reads it as - Float bits with
-; `(cast Float (vecGet v i))`, a Bool as 0/1, every integer as the word:
+; `(cast Float (vecGet v i))`, a Bool as 0/1, a Char as its code point,
+; every integer as the word (a u64 >= 2^63 reads negative):
+;   `charsOf` answers a Vec of Char (code points);
+;   `doubleInPlace` writes `xs` in place, a Vec of Int;
 ;   `flags` answers a Vec of Bool (0/1);
+;   `fromChars` reads `cs` as a Vec of Char (code points);
+;   `grid` answers a Vec of Vecs of Int;
 ;   `halves` answers a Vec of Float bits (f64);
 ;   `joinWords` reads `parts` as a Vec of String;
+;   `pointsScale` reads `ps` as a Vec of Point (flattened to 2 words per element for the call);
+;   `pointsScale` answers a Vec of Point;
+;   `pointsTry` reads `ps` as a Vec of Point (flattened to 2 words per element for the call);
+;   `pointsTry` answers a Vec of Point;
 ;   `sumF64` reads `xs` as a Vec of Float bits (f64);
+;   `sumRows` reads `rows` as a Vec of Vecs of Int;
 ;   `sumU16` reads `xs` as a Vec of u16 (each word range-checked);
 (pub extern "axiom_demo"
   (abiProbe :: Int (symbol "axffi_abi_probe"))
@@ -19,6 +31,8 @@
   (bytePlus :: (-> Int Int Int) (symbol "axffi_byte_plus"))
   (bytesOfRaw :: (-> String Int Int) (symbol "axffi_bytes_of"))
   (cellTwice :: (-> Int Int) (symbol "axffi_cell_twice"))
+  (charCode :: (-> Char Int) (symbol "axffi_char_code"))
+  (charsOfRaw :: (-> String Int Int) (symbol "axffi_chars_of"))
   (countVowels :: (-> String Int) (symbol "axffi_count_vowels"))
   (counterAddRaw :: (-> Foreign Int Int) (symbol "axffi_counter_add"))
   (counterDropFn :: Int (symbol "axffi_counter_drop_fn"))
@@ -26,19 +40,27 @@
   (counterTryNewRaw :: (-> Int Int Int) (symbol "axffi_counter_try_new"))
   (counterValueRaw :: (-> Foreign Int) (symbol "axffi_counter_value"))
   (countersDropped :: Int (symbol "axffi_counters_dropped"))
+  (doubleInPlace :: (-> Int Int) (symbol "axffi_double_in_place"))
   (flagsRaw :: (-> Int Int Int) (symbol "axffi_flags"))
   (fold3 :: (-> (-> Int Int Int) Int Int Int Int) (symbol "axffi_fold3"))
+  (fromCharsRaw :: (-> Int Int Int) (symbol "axffi_from_chars"))
+  (gridRaw :: (-> Int Int Int) (symbol "axffi_grid"))
   (halve :: (-> Int Int) (symbol "axffi_halve"))
   (halvesRaw :: (-> Int Int Int) (symbol "axffi_halves"))
   (hypot :: (-> Float Float Float) (symbol "axffi_hypot"))
   (joinWordsRaw :: (-> Int Int Int) (symbol "axffi_join_words"))
+  (lookupRaw :: (-> Int Int Int) (symbol "axffi_lookup"))
+  (maybeParseRaw :: (-> String Int Int) (symbol "axffi_maybe_parse"))
   (maybeRaw :: (-> Int Int Int) (symbol "axffi_maybe"))
+  (nextChar :: (-> Char Char) (symbol "axffi_next_char"))
   (parseIntRaw :: (-> String Int Int) (symbol "axffi_parse_int"))
   (pointMaybeRaw :: (-> Bool Int Int) (symbol "axffi_point_maybe"))
   (pointNorm2Raw :: (-> Int Float Float) (symbol "axffi_point_norm2"))
   (pointOriginRaw :: (-> Int Int) (symbol "axffi_point_origin"))
   (pointScaleRaw :: (-> Int Float Int Int Int) (symbol "axffi_point_scale"))
   (pointTryRaw :: (-> Bool Int Int) (symbol "axffi_point_try"))
+  (pointsScaleRaw :: (-> Int Int Int Int) (symbol "axffi_points_scale"))
+  (pointsTryRaw :: (-> Int Int Int) (symbol "axffi_points_try"))
   (rangeVecRaw :: (-> Int Int Int) (symbol "axffi_range_vec"))
   (shoutRaw :: (-> String Int Int) (symbol "axffi_shout"))
   (splitWordsRaw :: (-> String Int Int) (symbol "axffi_split_words"))
@@ -48,13 +70,51 @@
   (sum3 :: (-> Int Int Int Int) (symbol "axffi_sum3"))
   (sum5 :: (-> Int Int Int Int Int Int) (symbol "axffi_sum5"))
   (sumF64 :: (-> Int Float) (symbol "axffi_sum_f64"))
+  (sumRows :: (-> Int Int) (symbol "axffi_sum_rows"))
   (sumU16 :: (-> Int Int) (symbol "axffi_sum_u16"))
   (sumU8 :: (-> String Int) (symbol "axffi_sum_u8"))
-  (sumWords :: (-> Int Int) (symbol "axffi_sum_words")))
+  (sumWords :: (-> Int Int) (symbol "axffi_sum_words"))
+  (wrapU64 :: (-> Int Int) (symbol "axffi_wrap_u64")))
 
 ; `Point` crosses the boundary as its fields, one word each: x Int, y Float.
 (pub data Point
   (Point Int Float))
+
+; A `Vec` of `Point` answered by Rust: 2 words per element, rebuilt here.
+(:: __pointFromWords (-> Int Int Int Int Int))
+
+(fn (__pointFromWords __v __p __n __i)
+  (if (>= __i __n)
+    __v
+    (let (
+      (__w0 (ffiWordAt __p (* __i 2)))
+      (__w1 (cast Float (ffiWordAt __p (+ (* __i 2) 1))))
+    )
+      {
+        (vecPush __v (Point __w0 __w1))
+        (__pointFromWords __v __p __n (+ __i 1))
+      }
+    )
+  )
+)
+
+; A `Vec` of `Point` handed to Rust: flattened to 2 words per element here.
+(:: __pointToWords (-> Int Int Int Int))
+
+(fn (__pointToWords __ps __w __i)
+  (if (>= __i (vecLen __ps))
+    __w
+    (match (vecGet __ps __i)
+      ((Point __f0 __f1)
+        {
+          (vecPush __w __f0)
+          (vecPush __w __f1)
+          (__pointToWords __ps __w (+ __i 1))
+        }
+      )
+    )
+  )
+)
 
 ; `Counter` is a Rust value held through a `Handle`: when the last
 ; reference dies the handle runs `axffi_counter_drop`.
@@ -81,6 +141,24 @@
   )
     {
       (ffiFreeBytes __p __n)
+      (ffiCellFree __c)
+      __v
+    }
+  )
+)
+
+(pub :: charsOf (-> String Int))
+
+(pub fn (charsOf s)
+  (let (
+    (__c ffiCellNew)
+    (__st (charsOfRaw s __c))
+    (__p (ffiCellWord __c 0))
+    (__n (ffiCellWord __c 1))
+    (__v (ffiWordsToVec __p __n))
+  )
+    {
+      (ffiFreeWords __p __n)
       (ffiCellFree __c)
       __v
     }
@@ -171,6 +249,42 @@
   )
 )
 
+(pub :: fromChars (-> Int String))
+
+(pub fn (fromChars cs)
+  (let (
+    (__c ffiCellNew)
+    (__st (fromCharsRaw cs __c))
+    (__p (ffiCellWord __c 0))
+    (__n (ffiCellWord __c 1))
+    (__v (ffiBytesToStr __p __n))
+  )
+    {
+      (ffiFreeBytes __p __n)
+      (ffiCellFree __c)
+      __v
+    }
+  )
+)
+
+(pub :: grid (-> Int Int))
+
+(pub fn (grid n)
+  (let (
+    (__c ffiCellNew)
+    (__st (gridRaw n __c))
+    (__p (ffiCellWord __c 0))
+    (__n (ffiCellWord __c 1))
+    (__v (ffiWordListsToVec __p __n))
+  )
+    {
+      (ffiFreeWordLists __p __n)
+      (ffiCellFree __c)
+      __v
+    }
+  )
+)
+
 (pub :: halves (-> Int Int))
 
 (pub fn (halves n)
@@ -207,6 +321,37 @@
   )
 )
 
+(pub :: lookup (-> Int (Option (Result Int String))))
+
+(pub fn (lookup i)
+  (let (
+    (__c ffiCellNew)
+    (__st (lookupRaw i __c))
+    (__p (ffiCellWord __c 0))
+    (__n (ffiCellWord __c 1))
+  )
+    (if (== __st 0)
+      {
+        (ffiCellFree __c)
+        (Some (Ok __p))
+      }
+      (if (== __st 2)
+        {
+          (ffiCellFree __c)
+          None
+        }
+        (let ((__m (ffiBytesToStr __p __n)))
+          {
+            (ffiFreeBytes __p __n)
+            (ffiCellFree __c)
+            (Some (Err __m))
+          }
+        )
+      )
+    )
+  )
+)
+
 (pub :: maybe (-> Int (Option Int)))
 
 (pub fn (maybe n)
@@ -225,6 +370,37 @@
         (ffiCellFree __c)
         None
       }
+    )
+  )
+)
+
+(pub :: maybeParse (-> String (Result (Option Int) String)))
+
+(pub fn (maybeParse s)
+  (let (
+    (__c ffiCellNew)
+    (__st (maybeParseRaw s __c))
+    (__p (ffiCellWord __c 0))
+    (__n (ffiCellWord __c 1))
+  )
+    (if (== __st 0)
+      {
+        (ffiCellFree __c)
+        (Ok (Some __p))
+      }
+      (if (== __st 2)
+        {
+          (ffiCellFree __c)
+          (Ok None)
+        }
+        (let ((__m (ffiBytesToStr __p __n)))
+          {
+            (ffiFreeBytes __p __n)
+            (ffiCellFree __c)
+            (Err __m)
+          }
+        )
+      )
     )
   )
 )
@@ -346,6 +522,54 @@
         (ffiCellFree __c)
         (Ok __r)
       }
+      (let ((__m (ffiBytesToStr __p __n)))
+        {
+          (ffiFreeBytes __p __n)
+          (ffiCellFree __c)
+          (Err __m)
+        }
+      )
+    )
+  )
+)
+
+(pub :: pointsScale (-> Int Int Int))
+
+(pub fn (pointsScale ps k)
+  (let (
+    (__a0 (__pointToWords ps (vecWithCapacity (* (vecLen ps) 2)) 0))
+    (__c ffiCellNew)
+    (__st (pointsScaleRaw __a0 k __c))
+    (__p (ffiCellWord __c 0))
+    (__n (ffiCellWord __c 1))
+    (__v (__pointFromWords (vecWithCapacity __n) __p __n 0))
+  )
+    {
+      (ffiFreeWords __p (* __n 2))
+      (ffiCellFree __c)
+      __v
+    }
+  )
+)
+
+(pub :: pointsTry (-> Int (Result Int String)))
+
+(pub fn (pointsTry ps)
+  (let (
+    (__a0 (__pointToWords ps (vecWithCapacity (* (vecLen ps) 2)) 0))
+    (__c ffiCellNew)
+    (__st (pointsTryRaw __a0 __c))
+    (__p (ffiCellWord __c 0))
+    (__n (ffiCellWord __c 1))
+  )
+    (if (== __st 0)
+      (let ((__v (__pointFromWords (vecWithCapacity __n) __p __n 0)))
+        {
+          (ffiFreeWords __p (* __n 2))
+          (ffiCellFree __c)
+          (Ok __v)
+        }
+      )
       (let ((__m (ffiBytesToStr __p __n)))
         {
           (ffiFreeBytes __p __n)

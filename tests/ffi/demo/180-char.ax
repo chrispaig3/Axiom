@@ -1,0 +1,48 @@
+; `char` and `u64` as words.
+;
+; A Rust `char` is Axiom `Char`: the code point in the word, both
+; ways. The raw item is typed `Char` directly - `(nextChar :: (-> Char
+; Char))` - and no wrapper is needed. A `Vec<char>` result is the
+; unchanged words path (each word a code point, read with `(cast Char
+; (vecGet v i))`); a `&[char]` parameter is a `Vec` of Chars, each
+; word checked on the way in: a word that is not a Unicode scalar
+; value (`(cast Char 1114112)`, a negative word) aborts with the
+; argument named, as a narrow integer out of range does.
+;
+; A Rust `u64` is the word's 64 bits read unsigned, no range check
+; either way: `(wrapU64 -1)` hands Rust `u64::MAX`, which wraps to 0.
+(import IO)
+(import Fmt)
+(import Str)
+(import Vec)
+(import Demo)
+
+;@axiom:effect(io)
+(pub fn (main)
+  (let ((cs (vecNew)))
+    {
+      (vecPush cs 'o')
+      (vecPush cs 'k')
+      (let ((next (cast Int (nextChar 'a')))
+            (code (charCode (cast Char 233)))
+            (chars (charsOf "hi"))
+            (joined (fromChars cs))
+            (none (charsOf ""))
+            (wrapped (wrapU64 -1))
+            (six (wrapU64 5)))
+        (if (&& (== next 98)
+            (&& (== code 233)
+            (&& (== (vecLen chars) 2)
+            (&& (== (vecGet chars 1) 105)
+            (&& (== (cast Int (cast Char (vecGet chars 0))) 104)
+            (&& (strEq joined "ok")
+            (&& (== (vecLen none) 0)
+            (&& (== wrapped 0)
+                (== six 6)))))))))
+            { (println "char and u64: agree") 0 }
+            { (println (fmtInt next)) (println (fmtInt code))
+              (println (fmtInt (vecLen chars))) (println (fmtInt (vecGet chars 1)))
+              (println joined) (println (fmtInt (vecLen none)))
+              (println (fmtInt wrapped)) (println (fmtInt six)) 1 }))
+    }))
+; expect 0

@@ -1,5 +1,0 @@
-error: `u64` is not supported as an `#[axiom_export]` return type (an Axiom `Int` is an i64 and cannot hold every value; return an `i64`, or a `Vec<u8>` of its bytes); the supported return types are: i64 i32 i16 i8 u32 u16 u8 usize isize bool f64 f32 () String Vec<u8> Vec<T> (T a word scalar) Vec<String> Option<T> Result<T, E> T (T marked `#[axiom_opaque]` or `#[axiom_record]`; E: Display)
- --> tests/ui/fail/u64_return.rs:5:18
-  |
-5 | pub fn wide() -> u64 {
-  |                  ^^^

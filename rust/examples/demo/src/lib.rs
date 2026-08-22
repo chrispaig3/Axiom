@@ -246,6 +246,7 @@ pub fn join_words(parts: &[&str]) -> String {
 //     `Option<Point>` carry the fields the same way behind the status
 //     word.
 #[axiom_record]
+#[derive(Clone)]
 pub struct Point {
     pub x: i64,
     pub y: f64,
@@ -281,6 +282,112 @@ pub fn point_maybe(ok: bool) -> Option<Point> {
         Some(Point { x: -1, y: 0.5 })
     } else {
         None
+    }
+}
+
+// 6k. `char` is Axiom `Char`: the code point in the word, both ways.
+//     Rust -> Axiom is `c as i64`; Axiom -> Rust is `char::from_u32`,
+//     and a word that is not a Unicode scalar value (`(cast Char
+//     1114112)`, a surrogate, a negative word) aborts with the
+//     argument named, as a narrow integer out of range does. The same
+//     rule covers a record field, a `Vec<char>` element and a `&[char]`
+//     element.
+#[axiom_export]
+pub fn next_char(c: char) -> char {
+    char::from_u32(c as u32 + 1).unwrap_or(c)
+}
+
+#[axiom_export]
+pub fn char_code(c: char) -> i64 {
+    c as i64
+}
+
+#[axiom_export]
+pub fn chars_of(s: &str) -> Vec<char> {
+    s.chars().collect()
+}
+
+#[axiom_export]
+pub fn from_chars(cs: &[char]) -> String {
+    cs.iter().collect()
+}
+
+// 6l. `u64` is the word's bits read unsigned, with no range check in
+//     either direction: nothing is lost, and the Axiom side sees a
+//     value >= 2^63 as a negative `Int`. `wrap_u64(u64::MAX)` is
+//     `(wrapU64 -1)` from Axiom, and answers 0.
+#[axiom_export]
+pub fn wrap_u64(x: u64) -> u64 {
+    x.wrapping_add(1)
+}
+
+// 6m. Records in Vecs. A `Vec<Point>` result is `n * ARITY` words
+//     (element-major, field order) behind a `(ptr, n)` cell, freed as
+//     that many words; the generated module rebuilds each `Point` with
+//     `ffiWordAt` in its own `__pointFromWords` loop. A `&[Point]`
+//     parameter is flattened on the Axiom side (`__pointToWords`) into
+//     a words `Vec` the shim chunks back through `from_words`.
+#[axiom_export]
+pub fn points_scale(ps: &[Point], k: i64) -> Vec<Point> {
+    ps.iter().map(|p| Point { x: p.x.wrapping_mul(k), y: p.y * k as f64 }).collect()
+}
+
+#[axiom_export]
+pub fn points_try(ps: &[Point]) -> Result<Vec<Point>, String> {
+    if ps.is_empty() {
+        Err("no points".to_string())
+    } else {
+        Ok(ps.iter().rev().cloned().collect())
+    }
+}
+
+// 6n. Nested Vecs over word scalars. A `Vec<Vec<i64>>` result is
+//     `(pairs, n)`: `2n` words of `(wordsPtr, len)`, one owned buffer
+//     per row, built into a `Vec` of `Vec`s by `ffiWordListsToVec` and
+//     freed by `axffi_free_word_lists`. A `&[&[i64]]` parameter is a
+//     `Vec` of `Vec` handles, each row borrowed in place.
+#[axiom_export]
+pub fn grid(n: i64) -> Vec<Vec<i64>> {
+    (0..n.max(0)).map(|r| (0..n).map(|c| r * n + c).collect()).collect()
+}
+
+#[axiom_export]
+pub fn sum_rows(rows: &[&[i64]]) -> i64 {
+    rows.iter().map(|r| r.iter().sum::<i64>()).sum()
+}
+
+// 6o. A mutable slice: `&mut [i64]` is the Axiom `Vec`'s live
+//     elements, written in place - the caller reads the doubled values
+//     back from the same `Vec`. `&mut [f64]` and `&mut [u64]` are the
+//     same words under another name; any other element type would need
+//     a converted copy that could not be written back, so it is refused.
+#[axiom_export]
+pub fn double_in_place(xs: &mut [i64]) -> i64 {
+    for x in xs.iter_mut() {
+        *x = x.wrapping_mul(2);
+    }
+    xs.len() as i64
+}
+
+// 6p. Nested fallible results over the same three statuses.
+//     `Result<Option<i64>, String>`: 0 = `(Ok (Some v))`, 2 =
+//     `(Ok None)`, 1 = `(Err m)`; `Option<Result<i64, String>>`: 0 =
+//     `(Some (Ok v))`, 1 = `(Some (Err m))`, 2 = `None`.
+#[axiom_export]
+pub fn maybe_parse(s: &str) -> Result<Option<i64>, String> {
+    let s = s.trim();
+    if s.is_empty() {
+        return Ok(None);
+    }
+    s.parse::<i64>().map(Some).map_err(|e| e.to_string())
+}
+
+#[axiom_export]
+pub fn lookup(i: i64) -> Option<Result<i64, String>> {
+    match i {
+        0 => None,
+        i if i > 0 => Some(Ok(i * 10)),
+        i => Some(Err(format!("negative index {i}"))),
     }
 }
 

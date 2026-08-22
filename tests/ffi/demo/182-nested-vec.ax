@@ -1,0 +1,53 @@
+; Nested Vecs over word scalars, both ways.
+;
+; OUT: a Rust `Vec<Vec<i64>>` result is `(pairs, n)` - `2n` words of
+; `(wordsPtr, len)`, one owned buffer per row - built into a `Vec` of
+; `Vec`s by `ffiWordListsToVec` and freed on the Rust side by
+; `axffi_free_word_lists` (every row, then the pairs).
+;
+; IN: a `&[&[i64]]` parameter is a `Vec` whose elements are `Vec`
+; handles; the shim reads the outer `Vec` and borrows each row in
+; place for the call. A row that is not a `Vec` (a 0 word) aborts.
+(import IO)
+(import Fmt)
+(import Vec)
+(import Demo)
+
+;@axiom:effect(io)
+(pub fn (main)
+  (let ((g (grid 3))
+        (empty (grid 0))
+        (rows (vecNew))
+        (r0 (vecNew))
+        (r1 (vecNew)))
+    {
+      (vecPush r0 10)
+      (vecPush r0 20)
+      (vecPush r1 5)
+      (vecPush rows r0)
+      (vecPush rows r1)
+      (vecPush rows (vecNew))
+      (let ((n (vecLen g))
+            (row2 (vecGet g 2))
+            (len2 (vecLen (vecGet g 2)))
+            (cell (vecGet (vecGet g 2) 1))
+            (first (vecGet (vecGet g 0) 0))
+            (total (sumRows g))
+            (emptyLen (vecLen empty))
+            (ours (sumRows rows))
+            (none (sumRows (vecNew))))
+        (if (&& (== n 3)
+            (&& (== len2 3)
+            (&& (== cell 7)
+            (&& (== first 0)
+            (&& (== total 36)
+            (&& (== emptyLen 0)
+            (&& (== ours 35)
+            (&& (!= row2 0)
+                (== none 0)))))))))
+            { (println "nested vec: agree") 0 }
+            { (println (fmtInt n)) (println (fmtInt len2)) (println (fmtInt cell))
+              (println (fmtInt first)) (println (fmtInt total)) (println (fmtInt emptyLen))
+              (println (fmtInt ours)) (println (fmtInt none)) 1 }))
+    }))
+; expect 0

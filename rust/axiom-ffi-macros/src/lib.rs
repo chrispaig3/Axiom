@@ -20,10 +20,14 @@
 //! | scalar / `()` / opaque `T` | `fn(args..) -> i64` | the value (an opaque `T` as its boxed address) |
 //! | `String` / `Vec<u8>` | `fn(args.., out: i64) -> i64` | status 0; `out` gets (ptr, len) |
 //! | `Vec<T>` (T a word scalar) | `fn(args.., out: i64) -> i64` | status 0; `out` gets (ptr, len) of words |
+//! | `Vec<Vec<T>>` (T a word scalar) | `fn(args.., out: i64) -> i64` | status 0; `out` gets (pairs, n) of word buffers |
 //! | `Vec<String>` | `fn(args.., out: i64) -> i64` | status 0; `out` gets (pairs, n) |
 //! | record `T` | `fn(args.., out: i64) -> i64` | status 0; `out` (ARITY words) gets the fields |
+//! | `Vec<T>` (T a record) | `fn(args.., out: i64) -> i64` | status 0; `out` gets (ptr, n) of n*ARITY words |
 //! | `Result<T, E>` | `fn(args.., out: i64) -> i64` | 0: payload in `out`; 1: message (ptr, len) in `out` |
 //! | `Option<T>` | `fn(args.., out: i64) -> i64` | 0: payload in `out`; 2: `None` |
+//! | `Result<Option<T>, E>` | `fn(args.., out: i64) -> i64` | 0: `Ok(Some)` payload; 2: `Ok(None)`; 1: `Err` message |
+//! | `Option<Result<T, E>>` | `fn(args.., out: i64) -> i64` | 0: `Some(Ok)` payload; 1: `Some(Err)` message; 2: `None` |
 //!
 //! A byte return needs two words (pointer and length) and Axiom emits
 //! `ret i64` for everything, so those shapes take an out-cell the Axiom
@@ -39,9 +43,12 @@
 //!
 //! A callback parameter (`AxFn1`, `AxFn2`, `AxFn3`) arrives as the
 //! closure record word and is wrapped without a copy; a `&[T]`
-//! parameter is an Axiom `Vec` handle read in place (`i64`, `f64`) or
-//! converted into a temporary (every other word scalar); a `&[&str]`
-//! is a `Vec` of Strings borrowed one `&str` each.
+//! parameter is an Axiom `Vec` handle read in place (`i64`, `u64`,
+//! `f64`) or converted into a temporary (every other word scalar); a
+//! `&mut [T]` over those three is written in place; a `&[&[T]]` is a
+//! `Vec` of `Vec` handles, one slice each; a `&[&str]` is a `Vec` of
+//! Strings borrowed one `&str` each; a `&[Record]` is a `Vec` of
+//! `ARITY` words per element, chunked into a temporary.
 //!
 //! # Records and the companion macro
 //!
@@ -151,7 +158,7 @@ pub fn axiom_opaque(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// Mark a struct that crosses the boundary AS ITS FIELDS.
 ///
 /// A plain struct with named fields, every one a word scalar
-/// (`i64 i32 i16 i8 u32 u16 u8 usize isize bool f64 f32`). Derives
+/// (`i64 i32 i16 i8 u64 u32 u16 u8 usize isize bool char f64 f32`). Derives
 /// `axiom_ffi::AxRecord` - `ARITY`, `from_words`, `write_words` - and
 /// the companion macro `#[axiom_export]` reads the field list from.
 /// A parameter of the type is one shim argument per field; a result
@@ -401,12 +408,15 @@ fn expand_record(item: Item) -> Result<TokenStream2, syn::Error> {
             let fname = &f.name;
             match f.scalar {
                 Scalar::I64 => quote! { words[#j] },
+                Scalar::U64 => quote! { words[#j] as u64 },
                 Scalar::Bool => quote! { words[#j] != 0 },
                 Scalar::F64 => quote! { f64::from_bits(words[#j] as u64) },
                 Scalar::F32 => quote! { f64::from_bits(words[#j] as u64) as f32 },
                 Scalar::Unit => unreachable!("classify_record_fields refuses ()"),
-                narrow => {
-                    let t = format_ident!("{}", narrow.rust_name());
+                // A narrow integer (range) or a char (a Unicode scalar
+                // value): checked, aborting with the field named.
+                checked => {
+                    let t = format_ident!("{}", checked.rust_name());
                     quote! { ::axiom_ffi::__private::record_field::<#t>(words[#j], #name, #fname) }
                 }
             }
@@ -496,19 +506,21 @@ fn expand_export(
     registry: &dyn Registry,
 ) -> Result<TokenStream2, syn::Error> {
     let (params, ret) = classify_signature(&func, registry)?;
-    for (p, arg) in params.iter().zip(func.sig.inputs.iter()) {
-        if let Param::Record(r) = p {
-            if !r.is_resolved() {
-                return Err(syn::Error::new_spanned(
-                    arg,
-                    format!(
-                        "`{}` is taken by value but its companion macro answered nothing: \
-                         is it marked `#[axiom_record]`?",
-                        r.name
-                    ),
-                ));
-            }
-        }
+    if let Some(name) = cls::unresolved_records(&params, &ret).first() {
+        // Point at the parameter that names it, else the return type.
+        let span_on: &dyn quote::ToTokens = params
+            .iter()
+            .zip(func.sig.inputs.iter())
+            .find(|(p, _)| matches!(p, Param::Record(r) | Param::Records(r) if &r.name == name))
+            .map(|(_, arg)| arg as &dyn quote::ToTokens)
+            .unwrap_or(&func.sig.output);
+        return Err(syn::Error::new_spanned(
+            span_on,
+            format!(
+                "`{name}` crosses as a record but its companion macro answered nothing: \
+                 is it marked `#[axiom_record]`?"
+            ),
+        ));
     }
     expand_shim(func, attr, params, ret)
 }
@@ -628,12 +640,15 @@ fn expand_shim(
         match param {
             Param::Scalar(s) => match s {
                 Scalar::I64 => call_args.push(quote! { #w }),
+                Scalar::U64 => call_args.push(quote! { #w as u64 }),
                 Scalar::Bool => call_args.push(quote! { #w != 0 }),
                 Scalar::F64 => call_args.push(quote! { f64::from_bits(#w as u64) }),
                 Scalar::F32 => call_args.push(quote! { f64::from_bits(#w as u64) as f32 }),
                 Scalar::Unit => unreachable!("classify_param refuses ()"),
-                narrow => {
-                    let t = format_ident!("{}", narrow.rust_name());
+                // A narrow integer (range) or a char (a Unicode scalar
+                // value): checked, aborting with the argument named.
+                checked => {
+                    let t = format_ident!("{}", checked.rust_name());
                     prologue.push(quote! {
                         let #w: #t = ::axiom_ffi::__private::narrow::<#t>(#w, #name_str, #idx, #pname);
                     });
@@ -710,6 +725,11 @@ fn expand_shim(
                             ::axiom_ffi::__private::words_f64(#w, #name_str, #idx, #pname)
                         };
                     }),
+                    Scalar::U64 => prologue.push(quote! {
+                        let #w: &[u64] = unsafe {
+                            ::axiom_ffi::__private::words_u64(#w, #name_str, #idx, #pname)
+                        };
+                    }),
                     Scalar::Unit => unreachable!("classify_param refuses &[()]"),
                     other => {
                         let t = format_ident!("{}", other.rust_name());
@@ -721,6 +741,62 @@ fn expand_shim(
                         });
                     }
                 }
+                call_args.push(quote! { #w });
+            }
+            Param::MutWords(s) => {
+                // In place over the Vec's live elements: the three
+                // word-sized scalars only (the classifier refuses the rest).
+                let reader = match s {
+                    Scalar::I64 => format_ident!("words_mut"),
+                    Scalar::F64 => format_ident!("words_mut_f64"),
+                    Scalar::U64 => format_ident!("words_mut_u64"),
+                    other => unreachable!("classify_param refuses &mut [{}]", other.rust_name()),
+                };
+                let t = format_ident!("{}", s.rust_name());
+                prologue.push(quote! {
+                    let #w: &mut [#t] = unsafe {
+                        ::axiom_ffi::__private::#reader(#w, #name_str, #idx, #pname)
+                    };
+                });
+                call_args.push(quote! { #w });
+            }
+            Param::WordLists(s) => {
+                let t = format_ident!("{}", s.rust_name());
+                match s {
+                    Scalar::I64 | Scalar::F64 | Scalar::U64 => {
+                        let reader = match s {
+                            Scalar::I64 => format_ident!("word_lists"),
+                            Scalar::F64 => format_ident!("word_lists_f64"),
+                            _ => format_ident!("word_lists_u64"),
+                        };
+                        prologue.push(quote! {
+                            let #w = unsafe {
+                                ::axiom_ffi::__private::#reader(#w, #name_str, #idx, #pname)
+                            };
+                            let #w: &[&[#t]] = &#w;
+                        });
+                    }
+                    Scalar::Unit => unreachable!("classify_param refuses &[&[()]]"),
+                    _ => prologue.push(quote! {
+                        let #w = unsafe {
+                            ::axiom_ffi::__private::word_lists_as::<#t>(#w, #name_str, #idx, #pname)
+                        };
+                        let #w: ::axiom_ffi::__private::Vec<&[#t]> =
+                            #w.iter().map(|v| v.as_slice()).collect();
+                        let #w: &[&[#t]] = &#w;
+                    }),
+                }
+                call_args.push(quote! { #w });
+            }
+            Param::Records(r) => {
+                let ty = &r.ty;
+                let rname = &r.name;
+                prologue.push(quote! {
+                    let #w = unsafe {
+                        ::axiom_ffi::__private::records::<#ty>(#w, #name_str, #idx, #pname, #rname)
+                    };
+                    let #w: &[#ty] = &#w;
+                });
                 call_args.push(quote! { #w });
             }
             Param::Callback(arity) => {
@@ -771,8 +847,19 @@ fn expand_shim(
     };
 
     let shim_fn = if needs_cell {
+        // The `Err` arm every fallible shape shares: the message's
+        // bytes in the cell, status 1.
+        let err_arm = quote! {
+            {
+                let (p, n) = ::axiom_ffi::__private::error_bytes(&e);
+                cell.payload = p;
+                cell.extra = n;
+                ::axiom_ffi::AX_ERR
+            }
+        };
         let tail = match &ret {
-            Ret::Bytes | Ret::Words(_) | Ret::Strs | Ret::Record(_) => {
+            Ret::Bytes | Ret::Words(_) | Ret::WordLists(_) | Ret::Strs | Ret::Record(_)
+            | Ret::Records(_) => {
                 let store = store_payload(&direct_payload(&ret));
                 quote! {
                     let v = #body_call;
@@ -785,12 +872,7 @@ fn expand_shim(
                 quote! {
                     match #body_call {
                         Ok(v) => { #store ::axiom_ffi::AX_OK }
-                        Err(e) => {
-                            let (p, n) = ::axiom_ffi::__private::error_bytes(&e);
-                            cell.payload = p;
-                            cell.extra = n;
-                            ::axiom_ffi::AX_ERR
-                        }
+                        Err(e) => #err_arm
                     }
                 }
             }
@@ -799,6 +881,26 @@ fn expand_shim(
                 quote! {
                     match #body_call {
                         Some(v) => { #store ::axiom_ffi::AX_OK }
+                        None => ::axiom_ffi::AX_NONE,
+                    }
+                }
+            }
+            Ret::ResultOption(payload) => {
+                let store = store_payload(payload);
+                quote! {
+                    match #body_call {
+                        Ok(Some(v)) => { #store ::axiom_ffi::AX_OK }
+                        Ok(None) => ::axiom_ffi::AX_NONE,
+                        Err(e) => #err_arm
+                    }
+                }
+            }
+            Ret::OptionResult(payload) => {
+                let store = store_payload(payload);
+                quote! {
+                    match #body_call {
+                        Some(Ok(v)) => { #store ::axiom_ffi::AX_OK }
+                        Some(Err(e)) => #err_arm
                         None => ::axiom_ffi::AX_NONE,
                     }
                 }
@@ -855,13 +957,17 @@ fn direct_payload(r: &Ret) -> Payload {
     match r {
         Ret::Bytes => Payload::Bytes,
         Ret::Words(s) => Payload::Words(*s),
+        Ret::WordLists(s) => Payload::WordLists(*s),
         Ret::Strs => Payload::Strs,
         Ret::Record(r) => Payload::Record(r.clone()),
+        Ret::Records(r) => Payload::Records(r.clone()),
         _ => unreachable!("only the cell-carried shapes are direct payloads"),
     }
 }
 
-/// `v` (a scalar expression) to the word it crosses as.
+/// `v` (a scalar expression) to the word it crosses as. A `u64` and
+/// a `char` are the plain `as` cast like every integer: the bits, and
+/// the code point.
 fn scalar_to_word(s: Scalar, v: TokenStream2) -> TokenStream2 {
     match s {
         Scalar::Unit => quote! { { let () = #v; 0 } },
@@ -895,6 +1001,18 @@ fn store_payload(p: &Payload) -> TokenStream2 {
             cell.payload = p;
             cell.extra = n;
         },
+        Payload::WordLists(Scalar::I64) => quote! {
+            let (p, n) = ::axiom_ffi::__private::leak_word_lists(v);
+            cell.payload = p;
+            cell.extra = n;
+        },
+        Payload::WordLists(_) => quote! {
+            let (p, n) = ::axiom_ffi::__private::leak_word_lists(
+                ::axiom_ffi::__private::to_word_lists(v),
+            );
+            cell.payload = p;
+            cell.extra = n;
+        },
         Payload::Strs => quote! {
             let (p, n) = ::axiom_ffi::__private::leak_strs(v);
             cell.payload = p;
@@ -905,6 +1023,14 @@ fn store_payload(p: &Payload) -> TokenStream2 {
             quote! { cell.payload = ::axiom_ffi::__private::leak_opaque::<#t>(v); }
         }
         Payload::Record(r) => record_store(r),
+        Payload::Records(r) => {
+            let t = &r.ty;
+            quote! {
+                let (p, n) = ::axiom_ffi::__private::leak_records::<#t>(v);
+                cell.payload = p;
+                cell.extra = n;
+            }
+        }
     }
 }
 

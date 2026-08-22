@@ -2,12 +2,22 @@
 //!
 //! Link the archive `--emit-staticlib` wrote beside this file; every
 //! function below is a `pub fn` of that module, a C symbol under its own
-//! name. `String` arguments are built with the archive's own `Str$strAlloc`
-//! and a `String` result is an owned share the wrapper adopts.
-#![allow(non_snake_case, dead_code, unused_imports, clippy::all)]
+//! name. Arguments are borrowed for the call (a callee that keeps one
+//! retains it); every result is an owned share the wrapper adopts or
+//! releases. `String` arguments are built with the archive's own
+//! `Str$strAlloc`; a `data` value is built and read through the `axh_*`
+//! accessors the same build synthesised into the archive.
+#![allow(
+    non_snake_case,
+    non_camel_case_types,
+    dead_code,
+    unused_imports,
+    unused_unsafe,
+    clippy::all
+)]
 
 use axiom_ffi::host::AxString;
-use axiom_ffi::AxWord;
+use axiom_ffi::{axiom_release, AxWord};
 
 mod raw {
     extern "C" {
@@ -19,6 +29,383 @@ mod raw {
         pub fn answer() -> i64;
         pub fn same(a0: i64) -> i64;
         pub fn strLenOf(a0: i64) -> i64;
+        pub fn firstEven(a0: i64, a1: i64) -> i64;
+        pub fn safeDiv(a0: i64, a1: i64) -> i64;
+        pub fn pairSum(a0: i64) -> i64;
+        pub fn pairSwap(a0: i64) -> i64;
+        pub fn shapeArea(a0: i64) -> i64;
+        pub fn shapeGrow(a0: i64, a1: i64) -> i64;
+        pub fn namedBump(a0: i64) -> i64;
+        pub fn listSum(a0: i64) -> i64;
+        pub fn listRange(a0: i64) -> i64;
+        pub fn optPairSum(a0: i64) -> i64;
+        pub fn vecSum(a0: i64) -> i64;
+        pub fn vecDouble(a0: i64) -> i64;
+        pub fn axh_vec_new() -> i64;
+        pub fn axh_vec_push(a0: i64, a1: i64) -> i64;
+        pub fn axh_vec_len(a0: i64) -> i64;
+        pub fn axh_vec_get(a0: i64, a1: i64) -> i64;
+        pub fn axh_Option_Int_tag(a0: i64) -> i64;
+        pub fn axh_Option_Int_None() -> i64;
+        pub fn axh_Option_Int_Some(a0: i64) -> i64;
+        pub fn axh_Option_Int_Some_0(a0: i64) -> i64;
+        pub fn axh_Result_Int_String_tag(a0: i64) -> i64;
+        pub fn axh_Result_Int_String_Ok(a0: i64) -> i64;
+        pub fn axh_Result_Int_String_Ok_0(a0: i64) -> i64;
+        pub fn axh_Result_Int_String_Err(a0: i64) -> i64;
+        pub fn axh_Result_Int_String_Err_0(a0: i64) -> i64;
+        pub fn axh_Pair_tag(a0: i64) -> i64;
+        pub fn axh_Pair_Pair(a0: i64, a1: i64) -> i64;
+        pub fn axh_Pair_Pair_0(a0: i64) -> i64;
+        pub fn axh_Pair_Pair_1(a0: i64) -> i64;
+        pub fn axh_Shape_tag(a0: i64) -> i64;
+        pub fn axh_Shape_Circle(a0: i64) -> i64;
+        pub fn axh_Shape_Circle_0(a0: i64) -> i64;
+        pub fn axh_Shape_Rect(a0: i64, a1: i64) -> i64;
+        pub fn axh_Shape_Rect_0(a0: i64) -> i64;
+        pub fn axh_Shape_Rect_1(a0: i64) -> i64;
+        pub fn axh_Shape_Empty() -> i64;
+        pub fn axh_Named_tag(a0: i64) -> i64;
+        pub fn axh_Named_Named(a0: i64, a1: i64) -> i64;
+        pub fn axh_Named_Named_0(a0: i64) -> i64;
+        pub fn axh_Named_Named_1(a0: i64) -> i64;
+        pub fn axh_List_Int_tag(a0: i64) -> i64;
+        pub fn axh_List_Int_Nil() -> i64;
+        pub fn axh_List_Int_Cons(a0: i64, a1: i64) -> i64;
+        pub fn axh_List_Int_Cons_0(a0: i64) -> i64;
+        pub fn axh_List_Int_Cons_1(a0: i64) -> i64;
+        pub fn axh_Option_Pair_tag(a0: i64) -> i64;
+        pub fn axh_Option_Pair_None() -> i64;
+        pub fn axh_Option_Pair_Some(a0: i64) -> i64;
+        pub fn axh_Option_Pair_Some_0(a0: i64) -> i64;
+    }
+}
+
+/// An Axiom `Vec` of words, built and read through the archive's own `Vec`.
+/// A signature spells a `Vec` as `Int`, so pass `as_word()` where one is taken
+/// and wrap a returned word with `from_owned`.
+pub struct AxVecBuf(AxWord);
+
+impl AxVecBuf {
+    pub fn from_words(words: &[AxWord]) -> AxVecBuf {
+        // SAFETY: the archive's `vecNew`/`vecPush`, answering an owned share.
+        let v = unsafe { raw::axh_vec_new() };
+        for w in words {
+            unsafe { raw::axh_vec_push(v, *w) };
+        }
+        AxVecBuf(v)
+    }
+
+    /// Adopt a `Vec` word a function answered (an owned share).
+    pub unsafe fn from_owned(word: AxWord) -> AxVecBuf {
+        AxVecBuf(word)
+    }
+
+    pub fn as_word(&self) -> AxWord {
+        self.0
+    }
+
+    pub fn len(&self) -> usize {
+        unsafe { raw::axh_vec_len(self.0) as usize }
+    }
+
+    pub fn words(&self) -> Vec<AxWord> {
+        (0..self.len())
+            .map(|i| unsafe { raw::axh_vec_get(self.0, i as AxWord) })
+            .collect()
+    }
+}
+
+impl Drop for AxVecBuf {
+    fn drop(&mut self) {
+        unsafe { axiom_release(self.0) }
+    }
+}
+
+fn __from_Option_Int(word: AxWord) -> Option<i64> {
+    // SAFETY: `word` is a live value of this type, owned by the caller; every
+    // accessor answers an owned share, released here or adopted by the value.
+    let __tag = unsafe { raw::axh_Option_Int_tag(word) };
+    let __v = match __tag {
+        0 => None,
+        1 => {
+            let __f0 = unsafe { raw::axh_Option_Int_Some_0(word) };
+            Some(__f0)
+        }
+        _ => unreachable!("a constructor index the type does not have"),
+    };
+    unsafe { axiom_release(word) };
+    __v
+}
+
+fn __to_Option_Int(v: &Option<i64>) -> AxWord {
+    match v {
+        None => {
+            let __w = unsafe { raw::axh_Option_Int_None() };
+            __w
+        }
+        Some(a0) => {
+            let __w = unsafe { raw::axh_Option_Int_Some(*a0) };
+            __w
+        }
+    }
+}
+
+fn __from_Result_Int_String(word: AxWord) -> Result<i64, AxString> {
+    // SAFETY: `word` is a live value of this type, owned by the caller; every
+    // accessor answers an owned share, released here or adopted by the value.
+    let __tag = unsafe { raw::axh_Result_Int_String_tag(word) };
+    let __v = match __tag {
+        0 => {
+            let __f0 = unsafe { raw::axh_Result_Int_String_Ok_0(word) };
+            Ok(__f0)
+        }
+        1 => {
+            let __f0 = unsafe { raw::axh_Result_Int_String_Err_0(word) };
+            Err(unsafe { AxString::from_owned(__f0) })
+        }
+        _ => unreachable!("a constructor index the type does not have"),
+    };
+    unsafe { axiom_release(word) };
+    __v
+}
+
+fn __to_Result_Int_String(v: &Result<i64, AxString>) -> AxWord {
+    match v {
+        Ok(a0) => {
+            let __w = unsafe { raw::axh_Result_Int_String_Ok(*a0) };
+            __w
+        }
+        Err(a0) => {
+            let __w = unsafe { raw::axh_Result_Int_String_Err(a0.as_word()) };
+            __w
+        }
+    }
+}
+
+/// `Pair`, one constructor
+#[derive(Debug)]
+pub struct Pair {
+    pub f0: i64,
+    pub f1: i64,
+}
+
+fn __from_Pair(word: AxWord) -> Pair {
+    // SAFETY: `word` is a live value of this type, owned by the caller; every
+    // accessor answers an owned share, released here or adopted by the value.
+    let __tag = unsafe { raw::axh_Pair_tag(word) };
+    let __v = match __tag {
+        0 => {
+            let __f0 = unsafe { raw::axh_Pair_Pair_0(word) };
+            let __f1 = unsafe { raw::axh_Pair_Pair_1(word) };
+            Pair { f0: __f0, f1: __f1 }
+        }
+        _ => unreachable!("a constructor index the type does not have"),
+    };
+    unsafe { axiom_release(word) };
+    __v
+}
+
+fn __to_Pair(v: &Pair) -> AxWord {
+    match v {
+        Pair { f0: a0, f1: a1 } => {
+            let __w = unsafe { raw::axh_Pair_Pair(*a0, *a1) };
+            __w
+        }
+    }
+}
+
+impl Pair {
+    pub fn from_axiom(word: AxWord) -> Pair {
+        __from_Pair(word)
+    }
+
+    pub fn to_axiom(&self) -> AxWord {
+        __to_Pair(self)
+    }
+}
+
+/// `Shape`, one variant per constructor
+#[derive(Debug)]
+pub enum Shape {
+    Circle(f64),
+    Rect(i64, i64),
+    Empty,
+}
+
+fn __from_Shape(word: AxWord) -> Shape {
+    // SAFETY: `word` is a live value of this type, owned by the caller; every
+    // accessor answers an owned share, released here or adopted by the value.
+    let __tag = unsafe { raw::axh_Shape_tag(word) };
+    let __v = match __tag {
+        0 => {
+            let __f0 = unsafe { raw::axh_Shape_Circle_0(word) };
+            Shape::Circle(f64::from_bits(__f0 as u64))
+        }
+        1 => {
+            let __f0 = unsafe { raw::axh_Shape_Rect_0(word) };
+            let __f1 = unsafe { raw::axh_Shape_Rect_1(word) };
+            Shape::Rect(__f0, __f1)
+        }
+        2 => Shape::Empty,
+        _ => unreachable!("a constructor index the type does not have"),
+    };
+    unsafe { axiom_release(word) };
+    __v
+}
+
+fn __to_Shape(v: &Shape) -> AxWord {
+    match v {
+        Shape::Circle(a0) => {
+            let __w = unsafe { raw::axh_Shape_Circle((*a0).to_bits() as i64) };
+            __w
+        }
+        Shape::Rect(a0, a1) => {
+            let __w = unsafe { raw::axh_Shape_Rect(*a0, *a1) };
+            __w
+        }
+        Shape::Empty => {
+            let __w = unsafe { raw::axh_Shape_Empty() };
+            __w
+        }
+    }
+}
+
+impl Shape {
+    pub fn from_axiom(word: AxWord) -> Shape {
+        __from_Shape(word)
+    }
+
+    pub fn to_axiom(&self) -> AxWord {
+        __to_Shape(self)
+    }
+}
+
+/// `Named`, one constructor
+#[derive(Debug)]
+pub struct Named {
+    pub name: AxString,
+    pub score: i64,
+}
+
+fn __from_Named(word: AxWord) -> Named {
+    // SAFETY: `word` is a live value of this type, owned by the caller; every
+    // accessor answers an owned share, released here or adopted by the value.
+    let __tag = unsafe { raw::axh_Named_tag(word) };
+    let __v = match __tag {
+        0 => {
+            let __f0 = unsafe { raw::axh_Named_Named_0(word) };
+            let __f1 = unsafe { raw::axh_Named_Named_1(word) };
+            Named {
+                name: unsafe { AxString::from_owned(__f0) },
+                score: __f1,
+            }
+        }
+        _ => unreachable!("a constructor index the type does not have"),
+    };
+    unsafe { axiom_release(word) };
+    __v
+}
+
+fn __to_Named(v: &Named) -> AxWord {
+    match v {
+        Named {
+            name: a0,
+            score: a1,
+        } => {
+            let __w = unsafe { raw::axh_Named_Named(a0.as_word(), *a1) };
+            __w
+        }
+    }
+}
+
+impl Named {
+    pub fn from_axiom(word: AxWord) -> Named {
+        __from_Named(word)
+    }
+
+    pub fn to_axiom(&self) -> AxWord {
+        __to_Named(self)
+    }
+}
+
+/// `(List Int)`, one variant per constructor
+#[derive(Debug)]
+pub enum List_Int {
+    Nil,
+    Cons(i64, Box<List_Int>),
+}
+
+fn __from_List_Int(word: AxWord) -> List_Int {
+    // SAFETY: `word` is a live value of this type, owned by the caller; every
+    // accessor answers an owned share, released here or adopted by the value.
+    let __tag = unsafe { raw::axh_List_Int_tag(word) };
+    let __v = match __tag {
+        0 => List_Int::Nil,
+        1 => {
+            let __f0 = unsafe { raw::axh_List_Int_Cons_0(word) };
+            let __f1 = unsafe { raw::axh_List_Int_Cons_1(word) };
+            List_Int::Cons(__f0, Box::new(__from_List_Int(__f1)))
+        }
+        _ => unreachable!("a constructor index the type does not have"),
+    };
+    unsafe { axiom_release(word) };
+    __v
+}
+
+fn __to_List_Int(v: &List_Int) -> AxWord {
+    match v {
+        List_Int::Nil => {
+            let __w = unsafe { raw::axh_List_Int_Nil() };
+            __w
+        }
+        List_Int::Cons(a0, a1) => {
+            let __w1 = __to_List_Int(&**a1);
+            let __w = unsafe { raw::axh_List_Int_Cons(*a0, __w1) };
+            unsafe { axiom_release(__w1) };
+            __w
+        }
+    }
+}
+
+impl List_Int {
+    pub fn from_axiom(word: AxWord) -> List_Int {
+        __from_List_Int(word)
+    }
+
+    pub fn to_axiom(&self) -> AxWord {
+        __to_List_Int(self)
+    }
+}
+
+fn __from_Option_Pair(word: AxWord) -> Option<Pair> {
+    // SAFETY: `word` is a live value of this type, owned by the caller; every
+    // accessor answers an owned share, released here or adopted by the value.
+    let __tag = unsafe { raw::axh_Option_Pair_tag(word) };
+    let __v = match __tag {
+        0 => None,
+        1 => {
+            let __f0 = unsafe { raw::axh_Option_Pair_Some_0(word) };
+            Some(__from_Pair(__f0))
+        }
+        _ => unreachable!("a constructor index the type does not have"),
+    };
+    unsafe { axiom_release(word) };
+    __v
+}
+
+fn __to_Option_Pair(v: &Option<Pair>) -> AxWord {
+    match v {
+        None => {
+            let __w = unsafe { raw::axh_Option_Pair_None() };
+            __w
+        }
+        Some(a0) => {
+            let __w0 = __to_Pair(a0);
+            let __w = unsafe { raw::axh_Option_Pair_Some(__w0) };
+            unsafe { axiom_release(__w0) };
+            __w
+        }
     }
 }
 
@@ -41,7 +428,7 @@ pub fn shout(s: &str) -> AxString {
 /// `(pub :: halve (-> Float Float))`
 pub fn halve(x: f64) -> f64 {
     // SAFETY: the archive defines the symbol with exactly this shape (one word each way).
-    let __r = unsafe { raw::halve(x.to_bits() as i64) };
+    let __r = unsafe { raw::halve((x).to_bits() as i64) };
     f64::from_bits(__r as u64)
 }
 
@@ -55,7 +442,7 @@ pub fn is_even(n: i64) -> bool {
 /// `(pub :: nextChar (-> Char Char))`
 pub fn next_char(c: char) -> char {
     // SAFETY: the archive defines the symbol with exactly this shape (one word each way).
-    let __r = unsafe { raw::nextChar(c as i64) };
+    let __r = unsafe { raw::nextChar((c) as i64) };
     char::from_u32(__r as u32).unwrap_or('\u{FFFD}')
 }
 
@@ -83,6 +470,103 @@ pub fn str_len_of(s: &str) -> i64 {
     __r
 }
 
+/// `(pub :: firstEven (-> Int Int (Option Int)))`
+pub fn first_even(a: i64, b: i64) -> Option<i64> {
+    // SAFETY: the archive defines the symbol with exactly this shape (one word each way).
+    let __r = unsafe { raw::firstEven(a, b) };
+    __from_Option_Int(__r)
+}
+
+/// `(pub :: safeDiv (-> Int Int (Result Int String)))`
+pub fn safe_div(a: i64, b: i64) -> Result<i64, AxString> {
+    // SAFETY: the archive defines the symbol with exactly this shape (one word each way).
+    let __r = unsafe { raw::safeDiv(a, b) };
+    __from_Result_Int_String(__r)
+}
+
+/// `(pub :: pairSum (-> Pair Int))`
+pub fn pair_sum(p: &Pair) -> i64 {
+    let __a0 = __to_Pair(p);
+    // SAFETY: the archive defines the symbol with exactly this shape (one word each way).
+    let __r = unsafe { raw::pairSum(__a0) };
+    unsafe { axiom_release(__a0) };
+    __r
+}
+
+/// `(pub :: pairSwap (-> Pair Pair))`
+pub fn pair_swap(p: &Pair) -> Pair {
+    let __a0 = __to_Pair(p);
+    // SAFETY: the archive defines the symbol with exactly this shape (one word each way).
+    let __r = unsafe { raw::pairSwap(__a0) };
+    unsafe { axiom_release(__a0) };
+    __from_Pair(__r)
+}
+
+/// `(pub :: shapeArea (-> Shape Float))`
+pub fn shape_area(s: &Shape) -> f64 {
+    let __a0 = __to_Shape(s);
+    // SAFETY: the archive defines the symbol with exactly this shape (one word each way).
+    let __r = unsafe { raw::shapeArea(__a0) };
+    unsafe { axiom_release(__a0) };
+    f64::from_bits(__r as u64)
+}
+
+/// `(pub :: shapeGrow (-> Shape Int Shape))`
+pub fn shape_grow(s: &Shape, k: i64) -> Shape {
+    let __a0 = __to_Shape(s);
+    // SAFETY: the archive defines the symbol with exactly this shape (one word each way).
+    let __r = unsafe { raw::shapeGrow(__a0, k) };
+    unsafe { axiom_release(__a0) };
+    __from_Shape(__r)
+}
+
+/// `(pub :: namedBump (-> Named Named))`
+pub fn named_bump(n: &Named) -> Named {
+    let __a0 = __to_Named(n);
+    // SAFETY: the archive defines the symbol with exactly this shape (one word each way).
+    let __r = unsafe { raw::namedBump(__a0) };
+    unsafe { axiom_release(__a0) };
+    __from_Named(__r)
+}
+
+/// `(pub :: listSum (-> (List Int) Int))`
+pub fn list_sum(xs: &List_Int) -> i64 {
+    let __a0 = __to_List_Int(xs);
+    // SAFETY: the archive defines the symbol with exactly this shape (one word each way).
+    let __r = unsafe { raw::listSum(__a0) };
+    unsafe { axiom_release(__a0) };
+    __r
+}
+
+/// `(pub :: listRange (-> Int (List Int)))`
+pub fn list_range(n: i64) -> List_Int {
+    // SAFETY: the archive defines the symbol with exactly this shape (one word each way).
+    let __r = unsafe { raw::listRange(n) };
+    __from_List_Int(__r)
+}
+
+/// `(pub :: optPairSum (-> (Option Pair) Int))`
+pub fn opt_pair_sum(o: &Option<Pair>) -> i64 {
+    let __a0 = __to_Option_Pair(o);
+    // SAFETY: the archive defines the symbol with exactly this shape (one word each way).
+    let __r = unsafe { raw::optPairSum(__a0) };
+    unsafe { axiom_release(__a0) };
+    __r
+}
+
+/// `(pub :: vecSum (-> Int Int))`
+pub fn vec_sum(v: i64) -> i64 {
+    // SAFETY: the archive defines the symbol with exactly this shape (one word each way).
+    let __r = unsafe { raw::vecSum(v) };
+    __r
+}
+
+/// `(pub :: vecDouble (-> Int Int))`
+pub fn vec_double(v: i64) -> i64 {
+    // SAFETY: the archive defines the symbol with exactly this shape (one word each way).
+    let __r = unsafe { raw::vecDouble(v) };
+    __r
+}
+
 // Not bound - call these through the archive by hand, or change the type:
-// `firstEven`: `(-> Int Int (Option Int))` names `(Option Int)`, which the binding does not carry
-// `pairSum`: `(-> Pair Int)` names `Pair`, which the binding does not carry
+// `identity`: `(-> a a)` names `a`, which the binding does not carry

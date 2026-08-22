@@ -3,35 +3,64 @@
 
 (import Err)
 
+(import Vec)
+
 ; A `Vec` is an `Int` handle holding one word per element, and the
 ; element type is whatever the program reads it as - Float bits with
-; `(cast Float (vecGet v i))`, a Bool as 0/1, every integer as the word:
+; `(cast Float (vecGet v i))`, a Bool as 0/1, a Char as its code point,
+; every integer as the word (a u64 >= 2^63 reads negative):
+;   `charsOf` answers a Vec of Char (code points);
 ;   `concat` reads `parts` as a Vec of String;
+;   `doubleInPlace` writes `xs` in place, a Vec of Int;
+;   `fromChars` reads `cs` as a Vec of Char (code points);
+;   `glyphsMaybe` answers a Vec of Glyph;
+;   `grid` answers a Vec of Vecs of Int;
 ;   `mean` reads `xs` as a Vec of Float bits (f64);
 ;   `mean` reads `weights` as a Vec of u16 (each word range-checked);
 ;   `parity` answers a Vec of Bool (0/1);
+;   `pixelsDim` reads `ps` as a Vec of Pixel (flattened to 3 words per element for the call);
+;   `pixelsDim` answers a Vec of Pixel;
+;   `pixelsTry` reads `ps` as a Vec of Pixel (flattened to 3 words per element for the call);
+;   `pixelsTry` answers a Vec of Pixel;
+;   `sumRows` reads `rows` as a Vec of Vecs of Int;
+;   `tryGridF64` answers a Vec of Vecs of Float bits (f64);
 (pub extern "axiom_nested"
+  (charsOfRaw :: (-> String Int Int) (symbol "axffi_chars_of"))
   (checkRaw :: (-> Bool Int Int) (symbol "axffi_check"))
   (combineRaw :: (-> (-> Int Int Int) (-> Int Int Int Int) Int Int Int) (symbol "axffi_combine"))
   (concatRaw :: (-> Int Int Int) (symbol "axffi_concat"))
   (deepest :: (-> Bool Bool) (symbol "axffi_deepest"))
+  (doubleInPlace :: (-> Int Int) (symbol "axffi_double_in_place"))
   (echoRaw :: (-> String Int Int) (symbol "axffi_echo"))
   (evensRaw :: (-> Int Int Int) (symbol "axffi_evens"))
+  (fromCharsRaw :: (-> Int Int Int) (symbol "axffi_from_chars"))
+  (glyphOfRaw :: (-> Char Int Int) (symbol "axffi_glyph_of"))
+  (glyphsMaybeRaw :: (-> Int Int Int) (symbol "axffi_glyphs_maybe"))
+  (gridRaw :: (-> Int Int Int) (symbol "axffi_grid"))
+  (lookupRaw :: (-> Int Int Int) (symbol "axffi_lookup"))
   (mapTwice :: (-> (-> Int Int) Int Int) (symbol "axffi_map_twice"))
+  (maybeCharRaw :: (-> Char Int Int) (symbol "axffi_maybe_char"))
+  (maybeParseRaw :: (-> String Int Int) (symbol "axffi_maybe_parse"))
   (maybePiecesRaw :: (-> String Int Int) (symbol "axffi_maybe_pieces"))
+  (maybePixelTryRaw :: (-> Int Int Int) (symbol "axffi_maybe_pixel_try"))
   (maybeTextRaw :: (-> Int Int Int) (symbol "axffi_maybe_text"))
   (mean :: (-> Int Int Float) (symbol "axffi_mean"))
   (nestedAdd :: (-> Int Int Int) (symbol "axffi_nested_add"))
+  (nextChar :: (-> Char Char) (symbol "axffi_next_char"))
   (nothing :: (-> Int Int) (symbol "axffi_nothing"))
   (parityRaw :: (-> Int Int Int) (symbol "axffi_parity"))
   (peek :: (-> Foreign Int Int) (symbol "axffi_peek"))
+  (piecesLookupRaw :: (-> String Int Int) (symbol "axffi_pieces_lookup"))
   (piecesRaw :: (-> String Int Int) (symbol "axffi_pieces"))
   (pixelBrightnessRaw :: (-> Int Float Bool Float Float) (symbol "axffi_pixel_brightness"))
   (pixelMixRaw :: (-> Int Float Bool Int Float Bool Foreign Int Int) (symbol "axffi_pixel_mix"))
   (pixelOffRaw :: (-> Int Int) (symbol "axffi_pixel_off"))
   (pixelParseRaw :: (-> String Int Int) (symbol "axffi_pixel_parse"))
+  (pixelsDimRaw :: (-> Int Int Int Int) (symbol "axffi_pixels_dim"))
+  (pixelsTryRaw :: (-> Int Int Int) (symbol "axffi_pixels_try"))
   (ratioRaw :: (-> Int Int Int Int) (symbol "axffi_ratio"))
   (renamedRaw :: (-> String Int Int Int) (symbol "custom_symbol"))
+  (sumRows :: (-> Int Int) (symbol "axffi_sum_rows"))
   (thingDropFn :: Int (symbol "axffi_thing_drop_fn"))
   (thingGetRaw :: (-> Foreign Int) (symbol "axffi_thing_get"))
   (thingMaybeRaw :: (-> Foreign Int Int) (symbol "axffi_thing_maybe"))
@@ -40,14 +69,76 @@
   (thingTryRaw :: (-> Int Int Int) (symbol "axffi_thing_try"))
   (total :: (-> Int Int) (symbol "axffi_total"))
   (tryEvensRaw :: (-> Int Int Int) (symbol "axffi_try_evens"))
+  (tryGridF64Raw :: (-> Int Int Int) (symbol "axffi_try_grid_f64"))
   (unitResultRaw :: (-> Int Int Int) (symbol "axffi_unit_result"))
   (wideRaw :: (-> Int Int Int Int Int Int Int) (symbol "axffi_wide"))
   (widgetDropFn :: Int (symbol "axffi_widget_v2_drop_fn"))
-  (widgetNewRaw :: Foreign (symbol "axffi_widget_new")))
+  (widgetNewRaw :: Foreign (symbol "axffi_widget_new"))
+  (wrapU64 :: (-> Int Int) (symbol "axffi_wrap_u64")))
+
+; `Glyph` crosses the boundary as its fields, one word each: c Char, code Int.
+(pub data Glyph
+  (Glyph Char Int))
 
 ; `Pixel` crosses the boundary as its fields, one word each: level Int, weight Float, on Bool.
 (pub data Pixel
   (Pixel Int Float Bool))
+
+; A `Vec` of `Glyph` answered by Rust: 2 words per element, rebuilt here.
+(:: __glyphFromWords (-> Int Int Int Int Int))
+
+(fn (__glyphFromWords __v __p __n __i)
+  (if (>= __i __n)
+    __v
+    (let (
+      (__w0 (cast Char (ffiWordAt __p (* __i 2))))
+      (__w1 (ffiWordAt __p (+ (* __i 2) 1)))
+    )
+      {
+        (vecPush __v (Glyph __w0 __w1))
+        (__glyphFromWords __v __p __n (+ __i 1))
+      }
+    )
+  )
+)
+
+; A `Vec` of `Pixel` answered by Rust: 3 words per element, rebuilt here.
+(:: __pixelFromWords (-> Int Int Int Int Int))
+
+(fn (__pixelFromWords __v __p __n __i)
+  (if (>= __i __n)
+    __v
+    (let (
+      (__w0 (ffiWordAt __p (* __i 3)))
+      (__w1 (cast Float (ffiWordAt __p (+ (* __i 3) 1))))
+      (__w2 (cast Bool (ffiWordAt __p (+ (* __i 3) 2))))
+    )
+      {
+        (vecPush __v (Pixel __w0 __w1 __w2))
+        (__pixelFromWords __v __p __n (+ __i 1))
+      }
+    )
+  )
+)
+
+; A `Vec` of `Pixel` handed to Rust: flattened to 3 words per element here.
+(:: __pixelToWords (-> Int Int Int Int))
+
+(fn (__pixelToWords __ps __w __i)
+  (if (>= __i (vecLen __ps))
+    __w
+    (match (vecGet __ps __i)
+      ((Pixel __f0 __f1 __f2)
+        {
+          (vecPush __w __f0)
+          (vecPush __w __f1)
+          (vecPush __w __f2)
+          (__pixelToWords __ps __w (+ __i 1))
+        }
+      )
+    )
+  )
+)
 
 ; `Thing` is a Rust value held through a `Handle`: when the last
 ; reference dies the handle runs `axffi_thing_drop`.
@@ -72,6 +163,24 @@
 (pub fn (widgetClose c)
   (match c
     ((Widget __h) (ffiHandleClose __h))
+  )
+)
+
+(pub :: charsOf (-> String Int))
+
+(pub fn (charsOf text)
+  (let (
+    (__c ffiCellNew)
+    (__st (charsOfRaw text __c))
+    (__p (ffiCellWord __c 0))
+    (__n (ffiCellWord __c 1))
+    (__v (ffiWordsToVec __p __n))
+  )
+    {
+      (ffiFreeWords __p __n)
+      (ffiCellFree __c)
+      __v
+    }
   )
 )
 
@@ -173,6 +282,169 @@
   )
 )
 
+(pub :: fromChars (-> Int String))
+
+(pub fn (fromChars cs)
+  (let (
+    (__c ffiCellNew)
+    (__st (fromCharsRaw cs __c))
+    (__p (ffiCellWord __c 0))
+    (__n (ffiCellWord __c 1))
+    (__v (ffiBytesToStr __p __n))
+  )
+    {
+      (ffiFreeBytes __p __n)
+      (ffiCellFree __c)
+      __v
+    }
+  )
+)
+
+(pub :: glyphOf (-> Char Glyph))
+
+(pub fn (glyphOf c)
+  (let (
+    (__c (ffiCellNewN 2))
+    (__st (glyphOfRaw c __c))
+    (__w0 (cast Char (ffiCellWord __c 0)))
+    (__w1 (ffiCellWord __c 1))
+    (__r (Glyph __w0 __w1))
+  )
+    {
+      (ffiCellFree __c)
+      __r
+    }
+  )
+)
+
+(pub :: glyphsMaybe (-> Int (Option Int)))
+
+(pub fn (glyphsMaybe n)
+  (let (
+    (__c ffiCellNew)
+    (__st (glyphsMaybeRaw n __c))
+    (__p (ffiCellWord __c 0))
+    (__n (ffiCellWord __c 1))
+  )
+    (if (== __st 0)
+      (let ((__v (__glyphFromWords (vecWithCapacity __n) __p __n 0)))
+        {
+          (ffiFreeWords __p (* __n 2))
+          (ffiCellFree __c)
+          (Some __v)
+        }
+      )
+      {
+        (ffiCellFree __c)
+        None
+      }
+    )
+  )
+)
+
+(pub :: grid (-> Int Int))
+
+(pub fn (grid n)
+  (let (
+    (__c ffiCellNew)
+    (__st (gridRaw n __c))
+    (__p (ffiCellWord __c 0))
+    (__n (ffiCellWord __c 1))
+    (__v (ffiWordListsToVec __p __n))
+  )
+    {
+      (ffiFreeWordLists __p __n)
+      (ffiCellFree __c)
+      __v
+    }
+  )
+)
+
+(pub :: lookup (-> Int (Option (Result Thing String))))
+
+(pub fn (lookup i)
+  (let (
+    (__c ffiCellNew)
+    (__st (lookupRaw i __c))
+    (__p (ffiCellWord __c 0))
+    (__n (ffiCellWord __c 1))
+  )
+    (if (== __st 0)
+      {
+        (ffiCellFree __c)
+        (Some (Ok (Thing (ffiHandleNew __p thingDropFn))))
+      }
+      (if (== __st 2)
+        {
+          (ffiCellFree __c)
+          None
+        }
+        (let ((__m (ffiBytesToStr __p __n)))
+          {
+            (ffiFreeBytes __p __n)
+            (ffiCellFree __c)
+            (Some (Err __m))
+          }
+        )
+      )
+    )
+  )
+)
+
+(pub :: maybeChar (-> Char (Option Char)))
+
+(pub fn (maybeChar c)
+  (let (
+    (__c ffiCellNew)
+    (__st (maybeCharRaw c __c))
+    (__p (ffiCellWord __c 0))
+    (__n (ffiCellWord __c 1))
+    (__ch (cast Char __p))
+  )
+    (if (== __st 0)
+      {
+        (ffiCellFree __c)
+        (Some __ch)
+      }
+      {
+        (ffiCellFree __c)
+        None
+      }
+    )
+  )
+)
+
+(pub :: maybeParse (-> String (Result (Option Int) String)))
+
+(pub fn (maybeParse text)
+  (let (
+    (__c ffiCellNew)
+    (__st (maybeParseRaw text __c))
+    (__p (ffiCellWord __c 0))
+    (__n (ffiCellWord __c 1))
+  )
+    (if (== __st 0)
+      {
+        (ffiCellFree __c)
+        (Ok (Some __p))
+      }
+      (if (== __st 2)
+        {
+          (ffiCellFree __c)
+          (Ok None)
+        }
+        (let ((__m (ffiBytesToStr __p __n)))
+          {
+            (ffiFreeBytes __p __n)
+            (ffiCellFree __c)
+            (Err __m)
+          }
+        )
+      )
+    )
+  )
+)
+
 (pub :: maybePieces (-> String (Option Int)))
 
 (pub fn (maybePieces text)
@@ -194,6 +466,41 @@
         (ffiCellFree __c)
         None
       }
+    )
+  )
+)
+
+(pub :: maybePixelTry (-> Int (Result (Option Pixel) String)))
+
+(pub fn (maybePixelTry n)
+  (let (
+    (__c (ffiCellNewN 3))
+    (__st (maybePixelTryRaw n __c))
+    (__p (ffiCellWord __c 0))
+    (__n (ffiCellWord __c 1))
+    (__w0 (ffiCellWord __c 0))
+    (__w1 (cast Float (ffiCellWord __c 1)))
+    (__w2 (cast Bool (ffiCellWord __c 2)))
+    (__r (Pixel __w0 __w1 __w2))
+  )
+    (if (== __st 0)
+      {
+        (ffiCellFree __c)
+        (Ok (Some __r))
+      }
+      (if (== __st 2)
+        {
+          (ffiCellFree __c)
+          (Ok None)
+        }
+        (let ((__m (ffiBytesToStr __p __n)))
+          {
+            (ffiFreeBytes __p __n)
+            (ffiCellFree __c)
+            (Err __m)
+          }
+        )
+      )
     )
   )
 )
@@ -256,6 +563,40 @@
       (ffiCellFree __c)
       __v
     }
+  )
+)
+
+(pub :: piecesLookup (-> String (Option (Result Int String))))
+
+(pub fn (piecesLookup text)
+  (let (
+    (__c ffiCellNew)
+    (__st (piecesLookupRaw text __c))
+    (__p (ffiCellWord __c 0))
+    (__n (ffiCellWord __c 1))
+  )
+    (if (== __st 0)
+      (let ((__v (ffiStrsToVec __p __n)))
+        {
+          (ffiFreeStrList __p __n)
+          (ffiCellFree __c)
+          (Some (Ok __v))
+        }
+      )
+      (if (== __st 2)
+        {
+          (ffiCellFree __c)
+          None
+        }
+        (let ((__m (ffiBytesToStr __p __n)))
+          {
+            (ffiFreeBytes __p __n)
+            (ffiCellFree __c)
+            (Some (Err __m))
+          }
+        )
+      )
+    )
   )
 )
 
@@ -348,6 +689,54 @@
         (ffiCellFree __c)
         (Ok __r)
       }
+      (let ((__m (ffiBytesToStr __p __n)))
+        {
+          (ffiFreeBytes __p __n)
+          (ffiCellFree __c)
+          (Err __m)
+        }
+      )
+    )
+  )
+)
+
+(pub :: pixelsDim (-> Int Int Int))
+
+(pub fn (pixelsDim ps by)
+  (let (
+    (__a0 (__pixelToWords ps (vecWithCapacity (* (vecLen ps) 3)) 0))
+    (__c ffiCellNew)
+    (__st (pixelsDimRaw __a0 by __c))
+    (__p (ffiCellWord __c 0))
+    (__n (ffiCellWord __c 1))
+    (__v (__pixelFromWords (vecWithCapacity __n) __p __n 0))
+  )
+    {
+      (ffiFreeWords __p (* __n 3))
+      (ffiCellFree __c)
+      __v
+    }
+  )
+)
+
+(pub :: pixelsTry (-> Int (Result Int String)))
+
+(pub fn (pixelsTry ps)
+  (let (
+    (__a0 (__pixelToWords ps (vecWithCapacity (* (vecLen ps) 3)) 0))
+    (__c ffiCellNew)
+    (__st (pixelsTryRaw __a0 __c))
+    (__p (ffiCellWord __c 0))
+    (__n (ffiCellWord __c 1))
+  )
+    (if (== __st 0)
+      (let ((__v (__pixelFromWords (vecWithCapacity __n) __p __n 0)))
+        {
+          (ffiFreeWords __p (* __n 3))
+          (ffiCellFree __c)
+          (Ok __v)
+        }
+      )
       (let ((__m (ffiBytesToStr __p __n)))
         {
           (ffiFreeBytes __p __n)
@@ -514,6 +903,34 @@
       (let ((__v (ffiWordsToVec __p __n)))
         {
           (ffiFreeWords __p __n)
+          (ffiCellFree __c)
+          (Ok __v)
+        }
+      )
+      (let ((__m (ffiBytesToStr __p __n)))
+        {
+          (ffiFreeBytes __p __n)
+          (ffiCellFree __c)
+          (Err __m)
+        }
+      )
+    )
+  )
+)
+
+(pub :: tryGridF64 (-> Int (Result Int String)))
+
+(pub fn (tryGridF64 n)
+  (let (
+    (__c ffiCellNew)
+    (__st (tryGridF64Raw n __c))
+    (__p (ffiCellWord __c 0))
+    (__n (ffiCellWord __c 1))
+  )
+    (if (== __st 0)
+      (let ((__v (ffiWordListsToVec __p __n)))
+        {
+          (ffiFreeWordLists __p __n)
           (ffiCellFree __c)
           (Ok __v)
         }

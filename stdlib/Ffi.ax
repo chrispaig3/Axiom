@@ -38,6 +38,7 @@
   (ffiFreeBytes :: (-> Int Int Int) (symbol "axffi_free_bytes"))
   (ffiFreeWords :: (-> Int Int Int) (symbol "axffi_free_words"))
   (ffiFreeStrList :: (-> Int Int Int) (symbol "axffi_free_str_list"))
+  (ffiFreeWordLists :: (-> Int Int Int) (symbol "axffi_free_word_lists"))
   (ffiAbiVersion :: Int (symbol "axffi_abi_version")))
 
 (pub :: ffiStatusOk Int)
@@ -101,6 +102,12 @@
   (let ((c (memAlloc (* 8 (if (< n 2) 2 n)))))
     { (__retain c) c }))
 
+; Word `i` of a Rust-owned word buffer: what a generated wrapper reads
+; a record's fields or a list's lengths through before freeing it.
+(pub :: ffiWordAt (-> Int Int Int))
+(pub fn (ffiWordAt p i)
+  (__load64 p i))
+
 (pub :: ffiCellFree (-> Int Int))
 (pub fn (ffiCellFree c)
   { (__release c) 0 })
@@ -148,3 +155,18 @@
       ; copy was born with
       { (vecPush v (ffiBytesToStr (__load64 p (* i 2)) (__load64 p (+ (* i 2) 1))))
         (ffiStrsInto v p n (+ i 1)) }))
+
+; A Rust `Vec<Vec<T>>` of word scalars copied into an Axiom `Vec` of
+; `Vec`s: `p` points at `2n` words, `{wordsPtr, len}` per inner list.
+; Does NOT free the Rust side: the wrapper calls `ffiFreeWordLists`.
+(pub :: ffiWordListsToVec (-> Int Int Int))
+(pub fn (ffiWordListsToVec p n)
+  (let ((v (vecWithCapacity (if (< n 1) 1 n))))
+    (ffiWordListsInto v p n 0)))
+
+(:: ffiWordListsInto (-> Int Int Int Int Int))
+(fn (ffiWordListsInto v p n i)
+  (if (>= i n)
+      v
+      { (vecPush v (ffiWordsToVec (__load64 p (* i 2)) (__load64 p (+ (* i 2) 1))))
+        (ffiWordListsInto v p n (+ i 1)) }))

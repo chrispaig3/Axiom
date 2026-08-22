@@ -13,7 +13,8 @@
 //!
 //! | symbol | defined by | used for |
 //! |---|---|---|
-//! | `addTwo`, `halve`, `isEven`, `nextChar`, `answer`, `shout`, `same`, `strLenOf` | `hostlib.ax` (`pub fn`, entry file: unmangled) | the calls below |
+//! | `addTwo`, `halve`, `isEven`, `nextChar`, `answer`, `shout`, `same`, `strLenOf`, `firstEven`, `safeDiv`, `pairSum`, ... | `hostlib.ax` (`pub fn`, entry file: unmangled) | the calls below |
+//! | `axh_*` | synthesised into the archive by `--emit-rust-binding` | building and reading `Pair`, `Shape`, `Named`, `List`, `Option`, `Result`, and a `Vec` |
 //! | `Str$strAlloc` | `stdlib/Str.ax`, mangled `Module$name` | `AxString::from_str` allocating a `&str` argument |
 //! | `axiom_release` | the emitted runtime | `AxString`'s drop giving a share back |
 //!
@@ -57,16 +58,65 @@ fn main() {
         }
     }
 
+    // Values with structure, through the accessor shims the build put
+    // in the archive: `Option`/`Result` map to Rust's own, a `data` is
+    // a struct or enum, a `struct` keeps its field names, a user `List`
+    // is a boxed recursive enum, and every conversion releases what it
+    // built. Round-tripped ten thousand times to prove the shares
+    // balance (a leak or a double release shows up in the allocator).
+    let opt = hostlib::first_even(3, 8);
+    let res_ok = hostlib::safe_div(84, 2);
+    let res_err = hostlib::safe_div(1, 0);
+    let err_text = match &res_err {
+        Err(e) => e.as_str().unwrap_or("<not utf-8>").to_owned(),
+        Ok(_) => String::new(),
+    };
+    let mut structured_ok = opt == Some(8) && matches!(res_ok, Ok(42)) && err_text == "division by zero";
+    for i in 0..10_000 {
+        let p = hostlib::Pair { f0: i, f1: 2 * i };
+        let swapped = hostlib::pair_swap(&p);
+        let grown = hostlib::shape_grow(&hostlib::Shape::Rect(2, 3), 2);
+        let circle = hostlib::shape_area(&hostlib::Shape::Circle(1.0));
+        let named = hostlib::named_bump(&hostlib::Named {
+            name: axiom_ffi::host::AxString::from_str("ada"),
+            score: i,
+        });
+        let list = hostlib::list_range(4);
+        let sum = hostlib::list_sum(&list);
+        let through = hostlib::opt_pair_sum(&Some(hostlib::Pair { f0: 1, f1: i }));
+        let none = hostlib::opt_pair_sum(&None);
+        let v = hostlib::AxVecBuf::from_words(&[1, 2, 3, i]);
+        let doubled = unsafe { hostlib::AxVecBuf::from_owned(hostlib::vec_double(v.as_word())) };
+        if hostlib::pair_sum(&p) != 3 * i
+            || swapped.f0 != 2 * i
+            || swapped.f1 != i
+            || !matches!(grown, hostlib::Shape::Rect(4, 6))
+            || circle != 3.0
+            || named.score != i + 1
+            || named.name.as_str() != Ok("ada!")
+            || sum != 10
+            || through != 1 + i
+            || none != -1
+            || hostlib::vec_sum(v.as_word()) != 6 + i
+            || doubled.words() != vec![2, 4, 6, 2 * i]
+        {
+            structured_ok = false;
+            break;
+        }
+    }
+
     let agree = sum == 42
         && text == "HELLO"
         && half == 2.5
         && even
         && next == 'b'
         && answer == 42
-        && same_ok;
+        && same_ok
+        && structured_ok;
     println!(
-        "host: addTwo={sum} shout={text} halve={half} isEven={even} nextChar={next} answer={answer} same={} {}",
+        "host: addTwo={sum} shout={text} halve={half} isEven={even} nextChar={next} answer={answer} same={} structured={} {}",
         if same_ok { "ok" } else { "BROKEN" },
+        if structured_ok { "ok" } else { "BROKEN" },
         if agree { "agree" } else { "DISAGREE" }
     );
     if !agree {
