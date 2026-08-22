@@ -1,0 +1,29 @@
+; Integers narrower than the word: `i32` and `u8` parameters.
+;
+; An Axiom `Int` is an i64 and the shim's parameter is an i64, so a
+; narrow Rust parameter is a range check at the boundary: the shim
+; converts with `TryFrom` and ABORTS on failure - message on fd 2
+; naming the function and the argument, exit 72 like Axiom's own
+; runtime traps - because an infallible call has no channel for an
+; error and truncation was the silent-wrong-answer case (measured:
+; `narrow(4294967297)` on a `u32` printed 1). The return widens
+; losslessly, so `halve` answers `Int` with no check.
+;
+; This case stays inside every range on purpose; the abort is a
+; process-ending event, and a fixture that expects 0 cannot observe
+; it. The range edges are exercised instead: 255 is the largest `u8`,
+; and -2147483648 the smallest `i32`.
+(import IO)
+(import Fmt)
+(import Demo)
+
+;@axiom:effect(io)
+(pub fn (main)
+  (let ((h (halve 9))
+        (hn (halve -2147483648))
+        (b (bytePlus 255 1))
+        (z (bytePlus 0 -1)))
+    (if (&& (== h 4) (&& (== hn -1073741824) (&& (== b 256) (== z -1))))
+        { (println "narrow ints: agree") 0 }
+        { (println (fmtInt h)) (println (fmtInt hn)) (println (fmtInt b)) (println (fmtInt z)) 1 })))
+; expect 0

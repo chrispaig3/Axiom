@@ -355,9 +355,36 @@
           (if (== (nodeTag d) TAG_D_SIG)
               (vecPush sigs (cast Int (FSig (nodeA d) (strLen (nodeA d)) (nodeB d) (nodeTy d)
                                             (cgTakesEvidence (nodeTy d)) 1 (- 0 1) 0 0)))
-              0))
+              ; an `extern` item is a signed global under its LINKER
+              ; SYMBOL (what `mangledForCg` answers for its name), with
+              ; the masks the boundary contract gives it: a Rust shim
+              ; BORROWS every argument for the call (docs/ffi.md, C1 -
+              ; a shim that keeps one takes its own share with
+              ; `axiom_retain`) and answers a fresh word or a share of
+              ; its own, so it parks nothing and answers nothing of
+              ; what it was handed. Without an entry every extern
+              ; call parked every argument, and a `Counter` cell
+              ; handed to `counterValueRaw` never died
+              (if (== (nodeTag d) TAG_D_EXTERN)
+                  (scanExternSigs (nodeC d) sigs 0)
+                  0)))
         (scanFloatSigs decls sigs (+ i 1))
       }))
+
+(pub :: scanExternSigs (-> Int Int Int Int))
+(pub fn (scanExternSigs items sigs i)
+  (if (== items 0)
+      0
+      (if (>= i (vecLen items))
+          0
+          (let ((f (vecGet items i)))
+            {
+              (if (== (nodeB f) 0)
+                  0
+                  (vecPush sigs (cast Int (FSig (nodeC f) (strLen (nodeC f)) 0 (nodeB f)
+                                                0 1 (externArity (nodeB f)) 0 0))))
+              (scanExternSigs items sigs (+ i 1))
+            }))))
 
 (pub :: findFSig (-> Int String Int))
 (pub fn (findFSig sigs name)
@@ -1648,7 +1675,11 @@
                             (if (>= n_ 1)
                                 (countedAdd cell (parkForms (countFlow cg (spineArgAt e 0) params env)))
                                 0)
-                            0)))
+                            (if (strEq n "__call_word")
+                                ; a function reached by address may park
+                                ; what it is handed
+                                (stashAdd cell (parkForms (flowMaskAll cg e n_ params env 0)))
+                                0))))
             (if (|| (>= (envFlagOf env n) 0) (>= (paramIndexIn params n 0) 0))
                 (stashAdd cell (parkForms (flowMaskAll cg e n_ params env 0)))
             (if (!= (findFSigCg cg (mangledForCg cg n)) 0)
@@ -2945,6 +2976,11 @@
     {
       (vecPush v (cast Int entryDir))
       (pushPathList v (sysEnv "AXIOM_PATH") 0)
+      ; `--crate DIR`: the crate's generated binding module lives in
+      ; `DIR/axiom/`, and the driver searches `DIR/target/release` for
+      ; its archive - one flag where `AXIOM_PATH`, `--link-search` and
+      ; `--link-lib` were three
+      (pushCrateDirs v 1)
       (let ((sl (sysEnv "AXIOM_STDLIB")))
         (if (> (strLen sl) 0)
             (vecPush v (cast Int (pathWithSlash sl)))
@@ -3082,6 +3118,46 @@
       (sysExitWith (if (strEq (firstOperandArg 1) "symbols") 1 3))
       0
     }))
+
+; Every `--crate DIR` (or `--crate=DIR`) on the command line, as a
+; module search directory `DIR/axiom/`.
+(pub :: pushCrateDirs (-> Int Int Int))
+(pub fn (pushCrateDirs v i)
+  (if (>= i (sysArgc))
+      0
+      (let ((a (sysArg i)))
+        (if (strEq a "--crate")
+            {
+              (if (< (+ i 1) (sysArgc))
+                  (vecPush v (cast Int (cat2 (pathWithSlash (sysArg (+ i 1))) "axiom/")))
+                  0)
+              (pushCrateDirs v (+ i 2))
+            }
+            (if (strStartsWith a "--crate=")
+                {
+                  (vecPush v (cast Int (cat2 (pathWithSlash (strSlice a 8 (- (strLen a) 8))) "axiom/")))
+                  (pushCrateDirs v (+ i 1))
+                }
+                (pushCrateDirs v (+ i 1)))))))
+
+(pub :: crateDirsOf Int)
+(pub fn (crateDirsOf)
+  (let ((v vecNew))
+    { (collectCrateDirs v 1) v }))
+
+(pub :: collectCrateDirs (-> Int Int Int))
+(pub fn (collectCrateDirs v i)
+  (if (>= i (sysArgc))
+      0
+      (let ((a (sysArg i)))
+        (if (strEq a "--crate")
+            {
+              (if (< (+ i 1) (sysArgc)) (vecPush v (cast Int (sysArg (+ i 1)))) 0)
+              (collectCrateDirs v (+ i 2))
+            }
+            (if (strStartsWith a "--crate=")
+                { (vecPush v (cast Int (strSlice a 8 (- (strLen a) 8)))) (collectCrateDirs v (+ i 1)) }
+                (collectCrateDirs v (+ i 1)))))))
 
 (pub :: firstOperandArg (-> Int String))
 (pub fn (firstOperandArg i)
@@ -3922,8 +3998,9 @@
     ; MM-LIFE-2e + 2d: the release path. A handle below 4096 is an
     ; immediate, a count of -1 a static, a count of 0 a free-floating
     ; block nobody adopted: each is left alone. Otherwise the count
-    ; drops, and at zero the block is dead. A dead STRING (form bit 1,
-    ; or no reference map) files at once; a dead RECORD with a map is
+    ; drops, and at zero the block is dead. A dead RECORD with no
+    ; reference map files at once; one of the FOREIGN FORM (form bit 1,
+    ; MM-FFI-6) runs its destructor first; a dead RECORD with a map is
     ; DEFERRED: its count word - dead storage from here on, and the
     ; free-list link once it files - links it into a dead list this
     ; invocation keeps in a local, and nothing else is stored
@@ -3983,7 +4060,31 @@
     (emitLine cg "  %map0 = lshr i64 %shw, 16")
     (emitLine cg "  %hasmap = icmp ne i64 %map0, 0")
     (emitLine cg "  %dowalk = and i1 %isrec, %hasmap")
-    (emitLine cg "  br i1 %dowalk, label %defer, label %filev")
+    (emitLine cg "  br i1 %dowalk, label %defer, label %notrec")
+    ; the FOREIGN FORM (form bit 1, stdlib/Ffi.ax): payload word 0 is
+    ; the address of a C destructor `i64 (i64)`, word 1 the Rust value
+    ; it takes. A dead handle runs the destructor once - the pointer is
+    ; zeroed by an explicit `ffiHandleClose` so a closed handle's death
+    ; calls nothing - and then files like any block. The call may
+    ; re-enter `@axiom_release` (a Rust `Drop` giving back Axiom
+    ; values it retained): every invocation's dead list is its own
+    (emitLine cg "notrec:")
+    (emitLine cg "  br i1 %isrec, label %filev, label %foreign")
+    (emitLine cg "foreign:")
+    (emitLine cg "  %fdp = inttoptr i64 %h to ptr")
+    (emitLine cg "  %fdrop = load i64, ptr %fdp")
+    (emitLine cg "  %fa1 = add i64 %h, 8")
+    (emitLine cg "  %fap = inttoptr i64 %fa1 to ptr")
+    (emitLine cg "  %farg = load i64, ptr %fap")
+    (emitLine cg "  %fhas = icmp ne i64 %fdrop, 0")
+    (emitLine cg "  %fliv = icmp ne i64 %farg, 0")
+    (emitLine cg "  %fdo = and i1 %fhas, %fliv")
+    (emitLine cg "  br i1 %fdo, label %fcall, label %filev")
+    (emitLine cg "fcall:")
+    (emitLine cg "  store i64 0, ptr %fap")
+    (emitLine cg "  %ffp = inttoptr i64 %fdrop to ptr")
+    (emitLine cg "  %fres = call i64 %ffp(i64 %farg)")
+    (emitLine cg "  br label %filev")
     (emitLine cg "defer:")
     (emitLine cg "  %dh = load i64, ptr %dead")
     (emitLine cg "  store i64 %dh, ptr %cp")
@@ -4542,7 +4643,13 @@
       (let ((d (vecGet decls i)))
         (emitExternDeclares decls
           (if (== (nodeTag d) TAG_D_EXTERN)
-              (emitExternItems (nodeC d) cg 0 seen)
+              ; the block's library name travels in the IR as a
+              ; comment the driver reads beside the declares: it is
+              ; what lets `axiom build` link `-l<lib>` without being
+              ; told, and name the block in a grounding diagnostic
+              (emitExternItems (nodeC d)
+                               (emitLine cg (cat2 "; axiom-extern-lib " (nodeA d)))
+                               0 seen)
               cg)
           (+ i 1) seen))))
 
@@ -4555,7 +4662,14 @@
           (let ((f (vecGet items i)))
             (let ((sym (nodeC f)))
               (emitExternItems items
-                (if (== (externSeen seen sym 0) 1)
+                (if (|| (== (externSeen seen sym 0) 1)
+                        ; only a symbol the module CALLS is declared:
+                        ; a binding module imports fifteen items and a
+                        ; program calls two, and every declare must
+                        ; ground against a linked archive, so a
+                        ; program that imports `Ffi` for its handles
+                        ; alone links without any archive
+                        (== (linesCallSym (memGetWord cg 0) (llvmSym (strDup sym)) 0) 0))
                     cg
                     {
                       (vecPush seen sym)
@@ -4565,6 +4679,32 @@
                               " #0"))
                     })
                 (+ i 1) seen))))))
+
+; Does any emitted line call `@sym(`? A substring scan over the
+; module's lines, once per extern item at the end of emission.
+(pub :: linesCallSym (-> Int String Int Int))
+(pub fn (linesCallSym lines sym i)
+  (if (>= i (vecLen lines))
+      0
+      (if (== (strHasSub (cast String (vecGet lines i)) (cat3 "@" sym "(")) 1)
+          1
+          (linesCallSym lines sym (+ i 1)))))
+
+(pub :: strHasSub (-> String String Int))
+(pub fn (strHasSub hay needle)
+  (let ((n (strLen needle))
+        (h (strLen hay)))
+    (if (> n h)
+        0
+        (strHasSubFrom (strData hay) (strData needle) n (- h n) 0))))
+
+(pub :: strHasSubFrom (-> Int Int Int Int Int Int))
+(pub fn (strHasSubFrom hp np n last i)
+  (if (> i last)
+      0
+      (if (== (memCmp (+ hp i) np n) 0)
+          1
+          (strHasSubFrom hp np n last (+ i 1)))))
 
 (pub :: externSeen (-> Int String Int Int))
 (pub fn (externSeen seen sym i)
@@ -7571,8 +7711,9 @@
   ; in a program that never imported `Str`.
   (if (strEq nm "__streq") true
   (if (strEq nm "__strne") true
+  (if (strEq nm "__call_word") true
   (if (isSyscallName nm) true
-  false))))))))))))))))))))
+  false)))))))))))))))))))))
 
 ; `__syscall0` through `__syscall6`, distinguished only by how many
 ; arguments follow the syscall number.
@@ -7602,7 +7743,31 @@
     (if (strEq fnName "__axiom_arena_reset_keeping") (emitPrimArenaResetKeeping args cg)
     (if (strEq fnName "__streq") (emitPrimStrEq args cg 1)
     (if (strEq fnName "__strne") (emitPrimStrEq args cg 0)
-    (emitPrimSyscall args cg)))))))))))))))))))))
+    (if (strEq fnName "__call_word") (emitPrimCallWord args cg)
+    (emitPrimSyscall args cg))))))))))))))))))))))
+
+; `(__call_word fn arg)`: `fn` is the ADDRESS of a C function
+; `i64 (i64)` - a Rust destructor shim `axffi_<type>_drop` - and the
+; call is an indirect `call i64 %fp(i64 %arg)`. Axiom has no other
+; way to reach a function it holds only as a word, and the foreign
+; form's own release path (`@axiom_release`) makes exactly this call.
+(pub :: emitPrimCallWord (-> Int Int Int))
+(pub fn (emitPrimCallWord args cg)
+  (let ((cg1 (emitExpr (vecGet args 0) cg)))
+    (let ((fnv (strDup (memGetWord cg1 2))))
+      (let ((cg2 (emitExpr (vecGet args 1) cg1)))
+        (let ((av (strDup (memGetWord cg2 2)))
+              (pn (allocReg cg2))
+              (rn (allocReg cg2)))
+          (let ((pr (regStr pn))
+                (rr (regStr rn)))
+            {
+              (emitLine cg2 (cat4 (cat2 "  " pr) " = inttoptr i64 " fnv " to ptr"))
+              (emitLine cg2 (cat4 (cat3 (cat2 "  " rr) " = call i64 " pr) "(i64 " av ")"))
+              (memSetWord cg2 2 rr)
+              (memSetWord cg2 14 0)
+              cg2
+            }))))))
 
 ; `(__retain h)` / `(__release h)`: one call into the emitted
 ; ownership primitive of MM-LIFE-2b. The result is 0 - retain and
@@ -8563,7 +8728,9 @@
             (let ((n (cast String (nodeA tn))))
               (if (== (scalarTyName n) 1)
                   0
-              (if (|| (strEq n "String") (strEq n "Option"))
+              ; `Handle` is a counted block of the foreign form
+              ; (stdlib/Ffi.ax): a reference, walked and released
+              (if (|| (strEq n "String") (|| (strEq n "Option") (strEq n "Handle")))
                   ; the builtin `Option` is seeded by the checker and
                   ; never enters the module's data list
                   2
@@ -9448,7 +9615,9 @@
           (if (isPrimName n)
               (if (&& (|| (strEq n "__store64") (strEq n "__store8")) (>= n_ 3))
                   (mentions name (spineArgAt e 2))
-                  0)
+                  ; a function reached by address may keep what it is
+                  ; handed
+                  (if (strEq n "__call_word") (mentionsArgs name e n_ 0) 0))
           (if (|| (!= (lookupSym cg n) 0)
               (|| (>= (paramIndexOf cg n) 0) (== (boundWithin n root) 1)))
               (mentionsArgs name e n_ 0)

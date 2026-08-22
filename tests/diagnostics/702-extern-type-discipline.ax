@@ -1,0 +1,21 @@
+; What an `extern` signature may name: one word each way.
+;
+; A type variable, a declared type such as `(Option Int)` and a
+; function-typed argument are AX3036 at the item; a `fn` spelled like
+; an item is the duplicate it is (AX3006) - the block defines its
+; items, not its library string, so two blocks naming one library are
+; not duplicates of each other.
+(pub extern "axiom_demo"
+  (add :: (-> Int Int Int) (symbol "axffi_add"))
+  (poly :: (-> a Int) (symbol "axffi_poly"))
+  (opt :: (-> Int (Option Int)) (symbol "axffi_opt"))
+  (hof :: (-> (-> Int Int) Int) (symbol "axffi_hof")))
+
+(pub extern "axiom_demo"
+  (sub :: (-> Int Int Int) (symbol "axffi_sub")))
+
+(:: add (-> Int Int Int))
+(fn (add a b) (+ a b))
+
+(:: main Int)
+(fn (main) 0)

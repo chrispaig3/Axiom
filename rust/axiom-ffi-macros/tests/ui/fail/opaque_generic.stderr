@@ -1,0 +1,5 @@
+error: an `#[axiom_opaque]` type must be monomorphic: its destructor is one exported symbol, and a symbol cannot be generic
+ --> tests/ui/fail/opaque_generic.rs:5:19
+  |
+5 | pub struct Wrapper<T> {
+  |                   ^^^

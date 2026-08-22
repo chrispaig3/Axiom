@@ -1,0 +1,5 @@
+error: `Result<Option<i64>, String>` is not supported as an `#[axiom_export]` return type (`Option` cannot nest inside `Result`: the status word has one slot); the supported return types are: i64 i32 i16 i8 u32 u16 u8 usize isize bool f64 f32 () String Vec<u8> Option<T> Result<T, E> T (T marked `#[axiom_opaque]`; E: Display)
+ --> tests/ui/fail/nested_option.rs:5:21
+  |
+5 | pub fn f(n: i64) -> Result<Option<i64>, String> {
+  |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^

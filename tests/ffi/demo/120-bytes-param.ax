@@ -1,0 +1,26 @@
+; A `&[u8]` parameter: the bytes of an Axiom String, no validation.
+;
+; `&str` and `&[u8]` read the same `{len, ptr, owner}` run zero-copy;
+; the difference is what the shim promises the Rust side. A `&str`
+; shim validates UTF-8 (and refuses invalid bytes - an abort for an
+; infallible function, `Err` for a `Result` one, or `from_utf8_lossy`
+; under `utf8 = "lossy"`). A `&[u8]` shim promises nothing about the
+; bytes, so it is the parameter to take for binary data and the one
+; that can never refuse a String.
+;
+; `byteLen` answers the byte length, which for a multi-byte UTF-8
+; string differs from the character count - the proof that the shim
+; saw bytes, not characters.
+(import IO)
+(import Fmt)
+(import Demo)
+
+;@axiom:effect(io)
+(pub fn (main)
+  (let ((ascii (byteLen "hello"))
+        (empty (byteLen ""))
+        (utf8 (byteLen "héllo")))
+    (if (&& (== ascii 5) (&& (== empty 0) (== utf8 6)))
+        { (println "bytes param: agree") 0 }
+        { (println (fmtInt ascii)) (println (fmtInt empty)) (println (fmtInt utf8)) 1 })))
+; expect 0

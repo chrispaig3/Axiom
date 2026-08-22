@@ -1,0 +1,1 @@
+E AX2001 700-extern-untyped-item.ax:7:8-9 unexpected-token "expected `:: type` after extern item `add` (an extern item declares its type: `(name :: (-> Int Int) (symbol \"c_name\"))`), found `(`" #"found `(` here" ?"Axiom expected `:: type` after extern item `add` (an extern item declares its type: `(name :: (-> Int Int) (symbol \"c_name\"))`) at this position"

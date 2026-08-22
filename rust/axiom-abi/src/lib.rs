@@ -44,12 +44,17 @@ pub type AxWord = i64;
 /// The status word a fallible shim returns. See [`AxStatus`].
 pub type AxStatus = i64;
 
-/// A fallible shim returned normally.
+/// A fallible shim returned normally: the out-cell holds the payload.
 pub const AX_OK: AxStatus = 0;
-/// A fallible shim returned an error value through its out-cell.
+/// A fallible shim returned an error: the out-cell holds the message's
+/// `(ptr, len)`, to be copied and then freed with `axffi_free_bytes`.
 pub const AX_ERR: AxStatus = 1;
-/// A fallible shim caught a panic. The out-cell holds a borrowed message.
-pub const AX_PANIC: AxStatus = 2;
+/// An `Option`-returning shim answered `None`. The out-cell is untouched.
+///
+/// There is no panic status: the workspace builds with `panic = "abort"`
+/// and every shim is `extern "C"`, which aborts on unwind anyway, so a
+/// Rust panic ends the process rather than crossing the boundary.
+pub const AX_NONE: AxStatus = 2;
 
 // ---------------------------------------------------------------------
 // The Axiom runtime symbols Rust is permitted to call.
@@ -65,7 +70,7 @@ extern "C" {
     ///
     /// Calling this from Rust is sound, but the result is a *raw* block
     /// with no header written by you — see the module note. Prefer
-    /// returning [`AxBytes`] and letting Axiom glue allocate.
+    /// returning owned bytes and letting Axiom glue allocate.
     pub fn axiom_alloc(size: i64) -> i64;
 
     /// Take a share of an Axiom heap value. Pairs 1:1 with
@@ -180,113 +185,48 @@ impl<'a> AxStr<'a> {
 // ---------------------------------------------------------------------
 // Returning bytes to Axiom
 // ---------------------------------------------------------------------
-
-/// A byte buffer Rust owns and Axiom is about to copy.
-///
-/// This is the answer to "how does Rust return a String". It does not
-/// build an Axiom `Str` — it hands back a pointer and a length, the
-/// generated Axiom glue copies the bytes into a real `strAlloc` block
-/// (which gets a correct header, a correct reference bitmap and the NUL
-/// terminator MM-FFI-4 requires), and then calls the paired free.
-///
-/// The cost is one copy. The alternative — Rust allocating through
-/// `axiom_alloc` and writing the header itself — saves that copy and
-/// costs the ability to ever change the header encoding without
-/// silently corrupting every crate compiled against the old one.
-#[repr(C)]
-pub struct AxBytes {
-    pub ptr: *mut u8,
-    pub len: i64,
-    /// A token the paired free needs to reconstruct the allocation.
-    /// For a `Box<[u8]>` this is the capacity.
-    pub cap: i64,
-}
-
-impl AxBytes {
-    pub const EMPTY: AxBytes = AxBytes { ptr: core::ptr::null_mut(), len: 0, cap: 0 };
-}
+//
+// This is the answer to "how does Rust return a String". A shim does
+// not build an Axiom `Str` - it writes a pointer and a length into the
+// caller's [`AxOutCell`], the generated Axiom glue copies the bytes into
+// a real `strAlloc` block (which gets a correct header, a correct
+// reference bitmap and the NUL terminator MM-FFI-4 requires), and then
+// calls `axffi_free_bytes(ptr, len)`, defined once by the `axiom-ffi`
+// facade, to release the Rust side.
+//
+// The cost is one copy. The alternative - Rust allocating through
+// `axiom_alloc` and writing the header itself - saves that copy and
+// costs the ability to ever change the header encoding without silently
+// corrupting every crate compiled against the old one.
 
 // ---------------------------------------------------------------------
 // Opaque handles
 // ---------------------------------------------------------------------
-
-/// A Rust value Axiom holds as one opaque word.
-///
-/// This is the mechanism that makes ecosystem leverage practical: a
-/// `reqwest::Client`, a `sha2::Sha256`, a `serde_json::Value` never has
-/// to be describable in Axiom's type system. Axiom holds the word,
-/// passes it back, and calls a registered destructor when done.
-///
-/// The word is a raw pointer, which is why it must get Axiom's opaque
-/// foreign type and not `Int`: MM-FFI-5 requires foreign memory be a
-/// distinct type, and the operational reason is that its ARC bitmap bit
-/// must stay CLEAR. A foreign pointer whose bit is set is walked by
-/// `axiom_release`, which then reads a Rust allocation as an Axiom
-/// block header.
-pub struct AxOpaque<T>(PhantomData<T>);
-
-impl<T> AxOpaque<T> {
-    /// Move `value` onto the Rust heap and hand Axiom the word.
-    ///
-    /// Requires an allocator, so a `no_std` crate needs
-    /// `extern crate alloc` and a global allocator. The `axiom-ffi`
-    /// facade provides one that forwards to `axiom_alloc`.
-    #[inline]
-    pub fn into_word(value: alloc_shim::Boxed<T>) -> AxWord {
-        alloc_shim::into_raw(value) as AxWord
-    }
-
-    /// Borrow the value for the duration of a call.
-    ///
-    /// # Safety
-    /// `word` must have come from [`Self::into_word`] and must not have
-    /// been freed.
-    #[inline]
-    pub unsafe fn borrow<'a>(word: AxWord) -> &'a T {
-        &*(word as *const T)
-    }
-
-    /// Borrow mutably.
-    ///
-    /// # Safety
-    /// As [`Self::borrow`], and no other borrow may be live. Axiom has
-    /// no threads (MM-PAR-1), so the only way to alias is to pass the
-    /// same handle twice in one call — which the generated glue refuses.
-    #[inline]
-    pub unsafe fn borrow_mut<'a>(word: AxWord) -> &'a mut T {
-        &mut *(word as *mut T)
-    }
-
-    /// Free the value. This is what a registered destructor calls.
-    ///
-    /// # Safety
-    /// `word` must have come from [`Self::into_word`] and must not have
-    /// been freed already. Axiom is ARC with no finalizers, so this runs
-    /// when the program says so, not when the last reference dies.
-    #[inline]
-    pub unsafe fn drop_word(word: AxWord) {
-        alloc_shim::drop_raw::<T>(word as *mut T);
-    }
-}
-
-/// Indirection so this crate stays `no_std` while still describing the
-/// boxed-value protocol. The `axiom-ffi` facade wires these to `alloc`.
-pub mod alloc_shim {
-    /// The boxed form. `axiom-ffi` sets this to `alloc::boxed::Box`.
-    pub type Boxed<T> = *mut T;
-
-    #[inline]
-    pub fn into_raw<T>(b: Boxed<T>) -> *mut T {
-        b
-    }
-
-    /// # Safety
-    /// `p` must be a live pointer from a matching allocation.
-    #[inline]
-    pub unsafe fn drop_raw<T>(p: *mut T) {
-        core::ptr::drop_in_place(p);
-    }
-}
+//
+// A Rust value Axiom holds as one opaque word is a `Box<T>` turned into
+// its address by the generated shim. This crate defines nothing for it
+// because every operation on one needs an allocator: boxing, borrowing
+// behind a null check, and the destructor. Those live in the `axiom-ffi`
+// facade (`__private::leak_opaque`, `borrow`, `drop_opaque`) and are
+// reached only through `#[axiom_export]` and `#[axiom_opaque]`.
+//
+// The protocol the two sides agree on:
+//
+// - the word is a raw `*mut T` from `Box::into_raw`, or 0;
+// - `#[axiom_opaque]` on `T` generates `axffi_<t>_drop(word) -> i64`
+//   (null-checked `Box::from_raw`) and `axffi_<t>_drop_fn() -> i64`,
+//   which answers the address of the former;
+// - Axiom's generated module wraps the word in a `Handle` block holding
+//   `{dropFn, ptr}`; the runtime calls `dropFn(ptr)` when the handle's
+//   count reaches 0 (or on an explicit close), and a closed handle
+//   reads back as 0, which a shim's borrow refuses with an abort rather
+//   than dereferencing.
+//
+// The word must get Axiom's `Foreign`/`Handle` types and not `Int`:
+// MM-FFI-5 requires foreign memory be a distinct type, and the
+// operational reason is that its ARC bitmap bit must stay CLEAR. A
+// foreign pointer whose bit is set is walked by `axiom_release`, which
+// then reads a Rust allocation as an Axiom block header.
 
 // ---------------------------------------------------------------------
 // The out-cell used by fallible shims
@@ -306,10 +246,10 @@ pub mod alloc_shim {
 /// arena block with a correct header.
 #[repr(C)]
 pub struct AxOutCell {
-    /// On `AX_OK`, the success value. On `AX_ERR`/`AX_PANIC`, an
-    /// [`AxBytes`] pointer describing the message.
+    /// On `AX_OK`, the success value (or a byte pointer for a `String`
+    /// payload). On `AX_ERR`, the message's byte pointer.
     pub payload: AxWord,
-    /// Reserved; carries the `AxBytes` length for message payloads.
+    /// The byte length when `payload` is a byte pointer; otherwise 0.
     pub extra: AxWord,
 }
 

@@ -20,10 +20,14 @@
 (import Fmt)
 (import Str)
 
+; The RAW shims are bound here on purpose, bypassing `Demo.ax`'s
+; `Handle` wrapper: this case is about a bare `Foreign` word in a struct
+; field, and `axffi_counter_drop` is the destructor `#[axiom_opaque]`
+; generated for `Counter`.
 (pub extern "axiom_demo"
   (counterNew   :: (-> Int Foreign) (symbol "axffi_counter_new"))
   (counterValue :: (-> Foreign Int) (symbol "axffi_counter_value"))
-  (counterClose :: (-> Foreign Int) (symbol "axffi_counter_close")))
+  (counterDrop  :: (-> Foreign Int) (symbol "axffi_counter_drop")))
 
 (pub struct Session (before : String) (handle : Foreign) (after : String))
 
@@ -43,7 +47,7 @@
   (let ((h (counterNew 41)))
     (let ((v (roundTrip h 0)))
       {
-        (counterClose h)
+        (counterDrop h)
         (if (== v 41)
             { (println "foreign: not walked") 0 }
             { (println (fmtInt v)) 1 })

@@ -48,6 +48,7 @@
   [93mAX3033[0m  a macro rule that can never match  (macro-unreachable-rule)
   [93mAX3034[0m  an ellipsis used at the wrong depth  (macro-ellipsis)
   [93mAX3035[0m  a macro parameter used as a binder was given something that is not a variable  (macro-binder-target)
+  [93mAX3036[0m  an `extern` item's type cannot cross the boundary  (extern-type)
   [93mAX4001[0m  no `main` function  (missing-main)
   [93mAX4002[0m  code generation failed  (codegen-failure)
   [93mAX4003[0m  external toolchain command failed  (toolchain-failure)
@@ -815,6 +816,30 @@ the forward half of hygiene; a parameter in binder position is the
 opposite case, where the caller named the binding and must be able to
 read it (docs/macro-system.md MAC-HYG-10).
 
+### explain AX3036
+AX3036 - an `extern` item's type cannot cross the boundary
+
+The Rust boundary is one machine word per argument and one word back:
+every Rust shim `#[axiom_export]` generates is `extern "C" fn(i64, ...) -> i64`,
+and the emitted call is the same `call i64` an Axiom function gets. So an
+`extern` item's signature may name only the types that ARE one word with a
+meaning both sides agree on: `Int`, `Float` (its IEEE-754 bits), `Bool`,
+`Char`, `String` (a handle Rust reads zero-copy) and `Foreign` (a word
+Rust owns).
+
+A type variable, a tuple, a list, a function-typed argument, or a declared
+type - `(Option Int)`, `(Result a e)`, `Handle`, a user `data` or `struct` -
+has no crossing the emitter could write. Until 2026-08-22 such a signature
+was accepted as written, and every caller then trusted a description the
+boundary could not honour.
+
+What to do instead: a Rust value of any other shape crosses as a `Foreign`
+handle, and the ergonomic surface is the wrapper `axiom-bindgen` generates
+(docs/ffi.md): a `String` result is copied into an Axiom `String`, a
+`Result` or `Option` comes back through a status word and an out-cell, and
+an opaque Rust type becomes a `Handle` inside a generated `data` type whose
+death runs the Rust destructor.
+
 ### explain AX4001
 AX4001 - no `main` function
 
@@ -954,6 +979,7 @@ run `axiom explain --list` to see all known codes
   [93mAX3033[0m  a macro rule that can never match  (macro-unreachable-rule)
   [93mAX3034[0m  an ellipsis used at the wrong depth  (macro-ellipsis)
   [93mAX3035[0m  a macro parameter used as a binder was given something that is not a variable  (macro-binder-target)
+  [93mAX3036[0m  an `extern` item's type cannot cross the boundary  (extern-type)
   [93mAX4001[0m  no `main` function  (missing-main)
   [93mAX4002[0m  code generation failed  (codegen-failure)
   [93mAX4003[0m  external toolchain command failed  (toolchain-failure)

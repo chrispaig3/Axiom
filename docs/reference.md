@@ -287,24 +287,39 @@ its type inline and the linker symbol it binds:
   (countVowels :: (-> String Int)  (symbol "axffi_count_vowels")))
 ```
 
-Build with the archive on the link line:
+Build against the crate with one flag — its `axiom/` directory holds
+the module `axiom-bindgen` generated and its `target/release` the
+archive, and the block's library name links by itself:
 
 ```
-axiom build --input p.ax --output p \
-  --link-lib axiom_demo --link-search rust/target/release
+axiom build --input p.ax --output p --crate path/to/crate
 ```
 
-The emitter writes `declare i64 @axffi_add(i64, i64) #0` and the call
-site emits the same `call i64 @sym(...)` an internal call does. Four
-rules:
+(`--link-lib NAME --link-search DIR` and `$AXIOM_LINK_SEARCH` remain
+as explicit overrides; an `$AXIOM_PATH` entry's `../target/release` is
+searched too.) The emitter writes `declare i64 @axffi_add(i64, i64)
+#0` for every item the program CALLS and the call site emits the same
+`call i64 @sym(...)` an internal call does. Five rules:
 
-- The type is **inline**. A separate `(:: name Type)` draws `AX3015`.
-- An extern may **not be polymorphic** — a type variable would add a
-  hidden evidence word that must never reach the other side.
+- The type is **inline and required**. A separate `(:: name Type)`
+  draws `AX3015`; an item without `:: type` is a parse error.
+- An item's signature names only `Int`, `Float`, `Bool`, `Char`,
+  `String` and `Foreign` — one machine word each way. A type variable, a tuple, a function-typed argument or a
+  declared type (`(Option Int)`, `Handle`, a struct) is `AX3036`: such
+  values cross as a `Foreign` handle or through the generated wrapper.
+- `(symbol "...")` is the **only clause**; any other head is a parse
+  error naming it. Write it explicitly — a static link is one flat
+  namespace and the default is the Axiom name.
 - Calling one contributes the **`IO` effect**, exactly as `__syscallN`
   does, and it propagates transitively.
-- Write `(symbol "...")` explicitly; a static link is one flat
-  namespace and the default is the Axiom name.
+- A `fn` spelled like an item is a duplicate (`AX3006`); two blocks
+  naming one library are not.
+
+A symbol no linked archive defines is `AX4004` at the item, before the
+toolchain runs — in three voices: nothing linked at all, an archive
+linked that lacks the name (with the nearest `axffi_*` name it does
+hold), and the search path it used. The check reads the archives'
+symbol tables, so a prefix of a real name is refused as the typo it is.
 
 `foreign` is not this feature renamed and remains `AX2004`. See
 [docs/ffi.md](ffi.md).
@@ -327,6 +342,7 @@ rules:
 | `Void` | Void |
 | `Any` | Generic pointer |
 | `Foreign` | An opaque pointer into memory Axiom did not allocate and does not own, held as one word (see [ffi.md](ffi.md)). Distinct from `Int` on purpose: `tyCompat` matches named constructors by name, and the distinction is load-bearing rather than documentary — a `Foreign` field is left OUT of the ARC reference map (`docs/memory-model.md` MM-LIFE-2d), so `@axiom_release` never follows it. Measured on `(struct T (a : String) (b : Foreign) (c : String))`: the map is payload words `[0, 2]`. `(cast Foreign x)` is the explicit way in and out |
+| `Handle` | A Rust value Axiom OWNS a share of: a counted block of the foreign form holding the Rust pointer and its destructor (`stdlib/Ffi.ax`, [ffi.md](ffi.md)). A reference like `String` — mapped in a cell that holds it, released at a `let`'s scope end — and when its last share goes the release runtime runs the Rust `Drop` once. `axiom-bindgen` wraps each opaque Rust type in its own `data` type around a `Handle`, so `Counter` and `Widget` stay distinct; `ffiHandleClose` destroys the value early and leaves the block inert |
 
 ### Sized Integers and Floats — Removed
 

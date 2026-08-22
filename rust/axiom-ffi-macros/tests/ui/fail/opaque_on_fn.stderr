@@ -1,0 +1,5 @@
+error: `#[axiom_opaque]` goes on a `struct` or `enum` declaration: the type Axiom will hold as a handle
+ --> tests/ui/fail/opaque_on_fn.rs:5:1
+  |
+5 | pub fn not_a_type() {}
+  | ^^^^^^^^^^^^^^^^^^^^^^

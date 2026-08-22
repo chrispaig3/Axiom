@@ -1,0 +1,5 @@
+error: an exported function may not take `self`; export a free function that takes `&Self` (an `#[axiom_opaque]` handle) as its first argument
+  --> tests/ui/fail/self_param.rs:11:16
+   |
+11 |     pub fn get(&self) -> i64 {
+   |                ^^^^^

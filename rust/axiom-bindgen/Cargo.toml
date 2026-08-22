@@ -5,10 +5,15 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[lib]
+name = "axiom_bindgen"
+path = "src/lib.rs"
+
 [[bin]]
 name = "axiom-bindgen"
 path = "src/main.rs"
 
 [dependencies]
+axiom-ffi-classify = { workspace = true }
 syn = { workspace = true }
 proc-macro2 = { workspace = true }

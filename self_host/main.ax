@@ -369,7 +369,18 @@
                                         (sysExitWith 1)
                                         ""
                                       })
-                                    (emitResolved allDecls bares fulls tcode))))
+                                    ; the IR, and - for a build - every
+                                    ; `extern` symbol it calls grounded
+                                    ; against the link line, reported at
+                                    ; the item that declared it
+                                    (let ((ir (emitResolved allDecls bares fulls tcode)))
+                                      (if (== needMain 1)
+                                          (let ((grc (groundExternsSpanned ir allDecls units dfmt
+                                                                           (effectiveLinkArgs ir linkArgsOf))))
+                                            (if (!= grc 0)
+                                                { (sysExitWith grc) "" }
+                                                ir))
+                                          ir)))))
                       })
                   })))))))))))))
 
@@ -527,7 +538,7 @@
               (let ((ir (compileFile inp (targetArg hostTarget) 1 1)))
                 (let ((rc (buildToExecutable ir outp optLevelArg
                                              (if (hasFlagAnywhere cmd "--emit-llvm") 1 0)
-                                             linkArgsOf)))
+                                             (effectiveLinkArgs ir linkArgsOf))))
                   (if (!= rc 0)
                       (die "" rc)
                       ; A successful build used to print NOTHING, so a
@@ -731,7 +742,7 @@
               ; which collides on the executable regardless.
               (let ((base (cat2 "axiom_temp_output." (decStr sysGetPid))))
                 (let ((exe (cat2 "./" base)))
-                  (let ((rc (buildToExecutable ir base 1 0 linkArgsOf)))
+                  (let ((rc (buildToExecutable ir base 1 0 (effectiveLinkArgs ir linkArgsOf))))
                     (if (!= rc 0)
                         (die "" rc)
                         (let ((code (sysRunPath exe (runArgv exe) sysEnvp)))

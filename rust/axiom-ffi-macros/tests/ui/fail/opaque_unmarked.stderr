@@ -1,0 +1,17 @@
+error[E0277]: `Plain` crosses the Axiom boundary as an opaque handle but is not marked `#[axiom_opaque]`
+ --> tests/ui/fail/opaque_unmarked.rs:9:29
+  |
+9 | pub fn plain_new(n: i64) -> Plain {
+  |                             ^^^^^ this type needs `#[axiom_opaque]`
+  |
+help: the trait `AxiomOpaque` is not implemented for `Plain`
+ --> tests/ui/fail/opaque_unmarked.rs:4:1
+  |
+4 | pub struct Plain {
+  | ^^^^^^^^^^^^^^^^
+  = note: put `#[axiom_opaque]` on the declaration of `Plain`: it generates the destructor Axiom's handle calls when the last reference dies
+note: required by a bound in `axiom_ffi::__private::leak_opaque`
+ --> $WORKSPACE/axiom-ffi/src/lib.rs
+  |
+  |     pub fn leak_opaque<T: AxiomOpaque>(v: T) -> AxWord {
+  |                           ^^^^^^^^^^^ required by this bound in `leak_opaque`

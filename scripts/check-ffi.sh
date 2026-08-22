@@ -12,7 +12,7 @@
 #
 #   no FFI                        `nm -u` -> 0 symbols
 #   + a no_std  Rust staticlib    `nm -u` -> 0 symbols
-#   + a std     Rust staticlib    `nm -u` -> 188 symbols, 14 of them on
+#   + a std     Rust staticlib    `nm -u` -> 188 symbols, 18 of them on
 #                                 check-freestanding.sh's forbidden list
 #
 # So there are three tiers, not two, and this gate checks all three:
@@ -158,16 +158,42 @@ for crate_dir in rust/examples/*/; do
     [[ -e "$case_file" ]] || break
     name="$(basename "$case_file" .ax)"
     exe="$work/$crate-$name"
-    # The generated `.ax` binding module goes on AXIOM_PATH, so a case
+    # `--crate DIR` is the whole build line: the generated `.ax`
+    # binding module in `DIR/axiom` is searched for imports, so a case
     # that imports it exercises what `axiom-bindgen` actually wrote -
-    # the out-cell wrappers included - rather than a copy of them
-    # checked into tests/.
-    if ! AXIOM_PATH="$repo_root/$crate_dir/axiom" \
-         "$axiom" build --input "$case_file" --output "$exe" \
-         --link-lib "axiom_${crate//-/_}" --link-search "$search" \
+    # the out-cell and handle wrappers included - and the archive is
+    # found under the crate's or its workspace's `target/release` and
+    # linked because the `extern` block names it. For the `nostd`
+    # crate, whose archive sits in its own target directory, the same
+    # flag finds it one level down.
+    if ! "$axiom" build --input "$case_file" --output "$exe" \
+         --crate "$repo_root/$crate_dir" \
          > "$work/$crate-$name.log" 2>&1; then
       echo "FAIL $crate/$name: could not build"
       sed 's/^/    /' "$work/$crate-$name.log" | head -5
+      status=1; continue
+    fi
+
+    # RUN it. A gate that builds a program and never runs it cannot
+    # tell a silent wrong answer from a pass, and the FFI's whole
+    # failure class is the silent wrong answer: a Rust parameter named
+    # `cell` shadowed by the wrapper's out-cell, a status returned as a
+    # value. The trailer `; expect N` is the contract, as in
+    # tests/selfhost; a case that prints an `...: agree` line must
+    # print it.
+    want="$(tail -n 1 "$case_file" | sed -n 's/^; expect \([0-9]*\).*/\1/p')"
+    [[ -n "$want" ]] || want=0
+    set +e
+    out="$("$exe" 2>&1)"; got=$?
+    set -e
+    if [[ "$got" != "$want" ]]; then
+      echo "FAIL $crate/$name: exit $got, expected $want"
+      printf '%s\n' "$out" | sed 's/^/    /' | head -5
+      status=1; continue
+    fi
+    if grep -q 'agree' "$case_file" && ! printf '%s\n' "$out" | grep -q 'agree'; then
+      echo "FAIL $crate/$name: ran to exit $got but never printed its \`agree\` line"
+      printf '%s\n' "$out" | sed 's/^/    /' | head -5
       status=1; continue
     fi
 
@@ -178,7 +204,7 @@ for crate_dir in rust/examples/*/; do
       echo "    (add them to $manifest if they are genuinely required)"
       status=1; continue
     fi
-    echo "ok   $crate/$name imports only the $n_permitted permitted symbol(s)"
+    echo "ok   $crate/$name runs (exit $got) and imports only the $n_permitted permitted symbol(s)"
   done
 done
 
@@ -343,6 +369,46 @@ if [[ -f "$ung" ]]; then
     status=1
   else
     echo "ok   negative probe: an ungrounded symbol is AX4004, before opt or cc runs"
+  fi
+fi
+
+# 7. P6 - A PREFIX OF A REAL SYMBOL IS NOT THAT SYMBOL.
+#
+#    The grounding check used to be a substring scan over the archive
+#    bytes, so `axffi_ad` grounded against `axffi_add` and died in the
+#    linker as AX4003 "put cc on PATH". It reads whole names now, and
+#    names the neighbour it found.
+pre="tests/ffi/probe-ungrounded/030-prefix-of-symbol.axbad"
+if [[ -f "$pre" ]]; then
+  if pre_out="$("$axiom" --diagnostic-format=ai build --input "$pre" --output "$work/pre" \
+                 --crate "$repo_root/rust/examples/demo" 2>&1)"; then
+    echo "FAIL negative probe: a prefix of a real symbol still BUILT"
+    status=1
+  elif ! grep -q 'AX4004' <<< "$pre_out"; then
+    echo "FAIL negative probe: the prefix was refused, but not as AX4004"
+    printf '%s\n' "$pre_out" | sed 's/^/    /' | head -3
+    status=1
+  elif ! grep -q 'axffi_add' <<< "$pre_out"; then
+    echo "FAIL negative probe: AX4004 did not name the neighbouring symbol"
+    printf '%s\n' "$pre_out" | sed 's/^/    /' | head -3
+    status=1
+  else
+    echo "ok   negative probe: a prefix of a real symbol is AX4004, naming the real one"
+  fi
+fi
+
+# 8. P7 - NOTHING LINKED is its own message, at the item.
+nol="tests/ffi/probe-ungrounded/040-nothing-linked.axbad"
+if [[ -f "$nol" ]]; then
+  if nol_out="$("$axiom" --diagnostic-format=ai build --input "$nol" --output "$work/nol" 2>&1)"; then
+    echo "FAIL negative probe: an extern with nothing linked still BUILT"
+    status=1
+  elif ! grep -q 'no archive is linked' <<< "$nol_out"; then
+    echo "FAIL negative probe: nothing linked was not reported as such"
+    printf '%s\n' "$nol_out" | sed 's/^/    /' | head -3
+    status=1
+  else
+    echo "ok   negative probe: nothing linked is said in those words, at the item"
   fi
 fi
 

@@ -1,444 +1,191 @@
-//! Emit the Axiom `extern` module for a crate's `#[axiom_export]` surface.
-//!
-//! This reads the Rust SOURCE rather than the compiled artifact, the way
-//! `cbindgen` does. The alternative — a runtime registry built with
-//! life-before-main constructors — does not survive `no_std`, and
-//! `no_std` is the mode that keeps Axiom freestanding, so it would have
-//! ruled out the more valuable of the two build modes.
-//!
-//! Because this is a second, independent pass over the same annotations
-//! the proc macro reads, the two can drift. `scripts/check-ffi.sh`
-//! closes that: it regenerates the bindings and fails if the checked-in
-//! `.ax` differs, which is the same shape as `check-fmt.sh --check`.
+//! The `axiom-bindgen` command. The generator itself is the library
+//! (`axiom_bindgen::generate`); this file is argument handling.
 
-use std::collections::BTreeMap;
-use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::exit;
+
+const USAGE: &str = "\
+axiom-bindgen - write the Axiom module that binds a crate's #[axiom_export] surface
+
+usage: axiom-bindgen --src <dir> --lib <name> [--module <Name>] [-o <file.ax>]
+       axiom-bindgen --src <dir> --lib <name> --check <file.ax>
+       axiom-bindgen --help
+
+  --src <dir>       the crate's source root (every .rs under it is read)
+  --lib <name>      the archive stem: `--lib axiom_demo` binds libaxiom_demo.a
+                    and is the string the extern block carries
+  --module <Name>   the Axiom module name; with -o it must match the output
+                    file's stem (an Axiom module IS its file name), and when
+                    -o names a directory the file is <dir>/<Name>.ax
+  -o, --output <f>  where to write; omitted, the module goes to stdout
+  --check <file>    regenerate and compare with <file>; exit 1 if it differs
+
+The module imports Ffi (and Err when a Result wrapper exists), binds every
+pub #[axiom_export] fn and every hand-written `pub extern \"C\" fn axffi_*`,
+and declares one `data` type per #[axiom_opaque] type.
+";
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     let mut src_root: Option<PathBuf> = None;
-    let mut lib = String::from("rustlib");
-    let mut module = String::from("Rust");
+    let mut lib: Option<String> = None;
+    let mut module: Option<String> = None;
     let mut out: Option<PathBuf> = None;
+    let mut check: Option<PathBuf> = None;
+
     let mut i = 1;
+    let value = |i: &mut usize, flag: &str| -> String {
+        *i += 1;
+        match args.get(*i) {
+            Some(v) => v.clone(),
+            None => {
+                eprintln!("axiom-bindgen: {flag} needs a value\n\n{USAGE}");
+                exit(2)
+            }
+        }
+    };
     while i < args.len() {
         match args[i].as_str() {
-            "--src" => { src_root = args.get(i + 1).map(PathBuf::from); i += 2 }
-            "--lib" => { lib = args[i + 1].clone(); i += 2 }
-            "--module" => { module = args[i + 1].clone(); i += 2 }
-            "-o" | "--output" => { out = args.get(i + 1).map(PathBuf::from); i += 2 }
-            other => { eprintln!("axiom-bindgen: unknown flag {other}"); std::process::exit(2) }
+            "--help" | "-h" => {
+                print!("{USAGE}");
+                return;
+            }
+            "--src" => src_root = Some(PathBuf::from(value(&mut i, "--src"))),
+            "--lib" => lib = Some(value(&mut i, "--lib")),
+            "--module" => module = Some(value(&mut i, "--module")),
+            "-o" | "--output" => out = Some(PathBuf::from(value(&mut i, "-o"))),
+            "--check" => check = Some(PathBuf::from(value(&mut i, "--check"))),
+            other => {
+                eprintln!("axiom-bindgen: unknown flag `{other}`\n\n{USAGE}");
+                exit(2)
+            }
+        }
+        i += 1;
+    }
+
+    let Some(src_root) = src_root else {
+        eprintln!("axiom-bindgen: --src <dir> is required\n\n{USAGE}");
+        exit(2)
+    };
+    let Some(lib) = lib else {
+        eprintln!("axiom-bindgen: --lib <name> is required (the archive stem, e.g. axiom_demo)\n\n{USAGE}");
+        exit(2)
+    };
+    if check.is_some() && out.is_some() {
+        eprintln!("axiom-bindgen: --check and -o are exclusive (one compares, the other writes)");
+        exit(2)
+    }
+
+    // `--module` and the output file must agree: an Axiom module's name
+    // IS its file name - the part before the first `.`, so that
+    // `Demo.ax`, `Demo.darwin-aarch64.ax` and a scratch `Demo.regen.ax`
+    // all name `Demo` - and a mismatch would bind the module under a
+    // name nothing can import.
+    let out = match (&module, out) {
+        (Some(m), Some(p)) if p.is_dir() => Some(p.join(format!("{m}.ax"))),
+        // A path with no `.ax` extension is a DIRECTORY the caller
+        // means to create: `-o crate/axiom` on a fresh crate, which
+        // is the first thing a developer types.
+        (Some(m), Some(p)) if p.extension().is_none() => {
+            if let Err(e) = std::fs::create_dir_all(&p) {
+                eprintln!("axiom-bindgen: cannot create `{}`: {e}", p.display());
+                exit(2)
+            }
+            Some(p.join(format!("{m}.ax")))
+        }
+        (Some(m), Some(p)) => {
+            if module_of(&p) != *m {
+                eprintln!(
+                    "axiom-bindgen: --module {m} but the output file is `{}`: an Axiom \
+                     module's name is its file name, so write it to {m}.ax",
+                    p.display()
+                );
+                exit(2)
+            }
+            Some(p)
+        }
+        (_, p) => p,
+    };
+    if let (Some(m), Some(c)) = (&module, &check) {
+        if module_of(c) != *m {
+            eprintln!(
+                "axiom-bindgen: --module {m} but --check names `{}`: the module's name is \
+                 its file name",
+                c.display()
+            );
+            exit(2)
         }
     }
-    let Some(src_root) = src_root else {
-        eprintln!("usage: axiom-bindgen --src <dir> [--lib NAME] [--module NAME] -o <file.ax>");
-        std::process::exit(2);
+
+    let text = match axiom_bindgen::generate(&src_root, &lib) {
+        Ok(t) => t,
+        Err(e) => {
+            eprintln!("axiom-bindgen: {e}");
+            exit(1)
+        }
     };
 
-    let mut files = Vec::new();
-    collect_rs(&src_root, &mut files);
-    files.sort();
-
-    let mut decls: BTreeMap<String, Decl> = BTreeMap::new();
-    for f in &files {
-        let text = match fs::read_to_string(f) {
-            Ok(t) => t,
-            Err(e) => { eprintln!("axiom-bindgen: {}: {e}", f.display()); std::process::exit(1) }
-        };
-        let ast = match syn::parse_file(&text) {
-            Ok(a) => a,
-            Err(e) => { eprintln!("axiom-bindgen: {}: {e}", f.display()); std::process::exit(1) }
-        };
-        for item in ast.items {
-            let syn::Item::Fn(f) = item else { continue };
-            if has_export_attr(&f.attrs) {
-                match Decl::from_fn(&f) {
-                    Ok(d) => { decls.insert(d.axiom_name.clone(), d); }
-                    Err(m) => {
-                        eprintln!("axiom-bindgen: `{}`: {m}", f.sig.ident);
-                        std::process::exit(1);
-                    }
-                }
-            } else if let Some(d) = Decl::from_raw_shim(&f) {
-                // A HAND-WRITTEN shim already named in the ABI namespace.
-                //
-                // Destructors are the reason this exists: freeing an
-                // opaque handle needs the raw word, so it cannot be an
-                // ordinary `#[axiom_export]` function taking `&T`. Before
-                // this the generated module could hand out handles it
-                // gave no way to release, which is a leak the type system
-                // cannot see.
-                decls.entry(d.axiom_name.clone()).or_insert(d);
-            }
-        }
+    if let Some(c) = check {
+        exit(check_against(&c, &text))
     }
-
-    let needs_glue = decls.values().any(|d| d.needs_cell());
-
-    let mut s = String::new();
-    s.push_str(&format!(
-        "; GENERATED by axiom-bindgen from the `{lib}` crate. Do not edit.\n\
-         ;\n\
-         ; One `extern` BLOCK is one unit of enumeration: MM-FFI-5's fourth\n\
-         ; requirement is a gate that enumerates permitted external symbols,\n\
-         ; and this block is what `scripts/check-ffi.sh` enumerates.\n\
-         ;\n\
-         ; Every `(symbol ...)` clause is written explicitly, never defaulted.\n\
-         ; A static link is one flat namespace, and two crates that each bind\n\
-         ; a `parse` and omit the clause would dedup to one `declare`, resolve\n\
-         ; both Axiom names to it, and pick a link-time winner with no\n\
-         ; diagnostic at any stage.\n"
-    ));
-    if needs_glue {
-        s.push_str(
-            "; \n\
-             ; A shim that returns BYTES or that can FAIL needs two words back,\n\
-             ; and Axiom emits `ret i64` for everything. So those shims take a\n\
-             ; trailing OUT-CELL and their raw binding carries a `Raw` suffix;\n\
-             ; the ergonomic name is an Axiom wrapper below that allocates the\n\
-             ; cell, calls, decodes and frees. There is no `Slice` type and no\n\
-             ; `Outcome` type - they are a protocol over ordinary words, and\n\
-             ; the half that decodes it is Axiom, never Rust. That is the rule\n\
-             ; the whole design rests on: only Axiom's own emitter writes an\n\
-             ; Axiom heap block, because only it knows MM-LIFE-2d's shape word.\n",
-        );
-    }
-    s.push('\n');
-    if needs_glue {
-        s.push_str("(import Mem)\n(import Str)\n(import Err)\n\n");
-    }
-
-    s.push_str(&format!("(pub extern \"{lib}\"\n"));
-    for d in decls.values() {
-        s.push_str(&d.render_item());
-    }
-    if needs_glue {
-        s.push_str("  (ffiFreeBytes :: (-> Int Int Int) (symbol \"axffi_free_bytes\"))");
-    }
-    // The formatter closes the block on the last item's line.
-    if s.ends_with(")\n") {
-        s.truncate(s.len() - 1);
-    }
-    s.push_str(")\n");
-
-    if needs_glue {
-        s.push_str(
-            "\n; Rust-owned bytes copied into an Axiom `Str`.\n\
-             ;\n\
-             ; `strAlloc` reserves len+1 and zeroes it, so the NUL terminator\n\
-             ; MM-FFI-4 requires is already there and `strCStr` stays free. The\n\
-             ; copy is the price of never letting Rust author a block header.\n\
-             (pub :: ffiSliceToStr (-> Int Int String))\n\
-             (pub fn (ffiSliceToStr p n)\n\
-             \x20 (if (<= n 0)\n\
-             \x20     \"\"\n\
-             \x20     (let ((s (strAlloc n)))\n\
-             \x20       { (memCopy (strData s) p n) s })))\n",
-        );
-        for d in decls.values() {
-            if d.needs_cell() {
-                s.push('\n');
-                s.push_str(&d.wrapper());
-            }
-        }
-    }
-
     match out {
         Some(p) => {
-            if let Some(parent) = p.parent() { let _ = fs::create_dir_all(parent); }
-            fs::write(&p, s).unwrap_or_else(|e| {
+            if let Some(parent) = p.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            if let Err(e) = std::fs::write(&p, &text) {
                 eprintln!("axiom-bindgen: {}: {e}", p.display());
-                std::process::exit(1)
-            });
-            eprintln!("axiom-bindgen: wrote {} declaration(s) for module {module} to {}",
-                      decls.len(), p.display());
-        }
-        None => print!("{s}"),
-    }
-}
-
-fn collect_rs(dir: &Path, out: &mut Vec<PathBuf>) {
-    let Ok(rd) = fs::read_dir(dir) else { return };
-    for e in rd.flatten() {
-        let p = e.path();
-        if p.is_dir() { collect_rs(&p, out) }
-        else if p.extension().map(|x| x == "rs").unwrap_or(false) { out.push(p) }
-    }
-}
-
-fn has_export_attr(attrs: &[syn::Attribute]) -> bool {
-    attrs.iter().any(|a| {
-        a.path().segments.last().map(|s| s.ident == "axiom_export").unwrap_or(false)
-    })
-}
-
-struct Decl {
-    axiom_name: String,
-    symbol: String,
-    params: Vec<(String, String)>,
-    ret: String,
-    fallible: bool,
-}
-
-impl Decl {
-    fn from_fn(f: &syn::ItemFn) -> Result<Decl, String> {
-        let rust_name = f.sig.ident.to_string();
-        let mut params = Vec::new();
-        for a in &f.sig.inputs {
-            let syn::FnArg::Typed(pt) = a else {
-                return Err("`self` cannot cross the boundary".into())
-            };
-            let name = match &*pt.pat {
-                syn::Pat::Ident(i) => i.ident.to_string(),
-                _ => "arg".to_string(),
-            };
-            params.push((camel(&name), axiom_ty(&pt.ty)?));
-        }
-        let (ret_ty, fallible) = match &f.sig.output {
-            syn::ReturnType::Default => ("Unit".to_string(), false),
-            syn::ReturnType::Type(_, t) => {
-                if let Some(ok) = result_ok(t) { (axiom_ty(ok)?, true) }
-                else { (axiom_ty(t)?, false) }
+                exit(1)
             }
-        };
-        Ok(Decl {
-            axiom_name: camel(&rust_name),
-            symbol: format!("axffi_{rust_name}"),
-            params,
-            ret: ret_ty,
-            fallible,
-        })
-    }
-
-    /// One `symbol-item` line inside the block.
-    ///
-    /// The BLOCK form is not cosmetic. A separate `(:: name Type)` beside
-    /// the binding would draw a false AX3015 on every single extern:
-    /// `defIdxBuild` (self_host/typecheck.ax:1114-1132) indexes only
-    /// TAG_D_FN nodes with `nodeVis == 1`, so `checkMissingDefs`
-    /// (:1242-1262) sees a signature with nothing behind it. Carrying the
-    /// type inline makes that failure structurally impossible.
-    /// A hand-written `#[no_mangle] pub extern "C" fn axffi_*`.
-    ///
-    /// Recognised by NAME rather than by an attribute, because the
-    /// attribute is what generates a shim and these already are one.
-    /// Types come from the raw signature; `AxWord` and every integer
-    /// are `Int`, which is the handle convention doing its ordinary
-    /// job - passing a `Foreign` to an `Int` parameter is exactly what
-    /// it permits.
-    fn from_raw_shim(f: &syn::ItemFn) -> Option<Decl> {
-        let name = f.sig.ident.to_string();
-        if !name.starts_with("axffi_") { return None }
-        if !matches!(f.vis, syn::Visibility::Public(_)) { return None }
-        f.sig.abi.as_ref()?;
-        let mut params = Vec::new();
-        for a in &f.sig.inputs {
-            let syn::FnArg::Typed(pt) = a else { return None };
-            let n = match &*pt.pat {
-                syn::Pat::Ident(i) => i.ident.to_string(),
-                _ => "arg".to_string(),
-            };
-            // `AxWord` means "an opaque handle" and maps to `Foreign`;
-            // a plain integer means a number and maps to `Int`. That is
-            // a real distinction the Rust author controls with the type
-            // they write, and it matters: `tyCompat` requires named
-            // constructors to match by name, so a destructor declared
-            // over `Int` cannot be handed the `Foreign` its constructor
-            // returned.
-            let ty = if type_is_axword(&pt.ty) { "Foreign" } else { "Int" };
-            params.push((camel(&n), ty.to_string()));
+            eprintln!("axiom-bindgen: wrote {}", p.display());
         }
-        Some(Decl {
-            axiom_name: camel(name.trim_start_matches("axffi_")),
-            symbol: name,
-            params,
-            ret: "Int".to_string(),
-            fallible: false,
-        })
+        None => print!("{text}"),
     }
+}
 
-    fn render_item(&self) -> String {
-        let arrow = self.raw_arrow();
-        // Single spaces, not aligned columns: this is exactly the
-        // formatter's normal form (`fpDeclExtern`, self_host/format.ax),
-        // so `axiom fmt` leaves a generated file alone and
-        // `check-ffi.sh`'s regenerate-and-diff does not fight
-        // `check-fmt.sh`'s sweep.
-        format!(
-            "  ({} :: {} (symbol \"{}\"))\n",
-            self.raw_name(), arrow, self.symbol
-        )
-    }
+/// The module a file names: its file name up to the first `.`.
+fn module_of(p: &Path) -> String {
+    p.file_name()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_default()
+        .split('.')
+        .next()
+        .unwrap_or_default()
+        .to_string()
+}
 
-    /// Whether this item's shim takes a trailing OUT-CELL.
-    ///
-    /// A byte return needs two words - pointer and length - and Axiom
-    /// emits `ret i64` for everything, so those shapes take a cell the
-    /// caller allocated. Same for a fallible call, which needs a status
-    /// word AND a payload.
-    fn needs_cell(&self) -> bool {
-        self.fallible || self.ret == "String"
-    }
-
-    /// The RAW extern's declared type: exactly the shim's real arity,
-    /// with the out-cell as a trailing `Int`.
-    ///
-    /// There is no `Slice` type and no `Outcome` type. Earlier drafts of
-    /// this generator emitted those names and the compiler refused them
-    /// as undefined - correctly, because they were never types. They are
-    /// a PROTOCOL over ordinary words, and the half that decodes it is
-    /// generated Axiom below, not a compiler feature. That also keeps
-    /// the rule the whole design rests on: only Axiom's own emitter ever
-    /// writes an Axiom heap block.
-    fn raw_arrow(&self) -> String {
-        let mut ps: Vec<String> = self.params.iter().map(|(_, t)| t.clone()).collect();
-        // The RETURN is `Int` only when there is a cell, because then it
-        // is the STATUS word. Without a cell the shim returns the value
-        // itself, and its declared type has to say so - an extern
-        // returning `Foreign` declared as `Int` would put a raw pointer
-        // where the reference map expects a scalar's freedom, and a
-        // `Float` declared as `Int` is the silent-wrong-answer case
-        // `tyReprClash` exists to catch.
-        let ret = if self.needs_cell() {
-            ps.push("Int".to_string());
-            "Int".to_string()
-        } else {
-            self.ret.clone()
-        };
-        if ps.is_empty() {
-            ret
-        } else {
-            format!("(-> {} {})", ps.join(" "), ret)
+/// Compare the fresh module with a checked-in one. Answers the exit
+/// status: 0 when identical, 1 otherwise (missing counts as differing).
+fn check_against(path: &Path, fresh: &str) -> i32 {
+    let committed = match std::fs::read_to_string(path) {
+        Ok(t) => t,
+        Err(e) => {
+            eprintln!("axiom-bindgen: --check {}: {e}", path.display());
+            return 1;
         }
+    };
+    if committed == fresh {
+        eprintln!("axiom-bindgen: {} is what a fresh generation produces", path.display());
+        return 0;
     }
-
-    /// The name the raw extern binds. Wrapped items get a `Raw` suffix so
-    /// the ergonomic name is free for the wrapper.
-    fn raw_name(&self) -> String {
-        if self.needs_cell() {
-            format!("{}Raw", self.axiom_name)
-        } else {
-            self.axiom_name.clone()
-        }
-    }
-
-    /// The wrapper's Axiom-facing type.
-    fn wrapper_arrow(&self) -> String {
-        let ret = if self.fallible {
-            format!("(Result {} String)", self.ret)
-        } else {
-            self.ret.clone()
-        };
-        let ps: Vec<String> = self.params.iter().map(|(_, t)| t.clone()).collect();
-        if ps.is_empty() {
-            ret
-        } else {
-            format!("(-> {} {})", ps.join(" "), ret)
-        }
-    }
-
-    /// The generated Axiom wrapper: allocate the cell, call, decode.
-    fn wrapper(&self) -> String {
-        let names: Vec<String> = self.params.iter().map(|(n, _)| n.clone()).collect();
-        let args = names.join(" ");
-        let call_args = if args.is_empty() {
-            "cell".to_string()
-        } else {
-            format!("{args} cell")
-        };
-        let head = if names.is_empty() {
-            self.axiom_name.clone()
-        } else {
-            format!("{} {}", self.axiom_name, args)
-        };
-        let mut s = String::new();
-        s.push_str(&format!("(pub :: {} {})\n", self.axiom_name, self.wrapper_arrow()));
-        s.push_str(&format!("(pub fn ({head})\n"));
-        s.push_str("  (let ((cell (memAlloc 16)))\n");
-        s.push_str(&format!("    (let ((st ({} {call_args})))\n", self.raw_name()));
-        s.push_str("      (let ((p (cast Int (memGetWord cell 0)))\n");
-        s.push_str("            (n (cast Int (memGetWord cell 1))))\n");
-        if self.fallible {
-            s.push_str("        (if (== st 0)\n");
-            match self.ret.as_str() {
-                // On success the payload IS the value, and there is
-                // nothing to free.
-                "String" => s.push_str(
-                    "            (let ((v (ffiSliceToStr p n))) { (ffiFreeBytes p n) (Ok v) })\n"),
-                "Float" => s.push_str("            (Ok (cast Float p))\n"),
-                "Bool"  => s.push_str("            (Ok (!= p 0))\n"),
-                _        => s.push_str("            (Ok p)\n"),
+    eprintln!(
+        "axiom-bindgen: {} differs from a fresh generation; regenerate it with -o",
+        path.display()
+    );
+    let old: Vec<&str> = committed.lines().collect();
+    let new: Vec<&str> = fresh.lines().collect();
+    let mut shown = 0;
+    for (n, (a, b)) in old.iter().zip(new.iter()).enumerate() {
+        if a != b {
+            eprintln!("  line {}:\n    - {a}\n    + {b}", n + 1);
+            shown += 1;
+            if shown == 5 {
+                break;
             }
-            s.push_str("            (let ((m (ffiSliceToStr p n)))\n");
-            s.push_str("              { (ffiFreeBytes p n) (Err m) }))))))\n");
-        } else {
-            s.push_str("        (let ((v (ffiSliceToStr p n)))\n");
-            s.push_str("          { (ffiFreeBytes p n) v })))))\n");
         }
-        s
     }
-}
-
-/// Whether a raw shim's parameter is spelled `AxWord` (possibly
-/// qualified), which is the crate's word for "an opaque handle".
-fn type_is_axword(t: &syn::Type) -> bool {
-    let syn::Type::Path(p) = t else { return false };
-    p.path.segments.last().map(|s| s.ident == "AxWord").unwrap_or(false)
-}
-
-fn result_ok(t: &syn::Type) -> Option<&syn::Type> {
-    let syn::Type::Path(p) = t else { return None };
-    let seg = p.path.segments.last()?;
-    if seg.ident != "Result" { return None }
-    let syn::PathArguments::AngleBracketed(a) = &seg.arguments else { return None };
-    match a.args.first()? {
-        syn::GenericArgument::Type(t) => Some(t),
-        _ => None,
+    if old.len() != new.len() {
+        eprintln!("  ({} lines checked in, {} generated)", old.len(), new.len());
     }
-}
-
-/// The Rust -> Axiom type name mapping. Anything not named here is an
-/// opaque handle, which is what makes arbitrary crate types bindable.
-fn axiom_ty(t: &syn::Type) -> Result<String, String> {
-    match t {
-        syn::Type::Reference(r) => match &*r.elem {
-            syn::Type::Path(p) if p.path.is_ident("str") => Ok("String".into()),
-            syn::Type::Slice(s) => match &*s.elem {
-                syn::Type::Path(p) if p.path.is_ident("u8") => Ok("String".into()),
-                _ => Err("only `&[u8]` slices cross".into()),
-            },
-            // A reference to any other named type is an opaque handle,
-            // matching `classify` in axiom-ffi-macros. The two passes
-            // must agree or check-ffi.sh's regenerate-and-diff fails.
-            syn::Type::Path(_) => Ok("Foreign".into()),
-            _ => Err("only `&str`, `&[u8]` and references to named types cross".into()),
-        },
-        syn::Type::Tuple(t) if t.elems.is_empty() => Ok("Unit".into()),
-        syn::Type::Path(p) => {
-            let seg = p.path.segments.last().ok_or("empty path")?;
-            Ok(match seg.ident.to_string().as_str() {
-                "i64" | "i32" | "isize" | "u32" | "usize" => "Int".into(),
-                "f64" => "Float".into(),
-                "bool" => "Bool".into(),
-                "String" => "String".into(),
-                "Vec" => "String".into(),
-                _ => "Foreign".into(),
-            })
-        }
-        _ => Err("unsupported type at the boundary".into()),
-    }
-}
-
-/// `sha256_hex` -> `sha256Hex`. Axiom's stdlib is camelCase throughout
-/// (`strFromLit`, `sysWrite`, `vecPush`), so a binding that kept Rust's
-/// snake_case would read as foreign in a way the call itself does not.
-fn camel(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    let mut up = false;
-    for c in s.chars() {
-        if c == '_' { up = true } else if up { out.extend(c.to_uppercase()); up = false }
-        else { out.push(c) }
-    }
-    out
+    1
 }

@@ -2524,7 +2524,7 @@ executable):
 |---|---|---|
 | no `extern` | **0** | 0 |
 | `extern` → a `no_std` Rust crate | **0** | 0 |
-| `extern` → a `std` Rust crate | 188 | 14 |
+| `extern` → a `std` Rust crate | 188 | 18 |
 
 So the property that makes `MM-PAR-3`, `MM-ALLOC-1` and the whole of §3
 true is **not** traded away for the FFI. It is traded away only for
@@ -2578,7 +2578,7 @@ set for a future FFI are met.
 
 | # | Requirement | How |
 |---|---|---|
-| 1 | foreign memory is a distinct type from `Int` | `Foreign` is a builtin type name (`typeKeywordCanon`). `tyCompat` requires two named constructors to match BY NAME — the `Int`/`String` fiat was deleted 2026-08-15 — so `Foreign` is distinct wherever a type is compared, not only at a return. `tyIsReprScalar` adds the declared-return-vs-body case |
+| 1 | foreign memory is a distinct type from `Int` | `Foreign` is a builtin type name (`typeKeywordCanon`). `tyCompat` requires two named constructors to match BY NAME — the `Int`/`String` fiat was deleted 2026-08-15 — so `Foreign` is distinct wherever a type is compared, not only at a return. `tyIsReprScalar` adds the declared-return-vs-body case. Since 2026-08-22 `Handle` is the second builtin (`typeKeywordCanon`, `tyIsReprScalar`), distinct from both `Int` and `Foreign`, and the status of requirements 1 and 2 covers it with the OPPOSITE classification — a reference in `fldClass` and `evClassOf`, so its map bit is SET and release follows it into the foreign form (`MM-FFI-6`) |
 | 2 | no arena primitive applies to it | `scalarTyName` classifies `Foreign` as class 0, so `fldClass` leaves its bit CLEAR in the reference map and `@axiom_release` never follows it. Measured on the emitted shape word for `(struct T (a : String) (b : Foreign) (c : String))`: the map is payload words `[0, 2]` — the `Foreign` is skipped, not truncated at |
 | 3 | a foreign call is an inferred effect like a syscall | an `extern` item's `FnEnt` is seeded with `IO` at registration, exactly as an effect operation is seeded with its `Custom(E)`; the existing monotone fixpoint propagates it transitively. `isSyscallPrim` is untouched and neither effect walk learned a shape |
 | 4 | `check-freestanding.sh` replaced by an enumerating gate | `scripts/check-ffi.sh` reads each crate's `axiom-allow.txt`. The original gate is KEPT rather than replaced, because a program with no `extern` still has to answer the strict version |
@@ -2597,6 +2597,55 @@ trailing out-cell and the decoding half is **generated Axiom**, not a
 compiler feature. That keeps the rule the whole design rests on: only
 Axiom's own emitter writes an Axiom heap block, because only it knows
 this section's shape word.
+
+**MM-FFI-6 (H). The foreign form and the `Handle`.** A Rust value the
+program *owns a share of* — as opposed to a `Foreign` word it merely
+holds — is a `Handle`: a counted heap block whose shape word has bit 0
+set, the **foreign form**, a third form beside `MM-LIFE-2d`'s record
+and array forms. Its two payload words are the address of a C
+destructor `i64 (i64)` (word 0) and the Rust pointer that destructor
+takes (word 1); its count word is an ordinary count, retained and
+released by the same events as any block. The form has exactly one
+writer in the tree, `stdlib/Ffi.ax`'s `ffiHandleNew`: `memAllocMapped`
+masks its map to bits 16..62 and cannot set bit 0, and a constructor
+site never does. A raw `extern` item **MUST NOT** answer `Handle`
+(`AX3036`, `tcCheckExternTypes`); it answers `Foreign`, and
+`ffiHandleNew` is the one door from a word to a share.
+
+The implementation obligations:
+
+- `Handle` **SHALL** be a reference class in every classification:
+  `fldClass` answers 2 and `evClassOf` 1 (their reference classes), so a
+  cell holding one maps it, a `let` of one is released at scope end, and
+  it is never matched against a literal. `Foreign` stays class 0 — a
+  word, never walked — which is requirement 2 of `MM-FFI-5` unchanged.
+- When a foreign-form block's count reaches zero, `@axiom_release`
+  (`codegen.ax`, label `foreign:`) **SHALL** read both words and, iff
+  both are non-zero, store 0 into word 1 and call word 0 with the old
+  word 1, **once**; then file the block by its size class like any
+  other. A block of this form has no reference map and is never walked.
+  A closed handle — word 1 already 0 — dies calling nothing.
+- `ffiHandleClose` is the early close: it runs the destructor now,
+  zeroes word 1, and answers 0; a second close is a no-op, and the
+  block's own later death calls nothing. A shim borrowing a closed
+  handle aborts (``axiom-ffi: `f`: handle is closed``, exit 72) rather
+  than dereference 0.
+- Re-entrancy is permitted: the destructor **MAY** call `axiom_release`
+  (a Rust `Drop` returning shares the shim took under docs/ffi.md C1).
+  Each invocation of `@axiom_release` keeps its dead list in a local and
+  stores nothing else anywhere, so the re-entrant call is an ordinary
+  one and the outer invocation's list is undisturbed.
+
+The program obligations are docs/ffi.md C5 and C7: the destructor is
+`i64 (i64)`, null-safe, and never unwinds; `#[axiom_opaque]` generates
+one that is, and a hand-written one must match it.
+
+*Evidence:* `tests/ffi/demo/060-opaque-handle.ax` — 200 `Counter`s
+built and let go in a loop run the Rust `Drop` 200 times through the
+handle with no close call anywhere, and one explicit `counterClose` on
+a handle still held makes 201; the emitted `@axiom_release` carries the
+`foreign:` arm (`grep foreign: <out>.ll` after `--emit-llvm`).
+`tests/ffi/demo/410` and `420` pin the converse for `Foreign`.
 
 ---
 

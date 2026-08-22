@@ -1,6 +1,7 @@
 //! Every shape the boundary supports, in one crate.
 
-use axiom_ffi::axiom_export;
+use axiom_ffi::{axiom_export, axiom_opaque};
+use core::sync::atomic::{AtomicI64, Ordering};
 
 // 1. A scalar. This is the cheapest possible crossing: the generated
 //    shim is `extern "C" fn axffi_add(i64, i64) -> i64`, and the Axiom
@@ -47,8 +48,34 @@ pub fn parse_int(text: &str) -> Result<i64, std::num::ParseIntError> {
 // 6. An opaque handle. `Counter` is never described to Axiom; Axiom
 //    holds one word and passes it back. This is the mechanism that makes
 //    wrapping an arbitrary crate type possible.
+//
+//    `#[axiom_opaque]` generates the destructor pair `axffi_counter_drop`
+//    (null-checked `Box::from_raw`) and `axffi_counter_drop_fn` (its
+//    address). The generated Axiom module wraps every `Counter` word in
+//    a `Handle` that carries that address, so the value is dropped when
+//    the last reference dies - or earlier, on `counterClose`. A borrow
+//    of a closed handle aborts with "`counter_value`: handle is closed"
+//    instead of dereferencing null.
+#[axiom_opaque]
 pub struct Counter {
     n: i64,
+}
+
+/// How many `Counter`s have been dropped so far - the observable half
+/// of the handle protocol. ARC runs `Drop` when the last Axiom share of
+/// a handle goes, and a fixture that cannot see that happen cannot tell
+/// "reclaimed" from "leaked". Relaxed atomics: MM-PAR-1, no threads.
+static COUNTERS_DROPPED: AtomicI64 = AtomicI64::new(0);
+
+impl Drop for Counter {
+    fn drop(&mut self) {
+        COUNTERS_DROPPED.fetch_add(1, Ordering::Relaxed);
+    }
+}
+
+#[axiom_export]
+pub fn counters_dropped() -> i64 {
+    COUNTERS_DROPPED.load(Ordering::Relaxed)
 }
 
 #[axiom_export]
@@ -61,23 +88,58 @@ pub fn counter_value(c: &Counter) -> i64 {
     c.n
 }
 
-/// The destructor. Axiom is ARC with no finalizers, so this runs when
-/// the program says so — there is no point at which the runtime could
-/// call it for you.
-///
-/// # Safety
-/// `h` must be a handle from `counter_new` that has not been closed.
-/// Returns `i64`, not `()`, and that is not a style choice. Axiom's whole
-/// ABI is one word in and one word out: every emitted function is
-/// `define i64 @name(i64, ...)` and every `declare` the compiler writes
-/// says `i64`. A `void` shim makes the call site read a return register
-/// the callee never set. A destructor has nothing to say, so it says 0.
-#[no_mangle]
-pub unsafe extern "C" fn axffi_counter_close(h: axiom_ffi::AxWord) -> i64 {
-    if h != 0 {
-        drop(Box::from_raw(h as *mut Counter));
+#[axiom_export]
+pub fn counter_add(c: &mut Counter, by: i64) -> i64 {
+    c.n = c.n.wrapping_add(by);
+    c.n
+}
+
+/// A fallible constructor: the handle travels through the out-cell on
+/// `Ok`, the message on `Err`. Axiom sees `(Result Counter String)`.
+#[axiom_export]
+pub fn counter_try_new(start: i64) -> Result<Counter, String> {
+    if start < 0 {
+        Err(format!("counter cannot start below zero (got {start})"))
+    } else {
+        Ok(Counter { n: start })
     }
-    0
+}
+
+// 6b. `Option`. Status 2 is `None`; the wrapper answers `(Option Int)`.
+#[axiom_export]
+pub fn maybe(n: i64) -> Option<i64> {
+    if n >= 0 {
+        Some(n)
+    } else {
+        None
+    }
+}
+
+// 6c. Narrow integers are range-checked on the way in (an out-of-range
+//     word aborts with the function and argument named) and widened
+//     losslessly on the way out.
+#[axiom_export]
+pub fn halve(n: i32) -> i32 {
+    n / 2
+}
+
+#[axiom_export]
+pub fn byte_plus(b: u8, delta: i64) -> i64 {
+    b as i64 + delta
+}
+
+// 6d. A borrowed byte slice: no UTF-8 validation, any bytes go.
+#[axiom_export]
+pub fn byte_len(data: &[u8]) -> i64 {
+    data.len() as i64
+}
+
+// 6e. A parameter named `cell`. The generated wrapper's own locals are
+//     `__`-prefixed, so this reaches the Rust side intact rather than
+//     being shadowed by the wrapper's out-cell.
+#[axiom_export]
+pub fn cell_twice(cell: i64) -> i64 {
+    cell.wrapping_mul(2)
 }
 
 // 7. Arity edges. A ZERO-argument extern is the one shape with a
@@ -114,8 +176,6 @@ pub fn sum5(a: i64, b: i64, c: i64, d: i64, e: i64) -> i64 {
 // process-private (invariant I11), so a plain global would be sound.
 // It is atomic because `static mut` is being removed from Rust, and a
 // Relaxed load on a word costs nothing.
-use core::sync::atomic::{AtomicI64, Ordering};
-
 static KEPT: AtomicI64 = AtomicI64::new(0);
 
 /// Retain an Axiom value and stash it. Answers its byte length, so the

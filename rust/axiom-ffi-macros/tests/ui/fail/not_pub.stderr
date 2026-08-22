@@ -1,0 +1,5 @@
+error: an `#[axiom_export]` function must be `pub`: its shim is a public symbol of the crate, and axiom-bindgen binds only `pub` functions
+ --> tests/ui/fail/not_pub.rs:5:4
+  |
+5 | fn hidden(n: i64) -> i64 {
+  |    ^^^^^^

@@ -614,7 +614,7 @@
             (let ((n (nodeA t)))
               (if (== (evScalarName n) 1)
                   0
-                  (if (strEq n "String")
+                  (if (|| (strEq n "String") (strEq n "Handle"))
                       1
                       (evDataTyKnown tc n))))
         0))))))))
@@ -905,7 +905,14 @@
       (nodeB d)
       (if (== (nodeTag d) TAG_D_EFFECT)
           (nodeC d)
-          0)))
+          ; an `extern` block defines one value name per ITEM (slot c,
+          ; the typed items with their spans); its slot a is the
+          ; library string, which until 2026-08-22 was what the
+          ; duplicate index held - so two blocks naming one library
+          ; were "duplicates" and a `fn` spelled like an item was not
+          (if (== (nodeTag d) TAG_D_EXTERN)
+              (nodeC d)
+              0))))
 
 ; Does this declaration define `name` in namespace `ns`?
 ;
@@ -1554,6 +1561,11 @@
       (regFn fns "__load8" (mkIntArrow 2))
       (regFn fns "__store8" (mkIntArrow 3))
       (regFn fns "__load64" (mkIntArrow 2))
+      ; `(__call_word fn arg)`: call a C function `i64 (i64)` by its
+      ; ADDRESS - the destructor word of a foreign-form block
+      ; (stdlib/Ffi.ax `ffiHandleClose`); the release runtime makes
+      ; the same call when such a block dies
+      (regFn fns "__call_word" (mkIntArrow 2))
       (regFn fns "__store64" (mkIntArrow 3))
       (regFn fns "__alloc" (mkIntArrow 1))
       (regFn fns "__retain" (mkIntArrow 1))
@@ -3055,6 +3067,16 @@
       }))
 
 ; Every item of an `extern` block, refused by name at its own span.
+;
+; And refused by SHAPE (AX3036, since 2026-08-22): the boundary is one
+; machine word per argument and one back, so an item's signature may
+; name only `Int`, `Float`, `Bool`, `Char`, `String` and `Foreign`. A
+; type variable, a tuple, a list, a function
+; parameter, or a declared data type - `(Option Int)`, `(Result a e)`,
+; `Handle`, a user struct - has no crossing the emitter could write,
+; and used to pass into the signature unremarked, where a caller then
+; trusted it. Such values cross as a `Foreign` handle or through the
+; generated wrapper `axiom-bindgen` writes (docs/ffi.md).
 (pub :: tcCheckExternTypes (-> Int Int Int Int))
 (pub fn (tcCheckExternTypes tc items i)
   (if (== items 0)
@@ -3065,7 +3087,18 @@
             (let ((f (vecGet items i)))
               (let ((bad (tyUnknownCon tc (nodeB f))))
                 (if (== bad 0)
-                    0
+                    (let ((shape (externTypeRefusal (nodeB f) 1)))
+                      (if (== (cast Int shape) 0)
+                          0
+                          (if (== (nodeSpan f) 0)
+                              0
+                              (emitDiag tc
+                                (mkDiag SEV_ERROR "AX3036" "extern-type"
+                                        (nodeSpan f)
+                                        (strConcat (strConcat "an `extern` item cannot carry " shape)
+                                                   " across the boundary")
+                                        0 0
+                                        "an `extern` signature names only `Int`, `Float`, `Bool`, `Char`, `String` and `Foreign` (one machine word each way); a Rust value of any other shape crosses as a `Foreign` handle, or through the wrapper `axiom-bindgen` generates (a `String` result, a `Result`, an `Option`, an opaque type)")))))
                     (if (== (nodeSpan f) 0)
                         0
                         (emitDiag tc
@@ -3077,6 +3110,38 @@
                             (strConcat (strConcat "no type named `" bad) "` is visible here")))))))
             (tcCheckExternTypes tc items (+ i 1))
           })))
+
+; The first part of an extern signature the boundary cannot carry,
+; described, or 0 when every leaf is a word. `top` is 1 along the
+; signature's own arrow spine, where an arrow is the item's arity
+; and not a function-typed argument.
+(pub :: externTypeRefusal (-> Int Int String))
+(pub fn (externTypeRefusal t top)
+  (if (== t 0)
+      (cast String 0)
+      (let ((tg (nodeTag t)))
+        (if (== tg TAG_T_ARR)
+            (if (== top 1)
+                (let ((a (externTypeRefusal (nodeA t) 0)))
+                  (if (!= (cast Int a) 0) a (externTypeRefusal (nodeB t) 1)))
+                "a function-typed argument")
+        (if (== tg TAG_T_VAR)
+            (strConcat (strConcat "the type variable `" (nodeA t)) "`")
+        (if (== tg TAG_T_TUP)
+            "a tuple"
+        (if (== tg TAG_T_LIST)
+            "a list"
+        (if (== tg TAG_T_CON)
+            (let ((n (nodeA t)))
+              (if (|| (== (evScalarName n) 1)
+                  (|| (strEq n "String")
+                  (|| (strEq n "Foreign")
+                  (|| (strEq n "Char") (strEq n "Bool")))))
+                  (if (== (vecLen (nodeB t)) 0)
+                      (cast String 0)
+                      (strConcat (strConcat "`" n) "` applied to type arguments"))
+                  (strConcat (strConcat "the type `" n) "`")))
+            "this type"))))))))
 
 (pub :: tcExpandSigAliases (-> Int Int Int))
 (pub fn (tcExpandSigAliases tc d)
@@ -7722,7 +7787,8 @@
   ; tests/diagnostics/994 pins the refusal as AX3004.
   (|| (strEq name "Bool")
       (|| (strEq name "Float")
-          (|| (strEq name "Foreign") (strEq name "String")))))
+          (|| (strEq name "Foreign")
+              (|| (strEq name "Handle") (strEq name "String"))))))
 
 ; Parameter types: peel the signature's arrows left to right. The
 ; walk keeps its own cursor because a non-arrow signature - or none -

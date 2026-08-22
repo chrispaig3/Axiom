@@ -1,0 +1,5 @@
+error: unknown `axiom_opaque` key `drop`; the only key is `symbol = "stem"`
+ --> tests/ui/fail/opaque_unknown_key.rs:4:16
+  |
+4 | #[axiom_opaque(drop = "custom")]
+  |                ^^^^^^^^^^^^^^^

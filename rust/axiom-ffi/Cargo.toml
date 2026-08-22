@@ -21,3 +21,9 @@ axiom-ffi-macros = { workspace = true }
 # the crate you are binding can live in `core` + `alloc`.
 default = ["std"]
 std = []
+# The runtime a `no_std` crate otherwise pastes by hand: a GlobalAlloc
+# over `axiom_alloc`, the panic handler, the personality stub and the
+# memory intrinsics the precompiled `alloc` rlib references. Mutually
+# exclusive with `std` (it would define a second allocator and panic
+# handler); use `default-features = false, features = ["nostd-runtime"]`.
+nostd-runtime = []

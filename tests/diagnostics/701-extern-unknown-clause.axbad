@@ -1,0 +1,11 @@
+; The one clause an `extern` item takes is `(symbol "...")`.
+;
+; A misspelled head, an unquoted symbol, or a clause the design
+; document once proposed (`effects`, `opaque`, `drop`) used to be
+; skipped in silence - and `(opaque Thing ...)` bound an item named
+; `opaque`.
+(pub extern "axiom_demo"
+  (add :: (-> Int Int Int) (symbo "axffi_add")))
+
+(:: main Int)
+(fn (main) 0)

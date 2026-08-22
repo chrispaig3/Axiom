@@ -1,0 +1,10 @@
+; An `extern` item declares its type, or it is not an item.
+;
+; The type is the only description of the boundary the compiler has:
+; until 2026-08-22 an item written without one was accepted and became
+; a wildcard of any arity that linked and answered garbage.
+(pub extern "axiom_demo"
+  (add (symbol "axffi_add")))
+
+(:: main Int)
+(fn (main) 0)

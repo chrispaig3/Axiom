@@ -1,0 +1,11 @@
+[package]
+name = "axiom-ffi-classify"
+description = "The one type classifier and naming table shared by #[axiom_export] and axiom-bindgen, so the two passes over one annotation cannot drift."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+syn = { workspace = true }
+proc-macro2 = { workspace = true }
+quote = { workspace = true }

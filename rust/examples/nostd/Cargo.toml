@@ -27,7 +27,7 @@ license = "MIT"
 crate-type = ["staticlib"]
 
 [dependencies]
-axiom-ffi = { path = "../../axiom-ffi", default-features = false }
+axiom-ffi = { path = "../../axiom-ffi", default-features = false, features = ["nostd-runtime"] }
 
 [profile.release]
 panic = "abort"

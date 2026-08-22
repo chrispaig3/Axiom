@@ -1,0 +1,5 @@
+error: unknown `axiom_export` key `name`; the keys are `symbol = "name"` and `utf8 = "lossy"`
+ --> tests/ui/fail/unknown_key.rs:4:16
+  |
+4 | #[axiom_export(name = "whatever")]
+  |                ^^^^^^^^^^^^^^^^^

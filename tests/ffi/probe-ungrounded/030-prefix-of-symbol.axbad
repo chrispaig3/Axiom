@@ -1,0 +1,12 @@
+; A PREFIX of a real symbol is not that symbol. `axffi_ad` used to
+; ground against `axffi_add` by a substring scan of the archive, and
+; the linker then failed with a message about `cc`. AX4004 now, naming
+; the neighbour it did find.
+(import IO)
+(import Fmt)
+
+(pub extern "axiom_demo"
+  (ad :: (-> Int Int Int) (symbol "axffi_ad")))
+
+;@axiom:effect(io)
+(pub fn (main) { (println (fmtInt (ad 20 22))) 0 })

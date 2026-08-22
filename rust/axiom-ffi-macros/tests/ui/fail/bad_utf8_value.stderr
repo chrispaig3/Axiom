@@ -1,0 +1,5 @@
+error: `utf8 = "ignore"` is not a policy; the policies are `"lossy"` (replace invalid sequences) and `"strict"` (the default: abort, or `Err` from a `Result` function)
+ --> tests/ui/fail/bad_utf8_value.rs:4:16
+  |
+4 | #[axiom_export(utf8 = "ignore")]
+  |                ^^^^^^^^^^^^^^^

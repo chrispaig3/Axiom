@@ -1,0 +1,27 @@
+; A Rust parameter named `cell` reaches the Rust side intact.
+;
+; The old generator bound its own locals as `cell`, `st`, `p`, `n` and
+; `v` around the user's parameter names, so `pub fn f(cell: i64)` had
+; its argument replaced by the out-cell's address - a silent wrong
+; answer (measured: `(shadow 42)` printed a heap address). Every
+; generated local is now `__`-prefixed (`__c`, `__st`, `__p`, `__n`,
+; `__v`, `__h`, `__a0`...), a spelling a Rust parameter is refused from
+; using, so no wrapper can shadow an argument.
+;
+; `cellTwice` takes a scalar and needs no wrapper; `shout` takes the
+; same name through a wrapper that DOES allocate an out-cell. Both must
+; see the caller's value.
+(import IO)
+(import Fmt)
+(import Str)
+(import Demo)
+
+;@axiom:effect(io)
+(pub fn (main)
+  (let ((cell 21))
+    (let ((doubled (cellTwice cell))
+          (shouted (shout "cell")))
+      (if (&& (== doubled 42) (strEq shouted "CELL!"))
+          { (println "param named cell: agree") 0 }
+          { (println (fmtInt doubled)) (println shouted) 1 }))))
+; expect 0

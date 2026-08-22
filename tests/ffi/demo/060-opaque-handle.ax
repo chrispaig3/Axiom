@@ -1,34 +1,57 @@
-; An arbitrary Rust type Axiom holds as one opaque word.
+; An arbitrary Rust type Axiom holds through a handle.
 ;
 ; This is the mechanism that makes ecosystem leverage practical: a
 ; `sha2::Sha256`, a `reqwest::Client`, a `serde_json::Value` never has
-; to be describable in Axiom's type system. Axiom holds the word, hands
-; it back, and calls a registered destructor when it is done.
+; to be describable in Axiom's type system. `#[axiom_opaque]` on the
+; Rust side generates `axffi_counter_drop` and `axffi_counter_drop_fn`;
+; the generated module wraps each raw word in a `Handle` that carries
+; the drop function's address, inside the `data Counter` cell. When the
+; last reference to the cell dies, the handle's count reaches 0 and the
+; runtime runs the Rust `Drop` - no explicit close is needed for
+; correctness.
 ;
-; The word gets `Foreign` and not `Int`, which is MM-FFI-5 requirement
-; 1. The operational half of that distinction is requirement 2: a
-; `Foreign` is excluded from MM-LIFE-2d's reference map, so no arena
-; primitive and no release walk ever dereferences it. Declaring it `Int`
-; would compile and would be a pointer the reference map is free to
-; treat as a scalar today and something else tomorrow.
+; `counterClose` is the optional EARLY close: it runs the drop now and
+; sets the pointer to 0. A later borrow through that handle aborts with
+; "`counter_value`: handle is closed" rather than dereferencing null,
+; which is why this case closes `b` only after its last read.
 ;
-; Axiom is ARC with no finalizers, so `counterClose` runs when the
-; program says so. There is no point at which the runtime could call it.
+; The raw word gets `Foreign` and not `Int` (MM-FFI-5 requirement 1),
+; and a `Foreign` is excluded from MM-LIFE-2d's reference map, so no
+; arena primitive and no release walk ever dereferences it.
 (import IO)
 (import Fmt)
 (import Demo)
+
+(pub :: sumOfFresh (-> Int Int Int))
+(pub fn (sumOfFresh i acc)
+  ; Each iteration builds a Counter and drops it on the way out of the
+  ; `let`: 200 Rust values freed by the handle, none closed by hand.
+  (if (>= i 200)
+      acc
+      (let ((c (counterNew i)))
+        (sumOfFresh (+ i 1) (+ acc (counterValue c))))))
 
 ;@axiom:effect(io)
 (pub fn (main)
   (let ((a (counterNew 41))
         (b (counterNew 100)))
     (let ((va (counterValue a))
-          (vb (counterValue b)))
-      {
-        (counterClose a)
-        (counterClose b)
-        (if (&& (== va 41) (== vb 100))
-            { (println "opaque handle: agree") 0 }
-            { (println (fmtInt va)) (println (fmtInt vb)) 1 })
-      })))
+          (vb (counterValue b))
+          (vb2 (counterAdd b 1))
+          (total (sumOfFresh 0 0)))
+      ; `sumOfFresh` built 200 counters and let every one go: Rust's
+      ; `Drop` ran 200 times, through the handle, with no close call
+      (let ((dropped (countersDropped)))
+        {
+          (counterClose b)
+          (if (&& (== va 41)
+              (&& (== vb 100)
+              (&& (== vb2 101)
+              (&& (== total 19900)
+              (&& (== dropped 200)
+                  (== (countersDropped) 201))))))
+              { (println "opaque handle: agree") 0 }
+              { (println (fmtInt va)) (println (fmtInt vb)) (println (fmtInt total))
+                (println (fmtInt dropped)) (println (fmtInt (countersDropped))) 1 })
+        }))))
 ; expect 0

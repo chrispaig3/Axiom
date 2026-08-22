@@ -13,6 +13,7 @@ exclude = ["examples/nostd"]
 
 members = [
     "axiom-abi",
+    "axiom-ffi-classify",
     "axiom-ffi-macros",
     "axiom-ffi",
     "axiom-bindgen",
@@ -28,6 +29,7 @@ license = "MIT"
 [workspace.dependencies]
 axiom-abi = { path = "axiom-abi", version = "0.1.0" }
 axiom-ffi-macros = { path = "axiom-ffi-macros", version = "0.1.0" }
+axiom-ffi-classify = { path = "axiom-ffi-classify", version = "0.1.0" }
 syn = { version = "2", features = ["full", "extra-traits", "parsing", "printing", "visit"] }
 quote = "1"
 proc-macro2 = "1"

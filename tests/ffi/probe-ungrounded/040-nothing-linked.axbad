@@ -1,0 +1,10 @@
+; No archive on the link line at all is its own mistake, and the
+; diagnostic says so at the item rather than guessing at a typo.
+(import IO)
+(import Fmt)
+
+(pub extern "axiom_demo"
+  (add :: (-> Int Int Int) (symbol "axffi_add")))
+
+;@axiom:effect(io)
+(pub fn (main) { (println (fmtInt (add 20 22))) 0 })

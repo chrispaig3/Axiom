@@ -1,0 +1,109 @@
+; Ffi - the Axiom half of the Rust boundary, in Axiom.
+;
+; Everything a generated binding module (`axiom-bindgen`) needs that is
+; not specific to one crate lives here once, so two crates' modules
+; import together without colliding, and a hand-written binding has the
+; same helpers to reach for. docs/ffi.md is the contract.
+;
+; THE HANDLE. A Rust value Axiom holds is a `Handle`: a counted Axiom
+; block of the FOREIGN FORM (MM-LIFE-2d's form bit set), two payload
+; words - the address of the Rust destructor shim `axffi_<type>_drop`
+; and the Rust pointer it takes. The block is a reference like any
+; other: a data cell holding it maps it, a `let` of it is released at
+; scope end, and when its last share goes the release runtime calls
+; the destructor once and files the block. So a Rust value dies when
+; its last Axiom holder does, with no `close` call anywhere - and
+; `ffiHandleClose` is there for the program that wants it gone NOW (a
+; file, a lock): it runs the destructor and zeroes the pointer, and the
+; block's own death then calls nothing.
+;
+; THE OUT-CELL. A Rust `String`, `Vec<u8>`, `Result` or `Option` needs
+; two words back and every Axiom function answers one, so those shims
+; take a trailing cell the caller owns, write `{ptr, len}` into it, and
+; answer a status word: 0 ok, 1 err, 2 none. The cell is a counted
+; 16-byte block released when the wrapper is done (the arena used to
+; keep one per call). The bytes Rust hands back are COPIED into an
+; Axiom `String` and given back to Rust (`ffiFreeBytes`): only Axiom's
+; own emitter writes an Axiom block header, because only it knows the
+; shape word.
+(import Mem)
+(import Str)
+
+; The facade crate's exports, present in every archive that depends
+; on `axiom-ffi`. `axiom_ffi` has no archive of its own: the driver
+; links a block's library only when its archive exists, and grounds
+; every declared symbol against whatever archives are linked.
+(pub extern "axiom_ffi"
+  (ffiFreeBytes :: (-> Int Int Int) (symbol "axffi_free_bytes"))
+  (ffiAbiVersion :: Int (symbol "axffi_abi_version")))
+
+(pub :: ffiStatusOk Int)
+(pub fn (ffiStatusOk) 0)
+(pub :: ffiStatusErr Int)
+(pub fn (ffiStatusErr) 1)
+(pub :: ffiStatusNone Int)
+(pub fn (ffiStatusNone) 2)
+
+; A fresh Handle over `ptr`, to be destroyed by the C function at
+; `dropFn` (`i64 (i64)`). The block is born free-floating and adopted
+; by this function's own answer (event 2), exactly as `strWrapOwned`
+; adopts a header - so the caller holds one share.
+(pub :: ffiHandleNew (-> Int Int Handle))
+(pub fn (ffiHandleNew ptr dropFn)
+  (let ((h (memAlloc 16)))
+    {
+      ; the foreign form: bit 0 of the shape word. `memAllocMapped`
+      ; refuses to set it, by design - this module is the one reviewed
+      ; door that does
+      (__store64 (- h 8) 0 (| (__load64 (- h 8) 0) 1))
+      (__store64 h 0 dropFn)
+      (__store64 h 1 ptr)
+      (cast Handle h)
+    }))
+
+; The Rust pointer, 0 once the handle is closed.
+(pub :: ffiHandlePtr (-> Handle Int))
+(pub fn (ffiHandlePtr h)
+  (__load64 (cast Int h) 1))
+
+(pub :: ffiHandleLive (-> Handle Bool))
+(pub fn (ffiHandleLive h)
+  (!= (ffiHandlePtr h) 0))
+
+; Destroy the Rust value NOW, once: the destructor runs and the pointer
+; is zeroed, so a second close and the handle's own death do nothing.
+(pub :: ffiHandleClose (-> Handle Int))
+(pub fn (ffiHandleClose h)
+  (let ((p (ffiHandlePtr h))
+        (f (__load64 (cast Int h) 0)))
+    (if (== p 0)
+        0
+        {
+          (__store64 (cast Int h) 1 0)
+          (if (== f 0) 0 (__call_word f p))
+        })))
+
+; A two-word out-cell, zeroed, held by one share the wrapper gives
+; back with `ffiCellFree`.
+(pub :: ffiCellNew Int)
+(pub fn (ffiCellNew)
+  (let ((c (memAlloc 16)))
+    { (__retain c) c }))
+
+(pub :: ffiCellFree (-> Int Int))
+(pub fn (ffiCellFree c)
+  { (__release c) 0 })
+
+(pub :: ffiCellWord (-> Int Int Int))
+(pub fn (ffiCellWord c i)
+  (__load64 c i))
+
+; Rust-owned bytes copied into a fresh Axiom `String`. `strAlloc`
+; reserves len+1 and zeroes it, so the NUL terminator is already there.
+; Does NOT free the Rust side: the wrapper calls `ffiFreeBytes` after.
+(pub :: ffiBytesToStr (-> Int Int String))
+(pub fn (ffiBytesToStr p n)
+  (if (<= n 0)
+      ""
+      (let ((s (strAlloc n)))
+        { (memCopy (strData s) p n) s })))

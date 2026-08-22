@@ -1,0 +1,32 @@
+; A Rust `Option` coming back across the boundary.
+;
+; `Option<T>` rides the same out-cell protocol as `Result`: the shim
+; answers status 0 with the payload in the cell, or status 2 - `None` -
+; with the cell untouched. The generated wrapper turns that into the
+; builtin `(Option Int)`, so `Some`/`None` are matched the same way an
+; Axiom-built option is.
+;
+; Before the classifier was closed, `Option<i64>` fell through the
+; `_ => Opaque` arm and came back as a leaked `Box` address typed
+; `Foreign` (measured: `(maybe 5)` printed 4308868288). The macro now
+; enumerates every accepted type; anything else is a compile error that
+; lists the set.
+(import IO)
+(import Fmt)
+(import Demo)
+
+(pub :: unwrapOr (-> (Option Int) Int Int))
+(pub fn (unwrapOr o d)
+  (match o
+    ((Some v) v)
+    (_ d)))
+
+;@axiom:effect(io)
+(pub fn (main)
+  (let ((some (unwrapOr (maybe 5) -1))
+        (zero (unwrapOr (maybe 0) -1))
+        (none (unwrapOr (maybe -5) -1)))
+    (if (&& (== some 5) (&& (== zero 0) (== none -1)))
+        { (println "option: agree") 0 }
+        { (println (fmtInt some)) (println (fmtInt zero)) (println (fmtInt none)) 1 })))
+; expect 0

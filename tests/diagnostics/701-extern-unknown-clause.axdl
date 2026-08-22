@@ -1,0 +1,1 @@
+E AX2001 701-extern-unknown-clause.ax:8:29-34 unexpected-token "expected `symbol` (unknown extern clause `symbo`; the clauses an extern item takes are: symbol), found `symbo`" #"found `symbo` here" ?"Axiom expected `symbol` (unknown extern clause `symbo`; the clauses an extern item takes are: symbol) at this position"

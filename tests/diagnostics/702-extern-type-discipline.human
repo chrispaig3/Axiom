@@ -1,0 +1,40 @@
+[1;31merror[AX3036][0m[1m: an `extern` item cannot carry the type variable `a` across the boundary[0m
+  [1;34m--> [0m702-extern-type-discipline.ax:10:4
+[1;34m   |[0m
+[1;34m10 |[0m   (poly :: (-> a Int) (symbol "axffi_poly"))
+[1;34m   |[0m    [1;31m^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0man `extern` signature names only `Int`, `Float`, `Bool`, `Char`, `String` and `Foreign` (one machine word each way); a Rust value of any other shape crosses as a `Foreign` handle, or through the wrapper `axiom-bindgen` generates (a `String` result, a `Result`, an `Option`, an opaque type)
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3036` for a full explanation
+
+[1;31merror[AX3036][0m[1m: an `extern` item cannot carry the type `Option` across the boundary[0m
+  [1;34m--> [0m702-extern-type-discipline.ax:11:4
+[1;34m   |[0m
+[1;34m11 |[0m   (opt :: (-> Int (Option Int)) (symbol "axffi_opt"))
+[1;34m   |[0m    [1;31m^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0man `extern` signature names only `Int`, `Float`, `Bool`, `Char`, `String` and `Foreign` (one machine word each way); a Rust value of any other shape crosses as a `Foreign` handle, or through the wrapper `axiom-bindgen` generates (a `String` result, a `Result`, an `Option`, an opaque type)
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3036` for a full explanation
+
+[1;31merror[AX3036][0m[1m: an `extern` item cannot carry a function-typed argument across the boundary[0m
+  [1;34m--> [0m702-extern-type-discipline.ax:12:4
+[1;34m   |[0m
+[1;34m12 |[0m   (hof :: (-> (-> Int Int) Int) (symbol "axffi_hof")))
+[1;34m   |[0m    [1;31m^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0man `extern` signature names only `Int`, `Float`, `Bool`, `Char`, `String` and `Foreign` (one machine word each way); a Rust value of any other shape crosses as a `Foreign` handle, or through the wrapper `axiom-bindgen` generates (a `String` result, a `Result`, an `Option`, an opaque type)
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3036` for a full explanation
+
+[1;31merror[AX3006][0m[1m: duplicate definition `add`[0m
+  [1;34m--> [0m702-extern-type-discipline.ax:18:6
+[1;34m   |[0m
+[1;34m 9 |[0m   (add :: (-> Int Int Int) (symbol "axffi_add"))
+[1;34m   |[0m    [1;36m--- `add` first defined here[0m
+[1;34m...[0m
+[1;34m18 |[0m (fn (add a b) (+ a b))
+[1;34m   |[0m      [1;31m^^^ `add` redefined here[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mrename one of the definitions, or remove the duplicate
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3006` for a full explanation
+
+compilation failed due to 4 previous errors
