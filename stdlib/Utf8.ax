@@ -36,7 +36,6 @@
 ; hang the compiler on a corrupt source file. Callers that need to know
 ; use `utf8Valid`, which is the explicit question.
 
-(import Mem)
 (import Str)
 
 ; ------------------------------------------------------------------

@@ -18,7 +18,6 @@
 ;     invisible to release and leaks (ERR-TYPE-5 / ERR-MEM-1).
 
 (import Str)
-(import Show)
 
 ; ------------------------------------------------------------------
 ; The failure type.

@@ -167,7 +167,7 @@
 ; as missing.
 (pub :: sysReadFile (-> Int String))
 (pub fn (sysReadFile path)
-  (let ((fd (sysOpenPath path 0)))
+  (let ((fd (sysOpenPath path oRdonly)))
     (if (sysFailed fd)
         ""
         (let ((s (sysReadAll fd (strAlloc 65536) 0 65536)))
@@ -366,7 +366,7 @@
 (pub :: sysFileExists (-> Int Bool))
 ;@axiom:effect(io)
 (pub fn (sysFileExists path)
-  (let ((fd (sysOpenPath path 0)))
+  (let ((fd (sysOpenPath path oRdonly)))
     (if (< fd 0)
         false
         { (sysCloseFd fd) true })))
@@ -384,10 +384,10 @@
 (pub :: sysFileSize (-> Int Int))
 ;@axiom:effect(io)
 (pub fn (sysFileSize path)
-  (let ((fd (sysOpenPath path 0)))
+  (let ((fd (sysOpenPath path oRdonly)))
     (if (< fd 0)
         fd
-        (let ((n (sysSeek fd 0 2)))
+        (let ((n (sysSeek fd 0 seekEnd)))
           { (sysCloseFd fd) n }))))
 
 ; 0 when `path` can be opened AND read as a file, otherwise the errno
@@ -408,7 +408,7 @@
 (pub :: sysReadErrno (-> Int Int))
 ;@axiom:effect(io)
 (pub fn (sysReadErrno path)
-  (let ((fd (sysOpenPath path 0)))
+  (let ((fd (sysOpenPath path oRdonly)))
     (if (sysFailed fd)
         (sysErrno fd)
         (let ((probe (strAlloc 1)))
@@ -489,7 +489,7 @@
 ;@axiom:effect(io)
 (pub fn (sysReadDir path)
   (let ((out vecNew))
-    (let ((fd (sysOpenPath path 0)))
+    (let ((fd (sysOpenPath path oRdonly)))
       (if (sysFailed fd)
           out
           (let ((buf (memAlloc sysDirBufBytes))
@@ -736,7 +736,7 @@
       ; and runnable by everyone), and `execve` is the only thing
       ; entitled to decide that, so every other open failure still
       ; forks and asks it.
-      (let ((probe (sysOpenPath path 0)))
+      (let ((probe (sysOpenPath path oRdonly)))
         (if (== probe (- 0 2))
             probe
             {
@@ -884,7 +884,7 @@
                 ; at which the two are still distinguishable - once the
                 ; fork has happened, "no such file" and "the tool exited
                 ; 127" are the same integer.
-                (let ((fd (sysOpenPath cpath 0)))
+                (let ((fd (sysOpenPath cpath oRdonly)))
                   (if (< fd 0)
                       (sysRunSearch name argv envp path (+ end 1))
                       {

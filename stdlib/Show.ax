@@ -36,7 +36,6 @@
 ; has to explain.
 
 (import Fmt)
-(import Str)
 
 (pub trait (Show a) where
   (show :: (-> a String)))

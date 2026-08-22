@@ -108,10 +108,6 @@
       found
     }))
 
-(pub :: lookupTypeIn (-> Int String Int Int))
-(pub fn (lookupTypeIn types name i)
-  (lookupType types name))
-
 ; ------------------------------------------------------------------
 ; The effect registry: what a `handle` installs into and what an
 ; operation dispatches through.
@@ -724,17 +720,6 @@
 (pub fn (spineArgFromEnd e k)
   (if (<= k 0) (nodeB e) (spineArgFromEnd (nodeA e) (- k 1))))
 
-; The spine's arguments, in order - the emitter's own walk.
-(pub :: spineArgsE (-> Int Int Int))
-(pub fn (spineArgsE e acc)
-  (if (== (nodeTag e) TAG_E_APP)
-      {
-        (spineArgsE (nodeA e) acc)
-        (vecPush acc (nodeB e))
-        acc
-      }
-      acc))
-
 ; The flat name/flag environment: innermost binding wins, -1 when
 ; the name is not bound.
 (pub :: envFlagOf (-> Int String Int))
@@ -1177,10 +1162,6 @@
       0
       (| (aliasFlow cg (spineArgAt e i) params env)
          (aliasFlowAll cg e n_ params env (+ i 1)))))
-
-(pub :: loadIndexIsZero (-> Int Int))
-(pub fn (loadIndexIsZero e)
-  (if (== e 0) 0 (if (&& (== (nodeTag e) TAG_E_INT) (== (nodeA e) 0)) 1 0)))
 
 ; The address is a HANDLE - a name, a field, or a cast of one - so
 ; its word 0 is the header's length. An address computed by
@@ -1981,10 +1962,12 @@
 ; identifier can spell - collision with user code is impossible by
 ; construction, so no reserved-name diagnostic exists for it.
 ;
-; The walks below mirror typecheck's sigTyVarsInto/evParamPosVars
-; over the SAME D_SIG tree (FSig now carries it): one ordering
-; convention, two implementations, pinned against each other by the
-; evidence fixture.
+; The walk below mirrors typecheck's `sigTyVarsInto` over the SAME
+; D_SIG tree (FSig now carries it): one ordering convention, two
+; implementations, pinned against each other by the evidence fixture.
+; Only the WALK is duplicated on purpose - the leaf predicates it
+; needs (`tyIsSrcVar`, `nameVecHas`, `nameVecIdx`) are core.ax's, so
+; the two orderings are compared, not two copies of a list search.
 ; ------------------------------------------------------------------
 (pub :: cgTyIsSrcVar (-> Int Int))
 (pub fn (cgTyIsSrcVar t)
@@ -2939,10 +2922,6 @@
                 b
                 (tryModulePath stem ".ax" entryDir)))))))
 
-(pub :: tryModuleFile (-> String String String Int))
-; Answers the PATH that was read, or "" - the unit table needs the
-; filename a diagnostic will be rendered against, and only the search
-; knows which candidate won.
 ; Every directory a module is looked up in, in order.
 ;
 ; This is stage0's `module_search_dirs` reproduced: the entry file's own
@@ -3041,30 +3020,6 @@
             cand
             (searchDirsFor dirs base (+ i 1))))))
 
-(pub :: modulePathOf (-> String Int String String))
-(pub fn (modulePathOf name tcode entryDir)
-  (let ((stem (modPathToFile name)))
-    (let ((a (tryModulePath stem (targetOsArchSuffix tcode) entryDir)))
-      (if (!= (strLen a) 0)
-          a
-          (let ((b (tryModulePath stem (targetOsSuffix tcode) entryDir)))
-            (if (!= (strLen b) 0) b (tryModulePath stem ".ax" entryDir)))))))
-
-; The SOURCE of the module `stem` + `suffix`, or 0 when no search
-; directory holds it.
-;
-; The search itself lives in `tryModulePath`, so the path a diagnostic
-; is rendered against and the text it is rendered from can never come
-; from different candidates - they used to be two independent walks of
-; the same list.
-(pub fn (tryModuleFile stem suffix entryDir)
-  (let ((p (tryModulePath stem suffix entryDir)))
-    (if (== (strLen p) 0)
-        0
-        ; source-or-0: the empty arm keeps the 0-as-absent contract,
-        ; so the honest String from sysReadFile crosses back with the
-        ; cast (MM-ALLOC-20's optional convention).
-        (cast Int (sysReadFile (strCStr p))))))
 
 ; A module that cannot be read or parsed used to be *skipped*, so every
 ; function it defined surfaced later as `use of undefined value` out of
@@ -3190,7 +3145,7 @@
 (pub fn (parseModuleOrDieUnit name tcode entryDir units)
   {
     (if (== (unitIndexOf units name 0) (- 0 1))
-        (vecPush units (cast Int (CUnit2 (modulePathOf name tcode entryDir)
+        (vecPush units (cast Int (CUnit2 (moduleSrcPath name tcode entryDir)
                                          (readModuleSrc name tcode entryDir)
                                          name)))
         0)
@@ -4754,11 +4709,6 @@
 ; ------------------------------------------------------------------
 ; Declaration emission.
 ; ------------------------------------------------------------------
-(pub :: emitDecls (-> Int Int Int Int))
-(pub fn (emitDecls decls cg i)
-  (if (>= i (vecLen decls)) cg
-      (emitDecls decls (emitDecl (vecGet decls i) cg) (+ i 1))))
-
 (pub :: emitDecl (-> Int Int Int))
 (pub fn (emitDecl node cg)
   (if (== (nodeTag node) TAG_D_FN)
@@ -5961,11 +5911,6 @@
 ; built, which is stage0's snapshot semantics too.
 ; ------------------------------------------------------------------
 
-; The unique names the lambda captures: enclosing parameters first,
-; then bindings in table order. A name the lambda's own parameter
-; list shadows is skipped - inside the lifted body the capture would
-; be bound as a symbol, and symbols resolve ahead of parameters.
-(pub :: collectCapNames (-> Int Int Int))
 ; The names a lambda captures: every parameter and local in scope
 ; that its body MENTIONS (a nested lambda's mentions included), and
 ; the evidence word, which a polymorphic construction inside the
@@ -9124,7 +9069,6 @@
                                   ", ptr "
                                   ar)))))))))
 
-(pub :: emitFieldStores (-> Int String Int Int Int Int))
 ; MM-LIFE-2c event 6: a block's REFERENCE fields are stored owned -
 ; a borrowed value is retained on the way in, a directly-built
 ; construction MOVES (its birth count IS the field's share; a retain
@@ -9599,14 +9543,6 @@
           1
           (mayAliasArgs cg name e n_ root (+ i 1)))))
 
-; Could a call with this head answer a reference it was handed? Not
-; when the head is an operator or a primitive (`scalarHead`), and not
-; when it names a function whose signature's result is a machine
-; scalar - `(-> Pair Int)` cannot hand `Pair` back, which is what
-; keeps `(let ((p (Pair n n))) (total p))` releasing `p`
-; (tests/stdlib/364-arc-frame-release.ax, the 8 bit). A head with no
-; signature - a lambda-valued local, an unsigned `fn`, a constructor -
-; may, and answers 1, the leak direction.
 ; Does this call let `name` out of the frame? By the callee's own
 ; flow masks (`inferFlows`): an argument mentioning `name` escapes
 ; when the callee STASHES that parameter, and, in value position,
@@ -9843,23 +9779,6 @@
             0
             (if (== (fldClass cg (nodeC fi)) 0) 1 0)))))
 
-; A call head that cannot answer a reference it was given: an
-; arithmetic, bitwise, comparison or logical operator, or a `__`
-; primitive. Everything else - a declared function, a constructor, a
-; lambda-valued local - may, so `escapes` treats the call's arguments
-; as the call's value.
-(pub :: scalarHead (-> Int Int))
-(pub fn (scalarHead hd)
-  (if (!= (nodeTag hd) TAG_E_VAR)
-      0
-      (let ((n (nodeA hd)))
-        (if (isBinop n)
-            1
-            (if (isCmpOp n)
-                1
-                (if (|| (strEq n "&&") (strEq n "||"))
-                    1
-                    (if (isPrimName n) 1 0)))))))
 
 ; The names a pattern binds, or 0 for a pattern shape this does not
 ; know - the checker's `patBinders`, with the refusal added, plus the

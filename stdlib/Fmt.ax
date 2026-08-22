@@ -243,19 +243,11 @@
 ;
 ; Distinct from `fmtPadLeft`, which pads with spaces: a fractional part
 ; needs `0.05` rather than `0. 5`, so the digits it is missing on the
-; left are zeros.
+; left are zeros. The padding itself is `fmtPadZerosLeft`'s, whose
+; sign guard is a no-op here because `fmtNat` never answers a `-`.
 (:: fmtPadZeros (-> Int Int String))
 (fn (fmtPadZeros n width)
-  (let ((s (fmtNat n))
-        (len (strLen s)))
-    (if (>= len width)
-        s
-        (let ((out (strAlloc width)))
-          {
-            (memSet (strData out) 48 (- width len))
-            (memCopy (+ (strData out) (- width len)) (strData s) len)
-            out
-          }))))
+  (fmtPadZerosLeft (fmtNat n) width))
 
 ; `x` with six decimal places.
 (pub :: fmtFloat (-> Float String))

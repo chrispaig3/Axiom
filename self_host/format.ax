@@ -1062,8 +1062,6 @@
   (let ((s (strAlloc 1))) { (__store8 (strData s) 0 b) (fpP p s) }))
 (pub :: fpBad (-> Int Int))
 (pub fn (fpBad p) { (foSetBad (fpOut p)) p })
-(pub :: fpIsBad (-> Int Bool))
-(pub fn (fpIsBad p) (== (foBad (fpOut p)) 1))
 
 ; Emit a slice of the source verbatim. `strSlice` shares storage, so
 ; this costs two words however long the run is.
@@ -1515,8 +1513,7 @@
 (pub fn (fpLet p n)
   (if (|| (< (fnLen n) 3) (!= (fnKind (fnKid n 1)) FN_PAREN))
       (fpBad p)
-      (let ((src (fpSrc p))
-            (o (fpOut p))
+      (let ((o (fpOut p))
             (binds (fnKid n 1))
             (body (fpExprElems n 2)))
         {
@@ -1783,7 +1780,7 @@
 
 (pub :: fpHandle (-> Int Int Int))
 (pub fn (fpHandle p n)
-  (let ((src (fpSrc p)) (elems (fpExprElems n 1)))
+  (let ((elems (fpExprElems n 1)))
     (let ((hasFx (if (== (vecLen elems) 3)
                      (== (fnKind (vecGet elems 1)) FN_PAREN)
                      false)))

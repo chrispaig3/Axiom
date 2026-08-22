@@ -15,7 +15,6 @@
 (import Sys)
 (import Str)
 (import Vec)
-(import Path)
 (import Fmt)
 ; The printing macros expand to `show`, so `IO` is where a program
 ; picks up the `Show` instances by importing one module rather than
@@ -133,62 +132,20 @@
 ; Reading
 ; ------------------------------------------------------------------
 
-; Read up to `count` bytes from `fd` into a fresh `Str`.
-;
-; The result's length is what was actually read, so end-of-file is an
-; empty `Str` rather than a sentinel the caller has to remember to check.
-; A read error returns an empty `Str` too; `readFile` distinguishes the
-; cases where it matters.
-(:: readUpTo (-> Int Int String))
-;@axiom:effect(io)
-(fn (readUpTo fd count)
-  (let ((s (strAlloc count)))
-    (let ((n (sysReadFd fd (strData s) count)))
-      (if (< n 0)
-          (strAlloc 0)
-          (strSlice s 0 n)))))
-
-; Read `fd` to end of file, growing a buffer as needed.
-;
-; Doubling on each refill keeps the total copying linear in the file
-; size. `chunk` is the initial capacity; files smaller than it cost
-; exactly one allocation and one `read`.
-(:: readAll (-> Int Int String))
-;@axiom:effect(io)
-(fn (readAll fd chunk)
-  (readAllInto fd (strAlloc chunk) 0 chunk))
-
-(:: readAllInto (-> Int String Int Int String))
-;@axiom:effect(io)
-(fn (readAllInto fd buf len cap)
-  (if (>= len cap)
-      (let ((bigger (strAlloc (* cap 2))))
-        {
-          (memCopy (strData bigger) (strData buf) len)
-          (readAllInto fd bigger len (* cap 2))
-        })
-      (let ((n (sysReadFd fd (+ (strData buf) len) (- cap len))))
-        (if (< n 1)
-            (strSlice buf 0 len)
-            (readAllInto fd buf (+ len n) cap)))))
-
 ; The whole contents of the file at NUL-terminated path `cstr`, or an
 ; empty `Str` if it cannot be opened.
 ;
 ; Callers that must distinguish "empty file" from "no such file" should
 ; use `sysOpenPath` directly; this is the convenience form, and it is
 ; the one a compiler driver wants for reading a source file.
+;
+; Like every other verb in this module it is its `Sys` twin named for
+; the caller: the open/read-to-EOF/close sequence, the doubling refill
+; and MM-VAL-7's retain are stated once, in `sysReadFile`.
 (pub :: readFileLit (-> Int String))
 ;@axiom:effect(io)
 (pub fn (readFileLit cstr)
-  (let ((fd (sysOpenPath cstr oRdonly)))
-    (if (sysFailed fd)
-        (strAlloc 0)
-        (let ((contents (readAll fd 65536)))
-          {
-            (sysCloseFd fd)
-            contents
-          }))))
+  (sysReadFile cstr))
 
 (pub :: readFile (-> String String))
 ;@axiom:effect(io)

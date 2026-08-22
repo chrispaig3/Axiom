@@ -300,8 +300,6 @@
 (pub :: nodeDefScope (-> Int Int)) (pub fn (nodeDefScope n) (memGetWord n 10))
 (pub :: setNodeDefScope (-> Int Int)) (pub fn (setNodeDefScope n) { (memSetWord n 10 1) n })
 (pub :: mkEInt (-> Int Int))              (pub fn (mkEInt v)     (mkNode TAG_E_INT v 0 0))
-(pub :: mkEFlt (-> Int Int))              (pub fn (mkEFlt bits)  (mkNode TAG_E_FLT bits 0 0))
-(pub :: mkEStr (-> String Int))           (pub fn (mkEStr s)     (mkNode TAG_E_STR s 0 0))
 (pub :: mkEVar (-> String Int))           (pub fn (mkEVar n)     (mkNode TAG_E_VAR n 0 0))
 ; Type-node constructors. parseType builds these; only the checker
 ; reads them.
@@ -320,19 +318,15 @@
 (pub fn (mkEApp f x)   (mkNodeAt TAG_E_APP f x 0 (nodeSpan f)))
 (pub :: mkEVarAt (-> String Int Int))
 (pub fn (mkEVarAt n sp) (mkNodeAt TAG_E_VAR n 0 0 sp))
-(pub :: mkELam (-> Int Int Int))          (pub fn (mkELam p b)   (mkNode TAG_E_LAM p b 0))
 ; A `let` node's span is its BINDER's - the token the name came from.
 ; stage0's `Expr::span()` answers the body's span for a `let`, but
 ; nothing in stage1 asks that question; what its diagnostics need is
 ; where the binding was introduced, which is where AX3012's secondary
 ; and its `mut` fix point.
-(pub :: mkELet (-> String Int Int Int))   (pub fn (mkELet n v b) (mkNode TAG_E_LET n v b))
 (pub :: mkELetAt (-> String Int Int Int Int))
 (pub fn (mkELetAt n v b sp) (mkNodeAt TAG_E_LET n v b sp))
 (pub :: mkEIf  (-> Int Int Int Int))      (pub fn (mkEIf  t c a) (mkNode TAG_E_IF  t c a))
 (pub :: mkEBegin (-> Int Int))            (pub fn (mkEBegin xs)  (mkNode TAG_E_BEGIN xs 0 0))
-(pub :: mkDFn   (-> String Int Int Int))  (pub fn (mkDFn n p b)  (mkNode TAG_D_FN n p b))
-(pub :: mkDSig  (-> String Int Int))      (pub fn (mkDSig n t)   (mkNode TAG_D_SIG n t 0))
 ; Span-carrying variants. A diagnostic about a declaration points at
 ; its *name*, so the name token's span is the one worth keeping - and
 ; the only one this slice's checks ever report. Everything else keeps
@@ -341,19 +335,14 @@
 (pub fn (mkDFnAt n p b sp)  (mkNodeAt TAG_D_FN n p b sp))
 (pub :: mkDSigAt (-> String Int Int Int))
 (pub fn (mkDSigAt n t sp)   (mkNodeAt TAG_D_SIG n t 0 sp))
-(pub :: mkDImport (-> String Int Int))    (pub fn (mkDImport m ns) (mkNode TAG_D_IMPORT m ns 0))
 ; With the module path's span, so a diagnostic about the import - an
-; unexported name in its list - has somewhere to point. `mkDImport`
-; stays for callers that have no token to hand.
+; unexported name in its list - has somewhere to point.
 (pub :: mkDImportAt (-> String Int Int Int))
 (pub fn (mkDImportAt m ns sp) (mkNodeAt TAG_D_IMPORT m ns 0 sp))
-(pub :: mkDData (-> String Int Int))      (pub fn (mkDData n cs)   (mkNode TAG_D_DATA n cs 0))
-(pub :: mkDStruct (-> String Int Int))     (pub fn (mkDStruct n fs) (mkNode TAG_D_STRUCT n fs 0))
 (pub :: mkDDataAt (-> String Int Int Int))
 (pub fn (mkDDataAt n cs sp)   (mkNodeAt TAG_D_DATA n cs 0 sp))
 (pub :: mkDStructAt (-> String Int Int Int))
 (pub fn (mkDStructAt n fs sp) (mkNodeAt TAG_D_STRUCT n fs 0 sp))
-(pub :: mkDMacro (-> String Int Int Int))  (pub fn (mkDMacro n ps b) (mkNode TAG_D_MACRO n ps b))
 (pub :: mkDMacroAt (-> String Int Int Int Int))
 (pub fn (mkDMacroAt n ps b sp) (mkNodeAt TAG_D_MACRO n ps b sp))
 (pub :: mkCtor (-> Int Int Int Int))       (pub fn (mkCtor n a fl) (mkNode TAG_CTOR n a fl))
@@ -2085,10 +2074,15 @@
                                name (tokenSpan (vecGet tokens pos)) vecNew
                                tvs))))))
 
-; Position-identical twin of skipTypeParams that also records the
-; parameter names into `tvs`. Any shape skipTypeParams declines to
-; treat as a parameter list is declined here identically, so parse
-; positions cannot drift.
+; `(data Tree (a) (Leaf) (Node a))` - the first parenthesised group is
+; the type-parameter list when it is empty or opens with a lowercase
+; name; constructors are uppercase. Registering `(a)` as a nullary
+; constructor turned every binder named `a` anywhere in the module into
+; a tag test that bound nothing, and the arm bodies dereferenced values
+; that were never bound. The names are recorded into `tvs` as the
+; position advances, so deciding the shape and capturing it are one
+; walk - they were two, and a shape one declined and the other did not
+; drifted the parse position.
 (pub :: collectTyParams (-> Int Int Int Int))
 (pub fn (collectTyParams tokens pos tvs)
   (if (peekIs tokens pos TK_LPAREN)
@@ -2131,38 +2125,6 @@
         (collectIdentsUntilRParen tokens (advance pos) tvs)
       }
       0))
-
-; `(data Tree (a) (Leaf) (Node a))` - the first parenthesised group is
-; the type-parameter list when it is empty or opens with a lowercase
-; name; constructors are uppercase. Registering `(a)` as a nullary
-; constructor turned every binder named `a` anywhere in the module into
-; a tag test that bound nothing, and the arm bodies dereferenced values
-; that were never bound.
-(pub :: skipTypeParams (-> Int Int Int))
-(pub fn (skipTypeParams tokens pos)
-  (if (peekIs tokens pos TK_LPAREN)
-      (let ((inPos (advance pos)))
-        (if (peekIs tokens inPos TK_RPAREN)
-            (advance inPos)
-            (if (peekIs tokens inPos TK_IDENT)
-                ; position-identical to collectTyParams, including
-                ; the reserved-prefix decline
-                (if (|| (identStartsUpper tokens inPos)
-                        (strStartsWith (tokenLexeme (vecGet tokens inPos)) "syntax/"))
-                    pos
-                    (let ((r (skipParens tokens inPos 1)))
-                      (if (== (memGetWord r 0) 0)
-                          pos
-                          (memGetWord r 2))))
-                pos)))
-      ; The formatter also writes the parameters bare - `(data M9 a
-      ; (J9 a))` - so a run of lowercase names before the first
-      ; constructor group is the same list, unparenthesised.
-      (if (peekIs tokens pos TK_IDENT)
-          (if (identStartsUpper tokens pos)
-              pos
-              (skipTypeParams tokens (advance pos)))
-          pos)))
 
 (pub :: parseConstructors (-> Int Int String Int Int Int Int))
 (pub fn (parseConstructors tokens pos dataName nameSpan acc tvs)
@@ -3536,39 +3498,14 @@
 (pub :: parseMaxDepth Int)
 (pub fn (parseMaxDepth) 1024)
 
-; The deepest delimiter nesting reached anywhere in `tokens`.
+; The index of the opening delimiter that first takes nesting past
+; `limit`, or -1 when nothing does. One walk answers both questions the
+; depth guard asks - whether the limit is passed, and where - so the
+; maximum is never computed separately.
 ;
 ; A closer at depth 0 is unbalanced input, which the parser reports on
 ; its own terms; it is floored here rather than allowed to go negative,
 ; so a stray `)` early in a file cannot mask real depth after it.
-(pub :: maxNestDepth (-> Int Int))
-(pub fn (maxNestDepth tokens)
-  (let ((mut i 0) (mut d 0) (mut best 0) (n (vecLen tokens)))
-    {
-      (while (< i n)
-        {
-          (if (|| (peekIs tokens i TK_LPAREN)
-                  (|| (peekIs tokens i TK_LBRACE)
-                      (peekIs tokens i TK_LBRACKET)))
-              {
-                (set d (+ d 1))
-                (if (> d best) (set best d) 0)
-              }
-              (if (|| (peekIs tokens i TK_RPAREN)
-                      (|| (peekIs tokens i TK_RBRACE)
-                          (peekIs tokens i TK_RBRACKET)))
-                  (if (> d 0) (set d (- d 1)) 0)
-                  0))
-          (set i (+ i 1))
-        })
-      best
-    }))
-
-; The index of the opening delimiter that first takes nesting past
-; `limit`, or -1 when nothing does. The same walk `maxNestDepth` makes,
-; stopping at the first offender rather than tracking the maximum: the
-; guard wants a yes-or-no and the diagnostic wants a position, and those
-; are one question asked twice.
 (pub :: nestOverflowTok (-> Int Int Int))
 (pub fn (nestOverflowTok tokens limit)
   (let ((mut i 0) (mut d 0) (mut hit (- 0 1)) (n (vecLen tokens)))

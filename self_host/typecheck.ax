@@ -350,12 +350,6 @@
 ; this file records for effect operations before they carried their
 ; arrow. The result is that the DEFINITION of a polymorphic function
 ; is checked, which is where the wrong answer came from.
-(pub :: tyInst (-> Int Int Int))
-(pub fn (tyInst tc t)
-  (if (== (tyHasSrcVar t) 0)
-      t
-      (tyInstIn tc t vecNew)))
-
 ; `env` is a flat Vec of alternating name, node.
 (pub :: tyInstIn (-> Int Int Int Int))
 (pub fn (tyInstIn tc t env)
@@ -480,29 +474,6 @@
               (set i (+ i 1))
             })
           0
-        })))
-
-; A variable with no PARAM-position occurrence can never receive a
-; nonzero witness, so a signature whose every variable is
-; return-only takes no evidence word at all - which exempts the
-; hottest accessors (memGetWord, vecGet, nodeA/B/C) outright.
-(pub :: evParamPosVars (-> Int Int Int))
-(pub fn (evParamPosVars t acc)
-  (if (&& (!= t 0) (== (nodeTag t) TAG_T_ARR))
-      {
-        (sigTyVarsInto (nodeA t) acc)
-        (evParamPosVars (nodeB t) acc)
-      }
-      0))
-
-(pub :: fnTakesEvidence (-> Int Int))
-(pub fn (fnTakesEvidence t)
-  (if (== (tyHasSrcVar t) 0)
-      0
-      (let ((acc vecNew))
-        {
-          (evParamPosVars t acc)
-          (if (> (vecLen acc) 0) 1 0)
         })))
 
 (pub :: tyHasPoison (-> Int Int))
@@ -633,8 +604,11 @@
           new
           (if (== old new) old 0))))
 
-; Instantiate AND stamp: same answer as tyInst, plus a TAG_EVSTAMP
-; on the reference node when the declaration has type variables. A
+; Instantiate AND stamp: `tyInstIn` through a fresh env, plus a
+; TAG_EVSTAMP on the reference node when the declaration has type
+; variables. This is the only instantiation entry point - the
+; unstamped `tyInst` it grew out of was removed once every reference
+; site needed the stamp. A
 ; poisoned signature stamps all zeros through an EMPTY env - no
 ; fill can land, so the zeros survive.
 (pub :: tyInstStamped (-> Int Int Int Int))
@@ -846,9 +820,10 @@
 ; One entry per (name, namespace) a declaration defines, carrying the
 ; declaration's index. A `trait` or an `effect` contributes one per
 ; method or operation, which is why this is built from `declFields`
-; and `declNamespace` rather than from `nodeA` alone - the index has
-; to answer exactly what `declDefinesNS` answers, and that predicate
-; is where the two multi-name declarations are named.
+; and `declNamespace` rather than from `nodeA` alone: those two are
+; where the multi-name declarations are named, and this index is the
+; only thing that asks them. The `declDefinesNS` predicate that used
+; to be the source of truth was superseded by this index and removed.
 (pub struct DupRef (name : String) (ns : Int) (idx : Int))
 
 (pub :: dupIdxBuild (-> Int Int))
@@ -913,26 +888,6 @@
           (if (== (nodeTag d) TAG_D_EXTERN)
               (nodeC d)
               0))))
-
-; Does this declaration define `name` in namespace `ns`?
-;
-; The namespaced twin of `declDefines`, which the missing-definition
-; pass uses and which is deliberately namespace-blind. Every ordinary
-; declaration defines a single name and it is `nodeA`; `declFields`
-; names the two that do not. Until this predicate existed, neither of
-; those collided with anything: a trait method and a top-level `fn` of
-; the same spelling both "existed" and the implementation won every
-; call at exit 0, and a top-level `fn` named after an effect operation
-; built cleanly and trapped at run time with exit 71, no stdout and no
-; stderr, where `docs/reference.md:917` says it is a duplicate
-; definition. `declDefines` already knew an `effect` declares its
-; operations - the same fact, one pass over.
-(pub :: declDefinesNS (-> Int Int String Int))
-(pub fn (declDefinesNS d ns name)
-  (let ((fs (declFields d)))
-    (if (!= fs 0)
-        (if (&& (== ns NS_VALUE) (!= (findFieldNamed fs name 0) 0)) 1 0)
-        (if (&& (== (declNamespace (nodeTag d)) ns) (strEq (nodeA d) name)) 1 0))))
 
 ; The span to blame for that definition. For a trait or an effect it
 ; is the METHOD or OPERATION name's span, not the declaration's own:
@@ -1341,12 +1296,6 @@
 ; so `Mod::Ctor` matched nothing and every qualified constructor
 ; reference was a false AX3001 on a valid program. Recording the
 ; module here answers it without renaming anything: see `ctorMatches`.
-; A trait, as the dispatcher needs it: the name it is keyed on, the
-; single type parameter its methods are written against, and its
-; method signatures. Supertraits and default bodies are still parsed
-; and dropped - see docs/self-hosting.md 22 for what this slice covers.
-(pub struct TraitEnt (name : Int) (tyvar : Int) (methods : Int))
-
 (pub struct DataEnt (name : String) (ctors : Int) (module : Int))
 (pub struct StructEnt (name : Int) (fields : Int) (module : Int))
 (pub struct TC (fns : Int) (datas : Int) (structs : Int) (scope : Int)
@@ -2373,12 +2322,6 @@
 (pub :: fnIdxBuckets (-> Int Int))
 (pub fn (fnIdxBuckets n) (+ (* 2 n) 17))
 
-; A Vec of `fnIdxBuckets` slots, each 0 until something hashes to it -
-; an empty `Vec` header per slot would be 3 words times the bucket
-; count for nothing.
-(pub :: fnIdxBuild (-> Int Int))
-(pub fn (fnIdxBuild fns) (fnIdxBuildSized fns 0))
-
 ; Built with the eventual size in hand rather than the current one.
 ;
 ; The index is created in `tcNew`, BEFORE collection, because
@@ -3292,20 +3235,6 @@
 (pub :: sEntTy (-> Int Int))
 (pub fn (sEntTy ent) (memGetWord ent 3))
 
-; The innermost entry for `name` anywhere in the vec - `set` target
-; resolution and the whole-scope suggestion pool use this.
-(pub :: scopeFind (-> Int String Int))
-(pub fn (scopeFind scope name)
-  (scopeFindFrom scope name (- (vecLen scope) 1)))
-
-(pub :: scopeFindFrom (-> Int String Int Int))
-(pub fn (scopeFindFrom scope name i)
-  (if (< i 0)
-      0
-      (if (strEq (memGetWord (vecGet scope i) 0) name)
-          (vecGet scope i)
-          (scopeFindFrom scope name (- i 1)))))
-
 ; The innermost entry's INDEX, or -1. `checkSet` needs the position,
 ; not just the entry: whether the target sits below the innermost
 ; lambda's boundary is what decides the capture refusal (MM-MUT-1a).
@@ -4079,32 +4008,6 @@
 (pub :: emitDiag (-> Int Int Int))
 (pub fn (emitDiag tc d)
   { (diagSetUnit d (memGetWord tc 14)) (vecPush (tcOut tc) d) })
-
-; A constructor of a data type that came from no module - the builtin
-; `Option`, whose entries are registered directly.
-(pub :: builtinCtorNamed (-> Int String Int))
-(pub fn (builtinCtorNamed tc n)
-  (if (|| (strEq n "None") (strEq n "Some")) 1 0))
-
-; Does this declaration DEFINE `n`? Signatures do not.
-(pub :: declDefines (-> Int String Int))
-(pub fn (declDefines d n)
-  (let ((tag (nodeTag d)))
-    (if (== tag TAG_D_FN)
-        (if (strEq (bareOf (nodeA d)) n) 1 0)
-    (if (== tag TAG_D_EFFECT)
-        (strInVec (nodeB d) n 0)
-    (if (== tag TAG_D_DATA)
-        (ctorNamedIn (nodeB d) n 0)
-    0)))))
-
-(pub :: ctorNamedIn (-> Int String Int Int))
-(pub fn (ctorNamedIn ctors n i)
-  (if (>= i (vecLen ctors))
-      0
-      (if (strEq (bareOf (nodeA (vecGet ctors i))) n)
-          1
-          (ctorNamedIn ctors n (+ i 1)))))
 
 (pub :: joinModules (-> Int Int String String))
 (pub fn (joinModules v i acc)
@@ -5436,9 +5339,6 @@
 ; missing claimed effect is a lie. Anything else stays silent.
 (pub :: effIncomplete String)
 (pub fn (effIncomplete) "?:incomplete")
-
-(pub :: effIsComplete (-> Int Int))
-(pub fn (effIsComplete v) (if (== (effIn v effIncomplete) 1) 0 1))
 
 ; The concrete effects, sorted by display name, joined with ", ".
 (pub :: effJoin (-> Int String))

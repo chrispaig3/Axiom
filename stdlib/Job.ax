@@ -157,26 +157,6 @@
     (jobCodes p)
   })
 
-; The result in one slot, waiting for it if it has not been reaped.
-(:: jobWait (-> Int Int Int))
-;@axiom:effect(io)
-(fn (jobWait p slot)
-  (let ((pids (jobPids p)))
-    (if (|| (< slot 0) (>= slot (vecLen pids)))
-        jobPending
-        {
-          (let ((pid (vecGet pids slot)))
-            (if (== pid 0)
-                0
-                {
-                  (vecSet (jobCodes p) slot (jobStatusToCode (sysWaitPid pid)))
-                  (vecSet pids slot 0)
-                  (memSetWord p 3 (- (jobLive p) 1))
-                  0
-                }))
-          (vecGet (jobCodes p) slot)
-        })))
-
 ; Run every command in `cmds` at up to `width` at once, answering their
 ; exit codes in the order they appear in `cmds`.
 ;

@@ -651,10 +651,6 @@
       (catStrs parts)
     }))
 
-(pub :: symbolsRender (-> Int Int String))
-(pub fn (symbolsRender tc builtins)
-  (symbolsRenderGens tc builtins 0))
-
 ; `gens` is `expandProgram`'s answer - the (name, macro) pairs of every
 ; declaration phase D generated. A row it names carries `#generated=`
 ; and the macro's own name, which is what tells a reader why a symbol

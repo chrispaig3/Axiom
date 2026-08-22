@@ -554,21 +554,6 @@
       (catStrs parts)
     }))
 
-; ------------------------------------------------------------------
-; Every diagnostic, one per line, newline-terminated - the whole of
-; stage0's `render_ai`.
-; ------------------------------------------------------------------
-(pub :: renderDiags (-> Int String String String))
-(pub fn (renderDiags ds src file)
-  (renderDiagsFrom ds src file 0 ""))
-
-(pub :: renderDiagsFrom (-> Int String String Int String String))
-(pub fn (renderDiagsFrom ds src file i acc)
-  (if (>= i (vecLen ds))
-      acc
-      (renderDiagsFrom ds src file (+ i 1)
-        (strConcat (strConcat acc (renderDiag (vecGet ds i) src file 0)) "\n"))))
-
 ; The multi-unit form. `units` is a Vec of CUnit records - one per
 ; source file that contributed declarations - and each diagnostic
 ; names the one its spans index.
@@ -577,9 +562,7 @@
 (pub fn (renderDiagsUnits ds units)
   ; A linear join rather than the old recursive strConcat fold, whose
   ; peak was measured at 829 MiB RSS for a 2000-diagnostic file - the
-  ; renderCG shape, one layer up. `renderDiagsUnitsFrom` stays, with
-  ; its signature, for anything that wants the fold's incremental
-  ; form; nothing in self_host calls it any more.
+  ; renderCG shape, one layer up.
   (let ((blocks vecNew) (mut i 0))
     {
       (while (< i (vecLen ds))
@@ -595,18 +578,6 @@
             })))
       (catStrs blocks)
     }))
-
-(pub :: renderDiagsUnitsFrom (-> Int Int Int String String))
-(pub fn (renderDiagsUnitsFrom ds units i acc)
-  (if (>= i (vecLen ds))
-      acc
-      (let ((d (vecGet ds i)))
-        (let ((u (vecGet units (if (< (diagUnit d) (vecLen units))
-                                   (diagUnit d)
-                                   0))))
-          (renderDiagsUnitsFrom ds units (+ i 1)
-            (strConcat (strConcat acc
-              (renderDiag d (memGetWord u 1) (memGetWord u 0) units)) "\n"))))))
 
 ; ------------------------------------------------------------------
 ; Linear concatenation of a Vec of Str: sum the lengths, allocate

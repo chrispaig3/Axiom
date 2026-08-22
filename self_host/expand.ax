@@ -3657,10 +3657,7 @@
               (expCheckTplKinds mac env (+ i 1))
             }))))
 
-; The two halves of a rule, named rather than indexed at every site.
-(pub :: expRuleParams (-> Int Int))
-(pub fn (expRuleParams r) (vecGet r 0))
-
+; The template half of a rule, named rather than indexed at every site.
 (pub :: expRuleTpl (-> Int Int))
 (pub fn (expRuleTpl r) (vecGet r 1))
 

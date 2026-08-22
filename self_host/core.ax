@@ -36,7 +36,6 @@
   (TK_QUOTE)        ; '
   (TK_LBRACE)       ; {
   (TK_RBRACE)       ; }
-  (TK_SEMI)         ; ; (line comment)
   (TK_EOF)
   (TK_ERROR)
   (TK_FLOAT)        ; float literal - appended, so no existing tag moves
@@ -106,14 +105,6 @@
             (if (== ch 95)
                 (strToIntFrom s (+ i 1) acc)
                 acc)))))
-
-; ------------------------------------------------------------------
-; Token list — linked list built during lexing.
-; Built back-to-front for O(1) cons, then reversed once at the end.
-; ------------------------------------------------------------------
-(pub data TokenList
-  (TKNil)
-  (TKCons Int Int))
 
 ; ------------------------------------------------------------------
 ; A compilation UNIT: one source file that contributed declarations.

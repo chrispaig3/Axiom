@@ -7,15 +7,15 @@
 ;   \r\n
 ;   {"jsonrpc":"2.0","method":"initialized",...}
 ;
-; WHY A BUFFERED READER. `IO.readUpTo` performs ONE `read`, and a read
-; is permitted to return fewer bytes than asked - a pipe hands over
-; whatever the writer has flushed. Framing therefore cannot be done by
-; reading a header "then" a body: the header, the terminator and the
-; first bytes of the body routinely arrive in one read, and the rest of
-; the body in several more. `IO.readAll` is no help either, because it
-; reads to EOF, and a language server's peer does not close the pipe
-; between messages - it waits for a reply. So this keeps a buffer and
-; consumes messages out of it.
+; WHY A BUFFERED READER. `Sys.sysReadFd` performs ONE `read`, and a
+; read is permitted to return fewer bytes than asked - a pipe hands
+; over whatever the writer has flushed. Framing therefore cannot be
+; done by reading a header "then" a body: the header, the terminator
+; and the first bytes of the body routinely arrive in one read, and the
+; rest of the body in several more. Reading to EOF is no help either,
+; because a language server's peer does not close the pipe between
+; messages - it waits for a reply. So this keeps a buffer and consumes
+; messages out of it.
 ;
 ;   word 0  fd
 ;   word 1  buf, a Str whose LENGTH is the capacity
@@ -246,19 +246,13 @@
                   }))))
     }))
 
-; Write all of `s`, looping: a single `write` may transfer fewer bytes
-; than asked, and treating a short write as success is how a reply gets
-; silently truncated.
+; Write all of `s`. The short-write loop - a single `write` may
+; transfer fewer bytes than asked, and treating that as success is how
+; a reply gets silently truncated - is `Sys`'s, stated once there.
 (:: rpcPut (-> Int String Int))
 ;@axiom:effect(io)
 (fn (rpcPut fd s)
-  (let ((mut done 0) (mut bad 0))
-    {
-      (while (&& (< done (strLen s)) (== bad 0))
-        (let ((n (sysWriteFd fd (+ (strData s) done) (- (strLen s) done))))
-          (if (< n 1) (set bad 1) (set done (+ done n)))))
-      done
-    }))
+  (sysWriteAllFd fd (strData s) (strLen s) 0))
 
 ; Frame `body` and write it.
 (pub :: rpcWrite (-> Int String Int))
