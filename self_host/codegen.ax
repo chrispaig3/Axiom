@@ -591,15 +591,17 @@
         (if (== tg TAG_E_LETM)
             ; a mutable slot may be reassigned to anything
             (tailOwned cg (nodeC e) params (envWith env (nodeA e) 0))
+        (if (== tg TAG_E_SET)
+            ; `(set k v)` evaluates to `v`, as owned as `v` is
+            (tailOwned cg (nodeB e) params env)
         (if (|| (== tg TAG_E_WHILE)
-            (|| (== tg TAG_E_SET)
-            (|| (== tg TAG_E_SETF) (== tg TAG_E_STRUCTCON))))
+            (|| (== tg TAG_E_SETF) (== tg TAG_E_STRUCTCON)))
             ; words, and a keyword construction born at count 1
             1
         (if (== tg TAG_E_ALLOC)
             ; `(alloc T n)` is raw memory at count 0 - see `__alloc`
             0
-            0)))))))))))))))
+            0))))))))))))))))
 
 ; An application's ownership, by its head.
 (pub :: tailOwnedApp (-> Int Int Int Int Int))
@@ -1041,7 +1043,10 @@
         (if (== tg TAG_E_HANDLE)
             ; the body's value, or the handler's
             (| (flowMask cg (nodeA e) params env) (flowMask cg (nodeC e) params env))
-            0)))))))))))))
+        (if (== tg TAG_E_SET)
+            ; `(set k v)` evaluates to `v`
+            (flowMask cg (nodeB e) params env)
+            0))))))))))))))
 
 ; Parameter i as it arrives: a typed reference or a type variable in
 ; the arrival form; a parameter declared a machine word (`Int`) is a
@@ -1055,7 +1060,8 @@
       (let ((d (memGetWord cg 36)))
         (if (== d 0)
             (paramBit i)
-            (if (!= (vecLen params) (vecLen (nodeB d)))
+            (if (|| (!= (vecLen params) (vecLen (nodeB d)))
+                    (if (strEq (cast String (vecGet params i)) (cast String (vecGet (nodeB d) i))) false true))
                 (paramBit i)
                 (let ((e (findFSigCg cg (nodeA d))))
                   (if (== e 0)
@@ -1097,7 +1103,7 @@
               ; A byte (`__load8`) is never a pointer
               (if (&& (>= n_ 2)
                       (&& (== (loadIndexIsZero (spineArgAt e 1)) 1)
-                          (== (addrIsHandle (spineArgAt e 0)) 1)))
+                          (== (addrIsHandle cg params (spineArgAt e 0)) 1)))
                   0
                   (if (>= n_ 1) (toOwner (aliasFlow cg (spineArgAt e 0) params env)) 0))
           (if (isPrimName n)
@@ -1152,27 +1158,36 @@
 ; its word 0 is the header's length. An address computed by
 ; arithmetic (`(+ (cast Int s) 8)`) points anywhere, and its word 0
 ; is whatever lives there.
-(pub :: addrIsHandle (-> Int Int))
-(pub fn (addrIsHandle e)
+(pub :: addrIsHandle (-> Int Int Int Int))
+(pub fn (addrIsHandle cg params e)
   (if (== e 0)
       0
       (let ((tg (nodeTag e)))
-        (if (|| (== tg TAG_E_VAR) (== tg TAG_E_FIELD))
-            1
+        (if (== tg TAG_E_VAR)
+            ; a PARAMETER declared `String` - word 0 of a String is its
+            ; length; word 0 of a struct is its first field, and a `let`
+            ; alias, a `mut` slot or an `Int` parameter may hold an
+            ; address computed by arithmetic, which points anywhere
+            (if (== (paramIsString cg params (paramIndexIn params (nodeA e) 0)) 1) 1 0)
+        (if (== tg TAG_E_FIELD)
+            (if (== (fieldReadIsScalar cg e) 1) 0 1)
             (if (== tg TAG_E_APP)
                 (let ((hd (spineHeadE e)))
                   (if (!= (nodeTag hd) TAG_E_VAR)
                       0
                       (if (&& (isCastName (nodeA hd)) (== (spineArity e) 2))
-                          (addrIsHandle (spineArgAt e 1))
+                          (addrIsHandle cg params (spineArgAt e 1))
                           ; `(- handle 16)`, `(- handle 8)`: the block's
-                          ; own count or shape word, a number
+                          ; own count or shape word, a number; any other
+                          ; offset is somewhere else
                           (if (&& (strEq (nodeA hd) "-")
                                   (&& (== (spineArity e) 2)
-                                      (== (nodeTag (spineArgAt e 1)) TAG_E_INT)))
-                              (addrIsHandle (spineArgAt e 0))
+                                      (&& (== (nodeTag (spineArgAt e 1)) TAG_E_INT)
+                                          (|| (== (nodeA (spineArgAt e 1)) 8)
+                                              (== (nodeA (spineArgAt e 1)) 16)))))
+                              (addrIsHandle cg params (spineArgAt e 0))
                               0))))
-                0)))))
+                0))))))
 
 ; OR over the spine's arguments, `n_` of them.
 (pub :: flowMaskAll (-> Int Int Int Int Int Int Int))
@@ -1317,9 +1332,16 @@
 (pub fn (stashAdd cell m)
   { (memSetWord cell 0 (| (memGetWord cell 0) m)) 0 })
 
+; A count never lands on a SATURATED bit: parameters past index 18
+; share bit 19 in every form, so a count of one would license a park
+; of any other; the park stays, the leak direction.
 (pub :: countedAdd (-> Int Int Int))
 (pub fn (countedAdd cell m)
-  { (memSetWord cell 1 (| (memGetWord cell 1) m)) 0 })
+  { (memSetWord cell 1 (| (memGetWord cell 1) (& m (unsaturated)))) 0 })
+
+(pub :: unsaturated Int)
+(pub fn (unsaturated)
+  (^ (- (<< 1 60) 1) (| (<< 1 19) (| (<< 1 39) (<< 1 59)))))
 
 ; The flow a COUNT is credited to: what the retained expression MUST
 ; be - the parameter itself, a `cast` of it, a `let` alias of one of
@@ -1406,10 +1428,17 @@
             (| (setFlows cg name (nodeA e) params env)
                (| (setFlows cg name (nodeB e) params env)
                   (setFlows cg name (nodeC e) params env)))
-        ; a binding's word 1 is its NAME, a String, not a node
-        (if (|| (== tg TAG_E_LET) (== tg TAG_E_LETM))
+        ; a binding's word 1 is its NAME, a String, not a node; the
+        ; body sees the binding (`(set u t)` with `t` an inner alias
+        ; of a word of a parameter)
+        (if (== tg TAG_E_LET)
             (| (setFlows cg name (nodeB e) params env)
-               (setFlows cg name (nodeC e) params env))
+               (setFlows cg name (nodeC e) params
+                         (envWith env (nodeA e) (letFlag cg (nodeB e) params env))))
+        (if (== tg TAG_E_LETM)
+            (| (setFlows cg name (nodeB e) params env)
+               (setFlows cg name (nodeC e) params
+                         (envWith env (nodeA e) (mutFlag cg (nodeA e) (nodeB e) (nodeC e) params env))))
         (if (== tg TAG_E_SETF)
             (| (setFlows cg name (nodeA e) params env)
                (setFlows cg name (nodeC e) params env))
@@ -1422,7 +1451,8 @@
                (setFlows cg name (nodeB e) params env))
         (if (== tg TAG_E_MATCH)
             (| (setFlows cg name (nodeA e) params env)
-               (setFlowsArms cg name (nodeB e) params env 0))
+               (setFlowsArms cg name (nodeB e) params env
+                             (flowMask cg (nodeA e) params env) 0))
         (if (== tg TAG_E_WHILE)
             (| (setFlows cg name (nodeA e) params env)
                (setFlowsVec cg name (nodeB e) params env 0))
@@ -1433,7 +1463,7 @@
         (if (== tg TAG_E_HANDLE)
             (| (setFlows cg name (nodeA e) params env)
                (setFlows cg name (nodeC e) params env))
-            0))))))))))))))))
+            0)))))))))))))))))
 
 (pub :: setFlowsVec (-> Int String Int Int Int Int Int))
 (pub fn (setFlowsVec cg name v params env i)
@@ -1455,14 +1485,15 @@
                   (setFlows cg name (nodeB c) params env))
                (setFlowsClauses cg name cls params env (+ i 1)))))))
 
-(pub :: setFlowsArms (-> Int String Int Int Int Int Int))
-(pub fn (setFlowsArms cg name arms params env i)
+(pub :: setFlowsArms (-> Int String Int Int Int Int Int Int))
+(pub fn (setFlowsArms cg name arms params env scrut i)
   (if (== arms 0)
       0
       (if (>= i (vecLen arms))
           0
-          (| (setFlows cg name (nodeB (vecGet arms i)) params env)
-             (setFlowsArms cg name arms params env (+ i 1))))))
+          (let ((arm (vecGet arms i)))
+            (| (setFlows cg name (nodeB arm) params (envWithPat cg env (nodeA arm) scrut))
+               (setFlowsArms cg name arms params env scrut (+ i 1)))))))
 
 ; A `let`'s environment flag: its flow, marked must when the
 ; initialiser must be what it flows from.
@@ -1676,7 +1707,7 @@
       (let ((tn (fieldTypeNode entry i))
             (f (flowMask cg (spineArgAt e i) params env)))
         {
-          (if (if (== tn 0) true (== (fldClass cg tn) 0))
+          (if (== (ctorFieldParks cg entry e tn i) 1)
               (stashAdd cell (parkForms f))
               (stashAdd cell (parkForms (wordParts f))))
           (flowStashesFields cg entry e n_ params env cell (+ i 1))
@@ -1710,7 +1741,49 @@
 ; share (`emitLambda` retains reference parameters it captures).
 (pub :: lamCaptureMask (-> Int Int Int Int Int))
 (pub fn (lamCaptureMask cg body params env)
-  (lamCaptureFrom body env 0))
+  (| (lamCaptureFrom body env 0)
+     (lamParamCaptures cg body params 0)))
+
+; `emitLambda` retains a captured parameter only when its class is a
+; reference (`retainParamCaps`): a type-variable or `Int` parameter
+; is captured uncounted - parked.
+(pub :: lamParamCaptures (-> Int Int Int Int Int))
+(pub fn (lamParamCaptures cg body params i)
+  (if (>= i (vecLen params))
+      0
+      (| (if (&& (== (mentions (cast String (vecGet params i)) body) 1)
+                 (!= (paramClassOf cg params i) 2))
+             (parkForms (paramFlowBit cg params i))
+             0)
+         (lamParamCaptures cg body params (+ i 1)))))
+
+(pub :: paramIsString (-> Int Int Int Int))
+(pub fn (paramIsString cg params i)
+  (if (< i 0)
+      0
+      (let ((d (memGetWord cg 36)))
+        (if (== d 0)
+            0
+            (if (|| (!= (vecLen params) (vecLen (nodeB d)))
+                    (if (strEq (cast String (vecGet params i)) (cast String (vecGet (nodeB d) i))) false true))
+                0
+                (let ((e (findFSigCg cg (nodeA d))))
+                  (if (== e 0)
+                      0
+                      (let ((t (arrowParamTy (memGetWord e 3) i)))
+                        (if (== t 0)
+                            0
+                            (if (&& (== (nodeTag t) TAG_T_CON) (strEq (nodeA t) "String")) 1 0))))))))))
+
+(pub :: paramClassOf (-> Int Int Int Int))
+(pub fn (paramClassOf cg params i)
+  (let ((d (memGetWord cg 36)))
+    (if (== d 0)
+        2
+        (if (!= (vecLen params) (vecLen (nodeB d)))
+            2
+            (let ((e (findFSigCg cg (nodeA d))))
+              (if (== e 0) 2 (fldClass cg (arrowParamTy (memGetWord e 3) i))))))))
 
 (pub :: lamCaptureFrom (-> Int Int Int Int))
 (pub fn (lamCaptureFrom body env i)
@@ -4612,7 +4685,13 @@
             { (lowerConds (nodeA e)) (lowerConds (nodeC e)) e }
         (if (== tag TAG_E_FIELD)
             { (lowerConds (nodeA e)) e }
-        e))))))))))))))
+        (if (== tag TAG_E_HANDLE)
+            { (lowerConds (nodeA e)) (lowerConds (nodeC e)) e }
+        (if (== tag TAG_E_STRUCTCON)
+            { (lowerCondsVec (nodeB e) 0) e }
+        (if (== tag TAG_E_ALLOC)
+            { (lowerConds (nodeA e)) e }
+        e)))))))))))))))))
 
 (pub :: condChainAt (-> Int Int Int Int))
 (pub fn (condChainAt clauses i acc)
@@ -4876,17 +4955,19 @@
                           (envWith env (nodeA e) (tailOwned cg (nodeB e) params env)) self acc)
         (if (== tg TAG_E_LETM)
             (collectTails cg (nodeC e) params (envWith env (nodeA e) 0) self acc)
+        (if (== tg TAG_E_SET)
+            ; `(set k v)` answers `v`: a leaf when `v` is borrowed
+            (if (== (tailOwned cg e params env) 1) 0 { (vecPush acc e) 0 })
         (if (|| (== tg TAG_E_INT)
             (|| (== tg TAG_E_FLT)
             (|| (== tg TAG_E_STR)
             (|| (== tg TAG_E_CHAR)
             (|| (== tg TAG_E_LAM)
             (|| (== tg TAG_E_WHILE)
-            (|| (== tg TAG_E_SET)
-            (|| (== tg TAG_E_SETF) (== tg TAG_E_STRUCTCON)))))))))
+            (|| (== tg TAG_E_SETF) (== tg TAG_E_STRUCTCON))))))))
             0
             ; a shape the walk does not know answers borrowed
-            { (vecPush acc e) 0 })))))))))))))
+            { (vecPush acc e) 0 }))))))))))))))
 
 (pub :: collectTailsClauses (-> Int Int Int Int String Int Int Int))
 (pub fn (collectTailsClauses cg cls params env self acc i)
@@ -5011,7 +5092,8 @@
       0
       (let ((pname (vecGet params i))
             (an (allocReg cg)))
-        (let ((ar (cat2 "%a" (fmtInt an))))
+        ; `%s.N`, not `%aN`: a parameter named `a1` is `%a1` already
+        (let ((ar (cat2 "%s." (fmtInt an))))
           {
             (emitLine cg (cat2 (cat2 "  " ar) " = alloca i64"))
             (emitLine cg (cat4 "  store i64 %" (llvmSym (strDup pname)) ", ptr " ar))
@@ -8797,7 +8879,19 @@
             (valFlag (memGetWord cg1 14))
             (mark (symMark cg1)))
         (bindSym cg1 name valReg valFlag 0)
-        (let ((releasable (letReleasable cg1 node valExpr name body)))
+        ; a `let` of a REFERENCE FIELD read takes its own share, when
+        ; the walk says the binding does not escape: the field's share
+        ; is the block's, and a store to the field (event 5) releases
+        ; the old value under a borrowed alias - `(let ((t r.name))
+        ; { (set r.name new) (println t) })` read freed bytes. The
+        ; share is handed back at scope end like an owned value's.
+        (let ((fieldAlias (if (&& (== (nodeTag valExpr) TAG_E_FIELD)
+                                  (&& (== (fieldReadIsScalar cg1 valExpr) 0)
+                                      (== (escapes cg1 name body 1 body) 0)))
+                              1
+                              0)))
+        (let ((cg1 (if (== fieldAlias 1) (emitRetainOf cg1 valReg) cg1)))
+        (let ((releasable (if (== fieldAlias 1) 1 (letReleasable cg1 node valExpr name body))))
         (let ((pmark (vecLen (memGetWord cg1 42))))
         {
           ; a releasable binding is PENDING while its body emits: a
@@ -8826,7 +8920,7 @@
                     })
                   cgB)
             })
-        }))))))
+        }))))))))
 
 ; Is this `let` binding one the frame may release when its scope ends?
 ;
@@ -8992,7 +9086,11 @@
                         (escapesViaBinders cg (nodeB e) vp 0 root)
                         0)))
         (if (== tg TAG_E_COND)
-            (escapesArms cg name (nodeA e) vp 0 root)
+            (if (== (escapesCondTests cg name (nodeA e) root 0) 1)
+                1
+                (if (== (escapesArms cg name (nodeA e) vp 0 root) 1)
+                    1
+                    (escapes cg name (nodeB e) vp root)))
         (if (|| (== tg TAG_E_LET) (== tg TAG_E_LETM))
             ; the initialiser inherits the position: `(let ((t s)) t)`
             ; makes the binding the let's value through an alias - and
@@ -9106,10 +9204,31 @@
       0
       (let ((tg (nodeTag init)))
         (if (== tg TAG_E_APP)
-            (callEscapesArg cg init name 1 root)
+            (if (== (passesValueHead (spineHeadE init)) 1)
+                ; `(+ (asWord s) 0)` aliases what `(asWord s)` does
+                (mayAliasArgs cg name init (spineArity init) root 0)
+                (callEscapesArg cg init name 1 root))
             (if (== tg TAG_E_FIELD)
                 (if (== (fieldReadIsScalar cg init) 1) 0 1)
                 1)))))
+
+(pub :: escapesCondTests (-> Int String Int Int Int Int))
+(pub fn (escapesCondTests cg name cls root i)
+  (if (== cls 0)
+      0
+      (if (>= i (vecLen cls))
+          0
+          (if (== (escapes cg name (nodeA (vecGet cls i)) 0 root) 1)
+              1
+              (escapesCondTests cg name cls root (+ i 1))))))
+
+(pub :: mayAliasArgs (-> Int String Int Int Int Int Int))
+(pub fn (mayAliasArgs cg name e n_ root i)
+  (if (>= i n_)
+      0
+      (if (== (mayAlias cg name (spineArgAt e i) root) 1)
+          1
+          (mayAliasArgs cg name e n_ root (+ i 1)))))
 
 ; Could a call with this head answer a reference it was handed? Not
 ; when the head is an operator or a primitive (`scalarHead`), and not
@@ -9179,17 +9298,37 @@
 (pub fn (passesValueHead h)
   (if (!= (nodeTag h) TAG_E_VAR)
       0
-      (if (|| (isBinop (nodeA h)) (isAndOr (nodeA h))) 1 0)))
+      (if (|| (isBinop (nodeA h))
+          (|| (isAndOr (nodeA h))
+          (|| (strEq (nodeA h) "__load64") (strEq (nodeA h) "memGetWord"))))
+          ; a 64-bit load answers a word of what its address aliases
+          1
+          0)))
 
 (pub :: ctorWordFieldsMention (-> Int Int String Int Int Int Int))
 (pub fn (ctorWordFieldsMention cg entry name e n_ i)
   (if (>= i n_)
       0
       (let ((tn (fieldTypeNode entry i)))
-        (if (&& (if (== tn 0) true (== (fldClass cg tn) 0))
+        (if (&& (== (ctorFieldParks cg entry e tn i) 1)
                 (== (mentions name (spineArgAt e i)) 1))
             1
             (ctorWordFieldsMention cg entry name e n_ (+ i 1))))))
+
+; Does field i of this construction PARK what it is given - take no
+; share? A word field does; so does a type-variable field at a site
+; whose witness collapsed to "no retain" (`fieldRetainCode` -1): the
+; emitter stores the value uncounted there, whatever the field's
+; declaration says. The stamp sits on the constructor's name node.
+(pub :: ctorFieldParks (-> Int Int Int Int Int Int))
+(pub fn (ctorFieldParks cg entry e tn i)
+  (if (== tn 0)
+      1
+      (if (== (fldClass cg tn) 0)
+          1
+          (if (== (fldClass cg tn) 1)
+              (if (== (fieldRetainCode cg entry (memGetWord (spineHeadE e) 6) i) (- 0 1)) 1 0)
+              0))))
 
 (pub :: mentionsArgs (-> String Int Int Int Int))
 (pub fn (mentionsArgs name e n_ i)
@@ -9435,8 +9574,10 @@
             (mentions name (nodeA e))
         (if (== tg TAG_E_SET)
             (mentions name (nodeB e))
-        (if (|| (== tg TAG_E_BEGIN) (== tg TAG_E_COND))
+        (if (== tg TAG_E_BEGIN)
             (mentionsVec name (nodeA e) 0)
+        (if (== tg TAG_E_COND)
+            (if (== (mentionsVec name (nodeA e) 0) 1) 1 (mentions name (nodeB e)))
         (if (== tg TAG_E_MATCH)
             (if (== (mentions name (nodeA e)) 1)
                 1
@@ -9448,7 +9589,7 @@
         (if (== tg TAG_E_LAM)
             ; a capture takes no share, so any mention counts
             (mentions name (nodeB e))
-            1))))))))))))))
+            1)))))))))))))))
 
 (pub :: mentionsVec (-> String Int Int Int))
 (pub fn (mentionsVec name v i)
@@ -9566,7 +9707,7 @@
             (valFlag (memGetWord cg1 14))
             (mark (symMark cg1))
             (an (allocReg cg1)))
-        (let ((ar (cat2 "%a" (fmtInt an))))
+        (let ((ar (cat2 "%s." (fmtInt an))))
           {
             (emitAlloca cg1 ar)
             (emitLine cg1 (cat4 "  store i64 " valReg ", ptr " ar))

@@ -164,8 +164,10 @@ deep, it overflowed the stack where the leaking compiler had not.
 **MM-EXEC-6c (H).** **A mutual tail call does not.** The compiler emits
 a plain `call`; mutual tail recursion runs in constant space only
 because LLVM's passes handle it at `--opt >= 1`, and overflows the stack
-at `--opt 0`. A program **MUST NOT** rely on mutual tail calls for
-unbounded recursion.
+at `--opt 0` — and, since events 2/3 ship, at every level when the
+call hands over an owned temporary, because the release the caller
+emits after the call is an instruction after it. A program **MUST
+NOT** rely on mutual tail calls for unbounded recursion.
 
 **MM-EXEC-6d (H).** Non-tail recursion is bounded by the machine stack.
 Measured on an 8176 KiB stack: **174,000–175,000** frames at `--opt 0`
