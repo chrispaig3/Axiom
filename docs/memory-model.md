@@ -1832,8 +1832,16 @@ binder escapes from; a temporary stored through `set`; a `let` whose
 value is a field of the block it binds; a join of an owned temporary
 with a BORROWED arm (a parameter, a field) stored into a field — the
 field retains, and the owned arm's birth share has no path back; a
-closure's captures, which the closure record takes and never returns;
-a polymorphic self-tail-call loop matching an owned `(Some x)`. A function whose result is a
+closure's captures, which the closure record takes and never returns,
+and a lambda handed to a self tail call, whose birth share the
+boundary's retain doubles; a polymorphic self-tail-call loop matching
+an owned `(Some x)`; a reference-returning function whose tail is a
+`handle`, which retains its answer twice; a `let` cast to `Int`
+anywhere in its body, kept whole; a self-tail-calling function's
+type-variable and `Int` slots, and a parameter whose word it parks or
+answers, which keep their slot's share; blocks above the 64 KiB pool
+ceiling, never filed; and the free list's order, which a rebuild of
+a 1,000,000-cell list scrambles a little more per generation. A function whose result is a
 type variable retains nothing on return, so a `let` bound to
 `(vecGet v i)` is never released — the container convention this
 compiler is written in stays where it was.
