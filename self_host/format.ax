@@ -710,13 +710,13 @@
                                 (ftStart t) (fnEnd (frNode inner)))
                        (frPos inner))))
     (if (|| (== k FT_LPAREN) (|| (== k FT_LBRACK) (== k FT_LBRACE)))
-        (readPostfix src toks (readGroup src toks pos))
-        (readPostfix src toks
+        (readPostfix toks (readGroup src toks pos))
+        (readPostfix toks
           (mkFRead 1 (mkFNode FN_ATOM t 0 (ftStart t) (ftEnd t)) (+ pos 1)))))))))
 
 ; Absorb any `.name` and `::name` that TOUCH what was just read.
-(pub :: readPostfix (-> String Int Int Int))
-(pub fn (readPostfix src toks r)
+(pub :: readPostfix (-> Int Int Int))
+(pub fn (readPostfix toks r)
   (if (== (frOk r) 0)
       r
       (let ((mut cur r)
@@ -1519,7 +1519,7 @@
         {
           (fpP p "(let (")
           (if (== (fnLen binds) 1)
-              (fpLetBinding p (fnKid binds 0) 1)
+              (fpLetBinding p (fnKid binds 0))
               (let ((mut i 0))
                 {
                   (fpP p "\n")
@@ -1564,8 +1564,8 @@
 
 ; The single-binding spelling: the init inline when simple, broken
 ; below the pattern when not.
-(pub :: fpLetBinding (-> Int Int Int Int))
-(pub fn (fpLetBinding p b single)
+(pub :: fpLetBinding (-> Int Int Int))
+(pub fn (fpLetBinding p b)
   (let ((src (fpSrc p)) (o (fpOut p)) (initIx (fpBindInit (fpSrc p) b)))
     (if (|| (< initIx 0) (!= (vecLen (fpExprElems b (if (< initIx 0) 0 initIx))) 1))
         (fpBad p)

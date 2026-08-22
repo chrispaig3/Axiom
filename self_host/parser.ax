@@ -1116,7 +1116,7 @@
                     r
                     { (markPub (memGetWord r 1)) r }))
           (if (|| (kwEq name (kwFn)) (kwEq name (kwDefine)))
-              (parseFnDecl tokens (advance pos) name)
+              (parseFnDecl tokens (advance pos))
   (if (kwEq name (kwData))
       (parseDataDecl tokens (advance pos))
   (if (kwEq name (kwStruct))
@@ -2543,8 +2543,8 @@
 ; ------------------------------------------------------------------
 ; Parse (fn (name args...) body) at top level.
 ; ------------------------------------------------------------------
-(pub :: parseFnDecl (-> Int Int String Int))
-(pub fn (parseFnDecl tokens pos kwName)
+(pub :: parseFnDecl (-> Int Int Int))
+(pub fn (parseFnDecl tokens pos)
   (if (peekIs tokens pos TK_LPAREN)
       (let ((headerStart (advance pos)))
         (let ((nr (parseDeclName tokens headerStart)))

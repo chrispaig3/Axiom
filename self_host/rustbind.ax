@@ -524,7 +524,7 @@
                 (res (sigResultOf ty))
                 (names (nodeB f)))
             (if (strStartsWith name "axh_")
-                { (vecPush raws (cast Int (rbRawDecl name params res))) 0 }
+                { (vecPush raws (cast Int (rbRawDecl name params))) 0 }
                 (let ((bad (rbFirstUnsupported decls params res)))
                   (if (> (strLen bad) 0)
                       { (vecPush notes (cast Int (cat4 "// `" name "`: `" (cat3 (rbSpellType ty) "` names " (cat2 bad "\n")))))
@@ -533,7 +533,7 @@
                           { (vecPush notes (cast Int (cat3 "// `" name "`: the signature and the definition disagree on arity\n")))
                             0 }
                           {
-                            (vecPush raws (cast Int (rbRawDecl name params res)))
+                            (vecPush raws (cast Int (rbRawDecl name params)))
                             (vecPush wraps (cast Int (rbWrapper decls name ty params res names)))
                             0
                           })))))))))
@@ -608,8 +608,8 @@
     }))
 
 ; `extern "C"` line: every word is `i64` on the wire.
-(pub :: rbRawDecl (-> String Int Int String))
-(pub fn (rbRawDecl name params res)
+(pub :: rbRawDecl (-> String Int String))
+(pub fn (rbRawDecl name params)
   (cat4 "        pub fn " name
         (cat3 "(" (rbRawParams (vecLen params) 0) ")")
         " -> i64;\n"))
@@ -629,8 +629,8 @@
 ; is 1 when `e` is a reference (a match binder, a `&T` parameter), 0
 ; when it is the value itself. A data-typed value becomes an OWNED
 ; word the caller releases after the call (`rbIsOwnedWord`).
-(pub :: rbToWord (-> Int Int String Int String))
-(pub fn (rbToWord decls t e isRef)
+(pub :: rbToWord (-> Int String Int String))
+(pub fn (rbToWord t e isRef)
   (let ((deref (if (== isRef 1) "*" "")))
     (if (== (rbIsWordLeaf t) 1)
         (let ((n (nodeA t)))
@@ -647,8 +647,8 @@
 
 ; A Rust expression for the value of type `t` held in the OWNED word
 ; `w` (a result, or an accessor's answer): adopted or consumed.
-(pub :: rbFromWord (-> Int Int String String))
-(pub fn (rbFromWord decls t w)
+(pub :: rbFromWord (-> Int String String))
+(pub fn (rbFromWord t w)
   (if (== (rbIsWordLeaf t) 1)
       (let ((n (nodeA t)))
         (if (strEq n "Float") (cat3 "f64::from_bits(" w " as u64)")
@@ -780,7 +780,7 @@
                 (while (< k (vecLen tys))
                   {
                     (let ((fw (cat2 "__f" (fmtInt k))))
-                      (let ((val (rbFromWord decls (vecGet tys k) fw)))
+                      (let ((val (rbFromWord (vecGet tys k) fw)))
                         (let ((boxed (if (rbReaches decls (vecGet tys k) m vecNew) (cat3 "Box::new(" val ")") val)))
                           {
                             (set lets (cat2 lets (cat4 "            let " fw " = unsafe { raw::axh_" (cat4 m (cat4 "_" (rbCtorName c) "_" (fmtInt k)) "(word) };\n" ""))))
@@ -832,11 +832,11 @@
                       (let ((src (if (rbReaches decls ft m vecNew) (cat3 "&**a" (fmtInt k) "") (cat2 "a" (fmtInt k)))))
                         (if (== (rbIsOwnedWord decls ft) 1)
                             {
-                              (set lets (cat2 lets (cat4 "            let __w" (fmtInt k) " = " (cat2 (rbToWord decls ft src 1) ";\n"))))
+                              (set lets (cat2 lets (cat4 "            let __w" (fmtInt k) " = " (cat2 (rbToWord ft src 1) ";\n"))))
                               (set rels (cat2 rels (cat3 "            unsafe { axiom_release(__w" (fmtInt k) ") };\n")))
                               (set args (cat2 args (cat3 "__w" (fmtInt k) (if (< (+ k 1) (vecLen tys)) ", " ""))))
                             }
-                            (set args (cat2 args (cat2 (rbToWord decls ft src 1) (if (< (+ k 1) (vecLen tys)) ", " "")))))))
+                            (set args (cat2 args (cat2 (rbToWord ft src 1) (if (< (+ k 1) (vecLen tys)) ", " "")))))))
                     (set k (+ k 1))
                   })
                 (let ((head (rbCtorPat decls t c rn pat)))
@@ -873,7 +873,7 @@
     (cat4 (cat4 "/// `(pub :: " name " " (cat2 (rbSpellType ty) ")`\n"))
           (cat4 "pub fn " rname (cat3 "(" sig ")") (if (strEq rty "()") " {\n" (cat3 " -> " rty " {\n")))
           (cat2 lets (cat3 "    // SAFETY: the archive defines the symbol with exactly this shape (one word each way).\n    let __r = unsafe { " call " };\n"))
-          (cat3 rels (rbResultExpr decls res rty) "}\n\n"))))
+          (cat3 rels (rbResultExpr res rty) "}\n\n"))))
 
 (pub :: rbSigLine (-> Int Int Int Int String))
 (pub fn (rbSigLine decls params names i)
@@ -893,7 +893,7 @@
         (cat2 (if (== (rbIsString t) 1)
                   (cat4 "    let __a" (fmtInt i) " = AxString::from_str(" (cat2 pn ");\n"))
                   (if (== (rbIsOwnedWord decls t) 1)
-                      (cat4 "    let __a" (fmtInt i) " = " (cat2 (rbToWord decls t pn 1) ";\n"))
+                      (cat4 "    let __a" (fmtInt i) " = " (cat2 (rbToWord t pn 1) ";\n"))
                       ""))
               (rbArgLets decls params names (+ i 1))))))
 
@@ -915,18 +915,18 @@
                   (cat3 "__a" (fmtInt i) ".as_word()")
                   (if (== (rbIsOwnedWord decls t) 1)
                       (cat2 "__a" (fmtInt i))
-                      (rbToWord decls t pn 0)))
+                      (rbToWord t pn 0)))
               (if (< (+ i 1) (vecLen params)) ", " "")
               (rbArgList decls params names (+ i 1))))))
 
 ; The result: the owned word `__r`, converted.
-(pub :: rbResultExpr (-> Int Int String String))
-(pub fn (rbResultExpr decls res rty)
+(pub :: rbResultExpr (-> Int String String))
+(pub fn (rbResultExpr res rty)
   (if (strEq rty "()")
       "    let _ = __r;\n"
       (if (== (rbIsString res) 1)
           "    // SAFETY: a String a function answers is an owned share (MM-LIFE-2c event 2).\n    unsafe { AxString::from_owned(__r) }\n"
-          (cat3 "    " (rbFromWord decls res "__r") "\n"))))
+          (cat3 "    " (rbFromWord res "__r") "\n"))))
 
 ; `addTwo` -> `add_two`; `a-b` -> `a_b`; a Rust keyword gets a trailing
 ; underscore (`type_`).

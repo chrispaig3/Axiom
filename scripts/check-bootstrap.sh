@@ -41,15 +41,16 @@
 #                 re-bless: every byte compared is recomputed from
 #                 self_host/ on the run.
 #
-#   the corpus    the 90 cases of tests/selfhost/, built end to end by
+#   the corpus    the cases of tests/selfhost/ (151 today, floor 135),
+#                 built end to end by
 #                 stage3 and RUN, each checked against the exit status
 #                 a human wrote on the case's own first line
 #                 (`; expect N`). This is the half a re-bless cannot
 #                 satisfy, in the strongest form available to a
 #                 bootstrap gate: the expected answers were not
 #                 produced by any compiler, they are part of the
-#                 fixture's source bytes, and there are 26 distinct
-#                 values across the 90 cases - so a compiler cannot
+#                 fixture's source bytes, and they carry 50 distinct
+#                 values (floor 45) - so a compiler cannot
 #                 pass them by answering one number. It is what
 #                 notices a ladder that converged on a WRONG compiler,
 #                 which byte-identity cannot: two compilers agreeing
@@ -60,7 +61,7 @@
 #                 tests/fmt/syntax-zoo.expected.ax, and leaves that
 #                 golden alone when re-run on it.
 #
-#   memory        one self-compile's peak RSS, under a ceiling (540
+#   memory        one self-compile's peak RSS, under a ceiling (340
 #                 MiB today; every move of it is dated and measured
 #                 at the constant itself) and over an 8 MiB floor,
 #                 with the IR it produced compared against the IR
@@ -115,7 +116,7 @@
 #                             be re-blessed for that - `fmt` is not
 #                             codegen, so the stored artefact was
 #                             already satisfied by the broken build.
-#   the corpus                4 of 90 cases answered the wrong number:
+#   the corpus                4 cases answered the wrong number:
 #                             330-float said 48 where its first line
 #                             says 52, 410-float-fields 10 for 26,
 #                             510-mut-float 41 for 48, 550-field-chain
@@ -473,7 +474,7 @@ for case_file in "$repo_root"/tests/selfhost/[0-9]*.ax; do
   fi
 done
 
-# Floors. 90 cases carrying 26 distinct expectations today; a sweep
+# Floors. 151 cases carrying 50 distinct expectations today; a sweep
 # that reads fewer than 60, or one whose expectations collapse to a
 # handful of values, has lost its corpus or its parser - and either
 # reads exactly like a compiler that answers everything correctly.
@@ -597,9 +598,14 @@ floor=8192       # 8 MiB
 # 1.4 KB addition to one diagnostic's prose in `explain.ax`, zero new
 # lines, had moved the peak 5.3 MiB.
 #
-# 420 leaves ~7% over the measured 393. Re-introducing the quadratic
-# costs 38%, so this catches it on the first run.
-ceiling=430080   # 420 MiB, over a measured 393
+# 420 -> 340 MiB on 2026-08-22, and this file's own rule is why: "moving
+# it DOWN after a win is part of taking the win". The measured peak is
+# 301 MiB - the escBody fix that set the 420 figure was followed by the
+# release-first and intrusive-dead-list work, and nobody moved the
+# ceiling after them, so a 39% regression could have landed green.
+# 340 leaves ~13% over the measured 301, which still catches the 38%
+# the quadratic costs on its first run.
+ceiling=348160   # 340 MiB, over a measured 301
 if (( peak < floor )); then
   fail "the self-compile peaked at $peak KiB, under the $((floor / 1024)) MiB floor - that is not a measurement of compiling 61,688 lines"
 fi

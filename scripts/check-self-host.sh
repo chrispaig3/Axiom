@@ -15,7 +15,7 @@
 #
 # Usage:
 #   scripts/check-self-host.sh          # every case
-#   scripts/check-self-host.sh 050      # one case, by name prefix
+#   scripts/check-self-host.sh 050      # every case whose name starts with 050
 
 set -uo pipefail
 

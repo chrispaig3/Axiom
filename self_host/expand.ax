@@ -1946,7 +1946,7 @@
           (expMacMod env))
         (mkEInt 0) }
       (let ((a (vecGet qargs 0)))
-        (let ((e (expFmtArgNode env a params args)))
+        (let ((e (expFmtArgNode a params args)))
           (if (|| (!= (nodeTag e) TAG_E_STR) (!= (cast Int (nodeB e)) 0))
               ; Not a source literal: one `show`, dispatched on the
               ; static type. This is the arm that keeps `(println x)`
@@ -1964,8 +1964,8 @@
 ; the template resolves to the argument node, and anything else is
 ; itself. Unlike `expQueryArgName` this wants the NODE, because a
 ; format string is a literal rather than a name.
-(pub :: expFmtArgNode (-> Int Int Int Int Int))
-(pub fn (expFmtArgNode env a params args)
+(pub :: expFmtArgNode (-> Int Int Int Int))
+(pub fn (expFmtArgNode a params args)
   (if (!= (nodeTag a) TAG_E_VAR)
       a
       (let ((idx (expParamIndex params (nodeA a))))
@@ -4599,8 +4599,8 @@
 ; definition against one reports spanless.
 ; Body nodes still carry the invocation span (MAC-EXP-14) - this is
 ; only the declaration node itself.
-(pub :: expNameSpan (-> String Int Int Int Int))
-(pub fn (expNameSpan s params args isp)
+(pub :: expNameSpan (-> String Int Int Int))
+(pub fn (expNameSpan s params args)
   (let ((idx (expParamIndex params s)))
     (if (< idx 0)
         0
@@ -4643,7 +4643,7 @@
 (pub fn (expBuildOneDecl t params args env isp)
   (let ((tag (nodeTag t)))
     (if (== tag TAG_D_FN)
-        (let ((nsp (expNameSpan (nodeA t) params args isp))
+        (let ((nsp (expNameSpan (nodeA t) params args))
               (nm (expSubstName (nodeA t) params args env isp)))
           (if (== (cast Int nm) 0)
               0
@@ -4661,7 +4661,7 @@
                           g
                         }))))))
     (if (== tag TAG_D_SIG)
-        (let ((nsp (expNameSpan (nodeA t) params args isp))
+        (let ((nsp (expNameSpan (nodeA t) params args))
               (nm (expSubstName (nodeA t) params args env isp)))
           (if (== (cast Int nm) 0)
               0
@@ -4710,7 +4710,7 @@
         ; verbatim: a parameter standing for a type variable would be
         ; a binder a macro introduces into the type namespace, and
         ; nothing in MAC-HYG-* renames those yet.
-        (let ((nsp (expNameSpan (nodeA t) params args isp))
+        (let ((nsp (expNameSpan (nodeA t) params args))
               (nm (expSubstName (nodeA t) params args env isp)))
           (if (== (cast Int nm) 0)
               0
@@ -4727,7 +4727,7 @@
         ; A `struct` template. Field NAMES are name positions like
         ; everything else, so `(syntax/for (f (syntax/fields S)) ...)`
         ; can build one struct out of another's fields.
-        (let ((nsp (expNameSpan (nodeA t) params args isp))
+        (let ((nsp (expNameSpan (nodeA t) params args))
               (nm (expSubstName (nodeA t) params args env isp)))
           (if (== (cast Int nm) 0)
               0
@@ -4748,7 +4748,7 @@
         ; a generated alias is indistinguishable from a written one -
         ; which is what MAC-EXP-17 says and what makes this arm four
         ; lines rather than a pass.
-        (let ((nsp (expNameSpan (nodeA t) params args isp))
+        (let ((nsp (expNameSpan (nodeA t) params args))
               (nm (expSubstName (nodeA t) params args env isp)))
           (if (== (cast Int nm) 0)
               0
@@ -4769,7 +4769,7 @@
         ; that carry the types - because a reader that found them
         ; disagreeing would read one operation's name beside another's
         ; arrow.
-        (let ((nsp (expNameSpan (nodeA t) params args isp))
+        (let ((nsp (expNameSpan (nodeA t) params args))
               (nm (expSubstName (nodeA t) params args env isp)))
           (if (== (cast Int nm) 0)
               0
@@ -4850,7 +4850,7 @@
                 ; the same one a generated `fn` gives.
                 (let ((g (mkNodeAt TAG_CTOR cn (vecLen ftys)
                                    (expCtorFlags ftys)
-                                   (expNameSpan (nodeA c) params args 0))))
+                                   (expNameSpan (nodeA c) params args))))
                   {
                     (setNodeTy g ftys)
                     (memSetWord g 9 (memGetWord c 9))
@@ -4890,7 +4890,7 @@
                   ; substituted field name records the argument's own
                   ; span, and a literal or joined one records none
                   (vecPush acc (mkNodeAt TAG_FIELD fn0 ty 0
-                                         (expNameSpan (nodeA f) params args 0)))
+                                         (expNameSpan (nodeA f) params args)))
                   (+ i 1))))))))
 
 ; Each impl method is a TAG_FIELD (name, expression): the name

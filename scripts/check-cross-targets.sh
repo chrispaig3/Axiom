@@ -369,4 +369,40 @@ for target in "${targets[@]}"; do
   esac
 done
 
+# ---------------------------------------------------------------
+# The committed seeds assemble.
+#
+# `bootstrap/` holds four `.ll` files, one per target, and until this
+# check the CI matrix assembled exactly the three it runs on: there is
+# no macos-13 runner, so `bootstrap/axiom-darwin-x86_64.ll` was verified
+# by its SHA256 and by nothing else. A SHA256 says the bytes are the
+# bytes somebody committed; it does not say `llc` accepts them. A seed
+# that had gone stale for that one target would have been committed
+# green and found by whoever next tried to bootstrap on an Intel Mac.
+#
+# `llc` already has every backend here (the loop above required them),
+# so this costs one assemble per seed and needs no runner of that kind.
+# Each seed carries its own `target triple`, so `-mtriple` is read from
+# the file rather than restated.
+# ---------------------------------------------------------------
+echo "== the committed seeds assemble =="
+for seed in "$repo_root"/bootstrap/axiom-*.ll; do
+  [[ -f "$seed" ]] || continue
+  name="$(basename "$seed" .ll)"
+  triple="$(grep -m1 'target triple' "$seed" | sed 's/.*"\(.*\)"/\1/')"
+  if [[ -z "$triple" ]]; then
+    echo "FAIL [$name]: the seed declares no target triple"
+    status=1
+    continue
+  fi
+  if ! llc -filetype=obj -relocation-model=pic "$seed" -o "$work/$name.o" \
+       >"$work/$name.llc.log" 2>&1; then
+    echo "FAIL [$name]: llc rejects the committed seed ($triple)"
+    sed 's/^/    /' "$work/$name.llc.log" | head -5
+    status=1
+  else
+    echo "ok   [$name] the committed seed assembles for $triple"
+  fi
+done
+
 exit "$status"

@@ -118,7 +118,7 @@
 #
 # Usage:
 #   scripts/check-diagnostics.sh          # every case
-#   scripts/check-diagnostics.sh 010      # one case, by name prefix
+#   scripts/check-diagnostics.sh 010      # every case whose name starts with 010
 
 set -uo pipefail
 
@@ -423,12 +423,13 @@ fi
 # or all of self_host/ left the total above the floor and the sweep
 # reported the silence it was looking for.
 #
-# Re-derived 2026-08-16 against 21/18/56/161 = 256 files. They were
-# 15/10/30/80 = 135, set against a corpus of 165, and they stayed put
-# while the corpus grew half again - so tests/selfhost/ could have lost
-# HALF its files and still cleared 80. A floor is only a floor while it
-# is near the number it guards; re-derive these when the printed count
-# has pulled ahead.
+# Re-derived 2026-08-22 against 22/20/59/168 = 269 files. They were
+# 19/16/52/150 = 237, derived 2026-08-16 against 256, and before that
+# 15/10/30/80 = 135 against a corpus of 165 - which stayed put while
+# the corpus grew half again, so tests/selfhost/ could have lost HALF
+# its files and still cleared 80. A floor is only a floor while it is
+# near the number it guards; re-derive these when the printed count has
+# pulled ahead.
 sweep_floor() {
   local label="$1" want="$2" got
   got="$(printf '%s\n' $3 | grep -c . || true)"
@@ -437,14 +438,14 @@ sweep_floor() {
     failed=$((failed + 1))
   fi
 }
-sweep_floor "self_host/"      19 "$(ls self_host/*.ax 2>/dev/null)"
-sweep_floor "stdlib/"         16 "$(ls stdlib/*.ax stdlib/Sys/*.ax 2>/dev/null)"
-sweep_floor "tests/stdlib/"   52 "$(ls tests/stdlib/*.ax 2>/dev/null)"
-sweep_floor "tests/selfhost/" 150 "$(ls tests/selfhost/*.ax 2>/dev/null)"
+sweep_floor "self_host/"      20 "$(ls self_host/*.ax 2>/dev/null)"
+sweep_floor "stdlib/"         18 "$(ls stdlib/*.ax stdlib/Sys/*.ax 2>/dev/null)"
+sweep_floor "tests/stdlib/"   55 "$(ls tests/stdlib/*.ax 2>/dev/null)"
+sweep_floor "tests/selfhost/" 160 "$(ls tests/selfhost/*.ax 2>/dev/null)"
 
 # A floor just under the current 256 refuses outright.
 if [[ "$swept" -lt 240 ]]; then
-  echo "FAIL sweep read only $swept files (expected ~256): a tree is missing from the globs"
+  echo "FAIL sweep read only $swept files (expected ~269): a tree is missing from the globs"
   failed=$((failed + 1))
 elif [[ "$selfclean" == 0 ]]; then
   echo "ok   all $swept files across those four trees are clean"
@@ -558,8 +559,8 @@ fi
 # debugging aid and is expected to read one case.
 # ---------------------------------------------------------------
 if [[ -z "$filter" ]]; then
-  if (( cases < 120 )); then
-    echo "FAIL: only $cases corpus cases ran (expected ~126) - the glob stopped matching"
+  if (( cases < 132 )); then
+    echo "FAIL: only $cases corpus cases ran (expected ~139) - the glob stopped matching"
     failed=$((failed + 1))
   fi
   # An exit-status column of all one value distinguishes nothing: it
@@ -572,8 +573,8 @@ if [[ -z "$filter" ]]; then
   # The colourless assertion is made per case and counted, so that it
   # cannot evaporate the way a check wired to a glob that stopped
   # matching does.
-  if (( colorless < 120 )); then
-    echo "FAIL: only $colorless run(s) were checked for ANSI escapes (expected ~126)"
+  if (( colorless < 132 )); then
+    echo "FAIL: only $colorless run(s) were checked for ANSI escapes (expected ~139)"
     failed=$((failed + 1))
   fi
 fi

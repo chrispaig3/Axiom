@@ -173,7 +173,7 @@
 #
 # Usage:
 #   scripts/check-stdlib-selfhost.sh          # every case
-#   scripts/check-stdlib-selfhost.sh 080      # one case, by name prefix
+#   scripts/check-stdlib-selfhost.sh 080      # every case whose name starts with 080
 #
 # A prefix that selects nothing is a failure, not a quiet pass: measured,
 # `scripts/check-stdlib-selfhost.sh zzz-no-such-case` used to build a

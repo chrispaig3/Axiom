@@ -2904,7 +2904,7 @@
   (let ((v vecNew))
     {
       (vecPush v (cast Int entryDir))
-      (pushPathList v (sysEnv "AXIOM_PATH") 0)
+      (pushPathList v (sysEnv "AXIOM_PATH"))
       ; `--crate DIR`: the crate's generated binding module lives in
       ; `DIR/axiom/`, and the driver searches `DIR/target/release` for
       ; its archive - one flag where `AXIOM_PATH`, `--link-search` and
@@ -2924,8 +2924,8 @@
     }))
 
 ; Append each non-empty `:`-separated entry of `list`, slash-terminated.
-(pub :: pushPathList (-> Int String Int Int))
-(pub fn (pushPathList v list from)
+(pub :: pushPathList (-> Int String Int))
+(pub fn (pushPathList v list)
   ; `strSplit` owns the colon scan now. This was one of two open-coded
   ; copies of it - the other is `Sys.sysRunSearch`, which keeps its
   ; own because it stops at the first candidate that runs and building
@@ -6627,7 +6627,7 @@
           (memSetWord cg 14 0)
           cg
         }
-    (emitDefault node cg)))))))))))))))))))))))
+    (emitDefault cg)))))))))))))))))))))))
 
 ; ------------------------------------------------------------------
 ; The effect system: dynamic handlers by evidence passing.
@@ -6906,7 +6906,7 @@
             (memSetWord cg 14 0)
             cg
           }
-          (zeroFloat (emitConstructor (nodeA node) args entry 0 cg))))))
+          (zeroFloat (emitConstructor args entry 0 cg))))))
 
 ; `(set base.field v)`: the base evaluates once, the field resolves as
 ; a read does, and the value is stored at its offset. The whole form
@@ -7197,7 +7197,7 @@
                     ; A bare nullary constructor: an immediate tag for
                     ; an all-nullary type, a fresh one-word block
                     ; otherwise - the same split construction makes.
-                    (zeroFloat (emitConstructor name vecNew entry 0 cg))
+                    (zeroFloat (emitConstructor vecNew entry 0 cg))
                     (let ((z 0))
                       {
                         (memSetWord cg 2 (constStr z))
@@ -7494,7 +7494,7 @@
                               (== (vecLen args) (vecLen (memGetWord cg 28))))))
                   (emitTailJump args stamp cg)
                   (emitOverApplied fnName args stamp cg))
-              (zeroFloat (emitConstructor fnName args entry stamp cg))))))))))))))
+              (zeroFloat (emitConstructor args entry stamp cg))))))))))))))
 
 (pub :: isLocalValue (-> Int String Bool))
 (pub fn (isLocalValue cg name)
@@ -8905,8 +8905,8 @@
 ; ------------------------------------------------------------------
 ; Constructor emission: alloc + shape + field stores.
 ; ------------------------------------------------------------------
-(pub :: emitConstructor (-> String Int Int Int Int Int))
-(pub fn (emitConstructor fnName args entry stamp cg)
+(pub :: emitConstructor (-> Int Int Int Int Int))
+(pub fn (emitConstructor args entry stamp cg)
   (let ((kind (eKind entry))
         (arity (eArity entry))
         (ctorTag (eTag entry))
@@ -9099,7 +9099,7 @@
                               1
                               0)))
         (let ((cg1 (if (== fieldAlias 1) (emitRetainOf cg1 valReg) cg1)))
-        (let ((releasable (if (== fieldAlias 1) 1 (letReleasable cg1 node valExpr name body))))
+        (let ((releasable (if (== fieldAlias 1) 1 (letReleasable cg1 valExpr name body))))
         (let ((pmark (vecLen (memGetWord cg1 42))))
         {
           ; a releasable binding is PENDING while its body emits: a
@@ -9164,9 +9164,9 @@
 ; deliberate edit rather than an omission. That is the direction that
 ; leaks rather than the one that frees early, which is the asymmetry
 ; this whole strategy turns on.
-(pub :: letReleasable (-> Int Int Int String Int Int))
-(pub fn (letReleasable cg node valExpr name body)
-  (if (!= (letOwned cg node valExpr) 1)
+(pub :: letReleasable (-> Int Int String Int Int))
+(pub fn (letReleasable cg valExpr name body)
+  (if (!= (letOwned cg valExpr) 1)
       0
       (if (== (escapes cg name body 1 body) 1) 0 1)))
 
@@ -9184,8 +9184,8 @@
 ; Anything else - a parameter, a bare name, a field read - is BORROWED,
 ; and a borrowed value is never released here. That is the leak side of
 ; the asymmetry, taken deliberately.
-(pub :: letOwned (-> Int Int Int Int))
-(pub fn (letOwned cg node valExpr)
+(pub :: letOwned (-> Int Int Int))
+(pub fn (letOwned cg valExpr)
   (valueOwnedRef cg valExpr))
 
 
@@ -9850,7 +9850,7 @@
         (let ((hoisted (memGetWord cg 44)))
           {
             (if (> (vecLen hoisted) 0)
-                (vecSet (memGetWord cg 0) mark (cast Int (joinAllocas hoisted 0)))
+                (vecSet (memGetWord cg 0) mark (cast Int (joinAllocas hoisted)))
                 0)
             (memSetWord cg 43 (- 0 1))
             (memSetWord cg 44 vecNew)
@@ -9860,8 +9860,8 @@
 ; One buffer of the exact size, not a recursive concatenation: 40,000
 ; `mut` bindings in one function joined in 11.6 s by the suffix-
 ; copying form (quadratic, and one frame per binding)
-(pub :: joinAllocas (-> Int Int String))
-(pub fn (joinAllocas v i)
+(pub :: joinAllocas (-> Int String))
+(pub fn (joinAllocas v)
   (let ((n (vecLen v)))
     (if (== n 0)
         ""
@@ -10087,8 +10087,8 @@
         cg
       })))
 
-(pub :: emitDefault (-> Int Int Int))
-(pub fn (emitDefault node cg)
+(pub :: emitDefault (-> Int Int))
+(pub fn (emitDefault cg)
   {
     (memSetWord cg 2 "0")
     (memSetWord cg 14 0)

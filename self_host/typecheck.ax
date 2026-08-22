@@ -4227,7 +4227,7 @@
                 (&& (== headIsVar 1)
                     (== (checkSaturation tc e head hname) 1)))
             (mkNode TAG_T_ERR 0 0 0)
-        (if (&& (== headIsVar 1) (== (isNumericTwoArg tc e hname) 1))
+        (if (&& (== headIsVar 1) (== (isNumericTwoArg e hname) 1))
             (checkNumeric tc hname (nodeB (nodeA e)) (nodeB e) head)
         (if (&& (== headIsVar 1) (== (isCastLike hname) 1))
             (checkCastForm tc e hname)
@@ -4249,8 +4249,8 @@
               mkSilentWild
             }
         (if (&& (== headIsVar 1)
-                (!= (findStructIfConstruct tc e hname) 0))
-            (checkStructCon tc e (findStructIfConstruct tc e hname))
+                (!= (findStructIfConstruct tc hname) 0))
+            (checkStructCon tc e (findStructIfConstruct tc hname))
         (let ((funcTy (checkExprH tc (nodeA e) 1)))
           (let ((argTy (checkExprH tc (nodeB e) 0)))
             {
@@ -4594,8 +4594,8 @@
 
 ; Exactly `(op l r)` with a bare operator head - stage0's
 ; numeric_builtin_app is purely syntactic; no shadow check exists.
-(pub :: isNumericTwoArg (-> Int Int String Int))
-(pub fn (isNumericTwoArg tc e name)
+(pub :: isNumericTwoArg (-> Int String Int))
+(pub fn (isNumericTwoArg e name)
   (if (!= (nodeTag (nodeA e)) TAG_E_APP)
       0
       (if (!= (nodeTag (nodeA (nodeA e))) TAG_E_VAR)
@@ -4910,8 +4910,8 @@
 ; ARGUMENTS UNCHECKED and a poisoned result; the right count checks
 ; every argument against its field's declared type, reporting each
 ; mismatch and keeping the struct type as the result.
-(pub :: findStructIfConstruct (-> Int Int String Int))
-(pub fn (findStructIfConstruct tc e hname)
+(pub :: findStructIfConstruct (-> Int String Int))
+(pub fn (findStructIfConstruct tc hname)
   (findStruct tc hname))
 
 (pub :: checkStructCon (-> Int Int Int Int))
@@ -5030,7 +5030,7 @@
             ; which is what keeps a function value's effects from
             ; escaping attribution entirely. Not a head, so a bound
             ; name here is an ordinary local read.
-            (effRefSite tc (nodeA e) bound acc 0)
+            (effRefSite tc (nodeA e) bound acc)
         (if (== tag TAG_E_ALLOC)
             {
               (effAdd acc (builtinEff "Alloc"))
@@ -5234,8 +5234,8 @@
 ; from escaping attribution entirely. A lexically bound name
 ; contributes nothing - its initialiser was walked where it was
 ; bound.
-(pub :: effRefSite (-> Int String Int Int Int Int))
-(pub fn (effRefSite tc n bound acc inHead)
+(pub :: effRefSite (-> Int String Int Int Int))
+(pub fn (effRefSite tc n bound acc)
   (if (== (bsIsLocal bound n) 1)
       0
       (if (== (isSyscallPrim n) 1)

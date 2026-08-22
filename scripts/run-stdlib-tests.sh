@@ -12,7 +12,7 @@
 #
 # Usage:
 #   scripts/run-stdlib-tests.sh            # every case
-#   scripts/run-stdlib-tests.sh 030-str    # one case, by name prefix
+#   scripts/run-stdlib-tests.sh 030-str    # every case whose name starts with 030-str
 
 set -euo pipefail
 

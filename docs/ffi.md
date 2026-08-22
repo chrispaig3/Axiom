@@ -4,10 +4,8 @@ What the boundary between an Axiom program and a Rust crate is, as it
 ships. Every claim here names the source or the fixture that shows it,
 and everything it describes was built, run and measured on 2026-08-22
 (darwin-aarch64, the installed compiler, `rust/` at the same tree).
-The design record this replaces — six drafts that described an FFI
-which was never built — is kept unchanged in
-[`ffi-design/00-drafts-2026-08.md`](ffi-design/00-drafts-2026-08.md)
-(§17).
+The design record this replaces — six drafts describing an FFI that was
+largely never built — is in git rather than in the tree (§17).
 
 The normative memory rules are `MM-FFI-1` to `MM-FFI-6` in
 [memory-model.md](memory-model.md) §11; this document is the user-facing
@@ -1205,13 +1203,21 @@ names the fact in the way.
 
 ## 17. History
 
-The FFI was designed on paper first and the paper outran the tree.
-`ffi-design/00-drafts-2026-08.md` is the 5,014-line record of that
-month — six drafts concatenated, each revising the last — kept
-unchanged under a header saying which of its decisions shipped. The
-parts that survived are §1–§3 of that file (the measured tiers, the
-three facts that shaped the design, "what exists today") and the
-out-cell protocol; the rest is what *not* building it taught.
+The FFI was designed on paper first and the paper outran the tree. The
+record of that month — `docs/ffi-design/00-drafts-2026-08.md`, six
+drafts concatenated, 5,014 lines — was kept in the tree under a banner
+saying which of its decisions shipped, and then deleted: a document
+whose banner has to warn a reader that most of what follows describes
+behaviour that does not exist is not documentation, and git holds it.
+Read it with `git show 3a83f19:docs/ffi-design/00-drafts-2026-08.md`.
+
+What survived from it is here: the measured tiers, the three facts that
+shaped the design, and the out-cell protocol. What did not — `(pub
+export axiom ...)` and every Rust-to-Axiom direction, `ffi.manifest.json`,
+`ffi.lock`, `--ffi`, `--staticlib`, `__axiom_abi_guard`, a distinct
+`FFI` effect, `(opaque T (drop f))` with AX3037–AX3046, `Slice` and
+`Outcome` as types, `axiom_rt_init` — is named here so nobody has to
+read 5,014 lines to find out.
 
 The surface this document describes was built in four commits —
 `3a83f19`, `c560b50`, `3b52c05`, `8b3a39f` — each of whose messages says

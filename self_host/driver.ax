@@ -623,7 +623,7 @@
             })
           (set i (+ i 1))
         })
-      (addSearchDir v dirs (sysEnv "AXIOM_LINK_SEARCH") 0)
+      (addSearchDir v dirs (sysEnv "AXIOM_LINK_SEARCH"))
       (addAxiomPathDirs v dirs (sysEnv "AXIOM_PATH"))
       ; a crate's own `target/release`, or its workspace's one or two
       ; levels up (`rust/examples/demo` builds into `rust/target`)
@@ -652,9 +652,9 @@
       v
     }))
 
-(pub :: addSearchDir (-> Int Int String Int Int))
+(pub :: addSearchDir (-> Int Int String Int))
 ;@axiom:effect(io)
-(pub fn (addSearchDir v dirs list from)
+(pub fn (addSearchDir v dirs list)
   (let ((parts (strSplit list 58)) (mut i 0))
     {
       (while (< i (vecLen parts))

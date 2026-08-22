@@ -267,12 +267,29 @@ else
   # Retirement is expected; retirement of everything is the vacuum this
   # gate is built to refuse. Regenerate per the golden's header when the
   # hit count nears the floor.
-  if [[ $hits -lt 250 ]]; then
+  if [[ $hits -lt 380 ]]; then
     echo "FAIL: only $hits of $entries table entries still match a file in the tree;"
-    echo "      the floor is 250 (328 of 354 hit today) - the table has decayed and must be regenerated"
+    echo "      the floor is 380 (451 of 451 hit today) - the table has decayed and must be regenerated"
     failed=$((failed + 1))
   elif [[ $bad -eq 0 ]]; then
     echo "ok   $hits of $entries pinned source->formatted mappings reproduced"
+  fi
+
+  # THE OTHER DIRECTION, and it is the one that went unnoticed. The hit
+  # count above measures how much of the TABLE is still live; it says
+  # nothing about how much of the TREE the table covers. On 2026-08-22
+  # those two numbers had come apart completely: 308 of 354 entries
+  # still matched - comfortably above the floor, reported as healthy -
+  # while 143 of the 451 `.ax` files in the tree had no entry at all,
+  # among them 17 of the 22 compiler sources. A formatter bug in
+  # `codegen.ax`'s shape would have had nothing to disagree with.
+  unpinned=$(( $(wc -l <"$work/observed.sorted" | tr -d ' ') - hits ))
+  if [[ $unpinned -gt 60 ]]; then
+    echo "FAIL: $unpinned .ax files in the tree have no entry in the table"
+    echo "      (the ceiling is 60) - regenerate per the golden's header"
+    failed=$((failed + 1))
+  else
+    echo "ok   $unpinned .ax file(s) in the tree are not pinned by the table"
   fi
 fi
 

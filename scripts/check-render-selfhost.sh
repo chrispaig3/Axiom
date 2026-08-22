@@ -229,7 +229,7 @@
 #
 # Usage:
 #   scripts/check-render-selfhost.sh          # every case
-#   scripts/check-render-selfhost.sh 010      # one case, by prefix
+#   scripts/check-render-selfhost.sh 010      # every case whose name starts with 010
 #                                             # (a filtered run skips
 #                                             #  the corpus floors and
 #                                             #  the drills; it is a
