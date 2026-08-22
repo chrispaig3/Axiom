@@ -20,9 +20,15 @@
 # fixed point), so a failure here is either that verification firing or a
 # genuine behavioural difference.
 #
+# There is no `--check` mode. This script had one - "assert every file
+# in the working tree is already formatted" - and it was a mode that
+# could never pass and that nothing ran: CONTRIBUTING.md says plainly
+# that the repository is deliberately NOT kept in `axiom fmt`'s normal
+# form, because a formatted tree would bury the narrative comments this
+# codebase is written in. A gate that cannot go green is not a gate.
+#
 # Usage:
 #   scripts/check-fmt.sh          # format a copy, then re-run the suites
-#   scripts/check-fmt.sh --check  # only assert every file is already clean
 
 set -euo pipefail
 
@@ -41,10 +47,13 @@ failed=0
 echo "== formatting every .ax file =="
 copy="$work/repo"
 mkdir -p "$copy"
-# `find | cpio` rather than `cp -r .` so the build directory and git
+# `tar | tar` rather than `cp -r .` so the build directories and git
 # metadata stay out of the copy - formatting them is pointless and
-# copying `target/` is gigabytes.
-tar --exclude=./target --exclude=./.git --exclude=./node_modules \
+# copying a `target/` is gigabytes. `./target` was the deleted Rust
+# compiler's build directory; the live ones are `rust/target`, the
+# per-example targets under `rust/examples/*/target`, and `.axiom-bin`.
+tar --exclude=./.git --exclude=./rust/target --exclude=./.axiom-bin \
+    --exclude='./rust/examples/*/target' --exclude=./node_modules \
     --exclude=./tree-sitter-axiom/node_modules -cf - . | (cd "$copy" && tar -xf -)
 
 total=0
@@ -59,19 +68,6 @@ for file in $(find "$copy" -name '*.ax' | sort); do
 done
 echo "     $total files"
 
-if [[ "${1:-}" == "--check" ]]; then
-  # In --check mode the question is whether the files in the repository
-  # are already formatted, which is a different property from whether
-  # they can be formatted safely.
-  echo "== checking the working tree is formatted =="
-  for file in $(find . -name '*.ax' -not -path './target/*' -not -path './.git/*' | sort); do
-    if ! "$axiom" fmt "$file" --check >/dev/null 2>&1; then
-      echo "FAIL $file is not formatted"
-      failed=$((failed + 1))
-    fi
-  done
-fi
-
 # ---------------------------------------------------------------
 # 2. The formatted copy still behaves identically.
 #
@@ -82,26 +78,22 @@ fi
 # ---------------------------------------------------------------
 if [[ $failed -eq 0 ]]; then
   echo "== re-running the suites against the formatted copy =="
-  (
-    cd "$copy"
-    export AXIOM="$axiom"
-    export AXIOM_STDLIB="$copy/stdlib"
-    ./scripts/run-stdlib-tests.sh 2>&1 | tail -1
-    ./scripts/check-self-host.sh 2>&1 | tail -1
-  ) | sed 's/^/     /'
-
-  (
-    cd "$copy"
-    export AXIOM="$axiom"
-    export AXIOM_STDLIB="$copy/stdlib"
-    ./scripts/run-stdlib-tests.sh >/dev/null 2>&1
-  ) || failed=$((failed + 1))
-  (
-    cd "$copy"
-    export AXIOM="$axiom"
-    export AXIOM_STDLIB="$copy/stdlib"
-    ./scripts/check-self-host.sh >/dev/null 2>&1
-  ) || failed=$((failed + 1))
+  # Once each, capturing to a file. This used to run both suites TWICE -
+  # once piped through `tail -1` so the summary line could be shown, and
+  # again with the output discarded so `$?` could be read, because a
+  # pipeline's status is its last stage's. That is a second stage1 build,
+  # 151 self-host cases and 59 stdlib builds per run of this gate, for a
+  # status a temporary file already holds.
+  for suite in run-stdlib-tests check-self-host; do
+    if ( cd "$copy"
+         export AXIOM="$axiom" AXIOM_STDLIB="$copy/stdlib"
+         "./scripts/$suite.sh" ) >"$work/$suite.log" 2>&1; then
+      sed 's/^/     /' <<< "$(tail -1 "$work/$suite.log")"
+    else
+      sed 's/^/     /' <<< "$(tail -1 "$work/$suite.log")"
+      failed=$((failed + 1))
+    fi
+  done
 fi
 
 # ---------------------------------------------------------------
@@ -136,12 +128,11 @@ fi
 # because both spellings mean the same thing. Only a golden can say
 # which one comes out.
 #
-# And the self-hosted formatter, when it exists, has to produce the same
-# bytes. Comparing it against stage0 directly would be a two-way diff,
-# which cannot see a stage0 bug baked into stage1 - the first risk this
-# project's self-hosting document names. With the golden checked in the
-# comparison is three-way: golden == stage0 == stage1, and changing the
-# normal form means changing a file a human reads.
+# The formatter is the self-hosted one and there is no second
+# implementation to diff it against, which is exactly why the golden is
+# checked in rather than derived: with the expected bytes in the tree,
+# changing the normal form means changing a file a human reads and
+# reviews, instead of a number a script recomputes.
 #
 # Regenerate deliberately, never automatically:
 #   cp tests/fmt/syntax-zoo.ax tests/fmt/syntax-zoo.expected.ax

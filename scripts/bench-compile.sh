@@ -155,7 +155,7 @@ total="$(python3 -c "print(f'{$in_proc + $external:.4f}')")"
 echo
 printf '%-34s %9s %8s\n' stage seconds "% of total"
 printf '%s\n' "-------------------------------------------------------"
-printf '%-34s %9s %7s%%\n' "check (incl. codegen, discarded)" "$t_check" "$(pct "$t_check" "$total")"
+printf '%-34s %9s %7s%%\n' "check (lex, parse, expand, typecheck)" "$t_check" "$(pct "$t_check" "$total")"
 printf '%-34s %9s %7s%%\n' "  + serialise and write the IR"  "$t_lower" "$(pct "$t_lower" "$total")"
 printf '%-34s %9s %7s%%\n' "= in the axiom process"          "$in_proc" "$(pct "$in_proc" "$total")"
 printf '%s\n' "-------------------------------------------------------"

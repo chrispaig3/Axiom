@@ -15,8 +15,9 @@
 #
 #   1. It assembles at `-O0` as well as `-O2`. The bug was an absolute
 #      relocation that the x86 backend only emits at `-O0`; assembling
-#      solely at the default `-O2` made the object look clean. `-O0` is
-#      not a corner case - it is what `axiom run` uses.
+#      solely at `-O2` made the object look clean, and `-O0` is not a
+#      corner case: it is what `--opt 0` selects and what the emitter
+#      hands `llc` before any optimisation runs.
 #
 #   2. It inspects relocations rather than only checking that `llc`
 #      exited zero. An absolute relocation assembles perfectly well and
@@ -30,11 +31,17 @@ gate_init
 
 targets=(darwin-aarch64 darwin-x86_64 linux-aarch64 linux-x86_64)
 
-# Optimisation levels the driver actually assembles with. `axiom run`
-# and `axiom build` without `--opt` use 0; `--opt 2` is the recommended
-# setting for deeply recursive code. A relocation bug that appears at
-# only one of them is still a shipped bug.
-opt_levels=(0 2)
+# Optimisation levels the driver actually assembles with. A relocation
+# bug that appears at only one of them is still a shipped bug.
+#
+# 1 is here because it is the DEFAULT (`driver.ax`: `(flagValue "--opt" 1)`,
+# and `--help` says "default 1"), and this list read `(0 2)` under a
+# comment claiming the default was 0 - so the level every `axiom run`
+# and every `axiom build` without a flag actually uses was the one
+# level never assembled here. 0 stays because the original failure this
+# script exists for - `R_X86_64_32S` against `.bss` - is emitted only
+# at -O0; 2 stays as the setting recommended for deeply recursive code.
+opt_levels=(0 1 2)
 
 # Absolute relocations, split by where they are legal.
 #

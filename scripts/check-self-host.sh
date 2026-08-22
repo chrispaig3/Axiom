@@ -2,17 +2,16 @@
 # Compile every case in tests/selfhost with the *self-hosted* compiler,
 # assemble it, run it, and check its exit status.
 #
-# This is the only gate that exercises the compiler end to end. The
-# deleted Rust suite
-# and the stdlib suite both check the Rust compiler; nothing else notices
-# when the Axiom one emits LLVM that `llc` rejects, or emits code that
+# This gate exercises the compiler end to end: it is what notices when
+# the compiler emits LLVM that `llc` rejects, or emits code that
 # assembles and computes the wrong answer.
 #
 # Each case declares its expected exit status on the first line as
-# `; expect N`. Exit status is the whole answer - stage1 has no way to
-# print yet - so cases must return something distinguishable, and 0 is
-# avoided as an expected value since it is also what a silent failure
-# looks like.
+# `; expect N`, and the exit status is what this gate reads. Cases must
+# therefore return something distinguishable, and 0 is avoided as an
+# expected value since it is also what a silent failure looks like. A
+# handful of cases do `(import IO)` and print, but stdout is
+# `check-stdlib-selfhost.sh`'s subject, not this one's.
 #
 # Usage:
 #   scripts/check-self-host.sh          # every case
@@ -45,7 +44,7 @@ ln -s "$repo_root/self_host" "$work/self_host"
 # The two kinds are told apart by name below.
 cp "$repo_root"/tests/selfhost/[A-Z]*.ax "$work/" 2>/dev/null || true
 
-# stage1: the Axiom compiler, compiled by the Rust one.
+# stage1: the compiler built from the current self_host/ by $axiom.
 gate_build_axc stage1
 
 passed=0

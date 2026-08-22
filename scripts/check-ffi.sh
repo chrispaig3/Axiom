@@ -117,12 +117,10 @@ for crate_dir in rust/examples/*/; do
     ( cd rust && cargo build --release -q --manifest-path "examples/$crate/Cargo.toml" ) \
       || { echo "FAIL $crate: cargo build failed"; status=1; continue; }
     lib="rust/examples/$crate/target/release/libaxiom_${crate//-/_}.a"
-    search="rust/examples/$crate/target/release"
   else
     ( cd rust && cargo build --release -q -p "axiom-$crate" ) \
       || { echo "FAIL $crate: cargo build failed"; status=1; continue; }
     lib="rust/target/release/libaxiom_${crate//-/_}.a"
-    search="rust/target/release"
   fi
   [[ -f "$lib" ]] || { echo "FAIL $crate: no staticlib at $lib"; status=1; continue; }
 
