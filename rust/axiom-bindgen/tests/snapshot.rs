@@ -211,11 +211,13 @@ fn nested_fixture_shape() {
     assert!(fresh.contains(";   `tryGridF64` answers a Vec of Vecs of Float bits (f64);"));
     assert!(fresh.contains("(doubleInPlace :: (-> Int Int) (symbol \"axffi_double_in_place\"))"));
     assert!(fresh.contains(";   `doubleInPlace` writes `xs` in place, a Vec of Int;"));
-    // Nested fallible results: the constructors nest, status 2 is the
-    // middle branch.
+    // Nested fallible results: the constructors nest, ffiStatusNone is
+    // the middle branch. The status encoding is named rather than
+    // spelled 0/2 - stdlib/Ffi.ax exports the constants and the
+    // generator now emits them, so the protocol has one statement.
     assert!(fresh.contains("(pub :: maybeParse (-> String (Result (Option Int) String)))"));
     assert!(fresh.contains("(Ok (Some __p))"));
-    assert!(fresh.contains("(if (== __st 2)\n        {\n          (ffiCellFree __c)\n          (Ok None)\n        }"));
+    assert!(fresh.contains("(if (== __st ffiStatusNone)\n        {\n          (ffiCellFree __c)\n          (Ok None)\n        }"));
     assert!(fresh.contains("(pub :: lookup (-> Int (Option (Result Thing String))))"));
     assert!(fresh.contains("(Some (Ok (Thing (ffiHandleNew __p thingDropFn))))"));
     assert!(fresh.contains("(Some (Err __m))"));

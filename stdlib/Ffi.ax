@@ -90,9 +90,7 @@
 ; A two-word out-cell, zeroed, held by one share the wrapper gives
 ; back with `ffiCellFree`.
 (pub :: ffiCellNew Int)
-(pub fn (ffiCellNew)
-  (let ((c (memAlloc 16)))
-    { (__retain c) c }))
+(pub fn (ffiCellNew) (ffiCellNewN 2))
 
 ; An out-cell of `n` words (at least two: a status' message is
 ; `{ptr, len}`), for a record that crosses as its fields (one word
@@ -103,10 +101,14 @@
     { (__retain c) c }))
 
 ; Word `i` of a Rust-owned word buffer: what a generated wrapper reads
-; a record's fields or a list's lengths through before freeing it.
+; a record's fields or a list's lengths through before freeing it. The
+; same read as `ffiCellWord`, kept under its own name because the two
+; describe different things to a reader of the generated module - one
+; is Rust's buffer, one is the cell the wrapper allocated - and written
+; in terms of it so there is one load.
 (pub :: ffiWordAt (-> Int Int Int))
 (pub fn (ffiWordAt p i)
-  (__load64 p i))
+  (ffiCellWord p i))
 
 (pub :: ffiCellFree (-> Int Int))
 (pub fn (ffiCellFree c)

@@ -193,7 +193,7 @@
     (__p (ffiCellWord __c 0))
     (__n (ffiCellWord __c 1))
   )
-    (if (== __st 0)
+    (if (== __st ffiStatusOk)
       {
         (ffiCellFree __c)
         (Some (!= __p 0))
@@ -215,7 +215,7 @@
     (__p (ffiCellWord __c 0))
     (__n (ffiCellWord __c 1))
   )
-    (if (== __st 0)
+    (if (== __st ffiStatusOk)
       {
         (ffiCellFree __c)
         (Some __p)
@@ -326,7 +326,7 @@
     (__p (ffiCellWord __c 0))
     (__n (ffiCellWord __c 1))
   )
-    (if (== __st 0)
+    (if (== __st ffiStatusOk)
       (let ((__v (__glyphFromWords (vecWithCapacity __n) __p __n 0)))
         {
           (ffiFreeWords __p (* __n 2))
@@ -369,12 +369,12 @@
     (__p (ffiCellWord __c 0))
     (__n (ffiCellWord __c 1))
   )
-    (if (== __st 0)
+    (if (== __st ffiStatusOk)
       {
         (ffiCellFree __c)
         (Some (Ok (Thing (ffiHandleNew __p thingDropFn))))
       }
-      (if (== __st 2)
+      (if (== __st ffiStatusNone)
         {
           (ffiCellFree __c)
           None
@@ -401,7 +401,7 @@
     (__n (ffiCellWord __c 1))
     (__ch (cast Char __p))
   )
-    (if (== __st 0)
+    (if (== __st ffiStatusOk)
       {
         (ffiCellFree __c)
         (Some __ch)
@@ -423,12 +423,12 @@
     (__p (ffiCellWord __c 0))
     (__n (ffiCellWord __c 1))
   )
-    (if (== __st 0)
+    (if (== __st ffiStatusOk)
       {
         (ffiCellFree __c)
         (Ok (Some __p))
       }
-      (if (== __st 2)
+      (if (== __st ffiStatusNone)
         {
           (ffiCellFree __c)
           (Ok None)
@@ -454,7 +454,7 @@
     (__p (ffiCellWord __c 0))
     (__n (ffiCellWord __c 1))
   )
-    (if (== __st 0)
+    (if (== __st ffiStatusOk)
       (let ((__v (ffiStrsToVec __p __n)))
         {
           (ffiFreeStrList __p __n)
@@ -483,12 +483,12 @@
     (__w2 (cast Bool (ffiCellWord __c 2)))
     (__r (Pixel __w0 __w1 __w2))
   )
-    (if (== __st 0)
+    (if (== __st ffiStatusOk)
       {
         (ffiCellFree __c)
         (Ok (Some __r))
       }
-      (if (== __st 2)
+      (if (== __st ffiStatusNone)
         {
           (ffiCellFree __c)
           (Ok None)
@@ -514,7 +514,7 @@
     (__p (ffiCellWord __c 0))
     (__n (ffiCellWord __c 1))
   )
-    (if (== __st 0)
+    (if (== __st ffiStatusOk)
       (let ((__v (ffiBytesToStr __p __n)))
         {
           (ffiFreeBytes __p __n)
@@ -575,7 +575,7 @@
     (__p (ffiCellWord __c 0))
     (__n (ffiCellWord __c 1))
   )
-    (if (== __st 0)
+    (if (== __st ffiStatusOk)
       (let ((__v (ffiStrsToVec __p __n)))
         {
           (ffiFreeStrList __p __n)
@@ -583,7 +583,7 @@
           (Some (Ok __v))
         }
       )
-      (if (== __st 2)
+      (if (== __st ffiStatusNone)
         {
           (ffiCellFree __c)
           None
@@ -634,7 +634,7 @@
                 (__w2 (cast Bool (ffiCellWord __c 2)))
                 (__r (Pixel __w0 __w1 __w2))
               )
-                (if (== __st 0)
+                (if (== __st ffiStatusOk)
                   {
                     (ffiCellFree __c)
                     (Some __r)
@@ -684,7 +684,7 @@
     (__w2 (cast Bool (ffiCellWord __c 2)))
     (__r (Pixel __w0 __w1 __w2))
   )
-    (if (== __st 0)
+    (if (== __st ffiStatusOk)
       {
         (ffiCellFree __c)
         (Ok __r)
@@ -729,7 +729,7 @@
     (__p (ffiCellWord __c 0))
     (__n (ffiCellWord __c 1))
   )
-    (if (== __st 0)
+    (if (== __st ffiStatusOk)
       (let ((__v (__pixelFromWords (vecWithCapacity __n) __p __n 0)))
         {
           (ffiFreeWords __p (* __n 3))
@@ -758,7 +758,7 @@
     (__n (ffiCellWord __c 1))
     (__f (cast Float __p))
   )
-    (if (== __st 0)
+    (if (== __st ffiStatusOk)
       {
         (ffiCellFree __c)
         (Ok __f)
@@ -819,7 +819,7 @@
         (__p (ffiCellWord __c 0))
         (__n (ffiCellWord __c 1))
       )
-        (if (== __st 0)
+        (if (== __st ffiStatusOk)
           {
             (ffiCellFree __c)
             (Some (Thing (ffiHandleNew __p thingDropFn)))
@@ -874,7 +874,7 @@
     (__p (ffiCellWord __c 0))
     (__n (ffiCellWord __c 1))
   )
-    (if (== __st 0)
+    (if (== __st ffiStatusOk)
       {
         (ffiCellFree __c)
         (Ok (Thing (ffiHandleNew __p thingDropFn)))
@@ -899,7 +899,7 @@
     (__p (ffiCellWord __c 0))
     (__n (ffiCellWord __c 1))
   )
-    (if (== __st 0)
+    (if (== __st ffiStatusOk)
       (let ((__v (ffiWordsToVec __p __n)))
         {
           (ffiFreeWords __p __n)
@@ -927,7 +927,7 @@
     (__p (ffiCellWord __c 0))
     (__n (ffiCellWord __c 1))
   )
-    (if (== __st 0)
+    (if (== __st ffiStatusOk)
       (let ((__v (ffiWordListsToVec __p __n)))
         {
           (ffiFreeWordLists __p __n)
@@ -955,7 +955,7 @@
     (__p (ffiCellWord __c 0))
     (__n (ffiCellWord __c 1))
   )
-    (if (== __st 0)
+    (if (== __st ffiStatusOk)
       {
         (ffiCellFree __c)
         (Ok __p)

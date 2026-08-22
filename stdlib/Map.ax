@@ -191,7 +191,7 @@
 ; Eight, and never smaller: at the 0.5 load factor below, an 8-slot table
 ; holds 4 entries before rehashing, which covers the many tiny maps a
 ; compiler makes (a match arm's bindings, a module's exports) in one
-; allocation. It must also be at least 2 for `mapGrownCap`'s doubling to
+; allocation. It must also be at least 2 for `mapWithCapacity`'s doubling to
 ; make progress and for a probe to have somewhere to go.
 (:: mapDefaultCap Int)
 (fn (mapDefaultCap) 8)
@@ -223,7 +223,7 @@
 ; Powers of two are required, not preferred: `mapSlotOf` reduces with
 ; `%`, and a non-power-of-two `cap` would still work but would cost a
 ; real division per probe instead of a mask once the optimiser sees the
-; constant. It also keeps `mapGrownCap` doubling exact.
+; constant. It also keeps `mapWithCapacity`'s doubling exact.
 (pub :: mapRoundUpPow2 (-> Int Int))
 (pub fn (mapRoundUpPow2 n)
   (if (>= mapDefaultCap n)

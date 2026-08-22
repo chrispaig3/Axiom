@@ -5,26 +5,24 @@ Axiom: what a macro is, when it expands, what it may and may not see,
 what hygiene guarantees, and what a conforming implementation owes the
 tools that read macro-generated code.
 
-This document is the specification. [macros.md](macros.md) is the
-measured status of the current implementation and the order the rest is
-planned in; [v1-roadmap.md §4.2](v1-roadmap.md) is the design sketch
-this expands. Where they disagree with this document, this document is
-wrong until it is fixed.
+This document is the specification, and since 2026-08-22 it is also the
+only measured status of the implementation: every rule carries its own
+marker and names the fixture that establishes it, so there is no second
+document to drift against this one. [v1-roadmap.md §4.2](v1-roadmap.md)
+records the design decision this expands. Where anything else in the
+repository disagrees with this document, this document is wrong until it
+is fixed.
 
-**One disagreement was live when this document landed, and it
-arbitrated.** `README.md` marked Macros **Complete** and asserted
-"pattern-substitution expansion before sema with hygiene (scope sets +
-gensym) … expansion backtrace on diagnostics". `CONTRIBUTING.md` marked
-the same feature **Partial** — "no repetition, no declaration-level
-macros, no derive" — and [macros.md](macros.md) agreed with it. The
-binary agreed with the second: there are no scope sets (`MAC-HYG-2` is
-renaming), no patterns (`MAC-LANG-14`), and the backtrace field is
-populated by nothing (`MAC-DIAG-4`). The README row was corrected to
-**Partial** on 2026-08-14. What the episode proves is kept here:
-`check-doc-drift.sh` could not arbitrate, because its status-row rule
-only checks that a **Complete** row names an existing fixture, never
-that the row's prose is true — a false claim passed CI for as long as
-it existed, and would again.
+**A status table cannot arbitrate, and one episode proves it.**
+`README.md` and `CONTRIBUTING.md` once described this feature
+differently — **Complete** with "hygiene (scope sets + gensym) …
+expansion backtrace on diagnostics" against **Partial** with "no
+repetition, no declaration-level macros, no derive" — and the binary
+agreed with the second. `check-doc-drift.sh` could not tell them apart,
+because its status-row rule only checks that a **Complete** row names an
+existing fixture, never that the row's prose is true; a false claim
+passed CI for as long as it existed, and would again. That is why every
+rule below names a probe instead of a status word.
 
 Conventions — rule identifiers, RFC 2119 keywords, and the **H** / **P**
 / **R** status markers — are as defined in
@@ -238,11 +236,11 @@ existing program changes meaning, and one rule is the list of length
 one. Each rule's pattern repeats the macro name in head position, as
 `syntax-rules` does.
 
-**Selection was by parameter COUNT until 2026-08-16 and is a MATCH
-now** (`MAC-LANG-15`, `MAC-LANG-18`): the rules are tried in order and
-the first whose pattern matches wins, where a pattern may be a binder,
-`_`, a literal or a parenthesised shape. Arity survives as a
-pre-filter — a rule whose element count differs cannot match — so
+**Selection is a MATCH, not a count** (`MAC-LANG-15`, `MAC-LANG-18`):
+the rules are tried in order and the first whose pattern matches wins,
+where a pattern may be a binder, `_`, a literal or a parenthesised
+shape. Arity survives as a pre-filter — a rule whose element count
+differs cannot match — so
 `tests/selfhost/390-multi-rule-macro.ax` (51), which selects across
 three arities, is unchanged, and
 `tests/selfhost/392-macro-patterns.ax` (127) is the same macro shape
@@ -442,14 +440,7 @@ covering one arity and covering a range.
 each of that pattern's binders to a sequence in lockstep. That is a
 second feature and is refused rather than half-built.
 
-*This paragraph read "`...` does not lex **for the compiler**" until
-v1 landed on 2026-08-16*, and it described that day's compiler
-exactly: `.` was `TK_DOT` and never an identifier character, so `...`
-was three tokens and `(macro m ((m x ...) …))` was `AX2001` at the
-first dot — latterly reported as *expected a pattern, found `.`*,
-`MAC-LANG-15`'s message rather than the old *expected identifier*.
-
-**`...` lexes now, and it lexes as an ORDINARY IDENTIFIER.** Three
+**`...` lexes, and it lexes as an ORDINARY IDENTIFIER.** Three
 dots are one token and there is no new token kind: `self_host/lexer.ax`
 meets byte 46, looks at the next two, and emits `TK_IDENT` spanning
 all three when they are dots too, falling back to `TK_DOT` for a
@@ -700,11 +691,10 @@ specifies what a macro author owes because of it.
   `AX3018`.
 
   The diagnostic anchors at the **expansion**, not at the surplus
-  argument. [macros.md](macros.md)'s table says "at the surplus
-  argument"; measured, `(fn (main) (one 5 6))` reports at columns 17–18,
+  argument: measured, `(fn (main) (one 5 6))` reports at columns 17–18,
   which is the `5` the macro expanded to. A conforming implementation
   **SHOULD** anchor it at the surplus argument, which is the token the
-  author can delete.
+  author can delete. That gap is `MAC-EXP-8`'s recorded defect.
 
 Both behaviours replace silent miscompiles: under-application used to
 leave the parameter's own name in the emitted IR (`add i64 40, %q`,
@@ -1055,19 +1045,18 @@ reference to `+`, to a constructor (constructors are not mangled), or to
 a name the macro's module merely imported — each finds nothing and stays
 bare, resolving outward exactly as before.
 
-### 3.4 What hygiene does not yet cover
+### 3.4 The four holes hygiene had, and what each cost
 
 **MAC-HYG-8 (H; all four closed, the last two on 2026-08-16).** These
-four holes **SHALL** close, and all four have. Each is stated with what
-happens today, because each is a place a reader could reasonably
-believe the guarantee is total:
+four holes **SHALL** close, and all four have. Each is kept with what
+it cost while it was open, because what a hole cost is the argument
+for the mechanism that closed it:
 
 1. **A macro defined in the entry file** — **closed 2026-08-16.**
    Entry-file declarations are left bare by import resolution — there
    is no `Mod$name` to resolve to — so a caller's local binding
-   captured a template's free identifier. The earlier revision of this
-   paragraph called that "a loud failure rather than a wrong answer";
-   **measured, it was a silent wrong answer**: an entry-file `(macro
+   captured a template's free identifier, and **measured, that was a
+   silent wrong answer**: an entry-file `(macro
    (useHelper v) (helper v))` invoked under `(let ((helper (lambda (y)
    0))) …)` answered **0** where the macro's own `helper` answers 40,
    at exit 0, with no diagnostic from any pass. From 2026-08-15 it
@@ -1128,9 +1117,7 @@ believe the guarantee is total:
    template calling a function its module imported found no such
    declaration, stayed bare, and was captured by the caller — the same
    one-macro-two-meanings failure `MAC-HYG-6` closed, in the case
-   `MAC-HYG-6` does not reach. This hole was absent from
-   [macros.md](macros.md) §3 until 2026-08-14 — the residue read as
-   benign there.
+   `MAC-HYG-6` does not reach.
 
    **The blocker this rule recorded was wrong, and the correction is
    the whole of the fix.** It said closing the hole needs import
@@ -1521,14 +1508,11 @@ The v1 surface, all of it measured
   are `AX3021` **at the macro's own line**, before any invocation
   exists (`MAC-SAFE-4`'s loud-at-definition shape;
   `tests/diagnostics/510-decl-macro-template-kind.ax`,
-  `565-macro-type-template-limits.axbad`). This sentence listed
-  `type`, `trait`, `effect` and `import` until 2026-08-16: `type` and
-  `effect` joined the template surface on 2026-08-15 and stopped
-  refusing at all — `tests/selfhost/389-type-effect-templates.ax`
-  (38) is where a macro generates an alias and an effect declaration
-  and names both from its arguments — and `trait` never produced
-  `AX3021` in the first place, as the paragraph's own last sentence
-  has always said. Both survivors are refusals
+  `565-macro-type-template-limits.axbad`). `type` and `effect` joined
+  the template surface on 2026-08-15 and do not refuse at all —
+  `tests/selfhost/389-type-effect-templates.ax` (38) is where a macro
+  generates an alias and an effect declaration and names both from its
+  arguments. Both survivors are refusals
   by **decision** rather than by schedule, and this specification says
   so rather than leaving them on a list: an `import` inside a template
   would reopen module resolution, which has already run when phase D
@@ -1717,8 +1701,12 @@ mechanisms, and neither is a runtime check:
 
 - The **expander** owns the string's shape. A malformed format string
   is `AX3031 malformed-format-string`, at expansion time, with the
-  caret **inside the literal** on the offending byte. Nine cases, one
-  fixture each (`tests/diagnostics/570-format-refusals.ax`).
+  caret **inside the literal** on the offending byte. Eleven cases in
+  one fixture (`tests/diagnostics/570-format-refusals.ax`), each a
+  distinct shape: an unclosed hole, an unopened `}`, an empty `{}`, a
+  hole that names nothing, an unterminated name, an unclosed
+  specifier, an unknown specifier type, a bare `.`, trailing bytes
+  after a specifier, and a width and a precision above 1,000,000.
 - The **checker** owns the value's type. A specifier chooses a
   function with a type, so a well-formed specifier applied to the
   wrong type is an ordinary `AX3004` at the invocation — `{s:.2}` on a
@@ -1938,20 +1926,35 @@ disagreeing.
 ## 7. Diagnostics
 
 **MAC-DIAG-1 (H).** Macro diagnostics live in the semantic range,
-because expansion is semantic-analysis-time work. Seven codes exist
-(macros.md listed five until 2026-08-14; it lists all seven now):
+because expansion is semantic-analysis-time work. Thirteen codes can
+reach a macro author; `axiom explain --list` is the authority on the
+set, and all but `AX3023` are constructed in `self_host/expand.ax`:
 
 | Code | Slug | Fires when |
 |---|---|---|
-| `AX3018` | `macro-arity` | too few arguments (`MAC-EXP-8`) |
+| `AX3018` | `macro-arity` | an invocation no rule accepts (`MAC-EXP-8`, `MAC-LANG-18`). For the head-list form that is still counting — too FEW arguments; a longer spine is not an error in expression position, since the surplus is applied to whatever the macro produced. In DECLARATION position the message names the SHAPES the rules accept — "no rule of macro `n` matches this invocation; it accepts …" — and an invocation whose count some rule declares still lands here if no rule's shape matches. The slug stayed `macro-arity` because `MAC-LANG-18` specifies the generalisation by name |
 | `AX3019` | `macro-recursion-limit` | instantiation depth exceeded 128 |
 | `AX3020` | `macro-duplicate-parameter` | two parameters share a name |
-| `AX3021` | `macro-template-unsupported` | a template form substitution cannot handle — no reachable producer, by design (`MAC-CAP-2`) |
+| `AX3021` | `macro-template-unsupported` | a template form substitution cannot handle. Its *expression*-template arm has no reachable producer, by design (`MAC-CAP-2`); its reachable producer is a declaration template generating a kind outside the v1 surface, at the macro's own line |
 | `AX3022` | `macro-set-target` | a parameter used as a `set` target, given an expression |
 | `AX3023` | `private-name` | a macro its module does not export — the general visibility code, reached by macros since `MAC-LANG-9` |
-| `AX3024` | `macro-expansion-limit` | the output tree exceeded 1024 deep or 2,000,000 nodes |
+| `AX3024` | `macro-expansion-limit` | the output tree exceeded 1024 deep or 2,000,000 nodes. The parser's limits measure the source; these measure what expansion produced from it |
+| `AX3027` | `declaration-macro` | every way a declaration-position invocation fails: unknown head (a typo'd keyword lands here, where it used to be a bare `AX2003` that stopped the parse), either template kind across the position boundary, a non-identifier argument in a name position, and a module-side invocation reaching a pipeline that carries no mangling records. `axiom explain AX3027` is the catalogue |
+| `AX3028` | `syntax-query` | every `syntax/*` query with no answer (`MAC-CAP-5`/`MAC-CAP-6`): an unknown or wrong-position head (the vocabulary is CLOSED), a subject with nothing to answer, a query written outside a macro template, a declaration named into the reserved `syntax/` prefix. `axiom explain AX3028` is the catalogue |
+| `AX3031` | `malformed-format-string` | the expander's half of `MAC-CAP-10.3`, with the caret inside the literal on the offending byte |
+| `AX3033` | `macro-unreachable-rule` | a rule an earlier one starves: rules are tried in order, and a rule whose every element is a plain binder matches everything of its arity, so nothing of that arity after it can run. Two rules of one arity are fine when their shapes differ — that is what patterns are for |
+| `AX3034` | `macro-ellipsis` | an ellipsis at the wrong depth: a repeating name used without `...`, `...` after something that does not repeat, two `...` in one rule, or a repeat over a pattern rather than a bare name. The first two report at the invocation, the last two at the macro |
+| `AX3035` | `macro-binder-target` | a parameter in BINDER position given something that is not a variable (`MAC-HYG-10`); the same rule `AX3022` follows for `set` targets |
 
 `AX3006` (duplicate definition) also reaches macros (`MAC-LANG-8`).
+
+`AX3018` and `AX3019` each replace a failure that was not a diagnostic
+at all. Under-application left the parameter's own name in the
+generated code (`add i64 40, %q`, rejected by `opt` as an undefined
+value); over-application dropped the surplus argument **without
+evaluating it**, so its side effects silently did not happen; and
+`(macro (loopy x) (loopy x))` segfaulted the compiler with no output
+and no diagnostic, in about 10 ms of CPU time.
 
 **MAC-DIAG-2 (H).** Every macro diagnostic **MUST** anchor at a span in
 the file being compiled (`MAC-EXP-14`) and **MUST** name the macro in
@@ -2231,10 +2234,8 @@ Under `MAC-CAP-5` and `MAC-CAP-8`. This is the acceptance criterion
 and invocation, and it answers 101 from three `eqColor` probes on the
 first complete run of the query vocabulary. The fieldful form further
 down is measured too, since later the same day:
-`tests/selfhost/377-derive-eq-fieldful.ax` (30). That sentence read
-"still waits on `syntax/binders` and `syntax/fold`" until 2026-08-16 —
-those two rows landed with the fixture that spends them, and the
-waiting ended the day it was written down.
+`tests/selfhost/377-derive-eq-fieldful.ax` (30) — `syntax/binders` and
+`syntax/fold` landed with the fixture that spends them.
 
 ```scheme
 (pub macro deriveEq
@@ -2492,7 +2493,7 @@ convention; the list, not any one entry, is the argument for gating.
 | `tests/diagnostics/510-decl-macro-template-kind.ax` | CAP-8's template-kind `AX3021`, at the macro's own line |
 | `tests/selfhost/381-macro-type-templates.ax` (32) | CAP-7/CAP-8's `data` and `struct` templates — joined constructor names, two invocations giving two distinct types, and `deriveEq` querying a type generated in the same round |
 | `tests/selfhost/389-type-effect-templates.ax` (38) | CAP-8's `type` and `effect` templates — a joined alias name written in TYPE position by the signature beside it, and an effect whose name, operation and arrow all come from the invocation |
-| `tests/diagnostics/565-macro-type-template-limits.axbad` | what still refuses — an `import` template and a nested `macro` at the macro's line (this row named `type` and `import` until 2026-08-16; the fixture's two `AX3021` subjects are `badMacro` and `badImport`, and it has carried no `type` case since `type` became a template kind), and the reserved `syntax/` prefix in a data name and a constructor name, both positions the parser could not even express before (`.axbad`: a joined name at top level is a shape the formatter must not learn, the same reason `525` carries the extension) |
+| `tests/diagnostics/565-macro-type-template-limits.axbad` | what still refuses — an `import` template and a nested `macro` at the macro's line (the fixture's two `AX3021` subjects are `badMacro` and `badImport`), and the reserved `syntax/` prefix in a data name and a constructor name, both positions the parser could not even express before (`.axbad`: a joined name at top level is a shape the formatter must not learn, the same reason `525` carries the extension) |
 | `tests/selfhost/388-module-side-decl-macro.ax` (239) | EXP-16's module-side invocation — the prelude's derive spent by a module on its own type, a private product the module calls, and an entry-file name coexisting with the module's mangled one; the unfixed compiler refuses at the module's line |
 | `tests/diagnostics/515-decl-macro-in-module.ax` | EXP-16's visibility rule — a generated declaration from a non-`pub` template is `AX3023` outside its module, and the module's own call to it still works |
 | `tests/selfhost/374-derive-eq.ax` (101) | CAP-5/CAP-6 — §10.2's nullary deriveEq verbatim, the roadmap's acceptance criterion; the unfixed compiler dies parsing the joined name |
@@ -2516,7 +2517,7 @@ convention; the list, not any one entry, is the argument for gating.
 | `tests/diagnostics/520-syntax-query-misuse.ax` | CAP-6's closure — unknown query, wrong-kind subject, missing subject, all AX3028 |
 | `tests/selfhost/382-format-macros.ax` (255) | CAP-10's lowering — eight independent claims, one bit each, so a partial regression names itself in the exit status: interpolation, escaped braces, the three alignments, signed zero-padding, both hex cases, precision, conversion-inside-padding, and the degenerate literals |
 | `tests/stdlib/365-format.ax` | CAP-10 end to end, against a golden stdout — what actually reaches the descriptor |
-| `tests/diagnostics/570-format-refusals.ax` | CAP-10.3's expander half — all nine `AX3031` cases, each caret inside the literal on the offending byte |
+| `tests/diagnostics/570-format-refusals.ax` | CAP-10.3's expander half — all eleven `AX3031` cases, each caret inside the literal on the offending byte |
 | `tests/diagnostics/525-syntax-reserved.axbad` | CAP-6's reservation — syntax/ spellings outside a template, including the one-paren-short near-miss (`.axbad`: the formatter must not learn these shapes) |
 | `tests/diagnostics/485-qualified-private-macro.ax` | LANG-12's `AX3023` route for a qualified private macro |
 | `tests/diagnostics/490-expansion-backtrace.ax` | DIAG-4 — one frame and a nested two, spans verified against the macro's own file |
@@ -2535,10 +2536,36 @@ convention; the list, not any one entry, is the argument for gating.
 | `tests/selfhost/MacScope.ax` | the cross-module helper HYG-6 needs |
 | `tests/fmt/parity/060-splice-refused.axp` | the backtick refusal LANG-16 would flip |
 | `scripts/check-degenerate.sh` | SAFE-4 (four empty-form macro cases) |
-| `scripts/check-diagnostics.sh` | the seven macro AXDL goldens above, byte for byte, plus a silence sweep with a floor of 80 files over `tests/selfhost/` |
+| `scripts/check-diagnostics.sh` | every `tests/diagnostics/` case above, byte for byte against its checked-in AXDL golden, plus a silence sweep whose floor over `tests/selfhost/` is 150 files |
 | `scripts/check-tree-sitter.sh` | INT-6 — `grammar.js`'s `macro_declaration` must parse every `.ax` in the repository |
 | `scripts/check-reproducible.sh` | EXP-12 |
 | `tests/lsp/drive.py`'s macro-navigation case | TOOL-2 and TOOL-3 — definition lands on the macro's own name, hover quotes its declaration, a non-macro name answers null, and both are derived from the document's bytes rather than from a golden |
+
+Reproduce the macro corpus and its refusals directly:
+
+```bash
+scripts/check-self-host.sh 36        # 360-369, the macro corpus
+scripts/check-diagnostics.sh 99      # 990-993 among them, the refusals
+```
+
+**The ablation behind the "was" column of every table in this
+document** is a compiler built from the commit before expansion moved
+ahead of the checker. Each case answers the middle column when built
+that way and the right column when built from trunk, which is what
+makes the fixture a measurement rather than a regression guard:
+
+| Case | want | before | after |
+|---|---|---|---|
+| `361-macro-hygiene` | 143 | 208 | 143 |
+| `362-macro-coverage` | 57 | 4 (`AX4003`) | 57 |
+| `363-macro-shadowing` | 3 | 18 | 3 |
+| `364-macro-definition-site` | 157 | 1 (`AX3004`) | 157 |
+
+and one refusal that used to be an acceptance:
+
+| Case | before | after |
+|---|---|---|
+| `993-macro-shadows-function` | `OK`, exit 11 | `AX3006`, exit 1 |
 
 Unpinned, and therefore documentation rather than specification:
 `MAC-LANG-3`'s two spellings of a zero-parameter invocation,
@@ -2576,116 +2603,29 @@ That is what makes the number a fact about the run rather than a
 constant a reader has to look up, and it is why the goldens pin the text
 rather than the value alone.
 
-### 11.3 The order the rest should land in
+### 11.3 What is left
 
-1. ~~**`MAC-LANG-12` + `MAC-HYG-8`**~~ — **landed 2026-08-14**, by
-   splitting the reference instead of mangling the declarations:
-   qualification works (hole 2), an entry-file function outranks an
-   imported macro (hole 3), and a qualified private macro is `AX3023`.
-   Hole 4, the imported-name capture, followed on 2026-08-16 — this
-   list said it needed import edges the merged declaration list does
-   not carry, and it does not: the list carries each declaration's
-   module, which is the only thing the lookup ever needed. Hole 1, the
-   entry-file capture, closed the same day and closed the heading with
-   it — and it did not need `MAC-HYG-9`'s scope sets either, which is
-   twice this item has priced a hole against a mechanism it turned out
-   not to require. A macro is a top-level declaration, so its
-   template's free identifiers had no enclosing local scope where they
-   were written; one bit on the reference says so, and both resolvers
-   read it (`tests/selfhost/394-macro-entry-capture.ax`, 130). Nothing
-   remains under this heading. It read "what remains under this
-   heading is the entry-file capture (hole 1), which needs
-   `MAC-HYG-9`'s scope sets" until 2026-08-16.
-2. ~~**`MAC-DIAG-4`**~~ — **landed 2026-08-14**, before the items that
-   make diagnostics inside expansions more common, as this list
-   ordered. The frame element is `(name, span, unit)`, the join is by
-   invocation-span handle, and `MAC-DIAG-5`'s second snippet followed
-   on 2026-08-15, which finished the rendering. This sentence named
-   that snippet as what remained until 2026-08-16.
-3. ~~**`MAC-CAP-8`**~~ — **v1 landed 2026-08-14**, with `MAC-EXP-16`'s
-   phase split: rule-form declaration macros generating `fn`/`::`
-   declarations and further invocations, invoked from the entry file,
-   parameters substituting in name, type and expression positions.
-   `data` and `struct` templates joined on 2026-08-15, which is what
-   makes `MAC-CAP-7` hold. `type` and `effect` templates followed on
-   2026-08-15 and closed the kind list; `import` and nested `macro`
-   are refusals by decision, not schedule, so nothing remains under
-   this heading. (It read "what remains under this heading: `type` and
-   `effect` templates" while naming the date they landed, which is the
-   sentence half-updated rather than swept.) Module-side invocation,
-   `MAC-EXP-16`'s stated limit, landed 2026-08-15: a module invokes a
-   declaration macro over its own declarations, and phase D applies
-   the mangling and visibility import resolution would have. The
-   prerequisite for everything in §10.2–§10.5 now exists.
-   **`MAC-LANG-15` and `MAC-LANG-18` followed on 2026-08-16**: a rule's
-   parameters are patterns, selection is a match in rule order, and
-   the two refusals around it were re-derived rather than kept — the
-   unreachable-rule test narrowed to irrefutability and took its own
-   code, and the no-match diagnostic lists shapes instead of arities.
-   **`MAC-LANG-16` v1 followed the same day**: one repeating
-   element per rule, bound as a sequence and spliced by `...`, which
-   cost one lexer rather than the four implementations this list
-   predicted. What remains under this heading is `MAC-LANG-17`'s
-   literal identifiers, which need `MAC-HYG-9`, and a repeat over a
-   nested pattern.
-4. ~~**`MAC-CAP-5`/`MAC-CAP-6`**~~ — **v1 landed 2026-08-14, in three
-   commits the same day**: the closed vocabulary exists and refuses
-   (`AX3028`); `syntax/join`, `syntax/constructors` and arm-position
-   `syntax/for` run §10.2's nullary `deriveEq` verbatim (fixture 374,
-   the roadmap's acceptance criterion); `syntax/fields`,
-   `syntax/same`, declaration- and argument-position `syntax/for` and
-   field-name substitution run §10.3's `deriveLenses` verbatim
-   (fixture 375); and `syntax/binders`/`syntax/fold` run the fieldful
-   free-function `deriveEq` over a mixed-arity sum (fixture 377).
-   `impl` templates landed in the fourth commit — fixture 378 runs
-   the spec's own fieldful form and measures instance COMPOSITION
-   through `MAC-INT-4` dispatch. Module-side query SUBJECTS landed
-   in the seventh commit — `stdlib/Pre.ax` ships `deriveEq`, and
-   fixture 379 derives over an imported type. **The vocabulary
-   CLOSED on 2026-08-15**, eighth commit: `syntax/name`,
-   `syntax/arity` and `syntax/defined` each landed with the library
-   macro that spends it (`deriveShow`, `deriveArity`, `showOr`),
-   which is what `MAC-CAP-6`'s closure rule asks for, and a join
-   became usable as a REFERENCE and as another query's argument so
-   that a macro can call what it names. **The heading CLOSED on
-   2026-08-15**, ninth commit: the parallel `syntax/for` form landed
-   in all three positions against one shared binding-form normaliser,
-   and `syntax/join` nests, so nested declaration iteration can name
-   its products. What remains near this heading belongs to
-   `MAC-CAP-8`, not to the queries — and both closed on 2026-08-15:
-   the module-side INVOCATION limit, and the `type` and `effect`
-   template kinds.
-5. ~~**`MAC-LANG-14`–`MAC-LANG-18`** — rules, patterns and ellipsis.~~
-   **Rules landed 2026-08-15; patterns, selection and repetition on
-   2026-08-16.** The rule form takes a list of rules whose parameters
-   are PATTERNS, tried in rule order with the first match winning
-   (`MAC-LANG-15`, `MAC-LANG-18`), and a rule's last element may
-   REPEAT (`MAC-LANG-16` v1) — `tests/selfhost/390-multi-rule-macro.ax`
-   51, `392-macro-patterns.ax` 127, `393-macro-ellipsis.ax` 63.
-   What is left under this heading is `MAC-LANG-17`'s literal
-   identifiers, which need scope sets, a repeat over a nested pattern,
-   and rules over EXPRESSION templates.
+Three things, and they are the same three `MAC-LANG-14`–`MAC-LANG-18`
+and the Language row of the conformance table name:
 
-   Three notes were probed here on 2026-08-15 and this item scheduled
-   the work behind them. **Two of the three were wrong, and doing the
-   work is what showed it** — the record is kept because a price
-   quoted and then measured is the most useful thing this list holds:
+1. **`MAC-LANG-17` — literal identifiers**, where a head's *spelling*
+   discriminates rather than its shape. It needs `MAC-HYG-9`'s scope
+   sets, because two identifiers spelled alike are the same pattern
+   only if they mean the same binding, and it is why §10.4's
+   `simplify` table does not run yet.
+2. **`MAC-LANG-16`'s second half — a repeat over a nested pattern**,
+   binding each of that pattern's binders to a sequence in lockstep.
+   Refused rather than half-built (§1.5).
+3. **`MAC-LANG-14` over EXPRESSION templates.** Rules belong to the
+   rule form today, because the two forms differ in what a template
+   IS; extending them to the head-list form is a separate decision,
+   not a port.
 
-   - *"it touches **four** implementations of the token set, not
-     three."* It touched ONE. `...` lexes as an ordinary identifier —
-     three dots, one token, no new token kind — so `format.ax` needed
-     nothing (a rule form's interior is copied verbatim) and
-     tree-sitter already parsed it, its identifier rule admitting `.`.
-   - *"the ellipsis is blocked on a byte, not a design: making `.`
-     gluable is not a local change — it is also the gensym separator
-     `MAC-HYG-3` relies on being unspellable."* A single `.` was never
-     made gluable. The lexer looks at the next two bytes and takes all
-     three or none, so one dot is untouched and the gensym separator,
-     `%__evw.h` and `%__scr.h` are all exactly as unspellable as
-     before.
-   - *"`MAC-LANG-14` is not ready to implement as written. Its own
-     example does not parse."* **This one held**, and it was the
-     valuable one: the example really did not parse, and the decision
-     it forced — rules belong to the RULE form, because the two forms
-     differ in what a template IS — is the shape the implementation
-     took.
+Everything else this list once scheduled has landed, and two of its
+price estimates are worth keeping because they were measured and
+wrong in the expensive direction — both are recorded where the feature
+is specified rather than here. The imported-name capture was priced
+against import edges the merged declaration list does not carry, and
+needed only each declaration's own module (§3.4). The ellipsis was
+priced at four implementations of the token set, and cost one, because
+`...` lexes as an ordinary identifier (§1.5's table).

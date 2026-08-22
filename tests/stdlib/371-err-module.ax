@@ -1,4 +1,4 @@
-; exit 127 (see .exit)
+; exit 255 (see .exit)
 ; `stdlib/Err.ax` — the failure type, the error record, the checked
 ; operators, and the propagation form, exercised across a module
 ; boundary because that is where every one of them will be used from.
@@ -19,6 +19,15 @@
 ; DECLARED `Error` gets the concrete type back. `withContext` is built
 ; that way and this term is what would notice if it stopped being.
 ;
+; docs/error-model.md called this file the one that "exercises the whole
+; surface". It did not: `isOk`, `isErr`, `errMessage`, `errContext`,
+; `mapOk`, `remChecked` and `shrChecked` were exported, four of them
+; documented, and named by no fixture in the tree - so seven public
+; combinators were pinned by nothing. Term 128 is them.
+;
+;  128  isOk/isErr agree, mapOk maps through, errMessage and
+;       errContext read back what mkError and errContextOf wrote, and
+;       remChecked and shrChecked raise the codes divChecked does
 ;   64  divChecked answers Ok, and Err with the right code on zero
 ;   32  the INT_MIN / -1 guard fires, and shlChecked refuses 64
 ;   16  try! propagates an error unchanged through a two-step chain
@@ -64,6 +73,9 @@
 (:: double (-> Int (Result Int Error)))
 (fn (double n) (Ok (* n 2)))
 
+(:: inc (-> Int Int))
+(fn (inc n) (+ n 1))
+
 (:: textOf (-> (Result Int Error) String))
 (fn (textOf r)
   (match r
@@ -74,6 +86,23 @@
 (fn (main)
   (let ((mut acc 0) (mut steps 0))
     {
+      (set acc (+ acc (* 128 (b2i (&& (&& (&& (isOk (divChecked 10 2))
+                                              (isErr (divChecked 1 0)))
+                                          (== (valueOr (mapOk (divChecked 10 2) inc) 0)
+                                              6))
+                                      (&& (&& (strEq (errMessage (mkError 9 "absent"))
+                                                     "absent")
+                                              (strEq (errContext
+                                                       (errContextOf (mkError 9 "absent")
+                                                                     "loading"))
+                                                     "loading"))
+                                          (&& (&& (== (valueOr (remChecked 10 3) 0) 1)
+                                                  (== (codeOf (remChecked 10 0))
+                                                      (errDivideByZero)))
+                                              (== (codeOf (shrChecked 1 100))
+                                                  (errShiftTooWide)))))))))
+      (set steps (+ steps 1))
+
       (set acc (+ acc (* 64 (b2i (&& (== (valueOr (divChecked 10 2) 0) 5)
                                      (== (codeOf (divChecked 10 0))
                                          (errDivideByZero)))))))
@@ -112,5 +141,5 @@
                                        "divided by zero while reading the manifest")))))
       (set steps (+ steps 1))
 
-      (if (== steps 6) (+ acc 1) acc)
+      (if (== steps 7) (+ acc 1) acc)
     }))

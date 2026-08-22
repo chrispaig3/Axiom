@@ -45,7 +45,7 @@
   (sysWriteAllFd fd (strData s) (strLen s) 0))
 
 ; ------------------------------------------------------------------
-; Printing is FIVE MACROS AND NO FUNCTIONS.
+; Printing is MACROS AND NO FUNCTIONS.
 ;
 ; `writeStr` above is the whole runtime side: bytes, to a descriptor.
 ; Everything between a value and those bytes is decided at expansion

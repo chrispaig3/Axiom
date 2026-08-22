@@ -34,6 +34,7 @@
 
 set -euo pipefail
 
+source "$(dirname "${BASH_SOURCE[0]}")/lib/gate.sh"
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root/tree-sitter-axiom"
 
@@ -50,19 +51,13 @@ echo "--- documented Axiom code blocks balance their delimiters ---"
 # carried one extra `)`. Both were the SECOND, longer example under
 # their heading; the short one above each was correct, which is how they
 # survived being read.
-# docs/macros.md and docs/self-hosting.md were never swept. The
-# second is 7,000+ lines and grows by a section per fix, every one of
-# them quoting real programs - exactly the shape that goes stale
-# unread. Adding two paths takes the sweep from 114 fenced blocks to
-# 139 at zero design cost. The two normative specifications joined on
-# 2026-08-14 for the same reason: memory-model.md and macro-system.md
-# quote probes throughout, and a document outside a sweep's list is
-# invisible to it.
-python3 "$repo_root/tests/docs/verify-doc-code.py" \
-  "$repo_root/README.md" "$repo_root/docs/reference.md" \
-  "$repo_root/CONTRIBUTING.md" \
-  "$repo_root/docs/macros.md" "$repo_root/docs/self-hosting.md" \
-  "$repo_root/docs/memory-model.md" "$repo_root/docs/macro-system.md"
+# A document outside a sweep's list is invisible to it, and this list
+# used to be written out here, again in check-tools-selfhost.sh, and a
+# third time inside check-doc-drift.sh's Python - three copies that had
+# already diverged. It is `gate_prose_docs` in scripts/lib/gate.sh now,
+# and every gate that sweeps prose reads the same set.
+gate_prose_docs_abs
+python3 "$repo_root/tests/docs/verify-doc-code.py" "${prose_docs[@]}"
 
 # Prefer a project-local install, then anything on PATH.
 if [[ -x "$repo_root/tree-sitter-axiom/node_modules/.bin/tree-sitter" ]]; then

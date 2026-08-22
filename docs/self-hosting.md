@@ -1,17 +1,32 @@
 # Self-hosting Axiom
 
-Status of, and plan for, replacing the Rust implementation of the Axiom
-compiler with an implementation written in Axiom.
+How the Axiom compiler came to be written in Axiom, and what that has
+cost since. Sections 1-7 are the plan for replacing the Rust
+implementation; everything after them is the record — the work that
+replaced it, and every defect the replacement surfaced afterwards.
 
-This document is the working spec for that effort. It is written to be
-falsifiable: every capability claim below was checked against the
-compiler in this repository, and every gap is recorded with the probe
-that exposed it, so a reader can re-run the probe rather than take the
-claim on trust.
+It is written to be falsifiable: every capability claim below was
+checked against the compiler in this repository, and every gap is
+recorded with the probe that exposed it, so a reader can re-run the
+probe rather than take the claim on trust.
 
 ---
 
 ## 1. Where things stand
+
+> **Sections 1-7 are the plan, in the future tense it was written in,
+> and it is finished.** It completed on **2026-08-08**, when the Rust
+> compiler was deleted. Everything after §7 is the record of what
+> actually landed — the "Phase 5" chapter first, then §8, which is the
+> deletion itself, then a numbered incident per slice.
+>
+> Nothing in these seven sections is pending: §1.1 measures crates that
+> no longer exist, every gap in §2 is closed or annotated with what
+> closed it, and every phase in §4 ran. They are kept because they
+> record what was measured *before* the port — the half that cannot be
+> reconstructed afterwards — and because each probe in §2 is still a
+> runnable falsification of a claim about the language. Read a
+> present-tense sentence here as "when this was written".
 
 ### 1.1 The Rust compiler being replaced
 
@@ -61,8 +76,7 @@ That layer is now gone:
   `axiom_alloc` replaces it - does not exist: the emitter defines the
   symbol unconditionally, and the name is refused outright, `AX3026`.
   Before the refusal such a program passed `check` and died in `opt` as
-  a duplicate definition. `docs/memory-model.md` MM-ALLOC-8; this
-  bullet claimed the seam worked until 2026-08-14.)
+  a duplicate definition. `docs/memory-model.md` MM-ALLOC-8.)
 - **A standard library in Axiom** (`stdlib/`): `Pre`, `Mem`, `Str`,
   `Vec`, `Map`, `Fmt`, `Intern`, `Sys`, `IO`, with per-platform
   syscall tables under `Sys/`.
@@ -314,20 +328,32 @@ and the compiler never inserts them. Under `--gc` they are a compile
 error — a tracing collector decides by reachability and has no waterline
 to roll back to. `tests/stdlib/160-arena.ax` covers them.
 
-**S2. No first-class strings in the language.** A literal is a
-NUL-terminated byte array with no length. `Str` fixes this in the
-library, but source-level string handling still goes through
+**S2. No first-class strings in the language. (RESOLVED)** A literal
+was a NUL-terminated byte array with no length; `Str` fixed it in the
+library, and source-level string handling went through
 `(strFromLit (__addr "..."))`.
+
+*A literal is a `String` now* — `(strLen "hi")` checks and answers 2 —
+since `18b485a` deleted the fiat that made `String` and `Int`
+interchangeable. `strFromLit` stays for the C-shaped cases that want a
+NUL-terminated pointer (`stdlib/Str.ax`), which is a conversion rather
+than the only spelling.
 
 **S3. Nullary functions are the only named constants.** `(fn (x) 42)`
 plus a reference to `x` lowers to a call. It works (and is what the
 platform syscall tables use), but every constant read is a function
 call at `-O0`.
 
-**S4. Diagnostics are Rust-shaped.** `axiom-errors` renders three
-formats and carries a source map. Reproducing AXDL byte-for-byte in
-Axiom needs `Str` formatting facilities the library does not have yet
-(padding exists; escaping and quoting do not).
+**S4. Diagnostics are Rust-shaped. (RESOLVED)** `axiom-errors`
+rendered three formats and carried a source map, and reproducing AXDL
+byte-for-byte in Axiom needed `Str` formatting the library did not have
+(padding existed; escaping and quoting did not).
+
+*It has it.* `self_host/diag.ax` emits AXDL — the byte-pinned surface
+both compilers agreed on while both existed — and `self_host/render.ax`
+is the human and JSON renderer, native by decision rather than a
+byte-clone of `ariadne`'s, cross-checked against the AXDL goldens by
+`scripts/check-render-selfhost.sh`. See "The human renderer", below.
 
 **S5. `while` and mutable local bindings. (RESOLVED)** A `let` binding
 marked `mut` is assignable with `set`, and `while` loops while its
@@ -1794,14 +1820,10 @@ bump allocator itself. Lowering the effect system itself was phase 4
 work, not phase 3 — the checker's job is finished when it agrees about
 what is wrong — and it has since landed; see the end of this document.
 
-(This paragraph used to end "No lambda expressions (refused loudly)".
-That was true when it was written and stopped being true two commits
-later; stage1 compiles a lambda, and one that captures, and has since
-`0c73140`. Probed: `(let ((g (lambda (x) (+ x k)))) (g n))` with `k`
-captured from an enclosing `let` answers correctly through a
-stage1-built binary. A stale claim in a document whose whole method is
-falsifiable claims is worse than no claim, so it is recorded here as
-having been one.)
+Lambdas compile, and so do capturing ones, since `0c73140`. Probed:
+`(let ((g (lambda (x) (+ x k)))) (g n))` with `k` captured from an
+enclosing `let` answers correctly through a stage1-built binary.
+
 stage1 emits S1's unboxed nullary constructors exactly as stage0
 does: the per-type representation code (boxed / all-nullary / mixed)
 travels on every constructor's registry entry, construction emits the
@@ -1920,6 +1942,15 @@ Ship stage2 alongside the Rust compiler; make it opt-in
 implementation one crate at a time in dependency order (lexer first,
 driver last).
 
+*What actually happened, for both of the last two phases:* there was no
+opt-in stage, no `AXIOM_COMPILER` switch and no crate-at-a-time
+removal — the Rust implementation went in one commit (`430a138`,
+2026-08-08) once `bootstrap/` made a clean checkout buildable without
+it, and §8 prices what that cost the gates. Phase 6's published
+comparison was never made and cannot be now, there being nothing left
+to compare against; the performance work that did happen is §31, §32,
+§34, §43, §48 and §50, each with the measurement that drove it.
+
 ---
 
 ## 5. Risks and mitigations
@@ -1935,54 +1966,58 @@ driver last).
 
 ## 6. Rollback
 
-**Amended 2026-08-08, when the Rust compiler was deleted.** The
-sentence below said rollback stays cheap "because the Rust compiler is
-never deleted while the Axiom one is unproven". That was the right rule
-while "proven" was an open question. It is now closed by §8: the
-compiler builds itself from a committed seed with no Rust in the path,
-reaches `stage2 == stage3` every time it does, and every gate that used
-to lean on the Rust compiler has been given a half that does not.
+The plan's rule was that rollback stays cheap because the Rust
+compiler is never deleted while the Axiom one is unproven. That
+question closed on 2026-08-08 (§8): the compiler builds itself from a
+committed seed with no Rust in the path, reaches `stage2 == stage3`
+every time it does, and every gate that used to lean on the Rust
+compiler has been given a half that does not.
 
-Rollback is therefore `git revert` of the deletion commit, plus
+Rollback is therefore `git revert` of `430a138`, plus
 `cargo build --release`, against a tree that still contains every other
-change. What it is NOT any longer is free: the two compilers have
-diverged deliberately in the ways §8.4 records, so reverting changes
-`symbols` output, some parse-error codes, and the human diagnostic
-layout back. Those are the divergences, listed, so a rollback can be
-priced rather than discovered.
+change. What it is NOT any longer is free: the two compilers diverged
+deliberately in the ways §8.4 records, so reverting changes `symbols`
+output, some parse-error codes, and the human diagnostic layout back.
+Those are the divergences, listed, so a rollback can be priced rather
+than discovered.
 
-The original text, still true of everything except the Rust compiler's
-presence:
+The plan's triggers, which still name the failures worth reverting
+for:
 
 - **Trigger:** any of - self-hosting fixpoint lost; conformance
   regression; >20% compile-throughput regression; a miscompilation with
   no root cause within one working day.
-- **Action:** revert the default compiler selection to stage0. Since
-  stage0 remains in the tree and in CI, this is a one-line change with
-  no data migration.
-- **Blast radius:** none for downstream users while the Axiom compiler is
-  opt-in; the public CLI, the machine diagnostic formats (AXDL, JSON),
-  and the ABI are unchanged by the port, which is why "identical output"
-  is the acceptance criterion for every machine-read surface. The one
-  recorded exception (2026-08-07) is the HUMAN diagnostic rendering:
-  stage0's is the `ariadne` crate's output and stage1's is native (see
-  "The human renderer" below), so reverting the compiler selection
+- **Action:** as written, revert the default compiler selection to
+  stage0 — a one-line change while stage0 was still in the tree. Since
+  the deletion it is the revert above, and stage0 has to be rebuilt
+  before it can be selected.
+- **Blast radius:** the public CLI, the machine diagnostic formats
+  (AXDL, JSON), and the ABI were unchanged by the port, which is why
+  "identical output" was the acceptance criterion for every machine-read
+  surface. The one recorded exception (2026-08-07) is the HUMAN
+  diagnostic rendering: stage0's is the `ariadne` crate's output and
+  stage1's is native (see "The human renderer" below), so going back
   visibly changes error-report layout - and changes nothing a tool
   parses, because every fact in a human report is pinned through the
-  AXDL line for the same diagnostic. A rollback that needs the old
-  look needs no code change beyond the selection itself.
+  AXDL line for the same diagnostic.
 
 ---
 
 ## 7. Reproducing the claims in this document
 
 ```bash
-cargo test --release --all           # unit, integration, and golden suites
+./scripts/bootstrap-from-seed.sh     # committed IR -> stage1 -> stage2
+./scripts/check-self-host.sh         # the fixpoint, stage2 == stage3
 ./scripts/run-stdlib-tests.sh        # standard library, compiled and run
 ./scripts/check-freestanding.sh      # no libc in the IR or in the linked binary
 ./scripts/check-cross-targets.sh     # every target assembles from one host
 ./scripts/check-reproducible.sh      # two runs produce identical IR
 ```
+
+The first line was `cargo test --release --all` while the Rust
+compiler existed. There is no equivalent and no single "run all the
+tests" command (§8.6): each gate is a script, and the script is what
+CI runs.
 
 The capability probes in §2 are single files; each is quoted in full
 where it is cited, and `axiom --diagnostic-format=ai check <file>` plus
@@ -2349,12 +2384,12 @@ target emits `target triple = "arm64-apple-macosx14.0.0"`, and `llc`
 turns that into a `Mach-O 64-bit object arm64`, which no Linux linker
 will accept.
 
-That job has never run. It was added to CI on 2026-08-04 (`d2ed483`);
-the most recent CI run on this repository is 2026-07-30. So **none of
-the self-hosting work described in this document has been through CI**,
-and the fixpoint is verified on macOS ARM only. That is worth stating
-plainly next to every "gated in CI" claim above: the gate exists, is
-wired up, and has not yet executed once.
+That job had not run when this was written. It was added to CI on
+2026-08-04 (`d2ed483`) and the most recent run on the repository was
+2026-07-30, so **none of the self-hosting work described above had been
+through CI** and the fixpoint was verified on macOS ARM only. Worth
+stating plainly next to every "gated in CI" claim: a gate that exists
+and is wired up has still checked nothing until it executes.
 
 The fix is a per-target `Host` module - `self_host/Host.{os}-{arch}.ax`
 - selected by the same suffix mechanism the standard library's syscall
@@ -2702,9 +2737,7 @@ the data, and a standard library must not owe its stack safety to an
 optimisation: a self tail call in these shapes tends to land in a `let`
 body, which was not a tail position under the compiler's own rewrite
 until 2026-08-22 (`docs/memory-model.md` MM-EXEC-6b/6c), and until then
-survived only through LLVM's passes at `--opt 1`+. (This sentence
-blamed "stage1 emits no tail-call elimination", which stopped being
-true when self-TCO landed in the compiler's own codegen.)
+survived only through LLVM's passes at `--opt 1`+.
 
 **The shape mattered more than the constant.** At `(bytes × lines) / 2`,
 every module added to `self_host/` paid for itself twice: the compiler
@@ -3349,7 +3382,7 @@ never silently truncated while no float path goes untested; objects
 are parallel vecs written by one lockstep helper; the serialiser sums
 lengths and copies once rather than left-folding `strConcat`, the
 shape that cost 16.9 GB. `stdlib/Rpc.ax` is the base protocol's
-framing, and is buffered because `IO.readUpTo` performs one `read`
+framing, and is buffered because `Sys.sysReadFd` performs one `read`
 and a pipe hands over whatever the writer flushed - the header,
 terminator and first body bytes routinely arrive together, and the
 rest in several more reads. Both are pinned by 53 assertions that run
@@ -3430,18 +3463,23 @@ to the shipped bug: that case fails with zero diagnostics while all
 seven small fixtures still pass.
 
 **The most-negative integer guard was the exact mistake `Fmt.ax`
-documents having made.** `jsonIntStr` refused
+documents having made.** `Json.ax`'s own decimal formatter refused
 `(- 0 9223372036854775807)` — which is one GREATER than the most
 negative `Int`, so the guard never fired on the value it was for, and
 mis-rendered its neighbour as `-9223372036854775808`. The most
-negative value itself fell through to `jsonNatStr (- 0 n)`, where
-negating it yields itself and the digit lookup walks off the table:
-it rendered as `-0`. `Fmt.ax` carries a paragraph about making
-precisely this mistake and fixing it with `intIsMostNegative`, three
-lines from where this file re-made it. `Json.ax` cannot import `Fmt` —
-probed, `AX3014 ambiguous name 'fmtInt': defined in codegen, Fmt`,
-because `codegen.ax` carries its own copy and the namespace is flat —
-so it carries the predicate rather than the literal.
+negative value itself fell through to the unsigned half as
+`(- 0 n)`, where negating it yields itself and the digit lookup walks
+off the table: it rendered as `-0`. `Fmt.ax` carries a paragraph about
+making precisely this mistake and fixing it with `intIsMostNegative`,
+three lines from where this file re-made it. `Json.ax` could not
+import `Fmt` at the time — probed, `AX3014 ambiguous name 'fmtInt':
+defined in codegen, Fmt`, because `codegen.ax` carried its own copy
+and the namespace is flat — so it carried the predicate rather than
+the literal.
+
+That is closed since `eae081f`: `codegen.ax`'s private copy is gone,
+`Json.ax` and `Rpc.ax` import `Fmt`, and the one `Fmt.fmtInt` renders
+every integer the compiler prints. The boundaries below still pin it.
 
 Both now have a gate that could have caught them, and neither did
 before: `tests/stdlib/340-json.ax` is 54 assertions run by BOTH
@@ -3464,12 +3502,12 @@ self-hosted compiler and no depth counter anywhere behind it. The
 consequence was two divergences rather than one, and the milder-looking
 one is the worse:
 
-| nesting | stage0 | stage1 (before) | stage1 (now) |
+| nesting | stage0 | stage1 (before) | today |
 |---:|---|---|---|
-| 5,000 | exit 1, `AX2005` | **exit 0, checks clean** | exit 2, refused |
-| 20,000 | exit 1, `AX2005` | **exit 0, checks clean** | exit 2, refused |
-| 100,000 | exit 1, `AX2005` | **SIGSEGV (signal 11)** | exit 2, refused |
-| 300,000 | exit 1, `AX2005` | **SIGSEGV (signal 11)** | exit 2, refused |
+| 5,000 | exit 1, `AX2005` | **exit 0, checks clean** | exit 1, `AX2005` |
+| 20,000 | exit 1, `AX2005` | **exit 0, checks clean** | exit 1, `AX2005` |
+| 100,000 | exit 1, `AX2005` | **SIGSEGV (signal 11)** | exit 1, `AX2005` |
+| 300,000 | exit 1, `AX2005` | **SIGSEGV (signal 11)** | exit 1, `AX2005` |
 
 A crash is loud. Accepting a program the other compiler says is not a
 program is not: stage1 type-checked a 20,000-deep expression clean and
@@ -3479,29 +3517,33 @@ would have gone on to emit code for it.
 Sixty-odd `parse*` functions would each need a depth parameter
 otherwise, which is the parse-error port's shape of work and not this
 slice's. A nesting level in this syntax is a delimiter, so
-`maxNestDepth` walks the tokens once counting `(`/`{`/`[` against
+`nestOverflowTok` walks the tokens once counting `(`/`{`/`[` against
 `)`/`}`/`]`, floors at zero so a stray closer cannot mask real depth
-after it, and `parseModuleWith` refuses before `parseDecls` is called —
+after it, and answers the index of the opening delimiter that first
+passes the limit — one walk for both questions the guard asks, whether
+the limit is passed and where, so the maximum is never computed
+separately. `parseModuleWith` refuses before `parseDecls` is called —
 before, that is, the call whose stack exhaustion is the failure being
 prevented. It is deliberately not exact agreement with stage0's
 counter, which counts parse recursion; the two coincide on every
 nesting form the grammar has, and where they might not, both compilers
 still refuse.
 
-**The limit does not touch real code.** The deepest `.ax` file in the
-repository is `self_host/format.ax` at 37, against a limit of 1024 —
-28× headroom, measured over all 211 files.
+**The limit does not touch real code.** Measured over all 454 `.ax`
+files in the repository: the deepest is `self_host/explain.ax` at 53,
+which is generated, and the deepest hand-written one is
+`self_host/format.ax` at 34, against a limit of 1024. One file goes
+deeper on purpose — `tests/diagnostics/405-macro-depth-limit.ax` at
+501 — and it still passes this guard, which is the point of it: the
+limit it is written to hit is `AX3024`, on what expansion *produced*.
 
-What stage1 still does not do is *say* `AX2005`. The parse-error port
-since gave the parser a diagnostic channel and a real exit status, so
-this is no longer a bare `parse failed` with exit 2 — it is a spanned
-`AX2003` syntax error with exit 1, the same status stage0 gives.
-Measured on a 2,000-deep file: stage0 says
-`AX2005 deep.ax:2:1036-1037 recursion-limit`, stage1 says
-`AX2003 deep.ax:1:1-2 syntax-error`. Both refuse with the same status
-now; what is left is the code and a span at the offending depth rather
-than at the first token, since the guard reports position 0. That is a
-small follow-on now that the channel exists.
+**It says `AX2005` now.** The refusal was a bare `parse failed` with
+exit 2 at first, because the parser carried no diagnostic payload. The
+parse-error port gave it one, and the guard reports the offending
+delimiter rather than position 0, so all four rows above are the code,
+the status and the position stage0 gave. Measured on a 2,000-deep
+one-line file: `E AX2005 deep.ax:1:1035-1036 recursion-limit "nesting
+is too deep (limit is 1024)"`, exit 1.
 
 The gate is a refusal-parity case in `scripts/check-diagnostics.sh` at
 the depth that used to **crash** rather than the depth that used to be
@@ -3859,17 +3901,20 @@ compiler on `PATH` and nothing else. It is wired into CI as
 `bootstrap-no-rust`, the only job with no `rust-toolchain` step, on
 both Linux and macOS.
 
-**Measured, because the design turns on the numbers.** 2.10 MB of IR
-per target; 8.38 MB for all four. The four differ from each other in
-**193 lines of 61,473** — the target triple, the syscall instruction,
-and the syscall numbers — so git stores them as near-duplicates. IR
-rather than a binary because it is text, it diffs, and one `llc`
-invocation adapts it to whatever libc and linker the host has.
+**Measured, because the design turns on the numbers.** The seed grows
+with the compiler, so re-derive rather than trust these: `ls -l
+bootstrap/*.ll` and `wc -l` say 3.3 MB and 87,973 lines per target,
+13 MB for all four. No two of the four differ by more than **121
+lines** — the target triple, the syscall instruction, and the syscall
+numbers — so git stores them as near-duplicates. IR rather than a
+binary because it is text, it diffs, and one `llc` invocation adapts
+it to whatever libc and linker the host has.
 
 **The seed is deliberately not asserted to match the source beside
-it.** A seed regenerated on every compiler commit would put 8.4 MB of
-generated text into every such diff, to buy the property "the seed is
-exactly this source" — which is not the property a clone needs. A
+it.** A seed regenerated on every compiler commit would put the whole
+13 MB of generated text into every such diff, to buy the property "the
+seed is exactly this source" — which is not the property a clone
+needs. A
 clone needs *"the seed can build this source"*, and the script checks
 that by doing it. A seed that falls far enough behind to stop
 compiling `self_host/` fails there, naming the stage that could not do
@@ -4041,14 +4086,14 @@ compiler's own output** — the property a re-bless cannot satisfy:
 | `check-repl-selfhost` | each `result` cross-checked against compiling and running the same expression |
 | `check-stdlib-selfhost` | a Python model of each case's expected output, derived from the source, cross-checked against the 37 checked-in `.out` goldens |
 
-One claim in an earlier draft of this table was wrong and is worth
-recording as such: the `.out` goldens do **not** predate the
-self-hosted compiler in git history. The self-hosting work began at
-`b32d41e` (2026-07-28) and the earliest `.out` file lands 2026-07-30,
-so none of the 37 predates it. The accurate, checkable statement is
-that they predate any self-hosted binary having an opinion about this
-corpus: 32 of 37 are unchanged since `5f6aaaa`, the commit that added
-that gate and first ran `tests/stdlib/` through the Axiom compiler.
+The `.out` goldens do **not** predate the self-hosted compiler in git
+history: the self-hosting work began at `b32d41e` (2026-07-28) and the
+earliest `.out` file lands 2026-07-30, so none of the 37 predates it.
+What they do predate — the checkable half, and the one that makes the
+row above worth anything — is any self-hosted binary having an opinion
+about this corpus: 32 of 37 are unchanged since `5f6aaaa`, the commit
+that added that gate and first ran `tests/stdlib/` through the Axiom
+compiler.
 
 The rule these follow: *agreeing with another implementation says two
 things agree; checking the answer against the input says it is right.*
@@ -4145,17 +4190,23 @@ deliberately: pinning it would bless the wrong half as the contract.
 
 Comments throughout the compiler cite the implementation they were
 written against, by file and line: `axiom-lexer/src/lib.rs:498`,
-`axiom-parser/src/lib.rs:508`, `axiom-sema/src/lib.rs:873`. Those files
+`axiom-parser/src/lib.rs:508`, `axiom-sema/src/lib.rs:2825-2832`. Those
+files
 are gone from the working tree, and the citations were left in place on
 purpose. They are the record of *why* a behaviour is the way it is —
 several of them are the only remaining evidence that a rule was
-reproduced deliberately rather than invented — and they resolve at the
-tag:
+reproduced deliberately rather than invented — and they resolve one
+commit before the deletion:
 
 ```bash
-git show v0.1.0-rust-final:axiom-lexer/src/lib.rs | sed -n '498,545p'
+git show 430a138^:axiom-lexer/src/lib.rs | sed -n '498,545p'
 ```
 
+`430a138` is "The Rust compiler is deleted", so `430a138^` is the last
+tree that had the crates. This paragraph named a tag,
+`v0.1.0-rust-final`, that was never created — checked, `git tag` in
+this repository lists nothing — which is the failure mode a citation
+has: it reads as checkable and is only checked when someone tries.
 A citation that named nothing would be worse than one that names
 something you have to check out. Where a citation described a rule this
 compiler now owns rather than inherits, it was repointed instead — the
@@ -4273,7 +4324,8 @@ So removing it is not a capability loss. There was no capability.
 
 `TAG_D_FOREIGN` was threaded through five of the compiler's modules:
 twelve sites in `typecheck.ax` (a namespace rule, the AX3015 definer
-test, a collection branch, the ambiguity table, `declDefines`,
+test, a collection branch, the ambiguity table, the definition
+predicate the duplicate check then used,
 `setTargetCovered`, the declaration walk, and an `isForeign` field on
 `FnEnt` read by `repArity` and by both effect-inference walks), a
 declaration parser plus a two-function symbol scanner in `parser.ax`, a
@@ -4330,10 +4382,16 @@ old probe implied by working; it is now stated.
 
 ### 9.5 What stays
 
-The `libc_names` list stays, though nothing in the language can emit a
-call to one. It is what would notice a *backend* that started lowering
-something to a libc name, which is a different door from the
-source-level one.
+The `libc_names` list stays. Nothing in Axiom *source* could emit a
+call to one when this was written, and it is what would notice a
+*backend* that started lowering something to a libc name, which is a
+different door from the source-level one. The source-level door was
+reopened deliberately since, and elsewhere: an `extern` block bound to
+a Rust staticlib can import libc symbols (`docs/ffi.md`), so
+`check-freestanding.sh`'s blanket ban holds for every program with no
+`extern` declaration and `scripts/check-ffi.sh` prices the ones that
+have one — measured there, a `no_std` crate imports 0 symbols and a
+`std` crate 188, 18 of them on this same list.
 
 Tag 29 (`TAG_D_FOREIGN`) is retired, not reused. The tag numbers are the
 AST's wire format between `parser.ax` and its four readers, and a
@@ -4858,7 +4916,7 @@ rejects and the driver reports as `AX4003 opt failed` against
 `<toolchain>`. The compiler blaming the toolchain for its own output,
 with no span into the source, is the failure mode
 [macro-system.md](macro-system.md) `MAC-EXP-1` and
-[macros.md §2](macros.md) record for templates and is here for a
+[macro-system.md §2](macro-system.md) record for templates and is here for a
 two-character program.
 
 ### 13.1 The language server died on what typing looks like
@@ -5298,7 +5356,11 @@ sentence the whole slice exists to make false, and it is a strictly
 stronger statement than §14's — which is why the fix is not "carry the
 declaration" but "carry the declaration *and* refuse the reference".
 
-### 14.5 What this still leaves
+### 14.5 What this slice left, and where each piece was closed
+
+All three are closed in §24, which is why they are worth reading
+together: each was recorded here as a known hole rather than
+discovered later by a user.
 
 - **`macro` and `effect` declarations are exempt, and for `macro` that
   is a widening rather than a no-op — measured, not assumed.**
@@ -5321,18 +5383,22 @@ declaration" but "carry the declaration *and* refuse the reference".
   Repairing it means giving the expander the invocation site's module,
   and `expand.ax`'s header calls its resolution rule a language
   decision rather than an implementation detail ("changing it is a
-  language change, not a bug fix"), so it is its own slice with its own
-  design.
-- **A constructor of a private `data` is refused as `AX3001`, not
-  `AX3023`.** The constructor lookup is a different path and does not
-  reach the private table's function branch. The refusal is correct and
-  the message is the older, weaker one.
-- **An import's name list is still unchecked.** `(import M (noSuch))`
-  is accepted in silence and reports nothing at the import; the mistake
-  surfaces as `AX3001` wherever the name is used, or as nothing at all
-  if it never is. That is its own slice — a diagnostic at the import
-  site, naming what the module does export — and it is the last piece
-  of the same family.
+  language change, not a bug fix"), so it was its own slice with its
+  own design. **Closed in §24.1**: the expander tracks the invocation
+  site's module, and an outside use of a private macro is now AX3023,
+  "`privMac` is private to module `M.Lib`".
+- **A constructor of a private `data` was refused as `AX3001`, not
+  `AX3023`.** The constructor lookup is a different path and did not
+  reach the private table's function branch: the refusal was correct
+  and the message was the older, weaker one. **Closed in §24.2** — both
+  sites name the module now.
+- **An import's name list was never read again.** `(import M (noSuch))`
+  was accepted in silence and reported nothing at the import; the
+  mistake surfaced as `AX3001` wherever the name was used, or as
+  nothing at all if it never was. **Closed in §24.3**: the list is
+  checked against what the module declares and exports, and the two
+  cases are told apart: "module `M.Lib` declares no `noSuch`" versus
+  "declares `privMac` but does not export it".
 
 ## 15. The identifier characters two passes did not honour
 
@@ -5568,6 +5634,58 @@ for §15.2, starts with an operator byte and continues with a letter.
 frontend can *declare* them, and every one of those starts with a
 letter or the operator run alone.
 
+### 15.4 The rule was also wrong in the two places that explain it
+
+Writing the identifier section of `docs/reference.md` — which had never
+stated the character set at all, only "names are lowercase by
+convention" and three examples — meant checking the set against the
+lexer. Doing that surfaced two more statements of it, both inside the
+compiler, and both wrong in *both* directions.
+
+The inline help on `AX1001` (`parser.ax`) read:
+
+> identifiers may contain letters, digits, `_`, and `'`; operators are
+> built from `+ - * / % ^ = < > ! & | . ? ~ @`
+
+and the long-form `axiom explain AX1001` (`explain.ax`) read:
+
+> Axiom identifiers may contain letters, digits, `_` and `'`; operators
+> are built from a fixed set of symbol characters.
+
+Both say an identifier cannot contain an operator byte, which is false —
+`set!`, `foo'` and `empty-list` are names, and that is the whole subject
+of §15.2 and §15.3. Both present operators as a separate lexical class,
+which this language does not have: `+` *is* an identifier, which is why
+`(+ a b)` needs no precedence table and why the tree-sitter grammar has
+none. And the first lists four bytes as operator characters that the
+lexer will not accept anywhere — measured, `?`, `~` and `@` are each
+`AX1001`, and `.` is not an operator at all but a token, so `tmp.1` is
+`AX2001 expected expression, found `.`` rather than a lexer error.
+
+So the help printed *by the diagnostic that fires when you get the
+identifier set wrong* was itself wrong about the identifier set, in the
+direction that would send a reader looking for the mistake in the wrong
+place. That is the same shape as the rest of this section — a second
+statement of one agreement, drifting because nothing compares it to the
+first — with the sharpening that these two statements exist *only* to
+describe the rule, so being wrong is their whole failure mode rather
+than a side effect.
+
+Both now state the lexer's set, and say the thing that makes it make
+sense: operators are not a separate class. The reference gained an
+Identifiers section that states it too, with the exclusions and the
+reason for each. Four goldens across two fixtures move
+(`800-unexpected-char` and `930-tab-indent`, `.axdl`/`.human`/`.json`)
+plus `tests/tools/explain.golden`, regenerated by replaying
+`check-tools-selfhost.sh`'s own loop; the regenerated golden differs
+from its predecessor in exactly the `AX1001` block and nowhere else,
+checked by diff before it was installed.
+
+No behaviour changes and no code path moves — which is worth stating
+plainly, because it means the gates could not have caught any of this.
+A help string is compared only against a golden, and a golden records
+what the compiler said, not whether it was true.
+
 ## 16. The one editor feature this server has, that no editor would ask for
 
 `axiom lsp` answers `textDocument/documentSymbol` correctly - the
@@ -5688,110 +5806,6 @@ was written to test macro hygiene and found a grammar bug; 366 was
 written to test codegen and found a formatter bug. Neither gate was
 vacuous and neither golden was wrong — the files simply had not existed
 before, and the moment they did, three passes disagreed with them.
-
-### 15.4 The rule was also wrong in the two places that explain it
-
-Writing the identifier section of `docs/reference.md` — which had never
-stated the character set at all, only "names are lowercase by
-convention" and three examples — meant checking the set against the
-lexer. Doing that surfaced two more statements of it, both inside the
-compiler, and both wrong in *both* directions.
-
-The inline help on `AX1001` (`parser.ax`) read:
-
-> identifiers may contain letters, digits, `_`, and `'`; operators are
-> built from `+ - * / % ^ = < > ! & | . ? ~ @`
-
-and the long-form `axiom explain AX1001` (`explain.ax`) read:
-
-> Axiom identifiers may contain letters, digits, `_` and `'`; operators
-> are built from a fixed set of symbol characters.
-
-Both say an identifier cannot contain an operator byte, which is false —
-`set!`, `foo'` and `empty-list` are names, and that is the whole subject
-of §15.2 and §15.3. Both present operators as a separate lexical class,
-which this language does not have: `+` *is* an identifier, which is why
-`(+ a b)` needs no precedence table and why the tree-sitter grammar has
-none. And the first lists four bytes as operator characters that the
-lexer will not accept anywhere — measured, `?`, `~` and `@` are each
-`AX1001`, and `.` is not an operator at all but a token, so `tmp.1` is
-`AX2001 expected expression, found `.`` rather than a lexer error.
-
-So the help printed *by the diagnostic that fires when you get the
-identifier set wrong* was itself wrong about the identifier set, in the
-direction that would send a reader looking for the mistake in the wrong
-place. That is the same shape as the rest of this section — a second
-statement of one agreement, drifting because nothing compares it to the
-first — with the sharpening that these two statements exist *only* to
-describe the rule, so being wrong is their whole failure mode rather
-than a side effect.
-
-Both now state the lexer's set, and say the thing that makes it make
-sense: operators are not a separate class. The reference gained an
-Identifiers section that states it too, with the exclusions and the
-reason for each. Four goldens across two fixtures move
-(`800-unexpected-char` and `930-tab-indent`, `.axdl`/`.human`/`.json`)
-plus `tests/tools/explain.golden`, regenerated by replaying
-`check-tools-selfhost.sh`'s own loop; the regenerated golden differs
-from its predecessor in exactly the `AX1001` block and nowhere else,
-checked by diff before it was installed.
-
-No behaviour changes and no code path moves — which is worth stating
-plainly, because it means the gates could not have caught any of this.
-A help string is compared only against a golden, and a golden records
-what the compiler said, not whether it was true.
-
-### 15.4 The rule was also wrong in the two places that explain it
-
-Writing the identifier section of `docs/reference.md` — which had never
-stated the character set at all, only "names are lowercase by
-convention" and three examples — meant checking the set against the
-lexer. Doing that surfaced two more statements of it, both inside the
-compiler, and both wrong in *both* directions.
-
-The inline help on `AX1001` (`parser.ax`) read:
-
-> identifiers may contain letters, digits, `_`, and `'`; operators are
-> built from `+ - * / % ^ = < > ! & | . ? ~ @`
-
-and the long-form `axiom explain AX1001` (`explain.ax`) read:
-
-> Axiom identifiers may contain letters, digits, `_` and `'`; operators
-> are built from a fixed set of symbol characters.
-
-Both say an identifier cannot contain an operator byte, which is false —
-`set!`, `foo'` and `empty-list` are names, and that is the whole subject
-of §15.2 and §15.3. Both present operators as a separate lexical class,
-which this language does not have: `+` *is* an identifier, which is why
-`(+ a b)` needs no precedence table and why the tree-sitter grammar has
-none. And the first lists four bytes as operator characters that the
-lexer will not accept anywhere — measured, `?`, `~` and `@` are each
-`AX1001`, and `.` is not an operator at all but a token, so `tmp.1` is
-`AX2001 expected expression, found `.`` rather than a lexer error.
-
-So the help printed *by the diagnostic that fires when you get the
-identifier set wrong* was itself wrong about the identifier set, in the
-direction that would send a reader looking for the mistake in the wrong
-place. That is the same shape as the rest of this section — a second
-statement of one agreement, drifting because nothing compares it to the
-first — with the sharpening that these two statements exist *only* to
-describe the rule, so being wrong is their whole failure mode rather
-than a side effect.
-
-Both now state the lexer's set, and say the thing that makes it make
-sense: operators are not a separate class. The reference gained an
-Identifiers section that states it too, with the exclusions and the
-reason for each. Four goldens across two fixtures move
-(`800-unexpected-char` and `930-tab-indent`, `.axdl`/`.human`/`.json`)
-plus `tests/tools/explain.golden`, regenerated by replaying
-`check-tools-selfhost.sh`'s own loop; the regenerated golden differs
-from its predecessor in exactly the `AX1001` block and nowhere else,
-checked by diff before it was installed.
-
-No behaviour changes and no code path moves — which is worth stating
-plainly, because it means the gates could not have caught any of this.
-A help string is compared only against a golden, and a golden records
-what the compiler said, not whether it was true.
 
 ## 18. `fmt` moved a decimal point, and every gate was green
 
@@ -5955,7 +5969,7 @@ twenty lines below it.
 Nothing else had to move, and that is the argument for this shape rather
 than a new representation. The curried type is what the language already
 claims (`(-> Int Int Int)` is `Int -> (Int -> Int)`, right-folded, and
-`arrowDepth` has always counted it that way). The closure
+`arrowArity` has always counted it that way). The closure
 representation already implements it: each lambda is lifted to a
 `_lam_N` with a hidden `%_env` first parameter and captures **everything
 in scope by value**, so the inner lambda captures the outer parameter
@@ -6379,7 +6393,8 @@ error[AX3023]: module `VisAll` declares `privMac` but does not export it
 ```
 
 That needed the import declaration to carry a span, which it never had
-— `mkDImport` used `mkNode`. It carries the module path's token now,
+— it was built by a span-less constructor over `mkNode`. It is
+built by `mkDImportAt` now, carrying the module path's token,
 for the same reason the nullary lambda needed one in §20.2: a
 diagnostic with no snippet is one the render gate will not bless.
 
@@ -7396,12 +7411,18 @@ and dispatch runs only when both say no.
 
 That leaves the top-level collision, which is not a resolution question
 but a declaration one. A trait declares one value name per method, so
-`declDefinesNS` — the namespaced twin of `declDefines`, which already
-knew an `effect` declares its operations — reports each of them, and
-`checkDuplicates` grew the loop that a multi-name declaration needs.
-`declDefSpan` points the "first defined here" label at the `where`
-entry rather than at the trait's own name, because that is the line the
-reader has to change.
+the namespaced definition predicate — which already knew an `effect`
+declares its operations — reports each of them, and `checkDuplicates`
+grew the loop that a multi-name declaration needs. `declDefSpan` points
+the "first defined here" label at the `where` entry rather than at the
+trait's own name, because that is the line the reader has to change.
+
+That predicate is gone since §48. `dupIdxBuild` builds one `DupRef`
+per (name, namespace) a declaration defines, out of `declFields` and
+`declNamespace` — the two places a multi-name declaration names its
+names — and `checkDuplicates` reads the index rather than re-asking a
+predicate per declaration. The rule it encodes is unchanged; what
+changed is that one walk answers it for the whole program.
 
 ### What it cost
 
@@ -7473,7 +7494,7 @@ discarding a type the parser already kept**, which is the sentence
 ### The fix
 
 `tcCollectEffectOps` reads slot c instead of slot b, so an operation
-is registered with its declared arrow and `arrowDepth` of that arrow
+is registered with its declared arrow and `arrowArity` of that arrow
 as its arity. A type the parser could not read still leaves 0 in the
 field and still registers the old wildcard at -1: under-report, never
 mis-report. Nothing downstream changed — `checkSaturation` and
@@ -7549,8 +7570,10 @@ letter and can never collide with a minted one.
   when they are the same variable; a source variable against a
   concrete type does not. `(+ x 1)` where `x : a` is now AX3004, which
   is where the wrong answer came from.
-* **Instantiated at a reference.** `tyInst` mints a fresh `_tN` per
-  distinct variable, shared across occurrences, wherever a
+* **Instantiated at a reference.** `tyInstStamped` — the unstamped
+  form it grew out of was removed once every reference site needed the
+  `TAG_EVSTAMP` — mints a fresh `_tN`
+  per distinct variable, shared across occurrences, wherever a
   declaration's type becomes a reference's type — the `FnEnt` arm and
   the constructor arm of `checkVar`, and a constructor's field types
   when a pattern binds them. A caller may still pass anything, and
@@ -7591,7 +7614,8 @@ being too NARROW — on the previous compiler it checks clean at exit 0
 and runs to exit 17.
 `tests/selfhost/972-polymorphic-signature.ax` catches it being too
 WIDE: it passes on both compilers, so it was ablated separately by
-making `tyInst` the identity, and then fails with three false AX3004s.
+making instantiation (`tyInstStamped`) the identity, and then fails
+with three false AX3004s.
 A control that cannot fail is not a control.
 
 ## 39. A `type` alias answered two different ways, and `Mod::name` reported the ambiguity it resolves
@@ -7830,7 +7854,7 @@ constantly.
 ### And the sweep was widened
 
 `tests/docs/verify-doc-code.py` read `README.md`, `docs/reference.md`
-and `CONTRIBUTING.md` — 114 blocks. It did not read `docs/macros.md` or
+and `CONTRIBUTING.md` — 114 blocks. It did not read the macro spec or
 this file, which is 7,000+ lines, grows by a section per fix, and quotes
 real programs throughout: exactly the shape that goes stale unread.
 Adding two paths takes it to **148 blocks and 27 whole programs**.
@@ -8040,12 +8064,23 @@ rewrote a file `check` refuses with `AX1001` into one it accepts, at
 exit 0. The fix at the time added a comment saying "exactly
 `lexer.ax`'s `isSpace`, byte for byte" — a claim checked by nobody.
 
-The rules live in `Str` now (`strIsDigit`, `strIsAlpha`, `strIsSpace`,
-`strIsHexDigit`) and the named predicates delegate, so the claim is
+The three rules live in `Str` now (`strIsDigit`, `strIsAlpha`,
+`strIsSpace`) and the named predicates delegate, so the claim is
 structural. `tests/selfhost/990-char-class.ax` sweeps **all 256 byte
-values** through every surviving predicate three ways and requires 768
+values** through every surviving predicate and requires 1024
 agreements — a count rather than a flag, so a predicate that stopped
 being called fails with a number instead of passing by silence.
+
+The fourth rule took one round longer. `Str` carried `strIsHexDigit`,
+which nothing called, while `Json.ax`'s `jpHexVal` and `lsp.ax`'s
+`lspHexVal` were two byte-identical statements of hex-digit *value* —
+the same duplication one layer over, and outside the sweep because a
+predicate no pass uses has nothing to disagree with. The rule is
+`Str.strHexVal` now, stated as the VALUE because the value is what both
+callers needed; `strIsHexDigit` is derived from it, both callers
+delegate, and the sweep compares `strHexVal` against a reference
+implementation written in the fixture itself — one implementation has
+nothing to differ from, so the comparison has to come from outside.
 
 Ablated by re-introducing the VT/FF drift: exit 1. The bytes that
 shipped the bug are 11 and 12, which no corpus file contains and which
@@ -8580,7 +8615,9 @@ is this name in", and `bsIsLocal` (10.4%) linear-scans the scope.
 `scripts/bench-compile.sh` said, at length and as its most emphatic
 caveat, that `axiom check` runs code generation and throws it away —
 "`compileFile` calls `emitResolved` unconditionally (`main.ax:320`)".
-It does not, and has not since the `doEmit` guard moved: `main.ax:340`
-reads `(if (== doEmit 0) "" ... (emitResolved ...))`, and eight sampling
-profiles of `axiom check` contain zero `codegen$` frames. The line
-number was stale too. Corrected in the script.
+It does not, and has not since the `doEmit` guard moved:
+`compileFile` reads `(if (== doEmit 0) "" ... (emitResolved ...))`
+— `main.ax:354` at the time of writing, which is the other half of the
+lesson, since the stale line number is what made the wrong claim look
+checked. Eight sampling profiles of `axiom check` contain zero
+`codegen$` frames. Corrected in the script.

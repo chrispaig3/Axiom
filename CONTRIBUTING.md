@@ -23,63 +23,37 @@ Welcome! Whether you're here to fix a typo, add a feature, write a new stdlib mo
 
 ## Quick Start
 
-### Prerequisites
-
-- **LLVM** — `llc` must be on your PATH (for code generation)
-- **A C compiler** — `cc`, `clang`, or `gcc` on your PATH (for final linking)
-
-On macOS:
+Prerequisites, the clone line and what to install on macOS and
+Ubuntu/Debian are in [README § Installation](README.md#installation) —
+that is the one copy. From a checkout, the whole build is:
 
 ```bash
-brew install llvm
-```
-
-On Ubuntu/Debian:
-
-```bash
-sudo apt install llvm clang
-```
-
-### Build the compiler
-
-```bash
-git clone https://github.com/chrispaig3/Axiom
-cd axiom
 ./scripts/bootstrap-from-seed.sh --install .axiom-bin
 ```
 
-The binary is at `./.axiom-bin/axiom`.
+The binary lands at `./.axiom-bin/axiom`, which is where every gate's
+default `$AXIOM` looks. To run something with it, see
+[README § Quick Start](README.md#quick-start).
 
 The compiler is written in Axiom, so building it needs a compiler.
 `bootstrap/` holds its own LLVM IR, one file per target, committed;
 the script turns the one matching your host into a *seed* with `llc`
 and `cc`, compiles `self_host/` with it, and repeats until two
-successive compilers are byte-identical. There is no Rust, and no
-other toolchain, anywhere in that path — see `bootstrap/README.md`
-for why the seed is allowed to lag the source and what stops it
-drifting.
+successive compilers are byte-identical. Nothing else is needed on that
+path — see `bootstrap/README.md` for why the seed is allowed to lag the
+source and what stops it drifting. (`rust/` is a cargo workspace, but it
+is the FFI's Rust side; no part of building the compiler reads it.)
 
-Every gate script provisions the same way if `$AXIOM` is unset, so
-you can also just run one and let it build what it needs.
-
-### Verify it works
-
-```bash
-echo '(import IO)
-(:: main Int)
-;@axiom:effect(io)
-(fn (main)
-  { (println "Hello from Axiom!")
-    0 })' > hello.ax
-
-./.axiom-bin/axiom run hello.ax
-```
-
-You should see `Hello from Axiom!` printed to the terminal.
+Every gate provisions the same way when `$AXIOM` is unset, so you can
+also just run one and let it build what it needs — that is `gate_init`
+in `scripts/lib/gate.sh`.
 
 ---
 
 ## Project Structure
+
+This is the one copy of the tree; README's structure section is the
+short form of it.
 
 ```
 axiom/
@@ -87,24 +61,34 @@ axiom/
 │   ├── core.ax           tokens and spans
 │   ├── lexer.ax          tokenizer
 │   ├── parser.ax         S-expression parser, AST
+│   ├── namespace.ax      how a bare name reaches a declaration, and what `pub` lets out
 │   ├── expand.ax         macro expansion, hygiene, expansion diagnostics
 │   ├── typecheck.ax      name resolution, types, effects, AXTAG validation
-│   ├── codegen.ax        IR and LLVM text emission, import resolution
+│   ├── codegen.ax        import resolution, name mangling, LLVM text emission
 │   ├── diag.ax           diagnostics, AXDL and JSON rendering, source maps
 │   ├── render.ax         the human diagnostic renderer
-│   ├── driver.ax         `build`: opt, llc, cc, and cleaning up after them
+│   ├── style.ax          the ANSI palette that renderer, and nothing else, uses
+│   ├── driver.ax         `build`: opt, llc, cc, archives, and cleaning up after them
+│   ├── rustbind.ax       the Rust module `--emit-rust-binding` writes for an archive
 │   ├── main.ax           the CLI entry point and subcommand dispatch
 │   ├── format.ax  repl.ax  symbols.ax  explain.ax  lsp.ax
 │   └── Host.<target>.ax  the host triple and syscall ABI, chosen at compile time
 ├── bootstrap/          the compiler's own LLVM IR, one file per target — how a
 │                       clean checkout builds a compiler with no compiler
 ├── stdlib/             standard library, in Axiom (Pre, Mem, Str, Vec, Map, Fmt,
-│                       Intern, Sys, IO, Json, Rpc, Utf8)
+│                       Intern, Sys, IO, Path, Json, Rpc, Utf8, Show, Err, Job,
+│                       Ffi), plus Sys/Platform.<target>.ax
+├── rust/               the FFI's Rust side, a cargo workspace: axiom-ffi,
+│                       axiom-ffi-macros, axiom-ffi-classify, axiom-abi,
+│                       axiom-bindgen, and examples/. Nothing in the compiler's
+│                       own build path reads it
 ├── tree-sitter-axiom/  editor grammar for highlighting and structural editing
-├── tests/              stdlib/ diagnostics/ selfhost/ fmt/ repl/ lsp/ tools/
-├── scripts/            the gates — each one is what CI runs, runnable locally
-├── docs/               reference.md, memory-model.md, macro-system.md, diagnostics.md,
-│                       self-hosting.md, v1-roadmap.md, macros.md
+├── tests/              stdlib/ selfhost/ diagnostics/ frontend/ fmt/ repl/ lsp/
+│                       tools/ ffi/ docs/
+├── scripts/            the gates, and lib/gate.sh, the preamble they share
+├── docs/               reference.md, memory-model.md, macro-system.md, macros.md,
+│                       diagnostics.md, error-model.md, ffi.md, self-hosting.md,
+│                       v1-roadmap.md
 └── README.md
 ```
 
@@ -121,7 +105,11 @@ core → lexer → parser → expand → typecheck → codegen → driver → ma
 - The emitter must not know about semantic analysis.
 
 `diag.ax` sits beside all of them: every stage constructs diagnostics,
-and none of them renders one.
+and none of them renders one. `style.ax` sits beside `render.ax` alone,
+and `diag.ax` does not import it — that is what keeps escape codes out
+of AXDL, AXSYM and JSON. `namespace.ax` sits beside `expand.ax` and
+`codegen.ax`, because both need the same answer about what a bare name
+reaches and the import graph will not let either of them own it.
 
 ---
 
@@ -130,28 +118,35 @@ and none of them renders one.
 Every Axiom program goes through this pipeline:
 
 ```
-Source (.ax) → Lexer → Parser → Imports → Macro Expansion → Type Checker → IR → LLVM IR → llc → cc → Executable
+Source (.ax) → Lexer → Parser → Imports → Macro Expansion → Type Checker → LLVM IR text → llc → cc → Executable
 ```
 
 1. **Lexer** (`self_host/lexer.ax`) — turns source text into tokens.
 2. **Parser** (`self_host/parser.ax`) — turns tokens into an AST (S-expression tree).
-3. **Expander** (`self_host/expand.ax`) — rewrites every macro invocation into
+3. **Imports** (`self_host/codegen.ax`) — resolves each `(import M)` to a
+   file, merges the declarations it exports, and mangles them to `M$name`.
+4. **Expander** (`self_host/expand.ax`) — rewrites every macro invocation into
    its template, renaming the binders the template introduces so they cannot
    capture a caller's names. It runs *before* the checker, which is what makes
    everything a macro generates ordinary code as far as every later stage is
    concerned.
-4. **Type checker** (`self_host/typecheck.ax`) — two-pass: collects declarations,
+5. **Type checker** (`self_host/typecheck.ax`) — two-pass: collects declarations,
    then checks bodies. Propagates a poison type after a mismatch so one mistake
    draws one diagnostic.
-5. **Emitter** (`self_host/codegen.ax`) — resolves imports, mangles names, and
-   writes LLVM IR text.
-6. **Driver** (`self_host/driver.ax`) — runs `opt`, `llc` and `cc`, and reports
+6. **Emitter** (`self_host/codegen.ax`) — mangles names and writes LLVM IR
+   text. There is no separate IR stage: the deleted Rust compiler had one,
+   and nothing in `self_host/` does — `codegen.ax` goes from the checked AST
+   to LLVM text directly.
+7. **Driver** (`self_host/driver.ax`) — runs `opt`, `llc` and `cc`, and reports
    which of them failed rather than passing their errors through.
 
 The compiler is a freestanding binary: it calls no libc function, and reaches
 the operating system through syscalls it emits itself. That is why the host
 target is chosen when the compiler is *compiled* (`Host.<target>.ax`) rather
-than detected at run time — there is nothing to ask.
+than detected at run time — there is nothing to ask. A program *you* compile
+is freestanding on the same terms unless it uses an `extern` block, which is
+the one door out ([docs/ffi.md](docs/ffi.md)) and the one
+`scripts/check-ffi.sh` prices.
 
 ---
 
@@ -163,8 +158,8 @@ than detected at run time — there is nothing to ask.
    After that, most gates rebuild the compiler under test themselves.
 2. **Make your change** — edit the relevant file(s).
 3. **Test** — run the relevant gates (see [Testing](#testing)). There is no
-   single "run all the tests" command by design: each gate is a script, and
-   the script is what CI runs.
+   single "run all the tests" command by design: each gate is a script,
+   and `.github/workflows/ci.yml` runs them by name.
 4. **Commit** — write a clear, concise commit message that matches the
    project style. Read a few first: they are narrative, and they carry the
    measurement that justified the change.
@@ -187,28 +182,34 @@ the same build.
 | Add a new AST node | `self_host/parser.ax` (the `TAG_*` constants and `ASTNode`) |
 | Change parsing rules | `self_host/parser.ax` |
 | Change what a macro expands to, or add a template form | `self_host/expand.ax` |
+| Change how a bare name reaches a declaration, or what `pub` lets out | `self_host/namespace.ax` — both `expand.ax` and `codegen.ax` ask it, which is why it is neither |
 | Add a type-checking rule | `self_host/typecheck.ax` |
 | Change LLVM emission | `self_host/codegen.ax` |
 | Add a CLI command | `self_host/main.ax`, and `self_host/driver.ax` for `build` |
-| Add a diagnostic code | `self_host/diag.ax` at the construction site, plus `self_host/explain.ax` for its long-form text |
-| Change how diagnostics look | `self_host/render.ax` (human) — AXDL and JSON are in `self_host/diag.ax` |
+| Add a diagnostic code | `mkDiag` at the site that detects it — `lexer.ax`, `parser.ax`, `typecheck.ax`, `expand.ax`, `codegen.ax` or `driver.ax` — plus `self_host/explain.ax` for its long-form text |
+| Change how diagnostics look | `self_host/render.ax` (human) and `self_host/style.ax` (its palette) — AXDL and JSON are in `self_host/diag.ax` |
 | Work on the formatter, REPL, `symbols`, or the language server | `self_host/{format,repl,symbols,lsp}.ax` |
-| Add a stdlib function | `stdlib/` (e.g. `IO.ax`, `Mem.ax`, `Str.ax`, `Vec.ax`, `Map.ax`, `Fmt.ax`, `Intern.ax`, `Pre.ax`) |
+| Work on the Rust FFI | `self_host/rustbind.ax` and the crates under `rust/` — [docs/ffi.md](docs/ffi.md) |
+| Add a stdlib function | `stdlib/` — `Pre`, `Mem`, `Str`, `Vec`, `Map`, `Fmt`, `Intern`, `Sys`, `IO`, `Path`, `Json`, `Rpc`, `Utf8`, `Show`, `Err`, `Job`, `Ffi` |
 | Add a new syntax feature | `tree-sitter-axiom/grammar.js` + parser + ast + lexer |
 
 ---
 
 ## Testing
 
-Axiom has several layers of testing. Run them all before submitting a PR.
+Axiom's tests are shell scripts in `scripts/`, one per property. Run the
+ones your change could affect before submitting a PR. There is no single
+"run everything" command, by design.
 
-### There are no unit tests, and that is deliberate
+### There are no unit tests in the compiler, and that is deliberate
 
 The compiler is written in Axiom, and Axiom has no test-attribute
 machinery. Every gate is a **shell script in `scripts/`** that runs the
-real binary on real input and checks what came out — which is also
-exactly what CI runs, so a contributor can reproduce any CI failure with
-one command.
+real binary on real input and checks what came out, so a contributor can
+reproduce a CI failure with one command. (The one place ordinary unit
+tests do exist is `rust/`, the FFI's Rust side: `axiom-ffi-classify`
+carries 16, `axiom-bindgen` a snapshot suite, `axiom-ffi-macros` a
+trybuild bank. `cd rust && cargo test` is their only runner.)
 
 The consequence worth knowing: a gate can only see what it actually
 compares. Several of these scripts used to compare the Axiom compiler
@@ -220,72 +221,98 @@ output**: the fixture's source bytes, a different golden file, or a
 second implementation in Python. When you add a gate, add that half too,
 and prove it by breaking the thing it should catch.
 
-### Golden tests (stdlib)
+### Writing one
 
-The standard library has golden tests in `tests/stdlib/`. Each test is a pair of files:
-
-- `NNN-name.ax` — the Axiom source
-- `NNN-name.out` — the expected stdout
-- `NNN-name.exit` — (optional) the expected exit status (default 0)
-
-Run them:
+A gate opens with the preamble all of them share:
 
 ```bash
-./scripts/run-stdlib-tests.sh        # every case
-./scripts/run-stdlib-tests.sh 030-str  # one case, by name prefix
+source "$(dirname "${BASH_SOURCE[0]}")/lib/gate.sh"
+gate_init
+gate_build_axc axc
 ```
 
-### Freestanding check
+After that, `$repo_root` (the root, and the working directory), `$axiom`
+(the compiler that *builds* the subject — `$AXIOM` when set, otherwise
+`.axiom-bin/axiom`, bootstrapped from `bootstrap/` when it is not there
+yet), `$work` (a temporary directory removed on exit) and `$axc` (the
+compiler under test, built from `self_host/`) mean in your gate what
+they mean in every other one. `scripts/lib/gate.sh` deliberately holds
+nothing that runs the compiler, counts cases or reports results: those
+differ per gate for real reasons, and a helper that unified them would
+be a framework a reader had to learn before reading a single gate.
 
-Verify that compiled programs contain no libc calls:
+### The gates
 
-```bash
-./scripts/check-freestanding.sh
-```
+`.github/workflows/ci.yml` runs all of these:
 
-### Cross-target codegen
+| Script | What it pins |
+|---|---|
+| `check-tree-sitter.sh` | the checked-in grammar parses every `.ax` file in the repository, and the documentation's Axiom blocks balance and compile |
+| `run-stdlib-tests.sh` | every case in `tests/stdlib` compiles, runs, prints its `.out` and exits as its `.exit` says |
+| `check-freestanding.sh` | generated code needs no C library |
+| `check-self-host.sh` | every case in `tests/selfhost` compiles, assembles, runs and exits as the fixture says — the only gate that drives the compiler end to end |
+| `check-driver.sh` | `axiom build`: the command-line surface, and that a failing `llc` fails the build while a missing `opt` does not |
+| `check-stdlib-selfhost.sh` | both corpora compiled *and run* through the identical `llc`/`cc` pipeline at `-O0` and `-O2` |
+| `check-diagnostics.sh` | the AXDL corpus against its goldens, with every span recomputed from the fixture's own bytes |
+| `check-degenerate.sh` | degenerate input answers with a diagnostic, not with a signal |
+| `check-symbol-names.sh` | every name the frontend accepts is a name the backend can emit — all 94 printable bytes, in three positions |
+| `check-stack-depth.sh` | how much stack the compiler needs for the largest Axiom program there is, bisected and reported |
+| `check-concurrent-run.sh` | two `axiom run`s in one directory do not corrupt each other |
+| `check-fmt.sh` | formatting a file does not change what it means: the tree formatted on a copy, with the suites re-run against it |
+| `check-fmt-selfhost.sh` | the self-hosted formatter's bytes, exit statuses and refusals, over the corpus and a bank of deliberate refusals |
+| `check-tools-selfhost.sh` | `explain` and `symbols` — including that every code the corpus emits has an `explain` entry |
+| `check-render-selfhost.sh` | the human and JSON renderers, cross-checked against the AXDL goldens and against the palette `self_host/style.ax` declares |
+| `check-repl-selfhost.sh` | the REPL, piped session by piped session |
+| `check-lsp-selfhost.sh` | the language server's framed session bytes, and every published position converted into LSP's 0-based UTF-16 |
+| `check-doc-drift.sh` | this file and its eight siblings against the tree: every stated count recomputed, and every fixture a doc or a comment names must exist |
+| `check-frontend-parity.sh` | the frontend's five consumers agree — on the value, not only on the verdict |
+| `check-memory-baseline.sh` | the managed Life probe holds RSS flat over 2000 generations where its unmanaged twin grows linearly |
+| `check-cross-targets.sh` | every target's IR assembles from one host, at every `--opt` level, with no non-position-independent object |
+| `check-bootstrap.sh` | the self-hosting fixpoint: `stage2 == stage3`, byte for byte |
+| `check-reproducible.sh` | compiling the same source twice produces identical bytes |
+| `bootstrap-from-seed.sh` | a clean checkout builds a working compiler from `bootstrap/` with nothing but `llc` and `cc` |
 
-Verify that IR assembles for every supported target from a single host:
+The rest of `scripts/` is not a CI step. `ci.yml` is the authority on
+which scripts run there — read it rather than this table; what follows
+was true on 2026-08-22:
 
-```bash
-./scripts/check-cross-targets.sh
-```
-
-### Reproducible build
-
-Verify that two independent runs produce byte-identical IR:
-
-```bash
-./scripts/check-reproducible.sh
-```
-
-
-
-Verify that the grammar accepts every `.ax` file in the repository:
-
-```bash
-npm install --prefix tree-sitter-axiom --no-save tree-sitter-cli
-./scripts/check-tree-sitter.sh
-```
+| Script | Why it is not a CI step |
+|---|---|
+| `check-ffi.sh` | a real gate, and the one MM-FFI-5 requires: every FFI tier, and the symbols each one imports, priced against a per-crate `axiom-allow.txt`. It is also the only script here that needs `cargo`, which nothing else in the build path does. Run it before touching `extern`, `rust/` or the freestanding claim |
+| `check-name-scale.sh` | a real gate: resolving a module's private names must cost no more than resolving its public ones. It asserts a ratio rather than a wall-clock bound, so it is not flaky on a shared runner. Run it before touching name resolution |
+| `bench-compile.sh` | prints where a compile spends its time. A profile, not an assertion |
+| `bench-datastructures.sh` | prints `Vec`, `Map` and `Intern` against the Rust equivalents. `--check` enforces the roadmap's "within 2×" criterion; unconditionally, a wall-clock threshold on a shared runner is a flaky test |
+| `measure-memory-baseline.sh` | prints the before/after numbers the memory-model schedule is driven by |
+| `reseed.sh` | a maintenance tool rather than a gate: it regenerates `bootstrap/` when the committed seed can no longer compile `self_host/` |
 
 ---
 
 ## CI/CD
 
-Every push and pull request triggers the CI pipeline in `.github/workflows/ci.yml`. The pipeline is staged so that cheap failures are reported before expensive ones:
+Every push to `trunk` and every pull request runs
+`.github/workflows/ci.yml`. Six jobs, staged so that a cheap failure is
+reported before an expensive one — the grammar job gates the other
+five, because it is the only one that needs no compiler at all:
 
-1. **Grammar** — the tree-sitter grammar accepts every `.ax` file. It gates
-   the rest because it is the one job that needs no compiler at all.
-2. **Test** — the gate scripts, on three platforms (linux-x86_64,
-   linux-aarch64, darwin-aarch64). Each job provisions a compiler from
-   `bootstrap/` first.
-3. **Cross-target** — IR assembles for all four targets
-4. **Reproducible** — two runs produce identical IR
-5. **Bootstrap from seed** — the load-bearing one: a clean checkout builds
-   the compiler from `bootstrap/` with only `llc` and `cc`, and the ladder
-   reaches `stage2 == stage3`. If this fails, the repository cannot be
-   built at all, and a stale seed is the usual reason
+1. **Tree-sitter grammar** — the checked-in grammar parses every `.ax`
+   file in the repository.
+2. **Tests** — the gate battery above, on three platforms
+   (linux-x86_64, linux-aarch64, darwin-aarch64). Each job provisions a
+   compiler from `bootstrap/` first.
+3. **Cross-target codegen** — every target's IR assembles from a single
+   host.
+4. **Self-hosting fixpoint** — `check-bootstrap.sh`: `stage2 ==
+   stage3`, byte for byte, with the ladder rooted at the committed seed.
+5. **Reproducible build** — two independent runs produce identical
+   bytes.
+6. **Bootstrap from seed** — the load-bearing one, on linux-x86_64 and
+   darwin-aarch64: a clean checkout builds the compiler from
+   `bootstrap/` with only `llc` and `cc`. If this fails, the repository
+   cannot be built at all, and a stale seed is the usual reason
    (`scripts/reseed.sh`).
+
+The `push:` trigger names `trunk`, which is this repository's only
+branch.
 
 ### What the CI tests actually do
 
@@ -312,7 +339,7 @@ The tests compile and **run** Axiom programs rather than only type-checking them
 
 | Item | Convention | Example |
 |---|---|---|
-| Functions | `snake_case` | `sysWriteFd`, `fmtInt` |
+| Functions | `camelCase` | `sysWriteFd`, `fmtInt`, `vecPush` |
 | Types | `PascalCase` | `Maybe`, `Point`, `Console` |
 | Constructors | `PascalCase` | `Nothing`, `Just`, `Cons` |
 | Type parameters | single lowercase letter | `a`, `b`, `t` |
@@ -322,88 +349,94 @@ The tests compile and **run** Axiom programs rather than only type-checking them
 
 ### Diagnostic codes
 
-Every diagnostic carries a stable code in the format `AX{stage}{number}`:
-
-| Range | Stage |
-|---|---|
-| `AX1xxx` | Lexical analysis |
-| `AX2xxx` | Parsing / syntax |
-| `AX3xxx` | Semantic analysis / type checking |
-| `AX4xxx` | IR lowering, codegen, native toolchain |
-| `AX5xxx` | Module / import resolution |
+Every diagnostic carries a stable code of the form `AX{stage}{number}`
+and a wording-independent kebab-case slug. The range table, the slug
+convention and the steps for adding a code are in
+[docs/diagnostics.md](docs/diagnostics.md) — one home, because a range
+table kept in two files drifts in one of them.
 
 ### Comments
 
 - Use `;` for line comments in Axiom source. `#| ... |#` block comments
-  exist and nest, but nothing in this tree uses one: a commented-out
-  region is a region that no gate compiles, and the reason to reach for
-  a block comment is almost always to keep code that should be deleted.
-  This file used to claim there was no such thing, while `README.md` and
-  `docs/reference.md` documented it and the lexer refused it — see
-  `docs/self-hosting.md` §10.
+  exist and nest (`tests/selfhost/170-block-comment.ax`,
+  `tests/diagnostics/335-axtag-in-block-comment.ax`), but no file in
+  `self_host/` or `stdlib/` uses one: a commented-out region is a region
+  that no gate compiles, and the reason to reach for a block comment is
+  almost always to keep code that should be deleted.
 - Document public APIs with comments that explain *why*, not just *what*.
 
 ---
 
 ## Adding a Diagnostic Code
 
-When adding a new compiler error or warning, follow these steps:
+The steps live in [docs/diagnostics.md § Adding a new
+diagnostic](docs/diagnostics.md#adding-a-new-diagnostic), and only
+there: pick the next free number in the range for the stage, construct
+it with `mkDiag` (or `mkDiagFix` when the help is machine-applicable) at
+the site that detects the condition, write its long-form text into
+`self_host/explain.ax`, poison rather than cascade, and add a
+`tests/diagnostics/` case with its `.axdl` and `.human` goldens.
 
-1. **Pick the number** — the next free one in the appropriate range:
-   `AX1xxx` lexical, `AX2xxx` parse, `AX3xxx` semantic, `AX5xxx` module
-   resolution.
+Three things that document says once and that are worth knowing before
+you start:
 
-2. **Construct it** with `mkDiag` (or `mkDiagFix` when the help is
-   machine-applicable) at the site that detects the condition, in
-   `self_host/lexer.ax`, `self_host/parser.ax`, or
-   `self_host/typecheck.ax`. It needs a severity, the code, a kebab-case
-   slug, a span, a message, and a help.
-
-3. **Write its long-form text** into `self_host/explain.ax`, so
-   `axiom explain AX....` answers. `check-tools-selfhost.sh` fails if a
-   code the corpus emits has no entry — a new diagnostic cannot ship
-   undocumented.
-
-4. **If it can be a downstream consequence** of another error, poison
-   rather than report: propagate the error type from the failing check and
-   guard later comparisons, so one mistake draws one diagnostic. The
-   existing sites in `typecheck.ax` show the pattern.
-
-5. **Add a case** to `tests/diagnostics/` — `NNN-name.ax` plus its `.axdl`
-   and `.human` goldens (`.axbad` if the case deliberately does not parse,
-   because the formatter and grammar gates sweep every `*.ax` and require
-   it to parse). Bless with
-   `AXIOM_BLESS=1 scripts/check-diagnostics.sh NNN`.
-
-6. **Prove the case is not vacuous**: build a compiler from before your
-   change and confirm the new case FAILS against it. A golden blessed from
-   the only implementation that has ever produced it proves nothing on its
-   own.
+- **`explain.ax` is not optional.** `scripts/check-tools-selfhost.sh`
+  cross-checks every code the corpus emits against `explain --list`, so
+  a new diagnostic cannot ship undocumented.
+- **A golden blessed from the only implementation that has ever
+  produced it proves nothing.** `AXIOM_BLESS=1
+  scripts/check-diagnostics.sh NNN` writes down what your compiler says;
+  the assertion is that a compiler built from *before* your change fails
+  the case.
+- **The construction site is not always the frontend.** `AX4001` is
+  constructed in `self_host/main.ax`, `AX4002` in `self_host/codegen.ax`,
+  `AX4003`–`AX4005` in `self_host/driver.ax`, and the macro codes
+  `AX3018`–`AX3035` in `self_host/expand.ax`.
 
 ---
 
 ## Adding a Standard Library Function
 
-The standard library is written entirely in Axiom — no C bindings needed. When adding a new stdlib function:
+The standard library is written entirely in Axiom, over syscall
+primitives. When adding a new stdlib function:
 
-1. **Add it to the appropriate module** in `stdlib/` (e.g. `IO.ax`, `Mem.ax`, `Str.ax`, `Vec.ax`, `Map.ax`, `Fmt.ax`, `Intern.ax`, `Pre.ax`).
-2. **Use `::` for the type signature** and `fn` for the definition.
-3. **If the function performs I/O**, annotate it with `;@axiom:effect(io)`.
-4. **If the function allocates memory**, note that memory comes from the backend's bump allocator and is reclaimed at process exit.
-5. **Reach the machine through the standard library primitives** (`__syscallN`, `__load8`/`__store8`, `__alloc`, `__addr`). There is no FFI: `foreign` was removed and reports `AX2004`.
-6. **Add a golden test** in `tests/stdlib/` with the `.ax` source and `.out` expected output.
+1. **Add it to the appropriate module** in `stdlib/` — `Pre`, `Mem`,
+   `Str`, `Vec`, `Map`, `Fmt`, `Intern`, `Sys`, `IO`, `Path`, `Json`,
+   `Rpc`, `Utf8`, `Show`, `Err`, `Job`, `Ffi`.
+2. **Use `::` for the type signature** and `fn` for the definition, with
+   `pub` on both if the function is part of the module's surface.
+3. **If the function performs I/O**, annotate it with
+   `;@axiom:effect(io)`. Effects propagate transitively, so a caller
+   that claims less than its callees do is a diagnostic, not a warning.
+4. **If the function allocates**, declare the real field types. Every
+   heap block carries a reference count and a shape word, and a block
+   whose count reaches zero is freed along with whatever its reference
+   map says it owned. That map is computed from the *declared* types, so
+   a `String` stored through a field declared `Int` is invisible to
+   release and leaks — a cast is not a style problem there
+   ([docs/error-model.md](docs/error-model.md) `ERR-MEM-1`,
+   [docs/memory-model.md](docs/memory-model.md)).
+5. **Reach the machine through the primitives** (`__syscallN`,
+   `__load8`/`__store8`, `__alloc`, `__addr`). The FFI is the `extern`
+   block and it binds Rust, not libc ([docs/ffi.md](docs/ffi.md));
+   `foreign` is not that feature under an old name and stays refused at
+   `AX2004`.
+6. **Add a golden test** in `tests/stdlib/` with the `.ax` source and
+   `.out` expected output.
 7. **Update the module table** in `README.md` and `docs/reference.md`.
 
 ### Example: adding a new IO function
 
 ```scheme
-; Print a string followed by a newline, but to stderr
-(:: eprintln (-> Int Int))
+; Write a string to a descriptor and follow it with a newline.
+; `println` and `eprintln` are macros over `syntax/formatln`; this is
+; the plain function underneath them.
+(pub :: writeLn (-> Int String Int))
 ;@axiom:effect(io)
-(fn (eprintln s)
+(pub fn (writeLn fd s)
   {
-    (writeStr stderr s)
-    (writeStr stderr "\n")
+    (writeStr fd s)
+    (writeStr fd "\n")
   })
 ```
 
@@ -411,38 +444,32 @@ The standard library is written entirely in Axiom — no C bindings needed. When
 
 ## The Agent-Facing Notation System
 
-Axiom is built for agents as first-class users. Three notations make this possible:
+Axiom is built for agents as first-class users, and four notations carry
+that:
 
-### AXDL (Axiom eXchange Diagnostic Line)
+- **AXDL** — one dense, colourless, greppable line per diagnostic, from
+  `axiom --diagnostic-format=ai`.
+- **AXSYM** — one line per symbol, showing what a file declares and its
+  type, from `axiom symbols`.
+- **NID** — a content-derived hash of `(kind, name)` that survives edits
+  and reformatting, where a line number does not. Every named
+  declaration gets one.
+- **AXTAG** — `;@axiom:<key>(<value>)` comments above a declaration:
+  agent-authored intent that the compiler then checks.
 
-One dense, colorless, greppable line per diagnostic. Used by `axiom --diagnostic-format=ai check`.
+The grammars, the worked examples and the reasoning behind each are in
+[docs/diagnostics.md](docs/diagnostics.md).
 
-```
-E AX3001 main.ax:6:4-9 undefined-variable "undefined variable `helpr`" ?6:4-9:"a similarly named binding `helper` is in scope; did you mean this?"~>"helper"
-```
+What that means when you are changing the compiler:
 
-### AXSYM (Axiom eXchange Symbol Line)
-
-One line per symbol, showing what a file declares and its type. Used by `axiom symbols`.
-
-```
-F add main.ax:11:5-8 "(Int -> (Int -> Int))"
-D Maybe main.ax:3:7-12 "data Maybe" #ctors=Nothing,Just
-```
-
-### NID (Stable Node ID)
-
-Content-derived hashes of `(kind, name)` that survive edits and reformatting, unlike line numbers. Every named declaration gets one automatically.
-
-### AXTAG (Source-Embedded Agent Metadata)
-
-` ;@axiom:<key>(<value>)` comments above declarations for agent-authored, compiler-checked intent.
-
-When contributing, remember:
-- All compiler messages go through `self_host/diag.ax`'s `Diag` with a stable code, slug, severity, span, and message.
-- Never print raw strings from compiler phases.
-- When adding a new diagnostic, construct it with `mkDiag` at the site that detects it and write its long-form text into `self_host/explain.ax` — the tools gate fails if a code the corpus emits has no entry.
+- Every compiler message goes through `self_host/diag.ax`'s `Diag`, with
+  a stable code, slug, severity, span and message. Never print a raw
+  string from a compiler phase: a phase that prints is a phase no format
+  can render.
 - Prefer poison propagation over ad-hoc cascade suppression.
+- A new diagnostic needs its long-form text in `self_host/explain.ax`
+  before it can ship — `scripts/check-tools-selfhost.sh` fails
+  otherwise.
 
 ---
 
@@ -457,7 +484,8 @@ When contributing, remember:
 
 ### Submitting a PR
 
-1. **Fork the repository** and create a branch from `main`.
+1. **Fork the repository** and create a branch from `trunk`, which is
+   this repository's only branch.
 2. **Make your changes** — keep them focused on a single concern.
 3. **Run the gates** locally before submitting. There is no single
    command; run the ones your change could affect, and
@@ -503,12 +531,14 @@ If you're unsure about how something works or where to make a change, open an is
 
 | Resource | Description |
 |---|---|
-| [README](README.md) | Project overview, installation, quick start |
+| [README](README.md) | Project overview, installation, quick start, and the implementation status table |
 | [docs/reference.md](docs/reference.md) | Comprehensive Axiom language reference |
 | [docs/memory-model.md](docs/memory-model.md) | The memory model specification — reference counting chosen, rules MM-* |
 | [docs/macro-system.md](docs/macro-system.md) | The macro system specification — rules MAC-* |
-| [docs/diagnostics.md](docs/diagnostics.md) | AXDL, AXSYM, NID, AXTAG notation reference |
-| [docs/self-hosting.md](docs/self-hosting.md) | Plan to replace the Rust compiler with Axiom |
+| [docs/error-model.md](docs/error-model.md) | How a program signals failure — `Result`, `Error`, `try!`, rules ERR-* |
+| [docs/diagnostics.md](docs/diagnostics.md) | AXDL, AXSYM, NID, AXTAG notation, the diagnostic-code ranges, and how to add a code |
+| [docs/ffi.md](docs/ffi.md) | The `extern` block, `axiom-bindgen`, and what may cross the boundary |
+| [docs/self-hosting.md](docs/self-hosting.md) | How the Rust compiler was replaced, stage by stage, and what pinned each one |
 | [docs/v1-roadmap.md](docs/v1-roadmap.md) | Roadmap to v1 — what's done, what's left |
 | [tree-sitter-axiom/](tree-sitter-axiom/) | Editor grammar for syntax highlighting |
 
@@ -516,35 +546,15 @@ If you're unsure about how something works or where to make a change, open an is
 
 ## Implementation Status
 
-| Feature | Status | Notes |
-|---|---|---|
-| Functions & types | **Complete** | Curried, polymorphic signatures, proper return values |
-| Operators (prefix) | **Complete** | All arithmetic, comparison, logical |
-| Let bindings | **Complete** | Variable resolution, sequential evaluation |
-| if expressions | **Complete** | Proper branching with result values |
-| begin blocks | **Removed** | Replaced by `{ }` brace blocks and implicit sequencing |
-| brace blocks | **Complete** | Modern sequencing, returns last value |
-| fn keyword | **Complete** | Modern alias for `define` |
-| FFI | **Functional** | The `extern` block binds Rust through the C ABI; the emitter writes a `declare` and the driver takes `--link-lib`/`--link-search` (`docs/ffi.md`). `foreign` stays reserved at `AX2004` - it emitted a call to a symbol the module never declared, so it never linked, and it is not this feature renamed. A `no_std` Rust crate keeps `nm -u` empty; a `std` one does not, and `scripts/check-ffi.sh` prices the difference against a per-crate `axiom-allow.txt` |
-| Standard library | **Functional** | `Pre`, `Mem`, `Str`, `Vec`, `Map`, `Fmt`, `Intern`, `Sys`, `IO`, written in Axiom over syscall primitives |
-| Syscalls | **Complete** | `__syscall0`-`__syscall6` on Darwin and Linux, x86-64 and AArch64 |
-| Allocation | **Functional, unbounded** | `mmap`-backed bump allocator; no `free`. The chosen end state is reference counting — [docs/memory-model.md](docs/memory-model.md) |
-| Cross-compilation | **Functional** | `--target` selects ABI and platform stdlib modules |
-| Self-hosting | **In progress** | Foundations landed; see [docs/self-hosting.md](docs/self-hosting.md) |
-| ADTs / data types | **Complete** | Constructors (nullary and with fields), recursive types, match exhaustiveness |
-| Structs | **Complete** | Declarations, LLVM emission, field access, construction, `mut` fields, mutation |
-| Pattern matching (`match`) | **Complete** | Constructor patterns, variables, wildcards, literals, nested patterns, exhaustiveness/arity diagnostics |
-| Lambda | **Partial** | Parsed and type-checked; codegen pending |
-| Lists | **Partial** | Syntax and type checking; runtime representation pending |
-| Tuples | **Partial** | Syntax and type checking; codegen pending |
-| Traits | **Complete** | Declarations, supertraits, effects, default methods, implementations (`impl`) |
-| Effects | **Complete** | Effect declarations, `handle` expressions, effect checking, AXTAG validation, transitive inference |
-| Loops | **Complete** | `while` plus `mut` locals and `set`; self tail calls become loops in Axiom's own codegen at every `--opt` level, and mutual tail recursion is flattened by LLVM at `--opt 1`+ ([docs/memory-model.md](docs/memory-model.md) MM-EXEC-6b/6c). This row said "**Missing** — `--opt 1`+ turns tail recursion into a loop" long after both halves stopped being true |
-| Linear types | **Parsed only** | `linear T`, `consume` — no longer the memory model's mechanism: deterministic reclamation comes from the chosen reference counting without them ([docs/memory-model.md](docs/memory-model.md) MM-LIFE-2a) |
-| Macros | **Partial** | Substitution expansion before sema, hygienic in the binder direction, arity- and depth-checked. A rule-form macro is a LIST of rules whose parameters are PATTERNS — a binder, `_`, a literal matched by value, or a parenthesised form of patterns — tried in rule order with the first match winning, and a rule's last element may REPEAT, which is how a macro becomes variadic (`tests/selfhost/390-multi-rule-macro.ax` 51, `392-macro-patterns.ax` 127, `393-macro-ellipsis.ax` 63; an unreachable rule is `AX3033`, a misplaced `...` is `AX3034`). The EXPRESSION form is still one positional parameter list and one template expression, by decision — the two forms differ in what a template is. This clause read "One positional parameter list per macro — no multi-rule patterns, no repetition" until 2026-08-16, three commits after multi-rule macros landed. Declaration macros and the query vocabulary exist since 2026-08-14 (rule-form `fn`/`::` generation; `syntax/join`/`constructors`/`fields`/`same`/`for`/`binders`/`fold` — enough for `deriveEq` over sums including fieldful constructors, `deriveLenses` over structs, and the `impl`-generating form with composing instances, verbatim from the spec: `tests/selfhost/374-derive-eq.ax`, `375-derive-lenses.ax`, `377-derive-eq-fieldful.ax`, `378-derive-eq-impl.ax`; `stdlib/Pre.ax` ships `deriveEq`). The spec is [docs/macro-system.md](docs/macro-system.md); [docs/macros.md](docs/macros.md) is what is measured and what is not. This row read "**Complete** — Pattern-substitution expansion before sema with hygiene" until 2026-08-09, and every clause of it was false: expansion ran inside codegen *after* the checker, there was no hygiene of any kind, and there were no patterns |
-| Concurrency | **Library** | `stdlib/Job.ax`: a bounded pool of child processes over `Sys`'s `sysSpawn`/`sysWaitPid`, submit-order results. No language support, no compiler change. Processes, not threads - a freestanding binary cannot create an OS thread on macOS |
-| Editor support | **Functional** | Tree-sitter grammar with highlighting queries, and `axiom lsp` — lifecycle, full-text sync, `publishDiagnostics` and `documentSymbol` over JSON-RPC (`self_host/lsp.ax`, gated by `scripts/check-lsp-selfhost.sh`). Since 2026-08-15 it also advertises `hoverProvider` and `definitionProvider` and answers both — for MACRO INVOCATIONS only, off the raw parse tree, since nothing else needs a type at a position. Completion is not implemented, and hover over an ordinary expression is not either: that needs a node-to-type table the checker does not keep. This row said hover and go-to-definition were not implemented until 2026-08-16, and said "no LSP yet" until 2026-08-09, three commits after the server landed |
-| Imports | **Functional** | `(import Mod.Sub ...)` with transitive/diamond-safe resolution, qualified access |
+The status table lives in [README § Implementation
+Status](README.md#implementation-status), and only there. That is the
+copy `scripts/check-doc-drift.sh` reads: every **Complete** row in it
+must name a fixture under `tests/` that exists, and every count it
+states is recomputed against the tree.
+
+This file used to carry a second one. Two tables meant two answers to
+the same question, the gate only ever read one of them, and the one it
+did not read was the one that went stale.
 
 ---
 

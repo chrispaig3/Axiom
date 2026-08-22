@@ -6,6 +6,8 @@ structural selection, and incremental reparsing.
 ```
 tree-sitter-axiom/
 ├── grammar.js               the grammar
+├── src/scanner.c            the external scanner: nesting `#| ... |#`
+├── src/parser.c             generated from grammar.js, committed
 ├── queries/highlights.scm   highlighting captures
 ├── test/corpus/             tree-shape tests
 └── tree-sitter.json         CLI configuration
@@ -17,19 +19,36 @@ tree-sitter-axiom/
 ./scripts/check-tree-sitter.sh
 ```
 
-Two checks, and the second is the one that matters:
+Four steps, and the third is the one that matters most.
 
-1. `tree-sitter test` runs the corpus in `test/corpus/`, pinning the tree
-   *shape* per construct. A change that still parses everything but
+1. Every Axiom code block in the swept documents balances its
+   delimiters. This runs first because it needs neither the tree-sitter
+   CLI nor a compiler, so a machine that has neither still gets it. It
+   is here rather than in a gate of its own because it belongs to the
+   same CI job: the cheap one that needs no compiler.
+2. `tree-sitter test` runs the corpus in `test/corpus/`, pinning the
+   tree *shape* per construct. A change that still parses everything but
    reorganises the tree breaks every query silently; this catches it.
-2. Every `.ax` file in the repository is parsed and must produce no
-   `ERROR` node. The corpus is written by whoever changed the grammar; the
-   standard library and the demos are not, so this is the check that keeps
-   the grammar honest. Currently 18/18 files, ~18 MB/s.
+3. Every `.ax` file in the repository is parsed and must produce no
+   `ERROR` node — the whole repository, not a list: the corpus is
+   written by whoever changed the grammar, and the standard library and
+   the compiler's own sources are not. When the language grows a form,
+   `stdlib/` and `self_host/` get it first and this fails until the
+   grammar catches up. The file count is the one README.md states, and
+   `scripts/check-doc-drift.sh` recomputes it.
+4. `queries/highlights.scm` is loaded against those same files. A query
+   naming a node type the grammar no longer has fails at load time, so
+   running it is the proof that the queries still match the node types.
 
-The script skips cleanly if the `tree-sitter` CLI is absent — a
-contributor working on the compiler has no reason to install a JavaScript
-toolchain.
+**The script fails when the `tree-sitter` CLI is absent; it does not
+skip.** Install it with `npm install --prefix tree-sitter-axiom
+tree-sitter-cli`, or set `AXIOM_TREE_SITTER_OPTIONAL=1` to skip on
+purpose. It used to exit 0 with the CLI missing — the state of any
+machine that had not run that `npm install` — so on a developer machine
+it reported success without checking anything, and it hid two real
+breakages at once: the grammar rejected every `struct` with fields (and
+so most of `self_host/`), and the highlight-query step named a file that
+had been deleted.
 
 ## Design notes
 
@@ -40,13 +59,13 @@ decision, it makes the same one the compiler makes:
 
 - **Case decides `(data Maybe (a) (Nothing) ...)`.** `(a)` and
   `(Nothing)` are both `'(' identifier ')'`. The compiler's
-  `looks_like_tyvar_list` accepts a parenthesised group as a type
-  parameter list exactly when every name in it starts lowercase, so
+  `collectTyParams` takes a parenthesised group as the type-parameter
+  list exactly when it is empty or its names start lowercase, so
   `type_parameters` holds only lowercase tokens and constructors only
-  uppercase ones. The alternatives tree-sitter offered — a precedence or a
-  declared conflict — would both have guessed at something the compiler
-  decides by case.
-- **There is no parenthesised-type rule**, because `parse_type` has none:
+  uppercase ones. The alternatives tree-sitter offered — a precedence or
+  a declared conflict — would both have guessed at something the
+  compiler decides by case.
+- **There is no parenthesised-type rule**, because `parseType` has none:
   a parenthesised group in type position must be headed by `->`, `*`,
   `linear`, a comma-separated tuple, `()`, or a capitalised name. Adding
   one made the grammar ambiguous in two places and matched nothing real.
@@ -63,8 +82,14 @@ decision, it makes the same one the compiler makes:
   bounded region to mark as an error instead of an anonymous `ERROR` whose
   extent depends on where recovery landed — and so the trailing fields of
   an old `union` are not reinterpreted as top-level declarations.
+- **Nesting block comments are an external scanner**, not a rule.
+  Nesting is not expressible as a tree-sitter token, and the obvious
+  chunked-regex spelling disagrees with the compiler on inputs the
+  compiler has an opinion about — `#| a||# |#` closes at the `|#` inside
+  `a||#` for `skipBlockComment` in `self_host/lexer.ax` and does not for
+  the regex. `src/scanner.c` reproduces that function byte for byte.
 
-**Three declared conflicts, no precedence hacks.** Each is a place where
+**Four declared conflicts, no precedence hacks.** Each is a place where
 the language itself is locally ambiguous and the ambiguity resolves a token
 or two later, which is what GLR is for:
 
@@ -72,11 +97,12 @@ or two later, which is what GLR is for:
 |---|---|
 | `struct_declaration` / `struct_construction` | `(struct Point ...)` — a declaration if the body is `(field : Type)` items, a construction if it is expressions. Visible only at the `:`. |
 | `type_parameters` / `application` | the same thing one level down: `()` in `(struct Point () ...)`. |
-| `effect` / `_expression` | `(foo)` after a handle body — a one-element custom effect list, or the handler. `parse_handle` resolves this greedily; rule order reproduces that. |
+| `type_parameters` / `_expression` | and once more for `(struct P (x))`, where the group is a parameter list or a construction argument, and the two diverge at a `:` two tokens further on than the lexer can see. Spelling the parameters as `identifier` rather than a `type_variable` token is what moved that decision to the parser; before it, every `struct` with fields failed to parse. |
+| `effect` / `_expression` | `(foo)` after a handle body — a one-element custom effect list, or the handler. `parseHandleExpr` resolves this greedily, reading an effect list whenever the token after the body opens a paren; rule order reproduces that. |
 
 Notably absent: any `prec()` on a conflicting rule. A precedence there
 would assert that one reading is always preferred, which is false in all
-three cases.
+four cases.
 
 ## Known gaps
 

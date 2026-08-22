@@ -1187,11 +1187,16 @@ impl Decl {
                         ])),
                     )
                 });
-                // Status 2: nothing in the cell.
+                // ffiStatusNone: nothing in the cell.
                 let none = ctors.none.map(|n| Ex::Block(vec![cell_free.clone(), n]));
                 let not_ok = match (none, err) {
                     (Some(n), Some(e)) => Ex::If(
-                        Box::new(app(vec![atom("=="), atom("__st"), atom("2")])),
+                        // The status encoding is `stdlib/Ffi.ax`'s, by name. It was
+                        // spelled `2` and `0` here while `ffiStatusNone`
+                        // and `ffiStatusOk` sat exported and unused - two
+                        // statements of a protocol that has already been
+                        // renumbered once (ABI version 2 added status 2).
+                        Box::new(app(vec![atom("=="), atom("__st"), atom("ffiStatusNone")])),
                         Box::new(n),
                         Box::new(e),
                     ),
@@ -1202,7 +1207,7 @@ impl Decl {
                 Ex::Let(
                     binds,
                     Box::new(Ex::If(
-                        Box::new(app(vec![atom("=="), atom("__st"), atom("0")])),
+                        Box::new(app(vec![atom("=="), atom("__st"), atom("ffiStatusOk")])),
                         Box::new(ok),
                         Box::new(not_ok),
                     )),

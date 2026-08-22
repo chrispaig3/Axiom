@@ -627,8 +627,8 @@
       {
         (while (< i (strLen body))
           (if (&& (== (strByte body i) 37) (<= (+ i 3) (strLen body)))
-              (let ((h (lspHexVal (strByte body (+ i 1))))
-                    (l (lspHexVal (strByte body (+ i 2)))))
+              (let ((h (strHexVal (strByte body (+ i 1))))
+                    (l (strHexVal (strByte body (+ i 2)))))
                 (if (|| (< h 0) (< l 0))
                     {
                       (__store8 (strData out) o (strByte body i))
@@ -647,13 +647,6 @@
               }))
         (strSlice out 0 o)
       })))
-
-(pub :: lspHexVal (-> Int Int))
-(pub fn (lspHexVal b)
-  (if (&& (>= b 48) (<= b 57)) (- b 48)
-  (if (&& (>= b 97) (<= b 102)) (+ 10 (- b 97))
-  (if (&& (>= b 65) (<= b 70)) (+ 10 (- b 65))
-      (- 0 1)))))
 
 ; ------------------------------------------------------------------
 ; The document store: two parallel Vecs, one writer.

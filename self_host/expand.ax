@@ -70,7 +70,7 @@
 ; called the entry-file residue "a loud refusal rather than a wrong
 ; answer - AX3004 `expected function type`" until then, and it was a
 ; SILENT wrong answer: the `AX3004` came from an arity mismatch in the
-; probe, not from the capture. `docs/macros.md` section 3 carries both
+; probe, not from the capture. `docs/macro-system.md` section 3 carries both
 ; halves.
 ;
 ; SHADOWING. A macro name no longer outranks every binder in the

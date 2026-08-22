@@ -14,7 +14,8 @@
 ; result as-is, or `-errno` on failure. That convention holds on every
 ; supported platform because the backend's Darwin syscall sequence
 ; normalises Darwin's carry-flag/positive-errno protocol into a negative
-; result (see `axiom_codegen::Target::syscall_asm`), so `sysFailed` is a
+; result (see `targetSyscallAsm` in `self_host/codegen.ax`, whose Darwin
+; templates branch on carry and negate), so `sysFailed` is a
 ; single portable comparison rather than a per-OS special case.
 
 (import Sys.Platform)

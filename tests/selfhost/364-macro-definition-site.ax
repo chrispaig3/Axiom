@@ -44,7 +44,7 @@
 ; is a top-level declaration, so `substTpl` stamps every template free
 ; identifier and both resolvers skip the local scope for a stamped
 ; reference. `tests/selfhost/394-macro-entry-capture.ax` (130)
-; measures it. See docs/macros.md section 3.
+; measures it. See docs/macro-system.md section 3.
 (import MacScope)
 
 (:: helper (-> Int Int))

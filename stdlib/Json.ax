@@ -60,16 +60,16 @@
 ; Tags
 ; ------------------------------------------------------------------
 
-(:: JNULL Int) (pub fn (JNULL) 0)
-(:: JBOOL Int) (pub fn (JBOOL) 1)
-(:: JNUM  Int) (pub fn (JNUM)  2)
-(:: JSTR  Int) (pub fn (JSTR)  3)
-(:: JARR  Int) (pub fn (JARR)  4)
-(:: JOBJ  Int) (pub fn (JOBJ)  5)
+(:: JNULL Int) (fn (JNULL) 0)
+(:: JBOOL Int) (fn (JBOOL) 1)
+(:: JNUM  Int) (fn (JNUM)  2)
+(:: JSTR  Int) (fn (JSTR)  3)
+(:: JARR  Int) (fn (JARR)  4)
+(:: JOBJ  Int) (fn (JOBJ)  5)
 
 ; The nesting limit. See the note above: this is a frame budget, not a
 ; grammar rule.
-(:: jsonMaxDepth Int) (pub fn (jsonMaxDepth) 64)
+(:: jsonMaxDepth Int) (fn (jsonMaxDepth) 64)
 
 ; ------------------------------------------------------------------
 ; Construction
@@ -666,23 +666,13 @@
 (fn (jpHex4 src c p)
   (if (> (+ p 4) (strLen src))
       { (jcFail c) 0 }
-      (let ((a (jpHexVal (strByte src p)))
-            (b (jpHexVal (strByte src (+ p 1))))
-            (d (jpHexVal (strByte src (+ p 2))))
-            (e (jpHexVal (strByte src (+ p 3)))))
+      (let ((a (strHexVal (strByte src p)))
+            (b (strHexVal (strByte src (+ p 1))))
+            (d (strHexVal (strByte src (+ p 2))))
+            (e (strHexVal (strByte src (+ p 3)))))
         (if (|| (< a 0) (|| (< b 0) (|| (< d 0) (< e 0))))
             { (jcFail c) 0 }
             (+ (* a 4096) (+ (* b 256) (+ (* d 16) e)))))))
-
-(:: jpHexVal (-> Int Int))
-(fn (jpHexVal b)
-  (if (&& (>= b 48) (<= b 57))
-      (- b 48)
-      (if (&& (>= b 97) (<= b 102))
-          (+ 10 (- b 97))
-          (if (&& (>= b 65) (<= b 70))
-              (+ 10 (- b 65))
-              (- 0 1)))))
 
 (:: jpArray (-> String Int Int Int))
 (fn (jpArray src c depth)

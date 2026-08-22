@@ -200,7 +200,7 @@
     (__p (ffiCellWord __c 0))
     (__n (ffiCellWord __c 1))
   )
-    (if (== __st 0)
+    (if (== __st ffiStatusOk)
       {
         (ffiCellFree __c)
         (Ok (Counter (ffiHandleNew __p counterDropFn)))
@@ -330,12 +330,12 @@
     (__p (ffiCellWord __c 0))
     (__n (ffiCellWord __c 1))
   )
-    (if (== __st 0)
+    (if (== __st ffiStatusOk)
       {
         (ffiCellFree __c)
         (Some (Ok __p))
       }
-      (if (== __st 2)
+      (if (== __st ffiStatusNone)
         {
           (ffiCellFree __c)
           None
@@ -361,7 +361,7 @@
     (__p (ffiCellWord __c 0))
     (__n (ffiCellWord __c 1))
   )
-    (if (== __st 0)
+    (if (== __st ffiStatusOk)
       {
         (ffiCellFree __c)
         (Some __p)
@@ -383,12 +383,12 @@
     (__p (ffiCellWord __c 0))
     (__n (ffiCellWord __c 1))
   )
-    (if (== __st 0)
+    (if (== __st ffiStatusOk)
       {
         (ffiCellFree __c)
         (Ok (Some __p))
       }
-      (if (== __st 2)
+      (if (== __st ffiStatusNone)
         {
           (ffiCellFree __c)
           (Ok None)
@@ -414,7 +414,7 @@
     (__p (ffiCellWord __c 0))
     (__n (ffiCellWord __c 1))
   )
-    (if (== __st 0)
+    (if (== __st ffiStatusOk)
       {
         (ffiCellFree __c)
         (Ok __p)
@@ -442,7 +442,7 @@
     (__w1 (cast Float (ffiCellWord __c 1)))
     (__r (Point __w0 __w1))
   )
-    (if (== __st 0)
+    (if (== __st ffiStatusOk)
       {
         (ffiCellFree __c)
         (Some __r)
@@ -517,7 +517,7 @@
     (__w1 (cast Float (ffiCellWord __c 1)))
     (__r (Point __w0 __w1))
   )
-    (if (== __st 0)
+    (if (== __st ffiStatusOk)
       {
         (ffiCellFree __c)
         (Ok __r)
@@ -562,7 +562,7 @@
     (__p (ffiCellWord __c 0))
     (__n (ffiCellWord __c 1))
   )
-    (if (== __st 0)
+    (if (== __st ffiStatusOk)
       (let ((__v (__pointFromWords (vecWithCapacity __n) __p __n 0)))
         {
           (ffiFreeWords __p (* __n 2))

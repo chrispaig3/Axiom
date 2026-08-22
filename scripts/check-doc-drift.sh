@@ -100,9 +100,13 @@ fi
 # ---------------------------------------------------------------
 # 2, 3, 4, 5 - the documents themselves
 # ---------------------------------------------------------------
-python3 - "$repo_root" "$axc" <<'PY'
+# The prose documents come from `gate_prose_docs`, so this gate,
+# `check-tree-sitter.sh` and `check-tools-selfhost.sh` sweep one set
+# instead of three hand-written copies that had already diverged.
+python3 - "$repo_root" "$axc" $(gate_prose_docs) <<'PY'
 import os, re, sys, glob, shutil, subprocess, tempfile
 root, axc = sys.argv[1], sys.argv[2]
+PROSE_DOCS = sys.argv[3:]
 os.chdir(root)
 bad = 0
 readme = open("README.md", encoding="utf-8").read()
@@ -160,18 +164,7 @@ named = set()
 # only one of them existed, and this gate passed. It is the document
 # that names the most fixtures, because every section ends by saying
 # what pins it.
-for doc in ("README.md", "docs/reference.md", "CONTRIBUTING.md",
-            "docs/v1-roadmap.md", "docs/self-hosting.md", "docs/macros.md",
-            # The normative specifications. A document outside this
-            # list drifts exactly as the nine claims this gate was built
-            # to catch did, and these cite 31 fixtures between them.
-            # docs/error-model.md joined them on 2026-08-16, on the day
-            # it was written rather than after its first stale sentence:
-            # it is the document whose every rule cites the probe that
-            # established it, so it has the most to lose from a fixture
-            # that quietly stops existing.
-            "docs/memory-model.md", "docs/macro-system.md",
-            "docs/error-model.md"):
+for doc in PROSE_DOCS:
     # The extension alternation needs the boundary: without it
     # `tests/fmt/parity/170-empty-tuple.axp` matched as `...ax` and was
     # reported missing, which is a gate finding its own bug and calling

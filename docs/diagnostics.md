@@ -22,8 +22,11 @@ one question so a consumer never has to guess which fields a given line
 might contain.
 
 All diagnostics flow through a single structured type,
-`Diag` in [`self_host/diag.ax`](../self_host/diag.ax), produced
-by the lexer, parser, and semantic analyzer. That one representation is
+`Diag` in [`self_host/diag.ax`](../self_host/diag.ax), built at every
+stage that can refuse: the parser (which raises the lexer's errors too -
+`lexErrDiag` reads the code off the offending byte), the macro expander,
+the type checker, and the codegen and driver stages that lower and link.
+That one representation is
 rendered into whichever of the formats below you ask for with
 `--diagnostic-format`; the renderers never see anything the compiler
 didn't already know, so `human`, `ai`, and `json` output can never
@@ -46,7 +49,14 @@ Codes are namespaced by compiler stage:
 Macro expansion runs as part of semantic analysis and its refusals live
 in `AX3xxx`: `AX3018` arity, `AX3019` recursion limit, `AX3020`
 duplicate parameter, `AX3021` an unsupported template form, `AX3022` a
-`set` target that is not a name. See [macros.md](macros.md).
+`set` target that is not a name, `AX3024` the expansion-size limit,
+`AX3027` a declaration-macro invocation the expander cannot resolve,
+`AX3028` a `syntax/*` query with no answer, `AX3033` a rule that can
+never match, `AX3034` an ellipsis used at the wrong depth, `AX3035` a
+binder parameter given something that is not a variable. All eleven are
+constructed in `self_host/expand.ax` (`AX3028` in
+`self_host/typecheck.ax` as well). See
+[macro-system.md](macro-system.md).
 
 Module visibility lives there too: `AX3023` is a reference to a name
 that exists, in a module that does not export it — the declaration is
@@ -93,19 +103,20 @@ site rather than ahead of one.
 
 The second suppression that IS exercised is spanlessness: a node with no
 span suppresses its diagnostic rather than pointing it somewhere wrong.
-There are thirteen `span == 0` guards in `self_host/typecheck.ax` and
+There are ten `span == 0` guards in `self_host/typecheck.ax` and
 they are the reason a diagnostic never lands on line 1 column 1 by
 accident.
 
-Concretely, poisoning today makes this:
+Concretely, this:
 
 ```lisp
 (:: main Int)
-(define main (foo 1 2) 0)
+(define main (+ (foo 1 2) 0))
 ```
 
-now reports exactly **one** diagnostic (`foo` is undefined), instead of
-three.
+reports exactly **one** diagnostic - `foo` is undefined. The poisoned
+type flows into `+` and back out into `main`'s declared `Int`, and
+neither comparison reports a second time.
 
 ## Human format (`--diagnostic-format=human`, default)
 
@@ -211,7 +222,7 @@ pins an `AX3014` reported at an invocation that mentions neither the
 name nor the modules, where the frame is the whole of what makes the
 line actionable.
 
-`tests/selfhost/645-axdl-repetition` is still the case that pins the
+`tests/selfhost/645-axdl-repetition.ax` is still the case that pins the
 GRAMMAR: it builds one diagnostic carrying two of every repeating
 field and renders the whole line, which is how a combination no real
 producer emits stays covered.
@@ -253,13 +264,13 @@ Source:
 AXDL output:
 
 ```
-E AX3001 main.ax:6:4-9 undefined-variable "undefined variable `helpr`" ?6:4-9:"a similarly named binding `helper` is in scope; did you mean this?"~>"helper"
+E AX3001 main.ax:6:4-9 undefined-variable "undefined variable `helpr`" #"no binding named `helpr` in scope" ?6:4-9:"a similarly named binding `helper` is in scope; did you mean this?"~>"helper"
 ```
 
 Everything a human report would tell you is present - the exact span,
-the kind of error, the message, and a machine-applicable fix - in a
-single 190-byte line instead of a multi-line, ANSI-colored, box-drawn
-report several times that size.
+the kind of error, the primary label, the message and a
+machine-applicable fix - in a single 193-byte line instead of a
+multi-line, ANSI-coloured report several times that size.
 
 ## JSON Lines (`--diagnostic-format=json`)
 
@@ -268,15 +279,21 @@ diagnostic is also available as one JSON object per line (not a JSON
 array, so output can be streamed):
 
 ```json
-{"severity":"error","code":"AX3001","slug":"undefined-variable","message":"undefined variable `helpr`","file":"main.ax","span":{"start":{"line":6,"col":4},"end":{"line":6,"col":9},"char_start":84,"char_end":89},"label":"no binding named `helpr` in scope","related":[],"notes":[],"help":["a similarly named binding `helper` is in scope; did you mean this?"]}
+{"severity":"error","code":"AX3001","slug":"undefined-variable","message":"undefined variable `helpr`","file":"main.ax","span":{"start":{"line":6,"col":4},"end":{"line":6,"col":9},"char_start":84,"char_end":89},"label":"no binding named `helpr` in scope","related":[],"notes":[],"help":["a similarly named binding `helper` is in scope; did you mean this?"],"expansion":[]}
 ```
 
-`char_start`/`char_end` are **character offsets**, not byte offsets:
-Axiom's lexer tokenizes a `Vec<char>`, so every span everywhere in the
-compiler (and therefore every renderer) is character-indexed end to end.
-For source containing only ASCII text the two coincide; for source with
-multi-byte UTF-8 characters, only the character offsets are meaningful -
-do not use these fields as byte indices into the file.
+`expansion` is the array form of AXDL's `&` field, one object per
+enclosing macro; it is empty for a diagnostic raised outside an
+expansion.
+
+`char_start`/`char_end` are **character offsets**, not byte offsets.
+The compiler's own spans count bytes - the lexer walks the source a byte
+at a time and a `Span` is a byte range - and this renderer converts them
+(`charsBetween` in `self_host/render.ax`), so the two offset fields are
+character-indexed whatever the representation behind them is. For source
+containing only ASCII text the two coincide; for source with multi-byte
+UTF-8 characters, only the character offsets are meaningful - do not use
+these fields as byte indices into the file.
 
 ## AXSYM: symbol/type notation (`axiom symbols`)
 
@@ -289,36 +306,48 @@ already knew" waste AXDL was built to avoid, just for the success case
 instead of the failure case.
 
 `axiom symbols <file>` runs the same lexer -> parser -> type-checker
-pipeline as `check` (including resolving `(import ...)`s, see
-`docs/diagnostics.md`'s multi-file notes below), then prints one fact per
-top-level name the checker collected: every `define`/`fn`, every
-`data` type and its constructors, every `struct` (with its exact field
-shapes), every `type` alias, and every trait.
+pipeline as `check` (including resolving `(import ...)`s, which is why
+a symbol's `FILE` is the file that declared it - see the `FILE:LOC` row
+below), then prints one fact per top-level name the checker collected:
+every `define`/`fn`, every `data` type and its constructors, every
+`struct` (with its exact field shapes), every `type` alias, and every
+trait.
 
 ```bash
-# AXSYM, one line per symbol - the only format, and the default
+# The aligned table, one line per symbol - the default
 axiom symbols main.ax
 
-# Also list Axiom's dozen always-in-scope built-in operators (+, ==, &&, ...),
-# which are omitted by default (see the `-`/builtins row below)
+# AXSYM: the same facts, plus the nid and the metadata
+axiom --diagnostic-format=ai symbols main.ax
+
+# Also list the always-in-scope builtins - 18 operators (+, ==, &&, ...)
+# and 26 primitives (__syscall0, __alloc, ...) - omitted by default
 axiom symbols main.ax --builtins
 ```
 
-**`symbols` emits AXSYM and nothing else.** The Rust implementation of
-this compiler had three renderers for it - an aligned human table, which
-was its default, one JSON object per line, and AXSYM - and the
-self-hosted compiler that replaced it has only AXSYM, which is also its
-default. That is deliberate: AXSYM is the notation this language is
-designed around, the human table was a strict subset of it (dropping the
-nid and the metadata), and nothing consumed the JSON. Asking for either
-of the other two with `--diagnostic-format` prints a note saying so
-rather than silently answering with something else; the flag still
-selects the format of *diagnostics*, which is what it is named for.
+**Two renderings of one set of facts.** The default is an aligned
+table: the kind spelled out, the name, the type, and the location in
+brackets, with `[builtin]` where AXSYM writes `-`.
+
+```
+Fn       add                  (Int -> (Int -> Int))                    [main.ax:9:5-8]
+Data     Maybe                data Maybe                               [main.ax:1:7-12]
+```
+
+`--diagnostic-format=ai` gives AXSYM, the notation this language is
+designed around: the same facts plus the nid and the metadata the table
+has no column for. The table is derived by re-reading the AXSYM text
+(`symbolsHumanTable` in `self_host/symbols.ax`) rather than by a second
+walk over the collected facts, so the two cannot disagree about what the
+symbols are. `json` has no symbol renderer of its own: asking for it
+prints a note saying so and answers in AXSYM rather than silently
+answering with something else, since the flag selects the format of
+*diagnostics*, which is what it is named for.
 
 ### Grammar
 
 ```
-<KIND> <NAME> <FILE>:<LOC>|- "<TYPE>" [#<key>=<value>]*
+<KIND> <NAME> <FILE>:<LOC>|- "<TYPE>" [@<NID>] [#<key>=<value>]*
 ```
 
 | Field | Meaning |
@@ -326,7 +355,7 @@ selects the format of *diagnostics*, which is what it is named for.
 | `KIND` | One letter: `F` function, `D` data type, `C` constructor, `S` struct, `A` type alias, `T` trait |
 | `NAME` | The declared name, exactly as written |
 | `FILE:LOC` | Same `file:line:col[-col\|:line:col]` addressing as AXDL, via the same source map in [`self_host/diag.ax`](../self_host/diag.ax) - for a program with `(import ...)`s, `FILE` is the *actual* file that declared this symbol (an imported module's own file), not always the entry file, exactly like AXDL's own multi-file attribution |
-| `-` | In place of `FILE:LOC`, for names with no source span at all - in practice, only Axiom's dozen built-in operators (`+`, `==`, `&&`, ...), which `axiom symbols` omits entirely unless `--builtins` is passed (they never change, so printing them on every call is exactly the restating-what's-already-known token waste this notation exists to avoid) |
+| `-` | In place of `FILE:LOC`, for a name with no source span at all: the 18 built-in operators (`+`, `==`, `&&`, ...) and the 26 primitives (`__syscall0`, `__alloc`, ...), which `axiom symbols` omits unless `--builtins` is passed (they never change, so printing them on every call is exactly the restating-what's-already-known token waste this notation exists to avoid), and the built-in `Option` type with its two constructors, which is always listed because a file's own code names it |
 | `"TYPE"` | Axiom's own curried type syntax, quoted (it can itself contain `->`/parens, so quoting keeps the line's field boundaries unambiguous the same way AXDL quotes messages) |
 | `#key=value` | Kind-specific metadata (see below) |
 
@@ -339,6 +368,12 @@ Metadata keys actually emitted today:
 | `fields` | `S` | `name:Type,name:Type,...` - the actual field shapes, not just a count, e.g. `#fields=x:Int,y:Int` |
 | `methods` | `T` | `name:Type,name:Type,...` for the trait's methods, same shape as `fields` |
 | `tyvars` | `A` | Comma-separated type parameters, e.g. `#tyvars=a,b`, omitted when there are none |
+| `effects` | `F` | The effect row the checker derived, sorted and comma-separated, e.g. `#effects=IO`; absent when the function performs none. An `extern` item carries `#effects=IO` |
+| `effect-params` | `F` | For an effect-polymorphic signature, the parameters the row varies in, by their declared names |
+| `generated` | `F` | The declaration macro that wrote this declaration, for a name no line of the file spells |
+
+AXTAG keys (`#effect=io`, `#pure`, ...) join these on `F`, `D`, `S`,
+`A` and `T`; see the AXTAG section below.
 
 `KIND` letters are deliberately disjoint from the severity sigils `E`/`W`/`N`/`H`, so the first character of a line is never ambiguous about which notation (or which command) produced it even if AXDL and AXSYM output were ever concatenated into one stream.
 
@@ -360,15 +395,35 @@ Source:
   (+ x y))
 ```
 
-AXSYM output (`--diagnostic-format=ai symbols`, builtins omitted by default):
+Default output, the aligned table:
 
 ```
-F add main.ax:9:5-8 "(Int -> (Int -> Int))"
-D Maybe main.ax:1:7-12 "data Maybe" #ctors=Nothing,Just
-C Nothing main.ax:2:4-11 "Maybe" #of=Maybe
-C Just main.ax:3:4-8 "(a -> Maybe a)" #of=Maybe
-S Point main.ax:5:9-14 "struct Point" #fields=x:Int,y:Int
+Fn       add                  (Int -> (Int -> Int))                    [main.ax:9:5-8]
+Data     Option               data Option                              [builtin]
+Ctor     Some                 (a -> Option a)                          [builtin]
+Ctor     None                 Option a                                 [builtin]
+Data     Maybe                data Maybe                               [main.ax:1:7-12]
+Ctor     Nothing              Maybe a                                  [main.ax:2:4-11]
+Ctor     Just                 (a -> Maybe a)                           [main.ax:3:4-8]
+Struct   Point                struct Point                             [main.ax:5:9-14]
 ```
+
+The same file under `--diagnostic-format=ai`, where the nid and the
+metadata the table has no column for come with it:
+
+```
+F add main.ax:9:5-8 "(Int -> (Int -> Int))" @27bcb2cac184465e
+D Option - "data Option" #ctors=Some,None
+C Some - "(a -> Option a)" #of=Option
+C None - "Option a" #of=Option
+D Maybe main.ax:1:7-12 "data Maybe" @247d1682b2330461 #ctors=Nothing,Just
+C Nothing main.ax:2:4-11 "Maybe a" #of=Maybe
+C Just main.ax:3:4-8 "(a -> Maybe a)" #of=Maybe
+S Point main.ax:5:9-14 "struct Point" @aa47cd1e9254cc56 #fields=x:Int,y:Int
+```
+
+The built-in `Option` and its constructors are listed either way; the
+operators and the primitives are not, unless `--builtins` is passed.
 
 An agent asked to "add a function that formats a `Maybe Int`" can now
 `grep '^D Maybe'`/`grep '^C '` for the exact constructor set and
@@ -395,12 +450,15 @@ obvious immediately. See `self_host/parser.ax`'s type-variable parsing and
 ## Adding a new diagnostic
 
 1. Pick the next free number in the appropriate range: `AX1xxx`
-   lexical, `AX2xxx` parse, `AX3xxx` semantic, `AX5xxx` module
-   resolution.
+   lexical, `AX2xxx` parse, `AX3xxx` semantic (macro expansion
+   included), `AX4xxx` IR lowering, codegen and the native toolchain,
+   `AX5xxx` module resolution.
 2. Construct it with `mkDiag` - or `mkDiagFix` when the help is
    machine-applicable and should render as `?LOC:"msg"~>"replacement"` -
-   at the site that detects the condition, in `self_host/lexer.ax`,
-   `self_host/parser.ax`, or `self_host/typecheck.ax`. It takes a
+   at the site that detects the condition. That site is one of
+   `self_host/parser.ax` (which raises the lexer's errors too),
+   `self_host/expand.ax`, `self_host/typecheck.ax`,
+   `self_host/codegen.ax` or `self_host/driver.ax`. It takes a
    severity, the code, a kebab-case slug, a span, a message and a help.
 3. Write its long-form text into `self_host/explain.ax`, so
    `axiom explain AX....` answers. This is enforced:
@@ -444,10 +502,16 @@ Both NID and AXTAG are now implemented.
   trusting it. Other tags (`no_refactor`, `owned(arena=frame)`, etc.) are
   preserved and emitted but not yet validated.
 
-Example AXSYM output with NID and AXTAG metadata:
+AXSYM output for a file whose first declaration carries `;@axiom:pure`,
+whose second is an `extern` item and whose third is a data type - the
+nid after the type, the metadata after the nid:
 
 ```
-F add main.ax:1:6-9 "(Int -> (Int -> Int))" @a1b2c3d4e5f6a1b2
-X printf main.ax:1:10-16 "(String -> Int)" #symbol=printf @c3d4e5f6a1b2
-D Maybe main.ax:3:7-12 "data Maybe" #ctors=Nothing,Just @e5f6a1b2c3d4
+F double main.ax:2:5-11 "(Int -> Int)" @c74a58529d6a1016 #pure
+F addTwo main.ax:6:4-10 "(Int -> (Int -> Int))" @531b42e47de2ddf6 #effects=IO
+D Maybe main.ax:8:7-12 "data Maybe" @247d1682b2330461 #ctors=Nothing,Just
 ```
+
+An `extern` item is an `F` like any other function - it has a name, a
+type and a span - and the effects it is credited with are the ones a
+call to it performs.

@@ -316,12 +316,20 @@
   (if (== ch 9)  true
   false)))))
 
+; The value of a hex digit, or -1. Stated as the VALUE and not as a
+; predicate because the value is what every caller needed: the JSON
+; parser's `\uXXXX` escape and the language server's percent-decoding
+; each carried a byte-identical copy of this ladder under its own name,
+; while the predicate here had no caller at all.
+(pub :: strHexVal (-> Int Int))
+(pub fn (strHexVal ch)
+  (if (&& (>= ch 48) (<= ch 57)) (- ch 48)
+  (if (&& (>= ch 97) (<= ch 102)) (+ 10 (- ch 97))
+  (if (&& (>= ch 65) (<= ch 70)) (+ 10 (- ch 65))
+  (- 0 1)))))
+
 (pub :: strIsHexDigit (-> Int Bool))
-(pub fn (strIsHexDigit ch)
-  (if (strIsDigit ch) true
-  (if (if (>= ch 97) (<= ch 102) false) true
-  (if (if (>= ch 65) (<= ch 70) false) true
-  false))))
+(pub fn (strIsHexDigit ch) (>= (strHexVal ch) 0))
 
 ; ------------------------------------------------------------------
 ; Splitting

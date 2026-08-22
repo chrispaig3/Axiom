@@ -12,37 +12,53 @@ SHA256SUMS                what each of them should hash to
 STAMP                     which commit they were generated from, and when
 ```
 
-`scripts/bootstrap-from-seed.sh` picks the file matching the host,
-runs `llc` and `cc` over it to get a compiler, and uses that compiler
-to build the compiler from `self_host/` — then does it twice more and
-requires the last two to be byte-identical. It needs `llc` and a C
-compiler on `PATH` and nothing else. Not `cargo`, not `rustc`.
+`scripts/bootstrap-from-seed.sh` picks the file matching the host, runs
+`llc` and `cc` over it to get a `seed` compiler, has that seed compile
+`self_host/` into `stage1`, and then runs the ordinary ladder
+`stage1 -> stage2 -> stage3`, requiring `stage2` and `stage3` to be
+byte-identical. It needs `llc` and a C compiler on `PATH` and nothing
+else. Not `cargo`, not `rustc`. With `--install DIR` it copies `stage3`
+— the compiler that came out of the fixpoint, not the seed and not the
+first thing built from it — to `DIR/axiom`, which is where every other
+gate looks for one.
 
 ## Why the IR and not a binary
 
-A binary is opaque, is four times larger, and has to be rebuilt for
-every libc and linker anyone might have. The IR is text, it is
-reviewable in a diff, `git` delta-compresses the four files against
-each other well because they differ in 193 lines out of 61,473 — the
-target triple, the syscall instruction, and the syscall numbers — and
-the same `llc` invocation the project already relies on turns it into
-whatever the host needs.
+A binary would in fact be *smaller* than the IR that produces it. It is
+still the wrong artifact: it is opaque, so nobody can review what they
+are about to trust, and it would have to be rebuilt for every libc and
+linker anyone might have. The IR is text, so it is reviewable in a
+diff; `git` delta-compresses the four files against each other well,
+because they are one program compiled for four targets and differ only
+in the target triple, the syscall instruction and the syscall numbers;
+and the same `llc` invocation the project already relies on turns it
+into whatever the host needs.
 
-Measured: 2.10 MB per target, 8.38 MB for the four.
+Every one of those sizes moves with every reseed, so measure them
+rather than read them here:
+
+```bash
+du -sh bootstrap                       # all four, plus SHA256SUMS and STAMP
+wc -l bootstrap/*.ll                   # lines per target
+ls -l .axiom-bin/axiom                 # what one of them turns into
+diff bootstrap/axiom-darwin-aarch64.ll \
+     bootstrap/axiom-linux-x86_64.ll | grep -c '^[<>]'   # how far apart two are
+```
 
 ## Why it is allowed to lag the source
 
-The seed is **not** asserted to be the IR of the source next to it. If
-it were, every commit touching the compiler would carry 8.4 MB of
-regenerated text, and the property that buys — "the seed is exactly
-this source" — is not what a fresh clone needs.
+The seed is **not** asserted to be the IR of the source next to it, and
+`bootstrap-from-seed.sh` does not check that it is. If it were, every
+commit touching the compiler would carry the whole seed regenerated in
+its diff, and the property that buys — "the seed is exactly this
+source" — is not what a fresh clone needs.
 
 What a clone needs is *"the seed can build this source"*, and that is
 what the script checks, by building it. A seed that falls behind far
 enough to stop compiling `self_host/` fails there, naming the stage
-that could not do it, and `scripts/reseed.sh` moves it forward. This
-is the same arrangement Go and Rust have with their bootstrap
-toolchains, for the same reason.
+that could not do it, and `scripts/reseed.sh` moves it forward. This is
+the same arrangement Go and Rust have with their bootstrap toolchains,
+for the same reason.
 
 Measured, so the arrangement is not merely asserted: a seed generated
 from the *previous commit's* compiler builds the current tree to a
@@ -69,12 +85,21 @@ AXIOM=<a working compiler> scripts/reseed.sh
 scripts/bootstrap-from-seed.sh          # always, before committing
 ```
 
-The seeds are reproducible — `scripts/check-reproducible.sh` is the
-gate that says so, and re-running `reseed.sh` against an unchanged
-tree was measured to leave all four `.ll` files and `SHA256SUMS`
-byte-identical. If one of them moves without the compiler moving, the
-compiler has a nondeterminism bug, and that is the thing to fix rather
-than the diff to commit.
+`reseed.sh` will not bootstrap a compiler for itself, deliberately: the
+routine reason to run it is that bootstrapping from the committed seed
+has just failed, so quietly attempting that again here would replace a
+clear "the seed is stale" with a confusing one. Name a compiler that
+works — the previous commit's `.axiom-bin/axiom` is the usual answer.
+
+Re-running `reseed.sh` against an unchanged tree leaves all four `.ll`
+files and `SHA256SUMS` byte-identical, because the compiler is
+deterministic. `scripts/check-reproducible.sh` is the gate that holds
+it to that: it compiles every case in `tests/stdlib/` twice, in
+separate processes, and compares the IR — separate processes because a
+per-process hash seed is exactly the kind of nondeterminism that would
+otherwise show up first as a seed that moves on its own. If a `.ll`
+here moves without the compiler moving, that determinism has broken,
+and the bug is the thing to fix rather than the diff to commit.
 
 `STAMP` does move on every run: it records the time. It is the one
 file here that carries no signal about the compiler.

@@ -17,9 +17,17 @@
 ; 12, which no corpus file contains and which no hand-written case
 ; would have thought to try.
 ;
+; The same had happened to "what is a hex digit": `Json.jpHexVal` and
+; `lsp.lspHexVal` were byte-identical ladders under two names, and
+; `Str.strIsHexDigit` - the one that was supposed to be the single
+; statement - had never had a caller. They delegate to `Str.strHexVal`
+; now, and because one implementation has nothing to differ from, the
+; sweep compares it against an independent statement written here.
+;
 ; `n` COUNTS agreements rather than checking a flag, so a predicate
-; that stopped being called cannot pass by silence - 256 * 3 = 768 is
-; the only answer that means every byte was compared three ways.
+; that stopped being called cannot pass by silence - 256 * 3 for the
+; three predicates plus 256 for the hex value is 1024, and it is the
+; only answer that means every byte was compared every way.
 (import Str)
 (import lexer)
 (import format)
@@ -32,6 +40,23 @@
 (:: agree3 (-> Bool Bool Bool Int))
 (fn (agree3 a b c) (if (== (agree a b) 1) (agree b c) 0))
 
+; What a hex digit is worth, written out here rather than derived, so
+; the sweep below is a comparison and not a tautology.
+(:: refHexVal (-> Int Int))
+(fn (refHexVal b)
+  (if (&& (>= b 48) (<= b 57))  (- b 48)
+  (if (&& (>= b 97) (<= b 102)) (+ 10 (- b 97))
+  (if (&& (>= b 65) (<= b 70))  (+ 10 (- b 65))
+  (- 0 1)))))
+
+; 1 when `Str` answers this byte's hex value the way the reference
+; does AND its predicate agrees with that value; 0 otherwise.
+(:: agreeHex (-> Int Int))
+(fn (agreeHex b)
+  (if (== (strHexVal b) (refHexVal b))
+      (agree (strIsHexDigit b) (>= (refHexVal b) 0))
+      0))
+
 (:: sweep (-> Int Int Int))
 (fn (sweep b n)
   (if (>= b 256)
@@ -39,8 +64,9 @@
       (sweep (+ b 1)
              (+ n (+ (agree3 (isDigit b) (isFDigit b) (strIsDigit b))
                   (+ (agree3 (isAlpha b) (isFAlpha b) (strIsAlpha b))
-                     (agree3 (isSpace b) (isFSpace b) (strIsSpace b))))))))
+                  (+ (agree3 (isSpace b) (isFSpace b) (strIsSpace b))
+                     (agreeHex b))))))))
 
 (:: main Int)
 (fn (main)
-  (if (== (sweep 0 0) 768) 42 1))
+  (if (== (sweep 0 0) 1024) 42 1))

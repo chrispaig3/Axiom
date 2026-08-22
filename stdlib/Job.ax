@@ -66,10 +66,10 @@
 (:: jobPending Int)
 (fn (jobPending) (- 0 1000))
 
-(:: jobWidth (-> Int Int))   (pub fn (jobWidth p) (memGetWord p 0))
-(:: jobPids (-> Int Int))    (pub fn (jobPids p) (memGetWord p 1))
-(:: jobCodes (-> Int Int))   (pub fn (jobCodes p) (memGetWord p 2))
-(:: jobLive (-> Int Int))    (pub fn (jobLive p) (memGetWord p 3))
+(:: jobWidth (-> Int Int))   (fn (jobWidth p) (memGetWord p 0))
+(:: jobPids (-> Int Int))    (fn (jobPids p) (memGetWord p 1))
+(:: jobCodes (-> Int Int))   (fn (jobCodes p) (memGetWord p 2))
+(:: jobLive (-> Int Int))    (fn (jobLive p) (memGetWord p 3))
 
 ; A width below 1 would submit nothing and join forever, so it is
 ; clamped rather than trusted. `width` 1 is meaningful and is the

@@ -70,18 +70,23 @@ kept there are reported as per-iteration costs derived from two points.
 
 ## 1. What exists today
 
-Measured 2026-08-16 against `.axiom-bin/axiom` 0.1.0 (self-hosted).
+Measured 2026-08-16 against `.axiom-bin/axiom` 0.1.0 (self-hosted), and
+re-counted 2026-08-22 where the numbers below say so.
 
-### 1.1 There is no `Result`, and `Option` is built in
+### 1.1 `Option` is built in, `Result` is imported
 
 `Some` and `None` are built-in constructors, registered ahead of every
 user constructor (`self_host/typecheck.ax`), usable with no declaration
 and no import, and spelled in signatures as `(Option Int)`.
 
-`Ok`, `Err` and `Result` are defined nowhere. `(Ok 1)` is `AX3001` in
-expression position and `AX3003` in pattern position.
+`Ok`, `Err` and `Result` are not built in. They are ordinary
+declarations in `stdlib/Err.ax` since 2026-08-16 (§2), reached by
+`(import Err)`; without that import `(Ok 1)` is still `AX3001` in
+expression position and `AX3003` in pattern position. That asymmetry is
+`ERR-TYPE-2` holding rather than a gap, and it is the one difference a
+reader of §2 has to carry: `Option` needs no import and `Result` does.
 
-### 1.2 Failure is a sentinel, in 65 places
+### 1.2 Failure is a sentinel, in 64 places
 
 The standard library signals failure by returning a value from the
 success type's own range:
@@ -89,7 +94,7 @@ success type's own range:
 | Module | Sites | Convention |
 |---|---|---|
 | `stdlib/Sys.ax` | 21 | `-errno`, Darwin's carry-flag protocol normalised into it |
-| `stdlib/IO.ax` | 12 | `-errno`, forwarded from `Sys` |
+| `stdlib/IO.ax` | 11 | `-errno`, forwarded from `Sys` |
 | `stdlib/Utf8.ax` | 6 | `-1` |
 | `stdlib/Map.ax` | 6 | `-1` / absent-key |
 | `stdlib/Job.ax` | 4 | `-errno` |
@@ -97,17 +102,20 @@ success type's own range:
 | `stdlib/Str.ax`, `stdlib/Intern.ax`, `stdlib/Sys/Platform.darwin.ax` | 2 each | `-1` / `-errno` |
 | `stdlib/Vec.ax` | 1 | `-1` |
 
-65 sites over 12 files, counted with
+64 sites over 12 files, counted 2026-08-22 with
 `grep -cE "errno|sentinel|\(- 0 1\)"` across `stdlib/*.ax` and
-`stdlib/Sys/*.ax`. The count is the migration's size and the baseline
-for `ERR-ADOPT-1`; the platform shim is in it because
+`stdlib/Sys/*.ax`, excluding `Err.ax` itself. Recompute it rather than
+quoting it: it is a proxy, and the tree moves under it — deleting
+`IO.readAll` as unreachable on 2026-08-22 took a site with it. The
+count is the migration's size and the baseline for `ERR-ADOPT-1`; the
+platform shim is in it because
 `Platform.darwin.ax` is where the carry-flag protocol is normalised,
 which is the one place the convention is *implemented* rather than
 forwarded.
 
 A sentinel is not merely inelegant: it is a value of the success type,
 so nothing in the type system distinguishes "the file is 4 bytes long"
-from "the call failed with `errno` 4 negated". Every one of these 65
+from "the call failed with `errno` 4 negated". Every one of these 64
 sites depends on a caller remembering.
 
 ### 1.3 Two traps and three undefined cases
@@ -290,7 +298,7 @@ scrutinee shape run as its ablation.
 
 **ERR-PROP-4 (P). The compiler SHOULD diagnose a self-recursive call in
 the scrutinee of a `match` on its own return type.** Proposed
-`AX3036`, `recursion-in-scrutinee`, a **warning**, with a help naming
+`AX3037`, `recursion-in-scrutinee`, a **warning**, with a help naming
 the arm-tail rewrite. Today nothing says anything: the program compiles,
 runs, and dies on an input large enough, which is the failure mode
 `ERR-PROP-3` exists to prevent and the one a programmer is least
@@ -370,11 +378,38 @@ rather than discovering it later:
 > iteration at both 10,000 and 50,000 iterations, against a flat
 > control loop with no `Result` in it.
 
-Nothing in the reference-counting work released it: the value is
-neither a parameter crossing a boundary (`ERR-MEM-2`) nor a `let`
-binding whose scope ends before it is used. Closing it needs the escape
-analysis that `MM-LIFE-2c` events 2 and 3 are waiting on, and this
-model is now a second caller for that work with a number attached.
+The prerequisite this rule used to name is gone and the leak is not.
+`MM-LIFE-2c`'s events 2 and 3 — the ownership pair this rule blamed for
+it — shipped on 2026-08-21 (`tests/stdlib/372-arc-owned-results.ax`),
+and the 32 bytes survived them untouched. Re-measured 2026-08-22 with
+the instrument `372` uses, the arena mark cell's word 0, over 10,000
+iterations after a 1,000-iteration warm-up, against
+`step : (-> Int (Result Int String))`:
+
+| the call's result is… | bytes/iteration |
+|---|---|
+| the scrutinee of `(match (step i) ((Ok v) v) ((Err e) 0))` | **32** |
+| `let`-bound, then that same `match` | **32** |
+| the scrutinee of a `match` whose arms bind nothing | 0 |
+| the same call at `(Result String String)` | 0 |
+| the control loop with no `Result` in it | 0 |
+
+So the release is emitted and something suppresses it, and the thing
+that does is a **binder**. A `match` scrutinee is released after the
+merge only when no arm's binder escapes through that arm's body
+(`scrutineeReleasable`, `escapesViaBinders` in `self_host/codegen.ax`),
+and a binder that reaches its arm's value — bare, or through
+arithmetic, which passes value position to its operands — reads as an
+escape whatever its type.
+The decisive pair, same measurement: the same `Int` read out of the
+same frame-owned block by a **field read** costs 0 bytes per iteration
+and by a **match binder** costs 32 — because `escapes` tests
+`fieldReadIsScalar` on the field-read path and has nothing to test on
+the binder path, where the field has already become a bare variable. A
+machine scalar cannot alias the block it was copied out of, so the
+answer is a field-class test inside a walk that already exists. That is
+a narrower prerequisite than the one this rule carried, and naming it
+narrowly is the point of re-measuring.
 
 A conforming implementation **MUST** reclaim it. Until then the cost is
 linear in fallible calls, which is survivable for a compiler that runs
@@ -389,8 +424,10 @@ fixed; a control that isolates it survives the fix.
 **ERR-MEM-5 (H). An error record may declare at most 46 payload
 words.** `AX3029` refuses a wider block (47 mappable payload words, one
 spent on a data cell's tag), and `AX3030` caps a declaration at 64 type
-variables. `Error` as specified declares 3. The cliff is nowhere near,
-and the rule exists so a future cause-chain does not walk into it.
+variables. `Error` as specified declares 3. The cliff is nowhere near
+for an error record — the widest declaration in this repository, the
+compiler's own `CG`, sits at 45 — and the rule exists so a future
+cause-chain does not walk into it.
 
 **ERR-MEM-6 (R). The model does not use linear types.** `linear` and
 `consume` parse and enforce nothing: no use is counted, a linear value
@@ -415,8 +452,12 @@ arriving at a `match`. This is not asceticism; it is the only option
 the runtime leaves open, and §5.2 says why.
 
 **ERR-REC-2 (H). Every trap gets a value-returning alternative; the
-raw operator keeps its semantics.** Shipped in `stdlib/Err.ax`, gated
-by `tests/stdlib/371-err-module.ax` terms 64 and 32.
+raw operator keeps its semantics.** Shipped in `stdlib/Err.ax`. Two of
+the four are gated: `tests/stdlib/371-err-module.ax` term 64 pins
+`divChecked`'s zero case, and term 32 pins its `INT_MIN / -1` guard
+together with `shlChecked` refusing a shift of 100. `remChecked` and
+`shrChecked` ship unpinned, which §10 records with the rest of the
+unreached surface.
 
 | Trap today | Alternative | Answers |
 |---|---|---|
@@ -468,16 +509,21 @@ stable code and a kebab-case slug, and has long-form text in
 compiler reports; the rule is here so a future contributor does not
 invent a second channel for "error-model errors".
 
-**ERR-DIAG-2 (P). Proposed codes.** `AX3035` was allocated on
-2026-08-16 — not to this model, but to the expander defect that stood
-in its way (`macro-binder-target`, §7). The next free semantic number
-is therefore `AX3036` (`AX3032` is retired and **MUST NOT** be reused):
+**ERR-DIAG-2 (P). Proposed codes.** Twice now this model has proposed a
+number and the compiler has spent it first. `AX3035` went on 2026-08-16
+to the expander defect that stood in this model's way
+(`macro-binder-target`, §7), and `AX3036` went on 2026-08-22 to the FFI
+(`extern-type`, an `extern` item whose type cannot cross the boundary).
+The next free semantic number is therefore `AX3037` (`AX3032` is
+retired and **MUST NOT** be reused), and a proposal renumbers again if
+something builds one before this model does — which is exactly why
+these are proposals and not allocations:
 
 | Proposed | Slug | Condition |
 |---|---|---|
-| `AX3036` | `recursion-in-scrutinee` | `ERR-PROP-4` — warning |
-| `AX3037` | `discarded-result` | a `Result`-typed expression in statement position, its value unused — warning |
-| `AX3038` | `error-payload-untyped` | a payload field declared `Int` in a type whose constructor is applied to a reference — warning, `ERR-TYPE-5`/`ERR-MEM-1` |
+| `AX3037` | `recursion-in-scrutinee` | `ERR-PROP-4` — warning |
+| `AX3038` | `discarded-result` | a `Result`-typed expression in statement position, its value unused — warning |
+| `AX3039` | `error-payload-untyped` | a payload field declared `Int` in a type whose constructor is applied to a reference — warning, `ERR-TYPE-5`/`ERR-MEM-1` |
 
 Each needs, before it is listed: a construction site, `explain.ax`
 text, a `tests/diagnostics/` case with `.axdl`, `.human` and `.json`
@@ -577,7 +623,7 @@ the error's fields through `errContextOf` rather than in the arm.
 ## 8. What this specification found
 
 Five defects, none of them recorded anywhere before, each found by
-probing a claim rather than reading one. One is fixed.
+probing a claim rather than reading one. Two are fixed.
 
 **B1 — a macro binder did not scope over another parameter's syntax.
 FIXED 2026-08-16.** `(macro (bind! x e body) (let ((x e)) body))` put
@@ -598,12 +644,15 @@ declaration surface admits something the implementation surface cannot
 express. Blocks `From`-style error conversion; `ERR-TYPE-3` routes
 around it.
 
-**B3 — `newtype` is a documented keyword the compiler does not
-implement.** `docs/reference.md`'s keyword table lists `newtype` with
-the purpose *"Newtype wrapper"*. The compiler answers `AX3027`:
-*"`newtype` is neither a declaration keyword nor a visible macro"*.
-Doc drift of the exact class `scripts/check-doc-drift.sh` exists to
-catch, in a table that gate does not read.
+**B3 — `newtype` was a documented keyword the compiler does not
+implement. FIXED 2026-08-22.** `docs/reference.md`'s keyword table
+listed `newtype` with the purpose *"Newtype wrapper"* for as long as
+the table existed. The compiler answers `AX3027`: *"`newtype` is
+neither a declaration keyword nor a visible macro"*. The row is gone
+and the compiler is unchanged — there is still no `newtype`, which is
+now what the table says. Doc drift of the exact class
+`scripts/check-doc-drift.sh` exists to catch, in a table that gate does
+not read, which is why a probe found it and no gate did.
 
 **B4 — a fallible call leaks 32 bytes.** `ERR-MEM-4`. Not a defect of
 this model; a defect this model is the first to have a number for.
@@ -633,7 +682,7 @@ match binder.
 | `ERR-PROP-1` | H | the language having no other mechanism |
 | `ERR-PROP-2` | H | `#pure` accepted on construct and inspect |
 | `ERR-PROP-3` | **H, gated** | `tests/stdlib/370-error-propagation.ax` term 16 + ablation |
-| `ERR-PROP-4` | P | — proposed `AX3036`, not constructed |
+| `ERR-PROP-4` | P | — proposed `AX3037`, not constructed |
 | `ERR-PROP-5` | H | effect inference, unchanged |
 | `ERR-MEM-1` | H | `fldClass`, `self_host/codegen.ax` |
 | `ERR-MEM-2` | **H, gated** | `370-error-propagation.ax` term 4 + ablation |
@@ -642,19 +691,21 @@ match binder.
 | `ERR-MEM-5` | H | `AX3029` / `AX3030` |
 | `ERR-MEM-6` | R | `linear` enforces nothing |
 | `ERR-REC-1` | R | no unwinding exists |
-| `ERR-REC-2` | **H, gated** | `371-err-module.ax` terms 64 and 32 |
+| `ERR-REC-2` | **H, partly gated** | `371-err-module.ax` terms 64 and 32; `remChecked`/`shrChecked` unpinned |
 | `ERR-REC-3` | R | handlers are tail-resumptive |
 | `ERR-REC-4`, `5` | P | — |
 | `ERR-DIAG-1` | H | `mkDiag` is the only channel |
-| `ERR-DIAG-2`, `3` | P | — `AX3036`–`AX3038` not constructed |
+| `ERR-DIAG-2`, `3` | P | — `AX3037`–`AX3039` not constructed |
 | `ERR-SUGAR-1` | R | `?` is `AX1001` |
 | `ERR-SUGAR-2` | **H, gated** | `try!`; `371` term 16, MAC-HYG-10 |
 | `ERR-SUGAR-3` | **H, gated** | `withContext`; `371` term 2 |
 
-Fourteen rules hold, nine of them gated by a fixture with an ablation.
-What remains is `ERR-PROP-4`, `ERR-MEM-4`, `ERR-REC-4`/`5`,
-`ERR-DIAG-2`/`3` and the migration itself — and the document says so in
-every row rather than in a note at the end.
+Eighteen rules hold, nine of them named by a fixture that carries an
+ablation — and one of those nine, `ERR-REC-2`, has a fixture that
+reaches two of its four operators, which the row says. What remains is
+`ERR-PROP-4`, `ERR-MEM-4`, `ERR-REC-4`/`5`, `ERR-DIAG-2`/`3` and the
+migration itself — and the document says so in every row rather than in
+a note at the end.
 
 ---
 
@@ -666,12 +717,27 @@ commit.** Order, each slice green before the next:
 1. ~~`stdlib/Err.ax`~~ **DONE 2026-08-16** — `Result`, `Error`,
    `mapErr`, `withContext`, `okOr`, `toOption`, `andThen`, `mapOk`,
    `unwrapOr`, the `ERR-REC-2` checked operators, and `try!`. Nothing
-   else changed and nothing imports it yet, which is the point of
-   doing it first: `tests/stdlib/371-err-module.ax` exercises the whole
-   surface across a module boundary and no existing caller moved.
+   else in `stdlib/` changed and nothing there imports it yet, which is
+   the point of doing it first: `tests/stdlib/371-err-module.ax`
+   exercises it across a module boundary and no existing caller moved,
+   and the FFI fixtures match `Ok`/`Err` across the Rust boundary
+   without touching the rest of the module
+   (`tests/ffi/demo/050-fallible.ax`,
+   `tests/ffi/demo/184-nested-fallible.ax`).
+
+   What that fixture reaches, checked 2026-08-22: `divChecked`,
+   `shlChecked`, `try!`, `mapErr`, `andThen`, `okOr`, `toOption`,
+   `withContext`, `errorText`, `errCode`, `mkError`, `intMin` and the
+   three error codes. **Eight exports are reached by nothing** — no
+   fixture, no caller in `self_host/` or `stdlib/`: `isOk`, `isErr`,
+   `errMessage`, `errContext`, `mapOk`, `unwrapOr`, `remChecked` and
+   `shrChecked`. By this repository's own rule they are documentation
+   and not specification until a term reaches them, and there are two
+   honest ways out: a term that calls them, or a deletion. Slice 2
+   decides it, because it is the first slice with a caller.
 2. `stdlib/Utf8.ax`, `stdlib/Str.ax`, `stdlib/Path.ax` — 11 sites, no
    `errno`, pure, no callers outside `stdlib/`. The rehearsal.
-3. `stdlib/IO.ax` and `stdlib/Sys.ax` — 33 sites and the `-errno`
+3. `stdlib/IO.ax` and `stdlib/Sys.ax` — 32 sites and the `-errno`
    convention. The `Error.code` for these is the errno itself, negated
    back, so no information is invented and none is lost.
 4. `self_host/` — the compiler's own phases, which is where the model
@@ -690,7 +756,9 @@ noise. `self_host/lsp.ax` is the one long-lived Axiom program v1 ships,
 and it is already the case `docs/v1-roadmap.md` P2 measures. Migrating
 the compiler's phases to `Result` therefore **MUST** be re-measured
 against `scripts/check-lsp-selfhost.sh`'s per-edit figure, and
-`ERR-MEM-4` closed before the LSP's own request path migrates.
+`ERR-MEM-4` closed before the LSP's own request path migrates. Its
+cause is now named narrowly enough to cost one walk rather than one
+analysis, which moves it from a blocker to a task.
 
 ---
 

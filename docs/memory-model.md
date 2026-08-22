@@ -50,7 +50,7 @@ not exist yet. Every rule therefore carries one of:
 
 An **H** rule with no evidence is a bug in this document. A **P** rule
 that does not say what happens today is the failure mode
-[macros.md](macros.md) calls *documented-but-inert*: a reader builds on
+[macro-system.md](macro-system.md) calls *documented-but-inert*: a reader builds on
 a sentence and the compiler disagrees.
 
 ### 0.4 Reproducing the measurements
@@ -720,7 +720,7 @@ restored around the body.
 tuple types are type-level constructions only; `[` in expression
 position is `AX2001`. A sequence is a `data` type the program declares,
 or a `Vec`. This is why the macro expander needs no case for either
-(`macros.md` §6): a list-shaped *value* is always a constructor
+(`macro-system.md` §11.3): a list-shaped *value* is always a constructor
 application.
 
 ### 2.3 Closures
@@ -1121,10 +1121,17 @@ inference with the annotations removed, which is why `region` was
 deleted from the surface syntax rather than kept: an annotation the
 compiler can derive is an annotation that will eventually be wrong.
 
-*Today:* there is **no escape analysis of any kind** in the compiler.
+*Today:* an escape analysis exists, and it arrived with counting rather
+than with regions. `escapes` and `escapesViaBinders`
+(`self_host/codegen.ax`), over the two call-graph fixpoints
+`inferOwnership` and `inferFlows`, decide whether a frame-owned
+reference may outlive the frame that built it; the walk shipped with
+`MM-LIFE-2c`'s events 2 and 3 on 2026-08-21.
 
-*Withdrawn:* under counts, escape needs no analysis — ownership follows
-the reference wherever it is stored (`MM-LIFE-2c`, events 2 and 6), and
+*Withdrawn:* what counting does not need is *region* inference. Its walk
+asks one local question — may this release fire here — where this rule
+asked which arena a value belongs in; ownership then follows the
+reference wherever it is stored (`MM-LIFE-2c`, events 2 and 6), and
 `region` stays deleted either way.
 
 **MM-ALLOC-19 (W).** A **self tail call SHALL reset its activation's
@@ -2029,7 +2036,9 @@ is the i64 sign bit, reserved so every shape constant the compiler
 emits is non-negative — which sets the record capacity at **47
 payload words**, refused past the cliff as `AX3029` at the
 declaration (`tests/diagnostics/481-record-bitmap-capacity.ax`; the
-widest real declaration is the compiler's own 37-field `CG` record).
+widest real declaration is the compiler's own `CG` record, 45 fields as
+of 2026-08-22 — two short of the cliff, so this is a limit a reader
+should treat as reachable).
 Constructor and struct sites whose fields are all classifiable write
 their record shape over the allocator's leaf; a `Ptr`, an alias, or
 a qualified type spelling forces the whole block to the leaf —
@@ -2205,10 +2214,15 @@ container-and-AST typing campaign, and **that was superseded the same
 day**: the declared type is discarded in exactly two places, both a
 `cast Int` inside a polymorphic function, and `MM-LIFE-2g` closes them
 with `__retainref` — so the campaign was never the prerequisite. What
-remains between here and the acceptance measurements is `MM-LIFE-2c`'s
-events 2 and 3, the two that need an escape analysis. Recording the
-order that way is still the point — the rung that looked next was not
-the one that unblocks this, and it was not the one that landed either.
+remains between here and the acceptance measurements is not the
+ownership events: `MM-LIFE-2c`'s events 2 and 3 shipped 2026-08-21
+(`tests/stdlib/372-arc-owned-results.ax`), and both measurements are
+still blocked on what blocked them above — the compiler's own containers
+and AST declare their handles `Int`, so no type-directed ownership event
+can fire on them, and neither figure moves until they carry a type the
+checker can see. Recording the order that way is still the point: twice
+now the rung that looked next was not the one that unblocks this, and
+was not the one that landed either.
 
 One allocation class the events of `MM-LIFE-2c` deliberately do not
 reach: the emitter's own one-word cells — a `match`'s result cell, a
@@ -2266,8 +2280,9 @@ nothing.** A self-compile peaks at 534.3 MB under a 1 KiB ceiling, a
 it (the absolute figure is 393 MB since 2026-08-16, when `escBody`
 stopped escaping string literals quadratically — the three ceilings
 still measure alike, which is the claim) — the compiler's own
-containers are `Int`-typed and events 2 and 3 do not emit. What a ceiling costs is the head array (4,097 words of
-BSS, 352 bytes of binary) and the per-reset scrub, and neither is
+containers are `Int`-typed, so the ownership events emit around them
+rather than on them. What a ceiling costs is the head array (4,097
+words of BSS, 352 bytes of binary) and the per-reset scrub, and neither is
 worth paying for classes no measurement reaches. The last row of the
 table is the new ceiling stated as a measurement rather than a
 constant: a 64 KiB payload plus its NUL plus the header lands above
@@ -2277,8 +2292,9 @@ What remains of this rule: blocks above 64 KiB (recorded, with the
 measurement that says they are one-shot in every workload here — two
 source files rarely share a size, so exact-size pooling could not
 reuse them anyway), the acceptance measurements (which need the
-events the co-ownership audit deferred, and the container element
-maps under them), and the §3.3 refusal. The
+compiler's own container and AST handles to carry a type the checker
+can see, and the container element maps under them), and the §3.3
+refusal. The
 match-cell amendment is done - those cells are not allocations any more
 (`MM-ALLOC-9`, `tests/stdlib/356-match-no-heap.ax`).
 The free list of `MM-ALLOC-4b` still holds whole chunks, unchanged and
@@ -2705,7 +2721,7 @@ that rule's status, which is the failure this table exists to prevent.
 | Representation | VAL-1…11, 14…20 | — | — | VAL-12, VAL-13 |
 | Allocation | ALLOC-1…7, 8a…16b | ALLOC-8, ALLOC-20 | ALLOC-17…19, ALLOC-21 | — |
 | Mutation | MUT-1…5 | — | — | MUT-6 |
-| Lifetimes | LIFE-1, 3, 4, 6, 2g | LIFE-2a…2f (2c events 1, 4, 5, 6, 7 and event 3's direct-construction subset hold; event 2 and the rest of 3 wait on a node-to-type table), LIFE-5, LIFE-7 | — | LIFE-2 |
+| Lifetimes | LIFE-1, 3, 4, 6, 2g | LIFE-2a…2f (all seven of 2c's events emit, the last two since 2026-08-21; what 2a…2f still want is 2e's acceptance measurements), LIFE-5, LIFE-7 | — | LIFE-2 |
 | Parallelism | PAR-1…5 | PAR-6 | — | — |
 | Foreign | FFI-2…4 | FFI-5 | — | FFI-1 |
 
@@ -2873,8 +2889,10 @@ obligation could be discharged only by a copy priced at the live set
 per iteration, a linearity proof requiring `MM-LIFE-7` finished, or
 region inference. The copy was built, gated, and measured corrupting
 the moment shared substructure entered (`MM-ALLOC-15`); counting makes
-the same sharing just arithmetic, needs no escape analysis at all, and
-turns `MM-ALLOC-21`'s write barrier into an ordinary field-store event
+the same sharing just arithmetic, needs no region inference — the escape
+walk `MM-LIFE-2c`'s events 2 and 3 do need asks only whether one release
+may fire, not which arena a value belongs in — and turns
+`MM-ALLOC-21`'s write barrier into an ordinary field-store event
 (`MM-LIFE-2c`). And `region` stays deleted either way: an annotation
 the compiler can derive is one that will eventually disagree with the
 compiler, silently.
@@ -3049,81 +3067,3 @@ is accepted too.
 That is `MM-LIFE-7`'s point, and it is why the syntax existing is not
 evidence that the discipline does. The only thing `linear` buys today is
 the nominal barrier: `Linear Int` will not pass where `Int` is expected.
-
----
-
-## 12. Where this leaves the roadmap
-
-Corrections this specification makes to the normative documents, each
-measured. They are listed because a plan built on a false premise costs
-more than a missing feature. *Status 2026-08-14: every correction below
-is applied in its target document; the list stays as the record of what
-drifted and how it was caught.*
-
-**To [v1-roadmap.md §4.1](v1-roadmap.md):**
-
-0. **The section's strategy is superseded.** Automatic reclamation is
-   reference counting (`MM-LIFE-2a`–`2f`), not inferred arenas; the
-   roadmap keeps its sketch as the record of the alternative, under a
-   dated supersession note.
-1. **"Cycles are not constructible" is false** (`MM-LIFE-3`). Two
-   routes, one of which uses only `stdlib/Vec`. It is a requirement on
-   every future reclamation strategy: a tracer must trace them, and the
-   chosen ARC states their leak as a cost (`MM-LIFE-2f`).
-2. **"Axiom's data is immutable" is false** for `struct` fields
-   (`MM-MUT-2`), which adds the old-to-young obligation the sketch did
-   not mention because it assumed immutability — `MM-ALLOC-21` then,
-   `MM-LIFE-2c`'s field-store event now.
-3. **Chunk stranding is fixed.** The roadmap lists it among the
-   automation slice's prerequisites; the chunk list and free list of
-   `MM-ALLOC-13` discharge it. The remaining prerequisite is
-   `MM-ALLOC-20`'s pointer discrimination, static and runtime halves
-   both (`MM-LIFE-2d`).
-4. **The prerequisite is narrower than "pointer discrimination", and
-   naming it precisely is the 2026-08-15 correction.** Both halves of
-   `MM-ALLOC-20` are built — the fiat is deleted and the evidence word
-   answers a type variable at run time — and the ownership events
-   still cannot ship, because what they need is not a compiler that
-   *can* tell a pointer from an integer but a corpus that *tells it*.
-   `ASTNode` declares all ten of its fields `Int`; `Vec`, `Map` and
-   `Intern` store elements through `memSetWord`; so the compiler's own
-   data structures are invisible to counting by declaration, not by
-   limitation. Two probes measure it and `MM-LIFE-2c` records them.
-   **The conclusion this paragraph drew — "the next slice is a typing
-   campaign over the containers and the AST" — was wrong, and the
-   correction is dated the same day.** The declared type is discarded
-   in exactly two places, both a `cast Int` inside a polymorphic
-   function, and `MM-LIFE-2g`'s `__retainref` closes them: two lines,
-   not a campaign, and event 4 landed on top of them within hours. The
-   sentence stays because a wrong estimate recorded beside its
-   correction is worth more than a deleted one — the finding was
-   "where is the type erased", and the answer was findable by grepping
-   `cast Int` inside polymorphic functions.
-
-**To [v1-roadmap.md §4.4](v1-roadmap.md):** the "seven process-wide
-mutable globals" are the five allocator words plus argc/argv, not the
-five plus the evidence slots (`MM-PAR-3`). Since `MM-LIFE-2e`'s
-release path there is also the size-class head array, which is a
-global and not a word — `MM-ALLOC-2` carries the row and `MM-PAR-3`
-the clause. The safety conclusion is unaffected in both cases: every
-one of them is private after `fork`.
-
-**To [reference.md](reference.md):**
-
-4. **"Stage1 does not parse `effect`/`handle` yet"** is stale: both are
-   parsed, checked and emitted, with evidence globals and a trap
-   (`MM-EXEC-10`).
-5. **Self-tail-call optimisation is attributed to LLVM.** It is in
-   Axiom's own codegen, at every optimisation level (`MM-EXEC-6b`).
-6. **The `axiom_alloc` replacement seam is described as working** in
-   `reference.md`, `self-hosting.md` and `stdlib/Mem.ax`. It emits a
-   duplicate symbol (`MM-ALLOC-8`).
-7. **The arena primitives are described as a compile error** in a
-   program defining `axiom_alloc`. No such check exists
-   (`MM-ALLOC-8`).
-
-**To [self-hosting.md](self-hosting.md) / `stdlib/Mem.ax`:** the reason
-given for writing the `Mem` byte loops as `while` — "stage1 emits no
-tail-call optimisation at all" — no longer holds (`MM-EXEC-6b`). The
-spelling is still correct; the justification needs replacing with
-`MM-EXEC-6c`, which is the one that still bites.

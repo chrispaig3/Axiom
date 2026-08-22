@@ -101,3 +101,40 @@ gate_build_axc() {
   fi
   printf -v "$var" '%s' "$out"
 }
+
+# The prose documents that carry Axiom code and cite fixtures.
+#
+# Three gates swept this list and each kept its own hand-written copy -
+# `check-tree-sitter.sh`, `check-tools-selfhost.sh` and, in a Python
+# heredoc, `check-doc-drift.sh`. They had already diverged: the first
+# two named `docs/macros.md` and the third named it plus
+# `docs/v1-roadmap.md` and `docs/error-model.md`, so `docs/ffi.md` and
+# `docs/diagnostics.md` were swept by none of them. A document outside
+# a sweep's list is invisible to it, which is the sentence
+# `check-tree-sitter.sh` already carried about a list that was missing
+# two entries.
+#
+# `gate_prose_docs` prints them repo-relative;
+# `gate_prose_docs_abs` fills the array `prose_docs` with `$repo_root`
+# prefixed - a function rather than `mapfile`, because the macOS runner
+# ships bash 3.2 and has no `mapfile`.
+gate_prose_docs_abs() {
+  local d
+  prose_docs=()
+  while IFS= read -r d; do prose_docs+=("$repo_root/$d"); done < <(gate_prose_docs)
+}
+
+gate_prose_docs() {
+  cat <<'DOCS'
+README.md
+CONTRIBUTING.md
+docs/reference.md
+docs/diagnostics.md
+docs/error-model.md
+docs/ffi.md
+docs/macro-system.md
+docs/memory-model.md
+docs/self-hosting.md
+docs/v1-roadmap.md
+DOCS
+}

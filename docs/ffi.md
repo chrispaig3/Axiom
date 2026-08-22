@@ -58,8 +58,7 @@ The 188 are enumerated, one per line, in
 `rust/examples/demo/axiom-allow.txt` (188 non-comment lines), and the
 gate fails on any name outside that file (§14). The 18 are the names
 on `scripts/check-freestanding.sh`'s 47-name list that the `std`
-executable imports (`malloc`, `free`, `memcpy`, `getenv`, `fork`, ...);
-the figure was 14 when first measured, against a shorter list.
+executable imports (`malloc`, `free`, `memcpy`, `getenv`, `fork`, ...).
 
 ---
 
@@ -97,8 +96,10 @@ pub fn counter_value(c: &Counter) -> i64 { c.n }
 cargo install --path /path/to/.axiom/rust/axiom-bindgen   # once
 ```
 
-```scheme
-; p.ax
+```scheme fragment
+; p.ax — `fragment` because `MyCrate` is the module axiom-bindgen writes
+; for YOUR crate; there is no such file in this repository, so the doc
+; sweep balance-checks this block rather than compiling it.
 (import IO)
 (import Fmt)
 (import MyCrate)
@@ -131,8 +132,8 @@ side when `c` goes out of scope; nothing is closed by hand.
 
 The worked example is `rust/examples/demo` (every shape, `std`) with
 its generated `axiom/Demo.ax`, and `rust/examples/nostd` (`no_std`,
-imports nothing); `rust/README.md` is the crate-side view of the same
-material.
+imports nothing); `rust/README.md` is the crate-side view — what lives
+in which crate, and how the checked-in bindings are regenerated.
 
 ---
 
@@ -191,11 +192,13 @@ reasoning about a declared name as a libc function it knows.
 ## 4. The type table
 
 One table, in `rust/axiom-ffi-classify/src/lib.rs`, consulted by both
-the proc macro and `axiom-bindgen` so the two passes over one
+the proc macro and `axiom-bindgen` — each through the `_with` form,
+which takes the registry that says what a bare named type is (a
+record's fields, an opaque handle) — so the two passes over one
 annotation cannot drift. It is **closed**: anything not listed is a
 compile error whose message lists what is accepted.
 
-**Parameters** (`classify_param`):
+**Parameters** (`classify_param_with`):
 
 | Rust | Axiom | on the wire | the shim does |
 |---|---|---|---|
@@ -221,7 +224,7 @@ handle, so take `&T` or `&mut T`, or return it"), `&mut str`,
 a `Vec<T>`" — a converted copy could not be written back as the same
 words), `&i64`, tuples, `()`.
 
-**Returns** (`classify_return`):
+**Returns** (`classify_return_with`):
 
 | Rust | Axiom (wrapper) | raw item | protocol |
 |---|---|---|---|
@@ -332,8 +335,8 @@ a Rust parameter may not start with `__`, so a parameter named `cell`
 or `p` reaches Rust intact (`080-param-named-cell.ax`; the old generator
 shadowed it and answered a heap address).
 
-The helpers live once, in `stdlib/Ffi.ax` (imports `Mem` and `Str`
-only), so two generated modules import together without colliding:
+The helpers live once, in `stdlib/Ffi.ax` (imports `Mem`, `Str` and
+`Vec` only), so two generated modules import together without colliding:
 
 ```scheme
 (pub :: ffiCellNew     Int)                 ; a 16-byte out-cell, zeroed, held by one share
@@ -1107,12 +1110,16 @@ differential int/float/string
 (Axiom and Rust compute the same answer), 300 arity sweep (arity 0 is
 the one distinct emitter path), 310 ABI version, 400 ARC retain, 410
 foreign not walked, 420 null foreign; `tests/ffi/nostd/010-fnv1a.ax`;
-`tests/ffi/probe-ungrounded/*.axbad`. The Rust side has its own:
-`cargo test --release` runs the classifier's unit tests, the `trybuild`
-suite (one pass file that runs every accepted shape, 20 fail snapshots),
-and `axiom-bindgen`'s snapshot tests (`tests/fixtures/{nested,collision,
-unmarked}`, demo/nostd freshness, CLI behaviour, and `axiom fmt --check`
-on the output when a compiler is reachable).
+`tests/ffi/probe-ungrounded/*.axbad`. The Rust side has its own, run in
+CI beside this gate as `cargo test --workspace --exclude axiom-host`
+(the host example is excluded because it links an archive this gate
+builds, not cargo): the classifier's unit tests, the `trybuild` suite
+(one pass file that runs every accepted shape, 20 fail snapshots), and
+`axiom-bindgen`'s snapshot tests — `tests/fixtures/nested` is the
+snapshot of every wrapper kind and `collision`, `unmarked`,
+`unrecorded`, `unrecorded_vec` and `vec_opaque` are the five refusals,
+plus demo/nostd freshness, CLI behaviour, and `axiom fmt --check` on the
+output when a compiler is reachable.
 
 `scripts/check-freestanding.sh` is **kept**, unchanged: a program with
 no `extern` still has to answer the strict version.
@@ -1131,7 +1138,7 @@ panic = "abort"
 ```
 
 and `#![no_std]` with `extern crate alloc;` in the crate
-(`rust/examples/nostd/src/lib.rs` is ~50 lines). The `nostd-runtime`
+(`rust/examples/nostd/src/lib.rs` is under fifty lines). The `nostd-runtime`
 feature (`rust/axiom-ffi/src/nostd_runtime.rs`) supplies what such a
 crate otherwise pastes by hand: a `GlobalAlloc` over `axiom_alloc`, the
 panic handler (message to fd 2, exit 72), `rust_eh_personality` and
@@ -1199,39 +1206,17 @@ names the fact in the way.
 ## 17. History
 
 The FFI was designed on paper first and the paper outran the tree.
-`ffi-design/00-drafts-2026-08.md` is the 4,996-line record of that
+`ffi-design/00-drafts-2026-08.md` is the 5,014-line record of that
 month — six drafts concatenated, each revising the last — kept
 unchanged under a header saying which of its decisions shipped. The
 parts that survived are §1–§3 of that file (the measured tiers, the
 three facts that shaped the design, "what exists today") and the
 out-cell protocol; the rest is what *not* building it taught.
 
-On 2026-08-22 a critic's sweep found the shipped surface to be: an
-untyped extern item silently accepted as a wildcard; unknown clauses
-skipped; polymorphic and data-typed extern signatures accepted;
-grounding by substring; `Option<T>` returned as a leaked `Foreign`;
-narrow integers truncated; invalid UTF-8 returned as the value 1; a
-parameter named `cell` shadowed by the wrapper; no destructor
-protocol; a gate that never ran what it built. Each is a fixture now —
-`tests/diagnostics/700`–`702`, `tests/ffi/demo/080`–`120`,
-`tests/ffi/probe-ungrounded/030`–`040`, the gate's run step — and the
-surface this document describes is the one that closed them.
-
-Later the same day the surface grew what §16 had listed as absent:
-callbacks (§7), `Vec` each way (§8), the shape descriptor and `AX4005`
-(§9), the host direction (§10), and a driver that runs `axiom-bindgen`
-and `cargo` itself (§12). Each is a fixture too — `tests/ffi/demo/130`,
-`140`, `tests/ffi/probe-ungrounded/050`, `tests/ffi/host/` with
-`rust/examples/host` — and `axiom symbols` and the LSP now place an
-extern item at its line rather than calling it a builtin. A third
-pass closed the rest of that list: records by value as their fields,
-`&[&str]`, `Vec<T>`/`&[T]` over every word scalar (§8, fixtures
-`150`–`170`), and `--emit-rust-binding`, the generated Rust module
-for an Axiom archive (§10, `rust/examples/host/src/hostlib.rs`). A
-fourth took every refusal that was a choice rather than a fact:
-`char` and `u64` everywhere, records inside `Vec`s, nested `Vec`s,
-in-place `&mut` slices, `Result`/`Option` nested one inside the other
-(fixtures `180`–`184`), callbacks over any word leaf, and — through
-shims the build synthesises into the archive — `data`, `struct`,
-`Option`, `Result`, a user `List` and a `Vec` crossing the host
-binding as Rust values.
+The surface this document describes was built in four commits —
+`3a83f19`, `c560b50`, `3b52c05`, `8b3a39f` — each of whose messages says
+what it closed. The fixtures are the durable record:
+`tests/diagnostics/700`–`702` for the extern discipline,
+`tests/ffi/demo/080`–`184` for every shape that crosses,
+`tests/ffi/probe-ungrounded/030`–`050` for grounding and shape checking,
+and `tests/ffi/host/` with `rust/examples/host` for the host direction.
